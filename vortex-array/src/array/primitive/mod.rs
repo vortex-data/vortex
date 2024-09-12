@@ -3,7 +3,9 @@ use std::mem::{transmute, MaybeUninit};
 use std::ptr;
 use std::sync::Arc;
 
-use arrow_buffer::{ArrowNativeType, Buffer as ArrowBuffer, MutableBuffer};
+use arrow_buffer::{
+    ArrowNativeType, BooleanBuffer, BooleanBufferBuilder, Buffer as ArrowBuffer, MutableBuffer,
+};
 use bytes::Bytes;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
@@ -20,7 +22,8 @@ use crate::stats::StatsSet;
 use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
 use crate::variants::{ArrayVariants, PrimitiveArrayTrait};
 use crate::{
-    impl_encoding, Array, ArrayDType, ArrayTrait, Canonical, IntoArray, IntoCanonical, TypedArray,
+    impl_encoding, Array, ArrayDType, ArrayTrait, Canonical, IntoArray, IntoArrayVariant,
+    IntoCanonical, TypedArray,
 };
 
 mod accessor;
@@ -170,18 +173,42 @@ impl PrimitiveArray {
         positions: &[P],
         values: &[T],
     ) -> VortexResult<Self> {
+        if positions.len() != values.len() {
+            vortex_bail!(
+                "Positions and values passed to patch had different lengths {} and {}",
+                positions.len(),
+                values.len()
+            );
+        }
+
         if self.ptype() != T::PTYPE {
             vortex_bail!(MismatchedTypes: self.dtype(), T::PTYPE)
         }
 
         let validity = self.validity();
-
+        let len = self.len();
         let mut own_values = self.into_maybe_null_slice();
-        // TODO(robert): Also patch validity
         for (idx, value) in positions.iter().zip_eq(values.iter()) {
-            own_values[(*idx).as_()] = *value;
+            own_values[idx.as_()] = *value;
         }
-        Ok(Self::from_vec(own_values, validity))
+
+        let result_validity = match validity {
+            v @ Validity::NonNullable | v @ Validity::AllValid => v,
+            Validity::AllInvalid => {
+                let mut validity_buffer =
+                    BooleanBufferBuilder::new_from_buffer(MutableBuffer::new_null(len), len);
+                for idx in positions {
+                    validity_buffer.set_bit(idx.as_(), true);
+                }
+                Validity::from(validity_buffer.finish())
+            }
+            Validity::Array(a) => Validity::try_from(
+                a.into_bool()?
+                    .patch(positions, BooleanBuffer::new_set(positions.len()))?
+                    .into_array(),
+            )?,
+        };
+        Ok(Self::from_vec(own_values, result_validity))
     }
 
     pub fn into_buffer(self) -> Buffer {

@@ -274,6 +274,14 @@ impl From<NullBuffer> for Validity {
     }
 }
 
+impl TryFrom<Array> for Validity {
+    type Error = VortexError;
+
+    fn try_from(value: Array) -> Result<Self, Self::Error> {
+        LogicalValidity::try_from(value).map(|a| a.into_validity())
+    }
+}
+
 impl FromIterator<LogicalValidity> for Validity {
     fn from_iter<T: IntoIterator<Item = LogicalValidity>>(iter: T) -> Self {
         let validities: Vec<LogicalValidity> = iter.into_iter().collect();
