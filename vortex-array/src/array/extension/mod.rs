@@ -16,9 +16,7 @@ mod compute;
 impl_encoding!("vortex.ext", ids::EXTENSION, Extension);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ExtensionMetadata {
-    storage_dtype: DType,
-}
+pub struct ExtensionMetadata;
 
 impl Display for ExtensionMetadata {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -28,12 +26,16 @@ impl Display for ExtensionMetadata {
 
 impl ExtensionArray {
     pub fn new(ext_dtype: ExtDType, storage: Array) -> Self {
+        assert_eq!(
+            ext_dtype.scalars_dtype(),
+            storage.dtype(),
+            "ExtensionArray: scalars_dtype must match storage array DType",
+        );
+
         Self::try_from_parts(
-            DType::Extension(ext_dtype, storage.dtype().nullability()),
+            DType::Extension(ext_dtype),
             storage.len(),
-            ExtensionMetadata {
-                storage_dtype: storage.dtype().clone(),
-            },
+            ExtensionMetadata,
             [storage].into(),
             Default::default(),
         )
@@ -42,7 +44,7 @@ impl ExtensionArray {
 
     pub fn storage(&self) -> Array {
         self.as_ref()
-            .child(0, &self.metadata().storage_dtype, self.len())
+            .child(0, self.ext_dtype().scalars_dtype(), self.len())
             .vortex_expect("Missing storage array for ExtensionArray")
     }
 

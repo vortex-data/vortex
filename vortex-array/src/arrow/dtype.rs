@@ -84,8 +84,7 @@ impl FromArrowType<&Field> for DType {
             | DataType::Time32(_)
             | DataType::Time64(_)
             | DataType::Timestamp(..) => Extension(
-                make_temporal_ext_dtype(field.data_type()),
-                field.is_nullable().into(),
+                make_temporal_ext_dtype(field.data_type()).with_scalars_nullability(nullability),
             ),
             DataType::List(e) | DataType::LargeList(e) => {
                 List(Arc::new(Self::from_arrow(e.as_ref())), nullability)

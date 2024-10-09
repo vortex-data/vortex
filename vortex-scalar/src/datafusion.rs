@@ -12,11 +12,12 @@ impl TryFrom<Scalar> for ScalarValue {
     type Error = VortexError;
 
     fn try_from(value: Scalar) -> Result<Self, Self::Error> {
-        Ok(match value.dtype {
+        let (dtype, value) = value.into_parts();
+        Ok(match dtype {
             DType::Null => ScalarValue::Null,
-            DType::Bool(_) => ScalarValue::Boolean(value.value.as_bool()?),
+            DType::Bool(_) => ScalarValue::Boolean(value.as_bool()?),
             DType::Primitive(ptype, _) => {
-                let pvalue = value.value.as_pvalue()?;
+                let pvalue = value.as_pvalue()?;
                 match pvalue {
                     None => match ptype {
                         PType::U8 => ScalarValue::UInt8(None),
@@ -46,15 +47,11 @@ impl TryFrom<Scalar> for ScalarValue {
                     },
                 }
             }
-            DType::Utf8(_) => ScalarValue::Utf8(
-                value
-                    .value
-                    .as_buffer_string()?
-                    .map(|b| b.as_str().to_string()),
-            ),
+            DType::Utf8(_) => {
+                ScalarValue::Utf8(value.as_buffer_string()?.map(|b| b.as_str().to_string()))
+            }
             DType::Binary(_) => ScalarValue::Binary(
                 value
-                    .value
                     .as_buffer()?
                     .map(|b| b.into_vec().unwrap_or_else(|buf| buf.as_slice().to_vec())),
             ),
@@ -64,10 +61,12 @@ impl TryFrom<Scalar> for ScalarValue {
             DType::List(..) => {
                 todo!("list scalar conversion")
             }
-            DType::Extension(ext, _) => {
+            DType::Extension(ext) => {
+                // Special handling: temporal extension types in Vortex correspond to Arrow's
+                // temporal physical types.
                 if is_temporal_ext_type(ext.id()) {
                     let metadata = TemporalMetadata::try_from(&ext)?;
-                    let pv = value.value.as_pvalue()?;
+                    let pv = value.as_pvalue()?;
                     return Ok(match metadata {
                         TemporalMetadata::Time(u) => match u {
                             TimeUnit::Ns => {
@@ -111,9 +110,11 @@ impl TryFrom<Scalar> for ScalarValue {
                             }
                         },
                     });
+                } else {
+                    // Unknown extension type: perform scalar conversion using the canonical
+                    // scalar DType.
+                    ScalarValue::try_from(Scalar::new(ext.scalars_dtype().clone(), value))?
                 }
-
-                todo!("Non temporal extension scalar conversion")
             }
         })
     }
@@ -147,9 +148,10 @@ impl From<ScalarValue> for Scalar {
             ScalarValue::Date32(v)
             | ScalarValue::Time32Second(v)
             | ScalarValue::Time32Millisecond(v) => v.map(|i| {
-                let ext_dtype = make_temporal_ext_dtype(&value.data_type());
+                let ext_dtype = make_temporal_ext_dtype(&value.data_type())
+                    .with_scalars_nullability(Nullability::Nullable);
                 Scalar::new(
-                    DType::Extension(ext_dtype, Nullability::Nullable),
+                    DType::Extension(ext_dtype),
                     crate::ScalarValue::Primitive(PValue::I32(i)),
                 )
             }),
@@ -162,7 +164,7 @@ impl From<ScalarValue> for Scalar {
             | ScalarValue::TimestampNanosecond(v, _) => v.map(|i| {
                 let ext_dtype = make_temporal_ext_dtype(&value.data_type());
                 Scalar::new(
-                    DType::Extension(ext_dtype, Nullability::Nullable),
+                    DType::Extension(ext_dtype.with_scalars_nullability(Nullability::Nullable)),
                     crate::ScalarValue::Primitive(PValue::I64(i)),
                 )
             }),

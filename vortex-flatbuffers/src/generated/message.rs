@@ -3,8 +3,8 @@
 
 // @generated
 
-use crate::scalar::*;
 use crate::dtype::*;
+use crate::scalar::*;
 use crate::array::*;
 use core::mem;
 use core::cmp::Ordering;

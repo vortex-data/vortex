@@ -1,6 +1,8 @@
 #[cfg(test)]
 mod test;
 
+use std::sync::Arc;
+
 use vortex_datetime_dtype::{TemporalMetadata, TimeUnit, DATE_ID, TIMESTAMP_ID, TIME_ID};
 use vortex_dtype::{DType, ExtDType};
 use vortex_error::{vortex_panic, VortexError};
@@ -68,25 +70,21 @@ impl TemporalArray {
     ///
     /// If any other time unit is provided, it panics.
     pub fn new_date(array: Array, time_unit: TimeUnit) -> Self {
-        let ext_dtype = match time_unit {
+        match time_unit {
             TimeUnit::D => {
                 assert_width!(i32, array);
-
-                ExtDType::new(
-                    DATE_ID.clone(),
-                    Some(TemporalMetadata::Date(time_unit).into()),
-                )
             }
             TimeUnit::Ms => {
                 assert_width!(i64, array);
-
-                ExtDType::new(
-                    DATE_ID.clone(),
-                    Some(TemporalMetadata::Date(time_unit).into()),
-                )
             }
             _ => vortex_panic!("invalid TimeUnit {time_unit} for vortex.date"),
         };
+
+        let ext_dtype = ExtDType::new(
+            DATE_ID.clone(),
+            Arc::new(array.dtype().clone()),
+            Some(TemporalMetadata::Date(time_unit).into()),
+        );
 
         Self {
             ext: ExtensionArray::new(ext_dtype, array),
@@ -123,7 +121,11 @@ impl TemporalArray {
         let temporal_metadata = TemporalMetadata::Time(time_unit);
         Self {
             ext: ExtensionArray::new(
-                ExtDType::new(TIME_ID.clone(), Some(temporal_metadata.clone().into())),
+                ExtDType::new(
+                    TIME_ID.clone(),
+                    Arc::new(array.dtype().clone()),
+                    Some(temporal_metadata.clone().into()),
+                ),
                 array,
             ),
             temporal_metadata,
@@ -145,7 +147,11 @@ impl TemporalArray {
 
         Self {
             ext: ExtensionArray::new(
-                ExtDType::new(TIMESTAMP_ID.clone(), Some(temporal_metadata.clone().into())),
+                ExtDType::new(
+                    TIMESTAMP_ID.clone(),
+                    Arc::new(array.dtype().clone()),
+                    Some(temporal_metadata.clone().into()),
+                ),
                 array,
             ),
             temporal_metadata,

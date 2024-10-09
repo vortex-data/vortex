@@ -188,7 +188,9 @@ impl From<TemporalMetadata> for ExtMetadata {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::{ExtDType, ExtMetadata};
+    use std::sync::Arc;
+
+    use vortex_dtype::{ExtDType, ExtMetadata, PType};
 
     use crate::{TemporalMetadata, TimeUnit, TIMESTAMP_ID};
 
@@ -207,8 +209,12 @@ mod tests {
             .as_slice()
         );
 
-        let temporal_metadata =
-            TemporalMetadata::try_from(&ExtDType::new(TIMESTAMP_ID.clone(), Some(meta))).unwrap();
+        let temporal_metadata = TemporalMetadata::try_from(&ExtDType::new(
+            TIMESTAMP_ID.clone(),
+            Arc::new(PType::I64.into()),
+            Some(meta),
+        ))
+        .unwrap();
 
         assert_eq!(
             temporal_metadata,

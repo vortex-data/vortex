@@ -5,9 +5,9 @@ use vortex::compute::{slice, take, ArrayCompute, SliceFn, TakeFn};
 use vortex::validity::ArrayValidity;
 use vortex::{Array, ArrayDType, IntoArray, IntoArrayVariant};
 use vortex_datetime_dtype::{TemporalMetadata, TimeUnit};
-use vortex_dtype::{DType, PType};
+use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexResult, VortexUnwrap as _};
-use vortex_scalar::Scalar;
+use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::DateTimePartsArray;
 
@@ -51,7 +51,7 @@ impl SliceFn for DateTimePartsArray {
 
 impl ScalarAtFn for DateTimePartsArray {
     fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
-        let DType::Extension(ext, nullability) = self.dtype().clone() else {
+        let DType::Extension(ext) = self.dtype().clone() else {
             vortex_bail!(
                 "DateTimePartsArray must have extension dtype, found {}",
                 self.dtype()
@@ -63,10 +63,7 @@ impl ScalarAtFn for DateTimePartsArray {
         };
 
         if !self.is_valid(index) {
-            return Ok(Scalar::extension(
-                ext,
-                Scalar::null(DType::Primitive(PType::I64, nullability)),
-            ));
+            return Ok(Scalar::extension(ext, ScalarValue::Null));
         }
 
         let divisor = match time_unit {
@@ -83,10 +80,7 @@ impl ScalarAtFn for DateTimePartsArray {
 
         let scalar = days * 86_400 * divisor + seconds * divisor + subseconds;
 
-        Ok(Scalar::extension(
-            ext,
-            Scalar::primitive(scalar, nullability),
-        ))
+        Ok(Scalar::extension(ext, scalar.into()))
     }
 
     fn scalar_at_unchecked(&self, index: usize) -> Scalar {
@@ -98,7 +92,7 @@ impl ScalarAtFn for DateTimePartsArray {
 ///
 /// Enforces that the passed array is actually a [DateTimePartsArray] with proper metadata.
 pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalArray> {
-    let DType::Extension(ext, _) = array.dtype().clone() else {
+    let DType::Extension(ext) = array.dtype().clone() else {
         vortex_bail!(ComputeError: "expected dtype to be DType::Extension variant")
     };
 
@@ -187,7 +181,7 @@ mod test {
         assert_eq!(validity, raw_millis.validity());
 
         let date_times = DateTimePartsArray::try_new(
-            DType::Extension(temporal_array.ext_dtype().clone(), validity.nullability()),
+            DType::Extension(temporal_array.ext_dtype().clone()),
             days,
             seconds,
             subseconds,

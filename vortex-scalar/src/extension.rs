@@ -44,10 +44,10 @@ impl<'a> TryFrom<&'a Scalar> for ExtScalar<'a> {
 }
 
 impl Scalar {
-    pub fn extension(ext_dtype: ExtDType, storage: Self) -> Self {
+    pub fn extension(ext_dtype: ExtDType, value: ScalarValue) -> Self {
         Self {
-            dtype: DType::Extension(ext_dtype, storage.dtype().nullability()),
-            value: storage.value,
+            dtype: DType::Extension(ext_dtype),
+            value,
         }
     }
 }

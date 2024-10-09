@@ -1,7 +1,9 @@
 #![cfg(feature = "arrow")]
 
+use std::sync::Arc;
+
 use arrow_schema::{DataType, TimeUnit as ArrowTimeUnit};
-use vortex_dtype::ExtDType;
+use vortex_dtype::{ExtDType, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexError, VortexExpect as _, VortexResult};
 
 use crate::temporal::{TemporalMetadata, DATE_ID, TIMESTAMP_ID, TIME_ID};
@@ -17,9 +19,10 @@ pub fn make_temporal_ext_dtype(data_type: &DataType) -> ExtDType {
         DataType::Timestamp(time_unit, time_zone) => {
             let time_unit = TimeUnit::from(time_unit);
             let tz = time_zone.clone().map(|s| s.to_string());
-
+            // PType is inferred for arrow based on the time units.
             ExtDType::new(
                 TIMESTAMP_ID.clone(),
+                Arc::new(PType::I64.into()),
                 Some(TemporalMetadata::Timestamp(time_unit, tz).into()),
             )
         }
@@ -27,6 +30,7 @@ pub fn make_temporal_ext_dtype(data_type: &DataType) -> ExtDType {
             let time_unit = TimeUnit::from(time_unit);
             ExtDType::new(
                 TIME_ID.clone(),
+                Arc::new(PType::I32.into()),
                 Some(TemporalMetadata::Time(time_unit).into()),
             )
         }
@@ -34,15 +38,18 @@ pub fn make_temporal_ext_dtype(data_type: &DataType) -> ExtDType {
             let time_unit = TimeUnit::from(time_unit);
             ExtDType::new(
                 TIME_ID.clone(),
+                Arc::new(PType::I64.into()),
                 Some(TemporalMetadata::Time(time_unit).into()),
             )
         }
         DataType::Date32 => ExtDType::new(
             DATE_ID.clone(),
+            Arc::new(PType::I32.into()),
             Some(TemporalMetadata::Date(TimeUnit::D).into()),
         ),
         DataType::Date64 => ExtDType::new(
             DATE_ID.clone(),
+            Arc::new(PType::I64.into()),
             Some(TemporalMetadata::Date(TimeUnit::Ms).into()),
         ),
         _ => unimplemented!("{data_type} conversion"),

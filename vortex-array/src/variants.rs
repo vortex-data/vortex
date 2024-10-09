@@ -257,7 +257,7 @@ pub trait ListArrayTrait: ArrayTrait {}
 pub trait ExtensionArrayTrait: ArrayTrait {
     /// Returns the extension logical [`DType`].
     fn ext_dtype(&self) -> &ExtDType {
-        let DType::Extension(ext_dtype, _nullability) = self.dtype() else {
+        let DType::Extension(ext_dtype) = self.dtype() else {
             vortex_panic!("Expected ExtDType")
         };
         ext_dtype
