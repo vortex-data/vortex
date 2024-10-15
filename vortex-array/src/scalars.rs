@@ -10,10 +10,10 @@ use crate::array::{BoolArray, NullArray, PrimitiveArray};
 use crate::{Array, IntoArray as _};
 
 impl Array {
-    pub fn from_scalar_values(dtype: &DType, values: Vec<ScalarValue>) -> VortexResult<Array> {
+    pub fn from_scalar_values(dtype: DType, values: Vec<ScalarValue>) -> VortexResult<Array> {
         let mismatched_values = values
             .iter()
-            .filter(|v| !v.is_instance_of(dtype))
+            .filter(|v| !v.is_instance_of(&dtype))
             .collect_vec();
         if !mismatched_values.is_empty() {
             let mismatch_str = mismatched_values.iter().map(|v| v.to_string()).join(", ");
@@ -79,7 +79,7 @@ impl Array {
         }
 
         let scalar_values = scalars.iter().map(|s| s.value().clone()).collect_vec();
-        Array::from_scalar_values(dtype, scalar_values)
+        Array::from_scalar_values(dtype.clone(), scalar_values)
     }
 }
 

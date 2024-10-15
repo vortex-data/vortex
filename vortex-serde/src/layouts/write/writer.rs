@@ -7,12 +7,15 @@ use vortex::array::{ChunkedArray, StructArray};
 use vortex::stats::{ArrayStatistics, Stat};
 use vortex::stream::ArrayStream;
 use vortex::validity::Validity;
-use vortex::{Array, ArrayDType, IntoArray};
+use vortex::{Array, Array, ArrayDType, ArrayDType as _, IntoArray, IntoArray};
 use vortex_buffer::io_buf::IoBuf;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
+use vortex_error::{
+    vortex_bail, vortex_bail, vortex_err, vortex_err, VortexExpect, VortexExpect, VortexResult,
+    VortexResult,
+};
 use vortex_flatbuffers::WriteFlatBuffer;
-use vortex_scalar::Scalar;
+use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::io::VortexWrite;
 use crate::layouts::write::footer::{Footer, Postscript};
@@ -136,34 +139,14 @@ impl<W: VortexWrite> LayoutWriter<W> {
     async fn write_metadata_arrays(&mut self) -> VortexResult<Layout> {
         let mut column_layouts = Vec::with_capacity(self.column_chunks.len());
         for mut column_accumulator in mem::take(&mut self.column_chunks) {
-            let mut chunks: VecDeque<Layout> = column_accumulator
-                .batch_byte_offsets
-                .iter()
-                .flat_map(|byte_offsets| {
-                    byte_offsets
-                        .iter()
-                        .zip(byte_offsets.iter().skip(1))
-                        .map(|(begin, end)| Layout::flat(ByteRange::new(*begin, *end)))
-                })
-                .collect();
-
-            // we don't need the last row offset; that's just the total number of rows
-            let length = column_accumulator.row_offsets.len() - 1;
-            column_accumulator.row_offsets.truncate(length);
-
-            assert_eq!(chunks.len(), column_accumulator.row_offsets.len());
-
-            let metadata_array = StructArray::try_new(
-                ["row_offset".into()].into(),
-                vec![column_accumulator.row_offsets.into_array()],
-                length,
-                Validity::NonNullable,
-            )?;
+            let (mut chunks, metadata_array) = column_accumulator.into_chunks_and_metadata()?;
 
             let dtype_begin = self.msgs.tell();
             self.msgs.write_dtype(metadata_array.dtype()).await?;
             let dtype_end = self.msgs.tell();
-            self.msgs.write_batch(metadata_array.into_array()).await?;
+            self.msgs.write_batch(metadata_array).await?;
+            // push the metadata table as the first chunk
+            // NB(wmanning): I hate this so much
             chunks.push_front(Layout::inlined_schema(
                 vec![Layout::flat(ByteRange::new(dtype_end, self.msgs.tell()))],
                 ByteRange::new(dtype_begin, dtype_end),
@@ -222,7 +205,7 @@ async fn write_fb_raw<W: VortexWrite, F: WriteFlatBuffer>(mut writer: W, fb: F) 
 pub struct ColumnChunkAccumulator {
     pub row_offsets: Vec<u64>,
     pub batch_byte_offsets: Vec<Vec<u64>>,
-    pub pruning_stats: HashMap<Stat, Vec<Scalar>>,
+    pub pruning_stats: HashMap<Stat, Vec<Option<Scalar>>>,
 }
 
 impl ColumnChunkAccumulator {
@@ -245,7 +228,75 @@ impl ColumnChunkAccumulator {
     }
 
     pub fn push_stat(&mut self, stat: Stat, value: Option<Scalar>) {
-        self.pruning_stats.insert(stat, value);
+        self.pruning_stats.entry(stat).or_default().push(value);
+    }
+
+    pub fn into_chunks_and_metadata(mut self) -> VortexResult<(VecDeque<Layout>, Array)> {
+        // we don't need the last row offset; that's just the total number of rows
+        let length = self.row_offsets.len() - 1;
+        self.row_offsets.truncate(length);
+
+        let chunks: VecDeque<Layout> = self
+            .batch_byte_offsets
+            .iter()
+            .flat_map(|byte_offsets| {
+                byte_offsets
+                    .iter()
+                    .zip(byte_offsets.iter().skip(1))
+                    .map(|(begin, end)| Layout::Flat(FlatLayout::new(*begin, *end)))
+            })
+            .collect();
+
+        if chunks.len() != self.row_offsets.len() {
+            vortex_bail!(
+                "Expected {} chunks based on row offsets, found {} based on byte offsets",
+                self.row_offsets.len(),
+                chunks.len()
+            );
+        }
+
+        let mut names = vec!["row_offset".into()];
+        let mut fields = vec![self.row_offsets.into_array()];
+
+        for stat in PRUNING_STATS {
+            let values = self.pruning_stats.entry(stat).or_default();
+            if values.len() != length {
+                vortex_bail!(
+                    "Expected {} values for stat {}, found {}",
+                    length,
+                    stat,
+                    values.len()
+                );
+            }
+
+            let Some(dtype) = values
+                .iter()
+                .filter(|v| v.is_some())
+                .flatten()
+                .map(|v| v.dtype())
+                .next()
+            else {
+                // no point in writing all nulls
+                continue;
+            };
+            let dtype = dtype.as_nullable();
+            let values = values
+                .iter()
+                .map(|v| {
+                    v.as_ref()
+                        .map(|s| s.cast(&dtype).map(|s| s.into_value()))
+                        .unwrap_or_else(|| Ok(ScalarValue::Null))
+                })
+                .collect::<VortexResult<Vec<_>>>()?;
+
+            names.push(format!("{stat}").to_lowercase().into());
+            fields.push(Array::from_scalar_values(dtype, values)?);
+        }
+
+        Ok((
+            chunks,
+            StructArray::try_new(names.into(), fields, length, Validity::NonNullable)?.into_array(),
+        ))
     }
 }
 
