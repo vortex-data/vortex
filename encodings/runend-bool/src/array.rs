@@ -2,6 +2,7 @@ use std::fmt::{Debug, Display};
 
 use serde::{Deserialize, Serialize};
 use vortex_array::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
+use vortex_array::array::BoolArray;
 use vortex_array::compute::unary::scalar_at;
 use vortex_array::compute::{search_sorted, SearchSortedSide};
 use vortex_array::encoding::ids;
@@ -16,7 +17,7 @@ use vortex_dtype::{match_each_unsigned_integer_ptype, DType, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::compress::runend_bool_decode;
+use crate::compress::{runend_bool_decode, runend_bool_encode};
 
 impl_encoding!("vortex.runendbool", ids::RUN_END_BOOL, RunEndBool);
 
@@ -144,6 +145,11 @@ impl RunEndBoolArray {
                 .vortex_expect("RunEndBoolArray: validity child")
         })
     }
+}
+
+pub fn encode_runend_bool(array: &BoolArray) -> VortexResult<RunEndBoolArray> {
+    let (ends, start) = runend_bool_encode(array);
+    RunEndBoolArray::try_new(ends.into_array(), start, array.validity())
 }
 
 impl BoolArrayTrait for RunEndBoolArray {

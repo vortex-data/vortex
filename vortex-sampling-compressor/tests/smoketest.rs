@@ -11,7 +11,7 @@ use vortex_sampling_compressor::compressors::alp::ALPCompressor;
 use vortex_sampling_compressor::compressors::date_time_parts::DateTimePartsCompressor;
 use vortex_sampling_compressor::compressors::dict::DictCompressor;
 use vortex_sampling_compressor::compressors::r#for::FoRCompressor;
-use vortex_sampling_compressor::compressors::roaring_bool::RoaringBoolCompressor;
+use vortex_sampling_compressor::compressors::runend_bool::RoaringBoolCompressor;
 use vortex_sampling_compressor::compressors::roaring_int::RoaringIntCompressor;
 use vortex_sampling_compressor::compressors::runend::DEFAULT_RUN_END_COMPRESSOR;
 use vortex_sampling_compressor::compressors::sparse::SparseCompressor;

@@ -11,7 +11,6 @@ use vortex_datetime_parts::DateTimePartsEncoding;
 use vortex_dict::DictEncoding;
 use vortex_fastlanes::{BitPackedEncoding, DeltaEncoding, FoREncoding};
 use vortex_fsst::FSSTEncoding;
-use vortex_roaring::{RoaringBoolEncoding, RoaringIntEncoding};
 use vortex_runend::RunEndEncoding;
 use vortex_runend_bool::RunEndBoolEncoding;
 use vortex_zigzag::ZigZagEncoding;
@@ -21,6 +20,7 @@ use crate::compressors::date_time_parts::DateTimePartsCompressor;
 use crate::compressors::dict::DictCompressor;
 use crate::compressors::r#for::FoRCompressor;
 use crate::compressors::runend::DEFAULT_RUN_END_COMPRESSOR;
+use crate::compressors::runend_bool::RunEndBoolCompressor;
 use crate::compressors::sparse::SparseCompressor;
 use crate::compressors::zigzag::ZigZagCompressor;
 use crate::compressors::CompressorRef;
@@ -44,8 +44,7 @@ pub static DEFAULT_COMPRESSORS: LazyLock<[CompressorRef<'static>; 9]> = LazyLock
         &DictCompressor,
         &FoRCompressor,
         &FSSTCompressor,
-        // &RoaringBoolCompressor,
-        // &RoaringIntCompressor,
+        &RunEndBoolCompressor,
         &SparseCompressor,
         &ZigZagCompressor,
     ]

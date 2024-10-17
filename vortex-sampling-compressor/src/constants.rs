@@ -1,9 +1,9 @@
 #![allow(dead_code)]
 
 // structural pass-throughs have no cost
+pub const CHUNKED_COST: u8 = 0;
 pub const SPARSE_COST: u8 = 0;
-// TODO: struct
-// TODO: chunked
+pub const STRUCT_COST: u8 = 0;
 
 // so fast that we can ignore the cost
 pub const BITPACKED_NO_PATCHES_COST: u8 = 0;
@@ -20,6 +20,7 @@ pub const FOR_COST: u8 = 1;
 pub const FSST_COST: u8 = 1;
 pub const ROARING_BOOL_COST: u8 = 1;
 pub const ROARING_INT_COST: u8 = 1;
+pub const RUN_END_BOOL_COST: u8 = 1;
 pub const RUN_END_COST: u8 = 1;
 
 // "expensive" encodings

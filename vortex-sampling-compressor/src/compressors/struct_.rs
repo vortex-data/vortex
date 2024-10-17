@@ -9,7 +9,7 @@ use vortex_array::{ArrayData, ArrayDef, IntoArrayData};
 use vortex_error::VortexResult;
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
-use crate::SamplingCompressor;
+use crate::{constants, SamplingCompressor};
 
 #[derive(Debug)]
 pub struct StructCompressor;
@@ -20,7 +20,7 @@ impl EncodingCompressor for StructCompressor {
     }
 
     fn cost(&self) -> u8 {
-        0
+        constants::STRUCT_COST
     }
 
     fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {

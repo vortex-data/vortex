@@ -9,12 +9,12 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_dtype::{match_each_integer_ptype, NativePType};
 use vortex_error::{vortex_panic, VortexExpect as _, VortexResult};
 
-pub fn runend_bool_encode(elements: &BoolArray) -> (PrimitiveArray, bool) {
+pub(crate) fn runend_bool_encode(elements: &BoolArray) -> (PrimitiveArray, bool) {
     let (arr, start) = runend_bool_encode_slice(&elements.boolean_buffer());
     (arr.into(), start)
 }
 
-pub fn runend_bool_encode_slice(elements: &BooleanBuffer) -> (Vec<u64>, bool) {
+fn runend_bool_encode_slice(elements: &BooleanBuffer) -> (Vec<u64>, bool) {
     let mut iter = elements.set_slices();
     let Some((start, end)) = iter.next() else {
         return (vec![elements.len() as u64], false);
@@ -41,7 +41,7 @@ pub fn runend_bool_encode_slice(elements: &BooleanBuffer) -> (Vec<u64>, bool) {
     (ends, first_bool)
 }
 
-pub fn runend_bool_decode(
+pub(crate) fn runend_bool_decode(
     run_ends: &PrimitiveArray,
     start: bool,
     validity: Validity,
@@ -54,7 +54,7 @@ pub fn runend_bool_decode(
     })
 }
 
-pub fn runend_bool_decode_slice<E: NativePType + AsPrimitive<usize> + FromPrimitive + Ord>(
+fn runend_bool_decode_slice<E: NativePType + AsPrimitive<usize> + FromPrimitive + Ord>(
     run_ends: &[E],
     start: bool,
     offset: usize,
@@ -86,7 +86,7 @@ pub fn runend_bool_decode_slice<E: NativePType + AsPrimitive<usize> + FromPrimit
     BooleanBuffer::from(decoded)
 }
 
-pub fn value_at_index(idx: usize, start: bool) -> bool {
+fn value_at_index(idx: usize, start: bool) -> bool {
     if idx % 2 == 0 {
         start
     } else {
