@@ -18,6 +18,7 @@ arrow-array = { workspace = true }
 arrow-buffer = { workspace = true }
 arrow-schema = { workspace = true }
 bytes = { workspace = true }
+croaring = { workspace = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true }
 futures-executor = { workspace = true }
@@ -47,6 +48,7 @@ arrow-schema = { workspace = true }
 arrow-select = { workspace = true }
 criterion = { workspace = true, features = ["async_futures"] }
 rand = { workspace = true }
+rstest = { workspace = true }
 simplelog = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 vortex-alp = { path = "../encodings/alp" }

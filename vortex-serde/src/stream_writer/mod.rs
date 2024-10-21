@@ -1,4 +1,5 @@
 use std::fmt::{Display, Formatter};
+use std::ops::Range;
 
 use futures_util::{Stream, TryStreamExt};
 use vortex::array::ChunkedArray;
@@ -121,6 +122,10 @@ impl ByteRange {
 
     pub fn is_empty(&self) -> bool {
         self.begin == self.end
+    }
+
+    pub fn to_range(&self) -> Range<usize> {
+        self.begin as usize..self.end as usize
     }
 }
 

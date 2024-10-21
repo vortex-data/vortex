@@ -7,7 +7,7 @@ use vortex::aliases::hash_map::HashMap;
 use vortex_dtype::field::Field;
 use vortex_dtype::flatbuffers::{deserialize_and_project, resolve_field};
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult};
 use vortex_flatbuffers::message;
 use vortex_schema::projection::Projection;
 
@@ -135,7 +135,7 @@ impl LazyDeserializedDType {
 #[derive(Debug)]
 pub struct RelativeLayoutCache {
     root: Arc<RwLock<LayoutMessageCache>>,
-    dtype: Arc<LazyDeserializedDType>,
+    dtype: Option<Arc<LazyDeserializedDType>>,
     path: MessageId,
 }
 
@@ -143,7 +143,7 @@ impl RelativeLayoutCache {
     pub fn new(root: Arc<RwLock<LayoutMessageCache>>, dtype: Arc<LazyDeserializedDType>) -> Self {
         Self {
             root,
-            dtype,
+            dtype: Some(dtype),
             path: Vec::new(),
         }
     }
@@ -154,7 +154,17 @@ impl RelativeLayoutCache {
         Self {
             root: self.root.clone(),
             path: new_path,
-            dtype,
+            dtype: Some(dtype),
+        }
+    }
+
+    pub fn stored_dtype(&self, id: LayoutPartId) -> Self {
+        let mut new_path = self.path.clone();
+        new_path.push(id);
+        Self {
+            root: self.root.clone(),
+            path: new_path,
+            dtype: None,
         }
     }
 
@@ -185,7 +195,7 @@ impl RelativeLayoutCache {
     }
 
     pub fn dtype(&self) -> &Arc<LazyDeserializedDType> {
-        &self.dtype
+        self.dtype.as_ref().vortex_expect("Must have dtype")
     }
 
     pub fn absolute_id(&self, path: &[LayoutPartId]) -> MessageId {

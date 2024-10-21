@@ -1,5 +1,3 @@
-#![allow(clippy::panic)]
-
 use std::iter;
 use std::sync::Arc;
 
@@ -11,6 +9,7 @@ use vortex::variants::StructArrayTrait;
 use vortex::{ArrayDType, IntoArray, IntoArrayVariant};
 use vortex_dtype::field::Field;
 use vortex_dtype::{DType, Nullability, PType, StructDType};
+use vortex_error::vortex_panic;
 use vortex_expr::{BinaryExpr, Column, Literal, Operator};
 
 use crate::layouts::write::LayoutWriter;
@@ -58,7 +57,6 @@ async fn test_read_simple() {
     let written = writer.finalize().await.unwrap();
 
     let mut stream = LayoutReaderBuilder::new(written, LayoutDeserializer::default())
-        .with_batch_size(5)
         .build()
         .await
         .unwrap();
@@ -102,7 +100,6 @@ async fn test_read_projection() {
 
     let array = LayoutReaderBuilder::new(written.clone(), LayoutDeserializer::default())
         .with_projection(Projection::new([0]))
-        .with_batch_size(5)
         .build()
         .await
         .unwrap()
@@ -134,7 +131,6 @@ async fn test_read_projection() {
 
     let array = LayoutReaderBuilder::new(written.clone(), LayoutDeserializer::default())
         .with_projection(Projection::Flat(vec![Field::Name("strings".to_string())]))
-        .with_batch_size(5)
         .build()
         .await
         .unwrap()
@@ -166,7 +162,6 @@ async fn test_read_projection() {
 
     let array = LayoutReaderBuilder::new(written.clone(), LayoutDeserializer::default())
         .with_projection(Projection::new([1]))
-        .with_batch_size(5)
         .build()
         .await
         .unwrap()
@@ -194,7 +189,6 @@ async fn test_read_projection() {
 
     let array = LayoutReaderBuilder::new(written.clone(), LayoutDeserializer::default())
         .with_projection(Projection::Flat(vec![Field::Name("numbers".to_string())]))
-        .with_batch_size(5)
         .build()
         .await
         .unwrap()
@@ -243,7 +237,6 @@ async fn unequal_batches() {
     let written = writer.finalize().await.unwrap();
 
     let mut stream = LayoutReaderBuilder::new(written, LayoutDeserializer::default())
-        .with_batch_size(5)
         .build()
         .await
         .unwrap();
@@ -261,11 +254,11 @@ async fn unequal_batches() {
             let numbers = numbers.into_primitive().unwrap();
             assert_eq!(numbers.ptype(), PType::U32);
         } else {
-            panic!("Expected column doesn't exist")
+            vortex_panic!("Expected column doesn't exist")
         }
     }
     assert_eq!(item_count, 10);
-    assert_eq!(batch_count, 2);
+    assert_eq!(batch_count, 3);
 }
 
 #[tokio::test]

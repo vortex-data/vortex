@@ -1,3 +1,4 @@
+pub use layouts::Layout;
 pub use writer::LayoutWriter;
 
 mod footer;

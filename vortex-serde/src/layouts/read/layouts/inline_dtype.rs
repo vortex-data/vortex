@@ -7,8 +7,9 @@ use vortex_error::{vortex_err, VortexResult};
 use vortex_flatbuffers::{footer, message};
 
 use crate::layouts::read::cache::{LazyDeserializedDType, RelativeLayoutCache};
+use crate::layouts::read::selection::RowSelector;
 use crate::layouts::{
-    LayoutDeserializer, LayoutId, LayoutReader, LayoutSpec, Message, ReadResult, Scan,
+    LayoutDeserializer, LayoutId, LayoutReader, LayoutSpec, Message, RangeResult, ReadResult, Scan,
     INLINE_SCHEMA_LAYOUT_ID,
 };
 use crate::stream_writer::ByteRange;
@@ -25,6 +26,7 @@ impl LayoutSpec for InlineDTypeLayoutSpec {
         &self,
         fb_bytes: Bytes,
         fb_loc: usize,
+        length: u64,
         scan: Scan,
         layout_reader: LayoutDeserializer,
         message_cache: RelativeLayoutCache,
@@ -32,6 +34,7 @@ impl LayoutSpec for InlineDTypeLayoutSpec {
         Box::new(InlineDTypeLayout::new(
             fb_bytes,
             fb_loc,
+            length,
             scan,
             layout_reader,
             message_cache,
@@ -43,6 +46,8 @@ impl LayoutSpec for InlineDTypeLayoutSpec {
 pub struct InlineDTypeLayout {
     fb_bytes: Bytes,
     fb_loc: usize,
+    length: u64,
+    offset: usize,
     scan: Scan,
     layout_builder: LayoutDeserializer,
     message_cache: RelativeLayoutCache,
@@ -58,6 +63,7 @@ impl InlineDTypeLayout {
     pub fn new(
         fb_bytes: Bytes,
         fb_loc: usize,
+        length: u64,
         scan: Scan,
         layout_builder: LayoutDeserializer,
         message_cache: RelativeLayoutCache,
@@ -65,6 +71,8 @@ impl InlineDTypeLayout {
         Self {
             fb_bytes,
             fb_loc,
+            length,
+            offset: 0,
             scan,
             layout_builder,
             message_cache,
@@ -81,11 +89,9 @@ impl InlineDTypeLayout {
 
     fn dtype(&self) -> VortexResult<DTypeReadResult> {
         if let Some(dt_bytes) = self.message_cache.get(&[0]) {
-            let msg = root::<message::Message>(&dt_bytes)?
+            let msg = root::<message::Message>(&dt_bytes[4..])?
                 .header_as_schema()
-                .ok_or_else(|| {
-                    vortex_err!("Expected schema message; this was checked earlier in the function")
-                })?;
+                .ok_or_else(|| vortex_err!("Expected schema message"))?;
 
             Ok(DTypeReadResult::DType(
                 DType::try_from(
@@ -106,34 +112,70 @@ impl InlineDTypeLayout {
             )]))
         }
     }
+
+    /// Returns None when child reader has been created
+    fn child_reader(&mut self) -> VortexResult<Option<ReadResult>> {
+        match self.dtype()? {
+            DTypeReadResult::ReadMore(m) => Ok(Some(ReadResult::ReadMore(m))),
+            DTypeReadResult::DType(d) => {
+                let layout = self
+                    .flatbuffer()
+                    .children()
+                    .ok_or_else(|| vortex_err!("No children"))?
+                    .get(0);
+
+                let mut child_layout = self.layout_builder.read_layout(
+                    self.fb_bytes.clone(),
+                    layout._tab.loc(),
+                    self.length,
+                    self.scan.clone(),
+                    self.message_cache
+                        .relative(1u16, Arc::new(LazyDeserializedDType::from_dtype(d))),
+                )?;
+                if self.offset != 0 {
+                    child_layout.advance(self.offset)?;
+                }
+                self.child_layout = Some(child_layout);
+                Ok(None)
+            }
+        }
+    }
 }
 
 impl LayoutReader for InlineDTypeLayout {
-    fn read_next(&mut self) -> VortexResult<Option<ReadResult>> {
+    fn next_range(&mut self) -> VortexResult<RangeResult> {
         if let Some(cr) = self.child_layout.as_mut() {
-            cr.read_next()
+            cr.next_range()
         } else {
-            match self.dtype()? {
-                DTypeReadResult::ReadMore(m) => Ok(Some(ReadResult::ReadMore(m))),
-                DTypeReadResult::DType(d) => {
-                    let layout = self
-                        .flatbuffer()
-                        .children()
-                        .ok_or_else(|| vortex_err!("No children"))?
-                        .get(0);
-
-                    self.child_layout = Some(
-                        self.layout_builder.read_layout(
-                            self.fb_bytes.clone(),
-                            layout._tab.loc(),
-                            self.scan.clone(),
-                            self.message_cache
-                                .relative(1u16, Arc::new(LazyDeserializedDType::from_dtype(d))),
-                        )?,
-                    );
-                    self.read_next()
-                }
+            match self.child_reader()? {
+                Some(r) => match r {
+                    ReadResult::ReadMore(rm) => Ok(RangeResult::ReadMore(rm)),
+                    ReadResult::Selector(_) | ReadResult::Batch(_) => {
+                        unreachable!("Child reader will only return ReadMore")
+                    }
+                },
+                None => self.next_range(),
             }
+        }
+    }
+
+    fn read_next(&mut self, selector: RowSelector) -> VortexResult<Option<ReadResult>> {
+        if let Some(cr) = self.child_layout.as_mut() {
+            cr.read_next(selector)
+        } else {
+            match self.child_reader()? {
+                Some(r) => Ok(Some(r)),
+                None => self.read_next(selector),
+            }
+        }
+    }
+
+    fn advance(&mut self, up_to_row: usize) -> VortexResult<Vec<Message>> {
+        if let Some(cr) = self.child_layout.as_mut() {
+            cr.advance(up_to_row)
+        } else {
+            self.offset = up_to_row;
+            Ok(vec![])
         }
     }
 }

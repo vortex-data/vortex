@@ -66,8 +66,13 @@ impl LayoutDescriptor {
         (self.schema_offset - self.initial_read_offset) as usize
     }
 
+    pub fn row_count(&self) -> VortexResult<u64> {
+        Ok(self.fb_footer()?.row_count())
+    }
+
     pub fn layout(
         &self,
+        length: u64,
         scan: Scan,
         message_cache: RelativeLayoutCache,
     ) -> VortexResult<Box<dyn LayoutReader>> {
@@ -83,7 +88,7 @@ impl LayoutDescriptor {
             .ok_or_else(|| vortex_err!("Footer must contain a layout"))?;
         let loc = fb_layout._tab.loc();
         self.layout_serde
-            .read_layout(footer_bytes, loc, scan, message_cache)
+            .read_layout(footer_bytes, loc, length, scan, message_cache)
     }
 
     pub fn dtype_bytes(&self) -> VortexResult<Bytes> {
@@ -112,6 +117,13 @@ impl LayoutDescriptor {
             .dtype()
             .ok_or_else(|| vortex_err!(InvalidSerde: "Schema missing DType"))?;
         deserialize_and_project(fb_dtype, projection)
+    }
+
+    fn fb_footer(&self) -> VortexResult<footer::Footer> {
+        let start_offset = self.initial_read_layout_offset();
+        let end_offset = self.initial_read.len() - FOOTER_POSTSCRIPT_SIZE - EOF_SIZE;
+        let footer_bytes = &self.initial_read[start_offset + FLATBUFFER_SIZE_LENGTH..end_offset];
+        Ok(root::<footer::Footer>(footer_bytes)?)
     }
 
     fn fb_schema(&self) -> VortexResult<fb::Schema> {

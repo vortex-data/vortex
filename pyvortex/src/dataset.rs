@@ -27,7 +27,6 @@ use crate::{PyArray, TOKIO_RUNTIME};
 pub async fn layout_stream_from_reader<T: VortexReadAt + Unpin>(
     reader: T,
     projection: Projection,
-    batch_size: Option<usize>,
     row_filter: Option<RowFilter>,
 ) -> VortexResult<LayoutBatchStream<T>> {
     let mut builder = LayoutReaderBuilder::new(
@@ -39,10 +38,6 @@ pub async fn layout_stream_from_reader<T: VortexReadAt + Unpin>(
     )
     .with_projection(projection);
 
-    if let Some(batch_size) = batch_size {
-        builder = builder.with_batch_size(batch_size);
-    }
-
     if let Some(row_filter) = row_filter {
         builder = builder.with_row_filter(row_filter);
     }
@@ -53,10 +48,9 @@ pub async fn layout_stream_from_reader<T: VortexReadAt + Unpin>(
 pub async fn read_array_from_reader<T: VortexReadAt + Unpin + 'static>(
     reader: T,
     projection: Projection,
-    batch_size: Option<usize>,
     row_filter: Option<RowFilter>,
 ) -> VortexResult<Array> {
-    layout_stream_from_reader(reader, projection, batch_size, row_filter)
+    layout_stream_from_reader(reader, projection, row_filter)
         .await?
         .read_all()
         .await
@@ -124,13 +118,11 @@ impl TokioFileDataset {
     async fn async_to_array(
         &self,
         columns: Option<Vec<Bound<'_, PyAny>>>,
-        batch_size: Option<usize>,
         row_filter: Option<&Bound<'_, PyExpr>>,
     ) -> PyResult<PyArray> {
         let inner = read_array_from_reader(
             self.file().await?,
             projection_from_python(columns)?,
-            batch_size,
             row_filter_from_python(row_filter),
         )
         .await?;
@@ -140,13 +132,11 @@ impl TokioFileDataset {
     async fn async_to_record_batch_reader(
         self_: PyRef<'_, Self>,
         columns: Option<Vec<Bound<'_, PyAny>>>,
-        batch_size: Option<usize>,
         row_filter: Option<&Bound<'_, PyExpr>>,
     ) -> PyResult<PyObject> {
         let layout_reader = layout_stream_from_reader(
             self_.file().await?,
             projection_from_python(columns)?,
-            batch_size,
             row_filter_from_python(row_filter),
         )
         .await?;
@@ -164,25 +154,23 @@ impl TokioFileDataset {
         self_.schema.clone().to_pyarrow(self_.py())
     }
 
-    #[pyo3(signature = (*, columns=None, batch_size=None, row_filter=None))]
+    #[pyo3(signature = (*, columns=None, row_filter=None))]
     pub fn to_array(
         &self,
         columns: Option<Vec<Bound<'_, PyAny>>>,
-        batch_size: Option<usize>,
         row_filter: Option<&Bound<'_, PyExpr>>,
     ) -> PyResult<PyArray> {
-        TOKIO_RUNTIME.block_on(self.async_to_array(columns, batch_size, row_filter))
+        TOKIO_RUNTIME.block_on(self.async_to_array(columns, row_filter))
     }
 
-    #[pyo3(signature = (*, columns=None, batch_size=None, row_filter=None))]
+    #[pyo3(signature = (*, columns=None, row_filter=None))]
     pub fn to_record_batch_reader(
         self_: PyRef<Self>,
         columns: Option<Vec<Bound<'_, PyAny>>>,
-        batch_size: Option<usize>,
         row_filter: Option<&Bound<'_, PyExpr>>,
     ) -> PyResult<PyObject> {
         TOKIO_RUNTIME.block_on(Self::async_to_record_batch_reader(
-            self_, columns, batch_size, row_filter,
+            self_, columns, row_filter,
         ))
     }
 }
@@ -208,13 +196,11 @@ impl ObjectStoreUrlDataset {
     async fn async_to_array(
         &self,
         columns: Option<Vec<Bound<'_, PyAny>>>,
-        batch_size: Option<usize>,
         row_filter: Option<&Bound<'_, PyExpr>>,
     ) -> PyResult<PyArray> {
         let inner = read_array_from_reader(
             self.reader().await?,
             projection_from_python(columns)?,
-            batch_size,
             row_filter_from_python(row_filter),
         )
         .await?;
@@ -224,13 +210,11 @@ impl ObjectStoreUrlDataset {
     async fn async_to_record_batch_reader(
         self_: PyRef<'_, Self>,
         columns: Option<Vec<Bound<'_, PyAny>>>,
-        batch_size: Option<usize>,
         row_filter: Option<&Bound<'_, PyExpr>>,
     ) -> PyResult<PyObject> {
         let layout_reader = layout_stream_from_reader(
             self_.reader().await?,
             projection_from_python(columns)?,
-            batch_size,
             row_filter_from_python(row_filter),
         )
         .await?;
@@ -248,25 +232,23 @@ impl ObjectStoreUrlDataset {
         self_.schema.clone().to_pyarrow(self_.py())
     }
 
-    #[pyo3(signature = (*, columns=None, batch_size=None, row_filter=None))]
+    #[pyo3(signature = (*, columns=None, row_filter=None))]
     pub fn to_array(
         &self,
         columns: Option<Vec<Bound<'_, PyAny>>>,
-        batch_size: Option<usize>,
         row_filter: Option<&Bound<'_, PyExpr>>,
     ) -> PyResult<PyArray> {
-        TOKIO_RUNTIME.block_on(self.async_to_array(columns, batch_size, row_filter))
+        TOKIO_RUNTIME.block_on(self.async_to_array(columns, row_filter))
     }
 
-    #[pyo3(signature = (*, columns=None, batch_size=None, row_filter=None))]
+    #[pyo3(signature = (*, columns=None, row_filter=None))]
     pub fn to_record_batch_reader(
         self_: PyRef<Self>,
         columns: Option<Vec<Bound<'_, PyAny>>>,
-        batch_size: Option<usize>,
         row_filter: Option<&Bound<'_, PyExpr>>,
     ) -> PyResult<PyObject> {
         TOKIO_RUNTIME.block_on(Self::async_to_record_batch_reader(
-            self_, columns, batch_size, row_filter,
+            self_, columns, row_filter,
         ))
     }
 }

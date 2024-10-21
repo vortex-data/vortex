@@ -61,7 +61,7 @@ fn split_inner(expr: &Arc<dyn VortexExpr>, exprs: &mut Vec<Arc<dyn VortexExpr>>)
 }
 
 // Taken from apache-datafusion, necessary since you can't require VortexExpr implement PartialEq<dyn VortexExpr>
-pub(crate) fn unbox_any(any: &dyn Any) -> &dyn Any {
+pub fn unbox_any(any: &dyn Any) -> &dyn Any {
     if any.is::<Arc<dyn VortexExpr>>() {
         any.downcast_ref::<Arc<dyn VortexExpr>>()
             .vortex_expect("any.is::<Arc<dyn VortexExpr>> returned true but downcast_ref failed")
