@@ -16,10 +16,10 @@ pub struct Layout {
 }
 
 impl Layout {
-    pub fn flat(buffer: ByteRange) -> Self {
+    pub fn flat(byte_range: ByteRange) -> Self {
         Self {
             id: FLAT_LAYOUT_ID,
-            buffers: Some(vec![buffer]),
+            buffers: Some(vec![byte_range]),
             children: None,
             metadata: None,
         }
