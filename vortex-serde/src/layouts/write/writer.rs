@@ -10,6 +10,7 @@ use vortex::stream::ArrayStream;
 use vortex::validity::Validity;
 use vortex::{Array, ArrayDType, IntoArray};
 use vortex_buffer::io_buf::IoBuf;
+use vortex_buffer::{Buffer, BufferString};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_flatbuffers::WriteFlatBuffer;
@@ -197,37 +198,71 @@ async fn write_fb_raw<W: VortexWrite, F: WriteFlatBuffer>(mut writer: W, fb: F) 
     Ok(writer)
 }
 
-#[derive(Clone, Debug)]
-pub struct ColumnChunkAccumulator {
-    pub row_offsets: Vec<u64>,
-    pub batch_byte_offsets: Vec<Vec<u64>>,
-    pub pruning_stats: HashMap<Stat, Vec<Option<Scalar>>>,
+fn new_accumulator(size_hint: usize, dtype: &DType) -> Box<dyn ColumnChunkAccumulator> {
+    match dtype {
+        DType::Bool(_) => Box::new(TypedColumnChunkAccumulator::<bool>::new(size_hint)),
+        DType::Null => Box::new(TypedColumnChunkAccumulator::<()>::new(size_hint)),
+        DType::Primitive(ptype, nullability) => todo!(),
+        DType::Utf8(nullability) => Box::new(TypedColumnChunkAccumulator::<BufferString>::new(size_hint)),
+        DType::Binary(nullability) => Box::new(TypedColumnChunkAccumulator::<Buffer>::new(size_hint)),
+        DType::Struct(struct_dtype, nullability) => todo!(),
+        DType::List(arc, nullability) => todo!(),
+        DType::Extension(ext_dtype, nullability) => todo!(),
+    }
 }
 
-impl ColumnChunkAccumulator {
+trait ColumnChunkAccumulator {
+    fn push_row_offset(&mut self, row_offset: u64);
+    fn push_batch_byte_offsets(&mut self, batch_byte_offsets: Vec<u64>);
+    fn push_stat(&mut self, stat: Stat, value: Option<Scalar>) -> VortexResult<()>;
+    fn into_chunks_and_metadata(self) -> VortexResult<(VecDeque<Layout>, Array)>;
+}
+
+#[derive(Clone, Debug)]
+struct TypedColumnChunkAccumulator<T> {
+    pub row_offsets: Vec<u64>,
+    pub batch_byte_offsets: Vec<Vec<u64>>,
+    pub minima: Vec<Option<T>>,
+    pub maxima: Vec<Option<T>>,
+    pub null_counts: Vec<u64>,
+    pub true_counts: Vec<u64>,
+}
+
+impl<T> TypedColumnChunkAccumulator<T> {
     pub fn new(size_hint: usize) -> Self {
         let mut row_offsets = Vec::with_capacity(size_hint + 1);
         row_offsets.push(0);
         Self {
             row_offsets,
             batch_byte_offsets: Vec::new(),
-            pruning_stats: HashMap::with_capacity(PRUNING_STATS.len()),
+            minima: Vec::with_capacity(size_hint),
+            maxima: Vec::with_capacity(size_hint),
+            null_counts: Vec::with_capacity(size_hint),
+            true_counts: Vec::with_capacity(size_hint),
         }
     }
+}
 
-    pub fn push_row_offset(&mut self, row_offset: u64) {
+impl <T> ColumnChunkAccumulator for TypedColumnChunkAccumulator<T> {
+    fn push_row_offset(&mut self, row_offset: u64) {
         self.row_offsets.push(row_offset);
     }
 
-    pub fn push_batch_byte_offsets(&mut self, batch_byte_offsets: Vec<u64>) {
+    fn push_batch_byte_offsets(&mut self, batch_byte_offsets: Vec<u64>) {
         self.batch_byte_offsets.push(batch_byte_offsets);
     }
 
-    pub fn push_stat(&mut self, stat: Stat, value: Option<Scalar>) {
-        self.pruning_stats.entry(stat).or_default().push(value);
+    fn push_stat(&mut self, stat: Stat, value: Option<Scalar>) -> VortexResult<()> {
+        match stat {
+            Stat::Min => self.minima.push(value),
+            Stat::Max => self.maxima.push(value),
+            Stat::NullCount => self.null_counts.push(value.map_or(0, |v| v.into_value().as_pvalue().vortex_expect("null count is a primitive value").map(|v| v.as_u64().unwrap_or(0))),),
+            Stat::TrueCount => self.true_counts.push(value.map_or(0, |v| v.into_value().as_pvalue().vortex_expect("true count is a primitive value").map(|v| v.as_u64().unwrap_or(0))),),
+            _ => vortex_bail!("Unsupported pruning stat: {stat}"),
+        }
     }
 
-    pub fn into_chunks_and_metadata(mut self) -> VortexResult<(VecDeque<Layout>, Array)> {
+    fn into_chunks_and_metadata(mut self) -> VortexResult<(VecDeque<Layout>, Array)> {
         // we don't need the last row offset; that's just the total number of rows
         let length = self.row_offsets.len() - 1;
         self.row_offsets.truncate(length);
