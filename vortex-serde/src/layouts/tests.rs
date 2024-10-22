@@ -14,7 +14,12 @@ use vortex_dtype::{DType, Nullability, PType, StructDType};
 use vortex_expr::{BinaryExpr, Column, Literal, Operator};
 
 use crate::layouts::write::LayoutWriter;
-use crate::layouts::{LayoutDeserializer, LayoutReaderBuilder, Projection, RowFilter};
+use crate::layouts::{LayoutDeserializer, LayoutReaderBuilder, Projection, RowFilter, METADATA_FIELD_NAMES, PRUNING_STATS};
+
+#[test]
+fn metadata_field_names() {
+    assert!(PRUNING_STATS.iter().all(|s| METADATA_FIELD_NAMES.contains(&format!("{}", s).into())));
+}
 
 #[tokio::test]
 #[cfg_attr(miri, ignore)]

@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 use std::{io, mem};
 
-use ahash::{HashMap, HashMapExt};
+use ahash::HashMapExt;
 use flatbuffers::FlatBufferBuilder;
 use futures::{Stream, TryStreamExt};
 use vortex::array::{ChunkedArray, StructArray};
@@ -19,7 +19,7 @@ use vortex_scalar::{Scalar, ScalarValue};
 use super::footer::{Footer, Postscript};
 use crate::io::VortexWrite;
 use crate::layouts::write::layouts::Layout;
-use crate::layouts::{EOF_SIZE, MAGIC_BYTES, VERSION};
+use crate::layouts::{EOF_SIZE, MAGIC_BYTES, METADATA_FIELD_NAMES, VERSION};
 use crate::stream_writer::ByteRange;
 use crate::MessageWriter;
 
@@ -30,8 +30,6 @@ pub struct LayoutWriter<W> {
     dtype: Option<DType>,
     column_chunks: Vec<ColumnChunkAccumulator>,
 }
-
-const PRUNING_STATS: [Stat; 4] = [Stat::Min, Stat::Max, Stat::NullCount, Stat::TrueCount];
 
 impl<W: VortexWrite> LayoutWriter<W> {
     pub fn new(write: W) -> Self {
@@ -198,41 +196,22 @@ async fn write_fb_raw<W: VortexWrite, F: WriteFlatBuffer>(mut writer: W, fb: F) 
     Ok(writer)
 }
 
-fn new_accumulator(size_hint: usize, dtype: &DType) -> Box<dyn ColumnChunkAccumulator> {
-    match dtype {
-        DType::Bool(_) => Box::new(TypedColumnChunkAccumulator::<bool>::new(size_hint)),
-        DType::Null => Box::new(TypedColumnChunkAccumulator::<()>::new(size_hint)),
-        DType::Primitive(ptype, nullability) => todo!(),
-        DType::Utf8(nullability) => Box::new(TypedColumnChunkAccumulator::<BufferString>::new(size_hint)),
-        DType::Binary(nullability) => Box::new(TypedColumnChunkAccumulator::<Buffer>::new(size_hint)),
-        DType::Struct(struct_dtype, nullability) => todo!(),
-        DType::List(arc, nullability) => todo!(),
-        DType::Extension(ext_dtype, nullability) => todo!(),
-    }
-}
-
-trait ColumnChunkAccumulator {
-    fn push_row_offset(&mut self, row_offset: u64);
-    fn push_batch_byte_offsets(&mut self, batch_byte_offsets: Vec<u64>);
-    fn push_stat(&mut self, stat: Stat, value: Option<Scalar>) -> VortexResult<()>;
-    fn into_chunks_and_metadata(self) -> VortexResult<(VecDeque<Layout>, Array)>;
-}
-
-#[derive(Clone, Debug)]
-struct TypedColumnChunkAccumulator<T> {
+struct ColumnChunkAccumulator<> {
+    pub dtype: DType,
     pub row_offsets: Vec<u64>,
     pub batch_byte_offsets: Vec<Vec<u64>>,
-    pub minima: Vec<Option<T>>,
-    pub maxima: Vec<Option<T>>,
-    pub null_counts: Vec<u64>,
-    pub true_counts: Vec<u64>,
+    pub minima: Vec<Option<ScalarValue>>,
+    pub maxima: Vec<Option<ScalarValue>>,
+    pub null_counts: Vec<Option<u64>>,
+    pub true_counts: Vec<Option<u64>>,
 }
 
-impl<T> TypedColumnChunkAccumulator<T> {
-    pub fn new(size_hint: usize) -> Self {
+impl ColumnChunkAccumulator {
+    pub fn new(size_hint: usize, dtype: DType) -> Self {
         let mut row_offsets = Vec::with_capacity(size_hint + 1);
         row_offsets.push(0);
         Self {
+            dtype,
             row_offsets,
             batch_byte_offsets: Vec::new(),
             minima: Vec::with_capacity(size_hint),
@@ -241,9 +220,7 @@ impl<T> TypedColumnChunkAccumulator<T> {
             true_counts: Vec::with_capacity(size_hint),
         }
     }
-}
 
-impl <T> ColumnChunkAccumulator for TypedColumnChunkAccumulator<T> {
     fn push_row_offset(&mut self, row_offset: u64) {
         self.row_offsets.push(row_offset);
     }
@@ -253,13 +230,31 @@ impl <T> ColumnChunkAccumulator for TypedColumnChunkAccumulator<T> {
     }
 
     fn push_stat(&mut self, stat: Stat, value: Option<Scalar>) -> VortexResult<()> {
-        match stat {
-            Stat::Min => self.minima.push(value),
-            Stat::Max => self.maxima.push(value),
-            Stat::NullCount => self.null_counts.push(value.map_or(0, |v| v.into_value().as_pvalue().vortex_expect("null count is a primitive value").map(|v| v.as_u64().unwrap_or(0))),),
-            Stat::TrueCount => self.true_counts.push(value.map_or(0, |v| v.into_value().as_pvalue().vortex_expect("true count is a primitive value").map(|v| v.as_u64().unwrap_or(0))),),
-            _ => vortex_bail!("Unsupported pruning stat: {stat}"),
+        if matches!(stat, Stat::Min | Stat::Max) {
+            if let Some(value) = value {
+                if !value.value().is_instance_of(&self.dtype) {
+                    vortex_bail!("Expected all min/max values to have dtype {}, got {}", self.dtype, value.dtype());
+                }
+            }
         }
+
+        Ok(match stat {
+            Stat::Min => self.minima.push(value.map(|v| v.into_value())),
+            Stat::Max => self.maxima.push(value.map(|v| v.into_value())),
+            Stat::NullCount => self.null_counts.push(value.map_or(0, |v| {
+                v.into_value()
+                    .as_pvalue()
+                    .vortex_expect("null count is a primitive value")
+                    .and_then(|v| v.as_u64())
+            })),
+            Stat::TrueCount => self.true_counts.push(value.map_or(0, |v| {
+                v.into_value()
+                    .as_pvalue()
+                    .vortex_expect("true count is a primitive value")
+                    .and_then(|v| v.as_u64())
+            })),
+            _ => vortex_bail!("Unsupported pruning stat: {stat}"),
+        })
     }
 
     fn into_chunks_and_metadata(mut self) -> VortexResult<(VecDeque<Layout>, Array)> {
@@ -286,7 +281,7 @@ impl <T> ColumnChunkAccumulator for TypedColumnChunkAccumulator<T> {
             );
         }
 
-        let mut names = vec!["row_offset".into()];
+        let mut names = METADATA_FIELD_NAMES.clone();
         let mut fields = vec![self.row_offsets.into_array()];
 
         for stat in PRUNING_STATS {
