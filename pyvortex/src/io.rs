@@ -10,12 +10,13 @@ use vortex_dtype::field::Field;
 use vortex_error::VortexResult;
 use vortex_sampling_compressor::ALL_COMPRESSORS_CONTEXT;
 use vortex_serde::layouts::{
-    LayoutContext, LayoutDeserializer, LayoutReaderBuilder, LayoutWriter, Projection, RowFilter,
+    LayoutBatchStream, LayoutContext, LayoutDeserializer, LayoutReaderBuilder, LayoutWriter,
+    Projection, RowFilter,
 };
 
 use crate::error::PyVortexError;
 use crate::expr::PyExpr;
-use crate::PyArray;
+use crate::{PyArray, TOKIO_RUNTIME};
 
 /// Read a vortex struct array from the local filesystem.
 ///
@@ -127,40 +128,17 @@ use crate::PyArray;
 ///
 #[pyfunction]
 #[pyo3(signature = (f, projection = None, row_filter = None))]
-pub fn read<'py>(
-    f: &Bound<'py, PyString>,
-    projection: Option<&Bound<'py, PyAny>>,
-    row_filter: Option<&Bound<'py, PyExpr>>,
-) -> PyResult<Bound<'py, PyArray>> {
-    async fn run(
-        fname: &str,
-        projection: Projection,
-        row_filter: Option<RowFilter>,
-    ) -> VortexResult<Array> {
-        let file = File::open(Path::new(fname)).await?;
-
-        let mut builder: LayoutReaderBuilder<File> = LayoutReaderBuilder::new(
-            file,
-            LayoutDeserializer::new(
-                ALL_COMPRESSORS_CONTEXT.clone(),
-                LayoutContext::default().into(),
-            ),
-        )
-        .with_projection(projection);
-
-        if let Some(row_filter) = row_filter {
-            builder = builder.with_row_filter(row_filter);
-        }
-
-        builder.build().await?.read_all().await
-    }
-
+pub fn read(
+    f: &Bound<PyString>,
+    projection: Option<&Bound<PyAny>>,
+    row_filter: Option<&Bound<PyExpr>>,
+) -> PyResult<PyArray> {
     let fname = f.to_str()?; // TODO(dk): support file objects
 
     let projection = match projection {
         None => Projection::All,
         Some(projection) => {
-            let list: &Bound<'py, PyList> = projection.downcast()?;
+            let list: &Bound<PyList> = projection.downcast()?;
             Projection::Flat(
                 list.iter()
                     .map(|field| -> PyResult<Field> {
@@ -184,13 +162,50 @@ pub fn read<'py>(
 
     let row_filter = row_filter.map(|x| RowFilter::new(x.borrow().unwrap().clone()));
 
-    let inner = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()?
-        .block_on(run(fname, projection, row_filter))
-        .map_err(PyVortexError::new)?;
+    TOKIO_RUNTIME
+        .block_on(async_read(fname, projection, None, row_filter))
+        .map_err(PyVortexError::map_err)
+        .map(PyArray::new)
+}
 
-    Bound::new(f.py(), PyArray::new(inner))
+pub(crate) async fn layout_reader(
+    fname: &str,
+    projection: Projection,
+    batch_size: Option<usize>,
+    row_filter: Option<RowFilter>,
+) -> VortexResult<LayoutBatchStream<File>> {
+    let file = File::open(Path::new(fname)).await?;
+
+    let mut builder: LayoutReaderBuilder<File> = LayoutReaderBuilder::new(
+        file,
+        LayoutDeserializer::new(
+            ALL_COMPRESSORS_CONTEXT.clone(),
+            LayoutContext::default().into(),
+        ),
+    )
+    .with_projection(projection);
+
+    if let Some(batch_size) = batch_size {
+        builder = builder.with_batch_size(batch_size);
+    }
+
+    if let Some(row_filter) = row_filter {
+        builder = builder.with_row_filter(row_filter);
+    }
+
+    builder.build().await
+}
+
+pub(crate) async fn async_read(
+    fname: &str,
+    projection: Projection,
+    batch_size: Option<usize>,
+    row_filter: Option<RowFilter>,
+) -> VortexResult<Array> {
+    layout_reader(fname, projection, batch_size, row_filter)
+        .await?
+        .read_all()
+        .await
 }
 
 #[pyfunction]
@@ -231,9 +246,7 @@ pub fn write(array: &Bound<'_, PyArray>, f: &Bound<'_, PyString>) -> PyResult<()
     let fname = f.to_str()?; // TODO(dk): support file objects
     let array = array.borrow().unwrap().clone();
 
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()?
+    TOKIO_RUNTIME
         .block_on(run(&array, fname))
         .map_err(PyVortexError::map_err)
 }

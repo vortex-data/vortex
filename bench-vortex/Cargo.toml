@@ -59,6 +59,7 @@ vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-bytebool = { workspace = true }
 vortex-datafusion = { workspace = true }
+vortex-datetime-dtype = { workspace = true }
 vortex-datetime-parts = { workspace = true }
 vortex-dict = { workspace = true }
 vortex-dtype = { workspace = true }
@@ -69,6 +70,7 @@ vortex-roaring = { workspace = true }
 vortex-runend = { workspace = true }
 vortex-runend-bool = { workspace = true }
 vortex-sampling-compressor = { workspace = true }
+vortex-scalar = { workspace = true }
 vortex-serde = { workspace = true, features = [
     "futures",
     "monoio",

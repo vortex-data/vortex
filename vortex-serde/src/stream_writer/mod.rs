@@ -111,6 +111,7 @@ impl Display for ByteRange {
 
 impl ByteRange {
     pub fn new(begin: u64, end: u64) -> Self {
+        assert!(end > begin, "Buffer end must be after its beginning");
         Self { begin, end }
     }
 

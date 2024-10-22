@@ -1,6 +1,12 @@
+struct Buffer {
+    begin: uint64;
+    end: uint64;
+}
+
 table Layout {
-    children: [Layout];
     encoding: uint16;
+    buffers: [Buffer];
+    children: [Layout];
     metadata: [ubyte];
 }
 

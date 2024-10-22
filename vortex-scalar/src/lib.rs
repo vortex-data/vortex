@@ -60,6 +60,11 @@ impl Scalar {
         self.value
     }
 
+    #[inline]
+    pub fn into_parts(self) -> (ScalarValue, DType) {
+        (self.value, self.dtype)
+    }
+
     pub fn is_valid(&self) -> bool {
         !self.value.is_null()
     }

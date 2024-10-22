@@ -27,14 +27,14 @@ impl LayoutSpec for ColumnLayoutSpec {
         fb_bytes: Bytes,
         fb_loc: usize,
         scan: Scan,
-        layout_serde: LayoutDeserializer,
+        layout_builder: LayoutDeserializer,
         message_cache: RelativeLayoutCache,
     ) -> Box<dyn LayoutReader> {
         Box::new(ColumnLayout::new(
             fb_bytes,
             fb_loc,
             scan,
-            layout_serde,
+            layout_builder,
             message_cache,
         ))
     }

@@ -146,6 +146,10 @@ fn coerce_expr<'py>(value: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyExpr>> {
 
 #[pymethods]
 impl PyExpr {
+    pub fn __str__(&self) -> String {
+        format!("{:?}", self.inner)
+    }
+
     fn __eq__<'py>(
         self_: PyRef<'py, Self>,
         right: &Bound<'py, PyAny>,
@@ -228,7 +232,7 @@ pub fn column<'py>(name: &Bound<'py, PyString>) -> PyResult<Bound<'py, PyExpr>> 
 }
 
 #[pyfunction]
-pub fn _literal<'py>(
+pub fn literal<'py>(
     dtype: &Bound<'py, PyDType>,
     value: &Bound<'py, PyAny>,
 ) -> PyResult<Bound<'py, PyExpr>> {

@@ -13,6 +13,7 @@ pub const EOF_SIZE: usize = 8;
 pub const FLAT_LAYOUT_ID: LayoutId = LayoutId(1);
 pub const CHUNKED_LAYOUT_ID: LayoutId = LayoutId(2);
 pub const COLUMN_LAYOUT_ID: LayoutId = LayoutId(3);
+pub const INLINE_SCHEMA_LAYOUT_ID: LayoutId = LayoutId(4);
 
 pub use read::*;
 pub use write::*;

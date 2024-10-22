@@ -1,7 +1,7 @@
 use arrow_buffer::bit_util::ceil;
 use arrow_buffer::{BooleanBuffer, MutableBuffer};
 use vortex_dtype::{match_each_native_ptype, NativePType};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_scalar::PrimitiveScalar;
 
 use crate::array::primitive::PrimitiveArray;
@@ -45,7 +45,8 @@ fn primitive_const_compare(
         .vortex_expect("Expected a primitive scalar");
 
     let buffer = match_each_native_ptype!(this.ptype(), |$T| {
-        let typed_value = primitive_scalar.typed_value::<$T>().unwrap();
+        let typed_value = primitive_scalar.typed_value::<$T>()
+            .ok_or_else(|| vortex_err!("Type mismatch between array and constant"))?;
         primitive_value_compare::<$T>(this, typed_value, operator)
     });
 

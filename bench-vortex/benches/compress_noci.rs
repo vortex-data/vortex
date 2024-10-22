@@ -1,3 +1,5 @@
+mod tokio_runtime;
+
 use std::io::Cursor;
 use std::path::Path;
 use std::sync::Arc;
@@ -27,6 +29,8 @@ use vortex_error::VortexResult;
 use vortex_sampling_compressor::compressors::fsst::FSSTCompressor;
 use vortex_sampling_compressor::{SamplingCompressor, ALL_COMPRESSORS_CONTEXT};
 use vortex_serde::layouts::{LayoutContext, LayoutDeserializer, LayoutReaderBuilder, LayoutWriter};
+
+use crate::tokio_runtime::TOKIO_RUNTIME;
 
 #[derive(serde::Serialize)]
 struct GenericBenchmarkResults<'a> {
@@ -160,10 +164,7 @@ fn benchmark_compress<F, U>(
     U: AsRef<Array>,
 {
     ensure_dir_exists("benchmarked-files").unwrap();
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap();
+    let runtime = &TOKIO_RUNTIME;
     let uncompressed = make_uncompressed();
     let uncompressed_size = uncompressed.as_ref().nbytes();
     let mut compressed_size = 0;
@@ -176,7 +177,7 @@ fn benchmark_compress<F, U>(
         group.bench_function(bench_name, |b| {
             b.iter_with_large_drop(|| {
                 compressed_size = black_box(
-                    vortex_compressed_written_size(&runtime, compressor, uncompressed.as_ref())
+                    vortex_compressed_written_size(runtime, compressor, uncompressed.as_ref())
                         .unwrap(),
                 );
             });
@@ -212,10 +213,10 @@ fn benchmark_compress<F, U>(
         measurement_time.map(|t| group.measurement_time(t));
         group.bench_function(bench_name, |b| {
             let mut buf = Vec::new();
-            vortex_compress_write(&runtime, compressor, uncompressed.as_ref(), &mut buf).unwrap();
+            vortex_compress_write(runtime, compressor, uncompressed.as_ref(), &mut buf).unwrap();
             let arc = Arc::new(buf);
             b.iter_with_large_drop(|| {
-                black_box(vortex_decompress_read(&runtime, arc.clone()).unwrap());
+                black_box(vortex_decompress_read(runtime, arc.clone()).unwrap());
             });
         });
         group.finish();
@@ -250,7 +251,7 @@ fn benchmark_compress<F, U>(
         .unwrap_or(false)
     {
         let vortex_nbytes =
-            vortex_compressed_written_size(&runtime, compressor, uncompressed.as_ref()).unwrap();
+            vortex_compressed_written_size(runtime, compressor, uncompressed.as_ref()).unwrap();
 
         let parquet_zstd_nbytes = parquet_compressed_written_size(
             uncompressed.as_ref(),
@@ -334,10 +335,7 @@ fn public_bi_benchmark(c: &mut Criterion) {
 
 fn tpc_h_l_comment(c: &mut Criterion) {
     let data_dir = DBGen::new(DBGenOptions::default()).generate().unwrap();
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap();
+    let rt = &TOKIO_RUNTIME;
     let lineitem_vortex = rt.block_on(tpch::load_table(
         data_dir,
         "lineitem",

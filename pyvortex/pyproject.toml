@@ -6,6 +6,7 @@ dynamic = ["version", "description", "authors"]
 readme = "README.md"
 dependencies = [
     "pyarrow>=15.0.0",
+    "substrait>=0.23.0",
 ]
 requires-python = ">= 3.11"
 
@@ -37,6 +38,8 @@ dev-dependencies = [
     "pandas>=2.2.2",
     "pip",
     "pyright>=1.1.385",
+    "polars>=1.9.0",
+    "duckdb>=1.1.2",
 ]
 
 [tool.maturin]

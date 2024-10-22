@@ -50,9 +50,6 @@ lazy_static! {
             .with_encodings(SamplingCompressor::default().used_encodings())
             .with_encoding(&DeltaEncoding)
     );
-}
-
-lazy_static! {
     pub static ref COMPRESSORS: HashSet<CompressorRef<'static>> = [
         &ALPCompressor as CompressorRef<'static>,
         &ALPRDCompressor,

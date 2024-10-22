@@ -109,12 +109,11 @@ impl MaybeCompareFn for ALPArray {
             match pvalue {
                 Some(PValue::F32(f)) => Some(alp_scalar_compare(self, f, operator)),
                 Some(PValue::F64(f)) => Some(alp_scalar_compare(self, f, operator)),
-                None => Some(Ok(BoolArray::from_vec(
+                Some(_) | None => Some(Ok(BoolArray::from_vec(
                     vec![false; self.len()],
                     Validity::AllValid,
                 )
                 .into_array())),
-                _ => unreachable!(),
             }
         } else {
             None

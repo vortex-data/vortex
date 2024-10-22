@@ -7,7 +7,7 @@ use compressors::chunked::DEFAULT_CHUNKED_COMPRESSOR;
 use compressors::fsst::FSSTCompressor;
 use compressors::struct_::StructCompressor;
 use lazy_static::lazy_static;
-use log::{debug, info, warn};
+use log::{debug, warn};
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 use vortex::array::{ChunkedArray, Constant};
@@ -309,7 +309,7 @@ impl<'a> SamplingCompressor<'a> {
             );
         }
 
-        info!("{} candidates for {}: {:?}", self, array, candidates);
+        debug!("{} candidates for {}: {:?}", self, array, candidates);
 
         if candidates.is_empty() {
             debug!(
@@ -356,7 +356,7 @@ impl<'a> SamplingCompressor<'a> {
         let best = find_best_compression(candidates, &sample, self)?
             .into_path()
             .map(|best_compressor| {
-                info!(
+                debug!(
                     "{} Compressing array {} with {}",
                     self, array, best_compressor
                 );

@@ -2,15 +2,16 @@ use arrow::array::{Array as ArrowArray, ArrayRef};
 use arrow::pyarrow::ToPyArrow;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::{IntoPyDict, PyList};
+use pyo3::types::{IntoPyDict, PyInt, PyList};
 use vortex::array::ChunkedArray;
-use vortex::compute::unary::fill_forward;
+use vortex::compute::unary::{fill_forward, scalar_at};
 use vortex::compute::{compare, slice, take, Operator};
 use vortex::{Array, ArrayDType, IntoCanonical};
 
 use crate::dtype::PyDType;
 use crate::error::PyVortexError;
 use crate::python_repr::PythonRepr;
+use crate::scalar::scalar_into_py;
 
 #[pyclass(name = "Array", module = "vortex", sequence, subclass)]
 /// An array of zero or more *rows* each with the same set of *columns*.
@@ -324,6 +325,87 @@ impl PyArray {
         fill_forward(&self.inner)
             .map_err(PyVortexError::map_err)
             .map(|arr| PyArray { inner: arr })
+    }
+
+    /// Retrieve a row by its index.
+    ///
+    /// Parameters
+    /// ----------
+    /// index : :class:`int`
+    ///     The index of interest. Must be greater than or equal to zero and less than the length of
+    ///     this array.
+    ///
+    /// Returns
+    /// -------
+    /// one of :class:`int`, :class:`float`, :class:`bool`, :class:`vortex.scalar.Buffer`, :class:`vortex.scalar.BufferString`, :class:`vortex.scalar.VortexList`, :class:`vortex.scalar.VortexStruct`
+    ///     If this array contains numbers or Booleans, this array returns the corresponding
+    ///     primitive Python type, i.e. int, float, and bool. For structures and variable-length
+    ///     data types, a zero-copy view of the underlying data is returned.
+    ///
+    /// Examples
+    /// --------
+    ///
+    /// Retrieve the last element from an array of integers:
+    ///
+    /// >>> vortex.encoding.array([10, 42, 999, 1992]).scalar_at(3)
+    /// 1992
+    ///
+    /// Retrieve the third element from an array of strings:
+    ///
+    /// >>> array = vortex.encoding.array(["hello", "goodbye", "it", "is"])
+    /// >>> array.scalar_at(2)
+    /// <vortex.BufferString ...>
+    ///
+    /// Vortex, by default, returns a view into the array's data. This avoids copying the data,
+    /// which can be expensive if done repeatedly. :meth:`.BufferString.into_python` forcibly copies
+    /// the scalar data into a Python data structure.
+    ///
+    /// >>> array.scalar_at(2).into_python()
+    /// 'it'
+    ///
+    /// Retrieve an element from an array of structures:
+    ///
+    /// >>> array = vortex.encoding.array([
+    /// ...     {'name': 'Joseph', 'age': 25},
+    /// ...     {'name': 'Narendra', 'age': 31},
+    /// ...     {'name': 'Angela', 'age': 33},
+    /// ...     None,
+    /// ...     {'name': 'Mikhail', 'age': 57},
+    /// ... ])
+    /// >>> array.scalar_at(2).into_python()
+    /// {'age': 33, 'name': <vortex.BufferString ...>}
+    ///
+    /// Notice that :meth:`.VortexStruct.into_python` only copies one "layer" of data into
+    /// Python. If we want to ensure the entire structure is recurisvely copied into Python we can
+    /// specify ``recursive=True``:
+    ///
+    /// >>> array.scalar_at(2).into_python(recursive=True)
+    /// {'age': 33, 'name': 'Angela'}
+    ///
+    /// Retrieve a missing element from an array of structures:
+    ///
+    /// >>> array.scalar_at(3) is None
+    /// True
+    ///
+    /// Out of bounds accesses are prohibited:
+    ///
+    /// >>> vortex.encoding.array([10, 42, 999, 1992]).scalar_at(10)
+    /// Traceback (most recent call last):
+    /// ...
+    /// ValueError: index 10 out of bounds from 0 to 4
+    /// ...
+    ///
+    /// Unlike Python, negative indices are not supported:
+    ///
+    /// >>> vortex.encoding.array([10, 42, 999, 1992]).scalar_at(-2)
+    /// Traceback (most recent call last):
+    /// ...
+    /// OverflowError: can't convert negative int to unsigned
+    ///
+    fn scalar_at(&self, index: &Bound<PyInt>) -> PyResult<PyObject> {
+        scalar_at(&self.inner, index.extract()?)
+            .map_err(PyVortexError::map_err)
+            .and_then(|scalar| scalar_into_py(index.py(), scalar, false))
     }
 
     /// Filter, permute, and/or repeat elements by their index.

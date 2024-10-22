@@ -7,7 +7,6 @@ from ._lib import encoding as _encoding
 
 if TYPE_CHECKING:
     import numpy
-    import pandas
 
 __doc__ = _encoding.__doc__
 
@@ -229,6 +228,12 @@ def _Array_to_numpy(self: _encoding.Array, *, zero_copy_only: bool = True) -> "n
 
     This is an alias for :code:`self.to_arrow_array().to_numpy(zero_copy_only)`
 
+    Parameters
+    ----------
+    zero_copy_only : :class:`bool`
+        When :obj:`True`, this method will raise an error unless a NumPy array can be created without
+        copying the data. This is only possible when the array is a primitive array without nulls.
+
     Returns
     -------
     :class:`numpy.ndarray`
@@ -236,7 +241,7 @@ def _Array_to_numpy(self: _encoding.Array, *, zero_copy_only: bool = True) -> "n
     Examples
     --------
 
-    Construct an ndarray from a Vortex array:
+    Construct an immutable ndarray from a Vortex array:
 
     >>> array = vortex.encoding.array([1, 0, 0, 1])
     >>> array.to_numpy()

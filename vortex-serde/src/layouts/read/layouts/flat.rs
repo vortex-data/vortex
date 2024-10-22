@@ -4,7 +4,7 @@ use std::sync::Arc;
 use bytes::Bytes;
 use vortex::compute::slice;
 use vortex::{Array, Context};
-use vortex_error::{vortex_err, VortexExpect, VortexResult, VortexUnwrap};
+use vortex_error::{vortex_err, VortexResult, VortexUnwrap};
 use vortex_flatbuffers::footer;
 
 use crate::layouts::read::cache::RelativeLayoutCache;
@@ -35,25 +35,14 @@ impl LayoutSpec for FlatLayoutSpec {
             let tab = flatbuffers::Table::new(&fb_bytes, fb_loc);
             footer::Layout::init_from_table(tab)
         };
-        let flat_meta = fb_layout
-            .metadata()
-            .vortex_expect("FlatLayout must have metadata");
-        let begin = u64::from_le_bytes(
-            flat_meta.bytes()[0..8]
-                .try_into()
-                .map_err(|e| vortex_err!("Not a u64 {e}"))
-                .vortex_unwrap(),
-        );
-        let end = u64::from_le_bytes(
-            flat_meta.bytes()[8..16]
-                .try_into()
-                .map_err(|e| vortex_err!("Not a u64 {e}"))
-                .vortex_unwrap(),
-        );
+        let buf = fb_layout
+            .buffers()
+            .ok_or_else(|| vortex_err!("No buffers"))
+            .vortex_unwrap()
+            .get(0);
 
         Box::new(FlatLayout::new(
-            begin,
-            end,
+            ByteRange::new(buf.begin(), buf.end()),
             scan,
             layout_serde.ctx(),
             message_cache,
@@ -73,14 +62,13 @@ pub struct FlatLayout {
 
 impl FlatLayout {
     pub fn new(
-        begin: u64,
-        end: u64,
+        range: ByteRange,
         scan: Scan,
         ctx: Arc<Context>,
         cache: RelativeLayoutCache,
     ) -> Self {
         Self {
-            range: ByteRange { begin, end },
+            range,
             scan,
             ctx,
             cache,
