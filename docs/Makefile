@@ -18,3 +18,9 @@ help:
 # "make mode" option.  $(O) is meant as a shortcut for $(SPHINXOPTS).
 %: Makefile
 	@$(SPHINXBUILD) -M $@ "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
+
+html: rust-html
+
+.PHONY: rust-html
+rust-html:
+	cargo doc --no-deps --workspace --all-features --target-dir $(BUILDDIR)/html/rust

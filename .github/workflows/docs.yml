@@ -1,4 +1,4 @@
-name: Python docs
+name: Python & Rust docs
 
 on:
   push:
@@ -32,6 +32,7 @@ jobs:
 
           built_sha=$(git rev-parse HEAD)
 
+          rm -rf docs/_build/html/rust/CACHETAG.DIR docs/_build/html/rust/debug
           mv docs/_build/html /tmp/html
 
           git fetch origin

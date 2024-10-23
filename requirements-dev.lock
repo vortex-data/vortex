@@ -72,7 +72,6 @@ numpy==1.26.4
     # via xarray
 packaging==24.0
     # via matplotlib
-    # via pydata-sphinx-theme
     # via pytest
     # via sphinx
     # via xarray
@@ -103,7 +102,7 @@ py-cpuinfo==9.0.0
     # via pytest-benchmark
 pyarrow==17.0.0
     # via vortex-array
-pydata-sphinx-theme==0.15.4
+pydata-sphinx-theme==0.16.0
 pygments==2.17.2
     # via accessible-pygments
     # via ipython
@@ -133,6 +132,8 @@ soupsieve==2.6
     # via beautifulsoup4
 sphinx==8.0.2
     # via pydata-sphinx-theme
+    # via sphinx-design
+sphinx-design==0.6.1
 sphinxcontrib-applehelp==2.0.0
     # via sphinx
 sphinxcontrib-devhelp==2.0.0

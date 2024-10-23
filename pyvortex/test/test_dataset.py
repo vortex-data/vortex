@@ -24,7 +24,7 @@ def ds(tmpdir_factory) -> vortex.dataset.VortexDataset:
         a = pa.array([record(x) for x in range(1_000_000)])
         arr = vortex.encoding.compress(vortex.array(a))
         vortex.io.write(arr, "/tmp/foo.vortex")
-    return vortex.dataset.VortexDataset("/tmp/foo.vortex")
+    return vortex.dataset.dataset("/tmp/foo.vortex")
 
 
 def test_schema(ds):

@@ -8,7 +8,7 @@ use tokio::fs::File;
 use vortex::Array;
 use vortex_dtype::field::Field;
 use vortex_error::VortexResult;
-use vortex_sampling_compressor::ALL_COMPRESSORS_CONTEXT;
+use vortex_sampling_compressor::{SamplingCompressor, ALL_COMPRESSORS_CONTEXT};
 use vortex_serde::layouts::{
     LayoutBatchStream, LayoutContext, LayoutDeserializer, LayoutReaderBuilder, LayoutWriter,
     Projection, RowFilter,
@@ -30,7 +30,7 @@ use crate::{PyArray, TOKIO_RUNTIME};
 ///
 /// Read an array with a structured column and nulls at multiple levels and in multiple columns.
 ///
-/// >>> a = vortex.encoding.array([
+/// >>> a = vortex.array([
 /// ...     {'name': 'Joseph', 'age': 25},
 /// ...     {'name': None, 'age': 31},
 /// ...     {'name': 'Angela', 'age': None},
@@ -114,7 +114,7 @@ use crate::{PyArray, TOKIO_RUNTIME};
 ///
 /// TODO(DK): Top-level nullness does not work.
 ///
-/// >>> a = vortex.encoding.array([
+/// >>> a = vortex.array([
 /// ...     {'name': 'Joseph', 'age': 25},
 /// ...     {'name': None, 'age': 31},
 /// ...     {'name': 'Angela', 'age': None},
@@ -208,23 +208,25 @@ pub(crate) async fn async_read(
         .await
 }
 
-#[pyfunction]
 /// Write a vortex struct array to the local filesystem.
 ///
 /// Parameters
 /// ----------
-/// array : :class:`vortex.encoding.Array`
+/// array : :class:`~vortex.encoding.Array`
 ///     The array. Must be an array of structures.
 ///
 /// f : :class:`str`
 ///     The file path.
+///
+/// compress : :class:`bool`
+///     Compress the array before writing, defaults to ``True``.
 ///
 /// Examples
 /// --------
 ///
 /// Write the array `a` to the local file `a.vortex`.
 ///
-/// >>> a = vortex.encoding.array([
+/// >>> a = vortex.array([
 /// ...     {'x': 1},
 /// ...     {'x': 2},
 /// ...     {'x': 10},
@@ -233,7 +235,9 @@ pub(crate) async fn async_read(
 /// ... ])
 /// >>> vortex.io.write(a, "a.vortex")
 ///
-pub fn write(array: &Bound<'_, PyArray>, f: &Bound<'_, PyString>) -> PyResult<()> {
+#[pyfunction]
+#[pyo3(signature = (array, f, *, compress=true))]
+pub fn write(array: &Bound<'_, PyArray>, f: &Bound<'_, PyString>, compress: bool) -> PyResult<()> {
     async fn run(array: &Array, fname: &str) -> VortexResult<()> {
         let file = File::create(Path::new(fname)).await?;
         let mut writer = LayoutWriter::new(file);
@@ -244,7 +248,15 @@ pub fn write(array: &Bound<'_, PyArray>, f: &Bound<'_, PyString>) -> PyResult<()
     }
 
     let fname = f.to_str()?; // TODO(dk): support file objects
-    let array = array.borrow().unwrap().clone();
+    let mut array = array.borrow().unwrap().clone();
+
+    if compress {
+        let compressor = SamplingCompressor::default();
+        array = compressor
+            .compress(&array, None)
+            .map_err(PyVortexError::new)?
+            .into_array();
+    }
 
     TOKIO_RUNTIME
         .block_on(run(&array, fname))
