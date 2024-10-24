@@ -9,32 +9,28 @@ Wide, Fast & Compact. Pick Three.
 .. grid:: 1 1 2 2
     :gutter: 4 4 4 4
 
-    .. grid-item-card::  Row groups? Your choice.
-       :link: file-format--layouts
-       :link-type: ref
+    .. grid-item-card:: The File Format
+       :link: file_format
+       :link-type: doc
 
-       Bring your wide schemas, images, and videos.
+       Currently just a schematic. Specification forthcoming.
 
-    .. grid-item-card::  All your favorite query engines.
-       :link: query-engine-integration
-       :link-type: ref
+    .. grid-item-card:: The Rust API
+       :link: https://spiraldb.github.io/vortex/docs2/rust/doc/vortex
 
-       Query pushdown in Pandas, Polars, DuckDB, & chDB.
+       The primary interface to the Vortex toolkit.
 
-    .. grid-item-card::  200x lower latency random reads.
+    .. grid-item-card:: Quickstart
+       :link: quickstart
+       :link-type: doc
 
-       Block compression is for chumps.
+       For end-users looking to read and write Vortex files.
 
-    .. grid-item-card:: Zero copy reads.
+    .. grid-item-card:: The Benchmarks
+       :link: https://bench.vortex.dev/
 
-       It's called a processor, not a Xerox.
+       Random access, throughput, and TPC-H.
 
-    .. grid-item-card::  Batteries-included.
-       :columns: 12 12 12 12
-       :link: included-codecs
-       :link-type: ref
-
-       Cutting-edge codecs: FSST, ALP, FastLanes, and more.
 
 Vortex is a fast, extensible, lightweight-compressed, and random-access columnar file format as well
 as a library for working with compressed Apache Arrow arrays in-memory, on-disk, and
