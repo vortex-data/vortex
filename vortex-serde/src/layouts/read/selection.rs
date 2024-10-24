@@ -90,6 +90,12 @@ impl RowSelector {
             return Ok(None);
         }
 
+        let array = array.as_ref();
+
+        if self.values.cardinality() == array.len() as u64 {
+            return Ok(Some(array.clone()));
+        }
+
         let bitset = self
             .values
             .to_bitset()
