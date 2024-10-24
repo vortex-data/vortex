@@ -150,7 +150,7 @@ impl LayoutReader for InlineDTypeLayout {
             match self.child_reader()? {
                 Some(r) => match r {
                     ReadResult::ReadMore(rm) => Ok(RangeResult::ReadMore(rm)),
-                    ReadResult::Selector(_) | ReadResult::Batch(_) => {
+                    ReadResult::Batch(_) => {
                         unreachable!("Child reader will only return ReadMore")
                     }
                 },

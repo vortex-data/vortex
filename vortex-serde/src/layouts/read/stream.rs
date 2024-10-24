@@ -28,6 +28,7 @@ pub struct LayoutBatchStream<R> {
     messages_cache: Arc<RwLock<LayoutMessageCache>>,
     current_selector: Option<RowSelector>,
     state: StreamingState<R>,
+    offset: usize,
 }
 
 impl<R: VortexReadAt> LayoutBatchStream<R> {
@@ -48,6 +49,7 @@ impl<R: VortexReadAt> LayoutBatchStream<R> {
             messages_cache,
             current_selector: None,
             state: StreamingState::Init,
+            offset: 0,
         }
     }
 
@@ -138,9 +140,6 @@ impl<R: VortexReadAt + Unpin + 'static> Stream for LayoutBatchStream<R> {
                                 );
                             }
                             ReadResult::Batch(a) => return Poll::Ready(Some(Ok(a))),
-                            ReadResult::Selector(_) => {
-                                unreachable!("Reading data cannot produce selector")
-                            }
                         }
                     } else if read_more {
                         self.state = StreamingState::Init;
@@ -171,12 +170,14 @@ impl<R: VortexReadAt + Unpin + 'static> Stream for LayoutBatchStream<R> {
                                     NextStreamState::Filter(read_more),
                                 );
                             }
-                            ReadResult::Selector(rs) => {
-                                self.current_selector = Some(rs);
+                            ReadResult::Batch(b) => {
+                                self.current_selector = Some(RowSelector::from_array(
+                                    &b,
+                                    self.offset,
+                                    self.offset + b.len(),
+                                )?);
+                                self.offset += b.len();
                                 self.state = StreamingState::Read(true);
-                            }
-                            ReadResult::Batch(_) => {
-                                unreachable!("Filtering data cannot produce batches")
                             }
                         }
                     } else {

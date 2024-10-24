@@ -65,12 +65,11 @@ impl BufferedArrayReader {
 
         if let Some(rr) = buffer_read(&mut self.layouts, selection, |range, read| match read {
             ReadResult::ReadMore(_) => unreachable!("Handled by outside closure"),
-            ReadResult::Selector(_) => unreachable!("Can't be a selector"),
             ReadResult::Batch(a) => self.arrays.push_back((range, a)),
         })? {
             match rr {
                 read_more @ ReadResult::ReadMore(..) => return Ok(Some(read_more)),
-                ReadResult::Batch(_) | ReadResult::Selector(_) => {
+                ReadResult::Batch(_) => {
                     unreachable!("Buffer should only produce ReadMore")
                 }
             }
@@ -156,7 +155,6 @@ fn buffer_read<F: FnMut((usize, usize), ReadResult)>(
                     return Ok(Some(read_more));
                 }
                 ReadResult::Batch(a) => consumer((begin, end), ReadResult::Batch(a)),
-                ReadResult::Selector(s) => consumer((begin, end), ReadResult::Selector(s)),
             }
         } else {
             if end > selection.end() && begin < selection.end() {
@@ -167,120 +165,4 @@ fn buffer_read<F: FnMut((usize, usize), ReadResult)>(
         }
     }
     Ok(None)
-}
-
-#[derive(Debug)]
-pub struct BufferedSelectorReader {
-    layouts: VecDeque<RangedLayoutReader>,
-    selectors: VecDeque<RowSelector>,
-    next_range_offset: usize,
-}
-
-impl BufferedSelectorReader {
-    pub fn new(layouts: VecDeque<RangedLayoutReader>) -> Self {
-        Self {
-            layouts,
-            selectors: VecDeque::new(),
-            next_range_offset: 0,
-        }
-    }
-
-    fn is_empty(&self) -> bool {
-        self.layouts.is_empty() && self.selectors.is_empty()
-    }
-
-    pub fn next_range(&mut self) -> VortexResult<RangeResult> {
-        if self.next_range_offset == self.layouts.len() {
-            return Ok(RangeResult::Rows(None));
-        }
-
-        match self.layouts[self.next_range_offset].1.next_range()? {
-            RangeResult::ReadMore(m) => Ok(RangeResult::ReadMore(m)),
-            RangeResult::Rows(r) => match r {
-                None => {
-                    self.next_range_offset += 1;
-                    self.next_range()
-                }
-                Some(rs) => {
-                    let layout_range = self.layouts[self.next_range_offset].0;
-                    let offset = rs.offset(-(layout_range.0 as i64));
-                    if offset.end() == layout_range.1 {
-                        self.next_range_offset += 1;
-                    }
-                    Ok(RangeResult::Rows(Some(offset)))
-                }
-            },
-        }
-    }
-
-    pub fn read_next(&mut self, selection: RowSelector) -> VortexResult<Option<ReadResult>> {
-        if self.is_empty() {
-            return Ok(None);
-        }
-
-        if let Some(rr) = buffer_read(
-            &mut self.layouts,
-            selection,
-            |(begin, _), read| match read {
-                ReadResult::ReadMore(_) => unreachable!("Handled by outside closure"),
-                ReadResult::Selector(s) => self.selectors.push_back(s.offset(-(begin as i64))),
-                ReadResult::Batch(_) => unreachable!("Can't be an array"),
-            },
-        )? {
-            match rr {
-                read_more @ ReadResult::ReadMore(..) => return Ok(Some(read_more)),
-                ReadResult::Batch(_) | ReadResult::Selector(_) => {
-                    unreachable!("Buffer should only produce ReadMore")
-                }
-            }
-        }
-        self.next_range_offset = 0;
-
-        Ok(mem::take(&mut self.selectors)
-            .into_iter()
-            .reduce(|acc, a| acc.concatenate(&a))
-            .map(ReadResult::Selector))
-    }
-
-    pub fn advance(&mut self, up_to_row: usize) -> VortexResult<Vec<Message>> {
-        if self
-            .selectors
-            .front()
-            .map(|s| up_to_row < s.begin())
-            .or_else(|| {
-                self.layouts
-                    .front()
-                    .map(|((begin, _), _)| up_to_row < *begin)
-            })
-            .unwrap_or(false)
-        {
-            vortex_bail!("Can't advance backwards to {up_to_row}")
-        }
-
-        let mut new_selectors = mem::take(&mut self.selectors)
-            .into_iter()
-            .skip_while(|s| s.end() < up_to_row)
-            .collect::<VecDeque<_>>();
-        if let Some(s) = new_selectors.pop_front() {
-            if let Some(rs) = s.advance(up_to_row) {
-                new_selectors.push_front(rs);
-            }
-        };
-        self.selectors = new_selectors;
-
-        let mut new_layouts = mem::take(&mut self.layouts)
-            .into_iter()
-            .skip_while(|((_, end), _)| *end < up_to_row)
-            .collect::<VecDeque<_>>();
-        let res = if let Some(((begin, end), mut l)) = new_layouts.pop_front() {
-            let advance = l.advance(up_to_row - begin);
-            new_layouts.push_front(((begin, end), l));
-            advance
-        } else {
-            Ok(vec![])
-        };
-        self.next_range_offset = 0;
-        self.layouts = new_layouts;
-        res
-    }
 }

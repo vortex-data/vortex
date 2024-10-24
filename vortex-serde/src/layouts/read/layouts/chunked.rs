@@ -7,14 +7,12 @@ use vortex::{Array, IntoArrayVariant};
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 use vortex_flatbuffers::footer;
 
-use crate::layouts::read::buffered::{
-    BufferedArrayReader, BufferedSelectorReader, RangedLayoutReader,
-};
+use crate::layouts::read::buffered::{BufferedArrayReader, RangedLayoutReader};
 use crate::layouts::read::cache::RelativeLayoutCache;
 use crate::layouts::read::selection::RowSelector;
 use crate::layouts::{
-    LayoutDeserializer, LayoutId, LayoutReader, LayoutSpec, Message, RangeResult, ReadResult,
-    RowFilter, Scan, CHUNKED_LAYOUT_ID,
+    LayoutDeserializer, LayoutId, LayoutReader, LayoutSpec, Message, RangeResult, ReadResult, Scan,
+    CHUNKED_LAYOUT_ID,
 };
 #[derive(Default, Debug)]
 pub struct ChunkedLayoutSpec;
@@ -48,7 +46,6 @@ impl LayoutSpec for ChunkedLayoutSpec {
 pub enum ChunkedLayoutState {
     Init,
     ReadMetadata((Box<dyn LayoutReader>, usize)),
-    FilterChunks(BufferedSelectorReader),
     ReadChunks(BufferedArrayReader),
 }
 
@@ -167,24 +164,6 @@ impl ChunkedLayout {
             .map(|b| b.bytes()[0] != 0)
             .unwrap_or(false)
     }
-
-    fn metadata_stat_transition(&mut self) -> VortexResult<()> {
-        if let Some(expr) = self.scan.expr.as_ref() {
-            if expr.as_any().is::<RowFilter>() {
-                self.state = ChunkedLayoutState::FilterChunks(BufferedSelectorReader::new(
-                    self.ranged_children()?,
-                ));
-            } else {
-                self.state = ChunkedLayoutState::ReadChunks(BufferedArrayReader::new(
-                    self.ranged_children()?,
-                ));
-            }
-        } else {
-            self.state =
-                ChunkedLayoutState::ReadChunks(BufferedArrayReader::new(self.ranged_children()?));
-        }
-        Ok(())
-    }
 }
 
 impl LayoutReader for ChunkedLayout {
@@ -197,7 +176,9 @@ impl LayoutReader for ChunkedLayout {
             ChunkedLayoutState::ReadMetadata((r, nchildren)) => {
                 match read_metadata(r.as_mut(), *nchildren)? {
                     None => {
-                        self.metadata_stat_transition()?;
+                        self.state = ChunkedLayoutState::ReadChunks(BufferedArrayReader::new(
+                            self.ranged_children()?,
+                        ));
                         self.next_range()
                     }
                     Some(mr) => match mr {
@@ -213,7 +194,6 @@ impl LayoutReader for ChunkedLayout {
                     },
                 }
             }
-            ChunkedLayoutState::FilterChunks(fc) => fc.next_range(),
             ChunkedLayoutState::ReadChunks(rc) => rc.next_range(),
         }
     }
@@ -227,7 +207,9 @@ impl LayoutReader for ChunkedLayout {
             ChunkedLayoutState::ReadMetadata((r, nchildren)) => {
                 match read_metadata(r.as_mut(), *nchildren)? {
                     None => {
-                        self.metadata_stat_transition()?;
+                        self.state = ChunkedLayoutState::ReadChunks(BufferedArrayReader::new(
+                            self.ranged_children()?,
+                        ));
                         self.read_next(selector)
                     }
                     Some(mr) => match mr {
@@ -243,14 +225,12 @@ impl LayoutReader for ChunkedLayout {
                     },
                 }
             }
-            ChunkedLayoutState::FilterChunks(fc) => fc.read_next(selector),
             ChunkedLayoutState::ReadChunks(rc) => rc.read_next(selector),
         }
     }
 
     fn advance(&mut self, up_to_row: usize) -> VortexResult<Vec<Message>> {
         match &mut self.state {
-            ChunkedLayoutState::FilterChunks(fr) => fr.advance(up_to_row),
             ChunkedLayoutState::ReadChunks(br) => br.advance(up_to_row),
             _ => {
                 self.offset = up_to_row;
@@ -275,7 +255,6 @@ fn read_metadata(
         Some(rr) => match rr {
             ReadResult::ReadMore(m) => Ok(Some(MetadataResult::ReadMore(m))),
             ReadResult::Batch(a) => Ok(Some(MetadataResult::Batch(a))),
-            ReadResult::Selector(_) => unreachable!("Metadata will never produce a selector"),
         },
     }
 }

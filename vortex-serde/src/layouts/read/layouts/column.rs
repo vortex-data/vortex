@@ -6,10 +6,10 @@ use itertools::Itertools;
 use vortex_dtype::field::Field;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
-use vortex_expr::Select;
+use vortex_expr::{Column, Select};
 use vortex_flatbuffers::footer;
 
-use crate::layouts::read::batch::{ColumnBatchFilter, ColumnBatchReader};
+use crate::layouts::read::batch::ColumnBatchReader;
 use crate::layouts::read::cache::{LazyDeserializedDType, RelativeLayoutCache};
 use crate::layouts::read::filter_project::filter_project;
 use crate::layouts::read::selection::RowSelector;
@@ -46,13 +46,6 @@ impl LayoutSpec for ColumnLayoutSpec {
     }
 }
 
-#[derive(Debug)]
-pub enum ColumnLayoutState {
-    Init,
-    Filtering(ColumnBatchFilter),
-    Reading(ColumnBatchReader),
-}
-
 /// In memory representation of Columnar NestedLayout.
 ///
 /// Each child represents a column
@@ -65,7 +58,7 @@ pub struct ColumnLayout {
     scan: Scan,
     layout_serde: LayoutDeserializer,
     message_cache: RelativeLayoutCache,
-    state: ColumnLayoutState,
+    reader: Option<ColumnBatchReader>,
 }
 
 impl ColumnLayout {
@@ -84,7 +77,7 @@ impl ColumnLayout {
             length,
             layout_serde,
             message_cache,
-            state: ColumnLayoutState::Init,
+            reader: None,
             offset: 0,
         }
     }
@@ -119,7 +112,7 @@ impl ColumnLayout {
         Ok(layout)
     }
 
-    fn filter_reader(&mut self) -> VortexResult<ColumnBatchFilter> {
+    fn filter_reader(&mut self) -> VortexResult<ColumnBatchReader> {
         let Some(ref rf) = self.scan.expr else {
             vortex_bail!("Must have scan expression");
         };
@@ -141,6 +134,7 @@ impl ColumnLayout {
         let mut unhandled_children_names = Vec::new();
         let mut unhandled_children = Vec::new();
         let mut handled_children = Vec::new();
+        let mut handled_names = Vec::new();
 
         for (idx, field) in filter_refs.into_iter().enumerate() {
             let resolved_child = lazy_dtype.resolve_field(&field)?;
@@ -166,6 +160,7 @@ impl ColumnLayout {
 
             if has_filter {
                 handled_children.push(child);
+                handled_names.push(s.names()[idx].clone());
             } else {
                 unhandled_children.push(child);
                 unhandled_children_names.push(s.names()[idx].clone());
@@ -183,14 +178,27 @@ impl ColumnLayout {
                 vortex_bail!("Must be able to project filter into unhandled space")
             };
 
-            handled_children.push(Box::new(FilterLayoutReader::new(
-                ColumnBatchReader::new(unhandled_children_names.into(), unhandled_children),
-                prf,
-                self.offset,
+            handled_children.push(Box::new(ColumnBatchReader::new(
+                unhandled_children_names.into(),
+                unhandled_children,
+                Some(prf),
+                true,
             )));
+            handled_names.push("unhandled".into());
         }
 
-        Ok(ColumnBatchFilter::new(handled_children))
+        let filter = Some(Arc::new(RowFilter::from_conjunction(
+            handled_names
+                .iter()
+                .map(|f| Arc::new(Column::new(Field::from(&**f))) as _)
+                .collect(),
+        )) as _);
+        Ok(ColumnBatchReader::new(
+            handled_names.into(),
+            handled_children,
+            filter,
+            true,
+        ))
     }
 
     fn read_children(&mut self) -> VortexResult<ColumnBatchReader> {
@@ -222,7 +230,12 @@ impl ColumnLayout {
                 .collect::<VortexResult<Vec<_>>>()?,
         };
 
-        Ok(ColumnBatchReader::new(s.names().clone(), child_layouts))
+        Ok(ColumnBatchReader::new(
+            s.names().clone(),
+            child_layouts,
+            None,
+            false,
+        ))
     }
 
     fn scan_fields(&self) -> VortexResult<Option<Vec<Field>>> {
@@ -245,12 +258,12 @@ impl ColumnLayout {
     fn read_init(&mut self) -> VortexResult<()> {
         if let Some(expr) = self.scan.expr.as_ref() {
             if expr.as_any().is::<RowFilter>() {
-                self.state = ColumnLayoutState::Filtering(self.filter_reader()?);
+                self.reader = Some(self.filter_reader()?);
             } else {
-                self.state = ColumnLayoutState::Reading(self.read_children()?);
+                self.reader = Some(self.read_children()?);
             }
         } else {
-            self.state = ColumnLayoutState::Reading(self.read_children()?);
+            self.reader = Some(self.read_children()?);
         }
         Ok(())
     }
@@ -258,35 +271,29 @@ impl ColumnLayout {
 
 impl LayoutReader for ColumnLayout {
     fn next_range(&mut self) -> VortexResult<RangeResult> {
-        match &mut self.state {
-            ColumnLayoutState::Init => {
-                self.read_init()?;
-                self.next_range()
-            }
-            ColumnLayoutState::Filtering(fc) => fc.next_range(),
-            ColumnLayoutState::Reading(rc) => rc.next_range(),
+        if let Some(r) = &mut self.reader {
+            r.next_range()
+        } else {
+            self.read_init()?;
+            self.next_range()
         }
     }
 
     fn read_next(&mut self, selector: RowSelector) -> VortexResult<Option<ReadResult>> {
-        match &mut self.state {
-            ColumnLayoutState::Init => {
-                self.read_init()?;
-                self.read_next(selector)
-            }
-            ColumnLayoutState::Filtering(fc) => fc.read_next(selector),
-            ColumnLayoutState::Reading(rc) => rc.read_next(selector),
+        if let Some(r) = &mut self.reader {
+            r.read_next(selector)
+        } else {
+            self.read_init()?;
+            self.read_next(selector)
         }
     }
 
     fn advance(&mut self, up_to_row: usize) -> VortexResult<Vec<Message>> {
-        match &mut self.state {
-            ColumnLayoutState::Filtering(fr) => fr.advance(up_to_row),
-            ColumnLayoutState::Reading(br) => br.advance(up_to_row),
-            _ => {
-                self.offset = up_to_row;
-                Ok(vec![])
-            }
+        if let Some(r) = &mut self.reader {
+            r.advance(up_to_row)
+        } else {
+            self.offset = up_to_row;
+            Ok(Vec::new())
         }
     }
 }

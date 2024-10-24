@@ -49,7 +49,6 @@ pub fn read_layout_data(
                 }
             }
             ReadResult::Batch(a) => arr.push(a),
-            ReadResult::Selector(_) => {}
         }
     }
 
@@ -63,6 +62,7 @@ pub fn read_filters(
     selector: RowSelector,
 ) -> Vec<RowSelector> {
     let mut sels = Vec::new();
+    let mut offset = 0;
     while let Some(rr) = layout.read_next(selector.clone()).unwrap() {
         match rr {
             ReadResult::ReadMore(m) => {
@@ -71,8 +71,10 @@ pub fn read_filters(
                     write_cache_guard.set(id, buf.slice(range.to_range()));
                 }
             }
-            ReadResult::Batch(_) => unreachable!("Can't produce batches from filter"),
-            ReadResult::Selector(s) => sels.push(s),
+            ReadResult::Batch(a) => {
+                sels.push(RowSelector::from_array(&a, offset, offset + a.len()).unwrap());
+                offset += a.len();
+            }
         }
     }
 
