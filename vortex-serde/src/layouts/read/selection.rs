@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 use std::cmp::{max, min};
+use std::fmt::{Display, Formatter};
 
 use arrow_buffer::{BooleanBuffer, MutableBuffer};
 use croaring::Bitmap;
@@ -15,6 +16,12 @@ pub struct RowSelector {
     values: Bitmap,
     begin: usize,
     end: usize,
+}
+
+impl Display for RowSelector {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "RowSelector [{}..{}]", self.begin, self.end)
+    }
 }
 
 impl RowSelector {

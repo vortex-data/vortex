@@ -141,7 +141,7 @@ fn buffer_read<F: FnMut((usize, usize), ReadResult)>(
 ) -> VortexResult<Option<ReadResult>> {
     while let Some(((begin, end), mut layout)) = layouts.pop_front() {
         // This selection doesn't know about rows in this chunk, we should put it back and wait for another request with different range
-        if selection.end() <= begin {
+        if selection.end() <= begin || selection.begin() > end {
             layouts.push_front(((begin, end), layout));
             return Ok(None);
         }
