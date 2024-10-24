@@ -15,19 +15,28 @@ pub fn filter_project(
         Some(filter.clone())
     } else if let Some(s) = filter.as_any().downcast_ref::<Select>() {
         match s {
-            Select::Include(i) => Some(Arc::new(Select::include(
-                i.iter()
+            Select::Include(i) => {
+                let mut fields = i
+                    .iter()
                     .filter(|f| projection.contains(f))
                     .cloned()
-                    .collect::<Vec<_>>(),
-            ))),
-            Select::Exclude(e) => Some(Arc::new(Select::include(
-                projection
+                    .collect::<Vec<_>>();
+                match fields.len() {
+                    0 | 1 => fields.pop().map(Column::new).map(|c| Arc::new(c) as _),
+                    _ => Some(Arc::new(Select::include(fields))),
+                }
+            }
+            Select::Exclude(e) => {
+                let mut fields = projection
                     .iter()
                     .filter(|f| !e.contains(f))
                     .cloned()
-                    .collect::<Vec<_>>(),
-            ))),
+                    .collect::<Vec<_>>();
+                match fields.len() {
+                    0 | 1 => fields.pop().map(Column::new).map(|c| Arc::new(c) as _),
+                    _ => Some(Arc::new(Select::include(fields))),
+                }
+            }
         }
     } else if let Some(c) = filter.as_any().downcast_ref::<Column>() {
         projection.contains(c.field()).then(|| {

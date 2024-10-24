@@ -1,12 +1,10 @@
 use std::mem;
-use std::sync::Arc;
 
 use vortex::array::StructArray;
 use vortex::validity::Validity;
 use vortex::{Array, IntoArray};
 use vortex_dtype::FieldNames;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
-use vortex_expr::VortexExpr;
 
 use crate::layouts::read::selection::RowSelector;
 use crate::layouts::read::{LayoutReader, ReadResult};
@@ -99,7 +97,6 @@ impl ColumnBatchReader {
                         messages.extend(message);
                     }
                     ReadResult::Batch(a) => *child_array = Some(a),
-                    ReadResult::Selector(_) => unreachable!("Can only produce batches"),
                 },
                 None => {
                     debug_assert!(
@@ -143,54 +140,6 @@ impl ColumnBatchReader {
             messages.extend(c.advance(up_to_row)?);
         }
         Ok(messages)
-    }
-}
-
-#[derive(Debug)]
-pub struct FilterLayoutReader {
-    reader: ColumnBatchReader,
-    filter: Arc<dyn VortexExpr>,
-    row_offset: usize,
-}
-
-impl FilterLayoutReader {
-    pub fn new(reader: ColumnBatchReader, filter: Arc<dyn VortexExpr>, row_offset: usize) -> Self {
-        Self {
-            reader,
-            filter,
-            row_offset,
-        }
-    }
-}
-
-impl LayoutReader for FilterLayoutReader {
-    fn next_range(&mut self) -> VortexResult<RangeResult> {
-        self.reader.next_range()
-    }
-
-    fn read_next(&mut self, selection: RowSelector) -> VortexResult<Option<ReadResult>> {
-        match self.reader.read_next(selection)? {
-            None => Ok(None),
-            Some(rr) => match rr {
-                ReadResult::ReadMore(m) => Ok(Some(ReadResult::ReadMore(m))),
-                ReadResult::Batch(b) => {
-                    let filter_result = self.filter.evaluate(&b)?;
-                    let selector = RowSelector::from_array(
-                        &filter_result,
-                        self.row_offset,
-                        self.row_offset + filter_result.len(),
-                    )?;
-                    self.row_offset += b.len();
-                    Ok(Some(ReadResult::Selector(selector)))
-                }
-                ReadResult::Selector(_) => unreachable!("Can only produce batches"),
-            },
-        }
-    }
-
-    fn advance(&mut self, up_to_row: usize) -> VortexResult<Vec<Message>> {
-        self.row_offset = up_to_row;
-        self.reader.advance(up_to_row)
     }
 }
 
@@ -282,7 +231,7 @@ impl ColumnBatchFilter {
                         }
                         *child_selector = Some(s)
                     }
-                    ReadResult::Batch(_) => unreachable!("Can only produce selectors"),
+                    ReadResult::Batch(a) => unreachable!("Can only produce selectors"),
                 },
                 None => {
                     debug_assert!(

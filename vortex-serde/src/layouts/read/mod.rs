@@ -1,10 +1,7 @@
 use std::fmt::Debug;
 use std::sync::Arc;
 
-use arrow_buffer::BooleanBuffer;
-use vortex::array::BoolArray;
-use vortex::validity::Validity;
-use vortex::{Array, IntoArray as _, IntoArrayVariant as _};
+use vortex::Array;
 use vortex_error::VortexResult;
 
 mod batch;
@@ -56,7 +53,6 @@ pub type Message = (MessageId, ByteRange);
 #[derive(Debug)]
 pub enum ReadResult {
     ReadMore(Vec<Message>),
-    Selector(RowSelector),
     Batch(Array),
 }
 
@@ -69,7 +65,7 @@ pub enum RangeResult {
 pub trait LayoutReader: Debug + Send {
     /// Produce sets of row ranges to read from underlying layouts.
     ///
-    /// Range ending at the end of the layout length indicates layout is done producing ranges
+    /// Empty RangeResult indicates layout is done producing ranges
     fn next_range(&mut self) -> VortexResult<RangeResult>;
 
     /// Reads the data from the underlying layout
@@ -83,40 +79,4 @@ pub trait LayoutReader: Debug + Send {
 
     /// Advance readers to global row offset
     fn advance(&mut self, up_to_row: usize) -> VortexResult<Vec<Message>>;
-}
-
-pub fn null_as_false(array: BoolArray) -> VortexResult<Array> {
-    Ok(match array.validity() {
-        Validity::NonNullable => array.into_array(),
-        Validity::AllValid => {
-            BoolArray::try_new(array.boolean_buffer(), Validity::NonNullable)?.into_array()
-        }
-        Validity::AllInvalid => BoolArray::from(BooleanBuffer::new_unset(array.len())).into_array(),
-        Validity::Array(v) => {
-            let bool_buffer = &array.boolean_buffer() & &v.into_bool()?.boolean_buffer();
-            BoolArray::from(bool_buffer).into_array()
-        }
-    })
-}
-
-#[cfg(test)]
-mod tests {
-    use vortex::array::BoolArray;
-    use vortex::validity::Validity;
-    use vortex::IntoArrayVariant;
-
-    use super::*;
-
-    #[test]
-    fn coerces_nulls() {
-        let bool_array = BoolArray::from_vec(
-            vec![true, true, false, false],
-            Validity::Array(BoolArray::from(vec![true, false, true, false]).into()),
-        );
-        let non_null_array = null_as_false(bool_array).unwrap().into_bool().unwrap();
-        assert_eq!(
-            non_null_array.boolean_buffer().iter().collect::<Vec<_>>(),
-            vec![true, false, false, false]
-        );
-    }
 }

@@ -10,8 +10,8 @@ use vortex_flatbuffers::footer;
 use crate::layouts::read::cache::RelativeLayoutCache;
 use crate::layouts::read::selection::RowSelector;
 use crate::layouts::{
-    LayoutDeserializer, LayoutId, LayoutReader, LayoutSpec, Message, RangeResult, ReadResult,
-    RowFilter, Scan, FLAT_LAYOUT_ID,
+    LayoutDeserializer, LayoutId, LayoutReader, LayoutSpec, Message, RangeResult, ReadResult
+    , Scan, FLAT_LAYOUT_ID,
 };
 use crate::message_reader::ArrayBufferReader;
 use crate::stream_writer::ByteRange;
@@ -134,27 +134,19 @@ impl LayoutReader for FlatLayout {
                 self.offset,
                 selection_end,
             )?)?;
-            if let Some(selected) = selected {
-                let result = if let Some(f) = self.scan.expr.as_ref() {
-                    let evaluated = f.evaluate(&selected)?;
-                    if f.as_any().is::<RowFilter>() {
-                        ReadResult::Selector(RowSelector::from_array(
-                            &evaluated,
-                            self.offset,
-                            selection_end,
-                        )?)
-                    } else {
-                        ReadResult::Batch(evaluated)
-                    }
-                } else {
-                    ReadResult::Batch(selected)
-                };
-                self.offset = selection_end;
-                Ok(Some(result))
-            } else {
-                self.offset = selection_end;
-                Ok(None)
-            }
+            self.offset = selection_end;
+            selected
+                .map(|s| {
+                    Ok(ReadResult::Batch(
+                        self.scan
+                            .expr
+                            .as_ref()
+                            .map(|e| e.evaluate(&s))
+                            .transpose()?
+                            .unwrap_or_else(|| s),
+                    ))
+                })
+                .transpose()
         } else {
             Ok(Some(ReadResult::ReadMore(vec![self.own_message()])))
         }

@@ -9,7 +9,7 @@ use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_expr::Select;
 use vortex_flatbuffers::footer;
 
-use crate::layouts::read::batch::{ColumnBatchFilter, ColumnBatchReader, FilterLayoutReader};
+use crate::layouts::read::batch::{ColumnBatchFilter, ColumnBatchReader};
 use crate::layouts::read::cache::{LazyDeserializedDType, RelativeLayoutCache};
 use crate::layouts::read::filter_project::filter_project;
 use crate::layouts::read::selection::RowSelector;
