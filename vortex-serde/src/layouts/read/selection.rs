@@ -86,13 +86,14 @@ impl RowSelector {
             vortex_bail!("Cannot filter arrays with absolute row selections")
         }
 
-        if self.values.cardinality() == 0 {
+        let true_count = self.values.cardinality();
+        if true_count == 0 {
             return Ok(None);
         }
 
         let array = array.as_ref();
 
-        if self.values.cardinality() == array.len() as u64 {
+        if true_count == array.len() as u64 {
             return Ok(Some(array.clone()));
         }
 
