@@ -83,7 +83,7 @@ impl RowSelector {
 
     pub fn filter_array(&self, array: impl AsRef<Array>) -> VortexResult<Option<Array>> {
         if self.begin != 0 {
-            vortex_bail!("Cannot filter arrays with absolute row selections")
+            vortex_bail!("Cannot filter with selections that don't start at offset 0")
         }
 
         let true_count = self.values.cardinality();
