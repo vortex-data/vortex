@@ -284,10 +284,9 @@ def _Array_to_pylist(self: _encoding.Array) -> list[Any]:
     ...     {'name': 'Joseph', 'age': 25},
     ...     {'name': 'Narendra', 'age': 31},
     ...     {'name': 'Angela', 'age': 33},
-    ...     {'name': 'Mikhail', 'age': 57},
     ... ])
     >>> array.to_pylist()
-    [{'age': 25, 'name': 'Joseph'}, {'age': 31, 'name': 'Narendra'}, {'age': 33, 'name': 'Angela'}, {'age': 57, 'name': 'Mikhail'}]
+    [{'age': 25, 'name': 'Joseph'}, {'age': 31, 'name': 'Narendra'}, {'age': 33, 'name': 'Angela'}]
 
     """
     return self.to_arrow_table().to_pylist()
