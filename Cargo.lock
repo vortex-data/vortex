@@ -4780,7 +4780,6 @@ dependencies = [
  "chrono",
  "fsst-rs",
  "itertools 0.13.0",
- "lazy_static",
  "log",
  "rand",
  "vortex-alp",

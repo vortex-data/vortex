@@ -1,11 +1,10 @@
 use std::fmt::{Debug, Display, Formatter};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use compressors::bitpacked::BITPACK_WITH_PATCHES;
 use compressors::chunked::DEFAULT_CHUNKED_COMPRESSOR;
 use compressors::fsst::FSSTCompressor;
 use compressors::struct_::StructCompressor;
-use lazy_static::lazy_static;
 use log::{debug, warn};
 use rand::rngs::StdRng;
 use rand::SeedableRng;
@@ -47,8 +46,8 @@ pub mod compressors;
 mod constants;
 mod sampling;
 
-lazy_static! {
-    pub static ref DEFAULT_COMPRESSORS: [CompressorRef<'static>; 9] = [
+pub const DEFAULT_COMPRESSORS: LazyLock<[CompressorRef<'static>; 9]> = LazyLock::new(|| {
+    [
         &ALPCompressor as CompressorRef,
         &BITPACK_WITH_PATCHES,
         &DateTimePartsCompressor,
@@ -61,19 +60,23 @@ lazy_static! {
         // &RoaringIntCompressor,
         &SparseCompressor,
         &ZigZagCompressor,
-    ];
+    ]
+});
 
-    pub static ref FASTEST_COMPRESSORS: [CompressorRef<'static>; 7] = [
+pub const FASTEST_COMPRESSORS: LazyLock<[CompressorRef<'static>; 7]> = LazyLock::new(|| {
+    [
         &BITPACK_WITH_PATCHES,
         &DateTimePartsCompressor,
         &DEFAULT_RUN_END_COMPRESSOR, // replace with FastLanes RLE
-        &DictCompressor, // replace with FastLanes Dictionary
+        &DictCompressor,             // replace with FastLanes Dictionary
         &FoRCompressor,
         &SparseCompressor,
         &ZigZagCompressor,
-    ];
+    ]
+});
 
-    pub static ref ALL_COMPRESSORS_CONTEXT: Arc<Context> = Arc::new(Context::default().with_encodings([
+pub const ALL_COMPRESSORS_CONTEXT: LazyLock<Arc<Context>> = LazyLock::new(|| {
+    Arc::new(Context::default().with_encodings([
         &ALPEncoding as EncodingRef,
         &ByteBoolEncoding,
         &DateTimePartsEncoding,
@@ -88,8 +91,8 @@ lazy_static! {
         &RunEndBoolEncoding,
         &ZigZagEncoding,
         &ALPRDEncoding,
-    ]));
-}
+    ]))
+});
 
 #[derive(Debug, Clone)]
 pub enum Objective {
