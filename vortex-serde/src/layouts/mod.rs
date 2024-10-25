@@ -1,7 +1,4 @@
-use std::sync::Arc;
-
-use vortex_dtype::FieldNames;
-use vortex_stats::Stat;
+use vortex::stats::Stat;
 
 mod read;
 mod write;

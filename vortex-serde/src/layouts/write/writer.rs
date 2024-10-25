@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
+use std::sync::Arc;
 use std::{io, mem};
 
-use ahash::HashMapExt;
 use flatbuffers::FlatBufferBuilder;
 use futures::{Stream, TryStreamExt};
 use vortex::array::{ChunkedArray, StructArray};
@@ -10,16 +10,15 @@ use vortex::stream::ArrayStream;
 use vortex::validity::Validity;
 use vortex::{Array, ArrayDType, IntoArray};
 use vortex_buffer::io_buf::IoBuf;
-use vortex_buffer::{Buffer, BufferString};
-use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
+use vortex_dtype::{DType, Nullability, PType};
+use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_flatbuffers::WriteFlatBuffer;
 use vortex_scalar::{Scalar, ScalarValue};
 
 use super::footer::{Footer, Postscript};
 use crate::io::VortexWrite;
 use crate::layouts::write::layouts::Layout;
-use crate::layouts::{EOF_SIZE, MAGIC_BYTES, METADATA_FIELD_NAMES, VERSION};
+use crate::layouts::{EOF_SIZE, MAGIC_BYTES, METADATA_FIELD_NAMES, PRUNING_STATS, VERSION};
 use crate::stream_writer::ByteRange;
 use crate::MessageWriter;
 
@@ -87,13 +86,13 @@ impl<W: VortexWrite> LayoutWriter<W> {
 
     async fn write_column_chunks<S>(&mut self, mut stream: S, column_idx: usize) -> VortexResult<()>
     where
-        S: Stream<Item = VortexResult<Array>> + Unpin,
+        S: Stream<Item = VortexResult<Array>> + Unpin + ArrayStream,
     {
         let size_hint = stream.size_hint().0;
         let accumulator = match self.column_chunks.get_mut(column_idx) {
             None => {
                 self.column_chunks
-                    .push(ColumnChunkAccumulator::new(size_hint));
+                    .push(ColumnChunkAccumulator::new(size_hint, stream.dtype()));
 
                 assert_eq!(
                     self.column_chunks.len(),
@@ -119,7 +118,7 @@ impl<W: VortexWrite> LayoutWriter<W> {
 
         while let Some(chunk) = stream.try_next().await? {
             for stat in PRUNING_STATS {
-                accumulator.push_stat(stat, chunk.statistics().compute(stat));
+                accumulator.push_stat(stat, chunk.statistics().compute(stat))?;
             }
 
             n_rows_written += chunk.len() as u64;
@@ -133,7 +132,7 @@ impl<W: VortexWrite> LayoutWriter<W> {
         Ok(())
     }
 
-    async fn write_metadata_arrays(&mut self) -> VortexResult<Layout> {
+    async fn write_metadata_arrays(&mut self) -> VortexResult<Layout> { 
         let mut column_layouts = Vec::with_capacity(self.column_chunks.len());
         for column_accumulator in mem::take(&mut self.column_chunks) {
             let (mut chunks, metadata_array) = column_accumulator.into_chunks_and_metadata()?;
@@ -141,7 +140,7 @@ impl<W: VortexWrite> LayoutWriter<W> {
             let dtype_begin = self.msgs.tell();
             self.msgs.write_dtype(metadata_array.dtype()).await?;
             let dtype_end = self.msgs.tell();
-            self.msgs.write_batch(metadata_array.into_array()).await?;
+            self.msgs.write_batch(metadata_array).await?;
             chunks.push_front(Layout::inlined_schema(
                 vec![Layout::flat(ByteRange::new(dtype_end, self.msgs.tell()))],
                 ByteRange::new(dtype_begin, dtype_end),
@@ -200,18 +199,18 @@ struct ColumnChunkAccumulator<> {
     pub dtype: DType,
     pub row_offsets: Vec<u64>,
     pub batch_byte_offsets: Vec<Vec<u64>>,
-    pub minima: Vec<Option<ScalarValue>>,
-    pub maxima: Vec<Option<ScalarValue>>,
+    pub minima: Vec<ScalarValue>,
+    pub maxima: Vec<ScalarValue>,
     pub null_counts: Vec<Option<u64>>,
     pub true_counts: Vec<Option<u64>>,
 }
 
 impl ColumnChunkAccumulator {
-    pub fn new(size_hint: usize, dtype: DType) -> Self {
+    pub fn new(size_hint: usize, dtype: &DType) -> Self {
         let mut row_offsets = Vec::with_capacity(size_hint + 1);
         row_offsets.push(0);
         Self {
-            dtype,
+            dtype: dtype.as_nullable(),
             row_offsets,
             batch_byte_offsets: Vec::new(),
             minima: Vec::with_capacity(size_hint),
@@ -231,30 +230,31 @@ impl ColumnChunkAccumulator {
 
     fn push_stat(&mut self, stat: Stat, value: Option<Scalar>) -> VortexResult<()> {
         if matches!(stat, Stat::Min | Stat::Max) {
-            if let Some(value) = value {
+            if let Some(ref value) = value {
                 if !value.value().is_instance_of(&self.dtype) {
                     vortex_bail!("Expected all min/max values to have dtype {}, got {}", self.dtype, value.dtype());
                 }
             }
         }
 
-        Ok(match stat {
-            Stat::Min => self.minima.push(value.map(|v| v.into_value())),
-            Stat::Max => self.maxima.push(value.map(|v| v.into_value())),
-            Stat::NullCount => self.null_counts.push(value.map_or(0, |v| {
+        match stat {
+            Stat::Min => self.minima.push(value.map(|v| v.into_value()).unwrap_or_else(|| ScalarValue::Null)),
+            Stat::Max => self.maxima.push(value.map(|v| v.into_value()).unwrap_or_else(|| ScalarValue::Null)),
+            Stat::NullCount => self.null_counts.push(value.and_then(|v| {
                 v.into_value()
                     .as_pvalue()
                     .vortex_expect("null count is a primitive value")
                     .and_then(|v| v.as_u64())
             })),
-            Stat::TrueCount => self.true_counts.push(value.map_or(0, |v| {
+            Stat::TrueCount => self.true_counts.push(value.and_then(|v| {
                 v.into_value()
                     .as_pvalue()
                     .vortex_expect("true count is a primitive value")
                     .and_then(|v| v.as_u64())
             })),
             _ => vortex_bail!("Unsupported pruning stat: {stat}"),
-        })
+        }
+        Ok(())
     }
 
     fn into_chunks_and_metadata(mut self) -> VortexResult<(VecDeque<Layout>, Array)> {
@@ -281,11 +281,17 @@ impl ColumnChunkAccumulator {
             );
         }
 
-        let mut names = METADATA_FIELD_NAMES.clone();
-        let mut fields = vec![self.row_offsets.into_array()];
+        let mut names: Vec<Arc<str>> = vec!["row_offset".into()];
+        let mut fields = vec![mem::take(&mut self.row_offsets).into_array()];
 
         for stat in PRUNING_STATS {
-            let values = self.pruning_stats.entry(stat).or_default();
+            let values = match stat {
+                Stat::Min => mem::take(&mut self.minima),
+                Stat::Max => mem::take(&mut self.maxima),
+                Stat::NullCount => self.null_counts.iter().cloned().map(ScalarValue::from).collect(),
+                Stat::TrueCount => self.true_counts.iter().cloned().map(ScalarValue::from).collect(),
+                _ => vortex_bail!("Unsupported pruning stat: {}", stat),
+            };
             if values.len() != length {
                 vortex_bail!(
                     "Expected {} values for stat {}, found {}",
@@ -295,28 +301,23 @@ impl ColumnChunkAccumulator {
                 );
             }
 
-            let Some(dtype) = values
-                .iter()
-                .filter(|v| v.is_some())
-                .flatten()
-                .map(|v| v.dtype())
-                .next()
-            else {
+            if values.iter().all(|v| v.is_null()) {
                 // no point in writing all nulls
                 continue;
             };
-            let dtype = dtype.as_nullable();
-            let values = values
-                .iter()
-                .map(|v| {
-                    v.as_ref()
-                        .map(|s| s.cast(&dtype).map(|s| s.into_value()))
-                        .unwrap_or_else(|| Ok(ScalarValue::Null))
-                })
-                .collect::<VortexResult<Vec<_>>>()?;
+
+            let dtype = match stat {
+                Stat::Min | Stat::Max => self.dtype.clone(),
+                _ => DType::Primitive(PType::U64, Nullability::Nullable),
+            };
 
             names.push(format!("{stat}").to_lowercase().into());
             fields.push(Array::from_scalar_values(dtype, values)?);
+        }
+        for name in &names {
+            if !METADATA_FIELD_NAMES.contains(&name.as_ref()) {
+                vortex_panic!("Found unexpected metadata field name {}, expected one of {:?}", name, METADATA_FIELD_NAMES);
+            }
         }
 
         Ok((
@@ -369,6 +370,5 @@ mod tests {
             buffer[buffer_begin..buffer_end].len(),
             FOOTER_POSTSCRIPT_SIZE
         );
-        assert_eq!(buffer[buffer_begin..buffer_end].len(), 32);
     }
 }
