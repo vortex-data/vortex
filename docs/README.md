@@ -3,13 +3,7 @@
 ## Building
 
 ```
-rye run build-docs
-```
-
-or
-
-```
-rye run sphinx-build -M html . _build --fail-on-warning --keep-going
+uv run sphinx-build -M html . _build --fail-on-warning --keep-going
 ```
 
 ## Viewing
