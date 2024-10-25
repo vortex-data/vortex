@@ -1,6 +1,6 @@
 [package]
 name = "vortex-rs"
-description = "Vortex with all builtin codecs and a sampling compressor."
+description = "Vortex file format with all builtin codecs and a sampling compressor."
 version = { workspace = true }
 homepage = { workspace = true }
 repository = { workspace = true }
@@ -26,17 +26,21 @@ vortex-alp = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-bytebool = { workspace = true }
+vortex-datetime-dtype = { workspace = true }
 vortex-datetime-parts = { workspace = true }
 vortex-dict = { workspace = true }
-vortex-dtype = { workspace = true }
+vortex-dtype = { workspace = true, default-features = true }
 vortex-error = { workspace = true }
 vortex-expr = { workspace = true }
-vortex-fsst = { workspace = true }
 vortex-fastlanes = { workspace = true }
+vortex-flatbuffers = { workspace = true }
+vortex-fsst = { workspace = true }
+vortex-proto = { workspace = true }
 vortex-roaring = { workspace = true }
 vortex-runend = { workspace = true }
 vortex-runend-bool = { workspace = true }
 vortex-sampling-compressor = { workspace = true }
-vortex-scalar = { workspace = true }
-vortex-serde = { workspace = true }
+vortex-scalar = { workspace = true, default-features = true }
+vortex-schema = { workspace = true }
+vortex-serde = { workspace = true, default-features = true }
 vortex-zigzag = { workspace = true }
