@@ -15,23 +15,23 @@ use vortex_serde::io::{ObjectStoreReadAt, VortexReadAt};
 use vortex_serde::layouts::{Projection, RowFilter, VortexRecordBatchReader};
 
 use crate::expr::PyExpr;
-use crate::io::{layout_stream_from_reader, read_array, read_dtype, FileOrUrl};
+use crate::io::{layout_stream_from_reader, read_array, read_dtype, PathOrUrl};
 use crate::{PyArray, TOKIO_RUNTIME};
 
-#[pyclass(name = "Dataset", module = "io", sequence, subclass)]
+#[pyclass(name = "Dataset", module = "io")]
 /// An on-disk Vortex dataset for use with an Arrow-compatible query engine.
 pub struct PyDataset {
-    file_or_url: FileOrUrl,
+    path_or_url: PathOrUrl,
     schema: SchemaRef,
 }
 
 impl PyDataset {
-    async fn new(file_or_url: FileOrUrl) -> VortexResult<PyDataset> {
-        let dtype = read_dtype(&file_or_url).await?;
+    async fn new(path_or_url: PathOrUrl) -> VortexResult<PyDataset> {
+        let dtype = read_dtype(&path_or_url).await?;
         let schema = infer_schema(&dtype)?;
 
         Ok(PyDataset {
-            file_or_url,
+            path_or_url,
             schema: Arc::new(schema),
         })
     }
@@ -77,7 +77,7 @@ impl PyDataset {
         };
         let row_filter = row_filter.map(|x| RowFilter::new(x.borrow().unwrap().clone()));
         let inner = TOKIO_RUNTIME.block_on(read_array(
-            &self.file_or_url,
+            &self.path_or_url,
             projection,
             batch_size,
             row_filter,
@@ -101,14 +101,14 @@ impl PyDataset {
 
         let row_filter = row_filter.map(|x| RowFilter::new(x.borrow().unwrap().clone()));
 
-        match &self_.file_or_url {
-            FileOrUrl::File(file) => {
+        match &self_.path_or_url {
+            PathOrUrl::Path(file) => {
                 let reader = TOKIO_RUNTIME.block_on(File::open(Path::new(file)))?;
                 Self::reader_to_pyarrow_record_batch_reader(
                     self_, reader, projection, batch_size, row_filter,
                 )
             }
-            FileOrUrl::Url(url) => {
+            PathOrUrl::Url(url) => {
                 let reader = TOKIO_RUNTIME.block_on(ObjectStoreReadAt::try_new_from_url(url))?;
                 Self::reader_to_pyarrow_record_batch_reader(
                     self_, reader, projection, batch_size, row_filter,
@@ -119,13 +119,11 @@ impl PyDataset {
 }
 
 #[pyfunction]
-#[pyo3(signature = (*, file = None, url = None))]
-pub fn dataset(
-    file: Option<&Bound<PyString>>,
-    url: Option<&Bound<PyString>>,
-) -> PyResult<PyDataset> {
-    let file = file.map(|x| x.extract()).transpose()?;
-    let url = url.map(|x| x.extract()).transpose()?;
+pub fn dataset_from_url(url: Bound<PyString>) -> PyResult<PyDataset> {
+    Ok(TOKIO_RUNTIME.block_on(PyDataset::new(PathOrUrl::Url(url.extract()?)))?)
+}
 
-    Ok(TOKIO_RUNTIME.block_on(PyDataset::new(FileOrUrl::try_new(file, url)?))?)
+#[pyfunction]
+pub fn dataset_from_path(path: Bound<PyString>) -> PyResult<PyDataset> {
+    Ok(TOKIO_RUNTIME.block_on(PyDataset::new(PathOrUrl::Path(path.extract()?)))?)
 }

@@ -7,15 +7,23 @@ import pyarrow.compute as pc
 import pyarrow.dataset
 
 from . import encoding
-from ._lib import dataset
+from ._lib import dataset as _lib_dataset
 from .arrow.expression import arrow_to_vortex as arrow_to_vortex_expr
 
 
 class VortexDataset(pyarrow.dataset.Dataset):
     """Read Vortex files with row filter and column selection pushdown."""
 
-    def __init__(self, *, file: str | None = None, url: str | None = None):
-        self._dataset = dataset.dataset(file=file, url=url)
+    def __init__(self, dataset):
+        self._dataset = dataset
+
+    @staticmethod
+    def from_url(url: str):
+        return VortexDataset(_lib_dataset.dataset_from_url(url))
+
+    @staticmethod
+    def from_path(path: str):
+        return VortexDataset(_lib_dataset.dataset_from_path(path))
 
     @property
     def schema(self) -> pa.Schema:
