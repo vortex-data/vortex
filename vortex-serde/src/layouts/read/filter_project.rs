@@ -67,7 +67,7 @@ pub fn filter_project(
                 .lhs()
                 .references()
                 .intersection(&bexp.rhs().references())
-                .any(|f| !projection.contains(f))
+                .any(|f| projection.contains(f))
             {
                 rhs_proj
             } else {
@@ -78,5 +78,92 @@ pub fn filter_project(
         }
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use vortex_dtype::field::Field;
+    use vortex_expr::{BinaryExpr, Column, Identity, Literal, Operator, Select, VortexExpr};
+
+    use crate::layouts::read::filter_project::filter_project;
+
+    #[test]
+    fn project_and() {
+        let band = Arc::new(BinaryExpr::new(
+            Arc::new(Column::new(Field::from("a"))),
+            Operator::And,
+            Arc::new(Column::new(Field::from("b"))),
+        )) as _;
+        let projection = vec![Field::from("b")];
+        assert_eq!(
+            *filter_project(&band, &projection).unwrap(),
+            *Identity.as_any()
+        );
+    }
+
+    #[test]
+    fn project_or() {
+        let bor = Arc::new(BinaryExpr::new(
+            Arc::new(Column::new(Field::from("a"))),
+            Operator::Or,
+            Arc::new(Column::new(Field::from("b"))),
+        )) as _;
+        let projection = vec![Field::from("b")];
+        assert!(filter_project(&bor, &projection).is_none());
+    }
+
+    #[test]
+    fn project_nested() {
+        let band = Arc::new(BinaryExpr::new(
+            Arc::new(BinaryExpr::new(
+                Arc::new(Column::new(Field::from("a"))),
+                Operator::Lt,
+                Arc::new(Column::new(Field::from("b"))),
+            )),
+            Operator::And,
+            Arc::new(BinaryExpr::new(
+                Arc::new(Literal::new(5.into())),
+                Operator::Lt,
+                Arc::new(Column::new(Field::from("b"))),
+            )),
+        )) as _;
+        let projection = vec![Field::from("b")];
+        assert!(filter_project(&band, &projection).is_none());
+    }
+
+    #[test]
+    fn project_multicolumn() {
+        let blt = Arc::new(BinaryExpr::new(
+            Arc::new(Column::new(Field::from("a"))),
+            Operator::Lt,
+            Arc::new(Column::new(Field::from("b"))),
+        )) as _;
+        let projection = vec![Field::from("a"), Field::from("b")];
+        assert_eq!(
+            *filter_project(&blt, &projection).unwrap(),
+            *BinaryExpr::new(
+                Arc::new(Column::new(Field::from("a"))),
+                Operator::Lt,
+                Arc::new(Column::new(Field::from("b"))),
+            )
+            .as_any()
+        );
+    }
+
+    #[test]
+    fn project_select() {
+        let blt = Arc::new(Select::include(vec![
+            Field::from("a"),
+            Field::from("b"),
+            Field::from("c"),
+        ])) as _;
+        let projection = vec![Field::from("a"), Field::from("b")];
+        assert_eq!(
+            *filter_project(&blt, &projection).unwrap(),
+            *Select::include(projection).as_any()
+        );
     }
 }
