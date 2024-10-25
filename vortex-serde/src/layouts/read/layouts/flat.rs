@@ -10,8 +10,8 @@ use vortex_flatbuffers::footer;
 use crate::layouts::read::cache::RelativeLayoutCache;
 use crate::layouts::read::selection::RowSelector;
 use crate::layouts::{
-    LayoutDeserializer, LayoutId, LayoutReader, LayoutSpec, Message, RangeResult, ReadResult
-    , Scan, FLAT_LAYOUT_ID,
+    LayoutDeserializer, LayoutId, LayoutReader, LayoutSpec, Message, RangeResult, ReadResult, Scan,
+    FLAT_LAYOUT_ID,
 };
 use crate::message_reader::ArrayBufferReader;
 use crate::stream_writer::ByteRange;
@@ -143,7 +143,7 @@ impl LayoutReader for FlatLayout {
                             .as_ref()
                             .map(|e| e.evaluate(&s))
                             .transpose()?
-                            .unwrap_or_else(|| s),
+                            .unwrap_or(s),
                     ))
                 })
                 .transpose()

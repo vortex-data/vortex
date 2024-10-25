@@ -28,7 +28,6 @@ pub struct LayoutBatchStream<R> {
     messages_cache: Arc<RwLock<LayoutMessageCache>>,
     current_selector: Option<RowSelector>,
     state: StreamingState<R>,
-    offset: usize,
 }
 
 impl<R: VortexReadAt> LayoutBatchStream<R> {
@@ -49,7 +48,6 @@ impl<R: VortexReadAt> LayoutBatchStream<R> {
             messages_cache,
             current_selector: None,
             state: StreamingState::Init,
-            offset: 0,
         }
     }
 
@@ -153,6 +151,8 @@ impl<R: VortexReadAt + Unpin + 'static> Stream for LayoutBatchStream<R> {
                         .current_selector
                         .clone()
                         .vortex_expect("Must have asked for range");
+                    let sel_begin = selector.begin();
+                    let sel_end = selector.end();
                     if let Some(fr) = self
                         .filter_reader
                         .as_mut()
@@ -171,12 +171,8 @@ impl<R: VortexReadAt + Unpin + 'static> Stream for LayoutBatchStream<R> {
                                 );
                             }
                             ReadResult::Batch(b) => {
-                                self.current_selector = Some(RowSelector::from_array(
-                                    &b,
-                                    self.offset,
-                                    self.offset + b.len(),
-                                )?);
-                                self.offset += b.len();
+                                self.current_selector =
+                                    Some(RowSelector::from_array(&b, sel_begin, sel_end)?);
                                 self.state = StreamingState::Read(true);
                             }
                         }

@@ -62,7 +62,6 @@ pub fn read_filters(
     selector: RowSelector,
 ) -> Vec<RowSelector> {
     let mut sels = Vec::new();
-    let mut offset = 0;
     while let Some(rr) = layout.read_next(selector.clone()).unwrap() {
         match rr {
             ReadResult::ReadMore(m) => {
@@ -72,8 +71,7 @@ pub fn read_filters(
                 }
             }
             ReadResult::Batch(a) => {
-                sels.push(RowSelector::from_array(&a, offset, offset + a.len()).unwrap());
-                offset += a.len();
+                sels.push(RowSelector::from_array(&a, selector.begin(), selector.end()).unwrap());
             }
         }
     }
