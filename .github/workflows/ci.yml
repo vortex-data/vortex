@@ -23,12 +23,12 @@ jobs:
       - uses: ./.github/actions/cleanup
 
       - uses: ./.github/actions/setup-rust
-      - uses: ./.github/actions/setup-python
+      - uses: spiraldb/actions/.github/actions/setup-uv@0.2.0
 
       - name: Python Lint - Format
-        run: rye run ruff format --check .
+        run: uv run ruff format --check .
       - name: Python Lint - Ruff
-        run: rye run ruff check .
+        run: uv run ruff check .
 
       - name: Rust Lint - Format
         run: cargo fmt --all --check
@@ -43,8 +43,8 @@ jobs:
 
       - name: Pytest - PyVortex
         run: |
-          rye run maturin develop --skip-install
-          rye run pytest --benchmark-disable test/
+          uv run maturin develop --skip-install
+          uv run pytest --benchmark-disable test/
         working-directory: pyvortex/
 
       - name: Doctest - PyVortex
