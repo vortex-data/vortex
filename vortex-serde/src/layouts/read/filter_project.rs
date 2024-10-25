@@ -52,26 +52,22 @@ pub fn filter_project(
         let lhs_proj = filter_project(bexp.lhs(), projection);
         let rhs_proj = filter_project(bexp.rhs(), projection);
         if bexp.op() == Operator::And {
-            if let Some(lhsp) = lhs_proj {
-                if let Some(rhsp) = rhs_proj {
-                    Some(Arc::new(BinaryExpr::new(lhsp, bexp.op(), rhsp)))
-                } else {
-                    (!bexp
-                        .rhs()
-                        .references()
-                        .intersection(&lhsp.references())
-                        .any(|f| projection.contains(f)))
-                    .then_some(lhsp)
-                }
-            } else if !bexp
-                .lhs()
-                .references()
-                .intersection(&bexp.rhs().references())
-                .any(|f| projection.contains(f))
-            {
-                rhs_proj
-            } else {
-                None
+            match (lhs_proj, rhs_proj) {
+                (Some(lhsp), Some(rhsp)) => Some(Arc::new(BinaryExpr::new(lhsp, bexp.op(), rhsp))),
+                // Projected lhs and rhs might lose reference to columns if they're simplified to straight column comparisons
+                (Some(lhsp), None) => (!bexp
+                    .rhs()
+                    .references()
+                    .intersection(&bexp.lhs().references())
+                    .any(|f| projection.contains(f)))
+                .then_some(lhsp),
+                (None, Some(rhsp)) => (!bexp
+                    .lhs()
+                    .references()
+                    .intersection(&bexp.rhs().references())
+                    .any(|f| projection.contains(f)))
+                .then_some(rhsp),
+                (None, None) => None,
             }
         } else {
             Some(Arc::new(BinaryExpr::new(lhs_proj?, bexp.op(), rhs_proj?)))
@@ -131,7 +127,9 @@ mod tests {
             )),
         )) as _;
         let projection = vec![Field::from("b")];
-        assert!(filter_project(&band, &projection).is_none());
+        let option = filter_project(&band, &projection);
+        println!("expr: {option:?}");
+        assert!(option.is_none());
     }
 
     #[test]
