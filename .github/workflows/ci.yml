@@ -79,7 +79,7 @@ jobs:
       - uses: ./.github/actions/cleanup
 
       - uses: ./.github/actions/setup-rust
-      - uses: ./.github/actions/setup-python
+      - uses: spiraldb/actions/.github/actions/setup-uv@0.2.0
       # Required to run benchmarks
       - name: Install DuckDB
         uses: opt-nc/setup-duckdb-action@v1.0.9

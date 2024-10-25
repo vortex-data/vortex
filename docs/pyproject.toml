@@ -6,9 +6,9 @@ authors = []
 dependencies = ["pydata-sphinx-theme>=0.15.4", "sphinx>=8.0.2", "pyvortex"]
 requires-python = ">= 3.10"
 
-[tool.uv]
+[tool.rye]
 managed = true
 virtual = true
 
-[tool.uv.scripts]
+[tool.rye.scripts]
 build-docs = "sphinx-build -M html . _build --fail-on-warning --keep-going"
