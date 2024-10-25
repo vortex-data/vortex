@@ -4572,6 +4572,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-rs"
+version = "0.12.0"
+dependencies = [
+ "vortex-alp",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-bytebool",
+ "vortex-datetime-parts",
+ "vortex-dict",
+ "vortex-dtype",
+ "vortex-error",
+ "vortex-expr",
+ "vortex-fastlanes",
+ "vortex-fsst",
+ "vortex-roaring",
+ "vortex-runend",
+ "vortex-runend-bool",
+ "vortex-sampling-compressor",
+ "vortex-scalar",
+ "vortex-serde",
+ "vortex-zigzag",
+]
+
+[[package]]
 name = "vortex-runend"
 version = "0.12.0"
 dependencies = [

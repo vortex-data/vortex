@@ -13,6 +13,7 @@ members = [
     "vortex-expr",
     "vortex-flatbuffers",
     "vortex-proto",
+    "vortex-rs",
     "vortex-sampling-compressor",
     "vortex-scalar",
     "vortex-schema",
@@ -156,6 +157,7 @@ vortex-runend-bool = { version = "0.12.0", path = "./encodings/runend-bool" }
 vortex-scalar = { version = "0.12.0", path = "./vortex-scalar", default-features = false }
 vortex-schema = { version = "0.12.0", path = "./vortex-schema" }
 vortex-serde = { version = "0.12.0", path = "./vortex-serde", default-features = false }
+vortex-rs =  { version = "0.12.0", path = "./vortex-rs" }
 vortex-sampling-compressor = { version = "0.12.0", path = "./vortex-sampling-compressor" }
 vortex-zigzag = { version = "0.12.0", path = "./encodings/zigzag" }
 # END crates published by this project

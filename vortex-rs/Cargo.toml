@@ -1,8 +1,7 @@
 [package]
-name = "pyvortex"
-publish = false
+name = "vortex-rs"
+description = "Vortex with all builtin codecs and a sampling compressor."
 version = { workspace = true }
-description = "Python bindings for Vortex, an Apache Arrow-compatible toolkit for working with compressed array data."
 homepage = { workspace = true }
 repository = { workspace = true }
 authors = { workspace = true }
@@ -10,30 +9,19 @@ license = { workspace = true }
 keywords = { workspace = true }
 include = { workspace = true }
 edition = { workspace = true }
-categories = { workspace = true }
 rust-version = { workspace = true }
+categories = { workspace = true }
 readme = { workspace = true }
+
+[lib]
+name = "vortex_rs"
+path = "src/lib.rs"
+bench = false
 
 [lints]
 workspace = true
 
-[lib]
-name = "pyvortex"
-crate-type = ["rlib", "cdylib"]
-doctest = false
-
 [dependencies]
-arrow = { workspace = true, features = ["pyarrow"] }
-flexbuffers = { workspace = true }
-futures = { workspace = true }
-itertools = { workspace = true }
-lazy_static = { workspace = true }
-log = { workspace = true }
-paste = { workspace = true }
-pyo3 = { workspace = true }
-pyo3-log = { workspace = true }
-tokio = { workspace = true, features = ["fs"] }
-
 vortex-alp = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
@@ -50,5 +38,5 @@ vortex-runend = { workspace = true }
 vortex-runend-bool = { workspace = true }
 vortex-sampling-compressor = { workspace = true }
 vortex-scalar = { workspace = true }
-vortex-serde = { workspace = true, features = ["tokio"] }
+vortex-serde = { workspace = true }
 vortex-zigzag = { workspace = true }
