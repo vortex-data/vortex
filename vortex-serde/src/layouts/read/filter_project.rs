@@ -16,24 +16,26 @@ pub fn filter_project(
     } else if let Some(s) = filter.as_any().downcast_ref::<Select>() {
         match s {
             Select::Include(i) => {
-                let mut fields = i
+                let fields = i
                     .iter()
                     .filter(|f| projection.contains(f))
                     .cloned()
                     .collect::<Vec<_>>();
                 match fields.len() {
-                    0 | 1 => fields.pop().map(Column::new).map(|c| Arc::new(c) as _),
+                    0 => None,
+                    1 => Some(Arc::new(Identity)),
                     _ => Some(Arc::new(Select::include(fields))),
                 }
             }
             Select::Exclude(e) => {
-                let mut fields = projection
+                let fields = projection
                     .iter()
                     .filter(|f| !e.contains(f))
                     .cloned()
                     .collect::<Vec<_>>();
                 match fields.len() {
-                    0 | 1 => fields.pop().map(Column::new).map(|c| Arc::new(c) as _),
+                    0 => None,
+                    1 => Some(Arc::new(Identity)),
                     _ => Some(Arc::new(Select::include(fields))),
                 }
             }

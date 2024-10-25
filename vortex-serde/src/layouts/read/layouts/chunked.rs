@@ -43,10 +43,10 @@ impl LayoutSpec for ChunkedLayoutSpec {
 }
 
 #[derive(Debug)]
-pub enum ChunkedLayoutState {
+pub enum MetadataState {
     Init,
     ReadMetadata((Box<dyn LayoutReader>, usize)),
-    ReadChunks(BufferedArrayReader),
+    Array(Array),
 }
 
 /// In memory representation of Chunked NestedLayout.
@@ -62,8 +62,8 @@ pub struct ChunkedLayout {
     scan: Scan,
     layout_builder: LayoutDeserializer,
     message_cache: RelativeLayoutCache,
-    state: ChunkedLayoutState,
-    metadata_array: Option<Array>,
+    chunk_reader: Option<BufferedArrayReader>,
+    metadata_array: MetadataState,
 }
 
 impl ChunkedLayout {
@@ -83,8 +83,8 @@ impl ChunkedLayout {
             scan,
             layout_builder,
             message_cache,
-            state: ChunkedLayoutState::Init,
-            metadata_array: None,
+            chunk_reader: None,
+            metadata_array: MetadataState::Init,
         }
     }
 
@@ -96,7 +96,7 @@ impl ChunkedLayout {
     }
 
     fn child_ranges(&self) -> VortexResult<Vec<(usize, usize)>> {
-        let Some(m) = self.metadata_array.as_ref() else {
+        let MetadataState::Array(ref m) = self.metadata_array else {
             vortex_bail!("Must fetch metadata before")
         };
 
@@ -168,94 +168,96 @@ impl ChunkedLayout {
 
 impl LayoutReader for ChunkedLayout {
     fn next_range(&mut self) -> VortexResult<RangeResult> {
-        match &mut self.state {
-            ChunkedLayoutState::Init => {
-                self.state = ChunkedLayoutState::ReadMetadata(self.metadata_layout()?);
-                self.next_range()
-            }
-            ChunkedLayoutState::ReadMetadata((r, nchildren)) => {
-                match read_metadata(r.as_mut(), *nchildren)? {
-                    None => {
-                        self.state = ChunkedLayoutState::ReadChunks(BufferedArrayReader::new(
-                            self.ranged_children()?,
-                        ));
-                        self.next_range()
-                    }
-                    Some(mr) => match mr {
-                        MetadataResult::ReadMore(m) => Ok(RangeResult::ReadMore(m)),
-                        MetadataResult::Batch(r) => {
-                            if self.metadata_array.is_some() {
-                                vortex_bail!("Metadata is not chunked for now");
-                            } else {
-                                self.metadata_array = Some(r);
-                            }
-                            self.next_range()
+        if let Some(br) = &mut self.chunk_reader {
+            br.next_range()
+        } else {
+            match &mut self.metadata_array {
+                MetadataState::Init => {
+                    self.metadata_array = MetadataState::ReadMetadata(self.metadata_layout()?);
+                    self.next_range()
+                }
+                MetadataState::ReadMetadata((mr, nchildren)) => {
+                    match mr.read_next(RowSelector::new(
+                        Bitmap::from_range(0..*nchildren as u32),
+                        0,
+                        *nchildren,
+                    ))? {
+                        None => {
+                            unreachable!(
+                                "Metadata isn't chunked, will terminate after first batch result"
+                            )
                         }
-                    },
+                        Some(mr) => match mr {
+                            ReadResult::ReadMore(m) => Ok(RangeResult::ReadMore(m)),
+                            ReadResult::Batch(r) => {
+                                if matches!(self.metadata_array, MetadataState::Array(_)) {
+                                    vortex_bail!("Metadata is not chunked for now");
+                                } else {
+                                    self.metadata_array = MetadataState::Array(r);
+                                    self.chunk_reader =
+                                        Some(BufferedArrayReader::new(self.ranged_children()?));
+                                }
+                                self.next_range()
+                            }
+                        },
+                    }
+                }
+                MetadataState::Array(_) => {
+                    unreachable!("Already fetched metadata but didn't create reader")
                 }
             }
-            ChunkedLayoutState::ReadChunks(rc) => rc.next_range(),
         }
     }
 
     fn read_next(&mut self, selector: RowSelector) -> VortexResult<Option<ReadResult>> {
-        match &mut self.state {
-            ChunkedLayoutState::Init => {
-                self.state = ChunkedLayoutState::ReadMetadata(self.metadata_layout()?);
-                self.read_next(selector)
-            }
-            ChunkedLayoutState::ReadMetadata((r, nchildren)) => {
-                match read_metadata(r.as_mut(), *nchildren)? {
-                    None => {
-                        self.state = ChunkedLayoutState::ReadChunks(BufferedArrayReader::new(
-                            self.ranged_children()?,
-                        ));
-                        self.read_next(selector)
-                    }
-                    Some(mr) => match mr {
-                        MetadataResult::ReadMore(m) => Ok(Some(ReadResult::ReadMore(m))),
-                        MetadataResult::Batch(r) => {
-                            if self.metadata_array.is_some() {
-                                vortex_bail!("Metadata is not chunked for now");
-                            } else {
-                                self.metadata_array = Some(r);
-                            }
-                            self.read_next(selector)
+        if let Some(br) = &mut self.chunk_reader {
+            br.read_next(selector)
+        } else {
+            match &mut self.metadata_array {
+                MetadataState::Init => {
+                    self.metadata_array = MetadataState::ReadMetadata(self.metadata_layout()?);
+                    self.read_next(selector)
+                }
+                MetadataState::ReadMetadata((mr, nchildren)) => {
+                    match mr.read_next(RowSelector::new(
+                        Bitmap::from_range(0..*nchildren as u32),
+                        0,
+                        *nchildren,
+                    ))? {
+                        None => {
+                            unreachable!(
+                                "Metadata isn't chunked, will terminate after first batch result"
+                            )
                         }
-                    },
+                        Some(mr) => match mr {
+                            ReadResult::ReadMore(m) => Ok(Some(ReadResult::ReadMore(m))),
+                            ReadResult::Batch(r) => {
+                                if matches!(self.metadata_array, MetadataState::Array(_)) {
+                                    vortex_bail!("Metadata is not chunked for now");
+                                } else {
+                                    self.metadata_array = MetadataState::Array(r);
+                                    self.chunk_reader =
+                                        Some(BufferedArrayReader::new(self.ranged_children()?));
+                                }
+                                self.read_next(selector)
+                            }
+                        },
+                    }
+                }
+                MetadataState::Array(_) => {
+                    unreachable!("Already fetched metadata but didn't create reader")
                 }
             }
-            ChunkedLayoutState::ReadChunks(rc) => rc.read_next(selector),
         }
     }
 
     fn advance(&mut self, up_to_row: usize) -> VortexResult<Vec<Message>> {
-        match &mut self.state {
-            ChunkedLayoutState::ReadChunks(br) => br.advance(up_to_row),
-            _ => {
-                self.offset = up_to_row;
-                Ok(vec![])
-            }
+        if let Some(br) = &mut self.chunk_reader {
+            br.advance(up_to_row)
+        } else {
+            self.offset = up_to_row;
+            Ok(Vec::new())
         }
-    }
-}
-
-enum MetadataResult {
-    Batch(Array),
-    ReadMore(Vec<Message>),
-}
-
-fn read_metadata(
-    reader: &mut dyn LayoutReader,
-    nchildren: usize,
-) -> VortexResult<Option<MetadataResult>> {
-    let selector = RowSelector::new(Bitmap::from_range(0..nchildren as u32), 0, nchildren);
-    match reader.read_next(selector)? {
-        None => Ok(None),
-        Some(rr) => match rr {
-            ReadResult::ReadMore(m) => Ok(Some(MetadataResult::ReadMore(m))),
-            ReadResult::Batch(a) => Ok(Some(MetadataResult::Batch(a))),
-        },
     }
 }
 

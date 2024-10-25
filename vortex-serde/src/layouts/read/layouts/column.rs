@@ -1,11 +1,10 @@
 use std::sync::Arc;
 
 use bytes::Bytes;
-use flatbuffers::{ForwardsUOffset, Vector};
 use itertools::Itertools;
 use vortex_dtype::field::Field;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexResult};
 use vortex_expr::{Column, Select};
 use vortex_flatbuffers::footer;
 
@@ -89,43 +88,19 @@ impl ColumnLayout {
         }
     }
 
-    fn read_child(
-        &self,
-        idx: usize,
-        children: Vector<ForwardsUOffset<footer::Layout>>,
-        dtype: DType,
-    ) -> VortexResult<Box<dyn LayoutReader>> {
-        let mut layout = self.layout_serde.read_layout(
-            self.fb_bytes.clone(),
-            children.get(idx)._tab.loc(),
-            self.length,
-            // TODO(robert): Changes this once we support nested projections
-            Scan::new(None),
-            self.message_cache.relative(
-                idx as u16,
-                Arc::new(LazyDeserializedDType::from_dtype(dtype)),
-            ),
-        )?;
-        if self.offset != 0 {
-            layout.advance(self.offset)?;
-        }
-        Ok(layout)
-    }
-
-    fn filter_reader(&mut self) -> VortexResult<ColumnBatchReader> {
-        let Some(ref rf) = self.scan.expr else {
-            vortex_bail!("Must have scan expression");
-        };
-
-        let filter_refs = self
-            .scan_fields()?
-            .vortex_expect("Can't be an empty filter");
-        let lazy_dtype = self.message_cache.dtype().project(&filter_refs)?;
-
+    fn column_reader(&mut self) -> VortexResult<ColumnBatchReader> {
         let fb_children = self
             .flatbuffer()
             .children()
             .ok_or_else(|| vortex_err!("Missing children"))?;
+        let field_refs = self.scan_fields()?;
+        let lazy_dtype = field_refs
+            .as_ref()
+            .map(|e| self.message_cache.dtype().project(e))
+            .unwrap_or_else(|| Ok(self.message_cache.dtype().clone()))?;
+
+        let refs = field_refs.unwrap_or_else(|| (0..fb_children.len()).map(Field::from).collect());
+
         let filter_dtype = lazy_dtype.value()?;
         let DType::Struct(s, ..) = filter_dtype else {
             vortex_bail!("Column layout must have struct dtype")
@@ -136,12 +111,20 @@ impl ColumnLayout {
         let mut handled_children = Vec::new();
         let mut handled_names = Vec::new();
 
-        for (idx, field) in filter_refs.into_iter().enumerate() {
+        for (field, (name, dtype)) in refs
+            .into_iter()
+            .zip_eq(s.names().iter().cloned().zip_eq(s.dtypes().iter().cloned()))
+        {
             let resolved_child = lazy_dtype.resolve_field(&field)?;
             let child_loc = fb_children.get(resolved_child)._tab.loc();
-            let filter = filter_project(rf, &[field]);
+            let filter = self
+                .scan
+                .expr
+                .as_ref()
+                .and_then(|e| filter_project(e, &[field]));
 
-            let has_filter = filter.is_some();
+            let handled =
+                self.scan.expr.is_none() || (self.scan.expr.is_some() && filter.is_some());
 
             let mut child = self.layout_serde.read_layout(
                 self.fb_bytes.clone(),
@@ -150,7 +133,7 @@ impl ColumnLayout {
                 Scan::new(filter),
                 self.message_cache.relative(
                     resolved_child as u16,
-                    Arc::new(LazyDeserializedDType::from_dtype(s.dtypes()[idx].clone())),
+                    Arc::new(LazyDeserializedDType::from_dtype(dtype)),
                 ),
             )?;
 
@@ -158,25 +141,36 @@ impl ColumnLayout {
                 child.advance(self.offset)?;
             }
 
-            if has_filter {
+            if handled {
                 handled_children.push(child);
-                handled_names.push(s.names()[idx].clone());
+                handled_names.push(name);
             } else {
                 unhandled_children.push(child);
-                unhandled_children_names.push(s.names()[idx].clone());
+                unhandled_children_names.push(name);
             }
         }
 
         if !unhandled_children_names.is_empty() {
-            let Some(prf) = filter_project(
-                rf,
-                &unhandled_children_names
-                    .iter()
-                    .map(|n| Field::from(n.as_ref()))
-                    .collect::<Vec<_>>(),
-            ) else {
-                vortex_bail!("Must be able to project filter into unhandled space")
-            };
+            let prf = self
+                .scan
+                .expr
+                .as_ref()
+                .and_then(|e| {
+                    filter_project(
+                        e,
+                        &unhandled_children_names
+                            .iter()
+                            .map(|n| Field::from(n.as_ref()))
+                            .collect::<Vec<_>>(),
+                    )
+                })
+                .ok_or_else(|| {
+                    vortex_err!(
+                        "Must be able to project {:?} filter into unhandled space {}",
+                        self.scan.expr.as_ref(),
+                        unhandled_children_names.iter().format(",")
+                    )
+                })?;
 
             handled_children.push(Box::new(ColumnBatchReader::new(
                 unhandled_children_names.into(),
@@ -187,54 +181,26 @@ impl ColumnLayout {
             handled_names.push("unhandled".into());
         }
 
-        let filter = Some(Arc::new(RowFilter::from_conjunction(
-            handled_names
-                .iter()
-                .map(|f| Arc::new(Column::new(Field::from(&**f))) as _)
-                .collect(),
-        )) as _);
+        let filter = self
+            .scan
+            .expr
+            .as_ref()
+            .map(|e| e.as_any().downcast_ref::<RowFilter>().is_some())
+            .unwrap_or(false)
+            .then(|| {
+                Arc::new(RowFilter::from_conjunction(
+                    handled_names
+                        .iter()
+                        .map(|f| Arc::new(Column::new(Field::from(&**f))) as _)
+                        .collect(),
+                )) as _
+            });
+        let shortcircuit_siblings = filter.is_some();
         Ok(ColumnBatchReader::new(
             handled_names.into(),
             handled_children,
             filter,
-            true,
-        ))
-    }
-
-    fn read_children(&mut self) -> VortexResult<ColumnBatchReader> {
-        let lazy_dtype = self
-            .scan_fields()?
-            .map(|e| self.message_cache.dtype().project(&e))
-            .unwrap_or_else(|| Ok(self.message_cache.dtype().clone()))?;
-        let DType::Struct(s, _) = lazy_dtype.value()? else {
-            vortex_bail!("DType was not a struct")
-        };
-
-        let fb_children = self
-            .flatbuffer()
-            .children()
-            .ok_or_else(|| vortex_err!("Missing children"))?;
-
-        let expr_fields = self.scan_fields()?;
-
-        let child_layouts = match expr_fields {
-            None => (0..fb_children.len())
-                .zip_eq(s.dtypes().iter())
-                .map(|(index, dtype)| self.read_child(index, fb_children, dtype.clone()))
-                .collect::<VortexResult<Vec<_>>>()?,
-            Some(e) => e
-                .into_iter()
-                .map(|f| lazy_dtype.resolve_field(&f))
-                .zip(s.dtypes().iter().cloned())
-                .map(|(child_idx, dtype)| self.read_child(child_idx?, fb_children, dtype))
-                .collect::<VortexResult<Vec<_>>>()?,
-        };
-
-        Ok(ColumnBatchReader::new(
-            s.names().clone(),
-            child_layouts,
-            None,
-            false,
+            shortcircuit_siblings,
         ))
     }
 
@@ -246,26 +212,13 @@ impl ColumnLayout {
                 if let Some(se) = e.as_any().downcast_ref::<Select>() {
                     match se {
                         Select::Include(i) => Ok(i.clone()),
-                        Select::Exclude(_) => vortex_bail!("Select::Exclude not supported"),
+                        Select::Exclude(_) => vortex_bail!("Select::Exclude is not supported"),
                     }
                 } else {
                     Ok(e.references().into_iter().cloned().collect::<Vec<_>>())
                 }
             })
             .transpose()
-    }
-
-    fn read_init(&mut self) -> VortexResult<()> {
-        if let Some(expr) = self.scan.expr.as_ref() {
-            if expr.as_any().is::<RowFilter>() {
-                self.reader = Some(self.filter_reader()?);
-            } else {
-                self.reader = Some(self.read_children()?);
-            }
-        } else {
-            self.reader = Some(self.read_children()?);
-        }
-        Ok(())
     }
 }
 
@@ -274,7 +227,7 @@ impl LayoutReader for ColumnLayout {
         if let Some(r) = &mut self.reader {
             r.next_range()
         } else {
-            self.read_init()?;
+            self.reader = Some(self.column_reader()?);
             self.next_range()
         }
     }
@@ -283,7 +236,7 @@ impl LayoutReader for ColumnLayout {
         if let Some(r) = &mut self.reader {
             r.read_next(selector)
         } else {
-            self.read_init()?;
+            self.reader = Some(self.column_reader()?);
             self.read_next(selector)
         }
     }
