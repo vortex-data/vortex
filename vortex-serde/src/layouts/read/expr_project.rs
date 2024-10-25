@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use vortex_dtype::field::Field;
-use vortex_expr::{BinaryExpr, Column, Identity, Literal, Operator, Select, VortexExpr};
+use vortex_expr::{BinaryExpr, Column, Identity, Literal, Not, Operator, Select, VortexExpr};
 
 use crate::layouts::RowFilter;
 
@@ -49,6 +49,13 @@ pub fn expr_project(
                 expr.clone()
             }
         })
+    } else if let Some(n) = expr.as_any().downcast_ref::<Not>() {
+        let own_refs = n.references();
+        if own_refs.iter().all(|p| projection.contains(p)) {
+            expr_project(n.child(), projection).map(|proj| Arc::new(Not::new(proj)) as _)
+        } else {
+            None
+        }
     } else if let Some(bexp) = expr.as_any().downcast_ref::<BinaryExpr>() {
         let lhs_proj = expr_project(bexp.lhs(), projection);
         let rhs_proj = expr_project(bexp.rhs(), projection);
@@ -83,7 +90,7 @@ mod tests {
     use std::sync::Arc;
 
     use vortex_dtype::field::Field;
-    use vortex_expr::{BinaryExpr, Column, Identity, Literal, Operator, Select, VortexExpr};
+    use vortex_expr::{BinaryExpr, Column, Identity, Literal, Not, Operator, Select, VortexExpr};
 
     use crate::layouts::read::expr_project::expr_project;
 
@@ -152,29 +159,36 @@ mod tests {
 
     #[test]
     fn project_select() {
-        let blt = Arc::new(Select::include(vec![
+        let include = Arc::new(Select::include(vec![
             Field::from("a"),
             Field::from("b"),
             Field::from("c"),
         ])) as _;
         let projection = vec![Field::from("a"), Field::from("b")];
         assert_eq!(
-            *expr_project(&blt, &projection).unwrap(),
+            *expr_project(&include, &projection).unwrap(),
             *Select::include(projection).as_any()
         );
     }
 
     #[test]
     fn project_select_extra_columns() {
-        let blt = Arc::new(Select::include(vec![
+        let include = Arc::new(Select::include(vec![
             Field::from("a"),
             Field::from("b"),
             Field::from("c"),
         ])) as _;
         let projection = vec![Field::from("c"), Field::from("d")];
         assert_eq!(
-            *expr_project(&blt, &projection).unwrap(),
+            *expr_project(&include, &projection).unwrap(),
             *Select::include(vec![Field::from("c")]).as_any()
         );
+    }
+
+    #[test]
+    fn project_not() {
+        let not_e = Arc::new(Not::new(Arc::new(Column::new(Field::from("a"))))) as _;
+        let projection = vec![Field::from("a"), Field::from("b")];
+        assert_eq!(*expr_project(&not_e, &projection).unwrap(), *not_e.as_any());
     }
 }

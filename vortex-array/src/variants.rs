@@ -3,16 +3,14 @@
 //! When callers only want to make assumptions about the DType, and not about any specific
 //! encoding, they can use these traits to write encoding-agnostic code.
 
-use std::ops::Not;
 use std::sync::Arc;
 
 use vortex_dtype::field::Field;
 use vortex_dtype::{DType, ExtDType, FieldNames, PType};
 use vortex_error::{vortex_panic, VortexExpect as _, VortexResult};
 
-use crate::array::BoolArray;
 use crate::iter::{AccessorRef, VectorizedArrayIter};
-use crate::{Array, ArrayTrait, IntoArray, IntoArrayVariant};
+use crate::{Array, ArrayTrait};
 
 pub trait ArrayVariants {
     fn as_null_array(&self) -> Option<&dyn NullArrayTrait> {
@@ -90,15 +88,7 @@ pub trait BoolArrayTrait: ArrayTrait {
     /// True -> False
     /// False -> True
     /// Null -> Null
-    fn invert(&self) -> VortexResult<Array>
-    where
-        Self: Clone,
-    {
-        let bool_array = self.clone().into_bool()?;
-        let validity = bool_array.validity();
-
-        BoolArray::try_new(bool_array.boolean_buffer().not(), validity).map(|a| a.into_array())
-    }
+    fn invert(&self) -> VortexResult<Array>;
 
     fn true_count(&self) -> usize {
         self.statistics()

@@ -38,6 +38,7 @@ vortex-expr = { workspace = true }
 vortex-flatbuffers = { workspace = true, features = ["file"] }
 vortex-scalar = { workspace = true, features = ["flatbuffers"] }
 vortex-schema = { workspace = true }
+ahash = "0.8.11"
 
 [dev-dependencies]
 arrow = { workspace = true, features = ["ipc"] }

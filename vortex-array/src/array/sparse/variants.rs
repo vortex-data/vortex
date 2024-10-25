@@ -48,6 +48,20 @@ impl ArrayVariants for SparseArray {
 impl NullArrayTrait for SparseArray {}
 
 impl BoolArrayTrait for SparseArray {
+    fn invert(&self) -> VortexResult<Array> {
+        SparseArray::try_new(
+            self.indices(),
+            self.values().with_dyn(|a| {
+                a.as_bool_array()
+                    .ok_or_else(|| vortex_err!("Not a bool array"))
+                    .and_then(|b| b.invert())
+            })?,
+            self.len(),
+            self.fill_value().clone(),
+        )
+        .map(|a| a.into_array())
+    }
+
     fn maybe_null_indices_iter(&self) -> Box<dyn Iterator<Item = usize>> {
         Box::new(self.resolved_indices().into_iter())
     }

@@ -9,7 +9,9 @@ use vortex_array::encoding::ids;
 use vortex_array::stats::StatsSet;
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
 use vortex_array::variants::{ArrayVariants, BoolArrayTrait};
-use vortex_array::{impl_encoding, ArrayTrait, Canonical, IntoCanonical, TypedArray};
+use vortex_array::{
+    impl_encoding, Array, ArrayTrait, Canonical, IntoArray, IntoCanonical, TypedArray,
+};
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult};
@@ -90,6 +92,14 @@ impl ArrayVariants for ByteBoolArray {
 }
 
 impl BoolArrayTrait for ByteBoolArray {
+    fn invert(&self) -> VortexResult<Array> {
+        ByteBoolArray::try_from_vec(
+            self.maybe_null_slice().iter().map(|v| !v).collect(),
+            self.validity(),
+        )
+        .map(|a| a.into_array())
+    }
+
     fn maybe_null_indices_iter<'a>(&'a self) -> Box<dyn Iterator<Item = usize> + 'a> {
         todo!()
     }
