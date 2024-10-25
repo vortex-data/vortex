@@ -47,14 +47,14 @@ def test_take(ds):
 
 
 def test_to_batches(ds):
-    assert sum(len(x) for x in ds.to_batches("float", "bool")) == 1_000_000
+    assert sum(len(x) for x in ds.to_batches(columns=["float", "bool"])) == 1_000_000
 
-    schema = pa.struct(
-        [("bool", pa.bool_()), ("float", pa.float64()), ("index", pa.int64()), ("string", pa.string_view())]
-    )
+    schema = pa.struct([("string", pa.string_view()), ("bool", pa.bool_())])
 
     chunk0 = next(ds.to_batches(columns=["string", "bool"]))
-    assert chunk0.to_struct_array() == pa.array([record(x) for x in range(1 << 16)], type=schema)
+    assert chunk0.to_struct_array() == pa.array(
+        [record(x, columns=["string", "bool"]) for x in range(1 << 16)], type=schema
+    )
 
 
 def test_to_table(ds):

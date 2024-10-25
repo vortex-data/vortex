@@ -1,5 +1,4 @@
 use std::fmt::{Debug, Display, Formatter};
-use std::slice;
 use std::sync::Arc;
 
 use ::serde::{Deserialize, Serialize};
@@ -9,11 +8,11 @@ use arrow_array::{ArrayRef, BinaryViewArray, GenericByteViewArray, StringViewArr
 use arrow_buffer::ScalarBuffer;
 use itertools::Itertools;
 use static_assertions::{assert_eq_align, assert_eq_size};
+use vortex_buffer::Buffer;
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult};
 
 use crate::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
-use crate::array::PrimitiveArray;
 use crate::arrow::FromArrowArray;
 use crate::compute::slice;
 use crate::encoding::ids;
@@ -96,7 +95,7 @@ impl Ref {
 pub union BinaryView {
     // Numeric representation. This is logically `u128`, but we split it into the high and low
     // bits to preserve the alignment.
-    num: [u64; 2],
+    le_bytes: [u8; 16],
 
     // Inlined representation: strings <= 12 bytes
     inlined: Inlined,
@@ -156,13 +155,8 @@ impl BinaryView {
     }
 
     pub fn as_u128(&self) -> u128 {
-        let mut tmp = 0u128;
-        unsafe {
-            tmp |= self.num[0] as u128;
-            tmp |= (self.num[1] as u128) << 64;
-        }
-
-        tmp
+        // SAFETY: binary view always safe to read as u128 LE bytes
+        unsafe { u128::from_le_bytes(self.le_bytes) }
     }
 }
 
@@ -203,7 +197,7 @@ pub struct Buffers<'a> {
     array: &'a VarBinViewArray,
 }
 
-impl<'a> Iterator for Buffers<'a> {
+impl Iterator for Buffers<'_> {
     type Item = Array;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -227,12 +221,12 @@ impl VarBinViewArray {
         validity: Validity,
     ) -> VortexResult<Self> {
         if !matches!(views.dtype(), &DType::BYTES) {
-            vortex_bail!(MismatchedTypes: "u8", views.dtype());
+            vortex_bail!(MismatchedTypes: "views u8", views.dtype());
         }
 
         for d in buffers.iter() {
             if !matches!(d.dtype(), &DType::BYTES) {
-                vortex_bail!(MismatchedTypes: "u8", d.dtype());
+                vortex_bail!(MismatchedTypes: "buffers u8", d.dtype());
             }
         }
 
@@ -276,20 +270,29 @@ impl VarBinViewArray {
     ///
     /// This is useful for iteration over the values, as well as for applying filters that may
     /// only require hitting the prefixes or inline strings.
-    pub fn view_slice(&self) -> &[BinaryView] {
-        unsafe {
-            slice::from_raw_parts(
-                PrimitiveArray::try_from(self.views())
-                    .vortex_expect("Views must be a primitive array")
-                    .maybe_null_slice::<u8>()
-                    .as_ptr() as _,
-                self.views().len() / VIEW_SIZE_BYTES,
-            )
-        }
+    pub fn binary_views(&self) -> VortexResult<Views> {
+        Ok(Views {
+            inner: self.views().into_primitive()?.into_buffer(),
+            idx: 0,
+            len: self.len(),
+        })
     }
 
-    pub fn view_at(&self, index: usize) -> BinaryView {
-        self.view_slice()[index]
+    /// Retrieve a binary view at a specific index.
+    ///
+    /// If you will be calling this method many times, it's recommended that you instead use the
+    /// iterator provided by [`binary_views`][Self::binary_views].
+    pub fn view_at(&self, index: usize) -> VortexResult<BinaryView> {
+        let start = index * VIEW_SIZE_BYTES;
+        let stop = (index + 1) * VIEW_SIZE_BYTES;
+        let view_bytes = slice(self.views(), start, stop)?
+            .into_primitive()?
+            .into_buffer();
+
+        let mut le_bytes: [u8; 16] = [0u8; 16];
+        le_bytes.copy_from_slice(view_bytes.as_slice());
+
+        Ok(BinaryView { le_bytes })
     }
 
     /// Access to the primitive views array.
@@ -436,7 +439,7 @@ impl VarBinViewArray {
 
     // TODO(aduffy): do we really need to do this with copying?
     pub fn bytes_at(&self, index: usize) -> VortexResult<Vec<u8>> {
-        let view = self.view_at(index);
+        let view = self.view_at(index)?;
         // Expect this to be the common case: strings > 12 bytes.
         if !view.is_inlined() {
             let view_ref = view.as_view();
@@ -450,6 +453,31 @@ impl VarBinViewArray {
         } else {
             // Return access to the range of bytes around it.
             Ok(view.as_inlined().value().to_vec())
+        }
+    }
+}
+
+pub struct Views {
+    inner: Buffer,
+    len: usize,
+    idx: usize,
+}
+
+impl Iterator for Views {
+    type Item = BinaryView;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.idx >= self.len {
+            None
+        } else {
+            // SAFETY: constructing the BinaryView against u128 value
+            let mut le_bytes = [0u8; 16];
+            let start = self.idx * VIEW_SIZE_BYTES;
+            let stop = start + VIEW_SIZE_BYTES;
+            le_bytes.copy_from_slice(&self.inner[start..stop]);
+
+            self.idx += 1;
+            Some(BinaryView { le_bytes })
         }
     }
 }

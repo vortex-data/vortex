@@ -211,7 +211,7 @@ fn pack_views(
             buffers.push(canonical_buffer);
         }
 
-        for view in canonical_chunk.view_slice() {
+        for view in canonical_chunk.binary_views()? {
             if view.is_inlined() {
                 // Inlined views can be copied directly into the output
                 views.push(view.as_u128());

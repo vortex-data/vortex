@@ -3,11 +3,11 @@ use arrow_buffer::{BooleanBuffer, BufferBuilder};
 use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_native_ptype, DType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexResult};
-use vortex_scalar::{BinaryScalar, BoolScalar, Scalar, Utf8Scalar};
+use vortex_scalar::{BinaryScalar, BoolScalar, Utf8Scalar};
 
 use crate::array::constant::ConstantArray;
 use crate::array::primitive::PrimitiveArray;
-use crate::array::{BinaryView, BoolArray, VarBinViewArray};
+use crate::array::{BinaryView, BoolArray, VarBinViewArray, VIEW_SIZE_BYTES};
 use crate::validity::Validity;
 use crate::{ArrayDType, Canonical, IntoArray, IntoCanonical};
 
@@ -70,7 +70,7 @@ fn canonical_byte_view(
 ) -> VortexResult<VarBinViewArray> {
     match scalar_bytes {
         None => {
-            let views = ConstantArray::new(Scalar::null(dtype.clone()), len);
+            let views = ConstantArray::new(0u8, len * VIEW_SIZE_BYTES);
 
             VarBinViewArray::try_new(
                 views.into_array(),

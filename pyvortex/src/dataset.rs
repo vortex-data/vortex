@@ -49,9 +49,9 @@ impl PyDataset {
             reader, projection, batch_size, row_filter,
         ))?;
 
-        let record_batch_reader: Box<dyn RecordBatchReader + Send> =
-            Box::new(VortexRecordBatchReader::new(layout_reader, &TOKIO_RUNTIME)?);
-
+        let record_batch_reader: Box<dyn RecordBatchReader + Send> = Box::new(
+            VortexRecordBatchReader::new(layout_reader, &*TOKIO_RUNTIME)?,
+        );
         record_batch_reader.into_pyarrow(self_.py())
     }
 }

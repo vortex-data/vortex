@@ -4,6 +4,7 @@ use vortex_error::VortexResult;
 use crate::accessor::ArrayAccessor;
 use crate::array::primitive::PrimitiveArray;
 use crate::array::varbinview::VarBinViewArray;
+use crate::array::BinaryView;
 use crate::validity::ArrayValidity;
 use crate::IntoCanonical;
 
@@ -12,10 +13,10 @@ impl ArrayAccessor<[u8]> for VarBinViewArray {
         &self,
         f: F,
     ) -> VortexResult<R> {
-        let views = self.view_slice();
         let bytes: Vec<PrimitiveArray> = (0..self.metadata().buffer_lens.len())
             .map(|i| self.buffer(i).into_canonical()?.into_primitive())
             .try_collect()?;
+        let views: Vec<BinaryView> = self.binary_views()?.collect();
         let validity = self.logical_validity().to_null_buffer()?;
 
         match validity {

@@ -26,8 +26,10 @@ impl EncodingCompressor for DictCompressor {
     }
 
     fn can_compress(&self, array: &Array) -> Option<&dyn EncodingCompressor> {
-        // TODO(robert): Add support for VarBinView
-        if array.encoding().id() != Primitive::ID && array.encoding().id() != VarBin::ID {
+        if array.encoding().id() != Primitive::ID
+            && array.encoding().id() != VarBin::ID
+            && array.encoding().id() != VarBinView::ID
+        {
             return None;
         };
 

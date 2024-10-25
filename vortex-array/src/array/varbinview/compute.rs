@@ -18,6 +18,10 @@ use crate::compute::{slice, ArrayCompute, MaybeCompareFn, Operator, SliceFn, Tak
 use crate::{Array, ArrayDType, IntoArray, IntoCanonical};
 
 impl ArrayCompute for VarBinViewArray {
+    fn compare(&self, other: &Array, operator: Operator) -> Option<VortexResult<Array>> {
+        MaybeCompareFn::maybe_compare(self, other, operator)
+    }
+
     fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
         Some(self)
     }
