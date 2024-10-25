@@ -7,7 +7,7 @@ use std::sync::Arc;
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use futures::executor::block_on;
 use futures::StreamExt;
-use vortex::array::{PrimitiveArray, VarBinArray};
+use vortex::array::{PrimitiveArray, VarBinArray, VarBinViewArray};
 use vortex::validity::Validity;
 use vortex::{Context, IntoArray, IntoCanonical};
 use vortex_dtype::{DType, Nullability};
@@ -24,7 +24,7 @@ fn array_data_fixture() -> VarBinArray {
     .unwrap()
 }
 
-fn array_view_fixture() -> VarBinArray {
+fn array_view_fixture() -> VarBinViewArray {
     let array_data = array_data_fixture();
     let mut buffer = Vec::new();
 
@@ -42,7 +42,7 @@ fn array_view_fixture() -> VarBinArray {
         .unwrap()
         .into_canonical()
         .unwrap()
-        .into_varbin()
+        .into_varbinview()
         .unwrap()
 }
 

@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 
 use vortex::accessor::ArrayAccessor;
-use vortex::array::{BoolArray, PrimitiveArray, VarBinArray};
+use vortex::array::{BoolArray, PrimitiveArray, VarBinViewArray};
 use vortex::compute::unary::scalar_at;
 use vortex::validity::ArrayValidity;
 use vortex::{Array, ArrayDType, IntoArray, IntoArrayVariant};
@@ -53,12 +53,12 @@ pub fn sort_canonical_array(array: &Array) -> Array {
             })
         }
         DType::Utf8(_) | DType::Binary(_) => {
-            let utf8 = array.clone().into_varbin().unwrap();
+            let utf8 = array.clone().into_varbinview().unwrap();
             let mut opt_values = utf8
                 .with_iterator(|iter| iter.map(|v| v.map(|u| u.to_vec())).collect::<Vec<_>>())
                 .unwrap();
             sort_opt_slice(&mut opt_values);
-            VarBinArray::from_iter(opt_values, array.dtype().clone()).into_array()
+            VarBinViewArray::from_iter(opt_values, array.dtype().clone()).into_array()
         }
         DType::Struct(..) => {
             let mut sort_indices = (0..array.len()).collect::<Vec<_>>();

@@ -28,6 +28,7 @@ mod tests {
     use vortex_datetime_parts::DateTimeParts;
     use vortex_dict::Dict;
     use vortex_fastlanes::FoR;
+    use vortex_fsst::FSST;
     use vortex_sampling_compressor::compressors::alp_rd::ALPRDCompressor;
     use vortex_sampling_compressor::compressors::bitpacked::BITPACK_WITH_PATCHES;
     use vortex_sampling_compressor::compressors::delta::DeltaCompressor;
@@ -163,7 +164,7 @@ mod tests {
             .try_into()
             .unwrap();
         for chunk in varbin_col.chunks() {
-            assert_eq!(chunk.encoding().id(), Dict::ID);
+            assert!(chunk.encoding().id() == Dict::ID || chunk.encoding().id() == FSST::ID);
         }
 
         let binary_col: ChunkedArray = struct_array

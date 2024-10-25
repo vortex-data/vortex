@@ -5,6 +5,24 @@ import pyarrow
 
 from ._lib import encoding as _encoding
 
+# HACK: monkey-patch a fixed implementation of the pd.ArrowDtype.type property accessor.
+# See https://github.com/pandas-dev/pandas/issues/60068 for more details
+
+_old_ArrowDtype_type = pandas.ArrowDtype.type
+
+
+@property
+def __ArrowDtype_type_patched(self):
+    if pyarrow.types.is_string_view(self.pyarrow_dtype):
+        return str
+    if pyarrow.types.is_binary_view(self.pyarrow_dtype):
+        return bytes
+    return _old_ArrowDtype_type(self)
+
+
+pandas.ArrowDtype.type = __ArrowDtype_type_patched
+
+
 if TYPE_CHECKING:
     import numpy
 
@@ -52,7 +70,7 @@ def _Array_to_arrow_table(self: _encoding.Array) -> pyarrow.Table:
     >>> array.to_arrow_table()
     pyarrow.Table
     age: int64
-    name: string
+    name: string_view
     ----
     age: [[25,31,33,57]]
     name: [["Joseph","Narendra","Angela","Mikhail"]]
@@ -93,6 +111,7 @@ def _Array_to_pandas(self: _encoding.Array) -> "pandas.DataFrame":
     1   31  Narendra
     2   33    Angela
     3   57   Mikhail
+
 
     Lift the struct fields to the top-level in the dataframe:
 
@@ -296,7 +315,7 @@ def array(obj: pyarrow.Array | list) -> Array:
 
     >>> arrow = pyarrow.array(['Hello', 'it', 'is', 'me'])
     >>> vortex.encoding.array(arrow).to_arrow_array()
-    <pyarrow.lib.StringArray object at ...>
+    <pyarrow.lib.StringViewArray object at ...>
     [
       "Hello",
       "it",

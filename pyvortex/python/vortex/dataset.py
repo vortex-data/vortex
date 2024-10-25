@@ -171,7 +171,16 @@ class VortexDataset(pyarrow.dataset.Dataset):
         use_threads: bool | None = None,
         memory_pool: pa.MemoryPool = None,
     ) -> Iterator[pa.RecordBatch]:
-        record_batch_reader = self.to_record_batch_reader()
+        record_batch_reader = self.to_record_batch_reader(
+            columns,
+            filter,
+            batch_size,
+            batch_readahead,
+            fragment_readahead,
+            fragment_scan_options,
+            use_threads,
+            memory_pool,
+        )
         while True:
             try:
                 yield record_batch_reader.read_next_batch()

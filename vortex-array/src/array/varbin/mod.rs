@@ -22,6 +22,7 @@ use crate::{impl_encoding, Array, ArrayDType, ArrayTrait, IntoArrayVariant};
 
 mod accessor;
 mod array;
+mod arrow;
 pub mod builder;
 mod compute;
 mod flatten;
@@ -204,6 +205,17 @@ impl VarBinArray {
         let end = self.offset_at(index + 1);
         let sliced = slice(self.bytes(), start, end)?;
         Ok(sliced.into_primitive()?.buffer().clone())
+    }
+
+    /// Consumes self, returning a tuple containing the `DType`, the `bytes` array,
+    /// the `offsets` array, and the `validity`.
+    pub fn into_parts(self) -> (DType, Array, Array, Validity) {
+        (
+            self.dtype().clone(),
+            self.bytes(),
+            self.offsets(),
+            self.validity(),
+        )
     }
 }
 

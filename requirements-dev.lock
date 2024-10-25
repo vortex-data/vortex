@@ -76,7 +76,7 @@ packaging==24.0
     # via pytest
     # via sphinx
     # via xarray
-pandas==2.2.2
+pandas==2.2.3
     # via pyvortex
     # via vortex-array
     # via xarray
@@ -101,7 +101,7 @@ pure-eval==0.2.3
     # via stack-data
 py-cpuinfo==9.0.0
     # via pytest-benchmark
-pyarrow==15.0.2
+pyarrow==17.0.0
     # via vortex-array
 pydata-sphinx-theme==0.15.4
 pygments==2.17.2

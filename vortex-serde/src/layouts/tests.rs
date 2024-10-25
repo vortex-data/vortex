@@ -108,7 +108,7 @@ async fn test_read_projection() {
         .unwrap()
         .field(0)
         .unwrap()
-        .into_varbin()
+        .into_varbinview()
         .unwrap()
         .with_iterator(|x| {
             x.map(|x| unsafe { String::from_utf8_unchecked(x.unwrap().to_vec()) })
@@ -140,7 +140,7 @@ async fn test_read_projection() {
         .unwrap()
         .field(0)
         .unwrap()
-        .into_varbin()
+        .into_varbinview()
         .unwrap()
         .with_iterator(|x| {
             x.map(|x| unsafe { String::from_utf8_unchecked(x.unwrap().to_vec()) })
@@ -338,7 +338,7 @@ async fn filter_string() {
         .unwrap();
     assert_eq!(
         names
-            .into_varbin()
+            .into_varbinview()
             .unwrap()
             .with_iterator(|iter| iter
                 .flatten()
@@ -411,7 +411,7 @@ async fn filter_or() {
         .unwrap();
     assert_eq!(
         names
-            .into_varbin()
+            .into_varbinview()
             .unwrap()
             .with_iterator(|iter| iter
                 .flatten()
@@ -476,7 +476,7 @@ async fn filter_and() {
         .unwrap();
     assert_eq!(
         names
-            .into_varbin()
+            .into_varbinview()
             .unwrap()
             .with_iterator(|iter| iter
                 .map(|s| s.map(|st| unsafe { String::from_utf8_unchecked(st.to_vec()) }))

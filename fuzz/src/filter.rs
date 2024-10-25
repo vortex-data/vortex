@@ -1,5 +1,5 @@
 use vortex::accessor::ArrayAccessor;
-use vortex::array::{BoolArray, PrimitiveArray, StructArray, VarBinArray};
+use vortex::array::{BoolArray, PrimitiveArray, StructArray, VarBinViewArray};
 use vortex::validity::{ArrayValidity, Validity};
 use vortex::variants::StructArrayTrait;
 use vortex::{Array, ArrayDType, IntoArray, IntoArrayVariant};
@@ -60,7 +60,7 @@ pub fn filter_canonical_array(array: &Array, filter: &[bool]) -> Array {
             .into_array()
         }),
         DType::Utf8(_) | DType::Binary(_) => {
-            let utf8 = array.clone().into_varbin().unwrap();
+            let utf8 = array.clone().into_varbinview().unwrap();
             let values = utf8
                 .with_iterator(|iter| {
                     iter.zip(filter.iter())
@@ -69,7 +69,7 @@ pub fn filter_canonical_array(array: &Array, filter: &[bool]) -> Array {
                         .collect::<Vec<_>>()
                 })
                 .unwrap();
-            VarBinArray::from_iter(values, array.dtype().clone()).into_array()
+            VarBinViewArray::from_iter(values, array.dtype().clone()).into_array()
         }
         DType::Struct(..) => {
             let struct_array = array.clone().into_struct().unwrap();

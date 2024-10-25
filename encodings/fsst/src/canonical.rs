@@ -1,5 +1,5 @@
 use vortex::array::{PrimitiveArray, VarBinArray};
-use vortex::{ArrayDType, Canonical, IntoArray, IntoCanonical};
+use vortex::{ArrayDType, Canonical, IntoArray, IntoArrayVariant, IntoCanonical};
 use vortex_error::VortexResult;
 
 use crate::FSSTArray;
@@ -44,12 +44,15 @@ impl IntoCanonical for FSSTArray {
             let offsets_array = PrimitiveArray::from(offsets).into_array();
             let uncompressed_bytes_array = PrimitiveArray::from(uncompressed_bytes).into_array();
 
-            Ok(Canonical::VarBin(VarBinArray::try_new(
-                offsets_array,
-                uncompressed_bytes_array,
-                self.dtype().clone(),
-                self.validity(),
-            )?))
+            Ok(Canonical::VarBinView(
+                VarBinArray::try_new(
+                    offsets_array,
+                    uncompressed_bytes_array,
+                    self.dtype().clone(),
+                    self.validity(),
+                )?
+                .into_varbinview()?,
+            ))
         })
     }
 }

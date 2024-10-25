@@ -99,7 +99,7 @@ pub fn search_sorted_canonical_array(
             })
         }
         DType::Utf8(_) | DType::Binary(_) => {
-            let utf8 = array.clone().into_varbin().unwrap();
+            let utf8 = array.clone().into_varbinview().unwrap();
             let opt_values = utf8
                 .with_iterator(|iter| iter.map(|v| v.map(|u| u.to_vec())).collect::<Vec<_>>())
                 .unwrap();

@@ -4,12 +4,12 @@ use std::sync::Arc;
 use fsst::{Decompressor, Symbol};
 use serde::{Deserialize, Serialize};
 use vortex::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
-use vortex::array::VarBinArray;
+use vortex::array::{VarBin, VarBinArray};
 use vortex::encoding::ids;
 use vortex::stats::{ArrayStatisticsCompute, StatsSet};
 use vortex::validity::{ArrayValidity, LogicalValidity, Validity};
 use vortex::variants::{ArrayVariants, BinaryArrayTrait, Utf8ArrayTrait};
-use vortex::{impl_encoding, Array, ArrayDType, ArrayTrait, IntoCanonical};
+use vortex::{impl_encoding, Array, ArrayDType, ArrayDef, ArrayTrait, IntoCanonical};
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
@@ -71,6 +71,13 @@ impl FSSTArray {
 
         if !uncompressed_lengths.dtype().is_int() || uncompressed_lengths.dtype().is_nullable() {
             vortex_bail!(InvalidArgument: "uncompressed_lengths must have integer type and cannot be nullable");
+        }
+
+        if codes.encoding().id() != VarBin::ID {
+            vortex_bail!(
+                InvalidArgument: "codes must have varbin encoding, was {}",
+                codes.encoding().id()
+            );
         }
 
         // Check: strings must be a Binary array.

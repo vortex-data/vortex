@@ -427,7 +427,7 @@ impl PyArray {
     ///     >>> a = vortex.encoding.array(['a', 'b', 'c', 'd'])
     ///     >>> indices = vortex.encoding.array([0, 2])
     ///     >>> a.take(indices).to_arrow_array()
-    ///     <pyarrow.lib.StringArray object at ...>
+    ///     <pyarrow.lib.StringViewArray object at ...>
     ///     [
     ///       "a",
     ///       "c"
@@ -438,7 +438,7 @@ impl PyArray {
     ///     >>> a = vortex.encoding.array(['a', 'b', 'c', 'd'])
     ///     >>> indices = vortex.encoding.array([0, 1, 1, 0])
     ///     >>> a.take(indices).to_arrow_array()
-    ///     <pyarrow.lib.StringArray object at ...>
+    ///     <pyarrow.lib.StringViewArray object at ...>
     ///     [
     ///       "a",
     ///       "b",
@@ -482,7 +482,7 @@ impl PyArray {
     ///
     ///     >>> a = vortex.encoding.array(['a', 'b', 'c', 'd'])
     ///     >>> a.slice(1, 3).to_arrow_array()
-    ///     <pyarrow.lib.StringArray object at ...>
+    ///     <pyarrow.lib.StringViewArray object at ...>
     ///     [
     ///       "b",
     ///       "c"
@@ -492,7 +492,7 @@ impl PyArray {
     ///
     ///     >>> a = vortex.encoding.array(['a', 'b', 'c', 'd'])
     ///     >>> a.slice(3, 3).to_arrow_array()
-    ///     <pyarrow.lib.StringArray object at ...>
+    ///     <pyarrow.lib.StringViewArray object at ...>
     ///     []
     ///
     /// Unlike Python, it is an error to slice outside the bounds of the array:

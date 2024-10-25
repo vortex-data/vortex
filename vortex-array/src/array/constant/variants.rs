@@ -53,6 +53,14 @@ impl ArrayVariants for ConstantArray {
 impl NullArrayTrait for ConstantArray {}
 
 impl BoolArrayTrait for ConstantArray {
+    fn invert(&self) -> VortexResult<Array> {
+        let value = self.scalar_value().as_bool()?;
+        match value {
+            None => Ok(self.clone().into_array()),
+            Some(b) => Ok(ConstantArray::new(!b, self.len()).into_array()),
+        }
+    }
+
     fn maybe_null_indices_iter(&self) -> Box<dyn Iterator<Item = usize>> {
         let value = self
             .scalar_value()

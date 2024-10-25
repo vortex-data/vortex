@@ -45,8 +45,9 @@ impl PrimitiveArray {
         let length = match_each_native_ptype!(ptype, |$P| {
             let (prefix, values, suffix) = unsafe { buffer.align_to::<$P>() };
             assert!(
-                prefix.is_empty() && suffix.is_empty(),
-                "buffer is not aligned"
+                prefix.is_empty() && suffix.is_empty() && (buffer.as_ptr() as usize) % std::mem::size_of::<$P>() == 0,
+                "buffer is not aligned: {:?}",
+                buffer.as_ptr()
             );
             values.len()
         });

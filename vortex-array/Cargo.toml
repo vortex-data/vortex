@@ -45,6 +45,7 @@ paste = { workspace = true }
 pin-project = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
+static_assertions = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-datetime-dtype = { workspace = true }
 vortex-dtype = { workspace = true }
@@ -94,4 +95,8 @@ harness = false
 
 [[bench]]
 name = "fn"
+harness = false
+
+[[bench]]
+name = "take_strings"
 harness = false

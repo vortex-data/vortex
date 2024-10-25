@@ -1,15 +1,18 @@
 #![cfg(feature = "tokio")]
 
+use std::future::Future;
 use std::io;
 use std::os::unix::prelude::FileExt;
 
 use bytes::BytesMut;
 use tokio::fs::File;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::runtime::Runtime;
 use vortex_buffer::io_buf::IoBuf;
 use vortex_error::{VortexError, VortexUnwrap as _};
 
 use crate::io::{VortexRead, VortexReadAt, VortexWrite};
+use crate::layouts::AsyncRuntime;
 
 pub struct TokioAdapter<IO>(pub IO);
 
@@ -70,5 +73,11 @@ impl VortexWrite for File {
 
     async fn shutdown(&mut self) -> io::Result<()> {
         AsyncWriteExt::shutdown(self).await
+    }
+}
+
+impl AsyncRuntime for Runtime {
+    fn block_on<F: Future>(&self, fut: F) -> F::Output {
+        self.block_on(fut)
     }
 }

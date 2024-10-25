@@ -65,7 +65,16 @@ impl Buffer {
             Self::Arrow(b) => {
                 Self::Arrow(b.slice_with_length(range.start, range.end - range.start))
             }
-            Self::Bytes(b) => Self::Bytes(b.slice(range)),
+            Self::Bytes(b) => {
+                if range.is_empty() {
+                    // bytes::Bytes::slice does not preserve alignment if the range is empty
+                    let mut empty_b = b.clone();
+                    empty_b.truncate(0);
+                    Self::Bytes(empty_b)
+                } else {
+                    Self::Bytes(b.slice(range))
+                }
+            }
         }
     }
 

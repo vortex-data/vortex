@@ -102,7 +102,7 @@ fn test_fsst_array_ops() {
         .clone()
         .into_canonical()
         .unwrap()
-        .into_varbin()
+        .into_varbinview()
         .unwrap()
         .into_array();
 

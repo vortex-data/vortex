@@ -8,7 +8,7 @@ use vortex::{Array, ArrayDType, IntoArray, IntoArrayVariant, IntoCanonical};
 use vortex_dtype::{
     match_each_integer_ptype, match_each_unsigned_integer_ptype, NativePType, PType,
 };
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect as _, VortexResult};
 
 use crate::{unpack_single_primitive, BitPackedArray};
 
@@ -35,111 +35,179 @@ impl TakeFn for BitPackedArray {
 
         let indices = indices.clone().into_primitive()?;
         let taken = match_each_unsigned_integer_ptype!(ptype, |$T| {
-            PrimitiveArray::from_vec(take_primitive::<$T>(self, &indices)?, taken_validity)
+            match_each_integer_ptype!(indices.ptype(), |$I| {
+                PrimitiveArray::from_vec(take_primitive::<$T, $I>(self, &indices)?, taken_validity)
+            })
         });
         Ok(taken.reinterpret_cast(ptype).into_array())
     }
 }
 
-fn take_primitive<T: NativePType + BitPacking>(
+fn take_primitive<T: NativePType + BitPacking, I: NativePType>(
     array: &BitPackedArray,
     indices: &PrimitiveArray,
 ) -> VortexResult<Vec<T>> {
+    if indices.is_empty() {
+        return Ok(vec![]);
+    }
+
     let offset = array.offset() as usize;
-
-    // Group indices into 1024-element chunks and relativise them to the beginning of each chunk
-    let relative_indices: Vec<(usize, Vec<u16>)> = match_each_integer_ptype!(indices.ptype(), |$P| {
-        indices
-            .maybe_null_slice::<$P>()
-            .iter()
-            .copied()
-            .map(|i| i as usize + offset)
-            .chunk_by(|idx| idx / 1024)
-            .into_iter()
-            .map(|(k, g)| (k, g.map(|idx| (idx % 1024) as u16).collect()))
-            .collect()
-    });
-
     let bit_width = array.bit_width() as usize;
 
     let packed = array.packed_slice::<T>();
-
     let patches = array.patches().map(SparseArray::try_from).transpose()?;
 
-    // if we have a small number of relatively large batches, we gain by slicing and then patching inside the loop
-    // if we have a large number of relatively small batches, the overhead isn't worth it, and we're better off with a bulk patch
-    // roughly, if we have an average of less than 64 elements per batch, we prefer bulk patching
-    let prefer_bulk_patch = relative_indices.len() * BULK_PATCH_THRESHOLD > indices.len();
+    // Group indices by 1024-element chunk, *without* allocating on the heap
+    let chunked_indices = &indices
+        .maybe_null_slice::<I>()
+        .iter()
+        .map(|i| {
+            i.to_usize()
+                .vortex_expect("index must be expressible as usize")
+                + offset
+        })
+        .chunk_by(|idx| idx / 1024);
 
     let mut output = Vec::with_capacity(indices.len());
     let mut unpacked = [T::zero(); 1024];
-    for (chunk, offsets) in relative_indices {
+
+    let mut batch_count = 0_usize;
+    for (chunk, offsets) in chunked_indices {
+        batch_count += 1;
         let chunk_size = 128 * bit_width / size_of::<T>();
         let packed_chunk = &packed[chunk * chunk_size..][..chunk_size];
-        if offsets.len() > UNPACK_CHUNK_THRESHOLD {
-            unsafe {
-                BitPacking::unchecked_unpack(bit_width, packed_chunk, &mut unpacked);
+
+        // array_chunks produced a fixed size array, doesn't heap allocate
+        let mut have_unpacked = false;
+        let mut offset_chunk_iter = offsets
+            // relativize indices to the start of the chunk
+            .map(|i| i % 1024)
+            .array_chunks::<UNPACK_CHUNK_THRESHOLD>();
+
+        // this loop only runs if we have at least UNPACK_CHUNK_THRESHOLD offsets
+        for offset_chunk in &mut offset_chunk_iter {
+            if !have_unpacked {
+                unsafe {
+                    BitPacking::unchecked_unpack(bit_width, packed_chunk, &mut unpacked);
+                }
+                have_unpacked = true;
             }
-            for index in &offsets {
-                output.push(unpacked[*index as usize]);
-            }
-        } else {
-            for index in &offsets {
-                output.push(unsafe {
-                    unpack_single_primitive::<T>(packed_chunk, bit_width, *index as usize)
-                });
+
+            for index in offset_chunk {
+                output.push(unpacked[index]);
             }
         }
 
-        if !prefer_bulk_patch {
-            if let Some(ref patches) = patches {
-                // NOTE: we need to subtract the array offset before slicing into the patches.
-                // This is because BitPackedArray is rounded to block boundaries, but patches
-                // is sliced exactly.
-                let patches_start = if chunk == 0 {
-                    0
-                } else {
-                    (chunk * 1024) - offset
-                };
-                let patches_end = min((chunk + 1) * 1024 - offset, patches.len());
-                let patches_slice = slice(patches.as_ref(), patches_start, patches_end)?;
-                let patches_slice = SparseArray::try_from(patches_slice)?;
-                let offsets = PrimitiveArray::from(offsets);
-                do_patch_for_take_primitive(&patches_slice, &offsets, &mut output)?;
+        // if we have a remainder (i.e., < UNPACK_CHUNK_THRESHOLD leftover offsets), we need to handle it
+        if let Some(remainder) = offset_chunk_iter.into_remainder() {
+            if have_unpacked {
+                // we already bulk unpacked this chunk, so we can just push the remaining elements
+                for index in remainder {
+                    output.push(unpacked[index]);
+                }
+            } else {
+                // we had fewer than UNPACK_CHUNK_THRESHOLD offsets in the first place,
+                // so we need to unpack each one individually
+                for index in remainder {
+                    output.push(unsafe {
+                        unpack_single_primitive::<T>(packed_chunk, bit_width, index)
+                    });
+                }
             }
         }
     }
 
-    if prefer_bulk_patch {
-        if let Some(ref patches) = patches {
-            do_patch_for_take_primitive(patches, indices, &mut output)?;
-        }
+    if let Some(ref patches) = patches {
+        patch_for_take_primitive::<T, I>(patches, indices, offset, batch_count, &mut output)?;
     }
 
     Ok(output)
 }
 
-fn do_patch_for_take_primitive<T: NativePType>(
+fn patch_for_take_primitive<T: NativePType, I: NativePType>(
     patches: &SparseArray,
     indices: &PrimitiveArray,
+    offset: usize,
+    batch_count: usize,
     output: &mut [T],
 ) -> VortexResult<()> {
-    let taken_patches = take(patches.as_ref(), indices.as_ref())?;
-    let taken_patches = SparseArray::try_from(taken_patches)?;
+    #[inline]
+    fn inner_patch<T: NativePType>(
+        patches: &SparseArray,
+        indices: &PrimitiveArray,
+        output: &mut [T],
+    ) -> VortexResult<()> {
+        let taken_patches = take(patches.as_ref(), indices.as_ref())?;
+        let taken_patches = SparseArray::try_from(taken_patches)?;
 
-    let base_index = output.len() - indices.len();
-    let output_patches = taken_patches
-        .values()
-        .into_primitive()?
-        .reinterpret_cast(T::PTYPE);
-    taken_patches
-        .resolved_indices()
+        let base_index = output.len() - indices.len();
+        let output_patches = taken_patches
+            .values()
+            .into_primitive()?
+            .reinterpret_cast(T::PTYPE);
+        taken_patches
+            .resolved_indices()
+            .iter()
+            .map(|idx| base_index + *idx)
+            .zip_eq(output_patches.maybe_null_slice::<T>())
+            .for_each(|(idx, val)| {
+                output[idx] = *val;
+            });
+
+        Ok(())
+    }
+
+    // if we have a small number of relatively large batches, we gain by slicing and then patching inside the loop
+    // if we have a large number of relatively small batches, the overhead isn't worth it, and we're better off with a bulk patch
+    // roughly, if we have an average of less than 64 elements per batch, we prefer bulk patching
+    let prefer_bulk_patch = batch_count * BULK_PATCH_THRESHOLD > indices.len();
+    if prefer_bulk_patch {
+        return inner_patch(patches, indices, output);
+    }
+
+    let min_index = patches.min_index().unwrap_or_default();
+    let max_index = patches.max_index().unwrap_or_default();
+
+    // Group indices into 1024-element chunks and relativise them to the beginning of each chunk
+    let chunked_indices = &indices
+        .maybe_null_slice::<I>()
         .iter()
-        .map(|idx| base_index + *idx)
-        .zip_eq(output_patches.maybe_null_slice::<T>())
-        .for_each(|(idx, val)| {
-            output[idx] = *val;
-        });
+        .map(|i| {
+            i.to_usize()
+                .vortex_expect("index must be expressible as usize")
+                + offset
+        })
+        .filter(|i| *i >= min_index && *i <= max_index) // short-circuit
+        .chunk_by(|idx| idx / 1024);
+
+    for (chunk, offsets) in chunked_indices {
+        // NOTE: we need to subtract the array offset before slicing into the patches.
+        // This is because BitPackedArray is rounded to block boundaries, but patches
+        // is sliced exactly.
+        let patches_start = if chunk == 0 {
+            0
+        } else {
+            (chunk * 1024) - offset
+        };
+        let patches_end = min((chunk + 1) * 1024 - offset, patches.len());
+        let patches_slice = slice(patches.as_ref(), patches_start, patches_end)?;
+        let patches_slice = SparseArray::try_from(patches_slice)?;
+        if patches_slice.is_empty() {
+            continue;
+        }
+
+        let min_index = patches_slice.min_index().unwrap_or_default();
+        let max_index = patches_slice.max_index().unwrap_or_default();
+        let offsets = offsets
+            .map(|i| (i % 1024) as u16)
+            .filter(|i| *i as usize >= min_index && *i as usize <= max_index)
+            .collect_vec();
+        if offsets.is_empty() {
+            continue;
+        }
+
+        inner_patch(&patches_slice, &PrimitiveArray::from(offsets), output)?;
+    }
 
     Ok(())
 }

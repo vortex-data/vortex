@@ -8,6 +8,7 @@ use pyo3::prelude::*;
 use pyo3::pyfunction;
 use pyo3::types::PyString;
 use tokio::fs::File;
+use tokio::runtime::Runtime;
 use vortex::arrow::infer_schema;
 use vortex_dtype::field::Field;
 use vortex_error::VortexResult;
@@ -111,9 +112,10 @@ impl PyDataset {
             ))
             .map_err(PyVortexError::map_err)?;
 
+        let runtime: &Runtime = &TOKIO_RUNTIME;
+
         let record_batch_reader: Box<dyn RecordBatchReader + Send> = Box::new(
-            VortexRecordBatchReader::new(layout_reader, &TOKIO_RUNTIME)
-                .map_err(PyVortexError::map_err)?,
+            VortexRecordBatchReader::new(layout_reader, runtime).map_err(PyVortexError::map_err)?,
         );
 
         record_batch_reader.into_pyarrow(self_.py())

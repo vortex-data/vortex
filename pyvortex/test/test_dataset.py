@@ -29,7 +29,7 @@ def ds(tmpdir_factory) -> vortex.dataset.VortexDataset:
 
 def test_schema(ds):
     assert ds.schema == pa.schema(
-        [("bool", pa.bool_()), ("float", pa.float64()), ("index", pa.int64()), ("string", pa.utf8())]
+        [("bool", pa.bool_()), ("float", pa.float64()), ("index", pa.int64()), ("string", pa.string_view())]
     )
 
 
@@ -47,21 +47,30 @@ def test_take(ds):
 
 
 def test_to_batches(ds):
-    assert sum(len(x) for x in ds.to_batches("string", "bool")) == 1_000_000
+    assert sum(len(x) for x in ds.to_batches(columns=["float", "bool"])) == 1_000_000
+
+    schema = pa.struct([("string", pa.string_view()), ("bool", pa.bool_())])
 
     chunk0 = next(ds.to_batches(columns=["string", "bool"]))
-    assert chunk0.to_struct_array() == pa.array([record(x) for x in range(1 << 16)])
+    assert chunk0.to_struct_array() == pa.array(
+        [record(x, columns=["string", "bool"]) for x in range(1 << 16)], type=schema
+    )
 
 
 def test_to_table(ds):
-    tbl = ds.to_table(columns=["bool", "string"], filter=pc.field("float") > 100)
-    assert 0 == len(tbl.filter(pc.field("string") <= "10000"))
+    tbl = ds.to_table(columns=["bool", "float"], filter=pc.field("float") > 100)
+    # TODO(aduffy): add back once pyarrow supports casting to/from string_view
+    # assert 0 == len(tbl.filter(pc.field("string") <= "10000"))
     assert tbl.slice(0, 10) == pa.Table.from_struct_array(
-        pa.array([record(x, columns={"string", "bool"}) for x in range(10001, 10011)])
+        pa.array([record(x, columns={"float", "bool"}) for x in range(10001, 10011)])
     )
 
-    assert ds.to_table(columns=["bool", "string"]).schema == pa.schema([("bool", pa.bool_()), ("string", pa.utf8())])
-    assert ds.to_table(columns=["string", "bool"]).schema == pa.schema([("string", pa.utf8()), ("bool", pa.bool_())])
+    assert ds.to_table(columns=["bool", "string"]).schema == pa.schema(
+        [("bool", pa.bool_()), ("string", pa.string_view())]
+    )
+    assert ds.to_table(columns=["string", "bool"]).schema == pa.schema(
+        [("string", pa.string_view()), ("bool", pa.bool_())]
+    )
 
 
 def test_to_record_batch_reader_with_polars(ds):

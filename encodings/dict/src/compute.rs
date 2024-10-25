@@ -66,11 +66,12 @@ impl SliceFn for DictArray {
 
 #[cfg(test)]
 mod test {
-    use vortex::array::{PrimitiveArray, VarBinArray};
+    use vortex::accessor::ArrayAccessor;
+    use vortex::array::{PrimitiveArray, VarBinViewArray};
     use vortex::{IntoArray, IntoArrayVariant, ToArray};
     use vortex_dtype::{DType, Nullability};
 
-    use crate::{dict_encode_typed_primitive, dict_encode_varbin, DictArray};
+    use crate::{dict_encode_typed_primitive, dict_encode_varbinview, DictArray};
 
     #[test]
     fn flatten_nullable_primitive() {
@@ -90,20 +91,25 @@ mod test {
 
     #[test]
     fn flatten_nullable_varbin() {
-        let reference = VarBinArray::from_iter(
+        let reference = VarBinViewArray::from_iter(
             vec![Some("a"), Some("b"), None, Some("a"), None, Some("b")],
             DType::Utf8(Nullability::Nullable),
         );
-        let (codes, values) = dict_encode_varbin(&reference);
+        assert_eq!(reference.len(), 6);
+        let (codes, values) = dict_encode_varbinview(&reference);
         let dict = DictArray::try_new(codes.into_array(), values.into_array()).unwrap();
-        let flattened_dict = dict.to_array().into_varbin().unwrap();
+        let flattened_dict = dict.to_array().into_varbinview().unwrap();
         assert_eq!(
-            flattened_dict.offsets().into_primitive().unwrap().buffer(),
-            reference.offsets().into_primitive().unwrap().buffer()
-        );
-        assert_eq!(
-            flattened_dict.bytes().into_primitive().unwrap().buffer(),
-            reference.bytes().into_primitive().unwrap().buffer()
+            flattened_dict
+                .with_iterator(|iter| iter
+                    .map(|slice| slice.map(|s| s.to_vec()))
+                    .collect::<Vec<_>>())
+                .unwrap(),
+            reference
+                .with_iterator(|iter| iter
+                    .map(|slice| slice.map(|s| s.to_vec()))
+                    .collect::<Vec<_>>())
+                .unwrap(),
         );
     }
 }

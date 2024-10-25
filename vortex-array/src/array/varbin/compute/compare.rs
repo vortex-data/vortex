@@ -7,10 +7,11 @@ use arrow_ord::cmp;
 use arrow_schema::DataType;
 use vortex_error::{vortex_bail, VortexResult};
 
+use crate::array::varbin::arrow::{varbin_datum, varbin_to_arrow};
 use crate::array::{ConstantArray, VarBinArray};
 use crate::arrow::FromArrowArray;
 use crate::compute::{MaybeCompareFn, Operator};
-use crate::{Array, IntoCanonical};
+use crate::Array;
 
 impl MaybeCompareFn for VarBinArray {
     fn maybe_compare(&self, other: &Array, operator: Operator) -> Option<VortexResult<Array>> {
@@ -27,8 +28,9 @@ fn compare_constant(
     rhs: &ConstantArray,
     operator: Operator,
 ) -> VortexResult<Array> {
-    let arrow_lhs = lhs.clone().into_canonical()?.into_arrow()?;
-    let constant = Arc::<dyn Datum>::try_from(&rhs.owned_scalar())?;
+    // Compare using the arrow kernels directly.
+    let arrow_lhs = varbin_to_arrow(lhs)?;
+    let constant = varbin_datum(rhs.owned_scalar())?;
 
     match arrow_lhs.data_type() {
         DataType::Binary => {

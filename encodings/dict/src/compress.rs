@@ -4,11 +4,14 @@ use hashbrown::hash_map::{Entry, RawEntryMut};
 use hashbrown::{DefaultHashBuilder, HashMap};
 use num_traits::AsPrimitive;
 use vortex::accessor::ArrayAccessor;
-use vortex::array::{PrimitiveArray, VarBinArray};
+use vortex::array::{PrimitiveArray, VarBinArray, VarBinViewArray};
 use vortex::validity::Validity;
-use vortex::{ArrayDType, IntoArray};
+use vortex::{ArrayDType, IntoArray, IntoCanonical};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, ToBytes};
-use vortex_error::VortexExpect as _;
+use vortex_error::{VortexExpect as _, VortexUnwrap};
+
+/// Statically assigned code for a null value.
+pub const NULL_CODE: u64 = 0;
 
 #[derive(Debug)]
 struct Value<T>(T);
@@ -49,7 +52,7 @@ pub fn dict_encode_typed_primitive<T: NativePType>(
     ArrayAccessor::<T>::with_iterator(array, |iter| {
         for ov in iter {
             match ov {
-                None => codes.push(0),
+                None => codes.push(NULL_CODE),
                 Some(&v) => {
                     let code = match lookup_dict.entry(Value(v)) {
                         Entry::Occupied(o) => *o.get(),
@@ -87,6 +90,21 @@ pub fn dict_encode_varbin(array: &VarBinArray) -> (PrimitiveArray, VarBinArray) 
     array
         .with_iterator(|iter| dict_encode_typed_varbin(array.dtype().clone(), iter))
         .vortex_expect("Failed to dictionary encode varbin array")
+}
+
+/// Dictionary encode a VarbinViewArray.
+pub fn dict_encode_varbinview(array: &VarBinViewArray) -> (PrimitiveArray, VarBinViewArray) {
+    let (codes, values) = array
+        .with_iterator(|iter| dict_encode_typed_varbin(array.dtype().clone(), iter))
+        .vortex_unwrap();
+    (
+        codes,
+        values
+            .into_canonical()
+            .vortex_expect("VarBin to canonical")
+            .into_varbinview()
+            .vortex_expect("VarBinView"),
+    )
 }
 
 fn lookup_bytes<'a, T: NativePType + AsPrimitive<usize>>(
