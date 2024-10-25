@@ -96,6 +96,8 @@ class VortexDataset(pyarrow.dataset.Dataset):
         table : :class:`.pyarrow.Table`
 
         """
+        if batch_size is not None:
+            raise ValueError("batch_size is not supported")
         if batch_readahead is not None:
             raise ValueError("batch_readahead not supported")
         if fragment_readahead is not None:
@@ -268,6 +270,8 @@ class VortexDataset(pyarrow.dataset.Dataset):
         table : :class:`.pyarrow.Table`
 
         """
+        if batch_size is not None:
+            raise ValueError("batch_size is not supported")
         if batch_readahead is not None:
             raise ValueError("batch_readahead not supported")
         if fragment_readahead is not None:
@@ -375,6 +379,8 @@ class VortexDataset(pyarrow.dataset.Dataset):
         table : :class:`.pyarrow.Table`
 
         """
+        if batch_size is not None:
+            raise ValueError("batch_size is not supported")
         if batch_readahead is not None:
             raise ValueError("batch_readahead not supported")
         if fragment_readahead is not None:

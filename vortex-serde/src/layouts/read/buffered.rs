@@ -15,13 +15,13 @@ pub type RangedLayoutReader = ((usize, usize), Box<dyn LayoutReader>);
 pub type RangedArray = ((usize, usize), Array);
 
 #[derive(Debug)]
-pub struct BufferedArrayReader {
+pub struct BufferedLayoutReader {
     layouts: VecDeque<RangedLayoutReader>,
     arrays: VecDeque<RangedArray>,
     next_range_offset: usize,
 }
 
-impl BufferedArrayReader {
+impl BufferedLayoutReader {
     pub fn new(layouts: VecDeque<RangedLayoutReader>) -> Self {
         Self {
             layouts,
@@ -47,6 +47,7 @@ impl BufferedArrayReader {
                     self.next_range()
                 }
                 Some(rs) => {
+                    // Get the range for the layout we queried
                     let layout_range = self.layouts[self.next_range_offset].0;
                     let offset = rs.offset(-(layout_range.0 as i64));
                     if offset.end() == layout_range.1 {

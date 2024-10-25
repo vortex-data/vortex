@@ -7,7 +7,7 @@ use vortex::{Array, IntoArrayVariant};
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 use vortex_flatbuffers::footer;
 
-use crate::layouts::read::buffered::{BufferedArrayReader, RangedLayoutReader};
+use crate::layouts::read::buffered::{BufferedLayoutReader, RangedLayoutReader};
 use crate::layouts::read::cache::RelativeLayoutCache;
 use crate::layouts::read::selection::RowSelector;
 use crate::layouts::{
@@ -62,7 +62,7 @@ pub struct ChunkedLayout {
     scan: Scan,
     layout_builder: LayoutDeserializer,
     message_cache: RelativeLayoutCache,
-    chunk_reader: Option<BufferedArrayReader>,
+    chunk_reader: Option<BufferedLayoutReader>,
     metadata_array: MetadataState,
 }
 
@@ -195,7 +195,7 @@ impl LayoutReader for ChunkedLayout {
                                 } else {
                                     self.metadata_array = MetadataState::Array(r);
                                     self.chunk_reader =
-                                        Some(BufferedArrayReader::new(self.ranged_children()?));
+                                        Some(BufferedLayoutReader::new(self.ranged_children()?));
                                 }
                                 self.next_range()
                             }
@@ -237,7 +237,7 @@ impl LayoutReader for ChunkedLayout {
                                 } else {
                                     self.metadata_array = MetadataState::Array(r);
                                     self.chunk_reader =
-                                        Some(BufferedArrayReader::new(self.ranged_children()?));
+                                        Some(BufferedLayoutReader::new(self.ranged_children()?));
                                 }
                                 self.read_next(selector)
                             }
