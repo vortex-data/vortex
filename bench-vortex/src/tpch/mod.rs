@@ -12,16 +12,16 @@ use datafusion::datasource::MemTable;
 use datafusion::execution::object_store::ObjectStoreUrl;
 use datafusion::prelude::{CsvReadOptions, ParquetReadOptions, SessionContext};
 use tokio::fs::OpenOptions;
-use vortex::array::{ChunkedArray, StructArray};
-use vortex::arrow::FromArrowArray;
-use vortex::variants::StructArrayTrait;
-use vortex::{Array, ArrayDType, IntoArray, IntoArrayVariant};
 use vortex_datafusion::memory::VortexMemTableOptions;
 use vortex_datafusion::persistent::config::{VortexFile, VortexTableOptions};
 use vortex_datafusion::SessionContextExt;
-use vortex_dtype::DType;
-use vortex_sampling_compressor::SamplingCompressor;
-use vortex_serde::layouts::LayoutWriter;
+use vortex_rs::array::{ChunkedArray, StructArray};
+use vortex_rs::arrow::FromArrowArray;
+use vortex_rs::dtype::DType;
+use vortex_rs::sampling_compressor::SamplingCompressor;
+use vortex_rs::serde::layouts::LayoutWriter;
+use vortex_rs::variants::StructArrayTrait;
+use vortex_rs::{Array, ArrayDType, IntoArray, IntoArrayVariant};
 
 use crate::{idempotent_async, CTX};
 

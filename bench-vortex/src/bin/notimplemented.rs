@@ -3,27 +3,27 @@
 use std::process::ExitCode;
 
 use prettytable::{Cell, Row, Table};
-use vortex::array::builder::VarBinBuilder;
-use vortex::array::{
+use vortex_rs::alp::{ALPArray, Exponents, RDEncoder};
+use vortex_rs::array::builder::VarBinBuilder;
+use vortex_rs::array::{
     BoolArray, ChunkedArray, ConstantArray, NullArray, PrimitiveArray, SparseArray, StructArray,
     VarBinViewArray,
 };
-use vortex::compute::Operator;
-use vortex::validity::Validity;
-use vortex::{Array, IntoArray};
-use vortex_alp::{ALPArray, Exponents, RDEncoder};
-use vortex_bytebool::ByteBoolArray;
-use vortex_datetime_dtype::{TemporalMetadata, TimeUnit, TIME_ID};
-use vortex_datetime_parts::DateTimePartsArray;
-use vortex_dict::DictArray;
-use vortex_dtype::{DType, ExtDType, Nullability, PType};
-use vortex_fastlanes::{BitPackedArray, DeltaArray, FoRArray};
-use vortex_fsst::{fsst_compress, fsst_train_compressor};
-use vortex_roaring::{Bitmap, RoaringBoolArray, RoaringIntArray};
-use vortex_runend::RunEndArray;
-use vortex_runend_bool::RunEndBoolArray;
-use vortex_scalar::ScalarValue;
-use vortex_zigzag::ZigZagArray;
+use vortex_rs::bytebool::ByteBoolArray;
+use vortex_rs::compute::Operator;
+use vortex_rs::datetime_dtype::{TemporalMetadata, TimeUnit, TIME_ID};
+use vortex_rs::datetime_parts::DateTimePartsArray;
+use vortex_rs::dict::DictArray;
+use vortex_rs::dtype::{DType, ExtDType, Nullability, PType};
+use vortex_rs::fastlanes::{BitPackedArray, DeltaArray, FoRArray};
+use vortex_rs::fsst::{fsst_compress, fsst_train_compressor};
+use vortex_rs::roaring::{Bitmap, RoaringBoolArray, RoaringIntArray};
+use vortex_rs::runend::RunEndArray;
+use vortex_rs::runend_bool::RunEndBoolArray;
+use vortex_rs::scalar::ScalarValue;
+use vortex_rs::validity::Validity;
+use vortex_rs::zigzag::ZigZagArray;
+use vortex_rs::{Array, IntoArray};
 
 const OPERATORS: [Operator; 6] = [
     Operator::Lte,

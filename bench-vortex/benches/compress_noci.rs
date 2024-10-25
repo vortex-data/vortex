@@ -24,11 +24,13 @@ use regex::Regex;
 use tokio::runtime::Runtime;
 use vortex::array::{ChunkedArray, StructArray};
 use vortex::{Array, ArrayDType, IntoArray, IntoCanonical};
-use vortex_dtype::field::Field;
-use vortex_error::VortexResult;
-use vortex_sampling_compressor::compressors::fsst::FSSTCompressor;
-use vortex_sampling_compressor::{SamplingCompressor, ALL_COMPRESSORS_CONTEXT};
-use vortex_serde::layouts::{LayoutContext, LayoutDeserializer, LayoutReaderBuilder, LayoutWriter};
+use vortex_rs::dtype::field::Field;
+use vortex_rs::error::VortexResult;
+use vortex_rs::sampling_compressor::compressors::fsst::FSSTCompressor;
+use vortex_rs::sampling_compressor::{SamplingCompressor, ALL_COMPRESSORS_CONTEXT};
+use vortex_rs::serde::layouts::{
+    LayoutContext, LayoutDeserializer, LayoutReaderBuilder, LayoutWriter,
+};
 
 use crate::tokio_runtime::TOKIO_RUNTIME;
 

@@ -9,12 +9,12 @@ use bzip2::read::BzDecoder;
 use log::info;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use tokio::runtime::Runtime;
-use vortex::array::ChunkedArray;
-use vortex::arrow::FromArrowType;
-use vortex::{Array, IntoArray};
-use vortex_dtype::DType;
-use vortex_error::{VortexError, VortexResult};
-use vortex_serde::stream_writer::StreamArrayWriter;
+use vortex_rs::array::ChunkedArray;
+use vortex_rs::arrow::FromArrowType;
+use vortex_rs::dtype::DType;
+use vortex_rs::error::{VortexError, VortexResult};
+use vortex_rs::serde::stream_writer::StreamArrayWriter;
+use vortex_rs::{Array, IntoArray};
 
 use crate::idempotent;
 use crate::reader::BATCH_SIZE;

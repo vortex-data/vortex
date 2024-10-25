@@ -10,9 +10,9 @@ use futures::StreamExt;
 use vortex::array::{PrimitiveArray, VarBinArray, VarBinViewArray};
 use vortex::validity::Validity;
 use vortex::{Context, IntoArray, IntoCanonical};
-use vortex_dtype::{DType, Nullability};
-use vortex_serde::stream_reader::StreamArrayReader;
-use vortex_serde::stream_writer::StreamArrayWriter;
+use vortex_rs::dtype::{DType, Nullability};
+use vortex_rs::serde::stream_reader::StreamArrayReader;
+use vortex_rs::serde::stream_writer::StreamArrayWriter;
 
 fn array_data_fixture() -> VarBinArray {
     VarBinArray::try_new(

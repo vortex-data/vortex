@@ -44,3 +44,7 @@ vortex-scalar = { workspace = true, default-features = true }
 vortex-schema = { workspace = true }
 vortex-serde = { workspace = true, default-features = true }
 vortex-zigzag = { workspace = true }
+
+[features]
+object_store = ["vortex-serde/object_store"]
+parquet = ["vortex-error/parquet"]
