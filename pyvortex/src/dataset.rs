@@ -9,12 +9,12 @@ use pyo3::pyfunction;
 use pyo3::types::PyString;
 use tokio::fs::File;
 use tokio::runtime::Runtime;
-use vortex::arrow::infer_schema;
-use vortex_dtype::field::Field;
-use vortex_error::VortexResult;
-use vortex_sampling_compressor::ALL_COMPRESSORS_CONTEXT;
-use vortex_serde::io::VortexReadAt;
-use vortex_serde::layouts::{
+use vortex_rs::arrow::infer_schema;
+use vortex_rs::dtype::field::Field;
+use vortex_rs::error::VortexResult;
+use vortex_rs::sampling_compressor::ALL_COMPRESSORS_CONTEXT;
+use vortex_rs::serde::io::VortexReadAt;
+use vortex_rs::serde::layouts::{
     LayoutContext, LayoutDescriptorReader, LayoutDeserializer, Projection, RowFilter,
     VortexRecordBatchReader,
 };

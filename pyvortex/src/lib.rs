@@ -20,7 +20,7 @@ use lazy_static::lazy_static;
 use log::LevelFilter;
 use pyo3_log::{Caching, Logger};
 use tokio::runtime::Runtime;
-use vortex_error::{VortexError, VortexExpect as _};
+use vortex_rs::error::{VortexError, VortexExpect as _};
 
 lazy_static! {
     static ref TOKIO_RUNTIME: Runtime = Runtime::new()

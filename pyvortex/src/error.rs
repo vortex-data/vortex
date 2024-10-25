@@ -1,6 +1,6 @@
 use pyo3::exceptions::PyValueError;
 use pyo3::PyErr;
-use vortex_error::VortexError;
+use vortex_rs::error::VortexError;
 
 pub struct PyVortexError(VortexError);
 

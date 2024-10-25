@@ -3,11 +3,11 @@ use std::sync::Arc;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::*;
-use vortex_dtype::field::Field;
-use vortex_dtype::half::f16;
-use vortex_dtype::{DType, Nullability, PType};
-use vortex_expr::{BinaryExpr, Column, Literal, Operator, VortexExpr};
-use vortex_scalar::{PValue, Scalar, ScalarValue};
+use vortex_rs::dtype::field::Field;
+use vortex_rs::dtype::half::f16;
+use vortex_rs::dtype::{DType, Nullability, PType};
+use vortex_rs::expr::{BinaryExpr, Column, Literal, Operator, VortexExpr};
+use vortex_rs::scalar::{PValue, Scalar, ScalarValue};
 
 use crate::dtype::PyDType;
 

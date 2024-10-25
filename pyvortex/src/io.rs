@@ -5,14 +5,14 @@ use pyo3::prelude::*;
 use pyo3::pyfunction;
 use pyo3::types::{PyList, PyLong, PyString};
 use tokio::fs::File;
-use vortex::Array;
-use vortex_dtype::field::Field;
-use vortex_error::VortexResult;
-use vortex_sampling_compressor::ALL_COMPRESSORS_CONTEXT;
-use vortex_serde::layouts::{
+use vortex_rs::dtype::field::Field;
+use vortex_rs::error::VortexResult;
+use vortex_rs::sampling_compressor::ALL_COMPRESSORS_CONTEXT;
+use vortex_rs::serde::layouts::{
     LayoutBatchStream, LayoutContext, LayoutDeserializer, LayoutReaderBuilder, LayoutWriter,
     Projection, RowFilter,
 };
+use vortex_rs::Array;
 
 use crate::error::PyVortexError;
 use crate::expr::PyExpr;
