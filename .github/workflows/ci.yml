@@ -49,7 +49,7 @@ jobs:
 
       - name: Doctest - PyVortex
         run: |
-          source ../.venv/bin/activate && make clean && make doctest
+          make clean && make doctest
         working-directory: docs/
 
       - name: License Check
