@@ -127,9 +127,7 @@ mod tests {
             )),
         )) as _;
         let projection = vec![Field::from("b")];
-        let option = filter_project(&band, &projection);
-        println!("expr: {option:?}");
-        assert!(option.is_none());
+        assert!(filter_project(&band, &projection).is_none());
     }
 
     #[test]
