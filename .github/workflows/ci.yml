@@ -43,7 +43,6 @@ jobs:
 
       - name: Pytest - PyVortex
         run: |
-          uv run maturin develop --skip-install
           uv run pytest --benchmark-disable test/
         working-directory: pyvortex/
 
