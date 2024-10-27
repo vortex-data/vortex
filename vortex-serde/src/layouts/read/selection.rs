@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use std::cmp::{max, min};
 use std::fmt::{Display, Formatter};
 
