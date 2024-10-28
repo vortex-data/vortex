@@ -140,12 +140,12 @@ pub fn read_path(
     row_filter: Option<&Bound<PyExpr>>,
 ) -> PyResult<PyArray> {
     async fn run<'a>(
-        url: Bound<'a, PyString>,
+        path: Bound<'a, PyString>,
         projection: Option<&Bound<'a, PyAny>>,
         row_filter: Option<&Bound<'a, PyExpr>>,
     ) -> PyResult<PyArray> {
-        let url: String = url.extract()?;
-        let reader = File::open(Path::new(&url)).await?;
+        let path: String = path.extract()?;
+        let reader = File::open(Path::new(&path)).await?;
         read(Arc::new(reader), projection, row_filter).await
     }
 
