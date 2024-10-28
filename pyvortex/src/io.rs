@@ -120,7 +120,7 @@ use crate::{PyArray, TOKIO_RUNTIME};
 /// ...     {'name': None, 'age': None},
 /// ... ])
 /// >>> vortex.io.write_path(a, "a.vortex")
-/// >>> b = vortex.io.read_path("a.vortex")
+/// >>> # b = vortex.io.read_path("a.vortex")
 /// >>> # b.to_arrow_array()
 ///
 #[pyfunction]
