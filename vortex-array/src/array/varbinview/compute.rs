@@ -71,8 +71,7 @@ impl TakeFn for VarBinViewArray {
         let indices_arrow = indices.clone().into_canonical()?.into_arrow()?;
 
         let take_arrow = arrow_select::take::take(&array_ref, &indices_arrow, None)?;
-        let nullable = take_arrow.is_nullable();
-        Ok(Array::from_arrow(take_arrow, nullable))
+        Ok(Array::from_arrow(take_arrow, self.dtype().is_nullable()))
     }
 }
 
@@ -129,10 +128,11 @@ mod tests {
     use vortex_dtype::Nullability;
     use vortex_scalar::Scalar;
 
+    use crate::accessor::ArrayAccessor;
     use crate::array::varbinview::compute::compare_constant;
-    use crate::array::{ConstantArray, VarBinViewArray};
-    use crate::compute::Operator;
-    use crate::IntoArrayVariant;
+    use crate::array::{ConstantArray, PrimitiveArray, VarBinViewArray};
+    use crate::compute::{take, Operator};
+    use crate::{ArrayDType, IntoArray, IntoArrayVariant};
 
     #[test]
     fn basic_test() {
@@ -155,5 +155,31 @@ mod tests {
             .unwrap();
 
         assert!(r.boolean_buffer().iter().all(|v| !v));
+    }
+
+    #[test]
+    fn take_nullable() {
+        let arr = VarBinViewArray::from_iter_nullable_str([
+            Some("one"),
+            None,
+            Some("three"),
+            Some("four"),
+            None,
+            Some("six"),
+        ]);
+
+        let taken = take(arr, PrimitiveArray::from(vec![0, 3]).into_array()).unwrap();
+
+        assert!(taken.dtype().is_nullable());
+        assert_eq!(
+            taken
+                .into_varbinview()
+                .unwrap()
+                .with_iterator(|it| it
+                    .map(|v| v.map(|b| unsafe { String::from_utf8_unchecked(b.to_vec()) }))
+                    .collect::<Vec<_>>())
+                .unwrap(),
+            [Some("one".to_string()), Some("four".to_string())]
+        );
     }
 }
