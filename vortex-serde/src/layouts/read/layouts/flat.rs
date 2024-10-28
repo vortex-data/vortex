@@ -87,16 +87,6 @@ impl FlatLayout {
         self.offset as u64 == self.length
     }
 
-    fn own_range(&self) -> Option<RowSelector> {
-        (self.offset as u64 != self.length).then(|| {
-            RowSelector::new(
-                Bitmap::from_range(self.offset as u32..self.length as u32),
-                self.offset,
-                self.length as usize,
-            )
-        })
-    }
-
     fn own_message(&self) -> Message {
         (self.cache.absolute_id(&[]), self.range)
     }
@@ -117,7 +107,15 @@ impl LayoutReader for FlatLayout {
             Ok(RangeResult::Rows(None))
         } else {
             self.sent_range = true;
-            Ok(RangeResult::Rows(self.own_range()))
+            Ok(RangeResult::Rows((self.offset as u64 != self.length).then(
+                || {
+                    RowSelector::new(
+                        Bitmap::from_range(self.offset as u32..self.length as u32),
+                        self.offset,
+                        self.length as usize,
+                    )
+                },
+            )))
         }
     }
 
