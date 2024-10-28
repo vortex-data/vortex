@@ -423,7 +423,7 @@ impl VarBinViewArray {
         for b in iter {
             builder.append_value(b);
         }
-        let array = Array::from_arrow(&builder.finish(), true);
+        let array = Array::from_arrow(&builder.finish(), false);
         VarBinViewArray::try_from(array).vortex_expect("VarBinViewArray from StringViewBuilder")
     }
 

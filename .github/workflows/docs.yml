@@ -24,8 +24,7 @@ jobs:
 
           (cd pyvortex && uv run maturin develop)
 
-          cd docs
-          uv run sphinx-build -M html . _build --fail-on-warning --keep-going
+          (cd docs && uv run make html)
       - name: commit python docs to gh-pages-bench
         run: |
           set -ex

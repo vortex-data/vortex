@@ -20,6 +20,7 @@ path = "src/lib.rs"
 [features]
 flatbuffers = ["dep:flatbuffers"]
 datafusion = ["datafusion-common"]
+python = ["dep:pyo3"]
 
 [dependencies]
 arrow-schema = { workspace = true }
@@ -29,7 +30,9 @@ flexbuffers = { workspace = true, optional = true }
 jiff = { workspace = true }
 object_store = { workspace = true, optional = true }
 parquet = { workspace = true, optional = true }
+pyo3 = { workspace = true, optional = true }
 thiserror = { workspace = true }
+url = { workspace = true }
 worker = { workspace = true, optional = true }
 
 [lints]

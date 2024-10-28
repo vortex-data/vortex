@@ -9,10 +9,9 @@ use vortex::array::ChunkedArray;
 use vortex::arrow::{FromArrowArray, FromArrowType};
 use vortex::{Array, IntoArray};
 use vortex_dtype::DType;
-use vortex_error::VortexError;
+use vortex_error::{VortexError, VortexResult};
 
 use crate::array::PyArray;
-use crate::error::PyVortexError;
 
 // Private, ergo not documented.
 #[pyfunction]
@@ -43,11 +42,7 @@ pub fn _encode<'py>(obj: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyArray>> {
             .map(|dt| DType::from_arrow(&Field::new("_", dt, false)))?;
         Bound::new(
             obj.py(),
-            PyArray::new(
-                ChunkedArray::try_new(encoded_chunks, dtype)
-                    .map_err(PyVortexError::map_err)?
-                    .into_array(),
-            ),
+            PyArray::new(ChunkedArray::try_new(encoded_chunks, dtype)?.into_array()),
         )
     } else if obj.is_instance(&table)? {
         let array_stream = ArrowArrayStreamReader::from_pyarrow_bound(obj)?;
@@ -55,15 +50,11 @@ pub fn _encode<'py>(obj: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyArray>> {
         let chunks = array_stream
             .into_iter()
             .map(|b| b.map_err(VortexError::ArrowError))
-            .map(|b| b.and_then(Array::try_from).map_err(PyVortexError::map_err))
-            .collect::<PyResult<Vec<_>>>()?;
+            .map(|b| b.and_then(Array::try_from))
+            .collect::<VortexResult<Vec<_>>>()?;
         Bound::new(
             obj.py(),
-            PyArray::new(
-                ChunkedArray::try_new(chunks, dtype)
-                    .map_err(PyVortexError::map_err)?
-                    .into_array(),
-            ),
+            PyArray::new(ChunkedArray::try_new(chunks, dtype)?.into_array()),
         )
     } else {
         Err(PyValueError::new_err(

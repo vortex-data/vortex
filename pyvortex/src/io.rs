@@ -1,20 +1,14 @@
 use std::path::Path;
 
-use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::pyfunction;
-use pyo3::types::{PyList, PyLong, PyString};
+use pyo3::types::PyString;
 use tokio::fs::File;
 use vortex::Array;
-use vortex_dtype::field::Field;
-use vortex_error::VortexResult;
-use vortex_sampling_compressor::{SamplingCompressor, ALL_COMPRESSORS_CONTEXT};
-use vortex_serde::layouts::{
-    LayoutBatchStream, LayoutContext, LayoutDeserializer, LayoutReaderBuilder, LayoutWriter,
-    Projection, RowFilter,
-};
+use vortex_sampling_compressor::SamplingCompressor;
+use vortex_serde::layouts::LayoutWriter;
 
-use crate::error::PyVortexError;
+use crate::dataset::{ObjectStoreUrlDataset, TokioFileDataset};
 use crate::expr::PyExpr;
 use crate::{PyArray, TOKIO_RUNTIME};
 
@@ -22,8 +16,12 @@ use crate::{PyArray, TOKIO_RUNTIME};
 ///
 /// Parameters
 /// ----------
-/// f : :class:`str`
-///     The file path.
+/// path : :class:`str`
+///     The file path to read from.
+/// projection : :class:`list` [ :class:`str` ``|`` :class:`int` ]
+///     The columns to read identified either by their index or name.
+/// row_filter : :class:`.Expr`
+///     Keep only the rows for which this expression evaluates to true.
 ///
 /// Examples
 /// --------
@@ -37,8 +35,8 @@ use crate::{PyArray, TOKIO_RUNTIME};
 /// ...     {'name': 'Mikhail', 'age': 57},
 /// ...     {'name': None, 'age': None},
 /// ... ])
-/// >>> vortex.io.write(a, "a.vortex")
-/// >>> b = vortex.io.read("a.vortex")
+/// >>> vortex.io.write_path(a, "a.vortex")
+/// >>> b = vortex.io.read_path("a.vortex")
 /// >>> b.to_arrow_array()
 /// <pyarrow.lib.StructArray object at ...>
 /// -- is_valid: all not null
@@ -61,7 +59,7 @@ use crate::{PyArray, TOKIO_RUNTIME};
 ///
 /// Read just the age column:
 ///
-/// >>> c = vortex.io.read("a.vortex", projection = ["age"])
+/// >>> c = vortex.io.read_path("a.vortex", projection = ["age"])
 /// >>> c.to_arrow_array()
 /// <pyarrow.lib.StructArray object at ...>
 /// -- is_valid: all not null
@@ -76,7 +74,7 @@ use crate::{PyArray, TOKIO_RUNTIME};
 ///
 /// Read just the name column, by its index:
 ///
-/// >>> d = vortex.io.read("a.vortex", projection = [1])
+/// >>> d = vortex.io.read_path("a.vortex", projection = [1])
 /// >>> d.to_arrow_array()
 /// <pyarrow.lib.StructArray object at ...>
 /// -- is_valid: all not null
@@ -92,7 +90,7 @@ use crate::{PyArray, TOKIO_RUNTIME};
 ///
 /// Keep rows with an age above 35. This will read O(N_KEPT) rows, when the file format allows.
 ///
-/// >>> e = vortex.io.read("a.vortex", row_filter = vortex.expr.column("age") > 35)
+/// >>> e = vortex.io.read_path("a.vortex", row_filter = vortex.expr.column("age") > 35)
 /// >>> e.to_arrow_array()
 /// <pyarrow.lib.StructArray object at ...>
 /// -- is_valid: all not null
@@ -109,7 +107,7 @@ use crate::{PyArray, TOKIO_RUNTIME};
 ///
 /// Read the age column by name, twice, and the name column by index, once:
 ///
-/// >>> # e = vortex.io.read("a.vortex", projection = ["age", 1, "age"])
+/// >>> # e = vortex.io.read_path("a.vortex", projection = ["age", 1, "age"])
 /// >>> # e.to_arrow_array()
 ///
 /// TODO(DK): Top-level nullness does not work.
@@ -122,90 +120,71 @@ use crate::{PyArray, TOKIO_RUNTIME};
 /// ...     {'name': 'Mikhail', 'age': 57},
 /// ...     {'name': None, 'age': None},
 /// ... ])
-/// >>> vortex.io.write(a, "a.vortex")
-/// >>> b = vortex.io.read("a.vortex")
+/// >>> vortex.io.write_path(a, "a.vortex")
+/// >>> # b = vortex.io.read_path("a.vortex")
 /// >>> # b.to_arrow_array()
 ///
 #[pyfunction]
-#[pyo3(signature = (f, projection = None, row_filter = None))]
-pub fn read(
-    f: &Bound<PyString>,
-    projection: Option<&Bound<PyAny>>,
+#[pyo3(signature = (path, *, projection = None, row_filter = None))]
+pub fn read_path(
+    path: Bound<PyString>,
+    projection: Option<Vec<Bound<PyAny>>>,
     row_filter: Option<&Bound<PyExpr>>,
 ) -> PyResult<PyArray> {
-    let fname = f.to_str()?; // TODO(dk): support file objects
-
-    let projection = match projection {
-        None => Projection::All,
-        Some(projection) => {
-            let list: &Bound<PyList> = projection.downcast()?;
-            Projection::Flat(
-                list.iter()
-                    .map(|field| -> PyResult<Field> {
-                        if field.clone().is_instance_of::<PyString>() {
-                            Ok(Field::Name(
-                                field.downcast::<PyString>()?.to_str()?.to_string(),
-                            ))
-                        } else if field.is_instance_of::<PyLong>() {
-                            Ok(Field::Index(field.extract()?))
-                        } else {
-                            Err(PyTypeError::new_err(format!(
-                                "projection: expected list of string, int, and None, but found: {}.",
-                                field,
-                            )))
-                        }
-                    })
-                    .collect::<PyResult<Vec<Field>>>()?,
-            )
-        }
-    };
-
-    let row_filter = row_filter.map(|x| RowFilter::new(x.borrow().unwrap().clone()));
-
-    TOKIO_RUNTIME
-        .block_on(async_read(fname, projection, None, row_filter))
-        .map_err(PyVortexError::map_err)
-        .map(PyArray::new)
+    let dataset = TOKIO_RUNTIME.block_on(TokioFileDataset::try_new(path.extract()?))?;
+    dataset.to_array(projection, None, row_filter)
 }
 
-pub(crate) async fn layout_reader(
-    fname: &str,
-    projection: Projection,
-    batch_size: Option<usize>,
-    row_filter: Option<RowFilter>,
-) -> VortexResult<LayoutBatchStream<File>> {
-    let file = File::open(Path::new(fname)).await?;
-
-    let mut builder: LayoutReaderBuilder<File> = LayoutReaderBuilder::new(
-        file,
-        LayoutDeserializer::new(
-            ALL_COMPRESSORS_CONTEXT.clone(),
-            LayoutContext::default().into(),
-        ),
-    )
-    .with_projection(projection);
-
-    if let Some(batch_size) = batch_size {
-        builder = builder.with_batch_size(batch_size);
-    }
-
-    if let Some(row_filter) = row_filter {
-        builder = builder.with_row_filter(row_filter);
-    }
-
-    builder.build().await
-}
-
-pub(crate) async fn async_read(
-    fname: &str,
-    projection: Projection,
-    batch_size: Option<usize>,
-    row_filter: Option<RowFilter>,
-) -> VortexResult<Array> {
-    layout_reader(fname, projection, batch_size, row_filter)
-        .await?
-        .read_all()
-        .await
+/// Read a vortex struct array from a URL.
+///
+/// .. seealso::
+///     :func:`.read_path`
+///
+/// Parameters
+/// ----------
+/// url : :class:`str`
+///     The URL to read from.
+/// projection : :class:`list` [ :class:`str` ``|`` :class:`int` ]
+///     The columns to read identified either by their index or name.
+/// row_filter : :class:`.Expr`
+///     Keep only the rows for which this expression evaluates to true.
+///
+/// Examples
+/// --------
+///
+/// Read an array from an HTTPS URL:
+///
+/// >>> a = vortex.io.read_url("https://example.com/dataset.vortex")  # doctest: +SKIP
+///
+/// Read an array from an S3 URL:
+///
+/// >>> a = vortex.io.read_url("s3://bucket/path/to/dataset.vortex")  # doctest: +SKIP
+///
+/// Read an array from an Azure Blob File System URL:
+///
+/// >>> a = vortex.io.read_url("abfss://my_file_system@my_account.dfs.core.windows.net/path/to/dataset.vortex")  # doctest: +SKIP
+///
+/// Read an array from an Azure Blob Stroage URL:
+///
+/// >>> a = vortex.io.read_url("https://my_account.blob.core.windows.net/my_container/path/to/dataset.vortex")  # doctest: +SKIP
+///
+/// Read an array from a Google Stroage URL:
+///
+/// >>> a = vortex.io.read_url("gs://bucket/path/to/dataset.vortex")  # doctest: +SKIP
+///
+/// Read an array from a local file URL:
+///
+/// >>> a = vortex.io.read_url("file:/path/to/dataset.vortex")  # doctest: +SKIP
+///
+#[pyfunction]
+#[pyo3(signature = (url, *, projection = None, row_filter = None))]
+pub fn read_url(
+    url: Bound<PyString>,
+    projection: Option<Vec<Bound<PyAny>>>,
+    row_filter: Option<&Bound<PyExpr>>,
+) -> PyResult<PyArray> {
+    let dataset = TOKIO_RUNTIME.block_on(ObjectStoreUrlDataset::try_new(url.extract()?))?;
+    dataset.to_array(projection, None, row_filter)
 }
 
 /// Write a vortex struct array to the local filesystem.
@@ -233,12 +212,16 @@ pub(crate) async fn async_read(
 /// ...     {'x': 11},
 /// ...     {'x': None},
 /// ... ])
-/// >>> vortex.io.write(a, "a.vortex")
+/// >>> vortex.io.write_path(a, "a.vortex")
 ///
 #[pyfunction]
 #[pyo3(signature = (array, f, *, compress=true))]
-pub fn write(array: &Bound<'_, PyArray>, f: &Bound<'_, PyString>, compress: bool) -> PyResult<()> {
-    async fn run(array: &Array, fname: &str) -> VortexResult<()> {
+pub fn write_path(
+    array: &Bound<'_, PyArray>,
+    f: &Bound<'_, PyString>,
+    compress: bool,
+) -> PyResult<()> {
+    async fn run(array: &Array, fname: &str) -> PyResult<()> {
         let file = File::create(Path::new(fname)).await?;
         let mut writer = LayoutWriter::new(file);
 
@@ -252,13 +235,8 @@ pub fn write(array: &Bound<'_, PyArray>, f: &Bound<'_, PyString>, compress: bool
 
     if compress {
         let compressor = SamplingCompressor::default();
-        array = compressor
-            .compress(&array, None)
-            .map_err(PyVortexError::new)?
-            .into_array();
+        array = compressor.compress(&array, None)?.into_array();
     }
 
-    TOKIO_RUNTIME
-        .block_on(run(&array, fname))
-        .map_err(PyVortexError::map_err)
+    TOKIO_RUNTIME.block_on(run(&array, fname))
 }

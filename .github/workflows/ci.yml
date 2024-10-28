@@ -51,6 +51,13 @@ jobs:
           make clean && make doctest
         working-directory: docs/
 
+      - name: Ensure docs build - PyVortex
+        run: |
+          set -ex
+
+          (cd pyvortex && uv run maturin develop)
+
+          (cd docs && uv run make html)
       - name: License Check
         run: cargo install --locked cargo-deny && cargo deny check
       - uses: rustsec/audit-check@v2.0.0

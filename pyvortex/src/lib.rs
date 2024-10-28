@@ -11,7 +11,6 @@ mod compress;
 mod dataset;
 mod dtype;
 mod encode;
-mod error;
 mod expr;
 mod io;
 mod python_repr;
@@ -63,13 +62,15 @@ fn _lib(py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     let io = PyModule::new_bound(py, "io")?;
     m.add_submodule(&io)?;
 
-    io.add_function(wrap_pyfunction!(io::read, m)?)?;
-    io.add_function(wrap_pyfunction!(io::write, m)?)?;
+    io.add_function(wrap_pyfunction!(io::read_url, m)?)?;
+    io.add_function(wrap_pyfunction!(io::read_path, m)?)?;
+    io.add_function(wrap_pyfunction!(io::write_path, m)?)?;
 
     let dataset = PyModule::new_bound(py, "dataset")?;
     m.add_submodule(&dataset)?;
 
-    dataset.add_function(wrap_pyfunction!(dataset::dataset, m)?)?;
+    dataset.add_function(wrap_pyfunction!(dataset::dataset_from_url, m)?)?;
+    dataset.add_function(wrap_pyfunction!(dataset::dataset_from_path, m)?)?;
 
     let expr = PyModule::new_bound(py, "expr")?;
     m.add_submodule(&expr)?;
