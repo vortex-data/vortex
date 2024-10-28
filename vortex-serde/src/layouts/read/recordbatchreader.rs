@@ -36,7 +36,7 @@ where
     R: VortexReadAt + Unpin + 'static,
     AR: AsyncRuntime,
 {
-    pub fn new(
+    pub fn try_new(
         stream: LayoutBatchStream<R>,
         runtime: &'a AR,
     ) -> VortexResult<VortexRecordBatchReader<'a, R, AR>> {

@@ -1,21 +1,13 @@
 use std::path::Path;
 
-use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::pyfunction;
-use pyo3::types::{PyList, PyLong, PyString};
+use pyo3::types::PyString;
 use tokio::fs::File;
 use vortex::Array;
-use vortex_dtype::field::Field;
-use vortex_dtype::DType;
-use vortex_error::VortexResult;
-use vortex_sampling_compressor::ALL_COMPRESSORS_CONTEXT;
-use vortex_serde::io::{ObjectStoreReadAt, VortexReadAt};
-use vortex_serde::layouts::{
-    LayoutBatchStream, LayoutContext, LayoutDescriptorReader, LayoutDeserializer,
-    LayoutReaderBuilder, LayoutWriter, Projection, RowFilter,
-};
+use vortex_serde::layouts::LayoutWriter;
 
+use crate::dataset::{ObjectStoreUrlDataset, TokioFileDataset};
 use crate::expr::PyExpr;
 use crate::{PyArray, TOKIO_RUNTIME};
 
@@ -135,10 +127,11 @@ use crate::{PyArray, TOKIO_RUNTIME};
 #[pyo3(signature = (path, *, projection = None, row_filter = None))]
 pub fn read_path(
     path: Bound<PyString>,
-    projection: Option<&Bound<PyAny>>,
+    projection: Option<Vec<Bound<PyAny>>>,
     row_filter: Option<&Bound<PyExpr>>,
 ) -> PyResult<PyArray> {
-    read(PathOrUrl::Path(path.extract()?), projection, row_filter)
+    let dataset = TOKIO_RUNTIME.block_on(TokioFileDataset::try_new(path.extract()?))?;
+    dataset.to_array(projection, None, row_filter)
 }
 
 /// Read a vortex struct array from a URL.
@@ -186,128 +179,11 @@ pub fn read_path(
 #[pyo3(signature = (url, *, projection = None, row_filter = None))]
 pub fn read_url(
     url: Bound<PyString>,
-    projection: Option<&Bound<PyAny>>,
+    projection: Option<Vec<Bound<PyAny>>>,
     row_filter: Option<&Bound<PyExpr>>,
 ) -> PyResult<PyArray> {
-    read(PathOrUrl::Url(url.extract()?), projection, row_filter)
-}
-
-pub fn read(
-    path_or_url: PathOrUrl,
-    projection: Option<&Bound<PyAny>>,
-    row_filter: Option<&Bound<PyExpr>>,
-) -> PyResult<PyArray> {
-    let projection = match projection {
-        None => Projection::All,
-        Some(projection) => {
-            let list: &Bound<PyList> = projection.downcast()?;
-            Projection::Flat(
-                list.iter()
-                    .map(|field| -> PyResult<Field> {
-                        if field.clone().is_instance_of::<PyString>() {
-                            Ok(Field::Name(
-                                field.downcast::<PyString>()?.to_str()?.to_string(),
-                            ))
-                        } else if field.is_instance_of::<PyLong>() {
-                            Ok(Field::Index(field.extract()?))
-                        } else {
-                            Err(PyTypeError::new_err(format!(
-                                "projection: expected list of string, int, and None, but found: {}.",
-                                field,
-                            )))
-                        }
-                    })
-                    .collect::<PyResult<Vec<Field>>>()?,
-            )
-        }
-    };
-
-    let row_filter = row_filter.map(|x| RowFilter::new(x.borrow().unwrap().clone()));
-
-    let inner = TOKIO_RUNTIME.block_on(read_array(&path_or_url, projection, None, row_filter))?;
-    Ok(PyArray::new(inner))
-}
-
-pub(crate) async fn layout_stream_from_reader<T: VortexReadAt + Unpin>(
-    reader: T,
-    projection: Projection,
-    batch_size: Option<usize>,
-    row_filter: Option<RowFilter>,
-) -> VortexResult<LayoutBatchStream<T>> {
-    let mut builder = LayoutReaderBuilder::new(
-        reader,
-        LayoutDeserializer::new(
-            ALL_COMPRESSORS_CONTEXT.clone(),
-            LayoutContext::default().into(),
-        ),
-    )
-    .with_projection(projection);
-
-    if let Some(batch_size) = batch_size {
-        builder = builder.with_batch_size(batch_size);
-    }
-
-    if let Some(row_filter) = row_filter {
-        builder = builder.with_row_filter(row_filter);
-    }
-
-    builder.build().await
-}
-
-pub(crate) async fn read_array_from_reader<T: VortexReadAt + Unpin + 'static>(
-    reader: T,
-    projection: Projection,
-    batch_size: Option<usize>,
-    row_filter: Option<RowFilter>,
-) -> VortexResult<Array> {
-    layout_stream_from_reader(reader, projection, batch_size, row_filter)
-        .await?
-        .read_all()
-        .await
-}
-
-pub(crate) async fn read_dtype_from_reader<T: VortexReadAt + Unpin + 'static>(
-    reader: T,
-) -> VortexResult<DType> {
-    LayoutDescriptorReader::new(LayoutDeserializer::new(
-        ALL_COMPRESSORS_CONTEXT.clone(),
-        LayoutContext::default().into(),
-    ))
-    .read_footer(&reader, reader.size().await)
-    .await?
-    .dtype()
-}
-
-pub enum PathOrUrl {
-    Path(String),
-    Url(String),
-}
-
-pub(crate) async fn read_dtype(file_or_url: &PathOrUrl) -> VortexResult<DType> {
-    match file_or_url {
-        PathOrUrl::Path(file) => read_dtype_from_reader(File::open(Path::new(file)).await?).await,
-        PathOrUrl::Url(url) => {
-            read_dtype_from_reader(ObjectStoreReadAt::try_new_from_url(url).await?).await
-        }
-    }
-}
-
-pub(crate) async fn read_array(
-    file_or_url: &PathOrUrl,
-    projection: Projection,
-    batch_size: Option<usize>,
-    row_filter: Option<RowFilter>,
-) -> VortexResult<Array> {
-    match file_or_url {
-        PathOrUrl::Path(file) => {
-            let reader = File::open(Path::new(file)).await?;
-            read_array_from_reader(reader, projection, batch_size, row_filter).await
-        }
-        PathOrUrl::Url(url) => {
-            let reader = ObjectStoreReadAt::try_new_from_url(url).await?;
-            read_array_from_reader(reader, projection, batch_size, row_filter).await
-        }
-    }
+    let dataset = TOKIO_RUNTIME.block_on(ObjectStoreUrlDataset::try_new(url.extract()?))?;
+    dataset.to_array(projection, None, row_filter)
 }
 
 #[pyfunction]
