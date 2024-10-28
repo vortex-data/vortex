@@ -60,7 +60,7 @@ Use :func:`~vortex.io.write` to write the Vortex array to disk:
 
 .. doctest::
 
-   >>> vortex.io.write(cvtx, "example.vortex")
+   >>> vortex.io.write_path(cvtx, "example.vortex")
 
 Small Vortex files (this one is just 71KiB) currently have substantial overhead relative to their
 size. This will be addressed shortly. On files with at least tens of megabytes of data, Vortex is
@@ -79,7 +79,7 @@ Use :func:`~vortex.io.read` to read the Vortex array from disk:
 
 .. doctest::
 
-   >>> cvtx = vortex.io.read("example.vortex")
+   >>> cvtx = vortex.io.read_path("example.vortex")
 
 .. _rust-quickstart:
 

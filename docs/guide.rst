@@ -135,7 +135,7 @@ Polars
 ^^^^^^
 
    >>> import polars as pl
-   >>> ds = vortex.dataset.dataset(
+   >>> ds = vortex.dataset.from_path(
    ...     '_static/example.vortex'
    ... )
    >>> lf = pl.scan_pyarrow_dataset(ds)
@@ -157,7 +157,7 @@ DuckDB
 ^^^^^^
 
    >>> import duckdb
-   >>> ds = vortex.dataset.dataset(
+   >>> ds = vortex.dataset.from_path(
    ...     '_static/example.vortex'
    ... )
    >>> duckdb.sql('select ds.tip_amount, ds.fare_amount from ds limit 3').show()

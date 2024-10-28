@@ -399,8 +399,12 @@ class VortexDataset(pyarrow.dataset.Dataset):
         return self._dataset.to_array(columns=columns, batch_size=batch_size, row_filter=filter).to_arrow_table()
 
 
-def dataset(fname: str) -> VortexDataset:
-    return VortexDataset(fname)
+def from_path(path: str) -> VortexDataset:
+    return VortexDataset(_lib_dataset.dataset_from_path(path))
+
+
+def from_url(url: str) -> VortexDataset:
+    return VortexDataset(_lib_dataset.dataset_from_url(url))
 
 
 class VortexScanner(pa.dataset.Scanner):
