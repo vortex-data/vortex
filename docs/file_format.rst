@@ -32,10 +32,13 @@ size. A chunked layout permits reader to push-down row filters based on statisti
 later. Note that, if the laid out array is a struct array, each column uses the same chunk
 size. This is equivalent to Parquet's row groups.
 
-The layout: chunked of struct of chunked of flat, is essentially a Parquet layout with row groups in
-which each column's values are contiguously stored in pages. The layout: struct of chunked of flat
-eliminates row groups, retaining only pages. The layout struct of flat does not permit any row
-filter push-down because each array is, to the layout, an opaque sequence of bytes.
+A few examples of concrete layouts:
+
+1. Chunked of struct of chunked of flat: essentially a Parquet layout with row groups in which each
+   column's values are contiguously stored in pages.
+2. Struct of chunked of flat: eliminates row groups, retaining only pages.
+3. Struct of flat: prevents row filter push-down because each array is, to the layout, an opaque
+   sequence of bytes.
 
 The chunked layout stores, per chunk, metadata necessary for effective row filtering such as
 sortedness, constancy, the minimum value, the maximum value, and the number of null rows. Readers
