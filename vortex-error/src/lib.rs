@@ -1,5 +1,8 @@
 #![feature(error_generic_member_access)]
 
+#[cfg(feature = "python")]
+pub mod python;
+
 use std::backtrace::Backtrace;
 use std::borrow::Cow;
 use std::fmt::{Debug, Display, Formatter};
@@ -153,6 +156,12 @@ pub enum VortexError {
         #[from]
         #[backtrace]
         jiff::Error,
+    ),
+    #[error(transparent)]
+    UrlError(
+        #[from]
+        #[backtrace]
+        url::ParseError,
     ),
 }
 

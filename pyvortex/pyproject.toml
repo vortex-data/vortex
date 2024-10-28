@@ -4,22 +4,13 @@ name = "vortex-array"
 # https://github.com/PyO3/maturin/blob/main/src/metadata.rs#L127-L129
 dynamic = ["version", "description", "authors"]
 readme = "README.md"
-dependencies = [
-    "pyarrow>=17.0.0",
-    "substrait>=0.23.0",
-]
-requires-python = ">= 3.11"
+dependencies = ["pyarrow>=17.0.0", "substrait>=0.23.0"]
+requires-python = ">= 3.10"
 
 [project.optional-dependencies]
-polars = [
-    "polars>=1.9.0",
-]
-pandas = [
-    "pandas>=2.2.0",
-]
-numpy = [
-    "numpy>=1.26.0",
-]
+polars = ["polars>=1.9.0"]
+pandas = ["pandas>=2.2.0"]
+numpy = ["numpy>=1.26.0"]
 
 [project.urls]
 Documentation = "https://spiraldb.github.io/vortex/docs/"
@@ -31,7 +22,7 @@ Benchmarks = "https://spiraldb.github.io/vortex/dev/bench/"
 requires = ["maturin>=1.7.2,<2.0"]
 build-backend = "maturin"
 
-[tool.rye]
+[tool.uv]
 managed = true
 dev-dependencies = [
     "ipython>=8.26.0",
@@ -40,6 +31,7 @@ dev-dependencies = [
     "pyright>=1.1.385",
     "polars>=1.9.0",
     "duckdb>=1.1.2",
+    "ruff>=0.7.1",
 ]
 
 [tool.maturin]

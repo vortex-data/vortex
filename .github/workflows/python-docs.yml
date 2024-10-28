@@ -16,16 +16,16 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
-      - uses: ./.github/actions/setup-python
+      - uses: spiraldb/actions/.github/actions/setup-uv@0.2.0
 
       - name: build Python docs
         run: |
           set -ex
 
-          (cd pyvortex && rye run maturin develop)
+          (cd pyvortex && uv run maturin develop)
 
           cd docs
-          rye run sphinx-build -M html . _build --fail-on-warning --keep-going
+          uv run sphinx-build -M html . _build --fail-on-warning --keep-going
       - name: commit python docs to gh-pages-bench
         run: |
           set -ex

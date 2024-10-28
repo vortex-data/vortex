@@ -2,7 +2,6 @@ use pyo3::prelude::*;
 use vortex_sampling_compressor::SamplingCompressor;
 
 use crate::array::PyArray;
-use crate::error::PyVortexError;
 
 #[pyfunction]
 /// Attempt to compress a vortex array.
@@ -35,11 +34,10 @@ use crate::error::PyVortexError;
 /// ... ])
 /// >>> str(vortex.encoding.compress(a))
 /// 'vortex.alp(0x11)(f64?, len=1000)'
-pub fn compress<'py>(array: &Bound<'py, PyArray>) -> PyResult<Bound<'py, PyArray>> {
+pub fn compress(array: &Bound<PyArray>) -> PyResult<PyArray> {
     let compressor = SamplingCompressor::default();
     let inner = compressor
-        .compress(array.borrow().unwrap(), None)
-        .map_err(PyVortexError::new)?
+        .compress(array.borrow().unwrap(), None)?
         .into_array();
-    Bound::new(array.py(), PyArray::new(inner))
+    Ok(PyArray::new(inner))
 }

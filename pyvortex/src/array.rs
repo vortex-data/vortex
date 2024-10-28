@@ -9,7 +9,6 @@ use vortex::compute::{compare, slice, take, Operator};
 use vortex::{Array, ArrayDType, IntoCanonical};
 
 use crate::dtype::PyDType;
-use crate::error::PyVortexError;
 use crate::python_repr::PythonRepr;
 use crate::scalar::scalar_into_py;
 
@@ -123,10 +122,8 @@ impl PyArray {
             let chunks: Vec<ArrayRef> = chunked_array
                 .chunks()
                 .map(|chunk| -> PyResult<ArrayRef> {
-                    chunk
-                        .into_canonical()
-                        .and_then(|arr| arr.into_arrow())
-                        .map_err(PyVortexError::map_err)
+                    let canonical = chunk.into_canonical()?;
+                    Ok(canonical.into_arrow()?)
                 })
                 .collect::<PyResult<Vec<ArrayRef>>>()?;
             if chunks.is_empty() {
@@ -148,8 +145,7 @@ impl PyArray {
             Ok(vortex
                 .clone()
                 .into_canonical()
-                .and_then(|arr| arr.into_arrow())
-                .map_err(PyVortexError::map_err)?
+                .and_then(|arr| arr.into_arrow())?
                 .into_data()
                 .to_pyarrow(py)?
                 .into_bound(py))
@@ -205,49 +201,43 @@ impl PyArray {
     // Rust docs are *not* copied into Python for __lt__: https://github.com/PyO3/pyo3/issues/4326
     fn __lt__(&self, other: &Bound<PyArray>) -> PyResult<PyArray> {
         let other = other.borrow();
-        compare(&self.inner, &other.inner, Operator::Lt)
-            .map(|arr| PyArray { inner: arr })
-            .map_err(PyVortexError::map_err)
+        let inner = compare(&self.inner, &other.inner, Operator::Lt)?;
+        Ok(PyArray { inner })
     }
 
     // Rust docs are *not* copied into Python for __le__: https://github.com/PyO3/pyo3/issues/4326
     fn __le__(&self, other: &Bound<PyArray>) -> PyResult<PyArray> {
         let other = other.borrow();
-        compare(&self.inner, &other.inner, Operator::Lte)
-            .map(|arr| PyArray { inner: arr })
-            .map_err(PyVortexError::map_err)
+        let inner = compare(&self.inner, &other.inner, Operator::Lte)?;
+        Ok(PyArray { inner })
     }
 
     // Rust docs are *not* copied into Python for __eq__: https://github.com/PyO3/pyo3/issues/4326
     fn __eq__(&self, other: &Bound<PyArray>) -> PyResult<PyArray> {
         let other = other.borrow();
-        compare(&self.inner, &other.inner, Operator::Eq)
-            .map(|arr| PyArray { inner: arr })
-            .map_err(PyVortexError::map_err)
+        let inner = compare(&self.inner, &other.inner, Operator::Eq)?;
+        Ok(PyArray { inner })
     }
 
     // Rust docs are *not* copied into Python for __ne__: https://github.com/PyO3/pyo3/issues/4326
     fn __ne__(&self, other: &Bound<PyArray>) -> PyResult<PyArray> {
         let other = other.borrow();
-        compare(&self.inner, &other.inner, Operator::NotEq)
-            .map(|arr| PyArray { inner: arr })
-            .map_err(PyVortexError::map_err)
+        let inner = compare(&self.inner, &other.inner, Operator::NotEq)?;
+        Ok(PyArray { inner })
     }
 
     // Rust docs are *not* copied into Python for __ge__: https://github.com/PyO3/pyo3/issues/4326
     fn __ge__(&self, other: &Bound<PyArray>) -> PyResult<PyArray> {
         let other = other.borrow();
-        compare(&self.inner, &other.inner, Operator::Gte)
-            .map(|arr| PyArray { inner: arr })
-            .map_err(PyVortexError::map_err)
+        let inner = compare(&self.inner, &other.inner, Operator::Gte)?;
+        Ok(PyArray { inner })
     }
 
     // Rust docs are *not* copied into Python for __gt__: https://github.com/PyO3/pyo3/issues/4326
     fn __gt__(&self, other: &Bound<PyArray>) -> PyResult<PyArray> {
         let other = other.borrow();
-        compare(&self.inner, &other.inner, Operator::Gt)
-            .map(|arr| PyArray { inner: arr })
-            .map_err(PyVortexError::map_err)
+        let inner = compare(&self.inner, &other.inner, Operator::Gt)?;
+        Ok(PyArray { inner })
     }
 
     /// Filter an Array by another Boolean array.
@@ -277,10 +267,8 @@ impl PyArray {
     /// ]
     fn filter(&self, filter: &Bound<PyArray>) -> PyResult<PyArray> {
         let filter = filter.borrow();
-
-        vortex::compute::filter(&self.inner, &filter.inner)
-            .map_err(PyVortexError::map_err)
-            .map(|arr| PyArray { inner: arr })
+        let inner = vortex::compute::filter(&self.inner, &filter.inner)?;
+        Ok(PyArray { inner })
     }
 
     /// Fill forward non-null values over runs of nulls.
@@ -322,9 +310,8 @@ impl PyArray {
     ///   30.07
     /// ]
     fn fill_forward(&self) -> PyResult<PyArray> {
-        fill_forward(&self.inner)
-            .map_err(PyVortexError::map_err)
-            .map(|arr| PyArray { inner: arr })
+        let inner = fill_forward(&self.inner)?;
+        Ok(PyArray { inner })
     }
 
     /// Retrieve a row by its index.
@@ -403,9 +390,8 @@ impl PyArray {
     /// OverflowError: can't convert negative int to unsigned
     ///
     fn scalar_at(&self, index: &Bound<PyInt>) -> PyResult<PyObject> {
-        scalar_at(&self.inner, index.extract()?)
-            .map_err(PyVortexError::map_err)
-            .and_then(|scalar| scalar_into_py(index.py(), scalar, false))
+        let scalar = scalar_at(&self.inner, index.extract()?)?;
+        scalar_into_py(index.py(), scalar, false)
     }
 
     /// Filter, permute, and/or repeat elements by their index.
@@ -445,8 +431,7 @@ impl PyArray {
     ///       "b",
     ///       "a"
     ///     ]
-    fn take<'py>(&self, indices: &Bound<'py, PyArray>) -> PyResult<Bound<'py, PyArray>> {
-        let py = indices.py();
+    fn take(&self, indices: &Bound<PyArray>) -> PyResult<PyArray> {
         let indices = &indices.borrow().inner;
 
         if !indices.dtype().is_int() {
@@ -456,9 +441,8 @@ impl PyArray {
             )));
         }
 
-        take(&self.inner, indices)
-            .map_err(PyVortexError::map_err)
-            .and_then(|arr| Bound::new(py, PyArray { inner: arr }))
+        let inner = take(&self.inner, indices)?;
+        Ok(PyArray { inner })
     }
 
     /// Keep only a contiguous subset of elements.
@@ -513,9 +497,8 @@ impl PyArray {
     ///
     #[pyo3(signature = (start, end, *))]
     fn slice(&self, start: usize, end: usize) -> PyResult<PyArray> {
-        slice(&self.inner, start, end)
-            .map(PyArray::new)
-            .map_err(PyVortexError::map_err)
+        let inner = slice(&self.inner, start, end)?;
+        Ok(PyArray::new(inner))
     }
 
     /// Internal technical details about the encoding of this Array.
