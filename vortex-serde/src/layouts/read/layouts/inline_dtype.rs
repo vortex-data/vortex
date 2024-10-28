@@ -12,6 +12,7 @@ use crate::layouts::{
     LayoutDeserializer, LayoutId, LayoutReader, LayoutSpec, Message, RangeResult, ReadResult, Scan,
     INLINE_SCHEMA_LAYOUT_ID,
 };
+use crate::message_reader::FLATBUFFER_SIZE_LENGTH;
 use crate::stream_writer::ByteRange;
 
 #[derive(Debug)]
@@ -59,6 +60,11 @@ enum DTypeReadResult {
     DType(DType),
 }
 
+enum ChildReaderResult {
+    ReadMore(Vec<Message>),
+    Reader(Box<dyn LayoutReader>),
+}
+
 impl InlineDTypeLayout {
     pub fn new(
         fb_bytes: Bytes,
@@ -89,7 +95,7 @@ impl InlineDTypeLayout {
 
     fn dtype(&self) -> VortexResult<DTypeReadResult> {
         if let Some(dt_bytes) = self.message_cache.get(&[0]) {
-            let msg = root::<message::Message>(&dt_bytes[4..])?
+            let msg = root::<message::Message>(&dt_bytes[FLATBUFFER_SIZE_LENGTH..])?
                 .header_as_schema()
                 .ok_or_else(|| vortex_err!("Expected schema message"))?;
 
@@ -113,10 +119,9 @@ impl InlineDTypeLayout {
         }
     }
 
-    /// Returns None when child reader has been created
-    fn child_reader(&mut self) -> VortexResult<Option<ReadResult>> {
+    fn child_reader(&mut self) -> VortexResult<ChildReaderResult> {
         match self.dtype()? {
-            DTypeReadResult::ReadMore(m) => Ok(Some(ReadResult::ReadMore(m))),
+            DTypeReadResult::ReadMore(m) => Ok(ChildReaderResult::ReadMore(m)),
             DTypeReadResult::DType(d) => {
                 let layout = self
                     .flatbuffer()
@@ -135,8 +140,7 @@ impl InlineDTypeLayout {
                 if self.offset != 0 {
                     child_layout.advance(self.offset)?;
                 }
-                self.child_layout = Some(child_layout);
-                Ok(None)
+                Ok(ChildReaderResult::Reader(child_layout))
             }
         }
     }
@@ -148,13 +152,11 @@ impl LayoutReader for InlineDTypeLayout {
             cr.next_range()
         } else {
             match self.child_reader()? {
-                Some(r) => match r {
-                    ReadResult::ReadMore(rm) => Ok(RangeResult::ReadMore(rm)),
-                    ReadResult::Batch(_) => {
-                        unreachable!("Child reader will only return ReadMore")
-                    }
-                },
-                None => self.next_range(),
+                ChildReaderResult::ReadMore(rm) => Ok(RangeResult::ReadMore(rm)),
+                ChildReaderResult::Reader(r) => {
+                    self.child_layout = Some(r);
+                    self.next_range()
+                }
             }
         }
     }
@@ -164,8 +166,11 @@ impl LayoutReader for InlineDTypeLayout {
             cr.read_next(selector)
         } else {
             match self.child_reader()? {
-                Some(r) => Ok(Some(r)),
-                None => self.read_next(selector),
+                ChildReaderResult::ReadMore(rm) => Ok(Some(ReadResult::ReadMore(rm))),
+                ChildReaderResult::Reader(r) => {
+                    self.child_layout = Some(r);
+                    self.read_next(selector)
+                }
             }
         }
     }

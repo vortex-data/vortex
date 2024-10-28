@@ -75,11 +75,23 @@ impl VortexExpr for RowFilter {
     }
 }
 
+impl PartialEq for RowFilter {
+    fn eq(&self, other: &Self) -> bool {
+        self.conjunction
+            .iter()
+            .all(|c| other.conjunction.iter().any(|o| **o == *c.as_any()))
+            && other
+                .conjunction
+                .iter()
+                .all(|c| self.conjunction.iter().any(|o| **o == *c.as_any()))
+    }
+}
+
 impl PartialEq<dyn Any> for RowFilter {
     fn eq(&self, other: &dyn Any) -> bool {
         unbox_any(other)
             .downcast_ref::<Self>()
-            .map(|x| x == other)
+            .map(|x| x == self)
             .unwrap_or(false)
     }
 }
