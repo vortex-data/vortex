@@ -1,6 +1,6 @@
-use vortex::compute::unary::{scalar_at, scalar_at_unchecked, ScalarAtFn};
-use vortex::compute::{filter, slice, take, ArrayCompute, FilterFn, SliceFn, TakeFn};
-use vortex::{Array, IntoArray};
+use vortex_array::compute::unary::{scalar_at, scalar_at_unchecked, ScalarAtFn};
+use vortex_array::compute::{filter, slice, take, ArrayCompute, FilterFn, SliceFn, TakeFn};
+use vortex_array::{Array, IntoArray};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
@@ -66,9 +66,9 @@ impl SliceFn for DictArray {
 
 #[cfg(test)]
 mod test {
-    use vortex::accessor::ArrayAccessor;
-    use vortex::array::{PrimitiveArray, VarBinViewArray};
-    use vortex::{IntoArray, IntoArrayVariant, ToArray};
+    use vortex_array::accessor::ArrayAccessor;
+    use vortex_array::array::{PrimitiveArray, VarBinViewArray};
+    use vortex_array::{IntoArray, IntoArrayVariant, ToArray};
     use vortex_dtype::{DType, Nullability};
 
     use crate::{dict_encode_typed_primitive, dict_encode_varbinview, DictArray};

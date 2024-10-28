@@ -3,13 +3,13 @@
 use std::collections::HashSet;
 
 use libfuzzer_sys::{fuzz_target, Corpus};
-use vortex::array::{
+use vortex_array::array::{
     BoolEncoding, PrimitiveEncoding, StructEncoding, VarBinEncoding, VarBinViewEncoding,
 };
-use vortex::compute::unary::scalar_at;
-use vortex::compute::{filter, search_sorted, slice, take, SearchResult, SearchSortedSide};
-use vortex::encoding::EncodingRef;
-use vortex::{Array, IntoCanonical};
+use vortex_array::compute::unary::scalar_at;
+use vortex_array::compute::{filter, search_sorted, slice, take, SearchResult, SearchSortedSide};
+use vortex_array::encoding::EncodingRef;
+use vortex_array::{Array, IntoCanonical};
 use vortex_fuzz::{sort_canonical_array, Action, FuzzArrayAction};
 use vortex_sampling_compressor::SamplingCompressor;
 use vortex_scalar::{PValue, Scalar, ScalarValue};

@@ -1,4 +1,4 @@
-use vortex::variants::{ArrayVariants, PrimitiveArrayTrait};
+use vortex_array::variants::{ArrayVariants, PrimitiveArrayTrait};
 
 use crate::ALPRDArray;
 

@@ -4,9 +4,9 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use itertools::Itertools;
 use rand::distributions::Uniform;
 use rand::{thread_rng, Rng};
-use vortex::array::BoolArray;
-use vortex::compute::Operator;
-use vortex::IntoArray;
+use vortex_array::array::BoolArray;
+use vortex_array::compute::Operator;
+use vortex_array::IntoArray;
 use vortex_error::VortexError;
 
 fn compare_bool(c: &mut Criterion) {
@@ -29,7 +29,7 @@ fn compare_bool(c: &mut Criterion) {
 
     group.bench_function("compare_bool", |b| {
         b.iter(|| {
-            let indices = vortex::compute::compare(&arr, &arr2, Operator::Gte).unwrap();
+            let indices = vortex_array::compute::compare(&arr, &arr2, Operator::Gte).unwrap();
             black_box(indices);
             Ok::<(), VortexError>(())
         });
@@ -53,7 +53,7 @@ fn compare_primitive(c: &mut Criterion) {
 
     group.bench_function("compare_int", |b| {
         b.iter(|| {
-            let indices = vortex::compute::compare(&arr, &arr2, Operator::Gte).unwrap();
+            let indices = vortex_array::compute::compare(&arr, &arr2, Operator::Gte).unwrap();
             black_box(indices);
             Ok::<(), VortexError>(())
         });

@@ -2,8 +2,8 @@ use std::cmp::min;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use vortex::compute::slice;
-use vortex::{Array, Context};
+use vortex_array::compute::slice;
+use vortex_array::{Array, Context};
 use vortex_error::{vortex_err, VortexResult, VortexUnwrap};
 use vortex_flatbuffers::footer;
 

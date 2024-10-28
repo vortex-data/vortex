@@ -3,11 +3,11 @@ use std::sync::Arc;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::*;
-use vortex_rs::dtype::field::Field;
-use vortex_rs::dtype::half::f16;
-use vortex_rs::dtype::{DType, Nullability, PType};
-use vortex_rs::expr::{BinaryExpr, Column, Literal, Operator, VortexExpr};
-use vortex_rs::scalar::{PValue, Scalar, ScalarValue};
+use vortex::dtype::field::Field;
+use vortex::dtype::half::f16;
+use vortex::dtype::{DType, Nullability, PType};
+use vortex::expr::{BinaryExpr, Column, Literal, Operator, VortexExpr};
+use vortex::scalar::{PValue, Scalar, ScalarValue};
 
 use crate::dtype::PyDType;
 
@@ -25,11 +25,11 @@ use crate::dtype::PyDType;
 /// ...     {'name': 'Mikhail', 'age': 57},
 /// ...     {'name': None, 'age': None},
 /// ... ])
-/// >>> vortex.io.write_path(a, "a.vortex")
+/// >>> vortex.io.write(a, "a.vortex")
 ///
 /// Read only those rows whose age column is greater than 35:
 ///
-/// >>> e = vortex.io.read_path("a.vortex", row_filter = vortex.expr.column("age") > 35)
+/// >>> e = vortex.io.read("a.vortex", row_filter = vortex.expr.column("age") > 35)
 /// >>> e.to_arrow_array()
 /// <pyarrow.lib.StructArray object at ...>
 /// -- is_valid: all not null
@@ -46,7 +46,7 @@ use crate::dtype::PyDType;
 /// because of the Python precedence rules for ``&``:
 ///
 /// >>> age = vortex.expr.column("age")
-/// >>> e = vortex.io.read_path("a.vortex", row_filter = (age > 21) & (age <= 33))
+/// >>> e = vortex.io.read("a.vortex", row_filter = (age > 21) & (age <= 33))
 /// >>> e.to_arrow_array()
 /// <pyarrow.lib.StructArray object at ...>
 /// -- is_valid: all not null
@@ -64,7 +64,7 @@ use crate::dtype::PyDType;
 /// Read only those rows whose name is `Joseph`:
 ///
 /// >>> name = vortex.expr.column("name")
-/// >>> e = vortex.io.read_path("a.vortex", row_filter = name == "Joseph")
+/// >>> e = vortex.io.read("a.vortex", row_filter = name == "Joseph")
 /// >>> e.to_arrow_array()
 /// <pyarrow.lib.StructArray object at ...>
 /// -- is_valid: all not null
@@ -82,7 +82,7 @@ use crate::dtype::PyDType;
 /// evaluates to null which is interpreted as false:
 ///
 /// >>> name = vortex.expr.column("name")
-/// >>> e = vortex.io.read_path("a.vortex", row_filter = (name == "Angela") | ((age >= 20) & (age <= 30)))
+/// >>> e = vortex.io.read("a.vortex", row_filter = (name == "Angela") | ((age >= 20) & (age <= 30)))
 /// >>> e.to_arrow_array()
 /// <pyarrow.lib.StructArray object at ...>
 /// -- is_valid: all not null

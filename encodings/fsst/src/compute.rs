@@ -1,10 +1,10 @@
 use fsst::Symbol;
-use vortex::array::{varbin_scalar, ConstantArray};
-use vortex::compute::unary::{scalar_at_unchecked, ScalarAtFn};
-use vortex::compute::{
+use vortex_array::array::{varbin_scalar, ConstantArray};
+use vortex_array::compute::unary::{scalar_at_unchecked, ScalarAtFn};
+use vortex_array::compute::{
     compare, filter, slice, take, ArrayCompute, FilterFn, MaybeCompareFn, Operator, SliceFn, TakeFn,
 };
-use vortex::{Array, ArrayDType, IntoArray, IntoArrayVariant};
+use vortex_array::{Array, ArrayDType, IntoArray, IntoArrayVariant};
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexResult, VortexUnwrap};
@@ -160,10 +160,10 @@ impl FilterFn for FSSTArray {
 
 #[cfg(test)]
 mod tests {
-    use vortex::array::{ConstantArray, VarBinArray};
-    use vortex::compute::unary::scalar_at_unchecked;
-    use vortex::compute::{MaybeCompareFn, Operator};
-    use vortex::{IntoArray, IntoArrayVariant};
+    use vortex_array::array::{ConstantArray, VarBinArray};
+    use vortex_array::compute::unary::scalar_at_unchecked;
+    use vortex_array::compute::{MaybeCompareFn, Operator};
+    use vortex_array::{IntoArray, IntoArrayVariant};
     use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;
 

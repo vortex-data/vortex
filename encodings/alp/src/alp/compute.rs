@@ -1,11 +1,11 @@
-use vortex::array::{BoolArray, ConstantArray};
-use vortex::compute::unary::{scalar_at, scalar_at_unchecked, ScalarAtFn};
-use vortex::compute::{
+use vortex_array::array::{BoolArray, ConstantArray};
+use vortex_array::compute::unary::{scalar_at, scalar_at_unchecked, ScalarAtFn};
+use vortex_array::compute::{
     compare, filter, slice, take, ArrayCompute, FilterFn, MaybeCompareFn, Operator, SliceFn, TakeFn,
 };
-use vortex::stats::{ArrayStatistics, Stat};
-use vortex::validity::Validity;
-use vortex::{Array, ArrayDType, IntoArray};
+use vortex_array::stats::{ArrayStatistics, Stat};
+use vortex_array::validity::Validity;
+use vortex_array::{Array, ArrayDType, IntoArray};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::{PValue, Scalar};
 
@@ -148,8 +148,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    use vortex::array::PrimitiveArray;
-    use vortex::IntoArrayVariant;
+    use vortex_array::array::PrimitiveArray;
+    use vortex_array::IntoArrayVariant;
     use vortex_dtype::{DType, Nullability, PType};
 
     use super::*;

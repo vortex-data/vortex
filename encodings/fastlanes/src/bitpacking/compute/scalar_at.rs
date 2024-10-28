@@ -1,5 +1,5 @@
-use vortex::compute::unary::{scalar_at_unchecked, ScalarAtFn};
-use vortex::ArrayDType;
+use vortex_array::compute::unary::{scalar_at_unchecked, ScalarAtFn};
+use vortex_array::ArrayDType;
 use vortex_error::{VortexResult, VortexUnwrap as _};
 use vortex_scalar::Scalar;
 
@@ -24,10 +24,10 @@ impl ScalarAtFn for BitPackedArray {
 
 #[cfg(test)]
 mod test {
-    use vortex::array::{PrimitiveArray, SparseArray};
-    use vortex::compute::unary::scalar_at;
-    use vortex::validity::Validity;
-    use vortex::IntoArray;
+    use vortex_array::array::{PrimitiveArray, SparseArray};
+    use vortex_array::compute::unary::scalar_at;
+    use vortex_array::validity::Validity;
+    use vortex_array::IntoArray;
     use vortex_buffer::Buffer;
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_scalar::{Scalar, ScalarValue};

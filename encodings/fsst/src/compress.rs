@@ -1,11 +1,11 @@
 // Compress a set of values into an Array.
 
 use fsst::{Compressor, Symbol};
-use vortex::accessor::ArrayAccessor;
-use vortex::array::builder::VarBinBuilder;
-use vortex::array::{PrimitiveArray, VarBinArray, VarBinViewArray};
-use vortex::validity::Validity;
-use vortex::{Array, ArrayDType, IntoArray};
+use vortex_array::accessor::ArrayAccessor;
+use vortex_array::array::builder::VarBinBuilder;
+use vortex_array::array::{PrimitiveArray, VarBinArray, VarBinViewArray};
+use vortex_array::validity::Validity;
+use vortex_array::{Array, ArrayDType, IntoArray};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 

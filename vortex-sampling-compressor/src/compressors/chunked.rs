@@ -3,9 +3,9 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use log::warn;
-use vortex::array::{Chunked, ChunkedArray};
-use vortex::encoding::EncodingRef;
-use vortex::{Array, ArrayDType, ArrayDef, IntoArray};
+use vortex_array::array::{Chunked, ChunkedArray};
+use vortex_array::encoding::EncodingRef;
+use vortex_array::{Array, ArrayDType, ArrayDef, IntoArray};
 use vortex_error::{vortex_bail, VortexResult};
 
 use super::EncoderMetadata;

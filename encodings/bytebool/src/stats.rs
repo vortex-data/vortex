@@ -1,5 +1,5 @@
-use vortex::stats::{ArrayStatisticsCompute, Stat, StatsSet};
-use vortex::IntoArrayVariant;
+use vortex_array::stats::{ArrayStatisticsCompute, Stat, StatsSet};
+use vortex_array::IntoArrayVariant;
 use vortex_error::VortexResult;
 
 use super::ByteBoolArray;
@@ -18,7 +18,7 @@ impl ArrayStatisticsCompute for ByteBoolArray {
 
 #[cfg(test)]
 mod tests {
-    use vortex::stats::ArrayStatistics;
+    use vortex_array::stats::ArrayStatistics;
     use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;
 

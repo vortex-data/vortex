@@ -5,7 +5,7 @@ use std::collections::hash_map::Entry;
 use std::sync::Arc;
 
 use ahash::{HashMap, HashMapExt};
-use vortex::stats::Stat;
+use vortex_array::stats::Stat;
 use vortex_dtype::field::Field;
 use vortex_dtype::Nullability;
 use vortex_expr::{BinaryExpr, Column, Literal, Operator, VortexExpr};
@@ -223,7 +223,7 @@ mod tests {
     use std::sync::Arc;
 
     use ahash::HashMap;
-    use vortex::stats::Stat;
+    use vortex_array::stats::Stat;
     use vortex_dtype::field::Field;
     use vortex_expr::{BinaryExpr, Column, Literal, Operator, VortexExpr};
 

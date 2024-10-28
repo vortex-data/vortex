@@ -3,13 +3,15 @@ use std::fmt::{Debug, Display};
 use ::serde::{Deserialize, Serialize};
 pub use compress::*;
 use fastlanes::BitPacking;
-use vortex::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
-use vortex::array::{PrimitiveArray, SparseArray};
-use vortex::encoding::ids;
-use vortex::stats::{ArrayStatisticsCompute, StatsSet};
-use vortex::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
-use vortex::variants::{ArrayVariants, PrimitiveArrayTrait};
-use vortex::{impl_encoding, Array, ArrayDType, ArrayTrait, Canonical, IntoCanonical, TypedArray};
+use vortex_array::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
+use vortex_array::array::{PrimitiveArray, SparseArray};
+use vortex_array::encoding::ids;
+use vortex_array::stats::{ArrayStatisticsCompute, StatsSet};
+use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
+use vortex_array::variants::{ArrayVariants, PrimitiveArrayTrait};
+use vortex_array::{
+    impl_encoding, Array, ArrayDType, ArrayTrait, Canonical, IntoCanonical, TypedArray,
+};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, NativePType, Nullability, PType};
 use vortex_error::{
@@ -258,8 +260,8 @@ impl PrimitiveArrayTrait for BitPackedArray {}
 
 #[cfg(test)]
 mod test {
-    use vortex::array::PrimitiveArray;
-    use vortex::{IntoArray, IntoArrayVariant};
+    use vortex_array::array::PrimitiveArray;
+    use vortex_array::{IntoArray, IntoArrayVariant};
 
     use crate::BitPackedArray;
 

@@ -20,8 +20,8 @@ use futures::Stream;
 use memory::{VortexMemTable, VortexMemTableOptions};
 use persistent::config::VortexTableOptions;
 use persistent::provider::VortexFileTableProvider;
-use vortex::array::ChunkedArray;
-use vortex::{Array, ArrayDType, IntoArrayVariant};
+use vortex_array::array::ChunkedArray;
+use vortex_array::{Array, ArrayDType, IntoArrayVariant};
 use vortex_dtype::field::Field;
 use vortex_error::{vortex_err, VortexResult};
 

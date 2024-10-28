@@ -1,10 +1,10 @@
 use std::cmp::Ordering;
 
-use vortex::accessor::ArrayAccessor;
-use vortex::compute::unary::scalar_at;
-use vortex::compute::{IndexOrd, Len, SearchResult, SearchSorted, SearchSortedSide};
-use vortex::validity::ArrayValidity;
-use vortex::{Array, ArrayDType, IntoArray, IntoArrayVariant};
+use vortex_array::accessor::ArrayAccessor;
+use vortex_array::compute::unary::scalar_at;
+use vortex_array::compute::{IndexOrd, Len, SearchResult, SearchSorted, SearchSortedSide};
+use vortex_array::validity::ArrayValidity;
+use vortex_array::{Array, ArrayDType, IntoArray, IntoArrayVariant};
 use vortex_buffer::{Buffer, BufferString};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType};
 use vortex_scalar::Scalar;

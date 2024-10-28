@@ -2,10 +2,10 @@ use std::collections::HashSet;
 use std::ops::Add;
 
 use chrono::TimeDelta;
-use vortex::array::builder::VarBinBuilder;
-use vortex::array::{BoolArray, PrimitiveArray, StructArray, TemporalArray};
-use vortex::validity::Validity;
-use vortex::{Array, ArrayDType, IntoArray};
+use vortex_array::array::builder::VarBinBuilder;
+use vortex_array::array::{BoolArray, PrimitiveArray, StructArray, TemporalArray};
+use vortex_array::validity::Validity;
+use vortex_array::{Array, ArrayDType, IntoArray};
 use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
 use vortex_sampling_compressor::compressors::alp::ALPCompressor;
 use vortex_sampling_compressor::compressors::date_time_parts::DateTimePartsCompressor;
@@ -21,9 +21,9 @@ use vortex_sampling_compressor::{CompressConfig, SamplingCompressor};
 
 #[cfg(test)]
 mod tests {
-    use vortex::array::{Bool, ChunkedArray, VarBin};
-    use vortex::variants::{ArrayVariants, StructArrayTrait};
-    use vortex::ArrayDef;
+    use vortex_array::array::{Bool, ChunkedArray, VarBin};
+    use vortex_array::variants::{ArrayVariants, StructArrayTrait};
+    use vortex_array::ArrayDef;
     use vortex_datetime_dtype::TimeUnit;
     use vortex_datetime_parts::DateTimeParts;
     use vortex_dict::Dict;

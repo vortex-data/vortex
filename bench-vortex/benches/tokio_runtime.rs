@@ -1,6 +1,6 @@
 use lazy_static::lazy_static;
 use tokio::runtime::Runtime;
-use vortex_rs::error::{VortexError, VortexExpect};
+use vortex::error::{VortexError, VortexExpect};
 
 lazy_static! {
     pub static ref TOKIO_RUNTIME: Runtime = tokio::runtime::Builder::new_current_thread()

@@ -4,8 +4,8 @@ use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion
 use rand::distributions::{Alphanumeric, Uniform};
 use rand::prelude::SliceRandom;
 use rand::{thread_rng, Rng};
-use vortex::array::{PrimitiveArray, VarBinArray};
-use vortex::{ArrayTrait, IntoArray as _, IntoCanonical as _};
+use vortex_array::array::{PrimitiveArray, VarBinArray};
+use vortex_array::{ArrayTrait, IntoArray as _, IntoCanonical as _};
 use vortex_dict::{dict_encode_primitive, dict_encode_varbin, DictArray};
 
 fn gen_primitive_dict(len: usize, uniqueness: f64) -> PrimitiveArray {

@@ -1,8 +1,8 @@
 use std::collections::HashSet;
 
-use vortex::encoding::EncodingRef;
-use vortex::stats::ArrayStatistics;
-use vortex::{Array, ArrayDType, ArrayDef, IntoArray, IntoArrayVariant};
+use vortex_array::encoding::EncodingRef;
+use vortex_array::stats::ArrayStatistics;
+use vortex_array::{Array, ArrayDType, ArrayDef, IntoArray, IntoArrayVariant};
 use vortex_error::VortexResult;
 use vortex_roaring::{roaring_int_encode, RoaringInt, RoaringIntEncoding};
 
@@ -62,9 +62,9 @@ impl EncodingCompressor for RoaringIntCompressor {
 
 #[cfg(test)]
 mod tests {
-    use vortex::array::PrimitiveArray;
-    use vortex::validity::Validity;
-    use vortex::IntoArray;
+    use vortex_array::array::PrimitiveArray;
+    use vortex_array::validity::Validity;
+    use vortex_array::IntoArray;
     use vortex_roaring::RoaringIntArray;
 
     use crate::compressors::roaring_int::RoaringIntCompressor;

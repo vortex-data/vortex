@@ -1,4 +1,4 @@
-use vortex::compute::unary::{scalar_at, ScalarAtFn};
+use vortex_array::compute::unary::{scalar_at, ScalarAtFn};
 use vortex_error::{VortexResult, VortexUnwrap};
 use vortex_scalar::Scalar;
 
@@ -38,8 +38,8 @@ impl ScalarAtFn for ALPRDArray {
 #[cfg(test)]
 mod test {
     use rstest::rstest;
-    use vortex::array::PrimitiveArray;
-    use vortex::compute::unary::scalar_at;
+    use vortex_array::array::PrimitiveArray;
+    use vortex_array::compute::unary::scalar_at;
     use vortex_scalar::Scalar;
 
     use crate::{ALPRDFloat, RDEncoder};

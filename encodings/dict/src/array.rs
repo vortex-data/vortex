@@ -2,14 +2,14 @@ use std::fmt::{Debug, Display};
 
 use arrow_buffer::BooleanBuffer;
 use serde::{Deserialize, Serialize};
-use vortex::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
-use vortex::array::BoolArray;
-use vortex::compute::take;
-use vortex::compute::unary::scalar_at;
-use vortex::encoding::ids;
-use vortex::stats::StatsSet;
-use vortex::validity::{ArrayValidity, LogicalValidity};
-use vortex::{
+use vortex_array::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
+use vortex_array::array::BoolArray;
+use vortex_array::compute::take;
+use vortex_array::compute::unary::scalar_at;
+use vortex_array::encoding::ids;
+use vortex_array::stats::StatsSet;
+use vortex_array::validity::{ArrayValidity, LogicalValidity};
+use vortex_array::{
     impl_encoding, Array, ArrayDType, ArrayTrait, Canonical, IntoArray, IntoArrayVariant,
     IntoCanonical,
 };

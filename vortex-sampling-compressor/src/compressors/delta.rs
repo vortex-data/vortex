@@ -1,8 +1,8 @@
 use std::collections::HashSet;
 
-use vortex::array::PrimitiveArray;
-use vortex::encoding::EncodingRef;
-use vortex::{Array, ArrayDef, IntoArray};
+use vortex_array::array::PrimitiveArray;
+use vortex_array::encoding::EncodingRef;
+use vortex_array::{Array, ArrayDef, IntoArray};
 use vortex_error::VortexResult;
 use vortex_fastlanes::{delta_compress, Delta, DeltaArray, DeltaEncoding};
 

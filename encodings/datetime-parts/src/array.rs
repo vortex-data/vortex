@@ -1,14 +1,16 @@
 use std::fmt::{Debug, Display};
 
 use serde::{Deserialize, Serialize};
-use vortex::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
-use vortex::array::StructArray;
-use vortex::compute::unary::try_cast;
-use vortex::encoding::ids;
-use vortex::stats::{ArrayStatisticsCompute, StatsSet};
-use vortex::validity::{ArrayValidity, LogicalValidity, Validity};
-use vortex::variants::{ArrayVariants, ExtensionArrayTrait};
-use vortex::{impl_encoding, Array, ArrayDType, ArrayTrait, Canonical, IntoArray, IntoCanonical};
+use vortex_array::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
+use vortex_array::array::StructArray;
+use vortex_array::compute::unary::try_cast;
+use vortex_array::encoding::ids;
+use vortex_array::stats::{ArrayStatisticsCompute, StatsSet};
+use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity};
+use vortex_array::variants::{ArrayVariants, ExtensionArrayTrait};
+use vortex_array::{
+    impl_encoding, Array, ArrayDType, ArrayTrait, Canonical, IntoArray, IntoCanonical,
+};
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult, VortexUnwrap};
 

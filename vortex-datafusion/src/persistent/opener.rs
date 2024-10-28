@@ -7,7 +7,7 @@ use datafusion_common::Result as DFResult;
 use datafusion_physical_expr::PhysicalExpr;
 use futures::{FutureExt as _, StreamExt, TryStreamExt};
 use object_store::ObjectStore;
-use vortex::Context;
+use vortex_array::Context;
 use vortex_expr::datafusion::convert_expr_to_vortex;
 use vortex_serde::io::ObjectStoreReadAt;
 use vortex_serde::layouts::{

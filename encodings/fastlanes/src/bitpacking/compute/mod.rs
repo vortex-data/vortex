@@ -1,5 +1,5 @@
-use vortex::compute::unary::ScalarAtFn;
-use vortex::compute::{ArrayCompute, SearchSortedFn, SliceFn, TakeFn};
+use vortex_array::compute::unary::ScalarAtFn;
+use vortex_array::compute::{ArrayCompute, SearchSortedFn, SliceFn, TakeFn};
 
 use crate::BitPackedArray;
 

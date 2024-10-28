@@ -23,10 +23,10 @@ mod test {
     use futures_util::io::Cursor;
     use futures_util::{pin_mut, StreamExt, TryStreamExt};
     use itertools::Itertools;
-    use vortex::array::{ChunkedArray, PrimitiveArray, PrimitiveEncoding};
-    use vortex::encoding::ArrayEncoding;
-    use vortex::stream::ArrayStreamExt;
-    use vortex::{ArrayDType, Context, IntoArray};
+    use vortex_array::array::{ChunkedArray, PrimitiveArray, PrimitiveEncoding};
+    use vortex_array::encoding::ArrayEncoding;
+    use vortex_array::stream::ArrayStreamExt;
+    use vortex_array::{ArrayDType, Context, IntoArray};
     use vortex_error::VortexResult;
 
     use crate::io::FuturesAdapter;

@@ -1,8 +1,8 @@
 use std::cmp::max;
 
-use vortex::array::SparseArray;
-use vortex::compute::{slice, SliceFn};
-use vortex::{Array, IntoArray};
+use vortex_array::array::SparseArray;
+use vortex_array::compute::{slice, SliceFn};
+use vortex_array::{Array, IntoArray};
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::BitPackedArray;
@@ -44,10 +44,10 @@ impl SliceFn for BitPackedArray {
 #[cfg(test)]
 mod test {
     use itertools::Itertools;
-    use vortex::array::{PrimitiveArray, SparseArray};
-    use vortex::compute::unary::scalar_at;
-    use vortex::compute::{slice, take};
-    use vortex::IntoArray;
+    use vortex_array::array::{PrimitiveArray, SparseArray};
+    use vortex_array::compute::unary::scalar_at;
+    use vortex_array::compute::{slice, take};
+    use vortex_array::IntoArray;
 
     use crate::BitPackedArray;
 

@@ -1,8 +1,8 @@
 use std::cmp::min;
 
-use vortex::compute::unary::ScalarAtFn;
-use vortex::compute::{slice, ArrayCompute, SliceFn};
-use vortex::{Array, IntoArray, IntoArrayVariant};
+use vortex_array::compute::unary::ScalarAtFn;
+use vortex_array::compute::{slice, ArrayCompute, SliceFn};
+use vortex_array::{Array, IntoArray, IntoArrayVariant};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
@@ -76,9 +76,9 @@ impl SliceFn for DeltaArray {
 
 #[cfg(test)]
 mod test {
-    use vortex::compute::slice;
-    use vortex::compute::unary::{scalar_at, scalar_at_unchecked};
-    use vortex::IntoArrayVariant;
+    use vortex_array::compute::slice;
+    use vortex_array::compute::unary::{scalar_at, scalar_at_unchecked};
+    use vortex_array::IntoArrayVariant;
     use vortex_error::VortexError;
 
     use super::*;

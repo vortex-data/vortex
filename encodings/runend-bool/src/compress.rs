@@ -3,8 +3,8 @@ use std::cmp::min;
 use arrow_buffer::buffer::BooleanBuffer;
 use arrow_buffer::BooleanBufferBuilder;
 use num_traits::{AsPrimitive, FromPrimitive};
-use vortex::array::{BoolArray, PrimitiveArray};
-use vortex::validity::Validity;
+use vortex_array::array::{BoolArray, PrimitiveArray};
+use vortex_array::validity::Validity;
 use vortex_dtype::{match_each_integer_ptype, NativePType};
 use vortex_error::{vortex_panic, VortexExpect as _, VortexResult};
 
@@ -99,10 +99,10 @@ mod test {
     use itertools::Itertools;
     use rand::prelude::StdRng;
     use rand::{Rng, SeedableRng};
-    use vortex::array::BoolArray;
-    use vortex::compute::SliceFn;
-    use vortex::validity::Validity;
-    use vortex::IntoArrayVariant;
+    use vortex_array::array::BoolArray;
+    use vortex_array::compute::SliceFn;
+    use vortex_array::validity::Validity;
+    use vortex_array::IntoArrayVariant;
 
     use crate::compress::{
         runend_bool_decode, runend_bool_decode_slice, runend_bool_encode, runend_bool_encode_slice,

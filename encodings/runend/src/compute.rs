@@ -1,8 +1,8 @@
-use vortex::array::{ConstantArray, PrimitiveArray, SparseArray};
-use vortex::compute::unary::{scalar_at, scalar_at_unchecked, ScalarAtFn};
-use vortex::compute::{filter, slice, take, ArrayCompute, SliceFn, TakeFn};
-use vortex::validity::Validity;
-use vortex::{Array, ArrayDType, IntoArray, IntoArrayVariant};
+use vortex_array::array::{ConstantArray, PrimitiveArray, SparseArray};
+use vortex_array::compute::unary::{scalar_at, scalar_at_unchecked, ScalarAtFn};
+use vortex_array::compute::{filter, slice, take, ArrayCompute, SliceFn, TakeFn};
+use vortex_array::validity::Validity;
+use vortex_array::{Array, ArrayDType, IntoArray, IntoArrayVariant};
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::{VortexExpect as _, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
@@ -112,11 +112,11 @@ impl SliceFn for RunEndArray {
 
 #[cfg(test)]
 mod test {
-    use vortex::array::{BoolArray, PrimitiveArray};
-    use vortex::compute::unary::{scalar_at, try_cast};
-    use vortex::compute::{slice, take};
-    use vortex::validity::{ArrayValidity, Validity};
-    use vortex::{ArrayDType, IntoArray, IntoArrayVariant, ToArray};
+    use vortex_array::array::{BoolArray, PrimitiveArray};
+    use vortex_array::compute::unary::{scalar_at, try_cast};
+    use vortex_array::compute::{slice, take};
+    use vortex_array::validity::{ArrayValidity, Validity};
+    use vortex_array::{ArrayDType, IntoArray, IntoArrayVariant, ToArray};
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_scalar::Scalar;
 

@@ -8,17 +8,17 @@ use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::{PyLong, PyString};
 use tokio::fs::File;
-use vortex_rs::arrow::infer_schema;
-use vortex_rs::dtype::field::Field;
-use vortex_rs::dtype::DType;
-use vortex_rs::error::VortexResult;
-use vortex_rs::sampling_compressor::ALL_COMPRESSORS_CONTEXT;
-use vortex_rs::serde::io::{ObjectStoreReadAt, VortexReadAt};
-use vortex_rs::serde::layouts::{
+use vortex::arrow::infer_schema;
+use vortex::dtype::field::Field;
+use vortex::dtype::DType;
+use vortex::error::VortexResult;
+use vortex::sampling_compressor::ALL_COMPRESSORS_CONTEXT;
+use vortex::serde::io::{ObjectStoreReadAt, VortexReadAt};
+use vortex::serde::layouts::{
     LayoutBatchStream, LayoutContext, LayoutDescriptorReader, LayoutDeserializer,
     LayoutReaderBuilder, Projection, RowFilter, VortexRecordBatchReader,
 };
-use vortex_rs::Array;
+use vortex::Array;
 
 use crate::expr::PyExpr;
 use crate::{PyArray, TOKIO_RUNTIME};

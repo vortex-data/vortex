@@ -1,7 +1,7 @@
 use std::any::Any;
 use std::collections::HashSet;
 
-use vortex::Array;
+use vortex_array::Array;
 use vortex_dtype::field::Field;
 use vortex_error::{vortex_err, VortexResult};
 
@@ -79,8 +79,8 @@ impl PartialEq<dyn Any> for Select {
 
 #[cfg(test)]
 mod tests {
-    use vortex::array::{PrimitiveArray, StructArray};
-    use vortex::IntoArray;
+    use vortex_array::array::{PrimitiveArray, StructArray};
+    use vortex_array::IntoArray;
     use vortex_dtype::field::Field;
 
     use crate::{Select, VortexExpr};

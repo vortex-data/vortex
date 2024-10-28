@@ -1,5 +1,7 @@
-use vortex::variants::{ArrayVariants, BinaryArrayTrait, PrimitiveArrayTrait, Utf8ArrayTrait};
-use vortex::ArrayDType;
+use vortex_array::variants::{
+    ArrayVariants, BinaryArrayTrait, PrimitiveArrayTrait, Utf8ArrayTrait,
+};
+use vortex_array::ArrayDType;
 use vortex_dtype::DType;
 
 use crate::DictArray;

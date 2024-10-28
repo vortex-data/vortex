@@ -3,10 +3,10 @@ use arrow::pyarrow::ToPyArrow;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyInt, PyList};
-use vortex_rs::array::ChunkedArray;
-use vortex_rs::compute::unary::{fill_forward, scalar_at};
-use vortex_rs::compute::{compare, slice, take, Operator};
-use vortex_rs::{Array, ArrayDType, IntoCanonical};
+use vortex::array::ChunkedArray;
+use vortex::compute::unary::{fill_forward, scalar_at};
+use vortex::compute::{compare, slice, take, Operator};
+use vortex::{Array, ArrayDType, IntoCanonical};
 
 use crate::dtype::PyDType;
 use crate::python_repr::PythonRepr;
@@ -268,7 +268,7 @@ impl PyArray {
     fn filter(&self, filter: &Bound<PyArray>) -> PyResult<PyArray> {
         let filter = filter.borrow();
 
-        let inner = vortex_rs::compute::filter(&self.inner, &filter.inner)?;
+        let inner = vortex::compute::filter(&self.inner, &filter.inner)?;
         Ok(PyArray { inner })
     }
 

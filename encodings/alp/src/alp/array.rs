@@ -2,14 +2,16 @@ use std::fmt::{Debug, Display};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
-use vortex::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
-use vortex::array::PrimitiveArray;
-use vortex::encoding::ids;
-use vortex::iter::{Accessor, AccessorRef};
-use vortex::stats::ArrayStatisticsCompute;
-use vortex::validity::{ArrayValidity, LogicalValidity, Validity};
-use vortex::variants::{ArrayVariants, PrimitiveArrayTrait};
-use vortex::{impl_encoding, Array, ArrayDType, ArrayTrait, Canonical, IntoArray, IntoCanonical};
+use vortex_array::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
+use vortex_array::array::PrimitiveArray;
+use vortex_array::encoding::ids;
+use vortex_array::iter::{Accessor, AccessorRef};
+use vortex_array::stats::ArrayStatisticsCompute;
+use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity};
+use vortex_array::variants::{ArrayVariants, PrimitiveArrayTrait};
+use vortex_array::{
+    impl_encoding, Array, ArrayDType, ArrayTrait, Canonical, IntoArray, IntoCanonical,
+};
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
 

@@ -14,7 +14,7 @@ categories = { workspace = true }
 readme = { workspace = true }
 
 [lib]
-name = "vortex"
+name = "vortex_array"
 path = "src/lib.rs"
 bench = false
 

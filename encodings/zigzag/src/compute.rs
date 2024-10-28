@@ -1,6 +1,6 @@
-use vortex::compute::unary::{scalar_at_unchecked, ScalarAtFn};
-use vortex::compute::{slice, ArrayCompute, SliceFn};
-use vortex::{Array, ArrayDType, IntoArray};
+use vortex_array::compute::unary::{scalar_at_unchecked, ScalarAtFn};
+use vortex_array::compute::{slice, ArrayCompute, SliceFn};
+use vortex_array::{Array, ArrayDType, IntoArray};
 use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::{vortex_err, VortexResult, VortexUnwrap as _};
 use vortex_scalar::{PrimitiveScalar, Scalar};
@@ -73,11 +73,11 @@ impl SliceFn for ZigZagArray {
 
 #[cfg(test)]
 mod tests {
-    use vortex::array::PrimitiveArray;
-    use vortex::compute::unary::scalar_at;
-    use vortex::compute::{search_sorted, SearchResult, SearchSortedSide};
-    use vortex::validity::Validity;
-    use vortex::IntoArray;
+    use vortex_array::array::PrimitiveArray;
+    use vortex_array::compute::unary::scalar_at;
+    use vortex_array::compute::{search_sorted, SearchResult, SearchSortedSide};
+    use vortex_array::validity::Validity;
+    use vortex_array::IntoArray;
     use vortex_dtype::Nullability;
     use vortex_scalar::Scalar;
 

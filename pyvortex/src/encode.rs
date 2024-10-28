@@ -5,11 +5,11 @@ use arrow::pyarrow::FromPyArrow;
 use arrow::record_batch::RecordBatchReader;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use vortex_rs::array::ChunkedArray;
-use vortex_rs::arrow::{FromArrowArray, FromArrowType};
-use vortex_rs::dtype::DType;
-use vortex_rs::error::{VortexError, VortexResult};
-use vortex_rs::{Array, IntoArray};
+use vortex::array::ChunkedArray;
+use vortex::arrow::{FromArrowArray, FromArrowType};
+use vortex::dtype::DType;
+use vortex::error::{VortexError, VortexResult};
+use vortex::{Array, IntoArray};
 
 use crate::array::PyArray;
 

@@ -330,7 +330,7 @@ impl VarBinViewArray {
     /// Example
     ///
     /// ```
-    /// use vortex::array::VarBinViewArray;
+    /// use vortex_array::array::VarBinViewArray;
     /// let array = VarBinViewArray::from_iter_str(["a", "b", "c"]);
     /// array.buffers().for_each(|block| {
     ///     // Do something with the `block`

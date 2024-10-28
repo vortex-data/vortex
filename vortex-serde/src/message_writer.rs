@@ -2,7 +2,7 @@ use std::io;
 
 use flatbuffers::FlatBufferBuilder;
 use itertools::Itertools;
-use vortex::Array;
+use vortex_array::Array;
 use vortex_buffer::io_buf::IoBuf;
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;

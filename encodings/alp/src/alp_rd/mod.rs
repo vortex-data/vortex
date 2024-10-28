@@ -1,5 +1,5 @@
 pub use array::*;
-use vortex::validity::Validity;
+use vortex_array::validity::Validity;
 
 mod array;
 mod compute;
@@ -10,8 +10,8 @@ use std::ops::{Shl, Shr};
 
 use itertools::Itertools;
 use num_traits::{Float, One, PrimInt};
-use vortex::array::{PrimitiveArray, SparseArray};
-use vortex::{ArrayDType, IntoArray};
+use vortex_array::array::{PrimitiveArray, SparseArray};
+use vortex_array::{ArrayDType, IntoArray};
 use vortex_dtype::{DType, NativePType};
 use vortex_error::{VortexExpect, VortexUnwrap};
 use vortex_fastlanes::bitpack_encode_unchecked;

@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use ahash::HashMap;
 use bytes::Bytes;
-use vortex::Context;
+use vortex_array::Context;
 use vortex_error::{vortex_err, VortexResult};
 use vortex_flatbuffers::footer as fb;
 

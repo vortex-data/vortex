@@ -1,6 +1,6 @@
 use std::any::Any;
 
-use vortex::Array;
+use vortex_array::Array;
 use vortex_error::VortexResult;
 
 use crate::{unbox_any, VortexExpr};

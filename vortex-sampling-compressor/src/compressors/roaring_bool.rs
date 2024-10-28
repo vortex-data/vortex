@@ -1,8 +1,8 @@
 use std::collections::HashSet;
 
-use vortex::array::Bool;
-use vortex::encoding::EncodingRef;
-use vortex::{Array, ArrayDType, ArrayDef, IntoArray, IntoArrayVariant};
+use vortex_array::array::Bool;
+use vortex_array::encoding::EncodingRef;
+use vortex_array::{Array, ArrayDType, ArrayDef, IntoArray, IntoArrayVariant};
 use vortex_dtype::DType;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_error::VortexResult;

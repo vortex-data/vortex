@@ -10,9 +10,9 @@ use itertools::Itertools;
 use log::info;
 use reqwest::Url;
 use tokio::fs::File;
-use vortex_rs::array::ChunkedArray;
-use vortex_rs::error::VortexResult;
-use vortex_rs::{Array, ArrayDType, ArrayTrait, IntoArray};
+use vortex::array::ChunkedArray;
+use vortex::error::VortexResult;
+use vortex::{Array, ArrayDType, ArrayTrait, IntoArray};
 
 use crate::data_downloads::{decompress_bz2, download_data, BenchmarkDataset, FileType};
 use crate::public_bi_data::PBIDataset::*;

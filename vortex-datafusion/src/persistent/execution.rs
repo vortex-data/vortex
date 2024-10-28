@@ -9,7 +9,7 @@ use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use datafusion_physical_plan::{
     DisplayAs, DisplayFormatType, ExecutionMode, ExecutionPlan, PlanProperties,
 };
-use vortex::Context;
+use vortex_array::Context;
 
 use crate::persistent::opener::VortexFileOpener;
 

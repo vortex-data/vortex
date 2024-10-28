@@ -1,5 +1,5 @@
-use vortex::compute::{take, TakeFn};
-use vortex::{Array, ArrayDType, IntoArray};
+use vortex_array::compute::{take, TakeFn};
+use vortex_array::{Array, ArrayDType, IntoArray};
 use vortex_error::VortexResult;
 
 use crate::ALPRDArray;
@@ -26,9 +26,9 @@ impl TakeFn for ALPRDArray {
 #[cfg(test)]
 mod test {
     use rstest::rstest;
-    use vortex::array::PrimitiveArray;
-    use vortex::compute::take;
-    use vortex::IntoArrayVariant;
+    use vortex_array::array::PrimitiveArray;
+    use vortex_array::compute::take;
+    use vortex_array::IntoArrayVariant;
 
     use crate::{ALPRDFloat, RDEncoder};
 

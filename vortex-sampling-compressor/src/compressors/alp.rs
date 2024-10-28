@@ -1,11 +1,11 @@
 use std::collections::HashSet;
 
-use vortex::array::PrimitiveArray;
-use vortex::encoding::EncodingRef;
-use vortex::{Array, ArrayDef, IntoArray};
 use vortex_alp::{
     alp_encode_components, match_each_alp_float_ptype, ALPArray, ALPEncoding, ALPRDEncoding, ALP,
 };
+use vortex_array::array::PrimitiveArray;
+use vortex_array::encoding::EncodingRef;
+use vortex_array::{Array, ArrayDef, IntoArray};
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
 

@@ -1,5 +1,5 @@
-use vortex::compute::{slice, SliceFn};
-use vortex::{Array, ArrayDType, IntoArray};
+use vortex_array::compute::{slice, SliceFn};
+use vortex_array::{Array, ArrayDType, IntoArray};
 use vortex_error::VortexResult;
 
 use crate::ALPRDArray;
@@ -26,9 +26,9 @@ impl SliceFn for ALPRDArray {
 #[cfg(test)]
 mod test {
     use rstest::rstest;
-    use vortex::array::PrimitiveArray;
-    use vortex::compute::slice;
-    use vortex::IntoArrayVariant;
+    use vortex_array::array::PrimitiveArray;
+    use vortex_array::compute::slice;
+    use vortex_array::IntoArrayVariant;
 
     use crate::{ALPRDFloat, RDEncoder};
 

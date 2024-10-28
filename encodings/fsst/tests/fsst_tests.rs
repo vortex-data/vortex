@@ -1,11 +1,11 @@
 #![cfg(test)]
 
-use vortex::array::builder::VarBinBuilder;
-use vortex::array::{BoolArray, PrimitiveArray};
-use vortex::compute::unary::scalar_at;
-use vortex::compute::{filter, slice, take};
-use vortex::validity::Validity;
-use vortex::{Array, ArrayDef, IntoArray, IntoCanonical};
+use vortex_array::array::builder::VarBinBuilder;
+use vortex_array::array::{BoolArray, PrimitiveArray};
+use vortex_array::compute::unary::scalar_at;
+use vortex_array::compute::{filter, slice, take};
+use vortex_array::validity::Validity;
+use vortex_array::{Array, ArrayDef, IntoArray, IntoCanonical};
 use vortex_dtype::{DType, Nullability};
 use vortex_fsst::{fsst_compress, fsst_train_compressor, FSST};
 

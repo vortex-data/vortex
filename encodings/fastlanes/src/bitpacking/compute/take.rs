@@ -2,9 +2,9 @@ use std::cmp::min;
 
 use fastlanes::BitPacking;
 use itertools::Itertools;
-use vortex::array::{PrimitiveArray, SparseArray};
-use vortex::compute::{slice, take, TakeFn};
-use vortex::{Array, ArrayDType, IntoArray, IntoArrayVariant, IntoCanonical};
+use vortex_array::array::{PrimitiveArray, SparseArray};
+use vortex_array::compute::{slice, take, TakeFn};
+use vortex_array::{Array, ArrayDType, IntoArray, IntoArrayVariant, IntoCanonical};
 use vortex_dtype::{
     match_each_integer_ptype, match_each_unsigned_integer_ptype, NativePType, PType,
 };
@@ -217,10 +217,10 @@ mod test {
     use itertools::Itertools;
     use rand::distributions::Uniform;
     use rand::{thread_rng, Rng};
-    use vortex::array::{PrimitiveArray, SparseArray};
-    use vortex::compute::unary::scalar_at;
-    use vortex::compute::{slice, take};
-    use vortex::{IntoArray, IntoArrayVariant};
+    use vortex_array::array::{PrimitiveArray, SparseArray};
+    use vortex_array::compute::unary::scalar_at;
+    use vortex_array::compute::{slice, take};
+    use vortex_array::{IntoArray, IntoArrayVariant};
 
     use crate::BitPackedArray;
 

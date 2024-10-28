@@ -1,7 +1,7 @@
 use flatbuffers::{FlatBufferBuilder, WIPOffset};
 use itertools::Itertools;
-use vortex::stats::ArrayStatistics;
-use vortex::{flatbuffers as fba, Array};
+use vortex_array::stats::ArrayStatistics;
+use vortex_array::{flatbuffers as fba, Array};
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect as _;

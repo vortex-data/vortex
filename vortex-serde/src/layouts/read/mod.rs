@@ -1,9 +1,9 @@
 use std::fmt::Debug;
 
 use arrow_buffer::BooleanBuffer;
-use vortex::array::BoolArray;
-use vortex::validity::Validity;
-use vortex::{Array, IntoArray as _, IntoArrayVariant as _};
+use vortex_array::array::BoolArray;
+use vortex_array::validity::Validity;
+use vortex_array::{Array, IntoArray as _, IntoArrayVariant as _};
 use vortex_error::VortexResult;
 
 mod batch;
@@ -87,9 +87,9 @@ pub fn null_as_false(array: BoolArray) -> VortexResult<Array> {
 
 #[cfg(test)]
 mod tests {
-    use vortex::array::BoolArray;
-    use vortex::validity::Validity;
-    use vortex::IntoArrayVariant;
+    use vortex_array::array::BoolArray;
+    use vortex_array::validity::Validity;
+    use vortex_array::IntoArrayVariant;
 
     use super::*;
 

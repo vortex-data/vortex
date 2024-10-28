@@ -2,8 +2,8 @@ use std::any::Any;
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use vortex::compute::{and, compare, or, Operator as ArrayOperator};
-use vortex::Array;
+use vortex_array::compute::{and, compare, or, Operator as ArrayOperator};
+use vortex_array::Array;
 use vortex_dtype::field::Field;
 use vortex_error::VortexResult;
 

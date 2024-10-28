@@ -4,8 +4,8 @@ use std::sync::Arc;
 use arrow_array::{RecordBatch, RecordBatchReader};
 use arrow_schema::{ArrowError, SchemaRef};
 use futures::StreamExt;
-use vortex::arrow::infer_schema;
-use vortex::Array;
+use vortex_array::arrow::infer_schema;
+use vortex_array::Array;
 use vortex_error::{VortexError, VortexResult};
 
 use super::LayoutBatchStream;

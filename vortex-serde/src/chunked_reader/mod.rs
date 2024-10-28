@@ -1,9 +1,9 @@
 use std::io::Cursor;
 use std::sync::Arc;
 
-use vortex::compute::unary::scalar_at;
-use vortex::stream::ArrayStream;
-use vortex::{Array, Context};
+use vortex_array::compute::unary::scalar_at;
+use vortex_array::stream::ArrayStream;
+use vortex_array::{Array, Context};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 

@@ -2,13 +2,15 @@ use std::fmt::{Debug, Display};
 
 pub use compress::*;
 use serde::{Deserialize, Serialize};
-use vortex::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
-use vortex::array::PrimitiveArray;
-use vortex::encoding::ids;
-use vortex::stats::{ArrayStatisticsCompute, StatsSet};
-use vortex::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
-use vortex::variants::{ArrayVariants, PrimitiveArrayTrait};
-use vortex::{impl_encoding, Array, ArrayDType, ArrayTrait, Canonical, IntoArray, IntoCanonical};
+use vortex_array::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
+use vortex_array::array::PrimitiveArray;
+use vortex_array::encoding::ids;
+use vortex_array::stats::{ArrayStatisticsCompute, StatsSet};
+use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
+use vortex_array::variants::{ArrayVariants, PrimitiveArrayTrait};
+use vortex_array::{
+    impl_encoding, Array, ArrayDType, ArrayTrait, Canonical, IntoArray, IntoCanonical,
+};
 use vortex_dtype::{match_each_unsigned_integer_ptype, NativePType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
 

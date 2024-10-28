@@ -3,8 +3,8 @@ use arrow::pyarrow::FromPyArrow;
 use pyo3::exceptions::PyValueError;
 use pyo3::types::PyType;
 use pyo3::{pyclass, pyfunction, pymethods, Bound, Py, PyAny, PyResult, Python};
-use vortex_rs::arrow::FromArrowType;
-use vortex_rs::dtype::{DType, PType};
+use vortex::arrow::FromArrowType;
+use vortex::dtype::{DType, PType};
 
 use crate::python_repr::PythonRepr;
 

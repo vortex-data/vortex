@@ -1,10 +1,10 @@
 use std::cmp::Ordering;
 
-use vortex::accessor::ArrayAccessor;
-use vortex::array::{BoolArray, PrimitiveArray, VarBinViewArray};
-use vortex::compute::unary::scalar_at;
-use vortex::validity::ArrayValidity;
-use vortex::{Array, ArrayDType, IntoArray, IntoArrayVariant};
+use vortex_array::accessor::ArrayAccessor;
+use vortex_array::array::{BoolArray, PrimitiveArray, VarBinViewArray};
+use vortex_array::compute::unary::scalar_at;
+use vortex_array::validity::ArrayValidity;
+use vortex_array::{Array, ArrayDType, IntoArray, IntoArrayVariant};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType};
 
 use crate::take::take_canonical_array;

@@ -1,10 +1,10 @@
 use std::collections::HashSet;
 
-use vortex::array::{Constant, ConstantArray, ConstantEncoding};
-use vortex::compute::unary::scalar_at;
-use vortex::encoding::EncodingRef;
-use vortex::stats::ArrayStatistics;
-use vortex::{Array, ArrayDef, IntoArray};
+use vortex_array::array::{Constant, ConstantArray, ConstantEncoding};
+use vortex_array::compute::unary::scalar_at;
+use vortex_array::encoding::EncodingRef;
+use vortex_array::stats::ArrayStatistics;
+use vortex_array::{Array, ArrayDef, IntoArray};
 use vortex_error::VortexResult;
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};

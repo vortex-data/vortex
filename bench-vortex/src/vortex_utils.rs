@@ -2,11 +2,11 @@ use std::fs::File;
 use std::os::unix::prelude::MetadataExt;
 use std::path::PathBuf;
 
-use vortex_rs::array::{ChunkedArray, StructArray};
-use vortex_rs::dtype::DType;
-use vortex_rs::error::VortexResult;
-use vortex_rs::variants::StructArrayTrait;
-use vortex_rs::ArrayDType;
+use vortex::array::{ChunkedArray, StructArray};
+use vortex::dtype::DType;
+use vortex::error::VortexResult;
+use vortex::variants::StructArrayTrait;
+use vortex::ArrayDType;
 
 use crate::data_downloads::FileType;
 use crate::reader::open_vortex;

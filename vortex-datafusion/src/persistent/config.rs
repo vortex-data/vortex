@@ -5,7 +5,7 @@ use chrono::TimeZone as _;
 use datafusion::datasource::listing::PartitionedFile;
 use object_store::path::Path;
 use object_store::ObjectMeta;
-use vortex::Context;
+use vortex_array::Context;
 
 #[derive(Clone)]
 pub struct VortexFile {

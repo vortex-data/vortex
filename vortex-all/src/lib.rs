@@ -1,4 +1,4 @@
-pub use vortex::*;
+pub use vortex_array::*;
 pub use {
     vortex_alp as alp, vortex_buffer as buffer, vortex_bytebool as bytebool,
     vortex_datetime_dtype as datetime_dtype, vortex_datetime_parts as datetime_parts,

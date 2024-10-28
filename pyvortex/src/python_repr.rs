@@ -2,7 +2,7 @@ use std::convert::AsRef;
 use std::fmt::{Display, Formatter};
 
 use itertools::Itertools;
-use vortex_rs::dtype::{DType, ExtID, ExtMetadata, Nullability, PType};
+use vortex::dtype::{DType, ExtID, ExtMetadata, Nullability, PType};
 
 pub trait PythonRepr {
     fn python_repr(&self) -> impl Display;

@@ -3,10 +3,10 @@
 use arrow_array::types::UInt32Type;
 use arrow_array::UInt32Array;
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
-use vortex::array::PrimitiveArray;
-use vortex::elementwise::{BinaryFn, UnaryFn};
-use vortex::validity::Validity;
-use vortex::IntoArray;
+use vortex_array::array::PrimitiveArray;
+use vortex_array::elementwise::{BinaryFn, UnaryFn};
+use vortex_array::validity::Validity;
+use vortex_array::IntoArray;
 
 fn vortex_unary_add(c: &mut Criterion) {
     let data = PrimitiveArray::from_vec((0_u32..1_000_000).collect::<Vec<_>>(), Validity::AllValid);

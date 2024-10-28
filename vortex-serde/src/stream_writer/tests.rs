@@ -4,9 +4,9 @@ use std::sync::Arc;
 use arrow_array::cast::AsArray as _;
 use arrow_array::types::Int32Type;
 use arrow_array::PrimitiveArray;
-use vortex::arrow::FromArrowArray;
-use vortex::stream::ArrayStreamExt;
-use vortex::{Array, Context, IntoCanonical};
+use vortex_array::arrow::FromArrowArray;
+use vortex_array::stream::ArrayStreamExt;
+use vortex_array::{Array, Context, IntoCanonical};
 
 use crate::stream_reader::StreamArrayReader;
 use crate::stream_writer::StreamArrayWriter;

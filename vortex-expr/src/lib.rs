@@ -17,7 +17,7 @@ pub use identity::*;
 pub use literal::*;
 pub use operators::*;
 pub use select::*;
-use vortex::Array;
+use vortex_array::Array;
 use vortex_dtype::field::Field;
 use vortex_error::{VortexExpect, VortexResult};
 

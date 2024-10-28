@@ -1,5 +1,5 @@
-use vortex::compute::{filter, FilterFn};
-use vortex::{Array, ArrayDType, IntoArray};
+use vortex_array::compute::{filter, FilterFn};
+use vortex_array::{Array, ArrayDType, IntoArray};
 use vortex_error::VortexResult;
 
 use crate::ALPRDArray;
@@ -26,9 +26,9 @@ impl FilterFn for ALPRDArray {
 #[cfg(test)]
 mod test {
     use rstest::rstest;
-    use vortex::array::{BoolArray, PrimitiveArray};
-    use vortex::compute::filter;
-    use vortex::IntoArrayVariant;
+    use vortex_array::array::{BoolArray, PrimitiveArray};
+    use vortex_array::compute::filter;
+    use vortex_array::IntoArrayVariant;
 
     use crate::{ALPRDFloat, RDEncoder};
 

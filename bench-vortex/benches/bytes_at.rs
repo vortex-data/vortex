@@ -8,11 +8,11 @@ use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use futures::executor::block_on;
 use futures::StreamExt;
 use vortex::array::{PrimitiveArray, VarBinArray, VarBinViewArray};
+use vortex::dtype::{DType, Nullability};
+use vortex::serde::stream_reader::StreamArrayReader;
+use vortex::serde::stream_writer::StreamArrayWriter;
 use vortex::validity::Validity;
 use vortex::{Context, IntoArray, IntoCanonical};
-use vortex_rs::dtype::{DType, Nullability};
-use vortex_rs::serde::stream_reader::StreamArrayReader;
-use vortex_rs::serde::stream_writer::StreamArrayWriter;
 
 fn array_data_fixture() -> VarBinArray {
     VarBinArray::try_new(

@@ -1,8 +1,8 @@
 use std::collections::HashSet;
 
-use vortex::array::{Sparse, SparseArray, SparseEncoding};
-use vortex::encoding::EncodingRef;
-use vortex::{Array, ArrayDef, IntoArray};
+use vortex_array::array::{Sparse, SparseArray, SparseEncoding};
+use vortex_array::encoding::EncodingRef;
+use vortex_array::{Array, ArrayDef, IntoArray};
 use vortex_error::VortexResult;
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};

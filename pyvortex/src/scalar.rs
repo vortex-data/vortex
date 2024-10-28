@@ -8,10 +8,10 @@ use std::sync::Arc;
 
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
-use vortex_rs::buffer::{Buffer, BufferString};
-use vortex_rs::dtype::{DType, StructDType};
-use vortex_rs::error::vortex_panic;
-use vortex_rs::scalar::{PValue, Scalar, ScalarValue};
+use vortex::buffer::{Buffer, BufferString};
+use vortex::dtype::{DType, StructDType};
+use vortex::error::vortex_panic;
+use vortex::scalar::{PValue, Scalar, ScalarValue};
 
 pub fn scalar_into_py(py: Python, x: Scalar, copy_into_python: bool) -> PyResult<PyObject> {
     let (value, dtype) = x.into_parts();

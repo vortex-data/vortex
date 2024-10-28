@@ -4,8 +4,8 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use itertools::Itertools;
 use rand::distributions::Uniform;
 use rand::{thread_rng, Rng};
-use vortex::array::{PrimitiveArray, SparseArray};
-use vortex::compute::take;
+use vortex_array::array::{PrimitiveArray, SparseArray};
+use vortex_array::compute::take;
 use vortex_fastlanes::{find_best_bit_width, BitPackedArray};
 
 fn values(len: usize, bits: usize) -> Vec<u32> {

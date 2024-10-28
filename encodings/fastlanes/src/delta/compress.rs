@@ -1,11 +1,11 @@
 use arrayref::{array_mut_ref, array_ref};
 use fastlanes::{Delta, Transpose};
 use num_traits::{WrappingAdd, WrappingSub};
-use vortex::array::PrimitiveArray;
-use vortex::compute::unary::fill_forward;
-use vortex::compute::SliceFn;
-use vortex::validity::Validity;
-use vortex::IntoArrayVariant;
+use vortex_array::array::PrimitiveArray;
+use vortex_array::compute::unary::fill_forward;
+use vortex_array::compute::SliceFn;
+use vortex_array::validity::Validity;
+use vortex_array::IntoArrayVariant;
 use vortex_dtype::{match_each_unsigned_integer_ptype, NativePType, Nullability};
 use vortex_error::VortexResult;
 

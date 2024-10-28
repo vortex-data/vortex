@@ -12,9 +12,9 @@ use datafusion_expr::{TableProviderFilterPushDown, TableType};
 use datafusion_physical_expr::{create_physical_expr, EquivalenceProperties};
 use datafusion_physical_plan::{ExecutionMode, ExecutionPlan, Partitioning, PlanProperties};
 use itertools::Itertools;
-use vortex::array::ChunkedArray;
-use vortex::arrow::infer_schema;
-use vortex::{Array, ArrayDType as _};
+use vortex_array::array::ChunkedArray;
+use vortex_array::arrow::infer_schema;
+use vortex_array::{Array, ArrayDType as _};
 use vortex_error::{VortexError, VortexExpect as _};
 use vortex_expr::datafusion::convert_expr_to_vortex;
 use vortex_expr::VortexExpr;
@@ -214,9 +214,9 @@ mod test {
     use datafusion::prelude::SessionContext;
     use datafusion_common::{Column, TableReference};
     use datafusion_expr::{and, col, lit, BinaryExpr, Expr, Operator};
-    use vortex::array::{PrimitiveArray, StructArray, VarBinViewArray};
-    use vortex::validity::Validity;
-    use vortex::{Array, IntoArray};
+    use vortex_array::array::{PrimitiveArray, StructArray, VarBinViewArray};
+    use vortex_array::validity::Validity;
+    use vortex_array::{Array, IntoArray};
 
     use crate::memory::VortexMemTableOptions;
     use crate::{can_be_pushed_down, SessionContextExt as _};

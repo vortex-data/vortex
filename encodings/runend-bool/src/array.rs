@@ -1,14 +1,14 @@
 use std::fmt::{Debug, Display};
 
 use serde::{Deserialize, Serialize};
-use vortex::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
-use vortex::compute::unary::scalar_at;
-use vortex::compute::{search_sorted, SearchSortedSide};
-use vortex::encoding::ids;
-use vortex::stats::{ArrayStatistics, ArrayStatisticsCompute, StatsSet};
-use vortex::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
-use vortex::variants::{ArrayVariants, BoolArrayTrait};
-use vortex::{
+use vortex_array::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
+use vortex_array::compute::unary::scalar_at;
+use vortex_array::compute::{search_sorted, SearchSortedSide};
+use vortex_array::encoding::ids;
+use vortex_array::stats::{ArrayStatistics, ArrayStatisticsCompute, StatsSet};
+use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
+use vortex_array::variants::{ArrayVariants, BoolArrayTrait};
+use vortex_array::{
     impl_encoding, Array, ArrayDType, ArrayTrait, Canonical, IntoArrayVariant, IntoCanonical,
 };
 use vortex_dtype::{DType, PType};
@@ -167,11 +167,11 @@ impl ArrayStatisticsCompute for RunEndBoolArray {}
 
 #[cfg(test)]
 mod test {
-    use vortex::array::BoolArray;
-    use vortex::compute::unary::scalar_at;
-    use vortex::compute::{slice, take};
-    use vortex::validity::Validity;
-    use vortex::{Array, ArrayDType, IntoArray, IntoCanonical, ToArray};
+    use vortex_array::array::BoolArray;
+    use vortex_array::compute::unary::scalar_at;
+    use vortex_array::compute::{slice, take};
+    use vortex_array::validity::Validity;
+    use vortex_array::{Array, ArrayDType, IntoArray, IntoCanonical, ToArray};
     use vortex_dtype::{DType, Nullability};
 
     use crate::RunEndBoolArray;

@@ -1,7 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use rand::distributions::Uniform;
 use rand::{thread_rng, Rng};
-use vortex::compute::{SearchSorted, SearchSortedSide};
+use vortex_array::compute::{SearchSorted, SearchSortedSide};
 
 fn search_sorted(c: &mut Criterion) {
     let mut group = c.benchmark_group("search_sorted");

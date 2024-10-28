@@ -1,8 +1,8 @@
 use datafusion_common::stats::Precision;
 use datafusion_common::{ColumnStatistics, Result as DFResult, ScalarValue, Statistics};
 use itertools::Itertools;
-use vortex::array::ChunkedArray;
-use vortex::stats::{ArrayStatistics, Stat};
+use vortex_array::array::ChunkedArray;
+use vortex_array::stats::{ArrayStatistics, Stat};
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 
 pub fn chunked_array_df_stats(array: &ChunkedArray, projection: &[usize]) -> DFResult<Statistics> {

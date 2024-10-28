@@ -1,9 +1,9 @@
 use itertools::Itertools;
 use num_traits::{PrimInt, WrappingAdd, WrappingSub};
-use vortex::array::{ConstantArray, PrimitiveArray, SparseArray};
-use vortex::stats::{trailing_zeros, ArrayStatistics, Stat};
-use vortex::validity::LogicalValidity;
-use vortex::{Array, ArrayDType, IntoArray, IntoArrayVariant};
+use vortex_array::array::{ConstantArray, PrimitiveArray, SparseArray};
+use vortex_array::stats::{trailing_zeros, ArrayStatistics, Stat};
+use vortex_array::validity::LogicalValidity;
+use vortex_array::{Array, ArrayDType, IntoArray, IntoArrayVariant};
 use vortex_dtype::{match_each_integer_ptype, NativePType};
 use vortex_error::{vortex_err, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
@@ -118,8 +118,8 @@ fn decompress_primitive<T: NativePType + WrappingAdd + PrimInt>(
 
 #[cfg(test)]
 mod test {
-    use vortex::compute::unary::ScalarAtFn;
-    use vortex::IntoArrayVariant;
+    use vortex_array::compute::unary::ScalarAtFn;
+    use vortex_array::IntoArrayVariant;
 
     use super::*;
 

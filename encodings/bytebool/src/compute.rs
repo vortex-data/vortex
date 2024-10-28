@@ -1,8 +1,8 @@
 use num_traits::AsPrimitive;
-use vortex::compute::unary::{FillForwardFn, ScalarAtFn};
-use vortex::compute::{ArrayCompute, SliceFn, TakeFn};
-use vortex::validity::{ArrayValidity, Validity};
-use vortex::{Array, ArrayDType, IntoArray};
+use vortex_array::compute::unary::{FillForwardFn, ScalarAtFn};
+use vortex_array::compute::{ArrayCompute, SliceFn, TakeFn};
+use vortex_array::validity::{ArrayValidity, Validity};
+use vortex_array::{Array, ArrayDType, IntoArray};
 use vortex_dtype::{match_each_integer_ptype, Nullability};
 use vortex_error::{vortex_err, VortexResult};
 use vortex_scalar::Scalar;
@@ -134,8 +134,8 @@ impl FillForwardFn for ByteBoolArray {
 
 #[cfg(test)]
 mod tests {
-    use vortex::compute::unary::{scalar_at, scalar_at_unchecked};
-    use vortex::compute::{compare, slice, Operator};
+    use vortex_array::compute::unary::{scalar_at, scalar_at_unchecked};
+    use vortex_array::compute::{compare, slice, Operator};
     use vortex_scalar::ScalarValue;
 
     use super::*;

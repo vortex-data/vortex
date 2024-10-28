@@ -3,11 +3,11 @@
 use arrow::array::{as_primitive_array, ArrowNativeTypeOp, ArrowPrimitiveType};
 use arrow::datatypes::{Float32Type, Float64Type};
 use divan::{black_box, Bencher};
-use vortex::array::PrimitiveArray;
-use vortex::validity::Validity;
-use vortex::variants::PrimitiveArrayTrait;
-use vortex::IntoCanonical;
 use vortex_alp::{alp_encode_components, ALPArray, ALPFloat, ALPRDFloat, Exponents, RDEncoder};
+use vortex_array::array::PrimitiveArray;
+use vortex_array::validity::Validity;
+use vortex_array::variants::PrimitiveArrayTrait;
+use vortex_array::IntoCanonical;
 use vortex_dtype::NativePType;
 
 fn main() {

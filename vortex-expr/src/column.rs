@@ -1,9 +1,9 @@
 use std::any::Any;
 use std::collections::HashSet;
 
-use vortex::array::StructArray;
-use vortex::variants::StructArrayTrait;
-use vortex::Array;
+use vortex_array::array::StructArray;
+use vortex_array::variants::StructArrayTrait;
+use vortex_array::Array;
 use vortex_dtype::field::Field;
 use vortex_error::{vortex_err, VortexResult};
 

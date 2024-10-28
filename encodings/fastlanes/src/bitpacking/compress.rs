@@ -1,9 +1,9 @@
 use arrow_buffer::ArrowNativeType;
 use fastlanes::BitPacking;
-use vortex::array::{PrimitiveArray, Sparse, SparseArray};
-use vortex::stats::ArrayStatistics;
-use vortex::validity::{ArrayValidity, Validity};
-use vortex::{Array, ArrayDType, ArrayDef, IntoArray, IntoArrayVariant};
+use vortex_array::array::{PrimitiveArray, Sparse, SparseArray};
+use vortex_array::stats::ArrayStatistics;
+use vortex_array::validity::{ArrayValidity, Validity};
+use vortex_array::{Array, ArrayDType, ArrayDef, IntoArray, IntoArrayVariant};
 use vortex_buffer::Buffer;
 use vortex_dtype::{
     match_each_integer_ptype, match_each_unsigned_integer_ptype, NativePType, PType,
@@ -375,7 +375,7 @@ pub fn count_exceptions(bit_width: u8, bit_width_freq: &[usize]) -> usize {
 
 #[cfg(test)]
 mod test {
-    use vortex::{IntoArrayVariant, ToArray};
+    use vortex_array::{IntoArrayVariant, ToArray};
 
     use super::*;
 

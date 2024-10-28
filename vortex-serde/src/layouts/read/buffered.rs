@@ -1,8 +1,8 @@
 use std::collections::VecDeque;
 
-use vortex::array::ChunkedArray;
-use vortex::compute::slice;
-use vortex::{Array, ArrayDType, IntoArray};
+use vortex_array::array::ChunkedArray;
+use vortex_array::compute::slice;
+use vortex_array::{Array, ArrayDType, IntoArray};
 use vortex_error::VortexResult;
 
 use crate::layouts::read::{LayoutReader, ReadResult};

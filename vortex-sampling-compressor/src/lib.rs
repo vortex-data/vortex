@@ -10,13 +10,15 @@ use lazy_static::lazy_static;
 use log::{debug, warn};
 use rand::rngs::StdRng;
 use rand::SeedableRng;
-use vortex::array::{ChunkedArray, Constant};
-use vortex::compress::{check_dtype_unchanged, check_validity_unchanged, CompressionStrategy};
-use vortex::compute::slice;
-use vortex::encoding::EncodingRef;
-use vortex::validity::Validity;
-use vortex::{Array, ArrayDType, ArrayDef, Context, IntoCanonical};
 use vortex_alp::{ALPEncoding, ALPRDEncoding};
+use vortex_array::array::{ChunkedArray, Constant};
+use vortex_array::compress::{
+    check_dtype_unchanged, check_validity_unchanged, CompressionStrategy,
+};
+use vortex_array::compute::slice;
+use vortex_array::encoding::EncodingRef;
+use vortex_array::validity::Validity;
+use vortex_array::{Array, ArrayDType, ArrayDef, Context, IntoCanonical};
 use vortex_bytebool::ByteBoolEncoding;
 use vortex_datetime_parts::DateTimePartsEncoding;
 use vortex_dict::DictEncoding;

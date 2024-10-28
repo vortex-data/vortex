@@ -1,5 +1,5 @@
-use vortex::array::{PrimitiveArray, VarBinArray};
-use vortex::{ArrayDType, Canonical, IntoArray, IntoArrayVariant, IntoCanonical};
+use vortex_array::array::{PrimitiveArray, VarBinArray};
+use vortex_array::{ArrayDType, Canonical, IntoArray, IntoArrayVariant, IntoCanonical};
 use vortex_error::VortexResult;
 
 use crate::FSSTArray;

@@ -1,10 +1,10 @@
 #![allow(clippy::unwrap_used)]
 
 use criterion::{criterion_group, criterion_main, Criterion};
-use vortex::array::{PrimitiveArray, VarBinArray};
-use vortex::compute::take;
-use vortex::validity::Validity;
-use vortex::{Array, IntoArray, IntoArrayVariant};
+use vortex_array::array::{PrimitiveArray, VarBinArray};
+use vortex_array::compute::take;
+use vortex_array::validity::Validity;
+use vortex_array::{Array, IntoArray, IntoArrayVariant};
 use vortex_dtype::{DType, Nullability};
 
 // Try take with different array frequency.

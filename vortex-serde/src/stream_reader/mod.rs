@@ -3,8 +3,8 @@ use std::sync::Arc;
 
 use futures_util::stream::try_unfold;
 use futures_util::Stream;
-use vortex::stream::ArrayStream;
-use vortex::Context;
+use vortex_array::stream::ArrayStream;
+use vortex_array::Context;
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult};

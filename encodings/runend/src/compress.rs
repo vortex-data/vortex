@@ -2,11 +2,11 @@ use std::cmp::min;
 
 use itertools::Itertools;
 use num_traits::{AsPrimitive, FromPrimitive};
-use vortex::array::PrimitiveArray;
-use vortex::compute::unary::scalar_at;
-use vortex::stats::{ArrayStatistics, Stat};
-use vortex::validity::Validity;
-use vortex::ArrayDType;
+use vortex_array::array::PrimitiveArray;
+use vortex_array::compute::unary::scalar_at;
+use vortex_array::stats::{ArrayStatistics, Stat};
+use vortex_array::validity::Validity;
+use vortex_array::ArrayDType;
 use vortex_dtype::{match_each_integer_ptype, match_each_native_ptype, NativePType, Nullability};
 use vortex_error::{vortex_panic, VortexResult, VortexUnwrap as _};
 
@@ -149,9 +149,9 @@ pub fn runend_decode_primitive<
 
 #[cfg(test)]
 mod test {
-    use vortex::array::PrimitiveArray;
-    use vortex::validity::{ArrayValidity, Validity};
-    use vortex::IntoArray;
+    use vortex_array::array::PrimitiveArray;
+    use vortex_array::validity::{ArrayValidity, Validity};
+    use vortex_array::IntoArray;
 
     use crate::compress::{runend_decode, runend_encode};
     use crate::RunEndArray;

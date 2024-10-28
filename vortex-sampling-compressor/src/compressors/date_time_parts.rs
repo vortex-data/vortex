@@ -1,8 +1,8 @@
 use std::collections::HashSet;
 
-use vortex::array::TemporalArray;
-use vortex::encoding::EncodingRef;
-use vortex::{Array, ArrayDType, ArrayDef, IntoArray};
+use vortex_array::array::TemporalArray;
+use vortex_array::encoding::EncodingRef;
+use vortex_array::{Array, ArrayDType, ArrayDef, IntoArray};
 use vortex_datetime_dtype::TemporalMetadata;
 use vortex_datetime_parts::{
     split_temporal, DateTimeParts, DateTimePartsArray, DateTimePartsEncoding, TemporalParts,

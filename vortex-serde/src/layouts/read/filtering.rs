@@ -2,10 +2,10 @@ use std::collections::HashSet;
 use std::fmt::Debug;
 use std::sync::Arc;
 
-use vortex::array::ConstantArray;
-use vortex::compute::and;
-use vortex::stats::ArrayStatistics;
-use vortex::{Array, IntoArray, IntoArrayVariant};
+use vortex_array::array::ConstantArray;
+use vortex_array::compute::and;
+use vortex_array::stats::ArrayStatistics;
+use vortex_array::{Array, IntoArray, IntoArrayVariant};
 use vortex_dtype::field::Field;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::{split_conjunction, VortexExpr};

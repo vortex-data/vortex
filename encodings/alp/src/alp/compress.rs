@@ -1,6 +1,6 @@
-use vortex::array::{PrimitiveArray, Sparse, SparseArray};
-use vortex::validity::Validity;
-use vortex::{Array, ArrayDType, ArrayDef, IntoArray, IntoArrayVariant};
+use vortex_array::array::{PrimitiveArray, Sparse, SparseArray};
+use vortex_array::validity::Validity;
+use vortex_array::{Array, ArrayDType, ArrayDef, IntoArray, IntoArrayVariant};
 use vortex_dtype::{NativePType, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_scalar::ScalarValue;
@@ -109,7 +109,7 @@ fn decompress_primitive<T: NativePType + ALPFloat>(
 mod tests {
     use core::f64;
 
-    use vortex::compute::unary::scalar_at;
+    use vortex_array::compute::unary::scalar_at;
 
     use super::*;
 

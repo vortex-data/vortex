@@ -1,5 +1,5 @@
-use vortex::compute::unary::ScalarAtFn;
-use vortex::compute::{ArrayCompute, FilterFn, SliceFn, TakeFn};
+use vortex_array::compute::unary::ScalarAtFn;
+use vortex_array::compute::{ArrayCompute, FilterFn, SliceFn, TakeFn};
 
 use crate::ALPRDArray;
 

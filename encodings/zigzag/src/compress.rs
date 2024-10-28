@@ -1,6 +1,6 @@
-use vortex::array::PrimitiveArray;
-use vortex::validity::Validity;
-use vortex::IntoArray;
+use vortex_array::array::PrimitiveArray;
+use vortex_array::validity::Validity;
+use vortex_array::IntoArray;
 use vortex_dtype::{NativePType, PType};
 use vortex_error::{vortex_bail, VortexResult};
 use zigzag::ZigZag as ExternalZigZag;
@@ -58,7 +58,7 @@ where
 
 #[cfg(test)]
 mod test {
-    use vortex::encoding::ArrayEncoding;
+    use vortex_array::encoding::ArrayEncoding;
 
     use super::*;
     use crate::ZigZagEncoding;

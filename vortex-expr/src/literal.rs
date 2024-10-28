@@ -1,7 +1,7 @@
 use std::any::Any;
 
-use vortex::array::ConstantArray;
-use vortex::{Array, IntoArray};
+use vortex_array::array::ConstantArray;
+use vortex_array::{Array, IntoArray};
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 

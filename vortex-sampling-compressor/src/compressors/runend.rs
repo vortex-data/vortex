@@ -1,9 +1,9 @@
 use std::collections::HashSet;
 
-use vortex::array::Primitive;
-use vortex::encoding::EncodingRef;
-use vortex::stats::ArrayStatistics;
-use vortex::{Array, ArrayDef, IntoArray};
+use vortex_array::array::Primitive;
+use vortex_array::encoding::EncodingRef;
+use vortex_array::stats::ArrayStatistics;
+use vortex_array::{Array, ArrayDef, IntoArray};
 use vortex_error::VortexResult;
 use vortex_runend::compress::runend_encode;
 use vortex_runend::{RunEnd, RunEndArray, RunEndEncoding};

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use vortex::stats::{ArrayStatistics, ArrayStatisticsCompute, Stat, StatsSet};
+use vortex_array::stats::{ArrayStatistics, ArrayStatisticsCompute, Stat, StatsSet};
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 

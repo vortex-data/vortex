@@ -1,9 +1,9 @@
 use std::collections::HashSet;
 
-use vortex::array::PrimitiveArray;
-use vortex::encoding::EncodingRef;
-use vortex::stats::{ArrayStatistics, Stat};
-use vortex::{Array, ArrayDef, IntoArray};
+use vortex_array::array::PrimitiveArray;
+use vortex_array::encoding::EncodingRef;
+use vortex_array::stats::{ArrayStatistics, Stat};
+use vortex_array::{Array, ArrayDef, IntoArray};
 use vortex_error::VortexResult;
 use vortex_zigzag::{zigzag_encode, ZigZag, ZigZagArray, ZigZagEncoding};
 
