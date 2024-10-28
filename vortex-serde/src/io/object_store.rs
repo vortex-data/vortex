@@ -17,8 +17,9 @@ use object_store::{ObjectStore, ObjectStoreScheme, WriteMultipart};
 use url::Url;
 use vortex_buffer::io_buf::IoBuf;
 use vortex_buffer::Buffer;
-use vortex_error::{vortex_bail, vortex_panic, VortexError, VortexResult};
+use vortex_error::{vortex_bail, VortexError, VortexResult};
 
+use super::BufResult;
 use crate::io::{VortexRead, VortexReadAt, VortexWrite};
 
 pub trait ObjectStoreExt {
@@ -109,29 +110,27 @@ impl ObjectStoreReadAt {
 }
 
 impl VortexReadAt for ObjectStoreReadAt {
-    async fn read_at_into(&self, pos: u64, mut buffer: BytesMut) -> io::Result<BytesMut> {
+    async fn read_at_into(&self, pos: u64, mut buffer: BytesMut) -> BufResult<()> {
         let start_range = pos as usize;
-        let bytes = self
+        match self
             .object_store
             .get_range(&self.location, start_range..(start_range + buffer.len()))
-            .await?;
-        buffer.as_mut().copy_from_slice(bytes.as_ref());
-        Ok(buffer)
+            .await
+        {
+            Ok(bytes) => {
+                buffer.as_mut().copy_from_slice(bytes.as_ref());
+                (Ok(()), buffer)
+            }
+            Err(err) => (Err(err.into()), buffer),
+        }
     }
 
-    async fn size(&self) -> u64 {
+    async fn size(&self) -> io::Result<u64> {
         self.object_store
             .head(&self.location)
             .await
-            .map_err(VortexError::ObjectStore)
-            .unwrap_or_else(|err| {
-                vortex_panic!(
-                    err,
-                    "Failed to get size of object at location {}",
-                    self.location
-                )
-            })
-            .size as u64
+            .map(|m| m.size as u64)
+            .map_err(|e| io::Error::from(VortexError::ObjectStore(e)))
     }
 }
 

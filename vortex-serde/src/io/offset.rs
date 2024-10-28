@@ -1,7 +1,9 @@
 use std::future::Future;
+use std::io;
 
 use bytes::BytesMut;
 
+use super::BufResult;
 use crate::io::VortexReadAt;
 
 /// An adapter that offsets all reads by a fixed amount.
@@ -17,11 +19,7 @@ impl<R: VortexReadAt> OffsetReadAt<R> {
 }
 
 impl<R: VortexReadAt> VortexReadAt for OffsetReadAt<R> {
-    fn read_at_into(
-        &self,
-        pos: u64,
-        buffer: BytesMut,
-    ) -> impl Future<Output = std::io::Result<BytesMut>> {
+    fn read_at_into(&self, pos: u64, buffer: BytesMut) -> impl Future<Output = BufResult<()>> {
         self.read.read_at_into(pos + self.offset, buffer)
     }
 
@@ -29,7 +27,7 @@ impl<R: VortexReadAt> VortexReadAt for OffsetReadAt<R> {
         self.read.performance_hint()
     }
 
-    async fn size(&self) -> u64 {
-        self.read.size().await - self.offset
+    async fn size(&self) -> io::Result<u64> {
+        Ok(self.read.size().await? - self.offset)
     }
 }

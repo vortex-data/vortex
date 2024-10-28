@@ -325,6 +325,16 @@ impl From<VortexError> for datafusion_common::arrow::error::ArrowError {
     }
 }
 
+// Conversion into io::Error for use with IO APIs.
+impl From<VortexError> for io::Error {
+    fn from(value: VortexError) -> Self {
+        match value {
+            VortexError::IOError(io) => io,
+            err => io::Error::new(io::ErrorKind::Other, err),
+        }
+    }
+}
+
 // Not public, referenced by macros only.
 #[doc(hidden)]
 pub mod __private {

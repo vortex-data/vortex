@@ -62,11 +62,12 @@ pub async fn read_array_from_reader<T: VortexReadAt + Unpin + 'static>(
 }
 
 pub async fn read_dtype_from_reader<T: VortexReadAt + Unpin>(reader: T) -> VortexResult<DType> {
+    let file_size = reader.size().await?;
     LayoutDescriptorReader::new(LayoutDeserializer::new(
         ALL_COMPRESSORS_CONTEXT.clone(),
         LayoutContext::default().into(),
     ))
-    .read_footer(&reader, reader.size().await)
+    .read_footer(&reader, file_size)
     .await?
     .dtype()
 }

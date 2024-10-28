@@ -1,3 +1,4 @@
+use std::io;
 use std::sync::{Arc, RwLock};
 
 use vortex::{Array, ArrayDType};
@@ -65,9 +66,10 @@ impl<R: VortexReadAt> LayoutReaderBuilder<R> {
         self
     }
 
+    // Build the stream, execute it, etc.
     pub async fn build(self) -> VortexResult<LayoutBatchStream<R>> {
         let footer = LayoutDescriptorReader::new(self.layout_serde.clone())
-            .read_footer(&self.reader, self.size().await as u64)
+            .read_footer(&self.reader, self.size().await?)
             .await?;
         let batch_size = self.batch_size.unwrap_or(DEFAULT_BATCH_SIZE);
         // TODO(robert): Propagate projection immediately instead of delegating to layouts, needs more restructuring
@@ -126,9 +128,9 @@ impl<R: VortexReadAt> LayoutReaderBuilder<R> {
         ))
     }
 
-    async fn size(&self) -> u64 {
+    async fn size(&self) -> io::Result<u64> {
         match self.size {
-            Some(s) => s,
+            Some(s) => Ok(s),
             None => self.reader.size().await,
         }
     }

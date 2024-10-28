@@ -155,7 +155,9 @@ impl LayoutDescriptorReader {
         unsafe { buf.set_len(read_size) }
 
         let read_offset = file_size - read_size as u64;
-        buf = read.read_at_into(read_offset, buf).await?;
+        let (res, buffer) = read.read_at_into(read_offset, buf).await;
+        res?;
+        buf = buffer;
 
         let eof_loc = read_size - EOF_SIZE;
 

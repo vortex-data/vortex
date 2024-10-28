@@ -9,19 +9,17 @@ use monoio::buf::IoBufMut;
 use monoio::io::{AsyncReadRent, AsyncReadRentExt, AsyncWriteRent, AsyncWriteRentExt};
 use vortex_buffer::io_buf::IoBuf;
 
+use super::BufResult;
 use crate::io::{VortexRead, VortexWrite};
 
 pub struct MonoAdapter<IO>(IO);
 
 impl<R: AsyncReadRent> VortexRead for MonoAdapter<R> {
-    fn read_into(&mut self, buffer: BytesMut) -> impl Future<Output = io::Result<BytesMut>> {
+    fn read_into(&mut self, buffer: BytesMut) -> impl Future<Output = BufResult<()>> {
         let len = buffer.len();
         self.0
             .read_exact(buffer.slice_mut(0..len))
-            .map(|(result, buffer)| match result {
-                Ok(_len) => Ok(buffer.into_inner()),
-                Err(e) => Err(e),
-            })
+            .map(|(result, buffer)| (result.map(|_len| ()), buffer.into_inner()))
     }
 }
 

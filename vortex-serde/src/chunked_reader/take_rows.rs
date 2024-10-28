@@ -139,7 +139,8 @@ impl<R: VortexReadAt> ChunkedArrayReader<R> {
         // TODO(ngates): instead of reading the whole range into a buffer, we should stream
         //  the byte range (e.g. if its coming from an HTTP endpoint) and wrap that with an
         //  MesssageReader.
-        let buffer = self.read.read_at_into(byte_range.start, buffer).await?;
+        let (res, buffer) = self.read.read_at_into(byte_range.start, buffer).await;
+        res?;
 
         let reader = StreamArrayReader::try_new(buffer, self.context.clone())
             .await?

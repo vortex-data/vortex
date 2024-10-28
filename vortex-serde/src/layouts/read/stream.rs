@@ -214,9 +214,8 @@ async fn read_ranges<R: VortexReadAt>(
 
             let read_ft = reader.read_at_into(range.begin, buf);
 
-            read_ft.map(|result| {
-                result
-                    .map(|res| (id, res.freeze()))
+            read_ft.map(|(res, buffer)| {
+                res.map(|_| (id, buffer.freeze()))
                     .map_err(VortexError::from)
             })
         })

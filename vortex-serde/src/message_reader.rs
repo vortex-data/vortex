@@ -37,8 +37,9 @@ impl<R: VortexRead> MessageReader<R> {
     async fn load_next_message(&mut self) -> VortexResult<bool> {
         let mut buffer = std::mem::take(&mut self.message);
         buffer.resize(FLATBUFFER_SIZE_LENGTH, 0);
-        let mut buffer = match self.read.read_into(buffer).await {
-            Ok(b) => b,
+        let (res, buffer) = self.read.read_into(buffer).await;
+        let mut buffer = match res {
+            Ok(()) => buffer,
             Err(e) => {
                 return match e.kind() {
                     io::ErrorKind::UnexpectedEof => Ok(false),
@@ -57,7 +58,9 @@ impl<R: VortexRead> MessageReader<R> {
 
         buffer.reserve(len as usize);
         unsafe { buffer.set_len(len as usize) };
-        self.message = self.read.read_into(buffer).await?;
+        let (res, buffer) = self.read.read_into(buffer).await;
+        res?;
+        self.message = buffer;
 
         // Validate that the message is valid a flatbuffer.
         root::<fb::Message>(&self.message).map_err(
@@ -121,7 +124,8 @@ impl<R: VortexRead> MessageReader<R> {
         // Issue a single read to grab all buffers
         let mut all_buffers = BytesMut::with_capacity(all_buffers_size);
         unsafe { all_buffers.set_len(all_buffers_size) };
-        let all_buffers = self.read.read_into(all_buffers).await?;
+        let (res, all_buffers) = self.read.read_into(all_buffers).await;
+        res?;
 
         if array_reader.read(all_buffers.freeze())?.is_some() {
             unreachable!("This is an implementation bug")
@@ -197,7 +201,9 @@ impl<R: VortexRead> MessageReader<R> {
 
         let mut buffer = BytesMut::with_capacity(total_len);
         unsafe { buffer.set_len(total_len) }
-        buffer = self.read.read_into(buffer).await?;
+        let (res, buf) = self.read.read_into(buffer).await;
+        res?;
+        buffer = buf;
         buffer.truncate(buffer_len);
         let page_buffer = Ok(Some(Buffer::from(buffer.freeze())));
         let _ = self.next().await?;

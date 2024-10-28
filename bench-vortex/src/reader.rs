@@ -140,14 +140,14 @@ pub async fn read_vortex_footer_format<R: VortexReadAt>(
 ) -> VortexResult<ChunkedArrayReader<R>> {
     let mut buf = BytesMut::with_capacity(8);
     unsafe { buf.set_len(8) }
-    buf = reader.read_at_into(len - 8, buf).await?;
+    let (res, mut buf) = reader.read_at_into(len - 8, buf).await;
+    res?;
     let footer_len = u64::from_le_bytes(buf.as_ref().try_into().unwrap()) as usize;
 
     buf.reserve(footer_len - buf.len());
-    unsafe { buf.set_len(footer_len) }
-    buf = reader
-        .read_at_into(len - footer_len as u64 - 8, buf)
-        .await?;
+    unsafe { buf.set_len(footer_len) };
+    let (res, mut buf) = reader.read_at_into(len - footer_len as u64 - 8, buf).await;
+    res?;
 
     let footer: VortexFooter = VortexFooter::deserialize(
         flexbuffers::Reader::get_root(buf.as_ref()).map_err(|e| vortex_err!("{}", e))?,
@@ -156,7 +156,8 @@ pub async fn read_vortex_footer_format<R: VortexReadAt>(
     let header_len = (footer.dtype_range.end - footer.dtype_range.start) as usize;
     buf.reserve(header_len - buf.len());
     unsafe { buf.set_len(header_len) }
-    buf = reader.read_at_into(footer.dtype_range.start, buf).await?;
+    let (res, buf) = reader.read_at_into(footer.dtype_range.start, buf).await;
+    res?;
     let dtype = DTypeReader::new(buf).await?.read_dtype().await?;
 
     ChunkedArrayReader::try_new(

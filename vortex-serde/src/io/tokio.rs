@@ -9,17 +9,17 @@ use tokio::fs::File;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::runtime::Runtime;
 use vortex_buffer::io_buf::IoBuf;
-use vortex_error::{VortexError, VortexUnwrap as _};
 
+use super::{BufResult, Discard};
 use crate::io::{VortexRead, VortexReadAt, VortexWrite};
 use crate::layouts::AsyncRuntime;
 
 pub struct TokioAdapter<IO>(pub IO);
 
 impl<R: AsyncRead + Unpin> VortexRead for TokioAdapter<R> {
-    async fn read_into(&mut self, mut buffer: BytesMut) -> io::Result<BytesMut> {
-        self.0.read_exact(buffer.as_mut()).await?;
-        Ok(buffer)
+    async fn read_into(&mut self, mut buffer: BytesMut) -> BufResult<()> {
+        let res = self.0.read_exact(buffer.as_mut()).await.discard_ok();
+        (res, buffer)
     }
 }
 
@@ -39,25 +39,29 @@ impl<W: AsyncWrite + Unpin> VortexWrite for TokioAdapter<W> {
 }
 
 impl VortexRead for File {
-    async fn read_into(&mut self, mut buffer: BytesMut) -> io::Result<BytesMut> {
-        self.read_exact(buffer.as_mut()).await?;
-        Ok(buffer)
+    async fn read_into(&mut self, mut buffer: BytesMut) -> BufResult<()> {
+        let res = self.read_exact(buffer.as_mut()).await;
+        (res.discard_ok(), buffer)
     }
 }
 
 impl VortexReadAt for File {
-    async fn read_at_into(&self, pos: u64, mut buffer: BytesMut) -> io::Result<BytesMut> {
-        let std_file = self.try_clone().await?.into_std().await;
-        std_file.read_exact_at(buffer.as_mut(), pos)?;
-        Ok(buffer)
+    async fn read_at_into(&self, pos: u64, mut buffer: BytesMut) -> BufResult<()> {
+        match self.try_clone().await {
+            Ok(std_file) => (
+                std_file
+                    .into_std()
+                    .await
+                    .read_exact_at(buffer.as_mut(), pos)
+                    .discard_ok(),
+                buffer,
+            ),
+            Err(err) => (Err(err), buffer),
+        }
     }
 
-    async fn size(&self) -> u64 {
-        self.metadata()
-            .await
-            .map_err(|err| VortexError::IOError(err).with_context("Failed to get file metadata"))
-            .vortex_unwrap()
-            .len()
+    async fn size(&self) -> io::Result<u64> {
+        self.metadata().await.map(|m| m.len())
     }
 }
 
