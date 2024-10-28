@@ -3,7 +3,7 @@
 
 # You can set these variables from the command line, and also
 # from the environment for the first two.
-SPHINXOPTS    ?= -W --keep-going
+SPHINXOPTS    ?= --fail-on-warning --keep-going
 SPHINXBUILD   ?= uv run sphinx-build
 SOURCEDIR     = .
 BUILDDIR      = _build

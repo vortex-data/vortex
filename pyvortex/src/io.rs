@@ -17,7 +17,7 @@ use crate::{PyArray, TOKIO_RUNTIME};
 /// ----------
 /// path : :class:`str`
 ///     The file path to read from.
-/// projection : :class:`list`[:class:`str` ``|`` :class:`int`]
+/// projection : :class:`list` [ :class:`str` ``|`` :class:`int` ]
 ///     The columns to read identified either by their index or name.
 /// row_filter : :class:`.Expr`
 ///     Keep only the rows for which this expression evaluates to true.
@@ -143,7 +143,7 @@ pub fn read_path(
 /// ----------
 /// url : :class:`str`
 ///     The URL to read from.
-/// projection : :class:`list`[:class:`str` ``|`` :class:`int`]
+/// projection : :class:`list` [ :class:`str` ``|`` :class:`int` ]
 ///     The columns to read identified either by their index or name.
 /// row_filter : :class:`.Expr`
 ///     Keep only the rows for which this expression evaluates to true.
