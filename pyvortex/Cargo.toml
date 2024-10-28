@@ -34,4 +34,4 @@ pyo3 = { workspace = true }
 pyo3-log = { workspace = true }
 tokio = { workspace = true, features = ["fs"] }
 
-vortex-rs = { workspace = true }
+vortex-all = { workspace = true }
