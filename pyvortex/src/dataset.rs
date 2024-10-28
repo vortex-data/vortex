@@ -15,23 +15,23 @@ use vortex_serde::io::{ObjectStoreReadAt, VortexReadAt};
 use vortex_serde::layouts::{Projection, RowFilter, VortexRecordBatchReader};
 
 use crate::expr::PyExpr;
-use crate::io::{layout_stream_from_reader, read_array, read_dtype, PathOrUrl};
+use crate::io::{layout_stream_from_reader, read_array_from_reader, read_dtype_from_reader};
 use crate::{PyArray, TOKIO_RUNTIME};
 
 #[pyclass(name = "Dataset", module = "io")]
 /// An on-disk Vortex dataset for use with an Arrow-compatible query engine.
 pub struct PyDataset {
-    path_or_url: PathOrUrl,
+    reader: Arc<dyn VortexReadAt>,
     schema: SchemaRef,
 }
 
 impl PyDataset {
-    async fn new(path_or_url: PathOrUrl) -> VortexResult<PyDataset> {
-        let dtype = read_dtype(&path_or_url).await?;
+    async fn try_new(reader: Arc<dyn VortexReadAt>) -> VortexResult<PyDataset> {
+        let dtype = read_dtype_from_reader(&reader).await?;
         let schema = infer_schema(&dtype)?;
 
         Ok(PyDataset {
-            path_or_url,
+            reader,
             schema: Arc::new(schema),
         })
     }
@@ -76,8 +76,8 @@ impl PyDataset {
             }
         };
         let row_filter = row_filter.map(|x| RowFilter::new(x.borrow().unwrap().clone()));
-        let inner = TOKIO_RUNTIME.block_on(read_array(
-            &self.path_or_url,
+        let inner = TOKIO_RUNTIME.block_on(read_array_from_reader(
+            self.reader.clone(),
             projection,
             batch_size,
             row_filter,
@@ -100,30 +100,30 @@ impl PyDataset {
         };
 
         let row_filter = row_filter.map(|x| RowFilter::new(x.borrow().unwrap().clone()));
+        let reader = self_.reader.clone();
 
-        match &self_.path_or_url {
-            PathOrUrl::Path(file) => {
-                let reader = TOKIO_RUNTIME.block_on(File::open(Path::new(file)))?;
-                Self::reader_to_pyarrow_record_batch_reader(
-                    self_, reader, projection, batch_size, row_filter,
-                )
-            }
-            PathOrUrl::Url(url) => {
-                let reader = TOKIO_RUNTIME.block_on(ObjectStoreReadAt::try_new_from_url(url))?;
-                Self::reader_to_pyarrow_record_batch_reader(
-                    self_, reader, projection, batch_size, row_filter,
-                )
-            }
-        }
+        Self::reader_to_pyarrow_record_batch_reader(
+            self_, reader, projection, batch_size, row_filter,
+        )
     }
 }
 
 #[pyfunction]
 pub fn dataset_from_url(url: Bound<PyString>) -> PyResult<PyDataset> {
-    Ok(TOKIO_RUNTIME.block_on(PyDataset::new(PathOrUrl::Url(url.extract()?)))?)
+    async fn f(url: &str) -> PyResult<PyDataset> {
+        let reader = ObjectStoreReadAt::try_new_from_url(url).await?;
+        Ok(PyDataset::try_new(Arc::new(reader)).await?)
+    }
+
+    TOKIO_RUNTIME.block_on(f(&url.extract::<String>()?))
 }
 
 #[pyfunction]
 pub fn dataset_from_path(path: Bound<PyString>) -> PyResult<PyDataset> {
-    Ok(TOKIO_RUNTIME.block_on(PyDataset::new(PathOrUrl::Path(path.extract()?)))?)
+    async fn f(path: &str) -> PyResult<PyDataset> {
+        let reader = File::open(Path::new(&path)).await?;
+        Ok(PyDataset::try_new(Arc::new(reader)).await?)
+    }
+
+    TOKIO_RUNTIME.block_on(f(&path.extract::<String>()?))
 }

@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::sync::Arc;
 
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
@@ -138,7 +139,17 @@ pub fn read_path(
     projection: Option<&Bound<PyAny>>,
     row_filter: Option<&Bound<PyExpr>>,
 ) -> PyResult<PyArray> {
-    read(PathOrUrl::Path(path.extract()?), projection, row_filter)
+    async fn run<'a>(
+        url: Bound<'a, PyString>,
+        projection: Option<&Bound<'a, PyAny>>,
+        row_filter: Option<&Bound<'a, PyExpr>>,
+    ) -> PyResult<PyArray> {
+        let url: String = url.extract()?;
+        let reader = File::open(Path::new(&url)).await?;
+        read(Arc::new(reader), projection, row_filter).await
+    }
+
+    TOKIO_RUNTIME.block_on(run(path, projection, row_filter))
 }
 
 /// Read a vortex struct array from a URL.
@@ -189,13 +200,23 @@ pub fn read_url(
     projection: Option<&Bound<PyAny>>,
     row_filter: Option<&Bound<PyExpr>>,
 ) -> PyResult<PyArray> {
-    read(PathOrUrl::Url(url.extract()?), projection, row_filter)
+    async fn run<'a>(
+        url: Bound<'a, PyString>,
+        projection: Option<&Bound<'a, PyAny>>,
+        row_filter: Option<&Bound<'a, PyExpr>>,
+    ) -> PyResult<PyArray> {
+        let url: String = url.extract()?;
+        let reader = ObjectStoreReadAt::try_new_from_url(&url).await?;
+        read(Arc::new(reader), projection, row_filter).await
+    }
+
+    TOKIO_RUNTIME.block_on(run(url, projection, row_filter))
 }
 
-pub fn read(
-    path_or_url: PathOrUrl,
-    projection: Option<&Bound<PyAny>>,
-    row_filter: Option<&Bound<PyExpr>>,
+pub async fn read<'a>(
+    reader: Arc<dyn VortexReadAt>,
+    projection: Option<&Bound<'a, PyAny>>,
+    row_filter: Option<&Bound<'a, PyExpr>>,
 ) -> PyResult<PyArray> {
     let projection = match projection {
         None => Projection::All,
@@ -223,8 +244,7 @@ pub fn read(
     };
 
     let row_filter = row_filter.map(|x| RowFilter::new(x.borrow().unwrap().clone()));
-
-    let inner = TOKIO_RUNTIME.block_on(read_array(&path_or_url, projection, None, row_filter))?;
+    let inner = read_array_from_reader(reader, projection, None, row_filter).await?;
     Ok(PyArray::new(inner))
 }
 
@@ -267,7 +287,7 @@ pub(crate) async fn read_array_from_reader<T: VortexReadAt + Unpin + 'static>(
 }
 
 pub(crate) async fn read_dtype_from_reader<T: VortexReadAt + Unpin + 'static>(
-    reader: T,
+    reader: &T,
 ) -> VortexResult<DType> {
     LayoutDescriptorReader::new(LayoutDeserializer::new(
         ALL_COMPRESSORS_CONTEXT.clone(),
@@ -276,38 +296,6 @@ pub(crate) async fn read_dtype_from_reader<T: VortexReadAt + Unpin + 'static>(
     .read_footer(&reader, reader.size().await)
     .await?
     .dtype()
-}
-
-pub enum PathOrUrl {
-    Path(String),
-    Url(String),
-}
-
-pub(crate) async fn read_dtype(file_or_url: &PathOrUrl) -> VortexResult<DType> {
-    match file_or_url {
-        PathOrUrl::Path(file) => read_dtype_from_reader(File::open(Path::new(file)).await?).await,
-        PathOrUrl::Url(url) => {
-            read_dtype_from_reader(ObjectStoreReadAt::try_new_from_url(url).await?).await
-        }
-    }
-}
-
-pub(crate) async fn read_array(
-    file_or_url: &PathOrUrl,
-    projection: Projection,
-    batch_size: Option<usize>,
-    row_filter: Option<RowFilter>,
-) -> VortexResult<Array> {
-    match file_or_url {
-        PathOrUrl::Path(file) => {
-            let reader = File::open(Path::new(file)).await?;
-            read_array_from_reader(reader, projection, batch_size, row_filter).await
-        }
-        PathOrUrl::Url(url) => {
-            let reader = ObjectStoreReadAt::try_new_from_url(url).await?;
-            read_array_from_reader(reader, projection, batch_size, row_filter).await
-        }
-    }
 }
 
 #[pyfunction]

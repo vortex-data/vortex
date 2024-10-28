@@ -5,6 +5,8 @@ use std::io;
 use std::os::unix::prelude::FileExt;
 
 use bytes::BytesMut;
+use futures::future::BoxFuture;
+use futures::FutureExt;
 use tokio::fs::File;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::runtime::Runtime;
@@ -46,18 +48,26 @@ impl VortexRead for File {
 }
 
 impl VortexReadAt for File {
-    async fn read_at_into(&self, pos: u64, mut buffer: BytesMut) -> io::Result<BytesMut> {
-        let std_file = self.try_clone().await?.into_std().await;
-        std_file.read_exact_at(buffer.as_mut(), pos)?;
-        Ok(buffer)
+    fn read_at_into(&self, pos: u64, mut buffer: BytesMut) -> BoxFuture<io::Result<BytesMut>> {
+        async move {
+            let std_file = self.try_clone().await?.into_std().await;
+            std_file.read_exact_at(buffer.as_mut(), pos)?;
+            Ok(buffer)
+        }
+        .boxed()
     }
 
-    async fn size(&self) -> u64 {
-        self.metadata()
-            .await
-            .map_err(|err| VortexError::IOError(err).with_context("Failed to get file metadata"))
-            .vortex_unwrap()
-            .len()
+    fn size(&self) -> BoxFuture<u64> {
+        async move {
+            self.metadata()
+                .await
+                .map_err(|err| {
+                    VortexError::IOError(err).with_context("Failed to get file metadata")
+                })
+                .vortex_unwrap()
+                .len()
+        }
+        .boxed()
     }
 }
 

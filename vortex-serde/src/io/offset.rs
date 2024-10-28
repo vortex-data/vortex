@@ -1,6 +1,6 @@
-use std::future::Future;
-
 use bytes::BytesMut;
+use futures::future::BoxFuture;
+use futures::FutureExt;
 
 use crate::io::VortexReadAt;
 
@@ -17,11 +17,7 @@ impl<R: VortexReadAt> OffsetReadAt<R> {
 }
 
 impl<R: VortexReadAt> VortexReadAt for OffsetReadAt<R> {
-    fn read_at_into(
-        &self,
-        pos: u64,
-        buffer: BytesMut,
-    ) -> impl Future<Output = std::io::Result<BytesMut>> {
+    fn read_at_into(&self, pos: u64, buffer: BytesMut) -> BoxFuture<std::io::Result<BytesMut>> {
         self.read.read_at_into(pos + self.offset, buffer)
     }
 
@@ -29,7 +25,7 @@ impl<R: VortexReadAt> VortexReadAt for OffsetReadAt<R> {
         self.read.performance_hint()
     }
 
-    async fn size(&self) -> u64 {
-        self.read.size().await - self.offset
+    fn size(&self) -> BoxFuture<u64> {
+        async move { self.read.size().await - self.offset }.boxed()
     }
 }

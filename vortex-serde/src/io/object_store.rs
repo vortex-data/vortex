@@ -7,6 +7,8 @@ use std::sync::Arc;
 use std::{io, mem};
 
 use bytes::BytesMut;
+use futures::future::BoxFuture;
+use futures::FutureExt;
 use object_store::aws::AmazonS3Builder;
 use object_store::azure::MicrosoftAzureBuilder;
 use object_store::gcp::GoogleCloudStorageBuilder;
@@ -109,29 +111,35 @@ impl ObjectStoreReadAt {
 }
 
 impl VortexReadAt for ObjectStoreReadAt {
-    async fn read_at_into(&self, pos: u64, mut buffer: BytesMut) -> io::Result<BytesMut> {
-        let start_range = pos as usize;
-        let bytes = self
-            .object_store
-            .get_range(&self.location, start_range..(start_range + buffer.len()))
-            .await?;
-        buffer.as_mut().copy_from_slice(bytes.as_ref());
-        Ok(buffer)
+    fn read_at_into(&self, pos: u64, mut buffer: BytesMut) -> BoxFuture<io::Result<BytesMut>> {
+        async move {
+            let start_range = pos as usize;
+            let bytes = self
+                .object_store
+                .get_range(&self.location, start_range..(start_range + buffer.len()))
+                .await?;
+            buffer.as_mut().copy_from_slice(bytes.as_ref());
+            Ok(buffer)
+        }
+        .boxed()
     }
 
-    async fn size(&self) -> u64 {
-        self.object_store
-            .head(&self.location)
-            .await
-            .map_err(VortexError::ObjectStore)
-            .unwrap_or_else(|err| {
-                vortex_panic!(
-                    err,
-                    "Failed to get size of object at location {}",
-                    self.location
-                )
-            })
-            .size as u64
+    fn size(&self) -> BoxFuture<u64> {
+        async move {
+            self.object_store
+                .head(&self.location)
+                .await
+                .map_err(VortexError::ObjectStore)
+                .unwrap_or_else(|err| {
+                    vortex_panic!(
+                        err,
+                        "Failed to get size of object at location {}",
+                        self.location
+                    )
+                })
+                .size as u64
+        }
+        .boxed()
     }
 }
 

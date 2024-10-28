@@ -4,6 +4,8 @@ use std::io::Cursor;
 use std::sync::Arc;
 
 use bytes::BytesMut;
+use futures::future::BoxFuture;
+use futures::FutureExt;
 use vortex_buffer::Buffer;
 use vortex_error::vortex_err;
 
@@ -13,11 +15,7 @@ pub trait VortexRead {
 
 #[allow(clippy::len_without_is_empty)]
 pub trait VortexReadAt: Send + Sync {
-    fn read_at_into(
-        &self,
-        pos: u64,
-        buffer: BytesMut,
-    ) -> impl Future<Output = io::Result<BytesMut>> + Send;
+    fn read_at_into(&self, pos: u64, buffer: BytesMut) -> BoxFuture<io::Result<BytesMut>>;
 
     // TODO(ngates): the read implementation should be able to hint at its latency/throughput
     //  allowing the caller to make better decisions about how to coalesce reads.
@@ -26,15 +24,11 @@ pub trait VortexReadAt: Send + Sync {
     }
 
     /// Size of the underlying file in bytes
-    fn size(&self) -> impl Future<Output = u64>;
+    fn size(&self) -> BoxFuture<u64>;
 }
 
-impl<T: VortexReadAt> VortexReadAt for Arc<T> {
-    fn read_at_into(
-        &self,
-        pos: u64,
-        buffer: BytesMut,
-    ) -> impl Future<Output = io::Result<BytesMut>> + Send {
+impl<T: VortexReadAt + ?Sized> VortexReadAt for Arc<T> {
+    fn read_at_into(&self, pos: u64, buffer: BytesMut) -> BoxFuture<io::Result<BytesMut>> {
         T::read_at_into(self, pos, buffer)
     }
 
@@ -42,8 +36,8 @@ impl<T: VortexReadAt> VortexReadAt for Arc<T> {
         T::performance_hint(self)
     }
 
-    async fn size(&self) -> u64 {
-        T::size(self).await
+    fn size(&self) -> BoxFuture<u64> {
+        T::size(self)
     }
 }
 
@@ -69,11 +63,7 @@ impl<R: VortexReadAt> VortexRead for Cursor<R> {
 }
 
 impl<R: ?Sized + VortexReadAt> VortexReadAt for &R {
-    fn read_at_into(
-        &self,
-        pos: u64,
-        buffer: BytesMut,
-    ) -> impl Future<Output = io::Result<BytesMut>> + Send {
+    fn read_at_into(&self, pos: u64, buffer: BytesMut) -> BoxFuture<io::Result<BytesMut>> {
         R::read_at_into(*self, pos, buffer)
     }
 
@@ -81,62 +71,64 @@ impl<R: ?Sized + VortexReadAt> VortexReadAt for &R {
         R::performance_hint(*self)
     }
 
-    async fn size(&self) -> u64 {
-        R::size(*self).await
+    fn size(&self) -> BoxFuture<u64> {
+        R::size(*self)
     }
 }
 
 impl VortexReadAt for Vec<u8> {
-    fn read_at_into(
-        &self,
-        pos: u64,
-        buffer: BytesMut,
-    ) -> impl Future<Output = io::Result<BytesMut>> {
+    fn read_at_into(&self, pos: u64, buffer: BytesMut) -> BoxFuture<io::Result<BytesMut>> {
         VortexReadAt::read_at_into(self.as_slice(), pos, buffer)
     }
 
-    async fn size(&self) -> u64 {
-        self.len() as u64
+    fn size(&self) -> BoxFuture<u64> {
+        async move { self.len() as u64 }.boxed()
     }
 }
 
 impl VortexReadAt for [u8] {
-    async fn read_at_into(&self, pos: u64, mut buffer: BytesMut) -> io::Result<BytesMut> {
-        if buffer.len() + pos as usize > self.len() {
-            Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                vortex_err!("unexpected eof"),
-            ))
-        } else {
-            let buffer_len = buffer.len();
-            buffer.copy_from_slice(&self[pos as usize..][..buffer_len]);
-            Ok(buffer)
+    fn read_at_into(&self, pos: u64, mut buffer: BytesMut) -> BoxFuture<io::Result<BytesMut>> {
+        async move {
+            if buffer.len() + pos as usize > self.len() {
+                Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    vortex_err!("unexpected eof"),
+                ))
+            } else {
+                let buffer_len = buffer.len();
+                buffer.copy_from_slice(&self[pos as usize..][..buffer_len]);
+                Ok(buffer)
+            }
         }
+        .boxed()
     }
 
-    async fn size(&self) -> u64 {
-        self.len() as u64
+    fn size(&self) -> BoxFuture<u64> {
+        async move { self.len() as u64 }.boxed()
     }
 }
 
 impl VortexReadAt for Buffer {
-    async fn read_at_into(&self, pos: u64, mut buffer: BytesMut) -> io::Result<BytesMut> {
-        if buffer.len() + pos as usize > self.len() {
-            Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                vortex_err!("unexpected eof"),
-            ))
-        } else {
-            let buffer_len = buffer.len();
-            buffer.copy_from_slice(
-                self.slice(pos as usize..pos as usize + buffer_len)
-                    .as_slice(),
-            );
-            Ok(buffer)
+    fn read_at_into(&self, pos: u64, mut buffer: BytesMut) -> BoxFuture<io::Result<BytesMut>> {
+        async move {
+            if buffer.len() + pos as usize > self.len() {
+                Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    vortex_err!("unexpected eof"),
+                ))
+            } else {
+                let buffer_len = buffer.len();
+                buffer.copy_from_slice(
+                    self.slice(pos as usize..pos as usize + buffer_len)
+                        .as_slice(),
+                );
+                Ok(buffer)
+            }
         }
+        .boxed()
     }
 
-    async fn size(&self) -> u64 {
-        self.len() as u64
+    fn size(&self) -> BoxFuture<u64> {
+        async move { self.len() as u64 }.boxed()
     }
 }
