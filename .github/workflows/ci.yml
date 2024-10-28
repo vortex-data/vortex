@@ -23,12 +23,12 @@ jobs:
       - uses: ./.github/actions/cleanup
 
       - uses: ./.github/actions/setup-rust
-      - uses: ./.github/actions/setup-python
+      - uses: spiraldb/actions/.github/actions/setup-uv@0.2.0
 
       - name: Python Lint - Format
-        run: rye run ruff format --check .
+        run: uv run ruff format --check .
       - name: Python Lint - Ruff
-        run: rye run ruff check .
+        run: uv run ruff check .
 
       - name: Rust Lint - Format
         run: cargo fmt --all --check
@@ -43,13 +43,12 @@ jobs:
 
       - name: Pytest - PyVortex
         run: |
-          rye run maturin develop --skip-install
-          rye run pytest --benchmark-disable test/
+          uv run pytest --benchmark-disable test/
         working-directory: pyvortex/
 
       - name: Doctest - PyVortex
         run: |
-          source ../.venv/bin/activate && make clean && make doctest
+          make clean && make doctest
         working-directory: docs/
 
       - name: License Check
@@ -79,7 +78,7 @@ jobs:
       - uses: ./.github/actions/cleanup
 
       - uses: ./.github/actions/setup-rust
-      - uses: ./.github/actions/setup-python
+      - uses: spiraldb/actions/.github/actions/setup-uv@0.2.0
       # Required to run benchmarks
       - name: Install DuckDB
         uses: opt-nc/setup-duckdb-action@v1.0.9

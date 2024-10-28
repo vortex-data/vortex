@@ -227,10 +227,10 @@ mod test {
     use arrow_array::{ArrayRef as ArrowArrayRef, StructArray as ArrowStructArray};
     use log::LevelFilter;
     use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
-    use vortex::arrow::FromArrowArray;
-    use vortex::compress::CompressionStrategy;
-    use vortex::{Array, IntoCanonical};
+    use vortex_rs::arrow::FromArrowArray;
+    use vortex_rs::compress::CompressionStrategy;
     use vortex_rs::sampling_compressor::SamplingCompressor;
+    use vortex_rs::{Array, IntoCanonical};
 
     use crate::taxi_data::taxi_data_parquet;
     use crate::{compress_taxi_data, setup_logger, COMPRESSORS};

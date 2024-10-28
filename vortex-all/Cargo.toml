@@ -46,5 +46,7 @@ vortex-serde = { workspace = true, default-features = true }
 vortex-zigzag = { workspace = true }
 
 [features]
+tokio = ["vortex-serde/tokio"]
 object_store = ["vortex-serde/object_store"]
 parquet = ["vortex-error/parquet"]
+python = ["vortex-error/python"]
