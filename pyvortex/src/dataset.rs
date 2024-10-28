@@ -37,25 +37,6 @@ impl PyDataset {
     }
 }
 
-impl PyDataset {
-    fn reader_to_pyarrow_record_batch_reader<T: VortexReadAt + Unpin + 'static>(
-        self_: PyRef<Self>,
-        reader: T,
-        projection: Projection,
-        batch_size: Option<usize>,
-        row_filter: Option<RowFilter>,
-    ) -> PyResult<PyObject> {
-        let layout_reader = TOKIO_RUNTIME.block_on(layout_stream_from_reader(
-            reader, projection, batch_size, row_filter,
-        ))?;
-
-        let record_batch_reader: Box<dyn RecordBatchReader + Send> = Box::new(
-            VortexRecordBatchReader::new(layout_reader, &*TOKIO_RUNTIME)?,
-        );
-        record_batch_reader.into_pyarrow(self_.py())
-    }
-}
-
 #[pymethods]
 impl PyDataset {
     pub fn schema(self_: PyRef<Self>) -> PyResult<PyObject> {
@@ -102,9 +83,15 @@ impl PyDataset {
         let row_filter = row_filter.map(|x| RowFilter::new(x.borrow().unwrap().clone()));
         let reader = self_.reader.clone();
 
-        Self::reader_to_pyarrow_record_batch_reader(
-            self_, reader, projection, batch_size, row_filter,
-        )
+        let layout_reader = TOKIO_RUNTIME.block_on(layout_stream_from_reader(
+            reader, projection, batch_size, row_filter,
+        ))?;
+
+        let record_batch_reader: Box<dyn RecordBatchReader + Send> = Box::new(
+            VortexRecordBatchReader::new(layout_reader, &*TOKIO_RUNTIME)?,
+        );
+
+        record_batch_reader.into_pyarrow(self_.py())
     }
 }
 
