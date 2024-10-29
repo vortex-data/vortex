@@ -267,7 +267,6 @@ impl PyArray {
     /// ]
     fn filter(&self, filter: &Bound<PyArray>) -> PyResult<PyArray> {
         let filter = filter.borrow();
-
         let inner = vortex::compute::filter(&self.inner, &filter.inner)?;
         Ok(PyArray { inner })
     }

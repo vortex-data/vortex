@@ -8,10 +8,10 @@ use std::sync::Arc;
 
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
-use vortex::buffer::{Buffer, BufferString};
-use vortex::dtype::{DType, StructDType};
-use vortex::error::vortex_panic;
-use vortex::scalar::{PValue, Scalar, ScalarValue};
+use vortex_buffer::{Buffer, BufferString};
+use vortex_dtype::{DType, StructDType};
+use vortex_error::vortex_panic;
+use vortex_scalar::{PValue, Scalar, ScalarValue};
 
 pub fn scalar_into_py(py: Python, x: Scalar, copy_into_python: bool) -> PyResult<PyObject> {
     let (value, dtype) = x.into_parts();
@@ -134,7 +134,7 @@ impl PyBufferString {
 
 #[pymethods]
 impl PyBufferString {
-    /// Copy this buffer string from array memory into a :class:`str`.
+    /// Copy this buffer string from array memory into a Python str.
     #[pyo3(signature = (*, recursive = false))]
     #[allow(unused_variables)] // we want the same Python name across all methods
     pub fn into_python(self_: PyRef<Self>, recursive: bool) -> PyResult<PyObject> {
@@ -178,7 +178,7 @@ impl PyVortexList {
 
 #[pymethods]
 impl PyVortexList {
-    /// Copy the elements of this list from array memory into a :class:`list`.
+    /// Copy the elements of this list from array memory into a list of Python objects.
     #[pyo3(signature = (*, recursive = false))]
     pub fn into_python(self_: PyRef<Self>, recursive: bool) -> PyResult<PyObject> {
         to_python_list(self_.py(), &self_.inner, &self_.dtype, recursive)
@@ -236,7 +236,7 @@ impl PyVortexStruct {
 #[pymethods]
 impl PyVortexStruct {
     #[pyo3(signature = (*, recursive = false))]
-    /// Copy the elements of this list from array memory into a :class:`dict`.
+    /// Copy the elements of this list from array memory into a list of Python objects.
     pub fn into_python(self_: PyRef<Self>, recursive: bool) -> PyResult<PyObject> {
         to_python_dict(self_.py(), &self_.inner, &self_.dtype, recursive)
     }
