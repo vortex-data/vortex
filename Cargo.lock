@@ -4528,6 +4528,7 @@ name = "vortex-fsst"
 version = "0.12.0"
 dependencies = [
  "arrow-array",
+ "arrow-buffer",
  "fsst-rs",
  "serde",
  "vortex-array",

@@ -1,10 +1,11 @@
+use std::fmt::{Debug, Formatter};
 use std::ops::Deref;
 use std::str::Utf8Error;
 
 use crate::Buffer;
 
 /// A wrapper around a [`Buffer`] that guarantees that the buffer contains valid UTF-8.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
+#[derive(Clone, PartialEq, Eq, PartialOrd)]
 pub struct BufferString(Buffer);
 
 impl BufferString {
@@ -20,6 +21,14 @@ impl BufferString {
     pub fn as_str(&self) -> &str {
         // SAFETY: We have already validated that the buffer is valid UTF-8
         unsafe { std::str::from_utf8_unchecked(self.0.as_ref()) }
+    }
+}
+
+impl Debug for BufferString {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BufferString")
+            .field("string", &self.as_str())
+            .finish()
     }
 }
 
