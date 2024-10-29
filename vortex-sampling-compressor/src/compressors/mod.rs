@@ -1,9 +1,9 @@
 use std::any::Any;
-use std::collections::HashSet;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
+use vortex::aliases::hash_set::HashSet;
 use vortex::encoding::EncodingRef;
 use vortex::Array;
 use vortex_error::VortexResult;

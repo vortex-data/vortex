@@ -1,7 +1,6 @@
-use std::collections::HashSet;
-
 use vortex_error::VortexResult;
 
+use crate::aliases::hash_set::HashSet;
 use crate::encoding::EncodingRef;
 use crate::Array;
 

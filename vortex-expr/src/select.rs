@@ -1,6 +1,6 @@
 use std::any::Any;
-use std::collections::HashSet;
 
+use vortex::aliases::hash_set::HashSet;
 use vortex::Array;
 use vortex_dtype::field::Field;
 use vortex_error::{vortex_err, VortexResult};

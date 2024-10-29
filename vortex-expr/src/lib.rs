@@ -1,7 +1,8 @@
 use std::any::Any;
-use std::collections::HashSet;
 use std::fmt::Debug;
 use std::sync::Arc;
+
+use vortex::aliases::hash_set::HashSet;
 
 mod binary;
 mod column;

@@ -1,6 +1,5 @@
 #![feature(exit_status_error)]
 
-use std::collections::HashSet;
 use std::env::temp_dir;
 use std::fs::{create_dir_all, File};
 use std::future::Future;
@@ -13,6 +12,7 @@ use lazy_static::lazy_static;
 use log::LevelFilter;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use simplelog::{ColorChoice, Config, TermLogger, TerminalMode};
+use vortex::aliases::hash_set::HashSet;
 use vortex::array::ChunkedArray;
 use vortex::arrow::FromArrowType;
 use vortex::compress::CompressionStrategy;

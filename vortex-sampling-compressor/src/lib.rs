@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::fmt::{Debug, Display, Formatter};
 use std::sync::Arc;
 
@@ -10,6 +9,7 @@ use lazy_static::lazy_static;
 use log::{debug, warn};
 use rand::rngs::StdRng;
 use rand::SeedableRng;
+use vortex::aliases::hash_set::HashSet;
 use vortex::array::{ChunkedArray, Constant};
 use vortex::compress::{check_dtype_unchanged, check_validity_unchanged, CompressionStrategy};
 use vortex::compute::slice;

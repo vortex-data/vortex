@@ -1,5 +1,4 @@
-use std::collections::HashSet;
-
+use vortex::aliases::hash_set::HashSet;
 use vortex::array::TemporalArray;
 use vortex::encoding::EncodingRef;
 use vortex::{Array, ArrayDType, ArrayDef, IntoArray};

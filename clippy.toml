@@ -3,4 +3,5 @@ allow-unwrap-in-tests = true
 single-char-binding-names-threshold = 2
 disallowed-types = [
     "std::collections::HashMap",
+    "std::collections::HashSet",
 ]

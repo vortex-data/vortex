@@ -1,7 +1,6 @@
-use std::collections::HashSet;
-
 use arbitrary::Error::EmptyChoose;
 use arbitrary::{Arbitrary, Result, Unstructured};
+use vortex::aliases::hash_set::HashSet;
 
 use crate::compressors::{CompressorRef, EncodingCompressor};
 use crate::{SamplingCompressor, DEFAULT_COMPRESSORS};

@@ -1,9 +1,8 @@
-use std::collections::HashSet;
-
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion, Throughput};
 use itertools::Itertools as _;
 use mimalloc::MiMalloc;
 use rand::{Rng, SeedableRng as _};
+use vortex::aliases::hash_set::HashSet;
 use vortex::array::PrimitiveArray;
 use vortex::compute::unary::try_cast;
 use vortex::validity::Validity;
