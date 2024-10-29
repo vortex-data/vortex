@@ -56,7 +56,7 @@ cache and RAM.
 Write
 ^^^^^
 
-Use :func:`~vortex.io.write` to write the Vortex array to disk:
+Use :func:`~vortex.io.write_path` to write the Vortex array to disk:
 
 .. doctest::
 
@@ -75,7 +75,7 @@ similar to or smaller than Parquet.
 Read
 ^^^^
 
-Use :func:`~vortex.io.read` to read the Vortex array from disk:
+Use :func:`~vortex.io.read_path` to read the Vortex array from disk:
 
 .. doctest::
 

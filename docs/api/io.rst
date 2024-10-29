@@ -7,8 +7,9 @@ HTTP, S3, Google Cloud Storage, and Azure Blob Storage.
 .. autosummary::
    :nosignatures:
 
-   ~vortex.io.read
-   ~vortex.io.write
+   ~vortex.io.read_path
+   ~vortex.io.read_url
+   ~vortex.io.write_path
 
 .. raw:: html
 
