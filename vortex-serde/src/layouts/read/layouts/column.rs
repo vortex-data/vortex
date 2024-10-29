@@ -29,7 +29,6 @@ impl LayoutSpec for ColumnLayoutSpec {
         &self,
         fb_bytes: Bytes,
         fb_loc: usize,
-        length: u64,
         scan: Scan,
         layout_serde: LayoutDeserializer,
         message_cache: RelativeLayoutCache,
@@ -37,7 +36,6 @@ impl LayoutSpec for ColumnLayoutSpec {
         Box::new(ColumnLayout::new(
             fb_bytes,
             fb_loc,
-            length,
             scan,
             layout_serde,
             message_cache,
@@ -52,7 +50,6 @@ impl LayoutSpec for ColumnLayoutSpec {
 pub struct ColumnLayout {
     fb_bytes: Bytes,
     fb_loc: usize,
-    length: u64,
     offset: usize,
     scan: Scan,
     layout_serde: LayoutDeserializer,
@@ -64,7 +61,6 @@ impl ColumnLayout {
     pub fn new(
         fb_bytes: Bytes,
         fb_loc: usize,
-        length: u64,
         scan: Scan,
         layout_serde: LayoutDeserializer,
         message_cache: RelativeLayoutCache,
@@ -73,7 +69,6 @@ impl ColumnLayout {
             fb_bytes,
             fb_loc,
             scan,
-            length,
             layout_serde,
             message_cache,
             reader: None,
@@ -129,7 +124,6 @@ impl ColumnLayout {
             let mut child = self.layout_serde.read_layout(
                 self.fb_bytes.clone(),
                 child_loc,
-                self.length,
                 Scan::new(filter),
                 self.message_cache.relative(
                     resolved_child as u16,
@@ -314,17 +308,12 @@ mod tests {
             footer.dtype_bytes().unwrap(),
             Projection::All,
         ));
-        let len = len as u64;
         (
             footer
-                .layout(
-                    len,
-                    scan,
-                    RelativeLayoutCache::new(cache.clone(), dtype.clone()),
-                )
+                .layout(scan, RelativeLayoutCache::new(cache.clone(), dtype.clone()))
                 .unwrap(),
             footer
-                .layout(len, Scan::new(None), RelativeLayoutCache::new(cache, dtype))
+                .layout(Scan::new(None), RelativeLayoutCache::new(cache, dtype))
                 .unwrap(),
             Bytes::from(written),
         )

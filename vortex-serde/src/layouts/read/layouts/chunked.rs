@@ -24,7 +24,6 @@ impl LayoutSpec for ChunkedLayoutSpec {
         &self,
         fb_bytes: Bytes,
         fb_loc: usize,
-        _length: u64,
         scan: Scan,
         layout_builder: LayoutDeserializer,
         message_cache: RelativeLayoutCache,
@@ -111,7 +110,6 @@ impl ChunkedLayout {
                 let mut layout = self.layout_builder.read_layout(
                     self.fb_bytes.clone(),
                     c._tab.loc(),
-                    (end - begin) as u64,
                     self.scan.clone(),
                     self.message_cache.relative(i as u16, dtype.clone()),
                 )?;

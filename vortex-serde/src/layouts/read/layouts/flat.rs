@@ -28,7 +28,6 @@ impl LayoutSpec for FlatLayoutSpec {
         &self,
         fb_bytes: Bytes,
         fb_loc: usize,
-        length: u64,
         scan: Scan,
         layout_serde: LayoutDeserializer,
         message_cache: RelativeLayoutCache,
@@ -45,7 +44,7 @@ impl LayoutSpec for FlatLayoutSpec {
 
         Box::new(FlatLayout::new(
             ByteRange::new(buf.begin(), buf.end()),
-            length,
+            fb_layout.length(),
             scan,
             layout_serde.ctx(),
             message_cache,

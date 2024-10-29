@@ -72,7 +72,6 @@ impl LayoutDescriptor {
 
     pub fn layout(
         &self,
-        length: u64,
         scan: Scan,
         message_cache: RelativeLayoutCache,
     ) -> VortexResult<Box<dyn LayoutReader>> {
@@ -88,7 +87,7 @@ impl LayoutDescriptor {
             .ok_or_else(|| vortex_err!("Footer must contain a layout"))?;
         let loc = fb_layout._tab.loc();
         self.layout_serde
-            .read_layout(footer_bytes, loc, length, scan, message_cache)
+            .read_layout(footer_bytes, loc, scan, message_cache)
     }
 
     pub fn dtype_bytes(&self) -> VortexResult<Bytes> {

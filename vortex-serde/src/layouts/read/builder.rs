@@ -64,7 +64,6 @@ impl<R: VortexReadAt> LayoutReaderBuilder<R> {
             .read_footer(&self.reader, self.size().await)
             .await?;
         let row_count = footer.row_count()?;
-        // TODO(robert): Propagate projection immediately instead of delegating to layouts, needs more restructuring
         let footer_dtype = Arc::new(LazyDeserializedDType::from_bytes(
             footer.dtype_bytes()?,
             Projection::All,
@@ -76,17 +75,14 @@ impl<R: VortexReadAt> LayoutReaderBuilder<R> {
             Projection::Flat(ref projection) => footer.projected_dtype(projection)?,
         };
 
-        let read_scan = Scan {
-            expr: match read_projection {
-                Projection::All => None,
-                Projection::Flat(p) => Some(Arc::new(Select::include(p))),
-            },
-        };
+        let read_scan = Scan::new(match read_projection {
+            Projection::All => None,
+            Projection::Flat(p) => Some(Arc::new(Select::include(p))),
+        });
 
         let message_cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
 
         let data_reader = footer.layout(
-            row_count,
             read_scan.clone(),
             RelativeLayoutCache::new(message_cache.clone(), footer_dtype.clone()),
         )?;
@@ -96,10 +92,7 @@ impl<R: VortexReadAt> LayoutReaderBuilder<R> {
             .as_ref()
             .map(|filter| {
                 footer.layout(
-                    row_count,
-                    Scan {
-                        expr: Some(Arc::new(filter.clone())),
-                    },
+                    Scan::new(Some(Arc::new(filter.clone()))),
                     RelativeLayoutCache::new(message_cache.clone(), footer_dtype),
                 )
             })

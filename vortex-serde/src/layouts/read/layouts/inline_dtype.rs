@@ -27,7 +27,6 @@ impl LayoutSpec for InlineDTypeLayoutSpec {
         &self,
         fb_bytes: Bytes,
         fb_loc: usize,
-        length: u64,
         scan: Scan,
         layout_reader: LayoutDeserializer,
         message_cache: RelativeLayoutCache,
@@ -35,7 +34,6 @@ impl LayoutSpec for InlineDTypeLayoutSpec {
         Box::new(InlineDTypeLayout::new(
             fb_bytes,
             fb_loc,
-            length,
             scan,
             layout_reader,
             message_cache,
@@ -47,7 +45,6 @@ impl LayoutSpec for InlineDTypeLayoutSpec {
 pub struct InlineDTypeLayout {
     fb_bytes: Bytes,
     fb_loc: usize,
-    length: u64,
     offset: usize,
     scan: Scan,
     layout_builder: LayoutDeserializer,
@@ -69,7 +66,6 @@ impl InlineDTypeLayout {
     pub fn new(
         fb_bytes: Bytes,
         fb_loc: usize,
-        length: u64,
         scan: Scan,
         layout_builder: LayoutDeserializer,
         message_cache: RelativeLayoutCache,
@@ -77,7 +73,6 @@ impl InlineDTypeLayout {
         Self {
             fb_bytes,
             fb_loc,
-            length,
             offset: 0,
             scan,
             layout_builder,
@@ -132,7 +127,6 @@ impl InlineDTypeLayout {
                 let mut child_layout = self.layout_builder.read_layout(
                     self.fb_bytes.clone(),
                     layout._tab.loc(),
-                    self.length,
                     self.scan.clone(),
                     self.message_cache
                         .relative(1u16, Arc::new(LazyDeserializedDType::from_dtype(d))),

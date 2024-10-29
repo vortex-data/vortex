@@ -29,7 +29,6 @@ pub trait LayoutSpec: Debug + Send + Sync {
         &self,
         fb_bytes: Bytes,
         fb_loc: usize,
-        length: u64,
         scan: Scan,
         layout_reader: LayoutDeserializer,
         message_cache: RelativeLayoutCache,
@@ -84,7 +83,6 @@ impl LayoutDeserializer {
         &self,
         fb_bytes: Bytes,
         fb_loc: usize,
-        length: u64,
         scan: Scan,
         message_cache: RelativeLayoutCache,
     ) -> VortexResult<Box<dyn LayoutReader>> {
@@ -97,7 +95,7 @@ impl LayoutDeserializer {
             .layout_ctx
             .lookup_layout(&layout_id)
             .ok_or_else(|| vortex_err!("Unknown layout definition {layout_id}"))?
-            .layout(fb_bytes, fb_loc, length, scan, self.clone(), message_cache))
+            .layout(fb_bytes, fb_loc, scan, self.clone(), message_cache))
     }
 
     pub(crate) fn ctx(&self) -> Arc<Context> {
