@@ -6,6 +6,284 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## `vortex-zigzag` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-zigzag-v0.12.0...vortex-zigzag-v0.13.0) - 2024-10-29
+
+### Added
+- trim metadatas (part 2) ([#1028](https://github.com/spiraldb/vortex/pull/1028))
+- teach *Metadata and ScalarValue to Display ([#975](https://github.com/spiraldb/vortex/pull/975))
+
+### Other
+- Even more docs ([#1105](https://github.com/spiraldb/vortex/pull/1105))
+
+## `vortex-runend-bool` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-runend-bool-v0.12.0...vortex-runend-bool-v0.13.0) - 2024-10-29
+
+### Added
+- teach *Metadata and ScalarValue to Display ([#975](https://github.com/spiraldb/vortex/pull/975))
+
+### Other
+- Even more docs ([#1105](https://github.com/spiraldb/vortex/pull/1105))
+- Faster RunEndBool decompression, plus metadata cleanup ([#981](https://github.com/spiraldb/vortex/pull/981))
+
+## `vortex-runend` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-runend-v0.12.0...vortex-runend-v0.13.0) - 2024-10-29
+
+### Added
+- trim metadatas (part 2) ([#1028](https://github.com/spiraldb/vortex/pull/1028))
+- teach *Metadata and ScalarValue to Display ([#975](https://github.com/spiraldb/vortex/pull/975))
+
+### Other
+- Even more docs ([#1105](https://github.com/spiraldb/vortex/pull/1105))
+- RunEnd ends array max is length of the array ([#1017](https://github.com/spiraldb/vortex/pull/1017))
+- Clean up runend metadata & stats ([#1011](https://github.com/spiraldb/vortex/pull/1011))
+
+## `vortex-roaring` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-roaring-v0.12.0...vortex-roaring-v0.13.0) - 2024-10-29
+
+### Added
+- use hashbrown::hashmap everywhere (modestly faster decompress) ([#1160](https://github.com/spiraldb/vortex/pull/1160))
+- teach *Metadata and ScalarValue to Display ([#975](https://github.com/spiraldb/vortex/pull/975))
+
+### Fixed
+- RoaringInt `can_compress` was erroneously always `None` ([#1004](https://github.com/spiraldb/vortex/pull/1004))
+
+### Other
+- Even more docs ([#1105](https://github.com/spiraldb/vortex/pull/1105))
+- RoaringBool bitmaps needs to manually append trailing false values when canonicalizing ([#988](https://github.com/spiraldb/vortex/pull/988))
+
+## `vortex-fsst` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-fsst-v0.12.0...vortex-fsst-v0.13.0) - 2024-10-29
+
+### Added
+- FSSTArray::into_canonical directly build VarBinView ([#1161](https://github.com/spiraldb/vortex/pull/1161))
+- German strings, attempt 3 ([#1082](https://github.com/spiraldb/vortex/pull/1082))
+- trim metadatas (part 2) ([#1028](https://github.com/spiraldb/vortex/pull/1028))
+- teach *Metadata and ScalarValue to Display ([#975](https://github.com/spiraldb/vortex/pull/975))
+
+### Other
+- Even more docs ([#1105](https://github.com/spiraldb/vortex/pull/1105))
+
+## `vortex-dict` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-dict-v0.12.0...vortex-dict-v0.13.0) - 2024-10-29
+
+### Added
+- use hashbrown::hashmap everywhere (modestly faster decompress) ([#1160](https://github.com/spiraldb/vortex/pull/1160))
+- specialized IntoCanonical for DictArray utf8/binary ([#1146](https://github.com/spiraldb/vortex/pull/1146))
+- German strings, attempt 3 ([#1082](https://github.com/spiraldb/vortex/pull/1082))
+- increase dict decompression throughput ([#1032](https://github.com/spiraldb/vortex/pull/1032))
+- trim metadatas (part 2) ([#1028](https://github.com/spiraldb/vortex/pull/1028))
+- faster Dict logical validity ([#1034](https://github.com/spiraldb/vortex/pull/1034))
+- improved objective function in sampling compressor ([#1000](https://github.com/spiraldb/vortex/pull/1000))
+- teach *Metadata and ScalarValue to Display ([#975](https://github.com/spiraldb/vortex/pull/975))
+
+### Other
+- Even more docs ([#1105](https://github.com/spiraldb/vortex/pull/1105))
+- Implement filter for dict ([#1099](https://github.com/spiraldb/vortex/pull/1099))
+- Use foldhash in dict encoding ([#980](https://github.com/spiraldb/vortex/pull/980))
+
+## `vortex-datetime-parts` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-datetime-parts-v0.12.0...vortex-datetime-parts-v0.13.0) - 2024-10-29
+
+### Added
+- teach *Metadata and ScalarValue to Display ([#975](https://github.com/spiraldb/vortex/pull/975))
+
+### Other
+- Even more docs ([#1105](https://github.com/spiraldb/vortex/pull/1105))
+
+## `vortex-sampling-compressor` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-sampling-compressor-v0.12.0...vortex-sampling-compressor-v0.13.0) - 2024-10-29
+
+### Added
+- use hashbrown::hashmap everywhere (modestly faster decompress) ([#1160](https://github.com/spiraldb/vortex/pull/1160))
+- German strings, attempt 3 ([#1082](https://github.com/spiraldb/vortex/pull/1082))
+- vortex.dataset.Dataset: deep integration with Polars & DuckDB ([#1089](https://github.com/spiraldb/vortex/pull/1089))
+- trim metadatas (part 2) ([#1028](https://github.com/spiraldb/vortex/pull/1028))
+- add ChunkedCompressor which compresses chunk n+1 like chunk n ([#996](https://github.com/spiraldb/vortex/pull/996))
+- improved objective function in sampling compressor ([#1000](https://github.com/spiraldb/vortex/pull/1000))
+
+### Fixed
+- dict compressor supports varbinview ([#1118](https://github.com/spiraldb/vortex/pull/1118))
+- disable roaring compressors ([#1076](https://github.com/spiraldb/vortex/pull/1076))
+- Vortex (de)compress benchmarks read/write a Layout ([#1024](https://github.com/spiraldb/vortex/pull/1024))
+- RoaringInt `can_compress` was erroneously always `None` ([#1004](https://github.com/spiraldb/vortex/pull/1004))
+
+### Other
+- More docs ([#1104](https://github.com/spiraldb/vortex/pull/1104))
+- Trim BitPackedMetadata to only required values ([#1046](https://github.com/spiraldb/vortex/pull/1046))
+
+## `vortex-serde` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-serde-v0.12.0...vortex-serde-v0.13.0) - 2024-10-29
+
+### Added
+- use hashbrown::hashmap everywhere (modestly faster decompress) ([#1160](https://github.com/spiraldb/vortex/pull/1160))
+- teach PyVortex to read from object storage (attempt two) ([#1151](https://github.com/spiraldb/vortex/pull/1151))
+- faster `take` for `BitPackedArray` and `SparseArray` ([#1133](https://github.com/spiraldb/vortex/pull/1133))
+- German strings, attempt 3 ([#1082](https://github.com/spiraldb/vortex/pull/1082))
+- vortex.dataset.Dataset: deep integration with Polars & DuckDB ([#1089](https://github.com/spiraldb/vortex/pull/1089))
+- Unify FlatLayout with other layouts and add metadata to their flatbuffer representation ([#1077](https://github.com/spiraldb/vortex/pull/1077))
+- improved objective function in sampling compressor ([#1000](https://github.com/spiraldb/vortex/pull/1000))
+
+### Fixed
+- RelativeLayoutCache must hold disk dtype ([#1051](https://github.com/spiraldb/vortex/pull/1051))
+- from_fields is fallible ([#1054](https://github.com/spiraldb/vortex/pull/1054))
+
+### Other
+- VortexRecordBatchReader is generic over runtime ([#1120](https://github.com/spiraldb/vortex/pull/1120))
+- Layouts have buffers and there's self describing schema layout ([#1098](https://github.com/spiraldb/vortex/pull/1098))
+- limit number of single char variables to 2 ([#1066](https://github.com/spiraldb/vortex/pull/1066))
+- Error when projecting projected dtype ([#1063](https://github.com/spiraldb/vortex/pull/1063))
+- Delegate dtype deserialization and projection to layouts ([#1060](https://github.com/spiraldb/vortex/pull/1060))
+- Correctly resolve filter column references when reading column layouts ([#1058](https://github.com/spiraldb/vortex/pull/1058))
+- Add Select expression and reorganize vortex-expr crate ([#1049](https://github.com/spiraldb/vortex/pull/1049))
+- make write logic slightly more simple ([#1026](https://github.com/spiraldb/vortex/pull/1026))
+- Fix writing of Chunked Struct arrays ([#1020](https://github.com/spiraldb/vortex/pull/1020))
+
+## `vortex-expr` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-expr-v0.12.0...vortex-expr-v0.13.0) - 2024-10-29
+
+### Added
+- use hashbrown::hashmap everywhere (modestly faster decompress) ([#1160](https://github.com/spiraldb/vortex/pull/1160))
+
+### Other
+- Add Select expression and reorganize vortex-expr crate ([#1049](https://github.com/spiraldb/vortex/pull/1049))
+
+## `vortex-datafusion` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-datafusion-v0.12.0...vortex-datafusion-v0.13.0) - 2024-10-29
+
+### Added
+- German strings, attempt 3 ([#1082](https://github.com/spiraldb/vortex/pull/1082))
+- teach *Metadata and ScalarValue to Display ([#975](https://github.com/spiraldb/vortex/pull/975))
+
+### Fixed
+- from_fields is fallible ([#1054](https://github.com/spiraldb/vortex/pull/1054))
+
+### Other
+- move infer_schema and infer_data_type into vortex-dtype ([#1081](https://github.com/spiraldb/vortex/pull/1081))
+- Add Select expression and reorganize vortex-expr crate ([#1049](https://github.com/spiraldb/vortex/pull/1049))
+
+## `vortex-bytebool` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-bytebool-v0.12.0...vortex-bytebool-v0.13.0) - 2024-10-29
+
+### Added
+- trim metadatas (part 2) ([#1028](https://github.com/spiraldb/vortex/pull/1028))
+- teach *Metadata and ScalarValue to Display ([#975](https://github.com/spiraldb/vortex/pull/975))
+
+### Other
+- Even more docs ([#1105](https://github.com/spiraldb/vortex/pull/1105))
+
+## `vortex-fastlanes` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-fastlanes-v0.12.0...vortex-fastlanes-v0.13.0) - 2024-10-29
+
+### Added
+- faster `take` for `BitPackedArray` and `SparseArray` ([#1133](https://github.com/spiraldb/vortex/pull/1133))
+- canonicalize `indices` in `take` if sufficiently large ([#1036](https://github.com/spiraldb/vortex/pull/1036))
+- trim metadatas (part 2) ([#1028](https://github.com/spiraldb/vortex/pull/1028))
+- improved objective function in sampling compressor ([#1000](https://github.com/spiraldb/vortex/pull/1000))
+- teach *Metadata and ScalarValue to Display ([#975](https://github.com/spiraldb/vortex/pull/975))
+
+### Other
+- Resolve suppressed clippy warning in BitPacked::take ([#1135](https://github.com/spiraldb/vortex/pull/1135))
+- clean up stale comments ([#1134](https://github.com/spiraldb/vortex/pull/1134))
+- Even more docs ([#1105](https://github.com/spiraldb/vortex/pull/1105))
+- limit number of single char variables to 2 ([#1066](https://github.com/spiraldb/vortex/pull/1066))
+- Trim BitPackedMetadata to only required values ([#1046](https://github.com/spiraldb/vortex/pull/1046))
+
+## `vortex-scalar` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-scalar-v0.12.0...vortex-scalar-v0.13.0) - 2024-10-29
+
+### Added
+- German strings, attempt 3 ([#1082](https://github.com/spiraldb/vortex/pull/1082))
+- teach PyArray scalar_at ([#1095](https://github.com/spiraldb/vortex/pull/1095))
+- trim metadatas (part 2) ([#1028](https://github.com/spiraldb/vortex/pull/1028))
+- introduce ScalarType, the trait for scalar-y Rust types ([#1008](https://github.com/spiraldb/vortex/pull/1008))
+- proto matches serde: f16 serializes as an unsigned integer ([#992](https://github.com/spiraldb/vortex/pull/992))
+- teach *Metadata and ScalarValue to Display ([#975](https://github.com/spiraldb/vortex/pull/975))
+
+### Fixed
+- rely on ScalarValue Display in Scalar Display ([#978](https://github.com/spiraldb/vortex/pull/978))
+- teach protobuf how to deserialize f16 ([#991](https://github.com/spiraldb/vortex/pull/991))
+
+### Other
+- Even more docs ([#1105](https://github.com/spiraldb/vortex/pull/1105))
+- StructScalar stores borrowed arcs ([#1073](https://github.com/spiraldb/vortex/pull/1073))
+- limit number of single char variables to 2 ([#1066](https://github.com/spiraldb/vortex/pull/1066))
+
+## `vortex-flatbuffers` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-flatbuffers-v0.12.0...vortex-flatbuffers-v0.13.0) - 2024-10-29
+
+### Added
+- Unify FlatLayout with other layouts and add metadata to their flatbuffer representation ([#1077](https://github.com/spiraldb/vortex/pull/1077))
+
+### Other
+- Layouts have buffers and there's self describing schema layout ([#1098](https://github.com/spiraldb/vortex/pull/1098))
+- limit number of single char variables to 2 ([#1066](https://github.com/spiraldb/vortex/pull/1066))
+
+## `vortex-error` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-error-v0.12.0...vortex-error-v0.13.0) - 2024-10-29
+
+### Added
+- teach PyVortex to read from object storage (attempt two) ([#1151](https://github.com/spiraldb/vortex/pull/1151))
+
+## `vortex-dtype` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-dtype-v0.12.0...vortex-dtype-v0.13.0) - 2024-10-29
+
+### Fixed
+- RelativeLayoutCache must hold disk dtype ([#1051](https://github.com/spiraldb/vortex/pull/1051))
+- RoaringInt `can_compress` was erroneously always `None` ([#1004](https://github.com/spiraldb/vortex/pull/1004))
+
+### Other
+- More docs ([#1104](https://github.com/spiraldb/vortex/pull/1104))
+- limit number of single char variables to 2 ([#1066](https://github.com/spiraldb/vortex/pull/1066))
+- Delegate dtype deserialization and projection to layouts ([#1060](https://github.com/spiraldb/vortex/pull/1060))
+
+## `vortex-datetime-dtype` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-datetime-dtype-v0.12.0...vortex-datetime-dtype-v0.13.0) - 2024-10-29
+
+### Other
+- limit number of single char variables to 2 ([#1066](https://github.com/spiraldb/vortex/pull/1066))
+
+## `vortex-buffer` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-buffer-v0.12.0...vortex-buffer-v0.13.0) - 2024-10-29
+
+### Added
+- FSSTArray::into_canonical directly build VarBinView ([#1161](https://github.com/spiraldb/vortex/pull/1161))
+
+### Fixed
+- even empty slices must be aligned properly ([#1112](https://github.com/spiraldb/vortex/pull/1112))
+
+### Other
+- limit number of single char variables to 2 ([#1066](https://github.com/spiraldb/vortex/pull/1066))
+
+## `vortex-array` - [0.13.0](https://github.com/spiraldb/vortex/compare/0.12.0...0.13.0) - 2024-10-29
+
+### Added
+- use hashbrown::hashmap everywhere (modestly faster decompress) ([#1160](https://github.com/spiraldb/vortex/pull/1160))
+- faster `take` for `BitPackedArray` and `SparseArray` ([#1133](https://github.com/spiraldb/vortex/pull/1133))
+- German strings, attempt 3 ([#1082](https://github.com/spiraldb/vortex/pull/1082))
+- print diagnostic for function implementations ([#1103](https://github.com/spiraldb/vortex/pull/1103))
+- BoolArray::take is faster ([#1035](https://github.com/spiraldb/vortex/pull/1035))
+- better error message when an array encoding id is unknown ([#997](https://github.com/spiraldb/vortex/pull/997))
+- teach *Metadata and ScalarValue to Display ([#975](https://github.com/spiraldb/vortex/pull/975))
+
+### Fixed
+- VarBinArray into_canonical dtype erasure ([#1143](https://github.com/spiraldb/vortex/pull/1143)) ([#1145](https://github.com/spiraldb/vortex/pull/1145))
+- support non-Primitive encodings for views ([#1123](https://github.com/spiraldb/vortex/pull/1123))
+- canonicalize null ConstantArray to VarBinViewArray ([#1122](https://github.com/spiraldb/vortex/pull/1122))
+- even empty slices must be aligned properly ([#1112](https://github.com/spiraldb/vortex/pull/1112))
+- from_fields is fallible ([#1054](https://github.com/spiraldb/vortex/pull/1054))
+- StructArray::try_from([]) is an error ([#1053](https://github.com/spiraldb/vortex/pull/1053))
+- RoaringInt `can_compress` was erroneously always `None` ([#1004](https://github.com/spiraldb/vortex/pull/1004))
+- teach pyvortex all our encodings ([#998](https://github.com/spiraldb/vortex/pull/998))
+- BitWidthFreq must be u64/usize ([#974](https://github.com/spiraldb/vortex/pull/974))
+
+### Other
+- VarBinViewArray take preserves nullability  ([#1157](https://github.com/spiraldb/vortex/pull/1157))
+- :from_iter_bin creates non nullable array ([#1150](https://github.com/spiraldb/vortex/pull/1150))
+- Register VarBinView compare fn ([#1130](https://github.com/spiraldb/vortex/pull/1130))
+- Even more docs ([#1105](https://github.com/spiraldb/vortex/pull/1105))
+- More docs ([#1104](https://github.com/spiraldb/vortex/pull/1104))
+- move infer_schema and infer_data_type into vortex-dtype ([#1081](https://github.com/spiraldb/vortex/pull/1081))
+- limit number of single char variables to 2 ([#1066](https://github.com/spiraldb/vortex/pull/1066))
+- Register ConstantArray filter function ([#1057](https://github.com/spiraldb/vortex/pull/1057))
+- Use BooleanBuffer when canonicalizing Constant ([#1056](https://github.com/spiraldb/vortex/pull/1056))
+- Fix infinite loop in constant array compare ([#1016](https://github.com/spiraldb/vortex/pull/1016))
+- Slightly nicer unknown encodings error ([#1002](https://github.com/spiraldb/vortex/pull/1002))
+- Don't clone dtype on PrimitiveArray::cast ([#972](https://github.com/spiraldb/vortex/pull/972))
+
+## `vortex-alp` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-alp-v0.12.0...vortex-alp-v0.13.0) - 2024-10-29
+
+### Added
+- use hashbrown::hashmap everywhere (modestly faster decompress) ([#1160](https://github.com/spiraldb/vortex/pull/1160))
+- print diagnostic for function implementations ([#1103](https://github.com/spiraldb/vortex/pull/1103))
+- improved objective function in sampling compressor ([#1000](https://github.com/spiraldb/vortex/pull/1000))
+- teach *Metadata and ScalarValue to Display ([#975](https://github.com/spiraldb/vortex/pull/975))
+
+### Other
+- Even more docs ([#1105](https://github.com/spiraldb/vortex/pull/1105))
+- Trim BitPackedMetadata to only required values ([#1046](https://github.com/spiraldb/vortex/pull/1046))
+
 ## `vortex-runend-bool` - [0.12.0](https://github.com/spiraldb/vortex/compare/vortex-runend-bool-v0.11.0...vortex-runend-bool-v0.12.0) - 2024-10-03
 
 ### Added
