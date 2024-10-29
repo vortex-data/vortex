@@ -134,6 +134,7 @@ uninit = "0.6.2"
 url = "2"
 uuid = "1.8.0"
 
+
 # BEGIN crates published by this project
 vortex-alp = { version = "0.12.0", path = "./encodings/alp" }
 vortex-array = { version = "0.12.0", path = "./vortex-array" }
@@ -202,6 +203,10 @@ tests_outside_test_module = "deny"
 unwrap_in_result = "deny"
 unwrap_used = "deny"
 use_debug = "deny"
+
+# Override FSST for testing
+[patch.crates-io]
+fsst-rs = { git = "https://github.com/NickCondron/fsst.git", branch = "decompression-rework" }
 
 [profile.release]
 codegen-units = 1

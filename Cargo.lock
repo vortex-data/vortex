@@ -1620,8 +1620,7 @@ dependencies = [
 [[package]]
 name = "fsst-rs"
 version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "76a17331823cb8b0f61a5c44861cf24af41002e838d7ae54d68645a8b4c8f44a"
+source = "git+https://github.com/NickCondron/fsst.git?branch=decompression-rework#603e14284afe4963c2166ff87fb6ea4863ddbefa"
 
 [[package]]
 name = "futures"
