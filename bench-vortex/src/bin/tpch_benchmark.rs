@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::process::ExitCode;
 use std::sync;
 use std::time::SystemTime;
@@ -12,6 +11,7 @@ use futures::future::try_join_all;
 use indicatif::ProgressBar;
 use itertools::Itertools;
 use prettytable::{Cell, Row, Table};
+use vortex::aliases::hash_map::HashMap;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]

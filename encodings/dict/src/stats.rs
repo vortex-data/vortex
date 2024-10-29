@@ -1,5 +1,4 @@
-use std::collections::HashMap;
-
+use vortex::aliases::hash_map::HashMap;
 use vortex::stats::{ArrayStatistics, ArrayStatisticsCompute, Stat, StatsSet};
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;

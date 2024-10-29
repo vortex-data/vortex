@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::fs::File;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
@@ -23,6 +22,7 @@ use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use parquet::file::metadata::RowGroupMetaData;
 use serde::{Deserialize, Serialize};
 use stream::StreamExt;
+use vortex::aliases::hash_map::HashMap;
 use vortex::array::{ChunkedArray, PrimitiveArray};
 use vortex::arrow::FromArrowType;
 use vortex::compress::CompressionStrategy;

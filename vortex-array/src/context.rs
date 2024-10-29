@@ -1,5 +1,4 @@
-use std::collections::HashMap;
-
+use crate::aliases::hash_map::HashMap;
 use crate::array::{
     BoolEncoding, ChunkedEncoding, ConstantEncoding, ExtensionEncoding, NullEncoding,
     PrimitiveEncoding, SparseEncoding, StructEncoding, VarBinEncoding, VarBinViewEncoding,

@@ -1,8 +1,7 @@
-use std::collections::HashMap;
-
 use vortex_error::VortexResult;
 use vortex_scalar::ScalarValue;
 
+use crate::aliases::hash_map::HashMap;
 use crate::array::constant::ConstantArray;
 use crate::stats::{ArrayStatisticsCompute, Stat, StatsSet};
 

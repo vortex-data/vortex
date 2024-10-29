@@ -1,10 +1,10 @@
-use std::collections::HashMap;
 use std::fmt::Display;
 
 use serde::{Deserialize, Serialize};
 use vortex_error::{vortex_panic, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
+use crate::aliases::hash_map::HashMap;
 use crate::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use crate::encoding::ids;
 use crate::stats::{Stat, StatsSet};

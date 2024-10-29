@@ -1,12 +1,10 @@
-use std::collections::hash_map::{Entry, IntoIter};
-use std::collections::HashMap;
-
 use enum_iterator::all;
 use itertools::Itertools;
 use vortex_dtype::DType;
 use vortex_error::{vortex_panic, VortexError, VortexExpect};
 use vortex_scalar::Scalar;
 
+use crate::aliases::hash_map::{Entry, HashMap, IntoIter};
 use crate::stats::Stat;
 
 #[derive(Debug, Clone, Default)]

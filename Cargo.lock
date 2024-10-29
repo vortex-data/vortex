@@ -4317,6 +4317,7 @@ dependencies = [
  "flexbuffers",
  "futures-util",
  "getrandom",
+ "hashbrown 0.15.0",
  "humansize",
  "itertools 0.13.0",
  "lazy_static",

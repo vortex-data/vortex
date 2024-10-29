@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::hash::Hash;
 use std::os::unix::fs::MetadataExt;
 use std::path::PathBuf;
@@ -10,6 +9,7 @@ use itertools::Itertools;
 use log::info;
 use reqwest::Url;
 use tokio::fs::File;
+use vortex::aliases::hash_map::HashMap;
 use vortex::array::ChunkedArray;
 use vortex::{Array, ArrayDType, ArrayTrait, IntoArray};
 use vortex_error::VortexResult;

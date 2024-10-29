@@ -1,6 +1,5 @@
-use std::collections::HashMap;
-
 use croaring::Bitset;
+use vortex::aliases::hash_map::HashMap;
 use vortex::stats::{ArrayStatisticsCompute, Stat, StatsSet};
 use vortex_error::{vortex_err, VortexResult};
 

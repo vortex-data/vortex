@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::fs;
 use std::fs::create_dir_all;
@@ -12,6 +11,7 @@ use datafusion::datasource::MemTable;
 use datafusion::execution::object_store::ObjectStoreUrl;
 use datafusion::prelude::{CsvReadOptions, ParquetReadOptions, SessionContext};
 use tokio::fs::OpenOptions;
+use vortex::aliases::hash_map::HashMap;
 use vortex::array::{ChunkedArray, StructArray};
 use vortex::arrow::FromArrowArray;
 use vortex::variants::StructArrayTrait;

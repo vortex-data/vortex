@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 
 use arrow_buffer::{BooleanBuffer, MutableBuffer};
@@ -6,6 +5,7 @@ pub use compress::*;
 use croaring::Native;
 pub use croaring::{Bitmap, Portable};
 use serde::{Deserialize, Serialize};
+use vortex::aliases::hash_map::HashMap;
 use vortex::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use vortex::array::BoolArray;
 use vortex::encoding::ids;
