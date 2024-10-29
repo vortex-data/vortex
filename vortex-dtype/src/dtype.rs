@@ -15,6 +15,16 @@ pub type FieldNames = Arc<[FieldName]>;
 
 pub type Metadata = Vec<u8>;
 
+pub fn fieldnames_from_strings(value: Vec<String>) -> FieldNames {
+    Arc::from(
+        value
+            .iter()
+            .map(|x| Arc::from(x.as_str()))
+            .collect::<Vec<_>>()
+            .into_boxed_slice(),
+    )
+}
+
 /// Array logical types.
 ///
 /// Vortex arrays preserve a single logical type, while the encodings allow for multiple

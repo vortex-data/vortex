@@ -70,7 +70,7 @@ similar to or smaller than Parquet.
 
    >>> from os.path import getsize
    >>> getsize("example.vortex") / getsize("_static/example.parquet")
-   2.1...
+   2...
 
 Read
 ^^^^

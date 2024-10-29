@@ -66,3 +66,9 @@ impl AsRef<str> for BufferString {
         self.as_str()
     }
 }
+
+impl AsRef<[u8]> for BufferString {
+    fn as_ref(&self) -> &[u8] {
+        self.as_str().as_bytes()
+    }
+}

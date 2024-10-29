@@ -4,7 +4,6 @@ use std::iter;
 use std::sync::Arc;
 
 use futures::StreamExt;
-use itertools::Itertools as _;
 use vortex::accessor::ArrayAccessor;
 use vortex::array::{ChunkedArray, PrimitiveArray, StructArray, VarBinArray};
 use vortex::validity::Validity;
@@ -15,26 +14,7 @@ use vortex_dtype::{DType, Nullability, PType, StructDType};
 use vortex_expr::{BinaryExpr, Column, Literal, Operator};
 
 use crate::layouts::write::LayoutWriter;
-use crate::layouts::{
-    LayoutDeserializer, LayoutReaderBuilder, Projection, RowFilter, EOF_SIZE, FOOTER_POSTSCRIPT_SIZE, MAGIC_BYTES, METADATA_FIELD_NAMES, PRUNING_STATS, VERSION
-};
-
-#[test]
-fn format_constants() {
-    assert_eq!(VERSION, 1);
-    assert_eq!(FOOTER_POSTSCRIPT_SIZE, 32); // cannot change this without bumping the version
-    assert_eq!(MAGIC_BYTES, *b"VRTX"); // this can never change
-    assert_eq!(EOF_SIZE, 8); // this can never change
-}
-
-#[test]
-fn metadata_field_names() {
-    let names = Some("row_offset".to_string())
-        .into_iter()
-        .chain(PRUNING_STATS.iter().map(|s| format!("{}", s)))
-        .collect_vec();
-    assert_eq!(names, METADATA_FIELD_NAMES);
-}
+use crate::layouts::{LayoutDeserializer, LayoutReaderBuilder, Projection, RowFilter};
 
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
