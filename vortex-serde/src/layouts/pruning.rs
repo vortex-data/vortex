@@ -1,10 +1,9 @@
 // This code doesn't have usage outside of tests yet, remove once usage is added
 #![allow(dead_code)]
 
-use std::collections::hash_map::Entry;
 use std::sync::Arc;
 
-use ahash::{HashMap, HashMapExt};
+use vortex::aliases::hash_map::{Entry, HashMap};
 use vortex::stats::Stat;
 use vortex_dtype::field::Field;
 use vortex_dtype::Nullability;
@@ -222,7 +221,7 @@ fn stat_column_name(field: &Field, stat: Stat) -> Field {
 mod tests {
     use std::sync::Arc;
 
-    use ahash::HashMap;
+    use vortex::aliases::hash_map::HashMap;
     use vortex::stats::Stat;
     use vortex_dtype::field::Field;
     use vortex_expr::{BinaryExpr, Column, Literal, Operator, VortexExpr};

@@ -20,8 +20,8 @@ use crate::scalar::scalar_into_py;
 ///
 /// Arrays support all the standard comparison operations:
 ///
-/// >>> a = vortex.encoding.array(['dog', None, 'cat', 'mouse', 'fish'])
-/// >>> b = vortex.encoding.array(['doug', 'jennifer', 'casper', 'mouse', 'faust'])
+/// >>> a = vortex.array(['dog', None, 'cat', 'mouse', 'fish'])
+/// >>> b = vortex.array(['doug', 'jennifer', 'casper', 'mouse', 'faust'])
 /// >>> (a < b).to_arrow_array()
 /// <pyarrow.lib.BooleanArray object at ...>
 /// [
@@ -106,7 +106,7 @@ impl PyArray {
     ///
     /// Round-trip an Arrow array through a Vortex array:
     ///
-    ///     >>> vortex.encoding.array([1, 2, 3]).to_arrow_array()
+    ///     >>> vortex.array([1, 2, 3]).to_arrow_array()
     ///     <pyarrow.lib.Int64Array object at ...>
     ///     [
     ///       1,
@@ -179,19 +179,19 @@ impl PyArray {
     /// Examples
     /// --------
     ///
-    /// By default, :func:`vortex.encoding.array` uses the largest available bit-width:
+    /// By default, :func:`~vortex.encoding.array` uses the largest available bit-width:
     ///
-    ///     >>> vortex.encoding.array([1, 2, 3]).dtype
+    ///     >>> vortex.array([1, 2, 3]).dtype
     ///     int(64, False)
     ///
     /// Including a :obj:`None` forces a nullable type:
     ///
-    ///     >>> vortex.encoding.array([1, None, 2, 3]).dtype
+    ///     >>> vortex.array([1, None, 2, 3]).dtype
     ///     int(64, True)
     ///
     /// A UTF-8 string array:
     ///
-    ///     >>> vortex.encoding.array(['hello, ', 'is', 'it', 'me?']).dtype
+    ///     >>> vortex.array(['hello, ', 'is', 'it', 'me?']).dtype
     ///     utf8(False)
     #[getter]
     fn dtype(self_: PyRef<Self>) -> PyResult<Py<PyDType>> {
@@ -244,19 +244,19 @@ impl PyArray {
     ///
     /// Parameters
     /// ----------
-    /// filter : :class:`vortex.encoding.Array`
+    /// filter : :class:`~vortex.encoding.Array`
     ///     Keep all the rows in ``self`` for which the correspondingly indexed row in `filter` is True.
     ///
     /// Returns
     /// -------
-    /// :class:`vortex.encoding.Array`
+    /// :class:`~vortex.encoding.Array`
     ///
     /// Examples
     /// --------
     ///
     /// Keep only the single digit positive integers.
     ///
-    /// >>> a = vortex.encoding.array([0, 42, 1_000, -23, 10, 9, 5])
+    /// >>> a = vortex.array([0, 42, 1_000, -23, 10, 9, 5])
     /// >>> filter = vortex.array([True, False, False, False, False, True, True])
     /// >>> a.filter(filter).to_arrow_array()
     /// <pyarrow.lib.Int64Array object at ...>
@@ -279,7 +279,7 @@ impl PyArray {
     /// Fill forward sensor values over intermediate missing values. Note that leading nulls are
     /// replaced with 0.0:
     ///
-    /// >>> a = vortex.encoding.array([
+    /// >>> a = vortex.array([
     /// ...      None,  None, 30.29, 30.30, 30.30,  None,  None, 30.27, 30.25,
     /// ...     30.22,  None,  None,  None,  None, 30.12, 30.11, 30.11, 30.11,
     /// ...     30.10, 30.08,  None, 30.21, 30.03, 30.03, 30.05, 30.07, 30.07,
@@ -334,12 +334,12 @@ impl PyArray {
     ///
     /// Retrieve the last element from an array of integers:
     ///
-    /// >>> vortex.encoding.array([10, 42, 999, 1992]).scalar_at(3)
+    /// >>> vortex.array([10, 42, 999, 1992]).scalar_at(3)
     /// 1992
     ///
     /// Retrieve the third element from an array of strings:
     ///
-    /// >>> array = vortex.encoding.array(["hello", "goodbye", "it", "is"])
+    /// >>> array = vortex.array(["hello", "goodbye", "it", "is"])
     /// >>> array.scalar_at(2)
     /// <vortex.BufferString ...>
     ///
@@ -352,7 +352,7 @@ impl PyArray {
     ///
     /// Retrieve an element from an array of structures:
     ///
-    /// >>> array = vortex.encoding.array([
+    /// >>> array = vortex.array([
     /// ...     {'name': 'Joseph', 'age': 25},
     /// ...     {'name': 'Narendra', 'age': 31},
     /// ...     {'name': 'Angela', 'age': 33},
@@ -376,7 +376,7 @@ impl PyArray {
     ///
     /// Out of bounds accesses are prohibited:
     ///
-    /// >>> vortex.encoding.array([10, 42, 999, 1992]).scalar_at(10)
+    /// >>> vortex.array([10, 42, 999, 1992]).scalar_at(10)
     /// Traceback (most recent call last):
     /// ...
     /// ValueError: index 10 out of bounds from 0 to 4
@@ -384,7 +384,7 @@ impl PyArray {
     ///
     /// Unlike Python, negative indices are not supported:
     ///
-    /// >>> vortex.encoding.array([10, 42, 999, 1992]).scalar_at(-2)
+    /// >>> vortex.array([10, 42, 999, 1992]).scalar_at(-2)
     /// Traceback (most recent call last):
     /// ...
     /// OverflowError: can't convert negative int to unsigned
@@ -398,20 +398,20 @@ impl PyArray {
     ///
     /// Parameters
     /// ----------
-    /// indices : :class:`vortex.encoding.Array`
+    /// indices : :class:`~vortex.encoding.Array`
     ///     An array of indices to keep.
     ///
     /// Returns
     /// -------
-    /// :class:`vortex.encoding.Array`
+    /// :class:`~vortex.encoding.Array`
     ///
     /// Examples
     /// --------
     ///
     /// Keep only the first and third elements:
     ///
-    ///     >>> a = vortex.encoding.array(['a', 'b', 'c', 'd'])
-    ///     >>> indices = vortex.encoding.array([0, 2])
+    ///     >>> a = vortex.array(['a', 'b', 'c', 'd'])
+    ///     >>> indices = vortex.array([0, 2])
     ///     >>> a.take(indices).to_arrow_array()
     ///     <pyarrow.lib.StringViewArray object at ...>
     ///     [
@@ -421,8 +421,8 @@ impl PyArray {
     ///
     /// Permute and repeat the first and second elements:
     ///
-    ///     >>> a = vortex.encoding.array(['a', 'b', 'c', 'd'])
-    ///     >>> indices = vortex.encoding.array([0, 1, 1, 0])
+    ///     >>> a = vortex.array(['a', 'b', 'c', 'd'])
+    ///     >>> indices = vortex.array([0, 1, 1, 0])
     ///     >>> a.take(indices).to_arrow_array()
     ///     <pyarrow.lib.StringViewArray object at ...>
     ///     [
@@ -457,14 +457,14 @@ impl PyArray {
     ///
     /// Returns
     /// -------
-    /// :class:`vortex.encoding.Array`
+    /// :class:`~vortex.encoding.Array`
     ///
     /// Examples
     /// --------
     ///
     /// Keep only the second through third elements:
     ///
-    ///     >>> a = vortex.encoding.array(['a', 'b', 'c', 'd'])
+    ///     >>> a = vortex.array(['a', 'b', 'c', 'd'])
     ///     >>> a.slice(1, 3).to_arrow_array()
     ///     <pyarrow.lib.StringViewArray object at ...>
     ///     [
@@ -474,14 +474,14 @@ impl PyArray {
     ///
     /// Keep none of the elements:
     ///
-    ///     >>> a = vortex.encoding.array(['a', 'b', 'c', 'd'])
+    ///     >>> a = vortex.array(['a', 'b', 'c', 'd'])
     ///     >>> a.slice(3, 3).to_arrow_array()
     ///     <pyarrow.lib.StringViewArray object at ...>
     ///     []
     ///
     /// Unlike Python, it is an error to slice outside the bounds of the array:
     ///
-    ///     >>> a = vortex.encoding.array(['a', 'b', 'c', 'd'])
+    ///     >>> a = vortex.array(['a', 'b', 'c', 'd'])
     ///     >>> a.slice(2, 10).to_arrow_array()
     ///     Traceback (most recent call last):
     ///     ...
@@ -489,7 +489,7 @@ impl PyArray {
     ///
     /// Or to slice with a negative value:
     ///
-    ///     >>> a = vortex.encoding.array(['a', 'b', 'c', 'd'])
+    ///     >>> a = vortex.array(['a', 'b', 'c', 'd'])
     ///     >>> a.slice(-2, -1).to_arrow_array()
     ///     Traceback (most recent call last):
     ///     ...
@@ -516,7 +516,7 @@ impl PyArray {
     ///
     /// Uncompressed arrays have straightforward encodings:
     ///
-    ///     >>> arr = vortex.encoding.array([1, 2, None, 3])
+    ///     >>> arr = vortex.array([1, 2, None, 3])
     ///     >>> print(arr.tree_display())
     ///     root: vortex.primitive(0x03)(i64?, len=4) nbytes=33 B (100.00%)
     ///       metadata: PrimitiveMetadata { validity: Array }

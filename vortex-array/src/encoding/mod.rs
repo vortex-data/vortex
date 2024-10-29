@@ -148,9 +148,8 @@ pub mod ids {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
-
     use super::ids;
+    use crate::aliases::hash_set::HashSet;
 
     #[test]
     fn test_encoding_id() {

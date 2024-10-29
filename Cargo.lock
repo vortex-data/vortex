@@ -4317,6 +4317,7 @@ dependencies = [
  "flexbuffers",
  "futures-util",
  "getrandom",
+ "hashbrown 0.15.0",
  "humansize",
  "itertools 0.13.0",
  "lazy_static",
@@ -4528,6 +4529,7 @@ name = "vortex-fsst"
 version = "0.12.0"
 dependencies = [
  "arrow-array",
+ "arrow-buffer",
  "fsst-rs",
  "serde",
  "vortex-array",
@@ -4670,7 +4672,6 @@ dependencies = [
 name = "vortex-serde"
 version = "0.12.0"
 dependencies = [
- "ahash",
  "arrow",
  "arrow-array",
  "arrow-buffer",

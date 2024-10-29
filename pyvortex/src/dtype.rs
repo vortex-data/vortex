@@ -119,7 +119,7 @@ pub fn dtype_bool(py: Python<'_>, nullable: bool) -> PyResult<Py<PyDType>> {
 ///
 /// Parameters
 /// ----------
-/// width : one of 8, 16, 32, and 64.
+/// width : Literal[8, 16, 32, 64].
 ///     The bit width determines the span of valid values. If :obj:`None`, 64 is used.
 ///
 /// nullable : :class:`bool`
@@ -162,7 +162,7 @@ pub fn dtype_int(py: Python<'_>, width: Option<u16>, nullable: bool) -> PyResult
 ///
 /// Parameters
 /// ----------
-/// width : one of 8, 16, 32, and 64.
+/// width : Literal[8, 16, 32, 64].
 ///     The bit width determines the span of valid values. If :obj:`None`, 64 is used.
 ///
 /// nullable : :class:`bool`
@@ -205,7 +205,7 @@ pub fn dtype_uint(py: Python<'_>, width: Option<u16>, nullable: bool) -> PyResul
 ///
 /// Parameters
 /// ----------
-/// width : one of 16, 32, and 64.
+/// width : Literal[16, 32, 64].
 ///     The bit width determines the range and precision of the floating-point values. If
 ///     :obj:`None`, 64 is used.
 ///

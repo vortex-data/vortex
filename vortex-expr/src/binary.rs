@@ -1,7 +1,7 @@
 use std::any::Any;
-use std::collections::HashSet;
 use std::sync::Arc;
 
+use vortex::aliases::hash_set::HashSet;
 use vortex::compute::{and, compare, or, Operator as ArrayOperator};
 use vortex::Array;
 use vortex_dtype::field::Field;

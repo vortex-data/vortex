@@ -5,11 +5,11 @@ mod array;
 mod compute;
 mod variants;
 
-use std::collections::HashMap;
 use std::ops::{Shl, Shr};
 
 use itertools::Itertools;
 use num_traits::{Float, One, PrimInt};
+use vortex::aliases::hash_map::HashMap;
 use vortex::array::{PrimitiveArray, SparseArray};
 use vortex::{ArrayDType, IntoArray};
 use vortex_dtype::{DType, NativePType};

@@ -18,7 +18,7 @@ macro_rules! assert_nth_scalar {
 // this function is VERY slow on miri, so we only want to run it once
 fn build_fsst_array() -> Array {
     let mut input_array = VarBinBuilder::<i32>::with_capacity(3);
-    input_array.push_value(b"The Greeks never said that the limit could not he overstepped");
+    input_array.push_value(b"The Greeks never said that the limit could not be overstepped");
     input_array.push_value(
         b"They said it existed and that whoever dared to exceed it was mercilessly struck down",
     );
@@ -41,7 +41,7 @@ fn test_fsst_array_ops() {
     assert_nth_scalar!(
         fsst_array,
         0,
-        "The Greeks never said that the limit could not he overstepped"
+        "The Greeks never said that the limit could not be overstepped"
     );
     assert_nth_scalar!(
         fsst_array,
@@ -76,7 +76,7 @@ fn test_fsst_array_ops() {
     assert_nth_scalar!(
         fsst_taken,
         0,
-        "The Greeks never said that the limit could not he overstepped"
+        "The Greeks never said that the limit could not be overstepped"
     );
     assert_nth_scalar!(
         fsst_taken,

@@ -1,5 +1,7 @@
-use vortex::array::{PrimitiveArray, VarBinArray};
-use vortex::{ArrayDType, Canonical, IntoArray, IntoArrayVariant, IntoCanonical};
+use arrow_array::builder::make_view;
+use arrow_buffer::Buffer;
+use vortex::array::{PrimitiveArray, VarBinArray, VarBinViewArray};
+use vortex::{Array, ArrayDType, Canonical, IntoArray, IntoCanonical};
 use vortex_error::VortexResult;
 
 use crate::FSSTArray;
@@ -25,34 +27,39 @@ impl IntoCanonical for FSSTArray {
             let uncompressed_bytes =
                 decompressor.decompress(compressed_bytes.maybe_null_slice::<u8>());
 
-            // Convert the uncompressed_lengths into offsets for building a new VarBinArray.
-            let mut offsets: Vec<i32> = Vec::with_capacity(self.len() + 1);
-            let mut offset = 0;
-            offsets.push(offset);
-
             let uncompressed_lens_array = self
                 .uncompressed_lengths()
                 .into_canonical()?
                 .into_primitive()?;
             let uncompressed_lens_slice = uncompressed_lens_array.maybe_null_slice::<i32>();
 
-            for len in uncompressed_lens_slice.iter() {
-                offset += len;
-                offsets.push(offset);
-            }
+            // Directly create the binary views.
+            let views: Vec<u128> = uncompressed_lens_slice
+                .iter()
+                .scan(0, |offset, len| {
+                    let str_start = *offset;
+                    let str_end = *offset + len;
 
-            let offsets_array = PrimitiveArray::from(offsets).into_array();
+                    *offset += len;
+
+                    Some(make_view(
+                        &uncompressed_bytes[(str_start as usize)..(str_end as usize)],
+                        0u32,
+                        str_start as u32,
+                    ))
+                })
+                .collect();
+
+            let views_array: Array = Buffer::from(views).into();
             let uncompressed_bytes_array = PrimitiveArray::from(uncompressed_bytes).into_array();
 
-            Ok(Canonical::VarBinView(
-                VarBinArray::try_new(
-                    offsets_array,
-                    uncompressed_bytes_array,
-                    self.dtype().clone(),
-                    self.validity(),
-                )?
-                .into_varbinview()?,
-            ))
+            VarBinViewArray::try_new(
+                views_array,
+                vec![uncompressed_bytes_array],
+                self.dtype().clone(),
+                self.validity(),
+            )
+            .map(Canonical::VarBinView)
         })
     }
 }

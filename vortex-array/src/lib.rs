@@ -35,6 +35,7 @@ use crate::validity::ArrayValidity;
 use crate::variants::ArrayVariants;
 
 pub mod accessor;
+pub mod aliases;
 pub mod array;
 pub mod arrow;
 mod canonical;

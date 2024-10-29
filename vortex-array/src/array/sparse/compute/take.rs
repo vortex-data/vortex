@@ -1,10 +1,10 @@
-use std::collections::HashMap;
 use std::convert::identity;
 
 use itertools::Itertools;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 
+use crate::aliases::hash_map::HashMap;
 use crate::array::primitive::PrimitiveArray;
 use crate::array::sparse::SparseArray;
 use crate::compute::{take, TakeFn};

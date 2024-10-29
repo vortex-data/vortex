@@ -3,7 +3,7 @@
 ## Building
 
 ```
-uv run sphinx-build -M html . _build --fail-on-warning --keep-going
+uv run make html
 ```
 
 ## Viewing

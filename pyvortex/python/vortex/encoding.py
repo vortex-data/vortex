@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pandas
 import pyarrow
@@ -61,7 +61,7 @@ def _Array_to_arrow_table(self: _encoding.Array) -> pyarrow.Table:
     Examples
     --------
 
-    >>> array = vortex.encoding.array([
+    >>> array = vortex.array([
     ...     {'name': 'Joseph', 'age': 25},
     ...     {'name': 'Narendra', 'age': 31},
     ...     {'name': 'Angela', 'age': 33},
@@ -82,7 +82,7 @@ def _Array_to_arrow_table(self: _encoding.Array) -> pyarrow.Table:
 Array.to_arrow_table = _Array_to_arrow_table
 
 
-def _Array_to_pandas(self: _encoding.Array) -> "pandas.DataFrame":
+def _Array_to_pandas_df(self: _encoding.Array) -> "pandas.DataFrame":
     """Construct a Pandas dataframe from this Vortex array.
 
     Warning
@@ -99,27 +99,24 @@ def _Array_to_pandas(self: _encoding.Array) -> "pandas.DataFrame":
 
     Construct a dataframe from a Vortex array:
 
-    >>> array = vortex.encoding.array([
+    >>> array = vortex.array([
     ...     {'name': 'Joseph', 'age': 25},
     ...     {'name': 'Narendra', 'age': 31},
     ...     {'name': 'Angela', 'age': 33},
     ...     {'name': 'Mikhail', 'age': 57},
     ... ])
-    >>> array.to_pandas()
+    >>> array.to_pandas_df()
        age      name
     0   25    Joseph
     1   31  Narendra
     2   33    Angela
     3   57   Mikhail
 
-
-    Lift the struct fields to the top-level in the dataframe:
-
     """
     return self.to_arrow_table().to_pandas(types_mapper=pandas.ArrowDtype)
 
 
-Array.to_pandas = _Array_to_pandas
+Array.to_pandas_df = _Array_to_pandas_df
 
 
 def _Array_to_polars_dataframe(
@@ -146,7 +143,7 @@ def _Array_to_polars_dataframe(
     Examples
     --------
 
-    >>> array = vortex.encoding.array([
+    >>> array = vortex.array([
     ...     {'name': 'Joseph', 'age': 25},
     ...     {'name': 'Narendra', 'age': 31},
     ...     {'name': 'Angela', 'age': 33},
@@ -193,7 +190,7 @@ def _Array_to_polars_series(self: _encoding.Array):  # -> 'polars.Series':  # br
 
     Convert a numeric array with nulls to a Polars Series:
 
-    >>> vortex.encoding.array([1, None, 2, 3]).to_polars_series()  # doctest: +NORMALIZE_WHITESPACE
+    >>> vortex.array([1, None, 2, 3]).to_polars_series()  # doctest: +NORMALIZE_WHITESPACE
     shape: (4,)
     Series: '' [i64]
     [
@@ -205,7 +202,7 @@ def _Array_to_polars_series(self: _encoding.Array):  # -> 'polars.Series':  # br
 
     Convert a UTF-8 string array to a Polars Series:
 
-    >>> vortex.encoding.array(['hello, ', 'is', 'it', 'me?']).to_polars_series()  # doctest: +NORMALIZE_WHITESPACE
+    >>> vortex.array(['hello, ', 'is', 'it', 'me?']).to_polars_series()  # doctest: +NORMALIZE_WHITESPACE
     shape: (4,)
     Series: '' [str]
     [
@@ -217,7 +214,7 @@ def _Array_to_polars_series(self: _encoding.Array):  # -> 'polars.Series':  # br
 
     Convert a struct array to a Polars Series:
 
-    >>> array = vortex.encoding.array([
+    >>> array = vortex.array([
     ...     {'name': 'Joseph', 'age': 25},
     ...     {'name': 'Narendra', 'age': 31},
     ...     {'name': 'Angela', 'age': 33},
@@ -262,7 +259,7 @@ def _Array_to_numpy(self: _encoding.Array, *, zero_copy_only: bool = True) -> "n
 
     Construct an immutable ndarray from a Vortex array:
 
-    >>> array = vortex.encoding.array([1, 0, 0, 1])
+    >>> array = vortex.array([1, 0, 0, 1])
     >>> array.to_numpy()
     array([1, 0, 0, 1])
 
@@ -273,14 +270,39 @@ def _Array_to_numpy(self: _encoding.Array, *, zero_copy_only: bool = True) -> "n
 Array.to_numpy = _Array_to_numpy
 
 
-def array(obj: pyarrow.Array | list) -> Array:
+def _Array_to_pylist(self: _encoding.Array) -> list[Any]:
+    """Deeply copy an Array into a Python list.
+
+    Returns
+    -------
+    :class:`list`
+
+    Examples
+    --------
+
+    >>> array = vortex.array([
+    ...     {'name': 'Joseph', 'age': 25},
+    ...     {'name': 'Narendra', 'age': 31},
+    ...     {'name': 'Angela', 'age': 33},
+    ... ])
+    >>> array.to_pylist()
+    [{'age': 25, 'name': 'Joseph'}, {'age': 31, 'name': 'Narendra'}, {'age': 33, 'name': 'Angela'}]
+
+    """
+    return self.to_arrow_table().to_pylist()
+
+
+Array.to_pylist = _Array_to_pylist
+
+
+def array(obj: pyarrow.Array | list | Any) -> Array:
     """The main entry point for creating Vortex arrays from other Python objects.
 
     This function is also available as ``vortex.array``.
 
     Parameters
     ----------
-    obj : :class:`pyarrow.Array` or :class:`list`
+    obj : :class:`pyarrow.Array`, :class:`list`, :class:`pandas.DataFrame`
         The elements of this array or list become the elements of the Vortex array.
 
     Returns
@@ -290,9 +312,9 @@ def array(obj: pyarrow.Array | list) -> Array:
     Examples
     --------
 
-    A Vortex array containing the first three integers.
+    A Vortex array containing the first three integers:
 
-    >>> vortex.encoding.array([1, 2, 3]).to_arrow_array()
+    >>> vortex.array([1, 2, 3]).to_arrow_array()
     <pyarrow.lib.Int64Array object at ...>
     [
       1,
@@ -300,9 +322,9 @@ def array(obj: pyarrow.Array | list) -> Array:
       3
     ]
 
-    The same Vortex array with a null value in the third position.
+    The same Vortex array with a null value in the third position:
 
-    >>> vortex.encoding.array([1, 2, None, 3]).to_arrow_array()
+    >>> vortex.array([1, 2, None, 3]).to_arrow_array()
     <pyarrow.lib.Int64Array object at ...>
     [
       1,
@@ -314,7 +336,7 @@ def array(obj: pyarrow.Array | list) -> Array:
     Initialize a Vortex array from an Arrow array:
 
     >>> arrow = pyarrow.array(['Hello', 'it', 'is', 'me'])
-    >>> vortex.encoding.array(arrow).to_arrow_array()
+    >>> vortex.array(arrow).to_arrow_array()
     <pyarrow.lib.StringViewArray object at ...>
     [
       "Hello",
@@ -323,7 +345,40 @@ def array(obj: pyarrow.Array | list) -> Array:
       "me"
     ]
 
+    Initialize a Vortex array from a Pandas dataframe:
+
+    >>> import pandas as pd
+    >>> df = pd.DataFrame({
+    ...     "Name": ["Braund", "Allen", "Bonnell"],
+    ...     "Age": [22, 35, 58],
+    ... })
+    >>> vortex.array(df).to_arrow_array()
+    <pyarrow.lib.ChunkedArray object at ...>
+    [
+      -- is_valid: all not null
+      -- child 0 type: string_view
+        [
+          "Braund",
+          "Allen",
+          "Bonnell"
+        ]
+      -- child 1 type: int64
+        [
+          22,
+          35,
+          58
+        ]
+    ]
+
     """
+
     if isinstance(obj, list):
         return _encoding._encode(pyarrow.array(obj))
+    try:
+        import pandas
+
+        if isinstance(obj, pandas.DataFrame):
+            return _encoding._encode(pyarrow.Table.from_pandas(obj))
+    except ImportError:
+        pass
     return _encoding._encode(obj)

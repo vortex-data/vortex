@@ -1,5 +1,4 @@
-use std::collections::HashSet;
-
+use vortex::aliases::hash_set::HashSet;
 use vortex::array::{Constant, ConstantArray, ConstantEncoding};
 use vortex::compute::unary::scalar_at;
 use vortex::encoding::EncodingRef;

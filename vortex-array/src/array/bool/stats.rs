@@ -1,9 +1,8 @@
-use std::collections::HashMap;
-
 use arrow_buffer::BooleanBuffer;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::VortexResult;
 
+use crate::aliases::hash_map::HashMap;
 use crate::array::BoolArray;
 use crate::stats::{ArrayStatisticsCompute, Stat, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity};

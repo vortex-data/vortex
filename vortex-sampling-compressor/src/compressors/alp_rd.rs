@@ -1,7 +1,7 @@
 use std::any::Any;
-use std::collections::HashSet;
 use std::sync::Arc;
 
+use vortex::aliases::hash_set::HashSet;
 use vortex::array::PrimitiveArray;
 use vortex::encoding::EncodingRef;
 use vortex::{Array, ArrayDef, IntoArray, IntoArrayVariant};

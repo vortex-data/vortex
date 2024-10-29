@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::sync::Arc;
 
 use arrow_array::builder::{StringBuilder, UInt32Builder};
@@ -13,6 +12,7 @@ use datafusion::functions_aggregate::count::count_distinct;
 use datafusion::logical_expr::lit;
 use datafusion::prelude::{col, DataFrame, SessionContext};
 use lazy_static::lazy_static;
+use vortex::aliases::hash_set::HashSet;
 use vortex::compress::CompressionStrategy;
 use vortex::encoding::EncodingRef;
 use vortex::{Array, Context};

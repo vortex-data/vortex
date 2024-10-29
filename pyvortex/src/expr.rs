@@ -13,12 +13,15 @@ use crate::dtype::PyDType;
 
 /// An expression describes how to filter rows when reading an array from a file.
 ///
+/// .. seealso::
+///     :func:`.column`
+///
 /// Examples
 /// ========
 ///
 /// All the examples read the following file.
 ///
-/// >>> a = vortex.encoding.array([
+/// >>> a = vortex.array([
 /// ...     {'name': 'Joseph', 'age': 25},
 /// ...     {'name': None, 'age': 31},
 /// ...     {'name': 'Angela', 'age': None},
@@ -209,7 +212,8 @@ impl PyExpr {
 
 /// A named column.
 ///
-/// See :class:`.Expr` for more examples.
+/// .. seealso::
+///     :class:`.Expr`
 ///
 /// Example
 /// =======
@@ -218,6 +222,8 @@ impl PyExpr {
 ///
 /// >>> name = vortex.expr.column("name")
 /// >>> filter = name == "Joseph"
+///
+/// See :class:`.Expr` for more examples.
 ///
 #[pyfunction]
 pub fn column<'py>(name: &Bound<'py, PyString>) -> PyResult<Bound<'py, PyExpr>> {
