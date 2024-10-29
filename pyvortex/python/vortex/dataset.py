@@ -12,7 +12,12 @@ from .arrow.expression import arrow_to_vortex as arrow_to_vortex_expr
 
 
 class VortexDataset(pyarrow.dataset.Dataset):
-    """Read Vortex files with row filter and column selection pushdown."""
+    """Read Vortex files with row filter and column selection pushdown.
+
+    This class implements the :class:`.pyarrow.dataset.Dataset` interface which enables its use with
+    Polars, DuckDB, Pandas and others.
+
+    """
 
     def __init__(self, dataset):
         self._dataset = dataset
@@ -62,6 +67,35 @@ class VortexDataset(pyarrow.dataset.Dataset):
         use_threads: bool | None = None,
         memory_pool: pa.MemoryPool = None,
     ) -> pa.Table:
+        """Load the first `num_rows` of the dataset.
+
+        Parameters
+        ----------
+        num_rows : int
+            The number of rows to load.
+        columns : list of str
+            The columns to keep, identified by name.
+        filter : :class:`.pyarrow.dataset.Expression`
+            Keep only rows for which this expression evalutes to ``True``. Any rows for which
+            this expression evaluates to ``Null`` is removed.
+        batch_size : int
+            The maximum number of rows per batch.
+        batch_readahead : int
+            Not implemented.
+        fragment_readahead : int
+            Not implemented.
+        fragment_scan_options : :class:`.pyarrow.dataset.FragmentScanOptions`
+            Not implemented.
+        use_threads : bool
+            Not implemented.
+        memory_pool : :class:`.pyarrow.MemoryPool`
+            Not implemented.
+
+        Returns
+        -------
+        table : :class:`.pyarrow.Table`
+
+        """
         if batch_readahead is not None:
             raise ValueError("batch_readahead not supported")
         if fragment_readahead is not None:
@@ -114,7 +148,33 @@ class VortexDataset(pyarrow.dataset.Dataset):
         use_threads: bool | None = None,
         memory_pool: pa.MemoryPool = None,
     ) -> pa.dataset.Scanner:
-        """Not implemented."""
+        """Construct a :class:`.pyarrow.dataset.Scanner`.
+
+        Parameters
+        ----------
+        columns : list of str
+            The columns to keep, identified by name.
+        filter : :class:`.pyarrow.dataset.Expression`
+            Keep only rows for which this expression evalutes to ``True``. Any rows for which
+            this expression evaluates to ``Null`` is removed.
+        batch_size : int
+            The maximum number of rows per batch.
+        batch_readahead : int
+            Not implemented.
+        fragment_readahead : int
+            Not implemented.
+        fragment_scan_options : :class:`.pyarrow.dataset.FragmentScanOptions`
+            Not implemented.
+        use_threads : bool
+            Not implemented.
+        memory_pool : :class:`.pyarrow.MemoryPool`
+            Not implemented.
+
+        Returns
+        -------
+        table : :class:`.pyarrow.Table`
+
+        """
         return VortexScanner(
             self,
             columns,
@@ -143,6 +203,35 @@ class VortexDataset(pyarrow.dataset.Dataset):
         use_threads: bool | None = None,
         memory_pool: pa.MemoryPool = None,
     ) -> pa.Table:
+        """Load a subset of rows identified by their absolute indices.
+
+        Parameters
+        ----------
+        indices : :class:`.pyarrow.Array`
+            A numeric array of absolute indices into `self` indicating which rows to keep.
+        columns : list of str
+            The columns to keep, identified by name.
+        filter : :class:`.pyarrow.dataset.Expression`
+            Keep only rows for which this expression evalutes to ``True``. Any rows for which
+            this expression evaluates to ``Null`` is removed.
+        batch_size : int
+            The maximum number of rows per batch.
+        batch_readahead : int
+            Not implemented.
+        fragment_readahead : int
+            Not implemented.
+        fragment_scan_options : :class:`.pyarrow.dataset.FragmentScanOptions`
+            Not implemented.
+        use_threads : bool
+            Not implemented.
+        memory_pool : :class:`.pyarrow.MemoryPool`
+            Not implemented.
+
+        Returns
+        -------
+        table : :class:`.pyarrow.Table`
+
+        """
         return (
             self._dataset.to_array(columns=columns, batch_size=batch_size, row_filter=filter)
             .take(encoding.array(indices))
@@ -160,6 +249,33 @@ class VortexDataset(pyarrow.dataset.Dataset):
         use_threads: bool | None = None,
         memory_pool: pa.MemoryPool = None,
     ) -> pa.RecordBatchReader:
+        """Construct a :class:`.pyarrow.RecordBatchReader`.
+
+        Parameters
+        ----------
+        columns : list of str
+            The columns to keep, identified by name.
+        filter : :class:`.pyarrow.dataset.Expression`
+            Keep only rows for which this expression evalutes to ``True``. Any rows for which
+            this expression evaluates to ``Null`` is removed.
+        batch_size : int
+            The maximum number of rows per batch.
+        batch_readahead : int
+            Not implemented.
+        fragment_readahead : int
+            Not implemented.
+        fragment_scan_options : :class:`.pyarrow.dataset.FragmentScanOptions`
+            Not implemented.
+        use_threads : bool
+            Not implemented.
+        memory_pool : :class:`.pyarrow.MemoryPool`
+            Not implemented.
+
+        Returns
+        -------
+        table : :class:`.pyarrow.Table`
+
+        """
         if batch_readahead is not None:
             raise ValueError("batch_readahead not supported")
         if fragment_readahead is not None:
@@ -186,6 +302,33 @@ class VortexDataset(pyarrow.dataset.Dataset):
         use_threads: bool | None = None,
         memory_pool: pa.MemoryPool = None,
     ) -> Iterator[pa.RecordBatch]:
+        """Construct an iterator of :class:`.pyarrow.RecordBatch`.
+
+        Parameters
+        ----------
+        columns : list of str
+            The columns to keep, identified by name.
+        filter : :class:`.pyarrow.dataset.Expression`
+            Keep only rows for which this expression evalutes to ``True``. Any rows for which
+            this expression evaluates to ``Null`` is removed.
+        batch_size : int
+            The maximum number of rows per batch.
+        batch_readahead : int
+            Not implemented.
+        fragment_readahead : int
+            Not implemented.
+        fragment_scan_options : :class:`.pyarrow.dataset.FragmentScanOptions`
+            Not implemented.
+        use_threads : bool
+            Not implemented.
+        memory_pool : :class:`.pyarrow.MemoryPool`
+            Not implemented.
+
+        Returns
+        -------
+        table : :class:`.pyarrow.Table`
+
+        """
         record_batch_reader = self.to_record_batch_reader(
             columns,
             filter,
@@ -213,6 +356,33 @@ class VortexDataset(pyarrow.dataset.Dataset):
         use_threads: bool | None = None,
         memory_pool: pa.MemoryPool = None,
     ) -> pa.Table:
+        """Construct an Arrow :class:`.pyarrow.Table`.
+
+        Parameters
+        ----------
+        columns : list of str
+            The columns to keep, identified by name.
+        filter : :class:`.pyarrow.dataset.Expression`
+            Keep only rows for which this expression evalutes to ``True``. Any rows for which
+            this expression evaluates to ``Null`` is removed.
+        batch_size : int
+            The maximum number of rows per batch.
+        batch_readahead : int
+            Not implemented.
+        fragment_readahead : int
+            Not implemented.
+        fragment_scan_options : :class:`.pyarrow.dataset.FragmentScanOptions`
+            Not implemented.
+        use_threads : bool
+            Not implemented.
+        memory_pool : :class:`.pyarrow.MemoryPool`
+            Not implemented.
+
+        Returns
+        -------
+        table : :class:`.pyarrow.Table`
+
+        """
         if batch_readahead is not None:
             raise ValueError("batch_readahead not supported")
         if fragment_readahead is not None:
@@ -229,8 +399,44 @@ class VortexDataset(pyarrow.dataset.Dataset):
         return self._dataset.to_array(columns=columns, batch_size=batch_size, row_filter=filter).to_arrow_table()
 
 
+def from_path(path: str) -> VortexDataset:
+    return VortexDataset(_lib_dataset.dataset_from_path(path))
+
+
+def from_url(url: str) -> VortexDataset:
+    return VortexDataset(_lib_dataset.dataset_from_url(url))
+
+
 class VortexScanner(pa.dataset.Scanner):
-    """A PyArrow Dataset Scanner that reads from a Vortex Array."""
+    """A PyArrow Dataset Scanner that reads from a Vortex Array.
+
+    Parameters
+    ----------
+    dataset : VortexDataset
+        The dataset to scan.
+    columns : list of str
+        The columns to keep, identified by name.
+    filter : :class:`.pyarrow.dataset.Expression`
+        Keep only rows for which this expression evalutes to ``True``. Any rows for which
+        this expression evaluates to ``Null`` is removed.
+    batch_size : int
+        The maximum number of rows per batch.
+    batch_readahead : int
+        Not implemented.
+    fragment_readahead : int
+        Not implemented.
+    fragment_scan_options : :class:`.pyarrow.dataset.FragmentScanOptions`
+        Not implemented.
+    use_threads : bool
+        Not implemented.
+    memory_pool : :class:`.pyarrow.MemoryPool`
+        Not implemented.
+
+    Returns
+    -------
+    table : :class:`.pyarrow.Table`
+
+    """
 
     def __init__(
         self,
@@ -270,6 +476,18 @@ class VortexScanner(pa.dataset.Scanner):
         )
 
     def head(self, num_rows: int) -> pa.Table:
+        """Load the first `num_rows` of the dataset.
+
+        Parameters
+        ----------
+        num_rows : int
+            The number of rows to read.
+
+        Returns
+        -------
+        table : :class:`.pyarrow.Table`
+
+        """
         return self._dataset.head(
             num_rows,
             self._columns,
@@ -287,6 +505,13 @@ class VortexScanner(pa.dataset.Scanner):
         raise NotImplementedError("scan batches")
 
     def to_batches(self) -> Iterator[pa.RecordBatch]:
+        """Construct an iterator of :class:`.pyarrow.RecordBatch`.
+
+        Returns
+        -------
+        table : :class:`.pyarrow.Table`
+
+        """
         return self._dataset.to_batches(
             self._columns,
             self._filter,
@@ -299,6 +524,14 @@ class VortexScanner(pa.dataset.Scanner):
         )
 
     def to_reader(self) -> pa.RecordBatchReader:
+        """Construct a :class:`.pyarrow.RecordBatchReader`.
+
+
+        Returns
+        -------
+        table : :class:`.pyarrow.Table`
+
+        """
         return self._dataset.to_record_batch_reader(
             self._columns,
             self._filter,
@@ -311,6 +544,14 @@ class VortexScanner(pa.dataset.Scanner):
         )
 
     def to_table(self) -> pa.Table:
+        """Construct an Arrow :class:`.pyarrow.Table`.
+
+
+        Returns
+        -------
+        table : :class:`.pyarrow.Table`
+
+        """
         return self._dataset.to_table(
             self._columns,
             self._filter,

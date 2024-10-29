@@ -55,7 +55,6 @@ numpy==2.1.2
     # via xarray
 packaging==24.1
     # via matplotlib
-    # via pydata-sphinx-theme
     # via sphinx
     # via xarray
 pandas==2.2.3
@@ -70,7 +69,7 @@ protobuf==5.28.2
     # via substrait
 pyarrow==17.0.0
     # via vortex-array
-pydata-sphinx-theme==0.15.4
+pydata-sphinx-theme==0.16.0
 pygments==2.18.0
     # via accessible-pygments
     # via pydata-sphinx-theme
@@ -93,6 +92,8 @@ soupsieve==2.6
     # via beautifulsoup4
 sphinx==8.1.3
     # via pydata-sphinx-theme
+    # via sphinx-design
+sphinx-design==0.6.1
 sphinxcontrib-applehelp==2.0.0
     # via sphinx
 sphinxcontrib-devhelp==2.0.0

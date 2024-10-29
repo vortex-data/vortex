@@ -4,6 +4,7 @@ use pyo3::prelude::*;
 use pyo3::pyfunction;
 use pyo3::types::PyString;
 use tokio::fs::File;
+use vortex::sampling_compressor::SamplingCompressor;
 use vortex::serde::layouts::LayoutWriter;
 use vortex::Array;
 
@@ -17,7 +18,7 @@ use crate::{PyArray, TOKIO_RUNTIME};
 /// ----------
 /// path : :class:`str`
 ///     The file path to read from.
-/// projection : :class:`list`[:class:`str` ``|`` :class:`int`]
+/// projection : :class:`list` [ :class:`str` ``|`` :class:`int` ]
 ///     The columns to read identified either by their index or name.
 /// row_filter : :class:`.Expr`
 ///     Keep only the rows for which this expression evaluates to true.
@@ -27,7 +28,7 @@ use crate::{PyArray, TOKIO_RUNTIME};
 ///
 /// Read an array with a structured column and nulls at multiple levels and in multiple columns.
 ///
-/// >>> a = vortex.encoding.array([
+/// >>> a = vortex.array([
 /// ...     {'name': 'Joseph', 'age': 25},
 /// ...     {'name': None, 'age': 31},
 /// ...     {'name': 'Angela', 'age': None},
@@ -111,7 +112,7 @@ use crate::{PyArray, TOKIO_RUNTIME};
 ///
 /// TODO(DK): Top-level nullness does not work.
 ///
-/// >>> a = vortex.encoding.array([
+/// >>> a = vortex.array([
 /// ...     {'name': 'Joseph', 'age': 25},
 /// ...     {'name': None, 'age': 31},
 /// ...     {'name': 'Angela', 'age': None},
@@ -143,7 +144,7 @@ pub fn read_path(
 /// ----------
 /// url : :class:`str`
 ///     The URL to read from.
-/// projection : :class:`list`[:class:`str` ``|`` :class:`int`]
+/// projection : :class:`list` [ :class:`str` ``|`` :class:`int` ]
 ///     The columns to read identified either by their index or name.
 /// row_filter : :class:`.Expr`
 ///     Keep only the rows for which this expression evaluates to true.
@@ -186,23 +187,25 @@ pub fn read_url(
     dataset.to_array(projection, None, row_filter)
 }
 
-#[pyfunction]
 /// Write a vortex struct array to the local filesystem.
 ///
 /// Parameters
 /// ----------
-/// array : :class:`vortex.encoding.Array`
+/// array : :class:`~vortex.encoding.Array`
 ///     The array. Must be an array of structures.
 ///
 /// f : :class:`str`
 ///     The file path.
+///
+/// compress : :class:`bool`
+///     Compress the array before writing, defaults to ``True``.
 ///
 /// Examples
 /// --------
 ///
 /// Write the array `a` to the local file `a.vortex`.
 ///
-/// >>> a = vortex.encoding.array([
+/// >>> a = vortex.array([
 /// ...     {'x': 1},
 /// ...     {'x': 2},
 /// ...     {'x': 10},
@@ -211,7 +214,13 @@ pub fn read_url(
 /// ... ])
 /// >>> vortex.io.write_path(a, "a.vortex")
 ///
-pub fn write_path(array: &Bound<'_, PyArray>, f: &Bound<'_, PyString>) -> PyResult<()> {
+#[pyfunction]
+#[pyo3(signature = (array, f, *, compress=true))]
+pub fn write_path(
+    array: &Bound<'_, PyArray>,
+    f: &Bound<'_, PyString>,
+    compress: bool,
+) -> PyResult<()> {
     async fn run(array: &Array, fname: &str) -> PyResult<()> {
         let file = File::create(Path::new(fname)).await?;
         let mut writer = LayoutWriter::new(file);
@@ -222,7 +231,12 @@ pub fn write_path(array: &Bound<'_, PyArray>, f: &Bound<'_, PyString>) -> PyResu
     }
 
     let fname = f.to_str()?; // TODO(dk): support file objects
-    let array = array.borrow().unwrap().clone();
+    let mut array = array.borrow().unwrap().clone();
+
+    if compress {
+        let compressor = SamplingCompressor::default();
+        array = compressor.compress(&array, None)?.into_array();
+    }
 
     TOKIO_RUNTIME.block_on(run(&array, fname))
 }
