@@ -14,7 +14,6 @@ categories = { workspace = true }
 readme = "README.md"
 
 [dependencies]
-ahash = { workspace = true }
 arrow-array = { workspace = true }
 arrow-buffer = { workspace = true }
 arrow-schema = { workspace = true }

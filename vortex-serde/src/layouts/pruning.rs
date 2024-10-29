@@ -1,10 +1,9 @@
 // This code doesn't have usage outside of tests yet, remove once usage is added
 #![allow(dead_code)]
 
-use std::collections::hash_map::Entry;
 use std::sync::Arc;
 
-use ahash::{HashMap, HashMapExt};
+use vortex::aliases::hash_map::{Entry, HashMap};
 use vortex::stats::Stat;
 use vortex_dtype::field::Field;
 use vortex_dtype::Nullability;

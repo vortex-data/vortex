@@ -4671,7 +4671,6 @@ dependencies = [
 name = "vortex-serde"
 version = "0.12.0"
 dependencies = [
- "ahash",
  "arrow",
  "arrow-array",
  "arrow-buffer",

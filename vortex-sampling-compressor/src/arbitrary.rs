@@ -7,7 +7,9 @@ use crate::{SamplingCompressor, DEFAULT_COMPRESSORS};
 
 impl<'a, 'b: 'a> Arbitrary<'a> for SamplingCompressor<'b> {
     fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
-        let compressors: HashSet<CompressorRef> = u.arbitrary()?;
+        #[allow(clippy::disallowed_types)]
+        let std: std::collections::HashSet<CompressorRef> = u.arbitrary()?;
+        let compressors: HashSet<CompressorRef> = HashSet::from_iter(std);
         if compressors.is_empty() {
             return Err(EmptyChoose);
         }
