@@ -162,9 +162,6 @@ DuckDB
 ^^^^^^
 
    >>> import duckdb
-   >>> ds = vortex.dataset.from_path(
-   ...     'example.vortex'
-   ... )
    >>> duckdb.sql('select ds.tip_amount, ds.fare_amount from ds limit 3').show()
    ┌────────────┬─────────────┐
    │ tip_amount │ fare_amount │
