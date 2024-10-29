@@ -85,9 +85,9 @@ impl<'a> VarBinAccumulator<'a> {
         self.len += 1;
 
         if val < self.min {
-            self.min.clone_from(&val);
+            self.min = val;
         } else if val > self.max {
-            self.max.clone_from(&val);
+            self.max = val;
         }
 
         match val.cmp(self.last_value) {

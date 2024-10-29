@@ -16,7 +16,8 @@ use vortex_expr::{BinaryExpr, Column, Literal, Operator};
 
 use crate::layouts::write::LayoutWriter;
 use crate::layouts::{
-    LayoutDeserializer, LayoutReaderBuilder, Projection, RowFilter, EOF_SIZE, FOOTER_POSTSCRIPT_SIZE, MAGIC_BYTES, METADATA_FIELD_NAMES, PRUNING_STATS, VERSION
+    LayoutDeserializer, LayoutReaderBuilder, Projection, RowFilter, EOF_SIZE,
+    FOOTER_POSTSCRIPT_SIZE, MAGIC_BYTES, METADATA_FIELD_NAMES, PRUNING_STATS, VERSION,
 };
 
 #[test]

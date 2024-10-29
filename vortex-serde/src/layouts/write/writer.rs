@@ -132,7 +132,7 @@ impl<W: VortexWrite> LayoutWriter<W> {
         Ok(())
     }
 
-    async fn write_metadata_arrays(&mut self) -> VortexResult<Layout> { 
+    async fn write_metadata_arrays(&mut self) -> VortexResult<Layout> {
         let mut column_layouts = Vec::with_capacity(self.column_chunks.len());
         for column_accumulator in mem::take(&mut self.column_chunks) {
             let (mut chunks, metadata_array) = column_accumulator.into_chunks_and_metadata()?;
@@ -195,7 +195,7 @@ async fn write_fb_raw<W: VortexWrite, F: WriteFlatBuffer>(mut writer: W, fb: F) 
     Ok(writer)
 }
 
-struct ColumnChunkAccumulator<> {
+struct ColumnChunkAccumulator {
     pub dtype: DType,
     pub row_offsets: Vec<u64>,
     pub batch_byte_offsets: Vec<Vec<u64>>,
@@ -232,14 +232,26 @@ impl ColumnChunkAccumulator {
         if matches!(stat, Stat::Min | Stat::Max) {
             if let Some(ref value) = value {
                 if !value.value().is_instance_of(&self.dtype) {
-                    vortex_bail!("Expected all min/max values to have dtype {}, got {}", self.dtype, value.dtype());
+                    vortex_bail!(
+                        "Expected all min/max values to have dtype {}, got {}",
+                        self.dtype,
+                        value.dtype()
+                    );
                 }
             }
         }
 
         match stat {
-            Stat::Min => self.minima.push(value.map(|v| v.into_value()).unwrap_or_else(|| ScalarValue::Null)),
-            Stat::Max => self.maxima.push(value.map(|v| v.into_value()).unwrap_or_else(|| ScalarValue::Null)),
+            Stat::Min => self.minima.push(
+                value
+                    .map(|v| v.into_value())
+                    .unwrap_or_else(|| ScalarValue::Null),
+            ),
+            Stat::Max => self.maxima.push(
+                value
+                    .map(|v| v.into_value())
+                    .unwrap_or_else(|| ScalarValue::Null),
+            ),
             Stat::NullCount => self.null_counts.push(value.and_then(|v| {
                 v.into_value()
                     .as_pvalue()
@@ -288,8 +300,18 @@ impl ColumnChunkAccumulator {
             let values = match stat {
                 Stat::Min => mem::take(&mut self.minima),
                 Stat::Max => mem::take(&mut self.maxima),
-                Stat::NullCount => self.null_counts.iter().cloned().map(ScalarValue::from).collect(),
-                Stat::TrueCount => self.true_counts.iter().cloned().map(ScalarValue::from).collect(),
+                Stat::NullCount => self
+                    .null_counts
+                    .iter()
+                    .cloned()
+                    .map(ScalarValue::from)
+                    .collect(),
+                Stat::TrueCount => self
+                    .true_counts
+                    .iter()
+                    .cloned()
+                    .map(ScalarValue::from)
+                    .collect(),
                 _ => vortex_bail!("Unsupported pruning stat: {}", stat),
             };
             if values.len() != length {
@@ -316,7 +338,11 @@ impl ColumnChunkAccumulator {
         }
         for name in &names {
             if !METADATA_FIELD_NAMES.contains(&name.as_ref()) {
-                vortex_panic!("Found unexpected metadata field name {}, expected one of {:?}", name, METADATA_FIELD_NAMES);
+                vortex_panic!(
+                    "Found unexpected metadata field name {}, expected one of {:?}",
+                    name,
+                    METADATA_FIELD_NAMES
+                );
             }
         }
 

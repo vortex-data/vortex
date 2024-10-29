@@ -18,7 +18,8 @@ pub const COLUMN_LAYOUT_ID: LayoutId = LayoutId(3);
 pub const INLINE_SCHEMA_LAYOUT_ID: LayoutId = LayoutId(4);
 
 pub const PRUNING_STATS: [Stat; 4] = [Stat::Min, Stat::Max, Stat::NullCount, Stat::TrueCount];
-pub const METADATA_FIELD_NAMES: [&str; 5] = ["row_offset", "min", "max", "null_count", "true_count"];
+pub const METADATA_FIELD_NAMES: [&str; 5] =
+    ["row_offset", "min", "max", "null_count", "true_count"];
 
 pub use read::*;
 pub use write::*;
