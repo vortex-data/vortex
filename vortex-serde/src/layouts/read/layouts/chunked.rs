@@ -1,10 +1,8 @@
 use std::collections::VecDeque;
 
 use bytes::Bytes;
-use croaring::Bitmap;
 use itertools::Itertools;
-use vortex::{Array, IntoArrayVariant};
-use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_error::{vortex_err, VortexResult};
 use vortex_flatbuffers::footer;
 
 use crate::layouts::read::buffered::{BufferedLayoutReader, RangedLayoutReader};
@@ -26,7 +24,7 @@ impl LayoutSpec for ChunkedLayoutSpec {
         &self,
         fb_bytes: Bytes,
         fb_loc: usize,
-        length: u64,
+        _length: u64,
         scan: Scan,
         layout_builder: LayoutDeserializer,
         message_cache: RelativeLayoutCache,
@@ -34,19 +32,11 @@ impl LayoutSpec for ChunkedLayoutSpec {
         Box::new(ChunkedLayout::new(
             fb_bytes,
             fb_loc,
-            length,
             scan,
             layout_builder,
             message_cache,
         ))
     }
-}
-
-#[derive(Debug)]
-pub enum MetadataState {
-    Init,
-    ReadMetadata((Box<dyn LayoutReader>, usize)),
-    Array(Array),
 }
 
 /// In memory representation of Chunked NestedLayout.
@@ -57,20 +47,17 @@ pub enum MetadataState {
 pub struct ChunkedLayout {
     fb_bytes: Bytes,
     fb_loc: usize,
-    length: u64,
     offset: usize,
     scan: Scan,
     layout_builder: LayoutDeserializer,
     message_cache: RelativeLayoutCache,
     chunk_reader: Option<BufferedLayoutReader>,
-    metadata_array: MetadataState,
 }
 
 impl ChunkedLayout {
     pub fn new(
         fb_bytes: Bytes,
         fb_loc: usize,
-        length: u64,
         scan: Scan,
         layout_builder: LayoutDeserializer,
         message_cache: RelativeLayoutCache,
@@ -78,13 +65,11 @@ impl ChunkedLayout {
         Self {
             fb_bytes,
             fb_loc,
-            length,
             offset: 0,
             scan,
             layout_builder,
             message_cache,
             chunk_reader: None,
-            metadata_array: MetadataState::Init,
         }
     }
 
@@ -96,20 +81,18 @@ impl ChunkedLayout {
     }
 
     fn child_ranges(&self) -> VortexResult<Vec<(usize, usize)>> {
-        let MetadataState::Array(ref m) = self.metadata_array else {
-            vortex_bail!("Must fetch metadata before")
-        };
-
-        let row_offset = m
-            .with_dyn(|a| a.as_struct_array_unchecked().field(0))
-            .ok_or_else(|| vortex_err!("must have row_offset metadata column"))?;
-        let primitive_offsets = row_offset.into_primitive()?;
-        Ok(primitive_offsets
-            .maybe_null_slice::<u64>()
+        let children = self
+            .flatbuffer()
+            .children()
+            .ok_or_else(|| vortex_err!("Missing children"))?;
+        Ok(children
             .iter()
-            .chain(&[self.length])
-            .tuple_windows()
-            .map(|(begin, end)| (*begin as usize, *end as usize))
+            .map(|c| c.length())
+            .scan(0u64, |acc, length| {
+                let current = *acc;
+                *acc += length;
+                Some((current as usize, *acc as usize))
+            })
             .collect::<Vec<_>>())
     }
 
@@ -140,24 +123,6 @@ impl ChunkedLayout {
             .collect::<VortexResult<VecDeque<_>>>()
     }
 
-    fn metadata_layout(&self) -> VortexResult<(Box<dyn LayoutReader>, usize)> {
-        let children = self
-            .flatbuffer()
-            .children()
-            .ok_or_else(|| vortex_err!("Missing children"))?;
-        let metadata_child = children.get(0);
-        Ok((
-            self.layout_builder.read_layout(
-                self.fb_bytes.clone(),
-                metadata_child._tab.loc(),
-                children.len() as u64,
-                Scan::new(None),
-                self.message_cache.stored_dtype(0u16),
-            )?,
-            children.len() - 1,
-        ))
-    }
-
     fn has_metadata(&self) -> bool {
         self.flatbuffer()
             .metadata()
@@ -171,41 +136,8 @@ impl LayoutReader for ChunkedLayout {
         if let Some(br) = &mut self.chunk_reader {
             br.next_range()
         } else {
-            match &mut self.metadata_array {
-                MetadataState::Init => {
-                    self.metadata_array = MetadataState::ReadMetadata(self.metadata_layout()?);
-                    self.next_range()
-                }
-                MetadataState::ReadMetadata((mr, nchildren)) => {
-                    match mr.read_next(RowSelector::new(
-                        Bitmap::from_range(0..*nchildren as u32),
-                        0,
-                        *nchildren,
-                    ))? {
-                        None => {
-                            unreachable!(
-                                "Metadata isn't chunked, will terminate after first batch result"
-                            )
-                        }
-                        Some(mr) => match mr {
-                            ReadResult::ReadMore(m) => Ok(RangeResult::ReadMore(m)),
-                            ReadResult::Batch(r) => {
-                                if matches!(self.metadata_array, MetadataState::Array(_)) {
-                                    vortex_bail!("Metadata is not chunked for now");
-                                } else {
-                                    self.metadata_array = MetadataState::Array(r);
-                                    self.chunk_reader =
-                                        Some(BufferedLayoutReader::new(self.ranged_children()?));
-                                }
-                                self.next_range()
-                            }
-                        },
-                    }
-                }
-                MetadataState::Array(_) => {
-                    unreachable!("Already fetched metadata but didn't create reader")
-                }
-            }
+            self.chunk_reader = Some(BufferedLayoutReader::new(self.ranged_children()?));
+            self.next_range()
         }
     }
 
@@ -213,41 +145,8 @@ impl LayoutReader for ChunkedLayout {
         if let Some(br) = &mut self.chunk_reader {
             br.read_next(selector)
         } else {
-            match &mut self.metadata_array {
-                MetadataState::Init => {
-                    self.metadata_array = MetadataState::ReadMetadata(self.metadata_layout()?);
-                    self.read_next(selector)
-                }
-                MetadataState::ReadMetadata((mr, nchildren)) => {
-                    match mr.read_next(RowSelector::new(
-                        Bitmap::from_range(0..*nchildren as u32),
-                        0,
-                        *nchildren,
-                    ))? {
-                        None => {
-                            unreachable!(
-                                "Metadata isn't chunked, will terminate after first batch result"
-                            )
-                        }
-                        Some(mr) => match mr {
-                            ReadResult::ReadMore(m) => Ok(Some(ReadResult::ReadMore(m))),
-                            ReadResult::Batch(r) => {
-                                if matches!(self.metadata_array, MetadataState::Array(_)) {
-                                    vortex_bail!("Metadata is not chunked for now");
-                                } else {
-                                    self.metadata_array = MetadataState::Array(r);
-                                    self.chunk_reader =
-                                        Some(BufferedLayoutReader::new(self.ranged_children()?));
-                                }
-                                self.read_next(selector)
-                            }
-                        },
-                    }
-                }
-                MetadataState::Array(_) => {
-                    unreachable!("Already fetched metadata but didn't create reader")
-                }
-            }
+            self.chunk_reader = Some(BufferedLayoutReader::new(self.ranged_children()?));
+            self.read_next(selector)
         }
     }
 
@@ -272,8 +171,7 @@ mod tests {
     use croaring::Bitmap;
     use flatbuffers::{root_unchecked, FlatBufferBuilder};
     use futures_util::TryStreamExt;
-    use vortex::array::{ChunkedArray, PrimitiveArray, StructArray};
-    use vortex::validity::Validity;
+    use vortex::array::{ChunkedArray, PrimitiveArray};
     use vortex::{ArrayDType, IntoArray, IntoArrayVariant};
     use vortex_dtype::PType;
     use vortex_expr::{BinaryExpr, Identity, Literal, Operator};
@@ -312,42 +210,24 @@ mod tests {
             writer.write_batch(chunk).await.unwrap();
             byte_offsets.push(writer.tell());
         }
-        let mut flat_layouts = byte_offsets
+        let flat_layouts = byte_offsets
             .iter()
             .zip(byte_offsets.iter().skip(1))
-            .map(|(begin, end)| write::Layout::flat(ByteRange::new(*begin, *end)))
+            .zip(
+                row_offsets
+                    .iter()
+                    .zip(row_offsets.iter().skip(1))
+                    .map(|(begin, end)| end - begin),
+            )
+            .map(|((begin, end), len)| write::Layout::flat(ByteRange::new(*begin, *end), len))
             .collect::<VecDeque<_>>();
 
         row_offsets.truncate(row_offsets.len() - 1);
 
-        let meta_len = row_offsets.len();
-        let metadata_array = StructArray::try_new(
-            ["row_offset".into()].into(),
-            vec![row_offsets.into_array()],
-            meta_len,
-            Validity::NonNullable,
-        )
-        .unwrap();
-
-        let dtype_begin = writer.tell();
-        writer.write_dtype(metadata_array.dtype()).await.unwrap();
-        let dtype_end = writer.tell();
-        writer
-            .write_batch(metadata_array.into_array())
-            .await
-            .unwrap();
-        flat_layouts.push_front(write::Layout::inlined_schema(
-            vec![write::Layout::flat(ByteRange::new(
-                dtype_end,
-                writer.tell(),
-            ))],
-            ByteRange::new(dtype_begin, dtype_end),
-        ));
-
         let written = writer.into_inner();
 
         let mut fb = FlatBufferBuilder::new();
-        let chunked_layout = write::Layout::chunked(flat_layouts.into(), true);
+        let chunked_layout = write::Layout::chunked(flat_layouts.into(), len, false);
         let flat_buf = chunked_layout.write_flatbuffer(&mut fb);
         fb.finish_minimal(flat_buf);
         let fb_bytes = Bytes::copy_from_slice(fb.finished_data());
@@ -361,7 +241,6 @@ mod tests {
             ChunkedLayout::new(
                 fb_bytes.clone(),
                 fb_loc,
-                len,
                 scan,
                 LayoutDeserializer::default(),
                 RelativeLayoutCache::new(cache.clone(), dtype.clone()),
@@ -369,7 +248,6 @@ mod tests {
             ChunkedLayout::new(
                 fb_bytes,
                 fb_loc,
-                len,
                 Scan::new(None),
                 LayoutDeserializer::default(),
                 RelativeLayoutCache::new(cache, dtype),

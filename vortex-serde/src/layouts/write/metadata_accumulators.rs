@@ -37,7 +37,6 @@ pub trait MetadataAccumulator {
 
 /// Accumulator for bool-typed columns.
 struct BoolAccumulator {
-    row_offsets: RowOffsetsAccumulator,
     maxima: UnwrappedStatAccumulator<bool>,
     minima: UnwrappedStatAccumulator<bool>,
     true_count: UnwrappedStatAccumulator<u64>,
@@ -47,7 +46,6 @@ struct BoolAccumulator {
 impl BoolAccumulator {
     fn new() -> Self {
         Self {
-            row_offsets: RowOffsetsAccumulator::new(),
             maxima: UnwrappedStatAccumulator::new(Stat::Max, "max".into()),
             minima: UnwrappedStatAccumulator::new(Stat::Min, "min".into()),
             true_count: UnwrappedStatAccumulator::new(Stat::TrueCount, "true_count".into()),
@@ -58,7 +56,6 @@ impl BoolAccumulator {
 
 impl MetadataAccumulator for BoolAccumulator {
     fn push_chunk(&mut self, array: &Array) -> VortexResult<()> {
-        self.row_offsets.push_chunk(array)?;
         self.maxima.push_chunk(array)?;
         self.minima.push_chunk(array)?;
         self.true_count.push_chunk(array)?;
@@ -67,7 +64,6 @@ impl MetadataAccumulator for BoolAccumulator {
 
     fn into_array(self: Box<Self>) -> VortexResult<Array> {
         let (names, fields): (Vec<FieldName>, Vec<Array>) = [
-            self.row_offsets.into_column(),
             self.maxima.into_column(),
             self.minima.into_column(),
             self.true_count.into_column(),
@@ -85,7 +81,6 @@ impl MetadataAccumulator for BoolAccumulator {
 
 /// An accumulator for the minima, maxima, null counts, and row offsets.
 struct StandardAccumulator<T> {
-    row_offsets: RowOffsetsAccumulator,
     maxima: UnwrappedStatAccumulator<T>,
     minima: UnwrappedStatAccumulator<T>,
     null_count: UnwrappedStatAccumulator<u64>,
@@ -94,7 +89,6 @@ struct StandardAccumulator<T> {
 impl<T> StandardAccumulator<T> {
     fn new() -> Self {
         Self {
-            row_offsets: RowOffsetsAccumulator::new(),
             maxima: UnwrappedStatAccumulator::new(Stat::Max, "max".into()),
             minima: UnwrappedStatAccumulator::new(Stat::Min, "min".into()),
             null_count: UnwrappedStatAccumulator::new(Stat::NullCount, "null_count".into()),
@@ -108,7 +102,6 @@ where
     Array: From<Vec<Option<T>>>,
 {
     fn push_chunk(&mut self, array: &Array) -> VortexResult<()> {
-        self.row_offsets.push_chunk(array)?;
         self.maxima.push_chunk(array)?;
         self.minima.push_chunk(array)?;
         self.null_count.push_chunk(array)
@@ -116,7 +109,6 @@ where
 
     fn into_array(self: Box<Self>) -> VortexResult<Array> {
         let (names, fields): (Vec<FieldName>, Vec<Array>) = [
-            self.row_offsets.into_column(),
             self.maxima.into_column(),
             self.minima.into_column(),
             self.null_count.into_column(),
@@ -133,14 +125,12 @@ where
 
 /// A minimal accumulator which only tracks null counts and row offsets.
 struct BasicAccumulator {
-    row_offsets: RowOffsetsAccumulator,
     null_count: UnwrappedStatAccumulator<u64>,
 }
 
 impl BasicAccumulator {
     fn new() -> Self {
         Self {
-            row_offsets: RowOffsetsAccumulator::new(),
             null_count: UnwrappedStatAccumulator::new(Stat::NullCount, "null_count".into()),
         }
     }
@@ -148,18 +138,14 @@ impl BasicAccumulator {
 
 impl MetadataAccumulator for BasicAccumulator {
     fn push_chunk(&mut self, array: &Array) -> VortexResult<()> {
-        self.row_offsets.push_chunk(array)?;
         self.null_count.push_chunk(array)
     }
 
     fn into_array(self: Box<Self>) -> VortexResult<Array> {
-        let (names, fields): (Vec<FieldName>, Vec<Array>) = [
-            self.row_offsets.into_column(),
-            self.null_count.into_column(),
-        ]
-        .into_iter()
-        .flatten()
-        .unzip();
+        let (names, fields): (Vec<FieldName>, Vec<Array>) = [self.null_count.into_column()]
+            .into_iter()
+            .flatten()
+            .unzip();
         let names = Arc::from(names);
         let n_chunks = fields[0].len();
         StructArray::try_new(names, fields, n_chunks, Validity::NonNullable)
@@ -214,34 +200,6 @@ where
     }
 }
 
-struct RowOffsetsAccumulator {
-    row_offsets: Vec<u64>,
-    n_rows: u64,
-}
-
-impl RowOffsetsAccumulator {
-    fn new() -> Self {
-        Self {
-            row_offsets: Vec::new(),
-            n_rows: 0,
-        }
-    }
-}
-
-impl SingularAccumulator for RowOffsetsAccumulator {
-    fn push_chunk(&mut self, array: &Array) -> VortexResult<()> {
-        self.row_offsets.push(self.n_rows);
-        self.n_rows += array.len() as u64;
-
-        Ok(())
-    }
-
-    fn into_column(self) -> Option<(FieldName, Array)> {
-        // intentionally excluding the last n_rows, b/c it is just the total number of rows
-        Some(("row_offsets".into(), Array::from(self.row_offsets)))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use vortex::array::{BoolArray, ConstantArray, PrimitiveArray};
@@ -270,10 +228,7 @@ mod tests {
         let struct_array =
             StructArray::try_from(Box::new(bool_accumulator).into_array().unwrap()).unwrap();
         assert_eq!(struct_array.len(), 1);
-        assert_field_names(
-            &struct_array,
-            &["row_offsets", "max", "min", "true_count", "null_count"],
-        );
+        assert_field_names(&struct_array, &["max", "min", "true_count", "null_count"]);
     }
 
     #[test]
@@ -285,7 +240,7 @@ mod tests {
         let struct_array =
             StructArray::try_from(Box::new(standard_accumulator).into_array().unwrap()).unwrap();
         assert_eq!(struct_array.len(), 1);
-        assert_field_names(&struct_array, &["row_offsets", "max", "min", "null_count"]);
+        assert_field_names(&struct_array, &["max", "min", "null_count"]);
     }
 
     #[test]
@@ -298,7 +253,7 @@ mod tests {
         let struct_array =
             StructArray::try_from(Box::new(standard_accumulator).into_array().unwrap()).unwrap();
         assert_eq!(struct_array.len(), 1);
-        assert_field_names(&struct_array, &["row_offsets", "max", "min", "null_count"]);
+        assert_field_names(&struct_array, &["max", "min", "null_count"]);
     }
 
     #[test]
@@ -310,6 +265,6 @@ mod tests {
         let struct_array =
             StructArray::try_from(Box::new(basic_accumulator).into_array().unwrap()).unwrap();
         assert_eq!(struct_array.len(), 1);
-        assert_field_names(&struct_array, &["row_offsets", "null_count"]);
+        assert_field_names(&struct_array, &["null_count"]);
     }
 }

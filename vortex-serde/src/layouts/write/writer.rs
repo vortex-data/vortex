@@ -110,10 +110,10 @@ impl<W: VortexWrite> LayoutWriter<W> {
         let mut column_layouts = Vec::with_capacity(self.column_writers.len());
         for column_writer in mem::take(&mut self.column_writers) {
             let chunk_layouts = column_writer.write_metadata(&mut self.msgs).await?;
-            column_layouts.push(Layout::chunked(chunk_layouts, true));
+            column_layouts.push(Layout::chunked(chunk_layouts, self.row_count, true));
         }
 
-        Ok(Layout::column(column_layouts))
+        Ok(Layout::column(column_layouts, self.row_count))
     }
 
     async fn write_footer(&mut self, footer: Footer) -> VortexResult<Postscript> {
@@ -163,6 +163,7 @@ async fn write_fb_raw<W: VortexWrite, F: WriteFlatBuffer>(mut writer: W, fb: F) 
 struct ColumnWriter {
     metadata: Box<dyn MetadataAccumulator>,
     batch_byte_offsets: Vec<Vec<u64>>,
+    batch_row_offsets: Vec<Vec<u64>>,
 }
 
 impl ColumnWriter {
@@ -170,6 +171,7 @@ impl ColumnWriter {
         Self {
             metadata: new_metadata_accumulator(dtype),
             batch_byte_offsets: Vec::new(),
+            batch_row_offsets: Vec::new(),
         }
     }
 
@@ -180,14 +182,27 @@ impl ColumnWriter {
     ) -> VortexResult<()> {
         let mut offsets = Vec::with_capacity(stream.size_hint().0 + 1);
         offsets.push(msgs.tell());
+        let mut row_offsets = Vec::with_capacity(stream.size_hint().0 + 1);
+        row_offsets.push(
+            self.batch_row_offsets
+                .last()
+                .and_then(|bro| bro.last())
+                .copied()
+                .unwrap_or(0),
+        );
+
+        let mut rows_written = row_offsets[0];
 
         while let Some(chunk) = stream.try_next().await? {
+            rows_written += chunk.len() as u64;
             self.metadata.push_chunk(&chunk)?;
             msgs.write_batch(chunk).await?;
             offsets.push(msgs.tell());
+            row_offsets.push(rows_written);
         }
 
         self.batch_byte_offsets.push(offsets);
+        self.batch_row_offsets.push(row_offsets);
 
         Ok(())
     }
@@ -205,20 +220,35 @@ impl ColumnWriter {
         msgs.write_batch(metadata_array).await?;
         let metadata_array_end = msgs.tell();
 
-        let data_chunks = self.batch_byte_offsets.iter().flat_map(|byte_offsets| {
-            byte_offsets
-                .iter()
-                .zip(byte_offsets.iter().skip(1))
-                .map(|(begin, end)| Layout::flat(ByteRange::new(*begin, *end)))
-        });
+        let data_chunks = self
+            .batch_byte_offsets
+            .iter()
+            .zip(self.batch_row_offsets.iter())
+            .flat_map(|(byte_offsets, row_offsets)| {
+                byte_offsets
+                    .iter()
+                    .zip(byte_offsets.iter().skip(1))
+                    .map(|(begin, end)| ByteRange::new(*begin, *end))
+                    .zip(
+                        row_offsets
+                            .iter()
+                            .zip(row_offsets.iter().skip(1))
+                            .map(|(begin, end)| end - begin),
+                    )
+                    .map(|(range, len)| Layout::flat(range, len))
+            });
 
-        let layouts: Vec<Layout> = [Layout::inlined_schema(
-            vec![Layout::flat(ByteRange::new(dtype_end, metadata_array_end))],
+        let layouts = [Layout::inlined_schema(
+            vec![Layout::flat(
+                ByteRange::new(dtype_end, metadata_array_end),
+                expected_n_data_chunks as u64,
+            )],
+            expected_n_data_chunks as u64,
             ByteRange::new(dtype_begin, dtype_end),
         )]
         .into_iter()
         .chain(data_chunks)
-        .collect();
+        .collect::<Vec<_>>();
 
         if layouts.len() != expected_n_data_chunks + 1 {
             vortex_bail!(
