@@ -108,26 +108,22 @@ impl RowSelector {
         filter(sliced, predicate).map(Some)
     }
 
-    pub fn add_offset(mut self, offset: i64) -> RowSelector {
+    pub fn with_offset(mut self, offset: usize) -> RowSelector {
         if offset == 0 {
             self
         } else {
-            let just_shift = self.begin as i64 >= offset;
+            let just_shift = self.begin >= offset;
             RowSelector::new(
                 if just_shift {
                     self.values
                 } else {
                     // Remove last N values that were trimmed by the offset. Since we know begin is 0 new len is end - offset
                     self.values
-                        .remove_range((self.end as i64 - offset) as u32..self.len() as u32);
-                    self.values.add_offset(-offset)
+                        .remove_range((self.end - offset) as u32..self.len() as u32);
+                    self.values
                 },
-                if just_shift {
-                    (self.begin as i64 - offset) as usize
-                } else {
-                    0
-                },
-                (self.end as i64 - offset) as usize,
+                if just_shift { self.begin - offset } else { 0 },
+                self.end - offset,
             )
         }
     }
