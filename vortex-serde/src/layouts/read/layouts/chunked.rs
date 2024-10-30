@@ -80,7 +80,7 @@ impl ChunkedLayout {
     fn children(&self) -> impl Iterator<Item = (usize, footer::Layout)> {
         self.flatbuffer()
             .children()
-            .unwrap_or_else(|| Vector::default())
+            .unwrap_or_else(Vector::default)
             .iter()
             .enumerate()
             .skip(if self.has_metadata() { 1 } else { 0 })
