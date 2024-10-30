@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::fmt::Debug;
 use std::sync::Arc;
 
@@ -18,7 +19,7 @@ mod selection;
 mod stream;
 
 pub use builder::LayoutReaderBuilder;
-pub use cache::LayoutMessageCache;
+pub use cache::*;
 pub use context::*;
 pub use filtering::RowFilter;
 pub use footer::LayoutDescriptorReader;
@@ -56,17 +57,11 @@ pub enum ReadResult {
     Batch(Array),
 }
 
-#[derive(Debug)]
-pub enum RangeResult {
-    ReadMore(Vec<Message>),
-    Rows(Option<RowSelector>),
-}
-
 pub trait LayoutReader: Debug + Send {
-    /// Produce sets of row ranges to read from underlying layouts.
+    /// Register all horizontal boundaries of this layout.
     ///
-    /// Empty RangeResult indicates layout is done producing ranges
-    fn next_range(&mut self) -> VortexResult<RangeResult>;
+    /// Layout should register its begging adjusted by row_offset and do so for all of its children
+    fn add_splits(&self, row_offset: usize, splits: &mut BTreeSet<usize>);
 
     /// Reads the data from the underlying layout
     ///
@@ -75,8 +70,5 @@ pub trait LayoutReader: Debug + Send {
     /// and then call back into this function.
     ///
     /// The layout is finished reading when it returns None
-    fn read_next(&mut self, selector: RowSelector) -> VortexResult<Option<ReadResult>>;
-
-    /// Advance readers to global row offset
-    fn advance(&mut self, up_to_row: usize) -> VortexResult<Vec<Message>>;
+    fn read_selection(&mut self, selector: RowSelector) -> VortexResult<Option<ReadResult>>;
 }

@@ -75,15 +75,13 @@ impl<R: VortexReadAt> LayoutReaderBuilder<R> {
             Projection::Flat(ref projection) => footer.projected_dtype(projection)?,
         };
 
-        let read_scan = Scan::new(match read_projection {
-            Projection::All => None,
-            Projection::Flat(p) => Some(Arc::new(Select::include(p))),
-        });
-
         let message_cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
 
         let data_reader = footer.layout(
-            read_scan.clone(),
+            Scan::new(match read_projection {
+                Projection::All => None,
+                Projection::Flat(p) => Some(Arc::new(Select::include(p))),
+            }),
             RelativeLayoutCache::new(message_cache.clone(), footer_dtype.clone()),
         )?;
 

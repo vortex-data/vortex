@@ -4,10 +4,10 @@ use std::fmt::{Display, Formatter};
 use arrow_buffer::{BooleanBuffer, MutableBuffer};
 use croaring::Bitmap;
 use vortex::array::BoolArray;
-use vortex::compute::filter;
+use vortex::compute::{filter, slice};
 use vortex::validity::Validity;
 use vortex::Array;
-use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_error::{vortex_err, VortexResult};
 
 /// Bitmap of selected row ranges
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -81,10 +81,6 @@ impl RowSelector {
     }
 
     pub fn filter_array(&self, array: impl AsRef<Array>) -> VortexResult<Option<Array>> {
-        if self.begin != 0 {
-            vortex_bail!("Cannot filter with selections that don't start at offset 0")
-        }
-
         let true_count = self.values.cardinality();
         if true_count == 0 {
             return Ok(None);
@@ -95,6 +91,8 @@ impl RowSelector {
         if true_count == array.len() as u64 {
             return Ok(Some(array.clone()));
         }
+
+        let sliced = slice(array, self.begin, self.end)?;
 
         let bitset = self
             .values
@@ -111,7 +109,7 @@ impl RowSelector {
             BooleanBuffer::new(buffer.into(), 0, self.len()),
             Validity::NonNullable,
         )?;
-        filter(array, predicate).map(Some)
+        filter(sliced, predicate).map(Some)
     }
 
     pub fn offset(self, offset: i64) -> RowSelector {

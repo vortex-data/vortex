@@ -1,10 +1,11 @@
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use bytes::Bytes;
 use itertools::Itertools;
 use vortex_dtype::field::Field;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexResult, VortexUnwrap};
 use vortex_expr::{Column, Select};
 use vortex_flatbuffers::footer;
 
@@ -13,8 +14,8 @@ use crate::layouts::read::cache::{LazyDeserializedDType, RelativeLayoutCache};
 use crate::layouts::read::filter_project::filter_project;
 use crate::layouts::read::selection::RowSelector;
 use crate::layouts::{
-    LayoutDeserializer, LayoutId, LayoutReader, LayoutSpec, Message, RangeResult, ReadResult,
-    RowFilter, Scan, COLUMN_LAYOUT_ID,
+    LayoutDeserializer, LayoutId, LayoutReader, LayoutSpec, ReadResult, RowFilter, Scan,
+    COLUMN_LAYOUT_ID,
 };
 
 #[derive(Debug)]
@@ -50,7 +51,6 @@ impl LayoutSpec for ColumnLayoutSpec {
 pub struct ColumnLayout {
     fb_bytes: Bytes,
     fb_loc: usize,
-    offset: usize,
     scan: Scan,
     layout_serde: LayoutDeserializer,
     message_cache: RelativeLayoutCache,
@@ -72,15 +72,42 @@ impl ColumnLayout {
             layout_serde,
             message_cache,
             reader: None,
-            offset: 0,
         }
     }
 
-    pub fn flatbuffer(&self) -> footer::Layout {
+    fn flatbuffer(&self) -> footer::Layout {
         unsafe {
             let tab = flatbuffers::Table::new(&self.fb_bytes, self.fb_loc);
             footer::Layout::init_from_table(tab)
         }
+    }
+
+    fn minimal_children(&self) -> VortexResult<Vec<Box<dyn LayoutReader>>> {
+        let fb_children = self
+            .flatbuffer()
+            .children()
+            .ok_or_else(|| vortex_err!("Missing children"))?;
+        let field_refs = self.scan_fields()?;
+        let lazy_dtype = field_refs
+            .as_ref()
+            .map(|e| self.message_cache.dtype().project(e))
+            .unwrap_or_else(|| Ok(self.message_cache.dtype().clone()))?;
+
+        field_refs
+            .unwrap_or_else(|| (0..fb_children.len()).map(Field::from).collect())
+            .into_iter()
+            .map(|field| {
+                let resolved_child = lazy_dtype.resolve_field(&field)?;
+                let child_loc = fb_children.get(resolved_child)._tab.loc();
+
+                self.layout_serde.read_layout(
+                    self.fb_bytes.clone(),
+                    child_loc,
+                    Scan::new(None),
+                    self.message_cache.unknown_dtype(resolved_child as u16),
+                )
+            })
+            .collect::<VortexResult<Vec<_>>>()
     }
 
     fn column_reader(&mut self) -> VortexResult<ColumnBatchReader> {
@@ -121,7 +148,7 @@ impl ColumnLayout {
             let handled =
                 self.scan.expr.is_none() || (self.scan.expr.is_some() && filter.is_some());
 
-            let mut child = self.layout_serde.read_layout(
+            let child = self.layout_serde.read_layout(
                 self.fb_bytes.clone(),
                 child_loc,
                 Scan::new(filter),
@@ -130,10 +157,6 @@ impl ColumnLayout {
                     Arc::new(LazyDeserializedDType::from_dtype(dtype)),
                 ),
             )?;
-
-            if self.offset != 0 {
-                child.advance(self.offset)?;
-            }
 
             if handled {
                 handled_children.push(child);
@@ -217,39 +240,25 @@ impl ColumnLayout {
 }
 
 impl LayoutReader for ColumnLayout {
-    fn next_range(&mut self) -> VortexResult<RangeResult> {
-        if let Some(r) = &mut self.reader {
-            r.next_range()
-        } else {
-            self.reader = Some(self.column_reader()?);
-            self.next_range()
+    fn add_splits(&self, row_offset: usize, splits: &mut BTreeSet<usize>) {
+        for child in self.minimal_children().vortex_unwrap() {
+            child.add_splits(row_offset, splits)
         }
     }
 
-    fn read_next(&mut self, selector: RowSelector) -> VortexResult<Option<ReadResult>> {
+    fn read_selection(&mut self, selector: RowSelector) -> VortexResult<Option<ReadResult>> {
         if let Some(r) = &mut self.reader {
-            r.read_next(selector)
+            r.read_selection(selector)
         } else {
             self.reader = Some(self.column_reader()?);
-            self.read_next(selector)
-        }
-    }
-
-    fn advance(&mut self, up_to_row: usize) -> VortexResult<Vec<Message>> {
-        if let Some(r) = &mut self.reader {
-            r.advance(up_to_row)
-        } else {
-            self.offset = up_to_row;
-            Ok(Vec::new())
+            self.read_selection(selector)
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::collections::VecDeque;
     use std::iter;
-    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, RwLock};
 
     use bytes::Bytes;
@@ -263,9 +272,7 @@ mod tests {
     use vortex_schema::projection::Projection;
 
     use crate::layouts::read::cache::{LazyDeserializedDType, RelativeLayoutCache};
-    use crate::layouts::read::layouts::test_read::{
-        filter_read_layout, read_filters, read_layout, read_layout_data, read_layout_ranges,
-    };
+    use crate::layouts::read::layouts::test_read::{filter_read_layout, read_layout};
     use crate::layouts::{
         LayoutDescriptorReader, LayoutDeserializer, LayoutMessageCache, LayoutReader, LayoutWriter,
         RowFilter, Scan,
@@ -274,7 +281,7 @@ mod tests {
     async fn layout_and_bytes(
         cache: Arc<RwLock<LayoutMessageCache>>,
         scan: Scan,
-    ) -> (Box<dyn LayoutReader>, Box<dyn LayoutReader>, Bytes) {
+    ) -> (Box<dyn LayoutReader>, Box<dyn LayoutReader>, Bytes, usize) {
         let int_array = PrimitiveArray::from((0..100).collect::<Vec<_>>()).into_array();
         let int_dtype = int_array.dtype().clone();
         let chunked = ChunkedArray::try_new(iter::repeat(int_array).take(5).collect(), int_dtype)
@@ -316,6 +323,7 @@ mod tests {
                 .layout(Scan::new(None), RelativeLayoutCache::new(cache, dtype))
                 .unwrap(),
             Bytes::from(written),
+            len,
         )
     }
 
@@ -323,7 +331,7 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     async fn read_range() {
         let cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
-        let (mut filter_layout, mut project_layout, buf) = layout_and_bytes(
+        let (mut filter_layout, mut project_layout, buf, length) = layout_and_bytes(
             cache.clone(),
             Scan::new(Some(Arc::new(RowFilter::new(Arc::new(BinaryExpr::new(
                 Arc::new(Column::new(Field::from("ints"))),
@@ -332,8 +340,14 @@ mod tests {
             )))))),
         )
         .await;
-        let arr = filter_read_layout(filter_layout.as_mut(), project_layout.as_mut(), cache, &buf)
-            .pop_front();
+        let arr = filter_read_layout(
+            filter_layout.as_mut(),
+            project_layout.as_mut(),
+            cache,
+            &buf,
+            length,
+        )
+        .pop_front();
 
         assert!(arr.is_some());
         let prim_arr = arr
@@ -369,8 +383,9 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     async fn read_range_no_filter() {
         let cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
-        let (_, mut project_layout, buf) = layout_and_bytes(cache.clone(), Scan::new(None)).await;
-        let arr = read_layout(project_layout.as_mut(), cache, &buf).pop_front();
+        let (_, mut project_layout, buf, length) =
+            layout_and_bytes(cache.clone(), Scan::new(None)).await;
+        let arr = read_layout(project_layout.as_mut(), cache, &buf, length).pop_front();
 
         assert!(arr.is_some());
         let prim_arr = arr
@@ -399,165 +414,6 @@ mod tests {
                     .collect::<Vec<_>>())
                 .unwrap(),
             iter::repeat("test text").take(100).collect::<Vec<_>>()
-        );
-    }
-
-    #[tokio::test]
-    #[cfg_attr(miri, ignore)]
-    async fn advance_read_range() {
-        let cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
-        let (mut filter_layout, mut project_layout, buf) = layout_and_bytes(
-            cache.clone(),
-            Scan::new(Some(Arc::new(RowFilter::new(Arc::new(BinaryExpr::new(
-                Arc::new(Column::new(Field::from("ints"))),
-                Operator::Gt,
-                Arc::new(Literal::new(10.into())),
-            )))))),
-        )
-        .await;
-        filter_layout.advance(50).unwrap();
-        let arr = filter_read_layout(filter_layout.as_mut(), project_layout.as_mut(), cache, &buf)
-            .pop_front();
-
-        assert!(arr.is_some());
-        let arr = arr
-            .unwrap()
-            .with_dyn(|a| a.as_struct_array_unchecked().field(0))
-            .unwrap()
-            .into_primitive()
-            .unwrap();
-        assert_eq!(
-            arr.into_primitive().unwrap().maybe_null_slice::<i32>(),
-            &(50..100).collect::<Vec<_>>()
-        );
-    }
-
-    #[tokio::test]
-    #[cfg_attr(miri, ignore)]
-    async fn advance_skipped() {
-        let cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
-        let (mut filter_layout, mut project_layout, buf) = layout_and_bytes(
-            cache.clone(),
-            Scan::new(Some(Arc::new(RowFilter::new(Arc::new(BinaryExpr::new(
-                Arc::new(Column::new(Field::from("ints"))),
-                Operator::Gt,
-                Arc::new(Literal::new(10.into())),
-            )))))),
-        )
-        .await;
-        filter_layout.advance(500).unwrap();
-        let arr = filter_read_layout(filter_layout.as_mut(), project_layout.as_mut(), cache, &buf);
-
-        assert!(arr.is_empty());
-    }
-
-    #[tokio::test]
-    #[cfg_attr(miri, ignore)]
-    async fn advance_after_filter() {
-        let cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
-        let (mut filter_layout, mut project_layout, buf) = layout_and_bytes(
-            cache.clone(),
-            Scan::new(Some(Arc::new(RowFilter::new(Arc::new(BinaryExpr::new(
-                Arc::new(Column::new(Field::from("ints"))),
-                Operator::Gt,
-                Arc::new(Literal::new(10.into())),
-            )))))),
-        )
-        .await;
-        let selectors = read_layout_ranges(filter_layout.as_mut(), cache.clone(), &buf)
-            .into_iter()
-            .flat_map(|s| read_filters(filter_layout.as_mut(), cache.clone(), &buf, s))
-            .collect::<Vec<_>>();
-
-        project_layout.advance(50).unwrap();
-        let arr = selectors
-            .into_iter()
-            .flat_map(|s| read_layout_data(project_layout.as_mut(), cache.clone(), &buf, s))
-            .collect::<Vec<_>>();
-
-        assert_eq!(
-            arr.first()
-                .unwrap()
-                .with_dyn(|a| a.as_struct_array_unchecked().field(0))
-                .unwrap()
-                .into_primitive()
-                .unwrap()
-                .maybe_null_slice::<i32>(),
-            &(50..100).collect::<Vec<_>>()
-        );
-        assert_eq!(
-            arr[4]
-                .with_dyn(|a| a.as_struct_array_unchecked().field(0))
-                .unwrap()
-                .into_primitive()
-                .unwrap()
-                .maybe_null_slice::<i32>(),
-            &(11..100).collect::<Vec<_>>()
-        );
-    }
-
-    #[tokio::test]
-    #[cfg_attr(miri, ignore)]
-    async fn advance_mid_read() {
-        let cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
-        let (mut filter_layout, mut project_layout, buf) = layout_and_bytes(
-            cache.clone(),
-            Scan::new(Some(Arc::new(RowFilter::new(Arc::new(BinaryExpr::new(
-                Arc::new(Column::new(Field::from("ints"))),
-                Operator::Gt,
-                Arc::new(Literal::new(10.into())),
-            )))))),
-        )
-        .await;
-        let selectors = read_layout_ranges(filter_layout.as_mut(), cache.clone(), &buf)
-            .into_iter()
-            .flat_map(|s| read_filters(filter_layout.as_mut(), cache.clone(), &buf, s))
-            .collect::<Vec<_>>();
-        let advanced = AtomicBool::new(false);
-        let mut arr = selectors
-            .into_iter()
-            .flat_map(|s| {
-                let a = read_layout_data(project_layout.as_mut(), cache.clone(), &buf, s);
-                if advanced
-                    .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-                    .is_ok()
-                {
-                    project_layout.advance(321).unwrap();
-                }
-                a
-            })
-            .collect::<VecDeque<_>>();
-
-        assert_eq!(arr.len(), 3);
-        assert_eq!(
-            arr.pop_front()
-                .unwrap()
-                .with_dyn(|a| a.as_struct_array_unchecked().field(0))
-                .unwrap()
-                .into_primitive()
-                .unwrap()
-                .maybe_null_slice::<i32>(),
-            &(11..100).collect::<Vec<_>>()
-        );
-        assert_eq!(
-            arr.pop_front()
-                .unwrap()
-                .with_dyn(|a| a.as_struct_array_unchecked().field(0))
-                .unwrap()
-                .into_primitive()
-                .unwrap()
-                .maybe_null_slice::<i32>(),
-            &(21..100).collect::<Vec<_>>()
-        );
-        assert_eq!(
-            arr.pop_front()
-                .unwrap()
-                .with_dyn(|a| a.as_struct_array_unchecked().field(0))
-                .unwrap()
-                .into_primitive()
-                .unwrap()
-                .maybe_null_slice::<i32>(),
-            &(11..100).collect::<Vec<_>>()
         );
     }
 }

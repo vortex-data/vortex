@@ -1,15 +1,16 @@
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use bytes::Bytes;
 use flatbuffers::root;
 use vortex_dtype::DType;
-use vortex_error::{vortex_err, VortexResult};
+use vortex_error::{vortex_err, VortexResult, VortexUnwrap};
 use vortex_flatbuffers::{footer, message};
 
 use crate::layouts::read::cache::{LazyDeserializedDType, RelativeLayoutCache};
 use crate::layouts::read::selection::RowSelector;
 use crate::layouts::{
-    LayoutDeserializer, LayoutId, LayoutReader, LayoutSpec, Message, RangeResult, ReadResult, Scan,
+    LayoutDeserializer, LayoutId, LayoutReader, LayoutSpec, Message, ReadResult, Scan,
     INLINE_SCHEMA_LAYOUT_ID,
 };
 use crate::message_reader::FLATBUFFER_SIZE_LENGTH;
@@ -45,7 +46,6 @@ impl LayoutSpec for InlineDTypeLayoutSpec {
 pub struct InlineDTypeLayout {
     fb_bytes: Bytes,
     fb_loc: usize,
-    offset: usize,
     scan: Scan,
     layout_builder: LayoutDeserializer,
     message_cache: RelativeLayoutCache,
@@ -73,7 +73,6 @@ impl InlineDTypeLayout {
         Self {
             fb_bytes,
             fb_loc,
-            offset: 0,
             scan,
             layout_builder,
             message_cache,
@@ -124,16 +123,13 @@ impl InlineDTypeLayout {
                     .ok_or_else(|| vortex_err!("No children"))?
                     .get(0);
 
-                let mut child_layout = self.layout_builder.read_layout(
+                let child_layout = self.layout_builder.read_layout(
                     self.fb_bytes.clone(),
                     layout._tab.loc(),
                     self.scan.clone(),
                     self.message_cache
                         .relative(1u16, Arc::new(LazyDeserializedDType::from_dtype(d))),
                 )?;
-                if self.offset != 0 {
-                    child_layout.advance(self.offset)?;
-                }
                 Ok(ChildReaderResult::Reader(child_layout))
             }
         }
@@ -141,40 +137,37 @@ impl InlineDTypeLayout {
 }
 
 impl LayoutReader for InlineDTypeLayout {
-    fn next_range(&mut self) -> VortexResult<RangeResult> {
-        if let Some(cr) = self.child_layout.as_mut() {
-            cr.next_range()
-        } else {
-            match self.child_reader()? {
-                ChildReaderResult::ReadMore(rm) => Ok(RangeResult::ReadMore(rm)),
-                ChildReaderResult::Reader(r) => {
-                    self.child_layout = Some(r);
-                    self.next_range()
-                }
-            }
-        }
+    fn add_splits(&self, row_offset: usize, splits: &mut BTreeSet<usize>) {
+        let layout = self
+            .flatbuffer()
+            .children()
+            .ok_or_else(|| vortex_err!("No children"))
+            .vortex_unwrap()
+            .get(0);
+
+        let child_layout = self
+            .layout_builder
+            .read_layout(
+                self.fb_bytes.clone(),
+                layout._tab.loc(),
+                Scan::new(None),
+                self.message_cache.unknown_dtype(1u16),
+            )
+            .vortex_unwrap();
+        child_layout.add_splits(row_offset, splits)
     }
 
-    fn read_next(&mut self, selector: RowSelector) -> VortexResult<Option<ReadResult>> {
+    fn read_selection(&mut self, selector: RowSelector) -> VortexResult<Option<ReadResult>> {
         if let Some(cr) = self.child_layout.as_mut() {
-            cr.read_next(selector)
+            cr.read_selection(selector)
         } else {
             match self.child_reader()? {
                 ChildReaderResult::ReadMore(rm) => Ok(Some(ReadResult::ReadMore(rm))),
                 ChildReaderResult::Reader(r) => {
                     self.child_layout = Some(r);
-                    self.read_next(selector)
+                    self.read_selection(selector)
                 }
             }
-        }
-    }
-
-    fn advance(&mut self, up_to_row: usize) -> VortexResult<Vec<Message>> {
-        if let Some(cr) = self.child_layout.as_mut() {
-            cr.advance(up_to_row)
-        } else {
-            self.offset = up_to_row;
-            Ok(vec![])
         }
     }
 }

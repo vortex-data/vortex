@@ -19,6 +19,12 @@ pub struct LayoutMessageCache {
 }
 
 impl LayoutMessageCache {
+    pub fn new() -> Self {
+        Self {
+            cache: HashMap::new(),
+        }
+    }
+
     pub fn get(&self, path: &[LayoutPartId]) -> Option<Bytes> {
         self.cache.get(path).cloned()
     }
@@ -158,7 +164,7 @@ impl RelativeLayoutCache {
         }
     }
 
-    pub fn stored_dtype(&self, id: LayoutPartId) -> Self {
+    pub fn unknown_dtype(&self, id: LayoutPartId) -> Self {
         let mut new_path = self.path.clone();
         new_path.push(id);
         Self {

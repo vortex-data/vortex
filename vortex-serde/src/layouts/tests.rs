@@ -1,5 +1,6 @@
+use std::collections::BTreeSet;
 use std::iter;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use futures::StreamExt;
 use vortex::accessor::ArrayAccessor;
@@ -14,7 +15,8 @@ use vortex_expr::{BinaryExpr, Column, Literal, Operator};
 
 use crate::layouts::write::LayoutWriter;
 use crate::layouts::{
-    LayoutDeserializer, LayoutReaderBuilder, Projection, RowFilter, CHUNKED_LAYOUT_ID,
+    LayoutDescriptorReader, LayoutDeserializer, LayoutMessageCache, LayoutReaderBuilder,
+    LazyDeserializedDType, Projection, RelativeLayoutCache, RowFilter, Scan, CHUNKED_LAYOUT_ID,
     COLUMN_LAYOUT_ID, EOF_SIZE, FLAT_LAYOUT_ID, FOOTER_POSTSCRIPT_SIZE, INLINE_SCHEMA_LAYOUT_ID,
     MAGIC_BYTES, VERSION,
 };
@@ -71,6 +73,55 @@ async fn test_read_simple() {
 
     assert_eq!(batch_count, 2);
     assert_eq!(row_count, 8);
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_splits() {
+    let strings = ChunkedArray::from_iter([
+        VarBinArray::from(vec!["ab", "foo", "baz"]).into_array(),
+        VarBinArray::from(vec!["ab", "foo"]).into_array(),
+        VarBinArray::from(vec!["ab", "foo", "bar"]).into_array(),
+    ])
+    .into_array();
+
+    let numbers = ChunkedArray::from_iter([
+        PrimitiveArray::from(vec![1u32, 2, 3]).into_array(),
+        PrimitiveArray::from(vec![4u32, 5, 6]).into_array(),
+        PrimitiveArray::from(vec![7u32, 8]).into_array(),
+    ])
+    .into_array();
+
+    let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
+    let len = st.len();
+    let buf = Vec::new();
+    let mut writer = LayoutWriter::new(buf);
+    writer = writer.write_array_columns(st.into_array()).await.unwrap();
+    let written = writer.finalize().await.unwrap();
+
+    let footer = LayoutDescriptorReader::new(LayoutDeserializer::default())
+        .read_footer(&written, written.len() as u64)
+        .await
+        .unwrap();
+
+    let dtype = Arc::new(LazyDeserializedDType::from_bytes(
+        footer.dtype_bytes().unwrap(),
+        Projection::All,
+    ));
+
+    let cache = Arc::new(RwLock::new(LayoutMessageCache::new()));
+
+    let layout_reader = footer
+        .layout(
+            Scan::new(None),
+            RelativeLayoutCache::new(cache.clone(), dtype.clone()),
+        )
+        .unwrap();
+
+    let mut splits = BTreeSet::new();
+    layout_reader.add_splits(0, &mut splits);
+    splits.insert(len);
+    assert_eq!(splits, BTreeSet::from([0, 3, 5, 6, 8]));
 }
 
 #[tokio::test]

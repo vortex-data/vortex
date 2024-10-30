@@ -3,167 +3,79 @@ use std::mem;
 
 use croaring::Bitmap;
 use vortex::array::ChunkedArray;
-use vortex::compute::slice;
 use vortex::{Array, ArrayDType, IntoArray};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::VortexResult;
 
 use crate::layouts::read::selection::RowSelector;
 use crate::layouts::read::{LayoutReader, ReadResult};
-use crate::layouts::{Message, RangeResult};
+use crate::layouts::Message;
 
 pub type RangedLayoutReader = ((usize, usize), Box<dyn LayoutReader>);
-pub type RangedArray = ((usize, usize), Array);
 
 #[derive(Debug)]
 pub struct BufferedLayoutReader {
     layouts: VecDeque<RangedLayoutReader>,
-    arrays: VecDeque<RangedArray>,
-    next_range_offset: usize,
+    arrays: Vec<Array>,
 }
 
 impl BufferedLayoutReader {
     pub fn new(layouts: VecDeque<RangedLayoutReader>) -> Self {
         Self {
             layouts,
-            arrays: VecDeque::new(),
-            next_range_offset: 0,
+            arrays: Vec::new(),
         }
     }
 
-    fn is_empty(&self) -> bool {
-        self.layouts.is_empty() && self.arrays.is_empty()
-    }
-
-    pub fn next_range(&mut self) -> VortexResult<RangeResult> {
-        if self.next_range_offset == self.layouts.len() {
-            return Ok(RangeResult::Rows(None));
-        }
-
-        match self.layouts[self.next_range_offset].1.next_range()? {
-            RangeResult::ReadMore(m) => Ok(RangeResult::ReadMore(m)),
-            RangeResult::Rows(r) => match r {
-                None => {
-                    self.next_range_offset += 1;
-                    self.next_range()
-                }
-                Some(rs) => {
-                    // Get the range for the layout we queried
-                    let layout_range = self.layouts[self.next_range_offset].0;
-                    let offset = rs.offset(-(layout_range.0 as i64));
-                    if offset.end() == layout_range.1 {
-                        self.next_range_offset += 1;
+    fn buffer_read(&mut self, selection: RowSelector) -> VortexResult<Option<Vec<Message>>> {
+        while let Some(((begin, end), mut layout)) = self.layouts.pop_front() {
+            // This selection doesn't know about rows in this chunk, we should put it back and wait for another request with different range
+            if selection.end() <= begin || selection.begin() > end {
+                self.layouts.push_front(((begin, end), layout));
+                return Ok(None);
+            }
+            let layout_selection =
+                RowSelector::new(Bitmap::from_range(begin as u32..end as u32), begin, end)
+                    .intersect(&selection)
+                    .offset(begin as i64);
+            if let Some(rr) = layout.read_selection(layout_selection)? {
+                match rr {
+                    ReadResult::ReadMore(m) => {
+                        self.layouts.push_front(((begin, end), layout));
+                        return Ok(Some(m));
                     }
-                    Ok(RangeResult::Rows(Some(offset)))
+                    ReadResult::Batch(a) => {
+                        self.arrays.push(a);
+                        if end > selection.end() {
+                            self.layouts.push_front(((begin, end), layout));
+                            return Ok(None);
+                        }
+                    }
                 }
-            },
+            } else {
+                if end > selection.end() && begin < selection.end() {
+                    self.layouts.push_front(((begin, end), layout));
+                    return Ok(None);
+                }
+                continue;
+            }
         }
+        Ok(None)
     }
 
     pub fn read_next(&mut self, selection: RowSelector) -> VortexResult<Option<ReadResult>> {
-        if self.is_empty() {
-            return Ok(None);
+        if let Some(bufs) = self.buffer_read(selection)? {
+            return Ok(Some(ReadResult::ReadMore(bufs)));
         }
-
-        if let Some(rr) = buffer_read(&mut self.layouts, selection, |range, read| match read {
-            ReadResult::ReadMore(_) => unreachable!("Handled by outside closure"),
-            ReadResult::Batch(a) => self.arrays.push_back((range, a)),
-        })? {
-            match rr {
-                read_more @ ReadResult::ReadMore(..) => return Ok(Some(read_more)),
-                ReadResult::Batch(_) => {
-                    unreachable!("Buffer should only produce ReadMore")
-                }
-            }
-        }
-        self.next_range_offset = 0;
 
         let mut result = mem::take(&mut self.arrays);
         match result.len() {
-            0 | 1 => Ok(result.pop_front().map(|(_, a)| a).map(ReadResult::Batch)),
+            0 | 1 => Ok(result.pop().map(ReadResult::Batch)),
             _ => {
-                let dtype = result[0].1.dtype().clone();
+                let dtype = result[0].dtype().clone();
                 Ok(Some(ReadResult::Batch(
-                    ChunkedArray::try_new(result.into_iter().map(|(_, a)| a).collect(), dtype)?
-                        .into_array(),
+                    ChunkedArray::try_new(result, dtype)?.into_array(),
                 )))
             }
         }
     }
-
-    pub fn advance(&mut self, up_to_row: usize) -> VortexResult<Vec<Message>> {
-        if self
-            .arrays
-            .front()
-            .map(|((begin, _), _)| up_to_row < *begin)
-            .or_else(|| {
-                self.layouts
-                    .front()
-                    .map(|((begin, _), _)| up_to_row < *begin)
-            })
-            .unwrap_or(false)
-        {
-            vortex_bail!("Can't advance backwards {up_to_row}")
-        }
-
-        let mut new_arrays = mem::take(&mut self.arrays)
-            .into_iter()
-            .skip_while(|((_, end), _)| *end < up_to_row)
-            .collect::<VecDeque<_>>();
-        if let Some(((begin, end), carr)) = new_arrays.pop_front() {
-            let slice_end = carr.len();
-            let sliced = slice(carr, slice_end - (end - up_to_row), slice_end)?;
-
-            new_arrays.push_front(((begin, end), sliced));
-        };
-        self.arrays = new_arrays;
-
-        let mut new_layouts = mem::take(&mut self.layouts)
-            .into_iter()
-            .skip_while(|((_, end), _)| *end < up_to_row)
-            .collect::<VecDeque<_>>();
-        let res = if let Some(((begin, end), mut l)) = new_layouts.pop_front() {
-            let advance = l.advance(up_to_row - begin);
-            new_layouts.push_front(((begin, end), l));
-            advance
-        } else {
-            Ok(vec![])
-        };
-        self.next_range_offset = 0;
-        self.layouts = new_layouts;
-        res
-    }
-}
-
-fn buffer_read<F: FnMut((usize, usize), ReadResult)>(
-    layouts: &mut VecDeque<RangedLayoutReader>,
-    selection: RowSelector,
-    mut consumer: F,
-) -> VortexResult<Option<ReadResult>> {
-    while let Some(((begin, end), mut layout)) = layouts.pop_front() {
-        // This selection doesn't know about rows in this chunk, we should put it back and wait for another request with different range
-        if selection.end() <= begin || selection.begin() > end {
-            layouts.push_front(((begin, end), layout));
-            return Ok(None);
-        }
-        let layout_selection =
-            RowSelector::new(Bitmap::from_range(begin as u32..end as u32), begin, end)
-                .intersect(&selection)
-                .offset(begin as i64);
-        if let Some(rr) = layout.read_next(layout_selection)? {
-            layouts.push_front(((begin, end), layout));
-            match rr {
-                read_more @ ReadResult::ReadMore(..) => {
-                    return Ok(Some(read_more));
-                }
-                ReadResult::Batch(a) => consumer((begin, end), ReadResult::Batch(a)),
-            }
-        } else {
-            if end > selection.end() && begin < selection.end() {
-                layouts.push_front(((begin, end), layout));
-                return Ok(None);
-            }
-            continue;
-        }
-    }
-    Ok(None)
 }

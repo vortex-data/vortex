@@ -1,11 +1,14 @@
+use std::collections::{BTreeSet, VecDeque};
 use std::pin::Pin;
 use std::sync::{Arc, RwLock};
 use std::task::{ready, Context, Poll};
 
 use bytes::{Bytes, BytesMut};
+use croaring::Bitmap;
 use futures::Stream;
 use futures_util::future::BoxFuture;
 use futures_util::{stream, FutureExt, StreamExt, TryStreamExt};
+use itertools::Itertools;
 use vortex::array::ChunkedArray;
 use vortex::Array;
 use vortex_dtype::DType;
@@ -16,7 +19,6 @@ use crate::io::VortexReadAt;
 use crate::layouts::read::cache::LayoutMessageCache;
 use crate::layouts::read::selection::RowSelector;
 use crate::layouts::read::{LayoutReader, MessageId, ReadResult};
-use crate::layouts::RangeResult;
 use crate::stream_writer::ByteRange;
 
 pub struct LayoutBatchStream<R> {
@@ -26,6 +28,7 @@ pub struct LayoutBatchStream<R> {
     layout_reader: Box<dyn LayoutReader>,
     filter_reader: Option<Box<dyn LayoutReader>>,
     messages_cache: Arc<RwLock<LayoutMessageCache>>,
+    splits: VecDeque<(usize, usize)>,
     current_selector: Option<RowSelector>,
     state: StreamingState<R>,
 }
@@ -46,8 +49,9 @@ impl<R: VortexReadAt> LayoutBatchStream<R> {
             layout_reader,
             filter_reader,
             messages_cache,
+            splits: VecDeque::new(),
             current_selector: None,
-            state: StreamingState::Init,
+            state: StreamingState::AddSplits,
         }
     }
 
@@ -68,18 +72,12 @@ impl<R: VortexReadAt> LayoutBatchStream<R> {
 
 type StreamStateFuture<R> = BoxFuture<'static, VortexResult<(R, Vec<(MessageId, Bytes)>)>>;
 
-#[derive(Debug, Clone, Copy)]
-enum NextStreamState {
-    Init,
-    Filter(bool),
-    Read(bool),
-}
-
 enum StreamingState<R> {
-    Init,
-    Filter(bool),
-    Read(bool),
-    Reading(StreamStateFuture<R>, NextStreamState),
+    AddSplits,
+    NextSplit,
+    Filter,
+    Read,
+    Reading(StreamStateFuture<R>, bool),
     Error,
 }
 
@@ -89,64 +87,30 @@ impl<R: VortexReadAt + Unpin + 'static> Stream for LayoutBatchStream<R> {
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         loop {
             match &mut self.state {
-                StreamingState::Init => {
-                    let next_range = self
-                        .filter_reader
-                        .as_mut()
-                        .map(|fr| fr.next_range())
-                        .unwrap_or_else(|| self.layout_reader.as_mut().next_range())?;
-                    match next_range {
-                        RangeResult::ReadMore(messages) => {
-                            let reader = self.input.take().ok_or_else(|| {
-                                vortex_err!("Invalid state transition - reader dropped")
-                            })?;
-                            let read_future = read_ranges(reader, messages).boxed();
-                            self.state =
-                                StreamingState::Reading(read_future, NextStreamState::Init);
-                        }
-                        RangeResult::Rows(rs) => {
-                            if let Some(s) = rs {
-                                let read_more = s.end() as u64 != self.row_count;
-                                self.current_selector = Some(s);
-                                self.state = if self.filter_reader.is_some() {
-                                    StreamingState::Filter(read_more)
-                                } else {
-                                    StreamingState::Read(read_more)
-                                };
-                            } else {
-                                return Poll::Ready(None);
-                            }
-                        }
-                    }
-                }
-                StreamingState::Read(read_more) => {
-                    let read_more = *read_more;
+                StreamingState::Read => {
                     let selector = self
                         .current_selector
                         .clone()
                         .vortex_expect("Must have asked for range");
-                    if let Some(read) = self.layout_reader.read_next(selector)? {
+                    if let Some(read) = self.layout_reader.read_selection(selector)? {
                         match read {
                             ReadResult::ReadMore(messages) => {
                                 let reader = self.input.take().ok_or_else(|| {
                                     vortex_err!("Invalid state transition - reader dropped")
                                 })?;
                                 let read_future = read_ranges(reader, messages).boxed();
-                                self.state = StreamingState::Reading(
-                                    read_future,
-                                    NextStreamState::Read(read_more),
-                                );
+                                self.state = StreamingState::Reading(read_future, false);
                             }
-                            ReadResult::Batch(a) => return Poll::Ready(Some(Ok(a))),
+                            ReadResult::Batch(a) => {
+                                self.state = StreamingState::NextSplit;
+                                return Poll::Ready(Some(Ok(a)));
+                            }
                         }
-                    } else if read_more {
-                        self.state = StreamingState::Init;
                     } else {
-                        return Poll::Ready(None);
+                        self.state = StreamingState::NextSplit;
                     }
                 }
-                StreamingState::Filter(read_more) => {
-                    let read_more = *read_more;
+                StreamingState::Filter => {
                     let selector = self
                         .current_selector
                         .clone()
@@ -157,7 +121,7 @@ impl<R: VortexReadAt + Unpin + 'static> Stream for LayoutBatchStream<R> {
                         .filter_reader
                         .as_mut()
                         .vortex_expect("Can't filter without reader")
-                        .read_next(selector)?
+                        .read_selection(selector)?
                     {
                         match fr {
                             ReadResult::ReadMore(messages) => {
@@ -165,31 +129,28 @@ impl<R: VortexReadAt + Unpin + 'static> Stream for LayoutBatchStream<R> {
                                     vortex_err!("Invalid state transition - reader dropped")
                                 })?;
                                 let read_future = read_ranges(reader, messages).boxed();
-                                self.state = StreamingState::Reading(
-                                    read_future,
-                                    NextStreamState::Filter(read_more),
-                                );
+                                self.state = StreamingState::Reading(read_future, true);
                             }
                             ReadResult::Batch(b) => {
                                 self.current_selector =
                                     Some(RowSelector::from_array(&b, sel_begin, sel_end)?);
-                                self.state = StreamingState::Read(true);
+                                self.state = StreamingState::Read;
                             }
                         }
                     } else {
-                        self.state = StreamingState::Init;
+                        self.state = StreamingState::NextSplit;
                     }
                 }
-                StreamingState::Reading(f, next_state) => match ready!(f.poll_unpin(cx)) {
+                StreamingState::Reading(f, filter_more) => match ready!(f.poll_unpin(cx)) {
                     Ok((input, messages)) => {
-                        let next_state = *next_state;
+                        let filter_more = *filter_more;
                         self.store_messages(messages);
                         self.input = Some(input);
 
-                        self.state = match next_state {
-                            NextStreamState::Init => StreamingState::Init,
-                            NextStreamState::Filter(rm) => StreamingState::Filter(rm),
-                            NextStreamState::Read(rm) => StreamingState::Read(rm),
+                        self.state = if filter_more {
+                            StreamingState::Filter
+                        } else {
+                            StreamingState::Read
                         };
                     }
                     Err(e) => {
@@ -197,6 +158,32 @@ impl<R: VortexReadAt + Unpin + 'static> Stream for LayoutBatchStream<R> {
                         return Poll::Ready(Some(Err(e)));
                     }
                 },
+                StreamingState::AddSplits => {
+                    let mut splits = BTreeSet::new();
+                    splits.insert(self.row_count as usize);
+                    self.filter_reader
+                        .as_mut()
+                        .map(|fr| fr.add_splits(0, &mut splits))
+                        .unwrap_or_else(|| self.layout_reader.as_mut().add_splits(0, &mut splits));
+                    self.splits
+                        .extend(splits.into_iter().tuple_windows::<(usize, usize)>());
+                    self.state = StreamingState::NextSplit;
+                }
+                StreamingState::NextSplit => {
+                    self.current_selector = self.splits.pop_front().map(|(begin, end)| {
+                        RowSelector::new(Bitmap::from_range(begin as u32..end as u32), 0, end)
+                    });
+
+                    if self.current_selector.is_none() {
+                        return Poll::Ready(None);
+                    }
+
+                    self.state = if self.filter_reader.is_some() {
+                        StreamingState::Filter
+                    } else {
+                        StreamingState::Read
+                    };
+                }
                 StreamingState::Error => return Poll::Ready(None),
             }
         }

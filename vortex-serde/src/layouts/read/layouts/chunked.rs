@@ -1,16 +1,15 @@
-use std::collections::VecDeque;
+use std::collections::{BTreeSet, VecDeque};
 
 use bytes::Bytes;
 use itertools::Itertools;
-use vortex_error::{vortex_err, VortexResult};
+use vortex_error::{vortex_err, VortexResult, VortexUnwrap};
 use vortex_flatbuffers::footer;
 
 use crate::layouts::read::buffered::{BufferedLayoutReader, RangedLayoutReader};
 use crate::layouts::read::cache::RelativeLayoutCache;
 use crate::layouts::read::selection::RowSelector;
 use crate::layouts::{
-    LayoutDeserializer, LayoutId, LayoutReader, LayoutSpec, Message, RangeResult, ReadResult, Scan,
-    CHUNKED_LAYOUT_ID,
+    LayoutDeserializer, LayoutId, LayoutReader, LayoutSpec, ReadResult, Scan, CHUNKED_LAYOUT_ID,
 };
 #[derive(Default, Debug)]
 pub struct ChunkedLayoutSpec;
@@ -46,7 +45,6 @@ impl LayoutSpec for ChunkedLayoutSpec {
 pub struct ChunkedLayout {
     fb_bytes: Bytes,
     fb_loc: usize,
-    offset: usize,
     scan: Scan,
     layout_builder: LayoutDeserializer,
     message_cache: RelativeLayoutCache,
@@ -64,7 +62,6 @@ impl ChunkedLayout {
         Self {
             fb_bytes,
             fb_loc,
-            offset: 0,
             scan,
             layout_builder,
             message_cache,
@@ -96,7 +93,6 @@ impl ChunkedLayout {
     }
 
     fn ranged_children(&self) -> VortexResult<VecDeque<RangedLayoutReader>> {
-        let dtype = self.message_cache.dtype();
         self.flatbuffer()
             .children()
             .ok_or_else(|| vortex_err!("Missing children"))?
@@ -105,20 +101,39 @@ impl ChunkedLayout {
             // Skip over the metadata table of this layout
             .skip(if self.has_metadata() { 1 } else { 0 })
             .zip_eq(self.child_ranges()?)
-            .skip_while(|(_, (_, end))| *end < self.offset)
             .map(|((i, c), (begin, end))| {
-                let mut layout = self.layout_builder.read_layout(
+                let layout = self.layout_builder.read_layout(
                     self.fb_bytes.clone(),
                     c._tab.loc(),
                     self.scan.clone(),
-                    self.message_cache.relative(i as u16, dtype.clone()),
+                    self.message_cache
+                        .relative(i as u16, self.message_cache.dtype().clone()),
                 )?;
-                if self.offset > begin {
-                    layout.advance(self.offset - begin)?;
-                }
                 Ok(((begin, end), layout))
             })
             .collect::<VortexResult<VecDeque<_>>>()
+    }
+
+    fn metadat_only_children(&self) -> VortexResult<Vec<RangedLayoutReader>> {
+        self.flatbuffer()
+            .children()
+            .ok_or_else(|| vortex_err!("Missing children"))?
+            .iter()
+            .enumerate()
+            // Skip over the metadata table of this layout
+            .skip(if self.has_metadata() { 1 } else { 0 })
+            .zip_eq(self.child_ranges()?)
+            .map(|((i, c), (begin, end))| {
+                let layout = self.layout_builder.read_layout(
+                    self.fb_bytes.clone(),
+                    c._tab.loc(),
+                    self.scan.clone(),
+                    self.message_cache.unknown_dtype(i as u16),
+                )?;
+
+                Ok(((begin, end), layout))
+            })
+            .collect::<VortexResult<Vec<_>>>()
     }
 
     fn has_metadata(&self) -> bool {
@@ -130,30 +145,18 @@ impl ChunkedLayout {
 }
 
 impl LayoutReader for ChunkedLayout {
-    fn next_range(&mut self) -> VortexResult<RangeResult> {
-        if let Some(br) = &mut self.chunk_reader {
-            br.next_range()
-        } else {
-            self.chunk_reader = Some(BufferedLayoutReader::new(self.ranged_children()?));
-            self.next_range()
+    fn add_splits(&self, row_offset: usize, splits: &mut BTreeSet<usize>) {
+        for ((begin, _), child) in self.metadat_only_children().vortex_unwrap() {
+            child.add_splits(row_offset + begin, splits)
         }
     }
 
-    fn read_next(&mut self, selector: RowSelector) -> VortexResult<Option<ReadResult>> {
+    fn read_selection(&mut self, selector: RowSelector) -> VortexResult<Option<ReadResult>> {
         if let Some(br) = &mut self.chunk_reader {
             br.read_next(selector)
         } else {
             self.chunk_reader = Some(BufferedLayoutReader::new(self.ranged_children()?));
-            self.read_next(selector)
-        }
-    }
-
-    fn advance(&mut self, up_to_row: usize) -> VortexResult<Vec<Message>> {
-        if let Some(br) = &mut self.chunk_reader {
-            br.advance(up_to_row)
-        } else {
-            self.offset = up_to_row;
-            Ok(Vec::new())
+            self.read_selection(selector)
         }
     }
 }
@@ -162,7 +165,6 @@ impl LayoutReader for ChunkedLayout {
 mod tests {
     use std::collections::VecDeque;
     use std::iter;
-    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, RwLock};
 
     use bytes::Bytes;
@@ -178,25 +180,23 @@ mod tests {
     use crate::layouts::read::cache::{LazyDeserializedDType, RelativeLayoutCache};
     use crate::layouts::read::layouts::chunked::ChunkedLayout;
     use crate::layouts::read::layouts::test_read::{
-        filter_read_layout, read_filters, read_layout, read_layout_data, read_layout_ranges,
+        filter_read_layout, read_layout, read_layout_data,
     };
     use crate::layouts::read::selection::RowSelector;
-    use crate::layouts::{
-        write, LayoutDeserializer, LayoutMessageCache, LayoutReader, RowFilter, Scan,
-    };
+    use crate::layouts::{write, LayoutDeserializer, LayoutMessageCache, RowFilter, Scan};
     use crate::message_writer::MessageWriter;
     use crate::stream_writer::ByteRange;
 
     async fn layout_and_bytes(
         cache: Arc<RwLock<LayoutMessageCache>>,
         scan: Scan,
-    ) -> (ChunkedLayout, ChunkedLayout, Bytes) {
+    ) -> (ChunkedLayout, ChunkedLayout, Bytes, usize) {
         let mut writer = MessageWriter::new(Vec::new());
         let array = PrimitiveArray::from((0..100).collect::<Vec<_>>()).into_array();
         let array_dtype = array.dtype().clone();
         let chunked =
             ChunkedArray::try_new(iter::repeat(array).take(5).collect(), array_dtype).unwrap();
-        let len = chunked.len() as u64;
+        let len = chunked.len();
         let mut byte_offsets = vec![writer.tell()];
         let mut row_offsets = vec![0];
         let mut row_offset = 0;
@@ -225,7 +225,7 @@ mod tests {
         let written = writer.into_inner();
 
         let mut fb = FlatBufferBuilder::new();
-        let chunked_layout = write::Layout::chunked(flat_layouts.into(), len, false);
+        let chunked_layout = write::Layout::chunked(flat_layouts.into(), len as u64, false);
         let flat_buf = chunked_layout.write_flatbuffer(&mut fb);
         fb.finish_minimal(flat_buf);
         let fb_bytes = Bytes::copy_from_slice(fb.finished_data());
@@ -251,6 +251,7 @@ mod tests {
                 RelativeLayoutCache::new(cache, dtype),
             ),
             Bytes::from(written),
+            len,
         )
     }
 
@@ -258,7 +259,7 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     async fn read_range() {
         let cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
-        let (mut filter_layout, mut projection_layout, buf) = layout_and_bytes(
+        let (mut filter_layout, mut projection_layout, buf, length) = layout_and_bytes(
             cache.clone(),
             Scan::new(Some(Arc::new(RowFilter::new(Arc::new(BinaryExpr::new(
                 Arc::new(Identity),
@@ -267,8 +268,14 @@ mod tests {
             )))))),
         )
         .await;
-        let arr =
-            filter_read_layout(&mut filter_layout, &mut projection_layout, cache, &buf).pop_front();
+        let arr = filter_read_layout(
+            &mut filter_layout,
+            &mut projection_layout,
+            cache,
+            &buf,
+            length,
+        )
+        .pop_front();
 
         assert!(arr.is_some());
         let arr = arr.unwrap();
@@ -282,9 +289,9 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     async fn read_range_no_filter() {
         let cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
-        let (_, mut projection_layout, buf) =
+        let (_, mut projection_layout, buf, length) =
             layout_and_bytes(cache.clone(), Scan::new(None)).await;
-        let arr = read_layout(&mut projection_layout, cache, &buf).pop_front();
+        let arr = read_layout(&mut projection_layout, cache, &buf, length).pop_front();
 
         assert!(arr.is_some());
         let arr = arr.unwrap();
@@ -298,15 +305,14 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     async fn read_no_range() {
         let cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
-        let (_, mut projection_layout, buf) =
+        let (_, mut projection_layout, buf, _) =
             layout_and_bytes(cache.clone(), Scan::new(None)).await;
         let arr = read_layout_data(
             &mut projection_layout,
             cache,
             &buf,
             RowSelector::new(Bitmap::from_range(0..500), 0, 500),
-        )
-        .pop();
+        );
 
         assert!(arr.is_some());
         let arr = arr.unwrap();
@@ -318,53 +324,9 @@ mod tests {
 
     #[tokio::test]
     #[cfg_attr(miri, ignore)]
-    async fn advance_read_range() {
-        let cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
-        let (mut filter_layout, mut projection_layout, buf) = layout_and_bytes(
-            cache.clone(),
-            Scan::new(Some(Arc::new(RowFilter::new(Arc::new(BinaryExpr::new(
-                Arc::new(Identity),
-                Operator::Gt,
-                Arc::new(Literal::new(10.into())),
-            )))))),
-        )
-        .await;
-        filter_layout.advance(50).unwrap();
-        let arr =
-            filter_read_layout(&mut filter_layout, &mut projection_layout, cache, &buf).pop_front();
-
-        assert!(arr.is_some());
-        let arr = arr.unwrap();
-        assert_eq!(
-            arr.into_primitive().unwrap().maybe_null_slice::<i32>(),
-            &(50..100).collect::<Vec<_>>()
-        );
-    }
-
-    #[tokio::test]
-    #[cfg_attr(miri, ignore)]
-    async fn advance_skipped() {
-        let cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
-        let (mut filter_layout, mut projection_layout, buf) = layout_and_bytes(
-            cache.clone(),
-            Scan::new(Some(Arc::new(RowFilter::new(Arc::new(BinaryExpr::new(
-                Arc::new(Identity),
-                Operator::Gt,
-                Arc::new(Literal::new(10.into())),
-            )))))),
-        )
-        .await;
-        filter_layout.advance(500).unwrap();
-        let arr = filter_read_layout(&mut filter_layout, &mut projection_layout, cache, &buf);
-
-        assert!(arr.is_empty());
-    }
-
-    #[tokio::test]
-    #[cfg_attr(miri, ignore)]
     async fn read_multiple_selectors() {
         let cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
-        let (_, mut projection_layout, buf) =
+        let (_, mut projection_layout, buf, _) =
             layout_and_bytes(cache.clone(), Scan::new(None)).await;
         let mut arr = [
             RowSelector::new(Bitmap::from_range(0..150), 0, 200),
@@ -399,108 +361,6 @@ mod tests {
                 .unwrap()
                 .maybe_null_slice::<i32>(),
             &(0..100).collect::<Vec<_>>()
-        );
-    }
-
-    #[tokio::test]
-    #[cfg_attr(miri, ignore)]
-    async fn advance_after_filter() {
-        let cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
-        let (mut filter_layout, mut projection_layout, buf) = layout_and_bytes(
-            cache.clone(),
-            Scan::new(Some(Arc::new(RowFilter::new(Arc::new(BinaryExpr::new(
-                Arc::new(Identity),
-                Operator::Gt,
-                Arc::new(Literal::new(10.into())),
-            )))))),
-        )
-        .await;
-        let selector = read_layout_ranges(&mut filter_layout, cache.clone(), &buf)
-            .into_iter()
-            .flat_map(|s| read_filters(&mut filter_layout, cache.clone(), &buf, s))
-            .collect::<Vec<_>>();
-
-        projection_layout.advance(50).unwrap();
-        let mut arr = selector
-            .into_iter()
-            .flat_map(|s| read_layout_data(&mut projection_layout, cache.clone(), &buf, s))
-            .collect::<VecDeque<_>>();
-
-        assert_eq!(arr.len(), 5);
-        assert_eq!(
-            arr.pop_front()
-                .unwrap()
-                .into_primitive()
-                .unwrap()
-                .maybe_null_slice::<i32>(),
-            &(50..100).collect::<Vec<_>>()
-        );
-        assert_eq!(
-            arr[3]
-                .clone()
-                .into_primitive()
-                .unwrap()
-                .maybe_null_slice::<i32>(),
-            &(11..100).collect::<Vec<_>>()
-        );
-    }
-
-    #[tokio::test]
-    #[cfg_attr(miri, ignore)]
-    async fn advance_mid_read() {
-        let cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
-        let (mut filter_layout, mut projection_layout, buf) = layout_and_bytes(
-            cache.clone(),
-            Scan::new(Some(Arc::new(RowFilter::new(Arc::new(BinaryExpr::new(
-                Arc::new(Identity),
-                Operator::Gt,
-                Arc::new(Literal::new(10.into())),
-            )))))),
-        )
-        .await;
-        let selectors = read_layout_ranges(&mut filter_layout, cache.clone(), &buf)
-            .into_iter()
-            .flat_map(|s| read_filters(&mut filter_layout, cache.clone(), &buf, s))
-            .collect::<Vec<_>>();
-        let advanced = AtomicBool::new(false);
-        let mut arr = selectors
-            .into_iter()
-            .flat_map(|s| {
-                let a = read_layout_data(&mut projection_layout, cache.clone(), &buf, s);
-                if advanced
-                    .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-                    .is_ok()
-                {
-                    projection_layout.advance(321).unwrap();
-                }
-                a
-            })
-            .collect::<VecDeque<_>>();
-
-        assert_eq!(arr.len(), 3);
-        assert_eq!(
-            arr.pop_front()
-                .unwrap()
-                .into_primitive()
-                .unwrap()
-                .maybe_null_slice::<i32>(),
-            &(11..100).collect::<Vec<_>>()
-        );
-        assert_eq!(
-            arr.pop_front()
-                .unwrap()
-                .into_primitive()
-                .unwrap()
-                .maybe_null_slice::<i32>(),
-            &(21..100).collect::<Vec<_>>()
-        );
-        assert_eq!(
-            arr.pop_front()
-                .unwrap()
-                .into_primitive()
-                .unwrap()
-                .maybe_null_slice::<i32>(),
-            &(11..100).collect::<Vec<_>>()
         );
     }
 }
