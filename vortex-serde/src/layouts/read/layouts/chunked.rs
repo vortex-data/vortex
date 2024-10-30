@@ -1,8 +1,9 @@
 use std::collections::{BTreeSet, VecDeque};
 
 use bytes::Bytes;
+use flatbuffers::Vector;
 use itertools::Itertools;
-use vortex_error::{vortex_err, VortexResult, VortexUnwrap};
+use vortex_error::{VortexResult, VortexUnwrap};
 use vortex_flatbuffers::footer;
 
 use crate::layouts::read::buffered::{BufferedLayoutReader, RangedLayoutReader};
@@ -76,31 +77,29 @@ impl ChunkedLayout {
         }
     }
 
-    fn child_ranges(&self) -> VortexResult<Vec<(usize, usize)>> {
-        let children = self
-            .flatbuffer()
+    fn children(&self) -> impl Iterator<Item = (usize, footer::Layout)> {
+        self.flatbuffer()
             .children()
-            .ok_or_else(|| vortex_err!("Missing children"))?;
-        Ok(children
+            .unwrap_or_else(|| Vector::default())
             .iter()
-            .map(|c| c.length())
+            .enumerate()
+            .skip(if self.has_metadata() { 1 } else { 0 })
+    }
+
+    fn child_ranges(&self) -> Vec<(usize, usize)> {
+        self.children()
+            .map(|(_, c)| c.length())
             .scan(0u64, |acc, length| {
                 let current = *acc;
                 *acc += length;
                 Some((current as usize, *acc as usize))
             })
-            .collect::<Vec<_>>())
+            .collect::<Vec<_>>()
     }
 
     fn ranged_children(&self) -> VortexResult<VecDeque<RangedLayoutReader>> {
-        self.flatbuffer()
-            .children()
-            .ok_or_else(|| vortex_err!("Missing children"))?
-            .iter()
-            .enumerate()
-            // Skip over the metadata table of this layout
-            .skip(if self.has_metadata() { 1 } else { 0 })
-            .zip_eq(self.child_ranges()?)
+        self.children()
+            .zip_eq(self.child_ranges())
             .map(|((i, c), (begin, end))| {
                 let layout = self.layout_builder.read_layout(
                     self.fb_bytes.clone(),
@@ -114,15 +113,9 @@ impl ChunkedLayout {
             .collect::<VortexResult<VecDeque<_>>>()
     }
 
-    fn metadat_only_children(&self) -> VortexResult<Vec<RangedLayoutReader>> {
-        self.flatbuffer()
-            .children()
-            .ok_or_else(|| vortex_err!("Missing children"))?
-            .iter()
-            .enumerate()
-            // Skip over the metadata table of this layout
-            .skip(if self.has_metadata() { 1 } else { 0 })
-            .zip_eq(self.child_ranges()?)
+    fn metadata_only_children(&self) -> VortexResult<Vec<RangedLayoutReader>> {
+        self.children()
+            .zip_eq(self.child_ranges())
             .map(|((i, c), (begin, end))| {
                 let layout = self.layout_builder.read_layout(
                     self.fb_bytes.clone(),
@@ -146,7 +139,7 @@ impl ChunkedLayout {
 
 impl LayoutReader for ChunkedLayout {
     fn add_splits(&self, row_offset: usize, splits: &mut BTreeSet<usize>) {
-        for ((begin, _), child) in self.metadat_only_children().vortex_unwrap() {
+        for ((begin, _), child) in self.metadata_only_children().vortex_unwrap() {
             child.add_splits(row_offset + begin, splits)
         }
     }
