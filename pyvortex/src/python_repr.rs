@@ -51,13 +51,13 @@ impl Display for DTypePythonRepr<'_> {
                     f,
                     "ext(\"{}\", {}, ",
                     ext.id().python_repr(),
-                    ext.scalars_dtype().python_repr()
+                    ext.storage_dtype().python_repr()
                 )?;
                 match ext.metadata() {
                     None => write!(f, "None")?,
                     Some(metadata) => write!(f, "{}", metadata.python_repr())?,
                 };
-                write!(f, ", {})", ext.scalars_dtype().nullability().python_repr())
+                write!(f, ", {})", ext.storage_dtype().nullability().python_repr())
             }
         }
     }

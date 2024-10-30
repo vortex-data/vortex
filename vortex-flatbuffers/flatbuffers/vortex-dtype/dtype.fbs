@@ -52,7 +52,7 @@ table List {
 
 table Extension {
     id: string;
-    scalars_dtype: DType;
+    storage_dtype: DType;
     metadata: [ubyte];
 }
 

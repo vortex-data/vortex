@@ -14,7 +14,7 @@ use vortex_error::vortex_panic;
 use vortex_scalar::{PValue, Scalar, ScalarValue};
 
 pub fn scalar_into_py(py: Python, x: Scalar, copy_into_python: bool) -> PyResult<PyObject> {
-    let (value, dtype) = x.into_parts();
+    let (dtype, value) = x.into_parts();
     scalar_value_into_py(py, value, &dtype, copy_into_python)
 }
 

@@ -29,7 +29,7 @@ pub enum DType {
     Binary(Nullability),
     Struct(StructDType, Nullability),
     List(Arc<DType>, Nullability),
-    Extension(ExtDType),
+    Extension(Arc<ExtDType>),
 }
 
 impl DType {
@@ -53,7 +53,7 @@ impl DType {
             Binary(n) => matches!(n, Nullable),
             Struct(_, n) => matches!(n, Nullable),
             List(_, n) => matches!(n, Nullable),
-            Extension(ext_dtype) => ext_dtype.scalars_dtype().is_nullable(),
+            Extension(ext_dtype) => ext_dtype.storage_dtype().is_nullable(),
         }
     }
 
@@ -74,7 +74,7 @@ impl DType {
             Binary(_) => Binary(nullability),
             Struct(st, _) => Struct(st.clone(), nullability),
             List(c, _) => List(c.clone(), nullability),
-            Extension(ext) => Extension(ext.with_scalars_nullability(nullability)),
+            Extension(ext) => Extension(Arc::new(ext.with_nullability(nullability))),
         }
     }
 
@@ -137,12 +137,12 @@ impl Display for DType {
                 f,
                 "ext({}, {}{}){}",
                 ext.id(),
-                ext.scalars_dtype()
+                ext.storage_dtype()
                     .with_nullability(Nullability::NonNullable),
                 ext.metadata()
                     .map(|m| format!(", {:?}", m))
                     .unwrap_or_else(|| "".to_string()),
-                ext.scalars_dtype().nullability(),
+                ext.storage_dtype().nullability(),
             ),
         }
     }
@@ -222,7 +222,7 @@ mod test {
 
     #[test]
     fn size_of() {
-        assert_eq!(mem::size_of::<DType>(), 48);
+        assert_eq!(mem::size_of::<DType>(), 40);
     }
 
     #[test]

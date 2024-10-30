@@ -1128,7 +1128,7 @@ impl<'a> flatbuffers::Follow<'a> for Extension<'a> {
 
 impl<'a> Extension<'a> {
   pub const VT_ID: flatbuffers::VOffsetT = 4;
-  pub const VT_SCALARS_DTYPE: flatbuffers::VOffsetT = 6;
+  pub const VT_STORAGE_DTYPE: flatbuffers::VOffsetT = 6;
   pub const VT_METADATA: flatbuffers::VOffsetT = 8;
 
   #[inline]
@@ -1142,7 +1142,7 @@ impl<'a> Extension<'a> {
   ) -> flatbuffers::WIPOffset<Extension<'bldr>> {
     let mut builder = ExtensionBuilder::new(_fbb);
     if let Some(x) = args.metadata { builder.add_metadata(x); }
-    if let Some(x) = args.scalars_dtype { builder.add_scalars_dtype(x); }
+    if let Some(x) = args.storage_dtype { builder.add_storage_dtype(x); }
     if let Some(x) = args.id { builder.add_id(x); }
     builder.finish()
   }
@@ -1156,11 +1156,11 @@ impl<'a> Extension<'a> {
     unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<&str>>(Extension::VT_ID, None)}
   }
   #[inline]
-  pub fn scalars_dtype(&self) -> Option<DType<'a>> {
+  pub fn storage_dtype(&self) -> Option<DType<'a>> {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<DType>>(Extension::VT_SCALARS_DTYPE, None)}
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<DType>>(Extension::VT_STORAGE_DTYPE, None)}
   }
   #[inline]
   pub fn metadata(&self) -> Option<flatbuffers::Vector<'a, u8>> {
@@ -1179,7 +1179,7 @@ impl flatbuffers::Verifiable for Extension<'_> {
     use self::flatbuffers::Verifiable;
     v.visit_table(pos)?
      .visit_field::<flatbuffers::ForwardsUOffset<&str>>("id", Self::VT_ID, false)?
-     .visit_field::<flatbuffers::ForwardsUOffset<DType>>("scalars_dtype", Self::VT_SCALARS_DTYPE, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<DType>>("storage_dtype", Self::VT_STORAGE_DTYPE, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u8>>>("metadata", Self::VT_METADATA, false)?
      .finish();
     Ok(())
@@ -1187,7 +1187,7 @@ impl flatbuffers::Verifiable for Extension<'_> {
 }
 pub struct ExtensionArgs<'a> {
     pub id: Option<flatbuffers::WIPOffset<&'a str>>,
-    pub scalars_dtype: Option<flatbuffers::WIPOffset<DType<'a>>>,
+    pub storage_dtype: Option<flatbuffers::WIPOffset<DType<'a>>>,
     pub metadata: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u8>>>,
 }
 impl<'a> Default for ExtensionArgs<'a> {
@@ -1195,7 +1195,7 @@ impl<'a> Default for ExtensionArgs<'a> {
   fn default() -> Self {
     ExtensionArgs {
       id: None,
-      scalars_dtype: None,
+      storage_dtype: None,
       metadata: None,
     }
   }
@@ -1211,8 +1211,8 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> ExtensionBuilder<'a, 'b, A> {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Extension::VT_ID, id);
   }
   #[inline]
-  pub fn add_scalars_dtype(&mut self, scalars_dtype: flatbuffers::WIPOffset<DType<'b >>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<DType>>(Extension::VT_SCALARS_DTYPE, scalars_dtype);
+  pub fn add_storage_dtype(&mut self, storage_dtype: flatbuffers::WIPOffset<DType<'b >>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<DType>>(Extension::VT_STORAGE_DTYPE, storage_dtype);
   }
   #[inline]
   pub fn add_metadata(&mut self, metadata: flatbuffers::WIPOffset<flatbuffers::Vector<'b , u8>>) {
@@ -1237,7 +1237,7 @@ impl core::fmt::Debug for Extension<'_> {
   fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
     let mut ds = f.debug_struct("Extension");
       ds.field("id", &self.id());
-      ds.field("scalars_dtype", &self.scalars_dtype());
+      ds.field("storage_dtype", &self.storage_dtype());
       ds.field("metadata", &self.metadata());
       ds.finish()
   }

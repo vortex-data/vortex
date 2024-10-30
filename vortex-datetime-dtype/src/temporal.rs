@@ -1,4 +1,5 @@
 use std::fmt::Display;
+use std::sync::Arc;
 
 use jiff::civil::{Date, Time};
 use jiff::{Timestamp, Zoned};
@@ -100,23 +101,32 @@ impl TemporalMetadata {
 use vortex_dtype::{ExtDType, ExtMetadata};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexError, VortexResult};
 
-impl TryFrom<&ExtDType> for TemporalMetadata {
-    type Error = VortexError;
+macro_rules! impl_temporal_metadata_try_from {
+    ($typ:ty) => {
+        impl TryFrom<$typ> for TemporalMetadata {
+            type Error = VortexError;
 
-    fn try_from(ext_dtype: &ExtDType) -> Result<Self, Self::Error> {
-        let metadata = ext_dtype
-            .metadata()
-            .ok_or_else(|| vortex_err!("ExtDType is missing metadata"))?;
-        match ext_dtype.id().as_ref() {
-            x if x == TIME_ID.as_ref() => decode_time_metadata(metadata),
-            x if x == DATE_ID.as_ref() => decode_date_metadata(metadata),
-            x if x == TIMESTAMP_ID.as_ref() => decode_timestamp_metadata(metadata),
-            _ => {
-                vortex_bail!("ExtDType must be one of the known temporal types")
+            fn try_from(ext_dtype: $typ) -> Result<Self, Self::Error> {
+                let metadata = ext_dtype
+                    .metadata()
+                    .ok_or_else(|| vortex_err!("ExtDType is missing metadata"))?;
+                match ext_dtype.id().as_ref() {
+                    x if x == TIME_ID.as_ref() => decode_time_metadata(metadata),
+                    x if x == DATE_ID.as_ref() => decode_date_metadata(metadata),
+                    x if x == TIMESTAMP_ID.as_ref() => decode_timestamp_metadata(metadata),
+                    _ => {
+                        vortex_bail!("ExtDType must be one of the known temporal types")
+                    }
+                }
             }
         }
-    }
+    };
 }
+
+impl_temporal_metadata_try_from!(ExtDType);
+impl_temporal_metadata_try_from!(&ExtDType);
+impl_temporal_metadata_try_from!(Arc<ExtDType>);
+impl_temporal_metadata_try_from!(Box<ExtDType>);
 
 fn decode_date_metadata(ext_meta: &ExtMetadata) -> VortexResult<TemporalMetadata> {
     let tag = ext_meta.as_ref()[0];

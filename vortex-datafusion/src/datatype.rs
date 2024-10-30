@@ -98,7 +98,7 @@ pub(crate) fn infer_data_type(dtype: &DType) -> DataType {
             } else {
                 // All other extension types, we rely on the scalar type to determine how it gets
                 // pushed to Arrow.
-                infer_data_type(ext_dtype.scalars_dtype())
+                infer_data_type(ext_dtype.storage_dtype())
             }
         }
     }

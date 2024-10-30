@@ -58,7 +58,8 @@ impl ScalarAtFn for DateTimePartsArray {
             );
         };
 
-        let TemporalMetadata::Timestamp(time_unit, _) = TemporalMetadata::try_from(&ext)? else {
+        let TemporalMetadata::Timestamp(time_unit, _) = TemporalMetadata::try_from(ext.as_ref())?
+        else {
             vortex_bail!("Metadata must be Timestamp, found {}", ext.id());
         };
 
@@ -96,7 +97,7 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalAr
         vortex_bail!(ComputeError: "expected dtype to be DType::Extension variant")
     };
 
-    let Ok(temporal_metadata) = TemporalMetadata::try_from(&ext) else {
+    let Ok(temporal_metadata) = TemporalMetadata::try_from(ext.as_ref()) else {
         vortex_bail!(ComputeError: "must decode TemporalMetadata from extension metadata");
     };
 

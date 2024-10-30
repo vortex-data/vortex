@@ -78,7 +78,7 @@ pub(crate) fn try_canonicalize_chunks(
                 // ExtensionArray, so we should canonicalize each chunk into ExtensionArray first.
                 .map(|chunk| chunk.clone().into_extension().map(|ext| ext.storage()))
                 .collect::<VortexResult<Vec<Array>>>()?;
-            let storage_dtype = ext_dtype.scalars_dtype().clone();
+            let storage_dtype = ext_dtype.storage_dtype().clone();
             let chunked_storage =
                 ChunkedArray::try_new(storage_chunks, storage_dtype)?.into_array();
 

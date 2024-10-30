@@ -1,6 +1,7 @@
 #![feature(float_next_up_down)]
 
 use std::process::ExitCode;
+use std::sync::Arc;
 
 use prettytable::{Cell, Row, Table};
 use vortex::array::builder::VarBinBuilder;
@@ -92,13 +93,11 @@ fn enc_impls() -> Vec<Array> {
         .into_array(),
         ConstantArray::new(10, 1).into_array(),
         DateTimePartsArray::try_new(
-            DType::Extension(
-                ExtDType::new(
-                    TIME_ID.clone(),
-                    Some(TemporalMetadata::Time(TimeUnit::S).into()),
-                ),
-                Nullability::NonNullable,
-            ),
+            DType::Extension(Arc::new(ExtDType::new(
+                TIME_ID.clone(),
+                Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+                Some(TemporalMetadata::Time(TimeUnit::S).into()),
+            ))),
             PrimitiveArray::from(vec![1]).into_array(),
             PrimitiveArray::from(vec![0]).into_array(),
             PrimitiveArray::from(vec![0]).into_array(),

@@ -57,7 +57,7 @@ impl From<&[u8]> for ExtMetadata {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ExtDType {
     id: ExtID,
-    scalars_dtype: Arc<DType>,
+    storage_dtype: Arc<DType>,
     metadata: Option<ExtMetadata>,
 }
 
@@ -92,15 +92,15 @@ impl ExtDType {
     ///     )
     /// }
     /// ```
-    pub fn new(id: ExtID, scalars_dtype: Arc<DType>, metadata: Option<ExtMetadata>) -> Self {
+    pub fn new(id: ExtID, storage_dtype: Arc<DType>, metadata: Option<ExtMetadata>) -> Self {
         assert!(
-            !matches!(scalars_dtype.as_ref(), &DType::Extension(_)),
-            "ExtDType cannot have Extension scalars_dtype"
+            !matches!(storage_dtype.as_ref(), &DType::Extension(_)),
+            "ExtDType cannot have Extension storage_dtype"
         );
 
         Self {
             id,
-            scalars_dtype,
+            storage_dtype,
             metadata,
         }
     }
@@ -111,14 +111,14 @@ impl ExtDType {
     }
 
     #[inline]
-    pub fn scalars_dtype(&self) -> &DType {
-        self.scalars_dtype.as_ref()
+    pub fn storage_dtype(&self) -> &DType {
+        self.storage_dtype.as_ref()
     }
 
-    pub fn with_scalars_nullability(&self, nullability: Nullability) -> Self {
+    pub fn with_nullability(&self, nullability: Nullability) -> Self {
         Self::new(
             self.id.clone(),
-            Arc::new(self.scalars_dtype.with_nullability(nullability)),
+            Arc::new(self.storage_dtype.with_nullability(nullability)),
             self.metadata.clone(),
         )
     }

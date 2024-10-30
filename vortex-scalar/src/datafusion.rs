@@ -1,4 +1,6 @@
 #![cfg(feature = "datafusion")]
+use std::sync::Arc;
+
 use datafusion_common::ScalarValue;
 use vortex_buffer::Buffer;
 use vortex_datetime_dtype::arrow::make_temporal_ext_dtype;
@@ -65,7 +67,7 @@ impl TryFrom<Scalar> for ScalarValue {
                 // Special handling: temporal extension types in Vortex correspond to Arrow's
                 // temporal physical types.
                 if is_temporal_ext_type(ext.id()) {
-                    let metadata = TemporalMetadata::try_from(&ext)?;
+                    let metadata = TemporalMetadata::try_from(ext.as_ref())?;
                     let pv = value.as_pvalue()?;
                     return Ok(match metadata {
                         TemporalMetadata::Time(u) => match u {
@@ -113,7 +115,7 @@ impl TryFrom<Scalar> for ScalarValue {
                 } else {
                     // Unknown extension type: perform scalar conversion using the canonical
                     // scalar DType.
-                    ScalarValue::try_from(Scalar::new(ext.scalars_dtype().clone(), value))?
+                    ScalarValue::try_from(Scalar::new(ext.storage_dtype().clone(), value))?
                 }
             }
         })
@@ -149,9 +151,9 @@ impl From<ScalarValue> for Scalar {
             | ScalarValue::Time32Second(v)
             | ScalarValue::Time32Millisecond(v) => v.map(|i| {
                 let ext_dtype = make_temporal_ext_dtype(&value.data_type())
-                    .with_scalars_nullability(Nullability::Nullable);
+                    .with_nullability(Nullability::Nullable);
                 Scalar::new(
-                    DType::Extension(ext_dtype),
+                    DType::Extension(Arc::new(ext_dtype)),
                     crate::ScalarValue::Primitive(PValue::I32(i)),
                 )
             }),
@@ -164,7 +166,7 @@ impl From<ScalarValue> for Scalar {
             | ScalarValue::TimestampNanosecond(v, _) => v.map(|i| {
                 let ext_dtype = make_temporal_ext_dtype(&value.data_type());
                 Scalar::new(
-                    DType::Extension(ext_dtype.with_scalars_nullability(Nullability::Nullable)),
+                    DType::Extension(Arc::new(ext_dtype.with_nullability(Nullability::Nullable))),
                     crate::ScalarValue::Primitive(PValue::I64(i)),
                 )
             }),

@@ -46,16 +46,16 @@ impl TryFrom<&pb::DType> for DType {
                 ))
             }
             DtypeType::Extension(e) => Ok(Self::Extension(
-                ExtDType::new(
+                Arc::new(ExtDType::new(
                     ExtID::from(e.id.as_str()),
-                    Arc::new(DType::try_from(e.scalars_dtype
+                    Arc::new(DType::try_from(e.storage_dtype
                                                  .as_ref()
-                                                 .ok_or_else(|| vortex_err!(InvalidSerde: "scalars_dtype must be provided in DType proto message"))?
+                                                 .ok_or_else(|| vortex_err!(InvalidSerde: "storage_dtype must be provided in DType proto message"))?
                                                  .as_ref(),
                     ).map_err(|e| vortex_err!("failed converting DType from proto message: {}", e))?),
                     e.metadata.as_ref().map(|m| ExtMetadata::from(m.as_ref())),
                 ),
-            )),
+            ))),
         }
     }
 }
@@ -89,7 +89,7 @@ impl From<&DType> for pb::DType {
                 })),
                 DType::Extension(e) => DtypeType::Extension(Box::new(pb::Extension {
                     id: e.id().as_ref().into(),
-                    scalars_dtype: Some(Box::new(e.scalars_dtype().into())),
+                    storage_dtype: Some(Box::new(e.storage_dtype().into())),
                     metadata: e.metadata().map(|m| m.as_ref().into()),
                 })),
             }),

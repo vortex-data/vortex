@@ -53,7 +53,7 @@ pub struct Extension {
     #[prost(string, tag = "1")]
     pub id: ::prost::alloc::string::String,
     #[prost(message, optional, boxed, tag = "2")]
-    pub scalars_dtype: ::core::option::Option<::prost::alloc::boxed::Box<DType>>,
+    pub storage_dtype: ::core::option::Option<::prost::alloc::boxed::Box<DType>>,
     #[prost(bytes = "vec", optional, tag = "3")]
     pub metadata: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
 }
