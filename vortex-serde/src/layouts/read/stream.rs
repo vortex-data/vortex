@@ -171,7 +171,7 @@ impl<R: VortexReadAt + Unpin + 'static> Stream for LayoutBatchStream<R> {
                 }
                 StreamingState::NextSplit => {
                     self.current_selector = self.splits.pop_front().map(|(begin, end)| {
-                        RowSelector::new(Bitmap::from_range(begin as u32..end as u32), 0, end)
+                        RowSelector::new(Bitmap::from_range(0..(end - begin) as u32), begin, end)
                     });
 
                     if self.current_selector.is_none() {

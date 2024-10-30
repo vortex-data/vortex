@@ -35,9 +35,9 @@ impl RowSelector {
                 .map(|b| {
                     let mut bitmap = Bitmap::new();
                     for (sb, se) in b.maybe_null_slices_iter() {
-                        bitmap.add_range((sb + begin) as u32..(se + begin) as u32);
+                        bitmap.add_range(sb as u32..se as u32);
                     }
-                    RowSelector::new(bitmap, 0, end)
+                    RowSelector::new(bitmap, begin, end)
                 })
         })
     }
@@ -58,25 +58,17 @@ impl RowSelector {
         self.end - self.begin
     }
 
-    pub fn intersect(mut self, other: &RowSelector) -> Self {
-        self.values.and_inplace(&other.values);
+    pub fn slice(&self, begin: usize, end: usize) -> Self {
+        let range_begin = max(self.begin, begin);
+        let range_end = min(self.end, end);
+        let mask =
+            Bitmap::from_range((range_begin - self.begin) as u32..(range_end - self.begin) as u32);
         RowSelector::new(
-            self.values,
-            max(self.begin, other.begin),
-            min(self.end, other.end),
-        )
-    }
-
-    pub fn concatenate(mut self, other: &RowSelector) -> Self {
-        assert_eq!(
-            self.end, other.begin,
-            "Can only concatenate consecutive selectors"
-        );
-        self.values.or_inplace(&other.values);
-        RowSelector::new(
-            self.values,
-            min(self.begin, other.begin),
-            max(self.end, other.end),
+            self.values
+                .and(&mask)
+                .add_offset(-((range_begin - self.begin) as i64)),
+            range_begin,
+            range_end,
         )
     }
 
@@ -92,7 +84,11 @@ impl RowSelector {
             return Ok(Some(array.clone()));
         }
 
-        let sliced = slice(array, self.begin, self.end)?;
+        let sliced = if self.len() == array.len() {
+            array
+        } else {
+            &slice(array, self.begin, self.end)?
+        };
 
         let bitset = self
             .values
@@ -112,28 +108,27 @@ impl RowSelector {
         filter(sliced, predicate).map(Some)
     }
 
-    pub fn offset(self, offset: i64) -> RowSelector {
+    pub fn add_offset(mut self, offset: i64) -> RowSelector {
         if offset == 0 {
             self
         } else {
+            let just_shift = self.begin as i64 >= offset;
             RowSelector::new(
-                self.values.add_offset(-offset),
-                if self.begin as i64 > offset {
+                if just_shift {
+                    self.values
+                } else {
+                    // Remove last N values that were trimmed by the offset. Since we know begin is 0 new len is end - offset
+                    self.values
+                        .remove_range((self.end as i64 - offset) as u32..self.len() as u32);
+                    self.values.add_offset(-offset)
+                },
+                if just_shift {
                     (self.begin as i64 - offset) as usize
                 } else {
                     0
                 },
                 (self.end as i64 - offset) as usize,
             )
-        }
-    }
-
-    pub fn advance(mut self, up_to_row: usize) -> Option<RowSelector> {
-        if up_to_row >= self.end {
-            None
-        } else {
-            self.values.remove_range(0..up_to_row as u32);
-            Some(RowSelector::new(self.values, self.begin, self.end))
         }
     }
 }
@@ -146,16 +141,16 @@ mod tests {
     use crate::layouts::read::selection::RowSelector;
 
     #[rstest]
-    #[case(RowSelector::new((0..2).chain(9..10).collect(),0, 10), RowSelector::new((0..1).collect(),0, 10), RowSelector::new((0..1).collect(),0, 10))]
-    #[case(RowSelector::new((5..8).chain(9..10).collect(),0, 10), RowSelector::new((2..5).collect(),0, 10), RowSelector::new(Bitmap::new(),0, 10))]
-    #[case(RowSelector::new((0..4).collect(),0, 10), RowSelector::new((0..1).chain(2..3).chain(3..5).collect(),0, 10), RowSelector::new((0..1).chain(2..4).collect(),0, 10))]
-    #[case(RowSelector::new((0..3).chain(5..6).collect(),0, 10), RowSelector::new((2..6).collect(),0, 10), RowSelector::new((2..3).chain(5..6).collect(),0, 10))]
+    #[case(RowSelector::new((0..2).chain(9..10).collect(), 0, 10), (0, 1), RowSelector::new((0..1).collect(), 0, 1))]
+    #[case(RowSelector::new((5..8).chain(9..10).collect(), 0, 10), (2, 5), RowSelector::new(Bitmap::new(), 2, 5))]
+    #[case(RowSelector::new((0..4).collect(), 0, 10), (2, 5), RowSelector::new((0..2).collect(), 2, 5))]
+    #[case(RowSelector::new((0..3).chain(5..6).collect(), 0, 10), (2, 6), RowSelector::new((0..1).chain(3..4).collect(), 2, 6))]
     #[cfg_attr(miri, ignore)]
-    fn intersection(
+    fn slice(
         #[case] first: RowSelector,
-        #[case] second: RowSelector,
+        #[case] range: (usize, usize),
         #[case] expected: RowSelector,
     ) {
-        assert_eq!(first.intersect(&second), expected);
+        assert_eq!(first.slice(range.0, range.1), expected);
     }
 }

@@ -1,7 +1,6 @@
 use std::collections::VecDeque;
 use std::mem;
 
-use croaring::Bitmap;
 use vortex::array::ChunkedArray;
 use vortex::{Array, ArrayDType, IntoArray};
 use vortex_error::VortexResult;
@@ -33,10 +32,7 @@ impl BufferedLayoutReader {
                 self.layouts.push_front(((begin, end), layout));
                 return Ok(None);
             }
-            let layout_selection =
-                RowSelector::new(Bitmap::from_range(begin as u32..end as u32), begin, end)
-                    .intersect(&selection)
-                    .offset(begin as i64);
+            let layout_selection = selection.slice(begin, end).add_offset(begin as i64);
             if let Some(rr) = layout.read_selection(layout_selection)? {
                 match rr {
                     ReadResult::ReadMore(m) => {
