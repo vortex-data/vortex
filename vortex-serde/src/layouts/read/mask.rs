@@ -65,6 +65,7 @@ impl RowMask {
         self.end - self.begin
     }
 
+    /// Limit mask to [begin..end) range
     pub fn slice(&self, begin: usize, end: usize) -> Self {
         let range_begin = max(self.begin, begin);
         let range_end = min(self.end, end);
