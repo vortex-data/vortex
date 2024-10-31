@@ -23,7 +23,7 @@ pub struct LayoutWriter<W> {
 
     row_count: u64,
     dtype: Option<DType>,
-    column_metadata: Vec<ColumnMetadataAndOffsets>,
+    column_writers: Vec<ColumnWriter>,
 }
 
 impl<W: VortexWrite> LayoutWriter<W> {
@@ -31,7 +31,7 @@ impl<W: VortexWrite> LayoutWriter<W> {
         LayoutWriter {
             msgs: MessageWriter::new(write),
             dtype: None,
-            column_metadata: Vec::new(),
+            column_writers: Vec::new(),
             row_count: 0,
         }
     }
@@ -80,51 +80,39 @@ impl<W: VortexWrite> LayoutWriter<W> {
         Ok(self)
     }
 
-    async fn write_column_chunks<S>(&mut self, mut stream: S, column_idx: usize) -> VortexResult<()>
+    async fn write_column_chunks<S>(&mut self, stream: S, column_idx: usize) -> VortexResult<()>
     where
         S: ArrayStream + Unpin,
     {
         let size_hint = stream.size_hint().0;
-        let metadata = match self.column_metadata.get_mut(column_idx) {
+        let column_writer = match self.column_writers.get_mut(column_idx) {
             None => {
-                self.column_metadata.push(ColumnMetadataAndOffsets {
-                    metadata: new_metadata_accumulator(size_hint, stream.dtype()),
-                    batch_byte_offsets: Vec::new(),
-                });
+                self.column_writers
+                    .push(ColumnWriter::new(size_hint, stream.dtype()));
 
                 assert_eq!(
-                    self.column_metadata.len(),
+                    self.column_writers.len(),
                     column_idx + 1,
-                    "write_column_metadata must be called in order by column index! got column index {} but column chunks has {} columns",
+                    "write_column_chunks must be called in order by column index! got column index {} but column chunks has {} columns",
                     column_idx,
-                    self.column_metadata.len()
+                    self.column_writers.len()
                 );
 
-                self.column_metadata
+                self.column_writers
                     .last_mut()
                     .vortex_expect("column chunks cannot be empty, just pushed")
             }
             Some(x) => x,
         };
 
-        let mut byte_offsets = Vec::with_capacity(size_hint + 1);
-        byte_offsets.push(self.msgs.tell());
-        while let Some(chunk) = stream.try_next().await? {
-            metadata.push_chunk(&chunk)?;
-            self.msgs.write_batch(chunk).await?;
-            byte_offsets.push(self.msgs.tell());
-        }
-
-        metadata.push_batch_byte_offsets(byte_offsets);
-
-        Ok(())
+        column_writer.write_chunks(stream, &mut self.msgs).await
     }
 
     async fn write_metadata_arrays(&mut self) -> VortexResult<Layout> {
-        let mut column_layouts = Vec::with_capacity(self.column_metadata.len());
-        for column_metadata in mem::take(&mut self.column_metadata) {
-            let chunk_layouts = column_metadata.write_into(&mut self.msgs).await?;
-            column_layouts.push(Layout::chunked(chunk_layouts.into(), true));
+        let mut column_layouts = Vec::with_capacity(self.column_writers.len());
+        for column_writer in mem::take(&mut self.column_writers) {
+            let chunk_layouts = column_writer.write_into(&mut self.msgs).await?;
+            column_layouts.push(Layout::chunked(chunk_layouts, true));
         }
 
         Ok(Layout::column(column_layouts))
@@ -174,18 +162,38 @@ async fn write_fb_raw<W: VortexWrite, F: WriteFlatBuffer>(mut writer: W, fb: F) 
     Ok(writer)
 }
 
-struct ColumnMetadataAndOffsets {
+struct ColumnWriter {
     metadata: Box<dyn MetadataAccumulator>,
     batch_byte_offsets: Vec<Vec<u64>>,
+    size_hint: usize,
 }
 
-impl ColumnMetadataAndOffsets {
-    fn push_chunk(&mut self, array: &Array) -> VortexResult<()> {
-        self.metadata.push_chunk(array)
+impl ColumnWriter {
+    fn new(size_hint: usize, dtype: &DType) -> Self {
+        Self {
+            metadata: new_metadata_accumulator(size_hint, dtype),
+            batch_byte_offsets: Vec::new(),
+            size_hint,
+        }
     }
 
-    fn push_batch_byte_offsets(&mut self, batch_byte_offsets: Vec<u64>) {
-        self.batch_byte_offsets.push(batch_byte_offsets);
+    async fn write_chunks<W: VortexWrite, S: ArrayStream + Unpin>(
+        &mut self,
+        mut stream: S,
+        msgs: &mut MessageWriter<W>,
+    ) -> VortexResult<()> {
+        let mut offsets = Vec::with_capacity(self.size_hint + 1);
+        offsets.push(msgs.tell());
+
+        while let Some(chunk) = stream.try_next().await? {
+            self.metadata.push_chunk(&chunk)?;
+            msgs.write_batch(chunk).await?;
+            offsets.push(msgs.tell());
+        }
+
+        self.batch_byte_offsets.push(offsets);
+
+        Ok(())
     }
 
     async fn write_into<W: VortexWrite>(
