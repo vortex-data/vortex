@@ -2,15 +2,14 @@
 
 use std::collections::VecDeque;
 use std::mem;
+use std::sync::Arc;
 
 use vortex::array::{BoolArray, NullArray, PrimitiveArray, StructArray, VarBinViewArray};
 use vortex::stats::{ArrayStatistics as _, Stat};
 use vortex::validity::Validity;
 use vortex::{Array, IntoArray as _};
 use vortex_buffer::{Buffer, BufferString};
-use vortex_dtype::{
-    fieldnames_from_strings, match_each_native_ptype, DType, NativePType, Nullability,
-};
+use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability};
 use vortex_error::{vortex_bail, VortexError, VortexExpect as _, VortexResult};
 use vortex_scalar::Scalar;
 
@@ -98,17 +97,17 @@ where
             self.basic_metadata.into_layouts_and_metadata_parts()?;
 
         if self.minima.iter().any(Option::is_some) {
-            names.push("min".into());
+            names.push(Arc::from("min"));
             fields.push((self.to_array)(mem::take(&mut self.minima)));
         }
 
         if self.maxima.iter().any(Option::is_some) {
-            names.push("max".into());
+            names.push(Arc::from("max"));
             fields.push((self.to_array)(mem::take(&mut self.maxima)));
         }
 
         let n_chunks = chunks.len();
-        let names = fieldnames_from_strings(names);
+        let names = Arc::from(names);
         Ok((
             chunks,
             StructArray::try_new(names, fields, n_chunks, Validity::NonNullable)?,
@@ -174,7 +173,7 @@ impl MetadataAccumulator for BasicAccumulator {
     fn into_layouts_and_metadata(self: Box<Self>) -> VortexResult<(VecDeque<Layout>, StructArray)> {
         let (chunks, names, fields) = self.into_layouts_and_metadata_parts()?;
         let n_chunks = chunks.len();
-        let names = fieldnames_from_strings(names);
+        let names = Arc::from(names);
         Ok((
             chunks,
             StructArray::try_new(names, fields, n_chunks, Validity::NonNullable)?,
@@ -185,7 +184,7 @@ impl MetadataAccumulator for BasicAccumulator {
 impl BasicAccumulator {
     fn into_layouts_and_metadata_parts(
         mut self,
-    ) -> VortexResult<(VecDeque<Layout>, Vec<String>, Vec<Array>)> {
+    ) -> VortexResult<(VecDeque<Layout>, Vec<Arc<str>>, Vec<Array>)> {
         // we don't need the last row offset; that's just the total number of rows
         let length = self.row_offsets.len() - 1;
         self.row_offsets.truncate(length);
@@ -209,18 +208,18 @@ impl BasicAccumulator {
             );
         }
 
-        let mut names: Vec<String> = vec!["row_offset".into()];
+        let mut names: Vec<Arc<str>> = vec![Arc::from("row_offset")];
         let mut fields = vec![mem::take(&mut self.row_offsets).into_array()];
 
         if self.null_counts.iter().any(Option::is_some) {
-            names.push("null_count".into());
+            names.push(Arc::from("null_count"));
             fields.push(
                 PrimitiveArray::from_nullable_vec(mem::take(&mut self.null_counts)).into_array(),
             );
         }
 
         if self.true_counts.iter().any(Option::is_some) {
-            names.push("true_count".into());
+            names.push(Arc::from("true_count"));
             fields.push(
                 PrimitiveArray::from_nullable_vec(mem::take(&mut self.true_counts)).into_array(),
             );
