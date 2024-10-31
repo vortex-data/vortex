@@ -116,24 +116,15 @@ impl RowMask {
         filter(sliced, predicate).map(Some)
     }
 
-    pub fn with_offset(mut self, offset: usize) -> RowMask {
-        if offset == 0 {
-            self
-        } else {
-            let just_shift = self.begin >= offset;
-            RowMask::new(
-                if just_shift {
-                    self.values
-                } else {
-                    // Remove last N values that were trimmed by the offset. Since we know begin is 0 new len is end - offset
-                    self.values
-                        .remove_range((self.end - offset) as u32..self.len() as u32);
-                    self.values
-                },
-                if just_shift { self.begin - offset } else { 0 },
-                self.end - offset,
+    pub fn shift(self, offset: usize) -> RowMask {
+        let valid_shift = self.begin >= offset;
+        if !valid_shift {
+            vortex_panic!(
+                "Can shift RowMask by at most {}, tried to shift by {offset}",
+                self.begin
             )
         }
+        RowMask::new(self.values, self.begin - offset, self.end - offset)
     }
 }
 

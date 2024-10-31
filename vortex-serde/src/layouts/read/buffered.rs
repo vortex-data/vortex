@@ -34,7 +34,7 @@ impl BufferedLayoutReader {
                 self.layouts.push_front(((begin, end), layout));
                 return Ok(None);
             }
-            let layout_selection = mask.slice(begin, end).with_offset(begin);
+            let layout_selection = mask.slice(begin, end).shift(begin);
             if let Some(rr) = layout.read_selection(layout_selection)? {
                 match rr {
                     ReadResult::ReadMore(m) => {
