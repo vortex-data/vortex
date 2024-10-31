@@ -9,7 +9,8 @@ use crate::layouts::read::buffered::{BufferedLayoutReader, RangedLayoutReader};
 use crate::layouts::read::cache::RelativeLayoutCache;
 use crate::layouts::read::selection::RowSelector;
 use crate::layouts::{
-    LayoutDeserializer, LayoutId, LayoutReader, LayoutSpec, ReadResult, Scan, CHUNKED_LAYOUT_ID,
+    LayoutDeserializer, LayoutId, LayoutPartId, LayoutReader, LayoutSpec, ReadResult, Scan,
+    CHUNKED_LAYOUT_ID,
 };
 #[derive(Default, Debug)]
 pub struct ChunkedLayoutSpec;
@@ -76,6 +77,13 @@ impl ChunkedLayout {
         }
     }
 
+    fn has_metadata(&self) -> bool {
+        self.flatbuffer()
+            .metadata()
+            .map(|b| b.bytes()[0] != 0)
+            .unwrap_or(false)
+    }
+
     fn children(&self) -> impl Iterator<Item = (usize, footer::Layout)> {
         self.flatbuffer()
             .children()
@@ -96,7 +104,10 @@ impl ChunkedLayout {
             .collect::<Vec<_>>()
     }
 
-    fn ranged_children(&self) -> VortexResult<VecDeque<RangedLayoutReader>> {
+    fn child_layouts<C: Fn(LayoutPartId) -> RelativeLayoutCache>(
+        &self,
+        cache: C,
+    ) -> VortexResult<VecDeque<RangedLayoutReader>> {
         self.children()
             .zip_eq(self.child_ranges())
             .map(|((i, c), (begin, end))| {
@@ -104,41 +115,20 @@ impl ChunkedLayout {
                     self.fb_bytes.clone(),
                     c._tab.loc(),
                     self.scan.clone(),
-                    self.message_cache
-                        .relative(i as u16, self.message_cache.dtype().clone()),
+                    cache(i as u16),
                 )?;
                 Ok(((begin, end), layout))
             })
             .collect::<VortexResult<VecDeque<_>>>()
     }
-
-    fn metadata_only_children(&self) -> VortexResult<Vec<RangedLayoutReader>> {
-        self.children()
-            .zip_eq(self.child_ranges())
-            .map(|((i, c), (begin, end))| {
-                let layout = self.layout_builder.read_layout(
-                    self.fb_bytes.clone(),
-                    c._tab.loc(),
-                    self.scan.clone(),
-                    self.message_cache.unknown_dtype(i as u16),
-                )?;
-
-                Ok(((begin, end), layout))
-            })
-            .collect::<VortexResult<Vec<_>>>()
-    }
-
-    fn has_metadata(&self) -> bool {
-        self.flatbuffer()
-            .metadata()
-            .map(|b| b.bytes()[0] != 0)
-            .unwrap_or(false)
-    }
 }
 
 impl LayoutReader for ChunkedLayout {
     fn add_splits(&self, row_offset: usize, splits: &mut BTreeSet<usize>) {
-        for ((begin, _), child) in self.metadata_only_children().vortex_unwrap() {
+        for ((begin, _), child) in self
+            .child_layouts(|i| self.message_cache.unknown_dtype(i))
+            .vortex_unwrap()
+        {
             child.add_splits(row_offset + begin, splits)
         }
     }
@@ -147,7 +137,10 @@ impl LayoutReader for ChunkedLayout {
         if let Some(br) = &mut self.chunk_reader {
             br.read_next(selector)
         } else {
-            self.chunk_reader = Some(BufferedLayoutReader::new(self.ranged_children()?));
+            self.chunk_reader = Some(BufferedLayoutReader::new(self.child_layouts(|i| {
+                self.message_cache
+                    .relative(i, self.message_cache.dtype().clone())
+            })?));
             self.read_selection(selector)
         }
     }
