@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## `vortex-serde` - [0.13.1](https://github.com/spiraldb/vortex/compare/vortex-serde-v0.13.0...vortex-serde-v0.13.1) - 2024-10-31
+
+### Fixed
+- specify features in vortex-serde & test default features ([#1168](https://github.com/spiraldb/vortex/pull/1168))
+
 ## `vortex-zigzag` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-zigzag-v0.12.0...vortex-zigzag-v0.13.0) - 2024-10-29
 
 ### Added
