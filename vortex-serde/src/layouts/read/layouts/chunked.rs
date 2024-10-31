@@ -322,7 +322,7 @@ mod tests {
         .flat_map(|s| read_layout_data(&mut projection_layout, cache.clone(), &buf, s))
         .collect::<VecDeque<_>>();
 
-        // assert_eq!(arr.len(), 3);
+        assert_eq!(arr.len(), 3);
         assert_eq!(
             arr.pop_front()
                 .unwrap()
