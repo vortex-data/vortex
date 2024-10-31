@@ -132,7 +132,7 @@ impl<W: VortexWrite> LayoutWriter<W> {
     }
 
     pub async fn finalize(mut self) -> VortexResult<W> {
-        let top_level_layout = self.write_metadata_arrays().await?;
+        let top_level_layout = self.build_layouts().await?;
         let ps = self
             .write_footer(Footer::new(top_level_layout, self.row_count))
             .await?;

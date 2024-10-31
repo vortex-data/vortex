@@ -33,6 +33,11 @@ impl ColumnBatchReader {
         expr: Option<Arc<dyn VortexExpr>>,
         shortcircuit_siblings: bool,
     ) -> Self {
+        assert_eq!(
+            names.len(),
+            children.len(),
+            "Names and children must be of same length"
+        );
         let arrays = vec![None; children.len()];
         Self {
             names,

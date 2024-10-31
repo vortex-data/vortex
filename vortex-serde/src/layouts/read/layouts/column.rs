@@ -82,7 +82,7 @@ impl ColumnLayout {
         }
     }
 
-    fn minimal_children(&self) -> VortexResult<Vec<Box<dyn LayoutReader>>> {
+    fn children_for_splits(&self) -> VortexResult<Vec<Box<dyn LayoutReader>>> {
         let (refs, lazy_dtype) = self.fields_with_dtypes()?;
         let fb_children = self.flatbuffer().children().unwrap_or_default();
 
@@ -101,7 +101,7 @@ impl ColumnLayout {
             .collect::<VortexResult<Vec<_>>>()
     }
 
-    fn column_reader(&mut self) -> VortexResult<ColumnBatchReader> {
+    fn column_reader(&self) -> VortexResult<ColumnBatchReader> {
         let (refs, lazy_dtype) = self.fields_with_dtypes()?;
         let fb_children = self.flatbuffer().children().unwrap_or_default();
 
@@ -235,7 +235,7 @@ impl ColumnLayout {
 
 impl LayoutReader for ColumnLayout {
     fn add_splits(&self, row_offset: usize, splits: &mut BTreeSet<usize>) -> VortexResult<()> {
-        for child in self.minimal_children()? {
+        for child in self.children_for_splits()? {
             child.add_splits(row_offset, splits)?
         }
         Ok(())
