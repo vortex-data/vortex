@@ -181,10 +181,10 @@ impl MetadataAccumulator for BasicAccumulator {
     }
 }
 
+type LayoutsAndMetadataParts = (VecDeque<Layout>, Vec<Arc<str>>, Vec<Array>);
+
 impl BasicAccumulator {
-    fn into_layouts_and_metadata_parts(
-        mut self,
-    ) -> VortexResult<(VecDeque<Layout>, Vec<Arc<str>>, Vec<Array>)> {
+    fn into_layouts_and_metadata_parts(mut self) -> VortexResult<LayoutsAndMetadataParts> {
         // we don't need the last row offset; that's just the total number of rows
         let length = self.row_offsets.len() - 1;
         self.row_offsets.truncate(length);
