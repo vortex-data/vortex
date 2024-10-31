@@ -11,20 +11,20 @@ use vortex_dtype::{match_each_native_ptype, DType, FieldName};
 use vortex_error::{VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
-pub fn new_metadata_accumulator(hint: usize, dtype: &DType) -> Box<dyn MetadataAccumulator> {
+pub fn new_metadata_accumulator(dtype: &DType) -> Box<dyn MetadataAccumulator> {
     match dtype {
-        DType::Null => Box::new(BasicAccumulator::new(hint)),
-        DType::Bool(..) => Box::new(BoolAccumulator::new(hint)),
+        DType::Null => Box::new(BasicAccumulator::new()),
+        DType::Bool(..) => Box::new(BoolAccumulator::new()),
         DType::Primitive(ptype, ..) => {
             match_each_native_ptype!(ptype, |$P| {
-                Box::new(StandardAccumulator::<$P>::new(hint))
+                Box::new(StandardAccumulator::<$P>::new())
             })
         }
-        DType::Utf8(..) => Box::new(StandardAccumulator::<BufferString>::new(hint)),
-        DType::Binary(..) => Box::new(StandardAccumulator::<Buffer>::new(hint)),
-        DType::Struct(..) => Box::new(BasicAccumulator::new(hint)),
-        DType::List(..) => Box::new(BasicAccumulator::new(hint)),
-        DType::Extension(..) => Box::new(BasicAccumulator::new(hint)),
+        DType::Utf8(..) => Box::new(StandardAccumulator::<BufferString>::new()),
+        DType::Binary(..) => Box::new(StandardAccumulator::<Buffer>::new()),
+        DType::Struct(..) => Box::new(BasicAccumulator::new()),
+        DType::List(..) => Box::new(BasicAccumulator::new()),
+        DType::Extension(..) => Box::new(BasicAccumulator::new()),
     }
 }
 
@@ -45,13 +45,13 @@ struct BoolAccumulator {
 }
 
 impl BoolAccumulator {
-    fn new(hint: usize) -> Self {
+    fn new() -> Self {
         Self {
             row_offsets: RowOffsetsAccumulator::new(),
-            maxima: UnwrappedStatAccumulator::new(Stat::Max, "max".into(), hint),
-            minima: UnwrappedStatAccumulator::new(Stat::Min, "min".into(), hint),
-            true_count: UnwrappedStatAccumulator::new(Stat::TrueCount, "true_count".into(), hint),
-            null_count: UnwrappedStatAccumulator::new(Stat::NullCount, "null_count".into(), hint),
+            maxima: UnwrappedStatAccumulator::new(Stat::Max, "max".into()),
+            minima: UnwrappedStatAccumulator::new(Stat::Min, "min".into()),
+            true_count: UnwrappedStatAccumulator::new(Stat::TrueCount, "true_count".into()),
+            null_count: UnwrappedStatAccumulator::new(Stat::NullCount, "null_count".into()),
         }
     }
 }
@@ -92,12 +92,12 @@ struct StandardAccumulator<T> {
 }
 
 impl<T> StandardAccumulator<T> {
-    fn new(hint: usize) -> Self {
+    fn new() -> Self {
         Self {
             row_offsets: RowOffsetsAccumulator::new(),
-            maxima: UnwrappedStatAccumulator::new(Stat::Max, "max".into(), hint),
-            minima: UnwrappedStatAccumulator::new(Stat::Min, "min".into(), hint),
-            null_count: UnwrappedStatAccumulator::new(Stat::NullCount, "null_count".into(), hint),
+            maxima: UnwrappedStatAccumulator::new(Stat::Max, "max".into()),
+            minima: UnwrappedStatAccumulator::new(Stat::Min, "min".into()),
+            null_count: UnwrappedStatAccumulator::new(Stat::NullCount, "null_count".into()),
         }
     }
 }
@@ -138,10 +138,10 @@ struct BasicAccumulator {
 }
 
 impl BasicAccumulator {
-    fn new(hint: usize) -> Self {
+    fn new() -> Self {
         Self {
             row_offsets: RowOffsetsAccumulator::new(),
-            null_count: UnwrappedStatAccumulator::new(Stat::NullCount, "null_count".into(), hint),
+            null_count: UnwrappedStatAccumulator::new(Stat::NullCount, "null_count".into()),
         }
     }
 }
@@ -181,11 +181,11 @@ struct UnwrappedStatAccumulator<T> {
 }
 
 impl<T> UnwrappedStatAccumulator<T> {
-    fn new(stat: Stat, name: FieldName, hint: usize) -> Self {
+    fn new(stat: Stat, name: FieldName) -> Self {
         Self {
             stat,
             name,
-            values: Vec::with_capacity(hint),
+            values: Vec::new(),
         }
     }
 }

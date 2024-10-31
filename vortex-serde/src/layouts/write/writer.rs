@@ -84,11 +84,9 @@ impl<W: VortexWrite> LayoutWriter<W> {
     where
         S: ArrayStream + Unpin,
     {
-        let size_hint = stream.size_hint().0;
         let column_writer = match self.column_writers.get_mut(column_idx) {
             None => {
-                self.column_writers
-                    .push(ColumnWriter::new(size_hint, stream.dtype()));
+                self.column_writers.push(ColumnWriter::new(stream.dtype()));
 
                 assert_eq!(
                     self.column_writers.len(),
@@ -165,15 +163,13 @@ async fn write_fb_raw<W: VortexWrite, F: WriteFlatBuffer>(mut writer: W, fb: F) 
 struct ColumnWriter {
     metadata: Box<dyn MetadataAccumulator>,
     batch_byte_offsets: Vec<Vec<u64>>,
-    size_hint: usize,
 }
 
 impl ColumnWriter {
-    fn new(size_hint: usize, dtype: &DType) -> Self {
+    fn new(dtype: &DType) -> Self {
         Self {
-            metadata: new_metadata_accumulator(size_hint, dtype),
+            metadata: new_metadata_accumulator(dtype),
             batch_byte_offsets: Vec::new(),
-            size_hint,
         }
     }
 
@@ -182,7 +178,7 @@ impl ColumnWriter {
         mut stream: S,
         msgs: &mut MessageWriter<W>,
     ) -> VortexResult<()> {
-        let mut offsets = Vec::with_capacity(self.size_hint + 1);
+        let mut offsets = Vec::with_capacity(stream.size_hint().0 + 1);
         offsets.push(msgs.tell());
 
         while let Some(chunk) = stream.try_next().await? {
