@@ -82,6 +82,7 @@ impl ColumnLayout {
         }
     }
 
+    /// Perform minimal amount of work to construct children that can be queried for splits
     fn children_for_splits(&self) -> VortexResult<Vec<Box<dyn LayoutReader>>> {
         let (refs, lazy_dtype) = self.fields_with_dtypes()?;
         let fb_children = self.flatbuffer().children().unwrap_or_default();
