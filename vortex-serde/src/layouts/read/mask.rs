@@ -7,24 +7,31 @@ use vortex::array::BoolArray;
 use vortex::compute::{filter, slice};
 use vortex::validity::Validity;
 use vortex::Array;
-use vortex_error::{vortex_err, VortexResult};
+use vortex_error::{vortex_err, vortex_panic, VortexResult};
 
-/// Bitmap of selected row ranges
+/// Bitmap of selected rows within given [begin, end) row range
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct RowSelector {
+pub struct RowMask {
     values: Bitmap,
     begin: usize,
     end: usize,
 }
 
-impl Display for RowSelector {
+impl Display for RowMask {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "RowSelector [{}..{}]", self.begin, self.end)
     }
 }
 
-impl RowSelector {
+impl RowMask {
     pub fn new(values: Bitmap, begin: usize, end: usize) -> Self {
+        if values
+            .maximum()
+            .map(|m| m > (end - begin) as u32)
+            .unwrap_or(false)
+        {
+            vortex_panic!("Values bitmap must be in 0..(end-begin) range")
+        }
         Self { values, begin, end }
     }
 
@@ -37,7 +44,7 @@ impl RowSelector {
                     for (sb, se) in b.maybe_null_slices_iter() {
                         bitmap.add_range(sb as u32..se as u32);
                     }
-                    RowSelector::new(bitmap, begin, end)
+                    RowMask::new(bitmap, begin, end)
                 })
         })
     }
@@ -63,7 +70,7 @@ impl RowSelector {
         let range_end = min(self.end, end);
         let mask =
             Bitmap::from_range((range_begin - self.begin) as u32..(range_end - self.begin) as u32);
-        RowSelector::new(
+        RowMask::new(
             self.values
                 .and(&mask)
                 .add_offset(-((range_begin - self.begin) as i64)),
@@ -108,12 +115,12 @@ impl RowSelector {
         filter(sliced, predicate).map(Some)
     }
 
-    pub fn with_offset(mut self, offset: usize) -> RowSelector {
+    pub fn with_offset(mut self, offset: usize) -> RowMask {
         if offset == 0 {
             self
         } else {
             let just_shift = self.begin >= offset;
-            RowSelector::new(
+            RowMask::new(
                 if just_shift {
                     self.values
                 } else {
@@ -134,19 +141,15 @@ mod tests {
     use croaring::Bitmap;
     use rstest::rstest;
 
-    use crate::layouts::read::selection::RowSelector;
+    use crate::layouts::read::mask::RowMask;
 
     #[rstest]
-    #[case(RowSelector::new((0..2).chain(9..10).collect(), 0, 10), (0, 1), RowSelector::new((0..1).collect(), 0, 1))]
-    #[case(RowSelector::new((5..8).chain(9..10).collect(), 0, 10), (2, 5), RowSelector::new(Bitmap::new(), 2, 5))]
-    #[case(RowSelector::new((0..4).collect(), 0, 10), (2, 5), RowSelector::new((0..2).collect(), 2, 5))]
-    #[case(RowSelector::new((0..3).chain(5..6).collect(), 0, 10), (2, 6), RowSelector::new((0..1).chain(3..4).collect(), 2, 6))]
+    #[case(RowMask::new((0..2).chain(9..10).collect(), 0, 10), (0, 1), RowMask::new((0..1).collect(), 0, 1))]
+    #[case(RowMask::new((5..8).chain(9..10).collect(), 0, 10), (2, 5), RowMask::new(Bitmap::new(), 2, 5))]
+    #[case(RowMask::new((0..4).collect(), 0, 10), (2, 5), RowMask::new((0..2).collect(), 2, 5))]
+    #[case(RowMask::new((0..3).chain(5..6).collect(), 0, 10), (2, 6), RowMask::new((0..1).chain(3..4).collect(), 2, 6))]
     #[cfg_attr(miri, ignore)]
-    fn slice(
-        #[case] first: RowSelector,
-        #[case] range: (usize, usize),
-        #[case] expected: RowSelector,
-    ) {
+    fn slice(#[case] first: RowMask, #[case] range: (usize, usize), #[case] expected: RowMask) {
         assert_eq!(first.slice(range.0, range.1), expected);
     }
 }

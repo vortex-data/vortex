@@ -6,17 +6,17 @@ use croaring::Bitmap;
 use itertools::Itertools;
 use vortex::Array;
 
-use crate::layouts::read::selection::RowSelector;
+use crate::layouts::read::mask::RowMask;
 use crate::layouts::{LayoutMessageCache, LayoutReader, ReadResult};
 
-pub fn layout_splits(layout: &mut dyn LayoutReader, length: usize) -> Vec<RowSelector> {
+pub fn layout_splits(layout: &mut dyn LayoutReader, length: usize) -> Vec<RowMask> {
     let mut splits = BTreeSet::new();
     splits.insert(length);
     layout.add_splits(0, &mut splits);
     splits
         .into_iter()
         .tuple_windows::<(usize, usize)>()
-        .map(|(begin, end)| RowSelector::new(Bitmap::from_range(begin as u32..end as u32), 0, end))
+        .map(|(begin, end)| RowMask::new(Bitmap::from_range(begin as u32..end as u32), 0, end))
         .collect::<Vec<_>>()
 }
 
@@ -24,7 +24,7 @@ pub fn read_layout_data(
     layout: &mut dyn LayoutReader,
     cache: Arc<RwLock<LayoutMessageCache>>,
     buf: &Bytes,
-    selector: RowSelector,
+    selector: RowMask,
 ) -> Option<Array> {
     while let Some(rr) = layout.read_selection(selector.clone()).unwrap() {
         match rr {
@@ -44,8 +44,8 @@ pub fn read_filters(
     layout: &mut dyn LayoutReader,
     cache: Arc<RwLock<LayoutMessageCache>>,
     buf: &Bytes,
-    selector: RowSelector,
-) -> Option<RowSelector> {
+    selector: RowMask,
+) -> Option<RowMask> {
     while let Some(rr) = layout.read_selection(selector.clone()).unwrap() {
         match rr {
             ReadResult::ReadMore(m) => {
@@ -55,9 +55,7 @@ pub fn read_filters(
                 }
             }
             ReadResult::Batch(a) => {
-                return Some(
-                    RowSelector::from_array(&a, selector.begin(), selector.end()).unwrap(),
-                );
+                return Some(RowMask::from_array(&a, selector.begin(), selector.end()).unwrap());
             }
         }
     }

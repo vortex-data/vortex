@@ -17,7 +17,7 @@ use vortex_schema::Schema;
 
 use crate::io::VortexReadAt;
 use crate::layouts::read::cache::LayoutMessageCache;
-use crate::layouts::read::selection::RowSelector;
+use crate::layouts::read::mask::RowMask;
 use crate::layouts::read::{LayoutReader, MessageId, ReadResult};
 use crate::stream_writer::ByteRange;
 
@@ -29,7 +29,7 @@ pub struct LayoutBatchStream<R> {
     filter_reader: Option<Box<dyn LayoutReader>>,
     messages_cache: Arc<RwLock<LayoutMessageCache>>,
     splits: VecDeque<(usize, usize)>,
-    current_selector: Option<RowSelector>,
+    current_selector: Option<RowMask>,
     state: StreamingState<R>,
 }
 
@@ -133,7 +133,7 @@ impl<R: VortexReadAt + Unpin + 'static> Stream for LayoutBatchStream<R> {
                             }
                             ReadResult::Batch(b) => {
                                 self.current_selector =
-                                    Some(RowSelector::from_array(&b, sel_begin, sel_end)?);
+                                    Some(RowMask::from_array(&b, sel_begin, sel_end)?);
                                 self.state = StreamingState::Read;
                             }
                         }
@@ -171,7 +171,7 @@ impl<R: VortexReadAt + Unpin + 'static> Stream for LayoutBatchStream<R> {
                 }
                 StreamingState::NextSplit => {
                     self.current_selector = self.splits.pop_front().map(|(begin, end)| {
-                        RowSelector::new(Bitmap::from_range(0..(end - begin) as u32), begin, end)
+                        RowMask::new(Bitmap::from_range(0..(end - begin) as u32), begin, end)
                     });
 
                     if self.current_selector.is_none() {

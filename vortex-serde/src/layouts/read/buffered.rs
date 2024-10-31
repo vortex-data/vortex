@@ -5,7 +5,7 @@ use vortex::array::ChunkedArray;
 use vortex::{Array, ArrayDType, IntoArray};
 use vortex_error::VortexResult;
 
-use crate::layouts::read::selection::RowSelector;
+use crate::layouts::read::mask::RowMask;
 use crate::layouts::read::{LayoutReader, ReadResult};
 use crate::layouts::Message;
 
@@ -25,7 +25,7 @@ impl BufferedLayoutReader {
         }
     }
 
-    fn buffer_read(&mut self, selection: RowSelector) -> VortexResult<Option<Vec<Message>>> {
+    fn buffer_read(&mut self, selection: RowMask) -> VortexResult<Option<Vec<Message>>> {
         while let Some(((begin, end), mut layout)) = self.layouts.pop_front() {
             // This selection doesn't know about rows in this chunk, we should put it back and wait for another request with different range
             if selection.end() <= begin || selection.begin() > end {
@@ -58,7 +58,7 @@ impl BufferedLayoutReader {
         Ok(None)
     }
 
-    pub fn read_next(&mut self, selection: RowSelector) -> VortexResult<Option<ReadResult>> {
+    pub fn read_next(&mut self, selection: RowMask) -> VortexResult<Option<ReadResult>> {
         if let Some(bufs) = self.buffer_read(selection)? {
             return Ok(Some(ReadResult::ReadMore(bufs)));
         }

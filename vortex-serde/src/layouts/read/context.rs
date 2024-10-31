@@ -32,7 +32,7 @@ pub trait LayoutSpec: Debug + Send + Sync {
         scan: Scan,
         layout_reader: LayoutDeserializer,
         message_cache: RelativeLayoutCache,
-    ) -> Box<dyn LayoutReader>;
+    ) -> VortexResult<Box<dyn LayoutReader>>;
 }
 
 pub type LayoutSpecRef = &'static dyn LayoutSpec;
@@ -91,11 +91,10 @@ impl LayoutDeserializer {
             fb::Layout::init_from_table(tab)
         };
         let layout_id = LayoutId(fb_layout.encoding());
-        Ok(self
-            .layout_ctx
+        self.layout_ctx
             .lookup_layout(&layout_id)
             .ok_or_else(|| vortex_err!("Unknown layout definition {layout_id}"))?
-            .layout(fb_bytes, fb_loc, scan, self.clone(), message_cache))
+            .layout(fb_bytes, fb_loc, scan, self.clone(), message_cache)
     }
 
     pub(crate) fn ctx(&self) -> Arc<Context> {

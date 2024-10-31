@@ -5,14 +5,14 @@ use bytes::Bytes;
 use itertools::Itertools;
 use vortex_dtype::field::Field;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, VortexResult, VortexUnwrap};
+use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexResult, VortexUnwrap};
 use vortex_expr::{Column, Select};
 use vortex_flatbuffers::footer;
 
 use crate::layouts::read::batch::ColumnBatchReader;
 use crate::layouts::read::cache::{LazyDeserializedDType, RelativeLayoutCache};
 use crate::layouts::read::filter_project::filter_project;
-use crate::layouts::read::selection::RowSelector;
+use crate::layouts::read::mask::RowMask;
 use crate::layouts::{
     LayoutDeserializer, LayoutId, LayoutReader, LayoutSpec, ReadResult, RowFilter, Scan,
     COLUMN_LAYOUT_ID,
@@ -33,14 +33,14 @@ impl LayoutSpec for ColumnLayoutSpec {
         scan: Scan,
         layout_serde: LayoutDeserializer,
         message_cache: RelativeLayoutCache,
-    ) -> Box<dyn LayoutReader> {
-        Box::new(ColumnLayout::new(
+    ) -> VortexResult<Box<dyn LayoutReader>> {
+        Ok(Box::new(ColumnLayout::new(
             fb_bytes,
             fb_loc,
             scan,
             layout_serde,
             message_cache,
-        ))
+        )))
     }
 }
 
@@ -83,19 +83,10 @@ impl ColumnLayout {
     }
 
     fn minimal_children(&self) -> VortexResult<Vec<Box<dyn LayoutReader>>> {
-        let fb_children = self
-            .flatbuffer()
-            .children()
-            .ok_or_else(|| vortex_err!("Missing children"))?;
-        let field_refs = self.scan_fields()?;
-        let lazy_dtype = field_refs
-            .as_ref()
-            .map(|e| self.message_cache.dtype().project(e))
-            .unwrap_or_else(|| Ok(self.message_cache.dtype().clone()))?;
+        let (refs, lazy_dtype) = self.fields_with_dtypes()?;
+        let fb_children = self.flatbuffer().children().unwrap_or_default();
 
-        field_refs
-            .unwrap_or_else(|| (0..fb_children.len()).map(Field::from).collect())
-            .into_iter()
+        refs.into_iter()
             .map(|field| {
                 let resolved_child = lazy_dtype.resolve_field(&field)?;
                 let child_loc = fb_children.get(resolved_child)._tab.loc();
@@ -111,24 +102,15 @@ impl ColumnLayout {
     }
 
     fn column_reader(&mut self) -> VortexResult<ColumnBatchReader> {
-        let fb_children = self
-            .flatbuffer()
-            .children()
-            .ok_or_else(|| vortex_err!("Missing children"))?;
-        let field_refs = self.scan_fields()?;
-        let lazy_dtype = field_refs
-            .as_ref()
-            .map(|e| self.message_cache.dtype().project(e))
-            .unwrap_or_else(|| Ok(self.message_cache.dtype().clone()))?;
-
-        let refs = field_refs.unwrap_or_else(|| (0..fb_children.len()).map(Field::from).collect());
+        let (refs, lazy_dtype) = self.fields_with_dtypes()?;
+        let fb_children = self.flatbuffer().children().unwrap_or_default();
 
         let filter_dtype = lazy_dtype.value()?;
         let DType::Struct(s, ..) = filter_dtype else {
             vortex_bail!("Column layout must have struct dtype")
         };
 
-        let mut unhandled_children_names = Vec::new();
+        let mut unhandled_names = Vec::new();
         let mut unhandled_children = Vec::new();
         let mut handled_children = Vec::new();
         let mut handled_names = Vec::new();
@@ -139,19 +121,19 @@ impl ColumnLayout {
         {
             let resolved_child = lazy_dtype.resolve_field(&field)?;
             let child_loc = fb_children.get(resolved_child)._tab.loc();
-            let filter = self
+            let projected_expr = self
                 .scan
                 .expr
                 .as_ref()
                 .and_then(|e| filter_project(e, &[field]));
 
             let handled =
-                self.scan.expr.is_none() || (self.scan.expr.is_some() && filter.is_some());
+                self.scan.expr.is_none() || (self.scan.expr.is_some() && projected_expr.is_some());
 
             let child = self.layout_serde.read_layout(
                 self.fb_bytes.clone(),
                 child_loc,
-                Scan::new(filter),
+                Scan::new(projected_expr),
                 self.message_cache.relative(
                     resolved_child as u16,
                     Arc::new(LazyDeserializedDType::from_dtype(dtype)),
@@ -163,11 +145,11 @@ impl ColumnLayout {
                 handled_names.push(name);
             } else {
                 unhandled_children.push(child);
-                unhandled_children_names.push(name);
+                unhandled_names.push(name);
             }
         }
 
-        if !unhandled_children_names.is_empty() {
+        if !unhandled_names.is_empty() {
             let prf = self
                 .scan
                 .expr
@@ -175,7 +157,7 @@ impl ColumnLayout {
                 .and_then(|e| {
                     filter_project(
                         e,
-                        &unhandled_children_names
+                        &unhandled_names
                             .iter()
                             .map(|n| Field::from(n.as_ref()))
                             .collect::<Vec<_>>(),
@@ -185,20 +167,20 @@ impl ColumnLayout {
                     vortex_err!(
                         "Must be able to project {:?} filter into unhandled space {}",
                         self.scan.expr.as_ref(),
-                        unhandled_children_names.iter().format(",")
+                        unhandled_names.iter().format(",")
                     )
                 })?;
 
             handled_children.push(Box::new(ColumnBatchReader::new(
-                unhandled_children_names.into(),
+                unhandled_names.into(),
                 unhandled_children,
                 Some(prf),
                 false,
             )));
-            handled_names.push("unhandled".into());
+            handled_names.push("__unhandled".into());
         }
 
-        let filter = self
+        let top_level_expr = self
             .scan
             .expr
             .as_ref()
@@ -212,30 +194,42 @@ impl ColumnLayout {
                         .collect(),
                 )) as _
             });
-        let shortcircuit_siblings = filter.is_some();
+        let shortcircuit_siblings = top_level_expr.is_some();
         Ok(ColumnBatchReader::new(
             handled_names.into(),
             handled_children,
-            filter,
+            top_level_expr,
             shortcircuit_siblings,
         ))
     }
 
-    fn scan_fields(&self) -> VortexResult<Option<Vec<Field>>> {
-        self.scan
-            .expr
+    /// Get fields referenced by scan expression along with their dtype
+    fn fields_with_dtypes(&self) -> VortexResult<(Vec<Field>, Arc<LazyDeserializedDType>)> {
+        let fb_children = self.flatbuffer().children().unwrap_or_default();
+        let field_refs = self.scan_fields();
+        let lazy_dtype = field_refs
             .as_ref()
-            .map(|e| {
-                if let Some(se) = e.as_any().downcast_ref::<Select>() {
-                    match se {
-                        Select::Include(i) => Ok(i.clone()),
-                        Select::Exclude(_) => vortex_bail!("Select::Exclude is not supported"),
-                    }
-                } else {
-                    Ok(e.references().into_iter().cloned().collect::<Vec<_>>())
+            .map(|e| self.message_cache.dtype().project(e))
+            .unwrap_or_else(|| Ok(self.message_cache.dtype().clone()))?;
+
+        Ok((
+            field_refs.unwrap_or_else(|| (0..fb_children.len()).map(Field::from).collect()),
+            lazy_dtype,
+        ))
+    }
+
+    /// Get fields referenced by scan expression preserving order if we're using select to project
+    fn scan_fields(&self) -> Option<Vec<Field>> {
+        self.scan.expr.as_ref().map(|e| {
+            if let Some(se) = e.as_any().downcast_ref::<Select>() {
+                match se {
+                    Select::Include(i) => i.clone(),
+                    Select::Exclude(_) => vortex_panic!("Select::Exclude is not supported"),
                 }
-            })
-            .transpose()
+            } else {
+                e.references().into_iter().cloned().collect::<Vec<_>>()
+            }
+        })
     }
 }
 
@@ -246,7 +240,7 @@ impl LayoutReader for ColumnLayout {
         }
     }
 
-    fn read_selection(&mut self, selector: RowSelector) -> VortexResult<Option<ReadResult>> {
+    fn read_selection(&mut self, selector: RowMask) -> VortexResult<Option<ReadResult>> {
         if let Some(r) = &mut self.reader {
             r.read_selection(selector)
         } else {

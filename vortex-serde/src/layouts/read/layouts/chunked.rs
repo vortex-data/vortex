@@ -7,7 +7,7 @@ use vortex_flatbuffers::footer;
 
 use crate::layouts::read::buffered::{BufferedLayoutReader, RangedLayoutReader};
 use crate::layouts::read::cache::RelativeLayoutCache;
-use crate::layouts::read::selection::RowSelector;
+use crate::layouts::read::mask::RowMask;
 use crate::layouts::{
     LayoutDeserializer, LayoutId, LayoutPartId, LayoutReader, LayoutSpec, ReadResult, Scan,
     CHUNKED_LAYOUT_ID,
@@ -27,14 +27,14 @@ impl LayoutSpec for ChunkedLayoutSpec {
         scan: Scan,
         layout_builder: LayoutDeserializer,
         message_cache: RelativeLayoutCache,
-    ) -> Box<dyn LayoutReader> {
-        Box::new(ChunkedLayout::new(
+    ) -> VortexResult<Box<dyn LayoutReader>> {
+        Ok(Box::new(ChunkedLayout::new(
             fb_bytes,
             fb_loc,
             scan,
             layout_builder,
             message_cache,
-        ))
+        )))
     }
 }
 
@@ -133,7 +133,7 @@ impl LayoutReader for ChunkedLayout {
         }
     }
 
-    fn read_selection(&mut self, selector: RowSelector) -> VortexResult<Option<ReadResult>> {
+    fn read_selection(&mut self, selector: RowMask) -> VortexResult<Option<ReadResult>> {
         if let Some(br) = &mut self.chunk_reader {
             br.read_next(selector)
         } else {
@@ -167,7 +167,7 @@ mod tests {
     use crate::layouts::read::layouts::test_read::{
         filter_read_layout, read_layout, read_layout_data,
     };
-    use crate::layouts::read::selection::RowSelector;
+    use crate::layouts::read::mask::RowMask;
     use crate::layouts::{write, LayoutDeserializer, LayoutMessageCache, RowFilter, Scan};
     use crate::message_writer::MessageWriter;
     use crate::stream_writer::ByteRange;
@@ -296,7 +296,7 @@ mod tests {
             &mut projection_layout,
             cache,
             &buf,
-            RowSelector::new(Bitmap::from_range(0..500), 0, 500),
+            RowMask::new(Bitmap::from_range(0..500), 0, 500),
         );
 
         assert!(arr.is_some());
@@ -314,9 +314,9 @@ mod tests {
         let (_, mut projection_layout, buf, _) =
             layout_and_bytes(cache.clone(), Scan::new(None)).await;
         let mut arr = [
-            RowSelector::new(Bitmap::from_range(0..150), 0, 200),
-            RowSelector::new(Bitmap::from_range(50..150), 200, 400),
-            RowSelector::new(Bitmap::from_range(0..100), 400, 500),
+            RowMask::new(Bitmap::from_range(0..150), 0, 200),
+            RowMask::new(Bitmap::from_range(50..150), 200, 400),
+            RowMask::new(Bitmap::from_range(0..100), 400, 500),
         ]
         .into_iter()
         .flat_map(|s| read_layout_data(&mut projection_layout, cache.clone(), &buf, s))

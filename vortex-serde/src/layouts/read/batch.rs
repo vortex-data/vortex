@@ -10,7 +10,7 @@ use vortex_dtype::FieldNames;
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_expr::VortexExpr;
 
-use crate::layouts::read::selection::RowSelector;
+use crate::layouts::read::mask::RowMask;
 use crate::layouts::read::{LayoutReader, ReadResult};
 
 #[derive(Debug)]
@@ -47,7 +47,7 @@ impl LayoutReader for ColumnBatchReader {
         }
     }
 
-    fn read_selection(&mut self, selection: RowSelector) -> VortexResult<Option<ReadResult>> {
+    fn read_selection(&mut self, selection: RowMask) -> VortexResult<Option<ReadResult>> {
         let mut messages = Vec::new();
         for (i, child_array) in self
             .arrays

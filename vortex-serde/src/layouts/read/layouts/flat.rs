@@ -3,11 +3,11 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use vortex::{Array, Context};
-use vortex_error::{vortex_err, VortexResult, VortexUnwrap};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_flatbuffers::footer;
 
 use crate::layouts::read::cache::RelativeLayoutCache;
-use crate::layouts::read::selection::RowSelector;
+use crate::layouts::read::mask::RowMask;
 use crate::layouts::{
     LayoutDeserializer, LayoutId, LayoutReader, LayoutSpec, Message, ReadResult, Scan,
     FLAT_LAYOUT_ID,
@@ -30,23 +30,23 @@ impl LayoutSpec for FlatLayoutSpec {
         scan: Scan,
         layout_serde: LayoutDeserializer,
         message_cache: RelativeLayoutCache,
-    ) -> Box<dyn LayoutReader> {
+    ) -> VortexResult<Box<dyn LayoutReader>> {
         let fb_layout = unsafe {
             let tab = flatbuffers::Table::new(&fb_bytes, fb_loc);
             footer::Layout::init_from_table(tab)
         };
-        let buf = fb_layout
-            .buffers()
-            .ok_or_else(|| vortex_err!("No buffers"))
-            .vortex_unwrap()
-            .get(0);
+        let buffers = fb_layout.buffers().unwrap_or_default();
+        if buffers.is_empty() {
+            vortex_bail!("Missing buffers for flat layout")
+        }
+        let buf = buffers.get(0);
 
-        Box::new(FlatLayout::new(
+        Ok(Box::new(FlatLayout::new(
             ByteRange::new(buf.begin(), buf.end()),
             scan,
             layout_serde.ctx(),
             message_cache,
-        ))
+        )))
     }
 }
 
@@ -55,7 +55,7 @@ pub struct FlatLayout {
     range: ByteRange,
     scan: Scan,
     ctx: Arc<Context>,
-    cache: RelativeLayoutCache,
+    message_cache: RelativeLayoutCache,
 }
 
 impl FlatLayout {
@@ -63,18 +63,18 @@ impl FlatLayout {
         range: ByteRange,
         scan: Scan,
         ctx: Arc<Context>,
-        cache: RelativeLayoutCache,
+        message_cache: RelativeLayoutCache,
     ) -> Self {
         Self {
             range,
             scan,
             ctx,
-            cache,
+            message_cache,
         }
     }
 
     fn own_message(&self) -> Message {
-        (self.cache.absolute_id(&[]), self.range)
+        (self.message_cache.absolute_id(&[]), self.range)
     }
 
     fn array_from_bytes(&self, mut buf: Bytes) -> VortexResult<Array> {
@@ -83,7 +83,10 @@ impl FlatLayout {
         while let Some(u) = array_reader.read(read_buf)? {
             read_buf = buf.split_to(u);
         }
-        array_reader.into_array(self.ctx.clone(), self.cache.dtype().value()?.clone())
+        array_reader.into_array(
+            self.ctx.clone(),
+            self.message_cache.dtype().value()?.clone(),
+        )
     }
 }
 
@@ -92,8 +95,8 @@ impl LayoutReader for FlatLayout {
         splits.insert(row_offset);
     }
 
-    fn read_selection(&mut self, selection: RowSelector) -> VortexResult<Option<ReadResult>> {
-        if let Some(buf) = self.cache.get(&[]) {
+    fn read_selection(&mut self, selection: RowMask) -> VortexResult<Option<ReadResult>> {
+        if let Some(buf) = self.message_cache.get(&[]) {
             let array = self.array_from_bytes(buf)?;
             selection
                 .filter_array(array)?

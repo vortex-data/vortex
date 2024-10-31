@@ -4,11 +4,11 @@ use std::sync::Arc;
 use bytes::Bytes;
 use flatbuffers::root;
 use vortex_dtype::DType;
-use vortex_error::{vortex_err, VortexResult, VortexUnwrap};
+use vortex_error::{vortex_bail, vortex_err, VortexResult, VortexUnwrap};
 use vortex_flatbuffers::{footer, message};
 
 use crate::layouts::read::cache::{LazyDeserializedDType, RelativeLayoutCache};
-use crate::layouts::read::selection::RowSelector;
+use crate::layouts::read::mask::RowMask;
 use crate::layouts::{
     LayoutDeserializer, LayoutId, LayoutReader, LayoutSpec, Message, ReadResult, Scan,
     INLINE_SCHEMA_LAYOUT_ID,
@@ -31,14 +31,14 @@ impl LayoutSpec for InlineDTypeLayoutSpec {
         scan: Scan,
         layout_reader: LayoutDeserializer,
         message_cache: RelativeLayoutCache,
-    ) -> Box<dyn LayoutReader> {
-        Box::new(InlineDTypeLayout::new(
+    ) -> VortexResult<Box<dyn LayoutReader>> {
+        Ok(Box::new(InlineDTypeLayout::new(
             fb_bytes,
             fb_loc,
             scan,
             layout_reader,
             message_cache,
-        ))
+        )))
     }
 }
 
@@ -101,11 +101,11 @@ impl InlineDTypeLayout {
                 .map_err(|e| vortex_err!(InvalidSerde: "Failed to parse DType: {e}"))?,
             ))
         } else {
-            let dtype_buf = self
-                .flatbuffer()
-                .buffers()
-                .ok_or_else(|| vortex_err!("No buffers"))?
-                .get(0);
+            let buffers = self.flatbuffer().buffers().unwrap_or_default();
+            if buffers.is_empty() {
+                vortex_bail!("Missing buffers for inline dtype layout")
+            }
+            let dtype_buf = buffers.get(0);
             Ok(DTypeReadResult::ReadMore(vec![(
                 self.message_cache.absolute_id(&[0]),
                 ByteRange::new(dtype_buf.begin(), dtype_buf.end()),
@@ -113,19 +113,13 @@ impl InlineDTypeLayout {
         }
     }
 
-    fn child_reader(&mut self) -> VortexResult<ChildReaderResult> {
+    fn child_reader(&self) -> VortexResult<ChildReaderResult> {
         match self.dtype()? {
             DTypeReadResult::ReadMore(m) => Ok(ChildReaderResult::ReadMore(m)),
             DTypeReadResult::DType(d) => {
-                let layout = self
-                    .flatbuffer()
-                    .children()
-                    .ok_or_else(|| vortex_err!("No children"))?
-                    .get(0);
-
                 let child_layout = self.layout_builder.read_layout(
                     self.fb_bytes.clone(),
-                    layout._tab.loc(),
+                    self.child_layout()?._tab.loc(),
                     self.scan.clone(),
                     self.message_cache
                         .relative(1u16, Arc::new(LazyDeserializedDType::from_dtype(d))),
@@ -134,22 +128,23 @@ impl InlineDTypeLayout {
             }
         }
     }
+
+    fn child_layout(&self) -> VortexResult<footer::Layout> {
+        let children = self.flatbuffer().children().unwrap_or_default();
+        if children.is_empty() {
+            vortex_bail!("Missing children for inline dtype layout")
+        }
+        Ok(children.get(0))
+    }
 }
 
 impl LayoutReader for InlineDTypeLayout {
     fn add_splits(&self, row_offset: usize, splits: &mut BTreeSet<usize>) {
-        let layout = self
-            .flatbuffer()
-            .children()
-            .ok_or_else(|| vortex_err!("No children"))
-            .vortex_unwrap()
-            .get(0);
-
         let child_layout = self
             .layout_builder
             .read_layout(
                 self.fb_bytes.clone(),
-                layout._tab.loc(),
+                self.child_layout().vortex_unwrap()._tab.loc(),
                 Scan::new(None),
                 self.message_cache.unknown_dtype(1u16),
             )
@@ -157,7 +152,7 @@ impl LayoutReader for InlineDTypeLayout {
         child_layout.add_splits(row_offset, splits)
     }
 
-    fn read_selection(&mut self, selector: RowSelector) -> VortexResult<Option<ReadResult>> {
+    fn read_selection(&mut self, selector: RowMask) -> VortexResult<Option<ReadResult>> {
         if let Some(cr) = self.child_layout.as_mut() {
             cr.read_selection(selector)
         } else {
