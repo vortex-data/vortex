@@ -102,7 +102,6 @@ impl<R: VortexRead> MessageReader<R> {
             msg.dtype()
                 .ok_or_else(|| vortex_err!(InvalidSerde: "Schema missing DType"))?,
         )
-        .map_err(|e| vortex_err!(InvalidSerde: "Failed to parse DType: {}", e))
     }
 
     pub async fn maybe_read_chunk(

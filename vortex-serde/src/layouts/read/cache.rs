@@ -97,8 +97,7 @@ impl LazyDeserializedDType {
                     .dtype()
                     .ok_or_else(|| vortex_err!(InvalidSerde: "Schema missing DType"))?;
                 match &proj {
-                    Projection::All => DType::try_from(fb_dtype)
-                        .map_err(|e| vortex_err!(InvalidSerde: "Failed to parse DType: {e}")),
+                    Projection::All => DType::try_from(fb_dtype),
                     Projection::Flat(p) => deserialize_and_project(fb_dtype, p),
                 }
             }),

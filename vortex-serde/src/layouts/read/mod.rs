@@ -10,7 +10,7 @@ mod buffered;
 mod builder;
 mod cache;
 mod context;
-mod filter_project;
+mod expr_project;
 mod filtering;
 mod footer;
 mod layouts;

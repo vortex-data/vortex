@@ -11,7 +11,7 @@ use vortex_flatbuffers::footer;
 
 use crate::layouts::read::batch::ColumnBatchReader;
 use crate::layouts::read::cache::{LazyDeserializedDType, RelativeLayoutCache};
-use crate::layouts::read::filter_project::filter_project;
+use crate::layouts::read::expr_project::expr_project;
 use crate::layouts::read::mask::RowMask;
 use crate::layouts::{
     LayoutDeserializer, LayoutId, LayoutReader, LayoutSpec, ReadResult, RowFilter, Scan,
@@ -125,7 +125,7 @@ impl ColumnLayout {
                 .scan
                 .expr
                 .as_ref()
-                .and_then(|e| filter_project(e, &[field]));
+                .and_then(|e| expr_project(e, &[field]));
 
             let handled =
                 self.scan.expr.is_none() || (self.scan.expr.is_some() && projected_expr.is_some());
@@ -155,7 +155,7 @@ impl ColumnLayout {
                 .expr
                 .as_ref()
                 .and_then(|e| {
-                    filter_project(
+                    expr_project(
                         e,
                         &unhandled_names
                             .iter()

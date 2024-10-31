@@ -93,13 +93,10 @@ impl InlineDTypeLayout {
                 .header_as_schema()
                 .ok_or_else(|| vortex_err!("Expected schema message"))?;
 
-            Ok(DTypeReadResult::DType(
-                DType::try_from(
-                    msg.dtype()
-                        .ok_or_else(|| vortex_err!(InvalidSerde: "Schema missing DType"))?,
-                )
-                .map_err(|e| vortex_err!(InvalidSerde: "Failed to parse DType: {e}"))?,
-            ))
+            Ok(DTypeReadResult::DType(DType::try_from(
+                msg.dtype()
+                    .ok_or_else(|| vortex_err!(InvalidSerde: "Schema missing DType"))?,
+            )?))
         } else {
             let buffers = self.flatbuffer().buffers().unwrap_or_default();
             if buffers.is_empty() {

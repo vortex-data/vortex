@@ -1,5 +1,5 @@
 use bytes::{Bytes, BytesMut};
-use flatbuffers::root;
+use flatbuffers::{root, root_unchecked};
 use vortex_dtype::field::Field;
 use vortex_dtype::flatbuffers::deserialize_and_project;
 use vortex_dtype::DType;
@@ -25,7 +25,6 @@ use crate::FLATBUFFER_SIZE_LENGTH;
 /// ├────────────────────────────┤
 /// │                            │
 /// │     Per-Column Metadata    │
-/// │    (Array IPC Messages)    │
 /// │                            │
 /// ├────────────────────────────┤
 /// │                            │
@@ -80,7 +79,7 @@ impl LayoutDescriptor {
         let footer_bytes = self
             .initial_read
             .slice(start_offset + FLATBUFFER_SIZE_LENGTH..end_offset);
-        let fb_footer = root::<footer::Footer>(&footer_bytes)?;
+        let fb_footer = unsafe { root_unchecked::<footer::Footer>(&footer_bytes) };
 
         let fb_layout = fb_footer
             .layout()
@@ -107,7 +106,6 @@ impl LayoutDescriptor {
                 .dtype()
                 .ok_or_else(|| vortex_err!(InvalidSerde: "Schema missing DType"))?,
         )
-        .map_err(|e| vortex_err!(InvalidSerde: "Failed to parse DType: {}", e))
     }
 
     pub fn projected_dtype(&self, projection: &[Field]) -> VortexResult<DType> {

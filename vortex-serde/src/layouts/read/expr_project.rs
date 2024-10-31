@@ -5,15 +5,16 @@ use vortex_expr::{BinaryExpr, Column, Identity, Literal, Operator, Select, Vorte
 
 use crate::layouts::RowFilter;
 
-pub fn filter_project(
-    filter: &Arc<dyn VortexExpr>,
+/// Restrict expression to only the fields that appear in projection
+pub fn expr_project(
+    expr: &Arc<dyn VortexExpr>,
     projection: &[Field],
 ) -> Option<Arc<dyn VortexExpr>> {
-    if let Some(rf) = filter.as_any().downcast_ref::<RowFilter>() {
+    if let Some(rf) = expr.as_any().downcast_ref::<RowFilter>() {
         rf.only_fields(projection).map(|rf| Arc::new(rf) as _)
-    } else if filter.as_any().downcast_ref::<Literal>().is_some() {
-        Some(filter.clone())
-    } else if let Some(s) = filter.as_any().downcast_ref::<Select>() {
+    } else if expr.as_any().downcast_ref::<Literal>().is_some() {
+        Some(expr.clone())
+    } else if let Some(s) = expr.as_any().downcast_ref::<Select>() {
         match s {
             Select::Include(i) => {
                 let fields = i
@@ -40,17 +41,17 @@ pub fn filter_project(
                 }
             }
         }
-    } else if let Some(c) = filter.as_any().downcast_ref::<Column>() {
+    } else if let Some(c) = expr.as_any().downcast_ref::<Column>() {
         projection.contains(c.field()).then(|| {
             if projection.len() == 1 {
                 Arc::new(Identity)
             } else {
-                Arc::new(Column::new(c.field().clone())) as Arc<dyn VortexExpr>
+                expr.clone()
             }
         })
-    } else if let Some(bexp) = filter.as_any().downcast_ref::<BinaryExpr>() {
-        let lhs_proj = filter_project(bexp.lhs(), projection);
-        let rhs_proj = filter_project(bexp.rhs(), projection);
+    } else if let Some(bexp) = expr.as_any().downcast_ref::<BinaryExpr>() {
+        let lhs_proj = expr_project(bexp.lhs(), projection);
+        let rhs_proj = expr_project(bexp.rhs(), projection);
         if bexp.op() == Operator::And {
             match (lhs_proj, rhs_proj) {
                 (Some(lhsp), Some(rhsp)) => Some(Arc::new(BinaryExpr::new(lhsp, bexp.op(), rhsp))),
@@ -84,7 +85,7 @@ mod tests {
     use vortex_dtype::field::Field;
     use vortex_expr::{BinaryExpr, Column, Identity, Literal, Operator, Select, VortexExpr};
 
-    use crate::layouts::read::filter_project::filter_project;
+    use crate::layouts::read::expr_project::expr_project;
 
     #[test]
     fn project_and() {
@@ -95,7 +96,7 @@ mod tests {
         )) as _;
         let projection = vec![Field::from("b")];
         assert_eq!(
-            *filter_project(&band, &projection).unwrap(),
+            *expr_project(&band, &projection).unwrap(),
             *Identity.as_any()
         );
     }
@@ -108,7 +109,7 @@ mod tests {
             Arc::new(Column::new(Field::from("b"))),
         )) as _;
         let projection = vec![Field::from("b")];
-        assert!(filter_project(&bor, &projection).is_none());
+        assert!(expr_project(&bor, &projection).is_none());
     }
 
     #[test]
@@ -127,7 +128,7 @@ mod tests {
             )),
         )) as _;
         let projection = vec![Field::from("b")];
-        assert!(filter_project(&band, &projection).is_none());
+        assert!(expr_project(&band, &projection).is_none());
     }
 
     #[test]
@@ -139,7 +140,7 @@ mod tests {
         )) as _;
         let projection = vec![Field::from("a"), Field::from("b")];
         assert_eq!(
-            *filter_project(&blt, &projection).unwrap(),
+            *expr_project(&blt, &projection).unwrap(),
             *BinaryExpr::new(
                 Arc::new(Column::new(Field::from("a"))),
                 Operator::Lt,
@@ -158,7 +159,7 @@ mod tests {
         ])) as _;
         let projection = vec![Field::from("a"), Field::from("b")];
         assert_eq!(
-            *filter_project(&blt, &projection).unwrap(),
+            *expr_project(&blt, &projection).unwrap(),
             *Select::include(projection).as_any()
         );
     }
