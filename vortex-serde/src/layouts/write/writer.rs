@@ -1,10 +1,10 @@
 use std::{io, mem};
 
 use flatbuffers::FlatBufferBuilder;
-use futures::{Stream, TryStreamExt};
+use futures::TryStreamExt;
 use vortex::array::{ChunkedArray, StructArray};
 use vortex::stream::ArrayStream;
-use vortex::{Array, ArrayDType as _, IntoArray};
+use vortex::{Array, ArrayDType as _};
 use vortex_buffer::io_buf::IoBuf;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
@@ -23,7 +23,7 @@ pub struct LayoutWriter<W> {
 
     row_count: u64,
     dtype: Option<DType>,
-    column_metadata: Vec<Box<dyn MetadataAccumulator>>,
+    column_metadata: Vec<ColumnMetadataAndOffsets>,
 }
 
 impl<W: VortexWrite> LayoutWriter<W> {
@@ -82,13 +82,15 @@ impl<W: VortexWrite> LayoutWriter<W> {
 
     async fn write_column_chunks<S>(&mut self, mut stream: S, column_idx: usize) -> VortexResult<()>
     where
-        S: Stream<Item = VortexResult<Array>> + Unpin + ArrayStream,
+        S: ArrayStream + Unpin,
     {
         let size_hint = stream.size_hint().0;
         let metadata = match self.column_metadata.get_mut(column_idx) {
             None => {
-                self.column_metadata
-                    .push(new_metadata_accumulator(size_hint, stream.dtype()));
+                self.column_metadata.push(ColumnMetadataAndOffsets {
+                    metadata: new_metadata_accumulator(size_hint, stream.dtype()),
+                    batch_byte_offsets: Vec::new(),
+                });
 
                 assert_eq!(
                     self.column_metadata.len(),
@@ -121,18 +123,7 @@ impl<W: VortexWrite> LayoutWriter<W> {
     async fn write_metadata_arrays(&mut self) -> VortexResult<Layout> {
         let mut column_layouts = Vec::with_capacity(self.column_metadata.len());
         for column_metadata in mem::take(&mut self.column_metadata) {
-            let (mut chunk_layouts, metadata_array) =
-                column_metadata.into_layouts_and_metadata()?;
-
-            let dtype_begin = self.msgs.tell();
-            self.msgs.write_dtype(metadata_array.dtype()).await?;
-            let dtype_end = self.msgs.tell();
-            self.msgs.write_batch(metadata_array.into_array()).await?;
-
-            chunk_layouts.push_front(Layout::inlined_schema(
-                vec![Layout::flat(ByteRange::new(dtype_end, self.msgs.tell()))],
-                ByteRange::new(dtype_begin, dtype_end),
-            ));
+            let chunk_layouts = column_metadata.write_into(&mut self.msgs).await?;
             column_layouts.push(Layout::chunked(chunk_layouts.into(), true));
         }
 
@@ -183,6 +174,60 @@ async fn write_fb_raw<W: VortexWrite, F: WriteFlatBuffer>(mut writer: W, fb: F) 
     Ok(writer)
 }
 
+struct ColumnMetadataAndOffsets {
+    metadata: Box<dyn MetadataAccumulator>,
+    batch_byte_offsets: Vec<Vec<u64>>,
+}
+
+impl ColumnMetadataAndOffsets {
+    fn push_chunk(&mut self, array: &Array) -> VortexResult<()> {
+        self.metadata.push_chunk(array)
+    }
+
+    fn push_batch_byte_offsets(&mut self, batch_byte_offsets: Vec<u64>) {
+        self.batch_byte_offsets.push(batch_byte_offsets);
+    }
+
+    async fn write_into<W: VortexWrite>(
+        self,
+        msgs: &mut MessageWriter<W>,
+    ) -> VortexResult<Vec<Layout>> {
+        let metadata_array = self.metadata.into_array()?;
+        let expected_n_data_chunks = metadata_array.len();
+
+        let dtype_begin = msgs.tell();
+        msgs.write_dtype(metadata_array.dtype()).await?;
+        let dtype_end = msgs.tell();
+        msgs.write_batch(metadata_array).await?;
+        let metadata_array_end = msgs.tell();
+
+        let data_chunks = self.batch_byte_offsets.iter().flat_map(|byte_offsets| {
+            byte_offsets
+                .iter()
+                .zip(byte_offsets.iter().skip(1))
+                .map(|(begin, end)| Layout::flat(ByteRange::new(*begin, *end)))
+        });
+
+        let layouts: Vec<Layout> = [Layout::inlined_schema(
+            vec![Layout::flat(ByteRange::new(dtype_end, metadata_array_end))],
+            ByteRange::new(dtype_begin, dtype_end),
+        )]
+        .into_iter()
+        .chain(data_chunks)
+        .collect();
+
+        if layouts.len() != expected_n_data_chunks + 1 {
+            vortex_bail!(
+                "Expected {} layouts based on row offsets, found {} based on byte offsets",
+                expected_n_data_chunks + 1,
+                layouts.len()
+            );
+        }
+
+        Ok(layouts)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use flatbuffers::FlatBufferBuilder;
@@ -226,5 +271,6 @@ mod tests {
             buffer[buffer_begin..buffer_end].len(),
             FOOTER_POSTSCRIPT_SIZE
         );
+        assert_eq!(buffer[buffer_begin..buffer_end].len(), 32);
     }
 }

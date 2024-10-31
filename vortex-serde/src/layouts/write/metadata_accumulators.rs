@@ -1,255 +1,243 @@
 //! Metadata accumulators track the per-chunk-of-a-column metadata, layout locations, and row counts.
 
-use std::collections::VecDeque;
-use std::mem;
 use std::sync::Arc;
 
-use vortex::array::{BoolArray, NullArray, PrimitiveArray, StructArray, VarBinViewArray};
+use vortex::array::StructArray;
 use vortex::stats::{ArrayStatistics as _, Stat};
 use vortex::validity::Validity;
-use vortex::{Array, IntoArray as _};
+use vortex::{Array, IntoArray};
 use vortex_buffer::{Buffer, BufferString};
-use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability};
-use vortex_error::{vortex_bail, VortexError, VortexExpect as _, VortexResult};
+use vortex_dtype::{match_each_native_ptype, DType, FieldName};
+use vortex_error::{VortexError, VortexResult};
 use vortex_scalar::Scalar;
-
-use super::layouts::Layout;
-use crate::stream_writer::ByteRange;
 
 pub fn new_metadata_accumulator(hint: usize, dtype: &DType) -> Box<dyn MetadataAccumulator> {
     match dtype {
-        DType::Null => Box::new(ExtremaAccumulator::<()>::new(hint, into_null_array)),
-        DType::Bool(..) => Box::new(ExtremaAccumulator::<bool>::new(hint, into_bool_array)),
+        DType::Null => Box::new(BasicAccumulator::new(hint)),
+        DType::Bool(..) => Box::new(BoolAccumulator::new(hint)),
         DType::Primitive(ptype, ..) => {
             match_each_native_ptype!(ptype, |$P| {
-                Box::new(ExtremaAccumulator::<$P>::new(hint, into_primitive_array::<$P>))
+                Box::new(StandardAccumulator::<$P>::new(hint))
             })
         }
-        DType::Utf8(..) => Box::new(ExtremaAccumulator::<BufferString>::new(
-            hint,
-            into_utf8_array,
-        )),
-        DType::Binary(..) => Box::new(ExtremaAccumulator::<Buffer>::new(hint, into_binary_array)),
+        DType::Utf8(..) => Box::new(StandardAccumulator::<BufferString>::new(hint)),
+        DType::Binary(..) => Box::new(StandardAccumulator::<Buffer>::new(hint)),
         DType::Struct(..) => Box::new(BasicAccumulator::new(hint)),
         DType::List(..) => Box::new(BasicAccumulator::new(hint)),
         DType::Extension(..) => Box::new(BasicAccumulator::new(hint)),
     }
 }
 
+/// Accumulates zero or more series of metadata across the chunks of a column.
 pub trait MetadataAccumulator {
     fn push_chunk(&mut self, array: &Array) -> VortexResult<()>;
 
-    fn push_batch_byte_offsets(&mut self, batch_byte_offsets: Vec<u64>);
-
-    fn into_layouts_and_metadata(self: Box<Self>) -> VortexResult<(VecDeque<Layout>, StructArray)>;
+    fn into_array(self: Box<Self>) -> VortexResult<Array>;
 }
 
-struct ExtremaAccumulator<T> {
-    minima: Vec<Option<T>>,
-    maxima: Vec<Option<T>>,
-    to_array: fn(Vec<Option<T>>) -> Array,
-    basic_metadata: BasicAccumulator,
+/// Accumulator for bool-typed columns.
+struct BoolAccumulator {
+    row_offsets: RowOffsetsAccumulator,
+    maxima: UnwrappedStatAccumulator<bool>,
+    minima: UnwrappedStatAccumulator<bool>,
+    true_count: UnwrappedStatAccumulator<u64>,
+    null_count: UnwrappedStatAccumulator<u64>,
 }
 
-impl<T> ExtremaAccumulator<T> {
-    fn new(size_hint: usize, to_array: fn(Vec<Option<T>>) -> Array) -> Self {
+impl BoolAccumulator {
+    fn new(hint: usize) -> Self {
         Self {
-            minima: Vec::with_capacity(size_hint),
-            maxima: Vec::with_capacity(size_hint),
-            to_array,
-            basic_metadata: BasicAccumulator::new(size_hint),
+            row_offsets: RowOffsetsAccumulator::new(),
+            maxima: UnwrappedStatAccumulator::new(Stat::Max, "max".into(), hint),
+            minima: UnwrappedStatAccumulator::new(Stat::Min, "min".into(), hint),
+            true_count: UnwrappedStatAccumulator::new(Stat::TrueCount, "true_count".into(), hint),
+            null_count: UnwrappedStatAccumulator::new(Stat::NullCount, "null_count".into(), hint),
         }
     }
 }
 
-impl<T> MetadataAccumulator for ExtremaAccumulator<T>
+impl MetadataAccumulator for BoolAccumulator {
+    fn push_chunk(&mut self, array: &Array) -> VortexResult<()> {
+        self.row_offsets.push_chunk(array)?;
+        self.maxima.push_chunk(array)?;
+        self.minima.push_chunk(array)?;
+        self.true_count.push_chunk(array)?;
+        self.null_count.push_chunk(array)
+    }
+
+    fn into_array(self: Box<Self>) -> VortexResult<Array> {
+        let (names, fields): (Vec<FieldName>, Vec<Array>) = [
+            self.row_offsets.into_column(),
+            self.maxima.into_column(),
+            self.minima.into_column(),
+            self.true_count.into_column(),
+            self.null_count.into_column(),
+        ]
+        .into_iter()
+        .filter_map(|o| o)
+        .unzip();
+        let names = Arc::from(names);
+        let n_chunks = fields[0].len();
+        StructArray::try_new(names, fields, n_chunks, Validity::NonNullable)
+            .map(IntoArray::into_array)
+    }
+}
+
+/// An accumulator for the minima, maxima, null counts, and row offsets.
+struct StandardAccumulator<T> {
+    row_offsets: RowOffsetsAccumulator,
+    maxima: UnwrappedStatAccumulator<T>,
+    minima: UnwrappedStatAccumulator<T>,
+    null_count: UnwrappedStatAccumulator<u64>,
+}
+
+impl<T> StandardAccumulator<T> {
+    fn new(hint: usize) -> Self {
+        Self {
+            row_offsets: RowOffsetsAccumulator::new(),
+            maxima: UnwrappedStatAccumulator::new(Stat::Max, "max".into(), hint),
+            minima: UnwrappedStatAccumulator::new(Stat::Min, "min".into(), hint),
+            null_count: UnwrappedStatAccumulator::new(Stat::NullCount, "null_count".into(), hint),
+        }
+    }
+}
+
+impl<T> MetadataAccumulator for StandardAccumulator<T>
 where
     T: TryFrom<Scalar, Error = VortexError>,
+    Array: From<Vec<Option<T>>>,
 {
     fn push_chunk(&mut self, array: &Array) -> VortexResult<()> {
-        self.minima.push(
-            array
-                .statistics()
-                .compute(Stat::Min)
-                .map(T::try_from)
-                .transpose()?,
-        );
-        self.maxima.push(
-            array
-                .statistics()
-                .compute(Stat::Max)
-                .map(T::try_from)
-                .transpose()?,
-        );
-
-        self.basic_metadata.push_chunk(array)
+        self.row_offsets.push_chunk(array)?;
+        self.maxima.push_chunk(array)?;
+        self.minima.push_chunk(array)?;
+        self.null_count.push_chunk(array)
     }
 
-    fn push_batch_byte_offsets(&mut self, batch_byte_offsets: Vec<u64>) {
-        self.basic_metadata
-            .push_batch_byte_offsets(batch_byte_offsets);
-    }
-
-    fn into_layouts_and_metadata(
-        mut self: Box<Self>,
-    ) -> VortexResult<(VecDeque<Layout>, StructArray)> {
-        let (chunks, mut names, mut fields) =
-            self.basic_metadata.into_layouts_and_metadata_parts()?;
-
-        if self.minima.iter().any(Option::is_some) {
-            names.push(Arc::from("min"));
-            fields.push((self.to_array)(mem::take(&mut self.minima)));
-        }
-
-        if self.maxima.iter().any(Option::is_some) {
-            names.push(Arc::from("max"));
-            fields.push((self.to_array)(mem::take(&mut self.maxima)));
-        }
-
-        let n_chunks = chunks.len();
+    fn into_array(self: Box<Self>) -> VortexResult<Array> {
+        let (names, fields): (Vec<FieldName>, Vec<Array>) = [
+            self.row_offsets.into_column(),
+            self.maxima.into_column(),
+            self.minima.into_column(),
+            self.null_count.into_column(),
+        ]
+        .into_iter()
+        .filter_map(|o| o)
+        .unzip();
         let names = Arc::from(names);
-        Ok((
-            chunks,
-            StructArray::try_new(names, fields, n_chunks, Validity::NonNullable)?,
-        ))
+        let n_chunks = fields[0].len();
+        StructArray::try_new(names, fields, n_chunks, Validity::NonNullable)
+            .map(IntoArray::into_array)
     }
 }
 
+/// A minimal accumulator which only tracks null counts and row offsets.
 struct BasicAccumulator {
-    row_offsets: Vec<u64>,
-    batch_byte_offsets: Vec<Vec<u64>>,
-    null_counts: Vec<Option<u64>>,
-    true_counts: Vec<Option<u64>>,
+    row_offsets: RowOffsetsAccumulator,
+    null_count: UnwrappedStatAccumulator<u64>,
 }
 
 impl BasicAccumulator {
-    pub fn new(size_hint: usize) -> Self {
-        let mut row_offsets = Vec::with_capacity(size_hint + 1);
-        row_offsets.push(0);
+    fn new(hint: usize) -> Self {
         Self {
-            row_offsets,
-            batch_byte_offsets: Vec::new(),
-            null_counts: Vec::with_capacity(size_hint),
-            true_counts: Vec::with_capacity(size_hint),
+            row_offsets: RowOffsetsAccumulator::new(),
+            null_count: UnwrappedStatAccumulator::new(Stat::NullCount, "null_count".into(), hint),
         }
-    }
-
-    fn n_rows_written(&self) -> u64 {
-        *self
-            .row_offsets
-            .last()
-            .vortex_expect("row offsets cannot be empty by construction")
     }
 }
 
 impl MetadataAccumulator for BasicAccumulator {
     fn push_chunk(&mut self, array: &Array) -> VortexResult<()> {
-        self.row_offsets
-            .push(self.n_rows_written() + array.len() as u64);
+        self.row_offsets.push_chunk(array)?;
+        self.null_count.push_chunk(array)
+    }
 
-        self.null_counts.push(
+    fn into_array(self: Box<Self>) -> VortexResult<Array> {
+        let (names, fields): (Vec<FieldName>, Vec<Array>) = [
+            self.row_offsets.into_column(),
+            self.null_count.into_column(),
+        ]
+        .into_iter()
+        .filter_map(|o| o)
+        .unzip();
+        let names = Arc::from(names);
+        let n_chunks = fields[0].len();
+        StructArray::try_new(names, fields, n_chunks, Validity::NonNullable)
+            .map(IntoArray::into_array)
+    }
+}
+
+/// Accumulates a single series of values across the chunks of a column.
+trait SingularAccumulator {
+    fn push_chunk(&mut self, array: &Array) -> VortexResult<()>;
+
+    fn into_column(self) -> Option<(FieldName, Array)>;
+}
+
+struct UnwrappedStatAccumulator<T> {
+    stat: Stat,
+    name: FieldName,
+    values: Vec<Option<T>>,
+}
+
+impl<T> UnwrappedStatAccumulator<T> {
+    fn new(stat: Stat, name: FieldName, hint: usize) -> Self {
+        Self {
+            stat,
+            name,
+            values: Vec::with_capacity(hint),
+        }
+    }
+}
+
+impl<T> SingularAccumulator for UnwrappedStatAccumulator<T>
+where
+    T: TryFrom<Scalar, Error = VortexError>,
+    Array: From<Vec<Option<T>>>,
+{
+    fn push_chunk(&mut self, array: &Array) -> VortexResult<()> {
+        self.values.push(
             array
                 .statistics()
-                .compute(Stat::NullCount)
-                .map(u64::try_from)
+                .compute(self.stat)
+                .map(T::try_from)
                 .transpose()?,
         );
+        Ok(())
+    }
 
-        self.true_counts.push(
-            array
-                .statistics()
-                .compute(Stat::TrueCount)
-                .map(u64::try_from)
-                .transpose()?,
-        );
+    fn into_column(self) -> Option<(FieldName, Array)> {
+        if self.values.iter().any(Option::is_some) {
+            return Some((self.name, Array::from(self.values)));
+        }
+        None
+    }
+}
+
+struct RowOffsetsAccumulator {
+    row_offsets: Vec<u64>,
+    n_rows: u64,
+}
+
+impl RowOffsetsAccumulator {
+    fn new() -> Self {
+        Self {
+            row_offsets: Vec::new(),
+            n_rows: 0,
+        }
+    }
+}
+
+impl SingularAccumulator for RowOffsetsAccumulator {
+    fn push_chunk(&mut self, array: &Array) -> VortexResult<()> {
+        self.row_offsets.push(self.n_rows);
+        self.n_rows += array.len() as u64;
 
         Ok(())
     }
 
-    fn push_batch_byte_offsets(&mut self, batch_byte_offsets: Vec<u64>) {
-        self.batch_byte_offsets.push(batch_byte_offsets);
+    fn into_column(self) -> Option<(FieldName, Array)> {
+        // intentionally excluding the last n_rows, b/c it is just the total number of rows
+        return Some(("row_offsets".into(), Array::from(self.row_offsets)));
     }
-
-    fn into_layouts_and_metadata(self: Box<Self>) -> VortexResult<(VecDeque<Layout>, StructArray)> {
-        let (chunks, names, fields) = self.into_layouts_and_metadata_parts()?;
-        let n_chunks = chunks.len();
-        let names = Arc::from(names);
-        Ok((
-            chunks,
-            StructArray::try_new(names, fields, n_chunks, Validity::NonNullable)?,
-        ))
-    }
-}
-
-type LayoutsAndMetadataParts = (VecDeque<Layout>, Vec<Arc<str>>, Vec<Array>);
-
-impl BasicAccumulator {
-    fn into_layouts_and_metadata_parts(mut self) -> VortexResult<LayoutsAndMetadataParts> {
-        // we don't need the last row offset; that's just the total number of rows
-        let length = self.row_offsets.len() - 1;
-        self.row_offsets.truncate(length);
-
-        let chunks: VecDeque<Layout> = self
-            .batch_byte_offsets
-            .iter()
-            .flat_map(|byte_offsets| {
-                byte_offsets
-                    .iter()
-                    .zip(byte_offsets.iter().skip(1))
-                    .map(|(begin, end)| Layout::flat(ByteRange::new(*begin, *end)))
-            })
-            .collect();
-
-        if chunks.len() != self.row_offsets.len() {
-            vortex_bail!(
-                "Expected {} chunks based on row offsets, found {} based on byte offsets",
-                self.row_offsets.len(),
-                chunks.len()
-            );
-        }
-
-        let mut names: Vec<Arc<str>> = vec![Arc::from("row_offset")];
-        let mut fields = vec![mem::take(&mut self.row_offsets).into_array()];
-
-        if self.null_counts.iter().any(Option::is_some) {
-            names.push(Arc::from("null_count"));
-            fields.push(
-                PrimitiveArray::from_nullable_vec(mem::take(&mut self.null_counts)).into_array(),
-            );
-        }
-
-        if self.true_counts.iter().any(Option::is_some) {
-            names.push(Arc::from("true_count"));
-            fields.push(
-                PrimitiveArray::from_nullable_vec(mem::take(&mut self.true_counts)).into_array(),
-            );
-        }
-
-        Ok((chunks, names, fields))
-    }
-}
-
-fn into_null_array(vec: Vec<Option<()>>) -> Array {
-    NullArray::new(vec.len()).into_array()
-}
-
-fn into_bool_array(vec: Vec<Option<bool>>) -> Array {
-    BoolArray::from_iter(vec).into_array()
-}
-
-fn into_primitive_array<P>(vec: Vec<Option<P>>) -> Array
-where
-    P: NativePType,
-    P: TryFrom<Scalar, Error = VortexError>,
-    P: 'static,
-{
-    PrimitiveArray::from_nullable_vec(vec).into_array()
-}
-
-fn into_utf8_array(x: Vec<Option<BufferString>>) -> Array {
-    VarBinViewArray::from_iter(x, DType::Utf8(Nullability::Nullable)).into_array()
-}
-
-fn into_binary_array(x: Vec<Option<Buffer>>) -> Array {
-    VarBinViewArray::from_iter(x, DType::Binary(Nullability::Nullable)).into_array()
 }
