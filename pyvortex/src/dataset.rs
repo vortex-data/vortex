@@ -21,6 +21,7 @@ use vortex_serde::layouts::{
 };
 
 use crate::expr::PyExpr;
+use crate::object_store_urls::vortex_read_at_from_url;
 use crate::{PyArray, TOKIO_RUNTIME};
 
 pub async fn layout_stream_from_reader<T: VortexReadAt + Unpin>(
@@ -194,11 +195,11 @@ pub struct ObjectStoreUrlDataset {
 
 impl ObjectStoreUrlDataset {
     async fn reader(&self) -> VortexResult<ObjectStoreReadAt> {
-        ObjectStoreReadAt::try_new_from_url(&self.url).await
+        vortex_read_at_from_url(&self.url).await
     }
 
     pub async fn try_new(url: String) -> VortexResult<Self> {
-        let reader = ObjectStoreReadAt::try_new_from_url(&url).await?;
+        let reader = vortex_read_at_from_url(&url).await?;
         let schema = Arc::new(infer_schema(&read_dtype_from_reader(&reader).await?)?);
 
         Ok(Self { url, schema })

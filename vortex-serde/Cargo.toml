@@ -25,7 +25,7 @@ futures-util = { workspace = true }
 itertools = { workspace = true }
 lazy_static = { workspace = true }
 monoio = { workspace = true, optional = true, features = ["bytes"] }
-object_store = { workspace = true, optional = true, features = ["aws", "gcp", "azure", "http"] }
+object_store = { workspace = true, optional = true }
 once_cell = { workspace = true }
 pin-project = { workspace = true }
 tokio = { workspace = true, features = ["io-util", "fs", "rt-multi-thread"], optional = true }
@@ -33,7 +33,7 @@ url = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true, features = ["flatbuffers"] }
-vortex-error = { workspace = true, features = ["object_store"] }
+vortex-error = { workspace = true }
 vortex-expr = { workspace = true }
 vortex-flatbuffers = { workspace = true, features = ["file"] }
 vortex-scalar = { workspace = true, features = ["flatbuffers"] }
@@ -61,6 +61,7 @@ default = ["futures", "monoio", "tokio"]
 futures = ["futures-util/io"]
 monoio = ["dep:monoio"]
 tokio = ["dep:tokio"]
+object_store = ["dep:object_store", "vortex-error/object_store"]
 
 [[bench]]
 name = "ipc_take"

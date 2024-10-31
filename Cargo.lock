@@ -3142,6 +3142,7 @@ dependencies = [
  "itertools 0.13.0",
  "lazy_static",
  "log",
+ "object_store",
  "paste",
  "pyo3",
  "pyo3-log",
