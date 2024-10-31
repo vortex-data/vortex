@@ -119,7 +119,7 @@ async fn test_splits() {
         .unwrap();
 
     let mut splits = BTreeSet::new();
-    layout_reader.add_splits(0, &mut splits);
+    layout_reader.add_splits(0, &mut splits).unwrap();
     splits.insert(len);
     assert_eq!(splits, BTreeSet::from([0, 3, 5, 6, 8]));
 }

@@ -13,12 +13,16 @@ use vortex_expr::VortexExpr;
 use crate::layouts::read::mask::RowMask;
 use crate::layouts::read::{LayoutReader, ReadResult};
 
+/// Read multiple layouts by combining them into one struct array
+///
+/// Result can be optionally reduced with an expression, i.e. to produce a bitmask for other columns
 #[derive(Debug)]
 pub struct ColumnBatchReader {
     names: FieldNames,
     children: Vec<Box<dyn LayoutReader>>,
     arrays: Vec<Option<Array>>,
     expr: Option<Arc<dyn VortexExpr>>,
+    // TODO(robert): This is a hack/optimization that tells us if we're reducing results with AND or not
     shortcircuit_siblings: bool,
 }
 
@@ -41,10 +45,11 @@ impl ColumnBatchReader {
 }
 
 impl LayoutReader for ColumnBatchReader {
-    fn add_splits(&self, row_offset: usize, splits: &mut BTreeSet<usize>) {
+    fn add_splits(&self, row_offset: usize, splits: &mut BTreeSet<usize>) -> VortexResult<()> {
         for child in &self.children {
-            child.add_splits(row_offset, splits)
+            child.add_splits(row_offset, splits)?
         }
+        Ok(())
     }
 
     fn read_selection(&mut self, selection: RowMask) -> VortexResult<Option<ReadResult>> {

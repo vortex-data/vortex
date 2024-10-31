@@ -91,8 +91,9 @@ impl FlatLayout {
 }
 
 impl LayoutReader for FlatLayout {
-    fn add_splits(&self, row_offset: usize, splits: &mut BTreeSet<usize>) {
+    fn add_splits(&self, row_offset: usize, splits: &mut BTreeSet<usize>) -> VortexResult<()> {
         splits.insert(row_offset);
+        Ok(())
     }
 
     fn read_selection(&mut self, selection: RowMask) -> VortexResult<Option<ReadResult>> {

@@ -64,7 +64,7 @@ pub trait LayoutReader: Debug + Send {
     /// Register all horizontal boundaries of this layout.
     ///
     /// Layout should register its begging adjusted by row_offset and do so for all of its children
-    fn add_splits(&self, row_offset: usize, splits: &mut BTreeSet<usize>);
+    fn add_splits(&self, row_offset: usize, splits: &mut BTreeSet<usize>) -> VortexResult<()>;
 
     /// Reads the data from the underlying layout within given selection
     ///

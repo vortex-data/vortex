@@ -139,12 +139,12 @@ impl InlineDTypeLayout {
 }
 
 impl LayoutReader for InlineDTypeLayout {
-    fn add_splits(&self, row_offset: usize, splits: &mut BTreeSet<usize>) {
+    fn add_splits(&self, row_offset: usize, splits: &mut BTreeSet<usize>) -> VortexResult<()> {
         let child_layout = self
             .layout_builder
             .read_layout(
                 self.fb_bytes.clone(),
-                self.child_layout().vortex_unwrap()._tab.loc(),
+                self.child_layout()?._tab.loc(),
                 Scan::new(None),
                 self.message_cache.unknown_dtype(1u16),
             )

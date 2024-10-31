@@ -10,6 +10,7 @@ use futures_util::future::BoxFuture;
 use futures_util::{stream, FutureExt, StreamExt, TryStreamExt};
 use itertools::Itertools;
 use vortex::array::ChunkedArray;
+use vortex::stats::ArrayStatistics;
 use vortex::Array;
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult};
@@ -131,9 +132,15 @@ impl<R: VortexReadAt + Unpin + 'static> Stream for LayoutBatchStream<R> {
                                 let read_future = read_ranges(reader, messages).boxed();
                                 self.state = StreamingState::Reading(read_future, true);
                             }
-                            ReadResult::Batch(b) => {
+                            ReadResult::Batch(batch) => {
+                                if batch.statistics().compute_true_count().vortex_expect(
+                                    "must be a bool array if it's a result of a filter",
+                                ) == 0
+                                {
+                                    self.state = StreamingState::NextSplit;
+                                }
                                 self.current_selector =
-                                    Some(RowMask::from_array(&b, sel_begin, sel_end)?);
+                                    Some(RowMask::from_array(&batch, sel_begin, sel_end)?);
                                 self.state = StreamingState::Read;
                             }
                         }
@@ -164,7 +171,9 @@ impl<R: VortexReadAt + Unpin + 'static> Stream for LayoutBatchStream<R> {
                     self.filter_reader
                         .as_mut()
                         .map(|fr| fr.add_splits(0, &mut splits))
-                        .unwrap_or_else(|| self.layout_reader.as_mut().add_splits(0, &mut splits));
+                        .unwrap_or_else(|| {
+                            self.layout_reader.as_mut().add_splits(0, &mut splits)
+                        })?;
                     self.splits
                         .extend(splits.into_iter().tuple_windows::<(usize, usize)>());
                     self.state = StreamingState::NextSplit;

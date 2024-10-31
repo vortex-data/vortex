@@ -5,7 +5,7 @@ use bytes::Bytes;
 use itertools::Itertools;
 use vortex_dtype::field::Field;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexResult, VortexUnwrap};
+use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexResult};
 use vortex_expr::{Column, Select};
 use vortex_flatbuffers::footer;
 
@@ -234,10 +234,11 @@ impl ColumnLayout {
 }
 
 impl LayoutReader for ColumnLayout {
-    fn add_splits(&self, row_offset: usize, splits: &mut BTreeSet<usize>) {
-        for child in self.minimal_children().vortex_unwrap() {
-            child.add_splits(row_offset, splits)
+    fn add_splits(&self, row_offset: usize, splits: &mut BTreeSet<usize>) -> VortexResult<()> {
+        for child in self.minimal_children()? {
+            child.add_splits(row_offset, splits)?
         }
+        Ok(())
     }
 
     fn read_selection(&mut self, selector: RowMask) -> VortexResult<Option<ReadResult>> {

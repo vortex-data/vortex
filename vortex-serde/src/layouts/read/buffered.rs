@@ -11,6 +11,7 @@ use crate::layouts::Message;
 
 pub type RangedLayoutReader = ((usize, usize), Box<dyn LayoutReader>);
 
+/// Layout reader that continues reading children until all rows referenced in the mask have been handled
 #[derive(Debug)]
 pub struct BufferedLayoutReader {
     layouts: VecDeque<RangedLayoutReader>,
@@ -25,14 +26,15 @@ impl BufferedLayoutReader {
         }
     }
 
-    fn buffer_read(&mut self, selection: RowMask) -> VortexResult<Option<Vec<Message>>> {
+    // TODO(robert): Support out of order reads.
+    fn buffer_read(&mut self, mask: RowMask) -> VortexResult<Option<Vec<Message>>> {
         while let Some(((begin, end), mut layout)) = self.layouts.pop_front() {
             // This selection doesn't know about rows in this chunk, we should put it back and wait for another request with different range
-            if selection.end() <= begin || selection.begin() > end {
+            if mask.end() <= begin || mask.begin() > end {
                 self.layouts.push_front(((begin, end), layout));
                 return Ok(None);
             }
-            let layout_selection = selection.slice(begin, end).with_offset(begin);
+            let layout_selection = mask.slice(begin, end).with_offset(begin);
             if let Some(rr) = layout.read_selection(layout_selection)? {
                 match rr {
                     ReadResult::ReadMore(m) => {
@@ -41,14 +43,14 @@ impl BufferedLayoutReader {
                     }
                     ReadResult::Batch(a) => {
                         self.arrays.push(a);
-                        if end > selection.end() {
+                        if end > mask.end() {
                             self.layouts.push_front(((begin, end), layout));
                             return Ok(None);
                         }
                     }
                 }
             } else {
-                if end > selection.end() && begin < selection.end() {
+                if end > mask.end() && begin < mask.end() {
                     self.layouts.push_front(((begin, end), layout));
                     return Ok(None);
                 }
@@ -58,8 +60,8 @@ impl BufferedLayoutReader {
         Ok(None)
     }
 
-    pub fn read_next(&mut self, selection: RowMask) -> VortexResult<Option<ReadResult>> {
-        if let Some(bufs) = self.buffer_read(selection)? {
+    pub fn read_next(&mut self, mask: RowMask) -> VortexResult<Option<ReadResult>> {
+        if let Some(bufs) = self.buffer_read(mask)? {
             return Ok(Some(ReadResult::ReadMore(bufs)));
         }
 

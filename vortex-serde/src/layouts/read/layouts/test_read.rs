@@ -5,6 +5,7 @@ use bytes::Bytes;
 use croaring::Bitmap;
 use itertools::Itertools;
 use vortex::Array;
+use vortex_error::VortexUnwrap;
 
 use crate::layouts::read::mask::RowMask;
 use crate::layouts::{LayoutMessageCache, LayoutReader, ReadResult};
@@ -12,7 +13,7 @@ use crate::layouts::{LayoutMessageCache, LayoutReader, ReadResult};
 pub fn layout_splits(layout: &mut dyn LayoutReader, length: usize) -> Vec<RowMask> {
     let mut splits = BTreeSet::new();
     splits.insert(length);
-    layout.add_splits(0, &mut splits);
+    layout.add_splits(0, &mut splits).vortex_unwrap();
     splits
         .into_iter()
         .tuple_windows::<(usize, usize)>()
