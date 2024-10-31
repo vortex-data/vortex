@@ -14,7 +14,7 @@ use crate::layouts::read::cache::{LazyDeserializedDType, RelativeLayoutCache};
 use crate::layouts::read::expr_project::expr_project;
 use crate::layouts::read::mask::RowMask;
 use crate::layouts::{
-    LayoutDeserializer, LayoutId, LayoutReader, LayoutSpec, ReadResult, RowFilter, Scan,
+    BatchRead, LayoutDeserializer, LayoutId, LayoutReader, LayoutSpec, RowFilter, Scan,
     COLUMN_LAYOUT_ID,
 };
 
@@ -241,7 +241,7 @@ impl LayoutReader for ColumnLayout {
         Ok(())
     }
 
-    fn read_selection(&mut self, selector: RowMask) -> VortexResult<Option<ReadResult>> {
+    fn read_selection(&mut self, selector: RowMask) -> VortexResult<Option<BatchRead>> {
         if let Some(r) = &mut self.reader {
             r.read_selection(selector)
         } else {

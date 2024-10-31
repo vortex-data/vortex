@@ -11,7 +11,7 @@ use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_expr::VortexExpr;
 
 use crate::layouts::read::mask::RowMask;
-use crate::layouts::read::{LayoutReader, ReadResult};
+use crate::layouts::read::{BatchRead, LayoutReader};
 
 /// Read multiple layouts by combining them into one struct array
 ///
@@ -52,7 +52,7 @@ impl LayoutReader for ColumnBatchReader {
         Ok(())
     }
 
-    fn read_selection(&mut self, selection: RowMask) -> VortexResult<Option<ReadResult>> {
+    fn read_selection(&mut self, selection: RowMask) -> VortexResult<Option<BatchRead>> {
         let mut messages = Vec::new();
         for (i, child_array) in self
             .arrays
@@ -62,10 +62,10 @@ impl LayoutReader for ColumnBatchReader {
         {
             match self.children[i].read_selection(selection.clone())? {
                 Some(rr) => match rr {
-                    ReadResult::ReadMore(message) => {
+                    BatchRead::ReadMore(message) => {
                         messages.extend(message);
                     }
-                    ReadResult::Batch(arr) => {
+                    BatchRead::Batch(arr) => {
                         if self.shortcircuit_siblings
                             && arr.statistics().compute_true_count().vortex_expect(
                                 "must be a bool array if shortcircuit_siblings is set to true",
@@ -104,10 +104,10 @@ impl LayoutReader for ColumnBatchReader {
                 .as_ref()
                 .map(|e| e.evaluate(&array))
                 .unwrap_or_else(|| Ok(array))
-                .map(ReadResult::Batch)
+                .map(BatchRead::Batch)
                 .map(Some)
         } else {
-            Ok(Some(ReadResult::ReadMore(messages)))
+            Ok(Some(BatchRead::ReadMore(messages)))
         }
     }
 }

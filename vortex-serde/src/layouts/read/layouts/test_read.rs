@@ -8,7 +8,7 @@ use vortex::Array;
 use vortex_error::VortexUnwrap;
 
 use crate::layouts::read::mask::RowMask;
-use crate::layouts::{LayoutMessageCache, LayoutReader, ReadResult};
+use crate::layouts::{BatchRead, LayoutMessageCache, LayoutReader};
 
 pub fn layout_splits(layout: &mut dyn LayoutReader, length: usize) -> Vec<RowMask> {
     let mut splits = BTreeSet::new();
@@ -29,13 +29,13 @@ pub fn read_layout_data(
 ) -> Option<Array> {
     while let Some(rr) = layout.read_selection(selector.clone()).unwrap() {
         match rr {
-            ReadResult::ReadMore(m) => {
+            BatchRead::ReadMore(m) => {
                 let mut write_cache_guard = cache.write().unwrap();
                 for (id, range) in m {
                     write_cache_guard.set(id, buf.slice(range.to_range()));
                 }
             }
-            ReadResult::Batch(a) => return Some(a),
+            BatchRead::Batch(a) => return Some(a),
         }
     }
     None
@@ -49,13 +49,13 @@ pub fn read_filters(
 ) -> Option<RowMask> {
     while let Some(rr) = layout.read_selection(selector.clone()).unwrap() {
         match rr {
-            ReadResult::ReadMore(m) => {
+            BatchRead::ReadMore(m) => {
                 let mut write_cache_guard = cache.write().unwrap();
                 for (id, range) in m {
                     write_cache_guard.set(id, buf.slice(range.to_range()));
                 }
             }
-            ReadResult::Batch(a) => {
+            BatchRead::Batch(a) => {
                 return Some(RowMask::from_array(&a, selector.begin(), selector.end()).unwrap());
             }
         }

@@ -55,7 +55,7 @@ pub type MessageId = Vec<LayoutPartId>;
 pub type Message = (MessageId, ByteRange);
 
 #[derive(Debug)]
-pub enum ReadResult {
+pub enum BatchRead {
     ReadMore(Vec<Message>),
     Batch(Array),
 }
@@ -74,5 +74,5 @@ pub trait LayoutReader: Debug + Send {
     /// when creating instance of this trait and then call back into this function.
     ///
     /// The layout is finished producing data for selection when it returns None
-    fn read_selection(&mut self, selector: RowMask) -> VortexResult<Option<ReadResult>>;
+    fn read_selection(&mut self, selector: RowMask) -> VortexResult<Option<BatchRead>>;
 }

@@ -6,7 +6,7 @@ use vortex::{Array, ArrayDType, IntoArray};
 use vortex_error::VortexResult;
 
 use crate::layouts::read::mask::RowMask;
-use crate::layouts::read::{LayoutReader, ReadResult};
+use crate::layouts::read::{BatchRead, LayoutReader};
 use crate::layouts::Message;
 
 pub type RangedLayoutReader = ((usize, usize), Box<dyn LayoutReader>);
@@ -37,11 +37,11 @@ impl BufferedLayoutReader {
             let layout_selection = mask.slice(begin, end).shift(begin);
             if let Some(rr) = layout.read_selection(layout_selection)? {
                 match rr {
-                    ReadResult::ReadMore(m) => {
+                    BatchRead::ReadMore(m) => {
                         self.layouts.push_front(((begin, end), layout));
                         return Ok(Some(m));
                     }
-                    ReadResult::Batch(a) => {
+                    BatchRead::Batch(a) => {
                         self.arrays.push(a);
                         if end > mask.end() {
                             self.layouts.push_front(((begin, end), layout));
@@ -60,17 +60,17 @@ impl BufferedLayoutReader {
         Ok(None)
     }
 
-    pub fn read_next(&mut self, mask: RowMask) -> VortexResult<Option<ReadResult>> {
+    pub fn read_next(&mut self, mask: RowMask) -> VortexResult<Option<BatchRead>> {
         if let Some(bufs) = self.buffer_read(mask)? {
-            return Ok(Some(ReadResult::ReadMore(bufs)));
+            return Ok(Some(BatchRead::ReadMore(bufs)));
         }
 
         let mut result = mem::take(&mut self.arrays);
         match result.len() {
-            0 | 1 => Ok(result.pop().map(ReadResult::Batch)),
+            0 | 1 => Ok(result.pop().map(BatchRead::Batch)),
             _ => {
                 let dtype = result[0].dtype().clone();
-                Ok(Some(ReadResult::Batch(
+                Ok(Some(BatchRead::Batch(
                     ChunkedArray::try_new(result, dtype)?.into_array(),
                 )))
             }

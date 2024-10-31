@@ -9,7 +9,7 @@ use vortex_flatbuffers::footer;
 use crate::layouts::read::cache::RelativeLayoutCache;
 use crate::layouts::read::mask::RowMask;
 use crate::layouts::{
-    LayoutDeserializer, LayoutId, LayoutReader, LayoutSpec, Message, ReadResult, Scan,
+    BatchRead, LayoutDeserializer, LayoutId, LayoutReader, LayoutSpec, Message, Scan,
     FLAT_LAYOUT_ID,
 };
 use crate::message_reader::ArrayBufferReader;
@@ -96,13 +96,13 @@ impl LayoutReader for FlatLayout {
         Ok(())
     }
 
-    fn read_selection(&mut self, selection: RowMask) -> VortexResult<Option<ReadResult>> {
+    fn read_selection(&mut self, selection: RowMask) -> VortexResult<Option<BatchRead>> {
         if let Some(buf) = self.message_cache.get(&[]) {
             let array = self.array_from_bytes(buf)?;
             selection
                 .filter_array(array)?
                 .map(|s| {
-                    Ok(ReadResult::Batch(
+                    Ok(BatchRead::Batch(
                         self.scan
                             .expr
                             .as_ref()
@@ -113,7 +113,7 @@ impl LayoutReader for FlatLayout {
                 })
                 .transpose()
         } else {
-            Ok(Some(ReadResult::ReadMore(vec![self.own_message()])))
+            Ok(Some(BatchRead::ReadMore(vec![self.own_message()])))
         }
     }
 }

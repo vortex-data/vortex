@@ -19,7 +19,7 @@ use vortex_schema::Schema;
 use crate::io::VortexReadAt;
 use crate::layouts::read::cache::LayoutMessageCache;
 use crate::layouts::read::mask::RowMask;
-use crate::layouts::read::{LayoutReader, MessageId, ReadResult};
+use crate::layouts::read::{BatchRead, LayoutReader, MessageId};
 use crate::stream_writer::ByteRange;
 
 /// Stream of array batches from vortex file
@@ -101,14 +101,14 @@ impl<R: VortexReadAt + Unpin + 'static> Stream for LayoutBatchStream<R> {
                         .vortex_expect("Must have asked for range");
                     if let Some(read) = self.layout_reader.read_selection(selector)? {
                         match read {
-                            ReadResult::ReadMore(messages) => {
+                            BatchRead::ReadMore(messages) => {
                                 let reader = self.input.take().ok_or_else(|| {
                                     vortex_err!("Invalid state transition - reader dropped")
                                 })?;
                                 let read_future = read_ranges(reader, messages).boxed();
                                 self.state = StreamingState::Reading(read_future, false);
                             }
-                            ReadResult::Batch(a) => {
+                            BatchRead::Batch(a) => {
                                 self.state = StreamingState::NextSplit;
                                 return Poll::Ready(Some(Ok(a)));
                             }
@@ -131,14 +131,14 @@ impl<R: VortexReadAt + Unpin + 'static> Stream for LayoutBatchStream<R> {
                         .read_selection(selector)?
                     {
                         match fr {
-                            ReadResult::ReadMore(messages) => {
+                            BatchRead::ReadMore(messages) => {
                                 let reader = self.input.take().ok_or_else(|| {
                                     vortex_err!("Invalid state transition - reader dropped")
                                 })?;
                                 let read_future = read_ranges(reader, messages).boxed();
                                 self.state = StreamingState::Reading(read_future, true);
                             }
-                            ReadResult::Batch(batch) => {
+                            BatchRead::Batch(batch) => {
                                 if batch.statistics().compute_true_count().vortex_expect(
                                     "must be a bool array if it's a result of a filter",
                                 ) == 0

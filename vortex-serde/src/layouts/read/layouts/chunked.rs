@@ -9,7 +9,7 @@ use crate::layouts::read::buffered::{BufferedLayoutReader, RangedLayoutReader};
 use crate::layouts::read::cache::RelativeLayoutCache;
 use crate::layouts::read::mask::RowMask;
 use crate::layouts::{
-    LayoutDeserializer, LayoutId, LayoutPartId, LayoutReader, LayoutSpec, ReadResult, Scan,
+    BatchRead, LayoutDeserializer, LayoutId, LayoutPartId, LayoutReader, LayoutSpec, Scan,
     CHUNKED_LAYOUT_ID,
 };
 #[derive(Default, Debug)]
@@ -134,7 +134,7 @@ impl LayoutReader for ChunkedLayout {
         Ok(())
     }
 
-    fn read_selection(&mut self, selector: RowMask) -> VortexResult<Option<ReadResult>> {
+    fn read_selection(&mut self, selector: RowMask) -> VortexResult<Option<BatchRead>> {
         if let Some(br) = &mut self.chunk_reader {
             br.read_next(selector)
         } else {

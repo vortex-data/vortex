@@ -10,7 +10,7 @@ use vortex_flatbuffers::{footer, message};
 use crate::layouts::read::cache::{LazyDeserializedDType, RelativeLayoutCache};
 use crate::layouts::read::mask::RowMask;
 use crate::layouts::{
-    LayoutDeserializer, LayoutId, LayoutReader, LayoutSpec, Message, ReadResult, Scan,
+    BatchRead, LayoutDeserializer, LayoutId, LayoutReader, LayoutSpec, Message, Scan,
     INLINE_SCHEMA_LAYOUT_ID,
 };
 use crate::message_reader::FLATBUFFER_SIZE_LENGTH;
@@ -146,12 +146,12 @@ impl LayoutReader for InlineDTypeLayout {
         child_layout.add_splits(row_offset, splits)
     }
 
-    fn read_selection(&mut self, selector: RowMask) -> VortexResult<Option<ReadResult>> {
+    fn read_selection(&mut self, selector: RowMask) -> VortexResult<Option<BatchRead>> {
         if let Some(cr) = self.child_layout.as_mut() {
             cr.read_selection(selector)
         } else {
             match self.child_reader()? {
-                ChildReaderResult::ReadMore(rm) => Ok(Some(ReadResult::ReadMore(rm))),
+                ChildReaderResult::ReadMore(rm) => Ok(Some(BatchRead::ReadMore(rm))),
                 ChildReaderResult::Reader(r) => {
                     self.child_layout = Some(r);
                     self.read_selection(selector)
