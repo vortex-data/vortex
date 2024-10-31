@@ -43,17 +43,13 @@ pub trait MetadataAccumulator {
     fn push_batch_byte_offsets(&mut self, batch_byte_offsets: Vec<u64>);
 
     fn into_layouts_and_metadata(self: Box<Self>) -> VortexResult<(VecDeque<Layout>, StructArray)>;
-
-    fn into_layouts_and_metadata_parts(
-        self,
-    ) -> VortexResult<(VecDeque<Layout>, Vec<String>, Vec<Array>)>;
 }
 
 struct ExtremaAccumulator<T> {
     minima: Vec<Option<T>>,
     maxima: Vec<Option<T>>,
     to_array: fn(Vec<Option<T>>) -> Array,
-    basic_metadata: Box<BasicAccumulator>,
+    basic_metadata: BasicAccumulator,
 }
 
 impl<T> ExtremaAccumulator<T> {
@@ -62,7 +58,7 @@ impl<T> ExtremaAccumulator<T> {
             minima: Vec::with_capacity(size_hint),
             maxima: Vec::with_capacity(size_hint),
             to_array,
-            basic_metadata: Box::new(BasicAccumulator::new(size_hint)),
+            basic_metadata: BasicAccumulator::new(size_hint),
         }
     }
 }
@@ -95,19 +91,9 @@ where
             .push_batch_byte_offsets(batch_byte_offsets);
     }
 
-    fn into_layouts_and_metadata(self: Box<Self>) -> VortexResult<(VecDeque<Layout>, StructArray)> {
-        let (chunks, names, fields) = self.into_layouts_and_metadata_parts()?;
-        let n_chunks = chunks.len();
-        let names = fieldnames_from_strings(names);
-        Ok((
-            chunks,
-            StructArray::try_new(names, fields, n_chunks, Validity::NonNullable)?,
-        ))
-    }
-
-    fn into_layouts_and_metadata_parts(
-        mut self,
-    ) -> VortexResult<(VecDeque<Layout>, Vec<String>, Vec<Array>)> {
+    fn into_layouts_and_metadata(
+        mut self: Box<Self>,
+    ) -> VortexResult<(VecDeque<Layout>, StructArray)> {
         let (chunks, mut names, mut fields) =
             self.basic_metadata.into_layouts_and_metadata_parts()?;
 
@@ -121,7 +107,12 @@ where
             fields.push((self.to_array)(mem::take(&mut self.maxima)));
         }
 
-        Ok((chunks, names, fields))
+        let n_chunks = chunks.len();
+        let names = fieldnames_from_strings(names);
+        Ok((
+            chunks,
+            StructArray::try_new(names, fields, n_chunks, Validity::NonNullable)?,
+        ))
     }
 }
 
@@ -189,7 +180,9 @@ impl MetadataAccumulator for BasicAccumulator {
             StructArray::try_new(names, fields, n_chunks, Validity::NonNullable)?,
         ))
     }
+}
 
+impl BasicAccumulator {
     fn into_layouts_and_metadata_parts(
         mut self,
     ) -> VortexResult<(VecDeque<Layout>, Vec<String>, Vec<Array>)> {
