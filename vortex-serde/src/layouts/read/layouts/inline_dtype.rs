@@ -10,7 +10,7 @@ use vortex_flatbuffers::{footer, message};
 use crate::layouts::read::cache::{LazyDeserializedDType, RelativeLayoutCache};
 use crate::layouts::read::mask::RowMask;
 use crate::layouts::{
-    BatchRead, LayoutDeserializer, LayoutId, LayoutReader, LayoutSpec, Message, Scan,
+    BatchRead, LayoutDeserializer, LayoutId, LayoutPartId, LayoutReader, LayoutSpec, Message, Scan,
     INLINE_SCHEMA_LAYOUT_ID,
 };
 use crate::message_reader::FLATBUFFER_SIZE_LENGTH;
@@ -62,6 +62,9 @@ enum ChildReaderResult {
     Reader(Box<dyn LayoutReader>),
 }
 
+const INLINE_DTYPE_BUFFER_IDX: LayoutPartId = 0;
+const INLINE_DTYPE_CHILD_IDX: LayoutPartId = 1;
+
 impl InlineDTypeLayout {
     pub fn new(
         fb_bytes: Bytes,
@@ -88,7 +91,7 @@ impl InlineDTypeLayout {
     }
 
     fn dtype(&self) -> VortexResult<DTypeReadResult> {
-        if let Some(dt_bytes) = self.message_cache.get(&[0]) {
+        if let Some(dt_bytes) = self.message_cache.get(&[INLINE_DTYPE_BUFFER_IDX]) {
             let msg = root::<message::Message>(&dt_bytes[FLATBUFFER_SIZE_LENGTH..])?
                 .header_as_schema()
                 .ok_or_else(|| vortex_err!("Expected schema message"))?;
@@ -104,7 +107,7 @@ impl InlineDTypeLayout {
             }
             let dtype_buf = buffers.get(0);
             Ok(DTypeReadResult::ReadMore(vec![(
-                self.message_cache.absolute_id(&[0]),
+                self.message_cache.absolute_id(&[INLINE_DTYPE_BUFFER_IDX]),
                 ByteRange::new(dtype_buf.begin(), dtype_buf.end()),
             )]))
         }
@@ -118,8 +121,10 @@ impl InlineDTypeLayout {
                     self.fb_bytes.clone(),
                     self.child_layout()?._tab.loc(),
                     self.scan.clone(),
-                    self.message_cache
-                        .relative(1u16, Arc::new(LazyDeserializedDType::from_dtype(d))),
+                    self.message_cache.relative(
+                        INLINE_DTYPE_CHILD_IDX,
+                        Arc::new(LazyDeserializedDType::from_dtype(d)),
+                    ),
                 )?;
                 Ok(ChildReaderResult::Reader(child_layout))
             }
@@ -141,7 +146,7 @@ impl LayoutReader for InlineDTypeLayout {
             self.fb_bytes.clone(),
             self.child_layout()?._tab.loc(),
             Scan::new(None),
-            self.message_cache.unknown_dtype(1u16),
+            self.message_cache.unknown_dtype(INLINE_DTYPE_CHILD_IDX),
         )?;
         child_layout.add_splits(row_offset, splits)
     }
