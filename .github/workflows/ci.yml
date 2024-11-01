@@ -61,7 +61,7 @@ jobs:
           working-directory: pyvortex
           target: x86_64
           manylinux: auto
-          args: --release --interpreter python3.11 --sdist
+          args: --release --interpreter python3.10 --sdist
 
       - name: Ensure wheel can run tests successfully
         run: |
