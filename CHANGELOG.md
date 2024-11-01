@@ -6,6 +6,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## `vortex-serde` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-serde-v0.13.1...vortex-serde-v0.14.0) - 2024-11-01
+
+### Added
+- store min, max, null count, and true count in column metadata ([#1164](https://github.com/spiraldb/vortex/pull/1164))
+
+### Other
+- Filter pushdown over layouts ([#1124](https://github.com/spiraldb/vortex/pull/1124))
+
+## `vortex-expr` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-expr-v0.13.1...vortex-expr-v0.14.0) - 2024-11-01
+
+### Other
+- Filter pushdown over layouts ([#1124](https://github.com/spiraldb/vortex/pull/1124))
+
+## `vortex-datafusion` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-datafusion-v0.13.1...vortex-datafusion-v0.14.0) - 2024-11-01
+
+### Other
+- Filter pushdown over layouts ([#1124](https://github.com/spiraldb/vortex/pull/1124))
+
+## `vortex-scalar` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-scalar-v0.13.1...vortex-scalar-v0.14.0) - 2024-11-01
+
+### Added
+- store min, max, null count, and true count in column metadata ([#1164](https://github.com/spiraldb/vortex/pull/1164))
+
+## `vortex-flatbuffers` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-flatbuffers-v0.13.1...vortex-flatbuffers-v0.14.0) - 2024-11-01
+
+### Other
+- Filter pushdown over layouts ([#1124](https://github.com/spiraldb/vortex/pull/1124))
+
+## `vortex-buffer` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-buffer-v0.13.1...vortex-buffer-v0.14.0) - 2024-11-01
+
+### Added
+- store min, max, null count, and true count in column metadata ([#1164](https://github.com/spiraldb/vortex/pull/1164))
+
+## `vortex-array` - [0.14.0](https://github.com/spiraldb/vortex/compare/0.13.1...0.14.0) - 2024-11-01
+
+### Added
+- store min, max, null count, and true count in column metadata ([#1164](https://github.com/spiraldb/vortex/pull/1164))
+
 ## `vortex-serde` - [0.13.1](https://github.com/spiraldb/vortex/compare/vortex-serde-v0.13.0...vortex-serde-v0.13.1) - 2024-10-31
 
 ### Fixed
