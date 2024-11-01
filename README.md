@@ -183,7 +183,7 @@ Vortex to model more complex arrays while still exposing a logical interface. Fo
 `ChunkedArray` where the first chunk is run-length encoded and the second chunk is dictionary encoded.
 In Arrow, `RunLengthArray` and `DictionaryArray` are separate incompatible types, and so cannot be combined in this way.
 
-### Usage
+## Usage
 
 For best performance we recommend using [MiMalloc](https://github.com/microsoft/mimalloc) as the application's
 allocator.
@@ -199,19 +199,35 @@ Please see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Setup
 
-In order to build vortex, you may also need to install the flatbuffer compiler (flatc):
-
 ### Mac
 
+The project has several optional-but-recommended external dependencies:
+
 ```bash
-brew install flatbuffers
+# Required if you want to modify any of the .fbs or .proto files
+brew install flatbuffers protobuf
+
+# Required for benchmarks
+brew install duckdb
 ```
 
-This repo uses rye to manage the combined Rust/Python monorepo build. First, make sure to run:
+You also need the Rust toolchain installed. If you haven't already, install [rustup](https://rustup.rs/)
+with one of the following commands:
 
 ```bash
-# Install Rye from https://rye-up.com, and setup the virtualenv
-rye sync
+# option 1
+brew install rustup
+
+# option 2
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+This repo uses uv to manage the combined Rust/Python monorepo build. After installing uv, make sure to run:
+
+```bash
+# Install uv from https://docs.astral.sh/uv/getting-started/installation/
+uv sync
+cd pyvortex && uv sync
 ```
 
 ## License
