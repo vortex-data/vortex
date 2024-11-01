@@ -65,7 +65,7 @@ jobs:
           uv venv .venv2
           source .venv2/bin/activate
 
-          echo specifically not using uv to ensure we use this new, isolated, & empty environment
+          echo specifically not using uv to ensure we use this new, isolated, and empty environment
 
           pip install target/wheels/vortex_array-*.whl
           pip install pytest
