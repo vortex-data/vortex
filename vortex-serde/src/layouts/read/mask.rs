@@ -88,15 +88,15 @@ impl RowMask {
 
         let array = array.as_ref();
 
-        if true_count == array.len() as u64 {
-            return Ok(Some(array.clone()));
-        }
-
         let sliced = if self.len() == array.len() {
             array
         } else {
             &slice(array, self.begin, self.end)?
         };
+
+        if true_count == sliced.len() as u64 {
+            return Ok(Some(sliced.clone()));
+        }
 
         let bitset = self
             .values
