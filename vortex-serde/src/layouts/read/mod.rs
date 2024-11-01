@@ -69,9 +69,9 @@ pub trait LayoutReader: Debug + Send {
     /// Reads the data from the underlying layout within given selection
     ///
     /// Layout is required to return all data for given selection in one batch.
-    /// Layout can either return a batch data, i.e. an Array or ask for more layout messages to
+    /// Layout can either return a batch data (i.e., an Array) or ask for more layout messages to
     /// be read. When requesting messages to be read the caller should populate the message cache used
-    /// when creating instance of this trait and then call back into this function.
+    /// when creating the invoked instance of this trait and then call back into this function.
     ///
     /// The layout is finished producing data for selection when it returns None
     fn read_selection(&mut self, selector: RowMask) -> VortexResult<Option<BatchRead>>;

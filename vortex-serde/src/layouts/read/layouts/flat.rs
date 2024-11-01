@@ -36,8 +36,8 @@ impl LayoutSpec for FlatLayoutSpec {
             footer::Layout::init_from_table(tab)
         };
         let buffers = fb_layout.buffers().unwrap_or_default();
-        if buffers.is_empty() {
-            vortex_bail!("Missing buffers for flat layout")
+        if buffers.len() != 1 {
+            vortex_bail!("Flat layout can have exactly 1 buffer")
         }
         let buf = buffers.get(0);
 
