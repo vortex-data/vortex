@@ -129,15 +129,20 @@ Query Engines
 
 :class:`~vortex.dataset.VortexDataset` implements the :class:`pyarrow.dataset.Dataset` API which
 enables many Python-based query engines to pushdown row filters and column projections on Vortex
-files.
+files. All the query engine examples use the same Vortex file:
+
+   >>> import vortex
+   >>> import pyarrow.parquet as pq
+   >>> vtx = vortex.array(pq.read_table("_static/example.parquet"))
+   >>> vortex.io.write_path(vtx, 'example.vortex')
+   >>> ds = vortex.dataset.from_path(
+   ...     'example.vortex'
+   ... )
 
 Polars
 ^^^^^^
 
    >>> import polars as pl
-   >>> ds = vortex.dataset.from_path(
-   ...     '_static/example.vortex'
-   ... )
    >>> lf = pl.scan_pyarrow_dataset(ds)
    >>> lf = lf.select('tip_amount', 'fare_amount')
    >>> lf = lf.head(3)
@@ -157,9 +162,6 @@ DuckDB
 ^^^^^^
 
    >>> import duckdb
-   >>> ds = vortex.dataset.from_path(
-   ...     '_static/example.vortex'
-   ... )
    >>> duckdb.sql('select ds.tip_amount, ds.fare_amount from ds limit 3').show()
    ┌────────────┬─────────────┐
    │ tip_amount │ fare_amount │

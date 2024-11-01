@@ -38,7 +38,14 @@ jobs:
         run: cargo doc --no-deps
       - name: Rust Test
         run: cargo test --workspace --all-features
-      - name: Rust Build
+
+      - name: Rust Build (Default features)
+        run: cargo build --all-targets
+
+      - name: Clean cargo to keep disk usage below limit
+        run: cargo clean
+
+      - name: Rust Build (All Features)
         run: cargo build --all-features --all-targets
 
       - name: Pytest - PyVortex

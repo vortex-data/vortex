@@ -5,11 +5,11 @@
 [![Documentation](https://docs.rs/vortex-array/badge.svg)](https://docs.rs/vortex-array)
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/vortex-array)](https://pypi.org/project/vortex-array/)
 
-Vortex is an extensible, state-of-the-art columnar file format, with associated tools for working with compressed Apache Arrow arrays 
+Vortex is an extensible, state-of-the-art columnar file format, with associated tools for working with compressed Apache Arrow arrays
 in-memory, on-disk, and over-the-wire.
 
-Vortex is an aspiring successor to Apache Parquet, with dramatically faster random access reads (100-200x faster) and scans (2-10x faster), 
-while preserving approximately the same compression ratio and write throughput as Parquet with zstd. 
+Vortex is an aspiring successor to Apache Parquet, with dramatically faster random access reads (100-200x faster) and scans (2-10x faster),
+while preserving approximately the same compression ratio and write throughput as Parquet with zstd.
 It is designed to support very wide tables (at least 10s of thousands of columns) and (eventually) on-device decompression on GPUs.
 
 Vortex is intended to be to columnar file formats what Apache DataFusion is to query engines: highly extensible,
@@ -125,7 +125,7 @@ in-memory array implementation, allowing us to defer decompression. Currently, t
 Vortex's default compression strategy is based on the
 [BtrBlocks](https://www.cs.cit.tum.de/fileadmin/w00cfj/dis/papers/btrblocks.pdf) paper.
 
-Roughly, for each chunk of data, a sample of at least ~1% of the data is taken. Compression is then attempted 
+Roughly, for each chunk of data, a sample of at least ~1% of the data is taken. Compression is then attempted
 (recursively) with a set of lightweight encodings. The best-performing combination of encodings is then chosen to encode
 the entire chunk. This sounds like it would be very expensive, but given the logical types and basic statistics about a
 chunk, it is possible to cheaply prune many encodings and ensure the search space does not explode in size.
@@ -183,7 +183,7 @@ Vortex to model more complex arrays while still exposing a logical interface. Fo
 `ChunkedArray` where the first chunk is run-length encoded and the second chunk is dictionary encoded.
 In Arrow, `RunLengthArray` and `DictionaryArray` are separate incompatible types, and so cannot be combined in this way.
 
-### Usage
+## Usage
 
 For best performance we recommend using [MiMalloc](https://github.com/microsoft/mimalloc) as the application's
 allocator.
@@ -199,19 +199,34 @@ Please see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Setup
 
-In order to build vortex, you may also need to install the flatbuffer compiler (flatc):
-
 ### Mac
 
+The project has several optional-but-recommended external dependencies:
+
 ```bash
-brew install flatbuffers
+# Required if you want to modify any of the .fbs or .proto files
+brew install flatbuffers protobuf
+
+# Required for benchmarks
+brew install duckdb
 ```
 
-This repo uses rye to manage the combined Rust/Python monorepo build. First, make sure to run:
+You also need the Rust toolchain installed. If you haven't already, install [rustup](https://rustup.rs/)
+with one of the following commands:
 
 ```bash
-# Install Rye from https://rye-up.com, and setup the virtualenv
-rye sync
+# option 1
+brew install rustup
+
+# option 2
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+This repo uses uv to manage the combined Rust/Python monorepo build. After installing uv, make sure to run:
+
+```bash
+# Install uv from https://docs.astral.sh/uv/getting-started/installation/
+uv sync
 ```
 
 ## License
@@ -247,7 +262,6 @@ In particular, the following academic papers have strongly influenced developmen
   data at YouTube](https://dl.acm.org/citation.cfm?id=3360438). PVLDB, 12(12): 2022-2034, 2019.
 * Dominik Durner, Viktor Leis, and Thomas Neumann. [Exploiting Cloud Object Storage for High-Performance
   Analytics](https://www.durner.dev/app/media/papers/anyblob-vldb23.pdf). PVLDB, 16(11): 2769-2782, 2023.
-
 
 Additionally, we benefited greatly from:
 

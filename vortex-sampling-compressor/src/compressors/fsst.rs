@@ -1,9 +1,9 @@
 use std::any::Any;
-use std::collections::HashSet;
 use std::fmt::Debug;
 use std::sync::Arc;
 
 use fsst::Compressor;
+use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{VarBin, VarBinArray, VarBinView};
 use vortex_array::encoding::EncodingRef;
 use vortex_array::{ArrayDType, ArrayDef, IntoArray};

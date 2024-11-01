@@ -1,11 +1,11 @@
 use std::cmp::Ordering;
-use std::collections::HashMap;
 
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::accessor::ArrayAccessor;
+use crate::aliases::hash_map::HashMap;
 use crate::array::varbin::{varbin_scalar, VarBinArray};
 use crate::stats::{ArrayStatisticsCompute, Stat, StatsSet};
 use crate::ArrayDType;

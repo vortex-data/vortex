@@ -45,7 +45,7 @@ fn fsst_array() -> Array {
 
 fn varbin_array() -> Array {
     let mut input_array = VarBinBuilder::<i32>::with_capacity(3);
-    input_array.push_value(b"The Greeks never said that the limit could not he overstepped");
+    input_array.push_value(b"The Greeks never said that the limit could not be overstepped");
     input_array.push_value(
         b"They said it existed and that whoever dared to exceed it was mercilessly struck down",
     );
@@ -57,7 +57,7 @@ fn varbin_array() -> Array {
 
 fn varbinview_array() -> Array {
     VarBinViewArray::from_iter_str(vec![
-        "The Greeks never said that the limit could not he overstepped",
+        "The Greeks never said that the limit could not be overstepped",
         "They said it existed and that whoever dared to exceed it was mercilessly struck down",
         "Nothing in present history can contradict them",
     ])

@@ -1,4 +1,8 @@
 #![feature(error_generic_member_access)]
+#![deny(missing_docs)]
+
+//! This crate defines error & result types for Vortex.
+//! It also contains a variety of useful macros for error handling.
 
 #[cfg(feature = "python")]
 pub mod python;
@@ -9,6 +13,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::ops::Deref;
 use std::{env, fmt, io};
 
+/// A string that can be used as an error message.
 #[derive(Debug)]
 pub struct ErrString(Cow<'static, str>);
 
@@ -47,30 +52,42 @@ impl Display for ErrString {
     }
 }
 
+/// The top-level error type for Vortex.
 #[derive(thiserror::Error)]
+#[non_exhaustive]
 pub enum VortexError {
+    /// An index is out of bounds.
     #[error("index {0} out of bounds from {1} to {2}\nBacktrace:\n{3}")]
     OutOfBounds(usize, usize, usize, Backtrace),
+    /// An error occurred while executing a compute kernel.
     #[error("{0}\nBacktrace:\n{1}")]
     ComputeError(ErrString, Backtrace),
+    /// An invalid argument was provided.
     #[error("{0}\nBacktrace:\n{1}")]
     InvalidArgument(ErrString, Backtrace),
+    /// An error occurred while serializing or deserializing.
     #[error("{0}\nBacktrace:\n{1}")]
     InvalidSerde(ErrString, Backtrace),
+    /// An unimplemented function was called.
     #[error("function {0} not implemented for {1}\nBacktrace:\n{2}")]
     NotImplemented(ErrString, ErrString, Backtrace),
+    /// A type mismatch occurred.
     #[error("expected type: {0} but instead got {1}\nBacktrace:\n{2}")]
     MismatchedTypes(ErrString, ErrString, Backtrace),
+    /// An assertion failed.
     #[error("{0}\nBacktrace:\n{1}")]
     AssertionFailed(ErrString, Backtrace),
+    /// A wrapper for other errors, carrying additional context.
     #[error("{0}: {1}")]
     Context(ErrString, Box<VortexError>),
+    /// A wrapper for errors from the Arrow library.
     #[error(transparent)]
     ArrowError(
         #[from]
         #[backtrace]
         arrow_schema::ArrowError,
     ),
+    /// A wrapper for errors from the FlatBuffers library.
     #[cfg(feature = "flatbuffers")]
     #[error(transparent)]
     FlatBuffersError(
@@ -78,6 +95,7 @@ pub enum VortexError {
         #[backtrace]
         flatbuffers::InvalidFlatbuffer,
     ),
+    /// A wrapper for reader errors from the FlexBuffers library.
     #[cfg(feature = "flexbuffers")]
     #[error(transparent)]
     FlexBuffersReaderError(
@@ -85,6 +103,7 @@ pub enum VortexError {
         #[backtrace]
         flexbuffers::ReaderError,
     ),
+    /// A wrapper for deserialization errors from the FlexBuffers library.
     #[cfg(feature = "flexbuffers")]
     #[error(transparent)]
     FlexBuffersDeError(
@@ -92,6 +111,7 @@ pub enum VortexError {
         #[backtrace]
         flexbuffers::DeserializationError,
     ),
+    /// A wrapper for serialization errors from the FlexBuffers library.
     #[cfg(feature = "flexbuffers")]
     #[error(transparent)]
     FlexBuffersSerError(
@@ -99,24 +119,28 @@ pub enum VortexError {
         #[backtrace]
         flexbuffers::SerializationError,
     ),
+    /// A wrapper for formatting errors.
     #[error(transparent)]
     FmtError(
         #[from]
         #[backtrace]
         std::fmt::Error,
     ),
+    /// A wrapper for IO errors.
     #[error(transparent)]
     IOError(
         #[from]
         #[backtrace]
         io::Error,
     ),
+    /// A wrapper for UTF-8 conversion errors.
     #[error(transparent)]
     Utf8Error(
         #[from]
         #[backtrace]
         std::str::Utf8Error,
     ),
+    /// A wrapper for errors from the Parquet library.
     #[cfg(feature = "parquet")]
     #[error(transparent)]
     ParquetError(
@@ -124,12 +148,14 @@ pub enum VortexError {
         #[backtrace]
         parquet::errors::ParquetError,
     ),
+    /// A wrapper for errors from the standard library when converting a slice to an array.
     #[error(transparent)]
     TryFromSliceError(
         #[from]
         #[backtrace]
         std::array::TryFromSliceError,
     ),
+    /// A wrapper for errors from the Cloudflare Workers library.
     #[cfg(feature = "worker")]
     #[error(transparent)]
     WorkerError(
@@ -137,6 +163,7 @@ pub enum VortexError {
         #[backtrace]
         worker::Error,
     ),
+    /// A wrapper for errors from the Object Store library.
     #[cfg(feature = "object_store")]
     #[error(transparent)]
     ObjectStore(
@@ -144,6 +171,7 @@ pub enum VortexError {
         #[backtrace]
         object_store::Error,
     ),
+    /// A wrapper for errors from DataFusion.
     #[cfg(feature = "datafusion")]
     #[error(transparent)]
     DataFusion(
@@ -151,12 +179,14 @@ pub enum VortexError {
         #[backtrace]
         datafusion_common::DataFusionError,
     ),
+    /// A wrapper for errors from the Jiff library.
     #[error(transparent)]
     JiffError(
         #[from]
         #[backtrace]
         jiff::Error,
     ),
+    /// A wrapper for URL parsing errors.
     #[error(transparent)]
     UrlError(
         #[from]
@@ -166,6 +196,7 @@ pub enum VortexError {
 }
 
 impl VortexError {
+    /// Adds additional context to an error.
     pub fn with_context<T: Into<ErrString>>(self, msg: T) -> Self {
         VortexError::Context(msg.into(), Box::new(self))
     }
@@ -177,11 +208,16 @@ impl Debug for VortexError {
     }
 }
 
+/// A type alias for Results that return VortexErrors as their error type.
 pub type VortexResult<T> = Result<T, VortexError>;
 
+/// A trait for unwrapping a VortexResult.
 pub trait VortexUnwrap {
+    /// The type of the value being unwrapped.
     type Output;
 
+    /// Returns the value of the result if it is Ok, otherwise panics with the error.
+    /// Should be called only in contexts where the error condition represents a bug (programmer error).
     fn vortex_unwrap(self) -> Self::Output;
 }
 
@@ -194,9 +230,13 @@ impl<T> VortexUnwrap for VortexResult<T> {
     }
 }
 
+/// A trait for expect-ing a VortexResult or an Option.
 pub trait VortexExpect {
+    /// The type of the value being expected.
     type Output;
 
+    /// Returns the value of the result if it is Ok, otherwise panics with the error.
+    /// Should be called only in contexts where the error condition represents a bug (programmer error).
     fn vortex_expect(self, msg: &str) -> Self::Output;
 }
 
@@ -221,6 +261,7 @@ impl<T> VortexExpect for Option<T> {
     }
 }
 
+/// A convenient macro for creating a VortexError.
 #[macro_export]
 macro_rules! vortex_err {
     (OutOfBounds: $idx:expr, $start:expr, $stop:expr) => {{
@@ -268,6 +309,7 @@ macro_rules! vortex_err {
     };
 }
 
+/// A convenient macro for returning a VortexError.
 #[macro_export]
 macro_rules! vortex_bail {
     ($($tt:tt)+) => {
@@ -275,6 +317,8 @@ macro_rules! vortex_bail {
     };
 }
 
+/// A convenient macro for panicking with a VortexError in the presence of a programmer error
+/// (e.g., an invariant has been violated).
 #[macro_export]
 macro_rules! vortex_panic {
     (OutOfBounds: $idx:expr, $start:expr, $stop:expr) => {{

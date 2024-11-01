@@ -152,7 +152,8 @@ impl<'a> Layout<'a> {
   pub const VT_ENCODING: flatbuffers::VOffsetT = 4;
   pub const VT_BUFFERS: flatbuffers::VOffsetT = 6;
   pub const VT_CHILDREN: flatbuffers::VOffsetT = 8;
-  pub const VT_METADATA: flatbuffers::VOffsetT = 10;
+  pub const VT_LENGTH: flatbuffers::VOffsetT = 10;
+  pub const VT_METADATA: flatbuffers::VOffsetT = 12;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -164,6 +165,7 @@ impl<'a> Layout<'a> {
     args: &'args LayoutArgs<'args>
   ) -> flatbuffers::WIPOffset<Layout<'bldr>> {
     let mut builder = LayoutBuilder::new(_fbb);
+    builder.add_length(args.length);
     if let Some(x) = args.metadata { builder.add_metadata(x); }
     if let Some(x) = args.children { builder.add_children(x); }
     if let Some(x) = args.buffers { builder.add_buffers(x); }
@@ -194,6 +196,13 @@ impl<'a> Layout<'a> {
     unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Layout>>>>(Layout::VT_CHILDREN, None)}
   }
   #[inline]
+  pub fn length(&self) -> u64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u64>(Layout::VT_LENGTH, Some(0)).unwrap()}
+  }
+  #[inline]
   pub fn metadata(&self) -> Option<flatbuffers::Vector<'a, u8>> {
     // Safety:
     // Created from valid Table for this object
@@ -212,6 +221,7 @@ impl flatbuffers::Verifiable for Layout<'_> {
      .visit_field::<u16>("encoding", Self::VT_ENCODING, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, Buffer>>>("buffers", Self::VT_BUFFERS, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<Layout>>>>("children", Self::VT_CHILDREN, false)?
+     .visit_field::<u64>("length", Self::VT_LENGTH, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u8>>>("metadata", Self::VT_METADATA, false)?
      .finish();
     Ok(())
@@ -221,6 +231,7 @@ pub struct LayoutArgs<'a> {
     pub encoding: u16,
     pub buffers: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, Buffer>>>,
     pub children: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Layout<'a>>>>>,
+    pub length: u64,
     pub metadata: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u8>>>,
 }
 impl<'a> Default for LayoutArgs<'a> {
@@ -230,6 +241,7 @@ impl<'a> Default for LayoutArgs<'a> {
       encoding: 0,
       buffers: None,
       children: None,
+      length: 0,
       metadata: None,
     }
   }
@@ -251,6 +263,10 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> LayoutBuilder<'a, 'b, A> {
   #[inline]
   pub fn add_children(&mut self, children: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<Layout<'b >>>>) {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Layout::VT_CHILDREN, children);
+  }
+  #[inline]
+  pub fn add_length(&mut self, length: u64) {
+    self.fbb_.push_slot::<u64>(Layout::VT_LENGTH, length, 0);
   }
   #[inline]
   pub fn add_metadata(&mut self, metadata: flatbuffers::WIPOffset<flatbuffers::Vector<'b , u8>>) {
@@ -277,6 +293,7 @@ impl core::fmt::Debug for Layout<'_> {
       ds.field("encoding", &self.encoding());
       ds.field("buffers", &self.buffers());
       ds.field("children", &self.children());
+      ds.field("length", &self.length());
       ds.field("metadata", &self.metadata());
       ds.finish()
   }

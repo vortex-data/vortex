@@ -1,9 +1,8 @@
-use std::collections::HashMap;
-
 use arrow_buffer::BooleanBuffer;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::VortexResult;
 
+use crate::aliases::hash_map::HashMap;
 use crate::array::BoolArray;
 use crate::stats::{ArrayStatisticsCompute, Stat, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity};
@@ -121,6 +120,7 @@ impl BoolStatsAccumulator {
         StatsSet::from(HashMap::from([
             (Stat::Min, (self.true_count == self.len).into()),
             (Stat::Max, (self.true_count > 0).into()),
+            (Stat::NullCount, self.null_count.into()),
             (
                 Stat::IsConstant,
                 (self.null_count == 0 && (self.true_count == self.len || self.true_count == 0)
@@ -156,6 +156,7 @@ mod test {
         assert!(!bool_arr.statistics().compute_is_constant().unwrap());
         assert!(!bool_arr.statistics().compute_min::<bool>().unwrap());
         assert!(bool_arr.statistics().compute_max::<bool>().unwrap());
+        assert_eq!(bool_arr.statistics().compute_null_count().unwrap(), 0);
         assert_eq!(bool_arr.statistics().compute_run_count().unwrap(), 5);
         assert_eq!(bool_arr.statistics().compute_true_count().unwrap(), 4);
     }

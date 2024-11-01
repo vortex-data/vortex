@@ -1,11 +1,13 @@
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 
+/// A unique identifier for an extension type
 #[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct ExtID(Arc<str>);
 
 impl ExtID {
+    /// Constructs a new `ExtID` from a string
     pub fn new(value: Arc<str>) -> Self {
         Self(value)
     }
@@ -29,11 +31,13 @@ impl From<&str> for ExtID {
     }
 }
 
+/// Opaque metadata for an extension type
 #[derive(Debug, Clone, PartialOrd, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ExtMetadata(Arc<[u8]>);
 
 impl ExtMetadata {
+    /// Constructs a new `ExtMetadata` from a byte slice
     pub fn new(value: Arc<[u8]>) -> Self {
         Self(value)
     }
@@ -51,6 +55,7 @@ impl From<&[u8]> for ExtMetadata {
     }
 }
 
+/// A type descriptor for an extension type
 #[derive(Debug, Clone, PartialOrd, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ExtDType {
@@ -59,15 +64,18 @@ pub struct ExtDType {
 }
 
 impl ExtDType {
+    /// Constructs a new `ExtDType` from an `ExtID` and optional `ExtMetadata`
     pub fn new(id: ExtID, metadata: Option<ExtMetadata>) -> Self {
         Self { id, metadata }
     }
 
+    /// Returns the `ExtID` for this extension type
     #[inline]
     pub fn id(&self) -> &ExtID {
         &self.id
     }
 
+    /// Returns the `ExtMetadata` for this extension type, if it exists
     #[inline]
     pub fn metadata(&self) -> Option<&ExtMetadata> {
         self.metadata.as_ref()

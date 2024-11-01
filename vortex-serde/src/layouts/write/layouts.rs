@@ -12,15 +12,17 @@ pub struct Layout {
     id: LayoutId,
     buffers: Option<Vec<ByteRange>>,
     children: Option<Vec<Layout>>,
+    length: u64,
     metadata: Option<Bytes>,
 }
 
 impl Layout {
-    pub fn flat(buffer: ByteRange) -> Self {
+    pub fn flat(buffer: ByteRange, length: u64) -> Self {
         Self {
             id: FLAT_LAYOUT_ID,
             buffers: Some(vec![buffer]),
             children: None,
+            length,
             metadata: None,
         }
     }
@@ -28,29 +30,32 @@ impl Layout {
     /// Create a chunked layout with children.
     ///
     /// has_metadata indicates whether first child is a layout containing metadata about other children.
-    pub fn chunked(children: Vec<Layout>, has_metadata: bool) -> Self {
+    pub fn chunked(children: Vec<Layout>, length: u64, has_metadata: bool) -> Self {
         Self {
             id: CHUNKED_LAYOUT_ID,
             buffers: None,
             children: Some(children),
+            length,
             metadata: Some(Bytes::copy_from_slice(&[has_metadata as u8])),
         }
     }
 
-    pub fn column(children: Vec<Layout>) -> Self {
+    pub fn column(children: Vec<Layout>, length: u64) -> Self {
         Self {
             id: COLUMN_LAYOUT_ID,
             buffers: None,
             children: Some(children),
+            length,
             metadata: None,
         }
     }
 
-    pub fn inlined_schema(children: Vec<Layout>, dtype_buffer: ByteRange) -> Self {
+    pub fn inlined_schema(children: Vec<Layout>, length: u64, dtype_buffer: ByteRange) -> Self {
         Self {
             id: INLINE_SCHEMA_LAYOUT_ID,
             buffers: Some(vec![dtype_buffer]),
             children: Some(children),
+            length,
             metadata: None,
         }
     }
@@ -83,6 +88,7 @@ impl WriteFlatBuffer for Layout {
                 encoding: self.id.0,
                 buffers,
                 children,
+                length: self.length,
                 metadata,
             },
         )

@@ -18,6 +18,7 @@ workspace = true
 
 [dependencies]
 arrow-array = { workspace = true }
+arrow-buffer = { workspace = true }
 fsst-rs = { workspace = true }
 serde = { workspace = true }
 

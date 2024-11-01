@@ -10,7 +10,7 @@ mod serde;
 mod test {
     use serde_test::{assert_tokens, Token};
 
-    use crate::PType;
+    use crate::{DType, Nullability, PType};
 
     #[test]
     fn test_serde_ptype_json() {
@@ -29,5 +29,30 @@ mod test {
                 variant: "u8",
             }],
         );
+    }
+
+    #[test]
+    fn test_serde_dtype() {
+        assert_tokens(
+            &DType::from(PType::U8),
+            &[
+                Token::TupleVariant {
+                    name: "DType",
+                    variant: "Primitive",
+                    len: 2,
+                },
+                Token::UnitVariant {
+                    name: "PType",
+                    variant: "u8",
+                },
+                Token::Bool(false),
+                Token::TupleVariantEnd,
+            ],
+        );
+    }
+
+    #[test]
+    fn test_serde_nullability() {
+        assert_tokens(&Nullability::NonNullable, &[Token::Bool(false)]);
     }
 }

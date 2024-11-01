@@ -1,6 +1,5 @@
-use std::collections::HashSet;
-
 use itertools::Itertools;
+use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{Struct, StructArray};
 use vortex_array::encoding::EncodingRef;
 use vortex_array::variants::StructArrayTrait;

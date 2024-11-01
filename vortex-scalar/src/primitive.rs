@@ -155,10 +155,8 @@ macro_rules! primitive_scalar {
             type Error = VortexError;
 
             fn try_from(value: &ScalarValue) -> Result<Self, Self::Error> {
-                match value {
-                    ScalarValue::Primitive(pvalue) => <$T>::try_from(*pvalue),
-                    _ => vortex_bail!("expected primitive"),
-                }
+                Option::<$T>::try_from(value)?
+                    .ok_or_else(|| vortex_err!("Can't extract present value from null scalar"))
             }
         }
 
@@ -167,6 +165,26 @@ macro_rules! primitive_scalar {
 
             fn try_from(value: ScalarValue) -> Result<Self, Self::Error> {
                 <$T>::try_from(&value)
+            }
+        }
+
+        impl TryFrom<&ScalarValue> for Option<$T> {
+            type Error = VortexError;
+
+            fn try_from(value: &ScalarValue) -> Result<Self, Self::Error> {
+                match value {
+                    ScalarValue::Null => Ok(None),
+                    ScalarValue::Primitive(pvalue) => Ok(Some(<$T>::try_from(*pvalue)?)),
+                    _ => vortex_bail!("expected primitive"),
+                }
+            }
+        }
+
+        impl TryFrom<ScalarValue> for Option<$T> {
+            type Error = VortexError;
+
+            fn try_from(value: ScalarValue) -> Result<Self, Self::Error> {
+                Option::<$T>::try_from(&value)
             }
         }
     };

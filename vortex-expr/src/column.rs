@@ -1,6 +1,6 @@
 use std::any::Any;
-use std::collections::HashSet;
 
+use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::StructArray;
 use vortex_array::variants::StructArrayTrait;
 use vortex_array::Array;

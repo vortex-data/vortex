@@ -1,8 +1,8 @@
 use std::any::Any;
-use std::collections::HashSet;
 use std::sync::Arc;
 
 use log::warn;
+use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{Chunked, ChunkedArray};
 use vortex_array::encoding::EncodingRef;
 use vortex_array::{Array, ArrayDType, ArrayDef, IntoArray};

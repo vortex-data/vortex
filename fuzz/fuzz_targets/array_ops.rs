@@ -1,8 +1,7 @@
 #![no_main]
 
-use std::collections::HashSet;
-
 use libfuzzer_sys::{fuzz_target, Corpus};
+use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{
     BoolEncoding, PrimitiveEncoding, StructEncoding, VarBinEncoding, VarBinViewEncoding,
 };

@@ -1,7 +1,6 @@
-#![allow(clippy::panic)]
-
+use std::collections::BTreeSet;
 use std::iter;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use futures::StreamExt;
 use vortex_array::accessor::ArrayAccessor;
@@ -11,10 +10,32 @@ use vortex_array::variants::StructArrayTrait;
 use vortex_array::{ArrayDType, IntoArray, IntoArrayVariant};
 use vortex_dtype::field::Field;
 use vortex_dtype::{DType, Nullability, PType, StructDType};
+use vortex_error::vortex_panic;
 use vortex_expr::{BinaryExpr, Column, Literal, Operator};
 
 use crate::layouts::write::LayoutWriter;
-use crate::layouts::{LayoutDeserializer, LayoutReaderBuilder, Projection, RowFilter};
+use crate::layouts::{
+    LayoutDescriptorReader, LayoutDeserializer, LayoutMessageCache, LayoutReaderBuilder,
+    LazyDeserializedDType, Projection, RelativeLayoutCache, RowFilter, Scan, CHUNKED_LAYOUT_ID,
+    COLUMN_LAYOUT_ID, EOF_SIZE, FLAT_LAYOUT_ID, FOOTER_POSTSCRIPT_SIZE, INLINE_SCHEMA_LAYOUT_ID,
+    MAGIC_BYTES, VERSION,
+};
+
+#[test]
+fn test_constants() {
+    // the footer postscript size can change iff we increment the version
+    // i.e., it must be 32 bytes iff VERSION == 1
+    assert_eq!(VERSION, 1);
+    assert_eq!(FOOTER_POSTSCRIPT_SIZE, 32);
+
+    // these constants can never change (without breaking all existing files)
+    assert_eq!(MAGIC_BYTES, *b"VRTX");
+    assert_eq!(EOF_SIZE, 8);
+    assert_eq!(FLAT_LAYOUT_ID.0, 1);
+    assert_eq!(CHUNKED_LAYOUT_ID.0, 2);
+    assert_eq!(COLUMN_LAYOUT_ID.0, 3);
+    assert_eq!(INLINE_SCHEMA_LAYOUT_ID.0, 4);
+}
 
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
@@ -38,7 +59,6 @@ async fn test_read_simple() {
     let written = writer.finalize().await.unwrap();
 
     let mut stream = LayoutReaderBuilder::new(written, LayoutDeserializer::default())
-        .with_batch_size(5)
         .build()
         .await
         .unwrap();
@@ -53,6 +73,55 @@ async fn test_read_simple() {
 
     assert_eq!(batch_count, 2);
     assert_eq!(row_count, 8);
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_splits() {
+    let strings = ChunkedArray::from_iter([
+        VarBinArray::from(vec!["ab", "foo", "baz"]).into_array(),
+        VarBinArray::from(vec!["ab", "foo"]).into_array(),
+        VarBinArray::from(vec!["ab", "foo", "bar"]).into_array(),
+    ])
+    .into_array();
+
+    let numbers = ChunkedArray::from_iter([
+        PrimitiveArray::from(vec![1u32, 2, 3]).into_array(),
+        PrimitiveArray::from(vec![4u32, 5, 6]).into_array(),
+        PrimitiveArray::from(vec![7u32, 8]).into_array(),
+    ])
+    .into_array();
+
+    let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
+    let len = st.len();
+    let buf = Vec::new();
+    let mut writer = LayoutWriter::new(buf);
+    writer = writer.write_array_columns(st.into_array()).await.unwrap();
+    let written = writer.finalize().await.unwrap();
+
+    let footer = LayoutDescriptorReader::new(LayoutDeserializer::default())
+        .read_footer(&written, written.len() as u64)
+        .await
+        .unwrap();
+
+    let dtype = Arc::new(LazyDeserializedDType::from_bytes(
+        footer.dtype_bytes().unwrap(),
+        Projection::All,
+    ));
+
+    let cache = Arc::new(RwLock::new(LayoutMessageCache::new()));
+
+    let layout_reader = footer
+        .layout(
+            Scan::new(None),
+            RelativeLayoutCache::new(cache.clone(), dtype.clone()),
+        )
+        .unwrap();
+
+    let mut splits = BTreeSet::new();
+    layout_reader.add_splits(0, &mut splits).unwrap();
+    splits.insert(len);
+    assert_eq!(splits, BTreeSet::from([0, 3, 5, 6, 8]));
 }
 
 #[tokio::test]
@@ -82,7 +151,6 @@ async fn test_read_projection() {
 
     let array = LayoutReaderBuilder::new(written.clone(), LayoutDeserializer::default())
         .with_projection(Projection::new([0]))
-        .with_batch_size(5)
         .build()
         .await
         .unwrap()
@@ -114,7 +182,6 @@ async fn test_read_projection() {
 
     let array = LayoutReaderBuilder::new(written.clone(), LayoutDeserializer::default())
         .with_projection(Projection::Flat(vec![Field::Name("strings".to_string())]))
-        .with_batch_size(5)
         .build()
         .await
         .unwrap()
@@ -146,7 +213,6 @@ async fn test_read_projection() {
 
     let array = LayoutReaderBuilder::new(written.clone(), LayoutDeserializer::default())
         .with_projection(Projection::new([1]))
-        .with_batch_size(5)
         .build()
         .await
         .unwrap()
@@ -174,7 +240,6 @@ async fn test_read_projection() {
 
     let array = LayoutReaderBuilder::new(written.clone(), LayoutDeserializer::default())
         .with_projection(Projection::Flat(vec![Field::Name("numbers".to_string())]))
-        .with_batch_size(5)
         .build()
         .await
         .unwrap()
@@ -223,7 +288,6 @@ async fn unequal_batches() {
     let written = writer.finalize().await.unwrap();
 
     let mut stream = LayoutReaderBuilder::new(written, LayoutDeserializer::default())
-        .with_batch_size(5)
         .build()
         .await
         .unwrap();
@@ -241,11 +305,11 @@ async fn unequal_batches() {
             let numbers = numbers.into_primitive().unwrap();
             assert_eq!(numbers.ptype(), PType::U32);
         } else {
-            panic!("Expected column doesn't exist")
+            vortex_panic!("Expected column doesn't exist")
         }
     }
     assert_eq!(item_count, 10);
-    assert_eq!(batch_count, 2);
+    assert_eq!(batch_count, 3);
 }
 
 #[tokio::test]

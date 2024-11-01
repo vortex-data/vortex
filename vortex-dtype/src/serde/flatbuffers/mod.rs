@@ -266,7 +266,17 @@ mod test {
     fn roundtrip() {
         roundtrip_dtype(DType::Null);
         roundtrip_dtype(DType::Bool(Nullability::NonNullable));
+        roundtrip_dtype(DType::Primitive(PType::U8, Nullability::NonNullable));
+        roundtrip_dtype(DType::Primitive(PType::U16, Nullability::NonNullable));
+        roundtrip_dtype(DType::Primitive(PType::U32, Nullability::NonNullable));
         roundtrip_dtype(DType::Primitive(PType::U64, Nullability::NonNullable));
+        roundtrip_dtype(DType::Primitive(PType::I8, Nullability::NonNullable));
+        roundtrip_dtype(DType::Primitive(PType::I16, Nullability::NonNullable));
+        roundtrip_dtype(DType::Primitive(PType::I32, Nullability::NonNullable));
+        roundtrip_dtype(DType::Primitive(PType::I64, Nullability::NonNullable));
+        roundtrip_dtype(DType::Primitive(PType::F16, Nullability::NonNullable));
+        roundtrip_dtype(DType::Primitive(PType::F32, Nullability::NonNullable));
+        roundtrip_dtype(DType::Primitive(PType::F64, Nullability::NonNullable));
         roundtrip_dtype(DType::Binary(Nullability::NonNullable));
         roundtrip_dtype(DType::Utf8(Nullability::NonNullable));
         roundtrip_dtype(DType::List(

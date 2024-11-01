@@ -98,7 +98,6 @@ impl ExecutionPlan for VortexExec {
             ctx: self.ctx.clone(),
             object_store,
             projection: self.file_scan_config.projection.clone(),
-            batch_size: None,
             predicate: self.predicate.clone(),
             arrow_schema,
         };

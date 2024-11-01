@@ -7,7 +7,7 @@ use vortex_scalar::{BinaryScalar, BoolScalar, Utf8Scalar};
 
 use crate::array::constant::ConstantArray;
 use crate::array::primitive::PrimitiveArray;
-use crate::array::{BinaryView, BoolArray, VarBinViewArray, VIEW_SIZE_BYTES};
+use crate::array::{BinaryView, BoolArray, NullArray, VarBinViewArray, VIEW_SIZE_BYTES};
 use crate::validity::Validity;
 use crate::{ArrayDType, Canonical, IntoArray, IntoCanonical};
 
@@ -57,6 +57,10 @@ impl IntoCanonical for ConstantArray {
                     validity,
                 )))
             });
+        }
+
+        if matches!(self.dtype(), DType::Null) {
+            return Ok(Canonical::Null(NullArray::new(self.len())));
         }
 
         vortex_bail!("Unsupported scalar type {}", self.dtype())
@@ -117,9 +121,20 @@ fn canonical_byte_view(
 
 #[cfg(test)]
 mod tests {
+    use vortex_dtype::DType;
+    use vortex_scalar::Scalar;
+
     use crate::array::ConstantArray;
     use crate::compute::unary::scalar_at;
     use crate::IntoCanonical;
+
+    #[test]
+    fn test_canonicalize_null() {
+        let const_null = ConstantArray::new(Scalar::null(DType::Null), 42);
+        let actual = const_null.into_canonical().unwrap().into_null().unwrap();
+        assert_eq!(actual.len(), 42);
+        assert_eq!(scalar_at(actual, 33).unwrap(), Scalar::null(DType::Null));
+    }
 
     #[test]
     fn test_canonicalize_const_str() {

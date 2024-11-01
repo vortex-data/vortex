@@ -1,5 +1,4 @@
 use std::cmp::Ordering;
-use std::collections::HashMap;
 use std::mem::size_of;
 
 use arrow_buffer::buffer::BooleanBuffer;
@@ -9,6 +8,7 @@ use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability};
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
+use crate::aliases::hash_map::HashMap;
 use crate::array::primitive::PrimitiveArray;
 use crate::stats::{ArrayStatisticsCompute, Stat, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity};

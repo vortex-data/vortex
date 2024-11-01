@@ -1,5 +1,5 @@
 use bytes::{Bytes, BytesMut};
-use flatbuffers::root;
+use flatbuffers::{root, root_unchecked};
 use vortex_dtype::field::Field;
 use vortex_dtype::flatbuffers::deserialize_and_project;
 use vortex_dtype::DType;
@@ -25,7 +25,6 @@ use crate::FLATBUFFER_SIZE_LENGTH;
 /// ├────────────────────────────┤
 /// │                            │
 /// │     Per-Column Metadata    │
-/// │    (Array IPC Messages)    │
 /// │                            │
 /// ├────────────────────────────┤
 /// │                            │
@@ -66,6 +65,10 @@ impl LayoutDescriptor {
         (self.schema_offset - self.initial_read_offset) as usize
     }
 
+    pub fn row_count(&self) -> VortexResult<u64> {
+        Ok(self.fb_footer()?.row_count())
+    }
+
     pub fn layout(
         &self,
         scan: Scan,
@@ -76,7 +79,7 @@ impl LayoutDescriptor {
         let footer_bytes = self
             .initial_read
             .slice(start_offset + FLATBUFFER_SIZE_LENGTH..end_offset);
-        let fb_footer = root::<footer::Footer>(&footer_bytes)?;
+        let fb_footer = unsafe { root_unchecked::<footer::Footer>(&footer_bytes) };
 
         let fb_layout = fb_footer
             .layout()
@@ -103,7 +106,6 @@ impl LayoutDescriptor {
                 .dtype()
                 .ok_or_else(|| vortex_err!(InvalidSerde: "Schema missing DType"))?,
         )
-        .map_err(|e| vortex_err!(InvalidSerde: "Failed to parse DType: {}", e))
     }
 
     pub fn projected_dtype(&self, projection: &[Field]) -> VortexResult<DType> {
@@ -112,6 +114,13 @@ impl LayoutDescriptor {
             .dtype()
             .ok_or_else(|| vortex_err!(InvalidSerde: "Schema missing DType"))?;
         deserialize_and_project(fb_dtype, projection)
+    }
+
+    fn fb_footer(&self) -> VortexResult<footer::Footer> {
+        let start_offset = self.initial_read_layout_offset();
+        let end_offset = self.initial_read.len() - FOOTER_POSTSCRIPT_SIZE - EOF_SIZE;
+        let footer_bytes = &self.initial_read[start_offset + FLATBUFFER_SIZE_LENGTH..end_offset];
+        Ok(root::<footer::Footer>(footer_bytes)?)
     }
 
     fn fb_schema(&self) -> VortexResult<fb::Schema> {

@@ -1,5 +1,4 @@
-use std::collections::HashSet;
-
+use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{
     Primitive, PrimitiveArray, VarBin, VarBinArray, VarBinView, VarBinViewArray,
 };

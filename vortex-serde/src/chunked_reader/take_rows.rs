@@ -1,9 +1,9 @@
-use std::collections::HashMap;
 use std::ops::Range;
 
 use bytes::BytesMut;
 use futures_util::{stream, StreamExt, TryStreamExt};
 use itertools::Itertools;
+use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::array::{ChunkedArray, PrimitiveArray};
 use vortex_array::compute::unary::{subtract_scalar, try_cast};
 use vortex_array::compute::{search_sorted, slice, take, SearchSortedSide};

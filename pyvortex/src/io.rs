@@ -132,7 +132,7 @@ pub fn read_path(
     row_filter: Option<&Bound<PyExpr>>,
 ) -> PyResult<PyArray> {
     let dataset = TOKIO_RUNTIME.block_on(TokioFileDataset::try_new(path.extract()?))?;
-    dataset.to_array(projection, None, row_filter)
+    dataset.to_array(projection, row_filter)
 }
 
 /// Read a vortex struct array from a URL.
@@ -184,7 +184,7 @@ pub fn read_url(
     row_filter: Option<&Bound<PyExpr>>,
 ) -> PyResult<PyArray> {
     let dataset = TOKIO_RUNTIME.block_on(ObjectStoreUrlDataset::try_new(url.extract()?))?;
-    dataset.to_array(projection, None, row_filter)
+    dataset.to_array(projection, row_filter)
 }
 
 /// Write a vortex struct array to the local filesystem.

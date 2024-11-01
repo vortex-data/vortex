@@ -1,10 +1,12 @@
 use std::fmt::{Display, Formatter};
 
-/// Whether an item can contain a null value or not
+/// Whether an instance of a DType can be `null or not
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub enum Nullability {
+    /// Instances of this DType are guaranteed to be non-nullable
     #[default]
     NonNullable,
+    /// Instances of this DType may contain a null value
     Nullable,
 }
 

@@ -96,6 +96,8 @@ class VortexDataset(pyarrow.dataset.Dataset):
         table : :class:`.pyarrow.Table`
 
         """
+        if batch_size is not None:
+            raise ValueError("batch_size is not supported")
         if batch_readahead is not None:
             raise ValueError("batch_readahead not supported")
         if fragment_readahead is not None:
@@ -109,11 +111,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
         del memory_pool
         if filter is not None:
             filter = arrow_to_vortex_expr(filter, self.schema)
-        return (
-            self._dataset.to_array(columns=columns, batch_size=batch_size, row_filter=filter)
-            .slice(0, num_rows)
-            .to_arrow_table()
-        )
+        return self._dataset.to_array(columns=columns, row_filter=filter).slice(0, num_rows).to_arrow_table()
 
     def join(
         self,
@@ -232,11 +230,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
         table : :class:`.pyarrow.Table`
 
         """
-        return (
-            self._dataset.to_array(columns=columns, batch_size=batch_size, row_filter=filter)
-            .take(encoding.array(indices))
-            .to_arrow_table()
-        )
+        return self._dataset.to_array(columns=columns, row_filter=filter).take(encoding.array(indices)).to_arrow_table()
 
     def to_record_batch_reader(
         self,
@@ -276,6 +270,8 @@ class VortexDataset(pyarrow.dataset.Dataset):
         table : :class:`.pyarrow.Table`
 
         """
+        if batch_size is not None:
+            raise ValueError("batch_size is not supported")
         if batch_readahead is not None:
             raise ValueError("batch_readahead not supported")
         if fragment_readahead is not None:
@@ -289,7 +285,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
         del memory_pool
         if filter is not None:
             filter = arrow_to_vortex_expr(filter, self.schema)
-        return self._dataset.to_record_batch_reader(columns=columns, batch_size=batch_size, row_filter=filter)
+        return self._dataset.to_record_batch_reader(columns=columns, row_filter=filter)
 
     def to_batches(
         self,
@@ -383,6 +379,8 @@ class VortexDataset(pyarrow.dataset.Dataset):
         table : :class:`.pyarrow.Table`
 
         """
+        if batch_size is not None:
+            raise ValueError("batch_size is not supported")
         if batch_readahead is not None:
             raise ValueError("batch_readahead not supported")
         if fragment_readahead is not None:
@@ -396,7 +394,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
         del memory_pool
         if filter is not None:
             filter = arrow_to_vortex_expr(filter, self.schema)
-        return self._dataset.to_array(columns=columns, batch_size=batch_size, row_filter=filter).to_arrow_table()
+        return self._dataset.to_array(columns=columns, row_filter=filter).to_arrow_table()
 
 
 def from_path(path: str) -> VortexDataset:

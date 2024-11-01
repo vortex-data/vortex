@@ -1,7 +1,7 @@
-use std::collections::HashSet;
 use std::ops::Add;
 
 use chrono::TimeDelta;
+use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::builder::VarBinBuilder;
 use vortex_array::array::{BoolArray, PrimitiveArray, StructArray, TemporalArray};
 use vortex_array::validity::Validity;
