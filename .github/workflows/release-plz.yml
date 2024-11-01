@@ -93,14 +93,16 @@ jobs:
       - name: test wheel
         run: |
           set -ex
-          source .venv/bin/activate
+
           ls -al target/wheels
 
           echo removing linux_x86_64 if it exists because PyPI will reject the package if it is present
           rm -f target/wheels/*linux_x86_64.whl
 
-          pip install --no-deps --force-reinstall vortex-array --no-index --find-links target/wheels
-          cd pyvortex/test && pytest
+          uv run pip install --no-deps --force-reinstall vortex-array --no-index --find-links target/wheels
+
+          cd pyvortex/test
+          uv run pytest
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
@@ -131,15 +133,16 @@ jobs:
       - name: test wheel
         run: |
           set -ex
-          source .venv/bin/activate
+
           ls -al target/wheels
 
           echo removing linux_x86_64 if it exists because PyPI will reject the package if it is present
           rm -f target/wheels/*linux_x86_64.whl
 
-          pip install --no-deps --force-reinstall vortex-array --no-index --find-links target/wheels
-          pip install pytest
-          cd pyvortex/test && pytest
+          uv run pip install --no-deps --force-reinstall vortex-array --no-index --find-links target/wheels
+
+          cd pyvortex/test
+          uv run pytest
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:

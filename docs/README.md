@@ -28,3 +28,9 @@ After building:
 ```
 open pyvortex/_build/html/index.html
 ```
+
+## Python Doctests
+
+```
+uv run make doctest
+```
