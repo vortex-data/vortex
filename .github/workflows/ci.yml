@@ -53,16 +53,8 @@ jobs:
         working-directory: docs/
 
       - name: Ensure wheel and sdist can be built on Linux - PyVortex
-        uses: PyO3/maturin-action@v1
-        env:
-          # false, off, and 0 all work: https://github.com/mozilla/sccache/blob/main/src/config.rs#L620
-          SCCACHE_GHA_ENABLED: false
-        with:
-          rust-toolchain: ${{ steps.rust-toolchain.version }}
-          working-directory: pyvortex
-          target: x86_64
-          manylinux: auto
-          args: --release --interpreter python3.10 --sdist
+        run: |
+          cd pyvortex && uv run maturin build --release --interpreter python3.10 --sdist
 
       - name: Ensure wheel can run tests successfully
         run: |
