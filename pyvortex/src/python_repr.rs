@@ -57,7 +57,7 @@ impl Display for DTypePythonRepr<'_> {
                     None => write!(f, "None")?,
                     Some(metadata) => write!(f, "{}", metadata.python_repr())?,
                 };
-                write!(f, ", {})", ext.storage_dtype().nullability().python_repr())
+                write!(f, ")")
             }
         }
     }

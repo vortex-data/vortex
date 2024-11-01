@@ -79,9 +79,9 @@ impl Canonical {
                 if is_temporal_ext_type(a.id()) {
                     temporal_to_arrow(TemporalArray::try_from(&a.into_array())?)?
                 } else {
-                    // Convert storage array directly into arrow.
-                    // NOTE: this loses the extension type information and we lose the ability to
-                    // round-trip back to Vortex.
+                    // Convert storage array directly into arrow, losing type information
+                    // that will let us round-trip.
+                    // TODO(aduffy): https://github.com/spiraldb/vortex/issues/1167
                     a.storage().into_canonical()?.into_arrow()?
                 }
             }
