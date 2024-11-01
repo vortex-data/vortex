@@ -9,7 +9,7 @@ use vortex::{Array, IntoArray};
 use vortex_buffer::{Buffer, BufferString};
 use vortex_dtype::{match_each_native_ptype, DType, FieldName};
 use vortex_error::{VortexError, VortexResult};
-use vortex_scalar::Scalar;
+use vortex_scalar::ScalarValue;
 
 pub fn new_metadata_accumulator(dtype: &DType) -> Box<dyn MetadataAccumulator> {
     match dtype {
@@ -104,7 +104,7 @@ impl<T> StandardAccumulator<T> {
 
 impl<T> MetadataAccumulator for StandardAccumulator<T>
 where
-    T: TryFrom<Scalar, Error = VortexError>,
+    Option<T>: TryFrom<ScalarValue, Error = VortexError>,
     Array: From<Vec<Option<T>>>,
 {
     fn push_chunk(&mut self, array: &Array) {
@@ -194,7 +194,7 @@ impl<T> UnwrappedStatAccumulator<T> {
 
 impl<T> SingularAccumulator for UnwrappedStatAccumulator<T>
 where
-    T: TryFrom<Scalar, Error = VortexError>,
+    Option<T>: TryFrom<ScalarValue, Error = VortexError>,
     Array: From<Vec<Option<T>>>,
 {
     fn push_chunk(&mut self, array: &Array) {
@@ -202,7 +202,8 @@ where
             array
                 .statistics()
                 .compute(self.stat)
-                .and_then(|s| T::try_from(s).ok()),
+                .and_then(|s| Option::<T>::try_from(s.into_value()).ok())
+                .flatten(),
         )
     }
 
@@ -219,6 +220,7 @@ mod tests {
     use vortex::array::{BoolArray, ConstantArray, PrimitiveArray};
     use vortex::variants::StructArrayTrait;
     use vortex_dtype::{Nullability, PType};
+    use vortex_scalar::Scalar;
 
     use super::*;
 

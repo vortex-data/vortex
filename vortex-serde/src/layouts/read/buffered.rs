@@ -27,15 +27,15 @@ impl BufferedLayoutReader {
     }
 
     // TODO(robert): Support out of order reads
-    fn buffer_read(&mut self, mask: RowMask) -> VortexResult<Option<Vec<Message>>> {
+    fn buffer_read(&mut self, mask: &RowMask) -> VortexResult<Option<Vec<Message>>> {
         while let Some(((begin, end), mut layout)) = self.layouts.pop_front() {
             // This selection doesn't know about rows in this chunk, we should put it back and wait for another request with different range
             if mask.end() <= begin || mask.begin() > end {
                 self.layouts.push_front(((begin, end), layout));
                 return Ok(None);
             }
-            let layout_selection = mask.slice(begin, end).shift(begin);
-            if let Some(rr) = layout.read_selection(layout_selection)? {
+            let layout_selection = mask.slice(begin, end).shift(begin)?;
+            if let Some(rr) = layout.read_selection(&layout_selection)? {
                 match rr {
                     BatchRead::ReadMore(m) => {
                         self.layouts.push_front(((begin, end), layout));
@@ -60,7 +60,7 @@ impl BufferedLayoutReader {
         Ok(None)
     }
 
-    pub fn read_next(&mut self, mask: RowMask) -> VortexResult<Option<BatchRead>> {
+    pub fn read_next(&mut self, mask: &RowMask) -> VortexResult<Option<BatchRead>> {
         if let Some(bufs) = self.buffer_read(mask)? {
             return Ok(Some(BatchRead::ReadMore(bufs)));
         }

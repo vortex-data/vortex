@@ -17,7 +17,9 @@ pub fn layout_splits(layout: &mut dyn LayoutReader, length: usize) -> Vec<RowMas
     splits
         .into_iter()
         .tuple_windows::<(usize, usize)>()
-        .map(|(begin, end)| RowMask::new(Bitmap::from_range(begin as u32..end as u32), 0, end))
+        .map(|(begin, end)| unsafe {
+            RowMask::new_unchecked(Bitmap::from_range(begin as u32..end as u32), 0, end)
+        })
         .collect::<Vec<_>>()
 }
 
@@ -25,9 +27,9 @@ pub fn read_layout_data(
     layout: &mut dyn LayoutReader,
     cache: Arc<RwLock<LayoutMessageCache>>,
     buf: &Bytes,
-    selector: RowMask,
+    selector: &RowMask,
 ) -> Option<Array> {
-    while let Some(rr) = layout.read_selection(selector.clone()).unwrap() {
+    while let Some(rr) = layout.read_selection(selector).unwrap() {
         match rr {
             BatchRead::ReadMore(m) => {
                 let mut write_cache_guard = cache.write().unwrap();
@@ -45,9 +47,9 @@ pub fn read_filters(
     layout: &mut dyn LayoutReader,
     cache: Arc<RwLock<LayoutMessageCache>>,
     buf: &Bytes,
-    selector: RowMask,
+    selector: &RowMask,
 ) -> Option<RowMask> {
-    while let Some(rr) = layout.read_selection(selector.clone()).unwrap() {
+    while let Some(rr) = layout.read_selection(selector).unwrap() {
         match rr {
             BatchRead::ReadMore(m) => {
                 let mut write_cache_guard = cache.write().unwrap();
@@ -73,8 +75,8 @@ pub fn filter_read_layout(
 ) -> VecDeque<Array> {
     layout_splits(filter_layout, length)
         .into_iter()
-        .flat_map(|s| read_filters(filter_layout, cache.clone(), buf, s))
-        .flat_map(|s| read_layout_data(layout, cache.clone(), buf, s))
+        .flat_map(|s| read_filters(filter_layout, cache.clone(), buf, &s))
+        .flat_map(|s| read_layout_data(layout, cache.clone(), buf, &s))
         .collect()
 }
 
@@ -86,6 +88,6 @@ pub fn read_layout(
 ) -> VecDeque<Array> {
     layout_splits(layout, length)
         .into_iter()
-        .flat_map(|s| read_layout_data(layout, cache.clone(), buf, s))
+        .flat_map(|s| read_layout_data(layout, cache.clone(), buf, &s))
         .collect()
 }

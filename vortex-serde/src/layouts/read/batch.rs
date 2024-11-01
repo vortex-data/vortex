@@ -57,7 +57,7 @@ impl LayoutReader for ColumnBatchReader {
         Ok(())
     }
 
-    fn read_selection(&mut self, selection: RowMask) -> VortexResult<Option<BatchRead>> {
+    fn read_selection(&mut self, selection: &RowMask) -> VortexResult<Option<BatchRead>> {
         let mut messages = Vec::new();
         for (i, child_array) in self
             .arrays
@@ -65,7 +65,7 @@ impl LayoutReader for ColumnBatchReader {
             .enumerate()
             .filter(|(_, a)| a.is_none())
         {
-            match self.children[i].read_selection(selection.clone())? {
+            match self.children[i].read_selection(selection)? {
                 Some(rr) => match rr {
                     BatchRead::ReadMore(message) => {
                         messages.extend(message);

@@ -74,5 +74,5 @@ pub trait LayoutReader: Debug + Send {
     /// when creating the invoked instance of this trait and then call back into this function.
     ///
     /// The layout is finished producing data for selection when it returns None
-    fn read_selection(&mut self, selector: RowMask) -> VortexResult<Option<BatchRead>>;
+    fn read_selection(&mut self, selector: &RowMask) -> VortexResult<Option<BatchRead>>;
 }

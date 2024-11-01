@@ -131,7 +131,7 @@ impl LayoutReader for ChunkedLayout {
         Ok(())
     }
 
-    fn read_selection(&mut self, selector: RowMask) -> VortexResult<Option<BatchRead>> {
+    fn read_selection(&mut self, selector: &RowMask) -> VortexResult<Option<BatchRead>> {
         if let Some(br) = &mut self.chunk_reader {
             br.read_next(selector)
         } else {
@@ -294,7 +294,7 @@ mod tests {
             &mut projection_layout,
             cache,
             &buf,
-            RowMask::new(Bitmap::from_range(0..500), 0, 500),
+            &RowMask::try_new(Bitmap::from_range(0..500), 0, 500).unwrap(),
         );
 
         assert!(arr.is_some());
@@ -312,12 +312,12 @@ mod tests {
         let (_, mut projection_layout, buf, _) =
             layout_and_bytes(cache.clone(), Scan::new(None)).await;
         let mut arr = [
-            RowMask::new(Bitmap::from_range(0..150), 0, 200),
-            RowMask::new(Bitmap::from_range(50..150), 200, 400),
-            RowMask::new(Bitmap::from_range(0..100), 400, 500),
+            RowMask::try_new(Bitmap::from_range(0..150), 0, 200).unwrap(),
+            RowMask::try_new(Bitmap::from_range(50..150), 200, 400).unwrap(),
+            RowMask::try_new(Bitmap::from_range(0..100), 400, 500).unwrap(),
         ]
         .into_iter()
-        .flat_map(|s| read_layout_data(&mut projection_layout, cache.clone(), &buf, s))
+        .flat_map(|s| read_layout_data(&mut projection_layout, cache.clone(), &buf, &s))
         .collect::<VecDeque<_>>();
 
         assert_eq!(arr.len(), 3);

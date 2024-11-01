@@ -146,7 +146,7 @@ impl LayoutReader for InlineDTypeLayout {
         child_layout.add_splits(row_offset, splits)
     }
 
-    fn read_selection(&mut self, selector: RowMask) -> VortexResult<Option<BatchRead>> {
+    fn read_selection(&mut self, selector: &RowMask) -> VortexResult<Option<BatchRead>> {
         if let Some(cr) = self.child_layout.as_mut() {
             cr.read_selection(selector)
         } else {

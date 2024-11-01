@@ -7,7 +7,7 @@ use vortex::array::BoolArray;
 use vortex::compute::{filter, slice};
 use vortex::validity::Validity;
 use vortex::Array;
-use vortex_error::{vortex_err, vortex_panic, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
 /// Bitmap of selected rows within given [begin, end) row range
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -24,14 +24,19 @@ impl Display for RowMask {
 }
 
 impl RowMask {
-    pub fn new(values: Bitmap, begin: usize, end: usize) -> Self {
+    pub fn try_new(values: Bitmap, begin: usize, end: usize) -> VortexResult<Self> {
         if values
             .maximum()
             .map(|m| m > (end - begin) as u32)
             .unwrap_or(false)
         {
-            vortex_panic!("Values bitmap must be in 0..(end-begin) range")
+            vortex_bail!("Values bitmap must be in 0..(end-begin) range")
         }
+        Ok(Self { values, begin, end })
+    }
+
+    /// Construct RowMask from given bitmap and begin
+    pub unsafe fn new_unchecked(values: Bitmap, begin: usize, end: usize) -> Self {
         Self { values, begin, end }
     }
 
@@ -44,7 +49,7 @@ impl RowMask {
                     for (sb, se) in b.maybe_null_slices_iter() {
                         bitmap.add_range(sb as u32..se as u32);
                     }
-                    RowMask::new(bitmap, begin, end)
+                    unsafe { RowMask::new_unchecked(bitmap, begin, end) }
                 })
         })
     }
@@ -71,13 +76,15 @@ impl RowMask {
         let range_end = min(self.end, end);
         let mask =
             Bitmap::from_range((range_begin - self.begin) as u32..(range_end - self.begin) as u32);
-        RowMask::new(
-            self.values
-                .and(&mask)
-                .add_offset(-((range_begin - self.begin) as i64)),
-            range_begin,
-            range_end,
-        )
+        unsafe {
+            RowMask::new_unchecked(
+                self.values
+                    .and(&mask)
+                    .add_offset(-((range_begin - self.begin) as i64)),
+                range_begin,
+                range_end,
+            )
+        }
     }
 
     pub fn filter_array(&self, array: impl AsRef<Array>) -> VortexResult<Option<Array>> {
@@ -116,15 +123,15 @@ impl RowMask {
         filter(sliced, predicate).map(Some)
     }
 
-    pub fn shift(self, offset: usize) -> RowMask {
+    pub fn shift(self, offset: usize) -> VortexResult<RowMask> {
         let valid_shift = self.begin >= offset;
         if !valid_shift {
-            vortex_panic!(
+            vortex_bail!(
                 "Can shift RowMask by at most {}, tried to shift by {offset}",
                 self.begin
             )
         }
-        RowMask::new(self.values, self.begin - offset, self.end - offset)
+        Ok(unsafe { RowMask::new_unchecked(self.values, self.begin - offset, self.end - offset) })
     }
 }
 
@@ -136,10 +143,10 @@ mod tests {
     use crate::layouts::read::mask::RowMask;
 
     #[rstest]
-    #[case(RowMask::new((0..2).chain(9..10).collect(), 0, 10), (0, 1), RowMask::new((0..1).collect(), 0, 1))]
-    #[case(RowMask::new((5..8).chain(9..10).collect(), 0, 10), (2, 5), RowMask::new(Bitmap::new(), 2, 5))]
-    #[case(RowMask::new((0..4).collect(), 0, 10), (2, 5), RowMask::new((0..2).collect(), 2, 5))]
-    #[case(RowMask::new((0..3).chain(5..6).collect(), 0, 10), (2, 6), RowMask::new((0..1).chain(3..4).collect(), 2, 6))]
+    #[case(RowMask::try_new((0..2).chain(9..10).collect(), 0, 10).unwrap(), (0, 1), RowMask::try_new((0..1).collect(), 0, 1).unwrap())]
+    #[case(RowMask::try_new((5..8).chain(9..10).collect(), 0, 10).unwrap(), (2, 5), RowMask::try_new(Bitmap::new(), 2, 5).unwrap())]
+    #[case(RowMask::try_new((0..4).collect(), 0, 10).unwrap(), (2, 5), RowMask::try_new((0..2).collect(), 2, 5).unwrap())]
+    #[case(RowMask::try_new((0..3).chain(5..6).collect(), 0, 10).unwrap(), (2, 6), RowMask::try_new((0..1).chain(3..4).collect(), 2, 6).unwrap())]
     #[cfg_attr(miri, ignore)]
     fn slice(#[case] first: RowMask, #[case] range: (usize, usize), #[case] expected: RowMask) {
         assert_eq!(first.slice(range.0, range.1), expected);
