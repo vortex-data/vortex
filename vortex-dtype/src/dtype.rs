@@ -287,7 +287,10 @@ mod test {
         let b_type = DType::Bool(Nullability::NonNullable);
 
         let dtype = DType::Struct(
-            StructDType::new(vec!["A".into(), "B".into()].into(), vec![a_type.clone(), b_type.clone()]),
+            StructDType::new(
+                vec!["A".into(), "B".into()].into(),
+                vec![a_type.clone(), b_type.clone()],
+            ),
             Nullability::Nullable,
         );
         assert!(dtype.is_nullable());

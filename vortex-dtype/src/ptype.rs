@@ -5,8 +5,8 @@ use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::panic::RefUnwindSafe;
 
-use num_traits::{FromPrimitive, Num, NumCast, ToPrimitive};
 use num_traits::bounds::UpperBounded;
+use num_traits::{FromPrimitive, Num, NumCast, ToPrimitive};
 use vortex_error::{vortex_err, VortexError, VortexResult};
 
 use crate::half::f16;
@@ -373,8 +373,14 @@ mod tests {
     fn try_from_bytes() {
         assert_eq!(u8::try_from_le_bytes(&[0x01]).unwrap(), 0x01);
         assert_eq!(u16::try_from_le_bytes(&[0x01, 0x02]).unwrap(), 0x0201);
-        assert_eq!(u32::try_from_le_bytes(&[0x01, 0x02, 0x03, 0x04]).unwrap(), 0x04030201);
-        assert_eq!(u64::try_from_le_bytes(&[0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]).unwrap(), 0x0807060504030201);
+        assert_eq!(
+            u32::try_from_le_bytes(&[0x01, 0x02, 0x03, 0x04]).unwrap(),
+            0x04030201
+        );
+        assert_eq!(
+            u64::try_from_le_bytes(&[0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]).unwrap(),
+            0x0807060504030201
+        );
     }
 
     #[test]
@@ -390,9 +396,18 @@ mod tests {
         assert_eq!(i16::try_from_le_bytes(&42_i16.to_le_bytes()).unwrap(), 42);
         assert_eq!(i32::try_from_le_bytes(&42_i32.to_le_bytes()).unwrap(), 42);
         assert_eq!(i64::try_from_le_bytes(&42_i64.to_le_bytes()).unwrap(), 42);
-        assert_eq!(f16::try_from_le_bytes(&f16::from_f32(42.0).to_le_bytes()).unwrap(), f16::from_f32(42.0));
-        assert_eq!(f32::try_from_le_bytes(&42.0_f32.to_le_bytes()).unwrap(), 42.0);
-        assert_eq!(f64::try_from_le_bytes(&42.0_f64.to_le_bytes()).unwrap(), 42.0);
+        assert_eq!(
+            f16::try_from_le_bytes(&f16::from_f32(42.0).to_le_bytes()).unwrap(),
+            f16::from_f32(42.0)
+        );
+        assert_eq!(
+            f32::try_from_le_bytes(&42.0_f32.to_le_bytes()).unwrap(),
+            42.0
+        );
+        assert_eq!(
+            f64::try_from_le_bytes(&42.0_f64.to_le_bytes()).unwrap(),
+            42.0
+        );
     }
 
     #[test]

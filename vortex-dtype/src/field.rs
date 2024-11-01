@@ -107,7 +107,10 @@ mod tests {
         path.push("C");
         assert_eq!(path.to_string(), "$A.$B.$C");
 
-        let fields = vec!["A", "B", "C"].into_iter().map(Field::from).collect_vec();
+        let fields = vec!["A", "B", "C"]
+            .into_iter()
+            .map(Field::from)
+            .collect_vec();
         assert_eq!(path.path(), &fields);
 
         let vec_path = FieldPath::from(fields);
