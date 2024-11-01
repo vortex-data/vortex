@@ -3,7 +3,7 @@ use std::sync::{Arc, RwLock};
 use bytes::Bytes;
 use flatbuffers::root_unchecked;
 use once_cell::sync::OnceCell;
-use vortex::aliases::hash_map::HashMap;
+use vortex_array::aliases::hash_map::HashMap;
 use vortex_dtype::field::Field;
 use vortex_dtype::flatbuffers::{deserialize_and_project, resolve_field};
 use vortex_dtype::DType;

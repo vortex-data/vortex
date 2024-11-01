@@ -4,7 +4,7 @@ use vortex_alp::{
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::PrimitiveArray;
 use vortex_array::encoding::EncodingRef;
-use vortex_array::{Array, ArrayDef, ArrayDef, IntoArray, IntoArray};
+use vortex_array::{Array, ArrayDef, IntoArray};
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
 

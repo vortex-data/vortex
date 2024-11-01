@@ -3,10 +3,10 @@ use std::fmt::{Display, Formatter};
 
 use arrow_buffer::{BooleanBuffer, MutableBuffer};
 use croaring::Bitmap;
-use vortex::array::BoolArray;
-use vortex::compute::{filter, slice};
-use vortex::validity::Validity;
-use vortex::Array;
+use vortex_array::array::BoolArray;
+use vortex_array::compute::{filter, slice};
+use vortex_array::validity::Validity;
+use vortex_array::Array;
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
 /// Bitmap of selected rows within given [begin, end) row range
@@ -143,8 +143,8 @@ impl RowMask {
 mod tests {
     use croaring::Bitmap;
     use rstest::rstest;
-    use vortex::array::PrimitiveArray;
-    use vortex::{IntoArray, IntoArrayVariant};
+    use vortex_array::array::PrimitiveArray;
+    use vortex_array::{IntoArray, IntoArrayVariant};
 
     use crate::layouts::read::mask::RowMask;
 

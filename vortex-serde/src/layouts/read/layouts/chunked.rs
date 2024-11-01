@@ -154,8 +154,8 @@ mod tests {
     use croaring::Bitmap;
     use flatbuffers::{root_unchecked, FlatBufferBuilder};
     use futures_util::TryStreamExt;
-    use vortex::array::{ChunkedArray, PrimitiveArray};
-    use vortex::{ArrayDType, IntoArray, IntoArrayVariant};
+    use vortex_array::array::{ChunkedArray, PrimitiveArray};
+    use vortex_array::{ArrayDType, IntoArray, IntoArrayVariant};
     use vortex_dtype::PType;
     use vortex_expr::{BinaryExpr, Identity, Literal, Operator};
     use vortex_flatbuffers::{footer, WriteFlatBuffer};

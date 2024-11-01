@@ -2,10 +2,10 @@
 
 use std::sync::Arc;
 
-use vortex::array::StructArray;
-use vortex::stats::{ArrayStatistics as _, Stat};
-use vortex::validity::Validity;
-use vortex::{Array, IntoArray};
+use vortex_array::array::StructArray;
+use vortex_array::stats::{ArrayStatistics as _, Stat};
+use vortex_array::validity::Validity;
+use vortex_array::{Array, IntoArray};
 use vortex_buffer::{Buffer, BufferString};
 use vortex_dtype::{match_each_native_ptype, DType, FieldName};
 use vortex_error::{VortexError, VortexResult};
@@ -217,8 +217,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    use vortex::array::{BoolArray, ConstantArray, PrimitiveArray};
-    use vortex::variants::StructArrayTrait;
+    use vortex_array::array::{BoolArray, ConstantArray, PrimitiveArray};
+    use vortex_array::variants::StructArrayTrait;
     use vortex_dtype::{Nullability, PType};
     use vortex_scalar::Scalar;
 

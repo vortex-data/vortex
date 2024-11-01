@@ -4,7 +4,7 @@ use std::sync::{Arc, RwLock};
 use bytes::Bytes;
 use croaring::Bitmap;
 use itertools::Itertools;
-use vortex::Array;
+use vortex_array::Array;
 use vortex_error::VortexUnwrap;
 
 use crate::layouts::read::mask::RowMask;

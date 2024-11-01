@@ -258,10 +258,10 @@ mod tests {
     use std::sync::{Arc, RwLock};
 
     use bytes::Bytes;
-    use vortex::accessor::ArrayAccessor;
-    use vortex::array::{ChunkedArray, PrimitiveArray, StructArray, VarBinArray};
-    use vortex::validity::Validity;
-    use vortex::{ArrayDType, IntoArray, IntoArrayVariant};
+    use vortex_array::accessor::ArrayAccessor;
+    use vortex_array::array::{ChunkedArray, PrimitiveArray, StructArray, VarBinArray};
+    use vortex_array::validity::Validity;
+    use vortex_array::{ArrayDType, IntoArray, IntoArrayVariant};
     use vortex_dtype::field::Field;
     use vortex_dtype::{DType, Nullability};
     use vortex_expr::{BinaryExpr, Column, Literal, Operator};
