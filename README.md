@@ -5,11 +5,11 @@
 [![Documentation](https://docs.rs/vortex-array/badge.svg)](https://docs.rs/vortex-array)
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/vortex-array)](https://pypi.org/project/vortex-array/)
 
-Vortex is an extensible, state-of-the-art columnar file format, with associated tools for working with compressed Apache Arrow arrays 
+Vortex is an extensible, state-of-the-art columnar file format, with associated tools for working with compressed Apache Arrow arrays
 in-memory, on-disk, and over-the-wire.
 
-Vortex is an aspiring successor to Apache Parquet, with dramatically faster random access reads (100-200x faster) and scans (2-10x faster), 
-while preserving approximately the same compression ratio and write throughput as Parquet with zstd. 
+Vortex is an aspiring successor to Apache Parquet, with dramatically faster random access reads (100-200x faster) and scans (2-10x faster),
+while preserving approximately the same compression ratio and write throughput as Parquet with zstd.
 It is designed to support very wide tables (at least 10s of thousands of columns) and (eventually) on-device decompression on GPUs.
 
 Vortex is intended to be to columnar file formats what Apache DataFusion is to query engines: highly extensible,
@@ -125,7 +125,7 @@ in-memory array implementation, allowing us to defer decompression. Currently, t
 Vortex's default compression strategy is based on the
 [BtrBlocks](https://www.cs.cit.tum.de/fileadmin/w00cfj/dis/papers/btrblocks.pdf) paper.
 
-Roughly, for each chunk of data, a sample of at least ~1% of the data is taken. Compression is then attempted 
+Roughly, for each chunk of data, a sample of at least ~1% of the data is taken. Compression is then attempted
 (recursively) with a set of lightweight encodings. The best-performing combination of encodings is then chosen to encode
 the entire chunk. This sounds like it would be very expensive, but given the logical types and basic statistics about a
 chunk, it is possible to cheaply prune many encodings and ensure the search space does not explode in size.
@@ -247,7 +247,6 @@ In particular, the following academic papers have strongly influenced developmen
   data at YouTube](https://dl.acm.org/citation.cfm?id=3360438). PVLDB, 12(12): 2022-2034, 2019.
 * Dominik Durner, Viktor Leis, and Thomas Neumann. [Exploiting Cloud Object Storage for High-Performance
   Analytics](https://www.durner.dev/app/media/papers/anyblob-vldb23.pdf). PVLDB, 16(11): 2769-2782, 2023.
-
 
 Additionally, we benefited greatly from:
 

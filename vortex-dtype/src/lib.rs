@@ -1,4 +1,5 @@
 #![cfg(target_endian = "little")]
+#![deny(missing_docs)]
 
 pub use dtype::*;
 pub use extension::*;

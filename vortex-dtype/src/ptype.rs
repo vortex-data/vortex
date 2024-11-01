@@ -18,19 +18,31 @@ use crate::DType::*;
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "lowercase"))]
 pub enum PType {
+    /// An 8-bit unsigned integer
     U8,
+    /// A 16-bit unsigned integer
     U16,
+    /// A 32-bit unsigned integer
     U32,
+    /// A 64-bit unsigned integer
     U64,
+    /// An 8-bit signed integer
     I8,
+    /// A 16-bit signed integer
     I16,
+    /// A 32-bit signed integer
     I32,
+    /// A 64-bit signed integer
     I64,
+    /// A 16-bit floating point number
     F16,
+    /// A 32-bit floating point number
     F32,
+    /// A 64-bit floating point number
     F64,
 }
 
+/// A trait for native Rust types that correspond 1:1 to a PType
 pub trait NativePType:
     Send
     + Sync
@@ -48,12 +60,17 @@ pub trait NativePType:
     + ToBytes
     + TryFromBytes
 {
+    /// The PType that corresponds to this native type
     const PTYPE: PType;
 
+    /// Whether this instance (`self`) is NaN
+    /// For integer types, this is always `false`
     fn is_nan(self) -> bool;
 
+    /// Compare another instance of this type to `self`
     fn compare(self, other: Self) -> Ordering;
 
+    /// Whether another instance of this type (`other`) is bitwise equal to `self`
     fn is_eq(self, other: Self) -> bool;
 }
 
@@ -109,6 +126,7 @@ native_float_ptype!(f16, F16);
 native_float_ptype!(f32, F32);
 native_float_ptype!(f64, F64);
 
+/// Macro to match over each PType, binding the corresponding native type (from `NativePType`)
 #[macro_export]
 macro_rules! match_each_native_ptype {
     ($self:expr, | $_:tt $enc:ident | $($body:tt)*) => ({
@@ -131,6 +149,7 @@ macro_rules! match_each_native_ptype {
     })
 }
 
+/// Macro to match over each integer PType, binding the corresponding native type (from `NativePType`)
 #[macro_export]
 macro_rules! match_each_integer_ptype {
     ($self:expr, | $_:tt $enc:ident | $($body:tt)*) => ({
@@ -152,6 +171,7 @@ macro_rules! match_each_integer_ptype {
     })
 }
 
+/// Macro to match over each unsigned integer type, binding the corresponding native type (from `NativePType`)
 #[macro_export]
 macro_rules! match_each_unsigned_integer_ptype {
     ($self:expr, | $_:tt $enc:ident | $($body:tt)*) => ({
@@ -167,6 +187,7 @@ macro_rules! match_each_unsigned_integer_ptype {
     })
 }
 
+/// Macro to match over each floating point type, binding the corresponding native type (from `NativePType`)
 #[macro_export]
 macro_rules! match_each_float_ptype {
     ($self:expr, | $_:tt $enc:ident | $($body:tt)*) => ({
@@ -183,35 +204,45 @@ macro_rules! match_each_float_ptype {
 }
 
 impl PType {
+    /// Returns `true` iff this PType is an unsigned integer type
     pub const fn is_unsigned_int(self) -> bool {
         matches!(self, Self::U8 | Self::U16 | Self::U32 | Self::U64)
     }
 
+    /// Returns `true` iff this PType is a signed integer type
     pub const fn is_signed_int(self) -> bool {
         matches!(self, Self::I8 | Self::I16 | Self::I32 | Self::I64)
     }
 
+    /// Returns `true` iff this PType is an integer type
+    /// Equivalent to `self.is_unsigned_int() || self.is_signed_int()`
     pub const fn is_int(self) -> bool {
         self.is_unsigned_int() || self.is_signed_int()
     }
 
+    /// Returns `true` iff this PType is a floating point type
     pub const fn is_float(self) -> bool {
         matches!(self, Self::F16 | Self::F32 | Self::F64)
     }
 
+    /// Returns the number of bytes in this PType
     pub const fn byte_width(&self) -> usize {
         match_each_native_ptype!(self, |$T| std::mem::size_of::<$T>())
     }
 
+    /// Returns the number of bits in this PType
     pub const fn bit_width(&self) -> usize {
         self.byte_width() * 8
     }
 
+    /// Returns the maximum value of this PType if it is an integer type
+    /// For floating point types, this will panic
     pub const fn max_value(&self) -> u64 {
         match_each_integer_ptype!(self, |$T| $T::MAX as u64)
     }
 
-    pub fn to_signed(self) -> Self {
+    /// Returns the PType that corresponds to the signed version of this PType
+    pub const fn to_signed(self) -> Self {
         match self {
             Self::U8 => Self::I8,
             Self::U16 => Self::I16,
@@ -221,7 +252,9 @@ impl PType {
         }
     }
 
-    pub fn to_unsigned(self) -> Self {
+    /// Returns the PType that corresponds to the unsigned version of this PType
+    /// For floating point types, this will simply return `self`
+    pub const fn to_unsigned(self) -> Self {
         match self {
             Self::I8 => Self::U8,
             Self::I16 => Self::U16,
