@@ -32,7 +32,7 @@ pub fn new_metadata_accumulator(dtype: &DType) -> Box<dyn MetadataAccumulator> {
 pub trait MetadataAccumulator {
     fn push_chunk(&mut self, array: &Array);
 
-    fn into_array(self: Box<Self>) -> VortexResult<Array>;
+    fn into_array(self: Box<Self>) -> VortexResult<Option<Array>>;
 }
 
 /// Accumulator for bool-typed columns.
@@ -62,7 +62,7 @@ impl MetadataAccumulator for BoolAccumulator {
         self.null_count.push_chunk(array);
     }
 
-    fn into_array(self: Box<Self>) -> VortexResult<Array> {
+    fn into_array(self: Box<Self>) -> VortexResult<Option<Array>> {
         let (names, fields): (Vec<FieldName>, Vec<Array>) = [
             self.maxima.into_column(),
             self.minima.into_column(),
@@ -73,10 +73,15 @@ impl MetadataAccumulator for BoolAccumulator {
         .flatten()
         .unzip();
 
-        let names = Arc::from(names);
-        let n_chunks = fields[0].len();
-        StructArray::try_new(names, fields, n_chunks, Validity::NonNullable)
-            .map(IntoArray::into_array)
+        if fields.is_empty() {
+            Ok(None)
+        } else {
+            let names = Arc::from(names);
+            let n_chunks = fields[0].len();
+            StructArray::try_new(names, fields, n_chunks, Validity::NonNullable)
+                .map(IntoArray::into_array)
+                .map(Some)
+        }
     }
 }
 
@@ -108,7 +113,7 @@ where
         self.null_count.push_chunk(array);
     }
 
-    fn into_array(self: Box<Self>) -> VortexResult<Array> {
+    fn into_array(self: Box<Self>) -> VortexResult<Option<Array>> {
         let (names, fields): (Vec<FieldName>, Vec<Array>) = [
             self.maxima.into_column(),
             self.minima.into_column(),
@@ -117,10 +122,15 @@ where
         .into_iter()
         .flatten()
         .unzip();
-        let names = Arc::from(names);
-        let n_chunks = fields[0].len();
-        StructArray::try_new(names, fields, n_chunks, Validity::NonNullable)
-            .map(IntoArray::into_array)
+        if fields.is_empty() {
+            Ok(None)
+        } else {
+            let names = Arc::from(names);
+            let n_chunks = fields[0].len();
+            StructArray::try_new(names, fields, n_chunks, Validity::NonNullable)
+                .map(IntoArray::into_array)
+                .map(Some)
+        }
     }
 }
 
@@ -142,15 +152,20 @@ impl MetadataAccumulator for BasicAccumulator {
         self.null_count.push_chunk(array)
     }
 
-    fn into_array(self: Box<Self>) -> VortexResult<Array> {
+    fn into_array(self: Box<Self>) -> VortexResult<Option<Array>> {
         let (names, fields): (Vec<FieldName>, Vec<Array>) = [self.null_count.into_column()]
             .into_iter()
             .flatten()
             .unzip();
-        let names = Arc::from(names);
-        let n_chunks = fields[0].len();
-        StructArray::try_new(names, fields, n_chunks, Validity::NonNullable)
-            .map(IntoArray::into_array)
+        if fields.is_empty() {
+            Ok(None)
+        } else {
+            let names = Arc::from(names);
+            let n_chunks = fields[0].len();
+            StructArray::try_new(names, fields, n_chunks, Validity::NonNullable)
+                .map(IntoArray::into_array)
+                .map(Some)
+        }
     }
 }
 
@@ -225,7 +240,8 @@ mod tests {
         bool_accumulator.push_chunk(&chunk);
 
         let struct_array =
-            StructArray::try_from(Box::new(bool_accumulator).into_array().unwrap()).unwrap();
+            StructArray::try_from(Box::new(bool_accumulator).into_array().unwrap().unwrap())
+                .unwrap();
         assert_eq!(struct_array.len(), 1);
         assert_field_names(&struct_array, &["max", "min", "true_count", "null_count"]);
     }
@@ -236,8 +252,13 @@ mod tests {
         let chunk = PrimitiveArray::from_nullable_vec(vec![Some(1u64)]).into_array();
         standard_accumulator.push_chunk(&chunk);
 
-        let struct_array =
-            StructArray::try_from(Box::new(standard_accumulator).into_array().unwrap()).unwrap();
+        let struct_array = StructArray::try_from(
+            Box::new(standard_accumulator)
+                .into_array()
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
         assert_eq!(struct_array.len(), 1);
         assert_field_names(&struct_array, &["max", "min", "null_count"]);
     }
@@ -249,8 +270,13 @@ mod tests {
             ConstantArray::new(Scalar::primitive(1u64, Nullability::Nullable), 10).into_array();
         standard_accumulator.push_chunk(&chunk);
 
-        let struct_array =
-            StructArray::try_from(Box::new(standard_accumulator).into_array().unwrap()).unwrap();
+        let struct_array = StructArray::try_from(
+            Box::new(standard_accumulator)
+                .into_array()
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
         assert_eq!(struct_array.len(), 1);
         assert_field_names(&struct_array, &["max", "min", "null_count"]);
     }
@@ -265,8 +291,13 @@ mod tests {
         .into_array();
         standard_accumulator.push_chunk(&chunk);
 
-        let metadata_array =
-            StructArray::try_from(Box::new(standard_accumulator).into_array().unwrap()).unwrap();
+        let metadata_array = StructArray::try_from(
+            Box::new(standard_accumulator)
+                .into_array()
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
         assert_eq!(metadata_array.len(), 1);
         assert_field_names(&metadata_array, &["null_count"]);
     }
@@ -281,8 +312,13 @@ mod tests {
         .into_array();
         standard_accumulator.push_chunk(&chunk);
 
-        let metadata_array =
-            StructArray::try_from(Box::new(standard_accumulator).into_array().unwrap()).unwrap();
+        let metadata_array = StructArray::try_from(
+            Box::new(standard_accumulator)
+                .into_array()
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
         assert_eq!(metadata_array.len(), 1);
         assert_field_names(&metadata_array, &["null_count"]);
     }
@@ -294,7 +330,8 @@ mod tests {
         basic_accumulator.push_chunk(&chunk);
 
         let struct_array =
-            StructArray::try_from(Box::new(basic_accumulator).into_array().unwrap()).unwrap();
+            StructArray::try_from(Box::new(basic_accumulator).into_array().unwrap().unwrap())
+                .unwrap();
         assert_eq!(struct_array.len(), 1);
         assert_field_names(&struct_array, &["null_count"]);
     }
