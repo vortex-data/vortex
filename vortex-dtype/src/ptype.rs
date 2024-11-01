@@ -5,7 +5,8 @@ use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::panic::RefUnwindSafe;
 
-use num_traits::{FromPrimitive, Num, NumCast};
+use num_traits::{FromPrimitive, Num, NumCast, ToPrimitive};
+use num_traits::bounds::UpperBounded;
 use vortex_error::{vortex_err, VortexError, VortexResult};
 
 use crate::half::f16;
@@ -236,9 +237,9 @@ impl PType {
     }
 
     /// Returns the maximum value of this PType if it is an integer type
-    /// For floating point types, this will panic
-    pub const fn max_value(&self) -> u64 {
-        match_each_integer_ptype!(self, |$T| $T::MAX as u64)
+    /// Returns `u64::MAX` if the value is too large to fit in a `u64`
+    pub fn max_value_as_u64(&self) -> u64 {
+        match_each_native_ptype!(self, |$T| <$T as UpperBounded>::max_value().to_u64().unwrap_or(u64::MAX))
     }
 
     /// Returns the PType that corresponds to the signed version of this PType

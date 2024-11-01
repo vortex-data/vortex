@@ -78,7 +78,7 @@ fn take_strict_sorted(chunked: &ChunkedArray, indices: &Array) -> VortexResult<A
         // Note. Indices might not have a dtype big enough to fit chunk_begin after cast,
         // if it does cast the scalar otherwise upcast the indices.
         let chunk_indices =
-            if chunk_begin < PType::try_from(chunk_indices.dtype())?.max_value() as usize {
+            if chunk_begin < PType::try_from(chunk_indices.dtype())?.max_value_as_u64() as usize {
                 subtract_scalar(
                     &chunk_indices,
                     &Scalar::from(chunk_begin).cast(chunk_indices.dtype())?,
