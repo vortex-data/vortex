@@ -22,9 +22,7 @@ jobs:
         run: |
           set -ex
 
-          (cd pyvortex && uv run maturin develop)
-
-          (cd docs && uv run make html)
+          uv run make -C docs html
       - name: commit python docs to gh-pages-bench
         run: |
           set -ex

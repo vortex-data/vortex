@@ -55,16 +55,38 @@ jobs:
 
       - name: Doctest - PyVortex
         run: |
-          make clean && make doctest
+          make clean && uv run make doctest
         working-directory: docs/
 
       - name: Ensure docs build - PyVortex
         run: |
+          uv run make -C docs html
+
+      - name: Ensure wheel and sdist can be built on Linux - PyVortex
+        uses: PyO3/maturin-action@v1
+        env:
+          # false, off, and 0 all work: https://github.com/mozilla/sccache/blob/main/src/config.rs#L620
+          SCCACHE_GHA_ENABLED: false
+        with:
+          rust-toolchain: ${{ steps.rust-toolchain.version }}
+          working-directory: pyvortex
+          target: x86_64
+          manylinux: auto
+          args: --release --interpreter python3.11 --sdist
+
+      - name: Ensure wheel can run tests successfully
+        run: |
           set -ex
 
-          (cd pyvortex && uv run maturin develop)
+          echo creating a fresh venv to ensure wheel dependencies are correct
 
-          (cd docs && uv run make html)
+          python3 -m venv .venv2
+          source .venv2/bin/activate
+
+          pip install target/wheels/vortex_array-*.whl
+          pip install pytest
+          cd pyvortex/test && pytest
+
       - name: License Check
         run: cargo install --locked cargo-deny && cargo deny check
       - uses: rustsec/audit-check@v2.0.0

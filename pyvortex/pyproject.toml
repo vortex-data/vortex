@@ -24,15 +24,6 @@ build-backend = "maturin"
 
 [tool.uv]
 managed = true
-dev-dependencies = [
-    "ipython>=8.26.0",
-    "pandas>=2.2.3",
-    "pip",
-    "pyright>=1.1.385",
-    "polars>=1.9.0",
-    "duckdb>=1.1.2",
-    "ruff>=0.7.1",
-]
 
 [tool.maturin]
 python-source = "python"
