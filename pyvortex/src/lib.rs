@@ -13,6 +13,7 @@ mod dtype;
 mod encode;
 mod expr;
 mod io;
+mod object_store_urls;
 mod python_repr;
 mod scalar;
 use lazy_static::lazy_static;
