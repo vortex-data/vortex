@@ -409,4 +409,87 @@ mod tests {
         assert_eq!(PType::F32.max_value_as_u64(), u64::MAX);
         assert_eq!(PType::F64.max_value_as_u64(), u64::MAX);
     }
+
+    #[test]
+    fn widths() {
+        assert_eq!(PType::U8.byte_width(), 1);
+        assert_eq!(PType::U16.byte_width(), 2);
+        assert_eq!(PType::U32.byte_width(), 4);
+        assert_eq!(PType::U64.byte_width(), 8);
+        assert_eq!(PType::I8.byte_width(), 1);
+        assert_eq!(PType::I16.byte_width(), 2);
+        assert_eq!(PType::I32.byte_width(), 4);
+        assert_eq!(PType::I64.byte_width(), 8);
+        assert_eq!(PType::F16.byte_width(), 2);
+        assert_eq!(PType::F32.byte_width(), 4);
+        assert_eq!(PType::F64.byte_width(), 8);
+
+        assert_eq!(PType::U8.bit_width(), 8);
+        assert_eq!(PType::U16.bit_width(), 16);
+        assert_eq!(PType::U32.bit_width(), 32);
+        assert_eq!(PType::U64.bit_width(), 64);
+        assert_eq!(PType::I8.bit_width(), 8);
+        assert_eq!(PType::I16.bit_width(), 16);
+        assert_eq!(PType::I32.bit_width(), 32);
+        assert_eq!(PType::I64.bit_width(), 64);
+        assert_eq!(PType::F16.bit_width(), 16);
+        assert_eq!(PType::F32.bit_width(), 32);
+        assert_eq!(PType::F64.bit_width(), 64);
+    }
+
+    #[test]
+    fn native_ptype_nan_handling() {
+        let a = f32::NAN;
+        let b = f32::NAN;
+        assert_ne!(a, b);
+        assert!(<f32 as NativePType>::is_nan(a));
+        assert!(<f32 as NativePType>::is_nan(b));
+        assert!(<f32 as NativePType>::is_eq(a, b));
+        assert!(<f32 as NativePType>::compare(a, b) == Ordering::Equal);
+    }
+
+    #[test]
+    fn to_signed() {
+        assert_eq!(PType::U8.to_signed(), PType::I8);
+        assert_eq!(PType::U16.to_signed(), PType::I16);
+        assert_eq!(PType::U32.to_signed(), PType::I32);
+        assert_eq!(PType::U64.to_signed(), PType::I64);
+        assert_eq!(PType::I8.to_signed(), PType::I8);
+        assert_eq!(PType::I16.to_signed(), PType::I16);
+        assert_eq!(PType::I32.to_signed(), PType::I32);
+        assert_eq!(PType::I64.to_signed(), PType::I64);
+        assert_eq!(PType::F16.to_signed(), PType::F16);
+        assert_eq!(PType::F32.to_signed(), PType::F32);
+        assert_eq!(PType::F64.to_signed(), PType::F64);
+    }
+
+    #[test]
+    fn to_unsigned() {
+        assert_eq!(PType::U8.to_unsigned(), PType::U8);
+        assert_eq!(PType::U16.to_unsigned(), PType::U16);
+        assert_eq!(PType::U32.to_unsigned(), PType::U32);
+        assert_eq!(PType::U64.to_unsigned(), PType::U64);
+        assert_eq!(PType::I8.to_unsigned(), PType::U8);
+        assert_eq!(PType::I16.to_unsigned(), PType::U16);
+        assert_eq!(PType::I32.to_unsigned(), PType::U32);
+        assert_eq!(PType::I64.to_unsigned(), PType::U64);
+        assert_eq!(PType::F16.to_unsigned(), PType::F16);
+        assert_eq!(PType::F32.to_unsigned(), PType::F32);
+        assert_eq!(PType::F64.to_unsigned(), PType::F64);
+    }
+
+    #[test]
+    fn to_dtype() {
+        assert_eq!(DType::from(PType::U8), Primitive(PType::U8, NonNullable));
+        assert_eq!(DType::from(PType::U16), Primitive(PType::U16, NonNullable));
+        assert_eq!(DType::from(PType::U32), Primitive(PType::U32, NonNullable));
+        assert_eq!(DType::from(PType::U64), Primitive(PType::U64, NonNullable));
+        assert_eq!(DType::from(PType::I8), Primitive(PType::I8, NonNullable));
+        assert_eq!(DType::from(PType::I16), Primitive(PType::I16, NonNullable));
+        assert_eq!(DType::from(PType::I32), Primitive(PType::I32, NonNullable));
+        assert_eq!(DType::from(PType::I64), Primitive(PType::I64, NonNullable));
+        assert_eq!(DType::from(PType::F16), Primitive(PType::F16, NonNullable));
+        assert_eq!(DType::from(PType::F32), Primitive(PType::F32, NonNullable));
+        assert_eq!(DType::from(PType::F64), Primitive(PType::F64, NonNullable));
+    }
 }
