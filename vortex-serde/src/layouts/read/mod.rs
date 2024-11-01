@@ -63,7 +63,8 @@ pub enum BatchRead {
 pub trait LayoutReader: Debug + Send {
     /// Register all horizontal boundaries of this layout.
     ///
-    /// Layout should register its begging adjusted by row_offset and do so for all of its children
+    /// Layout should register all indivisible absolute row boundaries of the data stored in itself and its children.
+    /// `row_offset` gives the relative row position of this layout to the beginning of the file.
     fn add_splits(&self, row_offset: usize, splits: &mut BTreeSet<usize>) -> VortexResult<()>;
 
     /// Reads the data from the underlying layout within given selection
