@@ -222,7 +222,7 @@ impl StructDType {
                 .ok_or_else(|| vortex_err!("Unknown field: {}", name))?,
             Field::Index(index) => *index,
         };
-        if index > self.names.len() {
+        if index >= self.names.len() {
             vortex_bail!("field index out of bounds: {}", index)
         }
         Ok(FieldInfo {
@@ -259,7 +259,8 @@ mod test {
     use std::mem;
 
     use crate::dtype::DType;
-    use crate::{Nullability, StructDType};
+    use crate::field::Field;
+    use crate::{Nullability, PType, StructDType};
 
     #[test]
     fn size_of() {
@@ -267,11 +268,62 @@ mod test {
     }
 
     #[test]
-    fn is_nullable() {
+    fn nullability() {
         assert!(!DType::Struct(
             StructDType::new(vec![].into(), Vec::new()),
             Nullability::NonNullable
         )
         .is_nullable());
+
+        let primitive = DType::Primitive(PType::U8, Nullability::Nullable);
+        assert!(primitive.is_nullable());
+        assert!(!primitive.as_nonnullable().is_nullable());
+        assert!(primitive.as_nonnullable().as_nullable().is_nullable());
+    }
+
+    #[test]
+    fn test_struct() {
+        let a_type = DType::Primitive(PType::I32, Nullability::Nullable);
+        let b_type = DType::Bool(Nullability::NonNullable);
+
+        let dtype = DType::Struct(
+            StructDType::new(vec!["A".into(), "B".into()].into(), vec![a_type.clone(), b_type.clone()]),
+            Nullability::Nullable,
+        );
+        assert!(dtype.is_nullable());
+        assert!(dtype.as_struct().is_some());
+        assert!(a_type.as_struct().is_none());
+
+        let sdt = dtype.as_struct().unwrap();
+        assert_eq!(sdt.names().len(), 2);
+        assert_eq!(sdt.dtypes().len(), 2);
+        assert_eq!(sdt.names()[0], "A".into());
+        assert_eq!(sdt.names()[1], "B".into());
+        assert_eq!(sdt.dtypes()[0], a_type);
+        assert_eq!(sdt.dtypes()[1], b_type);
+
+        let proj = sdt
+            .project(&[Field::Index(1), Field::Name("A".into())])
+            .unwrap();
+        assert_eq!(proj.names()[0], "B".into());
+        assert_eq!(proj.dtypes()[0], b_type);
+        assert_eq!(proj.names()[1], "A".into());
+        assert_eq!(proj.dtypes()[1], a_type);
+
+        let field_info = sdt.field_info(&Field::Name("B".into())).unwrap();
+        assert_eq!(field_info.index, 1);
+        assert_eq!(field_info.name, "B".into());
+        assert_eq!(field_info.dtype, &b_type);
+
+        let field_info = sdt.field_info(&Field::Index(0)).unwrap();
+        assert_eq!(field_info.index, 0);
+        assert_eq!(field_info.name, "A".into());
+        assert_eq!(field_info.dtype, &a_type);
+
+        assert!(sdt.field_info(&Field::Index(2)).is_err());
+
+        assert_eq!(sdt.find_name("A"), Some(0));
+        assert_eq!(sdt.find_name("B"), Some(1));
+        assert_eq!(sdt.find_name("C"), None);
     }
 }

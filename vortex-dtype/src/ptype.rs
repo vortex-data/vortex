@@ -364,3 +364,49 @@ try_from_bytes!(i64);
 try_from_bytes!(f16);
 try_from_bytes!(f32);
 try_from_bytes!(f64);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn try_from_bytes() {
+        assert_eq!(u8::try_from_le_bytes(&[0x01]).unwrap(), 0x01);
+        assert_eq!(u16::try_from_le_bytes(&[0x01, 0x02]).unwrap(), 0x0201);
+        assert_eq!(u32::try_from_le_bytes(&[0x01, 0x02, 0x03, 0x04]).unwrap(), 0x04030201);
+        assert_eq!(u64::try_from_le_bytes(&[0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]).unwrap(), 0x0807060504030201);
+    }
+
+    #[test]
+    fn to_bytes_rt() {
+        assert_eq!(&0x01u8.to_le_bytes(), &[0x01]);
+        assert_eq!(&0x0201u16.to_le_bytes(), &[0x01, 0x02]);
+
+        assert_eq!(u8::try_from_le_bytes(&42_u8.to_le_bytes()).unwrap(), 42);
+        assert_eq!(u16::try_from_le_bytes(&42_u16.to_le_bytes()).unwrap(), 42);
+        assert_eq!(u32::try_from_le_bytes(&42_u32.to_le_bytes()).unwrap(), 42);
+        assert_eq!(u64::try_from_le_bytes(&42_u64.to_le_bytes()).unwrap(), 42);
+        assert_eq!(i8::try_from_le_bytes(&42_i8.to_le_bytes()).unwrap(), 42);
+        assert_eq!(i16::try_from_le_bytes(&42_i16.to_le_bytes()).unwrap(), 42);
+        assert_eq!(i32::try_from_le_bytes(&42_i32.to_le_bytes()).unwrap(), 42);
+        assert_eq!(i64::try_from_le_bytes(&42_i64.to_le_bytes()).unwrap(), 42);
+        assert_eq!(f16::try_from_le_bytes(&f16::from_f32(42.0).to_le_bytes()).unwrap(), f16::from_f32(42.0));
+        assert_eq!(f32::try_from_le_bytes(&42.0_f32.to_le_bytes()).unwrap(), 42.0);
+        assert_eq!(f64::try_from_le_bytes(&42.0_f64.to_le_bytes()).unwrap(), 42.0);
+    }
+
+    #[test]
+    fn max_value_u64() {
+        assert_eq!(PType::U8.max_value_as_u64(), u8::MAX as u64);
+        assert_eq!(PType::U16.max_value_as_u64(), u16::MAX as u64);
+        assert_eq!(PType::U32.max_value_as_u64(), u32::MAX as u64);
+        assert_eq!(PType::U64.max_value_as_u64(), u64::MAX);
+        assert_eq!(PType::I8.max_value_as_u64(), i8::MAX as u64);
+        assert_eq!(PType::I16.max_value_as_u64(), i16::MAX as u64);
+        assert_eq!(PType::I32.max_value_as_u64(), i32::MAX as u64);
+        assert_eq!(PType::I64.max_value_as_u64(), i64::MAX as u64);
+        assert_eq!(PType::F16.max_value_as_u64(), u64::MAX);
+        assert_eq!(PType::F32.max_value_as_u64(), u64::MAX);
+        assert_eq!(PType::F64.max_value_as_u64(), u64::MAX);
+    }
+}
