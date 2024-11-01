@@ -67,7 +67,7 @@ jobs:
 
           echo specifically not using uv to ensure we use this new, isolated, and empty environment
 
-          pip install target/wheels/vortex_array-*.whl
+          pip install target/wheels/vortex_array-*.whl || { pip debug --verbose ; exit 1 ; }
           pip install pytest
           cd pyvortex/test && pytest
 
