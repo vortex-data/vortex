@@ -68,7 +68,7 @@ jobs:
           echo specifically not using uv to ensure we use this new, isolated, and empty environment
 
           # unclear why, but activating the venv does not make `pip` resolve to the correct executable
-          .venv2/bin/pip install target/wheels/vortex_array-*.whl || { .vevn2/bin/pip debug --verbose ; exit 1 ; }
+          .venv2/bin/pip install target/wheels/vortex_array-*.whl || { .venv2/bin/pip debug --verbose ; exit 1 ; }
           .venv2/bin/pip install pytest
           cd pyvortex/test && .venv2/bin/pytest
 
