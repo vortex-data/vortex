@@ -16,7 +16,7 @@ jobs:
   release-plz-release:
     name: Release-plz release
     runs-on: ubuntu-latest
-    if: 'startsWith(github.event.head_commit.message, "chore: release")'
+    if: 'startsWith(github.event.head_commit.message, \'chore: release\')'
     outputs:
       releases_created: ${{ steps.run-release-plz.outputs.releases_created }}  # Expose this step output as a job output
     steps:
