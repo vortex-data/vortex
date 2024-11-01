@@ -23,11 +23,6 @@ use crate::layouts::read::{BatchRead, LayoutReader, MessageId};
 use crate::stream_writer::ByteRange;
 
 /// Stream of array batches from vortex file
-///
-/// The flow starts with `AddSplits` which produces all horizontal row splits in the file
-/// Main read loop goes from `NextSplit` -> `Filter` (if there's filter) -> `Read`
-/// `Filter` and `Read` states transition to `Reading` when they're blocked on an io operation which resumes back to
-/// the previous state.
 pub struct LayoutBatchStream<R> {
     dtype: DType,
     row_count: u64,
@@ -79,6 +74,12 @@ impl<R: VortexReadAt> LayoutBatchStream<R> {
 
 type StreamStateFuture<R> = BoxFuture<'static, VortexResult<(R, Vec<(MessageId, Bytes)>)>>;
 
+/// State of vortex file stream
+///
+/// The flow starts with `AddSplits` which produces all horizontal row splits in the file
+/// Main read loop goes from `NextSplit` -> `Filter` (if there's filter) -> `Read`
+/// `Filter` and `Read` states transition to `Reading` when they're blocked on an io operation which resumes back to
+/// the previous state.
 enum StreamingState<R> {
     AddSplits,
     NextSplit,

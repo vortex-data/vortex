@@ -22,10 +22,10 @@ pub fn expr_project(
                     .filter(|f| projection.contains(f))
                     .cloned()
                     .collect::<Vec<_>>();
-                match fields.len() {
-                    0 => None,
-                    1 => Some(Arc::new(Identity)),
-                    _ => Some(Arc::new(Select::include(fields))),
+                if projection.len() == 1 {
+                    Some(Arc::new(Identity))
+                } else {
+                    (!fields.is_empty()).then(|| Arc::new(Select::include(fields)) as _)
                 }
             }
             Select::Exclude(e) => {
@@ -34,10 +34,10 @@ pub fn expr_project(
                     .filter(|f| !e.contains(f))
                     .cloned()
                     .collect::<Vec<_>>();
-                match fields.len() {
-                    0 => None,
-                    1 => Some(Arc::new(Identity)),
-                    _ => Some(Arc::new(Select::include(fields))),
+                if projection.len() == 1 {
+                    Some(Arc::new(Identity))
+                } else {
+                    (!fields.is_empty()).then(|| Arc::new(Select::include(fields)) as _)
                 }
             }
         }
@@ -161,6 +161,20 @@ mod tests {
         assert_eq!(
             *expr_project(&blt, &projection).unwrap(),
             *Select::include(projection).as_any()
+        );
+    }
+
+    #[test]
+    fn project_select_extra_columns() {
+        let blt = Arc::new(Select::include(vec![
+            Field::from("a"),
+            Field::from("b"),
+            Field::from("c"),
+        ])) as _;
+        let projection = vec![Field::from("c"), Field::from("d")];
+        assert_eq!(
+            *expr_project(&blt, &projection).unwrap(),
+            *Select::include(vec![Field::from("c")]).as_any()
         );
     }
 }

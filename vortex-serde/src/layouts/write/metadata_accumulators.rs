@@ -30,7 +30,7 @@ pub fn new_metadata_accumulator(dtype: &DType) -> Box<dyn MetadataAccumulator> {
 
 /// Accumulates zero or more series of metadata across the chunks of a column.
 pub trait MetadataAccumulator {
-    fn push_chunk(&mut self, array: &Array) -> VortexResult<()>;
+    fn push_chunk(&mut self, array: &Array);
 
     fn into_array(self: Box<Self>) -> VortexResult<Array>;
 }
@@ -55,11 +55,11 @@ impl BoolAccumulator {
 }
 
 impl MetadataAccumulator for BoolAccumulator {
-    fn push_chunk(&mut self, array: &Array) -> VortexResult<()> {
-        self.maxima.push_chunk(array)?;
-        self.minima.push_chunk(array)?;
-        self.true_count.push_chunk(array)?;
-        self.null_count.push_chunk(array)
+    fn push_chunk(&mut self, array: &Array) {
+        self.maxima.push_chunk(array);
+        self.minima.push_chunk(array);
+        self.true_count.push_chunk(array);
+        self.null_count.push_chunk(array);
     }
 
     fn into_array(self: Box<Self>) -> VortexResult<Array> {
@@ -72,6 +72,7 @@ impl MetadataAccumulator for BoolAccumulator {
         .into_iter()
         .flatten()
         .unzip();
+
         let names = Arc::from(names);
         let n_chunks = fields[0].len();
         StructArray::try_new(names, fields, n_chunks, Validity::NonNullable)
@@ -79,7 +80,7 @@ impl MetadataAccumulator for BoolAccumulator {
     }
 }
 
-/// An accumulator for the minima, maxima, null counts, and row offsets.
+/// An accumulator for the minima, maxima, null counts.
 struct StandardAccumulator<T> {
     maxima: UnwrappedStatAccumulator<T>,
     minima: UnwrappedStatAccumulator<T>,
@@ -101,10 +102,10 @@ where
     T: TryFrom<Scalar, Error = VortexError>,
     Array: From<Vec<Option<T>>>,
 {
-    fn push_chunk(&mut self, array: &Array) -> VortexResult<()> {
-        self.maxima.push_chunk(array)?;
-        self.minima.push_chunk(array)?;
-        self.null_count.push_chunk(array)
+    fn push_chunk(&mut self, array: &Array) {
+        self.maxima.push_chunk(array);
+        self.minima.push_chunk(array);
+        self.null_count.push_chunk(array);
     }
 
     fn into_array(self: Box<Self>) -> VortexResult<Array> {
@@ -123,7 +124,7 @@ where
     }
 }
 
-/// A minimal accumulator which only tracks null counts and row offsets.
+/// A minimal accumulator which only tracks null counts.
 struct BasicAccumulator {
     null_count: UnwrappedStatAccumulator<u64>,
 }
@@ -137,7 +138,7 @@ impl BasicAccumulator {
 }
 
 impl MetadataAccumulator for BasicAccumulator {
-    fn push_chunk(&mut self, array: &Array) -> VortexResult<()> {
+    fn push_chunk(&mut self, array: &Array) {
         self.null_count.push_chunk(array)
     }
 
@@ -155,7 +156,7 @@ impl MetadataAccumulator for BasicAccumulator {
 
 /// Accumulates a single series of values across the chunks of a column.
 trait SingularAccumulator {
-    fn push_chunk(&mut self, array: &Array) -> VortexResult<()>;
+    fn push_chunk(&mut self, array: &Array);
 
     fn into_column(self) -> Option<(FieldName, Array)>;
 }
@@ -181,15 +182,13 @@ where
     T: TryFrom<Scalar, Error = VortexError>,
     Array: From<Vec<Option<T>>>,
 {
-    fn push_chunk(&mut self, array: &Array) -> VortexResult<()> {
+    fn push_chunk(&mut self, array: &Array) {
         self.values.push(
             array
                 .statistics()
                 .compute(self.stat)
-                .map(T::try_from)
-                .transpose()?,
-        );
-        Ok(())
+                .and_then(|s| T::try_from(s).ok()),
+        )
     }
 
     fn into_column(self) -> Option<(FieldName, Array)> {
@@ -204,7 +203,7 @@ where
 mod tests {
     use vortex::array::{BoolArray, ConstantArray, PrimitiveArray};
     use vortex::variants::StructArrayTrait;
-    use vortex_dtype::Nullability;
+    use vortex_dtype::{Nullability, PType};
 
     use super::*;
 
@@ -223,7 +222,7 @@ mod tests {
     fn test_bool_metadata_schema() {
         let mut bool_accumulator = BoolAccumulator::new();
         let chunk = BoolArray::from_vec(vec![true], Validity::AllValid).into_array();
-        bool_accumulator.push_chunk(&chunk).unwrap();
+        bool_accumulator.push_chunk(&chunk);
 
         let struct_array =
             StructArray::try_from(Box::new(bool_accumulator).into_array().unwrap()).unwrap();
@@ -235,7 +234,7 @@ mod tests {
     fn test_standard_metadata_schema_nonnullable() {
         let mut standard_accumulator = StandardAccumulator::<u64>::new();
         let chunk = PrimitiveArray::from_nullable_vec(vec![Some(1u64)]).into_array();
-        standard_accumulator.push_chunk(&chunk).unwrap();
+        standard_accumulator.push_chunk(&chunk);
 
         let struct_array =
             StructArray::try_from(Box::new(standard_accumulator).into_array().unwrap()).unwrap();
@@ -248,7 +247,7 @@ mod tests {
         let mut standard_accumulator = StandardAccumulator::<u64>::new();
         let chunk =
             ConstantArray::new(Scalar::primitive(1u64, Nullability::Nullable), 10).into_array();
-        standard_accumulator.push_chunk(&chunk).unwrap();
+        standard_accumulator.push_chunk(&chunk);
 
         let struct_array =
             StructArray::try_from(Box::new(standard_accumulator).into_array().unwrap()).unwrap();
@@ -257,10 +256,42 @@ mod tests {
     }
 
     #[test]
+    fn test_standard_metadata_all_null() {
+        let mut standard_accumulator = StandardAccumulator::<u64>::new();
+        let chunk = ConstantArray::new(
+            Scalar::null(DType::Primitive(PType::U64, Nullability::Nullable)),
+            10,
+        )
+        .into_array();
+        standard_accumulator.push_chunk(&chunk);
+
+        let metadata_array =
+            StructArray::try_from(Box::new(standard_accumulator).into_array().unwrap()).unwrap();
+        assert_eq!(metadata_array.len(), 1);
+        assert_field_names(&metadata_array, &["null_count"]);
+    }
+
+    #[test]
+    fn test_standard_metadata_empty() {
+        let mut standard_accumulator = StandardAccumulator::<u64>::new();
+        let chunk = ConstantArray::new(
+            Scalar::null(DType::Primitive(PType::U64, Nullability::Nullable)),
+            0,
+        )
+        .into_array();
+        standard_accumulator.push_chunk(&chunk);
+
+        let metadata_array =
+            StructArray::try_from(Box::new(standard_accumulator).into_array().unwrap()).unwrap();
+        assert_eq!(metadata_array.len(), 1);
+        assert_field_names(&metadata_array, &["null_count"]);
+    }
+
+    #[test]
     fn test_basic_metadata_schema() {
         let mut basic_accumulator = BasicAccumulator::new();
         let chunk = PrimitiveArray::from_nullable_vec(vec![Some(1u64)]).into_array();
-        basic_accumulator.push_chunk(&chunk).unwrap();
+        basic_accumulator.push_chunk(&chunk);
 
         let struct_array =
             StructArray::try_from(Box::new(basic_accumulator).into_array().unwrap()).unwrap();

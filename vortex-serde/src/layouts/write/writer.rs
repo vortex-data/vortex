@@ -195,7 +195,7 @@ impl ColumnWriter {
 
         while let Some(chunk) = stream.try_next().await? {
             rows_written += chunk.len() as u64;
-            self.metadata.push_chunk(&chunk)?;
+            self.metadata.push_chunk(&chunk);
             msgs.write_batch(chunk).await?;
             offsets.push(msgs.tell());
             row_offsets.push(rows_written);
@@ -211,15 +211,6 @@ impl ColumnWriter {
         self,
         msgs: &mut MessageWriter<W>,
     ) -> VortexResult<Vec<Layout>> {
-        let metadata_array = self.metadata.into_array()?;
-        let expected_n_data_chunks = metadata_array.len();
-
-        let dtype_begin = msgs.tell();
-        msgs.write_dtype(metadata_array.dtype()).await?;
-        let dtype_end = msgs.tell();
-        msgs.write_batch(metadata_array).await?;
-        let metadata_array_end = msgs.tell();
-
         let data_chunks = self
             .batch_byte_offsets
             .iter()
@@ -237,6 +228,15 @@ impl ColumnWriter {
                     )
                     .map(|(range, len)| Layout::flat(range, len))
             });
+
+        let metadata_array = self.metadata.into_array()?;
+        let expected_n_data_chunks = metadata_array.len();
+
+        let dtype_begin = msgs.tell();
+        msgs.write_dtype(metadata_array.dtype()).await?;
+        let dtype_end = msgs.tell();
+        msgs.write_batch(metadata_array).await?;
+        let metadata_array_end = msgs.tell();
 
         let layouts = [Layout::inlined_schema(
             vec![Layout::flat(
@@ -257,7 +257,6 @@ impl ColumnWriter {
                 layouts.len()
             );
         }
-
         Ok(layouts)
     }
 }
