@@ -10,9 +10,12 @@ on:
       - develop
 
 jobs:
-  release-plz:
-    name: Release-plz
+
+  # Release unpublished packages.
+  release-plz-release:
+    name: Release-plz release
     runs-on: ubuntu-latest
+    if: startsWith(github.event.head_commit.message, "chore: release")
     outputs:
       releases_created: ${{ steps.run-release-plz.outputs.releases_created }}  # Expose this step output as a job output
     steps:
@@ -20,15 +23,37 @@ jobs:
         with:
           # Needed to pull full commit history for release version number inference
           fetch-depth: 0
-
       - uses: ./.github/actions/cleanup
-
       - uses: ./.github/actions/setup-rust
       - uses: spiraldb/actions/.github/actions/setup-uv@0.2.0
-
       - name: Run release-plz
         id: run-release-plz
         uses: MarcoIeni/release-plz-action@v0.5
+        with:
+          command: release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  # Create a PR with the new versions and changelog, preparing the next release.
+  release-plz-pr:
+    name: Release-plz PR
+    runs-on: ubuntu-latest
+    concurrency:
+      group: release-plz-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Needed to pull full commit history for release version number inference
+          fetch-depth: 0
+      - uses: ./.github/actions/cleanup
+      - uses: ./.github/actions/setup-rust
+      - uses: spiraldb/actions/.github/actions/setup-uv@0.2.0
+      - name: Run release-plz
+        uses: MarcoIeni/release-plz-action@v0.5
+        with:
+          command: release-pr
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
