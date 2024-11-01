@@ -45,7 +45,9 @@ impl RoaringIntArray {
         let max = bitmap.maximum();
         if max.map(|mv| mv as u64 > ptype.max_value()).unwrap_or(false) {
             vortex_bail!(
-                "RoaringInt maximum value is greater than the maximum value for the primitive type"
+                "Bitmap's maximum value ({}) is greater than the maximum value for the primitive type ({})",
+                max.vortex_expect("Bitmap has no maximum value despite having just checked"),
+                ptype
             );
         }
 

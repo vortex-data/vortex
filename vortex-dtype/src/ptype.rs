@@ -319,11 +319,15 @@ impl From<PType> for DType {
     }
 }
 
+/// A trait for types that can be converted to a little-endian byte slice
 pub trait ToBytes: Sized {
+    /// Returns a slice of this type's bytes in little-endian order
     fn to_le_bytes(&self) -> &[u8];
 }
 
+/// A trait for types that can be converted from a little-endian byte slice
 pub trait TryFromBytes: Sized {
+    /// Attempts to convert a slice of bytes in little-endian order to this type
     fn try_from_le_bytes(bytes: &[u8]) -> VortexResult<Self>;
 }
 

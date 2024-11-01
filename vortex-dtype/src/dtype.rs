@@ -10,7 +10,9 @@ use crate::field::Field;
 use crate::nullability::Nullability;
 use crate::{ExtDType, PType};
 
+/// A name for a field in a struct
 pub type FieldName = Arc<str>;
+/// An ordered list of field names in a struct
 pub type FieldNames = Arc<[FieldName]>;
 
 /// The logical types of elements in Vortex arrays.
