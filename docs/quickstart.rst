@@ -91,10 +91,7 @@ Install
 
 Install vortex and all the first-party array encodings::
 
-   cargo add vortex-array vortex-alp vortex-fsst vortex-fastlanes \
-             vortex-bytebool vortex-datetime-dtype vortex-datetime-parts \
-             vortex-dict vortex-runend vortex-runend-bool vortex-zigzag \
-             vortex-sampling-compressor vortex-serde
+   cargo add vortex-all
 
 Convert
 ^^^^^^^
@@ -113,7 +110,7 @@ Use Arrow to read a Parquet file and then construct an uncompressed Vortex array
    use vortex::array::ChunkedArray;
    use vortex::arrow::FromArrowType;
    use vortex::{Array, IntoArray};
-   use vortex_dtype::DType;
+   use vortex::dtype::DType;
 
    let reader =
        ParquetRecordBatchReaderBuilder::try_new(File::open("_static/example.parquet").unwrap())
@@ -135,7 +132,7 @@ Use the sampling compressor to compress the Vortex array and check the relative 
 
    use std::collections::HashSet;
 
-   use vortex_sampling_compressor::{SamplingCompressor, DEFAULT_COMPRESSORS};
+   use vortex::sampling_compressor::{SamplingCompressor, DEFAULT_COMPRESSORS};
 
    let compressor = SamplingCompressor::new(HashSet::from(*DEFAULT_COMPRESSORS));
    let cvtx = compressor.compress(&vtx, None).unwrap().into_array();
@@ -152,7 +149,7 @@ knows how to write Vortex arrays to disk:
    use std::path::Path;
 
    use tokio::fs::File as TokioFile;
-   use vortex_serde::layouts::LayoutWriter;
+   use vortex::serde::layouts::LayoutWriter;
 
    let file = TokioFile::create(Path::new("example.vortex"))
        .await
@@ -169,8 +166,8 @@ Read
 .. code-block:: rust
 
    use futures::TryStreamExt;
-   use vortex_sampling_compressor::ALL_COMPRESSORS_CONTEXT;
-   use vortex_serde::layouts::{LayoutContext, LayoutDeserializer, LayoutReaderBuilder};
+   use vortex::sampling_compressor::ALL_COMPRESSORS_CONTEXT;
+   use vortex::serde::layouts::{LayoutContext, LayoutDeserializer, LayoutReaderBuilder};
 
    let file = TokioFile::open(Path::new("example.vortex")).await.unwrap();
    let builder = LayoutReaderBuilder::new(
