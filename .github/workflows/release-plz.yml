@@ -58,8 +58,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
   macos:
-    needs: release-plz
-    if: ${{ needs.release-plz.outputs.releases_created == 'true' }}
+    needs: release-plz-release
+    if: ${{ needs.release-plz-release.outputs.releases_created == 'true' }}
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -107,8 +107,8 @@ jobs:
           name: osx-wheels
           path: target/wheels
   linux:
-    needs: release-plz
-    if: ${{ needs.release-plz.outputs.releases_created == 'true' }}
+    needs: release-plz-release
+    if: ${{ needs.release-plz-release.outputs.releases_created == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -146,8 +146,8 @@ jobs:
           name: linux-wheels
           path: target/wheels
   release:
-    needs: [ release-plz, macos, linux ]
-    if: ${{ needs.release-plz.outputs.releases_created == 'true' }}
+    needs: [ release-plz-release, macos, linux ]
+    if: ${{ needs.release-plz-release.outputs.releases_created == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       id-token: write  # IMPORTANT: mandatory for trusted publishing
