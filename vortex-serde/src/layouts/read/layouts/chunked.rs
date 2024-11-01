@@ -125,10 +125,7 @@ impl ChunkedLayout {
 
 impl LayoutReader for ChunkedLayout {
     fn add_splits(&self, row_offset: usize, splits: &mut BTreeSet<usize>) -> VortexResult<()> {
-        for ((begin, _), child) in self
-            .child_layouts(|i| self.message_cache.unknown_dtype(i))
-            .vortex_unwrap()
-        {
+        for ((begin, _), child) in self.child_layouts(|i| self.message_cache.unknown_dtype(i))? {
             child.add_splits(row_offset + begin, splits)?
         }
         Ok(())
