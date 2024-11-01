@@ -4,6 +4,10 @@ version = "0.1.0"
 description = "Add your description here"
 authors = [{ name = "Nicholas Gates", email = "nick@nickgates.com" }]
 requires-python = ">= 3.10"
+dependencies = [
+    "vortex-array",
+    "docs",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -14,16 +18,27 @@ packages = ["dummy"] # Required for workspace project
 
 [tool.uv]
 managed = true
+# Currently, all dev dependencies live in the root since uv doesn't have transitive dev dependencies.
+#  See: https://github.com/astral-sh/uv/issues/7541
 dev-dependencies = [
-    "pytest>=7.4.0",
-    "pytest-benchmark>=4.0.0",
-    "ruff>=0.1.11",
-    "pip>=23.3.2",
+    "duckdb>=1.1.2",
+    "ipython>=8.26.0",
     "maturin>=1.7.2",
+    "pandas>=2.2.3",
+    "pip>=23.3.2",
+    "polars>=1.9.0",
+    "pyright>=1.1.385",
+    "pytest-benchmark>=4.0.0",
+    "pytest>=7.4.0",
+    "ruff>=0.7.1",
 ]
 
 [tool.uv.workspace]
 members = ["pyvortex", "docs"]
+
+[tool.uv.sources]
+vortex-array = { workspace = true }
+docs = { workspace = true }
 
 [tool.ruff]
 line-length = 120

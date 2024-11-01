@@ -1,26 +1,27 @@
 from typing import TYPE_CHECKING, Any
 
-import pandas
 import pyarrow
 
 from ._lib import encoding as _encoding
 
-# HACK: monkey-patch a fixed implementation of the pd.ArrowDtype.type property accessor.
-# See https://github.com/pandas-dev/pandas/issues/60068 for more details
+try:
+    import pandas
+except ImportError:
+    pass
+else:
+    # HACK: monkey-patch a fixed implementation of the pd.ArrowDtype.type property accessor.
+    # See https://github.com/pandas-dev/pandas/issues/60068 for more details
+    _old_ArrowDtype_type = pandas.ArrowDtype.type
 
-_old_ArrowDtype_type = pandas.ArrowDtype.type
+    @property
+    def __ArrowDtype_type_patched(self):
+        if pyarrow.types.is_string_view(self.pyarrow_dtype):
+            return str
+        if pyarrow.types.is_binary_view(self.pyarrow_dtype):
+            return bytes
+        return _old_ArrowDtype_type(self)
 
-
-@property
-def __ArrowDtype_type_patched(self):
-    if pyarrow.types.is_string_view(self.pyarrow_dtype):
-        return str
-    if pyarrow.types.is_binary_view(self.pyarrow_dtype):
-        return bytes
-    return _old_ArrowDtype_type(self)
-
-
-pandas.ArrowDtype.type = __ArrowDtype_type_patched
+    pandas.ArrowDtype.type = __ArrowDtype_type_patched
 
 
 if TYPE_CHECKING:
