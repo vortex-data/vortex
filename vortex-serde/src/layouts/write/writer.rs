@@ -109,7 +109,7 @@ impl<W: VortexWrite> LayoutWriter<W> {
     async fn write_metadata_arrays(&mut self) -> VortexResult<Layout> {
         let mut column_layouts = Vec::with_capacity(self.column_writers.len());
         for column_writer in mem::take(&mut self.column_writers) {
-            let chunk_layouts = column_writer.write_into(&mut self.msgs).await?;
+            let chunk_layouts = column_writer.write_metadata(&mut self.msgs).await?;
             column_layouts.push(Layout::chunked(chunk_layouts, true));
         }
 
@@ -192,7 +192,7 @@ impl ColumnWriter {
         Ok(())
     }
 
-    async fn write_into<W: VortexWrite>(
+    async fn write_metadata<W: VortexWrite>(
         self,
         msgs: &mut MessageWriter<W>,
     ) -> VortexResult<Vec<Layout>> {

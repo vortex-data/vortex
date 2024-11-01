@@ -14,7 +14,27 @@ use vortex_dtype::{DType, Nullability, PType, StructDType};
 use vortex_expr::{BinaryExpr, Column, Literal, Operator};
 
 use crate::layouts::write::LayoutWriter;
-use crate::layouts::{LayoutDeserializer, LayoutReaderBuilder, Projection, RowFilter};
+use crate::layouts::{
+    LayoutDeserializer, LayoutReaderBuilder, Projection, RowFilter, CHUNKED_LAYOUT_ID,
+    COLUMN_LAYOUT_ID, EOF_SIZE, FLAT_LAYOUT_ID, FOOTER_POSTSCRIPT_SIZE, INLINE_SCHEMA_LAYOUT_ID,
+    MAGIC_BYTES, VERSION,
+};
+
+#[test]
+fn test_constants() {
+    // the footer postscript size can change iff we increment the version
+    // i.e., it must be 32 bytes iff VERSION == 1
+    assert_eq!(VERSION, 1);
+    assert_eq!(FOOTER_POSTSCRIPT_SIZE, 32);
+
+    // these constants can never change (without breaking all existing files)
+    assert_eq!(MAGIC_BYTES, *b"VRTX");
+    assert_eq!(EOF_SIZE, 8);
+    assert_eq!(FLAT_LAYOUT_ID.0, 1);
+    assert_eq!(CHUNKED_LAYOUT_ID.0, 2);
+    assert_eq!(COLUMN_LAYOUT_ID.0, 3);
+    assert_eq!(INLINE_SCHEMA_LAYOUT_ID.0, 4);
+}
 
 #[tokio::test]
 #[cfg_attr(miri, ignore)]

@@ -74,7 +74,7 @@ impl MetadataAccumulator for BoolAccumulator {
             self.null_count.into_column(),
         ]
         .into_iter()
-        .filter_map(|o| o)
+        .flatten()
         .unzip();
         let names = Arc::from(names);
         let n_chunks = fields[0].len();
@@ -122,7 +122,7 @@ where
             self.null_count.into_column(),
         ]
         .into_iter()
-        .filter_map(|o| o)
+        .flatten()
         .unzip();
         let names = Arc::from(names);
         let n_chunks = fields[0].len();
@@ -158,7 +158,7 @@ impl MetadataAccumulator for BasicAccumulator {
             self.null_count.into_column(),
         ]
         .into_iter()
-        .filter_map(|o| o)
+        .flatten()
         .unzip();
         let names = Arc::from(names);
         let n_chunks = fields[0].len();
@@ -238,6 +238,73 @@ impl SingularAccumulator for RowOffsetsAccumulator {
 
     fn into_column(self) -> Option<(FieldName, Array)> {
         // intentionally excluding the last n_rows, b/c it is just the total number of rows
-        return Some(("row_offsets".into(), Array::from(self.row_offsets)));
+        Some(("row_offsets".into(), Array::from(self.row_offsets)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex::array::{BoolArray, PrimitiveArray};
+    use vortex::variants::StructArrayTrait;
+
+    use super::*;
+
+    fn assert_field_names(struct_array: &StructArray, names: &[&str]) {
+        assert_eq!(
+            struct_array.names(),
+            &names
+                .iter()
+                .map(|s| FieldName::from(s.to_string()))
+                .collect::<Vec<_>>()
+                .into()
+        );
+    }
+
+    #[test]
+    fn test_bool_metadata_schema() {
+        let mut bool_accumulator = BoolAccumulator::new();
+        let chunk = BoolArray::from_vec(vec![true], Validity::AllValid).into_array();
+        bool_accumulator.push_chunk(&chunk).unwrap();
+
+        let struct_array =
+            StructArray::try_from(Box::new(bool_accumulator).into_array().unwrap()).unwrap();
+        assert_eq!(struct_array.len(), 1);
+        assert_field_names(&struct_array, &["row_offsets", "max", "min", "true_count"]);
+    }
+
+    #[test]
+    fn test_standard_metadata_schema_nonnullable() {
+        let mut standard_accumulator = StandardAccumulator::<u64>::new();
+        let chunk = PrimitiveArray::from_nullable_vec(vec![Some(1u64)]).into_array();
+        standard_accumulator.push_chunk(&chunk).unwrap();
+
+        let struct_array =
+            StructArray::try_from(Box::new(standard_accumulator).into_array().unwrap()).unwrap();
+        assert_eq!(struct_array.len(), 1);
+        assert_field_names(&struct_array, &["row_offsets", "max", "min", "null_count"]);
+    }
+
+    #[test]
+    fn test_standard_metadata_schema_nullable() {
+        let mut standard_accumulator = StandardAccumulator::<u64>::new();
+        let chunk = PrimitiveArray::from_nullable_vec(vec![Some(1u64)]).into_array();
+        standard_accumulator.push_chunk(&chunk).unwrap();
+
+        let struct_array =
+            StructArray::try_from(Box::new(standard_accumulator).into_array().unwrap()).unwrap();
+        assert_eq!(struct_array.len(), 1);
+        assert_field_names(&struct_array, &["row_offsets", "max", "min", "null_count"]);
+    }
+
+    #[test]
+    fn test_basic_metadata_schema() {
+        let mut basic_accumulator = BasicAccumulator::new();
+        let chunk = PrimitiveArray::from_nullable_vec(vec![Some(1u64)]).into_array();
+        basic_accumulator.push_chunk(&chunk).unwrap();
+
+        let struct_array =
+            StructArray::try_from(Box::new(basic_accumulator).into_array().unwrap()).unwrap();
+        assert_eq!(struct_array.len(), 1);
+        assert_field_names(&struct_array, &["row_offsets", "null_count"]);
     }
 }
