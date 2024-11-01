@@ -1,13 +1,15 @@
+use std::collections::{BTreeSet, VecDeque};
 use std::pin::Pin;
 use std::sync::{Arc, RwLock};
 use std::task::{ready, Context, Poll};
 
 use bytes::{Bytes, BytesMut};
+use croaring::Bitmap;
 use futures::Stream;
 use futures_util::future::BoxFuture;
 use futures_util::{stream, FutureExt, StreamExt, TryStreamExt};
+use itertools::Itertools;
 use vortex::array::ChunkedArray;
-use vortex::compute::filter;
 use vortex::stats::ArrayStatistics;
 use vortex::Array;
 use vortex_dtype::DType;
@@ -16,18 +18,21 @@ use vortex_schema::Schema;
 
 use crate::io::VortexReadAt;
 use crate::layouts::read::cache::LayoutMessageCache;
-use crate::layouts::read::{LayoutReader, MessageId, ReadResult, Scan};
+use crate::layouts::read::mask::RowMask;
+use crate::layouts::read::{BatchRead, LayoutReader, MessageId};
 use crate::stream_writer::ByteRange;
 
+/// Stream of array batches from vortex file
 pub struct LayoutBatchStream<R> {
+    dtype: DType,
+    row_count: u64,
     input: Option<R>,
     layout_reader: Box<dyn LayoutReader>,
     filter_reader: Option<Box<dyn LayoutReader>>,
-    scan: Scan,
     messages_cache: Arc<RwLock<LayoutMessageCache>>,
+    splits: VecDeque<(usize, usize)>,
+    current_selector: Option<RowMask>,
     state: StreamingState<R>,
-    dtype: DType,
-    cached_mask: Option<Array>,
 }
 
 impl<R: VortexReadAt> LayoutBatchStream<R> {
@@ -37,23 +42,18 @@ impl<R: VortexReadAt> LayoutBatchStream<R> {
         filter_reader: Option<Box<dyn LayoutReader>>,
         messages_cache: Arc<RwLock<LayoutMessageCache>>,
         dtype: DType,
-        scan: Scan,
+        row_count: u64,
     ) -> Self {
-        let state = if filter_reader.is_some() {
-            StreamingState::FilterInit
-        } else {
-            StreamingState::Init
-        };
-
         LayoutBatchStream {
+            dtype,
+            row_count,
             input: Some(input),
             layout_reader,
             filter_reader,
-            scan,
             messages_cache,
-            dtype,
-            state,
-            cached_mask: None,
+            splits: VecDeque::new(),
+            current_selector: None,
+            state: StreamingState::AddSplits,
         }
     }
 
@@ -74,107 +74,147 @@ impl<R: VortexReadAt> LayoutBatchStream<R> {
 
 type StreamStateFuture<R> = BoxFuture<'static, VortexResult<(R, Vec<(MessageId, Bytes)>)>>;
 
-#[derive(Default)]
+struct ReadingState<R> {
+    read_future: StreamStateFuture<R>,
+    go_back_to_filter: bool,
+}
+
+/// State of vortex file stream
+///
+/// The flow starts with `AddSplits` which produces all horizontal row splits in the file
+/// Main read loop goes from `NextSplit` -> `Filter` (if there's filter) -> `Read`
+/// `Filter` and `Read` states transition to `Reading` when they're blocked on an io operation which resumes back to
+/// the previous state.
 enum StreamingState<R> {
-    #[default]
-    Init,
-    FilterInit,
-    Reading(StreamStateFuture<R>),
-    FilterReading(StreamStateFuture<R>),
-    Decoding(Array),
+    AddSplits,
+    NextSplit,
+    Filter,
+    Read,
+    Reading(ReadingState<R>),
     Error,
 }
 
-impl<R: VortexReadAt + Unpin + Send + 'static> Stream for LayoutBatchStream<R> {
+impl<R: VortexReadAt + Unpin + 'static> Stream for LayoutBatchStream<R> {
     type Item = VortexResult<Array>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         loop {
             match &mut self.state {
-                StreamingState::Init => {
-                    if let Some(read) = self.layout_reader.read_next()? {
-                        match read {
-                            ReadResult::ReadMore(messages) => {
-                                let reader = self.input.take().ok_or_else(|| {
-                                    vortex_err!("Invalid state transition - reader dropped")
-                                })?;
-                                let read_future = read_ranges(reader, messages).boxed();
-                                self.state = StreamingState::Reading(read_future);
-                            }
-                            ReadResult::Batch(a) => self.state = StreamingState::Decoding(a),
-                        }
-                    } else {
+                StreamingState::AddSplits => {
+                    let mut splits = BTreeSet::new();
+                    splits.insert(self.row_count as usize);
+                    if let Some(ref fr) = self.filter_reader {
+                        fr.add_splits(0, &mut splits)?;
+                    }
+                    self.layout_reader.as_mut().add_splits(0, &mut splits)?;
+                    self.splits
+                        .extend(splits.into_iter().tuple_windows::<(usize, usize)>());
+                    self.state = StreamingState::NextSplit;
+                }
+                StreamingState::NextSplit => {
+                    self.current_selector = self.splits.pop_front().map(|(begin, end)| unsafe {
+                        RowMask::new_unchecked(
+                            Bitmap::from_range(0..(end - begin) as u32),
+                            begin,
+                            end,
+                        )
+                    });
+
+                    if self.current_selector.is_none() {
                         return Poll::Ready(None);
                     }
+
+                    self.state = if self.filter_reader.is_some() {
+                        StreamingState::Filter
+                    } else {
+                        StreamingState::Read
+                    };
                 }
-                StreamingState::FilterInit => {
-                    if let Some(read) = self
+                StreamingState::Filter => {
+                    // If we don't take the selector we end up with two simultaneous borrows
+                    let selector = self
+                        .current_selector
+                        .take()
+                        .vortex_expect("Must have asked for range");
+                    let sel_begin = selector.begin();
+                    let sel_end = selector.end();
+                    if let Some(fr) = self
                         .filter_reader
                         .as_mut()
                         .vortex_expect("Can't filter without reader")
-                        .read_next()?
+                        .read_selection(&selector)?
                     {
-                        match read {
-                            ReadResult::ReadMore(messages) => {
+                        match fr {
+                            BatchRead::ReadMore(messages) => {
                                 let reader = self.input.take().ok_or_else(|| {
                                     vortex_err!("Invalid state transition - reader dropped")
                                 })?;
                                 let read_future = read_ranges(reader, messages).boxed();
-                                self.state = StreamingState::FilterReading(read_future);
+                                self.current_selector = Some(selector);
+                                self.state = StreamingState::Reading(ReadingState {
+                                    read_future,
+                                    go_back_to_filter: true,
+                                });
                             }
-                            ReadResult::Batch(a) => {
-                                let mask = self
-                                    .scan
-                                    .filter
-                                    .as_ref()
-                                    .vortex_expect("Cant filter without filter")
-                                    .evaluate(&a)?;
-                                self.cached_mask = Some(mask);
-                                self.state = StreamingState::Init;
+                            BatchRead::Batch(batch) => {
+                                if batch.statistics().compute_true_count().vortex_expect(
+                                    "must be a bool array if it's a result of a filter",
+                                ) == 0
+                                {
+                                    self.state = StreamingState::NextSplit;
+                                    continue;
+                                }
+                                self.current_selector =
+                                    Some(RowMask::from_array(&batch, sel_begin, sel_end)?);
+                                self.state = StreamingState::Read;
                             }
                         }
                     } else {
-                        return Poll::Ready(None);
+                        self.state = StreamingState::NextSplit;
                     }
                 }
-                StreamingState::Decoding(arr) => {
-                    let mut batch = arr.clone();
-
-                    if let Some(mask) = self.cached_mask.take() {
-                        if mask.statistics().compute_true_count().unwrap_or_default() == 0 {
-                            self.state = StreamingState::Init;
-                            continue;
+                StreamingState::Read => {
+                    // If we don't take the selector we end up with two simultaneous borrows
+                    let selector = self
+                        .current_selector
+                        .take()
+                        .vortex_expect("Must have asked for range");
+                    if let Some(read) = self.layout_reader.read_selection(&selector)? {
+                        match read {
+                            BatchRead::ReadMore(messages) => {
+                                let reader = self.input.take().ok_or_else(|| {
+                                    vortex_err!("Invalid state transition - reader dropped")
+                                })?;
+                                let read_future = read_ranges(reader, messages).boxed();
+                                self.current_selector = Some(selector);
+                                self.state = StreamingState::Reading(ReadingState {
+                                    read_future,
+                                    go_back_to_filter: false,
+                                });
+                            }
+                            BatchRead::Batch(a) => {
+                                self.state = StreamingState::NextSplit;
+                                return Poll::Ready(Some(Ok(a)));
+                            }
                         }
-
-                        batch = filter(batch, mask)?;
-                    }
-
-                    let goto_state = if self.filter_reader.is_some() {
-                        StreamingState::FilterInit
                     } else {
-                        StreamingState::Init
-                    };
-                    self.state = goto_state;
-                    return Poll::Ready(Some(Ok(batch)));
+                        self.state = StreamingState::NextSplit;
+                    }
                 }
-                StreamingState::Reading(f) => match ready!(f.poll_unpin(cx)) {
+                StreamingState::Reading(ReadingState {
+                    read_future: future,
+                    go_back_to_filter,
+                }) => match ready!(future.poll_unpin(cx)) {
                     Ok((input, messages)) => {
+                        let go_back_to_filter = *go_back_to_filter;
                         self.store_messages(messages);
                         self.input = Some(input);
 
-                        self.state = StreamingState::Init
-                    }
-                    Err(e) => {
-                        self.state = StreamingState::Error;
-                        return Poll::Ready(Some(Err(e)));
-                    }
-                },
-                StreamingState::FilterReading(f) => match ready!(f.poll_unpin(cx)) {
-                    Ok((input, messages)) => {
-                        self.store_messages(messages);
-                        self.input = Some(input);
-
-                        self.state = StreamingState::FilterInit
+                        self.state = if go_back_to_filter {
+                            StreamingState::Filter
+                        } else {
+                            StreamingState::Read
+                        };
                     }
                     Err(e) => {
                         self.state = StreamingState::Error;
@@ -187,7 +227,7 @@ impl<R: VortexReadAt + Unpin + Send + 'static> Stream for LayoutBatchStream<R> {
     }
 }
 
-impl<R: VortexReadAt + Unpin + Send + 'static> LayoutBatchStream<R> {
+impl<R: VortexReadAt + Unpin + 'static> LayoutBatchStream<R> {
     pub async fn read_all(self) -> VortexResult<Array> {
         let dtype = self.schema().clone().into();
         let vecs: Vec<Array> = self.try_collect().await?;

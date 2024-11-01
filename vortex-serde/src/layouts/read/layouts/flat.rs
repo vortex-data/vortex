@@ -1,15 +1,15 @@
-use std::cmp::min;
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use vortex::compute::slice;
 use vortex::{Array, Context};
-use vortex_error::{vortex_err, VortexResult, VortexUnwrap};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_flatbuffers::footer;
 
 use crate::layouts::read::cache::RelativeLayoutCache;
+use crate::layouts::read::mask::RowMask;
 use crate::layouts::{
-    LayoutDeserializer, LayoutId, LayoutReader, LayoutSpec, Message, ReadResult, Scan,
+    BatchRead, LayoutDeserializer, LayoutId, LayoutReader, LayoutSpec, Message, Scan,
     FLAT_LAYOUT_ID,
 };
 use crate::message_reader::ArrayBufferReader;
@@ -30,23 +30,23 @@ impl LayoutSpec for FlatLayoutSpec {
         scan: Scan,
         layout_serde: LayoutDeserializer,
         message_cache: RelativeLayoutCache,
-    ) -> Box<dyn LayoutReader> {
+    ) -> VortexResult<Box<dyn LayoutReader>> {
         let fb_layout = unsafe {
             let tab = flatbuffers::Table::new(&fb_bytes, fb_loc);
             footer::Layout::init_from_table(tab)
         };
-        let buf = fb_layout
-            .buffers()
-            .ok_or_else(|| vortex_err!("No buffers"))
-            .vortex_unwrap()
-            .get(0);
+        let buffers = fb_layout.buffers().unwrap_or_default();
+        if buffers.len() != 1 {
+            vortex_bail!("Flat layout can have exactly 1 buffer")
+        }
+        let buf = buffers.get(0);
 
-        Box::new(FlatLayout::new(
+        Ok(Box::new(FlatLayout::new(
             ByteRange::new(buf.begin(), buf.end()),
             scan,
             layout_serde.ctx(),
             message_cache,
-        ))
+        )))
     }
 }
 
@@ -55,9 +55,7 @@ pub struct FlatLayout {
     range: ByteRange,
     scan: Scan,
     ctx: Arc<Context>,
-    cache: RelativeLayoutCache,
-    done: bool,
-    cached_array: Option<Array>,
+    message_cache: RelativeLayoutCache,
 }
 
 impl FlatLayout {
@@ -65,20 +63,18 @@ impl FlatLayout {
         range: ByteRange,
         scan: Scan,
         ctx: Arc<Context>,
-        cache: RelativeLayoutCache,
+        message_cache: RelativeLayoutCache,
     ) -> Self {
         Self {
             range,
             scan,
             ctx,
-            cache,
-            done: false,
-            cached_array: None,
+            message_cache,
         }
     }
 
     fn own_message(&self) -> Message {
-        (self.cache.absolute_id(&[]), self.range)
+        (self.message_cache.absolute_id(&[]), self.range)
     }
 
     fn array_from_bytes(&self, mut buf: Bytes) -> VortexResult<Array> {
@@ -87,33 +83,169 @@ impl FlatLayout {
         while let Some(u) = array_reader.read(read_buf)? {
             read_buf = buf.split_to(u);
         }
-        array_reader.into_array(self.ctx.clone(), self.cache.dtype().value()?.clone())
+        array_reader.into_array(
+            self.ctx.clone(),
+            self.message_cache.dtype().value()?.clone(),
+        )
     }
 }
 
 impl LayoutReader for FlatLayout {
-    fn read_next(&mut self) -> VortexResult<Option<ReadResult>> {
-        if self.done {
-            return Ok(None);
-        }
+    fn add_splits(&self, row_offset: usize, splits: &mut BTreeSet<usize>) -> VortexResult<()> {
+        splits.insert(row_offset);
+        Ok(())
+    }
 
-        if let Some(array) = self.cached_array.take() {
-            let array = if array.len() > self.scan.batch_size {
-                let rows_to_read = min(self.scan.batch_size, array.len());
-                let taken = slice(&array, 0, rows_to_read)?;
-                let leftover = slice(&array, rows_to_read, array.len())?;
-                self.cached_array = Some(leftover);
-                taken
-            } else {
-                self.done = true;
-                array
-            };
-            Ok(Some(ReadResult::Batch(array)))
-        } else if let Some(buf) = self.cache.get(&[]) {
-            self.cached_array = Some(self.array_from_bytes(buf)?);
-            self.read_next()
+    fn read_selection(&mut self, selection: &RowMask) -> VortexResult<Option<BatchRead>> {
+        if let Some(buf) = self.message_cache.get(&[]) {
+            let array = self.array_from_bytes(buf)?;
+            selection
+                .filter_array(array)?
+                .map(|s| {
+                    Ok(BatchRead::Batch(
+                        self.scan
+                            .expr
+                            .as_ref()
+                            .map(|e| e.evaluate(&s))
+                            .transpose()?
+                            .unwrap_or(s),
+                    ))
+                })
+                .transpose()
         } else {
-            Ok(Some(ReadResult::ReadMore(vec![self.own_message()])))
+            Ok(Some(BatchRead::ReadMore(vec![self.own_message()])))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, RwLock};
+
+    use bytes::Bytes;
+    use vortex::array::PrimitiveArray;
+    use vortex::{Context, IntoArray, IntoArrayVariant};
+    use vortex_dtype::PType;
+    use vortex_expr::{BinaryExpr, Identity, Literal, Operator};
+
+    use crate::layouts::read::cache::{LazyDeserializedDType, RelativeLayoutCache};
+    use crate::layouts::read::layouts::flat::FlatLayout;
+    use crate::layouts::read::layouts::test_read::{filter_read_layout, read_layout};
+    use crate::layouts::{LayoutMessageCache, RowFilter, Scan};
+    use crate::message_writer::MessageWriter;
+    use crate::stream_writer::ByteRange;
+
+    async fn read_only_layout(
+        cache: Arc<RwLock<LayoutMessageCache>>,
+    ) -> (FlatLayout, Bytes, usize, Arc<LazyDeserializedDType>) {
+        let mut writer = MessageWriter::new(Vec::new());
+        let array = PrimitiveArray::from((0..100).collect::<Vec<_>>()).into_array();
+        let len = array.len();
+        writer.write_batch(array).await.unwrap();
+        let written = writer.into_inner();
+
+        let projection_scan = Scan::new(None);
+        let dtype = Arc::new(LazyDeserializedDType::from_dtype(PType::I32.into()));
+
+        (
+            FlatLayout::new(
+                ByteRange::new(0, written.len() as u64),
+                projection_scan,
+                Arc::new(Context::default()),
+                RelativeLayoutCache::new(cache, dtype.clone()),
+            ),
+            Bytes::from(written),
+            len,
+            dtype,
+        )
+    }
+
+    async fn layout_and_bytes(
+        cache: Arc<RwLock<LayoutMessageCache>>,
+        scan: Scan,
+    ) -> (FlatLayout, FlatLayout, Bytes, usize) {
+        let (read_layout, bytes, len, dtype) = read_only_layout(cache.clone()).await;
+
+        (
+            FlatLayout::new(
+                ByteRange::new(0, bytes.len() as u64),
+                scan,
+                Arc::new(Context::default()),
+                RelativeLayoutCache::new(cache, dtype),
+            ),
+            read_layout,
+            bytes,
+            len,
+        )
+    }
+
+    #[tokio::test]
+    #[cfg_attr(miri, ignore)]
+    async fn read_range() {
+        let cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
+        let (mut filter_layout, mut projection_layout, buf, length) = layout_and_bytes(
+            cache.clone(),
+            Scan::new(Some(Arc::new(RowFilter::new(Arc::new(BinaryExpr::new(
+                Arc::new(Identity),
+                Operator::Gt,
+                Arc::new(Literal::new(10.into())),
+            )))))),
+        )
+        .await;
+        let arr = filter_read_layout(
+            &mut filter_layout,
+            &mut projection_layout,
+            cache,
+            &buf,
+            length,
+        )
+        .pop_front();
+
+        assert!(arr.is_some());
+        let arr = arr.unwrap();
+        assert_eq!(
+            arr.into_primitive().unwrap().maybe_null_slice::<i32>(),
+            &(11..100).collect::<Vec<_>>()
+        );
+    }
+
+    #[tokio::test]
+    #[cfg_attr(miri, ignore)]
+    async fn read_range_no_filter() {
+        let cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
+        let (mut data_layout, buf, length, ..) = read_only_layout(cache.clone()).await;
+        let arr = read_layout(&mut data_layout, cache, &buf, length).pop_front();
+
+        assert!(arr.is_some());
+        let arr = arr.unwrap();
+        assert_eq!(
+            arr.into_primitive().unwrap().maybe_null_slice::<i32>(),
+            &(0..100).collect::<Vec<_>>()
+        );
+    }
+
+    #[tokio::test]
+    #[cfg_attr(miri, ignore)]
+    async fn read_empty() {
+        let cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
+        let (mut filter_layout, mut projection_layout, buf, length) = layout_and_bytes(
+            cache.clone(),
+            Scan::new(Some(Arc::new(RowFilter::new(Arc::new(BinaryExpr::new(
+                Arc::new(Identity),
+                Operator::Gt,
+                Arc::new(Literal::new(101.into())),
+            )))))),
+        )
+        .await;
+        let arr = filter_read_layout(
+            &mut filter_layout,
+            &mut projection_layout,
+            cache,
+            &buf,
+            length,
+        )
+        .pop_front();
+
+        assert!(arr.is_none());
     }
 }

@@ -2,6 +2,7 @@ use std::sync::{Arc, RwLock};
 
 use vortex::{Array, ArrayDType};
 use vortex_error::VortexResult;
+use vortex_expr::Select;
 use vortex_schema::projection::Projection;
 
 use crate::io::VortexReadAt;
@@ -10,7 +11,7 @@ use crate::layouts::read::context::LayoutDeserializer;
 use crate::layouts::read::filtering::RowFilter;
 use crate::layouts::read::footer::LayoutDescriptorReader;
 use crate::layouts::read::stream::LayoutBatchStream;
-use crate::layouts::read::{Scan, DEFAULT_BATCH_SIZE};
+use crate::layouts::read::Scan;
 
 pub struct LayoutReaderBuilder<R> {
     reader: R,
@@ -19,7 +20,6 @@ pub struct LayoutReaderBuilder<R> {
     size: Option<u64>,
     indices: Option<Array>,
     row_filter: Option<RowFilter>,
-    batch_size: Option<usize>,
 }
 
 impl<R: VortexReadAt> LayoutReaderBuilder<R> {
@@ -31,7 +31,6 @@ impl<R: VortexReadAt> LayoutReaderBuilder<R> {
             row_filter: None,
             size: None,
             indices: None,
-            batch_size: None,
         }
     }
 
@@ -60,57 +59,38 @@ impl<R: VortexReadAt> LayoutReaderBuilder<R> {
         self
     }
 
-    pub fn with_batch_size(mut self, batch_size: usize) -> Self {
-        self.batch_size = Some(batch_size);
-        self
-    }
-
     pub async fn build(self) -> VortexResult<LayoutBatchStream<R>> {
         let footer = LayoutDescriptorReader::new(self.layout_serde.clone())
-            .read_footer(&self.reader, self.size().await as u64)
+            .read_footer(&self.reader, self.size().await)
             .await?;
-        let batch_size = self.batch_size.unwrap_or(DEFAULT_BATCH_SIZE);
-        // TODO(robert): Propagate projection immediately instead of delegating to layouts, needs more restructuring
+        let row_count = footer.row_count()?;
         let footer_dtype = Arc::new(LazyDeserializedDType::from_bytes(
             footer.dtype_bytes()?,
             Projection::All,
         ));
         let read_projection = self.projection.unwrap_or_default();
 
-        let filter_projection = self
-            .row_filter
-            .as_ref()
-            .map(|f| f.references().into_iter().cloned().collect::<Vec<_>>())
-            .map(Projection::from);
-
         let projected_dtype = match read_projection {
             Projection::All => footer.dtype()?,
             Projection::Flat(ref projection) => footer.projected_dtype(projection)?,
         };
 
-        let scan = Scan {
-            filter: self.row_filter.clone(),
-            batch_size,
-            projection: read_projection,
-            indices: self.indices,
-        };
-
         let message_cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
 
         let data_reader = footer.layout(
-            scan.clone(),
+            Scan::new(match read_projection {
+                Projection::All => None,
+                Projection::Flat(p) => Some(Arc::new(Select::include(p))),
+            }),
             RelativeLayoutCache::new(message_cache.clone(), footer_dtype.clone()),
         )?;
 
-        let filter_reader = filter_projection
-            .map(|projection| {
+        let filter_reader = self
+            .row_filter
+            .as_ref()
+            .map(|filter| {
                 footer.layout(
-                    Scan {
-                        filter: self.row_filter,
-                        batch_size,
-                        projection,
-                        indices: None,
-                    },
+                    Scan::new(Some(Arc::new(filter.clone()))),
                     RelativeLayoutCache::new(message_cache.clone(), footer_dtype),
                 )
             })
@@ -122,7 +102,7 @@ impl<R: VortexReadAt> LayoutReaderBuilder<R> {
             filter_reader,
             message_cache,
             projected_dtype,
-            scan,
+            row_count,
         ))
     }
 

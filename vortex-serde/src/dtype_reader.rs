@@ -10,7 +10,7 @@ pub struct DTypeReader<R: VortexRead> {
 }
 
 impl<R: VortexRead> DTypeReader<R> {
-    /// Create new ['DTypeReader'] given readable contents
+    /// Create new [DTypeReader] given readable contents
     pub async fn new(read: R) -> VortexResult<Self> {
         Ok(Self {
             msgs: MessageReader::try_new(read).await?,

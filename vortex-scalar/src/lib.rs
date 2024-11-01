@@ -12,6 +12,7 @@ mod datafusion;
 mod display;
 mod extension;
 mod list;
+mod null;
 mod primitive;
 mod pvalue;
 mod scalar_type;

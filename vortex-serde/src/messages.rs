@@ -117,7 +117,7 @@ impl WriteFlatBuffer for IPCArray<'_> {
                     .metadata()
                     .try_serialize_metadata()
                     // TODO(ngates): should we serialize externally to here?
-                    .vortex_expect("ArrayView is missing metadata during serialization");
+                    .vortex_expect("ArrayData is missing metadata during serialization");
                 Some(fbb.create_vector(metadata.as_ref()))
             }
             Array::View(v) => Some(

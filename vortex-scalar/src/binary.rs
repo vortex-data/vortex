@@ -51,9 +51,48 @@ impl<'a> TryFrom<&'a Scalar> for BinaryScalar<'a> {
 impl<'a> TryFrom<&'a Scalar> for Buffer {
     type Error = VortexError;
 
-    fn try_from(value: &'a Scalar) -> VortexResult<Self> {
-        BinaryScalar::try_from(value)?
-            .value()
+    fn try_from(scalar: &'a Scalar) -> VortexResult<Self> {
+        Buffer::try_from(scalar.value())
+    }
+}
+
+impl TryFrom<Scalar> for Buffer {
+    type Error = VortexError;
+
+    fn try_from(scalar: Scalar) -> VortexResult<Self> {
+        Buffer::try_from(&scalar)
+    }
+}
+
+impl TryFrom<&ScalarValue> for Buffer {
+    type Error = VortexError;
+
+    fn try_from(value: &ScalarValue) -> Result<Self, Self::Error> {
+        Option::<Buffer>::try_from(value)?
             .ok_or_else(|| vortex_err!("Can't extract present value from null scalar"))
+    }
+}
+
+impl TryFrom<ScalarValue> for Buffer {
+    type Error = VortexError;
+
+    fn try_from(value: ScalarValue) -> Result<Self, Self::Error> {
+        Buffer::try_from(&value)
+    }
+}
+
+impl TryFrom<&ScalarValue> for Option<Buffer> {
+    type Error = VortexError;
+
+    fn try_from(value: &ScalarValue) -> Result<Self, Self::Error> {
+        value.as_buffer()
+    }
+}
+
+impl TryFrom<ScalarValue> for Option<Buffer> {
+    type Error = VortexError;
+
+    fn try_from(value: ScalarValue) -> Result<Self, Self::Error> {
+        Option::<Buffer>::try_from(&value)
     }
 }

@@ -3,11 +3,13 @@ use std::sync::Arc;
 
 use crate::{DType, Nullability};
 
+/// A unique identifier for an extension type
 #[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct ExtID(Arc<str>);
 
 impl ExtID {
+    /// Constructs a new `ExtID` from a string
     pub fn new(value: Arc<str>) -> Self {
         Self(value)
     }
@@ -31,11 +33,13 @@ impl From<&str> for ExtID {
     }
 }
 
+/// Opaque metadata for an extension type
 #[derive(Debug, Clone, PartialOrd, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ExtMetadata(Arc<[u8]>);
 
 impl ExtMetadata {
+    /// Constructs a new `ExtMetadata` from a byte slice
     pub fn new(value: Arc<[u8]>) -> Self {
         Self(value)
     }
@@ -53,6 +57,7 @@ impl From<&[u8]> for ExtMetadata {
     }
 }
 
+/// A type descriptor for an extension type
 #[derive(Debug, Clone, PartialOrd, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ExtDType {
@@ -105,16 +110,19 @@ impl ExtDType {
         }
     }
 
+    /// Returns the `ExtID` for this extension type
     #[inline]
     pub fn id(&self) -> &ExtID {
         &self.id
     }
 
+    /// Returns the `ExtMetadata` for this extension type, if it exists
     #[inline]
     pub fn storage_dtype(&self) -> &DType {
         self.storage_dtype.as_ref()
     }
 
+    /// Returns a new `ExtDType` with the given nullability
     pub fn with_nullability(&self, nullability: Nullability) -> Self {
         Self::new(
             self.id.clone(),
@@ -123,6 +131,7 @@ impl ExtDType {
         )
     }
 
+    /// Returns the `ExtMetadata` for this extension type, if it exists
     #[inline]
     pub fn metadata(&self) -> Option<&ExtMetadata> {
         self.metadata.as_ref()

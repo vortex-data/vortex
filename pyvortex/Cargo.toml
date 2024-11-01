@@ -29,12 +29,12 @@ futures = { workspace = true }
 itertools = { workspace = true }
 lazy_static = { workspace = true }
 log = { workspace = true }
-object_store = { workspace = true, features = ["aws", "gcp", "azure", "http"] }
 paste = { workspace = true }
 pyo3 = { workspace = true }
 pyo3-log = { workspace = true }
 tokio = { workspace = true, features = ["fs"] }
 url = { workspace = true }
+object_store = { workspace = true, features = ["aws", "gcp", "azure", "http"] }
 
 vortex-alp = { workspace = true }
 vortex-array = { workspace = true }

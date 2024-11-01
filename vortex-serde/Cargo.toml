@@ -18,6 +18,7 @@ arrow-array = { workspace = true }
 arrow-buffer = { workspace = true }
 arrow-schema = { workspace = true }
 bytes = { workspace = true }
+croaring = { workspace = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true }
 futures-executor = { workspace = true }
@@ -33,7 +34,7 @@ url = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true, features = ["flatbuffers"] }
-vortex-error = { workspace = true, features = ["object_store"] }
+vortex-error = { workspace = true }
 vortex-expr = { workspace = true }
 vortex-flatbuffers = { workspace = true, features = ["file"] }
 vortex-scalar = { workspace = true, features = ["flatbuffers"] }
@@ -47,6 +48,7 @@ arrow-schema = { workspace = true }
 arrow-select = { workspace = true }
 criterion = { workspace = true, features = ["async_futures"] }
 rand = { workspace = true }
+rstest = { workspace = true }
 simplelog = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 vortex-alp = { path = "../encodings/alp" }
@@ -61,6 +63,7 @@ default = ["futures", "monoio", "tokio"]
 futures = ["futures-util/io"]
 monoio = ["dep:monoio"]
 tokio = ["dep:tokio"]
+object_store = ["dep:object_store", "vortex-error/object_store"]
 
 [[bench]]
 name = "ipc_take"

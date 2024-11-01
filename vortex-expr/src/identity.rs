@@ -22,7 +22,7 @@ impl PartialEq<dyn Any> for Identity {
     fn eq(&self, other: &dyn Any) -> bool {
         unbox_any(other)
             .downcast_ref::<Self>()
-            .map(|x| x == other)
+            .map(|x| x == self)
             .unwrap_or(false)
     }
 }

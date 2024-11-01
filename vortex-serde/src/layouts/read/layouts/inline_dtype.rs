@@ -1,16 +1,19 @@
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use bytes::Bytes;
 use flatbuffers::root;
 use vortex_dtype::DType;
-use vortex_error::{vortex_err, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexResult};
 use vortex_flatbuffers::{footer, message};
 
 use crate::layouts::read::cache::{LazyDeserializedDType, RelativeLayoutCache};
+use crate::layouts::read::mask::RowMask;
 use crate::layouts::{
-    LayoutDeserializer, LayoutId, LayoutReader, LayoutSpec, Message, ReadResult, Scan,
+    BatchRead, LayoutDeserializer, LayoutId, LayoutPartId, LayoutReader, LayoutSpec, Message, Scan,
     INLINE_SCHEMA_LAYOUT_ID,
 };
+use crate::message_reader::FLATBUFFER_SIZE_LENGTH;
 use crate::stream_writer::ByteRange;
 
 #[derive(Debug)]
@@ -28,14 +31,14 @@ impl LayoutSpec for InlineDTypeLayoutSpec {
         scan: Scan,
         layout_reader: LayoutDeserializer,
         message_cache: RelativeLayoutCache,
-    ) -> Box<dyn LayoutReader> {
-        Box::new(InlineDTypeLayout::new(
+    ) -> VortexResult<Box<dyn LayoutReader>> {
+        Ok(Box::new(InlineDTypeLayout::new(
             fb_bytes,
             fb_loc,
             scan,
             layout_reader,
             message_cache,
-        ))
+        )))
     }
 }
 
@@ -53,6 +56,14 @@ enum DTypeReadResult {
     ReadMore(Vec<Message>),
     DType(DType),
 }
+
+enum ChildReaderResult {
+    ReadMore(Vec<Message>),
+    Reader(Box<dyn LayoutReader>),
+}
+
+const INLINE_DTYPE_BUFFER_IDX: LayoutPartId = 0;
+const INLINE_DTYPE_CHILD_IDX: LayoutPartId = 1;
 
 impl InlineDTypeLayout {
     pub fn new(
@@ -80,58 +91,75 @@ impl InlineDTypeLayout {
     }
 
     fn dtype(&self) -> VortexResult<DTypeReadResult> {
-        if let Some(dt_bytes) = self.message_cache.get(&[0]) {
-            let msg = root::<message::Message>(&dt_bytes)?
+        if let Some(dt_bytes) = self.message_cache.get(&[INLINE_DTYPE_BUFFER_IDX]) {
+            let msg = root::<message::Message>(&dt_bytes[FLATBUFFER_SIZE_LENGTH..])?
                 .header_as_schema()
-                .ok_or_else(|| {
-                    vortex_err!("Expected schema message; this was checked earlier in the function")
-                })?;
+                .ok_or_else(|| vortex_err!("Expected schema message"))?;
 
-            Ok(DTypeReadResult::DType(
-                DType::try_from(
-                    msg.dtype()
-                        .ok_or_else(|| vortex_err!(InvalidSerde: "Schema missing DType"))?,
-                )
-                .map_err(|e| vortex_err!(InvalidSerde: "Failed to parse DType: {e}"))?,
-            ))
+            Ok(DTypeReadResult::DType(DType::try_from(
+                msg.dtype()
+                    .ok_or_else(|| vortex_err!(InvalidSerde: "Schema missing DType"))?,
+            )?))
         } else {
-            let dtype_buf = self
-                .flatbuffer()
-                .buffers()
-                .ok_or_else(|| vortex_err!("No buffers"))?
-                .get(0);
+            let buffers = self.flatbuffer().buffers().unwrap_or_default();
+            if buffers.is_empty() {
+                vortex_bail!("Missing buffers for inline dtype layout")
+            }
+            let dtype_buf = buffers.get(0);
             Ok(DTypeReadResult::ReadMore(vec![(
-                self.message_cache.absolute_id(&[0]),
+                self.message_cache.absolute_id(&[INLINE_DTYPE_BUFFER_IDX]),
                 ByteRange::new(dtype_buf.begin(), dtype_buf.end()),
             )]))
         }
     }
+
+    fn child_reader(&self) -> VortexResult<ChildReaderResult> {
+        match self.dtype()? {
+            DTypeReadResult::ReadMore(m) => Ok(ChildReaderResult::ReadMore(m)),
+            DTypeReadResult::DType(d) => {
+                let child_layout = self.layout_builder.read_layout(
+                    self.fb_bytes.clone(),
+                    self.child_layout()?._tab.loc(),
+                    self.scan.clone(),
+                    self.message_cache.relative(
+                        INLINE_DTYPE_CHILD_IDX,
+                        Arc::new(LazyDeserializedDType::from_dtype(d)),
+                    ),
+                )?;
+                Ok(ChildReaderResult::Reader(child_layout))
+            }
+        }
+    }
+
+    fn child_layout(&self) -> VortexResult<footer::Layout> {
+        let children = self.flatbuffer().children().unwrap_or_default();
+        if children.is_empty() {
+            vortex_bail!("Missing children for inline dtype layout")
+        }
+        Ok(children.get(0))
+    }
 }
 
 impl LayoutReader for InlineDTypeLayout {
-    fn read_next(&mut self) -> VortexResult<Option<ReadResult>> {
-        if let Some(cr) = self.child_layout.as_mut() {
-            cr.read_next()
-        } else {
-            match self.dtype()? {
-                DTypeReadResult::ReadMore(m) => Ok(Some(ReadResult::ReadMore(m))),
-                DTypeReadResult::DType(d) => {
-                    let layout = self
-                        .flatbuffer()
-                        .children()
-                        .ok_or_else(|| vortex_err!("No children"))?
-                        .get(0);
+    fn add_splits(&self, row_offset: usize, splits: &mut BTreeSet<usize>) -> VortexResult<()> {
+        let child_layout = self.layout_builder.read_layout(
+            self.fb_bytes.clone(),
+            self.child_layout()?._tab.loc(),
+            Scan::new(None),
+            self.message_cache.unknown_dtype(INLINE_DTYPE_CHILD_IDX),
+        )?;
+        child_layout.add_splits(row_offset, splits)
+    }
 
-                    self.child_layout = Some(
-                        self.layout_builder.read_layout(
-                            self.fb_bytes.clone(),
-                            layout._tab.loc(),
-                            self.scan.clone(),
-                            self.message_cache
-                                .relative(1u16, Arc::new(LazyDeserializedDType::from_dtype(d))),
-                        )?,
-                    );
-                    self.read_next()
+    fn read_selection(&mut self, selector: &RowMask) -> VortexResult<Option<BatchRead>> {
+        if let Some(cr) = self.child_layout.as_mut() {
+            cr.read_selection(selector)
+        } else {
+            match self.child_reader()? {
+                ChildReaderResult::ReadMore(rm) => Ok(Some(BatchRead::ReadMore(rm))),
+                ChildReaderResult::Reader(r) => {
+                    self.child_layout = Some(r);
+                    self.read_selection(selector)
                 }
             }
         }

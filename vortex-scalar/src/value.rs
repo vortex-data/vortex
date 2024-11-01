@@ -94,6 +94,13 @@ impl ScalarValue {
         }
     }
 
+    pub fn as_null(&self) -> VortexResult<()> {
+        match self {
+            Self::Null => Ok(()),
+            _ => Err(vortex_err!("Expected a Null scalar, found {:?}", self)),
+        }
+    }
+
     pub fn as_bool(&self) -> VortexResult<Option<bool>> {
         match self {
             Self::Null => Ok(None),

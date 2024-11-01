@@ -17,7 +17,6 @@ use vortex_serde::layouts::{
 pub struct VortexFileOpener {
     pub ctx: Arc<Context>,
     pub object_store: Arc<dyn ObjectStore>,
-    pub batch_size: Option<usize>,
     pub projection: Option<Vec<usize>>,
     pub predicate: Option<Arc<dyn PhysicalExpr>>,
     pub arrow_schema: SchemaRef,
@@ -32,10 +31,6 @@ impl FileOpener for VortexFileOpener {
             read_at,
             LayoutDeserializer::new(self.ctx.clone(), Arc::new(LayoutContext::default())),
         );
-
-        if let Some(batch_size) = self.batch_size {
-            builder = builder.with_batch_size(batch_size);
-        }
 
         let row_filter = self
             .predicate
