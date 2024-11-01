@@ -162,12 +162,14 @@ mod tests {
 
     #[test]
     #[should_panic]
+    #[cfg_attr(miri, ignore)]
     fn test_new() {
         RowMask::try_new((5..10).collect(), 5, 10).unwrap();
     }
 
     #[test]
     #[should_panic]
+    #[cfg_attr(miri, ignore)]
     fn shift_invalid() {
         RowMask::try_new((0..5).collect(), 5, 10)
             .unwrap()
@@ -176,6 +178,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn shift() {
         assert_eq!(
             RowMask::try_new((0..5).collect(), 5, 10)
@@ -187,6 +190,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn filter_array() {
         let mask = RowMask::try_new((5..10).collect(), 0, 10).unwrap();
         let array = PrimitiveArray::from((0..20).collect::<Vec<_>>()).into_array();
