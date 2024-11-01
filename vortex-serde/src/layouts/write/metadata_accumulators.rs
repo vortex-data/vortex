@@ -244,8 +244,9 @@ impl SingularAccumulator for RowOffsetsAccumulator {
 
 #[cfg(test)]
 mod tests {
-    use vortex::array::{BoolArray, PrimitiveArray};
+    use vortex::array::{BoolArray, ConstantArray, PrimitiveArray};
     use vortex::variants::StructArrayTrait;
+    use vortex_dtype::Nullability;
 
     use super::*;
 
@@ -269,7 +270,10 @@ mod tests {
         let struct_array =
             StructArray::try_from(Box::new(bool_accumulator).into_array().unwrap()).unwrap();
         assert_eq!(struct_array.len(), 1);
-        assert_field_names(&struct_array, &["row_offsets", "max", "min", "true_count"]);
+        assert_field_names(
+            &struct_array,
+            &["row_offsets", "max", "min", "true_count", "null_count"],
+        );
     }
 
     #[test]
@@ -287,7 +291,8 @@ mod tests {
     #[test]
     fn test_standard_metadata_schema_nullable() {
         let mut standard_accumulator = StandardAccumulator::<u64>::new();
-        let chunk = PrimitiveArray::from_nullable_vec(vec![Some(1u64)]).into_array();
+        let chunk =
+            ConstantArray::new(Scalar::primitive(1u64, Nullability::Nullable), 10).into_array();
         standard_accumulator.push_chunk(&chunk).unwrap();
 
         let struct_array =
