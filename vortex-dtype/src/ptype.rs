@@ -420,7 +420,7 @@ mod tests {
         assert_eq!(PType::I16.max_value_as_u64(), i16::MAX as u64);
         assert_eq!(PType::I32.max_value_as_u64(), i32::MAX as u64);
         assert_eq!(PType::I64.max_value_as_u64(), i64::MAX as u64);
-        assert_eq!(PType::F16.max_value_as_u64(), u64::MAX);
+        assert_eq!(PType::F16.max_value_as_u64(), 65504); // f16 is a weird type...
         assert_eq!(PType::F32.max_value_as_u64(), u64::MAX);
         assert_eq!(PType::F64.max_value_as_u64(), u64::MAX);
     }
