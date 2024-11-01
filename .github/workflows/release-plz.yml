@@ -5,7 +5,6 @@ permissions:
   contents: write
 
 on:
-  pull_request: { }  # DO NOT MERGE JUST TESTING SYNTAX
   push:
     branches:
       - develop
