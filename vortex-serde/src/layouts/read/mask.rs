@@ -87,6 +87,10 @@ impl RowMask {
         }
     }
 
+    /// Filter array with this `RowMask`.
+    ///
+    /// This function assumes that Array is no longer than the mask length and that the mask starts on same offset as the array,
+    /// i.e. the beginning of the array corresponds to the beginning of the mask with begin = 0
     pub fn filter_array(&self, array: impl AsRef<Array>) -> VortexResult<Option<Array>> {
         let true_count = self.values.cardinality();
         if true_count == 0 {
@@ -139,6 +143,8 @@ impl RowMask {
 mod tests {
     use croaring::Bitmap;
     use rstest::rstest;
+    use vortex::array::PrimitiveArray;
+    use vortex::{IntoArray, IntoArrayVariant};
 
     use crate::layouts::read::mask::RowMask;
 
@@ -158,5 +164,36 @@ mod tests {
     #[should_panic]
     fn test_new() {
         RowMask::try_new((5..10).collect(), 5, 10).unwrap();
+    }
+
+    #[test]
+    #[should_panic]
+    fn shift_invalid() {
+        RowMask::try_new((0..5).collect(), 5, 10)
+            .unwrap()
+            .shift(7)
+            .unwrap();
+    }
+
+    #[test]
+    fn shift() {
+        assert_eq!(
+            RowMask::try_new((0..5).collect(), 5, 10)
+                .unwrap()
+                .shift(5)
+                .unwrap(),
+            RowMask::try_new((0..5).collect(), 0, 5).unwrap()
+        );
+    }
+
+    #[test]
+    fn filter_array() {
+        let mask = RowMask::try_new((5..10).collect(), 0, 10).unwrap();
+        let array = PrimitiveArray::from((0..20).collect::<Vec<_>>()).into_array();
+        let filtered = mask.filter_array(array).unwrap().unwrap();
+        assert_eq!(
+            filtered.into_primitive().unwrap().maybe_null_slice::<i32>(),
+            (5..10).collect::<Vec<_>>()
+        );
     }
 }
