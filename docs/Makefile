@@ -8,7 +8,7 @@ SPHINXBUILD   ?= uv run sphinx-build
 SOURCEDIR     = .
 BUILDDIR      = _build
 
-.PHONY: Makefile help clean rust-html html uv-sync
+.PHONY: Makefile help clean rust-html uv-sync
 
 # Put it first so that "make" without argument is like "make help".
 help:
