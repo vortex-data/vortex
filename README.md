@@ -227,7 +227,6 @@ This repo uses uv to manage the combined Rust/Python monorepo build. After insta
 ```bash
 # Install uv from https://docs.astral.sh/uv/getting-started/installation/
 uv sync
-cd pyvortex && uv sync
 ```
 
 ## License
