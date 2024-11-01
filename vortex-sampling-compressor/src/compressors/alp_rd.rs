@@ -6,7 +6,7 @@ use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::PrimitiveArray;
 use vortex_array::encoding::EncodingRef;
 use vortex_array::{
-    Array, Array, ArrayDef, ArrayDef, IntoArray, IntoArray, IntoArrayVariant, IntoArrayVariant,
+    Array, ArrayDef, ArrayDef, IntoArray, IntoArray, IntoArrayVariant, IntoArrayVariant,
 };
 use vortex_dtype::PType;
 use vortex_error::{vortex_bail, VortexResult};

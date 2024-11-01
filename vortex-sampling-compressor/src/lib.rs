@@ -11,16 +11,16 @@ use rand::rngs::StdRng;
 use rand::SeedableRng;
 use vortex_alp::{ALPEncoding, ALPRDEncoding};
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::array::{ChunkedArray, ChunkedArray, Constant, Constant};
+use vortex_array::array::{ChunkedArray, Constant, Constant};
 use vortex_array::compress::{
-    check_dtype_unchanged, check_dtype_unchanged, check_validity_unchanged,
-    check_validity_unchanged, CompressionStrategy, CompressionStrategy,
+    check_dtype_unchanged, check_validity_unchanged, check_validity_unchanged, CompressionStrategy,
+    CompressionStrategy,
 };
 use vortex_array::compute::slice;
 use vortex_array::encoding::EncodingRef;
 use vortex_array::validity::Validity;
 use vortex_array::{
-    Array, Array, ArrayDType, ArrayDType, ArrayDef, ArrayDef, Context, Context, IntoCanonical,
+    Array, ArrayDType, ArrayDType, ArrayDef, ArrayDef, Context, Context, IntoCanonical,
     IntoCanonical,
 };
 use vortex_bytebool::ByteBoolEncoding;
