@@ -67,9 +67,10 @@ jobs:
 
           echo specifically not using uv to ensure we use this new, isolated, and empty environment
 
-          pip install target/wheels/vortex_array-*.whl || { pip debug --verbose ; exit 1 ; }
-          pip install pytest
-          cd pyvortex/test && pytest
+          # unclear why, but activating the venv does not make `pip` resolve to the correct executable
+          .venv2/bin/pip install target/wheels/vortex_array-*.whl || { pip debug --verbose ; exit 1 ; }
+          .venv2/bin/pip install pytest
+          cd pyvortex/test && .venv2/bin/pytest
 
   rust-docs:
     name: "Rust (docs)"
