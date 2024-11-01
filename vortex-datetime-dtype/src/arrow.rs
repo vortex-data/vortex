@@ -121,9 +121,12 @@ mod tests {
 
     #[test]
     fn test_make_arrow_timestamp() {
-        let ext_dtype = ExtDType::new(TIMESTAMP_ID.clone(), Some(TemporalMetadata::Timestamp(TimeUnit::Ms, None).into()));
+        let ext_dtype = ExtDType::new(
+            TIMESTAMP_ID.clone(),
+            Some(TemporalMetadata::Timestamp(TimeUnit::Ms, None).into()),
+        );
         let expected_arrow_type = DataType::Timestamp(ArrowTimeUnit::Millisecond, None);
-        
+
         let arrow_dtype = make_arrow_temporal_dtype(&ext_dtype);
         assert_eq!(arrow_dtype, expected_arrow_type);
 
@@ -133,7 +136,10 @@ mod tests {
 
     #[test]
     fn test_make_arrow_time32() {
-        let ext_dtype = ExtDType::new(TIME_ID.clone(), Some(TemporalMetadata::Time(TimeUnit::Ms).into()));
+        let ext_dtype = ExtDType::new(
+            TIME_ID.clone(),
+            Some(TemporalMetadata::Time(TimeUnit::Ms).into()),
+        );
         let expected_arrow_type = DataType::Time32(ArrowTimeUnit::Millisecond);
         let arrow_dtype = make_arrow_temporal_dtype(&ext_dtype);
         assert_eq!(arrow_dtype, expected_arrow_type);
@@ -144,7 +150,10 @@ mod tests {
 
     #[test]
     fn test_make_arrow_time64() {
-        let ext_dtype = ExtDType::new(TIME_ID.clone(), Some(TemporalMetadata::Time(TimeUnit::Us).into()));
+        let ext_dtype = ExtDType::new(
+            TIME_ID.clone(),
+            Some(TemporalMetadata::Time(TimeUnit::Us).into()),
+        );
         let expected_arrow_type = DataType::Time64(ArrowTimeUnit::Microsecond);
         let arrow_dtype = make_arrow_temporal_dtype(&ext_dtype);
         assert_eq!(arrow_dtype, expected_arrow_type);
@@ -155,7 +164,10 @@ mod tests {
 
     #[test]
     fn test_make_arrow_date32() {
-        let ext_dtype = ExtDType::new(DATE_ID.clone(), Some(TemporalMetadata::Date(TimeUnit::D).into()));
+        let ext_dtype = ExtDType::new(
+            DATE_ID.clone(),
+            Some(TemporalMetadata::Date(TimeUnit::D).into()),
+        );
         let expected_arrow_type = DataType::Date32;
         let arrow_dtype = make_arrow_temporal_dtype(&ext_dtype);
         assert_eq!(arrow_dtype, expected_arrow_type);
@@ -166,7 +178,10 @@ mod tests {
 
     #[test]
     fn test_make_arrow_date64() {
-        let ext_dtype = ExtDType::new(DATE_ID.clone(), Some(TemporalMetadata::Date(TimeUnit::Ms).into()));
+        let ext_dtype = ExtDType::new(
+            DATE_ID.clone(),
+            Some(TemporalMetadata::Date(TimeUnit::Ms).into()),
+        );
         let expected_arrow_type = DataType::Date64;
         let arrow_dtype = make_arrow_temporal_dtype(&ext_dtype);
         assert_eq!(arrow_dtype, expected_arrow_type);
