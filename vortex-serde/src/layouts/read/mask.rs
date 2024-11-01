@@ -147,8 +147,16 @@ mod tests {
     #[case(RowMask::try_new((5..8).chain(9..10).collect(), 0, 10).unwrap(), (2, 5), RowMask::try_new(Bitmap::new(), 2, 5).unwrap())]
     #[case(RowMask::try_new((0..4).collect(), 0, 10).unwrap(), (2, 5), RowMask::try_new((0..2).collect(), 2, 5).unwrap())]
     #[case(RowMask::try_new((0..3).chain(5..6).collect(), 0, 10).unwrap(), (2, 6), RowMask::try_new((0..1).chain(3..4).collect(), 2, 6).unwrap())]
+    #[case(RowMask::try_new((5..10).collect(), 0, 10).unwrap(), (7, 11), RowMask::try_new((0..3).collect(), 7, 10).unwrap())]
+    #[case(RowMask::try_new((1..6).collect(), 3, 9).unwrap(), (0, 5), RowMask::try_new((1..2).collect(), 3, 5).unwrap())]
     #[cfg_attr(miri, ignore)]
     fn slice(#[case] first: RowMask, #[case] range: (usize, usize), #[case] expected: RowMask) {
         assert_eq!(first.slice(range.0, range.1), expected);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_new() {
+        RowMask::try_new((5..10).collect(), 5, 10).unwrap();
     }
 }

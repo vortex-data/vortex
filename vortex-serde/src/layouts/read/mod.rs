@@ -61,7 +61,7 @@ pub enum BatchRead {
 }
 
 pub trait LayoutReader: Debug + Send {
-    /// Register all horizontal boundaries of this layout.
+    /// Register all horizontal row boundaries of this layout.
     ///
     /// Layout should register all indivisible absolute row boundaries of the data stored in itself and its children.
     /// `row_offset` gives the relative row position of this layout to the beginning of the file.
