@@ -170,6 +170,7 @@ mod tests {
     use crate::{fsst_compress, fsst_train_compressor};
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn test_compare_fsst() {
         let lhs = VarBinArray::from_iter(
             [
