@@ -68,6 +68,7 @@ jobs:
       # setup mold linker
       - uses: rui314/setup-mold@v1
       - uses: actions/checkout@v4
+      - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
       - name: Rust Build (Default features)
         run: cargo build --all-targets
@@ -78,6 +79,7 @@ jobs:
     steps:
       - uses: rui314/setup-mold@v1
       - uses: actions/checkout@v4
+      - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
       - name: Rust Build (All Features)
         run: cargo build --all-features --all-targets
@@ -126,6 +128,7 @@ jobs:
       - uses: rui314/setup-mold@v1
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-rust
+      - uses: ./.github/actions/cleanup
       - uses: spiraldb/actions/.github/actions/setup-uv@0.2.0
       # Required to run benchmarks
       - name: Install DuckDB
@@ -141,6 +144,7 @@ jobs:
     steps:
       - uses: rui314/setup-mold@v1
       - uses: actions/checkout@v4
+      - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
       - uses: ./.github/actions/setup-flatc
       - name: Install Protoc
