@@ -9,6 +9,7 @@ on:
 permissions:
   actions: read
   contents: read
+  checks: write
 
 env:
   CARGO_TERM_COLOR: always
