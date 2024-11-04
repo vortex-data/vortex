@@ -6,6 +6,96 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## `vortex-roaring` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-roaring-v0.13.1...vortex-roaring-v0.14.0) - 2024-11-04
+
+### Other
+- deny missing_docs on vortex-dtype ([#1182](https://github.com/spiraldb/vortex/pull/1182))
+
+## `vortex-fsst` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-fsst-v0.13.1...vortex-fsst-v0.14.0) - 2024-11-04
+
+### Other
+- split CI into separate moldy jobs ([#1192](https://github.com/spiraldb/vortex/pull/1192))
+
+## `vortex-datetime-parts` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-datetime-parts-v0.13.1...vortex-datetime-parts-v0.14.0) - 2024-11-04
+
+### Added
+- specify the storage_dtype in ExtDType ([#1007](https://github.com/spiraldb/vortex/pull/1007))
+
+## `vortex-serde` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-serde-v0.13.1...vortex-serde-v0.14.0) - 2024-11-04
+
+### Added
+- store min, max, null count, and true count in column metadata ([#1164](https://github.com/spiraldb/vortex/pull/1164))
+
+### Other
+- Filter pushdown over layouts ([#1124](https://github.com/spiraldb/vortex/pull/1124))
+
+## `vortex-expr` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-expr-v0.13.1...vortex-expr-v0.14.0) - 2024-11-04
+
+### Other
+- Filter pushdown over layouts ([#1124](https://github.com/spiraldb/vortex/pull/1124))
+
+## `vortex-datafusion` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-datafusion-v0.13.1...vortex-datafusion-v0.14.0) - 2024-11-04
+
+### Added
+- specify the storage_dtype in ExtDType ([#1007](https://github.com/spiraldb/vortex/pull/1007))
+
+### Other
+- Filter pushdown over layouts ([#1124](https://github.com/spiraldb/vortex/pull/1124))
+
+## `vortex-scalar` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-scalar-v0.13.1...vortex-scalar-v0.14.0) - 2024-11-04
+
+### Added
+- specify the storage_dtype in ExtDType ([#1007](https://github.com/spiraldb/vortex/pull/1007))
+- store min, max, null count, and true count in column metadata ([#1164](https://github.com/spiraldb/vortex/pull/1164))
+
+## `vortex-proto` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-proto-v0.13.1...vortex-proto-v0.14.0) - 2024-11-04
+
+### Added
+- specify the storage_dtype in ExtDType ([#1007](https://github.com/spiraldb/vortex/pull/1007))
+
+## `vortex-flatbuffers` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-flatbuffers-v0.13.1...vortex-flatbuffers-v0.14.0) - 2024-11-04
+
+### Added
+- specify the storage_dtype in ExtDType ([#1007](https://github.com/spiraldb/vortex/pull/1007))
+
+### Other
+- Filter pushdown over layouts ([#1124](https://github.com/spiraldb/vortex/pull/1124))
+
+## `vortex-error` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-error-v0.13.1...vortex-error-v0.14.0) - 2024-11-04
+
+### Added
+- docs for `vortex-error` crate ([#1184](https://github.com/spiraldb/vortex/pull/1184))
+
+## `vortex-dtype` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-dtype-v0.13.1...vortex-dtype-v0.14.0) - 2024-11-04
+
+### Added
+- specify the storage_dtype in ExtDType ([#1007](https://github.com/spiraldb/vortex/pull/1007))
+
+### Other
+- deny missing_docs on vortex-dtype ([#1182](https://github.com/spiraldb/vortex/pull/1182))
+
+## `vortex-datetime-dtype` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-datetime-dtype-v0.13.1...vortex-datetime-dtype-v0.14.0) - 2024-11-04
+
+### Added
+- specify the storage_dtype in ExtDType ([#1007](https://github.com/spiraldb/vortex/pull/1007))
+
+### Other
+- improve datetime-dtype unit tests ([#1183](https://github.com/spiraldb/vortex/pull/1183))
+
+## `vortex-buffer` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-buffer-v0.13.1...vortex-buffer-v0.14.0) - 2024-11-04
+
+### Added
+- store min, max, null count, and true count in column metadata ([#1164](https://github.com/spiraldb/vortex/pull/1164))
+
+## `vortex-array` - [0.14.0](https://github.com/spiraldb/vortex/compare/0.13.1...0.14.0) - 2024-11-04
+
+### Added
+- specify the storage_dtype in ExtDType ([#1007](https://github.com/spiraldb/vortex/pull/1007))
+- store min, max, null count, and true count in column metadata ([#1164](https://github.com/spiraldb/vortex/pull/1164))
+
+### Other
+- deny missing_docs on vortex-dtype ([#1182](https://github.com/spiraldb/vortex/pull/1182))
+
 ## `vortex-serde` - [0.13.1](https://github.com/spiraldb/vortex/compare/vortex-serde-v0.13.0...vortex-serde-v0.13.1) - 2024-10-31
 
 ### Fixed
