@@ -11,9 +11,7 @@ feature-depth = 1
 
 
 [advisories]
-ignore = [
-    "RUSTSEC-2023-0086"
-]
+ignore = []
 
 [licenses]
 # List of explicitly allowed licenses
