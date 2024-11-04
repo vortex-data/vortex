@@ -2,6 +2,7 @@ use itertools::Itertools;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{Struct, StructArray};
 use vortex_array::encoding::EncodingRef;
+use vortex_array::stats::ArrayStatistics as _;
 use vortex_array::variants::StructArrayTrait;
 use vortex_array::{Array, ArrayDef, IntoArray};
 use vortex_error::VortexResult;
@@ -47,7 +48,7 @@ impl EncodingCompressor for StructCompressor {
             .map(|(array, like)| ctx.compress(&array, like.as_ref()))
             .process_results(|iter| iter.map(|x| (x.array, x.path)).unzip())?;
 
-        Ok(CompressedArray::new(
+        Ok(CompressedArray::compressed(
             StructArray::try_new(
                 array.names().clone(),
                 arrays,
@@ -56,6 +57,7 @@ impl EncodingCompressor for StructCompressor {
             )?
             .into_array(),
             Some(CompressionTree::new(self, trees)),
+            Some(array.statistics().to_set()),
         ))
     }
 

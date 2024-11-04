@@ -5,6 +5,7 @@ use log::warn;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{Chunked, ChunkedArray};
 use vortex_array::encoding::EncodingRef;
+use vortex_array::stats::ArrayStatistics as _;
 use vortex_array::{Array, ArrayDType, ArrayDef, IntoArray};
 use vortex_error::{vortex_bail, VortexResult};
 
@@ -144,13 +145,14 @@ impl ChunkedCompressor {
             None => (None, None),
         };
 
-        Ok(CompressedArray::new(
+        Ok(CompressedArray::compressed(
             ChunkedArray::try_new(compressed_chunks, array.dtype().clone())?.into_array(),
             Some(CompressionTree::new_with_metadata(
                 self,
                 vec![child],
                 Arc::new(ChunkedCompressorMetadata(ratio)),
             )),
+            Some(array.statistics().to_set()),
         ))
     }
 }

@@ -63,7 +63,7 @@ impl EncodingCompressor for FoRCompressor {
                     .named("for")
                     .excluding(self)
                     .compress(&for_array.encoded(), like.as_ref().and_then(|l| l.child(0)))?;
-                Ok(CompressedArray::new(
+                Ok(CompressedArray::compressed(
                     FoRArray::try_new(
                         compressed_child.array,
                         for_array.owned_reference_scalar(),
@@ -71,6 +71,7 @@ impl EncodingCompressor for FoRCompressor {
                     )
                     .map(|a| a.into_array())?,
                     Some(CompressionTree::new(self, vec![compressed_child.path])),
+                    Some(array.statistics().to_set()),
                 ))
             }
             Err(_) => {
@@ -78,9 +79,10 @@ impl EncodingCompressor for FoRCompressor {
                     .named("for")
                     .excluding(self)
                     .compress(&for_compressed, like.as_ref())?;
-                Ok(CompressedArray::new(
+                Ok(CompressedArray::compressed(
                     compressed_child.array,
                     Some(CompressionTree::new(self, vec![compressed_child.path])),
+                    None, // TODO(wmanning): convince myself that this block is correct / write a test
                 ))
             }
         }

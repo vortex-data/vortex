@@ -111,7 +111,7 @@ impl EncodingCompressor for BitPackedCompressor {
             .flatten()
             .transpose()?;
 
-        Ok(CompressedArray::new(
+        Ok(CompressedArray::compressed(
             BitPackedArray::try_new(
                 packed,
                 parray.ptype(),
@@ -125,6 +125,7 @@ impl EncodingCompressor for BitPackedCompressor {
                 self,
                 vec![patches.and_then(|p| p.path)],
             )),
+            Some(array.statistics().to_set()),
         ))
     }
 

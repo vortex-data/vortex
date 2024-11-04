@@ -4,6 +4,7 @@ use vortex_alp::{
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::PrimitiveArray;
 use vortex_array::encoding::EncodingRef;
+use vortex_array::stats::ArrayStatistics as _;
 use vortex_array::{Array, ArrayDef, IntoArray};
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
@@ -64,7 +65,7 @@ impl EncodingCompressor for ALPCompressor {
             })
             .transpose()?;
 
-        Ok(CompressedArray::new(
+        Ok(CompressedArray::compressed(
             ALPArray::try_new(
                 compressed_encoded.array,
                 exponents,
@@ -78,6 +79,7 @@ impl EncodingCompressor for ALPCompressor {
                     compressed_patches.and_then(|p| p.path),
                 ],
             )),
+            Some(array.statistics().to_set()),
         ))
     }
 
