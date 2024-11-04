@@ -127,8 +127,8 @@ jobs:
     steps:
       - uses: rui314/setup-mold@v1
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-rust
       - uses: ./.github/actions/cleanup
+      - uses: ./.github/actions/setup-rust
       - uses: spiraldb/actions/.github/actions/setup-uv@0.2.0
       # Required to run benchmarks
       - name: Install DuckDB
