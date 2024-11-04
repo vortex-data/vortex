@@ -20,5 +20,5 @@ runs:
           /usr/local/share/chromium \
           /usr/local/share/powershell \
           /usr/share/dotnet \
-          /usr/share/swift
+          /usr/share/swift || true
         df -h /
