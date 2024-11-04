@@ -54,7 +54,8 @@ jobs:
 
       - name: Ensure wheel and sdist can be built on Linux - PyVortex
         run: |
-          uv run maturin build --interpreter python3.10 --sdist
+          # force linux compatibility to ensure there is exactly one wheel ergo no ambiguity in installation
+          uv run maturin build --interpreter python3.10 --sdist --compatibility linux
         working-directory: pyvortex/
 
       - name: Ensure wheel can run tests successfully
