@@ -20,6 +20,7 @@ help:
 	@$(SPHINXBUILD) -M $@ "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
 
 full-html: html rust-html
+	true  # need a non-empty rule to prevent matching the %: rule.
 
 rust-html:
 	cargo doc --no-deps --workspace --all-features --target-dir $(BUILDDIR)/html/rust

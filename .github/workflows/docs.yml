@@ -10,7 +10,7 @@ permissions:
   deployments: write
 
 jobs:
-  deploy-python-docs:
+  deploy-docs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
