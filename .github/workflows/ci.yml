@@ -68,7 +68,6 @@ jobs:
       # setup mold linker
       - uses: rui314/setup-mold@v1
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
       - name: Rust Build (Default features)
         run: cargo build --all-targets
@@ -79,7 +78,6 @@ jobs:
     steps:
       - uses: rui314/setup-mold@v1
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
       - name: Rust Build (All Features)
         run: cargo build --all-features --all-targets
@@ -90,7 +88,6 @@ jobs:
     steps:
       - uses: rui314/setup-mold@v1
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/cleanup
       - name: Rust Lint - Format
         run: cargo fmt --all --check
       - name: Rust Lint - Clippy
@@ -103,7 +100,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/cleanup
       - name: License Check
         run: cargo install --locked cargo-deny && cargo deny check
       - uses: rustsec/audit-check@v2.0.0
@@ -119,7 +115,6 @@ jobs:
     steps:
       - uses: rui314/setup-mold@v1
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
       - name: Run tests with Miri
         run: cargo miri test
@@ -130,7 +125,6 @@ jobs:
     steps:
       - uses: rui314/setup-mold@v1
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
       - uses: spiraldb/actions/.github/actions/setup-uv@0.2.0
       # Required to run benchmarks
@@ -147,8 +141,8 @@ jobs:
     steps:
       - uses: rui314/setup-mold@v1
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
+      - uses: ./.github/actions/setup-flatc
       - name: Install Protoc
         uses: arduino/setup-protoc@v3
       - name: "regenerate all .fbs/.proto Rust code"
@@ -157,5 +151,5 @@ jobs:
           cargo xtask generate-proto
       - name: "Make sure no files changed after regenerating"
         run: |
-          git status | grep 'working tree clean'
+          test -z "$(git status --porcelain)"
 
