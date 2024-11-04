@@ -3,8 +3,8 @@ use std::sync::Arc;
 
 use vortex_dtype::field::Field;
 use vortex_dtype::{DType, PType};
-use vortex_error::{vortex_panic, VortexError, VortexExpect as _, VortexResult};
-use vortex_scalar::{ExtScalar, Scalar, ScalarValue, StructScalar};
+use vortex_error::{VortexError, VortexExpect as _, VortexResult};
+use vortex_scalar::{Scalar, ScalarValue, StructScalar};
 
 use crate::array::constant::ConstantArray;
 use crate::iter::{Accessor, AccessorRef};
@@ -211,22 +211,9 @@ impl ListArrayTrait for ConstantArray {}
 
 impl ExtensionArrayTrait for ConstantArray {
     fn storage_array(&self) -> Array {
-        let scalar_ext = ExtScalar::try_new(self.dtype(), self.scalar_value())
-            .vortex_expect("Expected an extension scalar");
-
-        // FIXME(ngates): there's not enough information to get the storage array.
-        let n = self.dtype().nullability();
-        let storage_dtype = match scalar_ext.value() {
-            ScalarValue::Bool(_) => DType::Binary(n),
-            ScalarValue::Primitive(pvalue) => DType::Primitive(pvalue.ptype(), n),
-            ScalarValue::Buffer(_) => DType::Binary(n),
-            ScalarValue::BufferString(_) => DType::Utf8(n),
-            ScalarValue::List(_) => vortex_panic!("List not supported"),
-            ScalarValue::Null => DType::Null,
-        };
-
+        let storage_dtype = self.ext_dtype().storage_dtype().clone();
         ConstantArray::new(
-            Scalar::new(storage_dtype, scalar_ext.value().clone()),
+            Scalar::new(storage_dtype, self.scalar_value().clone()),
             self.len(),
         )
         .into_array()

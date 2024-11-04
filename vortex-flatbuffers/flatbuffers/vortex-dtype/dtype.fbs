@@ -52,8 +52,8 @@ table List {
 
 table Extension {
     id: string;
+    storage_dtype: DType;
     metadata: [ubyte];
-    nullable: bool;
 }
 
 union Type {

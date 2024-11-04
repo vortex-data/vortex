@@ -1,3 +1,5 @@
+#![allow(clippy::all, clippy::nursery)]
+
 #[cfg(feature = "dtype")]
 #[rustfmt::skip]
 #[path = "./generated/vortex.dtype.rs"]

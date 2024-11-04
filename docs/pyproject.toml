@@ -6,7 +6,7 @@ authors = []
 dependencies = [
     "pydata-sphinx-theme>=0.16.0",
     "sphinx>=8.0.2",
-    "pyvortex",
+    "vortex-array",
     "sphinx-design>=0.6.1",
 ]
 requires-python = ">= 3.10"
@@ -14,3 +14,6 @@ requires-python = ">= 3.10"
 [tool.uv]
 managed = true
 package = false
+
+[tool.uv.sources]
+vortex-array = { workspace = true }

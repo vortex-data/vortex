@@ -54,8 +54,8 @@ message List {
 
 message Extension {
   string id = 1;
-  optional bytes metadata = 2;
-  bool nullable = 3;
+  DType storage_dtype = 2;
+  optional bytes metadata = 3;
 }
 
 message DType {

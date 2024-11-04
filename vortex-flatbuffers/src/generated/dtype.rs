@@ -1128,8 +1128,8 @@ impl<'a> flatbuffers::Follow<'a> for Extension<'a> {
 
 impl<'a> Extension<'a> {
   pub const VT_ID: flatbuffers::VOffsetT = 4;
-  pub const VT_METADATA: flatbuffers::VOffsetT = 6;
-  pub const VT_NULLABLE: flatbuffers::VOffsetT = 8;
+  pub const VT_STORAGE_DTYPE: flatbuffers::VOffsetT = 6;
+  pub const VT_METADATA: flatbuffers::VOffsetT = 8;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -1142,8 +1142,8 @@ impl<'a> Extension<'a> {
   ) -> flatbuffers::WIPOffset<Extension<'bldr>> {
     let mut builder = ExtensionBuilder::new(_fbb);
     if let Some(x) = args.metadata { builder.add_metadata(x); }
+    if let Some(x) = args.storage_dtype { builder.add_storage_dtype(x); }
     if let Some(x) = args.id { builder.add_id(x); }
-    builder.add_nullable(args.nullable);
     builder.finish()
   }
 
@@ -1156,18 +1156,18 @@ impl<'a> Extension<'a> {
     unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<&str>>(Extension::VT_ID, None)}
   }
   #[inline]
+  pub fn storage_dtype(&self) -> Option<DType<'a>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<DType>>(Extension::VT_STORAGE_DTYPE, None)}
+  }
+  #[inline]
   pub fn metadata(&self) -> Option<flatbuffers::Vector<'a, u8>> {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
     unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u8>>>(Extension::VT_METADATA, None)}
-  }
-  #[inline]
-  pub fn nullable(&self) -> bool {
-    // Safety:
-    // Created from valid Table for this object
-    // which contains a valid value in this slot
-    unsafe { self._tab.get::<bool>(Extension::VT_NULLABLE, Some(false)).unwrap()}
   }
 }
 
@@ -1179,24 +1179,24 @@ impl flatbuffers::Verifiable for Extension<'_> {
     use self::flatbuffers::Verifiable;
     v.visit_table(pos)?
      .visit_field::<flatbuffers::ForwardsUOffset<&str>>("id", Self::VT_ID, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<DType>>("storage_dtype", Self::VT_STORAGE_DTYPE, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u8>>>("metadata", Self::VT_METADATA, false)?
-     .visit_field::<bool>("nullable", Self::VT_NULLABLE, false)?
      .finish();
     Ok(())
   }
 }
 pub struct ExtensionArgs<'a> {
     pub id: Option<flatbuffers::WIPOffset<&'a str>>,
+    pub storage_dtype: Option<flatbuffers::WIPOffset<DType<'a>>>,
     pub metadata: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u8>>>,
-    pub nullable: bool,
 }
 impl<'a> Default for ExtensionArgs<'a> {
   #[inline]
   fn default() -> Self {
     ExtensionArgs {
       id: None,
+      storage_dtype: None,
       metadata: None,
-      nullable: false,
     }
   }
 }
@@ -1211,12 +1211,12 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> ExtensionBuilder<'a, 'b, A> {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Extension::VT_ID, id);
   }
   #[inline]
-  pub fn add_metadata(&mut self, metadata: flatbuffers::WIPOffset<flatbuffers::Vector<'b , u8>>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Extension::VT_METADATA, metadata);
+  pub fn add_storage_dtype(&mut self, storage_dtype: flatbuffers::WIPOffset<DType<'b >>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<DType>>(Extension::VT_STORAGE_DTYPE, storage_dtype);
   }
   #[inline]
-  pub fn add_nullable(&mut self, nullable: bool) {
-    self.fbb_.push_slot::<bool>(Extension::VT_NULLABLE, nullable, false);
+  pub fn add_metadata(&mut self, metadata: flatbuffers::WIPOffset<flatbuffers::Vector<'b , u8>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Extension::VT_METADATA, metadata);
   }
   #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> ExtensionBuilder<'a, 'b, A> {
@@ -1237,8 +1237,8 @@ impl core::fmt::Debug for Extension<'_> {
   fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
     let mut ds = f.debug_struct("Extension");
       ds.field("id", &self.id());
+      ds.field("storage_dtype", &self.storage_dtype());
       ds.field("metadata", &self.metadata());
-      ds.field("nullable", &self.nullable());
       ds.finish()
   }
 }

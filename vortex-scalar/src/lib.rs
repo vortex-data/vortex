@@ -57,13 +57,13 @@ impl Scalar {
     }
 
     #[inline]
-    pub fn into_value(self) -> ScalarValue {
-        self.value
+    pub fn into_parts(self) -> (DType, ScalarValue) {
+        (self.dtype, self.value)
     }
 
     #[inline]
-    pub fn into_parts(self) -> (ScalarValue, DType) {
-        (self.value, self.dtype)
+    pub fn into_value(self) -> ScalarValue {
+        self.value
     }
 
     pub fn is_valid(&self) -> bool {

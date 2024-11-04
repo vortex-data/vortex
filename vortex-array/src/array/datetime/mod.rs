@@ -1,6 +1,8 @@
 #[cfg(test)]
 mod test;
 
+use std::sync::Arc;
+
 use vortex_datetime_dtype::{TemporalMetadata, TimeUnit, DATE_ID, TIMESTAMP_ID, TIME_ID};
 use vortex_dtype::{DType, ExtDType};
 use vortex_error::{vortex_panic, VortexError};
@@ -68,28 +70,24 @@ impl TemporalArray {
     ///
     /// If any other time unit is provided, it panics.
     pub fn new_date(array: Array, time_unit: TimeUnit) -> Self {
-        let ext_dtype = match time_unit {
+        match time_unit {
             TimeUnit::D => {
                 assert_width!(i32, array);
-
-                ExtDType::new(
-                    DATE_ID.clone(),
-                    Some(TemporalMetadata::Date(time_unit).into()),
-                )
             }
             TimeUnit::Ms => {
                 assert_width!(i64, array);
-
-                ExtDType::new(
-                    DATE_ID.clone(),
-                    Some(TemporalMetadata::Date(time_unit).into()),
-                )
             }
             _ => vortex_panic!("invalid TimeUnit {time_unit} for vortex.date"),
         };
 
+        let ext_dtype = ExtDType::new(
+            DATE_ID.clone(),
+            Arc::new(array.dtype().clone()),
+            Some(TemporalMetadata::Date(time_unit).into()),
+        );
+
         Self {
-            ext: ExtensionArray::new(ext_dtype, array),
+            ext: ExtensionArray::new(Arc::new(ext_dtype), array),
             temporal_metadata: TemporalMetadata::Date(time_unit),
         }
     }
@@ -123,7 +121,11 @@ impl TemporalArray {
         let temporal_metadata = TemporalMetadata::Time(time_unit);
         Self {
             ext: ExtensionArray::new(
-                ExtDType::new(TIME_ID.clone(), Some(temporal_metadata.clone().into())),
+                Arc::new(ExtDType::new(
+                    TIME_ID.clone(),
+                    Arc::new(array.dtype().clone()),
+                    Some(temporal_metadata.clone().into()),
+                )),
                 array,
             ),
             temporal_metadata,
@@ -145,7 +147,11 @@ impl TemporalArray {
 
         Self {
             ext: ExtensionArray::new(
-                ExtDType::new(TIMESTAMP_ID.clone(), Some(temporal_metadata.clone().into())),
+                Arc::new(ExtDType::new(
+                    TIMESTAMP_ID.clone(),
+                    Arc::new(array.dtype().clone()),
+                    Some(temporal_metadata.clone().into()),
+                )),
                 array,
             ),
             temporal_metadata,
@@ -171,8 +177,8 @@ impl TemporalArray {
     }
 
     /// Retrieve the extension DType associated with the underlying array.
-    pub fn ext_dtype(&self) -> &ExtDType {
-        self.ext.ext_dtype()
+    pub fn ext_dtype(&self) -> Arc<ExtDType> {
+        self.ext.ext_dtype().clone()
     }
 }
 
@@ -195,7 +201,7 @@ impl TryFrom<&Array> for TemporalArray {
     /// `TemporalMetadata` variants, an error is returned.
     fn try_from(value: &Array) -> Result<Self, Self::Error> {
         let ext = ExtensionArray::try_from(value)?;
-        let temporal_metadata = TemporalMetadata::try_from(ext.ext_dtype())?;
+        let temporal_metadata = TemporalMetadata::try_from(ext.ext_dtype().as_ref())?;
 
         Ok(Self {
             ext,
@@ -232,7 +238,7 @@ impl TryFrom<ExtensionArray> for TemporalArray {
     type Error = VortexError;
 
     fn try_from(ext: ExtensionArray) -> Result<Self, Self::Error> {
-        let temporal_metadata = TemporalMetadata::try_from(ext.ext_dtype())?;
+        let temporal_metadata = TemporalMetadata::try_from(ext.ext_dtype().as_ref())?;
         Ok(Self {
             ext,
             temporal_metadata,

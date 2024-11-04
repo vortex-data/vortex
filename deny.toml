@@ -11,26 +11,25 @@ feature-depth = 1
 
 
 [advisories]
-ignore = [
-    "RUSTSEC-2023-0086"
-]
+ignore = []
 
 [licenses]
 # List of explicitly allowed licenses
 # See https://spdx.org/licenses/ for list of possible licenses
 # [possible values: any SPDX 3.11 short identifier (+ optional exception)].
 allow = [
-    "MIT",
-    "Apache-2.0",
-    "ISC",
-    "Unicode-DFS-2016",
-    "CC0-1.0",
-    "Apache-2.0 WITH LLVM-exception",
-    "BSD-3-Clause",
-    "BSD-2-Clause",
     "0BSD",
+    "Apache-2.0 WITH LLVM-exception",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "CC0-1.0",
+    "ISC",
+    "MIT",
     "MPL-2.0",
     "OpenSSL",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
     "Zlib",
 ]
 # The confidence threshold for detecting a license from license text.

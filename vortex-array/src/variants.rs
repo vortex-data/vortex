@@ -4,6 +4,7 @@
 //! encoding, they can use these traits to write encoding-agnostic code.
 
 use std::ops::Not;
+use std::sync::Arc;
 
 use vortex_dtype::field::Field;
 use vortex_dtype::{DType, ExtDType, FieldNames};
@@ -256,8 +257,8 @@ pub trait ListArrayTrait: ArrayTrait {}
 
 pub trait ExtensionArrayTrait: ArrayTrait {
     /// Returns the extension logical [`DType`].
-    fn ext_dtype(&self) -> &ExtDType {
-        let DType::Extension(ext_dtype, _nullability) = self.dtype() else {
+    fn ext_dtype(&self) -> &Arc<ExtDType> {
+        let DType::Extension(ext_dtype) = self.dtype() else {
             vortex_panic!("Expected ExtDType")
         };
         ext_dtype

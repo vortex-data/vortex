@@ -83,10 +83,9 @@ impl FromArrowType<&Field> for DType {
             | DataType::Date64
             | DataType::Time32(_)
             | DataType::Time64(_)
-            | DataType::Timestamp(..) => Extension(
-                make_temporal_ext_dtype(field.data_type()),
-                field.is_nullable().into(),
-            ),
+            | DataType::Timestamp(..) => Extension(Arc::new(
+                make_temporal_ext_dtype(field.data_type()).with_nullability(nullability),
+            )),
             DataType::List(e) | DataType::LargeList(e) => {
                 List(Arc::new(Self::from_arrow(e.as_ref())), nullability)
             }
@@ -171,7 +170,7 @@ pub fn infer_data_type(dtype: &DType) -> VortexResult<DataType> {
         // (32-bit), Large List View (64-bit). We cannot both guarantee zero-copy and commit to an
         // Arrow dtype because we do not how large our offsets are.
         DType::List(..) => vortex_bail!("Unsupported dtype: {}", dtype),
-        DType::Extension(ext_dtype, _) => {
+        DType::Extension(ext_dtype) => {
             // Try and match against the known extension DTypes.
             if is_temporal_ext_type(ext_dtype.id()) {
                 make_arrow_temporal_dtype(ext_dtype)
@@ -234,10 +233,11 @@ mod test {
     #[test]
     #[should_panic]
     fn test_dtype_conversion_panics() {
-        let _ = infer_data_type(&DType::Extension(
-            ExtDType::new(ExtID::from("my-fake-ext-dtype"), None),
-            Nullability::NonNullable,
-        ))
+        let _ = infer_data_type(&DType::Extension(Arc::new(ExtDType::new(
+            ExtID::from("my-fake-ext-dtype"),
+            Arc::new(DType::Utf8(Nullability::NonNullable)),
+            None,
+        ))))
         .unwrap();
     }
 

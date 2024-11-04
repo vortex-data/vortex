@@ -1,0 +1,12 @@
+name: "Setup flatc"
+description: "Download and install flatc binary"
+runs:
+  using: "composite"
+  steps:
+    - name: Download flatc
+      id: download-flatc
+      shell: bash
+      run: |
+        wget -O /tmp/flatc.zip https://github.com/google/flatbuffers/releases/download/v24.3.25/Linux.flatc.binary.clang++-15.zip
+        unzip /tmp/flatc.zip flatc
+        mv flatc /usr/local/bin/

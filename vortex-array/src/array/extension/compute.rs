@@ -60,14 +60,14 @@ impl ScalarAtFn for ExtensionArray {
     fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
         Ok(Scalar::extension(
             self.ext_dtype().clone(),
-            scalar_at(self.storage(), index)?,
+            scalar_at(self.storage(), index)?.into_value(),
         ))
     }
 
     fn scalar_at_unchecked(&self, index: usize) -> Scalar {
         Scalar::extension(
             self.ext_dtype().clone(),
-            scalar_at_unchecked(self.storage(), index),
+            scalar_at_unchecked(self.storage(), index).into_value(),
         )
     }
 }

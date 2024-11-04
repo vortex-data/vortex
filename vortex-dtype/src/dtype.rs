@@ -36,8 +36,8 @@ pub enum DType {
     Struct(StructDType, Nullability),
     /// A variable-length list type, parameterized by a single element DType
     List(Arc<DType>, Nullability),
-    /// Extension types are user-defined types
-    Extension(ExtDType, Nullability),
+    /// User-defined extension types
+    Extension(Arc<ExtDType>),
 }
 
 impl DType {
@@ -64,7 +64,7 @@ impl DType {
             Binary(n) => matches!(n, Nullable),
             Struct(_, n) => matches!(n, Nullable),
             List(_, n) => matches!(n, Nullable),
-            Extension(_, n) => matches!(n, Nullable),
+            Extension(ext_dtype) => ext_dtype.storage_dtype().is_nullable(),
         }
     }
 
@@ -88,7 +88,7 @@ impl DType {
             Binary(_) => Binary(nullability),
             Struct(st, _) => Struct(st.clone(), nullability),
             List(c, _) => List(c.clone(), nullability),
-            Extension(ext, _) => Extension(ext.clone(), nullability),
+            Extension(ext) => Extension(Arc::new(ext.with_nullability(nullability))),
         }
     }
 
@@ -155,14 +155,16 @@ impl Display for DType {
                 n
             ),
             List(edt, n) => write!(f, "list({}){}", edt, n),
-            Extension(ext, n) => write!(
+            Extension(ext) => write!(
                 f,
-                "ext({}{}){}",
+                "ext({}, {}{}){}",
                 ext.id(),
+                ext.storage_dtype()
+                    .with_nullability(Nullability::NonNullable),
                 ext.metadata()
                     .map(|m| format!(", {:?}", m))
                     .unwrap_or_else(|| "".to_string()),
-                n
+                ext.storage_dtype().nullability(),
             ),
         }
     }

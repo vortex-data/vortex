@@ -69,7 +69,7 @@ pub(crate) fn try_canonicalize_chunks(
         //                /             \
         //          storage             storage
         //
-        DType::Extension(ext_dtype, _) => {
+        DType::Extension(ext_dtype) => {
             // Recursively apply canonicalization and packing to the storage array backing
             // each chunk of the extension array.
             let storage_chunks: Vec<Array> = chunks
@@ -78,11 +78,7 @@ pub(crate) fn try_canonicalize_chunks(
                 // ExtensionArray, so we should canonicalize each chunk into ExtensionArray first.
                 .map(|chunk| chunk.clone().into_extension().map(|ext| ext.storage()))
                 .collect::<VortexResult<Vec<Array>>>()?;
-            let storage_dtype = storage_chunks
-                .first()
-                .ok_or_else(|| vortex_err!("Expected at least one chunk in ChunkedArray"))?
-                .dtype()
-                .clone();
+            let storage_dtype = ext_dtype.storage_dtype().clone();
             let chunked_storage =
                 ChunkedArray::try_new(storage_chunks, storage_dtype)?.into_array();
 

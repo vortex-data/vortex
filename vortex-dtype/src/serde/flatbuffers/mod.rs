@@ -86,10 +86,17 @@ impl TryFrom<fb::DType<'_>> for DType {
                         vortex_err!("failed to parse extension id from flatbuffer")
                     })?);
                 let metadata = fb_ext.metadata().map(|m| ExtMetadata::from(m.bytes()));
-                Ok(Self::Extension(
-                    ExtDType::new(id, metadata),
-                    fb_ext.nullable().into(),
-                ))
+                Ok(Self::Extension(Arc::new(ExtDType::new(
+                    id,
+                    Arc::new(
+                        DType::try_from(fb_ext.storage_dtype().ok_or_else(|| {
+                            vortex_err!(
+                        InvalidSerde: "storage_dtype must be present on DType fbs message")
+                        })?)
+                        .map_err(|e| vortex_err!("failed to create DType from fbs message: {e}"))?,
+                    ),
+                    metadata,
+                ))))
             }
             _ => Err(vortex_err!("Unknown DType variant")),
         }
@@ -171,15 +178,16 @@ impl WriteFlatBuffer for DType {
                 )
                 .as_union_value()
             }
-            Self::Extension(ext, n) => {
+            Self::Extension(ext) => {
                 let id = Some(fbb.create_string(ext.id().as_ref()));
+                let storage_dtype = Some(ext.storage_dtype().write_flatbuffer(fbb));
                 let metadata = ext.metadata().map(|m| fbb.create_vector(m.as_ref()));
                 fb::Extension::create(
                     fbb,
                     &fb::ExtensionArgs {
                         id,
+                        storage_dtype,
                         metadata,
-                        nullable: (*n).into(),
                     },
                 )
                 .as_union_value()
