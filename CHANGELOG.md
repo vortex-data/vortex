@@ -6,6 +6,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## `vortex-all` - [0.14.0](https://github.com/spiraldb/vortex/releases/tag/vortex-all-v0.14.0) - 2024-11-04
+
+### Added
+- it's a bird, it's a plane, it's vortex-all! ([#1140](https://github.com/spiraldb/vortex/pull/1140))
+
+### Fixed
+- update setup instructions (rye -> uv) ([#1176](https://github.com/spiraldb/vortex/pull/1176))
+- fix docs badge in readme ([#753](https://github.com/spiraldb/vortex/pull/753))
+
+### Other
+- deny missing_docs on vortex-dtype ([#1182](https://github.com/spiraldb/vortex/pull/1182))
+- very small README.md fixes
+- More README.md improvements ([#1084](https://github.com/spiraldb/vortex/pull/1084))
+- Update README.md ([#1055](https://github.com/spiraldb/vortex/pull/1055))
+- minor addition to README ([#1030](https://github.com/spiraldb/vortex/pull/1030))
+- updated README ([#876](https://github.com/spiraldb/vortex/pull/876))
+- release to Test PyPI on each push to version tags ([#760](https://github.com/spiraldb/vortex/pull/760))
+- Run ETE benchmarks with MiMalloc and leave a note encouraging its usage ([#399](https://github.com/spiraldb/vortex/pull/399))
+- README updates ([#394](https://github.com/spiraldb/vortex/pull/394))
+- Download flatc instead of building it from source ([#374](https://github.com/spiraldb/vortex/pull/374))
+- Update README.md ([#337](https://github.com/spiraldb/vortex/pull/337))
+- IPC Prototype ([#181](https://github.com/spiraldb/vortex/pull/181))
+- Add note to readme about git submodules and zig version ([#176](https://github.com/spiraldb/vortex/pull/176))
+- acknowledgments ([#171](https://github.com/spiraldb/vortex/pull/171))
+- Update README.md ([#168](https://github.com/spiraldb/vortex/pull/168))
+- More README updates ([#140](https://github.com/spiraldb/vortex/pull/140))
+- Update README.md
+- readme improvements ([#137](https://github.com/spiraldb/vortex/pull/137))
+- README ([#102](https://github.com/spiraldb/vortex/pull/102))
+- Root project is vortex-array ([#67](https://github.com/spiraldb/vortex/pull/67))
+- Add minimal description to readme and fixup cargo metadata ([#30](https://github.com/spiraldb/vortex/pull/30))
+- Add Readme
+
 ## `vortex-datafusion` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-datafusion-v0.13.1...vortex-datafusion-v0.14.0) - 2024-11-04
 
 ### Added
