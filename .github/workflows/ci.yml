@@ -140,3 +140,22 @@ jobs:
           version: v1.0.0
       - name: Rust Bench as test
         run: cargo bench --bench '*[!noci]' -- --test
+
+  generated-files:
+    name: "Check generated proto/fbs files are up to date"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: rui314/setup-mold@v1
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/cleanup
+      - uses: ./.github/actions/setup-rust
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+      - name: "regenerate all .fbs/.proto Rust code"
+        run: |
+          cargo xtask generate-fbs
+          cargo xtask generate-proto
+      - name: "Make sure no files changed after regenerating"
+        run: |
+          git status | grep 'working tree clean'
+
