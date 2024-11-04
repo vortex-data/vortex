@@ -6,6 +6,182 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## `vortex-datafusion` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-datafusion-v0.13.1...vortex-datafusion-v0.14.0) - 2024-11-04
+
+### Added
+- it's a bird, it's a plane, it's vortex-all! ([#1140](https://github.com/spiraldb/vortex/pull/1140))
+- specify the storage_dtype in ExtDType ([#1007](https://github.com/spiraldb/vortex/pull/1007))
+
+### Other
+- Filter pushdown over layouts ([#1124](https://github.com/spiraldb/vortex/pull/1124))
+
+## `vortex-serde` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-serde-v0.13.1...vortex-serde-v0.14.0) - 2024-11-04
+
+### Added
+- it's a bird, it's a plane, it's vortex-all! ([#1140](https://github.com/spiraldb/vortex/pull/1140))
+- store min, max, null count, and true count in column metadata ([#1164](https://github.com/spiraldb/vortex/pull/1164))
+
+### Other
+- Filter pushdown over layouts ([#1124](https://github.com/spiraldb/vortex/pull/1124))
+
+## `vortex-zigzag` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-zigzag-v0.13.1...vortex-zigzag-v0.14.0) - 2024-11-04
+
+### Added
+- it's a bird, it's a plane, it's vortex-all! ([#1140](https://github.com/spiraldb/vortex/pull/1140))
+
+## `vortex-sampling-compressor` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-sampling-compressor-v0.13.1...vortex-sampling-compressor-v0.14.0) - 2024-11-04
+
+### Added
+- it's a bird, it's a plane, it's vortex-all! ([#1140](https://github.com/spiraldb/vortex/pull/1140))
+
+## `vortex-runend-bool` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-runend-bool-v0.13.1...vortex-runend-bool-v0.14.0) - 2024-11-04
+
+### Added
+- it's a bird, it's a plane, it's vortex-all! ([#1140](https://github.com/spiraldb/vortex/pull/1140))
+
+## `vortex-runend` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-runend-v0.13.1...vortex-runend-v0.14.0) - 2024-11-04
+
+### Added
+- it's a bird, it's a plane, it's vortex-all! ([#1140](https://github.com/spiraldb/vortex/pull/1140))
+
+## `vortex-roaring` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-roaring-v0.13.1...vortex-roaring-v0.14.0) - 2024-11-04
+
+### Added
+- it's a bird, it's a plane, it's vortex-all! ([#1140](https://github.com/spiraldb/vortex/pull/1140))
+
+### Other
+- deny missing_docs on vortex-dtype ([#1182](https://github.com/spiraldb/vortex/pull/1182))
+
+## `vortex-fsst` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-fsst-v0.13.1...vortex-fsst-v0.14.0) - 2024-11-04
+
+### Added
+- it's a bird, it's a plane, it's vortex-all! ([#1140](https://github.com/spiraldb/vortex/pull/1140))
+
+### Other
+- split CI into separate moldy jobs ([#1192](https://github.com/spiraldb/vortex/pull/1192))
+
+## `vortex-expr` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-expr-v0.13.1...vortex-expr-v0.14.0) - 2024-11-04
+
+### Added
+- it's a bird, it's a plane, it's vortex-all! ([#1140](https://github.com/spiraldb/vortex/pull/1140))
+
+### Other
+- Filter pushdown over layouts ([#1124](https://github.com/spiraldb/vortex/pull/1124))
+
+## `vortex-dict` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-dict-v0.13.1...vortex-dict-v0.14.0) - 2024-11-04
+
+### Added
+- it's a bird, it's a plane, it's vortex-all! ([#1140](https://github.com/spiraldb/vortex/pull/1140))
+
+## `vortex-datetime-parts` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-datetime-parts-v0.13.1...vortex-datetime-parts-v0.14.0) - 2024-11-04
+
+### Added
+- it's a bird, it's a plane, it's vortex-all! ([#1140](https://github.com/spiraldb/vortex/pull/1140))
+- specify the storage_dtype in ExtDType ([#1007](https://github.com/spiraldb/vortex/pull/1007))
+
+## `vortex-bytebool` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-bytebool-v0.13.1...vortex-bytebool-v0.14.0) - 2024-11-04
+
+### Added
+- it's a bird, it's a plane, it's vortex-all! ([#1140](https://github.com/spiraldb/vortex/pull/1140))
+
+## `vortex-fastlanes` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-fastlanes-v0.13.1...vortex-fastlanes-v0.14.0) - 2024-11-04
+
+### Added
+- it's a bird, it's a plane, it's vortex-all! ([#1140](https://github.com/spiraldb/vortex/pull/1140))
+
+## `vortex-scalar` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-scalar-v0.13.1...vortex-scalar-v0.14.0) - 2024-11-04
+
+### Added
+- specify the storage_dtype in ExtDType ([#1007](https://github.com/spiraldb/vortex/pull/1007))
+- store min, max, null count, and true count in column metadata ([#1164](https://github.com/spiraldb/vortex/pull/1164))
+
+## `vortex-proto` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-proto-v0.13.1...vortex-proto-v0.14.0) - 2024-11-04
+
+### Added
+- specify the storage_dtype in ExtDType ([#1007](https://github.com/spiraldb/vortex/pull/1007))
+
+## `vortex-flatbuffers` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-flatbuffers-v0.13.1...vortex-flatbuffers-v0.14.0) - 2024-11-04
+
+### Added
+- specify the storage_dtype in ExtDType ([#1007](https://github.com/spiraldb/vortex/pull/1007))
+
+### Other
+- Filter pushdown over layouts ([#1124](https://github.com/spiraldb/vortex/pull/1124))
+
+## `vortex-error` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-error-v0.13.1...vortex-error-v0.14.0) - 2024-11-04
+
+### Added
+- docs for `vortex-error` crate ([#1184](https://github.com/spiraldb/vortex/pull/1184))
+
+## `vortex-dtype` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-dtype-v0.13.1...vortex-dtype-v0.14.0) - 2024-11-04
+
+### Added
+- specify the storage_dtype in ExtDType ([#1007](https://github.com/spiraldb/vortex/pull/1007))
+
+### Other
+- deny missing_docs on vortex-dtype ([#1182](https://github.com/spiraldb/vortex/pull/1182))
+
+## `vortex-datetime-dtype` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-datetime-dtype-v0.13.1...vortex-datetime-dtype-v0.14.0) - 2024-11-04
+
+### Added
+- specify the storage_dtype in ExtDType ([#1007](https://github.com/spiraldb/vortex/pull/1007))
+
+### Other
+- improve datetime-dtype unit tests ([#1183](https://github.com/spiraldb/vortex/pull/1183))
+
+## `vortex-buffer` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-buffer-v0.13.1...vortex-buffer-v0.14.0) - 2024-11-04
+
+### Added
+- store min, max, null count, and true count in column metadata ([#1164](https://github.com/spiraldb/vortex/pull/1164))
+
+## `vortex-array` - [0.14.0](https://github.com/spiraldb/vortex/compare/0.13.1...0.14.0) - 2024-11-04
+
+### Added
+- it's a bird, it's a plane, it's vortex-all! ([#1140](https://github.com/spiraldb/vortex/pull/1140))
+- specify the storage_dtype in ExtDType ([#1007](https://github.com/spiraldb/vortex/pull/1007))
+- store min, max, null count, and true count in column metadata ([#1164](https://github.com/spiraldb/vortex/pull/1164))
+
+### Other
+- deny missing_docs on vortex-dtype ([#1182](https://github.com/spiraldb/vortex/pull/1182))
+
+## `vortex-alp` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-alp-v0.13.1...vortex-alp-v0.14.0) - 2024-11-04
+
+### Added
+- it's a bird, it's a plane, it's vortex-all! ([#1140](https://github.com/spiraldb/vortex/pull/1140))
+
+## `vortex-all` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-all-v0.13.1...vortex-all-v0.14.0) - 2024-11-04
+
+### Added
+- it's a bird, it's a plane, it's vortex-all! ([#1140](https://github.com/spiraldb/vortex/pull/1140))
+
+### Fixed
+- update setup instructions (rye -> uv) ([#1176](https://github.com/spiraldb/vortex/pull/1176))
+- fix docs badge in readme ([#753](https://github.com/spiraldb/vortex/pull/753))
+
+### Other
+- deny missing_docs on vortex-dtype ([#1182](https://github.com/spiraldb/vortex/pull/1182))
+- very small README.md fixes
+- More README.md improvements ([#1084](https://github.com/spiraldb/vortex/pull/1084))
+- Update README.md ([#1055](https://github.com/spiraldb/vortex/pull/1055))
+- minor addition to README ([#1030](https://github.com/spiraldb/vortex/pull/1030))
+- updated README ([#876](https://github.com/spiraldb/vortex/pull/876))
+- release to Test PyPI on each push to version tags ([#760](https://github.com/spiraldb/vortex/pull/760))
+- Run ETE benchmarks with MiMalloc and leave a note encouraging its usage ([#399](https://github.com/spiraldb/vortex/pull/399))
+- README updates ([#394](https://github.com/spiraldb/vortex/pull/394))
+- Download flatc instead of building it from source ([#374](https://github.com/spiraldb/vortex/pull/374))
+- Update README.md ([#337](https://github.com/spiraldb/vortex/pull/337))
+- IPC Prototype ([#181](https://github.com/spiraldb/vortex/pull/181))
+- Add note to readme about git submodules and zig version ([#176](https://github.com/spiraldb/vortex/pull/176))
+- acknowledgments ([#171](https://github.com/spiraldb/vortex/pull/171))
+- Update README.md ([#168](https://github.com/spiraldb/vortex/pull/168))
+- More README updates ([#140](https://github.com/spiraldb/vortex/pull/140))
+- Update README.md
+- readme improvements ([#137](https://github.com/spiraldb/vortex/pull/137))
+- README ([#102](https://github.com/spiraldb/vortex/pull/102))
+- Root project is vortex-array ([#67](https://github.com/spiraldb/vortex/pull/67))
+- Add minimal description to readme and fixup cargo metadata ([#30](https://github.com/spiraldb/vortex/pull/30))
+- Add Readme
+
 ## `vortex-serde` - [0.13.1](https://github.com/spiraldb/vortex/compare/vortex-serde-v0.13.0...vortex-serde-v0.13.1) - 2024-10-31
 
 ### Fixed
