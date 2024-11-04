@@ -3,6 +3,7 @@
 changelog_path = "./CHANGELOG.md"
 git_release_enable = false
 git_tag_enable = false
+release_always = false # https://github.com/MarcoIeni/release-plz/issues/1805#issuecomment-2453048989
 
 # This uses the single-changelog template from https://release-plz.ieni.dev/docs/extra/single-changelog
 [changelog]
