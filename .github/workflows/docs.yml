@@ -18,13 +18,13 @@ jobs:
       - uses: ./.github/actions/setup-rust
       - uses: spiraldb/actions/.github/actions/setup-uv@0.2.0
 
-      - name: build Python docs
+      - name: build Python and Rust docs
         run: |
           set -ex
 
           (cd pyvortex && uv run maturin develop)
 
-          (cd docs && uv run make html)
+          (cd docs && uv run make full-html)
       - name: commit python docs to gh-pages-bench
         run: |
           set -ex
