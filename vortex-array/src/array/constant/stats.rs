@@ -28,6 +28,10 @@ impl ArrayStatisticsCompute for ConstantArray {
                 .into(),
         );
 
+        let scalar = self.owned_scalar();
+        stats_map.insert(Stat::Min, scalar.clone());
+        stats_map.insert(Stat::Max, scalar);
+
         Ok(StatsSet::from(stats_map))
     }
 }

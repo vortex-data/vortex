@@ -7,7 +7,7 @@ use vortex_error::{VortexExpect as _, VortexResult};
 
 use crate::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use crate::encoding::ids;
-use crate::stats::ArrayStatisticsCompute;
+use crate::stats::{ArrayStatisticsCompute, Stat, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity};
 use crate::variants::{ArrayVariants, ExtensionArrayTrait};
 use crate::{impl_encoding, Array, ArrayDType, ArrayTrait, Canonical, IntoCanonical};
@@ -93,5 +93,18 @@ impl AcceptArrayVisitor for ExtensionArray {
 }
 
 impl ArrayStatisticsCompute for ExtensionArray {
-    // TODO(ngates): pass through stats to the underlying and cast the scalars.
+    fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
+        let storage_stats = self.storage().with_dyn(|a| a.compute_statistics(stat))?;
+
+        let mut stats = StatsSet::new();
+        for (key, value) in storage_stats.into_iter() {
+            if !matches!(key, Stat::Min | Stat::Max) {
+                stats.set(key, value);
+            } else {
+                stats.set(key, value.cast(self.dtype())?);
+            }
+        }
+
+        Ok(stats)
+    }
 }
