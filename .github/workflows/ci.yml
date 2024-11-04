@@ -42,9 +42,6 @@ jobs:
       - name: Rust Build (Default features)
         run: cargo build --all-targets
 
-      - name: Clean cargo to keep disk usage below limit
-        run: cargo clean
-
       - name: Rust Build (All Features)
         run: cargo build --all-features --all-targets
 
