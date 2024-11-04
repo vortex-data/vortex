@@ -9,7 +9,8 @@ on:
 permissions:
   actions: read
   contents: read
-  checks: write
+  checks: write  # audit-check creates checks
+  issues: write  # audit-check creates issues
 
 env:
   CARGO_TERM_COLOR: always
@@ -119,10 +120,14 @@ jobs:
       - name: Rust Test
         run: cargo test --workspace --all-features
 
-  license-check:
-    name: License check
+  license-check-and-audit-check:
+    name: License Check and Audit Check
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/cleanup
+      - uses: rui314/setup-mold@v1
+      - uses: ./.github/actions/setup-rust
       - uses: actions/checkout@v4
       - name: License Check
         run: cargo install --locked cargo-deny && cargo deny check
