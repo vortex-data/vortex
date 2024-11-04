@@ -67,7 +67,7 @@ impl EncodingCompressor for ALPRDCompressor {
         Ok(CompressedArray::compressed(
             encoded,
             Some(CompressionTree::new_with_metadata(self, vec![], encoder)),
-            Some(array.statistics().to_set()),
+            Some(array.statistics()),
         ))
     }
 

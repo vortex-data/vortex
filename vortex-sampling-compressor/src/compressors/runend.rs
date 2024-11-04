@@ -71,7 +71,7 @@ impl EncodingCompressor for RunEndCompressor {
                 self,
                 vec![compressed_ends.path, compressed_values.path],
             )),
-            Some(array.statistics().to_set()),
+            Some(array.statistics()),
         ))
     }
 

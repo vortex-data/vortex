@@ -69,7 +69,7 @@ impl EncodingCompressor for DateTimePartsCompressor {
                 self,
                 vec![days.path, seconds.path, subsecond.path],
             )),
-            Some(array.statistics().to_set()),
+            Some(array.statistics()),
         ))
     }
 

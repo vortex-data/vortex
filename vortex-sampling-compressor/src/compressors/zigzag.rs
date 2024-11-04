@@ -51,7 +51,7 @@ impl EncodingCompressor for ZigZagCompressor {
         Ok(CompressedArray::compressed(
             ZigZagArray::try_new(compressed.array)?.into_array(),
             Some(CompressionTree::new(self, vec![compressed.path])),
-            Some(array.statistics().to_set()),
+            Some(array.statistics()),
         ))
     }
 

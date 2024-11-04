@@ -57,7 +57,7 @@ impl EncodingCompressor for DeltaCompressor {
             DeltaArray::try_from_delta_compress_parts(bases.array, deltas.array, validity)?
                 .into_array(),
             Some(CompressionTree::new(self, vec![bases.path, deltas.path])),
-            Some(array.statistics().to_set()),
+            Some(array.statistics()),
         ))
     }
 

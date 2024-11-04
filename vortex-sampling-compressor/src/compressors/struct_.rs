@@ -57,7 +57,7 @@ impl EncodingCompressor for StructCompressor {
             )?
             .into_array(),
             Some(CompressionTree::new(self, trees)),
-            Some(array.statistics().to_set()),
+            Some(array.statistics()),
         ))
     }
 

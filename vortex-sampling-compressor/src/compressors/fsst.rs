@@ -131,7 +131,7 @@ impl EncodingCompressor for FSSTCompressor {
                 vec![uncompressed_lengths.path, codes_offsets_compressed.path],
                 compressor,
             )),
-            Some(array.statistics().to_set()),
+            Some(array.statistics()),
         ))
     }
 

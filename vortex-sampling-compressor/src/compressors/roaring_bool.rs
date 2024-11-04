@@ -50,7 +50,7 @@ impl EncodingCompressor for RoaringBoolCompressor {
         Ok(CompressedArray::compressed(
             roaring_bool_encode(array.clone().into_bool()?)?.into_array(),
             Some(CompressionTree::flat(self)),
-            Some(array.statistics().to_set()),
+            Some(array.statistics()),
         ))
     }
 

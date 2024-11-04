@@ -71,7 +71,7 @@ impl EncodingCompressor for FoRCompressor {
                     )
                     .map(|a| a.into_array())?,
                     Some(CompressionTree::new(self, vec![compressed_child.path])),
-                    Some(array.statistics().to_set()),
+                    Some(array.statistics()),
                 ))
             }
             Err(_) => {

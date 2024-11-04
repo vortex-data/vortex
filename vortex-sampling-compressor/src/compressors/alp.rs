@@ -79,7 +79,7 @@ impl EncodingCompressor for ALPCompressor {
                     compressed_patches.and_then(|p| p.path),
                 ],
             )),
-            Some(array.statistics().to_set()),
+            Some(array.statistics()),
         ))
     }
 
