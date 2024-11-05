@@ -16,7 +16,7 @@ Wide, Fast & Compact. Pick Three.
        Currently just a schematic. Specification forthcoming.
 
     .. grid-item-card:: The Rust API
-       :link: https://spiraldb.github.io/vortex/docs2/rust/doc/vortex
+       :link: https://spiraldb.github.io/vortex/docs/rust/doc/vortex
 
        The primary interface to the Vortex toolkit.
 
@@ -67,4 +67,4 @@ Documentation
    guide
    file_format
    api/index
-   Rust API <https://spiraldb.github.io/vortex/docs2/rust/doc/vortex>
+   Rust API <https://spiraldb.github.io/vortex/docs/rust/doc/vortex>
