@@ -17,8 +17,12 @@ jobs:
       - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
       - uses: spiraldb/actions/.github/actions/setup-uv@0.2.0
-
-      - name: build Python and Rust docs
+      - name: build Rust docs
+        env:
+          RUSTDOCFLAGS: --enable-index-page -Z unstable-options
+        run: |
+          cargo doc --all-features --no-deps
+      - name: build Python docs
         run: |
           uv run make -C docs full-html
       - name: commit python docs to gh-pages-bench
@@ -28,7 +32,12 @@ jobs:
           built_sha=$(git rev-parse HEAD)
 
           rm -rf docs/_build/html/rust/CACHETAG.DIR docs/_build/html/rust/debug
+
+          # put docs in a single place
           mv docs/_build/html /tmp/html
+
+          # add rust docs into page workspace under /rust-next
+          mv target/doc /tmp/html/rust-next
 
           git fetch origin
           git checkout origin/gh-pages-bench
