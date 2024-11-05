@@ -210,7 +210,7 @@ impl ArrayValidity for SparseArray {
                     .with_dyn(|a| a.logical_validity().into_array()),
                 self.len(),
                 self.indices_offset(),
-                false.into(),
+                true.into(),
             )
         }
         .vortex_expect("Error determining logical validity for sparse array");
@@ -236,7 +236,6 @@ mod test {
         Scalar::null(DType::Primitive(PType::I32, Nullable))
     }
 
-    #[allow(dead_code)]
     fn non_nullable_fill() -> Scalar {
         Scalar::from(42i32)
     }
@@ -393,6 +392,23 @@ mod test {
         assert_eq!(
             validity.boolean_buffer().iter().collect_vec(),
             [false, false, true, false, false, true, false, false, true, false]
+        );
+    }
+
+    #[test]
+    fn sparse_logical_validity_non_null_fill() {
+        let array = sparse_array(non_nullable_fill());
+
+        assert_eq!(
+            array
+                .with_dyn(|a| a.logical_validity())
+                .into_array()
+                .into_bool()
+                .unwrap()
+                .boolean_buffer()
+                .iter()
+                .collect::<Vec<_>>(),
+            vec![true; 10]
         );
     }
 
