@@ -37,7 +37,7 @@ impl ObjectStoreExt for Arc<dyn ObjectStore> {
         range: Range<usize>,
     ) -> VortexResult<impl VortexRead> {
         let bytes = self.get_range(location, range).await?;
-        Ok(Cursor::new(Buffer::Bytes(bytes)))
+        Ok(Cursor::new(Buffer::from(bytes)))
     }
 
     fn vortex_reader(&self, location: &Path) -> impl VortexReadAt {

@@ -357,7 +357,7 @@ mod test {
         let mut writer = MessageWriter::new(write);
         block_on(async {
             writer
-                .write_page(Buffer::Bytes(Bytes::from("somevalue")))
+                .write_page(Buffer::from(Bytes::from("somevalue")))
                 .await
         })
         .unwrap();
@@ -368,6 +368,6 @@ mod test {
         let read_page = block_on(async { reader.maybe_read_page().await })
             .unwrap()
             .unwrap();
-        assert_eq!(read_page, Buffer::Bytes(Bytes::from("somevalue")));
+        assert_eq!(read_page, Buffer::from(Bytes::from("somevalue")));
     }
 }

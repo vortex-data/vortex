@@ -81,7 +81,7 @@ pub async fn rewrite_parquet_as_vortex<W: VortexWrite>(
         dtype_range: layout.dtype.begin..layout.dtype.end,
     }
     .serialize(&mut s)?;
-    let footer_bytes = Buffer::Bytes(Bytes::from(s.take_buffer()));
+    let footer_bytes = Buffer::from(Bytes::from(s.take_buffer()));
     let footer_len = footer_bytes.len() as u64;
     w.write_all(footer_bytes).await?;
     w.write_all(footer_len.to_le_bytes()).await?;
