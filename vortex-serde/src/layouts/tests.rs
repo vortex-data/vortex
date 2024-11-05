@@ -15,7 +15,7 @@ use vortex_expr::{BinaryExpr, Column, Literal, Operator};
 
 use crate::layouts::write::LayoutWriter;
 use crate::layouts::{
-    LayoutDescriptorReader, LayoutDeserializer, LayoutMessageCache, LayoutReaderBuilder,
+    LayoutBatchStreamBuilder, LayoutDescriptorReader, LayoutDeserializer, LayoutMessageCache,
     LazyDeserializedDType, Projection, RelativeLayoutCache, RowFilter, Scan, CHUNKED_LAYOUT_ID,
     COLUMN_LAYOUT_ID, EOF_SIZE, FLAT_LAYOUT_ID, FOOTER_POSTSCRIPT_SIZE, INLINE_SCHEMA_LAYOUT_ID,
     MAGIC_BYTES, VERSION,
@@ -58,7 +58,7 @@ async fn test_read_simple() {
     writer = writer.write_array_columns(st.into_array()).await.unwrap();
     let written = writer.finalize().await.unwrap();
 
-    let mut stream = LayoutReaderBuilder::new(written, LayoutDeserializer::default())
+    let mut stream = LayoutBatchStreamBuilder::new(written, LayoutDeserializer::default())
         .build()
         .await
         .unwrap();
@@ -149,7 +149,7 @@ async fn test_read_projection() {
     writer = writer.write_array_columns(st.into_array()).await.unwrap();
     let written = writer.finalize().await.unwrap();
 
-    let array = LayoutReaderBuilder::new(written.clone(), LayoutDeserializer::default())
+    let array = LayoutBatchStreamBuilder::new(written.clone(), LayoutDeserializer::default())
         .with_projection(Projection::new([0]))
         .build()
         .await
@@ -180,7 +180,7 @@ async fn test_read_projection() {
         .unwrap();
     assert_eq!(actual, strings_expected);
 
-    let array = LayoutReaderBuilder::new(written.clone(), LayoutDeserializer::default())
+    let array = LayoutBatchStreamBuilder::new(written.clone(), LayoutDeserializer::default())
         .with_projection(Projection::Flat(vec![Field::Name("strings".to_string())]))
         .build()
         .await
@@ -211,7 +211,7 @@ async fn test_read_projection() {
         .unwrap();
     assert_eq!(actual, strings_expected);
 
-    let array = LayoutReaderBuilder::new(written.clone(), LayoutDeserializer::default())
+    let array = LayoutBatchStreamBuilder::new(written.clone(), LayoutDeserializer::default())
         .with_projection(Projection::new([1]))
         .build()
         .await
@@ -238,7 +238,7 @@ async fn test_read_projection() {
     let actual = primitive_array.maybe_null_slice::<u32>();
     assert_eq!(actual, numbers_expected);
 
-    let array = LayoutReaderBuilder::new(written.clone(), LayoutDeserializer::default())
+    let array = LayoutBatchStreamBuilder::new(written.clone(), LayoutDeserializer::default())
         .with_projection(Projection::Flat(vec![Field::Name("numbers".to_string())]))
         .build()
         .await
@@ -287,7 +287,7 @@ async fn unequal_batches() {
     writer = writer.write_array_columns(st.into_array()).await.unwrap();
     let written = writer.finalize().await.unwrap();
 
-    let mut stream = LayoutReaderBuilder::new(written, LayoutDeserializer::default())
+    let mut stream = LayoutBatchStreamBuilder::new(written, LayoutDeserializer::default())
         .build()
         .await
         .unwrap();
@@ -344,7 +344,7 @@ async fn write_chunked() {
     let mut writer = LayoutWriter::new(buf);
     writer = writer.write_array_columns(chunked_st).await.unwrap();
     let written = writer.finalize().await.unwrap();
-    let mut reader = LayoutReaderBuilder::new(written, LayoutDeserializer::default())
+    let mut reader = LayoutBatchStreamBuilder::new(written, LayoutDeserializer::default())
         .build()
         .await
         .unwrap();
@@ -377,7 +377,7 @@ async fn filter_string() {
     let mut writer = LayoutWriter::new(Vec::new());
     writer = writer.write_array_columns(st).await.unwrap();
     let written = writer.finalize().await.unwrap();
-    let mut reader = LayoutReaderBuilder::new(written, LayoutDeserializer::default())
+    let mut reader = LayoutBatchStreamBuilder::new(written, LayoutDeserializer::default())
         .with_row_filter(RowFilter::new(Arc::new(BinaryExpr::new(
             Arc::new(Column::new(Field::from("name"))),
             Operator::Eq,
@@ -434,7 +434,7 @@ async fn filter_or() {
     let mut writer = LayoutWriter::new(Vec::new());
     writer = writer.write_array_columns(st).await.unwrap();
     let written = writer.finalize().await.unwrap();
-    let mut reader = LayoutReaderBuilder::new(written, LayoutDeserializer::default())
+    let mut reader = LayoutBatchStreamBuilder::new(written, LayoutDeserializer::default())
         .with_row_filter(RowFilter::new(Arc::new(BinaryExpr::new(
             Arc::new(BinaryExpr::new(
                 Arc::new(Column::new(Field::from("name"))),
@@ -507,7 +507,7 @@ async fn filter_and() {
     let mut writer = LayoutWriter::new(Vec::new());
     writer = writer.write_array_columns(st).await.unwrap();
     let written = writer.finalize().await.unwrap();
-    let mut reader = LayoutReaderBuilder::new(written, LayoutDeserializer::default())
+    let mut reader = LayoutBatchStreamBuilder::new(written, LayoutDeserializer::default())
         .with_row_filter(RowFilter::new(Arc::new(BinaryExpr::new(
             Arc::new(BinaryExpr::new(
                 Arc::new(Column::new(Field::from("age"))),

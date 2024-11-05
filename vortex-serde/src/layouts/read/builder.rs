@@ -13,7 +13,7 @@ use crate::layouts::read::footer::LayoutDescriptorReader;
 use crate::layouts::read::stream::LayoutBatchStream;
 use crate::layouts::read::Scan;
 
-pub struct LayoutReaderBuilder<R> {
+pub struct LayoutBatchStreamBuilder<R> {
     reader: R,
     layout_serde: LayoutDeserializer,
     projection: Option<Projection>,
@@ -22,7 +22,7 @@ pub struct LayoutReaderBuilder<R> {
     row_filter: Option<RowFilter>,
 }
 
-impl<R: VortexReadAt> LayoutReaderBuilder<R> {
+impl<R: VortexReadAt> LayoutBatchStreamBuilder<R> {
     pub fn new(reader: R, layout_serde: LayoutDeserializer) -> Self {
         Self {
             reader,

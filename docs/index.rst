@@ -16,7 +16,7 @@ Wide, Fast & Compact. Pick Three.
        Currently just a schematic. Specification forthcoming.
 
     .. grid-item-card:: The Rust API
-       :link: https://spiraldb.github.io/vortex/docs/rust/doc/vortex
+       :link: /vortex/docs/rust/doc/vortex
 
        The primary interface to the Vortex toolkit.
 
@@ -60,6 +60,9 @@ fast reads, small files, few columns, many columns, over-sized columns, etc.
 Documentation
 -------------
 
+..
+    The Rust API link must be external because of: https://github.com/sphinx-doc/sphinx/issues/701
+
 .. toctree::
    :maxdepth: 2
 
@@ -67,4 +70,4 @@ Documentation
    guide
    file_format
    api/index
-   Rust API <https://spiraldb.github.io/vortex/docs/rust/doc/vortex>
+   Rust API <https://spiraldb.github.io/vortex/docs/rust/doc/>
