@@ -39,7 +39,7 @@ impl RowMask {
     ///
     /// # Safety
     ///
-    /// Experts only!
+    /// The maximum set index of the `values` must be no greater than `end - begin`.
     pub unsafe fn new_unchecked(values: Bitmap, begin: usize, end: usize) -> Self {
         Self { values, begin, end }
     }
