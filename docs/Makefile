@@ -27,8 +27,6 @@ rust-html:
 		--no-deps \
 		--workspace \
 		--exclude bench-vortex \
-		--exclude notimplemented \
-		--exclude tpch-benchmark \
 		--exclude xtask \
 		--all-features \
 		--target-dir \
