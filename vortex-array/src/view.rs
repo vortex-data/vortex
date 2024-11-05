@@ -149,7 +149,8 @@ impl ArrayView {
 
     pub fn children(&self) -> Vec<Array> {
         let mut collector = ChildrenCollector::default();
-        Array::View(self.clone())
+        self.clone()
+            .into_array()
             .with_dyn(|a| a.accept(&mut collector))
             .vortex_expect("Failed to get children");
         collector.children
@@ -260,17 +261,5 @@ impl Statistics for ArrayView {
             .ok()?
             .get(stat)
             .cloned()
-    }
-}
-
-impl ToArray for ArrayView {
-    fn to_array(&self) -> Array {
-        Array::View(self.clone())
-    }
-}
-
-impl IntoArray for ArrayView {
-    fn into_array(self) -> Array {
-        Array::View(self)
     }
 }

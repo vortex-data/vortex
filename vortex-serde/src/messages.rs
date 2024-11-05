@@ -111,22 +111,10 @@ impl WriteFlatBuffer for IPCArray<'_> {
         let column_data = self.0;
 
         let encoding = column_data.encoding().id().code();
-        let metadata = match column_data {
-            Array::Data(d) => {
-                let metadata = d
-                    .metadata()
-                    .try_serialize_metadata()
-                    // TODO(ngates): should we serialize externally to here?
-                    .vortex_expect("ArrayData is missing metadata during serialization");
-                Some(fbb.create_vector(metadata.as_ref()))
-            }
-            Array::View(v) => Some(
-                fbb.create_vector(
-                    v.metadata()
-                        .vortex_expect("ArrayView is missing metadata during serialization"),
-                ),
-            ),
-        };
+        let metadata = column_data
+            .metadata()
+            .vortex_expect("IPCArray is missing metadata during serialization");
+        let metadata = Some(fbb.create_vector(metadata.as_ref()));
 
         // Assign buffer indices for all child arrays.
         // The second tuple element holds the buffer_index for this Array subtree. If this array

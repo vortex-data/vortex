@@ -9,6 +9,7 @@
 //! arrays can be [canonicalized](Canonical) into for ease of access in compute functions.
 //!
 
+use std::borrow::Cow;
 use std::fmt::{Debug, Display, Formatter};
 use std::future::ready;
 
@@ -19,11 +20,12 @@ pub use implementation::*;
 use itertools::Itertools;
 pub use metadata::*;
 pub use paste;
+use stats::Statistics;
 pub use typed::*;
 pub use view::*;
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
-use vortex_error::{vortex_panic, VortexExpect, VortexResult};
+use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
 
 use crate::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use crate::compute::ArrayCompute;
@@ -65,7 +67,10 @@ pub mod flatbuffers {
 ///
 /// This is the main entrypoint for working with in-memory Vortex data, and dispatches work over the underlying encoding or memory representations.
 #[derive(Debug, Clone)]
-pub enum Array {
+pub struct Array(pub(crate) Inner);
+
+#[derive(Debug, Clone)]
+pub(crate) enum Inner {
     /// Owned [`Array`] with serialized metadata, backed by heap-allocated memory.
     Data(ArrayData),
     /// Zero-copy view over flatbuffer-encoded [`Array`] data, created without eager serialization.
@@ -74,25 +79,25 @@ pub enum Array {
 
 impl Array {
     pub fn encoding(&self) -> EncodingRef {
-        match self {
-            Self::Data(d) => d.encoding(),
-            Self::View(v) => v.encoding(),
+        match &self.0 {
+            Inner::Data(d) => d.encoding(),
+            Inner::View(v) => v.encoding(),
         }
     }
 
     /// Returns the number of logical elements in the array.
     #[allow(clippy::same_name_method)]
     pub fn len(&self) -> usize {
-        match self {
-            Self::Data(d) => d.len(),
-            Self::View(v) => v.len(),
+        match &self.0 {
+            Inner::Data(d) => d.len(),
+            Inner::View(v) => v.len(),
         }
     }
 
     pub fn is_empty(&self) -> bool {
-        match self {
-            Self::Data(d) => d.is_empty(),
-            Self::View(v) => v.is_empty(),
+        match &self.0 {
+            Inner::Data(d) => d.is_empty(),
+            Inner::View(v) => v.is_empty(),
         }
     }
 
@@ -102,25 +107,27 @@ impl Array {
     }
 
     pub fn child<'a>(&'a self, idx: usize, dtype: &'a DType, len: usize) -> VortexResult<Self> {
-        match self {
-            Self::Data(d) => d.child(idx, dtype, len).cloned(),
-            Self::View(v) => v.child(idx, dtype, len).map(Array::View),
+        match &self.0 {
+            Inner::Data(d) => d.child(idx, dtype, len).cloned(),
+            Inner::View(v) => v
+                .child(idx, dtype, len)
+                .map(|view| Array(Inner::View(view))),
         }
     }
 
     /// Returns a Vec of Arrays with all of the array's child arrays.
     pub fn children(&self) -> Vec<Array> {
-        match self {
-            Array::Data(d) => d.children().iter().cloned().collect_vec(),
-            Array::View(v) => v.children(),
+        match &self.0 {
+            Inner::Data(d) => d.children().iter().cloned().collect_vec(),
+            Inner::View(v) => v.children(),
         }
     }
 
     /// Returns the number of child arrays
     pub fn nchildren(&self) -> usize {
-        match self {
-            Self::Data(d) => d.nchildren(),
-            Self::View(v) => v.nchildren(),
+        match &self.0 {
+            Inner::Data(d) => d.nchildren(),
+            Inner::View(v) => v.nchildren(),
         }
     }
 
@@ -157,17 +164,43 @@ impl Array {
         offsets
     }
 
+    /// Get back the (possibly owned) metadata for the array.
+    ///
+    /// View arrays will return a reference to their bytes, while heap-backed arrays
+    /// must first serialize their metadata, returning an owned byte array to the caller.
+    pub fn metadata(&self) -> VortexResult<Cow<[u8]>> {
+        match &self.0 {
+            Inner::Data(array_data) => {
+                // Heap-backed arrays must first try and serialize the metadata.
+                let owned_meta: Vec<u8> = array_data
+                    .metadata()
+                    .try_serialize_metadata()?
+                    .as_ref()
+                    .to_owned();
+
+                Ok(Cow::Owned(owned_meta))
+            }
+            Inner::View(array_view) => {
+                // View arrays have direct access to metadata bytes.
+                array_view
+                    .metadata()
+                    .ok_or_else(|| vortex_err!("things"))
+                    .map(Cow::Borrowed)
+            }
+        }
+    }
+
     pub fn buffer(&self) -> Option<&Buffer> {
-        match self {
-            Self::Data(d) => d.buffer(),
-            Self::View(v) => v.buffer(),
+        match &self.0 {
+            Inner::Data(d) => d.buffer(),
+            Inner::View(v) => v.buffer(),
         }
     }
 
     pub fn into_buffer(self) -> Option<Buffer> {
-        match self {
-            Self::Data(d) => d.into_buffer(),
-            Self::View(v) => v.buffer().cloned(),
+        match self.0 {
+            Inner::Data(d) => d.into_buffer(),
+            Inner::View(v) => v.buffer().cloned(),
         }
     }
 
@@ -295,10 +328,35 @@ pub trait ArrayDType {
     fn dtype(&self) -> &DType;
 }
 
+impl<T: AsRef<Array>> ArrayDType for T {
+    fn dtype(&self) -> &DType {
+        match &self.as_ref().0 {
+            Inner::Data(array_data) => array_data.dtype(),
+            Inner::View(array_view) => array_view.dtype(),
+        }
+    }
+}
+
 pub trait ArrayLen {
     fn len(&self) -> usize;
 
     fn is_empty(&self) -> bool;
+}
+
+impl<T: AsRef<Array>> ArrayLen for T {
+    fn len(&self) -> usize {
+        match &self.as_ref().0 {
+            Inner::Data(d) => d.len(),
+            Inner::View(v) => v.len(),
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        match &self.as_ref().0 {
+            Inner::Data(d) => d.is_empty(),
+            Inner::View(v) => v.is_empty(),
+        }
+    }
 }
 
 struct NBytesVisitor(usize);
@@ -317,9 +375,9 @@ impl ArrayVisitor for NBytesVisitor {
 
 impl Display for Array {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let prefix = match self {
-            Self::Data(_) => "",
-            Self::View(_) => "$",
+        let prefix = match &self.0 {
+            Inner::Data(_) => "",
+            Inner::View(_) => "$",
         };
         write!(
             f,
@@ -334,9 +392,51 @@ impl Display for Array {
 
 impl ToArrayData for Array {
     fn to_array_data(&self) -> ArrayData {
-        match self {
-            Self::Data(d) => d.clone(),
-            Self::View(_) => self.with_dyn(|a| a.to_array_data()),
+        match &self.0 {
+            Inner::Data(d) => d.clone(),
+            Inner::View(_) => self.with_dyn(|a| a.to_array_data()),
+        }
+    }
+}
+
+impl ToArray for ArrayData {
+    fn to_array(&self) -> Array {
+        Array(Inner::Data(self.clone()))
+    }
+}
+
+impl ToArray for ArrayView {
+    fn to_array(&self) -> Array {
+        Array(Inner::View(self.clone()))
+    }
+}
+
+impl IntoArray for ArrayView {
+    fn into_array(self) -> Array {
+        Array(Inner::View(self))
+    }
+}
+
+impl From<Array> for ArrayData {
+    fn from(value: Array) -> ArrayData {
+        match value.0 {
+            Inner::Data(d) => d,
+            Inner::View(_) => value.with_dyn(|v| v.to_array_data()),
+        }
+    }
+}
+
+impl From<ArrayData> for Array {
+    fn from(value: ArrayData) -> Array {
+        Array(Inner::Data(value))
+    }
+}
+
+impl<T: AsRef<Array>> ArrayStatistics for T {
+    fn statistics(&self) -> &(dyn Statistics + '_) {
+        match &self.as_ref().0 {
+            Inner::Data(d) => d.statistics(),
+            Inner::View(v) => v.statistics(),
         }
     }
 }

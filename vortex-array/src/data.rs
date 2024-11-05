@@ -116,27 +116,6 @@ impl ArrayData {
     }
 }
 
-impl ToArray for ArrayData {
-    fn to_array(&self) -> Array {
-        Array::Data(self.clone())
-    }
-}
-
-impl From<Array> for ArrayData {
-    fn from(value: Array) -> ArrayData {
-        match value {
-            Array::Data(d) => d,
-            Array::View(_) => value.with_dyn(|v| v.to_array_data()),
-        }
-    }
-}
-
-impl From<ArrayData> for Array {
-    fn from(value: ArrayData) -> Array {
-        Array::Data(value)
-    }
-}
-
 impl Statistics for ArrayData {
     fn get(&self, stat: Stat) -> Option<Scalar> {
         self.stats_map

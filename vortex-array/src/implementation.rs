@@ -1,14 +1,13 @@
 //! The core Vortex macro to create new encodings and array types.
 
 use vortex_buffer::Buffer;
-use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexError, VortexExpect as _, VortexResult};
 
 use crate::array::visitor::ArrayVisitor;
 use crate::encoding::{ArrayEncoding, ArrayEncodingExt, ArrayEncodingRef, EncodingId, EncodingRef};
-use crate::stats::{ArrayStatistics, Statistics};
+use crate::stats::ArrayStatistics;
 use crate::{
-    Array, ArrayDType, ArrayData, ArrayLen, ArrayMetadata, ArrayTrait, GetArrayMetadata, IntoArray,
+    Array, ArrayDType, ArrayData, ArrayMetadata, ArrayTrait, GetArrayMetadata, Inner, IntoArray,
     ToArrayData, TryDeserializeArrayMetadata,
 };
 
@@ -169,49 +168,15 @@ impl<T: AsRef<Array>> ArrayEncodingRef for T {
     }
 }
 
-impl<T: AsRef<Array>> ArrayDType for T {
-    fn dtype(&self) -> &DType {
-        match self.as_ref() {
-            Array::Data(d) => d.dtype(),
-            Array::View(v) => v.dtype(),
-        }
-    }
-}
-
-impl<T: AsRef<Array>> ArrayLen for T {
-    fn len(&self) -> usize {
-        match self.as_ref() {
-            Array::Data(d) => d.len(),
-            Array::View(v) => v.len(),
-        }
-    }
-
-    fn is_empty(&self) -> bool {
-        match self.as_ref() {
-            Array::Data(d) => d.is_empty(),
-            Array::View(v) => v.is_empty(),
-        }
-    }
-}
-
-impl<T: AsRef<Array>> ArrayStatistics for T {
-    fn statistics(&self) -> &(dyn Statistics + '_) {
-        match self.as_ref() {
-            Array::Data(d) => d.statistics(),
-            Array::View(v) => v.statistics(),
-        }
-    }
-}
-
 impl<D> ToArrayData for D
 where
     D: IntoArray + ArrayEncodingRef + ArrayStatistics + GetArrayMetadata + Clone,
 {
     fn to_array_data(&self) -> ArrayData {
         let array = self.clone().into_array();
-        match array {
-            Array::Data(d) => d,
-            Array::View(ref view) => {
+        match array.0 {
+            Inner::Data(d) => d,
+            Inner::View(ref view) => {
                 struct Visitor {
                     buffer: Option<Buffer>,
                     children: Vec<Array>,
