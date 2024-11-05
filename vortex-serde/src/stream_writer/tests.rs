@@ -7,6 +7,7 @@ use arrow_array::PrimitiveArray;
 use vortex_array::arrow::FromArrowArray;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::{Array, Context, IntoCanonical};
+use vortex_buffer::Buffer;
 
 use crate::stream_reader::StreamArrayReader;
 use crate::stream_writer::StreamArrayWriter;
@@ -20,6 +21,7 @@ async fn broken_data() {
         .await
         .unwrap()
         .into_inner();
+    let written = Buffer::from(written);
     let reader = StreamArrayReader::try_new(Cursor::new(written), Arc::new(Context::default()))
         .await
         .unwrap();

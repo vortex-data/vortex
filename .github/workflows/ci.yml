@@ -2,15 +2,15 @@ name: CI
 
 on:
   push:
-    branches: [ "develop" ]
-  pull_request: { }
-  workflow_dispatch: { }
+    branches: ["develop"]
+  pull_request: {}
+  workflow_dispatch: {}
 
 permissions:
   actions: read
   contents: read
-  checks: write  # audit-check creates checks
-  issues: write  # audit-check creates issues
+  checks: write # audit-check creates checks
+  issues: write # audit-check creates issues
 
 env:
   CARGO_TERM_COLOR: always
@@ -140,7 +140,7 @@ jobs:
     name: "miri"
     runs-on: ubuntu-latest
     env:
-      MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-symbolic-alignment-check -Zmiri-backtrace=full
+      MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-symbolic-alignment-check -Zmiri-backtrace=full -Zmiri-disable-isolation
     steps:
       - uses: rui314/setup-mold@v1
       - uses: actions/checkout@v4
@@ -182,4 +182,3 @@ jobs:
       - name: "Make sure no files changed after regenerating"
         run: |
           test -z "$(git status --porcelain)"
-

@@ -8,6 +8,7 @@ use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use futures::executor::block_on;
 use futures::StreamExt;
 use vortex::array::{PrimitiveArray, VarBinArray, VarBinViewArray};
+use vortex::buffer::Buffer;
 use vortex::dtype::{DType, Nullability};
 use vortex::serde::stream_reader::StreamArrayReader;
 use vortex::serde::stream_writer::StreamArrayWriter;
@@ -30,6 +31,8 @@ fn array_view_fixture() -> VarBinViewArray {
 
     let writer = StreamArrayWriter::new(&mut buffer);
     block_on(writer.write_array(array_data.into_array())).unwrap();
+
+    let buffer = Buffer::from(buffer);
 
     let ctx = Arc::new(Context::default());
     let reader = block_on(StreamArrayReader::try_new(Cursor::new(buffer), ctx.clone())).unwrap();

@@ -52,7 +52,7 @@ pub mod iter;
 mod metadata;
 pub mod stats;
 pub mod stream;
-mod tree;
+pub mod tree;
 mod typed;
 pub mod validity;
 pub mod variants;

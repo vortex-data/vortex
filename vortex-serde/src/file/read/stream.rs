@@ -5,8 +5,8 @@ use std::sync::{Arc, RwLock};
 use std::task::{Context, Poll};
 
 use bytes::{Bytes, BytesMut};
+use futures::future::BoxFuture;
 use futures::Stream;
-use futures_util::future::BoxFuture;
 use futures_util::{stream, FutureExt, StreamExt, TryStreamExt};
 use itertools::Itertools;
 use vortex_array::array::ChunkedArray;
@@ -20,10 +20,11 @@ use vortex_schema::Schema;
 use crate::file::read::cache::LayoutMessageCache;
 use crate::file::read::mask::RowMask;
 use crate::file::read::{BatchRead, LayoutReader, MessageId};
-use crate::io::VortexReadAt;
+use crate::io::{Dispatch, IoDispatcher, VortexReadAt};
 use crate::stream_writer::ByteRange;
 
-/// Reads a layout from some memory, on-disk or elsewhere.
+/// An asynchronous Vortex file reader from some memory, on-disk or elsewhere, returning
+/// a [`Stream`] of [`Array`]s.
 ///
 /// Instead of using [`VortexFileArrayStream::new`], use a
 /// [VortexReadBuilder][crate::file::read::builder::VortexReadBuilder] to create an instance of
@@ -35,10 +36,13 @@ pub struct VortexFileArrayStream<R> {
     messages_cache: Arc<RwLock<LayoutMessageCache>>,
     splits: VecDeque<(usize, usize)>,
     row_mask: Option<RowMask>,
-    state: Option<StreamingState<R>>,
+    state: Option<StreamingState>,
+    input: R,
+    dispatcher: IoDispatcher,
 }
 
 impl<R: VortexReadAt> VortexFileArrayStream<R> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         input: R,
         layout_reader: Box<dyn LayoutReader>,
@@ -47,6 +51,7 @@ impl<R: VortexReadAt> VortexFileArrayStream<R> {
         dtype: DType,
         row_count: u64,
         row_mask: Option<RowMask>,
+        dispatcher: IoDispatcher,
     ) -> Self {
         VortexFileArrayStream {
             dtype,
@@ -55,7 +60,9 @@ impl<R: VortexReadAt> VortexFileArrayStream<R> {
             messages_cache,
             splits: VecDeque::new(),
             row_mask,
-            state: Some(StreamingState::AddSplits(input, filter_reader)),
+            state: Some(StreamingState::AddSplits(filter_reader)),
+            input,
+            dispatcher,
         }
     }
 
@@ -79,47 +86,42 @@ impl<R: VortexReadAt> VortexFileArrayStream<R> {
 }
 
 type StreamMessages = Vec<(MessageId, Bytes)>;
-type StreamStateFuture<R> = BoxFuture<'static, VortexResult<(R, StreamMessages)>>;
+type StreamStateFuture = BoxFuture<'static, VortexResult<Vec<(MessageId, Bytes)>>>;
 
-enum ReadingFor<R> {
-    Read(StreamStateFuture<R>, RowMask, Option<LayoutReaderRef>),
-    Filter(StreamStateFuture<R>, RowMask, Box<dyn LayoutReader>),
+enum ReadingFor {
+    Read(StreamStateFuture, RowMask, Option<LayoutReaderRef>),
+    Filter(StreamStateFuture, RowMask, Box<dyn LayoutReader>),
 }
 
-enum ReadingPoll<R> {
-    Ready(StreamingState<R>, StreamMessages),
-    Pending(ReadingFor<R>),
+enum ReadingPoll {
+    Ready(StreamingState, StreamMessages),
+    Pending(ReadingFor),
 }
 
-impl<R> ReadingFor<R> {
-    fn future(&mut self) -> &mut StreamStateFuture<R> {
+impl ReadingFor {
+    fn future(&mut self) -> &mut StreamStateFuture {
         match self {
             ReadingFor::Read(future, ..) => future,
             ReadingFor::Filter(future, ..) => future,
         }
     }
 
-    fn into_streaming_state(self, input: R) -> StreamingState<R> {
+    fn into_streaming_state(self) -> StreamingState {
         match self {
             ReadingFor::Read(.., row_mask, filter_reader) => {
-                StreamingState::Read(input, row_mask, filter_reader)
+                StreamingState::Read(row_mask, filter_reader)
             }
-            ReadingFor::Filter(.., row_mask, reader) => {
-                StreamingState::Filter(input, row_mask, reader)
-            }
+            ReadingFor::Filter(.., row_mask, reader) => StreamingState::Filter(row_mask, reader),
         }
     }
 
-    fn poll_unpin(mut self, cx: &mut Context) -> VortexResult<ReadingPoll<R>> {
-        let (input, messages) = match self.future().poll_unpin(cx) {
+    fn poll_unpin(mut self, cx: &mut Context) -> VortexResult<ReadingPoll> {
+        let messages = match self.future().poll_unpin(cx) {
             Poll::Pending => return Ok(ReadingPoll::Pending(self)),
             Poll::Ready(Err(err)) => return Err(err),
             Poll::Ready(Ok(x)) => x,
         };
-        Ok(ReadingPoll::Ready(
-            self.into_streaming_state(input),
-            messages,
-        ))
+        Ok(ReadingPoll::Ready(self.into_streaming_state(), messages))
     }
 }
 
@@ -131,47 +133,47 @@ type LayoutReaderRef = Box<dyn LayoutReader>;
 /// Main read loop goes from `NextSplit` -> `Filter` (if there's filter) -> `Read`
 /// `Filter` and `Read` states transition to `Reading` when they're blocked on an io operation which resumes back to
 /// the previous state.
-enum StreamingState<R> {
-    AddSplits(R, Option<LayoutReaderRef>),
-    NextSplit(R, Option<LayoutReaderRef>),
-    Filter(R, RowMask, LayoutReaderRef),
-    Read(R, RowMask, Option<LayoutReaderRef>),
-    Reading(ReadingFor<R>),
+enum StreamingState {
+    AddSplits(Option<LayoutReaderRef>),
+    NextSplit(Option<LayoutReaderRef>),
+    Filter(RowMask, LayoutReaderRef),
+    Read(RowMask, Option<LayoutReaderRef>),
+    Reading(ReadingFor),
     EndOfStream,
     Error,
 }
 
-enum StreamingTransition<R> {
-    GoTo(StreamingState<R>),
-    YieldTo(StreamingState<R>),
-    Produce(StreamingState<R>, Array),
+enum StreamingTransition {
+    GoTo(StreamingState),
+    YieldTo(StreamingState),
+    Produce(StreamingState, Array),
     Finished,
 }
 
-fn goto<R>(next_state: StreamingState<R>) -> VortexResult<StreamingTransition<R>> {
+fn goto(next_state: StreamingState) -> VortexResult<StreamingTransition> {
     Ok(StreamingTransition::GoTo(next_state))
 }
 
-fn yield_to<R>(next_state: StreamingState<R>) -> VortexResult<StreamingTransition<R>> {
+fn yield_to(next_state: StreamingState) -> VortexResult<StreamingTransition> {
     Ok(StreamingTransition::YieldTo(next_state))
 }
 
-fn produce<R>(next_state: StreamingState<R>, array: Array) -> VortexResult<StreamingTransition<R>> {
+fn produce(next_state: StreamingState, array: Array) -> VortexResult<StreamingTransition> {
     Ok(StreamingTransition::Produce(next_state, array))
 }
 
-fn finished<R>() -> VortexResult<StreamingTransition<R>> {
+fn finished() -> VortexResult<StreamingTransition> {
     Ok(StreamingTransition::Finished)
 }
 
-impl<R: VortexReadAt + Unpin + 'static> VortexFileArrayStream<R> {
+impl<R: VortexReadAt + Unpin> VortexFileArrayStream<R> {
     fn step(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-        current_state: StreamingState<R>,
-    ) -> VortexResult<StreamingTransition<R>> {
+        current_state: StreamingState,
+    ) -> VortexResult<StreamingTransition> {
         match current_state {
-            StreamingState::AddSplits(input, filter_reader) => {
+            StreamingState::AddSplits(filter_reader) => {
                 let mut splits = BTreeSet::new();
                 splits.insert(self.row_count as usize);
                 if let Some(filter_reader) = &filter_reader {
@@ -180,9 +182,9 @@ impl<R: VortexReadAt + Unpin + 'static> VortexFileArrayStream<R> {
                 self.layout_reader.as_mut().add_splits(0, &mut splits)?;
                 self.splits
                     .extend(splits.into_iter().tuple_windows::<(usize, usize)>());
-                goto(StreamingState::NextSplit(input, filter_reader))
+                goto(StreamingState::NextSplit(filter_reader))
             }
-            StreamingState::NextSplit(input, filter_reader) => {
+            StreamingState::NextSplit(filter_reader) => {
                 let Some((begin, end)) = self.splits.pop_front() else {
                     return finished();
                 };
@@ -193,35 +195,29 @@ impl<R: VortexReadAt + Unpin + 'static> VortexFileArrayStream<R> {
                     .map(|row_mask| row_mask.slice(begin, end).is_empty())
                     .unwrap_or(false);
                 if row_mask_removes_all_rows {
-                    return goto(StreamingState::NextSplit(input, filter_reader));
+                    return goto(StreamingState::NextSplit(filter_reader));
                 }
 
                 let mut split_mask = RowMask::new_valid_between(begin, end);
                 match filter_reader {
-                    Some(filter_reader) => {
-                        goto(StreamingState::Filter(input, split_mask, filter_reader))
-                    }
+                    Some(filter_reader) => goto(StreamingState::Filter(split_mask, filter_reader)),
                     None => {
                         if let Some(row_mask) = &self.row_mask {
                             split_mask.and_inplace(&row_mask.slice(begin, end))?;
                         };
 
-                        goto(StreamingState::Read(input, split_mask, filter_reader))
+                        goto(StreamingState::Read(split_mask, filter_reader))
                     }
                 }
             }
-            StreamingState::Filter(input, split_mask, mut filter_reader) => {
+            StreamingState::Filter(split_mask, mut filter_reader) => {
                 let sel_begin = split_mask.begin();
                 let sel_end = split_mask.end();
 
                 match filter_reader.as_mut().read_selection(&split_mask)? {
-                    Some(BatchRead::ReadMore(messages)) => {
-                        goto(StreamingState::Reading(ReadingFor::Filter(
-                            read_ranges(input, messages).boxed(),
-                            split_mask,
-                            filter_reader,
-                        )))
-                    }
+                    Some(BatchRead::ReadMore(messages)) => goto(StreamingState::Reading(
+                        ReadingFor::Filter(self.read_ranges(messages), split_mask, filter_reader),
+                    )),
                     Some(BatchRead::Batch(mut batch)) => {
                         if let Some(row_mask) = &self.row_mask {
                             // Either `and` or `and_kleene` is fine. They only differ on `false AND
@@ -238,22 +234,21 @@ impl<R: VortexReadAt + Unpin + 'static> VortexFileArrayStream<R> {
                             .vortex_expect("must be a bool array if it's a result of a filter")
                             == 0
                         {
-                            goto(StreamingState::NextSplit(input, Some(filter_reader)))
+                            goto(StreamingState::NextSplit(Some(filter_reader)))
                         } else {
                             goto(StreamingState::Read(
-                                input,
                                 RowMask::from_mask_array(&batch, sel_begin, sel_end)?,
                                 Some(filter_reader),
                             ))
                         }
                     }
-                    None => goto(StreamingState::NextSplit(input, Some(filter_reader))),
+                    None => goto(StreamingState::NextSplit(Some(filter_reader))),
                 }
             }
-            StreamingState::Read(input, selector, filter_reader) => {
+            StreamingState::Read(selector, filter_reader) => {
                 match self.layout_reader.read_selection(&selector)? {
                     Some(BatchRead::ReadMore(messages)) => {
-                        let read_future = read_ranges(input, messages).boxed();
+                        let read_future = self.read_ranges(messages);
                         goto(StreamingState::Reading(ReadingFor::Read(
                             read_future,
                             selector,
@@ -261,9 +256,9 @@ impl<R: VortexReadAt + Unpin + 'static> VortexFileArrayStream<R> {
                         )))
                     }
                     Some(BatchRead::Batch(array)) => {
-                        produce(StreamingState::NextSplit(input, filter_reader), array)
+                        produce(StreamingState::NextSplit(filter_reader), array)
                     }
-                    None => goto(StreamingState::NextSplit(input, filter_reader)),
+                    None => goto(StreamingState::NextSplit(filter_reader)),
                 }
             }
             StreamingState::Reading(reading_state) => match reading_state.poll_unpin(cx)? {
@@ -279,9 +274,31 @@ impl<R: VortexReadAt + Unpin + 'static> VortexFileArrayStream<R> {
             StreamingState::EndOfStream => finished(),
         }
     }
+
+    /// Schedule an asynchronous read of several byte ranges.
+    ///
+    /// IO is scheduled on the provided IO dispatcher.
+    fn read_ranges(
+        &self,
+        ranges: Vec<(MessageId, ByteRange)>,
+    ) -> BoxFuture<'static, VortexResult<Vec<(MessageId, Bytes)>>> {
+        let reader = self.input.clone();
+
+        let result_rx = self
+            .dispatcher
+            .dispatch(move || async move { read_ranges(reader, ranges).await })
+            .vortex_expect("dispatch async task");
+
+        result_rx
+            .map(|res| match res {
+                Ok(result) => result,
+                Err(_) => vortex_bail!("dispatcher channel canceled"),
+            })
+            .boxed()
+    }
 }
 
-impl<R: VortexReadAt + Unpin + 'static> Stream for VortexFileArrayStream<R> {
+impl<R: VortexReadAt + Unpin> Stream for VortexFileArrayStream<R> {
     type Item = VortexResult<Array>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -313,7 +330,7 @@ impl<R: VortexReadAt + Unpin + 'static> Stream for VortexFileArrayStream<R> {
     }
 }
 
-impl<R: VortexReadAt + Unpin + 'static> VortexFileArrayStream<R> {
+impl<R: VortexReadAt + Unpin> VortexFileArrayStream<R> {
     pub async fn read_all(self) -> VortexResult<Array> {
         let dtype = self.dtype().clone();
         let vecs: Vec<Array> = self.try_collect().await?;
@@ -332,7 +349,7 @@ impl<R: VortexReadAt + Unpin + 'static> VortexFileArrayStream<R> {
 async fn read_ranges<R: VortexReadAt>(
     reader: R,
     ranges: Vec<(MessageId, ByteRange)>,
-) -> VortexResult<(R, Vec<(MessageId, Bytes)>)> {
+) -> VortexResult<Vec<(MessageId, Bytes)>> {
     stream::iter(ranges.into_iter())
         .map(|(id, range)| {
             let mut buf = BytesMut::with_capacity(range.len());
@@ -349,5 +366,4 @@ async fn read_ranges<R: VortexReadAt>(
         .buffered(10)
         .try_collect()
         .await
-        .map(|b| (reader, b))
 }

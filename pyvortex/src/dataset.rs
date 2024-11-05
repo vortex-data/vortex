@@ -1,4 +1,3 @@
-use std::path::Path;
 use std::sync::Arc;
 
 use arrow::array::RecordBatchReader;
@@ -7,7 +6,6 @@ use arrow::pyarrow::{IntoPyArrow, ToPyArrow};
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::{PyLong, PyString};
-use tokio::fs::File;
 use vortex::arrow::infer_schema;
 use vortex::dtype::field::Field;
 use vortex::dtype::DType;
@@ -17,7 +15,7 @@ use vortex::serde::file::{
     read_initial_bytes, LayoutContext, LayoutDeserializer, Projection, RowFilter,
     VortexFileArrayStream, VortexReadBuilder, VortexRecordBatchReader,
 };
-use vortex::serde::io::{ObjectStoreReadAt, VortexReadAt};
+use vortex::serde::io::{ObjectStoreReadAt, TokioFile, VortexReadAt};
 use vortex::Array;
 
 use crate::expr::PyExpr;
@@ -105,20 +103,16 @@ fn row_filter_from_python(row_filter: Option<&Bound<PyExpr>>) -> Option<RowFilte
 
 #[pyclass(name = "TokioFileDataset", module = "io")]
 pub struct TokioFileDataset {
-    path: String,
+    file: TokioFile,
     schema: SchemaRef,
 }
 
 impl TokioFileDataset {
-    async fn file(&self) -> VortexResult<File> {
-        Ok(File::open(Path::new(&self.path)).await?)
-    }
-
     pub async fn try_new(path: String) -> VortexResult<Self> {
-        let file = File::open(Path::new(&path)).await?;
-        let schema = Arc::new(infer_schema(&read_dtype_from_reader(&file).await?)?);
+        let file = TokioFile::open(path)?;
+        let schema = Arc::new(infer_schema(&read_dtype_from_reader(file.clone()).await?)?);
 
-        Ok(Self { path, schema })
+        Ok(Self { file, schema })
     }
 
     async fn async_to_array(
@@ -128,7 +122,7 @@ impl TokioFileDataset {
         indices: Option<&PyArray>,
     ) -> PyResult<PyArray> {
         let inner = read_array_from_reader(
-            self.file().await?,
+            self.file.clone(),
             projection_from_python(columns)?,
             row_filter_from_python(row_filter),
             indices.map(PyArray::unwrap).cloned(),
@@ -144,7 +138,7 @@ impl TokioFileDataset {
         indices: Option<&PyArray>,
     ) -> PyResult<PyObject> {
         let layout_reader = layout_stream_from_reader(
-            self_.file().await?,
+            self_.file.clone(),
             projection_from_python(columns)?,
             row_filter_from_python(row_filter),
             indices.map(PyArray::unwrap).cloned(),
@@ -200,7 +194,7 @@ impl ObjectStoreUrlDataset {
 
     pub async fn try_new(url: String) -> VortexResult<Self> {
         let reader = vortex_read_at_from_url(&url).await?;
-        let schema = Arc::new(infer_schema(&read_dtype_from_reader(&reader).await?)?);
+        let schema = Arc::new(infer_schema(&read_dtype_from_reader(reader).await?)?);
 
         Ok(Self { url, schema })
     }

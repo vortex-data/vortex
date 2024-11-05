@@ -68,29 +68,38 @@ impl ObjectStoreReadAt {
 }
 
 impl VortexReadAt for ObjectStoreReadAt {
-    async fn read_at_into(&self, pos: u64, mut buffer: BytesMut) -> io::Result<BytesMut> {
-        let start_range = pos as usize;
-        let bytes = self
-            .object_store
-            .get_range(&self.location, start_range..(start_range + buffer.len()))
-            .await?;
-        buffer.as_mut().copy_from_slice(bytes.as_ref());
-        Ok(buffer)
+    fn read_at_into(
+        &self,
+        pos: u64,
+        mut buffer: BytesMut,
+    ) -> impl Future<Output = io::Result<BytesMut>> + 'static {
+        let object_store = self.object_store.clone();
+        let location = self.location.clone();
+
+        Box::pin(async move {
+            let start_range = pos as usize;
+            let bytes = object_store
+                .get_range(&location, start_range..(start_range + buffer.len()))
+                .await?;
+            buffer.as_mut().copy_from_slice(bytes.as_ref());
+            Ok(buffer)
+        })
     }
 
-    async fn size(&self) -> u64 {
-        self.object_store
-            .head(&self.location)
-            .await
-            .map_err(VortexError::ObjectStore)
-            .unwrap_or_else(|err| {
-                vortex_panic!(
-                    err,
-                    "Failed to get size of object at location {}",
-                    self.location
-                )
-            })
-            .size as u64
+    fn size(&self) -> impl Future<Output = u64> + 'static {
+        let object_store = self.object_store.clone();
+        let location = self.location.clone();
+
+        Box::pin(async move {
+            object_store
+                .head(&location)
+                .await
+                .map_err(VortexError::ObjectStore)
+                .unwrap_or_else(|err| {
+                    vortex_panic!(err, "Failed to get size of object at location {}", location)
+                })
+                .size as u64
+        })
     }
 }
 

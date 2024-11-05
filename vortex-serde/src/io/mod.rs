@@ -1,7 +1,8 @@
+#[cfg(feature = "compio")]
+pub use compio::*;
+pub use dispatcher::*;
 #[cfg(feature = "futures")]
 pub use futures::*;
-#[cfg(feature = "monoio")]
-pub use monoio::*;
 #[cfg(feature = "object_store")]
 pub use object_store::*;
 pub use read::*;
@@ -9,8 +10,10 @@ pub use read::*;
 pub use tokio::*;
 pub use write::*;
 
+#[cfg(feature = "compio")]
+mod compio;
+mod dispatcher;
 mod futures;
-mod monoio;
 mod object_store;
 pub mod offset;
 mod read;

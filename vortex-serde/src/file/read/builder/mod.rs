@@ -13,7 +13,7 @@ use crate::file::read::context::LayoutDeserializer;
 use crate::file::read::filtering::RowFilter;
 use crate::file::read::stream::VortexFileArrayStream;
 use crate::file::read::{RowMask, Scan};
-use crate::io::VortexReadAt;
+use crate::io::{IoDispatcher, VortexReadAt};
 
 pub(crate) mod initial_read;
 
@@ -70,6 +70,7 @@ pub struct VortexReadBuilder<R> {
     size: Option<u64>,
     row_mask: Option<Array>,
     row_filter: Option<RowFilter>,
+    io_dispatcher: Option<IoDispatcher>,
 }
 
 impl<R: VortexReadAt> VortexReadBuilder<R> {
@@ -81,6 +82,7 @@ impl<R: VortexReadAt> VortexReadBuilder<R> {
             size: None,
             row_mask: None,
             row_filter: None,
+            io_dispatcher: None,
         }
     }
 
@@ -106,6 +108,11 @@ impl<R: VortexReadAt> VortexReadBuilder<R> {
 
     pub fn with_row_filter(mut self, row_filter: RowFilter) -> Self {
         self.row_filter = Some(row_filter);
+        self
+    }
+
+    pub fn with_io_dispatcher(mut self, dispatcher: IoDispatcher) -> Self {
+        self.io_dispatcher = Some(dispatcher);
         self
     }
 
@@ -165,6 +172,11 @@ impl<R: VortexReadAt> VortexReadBuilder<R> {
             })
             .transpose()?;
 
+        // Default: fallback to single-threaded tokio dispatcher.
+        let io_dispatcher = self
+            .io_dispatcher
+            .unwrap_or_else(|| IoDispatcher::new_tokio(1));
+
         Ok(VortexFileArrayStream::new(
             self.read_at,
             layout_reader,
@@ -173,6 +185,7 @@ impl<R: VortexReadAt> VortexReadBuilder<R> {
             projected_dtype,
             row_count,
             row_mask,
+            io_dispatcher,
         ))
     }
 

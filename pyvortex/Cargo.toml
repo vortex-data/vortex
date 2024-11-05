@@ -24,6 +24,9 @@ doctest = false
 
 [dependencies]
 arrow = { workspace = true, features = ["pyarrow"] }
+flexbuffers = { workspace = true }
+flume = { workspace = true }
+futures = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
 object_store = { workspace = true, features = ["aws", "gcp", "azure", "http"] }

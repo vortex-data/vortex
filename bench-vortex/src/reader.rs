@@ -29,7 +29,7 @@ use vortex::dtype::DType;
 use vortex::error::VortexResult;
 use vortex::sampling_compressor::{SamplingCompressor, ALL_ENCODINGS_CONTEXT};
 use vortex::serde::file::{LayoutContext, LayoutDeserializer, VortexFileWriter, VortexReadBuilder};
-use vortex::serde::io::{ObjectStoreReadAt, VortexReadAt, VortexWrite};
+use vortex::serde::io::{ObjectStoreReadAt, TokioFile, VortexReadAt, VortexWrite};
 use vortex::{Array, IntoArray, IntoCanonical};
 
 pub const BATCH_SIZE: usize = 65_536;
@@ -42,7 +42,7 @@ pub struct VortexFooter {
 }
 
 pub async fn open_vortex(path: &Path) -> VortexResult<Array> {
-    let file = tokio::fs::File::open(path).await.unwrap();
+    let file = TokioFile::open(path).unwrap();
 
     VortexReadBuilder::new(
         file,
@@ -138,7 +138,7 @@ pub async fn take_vortex_object_store(
 }
 
 pub async fn take_vortex_tokio(path: &Path, indices: &[u64]) -> VortexResult<Array> {
-    take_vortex(tokio::fs::File::open(path).await?, indices).await
+    take_vortex(TokioFile::open(path)?, indices).await
 }
 
 pub async fn take_parquet_object_store(

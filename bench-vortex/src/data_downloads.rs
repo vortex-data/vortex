@@ -13,6 +13,7 @@ use vortex::array::ChunkedArray;
 use vortex::arrow::FromArrowType;
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexResult};
+use vortex::serde::io::TokioAdapter;
 use vortex::serde::stream_writer::StreamArrayWriter;
 use vortex::{Array, IntoArray};
 
@@ -55,7 +56,7 @@ pub fn data_vortex_uncompressed(fname_out: &str, downloaded_data: PathBuf) -> Pa
         Runtime::new()
             .unwrap()
             .block_on(async move {
-                let write = tokio::fs::File::create(path).await.unwrap();
+                let write = TokioAdapter(tokio::fs::File::create(path).await.unwrap());
                 StreamArrayWriter::new(write)
                     .write_array(array)
                     .await

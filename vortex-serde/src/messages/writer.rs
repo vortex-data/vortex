@@ -78,7 +78,7 @@ impl<W: VortexWrite> MessageWriter<W> {
         let buffer_len = buffer.len();
         self.write_all(buffer).await?;
 
-        let aligned_size = (buffer_len + (self.alignment - 1)) & !(self.alignment - 1);
+        let aligned_size = buffer_len.next_multiple_of(self.alignment);
         let padding = aligned_size - buffer_len;
         self.write_all(&ZEROS[0..padding]).await?;
 

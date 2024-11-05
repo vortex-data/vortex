@@ -1,6 +1,7 @@
 use std::future::Future;
 
 use bytes::BytesMut;
+use futures::FutureExt;
 
 use crate::io::VortexReadAt;
 
@@ -8,6 +9,18 @@ use crate::io::VortexReadAt;
 pub struct OffsetReadAt<R> {
     read: R,
     offset: u64,
+}
+
+impl<R> Clone for OffsetReadAt<R>
+where
+    R: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            read: self.read.clone(),
+            offset: self.offset,
+        }
+    }
 }
 
 impl<R: VortexReadAt> OffsetReadAt<R> {
@@ -21,7 +34,7 @@ impl<R: VortexReadAt> VortexReadAt for OffsetReadAt<R> {
         &self,
         pos: u64,
         buffer: BytesMut,
-    ) -> impl Future<Output = std::io::Result<BytesMut>> {
+    ) -> impl Future<Output = std::io::Result<BytesMut>> + 'static {
         self.read.read_at_into(pos + self.offset, buffer)
     }
 
@@ -29,7 +42,8 @@ impl<R: VortexReadAt> VortexReadAt for OffsetReadAt<R> {
         self.read.performance_hint()
     }
 
-    async fn size(&self) -> u64 {
-        self.read.size().await - self.offset
+    fn size(&self) -> impl Future<Output = u64> + 'static {
+        let offset = self.offset;
+        self.read.size().map(move |len| len - offset)
     }
 }

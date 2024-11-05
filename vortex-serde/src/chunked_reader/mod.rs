@@ -52,8 +52,10 @@ impl<R: VortexReadAt> ChunkedArrayReader<R> {
         Ok(())
     }
 
+    // Making a new ArrayStream requires us to clone the reader to make
+    // multiple streams that can each use the reader.
     pub async fn array_stream(&mut self) -> impl ArrayStream + '_ {
-        let mut cursor = Cursor::new(&self.read);
+        let mut cursor = Cursor::new(self.read.clone());
         let byte_offset = scalar_at(&self.byte_offsets, 0)
             .and_then(|s| u64::try_from(&s))
             .vortex_expect("Failed to convert byte_offset to u64");

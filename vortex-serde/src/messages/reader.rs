@@ -15,6 +15,7 @@ use crate::io::VortexRead;
 
 pub const MESSAGE_PREFIX_LENGTH: usize = 4;
 
+/// A stateful reader of [`Message`s][fb::Message] from a stream.
 pub struct MessageReader<R> {
     read: R,
     message: BytesMut,
@@ -361,10 +362,9 @@ mod test {
                 .await
         })
         .unwrap();
-        let written = writer.into_inner();
+        let written = Buffer::from(writer.into_inner());
         let mut reader =
-            block_on(async { MessageReader::try_new(Cursor::new(written.as_slice())).await })
-                .unwrap();
+            block_on(async { MessageReader::try_new(Cursor::new(written)).await }).unwrap();
         let read_page = block_on(async { reader.maybe_read_page().await })
             .unwrap()
             .unwrap();

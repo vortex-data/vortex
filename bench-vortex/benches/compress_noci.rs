@@ -23,6 +23,7 @@ use parquet::file::properties::WriterProperties;
 use regex::Regex;
 use tokio::runtime::Runtime;
 use vortex::array::{ChunkedArray, StructArray};
+use vortex::buffer::Buffer;
 use vortex::dtype::field::Field;
 use vortex::error::VortexResult;
 use vortex::sampling_compressor::compressors::fsst::FSSTCompressor;
@@ -121,8 +122,8 @@ fn vortex_compress_write(
     Ok(cursor.position())
 }
 
-fn vortex_decompress_read(runtime: &Runtime, buf: Arc<Vec<u8>>) -> VortexResult<ArrayRef> {
-    async fn async_read(buf: Arc<Vec<u8>>) -> VortexResult<Array> {
+fn vortex_decompress_read(runtime: &Runtime, buf: Buffer) -> VortexResult<ArrayRef> {
+    async fn async_read(buf: Buffer) -> VortexResult<Array> {
         let builder: VortexReadBuilder<_> = VortexReadBuilder::new(
             buf,
             LayoutDeserializer::new(
@@ -214,9 +215,9 @@ fn benchmark_compress<F, U>(
         group.bench_function(bench_name, |b| {
             let mut buf = Vec::new();
             vortex_compress_write(runtime, compressor, uncompressed.as_ref(), &mut buf).unwrap();
-            let arc = Arc::new(buf);
+            let bytes = Buffer::from(buf);
             b.iter_with_large_drop(|| {
-                black_box(vortex_decompress_read(runtime, arc.clone()).unwrap());
+                black_box(vortex_decompress_read(runtime, bytes.clone()).unwrap());
             });
         });
         group.finish();

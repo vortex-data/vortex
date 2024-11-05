@@ -19,15 +19,21 @@ arrow-buffer = { workspace = true }
 arrow-schema = { workspace = true }
 bytes = { workspace = true }
 croaring = { workspace = true }
+compio = { workspace = true, features = ["bytes", "macros"], optional = true }
 flatbuffers = { workspace = true }
-futures = { workspace = true }
+flume = { workspace = true }
+futures = { workspace = true, features = ["std"] }
+futures-channel = { workspace = true }
 futures-executor = { workspace = true }
 futures-util = { workspace = true }
 itertools = { workspace = true }
-monoio = { workspace = true, optional = true, features = ["bytes"] }
 object_store = { workspace = true, optional = true }
 once_cell = { workspace = true }
-tokio = { workspace = true, features = ["io-util", "fs", "rt-multi-thread"], optional = true }
+tokio = { workspace = true, features = [
+    "io-util",
+    "fs",
+    "rt-multi-thread",
+], optional = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true, features = ["flatbuffers"] }
@@ -44,6 +50,7 @@ arrow-schema = { workspace = true }
 arrow-select = { workspace = true }
 criterion = { workspace = true, features = ["async_futures"] }
 rstest = { workspace = true }
+tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 vortex-sampling-compressor = { path = "../vortex-sampling-compressor" }
 
@@ -51,9 +58,9 @@ vortex-sampling-compressor = { path = "../vortex-sampling-compressor" }
 workspace = true
 
 [features]
-default = ["futures", "monoio", "tokio"]
+default = ["futures", "tokio", "compio"]
 futures = ["futures-util/io"]
-monoio = ["dep:monoio"]
+compio = ["dep:compio"]
 tokio = ["dep:tokio"]
 object_store = ["dep:object_store", "vortex-error/object_store"]
 
