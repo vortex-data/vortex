@@ -6,7 +6,7 @@ pub use stats::compute_stats;
 use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
 use vortex_error::{
-    vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect as _, VortexResult,
+    vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult,
     VortexUnwrap as _,
 };
 use vortex_scalar::Scalar;
@@ -92,15 +92,6 @@ impl VarBinArray {
                 self.len() + 1,
             )
             .vortex_expect("Missing offsets in VarBinArray")
-    }
-
-    pub fn first_offset<T: NativePType + for<'a> TryFrom<&'a Scalar, Error = VortexError>>(
-        &self,
-    ) -> VortexResult<T> {
-        scalar_at(self.offsets(), 0)?
-            .cast(&DType::from(T::PTYPE))?
-            .as_ref()
-            .try_into()
     }
 
     /// Access the value bytes child array

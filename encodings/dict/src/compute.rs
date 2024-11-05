@@ -7,6 +7,10 @@ use vortex_scalar::Scalar;
 use crate::DictArray;
 
 impl ArrayCompute for DictArray {
+    fn filter(&self) -> Option<&dyn FilterFn> {
+        Some(self)
+    }
+
     fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
         Some(self)
     }
@@ -16,10 +20,6 @@ impl ArrayCompute for DictArray {
     }
 
     fn take(&self) -> Option<&dyn TakeFn> {
-        Some(self)
-    }
-
-    fn filter(&self) -> Option<&dyn FilterFn> {
         Some(self)
     }
 }
@@ -74,7 +74,7 @@ mod test {
     use crate::{dict_encode_typed_primitive, dict_encode_varbinview, DictArray};
 
     #[test]
-    fn flatten_nullable_primitive() {
+    fn canonicalize_nullable_primitive() {
         let reference = PrimitiveArray::from_nullable_vec(vec![
             Some(42),
             Some(-9),
@@ -90,7 +90,7 @@ mod test {
     }
 
     #[test]
-    fn flatten_nullable_varbin() {
+    fn canonicalize_nullable_varbin() {
         let reference = VarBinViewArray::from_iter(
             vec![Some("a"), Some("b"), None, Some("a"), None, Some("b")],
             DType::Utf8(Nullability::Nullable),

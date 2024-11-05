@@ -78,6 +78,19 @@ impl<O: NativePType> VarBinBuilder<O> {
         self.validity.append_n_non_nulls(num);
     }
 
+    pub fn data_slice(&self) -> &[u8] {
+        &self.data
+    }
+
+    pub fn offsets_slice(&self) -> &[O] {
+        self.offsets.as_slice()
+    }
+
+    #[allow(clippy::len_without_is_empty)]
+    pub fn len(&self) -> usize {
+        self.offsets.len() - 1
+    }
+
     pub fn finish(mut self, dtype: DType) -> VarBinArray {
         let offsets = PrimitiveArray::from(self.offsets);
         let data = PrimitiveArray::from_bytes(self.data.freeze(), Validity::NonNullable);

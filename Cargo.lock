@@ -4593,6 +4593,7 @@ dependencies = [
  "arrow-buffer",
  "criterion",
  "hashbrown 0.15.1",
+ "itertools 0.13.0",
  "log",
  "num-traits",
  "rand",
