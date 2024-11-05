@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use arrow_array::builder::{StringBuilder, UInt32Builder};
 use arrow_array::RecordBatch;
@@ -11,7 +11,6 @@ use datafusion::execution::memory_pool::human_readable_size;
 use datafusion::functions_aggregate::count::count_distinct;
 use datafusion::logical_expr::lit;
 use datafusion::prelude::{col, DataFrame, SessionContext};
-use lazy_static::lazy_static;
 use vortex::aliases::hash_set::HashSet;
 use vortex::compress::CompressionStrategy;
 use vortex::dict::DictEncoding;
@@ -26,24 +25,24 @@ use vortex::sampling_compressor::SamplingCompressor;
 use vortex::{Array, Context};
 use vortex_datafusion::memory::{VortexMemTable, VortexMemTableOptions};
 
-lazy_static! {
-    pub static ref CTX: Context = Context::default().with_encodings([
+pub static CTX: LazyLock<Context> = LazyLock::new(|| {
+    Context::default().with_encodings([
         &BitPackedEncoding as EncodingRef,
         &DictEncoding,
         &FoREncoding,
-        &DeltaEncoding
-    ]);
-}
+        &DeltaEncoding,
+    ])
+});
 
-lazy_static! {
-    pub static ref COMPRESSORS: HashSet<CompressorRef<'static>> = [
+pub static COMPRESSORS: LazyLock<HashSet<CompressorRef<'static>>> = LazyLock::new(|| {
+    [
         &BITPACK_WITH_PATCHES as CompressorRef<'static>,
         &DictCompressor,
         &FoRCompressor,
-        &DeltaCompressor
+        &DeltaCompressor,
     ]
-    .into();
-}
+    .into()
+});
 
 fn toy_dataset_arrow() -> RecordBatch {
     // 64,000 rows of string and numeric data.

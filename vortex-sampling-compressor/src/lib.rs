@@ -46,7 +46,7 @@ pub mod compressors;
 mod constants;
 mod sampling;
 
-pub const DEFAULT_COMPRESSORS: LazyLock<[CompressorRef<'static>; 9]> = LazyLock::new(|| {
+pub static DEFAULT_COMPRESSORS: LazyLock<[CompressorRef<'static>; 9]> = LazyLock::new(|| {
     [
         &ALPCompressor as CompressorRef,
         &BITPACK_WITH_PATCHES,
@@ -63,7 +63,7 @@ pub const DEFAULT_COMPRESSORS: LazyLock<[CompressorRef<'static>; 9]> = LazyLock:
     ]
 });
 
-pub const FASTEST_COMPRESSORS: LazyLock<[CompressorRef<'static>; 7]> = LazyLock::new(|| {
+pub static FASTEST_COMPRESSORS: LazyLock<[CompressorRef<'static>; 7]> = LazyLock::new(|| {
     [
         &BITPACK_WITH_PATCHES,
         &DateTimePartsCompressor,
@@ -75,7 +75,7 @@ pub const FASTEST_COMPRESSORS: LazyLock<[CompressorRef<'static>; 7]> = LazyLock:
     ]
 });
 
-pub const ALL_COMPRESSORS_CONTEXT: LazyLock<Arc<Context>> = LazyLock::new(|| {
+pub static ALL_COMPRESSORS_CONTEXT: LazyLock<Arc<Context>> = LazyLock::new(|| {
     Arc::new(Context::default().with_encodings([
         &ALPEncoding as EncodingRef,
         &ByteBoolEncoding,

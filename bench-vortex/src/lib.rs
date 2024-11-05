@@ -4,11 +4,10 @@ use std::env::temp_dir;
 use std::fs::{create_dir_all, File};
 use std::future::Future;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use arrow_array::RecordBatchReader;
 use itertools::Itertools;
-use lazy_static::lazy_static;
 use log::LevelFilter;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use simplelog::{ColorChoice, Config, TermLogger, TerminalMode};
@@ -44,13 +43,16 @@ pub mod taxi_data;
 pub mod tpch;
 pub mod vortex_utils;
 
-lazy_static! {
-    pub static ref CTX: Arc<Context> = Arc::new(
+pub static CTX: LazyLock<Arc<Context>> = LazyLock::new(|| {
+    Arc::new(
         Context::default()
             .with_encodings(SamplingCompressor::default().used_encodings())
-            .with_encoding(&DeltaEncoding)
-    );
-    pub static ref COMPRESSORS: HashSet<CompressorRef<'static>> = [
+            .with_encoding(&DeltaEncoding),
+    )
+});
+
+pub static COMPRESSORS: LazyLock<HashSet<CompressorRef<'static>>> = LazyLock::new(|| {
+    [
         &ALPCompressor as CompressorRef<'static>,
         &ALPRDCompressor,
         &DictCompressor,
@@ -60,10 +62,10 @@ lazy_static! {
         &DateTimePartsCompressor,
         &DEFAULT_RUN_END_COMPRESSOR,
         &RoaringBoolCompressor,
-        &SparseCompressor
+        &SparseCompressor,
     ]
-    .into();
-}
+    .into()
+});
 
 /// Creates a file if it doesn't already exist.
 /// NB: Does NOT modify the given path to ensure that it resides in the data directory.

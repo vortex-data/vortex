@@ -1,6 +1,7 @@
 use std::hash::Hash;
 use std::os::unix::fs::MetadataExt;
 use std::path::PathBuf;
+use std::sync::LazyLock;
 
 use enum_iterator::Sequence;
 use futures::executor::block_on;
@@ -22,22 +23,34 @@ use crate::reader::{
 };
 use crate::{idempotent, IdempotentPath};
 
-lazy_static::lazy_static! {
-    // NB: we do not expect this to change, otherwise we'd crawl the site and populate it at runtime
-    // We will eventually switch over to self-hosting this data, at which time this map will need
-    // to be updated once.
-    static ref URLS: HashMap<PBIDataset, Vec<PBIUrl>> = HashMap::from([
-            (AirlineSentiment, vec![
-                PBIUrl::new("AirlineSentiment", "AirlineSentiment_1.csv.bz2")]),
-            (Arade, vec![PBIUrl::new("Arade","Arade_1.csv.bz2")]),
-            (Bimbo, vec![
-                PBIUrl::new("Bimbo", "Bimbo_1.csv.bz2")]),
-            (CMSprovider, vec![
+// NB: we do not expect this to change, otherwise we'd crawl the site and populate it at runtime
+// We will eventually switch over to self-hosting this data, at which time this map will need
+// to be updated once.
+static URLS: LazyLock<HashMap<PBIDataset, Vec<PBIUrl>>> = LazyLock::new(|| {
+    HashMap::from([
+        (
+            AirlineSentiment,
+            vec![PBIUrl::new(
+                "AirlineSentiment",
+                "AirlineSentiment_1.csv.bz2",
+            )],
+        ),
+        (Arade, vec![PBIUrl::new("Arade", "Arade_1.csv.bz2")]),
+        (Bimbo, vec![PBIUrl::new("Bimbo", "Bimbo_1.csv.bz2")]),
+        (
+            CMSprovider,
+            vec![
                 PBIUrl::new("CMSprovider", "CMSprovider_1.csv.bz2"),
-                PBIUrl::new("CMSprovider", "CMSprovider_2.csv.bz2")]),
-            (CityMaxCapita, vec![
-                PBIUrl::new("CityMaxCapita", "CityMaxCapita_1.csv.bz2")]),
-            (CommonGovernment, vec![
+                PBIUrl::new("CMSprovider", "CMSprovider_2.csv.bz2"),
+            ],
+        ),
+        (
+            CityMaxCapita,
+            vec![PBIUrl::new("CityMaxCapita", "CityMaxCapita_1.csv.bz2")],
+        ),
+        (
+            CommonGovernment,
+            vec![
                 PBIUrl::new("CommonGovernment", "CommonGovernment_1.csv.bz2"),
                 PBIUrl::new("CommonGovernment", "CommonGovernment_2.csv.bz2"),
                 PBIUrl::new("CommonGovernment", "CommonGovernment_3.csv.bz2"),
@@ -50,33 +63,52 @@ lazy_static::lazy_static! {
                 PBIUrl::new("CommonGovernment", "CommonGovernment_10.csv.bz2"),
                 PBIUrl::new("CommonGovernment", "CommonGovernment_11.csv.bz2"),
                 PBIUrl::new("CommonGovernment", "CommonGovernment_12.csv.bz2"),
-                PBIUrl::new("CommonGovernment", "CommonGovernment_13.csv.bz2")]),
-            (Corporations, vec![
-                PBIUrl::new("Corporations", "Corporations_1.csv.bz2")]),
-            (Eixo, vec![
-                PBIUrl::new("Eixo", "Eixo_1.csv.bz2")]),
-            (Euro2016, vec![
-                PBIUrl::new("Euro2016", "Euro2016_1.csv.bz2")]),
-            (Food, vec![
-                PBIUrl::new("Food", "Food_1.csv.bz2")]),
-            (Generico, vec![
+                PBIUrl::new("CommonGovernment", "CommonGovernment_13.csv.bz2"),
+            ],
+        ),
+        (
+            Corporations,
+            vec![PBIUrl::new("Corporations", "Corporations_1.csv.bz2")],
+        ),
+        (Eixo, vec![PBIUrl::new("Eixo", "Eixo_1.csv.bz2")]),
+        (
+            Euro2016,
+            vec![PBIUrl::new("Euro2016", "Euro2016_1.csv.bz2")],
+        ),
+        (Food, vec![PBIUrl::new("Food", "Food_1.csv.bz2")]),
+        (
+            Generico,
+            vec![
                 PBIUrl::new("Generico", "Generico_1.csv.bz2"),
                 PBIUrl::new("Generico", "Generico_2.csv.bz2"),
                 PBIUrl::new("Generico", "Generico_3.csv.bz2"),
                 PBIUrl::new("Generico", "Generico_4.csv.bz2"),
-                PBIUrl::new("Generico", "Generico_5.csv.bz2"),]),
-            (HashTags, vec![
-                PBIUrl::new("HashTags", "HashTags_1.csv.bz2")]),
-            (Hatred, vec![
-                PBIUrl::new("Hatred", "Hatred_1.csv.bz2")]),
-            (IGlocations1, vec![
-                PBIUrl::new("IGlocations1", "IGlocations1_1.csv.bz2")]),
-            (IGlocations2, vec![
+                PBIUrl::new("Generico", "Generico_5.csv.bz2"),
+            ],
+        ),
+        (
+            HashTags,
+            vec![PBIUrl::new("HashTags", "HashTags_1.csv.bz2")],
+        ),
+        (Hatred, vec![PBIUrl::new("Hatred", "Hatred_1.csv.bz2")]),
+        (
+            IGlocations1,
+            vec![PBIUrl::new("IGlocations1", "IGlocations1_1.csv.bz2")],
+        ),
+        (
+            IGlocations2,
+            vec![
                 PBIUrl::new("IGlocations2", "IGlocations2_1.csv.bz2"),
-                PBIUrl::new("IGlocations2", "IGlocations2_2.csv.bz2")]),
-            (IUBLibrary, vec![
-                PBIUrl::new("IUBLibrary", "IUBLibrary_1.csv.bz2")]),
-            (MLB, vec![
+                PBIUrl::new("IGlocations2", "IGlocations2_2.csv.bz2"),
+            ],
+        ),
+        (
+            IUBLibrary,
+            vec![PBIUrl::new("IUBLibrary", "IUBLibrary_1.csv.bz2")],
+        ),
+        (
+            MLB,
+            vec![
                 PBIUrl::new("MLB", "MLB_1.csv.bz2"),
                 PBIUrl::new("MLB", "MLB_2.csv.bz2"),
                 PBIUrl::new("MLB", "MLB_3.csv.bz2"),
@@ -144,35 +176,71 @@ lazy_static::lazy_static! {
                 PBIUrl::new("MLB", "MLB_65.csv.bz2"),
                 PBIUrl::new("MLB", "MLB_66.csv.bz2"),
                 PBIUrl::new("MLB", "MLB_67.csv.bz2"),
-                PBIUrl::new("MLB", "MLB_68.csv.bz2")]),
-            (MedPayment1, vec![
-                PBIUrl::new("MedPayment1", "MedPayment1_1.csv.bz2")]),
-            (MedPayment2, vec![
-                PBIUrl::new("MedPayment2", "MedPayment2_1.csv.bz2")]),
-            (Medicare1, vec![
+                PBIUrl::new("MLB", "MLB_68.csv.bz2"),
+            ],
+        ),
+        (
+            MedPayment1,
+            vec![PBIUrl::new("MedPayment1", "MedPayment1_1.csv.bz2")],
+        ),
+        (
+            MedPayment2,
+            vec![PBIUrl::new("MedPayment2", "MedPayment2_1.csv.bz2")],
+        ),
+        (
+            Medicare1,
+            vec![
                 PBIUrl::new("Medicare1", "Medicare1_1.csv.bz2"),
-                PBIUrl::new("Medicare1", "Medicare1_2.csv.bz2")]),
-            (Medicare2, vec![
+                PBIUrl::new("Medicare1", "Medicare1_2.csv.bz2"),
+            ],
+        ),
+        (
+            Medicare2,
+            vec![
                 PBIUrl::new("Medicare2", "Medicare2_1.csv.bz2"),
-                PBIUrl::new("Medicare2", "Medicare2_2.csv.bz2")]),
-            (Medicare3, vec![
-                PBIUrl::new("Medicare3", "Medicare3_1.csv.bz2")]),
-            (Motos, vec![
+                PBIUrl::new("Medicare2", "Medicare2_2.csv.bz2"),
+            ],
+        ),
+        (
+            Medicare3,
+            vec![PBIUrl::new("Medicare3", "Medicare3_1.csv.bz2")],
+        ),
+        (
+            Motos,
+            vec![
                 PBIUrl::new("Motos", "Motos_1.csv.bz2"),
-                PBIUrl::new("Motos", "Motos_2.csv.bz2")]),
-            (MulheresMil, vec![
-                PBIUrl::new("MulheresMil", "MulheresMil_1.csv.bz2")]),
-            (NYC, vec![
+                PBIUrl::new("Motos", "Motos_2.csv.bz2"),
+            ],
+        ),
+        (
+            MulheresMil,
+            vec![PBIUrl::new("MulheresMil", "MulheresMil_1.csv.bz2")],
+        ),
+        (
+            NYC,
+            vec![
                 PBIUrl::new("NYC", "NYC_1.csv.bz2"),
-                PBIUrl::new("NYC", "NYC_2.csv.bz2")]),
-            (PanCreactomy1, vec![
-                PBIUrl::new("PanCreactomy1", "PanCreactomy1_1.csv.bz2")]),
-            (PanCreactomy2, vec![
+                PBIUrl::new("NYC", "NYC_2.csv.bz2"),
+            ],
+        ),
+        (
+            PanCreactomy1,
+            vec![PBIUrl::new("PanCreactomy1", "PanCreactomy1_1.csv.bz2")],
+        ),
+        (
+            PanCreactomy2,
+            vec![
                 PBIUrl::new("PanCreactomy2", "PanCreactomy2_1.csv.bz2"),
-                PBIUrl::new("PanCreactomy2", "PanCreactomy2_2.csv.bz2")]),
-            (Physicians, vec![
-                PBIUrl::new("Physicians", "Physicians_1.csv.bz2")]),
-            (Provider, vec![
+                PBIUrl::new("PanCreactomy2", "PanCreactomy2_2.csv.bz2"),
+            ],
+        ),
+        (
+            Physicians,
+            vec![PBIUrl::new("Physicians", "Physicians_1.csv.bz2")],
+        ),
+        (
+            Provider,
+            vec![
                 PBIUrl::new("Provider", "Provider_1.csv.bz2"),
                 PBIUrl::new("Provider", "Provider_2.csv.bz2"),
                 PBIUrl::new("Provider", "Provider_3.csv.bz2"),
@@ -180,33 +248,56 @@ lazy_static::lazy_static! {
                 PBIUrl::new("Provider", "Provider_5.csv.bz2"),
                 PBIUrl::new("Provider", "Provider_6.csv.bz2"),
                 PBIUrl::new("Provider", "Provider_7.csv.bz2"),
-                PBIUrl::new("Provider", "Provider_8.csv.bz2")]),
-            (RealEstate1, vec![
+                PBIUrl::new("Provider", "Provider_8.csv.bz2"),
+            ],
+        ),
+        (
+            RealEstate1,
+            vec![
                 PBIUrl::new("RealEstate1", "RealEstate1_1.csv.bz2"),
-                PBIUrl::new("RealEstate1", "RealEstate1_2.csv.bz2")]),
-            (RealEstate2, vec![
+                PBIUrl::new("RealEstate1", "RealEstate1_2.csv.bz2"),
+            ],
+        ),
+        (
+            RealEstate2,
+            vec![
                 PBIUrl::new("RealEstate2", "RealEstate2_1.csv.bz2"),
                 PBIUrl::new("RealEstate2", "RealEstate2_2.csv.bz2"),
                 PBIUrl::new("RealEstate2", "RealEstate2_3.csv.bz2"),
                 PBIUrl::new("RealEstate2", "RealEstate2_4.csv.bz2"),
                 PBIUrl::new("RealEstate2", "RealEstate2_5.csv.bz2"),
                 PBIUrl::new("RealEstate2", "RealEstate2_6.csv.bz2"),
-                PBIUrl::new("RealEstate2", "RealEstate2_7.csv.bz2")]),
-            (Redfin1, vec![
+                PBIUrl::new("RealEstate2", "RealEstate2_7.csv.bz2"),
+            ],
+        ),
+        (
+            Redfin1,
+            vec![
                 PBIUrl::new("Redfin1", "Redfin1_1.csv.bz2"),
                 PBIUrl::new("Redfin1", "Redfin1_2.csv.bz2"),
                 PBIUrl::new("Redfin1", "Redfin1_3.csv.bz2"),
-                PBIUrl::new("Redfin1", "Redfin1_4.csv.bz2")]),
-            (Redfin2, vec![
+                PBIUrl::new("Redfin1", "Redfin1_4.csv.bz2"),
+            ],
+        ),
+        (
+            Redfin2,
+            vec![
                 PBIUrl::new("Redfin2", "Redfin2_1.csv.bz2"),
                 PBIUrl::new("Redfin2", "Redfin2_2.csv.bz2"),
-                PBIUrl::new("Redfin2", "Redfin2_3.csv.bz2")]),
-            (Redfin3, vec![
+                PBIUrl::new("Redfin2", "Redfin2_3.csv.bz2"),
+            ],
+        ),
+        (
+            Redfin3,
+            vec![
                 PBIUrl::new("Redfin3", "Redfin3_1.csv.bz2"),
-                PBIUrl::new("Redfin3", "Redfin3_2.csv.bz2")]),
-            (Redfin4, vec![
-                PBIUrl::new("Redfin4", "Redfin4_1.csv.bz2")]),
-            (Rentabilidad, vec![
+                PBIUrl::new("Redfin3", "Redfin3_2.csv.bz2"),
+            ],
+        ),
+        (Redfin4, vec![PBIUrl::new("Redfin4", "Redfin4_1.csv.bz2")]),
+        (
+            Rentabilidad,
+            vec![
                 PBIUrl::new("Rentabilidad", "Rentabilidad_1.csv.bz2"),
                 PBIUrl::new("Rentabilidad", "Rentabilidad_2.csv.bz2"),
                 PBIUrl::new("Rentabilidad", "Rentabilidad_3.csv.bz2"),
@@ -215,11 +306,19 @@ lazy_static::lazy_static! {
                 PBIUrl::new("Rentabilidad", "Rentabilidad_6.csv.bz2"),
                 PBIUrl::new("Rentabilidad", "Rentabilidad_7.csv.bz2"),
                 PBIUrl::new("Rentabilidad", "Rentabilidad_8.csv.bz2"),
-                PBIUrl::new("Rentabilidad", "Rentabilidad_9.csv.bz2")]),
-            (Romance, vec![
+                PBIUrl::new("Rentabilidad", "Rentabilidad_9.csv.bz2"),
+            ],
+        ),
+        (
+            Romance,
+            vec![
                 PBIUrl::new("Romance", "Romance_1.csv.bz2"),
-                PBIUrl::new("Romance", "Romance_2.csv.bz2")]),
-            (SalariesFrance, vec![
+                PBIUrl::new("Romance", "Romance_2.csv.bz2"),
+            ],
+        ),
+        (
+            SalariesFrance,
+            vec![
                 PBIUrl::new("SalariesFrance", "SalariesFrance_1.csv.bz2"),
                 PBIUrl::new("SalariesFrance", "SalariesFrance_2.csv.bz2"),
                 PBIUrl::new("SalariesFrance", "SalariesFrance_3.csv.bz2"),
@@ -232,8 +331,12 @@ lazy_static::lazy_static! {
                 PBIUrl::new("SalariesFrance", "SalariesFrance_10.csv.bz2"),
                 PBIUrl::new("SalariesFrance", "SalariesFrance_11.csv.bz2"),
                 PBIUrl::new("SalariesFrance", "SalariesFrance_12.csv.bz2"),
-                PBIUrl::new("SalariesFrance", "SalariesFrance_13.csv.bz2")]),
-            (TableroSistemaPenal, vec![
+                PBIUrl::new("SalariesFrance", "SalariesFrance_13.csv.bz2"),
+            ],
+        ),
+        (
+            TableroSistemaPenal,
+            vec![
                 PBIUrl::new("TableroSistemaPenal", "TableroSistemaPenal_1.csv.bz2"),
                 PBIUrl::new("TableroSistemaPenal", "TableroSistemaPenal_2.csv.bz2"),
                 PBIUrl::new("TableroSistemaPenal", "TableroSistemaPenal_3.csv.bz2"),
@@ -241,8 +344,12 @@ lazy_static::lazy_static! {
                 PBIUrl::new("TableroSistemaPenal", "TableroSistemaPenal_5.csv.bz2"),
                 PBIUrl::new("TableroSistemaPenal", "TableroSistemaPenal_6.csv.bz2"),
                 PBIUrl::new("TableroSistemaPenal", "TableroSistemaPenal_7.csv.bz2"),
-                PBIUrl::new("TableroSistemaPenal", "TableroSistemaPenal_8.csv.bz2")]),
-            (Taxpayer, vec![
+                PBIUrl::new("TableroSistemaPenal", "TableroSistemaPenal_8.csv.bz2"),
+            ],
+        ),
+        (
+            Taxpayer,
+            vec![
                 PBIUrl::new("Taxpayer", "Taxpayer_1.csv.bz2"),
                 PBIUrl::new("Taxpayer", "Taxpayer_2.csv.bz2"),
                 PBIUrl::new("Taxpayer", "Taxpayer_3.csv.bz2"),
@@ -252,36 +359,59 @@ lazy_static::lazy_static! {
                 PBIUrl::new("Taxpayer", "Taxpayer_7.csv.bz2"),
                 PBIUrl::new("Taxpayer", "Taxpayer_8.csv.bz2"),
                 PBIUrl::new("Taxpayer", "Taxpayer_9.csv.bz2"),
-                PBIUrl::new("Taxpayer", "Taxpayer_10.csv.bz2")]),
-            (Telco, vec![
-                PBIUrl::new("Telco", "Telco_1.csv.bz2")]),
-            (TrainsUK1, vec![
+                PBIUrl::new("Taxpayer", "Taxpayer_10.csv.bz2"),
+            ],
+        ),
+        (Telco, vec![PBIUrl::new("Telco", "Telco_1.csv.bz2")]),
+        (
+            TrainsUK1,
+            vec![
                 PBIUrl::new("TrainsUK1", "TrainsUK1_1.csv.bz2"),
                 PBIUrl::new("TrainsUK1", "TrainsUK1_2.csv.bz2"),
                 PBIUrl::new("TrainsUK1", "TrainsUK1_3.csv.bz2"),
-                PBIUrl::new("TrainsUK1", "TrainsUK1_4.csv.bz2")]),
-            (TrainsUK2, vec![
+                PBIUrl::new("TrainsUK1", "TrainsUK1_4.csv.bz2"),
+            ],
+        ),
+        (
+            TrainsUK2,
+            vec![
                 PBIUrl::new("TrainsUK2", "TrainsUK2_1.csv.bz2"),
-                PBIUrl::new("TrainsUK2", "TrainsUK2_2.csv.bz2")]),
-            (USCensus, vec![
+                PBIUrl::new("TrainsUK2", "TrainsUK2_2.csv.bz2"),
+            ],
+        ),
+        (
+            USCensus,
+            vec![
                 PBIUrl::new("USCensus", "USCensus_1.csv.bz2"),
                 PBIUrl::new("USCensus", "USCensus_2.csv.bz2"),
-                PBIUrl::new("USCensus", "USCensus_3.csv.bz2")]),
-            (Uberlandia, vec![
-                PBIUrl::new("Uberlandia", "Uberlandia_1.csv.bz2")]),
-            (Wins, vec![
+                PBIUrl::new("USCensus", "USCensus_3.csv.bz2"),
+            ],
+        ),
+        (
+            Uberlandia,
+            vec![PBIUrl::new("Uberlandia", "Uberlandia_1.csv.bz2")],
+        ),
+        (
+            Wins,
+            vec![
                 PBIUrl::new("Wins", "Wins_1.csv.bz2"),
                 PBIUrl::new("Wins", "Wins_2.csv.bz2"),
                 PBIUrl::new("Wins", "Wins_3.csv.bz2"),
-                PBIUrl::new("Wins", "Wins_4.csv.bz2")]),
-            (YaleLanguages, vec![
+                PBIUrl::new("Wins", "Wins_4.csv.bz2"),
+            ],
+        ),
+        (
+            YaleLanguages,
+            vec![
                 PBIUrl::new("YaleLanguages", "YaleLanguages_1.csv.bz2"),
                 PBIUrl::new("YaleLanguages", "YaleLanguages_2.csv.bz2"),
                 PBIUrl::new("YaleLanguages", "YaleLanguages_3.csv.bz2"),
                 PBIUrl::new("YaleLanguages", "YaleLanguages_4.csv.bz2"),
-                PBIUrl::new("YaleLanguages", "YaleLanguages_5.csv.bz2")]),
-        ]);
-}
+                PBIUrl::new("YaleLanguages", "YaleLanguages_5.csv.bz2"),
+            ],
+        ),
+    ])
+});
 
 impl PBIDataset {
     pub fn dataset_name(&self) -> &str {

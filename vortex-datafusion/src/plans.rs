@@ -3,7 +3,7 @@
 use std::any::Any;
 use std::fmt::{Debug, Formatter};
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::task::{Context, Poll};
 
 use arrow_array::cast::AsArray;
@@ -17,7 +17,6 @@ use datafusion_physical_plan::{
     DisplayAs, DisplayFormatType, ExecutionMode, ExecutionPlan, PlanProperties,
 };
 use futures::{ready, Stream};
-use lazy_static::lazy_static;
 use pin_project::pin_project;
 use vortex_array::array::ChunkedArray;
 use vortex_array::arrow::FromArrowArray;
@@ -38,14 +37,13 @@ pub(crate) struct RowSelectorExec {
     chunked_array: ChunkedArray,
 }
 
-lazy_static! {
-    static ref ROW_SELECTOR_SCHEMA_REF: SchemaRef =
-        Arc::new(Schema::new(vec![arrow_schema::Field::new(
-            "row_idx",
-            DataType::UInt64,
-            false
-        )]));
-}
+static ROW_SELECTOR_SCHEMA_REF: LazyLock<SchemaRef> = LazyLock::new(|| {
+    Arc::new(Schema::new(vec![arrow_schema::Field::new(
+        "row_idx",
+        DataType::UInt64,
+        false,
+    )]))
+});
 
 impl RowSelectorExec {
     pub(crate) fn try_new(

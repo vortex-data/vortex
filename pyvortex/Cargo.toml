@@ -27,7 +27,6 @@ arrow = { workspace = true, features = ["pyarrow"] }
 flexbuffers = { workspace = true }
 futures = { workspace = true }
 itertools = { workspace = true }
-lazy_static = { workspace = true }
 log = { workspace = true }
 paste = { workspace = true }
 pyo3 = { workspace = true }

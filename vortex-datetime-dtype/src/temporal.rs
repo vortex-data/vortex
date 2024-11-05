@@ -1,18 +1,15 @@
 use std::fmt::Display;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use jiff::civil::{Date, Time};
 use jiff::{Timestamp, Zoned};
-use lazy_static::lazy_static;
 use vortex_dtype::ExtID;
 
 use crate::unit::TimeUnit;
 
-lazy_static! {
-    pub static ref TIME_ID: ExtID = ExtID::from("vortex.time");
-    pub static ref DATE_ID: ExtID = ExtID::from("vortex.date");
-    pub static ref TIMESTAMP_ID: ExtID = ExtID::from("vortex.timestamp");
-}
+pub static TIME_ID: LazyLock<ExtID> = LazyLock::new(|| ExtID::from("vortex.time"));
+pub static DATE_ID: LazyLock<ExtID> = LazyLock::new(|| ExtID::from("vortex.date"));
+pub static TIMESTAMP_ID: LazyLock<ExtID> = LazyLock::new(|| ExtID::from("vortex.timestamp"));
 
 pub fn is_temporal_ext_type(id: &ExtID) -> bool {
     [&DATE_ID as &ExtID, &TIME_ID, &TIMESTAMP_ID].contains(&id)

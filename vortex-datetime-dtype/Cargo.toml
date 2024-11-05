@@ -16,7 +16,6 @@ readme = { workspace = true }
 [dependencies]
 arrow-schema = { workspace = true, optional = true }
 jiff = { workspace = true }
-lazy_static = { workspace = true }
 num_enum = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 vortex-dtype = { workspace = true, features = ["serde"] }

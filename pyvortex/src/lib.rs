@@ -1,5 +1,7 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 
+use std::sync::LazyLock;
+
 use array::PyArray;
 use expr::PyExpr;
 use pyo3::exceptions::PyRuntimeError;
@@ -16,17 +18,16 @@ mod io;
 mod object_store_urls;
 mod python_repr;
 mod scalar;
-use lazy_static::lazy_static;
 use log::LevelFilter;
 use pyo3_log::{Caching, Logger};
 use tokio::runtime::Runtime;
 use vortex::error::{VortexError, VortexExpect as _};
 
-lazy_static! {
-    static ref TOKIO_RUNTIME: Runtime = Runtime::new()
+pub static TOKIO_RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
+    Runtime::new()
         .map_err(VortexError::IOError)
-        .vortex_expect("tokio runtime must not fail to start");
-}
+        .vortex_expect("tokio runtime must not fail to start")
+});
 
 /// Vortex is an Apache Arrow-compatible toolkit for working with compressed array data.
 #[pymodule]
