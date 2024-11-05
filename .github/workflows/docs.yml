@@ -20,7 +20,7 @@ jobs:
 
       - name: build Python and Rust docs
         run: |
-          uv run make -C docs full-html
+          uv run make -C docs python-and-rust-html
       - name: commit python docs to gh-pages-bench
         run: |
           set -ex
