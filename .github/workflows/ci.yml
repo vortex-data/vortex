@@ -156,7 +156,6 @@ jobs:
       - uses: ./.github/actions/cleanup
       - uses: rui314/setup-mold@v1
       - uses: ./.github/actions/setup-rust
-      - uses: spiraldb/actions/.github/actions/setup-uv@0.2.0
       # Required to run benchmarks
       - name: Install DuckDB
         uses: opt-nc/setup-duckdb-action@v1.0.9
