@@ -63,7 +63,7 @@ fn compare_constant_arrow<T: ByteArrayType>(
         Operator::Lt => cmp::lt(lhs, rhs)?,
         Operator::Lte => cmp::lt_eq(lhs, rhs)?,
     };
-    Ok(crate::Array::from_arrow(&array, true))
+    Ok(Array::from_arrow(&array, true))
 }
 
 #[cfg(test)]

@@ -1,3 +1,5 @@
+#![doc(html_logo_url = "/vortex/docs/_static/vortex_spiral_logo.svg")]
+
 use message_reader::*;
 use message_writer::*;
 

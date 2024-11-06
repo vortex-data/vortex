@@ -3,7 +3,7 @@ Guide
 
 .. admonition:: Rustaceans
 
-   See the `Vortex Rust documentation </vortex/docs2/rust/doc/vortex>`_, for details on Vortex in Rust.
+   See the `Vortex Rust documentation </vortex/docs/rust/doc/vortex>`_, for details on Vortex in Rust.
 
 Python
 ------

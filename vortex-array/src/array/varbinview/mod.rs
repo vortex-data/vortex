@@ -1,4 +1,5 @@
 use std::fmt::{Debug, Display, Formatter};
+use std::ops::Range;
 use std::sync::Arc;
 
 use ::serde::{Deserialize, Serialize};
@@ -88,6 +89,11 @@ impl Ref {
     pub fn prefix(&self) -> &[u8; 4] {
         &self.prefix
     }
+
+    #[inline]
+    pub fn to_range(&self) -> Range<usize> {
+        self.offset as usize..(self.offset + self.size) as usize
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -160,6 +166,14 @@ impl BinaryView {
     }
 }
 
+impl From<u128> for BinaryView {
+    fn from(value: u128) -> Self {
+        BinaryView {
+            le_bytes: value.to_le_bytes(),
+        }
+    }
+}
+
 impl Debug for BinaryView {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let mut s = f.debug_struct("BinaryView");
@@ -186,7 +200,7 @@ pub struct VarBinViewMetadata {
 }
 
 impl Display for VarBinViewMetadata {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         Debug::fmt(self, f)
     }
 }

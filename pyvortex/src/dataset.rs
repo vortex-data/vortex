@@ -15,8 +15,8 @@ use vortex::error::VortexResult;
 use vortex::sampling_compressor::ALL_COMPRESSORS_CONTEXT;
 use vortex::serde::io::{ObjectStoreReadAt, VortexReadAt};
 use vortex::serde::layouts::{
-    LayoutBatchStream, LayoutContext, LayoutDescriptorReader, LayoutDeserializer,
-    LayoutReaderBuilder, Projection, RowFilter, VortexRecordBatchReader,
+    LayoutBatchStream, LayoutBatchStreamBuilder, LayoutContext, LayoutDescriptorReader,
+    LayoutDeserializer, Projection, RowFilter, VortexRecordBatchReader,
 };
 use vortex::Array;
 
@@ -29,7 +29,7 @@ pub async fn layout_stream_from_reader<T: VortexReadAt + Unpin>(
     projection: Projection,
     row_filter: Option<RowFilter>,
 ) -> VortexResult<LayoutBatchStream<T>> {
-    let mut builder = LayoutReaderBuilder::new(
+    let mut builder = LayoutBatchStreamBuilder::new(
         reader,
         LayoutDeserializer::new(
             ALL_COMPRESSORS_CONTEXT.clone(),

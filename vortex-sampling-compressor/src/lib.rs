@@ -159,7 +159,7 @@ impl Display for SamplingCompressor<'_> {
 impl CompressionStrategy for SamplingCompressor<'_> {
     #[allow(clippy::same_name_method)]
     fn compress(&self, array: &Array) -> VortexResult<Array> {
-        Self::compress(self, array, None).map(compressors::CompressedArray::into_array)
+        Self::compress(self, array, None).map(CompressedArray::into_array)
     }
 
     fn used_encodings(&self) -> HashSet<EncodingRef> {

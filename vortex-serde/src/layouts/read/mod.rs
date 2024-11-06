@@ -13,23 +13,23 @@ mod context;
 mod expr_project;
 mod filtering;
 mod footer;
-mod layouts;
+pub mod layouts;
 mod mask;
 mod recordbatchreader;
 mod stream;
 
-pub use builder::LayoutReaderBuilder;
+pub use builder::LayoutBatchStreamBuilder;
 pub use cache::*;
 pub use context::*;
 pub use filtering::RowFilter;
-pub use footer::LayoutDescriptorReader;
+pub use footer::{LayoutDescriptor, LayoutDescriptorReader};
 pub use recordbatchreader::{AsyncRuntime, VortexRecordBatchReader};
 pub use stream::LayoutBatchStream;
 use vortex_expr::VortexExpr;
 pub use vortex_schema::projection::Projection;
 pub use vortex_schema::Schema;
 
-use crate::layouts::read::mask::RowMask;
+pub use crate::layouts::read::mask::RowMask;
 use crate::stream_writer::ByteRange;
 
 // Recommended read-size according to the AWS performance guide
@@ -60,6 +60,14 @@ pub enum BatchRead {
     Batch(Array),
 }
 
+/// A reader for a layout, a serialized sequence of Vortex arrays.
+///
+/// Some layouts are _horizontally divisble_: they can read a sub-sequence of rows independently of
+/// other sub-sequences. A layout advertises its sub-divisions in its [add_splits][Self::add_splits]
+/// method. Any layout which is or contains a chunked layout is horizontally divisble.
+///
+/// The [read_selection][Self::read_selection] method accepts and applies a [RowMask], reading only
+/// the sub-divisions which contain the selected (i.e. masked) rows.
 pub trait LayoutReader: Debug + Send {
     /// Register all horizontal row boundaries of this layout.
     ///
@@ -69,10 +77,10 @@ pub trait LayoutReader: Debug + Send {
 
     /// Reads the data from the underlying layout within given selection
     ///
-    /// Layout is required to return all data for given selection in one batch.
-    /// Layout can either return a batch data (i.e., an Array) or ask for more layout messages to
-    /// be read. When requesting messages to be read the caller should populate the message cache used
-    /// when creating the invoked instance of this trait and then call back into this function.
+    /// Layout is required to return all data for given selection in one batch.  Layout can either
+    /// return a batch of data (i.e., an Array) or ask for more layout messages to be read. When
+    /// requesting messages to be read the caller should populate the message cache used when
+    /// creating the invoked instance of this trait and then call back into this function.
     ///
     /// The layout is finished producing data for selection when it returns None
     fn read_selection(&mut self, selector: &RowMask) -> VortexResult<Option<BatchRead>>;

@@ -19,8 +19,24 @@ help:
 %: Makefile
 	@$(SPHINXBUILD) -M $@ "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
 
-full-html: html rust-html
+python-and-rust-html: html rust-html
 	true  # need a non-empty rule to prevent matching the %: rule.
 
+serve:
+	mkdir -p _build/vortex
+	-ln -s ../html _build/vortex/docs  # makes absolute links like /vortex/docs/rust/html work correctly
+	echo The docs are served at http://localhost:8000/vortex/docs/
+	(cd _build/ && python3 -m http.server)
+
+watch:
+	fswatch -o -e '#[^#]*#' -e '__pycache__' -e '\.#.*' -e target -e .git -e .venv -e pyvortex/python/vortex/_lib.abi3.so -e docs/_build -e docs/a.vortex ../ | xargs -L1 /bin/bash -c 'make python-and-rust-html'
+
 rust-html:
-	cargo doc --no-deps --workspace --all-features --target-dir $(BUILDDIR)/html/rust
+	RUSTDOCFLAGS="--enable-index-page -Z unstable-options" cargo doc \
+		--no-deps \
+		--workspace \
+		--exclude bench-vortex \
+		--exclude xtask \
+		--all-features \
+		--target-dir \
+		$(BUILDDIR)/html/rust

@@ -13,10 +13,13 @@ use crate::layouts::read::{LayoutReader, Scan, INITIAL_READ_SIZE};
 use crate::layouts::{EOF_SIZE, FOOTER_POSTSCRIPT_SIZE, MAGIC_BYTES, VERSION};
 use crate::FLATBUFFER_SIZE_LENGTH;
 
-/// Wrapper around serialized file footer. Provides handle on file schema and
-/// layout metadata to read the contents.
+/// A description of the contents of a Vortex file, including dtype and layouts.
+///
+/// In particular, this class is constructed from the last five sections of a Vortex file: the
+/// schema (data type), footer, postscript, version, and magic bytes.
 ///
 /// # File Format
+/// ```text
 /// ┌────────────────────────────┐
 /// │                            │
 /// │            Data            │
@@ -46,7 +49,7 @@ use crate::FLATBUFFER_SIZE_LENGTH;
 /// ├────────────────────────────┤
 /// │    Magic bytes (4 bytes)   │
 /// └────────────────────────────┘
-///
+/// ```
 #[derive(Debug)]
 pub struct LayoutDescriptor {
     pub(crate) schema_offset: u64,
@@ -65,10 +68,12 @@ impl LayoutDescriptor {
         (self.schema_offset - self.initial_read_offset) as usize
     }
 
+    /// The total number of rows contained in this file.
     pub fn row_count(&self) -> VortexResult<u64> {
         Ok(self.fb_footer()?.row_count())
     }
 
+    /// A [LayoutReader] which will read and produce one or more arrays from the data and metadata.
     pub fn layout(
         &self,
         scan: Scan,

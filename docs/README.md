@@ -18,7 +18,7 @@ uv run make html
 Build the Python and Rust docs and place the rust docs at `_build/rust/html`:
 
 ```
-uv run make full-html
+uv run make python-and-rust-html
 ```
 
 ## Viewing

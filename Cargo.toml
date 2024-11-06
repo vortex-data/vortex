@@ -165,8 +165,12 @@ xshell = "0.2.6"
 zigzag = "0.1.0"
 
 [workspace.lints.rust]
-warnings = "deny"
+macro_use_extern_crate = "deny"
+redundant_lifetimes = "deny"
 unsafe_op_in_unsafe_fn = "deny"
+unused_lifetimes = "deny"
+unused_qualifications = "deny"
+warnings = "deny"
 
 [workspace.lints.clippy]
 all = { level = "deny", priority = -1 }

@@ -86,7 +86,7 @@ macro_rules! impl_encoding {
                     self.typed.to_array()
                 }
             }
-            impl<'a> $crate::IntoArray for [<$Name Array>] {
+            impl $crate::IntoArray for [<$Name Array>] {
                 fn into_array(self) -> $crate::Array {
                     self.typed.into_array()
                 }
