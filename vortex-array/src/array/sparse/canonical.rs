@@ -42,8 +42,8 @@ fn canonicalize_sparse_bools(
     len: usize,
     fill_value: &ScalarValue,
 ) -> VortexResult<Canonical> {
-    let fill_bool: bool = if fill_value.is_null() {
-        bool::default()
+    let fill_bool = if fill_value.is_null() {
+        false
     } else {
         fill_value.try_into()?
     };
@@ -104,7 +104,7 @@ fn canonicalize_sparse_primitives<
 mod test {
     use arrow_buffer::BooleanBufferBuilder;
     use rstest::rstest;
-    use vortex_dtype::{DType, Nullability};
+    use vortex_dtype::{DType, Nullability, PType};
     use vortex_error::VortexExpect as _;
     use vortex_scalar::ScalarValue;
 
@@ -112,7 +112,6 @@ mod test {
     use crate::array::{BoolArray, PrimitiveArray};
     use crate::validity::Validity;
     use crate::{ArrayDType, IntoArray, IntoCanonical};
-    use vortex_dtype::PType;
 
     #[rstest]
     #[case(Some(true))]
@@ -182,9 +181,16 @@ mod test {
             PrimitiveArray::from_nullable_vec(vec![Some(0i32), None, Some(1)]).into_array();
         let sparse_ints =
             SparseArray::try_new(indices, values, 10, ScalarValue::from(fill_value)).unwrap();
-        assert_eq!(*sparse_ints.dtype(), DType::Primitive(PType::I32, Nullability::Nullable));
+        assert_eq!(
+            *sparse_ints.dtype(),
+            DType::Primitive(PType::I32, Nullability::Nullable)
+        );
 
-        let flat_ints = sparse_ints.into_canonical().unwrap().into_primitive().unwrap();
+        let flat_ints = sparse_ints
+            .into_canonical()
+            .unwrap()
+            .into_primitive()
+            .unwrap();
         let expected = PrimitiveArray::from_nullable_vec(vec![
             Some(0i32),
             None,
@@ -205,7 +211,10 @@ mod test {
         assert!(flat_ints.validity().is_valid(0));
         assert_eq!(flat_ints.maybe_null_slice::<i32>()[1], 0);
         assert!(!flat_ints.validity().is_valid(1));
-        assert_eq!(flat_ints.maybe_null_slice::<i32>()[2], fill_value.unwrap_or_default());
+        assert_eq!(
+            flat_ints.maybe_null_slice::<i32>()[2],
+            fill_value.unwrap_or_default()
+        );
         assert_eq!(flat_ints.validity().is_valid(2), fill_value.is_some());
         assert_eq!(flat_ints.maybe_null_slice::<i32>()[7], 1);
         assert!(flat_ints.validity().is_valid(7));
