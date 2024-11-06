@@ -8,6 +8,8 @@
 #[allow(non_camel_case_types)]
 #[allow(unsafe_op_in_unsafe_fn)]
 #[allow(unused_imports)]
+#[allow(unused_lifetimes)]
+#[allow(unused_qualifications)]
 #[rustfmt::skip]
 #[path = "./generated/array.rs"]
 pub mod array;
@@ -22,6 +24,8 @@ pub mod array;
 #[allow(non_camel_case_types)]
 #[allow(unsafe_op_in_unsafe_fn)]
 #[allow(unused_imports)]
+#[allow(unused_lifetimes)]
+#[allow(unused_qualifications)]
 #[rustfmt::skip]
 #[path = "./generated/dtype.rs"]
 pub mod dtype;
@@ -36,6 +40,8 @@ pub mod dtype;
 #[allow(non_camel_case_types)]
 #[allow(unsafe_op_in_unsafe_fn)]
 #[allow(unused_imports)]
+#[allow(unused_lifetimes)]
+#[allow(unused_qualifications)]
 #[rustfmt::skip]
 #[path = "./generated/scalar.rs"]
 pub mod scalar;
@@ -50,6 +56,8 @@ pub mod scalar;
 #[allow(non_camel_case_types)]
 #[allow(unsafe_op_in_unsafe_fn)]
 #[allow(unused_imports)]
+#[allow(unused_lifetimes)]
+#[allow(unused_qualifications)]
 #[rustfmt::skip]
 #[path = "./generated/footer.rs"]
 pub mod footer;
@@ -64,6 +72,8 @@ pub mod footer;
 #[allow(non_camel_case_types)]
 #[allow(unsafe_op_in_unsafe_fn)]
 #[allow(unused_imports)]
+#[allow(unused_lifetimes)]
+#[allow(unused_qualifications)]
 #[rustfmt::skip]
 #[path = "./generated/message.rs"]
 pub mod message;

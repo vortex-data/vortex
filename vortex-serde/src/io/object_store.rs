@@ -107,7 +107,7 @@ impl ObjectStoreWriter {
 }
 
 impl VortexWrite for ObjectStoreWriter {
-    async fn write_all<B: IoBuf>(&mut self, buffer: B) -> std::io::Result<B> {
+    async fn write_all<B: IoBuf>(&mut self, buffer: B) -> io::Result<B> {
         self.multipart
             .as_mut()
             .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "multipart already finished"))
@@ -115,7 +115,7 @@ impl VortexWrite for ObjectStoreWriter {
         Ok(buffer)
     }
 
-    async fn flush(&mut self) -> std::io::Result<()> {
+    async fn flush(&mut self) -> io::Result<()> {
         Ok(self
             .multipart
             .as_mut()
@@ -124,7 +124,7 @@ impl VortexWrite for ObjectStoreWriter {
             .await?)
     }
 
-    async fn shutdown(&mut self) -> std::io::Result<()> {
+    async fn shutdown(&mut self) -> io::Result<()> {
         let mp = mem::take(&mut self.multipart);
         mp.ok_or_else(|| io::Error::new(io::ErrorKind::Other, "multipart already finished"))?
             .finish()

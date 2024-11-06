@@ -124,7 +124,7 @@ pub enum VortexError {
     FmtError(
         #[from]
         #[backtrace]
-        std::fmt::Error,
+        fmt::Error,
     ),
     /// A wrapper for IO errors.
     #[error(transparent)]

@@ -66,7 +66,7 @@ fn dict_decode(c: &mut Criterion) {
     });
 
     let varbin_arr = gen_varbin_dict(1_000_000, 0.00005);
-    let (codes, values) = vortex_dict::dict_encode_varbin(&varbin_arr);
+    let (codes, values) = dict_encode_varbin(&varbin_arr);
     group.throughput(Throughput::Bytes(varbin_arr.nbytes() as u64));
     group.bench_function("dict_decode_varbin", |b| {
         b.iter_batched(
