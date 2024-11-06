@@ -39,7 +39,7 @@ pub mod array;
 /// A serialized data type.
 ///
 /// `dtype.fbs`:
-/// ```
+/// ```flatbuffers
 #[doc = include_str!("../flatbuffers/vortex-dtype/dtype.fbs")]
 /// ```
 pub mod dtype;
@@ -59,7 +59,7 @@ pub mod dtype;
 /// A serialized scalar.
 ///
 /// `scalar.fbs`:
-/// ```
+/// ```flatbuffers
 #[doc = include_str!("../flatbuffers/vortex-scalar/scalar.fbs")]
 /// ```
 pub mod scalar;
@@ -79,7 +79,7 @@ pub mod scalar;
 /// A file format footer containining a serialized `vortex-serde` Layout.
 ///
 /// `footer.fbs`:
-/// ```
+/// ```flatbuffers
 #[doc = include_str!("../flatbuffers/vortex-serde/footer.fbs")]
 /// ```
 pub mod footer;
@@ -99,7 +99,7 @@ pub mod footer;
 /// A serialized sequence of arrays, each with its buffers.
 ///
 /// `message.fbs`:
-/// ```
+/// ```flatbuffers
 #[doc = include_str!("../flatbuffers/vortex-serde/message.fbs")]
 /// ```
 pub mod message;
