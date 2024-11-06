@@ -24,8 +24,8 @@ def ds(tmpdir_factory) -> vortex.dataset.VortexDataset:
     if not os.path.exists(fname):
         a = pa.array([record(x) for x in range(1_000_000)])
         arr = vortex.encoding.compress(vortex.array(a))
-        vortex.io.write_path(arr, "/tmp/foo.vortex")
-    return vortex.dataset.VortexDataset.from_path("/tmp/foo.vortex")
+        vortex.io.write_path(arr, str(fname))
+    return vortex.dataset.VortexDataset.from_path(str(fname))
 
 
 def test_schema(ds):

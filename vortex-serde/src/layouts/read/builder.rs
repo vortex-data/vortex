@@ -1,10 +1,12 @@
 use std::sync::{Arc, RwLock};
 
+use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::{Array, ArrayDType};
 use vortex_error::VortexResult;
-use vortex_expr::Select;
+use vortex_expr::{Select, VortexExpr as _};
 use vortex_schema::projection::Projection;
 
+use super::RowMask;
 use crate::io::VortexReadAt;
 use crate::layouts::read::cache::{LayoutMessageCache, LazyDeserializedDType, RelativeLayoutCache};
 use crate::layouts::read::context::LayoutDeserializer;
@@ -85,21 +87,32 @@ impl<R: VortexReadAt> LayoutBatchStreamBuilder<R> {
             RelativeLayoutCache::new(message_cache.clone(), footer_dtype.clone()),
         )?;
 
-        let filter_reader = self
-            .row_filter
-            .as_ref()
-            .map(|filter| {
-                footer.layout(
-                    Scan::new(Some(Arc::new(filter.clone()))),
+        let row_filter_and_reader = match self.row_filter {
+            None => None,
+            Some(row_filter) => {
+                let mut references = HashSet::new();
+                row_filter.collect_references(&mut references);
+                let select_filtering_columns =
+                    Select::Include(references.into_iter().map(|x| x.clone()).collect());
+                let layout = footer.layout(
+                    Scan::new(Some(Arc::new(select_filtering_columns))),
                     RelativeLayoutCache::new(message_cache.clone(), footer_dtype),
-                )
-            })
+                )?;
+                Some((row_filter, layout))
+            }
+        };
+
+        let indices_mask = self
+            .indices
+            .as_ref()
+            .map(|indices| RowMask::from_index_array(indices, 0, row_count as usize))
             .transpose()?;
 
         Ok(LayoutBatchStream::new(
             self.reader,
+            indices_mask,
             data_reader,
-            filter_reader,
+            row_filter_and_reader,
             message_cache,
             projected_dtype,
             row_count,

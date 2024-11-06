@@ -97,6 +97,7 @@ impl LayoutReader for FlatLayout {
     }
 
     fn read_selection(&mut self, selection: &RowMask) -> VortexResult<Option<BatchRead>> {
+        println!("FlatLayout::read_selection: {:?}", selection);
         if let Some(buf) = self.message_cache.get(&[]) {
             let array = self.array_from_bytes(buf)?;
             selection

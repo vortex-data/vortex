@@ -73,7 +73,7 @@ impl LayoutDescriptor {
         Ok(self.fb_footer()?.row_count())
     }
 
-    /// A [LayoutReader] which will read and produce one or more arrays from the data and metadata.
+    /// The top-level [LayoutReader] which will read and produce one or more arrays.
     pub fn layout(
         &self,
         scan: Scan,
