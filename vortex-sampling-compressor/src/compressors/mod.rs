@@ -189,7 +189,11 @@ impl<'a> CompressedArray<'a> {
         Self::compressed(array, None, None)
     }
 
-    pub fn compressed(array: Array, path: Option<CompressionTree<'a>>, inherited_stats: Option<&dyn Statistics>) -> Self {
+    pub fn compressed(
+        array: Array,
+        path: Option<CompressionTree<'a>>,
+        inherited_stats: Option<&dyn Statistics>,
+    ) -> Self {
         if let Some(stats) = inherited_stats {
             for (stat, value) in stats.to_set().into_iter() {
                 array.statistics().set(stat, value);

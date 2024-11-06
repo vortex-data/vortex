@@ -185,8 +185,7 @@ impl ArrayStatisticsCompute for SparseArray {
         let fill_stats = if self.fill_value().is_null() {
             StatsSet::nulls(self.len(), self.dtype())
         } else {
-            ConstantArray::new(self.fill_scalar(), self.len())
-                .compute_statistics(stat)?
+            ConstantArray::new(self.fill_scalar(), self.len()).compute_statistics(stat)?
         };
         values_stats.merge(&fill_stats);
         Ok(values_stats)

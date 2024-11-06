@@ -12,7 +12,8 @@ use vortex_alp::{ALPEncoding, ALPRDEncoding};
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{ChunkedArray, Constant};
 use vortex_array::compress::{
-    check_dtype_unchanged, check_statistics_unchanged, check_validity_unchanged, compute_pruning_stats, CompressionStrategy
+    check_dtype_unchanged, check_statistics_unchanged, check_validity_unchanged,
+    compute_pruning_stats, CompressionStrategy,
 };
 use vortex_array::compute::slice;
 use vortex_array::encoding::EncodingRef;

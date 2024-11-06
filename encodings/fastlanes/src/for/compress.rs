@@ -162,7 +162,10 @@ mod test {
             sparse.scalar_at(0).unwrap(),
             Scalar::primitive(0i32, Nullability::Nullable)
         );
-        assert_eq!(sparse.scalar_at(1).unwrap(), Scalar::null(sparse.dtype().clone()));
+        assert_eq!(
+            sparse.scalar_at(1).unwrap(),
+            Scalar::null(sparse.dtype().clone())
+        );
     }
 
     #[test]
