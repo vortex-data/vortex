@@ -82,7 +82,7 @@ impl EncodingCompressor for FoRCompressor {
             Ok(CompressedArray::compressed(
                 compressed_child.array,
                 Some(CompressionTree::new(self, vec![compressed_child.path])),
-                None, // TODO(wmanning): convince myself that this block is correct / write a test
+                Some(array.statistics()),
             ))
         }
     }
