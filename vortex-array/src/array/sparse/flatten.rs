@@ -1,5 +1,4 @@
 use arrow_buffer::BooleanBufferBuilder;
-use itertools::Itertools;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType};
 use vortex_error::{VortexError, VortexResult};
 use vortex_scalar::ScalarValue;
@@ -90,9 +89,9 @@ fn canonicalize_sparse_primitives<
     let mut validity = BooleanBufferBuilder::new(len);
     validity.append_n(len, !fill_value.is_null());
 
-    for (v, idx) in values.iter().zip_eq(indices) {
-        result[*idx] = *v;
-        validity.set_bit(*idx, values_validity.is_valid(*idx));
+    for (i, idx) in indices.iter().enumerate() {
+        result[*idx] = values[i];
+        validity.set_bit(*idx, values_validity.is_valid(i));
     }
 
     Ok(Canonical::Primitive(PrimitiveArray::from_vec(
@@ -107,13 +106,62 @@ mod test {
     use rstest::rstest;
     use vortex_dtype::{DType, Nullability};
     use vortex_error::VortexExpect as _;
+    use vortex_scalar::ScalarValue;
 
     use crate::array::sparse::SparseArray;
-    use crate::array::BoolArray;
+    use crate::array::{BoolArray, PrimitiveArray};
     use crate::validity::Validity;
     use crate::{ArrayDType, IntoArray, IntoCanonical};
+    use vortex_dtype::PType;
 
-    fn bool_array_from_nullable_vec(bools: Vec<Option<bool>>, fill_value: Option<bool>) -> BoolArray {
+    #[rstest]
+    #[case(Some(true))]
+    #[case(Some(false))]
+    #[case(None)]
+    fn test_sparse_bool(#[case] fill_value: Option<bool>) {
+        let indices = vec![0u64, 1, 7].into_array();
+        let values = bool_array_from_nullable_vec(vec![Some(true), None, Some(false)], fill_value)
+            .into_array();
+        let sparse_bools =
+            SparseArray::try_new(indices, values, 10, ScalarValue::from(fill_value)).unwrap();
+        assert_eq!(*sparse_bools.dtype(), DType::Bool(Nullability::Nullable));
+
+        let flat_bools = sparse_bools.into_canonical().unwrap().into_bool().unwrap();
+        let expected = bool_array_from_nullable_vec(
+            vec![
+                Some(true),
+                None,
+                fill_value,
+                fill_value,
+                fill_value,
+                fill_value,
+                fill_value,
+                Some(false),
+                fill_value,
+                fill_value,
+            ],
+            fill_value,
+        );
+
+        assert_eq!(flat_bools.boolean_buffer(), expected.boolean_buffer());
+        assert_eq!(flat_bools.validity(), expected.validity());
+
+        assert!(flat_bools.boolean_buffer().value(0));
+        assert!(flat_bools.validity().is_valid(0));
+        assert_eq!(
+            flat_bools.boolean_buffer().value(1),
+            fill_value.unwrap_or_default()
+        );
+        assert!(!flat_bools.validity().is_valid(1));
+        assert_eq!(flat_bools.validity().is_valid(2), fill_value.is_some());
+        assert!(!flat_bools.boolean_buffer().value(7));
+        assert!(flat_bools.validity().is_valid(7));
+    }
+
+    fn bool_array_from_nullable_vec(
+        bools: Vec<Option<bool>>,
+        fill_value: Option<bool>,
+    ) -> BoolArray {
         let mut buffer = BooleanBufferBuilder::new(bools.len());
         let mut validity = BooleanBufferBuilder::new(bools.len());
         for maybe_bool in bools {
@@ -125,41 +173,41 @@ mod test {
     }
 
     #[rstest]
-    #[case(Some(true))]
-    #[case(Some(false))]
+    #[case(Some(0i32))]
+    #[case(Some(-1i32))]
     #[case(None)]
-    fn test_sparse_bool(#[case] fill_value: Option<bool>) {
-        use vortex_scalar::ScalarValue;
-
+    fn test_sparse_primitive(#[case] fill_value: Option<i32>) {
         let indices = vec![0u64, 1, 7].into_array();
-        let values = bool_array_from_nullable_vec(vec![Some(true), None, Some(false)], fill_value)
-            .into_array();
-        let sparse_bools = SparseArray::try_new(indices, values, 10, ScalarValue::from(fill_value)).unwrap();
-        assert_eq!(*sparse_bools.dtype(), DType::Bool(Nullability::Nullable));
+        let values =
+            PrimitiveArray::from_nullable_vec(vec![Some(0i32), None, Some(1)]).into_array();
+        let sparse_ints =
+            SparseArray::try_new(indices, values, 10, ScalarValue::from(fill_value)).unwrap();
+        assert_eq!(*sparse_ints.dtype(), DType::Primitive(PType::I32, Nullability::Nullable));
 
-        let flat_bools = sparse_bools.into_canonical().unwrap().into_bool().unwrap();
-        let expected = bool_array_from_nullable_vec(vec![
-            Some(true),
+        let flat_ints = sparse_ints.into_canonical().unwrap().into_primitive().unwrap();
+        let expected = PrimitiveArray::from_nullable_vec(vec![
+            Some(0i32),
             None,
             fill_value,
             fill_value,
             fill_value,
             fill_value,
             fill_value,
-            Some(false),
+            Some(1),
             fill_value,
             fill_value,
-        ], fill_value);
+        ]);
 
-        assert_eq!(flat_bools.boolean_buffer(), expected.boolean_buffer());
-        assert_eq!(flat_bools.validity(), expected.validity());
+        assert_eq!(flat_ints.buffer(), expected.buffer());
+        assert_eq!(flat_ints.validity(), expected.validity());
 
-        assert!(flat_bools.boolean_buffer().value(0));
-        assert!(flat_bools.validity().is_valid(0));
-        assert_eq!(flat_bools.boolean_buffer().value(1), fill_value.unwrap_or_default());
-        assert!(!flat_bools.validity().is_valid(1));
-        assert_eq!(flat_bools.validity().is_valid(2), fill_value.is_some());
-        assert!(!flat_bools.boolean_buffer().value(7));
-        assert!(flat_bools.validity().is_valid(7));
+        assert_eq!(flat_ints.maybe_null_slice::<i32>()[0], 0);
+        assert!(flat_ints.validity().is_valid(0));
+        assert_eq!(flat_ints.maybe_null_slice::<i32>()[1], 0);
+        assert!(!flat_ints.validity().is_valid(1));
+        assert_eq!(flat_ints.maybe_null_slice::<i32>()[2], fill_value.unwrap_or_default());
+        assert_eq!(flat_ints.validity().is_valid(2), fill_value.is_some());
+        assert_eq!(flat_ints.maybe_null_slice::<i32>()[7], 1);
+        assert!(flat_ints.validity().is_valid(7));
     }
 }
