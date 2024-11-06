@@ -12,7 +12,7 @@ use vortex_alp::{ALPEncoding, ALPRDEncoding};
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{ChunkedArray, Constant};
 use vortex_array::compress::{
-    check_dtype_unchanged, check_statistics_unchanged, check_validity_unchanged, CompressionStrategy
+    check_dtype_unchanged, check_statistics_unchanged, check_validity_unchanged, compute_pruning_stats, CompressionStrategy
 };
 use vortex_array::compute::slice;
 use vortex_array::encoding::EncodingRef;
@@ -241,6 +241,9 @@ impl<'a> SamplingCompressor<'a> {
         if arr.is_empty() {
             return Ok(CompressedArray::uncompressed(arr.clone()));
         }
+
+        // It's worth computing pruning stats eagerly
+        compute_pruning_stats(arr)?;
 
         // Attempt to compress using the "like" array, otherwise fall back to sampled compression
         if let Some(l) = like {
