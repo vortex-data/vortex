@@ -1,12 +1,13 @@
 use std::fmt::{Debug, Display, Formatter};
+use std::ops::Range;
 use std::sync::Arc;
 
-use ::serde::{Deserialize, Serialize};
 use arrow_array::builder::{BinaryViewBuilder, GenericByteViewBuilder, StringViewBuilder};
 use arrow_array::types::{BinaryViewType, ByteViewType, StringViewType};
 use arrow_array::{ArrayRef, BinaryViewArray, GenericByteViewArray, StringViewArray};
 use arrow_buffer::ScalarBuffer;
 use itertools::Itertools;
+use ::serde::{Deserialize, Serialize};
 use static_assertions::{assert_eq_align, assert_eq_size};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, PType};
@@ -88,6 +89,11 @@ impl Ref {
     pub fn prefix(&self) -> &[u8; 4] {
         &self.prefix
     }
+
+    #[inline]
+    pub fn to_range(&self) -> Range<usize> {
+        self.offset as usize..(self.offset + self.size) as usize
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -157,6 +163,14 @@ impl BinaryView {
     pub fn as_u128(&self) -> u128 {
         // SAFETY: binary view always safe to read as u128 LE bytes
         unsafe { u128::from_le_bytes(self.le_bytes) }
+    }
+}
+
+impl From<u128> for BinaryView {
+    fn from(value: u128) -> Self {
+        BinaryView {
+            le_bytes: value.to_le_bytes(),
+        }
     }
 }
 
