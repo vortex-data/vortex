@@ -30,8 +30,9 @@ bytes = { workspace = true }
 bzip2 = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 csv = { workspace = true }
-datafusion = { workspace = true, default-features = false, features = [
+datafusion = { workspace = true, features = [
     "parquet",
+    "datetime_expressions",
 ] }
 datafusion-common = { workspace = true }
 datafusion-physical-plan = { workspace = true }
