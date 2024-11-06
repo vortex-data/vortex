@@ -140,7 +140,7 @@ mod test {
 
         let compressed = for_compress(&array).unwrap();
         let constant = ConstantArray::try_from(compressed).unwrap();
-        assert!(constant.statistics().to_set().into_iter().next().is_none());
+        assert_eq!(constant.scalar_value(), &ScalarValue::from(0i32));
     }
 
     #[test]

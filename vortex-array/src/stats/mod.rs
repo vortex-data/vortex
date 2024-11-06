@@ -20,6 +20,7 @@ mod statsset;
 pub(crate) const PRUNING_STATS: &[Stat] = &[Stat::Min, Stat::Max, Stat::TrueCount, Stat::NullCount];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Sequence)]
+#[non_exhaustive]
 pub enum Stat {
     BitWidthFreq,
     TrailingZeroFreq,

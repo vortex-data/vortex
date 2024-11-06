@@ -2,7 +2,7 @@ use enum_iterator::all;
 use itertools::Itertools;
 use vortex_dtype::DType;
 use vortex_error::{vortex_panic, VortexError, VortexExpect};
-use vortex_scalar::Scalar;
+use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::aliases::hash_map::{Entry, HashMap, IntoIter};
 use crate::stats::Stat;
@@ -58,6 +58,33 @@ impl StatsSet {
         }
 
         Self::from(stats)
+    }
+
+    pub fn constant(scalar: Scalar, length: usize) -> Self {
+        let mut stats = Self::new();
+        stats.set(Stat::IsConstant, true.into());
+        stats.set(Stat::IsSorted, true.into());
+        stats.set(Stat::IsStrictSorted, (length <= 1).into());
+
+        let run_count = if length == 0 { 0 } else { 1 };
+        stats.set(Stat::RunCount, run_count.into());
+
+        let null_count = if scalar.value().is_null() {
+            length as u64
+        } else {
+            0
+        };
+        stats.set(Stat::NullCount, null_count.into());
+
+        if let ScalarValue::Bool(b) = scalar.value() {
+            let true_count = if *b { length as u64 } else { 0 };
+            stats.set(Stat::TrueCount, true_count.into());
+        }
+
+        stats.set(Stat::Min, scalar.clone());
+        stats.set(Stat::Max, scalar);
+
+        stats
     }
 
     pub fn of(stat: Stat, value: Scalar) -> Self {
