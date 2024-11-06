@@ -2,7 +2,7 @@ use vortex_error::VortexResult;
 
 use crate::aliases::hash_set::HashSet;
 use crate::encoding::EncodingRef;
-use crate::stats::{ArrayStatistics as _, PRUNING_STATS};
+use crate::stats::PRUNING_STATS;
 use crate::Array;
 
 pub trait CompressionStrategy {
@@ -53,8 +53,18 @@ pub fn check_statistics_unchanged(arr: &Array, compressed: &Array) {
     let _ = compressed;
     #[cfg(debug_assertions)]
     {
+        use crate::ArrayStatistics;
         for (stat, value) in arr.statistics().to_set().into_iter() {
-            assert_eq!(compressed.statistics().get(stat), Some(value));
+            debug_assert_eq!(
+                compressed.statistics().get(stat),
+                Some(value.clone()),
+                "Compression changed {stat} from {value} to {}",
+                compressed
+                    .statistics()
+                    .get(stat)
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| "null".to_string())
+            );
         }
     }
 }
