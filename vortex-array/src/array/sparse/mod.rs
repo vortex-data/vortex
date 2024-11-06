@@ -10,7 +10,7 @@ use crate::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use crate::compute::unary::scalar_at;
 use crate::compute::{search_sorted, SearchResult, SearchSortedSide};
 use crate::encoding::ids;
-use crate::stats::{ArrayStatisticsCompute, StatsSet};
+use crate::stats::{ArrayStatisticsCompute, Stat, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity};
 use crate::{impl_encoding, Array, ArrayDType, ArrayTrait, IntoArray, IntoArrayVariant};
 
@@ -179,7 +179,19 @@ impl AcceptArrayVisitor for SparseArray {
     }
 }
 
-impl ArrayStatisticsCompute for SparseArray {}
+impl ArrayStatisticsCompute for SparseArray {
+    fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
+        let mut values_stats = self.values().with_dyn(|a| a.compute_statistics(stat))?;
+        let fill_stats = if self.fill_value().is_null() {
+            StatsSet::nulls(self.len(), self.dtype())
+        } else {
+            ConstantArray::new(self.fill_scalar(), self.len())
+                .compute_statistics(stat)?
+        };
+        values_stats.merge(&fill_stats);
+        Ok(values_stats)
+    }
+}
 
 impl ArrayValidity for SparseArray {
     fn is_valid(&self, index: usize) -> bool {

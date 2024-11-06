@@ -9,7 +9,6 @@ impl ArrayStatisticsCompute for ChunkedArray {
             .chunks()
             .map(|c| {
                 let s = c.statistics();
-                // HACK(robert): This will compute all stats, but we could just compute one
                 s.compute(stat);
                 s.to_set()
             })
