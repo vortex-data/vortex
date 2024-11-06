@@ -48,7 +48,7 @@ allocator-api2 = "0.2.16"
 anyhow = "1.0"
 arbitrary = "1.3.2"
 arrayref = "0.3.7"
-arrow = { version = "53.0.0", features = ["prettyprint"] }
+arrow = { version = "53.0.0" }
 arrow-arith = "53.0.0"
 arrow-array = "53.0.0"
 arrow-buffer = "53.0.0"
@@ -69,7 +69,7 @@ clap = "4.5.13"
 criterion = { version = "0.5.1", features = ["html_reports"] }
 croaring = "2.1.0"
 csv = "1.3.0"
-datafusion = "42.0.0"
+datafusion = { version = "42.0.0", default-features = false }
 datafusion-common = "42.0.0"
 datafusion-execution = "42.0.0"
 datafusion-expr = "42.0.0"
@@ -208,9 +208,9 @@ use_debug = "deny"
 
 [profile.release]
 codegen-units = 1
-lto = "thin" # attempts to perform optimizations across all crates within the dependency graph
+lto = "thin"      # attempts to perform optimizations across all crates within the dependency graph
 
 [profile.bench]
 codegen-units = 16 # default for "release", which "bench" inherits
-lto = false # default
+lto = false        # default
 debug = true

@@ -30,7 +30,12 @@ bytes = { workspace = true }
 bzip2 = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 csv = { workspace = true }
-datafusion = { workspace = true }
+datafusion = { workspace = true, default-features = false, features = [
+    "parquet",
+] }
+datafusion-common = { workspace = true }
+datafusion-physical-plan = { workspace = true }
+datafusion-execution = { workspace = true }
 enum-iterator = { workspace = true }
 flexbuffers = { workspace = true }
 futures = { workspace = true, features = ["executor"] }
@@ -41,7 +46,7 @@ itertools = { workspace = true }
 log = { workspace = true }
 mimalloc = { workspace = true }
 object_store = { workspace = true, features = ["aws"] }
-parquet = { workspace = true, features = [] }
+parquet = { workspace = true, features = ["async"] }
 prettytable-rs = { workspace = true }
 rand = { workspace = true }
 rayon = { workspace = true }

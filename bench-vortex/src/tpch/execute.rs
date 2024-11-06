@@ -1,7 +1,7 @@
 use arrow_array::RecordBatch;
-use datafusion::common::Result;
-use datafusion::physical_plan::collect;
 use datafusion::prelude::SessionContext;
+use datafusion_common::Result;
+use datafusion_physical_plan::collect;
 
 use crate::tpch::Format;
 
