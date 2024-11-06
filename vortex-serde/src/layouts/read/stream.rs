@@ -22,7 +22,11 @@ use crate::layouts::read::mask::RowMask;
 use crate::layouts::read::{BatchRead, LayoutReader, MessageId};
 use crate::stream_writer::ByteRange;
 
-/// Stream of array batches from vortex file
+/// Reads a layout from some memory, on-disk or elsewhere.
+///
+/// Instead of using [`LayoutBatchStream::new`], use a
+/// [LayoutBatchStreamBuilder][crate::layouts::LayoutBatchStreamBuilder] to create an instance of
+/// this struct.
 pub struct LayoutBatchStream<R> {
     dtype: DType,
     row_count: u64,

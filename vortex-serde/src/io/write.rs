@@ -29,11 +29,11 @@ where
     Cursor<T>: Write,
 {
     fn write_all<B: IoBuf>(&mut self, buffer: B) -> impl Future<Output = io::Result<B>> {
-        ready(std::io::Write::write_all(self, buffer.as_slice()).map(|_| buffer))
+        ready(Write::write_all(self, buffer.as_slice()).map(|_| buffer))
     }
 
     fn flush(&mut self) -> impl Future<Output = io::Result<()>> {
-        ready(std::io::Write::flush(self))
+        ready(Write::flush(self))
     }
 
     fn shutdown(&mut self) -> impl Future<Output = io::Result<()>> {

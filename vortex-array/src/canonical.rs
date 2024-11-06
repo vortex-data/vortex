@@ -385,8 +385,7 @@ mod test {
     use arrow_array::cast::AsArray;
     use arrow_array::types::{Int32Type, Int64Type, UInt64Type};
     use arrow_array::{
-        Array, PrimitiveArray as ArrowPrimitiveArray, StringViewArray,
-        StructArray as ArrowStructArray,
+        PrimitiveArray as ArrowPrimitiveArray, StringViewArray, StructArray as ArrowStructArray,
     };
     use arrow_buffer::NullBufferBuilder;
     use arrow_schema::{DataType, Field};
@@ -394,7 +393,7 @@ mod test {
     use crate::array::{PrimitiveArray, SparseArray, StructArray};
     use crate::arrow::FromArrowArray;
     use crate::validity::Validity;
-    use crate::{IntoArray, IntoCanonical};
+    use crate::{Array, IntoArray, IntoCanonical};
 
     #[test]
     fn test_canonicalize_nested_struct() {
@@ -497,7 +496,7 @@ mod test {
             nulls.finish(),
         );
 
-        let vortex_struct = crate::Array::from_arrow(&arrow_struct, true);
+        let vortex_struct = Array::from_arrow(&arrow_struct, true);
 
         assert_eq!(
             &arrow_struct,

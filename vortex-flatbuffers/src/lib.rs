@@ -1,3 +1,9 @@
+//! A contiguously serialized Vortex array.
+//!
+//! See [message] and [footer] for the flatbuffer specifications.
+//!
+//! See the `vortex-serde` crate for non-contiguous serialization.
+
 #[cfg(feature = "array")]
 #[allow(clippy::all)]
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -8,8 +14,16 @@
 #[allow(non_camel_case_types)]
 #[allow(unsafe_op_in_unsafe_fn)]
 #[allow(unused_imports)]
+#[allow(unused_lifetimes)]
+#[allow(unused_qualifications)]
 #[rustfmt::skip]
 #[path = "./generated/array.rs"]
+/// A serialized array without its buffer (i.e. data).
+///
+/// `array.fbs`:
+/// ```flatbuffers
+#[doc = include_str!("../flatbuffers/vortex-array/array.fbs")]
+/// ```
 pub mod array;
 
 #[cfg(feature = "dtype")]
@@ -22,8 +36,16 @@ pub mod array;
 #[allow(non_camel_case_types)]
 #[allow(unsafe_op_in_unsafe_fn)]
 #[allow(unused_imports)]
+#[allow(unused_lifetimes)]
+#[allow(unused_qualifications)]
 #[rustfmt::skip]
 #[path = "./generated/dtype.rs"]
+/// A serialized data type.
+///
+/// `dtype.fbs`:
+/// ```flatbuffers
+#[doc = include_str!("../flatbuffers/vortex-dtype/dtype.fbs")]
+/// ```
 pub mod dtype;
 
 #[cfg(feature = "scalar")]
@@ -36,8 +58,16 @@ pub mod dtype;
 #[allow(non_camel_case_types)]
 #[allow(unsafe_op_in_unsafe_fn)]
 #[allow(unused_imports)]
+#[allow(unused_lifetimes)]
+#[allow(unused_qualifications)]
 #[rustfmt::skip]
 #[path = "./generated/scalar.rs"]
+/// A serialized scalar.
+///
+/// `scalar.fbs`:
+/// ```flatbuffers
+#[doc = include_str!("../flatbuffers/vortex-scalar/scalar.fbs")]
+/// ```
 pub mod scalar;
 
 #[cfg(feature = "file")]
@@ -50,8 +80,16 @@ pub mod scalar;
 #[allow(non_camel_case_types)]
 #[allow(unsafe_op_in_unsafe_fn)]
 #[allow(unused_imports)]
+#[allow(unused_lifetimes)]
+#[allow(unused_qualifications)]
 #[rustfmt::skip]
 #[path = "./generated/footer.rs"]
+/// A file format footer containining a serialized `vortex-serde` Layout.
+///
+/// `footer.fbs`:
+/// ```flatbuffers
+#[doc = include_str!("../flatbuffers/vortex-serde/footer.fbs")]
+/// ```
 pub mod footer;
 
 #[cfg(feature = "file")]
@@ -64,8 +102,16 @@ pub mod footer;
 #[allow(non_camel_case_types)]
 #[allow(unsafe_op_in_unsafe_fn)]
 #[allow(unused_imports)]
+#[allow(unused_lifetimes)]
+#[allow(unused_qualifications)]
 #[rustfmt::skip]
 #[path = "./generated/message.rs"]
+/// A serialized sequence of arrays, each with its buffers.
+///
+/// `message.fbs`:
+/// ```flatbuffers
+#[doc = include_str!("../flatbuffers/vortex-serde/message.fbs")]
+/// ```
 pub mod message;
 
 use flatbuffers::{root, FlatBufferBuilder, Follow, InvalidFlatbuffer, Verifiable, WIPOffset};

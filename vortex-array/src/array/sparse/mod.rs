@@ -14,8 +14,8 @@ use crate::stats::{ArrayStatisticsCompute, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity};
 use crate::{impl_encoding, Array, ArrayDType, ArrayTrait, IntoArray, IntoArrayVariant};
 
+mod canonical;
 mod compute;
-mod flatten;
 mod variants;
 
 impl_encoding!("vortex.sparse", ids::SPARSE, Sparse);
