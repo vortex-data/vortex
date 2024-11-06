@@ -40,7 +40,7 @@ where
         stream: LayoutBatchStream<R>,
         runtime: &'a AR,
     ) -> VortexResult<VortexRecordBatchReader<'a, R, AR>> {
-        let arrow_schema = Arc::new(infer_schema(stream.schema().dtype())?);
+        let arrow_schema = Arc::new(infer_schema(stream.dtype())?);
         Ok(VortexRecordBatchReader {
             stream,
             arrow_schema,

@@ -36,7 +36,12 @@ impl RowMask {
         Ok(Self { values, begin, end })
     }
 
-    /// Construct a RowMask from given bitmap and begin
+    /// Construct a RowMask which is valid in the given range.
+    pub fn new_valid_between(begin: usize, end: usize) -> Self {
+        unsafe { RowMask::new_unchecked(Bitmap::from_range(0..(end - begin) as u32), begin, end) }
+    }
+
+    /// Construct a RowMask from given bitmap and begin.
     ///
     /// # Safety
     ///
@@ -158,12 +163,12 @@ impl RowMask {
             return Ok(Some(sliced.clone()));
         }
 
-        let predicate = self.to_predicate_array()?;
+        let predicate = self.to_array()?;
 
         filter(sliced, predicate).map(Some)
     }
 
-    pub fn to_predicate_array(&self) -> VortexResult<Array> {
+    pub fn to_array(&self) -> VortexResult<Array> {
         let bitset = self
             .values
             .to_bitset()

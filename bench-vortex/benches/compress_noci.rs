@@ -134,7 +134,7 @@ fn vortex_decompress_read(runtime: &Runtime, buf: Arc<Vec<u8>>) -> VortexResult<
         );
 
         let stream = builder.build().await?;
-        let dtype = stream.schema().clone().into();
+        let dtype = stream.dtype().clone();
         let vecs: Vec<Array> = stream.try_collect().await?;
 
         ChunkedArray::try_new(vecs, dtype).map(|e| e.into())
