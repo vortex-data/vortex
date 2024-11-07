@@ -13,7 +13,7 @@ use vortex_error::{
 
 use crate::array::BoolArray;
 use crate::compute::unary::scalar_at_unchecked;
-use crate::compute::{filter, slice, take, Len};
+use crate::compute::{filter, slice, take};
 use crate::stats::ArrayStatistics;
 use crate::{Array, ArrayDType, IntoArray, IntoArrayVariant};
 
