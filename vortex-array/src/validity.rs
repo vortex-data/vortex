@@ -224,64 +224,28 @@ impl Validity {
             }
         }
 
-        match (self, patches) {
-            (
-                v @ Validity::NonNullable | v @ Validity::AllValid,
-                Validity::NonNullable | Validity::AllValid,
-            ) => Ok(v),
-            (Validity::AllInvalid, Validity::AllInvalid) => Ok(Validity::AllInvalid),
-            (Validity::AllInvalid, Validity::Array(a)) => {
-                BoolArray::from(BooleanBuffer::new_unset(len))
-                    .patch(positions, a.into_bool()?)
-                    .map(|a| a.into_array())
-                    .and_then(Validity::try_from)
-            }
-            (Validity::AllInvalid, Validity::NonNullable | Validity::AllValid) => {
-                BoolArray::from(BooleanBuffer::new_unset(len))
-                    .patch(
-                        positions,
-                        BoolArray::from(BooleanBuffer::new_set(positions.len())),
-                    )
-                    .map(|a| a.into_array())
-                    .and_then(Validity::try_from)
-            }
-            (Validity::AllValid | Validity::NonNullable, Validity::Array(a)) => {
-                BoolArray::from(BooleanBuffer::new_set(len))
-                    .patch(positions, a.into_bool()?)
-                    .map(|a| a.into_array())
-                    .and_then(Validity::try_from)
-            }
-            (Validity::AllValid | Validity::NonNullable, Validity::AllInvalid) => {
-                BoolArray::from(BooleanBuffer::new_set(len))
-                    .patch(
-                        positions,
-                        BoolArray::from(BooleanBuffer::new_unset(positions.len())),
-                    )
-                    .map(|a| a.into_array())
-                    .and_then(Validity::try_from)
-            }
-            (Validity::Array(a), Validity::AllValid | Validity::NonNullable) => a
-                .into_bool()?
-                .patch(
-                    positions,
-                    BoolArray::from(BooleanBuffer::new_set(positions.len())),
-                )
-                .map(|a| a.into_array())
-                .and_then(Validity::try_from),
-            (Validity::Array(a), Validity::AllInvalid) => a
-                .into_bool()?
-                .patch(
-                    positions,
-                    BoolArray::from(BooleanBuffer::new_unset(positions.len())),
-                )
-                .map(|a| a.into_array())
-                .and_then(Validity::try_from),
-            (Validity::Array(a), Validity::Array(b)) => a
-                .into_bool()?
-                .patch(positions, b.into_bool()?)
-                .map(|a| a.into_array())
-                .and_then(Validity::try_from),
+        if matches!(self, Validity::NonNullable | Validity::AllValid)
+            && matches!(patches, Validity::NonNullable | Validity::AllValid)
+            || self == patches
+        {
+            return Ok(self);
         }
+
+        let source = match self {
+            Validity::NonNullable => BoolArray::from(BooleanBuffer::new_set(len)),
+            Validity::AllValid => BoolArray::from(BooleanBuffer::new_set(len)),
+            Validity::AllInvalid => BoolArray::from(BooleanBuffer::new_unset(len)),
+            Validity::Array(a) => a.into_bool()?,
+        };
+
+        let patch_values = match patches {
+            Validity::NonNullable => BoolArray::from(BooleanBuffer::new_set(positions.len())),
+            Validity::AllValid => BoolArray::from(BooleanBuffer::new_set(positions.len())),
+            Validity::AllInvalid => BoolArray::from(BooleanBuffer::new_unset(positions.len())),
+            Validity::Array(a) => a.into_bool()?,
+        };
+
+        Validity::try_from(source.patch(positions, patch_values)?.into_array())
     }
 
     /// Convert into a nullable variant
