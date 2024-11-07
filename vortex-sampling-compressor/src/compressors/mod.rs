@@ -186,7 +186,7 @@ pub struct CompressedArray<'a> {
 
 impl<'a> CompressedArray<'a> {
     pub fn uncompressed(array: Array) -> Self {
-        Self::compressed(array, None, None)
+        Self { array, path: None }
     }
 
     pub fn compressed(
