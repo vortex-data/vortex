@@ -13,7 +13,7 @@ use vortex_error::{
 
 use crate::array::BoolArray;
 use crate::compute::unary::scalar_at_unchecked;
-use crate::compute::{filter, slice, take};
+use crate::compute::{filter, slice, take, Len};
 use crate::stats::ArrayStatistics;
 use crate::{Array, ArrayDType, IntoArray, IntoArrayVariant};
 
@@ -232,7 +232,10 @@ impl Validity {
             }
             (Validity::AllInvalid, Validity::NonNullable | Validity::AllValid) => {
                 BoolArray::from(BooleanBuffer::new_unset(len))
-                    .patch(positions, BoolArray::from(BooleanBuffer::new_set(len)))
+                    .patch(
+                        positions,
+                        BoolArray::from(BooleanBuffer::new_set(positions.len())),
+                    )
                     .map(|a| a.into_array())
                     .and_then(Validity::try_from)
             }
@@ -244,18 +247,27 @@ impl Validity {
             }
             (Validity::AllValid | Validity::NonNullable, Validity::AllInvalid) => {
                 BoolArray::from(BooleanBuffer::new_set(len))
-                    .patch(positions, BoolArray::from(BooleanBuffer::new_unset(len)))
+                    .patch(
+                        positions,
+                        BoolArray::from(BooleanBuffer::new_unset(positions.len())),
+                    )
                     .map(|a| a.into_array())
                     .and_then(Validity::try_from)
             }
             (Validity::Array(a), Validity::AllValid | Validity::NonNullable) => a
                 .into_bool()?
-                .patch(positions, BoolArray::from(BooleanBuffer::new_set(len)))
+                .patch(
+                    positions,
+                    BoolArray::from(BooleanBuffer::new_set(positions.len())),
+                )
                 .map(|a| a.into_array())
                 .and_then(Validity::try_from),
             (Validity::Array(a), Validity::AllInvalid) => a
                 .into_bool()?
-                .patch(positions, BoolArray::from(BooleanBuffer::new_unset(len)))
+                .patch(
+                    positions,
+                    BoolArray::from(BooleanBuffer::new_unset(positions.len())),
+                )
                 .map(|a| a.into_array())
                 .and_then(Validity::try_from),
             (Validity::Array(a), Validity::Array(b)) => a
