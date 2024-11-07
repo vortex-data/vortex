@@ -91,13 +91,10 @@ pub trait Statistics {
     /// Compute all of the requested statistics (if not already present)
     /// Returns a StatsSet with the requested stats and any additional available stats
     fn compute_all(&self, stats: &[Stat]) -> VortexResult<StatsSet> {
-        let mut result = self.to_set();
         for stat in stats {
-            if let Some(value) = self.compute(*stat) {
-                result.set(*stat, value);
-            }
+            let _ = self.compute(*stat);
         }
-        Ok(result)
+        Ok(self.to_set())
     }
 }
 
