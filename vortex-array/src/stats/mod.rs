@@ -34,6 +34,23 @@ pub enum Stat {
     NullCount,
 }
 
+impl Stat {
+    /// Whether the statistic is commutative (i.e., whether merging can be done independently of ordering)
+    /// e.g., min/max are commutative, but is_sorted is not
+    pub fn is_commutative(&self) -> bool {
+        matches!(
+            self,
+            Stat::BitWidthFreq
+                | Stat::TrailingZeroFreq
+                | Stat::IsConstant
+                | Stat::Max
+                | Stat::Min
+                | Stat::TrueCount
+                | Stat::NullCount
+        )
+    }
+}
+
 impl Display for Stat {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {

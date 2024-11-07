@@ -133,10 +133,16 @@ impl StatsSet {
         self
     }
 
-    pub fn merge_unordered(&mut self, other: &Self) {
+    /// Merge stats set `other` into `self`, with no assumption on ordering.
+    /// Stats that are not commutative (e.g., is_sorted) are dropped from the result.
+    pub fn merge_unordered(&mut self, other: &Self) -> &Self {
         for s in all::<Stat>() {
+            if !s.is_commutative() {
+                self.values.remove(&s);
+                continue;
+            }
+
             match s {
-                // these are commutative
                 Stat::BitWidthFreq => self.merge_bit_width_freq(other),
                 Stat::TrailingZeroFreq => self.merge_trailing_zero_freq(other),
                 Stat::IsConstant => self.merge_is_constant(other),
@@ -144,12 +150,11 @@ impl StatsSet {
                 Stat::Min => self.merge_min(other),
                 Stat::TrueCount => self.merge_true_count(other),
                 Stat::NullCount => self.merge_null_count(other),
-                // these are *not* commutative
-                s @ Stat::IsSorted | s @ Stat::IsStrictSorted | s @ Stat::RunCount => {
-                    let _ = self.values.remove(&s);
-                }
+                _ => vortex_panic!("Unrecognized commutative stat {}", s),
             }
         }
+
+        self
     }
 
     fn merge_min(&mut self, other: &Self) {
