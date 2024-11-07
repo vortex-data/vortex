@@ -13,7 +13,7 @@ impl ArrayStatisticsCompute for ChunkedArray {
                 s.to_set()
             })
             .reduce(|mut acc, x| {
-                acc.merge(&x);
+                acc.merge_ordered(&x);
                 acc
             })
             .unwrap_or_default())

@@ -6,7 +6,7 @@ use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use crate::encoding::ids;
-use crate::stats::{ArrayStatisticsCompute, StatsSet};
+use crate::stats::{ArrayStatisticsCompute, Stat, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity};
 use crate::{impl_encoding, ArrayDType, ArrayTrait};
 
@@ -81,7 +81,11 @@ impl ArrayValidity for ConstantArray {
     }
 }
 
-impl ArrayStatisticsCompute for ConstantArray {}
+impl ArrayStatisticsCompute for ConstantArray {
+    fn compute_statistics(&self, _stat: Stat) -> VortexResult<StatsSet> {
+        Ok(StatsSet::constant(self.owned_scalar(), self.len()))
+    }
+}
 
 impl AcceptArrayVisitor for ConstantArray {
     fn accept(&self, _visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
