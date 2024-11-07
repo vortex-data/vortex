@@ -132,17 +132,17 @@ impl<R: VortexReadAt + Unpin + 'static> Stream for LayoutBatchStream<R> {
                         return Poll::Ready(None);
                     };
 
-                    self.state = if self.filter_reader.is_some() {
-                        if let Some(row_mask) = &self.row_mask {
-                            if row_mask
-                                .slice(new_selector.begin(), new_selector.end())
-                                .is_empty()
-                            {
-                                self.state = StreamingState::NextSplit;
-                                continue;
-                            }
+                    if let Some(row_mask) = &self.row_mask {
+                        if row_mask
+                            .slice(new_selector.begin(), new_selector.end())
+                            .is_empty()
+                        {
+                            self.state = StreamingState::NextSplit;
+                            continue;
                         }
+                    }
 
+                    self.state = if self.filter_reader.is_some() {
                         self.current_selector = Some(new_selector);
                         StreamingState::Filter
                     } else {
