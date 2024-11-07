@@ -9,6 +9,7 @@ use crate::compute::{
     search_sorted, take, ArrayCompute, FilterFn, SearchResult, SearchSortedFn, SearchSortedSide,
     SliceFn, TakeFn,
 };
+use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, IntoArray, IntoArrayVariant};
 
 mod slice;

@@ -8,6 +8,7 @@ use vortex_scalar::Scalar;
 use crate::array::primitive::PrimitiveArray;
 use crate::compute::{IndexOrd, Len, SearchResult, SearchSorted, SearchSortedFn, SearchSortedSide};
 use crate::validity::Validity;
+use crate::variants::PrimitiveArrayTrait;
 use crate::ArrayDType;
 
 impl SearchSortedFn for PrimitiveArray {

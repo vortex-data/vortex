@@ -5,6 +5,7 @@ use vortex_array::compute::{
 };
 use vortex_array::stats::{ArrayStatistics, Stat};
 use vortex_array::validity::Validity;
+use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ArrayDType, IntoArray};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::{PValue, Scalar};

@@ -19,6 +19,7 @@ use crate::compute::slice;
 use crate::encoding::ids;
 use crate::stats::StatsSet;
 use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
+use crate::variants::PrimitiveArrayTrait;
 use crate::{
     impl_encoding, Array, ArrayDType, ArrayTrait, Canonical, IntoArrayVariant, IntoCanonical,
 };

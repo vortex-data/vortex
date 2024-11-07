@@ -54,7 +54,7 @@ impl SliceFn for RoaringIntArray {
         };
 
         bitmap.and_inplace(&Bitmap::from_range(start..=stop_inclusive));
-        Self::try_new(bitmap, self.ptype()).map(IntoArray::into_array)
+        Self::try_new(bitmap, self.cached_ptype()).map(IntoArray::into_array)
     }
 }
 

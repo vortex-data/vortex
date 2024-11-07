@@ -10,7 +10,7 @@ use num_traits::AsPrimitive;
 use serde::{Deserialize, Serialize};
 use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, PType};
-use vortex_error::{vortex_bail, vortex_panic, VortexError, VortexExpect as _, VortexResult};
+use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 
 use crate::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use crate::elementwise::{dyn_cast_array_iter, BinaryFn, UnaryFn};
@@ -97,13 +97,6 @@ impl PrimitiveArray {
             self.as_ref()
                 .child(0, &Validity::DTYPE, self.len())
                 .vortex_expect("PrimitiveArray: validity child")
-        })
-    }
-
-    pub fn ptype(&self) -> PType {
-        // TODO(ngates): we can't really cache this anywhere?
-        self.dtype().try_into().unwrap_or_else(|err: VortexError| {
-            vortex_panic!(err, "Failed to convert dtype {} to ptype", self.dtype())
         })
     }
 

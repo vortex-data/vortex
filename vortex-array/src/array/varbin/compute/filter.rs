@@ -7,7 +7,7 @@ use crate::array::varbin::builder::VarBinBuilder;
 use crate::array::varbin::VarBinArray;
 use crate::compute::FilterFn;
 use crate::validity::Validity;
-use crate::variants::BoolArrayTrait;
+use crate::variants::{BoolArrayTrait, PrimitiveArrayTrait};
 use crate::{Array, ArrayDType, IntoArray, IntoArrayVariant};
 
 impl FilterFn for VarBinArray {

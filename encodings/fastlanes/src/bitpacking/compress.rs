@@ -3,6 +3,7 @@ use fastlanes::BitPacking;
 use vortex_array::array::{PrimitiveArray, Sparse, SparseArray};
 use vortex_array::stats::ArrayStatistics;
 use vortex_array::validity::{ArrayValidity, Validity};
+use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ArrayDType, ArrayDef, IntoArray, IntoArrayVariant};
 use vortex_buffer::Buffer;
 use vortex_dtype::{

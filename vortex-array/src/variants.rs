@@ -7,7 +7,7 @@ use std::ops::Not;
 use std::sync::Arc;
 
 use vortex_dtype::field::Field;
-use vortex_dtype::{DType, ExtDType, FieldNames};
+use vortex_dtype::{DType, ExtDType, FieldNames, PType};
 use vortex_error::{vortex_panic, VortexExpect as _, VortexResult};
 
 use crate::array::BoolArray;
@@ -124,7 +124,59 @@ pub trait BoolArrayTrait: ArrayTrait {
     //                                         value returned.
 }
 
+/// Iterate over an array of primitives by dispatching at run-time on the array type.
+#[macro_export]
+macro_rules! iterate_primitive_array {
+    ($self:expr, | $_1:tt $rust_type:ident, $_2:tt $iterator:ident | $($body:tt)*) => ({
+        macro_rules! __with__ {( $_1:tt $rust_type:ident, $_2:tt $iterator:ident ) => ( $($body)* )}
+        use vortex_error::VortexExpect;
+        match $self.ptype() {
+            PType::I8 => __with__! { i8, $self.i8_iter().vortex_expect("i8 array must have i8_iter") },
+            PType::I16 => __with__! { i16, $self.i16_iter().vortex_expect("i16 array must have i16_iter") },
+            PType::I32 => __with__! { i32, $self.i32_iter().vortex_expect("i32 array must have i32_iter") },
+            PType::I64 => __with__! { i64, $self.i64_iter().vortex_expect("i64 array must have i64_iter") },
+            PType::U8 => __with__! { u8, $self.u8_iter().vortex_expect("u8 array must have u8_iter") },
+            PType::U16 => __with__! { u16, $self.u16_iter().vortex_expect("u16 array must have u16_iter") },
+            PType::U32 => __with__! { u32, $self.u32_iter().vortex_expect("u32 array must have u32_iter") },
+            PType::U64 => __with__! { u64, $self.u64_iter().vortex_expect("u64 array must have u64_iter") },
+            PType::F16 => __with__! { f16, $self.f16_iter().vortex_expect("f16 array must have f16_iter") },
+            PType::F32 => __with__! { f32, $self.f32_iter().vortex_expect("f32 array must have f32_iter") },
+            PType::F64 => __with__! { f64, $self.f64_iter().vortex_expect("f64 array must have f64_iter") },
+        }
+    })
+}
+
+/// Iterate over an array of integers by dispatching at run-time on the array type.
+#[macro_export]
+macro_rules! iterate_integer_array {
+    ($self:expr, | $_1:tt $rust_type:ident, $_2:tt $iterator:ident | $($body:tt)*) => ({
+        macro_rules! __with__ {( $_1 $rust_type:ident, $_2 $iterator:expr ) => ( $($body)* )}
+        use vortex_error::VortexExpect;
+        match $self.ptype() {
+            PType::I8 => __with__! { i8, $self.i8_iter().vortex_expect("i8 array must have i8_iter") },
+            PType::I16 => __with__! { i16, $self.i16_iter().vortex_expect("i16 array must have i16_iter") },
+            PType::I32 => __with__! { i32, $self.i32_iter().vortex_expect("i32 array must have i32_iter") },
+            PType::I64 => __with__! { i64, $self.i64_iter().vortex_expect("i64 array must have i64_iter") },
+            PType::U8 => __with__! { u8, $self.u8_iter().vortex_expect("u8 array must have u8_iter") },
+            PType::U16 => __with__! { u16, $self.u16_iter().vortex_expect("u16 array must have u16_iter") },
+            PType::U32 => __with__! { u32, $self.u32_iter().vortex_expect("u32 array must have u32_iter") },
+            PType::U64 => __with__! { u64, $self.u64_iter().vortex_expect("u64 array must have u64_iter") },
+            PType::F16 => panic!("unsupported type: f16"),
+            PType::F32 => panic!("unsupported type: f32"),
+            PType::F64 => panic!("unsupported type: f64"),
+        }
+    })
+}
+
 pub trait PrimitiveArrayTrait: ArrayTrait {
+    fn ptype(&self) -> PType {
+        if let DType::Primitive(ptype, ..) = self.dtype() {
+            *ptype
+        } else {
+            vortex_panic!("array must have primitive data type");
+        }
+    }
+
     fn u8_accessor(&self) -> Option<AccessorRef<u8>> {
         None
     }

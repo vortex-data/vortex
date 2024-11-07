@@ -58,7 +58,9 @@ pub fn read_filters(
                 }
             }
             BatchRead::Batch(a) => {
-                return Some(RowMask::from_array(&a, selector.begin(), selector.end()).unwrap());
+                return Some(
+                    RowMask::from_mask_array(&a, selector.begin(), selector.end()).unwrap(),
+                );
             }
         }
     }

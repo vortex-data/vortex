@@ -2,6 +2,7 @@ use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::PrimitiveArray;
 use vortex_array::encoding::EncodingRef;
 use vortex_array::stats::{ArrayStatistics, Stat};
+use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ArrayDef, IntoArray};
 use vortex_error::VortexResult;
 use vortex_zigzag::{zigzag_encode, ZigZag, ZigZagArray, ZigZagEncoding};

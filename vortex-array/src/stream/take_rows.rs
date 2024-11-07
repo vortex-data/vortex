@@ -11,6 +11,7 @@ use crate::compute::unary::subtract_scalar;
 use crate::compute::{search_sorted, slice, take, SearchSortedSide};
 use crate::stats::{ArrayStatistics, Stat};
 use crate::stream::ArrayStream;
+use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayDType, IntoArray, IntoArrayVariant};
 
 #[pin_project]

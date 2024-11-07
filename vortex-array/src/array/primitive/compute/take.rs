@@ -4,6 +4,7 @@ use vortex_error::{vortex_panic, VortexResult};
 
 use crate::array::primitive::PrimitiveArray;
 use crate::compute::TakeFn;
+use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, IntoArray, IntoArrayVariant};
 
 impl TakeFn for PrimitiveArray {

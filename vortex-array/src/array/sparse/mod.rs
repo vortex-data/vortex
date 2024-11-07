@@ -12,6 +12,7 @@ use crate::compute::{search_sorted, SearchResult, SearchSortedSide};
 use crate::encoding::ids;
 use crate::stats::{ArrayStatistics, ArrayStatisticsCompute, Stat, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity};
+use crate::variants::PrimitiveArrayTrait;
 use crate::{impl_encoding, Array, ArrayDType, ArrayTrait, IntoArray, IntoArrayVariant};
 
 mod canonical;
