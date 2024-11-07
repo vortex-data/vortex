@@ -9,6 +9,7 @@ use crate::array::VarBinArray;
 use crate::arrow::wrappers::as_offset_buffer;
 use crate::compute::unary::try_cast;
 use crate::validity::ArrayValidity;
+use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayDType, IntoArrayVariant, ToArray};
 
 /// Convert the array to Arrow variable length binary array type.

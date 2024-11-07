@@ -169,7 +169,7 @@ impl<R: VortexReadAt + Unpin + 'static> Stream for LayoutBatchStream<R> {
                                     continue;
                                 }
                                 self.current_selector =
-                                    Some(RowMask::from_array(&batch, sel_begin, sel_end)?);
+                                    Some(RowMask::from_mask_array(&batch, sel_begin, sel_end)?);
                                 self.state = StreamingState::Read;
                             }
                         }

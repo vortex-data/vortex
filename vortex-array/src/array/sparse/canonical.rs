@@ -7,6 +7,7 @@ use crate::array::primitive::PrimitiveArray;
 use crate::array::sparse::SparseArray;
 use crate::array::BoolArray;
 use crate::validity::Validity;
+use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayDType, Canonical, IntoArrayVariant, IntoCanonical};
 
 impl IntoCanonical for SparseArray {

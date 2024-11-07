@@ -5,6 +5,7 @@ use vortex_scalar::Scalar;
 use crate::array::null::NullArray;
 use crate::compute::unary::ScalarAtFn;
 use crate::compute::{ArrayCompute, SliceFn, TakeFn};
+use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, IntoArray, IntoArrayVariant};
 
 impl ArrayCompute for NullArray {

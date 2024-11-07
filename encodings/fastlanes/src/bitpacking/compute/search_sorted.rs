@@ -10,6 +10,7 @@ use vortex_array::compute::{
     search_sorted_u64, IndexOrd, Len, SearchResult, SearchSorted, SearchSortedFn, SearchSortedSide,
 };
 use vortex_array::validity::Validity;
+use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::ArrayDType;
 use vortex_dtype::{match_each_unsigned_integer_ptype, NativePType};
 use vortex_error::{VortexError, VortexExpect as _, VortexResult};

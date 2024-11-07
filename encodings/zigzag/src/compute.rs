@@ -1,5 +1,6 @@
 use vortex_array::compute::unary::{scalar_at_unchecked, ScalarAtFn};
 use vortex_array::compute::{slice, ArrayCompute, SliceFn};
+use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ArrayDType, IntoArray};
 use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::{vortex_err, VortexResult, VortexUnwrap as _};

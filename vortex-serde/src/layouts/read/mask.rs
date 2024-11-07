@@ -6,7 +6,8 @@ use croaring::Bitmap;
 use vortex_array::array::BoolArray;
 use vortex_array::compute::{filter, slice};
 use vortex_array::validity::Validity;
-use vortex_array::Array;
+use vortex_array::{iterate_integer_array, Array, IntoArray};
+use vortex_dtype::PType;
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
 /// Bitmap of selected rows within given [begin, end) row range
@@ -35,7 +36,7 @@ impl RowMask {
         Ok(Self { values, begin, end })
     }
 
-    /// Construct RowMask from given bitmap and begin
+    /// Construct a RowMask from given bitmap and begin
     ///
     /// # Safety
     ///
@@ -44,7 +45,10 @@ impl RowMask {
         Self { values, begin, end }
     }
 
-    pub fn from_array(array: &Array, begin: usize, end: usize) -> VortexResult<Self> {
+    /// Construct a RowMask from a Boolean typed array.
+    ///
+    /// True-valued positions are kept by the returned mask.
+    pub fn from_mask_array(array: &Array, begin: usize, end: usize) -> VortexResult<Self> {
         array.with_dyn(|a| {
             a.as_bool_array()
                 .ok_or_else(|| vortex_err!("Must be a bool array"))
@@ -55,6 +59,32 @@ impl RowMask {
                     }
                     unsafe { RowMask::new_unchecked(bitmap, begin, end) }
                 })
+        })
+    }
+
+    /// Construct a RowMask from an integral array.
+    ///
+    /// The array values are intepreted as indices and those indices are kept by the returned mask.
+    pub fn from_index_array(array: &Array, begin: usize, end: usize) -> VortexResult<Self> {
+        array.with_dyn(|a| {
+            let err = || vortex_err!(InvalidArgument: "index array must be integers in the range [0, 2^32)");
+            let array = a.as_primitive_array().ok_or_else(err)?;
+
+            if !array.ptype().is_int() {
+                return Err(err());
+            }
+
+            let mut bitmap = Bitmap::new();
+
+            iterate_integer_array!(array, |$P, $iterator| {
+                for batch in $iterator {
+                    for index in batch.data() {
+                        bitmap.add(u32::try_from(*index).map_err(|_| err())?);
+                    }
+                }
+            });
+
+            Ok(unsafe { RowMask::new_unchecked(bitmap, begin, end) })
         })
     }
 
@@ -113,6 +143,12 @@ impl RowMask {
             return Ok(Some(sliced.clone()));
         }
 
+        let predicate = self.to_predicate_array()?;
+
+        filter(sliced, predicate).map(Some)
+    }
+
+    pub fn to_predicate_array(&self) -> VortexResult<Array> {
         let bitset = self
             .values
             .to_bitset()
@@ -124,11 +160,11 @@ impl RowMask {
         if byte_length > bitset.size_in_bytes() {
             buffer.extend_zeros(byte_length - bitset.size_in_bytes());
         }
-        let predicate = BoolArray::try_new(
+        BoolArray::try_new(
             BooleanBuffer::new(buffer.into(), 0, self.len()),
             Validity::NonNullable,
-        )?;
-        filter(sliced, predicate).map(Some)
+        )
+        .map(IntoArray::into_array)
     }
 
     pub fn shift(self, offset: usize) -> VortexResult<RowMask> {

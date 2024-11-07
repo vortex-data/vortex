@@ -9,6 +9,7 @@ use vortex_array::compute::unary::scalar_at;
 use vortex_array::encoding::ids;
 use vortex_array::stats::StatsSet;
 use vortex_array::validity::{ArrayValidity, LogicalValidity};
+use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{
     impl_encoding, Array, ArrayDType, ArrayTrait, Canonical, IntoArray, IntoArrayVariant,
     IntoCanonical,

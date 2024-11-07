@@ -2,6 +2,7 @@ use std::cmp::max;
 
 use vortex_array::array::SparseArray;
 use vortex_array::compute::{slice, SliceFn};
+use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, IntoArray};
 use vortex_error::{VortexExpect, VortexResult};
 

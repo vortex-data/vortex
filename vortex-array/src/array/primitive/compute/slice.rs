@@ -2,6 +2,7 @@ use vortex_error::VortexResult;
 
 use crate::array::primitive::PrimitiveArray;
 use crate::compute::SliceFn;
+use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, IntoArray};
 
 impl SliceFn for PrimitiveArray {

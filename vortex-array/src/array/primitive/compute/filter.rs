@@ -3,7 +3,7 @@ use vortex_error::{vortex_err, VortexResult};
 
 use crate::array::primitive::PrimitiveArray;
 use crate::compute::FilterFn;
-use crate::variants::BoolArrayTrait;
+use crate::variants::{BoolArrayTrait, PrimitiveArrayTrait};
 use crate::{Array, IntoArray};
 
 impl FilterFn for PrimitiveArray {
