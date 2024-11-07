@@ -49,6 +49,14 @@ impl Stat {
                 | Stat::NullCount
         )
     }
+
+    /// Whether the statistic has the same dtype as the array it's computed on
+    pub fn has_same_dtype_as_array(&self) -> bool {
+        matches!(
+            self,
+            Stat::Min | Stat::Max
+        )
+    }
 }
 
 impl Display for Stat {
@@ -223,6 +231,8 @@ pub fn trailing_zeros(array: &Array) -> u8 {
 
 #[cfg(test)]
 mod test {
+    use enum_iterator::all;
+
     use crate::array::PrimitiveArray;
     use crate::stats::{ArrayStatistics, Stat};
 
@@ -248,5 +258,14 @@ mod test {
         assert!(!Stat::IsStrictSorted.is_commutative());
         assert!(!Stat::IsSorted.is_commutative());
         assert!(!Stat::RunCount.is_commutative());
+    }
+
+    #[test]
+    fn has_same_dtype_as_array() {
+        assert!(Stat::Min.has_same_dtype_as_array());
+        assert!(Stat::Max.has_same_dtype_as_array());
+        for stat in all::<Stat>().filter(|s| !matches!(s, Stat::Min | Stat::Max)) {
+            assert!(!stat.has_same_dtype_as_array());
+        }
     }
 }

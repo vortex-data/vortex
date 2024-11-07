@@ -98,10 +98,12 @@ impl ArrayStatisticsCompute for ExtensionArray {
 
         let mut stats = StatsSet::new();
         for (key, value) in storage_stats.into_iter() {
-            if !matches!(key, Stat::Min | Stat::Max) {
-                stats.set(key, value);
-            } else {
+            // for e.g., min/max, we want to cast to the extension array's dtype
+            // for other stats, we don't need to change anything
+            if key.has_same_dtype_as_array() {
                 stats.set(key, value.cast(self.dtype())?);
+            } else {
+                stats.set(key, value);
             }
         }
 
