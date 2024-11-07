@@ -133,6 +133,25 @@ impl StatsSet {
         self
     }
 
+    pub fn merge_unordered(&mut self, other: &Self) {
+        for s in all::<Stat>() {
+            match s {
+                // these are commutative
+                Stat::BitWidthFreq => self.merge_bit_width_freq(other),
+                Stat::TrailingZeroFreq => self.merge_trailing_zero_freq(other),
+                Stat::IsConstant => self.merge_is_constant(other),
+                Stat::Max => self.merge_max(other),
+                Stat::Min => self.merge_min(other),
+                Stat::TrueCount => self.merge_true_count(other),
+                Stat::NullCount => self.merge_null_count(other),
+                // these are *not* commutative
+                s @ Stat::IsSorted | s @ Stat::IsStrictSorted | s @ Stat::RunCount => {
+                    let _ = self.values.remove(&s);
+                }
+            }
+        }
+    }
+
     fn merge_min(&mut self, other: &Self) {
         self.merge_scalars(Stat::Min, other, |other, own| other < own);
     }
