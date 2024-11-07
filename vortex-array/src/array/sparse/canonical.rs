@@ -26,7 +26,7 @@ impl IntoCanonical for SparseArray {
         } else {
             let values = self.values().into_primitive()?;
             match_each_native_ptype!(values.ptype(), |$P| {
-                canonicalize_sparse_primitives::<$P>(
+                canonicalize_sparse_primitives(
                     values.maybe_null_slice::<$P>(),
                     values.validity(),
                     &indices,
