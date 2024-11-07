@@ -20,8 +20,7 @@ use crate::stats::StatsSet;
 use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
 use crate::variants::{ArrayVariants, PrimitiveArrayTrait};
 use crate::{
-    impl_encoding, Array, ArrayDType, ArrayTrait, Canonical, IntoArray, IntoArrayVariant,
-    IntoCanonical, TypedArray,
+    impl_encoding, Array, ArrayDType, ArrayTrait, Canonical, IntoArray, IntoCanonical, TypedArray,
 };
 
 mod accessor;
@@ -169,7 +168,8 @@ impl PrimitiveArray {
     pub fn patch<P: AsPrimitive<usize>, T: NativePType + ArrowNativeType>(
         self,
         positions: &[P],
-        values: PrimitiveArray,
+        values: &[T],
+        values_validity: Validity,
     ) -> VortexResult<Self> {
         if positions.len() != values.len() {
             vortex_bail!(
@@ -183,13 +183,12 @@ impl PrimitiveArray {
             vortex_bail!(MismatchedTypes: self.dtype(), T::PTYPE)
         }
 
-        let result_validity = self.validity().patch(positions, values.validity());
-        let mut own_values = self.into_maybe_null_slice();
-        for (idx, value) in positions
-            .iter()
-            .zip_eq(values.into_maybe_null_slice::<T>().into_iter())
-        {
-            own_values[idx.as_()] = value;
+        let result_validity = self
+            .validity()
+            .patch(positions, values_validity, self.len())?;
+        let mut own_values = self.into_maybe_null_slice::<T>();
+        for (idx, value) in positions.iter().zip_eq(values) {
+            own_values[idx.as_()] = *value;
         }
 
         Ok(Self::from_vec(own_values, result_validity))

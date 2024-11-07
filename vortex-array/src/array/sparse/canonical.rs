@@ -26,8 +26,9 @@ impl IntoCanonical for SparseArray {
         } else {
             let values = self.values().into_primitive()?;
             match_each_native_ptype!(values.ptype(), |$P| {
-                canonicalize_sparse_primitives(
+                canonicalize_sparse_primitives::<$P>(
                     values.maybe_null_slice::<$P>(),
+                    values.validity(),
                     &indices,
                     self.len(),
                     self.fill_value(),
@@ -74,6 +75,7 @@ fn canonicalize_sparse_primitives<
     T: NativePType + for<'a> TryFrom<&'a ScalarValue, Error = VortexError> + ArrowNativeType,
 >(
     values: &[T],
+    values_validity: Validity,
     indices: &[usize],
     len: usize,
     fill_value: &ScalarValue,
@@ -93,7 +95,7 @@ fn canonicalize_sparse_primitives<
     };
 
     let parray = PrimitiveArray::from_vec(vec![primitive_fill; len], validity);
-    let patched = parray.patch(indices, values)?;
+    let patched = parray.patch(indices, values, values_validity)?;
     Ok(Canonical::Primitive(patched))
 }
 
