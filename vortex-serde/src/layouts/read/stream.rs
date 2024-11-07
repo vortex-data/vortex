@@ -16,10 +16,8 @@ use vortex_array::stats::ArrayStatistics;
 use vortex_array::Array;
 use vortex_dtype::DType;
 use vortex_error::{vortex_panic, VortexError, VortexExpect, VortexResult};
-use vortex_expr::VortexExpr;
 use vortex_schema::Schema;
 
-use super::RowFilter;
 use crate::io::VortexReadAt;
 use crate::layouts::read::cache::LayoutMessageCache;
 use crate::layouts::read::mask::RowMask;
@@ -36,7 +34,7 @@ pub struct LayoutBatchStream<R> {
     row_count: u64,
     mask: Option<RowMask>,
     layout_reader: Box<dyn LayoutReader>,
-    row_filter_and_reader: Option<(RowFilter, Box<dyn LayoutReader>)>,
+    filter_reader: Option<Box<dyn LayoutReader>>,
     messages_cache: Arc<RwLock<LayoutMessageCache>>,
     splits: VecDeque<(usize, usize)>,
     state: StreamingState<R>,
@@ -47,7 +45,7 @@ impl<R: VortexReadAt> LayoutBatchStream<R> {
         input: R,
         mask: Option<RowMask>,
         layout_reader: Box<dyn LayoutReader>,
-        row_filter_and_reader: Option<(RowFilter, Box<dyn LayoutReader>)>,
+        filter_reader: Option<Box<dyn LayoutReader>>,
         messages_cache: Arc<RwLock<LayoutMessageCache>>,
         dtype: DType,
         row_count: u64,
@@ -57,7 +55,7 @@ impl<R: VortexReadAt> LayoutBatchStream<R> {
             row_count,
             mask,
             layout_reader,
-            row_filter_and_reader,
+            filter_reader,
             messages_cache,
             splits: VecDeque::new(),
             state: StreamingState::AddSplits(input),
@@ -84,12 +82,7 @@ type StreamStateFuture<R> = BoxFuture<'static, VortexResult<(R, StreamMessages)>
 
 enum ReadingState<R> {
     BackToRead(StreamStateFuture<R>, RowMask),
-    BackToFilter(
-        StreamStateFuture<R>,
-        RowMask,
-        RowFilter,
-        Box<dyn LayoutReader>,
-    ),
+    BackToFilter(StreamStateFuture<R>, RowMask, Box<dyn LayoutReader>),
 }
 
 enum ReadingPollState<R> {
@@ -115,10 +108,9 @@ impl<R> ReadingState<R> {
             ReadingState::BackToRead(.., mask) => {
                 ReadingPollState::Ready(StreamingState::Read(input, mask), messages)
             }
-            ReadingState::BackToFilter(.., mask, filter, reader) => ReadingPollState::Ready(
-                StreamingState::Filter(input, mask, filter, reader),
-                messages,
-            ),
+            ReadingState::BackToFilter(.., mask, reader) => {
+                ReadingPollState::Ready(StreamingState::Filter(input, mask, reader), messages)
+            }
         })
     }
 }
@@ -132,7 +124,7 @@ impl<R> ReadingState<R> {
 enum StreamingState<R> {
     AddSplits(R),
     NextSplit(R),
-    Filter(R, RowMask, RowFilter, Box<dyn LayoutReader>),
+    Filter(R, RowMask, Box<dyn LayoutReader>),
     Read(R, RowMask),
     Reading(ReadingState<R>),
     Error,
@@ -148,7 +140,7 @@ impl<R: VortexReadAt + Unpin + 'static> Stream for LayoutBatchStream<R> {
                 StreamingState::AddSplits(input) => {
                     let mut splits = BTreeSet::new();
                     splits.insert(self.row_count as usize);
-                    if let Some((.., filter_reader)) = &self.row_filter_and_reader {
+                    if let Some(filter_reader) = &self.filter_reader {
                         filter_reader.add_splits(0, &mut splits)?;
                     }
                     self.layout_reader.as_mut().add_splits(0, &mut splits)?;
@@ -170,9 +162,9 @@ impl<R: VortexReadAt + Unpin + 'static> Stream for LayoutBatchStream<R> {
                         )
                     };
 
-                    self.state = match mem::take(&mut self.row_filter_and_reader) {
-                        Some((row_filter, filter_reader)) => {
-                            StreamingState::Filter(input, split_mask, row_filter, filter_reader)
+                    self.state = match mem::take(&mut self.filter_reader) {
+                        Some(filter_reader) => {
+                            StreamingState::Filter(input, split_mask, filter_reader)
                         }
                         None => {
                             if let Some(mask) = &self.mask {
@@ -183,7 +175,7 @@ impl<R: VortexReadAt + Unpin + 'static> Stream for LayoutBatchStream<R> {
                         }
                     };
                 }
-                StreamingState::Filter(input, split_mask, row_filter, mut filter_reader) => {
+                StreamingState::Filter(input, split_mask, mut filter_reader) => {
                     let sel_begin = split_mask.begin();
                     let sel_end = split_mask.end();
 
@@ -197,13 +189,10 @@ impl<R: VortexReadAt + Unpin + 'static> Stream for LayoutBatchStream<R> {
                             self.state = StreamingState::Reading(ReadingState::BackToFilter(
                                 read_ranges(input, messages).boxed(),
                                 split_mask,
-                                row_filter,
                                 filter_reader,
                             ));
                         }
-                        BatchRead::Batch(batch) => {
-                            // FIXME(DK): do not evaluate the expression where the mask array is false
-                            let mut batch = row_filter.evaluate(&batch)?;
+                        BatchRead::Batch(mut batch) => {
                             if let Some(mask) = &self.mask {
                                 batch = and(
                                     batch,
@@ -211,7 +200,7 @@ impl<R: VortexReadAt + Unpin + 'static> Stream for LayoutBatchStream<R> {
                                 )?;
                             }
 
-                            self.row_filter_and_reader = Some((row_filter, filter_reader));
+                            self.filter_reader = Some(filter_reader);
 
                             if batch
                                 .statistics()

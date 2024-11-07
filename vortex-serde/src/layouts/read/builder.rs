@@ -1,9 +1,8 @@
 use std::sync::{Arc, RwLock};
 
-use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::{Array, ArrayDType};
 use vortex_error::VortexResult;
-use vortex_expr::{Select, VortexExpr as _};
+use vortex_expr::Select;
 use vortex_schema::projection::Projection;
 
 use super::RowMask;
@@ -87,20 +86,15 @@ impl<R: VortexReadAt> LayoutBatchStreamBuilder<R> {
             RelativeLayoutCache::new(message_cache.clone(), footer_dtype.clone()),
         )?;
 
-        let row_filter_and_reader = match self.row_filter {
-            None => None,
-            Some(row_filter) => {
-                let mut references = HashSet::new();
-                row_filter.collect_references(&mut references);
-                let select_filtering_columns =
-                    Select::Include(references.into_iter().cloned().collect());
-                let layout = footer.layout(
-                    Scan::new(Some(Arc::new(select_filtering_columns))),
+        let filter_reader = self
+            .row_filter
+            .map(|row_filter| {
+                footer.layout(
+                    Scan::new(Some(Arc::new(row_filter))),
                     RelativeLayoutCache::new(message_cache.clone(), footer_dtype),
-                )?;
-                Some((row_filter, layout))
-            }
-        };
+                )
+            })
+            .transpose()?;
 
         let indices_mask = self
             .indices
@@ -112,7 +106,7 @@ impl<R: VortexReadAt> LayoutBatchStreamBuilder<R> {
             self.reader,
             indices_mask,
             data_reader,
-            row_filter_and_reader,
+            filter_reader,
             message_cache,
             projected_dtype,
             row_count,
