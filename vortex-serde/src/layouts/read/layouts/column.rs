@@ -243,7 +243,6 @@ impl LayoutReader for ColumnLayout {
     }
 
     fn read_selection(&mut self, selector: &RowMask) -> VortexResult<Option<BatchRead>> {
-        println!("ColumnLayout::read_selection: {:?}", selector);
         if let Some(r) = &mut self.reader {
             r.read_selection(selector)
         } else {

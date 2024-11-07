@@ -93,7 +93,7 @@ impl<R: VortexReadAt> LayoutBatchStreamBuilder<R> {
                 let mut references = HashSet::new();
                 row_filter.collect_references(&mut references);
                 let select_filtering_columns =
-                    Select::Include(references.into_iter().map(|x| x.clone()).collect());
+                    Select::Include(references.into_iter().cloned().collect());
                 let layout = footer.layout(
                     Scan::new(Some(Arc::new(select_filtering_columns))),
                     RelativeLayoutCache::new(message_cache.clone(), footer_dtype),

@@ -132,7 +132,6 @@ impl LayoutReader for ChunkedLayout {
     }
 
     fn read_selection(&mut self, selector: &RowMask) -> VortexResult<Option<BatchRead>> {
-        println!("ChunkedLayout::read_selection: {:?}", selector);
         if let Some(br) = &mut self.chunk_reader {
             br.read_next(selector)
         } else {
