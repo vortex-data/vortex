@@ -10,6 +10,7 @@ use futures_util::future::BoxFuture;
 use futures_util::{stream, FutureExt, StreamExt, TryStreamExt};
 use itertools::Itertools;
 use vortex_array::array::ChunkedArray;
+use vortex_array::compute::and;
 use vortex_array::stats::ArrayStatistics;
 use vortex_array::Array;
 use vortex_dtype::DType;
@@ -35,6 +36,7 @@ pub struct LayoutBatchStream<R> {
     filter_reader: Option<Box<dyn LayoutReader>>,
     messages_cache: Arc<RwLock<LayoutMessageCache>>,
     splits: VecDeque<(usize, usize)>,
+    row_mask: Option<RowMask>,
     current_selector: Option<RowMask>,
     state: StreamingState<R>,
 }
@@ -47,6 +49,7 @@ impl<R: VortexReadAt> LayoutBatchStream<R> {
         messages_cache: Arc<RwLock<LayoutMessageCache>>,
         dtype: DType,
         row_count: u64,
+        row_mask: Option<RowMask>,
     ) -> Self {
         LayoutBatchStream {
             dtype,
@@ -56,6 +59,7 @@ impl<R: VortexReadAt> LayoutBatchStream<R> {
             filter_reader,
             messages_cache,
             splits: VecDeque::new(),
+            row_mask,
             current_selector: None,
             state: StreamingState::AddSplits,
         }
@@ -116,7 +120,7 @@ impl<R: VortexReadAt + Unpin + 'static> Stream for LayoutBatchStream<R> {
                     self.state = StreamingState::NextSplit;
                 }
                 StreamingState::NextSplit => {
-                    self.current_selector = self.splits.pop_front().map(|(begin, end)| unsafe {
+                    let new_selector = self.splits.pop_front().map(|(begin, end)| unsafe {
                         RowMask::new_unchecked(
                             Bitmap::from_range(0..(end - begin) as u32),
                             begin,
@@ -124,13 +128,30 @@ impl<R: VortexReadAt + Unpin + 'static> Stream for LayoutBatchStream<R> {
                         )
                     });
 
-                    if self.current_selector.is_none() {
+                    let Some(mut new_selector) = new_selector else {
                         return Poll::Ready(None);
-                    }
+                    };
 
                     self.state = if self.filter_reader.is_some() {
+                        if let Some(row_mask) = &self.row_mask {
+                            if row_mask
+                                .slice(new_selector.begin(), new_selector.end())
+                                .is_empty()
+                            {
+                                self.state = StreamingState::NextSplit;
+                                continue;
+                            }
+                        }
+
+                        self.current_selector = Some(new_selector);
                         StreamingState::Filter
                     } else {
+                        if let Some(row_mask) = &self.row_mask {
+                            new_selector.and_inplace(
+                                &row_mask.slice(new_selector.begin(), new_selector.end()),
+                            )?;
+                        }
+                        self.current_selector = Some(new_selector);
                         StreamingState::Read
                     };
                 }
@@ -160,7 +181,14 @@ impl<R: VortexReadAt + Unpin + 'static> Stream for LayoutBatchStream<R> {
                                     go_back_to_filter: true,
                                 });
                             }
-                            BatchRead::Batch(batch) => {
+                            BatchRead::Batch(mut batch) => {
+                                if let Some(row_mask) = &self.row_mask {
+                                    batch = and(
+                                        batch,
+                                        row_mask.slice(sel_begin, sel_end).to_predicate_array()?,
+                                    )?;
+                                }
+
                                 if batch.statistics().compute_true_count().vortex_expect(
                                     "must be a bool array if it's a result of a filter",
                                 ) == 0
@@ -169,7 +197,7 @@ impl<R: VortexReadAt + Unpin + 'static> Stream for LayoutBatchStream<R> {
                                     continue;
                                 }
                                 self.current_selector =
-                                    Some(RowMask::from_array(&batch, sel_begin, sel_end)?);
+                                    Some(RowMask::from_mask_array(&batch, sel_begin, sel_end)?);
                                 self.state = StreamingState::Read;
                             }
                         }

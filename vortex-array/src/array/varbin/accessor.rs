@@ -4,6 +4,7 @@ use vortex_error::VortexResult;
 use crate::accessor::ArrayAccessor;
 use crate::array::varbin::VarBinArray;
 use crate::validity::ArrayValidity;
+use crate::variants::PrimitiveArrayTrait;
 use crate::IntoArrayVariant;
 
 impl ArrayAccessor<[u8]> for VarBinArray {

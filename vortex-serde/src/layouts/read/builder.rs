@@ -5,6 +5,7 @@ use vortex_error::VortexResult;
 use vortex_expr::Select;
 use vortex_schema::projection::Projection;
 
+use super::RowMask;
 use crate::io::VortexReadAt;
 use crate::layouts::read::cache::{LayoutMessageCache, LazyDeserializedDType, RelativeLayoutCache};
 use crate::layouts::read::context::LayoutDeserializer;
@@ -18,7 +19,7 @@ pub struct LayoutBatchStreamBuilder<R> {
     layout_serde: LayoutDeserializer,
     projection: Option<Projection>,
     size: Option<u64>,
-    indices: Option<Array>,
+    row_mask: Option<Array>,
     row_filter: Option<RowFilter>,
 }
 
@@ -28,9 +29,9 @@ impl<R: VortexReadAt> LayoutBatchStreamBuilder<R> {
             reader,
             layout_serde,
             projection: None,
-            row_filter: None,
             size: None,
-            indices: None,
+            row_mask: None,
+            row_filter: None,
         }
     }
 
@@ -45,12 +46,12 @@ impl<R: VortexReadAt> LayoutBatchStreamBuilder<R> {
     }
 
     pub fn with_indices(mut self, array: Array) -> Self {
-        // TODO(#441): Allow providing boolean masks
         assert!(
-            array.dtype().is_int(),
-            "Mask arrays have to be integer arrays"
+            !array.dtype().is_nullable() && (array.dtype().is_int() || array.dtype().is_boolean()),
+            "Mask arrays have to be non-nullable integer or boolean arrays"
         );
-        self.indices = Some(array);
+
+        self.row_mask = Some(array);
         self
     }
 
@@ -87,12 +88,23 @@ impl<R: VortexReadAt> LayoutBatchStreamBuilder<R> {
 
         let filter_reader = self
             .row_filter
-            .as_ref()
-            .map(|filter| {
+            .map(|row_filter| {
                 footer.layout(
-                    Scan::new(Some(Arc::new(filter.clone()))),
+                    Scan::new(Some(Arc::new(row_filter))),
                     RelativeLayoutCache::new(message_cache.clone(), footer_dtype),
                 )
+            })
+            .transpose()?;
+
+        let row_mask = self
+            .row_mask
+            .as_ref()
+            .map(|row_mask| {
+                if row_mask.dtype().is_int() {
+                    RowMask::from_index_array(row_mask, 0, row_count as usize)
+                } else {
+                    RowMask::from_mask_array(row_mask, 0, row_count as usize)
+                }
             })
             .transpose()?;
 
@@ -103,6 +115,7 @@ impl<R: VortexReadAt> LayoutBatchStreamBuilder<R> {
             message_cache,
             projected_dtype,
             row_count,
+            row_mask,
         ))
     }
 

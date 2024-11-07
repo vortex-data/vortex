@@ -14,7 +14,7 @@ use crate::encoding::ids;
 use crate::stats::StatsSet;
 use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
 use crate::variants::{ArrayVariants, BoolArrayTrait};
-use crate::{impl_encoding, ArrayTrait, Canonical, IntoArray, IntoCanonical, TypedArray};
+use crate::{impl_encoding, Array, ArrayTrait, Canonical, IntoArray, IntoCanonical, TypedArray};
 
 mod accessors;
 mod compute;
@@ -161,6 +161,10 @@ impl ArrayVariants for BoolArray {
 }
 
 impl BoolArrayTrait for BoolArray {
+    fn invert(&self) -> VortexResult<Array> {
+        BoolArray::try_new(!&self.boolean_buffer(), self.validity()).map(|a| a.into_array())
+    }
+
     fn maybe_null_indices_iter<'a>(&'a self) -> Box<dyn Iterator<Item = usize> + 'a> {
         Box::new(BitIndexIterator::new(self.buffer(), 0, self.len()))
     }

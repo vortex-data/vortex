@@ -4,6 +4,7 @@ use vortex_error::{vortex_err, VortexResult};
 use crate::array::primitive::PrimitiveArray;
 use crate::compute::unary::FillForwardFn;
 use crate::validity::{ArrayValidity, Validity};
+use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayDType, IntoArray};
 
 impl FillForwardFn for PrimitiveArray {

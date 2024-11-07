@@ -1,6 +1,7 @@
 use croaring::Bitmap;
 use num_traits::NumCast;
 use vortex_array::array::PrimitiveArray;
+use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_dtype::{NativePType, PType};
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 

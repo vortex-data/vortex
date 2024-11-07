@@ -8,6 +8,7 @@ use crate::aliases::hash_map::HashMap;
 use crate::array::primitive::PrimitiveArray;
 use crate::array::sparse::SparseArray;
 use crate::compute::{take, TakeFn};
+use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, IntoArray, IntoArrayVariant};
 
 impl TakeFn for SparseArray {

@@ -26,7 +26,7 @@ use crate::array::{
 use crate::compute::unary::try_cast;
 use crate::encoding::ArrayEncoding;
 use crate::validity::ArrayValidity;
-use crate::variants::StructArrayTrait;
+use crate::variants::{PrimitiveArrayTrait, StructArrayTrait};
 use crate::{Array, ArrayDType, IntoArray};
 
 /// The set of canonical array encodings, also the set of encodings that can be transferred to

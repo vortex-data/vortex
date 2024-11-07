@@ -8,8 +8,8 @@ use vortex_array::stats::{ArrayStatisticsCompute, StatsSet};
 use vortex_array::validity::{ArrayValidity, LogicalValidity};
 use vortex_array::variants::{ArrayVariants, PrimitiveArrayTrait};
 use vortex_array::{impl_encoding, Array, ArrayDType, ArrayTrait, Canonical, IntoCanonical};
-use vortex_dtype::{DType, PType};
-use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
+use vortex_dtype::DType;
+use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
 mod compress;
@@ -78,17 +78,6 @@ impl FoRArray {
     #[inline]
     pub fn shift(&self) -> u8 {
         self.metadata().shift
-    }
-
-    #[inline]
-    pub fn ptype(&self) -> PType {
-        self.dtype().try_into().unwrap_or_else(|err| {
-            vortex_panic!(
-                err,
-                "Failed to convert FoRArray DType {} to PType",
-                self.dtype()
-            )
-        })
     }
 }
 

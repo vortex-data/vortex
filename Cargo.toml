@@ -4,6 +4,7 @@ members = [
     "encodings/*",
     "fuzz",
     "pyvortex",
+    "vortex",
     "vortex-array",
     "vortex-buffer",
     "vortex-datafusion",
@@ -13,7 +14,6 @@ members = [
     "vortex-expr",
     "vortex-flatbuffers",
     "vortex-proto",
-    "vortex-all",
     "vortex-sampling-compressor",
     "vortex-scalar",
     "vortex-schema",
@@ -133,6 +133,7 @@ url = "2"
 uuid = "1.8.0"
 
 # BEGIN crates published by this project
+vortex = { version = "0.14.0", path = "./vortex" }
 vortex-alp = { version = "0.14.0", path = "./encodings/alp" }
 vortex-array = { version = "0.14.0", path = "./vortex-array" }
 vortex-buffer = { version = "0.14.0", path = "./vortex-buffer" }
@@ -154,7 +155,6 @@ vortex-runend-bool = { version = "0.14.0", path = "./encodings/runend-bool" }
 vortex-scalar = { version = "0.14.0", path = "./vortex-scalar", default-features = false }
 vortex-schema = { version = "0.14.0", path = "./vortex-schema" }
 vortex-serde = { version = "0.14.0", path = "./vortex-serde", default-features = false }
-vortex-all = { version = "0.14.0", path = "./vortex-all" }
 vortex-sampling-compressor = { version = "0.14.0", path = "./vortex-sampling-compressor" }
 vortex-zigzag = { version = "0.14.0", path = "./encodings/zigzag" }
 # END crates published by this project

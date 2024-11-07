@@ -16,6 +16,10 @@ impl Literal {
     pub fn new(value: Scalar) -> Self {
         Self { value }
     }
+
+    pub fn value(&self) -> &Scalar {
+        &self.value
+    }
 }
 
 impl VortexExpr for Literal {

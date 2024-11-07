@@ -106,13 +106,6 @@ impl ALPArray {
     }
 
     #[inline]
-    pub fn ptype(&self) -> PType {
-        self.dtype()
-            .try_into()
-            .vortex_expect("Failed to convert DType to PType")
-    }
-
-    #[inline]
     fn encoded_dtype(&self) -> DType {
         match self.dtype() {
             DType::Primitive(PType::F32, _) => {

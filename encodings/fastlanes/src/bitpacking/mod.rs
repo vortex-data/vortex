@@ -14,9 +14,7 @@ use vortex_array::{
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, NativePType, Nullability, PType};
-use vortex_error::{
-    vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect as _, VortexResult,
-};
+use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
 
 mod compress;
 mod compute;
@@ -195,17 +193,6 @@ impl BitPackedArray {
         } else {
             vortex_bail!("Bitpacking can only encode primitive arrays");
         }
-    }
-
-    #[inline]
-    pub fn ptype(&self) -> PType {
-        self.dtype().try_into().unwrap_or_else(|err: VortexError| {
-            vortex_panic!(
-                err,
-                "Failed to convert BitpackedArray DType {} to PType",
-                self.dtype()
-            )
-        })
     }
 
     #[inline]

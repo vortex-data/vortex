@@ -9,7 +9,8 @@ use vortex_array::stats::{ArrayStatistics, ArrayStatisticsCompute, StatsSet};
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
 use vortex_array::variants::{ArrayVariants, BoolArrayTrait};
 use vortex_array::{
-    impl_encoding, Array, ArrayDType, ArrayTrait, Canonical, IntoArrayVariant, IntoCanonical,
+    impl_encoding, Array, ArrayDType, ArrayTrait, Canonical, IntoArray, IntoArrayVariant,
+    IntoCanonical,
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
@@ -115,6 +116,11 @@ impl RunEndBoolArray {
 }
 
 impl BoolArrayTrait for RunEndBoolArray {
+    fn invert(&self) -> VortexResult<Array> {
+        RunEndBoolArray::try_new(self.ends(), !self.start(), self.validity())
+            .map(|a| a.into_array())
+    }
+
     fn maybe_null_indices_iter<'a>(&'a self) -> Box<dyn Iterator<Item = usize> + 'a> {
         todo!()
     }

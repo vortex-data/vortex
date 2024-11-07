@@ -5,6 +5,7 @@ use vortex_alp::{match_each_alp_float_ptype, ALPRDEncoding, RDEncoder as ALPRDEn
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::PrimitiveArray;
 use vortex_array::encoding::EncodingRef;
+use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ArrayDef, IntoArray, IntoArrayVariant};
 use vortex_dtype::PType;
 use vortex_error::{vortex_bail, VortexResult};

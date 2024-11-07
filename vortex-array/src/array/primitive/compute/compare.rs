@@ -7,6 +7,7 @@ use vortex_scalar::PrimitiveScalar;
 use crate::array::primitive::PrimitiveArray;
 use crate::array::{BoolArray, ConstantArray};
 use crate::compute::{MaybeCompareFn, Operator};
+use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayDType, IntoArray};
 
 impl MaybeCompareFn for PrimitiveArray {

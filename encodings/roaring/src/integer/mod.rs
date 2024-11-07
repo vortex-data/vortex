@@ -83,7 +83,7 @@ impl RoaringIntArray {
         )
     }
 
-    pub fn ptype(&self) -> PType {
+    pub fn cached_ptype(&self) -> PType {
         self.metadata().ptype
     }
 

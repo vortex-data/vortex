@@ -8,6 +8,7 @@ use crate::array::constant::ConstantArray;
 use crate::array::primitive::PrimitiveArray;
 use crate::compute::unary::SubtractScalarFn;
 use crate::validity::ArrayValidity;
+use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayDType, IntoArray};
 
 impl SubtractScalarFn for PrimitiveArray {

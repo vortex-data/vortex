@@ -6,8 +6,8 @@ use futures::StreamExt;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::array::{ChunkedArray, PrimitiveArray, StructArray, VarBinArray};
 use vortex_array::validity::Validity;
-use vortex_array::variants::StructArrayTrait;
-use vortex_array::{ArrayDType, IntoArray, IntoArrayVariant};
+use vortex_array::variants::{PrimitiveArrayTrait, StructArrayTrait};
+use vortex_array::{Array, ArrayDType, IntoArray, IntoArrayVariant};
 use vortex_dtype::field::Field;
 use vortex_dtype::{DType, Nullability, PType, StructDType};
 use vortex_error::vortex_panic;
@@ -549,5 +549,254 @@ async fn filter_and() {
     assert_eq!(
         ages.into_primitive().unwrap().maybe_null_slice::<i32>(),
         vec![25, 31]
+    );
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_with_indices_simple() {
+    let expected_numbers_split: Vec<Vec<i16>> = (0..5).map(|_| (0_i16..100).collect()).collect();
+    let expected_array = StructArray::from_fields(&[(
+        "numbers",
+        ChunkedArray::from_iter(expected_numbers_split.iter().cloned().map(Array::from))
+            .into_array(),
+    )])
+    .unwrap();
+    let expected_numbers: Vec<i16> = expected_numbers_split.into_iter().flatten().collect();
+
+    let writer = LayoutWriter::new(Vec::new())
+        .write_array_columns(expected_array.into_array())
+        .await
+        .unwrap();
+    let written = writer.finalize().await.unwrap();
+
+    // test no indices
+    let empty_indices = Vec::<u32>::new();
+    let actual_kept_array =
+        LayoutBatchStreamBuilder::new(written.clone(), LayoutDeserializer::default())
+            .with_indices(Array::from(empty_indices))
+            .build()
+            .await
+            .unwrap()
+            .read_all()
+            .await
+            .unwrap()
+            .into_struct()
+            .unwrap();
+
+    assert_eq!(actual_kept_array.len(), 0);
+
+    // test a few indices
+    let kept_indices = [0_usize, 3, 99, 100, 101, 399, 400, 401, 499];
+    let kept_indices_u16 = kept_indices.iter().map(|&x| x as u16).collect::<Vec<_>>();
+
+    let actual_kept_array =
+        LayoutBatchStreamBuilder::new(written.clone(), LayoutDeserializer::default())
+            .with_indices(Array::from(kept_indices_u16))
+            .build()
+            .await
+            .unwrap()
+            .read_all()
+            .await
+            .unwrap()
+            .into_struct()
+            .unwrap();
+    let actual_kept_numbers_array = actual_kept_array
+        .field(0)
+        .unwrap()
+        .into_primitive()
+        .unwrap();
+
+    let expected_kept_numbers: Vec<i16> =
+        kept_indices.iter().map(|&x| expected_numbers[x]).collect();
+    let actual_kept_numbers = actual_kept_numbers_array.maybe_null_slice::<i16>();
+
+    assert_eq!(expected_kept_numbers, actual_kept_numbers);
+
+    // test all indices
+    let actual_array =
+        LayoutBatchStreamBuilder::new(written.clone(), LayoutDeserializer::default())
+            .with_indices(Array::from((0..500).collect::<Vec<u32>>()))
+            .build()
+            .await
+            .unwrap()
+            .read_all()
+            .await
+            .unwrap()
+            .into_struct()
+            .unwrap();
+    let actual_numbers_array = actual_array.field(0).unwrap().into_primitive().unwrap();
+    let actual_numbers = actual_numbers_array.maybe_null_slice::<i16>();
+
+    assert_eq!(expected_numbers, actual_numbers);
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_with_indices_on_two_columns() {
+    let strings_expected = ["ab", "foo", "bar", "baz", "ab", "foo", "bar", "baz"];
+    let strings = ChunkedArray::from_iter([
+        VarBinArray::from(strings_expected[..4].to_vec()).into_array(),
+        VarBinArray::from(strings_expected[4..].to_vec()).into_array(),
+    ])
+    .into_array();
+
+    let numbers_expected = [1u32, 2, 3, 4, 5, 6, 7, 8];
+    let numbers = ChunkedArray::from_iter([
+        PrimitiveArray::from(numbers_expected[..4].to_vec()).into_array(),
+        PrimitiveArray::from(numbers_expected[4..].to_vec()).into_array(),
+    ])
+    .into_array();
+
+    let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
+    let buf = Vec::new();
+    let mut writer = LayoutWriter::new(buf);
+    writer = writer.write_array_columns(st.into_array()).await.unwrap();
+    let written = writer.finalize().await.unwrap();
+
+    let kept_indices = [0_usize, 3, 7];
+    let kept_indices_u8 = kept_indices.iter().map(|&x| x as u8).collect::<Vec<_>>();
+
+    let array = LayoutBatchStreamBuilder::new(written.clone(), LayoutDeserializer::default())
+        .with_indices(Array::from(kept_indices_u8))
+        .build()
+        .await
+        .unwrap()
+        .read_all()
+        .await
+        .unwrap()
+        .into_struct()
+        .unwrap();
+
+    let strings_actual = array
+        .field(0)
+        .unwrap()
+        .into_varbinview()
+        .unwrap()
+        .with_iterator(|x| {
+            x.map(|x| unsafe { String::from_utf8_unchecked(x.unwrap().to_vec()) })
+                .collect::<Vec<_>>()
+        })
+        .unwrap();
+    assert_eq!(
+        strings_actual,
+        kept_indices
+            .iter()
+            .map(|&x| strings_expected[x])
+            .collect::<Vec<_>>()
+    );
+
+    let numbers_actual_array = array.field(1).unwrap().into_primitive().unwrap();
+    let numbers_actual = numbers_actual_array.maybe_null_slice::<u32>();
+    assert_eq!(
+        numbers_actual,
+        kept_indices
+            .iter()
+            .map(|&x| numbers_expected[x])
+            .collect::<Vec<u32>>()
+    );
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_with_indices_and_with_row_filter_simple() {
+    let expected_numbers_split: Vec<Vec<i16>> = (0..5).map(|_| (0_i16..100).collect()).collect();
+    let expected_array = StructArray::from_fields(&[(
+        "numbers",
+        ChunkedArray::from_iter(expected_numbers_split.iter().cloned().map(Array::from))
+            .into_array(),
+    )])
+    .unwrap();
+    let expected_numbers: Vec<i16> = expected_numbers_split.into_iter().flatten().collect();
+
+    let writer = LayoutWriter::new(Vec::new())
+        .write_array_columns(expected_array.into_array())
+        .await
+        .unwrap();
+    let written = writer.finalize().await.unwrap();
+
+    // test no indices
+    let empty_indices = Vec::<u32>::new();
+    let actual_kept_array =
+        LayoutBatchStreamBuilder::new(written.clone(), LayoutDeserializer::default())
+            .with_indices(Array::from(empty_indices))
+            .with_row_filter(RowFilter::new(Arc::new(BinaryExpr::new(
+                Arc::new(Column::new(Field::from("numbers"))),
+                Operator::Gt,
+                Arc::new(Literal::new(50_i16.into())),
+            ))))
+            .build()
+            .await
+            .unwrap()
+            .read_all()
+            .await
+            .unwrap()
+            .into_struct()
+            .unwrap();
+
+    assert_eq!(actual_kept_array.len(), 0);
+
+    // test a few indices
+    let kept_indices = [0_usize, 3, 99, 100, 101, 399, 400, 401, 499];
+    let kept_indices_u16 = kept_indices.iter().map(|&x| x as u16).collect::<Vec<_>>();
+
+    let actual_kept_array =
+        LayoutBatchStreamBuilder::new(written.clone(), LayoutDeserializer::default())
+            .with_indices(Array::from(kept_indices_u16))
+            .with_row_filter(RowFilter::new(Arc::new(BinaryExpr::new(
+                Arc::new(Column::new(Field::from("numbers"))),
+                Operator::Gt,
+                Arc::new(Literal::new(50_i16.into())),
+            ))))
+            .build()
+            .await
+            .unwrap()
+            .read_all()
+            .await
+            .unwrap()
+            .into_struct()
+            .unwrap();
+    let actual_kept_numbers_array = actual_kept_array
+        .field(0)
+        .unwrap()
+        .into_primitive()
+        .unwrap();
+
+    let expected_kept_numbers: Vec<i16> = kept_indices
+        .iter()
+        .map(|&x| expected_numbers[x])
+        .filter(|&x| x > 50)
+        .collect();
+    let actual_kept_numbers = actual_kept_numbers_array.maybe_null_slice::<i16>();
+
+    assert_eq!(expected_kept_numbers, actual_kept_numbers);
+
+    // test all indices
+    let actual_array =
+        LayoutBatchStreamBuilder::new(written.clone(), LayoutDeserializer::default())
+            .with_indices(Array::from((0..500).collect::<Vec<u32>>()))
+            .with_row_filter(RowFilter::new(Arc::new(BinaryExpr::new(
+                Arc::new(Column::new(Field::from("numbers"))),
+                Operator::Gt,
+                Arc::new(Literal::new(50_i16.into())),
+            ))))
+            .build()
+            .await
+            .unwrap()
+            .read_all()
+            .await
+            .unwrap()
+            .into_struct()
+            .unwrap();
+    let actual_numbers_array = actual_array.field(0).unwrap().into_primitive().unwrap();
+    let actual_numbers = actual_numbers_array.maybe_null_slice::<i16>();
+
+    assert_eq!(
+        expected_numbers
+            .iter()
+            .filter(|&&x| x > 50)
+            .cloned()
+            .collect::<Vec<_>>(),
+        actual_numbers
     );
 }

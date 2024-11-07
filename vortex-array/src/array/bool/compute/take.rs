@@ -5,6 +5,7 @@ use vortex_error::VortexResult;
 
 use crate::array::BoolArray;
 use crate::compute::TakeFn;
+use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, IntoArray, IntoArrayVariant};
 
 impl TakeFn for BoolArray {

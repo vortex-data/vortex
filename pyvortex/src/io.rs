@@ -125,14 +125,15 @@ use crate::{PyArray, TOKIO_RUNTIME};
 /// >>> # b.to_arrow_array()
 ///
 #[pyfunction]
-#[pyo3(signature = (path, *, projection = None, row_filter = None))]
+#[pyo3(signature = (path, *, projection = None, row_filter = None, indices = None))]
 pub fn read_path(
     path: Bound<PyString>,
     projection: Option<Vec<Bound<PyAny>>>,
     row_filter: Option<&Bound<PyExpr>>,
+    indices: Option<&PyArray>,
 ) -> PyResult<PyArray> {
     let dataset = TOKIO_RUNTIME.block_on(TokioFileDataset::try_new(path.extract()?))?;
-    dataset.to_array(projection, row_filter)
+    dataset.to_array(projection, row_filter, indices)
 }
 
 /// Read a vortex struct array from a URL.
@@ -177,14 +178,15 @@ pub fn read_path(
 /// >>> a = vortex.io.read_url("file:/path/to/dataset.vortex")  # doctest: +SKIP
 ///
 #[pyfunction]
-#[pyo3(signature = (url, *, projection = None, row_filter = None))]
+#[pyo3(signature = (url, *, projection = None, row_filter = None, indices = None))]
 pub fn read_url(
     url: Bound<PyString>,
     projection: Option<Vec<Bound<PyAny>>>,
     row_filter: Option<&Bound<PyExpr>>,
+    indices: Option<&PyArray>,
 ) -> PyResult<PyArray> {
     let dataset = TOKIO_RUNTIME.block_on(ObjectStoreUrlDataset::try_new(url.extract()?))?;
-    dataset.to_array(projection, row_filter)
+    dataset.to_array(projection, row_filter, indices)
 }
 
 /// Write a vortex struct array to the local filesystem.

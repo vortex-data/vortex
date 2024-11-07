@@ -9,6 +9,7 @@ mod column;
 pub mod datafusion;
 mod identity;
 mod literal;
+mod not;
 mod operators;
 mod select;
 
@@ -16,6 +17,7 @@ pub use binary::*;
 pub use column::*;
 pub use identity::*;
 pub use literal::*;
+pub use not::*;
 pub use operators::*;
 pub use select::*;
 use vortex_array::Array;

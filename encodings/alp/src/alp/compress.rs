@@ -1,5 +1,6 @@
 use vortex_array::array::{PrimitiveArray, Sparse, SparseArray};
 use vortex_array::validity::Validity;
+use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ArrayDType, ArrayDef, IntoArray, IntoArrayVariant};
 use vortex_dtype::{NativePType, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};

@@ -2,6 +2,7 @@ use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::PrimitiveArray;
 use vortex_array::encoding::EncodingRef;
 use vortex_array::stats::ArrayStatistics;
+use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, IntoArray};
 use vortex_error::{vortex_err, vortex_panic, VortexResult};
 use vortex_fastlanes::{

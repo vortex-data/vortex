@@ -91,7 +91,7 @@ Install
 
 Install vortex and all the first-party array encodings::
 
-   cargo add vortex-all
+   cargo add vortex
 
 Convert
 ^^^^^^^
