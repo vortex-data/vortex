@@ -12,7 +12,7 @@ use vortex::arrow::infer_schema;
 use vortex::dtype::field::Field;
 use vortex::dtype::DType;
 use vortex::error::VortexResult;
-use vortex::sampling_compressor::ALL_COMPRESSORS_CONTEXT;
+use vortex::sampling_compressor::ALL_ENCODINGS_CONTEXT;
 use vortex::serde::io::{ObjectStoreReadAt, VortexReadAt};
 use vortex::serde::layouts::{
     LayoutBatchStream, LayoutBatchStreamBuilder, LayoutContext, LayoutDescriptorReader,
@@ -33,7 +33,7 @@ pub async fn layout_stream_from_reader<T: VortexReadAt + Unpin>(
     let mut builder = LayoutBatchStreamBuilder::new(
         reader,
         LayoutDeserializer::new(
-            ALL_COMPRESSORS_CONTEXT.clone(),
+            ALL_ENCODINGS_CONTEXT.clone(),
             LayoutContext::default().into(),
         ),
     )
@@ -64,7 +64,7 @@ pub async fn read_array_from_reader<T: VortexReadAt + Unpin + 'static>(
 
 pub async fn read_dtype_from_reader<T: VortexReadAt + Unpin>(reader: T) -> VortexResult<DType> {
     LayoutDescriptorReader::new(LayoutDeserializer::new(
-        ALL_COMPRESSORS_CONTEXT.clone(),
+        ALL_ENCODINGS_CONTEXT.clone(),
         LayoutContext::default().into(),
     ))
     .read_footer(&reader, reader.size().await)

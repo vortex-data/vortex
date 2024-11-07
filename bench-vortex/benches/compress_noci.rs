@@ -26,7 +26,7 @@ use vortex::array::{ChunkedArray, StructArray};
 use vortex::dtype::field::Field;
 use vortex::error::VortexResult;
 use vortex::sampling_compressor::compressors::fsst::FSSTCompressor;
-use vortex::sampling_compressor::{SamplingCompressor, ALL_COMPRESSORS_CONTEXT};
+use vortex::sampling_compressor::{SamplingCompressor, ALL_ENCODINGS_CONTEXT};
 use vortex::serde::layouts::{
     LayoutBatchStreamBuilder, LayoutContext, LayoutDeserializer, LayoutWriter,
 };
@@ -128,7 +128,7 @@ fn vortex_decompress_read(runtime: &Runtime, buf: Arc<Vec<u8>>) -> VortexResult<
         let builder: LayoutBatchStreamBuilder<_> = LayoutBatchStreamBuilder::new(
             buf,
             LayoutDeserializer::new(
-                ALL_COMPRESSORS_CONTEXT.clone(),
+                ALL_ENCODINGS_CONTEXT.clone(),
                 LayoutContext::default().into(),
             ),
         );

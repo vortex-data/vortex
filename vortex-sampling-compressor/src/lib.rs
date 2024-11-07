@@ -75,7 +75,7 @@ pub static FASTEST_COMPRESSORS: LazyLock<[CompressorRef<'static>; 7]> = LazyLock
     ]
 });
 
-pub static ALL_COMPRESSORS_CONTEXT: LazyLock<Arc<Context>> = LazyLock::new(|| {
+pub static ALL_ENCODINGS_CONTEXT: LazyLock<Arc<Context>> = LazyLock::new(|| {
     Arc::new(Context::default().with_encodings([
         &ALPEncoding as EncodingRef,
         &ByteBoolEncoding,
