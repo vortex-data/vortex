@@ -181,7 +181,7 @@ impl AcceptArrayVisitor for SparseArray {
 
 impl ArrayStatisticsCompute for SparseArray {
     fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
-        let mut stats = self.values().with_dyn(|a| a.compute_statistics(stat))?;
+        let mut stats = self.values().statistics().compute_all(&[stat])?;
         if self.len() == self.values().len() {
             return Ok(stats);
         }

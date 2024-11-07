@@ -7,7 +7,7 @@ use vortex_error::{VortexExpect as _, VortexResult};
 
 use crate::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use crate::encoding::ids;
-use crate::stats::{ArrayStatisticsCompute, Stat, StatsSet};
+use crate::stats::{ArrayStatistics as _, ArrayStatisticsCompute, Stat, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity};
 use crate::variants::{ArrayVariants, ExtensionArrayTrait};
 use crate::{impl_encoding, Array, ArrayDType, ArrayTrait, Canonical, IntoCanonical};
@@ -94,7 +94,7 @@ impl AcceptArrayVisitor for ExtensionArray {
 
 impl ArrayStatisticsCompute for ExtensionArray {
     fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
-        let storage_stats = self.storage().with_dyn(|a| a.compute_statistics(stat))?;
+        let storage_stats = self.storage().statistics().compute_all(&[stat])?;
 
         let mut stats = StatsSet::new();
         for (key, value) in storage_stats.into_iter() {

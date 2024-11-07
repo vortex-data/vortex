@@ -80,7 +80,7 @@ struct BoolStatsAccumulator {
 }
 
 impl BoolStatsAccumulator {
-    fn new(first_value: bool) -> Self {
+    pub fn new(first_value: bool) -> Self {
         Self {
             prev: first_value,
             is_sorted: true,
@@ -91,7 +91,7 @@ impl BoolStatsAccumulator {
         }
     }
 
-    fn n_nulls(&mut self, n_nulls: usize) {
+    pub fn n_nulls(&mut self, n_nulls: usize) {
         self.null_count += n_nulls;
         self.len += n_nulls;
     }
