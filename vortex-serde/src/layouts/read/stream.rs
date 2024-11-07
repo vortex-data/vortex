@@ -185,7 +185,7 @@ impl<R: VortexReadAt + Unpin + 'static> Stream for LayoutBatchStream<R> {
                                 if let Some(row_mask) = &self.row_mask {
                                     batch = and(
                                         batch,
-                                        row_mask.slice(sel_begin, sel_end).to_predicate_array()?,
+                                        row_mask.slice(sel_begin, sel_end).to_mask_array()?,
                                     )?;
                                 }
 
