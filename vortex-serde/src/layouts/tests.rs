@@ -587,7 +587,7 @@ async fn test_with_indices_simple() {
     assert_eq!(actual_kept_array.len(), 0);
 
     // test a few indices
-    let kept_indices = vec![0_usize, 3, 99, 100, 101, 399, 400, 401, 499];
+    let kept_indices = [0_usize, 3, 99, 100, 101, 399, 400, 401, 499];
     let kept_indices_u16 = kept_indices.iter().map(|&x| x as u16).collect::<Vec<_>>();
 
     let actual_kept_array =
@@ -654,7 +654,7 @@ async fn test_with_indices_on_two_columns() {
     writer = writer.write_array_columns(st.into_array()).await.unwrap();
     let written = writer.finalize().await.unwrap();
 
-    let kept_indices = vec![0_usize, 3, 7];
+    let kept_indices = [0_usize, 3, 7];
     let kept_indices_u8 = kept_indices.iter().map(|&x| x as u8).collect::<Vec<_>>();
 
     let array = LayoutBatchStreamBuilder::new(written.clone(), LayoutDeserializer::default())
@@ -737,7 +737,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
     assert_eq!(actual_kept_array.len(), 0);
 
     // test a few indices
-    let kept_indices = vec![0_usize, 3, 99, 100, 101, 399, 400, 401, 499];
+    let kept_indices = [0_usize, 3, 99, 100, 101, 399, 400, 401, 499];
     let kept_indices_u16 = kept_indices.iter().map(|&x| x as u16).collect::<Vec<_>>();
 
     let actual_kept_array =
