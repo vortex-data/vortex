@@ -4,6 +4,7 @@ use std::fmt::{Debug, Display};
 use std::ops::BitAnd;
 
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, NullBuffer};
+use num_traits::AsPrimitive;
 use serde::{Deserialize, Serialize};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{
@@ -209,6 +210,37 @@ impl Validity {
         };
 
         Ok(validity)
+    }
+
+    pub fn patch<P: AsPrimitive<usize>>(self, positions: &[P], patches: Validity) -> Self {
+        match (self, patches) {
+            (
+                v @ Validity::NonNullable | v @ Validity::AllValid,
+                Validity::NonNullable | Validity::AllValid,
+            ) => v,
+            (Validity::AllInvalid, Validity::AllInvalid) => Validity::AllInvalid,
+            (Validity::AllInvalid, Validity::Array(a)) => {
+                // patch all false with a
+            }
+            (Validity::AllInvalid, Validity::NonNullable | Validity::AllValid) => {
+                // patch all false with all true
+            }
+            (Validity::AllValid | Validity::NonNullable, Validity::Array(a)) => {
+                // patch all true with a
+            }
+            (Validity::AllValid | Validity::NonNullable, Validity::AllInvalid) => {
+                // patch all true with all false
+            }
+            (Validity::Array(a), Validity::AllValid | Validity::NonNullable) => {
+                // patch a with all true
+            }
+            (Validity::Array(a), Validity::AllInvalid) => {
+                // patch a with all false
+            }
+            (Validity::Array(a), Validity::Array(b)) => {
+                // patch a with b
+            }
+        }
     }
 
     /// Convert into a nullable variant

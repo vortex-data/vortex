@@ -116,7 +116,7 @@ impl BoolArray {
     pub fn patch<P: AsPrimitive<usize>>(
         self,
         positions: &[P],
-        values: BooleanBuffer,
+        values: BoolArray,
     ) -> VortexResult<Self> {
         if positions.len() != values.len() {
             vortex_bail!(
@@ -129,26 +129,35 @@ impl BoolArray {
         let validity = self.validity();
         let len = self.len();
         let (mut own_values, bit_offset) = self.into_boolean_builder();
-        for (idx, value) in positions.iter().zip_eq(values.iter()) {
+        for (idx, value) in positions.iter().zip_eq(values.boolean_buffer().iter()) {
             own_values.set_bit(idx.as_() + bit_offset, value);
         }
 
-        let result_validity = match validity {
-            v @ Validity::NonNullable | v @ Validity::AllValid => v,
-            Validity::AllInvalid => {
-                let mut validity_buffer =
-                    BooleanBufferBuilder::new_from_buffer(MutableBuffer::new_null(len), len);
-                for idx in positions {
-                    validity_buffer.set_bit(idx.as_() + bit_offset, true);
-                }
-                Validity::from(validity_buffer.finish().slice(bit_offset, len))
-            }
-            Validity::Array(a) => Validity::try_from(
-                a.into_bool()?
-                    .patch(positions, BooleanBuffer::new_set(positions.len()))?
-                    .into_array(),
-            )?,
-        };
+        let result_validity = validity.patch(positions, values.validity());
+
+        // let result_validity = match (validity, values.validity()) {
+        //     (
+        //         Validity::NonNullable | Validity::AllValid,
+        //         v @ Validity::NonNullable | v @ Validity::AllValid,
+        //     ) => v,
+        //     Validity::NonNullable | Validity::AllValid => values.validity(),
+        //     Validity::AllInvalid => {
+        //         let mut validity_buffer =
+        //             BooleanBufferBuilder::new_from_buffer(MutableBuffer::new_null(len), len);
+        //         for idx in positions {
+        //             validity_buffer.set_bit(idx.as_() + bit_offset, true);
+        //         }
+        //         Validity::from(validity_buffer.finish().slice(bit_offset, len))
+        //     }
+        //     Validity::Array(a) => Validity::try_from(
+        //         a.into_bool()?
+        //             .patch(
+        //                 positions,
+        //                 BoolArray::from(BooleanBuffer::new_set(positions.len())),
+        //             )?
+        //             .into_array(),
+        //     )?,
+        // };
 
         Self::try_new(own_values.finish().slice(bit_offset, len), result_validity)
     }

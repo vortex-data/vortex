@@ -15,7 +15,7 @@ impl IntoCanonical for SparseArray {
         let indices = self.resolved_indices();
 
         if matches!(self.dtype(), DType::Bool(_)) {
-            let values = self.values().into_bool()?.boolean_buffer();
+            let values = self.values().into_bool()?;
             canonicalize_sparse_bools(
                 values,
                 &indices,
@@ -39,14 +39,14 @@ impl IntoCanonical for SparseArray {
 }
 
 fn canonicalize_sparse_bools(
-    values: BooleanBuffer,
+    values: BoolArray,
     indices: &[usize],
     len: usize,
     fill_value: &ScalarValue,
     nullability: Nullability,
 ) -> VortexResult<Canonical> {
     let (fill_bool, validity) = if fill_value.is_null() {
-        (bool::default(), Validity::AllInvalid)
+        (false, Validity::AllInvalid)
     } else {
         (
             fill_value.try_into()?,

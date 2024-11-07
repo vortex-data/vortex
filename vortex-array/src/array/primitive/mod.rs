@@ -3,9 +3,7 @@ use std::mem::{transmute, MaybeUninit};
 use std::ptr;
 use std::sync::Arc;
 
-use arrow_buffer::{
-    ArrowNativeType, BooleanBuffer, BooleanBufferBuilder, Buffer as ArrowBuffer, MutableBuffer,
-};
+use arrow_buffer::{ArrowNativeType, Buffer as ArrowBuffer, MutableBuffer};
 use bytes::Bytes;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
@@ -171,7 +169,7 @@ impl PrimitiveArray {
     pub fn patch<P: AsPrimitive<usize>, T: NativePType + ArrowNativeType>(
         self,
         positions: &[P],
-        values: &[T],
+        values: PrimitiveArray,
     ) -> VortexResult<Self> {
         if positions.len() != values.len() {
             vortex_bail!(
@@ -185,29 +183,15 @@ impl PrimitiveArray {
             vortex_bail!(MismatchedTypes: self.dtype(), T::PTYPE)
         }
 
-        let validity = self.validity();
-        let len = self.len();
+        let result_validity = self.validity().patch(positions, values.validity());
         let mut own_values = self.into_maybe_null_slice();
-        for (idx, value) in positions.iter().zip_eq(values.iter()) {
-            own_values[idx.as_()] = *value;
+        for (idx, value) in positions
+            .iter()
+            .zip_eq(values.into_maybe_null_slice::<T>().into_iter())
+        {
+            own_values[idx.as_()] = value;
         }
 
-        let result_validity = match validity {
-            v @ Validity::NonNullable | v @ Validity::AllValid => v,
-            Validity::AllInvalid => {
-                let mut validity_buffer =
-                    BooleanBufferBuilder::new_from_buffer(MutableBuffer::new_null(len), len);
-                for idx in positions {
-                    validity_buffer.set_bit(idx.as_(), true);
-                }
-                Validity::from(validity_buffer.finish())
-            }
-            Validity::Array(a) => Validity::try_from(
-                a.into_bool()?
-                    .patch(positions, BooleanBuffer::new_set(positions.len()))?
-                    .into_array(),
-            )?,
-        };
         Ok(Self::from_vec(own_values, result_validity))
     }
 
