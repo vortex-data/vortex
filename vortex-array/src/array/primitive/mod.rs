@@ -483,6 +483,8 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use super::*;
+    use crate::compute::slice;
+    use crate::IntoArrayVariant;
 
     #[test]
     fn batched_iter() {
@@ -567,5 +569,18 @@ mod tests {
         {
             assert_eq!(o.unwrap(), 3);
         }
+    }
+
+    #[test]
+    fn patch_sliced() {
+        let input = PrimitiveArray::from_vec(vec![2u32; 10], Validity::AllValid);
+        let sliced = slice(input, 2, 8).unwrap();
+        assert_eq!(
+            sliced
+                .into_primitive()
+                .unwrap()
+                .into_maybe_null_slice::<u32>(),
+            vec![2u32; 6]
+        );
     }
 }
