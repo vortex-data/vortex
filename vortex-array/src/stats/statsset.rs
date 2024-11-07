@@ -473,7 +473,9 @@ mod test {
             None,
         ])
         .into_array();
-        let all_stats = all::<Stat>().filter(|s| !matches!(s, Stat::TrueCount)).collect_vec();
+        let all_stats = all::<Stat>()
+            .filter(|s| !matches!(s, Stat::TrueCount))
+            .collect_vec();
         array.statistics().compute_all(&all_stats).unwrap();
 
         let stats = array.statistics().to_set();

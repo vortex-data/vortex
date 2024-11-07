@@ -52,10 +52,7 @@ impl Stat {
 
     /// Whether the statistic has the same dtype as the array it's computed on
     pub fn has_same_dtype_as_array(&self) -> bool {
-        matches!(
-            self,
-            Stat::Min | Stat::Max
-        )
+        matches!(self, Stat::Min | Stat::Max)
     }
 }
 

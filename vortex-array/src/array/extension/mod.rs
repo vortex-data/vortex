@@ -137,7 +137,11 @@ mod tests {
             .compute_all(&[Stat::Min, Stat::Max, Stat::NullCount])
             .unwrap();
         let num_stats = stats.clone().into_iter().try_len().unwrap();
-        assert!(num_stats >= 3, "Expected at least 3 stats, got {}", num_stats);
+        assert!(
+            num_stats >= 3,
+            "Expected at least 3 stats, got {}",
+            num_stats
+        );
 
         assert_eq!(
             stats.get(Stat::Min),
