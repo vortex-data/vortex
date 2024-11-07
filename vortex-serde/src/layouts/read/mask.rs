@@ -121,6 +121,21 @@ impl RowMask {
         }
     }
 
+    /// Unset, in place, any bits that are unset in `other`.
+    pub fn and_inplace(&mut self, other: &RowMask) -> VortexResult<()> {
+        if self.begin != other.begin || self.end != other.end {
+            vortex_bail!(
+                "begin and ends must match: {}-{} {}-{}",
+                self.begin,
+                self.end,
+                other.begin,
+                other.end
+            );
+        }
+        self.values.and_inplace(&other.values);
+        Ok(())
+    }
+
     /// Filter array with this `RowMask`.
     ///
     /// This function assumes that Array is no longer than the mask length and that the mask starts on same offset as the array,

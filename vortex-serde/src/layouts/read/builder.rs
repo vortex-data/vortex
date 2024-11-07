@@ -5,6 +5,7 @@ use vortex_error::VortexResult;
 use vortex_expr::Select;
 use vortex_schema::projection::Projection;
 
+use super::RowMask;
 use crate::io::VortexReadAt;
 use crate::layouts::read::cache::{LayoutMessageCache, LazyDeserializedDType, RelativeLayoutCache};
 use crate::layouts::read::context::LayoutDeserializer;
@@ -87,13 +88,18 @@ impl<R: VortexReadAt> LayoutBatchStreamBuilder<R> {
 
         let filter_reader = self
             .row_filter
-            .as_ref()
-            .map(|filter| {
+            .map(|row_filter| {
                 footer.layout(
-                    Scan::new(Some(Arc::new(filter.clone()))),
+                    Scan::new(Some(Arc::new(row_filter))),
                     RelativeLayoutCache::new(message_cache.clone(), footer_dtype),
                 )
             })
+            .transpose()?;
+
+        let indices_mask = self
+            .indices
+            .as_ref()
+            .map(|indices| RowMask::from_index_array(indices, 0, row_count as usize))
             .transpose()?;
 
         Ok(LayoutBatchStream::new(
@@ -103,6 +109,7 @@ impl<R: VortexReadAt> LayoutBatchStreamBuilder<R> {
             message_cache,
             projected_dtype,
             row_count,
+            indices_mask,
         ))
     }
 
