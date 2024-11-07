@@ -47,10 +47,18 @@ macro_rules! as_primitive {
         paste! {
             #[doc = "Access PValue as `" $T "`, returning `None` if conversion is unsuccessful"]
             pub fn [<as_ $T>](self) -> Option<$T> {
-                if let PValue::$PT(v) = self {
-                    Some(v)
-                } else {
-                    None
+                match self {
+                    PValue::U8(v) => <$T as NumCast>::from(v),
+                    PValue::U16(v) => <$T as NumCast>::from(v),
+                    PValue::U32(v) => <$T as NumCast>::from(v),
+                    PValue::U64(v) => <$T as NumCast>::from(v),
+                    PValue::I8(v) => <$T as NumCast>::from(v),
+                    PValue::I16(v) => <$T as NumCast>::from(v),
+                    PValue::I32(v) => <$T as NumCast>::from(v),
+                    PValue::I64(v) => <$T as NumCast>::from(v),
+                    PValue::F16(v) => <$T as NumCast>::from(v),
+                    PValue::F32(v) => <$T as NumCast>::from(v),
+                    PValue::F64(v) => <$T as NumCast>::from(v),
                 }
             }
         }
