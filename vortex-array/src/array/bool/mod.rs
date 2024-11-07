@@ -35,18 +35,21 @@ impl Display for BoolMetadata {
 }
 
 impl BoolArray {
+    /// Access internal array buffer
     pub fn buffer(&self) -> &Buffer {
         self.as_ref()
             .buffer()
             .vortex_expect("Missing buffer in BoolArray")
     }
 
+    /// Convert array into its internal buffer
     pub fn into_buffer(self) -> Buffer {
         self.into_array()
             .into_buffer()
             .vortex_expect("BoolArray must have a buffer")
     }
 
+    /// Get array values as an arrow [BooleanBuffer]
     pub fn boolean_buffer(&self) -> BooleanBuffer {
         BooleanBuffer::new(
             self.buffer().clone().into_arrow(),
@@ -55,20 +58,29 @@ impl BoolArray {
         )
     }
 
+    /// Get a mutable version of this array.
+    ///
+    /// If the caller holds the only reference to the underlying buffer the underlying buffer is returned
+    /// otherwise a copy is created.
+    ///
+    /// The second value of the tuple is a bit_offset of first value in first byte of the returned builder
     pub fn into_boolean_builder(self) -> (BooleanBufferBuilder, usize) {
         let first_byte_bit_offset = self.metadata().first_byte_bit_offset as usize;
         let len = self.len();
-        let arrow_buf = self
-            .into_buffer()
-            .into_arrow()
-            .into_mutable()
-            .unwrap_or_else(|b| {
+        let arrow_buffer = self.into_buffer().into_arrow();
+        let mutable_buf = if arrow_buffer.ptr_offset() == 0 {
+            arrow_buffer.into_mutable().unwrap_or_else(|b| {
                 let mut buf = MutableBuffer::with_capacity(b.len());
                 buf.extend_from_slice(b.as_slice());
                 buf
-            });
+            })
+        } else {
+            let mut buf = MutableBuffer::with_capacity(arrow_buffer.len());
+            buf.extend_from_slice(arrow_buffer.as_slice());
+            buf
+        };
         (
-            BooleanBufferBuilder::new_from_buffer(arrow_buf, len),
+            BooleanBufferBuilder::new_from_buffer(mutable_buf, len + first_byte_bit_offset),
             first_byte_bit_offset,
         )
     }
@@ -123,12 +135,10 @@ impl BoolArray {
                 values.len()
             );
         }
-        if positions
-            .last()
-            .map(|p| p.as_() >= self.len())
-            .unwrap_or(false)
-        {
-            vortex_bail!("Position must be within length")
+        if let Some(last_pos) = positions.last() {
+            if last_pos.as_() >= self.len() {
+                vortex_bail!(OutOfBounds: last_pos.as_(), 0, self.len())
+            }
         }
 
         let len = self.len();
@@ -216,13 +226,15 @@ impl AcceptArrayVisitor for BoolArray {
 
 #[cfg(test)]
 mod tests {
+    use arrow_buffer::BooleanBuffer;
     use itertools::Itertools;
 
     use crate::array::BoolArray;
+    use crate::compute::slice;
     use crate::compute::unary::scalar_at;
     use crate::validity::Validity;
     use crate::variants::BoolArrayTrait;
-    use crate::IntoArray;
+    use crate::{IntoArray, IntoArrayVariant};
 
     #[test]
     fn bool_array() {
@@ -288,5 +300,32 @@ mod tests {
         let arr = BoolArray::from(vec![false, false, false]);
         assert_eq!(0, arr.maybe_null_indices_iter().collect_vec().len());
         assert_eq!(0, arr.maybe_null_slices_iter().collect_vec().len());
+    }
+
+    #[test]
+    fn patch_sliced_bools() {
+        let arr = BoolArray::from(BooleanBuffer::new_set(12));
+        let sliced = slice(arr, 4, 12).unwrap();
+        let (values, offset) = sliced.into_bool().unwrap().into_boolean_builder();
+        assert_eq!(offset, 4);
+        assert_eq!(values.as_slice(), &[255, 15]);
+    }
+
+    #[test]
+    fn patch_sliced_bools_offset() {
+        let arr = BoolArray::from(BooleanBuffer::new_set(15));
+        let sliced = slice(arr, 4, 15).unwrap();
+        let (values, offset) = sliced.into_bool().unwrap().into_boolean_builder();
+        assert_eq!(offset, 4);
+        assert_eq!(values.as_slice(), &[255, 7]);
+    }
+
+    #[test]
+    fn patch_sliced_bools_even() {
+        let arr = BoolArray::from(BooleanBuffer::new_set(31));
+        let sliced = slice(arr, 8, 24).unwrap();
+        let (values, offset) = sliced.into_bool().unwrap().into_boolean_builder();
+        assert_eq!(offset, 0);
+        assert_eq!(values.as_slice(), &[255, 255]);
     }
 }

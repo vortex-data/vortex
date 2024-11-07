@@ -16,23 +16,15 @@ impl IntoCanonical for SparseArray {
 
         if matches!(self.dtype(), DType::Bool(_)) {
             let values = self.values().into_bool()?;
-            canonicalize_sparse_bools(
-                values,
-                &indices,
-                self.len(),
-                self.fill_value(),
-                self.dtype().nullability(),
-            )
+            canonicalize_sparse_bools(values, &indices, self.len(), self.fill_value())
         } else {
             let values = self.values().into_primitive()?;
             match_each_native_ptype!(values.ptype(), |$P| {
-                canonicalize_sparse_primitives(
-                    values.maybe_null_slice::<$P>(),
-                    values.validity(),
+                canonicalize_sparse_primitives::<$P>(
+                    values,
                     &indices,
                     self.len(),
                     self.fill_value(),
-                    self.dtype().nullability()
                 )
             })
         }
@@ -44,14 +36,13 @@ fn canonicalize_sparse_bools(
     indices: &[usize],
     len: usize,
     fill_value: &ScalarValue,
-    nullability: Nullability,
 ) -> VortexResult<Canonical> {
     let (fill_bool, validity) = if fill_value.is_null() {
         (false, Validity::AllInvalid)
     } else {
         (
             fill_value.try_into()?,
-            if nullability == Nullability::NonNullable {
+            if values.dtype().nullability() == Nullability::NonNullable {
                 Validity::NonNullable
             } else {
                 Validity::AllValid
@@ -74,19 +65,18 @@ fn canonicalize_sparse_bools(
 fn canonicalize_sparse_primitives<
     T: NativePType + for<'a> TryFrom<&'a ScalarValue, Error = VortexError> + ArrowNativeType,
 >(
-    values: &[T],
-    values_validity: Validity,
+    values: PrimitiveArray,
     indices: &[usize],
     len: usize,
     fill_value: &ScalarValue,
-    nullability: Nullability,
 ) -> VortexResult<Canonical> {
+    let values_validity = values.validity();
     let (primitive_fill, validity) = if fill_value.is_null() {
         (T::default(), Validity::AllInvalid)
     } else {
         (
             fill_value.try_into()?,
-            if nullability == Nullability::NonNullable {
+            if values_validity == Validity::NonNullable {
                 Validity::NonNullable
             } else {
                 Validity::AllValid
@@ -95,7 +85,7 @@ fn canonicalize_sparse_primitives<
     };
 
     let parray = PrimitiveArray::from_vec(vec![primitive_fill; len], validity);
-    let patched = parray.patch(indices, values, values_validity)?;
+    let patched = parray.patch(indices, values.maybe_null_slice::<T>(), values_validity)?;
     Ok(Canonical::Primitive(patched))
 }
 

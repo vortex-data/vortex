@@ -218,8 +218,10 @@ impl Validity {
         positions: &[P],
         patches: Validity,
     ) -> VortexResult<Self> {
-        if positions.last().map(|p| p.as_() >= len).unwrap_or(false) {
-            vortex_bail!("Position must be within length")
+        if let Some(last_pos) = positions.last() {
+            if last_pos.as_() >= len {
+                vortex_bail!(OutOfBounds: last_pos.as_(), 0, len)
+            }
         }
 
         match (self, patches) {

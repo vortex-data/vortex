@@ -178,12 +178,10 @@ impl PrimitiveArray {
                 values.len()
             );
         }
-        if positions
-            .last()
-            .map(|p| p.as_() >= self.len())
-            .unwrap_or(false)
-        {
-            vortex_bail!("Position must be within length")
+        if let Some(last_pos) = positions.last() {
+            if last_pos.as_() >= self.len() {
+                vortex_bail!(OutOfBounds: last_pos.as_(), 0, self.len())
+            }
         }
 
         if self.ptype() != T::PTYPE {
