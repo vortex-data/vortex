@@ -59,7 +59,7 @@ simplelog = { workspace = true }
 tar = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 uuid = { workspace = true, features = ["v4"] }
-vortex-all = { workspace = true, features = ["object_store", "parquet"] }
+vortex = { workspace = true, features = ["object_store", "parquet"] }
 vortex-datafusion = { workspace = true }
 xshell = { workspace = true }
 

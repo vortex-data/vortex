@@ -35,4 +35,4 @@ tokio = { workspace = true, features = ["fs"] }
 url = { workspace = true }
 object_store = { workspace = true, features = ["aws", "gcp", "azure", "http"] }
 
-vortex-all = { workspace = true, features = ["tokio", "object_store", "python"] }
+vortex = { workspace = true, features = ["tokio", "object_store", "python"] }
