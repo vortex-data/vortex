@@ -308,9 +308,12 @@ impl IntoIterator for StatsSet {
 
 #[cfg(test)]
 mod test {
+    use enum_iterator::all;
     use itertools::Itertools;
 
-    use crate::stats::{Stat, StatsSet};
+    use crate::array::PrimitiveArray;
+    use crate::stats::{ArrayStatistics as _, Stat, StatsSet};
+    use crate::IntoArray as _;
 
     #[test]
     fn merge_into_min() {
@@ -457,5 +460,59 @@ mod test {
         let second = StatsSet::of(Stat::IsStrictSorted, true.into());
         first.merge_ordered(&second);
         assert_eq!(first.get(Stat::IsStrictSorted).cloned(), None);
+    }
+
+    #[test]
+    fn merge_unordered() {
+        let array = PrimitiveArray::from_nullable_vec(vec![
+            Some(1),
+            None,
+            Some(2),
+            Some(42),
+            Some(10000),
+            None,
+        ])
+        .into_array();
+        let all_stats = all::<Stat>().filter(|s| !matches!(s, Stat::TrueCount)).collect_vec();
+        array.statistics().compute_all(&all_stats).unwrap();
+
+        let stats = array.statistics().to_set();
+        for stat in &all_stats {
+            assert!(stats.get(*stat).is_some(), "Stat {} is missing", stat);
+        }
+
+        let mut merged = stats.clone();
+        merged.merge_unordered(&stats);
+        for stat in &all_stats {
+            assert_eq!(
+                merged.get(*stat).is_some(),
+                stat.is_commutative(),
+                "Stat {} remains after merge_unordered despite not being commutative, or was removed despite being commutative",
+                stat
+            )
+        }
+
+        assert_eq!(merged.get(Stat::Min), stats.get(Stat::Min));
+        assert_eq!(merged.get(Stat::Max), stats.get(Stat::Max));
+        assert_eq!(
+            merged
+                .get(Stat::NullCount)
+                .unwrap()
+                .value()
+                .as_pvalue()
+                .unwrap()
+                .unwrap()
+                .as_u64()
+                .unwrap(),
+            2 * stats
+                .get(Stat::NullCount)
+                .unwrap()
+                .value()
+                .as_pvalue()
+                .unwrap()
+                .unwrap()
+                .as_u64()
+                .unwrap()
+        );
     }
 }

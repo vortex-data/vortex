@@ -234,4 +234,19 @@ mod test {
 
         assert_eq!(min, None);
     }
+
+    #[test]
+    fn commutativity() {
+        assert!(Stat::BitWidthFreq.is_commutative());
+        assert!(Stat::TrailingZeroFreq.is_commutative());
+        assert!(Stat::IsConstant.is_commutative());
+        assert!(Stat::Min.is_commutative());
+        assert!(Stat::Max.is_commutative());
+        assert!(Stat::TrueCount.is_commutative());
+        assert!(Stat::NullCount.is_commutative());
+
+        assert!(!Stat::IsStrictSorted.is_commutative());
+        assert!(!Stat::IsSorted.is_commutative());
+        assert!(!Stat::RunCount.is_commutative());
+    }
 }
