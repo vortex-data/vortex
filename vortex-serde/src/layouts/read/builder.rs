@@ -19,7 +19,7 @@ pub struct LayoutBatchStreamBuilder<R> {
     layout_serde: LayoutDeserializer,
     projection: Option<Projection>,
     size: Option<u64>,
-    indices: Option<Array>,
+    row_mask: Option<Array>,
     row_filter: Option<RowFilter>,
 }
 
@@ -29,9 +29,9 @@ impl<R: VortexReadAt> LayoutBatchStreamBuilder<R> {
             reader,
             layout_serde,
             projection: None,
-            row_filter: None,
             size: None,
-            indices: None,
+            row_mask: None,
+            row_filter: None,
         }
     }
 
@@ -46,12 +46,12 @@ impl<R: VortexReadAt> LayoutBatchStreamBuilder<R> {
     }
 
     pub fn with_indices(mut self, array: Array) -> Self {
-        // TODO(#441): Allow providing boolean masks
         assert!(
-            array.dtype().is_int(),
-            "Mask arrays have to be integer arrays"
+            !array.dtype().is_nullable() && (array.dtype().is_int() || array.dtype().is_boolean()),
+            "Mask arrays have to be non-nullable integer or boolean arrays"
         );
-        self.indices = Some(array);
+
+        self.row_mask = Some(array);
         self
     }
 
@@ -96,10 +96,16 @@ impl<R: VortexReadAt> LayoutBatchStreamBuilder<R> {
             })
             .transpose()?;
 
-        let indices_mask = self
-            .indices
+        let row_mask = self
+            .row_mask
             .as_ref()
-            .map(|indices| RowMask::from_index_array(indices, 0, row_count as usize))
+            .map(|row_mask| {
+                if row_mask.dtype().is_int() {
+                    RowMask::from_index_array(row_mask, 0, row_count as usize)
+                } else {
+                    RowMask::from_mask_array(row_mask, 0, row_count as usize)
+                }
+            })
             .transpose()?;
 
         Ok(LayoutBatchStream::new(
@@ -109,7 +115,7 @@ impl<R: VortexReadAt> LayoutBatchStreamBuilder<R> {
             message_cache,
             projected_dtype,
             row_count,
-            indices_mask,
+            row_mask,
         ))
     }
 

@@ -36,7 +36,7 @@ pub struct LayoutBatchStream<R> {
     filter_reader: Option<Box<dyn LayoutReader>>,
     messages_cache: Arc<RwLock<LayoutMessageCache>>,
     splits: VecDeque<(usize, usize)>,
-    indices_mask: Option<RowMask>,
+    row_mask: Option<RowMask>,
     current_selector: Option<RowMask>,
     state: StreamingState<R>,
 }
@@ -49,7 +49,7 @@ impl<R: VortexReadAt> LayoutBatchStream<R> {
         messages_cache: Arc<RwLock<LayoutMessageCache>>,
         dtype: DType,
         row_count: u64,
-        indices_mask: Option<RowMask>,
+        row_mask: Option<RowMask>,
     ) -> Self {
         LayoutBatchStream {
             dtype,
@@ -59,7 +59,7 @@ impl<R: VortexReadAt> LayoutBatchStream<R> {
             filter_reader,
             messages_cache,
             splits: VecDeque::new(),
-            indices_mask,
+            row_mask,
             current_selector: None,
             state: StreamingState::AddSplits,
         }
@@ -133,8 +133,8 @@ impl<R: VortexReadAt + Unpin + 'static> Stream for LayoutBatchStream<R> {
                     };
 
                     self.state = if self.filter_reader.is_some() {
-                        if let Some(indices_mask) = &self.indices_mask {
-                            if indices_mask
+                        if let Some(row_mask) = &self.row_mask {
+                            if row_mask
                                 .slice(new_selector.begin(), new_selector.end())
                                 .is_empty()
                             {
@@ -146,9 +146,9 @@ impl<R: VortexReadAt + Unpin + 'static> Stream for LayoutBatchStream<R> {
                         self.current_selector = Some(new_selector);
                         StreamingState::Filter
                     } else {
-                        if let Some(indices_mask) = &self.indices_mask {
+                        if let Some(row_mask) = &self.row_mask {
                             new_selector.and_inplace(
-                                &indices_mask.slice(new_selector.begin(), new_selector.end()),
+                                &row_mask.slice(new_selector.begin(), new_selector.end()),
                             )?;
                         }
                         self.current_selector = Some(new_selector);
@@ -182,12 +182,10 @@ impl<R: VortexReadAt + Unpin + 'static> Stream for LayoutBatchStream<R> {
                                 });
                             }
                             BatchRead::Batch(mut batch) => {
-                                if let Some(indices_mask) = &self.indices_mask {
+                                if let Some(row_mask) = &self.row_mask {
                                     batch = and(
                                         batch,
-                                        indices_mask
-                                            .slice(sel_begin, sel_end)
-                                            .to_predicate_array()?,
+                                        row_mask.slice(sel_begin, sel_end).to_predicate_array()?,
                                     )?;
                                 }
 

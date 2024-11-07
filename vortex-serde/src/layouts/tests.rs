@@ -715,26 +715,26 @@ async fn test_with_indices_and_with_row_filter_simple() {
         .unwrap();
     let written = writer.finalize().await.unwrap();
 
-    // // test no indices
-    // let empty_indices = Vec::<u32>::new();
-    // let actual_kept_array =
-    //     LayoutBatchStreamBuilder::new(written.clone(), LayoutDeserializer::default())
-    //         .with_indices(Array::from(empty_indices))
-    //         .with_row_filter(RowFilter::new(Arc::new(BinaryExpr::new(
-    //             Arc::new(Column::new(Field::from("numbers"))),
-    //             Operator::Gt,
-    //             Arc::new(Literal::new(50_i16.into())),
-    //         ))))
-    //         .build()
-    //         .await
-    //         .unwrap()
-    //         .read_all()
-    //         .await
-    //         .unwrap()
-    //         .into_struct()
-    //         .unwrap();
+    // test no indices
+    let empty_indices = Vec::<u32>::new();
+    let actual_kept_array =
+        LayoutBatchStreamBuilder::new(written.clone(), LayoutDeserializer::default())
+            .with_indices(Array::from(empty_indices))
+            .with_row_filter(RowFilter::new(Arc::new(BinaryExpr::new(
+                Arc::new(Column::new(Field::from("numbers"))),
+                Operator::Gt,
+                Arc::new(Literal::new(50_i16.into())),
+            ))))
+            .build()
+            .await
+            .unwrap()
+            .read_all()
+            .await
+            .unwrap()
+            .into_struct()
+            .unwrap();
 
-    // assert_eq!(actual_kept_array.len(), 0);
+    assert_eq!(actual_kept_array.len(), 0);
 
     // test a few indices
     let kept_indices = vec![0_usize, 3, 99, 100, 101, 399, 400, 401, 499];
