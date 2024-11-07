@@ -1,5 +1,5 @@
 [package]
-name = "vortex-all"
+name = "vortex"
 description = "Vortex file format with all builtin codecs and a sampling compressor."
 version = { workspace = true }
 homepage = { workspace = true }
