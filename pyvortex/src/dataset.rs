@@ -131,7 +131,7 @@ impl TokioFileDataset {
             self.file().await?,
             projection_from_python(columns)?,
             row_filter_from_python(row_filter),
-            indices.map(PyArray::unwrap).map(Clone::clone),
+            indices.map(PyArray::unwrap).cloned(),
         )
         .await?;
         Ok(PyArray::new(inner))
@@ -147,7 +147,7 @@ impl TokioFileDataset {
             self_.file().await?,
             projection_from_python(columns)?,
             row_filter_from_python(row_filter),
-            indices.map(PyArray::unwrap).map(Clone::clone),
+            indices.map(PyArray::unwrap).cloned(),
         )
         .await?;
 
@@ -215,7 +215,7 @@ impl ObjectStoreUrlDataset {
             self.reader().await?,
             projection_from_python(columns)?,
             row_filter_from_python(row_filter),
-            indices.map(PyArray::unwrap).map(Clone::clone),
+            indices.map(PyArray::unwrap).cloned(),
         )
         .await?;
         Ok(PyArray::new(inner))
@@ -231,7 +231,7 @@ impl ObjectStoreUrlDataset {
             self_.reader().await?,
             projection_from_python(columns)?,
             row_filter_from_python(row_filter),
-            indices.map(PyArray::unwrap).map(Clone::clone),
+            indices.map(PyArray::unwrap).cloned(),
         )
         .await?;
 
