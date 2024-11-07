@@ -317,7 +317,7 @@ mod tests {
         let sliced = slice(arr, 4, 15).unwrap();
         let (values, offset) = sliced.into_bool().unwrap().into_boolean_builder();
         assert_eq!(offset, 4);
-        assert_eq!(values.as_slice(), &[255, 7]);
+        assert_eq!(values.as_slice(), &[255, 127]);
     }
 
     #[test]
