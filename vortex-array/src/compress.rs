@@ -68,6 +68,7 @@ pub fn check_statistics_unchanged(arr: &Array, compressed: &Array) {
     }
 }
 
+/// Compute pruning stats for an array.
 pub fn compute_pruning_stats(arr: &Array) -> VortexResult<()> {
     arr.statistics().compute_all(PRUNING_STATS).map(|_| ())
 }
