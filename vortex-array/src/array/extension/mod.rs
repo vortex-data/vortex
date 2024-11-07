@@ -1,6 +1,7 @@
 use std::fmt::{Debug, Display};
 use std::sync::Arc;
 
+use enum_iterator::all;
 use serde::{Deserialize, Serialize};
 use vortex_dtype::{DType, ExtDType, ExtID};
 use vortex_error::{VortexExpect as _, VortexResult};
@@ -94,19 +95,60 @@ impl AcceptArrayVisitor for ExtensionArray {
 
 impl ArrayStatisticsCompute for ExtensionArray {
     fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
-        let storage_stats = self.storage().statistics().compute_all(&[stat])?;
+        let mut stats = self.storage().statistics().compute_all(&[stat])?;
 
-        let mut stats = StatsSet::new();
-        for (key, value) in storage_stats.into_iter() {
-            // for e.g., min/max, we want to cast to the extension array's dtype
-            // for other stats, we don't need to change anything
-            if key.has_same_dtype_as_array() {
-                stats.set(key, value.cast(self.dtype())?);
-            } else {
-                stats.set(key, value);
+        // for e.g., min/max, we want to cast to the extension array's dtype
+        // for other stats, we don't need to change anything
+        for stat in all::<Stat>().filter(|s| s.has_same_dtype_as_array()) {
+            if let Some(value) = stats.get(stat) {
+                stats.set(stat, value.cast(self.dtype())?);
             }
         }
 
         Ok(stats)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_dtype::PType;
+    use vortex_scalar::{PValue, Scalar, ScalarValue};
+
+    use super::*;
+    use crate::array::PrimitiveArray;
+    use crate::validity::Validity;
+    use crate::IntoArray as _;
+
+    #[test]
+    fn compute_statistics() {
+        let ext_dtype = Arc::new(ExtDType::new(
+            ExtID::new("timestamp".into()),
+            DType::from(PType::I64).into(),
+            None,
+        ));
+        let array = ExtensionArray::new(
+            ext_dtype.clone(),
+            PrimitiveArray::from_vec(vec![1i64, 2, 3, 4, 5], Validity::NonNullable).into_array(),
+        );
+
+        let stats = array
+            .statistics()
+            .compute_all(&[Stat::Min, Stat::Max, Stat::NullCount])
+            .unwrap();
+        assert_eq!(
+            stats.get(Stat::Min),
+            Some(&Scalar::extension(
+                ext_dtype.clone(),
+                ScalarValue::Primitive(PValue::I64(1))
+            ))
+        );
+        assert_eq!(
+            stats.get(Stat::Max),
+            Some(&Scalar::extension(
+                ext_dtype.clone(),
+                ScalarValue::Primitive(PValue::I64(5))
+            ))
+        );
+        assert_eq!(stats.get(Stat::NullCount), Some(&0u64.into()));
     }
 }
