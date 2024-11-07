@@ -10,6 +10,8 @@ use vortex_array::{iterate_integer_array, Array, IntoArray};
 use vortex_dtype::PType;
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
+const PREFER_TAKE_TO_FILTER_DENSITY: f64 = 1.0 / 1024.0;
+
 /// Bitmap of selected rows within given [begin, end) row range
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RowMask {
@@ -158,7 +160,7 @@ impl RowMask {
             return Ok(Some(sliced.clone()));
         }
 
-        if (true_count as f64 / sliced.len() as f64) < (1.0 / 1024.0) {
+        if (true_count as f64 / sliced.len() as f64) < PREFER_TAKE_TO_FILTER_DENSITY {
             let indices = self.to_indices_array()?;
             take(sliced, indices).map(Some)
         } else {
