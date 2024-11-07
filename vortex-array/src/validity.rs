@@ -214,10 +214,14 @@ impl Validity {
 
     pub fn patch<P: AsPrimitive<usize>>(
         self,
+        len: usize,
         positions: &[P],
         patches: Validity,
-        len: usize,
     ) -> VortexResult<Self> {
+        if positions.last().map(|p| p.as_() >= len).unwrap_or(false) {
+            vortex_bail!("Position must be within length")
+        }
+
         match (self, patches) {
             (
                 v @ Validity::NonNullable | v @ Validity::AllValid,
@@ -473,5 +477,49 @@ impl IntoArray for LogicalValidity {
             Self::AllInvalid(len) => BoolArray::from(vec![false; len]).into_array(),
             Self::Array(a) => a,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use crate::array::BoolArray;
+    use crate::validity::Validity;
+    use crate::IntoArray;
+
+    #[rstest]
+    #[case(Validity::NonNullable, 5, &[2, 4], Validity::NonNullable, Validity::NonNullable)]
+    #[case(Validity::NonNullable, 5, &[2, 4], Validity::AllValid, Validity::NonNullable)]
+    #[case(Validity::NonNullable, 5, &[2, 4], Validity::AllInvalid, Validity::Array(BoolArray::from(vec![true, true, false, true, false]).into_array()))]
+    #[case(Validity::NonNullable, 5, &[2, 4], Validity::Array(BoolArray::from(vec![true, false]).into_array()), Validity::Array(BoolArray::from(vec![true, true, true, true, false]).into_array()))]
+    #[case(Validity::AllValid, 5, &[2, 4], Validity::NonNullable, Validity::AllValid)]
+    #[case(Validity::AllValid, 5, &[2, 4], Validity::AllValid, Validity::AllValid)]
+    #[case(Validity::AllValid, 5, &[2, 4], Validity::AllInvalid, Validity::Array(BoolArray::from(vec![true, true, false, true, false]).into_array()))]
+    #[case(Validity::AllValid, 5, &[2, 4], Validity::Array(BoolArray::from(vec![true, false]).into_array()), Validity::Array(BoolArray::from(vec![true, true, true, true, false]).into_array()))]
+    #[case(Validity::AllInvalid, 5, &[2, 4], Validity::NonNullable, Validity::Array(BoolArray::from(vec![false, false, true, false, true]).into_array()))]
+    #[case(Validity::AllInvalid, 5, &[2, 4], Validity::AllValid, Validity::Array(BoolArray::from(vec![false, false, true, false, true]).into_array()))]
+    #[case(Validity::AllInvalid, 5, &[2, 4], Validity::AllInvalid, Validity::AllInvalid)]
+    #[case(Validity::AllInvalid, 5, &[2, 4], Validity::Array(BoolArray::from(vec![true, false]).into_array()), Validity::Array(BoolArray::from(vec![false, false, true, false, false]).into_array()))]
+    #[case(Validity::Array(BoolArray::from(vec![false, true, false, true, false]).into_array()), 5, &[2, 4], Validity::NonNullable, Validity::Array(BoolArray::from(vec![false, true, true, true, true]).into_array()))]
+    #[case(Validity::Array(BoolArray::from(vec![false, true, false, true, false]).into_array()), 5, &[2, 4], Validity::AllValid, Validity::Array(BoolArray::from(vec![false, true, true, true, true]).into_array()))]
+    #[case(Validity::Array(BoolArray::from(vec![false, true, false, true, false]).into_array()), 5, &[2, 4], Validity::AllInvalid, Validity::Array(BoolArray::from(vec![false, true, false, true, false]).into_array()))]
+    #[case(Validity::Array(BoolArray::from(vec![false, true, false, true, false]).into_array()), 5, &[2, 4], Validity::Array(BoolArray::from(vec![true, false]).into_array()), Validity::Array(BoolArray::from(vec![false, true, true, true, false]).into_array()))]
+    fn patch_validity(
+        #[case] validity: Validity,
+        #[case] len: usize,
+        #[case] positions: &[usize],
+        #[case] patches: Validity,
+        #[case] expected: Validity,
+    ) {
+        assert_eq!(validity.patch(len, positions, patches).unwrap(), expected);
+    }
+
+    #[test]
+    #[should_panic]
+    fn out_of_bounds_patch() {
+        Validity::NonNullable
+            .patch(2, &[4], Validity::AllInvalid)
+            .unwrap();
     }
 }

@@ -178,6 +178,13 @@ impl PrimitiveArray {
                 values.len()
             );
         }
+        if positions
+            .last()
+            .map(|p| p.as_() >= self.len())
+            .unwrap_or(false)
+        {
+            vortex_bail!("Position must be within length")
+        }
 
         if self.ptype() != T::PTYPE {
             vortex_bail!(MismatchedTypes: self.dtype(), T::PTYPE)
@@ -185,7 +192,7 @@ impl PrimitiveArray {
 
         let result_validity = self
             .validity()
-            .patch(positions, values_validity, self.len())?;
+            .patch(self.len(), positions, values_validity)?;
         let mut own_values = self.into_maybe_null_slice::<T>();
         for (idx, value) in positions.iter().zip_eq(values) {
             own_values[idx.as_()] = *value;

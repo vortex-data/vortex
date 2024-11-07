@@ -123,11 +123,17 @@ impl BoolArray {
                 values.len()
             );
         }
+        if positions
+            .last()
+            .map(|p| p.as_() >= self.len())
+            .unwrap_or(false)
+        {
+            vortex_bail!("Position must be within length")
+        }
 
         let len = self.len();
-        let validity = self.validity();
+        let result_validity = self.validity().patch(len, positions, values.validity())?;
         let (mut own_values, bit_offset) = self.into_boolean_builder();
-        let result_validity = validity.patch(positions, values.validity(), len)?;
         for (idx, value) in positions.iter().zip_eq(values.boolean_buffer().iter()) {
             own_values.set_bit(idx.as_() + bit_offset, value);
         }
