@@ -16,10 +16,6 @@ pub struct Column {
 }
 
 impl Column {
-    pub fn new(field: Field) -> Self {
-        Self { field }
-    }
-
     pub fn new_ref(field: Field) -> ExprRef {
         Arc::new(Self { field })
     }
@@ -31,13 +27,17 @@ impl Column {
 
 impl From<String> for Column {
     fn from(value: String) -> Self {
-        Column::new(value.into())
+        Column {
+            field: value.into(),
+        }
     }
 }
 
 impl From<usize> for Column {
     fn from(value: usize) -> Self {
-        Column::new(value.into())
+        Column {
+            field: value.into(),
+        }
     }
 }
 

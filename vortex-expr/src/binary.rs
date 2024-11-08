@@ -17,10 +17,6 @@ pub struct BinaryExpr {
 }
 
 impl BinaryExpr {
-    pub fn new(lhs: ExprRef, operator: Operator, rhs: ExprRef) -> Self {
-        Self { lhs, operator, rhs }
-    }
-
     pub fn new_ref(lhs: ExprRef, operator: Operator, rhs: ExprRef) -> ExprRef {
         Arc::new(Self { lhs, operator, rhs })
     }

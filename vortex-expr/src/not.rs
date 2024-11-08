@@ -14,10 +14,6 @@ pub struct Not {
 }
 
 impl Not {
-    pub fn new(child: ExprRef) -> Self {
-        Self { child }
-    }
-
     pub fn new_ref(child: ExprRef) -> ExprRef {
         Arc::new(Self { child })
     }
@@ -62,11 +58,11 @@ mod tests {
     use vortex_array::array::BoolArray;
     use vortex_array::IntoArrayVariant;
 
-    use crate::{Identity, Not, VortexExpr};
+    use crate::{Identity, Not};
 
     #[test]
     fn invert_booleans() {
-        let not_expr = Not::new(Arc::new(Identity));
+        let not_expr = Not::new_ref(Arc::new(Identity));
         let bools = BoolArray::from(vec![false, true, false, false, true, true]);
         assert_eq!(
             not_expr

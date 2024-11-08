@@ -147,7 +147,7 @@ mod tests {
         let projection = vec![Field::from("a"), Field::from("b")];
         assert_eq!(
             *expr_project(&blt, &projection).unwrap(),
-            *BinaryExpr::new(
+            *BinaryExpr::new_ref(
                 Column::new_ref(Field::from("a")),
                 Operator::Lt,
                 Column::new_ref(Field::from("b")),
