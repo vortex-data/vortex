@@ -399,30 +399,23 @@ mod tests {
                 Arc::new(BinaryExpr::new(
                     Arc::new(Column::new(stat_column_name(&column, Stat::Min))),
                     Operator::Eq,
-                    Arc::new(Column::new(stat_column_name(&other_col, Stat::Min))),
+                    Arc::new(Column::new(stat_column_name(&column, Stat::Max))),
                 )),
                 Operator::And,
                 Arc::new(BinaryExpr::new(
                     Arc::new(Column::new(stat_column_name(&other_col, Stat::Min))),
                     Operator::Eq,
-                    Arc::new(Column::new(stat_column_name(&column, Stat::Max))),
+                    Arc::new(Column::new(stat_column_name(&other_col, Stat::Max))),
                 )),
             )),
-            Operator::Or,
+            Operator::And,
             Arc::new(BinaryExpr::new(
-                Arc::new(BinaryExpr::new(
-                    Arc::new(Column::new(stat_column_name(&column, Stat::Min))),
-                    Operator::Eq,
-                    Arc::new(Column::new(stat_column_name(&other_col, Stat::Max))),
-                )),
-                Operator::And,
-                Arc::new(BinaryExpr::new(
-                    Arc::new(Column::new(stat_column_name(&other_col, Stat::Max))),
-                    Operator::Eq,
-                    Arc::new(Column::new(stat_column_name(&column, Stat::Max))),
-                )),
+                Arc::new(Column::new(stat_column_name(&column, Stat::Min))),
+                Operator::Eq,
+                Arc::new(Column::new(stat_column_name(&other_col, Stat::Min))),
             )),
         ));
+
         assert_eq!(*converted, *expected_expr.as_any());
     }
 
