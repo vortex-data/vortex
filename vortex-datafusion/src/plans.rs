@@ -24,13 +24,13 @@ use vortex_array::compute::take;
 use vortex_array::{Array, IntoArrayVariant, IntoCanonical};
 use vortex_dtype::field::Field;
 use vortex_error::{vortex_err, vortex_panic, VortexError};
-use vortex_expr::VortexExpr;
+use vortex_expr::ExprRef;
 
 /// Physical plan operator that applies a set of [filters][Expr] against the input, producing a
 /// row mask that can be used downstream to force a take against the corresponding struct array
 /// chunks but for different columns.
 pub(crate) struct RowSelectorExec {
-    filter_expr: Arc<dyn VortexExpr>,
+    filter_expr: ExprRef,
     /// cached PlanProperties object. We do not make use of this.
     cached_plan_props: PlanProperties,
     /// Full array. We only access partitions of this data.
@@ -46,10 +46,7 @@ static ROW_SELECTOR_SCHEMA_REF: LazyLock<SchemaRef> = LazyLock::new(|| {
 });
 
 impl RowSelectorExec {
-    pub(crate) fn try_new(
-        filter_expr: Arc<dyn VortexExpr>,
-        chunked_array: &ChunkedArray,
-    ) -> DFResult<Self> {
+    pub(crate) fn try_new(filter_expr: ExprRef, chunked_array: &ChunkedArray) -> DFResult<Self> {
         let cached_plan_props = PlanProperties::new(
             EquivalenceProperties::new(ROW_SELECTOR_SCHEMA_REF.clone()),
             Partitioning::UnknownPartitioning(1),
@@ -134,7 +131,7 @@ impl ExecutionPlan for RowSelectorExec {
 pub(crate) struct RowIndicesStream {
     chunked_array: ChunkedArray,
     chunk_idx: usize,
-    conjunction_expr: Arc<dyn VortexExpr>,
+    conjunction_expr: ExprRef,
     filter_projection: Vec<Field>,
 }
 

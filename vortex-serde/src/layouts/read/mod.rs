@@ -1,6 +1,5 @@
 use std::collections::BTreeSet;
 use std::fmt::Debug;
-use std::sync::Arc;
 
 use vortex_array::Array;
 use vortex_error::VortexResult;
@@ -25,7 +24,7 @@ pub use filtering::RowFilter;
 pub use footer::{LayoutDescriptor, LayoutDescriptorReader};
 pub use recordbatchreader::{AsyncRuntime, VortexRecordBatchReader};
 pub use stream::LayoutBatchStream;
-use vortex_expr::VortexExpr;
+use vortex_expr::ExprRef;
 pub use vortex_schema::projection::Projection;
 pub use vortex_schema::Schema;
 
@@ -38,11 +37,11 @@ pub const INITIAL_READ_SIZE: usize = 8 * 1024 * 1024;
 /// Operation to apply to data returned by the layout
 #[derive(Debug, Clone)]
 pub struct Scan {
-    expr: Option<Arc<dyn VortexExpr>>,
+    expr: Option<ExprRef>,
 }
 
 impl Scan {
-    pub fn new(expr: Option<Arc<dyn VortexExpr>>) -> Self {
+    pub fn new(expr: Option<ExprRef>) -> Self {
         Self { expr }
     }
 }

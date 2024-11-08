@@ -1,6 +1,5 @@
 use std::collections::BTreeSet;
 use std::mem;
-use std::sync::Arc;
 
 use vortex_array::array::StructArray;
 use vortex_array::stats::ArrayStatistics;
@@ -8,7 +7,7 @@ use vortex_array::validity::Validity;
 use vortex_array::{Array, IntoArray};
 use vortex_dtype::FieldNames;
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
-use vortex_expr::VortexExpr;
+use vortex_expr::ExprRef;
 
 use crate::layouts::read::mask::RowMask;
 use crate::layouts::read::{BatchRead, LayoutReader};
@@ -21,7 +20,7 @@ pub struct ColumnBatchReader {
     names: FieldNames,
     children: Vec<Box<dyn LayoutReader>>,
     arrays: Vec<Option<Array>>,
-    expr: Option<Arc<dyn VortexExpr>>,
+    expr: Option<ExprRef>,
     // TODO(robert): This is a hack/optimization that tells us if we're reducing results with AND or not
     shortcircuit_siblings: bool,
 }
@@ -30,7 +29,7 @@ impl ColumnBatchReader {
     pub fn new(
         names: FieldNames,
         children: Vec<Box<dyn LayoutReader>>,
-        expr: Option<Arc<dyn VortexExpr>>,
+        expr: Option<ExprRef>,
         shortcircuit_siblings: bool,
     ) -> Self {
         assert_eq!(

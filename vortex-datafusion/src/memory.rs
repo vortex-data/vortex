@@ -17,7 +17,7 @@ use vortex_array::arrow::infer_schema;
 use vortex_array::{Array, ArrayDType as _};
 use vortex_error::{VortexError, VortexExpect as _};
 use vortex_expr::datafusion::convert_expr_to_vortex;
-use vortex_expr::VortexExpr;
+use vortex_expr::ExprRef;
 
 use crate::plans::{RowSelectorExec, TakeRowsExec};
 use crate::{can_be_pushed_down, VortexScanExec};
@@ -190,7 +190,7 @@ impl VortexMemTableOptions {
 /// columns.
 fn make_filter_then_take_plan(
     schema: SchemaRef,
-    filter_expr: Arc<dyn VortexExpr>,
+    filter_expr: ExprRef,
     chunked_array: ChunkedArray,
     output_projection: Vec<usize>,
     _session_state: &dyn Session,

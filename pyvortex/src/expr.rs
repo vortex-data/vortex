@@ -6,7 +6,7 @@ use pyo3::types::*;
 use vortex::dtype::field::Field;
 use vortex::dtype::half::f16;
 use vortex::dtype::{DType, Nullability, PType};
-use vortex::expr::{BinaryExpr, Column, Literal, Operator, VortexExpr};
+use vortex::expr::{BinaryExpr, Column, ExprRef, Literal, Operator};
 use vortex::scalar::{PValue, Scalar, ScalarValue};
 
 use crate::dtype::PyDType;
@@ -99,11 +99,11 @@ use crate::dtype::PyDType;
 ///   ]
 #[pyclass(name = "Expr", module = "vortex")]
 pub struct PyExpr {
-    inner: Arc<dyn VortexExpr>,
+    inner: ExprRef,
 }
 
 impl PyExpr {
-    pub fn unwrap(&self) -> &Arc<dyn VortexExpr> {
+    pub fn unwrap(&self) -> &ExprRef {
         &self.inner
     }
 }
