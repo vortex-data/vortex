@@ -11,22 +11,26 @@ use vortex_array::validity::Validity;
 use vortex_array::{Array, IntoArray, IntoArrayVariant};
 use vortex_dtype::field::Field;
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_expr::{split_conjunction, unbox_any, VortexExpr};
+use vortex_expr::{split_conjunction, unbox_any, ExprRef, VortexExpr};
 
 use crate::layouts::read::expr_project::expr_project;
 
 #[derive(Debug, Clone)]
 pub struct RowFilter {
-    conjunction: Vec<Arc<dyn VortexExpr>>,
+    conjunction: Vec<ExprRef>,
 }
 
 impl RowFilter {
-    pub fn new(expr: Arc<dyn VortexExpr>) -> Self {
+    pub fn new(expr: ExprRef) -> Self {
         let conjunction = split_conjunction(&expr);
         Self { conjunction }
     }
 
-    pub(crate) fn from_conjunction(conjunction: Vec<Arc<dyn VortexExpr>>) -> Self {
+    pub fn new_ref(expr: ExprRef) -> ExprRef {
+        Arc::new(Self::new(expr))
+    }
+
+    pub(crate) fn from_conjunction(conjunction: Vec<ExprRef>) -> Self {
         Self { conjunction }
     }
 

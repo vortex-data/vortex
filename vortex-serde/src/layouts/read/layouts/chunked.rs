@@ -244,11 +244,11 @@ mod tests {
         let cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
         let (mut filter_layout, mut projection_layout, buf, length) = layout_and_bytes(
             cache.clone(),
-            Scan::new(Some(Arc::new(RowFilter::new(Arc::new(BinaryExpr::new(
+            Scan::new(Some(RowFilter::new_ref(BinaryExpr::new_ref(
                 Arc::new(Identity),
                 Operator::Gt,
-                Arc::new(Literal::new(10.into())),
-            )))))),
+                Literal::new_ref(10.into()),
+            )))),
         )
         .await;
         let arr = filter_read_layout(

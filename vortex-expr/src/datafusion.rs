@@ -20,7 +20,7 @@ pub fn convert_expr_to_vortex(
         let right = convert_expr_to_vortex(binary_expr.right().clone())?;
         let operator = *binary_expr.op();
 
-        return Ok(Arc::new(BinaryExpr::new(left, operator.try_into()?, right)) as _);
+        return Ok(BinaryExpr::new_ref(left, operator.try_into()?, right));
     }
 
     if let Some(col_expr) = physical_expr.as_any().downcast_ref::<expressions::Column>() {
@@ -34,7 +34,7 @@ pub fn convert_expr_to_vortex(
         .downcast_ref::<expressions::Literal>()
     {
         let value = Scalar::from(lit.value().clone());
-        return Ok(Arc::new(Literal::new(value)) as _);
+        return Ok(Literal::new_ref(value));
     }
 
     vortex_bail!("Couldn't convert DataFusion physical expression to a vortex expression")

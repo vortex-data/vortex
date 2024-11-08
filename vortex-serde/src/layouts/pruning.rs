@@ -121,7 +121,7 @@ fn convert_column_reference(expr: &ExprRef, invert: bool) -> PruningPredicateSta
                 if invert {
                     BinaryExpr::new_ref(min_exp, Operator::And, max_exp)
                 } else {
-                    Not::new_ref(BinaryExpr::new_ref(min_exp, Operator::Or, max_exp)) as ExprRef
+                    Not::new_ref(BinaryExpr::new_ref(min_exp, Operator::Or, max_exp))
                 }
             })
             .unwrap_or_else(|| Literal::new_ref(Scalar::bool(false, Nullability::NonNullable))),
@@ -265,8 +265,6 @@ pub(crate) fn stat_column_name(field: &Field, stat: Stat) -> Field {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use vortex_array::aliases::hash_map::HashMap;
     use vortex_array::aliases::hash_set::HashSet;
     use vortex_array::stats::Stat;
@@ -285,7 +283,7 @@ mod tests {
             Column::new_ref(column.clone()),
             Operator::Eq,
             literal_eq.clone(),
-        ) as _;
+        );
         let (converted, refs) = convert_to_pruning_expression(&eq_expr);
         assert_eq!(
             refs,
@@ -315,7 +313,7 @@ mod tests {
             Column::new_ref(column.clone()),
             Operator::Eq,
             Column::new_ref(other_col.clone()),
-        ) as _;
+        );
 
         let (converted, refs) = convert_to_pruning_expression(&eq_expr);
         assert_eq!(
@@ -352,7 +350,7 @@ mod tests {
             Column::new_ref(column.clone()),
             Operator::NotEq,
             Column::new_ref(other_col.clone()),
-        ) as _;
+        );
 
         let (converted, refs) = convert_to_pruning_expression(&not_eq_expr);
         assert_eq!(
@@ -406,7 +404,7 @@ mod tests {
             Column::new_ref(column.clone()),
             Operator::Gt,
             other_expr.clone(),
-        ) as _;
+        );
 
         let (converted, refs) = convert_to_pruning_expression(&not_eq_expr);
         assert_eq!(
@@ -432,7 +430,7 @@ mod tests {
             Column::new_ref(column.clone()),
             Operator::Gt,
             other_col.clone(),
-        ) as _;
+        );
 
         let (converted, refs) = convert_to_pruning_expression(&not_eq_expr);
         assert_eq!(
@@ -456,7 +454,7 @@ mod tests {
             Column::new_ref(column.clone()),
             Operator::Lt,
             other_expr.clone(),
-        ) as _;
+        );
 
         let (converted, refs) = convert_to_pruning_expression(&not_eq_expr);
         assert_eq!(
@@ -482,7 +480,7 @@ mod tests {
             Column::new_ref(column.clone()),
             Operator::Lt,
             other_col.clone(),
-        ) as _;
+        );
 
         let (converted, refs) = convert_to_pruning_expression(&not_eq_expr);
         assert_eq!(
@@ -503,7 +501,7 @@ mod tests {
             Column::new_ref(Field::from("a")),
             Operator::Lt,
             Column::new_ref(Field::from("b")),
-        )) as _;
+        ));
         assert!(PruningPredicate::try_new(&or_expr).is_none());
     }
 }
