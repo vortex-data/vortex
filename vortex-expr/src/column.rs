@@ -1,4 +1,5 @@
 use std::any::Any;
+use std::sync::Arc;
 
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::StructArray;
@@ -7,7 +8,7 @@ use vortex_array::Array;
 use vortex_dtype::field::Field;
 use vortex_error::{vortex_err, VortexResult};
 
-use crate::{unbox_any, VortexExpr};
+use crate::{unbox_any, ExprRef, VortexExpr};
 
 #[derive(Debug, PartialEq, Hash, Clone, Eq)]
 pub struct Column {
@@ -17,6 +18,10 @@ pub struct Column {
 impl Column {
     pub fn new(field: Field) -> Self {
         Self { field }
+    }
+
+    pub fn new_ref(field: Field) -> ExprRef {
+        Arc::new(Self { field })
     }
 
     pub fn field(&self) -> &Field {

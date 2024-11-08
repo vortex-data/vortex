@@ -24,6 +24,8 @@ use vortex_array::Array;
 use vortex_dtype::field::Field;
 use vortex_error::{VortexExpect, VortexResult};
 
+pub type ExprRef = Arc<dyn VortexExpr>;
+
 /// Represents logical operation on [`Array`]s
 pub trait VortexExpr: Debug + Send + Sync + PartialEq<dyn Any> {
     /// Convert expression reference to reference of [`Any`] type
@@ -44,13 +46,13 @@ pub trait VortexExpr: Debug + Send + Sync + PartialEq<dyn Any> {
 }
 
 /// Splits top level and operations into separate expressions
-pub fn split_conjunction(expr: &Arc<dyn VortexExpr>) -> Vec<Arc<dyn VortexExpr>> {
+pub fn split_conjunction(expr: &ExprRef) -> Vec<ExprRef> {
     let mut conjunctions = vec![];
     split_inner(expr, &mut conjunctions);
     conjunctions
 }
 
-fn split_inner(expr: &Arc<dyn VortexExpr>, exprs: &mut Vec<Arc<dyn VortexExpr>>) {
+fn split_inner(expr: &ExprRef, exprs: &mut Vec<ExprRef>) {
     match expr.as_any().downcast_ref::<BinaryExpr>() {
         Some(bexp) if bexp.op() == Operator::And => {
             split_inner(bexp.lhs(), exprs);
@@ -64,9 +66,9 @@ fn split_inner(expr: &Arc<dyn VortexExpr>, exprs: &mut Vec<Arc<dyn VortexExpr>>)
 
 // Taken from apache-datafusion, necessary since you can't require VortexExpr implement PartialEq<dyn VortexExpr>
 pub fn unbox_any(any: &dyn Any) -> &dyn Any {
-    if any.is::<Arc<dyn VortexExpr>>() {
-        any.downcast_ref::<Arc<dyn VortexExpr>>()
-            .vortex_expect("any.is::<Arc<dyn VortexExpr>> returned true but downcast_ref failed")
+    if any.is::<ExprRef>() {
+        any.downcast_ref::<ExprRef>()
+            .vortex_expect("any.is::<ExprRef> returned true but downcast_ref failed")
             .as_any()
     } else if any.is::<Box<dyn VortexExpr>>() {
         any.downcast_ref::<Box<dyn VortexExpr>>()

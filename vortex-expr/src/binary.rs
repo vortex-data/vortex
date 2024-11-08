@@ -7,25 +7,29 @@ use vortex_array::Array;
 use vortex_dtype::field::Field;
 use vortex_error::VortexResult;
 
-use crate::{unbox_any, Operator, VortexExpr};
+use crate::{unbox_any, ExprRef, Operator, VortexExpr};
 
 #[derive(Debug, Clone)]
 pub struct BinaryExpr {
-    lhs: Arc<dyn VortexExpr>,
+    lhs: ExprRef,
     operator: Operator,
-    rhs: Arc<dyn VortexExpr>,
+    rhs: ExprRef,
 }
 
 impl BinaryExpr {
-    pub fn new(lhs: Arc<dyn VortexExpr>, operator: Operator, rhs: Arc<dyn VortexExpr>) -> Self {
+    pub fn new(lhs: ExprRef, operator: Operator, rhs: ExprRef) -> Self {
         Self { lhs, operator, rhs }
     }
 
-    pub fn lhs(&self) -> &Arc<dyn VortexExpr> {
+    pub fn new_ref(lhs: ExprRef, operator: Operator, rhs: ExprRef) -> ExprRef {
+        Arc::new(Self { lhs, operator, rhs })
+    }
+
+    pub fn lhs(&self) -> &ExprRef {
         &self.lhs
     }
 
-    pub fn rhs(&self) -> &Arc<dyn VortexExpr> {
+    pub fn rhs(&self) -> &ExprRef {
         &self.rhs
     }
 

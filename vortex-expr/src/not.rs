@@ -6,19 +6,23 @@ use vortex_array::Array;
 use vortex_dtype::field::Field;
 use vortex_error::{vortex_err, VortexResult};
 
-use crate::{unbox_any, VortexExpr};
+use crate::{unbox_any, ExprRef, VortexExpr};
 
 #[derive(Debug)]
 pub struct Not {
-    child: Arc<dyn VortexExpr>,
+    child: ExprRef,
 }
 
 impl Not {
-    pub fn new(child: Arc<dyn VortexExpr>) -> Self {
+    pub fn new(child: ExprRef) -> Self {
         Self { child }
     }
 
-    pub fn child(&self) -> &Arc<dyn VortexExpr> {
+    pub fn new_ref(child: ExprRef) -> ExprRef {
+        Arc::new(Self { child })
+    }
+
+    pub fn child(&self) -> &ExprRef {
         &self.child
     }
 }
