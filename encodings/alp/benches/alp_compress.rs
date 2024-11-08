@@ -1,7 +1,8 @@
 #![allow(clippy::unwrap_used)]
 
-use arrow::array::{as_primitive_array, ArrowNativeTypeOp, ArrowPrimitiveType};
-use arrow::datatypes::{Float32Type, Float64Type};
+use arrow_array::cast::as_primitive_array;
+use arrow_array::types::{Float32Type, Float64Type};
+use arrow_array::{ArrowNativeTypeOp, ArrowPrimitiveType};
 use divan::{black_box, Bencher};
 use vortex_alp::{alp_encode_components, ALPArray, ALPFloat, ALPRDFloat, Exponents, RDEncoder};
 use vortex_array::array::PrimitiveArray;

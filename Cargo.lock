@@ -4326,7 +4326,7 @@ dependencies = [
 name = "vortex-alp"
 version = "0.14.0"
 dependencies = [
- "arrow",
+ "arrow-array",
  "divan",
  "itertools 0.13.0",
  "num-traits",
@@ -4689,7 +4689,6 @@ dependencies = [
 name = "vortex-serde"
 version = "0.14.0"
 dependencies = [
- "arrow",
  "arrow-array",
  "arrow-buffer",
  "arrow-ipc",
