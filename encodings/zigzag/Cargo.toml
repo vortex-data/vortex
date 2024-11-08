@@ -21,8 +21,5 @@ vortex-error = { workspace = true }
 vortex-scalar = { workspace = true }
 zigzag = { workspace = true }
 
-[dev-dependencies]
-vortex-fastlanes = { path = "../fastlanes" }
-
 [lints]
 workspace = true

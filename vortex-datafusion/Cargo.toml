@@ -30,7 +30,6 @@ datafusion-physical-expr = { workspace = true }
 datafusion-physical-plan = { workspace = true }
 futures = { workspace = true }
 itertools = { workspace = true }
-log = { workspace = true }
 object_store = { workspace = true }
 pin-project = { workspace = true }
 vortex-array = { workspace = true }
@@ -38,7 +37,6 @@ vortex-datetime-dtype = { workspace = true }
 vortex-dtype = { workspace = true }
 vortex-error = { workspace = true, features = ["datafusion"] }
 vortex-expr = { workspace = true, features = ["datafusion"] }
-vortex-scalar = { workspace = true, features = ["datafusion"] }
 vortex-serde = { workspace = true, features = ["object_store", "tokio"] }
 
 [dev-dependencies]

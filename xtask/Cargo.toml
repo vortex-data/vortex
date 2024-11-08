@@ -19,7 +19,6 @@ readme = "README.md"
 anyhow = { workspace = true }
 clap = { workspace = true }
 prost-build = { workspace = true }
-walkdir = { workspace = true }
 xshell = { workspace = true }
 
 [lints]

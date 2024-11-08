@@ -452,13 +452,10 @@ dependencies = [
  "bzip2",
  "clap",
  "criterion",
- "csv",
  "datafusion",
  "datafusion-common",
- "datafusion-execution",
  "datafusion-physical-plan",
  "enum-iterator",
- "flexbuffers",
  "futures",
  "homedir",
  "humansize",
@@ -3160,12 +3157,9 @@ name = "pyvortex"
 version = "0.14.0"
 dependencies = [
  "arrow",
- "flexbuffers",
- "futures",
  "itertools 0.13.0",
  "log",
  "object_store",
- "paste",
  "pyo3",
  "pyo3-log",
  "tokio",
@@ -4369,14 +4363,12 @@ dependencies = [
  "itertools 0.13.0",
  "log",
  "num-traits",
- "num_enum 0.7.3",
  "paste",
  "pin-project",
  "rand",
  "rstest",
  "serde",
  "static_assertions",
- "tokio",
  "vortex-buffer",
  "vortex-datetime-dtype",
  "vortex-dtype",
@@ -4398,10 +4390,7 @@ dependencies = [
 name = "vortex-bytebool"
 version = "0.14.0"
 dependencies = [
- "arrow-array",
  "arrow-buffer",
- "divan",
- "itertools 0.13.0",
  "num-traits",
  "serde",
  "vortex-array",
@@ -4428,7 +4417,6 @@ dependencies = [
  "datafusion-physical-plan",
  "futures",
  "itertools 0.13.0",
- "log",
  "object_store",
  "pin-project",
  "tempfile",
@@ -4439,7 +4427,6 @@ dependencies = [
  "vortex-dtype",
  "vortex-error",
  "vortex-expr",
- "vortex-scalar",
  "vortex-serde",
 ]
 
@@ -4460,7 +4447,6 @@ name = "vortex-datetime-parts"
 version = "0.14.0"
 dependencies = [
  "itertools 0.13.0",
- "log",
  "serde",
  "vortex-array",
  "vortex-datetime-dtype",
@@ -4473,15 +4459,12 @@ dependencies = [
 name = "vortex-dict"
 version = "0.14.0"
 dependencies = [
- "arrow-array",
  "arrow-buffer",
  "criterion",
  "hashbrown 0.15.1",
- "log",
  "num-traits",
  "rand",
  "serde",
- "simplelog",
  "vortex-array",
  "vortex-dtype",
  "vortex-error",
@@ -4527,8 +4510,6 @@ dependencies = [
 name = "vortex-expr"
 version = "0.14.0"
 dependencies = [
- "arrow-schema",
- "datafusion-common",
  "datafusion-expr",
  "datafusion-physical-expr",
  "prost",
@@ -4538,7 +4519,6 @@ dependencies = [
  "vortex-error",
  "vortex-proto",
  "vortex-scalar",
- "vortex-schema",
 ]
 
 [[package]]
@@ -4553,7 +4533,6 @@ dependencies = [
  "num-traits",
  "rand",
  "serde",
- "simplelog",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",
@@ -4587,13 +4566,10 @@ dependencies = [
 name = "vortex-fuzz"
 version = "0.14.0"
 dependencies = [
- "arrow-buffer",
  "libfuzzer-sys",
- "num-traits",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",
- "vortex-error",
  "vortex-sampling-compressor",
  "vortex-scalar",
 ]
@@ -4612,7 +4588,6 @@ version = "0.14.0"
 dependencies = [
  "arrow-buffer",
  "croaring",
- "log",
  "num-traits",
  "serde",
  "vortex-array",
@@ -4689,7 +4664,6 @@ dependencies = [
  "flexbuffers",
  "half",
  "itertools 0.13.0",
- "jiff",
  "num-traits",
  "paste",
  "prost",
@@ -4732,19 +4706,13 @@ dependencies = [
  "monoio",
  "object_store",
  "once_cell",
- "pin-project",
- "rand",
  "rstest",
- "simplelog",
  "tokio",
- "url",
- "vortex-alp",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",
  "vortex-error",
  "vortex-expr",
- "vortex-fastlanes",
  "vortex-flatbuffers",
  "vortex-sampling-compressor",
  "vortex-scalar",
@@ -4759,7 +4727,6 @@ dependencies = [
  "vortex-array",
  "vortex-dtype",
  "vortex-error",
- "vortex-fastlanes",
  "vortex-scalar",
  "zigzag",
 ]
@@ -5293,7 +5260,6 @@ dependencies = [
  "anyhow",
  "clap",
  "prost-build",
- "walkdir",
  "xshell",
 ]
 

@@ -32,7 +32,6 @@ vortex-scalar = { workspace = true }
 [dev-dependencies]
 criterion = { workspace = true }
 rand = { workspace = true }
-simplelog = { workspace = true }
 
 [[bench]]
 name = "bitpacking_take"

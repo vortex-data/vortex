@@ -29,16 +29,13 @@ arrow-select = { workspace = true }
 bytes = { workspace = true }
 bzip2 = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
-csv = { workspace = true }
 datafusion = { workspace = true, features = [
     "parquet",
     "datetime_expressions",
 ] }
 datafusion-common = { workspace = true }
 datafusion-physical-plan = { workspace = true }
-datafusion-execution = { workspace = true }
 enum-iterator = { workspace = true }
-flexbuffers = { workspace = true }
 futures = { workspace = true, features = ["executor"] }
 homedir = { workspace = true }
 humansize = { workspace = true }

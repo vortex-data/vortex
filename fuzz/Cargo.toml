@@ -19,13 +19,10 @@ readme = "README.md"
 cargo-fuzz = true
 
 [dependencies]
-arrow-buffer = { workspace = true }
 libfuzzer-sys = { workspace = true }
-num-traits = { workspace = true }
 vortex-array = { workspace = true, features = ["arbitrary"] }
 vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true, features = ["arbitrary"] }
-vortex-error = { workspace = true }
 vortex-sampling-compressor = { workspace = true, features = ["arbitrary"] }
 vortex-scalar = { workspace = true, features = ["arbitrary"] }
 
