@@ -56,34 +56,35 @@ impl EncodingCompressor for FoRCompressor {
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
-        let for_compressed = for_compress(&array.clone().into_primitive()?)?;
+        let compressed = for_compress(&array.clone().into_primitive()?)?;
 
-        match FoRArray::try_from(for_compressed.clone()) {
-            Ok(for_array) => {
-                let compressed_child = ctx
-                    .named("for")
-                    .excluding(self)
-                    .compress(&for_array.encoded(), like.as_ref().and_then(|l| l.child(0)))?;
-                Ok(CompressedArray::new(
-                    FoRArray::try_new(
-                        compressed_child.array,
-                        for_array.owned_reference_scalar(),
-                        for_array.shift(),
-                    )
-                    .map(|a| a.into_array())?,
-                    Some(CompressionTree::new(self, vec![compressed_child.path])),
-                ))
-            }
-            Err(_) => {
-                let compressed_child = ctx
-                    .named("for")
-                    .excluding(self)
-                    .compress(&for_compressed, like.as_ref())?;
-                Ok(CompressedArray::new(
+        if let Ok(for_array) = FoRArray::try_from(compressed.clone()) {
+            let compressed_child = ctx
+                .named("for")
+                .excluding(self)
+                .compress(&for_array.encoded(), like.as_ref().and_then(|l| l.child(0)))?;
+            Ok(CompressedArray::compressed(
+                FoRArray::try_new(
                     compressed_child.array,
-                    Some(CompressionTree::new(self, vec![compressed_child.path])),
-                ))
-            }
+                    for_array.owned_reference_scalar(),
+                    for_array.shift(),
+                )
+                .map(|a| a.into_array())?,
+                Some(CompressionTree::new(self, vec![compressed_child.path])),
+                Some(array.statistics()),
+            ))
+        } else {
+            // otherwise, we chose a different encoding (e.g., constant or sparse), try compressing that
+            // (will no-op for constant, may compress indices/values for sparse)
+            let compressed_child = ctx
+                .named("for")
+                .excluding(self)
+                .compress(&compressed, like.as_ref().and_then(|l| l.child(0)))?;
+            Ok(CompressedArray::compressed(
+                compressed_child.array,
+                Some(CompressionTree::new(self, vec![compressed_child.path])),
+                Some(array.statistics()),
+            ))
         }
     }
 

@@ -1,5 +1,5 @@
-use arrow_buffer::BooleanBufferBuilder;
-use vortex_dtype::{match_each_native_ptype, DType, NativePType};
+use arrow_buffer::{ArrowNativeType, BooleanBuffer};
+use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability};
 use vortex_error::{VortexError, VortexResult};
 use vortex_scalar::ScalarValue;
 
@@ -12,25 +12,20 @@ use crate::{ArrayDType, Canonical, IntoArrayVariant, IntoCanonical};
 
 impl IntoCanonical for SparseArray {
     fn into_canonical(self) -> VortexResult<Canonical> {
-        // Resolve our indices into a vector of usize, applying the offset
+        // Resolve our indices into a vector of usize applying the offset
         let indices = self.resolved_indices();
 
         if matches!(self.dtype(), DType::Bool(_)) {
-            canonicalize_sparse_bools(
-                self.values().into_bool()?,
-                &indices,
-                self.len(),
-                self.fill_value(),
-            )
+            let values = self.values().into_bool()?;
+            canonicalize_sparse_bools(values, &indices, self.len(), self.fill_value())
         } else {
             let values = self.values().into_primitive()?;
             match_each_native_ptype!(values.ptype(), |$P| {
-                canonicalize_sparse_primitives(
-                    values.maybe_null_slice::<$P>(),
-                    values.validity(),
+                canonicalize_sparse_primitives::<$P>(
+                    values,
                     &indices,
                     self.len(),
-                    self.fill_value()
+                    self.fill_value(),
                 )
             })
         }
@@ -38,67 +33,61 @@ impl IntoCanonical for SparseArray {
 }
 
 fn canonicalize_sparse_bools(
-    values_array: BoolArray,
+    values: BoolArray,
     indices: &[usize],
     len: usize,
     fill_value: &ScalarValue,
 ) -> VortexResult<Canonical> {
-    let fill_bool = if fill_value.is_null() {
-        false
+    let (fill_bool, validity) = if fill_value.is_null() {
+        (false, Validity::AllInvalid)
     } else {
-        fill_value.try_into()?
+        (
+            fill_value.try_into()?,
+            if values.dtype().nullability() == Nullability::NonNullable {
+                Validity::NonNullable
+            } else {
+                Validity::AllValid
+            },
+        )
     };
 
-    let values_validity = values_array.validity();
-    let values = values_array.boolean_buffer();
-
-    // pre-fill both values and validity based on fill_value
-    // this optimizes performance for the common case where indices.len() < len / 2
-    let mut flat_bools = BooleanBufferBuilder::new(len);
-    flat_bools.append_n(len, fill_bool);
-    let mut validity_buffer = BooleanBufferBuilder::new(len);
-    validity_buffer.append_n(len, !fill_value.is_null());
-
-    // patch in the actual values and validity
-    for (i, idx) in indices.iter().enumerate() {
-        flat_bools.set_bit(*idx, values.value(i));
-        validity_buffer.set_bit(*idx, values_validity.is_valid(i));
-    }
-
-    BoolArray::try_new(
-        flat_bools.finish(),
-        Validity::from(validity_buffer.finish()),
-    )
-    .map(Canonical::Bool)
+    let bools = BoolArray::try_new(
+        if fill_bool {
+            BooleanBuffer::new_set(len)
+        } else {
+            BooleanBuffer::new_unset(len)
+        },
+        validity,
+    )?;
+    let patched = bools.patch(indices, values)?;
+    Ok(Canonical::Bool(patched))
 }
 
 fn canonicalize_sparse_primitives<
-    T: NativePType + for<'a> TryFrom<&'a ScalarValue, Error = VortexError>,
+    T: NativePType + for<'a> TryFrom<&'a ScalarValue, Error = VortexError> + ArrowNativeType,
 >(
-    values: &[T],
-    values_validity: Validity,
+    values: PrimitiveArray,
     indices: &[usize],
     len: usize,
     fill_value: &ScalarValue,
 ) -> VortexResult<Canonical> {
-    let primitive_fill = if fill_value.is_null() {
-        T::default()
+    let values_validity = values.validity();
+    let (primitive_fill, validity) = if fill_value.is_null() {
+        (T::default(), Validity::AllInvalid)
     } else {
-        fill_value.try_into()?
+        (
+            fill_value.try_into()?,
+            if values_validity == Validity::NonNullable {
+                Validity::NonNullable
+            } else {
+                Validity::AllValid
+            },
+        )
     };
-    let mut result = vec![primitive_fill; len];
-    let mut validity = BooleanBufferBuilder::new(len);
-    validity.append_n(len, !fill_value.is_null());
 
-    for (i, idx) in indices.iter().enumerate() {
-        result[*idx] = values[i];
-        validity.set_bit(*idx, values_validity.is_valid(i));
-    }
-
-    Ok(Canonical::Primitive(PrimitiveArray::from_vec(
-        result,
-        Validity::from(validity.finish()),
-    )))
+    let parray = PrimitiveArray::from_vec(vec![primitive_fill; len], validity);
+    let patched = parray.patch(indices, values.maybe_null_slice::<T>(), values_validity)?;
+    Ok(Canonical::Primitive(patched))
 }
 
 #[cfg(test)]

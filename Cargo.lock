@@ -452,13 +452,10 @@ dependencies = [
  "bzip2",
  "clap",
  "criterion",
- "csv",
  "datafusion",
  "datafusion-common",
- "datafusion-execution",
  "datafusion-physical-plan",
  "enum-iterator",
- "flexbuffers",
  "futures",
  "homedir",
  "humansize",
@@ -2264,13 +2261,12 @@ checksum = "8e9489c2807c139ffd9c1794f4af0ebe86a828db53ecdc7fea2111d0fed085d1"
 
 [[package]]
 name = "libfuzzer-sys"
-version = "0.4.7"
+version = "0.4.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a96cfd5557eb82f2b83fed4955246c988d331975a002961b07c81584d107e7f7"
+checksum = "9b9569d2f74e257076d8c6bfa73fb505b46b851e51ddaecc825944aa3bed17fa"
 dependencies = [
  "arbitrary",
  "cc",
- "once_cell",
 ]
 
 [[package]]
@@ -3161,12 +3157,9 @@ name = "pyvortex"
 version = "0.14.0"
 dependencies = [
  "arrow",
- "flexbuffers",
- "futures",
  "itertools 0.13.0",
  "log",
  "object_store",
- "paste",
  "pyo3",
  "pyo3-log",
  "tokio",
@@ -3472,9 +3465,9 @@ dependencies = [
 
 [[package]]
 name = "rustix"
-version = "0.38.38"
+version = "0.38.39"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa260229e6538e52293eeb577aabd09945a09d6d9cc0fc550ed7529056c2e32a"
+checksum = "375116bee2be9ed569afe2154ea6a99dfdffd257f533f187498c2a8f5feaf4ee"
 dependencies = [
  "bitflags 2.6.0",
  "errno",
@@ -3922,9 +3915,9 @@ checksum = "61c41af27dd6d1e27b1b16b489db798443478cef1f06a660c96db617ba5de3b1"
 
 [[package]]
 name = "tempfile"
-version = "3.13.0"
+version = "3.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f0f2c9fc62d0beef6951ccffd757e241266a2c833136efbe35af6cd2567dca5b"
+checksum = "28cce251fcbc87fac86a866eeb0d6c2d536fc16d06f184bb61aeae11aa4cee0c"
 dependencies = [
  "cfg-if",
  "fastrand",
@@ -4370,14 +4363,12 @@ dependencies = [
  "itertools 0.13.0",
  "log",
  "num-traits",
- "num_enum 0.7.3",
  "paste",
  "pin-project",
  "rand",
  "rstest",
  "serde",
  "static_assertions",
- "tokio",
  "vortex-buffer",
  "vortex-datetime-dtype",
  "vortex-dtype",
@@ -4399,10 +4390,7 @@ dependencies = [
 name = "vortex-bytebool"
 version = "0.14.0"
 dependencies = [
- "arrow-array",
  "arrow-buffer",
- "divan",
- "itertools 0.13.0",
  "num-traits",
  "serde",
  "vortex-array",
@@ -4429,7 +4417,6 @@ dependencies = [
  "datafusion-physical-plan",
  "futures",
  "itertools 0.13.0",
- "log",
  "object_store",
  "pin-project",
  "tempfile",
@@ -4440,7 +4427,6 @@ dependencies = [
  "vortex-dtype",
  "vortex-error",
  "vortex-expr",
- "vortex-scalar",
  "vortex-serde",
 ]
 
@@ -4461,7 +4447,6 @@ name = "vortex-datetime-parts"
 version = "0.14.0"
 dependencies = [
  "itertools 0.13.0",
- "log",
  "serde",
  "vortex-array",
  "vortex-datetime-dtype",
@@ -4474,15 +4459,12 @@ dependencies = [
 name = "vortex-dict"
 version = "0.14.0"
 dependencies = [
- "arrow-array",
  "arrow-buffer",
  "criterion",
  "hashbrown 0.15.1",
- "log",
  "num-traits",
  "rand",
  "serde",
- "simplelog",
  "vortex-array",
  "vortex-dtype",
  "vortex-error",
@@ -4528,8 +4510,6 @@ dependencies = [
 name = "vortex-expr"
 version = "0.14.0"
 dependencies = [
- "arrow-schema",
- "datafusion-common",
  "datafusion-expr",
  "datafusion-physical-expr",
  "prost",
@@ -4539,7 +4519,6 @@ dependencies = [
  "vortex-error",
  "vortex-proto",
  "vortex-scalar",
- "vortex-schema",
 ]
 
 [[package]]
@@ -4554,7 +4533,6 @@ dependencies = [
  "num-traits",
  "rand",
  "serde",
- "simplelog",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",
@@ -4588,13 +4566,10 @@ dependencies = [
 name = "vortex-fuzz"
 version = "0.14.0"
 dependencies = [
- "arrow-buffer",
  "libfuzzer-sys",
- "num-traits",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",
- "vortex-error",
  "vortex-sampling-compressor",
  "vortex-scalar",
 ]
@@ -4613,7 +4588,6 @@ version = "0.14.0"
 dependencies = [
  "arrow-buffer",
  "croaring",
- "log",
  "num-traits",
  "serde",
  "vortex-array",
@@ -4690,7 +4664,6 @@ dependencies = [
  "flexbuffers",
  "half",
  "itertools 0.13.0",
- "jiff",
  "num-traits",
  "paste",
  "prost",
@@ -4733,19 +4706,13 @@ dependencies = [
  "monoio",
  "object_store",
  "once_cell",
- "pin-project",
- "rand",
  "rstest",
- "simplelog",
  "tokio",
- "url",
- "vortex-alp",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",
  "vortex-error",
  "vortex-expr",
- "vortex-fastlanes",
  "vortex-flatbuffers",
  "vortex-sampling-compressor",
  "vortex-scalar",
@@ -4760,7 +4727,6 @@ dependencies = [
  "vortex-array",
  "vortex-dtype",
  "vortex-error",
- "vortex-fastlanes",
  "vortex-scalar",
  "zigzag",
 ]
@@ -5294,7 +5260,6 @@ dependencies = [
  "anyhow",
  "clap",
  "prost-build",
- "walkdir",
  "xshell",
 ]
 

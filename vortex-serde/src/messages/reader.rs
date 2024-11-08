@@ -115,7 +115,7 @@ impl<R: VortexRead> MessageReader<R> {
         };
 
         let mut array_reader =
-            ArrayBufferReader::from_fb_bytes(Buffer::from(self.message.clone().freeze()));
+            ArrayMessageReader::from_fb_bytes(Buffer::from(self.message.clone().freeze()));
 
         // Issue a single read to grab all buffers
         let mut all_buffers = BytesMut::with_capacity(all_buffers_size);
@@ -216,19 +216,19 @@ pub enum ReadState {
     Finished,
 }
 
-pub struct ArrayBufferReader {
+pub struct ArrayMessageReader {
     state: ReadState,
     fb_msg: Option<Buffer>,
     buffers: Vec<Buffer>,
 }
 
-impl Default for ArrayBufferReader {
+impl Default for ArrayMessageReader {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl ArrayBufferReader {
+impl ArrayMessageReader {
     pub fn new() -> Self {
         Self {
             state: ReadState::Init,

@@ -194,9 +194,11 @@ fn patch_unpacked(array: PrimitiveArray, patches: &Array) -> VortexResult<Primit
         Sparse::ID => {
             match_each_integer_ptype!(array.ptype(), |$T| {
                 let typed_patches = SparseArray::try_from(patches).unwrap();
+                let primitive_values = typed_patches.values().into_primitive()?;
                 array.patch(
                     &typed_patches.resolved_indices(),
-                    typed_patches.values().into_primitive()?.maybe_null_slice::<$T>())
+                    primitive_values.maybe_null_slice::<$T>(),
+                    primitive_values.validity())
             })
         }
         _ => vortex_bail!(

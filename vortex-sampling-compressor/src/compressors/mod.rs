@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::encoding::EncodingRef;
+use vortex_array::stats::{ArrayStatistics, Statistics};
 use vortex_array::Array;
 use vortex_error::VortexResult;
 
@@ -185,10 +186,19 @@ pub struct CompressedArray<'a> {
 
 impl<'a> CompressedArray<'a> {
     pub fn uncompressed(array: Array) -> Self {
-        Self::new(array, None)
+        Self { array, path: None }
     }
 
-    pub fn new(array: Array, path: Option<CompressionTree<'a>>) -> Self {
+    pub fn compressed(
+        array: Array,
+        path: Option<CompressionTree<'a>>,
+        inherited_stats: Option<&dyn Statistics>,
+    ) -> Self {
+        if let Some(stats) = inherited_stats {
+            for (stat, value) in stats.to_set().into_iter() {
+                array.statistics().set(stat, value);
+            }
+        }
         Self { array, path }
     }
 

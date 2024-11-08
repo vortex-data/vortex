@@ -102,7 +102,19 @@ impl Scalar {
             DType::Binary(_) => BinaryScalar::try_from(self).and_then(|s| s.cast(dtype)),
             DType::Struct(..) => StructScalar::try_from(self).and_then(|s| s.cast(dtype)),
             DType::List(..) => ListScalar::try_from(self).and_then(|s| s.cast(dtype)),
-            DType::Extension(..) => ExtScalar::try_from(self).and_then(|s| s.cast(dtype)),
+            DType::Extension(ext_dtype) => {
+                if !self.value().is_instance_of(ext_dtype.storage_dtype()) {
+                    vortex_bail!(
+                        "Failed to cast scalar to extension dtype with storage type {:?}, found {:?}",
+                        ext_dtype.storage_dtype(),
+                        self.dtype()
+                    );
+                }
+                Ok(Scalar::extension(
+                    ext_dtype.clone(),
+                    self.cast(ext_dtype.storage_dtype())?.value,
+                ))
+            }
         }
     }
 }

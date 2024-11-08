@@ -48,6 +48,21 @@ impl ArrayVariants for SparseArray {
 impl NullArrayTrait for SparseArray {}
 
 impl BoolArrayTrait for SparseArray {
+    fn invert(&self) -> VortexResult<Array> {
+        let inverted_fill = self.fill_value().as_bool()?.map(|v| !v);
+        SparseArray::try_new(
+            self.indices(),
+            self.values().with_dyn(|a| {
+                a.as_bool_array()
+                    .ok_or_else(|| vortex_err!("Not a bool array"))
+                    .and_then(|b| b.invert())
+            })?,
+            self.len(),
+            inverted_fill.into(),
+        )
+        .map(|a| a.into_array())
+    }
+
     fn maybe_null_indices_iter(&self) -> Box<dyn Iterator<Item = usize>> {
         Box::new(self.resolved_indices().into_iter())
     }
@@ -118,5 +133,35 @@ impl ExtensionArrayTrait for SparseArray {
         )
         .vortex_expect("Failed to create new sparse array")
         .into_array()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::array::{BoolArray, PrimitiveArray, SparseArray};
+    use crate::{IntoArray, IntoArrayVariant};
+
+    #[test]
+    fn invert_bools_non_null_fill() {
+        let sparse_bools = SparseArray::try_new(
+            PrimitiveArray::from(vec![0u64]).into_array(),
+            BoolArray::from(vec![false]).into_array(),
+            2,
+            true.into(),
+        )
+        .unwrap()
+        .into_array();
+        let inverted = sparse_bools
+            .with_dyn(|a| a.as_bool_array_unchecked().invert())
+            .unwrap();
+        assert_eq!(
+            inverted
+                .into_bool()
+                .unwrap()
+                .boolean_buffer()
+                .iter()
+                .collect::<Vec<_>>(),
+            vec![true, false]
+        );
     }
 }

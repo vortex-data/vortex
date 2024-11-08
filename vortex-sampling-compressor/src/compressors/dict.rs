@@ -82,9 +82,10 @@ impl EncodingCompressor for DictCompressor {
                 .compress(&values, like.as_ref().and_then(|l| l.child(1)))?,
         );
 
-        Ok(CompressedArray::new(
+        Ok(CompressedArray::compressed(
             DictArray::try_new(codes.array, values.array)?.into_array(),
             Some(CompressionTree::new(self, vec![codes.path, values.path])),
+            Some(array.statistics()),
         ))
     }
 

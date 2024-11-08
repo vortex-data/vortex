@@ -3,12 +3,14 @@ use std::fmt::{Display, Formatter};
 
 use arrow_buffer::{BooleanBuffer, MutableBuffer};
 use croaring::Bitmap;
-use vortex_array::array::BoolArray;
-use vortex_array::compute::{filter, slice};
+use vortex_array::array::{BoolArray, PrimitiveArray};
+use vortex_array::compute::{filter, slice, take};
 use vortex_array::validity::Validity;
 use vortex_array::{iterate_integer_array, Array, IntoArray};
 use vortex_dtype::PType;
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
+
+const PREFER_TAKE_TO_FILTER_DENSITY: f64 = 1.0 / 1024.0;
 
 /// Bitmap of selected rows within given [begin, end) row range
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -163,12 +165,20 @@ impl RowMask {
             return Ok(Some(sliced.clone()));
         }
 
-        let predicate = self.to_array()?;
-
-        filter(sliced, predicate).map(Some)
+        if (true_count as f64 / sliced.len() as f64) < PREFER_TAKE_TO_FILTER_DENSITY {
+            let indices = self.to_indices_array()?;
+            take(sliced, indices).map(Some)
+        } else {
+            let mask = self.to_mask_array()?;
+            filter(sliced, mask).map(Some)
+        }
     }
 
-    pub fn to_array(&self) -> VortexResult<Array> {
+    pub fn to_indices_array(&self) -> VortexResult<Array> {
+        Ok(PrimitiveArray::from_vec(self.values.to_vec(), Validity::NonNullable).into_array())
+    }
+
+    pub fn to_mask_array(&self) -> VortexResult<Array> {
         let bitset = self
             .values
             .to_bitset()

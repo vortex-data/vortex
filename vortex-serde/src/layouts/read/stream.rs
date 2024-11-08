@@ -224,7 +224,8 @@ impl<R: VortexReadAt + Unpin + 'static> LayoutBatchStream<R> {
                     }
                     Some(BatchRead::Batch(mut batch)) => {
                         if let Some(row_mask) = &self.row_mask {
-                            batch = and(batch, row_mask.slice(sel_begin, sel_end).to_array()?)?;
+                            batch =
+                                and(batch, row_mask.slice(sel_begin, sel_end).to_mask_array()?)?;
                         }
 
                         if batch

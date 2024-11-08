@@ -97,6 +97,11 @@ impl ArrayVariants for RoaringBoolArray {
 }
 
 impl BoolArrayTrait for RoaringBoolArray {
+    fn invert(&self) -> VortexResult<Array> {
+        RoaringBoolArray::try_new(self.bitmap().flip(0..(self.len() as u32)), self.len())
+            .map(|a| a.into_array())
+    }
+
     fn maybe_null_indices_iter<'a>(&'a self) -> Box<dyn Iterator<Item = usize> + 'a> {
         todo!()
     }

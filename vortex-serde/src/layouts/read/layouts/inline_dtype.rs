@@ -13,7 +13,7 @@ use crate::layouts::{
     BatchRead, LayoutDeserializer, LayoutId, LayoutPartId, LayoutReader, LayoutSpec, Message, Scan,
     INLINE_SCHEMA_LAYOUT_ID,
 };
-use crate::message_reader::FLATBUFFER_SIZE_LENGTH;
+use crate::messages::reader::FLATBUFFER_SIZE_LENGTH;
 use crate::stream_writer::ByteRange;
 
 #[derive(Debug)]

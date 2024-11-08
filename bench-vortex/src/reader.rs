@@ -11,7 +11,6 @@ use arrow_array::{
 };
 use arrow_select::concat::concat_batches;
 use arrow_select::take::take_record_batch;
-use bytes::{Bytes, BytesMut};
 use futures::stream;
 use itertools::Itertools;
 use log::info;
@@ -23,22 +22,17 @@ use parquet::file::metadata::RowGroupMetaData;
 use serde::{Deserialize, Serialize};
 use stream::StreamExt;
 use vortex::aliases::hash_map::HashMap;
-use vortex::array::{ChunkedArray, PrimitiveArray};
+use vortex::array::ChunkedArray;
 use vortex::arrow::FromArrowType;
-use vortex::buffer::Buffer;
 use vortex::compress::CompressionStrategy;
 use vortex::dtype::DType;
-use vortex::error::{vortex_err, VortexResult};
-use vortex::sampling_compressor::SamplingCompressor;
-use vortex::serde::chunked_reader::ChunkedArrayReader;
-use vortex::serde::io::{ObjectStoreExt, VortexReadAt, VortexWrite};
-use vortex::serde::stream_reader::StreamArrayReader;
-use vortex::serde::stream_writer::StreamArrayWriter;
-use vortex::serde::DTypeReader;
-use vortex::stream::ArrayStreamExt;
-use vortex::{Array, ArrayDType, IntoArray, IntoCanonical};
-
-use crate::{COMPRESSORS, CTX};
+use vortex::error::VortexResult;
+use vortex::sampling_compressor::{SamplingCompressor, ALL_ENCODINGS_CONTEXT};
+use vortex::serde::io::{ObjectStoreReadAt, VortexReadAt, VortexWrite};
+use vortex::serde::layouts::{
+    LayoutBatchStreamBuilder, LayoutContext, LayoutDeserializer, LayoutWriter,
+};
+use vortex::{Array, IntoArray, IntoCanonical};
 
 pub const BATCH_SIZE: usize = 65_536;
 
@@ -51,15 +45,18 @@ pub struct VortexFooter {
 
 pub async fn open_vortex(path: &Path) -> VortexResult<Array> {
     let file = tokio::fs::File::open(path).await.unwrap();
-    let reader = StreamArrayReader::try_new(file, CTX.clone())
-        .await?
-        .load_dtype()
-        .await?;
-    reader
-        .into_array_stream()
-        .collect_chunked()
-        .await
-        .map(IntoArray::into_array)
+
+    LayoutBatchStreamBuilder::new(
+        file,
+        LayoutDeserializer::new(
+            ALL_ENCODINGS_CONTEXT.clone(),
+            LayoutContext::default().into(),
+        ),
+    )
+    .build()
+    .await?
+    .read_all()
+    .await
 }
 
 pub async fn rewrite_parquet_as_vortex<W: VortexWrite>(
@@ -68,24 +65,11 @@ pub async fn rewrite_parquet_as_vortex<W: VortexWrite>(
 ) -> VortexResult<()> {
     let chunked = compress_parquet_to_vortex(parquet_path.as_path())?;
 
-    let written = StreamArrayWriter::new(write)
-        .write_array_stream(chunked.array_stream())
+    LayoutWriter::new(write)
+        .write_array_columns(chunked)
+        .await?
+        .finalize()
         .await?;
-
-    let layout = written.array_layouts()[0].clone();
-    let mut w = written.into_inner();
-    let mut s = flexbuffers::FlexbufferSerializer::new();
-    VortexFooter {
-        byte_offsets: layout.chunks.byte_offsets,
-        row_offsets: layout.chunks.row_offsets,
-        dtype_range: layout.dtype.begin..layout.dtype.end,
-    }
-    .serialize(&mut s)?;
-    let footer_bytes = Buffer::from(Bytes::from(s.take_buffer()));
-    let footer_len = footer_bytes.len() as u64;
-    w.write_all(footer_bytes).await?;
-    w.write_all(footer_len.to_le_bytes()).await?;
-
     Ok(())
 }
 
@@ -102,17 +86,9 @@ pub fn read_parquet_to_vortex<P: AsRef<Path>>(parquet_path: P) -> VortexResult<C
     ChunkedArray::try_new(chunks, dtype)
 }
 
-pub fn compress_parquet_to_vortex(parquet_path: &Path) -> VortexResult<ChunkedArray> {
+pub fn compress_parquet_to_vortex(parquet_path: &Path) -> VortexResult<Array> {
     let chunked = read_parquet_to_vortex(parquet_path)?;
-    let compressor: &dyn CompressionStrategy = &SamplingCompressor::new(COMPRESSORS.clone());
-    let dtype = chunked.dtype().clone();
-    ChunkedArray::try_new(
-        chunked
-            .chunks()
-            .map(|x| compressor.compress(&x))
-            .collect::<VortexResult<Vec<_>>>()?,
-        dtype,
-    )
+    CompressionStrategy::compress(&SamplingCompressor::default(), &chunked.into_array())
 }
 
 pub fn write_csv_as_parquet(csv_path: PathBuf, output_path: &Path) -> VortexResult<()> {
@@ -134,64 +110,37 @@ pub fn write_csv_as_parquet(csv_path: PathBuf, output_path: &Path) -> VortexResu
     Ok(())
 }
 
-pub async fn read_vortex_footer_format<R: VortexReadAt>(
-    reader: R,
-    len: u64,
-) -> VortexResult<ChunkedArrayReader<R>> {
-    let mut buf = BytesMut::with_capacity(8);
-    unsafe { buf.set_len(8) }
-    buf = reader.read_at_into(len - 8, buf).await?;
-    let footer_len = u64::from_le_bytes(buf.as_ref().try_into().unwrap()) as usize;
-
-    buf.reserve(footer_len - buf.len());
-    unsafe { buf.set_len(footer_len) }
-    buf = reader
-        .read_at_into(len - footer_len as u64 - 8, buf)
-        .await?;
-
-    let footer: VortexFooter = VortexFooter::deserialize(
-        flexbuffers::Reader::get_root(buf.as_ref()).map_err(|e| vortex_err!("{}", e))?,
-    )?;
-
-    let header_len = (footer.dtype_range.end - footer.dtype_range.start) as usize;
-    buf.reserve(header_len - buf.len());
-    unsafe { buf.set_len(header_len) }
-    buf = reader.read_at_into(footer.dtype_range.start, buf).await?;
-    let dtype = DTypeReader::new(buf).await?.read_dtype().await?;
-
-    ChunkedArrayReader::try_new(
+async fn take_vortex<T: VortexReadAt + Unpin + 'static>(
+    reader: T,
+    indices: &[u64],
+) -> VortexResult<Array> {
+    LayoutBatchStreamBuilder::new(
         reader,
-        CTX.clone(),
-        dtype.into(),
-        PrimitiveArray::from(footer.byte_offsets).into_array(),
-        PrimitiveArray::from(footer.row_offsets).into_array(),
+        LayoutDeserializer::new(
+            ALL_ENCODINGS_CONTEXT.clone(),
+            LayoutContext::default().into(),
+        ),
     )
+    .with_indices(Array::from(indices.to_vec()))
+    .build()
+    .await?
+    .read_all()
+    .await
+    // For equivalence.... we decompress to make sure we're not cheating too much.
+    .and_then(IntoCanonical::into_canonical)
+    .map(Array::from)
 }
 
 pub async fn take_vortex_object_store(
-    fs: &Arc<dyn ObjectStore>,
-    path: &object_store::path::Path,
+    fs: Arc<dyn ObjectStore>,
+    path: object_store::path::Path,
     indices: &[u64],
 ) -> VortexResult<Array> {
-    let head = fs.head(path).await?;
-    let indices_array = indices.to_vec().into_array();
-    let taken = read_vortex_footer_format(fs.vortex_reader(path), head.size as u64)
-        .await?
-        .take_rows(&indices_array)
-        .await?;
-    // For equivalence.... we flatten to make sure we're not cheating too much.
-    Ok(taken.into_canonical()?.into())
+    take_vortex(ObjectStoreReadAt::new(fs.clone(), path), indices).await
 }
 
 pub async fn take_vortex_tokio(path: &Path, indices: &[u64]) -> VortexResult<Array> {
-    let len = File::open(path)?.metadata()?.len();
-    let indices_array = indices.to_vec().into_array();
-    let taken = read_vortex_footer_format(tokio::fs::File::open(path).await?, len)
-        .await?
-        .take_rows(&indices_array)
-        .await?;
-    // For equivalence.... we flatten to make sure we're not cheating too much.
-    Ok(taken.into_canonical()?.into())
+    take_vortex(tokio::fs::File::open(path).await?, indices).await
 }
 
 pub async fn take_parquet_object_store(

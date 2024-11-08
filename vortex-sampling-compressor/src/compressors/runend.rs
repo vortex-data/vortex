@@ -60,7 +60,7 @@ impl EncodingCompressor for RunEndCompressor {
             .excluding(self)
             .compress(&values.into_array(), like.as_ref().and_then(|l| l.child(1)))?;
 
-        Ok(CompressedArray::new(
+        Ok(CompressedArray::compressed(
             RunEndArray::try_new(
                 compressed_ends.array,
                 compressed_values.array,
@@ -71,6 +71,7 @@ impl EncodingCompressor for RunEndCompressor {
                 self,
                 vec![compressed_ends.path, compressed_values.path],
             )),
+            Some(array.statistics()),
         ))
     }
 

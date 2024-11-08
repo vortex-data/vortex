@@ -22,7 +22,6 @@ flatbuffers = { workspace = true, optional = true }
 flexbuffers = { workspace = true, optional = true }
 half = { workspace = true }
 itertools = { workspace = true }
-jiff = { workspace = true }
 num-traits = { workspace = true }
 paste = { workspace = true }
 prost = { workspace = true, optional = true }

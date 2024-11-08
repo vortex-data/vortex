@@ -3,38 +3,69 @@
 
 use std::sync::Arc;
 
-use vortex_array::aliases::hash_map::{Entry, HashMap};
+use vortex_array::aliases::hash_map::HashMap;
+use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::stats::Stat;
 use vortex_dtype::field::Field;
 use vortex_dtype::Nullability;
-use vortex_expr::{BinaryExpr, Column, Literal, Operator, VortexExpr};
+use vortex_expr::{BinaryExpr, Column, Literal, Not, Operator, VortexExpr};
 use vortex_scalar::Scalar;
 
+#[derive(Debug, Clone)]
 pub struct PruningPredicate {
     expr: Arc<dyn VortexExpr>,
-    stats_to_fetch: HashMap<Field, Vec<Stat>>,
+    required_stats: HashMap<Field, HashSet<Stat>>,
 }
 
 impl PruningPredicate {
-    pub fn new(original_expr: &Arc<dyn VortexExpr>) -> Self {
-        let (expr, stats_to_fetch) = convert_to_pruning_expression(original_expr);
-        Self {
-            expr,
-            stats_to_fetch,
+    pub fn try_new(original_expr: &Arc<dyn VortexExpr>) -> Option<Self> {
+        let (expr, required_stats) = convert_to_pruning_expression(original_expr);
+        if let Some(lexp) = expr.as_any().downcast_ref::<Literal>() {
+            // Is the expression constant false, i.e. prune nothing
+            if lexp
+                .value()
+                .value()
+                .as_bool()
+                .ok()
+                .flatten()
+                .map(|b| !b)
+                .unwrap_or(false)
+            {
+                None
+            } else {
+                Some(Self {
+                    expr,
+                    required_stats,
+                })
+            }
+        } else {
+            Some(Self {
+                expr,
+                required_stats,
+            })
         }
+    }
+
+    pub fn expr(&self) -> &Arc<dyn VortexExpr> {
+        &self.expr
+    }
+
+    pub fn required_stats(&self) -> &HashMap<Field, HashSet<Stat>> {
+        &self.required_stats
     }
 }
 
-fn convert_to_pruning_expression(
-    expr: &Arc<dyn VortexExpr>,
-) -> (Arc<dyn VortexExpr>, HashMap<Field, Vec<Stat>>) {
-    // Anything that can't be translated has to be represented as
-    // boolean true expression, i.e. the value might be in that chunk
-    let fallback = Arc::new(Literal::new(Scalar::bool(true, Nullability::NonNullable)));
-    // TODO(robert): Add support for boolean column expressions,
-    //  i.e. if column is of bool dtype it's valid to filter on it directly as a predicate
+// Anything that can't be translated has to be represented as
+// boolean true expression, i.e. the value might be in that chunk
+fn convert_to_pruning_expression(expr: &Arc<dyn VortexExpr>) -> PruningPredicateStats {
+    if let Some(nexp) = expr.as_any().downcast_ref::<Not>() {
+        if nexp.child().as_any().downcast_ref::<Column>().is_some() {
+            return convert_column_reference(expr, true);
+        }
+    }
+
     if expr.as_any().downcast_ref::<Column>().is_some() {
-        return (fallback, HashMap::new());
+        return convert_column_reference(expr, false);
     }
 
     if let Some(bexp) = expr.as_any().downcast_ref::<BinaryExpr>() {
@@ -51,7 +82,12 @@ fn convert_to_pruning_expression(
         if let Some(col) = bexp.lhs().as_any().downcast_ref::<Column>() {
             return PruningPredicateRewriter::try_new(col.field().clone(), bexp.op(), bexp.rhs())
                 .and_then(PruningPredicateRewriter::rewrite)
-                .unwrap_or_else(|| (fallback, HashMap::new()));
+                .unwrap_or_else(|| {
+                    (
+                        Arc::new(Literal::new(Scalar::bool(false, Nullability::NonNullable))),
+                        HashMap::new(),
+                    )
+                });
         };
 
         if let Some(col) = bexp.rhs().as_any().downcast_ref::<Column>() {
@@ -61,21 +97,54 @@ fn convert_to_pruning_expression(
                 bexp.lhs(),
             )
             .and_then(PruningPredicateRewriter::rewrite)
-            .unwrap_or_else(|| (fallback, HashMap::new()));
+            .unwrap_or_else(|| {
+                (
+                    Arc::new(Literal::new(Scalar::bool(false, Nullability::NonNullable))),
+                    HashMap::new(),
+                )
+            });
         };
     }
 
-    (fallback, HashMap::new())
+    (
+        Arc::new(Literal::new(Scalar::bool(false, Nullability::NonNullable))),
+        HashMap::new(),
+    )
+}
+
+fn convert_column_reference(expr: &Arc<dyn VortexExpr>, invert: bool) -> PruningPredicateStats {
+    let mut refs = HashMap::new();
+    let min_expr = replace_column_with_stat(expr, Stat::Min, &mut refs);
+    let max_expr = replace_column_with_stat(expr, Stat::Max, &mut refs);
+    (
+        min_expr
+            .zip(max_expr)
+            .map(|(min_exp, max_exp)| {
+                if invert {
+                    Arc::new(BinaryExpr::new(min_exp, Operator::And, max_exp))
+                } else {
+                    Arc::new(Not::new(Arc::new(BinaryExpr::new(
+                        min_exp,
+                        Operator::Or,
+                        max_exp,
+                    )))) as Arc<dyn VortexExpr>
+                }
+            })
+            .unwrap_or_else(|| {
+                Arc::new(Literal::new(Scalar::bool(false, Nullability::NonNullable)))
+            }),
+        refs,
+    )
 }
 
 struct PruningPredicateRewriter<'a> {
     column: Field,
     operator: Operator,
     other_exp: &'a Arc<dyn VortexExpr>,
-    stats_to_fetch: HashMap<Field, Vec<Stat>>,
+    stats_to_fetch: HashMap<Field, HashSet<Stat>>,
 }
 
-type PruningPredicateStats = (Arc<dyn VortexExpr>, HashMap<Field, Vec<Stat>>);
+type PruningPredicateStats = (Arc<dyn VortexExpr>, HashMap<Field, HashSet<Stat>>);
 
 impl<'a> PruningPredicateRewriter<'a> {
     pub fn try_new(
@@ -99,12 +168,10 @@ impl<'a> PruningPredicateRewriter<'a> {
 
     fn add_stat_reference(&mut self, stat: Stat) -> Field {
         let new_field = stat_column_name(&self.column, stat);
-        match self.stats_to_fetch.entry(self.column.clone()) {
-            Entry::Occupied(o) => o.into_mut().push(stat),
-            Entry::Vacant(v) => {
-                v.insert(vec![stat]);
-            }
-        }
+        self.stats_to_fetch
+            .entry(self.column.clone())
+            .or_default()
+            .insert(stat);
         new_field
     }
 
@@ -181,17 +248,20 @@ impl<'a> PruningPredicateRewriter<'a> {
 fn replace_column_with_stat(
     expr: &Arc<dyn VortexExpr>,
     stat: Stat,
-    stats_to_fetch: &mut HashMap<Field, Vec<Stat>>,
+    stats_to_fetch: &mut HashMap<Field, HashSet<Stat>>,
 ) -> Option<Arc<dyn VortexExpr>> {
     if let Some(col) = expr.as_any().downcast_ref::<Column>() {
         let new_field = stat_column_name(col.field(), stat);
-        match stats_to_fetch.entry(col.field().clone()) {
-            Entry::Occupied(o) => o.into_mut().push(stat),
-            Entry::Vacant(v) => {
-                v.insert(vec![stat]);
-            }
-        }
+        stats_to_fetch
+            .entry(col.field().clone())
+            .or_default()
+            .insert(stat);
         return Some(Arc::new(Column::new(new_field)));
+    }
+
+    if let Some(not) = expr.as_any().downcast_ref::<Not>() {
+        let rewritten = replace_column_with_stat(not.child(), stat, stats_to_fetch)?;
+        return Some(Arc::new(Not::new(rewritten)));
     }
 
     if let Some(bexp) = expr.as_any().downcast_ref::<BinaryExpr>() {
@@ -210,7 +280,7 @@ fn replace_column_with_stat(
     None
 }
 
-fn stat_column_name(field: &Field, stat: Stat) -> Field {
+pub(crate) fn stat_column_name(field: &Field, stat: Stat) -> Field {
     match field {
         Field::Name(n) => Field::Name(format!("{n}_{stat}")),
         Field::Index(i) => Field::Name(format!("{i}_{stat}")),
@@ -222,11 +292,14 @@ mod tests {
     use std::sync::Arc;
 
     use vortex_array::aliases::hash_map::HashMap;
+    use vortex_array::aliases::hash_set::HashSet;
     use vortex_array::stats::Stat;
     use vortex_dtype::field::Field;
-    use vortex_expr::{BinaryExpr, Column, Literal, Operator, VortexExpr};
+    use vortex_expr::{BinaryExpr, Column, Literal, Not, Operator, VortexExpr};
 
-    use crate::layouts::pruning::{convert_to_pruning_expression, stat_column_name};
+    use crate::layouts::pruning::{
+        convert_to_pruning_expression, stat_column_name, PruningPredicate,
+    };
 
     #[test]
     pub fn pruning_equals() {
@@ -240,7 +313,7 @@ mod tests {
         let (converted, refs) = convert_to_pruning_expression(&eq_expr);
         assert_eq!(
             refs,
-            HashMap::from_iter([(column.clone(), vec![Stat::Min, Stat::Max])])
+            HashMap::from_iter([(column.clone(), HashSet::from_iter([Stat::Min, Stat::Max]))])
         );
         let expected_expr: Arc<dyn VortexExpr> = Arc::new(BinaryExpr::new(
             Arc::new(BinaryExpr::new(
@@ -272,8 +345,11 @@ mod tests {
         assert_eq!(
             refs,
             HashMap::from_iter([
-                (column.clone(), vec![Stat::Min, Stat::Max]),
-                (other_col.clone(), vec![Stat::Max, Stat::Min])
+                (column.clone(), HashSet::from_iter([Stat::Min, Stat::Max])),
+                (
+                    other_col.clone(),
+                    HashSet::from_iter([Stat::Max, Stat::Min])
+                )
             ])
         );
         let expected_expr: Arc<dyn VortexExpr> = Arc::new(BinaryExpr::new(
@@ -306,8 +382,11 @@ mod tests {
         assert_eq!(
             refs,
             HashMap::from_iter([
-                (column.clone(), vec![Stat::Min, Stat::Max]),
-                (other_col.clone(), vec![Stat::Max, Stat::Min])
+                (column.clone(), HashSet::from_iter([Stat::Min, Stat::Max])),
+                (
+                    other_col.clone(),
+                    HashSet::from_iter([Stat::Max, Stat::Min])
+                )
             ])
         );
         let expected_expr: Arc<dyn VortexExpr> = Arc::new(BinaryExpr::new(
@@ -357,8 +436,8 @@ mod tests {
         assert_eq!(
             refs,
             HashMap::from_iter([
-                (column.clone(), vec![Stat::Max]),
-                (other_col.clone(), vec![Stat::Min])
+                (column.clone(), HashSet::from_iter([Stat::Max])),
+                (other_col.clone(), HashSet::from_iter([Stat::Min]))
             ])
         );
         let expected_expr: Arc<dyn VortexExpr> = Arc::new(BinaryExpr::new(
@@ -382,7 +461,7 @@ mod tests {
         let (converted, refs) = convert_to_pruning_expression(&not_eq_expr);
         assert_eq!(
             refs,
-            HashMap::from_iter([(column.clone(), vec![Stat::Max]),])
+            HashMap::from_iter([(column.clone(), HashSet::from_iter([Stat::Max])),])
         );
         let expected_expr: Arc<dyn VortexExpr> = Arc::new(BinaryExpr::new(
             Arc::new(Column::new(stat_column_name(&column, Stat::Max))),
@@ -407,8 +486,8 @@ mod tests {
         assert_eq!(
             refs,
             HashMap::from_iter([
-                (column.clone(), vec![Stat::Min]),
-                (other_col.clone(), vec![Stat::Max])
+                (column.clone(), HashSet::from_iter([Stat::Min])),
+                (other_col.clone(), HashSet::from_iter([Stat::Max]))
             ])
         );
         let expected_expr: Arc<dyn VortexExpr> = Arc::new(BinaryExpr::new(
@@ -432,7 +511,7 @@ mod tests {
         let (converted, refs) = convert_to_pruning_expression(&not_eq_expr);
         assert_eq!(
             refs,
-            HashMap::from_iter([(column.clone(), vec![Stat::Min]),])
+            HashMap::from_iter([(column.clone(), HashSet::from_iter([Stat::Min]))])
         );
         let expected_expr: Arc<dyn VortexExpr> = Arc::new(BinaryExpr::new(
             Arc::new(Column::new(stat_column_name(&column, Stat::Min))),
@@ -440,5 +519,15 @@ mod tests {
             other_col.clone(),
         ));
         assert_eq!(*converted, *expected_expr.as_any());
+    }
+
+    #[test]
+    fn unprojectable_expr() {
+        let or_expr = Arc::new(Not::new(Arc::new(BinaryExpr::new(
+            Arc::new(Column::new(Field::from("a"))),
+            Operator::Lt,
+            Arc::new(Column::new(Field::from("b"))),
+        )))) as _;
+        assert!(PruningPredicate::try_new(&or_expr).is_none());
     }
 }

@@ -4,6 +4,7 @@ use std::fmt::{Debug, Display};
 use std::ops::BitAnd;
 
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, NullBuffer};
+use num_traits::AsPrimitive;
 use serde::{Deserialize, Serialize};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{
@@ -211,6 +212,42 @@ impl Validity {
         Ok(validity)
     }
 
+    pub fn patch<P: AsPrimitive<usize>>(
+        self,
+        len: usize,
+        positions: &[P],
+        patches: Validity,
+    ) -> VortexResult<Self> {
+        if let Some(last_pos) = positions.last() {
+            if last_pos.as_() >= len {
+                vortex_bail!(OutOfBounds: last_pos.as_(), 0, len)
+            }
+        }
+
+        if matches!(self, Validity::NonNullable | Validity::AllValid)
+            && matches!(patches, Validity::NonNullable | Validity::AllValid)
+            || self == patches
+        {
+            return Ok(self);
+        }
+
+        let source = match self {
+            Validity::NonNullable => BoolArray::from(BooleanBuffer::new_set(len)),
+            Validity::AllValid => BoolArray::from(BooleanBuffer::new_set(len)),
+            Validity::AllInvalid => BoolArray::from(BooleanBuffer::new_unset(len)),
+            Validity::Array(a) => a.into_bool()?,
+        };
+
+        let patch_values = match patches {
+            Validity::NonNullable => BoolArray::from(BooleanBuffer::new_set(positions.len())),
+            Validity::AllValid => BoolArray::from(BooleanBuffer::new_set(positions.len())),
+            Validity::AllInvalid => BoolArray::from(BooleanBuffer::new_unset(positions.len())),
+            Validity::Array(a) => a.into_bool()?,
+        };
+
+        Validity::try_from(source.patch(positions, patch_values)?.into_array())
+    }
+
     /// Convert into a nullable variant
     pub fn into_nullable(self) -> Validity {
         match self {
@@ -271,6 +308,14 @@ impl From<BooleanBuffer> for Validity {
 impl From<NullBuffer> for Validity {
     fn from(value: NullBuffer) -> Self {
         value.into_inner().into()
+    }
+}
+
+impl TryFrom<Array> for Validity {
+    type Error = VortexError;
+
+    fn try_from(value: Array) -> Result<Self, Self::Error> {
+        LogicalValidity::try_from(value).map(|a| a.into_validity())
     }
 }
 
@@ -398,5 +443,49 @@ impl IntoArray for LogicalValidity {
             Self::AllInvalid(len) => BoolArray::from(vec![false; len]).into_array(),
             Self::Array(a) => a,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use crate::array::BoolArray;
+    use crate::validity::Validity;
+    use crate::IntoArray;
+
+    #[rstest]
+    #[case(Validity::NonNullable, 5, &[2, 4], Validity::NonNullable, Validity::NonNullable)]
+    #[case(Validity::NonNullable, 5, &[2, 4], Validity::AllValid, Validity::NonNullable)]
+    #[case(Validity::NonNullable, 5, &[2, 4], Validity::AllInvalid, Validity::Array(BoolArray::from(vec![true, true, false, true, false]).into_array()))]
+    #[case(Validity::NonNullable, 5, &[2, 4], Validity::Array(BoolArray::from(vec![true, false]).into_array()), Validity::Array(BoolArray::from(vec![true, true, true, true, false]).into_array()))]
+    #[case(Validity::AllValid, 5, &[2, 4], Validity::NonNullable, Validity::AllValid)]
+    #[case(Validity::AllValid, 5, &[2, 4], Validity::AllValid, Validity::AllValid)]
+    #[case(Validity::AllValid, 5, &[2, 4], Validity::AllInvalid, Validity::Array(BoolArray::from(vec![true, true, false, true, false]).into_array()))]
+    #[case(Validity::AllValid, 5, &[2, 4], Validity::Array(BoolArray::from(vec![true, false]).into_array()), Validity::Array(BoolArray::from(vec![true, true, true, true, false]).into_array()))]
+    #[case(Validity::AllInvalid, 5, &[2, 4], Validity::NonNullable, Validity::Array(BoolArray::from(vec![false, false, true, false, true]).into_array()))]
+    #[case(Validity::AllInvalid, 5, &[2, 4], Validity::AllValid, Validity::Array(BoolArray::from(vec![false, false, true, false, true]).into_array()))]
+    #[case(Validity::AllInvalid, 5, &[2, 4], Validity::AllInvalid, Validity::AllInvalid)]
+    #[case(Validity::AllInvalid, 5, &[2, 4], Validity::Array(BoolArray::from(vec![true, false]).into_array()), Validity::Array(BoolArray::from(vec![false, false, true, false, false]).into_array()))]
+    #[case(Validity::Array(BoolArray::from(vec![false, true, false, true, false]).into_array()), 5, &[2, 4], Validity::NonNullable, Validity::Array(BoolArray::from(vec![false, true, true, true, true]).into_array()))]
+    #[case(Validity::Array(BoolArray::from(vec![false, true, false, true, false]).into_array()), 5, &[2, 4], Validity::AllValid, Validity::Array(BoolArray::from(vec![false, true, true, true, true]).into_array()))]
+    #[case(Validity::Array(BoolArray::from(vec![false, true, false, true, false]).into_array()), 5, &[2, 4], Validity::AllInvalid, Validity::Array(BoolArray::from(vec![false, true, false, true, false]).into_array()))]
+    #[case(Validity::Array(BoolArray::from(vec![false, true, false, true, false]).into_array()), 5, &[2, 4], Validity::Array(BoolArray::from(vec![true, false]).into_array()), Validity::Array(BoolArray::from(vec![false, true, true, true, false]).into_array()))]
+    fn patch_validity(
+        #[case] validity: Validity,
+        #[case] len: usize,
+        #[case] positions: &[usize],
+        #[case] patches: Validity,
+        #[case] expected: Validity,
+    ) {
+        assert_eq!(validity.patch(len, positions, patches).unwrap(), expected);
+    }
+
+    #[test]
+    #[should_panic]
+    fn out_of_bounds_patch() {
+        Validity::NonNullable
+            .patch(2, &[4], Validity::AllInvalid)
+            .unwrap();
     }
 }

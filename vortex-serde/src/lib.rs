@@ -1,14 +1,12 @@
 #![doc(html_logo_url = "/vortex/docs/_static/vortex_spiral_logo.svg")]
 
-use message_reader::*;
-use message_writer::*;
+use messages::reader::*;
+use messages::writer::*;
 
 pub mod chunked_reader;
 mod dtype_reader;
 pub mod io;
 pub mod layouts;
-mod message_reader;
-mod message_writer;
 mod messages;
 pub mod stream_reader;
 pub mod stream_writer;

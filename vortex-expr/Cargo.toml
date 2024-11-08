@@ -22,8 +22,6 @@ bench = false
 workspace = true
 
 [dependencies]
-arrow-schema = { workspace = true, optional = true }
-datafusion-common = { workspace = true, optional = true }
 datafusion-expr = { workspace = true, optional = true }
 datafusion-physical-expr = { workspace = true, optional = true }
 prost = { workspace = true, optional = true }
@@ -33,11 +31,9 @@ vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-proto = { workspace = true, optional = true }
 vortex-scalar = { workspace = true }
-vortex-schema = { workspace = true }
 
 [features]
 datafusion = [
-    "dep:datafusion-common",
     "dep:datafusion-expr",
     "dep:datafusion-physical-expr",
     "vortex-scalar/datafusion",

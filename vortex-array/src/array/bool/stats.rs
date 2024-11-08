@@ -1,4 +1,5 @@
 use arrow_buffer::BooleanBuffer;
+use itertools::Itertools;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::VortexResult;
 
@@ -43,7 +44,7 @@ impl ArrayStatisticsCompute for NullableBools<'_> {
             acc.n_nulls(first_non_null);
             self.0
                 .iter()
-                .zip(self.1.iter())
+                .zip_eq(self.1.iter())
                 .skip(first_non_null + 1)
                 .map(|(next, valid)| valid.then_some(next))
                 .for_each(|next| acc.nullable_next(next));
@@ -59,6 +60,10 @@ impl ArrayStatisticsCompute for NullableBools<'_> {
 
 impl ArrayStatisticsCompute for BooleanBuffer {
     fn compute_statistics(&self, _stat: Stat) -> VortexResult<StatsSet> {
+        if self.is_empty() {
+            return Ok(StatsSet::new());
+        }
+
         let mut stats = BoolStatsAccumulator::new(self.value(0));
         self.iter().skip(1).for_each(|next| stats.next(next));
         Ok(stats.finish())
@@ -75,7 +80,7 @@ struct BoolStatsAccumulator {
 }
 
 impl BoolStatsAccumulator {
-    fn new(first_value: bool) -> Self {
+    pub fn new(first_value: bool) -> Self {
         Self {
             prev: first_value,
             is_sorted: true,
@@ -86,7 +91,7 @@ impl BoolStatsAccumulator {
         }
     }
 
-    fn n_nulls(&mut self, n_nulls: usize) {
+    pub fn n_nulls(&mut self, n_nulls: usize) {
         self.null_count += n_nulls;
         self.len += n_nulls;
     }

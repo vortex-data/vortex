@@ -11,23 +11,11 @@ use itertools::Itertools;
 use log::LevelFilter;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use simplelog::{ColorChoice, Config, TermLogger, TerminalMode};
-use vortex::aliases::hash_set::HashSet;
 use vortex::array::ChunkedArray;
 use vortex::arrow::FromArrowType;
 use vortex::compress::CompressionStrategy;
 use vortex::dtype::DType;
 use vortex::fastlanes::DeltaEncoding;
-use vortex::sampling_compressor::compressors::alp::ALPCompressor;
-use vortex::sampling_compressor::compressors::alp_rd::ALPRDCompressor;
-use vortex::sampling_compressor::compressors::bitpacked::BITPACK_WITH_PATCHES;
-use vortex::sampling_compressor::compressors::date_time_parts::DateTimePartsCompressor;
-use vortex::sampling_compressor::compressors::dict::DictCompressor;
-use vortex::sampling_compressor::compressors::fsst::FSSTCompressor;
-use vortex::sampling_compressor::compressors::r#for::FoRCompressor;
-use vortex::sampling_compressor::compressors::roaring_bool::RoaringBoolCompressor;
-use vortex::sampling_compressor::compressors::runend::DEFAULT_RUN_END_COMPRESSOR;
-use vortex::sampling_compressor::compressors::sparse::SparseCompressor;
-use vortex::sampling_compressor::compressors::CompressorRef;
 use vortex::sampling_compressor::SamplingCompressor;
 use vortex::{Array, Context, IntoArray};
 
@@ -49,22 +37,6 @@ pub static CTX: LazyLock<Arc<Context>> = LazyLock::new(|| {
             .with_encodings(SamplingCompressor::default().used_encodings())
             .with_encoding(&DeltaEncoding),
     )
-});
-
-pub static COMPRESSORS: LazyLock<HashSet<CompressorRef<'static>>> = LazyLock::new(|| {
-    [
-        &ALPCompressor as CompressorRef<'static>,
-        &ALPRDCompressor,
-        &DictCompressor,
-        &BITPACK_WITH_PATCHES,
-        &FoRCompressor,
-        &FSSTCompressor,
-        &DateTimePartsCompressor,
-        &DEFAULT_RUN_END_COMPRESSOR,
-        &RoaringBoolCompressor,
-        &SparseCompressor,
-    ]
-    .into()
 });
 
 /// Creates a file if it doesn't already exist.
@@ -172,10 +144,7 @@ pub fn fetch_taxi_data() -> Array {
 }
 
 pub fn compress_taxi_data() -> Array {
-    let uncompressed = fetch_taxi_data();
-    let compressor: &dyn CompressionStrategy = &SamplingCompressor::new(COMPRESSORS.clone());
-
-    compressor.compress(&uncompressed).unwrap()
+    CompressionStrategy::compress(&SamplingCompressor::default(), &fetch_taxi_data()).unwrap()
 }
 
 pub struct CompressionRunStats {
@@ -235,7 +204,7 @@ mod test {
     use vortex::{Array, IntoCanonical};
 
     use crate::taxi_data::taxi_data_parquet;
-    use crate::{compress_taxi_data, setup_logger, COMPRESSORS};
+    use crate::{compress_taxi_data, setup_logger};
 
     #[ignore]
     #[test]
@@ -268,7 +237,7 @@ mod test {
         let file = File::open(taxi_data_parquet()).unwrap();
         let builder = ParquetRecordBatchReaderBuilder::try_new(file).unwrap();
         let reader = builder.with_limit(1).build().unwrap();
-        let compressor: &dyn CompressionStrategy = &SamplingCompressor::new(COMPRESSORS.clone());
+        let compressor: &dyn CompressionStrategy = &SamplingCompressor::default();
 
         for record_batch in reader.map(|batch_result| batch_result.unwrap()) {
             let struct_arrow: ArrowStructArray = record_batch.into();

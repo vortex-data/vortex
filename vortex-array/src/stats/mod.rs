@@ -16,7 +16,11 @@ use crate::Array;
 pub mod flatbuffers;
 mod statsset;
 
+/// Statistics that are used for pruning files (i.e., we want to ensure they are computed when compressing/writing).
+pub(crate) const PRUNING_STATS: &[Stat] = &[Stat::Min, Stat::Max, Stat::TrueCount, Stat::NullCount];
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Sequence)]
+#[non_exhaustive]
 pub enum Stat {
     BitWidthFreq,
     TrailingZeroFreq,
@@ -28,6 +32,28 @@ pub enum Stat {
     RunCount,
     TrueCount,
     NullCount,
+}
+
+impl Stat {
+    /// Whether the statistic is commutative (i.e., whether merging can be done independently of ordering)
+    /// e.g., min/max are commutative, but is_sorted is not
+    pub fn is_commutative(&self) -> bool {
+        matches!(
+            self,
+            Stat::BitWidthFreq
+                | Stat::TrailingZeroFreq
+                | Stat::IsConstant
+                | Stat::Max
+                | Stat::Min
+                | Stat::TrueCount
+                | Stat::NullCount
+        )
+    }
+
+    /// Whether the statistic has the same dtype as the array it's computed on
+    pub fn has_same_dtype_as_array(&self) -> bool {
+        matches!(self, Stat::Min | Stat::Max)
+    }
 }
 
 impl Display for Stat {
@@ -58,6 +84,15 @@ pub trait Statistics {
 
     /// Computes the value of the stat if it's not present
     fn compute(&self, stat: Stat) -> Option<Scalar>;
+
+    /// Compute all of the requested statistics (if not already present)
+    /// Returns a StatsSet with the requested stats and any additional available stats
+    fn compute_all(&self, stats: &[Stat]) -> VortexResult<StatsSet> {
+        for stat in stats {
+            let _ = self.compute(*stat);
+        }
+        Ok(self.to_set())
+    }
 }
 
 pub trait ArrayStatistics {
@@ -190,6 +225,8 @@ pub fn trailing_zeros(array: &Array) -> u8 {
 
 #[cfg(test)]
 mod test {
+    use enum_iterator::all;
+
     use crate::array::PrimitiveArray;
     use crate::stats::{ArrayStatistics, Stat};
 
@@ -200,5 +237,29 @@ mod test {
             .compute_as_cast::<i64>(Stat::Min);
 
         assert_eq!(min, None);
+    }
+
+    #[test]
+    fn commutativity() {
+        assert!(Stat::BitWidthFreq.is_commutative());
+        assert!(Stat::TrailingZeroFreq.is_commutative());
+        assert!(Stat::IsConstant.is_commutative());
+        assert!(Stat::Min.is_commutative());
+        assert!(Stat::Max.is_commutative());
+        assert!(Stat::TrueCount.is_commutative());
+        assert!(Stat::NullCount.is_commutative());
+
+        assert!(!Stat::IsStrictSorted.is_commutative());
+        assert!(!Stat::IsSorted.is_commutative());
+        assert!(!Stat::RunCount.is_commutative());
+    }
+
+    #[test]
+    fn has_same_dtype_as_array() {
+        assert!(Stat::Min.has_same_dtype_as_array());
+        assert!(Stat::Max.has_same_dtype_as_array());
+        for stat in all::<Stat>().filter(|s| !matches!(s, Stat::Min | Stat::Max)) {
+            assert!(!stat.has_same_dtype_as_array());
+        }
     }
 }

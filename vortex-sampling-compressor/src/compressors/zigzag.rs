@@ -49,9 +49,10 @@ impl EncodingCompressor for ZigZagCompressor {
         let encoded = zigzag_encode(PrimitiveArray::try_from(array)?)?;
         let compressed =
             ctx.compress(&encoded.encoded(), like.as_ref().and_then(|l| l.child(0)))?;
-        Ok(CompressedArray::new(
+        Ok(CompressedArray::compressed(
             ZigZagArray::try_new(compressed.array)?.into_array(),
             Some(CompressionTree::new(self, vec![compressed.path])),
+            Some(array.statistics()),
         ))
     }
 

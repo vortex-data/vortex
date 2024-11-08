@@ -12,7 +12,8 @@ use vortex_alp::{ALPEncoding, ALPRDEncoding};
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{ChunkedArray, Constant};
 use vortex_array::compress::{
-    check_dtype_unchanged, check_validity_unchanged, CompressionStrategy,
+    check_dtype_unchanged, check_statistics_unchanged, check_validity_unchanged,
+    CompressionStrategy,
 };
 use vortex_array::compute::slice;
 use vortex_array::encoding::EncodingRef;
@@ -75,7 +76,7 @@ pub static FASTEST_COMPRESSORS: LazyLock<[CompressorRef<'static>; 7]> = LazyLock
     ]
 });
 
-pub static ALL_COMPRESSORS_CONTEXT: LazyLock<Arc<Context>> = LazyLock::new(|| {
+pub static ALL_ENCODINGS_CONTEXT: LazyLock<Arc<Context>> = LazyLock::new(|| {
     Arc::new(Context::default().with_encodings([
         &ALPEncoding as EncodingRef,
         &ByteBoolEncoding,
@@ -249,6 +250,7 @@ impl<'a> SamplingCompressor<'a> {
 
                 check_validity_unchanged(arr, compressed.as_ref());
                 check_dtype_unchanged(arr, compressed.as_ref());
+                check_statistics_unchanged(arr, compressed.as_ref());
                 return Ok(compressed);
             } else {
                 warn!(
@@ -263,6 +265,7 @@ impl<'a> SamplingCompressor<'a> {
 
         check_validity_unchanged(arr, compressed.as_ref());
         check_dtype_unchanged(arr, compressed.as_ref());
+        check_statistics_unchanged(arr, compressed.as_ref());
         Ok(compressed)
     }
 

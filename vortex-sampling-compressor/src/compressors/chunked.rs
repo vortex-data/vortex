@@ -4,7 +4,9 @@ use std::sync::Arc;
 use log::warn;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{Chunked, ChunkedArray};
+use vortex_array::compress::compute_pruning_stats;
 use vortex_array::encoding::EncodingRef;
+use vortex_array::stats::ArrayStatistics as _;
 use vortex_array::{Array, ArrayDType, ArrayDef, IntoArray};
 use vortex_error::{vortex_bail, VortexResult};
 
@@ -115,6 +117,12 @@ impl ChunkedCompressor {
         )?;
         let mut compressed_chunks = Vec::with_capacity(less_chunked.nchunks());
         for (index, chunk) in less_chunked.chunks().enumerate() {
+            // these are extremely valuable when reading/writing, but are potentially much more expensive
+            // to compute post-compression. That's because not all encodings implement stats, so we would
+            // potentially have to canonicalize during writes just to get stats, which would be silly.
+            // Also, we only really require them for column chunks, not for every array.
+            compute_pruning_stats(&chunk)?;
+
             let like = previous.as_ref().map(|(like, _)| like);
             let (compressed_chunk, tree) = ctx
                 .named(&format!("chunk-{}", index))
@@ -144,13 +152,14 @@ impl ChunkedCompressor {
             None => (None, None),
         };
 
-        Ok(CompressedArray::new(
+        Ok(CompressedArray::compressed(
             ChunkedArray::try_new(compressed_chunks, array.dtype().clone())?.into_array(),
             Some(CompressionTree::new_with_metadata(
                 self,
                 vec![child],
                 Arc::new(ChunkedCompressorMetadata(ratio)),
             )),
+            Some(array.statistics()),
         ))
     }
 }

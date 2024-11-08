@@ -33,12 +33,12 @@ fn random_access_vortex(c: &mut Criterion) {
             .iter(|| async { black_box(take_vortex_tokio(&taxi_vortex, &INDICES).await.unwrap()) })
     });
 
-    let local_fs = Arc::new(LocalFileSystem::new()) as Arc<dyn ObjectStore>;
-    let local_fs_path = object_store::path::Path::from_filesystem_path(&taxi_vortex).unwrap();
     group.bench_function("vortex-local-fs", |b| {
+        let local_fs = Arc::new(LocalFileSystem::new()) as Arc<dyn ObjectStore>;
+        let local_fs_path = object_store::path::Path::from_filesystem_path(&taxi_vortex).unwrap();
         b.to_async(Runtime::new().unwrap()).iter(|| async {
             black_box(
-                take_vortex_object_store(&local_fs, &local_fs_path, &INDICES)
+                take_vortex_object_store(local_fs.clone(), local_fs_path.clone(), &INDICES)
                     .await
                     .unwrap(),
             )
@@ -65,7 +65,7 @@ fn random_access_vortex(c: &mut Criterion) {
 
             b.to_async(Runtime::new().unwrap()).iter(|| async {
                 black_box(
-                    take_vortex_object_store(&r2_fs, &r2_path, &INDICES)
+                    take_vortex_object_store(r2_fs.clone(), r2_path.clone(), &INDICES)
                         .await
                         .unwrap(),
                 )

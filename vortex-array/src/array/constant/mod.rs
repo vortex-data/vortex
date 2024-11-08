@@ -4,16 +4,14 @@ use serde::{Deserialize, Serialize};
 use vortex_error::{vortex_panic, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
-use crate::aliases::hash_map::HashMap;
 use crate::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use crate::encoding::ids;
-use crate::stats::{Stat, StatsSet};
+use crate::stats::{ArrayStatisticsCompute, Stat, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity};
 use crate::{impl_encoding, ArrayDType, ArrayTrait};
 
 mod canonical;
 mod compute;
-mod stats;
 mod variants;
 
 impl_encoding!("vortex.constant", ids::CONSTANT, Constant);
@@ -39,16 +37,6 @@ impl ConstantArray {
         S: Into<Scalar>,
     {
         let scalar = scalar.into();
-        // TODO(aduffy): add stats for bools, ideally there should be a
-        //  StatsSet::constant(Scalar) constructor that does this for us, like StatsSet::nulls.
-        let stats = StatsSet::from(HashMap::from([
-            (Stat::Max, scalar.clone()),
-            (Stat::Min, scalar.clone()),
-            (Stat::IsConstant, true.into()),
-            (Stat::IsSorted, true.into()),
-            (Stat::RunCount, 1.into()),
-        ]));
-
         Self::try_from_parts(
             scalar.dtype().clone(),
             length,
@@ -56,7 +44,7 @@ impl ConstantArray {
                 scalar_value: scalar.value().clone(),
             },
             [].into(),
-            stats,
+            StatsSet::constant(scalar.clone(), length),
         )
         .unwrap_or_else(|err| {
             vortex_panic!(
@@ -90,6 +78,12 @@ impl ArrayValidity for ConstantArray {
             true => LogicalValidity::AllInvalid(self.len()),
             false => LogicalValidity::AllValid(self.len()),
         }
+    }
+}
+
+impl ArrayStatisticsCompute for ConstantArray {
+    fn compute_statistics(&self, _stat: Stat) -> VortexResult<StatsSet> {
+        Ok(StatsSet::constant(self.owned_scalar(), self.len()))
     }
 }
 

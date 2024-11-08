@@ -2,6 +2,7 @@ use vortex_error::VortexResult;
 
 use crate::aliases::hash_set::HashSet;
 use crate::encoding::EncodingRef;
+use crate::stats::{ArrayStatistics as _, PRUNING_STATS};
 use crate::Array;
 
 pub trait CompressionStrategy {
@@ -44,4 +45,30 @@ pub fn check_dtype_unchanged(arr: &Array, compressed: &Array) {
             compressed.tree_display(),
         );
     }
+}
+
+// Check that compression preserved the statistics.
+pub fn check_statistics_unchanged(arr: &Array, compressed: &Array) {
+    let _ = arr;
+    let _ = compressed;
+    #[cfg(debug_assertions)]
+    {
+        for (stat, value) in arr.statistics().to_set().into_iter() {
+            debug_assert_eq!(
+                compressed.statistics().get(stat),
+                Some(value.clone()),
+                "Compression changed {stat} from {value} to {}",
+                compressed
+                    .statistics()
+                    .get(stat)
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| "null".to_string())
+            );
+        }
+    }
+}
+
+/// Compute pruning stats for an array.
+pub fn compute_pruning_stats(arr: &Array) -> VortexResult<()> {
+    arr.statistics().compute_all(PRUNING_STATS).map(|_| ())
 }
