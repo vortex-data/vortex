@@ -10,6 +10,9 @@ use vortex_flatbuffers::{message as fb, FlatBufferRoot, WriteFlatBuffer};
 
 use crate::ALIGNMENT;
 
+pub mod reader;
+pub mod writer;
+
 pub enum IPCMessage<'a> {
     Schema(IPCSchema<'a>),
     Batch(IPCBatch<'a>),

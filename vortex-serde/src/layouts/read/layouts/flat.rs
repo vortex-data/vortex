@@ -12,7 +12,7 @@ use crate::layouts::{
     BatchRead, LayoutDeserializer, LayoutId, LayoutReader, LayoutSpec, Message, Scan,
     FLAT_LAYOUT_ID,
 };
-use crate::message_reader::ArrayMessageReader;
+use crate::messages::reader::ArrayMessageReader;
 use crate::stream_writer::ByteRange;
 
 #[derive(Debug)]
@@ -132,7 +132,7 @@ mod tests {
     use crate::layouts::read::layouts::flat::FlatLayout;
     use crate::layouts::read::layouts::test_read::{filter_read_layout, read_layout};
     use crate::layouts::{LayoutMessageCache, RowFilter, Scan};
-    use crate::message_writer::MessageWriter;
+    use crate::messages::writer::MessageWriter;
     use crate::stream_writer::ByteRange;
 
     async fn read_only_layout(

@@ -167,7 +167,7 @@ mod tests {
     };
     use crate::layouts::read::mask::RowMask;
     use crate::layouts::{write, LayoutDeserializer, LayoutMessageCache, RowFilter, Scan};
-    use crate::message_writer::MessageWriter;
+    use crate::messages::writer::MessageWriter;
     use crate::stream_writer::ByteRange;
 
     async fn layout_and_bytes(
