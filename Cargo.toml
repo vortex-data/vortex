@@ -126,7 +126,7 @@ simplelog = { version = "0.12.2", features = ["paris"] }
 static_assertions = "1"
 tar = "0.4"
 tempfile = "3"
-thiserror = "1.0.58"
+thiserror = "2.0.0"
 tokio = "1.37.0"
 uninit = "0.6.2"
 url = "2"
