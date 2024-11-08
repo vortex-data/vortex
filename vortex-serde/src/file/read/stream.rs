@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::BTreeSet;
 use std::mem;
 use std::pin::Pin;
 use std::sync::{Arc, RwLock};
@@ -8,10 +8,7 @@ use bytes::{Bytes, BytesMut};
 use futures::future::BoxFuture;
 use futures::Stream;
 use futures_util::{stream, FutureExt, StreamExt, TryStreamExt};
-use itertools::Itertools;
 use vortex_array::array::ChunkedArray;
-use vortex_array::compute::and_kleene;
-use vortex_array::stats::ArrayStatistics;
 use vortex_array::Array;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_panic, VortexError, VortexExpect, VortexResult};
@@ -19,6 +16,9 @@ use vortex_schema::Schema;
 
 use crate::file::read::cache::LayoutMessageCache;
 use crate::file::read::mask::RowMask;
+use crate::file::read::splits::{
+    FilteringRowSplitIterator, FixedSplitIterator, MaskIterator, SplitMask,
+};
 use crate::file::read::{BatchRead, LayoutReader, MessageId, MessageLocator};
 use crate::io::{Dispatch, IoDispatcher, VortexReadAt};
 
@@ -34,8 +34,6 @@ pub struct VortexFileArrayStream<R> {
     row_count: u64,
     layout_reader: Box<dyn LayoutReader>,
     messages_cache: Arc<RwLock<LayoutMessageCache>>,
-    splits: VecDeque<(usize, usize)>,
-    row_mask: Option<RowMask>,
     state: Option<StreamingState>,
     input: R,
     dispatcher: IoDispatcher,
@@ -53,14 +51,18 @@ impl<R: VortexReadAt> VortexFileArrayStream<R> {
         row_mask: Option<RowMask>,
         dispatcher: IoDispatcher,
     ) -> Self {
-        VortexFileArrayStream {
+        let mask_iterator = if let Some(fr) = filter_reader {
+            Box::new(FilteringRowSplitIterator::new(fr, row_count, row_mask)) as MaskIteratorRef
+        } else {
+            Box::new(FixedSplitIterator::new(row_count, row_mask))
+        };
+
+        Self {
             dtype,
             row_count,
             layout_reader,
             messages_cache,
-            splits: VecDeque::new(),
-            row_mask,
-            state: Some(StreamingState::AddSplits(filter_reader)),
+            state: Some(StreamingState::AddSplits(mask_iterator)),
             input,
             dispatcher,
         }
@@ -68,6 +70,10 @@ impl<R: VortexReadAt> VortexFileArrayStream<R> {
 
     pub fn dtype(&self) -> &DType {
         &self.dtype
+    }
+
+    pub fn row_count(&self) -> u64 {
+        self.row_count
     }
 
     pub fn schema(&self) -> Schema {
@@ -93,8 +99,8 @@ type StreamMessages = Vec<Message>;
 type StreamStateFuture = BoxFuture<'static, VortexResult<StreamMessages>>;
 
 enum ReadingFor {
-    Read(StreamStateFuture, RowMask, Option<LayoutReaderRef>),
-    Filter(StreamStateFuture, RowMask, Box<dyn LayoutReader>),
+    Read(StreamStateFuture, RowMask, MaskIteratorRef),
+    NextSplit(StreamStateFuture, MaskIteratorRef),
 }
 
 enum ReadingPoll {
@@ -106,7 +112,7 @@ impl ReadingFor {
     fn future(&mut self) -> &mut StreamStateFuture {
         match self {
             ReadingFor::Read(future, ..) => future,
-            ReadingFor::Filter(future, ..) => future,
+            ReadingFor::NextSplit(future, ..) => future,
         }
     }
 
@@ -115,7 +121,7 @@ impl ReadingFor {
             ReadingFor::Read(.., row_mask, filter_reader) => {
                 StreamingState::Read(row_mask, filter_reader)
             }
-            ReadingFor::Filter(.., row_mask, reader) => StreamingState::Filter(row_mask, reader),
+            ReadingFor::NextSplit(.., reader) => StreamingState::NextSplit(reader),
         }
     }
 
@@ -129,7 +135,7 @@ impl ReadingFor {
     }
 }
 
-type LayoutReaderRef = Box<dyn LayoutReader>;
+type MaskIteratorRef = Box<dyn MaskIterator>;
 
 /// State of vortex file stream
 ///
@@ -138,10 +144,9 @@ type LayoutReaderRef = Box<dyn LayoutReader>;
 /// `Filter` and `Read` states transition to `Reading` when they're blocked on an io operation which resumes back to
 /// the previous state.
 enum StreamingState {
-    AddSplits(Option<LayoutReaderRef>),
-    NextSplit(Option<LayoutReaderRef>),
-    Filter(RowMask, LayoutReaderRef),
-    Read(RowMask, Option<LayoutReaderRef>),
+    AddSplits(MaskIteratorRef),
+    NextSplit(MaskIteratorRef),
+    Read(RowMask, MaskIteratorRef),
     Reading(ReadingFor),
     EndOfStream,
     Error,
@@ -177,76 +182,21 @@ impl<R: VortexReadAt + Unpin> VortexFileArrayStream<R> {
         current_state: StreamingState,
     ) -> VortexResult<StreamingTransition> {
         match current_state {
-            StreamingState::AddSplits(filter_reader) => {
-                let mut splits = BTreeSet::new();
-                splits.insert(self.row_count as usize);
-                if let Some(filter_reader) = &filter_reader {
-                    filter_reader.add_splits(0, &mut splits)?;
-                }
-                self.layout_reader.as_mut().add_splits(0, &mut splits)?;
-                self.splits
-                    .extend(splits.into_iter().tuple_windows::<(usize, usize)>());
-                goto(StreamingState::NextSplit(filter_reader))
+            StreamingState::AddSplits(mut mask_iter) => {
+                let mut reader_splits = BTreeSet::new();
+                self.layout_reader.add_splits(0, &mut reader_splits)?;
+                mask_iter.additional_splits(&mut reader_splits)?;
+                goto(StreamingState::NextSplit(mask_iter))
             }
-            StreamingState::NextSplit(filter_reader) => {
-                let Some((begin, end)) = self.splits.pop_front() else {
+            StreamingState::NextSplit(mut mask_iter) => {
+                let Some(mask) = mask_iter.next() else {
                     return finished();
                 };
-
-                let row_mask_removes_all_rows = self
-                    .row_mask
-                    .as_ref()
-                    .map(|row_mask| row_mask.slice(begin, end).is_empty())
-                    .unwrap_or(false);
-                if row_mask_removes_all_rows {
-                    return goto(StreamingState::NextSplit(filter_reader));
-                }
-
-                let mut split_mask = RowMask::new_valid_between(begin, end);
-                match filter_reader {
-                    Some(filter_reader) => goto(StreamingState::Filter(split_mask, filter_reader)),
-                    None => {
-                        if let Some(row_mask) = &self.row_mask {
-                            split_mask.and_inplace(&row_mask.slice(begin, end))?;
-                        };
-
-                        goto(StreamingState::Read(split_mask, filter_reader))
-                    }
-                }
-            }
-            StreamingState::Filter(split_mask, mut filter_reader) => {
-                let sel_begin = split_mask.begin();
-                let sel_end = split_mask.end();
-
-                match filter_reader.as_mut().read_selection(&split_mask)? {
-                    Some(BatchRead::ReadMore(messages)) => goto(StreamingState::Reading(
-                        ReadingFor::Filter(self.read_ranges(messages), split_mask, filter_reader),
+                match mask? {
+                    SplitMask::ReadMore(messages) => goto(StreamingState::Reading(
+                        ReadingFor::NextSplit(self.read_ranges(messages).boxed(), mask_iter),
                     )),
-                    Some(BatchRead::Batch(mut batch)) => {
-                        if let Some(row_mask) = &self.row_mask {
-                            // Either `and` or `and_kleene` is fine. They only differ on `false AND
-                            // null`, but RowMask::from_mask_array only cares which values are true.
-                            batch = and_kleene(
-                                batch,
-                                row_mask.slice(sel_begin, sel_end).to_mask_array()?,
-                            )?;
-                        }
-
-                        if batch
-                            .statistics()
-                            .compute_true_count()
-                            .vortex_expect("must be a bool array if it's a result of a filter")
-                            == 0
-                        {
-                            goto(StreamingState::NextSplit(Some(filter_reader)))
-                        } else {
-                            goto(StreamingState::Read(
-                                RowMask::from_mask_array(&batch, sel_begin, sel_end)?,
-                                Some(filter_reader),
-                            ))
-                        }
-                    }
-                    None => goto(StreamingState::NextSplit(Some(filter_reader))),
+                    SplitMask::Mask(m) => goto(StreamingState::Read(m, mask_iter)),
                 }
             }
             StreamingState::Read(selector, filter_reader) => {

@@ -44,9 +44,6 @@ impl DType {
     /// The default DType for bytes
     pub const BYTES: Self = Primitive(PType::U8, Nullability::NonNullable);
 
-    /// The default DType for indices
-    pub const IDX: Self = Primitive(PType::U64, Nullability::NonNullable);
-
     /// Get the nullability of the DType
     pub fn nullability(&self) -> Nullability {
         self.is_nullable().into()

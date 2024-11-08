@@ -14,6 +14,7 @@ mod filtering;
 pub mod layouts;
 mod mask;
 mod recordbatchreader;
+mod splits;
 mod stream;
 
 pub use builder::initial_read::*;

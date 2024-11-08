@@ -3,10 +3,10 @@ use std::fmt::{Display, Formatter};
 
 use arrow_buffer::{BooleanBuffer, MutableBuffer};
 use croaring::Bitmap;
-use vortex_array::array::{BoolArray, PrimitiveArray};
+use vortex_array::array::{BoolArray, PrimitiveArray, SparseArray};
 use vortex_array::compute::{filter, slice, take};
 use vortex_array::validity::{LogicalValidity, Validity};
-use vortex_array::{iterate_integer_array, Array, IntoArray};
+use vortex_array::{iterate_integer_array, Array, IntoArray, IntoArrayVariant};
 use vortex_dtype::PType;
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
@@ -95,7 +95,7 @@ impl RowMask {
 
     /// Construct a RowMask from an integral array.
     ///
-    /// The array values are intepreted as indices and those indices are kept by the returned mask.
+    /// The array values are interpreted as indices and those indices are kept by the returned mask.
     pub fn from_index_array(array: &Array, begin: usize, end: usize) -> VortexResult<Self> {
         array.with_dyn(|a| {
             let err = || vortex_err!(InvalidArgument: "index array must be integers in the range [0, 2^32)");
@@ -117,6 +117,16 @@ impl RowMask {
 
             Ok(unsafe { RowMask::new_unchecked(bitmap, begin, end) })
         })
+    }
+
+    pub fn with_values(self, values: Array) -> VortexResult<Self> {
+        // TODO(robert): Avoid densifying sparse values just to get true indices
+        let sparse_mask =
+            SparseArray::try_new(self.to_indices_array()?, values, self.len(), false.into())?
+                .into_array()
+                .into_bool()?
+                .into_array();
+        Self::from_mask_array(sparse_mask.as_ref(), self.begin(), self.end())
     }
 
     pub fn is_empty(&self) -> bool {
@@ -243,12 +253,24 @@ mod tests {
     use crate::file::read::mask::RowMask;
 
     #[rstest]
-    #[case(RowMask::try_new((0..2).chain(9..10).collect(), 0, 10).unwrap(), (0, 1), RowMask::try_new((0..1).collect(), 0, 1).unwrap())]
-    #[case(RowMask::try_new((5..8).chain(9..10).collect(), 0, 10).unwrap(), (2, 5), RowMask::try_new(Bitmap::new(), 2, 5).unwrap())]
-    #[case(RowMask::try_new((0..4).collect(), 0, 10).unwrap(), (2, 5), RowMask::try_new((0..2).collect(), 2, 5).unwrap())]
-    #[case(RowMask::try_new((0..3).chain(5..6).collect(), 0, 10).unwrap(), (2, 6), RowMask::try_new((0..1).chain(3..4).collect(), 2, 6).unwrap())]
-    #[case(RowMask::try_new((5..10).collect(), 0, 10).unwrap(), (7, 11), RowMask::try_new((0..3).collect(), 7, 10).unwrap())]
-    #[case(RowMask::try_new((1..6).collect(), 3, 9).unwrap(), (0, 5), RowMask::try_new((1..2).collect(), 3, 5).unwrap())]
+    #[case(
+        RowMask::try_new((0..2).chain(9..10).collect(), 0, 10).unwrap(), (0, 1),
+        RowMask::try_new((0..1).collect(), 0, 1).unwrap())]
+    #[case(
+        RowMask::try_new((5..8).chain(9..10).collect(), 0, 10).unwrap(), (2, 5),
+        RowMask::try_new(Bitmap::new(), 2, 5).unwrap())]
+    #[case(
+        RowMask::try_new((0..4).collect(), 0, 10).unwrap(), (2, 5),
+        RowMask::try_new((0..2).collect(), 2, 5).unwrap())]
+    #[case(
+        RowMask::try_new((0..3).chain(5..6).collect(), 0, 10).unwrap(), (2, 6),
+        RowMask::try_new((0..1).chain(3..4).collect(), 2, 6).unwrap())]
+    #[case(
+        RowMask::try_new((5..10).collect(), 0, 10).unwrap(), (7, 11),
+        RowMask::try_new((0..3).collect(), 7, 10).unwrap())]
+    #[case(
+        RowMask::try_new((1..6).collect(), 3, 9).unwrap(), (0, 5),
+        RowMask::try_new((1..2).collect(), 3, 5).unwrap())]
     #[cfg_attr(miri, ignore)]
     fn slice(#[case] first: RowMask, #[case] range: (usize, usize), #[case] expected: RowMask) {
         assert_eq!(first.slice(range.0, range.1), expected);
