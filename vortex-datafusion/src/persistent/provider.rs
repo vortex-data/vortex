@@ -21,6 +21,7 @@ use super::config::VortexTableOptions;
 use crate::can_be_pushed_down;
 use crate::persistent::execution::VortexExec;
 
+#[derive(Debug)]
 pub struct VortexFileTableProvider {
     schema_ref: SchemaRef,
     object_store_url: ObjectStoreUrl,
