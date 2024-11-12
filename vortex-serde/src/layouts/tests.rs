@@ -15,7 +15,7 @@ use vortex_expr::{BinaryExpr, Column, Literal, Operator};
 
 use crate::layouts::write::LayoutWriter;
 use crate::layouts::{
-    LayoutBatchStreamBuilder, LayoutDescriptorReader, LayoutDeserializer, LayoutMessageCache, Projection, RelativeLayoutCache, RowFilter, Scan, V1_FOOTER_FBS_SIZE, VERSION
+    VortexReadBuilder, LayoutDescriptorReader, LayoutDeserializer, LayoutMessageCache, Projection, RelativeLayoutCache, RowFilter, Scan, V1_FOOTER_FBS_SIZE, VERSION
 };
 
 #[test]
@@ -47,7 +47,7 @@ async fn test_read_simple() {
     writer = writer.write_array_columns(st.into_array()).await.unwrap();
     let written = writer.finalize().await.unwrap();
 
-    let mut stream = LayoutBatchStreamBuilder::new(written, LayoutDeserializer::default())
+    let mut stream = VortexReadBuilder::new(written, LayoutDeserializer::default())
         .build()
         .await
         .unwrap();
@@ -135,7 +135,7 @@ async fn test_read_projection() {
     writer = writer.write_array_columns(st.into_array()).await.unwrap();
     let written = writer.finalize().await.unwrap();
 
-    let array = LayoutBatchStreamBuilder::new(written.clone(), LayoutDeserializer::default())
+    let array = VortexReadBuilder::new(written.clone(), LayoutDeserializer::default())
         .with_projection(Projection::new([0]))
         .build()
         .await
@@ -166,7 +166,7 @@ async fn test_read_projection() {
         .unwrap();
     assert_eq!(actual, strings_expected);
 
-    let array = LayoutBatchStreamBuilder::new(written.clone(), LayoutDeserializer::default())
+    let array = VortexReadBuilder::new(written.clone(), LayoutDeserializer::default())
         .with_projection(Projection::Flat(vec![Field::Name("strings".to_string())]))
         .build()
         .await
@@ -197,7 +197,7 @@ async fn test_read_projection() {
         .unwrap();
     assert_eq!(actual, strings_expected);
 
-    let array = LayoutBatchStreamBuilder::new(written.clone(), LayoutDeserializer::default())
+    let array = VortexReadBuilder::new(written.clone(), LayoutDeserializer::default())
         .with_projection(Projection::new([1]))
         .build()
         .await
@@ -224,7 +224,7 @@ async fn test_read_projection() {
     let actual = primitive_array.maybe_null_slice::<u32>();
     assert_eq!(actual, numbers_expected);
 
-    let array = LayoutBatchStreamBuilder::new(written.clone(), LayoutDeserializer::default())
+    let array = VortexReadBuilder::new(written.clone(), LayoutDeserializer::default())
         .with_projection(Projection::Flat(vec![Field::Name("numbers".to_string())]))
         .build()
         .await
@@ -273,7 +273,7 @@ async fn unequal_batches() {
     writer = writer.write_array_columns(st.into_array()).await.unwrap();
     let written = writer.finalize().await.unwrap();
 
-    let mut stream = LayoutBatchStreamBuilder::new(written, LayoutDeserializer::default())
+    let mut stream = VortexReadBuilder::new(written, LayoutDeserializer::default())
         .build()
         .await
         .unwrap();
@@ -330,7 +330,7 @@ async fn write_chunked() {
     let mut writer = LayoutWriter::new(buf);
     writer = writer.write_array_columns(chunked_st).await.unwrap();
     let written = writer.finalize().await.unwrap();
-    let mut reader = LayoutBatchStreamBuilder::new(written, LayoutDeserializer::default())
+    let mut reader = VortexReadBuilder::new(written, LayoutDeserializer::default())
         .build()
         .await
         .unwrap();
@@ -363,7 +363,7 @@ async fn filter_string() {
     let mut writer = LayoutWriter::new(Vec::new());
     writer = writer.write_array_columns(st).await.unwrap();
     let written = writer.finalize().await.unwrap();
-    let mut reader = LayoutBatchStreamBuilder::new(written, LayoutDeserializer::default())
+    let mut reader = VortexReadBuilder::new(written, LayoutDeserializer::default())
         .with_row_filter(RowFilter::new(Arc::new(BinaryExpr::new(
             Arc::new(Column::new(Field::from("name"))),
             Operator::Eq,
@@ -420,7 +420,7 @@ async fn filter_or() {
     let mut writer = LayoutWriter::new(Vec::new());
     writer = writer.write_array_columns(st).await.unwrap();
     let written = writer.finalize().await.unwrap();
-    let mut reader = LayoutBatchStreamBuilder::new(written, LayoutDeserializer::default())
+    let mut reader = VortexReadBuilder::new(written, LayoutDeserializer::default())
         .with_row_filter(RowFilter::new(Arc::new(BinaryExpr::new(
             Arc::new(BinaryExpr::new(
                 Arc::new(Column::new(Field::from("name"))),
@@ -493,7 +493,7 @@ async fn filter_and() {
     let mut writer = LayoutWriter::new(Vec::new());
     writer = writer.write_array_columns(st).await.unwrap();
     let written = writer.finalize().await.unwrap();
-    let mut reader = LayoutBatchStreamBuilder::new(written, LayoutDeserializer::default())
+    let mut reader = VortexReadBuilder::new(written, LayoutDeserializer::default())
         .with_row_filter(RowFilter::new(Arc::new(BinaryExpr::new(
             Arc::new(BinaryExpr::new(
                 Arc::new(Column::new(Field::from("age"))),
@@ -559,7 +559,7 @@ async fn test_with_indices_simple() {
     // test no indices
     let empty_indices = Vec::<u32>::new();
     let actual_kept_array =
-        LayoutBatchStreamBuilder::new(written.clone(), LayoutDeserializer::default())
+        VortexReadBuilder::new(written.clone(), LayoutDeserializer::default())
             .with_indices(Array::from(empty_indices))
             .build()
             .await
@@ -577,7 +577,7 @@ async fn test_with_indices_simple() {
     let kept_indices_u16 = kept_indices.iter().map(|&x| x as u16).collect::<Vec<_>>();
 
     let actual_kept_array =
-        LayoutBatchStreamBuilder::new(written.clone(), LayoutDeserializer::default())
+        VortexReadBuilder::new(written.clone(), LayoutDeserializer::default())
             .with_indices(Array::from(kept_indices_u16))
             .build()
             .await
@@ -601,7 +601,7 @@ async fn test_with_indices_simple() {
 
     // test all indices
     let actual_array =
-        LayoutBatchStreamBuilder::new(written.clone(), LayoutDeserializer::default())
+        VortexReadBuilder::new(written.clone(), LayoutDeserializer::default())
             .with_indices(Array::from((0..500).collect::<Vec<u32>>()))
             .build()
             .await
@@ -643,7 +643,7 @@ async fn test_with_indices_on_two_columns() {
     let kept_indices = [0_usize, 3, 7];
     let kept_indices_u8 = kept_indices.iter().map(|&x| x as u8).collect::<Vec<_>>();
 
-    let array = LayoutBatchStreamBuilder::new(written.clone(), LayoutDeserializer::default())
+    let array = VortexReadBuilder::new(written.clone(), LayoutDeserializer::default())
         .with_indices(Array::from(kept_indices_u8))
         .build()
         .await
@@ -704,7 +704,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
     // test no indices
     let empty_indices = Vec::<u32>::new();
     let actual_kept_array =
-        LayoutBatchStreamBuilder::new(written.clone(), LayoutDeserializer::default())
+        VortexReadBuilder::new(written.clone(), LayoutDeserializer::default())
             .with_indices(Array::from(empty_indices))
             .with_row_filter(RowFilter::new(Arc::new(BinaryExpr::new(
                 Arc::new(Column::new(Field::from("numbers"))),
@@ -727,7 +727,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
     let kept_indices_u16 = kept_indices.iter().map(|&x| x as u16).collect::<Vec<_>>();
 
     let actual_kept_array =
-        LayoutBatchStreamBuilder::new(written.clone(), LayoutDeserializer::default())
+        VortexReadBuilder::new(written.clone(), LayoutDeserializer::default())
             .with_indices(Array::from(kept_indices_u16))
             .with_row_filter(RowFilter::new(Arc::new(BinaryExpr::new(
                 Arc::new(Column::new(Field::from("numbers"))),
@@ -759,7 +759,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
 
     // test all indices
     let actual_array =
-        LayoutBatchStreamBuilder::new(written.clone(), LayoutDeserializer::default())
+        VortexReadBuilder::new(written.clone(), LayoutDeserializer::default())
             .with_indices(Array::from((0..500).collect::<Vec<u32>>()))
             .with_row_filter(RowFilter::new(Arc::new(BinaryExpr::new(
                 Arc::new(Column::new(Field::from("numbers"))),

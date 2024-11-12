@@ -5,24 +5,22 @@ use std::sync::Arc;
 use vortex_array::Array;
 use vortex_error::VortexResult;
 
-mod batch;
+mod column_batch;
 mod buffered;
 mod builder;
 mod cache;
 mod context;
 mod expr_project;
 mod filtering;
-mod footer;
 pub mod layouts;
 mod mask;
 mod recordbatchreader;
 mod stream;
 
-pub use builder::LayoutBatchStreamBuilder;
+pub use builder::VortexReadBuilder;
 pub use cache::*;
 pub use context::*;
 pub use filtering::RowFilter;
-pub use footer::{LayoutDescriptor, LayoutDescriptorReader};
 pub use recordbatchreader::{AsyncRuntime, VortexRecordBatchReader};
 pub use stream::LayoutBatchStream;
 use vortex_expr::VortexExpr;

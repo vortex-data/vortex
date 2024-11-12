@@ -9,7 +9,7 @@ use vortex_flatbuffers::footer as fb;
 
 use crate::layouts::read::cache::RelativeLayoutCache;
 use crate::layouts::read::layouts::{
-    ChunkedLayoutSpec, ColumnLayoutSpec, FlatLayoutSpec, InlineDTypeLayoutSpec,
+    ChunkedLayoutSpec, ColumnarLayoutSpec, FlatLayoutSpec, InlineDTypeLayoutSpec,
 };
 use crate::layouts::read::{LayoutReader, Scan};
 
@@ -56,7 +56,7 @@ impl Default for LayoutContext {
     fn default() -> Self {
         Self::new(
             [
-                &ColumnLayoutSpec as LayoutSpecRef,
+                &ColumnarLayoutSpec as LayoutSpecRef,
                 &ChunkedLayoutSpec,
                 &InlineDTypeLayoutSpec,
                 &FlatLayoutSpec,

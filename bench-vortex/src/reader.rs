@@ -30,7 +30,7 @@ use vortex::error::VortexResult;
 use vortex::sampling_compressor::{SamplingCompressor, ALL_ENCODINGS_CONTEXT};
 use vortex::serde::io::{ObjectStoreReadAt, VortexReadAt, VortexWrite};
 use vortex::serde::layouts::{
-    LayoutBatchStreamBuilder, LayoutContext, LayoutDeserializer, LayoutWriter,
+    VortexReadBuilder, LayoutContext, LayoutDeserializer, LayoutWriter,
 };
 use vortex::{Array, IntoArray, IntoCanonical};
 
@@ -46,7 +46,7 @@ pub struct VortexFooter {
 pub async fn open_vortex(path: &Path) -> VortexResult<Array> {
     let file = tokio::fs::File::open(path).await.unwrap();
 
-    LayoutBatchStreamBuilder::new(
+    VortexReadBuilder::new(
         file,
         LayoutDeserializer::new(
             ALL_ENCODINGS_CONTEXT.clone(),
@@ -114,7 +114,7 @@ async fn take_vortex<T: VortexReadAt + Unpin + 'static>(
     reader: T,
     indices: &[u64],
 ) -> VortexResult<Array> {
-    LayoutBatchStreamBuilder::new(
+    VortexReadBuilder::new(
         reader,
         LayoutDeserializer::new(
             ALL_ENCODINGS_CONTEXT.clone(),

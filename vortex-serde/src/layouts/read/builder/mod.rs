@@ -1,5 +1,8 @@
 use std::sync::{Arc, RwLock};
 
+use bytes::BytesMut;
+use footer::read_initial_bytes;
+use initial_read::read_initial_bytes;
 use vortex_array::{Array, ArrayDType};
 use vortex_error::VortexResult;
 use vortex_expr::Select;
@@ -10,12 +13,55 @@ use crate::io::VortexReadAt;
 use crate::layouts::read::cache::{LayoutMessageCache, RelativeLayoutCache};
 use crate::layouts::read::context::LayoutDeserializer;
 use crate::layouts::read::filtering::RowFilter;
-use crate::layouts::read::footer::LayoutDescriptorReader;
 use crate::layouts::read::stream::LayoutBatchStream;
 use crate::layouts::read::Scan;
 
-pub struct LayoutBatchStreamBuilder<R> {
-    reader: R,
+mod footer;
+mod initial_read;
+
+/// Builder for reading Vortex files.
+///
+/// Succinctly, the file format specification is as follows:
+///
+/// 1. Data messages are written first, followed by...
+/// 2. An optional Schema, which if present is a valid DType flatbuffer, and is followed by...
+/// 3. The Layout, which is a valid Layout flatbuffer, and is followed by...
+/// 4. The Footer, which is a valid Footer flatbuffer, and is followed by...
+/// 5. The End-of-File marker, which is 8 bytes, and contains the u16 version, u16 footer length, and 4 magic bytes.
+///
+/// # File Format
+/// ```text
+/// ┌────────────────────────────┐
+/// │                            │
+/// │            Data            │
+/// │    (Array IPC Messages)    │
+/// │                            │
+/// ├────────────────────────────┤
+/// │                            │
+/// │   Per-Column Statistics    │
+/// │                            │
+/// ├────────────────────────────┤
+/// │                            │
+/// │          Schema            │
+/// |     (DType Flatbuffer)     │
+/// │                            │
+/// ├────────────────────────────┤
+/// │                            │
+/// │     Layout Flatbuffer      │
+/// │                            │
+/// ├────────────────────────────┤
+/// │                            │
+/// │     Footer Flatbuffer      │
+/// │  (Schema & Layout Offsets) │
+/// │                            │
+/// ├────────────────────────────┤
+/// │     8-byte End of File     │
+/// │  (Version, Footer Length,  │
+/// │       Magic Bytes)         │
+/// └────────────────────────────┘
+/// ```
+pub struct VortexReadBuilder<R> {
+    read_at: R,
     layout_serde: LayoutDeserializer,
     projection: Option<Projection>,
     size: Option<u64>,
@@ -23,10 +69,10 @@ pub struct LayoutBatchStreamBuilder<R> {
     row_filter: Option<RowFilter>,
 }
 
-impl<R: VortexReadAt> LayoutBatchStreamBuilder<R> {
-    pub fn new(reader: R, layout_serde: LayoutDeserializer) -> Self {
+impl<R: VortexReadAt> VortexReadBuilder<R> {
+    pub fn new(read_at: R, layout_serde: LayoutDeserializer) -> Self {
         Self {
-            reader,
+            read_at,
             layout_serde,
             projection: None,
             size: None,
@@ -61,13 +107,11 @@ impl<R: VortexReadAt> LayoutBatchStreamBuilder<R> {
     }
 
     pub async fn build(self) -> VortexResult<LayoutBatchStream<R>> {
-        let footer = LayoutDescriptorReader::new(self.layout_serde.clone())
-            .read_footer(&self.reader, self.size().await)
-            .await?;
+        let initial_read = read_initial_bytes(&self.read_at, self.size().await).await?;
+        let footer = initial_read.fb_footer()?;
+
         let row_count = footer.row_count()?;
-        let footer_dtype = Arc::new(
-            footer.lazily_projected_dtype(Projection::All)?,
-        );
+        let footer_dtype = Arc::new(footer.lazily_projected_dtype(Projection::All)?);
         let read_projection = self.projection.unwrap_or_default();
 
         let projected_dtype = match read_projection {
@@ -108,7 +152,7 @@ impl<R: VortexReadAt> LayoutBatchStreamBuilder<R> {
             .transpose()?;
 
         Ok(LayoutBatchStream::new(
-            self.reader,
+            self.read_at,
             layout_reader,
             filter_reader,
             message_cache,
@@ -121,7 +165,7 @@ impl<R: VortexReadAt> LayoutBatchStreamBuilder<R> {
     async fn size(&self) -> u64 {
         match self.size {
             Some(s) => s,
-            None => self.reader.size().await,
+            None => self.read_at.size().await,
         }
     }
 }

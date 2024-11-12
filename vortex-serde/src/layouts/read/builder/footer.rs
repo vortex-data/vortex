@@ -1,70 +1,22 @@
+use std::ops::Range;
+
 use bytes::{Bytes, BytesMut};
 use flatbuffers::{root, root_unchecked};
-use std::ops::Range;
 use vortex_dtype::field::Field;
 use vortex_dtype::flatbuffers::deserialize_and_project;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 use vortex_flatbuffers::{footer, message as fb};
 use vortex_schema::projection::Projection;
 
 use crate::io::VortexReadAt;
-use crate::layouts::read::cache::RelativeLayoutCache;
+use crate::layouts::read::cache::{LazilyDeserializedDType, RelativeLayoutCache};
 use crate::layouts::read::context::LayoutDeserializer;
 use crate::layouts::read::{LayoutReader, Scan, INITIAL_READ_SIZE};
-use crate::layouts::{EOF_SIZE, V1_FOOTER_FBS_SIZE, MAGIC_BYTES, VERSION};
+use crate::layouts::{EOF_SIZE, MAGIC_BYTES, V1_FOOTER_FBS_SIZE, VERSION};
 use crate::MESSAGE_PREFIX_LENGTH;
 
-use super::LazilyDeserializedDType;
 
-/// A description of the reified contents of a Vortex file, including dtype and layouts.
-/// 
-/// Note that the per-column statistics coming after the data is a writer implementation detail,
-/// rather than part of the spec. Additionally, because Layouts make the file essentially self-describing,
-/// the statistics need not even be Array IPC messages (though they are currently).
-///
-/// The file format specification requires only that:
-/// 
-/// 1. Data is written first, followed by...
-/// 2. An optional Schema, which if present is a valid DType flatbuffer, and is followed by...
-/// 3. The Layout, which is a valid Layout flatbuffer, and is followed by...
-/// 4. The Footer, which is a valid Footer flatbuffer, and is followed by...
-/// 5. The End-of-File marker, which is 8 bytes, and contains the u16 version, u16 footer length, and 4 magic bytes.
-///
-/// In particular, this class is constructed from the last four boxes from the diagram below: the
-/// schema, layout, footer, and the EOF.
-///
-/// # File Format
-/// ```text
-/// ┌────────────────────────────┐
-/// │                            │
-/// │            Data            │
-/// │    (Array IPC Messages)    │
-/// │                            │
-/// ├────────────────────────────┤
-/// │                            │
-/// │   Per-Column Statistics    │
-/// │                            │
-/// ├────────────────────────────┤
-/// │                            │
-/// │          Schema            │
-/// |     (DType Flatbuffer)     │
-/// │                            │
-/// ├────────────────────────────┤
-/// │                            │
-/// │     Layout Flatbuffer      │
-/// │                            │
-/// ├────────────────────────────┤
-/// │                            │
-/// │     Footer Flatbuffer      │
-/// │  (Schema & Layout Offsets) │
-/// │                            │
-/// ├────────────────────────────┤
-/// │     8-byte End of File     │
-/// │  (Version, Footer Length,  │
-/// │       Magic Bytes)         │
-/// └────────────────────────────┘
-/// ```
 #[derive(Debug)]
 pub struct LayoutDescriptor {
     /// The absolute byte offset representing the start of the schema within the file.
@@ -147,13 +99,15 @@ impl LayoutDescriptor {
 
     /// The bytes of the `Layout` flatbuffer.
     fn layout_bytes(&self) -> Bytes {
-        self.initial_read.slice(self.fb_layout_relative_byte_range())
+        self.initial_read
+            .slice(self.fb_layout_relative_byte_range())
     }
 
     /// The bytes of the `Schema` flatbuffer. Currently, the `Schema` flatbuffer only contains
     /// a single `DType` field.
     fn schema_bytes(&self) -> Bytes {
-        self.initial_read.slice(self.fb_schema_relative_byte_range())
+        self.initial_read
+            .slice(self.fb_schema_relative_byte_range())
     }
 
     /// The total number of rows contained in this file.
@@ -199,16 +153,10 @@ impl LayoutDescriptor {
         &self,
         projection: Projection,
     ) -> VortexResult<LazilyDeserializedDType> {
-        Ok(LazilyDeserializedDType::from_schema_bytes(self.schema_bytes(), projection))
-    }
-
-    /// The `Footer` flatbuffer.
-    fn fb_footer(&self) -> VortexResult<footer::Footer> {
-        // hack: we wrap the schema in a message right now, so we need to skip the 4-byte message prefix
-        let start_offset = self.layout_offset_relative() + MESSAGE_PREFIX_LENGTH;
-        let end_offset = self.initial_read.len() - V1_FOOTER_FBS_SIZE - EOF_SIZE;
-        let footer_bytes = &self.initial_read[start_offset..end_offset];
-        Ok(root::<footer::Footer>(footer_bytes)?)
+        Ok(LazilyDeserializedDType::from_schema_bytes(
+            self.schema_bytes(),
+            projection,
+        ))
     }
 
     /// The `Schema` flatbuffer, which contains the top-level DType.
@@ -221,64 +169,5 @@ impl LayoutDescriptor {
                 m.header_as_schema()
                     .ok_or_else(|| vortex_err!("Message was not a schema"))
             })
-    }
-}
-
-pub struct LayoutDescriptorReader {
-    layout_serde: LayoutDeserializer,
-}
-
-impl LayoutDescriptorReader {
-    pub fn new(layout_serde: LayoutDeserializer) -> Self {
-        Self { layout_serde }
-    }
-
-    pub async fn read_footer<R: VortexReadAt>(
-        &self,
-        read: &R,
-        file_size: u64,
-    ) -> VortexResult<LayoutDescriptor> {
-        if file_size < EOF_SIZE as u64 {
-            vortex_bail!(
-                "Malformed vortex file, size {} must be at least {}",
-                file_size,
-                EOF_SIZE,
-            )
-        }
-
-        let read_size = INITIAL_READ_SIZE.min(file_size as usize);
-        let mut buf = BytesMut::with_capacity(read_size);
-        unsafe { buf.set_len(read_size) }
-
-        let initial_read_offset = file_size - read_size as u64;
-        buf = read.read_at_into(initial_read_offset, buf).await?;
-
-        let eof_loc = read_size - EOF_SIZE;
-
-        let magic_bytes_loc = eof_loc + (EOF_SIZE - MAGIC_BYTES.len());
-        let magic_number = &buf[magic_bytes_loc..];
-        if magic_number != MAGIC_BYTES {
-            vortex_bail!("Malformed file, invalid magic bytes, got {magic_number:?}")
-        }
-
-        let version = u16::from_le_bytes(
-            buf[eof_loc..eof_loc + 2]
-                .try_into()
-                .map_err(|e| vortex_err!("Version was not a u16 {e}"))?,
-        );
-
-        if version != VERSION {
-            vortex_bail!("Malformed file, unsupported version {version}")
-        }
-
-        let fb_footer = root::<footer::Footer>(&buf[eof_loc - V1_FOOTER_FBS_SIZE..eof_loc])?;
-
-        LayoutDescriptor::try_new(
-            fb_footer.schema_offset(),
-            fb_footer.layout_offset(),
-            buf.freeze(),
-            initial_read_offset,
-            self.layout_serde.clone(),
-        )
     }
 }

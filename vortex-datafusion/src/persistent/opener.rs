@@ -11,7 +11,7 @@ use vortex_array::Context;
 use vortex_expr::datafusion::convert_expr_to_vortex;
 use vortex_serde::io::ObjectStoreReadAt;
 use vortex_serde::layouts::{
-    LayoutBatchStreamBuilder, LayoutContext, LayoutDeserializer, Projection, RowFilter,
+    VortexReadBuilder, LayoutContext, LayoutDeserializer, Projection, RowFilter,
 };
 
 pub struct VortexFileOpener {
@@ -27,7 +27,7 @@ impl FileOpener for VortexFileOpener {
         let read_at =
             ObjectStoreReadAt::new(self.object_store.clone(), file_meta.location().clone());
 
-        let mut builder = LayoutBatchStreamBuilder::new(
+        let mut builder = VortexReadBuilder::new(
             read_at,
             LayoutDeserializer::new(self.ctx.clone(), Arc::new(LayoutContext::default())),
         );

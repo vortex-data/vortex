@@ -9,21 +9,21 @@ use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexResult};
 use vortex_expr::{Column, Select};
 use vortex_flatbuffers::footer;
 
-use crate::layouts::read::batch::ColumnBatchReader;
+use crate::layouts::read::column_batch::ColumnBatchReader;
 use crate::layouts::read::cache::{LazilyDeserializedDType, RelativeLayoutCache};
 use crate::layouts::read::expr_project::expr_project;
 use crate::layouts::read::mask::RowMask;
 use crate::layouts::{
     BatchRead, LayoutDeserializer, LayoutId, LayoutReader, LayoutSpec, RowFilter, Scan,
-    COLUMN_LAYOUT_ID,
+    COLUMNAR_LAYOUT_ID,
 };
 
 #[derive(Debug)]
-pub struct ColumnLayoutSpec;
+pub struct ColumnarLayoutSpec;
 
-impl LayoutSpec for ColumnLayoutSpec {
+impl LayoutSpec for ColumnarLayoutSpec {
     fn id(&self) -> LayoutId {
-        COLUMN_LAYOUT_ID
+        COLUMNAR_LAYOUT_ID
     }
 
     fn layout(
@@ -34,7 +34,7 @@ impl LayoutSpec for ColumnLayoutSpec {
         layout_serde: LayoutDeserializer,
         message_cache: RelativeLayoutCache,
     ) -> VortexResult<Box<dyn LayoutReader>> {
-        Ok(Box::new(ColumnLayout::new(
+        Ok(Box::new(ColumnarLayout::new(
             fb_bytes,
             fb_loc,
             scan,
@@ -48,7 +48,7 @@ impl LayoutSpec for ColumnLayoutSpec {
 ///
 /// Each child represents a column
 #[derive(Debug)]
-pub struct ColumnLayout {
+pub struct ColumnarLayout {
     fb_bytes: Bytes,
     fb_loc: usize,
     scan: Scan,
@@ -57,7 +57,7 @@ pub struct ColumnLayout {
     reader: Option<ColumnBatchReader>,
 }
 
-impl ColumnLayout {
+impl ColumnarLayout {
     pub fn new(
         fb_bytes: Bytes,
         fb_loc: usize,
@@ -234,7 +234,7 @@ impl ColumnLayout {
     }
 }
 
-impl LayoutReader for ColumnLayout {
+impl LayoutReader for ColumnarLayout {
     fn add_splits(&self, row_offset: usize, splits: &mut BTreeSet<usize>) -> VortexResult<()> {
         for child in self.children_for_splits()? {
             child.add_splits(row_offset, splits)?

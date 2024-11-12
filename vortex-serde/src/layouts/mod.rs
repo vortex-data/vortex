@@ -162,7 +162,7 @@ mod forever_constant {
     /// The layout ID for a chunked layout
     pub const CHUNKED_LAYOUT_ID: LayoutId = LayoutId(2);
     /// The layout ID for a column layout
-    pub const COLUMN_LAYOUT_ID: LayoutId = LayoutId(3);
+    pub const COLUMNAR_LAYOUT_ID: LayoutId = LayoutId(3);
     /// The layout ID for an inline schema layout
     pub const INLINE_SCHEMA_LAYOUT_ID: LayoutId = LayoutId(4);
 
@@ -178,7 +178,7 @@ mod forever_constant {
             assert_eq!(EOF_SIZE, 8);
             assert_eq!(FLAT_LAYOUT_ID, LayoutId(1));
             assert_eq!(CHUNKED_LAYOUT_ID, LayoutId(2));
-            assert_eq!(COLUMN_LAYOUT_ID, LayoutId(3));
+            assert_eq!(COLUMNAR_LAYOUT_ID, LayoutId(3));
             assert_eq!(INLINE_SCHEMA_LAYOUT_ID, LayoutId(4));
         }
     }

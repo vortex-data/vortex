@@ -3,7 +3,7 @@ use flatbuffers::{FlatBufferBuilder, WIPOffset};
 use vortex_flatbuffers::{footer as fb, WriteFlatBuffer};
 
 use crate::layouts::{
-    LayoutId, CHUNKED_LAYOUT_ID, COLUMN_LAYOUT_ID, FLAT_LAYOUT_ID, INLINE_SCHEMA_LAYOUT_ID,
+    LayoutId, CHUNKED_LAYOUT_ID, COLUMNAR_LAYOUT_ID, FLAT_LAYOUT_ID, INLINE_SCHEMA_LAYOUT_ID,
 };
 use crate::stream_writer::ByteRange;
 
@@ -42,7 +42,7 @@ impl Layout {
 
     pub fn column(children: Vec<Layout>, row_count: u64) -> Self {
         Self {
-            id: COLUMN_LAYOUT_ID,
+            id: COLUMNAR_LAYOUT_ID,
             buffers: None,
             children: Some(children),
             row_count,
