@@ -5,14 +5,8 @@ table Buffer {
     end: uint64;
 }
 
-/// A `Checksum` is a simple container for a checksum algorithm identifier and the checksum payload itself.
-table Checksum {
-    algorithm: uint8;
-    checksum: [ubyte];
-}
-
 /// A `Layout` is a recursive data structure that describes the physical layout of the data in a Vortex file.
-/// As a starting, concrete example, there first three Layout encodings are defined as:
+/// As a starting, concrete example, the first three Layout encodings are defined as:
 ///
 /// 1. encoding == 1, `Flat` -> one buffer, zero child Layouts
 /// 2. encoding == 2, `Chunked` -> zero buffers, one or more child Layouts (used for chunks of rows)
@@ -33,33 +27,21 @@ table Layout {
     metadata: [ubyte];
 }
 
-/// The RootLayout is the outermost, variable-sized container for the layout, plus
-/// other related metadata that is useful for short-circuiting read requests on the
-/// "hot path" for the reader.
-table RootLayout {
-    layout: Layout;
-    checksum: Checksum;
-}
-
-/// The `Footer` is of compile-time known size, conditioned on the version in the `EndOfFile` message.
-/// The IO layer can then ensure that the footer is always read in its entirety in the first read request.
+/// The `Footer` is guaranteed by the file format to never exceed 65528 bytes (i.e., u16::MAX - 8 bytes)
+/// in length, and is immediately followed by an 8-byte `EndOfFile` struct.
 ///
-/// The `Footer` is followed immediately by an 8-byte `EndOfFile` struct. The `EndOfFile` cannot change size
-/// without breaking backwards compatibility. It is not written/read using flatbuffers (because fbs structs
-/// cannot be root_types, and a table would be 20 bytes instead of 8 bytes), but the equivalent flatbuffer
-/// declaration would be:
+/// The `EndOfFile` struct cannot change size without breaking backwards compatibility. It is not written/read
+/// using flatbuffers, but the equivalent flatbuffer definition would be:
 ///
 /// struct EndOfFile {
-///     version: [uint8; 4];
-///     magic: [uint8; 4]; // "VRTX"
+///     version: uint16;
+///     footer_length: uint16;
+///     magic: [uint8; 4]; // "VTXF"
 /// }
 ///
 table Footer {
     schema_offset: uint64;
     layout_offset: uint64;
-
-    // logically, after all other fields
-    // end_of_file: EndOfFile;
 }
 
 root_type RootLayout;

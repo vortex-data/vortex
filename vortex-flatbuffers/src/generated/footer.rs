@@ -9,133 +9,254 @@ use core::cmp::Ordering;
 extern crate flatbuffers;
 use self::flatbuffers::{EndianScalar, Follow};
 
-// struct Buffer, aligned to 8
-#[repr(transparent)]
-#[derive(Clone, Copy, PartialEq)]
-pub struct Buffer(pub [u8; 16]);
-impl Default for Buffer { 
-  fn default() -> Self { 
-    Self([0; 16])
-  }
+pub enum BufferOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+/// A `Buffer` is a simple container for the `begin` and `end` byte offsets within the file.
+/// These offsets are absolute (i.e., relative to the start of the file).
+pub struct Buffer<'a> {
+  pub _tab: flatbuffers::Table<'a>,
 }
-impl core::fmt::Debug for Buffer {
-  fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-    f.debug_struct("Buffer")
-      .field("begin", &self.begin())
-      .field("end", &self.end())
-      .finish()
+
+impl<'a> flatbuffers::Follow<'a> for Buffer<'a> {
+  type Inner = Buffer<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: flatbuffers::Table::new(buf, loc) }
   }
 }
 
-impl flatbuffers::SimpleToVerifyInSlice for Buffer {}
-impl<'a> flatbuffers::Follow<'a> for Buffer {
-  type Inner = &'a Buffer;
+impl<'a> Buffer<'a> {
+  pub const VT_BEGIN: flatbuffers::VOffsetT = 4;
+  pub const VT_END: flatbuffers::VOffsetT = 6;
+
   #[inline]
-  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-    <&'a Buffer>::follow(buf, loc)
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    Buffer { _tab: table }
   }
-}
-impl<'a> flatbuffers::Follow<'a> for &'a Buffer {
-  type Inner = &'a Buffer;
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args BufferArgs
+  ) -> flatbuffers::WIPOffset<Buffer<'bldr>> {
+    let mut builder = BufferBuilder::new(_fbb);
+    builder.add_end(args.end);
+    builder.add_begin(args.begin);
+    builder.finish()
+  }
+
+
   #[inline]
-  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-    flatbuffers::follow_cast_ref::<Buffer>(buf, loc)
+  pub fn begin(&self) -> u64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u64>(Buffer::VT_BEGIN, Some(0)).unwrap()}
   }
-}
-impl<'b> flatbuffers::Push for Buffer {
-    type Output = Buffer;
-    #[inline]
-    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
-        let src = ::core::slice::from_raw_parts(self as *const Buffer as *const u8, Self::size());
-        dst.copy_from_slice(src);
-    }
+  #[inline]
+  pub fn end(&self) -> u64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u64>(Buffer::VT_END, Some(0)).unwrap()}
+  }
 }
 
-impl<'a> flatbuffers::Verifiable for Buffer {
+impl flatbuffers::Verifiable for Buffer<'_> {
   #[inline]
   fn run_verifier(
     v: &mut flatbuffers::Verifier, pos: usize
   ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
     use self::flatbuffers::Verifiable;
-    v.in_buffer::<Self>(pos)
+    v.visit_table(pos)?
+     .visit_field::<u64>("begin", Self::VT_BEGIN, false)?
+     .visit_field::<u64>("end", Self::VT_END, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct BufferArgs {
+    pub begin: u64,
+    pub end: u64,
+}
+impl<'a> Default for BufferArgs {
+  #[inline]
+  fn default() -> Self {
+    BufferArgs {
+      begin: 0,
+      end: 0,
+    }
   }
 }
 
-impl<'a> Buffer {
-  #[allow(clippy::too_many_arguments)]
-  pub fn new(
-    begin: u64,
-    end: u64,
-  ) -> Self {
-    let mut s = Self([0; 16]);
-    s.set_begin(begin);
-    s.set_end(end);
-    s
+pub struct BufferBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> BufferBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_begin(&mut self, begin: u64) {
+    self.fbb_.push_slot::<u64>(Buffer::VT_BEGIN, begin, 0);
   }
-
-  pub fn begin(&self) -> u64 {
-    let mut mem = core::mem::MaybeUninit::<<u64 as EndianScalar>::Scalar>::uninit();
-    // Safety:
-    // Created from a valid Table for this object
-    // Which contains a valid value in this slot
-    EndianScalar::from_little_endian(unsafe {
-      core::ptr::copy_nonoverlapping(
-        self.0[0..].as_ptr(),
-        mem.as_mut_ptr() as *mut u8,
-        core::mem::size_of::<<u64 as EndianScalar>::Scalar>(),
-      );
-      mem.assume_init()
-    })
+  #[inline]
+  pub fn add_end(&mut self, end: u64) {
+    self.fbb_.push_slot::<u64>(Buffer::VT_END, end, 0);
   }
-
-  pub fn set_begin(&mut self, x: u64) {
-    let x_le = x.to_little_endian();
-    // Safety:
-    // Created from a valid Table for this object
-    // Which contains a valid value in this slot
-    unsafe {
-      core::ptr::copy_nonoverlapping(
-        &x_le as *const _ as *const u8,
-        self.0[0..].as_mut_ptr(),
-        core::mem::size_of::<<u64 as EndianScalar>::Scalar>(),
-      );
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> BufferBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    BufferBuilder {
+      fbb_: _fbb,
+      start_: start,
     }
   }
-
-  pub fn end(&self) -> u64 {
-    let mut mem = core::mem::MaybeUninit::<<u64 as EndianScalar>::Scalar>::uninit();
-    // Safety:
-    // Created from a valid Table for this object
-    // Which contains a valid value in this slot
-    EndianScalar::from_little_endian(unsafe {
-      core::ptr::copy_nonoverlapping(
-        self.0[8..].as_ptr(),
-        mem.as_mut_ptr() as *mut u8,
-        core::mem::size_of::<<u64 as EndianScalar>::Scalar>(),
-      );
-      mem.assume_init()
-    })
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<Buffer<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
   }
-
-  pub fn set_end(&mut self, x: u64) {
-    let x_le = x.to_little_endian();
-    // Safety:
-    // Created from a valid Table for this object
-    // Which contains a valid value in this slot
-    unsafe {
-      core::ptr::copy_nonoverlapping(
-        &x_le as *const _ as *const u8,
-        self.0[8..].as_mut_ptr(),
-        core::mem::size_of::<<u64 as EndianScalar>::Scalar>(),
-      );
-    }
-  }
-
 }
 
+impl core::fmt::Debug for Buffer<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("Buffer");
+      ds.field("begin", &self.begin());
+      ds.field("end", &self.end());
+      ds.finish()
+  }
+}
+pub enum ChecksumOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+/// A `Checksum` is a simple container for a checksum algorithm identifier and the checksum payload itself.
+pub struct Checksum<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for Checksum<'a> {
+  type Inner = Checksum<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: flatbuffers::Table::new(buf, loc) }
+  }
+}
+
+impl<'a> Checksum<'a> {
+  pub const VT_ALGORITHM: flatbuffers::VOffsetT = 4;
+  pub const VT_CHECKSUM: flatbuffers::VOffsetT = 6;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    Checksum { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args ChecksumArgs<'args>
+  ) -> flatbuffers::WIPOffset<Checksum<'bldr>> {
+    let mut builder = ChecksumBuilder::new(_fbb);
+    if let Some(x) = args.checksum { builder.add_checksum(x); }
+    builder.add_algorithm(args.algorithm);
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn algorithm(&self) -> u8 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u8>(Checksum::VT_ALGORITHM, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn checksum(&self) -> Option<flatbuffers::Vector<'a, u8>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u8>>>(Checksum::VT_CHECKSUM, None)}
+  }
+}
+
+impl flatbuffers::Verifiable for Checksum<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<u8>("algorithm", Self::VT_ALGORITHM, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u8>>>("checksum", Self::VT_CHECKSUM, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct ChecksumArgs<'a> {
+    pub algorithm: u8,
+    pub checksum: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u8>>>,
+}
+impl<'a> Default for ChecksumArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    ChecksumArgs {
+      algorithm: 0,
+      checksum: None,
+    }
+  }
+}
+
+pub struct ChecksumBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> ChecksumBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_algorithm(&mut self, algorithm: u8) {
+    self.fbb_.push_slot::<u8>(Checksum::VT_ALGORITHM, algorithm, 0);
+  }
+  #[inline]
+  pub fn add_checksum(&mut self, checksum: flatbuffers::WIPOffset<flatbuffers::Vector<'b , u8>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Checksum::VT_CHECKSUM, checksum);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> ChecksumBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    ChecksumBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<Checksum<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for Checksum<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("Checksum");
+      ds.field("algorithm", &self.algorithm());
+      ds.field("checksum", &self.checksum());
+      ds.finish()
+  }
+}
 pub enum LayoutOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
+/// A `Layout` is a recursive data structure that describes the physical layout of the data in a Vortex file.
+/// As a starting, concrete example, there first three Layout encodings are defined as:
+///
+/// 1. encoding == 1, `Flat` -> one buffer, zero child Layouts
+/// 2. encoding == 2, `Chunked` -> zero buffers, one or more child Layouts (used for chunks of rows)
+/// 3. encoding == 3, `Columnar` -> zero buffers, one or more child Layouts (used for columns of structs)
+///
+/// The `row_count` represents the number of rows represented by this Layout. This is very useful for
+/// pruning the Layout tree based on row filters.
+///
+/// The `metadata` field is fully opaque at this layer, and allows the Layout implementation corresponding to
+/// `encoding` to embed additional information that may be useful for the reader. For example, the `ChunkedLayout`
+/// uses the first byte of the `metadata` array as a boolean to indicate whether the first child Layout represents
+/// the statistics table for the other chunks. 
 pub struct Layout<'a> {
   pub _tab: flatbuffers::Table<'a>,
 }
@@ -152,7 +273,7 @@ impl<'a> Layout<'a> {
   pub const VT_ENCODING: flatbuffers::VOffsetT = 4;
   pub const VT_BUFFERS: flatbuffers::VOffsetT = 6;
   pub const VT_CHILDREN: flatbuffers::VOffsetT = 8;
-  pub const VT_LENGTH: flatbuffers::VOffsetT = 10;
+  pub const VT_ROW_COUNT: flatbuffers::VOffsetT = 10;
   pub const VT_METADATA: flatbuffers::VOffsetT = 12;
 
   #[inline]
@@ -165,7 +286,7 @@ impl<'a> Layout<'a> {
     args: &'args LayoutArgs<'args>
   ) -> flatbuffers::WIPOffset<Layout<'bldr>> {
     let mut builder = LayoutBuilder::new(_fbb);
-    builder.add_length(args.length);
+    builder.add_row_count(args.row_count);
     if let Some(x) = args.metadata { builder.add_metadata(x); }
     if let Some(x) = args.children { builder.add_children(x); }
     if let Some(x) = args.buffers { builder.add_buffers(x); }
@@ -182,11 +303,11 @@ impl<'a> Layout<'a> {
     unsafe { self._tab.get::<u16>(Layout::VT_ENCODING, Some(0)).unwrap()}
   }
   #[inline]
-  pub fn buffers(&self) -> Option<flatbuffers::Vector<'a, Buffer>> {
+  pub fn buffers(&self) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Buffer<'a>>>> {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, Buffer>>>(Layout::VT_BUFFERS, None)}
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Buffer>>>>(Layout::VT_BUFFERS, None)}
   }
   #[inline]
   pub fn children(&self) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Layout<'a>>>> {
@@ -196,11 +317,11 @@ impl<'a> Layout<'a> {
     unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Layout>>>>(Layout::VT_CHILDREN, None)}
   }
   #[inline]
-  pub fn length(&self) -> u64 {
+  pub fn row_count(&self) -> u64 {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<u64>(Layout::VT_LENGTH, Some(0)).unwrap()}
+    unsafe { self._tab.get::<u64>(Layout::VT_ROW_COUNT, Some(0)).unwrap()}
   }
   #[inline]
   pub fn metadata(&self) -> Option<flatbuffers::Vector<'a, u8>> {
@@ -219,9 +340,9 @@ impl flatbuffers::Verifiable for Layout<'_> {
     use self::flatbuffers::Verifiable;
     v.visit_table(pos)?
      .visit_field::<u16>("encoding", Self::VT_ENCODING, false)?
-     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, Buffer>>>("buffers", Self::VT_BUFFERS, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<Buffer>>>>("buffers", Self::VT_BUFFERS, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<Layout>>>>("children", Self::VT_CHILDREN, false)?
-     .visit_field::<u64>("length", Self::VT_LENGTH, false)?
+     .visit_field::<u64>("row_count", Self::VT_ROW_COUNT, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u8>>>("metadata", Self::VT_METADATA, false)?
      .finish();
     Ok(())
@@ -229,9 +350,9 @@ impl flatbuffers::Verifiable for Layout<'_> {
 }
 pub struct LayoutArgs<'a> {
     pub encoding: u16,
-    pub buffers: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, Buffer>>>,
+    pub buffers: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Buffer<'a>>>>>,
     pub children: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Layout<'a>>>>>,
-    pub length: u64,
+    pub row_count: u64,
     pub metadata: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u8>>>,
 }
 impl<'a> Default for LayoutArgs<'a> {
@@ -241,7 +362,7 @@ impl<'a> Default for LayoutArgs<'a> {
       encoding: 0,
       buffers: None,
       children: None,
-      length: 0,
+      row_count: 0,
       metadata: None,
     }
   }
@@ -257,7 +378,7 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> LayoutBuilder<'a, 'b, A> {
     self.fbb_.push_slot::<u16>(Layout::VT_ENCODING, encoding, 0);
   }
   #[inline]
-  pub fn add_buffers(&mut self, buffers: flatbuffers::WIPOffset<flatbuffers::Vector<'b , Buffer>>) {
+  pub fn add_buffers(&mut self, buffers: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<Buffer<'b >>>>) {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Layout::VT_BUFFERS, buffers);
   }
   #[inline]
@@ -265,8 +386,8 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> LayoutBuilder<'a, 'b, A> {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Layout::VT_CHILDREN, children);
   }
   #[inline]
-  pub fn add_length(&mut self, length: u64) {
-    self.fbb_.push_slot::<u64>(Layout::VT_LENGTH, length, 0);
+  pub fn add_row_count(&mut self, row_count: u64) {
+    self.fbb_.push_slot::<u64>(Layout::VT_ROW_COUNT, row_count, 0);
   }
   #[inline]
   pub fn add_metadata(&mut self, metadata: flatbuffers::WIPOffset<flatbuffers::Vector<'b , u8>>) {
@@ -293,14 +414,144 @@ impl core::fmt::Debug for Layout<'_> {
       ds.field("encoding", &self.encoding());
       ds.field("buffers", &self.buffers());
       ds.field("children", &self.children());
-      ds.field("length", &self.length());
+      ds.field("row_count", &self.row_count());
       ds.field("metadata", &self.metadata());
+      ds.finish()
+  }
+}
+pub enum RootLayoutOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+/// The RootLayout is the outermost, variable-sized container for the layout, plus
+/// other related metadata that is useful for short-circuiting read requests on the
+/// "hot path" for the reader.
+pub struct RootLayout<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for RootLayout<'a> {
+  type Inner = RootLayout<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: flatbuffers::Table::new(buf, loc) }
+  }
+}
+
+impl<'a> RootLayout<'a> {
+  pub const VT_LAYOUT: flatbuffers::VOffsetT = 4;
+  pub const VT_CHECKSUM: flatbuffers::VOffsetT = 6;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    RootLayout { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args RootLayoutArgs<'args>
+  ) -> flatbuffers::WIPOffset<RootLayout<'bldr>> {
+    let mut builder = RootLayoutBuilder::new(_fbb);
+    if let Some(x) = args.checksum { builder.add_checksum(x); }
+    if let Some(x) = args.layout { builder.add_layout(x); }
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn layout(&self) -> Option<Layout<'a>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<Layout>>(RootLayout::VT_LAYOUT, None)}
+  }
+  #[inline]
+  pub fn checksum(&self) -> Option<Checksum<'a>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<Checksum>>(RootLayout::VT_CHECKSUM, None)}
+  }
+}
+
+impl flatbuffers::Verifiable for RootLayout<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<flatbuffers::ForwardsUOffset<Layout>>("layout", Self::VT_LAYOUT, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<Checksum>>("checksum", Self::VT_CHECKSUM, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct RootLayoutArgs<'a> {
+    pub layout: Option<flatbuffers::WIPOffset<Layout<'a>>>,
+    pub checksum: Option<flatbuffers::WIPOffset<Checksum<'a>>>,
+}
+impl<'a> Default for RootLayoutArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    RootLayoutArgs {
+      layout: None,
+      checksum: None,
+    }
+  }
+}
+
+pub struct RootLayoutBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> RootLayoutBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_layout(&mut self, layout: flatbuffers::WIPOffset<Layout<'b >>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Layout>>(RootLayout::VT_LAYOUT, layout);
+  }
+  #[inline]
+  pub fn add_checksum(&mut self, checksum: flatbuffers::WIPOffset<Checksum<'b >>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Checksum>>(RootLayout::VT_CHECKSUM, checksum);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> RootLayoutBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    RootLayoutBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<RootLayout<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for RootLayout<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("RootLayout");
+      ds.field("layout", &self.layout());
+      ds.field("checksum", &self.checksum());
       ds.finish()
   }
 }
 pub enum FooterOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
+/// The `Footer` is of compile-time known size, conditioned on the version in the `EndOfFile` message.
+/// The IO layer can then ensure that the footer is always read in its entirety in the first read request.
+///
+/// The `Footer` is followed immediately by an 8-byte `EndOfFile` struct. The `EndOfFile` cannot change size
+/// without breaking backwards compatibility. It is not written/read using flatbuffers (because fbs structs
+/// cannot be root_types, and a table would be 20 bytes instead of 8 bytes), but the equivalent flatbuffer
+/// declaration would be:
+///
+/// struct EndOfFile {
+///     version: [uint8; 4];
+///     magic: [uint8; 4]; // "VRTX"
+/// }
+///
 pub struct Footer<'a> {
   pub _tab: flatbuffers::Table<'a>,
 }
@@ -314,8 +565,8 @@ impl<'a> flatbuffers::Follow<'a> for Footer<'a> {
 }
 
 impl<'a> Footer<'a> {
-  pub const VT_LAYOUT: flatbuffers::VOffsetT = 4;
-  pub const VT_ROW_COUNT: flatbuffers::VOffsetT = 6;
+  pub const VT_SCHEMA_OFFSET: flatbuffers::VOffsetT = 4;
+  pub const VT_LAYOUT_OFFSET: flatbuffers::VOffsetT = 6;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -324,28 +575,28 @@ impl<'a> Footer<'a> {
   #[allow(unused_mut)]
   pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
     _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
-    args: &'args FooterArgs<'args>
+    args: &'args FooterArgs
   ) -> flatbuffers::WIPOffset<Footer<'bldr>> {
     let mut builder = FooterBuilder::new(_fbb);
-    builder.add_row_count(args.row_count);
-    if let Some(x) = args.layout { builder.add_layout(x); }
+    builder.add_layout_offset(args.layout_offset);
+    builder.add_schema_offset(args.schema_offset);
     builder.finish()
   }
 
 
   #[inline]
-  pub fn layout(&self) -> Option<Layout<'a>> {
+  pub fn schema_offset(&self) -> u64 {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<Layout>>(Footer::VT_LAYOUT, None)}
+    unsafe { self._tab.get::<u64>(Footer::VT_SCHEMA_OFFSET, Some(0)).unwrap()}
   }
   #[inline]
-  pub fn row_count(&self) -> u64 {
+  pub fn layout_offset(&self) -> u64 {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<u64>(Footer::VT_ROW_COUNT, Some(0)).unwrap()}
+    unsafe { self._tab.get::<u64>(Footer::VT_LAYOUT_OFFSET, Some(0)).unwrap()}
   }
 }
 
@@ -356,22 +607,22 @@ impl flatbuffers::Verifiable for Footer<'_> {
   ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
     use self::flatbuffers::Verifiable;
     v.visit_table(pos)?
-     .visit_field::<flatbuffers::ForwardsUOffset<Layout>>("layout", Self::VT_LAYOUT, false)?
-     .visit_field::<u64>("row_count", Self::VT_ROW_COUNT, false)?
+     .visit_field::<u64>("schema_offset", Self::VT_SCHEMA_OFFSET, false)?
+     .visit_field::<u64>("layout_offset", Self::VT_LAYOUT_OFFSET, false)?
      .finish();
     Ok(())
   }
 }
-pub struct FooterArgs<'a> {
-    pub layout: Option<flatbuffers::WIPOffset<Layout<'a>>>,
-    pub row_count: u64,
+pub struct FooterArgs {
+    pub schema_offset: u64,
+    pub layout_offset: u64,
 }
-impl<'a> Default for FooterArgs<'a> {
+impl<'a> Default for FooterArgs {
   #[inline]
   fn default() -> Self {
     FooterArgs {
-      layout: None,
-      row_count: 0,
+      schema_offset: 0,
+      layout_offset: 0,
     }
   }
 }
@@ -382,12 +633,12 @@ pub struct FooterBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
 }
 impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> FooterBuilder<'a, 'b, A> {
   #[inline]
-  pub fn add_layout(&mut self, layout: flatbuffers::WIPOffset<Layout<'b >>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Layout>>(Footer::VT_LAYOUT, layout);
+  pub fn add_schema_offset(&mut self, schema_offset: u64) {
+    self.fbb_.push_slot::<u64>(Footer::VT_SCHEMA_OFFSET, schema_offset, 0);
   }
   #[inline]
-  pub fn add_row_count(&mut self, row_count: u64) {
-    self.fbb_.push_slot::<u64>(Footer::VT_ROW_COUNT, row_count, 0);
+  pub fn add_layout_offset(&mut self, layout_offset: u64) {
+    self.fbb_.push_slot::<u64>(Footer::VT_LAYOUT_OFFSET, layout_offset, 0);
   }
   #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> FooterBuilder<'a, 'b, A> {
@@ -407,122 +658,8 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> FooterBuilder<'a, 'b, A> {
 impl core::fmt::Debug for Footer<'_> {
   fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
     let mut ds = f.debug_struct("Footer");
-      ds.field("layout", &self.layout());
-      ds.field("row_count", &self.row_count());
-      ds.finish()
-  }
-}
-pub enum PostscriptOffset {}
-#[derive(Copy, Clone, PartialEq)]
-
-pub struct Postscript<'a> {
-  pub _tab: flatbuffers::Table<'a>,
-}
-
-impl<'a> flatbuffers::Follow<'a> for Postscript<'a> {
-  type Inner = Postscript<'a>;
-  #[inline]
-  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-    Self { _tab: flatbuffers::Table::new(buf, loc) }
-  }
-}
-
-impl<'a> Postscript<'a> {
-  pub const VT_SCHEMA_OFFSET: flatbuffers::VOffsetT = 4;
-  pub const VT_FOOTER_OFFSET: flatbuffers::VOffsetT = 6;
-
-  #[inline]
-  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
-    Postscript { _tab: table }
-  }
-  #[allow(unused_mut)]
-  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
-    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
-    args: &'args PostscriptArgs
-  ) -> flatbuffers::WIPOffset<Postscript<'bldr>> {
-    let mut builder = PostscriptBuilder::new(_fbb);
-    builder.add_footer_offset(args.footer_offset);
-    builder.add_schema_offset(args.schema_offset);
-    builder.finish()
-  }
-
-
-  #[inline]
-  pub fn schema_offset(&self) -> u64 {
-    // Safety:
-    // Created from valid Table for this object
-    // which contains a valid value in this slot
-    unsafe { self._tab.get::<u64>(Postscript::VT_SCHEMA_OFFSET, Some(0)).unwrap()}
-  }
-  #[inline]
-  pub fn footer_offset(&self) -> u64 {
-    // Safety:
-    // Created from valid Table for this object
-    // which contains a valid value in this slot
-    unsafe { self._tab.get::<u64>(Postscript::VT_FOOTER_OFFSET, Some(0)).unwrap()}
-  }
-}
-
-impl flatbuffers::Verifiable for Postscript<'_> {
-  #[inline]
-  fn run_verifier(
-    v: &mut flatbuffers::Verifier, pos: usize
-  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
-    use self::flatbuffers::Verifiable;
-    v.visit_table(pos)?
-     .visit_field::<u64>("schema_offset", Self::VT_SCHEMA_OFFSET, false)?
-     .visit_field::<u64>("footer_offset", Self::VT_FOOTER_OFFSET, false)?
-     .finish();
-    Ok(())
-  }
-}
-pub struct PostscriptArgs {
-    pub schema_offset: u64,
-    pub footer_offset: u64,
-}
-impl<'a> Default for PostscriptArgs {
-  #[inline]
-  fn default() -> Self {
-    PostscriptArgs {
-      schema_offset: 0,
-      footer_offset: 0,
-    }
-  }
-}
-
-pub struct PostscriptBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
-  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
-  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
-}
-impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> PostscriptBuilder<'a, 'b, A> {
-  #[inline]
-  pub fn add_schema_offset(&mut self, schema_offset: u64) {
-    self.fbb_.push_slot::<u64>(Postscript::VT_SCHEMA_OFFSET, schema_offset, 0);
-  }
-  #[inline]
-  pub fn add_footer_offset(&mut self, footer_offset: u64) {
-    self.fbb_.push_slot::<u64>(Postscript::VT_FOOTER_OFFSET, footer_offset, 0);
-  }
-  #[inline]
-  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> PostscriptBuilder<'a, 'b, A> {
-    let start = _fbb.start_table();
-    PostscriptBuilder {
-      fbb_: _fbb,
-      start_: start,
-    }
-  }
-  #[inline]
-  pub fn finish(self) -> flatbuffers::WIPOffset<Postscript<'a>> {
-    let o = self.fbb_.end_table(self.start_);
-    flatbuffers::WIPOffset::new(o.value())
-  }
-}
-
-impl core::fmt::Debug for Postscript<'_> {
-  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-    let mut ds = f.debug_struct("Postscript");
       ds.field("schema_offset", &self.schema_offset());
-      ds.field("footer_offset", &self.footer_offset());
+      ds.field("layout_offset", &self.layout_offset());
       ds.finish()
   }
 }

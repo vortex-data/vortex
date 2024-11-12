@@ -40,7 +40,7 @@ use crate::FLATBUFFER_SIZE_LENGTH;
 /// │                            │
 /// ├────────────────────────────┤
 /// │                            │
-/// │        Postscript          │
+/// │          Footer            │
 /// │  (Schema/Footer Offsets)   │
 /// │        (32 bytes)          │
 /// │                            │
