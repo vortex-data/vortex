@@ -1,6 +1,6 @@
 /// A `Buffer` is a simple container for the `begin` and `end` byte offsets within the file.
 /// These offsets are absolute (i.e., relative to the start of the file).
-table Buffer {
+struct Buffer {
     begin: uint64;
     end: uint64;
 }

@@ -72,14 +72,14 @@ Encodings
 ^^^^^^^^^
 
 - Most of the Arrow encodings.
-- Chunked, a sequence of arrays.
-- Constant, a value and a length.
-- Sparse, a default value, plus a pair of arrays representing exceptions: an array of indices and of values.
+- Chunked: a sequence of arrays.
+- Constant: a value and a length.
+- Sparse: a default value, plus a pair of arrays representing exceptions: an array of indices and of values.
 - FastLanes Frame-of-Reference, BitPacking, and Delta.
 - Fast Static Symbol Table (FSST).
 - Adapative Lossless Floating Point (ALP).
 - ALP Real Double (ALP-RD).
-- ByteBool, one byte per Boolean value.
+- ByteBool: one byte per Boolean value.
 - ZigZag.
 
 Specification
