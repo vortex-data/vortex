@@ -8,7 +8,7 @@ SPHINXBUILD   ?= sphinx-build
 SOURCEDIR     = .
 BUILDDIR      = _build
 
-.PHONY: Makefile help clean rust-html
+.PHONY: Makefile help rust-html
 
 # Put it first so that "make" without argument is like "make help".
 help:
