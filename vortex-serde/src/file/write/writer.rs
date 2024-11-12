@@ -136,7 +136,7 @@ impl<W: VortexWrite> LayoutWriter<W> {
         self.msgs.write_message(layout).await?;
 
         // their offsets are the contents of the footer
-        Ok(Footer::try_new(schema_offset, layout_offset)?)
+        Footer::try_new(schema_offset, layout_offset)
     }
 
     async fn write_footer(&mut self, footer: Footer) -> VortexResult<u16> {

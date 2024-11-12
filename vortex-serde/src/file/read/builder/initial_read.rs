@@ -1,13 +1,17 @@
 use core::ops::Range;
 
 use bytes::{Bytes, BytesMut};
-use flatbuffers::root;
+use flatbuffers::{root, root_unchecked};
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_flatbuffers::footer::{self, Footer};
+use vortex_flatbuffers::message;
+use vortex_schema::projection::Projection;
 
+use crate::file::{LazilyDeserializedDType, EOF_SIZE, INITIAL_READ_SIZE, MAGIC_BYTES, VERSION};
 use crate::io::VortexReadAt;
-use crate::file::{EOF_SIZE, INITIAL_READ_SIZE, MAGIC_BYTES, VERSION};
-use vortex_flatbuffers::footer::Footer;
+use crate::MESSAGE_PREFIX_LENGTH;
 
+#[derive(Debug)]
 pub(crate) struct InitialRead {
     /// The bytes from the initial read of the file, which is assumed (for now) to be sufficiently
     /// large to contain the schema and layout.
@@ -20,7 +24,48 @@ pub(crate) struct InitialRead {
 
 impl InitialRead {
     pub fn fb_footer(&self) -> VortexResult<Footer> {
-        Ok(root::<Footer>(&self.buf[self.fb_footer_byte_range.clone()])?)
+        Ok(unsafe { root_unchecked::<Footer>(&self.buf[self.fb_footer_byte_range.clone()]) })
+    }
+
+    /// The bytes of the `Layout` flatbuffer.
+    pub fn fb_layout_byte_range(&self) -> VortexResult<Range<usize>> {
+        let footer = self.fb_footer()?;
+        let layout_start = (footer.layout_offset() - self.initial_read_offset) as usize;
+
+        // HACK: we wrap the layout in a Message right now, so we need to skip the 4-byte message prefix
+        let layout_start = layout_start + MESSAGE_PREFIX_LENGTH;
+        let layout_end = self.fb_footer_byte_range.start;
+
+        Ok(layout_start..layout_end)
+    }
+
+    /// The `Layout` flatbuffer.
+    pub fn fb_layout(&self) -> VortexResult<footer::Layout> {
+        Ok(unsafe { root_unchecked::<footer::Layout>(&self.buf[self.fb_layout_byte_range()?]) })
+    }
+
+    /// The bytes of the `Schema` flatbuffer.
+    pub fn fb_schema_byte_range(&self) -> VortexResult<Range<usize>> {
+        let footer = self.fb_footer()?;
+        let schema_start = (footer.schema_offset() - self.initial_read_offset) as usize;
+
+        // HACK: we wrap the schema in a Message right now, so we need to skip the 4-byte message prefix
+        let schema_start = schema_start + MESSAGE_PREFIX_LENGTH;
+        let schema_end = (footer.layout_offset() - self.initial_read_offset) as usize;
+
+        Ok(schema_start..schema_end)
+    }
+
+    /// The `Schema` flatbuffer.
+    pub fn fb_schema(&self) -> VortexResult<message::Schema> {
+        Ok(unsafe { root_unchecked::<message::Schema>(&self.buf[self.fb_schema_byte_range()?]) })
+    }
+
+    pub fn lazy_dtype(&self) -> VortexResult<LazilyDeserializedDType> {
+        Ok(LazilyDeserializedDType::from_schema_bytes(
+            self.buf.slice(self.fb_schema_byte_range()?),
+            Projection::All,
+        ))
     }
 }
 
@@ -76,6 +121,8 @@ pub(crate) async fn read_initial_bytes<R: VortexReadAt>(
 
     let footer_loc = eof_loc - footer_size;
     let fb_footer_byte_range = footer_loc..eof_loc;
+
+    // we validate the footer here
     let footer = root::<Footer>(&buf[fb_footer_byte_range.clone()])?;
     let schema_offset = footer.schema_offset();
     let layout_offset = footer.layout_offset();
@@ -114,9 +161,8 @@ pub(crate) async fn read_initial_bytes<R: VortexReadAt>(
 
 #[cfg(test)]
 mod tests {
-    use crate::file::MAX_FOOTER_SIZE;
-
     use super::*;
+    use crate::file::MAX_FOOTER_SIZE;
 
     #[test]
     fn big_enough_initial_read() {

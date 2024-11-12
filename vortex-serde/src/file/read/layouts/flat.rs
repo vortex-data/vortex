@@ -23,7 +23,7 @@ impl LayoutSpec for FlatLayoutSpec {
         FLAT_LAYOUT_ID
     }
 
-    fn layout(
+    fn layout_reader(
         &self,
         fb_bytes: Bytes,
         fb_loc: usize,

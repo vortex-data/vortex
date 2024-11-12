@@ -25,12 +25,12 @@ impl Display for LayoutId {
 pub trait LayoutSpec: Debug + Send + Sync {
     fn id(&self) -> LayoutId;
 
-    fn layout(
+    fn layout_reader(
         &self,
         fb_bytes: Bytes,
         fb_loc: usize,
         scan: Scan,
-        layout_reader: LayoutDeserializer,
+        layout_serde: LayoutDeserializer,
         message_cache: RelativeLayoutCache,
     ) -> VortexResult<Box<dyn LayoutReader>>;
 }
@@ -94,7 +94,7 @@ impl LayoutDeserializer {
         self.layout_ctx
             .lookup_layout(&layout_id)
             .ok_or_else(|| vortex_err!("Unknown layout definition {layout_id}"))?
-            .layout(fb_bytes, fb_loc, scan, self.clone(), message_cache)
+            .layout_reader(fb_bytes, fb_loc, scan, self.clone(), message_cache)
     }
 
     pub(crate) fn ctx(&self) -> Arc<Context> {

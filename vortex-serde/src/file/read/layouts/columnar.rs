@@ -26,7 +26,7 @@ impl LayoutSpec for ColumnarLayoutSpec {
         COLUMNAR_LAYOUT_ID
     }
 
-    fn layout(
+    fn layout_reader(
         &self,
         fb_bytes: Bytes,
         fb_loc: usize,
@@ -270,7 +270,7 @@ mod tests {
     use crate::file::read::cache::RelativeLayoutCache;
     use crate::file::read::layouts::test_read::{filter_read_layout, read_layout};
     use crate::file::{
-        LayoutDescriptorReader, LayoutDeserializer, LayoutMessageCache, LayoutReader, LayoutWriter,
+        LayoutDeserializer, LayoutMessageCache, LayoutReader, LayoutWriter,
         RowFilter, Scan,
     };
 

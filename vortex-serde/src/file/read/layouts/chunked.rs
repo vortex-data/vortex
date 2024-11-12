@@ -20,7 +20,7 @@ impl LayoutSpec for ChunkedLayoutSpec {
         CHUNKED_LAYOUT_ID
     }
 
-    fn layout(
+    fn layout_reader(
         &self,
         fb_bytes: Bytes,
         fb_loc: usize,

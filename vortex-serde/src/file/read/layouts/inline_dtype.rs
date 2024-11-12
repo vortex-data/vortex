@@ -24,7 +24,7 @@ impl LayoutSpec for InlineDTypeLayoutSpec {
         INLINE_SCHEMA_LAYOUT_ID
     }
 
-    fn layout(
+    fn layout_reader(
         &self,
         fb_bytes: Bytes,
         fb_loc: usize,

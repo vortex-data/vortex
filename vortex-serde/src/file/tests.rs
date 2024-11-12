@@ -15,7 +15,7 @@ use vortex_expr::{BinaryExpr, Column, Literal, Operator};
 
 use crate::file::write::LayoutWriter;
 use crate::file::{
-    VortexReadBuilder, LayoutDescriptorReader, LayoutDeserializer, LayoutMessageCache, Projection, RelativeLayoutCache, RowFilter, Scan, V1_FOOTER_FBS_SIZE, VERSION
+    VortexReadBuilder, LayoutDeserializer, LayoutMessageCache, Projection, RelativeLayoutCache, RowFilter, Scan, V1_FOOTER_FBS_SIZE, VERSION
 };
 
 #[test]

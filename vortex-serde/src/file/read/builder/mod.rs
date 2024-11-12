@@ -1,22 +1,22 @@
 use std::sync::{Arc, RwLock};
 
-use bytes::BytesMut;
-use layout_reader::read_initial_bytes;
-use initial_read::read_initial_bytes;
+use initial_read::{read_initial_bytes, InitialRead};
 use vortex_array::{Array, ArrayDType};
-use vortex_error::VortexResult;
+use vortex_dtype::flatbuffers::deserialize_and_project;
+use vortex_dtype::DType;
+use vortex_error::{vortex_err, VortexResult};
 use vortex_expr::Select;
 use vortex_schema::projection::Projection;
 
-use super::RowMask;
-use crate::io::VortexReadAt;
 use crate::file::read::cache::{LayoutMessageCache, RelativeLayoutCache};
 use crate::file::read::context::LayoutDeserializer;
 use crate::file::read::filtering::RowFilter;
 use crate::file::read::stream::LayoutBatchStream;
-use crate::file::read::Scan;
+use crate::file::read::{RowMask, Scan};
+use crate::io::VortexReadAt;
 
-mod layout_reader;
+use super::LayoutReader;
+
 mod initial_read;
 
 /// Builder for reading Vortex files.
@@ -107,21 +107,29 @@ impl<R: VortexReadAt> VortexReadBuilder<R> {
     }
 
     pub async fn build(self) -> VortexResult<LayoutBatchStream<R>> {
+        // we do a large enough initial read to get footer, layout, and schema
         let initial_read = read_initial_bytes(&self.read_at, self.size().await).await?;
-        let footer = initial_read.fb_footer()?;
 
-        let row_count = footer.row_count()?;
-        let footer_dtype = Arc::new(footer.lazily_projected_dtype(Projection::All)?);
+        let layout = initial_read.fb_layout()?;
+        let schema = initial_read.fb_schema()?;
+
+        let row_count = layout.row_count();
+        let footer_dtype = Arc::new(initial_read.lazy_dtype()?);
         let read_projection = self.projection.unwrap_or_default();
 
-        let projected_dtype = match read_projection {
-            Projection::All => footer.dtype()?,
-            Projection::Flat(ref projection) => footer.projected_dtype(projection)?,
+        let projected_dtype = {
+            let fb_dtype = schema.dtype().ok_or_else(|| vortex_err!(InvalidSerde: "Schema missing DType"))?;
+            match read_projection {
+                Projection::All => DType::try_from(fb_dtype)?,
+                Projection::Flat(ref projection) => deserialize_and_project(fb_dtype, projection)?,
+            }
         };
 
         let message_cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
 
-        let layout_reader = footer.layout_reader(
+        let layout_reader = read_layout(
+            &initial_read,
+            &self.layout_serde,
             Scan::new(match read_projection {
                 Projection::All => None,
                 Projection::Flat(p) => Some(Arc::new(Select::include(p))),
@@ -129,10 +137,11 @@ impl<R: VortexReadAt> VortexReadBuilder<R> {
             RelativeLayoutCache::new(message_cache.clone(), footer_dtype.clone()),
         )?;
 
-        let filter_reader = self
-            .row_filter
+        let filter_reader = self.row_filter
             .map(|row_filter| {
-                footer.layout_reader(
+                read_layout(
+                    &initial_read,
+                    &self.layout_serde,
                     Scan::new(Some(Arc::new(row_filter))),
                     RelativeLayoutCache::new(message_cache.clone(), footer_dtype),
                 )
@@ -168,4 +177,15 @@ impl<R: VortexReadAt> VortexReadBuilder<R> {
             None => self.read_at.size().await,
         }
     }
+}
+
+fn read_layout(
+    initial_read: &InitialRead,
+    layout_serde: &LayoutDeserializer,
+    scan: Scan,
+    message_cache: RelativeLayoutCache,
+) -> VortexResult<Box<dyn LayoutReader>> {
+    let layout_bytes = initial_read.buf.slice(initial_read.fb_layout_byte_range()?);
+    let fb_loc = initial_read.fb_layout()?._tab.loc();
+    layout_serde.read_layout(layout_bytes, fb_loc, scan, message_cache)
 }
