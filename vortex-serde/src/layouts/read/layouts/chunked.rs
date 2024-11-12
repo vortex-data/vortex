@@ -95,10 +95,10 @@ impl ChunkedLayout {
 
     fn child_ranges(&self) -> Vec<(usize, usize)> {
         self.children()
-            .map(|(_, c)| c.length())
-            .scan(0u64, |acc, length| {
+            .map(|(_, c)| c.row_count())
+            .scan(0u64, |acc, row_count| {
                 let current = *acc;
-                *acc += length;
+                *acc += row_count;
                 Some((current as usize, *acc as usize))
             })
             .collect::<Vec<_>>()

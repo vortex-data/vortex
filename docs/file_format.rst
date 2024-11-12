@@ -17,14 +17,14 @@ Layouts
 
 Vortex arrays have the same binary representation in-memory, on-disk, and over-the-wire; however,
 all the rows of all the columns are not necessarily contiguously laid out. Vortex currently has
-three kinds of *layouts* which recursively compose: the *flat layout*, the *column layout*, and
+three kinds of *layouts* which recursively compose: the *flat layout*, the *columnar layout*, and
 the *chunked layout*.
 
 The flat layout is a contiguous sequence of bytes. *Any* Vortex array encoding (including
 struct-typed arrays) can be serialized into the flat layout.
 
-The column layout lays out each column of a struct-typed array as a separate sequence of bytes. Each
-column may or may not recursively use a chunked layout. Column layouts permit readers to push-down
+The columnar layout lays out each column of a struct-typed array as a separate sequence of bytes. Each
+column may or may not recursively use a chunked layout. Columnar layouts permit readers to push-down
 column projections.
 
 The chunked layout lays out an array as a sequence of row chunks. Each chunk may have a different
@@ -34,15 +34,16 @@ equivalent to Parquet's row groups.
 
 A few examples of concrete layouts:
 
-1. Chunked of struct of chunked of flat: essentially a Parquet layout with row groups in which each
+1. Chunked of columnar of chunked of flat: essentially a Parquet layout with row groups in which each
    column's values are contiguously stored in pages. Note that in this case, the pages within each
    "row group" may be of different sizes / do not have to be aligned.
-2. Struct of chunked of flat: eliminates row groups, retaining only pages.
-3. Struct of flat: prevents row filter push-down because each array is, to the layout, an opaque
-   sequence of bytes.
+2. Columnar of chunked of flat: eliminates row groups, retaining only pages.
+3. Columnar of flat: prevents row filter push-down because each column is an opaque sequence of bytes.
 
-The chunked layout stores, per chunk, metadata necessary for effective row filtering such as
-sortedness, constancy, the minimum value, the maximum value, and the number of null rows.
+The chunked layout has an optional child that corresponds to a Vortex `StructArray` of per-chunk
+statistics (sometimes referred to as a "statistics table"), which contains metadata necessary for
+effective row filtering such as sortedness, the minimum value, the maximum value, and the number of
+null rows. Other statistics (e.g., sortedness) are stored inline with the data.
 
 The current writer implementation writes all such "metadata" IPC messages after writing all of the
 "data" IPC messages (allowing us to maximize the probability that metadata pruning can proceed
@@ -60,10 +61,10 @@ format specification. Instead, it is fully described by the layout.
 
    +++
 
-   The Vortex file format has six sections: data, statistics, schema, layout, and the footer. The
-   postscript describes the locating of the schema and layout which in turn describe how to
-   interpret the data and metadata. The schema describes the logical type. The metadata contains
-   information necessary for row filtering.
+   In practice, the Vortex file format has four top-level sections: IPC messages (data, followed by
+   statistics), schema, layout, and the footer. The footer describes the location of the schema
+   and layout, which in turn describe how to interpret the serialized IPC messages. The schema
+   describes the logical type.
 
 .. _included-codecs:
 
@@ -73,7 +74,7 @@ Encodings
 - Most of the Arrow encodings.
 - Chunked, a sequence of arrays.
 - Constant, a value and a length.
-- Sparse, a value plus a pair of arrays representing exceptions: an array of indices and of values.
+- Sparse, a default value, plus a pair of arrays representing exceptions: an array of indices and of values.
 - FastLanes Frame-of-Reference, BitPacking, and Delta.
 - Fast Static Symbol Table (FSST).
 - Adapative Lossless Floating Point (ALP).

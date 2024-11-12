@@ -17,7 +17,7 @@ use crate::layouts::write::LayoutWriter;
 use crate::layouts::{
     LayoutBatchStreamBuilder, LayoutDescriptorReader, LayoutDeserializer, LayoutMessageCache,
     LazyDeserializedDType, Projection, RelativeLayoutCache, RowFilter, Scan, CHUNKED_LAYOUT_ID,
-    COLUMN_LAYOUT_ID, EOF_SIZE, FLAT_LAYOUT_ID, FOOTER_POSTSCRIPT_SIZE, INLINE_SCHEMA_LAYOUT_ID,
+    COLUMN_LAYOUT_ID, EOF_SIZE, FLAT_LAYOUT_ID, FOOTER_FBS_SIZE, INLINE_SCHEMA_LAYOUT_ID,
     MAGIC_BYTES, VERSION,
 };
 
@@ -26,7 +26,7 @@ fn test_constants() {
     // the footer postscript size can change iff we increment the version
     // i.e., it must be 32 bytes iff VERSION == 1
     assert_eq!(VERSION, 1);
-    assert_eq!(FOOTER_POSTSCRIPT_SIZE, 32);
+    assert_eq!(FOOTER_FBS_SIZE, 32);
 
     // these constants can never change (without breaking all existing files)
     assert_eq!(MAGIC_BYTES, *b"VRTX");

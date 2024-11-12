@@ -10,13 +10,25 @@ use crate::io::VortexReadAt;
 use crate::layouts::read::cache::RelativeLayoutCache;
 use crate::layouts::read::context::LayoutDeserializer;
 use crate::layouts::read::{LayoutReader, Scan, INITIAL_READ_SIZE};
-use crate::layouts::{EOF_SIZE, FOOTER_POSTSCRIPT_SIZE, MAGIC_BYTES, VERSION};
+use crate::layouts::{EOF_SIZE, FOOTER_FBS_SIZE, MAGIC_BYTES, VERSION};
 use crate::FLATBUFFER_SIZE_LENGTH;
 
-/// A description of the contents of a Vortex file, including dtype and layouts.
+/// A description of the reified contents of a Vortex file, including dtype and layouts.
+/// 
+/// Note that the per-column statistics coming after the data is a writer implementation detail,
+/// rather than part of the spec. Additionally, because Layouts make the file essentially self-describing,
+/// the statistics need not even be Array IPC messages (though they are currently).
 ///
-/// In particular, this class is constructed from the last five sections of a Vortex file: the
-/// schema (data type), footer, postscript, version, and magic bytes.
+/// The file format specification requires only that:
+/// 
+/// 1. Data is written first, followed by...
+/// 2. An optional Schema, which if present is a valid DType flatbuffer, and is followed by...
+/// 3. The Layout, which is a valid Layout flatbuffer, and is followed by...
+/// 4. The Footer, which is a valid Footer flatbuffer, and is followed by...
+/// 5. The End-of-File marker, which is 8 bytes, and contains the u16 version, u16 footer length, and 4 magic bytes.
+///
+/// In particular, this class is constructed from the last four boxes from the diagram below: the
+/// schema, layout, footer, and the EOF.
 ///
 /// # File Format
 /// ```text
@@ -27,27 +39,26 @@ use crate::FLATBUFFER_SIZE_LENGTH;
 /// │                            │
 /// ├────────────────────────────┤
 /// │                            │
-/// │     Per-Column Metadata    │
+/// │   Per-Column Statistics    │
 /// │                            │
 /// ├────────────────────────────┤
 /// │                            │
 /// │          Schema            │
+/// |     (DType Flatbuffer)     │
 /// │                            │
 /// ├────────────────────────────┤
 /// │                            │
-/// │          Footer            │
-/// │    (Layouts + Row Count)   │
+/// │     Layout Flatbuffer      │
 /// │                            │
 /// ├────────────────────────────┤
 /// │                            │
-/// │          Footer            │
-/// │  (Schema/Footer Offsets)   │
-/// │        (32 bytes)          │
+/// │     Footer Flatbuffer      │
+/// │  (Schema & Layout Offsets) │
 /// │                            │
 /// ├────────────────────────────┤
-/// │   Version Info (4 bytes)   │
-/// ├────────────────────────────┤
-/// │    Magic bytes (4 bytes)   │
+/// │     8-byte End of File     │
+/// │  (Version, Footer Length,  │
+/// │       Magic Bytes)         │
 /// └────────────────────────────┘
 /// ```
 #[derive(Debug)]
@@ -80,7 +91,7 @@ impl LayoutDescriptor {
         message_cache: RelativeLayoutCache,
     ) -> VortexResult<Box<dyn LayoutReader>> {
         let start_offset = self.initial_read_layout_offset();
-        let end_offset = self.initial_read.len() - FOOTER_POSTSCRIPT_SIZE - EOF_SIZE;
+        let end_offset = self.initial_read.len() - FOOTER_FBS_SIZE - EOF_SIZE;
         let footer_bytes = self
             .initial_read
             .slice(start_offset + FLATBUFFER_SIZE_LENGTH..end_offset);
@@ -123,7 +134,7 @@ impl LayoutDescriptor {
 
     fn fb_footer(&self) -> VortexResult<footer::Footer> {
         let start_offset = self.initial_read_layout_offset();
-        let end_offset = self.initial_read.len() - FOOTER_POSTSCRIPT_SIZE - EOF_SIZE;
+        let end_offset = self.initial_read.len() - FOOTER_FBS_SIZE - EOF_SIZE;
         let footer_bytes = &self.initial_read[start_offset + FLATBUFFER_SIZE_LENGTH..end_offset];
         Ok(root::<footer::Footer>(footer_bytes)?)
     }
@@ -189,7 +200,7 @@ impl LayoutDescriptorReader {
             vortex_bail!("Malformed file, unsupported version {version}")
         }
 
-        let ps = root::<footer::Postscript>(&buf[eof_loc - FOOTER_POSTSCRIPT_SIZE..eof_loc])?;
+        let ps = root::<footer::Postscript>(&buf[eof_loc - FOOTER_FBS_SIZE..eof_loc])?;
 
         Ok(LayoutDescriptor {
             schema_offset: ps.schema_offset(),

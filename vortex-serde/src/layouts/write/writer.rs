@@ -278,7 +278,7 @@ mod tests {
     use vortex_flatbuffers::WriteFlatBuffer;
 
     use crate::layouts::write::footer::Postscript;
-    use crate::layouts::{LayoutWriter, FOOTER_POSTSCRIPT_SIZE};
+    use crate::layouts::{LayoutWriter, FOOTER_FBS_SIZE};
 
     #[test]
     fn write_columns() {
@@ -309,7 +309,7 @@ mod tests {
 
         assert_eq!(
             buffer[buffer_begin..buffer_end].len(),
-            FOOTER_POSTSCRIPT_SIZE
+            FOOTER_FBS_SIZE
         );
         assert_eq!(buffer[buffer_begin..buffer_end].len(), 32);
     }
