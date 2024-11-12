@@ -1,5 +1,6 @@
 use bytes::{Bytes, BytesMut};
 use flatbuffers::{root, root_unchecked};
+use std::ops::Range;
 use vortex_dtype::field::Field;
 use vortex_dtype::flatbuffers::deserialize_and_project;
 use vortex_dtype::DType;
@@ -11,8 +12,8 @@ use crate::io::VortexReadAt;
 use crate::layouts::read::cache::RelativeLayoutCache;
 use crate::layouts::read::context::LayoutDeserializer;
 use crate::layouts::read::{LayoutReader, Scan, INITIAL_READ_SIZE};
-use crate::layouts::{EOF_SIZE, FOOTER_FBS_SIZE, MAGIC_BYTES, VERSION};
-use crate::FBS_TABLE_PREFIX_LENGTH;
+use crate::layouts::{EOF_SIZE, V1_FOOTER_FBS_SIZE, MAGIC_BYTES, VERSION};
+use crate::MESSAGE_PREFIX_LENGTH;
 
 use super::LazilyDeserializedDType;
 
@@ -95,11 +96,11 @@ impl LayoutDescriptor {
                 initial_read_offset,
             )
         }
-        // must be enough to contain the footer, eof, and two empty fbs tables (schema & layout)
-        if initial_read.len() < FOOTER_FBS_SIZE + EOF_SIZE + 2 * FBS_TABLE_PREFIX_LENGTH {
+        // must be enough to contain the footer, eof, and two empty messages (schema & layout)
+        if initial_read.len() < V1_FOOTER_FBS_SIZE + EOF_SIZE + 2 * MESSAGE_PREFIX_LENGTH {
             vortex_bail!(
                 "Initial read must be at least {} bytes, got {}",
-                FOOTER_FBS_SIZE + EOF_SIZE + 2 * FBS_TABLE_PREFIX_LENGTH,
+                V1_FOOTER_FBS_SIZE + EOF_SIZE + 2 * MESSAGE_PREFIX_LENGTH,
                 initial_read.len(),
             )
         }
@@ -125,24 +126,34 @@ impl LayoutDescriptor {
         (self.schema_offset - self.initial_read_offset) as usize
     }
 
+    fn fb_schema_relative_byte_range(&self) -> Range<usize> {
+        // HACK: we wrap the schema in a message right now, so we need to skip the 4-byte message prefix
+        let start_offset = self.schema_offset_relative() + MESSAGE_PREFIX_LENGTH;
+        let end_offset = self.layout_offset_relative();
+        start_offset..end_offset
+    }
+
+    fn fb_layout_relative_byte_range(&self) -> Range<usize> {
+        // HACK: we wrap the layout in a message right now, so we need to skip the 4-byte message prefix
+        let start_offset = self.layout_offset_relative() + MESSAGE_PREFIX_LENGTH;
+        let end_offset = self.initial_read.len() - V1_FOOTER_FBS_SIZE - EOF_SIZE;
+        start_offset..end_offset
+    }
+
     /// The start offset of the layout within the byte buffer produced by the initial read.
     fn layout_offset_relative(&self) -> usize {
         (self.layout_offset - self.initial_read_offset) as usize
     }
 
-    /// The bytes of the `Layout` flatbuffer, skipping the flatbuffer length prefix.
+    /// The bytes of the `Layout` flatbuffer.
     fn layout_bytes(&self) -> Bytes {
-        let start_offset = self.layout_offset_relative() + FBS_TABLE_PREFIX_LENGTH;
-        let end_offset = self.initial_read.len() - FOOTER_FBS_SIZE - EOF_SIZE;
-        self.initial_read.slice(start_offset..end_offset)
+        self.initial_read.slice(self.fb_layout_relative_byte_range())
     }
 
-    /// The bytes of the `Schema` flatbuffer, skipping the flatbuffer length prefix.
-    /// Currently, the `Schema` flatbuffer only contains a DType.
+    /// The bytes of the `Schema` flatbuffer. Currently, the `Schema` flatbuffer only contains
+    /// a single `DType` field.
     fn schema_bytes(&self) -> Bytes {
-        let start_offset = self.schema_offset_relative() + FBS_TABLE_PREFIX_LENGTH;
-        let end_offset = self.layout_offset_relative();
-        self.initial_read.slice(start_offset..end_offset)
+        self.initial_read.slice(self.fb_schema_relative_byte_range())
     }
 
     /// The total number of rows contained in this file.
@@ -191,20 +202,20 @@ impl LayoutDescriptor {
         Ok(LazilyDeserializedDType::from_schema_bytes(self.schema_bytes(), projection))
     }
 
-    /// The Footer flatbuffer.
+    /// The `Footer` flatbuffer.
     fn fb_footer(&self) -> VortexResult<footer::Footer> {
-        let start_offset = self.layout_offset_relative() + FBS_TABLE_PREFIX_LENGTH;
-        let end_offset = self.initial_read.len() - FOOTER_FBS_SIZE - EOF_SIZE;
+        // hack: we wrap the schema in a message right now, so we need to skip the 4-byte message prefix
+        let start_offset = self.layout_offset_relative() + MESSAGE_PREFIX_LENGTH;
+        let end_offset = self.initial_read.len() - V1_FOOTER_FBS_SIZE - EOF_SIZE;
         let footer_bytes = &self.initial_read[start_offset..end_offset];
         Ok(root::<footer::Footer>(footer_bytes)?)
     }
 
+    /// The `Schema` flatbuffer, which contains the top-level DType.
     fn fb_schema(&self) -> VortexResult<fb::Schema> {
-        let start_offset = self.schema_offset_relative() + FBS_TABLE_PREFIX_LENGTH;
-        let end_offset = self.layout_offset_relative();
-        let dtype_bytes = &self.initial_read[start_offset..end_offset];
-
-        root::<fb::Message>(dtype_bytes)
+        // hack: we wrap the schema in a message right now, so we need to skip the 4-byte message prefix
+        let schema_msg_bytes = &self.initial_read[self.fb_schema_relative_byte_range()];
+        root::<fb::Message>(schema_msg_bytes)
             .map_err(|e| e.into())
             .and_then(|m| {
                 m.header_as_schema()
@@ -239,8 +250,8 @@ impl LayoutDescriptorReader {
         let mut buf = BytesMut::with_capacity(read_size);
         unsafe { buf.set_len(read_size) }
 
-        let read_offset = file_size - read_size as u64;
-        buf = read.read_at_into(read_offset, buf).await?;
+        let initial_read_offset = file_size - read_size as u64;
+        buf = read.read_at_into(initial_read_offset, buf).await?;
 
         let eof_loc = read_size - EOF_SIZE;
 
@@ -260,14 +271,14 @@ impl LayoutDescriptorReader {
             vortex_bail!("Malformed file, unsupported version {version}")
         }
 
-        let ps = root::<footer::Postscript>(&buf[eof_loc - FOOTER_FBS_SIZE..eof_loc])?;
+        let fb_footer = root::<footer::Footer>(&buf[eof_loc - V1_FOOTER_FBS_SIZE..eof_loc])?;
 
-        Ok(LayoutDescriptor {
-            schema_offset: ps.schema_offset(),
-            layout_offset: ps.footer_offset(),
-            initial_read: buf.freeze(),
-            initial_read_offset: read_offset,
-            layout_serde: self.layout_serde.clone(),
-        })
+        LayoutDescriptor::try_new(
+            fb_footer.schema_offset(),
+            fb_footer.layout_offset(),
+            buf.freeze(),
+            initial_read_offset,
+            self.layout_serde.clone(),
+        )
     }
 }

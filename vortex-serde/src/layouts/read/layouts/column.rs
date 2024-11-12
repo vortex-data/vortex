@@ -267,7 +267,7 @@ mod tests {
     use vortex_expr::{BinaryExpr, Column, Literal, Operator};
     use vortex_schema::projection::Projection;
 
-    use crate::layouts::read::cache::{LazilyDeserializedDType, RelativeLayoutCache};
+    use crate::layouts::read::cache::RelativeLayoutCache;
     use crate::layouts::read::layouts::test_read::{filter_read_layout, read_layout};
     use crate::layouts::{
         LayoutDescriptorReader, LayoutDeserializer, LayoutMessageCache, LayoutReader, LayoutWriter,
@@ -307,10 +307,7 @@ mod tests {
             .await
             .unwrap();
 
-        let dtype = Arc::new(LazilyDeserializedDType::from_schema_bytes(
-            footer.dtype_bytes().unwrap(),
-            Projection::All,
-        ));
+        let dtype = Arc::new(footer.lazily_projected_dtype(Projection::All).unwrap());
         (
             footer
                 .layout_reader(scan, RelativeLayoutCache::new(cache.clone(), dtype.clone()))

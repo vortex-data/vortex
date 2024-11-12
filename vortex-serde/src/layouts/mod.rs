@@ -141,15 +141,49 @@ mod pruning;
 #[cfg(test)]
 mod tests;
 
+/// The current version of the Vortex file format
 pub const VERSION: u16 = 1;
-pub const FOOTER_FBS_SIZE: usize = 32;
-pub const MAGIC_BYTES: [u8; 4] = *b"VTXF";
-pub const EOF_SIZE: usize = 8;
+/// The size of the footer in bytes in Vortex version 1
+pub const V1_FOOTER_FBS_SIZE: usize = 32;
 
-pub const FLAT_LAYOUT_ID: LayoutId = LayoutId(1);
-pub const CHUNKED_LAYOUT_ID: LayoutId = LayoutId(2);
-pub const COLUMN_LAYOUT_ID: LayoutId = LayoutId(3);
-pub const INLINE_SCHEMA_LAYOUT_ID: LayoutId = LayoutId(4);
+/// Constants that will never change (i.e., doing so would break backwards compatibility)
+mod forever_constant {
+    use super::*;
 
+    /// The maximum length of a Vortex footer in bytes
+    pub const MAX_FOOTER_SIZE: u16 = u16::MAX - 8;
+    /// The magic bytes for a Vortex file
+    pub const MAGIC_BYTES: [u8; 4] = *b"VTXF";
+    /// The size of the EOF marker in bytes
+    pub const EOF_SIZE: usize = 8;
+
+    /// The layout ID for a flat layout
+    pub const FLAT_LAYOUT_ID: LayoutId = LayoutId(1);
+    /// The layout ID for a chunked layout
+    pub const CHUNKED_LAYOUT_ID: LayoutId = LayoutId(2);
+    /// The layout ID for a column layout
+    pub const COLUMN_LAYOUT_ID: LayoutId = LayoutId(3);
+    /// The layout ID for an inline schema layout
+    pub const INLINE_SCHEMA_LAYOUT_ID: LayoutId = LayoutId(4);
+
+    #[cfg(test)]
+    mod test {
+        use super::*;
+
+        #[test]
+        fn never_change_these_constants() {
+            assert_eq!(V1_FOOTER_FBS_SIZE, 32);
+            assert_eq!(MAX_FOOTER_SIZE, 65528);
+            assert_eq!(MAGIC_BYTES, *b"VTXF");
+            assert_eq!(EOF_SIZE, 8);
+            assert_eq!(FLAT_LAYOUT_ID, LayoutId(1));
+            assert_eq!(CHUNKED_LAYOUT_ID, LayoutId(2));
+            assert_eq!(COLUMN_LAYOUT_ID, LayoutId(3));
+            assert_eq!(INLINE_SCHEMA_LAYOUT_ID, LayoutId(4));
+        }
+    }
+}
+
+pub use forever_constant::*;
 pub use read::*;
 pub use write::*;

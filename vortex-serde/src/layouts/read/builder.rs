@@ -7,7 +7,7 @@ use vortex_schema::projection::Projection;
 
 use super::RowMask;
 use crate::io::VortexReadAt;
-use crate::layouts::read::cache::{LayoutMessageCache, LazilyDeserializedDType, RelativeLayoutCache};
+use crate::layouts::read::cache::{LayoutMessageCache, RelativeLayoutCache};
 use crate::layouts::read::context::LayoutDeserializer;
 use crate::layouts::read::filtering::RowFilter;
 use crate::layouts::read::footer::LayoutDescriptorReader;
@@ -64,10 +64,10 @@ impl<R: VortexReadAt> LayoutBatchStreamBuilder<R> {
         let footer = LayoutDescriptorReader::new(self.layout_serde.clone())
             .read_footer(&self.reader, self.size().await)
             .await?;
-        let footer_dtype = Arc::new(LazilyDeserializedDType::from_schema_bytes(
-            footer.dtype_bytes()?,
-            Projection::All,
-        ));
+        let row_count = footer.row_count()?;
+        let footer_dtype = Arc::new(
+            footer.lazily_projected_dtype(Projection::All)?,
+        );
         let read_projection = self.projection.unwrap_or_default();
 
         let projected_dtype = match read_projection {
@@ -84,7 +84,6 @@ impl<R: VortexReadAt> LayoutBatchStreamBuilder<R> {
             }),
             RelativeLayoutCache::new(message_cache.clone(), footer_dtype.clone()),
         )?;
-        let row_count = layout_reader.as_ref().row_count()?;
 
         let filter_reader = self
             .row_filter

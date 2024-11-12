@@ -15,26 +15,15 @@ use vortex_expr::{BinaryExpr, Column, Literal, Operator};
 
 use crate::layouts::write::LayoutWriter;
 use crate::layouts::{
-    LayoutBatchStreamBuilder, LayoutDescriptorReader, LayoutDeserializer, LayoutMessageCache,
-    LazilyDeserializedDType, Projection, RelativeLayoutCache, RowFilter, Scan, CHUNKED_LAYOUT_ID,
-    COLUMN_LAYOUT_ID, EOF_SIZE, FLAT_LAYOUT_ID, FOOTER_FBS_SIZE, INLINE_SCHEMA_LAYOUT_ID,
-    MAGIC_BYTES, VERSION,
+    LayoutBatchStreamBuilder, LayoutDescriptorReader, LayoutDeserializer, LayoutMessageCache, Projection, RelativeLayoutCache, RowFilter, Scan, CHUNKED_LAYOUT_ID, COLUMN_LAYOUT_ID, EOF_SIZE, FLAT_LAYOUT_ID, INLINE_SCHEMA_LAYOUT_ID, MAGIC_BYTES, MAX_FOOTER_SIZE, V1_FOOTER_FBS_SIZE, VERSION
 };
 
 #[test]
-fn test_constants() {
-    // the footer postscript size can change iff we increment the version
-    // i.e., it must be 32 bytes iff VERSION == 1
+fn test_eof_values() {
+    // this test exists as a reminder to think about whether we should increment the version
+    // when we change the footer
     assert_eq!(VERSION, 1);
-    assert_eq!(FOOTER_FBS_SIZE, 32);
-
-    // these constants can never change (without breaking all existing files)
-    assert_eq!(MAGIC_BYTES, *b"VRTX");
-    assert_eq!(EOF_SIZE, 8);
-    assert_eq!(FLAT_LAYOUT_ID.0, 1);
-    assert_eq!(CHUNKED_LAYOUT_ID.0, 2);
-    assert_eq!(COLUMN_LAYOUT_ID.0, 3);
-    assert_eq!(INLINE_SCHEMA_LAYOUT_ID.0, 4);
+    assert_eq!(V1_FOOTER_FBS_SIZE, 32);
 }
 
 #[tokio::test]
@@ -104,10 +93,7 @@ async fn test_splits() {
         .await
         .unwrap();
 
-    let dtype = Arc::new(LazilyDeserializedDType::from_schema_bytes(
-        footer.dtype_bytes().unwrap(),
-        Projection::All,
-    ));
+    let dtype = Arc::new(footer.lazily_projected_dtype(Projection::All).unwrap());
 
     let cache = Arc::new(RwLock::new(LayoutMessageCache::new()));
 

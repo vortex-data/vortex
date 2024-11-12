@@ -12,7 +12,7 @@ use vortex_flatbuffers::WriteFlatBuffer;
 
 use crate::io::VortexWrite;
 use crate::layouts::write::footer::{Footer, Postscript};
-use crate::layouts::write::layouts::Layout;
+use crate::layouts::write::layout::Layout;
 use crate::layouts::write::metadata_accumulators::{new_metadata_accumulator, MetadataAccumulator};
 use crate::layouts::{EOF_SIZE, MAGIC_BYTES, VERSION};
 use crate::stream_writer::ByteRange;
@@ -119,7 +119,8 @@ impl<W: VortexWrite> LayoutWriter<W> {
         Ok(Layout::column(column_layouts, self.row_count))
     }
 
-    async fn write_footer(&mut self, footer: Footer) -> VortexResult<Postscript> {
+    async fn write_schema_and_layout(&mut self, layout: Layout) -> VortexResult<Footer> {
+        // write the schema
         let schema_offset = self.msgs.tell();
         self.msgs
             .write_dtype(
@@ -129,19 +130,36 @@ impl<W: VortexWrite> LayoutWriter<W> {
                     .ok_or_else(|| vortex_err!("Schema should be written by now"))?,
             )
             .await?;
-        let footer_offset = self.msgs.tell();
+
+        // then write the layout
+        let layout_offset = self.msgs.tell();
+        self.msgs.write_message(layout).await?;
+
+        // their offsets are the contents of the footer
+        Ok(Footer::try_new(schema_offset, layout_offset)?)
+    }
+
+    async fn write_footer(&mut self, footer: Footer) -> VortexResult<u64> {
+        let footer_start = self.msgs.tell();
         self.msgs.write_message(footer).await?;
-        Ok(Postscript::new(schema_offset, footer_offset))
+
+        let footer_len = self.msgs.tell() - footer_start;
+        if footer_len > (u16::MAX - 8) as u64 {
+            vortex_bail!(
+                "Footer is too large ({} bytes); max footer size is {}",
+                footer_len,
+                u16::MAX - 8
+            );
+        }
+        Ok(footer_len)
     }
 
     pub async fn finalize(mut self) -> VortexResult<W> {
         let top_level_layout = self.write_metadata_arrays().await?;
-        let ps = self
-            .write_footer(Footer::new(top_level_layout, self.row_count))
+        let footer = self
+            .write_schema_and_layout(top_level_layout)
             .await?;
-
-        let mut w = self.msgs.into_inner();
-        w = write_fb_raw(w, ps).await?;
+        let footer_len = self.write_footer(footer).await?;
 
         let mut eof = [0u8; EOF_SIZE];
         eof[0..2].copy_from_slice(&VERSION.to_le_bytes());
@@ -277,8 +295,8 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_flatbuffers::WriteFlatBuffer;
 
-    use crate::layouts::write::footer::Postscript;
-    use crate::layouts::{LayoutWriter, FOOTER_FBS_SIZE};
+    use crate::layouts::write::footer::Footer;
+    use crate::layouts::{LayoutWriter, V1_FOOTER_FBS_SIZE};
 
     #[test]
     fn write_columns() {
@@ -299,18 +317,17 @@ mod tests {
     }
 
     #[test]
-    fn postscript_size() {
-        let ps = Postscript::new(1000000u64, 1100000u64);
+    fn footer_size() {
+        let footer = Footer::try_new(1000000u64, 1100000u64).unwrap();
         let mut fbb = FlatBufferBuilder::new();
-        let ps_fb = ps.write_flatbuffer(&mut fbb);
-        fbb.finish_minimal(ps_fb);
+        let footer_fb = footer.write_flatbuffer(&mut fbb);
+        fbb.finish_minimal(footer_fb);
         let (buffer, buffer_begin) = fbb.collapse();
         let buffer_end = buffer.len();
 
         assert_eq!(
             buffer[buffer_begin..buffer_end].len(),
-            FOOTER_FBS_SIZE
+            V1_FOOTER_FBS_SIZE
         );
-        assert_eq!(buffer[buffer_begin..buffer_end].len(), 32);
     }
 }

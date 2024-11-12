@@ -1,17 +1,26 @@
 use flatbuffers::{FlatBufferBuilder, WIPOffset};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_flatbuffers::{footer as fb, WriteFlatBuffer};
-
-use crate::layouts::write::layouts::Layout;
 
 #[derive(Debug)]
 pub struct Footer {
-    layout: Layout,
-    row_count: u64,
+    schema_offset: u64,
+    layout_offset: u64,
 }
 
 impl Footer {
-    pub fn new(layout: Layout, row_count: u64) -> Self {
-        Self { layout, row_count }
+    pub fn try_new(schema_offset: u64, layout_offset: u64) -> VortexResult<Self> {
+        if layout_offset < schema_offset {
+            vortex_bail!(
+                "layout_offset ({}) must be greater than or equal to schema_offset ({})",
+                layout_offset,
+                schema_offset
+            );
+        }
+        Ok(Self {
+            schema_offset,
+            layout_offset,
+        })
     }
 }
 
@@ -22,44 +31,11 @@ impl WriteFlatBuffer for Footer {
         &self,
         fbb: &mut FlatBufferBuilder<'fb>,
     ) -> WIPOffset<Self::Target<'fb>> {
-        let layout_offset = self.layout.write_flatbuffer(fbb);
         fb::Footer::create(
             fbb,
             &fb::FooterArgs {
-                layout: Some(layout_offset),
-                row_count: self.row_count,
-            },
-        )
-    }
-}
-
-#[derive(Debug)]
-pub struct Postscript {
-    schema_offset: u64,
-    footer_offset: u64,
-}
-
-impl Postscript {
-    pub fn new(schema_offset: u64, footer_offset: u64) -> Self {
-        Self {
-            schema_offset,
-            footer_offset,
-        }
-    }
-}
-
-impl WriteFlatBuffer for Postscript {
-    type Target<'a> = fb::Postscript<'a>;
-
-    fn write_flatbuffer<'fb>(
-        &self,
-        fbb: &mut FlatBufferBuilder<'fb>,
-    ) -> WIPOffset<Self::Target<'fb>> {
-        fb::Postscript::create(
-            fbb,
-            &fb::PostscriptArgs {
                 schema_offset: self.schema_offset,
-                footer_offset: self.footer_offset,
+                layout_offset: self.layout_offset,
             },
         )
     }

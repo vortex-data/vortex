@@ -13,7 +13,7 @@ use crate::layouts::{
     BatchRead, LayoutDeserializer, LayoutId, LayoutPartId, LayoutReader, LayoutSpec, Message, Scan,
     INLINE_SCHEMA_LAYOUT_ID,
 };
-use crate::messages::reader::FBS_TABLE_PREFIX_LENGTH;
+use crate::messages::reader::MESSAGE_PREFIX_LENGTH;
 use crate::stream_writer::ByteRange;
 
 #[derive(Debug)]
@@ -92,7 +92,7 @@ impl InlineDTypeLayout {
 
     fn dtype(&self) -> VortexResult<DTypeReadResult> {
         if let Some(dt_bytes) = self.message_cache.get(&[INLINE_DTYPE_BUFFER_IDX]) {
-            let msg = root::<message::Message>(&dt_bytes[FBS_TABLE_PREFIX_LENGTH..])?
+            let msg = root::<message::Message>(&dt_bytes[MESSAGE_PREFIX_LENGTH..])?
                 .header_as_schema()
                 .ok_or_else(|| vortex_err!("Expected schema message"))?;
 
