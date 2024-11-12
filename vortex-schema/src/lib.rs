@@ -14,7 +14,7 @@ impl Schema {
         Self(schema_dtype)
     }
 
-    pub fn project(&self, projection: Projection) -> VortexResult<Self> {
+    pub fn project(&self, projection: &Projection) -> VortexResult<Self> {
         match projection {
             Projection::All => Ok(self.clone()),
             Projection::Flat(fields) => {
@@ -23,6 +23,12 @@ impl Schema {
                 };
                 s.project(fields.as_ref())
                     .map(|p| Self(DType::Struct(p, *n)))
+            }
+            Projection::SingleField(f) => {
+                let DType::Struct(s, _) = &self.0 else {
+                    vortex_bail!("Can't project non struct types")
+                };
+                Ok(Self(s.field_info(f)?.dtype.clone()))
             }
         }
     }

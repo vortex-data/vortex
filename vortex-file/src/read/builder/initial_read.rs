@@ -5,7 +5,6 @@ use flatbuffers::{root, root_unchecked};
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 use vortex_flatbuffers::{footer, message};
 use vortex_io::VortexReadAt;
-use vortex_schema::projection::Projection;
 
 use crate::{
     LayoutDeserializer, LayoutReader, LazilyDeserializedDType, RelativeLayoutCache, Scan, EOF_SIZE,
@@ -61,7 +60,6 @@ impl InitialRead {
         unsafe {
             Ok(LazilyDeserializedDType::from_schema_bytes(
                 self.buf.slice(self.fb_schema_byte_range()?),
-                Projection::All,
             ))
         }
     }
@@ -176,8 +174,7 @@ pub async fn read_initial_bytes<R: VortexReadAt>(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::MAX_FOOTER_SIZE;
+    use crate::{EOF_SIZE, INITIAL_READ_SIZE, MAX_FOOTER_SIZE};
 
     #[test]
     fn big_enough_initial_read() {

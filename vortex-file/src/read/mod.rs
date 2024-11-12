@@ -4,10 +4,8 @@ use std::fmt::Debug;
 use vortex_array::ArrayData;
 use vortex_error::VortexResult;
 
-mod buffered;
 pub mod builder;
 mod cache;
-mod column_batch;
 mod context;
 mod expr_project;
 mod filtering;
@@ -84,5 +82,5 @@ pub trait LayoutReader: Debug + Send {
     /// creating the invoked instance of this trait and then call back into this function.
     ///
     /// The layout is finished producing data for selection when it returns None
-    fn read_selection(&mut self, selector: &RowMask) -> VortexResult<Option<BatchRead>>;
+    fn read_selection(&self, selector: &RowMask) -> VortexResult<Option<BatchRead>>;
 }

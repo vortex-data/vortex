@@ -1,13 +1,15 @@
+use std::fmt::{Debug, Formatter};
 use std::sync::{Arc, RwLock};
 
 use bytes::Bytes;
-use flatbuffers::root_unchecked;
+use flatbuffers::{root, root_unchecked};
 use once_cell::sync::OnceCell;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_dtype::field::Field;
-use vortex_dtype::flatbuffers::{deserialize_and_project, resolve_field};
-use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult};
+use vortex_dtype::flatbuffers::{extract_field, project_and_deserialize, resolve_field};
+use vortex_dtype::{DType, FieldNames};
+use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexResult};
+use vortex_flatbuffers::dtype::Struct_;
 use vortex_flatbuffers::message;
 use vortex_schema::projection::Projection;
 
@@ -38,10 +40,38 @@ impl LayoutMessageCache {
     }
 }
 
-#[derive(Debug)]
 enum LazyDTypeState {
-    Value(DType),
+    DType(DType),
     Serialized(Bytes, OnceCell<DType>, Projection),
+    Closure(
+        Arc<dyn Fn() -> Bytes + Send + Sync>,
+        OnceCell<Bytes>,
+        OnceCell<DType>,
+        Projection,
+    ),
+}
+
+impl Debug for LazyDTypeState {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LazyDTypeState::DType(value) => f
+                .debug_struct("LazyDTypeState::DType")
+                .field("value", &value)
+                .finish(),
+            LazyDTypeState::Serialized(bytes, cache, projection) => f
+                .debug_struct("LazyDTypeState::Serialized")
+                .field("bytes", bytes)
+                .field("cache", cache)
+                .field("projection", projection)
+                .finish(),
+            LazyDTypeState::Closure(_, bytes, cache, projection) => f
+                .debug_struct("LazyDTypeState::Closure")
+                .field("bytes", bytes)
+                .field("cache", cache)
+                .field("projection", projection)
+                .finish(),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -50,47 +80,85 @@ pub struct LazilyDeserializedDType {
 }
 
 impl LazilyDeserializedDType {
+    /// # Safety
+    /// Callers need to ensure that returned bytes are valid flatbuffer schema bytes
+    pub unsafe fn from_lazy_schema_bytes<B: Fn() -> Bytes + Send + Sync + 'static>(
+        lazy_bytes: B,
+    ) -> Self {
+        Self {
+            inner: LazyDTypeState::Closure(
+                Arc::new(lazy_bytes),
+                OnceCell::new(),
+                OnceCell::new(),
+                Projection::All,
+            ),
+        }
+    }
+
     /// Create a LazilyDeserializedDType from a flatbuffer schema bytes
     /// i.e., these bytes need to be deserializable as message::Schema
     ///
     /// # Safety
     /// This function is unsafe because it trusts the caller to pass in a valid flatbuffer
     /// representing a message::Schema.
-    pub unsafe fn from_schema_bytes(schema_bytes: Bytes, projection: Projection) -> Self {
+    pub unsafe fn from_schema_bytes(dtype_bytes: Bytes) -> Self {
         Self {
-            inner: LazyDTypeState::Serialized(schema_bytes, OnceCell::new(), projection),
+            inner: LazyDTypeState::Serialized(dtype_bytes, OnceCell::new(), Projection::All),
         }
     }
 
     pub fn from_dtype(dtype: DType) -> Self {
         Self {
-            inner: LazyDTypeState::Value(dtype),
+            inner: LazyDTypeState::DType(dtype),
         }
     }
 
     /// Restrict the underlying dtype to selected fields
-    pub fn project(&self, projection: &[Field]) -> VortexResult<Arc<Self>> {
+    pub fn project(&self, projection: &Projection) -> VortexResult<Arc<Self>> {
         match &self.inner {
-            LazyDTypeState::Value(dtype) => {
+            LazyDTypeState::DType(dtype) => {
                 let DType::Struct(sdt, n) = dtype else {
                     vortex_bail!("Not a struct dtype")
                 };
                 Ok(Arc::new(LazilyDeserializedDType::from_dtype(
-                    DType::Struct(sdt.project(projection)?, *n),
+                    match projection {
+                        Projection::All => dtype.clone(),
+                        Projection::Flat(p) => DType::Struct(sdt.project(p)?, *n),
+                        Projection::SingleField(f) => sdt.field_info(f)?.dtype.clone(),
+                    },
                 )))
             }
-            LazyDTypeState::Serialized(b, _, proj) => {
-                let projection = match proj {
-                    Projection::All => Projection::Flat(projection.to_vec()),
-                    // TODO(robert): Respect existing projection list, only really an issue for nested structs
-                    Projection::Flat(_) => vortex_bail!("Can't project already projected dtype"),
+            LazyDTypeState::Serialized(b, _, current_projection) => Ok(Arc::new(Self {
+                inner: LazyDTypeState::Serialized(
+                    b.clone(),
+                    OnceCell::new(),
+                    current_projection.project(projection)?,
+                ),
+            })),
+            LazyDTypeState::Closure(c, _, _, current_projection) => Ok(Arc::new(Self {
+                inner: LazyDTypeState::Closure(
+                    c.clone(),
+                    OnceCell::new(),
+                    OnceCell::new(),
+                    current_projection.project(projection)?,
+                ),
+            })),
+        }
+    }
+
+    /// Extract field names from the underlying dtype if there are any
+    pub fn names(&self) -> VortexResult<FieldNames> {
+        match &self.inner {
+            LazyDTypeState::DType(dtype) => {
+                let DType::Struct(sdt, _) = dtype else {
+                    vortex_bail!("Not a struct dtype")
                 };
-                unsafe {
-                    Ok(Arc::new(LazilyDeserializedDType::from_schema_bytes(
-                        b.clone(),
-                        projection,
-                    )))
-                }
+                Ok(sdt.names().clone())
+            }
+            LazyDTypeState::Serialized(b, _, proj) => field_names(b, proj),
+            LazyDTypeState::Closure(c, bytes, _, proj) => {
+                let bytes = bytes.get_or_init(|| c());
+                field_names(bytes, proj)
             }
         }
     }
@@ -98,15 +166,13 @@ impl LazilyDeserializedDType {
     /// Get vortex dtype out of serialized bytes
     pub fn value(&self) -> VortexResult<&DType> {
         match &self.inner {
-            LazyDTypeState::Value(dtype) => Ok(dtype),
-            LazyDTypeState::Serialized(bytes, cache, proj) => cache.get_or_try_init(|| {
-                let fb_dtype = Self::fb_schema(bytes)?
-                    .dtype()
-                    .ok_or_else(|| vortex_err!(InvalidSerde: "Schema missing DType"))?;
-                match &proj {
-                    Projection::All => DType::try_from(fb_dtype),
-                    Projection::Flat(p) => deserialize_and_project(fb_dtype, p),
-                }
+            LazyDTypeState::DType(dtype) => Ok(dtype),
+            LazyDTypeState::Serialized(bytes, cache, proj) => {
+                cache.get_or_try_init(|| project_dtype_bytes(bytes, proj))
+            }
+            LazyDTypeState::Closure(c, bytes_cache, cache, proj) => cache.get_or_try_init(|| {
+                let bytes = bytes_cache.get_or_try_init(|| validate_schema_bytes(c()))?;
+                project_dtype_bytes(bytes, proj)
             }),
         }
     }
@@ -114,7 +180,7 @@ impl LazilyDeserializedDType {
     /// Convert all name based references to index based to create globally addressable filter
     pub(crate) fn resolve_field(&self, field: &Field) -> VortexResult<usize> {
         match &self.inner {
-            LazyDTypeState::Value(dtype) => {
+            LazyDTypeState::DType(dtype) => {
                 let DType::Struct(sdt, _) = dtype else {
                     vortex_bail!("Trying to resolve fields in non struct dtype")
                 };
@@ -127,25 +193,64 @@ impl LazilyDeserializedDType {
                     Field::Index(i) => Ok(*i),
                 }
             }
-            LazyDTypeState::Serialized(b, ..) => {
-                let fb_struct = Self::fb_schema(b.as_ref())?
-                    .dtype()
-                    .and_then(|d| d.type__as_struct_())
-                    .ok_or_else(|| vortex_err!("The top-level type should be a struct"))?;
-                resolve_field(fb_struct, field)
+            LazyDTypeState::Serialized(b, ..) => resolve_field(fb_struct(b.as_ref())?, field),
+            LazyDTypeState::Closure(c, bytes_cache, ..) => {
+                let bytes = bytes_cache.get_or_try_init(|| validate_schema_bytes(c()))?;
+                resolve_field(fb_struct(bytes)?, field)
             }
         }
     }
+}
 
-    fn fb_schema(bytes: &[u8]) -> VortexResult<message::Schema> {
-        Ok(unsafe { root_unchecked::<message::Schema>(bytes) })
+fn field_names(bytes: &[u8], projection: &Projection) -> VortexResult<FieldNames> {
+    let struct_field = fb_struct(bytes)?;
+    let names = struct_field
+        .names()
+        .ok_or_else(|| vortex_err!("Not a struct dtype"))?;
+    match projection {
+        Projection::All => Ok(names.iter().map(Arc::from).collect()),
+        Projection::Flat(fields) => fields
+            .iter()
+            .map(|f| resolve_field(struct_field, f))
+            .map(|idx| idx.map(|i| Arc::from(names.get(i))))
+            .collect(),
+        Projection::SingleField(f) => Ok(Arc::new([Arc::from(
+            names.get(resolve_field(struct_field, f)?),
+        )])),
     }
 }
 
-#[derive(Debug)]
+fn project_dtype_bytes(bytes: &[u8], projection: &Projection) -> VortexResult<DType> {
+    let fb_dtype = fb_schema(bytes)
+        .dtype()
+        .ok_or_else(|| vortex_err!(InvalidSerde: "Schema missing DType"))?;
+    match projection {
+        Projection::All => DType::try_from(fb_dtype),
+        Projection::Flat(p) => project_and_deserialize(fb_dtype, p),
+        Projection::SingleField(f) => extract_field(fb_dtype, f),
+    }
+}
+
+fn fb_struct(bytes: &[u8]) -> VortexResult<Struct_> {
+    fb_schema(bytes)
+        .dtype()
+        .and_then(|d| d.type__as_struct_())
+        .ok_or_else(|| vortex_err!("The top-level type should be a struct"))
+}
+
+fn fb_schema(bytes: &[u8]) -> message::Schema {
+    unsafe { root_unchecked::<message::Schema>(bytes) }
+}
+
+fn validate_schema_bytes(bytes: Bytes) -> VortexResult<Bytes> {
+    root::<message::Schema>(&bytes).map_err(|e| vortex_err!("Invalid schema message {e}"))?;
+    Ok(bytes)
+}
+
+#[derive(Debug, Clone)]
 pub struct RelativeLayoutCache {
     root: Arc<RwLock<LayoutMessageCache>>,
-    dtype: Option<Arc<LazilyDeserializedDType>>,
+    dtype: Arc<LazilyDeserializedDType>,
     path: MessageId,
 }
 
@@ -153,7 +258,7 @@ impl RelativeLayoutCache {
     pub fn new(root: Arc<RwLock<LayoutMessageCache>>, dtype: Arc<LazilyDeserializedDType>) -> Self {
         Self {
             root,
-            dtype: Some(dtype),
+            dtype,
             path: Vec::new(),
         }
     }
@@ -164,17 +269,7 @@ impl RelativeLayoutCache {
         Self {
             root: self.root.clone(),
             path: new_path,
-            dtype: Some(dtype),
-        }
-    }
-
-    pub fn unknown_dtype(&self, id: LayoutPartId) -> Self {
-        let mut new_path = self.path.clone();
-        new_path.push(id);
-        Self {
-            root: self.root.clone(),
-            path: new_path,
-            dtype: None,
+            dtype,
         }
     }
 
@@ -205,7 +300,7 @@ impl RelativeLayoutCache {
     }
 
     pub fn dtype(&self) -> &Arc<LazilyDeserializedDType> {
-        self.dtype.as_ref().vortex_expect("Must have dtype")
+        &self.dtype
     }
 
     pub fn absolute_id(&self, path: &[LayoutPartId]) -> MessageId {

@@ -15,10 +15,9 @@ use vortex_ipc::messages::writer::MessageWriter;
 use vortex_ipc::messages::IPCSchema;
 use vortex_ipc::stream_writer::ByteRange;
 
-use crate::write::layout::Layout;
 use crate::write::metadata_accumulators::{new_metadata_accumulator, MetadataAccumulator};
 use crate::write::postscript::Postscript;
-use crate::{EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
+use crate::{LayoutSpec, EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
 
 const STATS_TO_WRITE: &[Stat] = &[
     Stat::Min,
@@ -120,7 +119,7 @@ impl<W: VortexWrite> VortexFileWriter<W> {
         column_writer.write_chunks(stream, &mut self.msgs).await
     }
 
-    async fn write_metadata_arrays(&mut self) -> VortexResult<Layout> {
+    async fn write_metadata_arrays(&mut self) -> VortexResult<LayoutSpec> {
         let mut column_layouts = Vec::with_capacity(self.column_writers.len());
         for column_writer in mem::take(&mut self.column_writers) {
             column_layouts.push(
@@ -130,7 +129,7 @@ impl<W: VortexWrite> VortexFileWriter<W> {
             );
         }
 
-        Ok(Layout::column(column_layouts, self.row_count))
+        Ok(LayoutSpec::column(column_layouts, self.row_count))
     }
 
     pub async fn finalize(mut self) -> VortexResult<W> {
@@ -252,7 +251,7 @@ impl ColumnWriter {
         self,
         row_count: u64,
         msgs: &mut MessageWriter<W>,
-    ) -> VortexResult<Layout> {
+    ) -> VortexResult<LayoutSpec> {
         let data_chunks = self
             .batch_byte_offsets
             .iter()
@@ -268,7 +267,7 @@ impl ColumnWriter {
                             .zip(row_offsets.iter().skip(1))
                             .map(|(begin, end)| end - begin),
                     )
-                    .map(|(range, len)| Layout::flat(range, len))
+                    .map(|(range, len)| LayoutSpec::flat(range, len))
             });
 
         if let Some(metadata_array) = self.metadata.into_array()? {
@@ -280,8 +279,8 @@ impl ColumnWriter {
             msgs.write_batch(metadata_array).await?;
             let metadata_array_end = msgs.tell();
 
-            let layouts = [Layout::inlined_schema(
-                vec![Layout::flat(
+            let layouts = [LayoutSpec::inlined_schema(
+                vec![LayoutSpec::flat(
                     ByteRange::new(dtype_end, metadata_array_end),
                     expected_n_data_chunks as u64,
                 )],
@@ -299,9 +298,9 @@ impl ColumnWriter {
                     layouts.len()
                 );
             }
-            Ok(Layout::chunked(layouts, row_count, true))
+            Ok(LayoutSpec::chunked(layouts, row_count, true))
         } else {
-            Ok(Layout::chunked(data_chunks.collect(), row_count, false))
+            Ok(LayoutSpec::chunked(data_chunks.collect(), row_count, false))
         }
     }
 }
