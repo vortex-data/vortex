@@ -11,10 +11,10 @@ use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
 use vortex_flatbuffers::WriteFlatBuffer;
 
 use crate::io::VortexWrite;
-use crate::layouts::write::footer::Footer;
-use crate::layouts::write::layout::Layout;
-use crate::layouts::write::metadata_accumulators::{new_metadata_accumulator, MetadataAccumulator};
-use crate::layouts::{EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
+use crate::file::write::footer::Footer;
+use crate::file::write::layout::Layout;
+use crate::file::write::metadata_accumulators::{new_metadata_accumulator, MetadataAccumulator};
+use crate::file::{EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
 use crate::stream_writer::ByteRange;
 use crate::MessageWriter;
 
@@ -296,8 +296,8 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_flatbuffers::WriteFlatBuffer;
 
-    use crate::layouts::write::footer::Footer;
-    use crate::layouts::{LayoutWriter, V1_FOOTER_FBS_SIZE};
+    use crate::file::write::footer::Footer;
+    use crate::file::{LayoutWriter, V1_FOOTER_FBS_SIZE};
 
     #[test]
     fn write_columns() {

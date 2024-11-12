@@ -13,7 +13,7 @@ use vortex_dtype::field::Field;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::{split_conjunction, unbox_any, VortexExpr};
 
-use crate::layouts::read::expr_project::expr_project;
+use crate::file::read::expr_project::expr_project;
 
 #[derive(Debug, Clone)]
 pub struct RowFilter {

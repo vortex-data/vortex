@@ -12,7 +12,7 @@ use vortex_buffer::io_buf::IoBuf;
 use vortex_error::{VortexError, VortexUnwrap as _};
 
 use crate::io::{VortexRead, VortexReadAt, VortexWrite};
-use crate::layouts::AsyncRuntime;
+use crate::file::AsyncRuntime;
 
 pub struct TokioAdapter<IO>(pub IO);
 

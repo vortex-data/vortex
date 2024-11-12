@@ -2,15 +2,19 @@ use core::ops::Range;
 
 use bytes::{Bytes, BytesMut};
 use flatbuffers::root;
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
 use crate::io::VortexReadAt;
-use crate::layouts::{EOF_SIZE, INITIAL_READ_SIZE, MAGIC_BYTES, VERSION};
+use crate::file::{EOF_SIZE, INITIAL_READ_SIZE, MAGIC_BYTES, VERSION};
 use vortex_flatbuffers::footer::Footer;
 
 pub(crate) struct InitialRead {
+    /// The bytes from the initial read of the file, which is assumed (for now) to be sufficiently
+    /// large to contain the schema and layout.
     pub buf: Bytes,
+    /// The absolute byte offset representing the start of the initial read within the file.
     pub initial_read_offset: u64,
+    /// The byte range within `buf` representing the Footer flatbuffer.
     pub fb_footer_byte_range: Range<usize>,
 }
 
@@ -23,7 +27,7 @@ impl InitialRead {
 pub(crate) async fn read_initial_bytes<R: VortexReadAt>(
     read: &R,
     file_size: u64,
-) -> Result<InitialRead, VortexError> {
+) -> VortexResult<InitialRead> {
     if file_size < EOF_SIZE as u64 {
         vortex_bail!(
             "Malformed vortex file, size {} must be at least {}",
@@ -110,7 +114,7 @@ pub(crate) async fn read_initial_bytes<R: VortexReadAt>(
 
 #[cfg(test)]
 mod tests {
-    use crate::layouts::MAX_FOOTER_SIZE;
+    use crate::file::MAX_FOOTER_SIZE;
 
     use super::*;
 

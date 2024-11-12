@@ -2,7 +2,7 @@ use bytes::Bytes;
 use flatbuffers::{FlatBufferBuilder, WIPOffset};
 use vortex_flatbuffers::{footer as fb, WriteFlatBuffer};
 
-use crate::layouts::{
+use crate::file::{
     LayoutId, CHUNKED_LAYOUT_ID, COLUMNAR_LAYOUT_ID, FLAT_LAYOUT_ID, INLINE_SCHEMA_LAYOUT_ID,
 };
 use crate::stream_writer::ByteRange;

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use vortex_dtype::field::Field;
 use vortex_expr::{BinaryExpr, Column, Identity, Literal, Not, Operator, Select, VortexExpr};
 
-use crate::layouts::RowFilter;
+use crate::file::RowFilter;
 
 /// Restrict expression to only the fields that appear in projection
 pub fn expr_project(
@@ -92,7 +92,7 @@ mod tests {
     use vortex_dtype::field::Field;
     use vortex_expr::{BinaryExpr, Column, Identity, Literal, Not, Operator, Select, VortexExpr};
 
-    use crate::layouts::read::expr_project::expr_project;
+    use crate::file::read::expr_project::expr_project;
 
     #[test]
     fn project_and() {

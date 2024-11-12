@@ -302,7 +302,7 @@ mod tests {
     use vortex_dtype::field::Field;
     use vortex_expr::{BinaryExpr, Column, Literal, Not, Operator, VortexExpr};
 
-    use crate::layouts::pruning::{
+    use crate::file::pruning::{
         convert_to_pruning_expression, stat_column_name, PruningPredicate,
     };
 

@@ -16,7 +16,7 @@ use vortex::array::{ChunkedArray, StructArray};
 use vortex::arrow::FromArrowArray;
 use vortex::dtype::DType;
 use vortex::sampling_compressor::SamplingCompressor;
-use vortex::serde::layouts::LayoutWriter;
+use vortex::serde::file::LayoutWriter;
 use vortex::variants::StructArrayTrait;
 use vortex::{Array, ArrayDType, IntoArray, IntoArrayVariant};
 use vortex_datafusion::memory::VortexMemTableOptions;

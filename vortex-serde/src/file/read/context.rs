@@ -7,11 +7,11 @@ use vortex_array::Context;
 use vortex_error::{vortex_err, VortexResult};
 use vortex_flatbuffers::footer as fb;
 
-use crate::layouts::read::cache::RelativeLayoutCache;
-use crate::layouts::read::layouts::{
+use crate::file::read::cache::RelativeLayoutCache;
+use crate::file::read::layouts::{
     ChunkedLayoutSpec, ColumnarLayoutSpec, FlatLayoutSpec, InlineDTypeLayoutSpec,
 };
-use crate::layouts::read::{LayoutReader, Scan};
+use crate::file::read::{LayoutReader, Scan};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub struct LayoutId(pub u16);

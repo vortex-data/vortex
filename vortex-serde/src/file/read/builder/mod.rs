@@ -1,7 +1,7 @@
 use std::sync::{Arc, RwLock};
 
 use bytes::BytesMut;
-use footer::read_initial_bytes;
+use layout_reader::read_initial_bytes;
 use initial_read::read_initial_bytes;
 use vortex_array::{Array, ArrayDType};
 use vortex_error::VortexResult;
@@ -10,13 +10,13 @@ use vortex_schema::projection::Projection;
 
 use super::RowMask;
 use crate::io::VortexReadAt;
-use crate::layouts::read::cache::{LayoutMessageCache, RelativeLayoutCache};
-use crate::layouts::read::context::LayoutDeserializer;
-use crate::layouts::read::filtering::RowFilter;
-use crate::layouts::read::stream::LayoutBatchStream;
-use crate::layouts::read::Scan;
+use crate::file::read::cache::{LayoutMessageCache, RelativeLayoutCache};
+use crate::file::read::context::LayoutDeserializer;
+use crate::file::read::filtering::RowFilter;
+use crate::file::read::stream::LayoutBatchStream;
+use crate::file::read::Scan;
 
-mod footer;
+mod layout_reader;
 mod initial_read;
 
 /// Builder for reading Vortex files.

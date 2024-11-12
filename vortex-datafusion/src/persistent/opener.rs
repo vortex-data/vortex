@@ -10,7 +10,7 @@ use object_store::ObjectStore;
 use vortex_array::Context;
 use vortex_expr::datafusion::convert_expr_to_vortex;
 use vortex_serde::io::ObjectStoreReadAt;
-use vortex_serde::layouts::{
+use vortex_serde::file::{
     VortexReadBuilder, LayoutContext, LayoutDeserializer, Projection, RowFilter,
 };
 

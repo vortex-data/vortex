@@ -10,10 +10,10 @@ use vortex_flatbuffers::{footer, message as fb};
 use vortex_schema::projection::Projection;
 
 use crate::io::VortexReadAt;
-use crate::layouts::read::cache::{LazilyDeserializedDType, RelativeLayoutCache};
-use crate::layouts::read::context::LayoutDeserializer;
-use crate::layouts::read::{LayoutReader, Scan, INITIAL_READ_SIZE};
-use crate::layouts::{EOF_SIZE, MAGIC_BYTES, V1_FOOTER_FBS_SIZE, VERSION};
+use crate::file::read::cache::{LazilyDeserializedDType, RelativeLayoutCache};
+use crate::file::read::context::LayoutDeserializer;
+use crate::file::read::{LayoutReader, Scan, INITIAL_READ_SIZE};
+use crate::file::{EOF_SIZE, MAGIC_BYTES, V1_FOOTER_FBS_SIZE, VERSION};
 use crate::MESSAGE_PREFIX_LENGTH;
 
 
@@ -41,29 +41,6 @@ impl LayoutDescriptor {
         initial_read_offset: u64,
         layout_serde: LayoutDeserializer,
     ) -> VortexResult<Self> {
-        if initial_read_offset > schema_offset {
-            vortex_bail!(
-                "Schema, layout, & footer must be in the initial read, got schema at {} and initial read from {}",
-                schema_offset,
-                initial_read_offset,
-            )
-        }
-        // must be enough to contain the footer, eof, and two empty messages (schema & layout)
-        if initial_read.len() < V1_FOOTER_FBS_SIZE + EOF_SIZE + 2 * MESSAGE_PREFIX_LENGTH {
-            vortex_bail!(
-                "Initial read must be at least {} bytes, got {}",
-                V1_FOOTER_FBS_SIZE + EOF_SIZE + 2 * MESSAGE_PREFIX_LENGTH,
-                initial_read.len(),
-            )
-        }
-        // TODO(wmanning): We can make the dtype optional by providing it externally
-        if schema_offset >= layout_offset {
-            vortex_bail!(
-                "Schema must come before the footer, got schema at {} and footer at {}",
-                schema_offset,
-                layout_offset,
-            )
-        }
         Ok(Self {
             schema_offset,
             layout_offset,

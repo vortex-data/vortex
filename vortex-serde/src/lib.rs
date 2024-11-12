@@ -6,7 +6,7 @@ use messages::writer::*;
 pub mod chunked_reader;
 mod dtype_reader;
 pub mod io;
-pub mod layouts;
+pub mod file;
 mod messages;
 pub mod stream_reader;
 pub mod stream_writer;

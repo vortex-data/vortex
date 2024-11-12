@@ -9,11 +9,11 @@ use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexResult};
 use vortex_expr::{Column, Select};
 use vortex_flatbuffers::footer;
 
-use crate::layouts::read::column_batch::ColumnBatchReader;
-use crate::layouts::read::cache::{LazilyDeserializedDType, RelativeLayoutCache};
-use crate::layouts::read::expr_project::expr_project;
-use crate::layouts::read::mask::RowMask;
-use crate::layouts::{
+use crate::file::read::column_batch::ColumnBatchReader;
+use crate::file::read::cache::{LazilyDeserializedDType, RelativeLayoutCache};
+use crate::file::read::expr_project::expr_project;
+use crate::file::read::mask::RowMask;
+use crate::file::{
     BatchRead, LayoutDeserializer, LayoutId, LayoutReader, LayoutSpec, RowFilter, Scan,
     COLUMNAR_LAYOUT_ID,
 };
@@ -267,9 +267,9 @@ mod tests {
     use vortex_expr::{BinaryExpr, Column, Literal, Operator};
     use vortex_schema::projection::Projection;
 
-    use crate::layouts::read::cache::RelativeLayoutCache;
-    use crate::layouts::read::layouts::test_read::{filter_read_layout, read_layout};
-    use crate::layouts::{
+    use crate::file::read::cache::RelativeLayoutCache;
+    use crate::file::read::layouts::test_read::{filter_read_layout, read_layout};
+    use crate::file::{
         LayoutDescriptorReader, LayoutDeserializer, LayoutMessageCache, LayoutReader, LayoutWriter,
         RowFilter, Scan,
     };

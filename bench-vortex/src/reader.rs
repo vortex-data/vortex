@@ -29,7 +29,7 @@ use vortex::dtype::DType;
 use vortex::error::VortexResult;
 use vortex::sampling_compressor::{SamplingCompressor, ALL_ENCODINGS_CONTEXT};
 use vortex::serde::io::{ObjectStoreReadAt, VortexReadAt, VortexWrite};
-use vortex::serde::layouts::{
+use vortex::serde::file::{
     VortexReadBuilder, LayoutContext, LayoutDeserializer, LayoutWriter,
 };
 use vortex::{Array, IntoArray, IntoCanonical};

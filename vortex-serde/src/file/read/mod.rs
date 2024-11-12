@@ -27,7 +27,7 @@ use vortex_expr::VortexExpr;
 pub use vortex_schema::projection::Projection;
 pub use vortex_schema::Schema;
 
-pub use crate::layouts::read::mask::RowMask;
+pub use crate::file::read::mask::RowMask;
 use crate::stream_writer::ByteRange;
 
 // Recommended read-size according to the AWS performance guide

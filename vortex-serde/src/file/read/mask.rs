@@ -216,7 +216,7 @@ mod tests {
     use vortex_array::array::PrimitiveArray;
     use vortex_array::{IntoArray, IntoArrayVariant};
 
-    use crate::layouts::read::mask::RowMask;
+    use crate::file::read::mask::RowMask;
 
     #[rstest]
     #[case(RowMask::try_new((0..2).chain(9..10).collect(), 0, 10).unwrap(), (0, 1), RowMask::try_new((0..1).collect(), 0, 1).unwrap())]

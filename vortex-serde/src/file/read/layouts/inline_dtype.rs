@@ -7,9 +7,9 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 use vortex_flatbuffers::{footer, message};
 
-use crate::layouts::read::cache::{LazilyDeserializedDType, RelativeLayoutCache};
-use crate::layouts::read::mask::RowMask;
-use crate::layouts::{
+use crate::file::read::cache::{LazilyDeserializedDType, RelativeLayoutCache};
+use crate::file::read::mask::RowMask;
+use crate::file::{
     BatchRead, LayoutDeserializer, LayoutId, LayoutPartId, LayoutReader, LayoutSpec, Message, Scan,
     INLINE_SCHEMA_LAYOUT_ID,
 };

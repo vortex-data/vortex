@@ -18,9 +18,9 @@ use vortex_error::{vortex_bail, vortex_panic, VortexError, VortexExpect, VortexR
 use vortex_schema::Schema;
 
 use crate::io::VortexReadAt;
-use crate::layouts::read::cache::LayoutMessageCache;
-use crate::layouts::read::mask::RowMask;
-use crate::layouts::read::{BatchRead, LayoutReader, MessageId};
+use crate::file::read::cache::LayoutMessageCache;
+use crate::file::read::mask::RowMask;
+use crate::file::read::{BatchRead, LayoutReader, MessageId};
 use crate::stream_writer::ByteRange;
 
 /// Reads a layout from some memory, on-disk or elsewhere.

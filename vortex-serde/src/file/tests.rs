@@ -13,8 +13,8 @@ use vortex_dtype::{DType, Nullability, PType, StructDType};
 use vortex_error::vortex_panic;
 use vortex_expr::{BinaryExpr, Column, Literal, Operator};
 
-use crate::layouts::write::LayoutWriter;
-use crate::layouts::{
+use crate::file::write::LayoutWriter;
+use crate::file::{
     VortexReadBuilder, LayoutDescriptorReader, LayoutDeserializer, LayoutMessageCache, Projection, RelativeLayoutCache, RowFilter, Scan, V1_FOOTER_FBS_SIZE, VERSION
 };
 
