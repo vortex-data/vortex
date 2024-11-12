@@ -11,10 +11,10 @@ use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
 use vortex_flatbuffers::WriteFlatBuffer;
 
 use crate::io::VortexWrite;
-use crate::layouts::write::footer::{Footer, Postscript};
+use crate::layouts::write::footer::Footer;
 use crate::layouts::write::layout::Layout;
 use crate::layouts::write::metadata_accumulators::{new_metadata_accumulator, MetadataAccumulator};
-use crate::layouts::{EOF_SIZE, MAGIC_BYTES, VERSION};
+use crate::layouts::{EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
 use crate::stream_writer::ByteRange;
 use crate::MessageWriter;
 
@@ -139,31 +139,32 @@ impl<W: VortexWrite> LayoutWriter<W> {
         Ok(Footer::try_new(schema_offset, layout_offset)?)
     }
 
-    async fn write_footer(&mut self, footer: Footer) -> VortexResult<u64> {
+    async fn write_footer(&mut self, footer: Footer) -> VortexResult<u16> {
         let footer_start = self.msgs.tell();
         self.msgs.write_message(footer).await?;
 
         let footer_len = self.msgs.tell() - footer_start;
-        if footer_len > (u16::MAX - 8) as u64 {
+        if footer_len > MAX_FOOTER_SIZE as u64 {
             vortex_bail!(
                 "Footer is too large ({} bytes); max footer size is {}",
                 footer_len,
-                u16::MAX - 8
+                MAX_FOOTER_SIZE
             );
         }
-        Ok(footer_len)
+        Ok(footer_len as u16)
     }
 
     pub async fn finalize(mut self) -> VortexResult<W> {
         let top_level_layout = self.write_metadata_arrays().await?;
-        let footer = self
-            .write_schema_and_layout(top_level_layout)
-            .await?;
+        let footer = self.write_schema_and_layout(top_level_layout).await?;
         let footer_len = self.write_footer(footer).await?;
 
         let mut eof = [0u8; EOF_SIZE];
         eof[0..2].copy_from_slice(&VERSION.to_le_bytes());
+        eof[2..4].copy_from_slice(&footer_len.to_le_bytes());
         eof[4..8].copy_from_slice(&MAGIC_BYTES);
+
+        let mut w = self.msgs.into_inner();
         w.write_all(eof).await?;
         Ok(w)
     }
@@ -325,9 +326,6 @@ mod tests {
         let (buffer, buffer_begin) = fbb.collapse();
         let buffer_end = buffer.len();
 
-        assert_eq!(
-            buffer[buffer_begin..buffer_end].len(),
-            V1_FOOTER_FBS_SIZE
-        );
+        assert_eq!(buffer[buffer_begin..buffer_end].len(), V1_FOOTER_FBS_SIZE);
     }
 }

@@ -15,7 +15,7 @@ use vortex_expr::{BinaryExpr, Column, Literal, Operator};
 
 use crate::layouts::write::LayoutWriter;
 use crate::layouts::{
-    LayoutBatchStreamBuilder, LayoutDescriptorReader, LayoutDeserializer, LayoutMessageCache, Projection, RelativeLayoutCache, RowFilter, Scan, CHUNKED_LAYOUT_ID, COLUMN_LAYOUT_ID, EOF_SIZE, FLAT_LAYOUT_ID, INLINE_SCHEMA_LAYOUT_ID, MAGIC_BYTES, MAX_FOOTER_SIZE, V1_FOOTER_FBS_SIZE, VERSION
+    LayoutBatchStreamBuilder, LayoutDescriptorReader, LayoutDeserializer, LayoutMessageCache, Projection, RelativeLayoutCache, RowFilter, Scan, V1_FOOTER_FBS_SIZE, VERSION
 };
 
 #[test]
