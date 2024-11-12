@@ -7,7 +7,7 @@
 //! implementations of these operators, else we will decode, and perform the equivalent operator
 //! from Arrow.
 
-pub use boolean::{and, or, AndFn, OrFn};
+pub use boolean::{and, and_kleene, or, or_kleene, AndFn, OrFn};
 pub use compare::{compare, scalar_cmp, CompareFn, MaybeCompareFn, Operator};
 pub use filter::{filter, FilterFn};
 pub use search_sorted::*;
@@ -93,17 +93,31 @@ pub trait ArrayCompute {
         None
     }
 
-    /// Perform a boolean AND operation over two arrays
+    /// Perform an Arrow-style boolean AND operation over two arrays
     ///
     /// See: [AndFn].
     fn and(&self) -> Option<&dyn AndFn> {
         None
     }
 
-    /// Perform a boolean OR operation over two arrays
+    /// Perform a Kleene-style boolean AND operation over two arrays
+    ///
+    /// See: [AndFn].
+    fn and_kleene(&self) -> Option<&dyn AndFn> {
+        None
+    }
+
+    /// Perform an Arrow-style boolean OR operation over two arrays
     ///
     /// See: [OrFn].
     fn or(&self) -> Option<&dyn OrFn> {
+        None
+    }
+
+    /// Perform a Kleene-style boolean OR operation over two arrays
+    ///
+    /// See: [OrFn].
+    fn or_kleene(&self) -> Option<&dyn OrFn> {
         None
     }
 }

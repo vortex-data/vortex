@@ -98,10 +98,20 @@ pub trait BoolArrayTrait: ArrayTrait {
 
     /// An iterator over the sorted indices of set values in the underlying boolean array
     /// good to array with low number of set values.
+    ///
+    /// # Warning
+    ///
+    /// The set-ness of invalid positions is undefined and not necessarily consistent within a given
+    /// iterator.
     fn maybe_null_indices_iter<'a>(&'a self) -> Box<dyn Iterator<Item = usize> + 'a>;
 
-    /// An iterator over the sorted disjoint contiguous range set values in the underlying boolean
+    /// An iterator over the sorted disjoint contiguous range of set values in the underlying boolean
     /// array good for arrays with only long runs of set values.
+    ///
+    /// # Warning
+    ///
+    /// The set-ness of invalid positions is undefined and not necessarily consistent within a given
+    /// iterator.
     fn maybe_null_slices_iter<'a>(&'a self) -> Box<dyn Iterator<Item = (usize, usize)> + 'a>;
 
     // Other possible iterators include:

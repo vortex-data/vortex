@@ -5,7 +5,7 @@ use arrow_buffer::{BooleanBuffer, MutableBuffer};
 use croaring::Bitmap;
 use vortex_array::array::{BoolArray, PrimitiveArray};
 use vortex_array::compute::{filter, slice, take};
-use vortex_array::validity::Validity;
+use vortex_array::validity::{LogicalValidity, Validity};
 use vortex_array::{iterate_integer_array, Array, IntoArray};
 use vortex_dtype::PType;
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
@@ -43,6 +43,11 @@ impl RowMask {
         unsafe { RowMask::new_unchecked(Bitmap::from_range(0..(end - begin) as u32), begin, end) }
     }
 
+    /// Construct a RowMask which is invalid everywhere in the given range.
+    pub fn new_invalid_between(begin: usize, end: usize) -> Self {
+        unsafe { RowMask::new_unchecked(Bitmap::new(), begin, end) }
+    }
+
     /// Construct a RowMask from given bitmap and begin.
     ///
     /// # Safety
@@ -56,6 +61,25 @@ impl RowMask {
     ///
     /// True-valued positions are kept by the returned mask.
     pub fn from_mask_array(array: &Array, begin: usize, end: usize) -> VortexResult<Self> {
+        match array.with_dyn(|a| a.logical_validity()) {
+            LogicalValidity::AllValid(_) => {
+                Self::from_mask_array_ignoring_validity(array, begin, end)
+            }
+            LogicalValidity::AllInvalid(_) => Ok(Self::new_invalid_between(begin, end)),
+            LogicalValidity::Array(validity) => {
+                let mut bits = Self::from_mask_array_ignoring_validity(array, begin, end)?;
+                let validity = Self::from_mask_array_ignoring_validity(&validity, begin, end)?;
+                bits.and_inplace(&validity)?;
+                Ok(bits)
+            }
+        }
+    }
+
+    fn from_mask_array_ignoring_validity(
+        array: &Array,
+        begin: usize,
+        end: usize,
+    ) -> VortexResult<Self> {
         array.with_dyn(|a| {
             a.as_bool_array()
                 .ok_or_else(|| vortex_err!("Must be a bool array"))

@@ -109,11 +109,13 @@ use crate::dtype::PyDType;
 /// -- is_valid: all not null
 /// -- child 0 type: int64
 ///   [
-///     25
+///     25,
+///     null
 ///   ]
 /// -- child 1 type: string_view
 ///   [
-///     "Joseph"
+///     "Joseph",
+///     "Angela"
 ///   ]
 #[pyclass(name = "Expr", module = "vortex")]
 pub struct PyExpr {

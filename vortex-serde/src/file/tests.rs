@@ -465,14 +465,17 @@ async fn filter_or() {
                 .map(|s| unsafe { String::from_utf8_unchecked(s.to_vec()) })
                 .collect::<Vec<_>>())
             .unwrap(),
-        vec!["Joseph".to_string()]
+        vec!["Joseph".to_string(), "Angela".to_string()]
     );
     let ages = result[0]
         .with_dyn(|a| a.as_struct_array_unchecked().field(1))
         .unwrap();
     assert_eq!(
-        ages.into_primitive().unwrap().maybe_null_slice::<i32>(),
-        vec![25]
+        ages.into_primitive()
+            .unwrap()
+            .with_iterator(|iter| iter.map(|x| x.cloned()).collect::<Vec<_>>())
+            .unwrap(),
+        vec![Some(25), None]
     );
 }
 
