@@ -44,5 +44,5 @@ table Footer {
     layout_offset: uint64;
 }
 
-root_type RootLayout;
+root_type Layout;
 root_type Footer;
