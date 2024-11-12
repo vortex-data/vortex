@@ -128,7 +128,7 @@ mod tests {
     use vortex_dtype::PType;
     use vortex_expr::{BinaryExpr, Identity, Literal, Operator};
 
-    use crate::layouts::read::cache::{LazyDeserializedDType, RelativeLayoutCache};
+    use crate::layouts::read::cache::{LazilyDeserializedDType, RelativeLayoutCache};
     use crate::layouts::read::layouts::flat::FlatLayout;
     use crate::layouts::read::layouts::test_read::{filter_read_layout, read_layout};
     use crate::layouts::{LayoutMessageCache, RowFilter, Scan};
@@ -137,7 +137,7 @@ mod tests {
 
     async fn read_only_layout(
         cache: Arc<RwLock<LayoutMessageCache>>,
-    ) -> (FlatLayout, Bytes, usize, Arc<LazyDeserializedDType>) {
+    ) -> (FlatLayout, Bytes, usize, Arc<LazilyDeserializedDType>) {
         let mut writer = MessageWriter::new(Vec::new());
         let array = PrimitiveArray::from((0..100).collect::<Vec<_>>()).into_array();
         let len = array.len();
@@ -145,7 +145,7 @@ mod tests {
         let written = writer.into_inner();
 
         let projection_scan = Scan::new(None);
-        let dtype = Arc::new(LazyDeserializedDType::from_dtype(PType::I32.into()));
+        let dtype = Arc::new(LazilyDeserializedDType::from_dtype(PType::I32.into()));
 
         (
             FlatLayout::new(

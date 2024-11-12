@@ -10,7 +10,7 @@ use vortex_expr::{Column, Select};
 use vortex_flatbuffers::footer;
 
 use crate::layouts::read::batch::ColumnBatchReader;
-use crate::layouts::read::cache::{LazyDeserializedDType, RelativeLayoutCache};
+use crate::layouts::read::cache::{LazilyDeserializedDType, RelativeLayoutCache};
 use crate::layouts::read::expr_project::expr_project;
 use crate::layouts::read::mask::RowMask;
 use crate::layouts::{
@@ -137,7 +137,7 @@ impl ColumnLayout {
                 Scan::new(projected_expr),
                 self.message_cache.relative(
                     resolved_child as u16,
-                    Arc::new(LazyDeserializedDType::from_dtype(dtype)),
+                    Arc::new(LazilyDeserializedDType::from_dtype(dtype)),
                 ),
             )?;
 
@@ -205,7 +205,7 @@ impl ColumnLayout {
     }
 
     /// Get fields referenced by scan expression along with their dtype
-    fn fields_with_dtypes(&self) -> VortexResult<(Vec<Field>, Arc<LazyDeserializedDType>)> {
+    fn fields_with_dtypes(&self) -> VortexResult<(Vec<Field>, Arc<LazilyDeserializedDType>)> {
         let fb_children = self.flatbuffer().children().unwrap_or_default();
         let field_refs = self.scan_fields();
         let lazy_dtype = field_refs
@@ -267,7 +267,7 @@ mod tests {
     use vortex_expr::{BinaryExpr, Column, Literal, Operator};
     use vortex_schema::projection::Projection;
 
-    use crate::layouts::read::cache::{LazyDeserializedDType, RelativeLayoutCache};
+    use crate::layouts::read::cache::{LazilyDeserializedDType, RelativeLayoutCache};
     use crate::layouts::read::layouts::test_read::{filter_read_layout, read_layout};
     use crate::layouts::{
         LayoutDescriptorReader, LayoutDeserializer, LayoutMessageCache, LayoutReader, LayoutWriter,
@@ -307,16 +307,16 @@ mod tests {
             .await
             .unwrap();
 
-        let dtype = Arc::new(LazyDeserializedDType::from_bytes(
+        let dtype = Arc::new(LazilyDeserializedDType::from_schema_bytes(
             footer.dtype_bytes().unwrap(),
             Projection::All,
         ));
         (
             footer
-                .layout(scan, RelativeLayoutCache::new(cache.clone(), dtype.clone()))
+                .layout_reader(scan, RelativeLayoutCache::new(cache.clone(), dtype.clone()))
                 .unwrap(),
             footer
-                .layout(Scan::new(None), RelativeLayoutCache::new(cache, dtype))
+                .layout_reader(Scan::new(None), RelativeLayoutCache::new(cache, dtype))
                 .unwrap(),
             Bytes::from(written),
             len,

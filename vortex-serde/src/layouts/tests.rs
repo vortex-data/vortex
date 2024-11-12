@@ -16,7 +16,7 @@ use vortex_expr::{BinaryExpr, Column, Literal, Operator};
 use crate::layouts::write::LayoutWriter;
 use crate::layouts::{
     LayoutBatchStreamBuilder, LayoutDescriptorReader, LayoutDeserializer, LayoutMessageCache,
-    LazyDeserializedDType, Projection, RelativeLayoutCache, RowFilter, Scan, CHUNKED_LAYOUT_ID,
+    LazilyDeserializedDType, Projection, RelativeLayoutCache, RowFilter, Scan, CHUNKED_LAYOUT_ID,
     COLUMN_LAYOUT_ID, EOF_SIZE, FLAT_LAYOUT_ID, FOOTER_FBS_SIZE, INLINE_SCHEMA_LAYOUT_ID,
     MAGIC_BYTES, VERSION,
 };
@@ -104,7 +104,7 @@ async fn test_splits() {
         .await
         .unwrap();
 
-    let dtype = Arc::new(LazyDeserializedDType::from_bytes(
+    let dtype = Arc::new(LazilyDeserializedDType::from_schema_bytes(
         footer.dtype_bytes().unwrap(),
         Projection::All,
     ));
@@ -112,7 +112,7 @@ async fn test_splits() {
     let cache = Arc::new(RwLock::new(LayoutMessageCache::new()));
 
     let layout_reader = footer
-        .layout(
+        .layout_reader(
             Scan::new(None),
             RelativeLayoutCache::new(cache.clone(), dtype.clone()),
         )

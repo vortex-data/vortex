@@ -7,7 +7,7 @@ use vortex_schema::projection::Projection;
 
 use super::RowMask;
 use crate::io::VortexReadAt;
-use crate::layouts::read::cache::{LayoutMessageCache, LazyDeserializedDType, RelativeLayoutCache};
+use crate::layouts::read::cache::{LayoutMessageCache, LazilyDeserializedDType, RelativeLayoutCache};
 use crate::layouts::read::context::LayoutDeserializer;
 use crate::layouts::read::filtering::RowFilter;
 use crate::layouts::read::footer::LayoutDescriptorReader;
@@ -64,8 +64,7 @@ impl<R: VortexReadAt> LayoutBatchStreamBuilder<R> {
         let footer = LayoutDescriptorReader::new(self.layout_serde.clone())
             .read_footer(&self.reader, self.size().await)
             .await?;
-        let row_count = footer.row_count()?;
-        let footer_dtype = Arc::new(LazyDeserializedDType::from_bytes(
+        let footer_dtype = Arc::new(LazilyDeserializedDType::from_schema_bytes(
             footer.dtype_bytes()?,
             Projection::All,
         ));
@@ -78,18 +77,19 @@ impl<R: VortexReadAt> LayoutBatchStreamBuilder<R> {
 
         let message_cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
 
-        let data_reader = footer.layout(
+        let layout_reader = footer.layout_reader(
             Scan::new(match read_projection {
                 Projection::All => None,
                 Projection::Flat(p) => Some(Arc::new(Select::include(p))),
             }),
             RelativeLayoutCache::new(message_cache.clone(), footer_dtype.clone()),
         )?;
+        let row_count = layout_reader.as_ref().row_count()?;
 
         let filter_reader = self
             .row_filter
             .map(|row_filter| {
-                footer.layout(
+                footer.layout_reader(
                     Scan::new(Some(Arc::new(row_filter))),
                     RelativeLayoutCache::new(message_cache.clone(), footer_dtype),
                 )
@@ -110,7 +110,7 @@ impl<R: VortexReadAt> LayoutBatchStreamBuilder<R> {
 
         Ok(LayoutBatchStream::new(
             self.reader,
-            data_reader,
+            layout_reader,
             filter_reader,
             message_cache,
             projected_dtype,

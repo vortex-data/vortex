@@ -160,7 +160,7 @@ mod tests {
     use vortex_expr::{BinaryExpr, Identity, Literal, Operator};
     use vortex_flatbuffers::{footer, WriteFlatBuffer};
 
-    use crate::layouts::read::cache::{LazyDeserializedDType, RelativeLayoutCache};
+    use crate::layouts::read::cache::{LazilyDeserializedDType, RelativeLayoutCache};
     use crate::layouts::read::layouts::chunked::ChunkedLayout;
     use crate::layouts::read::layouts::test_read::{
         filter_read_layout, read_layout, read_layout_data,
@@ -217,7 +217,7 @@ mod tests {
             ._tab
             .loc();
 
-        let dtype = Arc::new(LazyDeserializedDType::from_dtype(PType::I32.into()));
+        let dtype = Arc::new(LazilyDeserializedDType::from_dtype(PType::I32.into()));
         (
             ChunkedLayout::new(
                 fb_bytes.clone(),
