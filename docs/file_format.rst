@@ -16,33 +16,41 @@ Layouts
 ^^^^^^^
 
 Vortex arrays have the same binary representation in-memory, on-disk, and over-the-wire; however,
-all the rows of all the columns are not necessarily contiguously laid out. Vortex has three kinds of
-*layouts* which recursively compose: the *flat layout*, the *column layout*, and the *chunked
-layout*.
+all the rows of all the columns are not necessarily contiguously laid out. Vortex currently has
+three kinds of *layouts* which recursively compose: the *flat layout*, the *column layout*, and
+the *chunked layout*.
 
-The flat layout is a contiguous sequence of bytes. Any Vortex array encoding can be serialized into
-the flat layout.
+The flat layout is a contiguous sequence of bytes. *Any* Vortex array encoding (including
+struct-typed arrays) can be serialized into the flat layout.
 
 The column layout lays out each column of a struct-typed array as a separate sequence of bytes. Each
 column may or may not recursively use a chunked layout. Column layouts permit readers to push-down
 column projections.
 
 The chunked layout lays out an array as a sequence of row chunks. Each chunk may have a different
-size. A chunked layout permits reader to push-down row filters based on statistics which we describe
-later. Note that, if the laid out array is a struct array, each column uses the same chunk
-size. This is equivalent to Parquet's row groups.
+size. A chunked layout permits reader to push-down row filters based on statistics and/or row offsets.
+Note that if the laid out array is a struct array, each column will use the same chunk size. This is
+equivalent to Parquet's row groups.
 
 A few examples of concrete layouts:
 
 1. Chunked of struct of chunked of flat: essentially a Parquet layout with row groups in which each
-   column's values are contiguously stored in pages.
+   column's values are contiguously stored in pages. Note that in this case, the pages within each
+   "row group" may be of different sizes / do not have to be aligned.
 2. Struct of chunked of flat: eliminates row groups, retaining only pages.
 3. Struct of flat: prevents row filter push-down because each array is, to the layout, an opaque
    sequence of bytes.
 
 The chunked layout stores, per chunk, metadata necessary for effective row filtering such as
-sortedness, constancy, the minimum value, the maximum value, and the number of null rows. Readers
-consult these metadata tables to avoid reading chunks without relevant data.
+sortedness, constancy, the minimum value, the maximum value, and the number of null rows.
+
+The current writer implementation writes all such "metadata" IPC messages after writing all of the
+"data" IPC messages (allowing us to maximize the probability that metadata pruning can proceed
+after the first read from disk / object storage). The location of the metadata messages is encoded
+in the layout, which is then serialized just before the very end of the file.
+
+One implication of this is that the precise location of the metadata is not itself part of the file
+format specification. Instead, it is fully described by the layout.
 
 .. card::
 
@@ -52,7 +60,7 @@ consult these metadata tables to avoid reading chunks without relevant data.
 
    +++
 
-   The Vortex file format has five sections: data, statistics, schema, footer, and postscript. The
+   The Vortex file format has six sections: data, statistics, schema, layout, and the footer. The
    postscript describes the locating of the schema and layout which in turn describe how to
    interpret the data and metadata. The schema describes the logical type. The metadata contains
    information necessary for row filtering.
