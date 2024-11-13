@@ -102,11 +102,10 @@ impl BoolArrayTrait for SparseArray {
                 )
             }
             Some(false) | None => {
-                let set_indices = self.values().with_dyn(|a| {
-                    let bools = a
+                let set_indices = self.values().with_dyn(|values| {
+                    values
                         .as_bool_array()
-                        .vortex_expect("values of sparse bool array must be bools");
-                    bools
+                        .vortex_expect("values of sparse bool array must be bools")
                         .maybe_null_indices_iter()
                         .map(|set_sparse_index| sparse_to_real[set_sparse_index])
                         .collect::<Vec<usize>>()
