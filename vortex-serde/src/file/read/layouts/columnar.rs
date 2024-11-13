@@ -265,7 +265,6 @@ mod tests {
     use vortex_dtype::field::Field;
     use vortex_dtype::{DType, Nullability};
     use vortex_expr::{BinaryExpr, Column, Literal, Operator};
-    
 
     use crate::file::read::builder::initial_read::{read_initial_bytes, read_layout_from_initial};
     use crate::file::read::cache::RelativeLayoutCache;

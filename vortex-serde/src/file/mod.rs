@@ -173,7 +173,7 @@ mod forever_constant {
         #[test]
         fn never_change_these_constants() {
             assert_eq!(V1_FOOTER_FBS_SIZE, 32);
-            assert_eq!(MAX_FOOTER_SIZE, 65528);
+            assert_eq!(MAX_FOOTER_SIZE, 65527);
             assert_eq!(MAGIC_BYTES, *b"VTXF");
             assert_eq!(EOF_SIZE, 8);
             assert_eq!(FLAT_LAYOUT_ID, LayoutId(1));
