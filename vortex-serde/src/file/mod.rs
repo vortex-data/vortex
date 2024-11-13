@@ -150,6 +150,9 @@ pub const V1_FOOTER_FBS_SIZE: usize = 32;
 mod forever_constant {
     use super::*;
 
+    /// The extension for Vortex files
+    pub const VORTEX_FILE_EXTENSION: &str = "vortex";
+
     /// The maximum length of a Vortex footer in bytes
     pub const MAX_FOOTER_SIZE: u16 = u16::MAX - 8;
     /// The magic bytes for a Vortex file
