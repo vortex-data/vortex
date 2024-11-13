@@ -119,7 +119,7 @@ impl MaybeCompareFn for ConstantArray {
     }
 }
 
-fn arrow_and(left: Option<bool>, right: Option<bool>) -> Option<bool> {
+fn and(left: Option<bool>, right: Option<bool>) -> Option<bool> {
     left.zip(right).map(|(l, r)| l & r)
 }
 
@@ -133,7 +133,7 @@ fn kleene_and(left: Option<bool>, right: Option<bool>) -> Option<bool> {
     }
 }
 
-fn arrow_or(left: Option<bool>, right: Option<bool>) -> Option<bool> {
+fn or(left: Option<bool>, right: Option<bool>) -> Option<bool> {
     left.zip(right).map(|(l, r)| l | r)
 }
 
@@ -149,7 +149,7 @@ fn kleene_or(left: Option<bool>, right: Option<bool>) -> Option<bool> {
 
 impl AndFn for ConstantArray {
     fn and(&self, array: &Array) -> VortexResult<Array> {
-        constant_array_bool_impl(self, array, arrow_and, |other, this| {
+        constant_array_bool_impl(self, array, and, |other, this| {
             other.with_dyn(|other| other.and().map(|other| other.and(this)))
         })
     }
@@ -163,7 +163,7 @@ impl AndFn for ConstantArray {
 
 impl OrFn for ConstantArray {
     fn or(&self, array: &Array) -> VortexResult<Array> {
-        constant_array_bool_impl(self, array, arrow_or, |other, this| {
+        constant_array_bool_impl(self, array, or, |other, this| {
             other.with_dyn(|other| other.or().map(|other| other.or(this)))
         })
     }
