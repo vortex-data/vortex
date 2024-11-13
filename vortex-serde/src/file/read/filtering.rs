@@ -1,5 +1,5 @@
 use std::any::Any;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use std::sync::Arc;
 
 use arrow_buffer::BooleanBuffer;
@@ -11,7 +11,7 @@ use vortex_array::validity::Validity;
 use vortex_array::{Array, IntoArray, IntoArrayVariant};
 use vortex_dtype::field::Field;
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_expr::{split_conjunction, unbox_any, VortexExpr};
+use vortex_expr::{join_write, split_conjunction, unbox_any, VortexExpr};
 
 use crate::file::read::expr_project::expr_project;
 
@@ -42,6 +42,12 @@ impl RowFilter {
         } else {
             Some(Self::from_conjunction(conj))
         }
+    }
+}
+
+impl Display for RowFilter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        join_write(f, "RowFilter(", self.conjunction.iter(), ",", ")")
     }
 }
 

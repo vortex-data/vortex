@@ -1,6 +1,7 @@
 // This code doesn't have usage outside of tests yet, remove once usage is added
 #![allow(dead_code)]
 
+use std::fmt::Display;
 use std::sync::Arc;
 
 use vortex_array::aliases::hash_map::HashMap;
@@ -8,13 +9,34 @@ use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::stats::Stat;
 use vortex_dtype::field::Field;
 use vortex_dtype::Nullability;
-use vortex_expr::{BinaryExpr, Column, Literal, Not, Operator, VortexExpr};
+use vortex_expr::{
+    join_write, join_write_fun, BinaryExpr, Column, Literal, Not, Operator, VortexExpr,
+};
 use vortex_scalar::Scalar;
 
 #[derive(Debug, Clone)]
 pub struct PruningPredicate {
     expr: Arc<dyn VortexExpr>,
     required_stats: HashMap<Field, HashSet<Stat>>,
+}
+
+impl Display for PruningPredicate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "PruningPredicate({}, ", self.expr)?;
+        join_write_fun(
+            f,
+            "{",
+            ",",
+            "}",
+            self.required_stats.iter().map(|(k, v)| {
+                move |f: &mut std::fmt::Formatter<'_>| {
+                    write!(f, "{}: ", k)?;
+                    join_write(f, "{", v, ",", "}")
+                }
+            }),
+        )?;
+        write!(f, ")")
+    }
 }
 
 impl PruningPredicate {
@@ -525,5 +547,21 @@ mod tests {
             Arc::new(Column::new(Field::from("b"))),
         )))) as _;
         assert!(PruningPredicate::try_new(&or_expr).is_none());
+    }
+
+    #[test]
+    fn display_pruning_predicate() {
+        let column = Field::from("a");
+        let other_col = Arc::new(Literal::new(42.into()));
+        let not_eq_expr = Arc::new(BinaryExpr::new(
+            Arc::new(Column::new(column.clone())),
+            Operator::Lt,
+            other_col.clone(),
+        )) as _;
+
+        assert_eq!(
+            PruningPredicate::try_new(&not_eq_expr).unwrap().to_string(),
+            "PruningPredicate(($a_min >= 42_i32), {$a: {min}})"
+        );
     }
 }

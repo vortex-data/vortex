@@ -1,4 +1,5 @@
 use std::any::Any;
+use std::fmt::Display;
 
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::StructArray;
@@ -33,6 +34,12 @@ impl From<String> for Column {
 impl From<usize> for Column {
     fn from(value: usize) -> Self {
         Column::new(value.into())
+    }
+}
+
+impl Display for Column {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.field)
     }
 }
 
