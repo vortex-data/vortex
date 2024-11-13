@@ -35,7 +35,7 @@ include = [
     "src/**/*.rs",
     "Cargo.toml",
     "proto/**/*.proto",
-    "flatbuffers/*.fbs",
+    "flatbuffers/**/*.fbs",
     "README.md",
 ]
 edition = "2021"
