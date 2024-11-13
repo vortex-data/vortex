@@ -3,8 +3,8 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-Wide, Fast & Compact. Pick Three.
-==================================
+Vortex: a State-of-the-Art Columnar File Format
+==============================================
 
 .. grid:: 1 1 2 2
     :gutter: 4 4 4 4
@@ -32,13 +32,18 @@ Wide, Fast & Compact. Pick Three.
        Random access, throughput, and TPC-H.
 
 
-Vortex is a fast & extensible columnar file format that is based around state-of-the-art research
-from the database community. It is built around cascading compression with lightweight encodings (no
-block compression), allowing for both efficient random access and extremely fast decompression.
+Vortex is a fast & extensible columnar file format that is based around the latest research from the
+database community. It is built around cascading compression with lightweight, vectorized encodings
+(i.e., no block compression), allowing for both efficient random access and extremely fast
+decompression.
 
-Vortex also includes an accompanying in-memory format for these (recursively) compressed arrays,
+Vortex includes an accompanying in-memory format for these (recursively) compressed arrays,
 that is zero-copy compatible with Apache Arrow in uncompressed form. Taken together, the Vortex
 library is a useful toolkit with compressed Arrow data in-memory, on-disk, & over-the-wire.
+
+Vortex consolidates the metadata in a series of flatbuffers in the footer, in order to minimize
+the number of reads (important when reading from object storage) & the deserialization overhead
+(important for wide tables with many columns).
 
 Vortex aspires to succeed Apache Parquet by pushing the Pareto frontier outwards: 1-2x faster
 writes, 2-10x faster scans, and 100-200x faster random access reads, while preserving the same

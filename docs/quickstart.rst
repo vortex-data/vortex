@@ -141,20 +141,21 @@ Use the sampling compressor to compress the Vortex array and check the relative 
 Write
 ^^^^^
 
-Reading and writing both require an async runtime, in this example we use Tokio. The LayoutWriter
-knows how to write Vortex arrays to disk:
+Reading and writing both require an async runtime, in this example we use Tokio. The
+:class:`~vortex_serde::file::write::writer::VortexFileWriter` knows how to write Vortex arrays to
+disk:
 
 .. code-block:: rust
 
    use std::path::Path;
 
    use tokio::fs::File as TokioFile;
-   use vortex::serde::layouts::LayoutWriter;
+   use vortex_serde::file::write::writer::VortexFileWriter;
 
    let file = TokioFile::create(Path::new("example.vortex"))
        .await
        .unwrap();
-   let writer = LayoutWriter::new(file)
+   let writer = VortexFileWriter::new(file)
        .write_array_columns(cvtx.clone())
        .await
        .unwrap();
@@ -167,10 +168,10 @@ Read
 
    use futures::TryStreamExt;
    use vortex::sampling_compressor::ALL_COMPRESSORS_CONTEXT;
-   use vortex::serde::layouts::{LayoutContext, LayoutDeserializer, LayoutReaderBuilder};
+   use vortex_serde::file::read::builder::{VortexReadBuilder, LayoutDeserializer};
 
    let file = TokioFile::open(Path::new("example.vortex")).await.unwrap();
-   let builder = LayoutReaderBuilder::new(
+   let builder = VortexReadBuilder::new(
        file,
        LayoutDeserializer::new(
            ALL_COMPRESSORS_CONTEXT.clone(),
