@@ -129,10 +129,10 @@ pub async fn read_initial_bytes<R: VortexReadAt>(
     }
 
     let ps_loc = eof_loc - ps_size;
-    let fb_ps_byte_range = ps_loc..eof_loc;
+    let fb_postscript_byte_range = ps_loc..eof_loc;
 
     // we validate the footer here
-    let postscript = root::<footer::Postscript>(&buf[fb_ps_byte_range.clone()])?;
+    let postscript = root::<footer::Postscript>(&buf[fb_postscript_byte_range.clone()])?;
     let schema_offset = postscript.schema_offset();
     let layout_offset = postscript.layout_offset();
 
@@ -170,7 +170,7 @@ pub async fn read_initial_bytes<R: VortexReadAt>(
     Ok(InitialRead {
         buf: buf.freeze(),
         initial_read_offset,
-        fb_postscript_byte_range: fb_ps_byte_range,
+        fb_postscript_byte_range,
     })
 }
 
