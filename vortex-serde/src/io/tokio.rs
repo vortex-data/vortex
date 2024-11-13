@@ -1,7 +1,7 @@
 #![cfg(feature = "tokio")]
 
 use std::fs::File;
-use std::future::Future;
+use std::future::{self, Future};
 use std::io;
 use std::mem::ManuallyDrop;
 use std::ops::Deref;
@@ -63,7 +63,6 @@ impl AsyncRuntime for Handle {
 #[derive(Debug, Clone)]
 pub struct TokioFile(Arc<Inner>);
 
-// Implement an inner file.
 #[derive(Debug)]
 struct Inner {
     file: ManuallyDrop<File>,
@@ -102,21 +101,10 @@ impl VortexReadAt for TokioFile {
     ) -> impl Future<Output = io::Result<BytesMut>> + 'static {
         let this = self.clone();
 
-        async move {
-            let res = tokio::task::spawn_blocking(move || {
-                let mut buffer = buffer;
-                match this.read_exact_at(&mut buffer, pos) {
-                    Ok(()) => Ok(buffer),
-                    Err(e) => Err(e),
-                }
-            });
-
-            res.await.map_err(|_canceled| {
-                io::Error::new(
-                    io::ErrorKind::Other,
-                    "blocking read_exact_at task was canceled",
-                )
-            })?
+        let mut buffer = buffer;
+        match this.read_exact_at(&mut buffer, pos) {
+            Ok(()) => future::ready(Ok(buffer)),
+            Err(e) => future::ready(Err(e)),
         }
     }
 
