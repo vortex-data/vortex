@@ -6,7 +6,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## `vortex-datafusion` - [0.15.1](https://github.com/spiraldb/vortex/compare/vortex-datafusion-v0.14.0...vortex-datafusion-v0.15.1) - 2024-11-13
+## `vortex-datafusion` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-datafusion-v0.14.0...vortex-datafusion-v0.15.2) - 2024-11-13
 
 ### Added
 - [**breaking**] standardize file format names & stop wrapping Footer contents in messages ([#1275](https://github.com/spiraldb/vortex/pull/1275))
@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - some documentation of the layout reading system ([#1225](https://github.com/spiraldb/vortex/pull/1225))
 - Replace usages of lazy_static with LazyLock ([#1214](https://github.com/spiraldb/vortex/pull/1214))
 
-## `vortex-serde` - [0.15.1](https://github.com/spiraldb/vortex/compare/vortex-serde-v0.14.0...vortex-serde-v0.15.1) - 2024-11-13
+## `vortex-serde` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-serde-v0.14.0...vortex-serde-v0.15.2) - 2024-11-13
 
 ### Added
 - [**breaking**] standardize file format names & stop wrapping Footer contents in messages ([#1275](https://github.com/spiraldb/vortex/pull/1275))
@@ -41,7 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - move Array enum out of public interface ([#1212](https://github.com/spiraldb/vortex/pull/1212))
 - Replace usages of lazy_static with LazyLock ([#1214](https://github.com/spiraldb/vortex/pull/1214))
 
-## `vortex-zigzag` - [0.15.1](https://github.com/spiraldb/vortex/compare/vortex-zigzag-v0.14.0...vortex-zigzag-v0.15.1) - 2024-11-13
+## `vortex-zigzag` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-zigzag-v0.14.0...vortex-zigzag-v0.15.2) - 2024-11-13
 
 ### Added
 - teach PrimitiveArrayTrait iterate_primitive_array! and RowMask from_index_array ([#1241](https://github.com/spiraldb/vortex/pull/1241))
@@ -49,7 +49,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Other
 - Remove unused dependencies ([#1256](https://github.com/spiraldb/vortex/pull/1256))
 
-## `vortex-sampling-compressor` - [0.15.1](https://github.com/spiraldb/vortex/compare/vortex-sampling-compressor-v0.14.0...vortex-sampling-compressor-v0.15.1) - 2024-11-13
+## `vortex-sampling-compressor` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-sampling-compressor-v0.14.0...vortex-sampling-compressor-v0.15.2) - 2024-11-13
 
 ### Added
 - eagerly compute pruning stats during compression ([#1252](https://github.com/spiraldb/vortex/pull/1252))
@@ -62,7 +62,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enable more lints about unused lifetimes and unnecessary prefixes ([#1233](https://github.com/spiraldb/vortex/pull/1233))
 - Replace usages of lazy_static with LazyLock ([#1214](https://github.com/spiraldb/vortex/pull/1214))
 
-## `vortex-runend-bool` - [0.15.1](https://github.com/spiraldb/vortex/compare/vortex-runend-bool-v0.14.0...vortex-runend-bool-v0.15.1) - 2024-11-13
+## `vortex-runend-bool` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-runend-bool-v0.14.0...vortex-runend-bool-v0.15.2) - 2024-11-13
 
 ### Added
 - teach PrimitiveArrayTrait iterate_primitive_array! and RowMask from_index_array ([#1241](https://github.com/spiraldb/vortex/pull/1241))
@@ -70,12 +70,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Other
 - Add Not vortex expr and use it in pruning expression conversion ([#1213](https://github.com/spiraldb/vortex/pull/1213))
 
-## `vortex-runend` - [0.15.1](https://github.com/spiraldb/vortex/compare/vortex-runend-v0.14.0...vortex-runend-v0.15.1) - 2024-11-13
+## `vortex-runend` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-runend-v0.14.0...vortex-runend-v0.15.2) - 2024-11-13
 
 ### Added
 - teach PrimitiveArrayTrait iterate_primitive_array! and RowMask from_index_array ([#1241](https://github.com/spiraldb/vortex/pull/1241))
 
-## `vortex-roaring` - [0.15.1](https://github.com/spiraldb/vortex/compare/vortex-roaring-v0.14.0...vortex-roaring-v0.15.1) - 2024-11-13
+## `vortex-roaring` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-roaring-v0.14.0...vortex-roaring-v0.15.2) - 2024-11-13
 
 ### Added
 - teach PrimitiveArrayTrait iterate_primitive_array! and RowMask from_index_array ([#1241](https://github.com/spiraldb/vortex/pull/1241))
@@ -84,13 +84,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Remove unused dependencies ([#1256](https://github.com/spiraldb/vortex/pull/1256))
 - Add Not vortex expr and use it in pruning expression conversion ([#1213](https://github.com/spiraldb/vortex/pull/1213))
 
-## `vortex-expr` - [0.15.1](https://github.com/spiraldb/vortex/compare/vortex-expr-v0.14.0...vortex-expr-v0.15.1) - 2024-11-13
+## `vortex-expr` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-expr-v0.14.0...vortex-expr-v0.15.2) - 2024-11-13
 
 ### Other
 - Remove unused dependencies ([#1256](https://github.com/spiraldb/vortex/pull/1256))
 - Add Not vortex expr and use it in pruning expression conversion ([#1213](https://github.com/spiraldb/vortex/pull/1213))
 
-## `vortex-dict` - [0.15.1](https://github.com/spiraldb/vortex/compare/vortex-dict-v0.14.0...vortex-dict-v0.15.1) - 2024-11-13
+## `vortex-dict` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-dict-v0.14.0...vortex-dict-v0.15.2) - 2024-11-13
 
 ### Added
 - teach PrimitiveArrayTrait iterate_primitive_array! and RowMask from_index_array ([#1241](https://github.com/spiraldb/vortex/pull/1241))
@@ -100,12 +100,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - cleanup dict encoding logic ([#1231](https://github.com/spiraldb/vortex/pull/1231))
 - Enable more lints about unused lifetimes and unnecessary prefixes ([#1233](https://github.com/spiraldb/vortex/pull/1233))
 
-## `vortex-datetime-parts` - [0.15.1](https://github.com/spiraldb/vortex/compare/vortex-datetime-parts-v0.14.0...vortex-datetime-parts-v0.15.1) - 2024-11-13
+## `vortex-datetime-parts` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-datetime-parts-v0.14.0...vortex-datetime-parts-v0.15.2) - 2024-11-13
 
 ### Other
 - Remove unused dependencies ([#1256](https://github.com/spiraldb/vortex/pull/1256))
 
-## `vortex-bytebool` - [0.15.1](https://github.com/spiraldb/vortex/compare/vortex-bytebool-v0.14.0...vortex-bytebool-v0.15.1) - 2024-11-13
+## `vortex-bytebool` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-bytebool-v0.14.0...vortex-bytebool-v0.15.2) - 2024-11-13
 
 ### Added
 - teach PrimitiveArrayTrait iterate_primitive_array! and RowMask from_index_array ([#1241](https://github.com/spiraldb/vortex/pull/1241))
@@ -115,7 +115,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add Not vortex expr and use it in pruning expression conversion ([#1213](https://github.com/spiraldb/vortex/pull/1213))
 - Enable more lints about unused lifetimes and unnecessary prefixes ([#1233](https://github.com/spiraldb/vortex/pull/1233))
 
-## `vortex-fastlanes` - [0.15.1](https://github.com/spiraldb/vortex/compare/vortex-fastlanes-v0.14.0...vortex-fastlanes-v0.15.1) - 2024-11-13
+## `vortex-fastlanes` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-fastlanes-v0.14.0...vortex-fastlanes-v0.15.2) - 2024-11-13
 
 ### Added
 - propagate statistics through compression ([#1236](https://github.com/spiraldb/vortex/pull/1236))
@@ -125,7 +125,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Other
 - Remove unused dependencies ([#1256](https://github.com/spiraldb/vortex/pull/1256))
 
-## `vortex-scalar` - [0.15.1](https://github.com/spiraldb/vortex/compare/vortex-scalar-v0.14.0...vortex-scalar-v0.15.1) - 2024-11-13
+## `vortex-scalar` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-scalar-v0.14.0...vortex-scalar-v0.15.2) - 2024-11-13
 
 ### Added
 - propagate statistics through compression ([#1236](https://github.com/spiraldb/vortex/pull/1236))
@@ -133,7 +133,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Other
 - Remove unused dependencies ([#1256](https://github.com/spiraldb/vortex/pull/1256))
 
-## `vortex-flatbuffers` - [0.15.1](https://github.com/spiraldb/vortex/compare/vortex-flatbuffers-v0.14.0...vortex-flatbuffers-v0.15.1) - 2024-11-13
+## `vortex-flatbuffers` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-flatbuffers-v0.14.0...vortex-flatbuffers-v0.15.2) - 2024-11-13
 
 ### Added
 - [**breaking**] standardize file format names & stop wrapping Footer contents in messages ([#1275](https://github.com/spiraldb/vortex/pull/1275))
@@ -142,23 +142,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enable more lints about unused lifetimes and unnecessary prefixes ([#1233](https://github.com/spiraldb/vortex/pull/1233))
 - some documentation of the layout reading system ([#1225](https://github.com/spiraldb/vortex/pull/1225))
 
-## `vortex-error` - [0.15.1](https://github.com/spiraldb/vortex/compare/vortex-error-v0.14.0...vortex-error-v0.15.1) - 2024-11-13
+## `vortex-error` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-error-v0.14.0...vortex-error-v0.15.2) - 2024-11-13
 
 ### Other
 - Annotate wrapped error in Context error type as #[source] ([#1265](https://github.com/spiraldb/vortex/pull/1265))
 - Enable more lints about unused lifetimes and unnecessary prefixes ([#1233](https://github.com/spiraldb/vortex/pull/1233))
 
-## `vortex-datetime-dtype` - [0.15.1](https://github.com/spiraldb/vortex/compare/vortex-datetime-dtype-v0.14.0...vortex-datetime-dtype-v0.15.1) - 2024-11-13
+## `vortex-datetime-dtype` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-datetime-dtype-v0.14.0...vortex-datetime-dtype-v0.15.2) - 2024-11-13
 
 ### Other
 - Replace usages of lazy_static with LazyLock ([#1214](https://github.com/spiraldb/vortex/pull/1214))
 
-## `vortex-buffer` - [0.15.1](https://github.com/spiraldb/vortex/compare/vortex-buffer-v0.14.0...vortex-buffer-v0.15.1) - 2024-11-13
+## `vortex-buffer` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-buffer-v0.14.0...vortex-buffer-v0.15.2) - 2024-11-13
 
 ### Other
 - move Buffer enum to private inner struct ([#1216](https://github.com/spiraldb/vortex/pull/1216))
 
-## `vortex-array` - [0.15.1](https://github.com/spiraldb/vortex/compare/0.14.0...0.15.1) - 2024-11-13
+## `vortex-array` - [0.15.2](https://github.com/spiraldb/vortex/compare/0.14.0...0.15.2) - 2024-11-13
 
 ### Added
 - propagate statistics through compression ([#1236](https://github.com/spiraldb/vortex/pull/1236))
@@ -177,7 +177,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - move Array enum out of public interface ([#1212](https://github.com/spiraldb/vortex/pull/1212))
 - Replace usages of lazy_static with LazyLock ([#1214](https://github.com/spiraldb/vortex/pull/1214))
 
-## `vortex-alp` - [0.15.1](https://github.com/spiraldb/vortex/compare/vortex-alp-v0.14.0...vortex-alp-v0.15.1) - 2024-11-13
+## `vortex-alp` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-alp-v0.14.0...vortex-alp-v0.15.2) - 2024-11-13
 
 ### Added
 - Support patching bool arrays, patch primitive array validity and use patching when canonicalizing sparse arrays ([#1218](https://github.com/spiraldb/vortex/pull/1218))
