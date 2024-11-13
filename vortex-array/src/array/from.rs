@@ -14,6 +14,12 @@ impl From<Vec<Option<bool>>> for Array {
     }
 }
 
+impl From<Vec<bool>> for Array {
+    fn from(value: Vec<bool>) -> Self {
+        BoolArray::from(value).into_array()
+    }
+}
+
 macro_rules! impl_from_primitive_for_array {
     ($P:ty) => {
         impl From<Vec<$P>> for Array {
