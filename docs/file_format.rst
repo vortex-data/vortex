@@ -61,10 +61,10 @@ format specification. Instead, it is fully described by the layout.
 
    +++
 
-   In practice, the Vortex file format has four top-level sections: IPC messages (data, followed by
-   statistics), schema, layout, and the footer. The footer describes the location of the schema
-   and layout, which in turn describe how to interpret the serialized IPC messages. The schema
-   describes the logical type.
+   The Vortex file format has two top-level sections:
+
+   1. Data (typically array IPC messages, followed by statistics, though that's a writer implementation detail),
+   2. Footer, which contains the schema (i.e., the logical type), the layout, a postscript (containing offsets), and an 8-byte end-of-file marker.
 
 .. _included-codecs:
 
