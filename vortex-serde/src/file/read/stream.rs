@@ -10,7 +10,7 @@ use futures_util::future::BoxFuture;
 use futures_util::{stream, FutureExt, StreamExt, TryStreamExt};
 use itertools::Itertools;
 use vortex_array::array::ChunkedArray;
-use vortex_array::compute::and;
+use vortex_array::compute::and_kleene;
 use vortex_array::stats::ArrayStatistics;
 use vortex_array::Array;
 use vortex_dtype::DType;
@@ -224,8 +224,12 @@ impl<R: VortexReadAt + Unpin + 'static> VortexFileArrayStream<R> {
                     }
                     Some(BatchRead::Batch(mut batch)) => {
                         if let Some(row_mask) = &self.row_mask {
-                            batch =
-                                and(batch, row_mask.slice(sel_begin, sel_end).to_mask_array()?)?;
+                            // Either `and` or `and_kleene` is fine. They only differ on `false AND
+                            // null`, but RowMask::from_mask_array only cares which values are true.
+                            batch = and_kleene(
+                                batch,
+                                row_mask.slice(sel_begin, sel_end).to_mask_array()?,
+                            )?;
                         }
 
                         if batch

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use arrow_buffer::BooleanBuffer;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{BoolArray, ConstantArray};
-use vortex_array::compute::and;
+use vortex_array::compute::and_kleene;
 use vortex_array::stats::ArrayStatistics;
 use vortex_array::validity::Validity;
 use vortex_array::{Array, IntoArray, IntoArrayVariant};
@@ -62,7 +62,9 @@ impl VortexExpr for RowFilter {
             }
 
             let new_mask = expr.evaluate(batch)?;
-            mask = and(new_mask, mask)?;
+            // Either `and` or `and_kleene` is fine. They only differ on `false AND null`, but
+            // null_as_false only cares which values are true.
+            mask = and_kleene(new_mask, mask)?;
         }
 
         null_as_false(mask.into_bool()?)
