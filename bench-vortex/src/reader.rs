@@ -28,7 +28,7 @@ use vortex::compress::CompressionStrategy;
 use vortex::dtype::DType;
 use vortex::error::VortexResult;
 use vortex::sampling_compressor::{SamplingCompressor, ALL_ENCODINGS_CONTEXT};
-use vortex::serde::file::{LayoutContext, LayoutDeserializer, LayoutWriter, VortexReadBuilder};
+use vortex::serde::file::{LayoutContext, LayoutDeserializer, VortexFileWriter, VortexReadBuilder};
 use vortex::serde::io::{ObjectStoreReadAt, VortexReadAt, VortexWrite};
 use vortex::{Array, IntoArray, IntoCanonical};
 
@@ -63,7 +63,7 @@ pub async fn rewrite_parquet_as_vortex<W: VortexWrite>(
 ) -> VortexResult<()> {
     let chunked = compress_parquet_to_vortex(parquet_path.as_path())?;
 
-    LayoutWriter::new(write)
+    VortexFileWriter::new(write)
         .write_array_columns(chunked)
         .await?
         .finalize()

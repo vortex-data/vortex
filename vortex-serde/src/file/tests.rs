@@ -14,7 +14,7 @@ use vortex_error::vortex_panic;
 use vortex_expr::{BinaryExpr, Column, Literal, Operator};
 
 use crate::file::builder::initial_read::{read_initial_bytes, read_layout_from_initial};
-use crate::file::write::LayoutWriter;
+use crate::file::write::VortexFileWriter;
 use crate::file::{
     LayoutDeserializer, LayoutMessageCache, Projection, RelativeLayoutCache, RowFilter, Scan,
     VortexReadBuilder, V1_FOOTER_FBS_SIZE, VERSION,
@@ -45,7 +45,7 @@ async fn test_read_simple() {
 
     let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
     let buf = Vec::new();
-    let mut writer = LayoutWriter::new(buf);
+    let mut writer = VortexFileWriter::new(buf);
     writer = writer.write_array_columns(st.into_array()).await.unwrap();
     let written = writer.finalize().await.unwrap();
 
@@ -86,7 +86,7 @@ async fn test_splits() {
     let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
     let len = st.len();
     let buf = Vec::new();
-    let mut writer = LayoutWriter::new(buf);
+    let mut writer = VortexFileWriter::new(buf);
     writer = writer.write_array_columns(st.into_array()).await.unwrap();
     let written = writer.finalize().await.unwrap();
 
@@ -133,7 +133,7 @@ async fn test_read_projection() {
 
     let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
     let buf = Vec::new();
-    let mut writer = LayoutWriter::new(buf);
+    let mut writer = VortexFileWriter::new(buf);
     writer = writer.write_array_columns(st.into_array()).await.unwrap();
     let written = writer.finalize().await.unwrap();
 
@@ -271,7 +271,7 @@ async fn unequal_batches() {
 
     let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
     let buf = Vec::new();
-    let mut writer = LayoutWriter::new(buf);
+    let mut writer = VortexFileWriter::new(buf);
     writer = writer.write_array_columns(st.into_array()).await.unwrap();
     let written = writer.finalize().await.unwrap();
 
@@ -329,7 +329,7 @@ async fn write_chunked() {
         .unwrap()
         .into_array();
     let buf = Vec::new();
-    let mut writer = LayoutWriter::new(buf);
+    let mut writer = VortexFileWriter::new(buf);
     writer = writer.write_array_columns(chunked_st).await.unwrap();
     let written = writer.finalize().await.unwrap();
     let mut reader = VortexReadBuilder::new(written, LayoutDeserializer::default())
@@ -362,7 +362,7 @@ async fn filter_string() {
     )
     .unwrap()
     .into_array();
-    let mut writer = LayoutWriter::new(Vec::new());
+    let mut writer = VortexFileWriter::new(Vec::new());
     writer = writer.write_array_columns(st).await.unwrap();
     let written = writer.finalize().await.unwrap();
     let mut reader = VortexReadBuilder::new(written, LayoutDeserializer::default())
@@ -419,7 +419,7 @@ async fn filter_or() {
     )
     .unwrap()
     .into_array();
-    let mut writer = LayoutWriter::new(Vec::new());
+    let mut writer = VortexFileWriter::new(Vec::new());
     writer = writer.write_array_columns(st).await.unwrap();
     let written = writer.finalize().await.unwrap();
     let mut reader = VortexReadBuilder::new(written, LayoutDeserializer::default())
@@ -492,7 +492,7 @@ async fn filter_and() {
     )
     .unwrap()
     .into_array();
-    let mut writer = LayoutWriter::new(Vec::new());
+    let mut writer = VortexFileWriter::new(Vec::new());
     writer = writer.write_array_columns(st).await.unwrap();
     let written = writer.finalize().await.unwrap();
     let mut reader = VortexReadBuilder::new(written, LayoutDeserializer::default())
@@ -552,7 +552,7 @@ async fn test_with_indices_simple() {
     .unwrap();
     let expected_numbers: Vec<i16> = expected_numbers_split.into_iter().flatten().collect();
 
-    let writer = LayoutWriter::new(Vec::new())
+    let writer = VortexFileWriter::new(Vec::new())
         .write_array_columns(expected_array.into_array())
         .await
         .unwrap();
@@ -635,7 +635,7 @@ async fn test_with_indices_on_two_columns() {
 
     let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
     let buf = Vec::new();
-    let mut writer = LayoutWriter::new(buf);
+    let mut writer = VortexFileWriter::new(buf);
     writer = writer.write_array_columns(st.into_array()).await.unwrap();
     let written = writer.finalize().await.unwrap();
 
@@ -694,7 +694,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
     .unwrap();
     let expected_numbers: Vec<i16> = expected_numbers_split.into_iter().flatten().collect();
 
-    let writer = LayoutWriter::new(Vec::new())
+    let writer = VortexFileWriter::new(Vec::new())
         .write_array_columns(expected_array.into_array())
         .await
         .unwrap();

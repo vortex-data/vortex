@@ -270,7 +270,7 @@ mod tests {
     use crate::file::read::cache::RelativeLayoutCache;
     use crate::file::read::layouts::test_read::{filter_read_layout, read_layout};
     use crate::file::{
-        LayoutDeserializer, LayoutMessageCache, LayoutReader, LayoutWriter, RowFilter, Scan,
+        LayoutDeserializer, LayoutMessageCache, LayoutReader, VortexFileWriter, RowFilter, Scan,
     };
 
     async fn layout_and_bytes(
@@ -297,7 +297,7 @@ mod tests {
         .unwrap()
         .into_array();
 
-        let mut writer = LayoutWriter::new(Vec::new());
+        let mut writer = VortexFileWriter::new(Vec::new());
         writer = writer.write_array_columns(struct_arr).await.unwrap();
         let written = writer.finalize().await.unwrap();
 

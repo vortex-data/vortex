@@ -16,7 +16,7 @@ use vortex::array::{ChunkedArray, StructArray};
 use vortex::arrow::FromArrowArray;
 use vortex::dtype::DType;
 use vortex::sampling_compressor::SamplingCompressor;
-use vortex::serde::file::LayoutWriter;
+use vortex::serde::file::VortexFileWriter;
 use vortex::variants::StructArrayTrait;
 use vortex::{Array, ArrayDType, IntoArray, IntoArrayVariant};
 use vortex_datafusion::memory::VortexMemTableOptions;
@@ -303,7 +303,7 @@ async fn register_vortex_file(
             .open(&vtx_file)
             .await?;
 
-        let mut writer = LayoutWriter::new(f);
+        let mut writer = VortexFileWriter::new(f);
         writer = writer.write_array_columns(data).await?;
         writer.finalize().await?;
 

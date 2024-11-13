@@ -1,5 +1,5 @@
 pub use layout::Layout;
-pub use writer::LayoutWriter;
+pub use writer::VortexFileWriter;
 
 mod footer;
 mod layout;

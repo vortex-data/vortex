@@ -27,7 +27,7 @@ use vortex::dtype::field::Field;
 use vortex::error::VortexResult;
 use vortex::sampling_compressor::compressors::fsst::FSSTCompressor;
 use vortex::sampling_compressor::{SamplingCompressor, ALL_ENCODINGS_CONTEXT};
-use vortex::serde::file::{LayoutContext, LayoutDeserializer, LayoutWriter, VortexReadBuilder};
+use vortex::serde::file::{LayoutContext, LayoutDeserializer, VortexFileWriter, VortexReadBuilder};
 use vortex::{Array, ArrayDType, IntoArray, IntoCanonical};
 
 use crate::tokio_runtime::TOKIO_RUNTIME;
@@ -106,7 +106,7 @@ fn vortex_compress_write(
     buf: &mut Vec<u8>,
 ) -> VortexResult<u64> {
     async fn async_write(array: &Array, cursor: &mut Cursor<&mut Vec<u8>>) -> VortexResult<()> {
-        let mut writer = LayoutWriter::new(cursor);
+        let mut writer = VortexFileWriter::new(cursor);
 
         writer = writer.write_array_columns(array.clone()).await?;
         writer.finalize().await?;

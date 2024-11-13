@@ -50,7 +50,13 @@ pub struct LazilyDeserializedDType {
 }
 
 impl LazilyDeserializedDType {
-    pub fn from_schema_bytes(schema_bytes: Bytes, projection: Projection) -> Self {
+    /// Create a LazilyDeserializedDType from a flatbuffer schema bytes
+    /// i.e., these bytes need to be deserializable as message::Schema
+    ///
+    /// # Safety
+    /// This function is unsafe because it trusts the caller to pass in a valid flatbuffer
+    /// representing a message::Schema.
+    pub unsafe fn from_schema_bytes(schema_bytes: Bytes, projection: Projection) -> Self {
         Self {
             inner: LazyDTypeState::Serialized(schema_bytes, OnceCell::new(), projection),
         }
@@ -79,10 +85,12 @@ impl LazilyDeserializedDType {
                     // TODO(robert): Respect existing projection list, only really an issue for nested structs
                     Projection::Flat(_) => vortex_bail!("Can't project already projected dtype"),
                 };
-                Ok(Arc::new(LazilyDeserializedDType::from_schema_bytes(
-                    b.clone(),
-                    projection,
-                )))
+                unsafe {
+                    Ok(Arc::new(LazilyDeserializedDType::from_schema_bytes(
+                        b.clone(),
+                        projection,
+                    )))
+                }
             }
         }
     }
@@ -130,9 +138,7 @@ impl LazilyDeserializedDType {
     }
 
     fn fb_schema(bytes: &[u8]) -> VortexResult<message::Schema> {
-        unsafe { root_unchecked::<message::Message>(bytes) }
-            .header_as_schema()
-            .ok_or_else(|| vortex_err!("Message was not a schema"))
+        Ok(unsafe { root_unchecked::<message::Schema>(bytes) })
     }
 }
 

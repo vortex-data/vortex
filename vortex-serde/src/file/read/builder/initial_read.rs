@@ -56,10 +56,13 @@ impl InitialRead {
     }
 
     pub fn lazy_dtype(&self) -> VortexResult<LazilyDeserializedDType> {
-        Ok(LazilyDeserializedDType::from_schema_bytes(
-            self.buf.slice(self.fb_schema_byte_range()?),
-            Projection::All,
-        ))
+        // we validated the schema bytes at construction time
+        unsafe {
+            Ok(LazilyDeserializedDType::from_schema_bytes(
+                self.buf.slice(self.fb_schema_byte_range()?),
+                Projection::All,
+            ))
+        }
     }
 }
 
@@ -148,7 +151,7 @@ pub async fn read_initial_bytes<R: VortexReadAt>(
         )
     }
 
-    if initial_read_offset < schema_offset {
+    if schema_offset < initial_read_offset {
         // TODO: instead of bailing, we can just read more bytes.
         vortex_bail!(
             "Schema, layout, & footer must be in the initial read, got schema at {} and initial read from {}",

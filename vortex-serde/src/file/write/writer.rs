@@ -15,10 +15,11 @@ use crate::file::write::layout::Layout;
 use crate::file::write::metadata_accumulators::{new_metadata_accumulator, MetadataAccumulator};
 use crate::file::{EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
 use crate::io::VortexWrite;
+use crate::messages::IPCSchema;
 use crate::stream_writer::ByteRange;
 use crate::MessageWriter;
 
-pub struct LayoutWriter<W> {
+pub struct VortexFileWriter<W> {
     msgs: MessageWriter<W>,
 
     row_count: u64,
@@ -26,9 +27,9 @@ pub struct LayoutWriter<W> {
     column_writers: Vec<ColumnWriter>,
 }
 
-impl<W: VortexWrite> LayoutWriter<W> {
+impl<W: VortexWrite> VortexFileWriter<W> {
     pub fn new(write: W) -> Self {
-        LayoutWriter {
+        VortexFileWriter {
             msgs: MessageWriter::new(write),
             dtype: None,
             column_writers: Vec::new(),
@@ -128,13 +129,12 @@ impl<W: VortexWrite> LayoutWriter<W> {
 
         // write the schema, and get the start offset of the next section (layout)
         let layout_offset = {
-            let schema_len = write_fb_raw(
-                &mut writer,
-                self.dtype
-                    .take()
-                    .ok_or_else(|| vortex_err!("Schema should be written by now"))?,
-            )
-            .await?;
+            let dtype = self.dtype.take().ok_or_else(|| vortex_err!("Schema should be written by now"))?;
+            // we write an IPCSchema instead of a DType, which allows us to evolve / add to the schema later
+            // these bytes get deserialized as message::Schema
+            // NB: we don't wrap the IPCSchema in an IPCMessage, because we record the lengths/offsets in the footer
+            let schema = IPCSchema(&dtype);
+            let schema_len = write_fb_raw(&mut writer, schema).await?;
             schema_offset + schema_len
         };
 
@@ -294,7 +294,7 @@ mod tests {
     use vortex_flatbuffers::WriteFlatBuffer;
 
     use crate::file::write::footer::Footer;
-    use crate::file::{LayoutWriter, V1_FOOTER_FBS_SIZE};
+    use crate::file::{VortexFileWriter, V1_FOOTER_FBS_SIZE};
 
     #[test]
     fn write_columns() {
@@ -308,7 +308,7 @@ mod tests {
         )
         .unwrap();
         let buf = Vec::new();
-        let mut writer = LayoutWriter::new(buf);
+        let mut writer = VortexFileWriter::new(buf);
         writer = block_on(async { writer.write_array_columns(st.into_array()).await }).unwrap();
         let written = block_on(async { writer.finalize().await }).unwrap();
         assert!(!written.is_empty());
