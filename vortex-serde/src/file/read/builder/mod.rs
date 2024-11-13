@@ -11,7 +11,7 @@ use vortex_schema::projection::Projection;
 use crate::file::read::cache::{LayoutMessageCache, RelativeLayoutCache};
 use crate::file::read::context::LayoutDeserializer;
 use crate::file::read::filtering::RowFilter;
-use crate::file::read::stream::LayoutBatchStream;
+use crate::file::read::stream::VortexFileArrayStream;
 use crate::file::read::{RowMask, Scan};
 use crate::io::VortexReadAt;
 
@@ -109,7 +109,7 @@ impl<R: VortexReadAt> VortexReadBuilder<R> {
         self
     }
 
-    pub async fn build(self) -> VortexResult<LayoutBatchStream<R>> {
+    pub async fn build(self) -> VortexResult<VortexFileArrayStream<R>> {
         // we do a large enough initial read to get footer, layout, and schema
         let initial_read = read_initial_bytes(&self.read_at, self.size().await).await?;
 
@@ -165,7 +165,7 @@ impl<R: VortexReadAt> VortexReadBuilder<R> {
             })
             .transpose()?;
 
-        Ok(LayoutBatchStream::new(
+        Ok(VortexFileArrayStream::new(
             self.read_at,
             layout_reader,
             filter_reader,

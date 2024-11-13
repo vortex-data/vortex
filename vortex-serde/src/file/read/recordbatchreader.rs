@@ -8,7 +8,7 @@ use vortex_array::arrow::infer_schema;
 use vortex_array::Array;
 use vortex_error::{VortexError, VortexResult};
 
-use super::LayoutBatchStream;
+use super::VortexFileArrayStream;
 use crate::io::VortexReadAt;
 
 fn vortex_to_arrow_error(error: VortexError) -> ArrowError {
@@ -26,7 +26,7 @@ pub trait AsyncRuntime {
 }
 
 pub struct VortexRecordBatchReader<'a, R, AR> {
-    stream: LayoutBatchStream<R>,
+    stream: VortexFileArrayStream<R>,
     arrow_schema: SchemaRef,
     runtime: &'a AR,
 }
@@ -37,7 +37,7 @@ where
     AR: AsyncRuntime,
 {
     pub fn try_new(
-        stream: LayoutBatchStream<R>,
+        stream: VortexFileArrayStream<R>,
         runtime: &'a AR,
     ) -> VortexResult<VortexRecordBatchReader<'a, R, AR>> {
         let arrow_schema = Arc::new(infer_schema(stream.dtype())?);

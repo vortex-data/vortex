@@ -25,10 +25,10 @@ use crate::stream_writer::ByteRange;
 
 /// Reads a layout from some memory, on-disk or elsewhere.
 ///
-/// Instead of using [`LayoutBatchStream::new`], use a
-/// [LayoutBatchStreamBuilder][crate::layouts::LayoutBatchStreamBuilder] to create an instance of
+/// Instead of using [`VortexFileArrayStream::new`], use a
+/// [VortexReadBuilder][crate::file::read::builder::VortexReadBuilder] to create an instance of
 /// this struct.
-pub struct LayoutBatchStream<R> {
+pub struct VortexFileArrayStream<R> {
     dtype: DType,
     row_count: u64,
     layout_reader: Box<dyn LayoutReader>,
@@ -38,7 +38,7 @@ pub struct LayoutBatchStream<R> {
     state: Option<StreamingState<R>>,
 }
 
-impl<R: VortexReadAt> LayoutBatchStream<R> {
+impl<R: VortexReadAt> VortexFileArrayStream<R> {
     pub fn new(
         input: R,
         layout_reader: Box<dyn LayoutReader>,
@@ -48,7 +48,7 @@ impl<R: VortexReadAt> LayoutBatchStream<R> {
         row_count: u64,
         row_mask: Option<RowMask>,
     ) -> Self {
-        LayoutBatchStream {
+        VortexFileArrayStream {
             dtype,
             row_count,
             layout_reader,
@@ -164,7 +164,7 @@ fn finished<R>() -> VortexResult<StreamingTransition<R>> {
     Ok(StreamingTransition::Finished)
 }
 
-impl<R: VortexReadAt + Unpin + 'static> LayoutBatchStream<R> {
+impl<R: VortexReadAt + Unpin + 'static> VortexFileArrayStream<R> {
     fn step(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -277,7 +277,7 @@ impl<R: VortexReadAt + Unpin + 'static> LayoutBatchStream<R> {
     }
 }
 
-impl<R: VortexReadAt + Unpin + 'static> Stream for LayoutBatchStream<R> {
+impl<R: VortexReadAt + Unpin + 'static> Stream for VortexFileArrayStream<R> {
     type Item = VortexResult<Array>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -309,7 +309,7 @@ impl<R: VortexReadAt + Unpin + 'static> Stream for LayoutBatchStream<R> {
     }
 }
 
-impl<R: VortexReadAt + Unpin + 'static> LayoutBatchStream<R> {
+impl<R: VortexReadAt + Unpin + 'static> VortexFileArrayStream<R> {
     pub async fn read_all(self) -> VortexResult<Array> {
         let dtype = self.dtype().clone();
         let vecs: Vec<Array> = self.try_collect().await?;

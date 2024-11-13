@@ -6,7 +6,7 @@
 //! 1. The [flat layout][layouts::FlatLayoutSpec]. A contiguously serialized array using the [Vortex
 //!    flatbuffer Batch message][vortex_flatbuffers::message].
 //!
-//! 2. The [column layout][layouts::ColumnLayoutSpec]. Each column of a
+//! 2. The [columnar layout][layouts::ColumnarLayoutSpec]. Each column of a
 //!    [StructArray][vortex_array::array::StructArray] is sequentially laid out at known
 //!    offsets. This permits reading a subset of columns in time linear in the number of kept
 //!    columns.
@@ -115,23 +115,23 @@
 //!
 //! # Reading
 //!
-//! Layout reading is implemented by [LayoutBatchStream]. The LayoutBatchStream uses a
-//! [LayoutDescriptorReader] to read the schema, footer, postscript, version, and magic bytes into a
-//! [LayoutDescriptor]. In most cases, these five sections can be read by a single read of the
-//! suffix of the file.
+//! Layout reading is implemented by [VortexFileArrayStream]. The VortexFileArrayStream should be
+//! constructed by a [VortexReadBuilder], which first uses an [InitialRead] to read the footer (schema,
+//! layout, postscript, version, and magic bytes). In most cases, these entire footer can be read by
+//! a single read of the suffix of the file.
 //!
-//! A LayoutBatchStream internally contains a [LayoutMessageCache] which is shared by its layout
+//! A VortexFileArrayStream internally contains a [LayoutMessageCache] which is shared by its layout
 //! reader and the layout reader's descendents. The cache permits the reading system to "read" the
 //! bytes of a layout multiple times without triggering reads to the underlying storage. For
-//! example, the LayoutBatchStream reads an array, evaluates the row filter, and then reads the
+//! example, the VortexFileArrayStream reads an array, evaluates the row filter, and then reads the
 //! array again with the filter mask.
 //!
-//! [`LayoutDescriptor::layout`] produces a [LayoutReader] which assembles one or more Vortex arrays
+//! [`read_layout_from_initial`] produces a [LayoutReader] which assembles one or more Vortex arrays
 //! by reading the serialized data and metadata.
 //!
 //! # Apache Arrow
 //!
-//! If you ultimately seek Arrow arrays, [VortexRecordBatchReader] converts a [LayoutBatchStream]
+//! If you ultimately seek Arrow arrays, [VortexRecordBatchReader] converts a [VortexFileArrayStream]
 //! into a RecordBatchReader.
 
 mod read;

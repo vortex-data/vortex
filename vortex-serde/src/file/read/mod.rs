@@ -23,7 +23,7 @@ pub use cache::*;
 pub use context::*;
 pub use filtering::RowFilter;
 pub use recordbatchreader::{AsyncRuntime, VortexRecordBatchReader};
-pub use stream::LayoutBatchStream;
+pub use stream::VortexFileArrayStream;
 use vortex_expr::VortexExpr;
 pub use vortex_schema::projection::Projection;
 pub use vortex_schema::Schema;

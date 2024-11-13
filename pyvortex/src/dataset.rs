@@ -14,7 +14,7 @@ use vortex::dtype::DType;
 use vortex::error::{vortex_err, VortexResult};
 use vortex::sampling_compressor::ALL_ENCODINGS_CONTEXT;
 use vortex::serde::file::{
-    read_initial_bytes, LayoutBatchStream, LayoutContext, LayoutDeserializer, Projection,
+    read_initial_bytes, VortexFileArrayStream, LayoutContext, LayoutDeserializer, Projection,
     RowFilter, VortexReadBuilder, VortexRecordBatchReader,
 };
 use vortex::serde::io::{ObjectStoreReadAt, VortexReadAt};
@@ -29,7 +29,7 @@ pub async fn layout_stream_from_reader<T: VortexReadAt + Unpin>(
     projection: Projection,
     row_filter: Option<RowFilter>,
     indices: Option<Array>,
-) -> VortexResult<LayoutBatchStream<T>> {
+) -> VortexResult<VortexFileArrayStream<T>> {
     let mut builder = VortexReadBuilder::new(
         reader,
         LayoutDeserializer::new(
