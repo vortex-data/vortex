@@ -119,31 +119,30 @@ impl<W: VortexWrite> LayoutWriter<W> {
         Ok(Layout::column(column_layouts, self.row_count))
     }
 
-    async fn write_schema_and_layout(&mut self, layout: Layout) -> VortexResult<Footer> {
-        // write the schema
+    pub async fn finalize(mut self) -> VortexResult<W> {
+        let top_level_layout = self.write_metadata_arrays().await?;
         let schema_offset = self.msgs.tell();
-        self.msgs
-            .write_dtype(
-                &self
-                    .dtype
+
+        // we want to write raw flatbuffers from here on out, not messages
+        let mut writer = self.msgs.into_inner();
+
+        // write the schema, and get the start offset of the next section (layout)
+        let layout_offset = {
+            let schema_len = write_fb_raw(
+                &mut writer,
+                self.dtype
                     .take()
                     .ok_or_else(|| vortex_err!("Schema should be written by now"))?,
             )
             .await?;
+            schema_offset + schema_len
+        };
 
-        // then write the layout
-        let layout_offset = self.msgs.tell();
-        self.msgs.write_message(layout).await?;
+        // write the layout
+        write_fb_raw(&mut writer, top_level_layout).await?;
 
-        // their offsets are the contents of the footer
-        Footer::try_new(schema_offset, layout_offset)
-    }
-
-    async fn write_footer(&mut self, footer: Footer) -> VortexResult<u16> {
-        let footer_start = self.msgs.tell();
-        self.msgs.write_message(footer).await?;
-
-        let footer_len = self.msgs.tell() - footer_start;
+        let footer = Footer::try_new(schema_offset, layout_offset)?;
+        let footer_len = write_fb_raw(&mut writer, footer).await?;
         if footer_len > MAX_FOOTER_SIZE as u64 {
             vortex_bail!(
                 "Footer is too large ({} bytes); max footer size is {}",
@@ -151,36 +150,33 @@ impl<W: VortexWrite> LayoutWriter<W> {
                 MAX_FOOTER_SIZE
             );
         }
-        Ok(footer_len as u16)
-    }
-
-    pub async fn finalize(mut self) -> VortexResult<W> {
-        let top_level_layout = self.write_metadata_arrays().await?;
-        let footer = self.write_schema_and_layout(top_level_layout).await?;
-        let footer_len = self.write_footer(footer).await?;
+        let footer_len = footer_len as u16;
 
         let mut eof = [0u8; EOF_SIZE];
         eof[0..2].copy_from_slice(&VERSION.to_le_bytes());
         eof[2..4].copy_from_slice(&footer_len.to_le_bytes());
         eof[4..8].copy_from_slice(&MAGIC_BYTES);
 
-        let mut w = self.msgs.into_inner();
-        w.write_all(eof).await?;
-        Ok(w)
+        writer.write_all(eof).await?;
+        Ok(writer)
     }
 }
 
-#[allow(dead_code)]
-async fn write_fb_raw<W: VortexWrite, F: WriteFlatBuffer>(mut writer: W, fb: F) -> io::Result<W> {
+/// Write a flatbuffer to a writer and return the number of bytes written.
+async fn write_fb_raw<W: VortexWrite, F: WriteFlatBuffer>(
+    writer: &mut W,
+    fb: F,
+) -> io::Result<u64> {
     let mut fbb = FlatBufferBuilder::new();
     let ps_fb = fb.write_flatbuffer(&mut fbb);
     fbb.finish_minimal(ps_fb);
+
     let (buffer, buffer_begin) = fbb.collapse();
     let buffer_end = buffer.len();
-    writer
-        .write_all(buffer.slice_owned(buffer_begin..buffer_end))
-        .await?;
-    Ok(writer)
+
+    let bytes = buffer.slice_owned(buffer_begin..buffer_end);
+    writer.write_all(bytes).await?;
+    Ok((buffer_end - buffer_begin) as u64)
 }
 
 struct ColumnWriter {

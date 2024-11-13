@@ -12,7 +12,6 @@ use crate::file::{
     INITIAL_READ_SIZE, MAGIC_BYTES, VERSION,
 };
 use crate::io::VortexReadAt;
-use crate::MESSAGE_PREFIX_LENGTH;
 
 #[derive(Debug)]
 pub struct InitialRead {
@@ -34,11 +33,7 @@ impl InitialRead {
     pub fn fb_layout_byte_range(&self) -> VortexResult<Range<usize>> {
         let footer = self.fb_footer()?;
         let layout_start = (footer.layout_offset() - self.initial_read_offset) as usize;
-
-        // HACK: we wrap the layout in a Message right now, so we need to skip the 4-byte message prefix
-        let layout_start = layout_start + MESSAGE_PREFIX_LENGTH;
         let layout_end = self.fb_footer_byte_range.start;
-
         Ok(layout_start..layout_end)
     }
 
@@ -51,11 +46,7 @@ impl InitialRead {
     pub fn fb_schema_byte_range(&self) -> VortexResult<Range<usize>> {
         let footer = self.fb_footer()?;
         let schema_start = (footer.schema_offset() - self.initial_read_offset) as usize;
-
-        // HACK: we wrap the schema in a Message right now, so we need to skip the 4-byte message prefix
-        let schema_start = schema_start + MESSAGE_PREFIX_LENGTH;
         let schema_end = (footer.layout_offset() - self.initial_read_offset) as usize;
-
         Ok(schema_start..schema_end)
     }
 
@@ -165,6 +156,12 @@ pub async fn read_initial_bytes<R: VortexReadAt>(
             initial_read_offset,
         )
     }
+
+    // validate the schema and layout
+    let schema_loc = (schema_offset - initial_read_offset) as usize;
+    let layout_loc = (layout_offset - initial_read_offset) as usize;
+    root::<message::Schema>(&buf[schema_loc..layout_loc])?;
+    root::<footer::Layout>(&buf[layout_loc..footer_loc])?;
 
     Ok(InitialRead {
         buf: buf.freeze(),
