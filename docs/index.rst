@@ -4,7 +4,7 @@
    contain the root `toctree` directive.
 
 Vortex: a State-of-the-Art Columnar File Format
-==============================================
+===============================================
 
 .. grid:: 1 1 2 2
     :gutter: 4 4 4 4

@@ -141,9 +141,8 @@ Use the sampling compressor to compress the Vortex array and check the relative 
 Write
 ^^^^^
 
-Reading and writing both require an async runtime, in this example we use Tokio. The
-:class:`~vortex_serde::file::write::writer::VortexFileWriter` knows how to write Vortex arrays to
-disk:
+Reading and writing both require an async runtime; in this example we use Tokio. The
+VortexFileWriter knows how to write Vortex arrays to disk:
 
 .. code-block:: rust
 
