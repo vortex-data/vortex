@@ -14,8 +14,8 @@ use vortex::dtype::DType;
 use vortex::error::{vortex_err, VortexResult};
 use vortex::sampling_compressor::ALL_ENCODINGS_CONTEXT;
 use vortex::serde::file::{
-    read_initial_bytes, VortexFileArrayStream, LayoutContext, LayoutDeserializer, Projection,
-    RowFilter, VortexReadBuilder, VortexRecordBatchReader,
+    read_initial_bytes, LayoutContext, LayoutDeserializer, Projection, RowFilter,
+    VortexFileArrayStream, VortexReadBuilder, VortexRecordBatchReader,
 };
 use vortex::serde::io::{ObjectStoreReadAt, VortexReadAt};
 use vortex::Array;
