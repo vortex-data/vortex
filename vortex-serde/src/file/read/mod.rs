@@ -7,7 +7,7 @@ use vortex_error::VortexResult;
 
 mod column_batch;
 mod buffered;
-mod builder;
+pub mod builder;
 mod cache;
 mod context;
 mod expr_project;
@@ -18,6 +18,7 @@ mod recordbatchreader;
 mod stream;
 
 pub use builder::VortexReadBuilder;
+pub use builder::initial_read::*;
 pub use cache::*;
 pub use context::*;
 pub use filtering::RowFilter;

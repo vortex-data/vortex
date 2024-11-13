@@ -170,6 +170,7 @@ impl<W: VortexWrite> LayoutWriter<W> {
     }
 }
 
+#[allow(dead_code)]
 async fn write_fb_raw<W: VortexWrite, F: WriteFlatBuffer>(mut writer: W, fb: F) -> io::Result<W> {
     let mut fbb = FlatBufferBuilder::new();
     let ps_fb = fb.write_flatbuffer(&mut fbb);

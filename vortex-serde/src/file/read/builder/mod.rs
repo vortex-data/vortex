@@ -1,6 +1,6 @@
 use std::sync::{Arc, RwLock};
 
-use initial_read::{read_initial_bytes, InitialRead};
+use initial_read::{read_initial_bytes, read_layout_from_initial};
 use vortex_array::{Array, ArrayDType};
 use vortex_dtype::flatbuffers::deserialize_and_project;
 use vortex_dtype::DType;
@@ -15,9 +15,7 @@ use crate::file::read::stream::LayoutBatchStream;
 use crate::file::read::{RowMask, Scan};
 use crate::io::VortexReadAt;
 
-use super::LayoutReader;
-
-mod initial_read;
+pub(crate) mod initial_read;
 
 /// Builder for reading Vortex files.
 ///
@@ -114,7 +112,6 @@ impl<R: VortexReadAt> VortexReadBuilder<R> {
         let schema = initial_read.fb_schema()?;
 
         let row_count = layout.row_count();
-        let footer_dtype = Arc::new(initial_read.lazy_dtype()?);
         let read_projection = self.projection.unwrap_or_default();
 
         let projected_dtype = {
@@ -126,24 +123,24 @@ impl<R: VortexReadAt> VortexReadBuilder<R> {
         };
 
         let message_cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
-
-        let layout_reader = read_layout(
+        let lazy_dtype = Arc::new(initial_read.lazy_dtype()?);
+        let layout_reader = read_layout_from_initial(
             &initial_read,
             &self.layout_serde,
             Scan::new(match read_projection {
                 Projection::All => None,
                 Projection::Flat(p) => Some(Arc::new(Select::include(p))),
             }),
-            RelativeLayoutCache::new(message_cache.clone(), footer_dtype.clone()),
+            RelativeLayoutCache::new(message_cache.clone(), lazy_dtype.clone()),
         )?;
 
         let filter_reader = self.row_filter
             .map(|row_filter| {
-                read_layout(
+                read_layout_from_initial(
                     &initial_read,
                     &self.layout_serde,
                     Scan::new(Some(Arc::new(row_filter))),
-                    RelativeLayoutCache::new(message_cache.clone(), footer_dtype),
+                    RelativeLayoutCache::new(message_cache.clone(), lazy_dtype),
                 )
             })
             .transpose()?;
@@ -177,15 +174,4 @@ impl<R: VortexReadAt> VortexReadBuilder<R> {
             None => self.read_at.size().await,
         }
     }
-}
-
-fn read_layout(
-    initial_read: &InitialRead,
-    layout_serde: &LayoutDeserializer,
-    scan: Scan,
-    message_cache: RelativeLayoutCache,
-) -> VortexResult<Box<dyn LayoutReader>> {
-    let layout_bytes = initial_read.buf.slice(initial_read.fb_layout_byte_range()?);
-    let fb_loc = initial_read.fb_layout()?._tab.loc();
-    layout_serde.read_layout(layout_bytes, fb_loc, scan, message_cache)
 }

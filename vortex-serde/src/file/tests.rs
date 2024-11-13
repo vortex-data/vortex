@@ -13,6 +13,7 @@ use vortex_dtype::{DType, Nullability, PType, StructDType};
 use vortex_error::vortex_panic;
 use vortex_expr::{BinaryExpr, Column, Literal, Operator};
 
+use crate::file::builder::initial_read::{read_initial_bytes, read_layout_from_initial};
 use crate::file::write::LayoutWriter;
 use crate::file::{
     VortexReadBuilder, LayoutDeserializer, LayoutMessageCache, Projection, RelativeLayoutCache, RowFilter, Scan, V1_FOOTER_FBS_SIZE, VERSION
@@ -88,21 +89,19 @@ async fn test_splits() {
     writer = writer.write_array_columns(st.into_array()).await.unwrap();
     let written = writer.finalize().await.unwrap();
 
-    let footer = LayoutDescriptorReader::new(LayoutDeserializer::default())
-        .read_footer(&written, written.len() as u64)
-        .await
-        .unwrap();
+    let initial_read = read_initial_bytes(&written, written.len() as u64).await.unwrap();
+    let layout_serde = LayoutDeserializer::default();
 
-    let dtype = Arc::new(footer.lazily_projected_dtype(Projection::All).unwrap());
-
+    let dtype = Arc::new(initial_read.lazy_dtype().unwrap());
     let cache = Arc::new(RwLock::new(LayoutMessageCache::new()));
 
-    let layout_reader = footer
-        .layout_reader(
-            Scan::new(None),
-            RelativeLayoutCache::new(cache.clone(), dtype.clone()),
-        )
-        .unwrap();
+    let layout_reader = read_layout_from_initial(
+        &initial_read,
+        &layout_serde,
+        Scan::new(None),
+        RelativeLayoutCache::new(cache.clone(), dtype.clone()),
+    )
+    .unwrap();
 
     let mut splits = BTreeSet::new();
     layout_reader.add_splits(0, &mut splits).unwrap();

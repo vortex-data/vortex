@@ -11,13 +11,13 @@ use tokio::fs::File;
 use vortex::arrow::infer_schema;
 use vortex::dtype::field::Field;
 use vortex::dtype::DType;
-use vortex::error::VortexResult;
+use vortex::error::{vortex_err, VortexResult};
 use vortex::sampling_compressor::ALL_ENCODINGS_CONTEXT;
-use vortex::serde::io::{ObjectStoreReadAt, VortexReadAt};
 use vortex::serde::file::{
-    LayoutBatchStream, VortexReadBuilder, LayoutContext, LayoutDescriptorReader,
-    LayoutDeserializer, Projection, RowFilter, VortexRecordBatchReader,
+    read_initial_bytes, LayoutBatchStream, LayoutContext, LayoutDeserializer, Projection,
+    RowFilter, VortexReadBuilder, VortexRecordBatchReader,
 };
+use vortex::serde::io::{ObjectStoreReadAt, VortexReadAt};
 use vortex::Array;
 
 use crate::expr::PyExpr;
@@ -63,13 +63,13 @@ pub async fn read_array_from_reader<T: VortexReadAt + Unpin + 'static>(
 }
 
 pub async fn read_dtype_from_reader<T: VortexReadAt + Unpin>(reader: T) -> VortexResult<DType> {
-    LayoutDescriptorReader::new(LayoutDeserializer::new(
-        ALL_ENCODINGS_CONTEXT.clone(),
-        LayoutContext::default().into(),
-    ))
-    .read_footer(&reader, reader.size().await)
-    .await?
-    .dtype()
+    let initial_read = read_initial_bytes(&reader, reader.size().await).await?;
+    DType::try_from(
+        initial_read
+            .fb_schema()?
+            .dtype()
+            .ok_or_else(|| vortex_err!("Failed to fetch dtype from initial read"))?,
+    )
 }
 
 fn projection_from_python(columns: Option<Vec<Bound<PyAny>>>) -> PyResult<Projection> {

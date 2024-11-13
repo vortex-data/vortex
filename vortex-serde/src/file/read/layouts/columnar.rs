@@ -9,8 +9,8 @@ use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexResult};
 use vortex_expr::{Column, Select};
 use vortex_flatbuffers::footer;
 
-use crate::file::read::column_batch::ColumnBatchReader;
 use crate::file::read::cache::{LazilyDeserializedDType, RelativeLayoutCache};
+use crate::file::read::column_batch::ColumnBatchReader;
 use crate::file::read::expr_project::expr_project;
 use crate::file::read::mask::RowMask;
 use crate::file::{
@@ -265,14 +265,12 @@ mod tests {
     use vortex_dtype::field::Field;
     use vortex_dtype::{DType, Nullability};
     use vortex_expr::{BinaryExpr, Column, Literal, Operator};
-    use vortex_schema::projection::Projection;
+    
 
+    use crate::file::read::builder::initial_read::{read_initial_bytes, read_layout_from_initial};
     use crate::file::read::cache::RelativeLayoutCache;
     use crate::file::read::layouts::test_read::{filter_read_layout, read_layout};
-    use crate::file::{
-        LayoutDeserializer, LayoutMessageCache, LayoutReader, LayoutWriter,
-        RowFilter, Scan,
-    };
+    use crate::file::{LayoutDeserializer, LayoutMessageCache, LayoutReader, LayoutWriter, RowFilter, Scan};
 
     async fn layout_and_bytes(
         cache: Arc<RwLock<LayoutMessageCache>>,
@@ -302,18 +300,16 @@ mod tests {
         writer = writer.write_array_columns(struct_arr).await.unwrap();
         let written = writer.finalize().await.unwrap();
 
-        let footer = LayoutDescriptorReader::new(LayoutDeserializer::default())
-            .read_footer(&written, written.len() as u64)
+        let initial_read = read_initial_bytes(&written, written.len() as u64)
             .await
             .unwrap();
+        let layout_serde = LayoutDeserializer::default();
 
-        let dtype = Arc::new(footer.lazily_projected_dtype(Projection::All).unwrap());
+        let dtype = Arc::new(initial_read.lazy_dtype().unwrap());
         (
-            footer
-                .layout_reader(scan, RelativeLayoutCache::new(cache.clone(), dtype.clone()))
+            read_layout_from_initial(&initial_read, &layout_serde, scan, RelativeLayoutCache::new(cache.clone(), dtype.clone()))
                 .unwrap(),
-            footer
-                .layout_reader(Scan::new(None), RelativeLayoutCache::new(cache, dtype))
+            read_layout_from_initial(&initial_read, &layout_serde, Scan::new(None), RelativeLayoutCache::new(cache.clone(), dtype))
                 .unwrap(),
             Bytes::from(written),
             len,

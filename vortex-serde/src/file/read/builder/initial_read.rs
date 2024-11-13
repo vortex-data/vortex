@@ -7,12 +7,12 @@ use vortex_flatbuffers::footer::{self, Footer};
 use vortex_flatbuffers::message;
 use vortex_schema::projection::Projection;
 
-use crate::file::{LazilyDeserializedDType, EOF_SIZE, INITIAL_READ_SIZE, MAGIC_BYTES, VERSION};
+use crate::file::{LayoutDeserializer, LayoutReader, LazilyDeserializedDType, RelativeLayoutCache, Scan, EOF_SIZE, INITIAL_READ_SIZE, MAGIC_BYTES, VERSION};
 use crate::io::VortexReadAt;
 use crate::MESSAGE_PREFIX_LENGTH;
 
 #[derive(Debug)]
-pub(crate) struct InitialRead {
+pub struct InitialRead {
     /// The bytes from the initial read of the file, which is assumed (for now) to be sufficiently
     /// large to contain the schema and layout.
     pub buf: Bytes,
@@ -69,7 +69,18 @@ impl InitialRead {
     }
 }
 
-pub(crate) async fn read_initial_bytes<R: VortexReadAt>(
+pub fn read_layout_from_initial(
+    initial_read: &InitialRead,
+    layout_serde: &LayoutDeserializer,
+    scan: Scan,
+    message_cache: RelativeLayoutCache,
+) -> VortexResult<Box<dyn LayoutReader>> {
+    let layout_bytes = initial_read.buf.slice(initial_read.fb_layout_byte_range()?);
+    let fb_loc = initial_read.fb_layout()?._tab.loc();
+    layout_serde.read_layout(layout_bytes, fb_loc, scan, message_cache)
+}
+
+pub async fn read_initial_bytes<R: VortexReadAt>(
     read: &R,
     file_size: u64,
 ) -> VortexResult<InitialRead> {
