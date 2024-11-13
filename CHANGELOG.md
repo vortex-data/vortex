@@ -6,6 +6,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## `vortex-serde` - [0.16.0](https://github.com/spiraldb/vortex/compare/vortex-serde-v0.15.2...vortex-serde-v0.16.0) - 2024-11-13
+
+### Added
+- kleene_or, kleene_and, and restore SQL semantics ([#1284](https://github.com/spiraldb/vortex/pull/1284))
+
+### Fixed
+- clarify and vs and_kleene in stream.rs and filtering.rs ([#1289](https://github.com/spiraldb/vortex/pull/1289))
+
+## `vortex-expr` - [0.16.0](https://github.com/spiraldb/vortex/compare/vortex-expr-v0.15.2...vortex-expr-v0.16.0) - 2024-11-13
+
+### Added
+- kleene_or, kleene_and, and restore SQL semantics ([#1284](https://github.com/spiraldb/vortex/pull/1284))
+
+## `vortex-array` - [0.16.0](https://github.com/spiraldb/vortex/compare/vortex-array-v0.15.2...vortex-array-v0.16.0) - 2024-11-13
+
+### Added
+- kleene_or, kleene_and, and restore SQL semantics ([#1284](https://github.com/spiraldb/vortex/pull/1284))
+
 ## `vortex-datafusion` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-datafusion-v0.14.0...vortex-datafusion-v0.15.2) - 2024-11-13
 
 ### Added
