@@ -7,7 +7,10 @@ use vortex_flatbuffers::footer::{self, Footer};
 use vortex_flatbuffers::message;
 use vortex_schema::projection::Projection;
 
-use crate::file::{LayoutDeserializer, LayoutReader, LazilyDeserializedDType, RelativeLayoutCache, Scan, EOF_SIZE, INITIAL_READ_SIZE, MAGIC_BYTES, VERSION};
+use crate::file::{
+    LayoutDeserializer, LayoutReader, LazilyDeserializedDType, RelativeLayoutCache, Scan, EOF_SIZE,
+    INITIAL_READ_SIZE, MAGIC_BYTES, VERSION,
+};
 use crate::io::VortexReadAt;
 use crate::MESSAGE_PREFIX_LENGTH;
 

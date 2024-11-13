@@ -115,7 +115,9 @@ impl<R: VortexReadAt> VortexReadBuilder<R> {
         let read_projection = self.projection.unwrap_or_default();
 
         let projected_dtype = {
-            let fb_dtype = schema.dtype().ok_or_else(|| vortex_err!(InvalidSerde: "Schema missing DType"))?;
+            let fb_dtype = schema
+                .dtype()
+                .ok_or_else(|| vortex_err!(InvalidSerde: "Schema missing DType"))?;
             match read_projection {
                 Projection::All => DType::try_from(fb_dtype)?,
                 Projection::Flat(ref projection) => deserialize_and_project(fb_dtype, projection)?,
@@ -134,7 +136,8 @@ impl<R: VortexReadAt> VortexReadBuilder<R> {
             RelativeLayoutCache::new(message_cache.clone(), lazy_dtype.clone()),
         )?;
 
-        let filter_reader = self.row_filter
+        let filter_reader = self
+            .row_filter
             .map(|row_filter| {
                 read_layout_from_initial(
                     &initial_read,

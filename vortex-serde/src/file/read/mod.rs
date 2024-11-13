@@ -5,10 +5,10 @@ use std::sync::Arc;
 use vortex_array::Array;
 use vortex_error::VortexResult;
 
-mod column_batch;
 mod buffered;
 pub mod builder;
 mod cache;
+mod column_batch;
 mod context;
 mod expr_project;
 mod filtering;
@@ -17,8 +17,8 @@ mod mask;
 mod recordbatchreader;
 mod stream;
 
-pub use builder::VortexReadBuilder;
 pub use builder::initial_read::*;
+pub use builder::VortexReadBuilder;
 pub use cache::*;
 pub use context::*;
 pub use filtering::RowFilter;

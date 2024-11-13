@@ -269,7 +269,9 @@ mod tests {
     use crate::file::read::builder::initial_read::{read_initial_bytes, read_layout_from_initial};
     use crate::file::read::cache::RelativeLayoutCache;
     use crate::file::read::layouts::test_read::{filter_read_layout, read_layout};
-    use crate::file::{LayoutDeserializer, LayoutMessageCache, LayoutReader, LayoutWriter, RowFilter, Scan};
+    use crate::file::{
+        LayoutDeserializer, LayoutMessageCache, LayoutReader, LayoutWriter, RowFilter, Scan,
+    };
 
     async fn layout_and_bytes(
         cache: Arc<RwLock<LayoutMessageCache>>,
@@ -306,10 +308,20 @@ mod tests {
 
         let dtype = Arc::new(initial_read.lazy_dtype().unwrap());
         (
-            read_layout_from_initial(&initial_read, &layout_serde, scan, RelativeLayoutCache::new(cache.clone(), dtype.clone()))
-                .unwrap(),
-            read_layout_from_initial(&initial_read, &layout_serde, Scan::new(None), RelativeLayoutCache::new(cache.clone(), dtype))
-                .unwrap(),
+            read_layout_from_initial(
+                &initial_read,
+                &layout_serde,
+                scan,
+                RelativeLayoutCache::new(cache.clone(), dtype.clone()),
+            )
+            .unwrap(),
+            read_layout_from_initial(
+                &initial_read,
+                &layout_serde,
+                Scan::new(None),
+                RelativeLayoutCache::new(cache.clone(), dtype),
+            )
+            .unwrap(),
             Bytes::from(written),
             len,
         )

@@ -27,9 +27,7 @@ use vortex::dtype::field::Field;
 use vortex::error::VortexResult;
 use vortex::sampling_compressor::compressors::fsst::FSSTCompressor;
 use vortex::sampling_compressor::{SamplingCompressor, ALL_ENCODINGS_CONTEXT};
-use vortex::serde::file::{
-    VortexReadBuilder, LayoutContext, LayoutDeserializer, LayoutWriter,
-};
+use vortex::serde::file::{LayoutContext, LayoutDeserializer, LayoutWriter, VortexReadBuilder};
 use vortex::{Array, ArrayDType, IntoArray, IntoCanonical};
 
 use crate::tokio_runtime::TOKIO_RUNTIME;

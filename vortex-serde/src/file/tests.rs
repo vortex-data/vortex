@@ -16,7 +16,8 @@ use vortex_expr::{BinaryExpr, Column, Literal, Operator};
 use crate::file::builder::initial_read::{read_initial_bytes, read_layout_from_initial};
 use crate::file::write::LayoutWriter;
 use crate::file::{
-    VortexReadBuilder, LayoutDeserializer, LayoutMessageCache, Projection, RelativeLayoutCache, RowFilter, Scan, V1_FOOTER_FBS_SIZE, VERSION
+    LayoutDeserializer, LayoutMessageCache, Projection, RelativeLayoutCache, RowFilter, Scan,
+    VortexReadBuilder, V1_FOOTER_FBS_SIZE, VERSION,
 };
 
 #[test]
@@ -89,7 +90,9 @@ async fn test_splits() {
     writer = writer.write_array_columns(st.into_array()).await.unwrap();
     let written = writer.finalize().await.unwrap();
 
-    let initial_read = read_initial_bytes(&written, written.len() as u64).await.unwrap();
+    let initial_read = read_initial_bytes(&written, written.len() as u64)
+        .await
+        .unwrap();
     let layout_serde = LayoutDeserializer::default();
 
     let dtype = Arc::new(initial_read.lazy_dtype().unwrap());
@@ -557,17 +560,16 @@ async fn test_with_indices_simple() {
 
     // test no indices
     let empty_indices = Vec::<u32>::new();
-    let actual_kept_array =
-        VortexReadBuilder::new(written.clone(), LayoutDeserializer::default())
-            .with_indices(Array::from(empty_indices))
-            .build()
-            .await
-            .unwrap()
-            .read_all()
-            .await
-            .unwrap()
-            .into_struct()
-            .unwrap();
+    let actual_kept_array = VortexReadBuilder::new(written.clone(), LayoutDeserializer::default())
+        .with_indices(Array::from(empty_indices))
+        .build()
+        .await
+        .unwrap()
+        .read_all()
+        .await
+        .unwrap()
+        .into_struct()
+        .unwrap();
 
     assert_eq!(actual_kept_array.len(), 0);
 
@@ -575,17 +577,16 @@ async fn test_with_indices_simple() {
     let kept_indices = [0_usize, 3, 99, 100, 101, 399, 400, 401, 499];
     let kept_indices_u16 = kept_indices.iter().map(|&x| x as u16).collect::<Vec<_>>();
 
-    let actual_kept_array =
-        VortexReadBuilder::new(written.clone(), LayoutDeserializer::default())
-            .with_indices(Array::from(kept_indices_u16))
-            .build()
-            .await
-            .unwrap()
-            .read_all()
-            .await
-            .unwrap()
-            .into_struct()
-            .unwrap();
+    let actual_kept_array = VortexReadBuilder::new(written.clone(), LayoutDeserializer::default())
+        .with_indices(Array::from(kept_indices_u16))
+        .build()
+        .await
+        .unwrap()
+        .read_all()
+        .await
+        .unwrap()
+        .into_struct()
+        .unwrap();
     let actual_kept_numbers_array = actual_kept_array
         .field(0)
         .unwrap()
@@ -599,17 +600,16 @@ async fn test_with_indices_simple() {
     assert_eq!(expected_kept_numbers, actual_kept_numbers);
 
     // test all indices
-    let actual_array =
-        VortexReadBuilder::new(written.clone(), LayoutDeserializer::default())
-            .with_indices(Array::from((0..500).collect::<Vec<u32>>()))
-            .build()
-            .await
-            .unwrap()
-            .read_all()
-            .await
-            .unwrap()
-            .into_struct()
-            .unwrap();
+    let actual_array = VortexReadBuilder::new(written.clone(), LayoutDeserializer::default())
+        .with_indices(Array::from((0..500).collect::<Vec<u32>>()))
+        .build()
+        .await
+        .unwrap()
+        .read_all()
+        .await
+        .unwrap()
+        .into_struct()
+        .unwrap();
     let actual_numbers_array = actual_array.field(0).unwrap().into_primitive().unwrap();
     let actual_numbers = actual_numbers_array.maybe_null_slice::<i16>();
 
@@ -702,22 +702,21 @@ async fn test_with_indices_and_with_row_filter_simple() {
 
     // test no indices
     let empty_indices = Vec::<u32>::new();
-    let actual_kept_array =
-        VortexReadBuilder::new(written.clone(), LayoutDeserializer::default())
-            .with_indices(Array::from(empty_indices))
-            .with_row_filter(RowFilter::new(Arc::new(BinaryExpr::new(
-                Arc::new(Column::new(Field::from("numbers"))),
-                Operator::Gt,
-                Arc::new(Literal::new(50_i16.into())),
-            ))))
-            .build()
-            .await
-            .unwrap()
-            .read_all()
-            .await
-            .unwrap()
-            .into_struct()
-            .unwrap();
+    let actual_kept_array = VortexReadBuilder::new(written.clone(), LayoutDeserializer::default())
+        .with_indices(Array::from(empty_indices))
+        .with_row_filter(RowFilter::new(Arc::new(BinaryExpr::new(
+            Arc::new(Column::new(Field::from("numbers"))),
+            Operator::Gt,
+            Arc::new(Literal::new(50_i16.into())),
+        ))))
+        .build()
+        .await
+        .unwrap()
+        .read_all()
+        .await
+        .unwrap()
+        .into_struct()
+        .unwrap();
 
     assert_eq!(actual_kept_array.len(), 0);
 
@@ -725,22 +724,21 @@ async fn test_with_indices_and_with_row_filter_simple() {
     let kept_indices = [0_usize, 3, 99, 100, 101, 399, 400, 401, 499];
     let kept_indices_u16 = kept_indices.iter().map(|&x| x as u16).collect::<Vec<_>>();
 
-    let actual_kept_array =
-        VortexReadBuilder::new(written.clone(), LayoutDeserializer::default())
-            .with_indices(Array::from(kept_indices_u16))
-            .with_row_filter(RowFilter::new(Arc::new(BinaryExpr::new(
-                Arc::new(Column::new(Field::from("numbers"))),
-                Operator::Gt,
-                Arc::new(Literal::new(50_i16.into())),
-            ))))
-            .build()
-            .await
-            .unwrap()
-            .read_all()
-            .await
-            .unwrap()
-            .into_struct()
-            .unwrap();
+    let actual_kept_array = VortexReadBuilder::new(written.clone(), LayoutDeserializer::default())
+        .with_indices(Array::from(kept_indices_u16))
+        .with_row_filter(RowFilter::new(Arc::new(BinaryExpr::new(
+            Arc::new(Column::new(Field::from("numbers"))),
+            Operator::Gt,
+            Arc::new(Literal::new(50_i16.into())),
+        ))))
+        .build()
+        .await
+        .unwrap()
+        .read_all()
+        .await
+        .unwrap()
+        .into_struct()
+        .unwrap();
     let actual_kept_numbers_array = actual_kept_array
         .field(0)
         .unwrap()
@@ -757,22 +755,21 @@ async fn test_with_indices_and_with_row_filter_simple() {
     assert_eq!(expected_kept_numbers, actual_kept_numbers);
 
     // test all indices
-    let actual_array =
-        VortexReadBuilder::new(written.clone(), LayoutDeserializer::default())
-            .with_indices(Array::from((0..500).collect::<Vec<u32>>()))
-            .with_row_filter(RowFilter::new(Arc::new(BinaryExpr::new(
-                Arc::new(Column::new(Field::from("numbers"))),
-                Operator::Gt,
-                Arc::new(Literal::new(50_i16.into())),
-            ))))
-            .build()
-            .await
-            .unwrap()
-            .read_all()
-            .await
-            .unwrap()
-            .into_struct()
-            .unwrap();
+    let actual_array = VortexReadBuilder::new(written.clone(), LayoutDeserializer::default())
+        .with_indices(Array::from((0..500).collect::<Vec<u32>>()))
+        .with_row_filter(RowFilter::new(Arc::new(BinaryExpr::new(
+            Arc::new(Column::new(Field::from("numbers"))),
+            Operator::Gt,
+            Arc::new(Literal::new(50_i16.into())),
+        ))))
+        .build()
+        .await
+        .unwrap()
+        .read_all()
+        .await
+        .unwrap()
+        .into_struct()
+        .unwrap();
     let actual_numbers_array = actual_array.field(0).unwrap().into_primitive().unwrap();
     let actual_numbers = actual_numbers_array.maybe_null_slice::<i16>();
 

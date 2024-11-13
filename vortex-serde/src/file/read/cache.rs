@@ -69,10 +69,9 @@ impl LazilyDeserializedDType {
                 let DType::Struct(sdt, n) = dtype else {
                     vortex_bail!("Not a struct dtype")
                 };
-                Ok(Arc::new(LazilyDeserializedDType::from_dtype(DType::Struct(
-                    sdt.project(projection)?,
-                    *n,
-                ))))
+                Ok(Arc::new(LazilyDeserializedDType::from_dtype(
+                    DType::Struct(sdt.project(projection)?, *n),
+                )))
             }
             LazyDTypeState::Serialized(b, _, proj) => {
                 let projection = match proj {

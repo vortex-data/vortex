@@ -10,11 +10,11 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
 use vortex_flatbuffers::WriteFlatBuffer;
 
-use crate::io::VortexWrite;
 use crate::file::write::footer::Footer;
 use crate::file::write::layout::Layout;
 use crate::file::write::metadata_accumulators::{new_metadata_accumulator, MetadataAccumulator};
 use crate::file::{EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
+use crate::io::VortexWrite;
 use crate::stream_writer::ByteRange;
 use crate::MessageWriter;
 
