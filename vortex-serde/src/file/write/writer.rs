@@ -10,9 +10,9 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
 use vortex_flatbuffers::WriteFlatBuffer;
 
-use crate::file::write::footer::Footer;
 use crate::file::write::layout::Layout;
 use crate::file::write::metadata_accumulators::{new_metadata_accumulator, MetadataAccumulator};
+use crate::file::write::postscript::Postscript;
 use crate::file::{EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
 use crate::io::VortexWrite;
 use crate::messages::IPCSchema;
@@ -129,7 +129,10 @@ impl<W: VortexWrite> VortexFileWriter<W> {
 
         // write the schema, and get the start offset of the next section (layout)
         let layout_offset = {
-            let dtype = self.dtype.take().ok_or_else(|| vortex_err!("Schema should be written by now"))?;
+            let dtype = self
+                .dtype
+                .take()
+                .ok_or_else(|| vortex_err!("Schema should be written by now"))?;
             // we write an IPCSchema instead of a DType, which allows us to evolve / add to the schema later
             // these bytes get deserialized as message::Schema
             // NB: we don't wrap the IPCSchema in an IPCMessage, because we record the lengths/offsets in the footer
@@ -141,7 +144,7 @@ impl<W: VortexWrite> VortexFileWriter<W> {
         // write the layout
         write_fb_raw(&mut writer, top_level_layout).await?;
 
-        let footer = Footer::try_new(schema_offset, layout_offset)?;
+        let footer = Postscript::try_new(schema_offset, layout_offset)?;
         let footer_len = write_fb_raw(&mut writer, footer).await?;
         if footer_len > MAX_FOOTER_SIZE as u64 {
             vortex_bail!(
@@ -293,7 +296,7 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_flatbuffers::WriteFlatBuffer;
 
-    use crate::file::write::footer::Footer;
+    use crate::file::write::postscript::Postscript;
     use crate::file::{VortexFileWriter, V1_FOOTER_FBS_SIZE};
 
     #[test]
@@ -316,7 +319,7 @@ mod tests {
 
     #[test]
     fn footer_size() {
-        let footer = Footer::try_new(1000000u64, 1100000u64).unwrap();
+        let footer = Postscript::try_new(1000000u64, 1100000u64).unwrap();
         let mut fbb = FlatBufferBuilder::new();
         let footer_fb = footer.write_flatbuffer(&mut fbb);
         fbb.finish_minimal(footer_fb);

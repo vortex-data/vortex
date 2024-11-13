@@ -270,7 +270,7 @@ mod tests {
     use crate::file::read::cache::RelativeLayoutCache;
     use crate::file::read::layouts::test_read::{filter_read_layout, read_layout};
     use crate::file::{
-        LayoutDeserializer, LayoutMessageCache, LayoutReader, VortexFileWriter, RowFilter, Scan,
+        LayoutDeserializer, LayoutMessageCache, LayoutReader, RowFilter, Scan, VortexFileWriter,
     };
 
     async fn layout_and_bytes(

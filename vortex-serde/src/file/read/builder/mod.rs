@@ -21,13 +21,19 @@ pub(crate) mod initial_read;
 ///
 /// Succinctly, the file format specification is as follows:
 ///
-/// 1. Data messages are written first, followed by...
-/// 2. An optional Schema, which if present is a valid DType flatbuffer, and is followed by...
-/// 3. The Layout, which is a valid Layout flatbuffer, and is followed by...
-/// 4. The Footer, which is a valid Footer flatbuffer, and is followed by...
-/// 5. The End-of-File marker, which is 8 bytes, and contains the u16 version, u16 footer length, and 4 magic bytes.
+/// 1. Data is written first, in a form that is describable by a Layout (typically Array IPC Messages).
+///     a. To allow for more efficient IO & pruning, our writer implementation first writes the "data" arrays,
+///        and then writes the "metadata" arrays (i.e., per-column statistics)
+/// 2. We write what is collectively referred to as the "Footer", which contains:
+///     a. An optional Schema, which if present is a valid flatbuffer representing a message::Schema
+///     b. The Layout, which is a valid footer::Layout flatbuffer, and describes the physical byte ranges & relationships amongst
+///        the those byte ranges that we wrote in part 1.
+///     c. The Postscript, which is a valid footer::Postscript flatbuffer, containing the absolute start offsets of the Schema & Layout
+///        flatbuffers within the file.
+///     d. The End-of-File marker, which is 8 bytes, and contains the u16 version, u16 postscript length, and 4 magic bytes.
 ///
-/// # File Format
+///
+/// # Reified File Format
 /// ```text
 /// ┌────────────────────────────┐
 /// │                            │
@@ -40,8 +46,7 @@ pub(crate) mod initial_read;
 /// │                            │
 /// ├────────────────────────────┤
 /// │                            │
-/// │          Schema            │
-/// |     (DType Flatbuffer)     │
+/// │     Schema Flatbuffer      │
 /// │                            │
 /// ├────────────────────────────┤
 /// │                            │
@@ -49,12 +54,12 @@ pub(crate) mod initial_read;
 /// │                            │
 /// ├────────────────────────────┤
 /// │                            │
-/// │     Footer Flatbuffer      │
+/// │    Postscript Flatbuffer   │
 /// │  (Schema & Layout Offsets) │
 /// │                            │
 /// ├────────────────────────────┤
 /// │     8-byte End of File     │
-/// │  (Version, Footer Length,  │
+/// │(Version, Postscript Length,│
 /// │       Magic Bytes)         │
 /// └────────────────────────────┘
 /// ```

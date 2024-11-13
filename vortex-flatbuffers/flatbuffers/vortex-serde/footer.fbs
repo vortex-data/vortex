@@ -27,7 +27,7 @@ table Layout {
     metadata: [ubyte];
 }
 
-/// The `Footer` is guaranteed by the file format to never exceed 65528 bytes (i.e., u16::MAX - 8 bytes)
+/// The `Postscript` is guaranteed by the file format to never exceed 65528 bytes (i.e., u16::MAX - 8 bytes)
 /// in length, and is immediately followed by an 8-byte `EndOfFile` struct.
 ///
 /// The `EndOfFile` struct cannot change size without breaking backwards compatibility. It is not written/read
@@ -39,10 +39,10 @@ table Layout {
 ///     magic: [uint8; 4]; // "VTXF"
 /// }
 ///
-table Footer {
+table Postscript {
     schema_offset: uint64;
     layout_offset: uint64;
 }
 
 root_type Layout;
-root_type Footer;
+root_type Postscript;

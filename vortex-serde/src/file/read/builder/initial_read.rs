@@ -3,8 +3,7 @@ use core::ops::Range;
 use bytes::{Bytes, BytesMut};
 use flatbuffers::{root, root_unchecked};
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
-use vortex_flatbuffers::footer::{self, Footer};
-use vortex_flatbuffers::message;
+use vortex_flatbuffers::{footer, message};
 use vortex_schema::projection::Projection;
 
 use crate::file::{
@@ -20,20 +19,22 @@ pub struct InitialRead {
     pub buf: Bytes,
     /// The absolute byte offset representing the start of the initial read within the file.
     pub initial_read_offset: u64,
-    /// The byte range within `buf` representing the Footer flatbuffer.
-    pub fb_footer_byte_range: Range<usize>,
+    /// The byte range within `buf` representing the Postscript flatbuffer.
+    pub fb_postscript_byte_range: Range<usize>,
 }
 
 impl InitialRead {
-    pub fn fb_footer(&self) -> VortexResult<Footer> {
-        Ok(unsafe { root_unchecked::<Footer>(&self.buf[self.fb_footer_byte_range.clone()]) })
+    pub fn fb_postscript(&self) -> VortexResult<footer::Postscript> {
+        Ok(unsafe {
+            root_unchecked::<footer::Postscript>(&self.buf[self.fb_postscript_byte_range.clone()])
+        })
     }
 
     /// The bytes of the `Layout` flatbuffer.
     pub fn fb_layout_byte_range(&self) -> VortexResult<Range<usize>> {
-        let footer = self.fb_footer()?;
+        let footer = self.fb_postscript()?;
         let layout_start = (footer.layout_offset() - self.initial_read_offset) as usize;
-        let layout_end = self.fb_footer_byte_range.start;
+        let layout_end = self.fb_postscript_byte_range.start;
         Ok(layout_start..layout_end)
     }
 
@@ -44,7 +45,7 @@ impl InitialRead {
 
     /// The bytes of the `Schema` flatbuffer.
     pub fn fb_schema_byte_range(&self) -> VortexResult<Range<usize>> {
-        let footer = self.fb_footer()?;
+        let footer = self.fb_postscript()?;
         let schema_start = (footer.schema_offset() - self.initial_read_offset) as usize;
         let schema_end = (footer.layout_offset() - self.initial_read_offset) as usize;
         Ok(schema_start..schema_end)
@@ -113,33 +114,33 @@ pub async fn read_initial_bytes<R: VortexReadAt>(
     }
 
     // The footer MUST fit in the initial read.
-    let footer_size = u16::from_le_bytes(
+    let ps_size = u16::from_le_bytes(
         buf[eof_loc + 2..eof_loc + 4]
             .try_into()
             .map_err(|e| vortex_err!("Footer size was not a u16 {e}"))?,
     ) as usize;
-    if footer_size > eof_loc {
+    if ps_size > eof_loc {
         vortex_bail!(
-            "Malformed file, footer of size {} is too large to fit in initial read of size {} (file size {})",
-            footer_size,
+            "Malformed file, postscript of size {} is too large to fit in initial read of size {} (file size {})",
+            ps_size,
             read_size,
             file_size,
         )
     }
 
-    let footer_loc = eof_loc - footer_size;
-    let fb_footer_byte_range = footer_loc..eof_loc;
+    let ps_loc = eof_loc - ps_size;
+    let fb_ps_byte_range = ps_loc..eof_loc;
 
     // we validate the footer here
-    let footer = root::<Footer>(&buf[fb_footer_byte_range.clone()])?;
-    let schema_offset = footer.schema_offset();
-    let layout_offset = footer.layout_offset();
+    let postscript = root::<footer::Postscript>(&buf[fb_ps_byte_range.clone()])?;
+    let schema_offset = postscript.schema_offset();
+    let layout_offset = postscript.layout_offset();
 
-    if layout_offset > initial_read_offset + footer_loc as u64 {
+    if layout_offset > initial_read_offset + ps_loc as u64 {
         vortex_bail!(
             "Layout must come before the Footer, got layout_offset {}, but footer starts at offset {}",
             layout_offset,
-            initial_read_offset + footer_loc as u64,
+            initial_read_offset + ps_loc as u64,
         )
     }
 
@@ -164,12 +165,12 @@ pub async fn read_initial_bytes<R: VortexReadAt>(
     let schema_loc = (schema_offset - initial_read_offset) as usize;
     let layout_loc = (layout_offset - initial_read_offset) as usize;
     root::<message::Schema>(&buf[schema_loc..layout_loc])?;
-    root::<footer::Layout>(&buf[layout_loc..footer_loc])?;
+    root::<footer::Layout>(&buf[layout_loc..ps_loc])?;
 
     Ok(InitialRead {
         buf: buf.freeze(),
         initial_read_offset,
-        fb_footer_byte_range,
+        fb_postscript_byte_range: fb_ps_byte_range,
     })
 }
 

@@ -314,10 +314,10 @@ impl core::fmt::Debug for Layout<'_> {
       ds.finish()
   }
 }
-pub enum FooterOffset {}
+pub enum PostscriptOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
-/// The `Footer` is guaranteed by the file format to never exceed 65528 bytes (i.e., u16::MAX - 8 bytes)
+/// The `Postscript` is guaranteed by the file format to never exceed 65528 bytes (i.e., u16::MAX - 8 bytes)
 /// in length, and is immediately followed by an 8-byte `EndOfFile` struct.
 ///
 /// The `EndOfFile` struct cannot change size without breaking backwards compatibility. It is not written/read
@@ -329,32 +329,32 @@ pub enum FooterOffset {}
 ///     magic: [uint8; 4]; // "VTXF"
 /// }
 ///
-pub struct Footer<'a> {
+pub struct Postscript<'a> {
   pub _tab: flatbuffers::Table<'a>,
 }
 
-impl<'a> flatbuffers::Follow<'a> for Footer<'a> {
-  type Inner = Footer<'a>;
+impl<'a> flatbuffers::Follow<'a> for Postscript<'a> {
+  type Inner = Postscript<'a>;
   #[inline]
   unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
     Self { _tab: flatbuffers::Table::new(buf, loc) }
   }
 }
 
-impl<'a> Footer<'a> {
+impl<'a> Postscript<'a> {
   pub const VT_SCHEMA_OFFSET: flatbuffers::VOffsetT = 4;
   pub const VT_LAYOUT_OFFSET: flatbuffers::VOffsetT = 6;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
-    Footer { _tab: table }
+    Postscript { _tab: table }
   }
   #[allow(unused_mut)]
   pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
     _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
-    args: &'args FooterArgs
-  ) -> flatbuffers::WIPOffset<Footer<'bldr>> {
-    let mut builder = FooterBuilder::new(_fbb);
+    args: &'args PostscriptArgs
+  ) -> flatbuffers::WIPOffset<Postscript<'bldr>> {
+    let mut builder = PostscriptBuilder::new(_fbb);
     builder.add_layout_offset(args.layout_offset);
     builder.add_schema_offset(args.schema_offset);
     builder.finish()
@@ -366,18 +366,18 @@ impl<'a> Footer<'a> {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<u64>(Footer::VT_SCHEMA_OFFSET, Some(0)).unwrap()}
+    unsafe { self._tab.get::<u64>(Postscript::VT_SCHEMA_OFFSET, Some(0)).unwrap()}
   }
   #[inline]
   pub fn layout_offset(&self) -> u64 {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<u64>(Footer::VT_LAYOUT_OFFSET, Some(0)).unwrap()}
+    unsafe { self._tab.get::<u64>(Postscript::VT_LAYOUT_OFFSET, Some(0)).unwrap()}
   }
 }
 
-impl flatbuffers::Verifiable for Footer<'_> {
+impl flatbuffers::Verifiable for Postscript<'_> {
   #[inline]
   fn run_verifier(
     v: &mut flatbuffers::Verifier, pos: usize
@@ -390,124 +390,124 @@ impl flatbuffers::Verifiable for Footer<'_> {
     Ok(())
   }
 }
-pub struct FooterArgs {
+pub struct PostscriptArgs {
     pub schema_offset: u64,
     pub layout_offset: u64,
 }
-impl<'a> Default for FooterArgs {
+impl<'a> Default for PostscriptArgs {
   #[inline]
   fn default() -> Self {
-    FooterArgs {
+    PostscriptArgs {
       schema_offset: 0,
       layout_offset: 0,
     }
   }
 }
 
-pub struct FooterBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+pub struct PostscriptBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
   fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
   start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
 }
-impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> FooterBuilder<'a, 'b, A> {
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> PostscriptBuilder<'a, 'b, A> {
   #[inline]
   pub fn add_schema_offset(&mut self, schema_offset: u64) {
-    self.fbb_.push_slot::<u64>(Footer::VT_SCHEMA_OFFSET, schema_offset, 0);
+    self.fbb_.push_slot::<u64>(Postscript::VT_SCHEMA_OFFSET, schema_offset, 0);
   }
   #[inline]
   pub fn add_layout_offset(&mut self, layout_offset: u64) {
-    self.fbb_.push_slot::<u64>(Footer::VT_LAYOUT_OFFSET, layout_offset, 0);
+    self.fbb_.push_slot::<u64>(Postscript::VT_LAYOUT_OFFSET, layout_offset, 0);
   }
   #[inline]
-  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> FooterBuilder<'a, 'b, A> {
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> PostscriptBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
-    FooterBuilder {
+    PostscriptBuilder {
       fbb_: _fbb,
       start_: start,
     }
   }
   #[inline]
-  pub fn finish(self) -> flatbuffers::WIPOffset<Footer<'a>> {
+  pub fn finish(self) -> flatbuffers::WIPOffset<Postscript<'a>> {
     let o = self.fbb_.end_table(self.start_);
     flatbuffers::WIPOffset::new(o.value())
   }
 }
 
-impl core::fmt::Debug for Footer<'_> {
+impl core::fmt::Debug for Postscript<'_> {
   fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-    let mut ds = f.debug_struct("Footer");
+    let mut ds = f.debug_struct("Postscript");
       ds.field("schema_offset", &self.schema_offset());
       ds.field("layout_offset", &self.layout_offset());
       ds.finish()
   }
 }
 #[inline]
-/// Verifies that a buffer of bytes contains a `Footer`
+/// Verifies that a buffer of bytes contains a `Postscript`
 /// and returns it.
 /// Note that verification is still experimental and may not
 /// catch every error, or be maximally performant. For the
 /// previous, unchecked, behavior use
-/// `root_as_footer_unchecked`.
-pub fn root_as_footer(buf: &[u8]) -> Result<Footer, flatbuffers::InvalidFlatbuffer> {
-  flatbuffers::root::<Footer>(buf)
+/// `root_as_postscript_unchecked`.
+pub fn root_as_postscript(buf: &[u8]) -> Result<Postscript, flatbuffers::InvalidFlatbuffer> {
+  flatbuffers::root::<Postscript>(buf)
 }
 #[inline]
 /// Verifies that a buffer of bytes contains a size prefixed
-/// `Footer` and returns it.
+/// `Postscript` and returns it.
 /// Note that verification is still experimental and may not
 /// catch every error, or be maximally performant. For the
 /// previous, unchecked, behavior use
-/// `size_prefixed_root_as_footer_unchecked`.
-pub fn size_prefixed_root_as_footer(buf: &[u8]) -> Result<Footer, flatbuffers::InvalidFlatbuffer> {
-  flatbuffers::size_prefixed_root::<Footer>(buf)
+/// `size_prefixed_root_as_postscript_unchecked`.
+pub fn size_prefixed_root_as_postscript(buf: &[u8]) -> Result<Postscript, flatbuffers::InvalidFlatbuffer> {
+  flatbuffers::size_prefixed_root::<Postscript>(buf)
 }
 #[inline]
 /// Verifies, with the given options, that a buffer of bytes
-/// contains a `Footer` and returns it.
+/// contains a `Postscript` and returns it.
 /// Note that verification is still experimental and may not
 /// catch every error, or be maximally performant. For the
 /// previous, unchecked, behavior use
-/// `root_as_footer_unchecked`.
-pub fn root_as_footer_with_opts<'b, 'o>(
+/// `root_as_postscript_unchecked`.
+pub fn root_as_postscript_with_opts<'b, 'o>(
   opts: &'o flatbuffers::VerifierOptions,
   buf: &'b [u8],
-) -> Result<Footer<'b>, flatbuffers::InvalidFlatbuffer> {
-  flatbuffers::root_with_opts::<Footer<'b>>(opts, buf)
+) -> Result<Postscript<'b>, flatbuffers::InvalidFlatbuffer> {
+  flatbuffers::root_with_opts::<Postscript<'b>>(opts, buf)
 }
 #[inline]
 /// Verifies, with the given verifier options, that a buffer of
-/// bytes contains a size prefixed `Footer` and returns
+/// bytes contains a size prefixed `Postscript` and returns
 /// it. Note that verification is still experimental and may not
 /// catch every error, or be maximally performant. For the
 /// previous, unchecked, behavior use
-/// `root_as_footer_unchecked`.
-pub fn size_prefixed_root_as_footer_with_opts<'b, 'o>(
+/// `root_as_postscript_unchecked`.
+pub fn size_prefixed_root_as_postscript_with_opts<'b, 'o>(
   opts: &'o flatbuffers::VerifierOptions,
   buf: &'b [u8],
-) -> Result<Footer<'b>, flatbuffers::InvalidFlatbuffer> {
-  flatbuffers::size_prefixed_root_with_opts::<Footer<'b>>(opts, buf)
+) -> Result<Postscript<'b>, flatbuffers::InvalidFlatbuffer> {
+  flatbuffers::size_prefixed_root_with_opts::<Postscript<'b>>(opts, buf)
 }
 #[inline]
-/// Assumes, without verification, that a buffer of bytes contains a Footer and returns it.
+/// Assumes, without verification, that a buffer of bytes contains a Postscript and returns it.
 /// # Safety
-/// Callers must trust the given bytes do indeed contain a valid `Footer`.
-pub unsafe fn root_as_footer_unchecked(buf: &[u8]) -> Footer {
-  flatbuffers::root_unchecked::<Footer>(buf)
+/// Callers must trust the given bytes do indeed contain a valid `Postscript`.
+pub unsafe fn root_as_postscript_unchecked(buf: &[u8]) -> Postscript {
+  flatbuffers::root_unchecked::<Postscript>(buf)
 }
 #[inline]
-/// Assumes, without verification, that a buffer of bytes contains a size prefixed Footer and returns it.
+/// Assumes, without verification, that a buffer of bytes contains a size prefixed Postscript and returns it.
 /// # Safety
-/// Callers must trust the given bytes do indeed contain a valid size prefixed `Footer`.
-pub unsafe fn size_prefixed_root_as_footer_unchecked(buf: &[u8]) -> Footer {
-  flatbuffers::size_prefixed_root_unchecked::<Footer>(buf)
+/// Callers must trust the given bytes do indeed contain a valid size prefixed `Postscript`.
+pub unsafe fn size_prefixed_root_as_postscript_unchecked(buf: &[u8]) -> Postscript {
+  flatbuffers::size_prefixed_root_unchecked::<Postscript>(buf)
 }
 #[inline]
-pub fn finish_footer_buffer<'a, 'b, A: flatbuffers::Allocator + 'a>(
+pub fn finish_postscript_buffer<'a, 'b, A: flatbuffers::Allocator + 'a>(
     fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
-    root: flatbuffers::WIPOffset<Footer<'a>>) {
+    root: flatbuffers::WIPOffset<Postscript<'a>>) {
   fbb.finish(root, None);
 }
 
 #[inline]
-pub fn finish_size_prefixed_footer_buffer<'a, 'b, A: flatbuffers::Allocator + 'a>(fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>, root: flatbuffers::WIPOffset<Footer<'a>>) {
+pub fn finish_size_prefixed_postscript_buffer<'a, 'b, A: flatbuffers::Allocator + 'a>(fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>, root: flatbuffers::WIPOffset<Postscript<'a>>) {
   fbb.finish_size_prefixed(root, None);
 }
