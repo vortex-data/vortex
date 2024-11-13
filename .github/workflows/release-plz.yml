@@ -37,6 +37,7 @@ jobs:
 
   # Create a PR with the new versions and changelog, preparing the next release.
   release-plz-pr:
+    needs: [ release-plz-release ]
     name: Release-plz PR
     runs-on: ubuntu-latest
     concurrency:
