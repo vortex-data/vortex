@@ -6,10 +6,10 @@ use itertools::Itertools;
 use vortex_array::stats::ArrayStatistics;
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
-use crate::file::{BatchRead, LayoutReader, Message, RowMask};
+use crate::file::{BatchRead, LayoutReader, MessageLocator, RowMask};
 
 pub enum SplitMask {
-    ReadMore(Vec<Message>),
+    ReadMore(Vec<MessageLocator>),
     Mask(RowMask),
 }
 
