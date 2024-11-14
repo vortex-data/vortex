@@ -1,11 +1,11 @@
 use arrow_buffer::BooleanBuffer;
 use itertools::Itertools;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::VortexResult;
+use vortex_error::{vortex_err, VortexResult};
 
 use crate::aliases::hash_map::HashMap;
 use crate::array::BoolArray;
-use crate::stats::{ArrayStatisticsCompute, Stat, StatsSet};
+use crate::stats::{ArrayStatistics, ArrayStatisticsCompute, Stat, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity};
 use crate::{ArrayDType, IntoArrayVariant};
 
@@ -13,6 +13,23 @@ impl ArrayStatisticsCompute for BoolArray {
     fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
         if self.is_empty() {
             return Ok(StatsSet::new());
+        }
+
+        // Short-circuit a few stats that all delegate to true_count
+        let true_count = || {
+            self.as_ref()
+                .statistics()
+                .compute_true_count()
+                .ok_or_else(|| vortex_err!("BoolArray doesn't implement true_count stat"))
+        };
+        match stat {
+            Stat::Min => return Ok(StatsSet::of(stat, true_count()? == 0)),
+            Stat::Max => return Ok(StatsSet::of(stat, true_count()? > 0)),
+            Stat::IsConstant => {
+                let count = true_count()?;
+                return Ok(StatsSet::of(stat, count == 0 || count == self.len()));
+            }
+            _ => {}
         }
 
         match self.logical_validity() {
@@ -27,7 +44,7 @@ impl ArrayStatisticsCompute for BoolArray {
     }
 }
 
-struct NullableBools<'a>(&'a BooleanBuffer, &'a BooleanBuffer);
+pub(super) struct NullableBools<'a>(&'a BooleanBuffer, &'a BooleanBuffer);
 
 impl ArrayStatisticsCompute for NullableBools<'_> {
     fn compute_statistics(&self, _stat: Stat) -> VortexResult<StatsSet> {
@@ -59,9 +76,13 @@ impl ArrayStatisticsCompute for NullableBools<'_> {
 }
 
 impl ArrayStatisticsCompute for BooleanBuffer {
-    fn compute_statistics(&self, _stat: Stat) -> VortexResult<StatsSet> {
+    fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
         if self.is_empty() {
             return Ok(StatsSet::new());
+        }
+
+        if stat == Stat::TrueCount {
+            return Ok(StatsSet::of(stat, self.count_set_bits()));
         }
 
         let mut stats = BoolStatsAccumulator::new(self.value(0));
@@ -123,15 +144,7 @@ impl BoolStatsAccumulator {
 
     pub fn finish(self) -> StatsSet {
         StatsSet::from(HashMap::from([
-            (Stat::Min, (self.true_count == self.len).into()),
-            (Stat::Max, (self.true_count > 0).into()),
             (Stat::NullCount, self.null_count.into()),
-            (
-                Stat::IsConstant,
-                (self.null_count == 0 && (self.true_count == self.len || self.true_count == 0)
-                    || self.null_count == self.len)
-                    .into(),
-            ),
             (Stat::IsSorted, self.is_sorted.into()),
             (
                 Stat::IsStrictSorted,
@@ -139,7 +152,6 @@ impl BoolStatsAccumulator {
                     .into(),
             ),
             (Stat::RunCount, self.run_count.into()),
-            (Stat::TrueCount, self.true_count.into()),
         ]))
     }
 }

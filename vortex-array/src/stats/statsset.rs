@@ -87,8 +87,8 @@ impl StatsSet {
         stats
     }
 
-    pub fn of(stat: Stat, value: Scalar) -> Self {
-        Self::from(HashMap::from([(stat, value)]))
+    pub fn of<S: Into<Scalar>>(stat: Stat, value: S) -> Self {
+        Self::from(HashMap::from([(stat, value.into())]))
     }
 
     pub fn get(&self, stat: Stat) -> Option<&Scalar> {
