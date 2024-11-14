@@ -1,7 +1,7 @@
 use std::fmt::{Debug, Display};
 
 use ::serde::{Deserialize, Serialize};
-use vortex_dtype::{match_each_integer_ptype, DType, Nullability, PType};
+use vortex_dtype::{match_each_integer_ptype, DType, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
@@ -53,11 +53,7 @@ impl SparseArray {
         indices_offset: usize,
         fill_value: ScalarValue,
     ) -> VortexResult<Self> {
-        if !matches!(
-            indices.dtype(),
-            DType::Primitive(PType::U64, Nullability::NonNullable)
-                | DType::Primitive(PType::U32, Nullability::NonNullable)
-        ) {
+        if !matches!(indices.dtype(), &DType::IDX | &DType::IDX_32) {
             vortex_bail!("Cannot use {} as indices", indices.dtype());
         }
         if !fill_value.is_instance_of(values.dtype()) {
@@ -90,10 +86,7 @@ impl SparseArray {
                 indices_offset,
                 indices_len: indices.len(),
                 fill_value,
-                u64_indices: matches!(
-                    indices.dtype(),
-                    DType::Primitive(PType::U64, Nullability::NonNullable)
-                ),
+                u64_indices: matches!(indices.dtype(), &DType::IDX),
             },
             [indices, values].into(),
             StatsSet::new(),
@@ -118,9 +111,9 @@ impl SparseArray {
             .child(
                 0,
                 if self.metadata().u64_indices {
-                    &DType::Primitive(PType::U64, Nullability::NonNullable)
+                    &DType::IDX
                 } else {
-                    &DType::Primitive(PType::U32, Nullability::NonNullable)
+                    &DType::IDX_32
                 },
                 self.metadata().indices_len,
             )
