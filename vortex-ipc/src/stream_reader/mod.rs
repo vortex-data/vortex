@@ -10,7 +10,7 @@ use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult};
 use vortex_io::VortexRead;
 
-use crate::MessageReader;
+use crate::messages::reader::MessageReader;
 
 pub struct StreamArrayReader<R: VortexRead> {
     msgs: MessageReader<R>,

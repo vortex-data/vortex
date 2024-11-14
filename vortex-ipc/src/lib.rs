@@ -1,14 +1,10 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+pub mod messages;
+pub mod stream_reader;
+pub mod stream_writer;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+/// All messages in Vortex are aligned to start at a multiple of 64 bytes.
+///
+/// This is a multiple of the native alignment for all PTypes,
+/// thus all buffers allocated with this alignment are naturally aligned
+/// for any data we may put inside of it.
+pub const ALIGNMENT: usize = 64;

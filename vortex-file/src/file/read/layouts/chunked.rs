@@ -159,6 +159,8 @@ mod tests {
     use vortex_dtype::PType;
     use vortex_expr::{BinaryExpr, Identity, Literal, Operator};
     use vortex_flatbuffers::{footer, WriteFlatBuffer};
+    use vortex_ipc::messages::writer::MessageWriter;
+    use vortex_ipc::stream_writer::ByteRange;
 
     use crate::file::read::cache::{LazilyDeserializedDType, RelativeLayoutCache};
     use crate::file::read::layouts::chunked::ChunkedLayout;
@@ -167,8 +169,6 @@ mod tests {
     };
     use crate::file::read::mask::RowMask;
     use crate::file::{write, LayoutDeserializer, LayoutMessageCache, RowFilter, Scan};
-    use crate::messages::writer::MessageWriter;
-    use crate::stream_writer::ByteRange;
 
     async fn layout_and_bytes(
         cache: Arc<RwLock<LayoutMessageCache>>,

@@ -1,8 +1,7 @@
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_io::VortexRead;
-
-use crate::messages::reader::MessageReader;
+use vortex_ipc::messages::reader::MessageReader;
 
 /// Reader for serialized dtype messages
 pub struct DTypeReader<R: VortexRead> {

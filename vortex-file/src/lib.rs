@@ -1,16 +1,10 @@
 #![doc(html_logo_url = "/vortex/docs/_static/vortex_spiral_logo.svg")]
 
-use messages::reader::*;
-use messages::writer::*;
-
 pub mod chunked_reader;
 mod dtype_reader;
 mod file;
-pub use file::*;
-mod messages;
-pub mod stream_reader;
-pub mod stream_writer;
 pub use dtype_reader::*;
+pub use file::*;
 
 pub const ALIGNMENT: usize = 64;
 
@@ -30,9 +24,8 @@ mod test {
     use vortex_buffer::Buffer;
     use vortex_error::VortexResult;
     use vortex_io::TokioAdapter;
-
-    use crate::stream_reader::StreamArrayReader;
-    use crate::stream_writer::StreamArrayWriter;
+    use vortex_ipc::stream_reader::StreamArrayReader;
+    use vortex_ipc::stream_writer::StreamArrayWriter;
 
     fn write_ipc<A: IntoArray>(array: A) -> Vec<u8> {
         block_on(async {

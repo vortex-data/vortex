@@ -10,7 +10,7 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_io::VortexWrite;
 
-use crate::MessageWriter;
+use crate::messages::writer::MessageWriter;
 
 #[cfg(test)]
 mod tests;

@@ -6,6 +6,8 @@ use flatbuffers::root;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 use vortex_flatbuffers::{footer, message};
+use vortex_ipc::messages::reader::MESSAGE_PREFIX_LENGTH;
+use vortex_ipc::stream_writer::ByteRange;
 
 use crate::file::read::cache::{LazilyDeserializedDType, RelativeLayoutCache};
 use crate::file::read::mask::RowMask;
@@ -13,8 +15,6 @@ use crate::file::{
     BatchRead, LayoutDeserializer, LayoutId, LayoutPartId, LayoutReader, LayoutSpec,
     MessageLocator, Scan, INLINE_SCHEMA_LAYOUT_ID,
 };
-use crate::messages::reader::MESSAGE_PREFIX_LENGTH;
-use crate::stream_writer::ByteRange;
 
 #[derive(Debug)]
 pub struct InlineDTypeLayoutSpec;

@@ -7,8 +7,7 @@ use vortex_array::{Array, Context};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_io::VortexReadAt;
-
-use crate::stream_reader::StreamArrayReader;
+use vortex_ipc::stream_reader::StreamArrayReader;
 
 mod take_rows;
 

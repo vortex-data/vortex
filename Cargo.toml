@@ -155,6 +155,7 @@ vortex-file = { version = "0.16.0", path = "./vortex-file", default-features = f
 vortex-flatbuffers = { version = "0.16.0", path = "./vortex-flatbuffers" }
 vortex-fsst = { version = "0.16.0", path = "./encodings/fsst" }
 vortex-io = { version = "0.16.0", path = "./vortex-io" }
+vortex-ipc = { version = "0.16.0", path = "./vortex-ipc" }
 vortex-proto = { version = "0.16.0", path = "./vortex-proto" }
 vortex-roaring = { version = "0.16.0", path = "./encodings/roaring" }
 vortex-runend = { version = "0.16.0", path = "./encodings/runend" }

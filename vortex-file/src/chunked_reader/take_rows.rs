@@ -13,10 +13,10 @@ use vortex_array::{Array, ArrayDType, IntoArray, IntoArrayVariant};
 use vortex_dtype::PType;
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 use vortex_io::VortexReadAt;
+use vortex_ipc::stream_reader::StreamArrayReader;
 use vortex_scalar::Scalar;
 
 use crate::chunked_reader::ChunkedArrayReader;
-use crate::stream_reader::StreamArrayReader;
 
 impl<R: VortexReadAt> ChunkedArrayReader<R> {
     pub async fn take_rows(&mut self, indices: &Array) -> VortexResult<Array> {
@@ -217,10 +217,10 @@ mod test {
     use vortex_buffer::Buffer;
     use vortex_dtype::PType;
     use vortex_error::VortexResult;
+    use vortex_ipc::messages::reader::MessageReader;
+    use vortex_ipc::stream_writer::StreamArrayWriter;
 
     use crate::chunked_reader::ChunkedArrayReader;
-    use crate::stream_writer::StreamArrayWriter;
-    use crate::MessageReader;
 
     fn chunked_array() -> VortexResult<StreamArrayWriter<Vec<u8>>> {
         let c = ChunkedArray::try_new(

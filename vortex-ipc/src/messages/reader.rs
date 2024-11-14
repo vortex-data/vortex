@@ -349,7 +349,8 @@ mod test {
     use futures_executor::block_on;
     use vortex_buffer::Buffer;
 
-    use crate::{MessageReader, MessageWriter};
+    use crate::messages::reader::MessageReader;
+    use crate::messages::writer::MessageWriter;
 
     #[test]
     fn read_write_page() {

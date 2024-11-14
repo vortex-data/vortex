@@ -10,14 +10,14 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
 use vortex_flatbuffers::WriteFlatBuffer;
 use vortex_io::VortexWrite;
+use vortex_ipc::messages::writer::MessageWriter;
+use vortex_ipc::messages::IPCSchema;
+use vortex_ipc::stream_writer::ByteRange;
 
 use crate::file::write::layout::Layout;
 use crate::file::write::metadata_accumulators::{new_metadata_accumulator, MetadataAccumulator};
 use crate::file::write::postscript::Postscript;
 use crate::file::{EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
-use crate::messages::IPCSchema;
-use crate::stream_writer::ByteRange;
-use crate::MessageWriter;
 
 pub struct VortexFileWriter<W> {
     msgs: MessageWriter<W>,

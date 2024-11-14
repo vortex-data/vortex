@@ -14,6 +14,21 @@ readme.workspace = true
 categories.workspace = true
 
 [dependencies]
+bytes = { workspace = true }
+flatbuffers = { workspace = true, optional = true }
+futures-util = { workspace = true }
+itertools = { workspace = true }
+vortex-array = { workspace = true }
+vortex-buffer = { workspace = true }
+vortex-dtype = { workspace = true }
+vortex-error = { workspace = true }
+vortex-flatbuffers = { workspace = true, features = ["array"] }
+vortex-io = { workspace = true }
+
+[dev-dependencies]
+arrow-array = { workspace = true }
+futures-executor = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
 
 [lints]
 workspace = true

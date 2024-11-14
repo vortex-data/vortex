@@ -17,9 +17,9 @@ use vortex_array::array::PrimitiveArray;
 use vortex_array::compress::CompressionStrategy;
 use vortex_array::compute::take;
 use vortex_array::{Context, IntoArray};
-use vortex_file::stream_reader::StreamArrayReader;
-use vortex_file::stream_writer::StreamArrayWriter;
 use vortex_io::FuturesAdapter;
+use vortex_ipc::stream_reader::StreamArrayReader;
+use vortex_ipc::stream_writer::StreamArrayWriter;
 use vortex_sampling_compressor::SamplingCompressor;
 
 fn ipc_take(c: &mut Criterion) {

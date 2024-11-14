@@ -12,9 +12,9 @@ use vortex_array::array::{ChunkedArray, PrimitiveArray};
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::validity::Validity;
 use vortex_array::{Context, IntoArray};
-use vortex_file::stream_reader::StreamArrayReader;
-use vortex_file::stream_writer::StreamArrayWriter;
 use vortex_io::FuturesAdapter;
+use vortex_ipc::stream_reader::StreamArrayReader;
+use vortex_ipc::stream_writer::StreamArrayWriter;
 
 // 100 record batches, 100k rows each
 // take from the first 20 batches and last batch

@@ -37,6 +37,7 @@ vortex-file = { workspace = true, default-features = true }
 vortex-flatbuffers = { workspace = true }
 vortex-fsst = { workspace = true }
 vortex-io = { workspace = true }
+vortex-ipc = { workspace = true }
 vortex-proto = { workspace = true }
 vortex-roaring = { workspace = true }
 vortex-runend = { workspace = true }
