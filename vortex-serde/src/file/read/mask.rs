@@ -119,13 +119,12 @@ impl RowMask {
         })
     }
 
-    pub fn with_values(self, values: Array) -> VortexResult<Self> {
+    pub fn and_bitmask(self, values: Array) -> VortexResult<Self> {
         // TODO(robert): Avoid densifying sparse values just to get true indices
         let sparse_mask =
             SparseArray::try_new(self.to_indices_array()?, values, self.len(), false.into())?
                 .into_array()
-                .into_bool()?
-                .into_array();
+                .into_bool()?;
         Self::from_mask_array(sparse_mask.as_ref(), self.begin(), self.end())
     }
 

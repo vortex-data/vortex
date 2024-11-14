@@ -56,7 +56,7 @@ impl FilteringRowSplitIterator {
                     {
                         return Ok(None);
                     }
-                    Ok(Some(SplitMask::Mask(mask.with_values(batch)?)))
+                    Ok(Some(SplitMask::Mask(mask.and_bitmask(batch)?)))
                 }
             };
         }
