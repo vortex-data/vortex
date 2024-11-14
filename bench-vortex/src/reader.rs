@@ -28,10 +28,8 @@ use vortex::compress::CompressionStrategy;
 use vortex::dtype::DType;
 use vortex::error::VortexResult;
 use vortex::sampling_compressor::{SamplingCompressor, ALL_ENCODINGS_CONTEXT};
+use vortex::serde::file::{LayoutContext, LayoutDeserializer, VortexFileWriter, VortexReadBuilder};
 use vortex::serde::io::{ObjectStoreReadAt, VortexReadAt, VortexWrite};
-use vortex::serde::layouts::{
-    LayoutBatchStreamBuilder, LayoutContext, LayoutDeserializer, LayoutWriter,
-};
 use vortex::{Array, IntoArray, IntoCanonical};
 
 pub const BATCH_SIZE: usize = 65_536;
@@ -46,7 +44,7 @@ pub struct VortexFooter {
 pub async fn open_vortex(path: &Path) -> VortexResult<Array> {
     let file = tokio::fs::File::open(path).await.unwrap();
 
-    LayoutBatchStreamBuilder::new(
+    VortexReadBuilder::new(
         file,
         LayoutDeserializer::new(
             ALL_ENCODINGS_CONTEXT.clone(),
@@ -65,7 +63,7 @@ pub async fn rewrite_parquet_as_vortex<W: VortexWrite>(
 ) -> VortexResult<()> {
     let chunked = compress_parquet_to_vortex(parquet_path.as_path())?;
 
-    LayoutWriter::new(write)
+    VortexFileWriter::new(write)
         .write_array_columns(chunked)
         .await?
         .finalize()
@@ -114,7 +112,7 @@ async fn take_vortex<T: VortexReadAt + Unpin + 'static>(
     reader: T,
     indices: &[u64],
 ) -> VortexResult<Array> {
-    LayoutBatchStreamBuilder::new(
+    VortexReadBuilder::new(
         reader,
         LayoutDeserializer::new(
             ALL_ENCODINGS_CONTEXT.clone(),

@@ -1,65 +1,161 @@
 use vortex_error::{vortex_bail, VortexResult};
 
+use crate::array::BoolArray;
 use crate::{Array, ArrayDType, IntoArrayVariant};
-
 pub trait AndFn {
+    /// Point-wise logical _and_ between two Boolean arrays.
+    ///
+    /// This method uses Arrow-style null propagation rather than the Kleene logic semantics.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use vortex_array::Array;
+    /// use vortex_array::compute::and;
+    /// use vortex_array::IntoCanonical;
+    /// use vortex_array::accessor::ArrayAccessor;
+    /// let a = Array::from(vec![Some(true), Some(true), Some(true), None, None, None, Some(false), Some(false), Some(false)]);
+    /// let b = Array::from(vec![Some(true), None, Some(false), Some(true), None, Some(false), Some(true), None, Some(false)]);
+    /// let result = and(a, b)?.into_canonical()?.into_bool()?;
+    /// let result_vec = result.with_iterator(|it| it.map(|x| x.cloned()).collect::<Vec<_>>())?;
+    /// assert_eq!(result_vec, vec![Some(true), None, Some(false), None, None, None, Some(false), None, Some(false)]);
+    /// # use vortex_error::VortexError;
+    /// # Ok::<(), VortexError>(())
+    /// ```
     fn and(&self, array: &Array) -> VortexResult<Array>;
+
+    /// Point-wise Kleene logical _and_ between two Boolean arrays.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use vortex_array::Array;
+    /// use vortex_array::compute::and_kleene;
+    /// use vortex_array::IntoCanonical;
+    /// use vortex_array::accessor::ArrayAccessor;
+    /// let a = Array::from(vec![Some(true), Some(true), Some(true), None, None, None, Some(false), Some(false), Some(false)]);
+    /// let b = Array::from(vec![Some(true), None, Some(false), Some(true), None, Some(false), Some(true), None, Some(false)]);
+    /// let result = and_kleene(a, b)?.into_canonical()?.into_bool()?;
+    /// let result_vec = result.with_iterator(|it| it.map(|x| x.cloned()).collect::<Vec<_>>())?;
+    /// assert_eq!(result_vec, vec![Some(true), None, Some(false), None, None, Some(false), Some(false), Some(false), Some(false)]);
+    /// # use vortex_error::VortexError;
+    /// # Ok::<(), VortexError>(())
+    /// ```
+    fn and_kleene(&self, array: &Array) -> VortexResult<Array>;
 }
 
 pub trait OrFn {
+    /// Point-wise logical _or_ between two Boolean arrays.
+    ///
+    /// This method uses Arrow-style null propagation rather than the Kleene logic semantics.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use vortex_array::Array;
+    /// use vortex_array::compute::or;
+    /// use vortex_array::IntoCanonical;
+    /// use vortex_array::accessor::ArrayAccessor;
+    /// let a = Array::from(vec![Some(true), Some(true), Some(true), None, None, None, Some(false), Some(false), Some(false)]);
+    /// let b = Array::from(vec![Some(true), None, Some(false), Some(true), None, Some(false), Some(true), None, Some(false)]);
+    /// let result = or(a, b)?.into_canonical()?.into_bool()?;
+    /// let result_vec = result.with_iterator(|it| it.map(|x| x.cloned()).collect::<Vec<_>>())?;
+    /// assert_eq!(result_vec, vec![Some(true), None, Some(true), None, None, None, Some(true), None, Some(false)]);
+    /// # use vortex_error::VortexError;
+    /// # Ok::<(), VortexError>(())
+    /// ```
     fn or(&self, array: &Array) -> VortexResult<Array>;
+
+    /// Point-wise Kleene logical _or_ between two Boolean arrays.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use vortex_array::Array;
+    /// use vortex_array::compute::or_kleene;
+    /// use vortex_array::IntoCanonical;
+    /// use vortex_array::accessor::ArrayAccessor;
+    /// let a = Array::from(vec![Some(true), Some(true), Some(true), None, None, None, Some(false), Some(false), Some(false)]);
+    /// let b = Array::from(vec![Some(true), None, Some(false), Some(true), None, Some(false), Some(true), None, Some(false)]);
+    /// let result = or_kleene(a, b)?.into_canonical()?.into_bool()?;
+    /// let result_vec = result.with_iterator(|it| it.map(|x| x.cloned()).collect::<Vec<_>>())?;
+    /// assert_eq!(result_vec, vec![Some(true), Some(true), Some(true), Some(true), None, None, Some(true), None, Some(false)]);
+    /// # use vortex_error::VortexError;
+    /// # Ok::<(), VortexError>(())
+    /// ```
+    fn or_kleene(&self, array: &Array) -> VortexResult<Array>;
+}
+
+fn lift_boolean_operator<F, G>(
+    lhs: impl AsRef<Array>,
+    rhs: impl AsRef<Array>,
+    trait_fun: F,
+    bool_array_fun: G,
+) -> VortexResult<Array>
+where
+    F: Fn(&Array, &Array) -> Option<VortexResult<Array>>,
+    G: FnOnce(BoolArray, &Array) -> VortexResult<Array>,
+{
+    let lhs = lhs.as_ref();
+    let rhs = rhs.as_ref();
+
+    if lhs.len() != rhs.len() {
+        vortex_bail!("Boolean operations aren't supported on arrays of different lengths")
+    }
+
+    if !lhs.dtype().is_boolean() || !rhs.dtype().is_boolean() {
+        vortex_bail!("Boolean operations are only supported on boolean arrays")
+    }
+
+    if let Some(selection) = trait_fun(lhs, rhs) {
+        return selection;
+    }
+
+    if let Some(selection) = trait_fun(rhs, lhs) {
+        return selection;
+    }
+
+    // If neither side implements the trait, we try to expand the left-hand side into a `BoolArray`,
+    // which we know does implement it, and call into that implementation.
+    let lhs = lhs.clone().into_bool()?;
+
+    bool_array_fun(lhs, rhs)
 }
 
 pub fn and(lhs: impl AsRef<Array>, rhs: impl AsRef<Array>) -> VortexResult<Array> {
-    let lhs = lhs.as_ref();
-    let rhs = rhs.as_ref();
+    lift_boolean_operator(
+        lhs,
+        rhs,
+        |lhs, rhs| lhs.with_dyn(|lhs| lhs.and().map(|lhs| lhs.and(rhs))),
+        |lhs, rhs| lhs.and(rhs),
+    )
+}
 
-    if lhs.len() != rhs.len() {
-        vortex_bail!("Boolean operations aren't supported on arrays of different lengths")
-    }
-
-    if !lhs.dtype().is_boolean() || !rhs.dtype().is_boolean() {
-        vortex_bail!("Boolean operations are only supported on boolean arrays")
-    }
-
-    if let Some(selection) = lhs.with_dyn(|lhs| lhs.and().map(|lhs| lhs.and(rhs))) {
-        return selection;
-    }
-
-    if let Some(selection) = rhs.with_dyn(|rhs| rhs.and().map(|rhs| rhs.and(lhs))) {
-        return selection;
-    }
-
-    // If neither side implements `AndFn`, we try to expand the left-hand side into a `BoolArray`, which we know does implement it, and call into that implementation.
-    let lhs = lhs.clone().into_bool()?;
-
-    lhs.and(rhs)
+pub fn and_kleene(lhs: impl AsRef<Array>, rhs: impl AsRef<Array>) -> VortexResult<Array> {
+    lift_boolean_operator(
+        lhs,
+        rhs,
+        |lhs, rhs| lhs.with_dyn(|lhs| lhs.and_kleene().map(|lhs| lhs.and_kleene(rhs))),
+        |lhs, rhs| lhs.and_kleene(rhs),
+    )
 }
 
 pub fn or(lhs: impl AsRef<Array>, rhs: impl AsRef<Array>) -> VortexResult<Array> {
-    let lhs = lhs.as_ref();
-    let rhs = rhs.as_ref();
+    lift_boolean_operator(
+        lhs,
+        rhs,
+        |lhs, rhs| lhs.with_dyn(|lhs| lhs.or().map(|lhs| lhs.or(rhs))),
+        |lhs, rhs| lhs.or(rhs),
+    )
+}
 
-    if lhs.len() != rhs.len() {
-        vortex_bail!("Boolean operations aren't supported on arrays of different lengths")
-    }
-
-    if !lhs.dtype().is_boolean() || !rhs.dtype().is_boolean() {
-        vortex_bail!("Boolean operations are only supported on boolean arrays")
-    }
-
-    if let Some(selection) = lhs.with_dyn(|lhs| lhs.or().map(|lhs| lhs.or(rhs))) {
-        return selection;
-    }
-
-    if let Some(selection) = rhs.with_dyn(|rhs| rhs.or().map(|rhs| rhs.or(lhs))) {
-        return selection;
-    }
-
-    // If neither side implements `OrFn`, we try to expand the left-hand side into a `BoolArray`, which we know does implement it, and call into that implementation.
-    let lhs = lhs.clone().into_bool()?;
-
-    lhs.or(rhs)
+pub fn or_kleene(lhs: impl AsRef<Array>, rhs: impl AsRef<Array>) -> VortexResult<Array> {
+    lift_boolean_operator(
+        lhs,
+        rhs,
+        |lhs, rhs| lhs.with_dyn(|lhs| lhs.or_kleene().map(|lhs| lhs.or_kleene(rhs))),
+        |lhs, rhs| lhs.or_kleene(rhs),
+    )
 }
 
 #[cfg(test)]

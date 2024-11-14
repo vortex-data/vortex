@@ -17,17 +17,17 @@ readme = { workspace = true }
 workspace = true
 
 [dependencies]
-vortex-fastlanes = { workspace = true }
 itertools = { workspace = true }
 num-traits = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 vortex-array = { workspace = true }
 vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
+vortex-fastlanes = { workspace = true }
 vortex-scalar = { workspace = true }
 
 [dev-dependencies]
-arrow = { workspace = true }
+arrow-array = { workspace = true }
 divan = { workspace = true }
 rstest = { workspace = true }
 

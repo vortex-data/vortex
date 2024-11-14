@@ -13,7 +13,7 @@ use vortex_flatbuffers::message as fb;
 
 use crate::io::VortexRead;
 
-pub const FLATBUFFER_SIZE_LENGTH: usize = 4;
+pub const MESSAGE_PREFIX_LENGTH: usize = 4;
 
 pub struct MessageReader<R> {
     read: R,
@@ -36,7 +36,7 @@ impl<R: VortexRead> MessageReader<R> {
 
     async fn load_next_message(&mut self) -> VortexResult<bool> {
         let mut buffer = std::mem::take(&mut self.message);
-        buffer.resize(FLATBUFFER_SIZE_LENGTH, 0);
+        buffer.resize(MESSAGE_PREFIX_LENGTH, 0);
         let mut buffer = match self.read.read_into(buffer).await {
             Ok(b) => b,
             Err(e) => {
@@ -249,7 +249,7 @@ impl ArrayMessageReader {
         match self.state {
             ReadState::Init => {
                 self.state = ReadState::ReadingLength;
-                Ok(Some(FLATBUFFER_SIZE_LENGTH))
+                Ok(Some(MESSAGE_PREFIX_LENGTH))
             }
             ReadState::ReadingLength => {
                 self.state = ReadState::ReadingFb;

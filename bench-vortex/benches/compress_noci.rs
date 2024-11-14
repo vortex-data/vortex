@@ -27,9 +27,7 @@ use vortex::dtype::field::Field;
 use vortex::error::VortexResult;
 use vortex::sampling_compressor::compressors::fsst::FSSTCompressor;
 use vortex::sampling_compressor::{SamplingCompressor, ALL_ENCODINGS_CONTEXT};
-use vortex::serde::layouts::{
-    LayoutBatchStreamBuilder, LayoutContext, LayoutDeserializer, LayoutWriter,
-};
+use vortex::serde::file::{LayoutContext, LayoutDeserializer, VortexFileWriter, VortexReadBuilder};
 use vortex::{Array, ArrayDType, IntoArray, IntoCanonical};
 
 use crate::tokio_runtime::TOKIO_RUNTIME;
@@ -108,7 +106,7 @@ fn vortex_compress_write(
     buf: &mut Vec<u8>,
 ) -> VortexResult<u64> {
     async fn async_write(array: &Array, cursor: &mut Cursor<&mut Vec<u8>>) -> VortexResult<()> {
-        let mut writer = LayoutWriter::new(cursor);
+        let mut writer = VortexFileWriter::new(cursor);
 
         writer = writer.write_array_columns(array.clone()).await?;
         writer.finalize().await?;
@@ -125,7 +123,7 @@ fn vortex_compress_write(
 
 fn vortex_decompress_read(runtime: &Runtime, buf: Arc<Vec<u8>>) -> VortexResult<ArrayRef> {
     async fn async_read(buf: Arc<Vec<u8>>) -> VortexResult<Array> {
-        let builder: LayoutBatchStreamBuilder<_> = LayoutBatchStreamBuilder::new(
+        let builder: VortexReadBuilder<_> = VortexReadBuilder::new(
             buf,
             LayoutDeserializer::new(
                 ALL_ENCODINGS_CONTEXT.clone(),
@@ -134,7 +132,7 @@ fn vortex_decompress_read(runtime: &Runtime, buf: Arc<Vec<u8>>) -> VortexResult<
         );
 
         let stream = builder.build().await?;
-        let dtype = stream.schema().clone().into();
+        let dtype = stream.dtype().clone();
         let vecs: Vec<Array> = stream.try_collect().await?;
 
         ChunkedArray::try_new(vecs, dtype).map(|e| e.into())

@@ -1,4 +1,5 @@
 use std::any::Any;
+use std::fmt::Display;
 use std::sync::Arc;
 
 use vortex_array::aliases::hash_set::HashSet;
@@ -38,6 +39,12 @@ impl From<usize> for Column {
         Column {
             field: value.into(),
         }
+    }
+}
+
+impl Display for Column {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.field)
     }
 }
 

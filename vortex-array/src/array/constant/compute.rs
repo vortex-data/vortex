@@ -119,32 +119,66 @@ impl MaybeCompareFn for ConstantArray {
     }
 }
 
+fn and(left: Option<bool>, right: Option<bool>) -> Option<bool> {
+    left.zip(right).map(|(l, r)| l & r)
+}
+
+fn kleene_and(left: Option<bool>, right: Option<bool>) -> Option<bool> {
+    match (left, right) {
+        (Some(false), _) => Some(false),
+        (_, Some(false)) => Some(false),
+        (None, _) => None,
+        (_, None) => None,
+        (Some(l), Some(r)) => Some(l & r),
+    }
+}
+
+fn or(left: Option<bool>, right: Option<bool>) -> Option<bool> {
+    left.zip(right).map(|(l, r)| l | r)
+}
+
+fn kleene_or(left: Option<bool>, right: Option<bool>) -> Option<bool> {
+    match (left, right) {
+        (Some(true), _) => Some(true),
+        (_, Some(true)) => Some(true),
+        (None, _) => None,
+        (_, None) => None,
+        (Some(l), Some(r)) => Some(l | r),
+    }
+}
+
 impl AndFn for ConstantArray {
     fn and(&self, array: &Array) -> VortexResult<Array> {
-        constant_array_bool_impl(
-            self,
-            array,
-            |(l, r)| l & r,
-            |other, this| other.with_dyn(|other| other.and().map(|other| other.and(this))),
-        )
+        constant_array_bool_impl(self, array, and, |other, this| {
+            other.with_dyn(|other| other.and().map(|other| other.and(this)))
+        })
+    }
+
+    fn and_kleene(&self, array: &Array) -> VortexResult<Array> {
+        constant_array_bool_impl(self, array, kleene_and, |other, this| {
+            other.with_dyn(|other| other.and_kleene().map(|other| other.and_kleene(this)))
+        })
     }
 }
 
 impl OrFn for ConstantArray {
     fn or(&self, array: &Array) -> VortexResult<Array> {
-        constant_array_bool_impl(
-            self,
-            array,
-            |(l, r)| l | r,
-            |other, this| other.with_dyn(|other| other.or().map(|other| other.or(this))),
-        )
+        constant_array_bool_impl(self, array, or, |other, this| {
+            other.with_dyn(|other| other.or().map(|other| other.or(this)))
+        })
+    }
+
+    fn or_kleene(&self, array: &Array) -> VortexResult<Array> {
+        constant_array_bool_impl(self, array, kleene_or, |other, this| {
+            other.with_dyn(|other| other.or_kleene().map(|other| other.or_kleene(this)))
+        })
     }
 }
 
 fn constant_array_bool_impl(
     constant_array: &ConstantArray,
     other: &Array,
-    bool_op: impl Fn((bool, bool)) -> bool,
+    bool_op: impl Fn(Option<bool>, Option<bool>) -> Option<bool>,
     fallback_fn: impl Fn(&Array, &Array) -> Option<VortexResult<Array>>,
 ) -> VortexResult<Array> {
     // If the right side is constant
@@ -152,7 +186,7 @@ fn constant_array_bool_impl(
         let lhs = constant_array.scalar_value().as_bool()?;
         let rhs = scalar_at(other, 0)?.value().as_bool()?;
 
-        let scalar = match lhs.zip(rhs).map(bool_op) {
+        let scalar = match bool_op(lhs, rhs) {
             Some(b) => Scalar::bool(b, Nullability::Nullable),
             None => Scalar::null(constant_array.dtype().as_nullable()),
         };

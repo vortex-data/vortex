@@ -1,8 +1,9 @@
 use std::any::Any;
+use std::fmt::Display;
 use std::sync::Arc;
 
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::compute::{and, compare, or, Operator as ArrayOperator};
+use vortex_array::compute::{and_kleene, compare, or_kleene, Operator as ArrayOperator};
 use vortex_array::Array;
 use vortex_dtype::field::Field;
 use vortex_error::VortexResult;
@@ -34,6 +35,12 @@ impl BinaryExpr {
     }
 }
 
+impl Display for BinaryExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "({} {} {})", self.lhs, self.operator, self.rhs)
+    }
+}
+
 impl VortexExpr for BinaryExpr {
     fn as_any(&self) -> &dyn Any {
         self
@@ -50,8 +57,8 @@ impl VortexExpr for BinaryExpr {
             Operator::Lte => compare(lhs, rhs, ArrayOperator::Lte),
             Operator::Gt => compare(lhs, rhs, ArrayOperator::Gt),
             Operator::Gte => compare(lhs, rhs, ArrayOperator::Gte),
-            Operator::And => and(lhs, rhs),
-            Operator::Or => or(lhs, rhs),
+            Operator::And => and_kleene(lhs, rhs),
+            Operator::Or => or_kleene(lhs, rhs),
         }
     }
 

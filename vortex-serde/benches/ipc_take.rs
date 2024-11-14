@@ -2,8 +2,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use arrow::ipc::reader::StreamReader as ArrowStreamReader;
 use arrow_array::{Array, Int32Array, RecordBatch};
+use arrow_ipc::reader::StreamReader;
 use arrow_ipc::writer::{IpcWriteOptions, StreamWriter as ArrowStreamWriter};
 use arrow_ipc::{CompressionType, MetadataVersion};
 use arrow_schema::{DataType, Field, Schema};
@@ -44,7 +44,7 @@ fn ipc_take(c: &mut Criterion) {
 
         b.iter(|| {
             let mut cursor = std::io::Cursor::new(&buffer);
-            let mut reader = ArrowStreamReader::try_new(&mut cursor, None).unwrap();
+            let mut reader = StreamReader::try_new(&mut cursor, None).unwrap();
             let batch = reader.next().unwrap().unwrap();
             let array_from_batch = batch.column(0);
             let array = array_from_batch

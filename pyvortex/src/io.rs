@@ -5,7 +5,7 @@ use pyo3::pyfunction;
 use pyo3::types::PyString;
 use tokio::fs::File;
 use vortex::sampling_compressor::SamplingCompressor;
-use vortex::serde::layouts::LayoutWriter;
+use vortex::serde::file::VortexFileWriter;
 use vortex::Array;
 
 use crate::dataset::{ObjectStoreUrlDataset, TokioFileDataset};
@@ -225,7 +225,7 @@ pub fn write_path(
 ) -> PyResult<()> {
     async fn run(array: &Array, fname: &str) -> PyResult<()> {
         let file = File::create(Path::new(fname)).await?;
-        let mut writer = LayoutWriter::new(file);
+        let mut writer = VortexFileWriter::new(file);
 
         writer = writer.write_array_columns(array.clone()).await?;
         writer.finalize().await?;

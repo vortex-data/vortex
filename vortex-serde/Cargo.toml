@@ -38,7 +38,6 @@ vortex-scalar = { workspace = true, features = ["flatbuffers"] }
 vortex-schema = { workspace = true }
 
 [dev-dependencies]
-arrow = { workspace = true, features = ["ipc"] }
 arrow-array = { workspace = true }
 arrow-ipc = { workspace = true, features = ["lz4"] }
 arrow-schema = { workspace = true }

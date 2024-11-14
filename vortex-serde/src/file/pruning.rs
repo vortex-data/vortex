@@ -1,6 +1,9 @@
 // This code doesn't have usage outside of tests yet, remove once usage is added
 #![allow(dead_code)]
 
+use std::fmt::Display;
+
+use itertools::Itertools;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::stats::Stat;
@@ -13,6 +16,19 @@ use vortex_scalar::Scalar;
 pub struct PruningPredicate {
     expr: ExprRef,
     required_stats: HashMap<Field, HashSet<Stat>>,
+}
+
+impl Display for PruningPredicate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "PruningPredicate({}, {{{}}})",
+            self.expr,
+            self.required_stats.iter().format_with(",", |(k, v), fmt| {
+                fmt(&format_args!("{k}: {{{}}}", v.iter().format(",")))
+            })
+        )
+    }
 }
 
 impl PruningPredicate {
@@ -188,19 +204,22 @@ impl<'a> PruningPredicateRewriter<'a> {
                 let replaced_max = self.rewrite_other_exp(Stat::Max);
                 let replaced_min = self.rewrite_other_exp(Stat::Min);
 
-                // In case of other_exp is literal both sides of AND will be the same expression
+                let column_value_is_single_known_value =
+                    BinaryExpr::new_expr(min_col.clone(), Operator::Eq, max_col.clone());
+                let column_value = min_col;
+
+                let other_value_is_single_known_value =
+                    BinaryExpr::new_expr(replaced_min.clone(), Operator::Eq, replaced_max.clone());
+                let other_value = replaced_min;
+
                 Some(BinaryExpr::new_expr(
                     BinaryExpr::new_expr(
-                        BinaryExpr::new_expr(min_col.clone(), Operator::Eq, replaced_min.clone()),
+                        column_value_is_single_known_value,
                         Operator::And,
-                        BinaryExpr::new_expr(replaced_min, Operator::Eq, max_col.clone()),
+                        other_value_is_single_known_value,
                     ),
-                    Operator::Or,
-                    BinaryExpr::new_expr(
-                        BinaryExpr::new_expr(min_col, Operator::Eq, replaced_max.clone()),
-                        Operator::And,
-                        BinaryExpr::new_expr(replaced_max, Operator::Eq, max_col),
-                    ),
+                    Operator::And,
+                    BinaryExpr::new_expr(column_value, Operator::Eq, other_value),
                 ))
             }
             Operator::Gt | Operator::Gte => {
@@ -271,9 +290,7 @@ mod tests {
     use vortex_dtype::field::Field;
     use vortex_expr::{BinaryExpr, Column, Literal, Not, Operator};
 
-    use crate::layouts::pruning::{
-        convert_to_pruning_expression, stat_column_name, PruningPredicate,
-    };
+    use crate::file::pruning::{convert_to_pruning_expression, stat_column_name, PruningPredicate};
 
     #[test]
     pub fn pruning_equals() {
@@ -368,30 +385,23 @@ mod tests {
                 BinaryExpr::new_expr(
                     Column::new_expr(stat_column_name(&column, Stat::Min)),
                     Operator::Eq,
-                    Column::new_expr(stat_column_name(&other_col, Stat::Min)),
+                    Column::new_expr(stat_column_name(&column, Stat::Max)),
                 ),
                 Operator::And,
                 BinaryExpr::new_expr(
                     Column::new_expr(stat_column_name(&other_col, Stat::Min)),
                     Operator::Eq,
-                    Column::new_expr(stat_column_name(&column, Stat::Max)),
+                    Column::new_expr(stat_column_name(&other_col, Stat::Max)),
                 ),
             ),
-            Operator::Or,
+            Operator::And,
             BinaryExpr::new_expr(
-                BinaryExpr::new_expr(
-                    Column::new_expr(stat_column_name(&column, Stat::Min)),
-                    Operator::Eq,
-                    Column::new_expr(stat_column_name(&other_col, Stat::Max)),
-                ),
-                Operator::And,
-                BinaryExpr::new_expr(
-                    Column::new_expr(stat_column_name(&other_col, Stat::Max)),
-                    Operator::Eq,
-                    Column::new_expr(stat_column_name(&column, Stat::Max)),
-                ),
+                Column::new_expr(stat_column_name(&column, Stat::Min)),
+                Operator::Eq,
+                Column::new_expr(stat_column_name(&other_col, Stat::Min)),
             ),
         );
+
         assert_eq!(*converted, *expected_expr.as_any());
     }
 
@@ -503,5 +513,18 @@ mod tests {
             Column::new_expr(Field::from("b")),
         ));
         assert!(PruningPredicate::try_new(&or_expr).is_none());
+    }
+
+    #[test]
+    fn display_pruning_predicate() {
+        let column = Field::from("a");
+        let other_col = Literal::new_expr(42.into());
+        let not_eq_expr =
+            BinaryExpr::new_expr(Column::new_expr(column.clone()), Operator::Lt, other_col);
+
+        assert_eq!(
+            PruningPredicate::try_new(&not_eq_expr).unwrap().to_string(),
+            "PruningPredicate(($a_min >= 42_i32), {$a: {min}})"
+        );
     }
 }

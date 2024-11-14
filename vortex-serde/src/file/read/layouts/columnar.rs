@@ -9,24 +9,24 @@ use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexResult};
 use vortex_expr::{Column, Select};
 use vortex_flatbuffers::footer;
 
-use crate::layouts::read::batch::ColumnBatchReader;
-use crate::layouts::read::cache::{LazyDeserializedDType, RelativeLayoutCache};
-use crate::layouts::read::expr_project::expr_project;
-use crate::layouts::read::mask::RowMask;
-use crate::layouts::{
+use crate::file::read::cache::{LazilyDeserializedDType, RelativeLayoutCache};
+use crate::file::read::column_batch::ColumnBatchReader;
+use crate::file::read::expr_project::expr_project;
+use crate::file::read::mask::RowMask;
+use crate::file::{
     BatchRead, LayoutDeserializer, LayoutId, LayoutReader, LayoutSpec, RowFilter, Scan,
-    COLUMN_LAYOUT_ID,
+    COLUMNAR_LAYOUT_ID,
 };
 
 #[derive(Debug)]
-pub struct ColumnLayoutSpec;
+pub struct ColumnarLayoutSpec;
 
-impl LayoutSpec for ColumnLayoutSpec {
+impl LayoutSpec for ColumnarLayoutSpec {
     fn id(&self) -> LayoutId {
-        COLUMN_LAYOUT_ID
+        COLUMNAR_LAYOUT_ID
     }
 
-    fn layout(
+    fn layout_reader(
         &self,
         fb_bytes: Bytes,
         fb_loc: usize,
@@ -34,7 +34,7 @@ impl LayoutSpec for ColumnLayoutSpec {
         layout_serde: LayoutDeserializer,
         message_cache: RelativeLayoutCache,
     ) -> VortexResult<Box<dyn LayoutReader>> {
-        Ok(Box::new(ColumnLayout::new(
+        Ok(Box::new(ColumnarLayout::new(
             fb_bytes,
             fb_loc,
             scan,
@@ -48,7 +48,7 @@ impl LayoutSpec for ColumnLayoutSpec {
 ///
 /// Each child represents a column
 #[derive(Debug)]
-pub struct ColumnLayout {
+pub struct ColumnarLayout {
     fb_bytes: Bytes,
     fb_loc: usize,
     scan: Scan,
@@ -57,7 +57,7 @@ pub struct ColumnLayout {
     reader: Option<ColumnBatchReader>,
 }
 
-impl ColumnLayout {
+impl ColumnarLayout {
     pub fn new(
         fb_bytes: Bytes,
         fb_loc: usize,
@@ -137,7 +137,7 @@ impl ColumnLayout {
                 Scan::new(projected_expr),
                 self.message_cache.relative(
                     resolved_child as u16,
-                    Arc::new(LazyDeserializedDType::from_dtype(dtype)),
+                    Arc::new(LazilyDeserializedDType::from_dtype(dtype)),
                 ),
             )?;
 
@@ -205,7 +205,7 @@ impl ColumnLayout {
     }
 
     /// Get fields referenced by scan expression along with their dtype
-    fn fields_with_dtypes(&self) -> VortexResult<(Vec<Field>, Arc<LazyDeserializedDType>)> {
+    fn fields_with_dtypes(&self) -> VortexResult<(Vec<Field>, Arc<LazilyDeserializedDType>)> {
         let fb_children = self.flatbuffer().children().unwrap_or_default();
         let field_refs = self.scan_fields();
         let lazy_dtype = field_refs
@@ -234,7 +234,7 @@ impl ColumnLayout {
     }
 }
 
-impl LayoutReader for ColumnLayout {
+impl LayoutReader for ColumnarLayout {
     fn add_splits(&self, row_offset: usize, splits: &mut BTreeSet<usize>) -> VortexResult<()> {
         for child in self.children_for_splits()? {
             child.add_splits(row_offset, splits)?
@@ -265,13 +265,12 @@ mod tests {
     use vortex_dtype::field::Field;
     use vortex_dtype::{DType, Nullability};
     use vortex_expr::{BinaryExpr, Column, Literal, Operator};
-    use vortex_schema::projection::Projection;
 
-    use crate::layouts::read::cache::{LazyDeserializedDType, RelativeLayoutCache};
-    use crate::layouts::read::layouts::test_read::{filter_read_layout, read_layout};
-    use crate::layouts::{
-        LayoutDescriptorReader, LayoutDeserializer, LayoutMessageCache, LayoutReader, LayoutWriter,
-        RowFilter, Scan,
+    use crate::file::read::builder::initial_read::{read_initial_bytes, read_layout_from_initial};
+    use crate::file::read::cache::RelativeLayoutCache;
+    use crate::file::read::layouts::test_read::{filter_read_layout, read_layout};
+    use crate::file::{
+        LayoutDeserializer, LayoutMessageCache, LayoutReader, RowFilter, Scan, VortexFileWriter,
     };
 
     async fn layout_and_bytes(
@@ -298,26 +297,31 @@ mod tests {
         .unwrap()
         .into_array();
 
-        let mut writer = LayoutWriter::new(Vec::new());
+        let mut writer = VortexFileWriter::new(Vec::new());
         writer = writer.write_array_columns(struct_arr).await.unwrap();
         let written = writer.finalize().await.unwrap();
 
-        let footer = LayoutDescriptorReader::new(LayoutDeserializer::default())
-            .read_footer(&written, written.len() as u64)
+        let initial_read = read_initial_bytes(&written, written.len() as u64)
             .await
             .unwrap();
+        let layout_serde = LayoutDeserializer::default();
 
-        let dtype = Arc::new(LazyDeserializedDType::from_bytes(
-            footer.dtype_bytes().unwrap(),
-            Projection::All,
-        ));
+        let dtype = Arc::new(initial_read.lazy_dtype().unwrap());
         (
-            footer
-                .layout(scan, RelativeLayoutCache::new(cache.clone(), dtype.clone()))
-                .unwrap(),
-            footer
-                .layout(Scan::new(None), RelativeLayoutCache::new(cache, dtype))
-                .unwrap(),
+            read_layout_from_initial(
+                &initial_read,
+                &layout_serde,
+                scan,
+                RelativeLayoutCache::new(cache.clone(), dtype.clone()),
+            )
+            .unwrap(),
+            read_layout_from_initial(
+                &initial_read,
+                &layout_serde,
+                Scan::new(None),
+                RelativeLayoutCache::new(cache.clone(), dtype),
+            )
+            .unwrap(),
             Bytes::from(written),
             len,
         )

@@ -10,15 +10,16 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
 use vortex_flatbuffers::WriteFlatBuffer;
 
+use crate::file::write::layout::Layout;
+use crate::file::write::metadata_accumulators::{new_metadata_accumulator, MetadataAccumulator};
+use crate::file::write::postscript::Postscript;
+use crate::file::{EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
 use crate::io::VortexWrite;
-use crate::layouts::write::footer::{Footer, Postscript};
-use crate::layouts::write::layouts::Layout;
-use crate::layouts::write::metadata_accumulators::{new_metadata_accumulator, MetadataAccumulator};
-use crate::layouts::{EOF_SIZE, MAGIC_BYTES, VERSION};
+use crate::messages::IPCSchema;
 use crate::stream_writer::ByteRange;
 use crate::MessageWriter;
 
-pub struct LayoutWriter<W> {
+pub struct VortexFileWriter<W> {
     msgs: MessageWriter<W>,
 
     row_count: u64,
@@ -26,9 +27,9 @@ pub struct LayoutWriter<W> {
     column_writers: Vec<ColumnWriter>,
 }
 
-impl<W: VortexWrite> LayoutWriter<W> {
+impl<W: VortexWrite> VortexFileWriter<W> {
     pub fn new(write: W) -> Self {
-        LayoutWriter {
+        VortexFileWriter {
             msgs: MessageWriter::new(write),
             dtype: None,
             column_writers: Vec::new(),
@@ -119,48 +120,66 @@ impl<W: VortexWrite> LayoutWriter<W> {
         Ok(Layout::column(column_layouts, self.row_count))
     }
 
-    async fn write_footer(&mut self, footer: Footer) -> VortexResult<Postscript> {
-        let schema_offset = self.msgs.tell();
-        self.msgs
-            .write_dtype(
-                &self
-                    .dtype
-                    .take()
-                    .ok_or_else(|| vortex_err!("Schema should be written by now"))?,
-            )
-            .await?;
-        let footer_offset = self.msgs.tell();
-        self.msgs.write_message(footer).await?;
-        Ok(Postscript::new(schema_offset, footer_offset))
-    }
-
     pub async fn finalize(mut self) -> VortexResult<W> {
         let top_level_layout = self.write_metadata_arrays().await?;
-        let ps = self
-            .write_footer(Footer::new(top_level_layout, self.row_count))
-            .await?;
+        let schema_offset = self.msgs.tell();
 
-        let mut w = self.msgs.into_inner();
-        w = write_fb_raw(w, ps).await?;
+        // we want to write raw flatbuffers from here on out, not messages
+        let mut writer = self.msgs.into_inner();
+
+        // write the schema, and get the start offset of the next section (layout)
+        let layout_offset = {
+            let dtype = self
+                .dtype
+                .take()
+                .ok_or_else(|| vortex_err!("Schema should be written by now"))?;
+            // we write an IPCSchema instead of a DType, which allows us to evolve / add to the schema later
+            // these bytes get deserialized as message::Schema
+            // NB: we don't wrap the IPCSchema in an IPCMessage, because we record the lengths/offsets in the footer
+            let schema = IPCSchema(&dtype);
+            let schema_len = write_fb_raw(&mut writer, schema).await?;
+            schema_offset + schema_len
+        };
+
+        // write the layout
+        write_fb_raw(&mut writer, top_level_layout).await?;
+
+        let footer = Postscript::try_new(schema_offset, layout_offset)?;
+        let footer_len = write_fb_raw(&mut writer, footer).await?;
+        if footer_len > MAX_FOOTER_SIZE as u64 {
+            vortex_bail!(
+                "Footer is too large ({} bytes); max footer size is {}",
+                footer_len,
+                MAX_FOOTER_SIZE
+            );
+        }
+        let footer_len = footer_len as u16;
 
         let mut eof = [0u8; EOF_SIZE];
         eof[0..2].copy_from_slice(&VERSION.to_le_bytes());
+        eof[2..4].copy_from_slice(&footer_len.to_le_bytes());
         eof[4..8].copy_from_slice(&MAGIC_BYTES);
-        w.write_all(eof).await?;
-        Ok(w)
+
+        writer.write_all(eof).await?;
+        Ok(writer)
     }
 }
 
-async fn write_fb_raw<W: VortexWrite, F: WriteFlatBuffer>(mut writer: W, fb: F) -> io::Result<W> {
+/// Write a flatbuffer to a writer and return the number of bytes written.
+async fn write_fb_raw<W: VortexWrite, F: WriteFlatBuffer>(
+    writer: &mut W,
+    fb: F,
+) -> io::Result<u64> {
     let mut fbb = FlatBufferBuilder::new();
     let ps_fb = fb.write_flatbuffer(&mut fbb);
     fbb.finish_minimal(ps_fb);
+
     let (buffer, buffer_begin) = fbb.collapse();
     let buffer_end = buffer.len();
-    writer
-        .write_all(buffer.slice_owned(buffer_begin..buffer_end))
-        .await?;
-    Ok(writer)
+
+    let bytes = buffer.slice_owned(buffer_begin..buffer_end);
+    writer.write_all(bytes).await?;
+    Ok((buffer_end - buffer_begin) as u64)
 }
 
 struct ColumnWriter {
@@ -277,8 +296,8 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_flatbuffers::WriteFlatBuffer;
 
-    use crate::layouts::write::footer::Postscript;
-    use crate::layouts::{LayoutWriter, FOOTER_POSTSCRIPT_SIZE};
+    use crate::file::write::postscript::Postscript;
+    use crate::file::{VortexFileWriter, V1_FOOTER_FBS_SIZE};
 
     #[test]
     fn write_columns() {
@@ -292,25 +311,21 @@ mod tests {
         )
         .unwrap();
         let buf = Vec::new();
-        let mut writer = LayoutWriter::new(buf);
+        let mut writer = VortexFileWriter::new(buf);
         writer = block_on(async { writer.write_array_columns(st.into_array()).await }).unwrap();
         let written = block_on(async { writer.finalize().await }).unwrap();
         assert!(!written.is_empty());
     }
 
     #[test]
-    fn postscript_size() {
-        let ps = Postscript::new(1000000u64, 1100000u64);
+    fn footer_size() {
+        let footer = Postscript::try_new(1000000u64, 1100000u64).unwrap();
         let mut fbb = FlatBufferBuilder::new();
-        let ps_fb = ps.write_flatbuffer(&mut fbb);
-        fbb.finish_minimal(ps_fb);
+        let footer_fb = footer.write_flatbuffer(&mut fbb);
+        fbb.finish_minimal(footer_fb);
         let (buffer, buffer_begin) = fbb.collapse();
         let buffer_end = buffer.len();
 
-        assert_eq!(
-            buffer[buffer_begin..buffer_end].len(),
-            FOOTER_POSTSCRIPT_SIZE
-        );
-        assert_eq!(buffer[buffer_begin..buffer_end].len(), 32);
+        assert_eq!(buffer[buffer_begin..buffer_end].len(), V1_FOOTER_FBS_SIZE);
     }
 }

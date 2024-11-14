@@ -23,7 +23,7 @@ body = """
 """
 
 [[package]]
-name = "vortex-array"
+name = "vortex"
 git_tag_enable = true
 git_release_enable = true
 git_release_name = "{{ version }}"

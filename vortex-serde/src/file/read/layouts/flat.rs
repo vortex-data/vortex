@@ -6,9 +6,9 @@ use vortex_array::{Array, Context};
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_flatbuffers::footer;
 
-use crate::layouts::read::cache::RelativeLayoutCache;
-use crate::layouts::read::mask::RowMask;
-use crate::layouts::{
+use crate::file::read::cache::RelativeLayoutCache;
+use crate::file::read::mask::RowMask;
+use crate::file::{
     BatchRead, LayoutDeserializer, LayoutId, LayoutReader, LayoutSpec, Message, Scan,
     FLAT_LAYOUT_ID,
 };
@@ -23,7 +23,7 @@ impl LayoutSpec for FlatLayoutSpec {
         FLAT_LAYOUT_ID
     }
 
-    fn layout(
+    fn layout_reader(
         &self,
         fb_bytes: Bytes,
         fb_loc: usize,
@@ -128,16 +128,16 @@ mod tests {
     use vortex_dtype::PType;
     use vortex_expr::{BinaryExpr, Identity, Literal, Operator};
 
-    use crate::layouts::read::cache::{LazyDeserializedDType, RelativeLayoutCache};
-    use crate::layouts::read::layouts::flat::FlatLayout;
-    use crate::layouts::read::layouts::test_read::{filter_read_layout, read_layout};
-    use crate::layouts::{LayoutMessageCache, RowFilter, Scan};
+    use crate::file::read::cache::{LazilyDeserializedDType, RelativeLayoutCache};
+    use crate::file::read::layouts::flat::FlatLayout;
+    use crate::file::read::layouts::test_read::{filter_read_layout, read_layout};
+    use crate::file::{LayoutMessageCache, RowFilter, Scan};
     use crate::messages::writer::MessageWriter;
     use crate::stream_writer::ByteRange;
 
     async fn read_only_layout(
         cache: Arc<RwLock<LayoutMessageCache>>,
-    ) -> (FlatLayout, Bytes, usize, Arc<LazyDeserializedDType>) {
+    ) -> (FlatLayout, Bytes, usize, Arc<LazilyDeserializedDType>) {
         let mut writer = MessageWriter::new(Vec::new());
         let array = PrimitiveArray::from((0..100).collect::<Vec<_>>()).into_array();
         let len = array.len();
@@ -145,7 +145,7 @@ mod tests {
         let written = writer.into_inner();
 
         let projection_scan = Scan::new(None);
-        let dtype = Arc::new(LazyDeserializedDType::from_dtype(PType::I32.into()));
+        let dtype = Arc::new(LazilyDeserializedDType::from_dtype(PType::I32.into()));
 
         (
             FlatLayout::new(

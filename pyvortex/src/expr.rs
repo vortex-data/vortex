@@ -80,9 +80,27 @@ use crate::dtype::PyDType;
 ///     "Joseph"
 ///   ]
 ///
+/// Read all the rows whose name is _not_ `Joseph`
+///
+/// >>> name = vortex.expr.column("name")
+/// >>> e = vortex.io.read_path("a.vortex", row_filter = name != "Joseph")
+/// >>> e.to_arrow_array()
+/// <pyarrow.lib.StructArray object at ...>
+/// -- is_valid: all not null
+/// -- child 0 type: int64
+///   [
+///     null,
+///     57
+///   ]
+/// -- child 1 type: string_view
+///   [
+///     "Angela",
+///     "Mikhail"
+///   ]
+///
 /// Read rows whose name is `Angela` or whose age is between 20 and 30, inclusive. Notice that the
-/// Angela row is excluded because its age is null. The entire row filtering expression therefore
-/// evaluates to null which is interpreted as false:
+/// Angela row is included even though its age is null. Under SQL / Kleene semantics, `true or
+/// null` is `true`.
 ///
 /// >>> name = vortex.expr.column("name")
 /// >>> e = vortex.io.read_path("a.vortex", row_filter = (name == "Angela") | ((age >= 20) & (age <= 30)))
@@ -91,11 +109,13 @@ use crate::dtype::PyDType;
 /// -- is_valid: all not null
 /// -- child 0 type: int64
 ///   [
-///     25
+///     25,
+///     null
 ///   ]
 /// -- child 1 type: string_view
 ///   [
-///     "Joseph"
+///     "Joseph",
+///     "Angela"
 ///   ]
 #[pyclass(name = "Expr", module = "vortex")]
 pub struct PyExpr {
@@ -156,7 +176,7 @@ impl PyExpr {
         py_binary_opeartor(self_, Operator::Eq, coerce_expr(right)?)
     }
 
-    fn __neq__<'py>(
+    fn __ne__<'py>(
         self_: PyRef<'py, Self>,
         right: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyExpr>> {

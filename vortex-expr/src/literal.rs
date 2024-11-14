@@ -1,4 +1,5 @@
 use std::any::Any;
+use std::fmt::Display;
 use std::sync::Arc;
 
 use vortex_array::array::ConstantArray;
@@ -20,6 +21,12 @@ impl Literal {
 
     pub fn value(&self) -> &Scalar {
         &self.value
+    }
+}
+
+impl Display for Literal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.value)
     }
 }
 

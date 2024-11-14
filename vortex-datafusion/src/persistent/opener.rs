@@ -9,10 +9,10 @@ use futures::{FutureExt as _, StreamExt, TryStreamExt};
 use object_store::ObjectStore;
 use vortex_array::Context;
 use vortex_expr::datafusion::convert_expr_to_vortex;
-use vortex_serde::io::ObjectStoreReadAt;
-use vortex_serde::layouts::{
-    LayoutBatchStreamBuilder, LayoutContext, LayoutDeserializer, Projection, RowFilter,
+use vortex_serde::file::{
+    LayoutContext, LayoutDeserializer, Projection, RowFilter, VortexReadBuilder,
 };
+use vortex_serde::io::ObjectStoreReadAt;
 
 pub struct VortexFileOpener {
     pub ctx: Arc<Context>,
@@ -27,7 +27,7 @@ impl FileOpener for VortexFileOpener {
         let read_at =
             ObjectStoreReadAt::new(self.object_store.clone(), file_meta.location().clone());
 
-        let mut builder = LayoutBatchStreamBuilder::new(
+        let mut builder = VortexReadBuilder::new(
             read_at,
             LayoutDeserializer::new(self.ctx.clone(), Arc::new(LayoutContext::default())),
         );

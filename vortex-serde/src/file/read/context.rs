@@ -7,11 +7,11 @@ use vortex_array::Context;
 use vortex_error::{vortex_err, VortexResult};
 use vortex_flatbuffers::footer as fb;
 
-use crate::layouts::read::cache::RelativeLayoutCache;
-use crate::layouts::read::layouts::{
-    ChunkedLayoutSpec, ColumnLayoutSpec, FlatLayoutSpec, InlineDTypeLayoutSpec,
+use crate::file::read::cache::RelativeLayoutCache;
+use crate::file::read::layouts::{
+    ChunkedLayoutSpec, ColumnarLayoutSpec, FlatLayoutSpec, InlineDTypeLayoutSpec,
 };
-use crate::layouts::read::{LayoutReader, Scan};
+use crate::file::read::{LayoutReader, Scan};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub struct LayoutId(pub u16);
@@ -25,12 +25,12 @@ impl Display for LayoutId {
 pub trait LayoutSpec: Debug + Send + Sync {
     fn id(&self) -> LayoutId;
 
-    fn layout(
+    fn layout_reader(
         &self,
         fb_bytes: Bytes,
         fb_loc: usize,
         scan: Scan,
-        layout_reader: LayoutDeserializer,
+        layout_serde: LayoutDeserializer,
         message_cache: RelativeLayoutCache,
     ) -> VortexResult<Box<dyn LayoutReader>>;
 }
@@ -56,7 +56,7 @@ impl Default for LayoutContext {
     fn default() -> Self {
         Self::new(
             [
-                &ColumnLayoutSpec as LayoutSpecRef,
+                &ColumnarLayoutSpec as LayoutSpecRef,
                 &ChunkedLayoutSpec,
                 &InlineDTypeLayoutSpec,
                 &FlatLayoutSpec,
@@ -94,7 +94,7 @@ impl LayoutDeserializer {
         self.layout_ctx
             .lookup_layout(&layout_id)
             .ok_or_else(|| vortex_err!("Unknown layout definition {layout_id}"))?
-            .layout(fb_bytes, fb_loc, scan, self.clone(), message_cache)
+            .layout_reader(fb_bytes, fb_loc, scan, self.clone(), message_cache)
     }
 
     pub(crate) fn ctx(&self) -> Arc<Context> {

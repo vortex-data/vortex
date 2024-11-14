@@ -60,7 +60,7 @@ jobs:
   macos:
     needs: release-plz-release
     if: ${{ needs.release-plz-release.outputs.releases_created == 'true' }}
-    runs-on: macos-latest
+    runs-on: macos-13
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/cleanup

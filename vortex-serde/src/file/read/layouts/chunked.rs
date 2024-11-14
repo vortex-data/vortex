@@ -5,10 +5,10 @@ use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_flatbuffers::footer;
 
-use crate::layouts::read::buffered::{BufferedLayoutReader, RangedLayoutReader};
-use crate::layouts::read::cache::RelativeLayoutCache;
-use crate::layouts::read::mask::RowMask;
-use crate::layouts::{
+use crate::file::read::buffered::{BufferedLayoutReader, RangedLayoutReader};
+use crate::file::read::cache::RelativeLayoutCache;
+use crate::file::read::mask::RowMask;
+use crate::file::{
     BatchRead, LayoutDeserializer, LayoutId, LayoutPartId, LayoutReader, LayoutSpec, Scan,
     CHUNKED_LAYOUT_ID,
 };
@@ -20,7 +20,7 @@ impl LayoutSpec for ChunkedLayoutSpec {
         CHUNKED_LAYOUT_ID
     }
 
-    fn layout(
+    fn layout_reader(
         &self,
         fb_bytes: Bytes,
         fb_loc: usize,
@@ -95,10 +95,10 @@ impl ChunkedLayout {
 
     fn child_ranges(&self) -> Vec<(usize, usize)> {
         self.children()
-            .map(|(_, c)| c.length())
-            .scan(0u64, |acc, length| {
+            .map(|(_, c)| c.row_count())
+            .scan(0u64, |acc, row_count| {
                 let current = *acc;
-                *acc += length;
+                *acc += row_count;
                 Some((current as usize, *acc as usize))
             })
             .collect::<Vec<_>>()
@@ -160,13 +160,13 @@ mod tests {
     use vortex_expr::{BinaryExpr, Identity, Literal, Operator};
     use vortex_flatbuffers::{footer, WriteFlatBuffer};
 
-    use crate::layouts::read::cache::{LazyDeserializedDType, RelativeLayoutCache};
-    use crate::layouts::read::layouts::chunked::ChunkedLayout;
-    use crate::layouts::read::layouts::test_read::{
+    use crate::file::read::cache::{LazilyDeserializedDType, RelativeLayoutCache};
+    use crate::file::read::layouts::chunked::ChunkedLayout;
+    use crate::file::read::layouts::test_read::{
         filter_read_layout, read_layout, read_layout_data,
     };
-    use crate::layouts::read::mask::RowMask;
-    use crate::layouts::{write, LayoutDeserializer, LayoutMessageCache, RowFilter, Scan};
+    use crate::file::read::mask::RowMask;
+    use crate::file::{write, LayoutDeserializer, LayoutMessageCache, RowFilter, Scan};
     use crate::messages::writer::MessageWriter;
     use crate::stream_writer::ByteRange;
 
@@ -217,7 +217,7 @@ mod tests {
             ._tab
             .loc();
 
-        let dtype = Arc::new(LazyDeserializedDType::from_dtype(PType::I32.into()));
+        let dtype = Arc::new(LazilyDeserializedDType::from_dtype(PType::I32.into()));
         (
             ChunkedLayout::new(
                 fb_bytes.clone(),

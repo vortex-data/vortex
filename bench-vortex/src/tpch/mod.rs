@@ -16,7 +16,7 @@ use vortex::array::{ChunkedArray, StructArray};
 use vortex::arrow::FromArrowArray;
 use vortex::dtype::DType;
 use vortex::sampling_compressor::SamplingCompressor;
-use vortex::serde::layouts::LayoutWriter;
+use vortex::serde::file::{VortexFileWriter, VORTEX_FILE_EXTENSION};
 use vortex::variants::StructArrayTrait;
 use vortex::{Array, ArrayDType, IntoArray, IntoArrayVariant};
 use vortex_datafusion::memory::VortexMemTableOptions;
@@ -231,7 +231,7 @@ async fn register_vortex_file(
     create_dir_all(&vortex_dir)?;
     let output_file = &vortex_dir
         .join(file.file_name().unwrap())
-        .with_extension("vxf");
+        .with_extension(VORTEX_FILE_EXTENSION);
     let vtx_file = idempotent_async(output_file, |vtx_file| async move {
         let record_batches = session
             .read_csv(
@@ -303,7 +303,7 @@ async fn register_vortex_file(
             .open(&vtx_file)
             .await?;
 
-        let mut writer = LayoutWriter::new(f);
+        let mut writer = VortexFileWriter::new(f);
         writer = writer.write_array_columns(data).await?;
         writer.finalize().await?;
 

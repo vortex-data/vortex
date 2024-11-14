@@ -1,5 +1,7 @@
 use std::any::Any;
+use std::fmt::Display;
 
+use itertools::Itertools;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::Array;
 use vortex_dtype::field::Field;
@@ -20,6 +22,15 @@ impl Select {
 
     pub fn exclude(columns: Vec<Field>) -> Self {
         Self::Exclude(columns)
+    }
+}
+
+impl Display for Select {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Select::Include(fields) => write!(f, "Include({})", fields.iter().format(",")),
+            Select::Exclude(fields) => write!(f, "Exclude({})", fields.iter().format(",")),
+        }
     }
 }
 

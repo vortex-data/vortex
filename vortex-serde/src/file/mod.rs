@@ -6,7 +6,7 @@
 //! 1. The [flat layout][layouts::FlatLayoutSpec]. A contiguously serialized array using the [Vortex
 //!    flatbuffer Batch message][vortex_flatbuffers::message].
 //!
-//! 2. The [column layout][layouts::ColumnLayoutSpec]. Each column of a
+//! 2. The [columnar layout][layouts::ColumnarLayoutSpec]. Each column of a
 //!    [StructArray][vortex_array::array::StructArray] is sequentially laid out at known
 //!    offsets. This permits reading a subset of columns in time linear in the number of kept
 //!    columns.
@@ -115,23 +115,23 @@
 //!
 //! # Reading
 //!
-//! Layout reading is implemented by [LayoutBatchStream]. The LayoutBatchStream uses a
-//! [LayoutDescriptorReader] to read the schema, footer, postscript, version, and magic bytes into a
-//! [LayoutDescriptor]. In most cases, these five sections can be read by a single read of the
-//! suffix of the file.
+//! Layout reading is implemented by [VortexFileArrayStream]. The VortexFileArrayStream should be
+//! constructed by a [VortexReadBuilder], which first uses an [InitialRead] to read the footer (schema,
+//! layout, postscript, version, and magic bytes). In most cases, these entire footer can be read by
+//! a single read of the suffix of the file.
 //!
-//! A LayoutBatchStream internally contains a [LayoutMessageCache] which is shared by its layout
+//! A VortexFileArrayStream internally contains a [LayoutMessageCache] which is shared by its layout
 //! reader and the layout reader's descendents. The cache permits the reading system to "read" the
 //! bytes of a layout multiple times without triggering reads to the underlying storage. For
-//! example, the LayoutBatchStream reads an array, evaluates the row filter, and then reads the
+//! example, the VortexFileArrayStream reads an array, evaluates the row filter, and then reads the
 //! array again with the filter mask.
 //!
-//! [`LayoutDescriptor::layout`] produces a [LayoutReader] which assembles one or more Vortex arrays
+//! [`read_layout_from_initial`] produces a [LayoutReader] which assembles one or more Vortex arrays
 //! by reading the serialized data and metadata.
 //!
 //! # Apache Arrow
 //!
-//! If you ultimately seek Arrow arrays, [VortexRecordBatchReader] converts a [LayoutBatchStream]
+//! If you ultimately seek Arrow arrays, [VortexRecordBatchReader] converts a [VortexFileArrayStream]
 //! into a RecordBatchReader.
 
 mod read;
@@ -141,15 +141,52 @@ mod pruning;
 #[cfg(test)]
 mod tests;
 
+/// The current version of the Vortex file format
 pub const VERSION: u16 = 1;
-pub const MAGIC_BYTES: [u8; 4] = *b"VRTX";
-// Size of serialized Postscript Flatbuffer
-pub const FOOTER_POSTSCRIPT_SIZE: usize = 32;
-pub const EOF_SIZE: usize = 8;
-pub const FLAT_LAYOUT_ID: LayoutId = LayoutId(1);
-pub const CHUNKED_LAYOUT_ID: LayoutId = LayoutId(2);
-pub const COLUMN_LAYOUT_ID: LayoutId = LayoutId(3);
-pub const INLINE_SCHEMA_LAYOUT_ID: LayoutId = LayoutId(4);
+/// The size of the footer in bytes in Vortex version 1
+pub const V1_FOOTER_FBS_SIZE: usize = 32;
 
+/// Constants that will never change (i.e., doing so would break backwards compatibility)
+mod forever_constant {
+    use super::*;
+
+    /// The extension for Vortex files
+    pub const VORTEX_FILE_EXTENSION: &str = "vortex";
+
+    /// The maximum length of a Vortex footer in bytes
+    pub const MAX_FOOTER_SIZE: u16 = u16::MAX - 8;
+    /// The magic bytes for a Vortex file
+    pub const MAGIC_BYTES: [u8; 4] = *b"VTXF";
+    /// The size of the EOF marker in bytes
+    pub const EOF_SIZE: usize = 8;
+
+    /// The layout ID for a flat layout
+    pub const FLAT_LAYOUT_ID: LayoutId = LayoutId(1);
+    /// The layout ID for a chunked layout
+    pub const CHUNKED_LAYOUT_ID: LayoutId = LayoutId(2);
+    /// The layout ID for a column layout
+    pub const COLUMNAR_LAYOUT_ID: LayoutId = LayoutId(3);
+    /// The layout ID for an inline schema layout
+    pub const INLINE_SCHEMA_LAYOUT_ID: LayoutId = LayoutId(4);
+
+    #[cfg(test)]
+    mod test {
+        use super::*;
+
+        #[test]
+        fn never_change_these_constants() {
+            assert_eq!(V1_FOOTER_FBS_SIZE, 32);
+            assert_eq!(MAX_FOOTER_SIZE, 65527);
+            assert_eq!(MAGIC_BYTES, *b"VTXF");
+            assert_eq!(EOF_SIZE, 8);
+            assert_eq!(FLAT_LAYOUT_ID, LayoutId(1));
+            assert_eq!(CHUNKED_LAYOUT_ID, LayoutId(2));
+            assert_eq!(COLUMNAR_LAYOUT_ID, LayoutId(3));
+            assert_eq!(INLINE_SCHEMA_LAYOUT_ID, LayoutId(4));
+        }
+    }
+}
+
+pub use forever_constant::*;
 pub use read::*;
 pub use write::*;

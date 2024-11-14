@@ -1,11 +1,12 @@
 use std::any::Any;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use std::sync::Arc;
 
 use arrow_buffer::BooleanBuffer;
+use itertools::Itertools;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{BoolArray, ConstantArray};
-use vortex_array::compute::and;
+use vortex_array::compute::and_kleene;
 use vortex_array::stats::ArrayStatistics;
 use vortex_array::validity::Validity;
 use vortex_array::{Array, IntoArray, IntoArrayVariant};
@@ -13,7 +14,7 @@ use vortex_dtype::field::Field;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::{split_conjunction, unbox_any, ExprRef, VortexExpr};
 
-use crate::layouts::read::expr_project::expr_project;
+use crate::file::read::expr_project::expr_project;
 
 #[derive(Debug, Clone)]
 pub struct RowFilter {
@@ -49,6 +50,12 @@ impl RowFilter {
     }
 }
 
+impl Display for RowFilter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "RowFilter({})", self.conjunction.iter().format(","))
+    }
+}
+
 impl VortexExpr for RowFilter {
     fn as_any(&self) -> &dyn Any {
         self
@@ -66,7 +73,9 @@ impl VortexExpr for RowFilter {
             }
 
             let new_mask = expr.evaluate(batch)?;
-            mask = and(new_mask, mask)?;
+            // Either `and` or `and_kleene` is fine. They only differ on `false AND null`, but
+            // null_as_false only cares which values are true.
+            mask = and_kleene(new_mask, mask)?;
         }
 
         null_as_false(mask.into_bool()?)

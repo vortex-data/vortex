@@ -7,13 +7,13 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 use vortex_flatbuffers::{footer, message};
 
-use crate::layouts::read::cache::{LazyDeserializedDType, RelativeLayoutCache};
-use crate::layouts::read::mask::RowMask;
-use crate::layouts::{
+use crate::file::read::cache::{LazilyDeserializedDType, RelativeLayoutCache};
+use crate::file::read::mask::RowMask;
+use crate::file::{
     BatchRead, LayoutDeserializer, LayoutId, LayoutPartId, LayoutReader, LayoutSpec, Message, Scan,
     INLINE_SCHEMA_LAYOUT_ID,
 };
-use crate::messages::reader::FLATBUFFER_SIZE_LENGTH;
+use crate::messages::reader::MESSAGE_PREFIX_LENGTH;
 use crate::stream_writer::ByteRange;
 
 #[derive(Debug)]
@@ -24,7 +24,7 @@ impl LayoutSpec for InlineDTypeLayoutSpec {
         INLINE_SCHEMA_LAYOUT_ID
     }
 
-    fn layout(
+    fn layout_reader(
         &self,
         fb_bytes: Bytes,
         fb_loc: usize,
@@ -92,7 +92,7 @@ impl InlineDTypeLayout {
 
     fn dtype(&self) -> VortexResult<DTypeReadResult> {
         if let Some(dt_bytes) = self.message_cache.get(&[INLINE_DTYPE_BUFFER_IDX]) {
-            let msg = root::<message::Message>(&dt_bytes[FLATBUFFER_SIZE_LENGTH..])?
+            let msg = root::<message::Message>(&dt_bytes[MESSAGE_PREFIX_LENGTH..])?
                 .header_as_schema()
                 .ok_or_else(|| vortex_err!("Expected schema message"))?;
 
@@ -123,7 +123,7 @@ impl InlineDTypeLayout {
                     self.scan.clone(),
                     self.message_cache.relative(
                         INLINE_DTYPE_CHILD_IDX,
-                        Arc::new(LazyDeserializedDType::from_dtype(d)),
+                        Arc::new(LazilyDeserializedDType::from_dtype(d)),
                     ),
                 )?;
                 Ok(ChildReaderResult::Reader(child_layout))

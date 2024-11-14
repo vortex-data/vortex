@@ -79,7 +79,7 @@ pub enum VortexError {
     AssertionFailed(ErrString, Backtrace),
     /// A wrapper for other errors, carrying additional context.
     #[error("{0}: {1}")]
-    Context(ErrString, Box<VortexError>),
+    Context(ErrString, #[source] Box<VortexError>),
     /// A wrapper for errors from the Arrow library.
     #[error(transparent)]
     ArrowError(
