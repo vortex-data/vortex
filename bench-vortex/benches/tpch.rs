@@ -13,14 +13,6 @@ fn benchmark(c: &mut Criterion) {
     // Run TPC-H data gen.
     let data_dir = DBGen::new(DBGenOptions::default()).generate().unwrap();
 
-    let vortex_no_pushdown_ctx = runtime
-        .block_on(load_datasets(
-            &data_dir,
-            Format::InMemoryVortex {
-                enable_pushdown: false,
-            },
-        ))
-        .unwrap();
     let vortex_ctx = runtime
         .block_on(load_datasets(
             &data_dir,
@@ -43,32 +35,10 @@ fn benchmark(c: &mut Criterion) {
             },
         ))
         .unwrap();
-    let vortex_uncompressed_ctx = runtime
-        .block_on(load_datasets(
-            &data_dir,
-            Format::OnDiskVortex {
-                enable_compression: false,
-            },
-        ))
-        .unwrap();
 
     for (q, sql_queries) in tpch_queries() {
         let mut group = c.benchmark_group(format!("tpch_q{q}"));
         group.sample_size(10);
-
-        group.bench_function("vortex-in-memory-no-pushdown", |b| {
-            b.to_async(&runtime).iter(|| async {
-                run_tpch_query(
-                    &vortex_no_pushdown_ctx,
-                    &sql_queries,
-                    q,
-                    Format::InMemoryVortex {
-                        enable_pushdown: false,
-                    },
-                )
-                .await;
-            })
-        });
 
         group.bench_function("vortex-in-memory-pushdown", |b| {
             b.to_async(&runtime).iter(|| async {
@@ -104,20 +74,6 @@ fn benchmark(c: &mut Criterion) {
                     q,
                     Format::OnDiskVortex {
                         enable_compression: true,
-                    },
-                )
-                .await;
-            })
-        });
-
-        group.bench_function("vortex-file-uncompressed", |b| {
-            b.to_async(&runtime).iter(|| async {
-                run_tpch_query(
-                    &vortex_uncompressed_ctx,
-                    &sql_queries,
-                    q,
-                    Format::OnDiskVortex {
-                        enable_compression: false,
                     },
                 )
                 .await;
