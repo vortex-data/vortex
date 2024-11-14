@@ -1,7 +1,7 @@
 use std::fmt::{Debug, Display};
 
 use ::serde::{Deserialize, Serialize};
-use vortex_dtype::{match_each_integer_ptype, DType, PType};
+use vortex_dtype::{match_each_integer_ptype, DType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
