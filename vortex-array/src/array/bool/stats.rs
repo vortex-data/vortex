@@ -91,8 +91,8 @@ impl ArrayStatisticsCompute for BooleanBuffer {
 fn true_count_stats(true_count: usize, len: usize) -> StatsSet {
     StatsSet::from(HashMap::<Stat, Scalar>::from([
         (Stat::TrueCount, true_count.into()),
-        (Stat::Min, (true_count > 0).into()),
-        (Stat::Max, (true_count < len).into()),
+        (Stat::Min, (true_count == len).into()),
+        (Stat::Max, (true_count > 0).into()),
         (
             Stat::IsConstant,
             (true_count == 0 || true_count == len).into(),
