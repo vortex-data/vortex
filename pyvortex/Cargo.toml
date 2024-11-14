@@ -24,7 +24,6 @@ doctest = false
 
 [dependencies]
 arrow = { workspace = true, features = ["pyarrow"] }
-flexbuffers = { workspace = true }
 flume = { workspace = true }
 futures = { workspace = true }
 itertools = { workspace = true }

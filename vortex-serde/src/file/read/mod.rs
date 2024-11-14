@@ -50,12 +50,14 @@ impl Scan {
 pub type LayoutPartId = u16;
 /// Path through layout tree to given message
 pub type MessageId = Vec<LayoutPartId>;
-/// ID and Range of atomic element of the file
-pub type Message = (MessageId, ByteRange);
+/// A unique locator for a message, including its ID and byte range containing
+/// the message contents.
+#[derive(Debug, Clone)]
+pub struct MessageLocator(pub MessageId, pub ByteRange);
 
 #[derive(Debug)]
 pub enum BatchRead {
-    ReadMore(Vec<Message>),
+    ReadMore(Vec<MessageLocator>),
     Batch(Array),
 }
 

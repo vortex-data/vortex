@@ -6,8 +6,7 @@ use vortex_array::{Array, ArrayDType, IntoArray};
 use vortex_error::VortexResult;
 
 use crate::file::read::mask::RowMask;
-use crate::file::read::{BatchRead, LayoutReader};
-use crate::file::Message;
+use crate::file::read::{BatchRead, LayoutReader, MessageLocator};
 
 pub type RangedLayoutReader = ((usize, usize), Box<dyn LayoutReader>);
 
@@ -27,7 +26,7 @@ impl BufferedLayoutReader {
     }
 
     // TODO(robert): Support out of order reads
-    fn buffer_read(&mut self, mask: &RowMask) -> VortexResult<Option<Vec<Message>>> {
+    fn buffer_read(&mut self, mask: &RowMask) -> VortexResult<Option<Vec<MessageLocator>>> {
         while let Some(((begin, end), layout)) = self.layouts.pop_front() {
             if mask.begin() <= begin && begin < mask.end()
                 || mask.begin() < end && end <= mask.end()

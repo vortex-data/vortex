@@ -19,9 +19,8 @@ use vortex_schema::Schema;
 
 use crate::file::read::cache::LayoutMessageCache;
 use crate::file::read::mask::RowMask;
-use crate::file::read::{BatchRead, LayoutReader, MessageId};
+use crate::file::read::{BatchRead, LayoutReader, MessageId, MessageLocator};
 use crate::io::{Dispatch, IoDispatcher, VortexReadAt};
-use crate::stream_writer::ByteRange;
 
 /// An asynchronous Vortex file reader from some memory, on-disk or elsewhere, returning
 /// a [`Stream`] of [`Array`]s.
@@ -74,19 +73,23 @@ impl<R: VortexReadAt> VortexFileArrayStream<R> {
         Schema::new(self.dtype.clone())
     }
 
-    fn store_messages(&self, messages: Vec<(MessageId, Bytes)>) {
+    fn store_messages(&self, messages: Vec<Message>) {
         let mut write_cache_guard = self
             .messages_cache
             .write()
             .unwrap_or_else(|poison| vortex_panic!("Failed to write to message cache: {poison}"));
-        for (message_id, buf) in messages {
+        for Message(message_id, buf) in messages {
             write_cache_guard.set(message_id, buf);
         }
     }
 }
 
-type StreamMessages = Vec<(MessageId, Bytes)>;
-type StreamStateFuture = BoxFuture<'static, VortexResult<Vec<(MessageId, Bytes)>>>;
+/// A message that has had its bytes materialized onto the heap.
+#[derive(Debug, Clone)]
+struct Message(pub MessageId, pub Bytes);
+
+type StreamMessages = Vec<Message>;
+type StreamStateFuture = BoxFuture<'static, VortexResult<StreamMessages>>;
 
 enum ReadingFor {
     Read(StreamStateFuture, RowMask, Option<LayoutReaderRef>),
@@ -247,8 +250,8 @@ impl<R: VortexReadAt + Unpin> VortexFileArrayStream<R> {
             }
             StreamingState::Read(selector, filter_reader) => {
                 match self.layout_reader.read_selection(&selector)? {
-                    Some(BatchRead::ReadMore(messages)) => {
-                        let read_future = self.read_ranges(messages);
+                    Some(BatchRead::ReadMore(message_ranges)) => {
+                        let read_future = self.read_ranges(message_ranges);
                         goto(StreamingState::Reading(ReadingFor::Read(
                             read_future,
                             selector,
@@ -280,8 +283,8 @@ impl<R: VortexReadAt + Unpin> VortexFileArrayStream<R> {
     /// IO is scheduled on the provided IO dispatcher.
     fn read_ranges(
         &self,
-        ranges: Vec<(MessageId, ByteRange)>,
-    ) -> BoxFuture<'static, VortexResult<Vec<(MessageId, Bytes)>>> {
+        ranges: Vec<MessageLocator>,
+    ) -> BoxFuture<'static, VortexResult<StreamMessages>> {
         let reader = self.input.clone();
 
         let result_rx = self
@@ -348,10 +351,10 @@ impl<R: VortexReadAt + Unpin> VortexFileArrayStream<R> {
 
 async fn read_ranges<R: VortexReadAt>(
     reader: R,
-    ranges: Vec<(MessageId, ByteRange)>,
-) -> VortexResult<Vec<(MessageId, Bytes)>> {
+    ranges: Vec<MessageLocator>,
+) -> VortexResult<Vec<Message>> {
     stream::iter(ranges.into_iter())
-        .map(|(id, range)| {
+        .map(|MessageLocator(id, range)| {
             let mut buf = BytesMut::with_capacity(range.len());
             unsafe { buf.set_len(range.len()) }
 
@@ -359,7 +362,7 @@ async fn read_ranges<R: VortexReadAt>(
 
             read_ft.map(|result| {
                 result
-                    .map(|res| (id, res.freeze()))
+                    .map(|res| Message(id, res.freeze()))
                     .map_err(VortexError::from)
             })
         })

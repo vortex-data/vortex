@@ -10,8 +10,8 @@ use vortex_flatbuffers::{footer, message};
 use crate::file::read::cache::{LazilyDeserializedDType, RelativeLayoutCache};
 use crate::file::read::mask::RowMask;
 use crate::file::{
-    BatchRead, LayoutDeserializer, LayoutId, LayoutPartId, LayoutReader, LayoutSpec, Message, Scan,
-    INLINE_SCHEMA_LAYOUT_ID,
+    BatchRead, LayoutDeserializer, LayoutId, LayoutPartId, LayoutReader, LayoutSpec,
+    MessageLocator, Scan, INLINE_SCHEMA_LAYOUT_ID,
 };
 use crate::messages::reader::MESSAGE_PREFIX_LENGTH;
 use crate::stream_writer::ByteRange;
@@ -53,12 +53,12 @@ pub struct InlineDTypeLayout {
 }
 
 enum DTypeReadResult {
-    ReadMore(Vec<Message>),
+    ReadMore(Vec<MessageLocator>),
     DType(DType),
 }
 
 enum ChildReaderResult {
-    ReadMore(Vec<Message>),
+    ReadMore(Vec<MessageLocator>),
     Reader(Box<dyn LayoutReader>),
 }
 
@@ -106,7 +106,7 @@ impl InlineDTypeLayout {
                 vortex_bail!("Missing buffers for inline dtype layout")
             }
             let dtype_buf = buffers.get(0);
-            Ok(DTypeReadResult::ReadMore(vec![(
+            Ok(DTypeReadResult::ReadMore(vec![MessageLocator(
                 self.message_cache.absolute_id(&[INLINE_DTYPE_BUFFER_IDX]),
                 ByteRange::new(dtype_buf.begin(), dtype_buf.end()),
             )]))

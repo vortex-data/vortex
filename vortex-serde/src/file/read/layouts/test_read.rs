@@ -8,7 +8,7 @@ use vortex_array::Array;
 use vortex_error::VortexUnwrap;
 
 use crate::file::read::mask::RowMask;
-use crate::file::{BatchRead, LayoutMessageCache, LayoutReader};
+use crate::file::{BatchRead, LayoutMessageCache, LayoutReader, MessageLocator};
 
 pub fn layout_splits(layout: &mut dyn LayoutReader, length: usize) -> Vec<RowMask> {
     let mut splits = BTreeSet::new();
@@ -33,7 +33,7 @@ pub fn read_layout_data(
         match rr {
             BatchRead::ReadMore(m) => {
                 let mut write_cache_guard = cache.write().unwrap();
-                for (id, range) in m {
+                for MessageLocator(id, range) in m {
                     write_cache_guard.set(id, buf.slice(range.to_range()));
                 }
             }
@@ -53,7 +53,7 @@ pub fn read_filters(
         match rr {
             BatchRead::ReadMore(m) => {
                 let mut write_cache_guard = cache.write().unwrap();
-                for (id, range) in m {
+                for MessageLocator(id, range) in m {
                     write_cache_guard.set(id, buf.slice(range.to_range()));
                 }
             }
