@@ -4769,12 +4769,10 @@ version = "0.16.0"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
- "arrow-ipc",
  "arrow-schema",
  "arrow-select",
  "bytes",
  "compio",
- "criterion",
  "croaring",
  "flatbuffers",
  "flume",
@@ -4855,7 +4853,11 @@ name = "vortex-ipc"
 version = "0.16.0"
 dependencies = [
  "arrow-array",
+ "arrow-ipc",
+ "arrow-schema",
+ "arrow-select",
  "bytes",
+ "criterion",
  "flatbuffers",
  "futures-executor",
  "futures-util",
@@ -4867,6 +4869,7 @@ dependencies = [
  "vortex-error",
  "vortex-flatbuffers",
  "vortex-io",
+ "vortex-sampling-compressor",
 ]
 
 [[package]]

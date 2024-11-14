@@ -46,11 +46,8 @@ vortex-scalar = { workspace = true, features = ["flatbuffers"] }
 vortex-schema = { workspace = true }
 
 [dev-dependencies]
-arrow-array = { workspace = true }
-arrow-ipc = { workspace = true, features = ["lz4"] }
 arrow-schema = { workspace = true }
 arrow-select = { workspace = true }
-criterion = { workspace = true, features = ["async_futures"] }
 rstest = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
@@ -69,11 +66,3 @@ object_store = [
     "vortex-error/object_store",
     "vortex-io/object_store",
 ]
-
-[[bench]]
-name = "ipc_take"
-harness = false
-
-[[bench]]
-name = "ipc_array_reader_take"
-harness = false

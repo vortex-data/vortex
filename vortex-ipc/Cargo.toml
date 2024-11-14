@@ -27,8 +27,21 @@ vortex-io = { workspace = true }
 
 [dev-dependencies]
 arrow-array = { workspace = true }
+arrow-ipc = { workspace = true }
+arrow-schema = { workspace = true }
+arrow-select = { workspace = true }
+criterion = { workspace = true, features = ["async_futures"] }
 futures-executor = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
+vortex-sampling-compressor = { workspace = true }
 
 [lints]
 workspace = true
+
+[[bench]]
+name = "ipc_take"
+harness = false
+
+[[bench]]
+name = "ipc_array_reader_take"
+harness = false
