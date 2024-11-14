@@ -140,8 +140,8 @@ type MaskIteratorRef = Box<dyn MaskIterator>;
 /// State of vortex file stream
 ///
 /// The flow starts with `AddSplits` which produces all horizontal row splits in the file
-/// Main read loop goes from `NextSplit` -> `Filter` (if there's filter) -> `Read`
-/// `Filter` and `Read` states transition to `Reading` when they're blocked on an io operation which resumes back to
+/// Main read loop goes from `NextSplit` -> `Read`
+/// `NextSplit` and `Read` states transition to `Reading` when they're blocked on an io operation which resumes back to
 /// the previous state.
 enum StreamingState {
     AddSplits(MaskIteratorRef),

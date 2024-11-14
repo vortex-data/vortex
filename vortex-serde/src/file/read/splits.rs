@@ -18,10 +18,15 @@ enum SplitState {
     Splits(BTreeSet<usize>),
 }
 
+/// Iterator over row ranges of a vortex file with bitmaps of valid values in those ranges
 pub trait MaskIterator: Iterator<Item = VortexResult<SplitMask>> + Send {
+    /// Register additional horizontal row boundaries to split the generated layout on
     fn additional_splits(&mut self, splits: &mut BTreeSet<usize>) -> VortexResult<()>;
 }
 
+/// MaskIterator that reads boolean arrays out of provided reader and further filters generated masks
+///
+/// Arrays returned by the reader must be of boolean dtype.
 pub struct FilteringRowSplitIterator {
     reader: Box<dyn LayoutReader>,
     static_splits: FixedSplitIterator,
@@ -40,14 +45,17 @@ impl FilteringRowSplitIterator {
         }
     }
 
+    /// Read given mask out of the reader
     fn read_mask(&mut self, mask: RowMask) -> VortexResult<Option<SplitMask>> {
         if let Some(rs) = self.reader.read_selection(&mask)? {
             return match rs {
                 BatchRead::ReadMore(rm) => {
+                    // If the reader needs more data we put the mask back into queue for to come back to it later
                     self.in_progress_masks.push_back(mask);
                     Ok(Some(SplitMask::ReadMore(rm)))
                 }
                 BatchRead::Batch(batch) => {
+                    // If the mask is all FALSE we can safely discard it
                     if batch
                         .statistics()
                         .compute_true_count()
@@ -56,6 +64,7 @@ impl FilteringRowSplitIterator {
                     {
                         return Ok(None);
                     }
+                    // Combine requested mask with the result of filter read
                     Ok(Some(SplitMask::Mask(mask.and_bitmask(batch)?)))
                 }
             };
@@ -63,6 +72,7 @@ impl FilteringRowSplitIterator {
         Ok(None)
     }
 
+    /// Return next not all false mask or request to read more data.
     fn next_mask(&mut self) -> VortexResult<Option<SplitMask>> {
         if !self.registered_splits.swap(true, Ordering::SeqCst) {
             let mut own_splits = BTreeSet::new();
@@ -70,12 +80,14 @@ impl FilteringRowSplitIterator {
             self.static_splits.additional_splits(&mut own_splits)?;
         }
 
+        // First consider masks we have previously started reading to return them in order
         while let Some(mask) = self.in_progress_masks.pop_front() {
             if let Some(read_mask) = self.read_mask(mask)? {
                 return Ok(Some(read_mask));
             }
         }
 
+        // Lastly take next statically generated mask and perform read with it on our reader
         while let Some(mask) = self.static_splits.next() {
             match mask? {
                 SplitMask::ReadMore(_) => {
@@ -142,6 +154,7 @@ impl Iterator for FixedSplitIterator {
     fn next(&mut self) -> Option<Self::Item> {
         match &mut self.splits {
             SplitState::Ranges(ranges) => {
+                // Find next range that's not filtered out by supplied row_mask
                 for (begin, end) in ranges {
                     return if let Some(ref row_mask) = self.row_mask {
                         if row_mask.slice(begin, end).is_empty() {
