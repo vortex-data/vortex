@@ -290,7 +290,7 @@ mod tests {
     use vortex_dtype::field::Field;
     use vortex_expr::{BinaryExpr, Column, Literal, Not, Operator};
 
-    use crate::file::pruning::{convert_to_pruning_expression, stat_column_name, PruningPredicate};
+    use crate::pruning::{convert_to_pruning_expression, stat_column_name, PruningPredicate};
 
     #[test]
     pub fn pruning_equals() {

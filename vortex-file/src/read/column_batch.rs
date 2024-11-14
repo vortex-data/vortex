@@ -9,8 +9,8 @@ use vortex_dtype::FieldNames;
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_expr::ExprRef;
 
-use crate::file::read::mask::RowMask;
-use crate::file::read::{BatchRead, LayoutReader};
+use crate::read::mask::RowMask;
+use crate::read::{BatchRead, LayoutReader};
 
 /// Read multiple layouts by combining them into one struct array
 ///

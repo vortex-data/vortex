@@ -250,7 +250,7 @@ mod tests {
     use vortex_array::array::PrimitiveArray;
     use vortex_array::{IntoArray, IntoArrayVariant};
 
-    use crate::file::read::mask::RowMask;
+    use crate::read::mask::RowMask;
 
     #[rstest]
     #[case(

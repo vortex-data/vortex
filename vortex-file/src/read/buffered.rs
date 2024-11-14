@@ -5,8 +5,8 @@ use vortex_array::array::ChunkedArray;
 use vortex_array::{Array, ArrayDType, IntoArray};
 use vortex_error::VortexResult;
 
-use crate::file::read::mask::RowMask;
-use crate::file::read::{BatchRead, LayoutReader, MessageLocator};
+use crate::read::mask::RowMask;
+use crate::read::{BatchRead, LayoutReader, MessageLocator};
 
 pub type RangedLayoutReader = ((usize, usize), Box<dyn LayoutReader>);
 

@@ -9,9 +9,9 @@ use vortex_flatbuffers::{footer, message};
 use vortex_ipc::messages::reader::MESSAGE_PREFIX_LENGTH;
 use vortex_ipc::stream_writer::ByteRange;
 
-use crate::file::read::cache::{LazilyDeserializedDType, RelativeLayoutCache};
-use crate::file::read::mask::RowMask;
-use crate::file::{
+use crate::read::cache::{LazilyDeserializedDType, RelativeLayoutCache};
+use crate::read::mask::RowMask;
+use crate::{
     BatchRead, LayoutDeserializer, LayoutId, LayoutPartId, LayoutReader, LayoutSpec,
     MessageLocator, Scan, INLINE_SCHEMA_LAYOUT_ID,
 };

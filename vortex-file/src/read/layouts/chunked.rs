@@ -5,10 +5,10 @@ use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_flatbuffers::footer;
 
-use crate::file::read::buffered::{BufferedLayoutReader, RangedLayoutReader};
-use crate::file::read::cache::RelativeLayoutCache;
-use crate::file::read::mask::RowMask;
-use crate::file::{
+use crate::read::buffered::{BufferedLayoutReader, RangedLayoutReader};
+use crate::read::cache::RelativeLayoutCache;
+use crate::read::mask::RowMask;
+use crate::{
     BatchRead, LayoutDeserializer, LayoutId, LayoutPartId, LayoutReader, LayoutSpec, Scan,
     CHUNKED_LAYOUT_ID,
 };
@@ -162,13 +162,11 @@ mod tests {
     use vortex_ipc::messages::writer::MessageWriter;
     use vortex_ipc::stream_writer::ByteRange;
 
-    use crate::file::read::cache::{LazilyDeserializedDType, RelativeLayoutCache};
-    use crate::file::read::layouts::chunked::ChunkedLayout;
-    use crate::file::read::layouts::test_read::{
-        filter_read_layout, read_layout, read_layout_data,
-    };
-    use crate::file::read::mask::RowMask;
-    use crate::file::{write, LayoutDeserializer, LayoutMessageCache, RowFilter, Scan};
+    use crate::read::cache::{LazilyDeserializedDType, RelativeLayoutCache};
+    use crate::read::layouts::chunked::ChunkedLayout;
+    use crate::read::layouts::test_read::{filter_read_layout, read_layout, read_layout_data};
+    use crate::read::mask::RowMask;
+    use crate::{write, LayoutDeserializer, LayoutMessageCache, RowFilter, Scan};
 
     async fn layout_and_bytes(
         cache: Arc<RwLock<LayoutMessageCache>>,

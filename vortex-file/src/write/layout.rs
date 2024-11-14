@@ -3,7 +3,7 @@ use flatbuffers::{FlatBufferBuilder, WIPOffset};
 use vortex_flatbuffers::{footer as fb, WriteFlatBuffer};
 use vortex_ipc::stream_writer::ByteRange;
 
-use crate::file::{
+use crate::{
     LayoutId, CHUNKED_LAYOUT_ID, COLUMNAR_LAYOUT_ID, FLAT_LAYOUT_ID, INLINE_SCHEMA_LAYOUT_ID,
 };
 

@@ -5,7 +5,7 @@ use vortex_expr::{
     BinaryExpr, Column, ExprRef, Identity, Literal, Not, Operator, Select, VortexExpr,
 };
 
-use crate::file::RowFilter;
+use crate::RowFilter;
 
 /// Restrict expression to only the fields that appear in projection
 pub fn expr_project(expr: &ExprRef, projection: &[Field]) -> Option<ExprRef> {
@@ -91,7 +91,7 @@ mod tests {
     use vortex_dtype::field::Field;
     use vortex_expr::{BinaryExpr, Column, Identity, Literal, Not, Operator, Select, VortexExpr};
 
-    use crate::file::read::expr_project::expr_project;
+    use crate::read::expr_project::expr_project;
 
     #[test]
     fn project_and() {

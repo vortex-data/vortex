@@ -29,7 +29,7 @@ use vortex_ipc::stream_writer::ByteRange;
 pub use vortex_schema::projection::Projection;
 pub use vortex_schema::Schema;
 
-pub use crate::file::read::mask::RowMask;
+pub use crate::read::mask::RowMask;
 
 // Recommended read-size according to the AWS performance guide
 pub const INITIAL_READ_SIZE: usize = 8 * 1024 * 1024;

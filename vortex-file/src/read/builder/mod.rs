@@ -9,12 +9,12 @@ use vortex_expr::Select;
 use vortex_io::VortexReadAt;
 use vortex_schema::projection::Projection;
 
-use crate::file::dispatcher::IoDispatcher;
-use crate::file::read::cache::{LayoutMessageCache, RelativeLayoutCache};
-use crate::file::read::context::LayoutDeserializer;
-use crate::file::read::filtering::RowFilter;
-use crate::file::read::stream::VortexFileArrayStream;
-use crate::file::read::{RowMask, Scan};
+use crate::dispatcher::IoDispatcher;
+use crate::read::cache::{LayoutMessageCache, RelativeLayoutCache};
+use crate::read::context::LayoutDeserializer;
+use crate::read::filtering::RowFilter;
+use crate::read::stream::VortexFileArrayStream;
+use crate::read::{RowMask, Scan};
 
 pub(crate) mod initial_read;
 

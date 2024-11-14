@@ -14,10 +14,10 @@ use vortex_ipc::messages::writer::MessageWriter;
 use vortex_ipc::messages::IPCSchema;
 use vortex_ipc::stream_writer::ByteRange;
 
-use crate::file::write::layout::Layout;
-use crate::file::write::metadata_accumulators::{new_metadata_accumulator, MetadataAccumulator};
-use crate::file::write::postscript::Postscript;
-use crate::file::{EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
+use crate::write::layout::Layout;
+use crate::write::metadata_accumulators::{new_metadata_accumulator, MetadataAccumulator};
+use crate::write::postscript::Postscript;
+use crate::{EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
 
 pub struct VortexFileWriter<W> {
     msgs: MessageWriter<W>,
@@ -296,8 +296,8 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_flatbuffers::WriteFlatBuffer;
 
-    use crate::file::write::postscript::Postscript;
-    use crate::file::{VortexFileWriter, V1_FOOTER_FBS_SIZE};
+    use crate::write::postscript::Postscript;
+    use crate::{VortexFileWriter, V1_FOOTER_FBS_SIZE};
 
     #[test]
     fn write_columns() {

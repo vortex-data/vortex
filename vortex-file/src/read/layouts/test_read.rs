@@ -7,8 +7,8 @@ use itertools::Itertools;
 use vortex_array::Array;
 use vortex_error::VortexUnwrap;
 
-use crate::file::read::mask::RowMask;
-use crate::file::{BatchRead, LayoutMessageCache, LayoutReader, MessageLocator};
+use crate::read::mask::RowMask;
+use crate::{BatchRead, LayoutMessageCache, LayoutReader, MessageLocator};
 
 pub fn layout_splits(layout: &mut dyn LayoutReader, length: usize) -> Vec<RowMask> {
     let mut splits = BTreeSet::new();

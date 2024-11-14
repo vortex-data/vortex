@@ -122,7 +122,7 @@ mod tests {
     use vortex_io::{TokioFile, VortexReadAt};
 
     use super::TokioDispatcher;
-    use crate::file::dispatcher::Dispatch;
+    use crate::dispatcher::Dispatch;
 
     #[tokio::test]
     async fn test_tokio_dispatch_simple() {

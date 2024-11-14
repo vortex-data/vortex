@@ -8,9 +8,9 @@ use vortex_flatbuffers::footer;
 use vortex_ipc::messages::reader::ArrayMessageReader;
 use vortex_ipc::stream_writer::ByteRange;
 
-use crate::file::read::cache::RelativeLayoutCache;
-use crate::file::read::mask::RowMask;
-use crate::file::{
+use crate::read::cache::RelativeLayoutCache;
+use crate::read::mask::RowMask;
+use crate::{
     BatchRead, LayoutDeserializer, LayoutId, LayoutReader, LayoutSpec, MessageLocator, Scan,
     FLAT_LAYOUT_ID,
 };
@@ -130,10 +130,10 @@ mod tests {
     use vortex_ipc::messages::writer::MessageWriter;
     use vortex_ipc::stream_writer::ByteRange;
 
-    use crate::file::read::cache::{LazilyDeserializedDType, RelativeLayoutCache};
-    use crate::file::read::layouts::flat::FlatLayout;
-    use crate::file::read::layouts::test_read::{filter_read_layout, read_layout};
-    use crate::file::{LayoutMessageCache, RowFilter, Scan};
+    use crate::read::cache::{LazilyDeserializedDType, RelativeLayoutCache};
+    use crate::read::layouts::flat::FlatLayout;
+    use crate::read::layouts::test_read::{filter_read_layout, read_layout};
+    use crate::{LayoutMessageCache, RowFilter, Scan};
 
     async fn read_only_layout(
         cache: Arc<RwLock<LayoutMessageCache>>,

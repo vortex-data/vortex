@@ -7,7 +7,7 @@ use vortex_flatbuffers::{footer, message};
 use vortex_io::VortexReadAt;
 use vortex_schema::projection::Projection;
 
-use crate::file::{
+use crate::{
     LayoutDeserializer, LayoutReader, LazilyDeserializedDType, RelativeLayoutCache, Scan, EOF_SIZE,
     INITIAL_READ_SIZE, MAGIC_BYTES, VERSION,
 };
@@ -177,7 +177,7 @@ pub async fn read_initial_bytes<R: VortexReadAt>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::file::MAX_FOOTER_SIZE;
+    use crate::MAX_FOOTER_SIZE;
 
     #[test]
     fn big_enough_initial_read() {

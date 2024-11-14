@@ -14,9 +14,9 @@ use vortex_dtype::{DType, Nullability, PType, StructDType};
 use vortex_error::vortex_panic;
 use vortex_expr::{BinaryExpr, Column, Literal, Operator};
 
-use crate::file::builder::initial_read::{read_initial_bytes, read_layout_from_initial};
-use crate::file::write::VortexFileWriter;
-use crate::file::{
+use crate::builder::initial_read::{read_initial_bytes, read_layout_from_initial};
+use crate::write::VortexFileWriter;
+use crate::{
     LayoutDeserializer, LayoutMessageCache, Projection, RelativeLayoutCache, RowFilter, Scan,
     VortexReadBuilder, V1_FOOTER_FBS_SIZE, VERSION,
 };

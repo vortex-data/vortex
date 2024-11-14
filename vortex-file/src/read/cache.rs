@@ -11,7 +11,7 @@ use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexRe
 use vortex_flatbuffers::message;
 use vortex_schema::projection::Projection;
 
-use crate::file::read::{LayoutPartId, MessageId};
+use crate::read::{LayoutPartId, MessageId};
 
 #[derive(Default, Debug)]
 pub struct LayoutMessageCache {
