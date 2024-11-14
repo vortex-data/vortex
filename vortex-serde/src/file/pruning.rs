@@ -23,10 +23,10 @@ impl Display for PruningPredicate {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "PruningPredicate({}, {})",
+            "PruningPredicate({}, {{{}}})",
             self.expr,
             self.required_stats.iter().format_with(",", |(k, v), fmt| {
-                fmt(&format_args!("{k}: {}", v.iter().format(",")))
+                fmt(&format_args!("{k}: {{{}}}", v.iter().format(",")))
             })
         )
     }
