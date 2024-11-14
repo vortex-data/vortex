@@ -4,7 +4,11 @@ use criterion::{criterion_group, criterion_main, Criterion};
 use tokio::runtime::Builder;
 
 fn benchmark(c: &mut Criterion) {
-    let runtime = Builder::new_current_thread().enable_all().build().unwrap();
+    let runtime = Builder::new_current_thread()
+        .thread_name("benchmark-tpch")
+        .enable_all()
+        .build()
+        .unwrap();
 
     // Run TPC-H data gen.
     let data_dir = DBGen::new(DBGenOptions::default()).generate().unwrap();

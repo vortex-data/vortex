@@ -1,7 +1,10 @@
+use std::ops::BitAnd;
+
 use arrow_buffer::BooleanBuffer;
 use itertools::Itertools;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::VortexResult;
+use vortex_scalar::Scalar;
 
 use crate::aliases::hash_map::HashMap;
 use crate::array::BoolArray;
@@ -30,7 +33,18 @@ impl ArrayStatisticsCompute for BoolArray {
 struct NullableBools<'a>(&'a BooleanBuffer, &'a BooleanBuffer);
 
 impl ArrayStatisticsCompute for NullableBools<'_> {
-    fn compute_statistics(&self, _stat: Stat) -> VortexResult<StatsSet> {
+    fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
+        // Fast-path if we just want the true-count
+        if matches!(
+            stat,
+            Stat::TrueCount | Stat::Min | Stat::Max | Stat::IsConstant
+        ) {
+            return Ok(true_count_stats(
+                self.0.bitand(self.1).count_set_bits(),
+                self.0.len(),
+            ));
+        }
+
         let first_non_null_idx = self
             .1
             .iter()
@@ -59,15 +73,31 @@ impl ArrayStatisticsCompute for NullableBools<'_> {
 }
 
 impl ArrayStatisticsCompute for BooleanBuffer {
-    fn compute_statistics(&self, _stat: Stat) -> VortexResult<StatsSet> {
-        if self.is_empty() {
-            return Ok(StatsSet::new());
+    fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
+        // Fast-path if we just want the true-count
+        if matches!(
+            stat,
+            Stat::TrueCount | Stat::Min | Stat::Max | Stat::IsConstant
+        ) {
+            return Ok(true_count_stats(self.count_set_bits(), self.len()));
         }
 
         let mut stats = BoolStatsAccumulator::new(self.value(0));
         self.iter().skip(1).for_each(|next| stats.next(next));
         Ok(stats.finish())
     }
+}
+
+fn true_count_stats(true_count: usize, len: usize) -> StatsSet {
+    StatsSet::from(HashMap::<Stat, Scalar>::from([
+        (Stat::TrueCount, true_count.into()),
+        (Stat::Min, (true_count == len).into()),
+        (Stat::Max, (true_count > 0).into()),
+        (
+            Stat::IsConstant,
+            (true_count == 0 || true_count == len).into(),
+        ),
+    ]))
 }
 
 struct BoolStatsAccumulator {
@@ -123,15 +153,7 @@ impl BoolStatsAccumulator {
 
     pub fn finish(self) -> StatsSet {
         StatsSet::from(HashMap::from([
-            (Stat::Min, (self.true_count == self.len).into()),
-            (Stat::Max, (self.true_count > 0).into()),
             (Stat::NullCount, self.null_count.into()),
-            (
-                Stat::IsConstant,
-                (self.null_count == 0 && (self.true_count == self.len || self.true_count == 0)
-                    || self.null_count == self.len)
-                    .into(),
-            ),
             (Stat::IsSorted, self.is_sorted.into()),
             (
                 Stat::IsStrictSorted,
@@ -139,7 +161,6 @@ impl BoolStatsAccumulator {
                     .into(),
             ),
             (Stat::RunCount, self.run_count.into()),
-            (Stat::TrueCount, self.true_count.into()),
         ]))
     }
 }

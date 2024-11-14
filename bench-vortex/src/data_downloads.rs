@@ -13,8 +13,8 @@ use vortex::array::ChunkedArray;
 use vortex::arrow::FromArrowType;
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexResult};
-use vortex::serde::io::TokioAdapter;
-use vortex::serde::stream_writer::StreamArrayWriter;
+use vortex::io::TokioAdapter;
+use vortex::ipc::stream_writer::StreamArrayWriter;
 use vortex::{Array, IntoArray};
 
 use crate::idempotent;

@@ -87,8 +87,8 @@ impl StatsSet {
         stats
     }
 
-    pub fn of(stat: Stat, value: Scalar) -> Self {
-        Self::from(HashMap::from([(stat, value)]))
+    pub fn of<S: Into<Scalar>>(stat: Stat, value: S) -> Self {
+        Self::from(HashMap::from([(stat, value.into())]))
     }
 
     pub fn get(&self, stat: Stat) -> Option<&Scalar> {
@@ -317,7 +317,7 @@ mod test {
 
     #[test]
     fn merge_into_min() {
-        let mut first = StatsSet::of(Stat::Min, 42.into());
+        let mut first = StatsSet::of(Stat::Min, 42);
         first.merge_ordered(&StatsSet::new());
         assert_eq!(first.get(Stat::Min), None);
     }
@@ -325,20 +325,20 @@ mod test {
     #[test]
     fn merge_from_min() {
         let mut first = StatsSet::new();
-        first.merge_ordered(&StatsSet::of(Stat::Min, 42.into()));
+        first.merge_ordered(&StatsSet::of(Stat::Min, 42));
         assert_eq!(first.get(Stat::Min), None);
     }
 
     #[test]
     fn merge_mins() {
-        let mut first = StatsSet::of(Stat::Min, 37.into());
-        first.merge_ordered(&StatsSet::of(Stat::Min, 42.into()));
+        let mut first = StatsSet::of(Stat::Min, 37);
+        first.merge_ordered(&StatsSet::of(Stat::Min, 42));
         assert_eq!(first.get(Stat::Min).cloned(), Some(37.into()));
     }
 
     #[test]
     fn merge_into_max() {
-        let mut first = StatsSet::of(Stat::Max, 42.into());
+        let mut first = StatsSet::of(Stat::Max, 42);
         first.merge_ordered(&StatsSet::new());
         assert_eq!(first.get(Stat::Max), None);
     }
@@ -346,20 +346,20 @@ mod test {
     #[test]
     fn merge_from_max() {
         let mut first = StatsSet::new();
-        first.merge_ordered(&StatsSet::of(Stat::Max, 42.into()));
+        first.merge_ordered(&StatsSet::of(Stat::Max, 42));
         assert_eq!(first.get(Stat::Max), None);
     }
 
     #[test]
     fn merge_maxes() {
-        let mut first = StatsSet::of(Stat::Max, 37.into());
-        first.merge_ordered(&StatsSet::of(Stat::Max, 42.into()));
+        let mut first = StatsSet::of(Stat::Max, 37);
+        first.merge_ordered(&StatsSet::of(Stat::Max, 42));
         assert_eq!(first.get(Stat::Max).cloned(), Some(42.into()));
     }
 
     #[test]
     fn merge_into_scalar() {
-        let mut first = StatsSet::of(Stat::TrueCount, 42.into());
+        let mut first = StatsSet::of(Stat::TrueCount, 42);
         first.merge_ordered(&StatsSet::new());
         assert_eq!(first.get(Stat::TrueCount), None);
     }
@@ -367,21 +367,21 @@ mod test {
     #[test]
     fn merge_from_scalar() {
         let mut first = StatsSet::new();
-        first.merge_ordered(&StatsSet::of(Stat::TrueCount, 42.into()));
+        first.merge_ordered(&StatsSet::of(Stat::TrueCount, 42));
         assert_eq!(first.get(Stat::TrueCount), None);
     }
 
     #[test]
     fn merge_scalars() {
-        let mut first = StatsSet::of(Stat::TrueCount, 37.into());
-        first.merge_ordered(&StatsSet::of(Stat::TrueCount, 42.into()));
+        let mut first = StatsSet::of(Stat::TrueCount, 37);
+        first.merge_ordered(&StatsSet::of(Stat::TrueCount, 42));
         assert_eq!(first.get(Stat::TrueCount).cloned(), Some(79u64.into()));
     }
 
     #[test]
     fn merge_into_freq() {
         let vec = (0..255).collect_vec();
-        let mut first = StatsSet::of(Stat::BitWidthFreq, vec.into());
+        let mut first = StatsSet::of(Stat::BitWidthFreq, vec);
         first.merge_ordered(&StatsSet::new());
         assert_eq!(first.get(Stat::BitWidthFreq), None);
     }
@@ -390,7 +390,7 @@ mod test {
     fn merge_from_freq() {
         let vec = (0..255).collect_vec();
         let mut first = StatsSet::new();
-        first.merge_ordered(&StatsSet::of(Stat::BitWidthFreq, vec.into()));
+        first.merge_ordered(&StatsSet::of(Stat::BitWidthFreq, vec));
         assert_eq!(first.get(Stat::BitWidthFreq), None);
     }
 
@@ -398,14 +398,14 @@ mod test {
     fn merge_freqs() {
         let vec_in = vec![5u64; 256];
         let vec_out = vec![10u64; 256];
-        let mut first = StatsSet::of(Stat::BitWidthFreq, vec_in.clone().into());
-        first.merge_ordered(&StatsSet::of(Stat::BitWidthFreq, vec_in.into()));
+        let mut first = StatsSet::of(Stat::BitWidthFreq, vec_in.clone());
+        first.merge_ordered(&StatsSet::of(Stat::BitWidthFreq, vec_in));
         assert_eq!(first.get(Stat::BitWidthFreq).cloned(), Some(vec_out.into()));
     }
 
     #[test]
     fn merge_into_sortedness() {
-        let mut first = StatsSet::of(Stat::IsStrictSorted, true.into());
+        let mut first = StatsSet::of(Stat::IsStrictSorted, true);
         first.merge_ordered(&StatsSet::new());
         assert_eq!(first.get(Stat::IsStrictSorted), None);
     }
@@ -413,15 +413,15 @@ mod test {
     #[test]
     fn merge_from_sortedness() {
         let mut first = StatsSet::new();
-        first.merge_ordered(&StatsSet::of(Stat::IsStrictSorted, true.into()));
+        first.merge_ordered(&StatsSet::of(Stat::IsStrictSorted, true));
         assert_eq!(first.get(Stat::IsStrictSorted), None);
     }
 
     #[test]
     fn merge_sortedness() {
-        let mut first = StatsSet::of(Stat::IsStrictSorted, true.into());
+        let mut first = StatsSet::of(Stat::IsStrictSorted, true);
         first.set(Stat::Max, 1.into());
-        let mut second = StatsSet::of(Stat::IsStrictSorted, true.into());
+        let mut second = StatsSet::of(Stat::IsStrictSorted, true);
         second.set(Stat::Min, 2.into());
         first.merge_ordered(&second);
         assert_eq!(first.get(Stat::IsStrictSorted).cloned(), Some(true.into()));
@@ -429,9 +429,9 @@ mod test {
 
     #[test]
     fn merge_sortedness_out_of_order() {
-        let mut first = StatsSet::of(Stat::IsStrictSorted, true.into());
+        let mut first = StatsSet::of(Stat::IsStrictSorted, true);
         first.set(Stat::Min, 1.into());
-        let mut second = StatsSet::of(Stat::IsStrictSorted, true.into());
+        let mut second = StatsSet::of(Stat::IsStrictSorted, true);
         second.set(Stat::Max, 2.into());
         second.merge_ordered(&first);
         assert_eq!(
@@ -442,9 +442,9 @@ mod test {
 
     #[test]
     fn merge_sortedness_only_one_sorted() {
-        let mut first = StatsSet::of(Stat::IsStrictSorted, true.into());
+        let mut first = StatsSet::of(Stat::IsStrictSorted, true);
         first.set(Stat::Max, 1.into());
-        let mut second = StatsSet::of(Stat::IsStrictSorted, false.into());
+        let mut second = StatsSet::of(Stat::IsStrictSorted, false);
         second.set(Stat::Min, 2.into());
         first.merge_ordered(&second);
         assert_eq!(
@@ -455,9 +455,9 @@ mod test {
 
     #[test]
     fn merge_sortedness_missing_min() {
-        let mut first = StatsSet::of(Stat::IsStrictSorted, true.into());
+        let mut first = StatsSet::of(Stat::IsStrictSorted, true);
         first.set(Stat::Max, 1.into());
-        let second = StatsSet::of(Stat::IsStrictSorted, true.into());
+        let second = StatsSet::of(Stat::IsStrictSorted, true);
         first.merge_ordered(&second);
         assert_eq!(first.get(Stat::IsStrictSorted).cloned(), None);
     }

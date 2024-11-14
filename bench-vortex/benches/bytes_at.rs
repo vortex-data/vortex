@@ -10,8 +10,8 @@ use futures::StreamExt;
 use vortex::array::{PrimitiveArray, VarBinArray, VarBinViewArray};
 use vortex::buffer::Buffer;
 use vortex::dtype::{DType, Nullability};
-use vortex::serde::stream_reader::StreamArrayReader;
-use vortex::serde::stream_writer::StreamArrayWriter;
+use vortex::ipc::stream_reader::StreamArrayReader;
+use vortex::ipc::stream_writer::StreamArrayWriter;
 use vortex::validity::Validity;
 use vortex::{Context, IntoArray, IntoCanonical};
 

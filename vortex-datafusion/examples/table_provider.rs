@@ -14,7 +14,7 @@ use vortex_array::validity::Validity;
 use vortex_array::{Context, IntoArray};
 use vortex_datafusion::persistent::config::{VortexFile, VortexTableOptions};
 use vortex_datafusion::persistent::provider::VortexFileTableProvider;
-use vortex_serde::file::VortexFileWriter;
+use vortex_file::VortexFileWriter;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

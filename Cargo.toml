@@ -12,12 +12,14 @@ members = [
     "vortex-dtype",
     "vortex-error",
     "vortex-expr",
+    "vortex-file",
     "vortex-flatbuffers",
+    "vortex-io",
+    "vortex-ipc",
     "vortex-proto",
     "vortex-sampling-compressor",
     "vortex-scalar",
     "vortex-schema",
-    "vortex-serde",
     "xtask",
 ]
 resolver = "2"
@@ -149,15 +151,17 @@ vortex-dtype = { version = "0.16.0", path = "./vortex-dtype", default-features =
 vortex-error = { version = "0.16.0", path = "./vortex-error" }
 vortex-expr = { version = "0.16.0", path = "./vortex-expr" }
 vortex-fastlanes = { version = "0.16.0", path = "./encodings/fastlanes" }
+vortex-file = { version = "0.16.0", path = "./vortex-file", default-features = false }
 vortex-flatbuffers = { version = "0.16.0", path = "./vortex-flatbuffers" }
 vortex-fsst = { version = "0.16.0", path = "./encodings/fsst" }
+vortex-io = { version = "0.16.0", path = "./vortex-io" }
+vortex-ipc = { version = "0.16.0", path = "./vortex-ipc" }
 vortex-proto = { version = "0.16.0", path = "./vortex-proto" }
 vortex-roaring = { version = "0.16.0", path = "./encodings/roaring" }
 vortex-runend = { version = "0.16.0", path = "./encodings/runend" }
 vortex-runend-bool = { version = "0.16.0", path = "./encodings/runend-bool" }
 vortex-scalar = { version = "0.16.0", path = "./vortex-scalar", default-features = false }
 vortex-schema = { version = "0.16.0", path = "./vortex-schema" }
-vortex-serde = { version = "0.16.0", path = "./vortex-serde", default-features = false }
 vortex-sampling-compressor = { version = "0.16.0", path = "./vortex-sampling-compressor" }
 vortex-zigzag = { version = "0.16.0", path = "./encodings/zigzag" }
 # END crates published by this project
