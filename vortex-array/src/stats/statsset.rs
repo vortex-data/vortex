@@ -7,7 +7,7 @@ use vortex_scalar::{Scalar, ScalarValue};
 use crate::aliases::hash_map::{Entry, HashMap, IntoIter};
 use crate::stats::Stat;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct StatsSet {
     values: HashMap<Stat, Scalar>,
 }
@@ -23,6 +23,14 @@ impl StatsSet {
         Self {
             values: HashMap::new(),
         }
+    }
+
+    pub fn len(&self) -> usize {
+        self.values.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.values.is_empty()
     }
 
     /// Specialized constructor for the case where the StatsSet represents

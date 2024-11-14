@@ -439,4 +439,11 @@ impl<T: AsRef<Array>> ArrayStatistics for T {
             Inner::View(v) => v.statistics(),
         }
     }
+
+    fn inherit_statistics(&self, parent: &dyn Statistics) {
+        let stats = self.statistics();
+        for (stat, scalar) in parent.to_set() {
+            stats.set(stat, scalar);
+        }
+    }
 }

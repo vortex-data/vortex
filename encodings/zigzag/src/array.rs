@@ -1,10 +1,11 @@
 use std::fmt::Display;
 
 use serde::{Deserialize, Serialize};
+use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use vortex_array::array::PrimitiveArray;
 use vortex_array::encoding::ids;
-use vortex_array::stats::{ArrayStatisticsCompute, StatsSet};
+use vortex_array::stats::{ArrayStatistics, ArrayStatisticsCompute, Stat, StatsSet};
 use vortex_array::validity::{ArrayValidity, LogicalValidity};
 use vortex_array::variants::{ArrayVariants, PrimitiveArrayTrait};
 use vortex_array::{
@@ -88,7 +89,22 @@ impl AcceptArrayVisitor for ZigZagArray {
     }
 }
 
-impl ArrayStatisticsCompute for ZigZagArray {}
+impl ArrayStatisticsCompute for ZigZagArray {
+    fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
+        // these stats are the same for self and self.encoded()
+        let maybe_scalar = if matches!(stat, Stat::UncompressedSizeInBytes | Stat::IsConstant | Stat::NullCount) {
+            self.encoded().statistics().compute(stat)
+        } else {
+            None
+        };
+
+        if let Some(scalar) = maybe_scalar {
+            Ok(StatsSet::from(HashMap::from([(stat, scalar)])))
+        } else {
+            Ok(StatsSet::new())
+        }
+    }
+}
 
 impl IntoCanonical for ZigZagArray {
     fn into_canonical(self) -> VortexResult<Canonical> {
