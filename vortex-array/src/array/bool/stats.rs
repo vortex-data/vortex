@@ -3,11 +3,12 @@ use std::ops::BitAnd;
 use arrow_buffer::BooleanBuffer;
 use itertools::Itertools;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{vortex_err, VortexResult};
+use vortex_error::VortexResult;
+use vortex_scalar::Scalar;
 
 use crate::aliases::hash_map::HashMap;
 use crate::array::BoolArray;
-use crate::stats::{ArrayStatistics, ArrayStatisticsCompute, Stat, StatsSet};
+use crate::stats::{ArrayStatisticsCompute, Stat, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity};
 use crate::{ArrayDType, IntoArrayVariant};
 
@@ -15,23 +16,6 @@ impl ArrayStatisticsCompute for BoolArray {
     fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
         if self.is_empty() {
             return Ok(StatsSet::new());
-        }
-
-        // Short-circuit a few stats that all delegate to true_count
-        let true_count = || {
-            self.as_ref()
-                .statistics()
-                .compute_true_count()
-                .ok_or_else(|| vortex_err!("BoolArray doesn't implement true_count stat"))
-        };
-        match stat {
-            Stat::Min => return Ok(StatsSet::of(stat, true_count()? == 0)),
-            Stat::Max => return Ok(StatsSet::of(stat, true_count()? > 0)),
-            Stat::IsConstant => {
-                let count = true_count()?;
-                return Ok(StatsSet::of(stat, count == 0 || count == self.len()));
-            }
-            _ => {}
         }
 
         match self.logical_validity() {
@@ -50,9 +34,15 @@ struct NullableBools<'a>(&'a BooleanBuffer, &'a BooleanBuffer);
 
 impl ArrayStatisticsCompute for NullableBools<'_> {
     fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
-        if stat == Stat::TrueCount {
-            // Fast-path if we just want the true-count
-            return Ok(StatsSet::of(stat, self.0.bitand(self.1).count_set_bits()));
+        // Fast-path if we just want the true-count
+        if matches!(
+            stat,
+            Stat::TrueCount | Stat::Min | Stat::Max | Stat::IsConstant
+        ) {
+            return Ok(true_count_stats(
+                self.0.bitand(self.1).count_set_bits(),
+                self.0.len(),
+            ));
         }
 
         let first_non_null_idx = self
@@ -84,19 +74,30 @@ impl ArrayStatisticsCompute for NullableBools<'_> {
 
 impl ArrayStatisticsCompute for BooleanBuffer {
     fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
-        if self.is_empty() {
-            return Ok(StatsSet::new());
-        }
-
-        if stat == Stat::TrueCount {
-            // Fast-path if we just want the true-count
-            return Ok(StatsSet::of(stat, self.count_set_bits()));
+        // Fast-path if we just want the true-count
+        if matches!(
+            stat,
+            Stat::TrueCount | Stat::Min | Stat::Max | Stat::IsConstant
+        ) {
+            return Ok(true_count_stats(self.count_set_bits(), self.len()));
         }
 
         let mut stats = BoolStatsAccumulator::new(self.value(0));
         self.iter().skip(1).for_each(|next| stats.next(next));
         Ok(stats.finish())
     }
+}
+
+fn true_count_stats(true_count: usize, len: usize) -> StatsSet {
+    StatsSet::from(HashMap::<Stat, Scalar>::from([
+        (Stat::TrueCount, true_count.into()),
+        (Stat::Min, (true_count > 0).into()),
+        (Stat::Max, (true_count < len).into()),
+        (
+            Stat::IsConstant,
+            (true_count == 0 || true_count == len).into(),
+        ),
+    ]))
 }
 
 struct BoolStatsAccumulator {
