@@ -97,7 +97,7 @@ impl Dispatch for TokioDispatcher {
         }
     }
 
-    async fn join(self) -> VortexResult<()> {
+    fn shutdown(self) -> VortexResult<()> {
         // drop the submitter.
         //
         // Each worker thread will receive an `Err(Canceled)`

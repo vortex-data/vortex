@@ -26,8 +26,10 @@ pub trait Dispatch {
         Fut: Future<Output = R> + 'static,
         R: Send + 'static;
 
-    /// Gracefully shutdown the dispatcher. The submitter is closed and existing tasks are awaited.
-    fn join(self) -> impl Future<Output = VortexResult<()>>;
+    /// Gracefully shutdown the dispatcher, consuming it.
+    ///
+    /// Existing tasks are awaited before exiting.
+    fn shutdown(self) -> VortexResult<()>;
 }
 
 /// A cross-thread, cross-runtime dispatcher of async IO workloads.
@@ -64,12 +66,12 @@ impl Dispatch for IoDispatcher {
         }
     }
 
-    async fn join(self) -> VortexResult<()> {
+    fn shutdown(self) -> VortexResult<()> {
         match self.0 {
             #[cfg(feature = "tokio")]
-            Inner::Tokio(tokio_dispatch) => tokio_dispatch.join().await,
+            Inner::Tokio(tokio_dispatch) => tokio_dispatch.shutdown(),
             #[cfg(feature = "compio")]
-            Inner::Compio(compio_dispatch) => compio_dispatch.join().await,
+            Inner::Compio(compio_dispatch) => compio_dispatch.shutdown(),
         }
     }
 }
