@@ -27,7 +27,6 @@ futures-channel = { workspace = true }
 futures-executor = { workspace = true }
 futures-util = { workspace = true }
 itertools = { workspace = true }
-log = { workspace = true, features = ["max_level_info"] }
 object_store = { workspace = true, optional = true }
 once_cell = { workspace = true }
 tokio = { workspace = true, features = [
