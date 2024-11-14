@@ -10,6 +10,7 @@ use vortex_array::ArrayDType;
 use vortex_dtype::field::Field;
 use vortex_error::VortexResult;
 
+use crate::memory::statistics::chunked_array_df_stats;
 use crate::memory::stream::VortexRecordBatchStream;
 
 /// Physical plan node for scans against an in-memory, possibly chunked Vortex Array.

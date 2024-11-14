@@ -1,5 +1,7 @@
+use std::time::Duration;
+
 use bench_vortex::tpch::dbgen::{DBGen, DBGenOptions};
-use bench_vortex::tpch::{load_datasets, physical_plan, run_tpch_query, tpch_queries, Format};
+use bench_vortex::tpch::{load_datasets, run_tpch_query, tpch_queries, Format};
 use criterion::{criterion_group, criterion_main, Criterion};
 use tokio::runtime::Builder;
 
@@ -90,28 +92,12 @@ fn benchmark(c: &mut Criterion) {
             })
         });
 
-        if q == 11 {
-            println!(
-                "Physical Plan parquet: {:#?}",
-                runtime
-                    .block_on(physical_plan(&parquet_ctx, &sql_queries[0]))
-                    .unwrap()
-            );
-        }
         group.bench_function("parquet", |b| {
             b.to_async(&runtime).iter(|| async {
                 run_tpch_query(&parquet_ctx, &sql_queries, q, Format::Parquet).await;
             })
         });
 
-        if q == 11 {
-            println!(
-                "Physical Plan vortex-file-compressed: {:#?}",
-                runtime
-                    .block_on(physical_plan(&vortex_compressed_ctx, &sql_queries[0]))
-                    .unwrap()
-            );
-        }
         group.bench_function("vortex-file-compressed", |b| {
             b.to_async(&runtime).iter(|| async {
                 run_tpch_query(
@@ -142,5 +128,13 @@ fn benchmark(c: &mut Criterion) {
     }
 }
 
-criterion_group!(benches, benchmark);
+criterion_group! {
+    name = benches;
+    config = Criterion::default()
+        .sample_size(10)
+        .confidence_level(0.75)
+        .warm_up_time(Duration::from_nanos(1))
+        .measurement_time(Duration::from_nanos(1));
+    targets = benchmark
+}
 criterion_main!(benches);

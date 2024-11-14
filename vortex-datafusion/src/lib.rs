@@ -2,26 +2,20 @@
 
 #![allow(clippy::nonminimal_bool)]
 
-use std::any::Any;
-use std::fmt::Debug;
 use std::sync::Arc;
 
 use arrow_schema::{DataType, Schema};
-use datafusion::execution::RecordBatchStream;
 use datafusion::prelude::{DataFrame, SessionContext};
 use datafusion_common::Result as DFResult;
 use datafusion_execution::object_store::ObjectStoreUrl;
 use datafusion_expr::{Expr, Operator};
-use datafusion_physical_plan::{DisplayAs, ExecutionPlan};
-use futures::Stream;
 use persistent::config::VortexTableOptions;
 use persistent::provider::VortexFileTableProvider;
-use vortex_array::{Array, ArrayDType, IntoArrayVariant};
+use vortex_array::{Array, ArrayDType};
 use vortex_error::vortex_err;
 
 use crate::memory::{VortexMemTable, VortexMemTableOptions};
 
-mod datatype;
 pub mod memory;
 pub mod persistent;
 

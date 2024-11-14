@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion, Throughput};
 use itertools::Itertools as _;
 use mimalloc::MiMalloc;
@@ -92,5 +94,13 @@ fn primitive(c: &mut Criterion) {
     }
 }
 
-criterion_group!(benches, primitive);
+criterion_group! {
+    name = benches;
+    config = Criterion::default()
+        .sample_size(10)
+        .confidence_level(0.75)
+        .warm_up_time(Duration::from_nanos(1))
+        .measurement_time(Duration::from_nanos(1));
+    targets = primitive
+}
 criterion_main!(benches);

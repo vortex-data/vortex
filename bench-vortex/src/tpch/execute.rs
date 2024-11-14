@@ -1,9 +1,7 @@
-use std::sync::Arc;
-
 use arrow_array::RecordBatch;
 use datafusion::prelude::SessionContext;
 use datafusion_common::Result;
-use datafusion_physical_plan::{collect, ExecutionPlan};
+use datafusion_physical_plan::collect;
 
 use crate::tpch::Format;
 
@@ -51,11 +49,4 @@ pub async fn execute_query(ctx: &SessionContext, query: &str) -> Result<Vec<Reco
     let physical_plan = state.create_physical_plan(&optimized).await?;
     let result = collect(physical_plan.clone(), state.task_ctx()).await?;
     Ok(result)
-}
-
-pub async fn physical_plan(ctx: &SessionContext, query: &str) -> Result<Arc<dyn ExecutionPlan>> {
-    let plan = ctx.sql(query).await?;
-    let (state, plan) = plan.into_parts();
-    let optimized = state.optimize(&plan)?;
-    state.create_physical_plan(&optimized).await
 }

@@ -2,7 +2,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use datafusion::datasource::physical_plan::{FileScanConfig, FileStream};
-use datafusion_common::{project_schema, Result as DFResult, Statistics};
+use datafusion_common::{project_schema, Result as DFResult};
 use datafusion_execution::{SendableRecordBatchStream, TaskContext};
 use datafusion_physical_expr::{EquivalenceProperties, Partitioning, PhysicalExpr};
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
@@ -104,13 +104,5 @@ impl ExecutionPlan for VortexExec {
         let stream = FileStream::new(&self.file_scan_config, partition, opener, &self.metrics)?;
 
         Ok(Box::pin(stream))
-    }
-
-    fn statistics(&self) -> DFResult<Statistics> {
-        Ok(Statistics {
-            num_rows: self.,
-            total_byte_size: Default::default(),
-            column_statistics: vec![],
-        })
     }
 }

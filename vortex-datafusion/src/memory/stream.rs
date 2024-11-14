@@ -12,13 +12,13 @@ use vortex_array::IntoArrayVariant;
 use vortex_dtype::field::Field;
 
 pub(crate) struct VortexRecordBatchStream {
-    schema_ref: SchemaRef,
+    pub(crate) schema_ref: SchemaRef,
 
-    idx: usize,
-    num_chunks: usize,
-    chunks: ChunkedArray,
+    pub(crate) idx: usize,
+    pub(crate) num_chunks: usize,
+    pub(crate) chunks: ChunkedArray,
 
-    projection: Vec<Field>,
+    pub(crate) projection: Vec<Field>,
 }
 
 impl Stream for VortexRecordBatchStream {

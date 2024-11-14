@@ -400,10 +400,13 @@ fn tpc_h_l_comment(c: &mut Criterion) {
     );
 }
 
-criterion_group!(
-    benches,
-    yellow_taxi_trip_data,
-    public_bi_benchmark,
-    tpc_h_l_comment,
-);
+criterion_group! {
+    name = benches;
+    config = Criterion::default()
+        .sample_size(10)
+        .confidence_level(0.75)
+        .warm_up_time(Duration::from_nanos(1))
+        .measurement_time(Duration::from_nanos(1));
+    targets = yellow_taxi_trip_data, public_bi_benchmark, tpc_h_l_comment,
+}
 criterion_main!(benches);

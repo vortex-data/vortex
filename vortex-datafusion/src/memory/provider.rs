@@ -21,7 +21,7 @@ use vortex_expr::ExprRef;
 
 use crate::can_be_pushed_down;
 use crate::memory::exec::VortexScanExec;
-use crate::plans::{RowSelectorExec, TakeRowsExec};
+use crate::memory::plans::{RowSelectorExec, TakeRowsExec};
 
 /// A [`TableProvider`] that exposes an existing Vortex Array to the DataFusion SQL engine.
 ///
