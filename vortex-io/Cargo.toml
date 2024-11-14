@@ -16,11 +16,7 @@ categories.workspace = true
 [dependencies]
 bytes = { workspace = true }
 compio = { workspace = true, features = ["bytes", "macros"], optional = true }
-tokio = { workspace = true, features = [
-    "io-util",
-    "fs",
-    "rt-multi-thread",
-], optional = true }
+tokio = { workspace = true, features = ["fs"], optional = true }
 futures = { workspace = true, features = ["std"] }
 futures-util = { workspace = true }
 object_store = { workspace = true, optional = true }
