@@ -71,7 +71,7 @@ pub struct VortexReadBuilder<R> {
     size: Option<u64>,
     row_mask: Option<Array>,
     row_filter: Option<RowFilter>,
-    io_dispatcher: Option<IoDispatcher>,
+    io_dispatcher: Option<Arc<IoDispatcher>>,
 }
 
 impl<R: VortexReadAt> VortexReadBuilder<R> {
@@ -112,7 +112,7 @@ impl<R: VortexReadAt> VortexReadBuilder<R> {
         self
     }
 
-    pub fn with_io_dispatcher(mut self, dispatcher: IoDispatcher) -> Self {
+    pub fn with_io_dispatcher(mut self, dispatcher: Arc<IoDispatcher>) -> Self {
         self.io_dispatcher = Some(dispatcher);
         self
     }
@@ -176,7 +176,7 @@ impl<R: VortexReadAt> VortexReadBuilder<R> {
         // Default: fallback to single-threaded tokio dispatcher.
         let io_dispatcher = self
             .io_dispatcher
-            .unwrap_or_else(|| IoDispatcher::new_tokio(1));
+            .unwrap_or_else(|| Arc::new(IoDispatcher::new_tokio(1)));
 
         Ok(VortexFileArrayStream::new(
             self.read_at,

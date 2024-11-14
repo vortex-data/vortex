@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use arrow_array::RecordBatch;
 use arrow_schema::SchemaRef;
@@ -9,8 +9,14 @@ use futures::{FutureExt as _, StreamExt, TryStreamExt};
 use object_store::ObjectStore;
 use vortex_array::Context;
 use vortex_expr::datafusion::convert_expr_to_vortex;
-use vortex_file::{LayoutContext, LayoutDeserializer, Projection, RowFilter, VortexReadBuilder};
+use vortex_file::{
+    IoDispatcher, LayoutContext, LayoutDeserializer, Projection, RowFilter, VortexReadBuilder,
+};
 use vortex_io::ObjectStoreReadAt;
+
+/// Share an IO dispatcher across all DataFusion instances.
+static IO_DISPATCHER: LazyLock<Arc<IoDispatcher>> =
+    LazyLock::new(|| Arc::new(IoDispatcher::new_tokio(1)));
 
 pub struct VortexFileOpener {
     pub ctx: Arc<Context>,
@@ -28,7 +34,8 @@ impl FileOpener for VortexFileOpener {
         let mut builder = VortexReadBuilder::new(
             read_at,
             LayoutDeserializer::new(self.ctx.clone(), Arc::new(LayoutContext::default())),
-        );
+        )
+        .with_io_dispatcher(IO_DISPATCHER.clone());
 
         let row_filter = self
             .predicate

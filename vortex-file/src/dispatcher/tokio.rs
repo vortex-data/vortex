@@ -26,13 +26,13 @@ impl TokioDispatcher {
         let threads: Vec<_> = (0..num_threads)
             .map(|tid| {
                 let worker_thread = std::thread::Builder::new();
-                let worker_thread = worker_thread.name(format!("tokio-dispatch-{tid}"));
                 let rx: flume::Receiver<Box<dyn TokioSpawn + Send>> = rx.clone();
 
                 worker_thread
                     .spawn(move || {
                         // Create a runtime-per-thread
                         let rt = tokio::runtime::Builder::new_current_thread()
+                            .thread_name(format!("tokio-dispatch-{tid}"))
                             .enable_all()
                             .build()
                             .unwrap_or_else(|e| {

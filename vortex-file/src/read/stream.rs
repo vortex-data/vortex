@@ -35,7 +35,7 @@ pub struct VortexFileArrayStream<R> {
     messages_cache: Arc<RwLock<LayoutMessageCache>>,
     state: Option<StreamingState>,
     input: R,
-    dispatcher: IoDispatcher,
+    dispatcher: Arc<IoDispatcher>,
 }
 
 impl<R: VortexReadAt> VortexFileArrayStream<R> {
@@ -48,7 +48,7 @@ impl<R: VortexReadAt> VortexFileArrayStream<R> {
         dtype: DType,
         row_count: u64,
         row_mask: Option<RowMask>,
-        dispatcher: IoDispatcher,
+        dispatcher: Arc<IoDispatcher>,
     ) -> Self {
         let mask_iterator = if let Some(fr) = filter_reader {
             Box::new(FilteringRowSplitIterator::new(fr, row_count, row_mask)) as MaskIteratorRef

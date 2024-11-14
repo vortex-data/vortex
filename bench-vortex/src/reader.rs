@@ -2,7 +2,7 @@ use std::fs::File;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use arrow_array::types::Int64Type;
 use arrow_array::{
@@ -27,10 +27,14 @@ use vortex::arrow::FromArrowType;
 use vortex::compress::CompressionStrategy;
 use vortex::dtype::DType;
 use vortex::error::VortexResult;
-use vortex::file::{LayoutContext, LayoutDeserializer, VortexFileWriter, VortexReadBuilder};
+use vortex::file::{
+    IoDispatcher, LayoutContext, LayoutDeserializer, VortexFileWriter, VortexReadBuilder,
+};
 use vortex::io::{ObjectStoreReadAt, TokioFile, VortexReadAt, VortexWrite};
 use vortex::sampling_compressor::{SamplingCompressor, ALL_ENCODINGS_CONTEXT};
-use vortex::{Array, IntoArray, IntoCanonical};
+
+static DISPATCHER: LazyLock<Arc<IoDispatcher>> =
+    LazyLock::new(|| Arc::new(IoDispatcher::new_tokio(1)));
 
 pub const BATCH_SIZE: usize = 65_536;
 
@@ -51,6 +55,7 @@ pub async fn open_vortex(path: &Path) -> VortexResult<Array> {
             LayoutContext::default().into(),
         ),
     )
+    .with_io_dispatcher(DISPATCHER.clone())
     .build()
     .await?
     .read_all()
