@@ -22,7 +22,7 @@ fn benchmark(c: &mut Criterion) {
             &context,
             "hits",
             parquet_file.as_path(),
-            &*HITS_SCHEMA,
+            &HITS_SCHEMA,
             true,
         )
         .await
