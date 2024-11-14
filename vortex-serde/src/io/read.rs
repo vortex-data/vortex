@@ -7,11 +7,13 @@ use bytes::BytesMut;
 use vortex_buffer::Buffer;
 use vortex_error::vortex_err;
 
-/// An asynchronous stateful reader.
+/// An asynchronous streaming reader.
 ///
-/// Implementations expose data via asynchronous calls to [`read_into`][VortexRead::read_into], which
-/// when executing mutating the underlying reader to track a position. As bytes are read, the position
-/// is updated.
+/// Implementations expose data via the asynchronous [`read_into`][VortexRead::read_into], which
+/// will fill the exact number of bytes and advance the stream.
+///
+/// If the exact number of bytes is not available from the stream, an
+/// [`UnexpectedEof`][std::io::ErrorKind::UnexpectedEof] error is returned.
 pub trait VortexRead {
     fn read_into(&mut self, buffer: BytesMut) -> impl Future<Output = io::Result<BytesMut>>;
 }

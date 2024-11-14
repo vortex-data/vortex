@@ -22,12 +22,13 @@ use crate::file::read::mask::RowMask;
 use crate::file::read::{BatchRead, LayoutReader, MessageId, MessageLocator};
 use crate::io::{Dispatch, IoDispatcher, VortexReadAt};
 
-/// An asynchronous Vortex file reader from some memory, on-disk or elsewhere, returning
-/// a [`Stream`] of [`Array`]s.
+/// An asynchronous Vortex file that returns a [`Stream`] of [`Array`]s.
 ///
-/// Instead of using [`VortexFileArrayStream::new`], use a
-/// [VortexReadBuilder][crate::file::read::builder::VortexReadBuilder] to create an instance of
-/// this struct.
+/// The file may be read from any source implementing [`VortexReadAt`], such
+/// as memory, disk, and object storage.
+///
+/// Use [VortexReadBuilder][crate::file::read::builder::VortexReadBuilder] to build one
+/// from a reader.
 pub struct VortexFileArrayStream<R> {
     dtype: DType,
     row_count: u64,
@@ -42,7 +43,7 @@ pub struct VortexFileArrayStream<R> {
 
 impl<R: VortexReadAt> VortexFileArrayStream<R> {
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
+    pub(crate) fn new(
         input: R,
         layout_reader: Box<dyn LayoutReader>,
         filter_reader: Option<Box<dyn LayoutReader>>,
@@ -295,7 +296,7 @@ impl<R: VortexReadAt + Unpin> VortexFileArrayStream<R> {
         result_rx
             .map(|res| match res {
                 Ok(result) => result,
-                Err(_) => vortex_bail!("dispatcher channel canceled"),
+                Err(e) => vortex_bail!("dispatcher channel canceled: {e}"),
             })
             .boxed()
     }
