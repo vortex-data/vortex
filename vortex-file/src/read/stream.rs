@@ -15,27 +15,18 @@ use vortex_error::{vortex_bail, vortex_panic, VortexError, VortexExpect, VortexR
 use vortex_io::VortexReadAt;
 use vortex_schema::Schema;
 
-<<<<<<< HEAD:vortex-file/src/file/read/stream.rs
-use crate::file::read::cache::LayoutMessageCache;
-use crate::file::read::mask::RowMask;
-use crate::file::read::splits::{
-    FilteringRowSplitIterator, FixedSplitIterator, MaskIterator, SplitMask,
-};
-use crate::file::read::{BatchRead, LayoutReader, MessageId, MessageLocator};
-use crate::file::{Dispatch, IoDispatcher};
-=======
 use crate::read::cache::LayoutMessageCache;
 use crate::read::mask::RowMask;
+use crate::read::splits::{FilteringRowSplitIterator, FixedSplitIterator, MaskIterator, SplitMask};
 use crate::read::{BatchRead, LayoutReader, MessageId, MessageLocator};
 use crate::{Dispatch, IoDispatcher};
->>>>>>> de7b7d88b (get rid of `file` module, move to top level):vortex-file/src/read/stream.rs
 
 /// An asynchronous Vortex file that returns a [`Stream`] of [`Array`]s.
 ///
 /// The file may be read from any source implementing [`VortexReadAt`], such
 /// as memory, disk, and object storage.
 ///
-/// Use [VortexReadBuilder][crate::read::builder::VortexReadBuilder] to build one
+/// Use [VortexReadBuilder][crate::file::read::builder::VortexReadBuilder] to build one
 /// from a reader.
 pub struct VortexFileArrayStream<R> {
     dtype: DType,

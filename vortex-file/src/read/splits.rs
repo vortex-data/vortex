@@ -6,7 +6,7 @@ use itertools::Itertools;
 use vortex_array::stats::ArrayStatistics;
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
-use crate::file::{BatchRead, LayoutReader, MessageLocator, RowMask};
+use crate::{BatchRead, LayoutReader, MessageLocator, RowMask};
 
 pub enum SplitMask {
     ReadMore(Vec<MessageLocator>),
@@ -183,8 +183,8 @@ mod tests {
 
     use vortex_error::VortexResult;
 
-    use crate::file::read::splits::{FixedSplitIterator, MaskIterator, SplitMask};
-    use crate::file::RowMask;
+    use crate::read::splits::{FixedSplitIterator, MaskIterator, SplitMask};
+    use crate::RowMask;
 
     #[test]
     #[should_panic]
