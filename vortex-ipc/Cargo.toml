@@ -34,6 +34,7 @@ criterion = { workspace = true, features = ["async_futures"] }
 futures-executor = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 vortex-sampling-compressor = { workspace = true }
+vortex-io = { workspace = true, features = ["futures"] }
 
 [lints]
 workspace = true
