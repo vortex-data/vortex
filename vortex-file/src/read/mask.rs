@@ -4,7 +4,7 @@ use std::fmt::{Display, Formatter};
 use arrow_buffer::{BooleanBuffer, MutableBuffer};
 use croaring::Bitmap;
 use vortex_array::array::{BoolArray, PrimitiveArray, SparseArray};
-use vortex_array::compute::{filter, slice, take, Len};
+use vortex_array::compute::{filter, slice, take};
 use vortex_array::validity::{LogicalValidity, Validity};
 use vortex_array::{iterate_integer_array, Array, IntoArray, IntoArrayVariant};
 use vortex_dtype::PType;
