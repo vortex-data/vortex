@@ -378,10 +378,10 @@ async fn filter_string() {
     writer = writer.write_array_columns(st).await.unwrap();
     let written = writer.finalize().await.unwrap();
     let mut reader = LayoutBatchStreamBuilder::new(written, LayoutDeserializer::default())
-        .with_row_filter(RowFilter::new(BinaryExpr::new_ref(
-            Column::new_ref(Field::from("name")),
+        .with_row_filter(RowFilter::new(BinaryExpr::new_expr(
+            Column::new_expr(Field::from("name")),
             Operator::Eq,
-            Literal::new_ref("Joseph".into()),
+            Literal::new_expr("Joseph".into()),
         )))
         .build()
         .await
@@ -435,24 +435,24 @@ async fn filter_or() {
     writer = writer.write_array_columns(st).await.unwrap();
     let written = writer.finalize().await.unwrap();
     let mut reader = LayoutBatchStreamBuilder::new(written, LayoutDeserializer::default())
-        .with_row_filter(RowFilter::new(BinaryExpr::new_ref(
-            BinaryExpr::new_ref(
-                Column::new_ref(Field::from("name")),
+        .with_row_filter(RowFilter::new(BinaryExpr::new_expr(
+            BinaryExpr::new_expr(
+                Column::new_expr(Field::from("name")),
                 Operator::Eq,
-                Literal::new_ref("Angela".into()),
+                Literal::new_expr("Angela".into()),
             ),
             Operator::Or,
-            BinaryExpr::new_ref(
-                BinaryExpr::new_ref(
-                    Column::new_ref(Field::from("age")),
+            BinaryExpr::new_expr(
+                BinaryExpr::new_expr(
+                    Column::new_expr(Field::from("age")),
                     Operator::Gte,
-                    Literal::new_ref(20.into()),
+                    Literal::new_expr(20.into()),
                 ),
                 Operator::And,
-                BinaryExpr::new_ref(
-                    Column::new_ref(Field::from("age")),
+                BinaryExpr::new_expr(
+                    Column::new_expr(Field::from("age")),
                     Operator::Lte,
-                    Literal::new_ref(30.into()),
+                    Literal::new_expr(30.into()),
                 ),
             ),
         )))
@@ -508,17 +508,17 @@ async fn filter_and() {
     writer = writer.write_array_columns(st).await.unwrap();
     let written = writer.finalize().await.unwrap();
     let mut reader = LayoutBatchStreamBuilder::new(written, LayoutDeserializer::default())
-        .with_row_filter(RowFilter::new(BinaryExpr::new_ref(
-            BinaryExpr::new_ref(
-                Column::new_ref(Field::from("age")),
+        .with_row_filter(RowFilter::new(BinaryExpr::new_expr(
+            BinaryExpr::new_expr(
+                Column::new_expr(Field::from("age")),
                 Operator::Gt,
-                Literal::new_ref(21.into()),
+                Literal::new_expr(21.into()),
             ),
             Operator::And,
-            BinaryExpr::new_ref(
-                Column::new_ref(Field::from("age")),
+            BinaryExpr::new_expr(
+                Column::new_expr(Field::from("age")),
                 Operator::Lte,
-                Literal::new_ref(33.into()),
+                Literal::new_expr(33.into()),
             ),
         )))
         .build()
@@ -720,10 +720,10 @@ async fn test_with_indices_and_with_row_filter_simple() {
     let actual_kept_array =
         LayoutBatchStreamBuilder::new(written.clone(), LayoutDeserializer::default())
             .with_indices(Array::from(empty_indices))
-            .with_row_filter(RowFilter::new(BinaryExpr::new_ref(
-                Column::new_ref(Field::from("numbers")),
+            .with_row_filter(RowFilter::new(BinaryExpr::new_expr(
+                Column::new_expr(Field::from("numbers")),
                 Operator::Gt,
-                Literal::new_ref(50_i16.into()),
+                Literal::new_expr(50_i16.into()),
             )))
             .build()
             .await
@@ -743,10 +743,10 @@ async fn test_with_indices_and_with_row_filter_simple() {
     let actual_kept_array =
         LayoutBatchStreamBuilder::new(written.clone(), LayoutDeserializer::default())
             .with_indices(Array::from(kept_indices_u16))
-            .with_row_filter(RowFilter::new(BinaryExpr::new_ref(
-                Column::new_ref(Field::from("numbers")),
+            .with_row_filter(RowFilter::new(BinaryExpr::new_expr(
+                Column::new_expr(Field::from("numbers")),
                 Operator::Gt,
-                Literal::new_ref(50_i16.into()),
+                Literal::new_expr(50_i16.into()),
             )))
             .build()
             .await
@@ -775,10 +775,10 @@ async fn test_with_indices_and_with_row_filter_simple() {
     let actual_array =
         LayoutBatchStreamBuilder::new(written.clone(), LayoutDeserializer::default())
             .with_indices(Array::from((0..500).collect::<Vec<u32>>()))
-            .with_row_filter(RowFilter::new(BinaryExpr::new_ref(
-                Column::new_ref(Field::from("numbers")),
+            .with_row_filter(RowFilter::new(BinaryExpr::new_expr(
+                Column::new_expr(Field::from("numbers")),
                 Operator::Gt,
-                Literal::new_ref(50_i16.into()),
+                Literal::new_expr(50_i16.into()),
             )))
             .build()
             .await

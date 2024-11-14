@@ -87,18 +87,18 @@ mod tests {
 
     #[test]
     fn basic_expr_split_test() {
-        let lhs = Column::new_ref(Field::Name("a".to_string()));
-        let rhs = Literal::new_ref(1.into());
-        let expr = BinaryExpr::new_ref(lhs, Operator::Eq, rhs);
+        let lhs = Column::new_expr(Field::Name("a".to_string()));
+        let rhs = Literal::new_expr(1.into());
+        let expr = BinaryExpr::new_expr(lhs, Operator::Eq, rhs);
         let conjunction = split_conjunction(&expr);
         assert_eq!(conjunction.len(), 1);
     }
 
     #[test]
     fn basic_conjunction_split_test() {
-        let lhs = Column::new_ref(Field::Name("a".to_string()));
-        let rhs = Literal::new_ref(1.into());
-        let expr = BinaryExpr::new_ref(lhs, Operator::And, rhs);
+        let lhs = Column::new_expr(Field::Name("a".to_string()));
+        let rhs = Literal::new_expr(1.into());
+        let expr = BinaryExpr::new_expr(lhs, Operator::And, rhs);
         let conjunction = split_conjunction(&expr);
         assert_eq!(conjunction.len(), 2, "Conjunction is {conjunction:?}");
     }

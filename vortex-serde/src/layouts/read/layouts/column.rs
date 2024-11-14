@@ -191,7 +191,7 @@ impl ColumnLayout {
                 Arc::new(RowFilter::from_conjunction(
                     handled_names
                         .iter()
-                        .map(|f| Column::new_ref(Field::from(&**f)))
+                        .map(|f| Column::new_expr(Field::from(&**f)))
                         .collect(),
                 )) as _
             });
@@ -329,10 +329,10 @@ mod tests {
         let cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
         let (mut filter_layout, mut project_layout, buf, length) = layout_and_bytes(
             cache.clone(),
-            Scan::new(Some(RowFilter::new_ref(BinaryExpr::new_ref(
-                Column::new_ref(Field::from("ints")),
+            Scan::new(Some(RowFilter::new_expr(BinaryExpr::new_expr(
+                Column::new_expr(Field::from("ints")),
                 Operator::Gt,
-                Literal::new_ref(10.into()),
+                Literal::new_expr(10.into()),
             )))),
         )
         .await;

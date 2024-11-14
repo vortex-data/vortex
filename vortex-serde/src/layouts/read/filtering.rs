@@ -26,7 +26,7 @@ impl RowFilter {
         Self { conjunction }
     }
 
-    pub fn new_ref(expr: ExprRef) -> ExprRef {
+    pub fn new_expr(expr: ExprRef) -> ExprRef {
         Arc::new(Self::new(expr))
     }
 

@@ -17,7 +17,7 @@ pub fn convert_expr_to_vortex(physical_expr: Arc<dyn PhysicalExpr>) -> VortexRes
         let right = convert_expr_to_vortex(binary_expr.right().clone())?;
         let operator = *binary_expr.op();
 
-        return Ok(BinaryExpr::new_ref(left, operator.try_into()?, right));
+        return Ok(BinaryExpr::new_expr(left, operator.try_into()?, right));
     }
 
     if let Some(col_expr) = physical_expr.as_any().downcast_ref::<expressions::Column>() {
@@ -31,7 +31,7 @@ pub fn convert_expr_to_vortex(physical_expr: Arc<dyn PhysicalExpr>) -> VortexRes
         .downcast_ref::<expressions::Literal>()
     {
         let value = Scalar::from(lit.value().clone());
-        return Ok(Literal::new_ref(value));
+        return Ok(Literal::new_expr(value));
     }
 
     vortex_bail!("Couldn't convert DataFusion physical expression to a vortex expression")

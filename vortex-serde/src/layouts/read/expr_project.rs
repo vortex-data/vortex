@@ -51,7 +51,7 @@ pub fn expr_project(expr: &ExprRef, projection: &[Field]) -> Option<ExprRef> {
     } else if let Some(n) = expr.as_any().downcast_ref::<Not>() {
         let own_refs = n.references();
         if own_refs.iter().all(|p| projection.contains(p)) {
-            expr_project(n.child(), projection).map(Not::new_ref)
+            expr_project(n.child(), projection).map(Not::new_expr)
         } else {
             None
         }
@@ -60,7 +60,7 @@ pub fn expr_project(expr: &ExprRef, projection: &[Field]) -> Option<ExprRef> {
         let rhs_proj = expr_project(bexp.rhs(), projection);
         if bexp.op() == Operator::And {
             match (lhs_proj, rhs_proj) {
-                (Some(lhsp), Some(rhsp)) => Some(BinaryExpr::new_ref(lhsp, bexp.op(), rhsp)),
+                (Some(lhsp), Some(rhsp)) => Some(BinaryExpr::new_expr(lhsp, bexp.op(), rhsp)),
                 // Projected lhs and rhs might lose reference to columns if they're simplified to straight column comparisons
                 (Some(lhsp), None) => (!bexp
                     .rhs()
@@ -77,7 +77,7 @@ pub fn expr_project(expr: &ExprRef, projection: &[Field]) -> Option<ExprRef> {
                 (None, None) => None,
             }
         } else {
-            Some(BinaryExpr::new_ref(lhs_proj?, bexp.op(), rhs_proj?))
+            Some(BinaryExpr::new_expr(lhs_proj?, bexp.op(), rhs_proj?))
         }
     } else {
         None
@@ -95,10 +95,10 @@ mod tests {
 
     #[test]
     fn project_and() {
-        let band = BinaryExpr::new_ref(
-            Column::new_ref(Field::from("a")),
+        let band = BinaryExpr::new_expr(
+            Column::new_expr(Field::from("a")),
             Operator::And,
-            Column::new_ref(Field::from("b")),
+            Column::new_expr(Field::from("b")),
         );
         let projection = vec![Field::from("b")];
         assert_eq!(
@@ -109,10 +109,10 @@ mod tests {
 
     #[test]
     fn project_or() {
-        let bor = BinaryExpr::new_ref(
-            Column::new_ref(Field::from("a")),
+        let bor = BinaryExpr::new_expr(
+            Column::new_expr(Field::from("a")),
             Operator::Or,
-            Column::new_ref(Field::from("b")),
+            Column::new_expr(Field::from("b")),
         );
         let projection = vec![Field::from("b")];
         assert!(expr_project(&bor, &projection).is_none());
@@ -120,17 +120,17 @@ mod tests {
 
     #[test]
     fn project_nested() {
-        let band = BinaryExpr::new_ref(
-            BinaryExpr::new_ref(
-                Column::new_ref(Field::from("a")),
+        let band = BinaryExpr::new_expr(
+            BinaryExpr::new_expr(
+                Column::new_expr(Field::from("a")),
                 Operator::Lt,
-                Column::new_ref(Field::from("b")),
+                Column::new_expr(Field::from("b")),
             ),
             Operator::And,
-            BinaryExpr::new_ref(
-                Literal::new_ref(5.into()),
+            BinaryExpr::new_expr(
+                Literal::new_expr(5.into()),
                 Operator::Lt,
-                Column::new_ref(Field::from("b")),
+                Column::new_expr(Field::from("b")),
             ),
         );
         let projection = vec![Field::from("b")];
@@ -139,18 +139,18 @@ mod tests {
 
     #[test]
     fn project_multicolumn() {
-        let blt = BinaryExpr::new_ref(
-            Column::new_ref(Field::from("a")),
+        let blt = BinaryExpr::new_expr(
+            Column::new_expr(Field::from("a")),
             Operator::Lt,
-            Column::new_ref(Field::from("b")),
+            Column::new_expr(Field::from("b")),
         );
         let projection = vec![Field::from("a"), Field::from("b")];
         assert_eq!(
             *expr_project(&blt, &projection).unwrap(),
-            *BinaryExpr::new_ref(
-                Column::new_ref(Field::from("a")),
+            *BinaryExpr::new_expr(
+                Column::new_expr(Field::from("a")),
                 Operator::Lt,
-                Column::new_ref(Field::from("b")),
+                Column::new_expr(Field::from("b")),
             )
             .as_any()
         );
@@ -186,7 +186,7 @@ mod tests {
 
     #[test]
     fn project_not() {
-        let not_e = Not::new_ref(Column::new_ref(Field::from("a")));
+        let not_e = Not::new_expr(Column::new_expr(Field::from("a")));
         let projection = vec![Field::from("a"), Field::from("b")];
         assert_eq!(*expr_project(&not_e, &projection).unwrap(), *not_e.as_any());
     }

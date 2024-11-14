@@ -14,7 +14,7 @@ pub struct Not {
 }
 
 impl Not {
-    pub fn new_ref(child: ExprRef) -> ExprRef {
+    pub fn new_expr(child: ExprRef) -> ExprRef {
         Arc::new(Self { child })
     }
 
@@ -62,7 +62,7 @@ mod tests {
 
     #[test]
     fn invert_booleans() {
-        let not_expr = Not::new_ref(Arc::new(Identity));
+        let not_expr = Not::new_expr(Arc::new(Identity));
         let bools = BoolArray::from(vec![false, true, false, false, true, true]);
         assert_eq!(
             not_expr

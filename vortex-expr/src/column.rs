@@ -16,7 +16,7 @@ pub struct Column {
 }
 
 impl Column {
-    pub fn new_ref(field: Field) -> ExprRef {
+    pub fn new_expr(field: Field) -> ExprRef {
         Arc::new(Self { field })
     }
 

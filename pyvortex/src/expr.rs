@@ -116,7 +116,7 @@ fn py_binary_opeartor<'py>(
     Bound::new(
         left.py(),
         PyExpr {
-            inner: BinaryExpr::new_ref(left.inner.clone(), operator, right.borrow().inner.clone()),
+            inner: BinaryExpr::new_expr(left.inner.clone(), operator, right.borrow().inner.clone()),
         },
     )
 }
@@ -228,7 +228,7 @@ pub fn column<'py>(name: &Bound<'py, PyString>) -> PyResult<Bound<'py, PyExpr>> 
     Bound::new(
         py,
         PyExpr {
-            inner: Column::new_ref(Field::Name(name)),
+            inner: Column::new_expr(Field::Name(name)),
         },
     )
 }
@@ -246,7 +246,7 @@ pub fn scalar<'py>(dtype: DType, value: &Bound<'py, PyAny>) -> PyResult<Bound<'p
     Bound::new(
         py,
         PyExpr {
-            inner: Literal::new_ref(Scalar::new(dtype.clone(), scalar_value(dtype, value)?)),
+            inner: Literal::new_expr(Scalar::new(dtype.clone(), scalar_value(dtype, value)?)),
         },
     )
 }

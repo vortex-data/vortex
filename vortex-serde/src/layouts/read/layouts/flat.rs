@@ -185,10 +185,10 @@ mod tests {
         let cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
         let (mut filter_layout, mut projection_layout, buf, length) = layout_and_bytes(
             cache.clone(),
-            Scan::new(Some(RowFilter::new_ref(BinaryExpr::new_ref(
+            Scan::new(Some(RowFilter::new_expr(BinaryExpr::new_expr(
                 Arc::new(Identity),
                 Operator::Gt,
-                Literal::new_ref(10.into()),
+                Literal::new_expr(10.into()),
             )))),
         )
         .await;
@@ -230,10 +230,10 @@ mod tests {
         let cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
         let (mut filter_layout, mut projection_layout, buf, length) = layout_and_bytes(
             cache.clone(),
-            Scan::new(Some(RowFilter::new_ref(BinaryExpr::new_ref(
+            Scan::new(Some(RowFilter::new_expr(BinaryExpr::new_expr(
                 Arc::new(Identity),
                 Operator::Gt,
-                Literal::new_ref(101.into()),
+                Literal::new_expr(101.into()),
             )))),
         )
         .await;
