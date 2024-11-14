@@ -4787,7 +4787,6 @@ dependencies = [
  "futures-executor",
  "futures-util",
  "itertools 0.13.0",
- "log",
  "object_store",
  "once_cell",
  "rstest",

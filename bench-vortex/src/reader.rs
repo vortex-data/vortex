@@ -32,6 +32,7 @@ use vortex::file::{
 };
 use vortex::io::{ObjectStoreReadAt, TokioFile, VortexReadAt, VortexWrite};
 use vortex::sampling_compressor::{SamplingCompressor, ALL_ENCODINGS_CONTEXT};
+use vortex::{Array, IntoArray, IntoCanonical};
 
 static DISPATCHER: LazyLock<Arc<IoDispatcher>> =
     LazyLock::new(|| Arc::new(IoDispatcher::new_tokio(1)));
