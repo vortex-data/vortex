@@ -199,3 +199,6 @@ data/
 
 # Emacs
 *~
+
+# Zed
+.zed/
