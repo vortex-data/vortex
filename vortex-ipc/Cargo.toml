@@ -15,7 +15,7 @@ categories.workspace = true
 
 [dependencies]
 bytes = { workspace = true }
-flatbuffers = { workspace = true, optional = true }
+flatbuffers = { workspace = true }
 futures-util = { workspace = true }
 itertools = { workspace = true }
 vortex-array = { workspace = true }

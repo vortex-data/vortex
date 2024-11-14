@@ -110,8 +110,8 @@
 //! All the chunks of a chunked layout and all the columns of a column layout need not use the same
 //! layout.
 //!
-//! Anything implementing [VortexReadAt][crate::io::VortexReadAt], for example local files, byte
-//! buffers, and [cloud storage][crate::io::ObjectStoreReadAt], can be used as the "linear and
+//! Anything implementing [VortexReadAt][vortex_io::VortexReadAt], for example local files, byte
+//! buffers, and [cloud storage][vortex_io::ObjectStoreReadAt], can be used as the "linear and
 //! contiguous memory".
 //!
 //! # Reading

@@ -2,7 +2,7 @@
 //!
 //! See [message] and [footer] for the flatbuffer specifications.
 //!
-//! See the `vortex-serde` crate for non-contiguous serialization.
+//! See the `vortex-file` crate for non-contiguous serialization.
 
 #[cfg(feature = "array")]
 #[allow(clippy::all)]

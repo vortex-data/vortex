@@ -26,7 +26,7 @@ use crate::{Dispatch, IoDispatcher};
 /// The file may be read from any source implementing [`VortexReadAt`], such
 /// as memory, disk, and object storage.
 ///
-/// Use [VortexReadBuilder][crate::file::read::builder::VortexReadBuilder] to build one
+/// Use [VortexReadBuilder][crate::read::builder::VortexReadBuilder] to build one
 /// from a reader.
 pub struct VortexFileArrayStream<R> {
     dtype: DType,

@@ -13,17 +13,15 @@ use self::compio::*;
 use self::tokio::*;
 
 mod sealed {
-    use super::{CompioDispatcher, IoDispatcher, TokioDispatcher};
-
     pub trait Sealed {}
 
-    impl Sealed for IoDispatcher {}
+    impl Sealed for super::IoDispatcher {}
 
     #[cfg(feature = "compio")]
-    impl Sealed for CompioDispatcher {}
+    impl Sealed for super::CompioDispatcher {}
 
     #[cfg(feature = "tokio")]
-    impl Sealed for TokioDispatcher {}
+    impl Sealed for super::TokioDispatcher {}
 }
 
 /// A trait for types that may be dispatched.
