@@ -1,3 +1,12 @@
+//! Core traits and implementations for asynchronous IO.
+//!
+//! Vortex implements an IPC streaming format as well as a file format, both of which
+//! run on top of a variety of storage systems that can be accessed from multiple async
+//! runtimes.
+//!
+//! This crate provides core traits for positioned and streaming IO, and via feature
+//! flags implements the core traits for several common async runtimes and backing stores.
+
 #[cfg(feature = "futures")]
 pub use futures::*;
 #[cfg(feature = "object_store")]

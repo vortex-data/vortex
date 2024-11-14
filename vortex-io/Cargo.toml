@@ -1,6 +1,6 @@
 [package]
 name = "vortex-io"
-description = "Core async and blocking IO traits and implementations for reading Vortex IPC and file messages"
+description = "Core async and blocking IO traits and implementations, used by IPC and file format"
 version.workspace = true
 homepage.workspace = true
 repository.workspace = true

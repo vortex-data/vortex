@@ -1,4 +1,12 @@
 #![doc(html_logo_url = "/vortex/docs/_static/vortex_spiral_logo.svg")]
+//! Vortex file format structures.
+//!
+//! This crate contains the structures that specify a "layout", which describes the
+//! representation of a set of buffers and messages at-rest holding Vortex arrays.
+//!
+//! We provide a writer, which accepts a stream of array batches and writes them using
+//! a pre-configured layout. The resulting file can be read back either in a streaming
+//! or blocking fashion.
 
 pub mod chunked_reader;
 mod dtype_reader;

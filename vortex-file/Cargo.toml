@@ -1,7 +1,7 @@
 [package]
 name = "vortex-file"
 version = { workspace = true }
-description = "Vortex Serialisation"
+description = "Vortex file readers and writers"
 homepage = { workspace = true }
 repository = { workspace = true }
 authors = { workspace = true }
