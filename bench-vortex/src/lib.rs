@@ -23,6 +23,7 @@ use crate::data_downloads::FileType;
 use crate::reader::BATCH_SIZE;
 use crate::taxi_data::taxi_data_parquet;
 
+pub mod clickbench;
 pub mod data_downloads;
 pub mod parquet_utils;
 pub mod public_bi_data;
@@ -30,6 +31,10 @@ pub mod reader;
 pub mod taxi_data;
 pub mod tpch;
 pub mod vortex_utils;
+
+// Sizes match default compressor configuration
+const TARGET_BLOCK_BYTESIZE: usize = 16 * (1 << 20);
+const TARGET_BLOCK_SIZE: usize = 64 * (1 << 10);
 
 pub static CTX: LazyLock<Arc<Context>> = LazyLock::new(|| {
     Arc::new(

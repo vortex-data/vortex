@@ -26,7 +26,7 @@ use vortex_datafusion::memory::VortexMemTableOptions;
 use vortex_datafusion::persistent::format::VortexFormat;
 use vortex_datafusion::SessionContextExt;
 
-use crate::{idempotent_async, CTX};
+use crate::{idempotent_async, CTX, TARGET_BLOCK_BYTESIZE, TARGET_BLOCK_SIZE};
 
 pub mod dbgen;
 mod execute;
@@ -37,10 +37,6 @@ pub use execute::*;
 pub const EXPECTED_ROW_COUNTS: [usize; 23] = [
     0, 4, 460, 11620, 5, 5, 1, 4, 2, 175, 37967, 1048, 2, 42, 1, 1, 18314, 1, 57, 1, 186, 411, 7,
 ];
-
-// Sizes match default compressor configuration
-const TARGET_BLOCK_BYTESIZE: usize = 16 * (1 << 20);
-const TARGET_BLOCK_SIZE: usize = 64 * (1 << 10);
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum Format {

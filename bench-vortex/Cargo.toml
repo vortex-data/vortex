@@ -98,3 +98,8 @@ harness = false
 name = "compressor_throughput"
 test = false
 harness = false
+
+[[bench]]
+name = "clickbench"
+test = false
+harness = false
