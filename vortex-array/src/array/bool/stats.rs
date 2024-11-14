@@ -1,3 +1,5 @@
+use std::ops::BitAnd;
+
 use arrow_buffer::BooleanBuffer;
 use itertools::Itertools;
 use vortex_dtype::{DType, Nullability};
@@ -47,7 +49,12 @@ impl ArrayStatisticsCompute for BoolArray {
 pub(super) struct NullableBools<'a>(&'a BooleanBuffer, &'a BooleanBuffer);
 
 impl ArrayStatisticsCompute for NullableBools<'_> {
-    fn compute_statistics(&self, _stat: Stat) -> VortexResult<StatsSet> {
+    fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
+        if stat == Stat::TrueCount {
+            // Fast-path if we just want the true-count
+            return Ok(StatsSet::of(stat, self.0.bitand(self.1).count_set_bits()));
+        }
+
         let first_non_null_idx = self
             .1
             .iter()
@@ -82,6 +89,7 @@ impl ArrayStatisticsCompute for BooleanBuffer {
         }
 
         if stat == Stat::TrueCount {
+            // Fast-path if we just want the true-count
             return Ok(StatsSet::of(stat, self.count_set_bits()));
         }
 
