@@ -4554,6 +4554,7 @@ version = "0.16.0"
 dependencies = [
  "datafusion-expr",
  "datafusion-physical-expr",
+ "itertools 0.13.0",
  "prost",
  "serde",
  "vortex-array",

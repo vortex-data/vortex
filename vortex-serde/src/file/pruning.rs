@@ -4,14 +4,13 @@
 use std::fmt::Display;
 use std::sync::Arc;
 
+use itertools::Itertools;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::stats::Stat;
 use vortex_dtype::field::Field;
 use vortex_dtype::Nullability;
-use vortex_expr::{
-    join_write, join_write_fun, BinaryExpr, Column, Literal, Not, Operator, VortexExpr,
-};
+use vortex_expr::{BinaryExpr, Column, Literal, Not, Operator, VortexExpr};
 use vortex_scalar::Scalar;
 
 #[derive(Debug, Clone)]
@@ -22,20 +21,14 @@ pub struct PruningPredicate {
 
 impl Display for PruningPredicate {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "PruningPredicate({}, ", self.expr)?;
-        join_write_fun(
+        write!(
             f,
-            "{",
-            ",",
-            "}",
-            self.required_stats.iter().map(|(k, v)| {
-                move |f: &mut std::fmt::Formatter<'_>| {
-                    write!(f, "{}: ", k)?;
-                    join_write(f, "{", v, ",", "}")
-                }
-            }),
-        )?;
-        write!(f, ")")
+            "PruningPredicate({}, {})",
+            self.expr,
+            self.required_stats.iter().format_with(",", |(k, v), fmt| {
+                fmt(&format_args!("{k}: {}", v.iter().format(",")))
+            })
+        )
     }
 }
 

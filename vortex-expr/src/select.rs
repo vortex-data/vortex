@@ -1,12 +1,13 @@
 use std::any::Any;
 use std::fmt::Display;
 
+use itertools::Itertools;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::Array;
 use vortex_dtype::field::Field;
 use vortex_error::{vortex_err, VortexResult};
 
-use crate::{join_write, unbox_any, VortexExpr};
+use crate::{unbox_any, VortexExpr};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Select {
@@ -27,8 +28,8 @@ impl Select {
 impl Display for Select {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Select::Include(fields) => join_write(f, "Include(", fields, ",", ")"),
-            Select::Exclude(fields) => join_write(f, "Exclude(", fields, ",", ")"),
+            Select::Include(fields) => write!(f, "Include({})", fields.iter().format(",")),
+            Select::Exclude(fields) => write!(f, "Exclude({})", fields.iter().format(",")),
         }
     }
 }

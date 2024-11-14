@@ -77,51 +77,6 @@ pub fn unbox_any(any: &dyn Any) -> &dyn Any {
     }
 }
 
-pub fn join_write<I, T: Display>(
-    f: &mut std::fmt::Formatter<'_>,
-    start: &str,
-    values: I,
-    delimiter: &str,
-    end: &str,
-) -> std::fmt::Result
-where
-    I: IntoIterator<Item = T>,
-{
-    write!(f, "{}", start)?;
-    let mut first = true;
-    for value in values {
-        if !first {
-            write!(f, "{}", delimiter)?;
-        }
-        first = false;
-        write!(f, "{}", value)?;
-    }
-    write!(f, "{}", end)
-}
-
-pub fn join_write_fun<F, I>(
-    f: &mut std::fmt::Formatter<'_>,
-    start: &str,
-    delimiter: &str,
-    end: &str,
-    formatters: I,
-) -> std::fmt::Result
-where
-    F: FnOnce(&mut std::fmt::Formatter<'_>) -> std::fmt::Result,
-    I: IntoIterator<Item = F>,
-{
-    write!(f, "{}", start)?;
-    let mut first = true;
-    for formatter in formatters {
-        if !first {
-            write!(f, "{}", delimiter)?;
-        }
-        first = false;
-        formatter(f)?;
-    }
-    write!(f, "{}", end)
-}
-
 #[cfg(test)]
 mod tests {
     use vortex_dtype::field::Field;

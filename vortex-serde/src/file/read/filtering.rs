@@ -3,6 +3,7 @@ use std::fmt::{Debug, Display};
 use std::sync::Arc;
 
 use arrow_buffer::BooleanBuffer;
+use itertools::Itertools;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{BoolArray, ConstantArray};
 use vortex_array::compute::and_kleene;
@@ -11,7 +12,7 @@ use vortex_array::validity::Validity;
 use vortex_array::{Array, IntoArray, IntoArrayVariant};
 use vortex_dtype::field::Field;
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_expr::{join_write, split_conjunction, unbox_any, VortexExpr};
+use vortex_expr::{split_conjunction, unbox_any, VortexExpr};
 
 use crate::file::read::expr_project::expr_project;
 
@@ -47,7 +48,7 @@ impl RowFilter {
 
 impl Display for RowFilter {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        join_write(f, "RowFilter(", self.conjunction.iter(), ",", ")")
+        write!(f, "RowFilter({})", self.conjunction.iter().format(","))
     }
 }
 
