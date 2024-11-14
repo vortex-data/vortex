@@ -48,7 +48,6 @@ enum Inner {
     Tokio(TokioDispatcher),
     #[cfg(feature = "compio")]
     Compio(CompioDispatcher),
-    // TODO(aduffy): implement compio or monoio dispatcher
 }
 
 impl Dispatch for IoDispatcher {
