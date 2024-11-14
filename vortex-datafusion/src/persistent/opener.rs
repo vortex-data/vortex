@@ -9,10 +9,8 @@ use futures::{FutureExt as _, StreamExt, TryStreamExt};
 use object_store::ObjectStore;
 use vortex_array::Context;
 use vortex_expr::datafusion::convert_expr_to_vortex;
-use vortex_serde::file::{
-    LayoutContext, LayoutDeserializer, Projection, RowFilter, VortexReadBuilder,
-};
-use vortex_serde::io::ObjectStoreReadAt;
+use vortex_file::{LayoutContext, LayoutDeserializer, Projection, RowFilter, VortexReadBuilder};
+use vortex_io::ObjectStoreReadAt;
 
 pub struct VortexFileOpener {
     pub ctx: Arc<Context>,

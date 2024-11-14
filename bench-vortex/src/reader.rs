@@ -27,9 +27,9 @@ use vortex::arrow::FromArrowType;
 use vortex::compress::CompressionStrategy;
 use vortex::dtype::DType;
 use vortex::error::VortexResult;
+use vortex::file::{LayoutContext, LayoutDeserializer, VortexFileWriter, VortexReadBuilder};
+use vortex::io::{ObjectStoreReadAt, TokioFile, VortexReadAt, VortexWrite};
 use vortex::sampling_compressor::{SamplingCompressor, ALL_ENCODINGS_CONTEXT};
-use vortex::serde::file::{LayoutContext, LayoutDeserializer, VortexFileWriter, VortexReadBuilder};
-use vortex::serde::io::{ObjectStoreReadAt, TokioFile, VortexReadAt, VortexWrite};
 use vortex::{Array, IntoArray, IntoCanonical};
 
 pub const BATCH_SIZE: usize = 65_536;

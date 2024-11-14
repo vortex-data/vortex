@@ -10,12 +10,12 @@ use vortex::arrow::infer_schema;
 use vortex::dtype::field::Field;
 use vortex::dtype::DType;
 use vortex::error::{vortex_err, VortexResult};
-use vortex::sampling_compressor::ALL_ENCODINGS_CONTEXT;
-use vortex::serde::file::{
+use vortex::file::{
     read_initial_bytes, LayoutContext, LayoutDeserializer, Projection, RowFilter,
     VortexFileArrayStream, VortexReadBuilder, VortexRecordBatchReader,
 };
-use vortex::serde::io::{ObjectStoreReadAt, TokioFile, VortexReadAt};
+use vortex::io::{ObjectStoreReadAt, TokioFile, VortexReadAt};
+use vortex::sampling_compressor::ALL_ENCODINGS_CONTEXT;
 use vortex::Array;
 
 use crate::expr::PyExpr;

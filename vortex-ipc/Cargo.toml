@@ -1,0 +1,19 @@
+[package]
+name = "vortex-ipc"
+description = "IPC message format to exchange Vortex arrays across processes"
+version.workspace = true
+homepage.workspace = true
+repository.workspace = true
+authors.workspace = true
+license.workspace = true
+keywords.workspace = true
+include.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+readme.workspace = true
+categories.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

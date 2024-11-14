@@ -9,7 +9,7 @@ use object_store::path::Path;
 use object_store::{ObjectStore, ObjectStoreScheme};
 use url::Url;
 use vortex::error::{vortex_bail, VortexResult};
-use vortex::serde::io::ObjectStoreReadAt;
+use vortex::io::ObjectStoreReadAt;
 
 fn better_parse_url(url_str: &str) -> VortexResult<(Box<dyn ObjectStore>, Path)> {
     let url = Url::parse(url_str)?;
