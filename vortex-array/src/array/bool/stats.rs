@@ -46,7 +46,7 @@ impl ArrayStatisticsCompute for BoolArray {
     }
 }
 
-pub(super) struct NullableBools<'a>(&'a BooleanBuffer, &'a BooleanBuffer);
+struct NullableBools<'a>(&'a BooleanBuffer, &'a BooleanBuffer);
 
 impl ArrayStatisticsCompute for NullableBools<'_> {
     fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
