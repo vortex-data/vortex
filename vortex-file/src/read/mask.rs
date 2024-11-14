@@ -4,7 +4,7 @@ use std::fmt::{Display, Formatter};
 use arrow_buffer::{BooleanBuffer, MutableBuffer};
 use croaring::Bitmap;
 use vortex_array::array::{BoolArray, PrimitiveArray, SparseArray};
-use vortex_array::compute::{filter, slice, take};
+use vortex_array::compute::{filter, slice, take, Len};
 use vortex_array::validity::{LogicalValidity, Validity};
 use vortex_array::{iterate_integer_array, Array, IntoArray, IntoArrayVariant};
 use vortex_dtype::PType;
@@ -122,7 +122,14 @@ impl RowMask {
     /// Combine the RowMask with bitmask values resulting in new RowMask containing only values true in the bitmask
     pub fn and_bitmask(self, bitmask: Array) -> VortexResult<Self> {
         // If we are a dense all true bitmap just take the bitmask array
-        if bitmask.len() as u64 == self.values.cardinality() {
+        if self.len() as u64 == self.values.cardinality() {
+            if bitmask.len() != self.len() {
+                vortex_bail!(
+                    "Bitmask length {} does not match our length {}",
+                    bitmask.len(),
+                    self.values.cardinality()
+                );
+            }
             Self::from_mask_array(&bitmask, self.begin, self.end)
         } else {
             // TODO(robert): Avoid densifying sparse values just to get true indices
