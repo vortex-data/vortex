@@ -153,7 +153,7 @@ impl<T: PStatsType> ArrayStatisticsCompute for NullableValues<'_, T> {
 
 fn compute_min_max<T: PStatsType>(iter: impl Iterator<Item = T>) -> StatsSet {
     // this `compare` function provides a total ordering (even for NaN values)
-    match iter.minmax_by(|a, b| a.compare(*b)) {
+    match iter.minmax_by(|a, b| a.total_compare(*b)) {
         MinMaxResult::NoElements => StatsSet::new(),
         MinMaxResult::OneElement(x) => {
             let scalar: Scalar = x.into();
@@ -175,7 +175,7 @@ fn compute_is_sorted<T: PStatsType>(mut iter: impl Iterator<Item = T>) -> StatsS
         return StatsSet::new();
     };
     for next in iter {
-        if matches!(next.compare(prev), Ordering::Less) {
+        if matches!(next.total_compare(prev), Ordering::Less) {
             sorted = false;
             break;
         }
@@ -199,7 +199,7 @@ fn compute_is_strict_sorted<T: PStatsType>(mut iter: impl Iterator<Item = T>) ->
     };
 
     for next in iter {
-        if !matches!(prev.compare(next), Ordering::Less) {
+        if !matches!(prev.total_compare(next), Ordering::Less) {
             strict_sorted = false;
             break;
         }

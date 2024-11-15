@@ -76,7 +76,7 @@ pub fn sort_canonical_array(array: &Array) -> Array {
 
 fn sort_primitive_slice<T: NativePType>(s: &mut [Option<T>]) {
     s.sort_by(|a, b| match (a, b) {
-        (Some(v), Some(w)) => v.compare(*w),
+        (Some(v), Some(w)) => v.total_compare(*w),
         (None, None) => Ordering::Equal,
         (None, Some(_)) => Ordering::Greater,
         (Some(_), None) => Ordering::Less,
