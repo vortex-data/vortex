@@ -68,7 +68,7 @@ pub trait NativePType:
     /// For integer types, this is always `false`
     fn is_nan(self) -> bool;
 
-    /// Compare another instance of this type to `self`
+    /// Compare another instance of this type to `self`, providing a total ordering
     fn compare(self, other: Self) -> Ordering;
 
     /// Whether another instance of this type (`other`) is bitwise equal to `self`

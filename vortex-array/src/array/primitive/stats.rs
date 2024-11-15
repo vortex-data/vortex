@@ -1,3 +1,4 @@
+use core::marker::PhantomData;
 use std::cmp::Ordering;
 use std::mem::size_of;
 
@@ -43,6 +44,7 @@ impl<T: PStatsType> ArrayStatisticsCompute for &[T] {
         }
 
         if matches!(stat, Stat::Min | Stat::Max) {
+            // this `compare` function provides a total ordering (even for NaN values)
             match self.iter().minmax_by(|a, b| a.compare(**b)) {
                 MinMaxResult::NoElements => return Ok(StatsSet::new()),
                 MinMaxResult::OneElement(x) => {
@@ -65,7 +67,7 @@ impl<T: PStatsType> ArrayStatisticsCompute for &[T] {
 
         if stat == Stat::IsConstant {
             let first = self[0];
-            let is_constant = self.iter().all(|x| x == &first);
+            let is_constant = self.iter().all(|x| first.is_eq(*x));
             return Ok(StatsSet::from(HashMap::from([(Stat::IsConstant, is_constant.into())])));
         }
 
@@ -133,32 +135,44 @@ impl<T: PStatsType> ArrayStatisticsCompute for &[T] {
 
 struct NullableValues<'a, T: PStatsType>(&'a [T], &'a BooleanBuffer);
 
+macro_rules! accumulate_stats {
+    ($self:expr, | $_:tt $enc:ident | $($body:tt)*) => ({
+        macro_rules! __with__ {( $_ $enc:ident ) => ( $($body)* )}
+        match $self {
+            Stat::BitWidthFreq | Stat::TrailingZeroFreq => __with__! { BitWidthAccumulator },
+            _ => __with__! { StatsAccumulator },
+        }
+    })
+}
+
 impl<T: PStatsType> ArrayStatisticsCompute for NullableValues<'_, T> {
-    fn compute_statistics(&self, _stat: Stat) -> VortexResult<StatsSet> {
+    fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
         let values = self.0;
-        if values.is_empty() {
+        if values.is_empty() || stat == Stat::TrueCount {
             return Ok(StatsSet::new());
         }
 
-        let first_non_null_idx = self
-            .1
-            .set_indices()
-            .next();
+        if stat == Stat::NullCount {
+            return Ok(StatsSet::from(HashMap::from([(Stat::NullCount, (values.len() - self.1.count_set_bits()).into())])));
+        }
 
-        let Some(first_non_null) = first_non_null_idx else {
+        let mut set_indices = self.1.set_indices();
+        let Some(first_non_null) = set_indices.next() else {
             return Ok(StatsSet::nulls(values.len(), &DType::Primitive(T::PTYPE, Nullability::Nullable)));
         };
 
-        let mut acc = StatsAccumulator::new(values[first_non_null]);
-        acc.n_nulls(first_non_null);
-        self.0
-            .iter()
-            .zip(self.1.iter())
-            .skip(first_non_null + 1)
-            .map(|(next, valid)| valid.then_some(*next))
-            .for_each(|next| acc.nullable_next(next));
-        Ok(acc.finish())
-
+        accumulate_stats!(stat, |$ACC| {
+            let mut acc = $ACC::new(values[first_non_null]);
+            acc.n_nulls(first_non_null);
+            let last_non_null = set_indices.fold(first_non_null, |prev_set_bit, next| {
+                let n_nulls = next - prev_set_bit - 1;
+                acc.n_nulls(n_nulls);
+                acc.next(values[next]);
+                next
+            });
+            acc.n_nulls(values.len() - last_non_null - 1);
+            return Ok(acc.finish());
+        });
     }
 }
 
@@ -209,38 +223,30 @@ float_bit_width!(f16);
 float_bit_width!(f32);
 float_bit_width!(f64);
 
-struct BitWidthAccumulator {
+struct BitWidthAccumulator<T: PStatsType> {
     bit_widths: Vec<u64>,
     trailing_zeros: Vec<u64>,
+    _marker: PhantomData<T>,
 }
 
-impl BitWidthAccumulator {
-    fn new<T: PStatsType>(first_value: T) -> Self {
+impl<T: PStatsType> BitWidthAccumulator<T> {
+    fn new(first_value: T) -> Self {
         let mut stats = Self {
             bit_widths: vec![0; size_of::<T>() * 8 + 1],
             trailing_zeros: vec![0; size_of::<T>() * 8 + 1],
+            _marker: PhantomData,
         };
         stats.bit_widths[first_value.bit_width() as usize] += 1;
         stats.trailing_zeros[first_value.trailing_zeros() as usize] += 1;
         stats
     }
 
-    fn n_nulls<T: PStatsType>(&mut self, n_nulls: usize) {
+    fn n_nulls(&mut self, n_nulls: usize) {
         self.bit_widths[0] += n_nulls as u64;
         self.trailing_zeros[T::PTYPE.bit_width()] += n_nulls as u64;
     }
 
-    pub fn nullable_next<T: PStatsType>(&mut self, next: Option<T>) {
-        match next {
-            Some(n) => self.next(n),
-            None => {
-                self.bit_widths[0] += 1;
-                self.trailing_zeros[T::PTYPE.bit_width()] += 1;
-            }
-        }
-    }
-
-    pub fn next<T: PStatsType>(&mut self, next: T) {
+    pub fn next(&mut self, next: T) {
         self.bit_widths[next.bit_width() as usize] += 1;
         self.trailing_zeros[next.trailing_zeros() as usize] += 1;
     }
@@ -262,14 +268,12 @@ struct StatsAccumulator<T: PStatsType> {
     run_count: usize,
     null_count: usize,
     nan_count: usize,
-    bit_widths: Vec<usize>,
-    trailing_zeros: Vec<usize>,
     len: usize,
 }
 
 impl<T: PStatsType> StatsAccumulator<T> {
     fn new(first_value: T) -> Self {
-        let mut stats = Self {
+        Self {
             prev: first_value,
             min: first_value,
             max: first_value,
@@ -277,38 +281,17 @@ impl<T: PStatsType> StatsAccumulator<T> {
             is_strict_sorted: true,
             run_count: 1,
             null_count: 0,
-            bit_widths: vec![0; size_of::<T>() * 8 + 1],
-            trailing_zeros: vec![0; size_of::<T>() * 8 + 1],
-            len: 1,
             nan_count: first_value.is_nan().then_some(1).unwrap_or_default(),
-        };
-        stats.bit_widths[first_value.bit_width() as usize] += 1;
-        stats.trailing_zeros[first_value.trailing_zeros() as usize] += 1;
-        stats
+            len: 1,
+        }
     }
 
     fn n_nulls(&mut self, n_nulls: usize) {
         self.null_count += n_nulls;
-        self.bit_widths[0] += n_nulls;
-        self.trailing_zeros[T::PTYPE.bit_width()] += n_nulls;
         self.len += n_nulls;
     }
 
-    pub fn nullable_next(&mut self, next: Option<T>) {
-        match next {
-            Some(n) => self.next(n),
-            None => {
-                self.bit_widths[0] += 1;
-                self.trailing_zeros[T::PTYPE.bit_width()] += 1;
-                self.null_count += 1;
-                self.len += 1;
-            }
-        }
-    }
-
     pub fn next(&mut self, next: T) {
-        self.bit_widths[next.bit_width() as usize] += 1;
-        self.trailing_zeros[next.trailing_zeros() as usize] += 1;
         self.len += 1;
 
         if next.is_nan() {
@@ -340,8 +323,6 @@ impl<T: PStatsType> StatsAccumulator<T> {
             (Stat::Max, self.max.into()),
             (Stat::NullCount, self.null_count.into()),
             (Stat::IsConstant, is_constant.into()),
-            (Stat::BitWidthFreq, self.bit_widths.into()),
-            (Stat::TrailingZeroFreq, self.trailing_zeros.into()),
             (Stat::IsSorted, self.is_sorted.into()),
             (
                 Stat::IsStrictSorted,
