@@ -17,7 +17,8 @@ readme = "README.md"
 dtype = []
 scalar = ["dtype"]
 array = ["dtype", "scalar"]
-file = ["dtype", "scalar", "array"]
+ipc = ["array"]
+file = ["ipc"]
 
 [dependencies]
 flatbuffers = { workspace = true }
