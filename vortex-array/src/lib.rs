@@ -39,6 +39,7 @@ use crate::variants::ArrayVariants;
 pub mod accessor;
 pub mod aliases;
 pub mod array;
+mod array2;
 pub mod arrow;
 mod canonical;
 pub mod compress;

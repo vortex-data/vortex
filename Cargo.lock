@@ -465,6 +465,7 @@ dependencies = [
  "datafusion",
  "datafusion-common",
  "datafusion-physical-plan",
+ "divan",
  "enum-iterator",
  "futures",
  "homedir",
