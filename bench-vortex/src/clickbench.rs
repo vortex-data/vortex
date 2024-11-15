@@ -11,7 +11,7 @@ use vortex::dtype::DType;
 use vortex::file::{VortexFileWriter, VORTEX_FILE_EXTENSION};
 use vortex::sampling_compressor::SamplingCompressor;
 use vortex::variants::StructArrayTrait;
-use vortex::{Array, ArrayDType, IntoArray, IntoArrayVariant};
+use vortex::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_datafusion::persistent::config::{VortexFile, VortexTableOptions};
 use vortex_datafusion::SessionContextExt;
 
@@ -162,11 +162,11 @@ pub async fn register_vortex_file(
         // Create a ChunkedArray from the set of chunks.
         let sts = record_batches
             .into_iter()
-            .map(Array::try_from)
+            .map(ArrayData::try_from)
             .map(|a| a.unwrap().into_struct().unwrap())
             .collect::<Vec<_>>();
 
-        let mut arrays_map: HashMap<Arc<str>, Vec<Array>> = HashMap::default();
+        let mut arrays_map: HashMap<Arc<str>, Vec<ArrayData>> = HashMap::default();
         let mut types_map: HashMap<Arc<str>, DType> = HashMap::default();
 
         for st in sts.into_iter() {
