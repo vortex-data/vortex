@@ -6,6 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## `vortex-file` - [0.18.1](https://github.com/spiraldb/vortex/compare/vortex-file-v0.18.0...vortex-file-v0.18.1) - 2024-11-15
+
+### Other
+- Rename Array -> ArrayData ([#1316](https://github.com/spiraldb/vortex/pull/1316))
+- Restore perfoamnce of filter bitmask to bitmap conversion for dense rowmasks ([#1302](https://github.com/spiraldb/vortex/pull/1302))
+- Reuse the IoDispatcher across DataFusion instances ([#1299](https://github.com/spiraldb/vortex/pull/1299))
+- replace vortex-serde with 3 crates ([#1296](https://github.com/spiraldb/vortex/pull/1296))
+
+## `vortex-flatbuffers` - [0.18.1](https://github.com/spiraldb/vortex/compare/vortex-flatbuffers-v0.18.0...vortex-flatbuffers-v0.18.1) - 2024-11-15
+
+### Fixed
+- use correct feature flags for vortex-ipc -> vortex-fbs dep ([#1328](https://github.com/spiraldb/vortex/pull/1328))
+
 ## `vortex-file` - [0.18.0](https://github.com/spiraldb/vortex/compare/vortex-file-v0.17.0...vortex-file-v0.18.0) - 2024-11-15
 
 ### Other
