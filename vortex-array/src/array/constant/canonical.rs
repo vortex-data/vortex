@@ -67,7 +67,7 @@ impl IntoCanonical for ConstantArray {
 
         if let Ok(s) = ExtScalar::try_from(scalar) {
             let DType::Extension(ext_dtype) = s.dtype() else {
-                unreachable!("ExtScalar has a non-ext dtype {:?}", s.dtype());
+                unreachable!("ExtScalar has a non-ext dtype {}", s.dtype());
             };
 
             let storage_dtype = ext_dtype.storage_dtype();
