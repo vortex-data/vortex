@@ -4,7 +4,6 @@ use vortex_array::validity::{ArrayValidity, Validity};
 use vortex_array::variants::StructArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::{match_each_native_ptype, DType};
-use vortex_error::VortexExpect;
 
 pub fn filter_canonical_array(array: &ArrayData, filter: &[bool]) -> ArrayData {
     match array.dtype() {
@@ -16,7 +15,7 @@ pub fn filter_canonical_array(array: &ArrayData, filter: &[bool]) -> ArrayData {
                 .into_bool()
                 .unwrap()
                 .boolean_buffer();
-            BoolArray::try_new(
+            BoolArray::new(
                 BooleanBuffer::from_iter(
                     filter
                         .iter()
@@ -32,7 +31,6 @@ pub fn filter_canonical_array(array: &ArrayData, filter: &[bool]) -> ArrayData {
                         .map(|(_, v)| v),
                 ),
             )
-            .vortex_expect("Failed to create BoolArray")
             .into_array()
         }
         DType::Primitive(p, _) => match_each_native_ptype!(p, |$P| {

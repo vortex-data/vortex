@@ -176,11 +176,10 @@ mod tests {
 
     #[test]
     fn test_bool_basic_comparisons() {
-        let arr = BoolArray::try_new(
+        let arr = BoolArray::new(
             BooleanBuffer::from_iter([true, true, false, true, false]),
             Validity::Array(BoolArray::from(vec![false, true, true, true, true]).into_array()),
         )
-        .unwrap()
         .into_array();
 
         let matches = compare(&arr, &arr, Operator::Eq)
@@ -197,11 +196,10 @@ mod tests {
         let empty: [u64; 0] = [];
         assert_eq!(to_int_indices(matches), empty);
 
-        let other = BoolArray::try_new(
+        let other = BoolArray::new(
             BooleanBuffer::from_iter([false, false, false, true, true]),
             Validity::Array(BoolArray::from(vec![false, true, true, true, true]).into_array()),
         )
-        .unwrap()
         .into_array();
 
         let matches = compare(&arr, &other, Operator::Lte)

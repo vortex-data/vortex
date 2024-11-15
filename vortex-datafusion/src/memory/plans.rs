@@ -397,7 +397,7 @@ mod test {
             Arc::new([FieldName::from("a"), FieldName::from("b")]),
             vec![
                 PrimitiveArray::from(vec![0u64, 1, 2]).into_array(),
-                BoolArray::from(vec![false, false, true]).into_array(),
+                BoolArray::from_iter([false, false, true]).into_array(),
             ],
             3,
             Validity::NonNullable,

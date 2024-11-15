@@ -95,7 +95,6 @@ mod test {
     use arrow_buffer::BooleanBufferBuilder;
     use rstest::rstest;
     use vortex_dtype::{DType, Nullability, PType};
-    use vortex_error::VortexExpect as _;
     use vortex_scalar::ScalarValue;
 
     use crate::array::sparse::SparseArray;
@@ -157,8 +156,7 @@ mod test {
             buffer.append(maybe_bool.unwrap_or_else(|| fill_value.unwrap_or_default()));
             validity.append(maybe_bool.is_some());
         }
-        BoolArray::try_new(buffer.finish(), Validity::from(validity.finish()))
-            .vortex_expect("Failed to create BoolArray from nullable vec")
+        BoolArray::new(buffer.finish(), Validity::from(validity.finish()))
     }
 
     #[rstest]

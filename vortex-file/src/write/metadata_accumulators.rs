@@ -209,7 +209,7 @@ where
 
     fn into_column(self) -> Option<(FieldName, ArrayData)> {
         if self.values.iter().any(Option::is_some) {
-            return Some((self.name, ArrayData::from_iter(self.values.into_iter())));
+            return Some((self.name, ArrayData::from_iter(self.values)));
         }
         None
     }

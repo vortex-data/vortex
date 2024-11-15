@@ -186,7 +186,7 @@ fn random_validity(u: &mut Unstructured, nullability: Nullability, len: usize) -
         Nullability::Nullable => Ok(match u.int_in_range(0..=2)? {
             0 => Validity::AllValid,
             1 => Validity::AllInvalid,
-            2 => Validity::from_iter(arbitrary_vec_of_len::<bool>(u, Some(len))?.into_iter()),
+            2 => Validity::from_iter(arbitrary_vec_of_len::<bool>(u, Some(len))?),
             _ => unreachable!(),
         }),
     }

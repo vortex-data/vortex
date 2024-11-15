@@ -18,11 +18,10 @@ pub fn take_canonical_array(array: &ArrayData, indices: &[usize]) -> ArrayData {
                 .boolean_buffer()
                 .iter()
                 .collect::<Vec<_>>();
-            BoolArray::try_new(
+            BoolArray::new(
                 indices.iter().map(|i| vec_values[*i]).collect(),
                 Validity::from_iter(indices.iter().map(|i| vec_validity[*i])),
             )
-            .unwrap()
             .into_array()
         }
         DType::Primitive(p, _) => match_each_native_ptype!(p, |$P| {

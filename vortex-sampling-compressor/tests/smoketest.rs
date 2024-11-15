@@ -27,7 +27,6 @@ mod tests {
     use vortex_datetime_dtype::TimeUnit;
     use vortex_datetime_parts::DateTimeParts;
     use vortex_dict::Dict;
-    use vortex_error::VortexExpect;
     use vortex_fastlanes::FoR;
     use vortex_fsst::FSST;
     use vortex_sampling_compressor::compressors::alp_rd::ALPRDCompressor;
@@ -197,11 +196,10 @@ mod tests {
     }
 
     fn make_bool_column(count: usize) -> ArrayData {
-        BoolArray::try_new(
+        BoolArray::new(
             BooleanBuffer::from_iter((0..count).map(|_| rand::random::<bool>())),
             Validity::NonNullable,
         )
-        .vortex_expect("failed to create array")
         .into_array()
     }
 
