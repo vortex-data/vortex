@@ -125,7 +125,7 @@ async fn take_vortex<T: VortexReadAt + Unpin + 'static>(
             LayoutContext::default().into(),
         ),
     )
-    .with_indices(ArrayData::from(indices.to_vec()))
+    .with_indices(ArrayData::from_iter(indices.iter().copied()))
     .build()
     .await?
     .read_all()
