@@ -1,7 +1,7 @@
 use arrow_array::builder::make_view;
 use arrow_buffer::Buffer;
 use vortex_array::array::{PrimitiveArray, VarBinArray, VarBinViewArray};
-use vortex_array::{ArrayData, ArrayDType, Canonical, IntoArrayData, IntoCanonical};
+use vortex_array::{ArrayDType, ArrayData, Canonical, IntoArrayData, IntoCanonical};
 use vortex_error::VortexResult;
 
 use crate::FSSTArray;

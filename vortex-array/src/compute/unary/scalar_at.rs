@@ -1,7 +1,7 @@
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::{ArrayData, ArrayDType};
+use crate::{ArrayDType, ArrayData};
 
 pub trait ScalarAtFn {
     fn scalar_at(&self, index: usize) -> VortexResult<Scalar>;

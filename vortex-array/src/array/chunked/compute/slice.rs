@@ -2,7 +2,7 @@ use vortex_error::VortexResult;
 
 use crate::array::chunked::ChunkedArray;
 use crate::compute::{slice, SliceFn};
-use crate::{ArrayData, ArrayDType, IntoArrayData};
+use crate::{ArrayDType, ArrayData, IntoArrayData};
 
 impl SliceFn for ChunkedArray {
     fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData> {

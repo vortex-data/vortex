@@ -18,7 +18,7 @@ use vortex::dtype::DType;
 use vortex::file::{VortexFileWriter, VORTEX_FILE_EXTENSION};
 use vortex::sampling_compressor::SamplingCompressor;
 use vortex::variants::StructArrayTrait;
-use vortex::{ArrayData, ArrayDType, IntoArrayData, IntoArrayVariant};
+use vortex::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_datafusion::memory::VortexMemTableOptions;
 use vortex_datafusion::persistent::config::{VortexFile, VortexTableOptions};
 use vortex_datafusion::SessionContextExt;

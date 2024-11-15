@@ -7,7 +7,7 @@ use crate::compute::unary::{scalar_at, scalar_at_unchecked, ScalarAtFn};
 use crate::compute::{filter, slice, take, ArrayCompute, FilterFn, SliceFn, TakeFn};
 use crate::stats::ArrayStatistics;
 use crate::variants::StructArrayTrait;
-use crate::{ArrayData, ArrayDType, IntoArrayData};
+use crate::{ArrayDType, ArrayData, IntoArrayData};
 
 impl ArrayCompute for StructArray {
     fn filter(&self) -> Option<&dyn FilterFn> {

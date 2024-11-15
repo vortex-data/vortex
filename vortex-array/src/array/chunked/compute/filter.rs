@@ -3,7 +3,7 @@ use vortex_error::{VortexExpect, VortexResult};
 
 use crate::array::{BoolArray, ChunkedArray, PrimitiveArray};
 use crate::compute::{filter, take, FilterFn, SearchSorted, SearchSortedSide};
-use crate::{ArrayData, ArrayDType, IntoArrayData, IntoCanonical};
+use crate::{ArrayDType, ArrayData, IntoArrayData, IntoCanonical};
 
 // This is modeled after the constant with the equivalent name in arrow-rs.
 const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;

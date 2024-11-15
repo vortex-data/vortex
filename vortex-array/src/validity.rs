@@ -15,7 +15,7 @@ use crate::array::BoolArray;
 use crate::compute::unary::scalar_at_unchecked;
 use crate::compute::{filter, slice, take};
 use crate::stats::ArrayStatistics;
-use crate::{ArrayData, ArrayDType, IntoArrayData, IntoArrayVariant};
+use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 
 pub trait ArrayValidity {
     fn is_valid(&self, index: usize) -> bool;

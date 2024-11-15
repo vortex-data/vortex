@@ -10,7 +10,9 @@ use crate::encoding::ids;
 use crate::stats::{ArrayStatisticsCompute, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
 use crate::variants::{ArrayVariants, StructArrayTrait};
-use crate::{impl_encoding, ArrayData, ArrayDType, ArrayTrait, Canonical, IntoArrayData, IntoCanonical};
+use crate::{
+    impl_encoding, ArrayDType, ArrayData, ArrayTrait, Canonical, IntoArrayData, IntoCanonical,
+};
 
 mod compute;
 
@@ -36,7 +38,7 @@ impl StructArray {
         })
     }
 
-    pub fn children(&self) -> impl Iterator<Item =ArrayData> + '_ {
+    pub fn children(&self) -> impl Iterator<Item = ArrayData> + '_ {
         (0..self.nfields()).map(move |idx| {
             self.field(idx).unwrap_or_else(|| {
                 vortex_panic!("Field {} not found, nfields: {}", idx, self.nfields())

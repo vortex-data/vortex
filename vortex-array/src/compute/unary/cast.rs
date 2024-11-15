@@ -1,7 +1,7 @@
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexResult};
 
-use crate::{ArrayData, ArrayDType};
+use crate::{ArrayDType, ArrayData};
 
 pub trait CastFn {
     fn cast(&self, dtype: &DType) -> VortexResult<ArrayData>;

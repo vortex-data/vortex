@@ -13,7 +13,7 @@ use crate::encoding::ids;
 use crate::stats::{ArrayStatistics, ArrayStatisticsCompute, Stat, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity};
 use crate::variants::PrimitiveArrayTrait;
-use crate::{impl_encoding, ArrayData, ArrayDType, ArrayTrait, IntoArrayData, IntoArrayVariant};
+use crate::{impl_encoding, ArrayDType, ArrayData, ArrayTrait, IntoArrayData, IntoArrayVariant};
 
 mod canonical;
 mod compute;

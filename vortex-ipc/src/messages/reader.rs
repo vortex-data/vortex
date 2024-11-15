@@ -5,7 +5,7 @@ use bytes::{Buf, Bytes, BytesMut};
 use flatbuffers::{root, root_unchecked};
 use futures_util::stream::try_unfold;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
-use vortex_array::{ArrayData, ViewedArrayData, Context, IntoArrayData};
+use vortex_array::{ArrayData, Context, IntoArrayData, ViewedArrayData};
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexResult};

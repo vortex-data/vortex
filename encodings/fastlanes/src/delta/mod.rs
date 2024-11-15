@@ -9,7 +9,7 @@ use vortex_array::stats::{ArrayStatisticsCompute, StatsSet};
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
 use vortex_array::variants::{ArrayVariants, PrimitiveArrayTrait};
 use vortex_array::{
-    impl_encoding, ArrayData, ArrayDType, ArrayTrait, Canonical, IntoArrayData, IntoCanonical,
+    impl_encoding, ArrayDType, ArrayData, ArrayTrait, Canonical, IntoArrayData, IntoCanonical,
 };
 use vortex_dtype::{match_each_unsigned_integer_ptype, NativePType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};

@@ -9,7 +9,7 @@ use vortex_array::compute::unary::{subtract_scalar, try_cast};
 use vortex_array::compute::{search_sorted, slice, take, SearchSortedSide};
 use vortex_array::stats::ArrayStatistics;
 use vortex_array::stream::{ArrayStream, ArrayStreamExt};
-use vortex_array::{ArrayData, ArrayDType, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::PType;
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 use vortex_io::VortexReadAt;

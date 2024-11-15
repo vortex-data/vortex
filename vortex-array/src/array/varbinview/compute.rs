@@ -15,7 +15,7 @@ use crate::array::{varbinview_as_arrow, ConstantArray};
 use crate::arrow::FromArrowArray;
 use crate::compute::unary::ScalarAtFn;
 use crate::compute::{slice, ArrayCompute, MaybeCompareFn, Operator, SliceFn, TakeFn};
-use crate::{ArrayData, ArrayDType, IntoArrayData, IntoCanonical};
+use crate::{ArrayDType, ArrayData, IntoArrayData, IntoCanonical};
 
 impl ArrayCompute for VarBinViewArray {
     fn compare(&self, other: &ArrayData, operator: Operator) -> Option<VortexResult<ArrayData>> {
@@ -71,12 +71,19 @@ impl TakeFn for VarBinViewArray {
         let indices_arrow = indices.clone().into_canonical()?.into_arrow()?;
 
         let take_arrow = arrow_select::take::take(&array_ref, &indices_arrow, None)?;
-        Ok(ArrayData::from_arrow(take_arrow, self.dtype().is_nullable()))
+        Ok(ArrayData::from_arrow(
+            take_arrow,
+            self.dtype().is_nullable(),
+        ))
     }
 }
 
 impl MaybeCompareFn for VarBinViewArray {
-    fn maybe_compare(&self, other: &ArrayData, operator: Operator) -> Option<VortexResult<ArrayData>> {
+    fn maybe_compare(
+        &self,
+        other: &ArrayData,
+        operator: Operator,
+    ) -> Option<VortexResult<ArrayData>> {
         if let Ok(rhs_const) = ConstantArray::try_from(other) {
             Some(compare_constant(self, &rhs_const, operator))
         } else {

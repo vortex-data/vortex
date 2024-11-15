@@ -8,7 +8,7 @@ use crate::compute::{
     compare, slice, take, ArrayCompute, MaybeCompareFn, Operator, SliceFn, TakeFn,
 };
 use crate::variants::ExtensionArrayTrait;
-use crate::{ArrayData, ArrayDType, IntoArrayData};
+use crate::{ArrayDType, ArrayData, IntoArrayData};
 
 impl ArrayCompute for ExtensionArray {
     fn cast(&self) -> Option<&dyn CastFn> {
@@ -36,7 +36,11 @@ impl ArrayCompute for ExtensionArray {
 }
 
 impl MaybeCompareFn for ExtensionArray {
-    fn maybe_compare(&self, other: &ArrayData, operator: Operator) -> Option<VortexResult<ArrayData>> {
+    fn maybe_compare(
+        &self,
+        other: &ArrayData,
+        operator: Operator,
+    ) -> Option<VortexResult<ArrayData>> {
         if let Ok(const_ext) = ConstantArray::try_from(other) {
             let scalar_ext = ExtScalar::try_new(const_ext.dtype(), const_ext.scalar_value())
                 .vortex_expect("Expected ExtScalar");

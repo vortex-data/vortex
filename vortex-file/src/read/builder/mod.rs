@@ -1,7 +1,7 @@
 use std::sync::{Arc, RwLock};
 
 use initial_read::{read_initial_bytes, read_layout_from_initial};
-use vortex_array::{ArrayData, ArrayDType};
+use vortex_array::{ArrayDType, ArrayData};
 use vortex_dtype::flatbuffers::deserialize_and_project;
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexResult};

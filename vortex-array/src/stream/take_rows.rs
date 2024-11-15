@@ -12,7 +12,7 @@ use crate::compute::{search_sorted, slice, take, SearchSortedSide};
 use crate::stats::{ArrayStatistics, Stat};
 use crate::stream::ArrayStream;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayData, ArrayDType, IntoArrayData, IntoArrayVariant};
+use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 
 #[pin_project]
 pub struct TakeRows<R: ArrayStream> {

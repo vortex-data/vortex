@@ -9,7 +9,7 @@ use vortex_error::{vortex_panic, VortexError};
 
 use crate::array::ExtensionArray;
 use crate::variants::ExtensionArrayTrait;
-use crate::{ArrayData, ArrayDType, IntoArrayData};
+use crate::{ArrayDType, ArrayData, IntoArrayData};
 
 /// An array wrapper for primitive values that have an associated temporal meaning.
 ///

@@ -9,7 +9,7 @@ use crate::array::primitive::PrimitiveArray;
 use crate::compute::unary::SubtractScalarFn;
 use crate::validity::ArrayValidity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayData, ArrayDType, IntoArrayData};
+use crate::{ArrayDType, ArrayData, IntoArrayData};
 
 impl SubtractScalarFn for PrimitiveArray {
     fn subtract_scalar(&self, to_subtract: &Scalar) -> VortexResult<ArrayData> {

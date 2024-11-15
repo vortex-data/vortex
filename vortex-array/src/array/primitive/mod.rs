@@ -20,7 +20,8 @@ use crate::stats::StatsSet;
 use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
 use crate::variants::{ArrayVariants, PrimitiveArrayTrait};
 use crate::{
-    impl_encoding, ArrayData, ArrayDType, ArrayTrait, Canonical, IntoArrayData, IntoCanonical, TypedArray,
+    impl_encoding, ArrayDType, ArrayData, ArrayTrait, Canonical, IntoArrayData, IntoCanonical,
+    TypedArray,
 };
 
 mod accessor;

@@ -5,7 +5,7 @@ use crate::array::primitive::PrimitiveArray;
 use crate::compute::unary::FillForwardFn;
 use crate::validity::{ArrayValidity, Validity};
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayData, ArrayDType, IntoArrayData};
+use crate::{ArrayDType, ArrayData, IntoArrayData};
 
 impl FillForwardFn for PrimitiveArray {
     fn fill_forward(&self) -> VortexResult<ArrayData> {

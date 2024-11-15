@@ -11,7 +11,7 @@ use crate::compute::{
     SearchSortedFn, SearchSortedSide, SliceFn, TakeFn,
 };
 use crate::stats::{ArrayStatistics, Stat};
-use crate::{ArrayData, ArrayDType, IntoArrayData};
+use crate::{ArrayDType, ArrayData, IntoArrayData};
 
 impl ArrayCompute for ConstantArray {
     fn compare(&self, other: &ArrayData, operator: Operator) -> Option<VortexResult<ArrayData>> {
@@ -104,7 +104,11 @@ impl SearchSortedFn for ConstantArray {
 }
 
 impl MaybeCompareFn for ConstantArray {
-    fn maybe_compare(&self, other: &ArrayData, operator: Operator) -> Option<VortexResult<ArrayData>> {
+    fn maybe_compare(
+        &self,
+        other: &ArrayData,
+        operator: Operator,
+    ) -> Option<VortexResult<ArrayData>> {
         (ConstantArray::try_from(other).is_ok()
             || other
                 .statistics()

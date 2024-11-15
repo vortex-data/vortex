@@ -21,7 +21,7 @@ use crate::stats::StatsSet;
 use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{
-    impl_encoding, ArrayData, ArrayDType, ArrayTrait, Canonical, IntoArrayVariant, IntoCanonical,
+    impl_encoding, ArrayDType, ArrayData, ArrayTrait, Canonical, IntoArrayVariant, IntoCanonical,
 };
 
 mod accessor;
@@ -393,8 +393,11 @@ impl VarBinViewArray {
                         }
                     },
                 );
-                VarBinViewArray::try_from(ArrayData::from_arrow(&string_view_array, nullability.into()))
-                    .vortex_expect("StringViewArray to VarBinViewArray downcast")
+                VarBinViewArray::try_from(ArrayData::from_arrow(
+                    &string_view_array,
+                    nullability.into(),
+                ))
+                .vortex_expect("StringViewArray to VarBinViewArray downcast")
             }
             DType::Binary(nullability) => {
                 let binary_view_array = generic_byte_view_builder::<BinaryViewType, _, _>(
@@ -404,8 +407,11 @@ impl VarBinViewArray {
                         Some(bytes) => builder.append_value(bytes.as_ref()),
                     },
                 );
-                VarBinViewArray::try_from(ArrayData::from_arrow(&binary_view_array, nullability.into()))
-                    .vortex_expect("BinaryViewArray to VarBinViewArray downcast")
+                VarBinViewArray::try_from(ArrayData::from_arrow(
+                    &binary_view_array,
+                    nullability.into(),
+                ))
+                .vortex_expect("BinaryViewArray to VarBinViewArray downcast")
             }
             other => vortex_panic!("VarBinViewArray must be Utf8 or Binary, was {other}"),
         }

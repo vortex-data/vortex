@@ -4,7 +4,7 @@ use vortex_scalar::Scalar;
 use crate::array::varbin::{varbin_scalar, VarBinArray};
 use crate::compute::unary::ScalarAtFn;
 use crate::compute::{ArrayCompute, FilterFn, MaybeCompareFn, Operator, SliceFn, TakeFn};
-use crate::{ArrayData, ArrayDType};
+use crate::{ArrayDType, ArrayData};
 
 mod compare;
 mod filter;

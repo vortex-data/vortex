@@ -1,6 +1,6 @@
 use vortex_error::{vortex_err, VortexResult};
 
-use crate::{ArrayData, ArrayDType};
+use crate::{ArrayDType, ArrayData};
 
 /// Trait for filling forward on an array, i.e., replacing nulls with the last non-null value.
 ///

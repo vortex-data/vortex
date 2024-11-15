@@ -5,7 +5,7 @@ use vortex_error::{vortex_err, VortexResult};
 use crate::array::BoolArray;
 use crate::compute::unary::FillForwardFn;
 use crate::validity::{ArrayValidity, Validity};
-use crate::{ArrayData, ArrayDType, IntoArrayData};
+use crate::{ArrayDType, ArrayData, IntoArrayData};
 
 impl FillForwardFn for BoolArray {
     fn fill_forward(&self) -> VortexResult<ArrayData> {

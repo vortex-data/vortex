@@ -4,7 +4,7 @@ use vortex_array::compute::unary::{scalar_at_unchecked, ScalarAtFn};
 use vortex_array::compute::{
     compare, filter, slice, take, ArrayCompute, FilterFn, MaybeCompareFn, Operator, SliceFn, TakeFn,
 };
-use vortex_array::{ArrayData, ArrayDType, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexResult, VortexUnwrap};
@@ -35,7 +35,11 @@ impl ArrayCompute for FSSTArray {
 }
 
 impl MaybeCompareFn for FSSTArray {
-    fn maybe_compare(&self, other: &ArrayData, operator: Operator) -> Option<VortexResult<ArrayData>> {
+    fn maybe_compare(
+        &self,
+        other: &ArrayData,
+        operator: Operator,
+    ) -> Option<VortexResult<ArrayData>> {
         match (ConstantArray::try_from(other), operator) {
             (Ok(constant_array), Operator::Eq | Operator::NotEq) => Some(compare_fsst_constant(
                 self,

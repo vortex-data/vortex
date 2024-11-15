@@ -8,7 +8,7 @@ use vortex_scalar::Scalar;
 
 use crate::array::Constant;
 use crate::arrow::FromArrowArray;
-use crate::{ArrayData, ArrayDType, ArrayDef, IntoCanonical};
+use crate::{ArrayDType, ArrayData, ArrayDef, IntoCanonical};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd)]
 pub enum Operator {
@@ -75,7 +75,11 @@ pub trait CompareFn {
 }
 
 pub trait MaybeCompareFn {
-    fn maybe_compare(&self, other: &ArrayData, operator: Operator) -> Option<VortexResult<ArrayData>>;
+    fn maybe_compare(
+        &self,
+        other: &ArrayData,
+        operator: Operator,
+    ) -> Option<VortexResult<ArrayData>>;
 }
 
 pub fn compare(

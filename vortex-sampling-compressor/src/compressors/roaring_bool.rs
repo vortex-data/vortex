@@ -2,7 +2,7 @@ use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::Bool;
 use vortex_array::encoding::EncodingRef;
 use vortex_array::stats::ArrayStatistics as _;
-use vortex_array::{ArrayData, ArrayDType, ArrayDef, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayDType, ArrayData, ArrayDef, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::DType;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_error::VortexResult;

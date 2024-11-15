@@ -5,7 +5,7 @@ use vortex_array::accessor::ArrayAccessor;
 use vortex_array::array::builder::VarBinBuilder;
 use vortex_array::array::{PrimitiveArray, VarBinArray, VarBinViewArray};
 use vortex_array::validity::Validity;
-use vortex_array::{ArrayData, ArrayDType, IntoArrayData};
+use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 

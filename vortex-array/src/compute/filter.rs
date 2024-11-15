@@ -3,7 +3,7 @@ use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, VortexResult};
 
 use crate::arrow::FromArrowArray;
-use crate::{ArrayData, ArrayDType, IntoCanonical};
+use crate::{ArrayDType, ArrayData, IntoCanonical};
 
 pub trait FilterFn {
     /// Filter an array by the provided predicate.
@@ -20,7 +20,10 @@ pub trait FilterFn {
 ///
 /// The `predicate` must receive an Array with type non-nullable bool, and will panic if this is
 /// not the case.
-pub fn filter(array: impl AsRef<ArrayData>, predicate: impl AsRef<ArrayData>) -> VortexResult<ArrayData> {
+pub fn filter(
+    array: impl AsRef<ArrayData>,
+    predicate: impl AsRef<ArrayData>,
+) -> VortexResult<ArrayData> {
     let array = array.as_ref();
     let predicate = predicate.as_ref();
 

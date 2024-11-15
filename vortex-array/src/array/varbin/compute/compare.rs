@@ -14,7 +14,11 @@ use crate::compute::{MaybeCompareFn, Operator};
 use crate::ArrayData;
 
 impl MaybeCompareFn for VarBinArray {
-    fn maybe_compare(&self, other: &ArrayData, operator: Operator) -> Option<VortexResult<ArrayData>> {
+    fn maybe_compare(
+        &self,
+        other: &ArrayData,
+        operator: Operator,
+    ) -> Option<VortexResult<ArrayData>> {
         if let Ok(rhs_const) = ConstantArray::try_from(other) {
             Some(compare_constant(self, &rhs_const, operator))
         } else {

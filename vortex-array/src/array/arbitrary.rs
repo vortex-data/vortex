@@ -7,7 +7,7 @@ use vortex_error::VortexUnwrap;
 use super::{BoolArray, ChunkedArray, NullArray, PrimitiveArray, StructArray};
 use crate::array::{VarBinArray, VarBinViewArray};
 use crate::validity::Validity;
-use crate::{ArrayData, ArrayDType, IntoArrayData as _, IntoArrayVariant};
+use crate::{ArrayDType, ArrayData, IntoArrayData as _, IntoArrayVariant};
 
 impl<'a> Arbitrary<'a> for ArrayData {
     fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {

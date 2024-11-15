@@ -1,13 +1,16 @@
 use log::info;
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
-use crate::{ArrayData, ArrayDType as _, IntoCanonical as _};
+use crate::{ArrayDType as _, ArrayData, IntoCanonical as _};
 
 pub trait TakeFn {
     fn take(&self, indices: &ArrayData) -> VortexResult<ArrayData>;
 }
 
-pub fn take(array: impl AsRef<ArrayData>, indices: impl AsRef<ArrayData>) -> VortexResult<ArrayData> {
+pub fn take(
+    array: impl AsRef<ArrayData>,
+    indices: impl AsRef<ArrayData>,
+) -> VortexResult<ArrayData> {
     let array = array.as_ref();
     let indices = indices.as_ref();
 

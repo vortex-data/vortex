@@ -11,7 +11,7 @@ use vortex_array::stats::{ArrayStatistics, ArrayStatisticsCompute, Stat, StatsSe
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
 use vortex_array::variants::{ArrayVariants, PrimitiveArrayTrait};
 use vortex_array::{
-    impl_encoding, ArrayData, ArrayDType, ArrayTrait, Canonical, IntoArrayData, IntoArrayVariant,
+    impl_encoding, ArrayDType, ArrayData, ArrayTrait, Canonical, IntoArrayData, IntoArrayVariant,
     IntoCanonical,
 };
 use vortex_dtype::{DType, PType};

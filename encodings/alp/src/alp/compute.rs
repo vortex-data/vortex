@@ -6,7 +6,7 @@ use vortex_array::compute::{
 use vortex_array::stats::{ArrayStatistics, Stat};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayData, ArrayDType, IntoArrayData};
+use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::{PValue, Scalar};
 
@@ -94,7 +94,11 @@ impl FilterFn for ALPArray {
 }
 
 impl MaybeCompareFn for ALPArray {
-    fn maybe_compare(&self, array: &ArrayData, operator: Operator) -> Option<VortexResult<ArrayData>> {
+    fn maybe_compare(
+        &self,
+        array: &ArrayData,
+        operator: Operator,
+    ) -> Option<VortexResult<ArrayData>> {
         if ConstantArray::try_from(array).is_ok()
             || array
                 .statistics()

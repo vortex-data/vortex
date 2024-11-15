@@ -1,7 +1,7 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::encoding::EncodingRef;
 use vortex_array::stats::ArrayStatistics;
-use vortex_array::{ArrayData, ArrayDType, ArrayDef, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayDType, ArrayData, ArrayDef, IntoArrayData, IntoArrayVariant};
 use vortex_error::VortexResult;
 use vortex_roaring::{roaring_int_encode, RoaringInt, RoaringIntEncoding};
 

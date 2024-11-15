@@ -6,7 +6,7 @@ use pyo3::types::{IntoPyDict, PyInt, PyList};
 use vortex::array::ChunkedArray;
 use vortex::compute::unary::{fill_forward, scalar_at};
 use vortex::compute::{compare, slice, take, Operator};
-use vortex::{ArrayData, ArrayDType, IntoCanonical};
+use vortex::{ArrayDType, ArrayData, IntoCanonical};
 
 use crate::dtype::PyDType;
 use crate::python_repr::PythonRepr;

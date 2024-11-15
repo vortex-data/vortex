@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::mem;
 
 use vortex_array::array::ChunkedArray;
-use vortex_array::{ArrayData, ArrayDType, IntoArrayData};
+use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
 
 use crate::read::mask::RowMask;

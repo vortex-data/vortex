@@ -2,7 +2,7 @@ use vortex_dtype::{NativePType, PType};
 use vortex_error::VortexResult;
 
 use crate::iter::Batch;
-use crate::{ArrayData, ArrayDType};
+use crate::{ArrayDType, ArrayData};
 
 pub trait BinaryFn {
     fn binary<I: NativePType, U: NativePType, O: NativePType, F: Fn(I, U) -> O>(
@@ -20,7 +20,9 @@ pub trait UnaryFn {
 }
 
 #[allow(clippy::unwrap_used)]
-pub fn dyn_cast_array_iter<N: NativePType>(array: &ArrayData) -> Box<dyn Iterator<Item = Batch<N>>> {
+pub fn dyn_cast_array_iter<N: NativePType>(
+    array: &ArrayData,
+) -> Box<dyn Iterator<Item = Batch<N>>> {
     match PType::try_from(array.dtype()).unwrap() {
         PType::U8 => Box::new(
             array

@@ -8,10 +8,14 @@ use crate::array::primitive::PrimitiveArray;
 use crate::array::{BoolArray, ConstantArray};
 use crate::compute::{MaybeCompareFn, Operator};
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayData, ArrayDType, IntoArrayData};
+use crate::{ArrayDType, ArrayData, IntoArrayData};
 
 impl MaybeCompareFn for PrimitiveArray {
-    fn maybe_compare(&self, other: &ArrayData, operator: Operator) -> Option<VortexResult<ArrayData>> {
+    fn maybe_compare(
+        &self,
+        other: &ArrayData,
+        operator: Operator,
+    ) -> Option<VortexResult<ArrayData>> {
         if let Ok(const_array) = ConstantArray::try_from(other) {
             return Some(primitive_const_compare(self, const_array, operator));
         }

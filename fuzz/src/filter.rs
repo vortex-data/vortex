@@ -2,7 +2,7 @@ use vortex_array::accessor::ArrayAccessor;
 use vortex_array::array::{BoolArray, PrimitiveArray, StructArray, VarBinViewArray};
 use vortex_array::validity::{ArrayValidity, Validity};
 use vortex_array::variants::StructArrayTrait;
-use vortex_array::{ArrayData, ArrayDType, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::{match_each_native_ptype, DType};
 
 pub fn filter_canonical_array(array: &ArrayData, filter: &[bool]) -> ArrayData {

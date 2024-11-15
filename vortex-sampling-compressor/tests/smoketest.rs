@@ -5,7 +5,7 @@ use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::builder::VarBinBuilder;
 use vortex_array::array::{BoolArray, PrimitiveArray, StructArray, TemporalArray};
 use vortex_array::validity::Validity;
-use vortex_array::{ArrayData, ArrayDType, IntoArrayData};
+use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
 use vortex_sampling_compressor::compressors::alp::ALPCompressor;
 use vortex_sampling_compressor::compressors::date_time_parts::DateTimePartsCompressor;
@@ -99,7 +99,8 @@ mod tests {
         let bools: Vec<ArrayData> = (0..4).map(|_| make_bool_column(chunk_size)).collect();
         let varbins: Vec<ArrayData> = (0..4).map(|_| make_string_column(chunk_size)).collect();
         let binaries: Vec<ArrayData> = (0..4).map(|_| make_binary_column(chunk_size)).collect();
-        let timestamps: Vec<ArrayData> = (0..4).map(|_| make_timestamp_column(chunk_size)).collect();
+        let timestamps: Vec<ArrayData> =
+            (0..4).map(|_| make_timestamp_column(chunk_size)).collect();
 
         fn chunked(arrays: Vec<ArrayData>) -> ArrayData {
             let dtype = arrays[0].dtype().clone();

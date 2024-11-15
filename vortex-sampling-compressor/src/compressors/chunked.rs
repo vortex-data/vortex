@@ -7,7 +7,7 @@ use vortex_array::array::{Chunked, ChunkedArray};
 use vortex_array::compress::compute_pruning_stats;
 use vortex_array::encoding::EncodingRef;
 use vortex_array::stats::ArrayStatistics as _;
-use vortex_array::{ArrayData, ArrayDType, ArrayDef, IntoArrayData};
+use vortex_array::{ArrayDType, ArrayData, ArrayDef, IntoArrayData};
 use vortex_error::{vortex_bail, VortexResult};
 
 use super::EncoderMetadata;

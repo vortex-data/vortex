@@ -1,7 +1,7 @@
 use vortex_error::{vortex_bail, VortexResult};
 
 use crate::array::BoolArray;
-use crate::{ArrayData, ArrayDType, IntoArrayVariant};
+use crate::{ArrayDType, ArrayData, IntoArrayVariant};
 pub trait AndFn {
     /// Point-wise logical _and_ between two Boolean arrays.
     ///
@@ -131,7 +131,10 @@ pub fn and(lhs: impl AsRef<ArrayData>, rhs: impl AsRef<ArrayData>) -> VortexResu
     )
 }
 
-pub fn and_kleene(lhs: impl AsRef<ArrayData>, rhs: impl AsRef<ArrayData>) -> VortexResult<ArrayData> {
+pub fn and_kleene(
+    lhs: impl AsRef<ArrayData>,
+    rhs: impl AsRef<ArrayData>,
+) -> VortexResult<ArrayData> {
     lift_boolean_operator(
         lhs,
         rhs,
@@ -149,7 +152,10 @@ pub fn or(lhs: impl AsRef<ArrayData>, rhs: impl AsRef<ArrayData>) -> VortexResul
     )
 }
 
-pub fn or_kleene(lhs: impl AsRef<ArrayData>, rhs: impl AsRef<ArrayData>) -> VortexResult<ArrayData> {
+pub fn or_kleene(
+    lhs: impl AsRef<ArrayData>,
+    rhs: impl AsRef<ArrayData>,
+) -> VortexResult<ArrayData> {
     lift_boolean_operator(
         lhs,
         rhs,

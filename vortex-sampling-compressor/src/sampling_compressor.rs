@@ -12,7 +12,7 @@ use vortex_array::compress::{
 use vortex_array::compute::slice;
 use vortex_array::encoding::EncodingRef;
 use vortex_array::validity::Validity;
-use vortex_array::{ArrayData, ArrayDType, ArrayDef, IntoCanonical};
+use vortex_array::{ArrayDType, ArrayData, ArrayDef, IntoCanonical};
 use vortex_error::{VortexExpect as _, VortexResult};
 
 use crate::compressors::chunked::DEFAULT_CHUNKED_COMPRESSOR;
