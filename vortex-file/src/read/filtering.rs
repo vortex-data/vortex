@@ -133,10 +133,11 @@ mod tests {
 
     #[test]
     fn coerces_nulls() {
-        let bool_array = BoolArray::from_vec(
-            vec![true, true, false, false],
-            Validity::Array(BoolArray::from(vec![true, false, true, false]).into()),
-        );
+        let bool_array = BoolArray::try_new(
+            BooleanBuffer::from_iter([true, true, false, false]),
+            Validity::Array(BoolArray::from_iter([true, false, true, false]).into()),
+        )
+        .unwrap();
         let non_null_array = null_as_false(bool_array).unwrap().into_bool().unwrap();
         assert_eq!(
             non_null_array.boolean_buffer().iter().collect::<Vec<_>>(),

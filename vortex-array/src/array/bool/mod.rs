@@ -2,7 +2,7 @@ use std::fmt::{Debug, Display};
 
 use arrow_array::BooleanArray;
 use arrow_buffer::bit_iterator::{BitIndexIterator, BitSliceIterator};
-use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, MutableBuffer};
+use arrow_buffer::{BooleanBufferBuilder, MutableBuffer};
 use itertools::Itertools;
 use num_traits::AsPrimitive;
 use serde::{Deserialize, Serialize};
@@ -22,6 +22,9 @@ use crate::{
 mod accessors;
 mod compute;
 mod stats;
+
+// Re-export the BooleanBuffer type on our API surface.
+pub use arrow_buffer::BooleanBuffer;
 
 impl_encoding!("vortex.bool", ids::BOOL, Bool);
 

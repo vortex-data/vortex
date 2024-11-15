@@ -4835,6 +4835,7 @@ dependencies = [
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",
+ "vortex-error",
  "vortex-sampling-compressor",
  "vortex-scalar",
 ]

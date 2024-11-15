@@ -552,8 +552,13 @@ async fn test_with_indices_simple() {
     let expected_numbers_split: Vec<Vec<i16>> = (0..5).map(|_| (0_i16..100).collect()).collect();
     let expected_array = StructArray::from_fields(&[(
         "numbers",
-        ChunkedArray::from_iter(expected_numbers_split.iter().cloned().map(ArrayData::from))
-            .into_array(),
+        ChunkedArray::from_iter(
+            expected_numbers_split
+                .iter()
+                .cloned()
+                .map(ArrayData::from_iter),
+        )
+        .into_array(),
     )])
     .unwrap();
     let expected_numbers: Vec<i16> = expected_numbers_split.into_iter().flatten().collect();
@@ -567,7 +572,7 @@ async fn test_with_indices_simple() {
     // test no indices
     let empty_indices = Vec::<u32>::new();
     let actual_kept_array = VortexReadBuilder::new(written.clone(), LayoutDeserializer::default())
-        .with_indices(ArrayData::from(empty_indices))
+        .with_indices(ArrayData::from_iter(empty_indices))
         .build()
         .await
         .unwrap()
@@ -584,7 +589,7 @@ async fn test_with_indices_simple() {
     let kept_indices_u16 = kept_indices.iter().map(|&x| x as u16).collect::<Vec<_>>();
 
     let actual_kept_array = VortexReadBuilder::new(written.clone(), LayoutDeserializer::default())
-        .with_indices(ArrayData::from(kept_indices_u16))
+        .with_indices(ArrayData::from_iter(kept_indices_u16))
         .build()
         .await
         .unwrap()
@@ -607,7 +612,7 @@ async fn test_with_indices_simple() {
 
     // test all indices
     let actual_array = VortexReadBuilder::new(written.clone(), LayoutDeserializer::default())
-        .with_indices(ArrayData::from((0..500).collect::<Vec<u32>>()))
+        .with_indices(ArrayData::from_iter(0u32..500))
         .build()
         .await
         .unwrap()
@@ -649,7 +654,7 @@ async fn test_with_indices_on_two_columns() {
     let kept_indices_u8 = kept_indices.iter().map(|&x| x as u8).collect::<Vec<_>>();
 
     let array = VortexReadBuilder::new(written.clone(), LayoutDeserializer::default())
-        .with_indices(ArrayData::from(kept_indices_u8))
+        .with_indices(ArrayData::from_iter(kept_indices_u8))
         .build()
         .await
         .unwrap()
@@ -694,8 +699,13 @@ async fn test_with_indices_and_with_row_filter_simple() {
     let expected_numbers_split: Vec<Vec<i16>> = (0..5).map(|_| (0_i16..100).collect()).collect();
     let expected_array = StructArray::from_fields(&[(
         "numbers",
-        ChunkedArray::from_iter(expected_numbers_split.iter().cloned().map(ArrayData::from))
-            .into_array(),
+        ChunkedArray::from_iter(
+            expected_numbers_split
+                .iter()
+                .cloned()
+                .map(ArrayData::from_iter),
+        )
+        .into_array(),
     )])
     .unwrap();
     let expected_numbers: Vec<i16> = expected_numbers_split.into_iter().flatten().collect();
@@ -709,7 +719,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
     // test no indices
     let empty_indices = Vec::<u32>::new();
     let actual_kept_array = VortexReadBuilder::new(written.clone(), LayoutDeserializer::default())
-        .with_indices(ArrayData::from(empty_indices))
+        .with_indices(ArrayData::from_iter(empty_indices))
         .with_row_filter(RowFilter::new(BinaryExpr::new_expr(
             Column::new_expr(Field::from("numbers")),
             Operator::Gt,
@@ -731,7 +741,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
     let kept_indices_u16 = kept_indices.iter().map(|&x| x as u16).collect::<Vec<_>>();
 
     let actual_kept_array = VortexReadBuilder::new(written.clone(), LayoutDeserializer::default())
-        .with_indices(ArrayData::from(kept_indices_u16))
+        .with_indices(ArrayData::from_iter(kept_indices_u16))
         .with_row_filter(RowFilter::new(BinaryExpr::new_expr(
             Column::new_expr(Field::from("numbers")),
             Operator::Gt,
@@ -762,7 +772,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
 
     // test all indices
     let actual_array = VortexReadBuilder::new(written.clone(), LayoutDeserializer::default())
-        .with_indices(ArrayData::from((0..500).collect::<Vec<u32>>()))
+        .with_indices(ArrayData::from_iter(0..500))
         .with_row_filter(RowFilter::new(BinaryExpr::new_expr(
             Column::new_expr(Field::from("numbers")),
             Operator::Gt,

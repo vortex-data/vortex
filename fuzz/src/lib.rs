@@ -141,7 +141,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                         .collect::<Result<Vec<_>>>()?;
                     current_array = filter_canonical_array(&current_array, &mask);
                     (
-                        Action::Filter(BoolArray::from(mask).into_array()),
+                        Action::Filter(BoolArray::from_iter(mask).into_array()),
                         ExpectedValue::Array(current_array.clone()),
                     )
                 }
