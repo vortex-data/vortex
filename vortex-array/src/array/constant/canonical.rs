@@ -2,12 +2,14 @@ use arrow_array::builder::make_view;
 use arrow_buffer::{BooleanBuffer, BufferBuilder};
 use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_native_ptype, DType, Nullability, PType};
-use vortex_error::{vortex_bail, VortexResult};
-use vortex_scalar::{BinaryScalar, BoolScalar, Utf8Scalar};
+use vortex_error::{vortex_bail, vortex_panic, VortexResult};
+use vortex_scalar::{BinaryScalar, BoolScalar, ExtScalar, Scalar, Utf8Scalar};
 
 use crate::array::constant::ConstantArray;
 use crate::array::primitive::PrimitiveArray;
-use crate::array::{BinaryView, BoolArray, NullArray, VarBinViewArray, VIEW_SIZE_BYTES};
+use crate::array::{
+    BinaryView, BoolArray, ExtensionArray, NullArray, VarBinViewArray, VIEW_SIZE_BYTES,
+};
 use crate::validity::Validity;
 use crate::{ArrayDType, Canonical, IntoArrayData, IntoCanonical};
 
@@ -61,6 +63,17 @@ impl IntoCanonical for ConstantArray {
 
         if matches!(self.dtype(), DType::Null) {
             return Ok(Canonical::Null(NullArray::new(self.len())));
+        }
+
+        if let Ok(s) = ExtScalar::try_from(scalar) {
+            let DType::Extension(ext_dtype) = s.dtype() else {
+                vortex_panic!("ExtScalar has a non-ext dtype {}", s.dtype());
+            };
+
+            let storage_dtype = ext_dtype.storage_dtype();
+            let storage_scalar = Scalar::new(storage_dtype.clone(), s.value().clone());
+            let storage_array = ConstantArray::new(storage_scalar, self.len()).into_array();
+            return ExtensionArray::new(ext_dtype.clone(), storage_array).into_canonical();
         }
 
         vortex_bail!("Unsupported scalar type {}", self.dtype())

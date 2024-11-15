@@ -122,10 +122,10 @@ impl StructArrayTrait for ChunkedArray {
 impl ListArrayTrait for ChunkedArray {}
 
 impl ExtensionArrayTrait for ChunkedArray {
-    fn storage_array(&self) -> ArrayData {
+    fn storage_data(&self) -> ArrayData {
         ChunkedArray::from_iter(
             self.chunks()
-                .map(|chunk| chunk.with_dyn(|a| a.as_extension_array_unchecked().storage_array())),
+                .map(|chunk| chunk.with_dyn(|a| a.as_extension_array_unchecked().storage_data())),
         )
         .into_array()
     }
