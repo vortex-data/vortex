@@ -142,28 +142,23 @@ impl<T: PStatsType> ArrayStatisticsCompute for NullableValues<'_, T> {
 
         let first_non_null_idx = self
             .1
-            .iter()
-            .enumerate()
-            .skip_while(|(_, valid)| !*valid)
-            .map(|(idx, _)| idx)
+            .set_indices()
             .next();
 
-        if let Some(first_non_null) = first_non_null_idx {
-            let mut acc = StatsAccumulator::new(values[first_non_null]);
-            acc.n_nulls(first_non_null);
-            self.0
-                .iter()
-                .zip(self.1.iter())
-                .skip(first_non_null + 1)
-                .map(|(next, valid)| valid.then_some(*next))
-                .for_each(|next| acc.nullable_next(next));
-            Ok(acc.finish())
-        } else {
-            Ok(StatsSet::nulls(
-                self.0.len(),
-                &DType::Primitive(T::PTYPE, Nullability::Nullable),
-            ))
-        }
+        let Some(first_non_null) = first_non_null_idx else {
+            return Ok(StatsSet::nulls(values.len(), &DType::Primitive(T::PTYPE, Nullability::Nullable)));
+        };
+
+        let mut acc = StatsAccumulator::new(values[first_non_null]);
+        acc.n_nulls(first_non_null);
+        self.0
+            .iter()
+            .zip(self.1.iter())
+            .skip(first_non_null + 1)
+            .map(|(next, valid)| valid.then_some(*next))
+            .for_each(|next| acc.nullable_next(next));
+        Ok(acc.finish())
+
     }
 }
 
