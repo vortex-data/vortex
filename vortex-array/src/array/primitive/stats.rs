@@ -51,55 +51,36 @@ impl<T: PStatsType> ArrayStatisticsCompute for &[T] {
             return Ok(StatsSet::new());
         }
 
-        if matches!(stat, Stat::Min | Stat::Max) {
-            let mut stats = compute_min_max(self.iter());
-            stats.set(
-                Stat::IsConstant,
+        Ok(match stat {
+            Stat::Min | Stat::Max => {
+                let mut stats = compute_min_max(self.iter().copied());
+                stats.set(
+                    Stat::IsConstant,
+                    stats
+                        .get(Stat::Min)
+                        .zip(stats.get(Stat::Max))
+                        .map(|(min, max)| min == max)
+                        .unwrap_or(false)
+                        .into(),
+                );
                 stats
-                    .get(Stat::Min)
-                    .zip(stats.get(Stat::Max))
-                    .map(|(min, max)| min == max)
-                    .unwrap_or(false)
-                    .into(),
-            );
-            return Ok(stats);
-        }
-
-        if stat == Stat::IsConstant {
-            let first = self[0];
-            let is_constant = self.iter().all(|x| first.is_eq(*x));
-            return Ok(StatsSet::from(HashMap::from([(
-                Stat::IsConstant,
-                is_constant.into(),
-            )])));
-        }
-
-        if stat == Stat::NullCount {
-            return Ok(StatsSet::from(HashMap::from([(
-                Stat::NullCount,
-                0u64.into(),
-            )])));
-        }
-
-        if stat == Stat::IsSorted {
-            return Ok(compute_is_sorted(self.iter()));
-        }
-
-        if stat == Stat::IsStrictSorted {
-            return Ok(compute_is_strict_sorted(self.iter()));
-        }
-
-        if stat == Stat::RunCount {
-            return Ok(compute_run_count(self.iter()));
-        }
-
-        if stat == Stat::BitWidthFreq || stat == Stat::TrailingZeroFreq {
-            let mut stats = BitWidthAccumulator::new(self[0]);
-            self.iter().skip(1).for_each(|next| stats.next(*next));
-            return Ok(stats.finish());
-        }
-
-        Ok(StatsSet::new())
+            }
+            Stat::IsConstant => {
+                let first = self[0];
+                let is_constant = self.iter().all(|x| first.is_eq(*x));
+                StatsSet::from(HashMap::from([(Stat::IsConstant, is_constant.into())]))
+            }
+            Stat::NullCount => StatsSet::from(HashMap::from([(Stat::NullCount, 0u64.into())])),
+            Stat::IsSorted => compute_is_sorted(self.iter().copied()),
+            Stat::IsStrictSorted => compute_is_strict_sorted(self.iter().copied()),
+            Stat::RunCount => compute_run_count(self.iter().copied()),
+            Stat::BitWidthFreq | Stat::TrailingZeroFreq => {
+                let mut stats = BitWidthAccumulator::new(self[0]);
+                self.iter().skip(1).for_each(|next| stats.next(*next));
+                stats.finish()
+            }
+            Stat::TrueCount => StatsSet::new(),
+        })
     }
 }
 
@@ -135,15 +116,15 @@ impl<T: PStatsType> ArrayStatisticsCompute for NullableValues<'_, T> {
 
         let mut set_indices = self.1.set_indices();
         if matches!(stat, Stat::Min | Stat::Max) {
-            stats.extend(compute_min_max(set_indices.map(|next| &values[next])));
+            stats.extend(compute_min_max(set_indices.map(|next| values[next])));
         } else if stat == Stat::IsSorted {
-            stats.extend(compute_is_sorted(set_indices.map(|next| &values[next])));
+            stats.extend(compute_is_sorted(set_indices.map(|next| values[next])));
         } else if stat == Stat::IsStrictSorted {
             stats.extend(compute_is_strict_sorted(
-                set_indices.map(|next| &values[next]),
+                set_indices.map(|next| values[next]),
             ));
         } else if stat == Stat::RunCount {
-            stats.extend(compute_run_count(set_indices.map(|next| &values[next])));
+            stats.extend(compute_run_count(set_indices.map(|next| values[next])));
         } else if matches!(stat, Stat::BitWidthFreq | Stat::TrailingZeroFreq) {
             let Some(first_non_null) = set_indices.next() else {
                 vortex_panic!(
@@ -170,31 +151,31 @@ impl<T: PStatsType> ArrayStatisticsCompute for NullableValues<'_, T> {
     }
 }
 
-fn compute_min_max<'a, T: PStatsType + 'a>(iter: impl Iterator<Item = &'a T>) -> StatsSet {
+fn compute_min_max<T: PStatsType>(iter: impl Iterator<Item = T>) -> StatsSet {
     // this `compare` function provides a total ordering (even for NaN values)
-    match iter.minmax_by(|a, b| a.compare(**b)) {
+    match iter.minmax_by(|a, b| a.compare(*b)) {
         MinMaxResult::NoElements => StatsSet::new(),
         MinMaxResult::OneElement(x) => {
-            let scalar: Scalar = (*x).into();
+            let scalar: Scalar = x.into();
             StatsSet::from(HashMap::from([
                 (Stat::Min, scalar.clone()),
                 (Stat::Max, scalar),
             ]))
         }
         MinMaxResult::MinMax(min, max) => StatsSet::from(HashMap::from([
-            (Stat::Min, (*min).into()),
-            (Stat::Max, (*max).into()),
+            (Stat::Min, min.into()),
+            (Stat::Max, max.into()),
         ])),
     }
 }
 
-fn compute_is_sorted<'a, T: PStatsType + 'a>(mut iter: impl Iterator<Item = &'a T>) -> StatsSet {
+fn compute_is_sorted<T: PStatsType>(mut iter: impl Iterator<Item = T>) -> StatsSet {
     let mut sorted = true;
     let Some(mut prev) = iter.next() else {
         return StatsSet::new();
     };
     for next in iter {
-        if matches!(next.compare(*prev), Ordering::Less) {
+        if matches!(next.compare(prev), Ordering::Less) {
             sorted = false;
             break;
         }
@@ -211,16 +192,14 @@ fn compute_is_sorted<'a, T: PStatsType + 'a>(mut iter: impl Iterator<Item = &'a 
     }
 }
 
-fn compute_is_strict_sorted<'a, T: PStatsType + 'a>(
-    mut iter: impl Iterator<Item = &'a T>,
-) -> StatsSet {
+fn compute_is_strict_sorted<T: PStatsType>(mut iter: impl Iterator<Item = T>) -> StatsSet {
     let mut strict_sorted = true;
     let Some(mut prev) = iter.next() else {
         return StatsSet::new();
     };
 
     for next in iter {
-        if !matches!(prev.compare(*next), Ordering::Less) {
+        if !matches!(prev.compare(next), Ordering::Less) {
             strict_sorted = false;
             break;
         }
@@ -237,13 +216,13 @@ fn compute_is_strict_sorted<'a, T: PStatsType + 'a>(
     }
 }
 
-fn compute_run_count<'a, T: PStatsType + 'a>(mut iter: impl Iterator<Item = &'a T>) -> StatsSet {
+fn compute_run_count<T: PStatsType>(mut iter: impl Iterator<Item = T>) -> StatsSet {
     let mut run_count = 1;
     let Some(mut prev) = iter.next() else {
         return StatsSet::new();
     };
     for next in iter {
-        if !prev.is_eq(*next) {
+        if !prev.is_eq(next) {
             run_count += 1;
             prev = next;
         }
