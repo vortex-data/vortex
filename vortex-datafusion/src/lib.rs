@@ -2,36 +2,22 @@
 
 #![allow(clippy::nonminimal_bool)]
 
-use std::any::Any;
-use std::fmt::{Debug, Formatter};
-use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll};
 
-use arrow_array::RecordBatch;
-use arrow_schema::{DataType, Schema, SchemaRef};
-use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext};
+use arrow_schema::{DataType, Schema};
 use datafusion::prelude::{DataFrame, SessionContext};
-use datafusion_common::{exec_datafusion_err, DataFusionError, Result as DFResult, Statistics};
+use datafusion_common::Result as DFResult;
 use datafusion_execution::object_store::ObjectStoreUrl;
 use datafusion_expr::{Expr, Operator};
-use datafusion_physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
-use futures::Stream;
-use memory::{VortexMemTable, VortexMemTableOptions};
 use persistent::config::VortexTableOptions;
 use persistent::provider::VortexFileTableProvider;
-use vortex_array::array::ChunkedArray;
-use vortex_array::{Array, ArrayDType, IntoArrayVariant};
-use vortex_dtype::field::Field;
-use vortex_error::{vortex_err, VortexResult};
+use vortex_array::{Array, ArrayDType};
+use vortex_error::vortex_err;
 
-use crate::statistics::chunked_array_df_stats;
+use crate::memory::{VortexMemTable, VortexMemTableOptions};
 
 pub mod memory;
 pub mod persistent;
-
-mod plans;
-mod statistics;
 
 const SUPPORTED_BINARY_OPS: &[Operator] = &[
     Operator::Eq,
@@ -170,143 +156,5 @@ fn can_be_pushed_down(expr: &Expr, schema: &Schema) -> bool {
         },
         Expr::Literal(lit) => supported_data_types(lit.data_type()),
         _ => false,
-    }
-}
-
-/// Physical plan node for scans against an in-memory, possibly chunked Vortex Array.
-#[derive(Clone)]
-struct VortexScanExec {
-    array: ChunkedArray,
-    scan_projection: Vec<usize>,
-    plan_properties: PlanProperties,
-    statistics: Statistics,
-}
-
-impl VortexScanExec {
-    pub fn try_new(
-        array: ChunkedArray,
-        scan_projection: Vec<usize>,
-        plan_properties: PlanProperties,
-    ) -> VortexResult<Self> {
-        let statistics = chunked_array_df_stats(&array, &scan_projection)?;
-        Ok(Self {
-            array,
-            scan_projection,
-            plan_properties,
-            statistics,
-        })
-    }
-}
-
-impl Debug for VortexScanExec {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("VortexScanExec")
-            .field("array_length", &self.array.len())
-            .field("array_dtype", &self.array.dtype())
-            .field("scan_projection", &self.scan_projection)
-            .field("plan_properties", &self.plan_properties)
-            .finish_non_exhaustive()
-    }
-}
-
-impl DisplayAs for VortexScanExec {
-    fn fmt_as(&self, _display_type: DisplayFormatType, f: &mut Formatter) -> std::fmt::Result {
-        Debug::fmt(self, f)
-    }
-}
-
-pub(crate) struct VortexRecordBatchStream {
-    schema_ref: SchemaRef,
-
-    idx: usize,
-    num_chunks: usize,
-    chunks: ChunkedArray,
-
-    projection: Vec<Field>,
-}
-
-impl Stream for VortexRecordBatchStream {
-    type Item = DFResult<RecordBatch>;
-
-    fn poll_next(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        if self.idx >= self.num_chunks {
-            return Poll::Ready(None);
-        }
-
-        // Grab next chunk, project and convert to Arrow.
-        let chunk = self.chunks.chunk(self.idx)?;
-        self.idx += 1;
-
-        let struct_array = chunk
-            .into_struct()
-            .map_err(|vortex_error| DataFusionError::Execution(format!("{}", vortex_error)))?;
-
-        let projected_struct = struct_array
-            .project(&self.projection)
-            .map_err(|vortex_err| {
-                exec_datafusion_err!("projection pushdown to Vortex failed: {vortex_err}")
-            })?;
-
-        Poll::Ready(Some(Ok(projected_struct.try_into()?)))
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        (self.num_chunks, Some(self.num_chunks))
-    }
-}
-
-impl RecordBatchStream for VortexRecordBatchStream {
-    fn schema(&self) -> SchemaRef {
-        Arc::clone(&self.schema_ref)
-    }
-}
-
-impl ExecutionPlan for VortexScanExec {
-    fn name(&self) -> &str {
-        VortexScanExec::static_name()
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn properties(&self) -> &PlanProperties {
-        &self.plan_properties
-    }
-
-    fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> {
-        // Leaf node
-        vec![]
-    }
-
-    fn with_new_children(
-        self: Arc<Self>,
-        _: Vec<Arc<dyn ExecutionPlan>>,
-    ) -> DFResult<Arc<dyn ExecutionPlan>> {
-        Ok(self)
-    }
-
-    fn execute(
-        &self,
-        _partition: usize,
-        _context: Arc<TaskContext>,
-    ) -> DFResult<SendableRecordBatchStream> {
-        // Send back a stream of RecordBatch that returns the next element of the chunk each time.
-        Ok(Box::pin(VortexRecordBatchStream {
-            schema_ref: self.schema().clone(),
-            idx: 0,
-            num_chunks: self.array.nchunks(),
-            chunks: self.array.clone(),
-            projection: self
-                .scan_projection
-                .iter()
-                .copied()
-                .map(Field::from)
-                .collect(),
-        }))
-    }
-
-    fn statistics(&self) -> DFResult<Statistics> {
-        Ok(self.statistics.clone())
     }
 }

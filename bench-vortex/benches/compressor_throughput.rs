@@ -1,11 +1,15 @@
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion, Throughput};
 use itertools::Itertools as _;
 use mimalloc::MiMalloc;
-use rand::{Rng, SeedableRng as _};
+use rand::distributions::Alphanumeric;
+use rand::seq::SliceRandom as _;
+use rand::{thread_rng, Rng, SeedableRng as _};
 use vortex::aliases::hash_set::HashSet;
-use vortex::array::PrimitiveArray;
+use vortex::array::{PrimitiveArray, VarBinViewArray};
 use vortex::compute::unary::try_cast;
+use vortex::dict::{dict_encode_varbinview, DictArray};
 use vortex::dtype::PType;
+use vortex::fsst::{fsst_compress, fsst_train_compressor};
 use vortex::sampling_compressor::compressors::alp::ALPCompressor;
 use vortex::sampling_compressor::compressors::alp_rd::ALPRDCompressor;
 use vortex::sampling_compressor::compressors::bitpacked::{
@@ -92,5 +96,51 @@ fn primitive(c: &mut Criterion) {
     }
 }
 
-criterion_group!(benches, primitive);
+fn strings(c: &mut Criterion) {
+    let mut group = c.benchmark_group("string-decompression");
+    let num_values = u16::MAX as u64;
+    group.throughput(Throughput::Bytes(num_values * 8));
+
+    let varbinview_arr = VarBinViewArray::from_iter_str(gen_varbin_words(1_000_000, 0.00005));
+    let (codes, values) = dict_encode_varbinview(&varbinview_arr);
+    group.throughput(Throughput::Bytes(
+        varbinview_arr.clone().into_array().nbytes() as u64,
+    ));
+    group.bench_function("dict_decode_varbinview", |b| {
+        b.iter_batched(
+            || DictArray::try_new(codes.clone().into_array(), values.clone().into_array()).unwrap(),
+            |dict_arr| black_box(dict_arr.into_canonical().unwrap()),
+            BatchSize::SmallInput,
+        );
+    });
+
+    let fsst_compressor = fsst_train_compressor(&varbinview_arr.clone().into_array()).unwrap();
+    let fsst_array = fsst_compress(&varbinview_arr.clone().into_array(), &fsst_compressor).unwrap();
+    group.bench_function("fsst_decompress_varbinview", |b| {
+        b.iter_batched(
+            || fsst_array.clone(),
+            |fsst_arr| black_box(fsst_arr.into_canonical().unwrap()),
+            BatchSize::SmallInput,
+        );
+    });
+}
+
+fn gen_varbin_words(len: usize, uniqueness: f64) -> Vec<String> {
+    let mut rng = thread_rng();
+    let uniq_cnt = (len as f64 * uniqueness) as usize;
+    let dict: Vec<String> = (0..uniq_cnt)
+        .map(|_| {
+            (&mut rng)
+                .sample_iter(&Alphanumeric)
+                .take(8)
+                .map(char::from)
+                .collect()
+        })
+        .collect();
+    (0..len)
+        .map(|_| dict.choose(&mut rng).unwrap().clone())
+        .collect()
+}
+
+criterion_group!(benches, primitive, strings);
 criterion_main!(benches);

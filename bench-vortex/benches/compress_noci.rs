@@ -1,5 +1,7 @@
 mod tokio_runtime;
 
+use core::str::FromStr;
+use core::sync::atomic::{AtomicBool, Ordering};
 use std::io::Cursor;
 use std::path::Path;
 use std::sync::Arc;
@@ -16,11 +18,13 @@ use bench_vortex::tpch::dbgen::{DBGen, DBGenOptions};
 use bench_vortex::{fetch_taxi_data, tpch};
 use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
 use futures::TryStreamExt;
+use log::LevelFilter;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use parquet::arrow::ArrowWriter;
 use parquet::basic::{Compression, ZstdLevel};
 use parquet::file::properties::WriterProperties;
 use regex::Regex;
+use simplelog::*;
 use tokio::runtime::Runtime;
 use vortex::array::{ChunkedArray, StructArray};
 use vortex::buffer::Buffer;
@@ -40,6 +44,8 @@ struct GenericBenchmarkResults<'a> {
     unit: &'a str,
     range: f64,
 }
+
+static LOG_INITIALIZED: AtomicBool = AtomicBool::new(false);
 
 fn ensure_dir_exists(dir: &str) -> std::io::Result<()> {
     let path = Path::new(dir);
@@ -164,6 +170,20 @@ fn benchmark_compress<F, U>(
     F: Fn() -> U,
     U: AsRef<Array>,
 {
+    // if no logging is enabled, enable it
+    if !LOG_INITIALIZED.swap(true, Ordering::SeqCst) {
+        TermLogger::init(
+            env::var("RUST_LOG")
+                .ok()
+                .and_then(|s| LevelFilter::from_str(&s).ok())
+                .unwrap_or(LevelFilter::Off),
+            Config::default(),
+            TerminalMode::Mixed,
+            ColorChoice::Auto,
+        )
+        .unwrap();
+    }
+
     ensure_dir_exists("benchmarked-files").unwrap();
     let runtime = &TOKIO_RUNTIME;
     let uncompressed = make_uncompressed();

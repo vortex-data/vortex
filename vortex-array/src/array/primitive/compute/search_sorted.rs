@@ -67,7 +67,7 @@ impl<'a, T: NativePType> SearchSortedPrimitive<'a, T> {
 impl<T: NativePType> IndexOrd<T> for SearchSortedPrimitive<'_, T> {
     fn index_cmp(&self, idx: usize, elem: &T) -> Option<Ordering> {
         // SAFETY: Used in search_sorted_by same as the standard library. The search_sorted ensures idx is in bounds
-        Some(unsafe { self.values.get_unchecked(idx) }.compare(*elem))
+        Some(unsafe { self.values.get_unchecked(idx) }.total_compare(*elem))
     }
 }
 

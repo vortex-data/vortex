@@ -177,7 +177,7 @@ impl<T: BitPacking + NativePType> IndexOrd<T> for BitPackedSearch<'_, T> {
                 idx + self.offset as usize,
             )
         };
-        Some(val.compare(*elem))
+        Some(val.total_compare(*elem))
     }
 }
 
