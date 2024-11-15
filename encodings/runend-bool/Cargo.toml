@@ -26,6 +26,7 @@ vortex-scalar = { workspace = true }
 [dev-dependencies]
 criterion = { workspace = true }
 rand = { workspace = true }
+rstest = { workspace = true }
 
 [lints]
 workspace = true

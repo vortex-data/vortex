@@ -87,7 +87,7 @@ mod tests {
     #[test]
     pub fn search_sorted_uncompressed() {
         let zigzag =
-            ZigZagArray::encode(&PrimitiveArray::from(vec![-189, -160, 1]).into_array()).unwrap();
+            ZigZagArray::encode(&PrimitiveArray::from(vec![-189, -160, 1]).into_array()).unwrap().into_array();
         assert_eq!(
             search_sorted(&zigzag, -169, SearchSortedSide::Right).unwrap(),
             SearchResult::NotFound(1)
