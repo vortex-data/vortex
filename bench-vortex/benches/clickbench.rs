@@ -5,8 +5,7 @@ use std::process::Command;
 
 use bench_vortex::clickbench::{clickbench_queries, HITS_SCHEMA};
 use bench_vortex::data_downloads::download_data;
-use bench_vortex::tpch::execute_query;
-use bench_vortex::{clickbench, idempotent, IdempotentPath};
+use bench_vortex::{clickbench, execute_query, idempotent, IdempotentPath};
 use criterion::{criterion_group, criterion_main, Criterion};
 use datafusion::prelude::SessionContext;
 use tokio::runtime::Builder;
