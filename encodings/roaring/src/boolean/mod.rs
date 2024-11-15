@@ -5,11 +5,10 @@ pub use compress::*;
 use croaring::Native;
 pub use croaring::{Bitmap, Portable};
 use serde::{Deserialize, Serialize};
-use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use vortex_array::array::BoolArray;
 use vortex_array::encoding::ids;
-use vortex_array::stats::{Stat, StatsSet};
+use vortex_array::stats::StatsSet;
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity};
 use vortex_array::variants::{ArrayVariants, BoolArrayTrait};
 use vortex_array::{
@@ -45,10 +44,8 @@ impl RoaringBoolArray {
             )
         }
 
-        let stats = StatsSet::bools_with_true_count(
-            bitmap.statistics().cardinality as usize,
-            length,
-        );
+        let stats =
+            StatsSet::bools_with_true_count(bitmap.statistics().cardinality as usize, length);
 
         Ok(Self {
             typed: TypedArray::try_from_parts(
