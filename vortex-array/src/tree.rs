@@ -7,17 +7,17 @@ use vortex_error::{VortexError, VortexResult};
 
 use crate::array::visitor::ArrayVisitor;
 use crate::array::ChunkedArray;
-use crate::{Array, ArrayData};
+use crate::{ArrayData, OwnedArrayData};
 
-impl Array {
+impl ArrayData {
     pub fn tree_display(&self) -> TreeDisplayWrapper {
         TreeDisplayWrapper(self)
     }
 }
 
-pub struct TreeDisplayWrapper<'a>(&'a Array);
+pub struct TreeDisplayWrapper<'a>(&'a ArrayData);
 impl<'a> TreeDisplayWrapper<'a> {
-    pub fn new(array: &'a Array) -> Self {
+    pub fn new(array: &'a ArrayData) -> Self {
         Self(array)
     }
 }
@@ -41,7 +41,7 @@ pub struct TreeFormatter<'a, 'b: 'a> {
 /// TODO(ngates): I think we want to go back to the old explicit style. It gives arrays more
 ///  control over how their metadata etc is displayed.
 impl<'a, 'b: 'a> ArrayVisitor for TreeFormatter<'a, 'b> {
-    fn visit_child(&mut self, name: &str, array: &Array) -> VortexResult<()> {
+    fn visit_child(&mut self, name: &str, array: &ArrayData) -> VortexResult<()> {
         array.with_dyn(|a| {
             let nbytes = a.nbytes();
             let total_size = self.total_size.unwrap_or(nbytes);
@@ -55,7 +55,7 @@ impl<'a, 'b: 'a> ArrayVisitor for TreeFormatter<'a, 'b> {
                 100f64 * nbytes as f64 / total_size as f64
             )?;
             self.indent(|i| {
-                let array_data = ArrayData::from(array.clone());
+                let array_data = OwnedArrayData::from(array.clone());
                 writeln!(i.fmt, "{}metadata: {}", i.indent, array_data.metadata())
             })?;
 

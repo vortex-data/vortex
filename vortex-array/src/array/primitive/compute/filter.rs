@@ -4,17 +4,17 @@ use vortex_error::{vortex_err, VortexResult};
 use crate::array::primitive::PrimitiveArray;
 use crate::compute::FilterFn;
 use crate::variants::{BoolArrayTrait, PrimitiveArrayTrait};
-use crate::{Array, IntoArray};
+use crate::{ArrayData, IntoArrayData};
 
 impl FilterFn for PrimitiveArray {
-    fn filter(&self, predicate: &Array) -> VortexResult<Array> {
+    fn filter(&self, predicate: &ArrayData) -> VortexResult<ArrayData> {
         filter_select_primitive(self, predicate).map(|a| a.into_array())
     }
 }
 
 fn filter_select_primitive(
     arr: &PrimitiveArray,
-    predicate: &Array,
+    predicate: &ArrayData,
 ) -> VortexResult<PrimitiveArray> {
     predicate.with_dyn(|b| {
         let validity = arr.validity().filter(predicate)?;

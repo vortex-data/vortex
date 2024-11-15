@@ -11,7 +11,7 @@ use tokio::fs::OpenOptions;
 use url::Url;
 use vortex_array::array::{ChunkedArray, PrimitiveArray, StructArray, VarBinArray};
 use vortex_array::validity::Validity;
-use vortex_array::{Context, IntoArray};
+use vortex_array::{Context, IntoArrayData};
 use vortex_datafusion::persistent::config::{VortexFile, VortexTableOptions};
 use vortex_datafusion::persistent::provider::VortexFileTableProvider;
 use vortex_file::VortexFileWriter;

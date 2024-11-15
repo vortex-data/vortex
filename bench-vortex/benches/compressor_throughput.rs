@@ -24,7 +24,7 @@ use vortex::sampling_compressor::compressors::zigzag::ZigZagCompressor;
 use vortex::sampling_compressor::compressors::CompressorRef;
 use vortex::sampling_compressor::SamplingCompressor;
 use vortex::validity::Validity;
-use vortex::{IntoArray as _, IntoCanonical};
+use vortex::{IntoArrayData as _, IntoCanonical};
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;

@@ -2,7 +2,7 @@ use std::cmp::min;
 
 use vortex_array::compute::unary::ScalarAtFn;
 use vortex_array::compute::{slice, ArrayCompute, SliceFn};
-use vortex_array::{Array, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
@@ -34,7 +34,7 @@ impl ScalarAtFn for DeltaArray {
 }
 
 impl SliceFn for DeltaArray {
-    fn slice(&self, start: usize, stop: usize) -> VortexResult<Array> {
+    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData> {
         let physical_start = start + self.offset();
         let physical_stop = stop + self.offset();
 

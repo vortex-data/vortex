@@ -3,7 +3,7 @@ use std::fmt::Display;
 
 use itertools::Itertools;
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::Array;
+use vortex_array::ArrayData;
 use vortex_dtype::field::Field;
 use vortex_error::{vortex_err, VortexResult};
 
@@ -39,7 +39,7 @@ impl VortexExpr for Select {
         self
     }
 
-    fn evaluate(&self, batch: &Array) -> VortexResult<Array> {
+    fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
         batch.with_dyn(|s| {
             let st = s
                 .as_struct_array()
@@ -91,7 +91,7 @@ impl PartialEq<dyn Any> for Select {
 #[cfg(test)]
 mod tests {
     use vortex_array::array::{PrimitiveArray, StructArray};
-    use vortex_array::IntoArray;
+    use vortex_array::IntoArrayData;
     use vortex_dtype::field::Field;
 
     use crate::{Select, VortexExpr};

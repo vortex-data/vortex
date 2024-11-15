@@ -2,7 +2,7 @@ use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::Primitive;
 use vortex_array::encoding::EncodingRef;
 use vortex_array::stats::ArrayStatistics;
-use vortex_array::{Array, ArrayDef, IntoArray};
+use vortex_array::{ArrayData, ArrayDef, IntoArrayData};
 use vortex_error::VortexResult;
 use vortex_runend::compress::runend_encode;
 use vortex_runend::{RunEnd, RunEndArray, RunEndEncoding};
@@ -26,7 +26,7 @@ impl EncodingCompressor for RunEndCompressor {
         constants::RUN_END_COST
     }
 
-    fn can_compress(&self, array: &Array) -> Option<&dyn EncodingCompressor> {
+    fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {
         if array.encoding().id() != Primitive::ID {
             return None;
         }
@@ -45,7 +45,7 @@ impl EncodingCompressor for RunEndCompressor {
 
     fn compress<'a>(
         &'a self,
-        array: &Array,
+        array: &ArrayData,
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {

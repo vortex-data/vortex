@@ -1,6 +1,6 @@
 use vortex_array::compute::unary::{scalar_at, scalar_at_unchecked, ScalarAtFn};
 use vortex_array::compute::{filter, slice, take, ArrayCompute, FilterFn, SliceFn, TakeFn};
-use vortex_array::{Array, IntoArray};
+use vortex_array::{ArrayData, IntoArrayData};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
@@ -41,7 +41,7 @@ impl ScalarAtFn for DictArray {
 }
 
 impl TakeFn for DictArray {
-    fn take(&self, indices: &Array) -> VortexResult<Array> {
+    fn take(&self, indices: &ArrayData) -> VortexResult<ArrayData> {
         // Dict
         //   codes: 0 0 1
         //   dict: a b c d e f g h
@@ -51,7 +51,7 @@ impl TakeFn for DictArray {
 }
 
 impl FilterFn for DictArray {
-    fn filter(&self, predicate: &Array) -> VortexResult<Array> {
+    fn filter(&self, predicate: &ArrayData) -> VortexResult<ArrayData> {
         let codes = filter(self.codes(), predicate)?;
         Self::try_new(codes, self.values()).map(|a| a.into_array())
     }
@@ -59,7 +59,7 @@ impl FilterFn for DictArray {
 
 impl SliceFn for DictArray {
     // TODO(robert): Add function to trim the dictionary
-    fn slice(&self, start: usize, stop: usize) -> VortexResult<Array> {
+    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData> {
         Self::try_new(slice(self.codes(), start, stop)?, self.values()).map(|a| a.into_array())
     }
 }
@@ -68,7 +68,7 @@ impl SliceFn for DictArray {
 mod test {
     use vortex_array::accessor::ArrayAccessor;
     use vortex_array::array::{PrimitiveArray, VarBinViewArray};
-    use vortex_array::{IntoArray, IntoArrayVariant, ToArray};
+    use vortex_array::{IntoArrayData, IntoArrayVariant, ToArrayData};
     use vortex_dtype::{DType, Nullability};
 
     use crate::{dict_encode_typed_primitive, dict_encode_varbinview, DictArray};

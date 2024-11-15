@@ -213,14 +213,14 @@ mod test {
     use vortex_array::array::{ChunkedArray, PrimitiveArray, PrimitiveEncoding};
     use vortex_array::encoding::ArrayEncoding;
     use vortex_array::stream::ArrayStreamExt;
-    use vortex_array::{ArrayDType, Context, IntoArray};
+    use vortex_array::{ArrayDType, Context, IntoArrayData};
     use vortex_buffer::Buffer;
     use vortex_error::VortexResult;
     use vortex_io::TokioAdapter;
     use vortex_ipc::stream_reader::StreamArrayReader;
     use vortex_ipc::stream_writer::StreamArrayWriter;
 
-    fn write_ipc<A: IntoArray>(array: A) -> Vec<u8> {
+    fn write_ipc<A: IntoArrayData>(array: A) -> Vec<u8> {
         block_on(async {
             StreamArrayWriter::new(vec![])
                 .write_array(array.into_array())

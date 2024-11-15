@@ -20,19 +20,19 @@ pub use literal::*;
 pub use not::*;
 pub use operators::*;
 pub use select::*;
-use vortex_array::Array;
+use vortex_array::ArrayData;
 use vortex_dtype::field::Field;
 use vortex_error::{VortexExpect, VortexResult};
 
 pub type ExprRef = Arc<dyn VortexExpr>;
 
-/// Represents logical operation on [`Array`]s
+/// Represents logical operation on [`ArrayData`]s
 pub trait VortexExpr: Debug + Send + Sync + PartialEq<dyn Any> + Display {
     /// Convert expression reference to reference of [`Any`] type
     fn as_any(&self) -> &dyn Any;
 
     /// Compute result of expression on given batch producing a new batch
-    fn evaluate(&self, batch: &Array) -> VortexResult<Array>;
+    fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData>;
 
     /// Accumulate all field references from this expression and its children in the provided set
     fn collect_references<'a>(&'a self, _references: &mut HashSet<&'a Field>) {}

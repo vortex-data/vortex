@@ -3,7 +3,7 @@ use vortex_array::compute::unary::{scalar_at, scalar_at_unchecked, ScalarAtFn};
 use vortex_array::compute::{filter, slice, take, ArrayCompute, SliceFn, TakeFn};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{Array, ArrayDType, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::{VortexExpect as _, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
@@ -38,7 +38,7 @@ impl ScalarAtFn for RunEndArray {
 }
 
 impl TakeFn for RunEndArray {
-    fn take(&self, indices: &Array) -> VortexResult<Array> {
+    fn take(&self, indices: &ArrayData) -> VortexResult<ArrayData> {
         let primitive_indices = indices.clone().into_primitive()?;
         let u64_indices = match_each_integer_ptype!(primitive_indices.ptype(), |$P| {
             primitive_indices
@@ -96,7 +96,7 @@ impl TakeFn for RunEndArray {
 }
 
 impl SliceFn for RunEndArray {
-    fn slice(&self, start: usize, stop: usize) -> VortexResult<Array> {
+    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData> {
         let slice_begin = self.find_physical_index(start)?;
         let slice_end = self.find_physical_index(stop)?;
 
@@ -117,7 +117,7 @@ mod test {
     use vortex_array::compute::unary::{scalar_at, try_cast};
     use vortex_array::compute::{slice, take};
     use vortex_array::validity::{ArrayValidity, Validity};
-    use vortex_array::{ArrayDType, IntoArray, IntoArrayVariant, ToArray};
+    use vortex_array::{ArrayDType, IntoArrayData, IntoArrayVariant, ToArrayData};
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_scalar::Scalar;
 

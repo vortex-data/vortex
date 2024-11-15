@@ -16,7 +16,7 @@ pub use take::{take, TakeFn};
 use unary::{CastFn, FillForwardFn, ScalarAtFn, SubtractScalarFn};
 use vortex_error::VortexResult;
 
-use crate::Array;
+use crate::ArrayData;
 
 mod boolean;
 mod compare;
@@ -39,7 +39,7 @@ pub trait ArrayCompute {
     /// Binary operator implementation for arrays against other arrays.
     ///
     ///See: [CompareFn].
-    fn compare(&self, _other: &Array, _operator: Operator) -> Option<VortexResult<Array>> {
+    fn compare(&self, _other: &ArrayData, _operator: Operator) -> Option<VortexResult<ArrayData>> {
         None
     }
 

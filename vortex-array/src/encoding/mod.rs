@@ -7,7 +7,7 @@ use vortex_error::{vortex_panic, VortexResult};
 
 use crate::canonical::{Canonical, IntoCanonical};
 use crate::stats::ArrayStatistics as _;
-use crate::{Array, ArrayDef, ArrayTrait};
+use crate::{ArrayData, ArrayDef, ArrayTrait};
 
 pub mod opaque;
 
@@ -51,12 +51,12 @@ pub trait ArrayEncoding: 'static + Sync + Send + Debug {
     fn id(&self) -> EncodingId;
 
     /// Flatten the given array.
-    fn canonicalize(&self, array: Array) -> VortexResult<Canonical>;
+    fn canonicalize(&self, array: ArrayData) -> VortexResult<Canonical>;
 
     /// Unwrap the provided array into an implementation of ArrayTrait
     fn with_dyn(
         &self,
-        array: &Array,
+        array: &ArrayData,
         f: &mut dyn for<'b> FnMut(&'b (dyn ArrayTrait + 'b)) -> VortexResult<()>,
     ) -> VortexResult<()>;
 }
@@ -77,11 +77,11 @@ impl Hash for dyn ArrayEncoding + '_ {
 pub trait ArrayEncodingExt {
     type D: ArrayDef;
 
-    fn into_canonical(array: Array) -> VortexResult<Canonical> {
+    fn into_canonical(array: ArrayData) -> VortexResult<Canonical> {
         // get the stats before converting to the typed array
         let stats = array.statistics().to_set();
 
-        let typed = <<Self::D as ArrayDef>::Array as TryFrom<Array>>::try_from(array)?;
+        let typed = <<Self::D as ArrayDef>::Array as TryFrom<ArrayData>>::try_from(array)?;
         let canonical = IntoCanonical::into_canonical(typed)?;
 
         // propagate the stats to the canonicalized array
@@ -91,11 +91,11 @@ pub trait ArrayEncodingExt {
         Ok(canonical)
     }
 
-    fn with_dyn<R, F>(array: &Array, mut f: F) -> R
+    fn with_dyn<R, F>(array: &ArrayData, mut f: F) -> R
     where
         F: for<'b> FnMut(&'b (dyn ArrayTrait + 'b)) -> R,
     {
-        let typed = <<Self::D as ArrayDef>::Array as TryFrom<Array>>::try_from(array.clone())
+        let typed = <<Self::D as ArrayDef>::Array as TryFrom<ArrayData>>::try_from(array.clone())
             .unwrap_or_else(|err| {
                 vortex_panic!(
                     err,

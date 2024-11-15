@@ -12,7 +12,7 @@ use vortex_array::stats::StatsSet;
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity};
 use vortex_array::variants::{ArrayVariants, BoolArrayTrait};
 use vortex_array::{
-    impl_encoding, Array, ArrayTrait, Canonical, IntoArray, IntoCanonical, TypedArray,
+    impl_encoding, ArrayData, ArrayTrait, Canonical, IntoArrayData, IntoCanonical, TypedArray,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
@@ -64,7 +64,7 @@ impl RoaringBoolArray {
         Bitmap::deserialize::<Native>(self.buffer().as_ref())
     }
 
-    pub fn encode(array: Array) -> VortexResult<Array> {
+    pub fn encode(array: ArrayData) -> VortexResult<ArrayData> {
         if let Ok(bools) = BoolArray::try_from(array) {
             roaring_bool_encode(bools).map(|a| a.into_array())
         } else {
@@ -88,7 +88,7 @@ impl ArrayVariants for RoaringBoolArray {
 }
 
 impl BoolArrayTrait for RoaringBoolArray {
-    fn invert(&self) -> VortexResult<Array> {
+    fn invert(&self) -> VortexResult<ArrayData> {
         RoaringBoolArray::try_new(self.bitmap().flip(0..(self.len() as u32)), self.len())
             .map(|a| a.into_array())
     }
@@ -150,7 +150,7 @@ mod test {
     use std::iter;
 
     use vortex_array::array::BoolArray;
-    use vortex_array::{IntoArray, IntoArrayVariant};
+    use vortex_array::{IntoArrayData, IntoArrayVariant};
 
     use crate::RoaringBoolArray;
 

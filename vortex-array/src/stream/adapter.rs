@@ -7,7 +7,7 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::stream::ArrayStream;
-use crate::Array;
+use crate::ArrayData;
 
 /// An adapter for a stream of array chunks to implement an ArrayReader.
 #[pin_project]
@@ -25,7 +25,7 @@ impl<S> ArrayStreamAdapter<S> {
 
 impl<S> ArrayStream for ArrayStreamAdapter<S>
 where
-    S: Stream<Item = VortexResult<Array>>,
+    S: Stream<Item = VortexResult<ArrayData>>,
 {
     fn dtype(&self) -> &DType {
         &self.dtype
@@ -34,9 +34,9 @@ where
 
 impl<S> Stream for ArrayStreamAdapter<S>
 where
-    S: Stream<Item = VortexResult<Array>>,
+    S: Stream<Item = VortexResult<ArrayData>>,
 {
-    type Item = VortexResult<Array>;
+    type Item = VortexResult<ArrayData>;
 
     fn poll_next(
         self: Pin<&mut Self>,

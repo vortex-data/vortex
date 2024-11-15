@@ -2,7 +2,7 @@ use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 
 use crate::validity::Validity;
-use crate::Array;
+use crate::ArrayData;
 
 pub trait AcceptArrayVisitor {
     fn accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()>;
@@ -11,7 +11,7 @@ pub trait AcceptArrayVisitor {
 // TODO(ngates): maybe we make this more like the inverse of TryFromParts?
 pub trait ArrayVisitor {
     /// Visit a child of this array.
-    fn visit_child(&mut self, _name: &str, _array: &Array) -> VortexResult<()> {
+    fn visit_child(&mut self, _name: &str, _array: &ArrayData) -> VortexResult<()> {
         Ok(())
     }
 

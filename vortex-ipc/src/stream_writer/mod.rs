@@ -4,7 +4,7 @@ use std::ops::Range;
 use futures_util::{Stream, TryStreamExt};
 use vortex_array::array::ChunkedArray;
 use vortex_array::stream::ArrayStream;
-use vortex_array::Array;
+use vortex_array::ArrayData;
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
@@ -52,7 +52,7 @@ impl<W: VortexWrite> StreamArrayWriter<W> {
 
     async fn write_array_chunks<S>(&mut self, mut stream: S) -> VortexResult<ChunkOffsets>
     where
-        S: Stream<Item = VortexResult<Array>> + Unpin,
+        S: Stream<Item = VortexResult<ArrayData>> + Unpin,
     {
         let mut byte_offsets = vec![self.msgs.tell()];
         let mut row_offsets = vec![0];
@@ -81,7 +81,7 @@ impl<W: VortexWrite> StreamArrayWriter<W> {
         Ok(self)
     }
 
-    pub async fn write_array(self, array: Array) -> VortexResult<Self> {
+    pub async fn write_array(self, array: ArrayData) -> VortexResult<Self> {
         if let Ok(chunked) = ChunkedArray::try_from(&array) {
             self.write_array_stream(chunked.array_stream()).await
         } else {

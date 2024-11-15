@@ -6,10 +6,10 @@ use vortex_error::VortexResult;
 use crate::array::BoolArray;
 use crate::compute::TakeFn;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, IntoArray, IntoArrayVariant};
+use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
 
 impl TakeFn for BoolArray {
-    fn take(&self, indices: &Array) -> VortexResult<Array> {
+    fn take(&self, indices: &ArrayData) -> VortexResult<ArrayData> {
         let validity = self.validity();
         let indices = indices.clone().into_primitive()?;
         match_each_integer_ptype!(indices.ptype(), |$I| {

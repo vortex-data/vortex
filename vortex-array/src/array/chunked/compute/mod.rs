@@ -6,7 +6,7 @@ use crate::compute::unary::{try_cast, CastFn, ScalarAtFn, SubtractScalarFn};
 use crate::compute::{
     compare, slice, ArrayCompute, CompareFn, FilterFn, Operator, SliceFn, TakeFn,
 };
-use crate::{Array, IntoArray};
+use crate::{ArrayData, IntoArrayData};
 
 mod filter;
 mod scalar_at;
@@ -18,7 +18,7 @@ impl ArrayCompute for ChunkedArray {
         Some(self)
     }
 
-    fn compare(&self, other: &Array, operator: Operator) -> Option<VortexResult<Array>> {
+    fn compare(&self, other: &ArrayData, operator: Operator) -> Option<VortexResult<ArrayData>> {
         Some(CompareFn::compare(self, other, operator))
     }
 
@@ -44,7 +44,7 @@ impl ArrayCompute for ChunkedArray {
 }
 
 impl CastFn for ChunkedArray {
-    fn cast(&self, dtype: &DType) -> VortexResult<Array> {
+    fn cast(&self, dtype: &DType) -> VortexResult<ArrayData> {
         let mut cast_chunks = Vec::new();
         for chunk in self.chunks() {
             cast_chunks.push(try_cast(&chunk, dtype)?);
@@ -55,7 +55,7 @@ impl CastFn for ChunkedArray {
 }
 
 impl CompareFn for ChunkedArray {
-    fn compare(&self, array: &Array, operator: Operator) -> VortexResult<Array> {
+    fn compare(&self, array: &ArrayData, operator: Operator) -> VortexResult<ArrayData> {
         let mut idx = 0;
         let mut compare_chunks = Vec::with_capacity(self.nchunks());
 
@@ -79,7 +79,7 @@ mod test {
     use crate::array::primitive::PrimitiveArray;
     use crate::compute::unary::try_cast;
     use crate::validity::Validity;
-    use crate::{IntoArray, IntoArrayVariant};
+    use crate::{IntoArrayData, IntoArrayVariant};
 
     #[test]
     fn test_cast_chunked() {

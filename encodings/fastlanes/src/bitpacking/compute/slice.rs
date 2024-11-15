@@ -3,13 +3,13 @@ use std::cmp::max;
 use vortex_array::array::SparseArray;
 use vortex_array::compute::{slice, SliceFn};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{Array, IntoArray};
+use vortex_array::{ArrayData, IntoArrayData};
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::BitPackedArray;
 
 impl SliceFn for BitPackedArray {
-    fn slice(&self, start: usize, stop: usize) -> VortexResult<Array> {
+    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData> {
         let offset_start = start + self.offset() as usize;
         let offset_stop = stop + self.offset() as usize;
         let offset = offset_start % 1024;
@@ -48,7 +48,7 @@ mod test {
     use vortex_array::array::{PrimitiveArray, SparseArray};
     use vortex_array::compute::unary::scalar_at;
     use vortex_array::compute::{slice, take};
-    use vortex_array::IntoArray;
+    use vortex_array::IntoArrayData;
 
     use crate::BitPackedArray;
 

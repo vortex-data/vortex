@@ -333,7 +333,7 @@ mod test {
 
     use crate::array::PrimitiveArray;
     use crate::stats::{ArrayStatistics as _, Stat, StatsSet};
-    use crate::IntoArray as _;
+    use crate::IntoArrayData as _;
 
     #[test]
     fn merge_into_min() {

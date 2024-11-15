@@ -6,7 +6,7 @@ use pyo3::types::PyString;
 use tokio::fs::File;
 use vortex::file::VortexFileWriter;
 use vortex::sampling_compressor::SamplingCompressor;
-use vortex::Array;
+use vortex::ArrayData;
 
 use crate::dataset::{ObjectStoreUrlDataset, TokioFileDataset};
 use crate::expr::PyExpr;
@@ -223,7 +223,7 @@ pub fn write_path(
     f: &Bound<'_, PyString>,
     compress: bool,
 ) -> PyResult<()> {
-    async fn run(array: &Array, fname: &str) -> PyResult<()> {
+    async fn run(array: &ArrayData, fname: &str) -> PyResult<()> {
         let file = File::create(Path::new(fname)).await?;
         let mut writer = VortexFileWriter::new(file);
 

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::StructArray;
 use vortex_array::variants::StructArrayTrait;
-use vortex_array::Array;
+use vortex_array::ArrayData;
 use vortex_dtype::field::Field;
 use vortex_error::{vortex_err, VortexResult};
 
@@ -53,7 +53,7 @@ impl VortexExpr for Column {
         self
     }
 
-    fn evaluate(&self, batch: &Array) -> VortexResult<Array> {
+    fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
         let s = StructArray::try_from(batch)?;
 
         match &self.field {

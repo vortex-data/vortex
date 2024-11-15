@@ -6,7 +6,7 @@ use croaring::Bitmap;
 use vortex_array::array::{BoolArray, PrimitiveArray, SparseArray};
 use vortex_array::compute::{filter, slice, take};
 use vortex_array::validity::{LogicalValidity, Validity};
-use vortex_array::{iterate_integer_array, Array, IntoArray, IntoArrayVariant};
+use vortex_array::{iterate_integer_array, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::PType;
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
@@ -60,7 +60,7 @@ impl RowMask {
     /// Construct a RowMask from a Boolean typed array.
     ///
     /// True-valued positions are kept by the returned mask.
-    pub fn from_mask_array(array: &Array, begin: usize, end: usize) -> VortexResult<Self> {
+    pub fn from_mask_array(array: &ArrayData, begin: usize, end: usize) -> VortexResult<Self> {
         match array.with_dyn(|a| a.logical_validity()) {
             LogicalValidity::AllValid(_) => {
                 Self::from_mask_array_ignoring_validity(array, begin, end)
@@ -76,7 +76,7 @@ impl RowMask {
     }
 
     fn from_mask_array_ignoring_validity(
-        array: &Array,
+        array: &ArrayData,
         begin: usize,
         end: usize,
     ) -> VortexResult<Self> {
@@ -96,7 +96,7 @@ impl RowMask {
     /// Construct a RowMask from an integral array.
     ///
     /// The array values are interpreted as indices and those indices are kept by the returned mask.
-    pub fn from_index_array(array: &Array, begin: usize, end: usize) -> VortexResult<Self> {
+    pub fn from_index_array(array: &ArrayData, begin: usize, end: usize) -> VortexResult<Self> {
         array.with_dyn(|a| {
             let err = || vortex_err!(InvalidArgument: "index array must be integers in the range [0, 2^32)");
             let array = a.as_primitive_array().ok_or_else(err)?;
@@ -120,7 +120,7 @@ impl RowMask {
     }
 
     /// Combine the RowMask with bitmask values resulting in new RowMask containing only values true in the bitmask
-    pub fn and_bitmask(self, bitmask: Array) -> VortexResult<Self> {
+    pub fn and_bitmask(self, bitmask: ArrayData) -> VortexResult<Self> {
         // If we are a dense all true bitmap just take the bitmask array
         if self.len() as u64 == self.values.cardinality() {
             if bitmask.len() != self.len() {
@@ -193,7 +193,7 @@ impl RowMask {
     ///
     /// This function assumes that Array is no longer than the mask length and that the mask starts on same offset as the array,
     /// i.e. the beginning of the array corresponds to the beginning of the mask with begin = 0
-    pub fn filter_array(&self, array: impl AsRef<Array>) -> VortexResult<Option<Array>> {
+    pub fn filter_array(&self, array: impl AsRef<ArrayData>) -> VortexResult<Option<ArrayData>> {
         let true_count = self.values.cardinality();
         if true_count == 0 {
             return Ok(None);
@@ -220,11 +220,11 @@ impl RowMask {
         }
     }
 
-    pub fn to_indices_array(&self) -> VortexResult<Array> {
+    pub fn to_indices_array(&self) -> VortexResult<ArrayData> {
         Ok(PrimitiveArray::from_vec(self.values.to_vec(), Validity::NonNullable).into_array())
     }
 
-    pub fn to_mask_array(&self) -> VortexResult<Array> {
+    pub fn to_mask_array(&self) -> VortexResult<ArrayData> {
         let bitset = self
             .values
             .to_bitset()
@@ -240,7 +240,7 @@ impl RowMask {
             BooleanBuffer::new(buffer.into(), 0, self.len()),
             Validity::NonNullable,
         )
-        .map(IntoArray::into_array)
+        .map(IntoArrayData::into_array)
     }
 
     pub fn shift(self, offset: usize) -> VortexResult<RowMask> {
@@ -260,7 +260,7 @@ mod tests {
     use croaring::Bitmap;
     use rstest::rstest;
     use vortex_array::array::PrimitiveArray;
-    use vortex_array::{IntoArray, IntoArrayVariant};
+    use vortex_array::{IntoArrayData, IntoArrayVariant};
 
     use crate::read::mask::RowMask;
 

@@ -1,7 +1,7 @@
 use croaring::Bitmap;
 use vortex_array::compute::unary::ScalarAtFn;
 use vortex_array::compute::{ArrayCompute, SliceFn};
-use vortex_array::{Array, IntoArray};
+use vortex_array::{ArrayData, IntoArrayData};
 use vortex_dtype::PType;
 use vortex_error::{vortex_err, VortexResult, VortexUnwrap as _};
 use vortex_scalar::Scalar;
@@ -40,7 +40,7 @@ impl ScalarAtFn for RoaringIntArray {
 }
 
 impl SliceFn for RoaringIntArray {
-    fn slice(&self, start: usize, stop: usize) -> VortexResult<Array> {
+    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData> {
         let mut bitmap = self.owned_bitmap();
         let start = bitmap
             .select(start as u32)
@@ -54,7 +54,7 @@ impl SliceFn for RoaringIntArray {
         };
 
         bitmap.and_inplace(&Bitmap::from_range(start..=stop_inclusive));
-        Self::try_new(bitmap, self.cached_ptype()).map(IntoArray::into_array)
+        Self::try_new(bitmap, self.cached_ptype()).map(IntoArrayData::into_array)
     }
 }
 

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use vortex_array::array::StructArray;
 use vortex_array::stats::{ArrayStatistics as _, Stat};
 use vortex_array::validity::Validity;
-use vortex_array::{Array, IntoArray};
+use vortex_array::{ArrayData, IntoArrayData};
 use vortex_buffer::{Buffer, BufferString};
 use vortex_dtype::{match_each_native_ptype, DType, FieldName};
 use vortex_error::{VortexError, VortexResult};
@@ -30,9 +30,9 @@ pub fn new_metadata_accumulator(dtype: &DType) -> Box<dyn MetadataAccumulator> {
 
 /// Accumulates zero or more series of metadata across the chunks of a column.
 pub trait MetadataAccumulator {
-    fn push_chunk(&mut self, array: &Array);
+    fn push_chunk(&mut self, array: &ArrayData);
 
-    fn into_array(self: Box<Self>) -> VortexResult<Option<Array>>;
+    fn into_array(self: Box<Self>) -> VortexResult<Option<ArrayData>>;
 }
 
 /// Accumulator for bool-typed columns.
@@ -55,15 +55,15 @@ impl BoolAccumulator {
 }
 
 impl MetadataAccumulator for BoolAccumulator {
-    fn push_chunk(&mut self, array: &Array) {
+    fn push_chunk(&mut self, array: &ArrayData) {
         self.maxima.push_chunk(array);
         self.minima.push_chunk(array);
         self.true_count.push_chunk(array);
         self.null_count.push_chunk(array);
     }
 
-    fn into_array(self: Box<Self>) -> VortexResult<Option<Array>> {
-        let (names, fields): (Vec<FieldName>, Vec<Array>) = [
+    fn into_array(self: Box<Self>) -> VortexResult<Option<ArrayData>> {
+        let (names, fields): (Vec<FieldName>, Vec<ArrayData>) = [
             self.maxima.into_column(),
             self.minima.into_column(),
             self.true_count.into_column(),
@@ -79,7 +79,7 @@ impl MetadataAccumulator for BoolAccumulator {
             let names = Arc::from(names);
             let n_chunks = fields[0].len();
             StructArray::try_new(names, fields, n_chunks, Validity::NonNullable)
-                .map(IntoArray::into_array)
+                .map(IntoArrayData::into_array)
                 .map(Some)
         }
     }
@@ -105,16 +105,16 @@ impl<T> StandardAccumulator<T> {
 impl<T> MetadataAccumulator for StandardAccumulator<T>
 where
     Option<T>: TryFrom<ScalarValue, Error = VortexError>,
-    Array: From<Vec<Option<T>>>,
+    ArrayData: From<Vec<Option<T>>>,
 {
-    fn push_chunk(&mut self, array: &Array) {
+    fn push_chunk(&mut self, array: &ArrayData) {
         self.maxima.push_chunk(array);
         self.minima.push_chunk(array);
         self.null_count.push_chunk(array);
     }
 
-    fn into_array(self: Box<Self>) -> VortexResult<Option<Array>> {
-        let (names, fields): (Vec<FieldName>, Vec<Array>) = [
+    fn into_array(self: Box<Self>) -> VortexResult<Option<ArrayData>> {
+        let (names, fields): (Vec<FieldName>, Vec<ArrayData>) = [
             self.maxima.into_column(),
             self.minima.into_column(),
             self.null_count.into_column(),
@@ -128,7 +128,7 @@ where
             let names = Arc::from(names);
             let n_chunks = fields[0].len();
             StructArray::try_new(names, fields, n_chunks, Validity::NonNullable)
-                .map(IntoArray::into_array)
+                .map(IntoArrayData::into_array)
                 .map(Some)
         }
     }
@@ -148,12 +148,12 @@ impl BasicAccumulator {
 }
 
 impl MetadataAccumulator for BasicAccumulator {
-    fn push_chunk(&mut self, array: &Array) {
+    fn push_chunk(&mut self, array: &ArrayData) {
         self.null_count.push_chunk(array)
     }
 
-    fn into_array(self: Box<Self>) -> VortexResult<Option<Array>> {
-        let (names, fields): (Vec<FieldName>, Vec<Array>) = [self.null_count.into_column()]
+    fn into_array(self: Box<Self>) -> VortexResult<Option<ArrayData>> {
+        let (names, fields): (Vec<FieldName>, Vec<ArrayData>) = [self.null_count.into_column()]
             .into_iter()
             .flatten()
             .unzip();
@@ -163,7 +163,7 @@ impl MetadataAccumulator for BasicAccumulator {
             let names = Arc::from(names);
             let n_chunks = fields[0].len();
             StructArray::try_new(names, fields, n_chunks, Validity::NonNullable)
-                .map(IntoArray::into_array)
+                .map(IntoArrayData::into_array)
                 .map(Some)
         }
     }
@@ -171,9 +171,9 @@ impl MetadataAccumulator for BasicAccumulator {
 
 /// Accumulates a single series of values across the chunks of a column.
 trait SingularAccumulator {
-    fn push_chunk(&mut self, array: &Array);
+    fn push_chunk(&mut self, array: &ArrayData);
 
-    fn into_column(self) -> Option<(FieldName, Array)>;
+    fn into_column(self) -> Option<(FieldName, ArrayData)>;
 }
 
 struct UnwrappedStatAccumulator<T> {
@@ -195,9 +195,9 @@ impl<T> UnwrappedStatAccumulator<T> {
 impl<T> SingularAccumulator for UnwrappedStatAccumulator<T>
 where
     Option<T>: TryFrom<ScalarValue, Error = VortexError>,
-    Array: From<Vec<Option<T>>>,
+    ArrayData: From<Vec<Option<T>>>,
 {
-    fn push_chunk(&mut self, array: &Array) {
+    fn push_chunk(&mut self, array: &ArrayData) {
         self.values.push(
             array
                 .statistics()
@@ -207,9 +207,9 @@ where
         )
     }
 
-    fn into_column(self) -> Option<(FieldName, Array)> {
+    fn into_column(self) -> Option<(FieldName, ArrayData)> {
         if self.values.iter().any(Option::is_some) {
-            return Some((self.name, Array::from(self.values)));
+            return Some((self.name, ArrayData::from(self.values)));
         }
         None
     }

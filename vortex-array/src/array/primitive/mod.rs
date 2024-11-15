@@ -20,7 +20,7 @@ use crate::stats::StatsSet;
 use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
 use crate::variants::{ArrayVariants, PrimitiveArrayTrait};
 use crate::{
-    impl_encoding, Array, ArrayDType, ArrayTrait, Canonical, IntoArray, IntoCanonical, TypedArray,
+    impl_encoding, ArrayData, ArrayDType, ArrayTrait, Canonical, IntoArrayData, IntoCanonical, TypedArray,
 };
 
 mod accessor;
@@ -304,8 +304,8 @@ impl<T: NativePType> From<Vec<T>> for PrimitiveArray {
     }
 }
 
-impl<T: NativePType> IntoArray for Vec<T> {
-    fn into_array(self) -> Array {
+impl<T: NativePType> IntoArrayData for Vec<T> {
+    fn into_array(self) -> ArrayData {
         PrimitiveArray::from(self).into_array()
     }
 }
@@ -333,7 +333,7 @@ impl AcceptArrayVisitor for PrimitiveArray {
     }
 }
 
-impl Array {
+impl ArrayData {
     pub fn as_primitive(&self) -> PrimitiveArray {
         PrimitiveArray::try_from(self).vortex_expect("Expected primitive array")
     }
@@ -347,7 +347,7 @@ impl UnaryFn for PrimitiveArray {
     fn unary<I: NativePType, O: NativePType, F: Fn(I) -> O>(
         &self,
         unary_fn: F,
-    ) -> VortexResult<Array> {
+    ) -> VortexResult<ArrayData> {
         let data = self.maybe_null_slice::<I>();
         let mut output: Vec<MaybeUninit<O>> = Vec::with_capacity(data.len());
         // Safety: we are going to apply the fn to every element and store it so the full length will be utilized
@@ -390,9 +390,9 @@ impl UnaryFn for PrimitiveArray {
 impl BinaryFn for PrimitiveArray {
     fn binary<I: NativePType, U: NativePType, O: NativePType, F: Fn(I, U) -> O>(
         &self,
-        rhs: Array,
+        rhs: ArrayData,
         binary_fn: F,
-    ) -> VortexResult<Array> {
+    ) -> VortexResult<ArrayData> {
         if self.len() != rhs.len() {
             vortex_bail!(InvalidArgument: "Both arguments to `binary` should be of the same length");
         }

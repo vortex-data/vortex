@@ -21,7 +21,7 @@ use memory::{VortexMemTable, VortexMemTableOptions};
 use persistent::config::VortexTableOptions;
 use persistent::provider::VortexFileTableProvider;
 use vortex_array::array::ChunkedArray;
-use vortex_array::{Array, ArrayDType, IntoArrayVariant};
+use vortex_array::{ArrayData, ArrayDType, IntoArrayVariant};
 use vortex_dtype::field::Field;
 use vortex_error::{vortex_err, VortexResult};
 
@@ -61,24 +61,24 @@ fn supported_data_types(dt: DataType) -> bool {
 }
 
 pub trait SessionContextExt {
-    fn register_mem_vortex<S: AsRef<str>>(&self, name: S, array: Array) -> DFResult<()> {
+    fn register_mem_vortex<S: AsRef<str>>(&self, name: S, array: ArrayData) -> DFResult<()> {
         self.register_mem_vortex_opts(name, array, VortexMemTableOptions::default())
     }
 
     fn register_mem_vortex_opts<S: AsRef<str>>(
         &self,
         name: S,
-        array: Array,
+        array: ArrayData,
         options: VortexMemTableOptions,
     ) -> DFResult<()>;
 
-    fn read_mem_vortex(&self, array: Array) -> DFResult<DataFrame> {
+    fn read_mem_vortex(&self, array: ArrayData) -> DFResult<DataFrame> {
         self.read_mem_vortex_opts(array, VortexMemTableOptions::default())
     }
 
     fn read_mem_vortex_opts(
         &self,
-        array: Array,
+        array: ArrayData,
         options: VortexMemTableOptions,
     ) -> DFResult<DataFrame>;
 
@@ -100,7 +100,7 @@ impl SessionContextExt for SessionContext {
     fn register_mem_vortex_opts<S: AsRef<str>>(
         &self,
         name: S,
-        array: Array,
+        array: ArrayData,
         options: VortexMemTableOptions,
     ) -> DFResult<()> {
         if !array.dtype().is_struct() {
@@ -118,7 +118,7 @@ impl SessionContextExt for SessionContext {
 
     fn read_mem_vortex_opts(
         &self,
-        array: Array,
+        array: ArrayData,
         options: VortexMemTableOptions,
     ) -> DFResult<DataFrame> {
         if !array.dtype().is_struct() {

@@ -9,7 +9,7 @@ use vortex_array::array::{BoolArray, ConstantArray};
 use vortex_array::compute::and_kleene;
 use vortex_array::stats::ArrayStatistics;
 use vortex_array::validity::Validity;
-use vortex_array::{Array, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::field::Field;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::{split_conjunction, unbox_any, ExprRef, VortexExpr};
@@ -61,7 +61,7 @@ impl VortexExpr for RowFilter {
         self
     }
 
-    fn evaluate(&self, batch: &Array) -> VortexResult<Array> {
+    fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
         let mut filter_iter = self.conjunction.iter();
         let mut mask = filter_iter
             .next()
@@ -109,7 +109,7 @@ impl PartialEq<dyn Any> for RowFilter {
     }
 }
 
-pub fn null_as_false(array: BoolArray) -> VortexResult<Array> {
+pub fn null_as_false(array: BoolArray) -> VortexResult<ArrayData> {
     Ok(match array.validity() {
         Validity::NonNullable => array.into_array(),
         Validity::AllValid => {

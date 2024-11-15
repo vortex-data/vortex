@@ -7,28 +7,28 @@ use vortex_scalar::Scalar;
 
 use crate::encoding::EncodingRef;
 use crate::stats::{Stat, Statistics, StatsSet};
-use crate::{Array, ArrayDType, ArrayMetadata, ToArray};
+use crate::{ArrayDType, ArrayData, ArrayMetadata, ToArrayData};
 
-/// Owned [`Array`] with serialized metadata, backed by heap-allocated memory.
+/// Owned [`ArrayData`] with serialized metadata, backed by heap-allocated memory.
 #[derive(Clone, Debug)]
-pub struct ArrayData {
+pub struct OwnedArrayData {
     encoding: EncodingRef,
     dtype: DType, // FIXME(ngates): Arc?
     len: usize,
     metadata: Arc<dyn ArrayMetadata>,
     buffer: Option<Buffer>,
-    children: Arc<[Array]>,
+    children: Arc<[ArrayData]>,
     stats_map: Arc<RwLock<StatsSet>>,
 }
 
-impl ArrayData {
+impl OwnedArrayData {
     pub fn try_new(
         encoding: EncodingRef,
         dtype: DType,
         len: usize,
         metadata: Arc<dyn ArrayMetadata>,
         buffer: Option<Buffer>,
-        children: Arc<[Array]>,
+        children: Arc<[ArrayData]>,
         statistics: StatsSet,
     ) -> VortexResult<Self> {
         let data = Self {
@@ -41,7 +41,7 @@ impl ArrayData {
             stats_map: Arc::new(RwLock::new(statistics)),
         };
 
-        let array = Array::from(data);
+        let array = ArrayData::from(data);
         // Validate here that the metadata correctly parses, so that an encoding can infallibly
         // FIXME(robert): Encoding::with_dyn no longer eagerly validates metadata, come up with a way to validate metadata
         encoding.with_dyn(&array, &mut |_| Ok(()))?;
@@ -79,7 +79,7 @@ impl ArrayData {
 
     // We want to allow these panics because they are indicative of implementation error.
     #[allow(clippy::panic_in_result_fn)]
-    pub fn child(&self, index: usize, dtype: &DType, len: usize) -> VortexResult<&Array> {
+    pub fn child(&self, index: usize, dtype: &DType, len: usize) -> VortexResult<&ArrayData> {
         match self.children.get(index) {
             None => vortex_bail!(
                 "ArrayData::child({}): child {index} not found",
@@ -107,7 +107,7 @@ impl ArrayData {
         self.children.len()
     }
 
-    pub fn children(&self) -> &[Array] {
+    pub fn children(&self) -> &[ArrayData] {
         &self.children
     }
 
@@ -116,7 +116,7 @@ impl ArrayData {
     }
 }
 
-impl Statistics for ArrayData {
+impl Statistics for OwnedArrayData {
     fn get(&self, stat: Stat) -> Option<Scalar> {
         self.stats_map
             .read()

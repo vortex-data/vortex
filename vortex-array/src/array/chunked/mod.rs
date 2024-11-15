@@ -21,7 +21,7 @@ use crate::stats::StatsSet;
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::validity::Validity::NonNullable;
 use crate::validity::{ArrayValidity, LogicalValidity, Validity};
-use crate::{impl_encoding, Array, ArrayDType, ArrayTrait, IntoArray, IntoCanonical};
+use crate::{impl_encoding, ArrayDType, ArrayData, ArrayTrait, IntoArrayData, IntoCanonical};
 
 mod canonical;
 mod compute;
@@ -44,7 +44,7 @@ impl Display for ChunkedMetadata {
 impl ChunkedArray {
     const ENDS_DTYPE: DType = DType::Primitive(PType::U64, Nullability::NonNullable);
 
-    pub fn try_new(chunks: Vec<Array>, dtype: DType) -> VortexResult<Self> {
+    pub fn try_new(chunks: Vec<ArrayData>, dtype: DType) -> VortexResult<Self> {
         for chunk in &chunks {
             if chunk.dtype() != &dtype {
                 vortex_bail!(MismatchedTypes: dtype, chunk.dtype());
@@ -79,7 +79,7 @@ impl ChunkedArray {
     }
 
     #[inline]
-    pub fn chunk(&self, idx: usize) -> VortexResult<Array> {
+    pub fn chunk(&self, idx: usize) -> VortexResult<ArrayData> {
         if idx >= self.nchunks() {
             vortex_bail!("chunk index {} > num chunks ({})", idx, self.nchunks());
         }
@@ -97,7 +97,7 @@ impl ChunkedArray {
     }
 
     #[inline]
-    pub fn chunk_offsets(&self) -> Array {
+    pub fn chunk_offsets(&self) -> ArrayData {
         self.as_ref()
             .child(0, &Self::ENDS_DTYPE, self.nchunks() + 1)
             .vortex_expect("Missing chunk ends in ChunkedArray")
@@ -120,7 +120,7 @@ impl ChunkedArray {
         (index_chunk, index_in_chunk)
     }
 
-    pub fn chunks(&self) -> impl Iterator<Item = Array> + '_ {
+    pub fn chunks(&self) -> impl Iterator<Item = ArrayData> + '_ {
         (0..self.nchunks()).map(|c| {
             self.chunk(c).unwrap_or_else(|e| {
                 vortex_panic!(
@@ -188,9 +188,9 @@ impl ChunkedArray {
 
 impl ArrayTrait for ChunkedArray {}
 
-impl FromIterator<Array> for ChunkedArray {
-    fn from_iter<T: IntoIterator<Item = Array>>(iter: T) -> Self {
-        let chunks: Vec<Array> = iter.into_iter().collect();
+impl FromIterator<ArrayData> for ChunkedArray {
+    fn from_iter<T: IntoIterator<Item = ArrayData>>(iter: T) -> Self {
+        let chunks: Vec<ArrayData> = iter.into_iter().collect();
         let dtype = chunks
             .first()
             .map(|c| c.dtype().clone())
@@ -229,7 +229,7 @@ impl ArrayValidity for ChunkedArray {
 }
 
 impl SubtractScalarFn for ChunkedArray {
-    fn subtract_scalar(&self, to_subtract: &Scalar) -> VortexResult<Array> {
+    fn subtract_scalar(&self, to_subtract: &Scalar) -> VortexResult<ArrayData> {
         let chunks = self
             .chunks()
             .map(|chunk| subtract_scalar(&chunk, to_subtract))
@@ -245,7 +245,7 @@ mod test {
 
     use crate::array::chunked::ChunkedArray;
     use crate::compute::unary::{scalar_at, subtract_scalar};
-    use crate::{assert_arrays_eq, Array, ArrayDType, IntoArray, IntoArrayVariant};
+    use crate::{assert_arrays_eq, ArrayDType, IntoArrayData, IntoArrayVariant};
 
     fn chunked_array() -> ChunkedArray {
         ChunkedArray::try_new(
