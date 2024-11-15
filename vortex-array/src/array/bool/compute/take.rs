@@ -13,10 +13,10 @@ impl TakeFn for BoolArray {
         let validity = self.validity();
         let indices = indices.clone().into_primitive()?;
         match_each_integer_ptype!(indices.ptype(), |$I| {
-            Ok(BoolArray::try_new(
+            Ok(BoolArray::new(
                 take_bool(&self.boolean_buffer(), indices.maybe_null_slice::<$I>()),
                 validity.take(indices.as_ref())?,
-            )?.into_array())
+            ).into_array())
         })
     }
 }

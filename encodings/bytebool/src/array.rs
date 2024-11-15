@@ -133,7 +133,7 @@ impl IntoCanonical for ByteBoolArray {
         let boolean_buffer = BooleanBuffer::from(self.maybe_null_slice());
         let validity = self.validity();
 
-        BoolArray::try_new(boolean_buffer, validity).map(Canonical::Bool)
+        Ok(Canonical::Bool(BoolArray::new(boolean_buffer, validity)))
     }
 }
 

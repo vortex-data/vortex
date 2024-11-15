@@ -137,11 +137,10 @@ impl IntoCanonical for RoaringBoolArray {
         if byte_length > bitset.size_in_bytes() {
             buffer.extend_zeros(byte_length - bitset.size_in_bytes());
         }
-        BoolArray::try_new(
+        Ok(Canonical::Bool(BoolArray::new(
             BooleanBuffer::new(buffer.into(), 0, self.len()),
             Validity::NonNullable,
-        )
-        .map(Canonical::Bool)
+        )))
     }
 }
 

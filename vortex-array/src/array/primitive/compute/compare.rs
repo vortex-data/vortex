@@ -32,7 +32,7 @@ impl MaybeCompareFn for PrimitiveArray {
 
             return Some(
                 validity
-                    .and_then(|v| BoolArray::try_new(match_mask, v))
+                    .map(|v| BoolArray::new(match_mask, v))
                     .map(|a| a.into_array()),
             );
         }
@@ -55,7 +55,7 @@ fn primitive_const_compare(
         primitive_value_compare::<$T>(this, typed_value, operator)
     });
 
-    Ok(BoolArray::try_new(buffer, this.validity().into_nullable())?.into_array())
+    Ok(BoolArray::new(buffer, this.validity().into_nullable()).into_array())
 }
 
 fn primitive_value_compare<T: NativePType>(

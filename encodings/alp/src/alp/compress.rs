@@ -66,7 +66,7 @@ pub fn decompress(array: ALPArray) -> VortexResult<PrimitiveArray> {
     let ptype = array.dtype().try_into()?;
     let decoded = match_each_alp_float_ptype!(ptype, |$T| {
         PrimitiveArray::from_vec(
-            decompress_primitive::<$T>(encoded.into_maybe_null_slice(), array.exponents()),
+            decompress_primitive::<$T>(encoded.maybe_null_slice(), array.exponents()),
             validity,
         )
     });
@@ -99,12 +99,12 @@ fn patch_decoded(array: PrimitiveArray, patches: &ArrayData) -> VortexResult<Pri
 }
 
 fn decompress_primitive<T: NativePType + ALPFloat>(
-    values: Vec<T::ALPInt>,
+    values: &[T::ALPInt],
     exponents: Exponents,
 ) -> Vec<T> {
     values
-        .into_iter()
-        .map(|v| T::decode_single(v, exponents))
+        .iter()
+        .map(|v| T::decode_single(*v, exponents))
         .collect()
 }
 

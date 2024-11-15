@@ -50,7 +50,7 @@ pub fn runend_bool_decode(
 ) -> VortexResult<BoolArray> {
     match_each_integer_ptype!(run_ends.ptype(), |$E| {
         let bools = runend_bool_decode_slice::<$E>(run_ends.maybe_null_slice(), start, offset, length);
-        BoolArray::try_new(bools, validity)
+        Ok(BoolArray::new(bools, validity))
     })
 }
 

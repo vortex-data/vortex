@@ -37,9 +37,7 @@ impl From<Buffer> for ArrayData {
 
 impl From<NullBuffer> for ArrayData {
     fn from(value: NullBuffer) -> Self {
-        BoolArray::try_new(value.into_inner(), Validity::NonNullable)
-            .vortex_expect("Failed to convert null buffer to BoolArray")
-            .into_array()
+        BoolArray::new(value.into_inner(), Validity::NonNullable).into_array()
     }
 }
 
@@ -150,9 +148,7 @@ impl<T: ByteViewType> FromArrowArray<&GenericByteViewArray<T>> for ArrayData {
 
 impl FromArrowArray<&ArrowBooleanArray> for ArrayData {
     fn from_arrow(value: &ArrowBooleanArray, nullable: bool) -> Self {
-        BoolArray::try_new(value.values().clone(), nulls(value.nulls(), nullable))
-            .vortex_expect("Failed to convert Arrow BooleanArray to Vortex BoolArray")
-            .into()
+        BoolArray::new(value.values().clone(), nulls(value.nulls(), nullable)).into()
     }
 }
 

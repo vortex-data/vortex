@@ -51,14 +51,14 @@ fn canonicalize_sparse_bools(
         )
     };
 
-    let bools = BoolArray::try_new(
+    let bools = BoolArray::new(
         if fill_bool {
             BooleanBuffer::new_set(len)
         } else {
             BooleanBuffer::new_unset(len)
         },
         validity,
-    )?;
+    );
     let patched = bools.patch(indices, values)?;
     Ok(Canonical::Bool(patched))
 }

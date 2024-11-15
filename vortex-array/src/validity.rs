@@ -11,7 +11,7 @@ use vortex_error::{
     vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect as _, VortexResult,
 };
 
-use crate::array::BoolArray;
+use crate::array::{BoolArray, ConstantArray};
 use crate::compute::unary::scalar_at_unchecked;
 use crate::compute::{filter, slice, take};
 use crate::stats::ArrayStatistics;
@@ -375,6 +375,13 @@ impl FromIterator<LogicalValidity> for Validity {
     }
 }
 
+/// Convert an iterator of any optional into a validity.
+impl<'a, E> FromIterator<&'a Option<E>> for Validity {
+    fn from_iter<T: IntoIterator<Item = &'a Option<E>>>(iter: T) -> Self {
+        Self::from_iter(iter.into_iter().map(|option| option.is_some()))
+    }
+}
+
 impl FromIterator<Option<bool>> for Validity {
     fn from_iter<T: IntoIterator<Item = Option<bool>>>(iter: T) -> Self {
         Self::Array(BoolArray::from_iter(iter).into_array())
@@ -467,8 +474,8 @@ impl TryFrom<ArrayData> for LogicalValidity {
 impl IntoArrayData for LogicalValidity {
     fn into_array(self) -> ArrayData {
         match self {
-            Self::AllValid(len) => BoolArray::all_true(len).into_array(),
-            Self::AllInvalid(len) => BoolArray::all_false(len).into_array(),
+            Self::AllValid(len) => ConstantArray::new(true, len).into_array(),
+            Self::AllInvalid(len) => ConstantArray::new(false, len).into_array(),
             Self::Array(a) => a,
         }
     }

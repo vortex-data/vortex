@@ -41,22 +41,6 @@ impl Display for BoolMetadata {
 }
 
 impl BoolArray {
-    pub fn all_true(len: usize) -> Self {
-        Self::from(BooleanBuffer::new_set(len))
-    }
-
-    pub fn all_true_with_validity(len: usize, validity: Validity) -> VortexResult<Self> {
-        Self::try_new(BooleanBuffer::new_set(len), validity)
-    }
-
-    pub fn all_false(len: usize) -> Self {
-        Self::from(BooleanBuffer::new_unset(len))
-    }
-
-    pub fn all_false_with_validity(len: usize, validity: Validity) -> VortexResult<Self> {
-        Self::try_new(BooleanBuffer::new_unset(len), validity)
-    }
-
     /// Access internal array buffer
     pub fn buffer(&self) -> &Buffer {
         self.as_ref()
@@ -115,8 +99,7 @@ impl BoolArray {
         })
     }
 
-    // TODO(ngates): this should probably just panic on mismatched lengths?
-    pub fn try_new(buffer: BooleanBuffer, validity: Validity) -> VortexResult<Self> {
+    pub fn new(buffer: BooleanBuffer, validity: Validity) -> Self {
         let buffer_len = buffer.len();
         let buffer_offset = buffer.offset();
         let first_byte_bit_offset = (buffer_offset % 8) as u8;
@@ -126,19 +109,22 @@ impl BoolArray {
             .into_inner()
             .bit_slice(buffer_byte_offset, buffer_len);
 
-        Ok(Self {
+        Self {
             typed: TypedArray::try_from_parts(
                 DType::Bool(validity.nullability()),
                 buffer_len,
                 BoolMetadata {
-                    validity: validity.to_metadata(buffer_len)?,
+                    validity: validity
+                        .to_metadata(buffer_len)
+                        .vortex_expect("Validity array has different length"),
                     first_byte_bit_offset,
                 },
                 Some(Buffer::from(inner)),
                 validity.into_array().into_iter().collect_vec().into(),
                 StatsSet::new(),
-            )?,
-        })
+            )
+            .vortex_expect("Metadata is known to be good"),
+        }
     }
 
     pub fn patch<P: AsPrimitive<usize>>(
@@ -166,7 +152,10 @@ impl BoolArray {
             own_values.set_bit(idx.as_() + bit_offset, value);
         }
 
-        Self::try_new(own_values.finish().slice(bit_offset, len), result_validity)
+        Ok(Self::new(
+            own_values.finish().slice(bit_offset, len),
+            result_validity,
+        ))
     }
 }
 
@@ -180,7 +169,7 @@ impl ArrayVariants for BoolArray {
 
 impl BoolArrayTrait for BoolArray {
     fn invert(&self) -> VortexResult<ArrayData> {
-        BoolArray::try_new(!&self.boolean_buffer(), self.validity()).map(|a| a.into_array())
+        Ok(BoolArray::new(!&self.boolean_buffer(), self.validity()).into_array())
     }
 
     fn maybe_null_indices_iter<'a>(&'a self) -> Box<dyn Iterator<Item = usize> + 'a> {
@@ -194,8 +183,7 @@ impl BoolArrayTrait for BoolArray {
 
 impl From<BooleanBuffer> for BoolArray {
     fn from(value: BooleanBuffer) -> Self {
-        Self::try_new(value, Validity::NonNullable)
-            .vortex_expect("Failed to create BoolArray from BooleanBuffer")
+        Self::new(value, Validity::NonNullable)
     }
 }
 
@@ -215,11 +203,10 @@ impl FromIterator<bool> for BoolArray {
 impl FromIterator<Option<bool>> for BoolArray {
     fn from_iter<I: IntoIterator<Item = Option<bool>>>(iter: I) -> Self {
         let (buffer, nulls) = BooleanArray::from_iter(iter).into_parts();
-        Self::try_new(
+        Self::new(
             buffer,
             nulls.map(Validity::from).unwrap_or(Validity::AllValid),
         )
-        .vortex_expect("Failed to create BoolArray")
     }
 }
 

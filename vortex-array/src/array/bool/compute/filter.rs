@@ -25,7 +25,7 @@ fn filter_select_bool(arr: &BoolArray, predicate: &ArrayData) -> VortexResult<Bo
         } else {
             filter_select_bool_by_index(&arr.boolean_buffer(), predicate, selection_count)
         };
-        BoolArray::try_new(out, validity)
+        Ok(BoolArray::new(out, validity))
     })
 }
 

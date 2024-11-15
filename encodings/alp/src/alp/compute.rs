@@ -1,4 +1,4 @@
-use vortex_array::array::{BoolArray, ConstantArray};
+use vortex_array::array::{BoolArray, BooleanBuffer, ConstantArray};
 use vortex_array::compute::unary::{scalar_at, scalar_at_unchecked, ScalarAtFn};
 use vortex_array::compute::{
     compare, filter, slice, take, ArrayCompute, FilterFn, MaybeCompareFn, Operator, SliceFn, TakeFn,
@@ -114,11 +114,10 @@ impl MaybeCompareFn for ALPArray {
             match pvalue {
                 Some(PValue::F32(f)) => Some(alp_scalar_compare(self, f, operator)),
                 Some(PValue::F64(f)) => Some(alp_scalar_compare(self, f, operator)),
-                Some(_) | None => Some(Ok(BoolArray::all_false_with_validity(
-                    self.len(),
+                Some(_) | None => Some(Ok(BoolArray::new(
+                    BooleanBuffer::new_unset(self.len()),
                     Validity::AllValid,
                 )
-                .vortex_expect("Failed to create bool array")
                 .into_array())),
             }
         } else {
