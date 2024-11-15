@@ -192,12 +192,10 @@ impl<'a> CompressedArray<'a> {
     pub fn compressed(
         array: Array,
         path: Option<CompressionTree<'a>>,
-        inherited_stats: Option<&dyn Statistics>,
+        stats_to_inherit: Option<&dyn Statistics>,
     ) -> Self {
-        if let Some(stats) = inherited_stats {
-            for (stat, value) in stats.to_set().into_iter() {
-                array.statistics().set(stat, value);
-            }
+        if let Some(stats) = stats_to_inherit {
+            array.inherit_statistics(stats);
         }
         Self { array, path }
     }

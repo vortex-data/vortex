@@ -7,7 +7,7 @@ use vortex_scalar::{Scalar, ScalarValue};
 use crate::aliases::hash_map::{Entry, HashMap, IntoIter};
 use crate::stats::Stat;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct StatsSet {
     values: HashMap<Stat, Scalar>,
 }
@@ -23,6 +23,14 @@ impl StatsSet {
         Self {
             values: HashMap::new(),
         }
+    }
+
+    pub fn len(&self) -> usize {
+        self.values.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.values.is_empty()
     }
 
     /// Specialized constructor for the case where the StatsSet represents
@@ -85,6 +93,18 @@ impl StatsSet {
         stats.set(Stat::Max, scalar);
 
         stats
+    }
+
+    pub fn bools_with_true_count(true_count: usize, len: usize) -> StatsSet {
+        StatsSet::from(HashMap::<Stat, Scalar>::from([
+            (Stat::TrueCount, true_count.into()),
+            (Stat::Min, (true_count == len).into()),
+            (Stat::Max, (true_count > 0).into()),
+            (
+                Stat::IsConstant,
+                (true_count == 0 || true_count == len).into(),
+            ),
+        ]))
     }
 
     pub fn of<S: Into<Scalar>>(stat: Stat, value: S) -> Self {
