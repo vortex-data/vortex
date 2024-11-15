@@ -151,6 +151,7 @@ impl StatsSet {
                 Stat::Min => self.merge_min(other),
                 Stat::TrueCount => self.merge_true_count(other),
                 Stat::NullCount => self.merge_null_count(other),
+                Stat::UncompressedSizeInBytes => self.merge_uncompressed_size_in_bytes(other),
                 _ => vortex_panic!("Unrecognized commutative stat {}", s),
             }
         }
