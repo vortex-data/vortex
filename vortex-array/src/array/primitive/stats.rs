@@ -53,7 +53,7 @@ impl<T: PStatsType> ArrayStatisticsCompute for &[T] {
 
         Ok(match stat {
             Stat::Min | Stat::Max => {
-                let mut stats = compute_min_max(self.iter().copied());
+                let mut stats = compute_min_max(self.iter().copied(), true);
                 stats.set(
                     Stat::IsConstant,
                     stats
@@ -116,7 +116,7 @@ impl<T: PStatsType> ArrayStatisticsCompute for NullableValues<'_, T> {
 
         let mut set_indices = self.1.set_indices();
         if matches!(stat, Stat::Min | Stat::Max) {
-            stats.extend(compute_min_max(set_indices.map(|next| values[next])));
+            stats.extend(compute_min_max(set_indices.map(|next| values[next]), false));
         } else if stat == Stat::IsSorted {
             stats.extend(compute_is_sorted(set_indices.map(|next| values[next])));
         } else if stat == Stat::IsStrictSorted {
@@ -151,7 +151,7 @@ impl<T: PStatsType> ArrayStatisticsCompute for NullableValues<'_, T> {
     }
 }
 
-fn compute_min_max<T: PStatsType>(iter: impl Iterator<Item = T>) -> StatsSet {
+fn compute_min_max<T: PStatsType>(iter: impl Iterator<Item = T>, could_be_constant: bool) -> StatsSet {
     // this `compare` function provides a total ordering (even for NaN values)
     match iter.minmax_by(|a, b| a.total_compare(*b)) {
         MinMaxResult::NoElements => StatsSet::new(),
@@ -160,11 +160,13 @@ fn compute_min_max<T: PStatsType>(iter: impl Iterator<Item = T>) -> StatsSet {
             StatsSet::from(HashMap::from([
                 (Stat::Min, scalar.clone()),
                 (Stat::Max, scalar),
+                (Stat::IsConstant, could_be_constant.into()),
             ]))
         }
         MinMaxResult::MinMax(min, max) => StatsSet::from(HashMap::from([
             (Stat::Min, min.into()),
             (Stat::Max, max.into()),
+            (Stat::IsConstant, (could_be_constant && min.total_compare(max) == Ordering::Equal).into()),
         ])),
     }
 }
