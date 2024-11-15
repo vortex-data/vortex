@@ -77,6 +77,14 @@ impl StructArray {
             children.push(v);
         }
 
+        let stats = children
+            .iter()
+            .map(|f| f.statistics().compute_uncompressed_size_in_bytes())
+            .reduce(|acc, field_size| acc.zip(field_size).map(|(a, b)| a + b))
+            .flatten()
+            .map(|size| StatsSet::of(Stat::UncompressedSizeInBytes, size))
+            .unwrap_or_else(StatsSet::new);
+
         Self::try_from_parts(
             DType::Struct(StructDType::new(names, field_dtypes), nullability),
             length,
@@ -84,7 +92,7 @@ impl StructArray {
                 validity: validity_metadata,
             },
             children.into(),
-            StatsSet::new(),
+            stats,
         )
     }
 
