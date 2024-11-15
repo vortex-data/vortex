@@ -199,7 +199,11 @@ impl<'a> CompressedArray<'a> {
             compressed_array.inherit_statistics(original_array.statistics());
 
             // ensure that we compute uncompressed size in bytes
-            if compressed_array.statistics().get(Stat::UncompressedSizeInBytes).is_none() {
+            if compressed_array
+                .statistics()
+                .get(Stat::UncompressedSizeInBytes)
+                .is_none()
+            {
                 compressed_array.statistics().set(
                     Stat::UncompressedSizeInBytes,
                     original_array.nbytes().into(),
