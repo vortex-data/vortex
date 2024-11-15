@@ -179,7 +179,7 @@ mod tests {
             assert!(chunk.encoding().id() == Dict::ID || chunk.encoding().id() == FSST::ID);
             assert_eq!(
                 chunk.statistics().get(Stat::UncompressedSizeInBytes),
-                Some(Scalar::from((chunk_size / 4 * 21 + chunk_size * 4) as u64))
+                Some(Scalar::from(1392640u64))
             );
         }
 
@@ -190,6 +190,10 @@ mod tests {
             .unwrap();
         for chunk in binary_col.chunks() {
             assert_eq!(chunk.encoding().id(), VarBin::ID);
+            assert_eq!(
+                chunk.statistics().get(Stat::UncompressedSizeInBytes),
+                Some(Scalar::from(134357000u64))
+            );
         }
 
         let timestamp_col: ChunkedArray = struct_array
@@ -199,6 +203,7 @@ mod tests {
             .unwrap();
         for chunk in timestamp_col.chunks() {
             assert_eq!(chunk.encoding().id(), DateTimeParts::ID);
+            assert_eq!(chunk.statistics().get(Stat::UncompressedSizeInBytes), Some((chunk.len() * 8).into()))
         }
     }
 
