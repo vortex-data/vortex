@@ -49,6 +49,7 @@ impl ChunkedArray {
             if chunk.dtype() != &dtype {
                 vortex_bail!(MismatchedTypes: dtype, chunk.dtype());
             }
+            let _ = chunk.statistics().compute_uncompressed_size_in_bytes();
         }
 
         let chunk_offsets = [0u64]
@@ -62,23 +63,8 @@ impl ChunkedArray {
 
         let nchunks = chunk_offsets.len() - 1;
         let length = *chunk_offsets.last().unwrap_or_else(|| {
-            unreachable!("Chunk ends is guaranteed to have at least one element")
+            vortex_panic!("Chunk ends is guaranteed to have at least one element")
         }) as usize;
-
-        let stats = {
-            let mut stats = StatsSet::new();
-            let mut first = true;
-            for chunk in &chunks {
-                let _ = chunk.statistics().compute_uncompressed_size_in_bytes();
-                if first {
-                    stats.extend(chunk.statistics().to_set());
-                    first = false;
-                } else {
-                    stats.merge_ordered(&chunk.statistics().to_set());
-                }
-            }
-            stats
-        };
 
         let mut children = Vec::with_capacity(chunks.len() + 1);
         children.push(PrimitiveArray::from_vec(chunk_offsets, NonNullable).into_array());
@@ -89,7 +75,7 @@ impl ChunkedArray {
             length,
             ChunkedMetadata { nchunks },
             children.into(),
-            stats,
+            StatsSet::new(),
         )
     }
 
