@@ -115,7 +115,10 @@ impl StatsSet {
         self.values.get(&stat)
     }
 
-    pub fn get_as<T: for<'a> TryFrom<&'a Scalar, Error = VortexError>>(&self, stat: Stat) -> Option<T> {
+    pub fn get_as<T: for<'a> TryFrom<&'a Scalar, Error = VortexError>>(
+        &self,
+        stat: Stat,
+    ) -> Option<T> {
         self.get(stat).map(|v| {
             T::try_from(v).unwrap_or_else(|err| {
                 vortex_panic!(

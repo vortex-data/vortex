@@ -199,7 +199,9 @@ impl<'a> CompressedArray<'a> {
 
             // we do some special handling to ensure that we compute uncompressed size
             // before compression happens, and that we propagate it correctly
-            let _ = original_array.statistics().compute_uncompressed_size_in_bytes();
+            let _ = original_array
+                .statistics()
+                .compute_uncompressed_size_in_bytes();
             compressed_array.inherit_statistics(original_array.statistics());
 
             // ensure that we compute uncompressed size in bytes

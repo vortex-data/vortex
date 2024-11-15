@@ -203,7 +203,10 @@ mod tests {
             .unwrap();
         for chunk in timestamp_col.chunks() {
             assert_eq!(chunk.encoding().id(), DateTimeParts::ID);
-            assert_eq!(chunk.statistics().get(Stat::UncompressedSizeInBytes), Some((chunk.len() * 8).into()))
+            assert_eq!(
+                chunk.statistics().get(Stat::UncompressedSizeInBytes),
+                Some((chunk.len() * 8).into())
+            )
         }
     }
 

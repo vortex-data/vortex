@@ -54,7 +54,12 @@ pub fn check_statistics_unchanged(arr: &ArrayData, compressed: &ArrayData) {
     #[cfg(debug_assertions)]
     {
         // Run count merge_ordered assumes that the run is "broken" on each chunk, which is a useful estimate but not guaranteed to be correct.
-        for (stat, value) in arr.statistics().to_set().into_iter().filter(|(stat, _)| *stat != Stat::RunCount) {
+        for (stat, value) in arr
+            .statistics()
+            .to_set()
+            .into_iter()
+            .filter(|(stat, _)| *stat != Stat::RunCount)
+        {
             if compressed.statistics().get(stat) != Some(value.clone()) {
                 println!("MISMATCHED STATISTICS!!!!!");
                 println!("original: {}", arr.tree_display());
