@@ -302,6 +302,8 @@ impl PartialEq for Validity {
     }
 }
 
+// Too inefficient, only use in tests
+#[cfg(test)]
 impl From<Vec<bool>> for Validity {
     fn from(bools: Vec<bool>) -> Self {
         if bools.iter().all(|b| *b) {
@@ -373,10 +375,15 @@ impl FromIterator<LogicalValidity> for Validity {
     }
 }
 
-impl<'a, E> FromIterator<&'a Option<E>> for Validity {
-    fn from_iter<T: IntoIterator<Item = &'a Option<E>>>(iter: T) -> Self {
-        let bools: Vec<bool> = iter.into_iter().map(|option| option.is_some()).collect();
-        Self::from(bools)
+impl FromIterator<Option<bool>> for Validity {
+    fn from_iter<T: IntoIterator<Item = Option<bool>>>(iter: T) -> Self {
+        Self::Array(BoolArray::from_iter(iter).into_array())
+    }
+}
+
+impl FromIterator<bool> for Validity {
+    fn from_iter<T: IntoIterator<Item = bool>>(iter: T) -> Self {
+        Self::Array(BoolArray::from_iter(iter).into_array())
     }
 }
 
@@ -460,8 +467,8 @@ impl TryFrom<ArrayData> for LogicalValidity {
 impl IntoArrayData for LogicalValidity {
     fn into_array(self) -> ArrayData {
         match self {
-            Self::AllValid(len) => BoolArray::from(vec![true; len]).into_array(),
-            Self::AllInvalid(len) => BoolArray::from(vec![false; len]).into_array(),
+            Self::AllValid(len) => BoolArray::all_true(len).into_array(),
+            Self::AllInvalid(len) => BoolArray::all_false(len).into_array(),
             Self::Array(a) => a,
         }
     }

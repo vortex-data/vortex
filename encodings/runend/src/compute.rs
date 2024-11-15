@@ -190,7 +190,7 @@ mod test {
         let array = RunEndArray::try_new(
             PrimitiveArray::from(vec![3u32, 6, 8, 12]).into_array(),
             PrimitiveArray::from_vec(vec![1, 4, 2, 5], Validity::AllValid).into_array(),
-            Validity::from(vec![
+            Validity::from_iter([
                 false, false, false, false, true, true, false, false, false, false, true, true,
             ]),
         )
@@ -311,12 +311,9 @@ mod test {
     #[test]
     fn take_with_nulls() {
         let uncompressed = PrimitiveArray::from_vec(vec![1i32, 0, 3], Validity::AllValid);
-        let validity = BoolArray::from_vec(
-            vec![
-                true, true, false, false, false, true, true, true, true, true,
-            ],
-            Validity::NonNullable,
-        );
+        let validity = BoolArray::from_iter([
+            true, true, false, false, false, true, true, true, true, true,
+        ]);
         let arr = RunEndArray::try_new(
             vec![2u32, 5, 10].into_array(),
             uncompressed.into(),

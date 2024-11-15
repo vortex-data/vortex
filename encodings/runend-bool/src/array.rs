@@ -286,7 +286,7 @@ mod test {
 
     #[test]
     fn slice_slice_array() {
-        let raw = BoolArray::from(vec![
+        let raw = BoolArray::from_iter([
             true, true, false, false, false, true, false, true, true, true,
         ])
         .to_array();

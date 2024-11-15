@@ -60,13 +60,10 @@ impl TakeFn for RunEndBoolArray {
                 .collect::<VortexResult<Vec<_>>>()?
         });
         let start = self.start();
-        Ok(BoolArray::from(
-            physical_indices
-                .iter()
-                .map(|&it| value_at_index(it, start))
-                .collect::<Vec<_>>(),
+        Ok(
+            BoolArray::from_iter(physical_indices.iter().map(|&it| value_at_index(it, start)))
+                .to_array(),
         )
-        .to_array())
     }
 }
 

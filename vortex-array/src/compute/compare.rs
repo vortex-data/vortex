@@ -146,6 +146,7 @@ pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: Operator) -> Scalar {
 
 #[cfg(test)]
 mod tests {
+    use arrow_buffer::BooleanBuffer;
     use itertools::Itertools;
     use vortex_scalar::ScalarValue;
 
@@ -175,10 +176,11 @@ mod tests {
 
     #[test]
     fn test_bool_basic_comparisons() {
-        let arr = BoolArray::from_vec(
-            vec![true, true, false, true, false],
+        let arr = BoolArray::try_new(
+            BooleanBuffer::from_iter([true, true, false, true, false]),
             Validity::Array(BoolArray::from(vec![false, true, true, true, true]).into_array()),
         )
+        .unwrap()
         .into_array();
 
         let matches = compare(&arr, &arr, Operator::Eq)
@@ -195,10 +197,11 @@ mod tests {
         let empty: [u64; 0] = [];
         assert_eq!(to_int_indices(matches), empty);
 
-        let other = BoolArray::from_vec(
-            vec![false, false, false, true, true],
+        let other = BoolArray::try_new(
+            BooleanBuffer::from_iter([false, false, false, true, true]),
             Validity::Array(BoolArray::from(vec![false, true, true, true, true]).into_array()),
         )
+        .unwrap()
         .into_array();
 
         let matches = compare(&arr, &other, Operator::Lte)

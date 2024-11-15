@@ -1,5 +1,6 @@
 use std::fmt::{Debug, Display};
 
+use arrow_array::BooleanArray;
 use arrow_buffer::bit_iterator::{BitIndexIterator, BitSliceIterator};
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, MutableBuffer};
 use itertools::Itertools;
@@ -37,6 +38,22 @@ impl Display for BoolMetadata {
 }
 
 impl BoolArray {
+    pub fn all_true(len: usize) -> Self {
+        Self::from(BooleanBuffer::new_set(len))
+    }
+
+    pub fn all_true_with_validity(len: usize, validity: Validity) -> VortexResult<Self> {
+        Self::try_new(BooleanBuffer::new_set(len), validity)
+    }
+
+    pub fn all_false(len: usize) -> Self {
+        Self::from(BooleanBuffer::new_unset(len))
+    }
+
+    pub fn all_false_with_validity(len: usize, validity: Validity) -> VortexResult<Self> {
+        Self::try_new(BooleanBuffer::new_unset(len), validity)
+    }
+
     /// Access internal array buffer
     pub fn buffer(&self) -> &Buffer {
         self.as_ref()
@@ -95,6 +112,7 @@ impl BoolArray {
         })
     }
 
+    // TODO(ngates): this should probably just panic on mismatched lengths?
     pub fn try_new(buffer: BooleanBuffer, validity: Validity) -> VortexResult<Self> {
         let buffer_len = buffer.len();
         let buffer_offset = buffer.offset();
@@ -118,11 +136,6 @@ impl BoolArray {
                 StatsSet::new(),
             )?,
         })
-    }
-
-    pub fn from_vec(bools: Vec<bool>, validity: Validity) -> Self {
-        let buffer = BooleanBuffer::from(bools);
-        Self::try_new(buffer, validity).vortex_expect("Failed to create BoolArray from vec")
     }
 
     pub fn patch<P: AsPrimitive<usize>>(
@@ -183,27 +196,27 @@ impl From<BooleanBuffer> for BoolArray {
     }
 }
 
+#[cfg(test)]
 impl From<Vec<bool>> for BoolArray {
     fn from(value: Vec<bool>) -> Self {
-        Self::from_vec(value, Validity::NonNullable)
+        Self::from(BooleanBuffer::from(value))
+    }
+}
+
+impl FromIterator<bool> for BoolArray {
+    fn from_iter<T: IntoIterator<Item = bool>>(iter: T) -> Self {
+        Self::from_iter(iter.into_iter().map(Some))
     }
 }
 
 impl FromIterator<Option<bool>> for BoolArray {
     fn from_iter<I: IntoIterator<Item = Option<bool>>>(iter: I) -> Self {
-        let iter = iter.into_iter();
-        let (lower, _) = iter.size_hint();
-
-        let mut validity: Vec<bool> = Vec::with_capacity(lower);
-        let values: Vec<bool> = iter
-            .map(|i| {
-                validity.push(i.is_some());
-                i.unwrap_or_default()
-            })
-            .collect::<Vec<_>>();
-
-        Self::try_new(BooleanBuffer::from(values), Validity::from(validity))
-            .vortex_expect("Failed to create BoolArray from iterator of Option<bool>")
+        let (buffer, nulls) = BooleanArray::from_iter(iter).into_parts();
+        Self::try_new(
+            buffer,
+            nulls.map(Validity::from).unwrap_or(Validity::AllValid),
+        )
+        .vortex_expect("Failed to create BoolArray")
     }
 }
 

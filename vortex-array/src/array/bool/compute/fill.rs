@@ -31,19 +31,18 @@ impl FillForwardFn for BoolArray {
         let validity = validity
             .to_null_buffer()?
             .ok_or_else(|| vortex_err!("Failed to convert array validity to null buffer"))?;
+
         let bools = self.boolean_buffer();
         let mut last_value = false;
-        let filled = bools
-            .iter()
-            .zip(validity.inner().iter())
-            .map(|(v, valid)| {
+        let buffer = BooleanBuffer::from_iter(bools.iter().zip(validity.inner().iter()).map(
+            |(v, valid)| {
                 if valid {
                     last_value = v;
                 }
                 last_value
-            })
-            .collect::<Vec<_>>();
-        Ok(Self::from_vec(filled, Validity::AllValid).into_array())
+            },
+        ));
+        Ok(Self::try_new(buffer, Validity::AllValid)?.into_array())
     }
 }
 

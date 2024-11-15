@@ -118,7 +118,7 @@ impl From<Vec<bool>> for ByteBoolArray {
 
 impl From<Vec<Option<bool>>> for ByteBoolArray {
     fn from(value: Vec<Option<bool>>) -> Self {
-        let validity = Validity::from_iter(value.iter());
+        let validity = Validity::from_iter(value.iter().cloned());
 
         // This doesn't reallocate, and the compiler even vectorizes it
         let data = value.into_iter().map(Option::unwrap_or_default).collect();

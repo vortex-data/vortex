@@ -60,7 +60,6 @@ pub fn filter(
 mod test {
     use crate::array::{BoolArray, PrimitiveArray};
     use crate::compute::filter::filter;
-    use crate::validity::Validity;
     use crate::{IntoArrayData, IntoCanonical};
 
     #[test]
@@ -68,9 +67,7 @@ mod test {
         let items =
             PrimitiveArray::from_nullable_vec(vec![Some(0i32), None, Some(1i32), None, Some(2i32)])
                 .into_array();
-        let predicate =
-            BoolArray::from_vec(vec![true, false, true, false, true], Validity::NonNullable)
-                .into_array();
+        let predicate = BoolArray::from(vec![true, false, true, false, true]).into_array();
 
         let filtered = filter(&items, &predicate).unwrap();
         assert_eq!(

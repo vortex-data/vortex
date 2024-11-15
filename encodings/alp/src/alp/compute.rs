@@ -114,10 +114,11 @@ impl MaybeCompareFn for ALPArray {
             match pvalue {
                 Some(PValue::F32(f)) => Some(alp_scalar_compare(self, f, operator)),
                 Some(PValue::F64(f)) => Some(alp_scalar_compare(self, f, operator)),
-                Some(_) | None => Some(Ok(BoolArray::from_vec(
-                    vec![false; self.len()],
+                Some(_) | None => Some(Ok(BoolArray::all_false_with_validity(
+                    self.len(),
                     Validity::AllValid,
                 )
+                .vortex_expect("Failed to create bool array")
                 .into_array())),
             }
         } else {
@@ -145,7 +146,7 @@ where
                 let s = ConstantArray::new(exception, alp.len());
                 compare(patches, s.as_ref(), operator)
             } else {
-                Ok(BoolArray::from_vec(vec![false; alp.len()], Validity::AllValid).into_array())
+                Ok(ConstantArray::new(false, alp.len()).into_array())
             }
         }
     }

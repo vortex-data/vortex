@@ -43,7 +43,7 @@ mod test {
         assert!(encoded.left_parts_exceptions().is_some());
 
         // The first two values need no patching
-        let filtered = filter(encoded.as_ref(), BoolArray::from(vec![true, false, true]))
+        let filtered = filter(encoded.as_ref(), BoolArray::from_iter([true, false, true]))
             .unwrap()
             .into_primitive()
             .unwrap();

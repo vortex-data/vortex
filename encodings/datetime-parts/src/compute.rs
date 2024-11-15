@@ -150,7 +150,7 @@ mod test {
         do_roundtrip_test(&raw_values, Validity::NonNullable);
         do_roundtrip_test(&raw_values, Validity::AllValid);
         do_roundtrip_test(&raw_values, Validity::AllInvalid);
-        do_roundtrip_test(&raw_values, Validity::from(vec![true, false, true]));
+        do_roundtrip_test(&raw_values, Validity::from_iter([true, false, true]));
     }
 
     fn do_roundtrip_test(raw_values: &[i64], validity: Validity) {

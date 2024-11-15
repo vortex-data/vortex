@@ -157,7 +157,7 @@ mod test {
     #[test]
     #[cfg_attr(miri, ignore)]
     pub fn iter() {
-        let bool: BoolArray = BoolArray::from(vec![true, false, true, true]);
+        let bool: BoolArray = BoolArray::from_iter([true, false, true, true]);
         let array = RoaringBoolArray::encode(bool.into_array()).unwrap();
         let round_trip = RoaringBoolArray::try_from(array).unwrap();
         let values = round_trip.bitmap().to_vec();
@@ -167,11 +167,10 @@ mod test {
     #[test]
     #[cfg_attr(miri, ignore)]
     pub fn trailing_false() {
-        let bool: BoolArray = BoolArray::from(
-            vec![true, true]
+        let bool: BoolArray = BoolArray::from_iter(
+            [true, true]
                 .into_iter()
-                .chain(iter::repeat(false).take(100))
-                .collect::<Vec<_>>(),
+                .chain(iter::repeat(false).take(100)),
         );
         let array = RoaringBoolArray::encode(bool.into_array()).unwrap();
         let round_trip = RoaringBoolArray::try_from(array).unwrap();

@@ -85,8 +85,7 @@ fn test_fsst_array_ops() {
     );
 
     // test filter
-    let predicate =
-        BoolArray::from_vec(vec![false, true, false], Validity::NonNullable).into_array();
+    let predicate = BoolArray::from_iter([false, true, false]).into_array();
 
     let fsst_filtered = filter(&fsst_array, &predicate).unwrap();
     assert_eq!(fsst_filtered.encoding().id(), FSST::ENCODING.id());

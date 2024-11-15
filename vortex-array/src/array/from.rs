@@ -2,17 +2,9 @@ use vortex_buffer::{Buffer, BufferString};
 use vortex_dtype::half::f16;
 use vortex_dtype::{DType, Nullability};
 
-use super::{BoolArray, PrimitiveArray, VarBinViewArray};
+use super::{PrimitiveArray, VarBinViewArray};
 use crate::validity::Validity;
 use crate::{ArrayData, IntoArrayData as _};
-
-// `From<Vec<Option<!>>> for Array` requries the experimental uninhabited type: !.
-
-impl From<Vec<Option<bool>>> for ArrayData {
-    fn from(value: Vec<Option<bool>>) -> Self {
-        BoolArray::from_iter(value).into_array()
-    }
-}
 
 macro_rules! impl_from_primitive_for_array {
     ($P:ty) => {
