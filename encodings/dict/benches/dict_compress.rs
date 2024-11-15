@@ -22,7 +22,7 @@ fn gen_varbin_words(len: usize, uniqueness: f64) -> Vec<String> {
     let uniq_cnt = (len as f64 * uniqueness) as usize;
     let dict: Vec<String> = (0..uniq_cnt)
         .map(|_| {
-                (&mut rng)
+            (&mut rng)
                 .sample_iter(&Alphanumeric)
                 .take(16)
                 .map(char::from)

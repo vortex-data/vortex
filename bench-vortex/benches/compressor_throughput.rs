@@ -103,7 +103,9 @@ fn strings(c: &mut Criterion) {
 
     let varbinview_arr = VarBinViewArray::from_iter_str(gen_varbin_words(1_000_000, 0.00005));
     let (codes, values) = dict_encode_varbinview(&varbinview_arr);
-    group.throughput(Throughput::Bytes(varbinview_arr.clone().into_array().nbytes() as u64));
+    group.throughput(Throughput::Bytes(
+        varbinview_arr.clone().into_array().nbytes() as u64,
+    ));
     group.bench_function("dict_decode_varbinview", |b| {
         b.iter_batched(
             || DictArray::try_new(codes.clone().into_array(), values.clone().into_array()).unwrap(),
@@ -123,7 +125,6 @@ fn strings(c: &mut Criterion) {
     });
 }
 
-
 fn gen_varbin_words(len: usize, uniqueness: f64) -> Vec<String> {
     let mut rng = thread_rng();
     let uniq_cnt = (len as f64 * uniqueness) as usize;
@@ -140,7 +141,6 @@ fn gen_varbin_words(len: usize, uniqueness: f64) -> Vec<String> {
         .map(|_| dict.choose(&mut rng).unwrap().clone())
         .collect()
 }
-
 
 criterion_group!(benches, primitive, strings);
 criterion_main!(benches);
