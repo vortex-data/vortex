@@ -7,7 +7,7 @@ use itertools::{Itertools as _, MinMaxResult};
 use num_traits::PrimInt;
 use vortex_dtype::half::f16;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability};
-use vortex_error::VortexResult;
+use vortex_error::{vortex_panic, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::aliases::hash_map::HashMap;
@@ -173,22 +173,37 @@ impl<T: PStatsType> ArrayStatisticsCompute for NullableValues<'_, T> {
             return Ok(StatsSet::new());
         }
 
-        if stat == Stat::NullCount {
+        let null_count = values.len() - self.1.count_set_bits();
+        if null_count == 0 {
+            // no nulls, use the fast path on the values
+            return values.compute_statistics(stat);
+        } else if null_count == values.len() {
+            // all nulls!
+            return Ok(StatsSet::nulls(
+                values.len(),
+                &DType::Primitive(T::PTYPE, Nullability::Nullable),
+            ));
+        }
+
+        // we know that there is at least one null, but not all nulls, so it's not constant
+        let is_constant = false;
+        if stat == Stat::IsConstant {
             return Ok(StatsSet::from(HashMap::from([(
-                Stat::NullCount,
-                (values.len() - self.1.count_set_bits()).into(),
+                Stat::IsConstant,
+                is_constant.into(),
             )])));
         }
 
         let mut set_indices = self.1.set_indices();
         let Some(first_non_null) = set_indices.next() else {
-            return Ok(StatsSet::nulls(
-                values.len(),
-                &DType::Primitive(T::PTYPE, Nullability::Nullable),
-            ));
+            vortex_panic!(
+                "No non-null values found in array with null_count == {} and length {}",
+                null_count,
+                values.len()
+            );
         };
 
-        accumulate_stats!(stat, |$ACC| {
+        let mut stats = accumulate_stats!(stat, |$ACC| {
             let mut acc = $ACC::new(values[first_non_null]);
             acc.n_nulls(first_non_null);
             let last_non_null = set_indices.fold(first_non_null, |prev_set_bit, next| {
@@ -198,8 +213,11 @@ impl<T: PStatsType> ArrayStatisticsCompute for NullableValues<'_, T> {
                 next
             });
             acc.n_nulls(values.len() - last_non_null - 1);
-            return Ok(acc.finish());
+            acc.finish()
         });
+        stats.set(Stat::NullCount, null_count.into());
+        stats.set(Stat::IsConstant, is_constant.into());
+        stats
     }
 }
 
@@ -293,9 +311,7 @@ struct StatsAccumulator<T: PStatsType> {
     is_sorted: bool,
     is_strict_sorted: bool,
     run_count: usize,
-    null_count: usize,
     nan_count: usize,
-    len: usize,
 }
 
 impl<T: PStatsType> StatsAccumulator<T> {
@@ -307,20 +323,13 @@ impl<T: PStatsType> StatsAccumulator<T> {
             is_sorted: true,
             is_strict_sorted: true,
             run_count: 1,
-            null_count: 0,
             nan_count: first_value.is_nan().then_some(1).unwrap_or_default(),
-            len: 1,
         }
     }
 
-    fn n_nulls(&mut self, n_nulls: usize) {
-        self.null_count += n_nulls;
-        self.len += n_nulls;
-    }
+    pub fn n_nulls(&mut self, _: usize) {}
 
     pub fn next(&mut self, next: T) {
-        self.len += 1;
-
         if next.is_nan() {
             self.nan_count += 1;
         }
@@ -342,8 +351,7 @@ impl<T: PStatsType> StatsAccumulator<T> {
     }
 
     pub fn finish(self) -> StatsSet {
-        let is_constant = (self.min == self.max && self.null_count == 0 && self.nan_count == 0)
-            || self.null_count == self.len;
+        let is_constant = (self.min == self.max && self.nan_count == 0)
 
         StatsSet::from(HashMap::from([
             (Stat::Min, self.min.into()),
