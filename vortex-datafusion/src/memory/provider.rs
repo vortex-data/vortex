@@ -19,8 +19,9 @@ use vortex_error::{VortexError, VortexExpect as _};
 use vortex_expr::datafusion::convert_expr_to_vortex;
 use vortex_expr::ExprRef;
 
-use crate::plans::{RowSelectorExec, TakeRowsExec};
-use crate::{can_be_pushed_down, VortexScanExec};
+use crate::can_be_pushed_down;
+use crate::memory::exec::VortexScanExec;
+use crate::memory::plans::{RowSelectorExec, TakeRowsExec};
 
 /// A [`TableProvider`] that exposes an existing Vortex Array to the DataFusion SQL engine.
 ///

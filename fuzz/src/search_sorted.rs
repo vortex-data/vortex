@@ -42,7 +42,7 @@ impl<T: NativePType> IndexOrd<Option<T>> for SearchPrimitiveSlice<T> {
                 // SAFETY: Used in search_sorted_by same as the standard library. The search_sorted ensures idx is in bounds
                 match unsafe { self.0.get_unchecked(idx) } {
                     None => Some(Ordering::Greater),
-                    Some(i) => Some(i.compare(*v)),
+                    Some(i) => Some(i.total_compare(*v)),
                 }
             }
         }

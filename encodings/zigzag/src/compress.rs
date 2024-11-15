@@ -48,7 +48,6 @@ pub fn zigzag_decode(parray: PrimitiveArray) -> VortexResult<PrimitiveArray> {
             parray.ptype()
         ),
     };
-    decoded.inherit_statistics(parray.statistics());
     Ok(decoded)
 }
 

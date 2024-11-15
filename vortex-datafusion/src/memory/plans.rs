@@ -388,7 +388,7 @@ mod test {
     use vortex_dtype::FieldName;
     use vortex_expr::datafusion::convert_expr_to_vortex;
 
-    use crate::plans::{RowIndicesStream, ROW_SELECTOR_SCHEMA_REF};
+    use crate::memory::plans::{RowIndicesStream, ROW_SELECTOR_SCHEMA_REF};
 
     #[tokio::test]
     #[cfg_attr(miri, ignore)]

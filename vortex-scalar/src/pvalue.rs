@@ -26,17 +26,17 @@ pub enum PValue {
 impl PartialOrd for PValue {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         match (self, other) {
-            (Self::U8(s), Self::U8(o)) => Some(s.compare(*o)),
-            (Self::U16(s), Self::U16(o)) => Some(s.compare(*o)),
-            (Self::U32(s), Self::U32(o)) => Some(s.compare(*o)),
-            (Self::U64(s), Self::U64(o)) => Some(s.compare(*o)),
-            (Self::I8(s), Self::I8(o)) => Some(s.compare(*o)),
-            (Self::I16(s), Self::I16(o)) => Some(s.compare(*o)),
-            (Self::I32(s), Self::I32(o)) => Some(s.compare(*o)),
-            (Self::I64(s), Self::I64(o)) => Some(s.compare(*o)),
-            (Self::F16(s), Self::F16(o)) => Some(s.compare(*o)),
-            (Self::F32(s), Self::F32(o)) => Some(s.compare(*o)),
-            (Self::F64(s), Self::F64(o)) => Some(s.compare(*o)),
+            (Self::U8(s), Self::U8(o)) => Some(s.total_compare(*o)),
+            (Self::U16(s), Self::U16(o)) => Some(s.total_compare(*o)),
+            (Self::U32(s), Self::U32(o)) => Some(s.total_compare(*o)),
+            (Self::U64(s), Self::U64(o)) => Some(s.total_compare(*o)),
+            (Self::I8(s), Self::I8(o)) => Some(s.total_compare(*o)),
+            (Self::I16(s), Self::I16(o)) => Some(s.total_compare(*o)),
+            (Self::I32(s), Self::I32(o)) => Some(s.total_compare(*o)),
+            (Self::I64(s), Self::I64(o)) => Some(s.total_compare(*o)),
+            (Self::F16(s), Self::F16(o)) => Some(s.total_compare(*o)),
+            (Self::F32(s), Self::F32(o)) => Some(s.total_compare(*o)),
+            (Self::F64(s), Self::F64(o)) => Some(s.total_compare(*o)),
             (..) => None,
         }
     }

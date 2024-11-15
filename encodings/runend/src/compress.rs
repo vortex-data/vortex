@@ -3,13 +3,11 @@ use std::cmp::min;
 use itertools::Itertools;
 use num_traits::{AsPrimitive, FromPrimitive};
 use vortex_array::array::PrimitiveArray;
-use vortex_array::compute::unary::scalar_at;
-use vortex_array::stats::{ArrayStatistics, Stat};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::ArrayDType;
 use vortex_dtype::{match_each_integer_ptype, match_each_native_ptype, NativePType, Nullability};
-use vortex_error::{vortex_panic, VortexResult, VortexUnwrap as _};
+use vortex_error::{vortex_panic, VortexResult};
 
 pub fn runend_encode(array: &PrimitiveArray) -> (PrimitiveArray, PrimitiveArray) {
     let validity = if array.dtype().nullability() == Nullability::NonNullable {
@@ -22,48 +20,6 @@ pub fn runend_encode(array: &PrimitiveArray) -> (PrimitiveArray, PrimitiveArray)
         let (ends, values) = runend_encode_primitive(array.maybe_null_slice::<$P>());
         (PrimitiveArray::from_vec(ends, Validity::NonNullable), PrimitiveArray::from_vec(values, validity))
     });
-
-    // the values array stats are trivially derived
-    compressed_values
-        .statistics()
-        .set(Stat::RunCount, compressed_values.len().into());
-    compressed_values
-        .statistics()
-        .set(Stat::IsConstant, (compressed_values.len() == 1).into());
-    if let Some(min) = array.statistics().get(Stat::Min) {
-        compressed_values.statistics().set(Stat::Min, min);
-    }
-    if let Some(max) = array.statistics().get(Stat::Max) {
-        compressed_values.statistics().set(Stat::Max, max);
-    }
-    if let Some(is_sorted) = array.statistics().get(Stat::IsSorted) {
-        compressed_values
-            .statistics()
-            .set(Stat::IsSorted, is_sorted);
-    }
-    if let Some(is_strict_sorted) = array.statistics().get(Stat::IsStrictSorted) {
-        compressed_values
-            .statistics()
-            .set(Stat::IsStrictSorted, is_strict_sorted);
-    }
-
-    compressed_ends
-        .statistics()
-        .set(Stat::IsConstant, (compressed_ends.len() == 1).into());
-    compressed_ends
-        .statistics()
-        .set(Stat::IsSorted, true.into());
-    compressed_ends
-        .statistics()
-        .set(Stat::IsStrictSorted, true.into());
-    if !compressed_ends.is_empty() {
-        compressed_ends
-            .statistics()
-            .set(Stat::Min, scalar_at(&compressed_ends, 0).vortex_unwrap());
-        compressed_ends
-            .statistics()
-            .set(Stat::Max, (array.len() as u64).into());
-    }
 
     assert_eq!(array.dtype(), compressed_values.dtype());
     (compressed_ends, compressed_values)
