@@ -3,7 +3,6 @@ use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use itertools::Itertools;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::encoding::EncodingRef;
 use vortex_array::stats::{ArrayStatistics, Stat};
