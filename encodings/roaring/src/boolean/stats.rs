@@ -23,16 +23,17 @@ impl ArrayStatisticsCompute for RoaringBoolArray {
             let is_sorted = if true_count == 0 || true_count == self.len() as u64 {
                 true
             } else {
-                let min_idx = bitmap
-                    .minimum()
-                    .ok_or_else(|| vortex_err!("Bitmap has no minimum despite having cardinality > 0"))?;
-                let max_idx = bitmap
-                    .maximum()
-                    .ok_or_else(|| vortex_err!("Bitmap has no maximum despite having cardinality > 0"))?;
+                let min_idx = bitmap.minimum().ok_or_else(|| {
+                    vortex_err!("Bitmap has no minimum despite having cardinality > 0")
+                })?;
+                let max_idx = bitmap.maximum().ok_or_else(|| {
+                    vortex_err!("Bitmap has no maximum despite having cardinality > 0")
+                })?;
                 (max_idx as usize + 1 == self.len()) && (max_idx + 1 - min_idx) as u64 == true_count
             };
 
-            let is_strict_sorted = is_sorted && (self.len() <= 1 || (self.len() == 2 && true_count == 1));
+            let is_strict_sorted =
+                is_sorted && (self.len() <= 1 || (self.len() == 2 && true_count == 1));
             return Ok(StatsSet::from(HashMap::from([
                 (Stat::IsSorted, is_sorted.into()),
                 (Stat::IsStrictSorted, is_strict_sorted.into()),

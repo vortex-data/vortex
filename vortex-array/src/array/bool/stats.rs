@@ -90,8 +90,6 @@ impl ArrayStatisticsCompute for BooleanBuffer {
     }
 }
 
-
-
 struct BoolStatsAccumulator {
     prev: bool,
     is_sorted: bool,

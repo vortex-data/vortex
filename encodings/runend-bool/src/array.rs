@@ -49,11 +49,7 @@ impl RunEndBoolArray {
         length: usize,
         offset: usize,
     ) -> VortexResult<Self> {
-        if !ends
-            .statistics()
-            .compute_is_strict_sorted()
-            .unwrap_or(true)
-        {
+        if !ends.statistics().compute_is_strict_sorted().unwrap_or(true) {
             vortex_bail!("Ends array must be strictly sorted",);
         }
         if !ends.dtype().is_unsigned_int() || ends.dtype().is_nullable() {
@@ -63,7 +59,10 @@ impl RunEndBoolArray {
             );
         }
         if ends.is_empty() && length != 0 {
-            vortex_bail!("Ends array cannot be empty when length ({}) is not zero", length);
+            vortex_bail!(
+                "Ends array cannot be empty when length ({}) is not zero",
+                length
+            );
         }
 
         if offset != 0 {
@@ -354,11 +353,7 @@ mod test {
     #[case(false, 2, 2)]
     #[case(false, 3, 32)]
     #[case(true, 3, 32)]
-    fn stats(
-        #[case] start: bool,
-        #[case] ends_len: usize,
-        #[case] len: usize,
-    ) {
+    fn stats(#[case] start: bool, #[case] ends_len: usize, #[case] len: usize) {
         use vortex_array::stats::Stat;
 
         let ends = (1u32..(ends_len as u32))

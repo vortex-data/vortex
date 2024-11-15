@@ -8,8 +8,7 @@ use vortex_array::stats::{ArrayStatistics, ArrayStatisticsCompute, Stat, StatsSe
 use vortex_array::validity::{ArrayValidity, LogicalValidity};
 use vortex_array::variants::{ArrayVariants, PrimitiveArrayTrait};
 use vortex_array::{
-    impl_encoding, Array, ArrayDType, ArrayTrait, Canonical, IntoArrayVariant,
-    IntoCanonical,
+    impl_encoding, Array, ArrayDType, ArrayTrait, Canonical, IntoArrayVariant, IntoCanonical,
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
@@ -99,7 +98,10 @@ impl ArrayStatisticsCompute for ZigZagArray {
                 stats.set(stat, val);
             }
         } else if matches!(stat, Stat::Min | Stat::Max) {
-            let encoded_max = self.encoded().statistics().compute_as_cast::<u64>(Stat::Max);
+            let encoded_max = self
+                .encoded()
+                .statistics()
+                .compute_as_cast::<u64>(Stat::Max);
             if let Some(val) = encoded_max {
                 // the max of the encoded array is the element with the highest absolute value (so either min if negative, or max if positive)
                 let decoded = <i64 as ExternalZigZag>::decode(val);
@@ -120,13 +122,16 @@ impl IntoCanonical for ZigZagArray {
 
 #[cfg(test)]
 mod test {
-    use vortex_array::{compute::{slice, unary::scalar_at}, IntoArray};
+    use vortex_array::compute::slice;
+    use vortex_array::compute::unary::scalar_at;
+    use vortex_array::IntoArray;
 
     use super::*;
 
     #[test]
     fn test_compute_statistics() {
-        let array = PrimitiveArray::from(vec![1i32, -5i32, 2, 3, 4, 5, 6, 7, 8, 9, 10]).into_array();
+        let array =
+            PrimitiveArray::from(vec![1i32, -5i32, 2, 3, 4, 5, 6, 7, 8, 9, 10]).into_array();
         let zigzag = ZigZagArray::encode(&array).unwrap();
 
         for stat in [Stat::Max, Stat::NullCount, Stat::IsConstant] {
@@ -135,7 +140,10 @@ mod test {
         }
 
         let sliced = ZigZagArray::try_from(slice(zigzag.clone(), 0, 2).unwrap()).unwrap();
-        assert_eq!(scalar_at(&sliced, sliced.len() - 1).unwrap(), Scalar::from(-5i32));
+        assert_eq!(
+            scalar_at(&sliced, sliced.len() - 1).unwrap(),
+            Scalar::from(-5i32)
+        );
         for stat in [Stat::Min, Stat::NullCount, Stat::IsConstant] {
             let stats = sliced.compute_statistics(stat).unwrap();
             assert_eq!(stats.get(stat), array.statistics().compute(stat).as_ref());

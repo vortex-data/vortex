@@ -39,7 +39,10 @@ impl RoaringBoolArray {
     pub fn try_new(bitmap: Bitmap, length: usize) -> VortexResult<Self> {
         let max_set = bitmap.maximum().unwrap_or(0) as usize;
         if length < max_set {
-            vortex_bail!("RoaringBoolArray length is less than bitmap maximum {}", max_set)
+            vortex_bail!(
+                "RoaringBoolArray length is less than bitmap maximum {}",
+                max_set
+            )
         }
 
         let roaring_stats = bitmap.statistics();

@@ -118,10 +118,7 @@ impl DeltaArray {
 
         let dtype = bases.dtype().clone();
         if !dtype.is_int() {
-            vortex_bail!(
-                "DeltaArray: dtype must be an integer, got {}",
-                dtype
-            );
+            vortex_bail!("DeltaArray: dtype must be an integer, got {}", dtype);
         }
 
         let metadata = DeltaMetadata {
