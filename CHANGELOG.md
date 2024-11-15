@@ -6,6 +6,138 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## `vortex-datafusion` - [0.17.0](https://github.com/spiraldb/vortex/compare/vortex-datafusion-v0.16.0...vortex-datafusion-v0.17.0) - 2024-11-15
+
+### Other
+- Shuffle datafusion provider ([#1312](https://github.com/spiraldb/vortex/pull/1312))
+- Reuse the IoDispatcher across DataFusion instances ([#1299](https://github.com/spiraldb/vortex/pull/1299))
+- replace vortex-serde with 3 crates ([#1296](https://github.com/spiraldb/vortex/pull/1296))
+- introduce ExprRef, teach expressions new_ref ([#1258](https://github.com/spiraldb/vortex/pull/1258))
+
+## `vortex-zigzag` - [0.17.0](https://github.com/spiraldb/vortex/compare/vortex-zigzag-v0.16.0...vortex-zigzag-v0.17.0) - 2024-11-15
+
+### Added
+- split computation of primitive statistics ([#1306](https://github.com/spiraldb/vortex/pull/1306))
+- stats implementations for more array types ([#1305](https://github.com/spiraldb/vortex/pull/1305))
+
+## `vortex-runend-bool` - [0.17.0](https://github.com/spiraldb/vortex/compare/vortex-runend-bool-v0.16.0...vortex-runend-bool-v0.17.0) - 2024-11-15
+
+### Added
+- stats implementations for more array types ([#1305](https://github.com/spiraldb/vortex/pull/1305))
+
+## `vortex-runend` - [0.17.0](https://github.com/spiraldb/vortex/compare/vortex-runend-v0.16.0...vortex-runend-v0.17.0) - 2024-11-15
+
+### Added
+- split computation of primitive statistics ([#1306](https://github.com/spiraldb/vortex/pull/1306))
+- stats implementations for more array types ([#1305](https://github.com/spiraldb/vortex/pull/1305))
+
+## `vortex-roaring` - [0.17.0](https://github.com/spiraldb/vortex/compare/vortex-roaring-v0.16.0...vortex-roaring-v0.17.0) - 2024-11-15
+
+### Added
+- stats implementations for more array types ([#1305](https://github.com/spiraldb/vortex/pull/1305))
+
+## `vortex-sampling-compressor` - [0.17.0](https://github.com/spiraldb/vortex/compare/vortex-sampling-compressor-v0.16.0...vortex-sampling-compressor-v0.17.0) - 2024-11-15
+
+### Added
+- stats implementations for more array types ([#1305](https://github.com/spiraldb/vortex/pull/1305))
+
+## `vortex-io` - [0.17.0](https://github.com/spiraldb/vortex/compare/vortex-io-v0.16.0...vortex-io-v0.17.0) - 2024-11-15
+
+### Fixed
+- update setup instructions (rye -> uv) ([#1176](https://github.com/spiraldb/vortex/pull/1176))
+- fix docs badge in readme ([#753](https://github.com/spiraldb/vortex/pull/753))
+
+### Other
+- replace vortex-serde with 3 crates ([#1296](https://github.com/spiraldb/vortex/pull/1296))
+- deny missing_docs on vortex-dtype ([#1182](https://github.com/spiraldb/vortex/pull/1182))
+- very small README.md fixes
+- More README.md improvements ([#1084](https://github.com/spiraldb/vortex/pull/1084))
+- Update README.md ([#1055](https://github.com/spiraldb/vortex/pull/1055))
+- minor addition to README ([#1030](https://github.com/spiraldb/vortex/pull/1030))
+- updated README ([#876](https://github.com/spiraldb/vortex/pull/876))
+- release to Test PyPI on each push to version tags ([#760](https://github.com/spiraldb/vortex/pull/760))
+- Run ETE benchmarks with MiMalloc and leave a note encouraging its usage ([#399](https://github.com/spiraldb/vortex/pull/399))
+- README updates ([#394](https://github.com/spiraldb/vortex/pull/394))
+- Download flatc instead of building it from source ([#374](https://github.com/spiraldb/vortex/pull/374))
+- Update README.md ([#337](https://github.com/spiraldb/vortex/pull/337))
+- IPC Prototype ([#181](https://github.com/spiraldb/vortex/pull/181))
+- Add note to readme about git submodules and zig version ([#176](https://github.com/spiraldb/vortex/pull/176))
+- acknowledgments ([#171](https://github.com/spiraldb/vortex/pull/171))
+- Update README.md ([#168](https://github.com/spiraldb/vortex/pull/168))
+- More README updates ([#140](https://github.com/spiraldb/vortex/pull/140))
+- Update README.md
+- readme improvements ([#137](https://github.com/spiraldb/vortex/pull/137))
+- README ([#102](https://github.com/spiraldb/vortex/pull/102))
+- Root project is vortex-array ([#67](https://github.com/spiraldb/vortex/pull/67))
+- Add minimal description to readme and fixup cargo metadata ([#30](https://github.com/spiraldb/vortex/pull/30))
+- Add Readme
+
+## `vortex-file` - [0.17.0](https://github.com/spiraldb/vortex/compare/vortex-file-v0.16.0...vortex-file-v0.17.0) - 2024-11-15
+
+### Other
+- Restore perfoamnce of filter bitmask to bitmap conversion for dense rowmasks ([#1302](https://github.com/spiraldb/vortex/pull/1302))
+- Reuse the IoDispatcher across DataFusion instances ([#1299](https://github.com/spiraldb/vortex/pull/1299))
+- replace vortex-serde with 3 crates ([#1296](https://github.com/spiraldb/vortex/pull/1296))
+
+## `vortex-expr` - [0.17.0](https://github.com/spiraldb/vortex/compare/vortex-expr-v0.16.0...vortex-expr-v0.17.0) - 2024-11-15
+
+### Added
+- teach VortexExpr to Display ([#1293](https://github.com/spiraldb/vortex/pull/1293))
+
+### Other
+- introduce ExprRef, teach expressions new_ref ([#1258](https://github.com/spiraldb/vortex/pull/1258))
+- Use itertools format for VortexExpr Display ([#1294](https://github.com/spiraldb/vortex/pull/1294))
+
+## `vortex-dict` - [0.17.0](https://github.com/spiraldb/vortex/compare/vortex-dict-v0.16.0...vortex-dict-v0.17.0) - 2024-11-15
+
+### Added
+- stats implementations for more array types ([#1305](https://github.com/spiraldb/vortex/pull/1305))
+
+## `vortex-datetime-parts` - [0.17.0](https://github.com/spiraldb/vortex/compare/vortex-datetime-parts-v0.16.0...vortex-datetime-parts-v0.17.0) - 2024-11-15
+
+### Added
+- stats implementations for more array types ([#1305](https://github.com/spiraldb/vortex/pull/1305))
+
+## `vortex-fastlanes` - [0.17.0](https://github.com/spiraldb/vortex/compare/vortex-fastlanes-v0.16.0...vortex-fastlanes-v0.17.0) - 2024-11-15
+
+### Added
+- split computation of primitive statistics ([#1306](https://github.com/spiraldb/vortex/pull/1306))
+- stats implementations for more array types ([#1305](https://github.com/spiraldb/vortex/pull/1305))
+
+## `vortex-scalar` - [0.17.0](https://github.com/spiraldb/vortex/compare/vortex-scalar-v0.16.0...vortex-scalar-v0.17.0) - 2024-11-15
+
+### Added
+- split computation of primitive statistics ([#1306](https://github.com/spiraldb/vortex/pull/1306))
+
+## `vortex-flatbuffers` - [0.17.0](https://github.com/spiraldb/vortex/compare/vortex-flatbuffers-v0.16.0...vortex-flatbuffers-v0.17.0) - 2024-11-15
+
+### Other
+- replace vortex-serde with 3 crates ([#1296](https://github.com/spiraldb/vortex/pull/1296))
+
+## `vortex-dtype` - [0.17.0](https://github.com/spiraldb/vortex/compare/vortex-dtype-v0.16.0...vortex-dtype-v0.17.0) - 2024-11-15
+
+### Added
+- split computation of primitive statistics ([#1306](https://github.com/spiraldb/vortex/pull/1306))
+
+### Other
+- Extract RowMask creation and filtering to separate struct ([#1272](https://github.com/spiraldb/vortex/pull/1272))
+
+## `vortex-array` - [0.17.0](https://github.com/spiraldb/vortex/compare/vortex-array-v0.16.0...vortex-array-v0.17.0) - 2024-11-15
+
+### Added
+- split computation of primitive statistics ([#1306](https://github.com/spiraldb/vortex/pull/1306))
+- stats implementations for more array types ([#1305](https://github.com/spiraldb/vortex/pull/1305))
+- run VortexFileArrayStream on dedicated IoDispatcher ([#1232](https://github.com/spiraldb/vortex/pull/1232))
+
+### Other
+- Faster boolean stats ([#1301](https://github.com/spiraldb/vortex/pull/1301))
+- Extract RowMask creation and filtering to separate struct ([#1272](https://github.com/spiraldb/vortex/pull/1272))
+
+## `vortex` - [0.17.0](https://github.com/spiraldb/vortex/compare/0.16.0...0.17.0) - 2024-11-15
+
+### Other
+- replace vortex-serde with 3 crates ([#1296](https://github.com/spiraldb/vortex/pull/1296))
+
 ## `vortex-serde` - [0.16.0](https://github.com/spiraldb/vortex/compare/vortex-serde-v0.15.2...vortex-serde-v0.16.0) - 2024-11-13
 
 ### Added
