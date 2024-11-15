@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use bench_vortex::tpch::dbgen::{DBGen, DBGenOptions};
 use bench_vortex::tpch::{load_datasets, run_tpch_query, tpch_queries, Format};
 use criterion::{criterion_group, criterion_main, Criterion};
@@ -15,14 +13,6 @@ fn benchmark(c: &mut Criterion) {
     // Run TPC-H data gen.
     let data_dir = DBGen::new(DBGenOptions::default()).generate().unwrap();
 
-    let vortex_no_pushdown_ctx = runtime
-        .block_on(load_datasets(
-            &data_dir,
-            Format::InMemoryVortex {
-                enable_pushdown: false,
-            },
-        ))
-        .unwrap();
     let vortex_ctx = runtime
         .block_on(load_datasets(
             &data_dir,
@@ -45,32 +35,10 @@ fn benchmark(c: &mut Criterion) {
             },
         ))
         .unwrap();
-    let vortex_uncompressed_ctx = runtime
-        .block_on(load_datasets(
-            &data_dir,
-            Format::OnDiskVortex {
-                enable_compression: false,
-            },
-        ))
-        .unwrap();
 
     for (q, sql_queries) in tpch_queries() {
         let mut group = c.benchmark_group(format!("tpch_q{q}"));
         group.sample_size(10);
-
-        group.bench_function("vortex-in-memory-no-pushdown", |b| {
-            b.to_async(&runtime).iter(|| async {
-                run_tpch_query(
-                    &vortex_no_pushdown_ctx,
-                    &sql_queries,
-                    q,
-                    Format::InMemoryVortex {
-                        enable_pushdown: false,
-                    },
-                )
-                .await;
-            })
-        });
 
         group.bench_function("vortex-in-memory-pushdown", |b| {
             b.to_async(&runtime).iter(|| async {
@@ -111,30 +79,8 @@ fn benchmark(c: &mut Criterion) {
                 .await;
             })
         });
-
-        group.bench_function("vortex-file-uncompressed", |b| {
-            b.to_async(&runtime).iter(|| async {
-                run_tpch_query(
-                    &vortex_uncompressed_ctx,
-                    &sql_queries,
-                    q,
-                    Format::OnDiskVortex {
-                        enable_compression: false,
-                    },
-                )
-                .await;
-            })
-        });
     }
 }
 
-criterion_group! {
-    name = benches;
-    config = Criterion::default()
-        .sample_size(10)
-        .confidence_level(0.75)
-        .warm_up_time(Duration::from_nanos(1))
-        .measurement_time(Duration::from_nanos(1));
-    targets = benchmark
-}
+criterion_group!(benches, benchmark);
 criterion_main!(benches);

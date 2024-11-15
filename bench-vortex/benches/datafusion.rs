@@ -1,5 +1,4 @@
 use std::sync::{Arc, LazyLock};
-use std::time::Duration;
 
 use arrow_array::builder::{StringBuilder, UInt32Builder};
 use arrow_array::RecordBatch;
@@ -206,13 +205,5 @@ fn bench_datafusion(c: &mut Criterion) {
     );
 }
 
-criterion_group! {
-    name = benches;
-    config = Criterion::default()
-        .sample_size(10)
-        .confidence_level(0.75)
-        .warm_up_time(Duration::from_nanos(1))
-        .measurement_time(Duration::from_nanos(1));
-    targets = bench_datafusion
-}
+criterion_group!(benches, bench_datafusion);
 criterion_main!(benches);

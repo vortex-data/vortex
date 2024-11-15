@@ -62,7 +62,6 @@ xshell = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true, features = ["html_reports", "async_tokio"] }
-divan = { version = "0.1.15" }
 
 [[bin]]
 name = "tpch_benchmark"
@@ -86,11 +85,6 @@ harness = false
 
 [[bench]]
 name = "tpch"
-test = false
-harness = false
-
-[[bench]]
-name = "tpch_divan"
 test = false
 harness = false
 

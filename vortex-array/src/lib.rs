@@ -39,7 +39,6 @@ use crate::variants::ArrayVariants;
 pub mod accessor;
 pub mod aliases;
 pub mod array;
-mod array2;
 pub mod arrow;
 mod canonical;
 pub mod compress;
@@ -438,6 +437,13 @@ impl<T: AsRef<Array>> ArrayStatistics for T {
         match &self.as_ref().0 {
             Inner::Data(d) => d.statistics(),
             Inner::View(v) => v.statistics(),
+        }
+    }
+
+    fn inherit_statistics(&self, parent: &dyn Statistics) {
+        let stats = self.statistics();
+        for (stat, scalar) in parent.to_set() {
+            stats.set(stat, scalar);
         }
     }
 }
