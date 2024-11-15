@@ -115,7 +115,7 @@ impl StatsSet {
         self.values.get(&stat)
     }
 
-    fn get_as<T: for<'a> TryFrom<&'a Scalar, Error = VortexError>>(&self, stat: Stat) -> Option<T> {
+    pub fn get_as<T: for<'a> TryFrom<&'a Scalar, Error = VortexError>>(&self, stat: Stat) -> Option<T> {
         self.get(stat).map(|v| {
             T::try_from(v).unwrap_or_else(|err| {
                 vortex_panic!(
@@ -130,6 +130,10 @@ impl StatsSet {
 
     pub fn set(&mut self, stat: Stat, value: Scalar) {
         self.values.insert(stat, value);
+    }
+
+    pub fn remove(&mut self, stat: Stat) -> Option<Scalar> {
+        self.values.remove(&stat)
     }
 
     /// Merge stats set `other` into `self`, with the semantic assumption that `other`
