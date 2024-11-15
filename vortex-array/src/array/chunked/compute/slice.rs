@@ -2,10 +2,10 @@ use vortex_error::VortexResult;
 
 use crate::array::chunked::ChunkedArray;
 use crate::compute::{slice, SliceFn};
-use crate::{Array, ArrayDType, IntoArray};
+use crate::{ArrayDType, ArrayData, IntoArrayData};
 
 impl SliceFn for ChunkedArray {
-    fn slice(&self, start: usize, stop: usize) -> VortexResult<Array> {
+    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData> {
         let (offset_chunk, offset_in_first_chunk) = self.find_chunk_idx(start);
         let (length_chunk, length_in_last_chunk) = self.find_chunk_idx(stop);
 
@@ -41,7 +41,7 @@ mod tests {
 
     use crate::array::ChunkedArray;
     use crate::compute::slice;
-    use crate::{Array, IntoArray, IntoArrayVariant};
+    use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
 
     fn chunked_array() -> ChunkedArray {
         ChunkedArray::try_new(
@@ -55,7 +55,7 @@ mod tests {
         .unwrap()
     }
 
-    fn assert_equal_slices<T: NativePType>(arr: Array, slice: &[T]) {
+    fn assert_equal_slices<T: NativePType>(arr: ArrayData, slice: &[T]) {
         let mut values = Vec::with_capacity(arr.len());
         ChunkedArray::try_from(arr)
             .unwrap()

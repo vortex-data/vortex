@@ -4,7 +4,7 @@ use vortex_array::array::{Struct, StructArray};
 use vortex_array::compress::compute_pruning_stats;
 use vortex_array::encoding::EncodingRef;
 use vortex_array::variants::StructArrayTrait;
-use vortex_array::{Array, ArrayDef, IntoArray};
+use vortex_array::{ArrayData, ArrayDef, IntoArrayData};
 use vortex_error::VortexResult;
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
@@ -22,7 +22,7 @@ impl EncodingCompressor for StructCompressor {
         constants::STRUCT_COST
     }
 
-    fn can_compress(&self, array: &Array) -> Option<&dyn EncodingCompressor> {
+    fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {
         StructArray::try_from(array)
             .ok()
             .map(|_| self as &dyn EncodingCompressor)
@@ -30,7 +30,7 @@ impl EncodingCompressor for StructCompressor {
 
     fn compress<'a>(
         &'a self,
-        array: &Array,
+        array: &ArrayData,
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {

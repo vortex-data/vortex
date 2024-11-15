@@ -9,10 +9,10 @@ use crate::array::primitive::PrimitiveArray;
 use crate::compute::unary::SubtractScalarFn;
 use crate::validity::ArrayValidity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, ArrayDType, IntoArray};
+use crate::{ArrayDType, ArrayData, IntoArrayData};
 
 impl SubtractScalarFn for PrimitiveArray {
-    fn subtract_scalar(&self, to_subtract: &Scalar) -> VortexResult<Array> {
+    fn subtract_scalar(&self, to_subtract: &Scalar) -> VortexResult<ArrayData> {
         if self.dtype() != to_subtract.dtype() {
             vortex_bail!(MismatchedTypes: self.dtype(), to_subtract.dtype())
         }
@@ -81,7 +81,7 @@ mod test {
 
     use crate::array::primitive::PrimitiveArray;
     use crate::compute::unary::subtract_scalar;
-    use crate::{IntoArray, IntoArrayVariant};
+    use crate::{IntoArrayData, IntoArrayVariant};
 
     #[test]
     fn test_scalar_subtract_unsigned() {

@@ -24,7 +24,7 @@ use vortex::runend_bool::RunEndBoolArray;
 use vortex::scalar::ScalarValue;
 use vortex::validity::Validity;
 use vortex::zigzag::ZigZagArray;
-use vortex::{Array, IntoArray};
+use vortex::{ArrayData, IntoArrayData};
 
 const OPERATORS: [Operator; 6] = [
     Operator::Lte,
@@ -35,7 +35,7 @@ const OPERATORS: [Operator; 6] = [
     Operator::NotEq,
 ];
 
-fn fsst_array() -> Array {
+fn fsst_array() -> ArrayData {
     let input_array = varbin_array();
     let compressor = fsst_train_compressor(&input_array).unwrap();
 
@@ -44,7 +44,7 @@ fn fsst_array() -> Array {
         .into_array()
 }
 
-fn varbin_array() -> Array {
+fn varbin_array() -> ArrayData {
     let mut input_array = VarBinBuilder::<i32>::with_capacity(3);
     input_array.push_value(b"The Greeks never said that the limit could not be overstepped");
     input_array.push_value(
@@ -56,7 +56,7 @@ fn varbin_array() -> Array {
         .into_array()
 }
 
-fn varbinview_array() -> Array {
+fn varbinview_array() -> ArrayData {
     VarBinViewArray::from_iter_str(vec![
         "The Greeks never said that the limit could not be overstepped",
         "They said it existed and that whoever dared to exceed it was mercilessly struck down",
@@ -65,7 +65,7 @@ fn varbinview_array() -> Array {
     .into_array()
 }
 
-fn enc_impls() -> Vec<Array> {
+fn enc_impls() -> Vec<ArrayData> {
     vec![
         ALPArray::try_new(
             PrimitiveArray::from(vec![1]).into_array(),
@@ -175,7 +175,7 @@ fn bool_to_cell(val: bool) -> Cell {
     Cell::new(if val { "✓" } else { "𐄂" }).style_spec(style)
 }
 
-fn compute_funcs(encodings: &[Array]) {
+fn compute_funcs(encodings: &[ArrayData]) {
     let mut table = Table::new();
     table.add_row(Row::new(
         vec![
@@ -214,7 +214,7 @@ fn compute_funcs(encodings: &[Array]) {
     table.printstd();
 }
 
-fn compare_funcs(encodings: &[Array]) {
+fn compare_funcs(encodings: &[ArrayData]) {
     for arr in encodings {
         println!("\nArray {} compare functions", arr.encoding().id().as_ref());
         let mut table = Table::new();

@@ -8,15 +8,15 @@ use crate::array::varbin::VarBinArray;
 use crate::compute::FilterFn;
 use crate::validity::Validity;
 use crate::variants::{BoolArrayTrait, PrimitiveArrayTrait};
-use crate::{Array, ArrayDType, IntoArray, IntoArrayVariant};
+use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 
 impl FilterFn for VarBinArray {
-    fn filter(&self, predicate: &Array) -> VortexResult<Array> {
+    fn filter(&self, predicate: &ArrayData) -> VortexResult<ArrayData> {
         filter_select_var_bin(self, predicate).map(|a| a.into_array())
     }
 }
 
-fn filter_select_var_bin(arr: &VarBinArray, predicate: &Array) -> VortexResult<VarBinArray> {
+fn filter_select_var_bin(arr: &VarBinArray, predicate: &ArrayData) -> VortexResult<VarBinArray> {
     predicate.with_dyn(|p| {
         let predicate = p.as_bool_array().ok_or_else(|| {
             vortex_err!(
@@ -192,7 +192,7 @@ mod test {
     use crate::array::BoolArray;
     use crate::compute::unary::scalar_at;
     use crate::validity::Validity;
-    use crate::ToArray;
+    use crate::ToArrayData;
 
     fn nullable_scalar_str(s: &str) -> Scalar {
         Scalar::utf8(s.to_owned(), Nullable)

@@ -4,7 +4,7 @@ use std::mem;
 use vortex_array::array::StructArray;
 use vortex_array::stats::ArrayStatistics;
 use vortex_array::validity::Validity;
-use vortex_array::{Array, IntoArray};
+use vortex_array::{ArrayData, IntoArrayData};
 use vortex_dtype::FieldNames;
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_expr::ExprRef;
@@ -19,7 +19,7 @@ use crate::read::{BatchRead, LayoutReader};
 pub struct ColumnBatchReader {
     names: FieldNames,
     children: Vec<Box<dyn LayoutReader>>,
-    arrays: Vec<Option<Array>>,
+    arrays: Vec<Option<ArrayData>>,
     expr: Option<ExprRef>,
     // TODO(robert): This is a hack/optimization that tells us if we're reducing results with AND or not
     shortcircuit_siblings: bool,

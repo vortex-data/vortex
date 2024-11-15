@@ -16,7 +16,7 @@ use itertools::Itertools;
 use vortex_array::array::PrimitiveArray;
 use vortex_array::compress::CompressionStrategy;
 use vortex_array::compute::take;
-use vortex_array::{Context, IntoArray};
+use vortex_array::{Context, IntoArrayData};
 use vortex_io::FuturesAdapter;
 use vortex_ipc::stream_reader::StreamArrayReader;
 use vortex_ipc::stream_writer::StreamArrayWriter;

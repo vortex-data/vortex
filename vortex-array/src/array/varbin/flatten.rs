@@ -6,7 +6,7 @@ use crate::array::varbin::arrow::varbin_to_arrow;
 use crate::array::varbin::VarBinArray;
 use crate::array::VarBinViewArray;
 use crate::arrow::FromArrowArray;
-use crate::{Array, ArrayDType, Canonical, IntoCanonical};
+use crate::{ArrayDType, ArrayData, Canonical, IntoCanonical};
 
 impl IntoCanonical for VarBinArray {
     fn into_canonical(self) -> VortexResult<Canonical> {
@@ -19,7 +19,7 @@ impl IntoCanonical for VarBinArray {
             _ => unreachable!("VarBinArray must have Utf8 or Binary dtype"),
         };
 
-        VarBinViewArray::try_from(Array::from_arrow(array, nullable)).map(Canonical::VarBinView)
+        VarBinViewArray::try_from(ArrayData::from_arrow(array, nullable)).map(Canonical::VarBinView)
     }
 }
 

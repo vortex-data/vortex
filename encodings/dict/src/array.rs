@@ -11,7 +11,7 @@ use vortex_array::stats::StatsSet;
 use vortex_array::validity::{ArrayValidity, LogicalValidity};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{
-    impl_encoding, Array, ArrayDType, ArrayTrait, Canonical, IntoArray, IntoArrayVariant,
+    impl_encoding, ArrayDType, ArrayData, ArrayTrait, Canonical, IntoArrayData, IntoArrayVariant,
     IntoCanonical,
 };
 use vortex_dtype::{match_each_integer_ptype, DType, PType};
@@ -32,7 +32,7 @@ impl Display for DictMetadata {
 }
 
 impl DictArray {
-    pub fn try_new(codes: Array, values: Array) -> VortexResult<Self> {
+    pub fn try_new(codes: ArrayData, values: ArrayData) -> VortexResult<Self> {
         if !codes.dtype().is_unsigned_int() || codes.dtype().is_nullable() {
             vortex_bail!(MismatchedTypes: "non-nullable unsigned int", codes.dtype());
         }
@@ -50,14 +50,14 @@ impl DictArray {
     }
 
     #[inline]
-    pub fn values(&self) -> Array {
+    pub fn values(&self) -> ArrayData {
         self.as_ref()
             .child(0, self.dtype(), self.metadata().values_len)
             .vortex_expect("DictArray is missing its values child array")
     }
 
     #[inline]
-    pub fn codes(&self) -> Array {
+    pub fn codes(&self) -> ArrayData {
         self.as_ref()
             .child(1, &DType::from(self.metadata().codes_ptype), self.len())
             .vortex_expect("DictArray is missing its codes child array")
@@ -74,7 +74,7 @@ impl IntoCanonical for DictArray {
             // For this case, it is *always* faster to decompress the values first and then create
             // copies of the view pointers.
             DType::Utf8(_) | DType::Binary(_) => {
-                let canonical_values: Array = self.values().into_canonical()?.into();
+                let canonical_values: ArrayData = self.values().into_canonical()?.into();
                 take(canonical_values, self.codes())?.into_canonical()
             }
             // Non-string case: take and then canonicalize

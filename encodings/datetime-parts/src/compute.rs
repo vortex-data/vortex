@@ -3,7 +3,7 @@ use vortex_array::array::{PrimitiveArray, TemporalArray};
 use vortex_array::compute::unary::{scalar_at, ScalarAtFn};
 use vortex_array::compute::{slice, take, ArrayCompute, SliceFn, TakeFn};
 use vortex_array::validity::ArrayValidity;
-use vortex_array::{Array, ArrayDType, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_datetime_dtype::{TemporalMetadata, TimeUnit};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexResult, VortexUnwrap as _};
@@ -26,7 +26,7 @@ impl ArrayCompute for DateTimePartsArray {
 }
 
 impl TakeFn for DateTimePartsArray {
-    fn take(&self, indices: &Array) -> VortexResult<Array> {
+    fn take(&self, indices: &ArrayData) -> VortexResult<ArrayData> {
         Ok(Self::try_new(
             self.dtype().clone(),
             take(self.days(), indices)?,
@@ -38,7 +38,7 @@ impl TakeFn for DateTimePartsArray {
 }
 
 impl SliceFn for DateTimePartsArray {
-    fn slice(&self, start: usize, stop: usize) -> VortexResult<Array> {
+    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData> {
         Ok(Self::try_new(
             self.dtype().clone(),
             slice(self.days(), start, stop)?,
@@ -89,7 +89,7 @@ impl ScalarAtFn for DateTimePartsArray {
     }
 }
 
-/// Decode an [Array] into a [TemporalArray].
+/// Decode an [ArrayData] into a [TemporalArray].
 ///
 /// Enforces that the passed array is actually a [DateTimePartsArray] with proper metadata.
 pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalArray> {
@@ -132,7 +132,7 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalAr
 mod test {
     use vortex_array::array::{PrimitiveArray, TemporalArray};
     use vortex_array::validity::Validity;
-    use vortex_array::{IntoArray, IntoArrayVariant};
+    use vortex_array::{IntoArrayData, IntoArrayVariant};
     use vortex_datetime_dtype::TimeUnit;
     use vortex_dtype::DType;
 

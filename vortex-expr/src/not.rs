@@ -3,7 +3,7 @@ use std::fmt::Display;
 use std::sync::Arc;
 
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::Array;
+use vortex_array::ArrayData;
 use vortex_dtype::field::Field;
 use vortex_error::{vortex_err, VortexResult};
 
@@ -36,7 +36,7 @@ impl VortexExpr for Not {
         self
     }
 
-    fn evaluate(&self, batch: &Array) -> VortexResult<Array> {
+    fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
         let child_result = self.child.evaluate(batch)?;
         child_result.with_dyn(|a| {
             a.as_bool_array()

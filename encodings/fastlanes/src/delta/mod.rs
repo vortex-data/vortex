@@ -9,7 +9,7 @@ use vortex_array::stats::{ArrayStatisticsCompute, StatsSet};
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
 use vortex_array::variants::{ArrayVariants, PrimitiveArrayTrait};
 use vortex_array::{
-    impl_encoding, Array, ArrayDType, ArrayTrait, Canonical, IntoArray, IntoCanonical,
+    impl_encoding, ArrayDType, ArrayData, ArrayTrait, Canonical, IntoArrayData, IntoCanonical,
 };
 use vortex_dtype::{match_each_unsigned_integer_ptype, NativePType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
@@ -80,8 +80,8 @@ impl DeltaArray {
     }
 
     pub fn try_from_delta_compress_parts(
-        bases: Array,
-        deltas: Array,
+        bases: ArrayData,
+        deltas: ArrayData,
         validity: Validity,
     ) -> VortexResult<Self> {
         let logical_len = deltas.len();
@@ -89,8 +89,8 @@ impl DeltaArray {
     }
 
     pub fn try_new(
-        bases: Array,
-        deltas: Array,
+        bases: ArrayData,
+        deltas: ArrayData,
         validity: Validity,
         offset: usize,
         logical_len: usize,
@@ -163,14 +163,14 @@ impl DeltaArray {
     }
 
     #[inline]
-    pub fn bases(&self) -> Array {
+    pub fn bases(&self) -> ArrayData {
         self.as_ref()
             .child(0, self.dtype(), self.bases_len())
             .vortex_expect("DeltaArray is missing bases child array")
     }
 
     #[inline]
-    pub fn deltas(&self) -> Array {
+    pub fn deltas(&self) -> ArrayData {
         self.as_ref()
             .child(1, self.dtype(), self.deltas_len())
             .vortex_expect("DeltaArray is missing deltas child array")

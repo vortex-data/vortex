@@ -33,7 +33,7 @@ use vortex::error::VortexResult;
 use vortex::file::{LayoutContext, LayoutDeserializer, VortexFileWriter, VortexReadBuilder};
 use vortex::sampling_compressor::compressors::fsst::FSSTCompressor;
 use vortex::sampling_compressor::{SamplingCompressor, ALL_ENCODINGS_CONTEXT};
-use vortex::{Array, ArrayDType, IntoArray, IntoCanonical};
+use vortex::{ArrayDType, ArrayData, IntoArrayData, IntoCanonical};
 
 use crate::tokio_runtime::TOKIO_RUNTIME;
 
@@ -100,7 +100,7 @@ fn parquet_decompress_read(buf: bytes::Bytes) -> usize {
     nbytes
 }
 
-fn parquet_compressed_written_size(array: &Array, compression: Compression) -> usize {
+fn parquet_compressed_written_size(array: &ArrayData, compression: Compression) -> usize {
     let chunked = ChunkedArray::try_from(array).unwrap();
     let (batches, schema) = chunked_to_vec_record_batch(chunked);
     parquet_compress_write(batches, schema, compression, &mut Vec::new())
@@ -109,10 +109,10 @@ fn parquet_compressed_written_size(array: &Array, compression: Compression) -> u
 fn vortex_compress_write(
     runtime: &Runtime,
     compressor: &SamplingCompressor<'_>,
-    array: &Array,
+    array: &ArrayData,
     buf: &mut Vec<u8>,
 ) -> VortexResult<u64> {
-    async fn async_write(array: &Array, cursor: &mut Cursor<&mut Vec<u8>>) -> VortexResult<()> {
+    async fn async_write(array: &ArrayData, cursor: &mut Cursor<&mut Vec<u8>>) -> VortexResult<()> {
         let mut writer = VortexFileWriter::new(cursor);
 
         writer = writer.write_array_columns(array.clone()).await?;
@@ -129,7 +129,7 @@ fn vortex_compress_write(
 }
 
 fn vortex_decompress_read(runtime: &Runtime, buf: Buffer) -> VortexResult<ArrayRef> {
-    async fn async_read(buf: Buffer) -> VortexResult<Array> {
+    async fn async_read(buf: Buffer) -> VortexResult<ArrayData> {
         let builder: VortexReadBuilder<_> = VortexReadBuilder::new(
             buf,
             LayoutDeserializer::new(
@@ -140,7 +140,7 @@ fn vortex_decompress_read(runtime: &Runtime, buf: Buffer) -> VortexResult<ArrayR
 
         let stream = builder.build().await?;
         let dtype = stream.dtype().clone();
-        let vecs: Vec<Array> = stream.try_collect().await?;
+        let vecs: Vec<ArrayData> = stream.try_collect().await?;
 
         ChunkedArray::try_new(vecs, dtype).map(|e| e.into())
     }
@@ -154,7 +154,7 @@ fn vortex_decompress_read(runtime: &Runtime, buf: Buffer) -> VortexResult<ArrayR
 fn vortex_compressed_written_size(
     runtime: &Runtime,
     compressor: &SamplingCompressor<'_>,
-    array: &Array,
+    array: &ArrayData,
 ) -> VortexResult<u64> {
     vortex_compress_write(runtime, compressor, array, &mut Vec::new())
 }
@@ -168,7 +168,7 @@ fn benchmark_compress<F, U>(
     bench_name: &str,
 ) where
     F: Fn() -> U,
-    U: AsRef<Array>,
+    U: AsRef<ArrayData>,
 {
     // if no logging is enabled, enable it
     if !LOG_INITIALIZED.swap(true, Ordering::SeqCst) {

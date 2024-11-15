@@ -11,7 +11,7 @@ use vortex_array::stats::{ArrayStatistics, ArrayStatisticsCompute, Stat, StatsSe
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity};
 use vortex_array::variants::{ArrayVariants, PrimitiveArrayTrait};
 use vortex_array::{
-    impl_encoding, Array, ArrayDType as _, ArrayTrait, Canonical, IntoArray, IntoCanonical,
+    impl_encoding, ArrayDType as _, ArrayData, ArrayTrait, Canonical, IntoArrayData, IntoCanonical,
     TypedArray,
 };
 use vortex_buffer::Buffer;
@@ -87,7 +87,7 @@ impl RoaringIntArray {
         self.metadata().ptype
     }
 
-    pub fn encode(array: Array) -> VortexResult<Array> {
+    pub fn encode(array: ArrayData) -> VortexResult<ArrayData> {
         if let Ok(parray) = PrimitiveArray::try_from(array) {
             Ok(roaring_int_encode(parray)?.into_array())
         } else {
@@ -122,7 +122,7 @@ impl IntoCanonical for RoaringIntArray {
             PrimitiveArray::from_vec(self.owned_bitmap().to_vec(), Validity::NonNullable),
             self.dtype(),
         )
-        .and_then(Array::into_canonical)
+        .and_then(ArrayData::into_canonical)
     }
 }
 

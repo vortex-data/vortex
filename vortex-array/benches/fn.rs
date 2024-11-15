@@ -6,7 +6,7 @@ use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 use vortex_array::array::PrimitiveArray;
 use vortex_array::elementwise::{BinaryFn, UnaryFn};
 use vortex_array::validity::Validity;
-use vortex_array::IntoArray;
+use vortex_array::IntoArrayData;
 
 fn vortex_unary_add(c: &mut Criterion) {
     let data = PrimitiveArray::from_vec((0_u32..1_000_000).collect::<Vec<_>>(), Validity::AllValid);

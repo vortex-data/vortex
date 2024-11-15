@@ -12,7 +12,7 @@ use itertools::Itertools;
 use num_traits::{Float, One, PrimInt};
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::array::{PrimitiveArray, SparseArray};
-use vortex_array::{ArrayDType, IntoArray};
+use vortex_array::{ArrayDType, IntoArrayData};
 use vortex_dtype::{DType, NativePType};
 use vortex_error::{VortexExpect, VortexUnwrap};
 use vortex_fastlanes::bitpack_encode_unchecked;

@@ -9,7 +9,7 @@ use futures::future::BoxFuture;
 use futures::Stream;
 use futures_util::{stream, FutureExt, StreamExt, TryStreamExt};
 use vortex_array::array::ChunkedArray;
-use vortex_array::Array;
+use vortex_array::ArrayData;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_panic, VortexError, VortexExpect, VortexResult};
 use vortex_io::VortexReadAt;
@@ -21,7 +21,7 @@ use crate::read::splits::{FilteringRowSplitIterator, FixedSplitIterator, MaskIte
 use crate::read::{BatchRead, LayoutReader, MessageId, MessageLocator};
 use crate::{Dispatch, IoDispatcher};
 
-/// An asynchronous Vortex file that returns a [`Stream`] of [`Array`]s.
+/// An asynchronous Vortex file that returns a [`Stream`] of [`ArrayData`]s.
 ///
 /// The file may be read from any source implementing [`VortexReadAt`], such
 /// as memory, disk, and object storage.
@@ -154,7 +154,7 @@ enum StreamingState {
 enum StreamingTransition {
     GoTo(StreamingState),
     YieldTo(StreamingState),
-    Produce(StreamingState, Array),
+    Produce(StreamingState, ArrayData),
     Finished,
 }
 
@@ -166,7 +166,7 @@ fn yield_to(next_state: StreamingState) -> VortexResult<StreamingTransition> {
     Ok(StreamingTransition::YieldTo(next_state))
 }
 
-fn produce(next_state: StreamingState, array: Array) -> VortexResult<StreamingTransition> {
+fn produce(next_state: StreamingState, array: ArrayData) -> VortexResult<StreamingTransition> {
     Ok(StreamingTransition::Produce(next_state, array))
 }
 
@@ -252,7 +252,7 @@ impl<R: VortexReadAt + Unpin> VortexFileArrayStream<R> {
 }
 
 impl<R: VortexReadAt + Unpin> Stream for VortexFileArrayStream<R> {
-    type Item = VortexResult<Array>;
+    type Item = VortexResult<ArrayData>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         loop {
@@ -284,9 +284,9 @@ impl<R: VortexReadAt + Unpin> Stream for VortexFileArrayStream<R> {
 }
 
 impl<R: VortexReadAt + Unpin> VortexFileArrayStream<R> {
-    pub async fn read_all(self) -> VortexResult<Array> {
+    pub async fn read_all(self) -> VortexResult<ArrayData> {
         let dtype = self.dtype().clone();
-        let vecs: Vec<Array> = self.try_collect().await?;
+        let vecs: Vec<ArrayData> = self.try_collect().await?;
         if vecs.len() == 1 {
             vecs.into_iter().next().ok_or_else(|| {
                 vortex_panic!(

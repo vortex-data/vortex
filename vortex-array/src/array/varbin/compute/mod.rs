@@ -4,7 +4,7 @@ use vortex_scalar::Scalar;
 use crate::array::varbin::{varbin_scalar, VarBinArray};
 use crate::compute::unary::ScalarAtFn;
 use crate::compute::{ArrayCompute, FilterFn, MaybeCompareFn, Operator, SliceFn, TakeFn};
-use crate::{Array, ArrayDType};
+use crate::{ArrayDType, ArrayData};
 
 mod compare;
 mod filter;
@@ -12,7 +12,7 @@ mod slice;
 mod take;
 
 impl ArrayCompute for VarBinArray {
-    fn compare(&self, other: &Array, operator: Operator) -> Option<VortexResult<Array>> {
+    fn compare(&self, other: &ArrayData, operator: Operator) -> Option<VortexResult<ArrayData>> {
         MaybeCompareFn::maybe_compare(self, other, operator)
     }
 

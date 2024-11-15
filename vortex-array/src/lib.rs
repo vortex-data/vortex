@@ -1,6 +1,6 @@
-//! Vortex crate containing core logic for encoding and memory representation of [arrays](Array).
+//! Vortex crate containing core logic for encoding and memory representation of [arrays](ArrayData).
 //!
-//! At the heart of Vortex are [arrays](Array) and [encodings](crate::encoding::ArrayEncoding).
+//! At the heart of Vortex are [arrays](ArrayData) and [encodings](crate::encoding::ArrayEncoding).
 //! Arrays are typed views of memory buffers that hold [scalars](vortex_scalar::Scalar). These
 //! buffers can be held in a number of physical encodings to perform lightweight compression that
 //! exploits the particular data distribution of the array's values.
@@ -67,21 +67,21 @@ pub mod flatbuffers {
 ///
 /// This is the main entrypoint for working with in-memory Vortex data, and dispatches work over the underlying encoding or memory representations.
 #[derive(Debug, Clone)]
-pub struct Array(pub(crate) Inner);
+pub struct ArrayData(pub(crate) InnerArrayData);
 
 #[derive(Debug, Clone)]
-pub(crate) enum Inner {
-    /// Owned [`Array`] with serialized metadata, backed by heap-allocated memory.
-    Data(ArrayData),
-    /// Zero-copy view over flatbuffer-encoded [`Array`] data, created without eager serialization.
-    View(ArrayView),
+pub(crate) enum InnerArrayData {
+    /// Owned [`ArrayData`] with serialized metadata, backed by heap-allocated memory.
+    Owned(OwnedArrayData),
+    /// Zero-copy view over flatbuffer-encoded [`ArrayData`] data, created without eager serialization.
+    Viewed(ViewedArrayData),
 }
 
-impl Array {
+impl ArrayData {
     pub fn encoding(&self) -> EncodingRef {
         match &self.0 {
-            Inner::Data(d) => d.encoding(),
-            Inner::View(v) => v.encoding(),
+            InnerArrayData::Owned(d) => d.encoding(),
+            InnerArrayData::Viewed(v) => v.encoding(),
         }
     }
 
@@ -89,15 +89,15 @@ impl Array {
     #[allow(clippy::same_name_method)]
     pub fn len(&self) -> usize {
         match &self.0 {
-            Inner::Data(d) => d.len(),
-            Inner::View(v) => v.len(),
+            InnerArrayData::Owned(d) => d.len(),
+            InnerArrayData::Viewed(v) => v.len(),
         }
     }
 
     pub fn is_empty(&self) -> bool {
         match &self.0 {
-            Inner::Data(d) => d.is_empty(),
-            Inner::View(v) => v.is_empty(),
+            InnerArrayData::Owned(d) => d.is_empty(),
+            InnerArrayData::Viewed(v) => v.is_empty(),
         }
     }
 
@@ -108,26 +108,26 @@ impl Array {
 
     pub fn child<'a>(&'a self, idx: usize, dtype: &'a DType, len: usize) -> VortexResult<Self> {
         match &self.0 {
-            Inner::Data(d) => d.child(idx, dtype, len).cloned(),
-            Inner::View(v) => v
+            InnerArrayData::Owned(d) => d.child(idx, dtype, len).cloned(),
+            InnerArrayData::Viewed(v) => v
                 .child(idx, dtype, len)
-                .map(|view| Array(Inner::View(view))),
+                .map(|view| ArrayData(InnerArrayData::Viewed(view))),
         }
     }
 
-    /// Returns a Vec of Arrays with all of the array's child arrays.
-    pub fn children(&self) -> Vec<Array> {
+    /// Returns a Vec of Arrays with all the array's child arrays.
+    pub fn children(&self) -> Vec<ArrayData> {
         match &self.0 {
-            Inner::Data(d) => d.children().iter().cloned().collect_vec(),
-            Inner::View(v) => v.children(),
+            InnerArrayData::Owned(d) => d.children().iter().cloned().collect_vec(),
+            InnerArrayData::Viewed(v) => v.children(),
         }
     }
 
     /// Returns the number of child arrays
     pub fn nchildren(&self) -> usize {
         match &self.0 {
-            Inner::Data(d) => d.nchildren(),
-            Inner::View(v) => v.nchildren(),
+            InnerArrayData::Owned(d) => d.nchildren(),
+            InnerArrayData::Viewed(v) => v.nchildren(),
         }
     }
 
@@ -170,7 +170,7 @@ impl Array {
     /// must first serialize their metadata, returning an owned byte array to the caller.
     pub fn metadata(&self) -> VortexResult<Cow<[u8]>> {
         match &self.0 {
-            Inner::Data(array_data) => {
+            InnerArrayData::Owned(array_data) => {
                 // Heap-backed arrays must first try and serialize the metadata.
                 let owned_meta: Vec<u8> = array_data
                     .metadata()
@@ -180,7 +180,7 @@ impl Array {
 
                 Ok(Cow::Owned(owned_meta))
             }
-            Inner::View(array_view) => {
+            InnerArrayData::Viewed(array_view) => {
                 // View arrays have direct access to metadata bytes.
                 array_view
                     .metadata()
@@ -192,15 +192,15 @@ impl Array {
 
     pub fn buffer(&self) -> Option<&Buffer> {
         match &self.0 {
-            Inner::Data(d) => d.buffer(),
-            Inner::View(v) => v.buffer(),
+            InnerArrayData::Owned(d) => d.buffer(),
+            InnerArrayData::Viewed(v) => v.buffer(),
         }
     }
 
     pub fn into_buffer(self) -> Option<Buffer> {
         match self.0 {
-            Inner::Data(d) => d.into_buffer(),
-            Inner::View(v) => v.buffer().cloned(),
+            InnerArrayData::Owned(d) => d.into_buffer(),
+            InnerArrayData::Viewed(v) => v.buffer().cloned(),
         }
     }
 
@@ -264,17 +264,17 @@ impl Array {
 
 /// A depth-first pre-order iterator over a ArrayData.
 pub struct ArrayChildrenIterator {
-    stack: Vec<Array>,
+    stack: Vec<ArrayData>,
 }
 
 impl ArrayChildrenIterator {
-    pub fn new(array: Array) -> Self {
+    pub fn new(array: ArrayData) -> Self {
         Self { stack: vec![array] }
     }
 }
 
 impl Iterator for ArrayChildrenIterator {
-    type Item = Array;
+    type Item = ArrayData;
 
     fn next(&mut self) -> Option<Self::Item> {
         let next = self.stack.pop()?;
@@ -285,19 +285,19 @@ impl Iterator for ArrayChildrenIterator {
     }
 }
 
-pub trait ToArray {
-    fn to_array(&self) -> Array;
+pub trait ToArrayData {
+    fn to_array(&self) -> ArrayData;
 }
 
-/// Consume `self` and turn it into an [`Array`] infallibly.
+/// Consume `self` and turn it into an [`ArrayData`] infallibly.
 ///
 /// Implementation of this array should never fail.
-pub trait IntoArray {
-    fn into_array(self) -> Array;
+pub trait IntoArrayData {
+    fn into_array(self) -> ArrayData;
 }
 
-pub trait ToArrayData {
-    fn to_array_data(&self) -> ArrayData;
+pub trait ToOwnedArrayData {
+    fn to_owned_array_data(&self) -> OwnedArrayData;
 }
 
 /// Collects together the behavior of an array.
@@ -312,7 +312,7 @@ pub trait ArrayTrait:
     + AcceptArrayVisitor
     + ArrayStatistics
     + ArrayStatisticsCompute
-    + ToArrayData
+    + ToOwnedArrayData
 {
     /// Total size of the array in bytes, including all children and buffers.
     fn nbytes(&self) -> usize {
@@ -328,11 +328,11 @@ pub trait ArrayDType {
     fn dtype(&self) -> &DType;
 }
 
-impl<T: AsRef<Array>> ArrayDType for T {
+impl<T: AsRef<ArrayData>> ArrayDType for T {
     fn dtype(&self) -> &DType {
         match &self.as_ref().0 {
-            Inner::Data(array_data) => array_data.dtype(),
-            Inner::View(array_view) => array_view.dtype(),
+            InnerArrayData::Owned(array_data) => array_data.dtype(),
+            InnerArrayData::Viewed(array_view) => array_view.dtype(),
         }
     }
 }
@@ -343,18 +343,18 @@ pub trait ArrayLen {
     fn is_empty(&self) -> bool;
 }
 
-impl<T: AsRef<Array>> ArrayLen for T {
+impl<T: AsRef<ArrayData>> ArrayLen for T {
     fn len(&self) -> usize {
         match &self.as_ref().0 {
-            Inner::Data(d) => d.len(),
-            Inner::View(v) => v.len(),
+            InnerArrayData::Owned(d) => d.len(),
+            InnerArrayData::Viewed(v) => v.len(),
         }
     }
 
     fn is_empty(&self) -> bool {
         match &self.as_ref().0 {
-            Inner::Data(d) => d.is_empty(),
-            Inner::View(v) => v.is_empty(),
+            InnerArrayData::Owned(d) => d.is_empty(),
+            InnerArrayData::Viewed(v) => v.is_empty(),
         }
     }
 }
@@ -362,7 +362,7 @@ impl<T: AsRef<Array>> ArrayLen for T {
 struct NBytesVisitor(usize);
 
 impl ArrayVisitor for NBytesVisitor {
-    fn visit_child(&mut self, _name: &str, array: &Array) -> VortexResult<()> {
+    fn visit_child(&mut self, _name: &str, array: &ArrayData) -> VortexResult<()> {
         self.0 += array.with_dyn(|a| a.nbytes());
         Ok(())
     }
@@ -373,11 +373,11 @@ impl ArrayVisitor for NBytesVisitor {
     }
 }
 
-impl Display for Array {
+impl Display for ArrayData {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let prefix = match &self.0 {
-            Inner::Data(_) => "",
-            Inner::View(_) => "$",
+            InnerArrayData::Owned(_) => "",
+            InnerArrayData::Viewed(_) => "$",
         };
         write!(
             f,
@@ -390,53 +390,53 @@ impl Display for Array {
     }
 }
 
-impl ToArrayData for Array {
-    fn to_array_data(&self) -> ArrayData {
+impl ToOwnedArrayData for ArrayData {
+    fn to_owned_array_data(&self) -> OwnedArrayData {
         match &self.0 {
-            Inner::Data(d) => d.clone(),
-            Inner::View(_) => self.with_dyn(|a| a.to_array_data()),
+            InnerArrayData::Owned(d) => d.clone(),
+            InnerArrayData::Viewed(_) => self.with_dyn(|a| a.to_owned_array_data()),
         }
     }
 }
 
-impl ToArray for ArrayData {
-    fn to_array(&self) -> Array {
-        Array(Inner::Data(self.clone()))
+impl ToArrayData for OwnedArrayData {
+    fn to_array(&self) -> ArrayData {
+        ArrayData(InnerArrayData::Owned(self.clone()))
     }
 }
 
-impl ToArray for ArrayView {
-    fn to_array(&self) -> Array {
-        Array(Inner::View(self.clone()))
+impl ToArrayData for ViewedArrayData {
+    fn to_array(&self) -> ArrayData {
+        ArrayData(InnerArrayData::Viewed(self.clone()))
     }
 }
 
-impl IntoArray for ArrayView {
-    fn into_array(self) -> Array {
-        Array(Inner::View(self))
+impl IntoArrayData for ViewedArrayData {
+    fn into_array(self) -> ArrayData {
+        ArrayData(InnerArrayData::Viewed(self))
     }
 }
 
-impl From<Array> for ArrayData {
-    fn from(value: Array) -> ArrayData {
+impl From<ArrayData> for OwnedArrayData {
+    fn from(value: ArrayData) -> OwnedArrayData {
         match value.0 {
-            Inner::Data(d) => d,
-            Inner::View(_) => value.with_dyn(|v| v.to_array_data()),
+            InnerArrayData::Owned(d) => d,
+            InnerArrayData::Viewed(_) => value.with_dyn(|v| v.to_owned_array_data()),
         }
     }
 }
 
-impl From<ArrayData> for Array {
-    fn from(value: ArrayData) -> Array {
-        Array(Inner::Data(value))
+impl From<OwnedArrayData> for ArrayData {
+    fn from(value: OwnedArrayData) -> ArrayData {
+        ArrayData(InnerArrayData::Owned(value))
     }
 }
 
-impl<T: AsRef<Array>> ArrayStatistics for T {
+impl<T: AsRef<ArrayData>> ArrayStatistics for T {
     fn statistics(&self) -> &(dyn Statistics + '_) {
         match &self.as_ref().0 {
-            Inner::Data(d) => d.statistics(),
-            Inner::View(v) => v.statistics(),
+            InnerArrayData::Owned(d) => d.statistics(),
+            InnerArrayData::Viewed(v) => v.statistics(),
         }
     }
 

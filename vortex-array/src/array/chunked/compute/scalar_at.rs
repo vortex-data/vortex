@@ -31,7 +31,7 @@ mod tests {
 
     use crate::array::{ChunkedArray, PrimitiveArray};
     use crate::compute::unary::scalar_at;
-    use crate::IntoArray;
+    use crate::IntoArrayData;
 
     #[test]
     fn empty_children_both_sides() {

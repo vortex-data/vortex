@@ -1,11 +1,11 @@
 use vortex_array::compute::{take, TakeFn};
-use vortex_array::{Array, ArrayDType, IntoArray};
+use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
 
 use crate::ALPRDArray;
 
 impl TakeFn for ALPRDArray {
-    fn take(&self, indices: &Array) -> VortexResult<Array> {
+    fn take(&self, indices: &ArrayData) -> VortexResult<ArrayData> {
         let left_parts_exceptions = self
             .left_parts_exceptions()
             .map(|array| take(&array, indices))

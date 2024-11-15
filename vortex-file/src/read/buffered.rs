@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::mem;
 
 use vortex_array::array::ChunkedArray;
-use vortex_array::{Array, ArrayDType, IntoArray};
+use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
 
 use crate::read::mask::RowMask;
@@ -14,7 +14,7 @@ pub type RangedLayoutReader = ((usize, usize), Box<dyn LayoutReader>);
 #[derive(Debug)]
 pub struct BufferedLayoutReader {
     layouts: VecDeque<RangedLayoutReader>,
-    arrays: Vec<Array>,
+    arrays: Vec<ArrayData>,
 }
 
 impl BufferedLayoutReader {

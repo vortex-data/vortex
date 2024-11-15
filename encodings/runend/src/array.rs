@@ -11,7 +11,7 @@ use vortex_array::stats::{ArrayStatistics, ArrayStatisticsCompute, Stat, StatsSe
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
 use vortex_array::variants::{ArrayVariants, PrimitiveArrayTrait};
 use vortex_array::{
-    impl_encoding, Array, ArrayDType, ArrayTrait, Canonical, IntoArray, IntoArrayVariant,
+    impl_encoding, ArrayDType, ArrayData, ArrayTrait, Canonical, IntoArrayData, IntoArrayVariant,
     IntoCanonical,
 };
 use vortex_dtype::{DType, PType};
@@ -37,7 +37,7 @@ impl Display for RunEndMetadata {
 }
 
 impl RunEndArray {
-    pub fn try_new(ends: Array, values: Array, validity: Validity) -> VortexResult<Self> {
+    pub fn try_new(ends: ArrayData, values: ArrayData, validity: Validity) -> VortexResult<Self> {
         let length = if ends.is_empty() {
             0
         } else {
@@ -47,8 +47,8 @@ impl RunEndArray {
     }
 
     pub(crate) fn with_offset_and_length(
-        ends: Array,
-        values: Array,
+        ends: ArrayData,
+        values: ArrayData,
         validity: Validity,
         offset: usize,
         length: usize,
@@ -131,7 +131,7 @@ impl RunEndArray {
     }
 
     /// Run the array through run-end encoding.
-    pub fn encode(array: Array) -> VortexResult<Self> {
+    pub fn encode(array: ArrayData) -> VortexResult<Self> {
         if let Ok(parray) = PrimitiveArray::try_from(array) {
             let (ends, values) = runend_encode(&parray);
             Self::try_new(ends.into_array(), values.into_array(), parray.validity())
@@ -161,7 +161,7 @@ impl RunEndArray {
     /// The `i`-th element indicates that there is a run of the same value, beginning
     /// at `ends[i]` (inclusive) and terminating at `ends[i+1]` (exclusive).
     #[inline]
-    pub fn ends(&self) -> Array {
+    pub fn ends(&self) -> ArrayData {
         self.as_ref()
             .child(
                 0,
@@ -176,7 +176,7 @@ impl RunEndArray {
     /// The `i`-th element is the scalar value for the `i`-th repeated run. The run begins
     /// at `ends[i]` (inclusive) and terminates at `ends[i+1]` (exclusive).
     #[inline]
-    pub fn values(&self) -> Array {
+    pub fn values(&self) -> ArrayData {
         self.as_ref()
             .child(1, self.dtype(), self.metadata().num_runs)
             .vortex_expect("RunEndArray is missing its values")
@@ -247,7 +247,7 @@ impl ArrayStatisticsCompute for RunEndArray {
 mod tests {
     use vortex_array::compute::unary::scalar_at;
     use vortex_array::validity::Validity;
-    use vortex_array::{ArrayDType, IntoArray};
+    use vortex_array::{ArrayDType, IntoArrayData};
     use vortex_dtype::{DType, Nullability, PType};
 
     use crate::RunEndArray;

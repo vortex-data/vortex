@@ -7,16 +7,16 @@ use vortex_error::VortexUnwrap;
 use super::{BoolArray, ChunkedArray, NullArray, PrimitiveArray, StructArray};
 use crate::array::{VarBinArray, VarBinViewArray};
 use crate::validity::Validity;
-use crate::{Array, ArrayDType, IntoArray as _, IntoArrayVariant};
+use crate::{ArrayDType, ArrayData, IntoArrayData as _, IntoArrayVariant};
 
-impl<'a> Arbitrary<'a> for Array {
+impl<'a> Arbitrary<'a> for ArrayData {
     fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
         let dtype = u.arbitrary()?;
         random_array(u, &dtype, None)
     }
 }
 
-fn random_array(u: &mut Unstructured, dtype: &DType, len: Option<usize>) -> Result<Array> {
+fn random_array(u: &mut Unstructured, dtype: &DType, len: Option<usize>) -> Result<ArrayData> {
     let num_chunks = u.int_in_range(1..=3)?;
     let chunk_lens = len.map(|l| split_number_into_parts(l, num_chunks));
     let mut chunks = (0..num_chunks)
@@ -113,7 +113,7 @@ fn random_string(
     u: &mut Unstructured,
     nullability: Nullability,
     len: Option<usize>,
-) -> Result<Array> {
+) -> Result<ArrayData> {
     match nullability {
         Nullability::NonNullable => {
             let v = arbitrary_vec_of_len::<String>(u, len)?;
@@ -138,7 +138,7 @@ fn random_bytes(
     u: &mut Unstructured,
     nullability: Nullability,
     len: Option<usize>,
-) -> Result<Array> {
+) -> Result<ArrayData> {
     match nullability {
         Nullability::NonNullable => {
             let v = arbitrary_vec_of_len::<Vec<u8>>(u, len)?;
@@ -163,7 +163,7 @@ fn random_primitive<'a, T: Arbitrary<'a> + NativePType>(
     u: &mut Unstructured<'a>,
     nullability: Nullability,
     len: Option<usize>,
-) -> Result<Array> {
+) -> Result<ArrayData> {
     let v = arbitrary_vec_of_len::<T>(u, len)?;
     let validity = random_validity(u, nullability, v.len())?;
     Ok(PrimitiveArray::from_vec(v, validity).into_array())
@@ -173,7 +173,7 @@ fn random_bool(
     u: &mut Unstructured,
     nullability: Nullability,
     len: Option<usize>,
-) -> Result<Array> {
+) -> Result<ArrayData> {
     let v = arbitrary_vec_of_len(u, len)?;
     let validity = random_validity(u, nullability, v.len())?;
     Ok(BoolArray::from_vec(v, validity).into_array())

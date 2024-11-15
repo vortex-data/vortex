@@ -1,16 +1,16 @@
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexResult};
 
-use crate::{Array, ArrayDType};
+use crate::{ArrayDType, ArrayData};
 
 pub trait CastFn {
-    fn cast(&self, dtype: &DType) -> VortexResult<Array>;
+    fn cast(&self, dtype: &DType) -> VortexResult<ArrayData>;
 }
 
 /// Attempt to cast an array to a desired DType.
 ///
 /// Some array support the ability to narrow or upcast.
-pub fn try_cast(array: impl AsRef<Array>, dtype: &DType) -> VortexResult<Array> {
+pub fn try_cast(array: impl AsRef<ArrayData>, dtype: &DType) -> VortexResult<ArrayData> {
     let array = array.as_ref();
     if array.dtype() == dtype {
         return Ok(array.clone());

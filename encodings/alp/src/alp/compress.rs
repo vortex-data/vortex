@@ -1,7 +1,7 @@
 use vortex_array::array::{PrimitiveArray, Sparse, SparseArray};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{Array, ArrayDType, ArrayDef, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayDType, ArrayData, ArrayDef, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::{NativePType, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_scalar::ScalarValue;
@@ -27,7 +27,7 @@ macro_rules! match_each_alp_float_ptype {
 pub fn alp_encode_components<T>(
     values: &PrimitiveArray,
     exponents: Option<Exponents>,
-) -> (Exponents, Array, Option<Array>)
+) -> (Exponents, ArrayData, Option<ArrayData>)
 where
     T: ALPFloat + NativePType,
     T::ALPInt: NativePType,
@@ -78,7 +78,7 @@ pub fn decompress(array: ALPArray) -> VortexResult<PrimitiveArray> {
     }
 }
 
-fn patch_decoded(array: PrimitiveArray, patches: &Array) -> VortexResult<PrimitiveArray> {
+fn patch_decoded(array: PrimitiveArray, patches: &ArrayData) -> VortexResult<PrimitiveArray> {
     match patches.encoding().id() {
         Sparse::ID => {
             match_each_alp_float_ptype!(array.ptype(), |$T| {

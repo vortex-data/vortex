@@ -5,10 +5,10 @@ use crate::array::primitive::PrimitiveArray;
 use crate::compute::unary::FillForwardFn;
 use crate::validity::{ArrayValidity, Validity};
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, ArrayDType, IntoArray};
+use crate::{ArrayDType, ArrayData, IntoArrayData};
 
 impl FillForwardFn for PrimitiveArray {
-    fn fill_forward(&self) -> VortexResult<Array> {
+    fn fill_forward(&self) -> VortexResult<ArrayData> {
         if self.dtype().nullability() == Nullability::NonNullable {
             return Ok(self.clone().into());
         }
@@ -52,7 +52,7 @@ mod test {
     use crate::array::BoolArray;
     use crate::compute::unary::fill_forward;
     use crate::validity::{ArrayValidity, Validity};
-    use crate::IntoArray;
+    use crate::IntoArrayData;
 
     #[test]
     fn leading_none() {

@@ -4,7 +4,7 @@ use flatbuffers::FlatBufferBuilder;
 use futures::TryStreamExt;
 use vortex_array::array::{ChunkedArray, StructArray};
 use vortex_array::stream::ArrayStream;
-use vortex_array::{Array, ArrayDType as _};
+use vortex_array::{ArrayDType as _, ArrayData};
 use vortex_buffer::io_buf::IoBuf;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
@@ -37,7 +37,7 @@ impl<W: VortexWrite> VortexFileWriter<W> {
         }
     }
 
-    pub async fn write_array_columns(self, array: Array) -> VortexResult<Self> {
+    pub async fn write_array_columns(self, array: ArrayData) -> VortexResult<Self> {
         if let Ok(chunked) = ChunkedArray::try_from(&array) {
             self.write_array_columns_stream(chunked.array_stream())
                 .await
@@ -293,7 +293,7 @@ mod tests {
     use futures_executor::block_on;
     use vortex_array::array::{PrimitiveArray, StructArray, VarBinArray};
     use vortex_array::validity::Validity;
-    use vortex_array::IntoArray;
+    use vortex_array::IntoArrayData;
     use vortex_flatbuffers::WriteFlatBuffer;
 
     use crate::write::postscript::Postscript;

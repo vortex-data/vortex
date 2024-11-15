@@ -27,7 +27,7 @@ use crate::compute::unary::try_cast;
 use crate::encoding::ArrayEncoding;
 use crate::validity::ArrayValidity;
 use crate::variants::{PrimitiveArrayTrait, StructArrayTrait};
-use crate::{Array, ArrayDType, IntoArray};
+use crate::{ArrayDType, ArrayData, IntoArrayData};
 
 /// The set of canonical array encodings, also the set of encodings that can be transferred to
 /// Arrow with zero-copy.
@@ -354,7 +354,7 @@ where
 ///
 /// Canonicalizing an array requires potentially decompressing, so this requires a roundtrip through
 /// the array's internal codec.
-impl IntoCanonical for Array {
+impl IntoCanonical for ArrayData {
     fn into_canonical(self) -> VortexResult<Canonical> {
         ArrayEncoding::canonicalize(self.encoding(), self)
     }
@@ -363,9 +363,9 @@ impl IntoCanonical for Array {
 /// This conversion is always "free" and should not touch underlying data. All it does is create an
 /// owned pointer to the underlying concrete array type.
 ///
-/// This combined with the above [IntoCanonical] impl for [Array] allows simple two-way conversions
+/// This combined with the above [IntoCanonical] impl for [ArrayData] allows simple two-way conversions
 /// between arbitrary Vortex encodings and canonical Arrow-compatible encodings.
-impl From<Canonical> for Array {
+impl From<Canonical> for ArrayData {
     fn from(value: Canonical) -> Self {
         match value {
             Canonical::Null(a) => a.into(),
@@ -378,8 +378,8 @@ impl From<Canonical> for Array {
     }
 }
 
-impl AsRef<Array> for Canonical {
-    fn as_ref(&self) -> &Array {
+impl AsRef<ArrayData> for Canonical {
+    fn as_ref(&self) -> &ArrayData {
         match self {
             Canonical::Null(a) => a.as_ref(),
             Canonical::Bool(a) => a.as_ref(),
@@ -406,7 +406,7 @@ mod test {
     use crate::array::{PrimitiveArray, SparseArray, StructArray};
     use crate::arrow::FromArrowArray;
     use crate::validity::Validity;
-    use crate::{Array, IntoArray, IntoCanonical};
+    use crate::{ArrayData, IntoArrayData, IntoCanonical};
 
     #[test]
     fn test_canonicalize_nested_struct() {
@@ -509,7 +509,7 @@ mod test {
             nulls.finish(),
         );
 
-        let vortex_struct = Array::from_arrow(&arrow_struct, true);
+        let vortex_struct = ArrayData::from_arrow(&arrow_struct, true);
 
         assert_eq!(
             &arrow_struct,

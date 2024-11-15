@@ -5,10 +5,10 @@ use vortex_error::{vortex_panic, VortexResult};
 use crate::array::primitive::PrimitiveArray;
 use crate::compute::TakeFn;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, IntoArray, IntoArrayVariant};
+use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
 
 impl TakeFn for PrimitiveArray {
-    fn take(&self, indices: &Array) -> VortexResult<Array> {
+    fn take(&self, indices: &ArrayData) -> VortexResult<ArrayData> {
         let validity = self.validity();
         let indices = indices.clone().into_primitive()?;
         match_each_native_ptype!(self.ptype(), |$T| {

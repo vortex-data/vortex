@@ -10,7 +10,7 @@ use vortex_array::stats::{ArrayStatistics, ArrayStatisticsCompute, Stat, StatsSe
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
 use vortex_array::variants::{ArrayVariants, BoolArrayTrait, PrimitiveArrayTrait};
 use vortex_array::{
-    impl_encoding, Array, ArrayDType, ArrayTrait, Canonical, IntoArray, IntoArrayVariant,
+    impl_encoding, ArrayDType, ArrayData, ArrayTrait, Canonical, IntoArrayData, IntoArrayVariant,
     IntoCanonical,
 };
 use vortex_dtype::{match_each_unsigned_integer_ptype, DType, PType};
@@ -37,13 +37,13 @@ impl Display for RunEndBoolMetadata {
 }
 
 impl RunEndBoolArray {
-    pub fn try_new(ends: Array, start: bool, validity: Validity) -> VortexResult<Self> {
+    pub fn try_new(ends: ArrayData, start: bool, validity: Validity) -> VortexResult<Self> {
         let length: usize = scalar_at(&ends, ends.len() - 1)?.as_ref().try_into()?;
         Self::with_offset_and_size(ends, start, validity, length, 0)
     }
 
     pub(crate) fn with_offset_and_size(
-        ends: Array,
+        ends: ArrayData,
         start: bool,
         validity: Validity,
         length: usize,
@@ -128,7 +128,7 @@ impl RunEndBoolArray {
     }
 
     #[inline]
-    pub(crate) fn ends(&self) -> Array {
+    pub(crate) fn ends(&self) -> ArrayData {
         self.as_ref()
             .child(
                 0,
@@ -148,7 +148,7 @@ impl RunEndBoolArray {
 }
 
 impl BoolArrayTrait for RunEndBoolArray {
-    fn invert(&self) -> VortexResult<Array> {
+    fn invert(&self) -> VortexResult<ArrayData> {
         RunEndBoolArray::try_new(self.ends(), !self.start(), self.validity())
             .map(|a| a.into_array())
     }
@@ -242,7 +242,7 @@ mod test {
     use vortex_array::compute::{slice, take};
     use vortex_array::stats::{ArrayStatistics as _, ArrayStatisticsCompute};
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, ArrayDType, IntoArray, IntoCanonical, ToArray};
+    use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoCanonical, ToArrayData};
     use vortex_dtype::{DType, Nullability};
 
     use crate::RunEndBoolArray;
@@ -333,7 +333,7 @@ mod test {
         assert_eq!(to_bool_vec(&arr), vec![true, true, false, true]);
     }
 
-    fn to_bool_vec(arr: &Array) -> Vec<bool> {
+    fn to_bool_vec(arr: &ArrayData) -> Vec<bool> {
         arr.clone()
             .into_canonical()
             .unwrap()

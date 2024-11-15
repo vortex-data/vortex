@@ -1,11 +1,11 @@
 use vortex_array::compute::{slice, SliceFn};
-use vortex_array::{Array, ArrayDType, IntoArray};
+use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
 
 use crate::ALPRDArray;
 
 impl SliceFn for ALPRDArray {
-    fn slice(&self, start: usize, stop: usize) -> VortexResult<Array> {
+    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData> {
         let left_parts_exceptions = self
             .left_parts_exceptions()
             .map(|array| slice(&array, start, stop))

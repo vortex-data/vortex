@@ -2,10 +2,10 @@ use vortex_error::VortexResult;
 
 use crate::array::BoolArray;
 use crate::compute::SliceFn;
-use crate::{Array, IntoArray};
+use crate::{ArrayData, IntoArrayData};
 
 impl SliceFn for BoolArray {
-    fn slice(&self, start: usize, stop: usize) -> VortexResult<Array> {
+    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData> {
         Self::try_new(
             self.boolean_buffer().slice(start, stop - start),
             self.validity().slice(start, stop)?,

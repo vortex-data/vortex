@@ -6,7 +6,7 @@ use rand::distributions::Uniform;
 use rand::{thread_rng, Rng};
 use vortex_array::array::BoolArray;
 use vortex_array::compute::Operator;
-use vortex_array::IntoArray;
+use vortex_array::IntoArrayData;
 use vortex_error::VortexError;
 
 fn compare_bool(c: &mut Criterion) {

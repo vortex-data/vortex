@@ -9,7 +9,7 @@ use vortex_array::encoding::ids;
 use vortex_array::stats::{ArrayStatisticsCompute, StatsSet};
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity};
 use vortex_array::variants::{ArrayVariants, BinaryArrayTrait, Utf8ArrayTrait};
-use vortex_array::{impl_encoding, Array, ArrayDType, ArrayDef, ArrayTrait, IntoCanonical};
+use vortex_array::{impl_encoding, ArrayDType, ArrayData, ArrayDef, ArrayTrait, IntoCanonical};
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
@@ -42,10 +42,10 @@ impl FSSTArray {
     /// which tells the decoder to emit the following byte without doing a table lookup.
     pub fn try_new(
         dtype: DType,
-        symbols: Array,
-        symbol_lengths: Array,
-        codes: Array,
-        uncompressed_lengths: Array,
+        symbols: ArrayData,
+        symbol_lengths: ArrayData,
+        codes: ArrayData,
+        uncompressed_lengths: ArrayData,
     ) -> VortexResult<Self> {
         // Check: symbols must be a u64 array
         if symbols.dtype() != &SYMBOLS_DTYPE {
@@ -105,21 +105,21 @@ impl FSSTArray {
     }
 
     /// Access the symbol table array
-    pub fn symbols(&self) -> Array {
+    pub fn symbols(&self) -> ArrayData {
         self.as_ref()
             .child(0, &SYMBOLS_DTYPE, self.metadata().symbols_len)
             .vortex_expect("FSSTArray symbols child")
     }
 
     /// Access the symbol table array
-    pub fn symbol_lengths(&self) -> Array {
+    pub fn symbol_lengths(&self) -> ArrayData {
         self.as_ref()
             .child(1, &SYMBOL_LENS_DTYPE, self.metadata().symbols_len)
             .vortex_expect("FSSTArray symbol_lengths child")
     }
 
     /// Access the codes array
-    pub fn codes(&self) -> Array {
+    pub fn codes(&self) -> ArrayData {
         self.as_ref()
             .child(2, &self.codes_dtype(), self.len())
             .vortex_expect("FSSTArray codes child")
@@ -132,7 +132,7 @@ impl FSSTArray {
     }
 
     /// Get the uncompressed length for each element in the array.
-    pub fn uncompressed_lengths(&self) -> Array {
+    pub fn uncompressed_lengths(&self) -> ArrayData {
         self.as_ref()
             .child(3, &self.uncompressed_lengths_dtype(), self.len())
             .vortex_expect("FSST uncompressed_lengths child")

@@ -48,7 +48,7 @@ impl ArrayStatisticsCompute for RoaringBoolArray {
 mod test {
     use vortex_array::array::BoolArray;
     use vortex_array::stats::ArrayStatistics;
-    use vortex_array::IntoArray;
+    use vortex_array::IntoArrayData;
 
     use crate::RoaringBoolArray;
 

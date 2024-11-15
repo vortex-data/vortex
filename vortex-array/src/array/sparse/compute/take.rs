@@ -9,10 +9,10 @@ use crate::array::primitive::PrimitiveArray;
 use crate::array::sparse::SparseArray;
 use crate::compute::{take, TakeFn};
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, IntoArray, IntoArrayVariant};
+use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
 
 impl TakeFn for SparseArray {
-    fn take(&self, indices: &Array) -> VortexResult<Array> {
+    fn take(&self, indices: &ArrayData) -> VortexResult<ArrayData> {
         let flat_indices = indices.clone().into_primitive()?;
         // if we are taking a lot of values we should build a hashmap
         let (positions, physical_take_indices) = if indices.len() > 128 {
@@ -98,9 +98,9 @@ mod test {
     use crate::array::sparse::SparseArray;
     use crate::compute::take;
     use crate::validity::Validity;
-    use crate::{Array, IntoArray, IntoArrayVariant};
+    use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
 
-    fn sparse_array() -> Array {
+    fn sparse_array() -> ArrayData {
         SparseArray::try_new(
             PrimitiveArray::from(vec![0u64, 37, 47, 99]).into_array(),
             PrimitiveArray::from_vec(vec![1.23f64, 0.47, 9.99, 3.5], Validity::AllValid)

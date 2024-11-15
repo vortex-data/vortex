@@ -4,7 +4,7 @@ use vortex_array::encoding::EncodingRef;
 use vortex_array::stats::{trailing_zeros, ArrayStatistics};
 use vortex_array::validity::ArrayValidity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{Array, ArrayDef, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayData, ArrayDef, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_fastlanes::{for_compress, FoR, FoRArray, FoREncoding};
@@ -24,7 +24,7 @@ impl EncodingCompressor for FoRCompressor {
         constants::FOR_COST
     }
 
-    fn can_compress(&self, array: &Array) -> Option<&dyn EncodingCompressor> {
+    fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {
         // Only support primitive arrays
         let parray = PrimitiveArray::try_from(array).ok()?;
 
@@ -52,7 +52,7 @@ impl EncodingCompressor for FoRCompressor {
 
     fn compress<'a>(
         &'a self,
-        array: &Array,
+        array: &ArrayData,
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {

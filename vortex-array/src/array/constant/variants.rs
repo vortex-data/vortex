@@ -13,7 +13,7 @@ use crate::variants::{
     ArrayVariants, BinaryArrayTrait, BoolArrayTrait, ExtensionArrayTrait, ListArrayTrait,
     NullArrayTrait, PrimitiveArrayTrait, StructArrayTrait, Utf8ArrayTrait,
 };
-use crate::{Array, ArrayDType, IntoArray};
+use crate::{ArrayDType, ArrayData, IntoArrayData};
 
 /// Constant arrays support all DTypes
 impl ArrayVariants for ConstantArray {
@@ -53,7 +53,7 @@ impl ArrayVariants for ConstantArray {
 impl NullArrayTrait for ConstantArray {}
 
 impl BoolArrayTrait for ConstantArray {
-    fn invert(&self) -> VortexResult<Array> {
+    fn invert(&self) -> VortexResult<ArrayData> {
         let value = self.scalar_value().as_bool()?;
         match value {
             None => Ok(self.clone().into_array()),
@@ -191,14 +191,14 @@ impl Utf8ArrayTrait for ConstantArray {}
 impl BinaryArrayTrait for ConstantArray {}
 
 impl StructArrayTrait for ConstantArray {
-    fn field(&self, idx: usize) -> Option<Array> {
+    fn field(&self, idx: usize) -> Option<ArrayData> {
         StructScalar::try_new(self.dtype(), self.scalar_value())
             .ok()?
             .field_by_idx(idx)
             .map(|scalar| ConstantArray::new(scalar, self.len()).into_array())
     }
 
-    fn project(&self, projection: &[Field]) -> VortexResult<Array> {
+    fn project(&self, projection: &[Field]) -> VortexResult<ArrayData> {
         Ok(ConstantArray::new(
             StructScalar::try_new(self.dtype(), self.scalar_value())?.project(projection)?,
             self.len(),
@@ -210,7 +210,7 @@ impl StructArrayTrait for ConstantArray {
 impl ListArrayTrait for ConstantArray {}
 
 impl ExtensionArrayTrait for ConstantArray {
-    fn storage_array(&self) -> Array {
+    fn storage_array(&self) -> ArrayData {
         let storage_dtype = self.ext_dtype().storage_dtype().clone();
         ConstantArray::new(
             Scalar::new(storage_dtype, self.scalar_value().clone()),

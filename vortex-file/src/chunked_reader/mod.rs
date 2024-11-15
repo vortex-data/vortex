@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use vortex_array::compute::unary::scalar_at;
 use vortex_array::stream::ArrayStream;
-use vortex_array::{Array, Context};
+use vortex_array::{ArrayData, Context};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_io::VortexReadAt;
@@ -18,8 +18,8 @@ pub struct ChunkedArrayReader<R: VortexReadAt> {
     dtype: Arc<DType>,
 
     // One row per chunk + 1 row for the end of the last chunk.
-    byte_offsets: Array,
-    row_offsets: Array,
+    byte_offsets: ArrayData,
+    row_offsets: ArrayData,
 }
 
 impl<R: VortexReadAt> ChunkedArrayReader<R> {
@@ -27,8 +27,8 @@ impl<R: VortexReadAt> ChunkedArrayReader<R> {
         read: R,
         context: Arc<Context>,
         dtype: Arc<DType>,
-        byte_offsets: Array,
-        row_offsets: Array,
+        byte_offsets: ArrayData,
+        row_offsets: ArrayData,
     ) -> VortexResult<Self> {
         Self::validate(&byte_offsets, &row_offsets)?;
         Ok(Self {
@@ -44,7 +44,7 @@ impl<R: VortexReadAt> ChunkedArrayReader<R> {
         self.byte_offsets.len()
     }
 
-    fn validate(byte_offsets: &Array, row_offsets: &Array) -> VortexResult<()> {
+    fn validate(byte_offsets: &ArrayData, row_offsets: &ArrayData) -> VortexResult<()> {
         if byte_offsets.len() != row_offsets.len() {
             vortex_bail!("byte_offsets and row_offsets must have the same length");
         }

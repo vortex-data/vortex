@@ -8,7 +8,7 @@ use crate::variants::{
     ArrayVariants, BinaryArrayTrait, BoolArrayTrait, ExtensionArrayTrait, ListArrayTrait,
     NullArrayTrait, PrimitiveArrayTrait, StructArrayTrait, Utf8ArrayTrait,
 };
-use crate::{Array, ArrayDType, IntoArray};
+use crate::{ArrayDType, ArrayData, IntoArrayData};
 
 /// Sparse arrays support all DTypes
 impl ArrayVariants for SparseArray {
@@ -48,7 +48,7 @@ impl ArrayVariants for SparseArray {
 impl NullArrayTrait for SparseArray {}
 
 impl BoolArrayTrait for SparseArray {
-    fn invert(&self) -> VortexResult<Array> {
+    fn invert(&self) -> VortexResult<ArrayData> {
         let inverted_fill = self.fill_value().as_bool()?.map(|v| !v);
         SparseArray::try_new(
             self.indices(),
@@ -80,7 +80,7 @@ impl Utf8ArrayTrait for SparseArray {}
 impl BinaryArrayTrait for SparseArray {}
 
 impl StructArrayTrait for SparseArray {
-    fn field(&self, idx: usize) -> Option<Array> {
+    fn field(&self, idx: usize) -> Option<ArrayData> {
         let values = self
             .values()
             .with_dyn(|s| s.as_struct_array().and_then(|s| s.field(idx)))?;
@@ -101,7 +101,7 @@ impl StructArrayTrait for SparseArray {
         )
     }
 
-    fn project(&self, projection: &[Field]) -> VortexResult<Array> {
+    fn project(&self, projection: &[Field]) -> VortexResult<ArrayData> {
         let values = self.values().with_dyn(|s| {
             s.as_struct_array()
                 .ok_or_else(|| vortex_err!("Chunk was not a StructArray"))?
@@ -123,7 +123,7 @@ impl StructArrayTrait for SparseArray {
 impl ListArrayTrait for SparseArray {}
 
 impl ExtensionArrayTrait for SparseArray {
-    fn storage_array(&self) -> Array {
+    fn storage_array(&self) -> ArrayData {
         SparseArray::try_new_with_offset(
             self.indices().clone(),
             self.values()
@@ -140,7 +140,7 @@ impl ExtensionArrayTrait for SparseArray {
 #[cfg(test)]
 mod tests {
     use crate::array::{BoolArray, PrimitiveArray, SparseArray};
-    use crate::{IntoArray, IntoArrayVariant};
+    use crate::{IntoArrayData, IntoArrayVariant};
 
     #[test]
     fn invert_bools_non_null_fill() {

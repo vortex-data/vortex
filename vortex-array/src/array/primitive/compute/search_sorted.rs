@@ -111,7 +111,7 @@ impl<T> Len for SearchSortedNullsLast<'_, T> {
 mod test {
     use super::*;
     use crate::compute::search_sorted;
-    use crate::IntoArray;
+    use crate::IntoArrayData;
 
     #[test]
     fn test_search_sorted_primitive() {

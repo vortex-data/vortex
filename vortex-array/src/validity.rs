@@ -15,7 +15,7 @@ use crate::array::BoolArray;
 use crate::compute::unary::scalar_at_unchecked;
 use crate::compute::{filter, slice, take};
 use crate::stats::ArrayStatistics;
-use crate::{Array, ArrayDType, IntoArray, IntoArrayVariant};
+use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 
 pub trait ArrayValidity {
     fn is_valid(&self, index: usize) -> bool;
@@ -39,7 +39,7 @@ impl Display for ValidityMetadata {
 impl ValidityMetadata {
     pub fn to_validity<F>(&self, array_fn: F) -> Validity
     where
-        F: FnOnce() -> Array,
+        F: FnOnce() -> ArrayData,
     {
         match self {
             Self::NonNullable => Validity::NonNullable,
@@ -60,7 +60,7 @@ pub enum Validity {
     /// All items are null
     AllInvalid,
     /// Specified items are null
-    Array(Array),
+    Array(ArrayData),
 }
 
 impl Validity {
@@ -109,7 +109,7 @@ impl Validity {
     }
 
     /// If Validity is [`Validity::Array`], returns the array, otherwise returns `None`.
-    pub fn into_array(self) -> Option<Array> {
+    pub fn into_array(self) -> Option<ArrayData> {
         match self {
             Self::Array(a) => Some(a),
             _ => None,
@@ -117,7 +117,7 @@ impl Validity {
     }
 
     /// If Validity is [`Validity::Array`], returns a reference to the array array, otherwise returns `None`.
-    pub fn as_array(&self) -> Option<&Array> {
+    pub fn as_array(&self) -> Option<&ArrayData> {
         match self {
             Self::Array(a) => Some(a),
             _ => None,
@@ -161,7 +161,7 @@ impl Validity {
         }
     }
 
-    pub fn take(&self, indices: &Array) -> VortexResult<Self> {
+    pub fn take(&self, indices: &ArrayData) -> VortexResult<Self> {
         match self {
             Self::NonNullable => Ok(Self::NonNullable),
             Self::AllValid => Ok(Self::AllValid),
@@ -170,7 +170,7 @@ impl Validity {
         }
     }
 
-    pub fn filter(&self, predicate: &Array) -> VortexResult<Self> {
+    pub fn filter(&self, predicate: &ArrayData) -> VortexResult<Self> {
         match self {
             v @ (Validity::NonNullable | Validity::AllValid | Validity::AllInvalid) => {
                 Ok(v.clone())
@@ -332,10 +332,10 @@ impl From<NullBuffer> for Validity {
     }
 }
 
-impl TryFrom<Array> for Validity {
+impl TryFrom<ArrayData> for Validity {
     type Error = VortexError;
 
-    fn try_from(value: Array) -> Result<Self, Self::Error> {
+    fn try_from(value: ArrayData) -> Result<Self, Self::Error> {
         LogicalValidity::try_from(value).map(|a| a.into_validity())
     }
 }
@@ -384,11 +384,11 @@ impl<'a, E> FromIterator<&'a Option<E>> for Validity {
 pub enum LogicalValidity {
     AllValid(usize),
     AllInvalid(usize),
-    Array(Array),
+    Array(ArrayData),
 }
 
 impl LogicalValidity {
-    pub fn try_new_from_array(array: Array) -> VortexResult<Self> {
+    pub fn try_new_from_array(array: ArrayData) -> VortexResult<Self> {
         if !matches!(array.dtype(), &Validity::DTYPE) {
             vortex_bail!("Expected a non-nullable boolean array");
         }
@@ -449,16 +449,16 @@ impl LogicalValidity {
     }
 }
 
-impl TryFrom<Array> for LogicalValidity {
+impl TryFrom<ArrayData> for LogicalValidity {
     type Error = VortexError;
 
-    fn try_from(array: Array) -> VortexResult<Self> {
+    fn try_from(array: ArrayData) -> VortexResult<Self> {
         Self::try_new_from_array(array)
     }
 }
 
-impl IntoArray for LogicalValidity {
-    fn into_array(self) -> Array {
+impl IntoArrayData for LogicalValidity {
+    fn into_array(self) -> ArrayData {
         match self {
             Self::AllValid(len) => BoolArray::from(vec![true; len]).into_array(),
             Self::AllInvalid(len) => BoolArray::from(vec![false; len]).into_array(),
@@ -473,7 +473,7 @@ mod tests {
 
     use crate::array::BoolArray;
     use crate::validity::Validity;
-    use crate::IntoArray;
+    use crate::IntoArrayData;
 
     #[rstest]
     #[case(Validity::NonNullable, 5, &[2, 4], Validity::NonNullable, Validity::NonNullable)]

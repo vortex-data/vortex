@@ -15,10 +15,10 @@ use crate::array::{varbinview_as_arrow, ConstantArray};
 use crate::arrow::FromArrowArray;
 use crate::compute::unary::ScalarAtFn;
 use crate::compute::{slice, ArrayCompute, MaybeCompareFn, Operator, SliceFn, TakeFn};
-use crate::{Array, ArrayDType, IntoArray, IntoCanonical};
+use crate::{ArrayDType, ArrayData, IntoArrayData, IntoCanonical};
 
 impl ArrayCompute for VarBinViewArray {
-    fn compare(&self, other: &Array, operator: Operator) -> Option<VortexResult<Array>> {
+    fn compare(&self, other: &ArrayData, operator: Operator) -> Option<VortexResult<ArrayData>> {
         MaybeCompareFn::maybe_compare(self, other, operator)
     }
 
@@ -47,7 +47,7 @@ impl ScalarAtFn for VarBinViewArray {
 }
 
 impl SliceFn for VarBinViewArray {
-    fn slice(&self, start: usize, stop: usize) -> VortexResult<Array> {
+    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData> {
         Ok(Self::try_new(
             slice(
                 self.views(),
@@ -66,17 +66,24 @@ impl SliceFn for VarBinViewArray {
 
 /// Take involves creating a new array that references the old array, just with the given set of views.
 impl TakeFn for VarBinViewArray {
-    fn take(&self, indices: &Array) -> VortexResult<Array> {
+    fn take(&self, indices: &ArrayData) -> VortexResult<ArrayData> {
         let array_ref = varbinview_as_arrow(self);
         let indices_arrow = indices.clone().into_canonical()?.into_arrow()?;
 
         let take_arrow = arrow_select::take::take(&array_ref, &indices_arrow, None)?;
-        Ok(Array::from_arrow(take_arrow, self.dtype().is_nullable()))
+        Ok(ArrayData::from_arrow(
+            take_arrow,
+            self.dtype().is_nullable(),
+        ))
     }
 }
 
 impl MaybeCompareFn for VarBinViewArray {
-    fn maybe_compare(&self, other: &Array, operator: Operator) -> Option<VortexResult<Array>> {
+    fn maybe_compare(
+        &self,
+        other: &ArrayData,
+        operator: Operator,
+    ) -> Option<VortexResult<ArrayData>> {
         if let Ok(rhs_const) = ConstantArray::try_from(other) {
             Some(compare_constant(self, &rhs_const, operator))
         } else {
@@ -89,7 +96,7 @@ fn compare_constant(
     lhs: &VarBinViewArray,
     rhs: &ConstantArray,
     operator: Operator,
-) -> VortexResult<Array> {
+) -> VortexResult<ArrayData> {
     let arrow_lhs = lhs.clone().into_canonical()?.into_arrow()?;
     let constant = Arc::<dyn Datum>::try_from(&rhs.owned_scalar())?;
 
@@ -110,7 +117,7 @@ fn compare_constant_arrow<T: ByteViewType>(
     lhs: &GenericByteViewArray<T>,
     rhs: Arc<dyn Datum>,
     operator: Operator,
-) -> VortexResult<Array> {
+) -> VortexResult<ArrayData> {
     let rhs = rhs.as_ref();
     let array = match operator {
         Operator::Eq => cmp::eq(lhs, rhs)?,
@@ -120,7 +127,7 @@ fn compare_constant_arrow<T: ByteViewType>(
         Operator::Lt => cmp::lt(lhs, rhs)?,
         Operator::Lte => cmp::lt_eq(lhs, rhs)?,
     };
-    Ok(Array::from_arrow(&array, true))
+    Ok(ArrayData::from_arrow(&array, true))
 }
 
 #[cfg(test)]
@@ -132,7 +139,7 @@ mod tests {
     use crate::array::varbinview::compute::compare_constant;
     use crate::array::{ConstantArray, PrimitiveArray, VarBinViewArray};
     use crate::compute::{take, Operator};
-    use crate::{ArrayDType, IntoArray, IntoArrayVariant};
+    use crate::{ArrayDType, IntoArrayData, IntoArrayVariant};
 
     #[test]
     fn basic_test() {

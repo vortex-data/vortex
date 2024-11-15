@@ -14,7 +14,7 @@ use datafusion_physical_plan::{ExecutionMode, ExecutionPlan, Partitioning, PlanP
 use itertools::Itertools;
 use vortex_array::array::ChunkedArray;
 use vortex_array::arrow::infer_schema;
-use vortex_array::{Array, ArrayDType as _};
+use vortex_array::{ArrayDType as _, ArrayData};
 use vortex_error::{VortexError, VortexExpect as _};
 use vortex_expr::datafusion::convert_expr_to_vortex;
 use vortex_expr::ExprRef;
@@ -40,7 +40,7 @@ impl VortexMemTable {
     /// # Panics
     ///
     /// Creation will panic if the provided array is not of `DType::Struct` type.
-    pub fn new(array: Array, options: VortexMemTableOptions) -> Self {
+    pub fn new(array: ArrayData, options: VortexMemTableOptions) -> Self {
         let arrow_schema = infer_schema(array.dtype()).vortex_expect("schema is inferable");
         let schema_ref = SchemaRef::new(arrow_schema);
 
@@ -217,12 +217,12 @@ mod test {
     use datafusion_expr::{and, col, lit, BinaryExpr, Expr, Operator};
     use vortex_array::array::{PrimitiveArray, StructArray, VarBinViewArray};
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, IntoArray};
+    use vortex_array::{ArrayData, IntoArrayData};
 
     use crate::memory::VortexMemTableOptions;
     use crate::{can_be_pushed_down, SessionContextExt as _};
 
-    fn presidents_array() -> Array {
+    fn presidents_array() -> ArrayData {
         let names = VarBinViewArray::from_iter_str([
             "Washington",
             "Adams",

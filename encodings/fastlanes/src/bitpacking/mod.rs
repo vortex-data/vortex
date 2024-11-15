@@ -10,7 +10,7 @@ use vortex_array::stats::{ArrayStatisticsCompute, StatsSet};
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
 use vortex_array::variants::{ArrayVariants, PrimitiveArrayTrait};
 use vortex_array::{
-    impl_encoding, Array, ArrayDType, ArrayTrait, Canonical, IntoCanonical, TypedArray,
+    impl_encoding, ArrayDType, ArrayData, ArrayTrait, Canonical, IntoCanonical, TypedArray,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, NativePType, Nullability, PType};
@@ -44,7 +44,7 @@ impl BitPackedArray {
         packed: Buffer,
         ptype: PType,
         validity: Validity,
-        patches: Option<Array>,
+        patches: Option<ArrayData>,
         bit_width: u8,
         len: usize,
     ) -> VortexResult<Self> {
@@ -55,7 +55,7 @@ impl BitPackedArray {
         packed: Buffer,
         ptype: PType,
         validity: Validity,
-        patches: Option<Array>,
+        patches: Option<ArrayData>,
         bit_width: u8,
         length: usize,
         offset: u16,
@@ -160,7 +160,7 @@ impl BitPackedArray {
     /// If present, patches MUST be a `SparseArray` with equal-length to this array, and whose
     /// indices indicate the locations of patches. The indices must have non-zero length.
     #[inline]
-    pub fn patches(&self) -> Option<Array> {
+    pub fn patches(&self) -> Option<ArrayData> {
         self.metadata().has_patches.then(|| {
             self.as_ref()
                 .child(
@@ -187,7 +187,7 @@ impl BitPackedArray {
         })
     }
 
-    pub fn encode(array: &Array, bit_width: u8) -> VortexResult<Self> {
+    pub fn encode(array: &ArrayData, bit_width: u8) -> VortexResult<Self> {
         if let Ok(parray) = PrimitiveArray::try_from(array) {
             bitpack_encode(parray, bit_width)
         } else {
@@ -248,7 +248,7 @@ impl PrimitiveArrayTrait for BitPackedArray {}
 #[cfg(test)]
 mod test {
     use vortex_array::array::PrimitiveArray;
-    use vortex_array::{IntoArray, IntoArrayVariant};
+    use vortex_array::{IntoArrayData, IntoArrayVariant};
 
     use crate::BitPackedArray;
 

@@ -1,13 +1,13 @@
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
-use crate::Array;
+use crate::ArrayData;
 
 /// Limit array to start...stop range
 pub trait SliceFn {
     /// Return a zero-copy slice of an array, between `start` (inclusive) and `end` (exclusive).
     /// If start >= stop, returns an empty array of the same type as `self`.
     /// Assumes that start or stop are out of bounds, may panic otherwise.
-    fn slice(&self, start: usize, stop: usize) -> VortexResult<Array>;
+    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData>;
 }
 
 /// Return a zero-copy slice of an array, between `start` (inclusive) and `end` (exclusive).
@@ -19,7 +19,7 @@ pub trait SliceFn {
 ///
 /// Slicing returns an error if the underlying codec's [slice](SliceFn::slice()) implementation
 /// returns an error.
-pub fn slice(array: impl AsRef<Array>, start: usize, stop: usize) -> VortexResult<Array> {
+pub fn slice(array: impl AsRef<ArrayData>, start: usize, stop: usize) -> VortexResult<ArrayData> {
     let array = array.as_ref();
     check_slice_bounds(array, start, stop)?;
 
@@ -33,7 +33,7 @@ pub fn slice(array: impl AsRef<Array>, start: usize, stop: usize) -> VortexResul
     })
 }
 
-fn check_slice_bounds(array: &Array, start: usize, stop: usize) -> VortexResult<()> {
+fn check_slice_bounds(array: &ArrayData, start: usize, stop: usize) -> VortexResult<()> {
     if start > array.len() {
         vortex_bail!(OutOfBounds: start, 0, array.len());
     }

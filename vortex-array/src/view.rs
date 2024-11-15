@@ -13,11 +13,11 @@ use crate::array::visitor::ArrayVisitor;
 use crate::encoding::opaque::OpaqueEncoding;
 use crate::encoding::EncodingRef;
 use crate::stats::{Stat, Statistics, StatsSet};
-use crate::{flatbuffers as fb, Array, Context, IntoArray, ToArray};
+use crate::{flatbuffers as fb, ArrayData, Context, IntoArrayData, ToArrayData};
 
 /// Zero-copy view over flatbuffer-encoded array data, created without eager serialization.
 #[derive(Clone)]
-pub struct ArrayView {
+pub struct ViewedArrayData {
     encoding: EncodingRef,
     dtype: DType,
     len: usize,
@@ -30,7 +30,7 @@ pub struct ArrayView {
     //  which fb:Array children to skip when calculating how to slice into buffers.
 }
 
-impl Debug for ArrayView {
+impl Debug for ViewedArrayData {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ArrayView")
             .field("encoding", &self.encoding)
@@ -41,7 +41,7 @@ impl Debug for ArrayView {
     }
 }
 
-impl ArrayView {
+impl ViewedArrayData {
     pub fn try_new<F>(
         ctx: Arc<Context>,
         dtype: DType,
@@ -147,7 +147,7 @@ impl ArrayView {
         self.flatbuffer().children().map(|c| c.len()).unwrap_or(0)
     }
 
-    pub fn children(&self) -> Vec<Array> {
+    pub fn children(&self) -> Vec<ArrayData> {
         let mut collector = ChildrenCollector::default();
         self.clone()
             .into_array()
@@ -174,17 +174,17 @@ impl ArrayView {
 
 #[derive(Default, Debug)]
 struct ChildrenCollector {
-    children: Vec<Array>,
+    children: Vec<ArrayData>,
 }
 
 impl ArrayVisitor for ChildrenCollector {
-    fn visit_child(&mut self, _name: &str, array: &Array) -> VortexResult<()> {
+    fn visit_child(&mut self, _name: &str, array: &ArrayData) -> VortexResult<()> {
         self.children.push(array.clone());
         Ok(())
     }
 }
 
-impl Statistics for ArrayView {
+impl Statistics for ViewedArrayData {
     fn get(&self, stat: Stat) -> Option<Scalar> {
         match stat {
             Stat::Max => {

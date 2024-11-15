@@ -3,7 +3,7 @@ use vortex_array::compute::unary::{FillForwardFn, ScalarAtFn};
 use vortex_array::compute::{ArrayCompute, SliceFn, TakeFn};
 use vortex_array::validity::{ArrayValidity, Validity};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{Array, ArrayDType, IntoArray};
+use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_dtype::{match_each_integer_ptype, Nullability};
 use vortex_error::{vortex_err, VortexResult};
 use vortex_scalar::Scalar;
@@ -39,7 +39,7 @@ impl ScalarAtFn for ByteBoolArray {
 }
 
 impl SliceFn for ByteBoolArray {
-    fn slice(&self, start: usize, stop: usize) -> VortexResult<Array> {
+    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData> {
         Ok(ByteBoolArray::try_new(
             self.buffer().slice(start..stop),
             self.validity().slice(start, stop)?,
@@ -49,7 +49,7 @@ impl SliceFn for ByteBoolArray {
 }
 
 impl TakeFn for ByteBoolArray {
-    fn take(&self, indices: &Array) -> VortexResult<Array> {
+    fn take(&self, indices: &ArrayData) -> VortexResult<ArrayData> {
         let validity = self.validity();
         let indices = indices.clone().as_primitive();
         let bools = self.maybe_null_slice();
@@ -94,7 +94,7 @@ impl TakeFn for ByteBoolArray {
 }
 
 impl FillForwardFn for ByteBoolArray {
-    fn fill_forward(&self) -> VortexResult<Array> {
+    fn fill_forward(&self) -> VortexResult<ArrayData> {
         let validity = self.logical_validity();
         if self.dtype().nullability() == Nullability::NonNullable {
             return Ok(self.clone().into());

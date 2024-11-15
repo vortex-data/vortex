@@ -11,7 +11,7 @@ use crate::encoding::ids;
 use crate::stats::{ArrayStatistics as _, ArrayStatisticsCompute, Stat, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity};
 use crate::variants::{ArrayVariants, ExtensionArrayTrait};
-use crate::{impl_encoding, Array, ArrayDType, ArrayTrait, Canonical, IntoCanonical};
+use crate::{impl_encoding, ArrayDType, ArrayData, ArrayTrait, Canonical, IntoCanonical};
 
 mod compute;
 
@@ -27,7 +27,7 @@ impl Display for ExtensionMetadata {
 }
 
 impl ExtensionArray {
-    pub fn new(ext_dtype: Arc<ExtDType>, storage: Array) -> Self {
+    pub fn new(ext_dtype: Arc<ExtDType>, storage: ArrayData) -> Self {
         assert_eq!(
             ext_dtype.storage_dtype(),
             storage.dtype(),
@@ -44,7 +44,7 @@ impl ExtensionArray {
         .vortex_expect("Invalid ExtensionArray")
     }
 
-    pub fn storage(&self) -> Array {
+    pub fn storage(&self) -> ArrayData {
         self.as_ref()
             .child(0, self.ext_dtype().storage_dtype(), self.len())
             .vortex_expect("Missing storage array for ExtensionArray")
@@ -66,7 +66,7 @@ impl ArrayVariants for ExtensionArray {
 }
 
 impl ExtensionArrayTrait for ExtensionArray {
-    fn storage_array(&self) -> Array {
+    fn storage_array(&self) -> ArrayData {
         self.storage()
     }
 }
@@ -118,7 +118,7 @@ mod tests {
     use super::*;
     use crate::array::PrimitiveArray;
     use crate::validity::Validity;
-    use crate::IntoArray as _;
+    use crate::IntoArrayData as _;
 
     #[test]
     fn compute_statistics() {

@@ -27,15 +27,15 @@ use crate::array::{
 use crate::arrow::FromArrowArray;
 use crate::stats::{ArrayStatistics, Stat};
 use crate::validity::Validity;
-use crate::{Array, IntoArray};
+use crate::{ArrayData, IntoArrayData};
 
-impl From<Buffer> for Array {
+impl From<Buffer> for ArrayData {
     fn from(value: Buffer) -> Self {
         PrimitiveArray::new(value.into(), PType::U8, Validity::NonNullable).into_array()
     }
 }
 
-impl From<NullBuffer> for Array {
+impl From<NullBuffer> for ArrayData {
     fn from(value: NullBuffer) -> Self {
         BoolArray::try_new(value.into_inner(), Validity::NonNullable)
             .vortex_expect("Failed to convert null buffer to BoolArray")
@@ -43,7 +43,7 @@ impl From<NullBuffer> for Array {
     }
 }
 
-impl<T> From<ScalarBuffer<T>> for Array
+impl<T> From<ScalarBuffer<T>> for ArrayData
 where
     T: ArrowNativeType + NativePType,
 {
@@ -52,7 +52,7 @@ where
     }
 }
 
-impl<O> From<OffsetBuffer<O>> for Array
+impl<O> From<OffsetBuffer<O>> for ArrayData
 where
     O: NativePType + OffsetSizeTrait,
 {
@@ -70,7 +70,7 @@ where
     }
 }
 
-impl<T: ArrowPrimitiveType> FromArrowArray<&ArrowPrimitiveArray<T>> for Array
+impl<T: ArrowPrimitiveType> FromArrowArray<&ArrowPrimitiveArray<T>> for ArrayData
 where
     <T as ArrowPrimitiveType>::Native: NativePType,
 {
@@ -105,7 +105,7 @@ where
     }
 }
 
-impl<T: ByteArrayType> FromArrowArray<&GenericByteArray<T>> for Array
+impl<T: ByteArrayType> FromArrowArray<&GenericByteArray<T>> for ArrayData
 where
     <T as ByteArrayType>::Offset: NativePType,
 {
@@ -126,7 +126,7 @@ where
     }
 }
 
-impl<T: ByteViewType> FromArrowArray<&GenericByteViewArray<T>> for Array {
+impl<T: ByteViewType> FromArrowArray<&GenericByteViewArray<T>> for ArrayData {
     fn from_arrow(value: &GenericByteViewArray<T>, nullable: bool) -> Self {
         let dtype = match T::DATA_TYPE {
             DataType::BinaryView => DType::Binary(nullable.into()),
@@ -148,7 +148,7 @@ impl<T: ByteViewType> FromArrowArray<&GenericByteViewArray<T>> for Array {
     }
 }
 
-impl FromArrowArray<&ArrowBooleanArray> for Array {
+impl FromArrowArray<&ArrowBooleanArray> for ArrayData {
     fn from_arrow(value: &ArrowBooleanArray, nullable: bool) -> Self {
         BoolArray::try_new(value.values().clone(), nulls(value.nulls(), nullable))
             .vortex_expect("Failed to convert Arrow BooleanArray to Vortex BoolArray")
@@ -156,7 +156,7 @@ impl FromArrowArray<&ArrowBooleanArray> for Array {
     }
 }
 
-impl FromArrowArray<&ArrowStructArray> for Array {
+impl FromArrowArray<&ArrowStructArray> for ArrayData {
     fn from_arrow(value: &ArrowStructArray, nullable: bool) -> Self {
         StructArray::try_new(
             value
@@ -179,7 +179,7 @@ impl FromArrowArray<&ArrowStructArray> for Array {
     }
 }
 
-impl FromArrowArray<&ArrowNullArray> for Array {
+impl FromArrowArray<&ArrowNullArray> for ArrayData {
     fn from_arrow(value: &ArrowNullArray, nullable: bool) -> Self {
         assert!(nullable);
         NullArray::new(value.len()).into()
@@ -203,7 +203,7 @@ fn nulls(nulls: Option<&NullBuffer>, nullable: bool) -> Validity {
     }
 }
 
-impl FromArrowArray<ArrowArrayRef> for Array {
+impl FromArrowArray<ArrowArrayRef> for ArrayData {
     fn from_arrow(array: ArrowArrayRef, nullable: bool) -> Self {
         match array.data_type() {
             DataType::Boolean => Self::from_arrow(array.as_boolean(), nullable),

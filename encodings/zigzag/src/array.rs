@@ -8,7 +8,7 @@ use vortex_array::stats::{ArrayStatistics, ArrayStatisticsCompute, Stat, StatsSe
 use vortex_array::validity::{ArrayValidity, LogicalValidity};
 use vortex_array::variants::{ArrayVariants, PrimitiveArrayTrait};
 use vortex_array::{
-    impl_encoding, Array, ArrayDType, ArrayTrait, Canonical, IntoArrayVariant, IntoCanonical,
+    impl_encoding, ArrayDType, ArrayData, ArrayTrait, Canonical, IntoArrayVariant, IntoCanonical,
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
@@ -30,7 +30,7 @@ impl Display for ZigZagMetadata {
 }
 
 impl ZigZagArray {
-    pub fn try_new(encoded: Array) -> VortexResult<Self> {
+    pub fn try_new(encoded: ArrayData) -> VortexResult<Self> {
         let encoded_dtype = encoded.dtype().clone();
         if !encoded_dtype.is_unsigned_int() {
             vortex_bail!(MismatchedTypes: "unsigned int", encoded_dtype);
@@ -45,13 +45,13 @@ impl ZigZagArray {
         Self::try_from_parts(dtype, len, ZigZagMetadata, children.into(), StatsSet::new())
     }
 
-    pub fn encode(array: &Array) -> VortexResult<ZigZagArray> {
+    pub fn encode(array: &ArrayData) -> VortexResult<ZigZagArray> {
         PrimitiveArray::try_from(array)
             .map_err(|_| vortex_err!("ZigZag can only encoding primitive arrays"))
             .and_then(zigzag_encode)
     }
 
-    pub fn encoded(&self) -> Array {
+    pub fn encoded(&self) -> ArrayData {
         let ptype = PType::try_from(self.dtype()).unwrap_or_else(|err| {
             vortex_panic!(err, "Failed to convert DType {} to PType", self.dtype())
         });
@@ -124,7 +124,7 @@ impl IntoCanonical for ZigZagArray {
 mod test {
     use vortex_array::compute::slice;
     use vortex_array::compute::unary::scalar_at;
-    use vortex_array::IntoArray;
+    use vortex_array::IntoArrayData;
 
     use super::*;
 

@@ -16,7 +16,7 @@ use vortex::file::{
 };
 use vortex::io::{ObjectStoreReadAt, TokioFile, VortexReadAt};
 use vortex::sampling_compressor::ALL_ENCODINGS_CONTEXT;
-use vortex::Array;
+use vortex::ArrayData;
 
 use crate::expr::PyExpr;
 use crate::object_store_urls::vortex_read_at_from_url;
@@ -26,7 +26,7 @@ pub async fn layout_stream_from_reader<T: VortexReadAt + Unpin>(
     reader: T,
     projection: Projection,
     row_filter: Option<RowFilter>,
-    indices: Option<Array>,
+    indices: Option<ArrayData>,
 ) -> VortexResult<VortexFileArrayStream<T>> {
     let mut builder = VortexReadBuilder::new(
         reader,
@@ -52,8 +52,8 @@ pub async fn read_array_from_reader<T: VortexReadAt + Unpin + 'static>(
     reader: T,
     projection: Projection,
     row_filter: Option<RowFilter>,
-    indices: Option<Array>,
-) -> VortexResult<Array> {
+    indices: Option<ArrayData>,
+) -> VortexResult<ArrayData> {
     layout_stream_from_reader(reader, projection, row_filter, indices)
         .await?
         .read_all()

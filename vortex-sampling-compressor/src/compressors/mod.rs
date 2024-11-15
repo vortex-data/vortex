@@ -6,7 +6,7 @@ use std::sync::Arc;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::encoding::EncodingRef;
 use vortex_array::stats::{ArrayStatistics, Stat};
-use vortex_array::Array;
+use vortex_array::ArrayData;
 use vortex_error::VortexResult;
 
 use crate::SamplingCompressor;
@@ -33,11 +33,11 @@ pub trait EncodingCompressor: Sync + Send + Debug {
 
     fn cost(&self) -> u8;
 
-    fn can_compress(&self, array: &Array) -> Option<&dyn EncodingCompressor>;
+    fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor>;
 
     fn compress<'a>(
         &'a self,
-        array: &Array,
+        array: &ArrayData,
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>>;
@@ -125,7 +125,7 @@ impl<'a> CompressionTree<'a> {
     /// Compresses array with our compressor without verifying that the compressor can compress this array
     pub fn compress_unchecked(
         &self,
-        array: &Array,
+        array: &ArrayData,
         ctx: &SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
         self.compressor.compress(
@@ -137,7 +137,7 @@ impl<'a> CompressionTree<'a> {
 
     pub fn compress(
         &self,
-        array: &Array,
+        array: &ArrayData,
         ctx: &SamplingCompressor<'a>,
     ) -> Option<VortexResult<CompressedArray<'a>>> {
         self.compressor
@@ -180,19 +180,19 @@ impl<'a> CompressionTree<'a> {
 
 #[derive(Debug, Clone)]
 pub struct CompressedArray<'a> {
-    array: Array,
+    array: ArrayData,
     path: Option<CompressionTree<'a>>,
 }
 
 impl<'a> CompressedArray<'a> {
-    pub fn uncompressed(array: Array) -> Self {
+    pub fn uncompressed(array: ArrayData) -> Self {
         Self { array, path: None }
     }
 
     pub fn compressed(
-        compressed_array: Array,
+        compressed_array: ArrayData,
         path: Option<CompressionTree<'a>>,
-        original_array: Option<impl AsRef<Array>>,
+        original_array: Option<impl AsRef<ArrayData>>,
     ) -> Self {
         if let Some(original_array) = original_array {
             let original_array = original_array.as_ref();
@@ -217,12 +217,12 @@ impl<'a> CompressedArray<'a> {
     }
 
     #[inline]
-    pub fn array(&self) -> &Array {
+    pub fn array(&self) -> &ArrayData {
         &self.array
     }
 
     #[inline]
-    pub fn into_array(self) -> Array {
+    pub fn into_array(self) -> ArrayData {
         self.array
     }
 
@@ -237,7 +237,7 @@ impl<'a> CompressedArray<'a> {
     }
 
     #[inline]
-    pub fn into_parts(self) -> (Array, Option<CompressionTree<'a>>) {
+    pub fn into_parts(self) -> (ArrayData, Option<CompressionTree<'a>>) {
         (self.array, self.path)
     }
 
@@ -248,8 +248,8 @@ impl<'a> CompressedArray<'a> {
     }
 }
 
-impl AsRef<Array> for CompressedArray<'_> {
-    fn as_ref(&self) -> &Array {
+impl AsRef<ArrayData> for CompressedArray<'_> {
+    fn as_ref(&self) -> &ArrayData {
         &self.array
     }
 }

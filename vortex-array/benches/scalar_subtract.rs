@@ -5,7 +5,7 @@ use itertools::Itertools;
 use rand::distributions::Uniform;
 use rand::{thread_rng, Rng};
 use vortex_array::array::ChunkedArray;
-use vortex_array::IntoArray;
+use vortex_array::IntoArrayData;
 use vortex_error::VortexError;
 
 fn scalar_subtract(c: &mut Criterion) {

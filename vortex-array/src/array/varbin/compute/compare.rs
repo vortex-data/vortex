@@ -11,10 +11,14 @@ use crate::array::varbin::arrow::{varbin_datum, varbin_to_arrow};
 use crate::array::{ConstantArray, VarBinArray};
 use crate::arrow::FromArrowArray;
 use crate::compute::{MaybeCompareFn, Operator};
-use crate::Array;
+use crate::ArrayData;
 
 impl MaybeCompareFn for VarBinArray {
-    fn maybe_compare(&self, other: &Array, operator: Operator) -> Option<VortexResult<Array>> {
+    fn maybe_compare(
+        &self,
+        other: &ArrayData,
+        operator: Operator,
+    ) -> Option<VortexResult<ArrayData>> {
         if let Ok(rhs_const) = ConstantArray::try_from(other) {
             Some(compare_constant(self, &rhs_const, operator))
         } else {
@@ -27,7 +31,7 @@ fn compare_constant(
     lhs: &VarBinArray,
     rhs: &ConstantArray,
     operator: Operator,
-) -> VortexResult<Array> {
+) -> VortexResult<ArrayData> {
     // Compare using the arrow kernels directly.
     let arrow_lhs = varbin_to_arrow(lhs)?;
     let constant = varbin_datum(rhs.owned_scalar())?;
@@ -53,7 +57,7 @@ fn compare_constant_arrow<T: ByteArrayType>(
     lhs: &GenericByteArray<T>,
     rhs: Arc<dyn Datum>,
     operator: Operator,
-) -> VortexResult<Array> {
+) -> VortexResult<ArrayData> {
     let rhs = rhs.as_ref();
     let array = match operator {
         Operator::Eq => cmp::eq(lhs, rhs)?,
@@ -63,7 +67,7 @@ fn compare_constant_arrow<T: ByteArrayType>(
         Operator::Lt => cmp::lt(lhs, rhs)?,
         Operator::Lte => cmp::lt_eq(lhs, rhs)?,
     };
-    Ok(Array::from_arrow(&array, true))
+    Ok(ArrayData::from_arrow(&array, true))
 }
 
 #[cfg(test)]

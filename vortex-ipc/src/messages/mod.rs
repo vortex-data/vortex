@@ -1,7 +1,7 @@
 use flatbuffers::{FlatBufferBuilder, WIPOffset};
 use itertools::Itertools;
 use vortex_array::stats::ArrayStatistics;
-use vortex_array::{flatbuffers as fba, Array};
+use vortex_array::{flatbuffers as fba, ArrayData};
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect as _;
@@ -20,8 +20,8 @@ pub enum IPCMessage<'a> {
 }
 
 pub struct IPCSchema<'a>(pub &'a DType);
-pub struct IPCBatch<'a>(pub &'a Array);
-pub struct IPCArray<'a>(pub &'a Array, usize);
+pub struct IPCBatch<'a>(pub &'a ArrayData);
+pub struct IPCArray<'a>(pub &'a ArrayData, usize);
 pub struct IPCPage<'a>(pub &'a Buffer);
 
 impl FlatBufferRoot for IPCMessage<'_> {}

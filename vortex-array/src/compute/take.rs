@@ -1,13 +1,16 @@
 use log::info;
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
-use crate::{Array, ArrayDType as _, IntoCanonical as _};
+use crate::{ArrayDType as _, ArrayData, IntoCanonical as _};
 
 pub trait TakeFn {
-    fn take(&self, indices: &Array) -> VortexResult<Array>;
+    fn take(&self, indices: &ArrayData) -> VortexResult<ArrayData>;
 }
 
-pub fn take(array: impl AsRef<Array>, indices: impl AsRef<Array>) -> VortexResult<Array> {
+pub fn take(
+    array: impl AsRef<ArrayData>,
+    indices: impl AsRef<ArrayData>,
+) -> VortexResult<ArrayData> {
     let array = array.as_ref();
     let indices = indices.as_ref();
 
@@ -25,7 +28,7 @@ pub fn take(array: impl AsRef<Array>, indices: impl AsRef<Array>) -> VortexResul
 
         // Otherwise, flatten and try again.
         info!("TakeFn not implemented for {}, flattening", array);
-        Array::from(array.clone().into_canonical()?).with_dyn(|a| {
+        ArrayData::from(array.clone().into_canonical()?).with_dyn(|a| {
             a.take()
                 .map(|t| t.take(indices))
                 .unwrap_or_else(|| Err(vortex_err!(NotImplemented: "take", array.encoding().id())))

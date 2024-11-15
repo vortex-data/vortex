@@ -12,7 +12,7 @@ use vortex_array::compress::{
 use vortex_array::compute::slice;
 use vortex_array::encoding::EncodingRef;
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayDType, ArrayDef, IntoCanonical};
+use vortex_array::{ArrayDType, ArrayData, ArrayDef, IntoCanonical};
 use vortex_error::{VortexExpect as _, VortexResult};
 
 use crate::compressors::chunked::DEFAULT_CHUNKED_COMPRESSOR;
@@ -41,7 +41,7 @@ impl Display for SamplingCompressor<'_> {
 
 impl CompressionStrategy for SamplingCompressor<'_> {
     #[allow(clippy::same_name_method)]
-    fn compress(&self, array: &Array) -> VortexResult<Array> {
+    fn compress(&self, array: &ArrayData) -> VortexResult<ArrayData> {
         Self::compress(self, array, None).map(CompressedArray::into_array)
     }
 
@@ -118,7 +118,7 @@ impl<'a> SamplingCompressor<'a> {
     #[allow(clippy::same_name_method)]
     pub fn compress(
         &self,
-        arr: &Array,
+        arr: &ArrayData,
         like: Option<&CompressionTree<'a>>,
     ) -> VortexResult<CompressedArray<'a>> {
         if arr.is_empty() {
@@ -158,7 +158,7 @@ impl<'a> SamplingCompressor<'a> {
         }
     }
 
-    pub fn compress_array(&self, array: &Array) -> VortexResult<CompressedArray<'a>> {
+    pub fn compress_array(&self, array: &ArrayData) -> VortexResult<CompressedArray<'a>> {
         let mut rng = StdRng::seed_from_u64(self.options.rng_seed);
 
         if array.encoding().id() == Constant::ID {
@@ -237,7 +237,7 @@ impl<'a> SamplingCompressor<'a> {
             )
             .into_iter()
             .map(|(start, stop)| slice(array, start, stop))
-            .collect::<VortexResult<Vec<Array>>>()?,
+            .collect::<VortexResult<Vec<ArrayData>>>()?,
             array.dtype().clone(),
         )?
         .into_canonical()?
@@ -260,7 +260,7 @@ impl<'a> SamplingCompressor<'a> {
 
 fn find_best_compression<'a>(
     candidates: Vec<&'a dyn EncodingCompressor>,
-    sample: &Array,
+    sample: &ArrayData,
     ctx: &SamplingCompressor<'a>,
 ) -> VortexResult<CompressedArray<'a>> {
     let mut best = None;
