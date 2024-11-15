@@ -1,6 +1,6 @@
 use core::ops::Range;
 
-use bytes::{Bytes, BytesMut};
+use bytes::Bytes;
 use flatbuffers::{root, root_unchecked};
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 use vortex_flatbuffers::{footer, message};
@@ -91,11 +91,11 @@ pub async fn read_initial_bytes<R: VortexReadAt>(
     }
 
     let read_size = INITIAL_READ_SIZE.min(file_size as usize);
-    let mut buf = BytesMut::with_capacity(read_size);
-    unsafe { buf.set_len(read_size) }
 
     let initial_read_offset = file_size - read_size as u64;
-    buf = read.read_at_into(initial_read_offset, buf).await?;
+    let buf = read
+        .read_byte_range(initial_read_offset, read_size as u64)
+        .await?;
 
     let eof_loc = read_size - EOF_SIZE;
     let magic_bytes_loc = eof_loc + (EOF_SIZE - MAGIC_BYTES.len());
@@ -168,7 +168,7 @@ pub async fn read_initial_bytes<R: VortexReadAt>(
     root::<footer::Layout>(&buf[layout_loc..ps_loc])?;
 
     Ok(InitialRead {
-        buf: buf.freeze(),
+        buf,
         initial_read_offset,
         fb_postscript_byte_range,
     })

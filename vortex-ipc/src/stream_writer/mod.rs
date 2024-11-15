@@ -116,8 +116,8 @@ impl ByteRange {
         Self { begin, end }
     }
 
-    pub fn len(&self) -> usize {
-        (self.end - self.begin) as usize
+    pub fn len(&self) -> u64 {
+        self.end - self.begin
     }
 
     pub fn is_empty(&self) -> bool {

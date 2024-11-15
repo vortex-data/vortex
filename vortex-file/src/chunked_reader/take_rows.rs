@@ -1,6 +1,6 @@
+use std::io::Cursor;
 use std::ops::Range;
 
-use bytes::BytesMut;
 use futures_util::{stream, StreamExt, TryStreamExt};
 use itertools::Itertools;
 use vortex_array::aliases::hash_map::HashMap;
@@ -122,7 +122,7 @@ impl<R: VortexReadAt> ChunkedArrayReader<R> {
         byte_range: Range<u64>,
         row_range: Range<u64>,
     ) -> VortexResult<impl ArrayStream> {
-        let range_byte_len = (byte_range.end - byte_range.start) as usize;
+        let range_byte_len = byte_range.end - byte_range.start;
 
         // Relativize the indices to these chunks
         let indices_start =
@@ -133,15 +133,15 @@ impl<R: VortexReadAt> ChunkedArrayReader<R> {
         let row_start_scalar = Scalar::from(row_range.start).cast(relative_indices.dtype())?;
         let relative_indices = subtract_scalar(&relative_indices, &row_start_scalar)?;
 
-        // Set up an array reader to read this range of chunks.
-        let mut buffer = BytesMut::with_capacity(range_byte_len);
-        unsafe { buffer.set_len(range_byte_len) }
         // TODO(ngates): instead of reading the whole range into a buffer, we should stream
         //  the byte range (e.g. if its coming from an HTTP endpoint) and wrap that with an
         //  MesssageReader.
-        let buffer = self.read.read_at_into(byte_range.start, buffer).await?;
+        let buffer = self
+            .read
+            .read_byte_range(byte_range.start, range_byte_len)
+            .await?;
 
-        let reader = StreamArrayReader::try_new(buffer, self.context.clone())
+        let reader = StreamArrayReader::try_new(Cursor::new(buffer), self.context.clone())
             .await?
             .with_dtype(self.dtype.clone());
 
