@@ -20,26 +20,31 @@ fn benchmark(c: &mut Criterion) {
         "https://datasets.clickhouse.com/hits_compatible/hits.parquet",
     );
 
-    let output_path = basepath.join("hits_data.parquet");
-
-    println!("Fixing parquet file");
+    let output_path = basepath.join("processed.parquet");
 
     let final_parquet_path = idempotent(&output_path, |output_path| {
+        println!("Fixing parquet file");
         let command = format!(
-            "COPY (SELECT * REPLACE (epoch_ms(EventTime * 1000) AS EventTime, DATE '1970-01-01' + INTERVAL (EventDate) DAYS AS EventDate) FROM read_parquet('{}')) TO '{}' (FORMAT 'parquet');",
+            "COPY (SELECT * REPLACE 
+                (epoch_ms(EventTime * 1000) AS EventTime, \
+                epoch_ms(ClientEventTime * 1000) AS ClientEventTime, \
+                epoch_ms(LocalEventTime * 1000) AS LocalEventTime, \
+                    DATE '1970-01-01' + INTERVAL (EventDate) DAYS AS EventDate) \
+            FROM read_parquet('{}')) TO '{}' (FORMAT 'parquet');",
             raw_data.to_str().unwrap(),
             output_path.to_str().unwrap()
         );
         Command::new("duckdb")
-        .arg("-c")
-        .arg(command)
-        .status()?
-        .exit_ok()?;
+            .arg("-c")
+            .arg(command)
+            .status()?
+            .exit_ok()?;
 
         anyhow::Ok(PathBuf::from(output_path))
-    }).unwrap();
+    })
+    .unwrap();
 
-    println!("Registering Vortex file");
+    println!("Registering Vortex file from {final_parquet_path:?}");
 
     let session_context = SessionContext::new();
     let context = session_context.clone();
@@ -49,7 +54,6 @@ fn benchmark(c: &mut Criterion) {
             "hits",
             final_parquet_path.as_path(),
             &HITS_SCHEMA,
-            true,
         )
         .await
         .unwrap();
@@ -68,7 +72,7 @@ fn benchmark(c: &mut Criterion) {
 
 criterion_group!(
     name = benches;
-    config = Criterion::default().sample_size(25);
+    config = Criterion::default().sample_size(10);
     targets = benchmark
 );
 criterion_main!(benches);
