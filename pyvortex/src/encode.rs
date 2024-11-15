@@ -9,7 +9,7 @@ use vortex::array::ChunkedArray;
 use vortex::arrow::{FromArrowArray, FromArrowType};
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexResult};
-use vortex::{Array, IntoArray};
+use vortex::{ArrayData, IntoArrayData};
 
 use crate::array::PyArray;
 
@@ -24,7 +24,7 @@ pub fn _encode<'py>(obj: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyArray>> {
     if obj.is_instance(&pa_array)? {
         let arrow_array = ArrowArrayData::from_pyarrow_bound(obj).map(make_array)?;
         let is_nullable = arrow_array.is_nullable();
-        let enc_array = Array::from_arrow(arrow_array, is_nullable);
+        let enc_array = ArrayData::from_arrow(arrow_array, is_nullable);
         Bound::new(obj.py(), PyArray::new(enc_array))
     } else if obj.is_instance(&chunked_array)? {
         let chunks: Vec<Bound<PyAny>> = obj.getattr("chunks")?.extract()?;
@@ -33,7 +33,7 @@ pub fn _encode<'py>(obj: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyArray>> {
             .map(|a| {
                 ArrowArrayData::from_pyarrow_bound(a)
                     .map(make_array)
-                    .map(|a| Array::from_arrow(a, false))
+                    .map(|a| ArrayData::from_arrow(a, false))
             })
             .collect::<PyResult<Vec<_>>>()?;
         let dtype: DType = obj
@@ -50,7 +50,7 @@ pub fn _encode<'py>(obj: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyArray>> {
         let chunks = array_stream
             .into_iter()
             .map(|b| b.map_err(VortexError::ArrowError))
-            .map(|b| b.and_then(Array::try_from))
+            .map(|b| b.and_then(ArrayData::try_from))
             .collect::<VortexResult<Vec<_>>>()?;
         Bound::new(
             obj.py(),

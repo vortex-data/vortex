@@ -5,7 +5,7 @@ use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::builder::VarBinBuilder;
 use vortex_array::array::{BoolArray, PrimitiveArray, StructArray, TemporalArray};
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayDType, IntoArray};
+use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
 use vortex_sampling_compressor::compressors::alp::ALPCompressor;
 use vortex_sampling_compressor::compressors::date_time_parts::DateTimePartsCompressor;
@@ -58,7 +58,7 @@ mod tests {
             CompressConfig::default(),
         );
 
-        let def: &[(&str, Array)] = &[
+        let def: &[(&str, ArrayData)] = &[
             ("prim_col", make_primitive_column(65536)),
             ("bool_col", make_bool_column(65536)),
             ("varbin_col", make_string_column(65536)),
@@ -66,7 +66,7 @@ mod tests {
             ("timestamp_col", make_timestamp_column(65536)),
         ];
 
-        let fields: Vec<Array> = def.iter().map(|(_, arr)| arr.clone()).collect();
+        let fields: Vec<ArrayData> = def.iter().map(|(_, arr)| arr.clone()).collect();
         let field_names: FieldNames = FieldNames::from(
             def.iter()
                 .map(|(name, _)| FieldName::from(*name))
@@ -95,13 +95,14 @@ mod tests {
 
         let chunk_size = 1 << 14;
 
-        let ints: Vec<Array> = (0..4).map(|_| make_primitive_column(chunk_size)).collect();
-        let bools: Vec<Array> = (0..4).map(|_| make_bool_column(chunk_size)).collect();
-        let varbins: Vec<Array> = (0..4).map(|_| make_string_column(chunk_size)).collect();
-        let binaries: Vec<Array> = (0..4).map(|_| make_binary_column(chunk_size)).collect();
-        let timestamps: Vec<Array> = (0..4).map(|_| make_timestamp_column(chunk_size)).collect();
+        let ints: Vec<ArrayData> = (0..4).map(|_| make_primitive_column(chunk_size)).collect();
+        let bools: Vec<ArrayData> = (0..4).map(|_| make_bool_column(chunk_size)).collect();
+        let varbins: Vec<ArrayData> = (0..4).map(|_| make_string_column(chunk_size)).collect();
+        let binaries: Vec<ArrayData> = (0..4).map(|_| make_binary_column(chunk_size)).collect();
+        let timestamps: Vec<ArrayData> =
+            (0..4).map(|_| make_timestamp_column(chunk_size)).collect();
 
-        fn chunked(arrays: Vec<Array>) -> Array {
+        fn chunked(arrays: Vec<ArrayData>) -> ArrayData {
             let dtype = arrays[0].dtype().clone();
             ChunkedArray::try_new(arrays, dtype).unwrap().into()
         }
@@ -186,7 +187,7 @@ mod tests {
         }
     }
 
-    fn make_primitive_column(count: usize) -> Array {
+    fn make_primitive_column(count: usize) -> ArrayData {
         PrimitiveArray::from_vec(
             (0..count).map(|i| i as i64).collect::<Vec<i64>>(),
             Validity::NonNullable,
@@ -194,12 +195,12 @@ mod tests {
         .into_array()
     }
 
-    fn make_bool_column(count: usize) -> Array {
+    fn make_bool_column(count: usize) -> ArrayData {
         let bools: Vec<bool> = (0..count).map(|_| rand::random::<bool>()).collect();
         BoolArray::from_vec(bools, Validity::NonNullable).into_array()
     }
 
-    fn make_string_column(count: usize) -> Array {
+    fn make_string_column(count: usize) -> ArrayData {
         let values = ["zzzz", "bbbbbb", "cccccc", "ddddd"];
         let mut builder = VarBinBuilder::<i64>::with_capacity(count);
         for i in 0..count {
@@ -211,7 +212,7 @@ mod tests {
             .into_array()
     }
 
-    fn make_binary_column(count: usize) -> Array {
+    fn make_binary_column(count: usize) -> ArrayData {
         let mut builder = VarBinBuilder::<i64>::with_capacity(count);
         let random: Vec<u8> = (0..count).map(|_| rand::random::<u8>()).collect();
         for i in 1..=count {
@@ -223,7 +224,7 @@ mod tests {
             .into_array()
     }
 
-    fn make_timestamp_column(count: usize) -> Array {
+    fn make_timestamp_column(count: usize) -> ArrayData {
         // Make new timestamps in incrementing order from EPOCH.
         let t0 = chrono::NaiveDateTime::default().and_utc();
 
@@ -234,7 +235,7 @@ mod tests {
         let storage_array =
             PrimitiveArray::from_vec(timestamps, Validity::NonNullable).into_array();
 
-        Array::from(TemporalArray::new_timestamp(
+        ArrayData::from(TemporalArray::new_timestamp(
             storage_array,
             TimeUnit::Ms,
             None,

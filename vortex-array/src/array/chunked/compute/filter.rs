@@ -3,13 +3,13 @@ use vortex_error::{VortexExpect, VortexResult};
 
 use crate::array::{BoolArray, ChunkedArray, PrimitiveArray};
 use crate::compute::{filter, take, FilterFn, SearchSorted, SearchSortedSide};
-use crate::{Array, ArrayDType, IntoArray, IntoCanonical};
+use crate::{ArrayDType, ArrayData, IntoArrayData, IntoCanonical};
 
 // This is modeled after the constant with the equivalent name in arrow-rs.
 const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
 
 impl FilterFn for ChunkedArray {
-    fn filter(&self, predicate: &Array) -> VortexResult<Array> {
+    fn filter(&self, predicate: &ArrayData) -> VortexResult<ArrayData> {
         predicate.with_dyn(move |a| {
             // SAFETY: the DType should be checked in the top-level `filter` function.
             let bool_array = a.as_bool_array_unchecked();
@@ -52,7 +52,7 @@ enum ChunkFilter {
 
 /// Given a sequence of slices that indicate ranges of set values, returns a boolean array
 /// representing the same thing.
-fn slices_to_predicate(slices: &[(usize, usize)], len: usize) -> Array {
+fn slices_to_predicate(slices: &[(usize, usize)], len: usize) -> ArrayData {
     let mut buffer = BooleanBufferBuilder::new(len);
 
     let mut pos = 0;
@@ -76,7 +76,7 @@ fn slices_to_predicate(slices: &[(usize, usize)], len: usize) -> Array {
 fn filter_slices<'a>(
     array: &'a ChunkedArray,
     set_slices: Box<dyn Iterator<Item = (usize, usize)> + 'a>,
-) -> VortexResult<Vec<Array>> {
+) -> VortexResult<Vec<ArrayData>> {
     let mut result = Vec::with_capacity(array.nchunks());
 
     // Pre-materialize the chunk ends for performance.
@@ -153,7 +153,7 @@ fn filter_slices<'a>(
 fn filter_indices<'a>(
     array: &'a ChunkedArray,
     set_indices: Box<dyn Iterator<Item = usize> + 'a>,
-) -> VortexResult<Vec<Array>> {
+) -> VortexResult<Vec<ArrayData>> {
     let mut result = Vec::new();
     let mut current_chunk_id = 0;
     let mut chunk_indices = Vec::new();
@@ -221,7 +221,7 @@ mod test {
     use crate::array::chunked::compute::filter::slices_to_predicate;
     use crate::array::{BoolArray, ChunkedArray, PrimitiveArray};
     use crate::compute::filter;
-    use crate::{IntoArray, IntoArrayVariant};
+    use crate::{IntoArrayData, IntoArrayVariant};
 
     #[test]
     fn test_slices_to_predicate() {

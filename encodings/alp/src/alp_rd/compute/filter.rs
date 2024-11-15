@@ -1,11 +1,11 @@
 use vortex_array::compute::{filter, FilterFn};
-use vortex_array::{Array, ArrayDType, IntoArray};
+use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
 
 use crate::ALPRDArray;
 
 impl FilterFn for ALPRDArray {
-    fn filter(&self, predicate: &Array) -> VortexResult<Array> {
+    fn filter(&self, predicate: &ArrayData) -> VortexResult<ArrayData> {
         let left_parts_exceptions = self
             .left_parts_exceptions()
             .map(|array| filter(&array, predicate))

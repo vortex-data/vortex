@@ -6,7 +6,7 @@ use arrow_array::types::Int32Type;
 use arrow_array::PrimitiveArray;
 use vortex_array::arrow::FromArrowArray;
 use vortex_array::stream::ArrayStreamExt;
-use vortex_array::{Array, Context, IntoCanonical};
+use vortex_array::{ArrayData, Context, IntoCanonical};
 use vortex_buffer::Buffer;
 
 use crate::stream_reader::StreamArrayReader;
@@ -15,7 +15,7 @@ use crate::stream_writer::StreamArrayWriter;
 #[tokio::test]
 async fn broken_data() {
     let arrow_arr: PrimitiveArray<Int32Type> = [Some(1), Some(2), Some(3), None].iter().collect();
-    let vortex_arr = Array::from_arrow(&arrow_arr, true);
+    let vortex_arr = ArrayData::from_arrow(&arrow_arr, true);
     let written = StreamArrayWriter::new(Vec::new())
         .write_array(vortex_arr)
         .await

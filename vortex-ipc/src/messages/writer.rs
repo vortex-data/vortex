@@ -2,7 +2,7 @@ use std::io;
 
 use flatbuffers::FlatBufferBuilder;
 use itertools::Itertools;
-use vortex_array::Array;
+use vortex_array::ArrayData;
 use vortex_buffer::io_buf::IoBuf;
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
@@ -48,7 +48,7 @@ impl<W: VortexWrite> MessageWriter<W> {
             .await
     }
 
-    pub async fn write_batch(&mut self, chunk: Array) -> io::Result<()> {
+    pub async fn write_batch(&mut self, chunk: ArrayData) -> io::Result<()> {
         let buffer_offsets = chunk.all_buffer_offsets(self.alignment);
 
         // Serialize the Chunk message.

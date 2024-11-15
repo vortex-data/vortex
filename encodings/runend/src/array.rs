@@ -1,20 +1,22 @@
 use std::fmt::{Debug, Display};
 
 use serde::{Deserialize, Serialize};
+use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use vortex_array::array::PrimitiveArray;
 use vortex_array::compute::unary::scalar_at;
 use vortex_array::compute::{search_sorted, search_sorted_u64_many, SearchSortedSide};
 use vortex_array::encoding::ids;
-use vortex_array::stats::{ArrayStatistics, ArrayStatisticsCompute, StatsSet};
+use vortex_array::stats::{ArrayStatistics, ArrayStatisticsCompute, Stat, StatsSet};
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
 use vortex_array::variants::{ArrayVariants, PrimitiveArrayTrait};
 use vortex_array::{
-    impl_encoding, Array, ArrayDType, ArrayTrait, Canonical, IntoArray, IntoArrayVariant,
+    impl_encoding, ArrayDType, ArrayData, ArrayTrait, Canonical, IntoArrayData, IntoArrayVariant,
     IntoCanonical,
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
+use vortex_scalar::Scalar;
 
 use crate::compress::{runend_decode, runend_encode};
 
@@ -35,7 +37,7 @@ impl Display for RunEndMetadata {
 }
 
 impl RunEndArray {
-    pub fn try_new(ends: Array, values: Array, validity: Validity) -> VortexResult<Self> {
+    pub fn try_new(ends: ArrayData, values: ArrayData, validity: Validity) -> VortexResult<Self> {
         let length = if ends.is_empty() {
             0
         } else {
@@ -45,8 +47,8 @@ impl RunEndArray {
     }
 
     pub(crate) fn with_offset_and_length(
-        ends: Array,
-        values: Array,
+        ends: ArrayData,
+        values: ArrayData,
         validity: Validity,
         offset: usize,
         length: usize,
@@ -81,6 +83,19 @@ impl RunEndArray {
             offset,
         };
 
+        let stats = if matches!(validity, Validity::AllValid | Validity::NonNullable) {
+            let ends_len = ends.len();
+            let is_constant = ends_len <= 1;
+            StatsSet::from(HashMap::from([
+                (Stat::IsConstant, is_constant.into()),
+                (Stat::RunCount, (ends_len as u64).into()),
+            ]))
+        } else if matches!(validity, Validity::AllInvalid) {
+            StatsSet::nulls(length, &dtype)
+        } else {
+            StatsSet::new()
+        };
+
         let mut children = Vec::with_capacity(3);
         children.push(ends);
         children.push(values);
@@ -88,7 +103,7 @@ impl RunEndArray {
             children.push(a)
         }
 
-        Self::try_from_parts(dtype, length, metadata, children.into(), StatsSet::new())
+        Self::try_from_parts(dtype, length, metadata, children.into(), stats)
     }
 
     /// Convert the given logical index to an index into the `values` array
@@ -116,7 +131,7 @@ impl RunEndArray {
     }
 
     /// Run the array through run-end encoding.
-    pub fn encode(array: Array) -> VortexResult<Self> {
+    pub fn encode(array: ArrayData) -> VortexResult<Self> {
         if let Ok(parray) = PrimitiveArray::try_from(array) {
             let (ends, values) = runend_encode(&parray);
             Self::try_new(ends.into_array(), values.into_array(), parray.validity())
@@ -146,7 +161,7 @@ impl RunEndArray {
     /// The `i`-th element indicates that there is a run of the same value, beginning
     /// at `ends[i]` (inclusive) and terminating at `ends[i+1]` (exclusive).
     #[inline]
-    pub fn ends(&self) -> Array {
+    pub fn ends(&self) -> ArrayData {
         self.as_ref()
             .child(
                 0,
@@ -161,7 +176,7 @@ impl RunEndArray {
     /// The `i`-th element is the scalar value for the `i`-th repeated run. The run begins
     /// at `ends[i]` (inclusive) and terminates at `ends[i+1]` (exclusive).
     #[inline]
-    pub fn values(&self) -> Array {
+    pub fn values(&self) -> ArrayData {
         self.as_ref()
             .child(1, self.dtype(), self.metadata().num_runs)
             .vortex_expect("RunEndArray is missing its values")
@@ -205,13 +220,34 @@ impl AcceptArrayVisitor for RunEndArray {
     }
 }
 
-impl ArrayStatisticsCompute for RunEndArray {}
+impl ArrayStatisticsCompute for RunEndArray {
+    fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
+        let maybe_stat = match stat {
+            Stat::Min | Stat::Max => self.values().statistics().compute(stat),
+            Stat::NullCount => Some(Scalar::from(self.validity().null_count(self.len())?)),
+            Stat::IsSorted => Some(Scalar::from(
+                self.values()
+                    .statistics()
+                    .compute_is_sorted()
+                    .unwrap_or(false)
+                    && self.logical_validity().all_valid(),
+            )),
+            _ => None,
+        };
+
+        let mut stats = StatsSet::new();
+        if let Some(stat_value) = maybe_stat {
+            stats.set(stat, stat_value);
+        }
+        Ok(stats)
+    }
+}
 
 #[cfg(test)]
 mod tests {
     use vortex_array::compute::unary::scalar_at;
     use vortex_array::validity::Validity;
-    use vortex_array::{ArrayDType, IntoArray};
+    use vortex_array::{ArrayDType, IntoArrayData};
     use vortex_dtype::{DType, Nullability, PType};
 
     use crate::RunEndArray;

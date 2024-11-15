@@ -11,7 +11,7 @@ use vortex_dtype::{DType, NativePType};
 use vortex_error::{vortex_panic, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::Array;
+use crate::ArrayData;
 
 pub mod flatbuffers;
 mod statsset;
@@ -22,15 +22,26 @@ pub(crate) const PRUNING_STATS: &[Stat] = &[Stat::Min, Stat::Max, Stat::TrueCoun
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Sequence)]
 #[non_exhaustive]
 pub enum Stat {
+    /// Frequency of each bit width (nulls are treated as 0)
     BitWidthFreq,
+    /// Frequency of each trailing zero (nulls are treated as 0)
     TrailingZeroFreq,
+    /// Whether all values are the same (nulls are not equal to other non-null values,
+    /// so this is true iff all values are null or all values are the same non-null value)
     IsConstant,
+    /// Whether the array is sorted
     IsSorted,
+    /// Whether the array is strictly sorted (i.e., sorted with no duplicates)
     IsStrictSorted,
+    /// The maximum value in the array (ignoring nulls, unless all values are null)
     Max,
+    /// The minimum value in the array (ignoring nulls, unless all values are null)
     Min,
+    /// The number of runs in the array (ignoring nulls)
     RunCount,
+    /// The number of true values in the array (nulls are treated as false)
     TrueCount,
+    /// The number of null values in the array
     NullCount,
 }
 
@@ -97,6 +108,8 @@ pub trait Statistics {
 
 pub trait ArrayStatistics {
     fn statistics(&self) -> &dyn Statistics;
+
+    fn inherit_statistics(&self, parent: &dyn Statistics);
 }
 
 pub trait ArrayStatisticsCompute {
@@ -210,7 +223,7 @@ impl dyn Statistics + '_ {
     }
 }
 
-pub fn trailing_zeros(array: &Array) -> u8 {
+pub fn trailing_zeros(array: &ArrayData) -> u8 {
     let tz_freq = array
         .statistics()
         .compute_trailing_zero_freq()

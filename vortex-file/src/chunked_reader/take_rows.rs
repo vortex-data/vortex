@@ -9,7 +9,7 @@ use vortex_array::compute::unary::{subtract_scalar, try_cast};
 use vortex_array::compute::{search_sorted, slice, take, SearchSortedSide};
 use vortex_array::stats::ArrayStatistics;
 use vortex_array::stream::{ArrayStream, ArrayStreamExt};
-use vortex_array::{Array, ArrayDType, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::PType;
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 use vortex_io::VortexReadAt;
@@ -19,7 +19,7 @@ use vortex_scalar::Scalar;
 use crate::chunked_reader::ChunkedArrayReader;
 
 impl<R: VortexReadAt> ChunkedArrayReader<R> {
-    pub async fn take_rows(&mut self, indices: &Array) -> VortexResult<Array> {
+    pub async fn take_rows(&mut self, indices: &ArrayData) -> VortexResult<ArrayData> {
         // Figure out if the row indices are sorted / unique. If not, we need to sort them.
         if indices
             .statistics()
@@ -48,7 +48,7 @@ impl<R: VortexReadAt> ChunkedArrayReader<R> {
     /// The strategy for doing this depends on the quantity and distribution of the indices...
     ///
     /// For now, we will find the relevant chunks, coalesce them, and read.
-    async fn take_rows_strict_sorted(&mut self, indices: &Array) -> VortexResult<Array> {
+    async fn take_rows_strict_sorted(&mut self, indices: &ArrayData) -> VortexResult<ArrayData> {
         // Figure out which chunks are relevant.
         let chunk_idxs = find_chunks(&self.row_offsets, indices)?;
         // Coalesce the chunks that we're going to read from.
@@ -118,7 +118,7 @@ impl<R: VortexReadAt> ChunkedArrayReader<R> {
 
     async fn take_from_chunk(
         &self,
-        indices: &Array,
+        indices: &ArrayData,
         byte_range: Range<u64>,
         row_range: Range<u64>,
     ) -> VortexResult<impl ArrayStream> {
@@ -152,7 +152,7 @@ impl<R: VortexReadAt> ChunkedArrayReader<R> {
 
 /// Find the chunks that are relevant to the read operation.
 /// Both the row_offsets and indices arrays must be strict-sorted.
-fn find_chunks(row_offsets: &Array, indices: &Array) -> VortexResult<Vec<ChunkIndices>> {
+fn find_chunks(row_offsets: &ArrayData, indices: &ArrayData) -> VortexResult<Vec<ChunkIndices>> {
     // TODO(ngates): lots of optimizations to be had here, potentially lots of push-down.
     //  For now, we just flatten everything into primitive arrays and iterate.
     let row_offsets = try_cast(row_offsets, PType::U64.into())?.into_primitive()?;
@@ -213,7 +213,7 @@ mod test {
     use futures_executor::block_on;
     use itertools::Itertools;
     use vortex_array::array::{ChunkedArray, PrimitiveArray};
-    use vortex_array::{Context, IntoArray, IntoArrayVariant};
+    use vortex_array::{Context, IntoArrayData, IntoArrayVariant};
     use vortex_buffer::Buffer;
     use vortex_dtype::PType;
     use vortex_error::VortexResult;

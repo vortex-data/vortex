@@ -7,10 +7,10 @@ use crate::array::varbin::VarBinArray;
 use crate::compute::TakeFn;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, ArrayDType, IntoArray, IntoArrayVariant};
+use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 
 impl TakeFn for VarBinArray {
-    fn take(&self, indices: &Array) -> VortexResult<Array> {
+    fn take(&self, indices: &ArrayData) -> VortexResult<ArrayData> {
         let offsets = self.offsets().into_primitive()?;
         let data = self.bytes().into_primitive()?;
         let indices = indices.clone().into_primitive()?;

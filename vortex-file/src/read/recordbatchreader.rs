@@ -5,7 +5,7 @@ use arrow_array::{RecordBatch, RecordBatchReader};
 use arrow_schema::{ArrowError, SchemaRef};
 use futures::StreamExt;
 use vortex_array::arrow::infer_schema;
-use vortex_array::Array;
+use vortex_array::ArrayData;
 use vortex_error::{VortexError, VortexResult};
 use vortex_io::VortexReadAt;
 
@@ -15,7 +15,7 @@ fn vortex_to_arrow_error(error: VortexError) -> ArrowError {
     ArrowError::ExternalError(Box::new(error))
 }
 
-fn vortex_to_arrow(result: VortexResult<Array>) -> Result<RecordBatch, ArrowError> {
+fn vortex_to_arrow(result: VortexResult<ArrayData>) -> Result<RecordBatch, ArrowError> {
     result
         .and_then(RecordBatch::try_from)
         .map_err(vortex_to_arrow_error)

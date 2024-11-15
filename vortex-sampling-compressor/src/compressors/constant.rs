@@ -3,7 +3,7 @@ use vortex_array::array::{Constant, ConstantArray, ConstantEncoding};
 use vortex_array::compute::unary::scalar_at;
 use vortex_array::encoding::EncodingRef;
 use vortex_array::stats::ArrayStatistics;
-use vortex_array::{Array, ArrayDef, IntoArray};
+use vortex_array::{ArrayData, ArrayDef, IntoArrayData};
 use vortex_error::VortexResult;
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
@@ -21,14 +21,14 @@ impl EncodingCompressor for ConstantCompressor {
         constants::CONSTANT_COST
     }
 
-    fn can_compress(&self, array: &Array) -> Option<&dyn EncodingCompressor> {
+    fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {
         (!array.is_empty() && array.statistics().compute_is_constant().unwrap_or(false))
             .then_some(self as &dyn EncodingCompressor)
     }
 
     fn compress<'a>(
         &'a self,
-        array: &Array,
+        array: &ArrayData,
         _like: Option<CompressionTree<'a>>,
         _ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {

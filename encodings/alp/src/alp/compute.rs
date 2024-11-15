@@ -6,7 +6,7 @@ use vortex_array::compute::{
 use vortex_array::stats::{ArrayStatistics, Stat};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{Array, ArrayDType, IntoArray};
+use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::{PValue, Scalar};
 
@@ -25,7 +25,7 @@ impl ArrayCompute for ALPArray {
         Some(self)
     }
 
-    fn compare(&self, other: &Array, operator: Operator) -> Option<VortexResult<Array>> {
+    fn compare(&self, other: &ArrayData, operator: Operator) -> Option<VortexResult<ArrayData>> {
         MaybeCompareFn::maybe_compare(self, other, operator)
     }
 
@@ -60,7 +60,7 @@ impl ScalarAtFn for ALPArray {
 }
 
 impl TakeFn for ALPArray {
-    fn take(&self, indices: &Array) -> VortexResult<Array> {
+    fn take(&self, indices: &ArrayData) -> VortexResult<ArrayData> {
         // TODO(ngates): wrap up indices in an array that caches decompression?
         Ok(Self::try_new(
             take(self.encoded(), indices)?,
@@ -72,7 +72,7 @@ impl TakeFn for ALPArray {
 }
 
 impl SliceFn for ALPArray {
-    fn slice(&self, start: usize, end: usize) -> VortexResult<Array> {
+    fn slice(&self, start: usize, end: usize) -> VortexResult<ArrayData> {
         Ok(Self::try_new(
             slice(self.encoded(), start, end)?,
             self.exponents(),
@@ -83,7 +83,7 @@ impl SliceFn for ALPArray {
 }
 
 impl FilterFn for ALPArray {
-    fn filter(&self, predicate: &Array) -> VortexResult<Array> {
+    fn filter(&self, predicate: &ArrayData) -> VortexResult<ArrayData> {
         Ok(Self::try_new(
             filter(self.encoded(), predicate)?,
             self.exponents(),
@@ -94,7 +94,11 @@ impl FilterFn for ALPArray {
 }
 
 impl MaybeCompareFn for ALPArray {
-    fn maybe_compare(&self, array: &Array, operator: Operator) -> Option<VortexResult<Array>> {
+    fn maybe_compare(
+        &self,
+        array: &ArrayData,
+        operator: Operator,
+    ) -> Option<VortexResult<ArrayData>> {
         if ConstantArray::try_from(array).is_ok()
             || array
                 .statistics()
@@ -126,7 +130,7 @@ fn alp_scalar_compare<F: ALPFloat + Into<Scalar>>(
     alp: &ALPArray,
     value: F,
     operator: Operator,
-) -> VortexResult<Array>
+) -> VortexResult<ArrayData>
 where
     F::ALPInt: Into<Scalar>,
 {

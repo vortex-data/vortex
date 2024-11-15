@@ -10,7 +10,7 @@ use vortex_dtype::{DType, ExtDType, FieldNames, PType};
 use vortex_error::{vortex_panic, VortexExpect as _, VortexResult};
 
 use crate::iter::{AccessorRef, VectorizedArrayIter};
-use crate::{Array, ArrayTrait};
+use crate::{ArrayData, ArrayTrait};
 
 pub trait ArrayVariants {
     fn as_null_array(&self) -> Option<&dyn NullArrayTrait> {
@@ -88,7 +88,7 @@ pub trait BoolArrayTrait: ArrayTrait {
     /// True -> False
     /// False -> True
     /// Null -> Null
-    fn invert(&self) -> VortexResult<Array>;
+    fn invert(&self) -> VortexResult<ArrayData>;
 
     fn true_count(&self) -> usize {
         self.statistics()
@@ -290,10 +290,10 @@ pub trait StructArrayTrait: ArrayTrait {
     }
 
     /// Return a field's array by index
-    fn field(&self, idx: usize) -> Option<Array>;
+    fn field(&self, idx: usize) -> Option<ArrayData>;
 
     /// Return a field's array by name
-    fn field_by_name(&self, name: &str) -> Option<Array> {
+    fn field_by_name(&self, name: &str) -> Option<ArrayData> {
         let field_idx = self
             .names()
             .iter()
@@ -302,7 +302,7 @@ pub trait StructArrayTrait: ArrayTrait {
         field_idx.and_then(|field_idx| self.field(field_idx))
     }
 
-    fn project(&self, projection: &[Field]) -> VortexResult<Array>;
+    fn project(&self, projection: &[Field]) -> VortexResult<ArrayData>;
 }
 
 pub trait ListArrayTrait: ArrayTrait {}
@@ -316,6 +316,6 @@ pub trait ExtensionArrayTrait: ArrayTrait {
         ext_dtype
     }
 
-    /// Returns the underlying [`Array`], without the [`ExtDType`].
-    fn storage_array(&self) -> Array;
+    /// Returns the underlying [`ArrayData`], without the [`ExtDType`].
+    fn storage_array(&self) -> ArrayData;
 }

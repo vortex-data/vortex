@@ -6,7 +6,7 @@ use crate::array::null::NullArray;
 use crate::compute::unary::ScalarAtFn;
 use crate::compute::{ArrayCompute, SliceFn, TakeFn};
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, IntoArray, IntoArrayVariant};
+use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
 
 impl ArrayCompute for NullArray {
     fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
@@ -23,7 +23,7 @@ impl ArrayCompute for NullArray {
 }
 
 impl SliceFn for NullArray {
-    fn slice(&self, start: usize, stop: usize) -> VortexResult<Array> {
+    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData> {
         Ok(NullArray::new(stop - start).into_array())
     }
 }
@@ -39,7 +39,7 @@ impl ScalarAtFn for NullArray {
 }
 
 impl TakeFn for NullArray {
-    fn take(&self, indices: &Array) -> VortexResult<Array> {
+    fn take(&self, indices: &ArrayData) -> VortexResult<ArrayData> {
         let indices = indices.clone().into_primitive()?;
 
         // Enforce all indices are valid
@@ -63,7 +63,7 @@ mod test {
     use crate::compute::unary::scalar_at;
     use crate::compute::{slice, take};
     use crate::validity::{ArrayValidity, LogicalValidity};
-    use crate::IntoArray;
+    use crate::IntoArrayData;
 
     #[test]
     fn test_slice_nulls() {

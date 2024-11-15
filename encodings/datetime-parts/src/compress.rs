@@ -1,14 +1,14 @@
 use vortex_array::array::{PrimitiveArray, TemporalArray};
 use vortex_array::compute::unary::try_cast;
-use vortex_array::{Array, ArrayDType as _, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayDType as _, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_datetime_dtype::TimeUnit;
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, VortexResult};
 
 pub struct TemporalParts {
-    pub days: Array,
-    pub seconds: Array,
-    pub subseconds: Array,
+    pub days: ArrayData,
+    pub seconds: ArrayData,
+    pub subseconds: ArrayData,
 }
 
 /// Compress a `TemporalArray` into day, second, and subsecond components.

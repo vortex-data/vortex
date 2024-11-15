@@ -261,7 +261,7 @@ mod tests {
     use vortex_array::accessor::ArrayAccessor;
     use vortex_array::array::{ChunkedArray, PrimitiveArray, StructArray, VarBinArray};
     use vortex_array::validity::Validity;
-    use vortex_array::{ArrayDType, IntoArray, IntoArrayVariant};
+    use vortex_array::{ArrayDType, IntoArrayData, IntoArrayVariant};
     use vortex_buffer::Buffer;
     use vortex_dtype::field::Field;
     use vortex_dtype::{DType, Nullability};

@@ -7,7 +7,7 @@ use vortex_array::array::{Chunked, ChunkedArray};
 use vortex_array::compress::compute_pruning_stats;
 use vortex_array::encoding::EncodingRef;
 use vortex_array::stats::ArrayStatistics as _;
-use vortex_array::{Array, ArrayDType, ArrayDef, IntoArray};
+use vortex_array::{ArrayDType, ArrayData, ArrayDef, IntoArrayData};
 use vortex_error::{vortex_bail, VortexResult};
 
 use super::EncoderMetadata;
@@ -40,13 +40,13 @@ impl EncodingCompressor for ChunkedCompressor {
         0
     }
 
-    fn can_compress(&self, array: &Array) -> Option<&dyn EncodingCompressor> {
+    fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {
         array.is_encoding(Chunked::ID).then_some(self)
     }
 
     fn compress<'a>(
         &'a self,
-        array: &Array,
+        array: &ArrayData,
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {

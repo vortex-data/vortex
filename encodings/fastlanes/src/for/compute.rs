@@ -7,7 +7,7 @@ use vortex_array::compute::{
     SearchSortedSide, SliceFn, TakeFn,
 };
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{Array, ArrayDType, IntoArray};
+use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_dtype::{match_each_integer_ptype, NativePType};
 use vortex_error::{VortexError, VortexExpect as _, VortexResult, VortexUnwrap as _};
 use vortex_scalar::{PValue, Scalar};
@@ -37,7 +37,7 @@ impl ArrayCompute for FoRArray {
 }
 
 impl TakeFn for FoRArray {
-    fn take(&self, indices: &Array) -> VortexResult<Array> {
+    fn take(&self, indices: &ArrayData) -> VortexResult<ArrayData> {
         Self::try_new(
             take(self.encoded(), indices)?,
             self.owned_reference_scalar(),
@@ -48,7 +48,7 @@ impl TakeFn for FoRArray {
 }
 
 impl FilterFn for FoRArray {
-    fn filter(&self, predicate: &Array) -> VortexResult<Array> {
+    fn filter(&self, predicate: &ArrayData) -> VortexResult<ArrayData> {
         Self::try_new(
             filter(self.encoded(), predicate)?,
             self.owned_reference_scalar(),
@@ -86,7 +86,7 @@ impl ScalarAtFn for FoRArray {
 }
 
 impl SliceFn for FoRArray {
-    fn slice(&self, start: usize, stop: usize) -> VortexResult<Array> {
+    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData> {
         Self::try_new(
             slice(self.encoded(), start, stop)?,
             self.owned_reference_scalar(),

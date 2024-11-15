@@ -15,7 +15,7 @@ use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexResult};
 use vortex::io::TokioAdapter;
 use vortex::ipc::stream_writer::StreamArrayWriter;
-use vortex::{Array, IntoArray};
+use vortex::{ArrayData, IntoArrayData};
 
 use crate::idempotent;
 use crate::reader::BATCH_SIZE;
@@ -46,7 +46,7 @@ pub fn data_vortex_uncompressed(fname_out: &str, downloaded_data: PathBuf) -> Pa
         let array = ChunkedArray::try_new(
             reader
                 .into_iter()
-                .map(|batch_result| Array::try_from(batch_result.unwrap()).unwrap())
+                .map(|batch_result| ArrayData::try_from(batch_result.unwrap()).unwrap())
                 .collect(),
             dtype,
         )
@@ -92,7 +92,7 @@ pub fn decompress_bz2(input_path: PathBuf, output_path: PathBuf) -> PathBuf {
 
 pub trait BenchmarkDataset {
     fn as_uncompressed(&self);
-    fn to_vortex_array(&self) -> VortexResult<Array>;
+    fn to_vortex_array(&self) -> VortexResult<ArrayData>;
     fn compress_to_vortex(&self) -> VortexResult<()>;
     fn write_as_parquet(&self);
     fn write_as_vortex(&self) -> impl Future<Output = ()>;

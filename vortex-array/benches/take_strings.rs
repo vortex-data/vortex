@@ -4,7 +4,7 @@ use criterion::{criterion_group, criterion_main, Criterion};
 use vortex_array::array::{PrimitiveArray, VarBinArray};
 use vortex_array::compute::take;
 use vortex_array::validity::Validity;
-use vortex_array::{Array, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::{DType, Nullability};
 
 // Try take with different array frequency.
@@ -19,7 +19,7 @@ fn fixture(len: usize) -> VarBinArray {
 }
 
 // What fraction of the indices to take.
-fn indices(len: usize) -> Array {
+fn indices(len: usize) -> ArrayData {
     PrimitiveArray::from_vec(
         (0..len)
             .filter_map(|x| (x % 2 == 0).then_some(x as u64))

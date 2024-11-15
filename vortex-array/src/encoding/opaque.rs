@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use vortex_error::{vortex_bail, VortexResult};
 
 use crate::encoding::{ArrayEncoding, EncodingId};
-use crate::{Array, ArrayTrait, Canonical};
+use crate::{ArrayData, ArrayTrait, Canonical};
 
 /// An encoding of an array that we cannot interpret.
 ///
@@ -23,7 +23,7 @@ impl ArrayEncoding for OpaqueEncoding {
         EncodingId::new("vortex.opaque", self.0)
     }
 
-    fn canonicalize(&self, _array: Array) -> VortexResult<Canonical> {
+    fn canonicalize(&self, _array: ArrayData) -> VortexResult<Canonical> {
         vortex_bail!(
             "OpaqueArray: canonicalize cannot be called for opaque array ({})",
             self.0
@@ -32,7 +32,7 @@ impl ArrayEncoding for OpaqueEncoding {
 
     fn with_dyn(
         &self,
-        _array: &Array,
+        _array: &ArrayData,
         _f: &mut dyn for<'b> FnMut(&'b (dyn ArrayTrait + 'b)) -> VortexResult<()>,
     ) -> VortexResult<()> {
         vortex_bail!(

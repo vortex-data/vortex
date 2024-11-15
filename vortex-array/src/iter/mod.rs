@@ -6,7 +6,7 @@ use vortex_dtype::{DType, NativePType};
 use vortex_error::{VortexExpect as _, VortexResult};
 
 use crate::validity::Validity;
-use crate::Array;
+use crate::ArrayData;
 
 mod adapter;
 mod ext;
@@ -15,7 +15,7 @@ pub const ITER_BATCH_SIZE: usize = 1024;
 
 /// A stream of array chunks along with a DType.
 /// Analogous to Arrow's RecordBatchReader.
-pub trait ArrayIterator: Iterator<Item = VortexResult<Array>> {
+pub trait ArrayIterator: Iterator<Item = VortexResult<ArrayData>> {
     fn dtype(&self) -> &DType;
 }
 

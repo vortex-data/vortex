@@ -3,11 +3,11 @@ use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, VortexResult};
 
 use crate::arrow::FromArrowArray;
-use crate::{Array, ArrayDType, IntoCanonical};
+use crate::{ArrayDType, ArrayData, IntoCanonical};
 
 pub trait FilterFn {
     /// Filter an array by the provided predicate.
-    fn filter(&self, predicate: &Array) -> VortexResult<Array>;
+    fn filter(&self, predicate: &ArrayData) -> VortexResult<ArrayData>;
 }
 
 /// Return a new array by applying a boolean predicate to select items from a base Array.
@@ -20,7 +20,10 @@ pub trait FilterFn {
 ///
 /// The `predicate` must receive an Array with type non-nullable bool, and will panic if this is
 /// not the case.
-pub fn filter(array: impl AsRef<Array>, predicate: impl AsRef<Array>) -> VortexResult<Array> {
+pub fn filter(
+    array: impl AsRef<ArrayData>,
+    predicate: impl AsRef<ArrayData>,
+) -> VortexResult<ArrayData> {
     let array = array.as_ref();
     let predicate = predicate.as_ref();
 
@@ -48,7 +51,7 @@ pub fn filter(array: impl AsRef<Array>, predicate: impl AsRef<Array>) -> VortexR
             let filtered =
                 arrow_select::filter::filter(array_ref.as_ref(), predicate_ref.as_boolean())?;
 
-            Ok(Array::from_arrow(filtered, array.dtype().is_nullable()))
+            Ok(ArrayData::from_arrow(filtered, array.dtype().is_nullable()))
         }
     })
 }
@@ -58,7 +61,7 @@ mod test {
     use crate::array::{BoolArray, PrimitiveArray};
     use crate::compute::filter::filter;
     use crate::validity::Validity;
-    use crate::{IntoArray, IntoCanonical};
+    use crate::{IntoArrayData, IntoCanonical};
 
     #[test]
     fn test_filter() {

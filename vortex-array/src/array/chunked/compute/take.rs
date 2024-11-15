@@ -7,10 +7,10 @@ use crate::array::chunked::ChunkedArray;
 use crate::compute::unary::{scalar_at, subtract_scalar, try_cast};
 use crate::compute::{search_sorted, slice, take, SearchSortedSide, TakeFn};
 use crate::stats::ArrayStatistics;
-use crate::{Array, ArrayDType, IntoArray, IntoArrayVariant, ToArray};
+use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant, ToArrayData};
 
 impl TakeFn for ChunkedArray {
-    fn take(&self, indices: &Array) -> VortexResult<Array> {
+    fn take(&self, indices: &ArrayData) -> VortexResult<ArrayData> {
         // Fast path for strict sorted indices.
         if indices
             .statistics()
@@ -56,7 +56,7 @@ impl TakeFn for ChunkedArray {
 }
 
 /// When the indices are non-null and strict-sorted, we can do better
-fn take_strict_sorted(chunked: &ChunkedArray, indices: &Array) -> VortexResult<Array> {
+fn take_strict_sorted(chunked: &ChunkedArray, indices: &ArrayData) -> VortexResult<ArrayData> {
     let mut indices_by_chunk = vec![None; chunked.nchunks()];
 
     // Track our position in the indices array
@@ -110,7 +110,7 @@ fn take_strict_sorted(chunked: &ChunkedArray, indices: &Array) -> VortexResult<A
 mod test {
     use crate::array::chunked::ChunkedArray;
     use crate::compute::take;
-    use crate::{ArrayDType, IntoArray, IntoArrayVariant};
+    use crate::{ArrayDType, IntoArrayData, IntoArrayVariant};
 
     #[test]
     fn test_take() {

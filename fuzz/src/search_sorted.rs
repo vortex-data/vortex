@@ -4,7 +4,7 @@ use vortex_array::accessor::ArrayAccessor;
 use vortex_array::compute::unary::scalar_at;
 use vortex_array::compute::{IndexOrd, Len, SearchResult, SearchSorted, SearchSortedSide};
 use vortex_array::validity::ArrayValidity;
-use vortex_array::{Array, ArrayDType, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_buffer::{Buffer, BufferString};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType};
 use vortex_scalar::Scalar;
@@ -42,7 +42,7 @@ impl<T: NativePType> IndexOrd<Option<T>> for SearchPrimitiveSlice<T> {
                 // SAFETY: Used in search_sorted_by same as the standard library. The search_sorted ensures idx is in bounds
                 match unsafe { self.0.get_unchecked(idx) } {
                     None => Some(Ordering::Greater),
-                    Some(i) => Some(i.compare(*v)),
+                    Some(i) => Some(i.total_compare(*v)),
                 }
             }
         }
@@ -56,7 +56,7 @@ impl<T> Len for SearchPrimitiveSlice<T> {
 }
 
 pub fn search_sorted_canonical_array(
-    array: &Array,
+    array: &ArrayData,
     scalar: &Scalar,
     side: SearchSortedSide,
 ) -> SearchResult {

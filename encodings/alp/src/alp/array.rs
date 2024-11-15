@@ -10,7 +10,7 @@ use vortex_array::stats::ArrayStatisticsCompute;
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity};
 use vortex_array::variants::{ArrayVariants, PrimitiveArrayTrait};
 use vortex_array::{
-    impl_encoding, Array, ArrayDType, ArrayTrait, Canonical, IntoArray, IntoCanonical,
+    impl_encoding, ArrayDType, ArrayData, ArrayTrait, Canonical, IntoArrayData, IntoCanonical,
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
@@ -33,9 +33,9 @@ impl Display for ALPMetadata {
 
 impl ALPArray {
     pub fn try_new(
-        encoded: Array,
+        encoded: ArrayData,
         exponents: Exponents,
-        patches: Option<Array>,
+        patches: Option<ArrayData>,
     ) -> VortexResult<Self> {
         let dtype = match encoded.dtype() {
             DType::Primitive(PType::I32, nullability) => DType::Primitive(PType::F32, *nullability),
@@ -78,7 +78,7 @@ impl ALPArray {
         )
     }
 
-    pub fn encode(array: Array) -> VortexResult<Array> {
+    pub fn encode(array: ArrayData) -> VortexResult<ArrayData> {
         if let Ok(parray) = PrimitiveArray::try_from(array) {
             Ok(alp_encode(&parray)?.into_array())
         } else {
@@ -86,7 +86,7 @@ impl ALPArray {
         }
     }
 
-    pub fn encoded(&self) -> Array {
+    pub fn encoded(&self) -> ArrayData {
         self.as_ref()
             .child(0, &self.encoded_dtype(), self.len())
             .vortex_expect("Missing encoded child in ALPArray")
@@ -97,7 +97,7 @@ impl ALPArray {
         self.metadata().exponents
     }
 
-    pub fn patches(&self) -> Option<Array> {
+    pub fn patches(&self) -> Option<ArrayData> {
         (self.as_ref().nchildren() > 1).then(|| {
             self.as_ref()
                 .child(1, &self.patches_dtype(), self.len())

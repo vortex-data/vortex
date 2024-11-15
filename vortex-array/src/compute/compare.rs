@@ -8,7 +8,7 @@ use vortex_scalar::Scalar;
 
 use crate::array::Constant;
 use crate::arrow::FromArrowArray;
-use crate::{Array, ArrayDType, ArrayDef, IntoCanonical};
+use crate::{ArrayDType, ArrayData, ArrayDef, IntoCanonical};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd)]
 pub enum Operator {
@@ -71,18 +71,22 @@ impl Operator {
 }
 
 pub trait CompareFn {
-    fn compare(&self, other: &Array, operator: Operator) -> VortexResult<Array>;
+    fn compare(&self, other: &ArrayData, operator: Operator) -> VortexResult<ArrayData>;
 }
 
 pub trait MaybeCompareFn {
-    fn maybe_compare(&self, other: &Array, operator: Operator) -> Option<VortexResult<Array>>;
+    fn maybe_compare(
+        &self,
+        other: &ArrayData,
+        operator: Operator,
+    ) -> Option<VortexResult<ArrayData>>;
 }
 
 pub fn compare(
-    left: impl AsRef<Array>,
-    right: impl AsRef<Array>,
+    left: impl AsRef<ArrayData>,
+    right: impl AsRef<ArrayData>,
     operator: Operator,
-) -> VortexResult<Array> {
+) -> VortexResult<ArrayData> {
     let left = left.as_ref();
     let right = right.as_ref();
 
@@ -120,7 +124,7 @@ pub fn compare(
         Operator::Lte => cmp::lt_eq(&lhs.as_ref(), &rhs.as_ref())?,
     };
 
-    Ok(Array::from_arrow(&array, true))
+    Ok(ArrayData::from_arrow(&array, true))
 }
 
 pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: Operator) -> Scalar {
@@ -148,7 +152,7 @@ mod tests {
     use super::*;
     use crate::array::{BoolArray, ConstantArray};
     use crate::validity::Validity;
-    use crate::{IntoArray, IntoArrayVariant};
+    use crate::{IntoArrayData, IntoArrayVariant};
 
     fn to_int_indices(indices_bits: BoolArray) -> Vec<u64> {
         let buffer = indices_bits.boolean_buffer();

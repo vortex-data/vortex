@@ -13,7 +13,7 @@ use crate::encoding::ids;
 use crate::stats::{ArrayStatistics, ArrayStatisticsCompute, Stat, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity};
 use crate::variants::PrimitiveArrayTrait;
-use crate::{impl_encoding, Array, ArrayDType, ArrayTrait, IntoArray, IntoArrayVariant};
+use crate::{impl_encoding, ArrayDType, ArrayData, ArrayTrait, IntoArrayData, IntoArrayVariant};
 
 mod canonical;
 mod compute;
@@ -38,8 +38,8 @@ impl Display for SparseMetadata {
 
 impl SparseArray {
     pub fn try_new(
-        indices: Array,
-        values: Array,
+        indices: ArrayData,
+        values: ArrayData,
         len: usize,
         fill_value: ScalarValue,
     ) -> VortexResult<Self> {
@@ -47,8 +47,8 @@ impl SparseArray {
     }
 
     pub(crate) fn try_new_with_offset(
-        indices: Array,
-        values: Array,
+        indices: ArrayData,
+        values: ArrayData,
         len: usize,
         indices_offset: usize,
         fill_value: ScalarValue,
@@ -99,14 +99,14 @@ impl SparseArray {
     }
 
     #[inline]
-    pub fn values(&self) -> Array {
+    pub fn values(&self) -> ArrayData {
         self.as_ref()
             .child(1, self.dtype(), self.metadata().indices_len)
             .vortex_expect("Missing child array in SparseArray")
     }
 
     #[inline]
-    pub fn indices(&self) -> Array {
+    pub fn indices(&self) -> ArrayData {
         self.as_ref()
             .child(
                 0,
@@ -262,7 +262,7 @@ mod test {
     use crate::array::sparse::SparseArray;
     use crate::compute::slice;
     use crate::compute::unary::{scalar_at, try_cast};
-    use crate::{Array, IntoArray, IntoArrayVariant};
+    use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
 
     fn nullable_fill() -> Scalar {
         Scalar::null(DType::Primitive(PType::I32, Nullable))
@@ -272,7 +272,7 @@ mod test {
         Scalar::from(42i32)
     }
 
-    fn sparse_array(fill_value: Scalar) -> Array {
+    fn sparse_array(fill_value: Scalar) -> ArrayData {
         // merged array: [null, null, 100, null, null, 200, null, null, 300, null]
         let mut values = vec![100i32, 200, 300].into_array();
         values = try_cast(&values, fill_value.dtype()).unwrap();
@@ -287,7 +287,7 @@ mod test {
         .into_array()
     }
 
-    fn assert_sparse_array(sparse: &Array, values: &[Option<i32>]) {
+    fn assert_sparse_array(sparse: &ArrayData, values: &[Option<i32>]) {
         let sparse_arrow = ArrayAccessor::<i32>::with_iterator(
             &sparse.clone().into_primitive().unwrap(),
             |iter| iter.map(|v| v.cloned()).collect_vec(),

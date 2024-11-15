@@ -10,7 +10,9 @@ use crate::encoding::ids;
 use crate::stats::{ArrayStatisticsCompute, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
 use crate::variants::{ArrayVariants, StructArrayTrait};
-use crate::{impl_encoding, Array, ArrayDType, ArrayTrait, Canonical, IntoArray, IntoCanonical};
+use crate::{
+    impl_encoding, ArrayDType, ArrayData, ArrayTrait, Canonical, IntoArrayData, IntoCanonical,
+};
 
 mod compute;
 
@@ -36,7 +38,7 @@ impl StructArray {
         })
     }
 
-    pub fn children(&self) -> impl Iterator<Item = Array> + '_ {
+    pub fn children(&self) -> impl Iterator<Item = ArrayData> + '_ {
         (0..self.nfields()).map(move |idx| {
             self.field(idx).unwrap_or_else(|| {
                 vortex_panic!("Field {} not found, nfields: {}", idx, self.nfields())
@@ -46,7 +48,7 @@ impl StructArray {
 
     pub fn try_new(
         names: FieldNames,
-        fields: Vec<Array>,
+        fields: Vec<ArrayData>,
         length: usize,
         validity: Validity,
     ) -> VortexResult<Self> {
@@ -86,12 +88,12 @@ impl StructArray {
         )
     }
 
-    pub fn from_fields<N: AsRef<str>>(items: &[(N, Array)]) -> VortexResult<Self> {
+    pub fn from_fields<N: AsRef<str>>(items: &[(N, ArrayData)]) -> VortexResult<Self> {
         let names: Vec<FieldName> = items
             .iter()
             .map(|(name, _)| FieldName::from(name.as_ref()))
             .collect();
-        let fields: Vec<Array> = items.iter().map(|(_, array)| array.clone()).collect();
+        let fields: Vec<ArrayData> = items.iter().map(|(_, array)| array.clone()).collect();
         let len = fields
             .first()
             .map(|f| f.len())
@@ -147,7 +149,7 @@ impl ArrayVariants for StructArray {
 }
 
 impl StructArrayTrait for StructArray {
-    fn field(&self, idx: usize) -> Option<Array> {
+    fn field(&self, idx: usize) -> Option<ArrayData> {
         self.dtypes().get(idx).map(|dtype| {
             self.as_ref()
                 .child(idx, dtype, self.len())
@@ -155,7 +157,7 @@ impl StructArrayTrait for StructArray {
         })
     }
 
-    fn project(&self, projection: &[Field]) -> VortexResult<Array> {
+    fn project(&self, projection: &[Field]) -> VortexResult<ArrayData> {
         self.project(projection).map(|a| a.into_array())
     }
 }
@@ -202,7 +204,7 @@ mod test {
     use crate::array::BoolArray;
     use crate::validity::Validity;
     use crate::variants::StructArrayTrait;
-    use crate::IntoArray;
+    use crate::IntoArrayData;
 
     #[test]
     fn test_project() {

@@ -3,16 +3,16 @@ use vortex_error::VortexResult;
 use crate::aliases::hash_set::HashSet;
 use crate::encoding::EncodingRef;
 use crate::stats::{ArrayStatistics as _, PRUNING_STATS};
-use crate::Array;
+use crate::ArrayData;
 
 pub trait CompressionStrategy {
-    fn compress(&self, array: &Array) -> VortexResult<Array>;
+    fn compress(&self, array: &ArrayData) -> VortexResult<ArrayData>;
 
     fn used_encodings(&self) -> HashSet<EncodingRef>;
 }
 
 /// Check that compression did not alter the length of the validity array.
-pub fn check_validity_unchanged(arr: &Array, compressed: &Array) {
+pub fn check_validity_unchanged(arr: &ArrayData, compressed: &ArrayData) {
     let _ = arr;
     let _ = compressed;
     #[cfg(debug_assertions)]
@@ -30,7 +30,7 @@ pub fn check_validity_unchanged(arr: &Array, compressed: &Array) {
 }
 
 /// Check that compression did not alter the dtype
-pub fn check_dtype_unchanged(arr: &Array, compressed: &Array) {
+pub fn check_dtype_unchanged(arr: &ArrayData, compressed: &ArrayData) {
     let _ = arr;
     let _ = compressed;
     #[cfg(debug_assertions)]
@@ -48,7 +48,7 @@ pub fn check_dtype_unchanged(arr: &Array, compressed: &Array) {
 }
 
 // Check that compression preserved the statistics.
-pub fn check_statistics_unchanged(arr: &Array, compressed: &Array) {
+pub fn check_statistics_unchanged(arr: &ArrayData, compressed: &ArrayData) {
     let _ = arr;
     let _ = compressed;
     #[cfg(debug_assertions)]
@@ -69,6 +69,6 @@ pub fn check_statistics_unchanged(arr: &Array, compressed: &Array) {
 }
 
 /// Compute pruning stats for an array.
-pub fn compute_pruning_stats(arr: &Array) -> VortexResult<()> {
+pub fn compute_pruning_stats(arr: &ArrayData) -> VortexResult<()> {
     arr.statistics().compute_all(PRUNING_STATS).map(|_| ())
 }

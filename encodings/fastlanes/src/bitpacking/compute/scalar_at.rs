@@ -27,7 +27,7 @@ mod test {
     use vortex_array::array::{PrimitiveArray, SparseArray};
     use vortex_array::compute::unary::scalar_at;
     use vortex_array::validity::Validity;
-    use vortex_array::IntoArray;
+    use vortex_array::IntoArrayData;
     use vortex_buffer::Buffer;
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_scalar::{Scalar, ScalarValue};

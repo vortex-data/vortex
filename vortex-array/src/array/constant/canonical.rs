@@ -11,7 +11,7 @@ use crate::array::{
     BinaryView, BoolArray, ExtensionArray, NullArray, VarBinViewArray, VIEW_SIZE_BYTES,
 };
 use crate::validity::Validity;
-use crate::{ArrayDType, Canonical, IntoArray, IntoCanonical};
+use crate::{ArrayDType, Canonical, IntoArrayData, IntoCanonical};
 
 impl IntoCanonical for ConstantArray {
     fn into_canonical(self) -> VortexResult<Canonical> {
@@ -134,12 +134,13 @@ fn canonical_byte_view(
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::DType;
+    use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;
 
     use crate::array::ConstantArray;
     use crate::compute::unary::scalar_at;
-    use crate::IntoCanonical;
+    use crate::stats::{ArrayStatistics as _, StatsSet};
+    use crate::{IntoArrayData as _, IntoCanonical};
 
     #[test]
     fn test_canonicalize_null() {
@@ -165,5 +166,18 @@ mod tests {
         for i in 0..=3 {
             assert_eq!(scalar_at(&canonical, i).unwrap(), "four".into(),);
         }
+    }
+
+    #[test]
+    fn test_canonicalize_propagates_stats() {
+        let scalar = Scalar::bool(true, Nullability::NonNullable);
+        let const_array = ConstantArray::new(scalar.clone(), 4).into_array();
+        let stats = const_array.statistics().to_set();
+
+        let canonical = const_array.into_canonical().unwrap();
+        let canonical_stats = canonical.statistics().to_set();
+
+        assert_eq!(canonical_stats, StatsSet::constant(scalar, 4));
+        assert_eq!(canonical_stats, stats);
     }
 }

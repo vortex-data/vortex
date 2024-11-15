@@ -2,7 +2,7 @@ use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::Bool;
 use vortex_array::encoding::EncodingRef;
 use vortex_array::stats::ArrayStatistics as _;
-use vortex_array::{Array, ArrayDType, ArrayDef, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayDType, ArrayData, ArrayDef, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::DType;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_error::VortexResult;
@@ -23,7 +23,7 @@ impl EncodingCompressor for RoaringBoolCompressor {
         constants::ROARING_BOOL_COST
     }
 
-    fn can_compress(&self, array: &Array) -> Option<&dyn EncodingCompressor> {
+    fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {
         // Only support bool arrays
         if array.encoding().id() != Bool::ID {
             return None;
@@ -43,7 +43,7 @@ impl EncodingCompressor for RoaringBoolCompressor {
 
     fn compress<'a>(
         &'a self,
-        array: &Array,
+        array: &ArrayData,
         _like: Option<CompressionTree<'a>>,
         _ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {

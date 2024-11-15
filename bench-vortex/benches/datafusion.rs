@@ -22,7 +22,7 @@ use vortex::sampling_compressor::compressors::dict::DictCompressor;
 use vortex::sampling_compressor::compressors::r#for::FoRCompressor;
 use vortex::sampling_compressor::compressors::CompressorRef;
 use vortex::sampling_compressor::SamplingCompressor;
-use vortex::{Array, Context};
+use vortex::{ArrayData, Context};
 use vortex_datafusion::memory::{VortexMemTable, VortexMemTableOptions};
 
 pub static CTX: LazyLock<Context> = LazyLock::new(|| {
@@ -79,7 +79,7 @@ fn toy_dataset_arrow() -> RecordBatch {
     .unwrap()
 }
 
-fn toy_dataset_vortex(compress: bool) -> Array {
+fn toy_dataset_vortex(compress: bool) -> ArrayData {
     let uncompressed = toy_dataset_arrow().try_into().unwrap();
 
     if !compress {

@@ -6,7 +6,7 @@ use vortex_array::array::{PrimitiveArray, SparseArray};
 use vortex_array::encoding::ids;
 use vortex_array::stats::{ArrayStatisticsCompute, StatsSet};
 use vortex_array::validity::{ArrayValidity, LogicalValidity};
-use vortex_array::{impl_encoding, Array, ArrayDType, ArrayTrait, Canonical, IntoCanonical};
+use vortex_array::{impl_encoding, ArrayDType, ArrayData, ArrayTrait, Canonical, IntoCanonical};
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
@@ -32,11 +32,11 @@ impl Display for ALPRDMetadata {
 impl ALPRDArray {
     pub fn try_new(
         dtype: DType,
-        left_parts: Array,
+        left_parts: ArrayData,
         left_parts_dict: impl AsRef<[u16]>,
-        right_parts: Array,
+        right_parts: ArrayData,
         right_bit_width: u8,
-        left_parts_exceptions: Option<Array>,
+        left_parts_exceptions: Option<ArrayData>,
     ) -> VortexResult<Self> {
         if !dtype.is_float() {
             vortex_bail!("ALPRDArray given invalid DType ({dtype})");
@@ -142,21 +142,21 @@ impl ALPRDArray {
     ///
     /// These are bit-packed and dictionary encoded, and cannot directly be interpreted without
     /// the metadata of this array.
-    pub fn left_parts(&self) -> Array {
+    pub fn left_parts(&self) -> ArrayData {
         self.as_ref()
             .child(0, &self.left_parts_dtype(), self.len())
             .vortex_expect("ALPRDArray: left_parts child")
     }
 
     /// The rightmost (least significant) bits of the floating point values stored in the array.
-    pub fn right_parts(&self) -> Array {
+    pub fn right_parts(&self) -> ArrayData {
         self.as_ref()
             .child(1, &self.right_parts_dtype(), self.len())
             .vortex_expect("ALPRDArray: right_parts child")
     }
 
     /// Patches of left-most bits.
-    pub fn left_parts_exceptions(&self) -> Option<Array> {
+    pub fn left_parts_exceptions(&self) -> Option<ArrayData> {
         self.metadata().has_exceptions.then(|| {
             self.as_ref()
                 .child(2, &self.left_parts_exceptions_dtype(), self.len())
@@ -265,7 +265,7 @@ impl ArrayTrait for ALPRDArray {}
 mod test {
     use rstest::rstest;
     use vortex_array::array::PrimitiveArray;
-    use vortex_array::{IntoArray, IntoCanonical};
+    use vortex_array::{IntoArrayData, IntoCanonical};
 
     use crate::{alp_rd, ALPRDFloat};
 

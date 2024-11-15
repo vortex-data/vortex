@@ -1,7 +1,7 @@
 use std::sync::{Arc, RwLock};
 
 use initial_read::{read_initial_bytes, read_layout_from_initial};
-use vortex_array::{Array, ArrayDType};
+use vortex_array::{ArrayDType, ArrayData};
 use vortex_dtype::flatbuffers::deserialize_and_project;
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexResult};
@@ -69,7 +69,7 @@ pub struct VortexReadBuilder<R> {
     layout_serde: LayoutDeserializer,
     projection: Option<Projection>,
     size: Option<u64>,
-    row_mask: Option<Array>,
+    row_mask: Option<ArrayData>,
     row_filter: Option<RowFilter>,
     io_dispatcher: Option<Arc<IoDispatcher>>,
 }
@@ -97,7 +97,7 @@ impl<R: VortexReadAt> VortexReadBuilder<R> {
         self
     }
 
-    pub fn with_indices(mut self, array: Array) -> Self {
+    pub fn with_indices(mut self, array: ArrayData) -> Self {
         assert!(
             !array.dtype().is_nullable() && (array.dtype().is_int() || array.dtype().is_boolean()),
             "Mask arrays have to be non-nullable integer or boolean arrays"

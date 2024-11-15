@@ -2,10 +2,10 @@ use vortex_error::VortexResult;
 
 use crate::array::sparse::SparseArray;
 use crate::compute::{slice, SliceFn};
-use crate::{Array, IntoArray};
+use crate::{ArrayData, IntoArrayData};
 
 impl SliceFn for SparseArray {
-    fn slice(&self, start: usize, stop: usize) -> VortexResult<Array> {
+    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData> {
         // Find the index of the first patch index that is greater than or equal to the offset of this array
         let index_start_index = self.search_index(start)?.to_index();
         let index_end_index = self.search_index(stop)?.to_index();

@@ -7,7 +7,7 @@ use vortex_array::encoding::ids;
 use vortex_array::stats::{ArrayStatisticsCompute, StatsSet};
 use vortex_array::validity::{ArrayValidity, LogicalValidity};
 use vortex_array::variants::{ArrayVariants, PrimitiveArrayTrait};
-use vortex_array::{impl_encoding, Array, ArrayDType, ArrayTrait, Canonical, IntoCanonical};
+use vortex_array::{impl_encoding, ArrayDType, ArrayData, ArrayTrait, Canonical, IntoCanonical};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
@@ -30,7 +30,7 @@ impl Display for FoRMetadata {
 }
 
 impl FoRArray {
-    pub fn try_new(child: Array, reference: Scalar, shift: u8) -> VortexResult<Self> {
+    pub fn try_new(child: ArrayData, reference: Scalar, shift: u8) -> VortexResult<Self> {
         if reference.is_null() {
             vortex_bail!("Reference value cannot be null");
         }
@@ -54,7 +54,7 @@ impl FoRArray {
     }
 
     #[inline]
-    pub fn encoded(&self) -> Array {
+    pub fn encoded(&self) -> ArrayData {
         let dtype = if self.ptype().is_signed_int() {
             &DType::Primitive(self.ptype().to_unsigned(), self.dtype().nullability())
         } else {

@@ -2,7 +2,7 @@ use vortex_array::array::BoolArray;
 use vortex_array::compute::unary::ScalarAtFn;
 use vortex_array::compute::{slice, ArrayCompute, SliceFn, TakeFn};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{Array, IntoArray, IntoArrayVariant, ToArray};
+use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant, ToArrayData};
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_scalar::Scalar;
@@ -44,7 +44,7 @@ impl ScalarAtFn for RunEndBoolArray {
 }
 
 impl TakeFn for RunEndBoolArray {
-    fn take(&self, indices: &Array) -> VortexResult<Array> {
+    fn take(&self, indices: &ArrayData) -> VortexResult<ArrayData> {
         let primitive_indices = indices.clone().into_primitive()?;
         let physical_indices = match_each_integer_ptype!(primitive_indices.ptype(), |$P| {
             primitive_indices
@@ -71,7 +71,7 @@ impl TakeFn for RunEndBoolArray {
 }
 
 impl SliceFn for RunEndBoolArray {
-    fn slice(&self, start: usize, stop: usize) -> VortexResult<Array> {
+    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData> {
         let slice_begin = self.find_physical_index(start)?;
         let slice_end = self.find_physical_index(stop)?;
 

@@ -5,7 +5,7 @@ use itertools::Itertools;
 use vortex_array::array::{PrimitiveArray, SparseArray};
 use vortex_array::compute::{slice, take, TakeFn};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{Array, ArrayDType, IntoArray, IntoArrayVariant, IntoCanonical};
+use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant, IntoCanonical};
 use vortex_dtype::{
     match_each_integer_ptype, match_each_unsigned_integer_ptype, NativePType, PType,
 };
@@ -20,7 +20,7 @@ const UNPACK_CHUNK_THRESHOLD: usize = 8;
 const BULK_PATCH_THRESHOLD: usize = 64;
 
 impl TakeFn for BitPackedArray {
-    fn take(&self, indices: &Array) -> VortexResult<Array> {
+    fn take(&self, indices: &ArrayData) -> VortexResult<ArrayData> {
         // If the indices are large enough, it's faster to flatten and take the primitive array.
         if indices.len() * UNPACK_CHUNK_THRESHOLD > self.len() {
             return self
@@ -221,7 +221,7 @@ mod test {
     use vortex_array::array::{PrimitiveArray, SparseArray};
     use vortex_array::compute::unary::scalar_at;
     use vortex_array::compute::{slice, take};
-    use vortex_array::{IntoArray, IntoArrayVariant};
+    use vortex_array::{IntoArrayData, IntoArrayVariant};
 
     use crate::BitPackedArray;
 

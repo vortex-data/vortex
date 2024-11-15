@@ -7,7 +7,7 @@ use crate::variants::{
     ArrayVariants, BinaryArrayTrait, BoolArrayTrait, ExtensionArrayTrait, ListArrayTrait,
     NullArrayTrait, PrimitiveArrayTrait, StructArrayTrait, Utf8ArrayTrait,
 };
-use crate::{Array, ArrayDType, IntoArray};
+use crate::{ArrayDType, ArrayData, IntoArrayData};
 
 /// Chunked arrays support all DTypes
 impl ArrayVariants for ChunkedArray {
@@ -47,7 +47,7 @@ impl ArrayVariants for ChunkedArray {
 impl NullArrayTrait for ChunkedArray {}
 
 impl BoolArrayTrait for ChunkedArray {
-    fn invert(&self) -> VortexResult<Array> {
+    fn invert(&self) -> VortexResult<ArrayData> {
         let chunks = self
             .chunks()
             .map(|c| {
@@ -77,7 +77,7 @@ impl Utf8ArrayTrait for ChunkedArray {}
 impl BinaryArrayTrait for ChunkedArray {}
 
 impl StructArrayTrait for ChunkedArray {
-    fn field(&self, idx: usize) -> Option<Array> {
+    fn field(&self, idx: usize) -> Option<ArrayData> {
         let mut chunks = Vec::with_capacity(self.nchunks());
         for chunk in self.chunks() {
             chunks.push(chunk.with_dyn(|a| a.as_struct_array().and_then(|s| s.field(idx)))?);
@@ -96,7 +96,7 @@ impl StructArrayTrait for ChunkedArray {
         Some(chunked)
     }
 
-    fn project(&self, projection: &[Field]) -> VortexResult<Array> {
+    fn project(&self, projection: &[Field]) -> VortexResult<ArrayData> {
         let mut chunks = Vec::with_capacity(self.nchunks());
         for chunk in self.chunks() {
             chunks.push(chunk.with_dyn(|a| {
@@ -122,7 +122,7 @@ impl StructArrayTrait for ChunkedArray {
 impl ListArrayTrait for ChunkedArray {}
 
 impl ExtensionArrayTrait for ChunkedArray {
-    fn storage_array(&self) -> Array {
+    fn storage_array(&self) -> ArrayData {
         ChunkedArray::from_iter(
             self.chunks()
                 .map(|chunk| chunk.with_dyn(|a| a.as_extension_array_unchecked().storage_array())),

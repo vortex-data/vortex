@@ -1,7 +1,7 @@
 use vortex_error::{vortex_bail, VortexResult};
 
 use crate::array::BoolArray;
-use crate::{Array, ArrayDType, IntoArrayVariant};
+use crate::{ArrayDType, ArrayData, IntoArrayVariant};
 pub trait AndFn {
     /// Point-wise logical _and_ between two Boolean arrays.
     ///
@@ -10,38 +10,38 @@ pub trait AndFn {
     /// # Examples
     ///
     /// ```
-    /// use vortex_array::Array;
+    /// use vortex_array::ArrayData;
     /// use vortex_array::compute::and;
     /// use vortex_array::IntoCanonical;
     /// use vortex_array::accessor::ArrayAccessor;
-    /// let a = Array::from(vec![Some(true), Some(true), Some(true), None, None, None, Some(false), Some(false), Some(false)]);
-    /// let b = Array::from(vec![Some(true), None, Some(false), Some(true), None, Some(false), Some(true), None, Some(false)]);
+    /// let a = ArrayData::from(vec![Some(true), Some(true), Some(true), None, None, None, Some(false), Some(false), Some(false)]);
+    /// let b = ArrayData::from(vec![Some(true), None, Some(false), Some(true), None, Some(false), Some(true), None, Some(false)]);
     /// let result = and(a, b)?.into_canonical()?.into_bool()?;
     /// let result_vec = result.with_iterator(|it| it.map(|x| x.cloned()).collect::<Vec<_>>())?;
     /// assert_eq!(result_vec, vec![Some(true), None, Some(false), None, None, None, Some(false), None, Some(false)]);
     /// # use vortex_error::VortexError;
     /// # Ok::<(), VortexError>(())
     /// ```
-    fn and(&self, array: &Array) -> VortexResult<Array>;
+    fn and(&self, array: &ArrayData) -> VortexResult<ArrayData>;
 
     /// Point-wise Kleene logical _and_ between two Boolean arrays.
     ///
     /// # Examples
     ///
     /// ```
-    /// use vortex_array::Array;
+    /// use vortex_array::ArrayData;
     /// use vortex_array::compute::and_kleene;
     /// use vortex_array::IntoCanonical;
     /// use vortex_array::accessor::ArrayAccessor;
-    /// let a = Array::from(vec![Some(true), Some(true), Some(true), None, None, None, Some(false), Some(false), Some(false)]);
-    /// let b = Array::from(vec![Some(true), None, Some(false), Some(true), None, Some(false), Some(true), None, Some(false)]);
+    /// let a = ArrayData::from(vec![Some(true), Some(true), Some(true), None, None, None, Some(false), Some(false), Some(false)]);
+    /// let b = ArrayData::from(vec![Some(true), None, Some(false), Some(true), None, Some(false), Some(true), None, Some(false)]);
     /// let result = and_kleene(a, b)?.into_canonical()?.into_bool()?;
     /// let result_vec = result.with_iterator(|it| it.map(|x| x.cloned()).collect::<Vec<_>>())?;
     /// assert_eq!(result_vec, vec![Some(true), None, Some(false), None, None, Some(false), Some(false), Some(false), Some(false)]);
     /// # use vortex_error::VortexError;
     /// # Ok::<(), VortexError>(())
     /// ```
-    fn and_kleene(&self, array: &Array) -> VortexResult<Array>;
+    fn and_kleene(&self, array: &ArrayData) -> VortexResult<ArrayData>;
 }
 
 pub trait OrFn {
@@ -52,49 +52,49 @@ pub trait OrFn {
     /// # Examples
     ///
     /// ```
-    /// use vortex_array::Array;
+    /// use vortex_array::ArrayData;
     /// use vortex_array::compute::or;
     /// use vortex_array::IntoCanonical;
     /// use vortex_array::accessor::ArrayAccessor;
-    /// let a = Array::from(vec![Some(true), Some(true), Some(true), None, None, None, Some(false), Some(false), Some(false)]);
-    /// let b = Array::from(vec![Some(true), None, Some(false), Some(true), None, Some(false), Some(true), None, Some(false)]);
+    /// let a = ArrayData::from(vec![Some(true), Some(true), Some(true), None, None, None, Some(false), Some(false), Some(false)]);
+    /// let b = ArrayData::from(vec![Some(true), None, Some(false), Some(true), None, Some(false), Some(true), None, Some(false)]);
     /// let result = or(a, b)?.into_canonical()?.into_bool()?;
     /// let result_vec = result.with_iterator(|it| it.map(|x| x.cloned()).collect::<Vec<_>>())?;
     /// assert_eq!(result_vec, vec![Some(true), None, Some(true), None, None, None, Some(true), None, Some(false)]);
     /// # use vortex_error::VortexError;
     /// # Ok::<(), VortexError>(())
     /// ```
-    fn or(&self, array: &Array) -> VortexResult<Array>;
+    fn or(&self, array: &ArrayData) -> VortexResult<ArrayData>;
 
     /// Point-wise Kleene logical _or_ between two Boolean arrays.
     ///
     /// # Examples
     ///
     /// ```
-    /// use vortex_array::Array;
+    /// use vortex_array::ArrayData;
     /// use vortex_array::compute::or_kleene;
     /// use vortex_array::IntoCanonical;
     /// use vortex_array::accessor::ArrayAccessor;
-    /// let a = Array::from(vec![Some(true), Some(true), Some(true), None, None, None, Some(false), Some(false), Some(false)]);
-    /// let b = Array::from(vec![Some(true), None, Some(false), Some(true), None, Some(false), Some(true), None, Some(false)]);
+    /// let a = ArrayData::from(vec![Some(true), Some(true), Some(true), None, None, None, Some(false), Some(false), Some(false)]);
+    /// let b = ArrayData::from(vec![Some(true), None, Some(false), Some(true), None, Some(false), Some(true), None, Some(false)]);
     /// let result = or_kleene(a, b)?.into_canonical()?.into_bool()?;
     /// let result_vec = result.with_iterator(|it| it.map(|x| x.cloned()).collect::<Vec<_>>())?;
     /// assert_eq!(result_vec, vec![Some(true), Some(true), Some(true), Some(true), None, None, Some(true), None, Some(false)]);
     /// # use vortex_error::VortexError;
     /// # Ok::<(), VortexError>(())
     /// ```
-    fn or_kleene(&self, array: &Array) -> VortexResult<Array>;
+    fn or_kleene(&self, array: &ArrayData) -> VortexResult<ArrayData>;
 }
 
 fn lift_boolean_operator<F, G>(
-    lhs: impl AsRef<Array>,
-    rhs: impl AsRef<Array>,
+    lhs: impl AsRef<ArrayData>,
+    rhs: impl AsRef<ArrayData>,
     trait_fun: F,
     bool_array_fun: G,
-) -> VortexResult<Array>
+) -> VortexResult<ArrayData>
 where
-    F: Fn(&Array, &Array) -> Option<VortexResult<Array>>,
-    G: FnOnce(BoolArray, &Array) -> VortexResult<Array>,
+    F: Fn(&ArrayData, &ArrayData) -> Option<VortexResult<ArrayData>>,
+    G: FnOnce(BoolArray, &ArrayData) -> VortexResult<ArrayData>,
 {
     let lhs = lhs.as_ref();
     let rhs = rhs.as_ref();
@@ -122,7 +122,7 @@ where
     bool_array_fun(lhs, rhs)
 }
 
-pub fn and(lhs: impl AsRef<Array>, rhs: impl AsRef<Array>) -> VortexResult<Array> {
+pub fn and(lhs: impl AsRef<ArrayData>, rhs: impl AsRef<ArrayData>) -> VortexResult<ArrayData> {
     lift_boolean_operator(
         lhs,
         rhs,
@@ -131,7 +131,10 @@ pub fn and(lhs: impl AsRef<Array>, rhs: impl AsRef<Array>) -> VortexResult<Array
     )
 }
 
-pub fn and_kleene(lhs: impl AsRef<Array>, rhs: impl AsRef<Array>) -> VortexResult<Array> {
+pub fn and_kleene(
+    lhs: impl AsRef<ArrayData>,
+    rhs: impl AsRef<ArrayData>,
+) -> VortexResult<ArrayData> {
     lift_boolean_operator(
         lhs,
         rhs,
@@ -140,7 +143,7 @@ pub fn and_kleene(lhs: impl AsRef<Array>, rhs: impl AsRef<Array>) -> VortexResul
     )
 }
 
-pub fn or(lhs: impl AsRef<Array>, rhs: impl AsRef<Array>) -> VortexResult<Array> {
+pub fn or(lhs: impl AsRef<ArrayData>, rhs: impl AsRef<ArrayData>) -> VortexResult<ArrayData> {
     lift_boolean_operator(
         lhs,
         rhs,
@@ -149,7 +152,10 @@ pub fn or(lhs: impl AsRef<Array>, rhs: impl AsRef<Array>) -> VortexResult<Array>
     )
 }
 
-pub fn or_kleene(lhs: impl AsRef<Array>, rhs: impl AsRef<Array>) -> VortexResult<Array> {
+pub fn or_kleene(
+    lhs: impl AsRef<ArrayData>,
+    rhs: impl AsRef<ArrayData>,
+) -> VortexResult<ArrayData> {
     lift_boolean_operator(
         lhs,
         rhs,
@@ -165,7 +171,7 @@ mod tests {
     use super::*;
     use crate::array::BoolArray;
     use crate::compute::unary::scalar_at;
-    use crate::IntoArray;
+    use crate::IntoArrayData;
 
     #[rstest]
     #[case(BoolArray::from_iter([Some(true), Some(true), Some(false), Some(false)].into_iter())
@@ -173,7 +179,7 @@ mod tests {
     .into_array())]
     #[case(BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)].into_iter()).into_array(),
         BoolArray::from_iter([Some(true), Some(true), Some(false), Some(false)].into_iter()).into_array())]
-    fn test_or(#[case] lhs: Array, #[case] rhs: Array) {
+    fn test_or(#[case] lhs: ArrayData, #[case] rhs: ArrayData) {
         let r = or(&lhs, &rhs).unwrap();
 
         let r = r.into_bool().unwrap().into_array();
@@ -195,7 +201,7 @@ mod tests {
     .into_array())]
     #[case(BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)].into_iter()).into_array(),
         BoolArray::from_iter([Some(true), Some(true), Some(false), Some(false)].into_iter()).into_array())]
-    fn test_and(#[case] lhs: Array, #[case] rhs: Array) {
+    fn test_and(#[case] lhs: ArrayData, #[case] rhs: ArrayData) {
         let r = and(&lhs, &rhs).unwrap().into_bool().unwrap().into_array();
 
         let v0 = scalar_at(&r, 0).unwrap().value().as_bool().unwrap();

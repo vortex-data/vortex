@@ -10,7 +10,7 @@ use crate::compute::{
     SliceFn, TakeFn,
 };
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, IntoArray, IntoArrayVariant};
+use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
 
 mod slice;
 mod take;
@@ -75,7 +75,7 @@ impl SearchSortedFn for SparseArray {
 }
 
 impl FilterFn for SparseArray {
-    fn filter(&self, predicate: &Array) -> VortexResult<Array> {
+    fn filter(&self, predicate: &ArrayData) -> VortexResult<ArrayData> {
         let buffer = predicate.clone().into_bool()?.boolean_buffer();
         let mut coordinate_indices: Vec<u64> = Vec::new();
         let mut value_indices = Vec::new();
@@ -121,10 +121,10 @@ mod test {
     use crate::array::BoolArray;
     use crate::compute::{filter, search_sorted, slice, SearchResult, SearchSortedSide};
     use crate::validity::Validity;
-    use crate::{Array, IntoArray, IntoArrayVariant};
+    use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
 
     #[fixture]
-    fn array() -> Array {
+    fn array() -> ArrayData {
         SparseArray::try_new(
             PrimitiveArray::from(vec![2u64, 9, 15]).into_array(),
             PrimitiveArray::from_vec(vec![33_i32, 44, 55], Validity::AllValid).into_array(),
@@ -136,31 +136,31 @@ mod test {
     }
 
     #[rstest]
-    fn search_larger_than(array: Array) {
+    fn search_larger_than(array: ArrayData) {
         let res = search_sorted(&array, 66, SearchSortedSide::Left).unwrap();
         assert_eq!(res, SearchResult::NotFound(16));
     }
 
     #[rstest]
-    fn search_less_than(array: Array) {
+    fn search_less_than(array: ArrayData) {
         let res = search_sorted(&array, 22, SearchSortedSide::Left).unwrap();
         assert_eq!(res, SearchResult::NotFound(2));
     }
 
     #[rstest]
-    fn search_found(array: Array) {
+    fn search_found(array: ArrayData) {
         let res = search_sorted(&array, 44, SearchSortedSide::Left).unwrap();
         assert_eq!(res, SearchResult::Found(9));
     }
 
     #[rstest]
-    fn search_not_found_right(array: Array) {
+    fn search_not_found_right(array: ArrayData) {
         let res = search_sorted(&array, 56, SearchSortedSide::Right).unwrap();
         assert_eq!(res, SearchResult::NotFound(16));
     }
 
     #[rstest]
-    fn search_sliced(array: Array) {
+    fn search_sliced(array: ArrayData) {
         let array = slice(&array, 7, 20).unwrap();
         assert_eq!(
             search_sorted(&array, 22, SearchSortedSide::Left).unwrap(),
@@ -190,7 +190,7 @@ mod test {
     }
 
     #[rstest]
-    fn test_filter(array: Array) {
+    fn test_filter(array: ArrayData) {
         let mut predicate = vec![false, false, true];
         predicate.extend_from_slice(&[false; 17]);
         let predicate = BoolArray::from_vec(predicate, Validity::NonNullable).into_array();

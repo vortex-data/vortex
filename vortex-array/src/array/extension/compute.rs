@@ -8,7 +8,7 @@ use crate::compute::{
     compare, slice, take, ArrayCompute, MaybeCompareFn, Operator, SliceFn, TakeFn,
 };
 use crate::variants::ExtensionArrayTrait;
-use crate::{Array, ArrayDType, IntoArray};
+use crate::{ArrayDType, ArrayData, IntoArrayData};
 
 impl ArrayCompute for ExtensionArray {
     fn cast(&self) -> Option<&dyn CastFn> {
@@ -18,7 +18,7 @@ impl ArrayCompute for ExtensionArray {
         None
     }
 
-    fn compare(&self, other: &Array, operator: Operator) -> Option<VortexResult<Array>> {
+    fn compare(&self, other: &ArrayData, operator: Operator) -> Option<VortexResult<ArrayData>> {
         MaybeCompareFn::maybe_compare(self, other, operator)
     }
 
@@ -36,7 +36,11 @@ impl ArrayCompute for ExtensionArray {
 }
 
 impl MaybeCompareFn for ExtensionArray {
-    fn maybe_compare(&self, other: &Array, operator: Operator) -> Option<VortexResult<Array>> {
+    fn maybe_compare(
+        &self,
+        other: &ArrayData,
+        operator: Operator,
+    ) -> Option<VortexResult<ArrayData>> {
         if let Ok(const_ext) = ConstantArray::try_from(other) {
             let scalar_ext = ExtScalar::try_new(const_ext.dtype(), const_ext.scalar_value())
                 .vortex_expect("Expected ExtScalar");
@@ -73,7 +77,7 @@ impl ScalarAtFn for ExtensionArray {
 }
 
 impl SliceFn for ExtensionArray {
-    fn slice(&self, start: usize, stop: usize) -> VortexResult<Array> {
+    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData> {
         Ok(Self::new(
             self.ext_dtype().clone(),
             slice(self.storage(), start, stop)?,
@@ -83,7 +87,7 @@ impl SliceFn for ExtensionArray {
 }
 
 impl TakeFn for ExtensionArray {
-    fn take(&self, indices: &Array) -> VortexResult<Array> {
+    fn take(&self, indices: &ArrayData) -> VortexResult<ArrayData> {
         Ok(Self::new(self.ext_dtype().clone(), take(self.storage(), indices)?).into_array())
     }
 }

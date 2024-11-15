@@ -6,7 +6,7 @@ use vortex_error::VortexResult;
 use crate::array::ChunkedArray;
 use crate::stream::take_rows::TakeRows;
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
-use crate::Array;
+use crate::ArrayData;
 
 pub trait ArrayStreamExt: ArrayStream {
     fn collect_chunked(self) -> impl Future<Output = VortexResult<ChunkedArray>>
@@ -21,7 +21,7 @@ pub trait ArrayStreamExt: ArrayStream {
         }
     }
 
-    fn take_rows(self, indices: Array) -> VortexResult<impl ArrayStream>
+    fn take_rows(self, indices: ArrayData) -> VortexResult<impl ArrayStream>
     where
         Self: Sized,
     {

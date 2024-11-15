@@ -7,7 +7,7 @@ use crate::compute::unary::{scalar_at, scalar_at_unchecked, ScalarAtFn};
 use crate::compute::{filter, slice, take, ArrayCompute, FilterFn, SliceFn, TakeFn};
 use crate::stats::ArrayStatistics;
 use crate::variants::StructArrayTrait;
-use crate::{Array, ArrayDType, IntoArray};
+use crate::{ArrayDType, ArrayData, IntoArrayData};
 
 impl ArrayCompute for StructArray {
     fn filter(&self) -> Option<&dyn FilterFn> {
@@ -48,7 +48,7 @@ impl ScalarAtFn for StructArray {
 }
 
 impl TakeFn for StructArray {
-    fn take(&self, indices: &Array) -> VortexResult<Array> {
+    fn take(&self, indices: &ArrayData) -> VortexResult<ArrayData> {
         Self::try_new(
             self.names().clone(),
             self.children()
@@ -62,7 +62,7 @@ impl TakeFn for StructArray {
 }
 
 impl SliceFn for StructArray {
-    fn slice(&self, start: usize, stop: usize) -> VortexResult<Array> {
+    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData> {
         let fields = self
             .children()
             .map(|field| slice(&field, start, stop))
@@ -78,8 +78,8 @@ impl SliceFn for StructArray {
 }
 
 impl FilterFn for StructArray {
-    fn filter(&self, predicate: &Array) -> VortexResult<Array> {
-        let fields: Vec<Array> = self
+    fn filter(&self, predicate: &ArrayData) -> VortexResult<ArrayData> {
+        let fields: Vec<ArrayData> = self
             .children()
             .map(|field| filter(&field, predicate))
             .try_collect()?;

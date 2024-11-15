@@ -101,7 +101,7 @@ mod test {
     use crate::array::sparse::SparseArray;
     use crate::array::{BoolArray, PrimitiveArray};
     use crate::validity::Validity;
-    use crate::{ArrayDType, IntoArray, IntoCanonical};
+    use crate::{ArrayDType, IntoArrayData, IntoCanonical};
 
     #[rstest]
     #[case(Some(true))]

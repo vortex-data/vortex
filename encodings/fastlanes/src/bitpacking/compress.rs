@@ -4,7 +4,7 @@ use vortex_array::array::{PrimitiveArray, Sparse, SparseArray};
 use vortex_array::stats::ArrayStatistics;
 use vortex_array::validity::{ArrayValidity, Validity};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{Array, ArrayDType, ArrayDef, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayDType, ArrayData, ArrayDef, IntoArrayData, IntoArrayVariant};
 use vortex_buffer::Buffer;
 use vortex_dtype::{
     match_each_integer_ptype, match_each_unsigned_integer_ptype, NativePType, PType,
@@ -141,7 +141,7 @@ pub fn gather_patches(
     parray: &PrimitiveArray,
     bit_width: u8,
     num_exceptions_hint: usize,
-) -> Option<Array> {
+) -> Option<ArrayData> {
     match_each_integer_ptype!(parray.ptype(), |$T| {
         let mut indices: Vec<u64> = Vec::with_capacity(num_exceptions_hint);
         let mut values: Vec<$T> = Vec::with_capacity(num_exceptions_hint);
@@ -189,7 +189,7 @@ pub fn unpack(array: BitPackedArray) -> VortexResult<PrimitiveArray> {
     }
 }
 
-fn patch_unpacked(array: PrimitiveArray, patches: &Array) -> VortexResult<PrimitiveArray> {
+fn patch_unpacked(array: PrimitiveArray, patches: &ArrayData) -> VortexResult<PrimitiveArray> {
     match patches.encoding().id() {
         Sparse::ID => {
             match_each_integer_ptype!(array.ptype(), |$T| {
@@ -378,7 +378,7 @@ pub fn count_exceptions(bit_width: u8, bit_width_freq: &[usize]) -> usize {
 
 #[cfg(test)]
 mod test {
-    use vortex_array::{IntoArrayVariant, ToArray};
+    use vortex_array::{IntoArrayVariant, ToArrayData};
 
     use super::*;
 

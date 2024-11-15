@@ -4,7 +4,7 @@ use vortex_array::compute::unary::{scalar_at_unchecked, ScalarAtFn};
 use vortex_array::compute::{
     compare, filter, slice, take, ArrayCompute, FilterFn, MaybeCompareFn, Operator, SliceFn, TakeFn,
 };
-use vortex_array::{Array, ArrayDType, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexResult, VortexUnwrap};
@@ -13,7 +13,7 @@ use vortex_scalar::Scalar;
 use crate::FSSTArray;
 
 impl ArrayCompute for FSSTArray {
-    fn compare(&self, other: &Array, operator: Operator) -> Option<VortexResult<Array>> {
+    fn compare(&self, other: &ArrayData, operator: Operator) -> Option<VortexResult<ArrayData>> {
         MaybeCompareFn::maybe_compare(self, other, operator)
     }
 
@@ -35,7 +35,11 @@ impl ArrayCompute for FSSTArray {
 }
 
 impl MaybeCompareFn for FSSTArray {
-    fn maybe_compare(&self, other: &Array, operator: Operator) -> Option<VortexResult<Array>> {
+    fn maybe_compare(
+        &self,
+        other: &ArrayData,
+        operator: Operator,
+    ) -> Option<VortexResult<ArrayData>> {
         match (ConstantArray::try_from(other), operator) {
             (Ok(constant_array), Operator::Eq | Operator::NotEq) => Some(compare_fsst_constant(
                 self,
@@ -53,7 +57,7 @@ fn compare_fsst_constant(
     left: &FSSTArray,
     right: &ConstantArray,
     equal: bool,
-) -> VortexResult<Array> {
+) -> VortexResult<ArrayData> {
     let symbols = left.symbols().into_primitive()?;
     let symbols_u64 = symbols.maybe_null_slice::<u64>();
 
@@ -97,7 +101,7 @@ fn compare_fsst_constant(
 }
 
 impl SliceFn for FSSTArray {
-    fn slice(&self, start: usize, stop: usize) -> VortexResult<Array> {
+    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData> {
         // Slicing an FSST array leaves the symbol table unmodified,
         // only slicing the `codes` array.
         Ok(Self::try_new(
@@ -113,7 +117,7 @@ impl SliceFn for FSSTArray {
 
 impl TakeFn for FSSTArray {
     // Take on an FSSTArray is a simple take on the codes array.
-    fn take(&self, indices: &Array) -> VortexResult<Array> {
+    fn take(&self, indices: &ArrayData) -> VortexResult<ArrayData> {
         Ok(Self::try_new(
             self.dtype().clone(),
             self.symbols(),
@@ -146,7 +150,7 @@ impl ScalarAtFn for FSSTArray {
 
 impl FilterFn for FSSTArray {
     // Filtering an FSSTArray filters the codes array, leaving the symbols array untouched
-    fn filter(&self, predicate: &Array) -> VortexResult<Array> {
+    fn filter(&self, predicate: &ArrayData) -> VortexResult<ArrayData> {
         Ok(Self::try_new(
             self.dtype().clone(),
             self.symbols(),
@@ -163,7 +167,7 @@ mod tests {
     use vortex_array::array::{ConstantArray, VarBinArray};
     use vortex_array::compute::unary::scalar_at_unchecked;
     use vortex_array::compute::{MaybeCompareFn, Operator};
-    use vortex_array::{IntoArray, IntoArrayVariant};
+    use vortex_array::{IntoArrayData, IntoArrayVariant};
     use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;
 

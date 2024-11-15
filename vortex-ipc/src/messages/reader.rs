@@ -5,7 +5,7 @@ use bytes::{Buf, Bytes, BytesMut};
 use flatbuffers::{root, root_unchecked};
 use futures_util::stream::try_unfold;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
-use vortex_array::{Array, ArrayView, Context, IntoArray};
+use vortex_array::{ArrayData, Context, IntoArrayData, ViewedArrayData};
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
@@ -108,7 +108,7 @@ impl<R: VortexRead> MessageReader<R> {
         &mut self,
         ctx: Arc<Context>,
         dtype: DType,
-    ) -> VortexResult<Option<Array>> {
+    ) -> VortexResult<Option<ArrayData>> {
         let all_buffers_size = match self.peek().and_then(|m| m.header_as_batch()) {
             None => return Ok(None),
             Some(chunk) => chunk.buffer_size() as usize,
@@ -317,12 +317,12 @@ impl ArrayMessageReader {
     }
 
     /// Produce the array buffered in the reader
-    pub fn into_array(self, ctx: Arc<Context>, dtype: DType) -> VortexResult<Array> {
+    pub fn into_array(self, ctx: Arc<Context>, dtype: DType) -> VortexResult<ArrayData> {
         let length = self.fb_bytes_as_batch()?.length() as usize;
         let fb_msg = self
             .fb_msg
             .ok_or_else(|| vortex_err!("Populated in previous step"))?;
-        let view = ArrayView::try_new(
+        let view = ViewedArrayData::try_new(
             ctx,
             dtype,
             length,

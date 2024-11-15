@@ -11,10 +11,10 @@ use crate::compute::{
     SearchSortedFn, SearchSortedSide, SliceFn, TakeFn,
 };
 use crate::stats::{ArrayStatistics, Stat};
-use crate::{Array, ArrayDType, IntoArray};
+use crate::{ArrayDType, ArrayData, IntoArrayData};
 
 impl ArrayCompute for ConstantArray {
-    fn compare(&self, other: &Array, operator: Operator) -> Option<VortexResult<Array>> {
+    fn compare(&self, other: &ArrayData, operator: Operator) -> Option<VortexResult<ArrayData>> {
         MaybeCompareFn::maybe_compare(self, other, operator)
     }
 
@@ -58,19 +58,19 @@ impl ScalarAtFn for ConstantArray {
 }
 
 impl TakeFn for ConstantArray {
-    fn take(&self, indices: &Array) -> VortexResult<Array> {
+    fn take(&self, indices: &ArrayData) -> VortexResult<ArrayData> {
         Ok(Self::new(self.owned_scalar(), indices.len()).into_array())
     }
 }
 
 impl SliceFn for ConstantArray {
-    fn slice(&self, start: usize, stop: usize) -> VortexResult<Array> {
+    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData> {
         Ok(Self::new(self.owned_scalar(), stop - start).into_array())
     }
 }
 
 impl FilterFn for ConstantArray {
-    fn filter(&self, predicate: &Array) -> VortexResult<Array> {
+    fn filter(&self, predicate: &ArrayData) -> VortexResult<ArrayData> {
         Ok(Self::new(
             self.owned_scalar(),
             predicate.with_dyn(|p| {
@@ -104,7 +104,11 @@ impl SearchSortedFn for ConstantArray {
 }
 
 impl MaybeCompareFn for ConstantArray {
-    fn maybe_compare(&self, other: &Array, operator: Operator) -> Option<VortexResult<Array>> {
+    fn maybe_compare(
+        &self,
+        other: &ArrayData,
+        operator: Operator,
+    ) -> Option<VortexResult<ArrayData>> {
         (ConstantArray::try_from(other).is_ok()
             || other
                 .statistics()
@@ -148,13 +152,13 @@ fn kleene_or(left: Option<bool>, right: Option<bool>) -> Option<bool> {
 }
 
 impl AndFn for ConstantArray {
-    fn and(&self, array: &Array) -> VortexResult<Array> {
+    fn and(&self, array: &ArrayData) -> VortexResult<ArrayData> {
         constant_array_bool_impl(self, array, and, |other, this| {
             other.with_dyn(|other| other.and().map(|other| other.and(this)))
         })
     }
 
-    fn and_kleene(&self, array: &Array) -> VortexResult<Array> {
+    fn and_kleene(&self, array: &ArrayData) -> VortexResult<ArrayData> {
         constant_array_bool_impl(self, array, kleene_and, |other, this| {
             other.with_dyn(|other| other.and_kleene().map(|other| other.and_kleene(this)))
         })
@@ -162,13 +166,13 @@ impl AndFn for ConstantArray {
 }
 
 impl OrFn for ConstantArray {
-    fn or(&self, array: &Array) -> VortexResult<Array> {
+    fn or(&self, array: &ArrayData) -> VortexResult<ArrayData> {
         constant_array_bool_impl(self, array, or, |other, this| {
             other.with_dyn(|other| other.or().map(|other| other.or(this)))
         })
     }
 
-    fn or_kleene(&self, array: &Array) -> VortexResult<Array> {
+    fn or_kleene(&self, array: &ArrayData) -> VortexResult<ArrayData> {
         constant_array_bool_impl(self, array, kleene_or, |other, this| {
             other.with_dyn(|other| other.or_kleene().map(|other| other.or_kleene(this)))
         })
@@ -177,10 +181,10 @@ impl OrFn for ConstantArray {
 
 fn constant_array_bool_impl(
     constant_array: &ConstantArray,
-    other: &Array,
+    other: &ArrayData,
     bool_op: impl Fn(Option<bool>, Option<bool>) -> Option<bool>,
-    fallback_fn: impl Fn(&Array, &Array) -> Option<VortexResult<Array>>,
-) -> VortexResult<Array> {
+    fallback_fn: impl Fn(&ArrayData, &ArrayData) -> Option<VortexResult<ArrayData>>,
+) -> VortexResult<ArrayData> {
     // If the right side is constant
     if other.statistics().get_as::<bool>(Stat::IsConstant) == Some(true) {
         let lhs = constant_array.scalar_value().as_bool()?;
@@ -209,7 +213,7 @@ mod test {
     use crate::array::BoolArray;
     use crate::compute::unary::scalar_at;
     use crate::compute::{and, or, search_sorted, SearchResult, SearchSortedSide};
-    use crate::{Array, IntoArray, IntoArrayVariant};
+    use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
 
     #[test]
     pub fn search() {
@@ -240,7 +244,7 @@ mod test {
     #[rstest]
     #[case(ConstantArray::new(true, 4).into_array(), BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)].into_iter()).into_array())]
     #[case(BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)].into_iter()).into_array(), ConstantArray::new(true, 4).into_array())]
-    fn test_or(#[case] lhs: Array, #[case] rhs: Array) {
+    fn test_or(#[case] lhs: ArrayData, #[case] rhs: ArrayData) {
         let r = or(&lhs, &rhs).unwrap().into_bool().unwrap().into_array();
 
         let v0 = scalar_at(&r, 0).unwrap().value().as_bool().unwrap();
@@ -258,7 +262,7 @@ mod test {
     #[case(ConstantArray::new(true, 4).into_array(), BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)].into_iter()).into_array())]
     #[case(BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)].into_iter()).into_array(),
         ConstantArray::new(true, 4).into_array())]
-    fn test_and(#[case] lhs: Array, #[case] rhs: Array) {
+    fn test_and(#[case] lhs: ArrayData, #[case] rhs: ArrayData) {
         let r = and(&lhs, &rhs).unwrap().into_bool().unwrap().into_array();
 
         let v0 = scalar_at(&r, 0).unwrap().value().as_bool().unwrap();

@@ -5,10 +5,10 @@ use vortex_error::{vortex_err, VortexResult};
 use crate::array::BoolArray;
 use crate::compute::unary::FillForwardFn;
 use crate::validity::{ArrayValidity, Validity};
-use crate::{Array, ArrayDType, IntoArray};
+use crate::{ArrayDType, ArrayData, IntoArrayData};
 
 impl FillForwardFn for BoolArray {
-    fn fill_forward(&self) -> VortexResult<Array> {
+    fn fill_forward(&self) -> VortexResult<ArrayData> {
         let validity = self.logical_validity();
         // nothing to see or do in this case
         if self.dtype().nullability() == Nullability::NonNullable {
@@ -51,7 +51,7 @@ impl FillForwardFn for BoolArray {
 mod test {
     use crate::array::BoolArray;
     use crate::validity::Validity;
-    use crate::{compute, IntoArray};
+    use crate::{compute, IntoArrayData};
 
     #[test]
     fn fill_forward() {

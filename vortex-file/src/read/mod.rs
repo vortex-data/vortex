@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use std::fmt::Debug;
 
-use vortex_array::Array;
+use vortex_array::ArrayData;
 use vortex_error::VortexResult;
 
 mod buffered;
@@ -58,7 +58,7 @@ pub struct MessageLocator(pub MessageId, pub ByteRange);
 #[derive(Debug)]
 pub enum BatchRead {
     ReadMore(Vec<MessageLocator>),
-    Batch(Array),
+    Batch(ArrayData),
 }
 
 /// A reader for a layout, a serialized sequence of Vortex arrays.

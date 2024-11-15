@@ -1,7 +1,7 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::encoding::EncodingRef;
 use vortex_array::stats::ArrayStatistics;
-use vortex_array::{Array, ArrayDType, ArrayDef, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayDType, ArrayData, ArrayDef, IntoArrayData, IntoArrayVariant};
 use vortex_error::VortexResult;
 use vortex_roaring::{roaring_int_encode, RoaringInt, RoaringIntEncoding};
 
@@ -20,7 +20,7 @@ impl EncodingCompressor for RoaringIntCompressor {
         constants::ROARING_INT_COST
     }
 
-    fn can_compress(&self, array: &Array) -> Option<&dyn EncodingCompressor> {
+    fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {
         // Only support non-nullable uint arrays
         if !array.dtype().is_unsigned_int() || array.dtype().is_nullable() {
             return None;
@@ -44,7 +44,7 @@ impl EncodingCompressor for RoaringIntCompressor {
 
     fn compress<'a>(
         &'a self,
-        array: &Array,
+        array: &ArrayData,
         _like: Option<CompressionTree<'a>>,
         _ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
@@ -64,7 +64,7 @@ impl EncodingCompressor for RoaringIntCompressor {
 mod tests {
     use vortex_array::array::PrimitiveArray;
     use vortex_array::validity::Validity;
-    use vortex_array::IntoArray;
+    use vortex_array::IntoArrayData;
     use vortex_roaring::RoaringIntArray;
 
     use crate::compressors::roaring_int::RoaringIntCompressor;

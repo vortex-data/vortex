@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use vortex_array::{Array, Context};
+use vortex_array::{ArrayData, Context};
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_flatbuffers::footer;
 use vortex_ipc::messages::reader::ArrayMessageReader;
@@ -77,7 +77,7 @@ impl FlatLayout {
         MessageLocator(self.message_cache.absolute_id(&[]), self.range)
     }
 
-    fn array_from_bytes(&self, mut buf: Bytes) -> VortexResult<Array> {
+    fn array_from_bytes(&self, mut buf: Bytes) -> VortexResult<ArrayData> {
         let mut array_reader = ArrayMessageReader::new();
         let mut read_buf = Bytes::new();
         while let Some(u) = array_reader.read(read_buf)? {
@@ -124,7 +124,7 @@ mod tests {
 
     use bytes::Bytes;
     use vortex_array::array::PrimitiveArray;
-    use vortex_array::{Context, IntoArray, IntoArrayVariant};
+    use vortex_array::{Context, IntoArrayData, IntoArrayVariant};
     use vortex_dtype::PType;
     use vortex_expr::{BinaryExpr, Identity, Literal, Operator};
     use vortex_ipc::messages::writer::MessageWriter;

@@ -6,7 +6,7 @@ use vortex_array::array::PrimitiveArray;
 use vortex_array::encoding::EncodingRef;
 use vortex_array::stats::ArrayStatistics as _;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{Array, ArrayDef, IntoArray};
+use vortex_array::{ArrayData, ArrayDef, IntoArrayData};
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
 
@@ -26,7 +26,7 @@ impl EncodingCompressor for ALPCompressor {
         constants::ALP_COST
     }
 
-    fn can_compress(&self, array: &Array) -> Option<&dyn EncodingCompressor> {
+    fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {
         // Only support primitive arrays
         let parray = PrimitiveArray::try_from(array).ok()?;
 
@@ -40,7 +40,7 @@ impl EncodingCompressor for ALPCompressor {
 
     fn compress<'a>(
         &'a self,
-        array: &Array,
+        array: &ArrayData,
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {

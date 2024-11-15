@@ -6,7 +6,7 @@ use pyo3::types::{IntoPyDict, PyInt, PyList};
 use vortex::array::ChunkedArray;
 use vortex::compute::unary::{fill_forward, scalar_at};
 use vortex::compute::{compare, slice, take, Operator};
-use vortex::{Array, ArrayDType, IntoCanonical};
+use vortex::{ArrayDType, ArrayData, IntoCanonical};
 
 use crate::dtype::PyDType;
 use crate::python_repr::PythonRepr;
@@ -77,15 +77,15 @@ use crate::scalar::scalar_into_py;
 ///   true
 /// ]
 pub struct PyArray {
-    inner: Array,
+    inner: ArrayData,
 }
 
 impl PyArray {
-    pub fn new(inner: Array) -> PyArray {
+    pub fn new(inner: ArrayData) -> PyArray {
         PyArray { inner }
     }
 
-    pub fn unwrap(&self) -> &Array {
+    pub fn unwrap(&self) -> &ArrayData {
         &self.inner
     }
 }

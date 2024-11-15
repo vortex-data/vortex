@@ -1,7 +1,7 @@
 use std::any::Any;
 use std::fmt::Display;
 
-use vortex_array::Array;
+use vortex_array::ArrayData;
 use vortex_error::VortexResult;
 
 use crate::{unbox_any, VortexExpr};
@@ -20,7 +20,7 @@ impl VortexExpr for Identity {
         self
     }
 
-    fn evaluate(&self, batch: &Array) -> VortexResult<Array> {
+    fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
         Ok(batch.clone())
     }
 }

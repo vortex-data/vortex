@@ -4,12 +4,12 @@ use vortex_array::accessor::ArrayAccessor;
 use vortex_array::array::{BoolArray, PrimitiveArray, VarBinViewArray};
 use vortex_array::compute::unary::scalar_at;
 use vortex_array::validity::ArrayValidity;
-use vortex_array::{Array, ArrayDType, IntoArray, IntoArrayVariant};
+use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType};
 
 use crate::take::take_canonical_array;
 
-pub fn sort_canonical_array(array: &Array) -> Array {
+pub fn sort_canonical_array(array: &ArrayData) -> ArrayData {
     match array.dtype() {
         DType::Bool(_) => {
             let bool_array = array.clone().into_bool().unwrap();
@@ -76,7 +76,7 @@ pub fn sort_canonical_array(array: &Array) -> Array {
 
 fn sort_primitive_slice<T: NativePType>(s: &mut [Option<T>]) {
     s.sort_by(|a, b| match (a, b) {
-        (Some(v), Some(w)) => v.compare(*w),
+        (Some(v), Some(w)) => v.total_compare(*w),
         (None, None) => Ordering::Equal,
         (None, Some(_)) => Ordering::Greater,
         (Some(_), None) => Ordering::Less,

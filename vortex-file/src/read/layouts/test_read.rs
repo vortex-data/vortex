@@ -4,7 +4,7 @@ use std::sync::{Arc, RwLock};
 use bytes::Bytes;
 use croaring::Bitmap;
 use itertools::Itertools;
-use vortex_array::Array;
+use vortex_array::ArrayData;
 use vortex_error::VortexUnwrap;
 
 use crate::read::mask::RowMask;
@@ -28,7 +28,7 @@ pub fn read_layout_data(
     cache: Arc<RwLock<LayoutMessageCache>>,
     buf: &Bytes,
     selector: &RowMask,
-) -> Option<Array> {
+) -> Option<ArrayData> {
     while let Some(rr) = layout.read_selection(selector).unwrap() {
         match rr {
             BatchRead::ReadMore(m) => {
@@ -74,7 +74,7 @@ pub fn filter_read_layout(
     cache: Arc<RwLock<LayoutMessageCache>>,
     buf: &Bytes,
     length: usize,
-) -> VecDeque<Array> {
+) -> VecDeque<ArrayData> {
     layout_splits(filter_layout, length)
         .into_iter()
         .flat_map(|s| read_filters(filter_layout, cache.clone(), buf, &s))
@@ -87,7 +87,7 @@ pub fn read_layout(
     cache: Arc<RwLock<LayoutMessageCache>>,
     buf: &Bytes,
     length: usize,
-) -> VecDeque<Array> {
+) -> VecDeque<ArrayData> {
     layout_splits(layout, length)
         .into_iter()
         .flat_map(|s| read_layout_data(layout, cache.clone(), buf, &s))

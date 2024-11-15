@@ -177,7 +177,7 @@ impl<T: BitPacking + NativePType> IndexOrd<T> for BitPackedSearch<'_, T> {
                 idx + self.offset as usize,
             )
         };
-        Some(val.compare(*elem))
+        Some(val.total_compare(*elem))
     }
 }
 
@@ -193,7 +193,7 @@ mod test {
     use vortex_array::compute::{
         search_sorted, search_sorted_many, slice, SearchResult, SearchSortedFn, SearchSortedSide,
     };
-    use vortex_array::IntoArray;
+    use vortex_array::IntoArrayData;
     use vortex_dtype::Nullability;
     use vortex_scalar::Scalar;
 

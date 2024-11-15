@@ -5,15 +5,14 @@ pub use compress::*;
 use croaring::Native;
 pub use croaring::{Bitmap, Portable};
 use serde::{Deserialize, Serialize};
-use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use vortex_array::array::BoolArray;
 use vortex_array::encoding::ids;
-use vortex_array::stats::{Stat, StatsSet};
+use vortex_array::stats::StatsSet;
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity};
 use vortex_array::variants::{ArrayVariants, BoolArrayTrait};
 use vortex_array::{
-    impl_encoding, Array, ArrayTrait, Canonical, IntoArray, IntoCanonical, TypedArray,
+    impl_encoding, ArrayData, ArrayTrait, Canonical, IntoArrayData, IntoCanonical, TypedArray,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
@@ -37,35 +36,27 @@ impl Display for RoaringBoolMetadata {
 
 impl RoaringBoolArray {
     pub fn try_new(bitmap: Bitmap, length: usize) -> VortexResult<Self> {
-        if length < bitmap.cardinality() as usize {
-            vortex_bail!("RoaringBoolArray length is less than bitmap cardinality")
-        } else {
-            let roaring_stats = bitmap.statistics();
-            let stats = StatsSet::from(HashMap::from([
-                (
-                    Stat::Min,
-                    (roaring_stats.cardinality == length as u64).into(),
-                ),
-                (Stat::Max, (roaring_stats.cardinality > 0).into()),
-                (
-                    Stat::IsConstant,
-                    (roaring_stats.cardinality == length as u64 || roaring_stats.cardinality == 0)
-                        .into(),
-                ),
-                (Stat::TrueCount, roaring_stats.cardinality.into()),
-            ]));
-
-            Ok(Self {
-                typed: TypedArray::try_from_parts(
-                    DType::Bool(NonNullable),
-                    length,
-                    RoaringBoolMetadata,
-                    Some(Buffer::from(bitmap.serialize::<Native>())),
-                    vec![].into(),
-                    stats,
-                )?,
-            })
+        let max_set = bitmap.maximum().unwrap_or(0) as usize;
+        if length < max_set {
+            vortex_bail!(
+                "RoaringBoolArray length is less than bitmap maximum {}",
+                max_set
+            )
         }
+
+        let stats =
+            StatsSet::bools_with_true_count(bitmap.statistics().cardinality as usize, length);
+
+        Ok(Self {
+            typed: TypedArray::try_from_parts(
+                DType::Bool(NonNullable),
+                length,
+                RoaringBoolMetadata,
+                Some(Buffer::from(bitmap.serialize::<Native>())),
+                vec![].into(),
+                stats,
+            )?,
+        })
     }
 
     pub fn bitmap(&self) -> Bitmap {
@@ -73,7 +64,7 @@ impl RoaringBoolArray {
         Bitmap::deserialize::<Native>(self.buffer().as_ref())
     }
 
-    pub fn encode(array: Array) -> VortexResult<Array> {
+    pub fn encode(array: ArrayData) -> VortexResult<ArrayData> {
         if let Ok(bools) = BoolArray::try_from(array) {
             roaring_bool_encode(bools).map(|a| a.into_array())
         } else {
@@ -97,7 +88,7 @@ impl ArrayVariants for RoaringBoolArray {
 }
 
 impl BoolArrayTrait for RoaringBoolArray {
-    fn invert(&self) -> VortexResult<Array> {
+    fn invert(&self) -> VortexResult<ArrayData> {
         RoaringBoolArray::try_new(self.bitmap().flip(0..(self.len() as u32)), self.len())
             .map(|a| a.into_array())
     }
@@ -159,7 +150,7 @@ mod test {
     use std::iter;
 
     use vortex_array::array::BoolArray;
-    use vortex_array::{IntoArray, IntoArrayVariant};
+    use vortex_array::{IntoArrayData, IntoArrayVariant};
 
     use crate::RoaringBoolArray;
 

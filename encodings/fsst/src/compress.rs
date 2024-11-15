@@ -5,7 +5,7 @@ use vortex_array::accessor::ArrayAccessor;
 use vortex_array::array::builder::VarBinBuilder;
 use vortex_array::array::{PrimitiveArray, VarBinArray, VarBinViewArray};
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayDType, IntoArray};
+use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
@@ -16,7 +16,7 @@ use crate::FSSTArray;
 /// # Panics
 ///
 /// If the `strings` array is not encoded as either [`VarBinArray`] or [`VarBinViewArray`].
-pub fn fsst_compress(strings: &Array, compressor: &Compressor) -> VortexResult<FSSTArray> {
+pub fn fsst_compress(strings: &ArrayData, compressor: &Compressor) -> VortexResult<FSSTArray> {
     let len = strings.len();
     let dtype = strings.dtype().clone();
 
@@ -45,7 +45,7 @@ pub fn fsst_compress(strings: &Array, compressor: &Compressor) -> VortexResult<F
 /// # Panics
 ///
 /// If the provided array is not FSST compressible.
-pub fn fsst_train_compressor(array: &Array) -> VortexResult<Compressor> {
+pub fn fsst_train_compressor(array: &ArrayData) -> VortexResult<Compressor> {
     if let Ok(varbin) = VarBinArray::try_from(array) {
         varbin
             .with_iterator(|iter| fsst_train_compressor_iter(iter))

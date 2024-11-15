@@ -13,7 +13,7 @@ use tokio::fs::File;
 use vortex::aliases::hash_map::HashMap;
 use vortex::array::ChunkedArray;
 use vortex::error::VortexResult;
-use vortex::{Array, ArrayDType, IntoArray};
+use vortex::{ArrayDType, ArrayData, IntoArrayData};
 
 use crate::data_downloads::{decompress_bz2, download_data, BenchmarkDataset, FileType};
 use crate::public_bi_data::PBIDataset::*;
@@ -555,7 +555,7 @@ impl BenchmarkDataset for BenchmarkDatasets {
         }
     }
 
-    fn to_vortex_array(&self) -> VortexResult<Array> {
+    fn to_vortex_array(&self) -> VortexResult<ArrayData> {
         self.write_as_parquet();
 
         let arrays = self

@@ -68,8 +68,8 @@ pub trait NativePType:
     /// For integer types, this is always `false`
     fn is_nan(self) -> bool;
 
-    /// Compare another instance of this type to `self`
-    fn compare(self, other: Self) -> Ordering;
+    /// Compare another instance of this type to `self`, providing a total ordering
+    fn total_compare(self, other: Self) -> Ordering;
 
     /// Whether another instance of this type (`other`) is bitwise equal to `self`
     fn is_eq(self, other: Self) -> bool;
@@ -84,7 +84,7 @@ macro_rules! native_ptype {
                 false
             }
 
-            fn compare(self, other: Self) -> Ordering {
+            fn total_compare(self, other: Self) -> Ordering {
                 self.cmp(&other)
             }
 
@@ -104,7 +104,7 @@ macro_rules! native_float_ptype {
                 <$T>::is_nan(self)
             }
 
-            fn compare(self, other: Self) -> Ordering {
+            fn total_compare(self, other: Self) -> Ordering {
                 self.total_cmp(&other)
             }
 
@@ -460,7 +460,7 @@ mod tests {
         assert!(<f32 as NativePType>::is_nan(a));
         assert!(<f32 as NativePType>::is_nan(b));
         assert!(<f32 as NativePType>::is_eq(a, b));
-        assert!(<f32 as NativePType>::compare(a, b) == Ordering::Equal);
+        assert!(<f32 as NativePType>::total_compare(a, b) == Ordering::Equal);
     }
 
     #[test]

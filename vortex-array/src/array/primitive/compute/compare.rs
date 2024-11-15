@@ -8,10 +8,14 @@ use crate::array::primitive::PrimitiveArray;
 use crate::array::{BoolArray, ConstantArray};
 use crate::compute::{MaybeCompareFn, Operator};
 use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, ArrayDType, IntoArray};
+use crate::{ArrayDType, ArrayData, IntoArrayData};
 
 impl MaybeCompareFn for PrimitiveArray {
-    fn maybe_compare(&self, other: &Array, operator: Operator) -> Option<VortexResult<Array>> {
+    fn maybe_compare(
+        &self,
+        other: &ArrayData,
+        operator: Operator,
+    ) -> Option<VortexResult<ArrayData>> {
         if let Ok(const_array) = ConstantArray::try_from(other) {
             return Some(primitive_const_compare(self, const_array, operator));
         }
@@ -41,7 +45,7 @@ fn primitive_const_compare(
     this: &PrimitiveArray,
     other: ConstantArray,
     operator: Operator,
-) -> VortexResult<Array> {
+) -> VortexResult<ArrayData> {
     let primitive_scalar = PrimitiveScalar::try_new(other.dtype(), other.scalar_value())
         .vortex_expect("Expected a primitive scalar");
 

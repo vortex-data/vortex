@@ -4,15 +4,15 @@ use vortex_error::{vortex_err, VortexResult};
 use crate::array::BoolArray;
 use crate::compute::FilterFn;
 use crate::variants::BoolArrayTrait;
-use crate::{Array, IntoArray};
+use crate::{ArrayData, IntoArrayData};
 
 impl FilterFn for BoolArray {
-    fn filter(&self, predicate: &Array) -> VortexResult<Array> {
+    fn filter(&self, predicate: &ArrayData) -> VortexResult<ArrayData> {
         filter_select_bool(self, predicate).map(|a| a.into_array())
     }
 }
 
-fn filter_select_bool(arr: &BoolArray, predicate: &Array) -> VortexResult<BoolArray> {
+fn filter_select_bool(arr: &BoolArray, predicate: &ArrayData) -> VortexResult<BoolArray> {
     predicate.with_dyn(|b| {
         let validity = arr.validity().filter(predicate)?;
         let predicate = b.as_bool_array().ok_or(vortex_err!(
@@ -61,7 +61,7 @@ mod test {
         filter_select_bool, filter_select_bool_by_index, filter_select_bool_by_slice,
     };
     use crate::array::BoolArray;
-    use crate::ToArray;
+    use crate::ToArrayData;
 
     #[test]
     fn filter_bool_test() {

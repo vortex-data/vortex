@@ -33,8 +33,8 @@ arrow-select = { workspace = true }
 criterion = { workspace = true, features = ["async_futures"] }
 futures-executor = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
-vortex-sampling-compressor = { workspace = true }
-vortex-io = { workspace = true, features = ["futures"] }
+vortex-sampling-compressor = { path = "../vortex-sampling-compressor" }
+vortex-io = { path = "../vortex-io", features = ["futures"] }
 
 [lints]
 workspace = true
