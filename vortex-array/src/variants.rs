@@ -317,5 +317,5 @@ pub trait ExtensionArrayTrait: ArrayTrait {
     }
 
     /// Returns the underlying [`ArrayData`], without the [`ExtDType`].
-    fn storage_array(&self) -> ArrayData;
+    fn storage_data(&self) -> ArrayData;
 }

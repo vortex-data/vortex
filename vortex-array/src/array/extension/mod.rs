@@ -66,7 +66,7 @@ impl ArrayVariants for ExtensionArray {
 }
 
 impl ExtensionArrayTrait for ExtensionArray {
-    fn storage_array(&self) -> ArrayData {
+    fn storage_data(&self) -> ArrayData {
         self.storage()
     }
 }

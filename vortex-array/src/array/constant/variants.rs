@@ -210,7 +210,7 @@ impl StructArrayTrait for ConstantArray {
 impl ListArrayTrait for ConstantArray {}
 
 impl ExtensionArrayTrait for ConstantArray {
-    fn storage_array(&self) -> ArrayData {
+    fn storage_data(&self) -> ArrayData {
         let storage_dtype = self.ext_dtype().storage_dtype().clone();
         ConstantArray::new(
             Scalar::new(storage_dtype, self.scalar_value().clone()),

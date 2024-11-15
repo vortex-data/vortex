@@ -1,14 +1,14 @@
 use std::io;
 use std::sync::Arc;
 
-use bytes::{Buf, Bytes, BytesMut};
+use bytes::{Buf, Bytes};
 use flatbuffers::{root, root_unchecked};
 use futures_util::stream::try_unfold;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
 use vortex_array::{ArrayData, Context, IntoArrayData, ViewedArrayData};
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_flatbuffers::message as fb;
 use vortex_io::VortexRead;
 
@@ -17,8 +17,8 @@ pub const MESSAGE_PREFIX_LENGTH: usize = 4;
 /// A stateful reader of [`Message`s][fb::Message] from a stream.
 pub struct MessageReader<R> {
     read: R,
-    message: BytesMut,
-    prev_message: BytesMut,
+    message: Option<Bytes>,
+    prev_message: Option<Bytes>,
     finished: bool,
 }
 
@@ -26,8 +26,8 @@ impl<R: VortexRead> MessageReader<R> {
     pub async fn try_new(read: R) -> VortexResult<Self> {
         let mut reader = Self {
             read,
-            message: BytesMut::new(),
-            prev_message: BytesMut::new(),
+            message: None,
+            prev_message: None,
             finished: false,
         };
         reader.load_next_message().await?;
@@ -35,9 +35,7 @@ impl<R: VortexRead> MessageReader<R> {
     }
 
     async fn load_next_message(&mut self) -> VortexResult<bool> {
-        let mut buffer = std::mem::take(&mut self.message);
-        buffer.resize(MESSAGE_PREFIX_LENGTH, 0);
-        let mut buffer = match self.read.read_into(buffer).await {
+        let mut buffer = match self.read.read_bytes(MESSAGE_PREFIX_LENGTH as u64).await {
             Ok(b) => b,
             Err(e) => {
                 return match e.kind() {
@@ -55,14 +53,14 @@ impl<R: VortexRead> MessageReader<R> {
             vortex_bail!(InvalidSerde: "Invalid IPC stream")
         }
 
-        buffer.reserve(len as usize);
-        unsafe { buffer.set_len(len as usize) };
-        self.message = self.read.read_into(buffer).await?;
+        let next_msg = self.read.read_bytes(len as u64).await?;
 
         // Validate that the message is valid a flatbuffer.
-        root::<fb::Message>(&self.message).map_err(
+        root::<fb::Message>(&next_msg).map_err(
             |e| vortex_err!(InvalidSerde: "Failed to parse flatbuffer message: {:?}", e),
         )?;
+
+        self.message = Some(next_msg);
 
         Ok(true)
     }
@@ -72,18 +70,28 @@ impl<R: VortexRead> MessageReader<R> {
             return None;
         }
         // The message has been validated by the next() call.
-        Some(unsafe { root_unchecked::<fb::Message>(&self.message) })
+        Some(unsafe {
+            root_unchecked::<fb::Message>(
+                self.message
+                    .as_ref()
+                    .vortex_expect("MessageReader: message"),
+            )
+        })
     }
 
     async fn next(&mut self) -> VortexResult<Buffer> {
         if self.finished {
             vortex_bail!("Reader is finished, should've peeked!")
         }
-        self.prev_message = self.message.split();
+        self.prev_message = self.message.take();
         if !self.load_next_message().await? {
             self.finished = true;
         }
-        Ok(Buffer::from(self.prev_message.clone().freeze()))
+        Ok(Buffer::from(
+            self.prev_message
+                .clone()
+                .vortex_expect("MessageReader prev_message"),
+        ))
     }
 
     pub async fn read_dtype(&mut self) -> VortexResult<DType> {
@@ -114,15 +122,14 @@ impl<R: VortexRead> MessageReader<R> {
             Some(chunk) => chunk.buffer_size() as usize,
         };
 
-        let mut array_reader =
-            ArrayMessageReader::from_fb_bytes(Buffer::from(self.message.clone().freeze()));
+        let mut array_reader = ArrayMessageReader::from_fb_bytes(Buffer::from(
+            self.message.clone().vortex_expect("MessageReader: message"),
+        ));
 
         // Issue a single read to grab all buffers
-        let mut all_buffers = BytesMut::with_capacity(all_buffers_size);
-        unsafe { all_buffers.set_len(all_buffers_size) };
-        let all_buffers = self.read.read_into(all_buffers).await?;
+        let all_buffers = self.read.read_bytes(all_buffers_size as u64).await?;
 
-        if array_reader.read(all_buffers.freeze())?.is_some() {
+        if array_reader.read(all_buffers)?.is_some() {
             unreachable!("This is an implementation bug")
         };
 
@@ -191,14 +198,11 @@ impl<R: VortexRead> MessageReader<R> {
             return Ok(None);
         };
 
-        let buffer_len = page_msg.buffer_size() as usize;
-        let total_len = buffer_len + (page_msg.padding() as usize);
+        let buffer_len = page_msg.buffer_size() as u64;
+        let total_len = buffer_len + (page_msg.padding() as u64);
 
-        let mut buffer = BytesMut::with_capacity(total_len);
-        unsafe { buffer.set_len(total_len) }
-        buffer = self.read.read_into(buffer).await?;
-        buffer.truncate(buffer_len);
-        let page_buffer = Ok(Some(Buffer::from(buffer.freeze())));
+        let buffer = self.read.read_bytes(total_len).await?;
+        let page_buffer = Ok(Some(Buffer::from(buffer.slice(..buffer_len as usize))));
         let _ = self.next().await?;
         page_buffer
     }
