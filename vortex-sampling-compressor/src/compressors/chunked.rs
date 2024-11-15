@@ -114,6 +114,7 @@ impl ChunkedCompressor {
             ctx.options().target_block_bytesize,
             ctx.options().target_block_size,
         )?;
+
         let mut compressed_chunks = Vec::with_capacity(less_chunked.nchunks());
         for (index, chunk) in less_chunked.chunks().enumerate() {
             // these are extremely valuable when reading/writing, but are potentially much more expensive

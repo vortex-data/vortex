@@ -17,7 +17,7 @@ use crate::compute::unary::{scalar_at, scalar_at_unchecked, subtract_scalar, Sub
 use crate::compute::{search_sorted, SearchSortedSide};
 use crate::encoding::ids;
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
-use crate::stats::StatsSet;
+use crate::stats::{ArrayStatistics, StatsSet};
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::validity::Validity::NonNullable;
 use crate::validity::{ArrayValidity, LogicalValidity, Validity};
@@ -65,6 +65,21 @@ impl ChunkedArray {
             unreachable!("Chunk ends is guaranteed to have at least one element")
         }) as usize;
 
+        let stats = {
+            let mut stats = StatsSet::new();
+            let mut first = true;
+            for chunk in &chunks {
+                let _ = chunk.statistics().compute_uncompressed_size_in_bytes();
+                if first {
+                    stats.extend(chunk.statistics().to_set());
+                    first = false;
+                } else {
+                    stats.merge_ordered(&chunk.statistics().to_set());
+                }
+            }
+            stats
+        };
+
         let mut children = Vec::with_capacity(chunks.len() + 1);
         children.push(PrimitiveArray::from_vec(chunk_offsets, NonNullable).into_array());
         children.extend(chunks);
@@ -74,7 +89,7 @@ impl ChunkedArray {
             length,
             ChunkedMetadata { nchunks },
             children.into(),
-            StatsSet::new(),
+            stats,
         )
     }
 
