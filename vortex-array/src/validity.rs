@@ -87,6 +87,27 @@ impl Validity {
         }
     }
 
+    pub fn null_count(&self, length: usize) -> VortexResult<usize> {
+        match self {
+            Self::NonNullable | Self::AllValid => Ok(0),
+            Self::AllInvalid => Ok(length),
+            Self::Array(a) => {
+                let validity_len = a.len();
+                if validity_len != length {
+                    vortex_bail!(
+                        "Validity array length {} doesn't match array length {}",
+                        validity_len,
+                        length
+                    )
+                }
+                let true_count = a.statistics().compute_true_count().ok_or_else(|| {
+                    vortex_err!("Failed to compute true count from validity array")
+                })?;
+                Ok(length - true_count)
+            }
+        }
+    }
+
     /// If Validity is [`Validity::Array`], returns the array, otherwise returns `None`.
     pub fn into_array(self) -> Option<Array> {
         match self {

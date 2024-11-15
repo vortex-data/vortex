@@ -164,7 +164,9 @@ fn enc_impls() -> Vec<Array> {
         .into_array(),
         varbin_array(),
         varbinview_array(),
-        ZigZagArray::encode(&PrimitiveArray::from(vec![-1, 1, -9, 9]).into_array()).unwrap(),
+        ZigZagArray::encode(&PrimitiveArray::from(vec![-1, 1, -9, 9]).into_array())
+            .unwrap()
+            .into_array(),
     ]
 }
 

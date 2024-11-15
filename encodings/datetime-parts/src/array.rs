@@ -5,7 +5,7 @@ use vortex_array::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use vortex_array::array::StructArray;
 use vortex_array::compute::unary::try_cast;
 use vortex_array::encoding::ids;
-use vortex_array::stats::{ArrayStatisticsCompute, StatsSet};
+use vortex_array::stats::{ArrayStatisticsCompute, Stat, StatsSet};
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity};
 use vortex_array::variants::{ArrayVariants, ExtensionArrayTrait};
 use vortex_array::{
@@ -13,6 +13,7 @@ use vortex_array::{
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult, VortexUnwrap};
+use vortex_scalar::Scalar;
 
 use crate::compute::decode_to_temporal;
 
@@ -160,4 +161,17 @@ impl AcceptArrayVisitor for DateTimePartsArray {
     }
 }
 
-impl ArrayStatisticsCompute for DateTimePartsArray {}
+impl ArrayStatisticsCompute for DateTimePartsArray {
+    fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
+        let maybe_stat = match stat {
+            Stat::NullCount => Some(Scalar::from(self.validity().null_count(self.len())?)),
+            _ => None,
+        };
+
+        let mut stats = StatsSet::new();
+        if let Some(value) = maybe_stat {
+            stats.set(stat, value);
+        }
+        Ok(stats)
+    }
+}

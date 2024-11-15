@@ -4923,6 +4923,7 @@ dependencies = [
  "itertools 0.13.0",
  "num-traits",
  "rand",
+ "rstest",
  "serde",
  "vortex-array",
  "vortex-dtype",

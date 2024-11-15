@@ -142,8 +142,11 @@ impl ArrayStatisticsCompute for RoaringIntArray {
         if stat == Stat::TrailingZeroFreq || stat == Stat::BitWidthFreq || stat == Stat::RunCount {
             let primitive =
                 PrimitiveArray::from_vec(self.owned_bitmap().to_vec(), Validity::NonNullable);
-            primitive.statistics().compute(stat);
-            Ok(primitive.statistics().to_set())
+            primitive.statistics().compute_all(&[
+                Stat::TrailingZeroFreq,
+                Stat::BitWidthFreq,
+                Stat::RunCount,
+            ])
         } else {
             Ok(StatsSet::new())
         }

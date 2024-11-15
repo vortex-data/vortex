@@ -1,4 +1,3 @@
-use croaring::Bitset;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::stats::{ArrayStatisticsCompute, Stat, StatsSet};
 use vortex_error::{vortex_err, VortexResult};
@@ -7,87 +6,41 @@ use crate::RoaringBoolArray;
 
 impl ArrayStatisticsCompute for RoaringBoolArray {
     fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
-        if self.is_empty() {
-            return Ok(StatsSet::new());
-        }
-
         // Only needs to compute IsSorted, IsStrictSorted and RunCount all other stats have been populated on construction
         let bitmap = self.bitmap();
-        BitmapStats(
-            bitmap
-                .to_bitset()
-                .ok_or_else(|| vortex_err!("Bitmap to Bitset conversion run out of memory"))?,
-            self.len(),
-            bitmap.statistics().cardinality,
-        )
-        .compute_statistics(stat)
-    }
-}
-
-// Underlying bitset, length in bits, cardinality (true count) of the bitset
-struct BitmapStats(Bitset, usize, u64);
-
-impl ArrayStatisticsCompute for BitmapStats {
-    fn compute_statistics(&self, _stat: Stat) -> VortexResult<StatsSet> {
-        let bitset_slice = self.0.as_slice();
-        let whole_chunks = self.1 / 64;
-        let last_chunk_len = self.1 % 64;
-        let fist_bool = bitset_slice[0] & 1 == 1;
-        let mut stats = RoaringBoolStatsAccumulator::new(fist_bool);
-        for bits64 in bitset_slice[0..whole_chunks].iter() {
-            stats.next(*bits64);
+        let true_count = bitmap.statistics().cardinality;
+        if matches!(
+            stat,
+            Stat::TrueCount | Stat::Min | Stat::Max | Stat::IsConstant
+        ) {
+            return Ok(StatsSet::bools_with_true_count(
+                true_count as usize,
+                self.len(),
+            ));
         }
-        stats.next_up_to_length(bitset_slice[whole_chunks], last_chunk_len);
-        Ok(stats.finish(self.2))
-    }
-}
 
-struct RoaringBoolStatsAccumulator {
-    prev: bool,
-    is_sorted: bool,
-    run_count: usize,
-    len: usize,
-}
+        if matches!(stat, Stat::IsSorted | Stat::IsStrictSorted) {
+            let is_sorted = if true_count == 0 || true_count == self.len() as u64 {
+                true
+            } else {
+                let min_idx = bitmap.minimum().ok_or_else(|| {
+                    vortex_err!("Bitmap has no minimum despite having cardinality > 0")
+                })?;
+                let max_idx = bitmap.maximum().ok_or_else(|| {
+                    vortex_err!("Bitmap has no maximum despite having cardinality > 0")
+                })?;
+                (max_idx as usize + 1 == self.len()) && (max_idx + 1 - min_idx) as u64 == true_count
+            };
 
-impl RoaringBoolStatsAccumulator {
-    fn new(first_value: bool) -> Self {
-        Self {
-            prev: first_value,
-            is_sorted: true,
-            run_count: 1,
-            len: 0,
+            let is_strict_sorted =
+                is_sorted && (self.len() <= 1 || (self.len() == 2 && true_count == 1));
+            return Ok(StatsSet::from(HashMap::from([
+                (Stat::IsSorted, is_sorted.into()),
+                (Stat::IsStrictSorted, is_strict_sorted.into()),
+            ])));
         }
-    }
 
-    pub fn next_up_to_length(&mut self, next: u64, len: usize) {
-        assert!(len <= 64);
-        self.len += len;
-        for i in 0..len {
-            let current = ((next >> i) & 1) == 1;
-            // Booleans are sorted true > false so we aren't sorted if we switched from true to false value
-            if !current && self.prev {
-                self.is_sorted = false;
-            }
-            if current != self.prev {
-                self.run_count += 1;
-                self.prev = current;
-            }
-        }
-    }
-
-    pub fn next(&mut self, next: u64) {
-        self.next_up_to_length(next, 64)
-    }
-
-    pub fn finish(self, cardinality: u64) -> StatsSet {
-        StatsSet::from(HashMap::from([
-            (Stat::IsSorted, self.is_sorted.into()),
-            (
-                Stat::IsStrictSorted,
-                (self.is_sorted && (self.len < 2 || (self.len == 2 && cardinality == 1))).into(),
-            ),
-            (Stat::RunCount, self.run_count.into()),
-        ]))
+        Ok(StatsSet::new())
     }
 }
 
@@ -111,7 +64,6 @@ mod test {
         assert!(!bool_arr.statistics().compute_is_constant().unwrap());
         assert!(!bool_arr.statistics().compute_min::<bool>().unwrap());
         assert!(bool_arr.statistics().compute_max::<bool>().unwrap());
-        assert_eq!(bool_arr.statistics().compute_run_count().unwrap(), 5);
         assert_eq!(bool_arr.statistics().compute_true_count().unwrap(), 4);
     }
 
