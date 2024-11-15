@@ -45,20 +45,10 @@ impl RoaringBoolArray {
             )
         }
 
-        let roaring_stats = bitmap.statistics();
-        let stats = StatsSet::from(HashMap::from([
-            (
-                Stat::Min,
-                (roaring_stats.cardinality == length as u64).into(),
-            ),
-            (Stat::Max, (roaring_stats.cardinality > 0).into()),
-            (
-                Stat::IsConstant,
-                (roaring_stats.cardinality == length as u64 || roaring_stats.cardinality == 0)
-                    .into(),
-            ),
-            (Stat::TrueCount, roaring_stats.cardinality.into()),
-        ]));
+        let stats = StatsSet::bools_with_true_count(
+            bitmap.statistics().cardinality as usize,
+            length,
+        );
 
         Ok(Self {
             typed: TypedArray::try_from_parts(
