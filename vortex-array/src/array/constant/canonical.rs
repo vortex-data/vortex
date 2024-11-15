@@ -3,13 +3,11 @@ use arrow_buffer::{BooleanBuffer, BufferBuilder};
 use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_native_ptype, DType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexResult};
-use vortex_scalar::{BinaryScalar, BoolScalar, ExtScalar, Scalar, Utf8Scalar};
+use vortex_scalar::{BinaryScalar, BoolScalar, Utf8Scalar};
 
 use crate::array::constant::ConstantArray;
 use crate::array::primitive::PrimitiveArray;
-use crate::array::{
-    BinaryView, BoolArray, ExtensionArray, NullArray, VarBinViewArray, VIEW_SIZE_BYTES,
-};
+use crate::array::{BinaryView, BoolArray, NullArray, VarBinViewArray, VIEW_SIZE_BYTES};
 use crate::validity::Validity;
 use crate::{ArrayDType, ArrayLen, Canonical, IntoArrayData, IntoCanonical};
 
