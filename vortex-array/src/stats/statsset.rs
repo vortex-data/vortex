@@ -95,6 +95,18 @@ impl StatsSet {
         stats
     }
 
+    pub fn bools_with_true_count(true_count: usize, len: usize) -> StatsSet {
+        StatsSet::from(HashMap::<Stat, Scalar>::from([
+            (Stat::TrueCount, true_count.into()),
+            (Stat::Min, (true_count == len).into()),
+            (Stat::Max, (true_count > 0).into()),
+            (
+                Stat::IsConstant,
+                (true_count == 0 || true_count == len).into(),
+            ),
+        ]))
+    }
+
     pub fn of<S: Into<Scalar>>(stat: Stat, value: S) -> Self {
         Self::from(HashMap::from([(stat, value.into())]))
     }
