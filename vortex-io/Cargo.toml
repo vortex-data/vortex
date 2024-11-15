@@ -30,8 +30,8 @@ vortex-error = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 
-
 [features]
+default = ["tokio"]
 futures = ["futures-util/io"]
 object_store = ["dep:object_store", "vortex-error/object_store"]
 

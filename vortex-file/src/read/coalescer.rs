@@ -1,0 +1,232 @@
+use std::collections::VecDeque;
+use std::io;
+use std::io::ErrorKind;
+use std::pin::Pin;
+use std::sync::{Arc, RwLock};
+use std::task::{Context, Poll, Waker};
+
+use futures::Stream;
+use futures_util::future::BoxFuture;
+use futures_util::{FutureExt, StreamExt};
+use vortex_array::ArrayData;
+use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
+use vortex_io::{Dispatch, IoDispatcher, VortexReadAt, VortexReadRanges};
+
+use crate::{LayoutMessageCache, LayoutReader, Message, MessageLocator, MessageRead, RowMask};
+
+const NUM_TO_COALESCE: usize = 8;
+
+pub trait RowMaskReader<V> {
+    fn read_mask(&self, mask: &RowMask) -> VortexResult<Option<MessageRead<V>>>;
+}
+
+pub struct MaskLayoutReader {
+    layout: Box<dyn LayoutReader>,
+}
+
+impl MaskLayoutReader {
+    pub fn new(layout: Box<dyn LayoutReader>) -> Self {
+        Self { layout }
+    }
+}
+
+impl RowMaskReader<ArrayData> for MaskLayoutReader {
+    /// Read given mask out of the reader
+    fn read_mask(&self, mask: &RowMask) -> VortexResult<Option<MessageRead<ArrayData>>> {
+        self.layout.read_selection(mask)
+    }
+}
+
+enum RowMaskState<V> {
+    Pending(RowMask),
+    Ready(V),
+    Empty,
+}
+
+pub struct Coalescer<R, S, V, RM> {
+    values_iter: S,
+    in_flight: Option<BoxFuture<'static, io::Result<Vec<Message>>>>,
+    queued: VecDeque<RowMaskState<V>>,
+    io_read: VortexReadRanges<R>,
+    dispatcher: Arc<IoDispatcher>,
+    row_mask_reader: RM,
+    cache: Arc<RwLock<LayoutMessageCache>>,
+}
+
+impl<R, S, V, RM> Coalescer<R, S, V, RM>
+where
+    R: VortexReadAt,
+    S: Stream<Item = VortexResult<RowMask>> + Unpin,
+    RM: RowMaskReader<V>,
+{
+    pub fn new(
+        read: R,
+        dispatcher: Arc<IoDispatcher>,
+        values_iter: S,
+        row_mask_reader: RM,
+        cache: Arc<RwLock<LayoutMessageCache>>,
+    ) -> Self {
+        Self {
+            values_iter,
+            in_flight: None,
+            queued: VecDeque::new(),
+            io_read: VortexReadRanges::new(read, dispatcher.clone(), 1 << 20),
+            dispatcher,
+            row_mask_reader,
+            cache,
+        }
+    }
+
+    fn store_messages(&self, messages: Vec<Message>) {
+        let mut write_cache_guard = self
+            .cache
+            .write()
+            .unwrap_or_else(|poison| vortex_panic!("Failed to write to message cache: {poison}"));
+        for Message(message_id, buf) in messages {
+            write_cache_guard.set(message_id, buf);
+        }
+    }
+
+    fn gather_read_messages(
+        &mut self,
+        cx: &mut Context<'_>,
+    ) -> VortexResult<(Vec<MessageLocator>, bool)> {
+        let mut to_read = Vec::with_capacity(NUM_TO_COALESCE);
+        let mut read_more_count = 0;
+
+        // Poll all queued pending masks to see if we can make progress
+        for queued_res in self.queued.iter_mut() {
+            match queued_res {
+                RowMaskState::Pending(pending_mask) => {
+                    if let Some(pending_read) = self.row_mask_reader.read_mask(pending_mask)? {
+                        match pending_read {
+                            MessageRead::ReadMore(m) => {
+                                to_read.extend(m);
+                                read_more_count += 1;
+                            }
+                            MessageRead::Value(v) => {
+                                *queued_res = RowMaskState::Ready(v);
+                            }
+                        }
+                    } else {
+                        *queued_res = RowMaskState::Empty;
+                    }
+                }
+                RowMaskState::Ready(_) => {}
+                RowMaskState::Empty => {}
+            }
+        }
+
+        let mut exhausted = false;
+        while read_more_count < NUM_TO_COALESCE {
+            match self.values_iter.poll_next_unpin(cx) {
+                Poll::Ready(Some(Ok(next_mask))) => {
+                    if let Some(read_result) = self.row_mask_reader.read_mask(&next_mask)? {
+                        match read_result {
+                            MessageRead::ReadMore(m) => {
+                                self.queued.push_back(RowMaskState::Pending(next_mask));
+                                to_read.extend(m);
+                                read_more_count += 1;
+                            }
+                            MessageRead::Value(v) => {
+                                self.queued.push_back(RowMaskState::Ready(v));
+                            }
+                        }
+                    }
+                }
+                Poll::Ready(Some(Err(e))) => {
+                    return Err(e);
+                }
+                Poll::Ready(None) => {
+                    exhausted = true;
+                    break;
+                }
+                Poll::Pending => {
+                    break;
+                }
+            }
+        }
+        Ok((to_read, exhausted))
+    }
+
+    fn dispatch_messages(
+        &self,
+        messages: Vec<MessageLocator>,
+        waker: Waker,
+    ) -> BoxFuture<'static, io::Result<Vec<Message>>> {
+        let reader = self.io_read.clone();
+        self.dispatcher
+            .dispatch(move || async move {
+                let read_messages = reader
+                    .read_byte_ranges(messages.iter().map(|msg| msg.1.to_range()).collect())
+                    .map(move |read_res| {
+                        Ok(messages
+                            .into_iter()
+                            .map(|loc| loc.0)
+                            .zip(read_res?)
+                            .map(|(loc, bytes)| Message(loc, bytes))
+                            .collect())
+                    })
+                    .await;
+                waker.wake();
+                read_messages
+            })
+            .vortex_expect("Async task dispatch")
+            .map(|res| res.unwrap_or_else(|e| Err(io::Error::new(ErrorKind::Other, e))))
+            .boxed()
+    }
+}
+
+impl<R, S, V, RM> Stream for Coalescer<R, S, V, RM>
+where
+    R: VortexReadAt + Unpin,
+    S: Stream<Item = VortexResult<RowMask>> + Unpin,
+    RM: RowMaskReader<V> + Unpin,
+    V: Unpin,
+{
+    type Item = VortexResult<V>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let exhausted = if let Some(in_flight) = &mut self.in_flight {
+            match in_flight.poll_unpin(cx) {
+                Poll::Ready(msgs) => {
+                    self.store_messages(
+                        msgs.map_err(|e| vortex_err!("Cancelled in flight read {e}"))?,
+                    );
+                    let (messages, exhausted) = self.gather_read_messages(cx)?;
+                    if !messages.is_empty() {
+                        self.in_flight = Some(self.dispatch_messages(messages, cx.waker().clone()));
+                    } else {
+                        self.in_flight = None;
+                    }
+                    exhausted
+                }
+                // If read is pending see if we have any available results
+                Poll::Pending => false,
+            }
+        } else {
+            let (messages, exhausted) = self.gather_read_messages(cx)?;
+            if !messages.is_empty() {
+                self.in_flight = Some(self.dispatch_messages(messages, cx.waker().clone()));
+            }
+            exhausted
+        };
+
+        while let Some(next_mask) = self.queued.pop_front() {
+            match next_mask {
+                RowMaskState::Pending(m) => {
+                    self.queued.push_front(RowMaskState::Pending(m));
+                    return Poll::Pending;
+                }
+                RowMaskState::Ready(next_ready) => return Poll::Ready(Some(Ok(next_ready))),
+                RowMaskState::Empty => continue,
+            }
+        }
+
+        if exhausted {
+            Poll::Ready(None)
+        } else {
+            Poll::Pending
+        }
+    }
+}
