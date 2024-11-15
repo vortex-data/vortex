@@ -6,7 +6,9 @@ use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 
-use arrow_array::RecordBatchReader;
+use arrow_array::{RecordBatch, RecordBatchReader};
+use datafusion::prelude::SessionContext;
+use datafusion_physical_plan::collect;
 use itertools::Itertools;
 use log::LevelFilter;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
@@ -192,6 +194,15 @@ pub struct CompressionRunResults {
     pub column_type: String,
     pub compressed_size: u64,
     pub total_compressed_size: Option<u64>,
+}
+
+pub async fn execute_query(ctx: &SessionContext, query: &str) -> anyhow::Result<Vec<RecordBatch>> {
+    let plan = ctx.sql(query).await?;
+    let (state, plan) = plan.into_parts();
+    let optimized = state.optimize(&plan)?;
+    let physical_plan = state.create_physical_plan(&optimized).await?;
+    let result = collect(physical_plan.clone(), state.task_ctx()).await?;
+    Ok(result)
 }
 
 #[cfg(test)]
