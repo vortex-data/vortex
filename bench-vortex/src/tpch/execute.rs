@@ -46,7 +46,9 @@ pub async fn execute_query(ctx: &SessionContext, query: &str) -> Result<Vec<Reco
     let plan = ctx.sql(query).await?;
     let (state, plan) = plan.into_parts();
     let optimized = state.optimize(&plan)?;
+    // println!("{}", optimized.display());
     let physical_plan = state.create_physical_plan(&optimized).await?;
+    // println!("{:#?}", physical_plan);
     let result = collect(physical_plan.clone(), state.task_ctx()).await?;
     Ok(result)
 }

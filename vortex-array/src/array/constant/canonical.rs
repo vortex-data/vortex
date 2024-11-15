@@ -57,7 +57,6 @@ impl IntoCanonical for ConstantArray {
             DType::List(..) => vortex_bail!("Unsupported scalar type {}", self.dtype()),
             DType::Extension(ext_dtype) => {
                 let s = ExtScalar::try_from(scalar)?;
-
                 let storage_dtype = ext_dtype.storage_dtype();
                 let storage_scalar = Scalar::new(storage_dtype.clone(), s.value().clone());
                 let storage_array = ConstantArray::new(storage_scalar, self.len()).into_array();
