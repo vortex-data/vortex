@@ -37,35 +37,36 @@ impl Display for RoaringBoolMetadata {
 
 impl RoaringBoolArray {
     pub fn try_new(bitmap: Bitmap, length: usize) -> VortexResult<Self> {
-        if length < bitmap.cardinality() as usize {
-            vortex_bail!("RoaringBoolArray length is less than bitmap cardinality")
-        } else {
-            let roaring_stats = bitmap.statistics();
-            let stats = StatsSet::from(HashMap::from([
-                (
-                    Stat::Min,
-                    (roaring_stats.cardinality == length as u64).into(),
-                ),
-                (Stat::Max, (roaring_stats.cardinality > 0).into()),
-                (
-                    Stat::IsConstant,
-                    (roaring_stats.cardinality == length as u64 || roaring_stats.cardinality == 0)
-                        .into(),
-                ),
-                (Stat::TrueCount, roaring_stats.cardinality.into()),
-            ]));
-
-            Ok(Self {
-                typed: TypedArray::try_from_parts(
-                    DType::Bool(NonNullable),
-                    length,
-                    RoaringBoolMetadata,
-                    Some(Buffer::from(bitmap.serialize::<Native>())),
-                    vec![].into(),
-                    stats,
-                )?,
-            })
+        let max_set = bitmap.maximum().unwrap_or(0) as usize;
+        if length < max_set {
+            vortex_bail!("RoaringBoolArray length is less than bitmap maximum {}", max_set)
         }
+
+        let roaring_stats = bitmap.statistics();
+        let stats = StatsSet::from(HashMap::from([
+            (
+                Stat::Min,
+                (roaring_stats.cardinality == length as u64).into(),
+            ),
+            (Stat::Max, (roaring_stats.cardinality > 0).into()),
+            (
+                Stat::IsConstant,
+                (roaring_stats.cardinality == length as u64 || roaring_stats.cardinality == 0)
+                    .into(),
+            ),
+            (Stat::TrueCount, roaring_stats.cardinality.into()),
+        ]));
+
+        Ok(Self {
+            typed: TypedArray::try_from_parts(
+                DType::Bool(NonNullable),
+                length,
+                RoaringBoolMetadata,
+                Some(Buffer::from(bitmap.serialize::<Native>())),
+                vec![].into(),
+                stats,
+            )?,
+        })
     }
 
     pub fn bitmap(&self) -> Bitmap {

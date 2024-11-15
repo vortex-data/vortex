@@ -52,7 +52,7 @@ impl RunEndBoolArray {
         if !ends
             .statistics()
             .compute_is_strict_sorted()
-            .unwrap_or(false)
+            .unwrap_or(true)
         {
             vortex_bail!("Ends array must be strictly sorted",);
         }
@@ -62,19 +62,15 @@ impl RunEndBoolArray {
                 ends.dtype()
             );
         }
-        if ends.is_empty() {
-            vortex_bail!("Ends array must have at least one element");
+        if ends.is_empty() && length != 0 {
+            vortex_bail!("Ends array cannot be empty when length ({}) is not zero", length);
         }
 
-        let ends_len = ends.len();
-        let last_end: usize = scalar_at(&ends, ends_len - 1)?.as_ref().try_into()?;
-        if last_end - offset != length {
-            vortex_bail!(
-                "Ends array with last end {} and offset {} does not match expected length {}",
-                last_end,
-                offset,
-                length
-            );
+        if offset != 0 {
+            let first_run_end: usize = scalar_at(&ends, 0)?.as_ref().try_into()?;
+            if first_run_end <= offset {
+                vortex_bail!("First run end {first_run_end} must be bigger than offset {offset}");
+            }
         }
 
         let dtype = DType::Bool(validity.nullability());
@@ -88,6 +84,7 @@ impl RunEndBoolArray {
         };
 
         let stats = if matches!(validity, Validity::AllValid | Validity::NonNullable) {
+            let ends_len = ends.len();
             let is_constant = ends_len <= 1;
             let is_sorted = is_constant || (!start && ends_len == 2);
             let is_strict_sorted =
