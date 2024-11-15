@@ -151,7 +151,10 @@ mod tests {
         println!("prim_col num chunks: {}", prim_col.nchunks());
         for chunk in prim_col.chunks() {
             assert_eq!(chunk.encoding().id(), FoR::ID);
-            assert_eq!(chunk.statistics().get(Stat::UncompressedSizeInBytes), Some(Scalar::from((chunk.len() * 8) as u64)));
+            assert_eq!(
+                chunk.statistics().get(Stat::UncompressedSizeInBytes),
+                Some(Scalar::from((chunk.len() * 8) as u64))
+            );
         }
 
         let bool_col: ChunkedArray = struct_array
@@ -161,7 +164,10 @@ mod tests {
             .unwrap();
         for chunk in bool_col.chunks() {
             assert_eq!(chunk.encoding().id(), Bool::ID);
-            assert_eq!(chunk.statistics().get(Stat::UncompressedSizeInBytes), Some(Scalar::from(chunk.len().div_ceil(8) as u64)));
+            assert_eq!(
+                chunk.statistics().get(Stat::UncompressedSizeInBytes),
+                Some(Scalar::from(chunk.len().div_ceil(8) as u64))
+            );
         }
 
         let varbin_col: ChunkedArray = struct_array
@@ -171,7 +177,10 @@ mod tests {
             .unwrap();
         for chunk in varbin_col.chunks() {
             assert!(chunk.encoding().id() == Dict::ID || chunk.encoding().id() == FSST::ID);
-            assert_eq!(chunk.statistics().get(Stat::UncompressedSizeInBytes), Some(Scalar::from((chunk_size / 4 * 21 + chunk_size * 4) as u64)));
+            assert_eq!(
+                chunk.statistics().get(Stat::UncompressedSizeInBytes),
+                Some(Scalar::from((chunk_size / 4 * 21 + chunk_size * 4) as u64))
+            );
         }
 
         let binary_col: ChunkedArray = struct_array

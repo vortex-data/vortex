@@ -194,13 +194,13 @@ impl AcceptArrayVisitor for StructArray {
 impl ArrayStatisticsCompute for StructArray {
     fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
         Ok(match stat {
-            Stat::UncompressedSizeInBytes => 
-                self.children()
-                    .map(|f| f.statistics().compute_uncompressed_size_in_bytes())
-                    .reduce(|acc, field_size| acc.zip(field_size).map(|(a, b)| a + b))
-                    .flatten()
-                    .map(|size| StatsSet::of(stat, size))
-                    .unwrap_or_else(StatsSet::new),
+            Stat::UncompressedSizeInBytes => self
+                .children()
+                .map(|f| f.statistics().compute_uncompressed_size_in_bytes())
+                .reduce(|acc, field_size| acc.zip(field_size).map(|(a, b)| a + b))
+                .flatten()
+                .map(|size| StatsSet::of(stat, size))
+                .unwrap_or_else(StatsSet::new),
             Stat::NullCount => StatsSet::of(stat, self.validity().null_count(self.len())?),
             _ => StatsSet::new(),
         })
