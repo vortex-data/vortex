@@ -13,12 +13,12 @@ use crate::{ArrayDType, ArrayTrait as _, IntoArrayVariant};
 
 impl ArrayStatisticsCompute for BoolArray {
     fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
-        if self.is_empty() {
-            return Ok(StatsSet::new());
-        }
-
         if stat == Stat::UncompressedSizeInBytes {
             return Ok(StatsSet::of(stat, self.nbytes()));
+        }
+
+        if self.is_empty() {
+            return Ok(StatsSet::new());
         }
 
         match self.logical_validity() {
