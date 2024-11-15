@@ -8,8 +8,7 @@ use vortex_scalar::{BinaryScalar, BoolScalar, ExtScalar, Scalar, Utf8Scalar};
 use crate::array::constant::ConstantArray;
 use crate::array::primitive::PrimitiveArray;
 use crate::array::{
-    BinaryView, BoolArray, ExtensionArray, ExtensionArray, NullArray, VarBinViewArray,
-    VIEW_SIZE_BYTES,
+    BinaryView, BoolArray, ExtensionArray, NullArray, VarBinViewArray, VIEW_SIZE_BYTES,
 };
 use crate::validity::Validity;
 use crate::{ArrayDType, Canonical, IntoArrayData, IntoCanonical};
@@ -68,7 +67,7 @@ impl IntoCanonical for ConstantArray {
 
         if let Ok(s) = ExtScalar::try_from(scalar) {
             let DType::Extension(ext_dtype) = s.dtype() else {
-                unreachable!()
+                unreachable!("ExtScalar has a non-ext dtype {:?}", s.dtype());
             };
 
             let storage_dtype = ext_dtype.storage_dtype();
