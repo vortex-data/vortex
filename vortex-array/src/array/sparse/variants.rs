@@ -123,11 +123,11 @@ impl StructArrayTrait for SparseArray {
 impl ListArrayTrait for SparseArray {}
 
 impl ExtensionArrayTrait for SparseArray {
-    fn storage_array(&self) -> ArrayData {
+    fn storage_data(&self) -> ArrayData {
         SparseArray::try_new_with_offset(
             self.indices().clone(),
             self.values()
-                .with_dyn(|a| a.as_extension_array_unchecked().storage_array()),
+                .with_dyn(|a| a.as_extension_array_unchecked().storage_data()),
             self.len(),
             self.indices_offset(),
             self.fill_value().clone(),
