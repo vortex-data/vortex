@@ -68,11 +68,17 @@ impl<T: PStatsType> ArrayStatisticsCompute for &[T] {
         if stat == Stat::IsConstant {
             let first = self[0];
             let is_constant = self.iter().all(|x| first.is_eq(*x));
-            return Ok(StatsSet::from(HashMap::from([(Stat::IsConstant, is_constant.into())])));
+            return Ok(StatsSet::from(HashMap::from([(
+                Stat::IsConstant,
+                is_constant.into(),
+            )])));
         }
 
         if stat == Stat::NullCount {
-            return Ok(StatsSet::from(HashMap::from([(Stat::NullCount, 0u64.into())])));
+            return Ok(StatsSet::from(HashMap::from([(
+                Stat::NullCount,
+                0u64.into(),
+            )])));
         }
 
         if stat == Stat::IsSorted {
@@ -87,9 +93,15 @@ impl<T: PStatsType> ArrayStatisticsCompute for &[T] {
             }
 
             if sorted {
-                return Ok(StatsSet::from(HashMap::from([(Stat::IsSorted, true.into())])));
+                return Ok(StatsSet::from(HashMap::from([(
+                    Stat::IsSorted,
+                    true.into(),
+                )])));
             } else {
-                return Ok(StatsSet::from(HashMap::from([(Stat::IsSorted, false.into()), (Stat::IsStrictSorted, false.into())])));
+                return Ok(StatsSet::from(HashMap::from([
+                    (Stat::IsSorted, false.into()),
+                    (Stat::IsStrictSorted, false.into()),
+                ])));
             }
         }
 
@@ -105,9 +117,15 @@ impl<T: PStatsType> ArrayStatisticsCompute for &[T] {
             }
 
             if strict_sorted {
-                return Ok(StatsSet::from(HashMap::from([(Stat::IsSorted, true.into()), (Stat::IsStrictSorted, true.into())])));
+                return Ok(StatsSet::from(HashMap::from([
+                    (Stat::IsSorted, true.into()),
+                    (Stat::IsStrictSorted, true.into()),
+                ])));
             } else {
-                return Ok(StatsSet::from(HashMap::from([(Stat::IsStrictSorted, false.into())])));
+                return Ok(StatsSet::from(HashMap::from([(
+                    Stat::IsStrictSorted,
+                    false.into(),
+                )])));
             }
         }
 
@@ -120,7 +138,10 @@ impl<T: PStatsType> ArrayStatisticsCompute for &[T] {
                     prev = *next;
                 }
             }
-            return Ok(StatsSet::from(HashMap::from([(Stat::RunCount, run_count.into())])));
+            return Ok(StatsSet::from(HashMap::from([(
+                Stat::RunCount,
+                run_count.into(),
+            )])));
         }
 
         if stat == Stat::BitWidthFreq || stat == Stat::TrailingZeroFreq {
@@ -153,12 +174,18 @@ impl<T: PStatsType> ArrayStatisticsCompute for NullableValues<'_, T> {
         }
 
         if stat == Stat::NullCount {
-            return Ok(StatsSet::from(HashMap::from([(Stat::NullCount, (values.len() - self.1.count_set_bits()).into())])));
+            return Ok(StatsSet::from(HashMap::from([(
+                Stat::NullCount,
+                (values.len() - self.1.count_set_bits()).into(),
+            )])));
         }
 
         let mut set_indices = self.1.set_indices();
         let Some(first_non_null) = set_indices.next() else {
-            return Ok(StatsSet::nulls(values.len(), &DType::Primitive(T::PTYPE, Nullability::Nullable)));
+            return Ok(StatsSet::nulls(
+                values.len(),
+                &DType::Primitive(T::PTYPE, Nullability::Nullable),
+            ));
         };
 
         accumulate_stats!(stat, |$ACC| {
