@@ -6,7 +6,6 @@ use std::hash::{Hash, Hasher};
 use vortex_error::{vortex_panic, VortexResult};
 
 use crate::canonical::{Canonical, IntoCanonical};
-use crate::stats::ArrayStatistics as _;
 use crate::{Array, ArrayDef, ArrayTrait};
 
 pub mod opaque;
@@ -78,17 +77,8 @@ pub trait ArrayEncodingExt {
     type D: ArrayDef;
 
     fn into_canonical(array: Array) -> VortexResult<Canonical> {
-        // get the stats before converting to the typed array
-        let stats = array.statistics().to_set();
-
         let typed = <<Self::D as ArrayDef>::Array as TryFrom<Array>>::try_from(array)?;
-        let canonical = IntoCanonical::into_canonical(typed)?;
-
-        // propagate the stats to the canonicalized array
-        for (stat, scalar) in stats {
-            canonical.statistics().set(stat, scalar);
-        }
-        Ok(canonical)
+        IntoCanonical::into_canonical(typed)
     }
 
     fn with_dyn<R, F>(array: &Array, mut f: F) -> R
