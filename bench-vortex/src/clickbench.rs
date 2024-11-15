@@ -15,7 +15,7 @@ use vortex::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_datafusion::persistent::config::{VortexFile, VortexTableOptions};
 use vortex_datafusion::SessionContextExt;
 
-use crate::{idempotent_async, CTX, TARGET_BLOCK_BYTESIZE, TARGET_BLOCK_SIZE};
+use crate::{idempotent_async, CTX};
 
 pub static HITS_SCHEMA: LazyLock<Schema> = LazyLock::new(|| {
     use DataType::*;
@@ -139,22 +139,17 @@ pub static HITS_SCHEMA: LazyLock<Schema> = LazyLock::new(|| {
 pub async fn register_vortex_file(
     session: &SessionContext,
     table_name: &str,
-    file: &Path,
+    input_file: &Path,
     schema: &Schema,
-    enable_compression: bool,
 ) -> anyhow::Result<()> {
-    let vortex_dir = file.parent().unwrap().join(if enable_compression {
-        "vortex_compressed"
-    } else {
-        "vortex_uncompressed"
-    });
+    let vortex_dir = input_file.parent().unwrap().join("vortex_compressed");
     create_dir_all(&vortex_dir).await?;
     let output_file = &vortex_dir
-        .join(file.file_name().unwrap())
+        .join(input_file.file_name().unwrap())
         .with_extension(VORTEX_FILE_EXTENSION);
     let vtx_file = idempotent_async(output_file, |vtx_file| async move {
         let record_batches = session
-            .read_parquet(file.to_str().unwrap(), ParquetReadOptions::default())
+            .read_parquet(input_file.to_str().unwrap(), ParquetReadOptions::default())
             .await?
             .collect()
             .await?;
@@ -190,12 +185,7 @@ pub async fn register_vortex_file(
                 let name: Arc<str> = field.name().to_ascii_lowercase().as_str().into();
                 let dtype = types_map[&name].clone();
                 let chunks = arrays_map.remove(&name).unwrap();
-                let mut chunked_child = ChunkedArray::try_new(chunks, dtype).unwrap();
-                if !enable_compression {
-                    chunked_child = chunked_child
-                        .rechunk(TARGET_BLOCK_BYTESIZE, TARGET_BLOCK_SIZE)
-                        .unwrap()
-                }
+                let chunked_child = ChunkedArray::try_new(chunks, dtype).unwrap();
 
                 (name, chunked_child.into_array())
             })
@@ -203,12 +193,8 @@ pub async fn register_vortex_file(
 
         let data = StructArray::from_fields(&fields)?.into_array();
 
-        let data = if enable_compression {
-            let compressor = SamplingCompressor::default();
-            compressor.compress(&data, None)?.into_array()
-        } else {
-            data
-        };
+        let compressor = SamplingCompressor::default();
+        let data = compressor.compress(&data, None)?.into_array();
 
         let f = OpenOptions::new()
             .write(true)
