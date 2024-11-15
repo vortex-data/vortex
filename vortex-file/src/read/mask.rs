@@ -121,12 +121,24 @@ impl RowMask {
 
     /// Combine the RowMask with bitmask values resulting in new RowMask containing only values true in the bitmask
     pub fn and_bitmask(self, bitmask: Array) -> VortexResult<Self> {
-        // TODO(robert): Avoid densifying sparse values just to get true indices
-        let sparse_mask =
-            SparseArray::try_new(self.to_indices_array()?, bitmask, self.len(), false.into())?
-                .into_array()
-                .into_bool()?;
-        Self::from_mask_array(sparse_mask.as_ref(), self.begin(), self.end())
+        // If we are a dense all true bitmap just take the bitmask array
+        if self.len() as u64 == self.values.cardinality() {
+            if bitmask.len() != self.len() {
+                vortex_bail!(
+                    "Bitmask length {} does not match our length {}",
+                    bitmask.len(),
+                    self.values.cardinality()
+                );
+            }
+            Self::from_mask_array(&bitmask, self.begin, self.end)
+        } else {
+            // TODO(robert): Avoid densifying sparse values just to get true indices
+            let sparse_mask =
+                SparseArray::try_new(self.to_indices_array()?, bitmask, self.len(), false.into())?
+                    .into_array()
+                    .into_bool()?;
+            Self::from_mask_array(sparse_mask.as_ref(), self.begin(), self.end())
+        }
     }
 
     pub fn is_empty(&self) -> bool {
