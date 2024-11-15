@@ -103,6 +103,8 @@ pub trait Statistics {
 
 pub trait ArrayStatistics {
     fn statistics(&self) -> &dyn Statistics;
+
+    fn inherit_statistics(&self, parent: &dyn Statistics);
 }
 
 pub trait ArrayStatisticsCompute {

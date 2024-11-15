@@ -1,12 +1,13 @@
 use std::fmt::{Debug, Display};
 
 use serde::{Deserialize, Serialize};
+use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use vortex_array::array::PrimitiveArray;
 use vortex_array::compute::unary::scalar_at;
 use vortex_array::compute::{search_sorted, search_sorted_u64_many, SearchSortedSide};
 use vortex_array::encoding::ids;
-use vortex_array::stats::{ArrayStatistics, ArrayStatisticsCompute, StatsSet};
+use vortex_array::stats::{ArrayStatistics, ArrayStatisticsCompute, Stat, StatsSet};
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
 use vortex_array::variants::{ArrayVariants, PrimitiveArrayTrait};
 use vortex_array::{
@@ -15,6 +16,7 @@ use vortex_array::{
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
+use vortex_scalar::Scalar;
 
 use crate::compress::{runend_decode, runend_encode};
 
@@ -81,6 +83,19 @@ impl RunEndArray {
             offset,
         };
 
+        let stats = if matches!(validity, Validity::AllValid | Validity::NonNullable) {
+            let ends_len = ends.len();
+            let is_constant = ends_len <= 1;
+            StatsSet::from(HashMap::from([
+                (Stat::IsConstant, is_constant.into()),
+                (Stat::RunCount, (ends_len as u64).into()),
+            ]))
+        } else if matches!(validity, Validity::AllInvalid) {
+            StatsSet::nulls(length, &dtype)
+        } else {
+            StatsSet::new()
+        };
+
         let mut children = Vec::with_capacity(3);
         children.push(ends);
         children.push(values);
@@ -88,7 +103,7 @@ impl RunEndArray {
             children.push(a)
         }
 
-        Self::try_from_parts(dtype, length, metadata, children.into(), StatsSet::new())
+        Self::try_from_parts(dtype, length, metadata, children.into(), stats)
     }
 
     /// Convert the given logical index to an index into the `values` array
@@ -205,7 +220,28 @@ impl AcceptArrayVisitor for RunEndArray {
     }
 }
 
-impl ArrayStatisticsCompute for RunEndArray {}
+impl ArrayStatisticsCompute for RunEndArray {
+    fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
+        let maybe_stat = match stat {
+            Stat::Min | Stat::Max => self.values().statistics().compute(stat),
+            Stat::NullCount => Some(Scalar::from(self.validity().null_count(self.len())?)),
+            Stat::IsSorted => Some(Scalar::from(
+                self.values()
+                    .statistics()
+                    .compute_is_sorted()
+                    .unwrap_or(false)
+                    && self.logical_validity().all_valid(),
+            )),
+            _ => None,
+        };
+
+        let mut stats = StatsSet::new();
+        if let Some(stat_value) = maybe_stat {
+            stats.set(stat, stat_value);
+        }
+        Ok(stats)
+    }
+}
 
 #[cfg(test)]
 mod tests {

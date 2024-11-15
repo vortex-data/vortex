@@ -196,17 +196,10 @@ impl<'a> CompressedArray<'a> {
     ) -> Self {
         if let Some(original_array) = original_array {
             let original_array = original_array.as_ref();
-            let stats = original_array.statistics();
-
-            // propagate existing stats
-            let mut has_size = false;
-            for (stat, value) in stats.to_set().into_iter() {
-                has_size |= stat == Stat::UncompressedSizeInBytes;
-                compressed_array.statistics().set(stat, value);
-            }
+            compressed_array.inherit_statistics(original_array.statistics());
 
             // ensure that we compute uncompressed size in bytes
-            if !has_size {
+            if compressed_array.statistics().get(Stat::UncompressedSizeInBytes).is_none() {
                 compressed_array.statistics().set(
                     Stat::UncompressedSizeInBytes,
                     original_array.nbytes().into(),

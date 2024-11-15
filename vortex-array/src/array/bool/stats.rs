@@ -4,7 +4,6 @@ use arrow_buffer::BooleanBuffer;
 use itertools::Itertools;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
 use crate::aliases::hash_map::HashMap;
 use crate::array::BoolArray;
@@ -39,7 +38,7 @@ impl ArrayStatisticsCompute for NullableBools<'_> {
             stat,
             Stat::TrueCount | Stat::Min | Stat::Max | Stat::IsConstant
         ) {
-            return Ok(true_count_stats(
+            return Ok(StatsSet::bools_with_true_count(
                 self.0.bitand(self.1).count_set_bits(),
                 self.0.len(),
             ));
@@ -79,25 +78,16 @@ impl ArrayStatisticsCompute for BooleanBuffer {
             stat,
             Stat::TrueCount | Stat::Min | Stat::Max | Stat::IsConstant
         ) {
-            return Ok(true_count_stats(self.count_set_bits(), self.len()));
+            return Ok(StatsSet::bools_with_true_count(
+                self.count_set_bits(),
+                self.len(),
+            ));
         }
 
         let mut stats = BoolStatsAccumulator::new(self.value(0));
         self.iter().skip(1).for_each(|next| stats.next(next));
         Ok(stats.finish())
     }
-}
-
-fn true_count_stats(true_count: usize, len: usize) -> StatsSet {
-    StatsSet::from(HashMap::<Stat, Scalar>::from([
-        (Stat::TrueCount, true_count.into()),
-        (Stat::Min, (true_count == len).into()),
-        (Stat::Max, (true_count > 0).into()),
-        (
-            Stat::IsConstant,
-            (true_count == 0 || true_count == len).into(),
-        ),
-    ]))
 }
 
 struct BoolStatsAccumulator {

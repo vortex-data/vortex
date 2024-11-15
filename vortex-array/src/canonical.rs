@@ -378,6 +378,19 @@ impl From<Canonical> for Array {
     }
 }
 
+impl AsRef<Array> for Canonical {
+    fn as_ref(&self) -> &Array {
+        match self {
+            Canonical::Null(a) => a.as_ref(),
+            Canonical::Bool(a) => a.as_ref(),
+            Canonical::Primitive(a) => a.as_ref(),
+            Canonical::Struct(a) => a.as_ref(),
+            Canonical::VarBinView(a) => a.as_ref(),
+            Canonical::Extension(a) => a.as_ref(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use std::sync::Arc;
