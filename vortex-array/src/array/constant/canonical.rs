@@ -2,7 +2,7 @@ use arrow_array::builder::make_view;
 use arrow_buffer::{BooleanBuffer, BufferBuilder};
 use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_native_ptype, DType, Nullability, PType};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{vortex_bail, vortex_panic, VortexResult};
 use vortex_scalar::{BinaryScalar, BoolScalar, ExtScalar, Scalar, Utf8Scalar};
 
 use crate::array::constant::ConstantArray;
@@ -67,7 +67,7 @@ impl IntoCanonical for ConstantArray {
 
         if let Ok(s) = ExtScalar::try_from(scalar) {
             let DType::Extension(ext_dtype) = s.dtype() else {
-                unreachable!("ExtScalar has a non-ext dtype {}", s.dtype());
+                vortex_panic!("ExtScalar has a non-ext dtype {}", s.dtype());
             };
 
             let storage_dtype = ext_dtype.storage_dtype();
