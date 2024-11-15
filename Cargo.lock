@@ -4954,6 +4954,7 @@ dependencies = [
  "vortex-roaring",
  "vortex-runend",
  "vortex-runend-bool",
+ "vortex-scalar",
  "vortex-zigzag",
 ]
 

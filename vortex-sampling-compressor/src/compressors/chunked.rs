@@ -158,7 +158,7 @@ impl ChunkedCompressor {
                 vec![child],
                 Arc::new(ChunkedCompressorMetadata(ratio)),
             )),
-            Some(array),
+            Some(less_chunked),
         ))
     }
 }

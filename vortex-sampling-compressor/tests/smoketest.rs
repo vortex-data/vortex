@@ -22,6 +22,7 @@ use vortex_sampling_compressor::{CompressConfig, SamplingCompressor};
 #[cfg(test)]
 mod tests {
     use vortex_array::array::{Bool, ChunkedArray, VarBin};
+    use vortex_array::stats::{ArrayStatistics, Stat};
     use vortex_array::variants::{ArrayVariants, StructArrayTrait};
     use vortex_array::ArrayDef;
     use vortex_datetime_dtype::TimeUnit;
@@ -33,6 +34,7 @@ mod tests {
     use vortex_sampling_compressor::compressors::bitpacked::BITPACK_WITH_PATCHES;
     use vortex_sampling_compressor::compressors::delta::DeltaCompressor;
     use vortex_sampling_compressor::compressors::fsst::FSSTCompressor;
+    use vortex_scalar::Scalar;
 
     use super::*;
 
@@ -145,8 +147,10 @@ mod tests {
             .unwrap()
             .try_into()
             .unwrap();
+        println!("prim_col num chunks: {}", prim_col.nchunks());
         for chunk in prim_col.chunks() {
             assert_eq!(chunk.encoding().id(), FoR::ID);
+            assert_eq!(chunk.statistics().get(Stat::UncompressedSizeInBytes), Some(Scalar::from((chunk.len() * 8) as u64)));
         }
 
         let bool_col: ChunkedArray = struct_array
@@ -156,6 +160,7 @@ mod tests {
             .unwrap();
         for chunk in bool_col.chunks() {
             assert_eq!(chunk.encoding().id(), Bool::ID);
+            assert_eq!(chunk.statistics().get(Stat::UncompressedSizeInBytes), Some(Scalar::from(chunk.len().div_ceil(8) as u64)));
         }
 
         let varbin_col: ChunkedArray = struct_array
@@ -165,6 +170,7 @@ mod tests {
             .unwrap();
         for chunk in varbin_col.chunks() {
             assert!(chunk.encoding().id() == Dict::ID || chunk.encoding().id() == FSST::ID);
+            assert_eq!(chunk.statistics().get(Stat::UncompressedSizeInBytes), Some(Scalar::from((chunk_size / 4 * 21 + chunk_size * 4) as u64)));
         }
 
         let binary_col: ChunkedArray = struct_array
