@@ -5,6 +5,8 @@ use crate::stats::{ArrayStatistics, ArrayStatisticsCompute, Stat, StatsSet};
 
 impl ArrayStatisticsCompute for ChunkedArray {
     fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
+        // NB: for UncompressedSizeInBytes, we end up with sum of chunk uncompressed sizes
+        // this ignores the `chunk_offsets` array child, so it won't exactly match self.nbytes()
         let stats = self
             .chunks()
             .map(|c| {
@@ -17,13 +19,6 @@ impl ArrayStatisticsCompute for ChunkedArray {
                 acc
             })
             .unwrap_or_default();
-        // if let Some(uncompressed_size) = stats.get_as::<u64>(Stat::UncompressedSizeInBytes) {
-        //     if let Some(offsets_size) = self.chunk_offsets().statistics().compute_uncompressed_size_in_bytes() {
-        //         stats.set(Stat::UncompressedSizeInBytes, (uncompressed_size + offsets_size as u64).into());
-        //     } else {
-        //         stats.remove(Stat::UncompressedSizeInBytes);
-        //     }
-        // }
         Ok(stats)
     }
 }
