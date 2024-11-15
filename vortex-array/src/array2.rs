@@ -66,8 +66,8 @@ impl ArrayImpl for ArrayData {
 
 pub struct EncodingVTable {
     id: &'static str,
-    into_canonical: &'static dyn Fn(ArrayData) -> VortexResult<Canonical>,
-    is_valid: &'static dyn Fn(&ArrayData, usize) -> VortexResult<bool>,
+    into_canonical: fn(data: ArrayData) -> VortexResult<Canonical>,
+    is_valid: fn(data: &ArrayData, idx: usize) -> VortexResult<bool>,
 }
 
 // A Vortex array is a typed wrapper around an ArrayData.
@@ -118,10 +118,10 @@ type BoolArray = Array<BoolEncoding>;
 // I don't really want a different trait for borrowed and owned functions, but maybe it's necessary.
 pub const BOOL_VTABLE: EncodingVTable = EncodingVTable {
     id: "vortex.bool",
-    into_canonical: &|data| {
+    into_canonical: |data| {
         <Array<BoolEncoding> as TryFrom<ArrayData>>::try_from(data).and_then(|a| a.into_canonical())
     },
-    is_valid: &|data, idx| {
+    is_valid: |data, idx| {
         <&Array<BoolEncoding> as TryFrom<&ArrayData>>::try_from(data).and_then(|a| a.is_valid(idx))
     },
 };

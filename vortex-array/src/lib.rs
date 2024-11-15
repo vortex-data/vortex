@@ -13,6 +13,7 @@ use std::borrow::Cow;
 use std::fmt::{Debug, Display, Formatter};
 use std::future::ready;
 
+mod array2;
 pub use canonical::*;
 pub use context::*;
 pub use data::*;
