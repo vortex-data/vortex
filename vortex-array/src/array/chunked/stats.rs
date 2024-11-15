@@ -7,7 +7,7 @@ impl ArrayStatisticsCompute for ChunkedArray {
     fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
         // NB: for UncompressedSizeInBytes, we end up with sum of chunk uncompressed sizes
         // this ignores the `chunk_offsets` array child, so it won't exactly match self.nbytes()
-        let stats = self
+        Ok(self
             .chunks()
             .map(|c| {
                 let s = c.statistics();
@@ -18,7 +18,6 @@ impl ArrayStatisticsCompute for ChunkedArray {
                 acc.merge_ordered(&x);
                 acc
             })
-            .unwrap_or_default();
-        Ok(stats)
+            .unwrap_or_default())
     }
 }

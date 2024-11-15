@@ -132,10 +132,6 @@ impl StatsSet {
         self.values.insert(stat, value);
     }
 
-    pub fn remove(&mut self, stat: Stat) -> Option<Scalar> {
-        self.values.remove(&stat)
-    }
-
     /// Merge stats set `other` into `self`, with the semantic assumption that `other`
     /// contains stats from an array that is *appended* to the array represented by `self`.
     pub fn merge_ordered(&mut self, other: &Self) -> &Self {

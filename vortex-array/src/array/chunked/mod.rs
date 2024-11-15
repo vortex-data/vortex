@@ -49,6 +49,8 @@ impl ChunkedArray {
             if chunk.dtype() != &dtype {
                 vortex_bail!(MismatchedTypes: dtype, chunk.dtype());
             }
+            // NB: we eagerly compute this stat on construction so that `check_statistics_unchanged`
+            // passes after we rechunk in the chunked compressor
             let _ = chunk.statistics().compute_uncompressed_size_in_bytes();
         }
 
@@ -62,13 +64,18 @@ impl ChunkedArray {
             .collect_vec();
 
         let nchunks = chunk_offsets.len() - 1;
-        let length = *chunk_offsets.last().unwrap_or_else(|| {
-            vortex_panic!("Chunk ends is guaranteed to have at least one element")
-        }) as usize;
+        let length = *chunk_offsets
+            .last()
+            .vortex_expect("Chunk ends is guaranteed to have at least one element")
+            as usize;
 
-        let stats = chunks.iter()
+        let stats = chunks
+            .iter()
             .map(|c| c.statistics().to_set())
-            .reduce(|mut acc, stats| { acc.merge_ordered(&stats); acc })
+            .reduce(|mut acc, stats| {
+                acc.merge_ordered(&stats);
+                acc
+            })
             .unwrap_or_default();
 
         let mut children = Vec::with_capacity(chunks.len() + 1);
