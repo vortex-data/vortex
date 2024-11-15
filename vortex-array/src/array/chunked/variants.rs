@@ -60,14 +60,6 @@ impl BoolArrayTrait for ChunkedArray {
             .collect::<VortexResult<Vec<_>>>()?;
         ChunkedArray::try_new(chunks, self.dtype().clone()).map(|a| a.into_array())
     }
-
-    fn maybe_null_indices_iter(&self) -> Box<dyn Iterator<Item = usize>> {
-        todo!()
-    }
-
-    fn maybe_null_slices_iter(&self) -> Box<dyn Iterator<Item = (usize, usize)>> {
-        todo!()
-    }
 }
 
 impl PrimitiveArrayTrait for ChunkedArray {}

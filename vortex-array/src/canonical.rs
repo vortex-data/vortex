@@ -23,6 +23,7 @@ use crate::array::{
     varbinview_as_arrow, BoolArray, ExtensionArray, NullArray, PrimitiveArray, StructArray,
     TemporalArray, VarBinViewArray,
 };
+use crate::arrow::{infer_data_type, FromArrowArray};
 use crate::compute::unary::try_cast;
 use crate::encoding::ArrayEncoding;
 use crate::validity::ArrayValidity;
@@ -86,6 +87,18 @@ impl Canonical {
                 }
             }
         })
+    }
+}
+
+impl Canonical {
+    // Create an empty canonical array of the given dtype.
+    pub fn empty(dtype: &DType) -> VortexResult<Canonical> {
+        let arrow_dtype = infer_data_type(dtype)?;
+        ArrayData::from_arrow(
+            arrow_array::new_empty_array(&arrow_dtype),
+            dtype.is_nullable(),
+        )
+        .into_canonical()
     }
 }
 

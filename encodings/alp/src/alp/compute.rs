@@ -83,7 +83,7 @@ impl SliceFn for ALPArray {
 }
 
 impl FilterFn for ALPArray {
-    fn filter(&self, predicate: &ArrayData) -> VortexResult<ArrayData> {
+    fn filter(&self, mask: &FilterMask) -> VortexResult<ArrayData> {
         Ok(Self::try_new(
             filter(self.encoded(), predicate)?,
             self.exponents(),

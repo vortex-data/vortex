@@ -1,6 +1,5 @@
 use std::fmt::{Debug, Display};
 
-use arrow_buffer::bit_iterator::{BitIndexIterator, BitSliceIterator};
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, MutableBuffer};
 use itertools::Itertools;
 use num_traits::AsPrimitive;
@@ -166,14 +165,6 @@ impl BoolArrayTrait for BoolArray {
     fn invert(&self) -> VortexResult<ArrayData> {
         BoolArray::try_new(!&self.boolean_buffer(), self.validity()).map(|a| a.into_array())
     }
-
-    fn maybe_null_indices_iter<'a>(&'a self) -> Box<dyn Iterator<Item = usize> + 'a> {
-        Box::new(BitIndexIterator::new(self.buffer(), 0, self.len()))
-    }
-
-    fn maybe_null_slices_iter<'a>(&'a self) -> Box<dyn Iterator<Item = (usize, usize)> + 'a> {
-        Box::new(BitSliceIterator::new(self.buffer(), 0, self.len()))
-    }
 }
 
 impl From<BooleanBuffer> for BoolArray {
@@ -233,13 +224,11 @@ impl AcceptArrayVisitor for BoolArray {
 #[cfg(test)]
 mod tests {
     use arrow_buffer::BooleanBuffer;
-    use itertools::Itertools;
 
     use crate::array::BoolArray;
     use crate::compute::slice;
     use crate::compute::unary::scalar_at;
     use crate::validity::Validity;
-    use crate::variants::BoolArrayTrait;
     use crate::{IntoArrayData, IntoArrayVariant};
 
     #[test]
@@ -282,30 +271,6 @@ mod tests {
 
         let scalar = scalar_at(&arr, 4).unwrap();
         assert!(scalar.is_null());
-    }
-
-    #[test]
-    fn constant_iter_true_test() {
-        let arr = BoolArray::from(vec![true, true, true]);
-        assert_eq!(vec![0, 1, 2], arr.maybe_null_indices_iter().collect_vec());
-        assert_eq!(vec![(0, 3)], arr.maybe_null_slices_iter().collect_vec());
-    }
-
-    #[test]
-    fn constant_iter_true_false_test() {
-        let arr = BoolArray::from(vec![true, false, true]);
-        assert_eq!(vec![0, 2], arr.maybe_null_indices_iter().collect_vec());
-        assert_eq!(
-            vec![(0, 1), (2, 3)],
-            arr.maybe_null_slices_iter().collect_vec()
-        );
-    }
-
-    #[test]
-    fn constant_iter_false_test() {
-        let arr = BoolArray::from(vec![false, false, false]);
-        assert_eq!(0, arr.maybe_null_indices_iter().collect_vec().len());
-        assert_eq!(0, arr.maybe_null_slices_iter().collect_vec().len());
     }
 
     #[test]

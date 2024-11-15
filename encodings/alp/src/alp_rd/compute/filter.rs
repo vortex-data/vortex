@@ -5,7 +5,7 @@ use vortex_error::VortexResult;
 use crate::ALPRDArray;
 
 impl FilterFn for ALPRDArray {
-    fn filter(&self, predicate: &ArrayData) -> VortexResult<ArrayData> {
+    fn filter(&self, mask: &FilterMask) -> VortexResult<ArrayData> {
         let left_parts_exceptions = self
             .left_parts_exceptions()
             .map(|array| filter(&array, predicate))

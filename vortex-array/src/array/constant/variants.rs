@@ -1,4 +1,3 @@
-use std::iter;
 use std::sync::Arc;
 
 use vortex_dtype::field::Field;
@@ -58,32 +57,6 @@ impl BoolArrayTrait for ConstantArray {
         match value {
             None => Ok(self.clone().into_array()),
             Some(b) => Ok(ConstantArray::new(!b, self.len()).into_array()),
-        }
-    }
-
-    fn maybe_null_indices_iter(&self) -> Box<dyn Iterator<Item = usize>> {
-        let value = self
-            .scalar_value()
-            .as_bool()
-            .vortex_expect("Failed to get bool value from constant array");
-        if value.unwrap_or(false) {
-            Box::new(0..self.len())
-        } else {
-            Box::new(iter::empty())
-        }
-    }
-
-    fn maybe_null_slices_iter(&self) -> Box<dyn Iterator<Item = (usize, usize)>> {
-        // Must be a boolean scalar
-        let value = self
-            .scalar_value()
-            .as_bool()
-            .vortex_expect("Failed to get bool value from constant array");
-
-        if value.unwrap_or(false) {
-            Box::new(iter::once((0, self.len())))
-        } else {
-            Box::new(iter::empty())
         }
     }
 }
@@ -217,29 +190,5 @@ impl ExtensionArrayTrait for ConstantArray {
             self.len(),
         )
         .into_array()
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use itertools::Itertools;
-    use vortex_dtype::Nullability;
-    use vortex_scalar::Scalar;
-
-    use crate::array::constant::ConstantArray;
-    use crate::variants::BoolArrayTrait;
-
-    #[test]
-    fn constant_iter_true_test() {
-        let arr = ConstantArray::new(Scalar::bool(true, Nullability::NonNullable), 3);
-        assert_eq!(vec![0, 1, 2], arr.maybe_null_indices_iter().collect_vec());
-        assert_eq!(vec![(0, 3)], arr.maybe_null_slices_iter().collect_vec());
-    }
-
-    #[test]
-    fn constant_iter_false_test() {
-        let arr = ConstantArray::new(Scalar::bool(false, Nullability::NonNullable), 3);
-        assert_eq!(0, arr.maybe_null_indices_iter().collect_vec().len());
-        assert_eq!(0, arr.maybe_null_slices_iter().collect_vec().len());
     }
 }

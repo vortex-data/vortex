@@ -89,39 +89,6 @@ pub trait BoolArrayTrait: ArrayTrait {
     /// False -> True
     /// Null -> Null
     fn invert(&self) -> VortexResult<ArrayData>;
-
-    fn true_count(&self) -> usize {
-        self.statistics()
-            .compute_true_count()
-            .unwrap_or_else(|| self.maybe_null_indices_iter().count())
-    }
-
-    /// An iterator over the sorted indices of set values in the underlying boolean array
-    /// good to array with low number of set values.
-    ///
-    /// # Warning
-    ///
-    /// The set-ness of invalid positions is undefined and not necessarily consistent within a given
-    /// iterator.
-    fn maybe_null_indices_iter<'a>(&'a self) -> Box<dyn Iterator<Item = usize> + 'a>;
-
-    /// An iterator over the sorted disjoint contiguous range of set values in the underlying boolean
-    /// array good for arrays with only long runs of set values.
-    ///
-    /// # Warning
-    ///
-    /// The set-ness of invalid positions is undefined and not necessarily consistent within a given
-    /// iterator.
-    fn maybe_null_slices_iter<'a>(&'a self) -> Box<dyn Iterator<Item = (usize, usize)> + 'a>;
-
-    // Other possible iterators include:
-    //  - True(usize) | False(usize) | Mixed(BooleanBuffer) where True/False are long runs of either
-    //                                                            true or false values and mixed
-    //                                                            is everything else
-    //  - T|F + [(usize, BooleanBuffer)] where usize represents an offset into the original array
-    //                                         and the buffer is a slice of that array, omitted slices
-    //                                         could be either true or false signified by the initial
-    //                                         value returned.
 }
 
 /// Iterate over an array of primitives by dispatching at run-time on the array type.

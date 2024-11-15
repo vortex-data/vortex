@@ -9,7 +9,7 @@
 
 pub use boolean::{and, and_kleene, or, or_kleene, AndFn, OrFn};
 pub use compare::{compare, scalar_cmp, CompareFn, MaybeCompareFn, Operator};
-pub use filter::{filter, FilterFn};
+pub use filter::{filter, FilterFn, FilterMask};
 pub use search_sorted::*;
 pub use slice::{slice, SliceFn};
 pub use take::{take, TakeFn};
