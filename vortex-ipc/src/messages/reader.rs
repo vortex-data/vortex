@@ -202,7 +202,7 @@ impl<R: VortexRead> MessageReader<R> {
         let total_len = buffer_len + (page_msg.padding() as u64);
 
         let buffer = self.read.read_bytes(total_len).await?;
-        let page_buffer = Ok(Some(Buffer::from(buffer)));
+        let page_buffer = Ok(Some(Buffer::from(buffer.slice(..buffer_len as usize))));
         let _ = self.next().await?;
         page_buffer
     }
