@@ -300,6 +300,7 @@ impl<'a> ArrayStats<'a> {
   pub const VT_NULL_COUNT: flatbuffers::VOffsetT = 18;
   pub const VT_BIT_WIDTH_FREQ: flatbuffers::VOffsetT = 20;
   pub const VT_TRAILING_ZERO_FREQ: flatbuffers::VOffsetT = 22;
+  pub const VT_UNCOMPRESSED_SIZE_IN_BYTES: flatbuffers::VOffsetT = 24;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -311,6 +312,7 @@ impl<'a> ArrayStats<'a> {
     args: &'args ArrayStatsArgs<'args>
   ) -> flatbuffers::WIPOffset<ArrayStats<'bldr>> {
     let mut builder = ArrayStatsBuilder::new(_fbb);
+    if let Some(x) = args.uncompressed_size_in_bytes { builder.add_uncompressed_size_in_bytes(x); }
     if let Some(x) = args.null_count { builder.add_null_count(x); }
     if let Some(x) = args.true_count { builder.add_true_count(x); }
     if let Some(x) = args.run_count { builder.add_run_count(x); }
@@ -395,6 +397,13 @@ impl<'a> ArrayStats<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u64>>>(ArrayStats::VT_TRAILING_ZERO_FREQ, None)}
   }
+  #[inline]
+  pub fn uncompressed_size_in_bytes(&self) -> Option<u64> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u64>(ArrayStats::VT_UNCOMPRESSED_SIZE_IN_BYTES, None)}
+  }
 }
 
 impl flatbuffers::Verifiable for ArrayStats<'_> {
@@ -414,6 +423,7 @@ impl flatbuffers::Verifiable for ArrayStats<'_> {
      .visit_field::<u64>("null_count", Self::VT_NULL_COUNT, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u64>>>("bit_width_freq", Self::VT_BIT_WIDTH_FREQ, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u64>>>("trailing_zero_freq", Self::VT_TRAILING_ZERO_FREQ, false)?
+     .visit_field::<u64>("uncompressed_size_in_bytes", Self::VT_UNCOMPRESSED_SIZE_IN_BYTES, false)?
      .finish();
     Ok(())
   }
@@ -429,6 +439,7 @@ pub struct ArrayStatsArgs<'a> {
     pub null_count: Option<u64>,
     pub bit_width_freq: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u64>>>,
     pub trailing_zero_freq: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u64>>>,
+    pub uncompressed_size_in_bytes: Option<u64>,
 }
 impl<'a> Default for ArrayStatsArgs<'a> {
   #[inline]
@@ -444,6 +455,7 @@ impl<'a> Default for ArrayStatsArgs<'a> {
       null_count: None,
       bit_width_freq: None,
       trailing_zero_freq: None,
+      uncompressed_size_in_bytes: None,
     }
   }
 }
@@ -494,6 +506,10 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> ArrayStatsBuilder<'a, 'b, A> {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(ArrayStats::VT_TRAILING_ZERO_FREQ, trailing_zero_freq);
   }
   #[inline]
+  pub fn add_uncompressed_size_in_bytes(&mut self, uncompressed_size_in_bytes: u64) {
+    self.fbb_.push_slot_always::<u64>(ArrayStats::VT_UNCOMPRESSED_SIZE_IN_BYTES, uncompressed_size_in_bytes);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> ArrayStatsBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     ArrayStatsBuilder {
@@ -521,6 +537,7 @@ impl core::fmt::Debug for ArrayStats<'_> {
       ds.field("null_count", &self.null_count());
       ds.field("bit_width_freq", &self.bit_width_freq());
       ds.field("trailing_zero_freq", &self.trailing_zero_freq());
+      ds.field("uncompressed_size_in_bytes", &self.uncompressed_size_in_bytes());
       ds.finish()
   }
 }

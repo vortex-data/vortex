@@ -1,18 +1,17 @@
 use std::any::Any;
 use std::sync::Arc;
 
-use log::warn;
+use log::info;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{Chunked, ChunkedArray};
 use vortex_array::compress::compute_pruning_stats;
 use vortex_array::encoding::EncodingRef;
-use vortex_array::stats::ArrayStatistics as _;
 use vortex_array::{Array, ArrayDType, ArrayDef, IntoArray};
 use vortex_error::{vortex_bail, VortexResult};
 
 use super::EncoderMetadata;
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
-use crate::SamplingCompressor;
+use crate::{constants, SamplingCompressor};
 
 #[derive(Debug)]
 pub struct ChunkedCompressor {
@@ -37,7 +36,7 @@ impl EncodingCompressor for ChunkedCompressor {
     }
 
     fn cost(&self) -> u8 {
-        0
+        constants::CHUNKED_COST
     }
 
     fn can_compress(&self, array: &Array) -> Option<&dyn EncodingCompressor> {
@@ -136,7 +135,7 @@ impl ChunkedCompressor {
                 .unwrap_or(false);
 
             if ratio > 1.0 || exceeded_target_ratio {
-                warn!("unsatisfactory ratio {} {:?}", ratio, previous);
+                info!("unsatisfactory ratio {}, previous: {:?}", ratio, previous);
                 let (compressed_chunk, tree) = ctx.compress_array(&chunk)?.into_parts();
                 let new_ratio = (compressed_chunk.nbytes() as f32) / (chunk.nbytes() as f32);
                 previous = tree.map(|tree| (tree, new_ratio));
@@ -159,7 +158,7 @@ impl ChunkedCompressor {
                 vec![child],
                 Arc::new(ChunkedCompressorMetadata(ratio)),
             )),
-            Some(array.statistics()),
+            Some(array),
         ))
     }
 }

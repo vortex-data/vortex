@@ -3,13 +3,12 @@ use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{Struct, StructArray};
 use vortex_array::compress::compute_pruning_stats;
 use vortex_array::encoding::EncodingRef;
-use vortex_array::stats::ArrayStatistics as _;
 use vortex_array::variants::StructArrayTrait;
 use vortex_array::{Array, ArrayDef, IntoArray};
 use vortex_error::VortexResult;
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
-use crate::SamplingCompressor;
+use crate::{constants, SamplingCompressor};
 
 #[derive(Debug)]
 pub struct StructCompressor;
@@ -20,7 +19,7 @@ impl EncodingCompressor for StructCompressor {
     }
 
     fn cost(&self) -> u8 {
-        0
+        constants::STRUCT_COST
     }
 
     fn can_compress(&self, array: &Array) -> Option<&dyn EncodingCompressor> {
@@ -65,7 +64,7 @@ impl EncodingCompressor for StructCompressor {
             )?
             .into_array(),
             Some(CompressionTree::new(self, trees)),
-            Some(array.statistics()),
+            Some(array),
         ))
     }
 

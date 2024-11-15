@@ -71,7 +71,7 @@ impl EncodingCompressor for FoRCompressor {
                 )
                 .map(|a| a.into_array())?,
                 Some(CompressionTree::new(self, vec![compressed_child.path])),
-                Some(array.statistics()),
+                Some(array),
             ))
         } else {
             // otherwise, we chose a different encoding (e.g., constant or sparse), try compressing that
@@ -83,7 +83,7 @@ impl EncodingCompressor for FoRCompressor {
             Ok(CompressedArray::compressed(
                 compressed_child.array,
                 Some(CompressionTree::new(self, vec![compressed_child.path])),
-                Some(array.statistics()),
+                Some(array),
             ))
         }
     }

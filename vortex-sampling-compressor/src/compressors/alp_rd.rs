@@ -5,7 +5,6 @@ use vortex_alp::{match_each_alp_float_ptype, ALPRDEncoding, RDEncoder as ALPRDEn
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::PrimitiveArray;
 use vortex_array::encoding::EncodingRef;
-use vortex_array::stats::ArrayStatistics as _;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ArrayDef, IntoArray, IntoArrayVariant};
 use vortex_dtype::PType;
@@ -68,7 +67,7 @@ impl EncodingCompressor for ALPRDCompressor {
         Ok(CompressedArray::compressed(
             encoded,
             Some(CompressionTree::new_with_metadata(self, vec![], encoder)),
-            Some(array.statistics()),
+            Some(array),
         ))
     }
 

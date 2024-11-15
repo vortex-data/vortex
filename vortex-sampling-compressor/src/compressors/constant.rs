@@ -35,7 +35,7 @@ impl EncodingCompressor for ConstantCompressor {
         Ok(CompressedArray::compressed(
             ConstantArray::new(scalar_at(array, 0)?, array.len()).into_array(),
             Some(CompressionTree::flat(self)),
-            Some(array.statistics()),
+            Some(array),
         ))
     }
 

@@ -85,7 +85,7 @@ impl EncodingCompressor for DictCompressor {
         Ok(CompressedArray::compressed(
             DictArray::try_new(codes.array, values.array)?.into_array(),
             Some(CompressionTree::new(self, vec![codes.path, values.path])),
-            Some(array.statistics()),
+            Some(array),
         ))
     }
 

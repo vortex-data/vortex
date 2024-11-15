@@ -1,7 +1,6 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{Sparse, SparseArray, SparseEncoding};
 use vortex_array::encoding::EncodingRef;
-use vortex_array::stats::ArrayStatistics as _;
 use vortex_array::{Array, ArrayDef, IntoArray};
 use vortex_error::VortexResult;
 
@@ -48,7 +47,7 @@ impl EncodingCompressor for SparseCompressor {
             )?
             .into_array(),
             Some(CompressionTree::new(self, vec![indices.path, values.path])),
-            Some(array.statistics()),
+            Some(array),
         ))
     }
 

@@ -3,9 +3,10 @@ use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
+use itertools::Itertools;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::encoding::EncodingRef;
-use vortex_array::stats::{ArrayStatistics, Statistics};
+use vortex_array::stats::{ArrayStatistics, Stat};
 use vortex_array::Array;
 use vortex_error::VortexResult;
 
@@ -190,16 +191,33 @@ impl<'a> CompressedArray<'a> {
     }
 
     pub fn compressed(
-        array: Array,
+        compressed_array: Array,
         path: Option<CompressionTree<'a>>,
-        inherited_stats: Option<&dyn Statistics>,
+        original_array: Option<impl AsRef<Array>>,
     ) -> Self {
-        if let Some(stats) = inherited_stats {
+        if let Some(original_array) = original_array {
+            let original_array = original_array.as_ref();
+            let stats = original_array.statistics();
+
+            // propagate existing stats
+            let mut has_size = false;
             for (stat, value) in stats.to_set().into_iter() {
-                array.statistics().set(stat, value);
+                has_size |= stat == Stat::UncompressedSizeInBytes;
+                compressed_array.statistics().set(stat, value);
+            }
+
+            // ensure that we compute uncompressed size in bytes
+            if !has_size {
+                compressed_array.statistics().set(
+                    Stat::UncompressedSizeInBytes,
+                    original_array.nbytes().into(),
+                );
             }
         }
-        Self { array, path }
+        Self {
+            array: compressed_array,
+            path,
+        }
     }
 
     #[inline]

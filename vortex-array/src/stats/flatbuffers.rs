@@ -40,6 +40,7 @@ impl WriteFlatBuffer for &dyn Statistics {
             null_count: self.get_as_cast::<u64>(Stat::NullCount),
             bit_width_freq,
             trailing_zero_freq,
+            uncompressed_size_in_bytes: self.get_as_cast::<u64>(Stat::UncompressedSizeInBytes),
         };
 
         crate::flatbuffers::ArrayStats::create(fbb, stat_args)
