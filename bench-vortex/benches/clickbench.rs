@@ -1,7 +1,12 @@
+#![feature(exit_status_error)]
+
+use std::path::PathBuf;
+use std::process::Command;
+
 use bench_vortex::clickbench::{clickbench_queries, HITS_SCHEMA};
 use bench_vortex::data_downloads::download_data;
 use bench_vortex::tpch::execute_query;
-use bench_vortex::{clickbench, IdempotentPath};
+use bench_vortex::{clickbench, idempotent, IdempotentPath};
 use criterion::{criterion_group, criterion_main, Criterion};
 use datafusion::prelude::SessionContext;
 use tokio::runtime::Builder;
@@ -10,10 +15,31 @@ fn benchmark(c: &mut Criterion) {
     let runtime = Builder::new_current_thread().enable_all().build().unwrap();
     let basepath = "clickbench".to_data_path();
 
-    let parquet_file = download_data(
+    let raw_data = download_data(
         basepath.join("hits.parquet"),
         "https://datasets.clickhouse.com/hits_compatible/hits.parquet",
     );
+
+    let output_path = basepath.join("hits_data.parquet");
+
+    println!("Fixing parquet file");
+
+    let final_parquet_path = idempotent(&output_path, |output_path| {
+        let command = format!(
+            "COPY (SELECT * REPLACE (epoch_ms(EventTime * 1000) AS EventTime, DATE '1970-01-01' + INTERVAL (EventDate) DAYS AS EventDate) FROM read_parquet('{}')) TO '{}' (FORMAT 'parquet');",
+            raw_data.to_str().unwrap(),
+            output_path.to_str().unwrap()
+        );
+        Command::new("duckdb")
+        .arg("-c")
+        .arg(command)
+        .status()?
+        .exit_ok()?;
+
+        anyhow::Ok(PathBuf::from(output_path))
+    }).unwrap();
+
+    println!("Registering Vortex file");
 
     let session_context = SessionContext::new();
     let context = session_context.clone();
@@ -21,7 +47,7 @@ fn benchmark(c: &mut Criterion) {
         clickbench::register_vortex_file(
             &context,
             "hits",
-            parquet_file.as_path(),
+            final_parquet_path.as_path(),
             &HITS_SCHEMA,
             true,
         )
@@ -40,5 +66,9 @@ fn benchmark(c: &mut Criterion) {
     }
 }
 
-criterion_group!(benches, benchmark);
+criterion_group!(
+    name = benches;
+    config = Criterion::default().sample_size(25);
+    targets = benchmark
+);
 criterion_main!(benches);

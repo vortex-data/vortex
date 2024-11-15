@@ -25,7 +25,7 @@ pub static HITS_SCHEMA: LazyLock<Schema> = LazyLock::new(|| {
         Field::new("title", Utf8View, false),
         Field::new("goodevent", Int16, false),
         Field::new("eventtime", Timestamp(TimeUnit::Microsecond, None), false),
-        Field::new("eventdate", Date32, false),
+        Field::new("eventdate", Timestamp(TimeUnit::Microsecond, None), false),
         Field::new("counterid", Int32, false),
         Field::new("clientip", Int32, false),
         Field::new("regionid", Int32, false),
@@ -138,7 +138,7 @@ pub static HITS_SCHEMA: LazyLock<Schema> = LazyLock::new(|| {
 
 pub async fn register_vortex_file(
     session: &SessionContext,
-    name: &str,
+    table_name: &str,
     file: &Path,
     schema: &Schema,
     enable_compression: bool,
@@ -217,8 +217,6 @@ pub async fn register_vortex_file(
             .open(&vtx_file)
             .await?;
 
-        dbg!(vtx_file);
-
         let mut writer = VortexFileWriter::new(f);
         writer = writer.write_array_columns(data).await?;
         writer.finalize().await?;
@@ -237,7 +235,7 @@ pub async fn register_vortex_file(
     let schema_ref = Arc::new(schema.clone());
 
     session.register_disk_vortex_opts(
-        name,
+        table_name,
         ObjectStoreUrl::local_filesystem(),
         VortexTableOptions::new(
             schema_ref,
