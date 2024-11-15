@@ -1,6 +1,6 @@
 use vortex_array::array::{ConstantArray, PrimitiveArray, SparseArray};
 use vortex_array::compute::unary::{scalar_at, scalar_at_unchecked, ScalarAtFn};
-use vortex_array::compute::{filter, slice, take, ArrayCompute, SliceFn, TakeFn};
+use vortex_array::compute::{filter, slice, take, ArrayCompute, FilterMask, SliceFn, TakeFn};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
@@ -70,14 +70,12 @@ impl TakeFn for RunEndArray {
                 ConstantArray::new(Scalar::null(self.dtype().clone()), indices.len()).into_array()
             }
             Validity::Array(original_validity) => {
-                let dense_validity = take(&original_validity, indices)?;
+                let dense_validity = FilterMask::try_from(take(&original_validity, indices)?)?;
                 let filtered_values = filter(&dense_values, &dense_validity)?;
                 let length = dense_validity.len();
                 let dense_nonnull_indices = PrimitiveArray::from(
                     dense_validity
-                        .into_bool()?
-                        .boolean_buffer()
-                        .set_indices()
+                        .iter_indices()?
                         .map(|idx| idx as u64)
                         .collect::<Vec<_>>(),
                 )

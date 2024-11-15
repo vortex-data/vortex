@@ -2,7 +2,8 @@ use fsst::Symbol;
 use vortex_array::array::{varbin_scalar, ConstantArray};
 use vortex_array::compute::unary::{scalar_at_unchecked, ScalarAtFn};
 use vortex_array::compute::{
-    compare, filter, slice, take, ArrayCompute, FilterFn, MaybeCompareFn, Operator, SliceFn, TakeFn,
+    compare, filter, slice, take, ArrayCompute, FilterFn, FilterMask, MaybeCompareFn, Operator,
+    SliceFn, TakeFn,
 };
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_buffer::Buffer;
@@ -155,8 +156,8 @@ impl FilterFn for FSSTArray {
             self.dtype().clone(),
             self.symbols(),
             self.symbol_lengths(),
-            filter(self.codes(), predicate)?,
-            filter(self.uncompressed_lengths(), predicate)?,
+            filter(&self.codes(), mask)?,
+            filter(&self.uncompressed_lengths(), mask)?,
         )?
         .into_array())
     }

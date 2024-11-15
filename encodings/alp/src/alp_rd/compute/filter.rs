@@ -1,4 +1,4 @@
-use vortex_array::compute::{filter, FilterFn};
+use vortex_array::compute::{filter, FilterFn, FilterMask};
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
 
@@ -8,14 +8,14 @@ impl FilterFn for ALPRDArray {
     fn filter(&self, mask: &FilterMask) -> VortexResult<ArrayData> {
         let left_parts_exceptions = self
             .left_parts_exceptions()
-            .map(|array| filter(&array, predicate))
+            .map(|array| filter(&array, mask))
             .transpose()?;
 
         Ok(ALPRDArray::try_new(
             self.dtype().clone(),
-            filter(self.left_parts(), predicate)?,
+            filter(&self.left_parts(), mask)?,
             self.left_parts_dict(),
-            filter(self.right_parts(), predicate)?,
+            filter(&self.right_parts(), mask)?,
             self.right_bit_width(),
             left_parts_exceptions,
         )?
@@ -27,7 +27,7 @@ impl FilterFn for ALPRDArray {
 mod test {
     use rstest::rstest;
     use vortex_array::array::{BoolArray, PrimitiveArray};
-    use vortex_array::compute::filter;
+    use vortex_array::compute::{filter, FilterMask};
     use vortex_array::IntoArrayVariant;
 
     use crate::{ALPRDFloat, RDEncoder};
@@ -43,10 +43,13 @@ mod test {
         assert!(encoded.left_parts_exceptions().is_some());
 
         // The first two values need no patching
-        let filtered = filter(encoded.as_ref(), BoolArray::from(vec![true, false, true]))
-            .unwrap()
-            .into_primitive()
-            .unwrap();
+        let filtered = filter(
+            encoded.as_ref(),
+            &FilterMask::from(BoolArray::from(vec![true, false, true])),
+        )
+        .unwrap()
+        .into_primitive()
+        .unwrap();
         assert_eq!(filtered.maybe_null_slice::<T>(), &[a, outlier]);
     }
 }

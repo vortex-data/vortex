@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use std::sync::OnceLock;
 
 use arrow_array::BooleanArray;
@@ -41,7 +40,7 @@ pub fn filter(array: &ArrayData, mask: &FilterMask) -> VortexResult<ArrayData> {
 
     // Fast-path for empty mask.
     if mask.true_count() == 0 {
-        return Ok(Canonical::empty(array.dtype())?.into_bool()?.into_array());
+        return Ok(Canonical::empty(array.dtype())?.into());
     }
 
     // Fast-path for full mask
@@ -65,6 +64,7 @@ pub fn filter(array: &ArrayData, mask: &FilterMask) -> VortexResult<ArrayData> {
 
 /// Represents the mask argument to a filter function.
 /// Internally this will cache the canonical representation of the mask if it is ever used.
+#[derive(Debug)]
 pub struct FilterMask {
     array: ArrayData,
     true_count: usize,

@@ -14,7 +14,13 @@ use crate::{ArrayDType, IntoArrayVariant};
 impl ArrayStatisticsCompute for BoolArray {
     fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
         if self.is_empty() {
-            return Ok(StatsSet::new());
+            return Ok(StatsSet::from(HashMap::from([
+                (Stat::TrueCount, 0.into()),
+                (Stat::NullCount, 0.into()),
+                (Stat::IsSorted, true.into()),
+                (Stat::IsStrictSorted, true.into()),
+                (Stat::RunCount, 0.into()),
+            ])));
         }
 
         match self.logical_validity() {
