@@ -196,7 +196,7 @@ impl From<Vec<bool>> for BoolArray {
 
 impl FromIterator<bool> for BoolArray {
     fn from_iter<T: IntoIterator<Item = bool>>(iter: T) -> Self {
-        Self::from_iter(iter.into_iter().map(Some))
+        Self::new(BooleanBuffer::from_iter(iter), Validity::NonNullable)
     }
 }
 
