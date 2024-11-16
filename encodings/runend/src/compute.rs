@@ -1,6 +1,9 @@
 use vortex_array::array::{ConstantArray, PrimitiveArray, SparseArray};
 use vortex_array::compute::unary::{scalar_at, scalar_at_unchecked, ScalarAtFn};
-use vortex_array::compute::{filter, slice, take, ArrayCompute, SliceFn, TakeFn};
+use vortex_array::compute::{
+    compare, filter, slice, take, ArrayCompute, MaybeCompareFn, Operator, SliceFn, TakeFn,
+};
+use vortex_array::stats::{ArrayStatistics, Stat};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
@@ -11,6 +14,10 @@ use vortex_scalar::{Scalar, ScalarValue};
 use crate::RunEndArray;
 
 impl ArrayCompute for RunEndArray {
+    fn compare(&self, other: &ArrayData, operator: Operator) -> Option<VortexResult<ArrayData>> {
+        MaybeCompareFn::maybe_compare(self, other, operator)
+    }
+
     fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
         Some(self)
     }
@@ -21,6 +28,30 @@ impl ArrayCompute for RunEndArray {
 
     fn take(&self) -> Option<&dyn TakeFn> {
         Some(self)
+    }
+}
+
+impl MaybeCompareFn for RunEndArray {
+    fn maybe_compare(
+        &self,
+        other: &ArrayData,
+        operator: Operator,
+    ) -> Option<VortexResult<ArrayData>> {
+        // If the RHS is constant, then we just need to compare against our encoded values.
+        if other
+            .statistics()
+            .get_as::<bool>(Stat::IsConstant)
+            .unwrap_or_default()
+        {
+            return Some(
+                slice(other, 0, self.values().len())
+                    .and_then(|other| compare(self.values(), other, operator))
+                    .and_then(|values| Self::try_new(self.ends().clone(), values, self.validity()))
+                    .map(|a| a.into_array()),
+            );
+        }
+
+        None
     }
 }
 
