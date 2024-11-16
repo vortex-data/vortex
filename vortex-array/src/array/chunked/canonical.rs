@@ -155,7 +155,7 @@ fn pack_bools(chunks: &[ArrayData], validity: Validity) -> VortexResult<BoolArra
         buffer.append_buffer(&chunk.boolean_buffer());
     }
 
-    Ok(BoolArray::new(buffer.finish(), validity))
+    BoolArray::try_new(buffer.finish(), validity)
 }
 
 /// Builds a new [PrimitiveArray] by repacking the values from the chunks into a single

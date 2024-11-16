@@ -208,7 +208,7 @@ mod test {
             ],
             DType::Utf8(NonNullable),
         );
-        let filter = BoolArray::from(vec![true, false, true]);
+        let filter = BoolArray::from_iter([true, false, true]);
 
         let buf = filter_select_var_bin_by_index(&arr, &filter, 2)
             .unwrap()
@@ -231,7 +231,7 @@ mod test {
             ],
             DType::Utf8(NonNullable),
         );
-        let filter = BoolArray::from(vec![true, false, true, false, true]);
+        let filter = BoolArray::from_iter([true, false, true, false, true]);
 
         let buf = filter_select_var_bin_by_slice(&arr, &filter, 3)
             .unwrap()
@@ -261,9 +261,9 @@ mod test {
 
         let offsets = PrimitiveArray::from(vec![0, 3, 6, 11, 15, 19, 22]).to_array();
         let validity =
-            Validity::Array(BoolArray::from(vec![true, false, true, true, true, true]).to_array());
+            Validity::Array(BoolArray::from_iter([true, false, true, true, true, true]).to_array());
         let arr = VarBinArray::try_new(offsets, bytes, DType::Utf8(Nullable), validity).unwrap();
-        let filter = BoolArray::from(vec![true, true, true, false, true, true]);
+        let filter = BoolArray::from_iter([true, true, true, false, true, true]);
 
         let buf = filter_select_var_bin_by_slice(&arr, &filter, 5)
             .unwrap()

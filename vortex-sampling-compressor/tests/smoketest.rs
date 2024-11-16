@@ -198,7 +198,7 @@ mod tests {
     fn make_bool_column(count: usize) -> ArrayData {
         BoolArray::new(
             BooleanBuffer::from_iter((0..count).map(|_| rand::random::<bool>())),
-            Validity::NonNullable,
+            Nullability::NonNullable,
         )
         .into_array()
     }

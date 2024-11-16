@@ -267,7 +267,7 @@ mod test {
         )
         .unwrap()
         .into_array();
-        let mask = BoolArray::from(vec![
+        let mask = BoolArray::from_iter([
             true, false, false, true, true, true, true, true, true, true, true,
         ])
         .into_array();

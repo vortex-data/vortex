@@ -25,7 +25,7 @@ fn filter_select_bool(arr: &BoolArray, predicate: &ArrayData) -> VortexResult<Bo
         } else {
             filter_select_bool_by_index(&arr.boolean_buffer(), predicate, selection_count)
         };
-        Ok(BoolArray::new(out, validity))
+        BoolArray::try_new(out, validity)
     })
 }
 
@@ -65,8 +65,8 @@ mod test {
 
     #[test]
     fn filter_bool_test() {
-        let arr = BoolArray::from(vec![true, true, false]);
-        let filter = BoolArray::from(vec![true, false, true]);
+        let arr = BoolArray::from_iter([true, true, false]);
+        let filter = BoolArray::from_iter([true, false, true]);
 
         let filtered = filter_select_bool(&arr, &filter.to_array()).unwrap();
         assert_eq!(2, filtered.len());
@@ -79,8 +79,8 @@ mod test {
 
     #[test]
     fn filter_bool_by_slice_test() {
-        let arr = BoolArray::from(vec![true, true, false]);
-        let filter = BoolArray::from(vec![true, false, true]);
+        let arr = BoolArray::from_iter([true, true, false]);
+        let filter = BoolArray::from_iter([true, false, true]);
 
         let filtered = filter_select_bool_by_slice(&arr.boolean_buffer(), &filter, 2);
         assert_eq!(2, filtered.len());
@@ -90,8 +90,8 @@ mod test {
 
     #[test]
     fn filter_bool_by_index_test() {
-        let arr = BoolArray::from(vec![true, true, false]);
-        let filter = BoolArray::from(vec![true, false, true]);
+        let arr = BoolArray::from_iter([true, true, false]);
+        let filter = BoolArray::from_iter([true, false, true]);
 
         let filtered = filter_select_bool_by_index(&arr.boolean_buffer(), &filter, 2);
         assert_eq!(2, filtered.len());

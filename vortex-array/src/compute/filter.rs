@@ -67,7 +67,7 @@ mod test {
         let items =
             PrimitiveArray::from_nullable_vec(vec![Some(0i32), None, Some(1i32), None, Some(2i32)])
                 .into_array();
-        let predicate = BoolArray::from(vec![true, false, true, false, true]).into_array();
+        let predicate = BoolArray::from_iter([true, false, true, false, true]).into_array();
 
         let filtered = filter(&items, &predicate).unwrap();
         assert_eq!(

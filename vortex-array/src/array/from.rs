@@ -14,10 +14,11 @@ impl FromIterator<Option<bool>> for ArrayData {
 
 macro_rules! impl_from_primitive_for_array {
     ($P:ty) => {
-        impl FromIterator<$P> for ArrayData {
-            fn from_iter<T: IntoIterator<Item = $P>>(iter: T) -> Self {
-                PrimitiveArray::from_vec(iter.into_iter().collect(), Validity::NonNullable)
-                    .into_array()
+        // For primitives, it's more efficient to use from_vec, instead of from_iter since
+        // the values are already correctly laid out in-memory.
+        impl From<Vec<$P>> for ArrayData {
+            fn from(value: Vec<$P>) -> Self {
+                PrimitiveArray::from_vec(value, Validity::NonNullable).into_array()
             }
         }
 

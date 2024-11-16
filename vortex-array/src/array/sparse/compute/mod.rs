@@ -193,7 +193,7 @@ mod test {
     fn test_filter(array: ArrayData) {
         let mut predicate = vec![false, false, true];
         predicate.extend_from_slice(&[false; 17]);
-        let predicate = BoolArray::from(predicate).into_array();
+        let predicate = BoolArray::from_iter(predicate).into_array();
 
         let filtered_array = filter(&array, &predicate).unwrap();
         let filtered_array = SparseArray::try_from(filtered_array).unwrap();
@@ -206,7 +206,7 @@ mod test {
     #[test]
     fn true_fill_value() {
         let predicate =
-            BoolArray::from(vec![false, true, false, true, false, true, true]).into_array();
+            BoolArray::from_iter([false, true, false, true, false, true, true]).into_array();
         let array = SparseArray::try_new(
             PrimitiveArray::from(vec![0_u64, 3, 6]).into_array(),
             PrimitiveArray::from_vec(vec![33_i32, 44, 55], Validity::AllValid).into_array(),

@@ -112,7 +112,7 @@ mod tests {
         let mask = vec![
             false, true, false, true, false, true, false, true, false, true,
         ];
-        let filtered = filter(struct_arr.as_ref(), BoolArray::from(mask)).unwrap();
+        let filtered = filter(struct_arr.as_ref(), BoolArray::from_iter(mask)).unwrap();
         assert_eq!(filtered.len(), 5);
     }
 
@@ -120,7 +120,7 @@ mod tests {
     fn filter_empty_struct_with_empty_filter() {
         let struct_arr =
             StructArray::try_new(vec![].into(), vec![], 0, Validity::NonNullable).unwrap();
-        let filtered = filter(struct_arr.as_ref(), BoolArray::from(vec![])).unwrap();
+        let filtered = filter(struct_arr.as_ref(), BoolArray::from_iter::<[bool; 0]>([])).unwrap();
         assert_eq!(filtered.len(), 0);
     }
 }

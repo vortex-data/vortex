@@ -9,14 +9,13 @@ use vortex_array::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use vortex_array::array::BoolArray;
 use vortex_array::encoding::ids;
 use vortex_array::stats::StatsSet;
-use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity};
+use vortex_array::validity::{ArrayValidity, LogicalValidity};
 use vortex_array::variants::{ArrayVariants, BoolArrayTrait};
 use vortex_array::{
     impl_encoding, ArrayData, ArrayTrait, Canonical, IntoArrayData, IntoCanonical, TypedArray,
 };
 use vortex_buffer::Buffer;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability::NonNullable;
+use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
 
 mod compress;
@@ -49,7 +48,7 @@ impl RoaringBoolArray {
 
         Ok(Self {
             typed: TypedArray::try_from_parts(
-                DType::Bool(NonNullable),
+                DType::Bool(Nullability::NonNullable),
                 length,
                 RoaringBoolMetadata,
                 Some(Buffer::from(bitmap.serialize::<Native>())),
@@ -139,7 +138,7 @@ impl IntoCanonical for RoaringBoolArray {
         }
         Ok(Canonical::Bool(BoolArray::new(
             BooleanBuffer::new(buffer.into(), 0, self.len()),
-            Validity::NonNullable,
+            Nullability::NonNullable,
         )))
     }
 }

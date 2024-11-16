@@ -118,7 +118,7 @@ impl From<Vec<bool>> for ByteBoolArray {
 
 impl From<Vec<Option<bool>>> for ByteBoolArray {
     fn from(value: Vec<Option<bool>>) -> Self {
-        let validity = Validity::from_iter(value.iter().cloned());
+        let validity = Validity::from_iter(value.iter().map(|v| v.is_some()));
 
         // This doesn't reallocate, and the compiler even vectorizes it
         let data = value.into_iter().map(Option::unwrap_or_default).collect();
@@ -133,7 +133,10 @@ impl IntoCanonical for ByteBoolArray {
         let boolean_buffer = BooleanBuffer::from(self.maybe_null_slice());
         let validity = self.validity();
 
-        Ok(Canonical::Bool(BoolArray::new(boolean_buffer, validity)))
+        Ok(Canonical::Bool(BoolArray::try_new(
+            boolean_buffer,
+            validity,
+        )?))
     }
 }
 
