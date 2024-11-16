@@ -82,7 +82,10 @@ impl FilterFn for StructArray {
             .children()
             .map(|field| filter(&field, mask))
             .try_collect()?;
-        let length = fields.first().map(|a| a.len()).unwrap_or(mask.true_count());
+        let length = fields
+            .first()
+            .map(|a| a.len())
+            .unwrap_or_else(|| mask.true_count());
 
         Self::try_new(
             self.names().clone(),
@@ -109,7 +112,7 @@ mod tests {
         ];
         let filtered = filter(
             struct_arr.as_ref(),
-            &FilterMask::try_from(BoolArray::from(mask)).unwrap(),
+            &FilterMask::from(BoolArray::from(mask)),
         )
         .unwrap();
         assert_eq!(filtered.len(), 5);
@@ -121,7 +124,7 @@ mod tests {
             StructArray::try_new(vec![].into(), vec![], 0, Validity::NonNullable).unwrap();
         let filtered = filter(
             struct_arr.as_ref(),
-            &FilterMask::try_from(BoolArray::from(vec![])).unwrap(),
+            &FilterMask::from(BoolArray::from(vec![])),
         )
         .unwrap();
         assert_eq!(filtered.len(), 0);

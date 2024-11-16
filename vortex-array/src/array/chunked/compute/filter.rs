@@ -59,7 +59,7 @@ fn slices_to_mask(slices: &[(usize, usize)], len: usize) -> FilterMask {
 }
 
 /// Filter the chunks using slice ranges.
-fn filter_slices<'a>(array: &'a ChunkedArray, mask: &FilterMask) -> VortexResult<Vec<ArrayData>> {
+fn filter_slices(array: &ChunkedArray, mask: &FilterMask) -> VortexResult<Vec<ArrayData>> {
     let mut result = Vec::with_capacity(array.nchunks());
 
     // Pre-materialize the chunk ends for performance.
@@ -133,7 +133,7 @@ fn filter_slices<'a>(array: &'a ChunkedArray, mask: &FilterMask) -> VortexResult
 }
 
 /// Filter the chunks using indices.
-fn filter_indices<'a>(array: &'a ChunkedArray, mask: &FilterMask) -> VortexResult<Vec<ArrayData>> {
+fn filter_indices(array: &ChunkedArray, mask: &FilterMask) -> VortexResult<Vec<ArrayData>> {
     let mut result = Vec::new();
     let mut current_chunk_id = 0;
     let mut chunk_indices = Vec::new();

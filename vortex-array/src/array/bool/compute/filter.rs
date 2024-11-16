@@ -59,7 +59,7 @@ mod test {
     #[test]
     fn filter_bool_test() {
         let arr = BoolArray::from(vec![true, true, false]);
-        let mask = FilterMask::try_from(BoolArray::from(vec![true, false, true])).unwrap();
+        let mask = FilterMask::from(BoolArray::from(vec![true, false, true]));
 
         let filtered = filter_select_bool(&arr, &mask).unwrap();
         assert_eq!(2, filtered.len());
