@@ -7,8 +7,8 @@ use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::array::Constant;
-use crate::arrow::FromArrowArray;
-use crate::{ArrayDType, ArrayData, ArrayDef, IntoCanonical};
+use crate::arrow::{Datum, FromArrowArray};
+use crate::{ArrayDType, ArrayData, ArrayDef};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd)]
 pub enum Operator {
@@ -99,29 +99,44 @@ pub fn compare(
         vortex_bail!("Compare operations only support arrays of the same type");
     }
 
+    // Always try to put constants on the right-hand side so encodings can optimise themselves.
     if left.is_encoding(Constant::ID) && !right.is_encoding(Constant::ID) {
         return compare(right, left, operator.swap());
     }
 
     if let Some(selection) = left.with_dyn(|lhs| lhs.compare(right, operator)) {
         return selection;
+    } else {
+        log::debug!(
+            "No compare implementation found for LHS {}, RHS {}, and operator {}",
+            left.encoding().id(),
+            right.encoding().id(),
+            operator,
+        );
     }
 
     if let Some(selection) = right.with_dyn(|rhs| rhs.compare(left, operator.swap())) {
         return selection;
+    } else {
+        log::debug!(
+            "No compare implementation found for LHS {}, RHS {}, and operator {}",
+            right.encoding().id(),
+            left.encoding().id(),
+            operator.swap(),
+        );
     }
 
     // Fallback to arrow on canonical types
-    let lhs = left.clone().into_canonical()?.into_arrow()?;
-    let rhs = right.clone().into_canonical()?.into_arrow()?;
+    let lhs = Datum::try_from(left.clone())?;
+    let rhs = Datum::try_from(right.clone())?;
 
     let array = match operator {
-        Operator::Eq => cmp::eq(&lhs.as_ref(), &rhs.as_ref())?,
-        Operator::NotEq => cmp::neq(&lhs.as_ref(), &rhs.as_ref())?,
-        Operator::Gt => cmp::gt(&lhs.as_ref(), &rhs.as_ref())?,
-        Operator::Gte => cmp::gt_eq(&lhs.as_ref(), &rhs.as_ref())?,
-        Operator::Lt => cmp::lt(&lhs.as_ref(), &rhs.as_ref())?,
-        Operator::Lte => cmp::lt_eq(&lhs.as_ref(), &rhs.as_ref())?,
+        Operator::Eq => cmp::eq(&lhs, &rhs)?,
+        Operator::NotEq => cmp::neq(&lhs, &rhs)?,
+        Operator::Gt => cmp::gt(&lhs, &rhs)?,
+        Operator::Gte => cmp::gt_eq(&lhs, &rhs)?,
+        Operator::Lt => cmp::lt(&lhs, &rhs)?,
+        Operator::Lte => cmp::lt_eq(&lhs, &rhs)?,
     };
 
     Ok(ArrayData::from_arrow(&array, true))

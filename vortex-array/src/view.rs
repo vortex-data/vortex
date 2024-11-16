@@ -3,7 +3,6 @@ use std::sync::Arc;
 
 use enum_iterator::all;
 use itertools::Itertools;
-use log::warn;
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_err, VortexError, VortexExpect as _, VortexResult};
@@ -248,7 +247,7 @@ impl Statistics for ViewedArrayData {
     /// We want to avoid any sort of allocation on instantiation of the ArrayView, so we
     /// do not allocate a stats_set to cache values.
     fn set(&self, _stat: Stat, _value: Scalar) {
-        warn!("Cannot write stats to a view")
+        // We cannot set stats on a view
     }
 
     fn compute(&self, stat: Stat) -> Option<Scalar> {

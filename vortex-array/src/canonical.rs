@@ -356,6 +356,7 @@ where
 /// the array's internal codec.
 impl IntoCanonical for ArrayData {
     fn into_canonical(self) -> VortexResult<Canonical> {
+        log::debug!("Canonicalizing array with encoding {:?}", self.encoding());
         ArrayEncoding::canonicalize(self.encoding(), self)
     }
 }
