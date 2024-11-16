@@ -127,8 +127,17 @@ pub fn compare(
     }
 
     // Fallback to arrow on canonical types
-    let lhs = Datum::try_from(left.clone())?;
-    let rhs = Datum::try_from(right.clone())?;
+    arrow_compare(left, right, operator)
+}
+
+/// Implementation of `CompareFn` using the Arrow crate.
+pub(crate) fn arrow_compare(
+    lhs: &ArrayData,
+    rhs: &ArrayData,
+    operator: Operator,
+) -> VortexResult<ArrayData> {
+    let lhs = Datum::try_from(lhs.clone())?;
+    let rhs = Datum::try_from(rhs.clone())?;
 
     let array = match operator {
         Operator::Eq => cmp::eq(&lhs, &rhs)?,
