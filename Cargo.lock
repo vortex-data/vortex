@@ -4800,7 +4800,6 @@ dependencies = [
  "arrow-select",
  "bytes",
  "compio",
- "croaring",
  "flatbuffers",
  "flume",
  "futures",
