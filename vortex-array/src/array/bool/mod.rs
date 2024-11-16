@@ -1,7 +1,6 @@
 use std::fmt::{Debug, Display};
 
 use arrow_array::BooleanArray;
-use arrow_buffer::bit_iterator::{BitIndexIterator, BitSliceIterator};
 use arrow_buffer::{BooleanBufferBuilder, MutableBuffer};
 use itertools::Itertools;
 use num_traits::AsPrimitive;
@@ -275,30 +274,6 @@ mod tests {
 
         let scalar = scalar_at(&arr, 4).unwrap();
         assert!(scalar.is_null());
-    }
-
-    #[test]
-    fn constant_iter_true_test() {
-        let arr = BoolArray::from_iter([true, true, true]);
-        assert_eq!(vec![0, 1, 2], arr.maybe_null_indices_iter().collect_vec());
-        assert_eq!(vec![(0, 3)], arr.maybe_null_slices_iter().collect_vec());
-    }
-
-    #[test]
-    fn constant_iter_true_false_test() {
-        let arr = BoolArray::from_iter([true, false, true]);
-        assert_eq!(vec![0, 2], arr.maybe_null_indices_iter().collect_vec());
-        assert_eq!(
-            vec![(0, 1), (2, 3)],
-            arr.maybe_null_slices_iter().collect_vec()
-        );
-    }
-
-    #[test]
-    fn constant_iter_false_test() {
-        let arr = BoolArray::from_iter([false, false, false]);
-        assert_eq!(0, arr.maybe_null_indices_iter().collect_vec().len());
-        assert_eq!(0, arr.maybe_null_slices_iter().collect_vec().len());
     }
 
     #[test]

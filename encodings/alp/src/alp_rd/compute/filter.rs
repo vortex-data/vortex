@@ -26,7 +26,7 @@ impl FilterFn for ALPRDArray {
 #[cfg(test)]
 mod test {
     use rstest::rstest;
-    use vortex_array::array::{BoolArray, PrimitiveArray};
+    use vortex_array::array::PrimitiveArray;
     use vortex_array::compute::{filter, FilterMask};
     use vortex_array::IntoArrayVariant;
 

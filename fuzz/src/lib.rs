@@ -11,7 +11,7 @@ use std::ops::Range;
 use libfuzzer_sys::arbitrary::Error::EmptyChoose;
 use libfuzzer_sys::arbitrary::{Arbitrary, Result, Unstructured};
 pub use sort::sort_canonical_array;
-use vortex_array::array::{BoolArray, PrimitiveArray};
+use vortex_array::array::PrimitiveArray;
 use vortex_array::compute::unary::scalar_at;
 use vortex_array::compute::{FilterMask, SearchResult, SearchSortedSide};
 use vortex_array::{ArrayDType, ArrayData};

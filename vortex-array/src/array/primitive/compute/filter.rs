@@ -46,7 +46,6 @@ mod test {
 
     use crate::array::primitive::compute::filter::filter_select_primitive;
     use crate::array::primitive::PrimitiveArray;
-    use crate::array::BoolArray;
     use crate::compute::FilterMask;
 
     #[test]

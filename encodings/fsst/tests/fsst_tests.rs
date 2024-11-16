@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use vortex_array::array::builder::VarBinBuilder;
-use vortex_array::array::{BoolArray, PrimitiveArray};
+use vortex_array::array::PrimitiveArray;
 use vortex_array::compute::unary::scalar_at;
 use vortex_array::compute::{filter, slice, take, FilterMask};
 use vortex_array::validity::Validity;

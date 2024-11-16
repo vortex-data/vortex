@@ -237,10 +237,11 @@ impl RowMask {
             buffer.extend_zeros(byte_length - bitset.size_in_bytes());
         }
 
-        Ok(FilterMask::from(BoolArray::try_new(
-            BooleanBuffer::from(buffer),
-            Validity::NonNullable,
-        )?))
+        Ok(FilterMask::from(BoolArray::from(BooleanBuffer::new(
+            buffer.into(),
+            0,
+            self.len(),
+        ))))
     }
 
     pub fn shift(self, offset: usize) -> VortexResult<RowMask> {

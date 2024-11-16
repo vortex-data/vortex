@@ -199,7 +199,7 @@ mod test {
     use vortex_dtype::{DType, Nullability, PType};
 
     use crate::array::chunked::compute::filter::slices_to_mask;
-    use crate::array::{BoolArray, ChunkedArray, PrimitiveArray};
+    use crate::array::{ChunkedArray, PrimitiveArray};
     use crate::compute::{filter, FilterMask};
     use crate::IntoArrayData;
 

@@ -118,7 +118,6 @@ mod test {
 
     use crate::array::primitive::PrimitiveArray;
     use crate::array::sparse::SparseArray;
-    use crate::array::BoolArray;
     use crate::compute::{
         filter, search_sorted, slice, FilterMask, SearchResult, SearchSortedSide,
     };
