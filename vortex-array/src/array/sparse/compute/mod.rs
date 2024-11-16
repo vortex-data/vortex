@@ -195,7 +195,7 @@ mod test {
     fn test_filter(array: ArrayData) {
         let mut predicate = vec![false, false, true];
         predicate.extend_from_slice(&[false; 17]);
-        let mask = FilterMask::from(BoolArray::from_vec(predicate, Validity::NonNullable));
+        let mask = FilterMask::from_iter(predicate);
 
         let filtered_array = filter(&array, &mask).unwrap();
         let filtered_array = SparseArray::try_from(filtered_array).unwrap();
@@ -207,10 +207,7 @@ mod test {
 
     #[test]
     fn true_fill_value() {
-        let mask = FilterMask::from(BoolArray::from_vec(
-            vec![false, true, false, true, false, true, true],
-            Validity::NonNullable,
-        ));
+        let mask = FilterMask::from_iter([false, true, false, true, false, true, true]);
         let array = SparseArray::try_new(
             PrimitiveArray::from(vec![0_u64, 3, 6]).into_array(),
             PrimitiveArray::from_vec(vec![33_i32, 44, 55], Validity::AllValid).into_array(),

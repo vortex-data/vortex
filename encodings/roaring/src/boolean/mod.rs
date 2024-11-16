@@ -9,14 +9,13 @@ use vortex_array::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use vortex_array::array::BoolArray;
 use vortex_array::encoding::ids;
 use vortex_array::stats::StatsSet;
-use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity};
+use vortex_array::validity::{ArrayValidity, LogicalValidity};
 use vortex_array::variants::{ArrayVariants, BoolArrayTrait};
 use vortex_array::{
     impl_encoding, ArrayData, ArrayTrait, Canonical, IntoArrayData, IntoCanonical, TypedArray,
 };
 use vortex_buffer::Buffer;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability::NonNullable;
+use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
 
 mod compress;
@@ -49,7 +48,7 @@ impl RoaringBoolArray {
 
         Ok(Self {
             typed: TypedArray::try_from_parts(
-                DType::Bool(NonNullable),
+                DType::Bool(Nullability::NonNullable),
                 length,
                 RoaringBoolMetadata,
                 Some(Buffer::from(bitmap.serialize::<Native>())),
@@ -129,11 +128,10 @@ impl IntoCanonical for RoaringBoolArray {
         if byte_length > bitset.size_in_bytes() {
             buffer.extend_zeros(byte_length - bitset.size_in_bytes());
         }
-        BoolArray::try_new(
+        Ok(Canonical::Bool(BoolArray::new(
             BooleanBuffer::new(buffer.into(), 0, self.len()),
-            Validity::NonNullable,
-        )
-        .map(Canonical::Bool)
+            Nullability::NonNullable,
+        )))
     }
 }
 
@@ -149,7 +147,7 @@ mod test {
     #[test]
     #[cfg_attr(miri, ignore)]
     pub fn iter() {
-        let bool: BoolArray = BoolArray::from(vec![true, false, true, true]);
+        let bool: BoolArray = BoolArray::from_iter([true, false, true, true]);
         let array = RoaringBoolArray::encode(bool.into_array()).unwrap();
         let round_trip = RoaringBoolArray::try_from(array).unwrap();
         let values = round_trip.bitmap().to_vec();
@@ -159,11 +157,10 @@ mod test {
     #[test]
     #[cfg_attr(miri, ignore)]
     pub fn trailing_false() {
-        let bool: BoolArray = BoolArray::from(
-            vec![true, true]
+        let bool: BoolArray = BoolArray::from_iter(
+            [true, true]
                 .into_iter()
-                .chain(iter::repeat(false).take(100))
-                .collect::<Vec<_>>(),
+                .chain(iter::repeat(false).take(100)),
         );
         let array = RoaringBoolArray::encode(bool.into_array()).unwrap();
         let round_trip = RoaringBoolArray::try_from(array).unwrap();

@@ -169,12 +169,17 @@ impl From<BoolArray> for FilterMask {
     }
 }
 
+impl FromIterator<bool> for FilterMask {
+    fn from_iter<T: IntoIterator<Item = bool>>(iter: T) -> Self {
+        Self::from(BoolArray::from_iter(iter))
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
     use crate::array::{BoolArray, PrimitiveArray};
     use crate::compute::filter::filter;
-    use crate::validity::Validity;
     use crate::{IntoArrayData, IntoCanonical};
 
     #[test]
@@ -183,8 +188,7 @@ mod test {
             PrimitiveArray::from_nullable_vec(vec![Some(0i32), None, Some(1i32), None, Some(2i32)])
                 .into_array();
         let mask = FilterMask::try_from(
-            BoolArray::from_vec(vec![true, false, true, false, true], Validity::NonNullable)
-                .into_array(),
+            BoolArray::from_iter([true, false, true, false, true]).into_array(),
         )
         .unwrap();
 

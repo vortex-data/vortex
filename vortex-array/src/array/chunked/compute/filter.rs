@@ -242,9 +242,9 @@ mod test {
         )
         .unwrap()
         .into_array();
-        let mask = FilterMask::from(BoolArray::from(vec![
+        let mask = FilterMask::from_iter([
             true, false, false, true, true, true, true, true, true, true, true,
-        ]));
+        ]);
         let filtered = filter(&chunked, &mask).unwrap();
         assert_eq!(filtered.len(), 9);
     }

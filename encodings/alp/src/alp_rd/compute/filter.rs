@@ -45,7 +45,7 @@ mod test {
         // The first two values need no patching
         let filtered = filter(
             encoded.as_ref(),
-            &FilterMask::from(BoolArray::from(vec![true, false, true])),
+            &FilterMask::from_iter([true, false, true]),
         )
         .unwrap()
         .into_primitive()

@@ -1,13 +1,13 @@
-use vortex_array::array::{BoolArray, ConstantArray};
+use vortex_array::array::ConstantArray;
 use vortex_array::compute::unary::{scalar_at, scalar_at_unchecked, ScalarAtFn};
 use vortex_array::compute::{
     compare, filter, slice, take, ArrayCompute, FilterFn, FilterMask, MaybeCompareFn, Operator,
     SliceFn, TakeFn,
 };
 use vortex_array::stats::{ArrayStatistics, Stat};
-use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
+use vortex_dtype::Nullability;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::{PValue, Scalar};
 
@@ -115,9 +115,9 @@ impl MaybeCompareFn for ALPArray {
             match pvalue {
                 Some(PValue::F32(f)) => Some(alp_scalar_compare(self, f, operator)),
                 Some(PValue::F64(f)) => Some(alp_scalar_compare(self, f, operator)),
-                Some(_) | None => Some(Ok(BoolArray::from_vec(
-                    vec![false; self.len()],
-                    Validity::AllValid,
+                Some(_) | None => Some(Ok(ConstantArray::new(
+                    Scalar::bool(false, Nullability::Nullable),
+                    self.len(),
                 )
                 .into_array())),
             }
@@ -146,7 +146,10 @@ where
                 let s = ConstantArray::new(exception, alp.len());
                 compare(patches, s.as_ref(), operator)
             } else {
-                Ok(BoolArray::from_vec(vec![false; alp.len()], Validity::AllValid).into_array())
+                Ok(
+                    ConstantArray::new(Scalar::bool(false, Nullability::Nullable), alp.len())
+                        .into_array(),
+                )
             }
         }
     }

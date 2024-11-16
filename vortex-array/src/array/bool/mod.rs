@@ -1,11 +1,13 @@
 use std::fmt::{Debug, Display};
 
-use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, MutableBuffer};
+use arrow_array::BooleanArray;
+use arrow_buffer::bit_iterator::{BitIndexIterator, BitSliceIterator};
+use arrow_buffer::{BooleanBufferBuilder, MutableBuffer};
 use itertools::Itertools;
 use num_traits::AsPrimitive;
 use serde::{Deserialize, Serialize};
 use vortex_buffer::Buffer;
-use vortex_dtype::DType;
+use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 
 use crate::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
@@ -20,6 +22,9 @@ use crate::{
 mod accessors;
 mod compute;
 mod stats;
+
+// Re-export the BooleanBuffer type on our API surface.
+pub use arrow_buffer::BooleanBuffer;
 
 impl_encoding!("vortex.bool", ids::BOOL, Bool);
 
@@ -94,6 +99,17 @@ impl BoolArray {
         })
     }
 
+    /// Create a new BoolArray from a buffer and nullability.
+    pub fn new(buffer: BooleanBuffer, nullability: Nullability) -> Self {
+        let validity = match nullability {
+            Nullability::Nullable => Validity::AllValid,
+            Nullability::NonNullable => Validity::NonNullable,
+        };
+        Self::try_new(buffer, validity).vortex_expect("Validity length cannot be mismatched")
+    }
+
+    /// Create a new BoolArray from a buffer and validity metadata.
+    /// Returns an error if the validity length does not match the buffer length.
     pub fn try_new(buffer: BooleanBuffer, validity: Validity) -> VortexResult<Self> {
         let buffer_len = buffer.len();
         let buffer_offset = buffer.offset();
@@ -115,13 +131,9 @@ impl BoolArray {
                 Some(Buffer::from(inner)),
                 validity.into_array().into_iter().collect_vec().into(),
                 StatsSet::new(),
-            )?,
+            )
+            .vortex_expect("Metadata is known to be good"),
         })
-    }
-
-    pub fn from_vec(bools: Vec<bool>, validity: Validity) -> Self {
-        let buffer = BooleanBuffer::from(bools);
-        Self::try_new(buffer, validity).vortex_expect("Failed to create BoolArray from vec")
     }
 
     pub fn patch<P: AsPrimitive<usize>>(
@@ -163,38 +175,30 @@ impl ArrayVariants for BoolArray {
 
 impl BoolArrayTrait for BoolArray {
     fn invert(&self) -> VortexResult<ArrayData> {
-        BoolArray::try_new(!&self.boolean_buffer(), self.validity()).map(|a| a.into_array())
+        Ok(BoolArray::try_new(!&self.boolean_buffer(), self.validity())?.into_array())
     }
 }
 
 impl From<BooleanBuffer> for BoolArray {
     fn from(value: BooleanBuffer) -> Self {
-        Self::try_new(value, Validity::NonNullable)
-            .vortex_expect("Failed to create BoolArray from BooleanBuffer")
+        Self::new(value, Nullability::NonNullable)
     }
 }
 
-impl From<Vec<bool>> for BoolArray {
-    fn from(value: Vec<bool>) -> Self {
-        Self::from_vec(value, Validity::NonNullable)
+impl FromIterator<bool> for BoolArray {
+    fn from_iter<T: IntoIterator<Item = bool>>(iter: T) -> Self {
+        Self::new(BooleanBuffer::from_iter(iter), Nullability::NonNullable)
     }
 }
 
 impl FromIterator<Option<bool>> for BoolArray {
     fn from_iter<I: IntoIterator<Item = Option<bool>>>(iter: I) -> Self {
-        let iter = iter.into_iter();
-        let (lower, _) = iter.size_hint();
-
-        let mut validity: Vec<bool> = Vec::with_capacity(lower);
-        let values: Vec<bool> = iter
-            .map(|i| {
-                validity.push(i.is_some());
-                i.unwrap_or_default()
-            })
-            .collect::<Vec<_>>();
-
-        Self::try_new(BooleanBuffer::from(values), Validity::from(validity))
-            .vortex_expect("Failed to create BoolArray from iterator of Option<bool>")
+        let (buffer, nulls) = BooleanArray::from_iter(iter).into_parts();
+        Self::try_new(
+            buffer,
+            nulls.map(Validity::from).unwrap_or(Validity::AllValid),
+        )
+        .vortex_expect("Validity length cannot be mismatched")
     }
 }
 
@@ -233,7 +237,7 @@ mod tests {
 
     #[test]
     fn bool_array() {
-        let arr = BoolArray::from(vec![true, false, true]).into_array();
+        let arr = BoolArray::from_iter([true, false, true]).into_array();
         let scalar = bool::try_from(&scalar_at(&arr, 0).unwrap()).unwrap();
         assert!(scalar);
     }
@@ -271,6 +275,30 @@ mod tests {
 
         let scalar = scalar_at(&arr, 4).unwrap();
         assert!(scalar.is_null());
+    }
+
+    #[test]
+    fn constant_iter_true_test() {
+        let arr = BoolArray::from_iter([true, true, true]);
+        assert_eq!(vec![0, 1, 2], arr.maybe_null_indices_iter().collect_vec());
+        assert_eq!(vec![(0, 3)], arr.maybe_null_slices_iter().collect_vec());
+    }
+
+    #[test]
+    fn constant_iter_true_false_test() {
+        let arr = BoolArray::from_iter([true, false, true]);
+        assert_eq!(vec![0, 2], arr.maybe_null_indices_iter().collect_vec());
+        assert_eq!(
+            vec![(0, 1), (2, 3)],
+            arr.maybe_null_slices_iter().collect_vec()
+        );
+    }
+
+    #[test]
+    fn constant_iter_false_test() {
+        let arr = BoolArray::from_iter([false, false, false]);
+        assert_eq!(0, arr.maybe_null_indices_iter().collect_vec().len());
+        assert_eq!(0, arr.maybe_null_slices_iter().collect_vec().len());
     }
 
     #[test]

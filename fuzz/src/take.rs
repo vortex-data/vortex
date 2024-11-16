@@ -4,6 +4,7 @@ use vortex_array::validity::{ArrayValidity, Validity};
 use vortex_array::variants::StructArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::{match_each_native_ptype, DType};
+use vortex_error::VortexExpect;
 
 pub fn take_canonical_array(array: &ArrayData, indices: &[usize]) -> ArrayData {
     match array.dtype() {
@@ -18,10 +19,11 @@ pub fn take_canonical_array(array: &ArrayData, indices: &[usize]) -> ArrayData {
                 .boolean_buffer()
                 .iter()
                 .collect::<Vec<_>>();
-            BoolArray::from_vec(
+            BoolArray::try_new(
                 indices.iter().map(|i| vec_values[*i]).collect(),
-                Validity::from(indices.iter().map(|i| vec_validity[*i]).collect::<Vec<_>>()),
+                Validity::from_iter(indices.iter().map(|i| vec_validity[*i])),
             )
+            .vortex_expect("Validity length cannot mismatch")
             .into_array()
         }
         DType::Primitive(p, _) => match_each_native_ptype!(p, |$P| {
@@ -41,7 +43,7 @@ pub fn take_canonical_array(array: &ArrayData, indices: &[usize]) -> ArrayData {
                 .collect::<Vec<_>>();
             PrimitiveArray::from_vec(
                 indices.iter().map(|i| vec_values[*i]).collect(),
-                Validity::from(indices.iter().map(|i| vec_validity[*i]).collect::<Vec<_>>())
+                Validity::from_iter(indices.iter().map(|i| vec_validity[*i]))
             )
             .into_array()
         }),
@@ -75,7 +77,7 @@ pub fn take_canonical_array(array: &ArrayData, indices: &[usize]) -> ArrayData {
                 struct_array.names().clone(),
                 taken_children,
                 indices.len(),
-                Validity::from(indices.iter().map(|i| vec_validity[*i]).collect::<Vec<_>>()),
+                Validity::from_iter(indices.iter().map(|i| vec_validity[*i])),
             )
             .unwrap()
             .into_array()

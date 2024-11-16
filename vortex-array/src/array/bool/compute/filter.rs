@@ -58,8 +58,8 @@ mod test {
 
     #[test]
     fn filter_bool_test() {
-        let arr = BoolArray::from(vec![true, true, false]);
-        let mask = FilterMask::from(BoolArray::from(vec![true, false, true]));
+        let arr = BoolArray::from_iter([true, true, false]);
+        let mask = FilterMask::from_iter([true, false, true]);
 
         let filtered = filter_select_bool(&arr, &mask).unwrap();
         assert_eq!(2, filtered.len());
@@ -72,8 +72,8 @@ mod test {
 
     #[test]
     fn filter_bool_by_slice_test() {
-        let arr = BoolArray::from(vec![true, true, false]);
-        let mask = FilterMask::from(BoolArray::from(vec![true, false, true]));
+        let arr = BoolArray::from_iter([true, true, false]);
+        let mask = FilterMask::from_iter([true, false, true]);
 
         let filtered = filter_select_bool_by_slice(&arr.boolean_buffer(), &mask, 2).unwrap();
         assert_eq!(2, filtered.len());
@@ -83,8 +83,8 @@ mod test {
 
     #[test]
     fn filter_bool_by_index_test() {
-        let arr = BoolArray::from(vec![true, true, false]);
-        let mask = FilterMask::from(BoolArray::from(vec![true, false, true]));
+        let arr = BoolArray::from_iter([true, true, false]);
+        let mask = FilterMask::from_iter([true, false, true]);
 
         let filtered = filter_select_bool_by_index(&arr.boolean_buffer(), &mask, 2).unwrap();
         assert_eq!(2, filtered.len());

@@ -3,6 +3,7 @@ use std::iter;
 use std::sync::{Arc, RwLock};
 
 use futures::StreamExt;
+use itertools::Itertools;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::array::{ChunkedArray, PrimitiveArray, StructArray, VarBinArray};
 use vortex_array::validity::Validity;
@@ -607,7 +608,7 @@ async fn test_with_indices_simple() {
 
     // test all indices
     let actual_array = VortexReadBuilder::new(written.clone(), LayoutDeserializer::default())
-        .with_indices(ArrayData::from((0..500).collect::<Vec<u32>>()))
+        .with_indices(ArrayData::from((0u32..500).collect_vec()))
         .build()
         .await
         .unwrap()
@@ -762,7 +763,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
 
     // test all indices
     let actual_array = VortexReadBuilder::new(written.clone(), LayoutDeserializer::default())
-        .with_indices(ArrayData::from((0..500).collect::<Vec<u32>>()))
+        .with_indices(ArrayData::from((0..500).collect_vec()))
         .with_row_filter(RowFilter::new(BinaryExpr::new_expr(
             Column::new_expr(Field::from("numbers")),
             Operator::Gt,

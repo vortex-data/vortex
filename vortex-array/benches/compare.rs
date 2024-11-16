@@ -14,18 +14,8 @@ fn compare_bool(c: &mut Criterion) {
 
     let mut rng = thread_rng();
     let range = Uniform::new(0u8, 1);
-    let arr = BoolArray::from(
-        (0..10_000_000)
-            .map(|_| rng.sample(range) == 0)
-            .collect_vec(),
-    )
-    .into_array();
-    let arr2 = BoolArray::from(
-        (0..10_000_000)
-            .map(|_| rng.sample(range) == 0)
-            .collect_vec(),
-    )
-    .into_array();
+    let arr = BoolArray::from_iter((0..10_000_000).map(|_| rng.sample(range) == 0)).into_array();
+    let arr2 = BoolArray::from_iter((0..10_000_000).map(|_| rng.sample(range) == 0)).into_array();
 
     group.bench_function("compare_bool", |b| {
         b.iter(|| {

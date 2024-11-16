@@ -2,6 +2,7 @@ use std::process::ExitCode;
 use std::sync;
 use std::time::SystemTime;
 
+use bench_vortex::setup_logger;
 use bench_vortex::tpch::dbgen::{DBGen, DBGenOptions};
 use bench_vortex::tpch::{
     load_datasets, run_tpch_query, tpch_queries, Format, EXPECTED_ROW_COUNTS,
@@ -10,6 +11,7 @@ use clap::{ArgAction, Parser};
 use futures::future::try_join_all;
 use indicatif::ProgressBar;
 use itertools::Itertools;
+use log::LevelFilter;
 use prettytable::{Cell, Row, Table};
 use vortex::aliases::hash_map::HashMap;
 
@@ -26,10 +28,20 @@ struct Args {
     warmup: bool,
     #[arg(short, long, default_value = "10")]
     iterations: usize,
+    #[arg(long)]
+    only_vortex: bool,
+    #[arg(short, long)]
+    verbose: bool,
 }
 
 fn main() -> ExitCode {
     let args = Args::parse();
+
+    setup_logger(if args.verbose {
+        LevelFilter::Debug
+    } else {
+        LevelFilter::Info
+    });
 
     let runtime = match args.threads {
         Some(0) => panic!("Can't use 0 threads for runtime"),
@@ -51,6 +63,7 @@ fn main() -> ExitCode {
         args.exclude_queries,
         args.iterations,
         args.warmup,
+        args.only_vortex,
     ))
 }
 
@@ -59,6 +72,7 @@ async fn bench_main(
     exclude_queries: Option<Vec<usize>>,
     iterations: usize,
     warmup: bool,
+    only_vortex: bool,
 ) -> ExitCode {
     // uncomment the below to enable trace logging of datafusion execution
     // setup_logger(LevelFilter::Trace);
@@ -67,27 +81,37 @@ async fn bench_main(
     let data_dir = DBGen::new(DBGenOptions::default()).generate().unwrap();
 
     // The formats to run against (vs the baseline)
-    let formats = [
-        Format::Arrow,
-        Format::Parquet,
-        Format::InMemoryVortex {
-            enable_pushdown: false,
-        },
-        Format::InMemoryVortex {
-            enable_pushdown: true,
-        },
-        Format::OnDiskVortex {
+    let formats = if only_vortex {
+        vec![Format::OnDiskVortex {
             enable_compression: true,
-        },
-        Format::OnDiskVortex {
-            enable_compression: false,
-        },
-    ];
+        }]
+    } else {
+        vec![
+            Format::Arrow,
+            Format::Parquet,
+            Format::InMemoryVortex {
+                enable_pushdown: false,
+            },
+            Format::InMemoryVortex {
+                enable_pushdown: true,
+            },
+            Format::OnDiskVortex {
+                enable_compression: true,
+            },
+            Format::OnDiskVortex {
+                enable_compression: false,
+            },
+        ]
+    };
 
     // Load datasets
-    let ctxs = try_join_all(formats.map(|format| load_datasets(&data_dir, format)))
-        .await
-        .unwrap();
+    let ctxs = try_join_all(
+        formats
+            .iter()
+            .map(|format| load_datasets(&data_dir, *format)),
+    )
+    .await
+    .unwrap();
 
     // Set up a results table
     let mut table = Table::new();
@@ -120,6 +144,7 @@ async fn bench_main(
         let tx = rows_tx.clone();
         let count_tx = row_count_tx.clone();
         let progress = progress.clone();
+        let formats = formats.clone();
         rayon::spawn_fifo(move || {
             let mut cells = Vec::with_capacity(formats.len());
             cells.push(Cell::new(&format!("Q{}", q)));

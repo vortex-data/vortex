@@ -213,7 +213,7 @@ mod test {
             vec!["a", "b", "c", "d", "e"],
             DType::Utf8(Nullability::NonNullable),
         );
-        let zs = BoolArray::from_vec(vec![true, true, true, false, false], Validity::NonNullable);
+        let zs = BoolArray::from_iter([true, true, true, false, false]);
 
         let struct_a = StructArray::try_new(
             FieldNames::from(["xs".into(), "ys".into(), "zs".into()]),

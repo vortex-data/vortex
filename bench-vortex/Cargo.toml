@@ -41,7 +41,7 @@ homedir = { workspace = true }
 humansize = { workspace = true }
 indicatif = { workspace = true }
 itertools = { workspace = true }
-log = { workspace = true }
+log = { workspace = true, features = ["max_level_debug"] }
 mimalloc = { workspace = true }
 object_store = { workspace = true, features = ["aws"] }
 parquet = { workspace = true, features = ["async"] }

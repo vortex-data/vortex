@@ -236,8 +236,9 @@ impl RowMask {
         if byte_length > bitset.size_in_bytes() {
             buffer.extend_zeros(byte_length - bitset.size_in_bytes());
         }
+
         Ok(FilterMask::from(BoolArray::try_new(
-            BooleanBuffer::new(buffer.into(), 0, self.len()),
+            BooleanBuffer::from(buffer),
             Validity::NonNullable,
         )?))
     }
