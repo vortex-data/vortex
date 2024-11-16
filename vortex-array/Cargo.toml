@@ -31,6 +31,7 @@ arrow-ord = { workspace = true }
 arrow-schema = { workspace = true }
 arrow-select = { workspace = true }
 bytes = { workspace = true }
+derive_builder = { workspace = true }
 enum-iterator = { workspace = true }
 flatbuffers = { workspace = true, optional = true }
 flexbuffers = { workspace = true, optional = true }

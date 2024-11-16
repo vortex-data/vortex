@@ -1,66 +1,63 @@
+use derive_builder::Builder;
 use enum_iterator::all;
 use itertools::Itertools;
-use vortex_dtype::DType;
+use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_panic, VortexError, VortexExpect};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::aliases::hash_map::{Entry, HashMap, IntoIter};
 use crate::stats::Stat;
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, Builders)]
 pub struct StatsSet {
-    values: HashMap<Stat, Scalar>,
-}
-
-impl From<HashMap<Stat, Scalar>> for StatsSet {
-    fn from(value: HashMap<Stat, Scalar>) -> Self {
-        Self { values: value }
-    }
+    /// Frequency of each bit width (nulls are treated as 0)
+    bit_width_freq: Option<Vec<usize>>,
+    /// Frequency of each trailing zero (nulls are treated as 0)
+    trailing_zero_freq: Option<Vec<usize>>,
+    /// Whether all values are the same (nulls are not equal to other non-null values,
+    /// so this is true iff all values are null or all values are the same non-null value)
+    is_constant: Option<bool>,
+    /// Whether the array is sorted
+    is_sorted: Option<bool>,
+    /// Whether the array is strictly sorted (i.e., sorted with no duplicates)
+    is_strict_sorted: Option<bool>,
+    /// The maximum value in the array (ignoring nulls, unless all values are null)
+    max: Option<Scalar>,
+    /// The minimum value in the array (ignoring nulls, unless all values are null)
+    min: Option<Scalar>,
+    /// The number of runs in the array (ignoring nulls)
+    run_count: Option<usize>,
+    /// The number of true values in the array (nulls are treated as false)
+    true_count: Option<usize>,
+    /// The number of null values in the array
+    null_count: Option<usize>,
 }
 
 impl StatsSet {
-    pub fn new() -> Self {
-        Self {
-            values: HashMap::new(),
-        }
-    }
-
-    pub fn len(&self) -> usize {
-        self.values.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.values.is_empty()
-    }
-
     /// Specialized constructor for the case where the StatsSet represents
     /// an array consisting entirely of [null](vortex_dtype::DType::Null) values.
     pub fn nulls(len: usize, dtype: &DType) -> Self {
-        let mut stats = HashMap::from([
-            (Stat::Min, Scalar::null(dtype.clone())),
-            (Stat::Max, Scalar::null(dtype.clone())),
-            (Stat::IsConstant, true.into()),
-            (Stat::IsSorted, true.into()),
-            (Stat::IsStrictSorted, (len < 2).into()),
-            (Stat::RunCount, 1.into()),
-            (Stat::NullCount, len.into()),
-        ]);
+        let mut stats = Self {
+            is_constant: Some(true),
+            is_sorted: Some(true),
+            is_strict_sorted: Some(len < 2),
+            min: Some(Scalar::null(dtype.clone())),
+            max: Some(Scalar::null(dtype.clone())),
+            run_count: Some(1),
+            null_count: Some(len),
+            ..Default::default()
+        };
 
         // Add any DType-specific stats.
         match dtype {
             DType::Bool(_) => {
-                stats.insert(Stat::TrueCount, 0.into());
+                stats.true_count = Some(0);
             }
             DType::Primitive(ptype, _) => {
                 ptype.byte_width();
-                stats.insert(
-                    Stat::BitWidthFreq,
-                    vec![0_u64; ptype.byte_width() * 8 + 1].into(),
-                );
-                stats.insert(
-                    Stat::TrailingZeroFreq,
-                    vec![ptype.byte_width() * 8; ptype.byte_width() * 8 + 1].into(),
-                );
+                stats.bit_width_freq = Some(vec![0; ptype.byte_width() * 8 + 1]);
+                stats.trailing_zero_freq =
+                    Some(vec![ptype.byte_width() * 8; ptype.byte_width() * 8 + 1])
             }
             _ => {}
         }
@@ -68,68 +65,40 @@ impl StatsSet {
         Self::from(stats)
     }
 
+    /// Specialized constructor for the case where the StatsSet represents a constant array.
     pub fn constant(scalar: Scalar, length: usize) -> Self {
-        let mut stats = Self::new();
-        stats.set(Stat::IsConstant, true.into());
-        stats.set(Stat::IsSorted, true.into());
-        stats.set(Stat::IsStrictSorted, (length <= 1).into());
-
-        let run_count = if length == 0 { 0 } else { 1 };
-        stats.set(Stat::RunCount, run_count.into());
-
-        let null_count = if scalar.value().is_null() {
-            length as u64
-        } else {
-            0
+        let mut stats = Self {
+            is_constant: Some(true),
+            is_sorted: Some(true),
+            is_strict_sorted: Some(length <= 1),
+            run_count: Some(if length == 0 { 0 } else { 1 }),
+            null_count: Some(if scalar.value().is_null() { length } else { 0 }),
+            min: Some(scalar.clone()),
+            max: Some(scalar.clone()),
+            ..Default::default()
         };
-        stats.set(Stat::NullCount, null_count.into());
 
         if let ScalarValue::Bool(b) = scalar.value() {
-            let true_count = if *b { length as u64 } else { 0 };
-            stats.set(Stat::TrueCount, true_count.into());
+            stats.true_count = Some(if *b { length } else { 0 });
         }
-
-        stats.set(Stat::Min, scalar.clone());
-        stats.set(Stat::Max, scalar);
 
         stats
     }
 
-    pub fn bools_with_true_count(true_count: usize, len: usize) -> StatsSet {
-        StatsSet::from(HashMap::<Stat, Scalar>::from([
-            (Stat::TrueCount, true_count.into()),
-            (Stat::Min, (true_count == len).into()),
-            (Stat::Max, (true_count > 0).into()),
-            (
-                Stat::IsConstant,
-                (true_count == 0 || true_count == len).into(),
-            ),
-        ]))
-    }
-
-    pub fn of<S: Into<Scalar>>(stat: Stat, value: S) -> Self {
-        Self::from(HashMap::from([(stat, value.into())]))
-    }
-
-    pub fn get(&self, stat: Stat) -> Option<&Scalar> {
-        self.values.get(&stat)
-    }
-
-    fn get_as<T: for<'a> TryFrom<&'a Scalar, Error = VortexError>>(&self, stat: Stat) -> Option<T> {
-        self.get(stat).map(|v| {
-            T::try_from(v).unwrap_or_else(|err| {
-                vortex_panic!(
-                    err,
-                    "Failed to get stat {} as {}",
-                    stat,
-                    std::any::type_name::<T>()
-                )
-            })
-        })
-    }
-
-    pub fn set(&mut self, stat: Stat, value: Scalar) {
-        self.values.insert(stat, value);
+    pub fn bools_with_true_count(true_count: usize, len: usize) -> Self {
+        assert!(
+            true_count <= len,
+            "True count must be less than or equal to length"
+        );
+        Self {
+            is_constant: Some(true_count == 0 || true_count == len),
+            is_sorted: Some(true_count == 0 || true_count == len),
+            max: Some(Scalar::bool(true_count > 0, Nullability::NonNullable)),
+            min: Some(Scalar::bool(true_count == len, Nullability::NonNullable)),
+            true_count: Some(true_count),
+            null_count: Some(0),
+            ..Default::default()
+        }
     }
 
     /// Merge stats set `other` into `self`, with the semantic assumption that `other`
