@@ -8,7 +8,7 @@ use vortex_scalar::{Scalar, ScalarValue};
 use crate::aliases::hash_map::{Entry, HashMap, IntoIter};
 use crate::stats::Stat;
 
-#[derive(Debug, Clone, Default, Builders)]
+#[derive(Debug, Clone, Default, Builder)]
 pub struct StatsSet {
     /// Frequency of each bit width (nulls are treated as 0)
     bit_width_freq: Option<Vec<usize>>,
