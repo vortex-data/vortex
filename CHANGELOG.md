@@ -6,6 +6,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## `vortex-ipc` - [0.19.0](https://github.com/spiraldb/vortex/compare/vortex-ipc-v0.18.1...vortex-ipc-v0.19.0) - 2024-11-15
+
+### Added
+- return Bytes from readers ([#1330](https://github.com/spiraldb/vortex/pull/1330))
+
+## `vortex-io` - [0.19.0](https://github.com/spiraldb/vortex/compare/vortex-io-v0.18.1...vortex-io-v0.19.0) - 2024-11-15
+
+### Added
+- return Bytes from readers ([#1330](https://github.com/spiraldb/vortex/pull/1330))
+
+## `vortex-file` - [0.19.0](https://github.com/spiraldb/vortex/compare/vortex-file-v0.18.1...vortex-file-v0.19.0) - 2024-11-15
+
+### Added
+- return Bytes from readers ([#1330](https://github.com/spiraldb/vortex/pull/1330))
+
+### Other
+- Rename Array -> ArrayData ([#1316](https://github.com/spiraldb/vortex/pull/1316))
+- Restore perfoamnce of filter bitmask to bitmap conversion for dense rowmasks ([#1302](https://github.com/spiraldb/vortex/pull/1302))
+- Reuse the IoDispatcher across DataFusion instances ([#1299](https://github.com/spiraldb/vortex/pull/1299))
+- replace vortex-serde with 3 crates ([#1296](https://github.com/spiraldb/vortex/pull/1296))
+
+## `vortex-file` - [0.18.1](https://github.com/spiraldb/vortex/compare/vortex-file-v0.18.0...vortex-file-v0.18.1) - 2024-11-15
+
+### Other
+- Rename Array -> ArrayData ([#1316](https://github.com/spiraldb/vortex/pull/1316))
+- Restore perfoamnce of filter bitmask to bitmap conversion for dense rowmasks ([#1302](https://github.com/spiraldb/vortex/pull/1302))
+- Reuse the IoDispatcher across DataFusion instances ([#1299](https://github.com/spiraldb/vortex/pull/1299))
+- replace vortex-serde with 3 crates ([#1296](https://github.com/spiraldb/vortex/pull/1296))
+
+## `vortex-flatbuffers` - [0.18.1](https://github.com/spiraldb/vortex/compare/vortex-flatbuffers-v0.18.0...vortex-flatbuffers-v0.18.1) - 2024-11-15
+
+### Fixed
+- use correct feature flags for vortex-ipc -> vortex-fbs dep ([#1328](https://github.com/spiraldb/vortex/pull/1328))
+
+## `vortex-file` - [0.18.0](https://github.com/spiraldb/vortex/compare/vortex-file-v0.17.0...vortex-file-v0.18.0) - 2024-11-15
+
+### Other
+- Rename Array -> ArrayData ([#1316](https://github.com/spiraldb/vortex/pull/1316))
+- Restore perfoamnce of filter bitmask to bitmap conversion for dense rowmasks ([#1302](https://github.com/spiraldb/vortex/pull/1302))
+- Reuse the IoDispatcher across DataFusion instances ([#1299](https://github.com/spiraldb/vortex/pull/1299))
+- replace vortex-serde with 3 crates ([#1296](https://github.com/spiraldb/vortex/pull/1296))
+
+## `vortex-datetime-parts` - [0.18.0](https://github.com/spiraldb/vortex/compare/vortex-datetime-parts-v0.17.0...vortex-datetime-parts-v0.18.0) - 2024-11-15
+
+### Other
+- Canonicalize constant array with extension dtype ([#1322](https://github.com/spiraldb/vortex/pull/1322))
+
+## `vortex-array` - [0.18.0](https://github.com/spiraldb/vortex/compare/vortex-array-v0.17.0...vortex-array-v0.18.0) - 2024-11-15
+
+### Other
+- Canonicalize constant array with extension dtype ([#1322](https://github.com/spiraldb/vortex/pull/1322))
+
 ## `vortex-file` - [0.17.0](https://github.com/spiraldb/vortex/releases/tag/vortex-file-v0.17.0) - 2024-11-15
 
 ### Other

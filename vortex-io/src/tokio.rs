@@ -6,7 +6,7 @@ use std::os::unix::fs::FileExt;
 use std::path::Path;
 use std::sync::Arc;
 
-use bytes::BytesMut;
+use bytes::{Bytes, BytesMut};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use vortex_buffer::io_buf::IoBuf;
 use vortex_error::vortex_panic;
@@ -17,9 +17,13 @@ use crate::{VortexRead, VortexWrite};
 pub struct TokioAdapter<IO>(pub IO);
 
 impl<IO: AsyncRead + Unpin> VortexRead for TokioAdapter<IO> {
-    async fn read_into(&mut self, mut buffer: BytesMut) -> io::Result<BytesMut> {
+    async fn read_bytes(&mut self, len: u64) -> io::Result<Bytes> {
+        let mut buffer = BytesMut::with_capacity(len as usize);
+        unsafe {
+            buffer.set_len(len as usize);
+        }
         self.0.read_exact(buffer.as_mut()).await?;
-        Ok(buffer)
+        Ok(buffer.freeze())
     }
 }
 
@@ -69,16 +73,19 @@ impl Deref for TokioFile {
 }
 
 impl VortexReadAt for TokioFile {
-    fn read_at_into(
+    fn read_byte_range(
         &self,
         pos: u64,
-        buffer: BytesMut,
-    ) -> impl Future<Output = io::Result<BytesMut>> + 'static {
+        len: u64,
+    ) -> impl Future<Output = io::Result<Bytes>> + 'static {
         let this = self.clone();
 
-        let mut buffer = buffer;
+        let mut buffer = BytesMut::with_capacity(len as usize);
+        unsafe {
+            buffer.set_len(len as usize);
+        }
         match this.read_exact_at(&mut buffer, pos) {
-            Ok(()) => future::ready(Ok(buffer)),
+            Ok(()) => future::ready(Ok(buffer.freeze())),
             Err(e) => future::ready(Err(e)),
         }
     }
@@ -121,7 +128,6 @@ mod tests {
     use std::ops::Deref;
     use std::os::unix::fs::FileExt;
 
-    use bytes::BytesMut;
     use tempfile::NamedTempFile;
 
     use crate::{TokioFile, VortexReadAt};
@@ -133,14 +139,12 @@ mod tests {
 
         let shared_file = TokioFile::open(tmpfile.path()).unwrap();
 
-        let first_half = BytesMut::zeroed(5);
-        let first_half = shared_file.read_at_into(0, first_half).await.unwrap();
+        let first_half = shared_file.read_byte_range(0, 5).await.unwrap();
 
-        let second_half = BytesMut::zeroed(5);
-        let second_half = shared_file.read_at_into(5, second_half).await.unwrap();
+        let second_half = shared_file.read_byte_range(5, 5).await.unwrap();
 
-        assert_eq!(first_half.freeze(), "01234".as_bytes());
-        assert_eq!(second_half.freeze(), "56789".as_bytes());
+        assert_eq!(&first_half, "01234".as_bytes());
+        assert_eq!(&second_half, "56789".as_bytes());
     }
 
     #[test]

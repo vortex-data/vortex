@@ -4,7 +4,7 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::{io, mem};
 
-use bytes::BytesMut;
+use bytes::Bytes;
 use object_store::path::Path;
 use object_store::{ObjectStore, WriteMultipart};
 use vortex_buffer::io_buf::IoBuf;
@@ -66,21 +66,20 @@ impl ObjectStoreReadAt {
 }
 
 impl VortexReadAt for ObjectStoreReadAt {
-    fn read_at_into(
+    fn read_byte_range(
         &self,
         pos: u64,
-        mut buffer: BytesMut,
-    ) -> impl Future<Output = io::Result<BytesMut>> + 'static {
+        len: u64,
+    ) -> impl Future<Output = io::Result<Bytes>> + 'static {
         let object_store = self.object_store.clone();
         let location = self.location.clone();
 
         Box::pin(async move {
             let start_range = pos as usize;
             let bytes = object_store
-                .get_range(&location, start_range..(start_range + buffer.len()))
+                .get_range(&location, start_range..(start_range + len as usize))
                 .await?;
-            buffer.as_mut().copy_from_slice(bytes.as_ref());
-            Ok(buffer)
+            Ok(bytes)
         })
     }
 

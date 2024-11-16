@@ -4,7 +4,7 @@ use std::pin::Pin;
 use std::sync::{Arc, RwLock};
 use std::task::{Context, Poll};
 
-use bytes::{Bytes, BytesMut};
+use bytes::Bytes;
 use futures::future::BoxFuture;
 use futures::Stream;
 use futures_util::{stream, FutureExt, StreamExt, TryStreamExt};
@@ -305,14 +305,11 @@ async fn read_ranges<R: VortexReadAt>(
 ) -> VortexResult<Vec<Message>> {
     stream::iter(ranges.into_iter())
         .map(|MessageLocator(id, range)| {
-            let mut buf = BytesMut::with_capacity(range.len());
-            unsafe { buf.set_len(range.len()) }
-
-            let read_ft = reader.read_at_into(range.begin, buf);
+            let read_ft = reader.read_byte_range(range.begin, range.len());
 
             read_ft.map(|result| {
                 result
-                    .map(|res| Message(id, res.freeze()))
+                    .map(|res| Message(id, res))
                     .map_err(VortexError::from)
             })
         })

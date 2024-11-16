@@ -57,7 +57,7 @@ vortex-sampling-compressor = { path = "../vortex-sampling-compressor" }
 workspace = true
 
 [features]
-default = []
+default = ["tokio"]
 futures = ["futures-util/io", "vortex-io/futures"]
 compio = ["dep:compio", "vortex-io/compio"]
 tokio = ["dep:tokio", "vortex-io/tokio"]

@@ -1,7 +1,7 @@
 use std::future::Future;
 use std::io;
 
-use bytes::BytesMut;
+use bytes::{Bytes, BytesMut};
 use compio::fs::File;
 use compio::io::AsyncReadAtExt;
 use compio::BufResult;
@@ -10,16 +10,20 @@ use vortex_error::vortex_panic;
 use super::VortexReadAt;
 
 impl VortexReadAt for File {
-    fn read_at_into(
+    fn read_byte_range(
         &self,
         pos: u64,
-        buffer: BytesMut,
-    ) -> impl Future<Output = io::Result<BytesMut>> + 'static {
+        len: u64,
+    ) -> impl Future<Output = io::Result<Bytes>> + 'static {
         let this = self.clone();
+        let mut buffer = BytesMut::with_capacity(len as usize);
+        unsafe {
+            buffer.set_len(len as usize);
+        }
         async move {
             // Turn the buffer into a static slice.
             let BufResult(res, buffer) = this.read_exact_at(buffer, pos).await;
-            res.map(|_| buffer)
+            res.map(|_| buffer.freeze())
         }
     }
 
@@ -38,7 +42,6 @@ impl VortexReadAt for File {
 mod tests {
     use std::io::Write;
 
-    use bytes::BytesMut;
     use compio::fs::File;
     use tempfile::NamedTempFile;
 
@@ -54,8 +57,7 @@ mod tests {
         let file = File::open(tmpfile.path()).await.unwrap();
 
         // Use the file as a VortexReadAt instance.
-        let four_bytes = BytesMut::zeroed(4);
-        let read = file.read_at_into(2, four_bytes).await.unwrap();
+        let read = file.read_byte_range(2, 4).await.unwrap();
         assert_eq!(&read, "2345".as_bytes());
     }
 }

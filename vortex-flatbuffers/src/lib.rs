@@ -92,7 +92,7 @@ pub mod scalar;
 /// ```
 pub mod footer;
 
-#[cfg(feature = "file")]
+#[cfg(feature = "ipc")]
 #[allow(clippy::all)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[allow(clippy::many_single_char_names)]

@@ -122,7 +122,7 @@ impl ArrayVariants for DateTimePartsArray {
 }
 
 impl ExtensionArrayTrait for DateTimePartsArray {
-    fn storage_array(&self) -> ArrayData {
+    fn storage_data(&self) -> ArrayData {
         // FIXME(ngates): this needs to be a tuple array so we can implement Compare
         // we don't want to write validity twice, so we pull it up to the top
         let days = try_cast(self.days(), &self.days().dtype().as_nonnullable()).vortex_unwrap();
