@@ -28,8 +28,6 @@ pub trait FilterFn {
 /// The `predicate` must receive an Array with type non-nullable bool, and will panic if this is
 /// not the case.
 pub fn filter(array: &ArrayData, mask: &FilterMask) -> VortexResult<ArrayData> {
-    let array = array.as_ref();
-
     if mask.len() != array.len() {
         vortex_bail!(
             "mask.len() is {}, does not equal array.len() of {}",
@@ -50,7 +48,7 @@ pub fn filter(array: &ArrayData, mask: &FilterMask) -> VortexResult<ArrayData> {
 
     array.with_dyn(|a| {
         if let Some(filter_fn) = a.filter() {
-            filter_fn.filter(&mask)
+            filter_fn.filter(mask)
         } else {
             // Fallback: implement using Arrow kernels.
             let array_ref = array.clone().into_canonical()?.into_arrow()?;
