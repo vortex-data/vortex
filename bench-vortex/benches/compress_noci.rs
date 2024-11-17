@@ -2,7 +2,6 @@ mod tokio_runtime;
 
 use core::str::FromStr;
 use core::sync::atomic::{AtomicBool, Ordering};
-use std::cell::LazyCell;
 use std::io::Cursor;
 use std::path::Path;
 use std::sync::Arc;
@@ -18,7 +17,7 @@ use bench_vortex::taxi_data::taxi_data_parquet;
 use bench_vortex::tpch::dbgen::{DBGen, DBGenOptions};
 use bench_vortex::{fetch_taxi_data, tpch};
 use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
-use futures::StreamExt;
+use futures::TryStreamExt;
 use log::LevelFilter;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use parquet::arrow::ArrowWriter;
@@ -71,7 +70,6 @@ fn chunked_to_vec_record_batch(chunked: ChunkedArray) -> (Vec<RecordBatch>, Arc<
     (batches, schema)
 }
 
-#[inline(never)]
 fn parquet_compress_write(
     batches: Vec<RecordBatch>,
     schema: Arc<Schema>,
@@ -92,7 +90,6 @@ fn parquet_compress_write(
     n_bytes
 }
 
-#[inline(never)]
 fn parquet_decompress_read(buf: bytes::Bytes) -> usize {
     let builder = ParquetRecordBatchReaderBuilder::try_new(buf).unwrap();
     let reader = builder.build().unwrap();
@@ -109,7 +106,6 @@ fn parquet_compressed_written_size(array: &ArrayData, compression: Compression) 
     parquet_compress_write(batches, schema, compression, &mut Vec::new())
 }
 
-#[inline(never)]
 fn vortex_compress_write(
     runtime: &Runtime,
     compressor: &SamplingCompressor<'_>,
@@ -132,9 +128,8 @@ fn vortex_compress_write(
     Ok(cursor.position())
 }
 
-#[inline(never)]
-fn vortex_decompress_read(runtime: &Runtime, buf: Buffer) -> VortexResult<Vec<ArrayRef>> {
-    async fn async_read(buf: Buffer) -> VortexResult<Vec<ArrayRef>> {
+fn vortex_decompress_read(runtime: &Runtime, buf: Buffer) -> VortexResult<ArrayRef> {
+    async fn async_read(buf: Buffer) -> VortexResult<ArrayData> {
         let builder: VortexReadBuilder<_> = VortexReadBuilder::new(
             buf,
             LayoutDeserializer::new(
@@ -143,15 +138,17 @@ fn vortex_decompress_read(runtime: &Runtime, buf: Buffer) -> VortexResult<Vec<Ar
             ),
         );
 
-        let mut batches = vec![];
-        let mut stream = builder.build().await?;
-        while let Some(batch) = stream.next().await {
-            batches.push(batch?.into_canonical()?.into_arrow()?);
-        }
-        Ok(batches)
+        let stream = builder.build().await?;
+        let dtype = stream.dtype().clone();
+        let vecs: Vec<ArrayData> = stream.try_collect().await?;
+
+        ChunkedArray::try_new(vecs, dtype).map(|e| e.into())
     }
 
-    runtime.block_on(async_read(buf))
+    runtime
+        .block_on(async_read(buf))?
+        .into_canonical()?
+        .into_arrow()
 }
 
 fn vortex_compressed_written_size(
@@ -214,7 +211,6 @@ fn benchmark_compress<F, U>(
         group.sample_size(sample_size);
         group.throughput(Throughput::Bytes(uncompressed_size as u64));
         measurement_time.map(|t| group.measurement_time(t));
-
         group.bench_function(bench_name, |b| {
             let chunked = ChunkedArray::try_from(uncompressed.as_ref()).unwrap();
             let (batches, schema) = chunked_to_vec_record_batch(chunked);
@@ -236,16 +232,12 @@ fn benchmark_compress<F, U>(
         group.sample_size(sample_size);
         group.throughput(Throughput::Bytes(uncompressed_size as u64));
         measurement_time.map(|t| group.measurement_time(t));
-
-        let buffer = LazyCell::new(|| {
+        group.bench_function(bench_name, |b| {
             let mut buf = Vec::new();
             vortex_compress_write(runtime, compressor, uncompressed.as_ref(), &mut buf).unwrap();
-            Buffer::from(buf)
-        });
-
-        group.bench_function(bench_name, |b| {
+            let bytes = Buffer::from(buf);
             b.iter_with_large_drop(|| {
-                black_box(vortex_decompress_read(runtime, buffer.clone()).unwrap());
+                black_box(vortex_decompress_read(runtime, bytes.clone()).unwrap());
             });
         });
         group.finish();
@@ -256,8 +248,7 @@ fn benchmark_compress<F, U>(
         group.sample_size(sample_size);
         group.throughput(Throughput::Bytes(uncompressed_size as u64));
         measurement_time.map(|t| group.measurement_time(t));
-
-        let buffer = LazyCell::new(|| {
+        group.bench_function(bench_name, |b| {
             let chunked = ChunkedArray::try_from(uncompressed.as_ref()).unwrap();
             let (batches, schema) = chunked_to_vec_record_batch(chunked);
             let mut buf = Vec::new();
@@ -267,12 +258,9 @@ fn benchmark_compress<F, U>(
                 Compression::ZSTD(ZstdLevel::default()),
                 &mut buf,
             );
-            bytes::Bytes::from(buf)
-        });
-
-        group.bench_function(bench_name, |b| {
+            let bytes = bytes::Bytes::from(buf);
             b.iter_with_large_drop(|| {
-                black_box(parquet_decompress_read(buffer.clone()));
+                black_box(parquet_decompress_read(bytes.clone()));
             });
         });
         group.finish();
