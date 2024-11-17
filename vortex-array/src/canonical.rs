@@ -174,19 +174,11 @@ fn struct_to_arrow(struct_array: StructArray) -> VortexResult<ArrayRef> {
     let field_arrays: Vec<ArrayRef> =
         Iterator::zip(struct_array.names().iter(), struct_array.children())
             .map(|(name, f)| {
-                let canonical = f.into_canonical().map_err(|err| {
-                    err.with_context(format!("Failed to canonicalize field {}", name))
-                })?;
-                match canonical {
-                    // visit nested structs recursively
-                    Canonical::Struct(a) => struct_to_arrow(a),
-                    _ => canonical.into_arrow().map_err(|err| {
-                        err.with_context(format!(
-                            "Failed to convert canonicalized field {} to arrow",
-                            name
-                        ))
-                    }),
-                }
+                f.into_canonical()
+                    .map_err(|err| {
+                        err.with_context(format!("Failed to canonicalize field {}", name))
+                    })
+                    .and_then(|c| c.into_arrow())
             })
             .collect::<VortexResult<Vec<_>>>()?;
 

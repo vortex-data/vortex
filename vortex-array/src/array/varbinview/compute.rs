@@ -3,19 +3,24 @@ use std::sync::Arc;
 use arrow_array::cast::AsArray;
 use arrow_array::types::ByteViewType;
 use arrow_array::{Datum, GenericByteViewArray};
+use arrow_buffer::ScalarBuffer;
 use arrow_ord::cmp;
 use arrow_schema::DataType;
+use itertools::Itertools;
 use vortex_buffer::Buffer;
+use vortex_dtype::{match_each_integer_ptype, PType};
 use vortex_error::{vortex_bail, VortexResult, VortexUnwrap};
 use vortex_scalar::Scalar;
 
 use crate::array::varbin::varbin_scalar;
 use crate::array::varbinview::{VarBinViewArray, VIEW_SIZE_BYTES};
-use crate::array::{varbinview_as_arrow, ConstantArray};
+use crate::array::{ConstantArray, PrimitiveArray};
 use crate::arrow::FromArrowArray;
 use crate::compute::unary::ScalarAtFn;
 use crate::compute::{slice, ArrayCompute, MaybeCompareFn, Operator, SliceFn, TakeFn, TakeOptions};
-use crate::{ArrayDType, ArrayData, IntoArrayData, IntoCanonical};
+use crate::validity::Validity;
+use crate::variants::PrimitiveArrayTrait;
+use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant, IntoCanonical};
 
 impl ArrayCompute for VarBinViewArray {
     fn compare(&self, other: &ArrayData, operator: Operator) -> Option<VortexResult<ArrayData>> {
@@ -67,20 +72,34 @@ impl SliceFn for VarBinViewArray {
 /// Take involves creating a new array that references the old array, just with the given set of views.
 impl TakeFn for VarBinViewArray {
     fn take(&self, indices: &ArrayData, options: TakeOptions) -> VortexResult<ArrayData> {
-        let array_ref = varbinview_as_arrow(self);
-        let indices_arrow = indices.clone().into_canonical()?.into_arrow()?;
+        // Compute the new validity
+        let validity = self.validity().take(indices, options)?;
 
-        let take_arrow = arrow_select::take::take(
-            &array_ref,
-            &indices_arrow,
-            Some(arrow_select::take::TakeOptions {
-                check_bounds: !options.skip_bounds_check,
-            }),
-        )?;
-        Ok(ArrayData::from_arrow(
-            take_arrow,
-            self.dtype().is_nullable(),
-        ))
+        // Convert our views array into an Arrow u128 ScalarBuffer (16 bytes per view)
+        let views_buffer =
+            ScalarBuffer::<u128>::from(self.views().into_primitive()?.into_buffer().into_arrow());
+
+        let indices = indices.clone().into_primitive()?;
+        let views_buffer = match_each_integer_ptype!(indices.ptype(), |$I| {
+            ScalarBuffer::<u128>::from_iter(indices.maybe_null_slice::<$I>().iter().map(|i| {
+                views_buffer[*i as usize]
+            }))
+        });
+
+        // Cast views back to u8
+        let views_array = PrimitiveArray::new(
+            views_buffer.into_inner().into(),
+            PType::U8,
+            Validity::NonNullable,
+        );
+
+        Ok(Self::try_new(
+            views_array.into_array(),
+            self.buffers().collect_vec(),
+            self.dtype().clone(),
+            validity,
+        )?
+        .into_array())
     }
 }
 

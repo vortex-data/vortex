@@ -5,7 +5,8 @@ use crate::array::extension::ExtensionArray;
 use crate::array::ConstantArray;
 use crate::compute::unary::{scalar_at, scalar_at_unchecked, CastFn, ScalarAtFn};
 use crate::compute::{
-    compare, slice, take, ArrayCompute, MaybeCompareFn, Operator, SliceFn, TakeFn, TakeOptions,
+    compare, filter, slice, take, ArrayCompute, FilterFn, MaybeCompareFn, Operator, SliceFn,
+    TakeFn, TakeOptions,
 };
 use crate::variants::ExtensionArrayTrait;
 use crate::{ArrayDType, ArrayData, IntoArrayData};
@@ -20,6 +21,10 @@ impl ArrayCompute for ExtensionArray {
 
     fn compare(&self, other: &ArrayData, operator: Operator) -> Option<VortexResult<ArrayData>> {
         MaybeCompareFn::maybe_compare(self, other, operator)
+    }
+
+    fn filter(&self) -> Option<&dyn FilterFn> {
+        Some(self)
     }
 
     fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
@@ -57,6 +62,12 @@ impl MaybeCompareFn for ExtensionArray {
         }
 
         None
+    }
+}
+
+impl FilterFn for ExtensionArray {
+    fn filter(&self, predicate: &ArrayData) -> VortexResult<ArrayData> {
+        Ok(Self::new(self.ext_dtype().clone(), filter(self.storage(), predicate)?).into_array())
     }
 }
 

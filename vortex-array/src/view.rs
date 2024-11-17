@@ -232,8 +232,8 @@ impl Statistics for ViewedArrayData {
 
     /// NB: part of the contract for to_set is that it does not do any expensive computation.
     /// In other implementations, this means returning the underlying stats map, but for the flatbuffer
-    /// implemetation, we have 'precalculated' stats in the flatbuffer itself, so we need to
-    /// alllocate a stats map and populate it with those fields.
+    /// implementation, we have 'precalculated' stats in the flatbuffer itself, so we need to
+    /// allocate a stats map and populate it with those fields.
     fn to_set(&self) -> StatsSet {
         let mut result = StatsSet::default();
         for stat in all::<Stat>() {
