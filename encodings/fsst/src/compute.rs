@@ -2,7 +2,8 @@ use fsst::Symbol;
 use vortex_array::array::{varbin_scalar, ConstantArray};
 use vortex_array::compute::unary::{scalar_at_unchecked, ScalarAtFn};
 use vortex_array::compute::{
-    compare, filter, slice, take, ArrayCompute, FilterFn, MaybeCompareFn, Operator, SliceFn, TakeFn,
+    compare, filter, slice, take, ArrayCompute, FilterFn, MaybeCompareFn, Operator, SliceFn,
+    TakeFn, TakeOptions,
 };
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_buffer::Buffer;
@@ -117,13 +118,13 @@ impl SliceFn for FSSTArray {
 
 impl TakeFn for FSSTArray {
     // Take on an FSSTArray is a simple take on the codes array.
-    fn take(&self, indices: &ArrayData) -> VortexResult<ArrayData> {
+    fn take(&self, indices: &ArrayData, options: TakeOptions) -> VortexResult<ArrayData> {
         Ok(Self::try_new(
             self.dtype().clone(),
             self.symbols(),
             self.symbol_lengths(),
-            take(self.codes(), indices)?,
-            take(self.uncompressed_lengths(), indices)?,
+            take(self.codes(), indices, options)?,
+            take(self.uncompressed_lengths(), indices, options)?,
         )?
         .into_array())
     }

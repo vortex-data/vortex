@@ -6,7 +6,7 @@ use itertools::Itertools;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::array::{ChunkedArray, PrimitiveArray};
 use vortex_array::compute::unary::{subtract_scalar, try_cast};
-use vortex_array::compute::{search_sorted, slice, take, SearchSortedSide};
+use vortex_array::compute::{search_sorted, slice, take, SearchSortedSide, TakeOptions};
 use vortex_array::stats::ArrayStatistics;
 use vortex_array::stream::{ArrayStream, ArrayStreamExt};
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
@@ -74,12 +74,16 @@ impl<R: VortexReadAt> ChunkedArrayReader<R> {
 
         // Grab the row and byte offsets for each chunk range.
         let start_chunks = PrimitiveArray::from(start_chunks).into_array();
-        let start_rows = take(&self.row_offsets, &start_chunks)?.into_primitive()?;
-        let start_bytes = take(&self.byte_offsets, &start_chunks)?.into_primitive()?;
+        let start_rows =
+            take(&self.row_offsets, &start_chunks, TakeOptions::default())?.into_primitive()?;
+        let start_bytes =
+            take(&self.byte_offsets, &start_chunks, TakeOptions::default())?.into_primitive()?;
 
         let stop_chunks = PrimitiveArray::from(stop_chunks).into_array();
-        let stop_rows = take(&self.row_offsets, &stop_chunks)?.into_primitive()?;
-        let stop_bytes = take(&self.byte_offsets, &stop_chunks)?.into_primitive()?;
+        let stop_rows =
+            take(&self.row_offsets, &stop_chunks, TakeOptions::default())?.into_primitive()?;
+        let stop_bytes =
+            take(&self.byte_offsets, &stop_chunks, TakeOptions::default())?.into_primitive()?;
 
         // For each chunk-range, read the data as an ArrayStream and call take on it.
         let chunks = stream::iter(0..coalesced_chunks.len())

@@ -5,7 +5,7 @@ use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyInt, PyList};
 use vortex::array::ChunkedArray;
 use vortex::compute::unary::{fill_forward, scalar_at};
-use vortex::compute::{compare, slice, take, Operator};
+use vortex::compute::{compare, slice, take, Operator, TakeOptions};
 use vortex::{ArrayDType, ArrayData, IntoCanonical};
 
 use crate::dtype::PyDType;
@@ -441,7 +441,7 @@ impl PyArray {
             )));
         }
 
-        let inner = take(&self.inner, indices)?;
+        let inner = take(&self.inner, indices, TakeOptions::default())?;
         Ok(PyArray { inner })
     }
 

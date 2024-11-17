@@ -8,7 +8,7 @@ use crate::array::constant::ConstantArray;
 use crate::compute::unary::{scalar_at, ScalarAtFn};
 use crate::compute::{
     scalar_cmp, AndFn, ArrayCompute, FilterFn, MaybeCompareFn, Operator, OrFn, SearchResult,
-    SearchSortedFn, SearchSortedSide, SliceFn, TakeFn,
+    SearchSortedFn, SearchSortedSide, SliceFn, TakeFn, TakeOptions,
 };
 use crate::stats::{ArrayStatistics, Stat};
 use crate::{ArrayDType, ArrayData, IntoArrayData};
@@ -58,7 +58,7 @@ impl ScalarAtFn for ConstantArray {
 }
 
 impl TakeFn for ConstantArray {
-    fn take(&self, indices: &ArrayData) -> VortexResult<ArrayData> {
+    fn take(&self, indices: &ArrayData, _options: TakeOptions) -> VortexResult<ArrayData> {
         Ok(Self::new(self.owned_scalar(), indices.len()).into_array())
     }
 }
@@ -242,8 +242,10 @@ mod test {
     }
 
     #[rstest]
-    #[case(ConstantArray::new(true, 4).into_array(), BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)].into_iter()).into_array())]
-    #[case(BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)].into_iter()).into_array(), ConstantArray::new(true, 4).into_array())]
+    #[case(ConstantArray::new(true, 4).into_array(), BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)].into_iter()).into_array()
+    )]
+    #[case(BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)].into_iter()).into_array(), ConstantArray::new(true, 4).into_array()
+    )]
     fn test_or(#[case] lhs: ArrayData, #[case] rhs: ArrayData) {
         let r = or(&lhs, &rhs).unwrap().into_bool().unwrap().into_array();
 
@@ -259,7 +261,8 @@ mod test {
     }
 
     #[rstest]
-    #[case(ConstantArray::new(true, 4).into_array(), BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)].into_iter()).into_array())]
+    #[case(ConstantArray::new(true, 4).into_array(), BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)].into_iter()).into_array()
+    )]
     #[case(BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)].into_iter()).into_array(),
         ConstantArray::new(true, 4).into_array())]
     fn test_and(#[case] lhs: ArrayData, #[case] rhs: ArrayData) {

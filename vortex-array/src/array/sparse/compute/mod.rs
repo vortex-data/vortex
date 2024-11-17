@@ -7,7 +7,7 @@ use crate::array::PrimitiveArray;
 use crate::compute::unary::{scalar_at, scalar_at_unchecked, ScalarAtFn};
 use crate::compute::{
     search_sorted, take, ArrayCompute, FilterFn, SearchResult, SearchSortedFn, SearchSortedSide,
-    SliceFn, TakeFn,
+    SliceFn, TakeFn, TakeOptions,
 };
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
@@ -103,7 +103,11 @@ impl FilterFn for SparseArray {
 
         Ok(SparseArray::try_new(
             PrimitiveArray::from(coordinate_indices).into_array(),
-            take(self.values(), PrimitiveArray::from(value_indices))?,
+            take(
+                self.values(),
+                PrimitiveArray::from(value_indices),
+                TakeOptions::default(),
+            )?,
             buffer.count_set_bits(),
             self.fill_value().clone(),
         )?

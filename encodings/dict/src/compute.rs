@@ -1,6 +1,7 @@
 use vortex_array::compute::unary::{scalar_at, scalar_at_unchecked, ScalarAtFn};
 use vortex_array::compute::{
-    compare, filter, slice, take, ArrayCompute, FilterFn, MaybeCompareFn, Operator, SliceFn, TakeFn,
+    compare, filter, slice, take, ArrayCompute, FilterFn, MaybeCompareFn, Operator, SliceFn,
+    TakeFn, TakeOptions,
 };
 use vortex_array::stats::{ArrayStatistics, Stat};
 use vortex_array::{ArrayData, IntoArrayData};
@@ -75,11 +76,11 @@ impl ScalarAtFn for DictArray {
 }
 
 impl TakeFn for DictArray {
-    fn take(&self, indices: &ArrayData) -> VortexResult<ArrayData> {
+    fn take(&self, indices: &ArrayData, options: TakeOptions) -> VortexResult<ArrayData> {
         // Dict
         //   codes: 0 0 1
         //   dict: a b c d e f g h
-        let codes = take(self.codes(), indices)?;
+        let codes = take(self.codes(), indices, options)?;
         Self::try_new(codes, self.values()).map(|a| a.into_array())
     }
 }

@@ -14,7 +14,7 @@ use crate::array::varbinview::{VarBinViewArray, VIEW_SIZE_BYTES};
 use crate::array::{varbinview_as_arrow, ConstantArray};
 use crate::arrow::FromArrowArray;
 use crate::compute::unary::ScalarAtFn;
-use crate::compute::{slice, ArrayCompute, MaybeCompareFn, Operator, SliceFn, TakeFn};
+use crate::compute::{slice, ArrayCompute, MaybeCompareFn, Operator, SliceFn, TakeFn, TakeOptions};
 use crate::{ArrayDType, ArrayData, IntoArrayData, IntoCanonical};
 
 impl ArrayCompute for VarBinViewArray {
@@ -66,11 +66,17 @@ impl SliceFn for VarBinViewArray {
 
 /// Take involves creating a new array that references the old array, just with the given set of views.
 impl TakeFn for VarBinViewArray {
-    fn take(&self, indices: &ArrayData) -> VortexResult<ArrayData> {
+    fn take(&self, indices: &ArrayData, options: TakeOptions) -> VortexResult<ArrayData> {
         let array_ref = varbinview_as_arrow(self);
         let indices_arrow = indices.clone().into_canonical()?.into_arrow()?;
 
-        let take_arrow = arrow_select::take::take(&array_ref, &indices_arrow, None)?;
+        let take_arrow = arrow_select::take::take(
+            &array_ref,
+            &indices_arrow,
+            Some(arrow_select::take::TakeOptions {
+                check_bounds: !options.skip_bounds_check,
+            }),
+        )?;
         Ok(ArrayData::from_arrow(
             take_arrow,
             self.dtype().is_nullable(),
@@ -138,7 +144,7 @@ mod tests {
     use crate::accessor::ArrayAccessor;
     use crate::array::varbinview::compute::compare_constant;
     use crate::array::{ConstantArray, PrimitiveArray, VarBinViewArray};
-    use crate::compute::{take, Operator};
+    use crate::compute::{take, Operator, TakeOptions};
     use crate::{ArrayDType, IntoArrayData, IntoArrayVariant};
 
     #[test]
@@ -175,7 +181,12 @@ mod tests {
             Some("six"),
         ]);
 
-        let taken = take(arr, PrimitiveArray::from(vec![0, 3]).into_array()).unwrap();
+        let taken = take(
+            arr,
+            PrimitiveArray::from(vec![0, 3]).into_array(),
+            TakeOptions::default(),
+        )
+        .unwrap();
 
         assert!(taken.dtype().is_nullable());
         assert_eq!(

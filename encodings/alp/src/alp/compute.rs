@@ -1,7 +1,8 @@
 use vortex_array::array::ConstantArray;
 use vortex_array::compute::unary::{scalar_at, scalar_at_unchecked, ScalarAtFn};
 use vortex_array::compute::{
-    compare, filter, slice, take, ArrayCompute, FilterFn, MaybeCompareFn, Operator, SliceFn, TakeFn,
+    compare, filter, slice, take, ArrayCompute, FilterFn, MaybeCompareFn, Operator, SliceFn,
+    TakeFn, TakeOptions,
 };
 use vortex_array::stats::{ArrayStatistics, Stat};
 use vortex_array::variants::PrimitiveArrayTrait;
@@ -60,12 +61,14 @@ impl ScalarAtFn for ALPArray {
 }
 
 impl TakeFn for ALPArray {
-    fn take(&self, indices: &ArrayData) -> VortexResult<ArrayData> {
+    fn take(&self, indices: &ArrayData, options: TakeOptions) -> VortexResult<ArrayData> {
         // TODO(ngates): wrap up indices in an array that caches decompression?
         Ok(Self::try_new(
-            take(self.encoded(), indices)?,
+            take(self.encoded(), indices, options)?,
             self.exponents(),
-            self.patches().map(|p| take(&p, indices)).transpose()?,
+            self.patches()
+                .map(|p| take(&p, indices, options))
+                .transpose()?,
         )?
         .into_array())
     }

@@ -5,7 +5,7 @@ use itertools::Itertools;
 use rand::distributions::Uniform;
 use rand::{thread_rng, Rng};
 use vortex_array::array::{PrimitiveArray, SparseArray};
-use vortex_array::compute::take;
+use vortex_array::compute::{take, TakeOptions};
 use vortex_fastlanes::{find_best_bit_width, BitPackedArray};
 
 fn values(len: usize, bits: usize) -> Vec<u32> {
@@ -26,12 +26,30 @@ fn bench_take(c: &mut Criterion) {
 
     let stratified_indices: PrimitiveArray = (0..10).map(|i| i * 10_000).collect::<Vec<_>>().into();
     c.bench_function("take_10_stratified", |b| {
-        b.iter(|| black_box(take(packed.as_ref(), stratified_indices.as_ref()).unwrap()));
+        b.iter(|| {
+            black_box(
+                take(
+                    packed.as_ref(),
+                    stratified_indices.as_ref(),
+                    TakeOptions::default(),
+                )
+                .unwrap(),
+            )
+        });
     });
 
     let contiguous_indices: PrimitiveArray = (0..10).collect::<Vec<_>>().into();
     c.bench_function("take_10_contiguous", |b| {
-        b.iter(|| black_box(take(packed.as_ref(), contiguous_indices.as_ref()).unwrap()));
+        b.iter(|| {
+            black_box(
+                take(
+                    packed.as_ref(),
+                    contiguous_indices.as_ref(),
+                    TakeOptions::default(),
+                )
+                .unwrap(),
+            )
+        });
     });
 
     let rng = thread_rng();
@@ -43,12 +61,30 @@ fn bench_take(c: &mut Criterion) {
         .collect_vec()
         .into();
     c.bench_function("take_10K_random", |b| {
-        b.iter(|| black_box(take(packed.as_ref(), random_indices.as_ref()).unwrap()));
+        b.iter(|| {
+            black_box(
+                take(
+                    packed.as_ref(),
+                    random_indices.as_ref(),
+                    TakeOptions::default(),
+                )
+                .unwrap(),
+            )
+        });
     });
 
     let contiguous_indices: PrimitiveArray = (0..10_000).collect::<Vec<_>>().into();
     c.bench_function("take_10K_contiguous", |b| {
-        b.iter(|| black_box(take(packed.as_ref(), contiguous_indices.as_ref()).unwrap()));
+        b.iter(|| {
+            black_box(
+                take(
+                    packed.as_ref(),
+                    contiguous_indices.as_ref(),
+                    TakeOptions::default(),
+                )
+                .unwrap(),
+            )
+        });
     });
 
     let lots_of_indices: PrimitiveArray = (0..200_000)
@@ -56,7 +92,16 @@ fn bench_take(c: &mut Criterion) {
         .collect::<Vec<_>>()
         .into();
     c.bench_function("take_200K_dispersed", |b| {
-        b.iter(|| black_box(take(packed.as_ref(), lots_of_indices.as_ref()).unwrap()));
+        b.iter(|| {
+            black_box(
+                take(
+                    packed.as_ref(),
+                    lots_of_indices.as_ref(),
+                    TakeOptions::default(),
+                )
+                .unwrap(),
+            )
+        });
     });
 
     let lots_of_indices: PrimitiveArray = (0..200_000)
@@ -64,7 +109,16 @@ fn bench_take(c: &mut Criterion) {
         .collect::<Vec<_>>()
         .into();
     c.bench_function("take_200K_first_chunk_only", |b| {
-        b.iter(|| black_box(take(packed.as_ref(), lots_of_indices.as_ref()).unwrap()));
+        b.iter(|| {
+            black_box(
+                take(
+                    packed.as_ref(),
+                    lots_of_indices.as_ref(),
+                    TakeOptions::default(),
+                )
+                .unwrap(),
+            )
+        });
     });
 }
 
@@ -90,12 +144,30 @@ fn bench_patched_take(c: &mut Criterion) {
 
     let stratified_indices: PrimitiveArray = (0..10).map(|i| i * 10_000).collect::<Vec<_>>().into();
     c.bench_function("patched_take_10_stratified", |b| {
-        b.iter(|| black_box(take(packed.as_ref(), stratified_indices.as_ref()).unwrap()));
+        b.iter(|| {
+            black_box(
+                take(
+                    packed.as_ref(),
+                    stratified_indices.as_ref(),
+                    TakeOptions::default(),
+                )
+                .unwrap(),
+            )
+        });
     });
 
     let contiguous_indices: PrimitiveArray = (0..10).collect::<Vec<_>>().into();
     c.bench_function("patched_take_10_contiguous", |b| {
-        b.iter(|| black_box(take(packed.as_ref(), contiguous_indices.as_ref()).unwrap()));
+        b.iter(|| {
+            black_box(
+                take(
+                    packed.as_ref(),
+                    contiguous_indices.as_ref(),
+                    TakeOptions::default(),
+                )
+                .unwrap(),
+            )
+        });
     });
 
     let rng = thread_rng();
@@ -107,7 +179,16 @@ fn bench_patched_take(c: &mut Criterion) {
         .collect_vec()
         .into();
     c.bench_function("patched_take_10K_random", |b| {
-        b.iter(|| black_box(take(packed.as_ref(), random_indices.as_ref()).unwrap()));
+        b.iter(|| {
+            black_box(
+                take(
+                    packed.as_ref(),
+                    random_indices.as_ref(),
+                    TakeOptions::default(),
+                )
+                .unwrap(),
+            )
+        });
     });
 
     let not_patch_indices: PrimitiveArray = (0u32..num_exceptions)
@@ -116,7 +197,16 @@ fn bench_patched_take(c: &mut Criterion) {
         .collect_vec()
         .into();
     c.bench_function("patched_take_10K_contiguous_not_patches", |b| {
-        b.iter(|| black_box(take(packed.as_ref(), not_patch_indices.as_ref()).unwrap()));
+        b.iter(|| {
+            black_box(
+                take(
+                    packed.as_ref(),
+                    not_patch_indices.as_ref(),
+                    TakeOptions::default(),
+                )
+                .unwrap(),
+            )
+        });
     });
 
     let patch_indices: PrimitiveArray = (big_base2..big_base2 + num_exceptions)
@@ -125,7 +215,16 @@ fn bench_patched_take(c: &mut Criterion) {
         .collect_vec()
         .into();
     c.bench_function("patched_take_10K_contiguous_patches", |b| {
-        b.iter(|| black_box(take(packed.as_ref(), patch_indices.as_ref()).unwrap()));
+        b.iter(|| {
+            black_box(
+                take(
+                    packed.as_ref(),
+                    patch_indices.as_ref(),
+                    TakeOptions::default(),
+                )
+                .unwrap(),
+            )
+        });
     });
 
     let lots_of_indices: PrimitiveArray = (0..200_000)
@@ -133,7 +232,16 @@ fn bench_patched_take(c: &mut Criterion) {
         .collect::<Vec<_>>()
         .into();
     c.bench_function("patched_take_200K_dispersed", |b| {
-        b.iter(|| black_box(take(packed.as_ref(), lots_of_indices.as_ref()).unwrap()));
+        b.iter(|| {
+            black_box(
+                take(
+                    packed.as_ref(),
+                    lots_of_indices.as_ref(),
+                    TakeOptions::default(),
+                )
+                .unwrap(),
+            )
+        });
     });
 
     let lots_of_indices: PrimitiveArray = (0..200_000)
@@ -141,7 +249,16 @@ fn bench_patched_take(c: &mut Criterion) {
         .collect::<Vec<_>>()
         .into();
     c.bench_function("patched_take_200K_first_chunk_only", |b| {
-        b.iter(|| black_box(take(packed.as_ref(), lots_of_indices.as_ref()).unwrap()));
+        b.iter(|| {
+            black_box(
+                take(
+                    packed.as_ref(),
+                    lots_of_indices.as_ref(),
+                    TakeOptions::default(),
+                )
+                .unwrap(),
+            )
+        });
     });
 
     // There are currently 2 magic parameters of note:
@@ -165,7 +282,16 @@ fn bench_patched_take(c: &mut Criterion) {
         .collect_vec()
         .into();
     c.bench_function("patched_take_10K_adversarial", |b| {
-        b.iter(|| black_box(take(packed.as_ref(), adversarial_indices.as_ref()).unwrap()));
+        b.iter(|| {
+            black_box(
+                take(
+                    packed.as_ref(),
+                    adversarial_indices.as_ref(),
+                    TakeOptions::default(),
+                )
+                .unwrap(),
+            )
+        });
     });
 }
 

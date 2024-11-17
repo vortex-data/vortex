@@ -13,7 +13,7 @@ pub use compare::{compare, scalar_cmp, CompareFn, MaybeCompareFn, Operator};
 pub use filter::{filter, FilterFn};
 pub use search_sorted::*;
 pub use slice::{slice, SliceFn};
-pub use take::{take, TakeFn};
+pub use take::*;
 use unary::{CastFn, FillForwardFn, ScalarAtFn, SubtractScalarFn};
 use vortex_error::VortexResult;
 

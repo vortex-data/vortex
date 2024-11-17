@@ -238,7 +238,7 @@ mod test {
     use rstest::rstest;
     use vortex_array::array::BoolArray;
     use vortex_array::compute::unary::scalar_at;
-    use vortex_array::compute::{slice, take};
+    use vortex_array::compute::{slice, take, TakeOptions};
     use vortex_array::stats::{ArrayStatistics as _, ArrayStatisticsCompute};
     use vortex_array::validity::Validity;
     use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoCanonical, ToArrayData};
@@ -326,6 +326,7 @@ mod test {
             )
             .unwrap(),
             vec![0, 0, 6, 4].into_array(),
+            TakeOptions::default(),
         )
         .unwrap();
 

@@ -4,7 +4,7 @@ use vortex_scalar::Scalar;
 
 use crate::array::struct_::StructArray;
 use crate::compute::unary::{scalar_at, scalar_at_unchecked, ScalarAtFn};
-use crate::compute::{filter, slice, take, ArrayCompute, FilterFn, SliceFn, TakeFn};
+use crate::compute::{filter, slice, take, ArrayCompute, FilterFn, SliceFn, TakeFn, TakeOptions};
 use crate::stats::ArrayStatistics;
 use crate::variants::StructArrayTrait;
 use crate::{ArrayDType, ArrayData, IntoArrayData};
@@ -48,14 +48,14 @@ impl ScalarAtFn for StructArray {
 }
 
 impl TakeFn for StructArray {
-    fn take(&self, indices: &ArrayData) -> VortexResult<ArrayData> {
+    fn take(&self, indices: &ArrayData, options: TakeOptions) -> VortexResult<ArrayData> {
         Self::try_new(
             self.names().clone(),
             self.children()
-                .map(|field| take(&field, indices))
+                .map(|field| take(&field, indices, options))
                 .try_collect()?,
             indices.len(),
-            self.validity().take(indices)?,
+            self.validity().take(indices, options)?,
         )
         .map(|a| a.into_array())
     }

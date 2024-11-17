@@ -1,7 +1,7 @@
 use itertools::Itertools as _;
 use vortex_array::array::{PrimitiveArray, TemporalArray};
 use vortex_array::compute::unary::{scalar_at, ScalarAtFn};
-use vortex_array::compute::{slice, take, ArrayCompute, SliceFn, TakeFn};
+use vortex_array::compute::{slice, take, ArrayCompute, SliceFn, TakeFn, TakeOptions};
 use vortex_array::validity::ArrayValidity;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_datetime_dtype::{TemporalMetadata, TimeUnit};
@@ -26,12 +26,12 @@ impl ArrayCompute for DateTimePartsArray {
 }
 
 impl TakeFn for DateTimePartsArray {
-    fn take(&self, indices: &ArrayData) -> VortexResult<ArrayData> {
+    fn take(&self, indices: &ArrayData, options: TakeOptions) -> VortexResult<ArrayData> {
         Ok(Self::try_new(
             self.dtype().clone(),
-            take(self.days(), indices)?,
-            take(self.seconds(), indices)?,
-            take(self.subsecond(), indices)?,
+            take(self.days(), indices, options)?,
+            take(self.seconds(), indices, options)?,
+            take(self.subsecond(), indices, options)?,
         )?
         .into_array())
     }

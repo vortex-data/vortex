@@ -4,7 +4,7 @@ use num_traits::{WrappingAdd, WrappingSub};
 use vortex_array::compute::unary::{scalar_at_unchecked, ScalarAtFn};
 use vortex_array::compute::{
     filter, search_sorted, slice, take, ArrayCompute, FilterFn, SearchResult, SearchSortedFn,
-    SearchSortedSide, SliceFn, TakeFn,
+    SearchSortedSide, SliceFn, TakeFn, TakeOptions,
 };
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
@@ -37,9 +37,9 @@ impl ArrayCompute for FoRArray {
 }
 
 impl TakeFn for FoRArray {
-    fn take(&self, indices: &ArrayData) -> VortexResult<ArrayData> {
+    fn take(&self, indices: &ArrayData, options: TakeOptions) -> VortexResult<ArrayData> {
         Self::try_new(
-            take(self.encoded(), indices)?,
+            take(self.encoded(), indices, options)?,
             self.owned_reference_scalar(),
             self.shift(),
         )

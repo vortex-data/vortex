@@ -4,8 +4,8 @@ use arrow_buffer::BooleanBuffer;
 use serde::{Deserialize, Serialize};
 use vortex_array::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use vortex_array::array::BoolArray;
-use vortex_array::compute::take;
 use vortex_array::compute::unary::scalar_at;
+use vortex_array::compute::{take, TakeOptions};
 use vortex_array::encoding::ids;
 use vortex_array::stats::StatsSet;
 use vortex_array::validity::{ArrayValidity, LogicalValidity};
@@ -75,10 +75,10 @@ impl IntoCanonical for DictArray {
             // copies of the view pointers.
             DType::Utf8(_) | DType::Binary(_) => {
                 let canonical_values: ArrayData = self.values().into_canonical()?.into();
-                take(canonical_values, self.codes())?.into_canonical()
+                take(canonical_values, self.codes(), TakeOptions::default())?.into_canonical()
             }
             // Non-string case: take and then canonicalize
-            _ => take(self.values(), self.codes())?.into_canonical(),
+            _ => take(self.values(), self.codes(), TakeOptions::default())?.into_canonical(),
         }
     }
 }

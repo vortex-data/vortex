@@ -4,7 +4,7 @@ use std::fmt::{Display, Formatter};
 use arrow_buffer::{BooleanBuffer, MutableBuffer};
 use croaring::Bitmap;
 use vortex_array::array::{BoolArray, PrimitiveArray, SparseArray};
-use vortex_array::compute::{filter, slice, take};
+use vortex_array::compute::{filter, slice, take, TakeOptions};
 use vortex_array::validity::{LogicalValidity, Validity};
 use vortex_array::{iterate_integer_array, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::PType;
@@ -213,7 +213,7 @@ impl RowMask {
 
         if (true_count as f64 / sliced.len() as f64) < PREFER_TAKE_TO_FILTER_DENSITY {
             let indices = self.to_indices_array()?;
-            take(sliced, indices).map(Some)
+            take(sliced, indices, TakeOptions::default()).map(Some)
         } else {
             let mask = self.to_mask_array()?;
             filter(sliced, mask).map(Some)
