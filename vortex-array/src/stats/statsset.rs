@@ -41,7 +41,7 @@ impl StatsSet {
             }
             DType::Primitive(ptype, _) => {
                 ptype.byte_width();
-                stats.set(Stat::BitWidthFreq, vec![0_u64; ptype.byte_width() * 8 + 1]);
+                stats.set(Stat::BitWidthFreq, vec![0; ptype.byte_width() * 8 + 1]);
                 stats.set(
                     Stat::TrailingZeroFreq,
                     vec![ptype.byte_width() * 8; ptype.byte_width() * 8 + 1],
@@ -234,15 +234,15 @@ impl StatsSet {
     }
 
     fn merge_true_count(&mut self, other: &Self) {
-        self.merge_u64_stat(other, Stat::TrueCount)
+        self.merge_sum_stat(other, Stat::TrueCount)
     }
 
     fn merge_null_count(&mut self, other: &Self) {
-        self.merge_u64_stat(other, Stat::NullCount)
+        self.merge_sum_stat(other, Stat::NullCount)
     }
 
-    fn merge_u64_stat(&mut self, other: &Self, stat: Stat) {
-        match (self.get_as::<u64>(stat), other.get_as::<u64>(stat)) {
+    fn merge_sum_stat(&mut self, other: &Self, stat: Stat) {
+        match (self.get_as::<usize>(stat), other.get_as::<usize>(stat)) {
             (Some(nc1), Some(nc2)) => {
                 self.set(stat, nc1 + nc2);
             }
@@ -260,8 +260,8 @@ impl StatsSet {
 
     fn merge_freq_stat(&mut self, other: &Self, stat: Stat) {
         match (
-            self.get_as::<Vec<u64>>(stat),
-            other.get_as::<Vec<u64>>(stat),
+            self.get_as::<Vec<usize>>(stat),
+            other.get_as::<Vec<usize>>(stat),
         ) {
             (Some(f1), Some(f2)) => {
                 let combined_freq = f1
@@ -282,8 +282,8 @@ impl StatsSet {
     /// Merged run count is an upper bound where we assume run is interrupted at the boundary
     fn merge_run_count(&mut self, other: &Self) {
         match (
-            self.get_as::<u64>(Stat::RunCount),
-            other.get_as::<u64>(Stat::RunCount),
+            self.get_as::<usize>(Stat::RunCount),
+            other.get_as::<usize>(Stat::RunCount),
         ) {
             (Some(r1), Some(r2)) => {
                 self.set(Stat::RunCount, r1 + r2 + 1);
@@ -334,6 +334,11 @@ impl Iterator for StatsSetIntoIter {
                 None => return None,
             }
         }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        // Our lower-bound is zero since we may filter all remaining values.
+        (0, self.inner.size_hint().1)
     }
 }
 
@@ -431,7 +436,7 @@ mod test {
 
     #[test]
     fn merge_into_freq() {
-        let vec = (0..255).collect_vec();
+        let vec = (0usize..255).collect_vec();
         let mut first = StatsSet::of(Stat::BitWidthFreq, vec);
         first.merge_ordered(&StatsSet::default());
         assert_eq!(first.get(Stat::BitWidthFreq), None);
@@ -439,7 +444,7 @@ mod test {
 
     #[test]
     fn merge_from_freq() {
-        let vec = (0..255).collect_vec();
+        let vec = (0usize..255).collect_vec();
         let mut first = StatsSet::default();
         first.merge_ordered(&StatsSet::of(Stat::BitWidthFreq, vec));
         assert_eq!(first.get(Stat::BitWidthFreq), None);
