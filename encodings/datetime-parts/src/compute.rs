@@ -1,9 +1,7 @@
 use itertools::Itertools as _;
 use vortex_array::array::{PrimitiveArray, TemporalArray};
 use vortex_array::compute::unary::{scalar_at, ScalarAtFn};
-use vortex_array::compute::{
-    filter, slice, take, ArrayCompute, FilterFn, SliceFn, TakeFn, TakeOptions,
-};
+use vortex_array::compute::{slice, take, ArrayCompute, SliceFn, TakeFn, TakeOptions};
 use vortex_array::validity::ArrayValidity;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_datetime_dtype::{TemporalMetadata, TimeUnit};
@@ -14,10 +12,6 @@ use vortex_scalar::{Scalar, ScalarValue};
 use crate::DateTimePartsArray;
 
 impl ArrayCompute for DateTimePartsArray {
-    fn filter(&self) -> Option<&dyn FilterFn> {
-        Some(self)
-    }
-
     fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
         Some(self)
     }
@@ -28,18 +22,6 @@ impl ArrayCompute for DateTimePartsArray {
 
     fn take(&self) -> Option<&dyn TakeFn> {
         Some(self)
-    }
-}
-
-impl FilterFn for DateTimePartsArray {
-    fn filter(&self, predicate: &ArrayData) -> VortexResult<ArrayData> {
-        Ok(Self::try_new(
-            self.dtype().clone(),
-            filter(self.days(), predicate)?,
-            filter(self.seconds(), predicate)?,
-            filter(self.subsecond(), predicate)?,
-        )?
-        .into_array())
     }
 }
 

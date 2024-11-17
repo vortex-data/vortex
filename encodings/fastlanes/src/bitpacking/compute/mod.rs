@@ -35,7 +35,6 @@ impl ArrayCompute for BitPackedArray {
 
 impl FilterFn for BitPackedArray {
     fn filter(&self, predicate: &ArrayData) -> VortexResult<ArrayData> {
-        let _self_len = self.len();
         let _predicate_true_count = predicate
             .statistics()
             .compute_true_count()
