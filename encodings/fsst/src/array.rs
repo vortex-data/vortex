@@ -100,7 +100,7 @@ impl FSSTArray {
                 uncompressed_lengths_ptype,
             },
             children,
-            StatsSet::new(),
+            StatsSet::default(),
         )
     }
 

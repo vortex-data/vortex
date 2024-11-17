@@ -49,7 +49,7 @@ impl ByteBoolArray {
             },
             Some(buffer),
             validity.into_array().into_iter().collect::<Vec<_>>().into(),
-            StatsSet::new(),
+            StatsSet::default(),
         )?;
 
         Ok(typed.into())

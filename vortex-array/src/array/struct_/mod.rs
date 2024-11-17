@@ -84,7 +84,7 @@ impl StructArray {
                 validity: validity_metadata,
             },
             children.into(),
-            StatsSet::new(),
+            StatsSet::default(),
         )
     }
 

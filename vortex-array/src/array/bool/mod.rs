@@ -130,7 +130,7 @@ impl BoolArray {
                 },
                 Some(Buffer::from(inner)),
                 validity.into_array().into_iter().collect_vec().into(),
-                StatsSet::new(),
+                StatsSet::default(),
             )
             .vortex_expect("Metadata is known to be good"),
         })

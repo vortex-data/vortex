@@ -4,6 +4,7 @@ use std::fmt::{Display, Formatter};
 use std::hash::Hash;
 
 use enum_iterator::Sequence;
+use enum_map::Enum;
 use itertools::Itertools;
 pub use statsset::*;
 use vortex_dtype::Nullability::NonNullable;
@@ -19,7 +20,7 @@ mod statsset;
 /// Statistics that are used for pruning files (i.e., we want to ensure they are computed when compressing/writing).
 pub(crate) const PRUNING_STATS: &[Stat] = &[Stat::Min, Stat::Max, Stat::TrueCount, Stat::NullCount];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Sequence)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Sequence, Enum)]
 #[non_exhaustive]
 pub enum Stat {
     /// Frequency of each bit width (nulls are treated as 0)
@@ -115,7 +116,7 @@ pub trait ArrayStatistics {
 pub trait ArrayStatisticsCompute {
     /// Compute the requested statistic. Can return additional stats.
     fn compute_statistics(&self, _stat: Stat) -> VortexResult<StatsSet> {
-        Ok(StatsSet::new())
+        Ok(StatsSet::default())
     }
 }
 

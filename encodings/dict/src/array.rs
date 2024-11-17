@@ -45,7 +45,7 @@ impl DictArray {
                 values_len: values.len(),
             },
             [values, codes].into(),
-            StatsSet::new(),
+            StatsSet::default(),
         )
     }
 

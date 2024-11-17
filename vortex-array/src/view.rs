@@ -235,7 +235,7 @@ impl Statistics for ViewedArrayData {
     /// implemetation, we have 'precalculated' stats in the flatbuffer itself, so we need to
     /// alllocate a stats map and populate it with those fields.
     fn to_set(&self) -> StatsSet {
-        let mut result = StatsSet::new();
+        let mut result = StatsSet::default();
         for stat in all::<Stat>() {
             if let Some(value) = self.get(stat) {
                 result.set(stat, value)

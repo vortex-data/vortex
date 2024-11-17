@@ -74,7 +74,7 @@ impl ChunkedArray {
             length,
             ChunkedMetadata { nchunks },
             children.into(),
-            StatsSet::new(),
+            StatsSet::default(),
         )
     }
 
