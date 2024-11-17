@@ -41,10 +41,10 @@ impl StatsSet {
             }
             DType::Primitive(ptype, _) => {
                 ptype.byte_width();
-                stats.set(Stat::BitWidthFreq, vec![0; ptype.byte_width() * 8 + 1]);
+                stats.set(Stat::BitWidthFreq, vec![0u64; ptype.byte_width() * 8 + 1]);
                 stats.set(
                     Stat::TrailingZeroFreq,
-                    vec![ptype.byte_width() * 8; ptype.byte_width() * 8 + 1],
+                    vec![ptype.byte_width() as u64 * 8; ptype.byte_width() * 8 + 1],
                 );
             }
             _ => {}
