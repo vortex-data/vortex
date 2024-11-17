@@ -59,7 +59,7 @@ impl StatsSet {
         stats.set(Stat::IsSorted, true);
         stats.set(Stat::IsStrictSorted, length <= 1);
 
-        let run_count = if length == 0 { 0 as u64 } else { 1 };
+        let run_count = if length == 0 { 0u64 } else { 1 };
         stats.set(Stat::RunCount, run_count);
 
         let null_count = if scalar.value().is_null() {
