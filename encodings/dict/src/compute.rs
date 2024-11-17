@@ -1,5 +1,8 @@
 use vortex_array::compute::unary::{scalar_at, scalar_at_unchecked, ScalarAtFn};
-use vortex_array::compute::{filter, slice, take, ArrayCompute, FilterFn, SliceFn, TakeFn};
+use vortex_array::compute::{
+    compare, filter, slice, take, ArrayCompute, FilterFn, MaybeCompareFn, Operator, SliceFn, TakeFn,
+};
+use vortex_array::stats::{ArrayStatistics, Stat};
 use vortex_array::{ArrayData, IntoArrayData};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
@@ -7,6 +10,14 @@ use vortex_scalar::Scalar;
 use crate::DictArray;
 
 impl ArrayCompute for DictArray {
+    fn compare(&self, other: &ArrayData, operator: Operator) -> Option<VortexResult<ArrayData>> {
+        MaybeCompareFn::maybe_compare(self, other, operator)
+    }
+
+    fn filter(&self) -> Option<&dyn FilterFn> {
+        Some(self)
+    }
+
     fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
         Some(self)
     }
@@ -18,9 +29,32 @@ impl ArrayCompute for DictArray {
     fn take(&self) -> Option<&dyn TakeFn> {
         Some(self)
     }
+}
 
-    fn filter(&self) -> Option<&dyn FilterFn> {
-        Some(self)
+impl MaybeCompareFn for DictArray {
+    fn maybe_compare(
+        &self,
+        other: &ArrayData,
+        operator: Operator,
+    ) -> Option<VortexResult<ArrayData>> {
+        // If the RHS is constant, then we just need to compare against our encoded values.
+        if other
+            .statistics()
+            .get_as::<bool>(Stat::IsConstant)
+            .unwrap_or_default()
+        {
+            return Some(
+                // Ensure the other is the same length as the dictionary
+                slice(other, 0, self.values().len())
+                    .and_then(|other| compare(self.values(), other, operator))
+                    .and_then(|values| Self::try_new(self.codes().clone(), values))
+                    .map(|a| a.into_array()),
+            );
+        }
+
+        // It's a little more complex, but we could perform a comparison against the dictionary
+        // values in the future.
+        None
     }
 }
 
