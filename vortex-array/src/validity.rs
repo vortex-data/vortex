@@ -380,10 +380,12 @@ impl LogicalValidity {
             vortex_bail!("Expected a non-nullable boolean array");
         }
 
-        let true_count = array
-            .statistics()
-            .compute_true_count()
-            .ok_or_else(|| vortex_err!("Failed to compute true count from validity array"))?;
+        let true_count = array.statistics().compute_true_count().ok_or_else(|| {
+            vortex_err!(
+                "Failed to compute true count from validity array {:#?}",
+                array
+            )
+        })?;
         if true_count == array.len() {
             return Ok(Self::AllValid(array.len()));
         } else if true_count == 0 {

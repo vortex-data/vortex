@@ -37,19 +37,20 @@ impl StatsSet {
         // Add any DType-specific stats.
         match dtype {
             DType::Bool(_) => {
-                stats.values[Stat::TrueCount] = Some(0.into());
+                stats.set(Stat::TrueCount, 0);
             }
             DType::Primitive(ptype, _) => {
                 ptype.byte_width();
-                stats.values[Stat::BitWidthFreq] =
-                    Some(vec![0_u64; ptype.byte_width() * 8 + 1].into());
-                stats.values[Stat::TrailingZeroFreq] =
-                    Some(vec![ptype.byte_width() * 8; ptype.byte_width() * 8 + 1].into());
+                stats.set(Stat::BitWidthFreq, vec![0_u64; ptype.byte_width() * 8 + 1]);
+                stats.set(
+                    Stat::TrailingZeroFreq,
+                    vec![ptype.byte_width() * 8; ptype.byte_width() * 8 + 1],
+                );
             }
             _ => {}
         }
 
-        Self::from(stats)
+        stats
     }
 
     pub fn constant(scalar: Scalar, length: usize) -> Self {
@@ -290,13 +291,6 @@ impl StatsSet {
             _ => self.clear(Stat::RunCount),
         }
     }
-
-    /// Return an iterator over the stats in the set.
-    pub fn into_iter(self) -> impl Iterator<Item = (Stat, Scalar)> {
-        self.values
-            .into_iter()
-            .filter_map(|(stat, value)| value.map(|v| (stat, v)))
-    }
 }
 
 impl From<EnumMap<Stat, Option<Scalar>>> for StatsSet {
@@ -311,15 +305,16 @@ impl FromIterator<(Stat, Scalar)> for StatsSet {
         iter.into_iter().for_each(|(stat, scalar)| {
             values[stat] = Some(scalar);
         });
-        values.into()
+        Self { values }
     }
 }
 
 impl Extend<(Stat, Scalar)> for StatsSet {
     #[inline]
     fn extend<T: IntoIterator<Item = (Stat, Scalar)>>(&mut self, iter: T) {
-        iter.into_iter().for_each(|(stat, scalar)| {
-            self.values[stat] = Some(scalar);
+        let stats = iter.into_iter().collect_vec();
+        stats.into_iter().for_each(|(stat, scalar)| {
+            self.set(stat, scalar);
         });
     }
 }
@@ -332,9 +327,13 @@ impl Iterator for StatsSetIntoIter {
     type Item = (Stat, Scalar);
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.inner
-            .next()
-            .and_then(|(stat, value)| value.map(|v| (stat, v)))
+        loop {
+            match self.inner.next() {
+                Some((stat, Some(value))) => return Some((stat, value)),
+                Some(_) => continue,
+                None => return None,
+            }
+        }
     }
 }
 
@@ -357,6 +356,15 @@ mod test {
     use crate::array::PrimitiveArray;
     use crate::stats::{ArrayStatistics as _, Stat, StatsSet};
     use crate::IntoArrayData as _;
+
+    #[test]
+    fn into_iter() {
+        let set = StatsSet::from_iter([(Stat::Min, 42.into()), (Stat::Max, 100.into())]);
+        assert_eq!(
+            set.into_iter().collect_vec(),
+            vec![(Stat::Min, 42.into()), (Stat::Max, 100.into())]
+        );
+    }
 
     #[test]
     fn merge_into_min() {
@@ -463,9 +471,9 @@ mod test {
     #[test]
     fn merge_sortedness() {
         let mut first = StatsSet::of(Stat::IsStrictSorted, true);
-        first.set(Stat::Max, 1.into());
+        first.set(Stat::Max, 1);
         let mut second = StatsSet::of(Stat::IsStrictSorted, true);
-        second.set(Stat::Min, 2.into());
+        second.set(Stat::Min, 2);
         first.merge_ordered(&second);
         assert_eq!(first.get(Stat::IsStrictSorted).cloned(), Some(true.into()));
     }
@@ -473,9 +481,9 @@ mod test {
     #[test]
     fn merge_sortedness_out_of_order() {
         let mut first = StatsSet::of(Stat::IsStrictSorted, true);
-        first.set(Stat::Min, 1.into());
+        first.set(Stat::Min, 1);
         let mut second = StatsSet::of(Stat::IsStrictSorted, true);
-        second.set(Stat::Max, 2.into());
+        second.set(Stat::Max, 2);
         second.merge_ordered(&first);
         assert_eq!(
             second.get(Stat::IsStrictSorted).cloned(),
@@ -486,9 +494,9 @@ mod test {
     #[test]
     fn merge_sortedness_only_one_sorted() {
         let mut first = StatsSet::of(Stat::IsStrictSorted, true);
-        first.set(Stat::Max, 1.into());
+        first.set(Stat::Max, 1);
         let mut second = StatsSet::of(Stat::IsStrictSorted, false);
-        second.set(Stat::Min, 2.into());
+        second.set(Stat::Min, 2);
         first.merge_ordered(&second);
         assert_eq!(
             second.get(Stat::IsStrictSorted).cloned(),
@@ -499,7 +507,7 @@ mod test {
     #[test]
     fn merge_sortedness_missing_min() {
         let mut first = StatsSet::of(Stat::IsStrictSorted, true);
-        first.set(Stat::Max, 1.into());
+        first.set(Stat::Max, 1);
         let second = StatsSet::of(Stat::IsStrictSorted, true);
         first.merge_ordered(&second);
         assert_eq!(first.get(Stat::IsStrictSorted).cloned(), None);
