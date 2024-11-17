@@ -1,5 +1,5 @@
 use num_traits::AsPrimitive;
-use vortex_dtype::{match_each_native_ptype, match_each_unsigned_integer_ptype, NativePType};
+use vortex_dtype::{match_each_integer_ptype, match_each_native_ptype, NativePType};
 use vortex_error::VortexResult;
 
 use crate::array::primitive::PrimitiveArray;
@@ -14,7 +14,7 @@ impl TakeFn for PrimitiveArray {
         let validity = self.validity().take(indices.as_ref(), options)?;
 
         match_each_native_ptype!(self.ptype(), |$T| {
-            match_each_unsigned_integer_ptype!(indices.ptype(), |$I| {
+            match_each_integer_ptype!(indices.ptype(), |$I| {
                 let values = if options.skip_bounds_check {
                     take_primitive_unchecked(self.maybe_null_slice::<$T>(), indices.into_maybe_null_slice::<$I>())
                 } else {

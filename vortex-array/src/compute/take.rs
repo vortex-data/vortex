@@ -37,6 +37,9 @@ pub fn take(
         options.skip_bounds_check = true;
     }
 
+    // TODO(ngates): if indices min is quite high, we could slice self and offset the indices
+    //  such that canonicalize does less work.
+
     array.with_dyn(|a| {
         if let Some(take) = a.take() {
             return take.take(indices, options);
