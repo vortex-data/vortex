@@ -8,12 +8,13 @@ use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
 
 impl TakeFn for PrimitiveArray {
+    #[allow(clippy::cognitive_complexity)]
     fn take(&self, indices: &ArrayData, options: TakeOptions) -> VortexResult<ArrayData> {
         let indices = indices.clone().into_primitive()?;
         let validity = self.validity().take(indices.as_ref(), options)?;
 
-        match_each_unsigned_integer_ptype!(indices.ptype(), |$I| {
-            match_each_native_ptype!(self.ptype(), |$T| {
+        match_each_native_ptype!(self.ptype(), |$T| {
+            match_each_unsigned_integer_ptype!(indices.ptype(), |$I| {
                 let values = if options.skip_bounds_check {
                     take_primitive_unchecked(self.maybe_null_slice::<$T>(), indices.into_maybe_null_slice::<$I>())
                 } else {

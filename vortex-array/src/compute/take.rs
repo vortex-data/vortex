@@ -32,8 +32,7 @@ pub fn take(
     if indices
         .statistics()
         .get_as::<usize>(Stat::Max)
-        .map(|max| max < array.len())
-        .unwrap_or_default()
+        .is_some_and(|max| max < array.len())
     {
         options.skip_bounds_check = true;
     }
