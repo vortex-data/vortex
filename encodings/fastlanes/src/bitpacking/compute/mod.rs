@@ -1,8 +1,5 @@
 use vortex_array::compute::unary::ScalarAtFn;
-use vortex_array::compute::{filter, ArrayCompute, FilterFn, SearchSortedFn, SliceFn, TakeFn};
-use vortex_array::stats::ArrayStatistics;
-use vortex_array::{ArrayData, IntoCanonical};
-use vortex_error::{vortex_err, VortexResult};
+use vortex_array::compute::{ArrayCompute, SearchSortedFn, SliceFn, TakeFn};
 
 use crate::BitPackedArray;
 
@@ -12,10 +9,6 @@ mod slice;
 mod take;
 
 impl ArrayCompute for BitPackedArray {
-    fn filter(&self) -> Option<&dyn FilterFn> {
-        Some(self)
-    }
-
     fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
         Some(self)
     }
@@ -30,16 +23,5 @@ impl ArrayCompute for BitPackedArray {
 
     fn take(&self) -> Option<&dyn TakeFn> {
         Some(self)
-    }
-}
-
-impl FilterFn for BitPackedArray {
-    fn filter(&self, predicate: &ArrayData) -> VortexResult<ArrayData> {
-        let _predicate_true_count = predicate
-            .statistics()
-            .compute_true_count()
-            .ok_or_else(|| vortex_err!("Cannot compute true count of predicate"))?;
-
-        filter(self.clone().into_canonical()?.as_ref(), predicate)
     }
 }

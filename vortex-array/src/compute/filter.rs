@@ -149,6 +149,12 @@ impl TryFrom<ArrayData> for FilterMask {
     }
 }
 
+impl From<BooleanBuffer> for FilterMask {
+    fn from(value: BooleanBuffer) -> Self {
+        Self::from(BoolArray::from(value))
+    }
+}
+
 impl From<BoolArray> for FilterMask {
     fn from(array: BoolArray) -> Self {
         if array.dtype() != &DType::Bool(Nullability::NonNullable) {

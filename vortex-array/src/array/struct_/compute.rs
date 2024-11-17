@@ -7,7 +7,6 @@ use crate::compute::unary::{scalar_at, scalar_at_unchecked, ScalarAtFn};
 use crate::compute::{
     filter, slice, take, ArrayCompute, FilterFn, FilterMask, SliceFn, TakeFn, TakeOptions,
 };
-use crate::stats::ArrayStatistics;
 use crate::variants::StructArrayTrait;
 use crate::{ArrayDType, ArrayData, IntoArrayData};
 
