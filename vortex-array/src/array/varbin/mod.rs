@@ -81,7 +81,13 @@ impl VarBinArray {
             children.push(a)
         }
 
-        Self::try_from_parts(dtype, length, metadata, children.into(), StatsSet::new())
+        Self::try_from_parts(
+            dtype,
+            length,
+            metadata,
+            children.into(),
+            StatsSet::default(),
+        )
     }
 
     #[inline]

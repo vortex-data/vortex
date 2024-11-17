@@ -1,4 +1,3 @@
-use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::stats::{ArrayStatisticsCompute, Stat, StatsSet};
 use vortex_error::{vortex_err, VortexResult};
 
@@ -34,13 +33,13 @@ impl ArrayStatisticsCompute for RoaringBoolArray {
 
             let is_strict_sorted =
                 is_sorted && (self.len() <= 1 || (self.len() == 2 && true_count == 1));
-            return Ok(StatsSet::from(HashMap::from([
+            return Ok(StatsSet::from_iter([
                 (Stat::IsSorted, is_sorted.into()),
                 (Stat::IsStrictSorted, is_strict_sorted.into()),
-            ])));
+            ]));
         }
 
-        Ok(StatsSet::new())
+        Ok(StatsSet::default())
     }
 }
 

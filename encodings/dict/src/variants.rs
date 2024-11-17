@@ -1,12 +1,17 @@
 use vortex_array::variants::{
-    ArrayVariants, BinaryArrayTrait, PrimitiveArrayTrait, Utf8ArrayTrait,
+    ArrayVariants, BinaryArrayTrait, BoolArrayTrait, PrimitiveArrayTrait, Utf8ArrayTrait,
 };
-use vortex_array::ArrayDType;
+use vortex_array::{ArrayDType, ArrayData};
 use vortex_dtype::DType;
+use vortex_error::VortexResult;
 
 use crate::DictArray;
 
 impl ArrayVariants for DictArray {
+    fn as_bool_array(&self) -> Option<&dyn BoolArrayTrait> {
+        matches!(self.dtype(), DType::Bool(..)).then_some(self)
+    }
+
     fn as_primitive_array(&self) -> Option<&dyn PrimitiveArrayTrait> {
         matches!(self.dtype(), DType::Primitive(..)).then_some(self)
     }
@@ -17,6 +22,20 @@ impl ArrayVariants for DictArray {
 
     fn as_binary_array(&self) -> Option<&dyn BinaryArrayTrait> {
         matches!(self.dtype(), DType::Binary(..)).then_some(self)
+    }
+}
+
+impl BoolArrayTrait for DictArray {
+    fn invert(&self) -> VortexResult<ArrayData> {
+        todo!()
+    }
+
+    fn maybe_null_indices_iter<'a>(&'a self) -> Box<dyn Iterator<Item = usize> + 'a> {
+        todo!()
+    }
+
+    fn maybe_null_slices_iter<'a>(&'a self) -> Box<dyn Iterator<Item = (usize, usize)> + 'a> {
+        todo!()
     }
 }
 

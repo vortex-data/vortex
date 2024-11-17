@@ -15,7 +15,7 @@ use futures_util::{pin_mut, TryStreamExt};
 use itertools::Itertools;
 use vortex_array::array::PrimitiveArray;
 use vortex_array::compress::CompressionStrategy;
-use vortex_array::compute::take;
+use vortex_array::compute::{take, TakeOptions};
 use vortex_array::{Context, IntoArrayData};
 use vortex_io::FuturesAdapter;
 use vortex_ipc::stream_reader::StreamArrayReader;
@@ -81,7 +81,7 @@ fn ipc_take(c: &mut Criterion) {
             let reader = stream_reader.into_array_stream();
             pin_mut!(reader);
             let array_view = reader.try_next().await?.unwrap();
-            black_box(take(&array_view, indices_ref))
+            black_box(take(&array_view, indices_ref, TakeOptions::default()))
         });
     });
 }

@@ -137,7 +137,7 @@ impl DeltaArray {
             logical_len,
             metadata,
             children.into(),
-            StatsSet::new(),
+            StatsSet::default(),
         )?;
 
         if delta.bases().len() != delta.bases_len() {

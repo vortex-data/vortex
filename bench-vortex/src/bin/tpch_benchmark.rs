@@ -82,9 +82,12 @@ async fn bench_main(
 
     // The formats to run against (vs the baseline)
     let formats = if only_vortex {
-        vec![Format::OnDiskVortex {
-            enable_compression: true,
-        }]
+        vec![
+            Format::Arrow,
+            Format::OnDiskVortex {
+                enable_compression: true,
+            },
+        ]
     } else {
         vec![
             Format::Arrow,

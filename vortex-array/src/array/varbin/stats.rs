@@ -5,7 +5,6 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::accessor::ArrayAccessor;
-use crate::aliases::hash_map::HashMap;
 use crate::array::varbin::{varbin_scalar, VarBinArray};
 use crate::stats::{ArrayStatisticsCompute, Stat, StatsSet};
 use crate::ArrayDType;
@@ -13,7 +12,7 @@ use crate::ArrayDType;
 impl ArrayStatisticsCompute for VarBinArray {
     fn compute_statistics(&self, _stat: Stat) -> VortexResult<StatsSet> {
         if self.is_empty() {
-            return Ok(StatsSet::new());
+            return Ok(StatsSet::default());
         }
         self.with_iterator(|iter| compute_stats(iter, self.dtype()))
     }
@@ -109,7 +108,7 @@ impl<'a> VarBinAccumulator<'a> {
         let is_constant =
             (self.min == self.max && self.null_count == 0) || self.null_count == self.len;
 
-        StatsSet::from(HashMap::from([
+        StatsSet::from_iter([
             (Stat::Min, varbin_scalar(Buffer::from(self.min), dtype)),
             (Stat::Max, varbin_scalar(Buffer::from(self.max), dtype)),
             (Stat::RunCount, self.runs.into()),
@@ -117,7 +116,7 @@ impl<'a> VarBinAccumulator<'a> {
             (Stat::IsStrictSorted, self.is_strict_sorted.into()),
             (Stat::IsConstant, is_constant.into()),
             (Stat::NullCount, self.null_count.into()),
-        ]))
+        ])
     }
 }
 

@@ -1,16 +1,31 @@
-use vortex_array::array::{ConstantArray, PrimitiveArray, SparseArray};
+use std::ops::AddAssign;
+
+use num_traits::AsPrimitive;
+use vortex_array::array::{BoolArray, BooleanBuffer, ConstantArray, PrimitiveArray, SparseArray};
 use vortex_array::compute::unary::{scalar_at, scalar_at_unchecked, ScalarAtFn};
-use vortex_array::compute::{filter, slice, take, ArrayCompute, FilterMask, SliceFn, TakeFn};
+use vortex_array::compute::{
+    compare, filter, slice, take, ArrayCompute, FilterFn, FilterMask, MaybeCompareFn, Operator,
+    SliceFn, TakeFn, TakeOptions,
+};
+use vortex_array::stats::{ArrayStatistics, Stat};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
-use vortex_dtype::match_each_integer_ptype;
+use vortex_dtype::{match_each_integer_ptype, match_each_unsigned_integer_ptype, NativePType};
 use vortex_error::{VortexExpect as _, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::RunEndArray;
 
 impl ArrayCompute for RunEndArray {
+    fn compare(&self, other: &ArrayData, operator: Operator) -> Option<VortexResult<ArrayData>> {
+        MaybeCompareFn::maybe_compare(self, other, operator)
+    }
+
+    fn filter(&self) -> Option<&dyn FilterFn> {
+        Some(self)
+    }
+
     fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
         Some(self)
     }
@@ -21,6 +36,30 @@ impl ArrayCompute for RunEndArray {
 
     fn take(&self) -> Option<&dyn TakeFn> {
         Some(self)
+    }
+}
+
+impl MaybeCompareFn for RunEndArray {
+    fn maybe_compare(
+        &self,
+        other: &ArrayData,
+        operator: Operator,
+    ) -> Option<VortexResult<ArrayData>> {
+        // If the RHS is constant, then we just need to compare against our encoded values.
+        if other
+            .statistics()
+            .get_as::<bool>(Stat::IsConstant)
+            .unwrap_or_default()
+        {
+            return Some(
+                slice(other, 0, self.values().len())
+                    .and_then(|other| compare(self.values(), other, operator))
+                    .and_then(|values| Self::try_new(self.ends().clone(), values, self.validity()))
+                    .map(|a| a.into_array()),
+            );
+        }
+
+        None
     }
 }
 
@@ -38,7 +77,7 @@ impl ScalarAtFn for RunEndArray {
 }
 
 impl TakeFn for RunEndArray {
-    fn take(&self, indices: &ArrayData) -> VortexResult<ArrayData> {
+    fn take(&self, indices: &ArrayData, options: TakeOptions) -> VortexResult<ArrayData> {
         let primitive_indices = indices.clone().into_primitive()?;
         let u64_indices = match_each_integer_ptype!(primitive_indices.ptype(), |$P| {
             primitive_indices
@@ -61,7 +100,7 @@ impl TakeFn for RunEndArray {
             .map(|idx| *idx as u64)
             .collect();
         let physical_indices_array = PrimitiveArray::from(physical_indices).into_array();
-        let dense_values = take(self.values(), &physical_indices_array)?;
+        let dense_values = take(self.values(), &physical_indices_array, options)?;
 
         Ok(match self.validity() {
             Validity::NonNullable => dense_values,
@@ -70,7 +109,8 @@ impl TakeFn for RunEndArray {
                 ConstantArray::new(Scalar::null(self.dtype().clone()), indices.len()).into_array()
             }
             Validity::Array(original_validity) => {
-                let dense_validity = FilterMask::try_from(take(&original_validity, indices)?)?;
+                let dense_validity =
+                    FilterMask::try_from(take(&original_validity, indices, options)?)?;
                 let filtered_values = filter(&dense_values, &dense_validity)?;
                 let length = dense_validity.len();
                 let dense_nonnull_indices = PrimitiveArray::from(
@@ -109,11 +149,58 @@ impl SliceFn for RunEndArray {
     }
 }
 
+impl FilterFn for RunEndArray {
+    fn filter(&self, predicate: &ArrayData) -> VortexResult<ArrayData> {
+        let primitive_run_ends = self.ends().into_primitive()?;
+        let (run_ends, pred) = match_each_unsigned_integer_ptype!(primitive_run_ends.ptype(), |$P| {
+            filter_run_ends(primitive_run_ends.maybe_null_slice::<$P>(), predicate)?
+        });
+        let values = filter(self.values(), &pred)?;
+        let validity = self.validity().filter(predicate)?;
+
+        RunEndArray::try_new(run_ends.into_array(), values, validity).map(|a| a.into_array())
+    }
+}
+
+// Code adapted from apache arrow-rs https://github.com/apache/arrow-rs/blob/b1f5c250ebb6c1252b4e7c51d15b8e77f4c361fa/arrow-select/src/filter.rs#L425
+fn filter_run_ends<R: NativePType + AddAssign + From<bool> + AsPrimitive<u64>>(
+    run_ends: &[R],
+    predicate: &ArrayData,
+) -> VortexResult<(PrimitiveArray, BoolArray)> {
+    let mut new_run_ends = vec![R::zero(); run_ends.len()];
+
+    let mut start = 0u64;
+    let mut j = 0;
+    let mut count = R::zero();
+    let filter_values = predicate.clone().into_bool()?.boolean_buffer();
+
+    let pred: BoolArray = BooleanBuffer::collect_bool(run_ends.len(), |i| {
+        let mut keep = false;
+        let end = run_ends[i].as_();
+
+        // Safety: predicate must be the same length as the array the ends have been taken from
+        for pred in (start..end).map(|i| unsafe { filter_values.value_unchecked(i as usize) }) {
+            count += <R as From<bool>>::from(pred);
+            keep |= pred
+        }
+        // this is to avoid branching
+        new_run_ends[j] = count;
+        j += keep as usize;
+
+        start = end;
+        keep
+    })
+    .into();
+
+    new_run_ends.truncate(j);
+    Ok((PrimitiveArray::from(new_run_ends), pred))
+}
+
 #[cfg(test)]
 mod test {
     use vortex_array::array::{BoolArray, PrimitiveArray};
     use vortex_array::compute::unary::{scalar_at, try_cast};
-    use vortex_array::compute::{slice, take};
+    use vortex_array::compute::{filter, slice, take, FilterMask, TakeOptions};
     use vortex_array::validity::{ArrayValidity, Validity};
     use vortex_array::{ArrayDType, IntoArrayData, IntoArrayVariant, ToArrayData};
     use vortex_dtype::{DType, Nullability, PType};
@@ -133,6 +220,7 @@ mod test {
         let taken = take(
             ree_array().as_ref(),
             PrimitiveArray::from(vec![9, 8, 1, 3]).as_ref(),
+            TakeOptions::default(),
         )
         .unwrap();
         assert_eq!(
@@ -146,6 +234,7 @@ mod test {
         let taken = take(
             ree_array().as_ref(),
             PrimitiveArray::from(vec![11]).as_ref(),
+            TakeOptions::default(),
         )
         .unwrap();
         assert_eq!(
@@ -160,6 +249,7 @@ mod test {
         take(
             ree_array().as_ref(),
             PrimitiveArray::from(vec![12]).as_ref(),
+            TakeOptions::default(),
         )
         .unwrap();
     }
@@ -320,7 +410,7 @@ mod test {
         .unwrap();
 
         let test_indices = PrimitiveArray::from_vec(vec![0, 2, 4, 6], Validity::NonNullable);
-        let taken = take(arr.as_ref(), test_indices.as_ref()).unwrap();
+        let taken = take(arr.as_ref(), test_indices.as_ref(), TakeOptions::default()).unwrap();
 
         assert_eq!(taken.len(), test_indices.len());
 
@@ -339,6 +429,7 @@ mod test {
         let taken = take(
             sliced.as_ref(),
             PrimitiveArray::from(vec![1, 3, 4]).as_ref(),
+            TakeOptions::default(),
         )
         .unwrap();
 
@@ -346,5 +437,35 @@ mod test {
         assert_eq!(scalar_at(taken.as_ref(), 0).unwrap(), 4.into());
         assert_eq!(scalar_at(taken.as_ref(), 1).unwrap(), 2.into());
         assert_eq!(scalar_at(taken.as_ref(), 2).unwrap(), 5.into());
+    }
+
+    #[test]
+    fn filter_run_end() {
+        let arr = ree_array();
+        let filtered = filter(
+            arr.as_ref(),
+            &FilterMask::from_iter([
+                true, true, false, false, false, false, false, false, false, false, true, true,
+            ]),
+        )
+        .unwrap();
+        let filtered_run_end = RunEndArray::try_from(filtered).unwrap();
+
+        assert_eq!(
+            filtered_run_end
+                .ends()
+                .into_primitive()
+                .unwrap()
+                .maybe_null_slice::<u64>(),
+            [2, 4]
+        );
+        assert_eq!(
+            filtered_run_end
+                .values()
+                .into_primitive()
+                .unwrap()
+                .maybe_null_slice::<i32>(),
+            [1, 5]
+        );
     }
 }

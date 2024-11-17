@@ -5,7 +5,6 @@ use itertools::Itertools;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::VortexResult;
 
-use crate::aliases::hash_map::HashMap;
 use crate::array::BoolArray;
 use crate::stats::{ArrayStatisticsCompute, Stat, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity};
@@ -14,13 +13,13 @@ use crate::{ArrayDType, IntoArrayVariant};
 impl ArrayStatisticsCompute for BoolArray {
     fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
         if self.is_empty() {
-            return Ok(StatsSet::from(HashMap::from([
+            return Ok(StatsSet::from_iter([
                 (Stat::TrueCount, 0.into()),
                 (Stat::NullCount, 0.into()),
                 (Stat::IsSorted, true.into()),
                 (Stat::IsStrictSorted, true.into()),
                 (Stat::RunCount, 0.into()),
-            ])));
+            ]));
         }
 
         match self.logical_validity() {
@@ -148,7 +147,7 @@ impl BoolStatsAccumulator {
     }
 
     pub fn finish(self) -> StatsSet {
-        StatsSet::from(HashMap::from([
+        StatsSet::from_iter([
             (Stat::NullCount, self.null_count.into()),
             (Stat::IsSorted, self.is_sorted.into()),
             (
@@ -157,7 +156,7 @@ impl BoolStatsAccumulator {
                     .into(),
             ),
             (Stat::RunCount, self.run_count.into()),
-        ]))
+        ])
     }
 }
 

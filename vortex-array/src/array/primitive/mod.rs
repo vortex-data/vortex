@@ -64,7 +64,7 @@ impl PrimitiveArray {
                 },
                 Some(buffer),
                 validity.into_array().into_iter().collect_vec().into(),
-                StatsSet::new(),
+                StatsSet::default(),
             )
             .vortex_expect("PrimitiveArray::new should never fail!"),
         }

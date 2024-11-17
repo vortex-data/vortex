@@ -1,7 +1,6 @@
 use std::fmt::{Debug, Display};
 
 use serde::{Deserialize, Serialize};
-use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use vortex_array::compute::unary::scalar_at;
 use vortex_array::compute::{search_sorted, SearchSortedSide};
@@ -91,16 +90,16 @@ impl RunEndBoolArray {
             let run_count = ends_len;
             let min = start && is_constant; // i.e., true iff all are true
             let max = start || ends_len > 1; // i.e., true iff any are true
-            StatsSet::from(HashMap::from([
+            StatsSet::from_iter([
                 (Stat::IsConstant, is_constant.into()),
                 (Stat::IsSorted, is_sorted.into()),
                 (Stat::IsStrictSorted, is_strict_sorted.into()),
                 (Stat::RunCount, run_count.into()),
                 (Stat::Min, min.into()),
                 (Stat::Max, max.into()),
-            ]))
+            ])
         } else {
-            StatsSet::new()
+            StatsSet::default()
         };
 
         let mut children = Vec::with_capacity(2);
@@ -216,9 +215,9 @@ impl ArrayStatisticsCompute for RunEndBoolArray {
             _ => None,
         };
         if let Some(scalar) = maybe_scalar {
-            Ok(StatsSet::from(HashMap::from([(stat, scalar)])))
+            Ok(StatsSet::of(stat, scalar))
         } else {
-            Ok(StatsSet::new())
+            Ok(StatsSet::default())
         }
     }
 }
@@ -231,7 +230,7 @@ mod test {
     use rstest::rstest;
     use vortex_array::array::BoolArray;
     use vortex_array::compute::unary::scalar_at;
-    use vortex_array::compute::{slice, take};
+    use vortex_array::compute::{slice, take, TakeOptions};
     use vortex_array::stats::{ArrayStatistics as _, ArrayStatisticsCompute};
     use vortex_array::validity::Validity;
     use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoCanonical, ToArrayData};
@@ -319,6 +318,7 @@ mod test {
             )
             .unwrap(),
             vec![0, 0, 6, 4].into_array(),
+            TakeOptions::default(),
         )
         .unwrap();
 
