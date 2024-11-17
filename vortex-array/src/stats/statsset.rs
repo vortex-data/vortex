@@ -359,10 +359,10 @@ mod test {
 
     #[test]
     fn into_iter() {
-        let set = StatsSet::from_iter([(Stat::Min, 42.into()), (Stat::Max, 100.into())]);
+        let set = StatsSet::from_iter([(Stat::Max, 100.into()), (Stat::Min, 42.into())]);
         assert_eq!(
             set.into_iter().collect_vec(),
-            vec![(Stat::Min, 42.into()), (Stat::Max, 100.into())]
+            vec![(Stat::Max, 100.into()), (Stat::Min, 42.into())]
         );
     }
 
