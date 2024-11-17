@@ -7,6 +7,7 @@ use arrow_buffer::ScalarBuffer;
 use arrow_ord::cmp;
 use arrow_schema::DataType;
 use itertools::Itertools;
+use num_traits::AsPrimitive;
 use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_integer_ptype, PType};
 use vortex_error::{vortex_bail, VortexResult, VortexUnwrap};
@@ -80,10 +81,13 @@ impl TakeFn for VarBinViewArray {
             ScalarBuffer::<u128>::from(self.views().into_primitive()?.into_buffer().into_arrow());
 
         let indices = indices.clone().into_primitive()?;
+
         let views_buffer = match_each_integer_ptype!(indices.ptype(), |$I| {
-            ScalarBuffer::<u128>::from_iter(indices.maybe_null_slice::<$I>().iter().map(|i| {
-                views_buffer[*i as usize]
-            }))
+            if options.skip_bounds_check {
+                take_views_unchecked(views_buffer, indices.maybe_null_slice::<$I>())
+            } else {
+                take_views(views_buffer, indices.maybe_null_slice::<$I>())
+            }
         });
 
         // Cast views back to u8
@@ -101,6 +105,24 @@ impl TakeFn for VarBinViewArray {
         )?
         .into_array())
     }
+}
+
+fn take_views<I: AsPrimitive<usize>>(
+    views: ScalarBuffer<u128>,
+    indices: &[I],
+) -> ScalarBuffer<u128> {
+    ScalarBuffer::<u128>::from_iter(indices.iter().map(|i| views[i.as_()]))
+}
+
+fn take_views_unchecked<I: AsPrimitive<usize>>(
+    views: ScalarBuffer<u128>,
+    indices: &[I],
+) -> ScalarBuffer<u128> {
+    ScalarBuffer::<u128>::from_iter(
+        indices
+            .iter()
+            .map(|i| unsafe { *views.get_unchecked(i.as_()) }),
+    )
 }
 
 impl MaybeCompareFn for VarBinViewArray {
