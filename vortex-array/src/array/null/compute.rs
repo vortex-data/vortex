@@ -61,14 +61,14 @@ mod test {
 
     use crate::array::null::NullArray;
     use crate::compute::unary::scalar_at;
-    use crate::compute::{slice, take};
+    use crate::compute::{SliceFn, TakeFn};
     use crate::validity::{ArrayValidity, LogicalValidity};
     use crate::IntoArrayData;
 
     #[test]
     fn test_slice_nulls() {
-        let nulls = NullArray::new(10).into_array();
-        let sliced = NullArray::try_from(slice(&nulls, 0, 4).unwrap()).unwrap();
+        let nulls = NullArray::new(10);
+        let sliced = NullArray::try_from(nulls.slice(0, 4).unwrap()).unwrap();
 
         assert_eq!(sliced.len(), 4);
         assert!(matches!(
@@ -79,9 +79,9 @@ mod test {
 
     #[test]
     fn test_take_nulls() {
-        let nulls = NullArray::new(10).into_array();
-        let taken = NullArray::try_from(take(&nulls, vec![0u64, 2, 4, 6, 8].into_array()).unwrap())
-            .unwrap();
+        let nulls = NullArray::new(10);
+        let taken =
+            NullArray::try_from(nulls.take(&vec![0u64, 2, 4, 6, 8].into_array()).unwrap()).unwrap();
 
         assert_eq!(taken.len(), 5);
         assert!(matches!(
