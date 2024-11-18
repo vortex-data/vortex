@@ -24,9 +24,17 @@ use vortex_io::ObjectStoreReadAt;
 use super::execution::VortexExec;
 use crate::can_be_pushed_down;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct VortexFormat {
     context: Arc<Context>,
+}
+
+impl VortexFormat {
+    pub fn new(context: &Context) -> Self {
+        Self {
+            context: Arc::new(context.clone()),
+        }
+    }
 }
 
 #[async_trait]
