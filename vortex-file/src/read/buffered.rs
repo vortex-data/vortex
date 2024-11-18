@@ -99,6 +99,7 @@ impl BufferedLayoutReader {
         if let Some(requested_messages) = self.ensure_pruning_mask()? {
             return Ok(Some(requested_messages));
         }
+
         while let Some((index, ((begin, end), layout))) = self.layouts.pop_front() {
             let chunk_is_pruned = self
                 .chunk_mask
