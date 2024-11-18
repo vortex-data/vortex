@@ -42,6 +42,12 @@ impl_from_primitive_for_array!(f16);
 impl_from_primitive_for_array!(f32);
 impl_from_primitive_for_array!(f64);
 
+impl FromIterator<Option<String>> for ArrayData {
+    fn from_iter<T: IntoIterator<Item = Option<String>>>(iter: T) -> Self {
+        VarBinViewArray::from_iter(iter, DType::Utf8(Nullability::Nullable)).into_array()
+    }
+}
+
 impl FromIterator<Option<BufferString>> for ArrayData {
     fn from_iter<T: IntoIterator<Item = Option<BufferString>>>(iter: T) -> Self {
         VarBinViewArray::from_iter(iter, DType::Utf8(Nullability::Nullable)).into_array()

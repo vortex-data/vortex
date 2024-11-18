@@ -2,20 +2,28 @@
 #![allow(dead_code)]
 
 use std::fmt::Display;
+use std::hash::Hash;
 
 use itertools::Itertools;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::stats::Stat;
+use vortex_array::ArrayData;
 use vortex_dtype::field::Field;
 use vortex_dtype::Nullability;
-use vortex_expr::{BinaryExpr, Column, ExprRef, Literal, Not, Operator};
+use vortex_error::{VortexExpect as _, VortexResult};
+use vortex_expr::{BinaryExpr, Column, ExprRef, Identity, Literal, Not, Operator};
 use vortex_scalar::Scalar;
+
+use crate::RowFilter;
+
+pub type StatReferencesByField = HashMap<FieldOrIdentity, HashSet<Stat>>;
+type PruningPredicateStats = (ExprRef, StatReferencesByField);
 
 #[derive(Debug, Clone)]
 pub struct PruningPredicate {
     expr: ExprRef,
-    required_stats: HashMap<Field, HashSet<Stat>>,
+    required_stats: StatReferencesByField,
 }
 
 impl Display for PruningPredicate {
@@ -64,9 +72,49 @@ impl PruningPredicate {
         &self.expr
     }
 
-    pub fn required_stats(&self) -> &HashMap<Field, HashSet<Stat>> {
+    pub fn required_stats(&self) -> &StatReferencesByField {
         &self.required_stats
     }
+
+    pub fn evaluate(&self, metadata: &ArrayData) -> VortexResult<Option<ArrayData>> {
+        let known_stats = metadata.with_dyn(|x| {
+            HashSet::from_iter(
+                x.as_struct_array()
+                    .vortex_expect("metadata must be struct array")
+                    .names()
+                    .iter()
+                    .map(|x| x.to_string()),
+            )
+        });
+        let required_stats = self
+            .required_stats()
+            .iter()
+            .flat_map(|(key, value)| value.iter().map(|stat| stat_column_name_string(key, *stat)))
+            .collect::<HashSet<_>>();
+        let missing_stats = required_stats.difference(&known_stats).collect::<Vec<_>>();
+
+        if !missing_stats.is_empty() {
+            return Ok(None);
+        }
+
+        Ok(Some(self.expr.evaluate(metadata)?))
+    }
+}
+
+fn combine_relations<L: Eq + Hash, R: Eq + Hash>(
+    left: &mut HashMap<L, HashSet<R>>,
+    right: HashMap<L, HashSet<R>>,
+) {
+    for (l, rs) in right.into_iter() {
+        left.entry(l).or_default().extend(rs.into_iter())
+    }
+}
+
+fn not_prunable() -> PruningPredicateStats {
+    (
+        Literal::new_expr(Scalar::bool(false, Nullability::NonNullable)),
+        HashMap::new(),
+    )
 }
 
 // Anything that can't be translated has to be represented as
@@ -86,7 +134,7 @@ fn convert_to_pruning_expression(expr: &ExprRef) -> PruningPredicateStats {
         if bexp.op() == Operator::Or || bexp.op() == Operator::And {
             let (rewritten_left, mut refs_lhs) = convert_to_pruning_expression(bexp.lhs());
             let (rewritten_right, refs_rhs) = convert_to_pruning_expression(bexp.rhs());
-            refs_lhs.extend(refs_rhs);
+            combine_relations(&mut refs_lhs, refs_rhs);
             return (
                 BinaryExpr::new_expr(rewritten_left, bexp.op(), rewritten_right),
                 refs_lhs,
@@ -94,36 +142,67 @@ fn convert_to_pruning_expression(expr: &ExprRef) -> PruningPredicateStats {
         }
 
         if let Some(col) = bexp.lhs().as_any().downcast_ref::<Column>() {
-            return PruningPredicateRewriter::try_new(col.field().clone(), bexp.op(), bexp.rhs())
-                .and_then(PruningPredicateRewriter::rewrite)
-                .unwrap_or_else(|| {
-                    (
-                        Literal::new_expr(Scalar::bool(false, Nullability::NonNullable)),
-                        HashMap::new(),
-                    )
-                });
+            return PruningPredicateRewriter::try_new(
+                FieldOrIdentity::Field(col.field().clone()),
+                bexp.op(),
+                bexp.rhs(),
+            )
+            .and_then(PruningPredicateRewriter::rewrite)
+            .unwrap_or_else(not_prunable);
         };
 
         if let Some(col) = bexp.rhs().as_any().downcast_ref::<Column>() {
             return PruningPredicateRewriter::try_new(
-                col.field().clone(),
+                FieldOrIdentity::Field(col.field().clone()),
                 bexp.op().swap(),
                 bexp.lhs(),
             )
             .and_then(PruningPredicateRewriter::rewrite)
-            .unwrap_or_else(|| {
-                (
-                    Literal::new_expr(Scalar::bool(false, Nullability::NonNullable)),
-                    HashMap::new(),
-                )
-            });
+            .unwrap_or_else(not_prunable);
+        };
+
+        if bexp.lhs().as_any().downcast_ref::<Identity>().is_some() {
+            return PruningPredicateRewriter::try_new(
+                FieldOrIdentity::Identity,
+                bexp.op(),
+                bexp.rhs(),
+            )
+            .and_then(PruningPredicateRewriter::rewrite)
+            .unwrap_or_else(not_prunable);
+        };
+
+        if bexp.rhs().as_any().downcast_ref::<Identity>().is_some() {
+            return PruningPredicateRewriter::try_new(
+                FieldOrIdentity::Identity,
+                bexp.op().swap(),
+                bexp.lhs(),
+            )
+            .and_then(PruningPredicateRewriter::rewrite)
+            .unwrap_or_else(not_prunable);
         };
     }
 
-    (
-        Literal::new_expr(Scalar::bool(false, Nullability::NonNullable)),
-        HashMap::new(),
-    )
+    if let Some(RowFilter { conjunction }) = expr.as_any().downcast_ref::<RowFilter>() {
+        let (rewritten_conjunction, refses): (Vec<ExprRef>, Vec<StatReferencesByField>) =
+            conjunction
+                .iter()
+                .map(convert_to_pruning_expression)
+                .unzip();
+
+        let mut refses = refses.into_iter();
+        let refs = if let Some(mut refs) = refses.next() {
+            for other_refs in refses {
+                combine_relations(&mut refs, other_refs);
+            }
+            refs
+        } else {
+            HashMap::new()
+        };
+
+        return (RowFilter::from_conjunction(rewritten_conjunction), refs);
+    }
+
+    not_prunable()
 }
 
 fn convert_column_reference(expr: &ExprRef, invert: bool) -> PruningPredicateStats {
@@ -146,21 +225,41 @@ fn convert_column_reference(expr: &ExprRef, invert: bool) -> PruningPredicateSta
 }
 
 struct PruningPredicateRewriter<'a> {
-    column: Field,
+    column: FieldOrIdentity,
     operator: Operator,
     other_exp: &'a ExprRef,
-    stats_to_fetch: HashMap<Field, HashSet<Stat>>,
+    stats_to_fetch: StatReferencesByField,
 }
 
-type PruningPredicateStats = (ExprRef, HashMap<Field, HashSet<Stat>>);
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+pub enum FieldOrIdentity {
+    Field(Field),
+    Identity,
+}
+
+impl Display for FieldOrIdentity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FieldOrIdentity::Field(field) => write!(f, "{}", field),
+            FieldOrIdentity::Identity => write!(f, "$[]"),
+        }
+    }
+}
 
 impl<'a> PruningPredicateRewriter<'a> {
-    pub fn try_new(column: Field, operator: Operator, other_exp: &'a ExprRef) -> Option<Self> {
+    pub fn try_new(
+        column: FieldOrIdentity,
+        operator: Operator,
+        other_exp: &'a ExprRef,
+    ) -> Option<Self> {
         // TODO(robert): Simplify expression to guarantee that each column is not compared to itself
         //  For majority of cases self column references are likely not prunable
-        if other_exp.references().contains(&column) {
-            return None;
-        }
+        match column {
+            FieldOrIdentity::Field(column) if other_exp.references().contains(&column) => {
+                return None
+            }
+            _ => {}
+        };
 
         Some(Self {
             column,
@@ -243,12 +342,12 @@ impl<'a> PruningPredicateRewriter<'a> {
 fn replace_column_with_stat(
     expr: &ExprRef,
     stat: Stat,
-    stats_to_fetch: &mut HashMap<Field, HashSet<Stat>>,
+    stats_to_fetch: &mut HashMap<FieldOrIdentity, HashSet<Stat>>,
 ) -> Option<ExprRef> {
     if let Some(col) = expr.as_any().downcast_ref::<Column>() {
-        let new_field = stat_column_name(col.field(), stat);
+        let new_field = stat_column_name(&FieldOrIdentity::Field(col.field().clone()), stat);
         stats_to_fetch
-            .entry(col.field().clone())
+            .entry(FieldOrIdentity::Field(col.field().clone()))
             .or_default()
             .insert(stat);
         return Some(Column::new_expr(new_field));
@@ -275,10 +374,15 @@ fn replace_column_with_stat(
     None
 }
 
-pub(crate) fn stat_column_name(field: &Field, stat: Stat) -> Field {
+pub(crate) fn stat_column_name(field: &FieldOrIdentity, stat: Stat) -> Field {
+    Field::Name(stat_column_name_string(field, stat))
+}
+
+pub(crate) fn stat_column_name_string(field: &FieldOrIdentity, stat: Stat) -> String {
     match field {
-        Field::Name(n) => Field::Name(format!("{n}_{stat}")),
-        Field::Index(i) => Field::Name(format!("{i}_{stat}")),
+        FieldOrIdentity::Identity => stat.to_string(),
+        FieldOrIdentity::Field(Field::Name(n)) => format!("{n}_{stat}"),
+        FieldOrIdentity::Field(Field::Index(i)) => format!("{i}_{stat}"),
     }
 }
 
@@ -290,7 +394,9 @@ mod tests {
     use vortex_dtype::field::Field;
     use vortex_expr::{BinaryExpr, Column, Literal, Not, Operator};
 
-    use crate::pruning::{convert_to_pruning_expression, stat_column_name, PruningPredicate};
+    use crate::pruning::{
+        convert_to_pruning_expression, stat_column_name, FieldOrIdentity, PruningPredicate,
+    };
 
     #[test]
     pub fn pruning_equals() {
@@ -304,11 +410,17 @@ mod tests {
         let (converted, refs) = convert_to_pruning_expression(&eq_expr);
         assert_eq!(
             refs,
-            HashMap::from_iter([(column.clone(), HashSet::from_iter([Stat::Min, Stat::Max]))])
+            HashMap::from_iter([(
+                FieldOrIdentity::Field(column.clone()),
+                HashSet::from_iter([Stat::Min, Stat::Max])
+            )])
         );
         let expected_expr = BinaryExpr::new_expr(
             BinaryExpr::new_expr(
-                Column::new_expr(stat_column_name(&column, Stat::Min)),
+                Column::new_expr(stat_column_name(
+                    &FieldOrIdentity::Field(column.clone()),
+                    Stat::Min,
+                )),
                 Operator::Gt,
                 literal_eq.clone(),
             ),
@@ -316,7 +428,10 @@ mod tests {
             BinaryExpr::new_expr(
                 literal_eq,
                 Operator::Gt,
-                Column::new_expr(stat_column_name(&column, Stat::Max)),
+                Column::new_expr(stat_column_name(
+                    &FieldOrIdentity::Field(column.clone()),
+                    Stat::Max,
+                )),
             ),
         );
         assert_eq!(*converted, *expected_expr.as_any());
@@ -336,24 +451,39 @@ mod tests {
         assert_eq!(
             refs,
             HashMap::from_iter([
-                (column.clone(), HashSet::from_iter([Stat::Min, Stat::Max])),
                 (
-                    other_col.clone(),
+                    FieldOrIdentity::Field(column.clone()),
+                    HashSet::from_iter([Stat::Min, Stat::Max])
+                ),
+                (
+                    FieldOrIdentity::Field(other_col.clone()),
                     HashSet::from_iter([Stat::Max, Stat::Min])
                 )
             ])
         );
         let expected_expr = BinaryExpr::new_expr(
             BinaryExpr::new_expr(
-                Column::new_expr(stat_column_name(&column, Stat::Min)),
+                Column::new_expr(stat_column_name(
+                    &FieldOrIdentity::Field(column.clone()),
+                    Stat::Min,
+                )),
                 Operator::Gt,
-                Column::new_expr(stat_column_name(&other_col, Stat::Max)),
+                Column::new_expr(stat_column_name(
+                    &FieldOrIdentity::Field(other_col.clone()),
+                    Stat::Max,
+                )),
             ),
             Operator::Or,
             BinaryExpr::new_expr(
-                Column::new_expr(stat_column_name(&other_col, Stat::Min)),
+                Column::new_expr(stat_column_name(
+                    &FieldOrIdentity::Field(other_col.clone()),
+                    Stat::Min,
+                )),
                 Operator::Gt,
-                Column::new_expr(stat_column_name(&column, Stat::Max)),
+                Column::new_expr(stat_column_name(
+                    &FieldOrIdentity::Field(column.clone()),
+                    Stat::Max,
+                )),
             ),
         );
         assert_eq!(*converted, *expected_expr.as_any());
@@ -373,9 +503,12 @@ mod tests {
         assert_eq!(
             refs,
             HashMap::from_iter([
-                (column.clone(), HashSet::from_iter([Stat::Min, Stat::Max])),
                 (
-                    other_col.clone(),
+                    FieldOrIdentity::Field(column.clone()),
+                    HashSet::from_iter([Stat::Min, Stat::Max])
+                ),
+                (
+                    FieldOrIdentity::Field(other_col.clone()),
                     HashSet::from_iter([Stat::Max, Stat::Min])
                 )
             ])
@@ -383,22 +516,40 @@ mod tests {
         let expected_expr = BinaryExpr::new_expr(
             BinaryExpr::new_expr(
                 BinaryExpr::new_expr(
-                    Column::new_expr(stat_column_name(&column, Stat::Min)),
+                    Column::new_expr(stat_column_name(
+                        &FieldOrIdentity::Field(column.clone()),
+                        Stat::Min,
+                    )),
                     Operator::Eq,
-                    Column::new_expr(stat_column_name(&column, Stat::Max)),
+                    Column::new_expr(stat_column_name(
+                        &FieldOrIdentity::Field(column.clone()),
+                        Stat::Max,
+                    )),
                 ),
                 Operator::And,
                 BinaryExpr::new_expr(
-                    Column::new_expr(stat_column_name(&other_col, Stat::Min)),
+                    Column::new_expr(stat_column_name(
+                        &FieldOrIdentity::Field(other_col.clone()),
+                        Stat::Min,
+                    )),
                     Operator::Eq,
-                    Column::new_expr(stat_column_name(&other_col, Stat::Max)),
+                    Column::new_expr(stat_column_name(
+                        &FieldOrIdentity::Field(other_col.clone()),
+                        Stat::Max,
+                    )),
                 ),
             ),
             Operator::And,
             BinaryExpr::new_expr(
-                Column::new_expr(stat_column_name(&column, Stat::Min)),
+                Column::new_expr(stat_column_name(
+                    &FieldOrIdentity::Field(column.clone()),
+                    Stat::Min,
+                )),
                 Operator::Eq,
-                Column::new_expr(stat_column_name(&other_col, Stat::Min)),
+                Column::new_expr(stat_column_name(
+                    &FieldOrIdentity::Field(other_col.clone()),
+                    Stat::Min,
+                )),
             ),
         );
 
@@ -420,14 +571,26 @@ mod tests {
         assert_eq!(
             refs,
             HashMap::from_iter([
-                (column.clone(), HashSet::from_iter([Stat::Max])),
-                (other_col.clone(), HashSet::from_iter([Stat::Min]))
+                (
+                    FieldOrIdentity::Field(column.clone()),
+                    HashSet::from_iter([Stat::Max])
+                ),
+                (
+                    FieldOrIdentity::Field(other_col.clone()),
+                    HashSet::from_iter([Stat::Min])
+                )
             ])
         );
         let expected_expr = BinaryExpr::new_expr(
-            Column::new_expr(stat_column_name(&column, Stat::Max)),
+            Column::new_expr(stat_column_name(
+                &FieldOrIdentity::Field(column.clone()),
+                Stat::Max,
+            )),
             Operator::Lte,
-            Column::new_expr(stat_column_name(&other_col, Stat::Min)),
+            Column::new_expr(stat_column_name(
+                &FieldOrIdentity::Field(other_col.clone()),
+                Stat::Min,
+            )),
         );
         assert_eq!(*converted, *expected_expr.as_any());
     }
@@ -445,10 +608,16 @@ mod tests {
         let (converted, refs) = convert_to_pruning_expression(&not_eq_expr);
         assert_eq!(
             refs,
-            HashMap::from_iter([(column.clone(), HashSet::from_iter([Stat::Max])),])
+            HashMap::from_iter([(
+                FieldOrIdentity::Field(column.clone()),
+                HashSet::from_iter([Stat::Max])
+            ),])
         );
         let expected_expr = BinaryExpr::new_expr(
-            Column::new_expr(stat_column_name(&column, Stat::Max)),
+            Column::new_expr(stat_column_name(
+                &FieldOrIdentity::Field(column.clone()),
+                Stat::Max,
+            )),
             Operator::Lte,
             other_col.clone(),
         );
@@ -470,14 +639,26 @@ mod tests {
         assert_eq!(
             refs,
             HashMap::from_iter([
-                (column.clone(), HashSet::from_iter([Stat::Min])),
-                (other_col.clone(), HashSet::from_iter([Stat::Max]))
+                (
+                    FieldOrIdentity::Field(column.clone()),
+                    HashSet::from_iter([Stat::Min])
+                ),
+                (
+                    FieldOrIdentity::Field(other_col.clone()),
+                    HashSet::from_iter([Stat::Max])
+                )
             ])
         );
         let expected_expr = BinaryExpr::new_expr(
-            Column::new_expr(stat_column_name(&column, Stat::Min)),
+            Column::new_expr(stat_column_name(
+                &FieldOrIdentity::Field(column.clone()),
+                Stat::Min,
+            )),
             Operator::Gte,
-            Column::new_expr(stat_column_name(&other_col, Stat::Max)),
+            Column::new_expr(stat_column_name(
+                &FieldOrIdentity::Field(other_col.clone()),
+                Stat::Max,
+            )),
         );
         assert_eq!(*converted, *expected_expr.as_any());
     }
@@ -495,10 +676,16 @@ mod tests {
         let (converted, refs) = convert_to_pruning_expression(&not_eq_expr);
         assert_eq!(
             refs,
-            HashMap::from_iter([(column.clone(), HashSet::from_iter([Stat::Min]))])
+            HashMap::from_iter([(
+                FieldOrIdentity::Field(column.clone()),
+                HashSet::from_iter([Stat::Min])
+            )])
         );
         let expected_expr = BinaryExpr::new_expr(
-            Column::new_expr(stat_column_name(&column, Stat::Min)),
+            Column::new_expr(stat_column_name(
+                &FieldOrIdentity::Field(column.clone()),
+                Stat::Min,
+            )),
             Operator::Gte,
             other_col.clone(),
         );

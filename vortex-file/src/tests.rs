@@ -789,3 +789,78 @@ async fn test_with_indices_and_with_row_filter_simple() {
         actual_numbers
     );
 }
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn filter_string_chunked() {
+    let name_chunk1 = ArrayData::from_iter(vec![
+        Some("Joseph".to_owned()),
+        Some("James".to_owned()),
+        Some("Angela".to_owned()),
+    ]);
+    let age_chunk1 = ArrayData::from_iter(vec![Some(25_i32), Some(31), None]);
+    let name_chunk2 = ArrayData::from_iter(vec![
+        Some("Pharrell".to_owned()),
+        Some("Khalil".to_owned()),
+        Some("Mikhail".to_owned()),
+        None,
+    ]);
+    let age_chunk2 = ArrayData::from_iter(vec![Some(57_i32), Some(18), None, Some(32)]);
+
+    let chunk1 = StructArray::from_fields(&[("name", name_chunk1), ("age", age_chunk1)])
+        .unwrap()
+        .into_array();
+    let chunk2 = StructArray::from_fields(&[("name", name_chunk2), ("age", age_chunk2)])
+        .unwrap()
+        .into_array();
+    let dtype = chunk1.dtype().clone();
+
+    let array = ChunkedArray::try_new(vec![chunk1, chunk2], dtype)
+        .unwrap()
+        .into_array();
+
+    let buffer = Vec::new();
+    let written_bytes = VortexFileWriter::new(buffer)
+        .write_array_columns(array)
+        .await
+        .unwrap()
+        .finalize()
+        .await
+        .unwrap();
+    let actual_array =
+        VortexReadBuilder::new(Buffer::from(written_bytes), LayoutDeserializer::default())
+            .with_row_filter(RowFilter::new(BinaryExpr::new_expr(
+                Column::new_expr(Field::from("name")),
+                Operator::Eq,
+                Literal::new_expr("Joseph".into()),
+            )))
+            .build()
+            .await
+            .unwrap()
+            .read_all()
+            .await
+            .unwrap();
+
+    assert_eq!(actual_array.len(), 1);
+    let names = actual_array
+        .with_dyn(|a| a.as_struct_array_unchecked().field(0))
+        .unwrap();
+    assert_eq!(
+        names
+            .into_varbinview()
+            .unwrap()
+            .with_iterator(|iter| iter
+                .flatten()
+                .map(|s| unsafe { String::from_utf8_unchecked(s.to_vec()) })
+                .collect::<Vec<_>>())
+            .unwrap(),
+        vec!["Joseph".to_string()]
+    );
+    let ages = actual_array
+        .with_dyn(|a| a.as_struct_array_unchecked().field(1))
+        .unwrap();
+    assert_eq!(
+        ages.into_primitive().unwrap().maybe_null_slice::<i32>(),
+        vec![25]
+    );
+}
