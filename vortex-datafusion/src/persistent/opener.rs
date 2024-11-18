@@ -4,15 +4,18 @@ use arrow_array::RecordBatch;
 use arrow_schema::SchemaRef;
 use datafusion::datasource::physical_plan::{FileMeta, FileOpenFuture, FileOpener};
 use datafusion_common::Result as DFResult;
-use datafusion_physical_expr::PhysicalExpr;
+use datafusion_physical_expr::{split_conjunction, PhysicalExpr};
 use futures::{FutureExt as _, StreamExt, TryStreamExt};
 use object_store::ObjectStore;
 use vortex_array::Context;
 use vortex_expr::datafusion::convert_expr_to_vortex;
+use vortex_expr::{BinaryExpr, Operator};
 use vortex_file::{
     IoDispatcher, LayoutContext, LayoutDeserializer, Projection, RowFilter, VortexReadBuilder,
 };
 use vortex_io::ObjectStoreReadAt;
+
+// use crate::can_be_pushed_down;
 
 /// Share an IO dispatcher across all DataFusion instances.
 static IO_DISPATCHER: LazyLock<Arc<IoDispatcher>> =
@@ -39,10 +42,22 @@ impl FileOpener for VortexFileOpener {
 
         let row_filter = self
             .predicate
-            .clone()
-            .map(convert_expr_to_vortex)
-            .transpose()?
+            .as_ref()
+            .map(split_conjunction)
+            .map(|c| {
+                c.into_iter()
+                    .filter_map(|e| convert_expr_to_vortex(e.clone()).ok())
+                    .reduce(|acc, e| BinaryExpr::new_expr(acc, Operator::And, e))
+            })
+            .flatten()
             .map(RowFilter::new);
+
+        // let row_filter = self
+        //     .predicate
+        //     .clone()
+        //     .map(convert_expr_to_vortex)
+        //     .transpose()?
+        //     .map(RowFilter::new);
 
         if let Some(row_filter) = row_filter {
             builder = builder.with_row_filter(row_filter);

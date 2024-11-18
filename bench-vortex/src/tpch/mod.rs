@@ -314,35 +314,16 @@ async fn register_vortex_file(
     })
     .await?;
 
-    // let f = OpenOptions::new()
-    //     .read(true)
-    //     .write(true)
-    //     .open(&vtx_file)
-    //     .await?;
-    // let file_size = f.metadata().await?.len();
-
-    // let schema_ref = Arc::new(schema.clone());
-
     let format = Arc::new(VortexFormat::new(&CTX));
     let table_url = ListingTableUrl::parse(vtx_file.to_str().unwrap())?;
-    let config =
-        ListingTableConfig::new(table_url).with_listing_options(ListingOptions::new(format as _));
+    let config = ListingTableConfig::new(table_url)
+        .with_listing_options(ListingOptions::new(format as _))
+        .infer_schema(&session.state())
+        .await?;
+
     let listing_table = Arc::new(ListingTable::try_new(config)?);
 
     session.register_table(TableReference::parse_str(table_name), listing_table as _)?;
-
-    // session.register_disk_vortex_opts(
-    //     table_name,
-    //     ObjectStoreUrl::local_filesystem(),
-    //     VortexTableOptions::new(
-    //         schema_ref,
-    //         vec![VortexFile::new(
-    //             vtx_file.to_str().unwrap().to_string(),
-    //             file_size,
-    //         )],
-    //         CTX.clone(),
-    //     ),
-    // )?;
 
     Ok(())
 }

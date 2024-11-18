@@ -133,14 +133,15 @@ impl FileFormat for VortexFormat {
 
     fn supports_filters_pushdown(
         &self,
-        file_schema: &Schema,
-        _table_schema: &Schema,
+        _file_schema: &Schema,
+        table_schema: &Schema,
         filters: &[&Expr],
     ) -> DFResult<FilePushdownSupport> {
-        if filters
+        let is_pushdown = filters
             .iter()
-            .any(|expr| can_be_pushed_down(expr, file_schema))
-        {
+            .all(|expr| can_be_pushed_down(expr, table_schema));
+
+        if is_pushdown {
             Ok(FilePushdownSupport::Supported)
         } else {
             Ok(FilePushdownSupport::NotSupportedForFilter)
