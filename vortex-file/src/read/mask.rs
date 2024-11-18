@@ -9,6 +9,7 @@ use vortex_array::validity::LogicalValidity;
 use vortex_array::{iterate_integer_array, ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
+
 const PREFER_TAKE_TO_FILTER_DENSITY: f64 = 1.0 / 1024.0;
 
 /// Bitmap of selected rows within given [begin, end) row range
@@ -246,7 +247,7 @@ impl RowMask {
             take(sliced, indices, TakeOptions::default()).map(Some)
         } else {
             let mask = FilterMask::try_from(self.bitmask.clone())?;
-            filter(sliced, &mask).map(Some)
+            filter(sliced, mask).map(Some)
         }
     }
 

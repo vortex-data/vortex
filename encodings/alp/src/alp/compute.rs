@@ -86,9 +86,9 @@ impl SliceFn for ALPArray {
 }
 
 impl FilterFn for ALPArray {
-    fn filter(&self, mask: &FilterMask) -> VortexResult<ArrayData> {
+    fn filter(&self, mask: FilterMask) -> VortexResult<ArrayData> {
         Ok(Self::try_new(
-            filter(&self.encoded(), mask)?,
+            filter(&self.encoded(), mask.clone())?,
             self.exponents(),
             self.patches().map(|p| filter(&p, mask)).transpose()?,
         )?

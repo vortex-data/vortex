@@ -77,6 +77,7 @@ impl ScalarAtFn for RunEndArray {
 }
 
 impl TakeFn for RunEndArray {
+    #[allow(deprecated)]
     fn take(&self, indices: &ArrayData, options: TakeOptions) -> VortexResult<ArrayData> {
         let primitive_indices = indices.clone().into_primitive()?;
         let u64_indices = match_each_integer_ptype!(primitive_indices.ptype(), |$P| {
@@ -111,7 +112,6 @@ impl TakeFn for RunEndArray {
             Validity::Array(original_validity) => {
                 let dense_validity =
                     FilterMask::try_from(take(&original_validity, indices, options)?)?;
-                let filtered_values = filter(&dense_values, &dense_validity)?;
                 let length = dense_validity.len();
                 let dense_nonnull_indices = PrimitiveArray::from(
                     dense_validity
@@ -120,6 +120,7 @@ impl TakeFn for RunEndArray {
                         .collect::<Vec<_>>(),
                 )
                 .into_array();
+                let filtered_values = filter(&dense_values, dense_validity)?;
 
                 SparseArray::try_new(
                     dense_nonnull_indices,
@@ -150,13 +151,13 @@ impl SliceFn for RunEndArray {
 }
 
 impl FilterFn for RunEndArray {
-    fn filter(&self, mask: &FilterMask) -> VortexResult<ArrayData> {
+    fn filter(&self, mask: FilterMask) -> VortexResult<ArrayData> {
         let primitive_run_ends = self.ends().into_primitive()?;
         let (run_ends, mask) = match_each_unsigned_integer_ptype!(primitive_run_ends.ptype(), |$P| {
             filter_run_ends(primitive_run_ends.maybe_null_slice::<$P>(), mask)?
         });
-        let values = filter(&self.values(), &mask)?;
         let validity = self.validity().filter(&mask)?;
+        let values = filter(&self.values(), mask)?;
 
         RunEndArray::try_new(run_ends.into_array(), values, validity).map(|a| a.into_array())
     }
@@ -165,7 +166,7 @@ impl FilterFn for RunEndArray {
 // Code adapted from apache arrow-rs https://github.com/apache/arrow-rs/blob/b1f5c250ebb6c1252b4e7c51d15b8e77f4c361fa/arrow-select/src/filter.rs#L425
 fn filter_run_ends<R: NativePType + AddAssign + From<bool> + AsPrimitive<u64>>(
     run_ends: &[R],
-    mask: &FilterMask,
+    mask: FilterMask,
 ) -> VortexResult<(PrimitiveArray, FilterMask)> {
     let mut new_run_ends = vec![R::zero(); run_ends.len()];
 
@@ -444,7 +445,7 @@ mod test {
         let arr = ree_array();
         let filtered = filter(
             arr.as_ref(),
-            &FilterMask::from_iter([
+            FilterMask::from_iter([
                 true, true, false, false, false, false, false, false, false, false, true, true,
             ]),
         )

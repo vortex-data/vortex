@@ -1,7 +1,7 @@
 use arrow_buffer::BooleanBufferBuilder;
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::array::{BoolArray, ChunkedArray, PrimitiveArray};
+use crate::array::{ChunkedArray, PrimitiveArray};
 use crate::compute::{
     filter, take, FilterFn, FilterMask, SearchSorted, SearchSortedSide, TakeOptions,
 };
@@ -11,7 +11,7 @@ use crate::{ArrayDType, ArrayData, IntoArrayData, IntoCanonical};
 const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
 
 impl FilterFn for ChunkedArray {
-    fn filter(&self, mask: &FilterMask) -> VortexResult<ArrayData> {
+    fn filter(&self, mask: FilterMask) -> VortexResult<ArrayData> {
         let selected = mask.true_count();
 
         // Based on filter selectivity, we take the values between a range of slices, or
@@ -57,11 +57,12 @@ fn slices_to_mask(slices: &[(usize, usize)], len: usize) -> FilterMask {
     let n_trailing_false = len - pos;
     buffer.append_n(n_trailing_false, false);
 
-    FilterMask::from(BoolArray::from(buffer.finish()))
+    FilterMask::from(buffer.finish())
 }
 
 /// Filter the chunks using slice ranges.
-fn filter_slices(array: &ChunkedArray, mask: &FilterMask) -> VortexResult<Vec<ArrayData>> {
+#[allow(deprecated)]
+fn filter_slices(array: &ChunkedArray, mask: FilterMask) -> VortexResult<Vec<ArrayData>> {
     let mut result = Vec::with_capacity(array.nchunks());
 
     // Pre-materialize the chunk ends for performance.
@@ -126,7 +127,7 @@ fn filter_slices(array: &ChunkedArray, mask: &FilterMask) -> VortexResult<Vec<Ar
             ChunkFilter::None => {}
             // Slices => turn the slices into a boolean buffer.
             ChunkFilter::Slices(slices) => {
-                result.push(filter(&chunk, &slices_to_mask(slices, chunk.len()))?);
+                result.push(filter(&chunk, slices_to_mask(slices, chunk.len()))?);
             }
         }
     }
@@ -135,7 +136,8 @@ fn filter_slices(array: &ChunkedArray, mask: &FilterMask) -> VortexResult<Vec<Ar
 }
 
 /// Filter the chunks using indices.
-fn filter_indices(array: &ChunkedArray, mask: &FilterMask) -> VortexResult<Vec<ArrayData>> {
+#[allow(deprecated)]
+fn filter_indices(array: &ChunkedArray, mask: FilterMask) -> VortexResult<Vec<ArrayData>> {
     let mut result = Vec::new();
     let mut current_chunk_id = 0;
     let mut chunk_indices = Vec::new();
@@ -249,7 +251,7 @@ mod test {
         let mask = FilterMask::from_iter([
             true, false, false, true, true, true, true, true, true, true, true,
         ]);
-        let filtered = filter(&chunked, &mask).unwrap();
+        let filtered = filter(&chunked, mask).unwrap();
         assert_eq!(filtered.len(), 9);
     }
 }

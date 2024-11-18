@@ -70,7 +70,7 @@ impl SliceFn for ConstantArray {
 }
 
 impl FilterFn for ConstantArray {
-    fn filter(&self, mask: &FilterMask) -> VortexResult<ArrayData> {
+    fn filter(&self, mask: FilterMask) -> VortexResult<ArrayData> {
         Ok(Self::new(self.owned_scalar(), mask.true_count()).into_array())
     }
 }

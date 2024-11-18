@@ -151,12 +151,12 @@ impl ScalarAtFn for FSSTArray {
 
 impl FilterFn for FSSTArray {
     // Filtering an FSSTArray filters the codes array, leaving the symbols array untouched
-    fn filter(&self, mask: &FilterMask) -> VortexResult<ArrayData> {
+    fn filter(&self, mask: FilterMask) -> VortexResult<ArrayData> {
         Ok(Self::try_new(
             self.dtype().clone(),
             self.symbols(),
             self.symbol_lengths(),
-            filter(&self.codes(), mask)?,
+            filter(&self.codes(), mask.clone())?,
             filter(&self.uncompressed_lengths(), mask)?,
         )?
         .into_array())

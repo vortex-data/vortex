@@ -86,7 +86,7 @@ impl TakeFn for DictArray {
 }
 
 impl FilterFn for DictArray {
-    fn filter(&self, mask: &FilterMask) -> VortexResult<ArrayData> {
+    fn filter(&self, mask: FilterMask) -> VortexResult<ArrayData> {
         let codes = filter(&self.codes(), mask)?;
         Self::try_new(codes, self.values()).map(|a| a.into_array())
     }

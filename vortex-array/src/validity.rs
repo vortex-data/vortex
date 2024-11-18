@@ -171,11 +171,13 @@ impl Validity {
     }
 
     pub fn filter(&self, mask: &FilterMask) -> VortexResult<Self> {
+        // NOTE(ngates): we take the mask as a reference to avoid the caller cloning unnecessarily
+        //  if we happen to be NonNullable, AllValid, or AllInvalid.
         match self {
             v @ (Validity::NonNullable | Validity::AllValid | Validity::AllInvalid) => {
                 Ok(v.clone())
             }
-            Validity::Array(arr) => Ok(Validity::Array(filter(arr, mask)?)),
+            Validity::Array(arr) => Ok(Validity::Array(filter(arr, mask.clone())?)),
         }
     }
 
