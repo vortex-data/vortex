@@ -1,21 +1,49 @@
 use std::future::{self, Future};
 use std::io;
-use std::io::Cursor;
 use std::sync::Arc;
 
 use bytes::{Bytes, BytesMut};
 use vortex_buffer::Buffer;
 use vortex_error::vortex_err;
 
-/// An asynchronous streaming reader.
+/// A stateful asynchronous reader that wraps an internal [stateless reader][VortexReadAt].
 ///
-/// Implementations expose data via the asynchronous [`read_bytes`][VortexRead::read_bytes], which
-/// will fill the exact number of bytes and advance the stream.
-///
-/// If the exact number of bytes is not available from the stream, an
-/// [`UnexpectedEof`][std::io::ErrorKind::UnexpectedEof] error is returned.
-pub trait VortexRead {
-    fn read_bytes(&mut self, len: u64) -> impl Future<Output = io::Result<Bytes>>;
+/// Read operations will advance the cursor.
+#[derive(Clone)]
+pub struct VortexBufReader<R> {
+    inner: R,
+    pos: u64,
+}
+
+impl<R> VortexBufReader<R> {
+    /// Create a new buffered reader wrapping a stateless reader, with reads
+    /// beginning at offset 0.
+    pub fn new(inner: R) -> Self {
+        Self { inner, pos: 0 }
+    }
+
+    /// Set the position of the next `read_bytes` call directly.
+    ///
+    /// Note: this method will not fail if the position is passed the end of the valid range,
+    /// the failure will occur at read time and result in an [`UnexpectedEof`][std::io::ErrorKind::UnexpectedEof] error.
+    pub fn set_position(&mut self, pos: u64) {
+        self.pos = pos;
+    }
+}
+
+impl<R: VortexReadAt> VortexBufReader<R> {
+    /// Perform an exactly-sized read at the current cursor position, advancing
+    /// the cursor and returning the bytes.
+    ///
+    /// If there are not enough bytes available to fulfill the request, an
+    /// [`UnexpectedEof`][std::io::ErrorKind::UnexpectedEof] error is returned.
+    ///
+    /// See also [`VortexReadAt::read_byte_range`].
+    pub async fn read_bytes(&mut self, len: u64) -> io::Result<Bytes> {
+        let result = self.inner.read_byte_range(self.pos, len).await?;
+        self.pos += len;
+        Ok(result)
+    }
 }
 
 /// A trait for types that support asynchronous reads.
@@ -28,7 +56,7 @@ pub trait VortexReadAt: Send + Sync + Clone + 'static {
     /// Request an asynchronous positional read. Results will be returned as an owned [`Bytes`].
     ///
     /// If the reader does not have the requested number of bytes, the returned Future will complete
-    /// with an [`io::Error`].
+    /// with an [`UnexpectedEof`][std::io::ErrorKind::UnexpectedEof].
     ///
     /// ## Thread Safety
     ///
@@ -68,28 +96,6 @@ impl<T: VortexReadAt> VortexReadAt for Arc<T> {
 
     fn size(&self) -> impl Future<Output = u64> + 'static {
         T::size(self)
-    }
-}
-
-impl VortexRead for BytesMut {
-    async fn read_bytes(&mut self, len: u64) -> io::Result<Bytes> {
-        if (len as usize) > self.len() {
-            Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                vortex_err!("unexpected eof"),
-            ))
-        } else {
-            Ok(self.split_to(len as usize).freeze())
-        }
-    }
-}
-
-// Implement reading for a cursor operation.
-impl<R: VortexReadAt> VortexRead for Cursor<R> {
-    async fn read_bytes(&mut self, len: u64) -> io::Result<Bytes> {
-        let res = R::read_byte_range(self.get_ref(), self.position(), len).await?;
-        self.set_position(self.position() + len);
-        Ok(res)
     }
 }
 

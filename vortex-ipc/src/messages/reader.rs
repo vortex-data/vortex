@@ -10,20 +10,20 @@ use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_flatbuffers::message as fb;
-use vortex_io::VortexRead;
+use vortex_io::{VortexBufReader, VortexReadAt};
 
 pub const MESSAGE_PREFIX_LENGTH: usize = 4;
 
 /// A stateful reader of [`Message`s][fb::Message] from a stream.
 pub struct MessageReader<R> {
-    read: R,
+    read: VortexBufReader<R>,
     message: Option<Bytes>,
     prev_message: Option<Bytes>,
     finished: bool,
 }
 
-impl<R: VortexRead> MessageReader<R> {
-    pub async fn try_new(read: R) -> VortexResult<Self> {
+impl<R: VortexReadAt> MessageReader<R> {
+    pub async fn try_new(read: VortexBufReader<R>) -> VortexResult<Self> {
         let mut reader = Self {
             read,
             message: None,
@@ -138,7 +138,7 @@ impl<R: VortexRead> MessageReader<R> {
     }
 
     pub fn array_stream(&mut self, ctx: Arc<Context>, dtype: DType) -> impl ArrayStream + '_ {
-        struct State<'a, R: VortexRead> {
+        struct State<'a, R: VortexReadAt> {
             msgs: &'a mut MessageReader<R>,
             ctx: Arc<Context>,
             dtype: DType,
@@ -166,7 +166,7 @@ impl<R: VortexRead> MessageReader<R> {
     }
 
     pub fn into_array_stream(self, ctx: Arc<Context>, dtype: DType) -> impl ArrayStream {
-        struct State<R: VortexRead> {
+        struct State<R: VortexReadAt> {
             msgs: MessageReader<R>,
             ctx: Arc<Context>,
             dtype: DType,
@@ -207,7 +207,7 @@ impl<R: VortexRead> MessageReader<R> {
         page_buffer
     }
 
-    pub fn into_inner(self) -> R {
+    pub fn into_inner(self) -> VortexBufReader<R> {
         self.read
     }
 }
@@ -347,11 +347,10 @@ impl ArrayMessageReader {
 
 #[cfg(test)]
 mod test {
-    use std::io::Cursor;
-
     use bytes::Bytes;
     use futures_executor::block_on;
     use vortex_buffer::Buffer;
+    use vortex_io::VortexBufReader;
 
     use crate::messages::reader::MessageReader;
     use crate::messages::writer::MessageWriter;
@@ -368,7 +367,8 @@ mod test {
         .unwrap();
         let written = Buffer::from(writer.into_inner());
         let mut reader =
-            block_on(async { MessageReader::try_new(Cursor::new(written)).await }).unwrap();
+            block_on(async { MessageReader::try_new(VortexBufReader::new(written)).await })
+                .unwrap();
         let read_page = block_on(async { reader.maybe_read_page().await })
             .unwrap()
             .unwrap();

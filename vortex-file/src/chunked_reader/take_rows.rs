@@ -1,4 +1,3 @@
-use std::io::Cursor;
 use std::ops::Range;
 
 use futures_util::{stream, StreamExt, TryStreamExt};
@@ -12,7 +11,7 @@ use vortex_array::stream::{ArrayStream, ArrayStreamExt};
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::PType;
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
-use vortex_io::VortexReadAt;
+use vortex_io::{VortexBufReader, VortexReadAt};
 use vortex_ipc::stream_reader::StreamArrayReader;
 use vortex_scalar::Scalar;
 
@@ -145,7 +144,9 @@ impl<R: VortexReadAt> ChunkedArrayReader<R> {
             .read_byte_range(byte_range.start, range_byte_len)
             .await?;
 
-        let reader = StreamArrayReader::try_new(Cursor::new(buffer), self.context.clone())
+        let buf_reader = VortexBufReader::new(buffer);
+
+        let reader = StreamArrayReader::try_new(buf_reader, self.context.clone())
             .await?
             .with_dtype(self.dtype.clone());
 
@@ -211,7 +212,6 @@ struct ChunkIndices {
 #[cfg(test)]
 #[allow(clippy::panic_in_result_fn)]
 mod test {
-    use std::io::Cursor;
     use std::sync::Arc;
 
     use futures_executor::block_on;
@@ -221,6 +221,7 @@ mod test {
     use vortex_buffer::Buffer;
     use vortex_dtype::PType;
     use vortex_error::VortexResult;
+    use vortex_io::VortexBufReader;
     use vortex_ipc::messages::reader::MessageReader;
     use vortex_ipc::stream_writer::StreamArrayWriter;
 
@@ -248,7 +249,7 @@ mod test {
         let buffer = Buffer::from(writer.into_inner());
 
         let mut msgs =
-            block_on(async { MessageReader::try_new(Cursor::new(buffer.clone())).await })?;
+            block_on(async { MessageReader::try_new(VortexBufReader::new(buffer.clone())).await })?;
         let dtype = Arc::new(block_on(async { msgs.read_dtype().await })?);
 
         let mut reader = ChunkedArrayReader::try_new(
