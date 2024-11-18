@@ -1,14 +1,14 @@
 use std::cmp::Ordering;
 
 use vortex_dtype::Nullability;
-use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::array::constant::ConstantArray;
 use crate::compute::unary::{scalar_at, ScalarAtFn};
 use crate::compute::{
-    scalar_cmp, AndFn, ArrayCompute, FilterFn, MaybeCompareFn, Operator, OrFn, SearchResult,
-    SearchSortedFn, SearchSortedSide, SliceFn, TakeFn, TakeOptions,
+    scalar_cmp, AndFn, ArrayCompute, FilterFn, FilterMask, MaybeCompareFn, Operator, OrFn,
+    SearchResult, SearchSortedFn, SearchSortedSide, SliceFn, TakeFn, TakeOptions,
 };
 use crate::stats::{ArrayStatistics, Stat};
 use crate::{ArrayDType, ArrayData, IntoArrayData};
@@ -70,19 +70,8 @@ impl SliceFn for ConstantArray {
 }
 
 impl FilterFn for ConstantArray {
-    fn filter(&self, predicate: &ArrayData) -> VortexResult<ArrayData> {
-        Ok(Self::new(
-            self.owned_scalar(),
-            predicate.with_dyn(|p| {
-                p.as_bool_array()
-                    .ok_or(vortex_err!(
-                        NotImplemented: "as_bool_array",
-                        predicate.encoding().id()
-                    ))
-                    .map(|x| x.true_count())
-            })?,
-        )
-        .into_array())
+    fn filter(&self, mask: &FilterMask) -> VortexResult<ArrayData> {
+        Ok(Self::new(self.owned_scalar(), mask.true_count()).into_array())
     }
 }
 

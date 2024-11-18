@@ -11,10 +11,10 @@ use std::ops::Range;
 use libfuzzer_sys::arbitrary::Error::EmptyChoose;
 use libfuzzer_sys::arbitrary::{Arbitrary, Result, Unstructured};
 pub use sort::sort_canonical_array;
-use vortex_array::array::{BoolArray, PrimitiveArray};
+use vortex_array::array::PrimitiveArray;
 use vortex_array::compute::unary::scalar_at;
-use vortex_array::compute::{SearchResult, SearchSortedSide};
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
+use vortex_array::compute::{FilterMask, SearchResult, SearchSortedSide};
+use vortex_array::{ArrayDType, ArrayData};
 use vortex_sampling_compressor::SamplingCompressor;
 use vortex_scalar::arbitrary::random_scalar;
 use vortex_scalar::Scalar;
@@ -58,7 +58,7 @@ pub enum Action {
     Slice(Range<usize>),
     Take(ArrayData),
     SearchSorted(Scalar, SearchSortedSide),
-    Filter(ArrayData),
+    Filter(FilterMask),
 }
 
 impl<'a> Arbitrary<'a> for FuzzArrayAction {
@@ -141,7 +141,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                         .collect::<Result<Vec<_>>>()?;
                     current_array = filter_canonical_array(&current_array, &mask);
                     (
-                        Action::Filter(BoolArray::from_iter(mask).into_array()),
+                        Action::Filter(FilterMask::from_iter(mask)),
                         ExpectedValue::Array(current_array.clone()),
                     )
                 }

@@ -1,49 +1,43 @@
 use vortex_dtype::{match_each_native_ptype, NativePType};
-use vortex_error::{vortex_err, VortexResult};
+use vortex_error::VortexResult;
 
 use crate::array::primitive::PrimitiveArray;
-use crate::compute::FilterFn;
-use crate::variants::{BoolArrayTrait, PrimitiveArrayTrait};
+use crate::compute::{FilterFn, FilterMask};
+use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayData, IntoArrayData};
 
 impl FilterFn for PrimitiveArray {
-    fn filter(&self, predicate: &ArrayData) -> VortexResult<ArrayData> {
-        filter_select_primitive(self, predicate).map(|a| a.into_array())
+    fn filter(&self, mask: &FilterMask) -> VortexResult<ArrayData> {
+        filter_select_primitive(self, mask).map(|a| a.into_array())
     }
 }
 
 fn filter_select_primitive(
     arr: &PrimitiveArray,
-    predicate: &ArrayData,
+    mask: &FilterMask,
 ) -> VortexResult<PrimitiveArray> {
-    predicate.with_dyn(|b| {
-        let validity = arr.validity().filter(predicate)?;
-        let predicate = b.as_bool_array().ok_or_else(||vortex_err!(
-                NotImplemented: "as_bool_array",
-                predicate.encoding().id()
-            ))?;
-        let selection_count = predicate.true_count();
-        match_each_native_ptype!(arr.ptype(), |$T| {
-            let slice = arr.maybe_null_slice::<$T>();
-            Ok(PrimitiveArray::from_vec(filter_primitive_slice(slice, predicate, selection_count), validity))
-        })
+    let validity = arr.validity().filter(mask)?;
+    let selection_count = mask.true_count();
+    match_each_native_ptype!(arr.ptype(), |$T| {
+        let slice = arr.maybe_null_slice::<$T>();
+        Ok(PrimitiveArray::from_vec(filter_primitive_slice(slice, mask, selection_count)?, validity))
     })
 }
 
 pub fn filter_primitive_slice<T: NativePType>(
     arr: &[T],
-    predicate: &dyn BoolArrayTrait,
+    mask: &FilterMask,
     selection_count: usize,
-) -> Vec<T> {
+) -> VortexResult<Vec<T>> {
     let mut chunks = Vec::with_capacity(selection_count);
-    if selection_count * 2 > predicate.len() {
-        predicate.maybe_null_slices_iter().for_each(|(start, end)| {
+    if selection_count * 2 > mask.len() {
+        mask.iter_slices()?.for_each(|(start, end)| {
             chunks.extend_from_slice(&arr[start..end]);
         });
     } else {
-        chunks.extend(predicate.maybe_null_indices_iter().map(|idx| arr[idx]));
+        chunks.extend(mask.iter_indices()?.map(|idx| arr[idx]));
     }
-    chunks
+    Ok(chunks)
 }
 
 #[cfg(test)]
@@ -52,7 +46,7 @@ mod test {
 
     use crate::array::primitive::compute::filter::filter_select_primitive;
     use crate::array::primitive::PrimitiveArray;
-    use crate::array::BoolArray;
+    use crate::compute::FilterMask;
 
     #[test]
     fn filter_run_variant_mixed_test() {
@@ -60,8 +54,7 @@ mod test {
         let arr = PrimitiveArray::from(vec![1u32, 24, 54, 2, 3, 2, 3, 2]);
 
         let filtered =
-            filter_select_primitive(&arr, BoolArray::from_iter(filter.iter().copied()).as_ref())
-                .unwrap();
+            filter_select_primitive(&arr, &FilterMask::from_iter(filter.iter().copied())).unwrap();
         assert_eq!(
             filtered.len(),
             filter.iter().filter(|x| **x).collect_vec().len()

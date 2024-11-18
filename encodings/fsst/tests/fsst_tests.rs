@@ -1,9 +1,9 @@
 #![cfg(test)]
 
 use vortex_array::array::builder::VarBinBuilder;
-use vortex_array::array::{BoolArray, PrimitiveArray};
+use vortex_array::array::PrimitiveArray;
 use vortex_array::compute::unary::scalar_at;
-use vortex_array::compute::{filter, slice, take, TakeOptions};
+use vortex_array::compute::{filter, slice, take, FilterMask, TakeOptions};
 use vortex_array::validity::Validity;
 use vortex_array::{ArrayData, ArrayDef, IntoArrayData, IntoCanonical};
 use vortex_dtype::{DType, Nullability};
@@ -85,9 +85,9 @@ fn test_fsst_array_ops() {
     );
 
     // test filter
-    let predicate = BoolArray::from_iter([false, true, false]).into_array();
+    let mask = FilterMask::from_iter([false, true, false]);
 
-    let fsst_filtered = filter(&fsst_array, &predicate).unwrap();
+    let fsst_filtered = filter(&fsst_array, &mask).unwrap();
     assert_eq!(fsst_filtered.encoding().id(), FSST::ENCODING.id());
     assert_eq!(fsst_filtered.len(), 1);
     assert_nth_scalar!(

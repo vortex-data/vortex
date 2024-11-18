@@ -6,8 +6,8 @@ use crate::array::sparse::SparseArray;
 use crate::array::PrimitiveArray;
 use crate::compute::unary::{scalar_at, scalar_at_unchecked, ScalarAtFn};
 use crate::compute::{
-    search_sorted, take, ArrayCompute, FilterFn, SearchResult, SearchSortedFn, SearchSortedSide,
-    SliceFn, TakeFn, TakeOptions,
+    search_sorted, take, ArrayCompute, FilterFn, FilterMask, SearchResult, SearchSortedFn,
+    SearchSortedSide, SliceFn, TakeFn, TakeOptions,
 };
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
@@ -75,8 +75,8 @@ impl SearchSortedFn for SparseArray {
 }
 
 impl FilterFn for SparseArray {
-    fn filter(&self, predicate: &ArrayData) -> VortexResult<ArrayData> {
-        let buffer = predicate.clone().into_bool()?.boolean_buffer();
+    fn filter(&self, mask: &FilterMask) -> VortexResult<ArrayData> {
+        let buffer = mask.to_boolean_buffer()?;
         let mut coordinate_indices: Vec<u64> = Vec::new();
         let mut value_indices = Vec::new();
         let mut last_inserted_index = 0;
@@ -122,8 +122,9 @@ mod test {
 
     use crate::array::primitive::PrimitiveArray;
     use crate::array::sparse::SparseArray;
-    use crate::array::BoolArray;
-    use crate::compute::{filter, search_sorted, slice, SearchResult, SearchSortedSide};
+    use crate::compute::{
+        filter, search_sorted, slice, FilterMask, SearchResult, SearchSortedSide,
+    };
     use crate::validity::Validity;
     use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
 
@@ -197,9 +198,9 @@ mod test {
     fn test_filter(array: ArrayData) {
         let mut predicate = vec![false, false, true];
         predicate.extend_from_slice(&[false; 17]);
-        let predicate = BoolArray::from_iter(predicate).into_array();
+        let mask = FilterMask::from_iter(predicate);
 
-        let filtered_array = filter(&array, &predicate).unwrap();
+        let filtered_array = filter(&array, &mask).unwrap();
         let filtered_array = SparseArray::try_from(filtered_array).unwrap();
 
         assert_eq!(filtered_array.len(), 1);
@@ -209,8 +210,7 @@ mod test {
 
     #[test]
     fn true_fill_value() {
-        let predicate =
-            BoolArray::from_iter([false, true, false, true, false, true, true]).into_array();
+        let mask = FilterMask::from_iter([false, true, false, true, false, true, true]);
         let array = SparseArray::try_new(
             PrimitiveArray::from(vec![0_u64, 3, 6]).into_array(),
             PrimitiveArray::from_vec(vec![33_i32, 44, 55], Validity::AllValid).into_array(),
@@ -220,7 +220,7 @@ mod test {
         .unwrap()
         .into_array();
 
-        let filtered_array = filter(&array, &predicate).unwrap();
+        let filtered_array = filter(&array, &mask).unwrap();
         let filtered_array = SparseArray::try_from(filtered_array).unwrap();
 
         assert_eq!(filtered_array.len(), 4);

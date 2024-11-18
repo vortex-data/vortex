@@ -2,8 +2,8 @@ use fsst::Symbol;
 use vortex_array::array::{varbin_scalar, ConstantArray};
 use vortex_array::compute::unary::{scalar_at_unchecked, ScalarAtFn};
 use vortex_array::compute::{
-    compare, filter, slice, take, ArrayCompute, FilterFn, MaybeCompareFn, Operator, SliceFn,
-    TakeFn, TakeOptions,
+    compare, filter, slice, take, ArrayCompute, FilterFn, FilterMask, MaybeCompareFn, Operator,
+    SliceFn, TakeFn, TakeOptions,
 };
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_buffer::Buffer;
@@ -151,13 +151,13 @@ impl ScalarAtFn for FSSTArray {
 
 impl FilterFn for FSSTArray {
     // Filtering an FSSTArray filters the codes array, leaving the symbols array untouched
-    fn filter(&self, predicate: &ArrayData) -> VortexResult<ArrayData> {
+    fn filter(&self, mask: &FilterMask) -> VortexResult<ArrayData> {
         Ok(Self::try_new(
             self.dtype().clone(),
             self.symbols(),
             self.symbol_lengths(),
-            filter(self.codes(), predicate)?,
-            filter(self.uncompressed_lengths(), predicate)?,
+            filter(&self.codes(), mask)?,
+            filter(&self.uncompressed_lengths(), mask)?,
         )?
         .into_array())
     }

@@ -4,9 +4,11 @@ use std::fmt::{Display, Formatter};
 use arrow_buffer::{BooleanBuffer, MutableBuffer};
 use croaring::Bitmap;
 use vortex_array::array::{BoolArray, PrimitiveArray, SparseArray};
-use vortex_array::compute::{filter, slice, take, TakeOptions};
+use vortex_array::compute::{filter, slice, take, FilterMask, TakeOptions};
 use vortex_array::validity::{LogicalValidity, Validity};
-use vortex_array::{iterate_integer_array, ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_array::{
+    iterate_integer_array, ArrayData, IntoArrayData, IntoArrayVariant, IntoCanonical,
+};
 use vortex_dtype::PType;
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
@@ -80,17 +82,15 @@ impl RowMask {
         begin: usize,
         end: usize,
     ) -> VortexResult<Self> {
-        array.with_dyn(|a| {
-            a.as_bool_array()
-                .ok_or_else(|| vortex_err!("Must be a bool array"))
-                .map(|b| {
-                    let mut bitmap = Bitmap::new();
-                    for (sb, se) in b.maybe_null_slices_iter() {
-                        bitmap.add_range(sb as u32..se as u32);
-                    }
-                    unsafe { RowMask::new_unchecked(bitmap, begin, end) }
-                })
-        })
+        let mut bitmap = Bitmap::new();
+        array
+            .clone()
+            .into_canonical()?
+            .into_bool()?
+            .boolean_buffer()
+            .set_slices()
+            .for_each(|(start, stop)| bitmap.add_range(start as u32..stop as u32));
+        Ok(unsafe { RowMask::new_unchecked(bitmap, begin, end) })
     }
 
     /// Construct a RowMask from an integral array.
@@ -215,8 +215,8 @@ impl RowMask {
             let indices = self.to_indices_array()?;
             take(sliced, indices, TakeOptions::default()).map(Some)
         } else {
-            let mask = self.to_mask_array()?;
-            filter(sliced, mask).map(Some)
+            let mask = self.to_filter_mask()?;
+            filter(sliced, &mask).map(Some)
         }
     }
 
@@ -224,7 +224,7 @@ impl RowMask {
         Ok(PrimitiveArray::from_vec(self.values.to_vec(), Validity::NonNullable).into_array())
     }
 
-    pub fn to_mask_array(&self) -> VortexResult<ArrayData> {
+    pub fn to_filter_mask(&self) -> VortexResult<FilterMask> {
         let bitset = self
             .values
             .to_bitset()
@@ -236,7 +236,12 @@ impl RowMask {
         if byte_length > bitset.size_in_bytes() {
             buffer.extend_zeros(byte_length - bitset.size_in_bytes());
         }
-        Ok(BoolArray::from(BooleanBuffer::new(buffer.into(), 0, self.len())).into_array())
+
+        Ok(FilterMask::from(BoolArray::from(BooleanBuffer::new(
+            buffer.into(),
+            0,
+            self.len(),
+        ))))
     }
 
     pub fn shift(self, offset: usize) -> VortexResult<RowMask> {

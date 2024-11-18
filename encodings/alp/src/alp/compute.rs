@@ -1,8 +1,8 @@
 use vortex_array::array::ConstantArray;
 use vortex_array::compute::unary::{scalar_at, scalar_at_unchecked, ScalarAtFn};
 use vortex_array::compute::{
-    compare, filter, slice, take, ArrayCompute, FilterFn, MaybeCompareFn, Operator, SliceFn,
-    TakeFn, TakeOptions,
+    compare, filter, slice, take, ArrayCompute, FilterFn, FilterMask, MaybeCompareFn, Operator,
+    SliceFn, TakeFn, TakeOptions,
 };
 use vortex_array::stats::{ArrayStatistics, Stat};
 use vortex_array::variants::PrimitiveArrayTrait;
@@ -86,11 +86,11 @@ impl SliceFn for ALPArray {
 }
 
 impl FilterFn for ALPArray {
-    fn filter(&self, predicate: &ArrayData) -> VortexResult<ArrayData> {
+    fn filter(&self, mask: &FilterMask) -> VortexResult<ArrayData> {
         Ok(Self::try_new(
-            filter(self.encoded(), predicate)?,
+            filter(&self.encoded(), mask)?,
             self.exponents(),
-            self.patches().map(|p| filter(&p, predicate)).transpose()?,
+            self.patches().map(|p| filter(&p, mask)).transpose()?,
         )?
         .into_array())
     }

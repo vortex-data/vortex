@@ -1,11 +1,11 @@
 use std::ops::AddAssign;
 
 use num_traits::AsPrimitive;
-use vortex_array::array::{BoolArray, BooleanBuffer, ConstantArray, PrimitiveArray, SparseArray};
+use vortex_array::array::{BooleanBuffer, ConstantArray, PrimitiveArray, SparseArray};
 use vortex_array::compute::unary::{scalar_at, scalar_at_unchecked, ScalarAtFn};
 use vortex_array::compute::{
-    compare, filter, slice, take, ArrayCompute, FilterFn, MaybeCompareFn, Operator, SliceFn,
-    TakeFn, TakeOptions,
+    compare, filter, slice, take, ArrayCompute, FilterFn, FilterMask, MaybeCompareFn, Operator,
+    SliceFn, TakeFn, TakeOptions,
 };
 use vortex_array::stats::{ArrayStatistics, Stat};
 use vortex_array::validity::Validity;
@@ -109,14 +109,13 @@ impl TakeFn for RunEndArray {
                 ConstantArray::new(Scalar::null(self.dtype().clone()), indices.len()).into_array()
             }
             Validity::Array(original_validity) => {
-                let dense_validity = take(&original_validity, indices, options)?;
+                let dense_validity =
+                    FilterMask::try_from(take(&original_validity, indices, options)?)?;
                 let filtered_values = filter(&dense_values, &dense_validity)?;
                 let length = dense_validity.len();
                 let dense_nonnull_indices = PrimitiveArray::from(
                     dense_validity
-                        .into_bool()?
-                        .boolean_buffer()
-                        .set_indices()
+                        .iter_indices()?
                         .map(|idx| idx as u64)
                         .collect::<Vec<_>>(),
                 )
@@ -151,13 +150,13 @@ impl SliceFn for RunEndArray {
 }
 
 impl FilterFn for RunEndArray {
-    fn filter(&self, predicate: &ArrayData) -> VortexResult<ArrayData> {
+    fn filter(&self, mask: &FilterMask) -> VortexResult<ArrayData> {
         let primitive_run_ends = self.ends().into_primitive()?;
-        let (run_ends, pred) = match_each_unsigned_integer_ptype!(primitive_run_ends.ptype(), |$P| {
-            filter_run_ends(primitive_run_ends.maybe_null_slice::<$P>(), predicate)?
+        let (run_ends, mask) = match_each_unsigned_integer_ptype!(primitive_run_ends.ptype(), |$P| {
+            filter_run_ends(primitive_run_ends.maybe_null_slice::<$P>(), mask)?
         });
-        let values = filter(self.values(), &pred)?;
-        let validity = self.validity().filter(predicate)?;
+        let values = filter(&self.values(), &mask)?;
+        let validity = self.validity().filter(&mask)?;
 
         RunEndArray::try_new(run_ends.into_array(), values, validity).map(|a| a.into_array())
     }
@@ -166,16 +165,16 @@ impl FilterFn for RunEndArray {
 // Code adapted from apache arrow-rs https://github.com/apache/arrow-rs/blob/b1f5c250ebb6c1252b4e7c51d15b8e77f4c361fa/arrow-select/src/filter.rs#L425
 fn filter_run_ends<R: NativePType + AddAssign + From<bool> + AsPrimitive<u64>>(
     run_ends: &[R],
-    predicate: &ArrayData,
-) -> VortexResult<(PrimitiveArray, BoolArray)> {
+    mask: &FilterMask,
+) -> VortexResult<(PrimitiveArray, FilterMask)> {
     let mut new_run_ends = vec![R::zero(); run_ends.len()];
 
     let mut start = 0u64;
     let mut j = 0;
     let mut count = R::zero();
-    let filter_values = predicate.clone().into_bool()?.boolean_buffer();
+    let filter_values = mask.to_boolean_buffer()?;
 
-    let pred: BoolArray = BooleanBuffer::collect_bool(run_ends.len(), |i| {
+    let new_mask: FilterMask = BooleanBuffer::collect_bool(run_ends.len(), |i| {
         let mut keep = false;
         let end = run_ends[i].as_();
 
@@ -194,14 +193,14 @@ fn filter_run_ends<R: NativePType + AddAssign + From<bool> + AsPrimitive<u64>>(
     .into();
 
     new_run_ends.truncate(j);
-    Ok((PrimitiveArray::from(new_run_ends), pred))
+    Ok((PrimitiveArray::from(new_run_ends), new_mask))
 }
 
 #[cfg(test)]
 mod test {
     use vortex_array::array::{BoolArray, PrimitiveArray};
     use vortex_array::compute::unary::{scalar_at, try_cast};
-    use vortex_array::compute::{filter, slice, take, TakeOptions};
+    use vortex_array::compute::{filter, slice, take, FilterMask, TakeOptions};
     use vortex_array::validity::{ArrayValidity, Validity};
     use vortex_array::{ArrayDType, IntoArrayData, IntoArrayVariant, ToArrayData};
     use vortex_dtype::{DType, Nullability, PType};
@@ -444,11 +443,10 @@ mod test {
     fn filter_run_end() {
         let arr = ree_array();
         let filtered = filter(
-            arr,
-            BoolArray::from_iter([
+            arr.as_ref(),
+            &FilterMask::from_iter([
                 true, true, false, false, false, false, false, false, false, false, true, true,
-            ])
-            .into_array(),
+            ]),
         )
         .unwrap();
         let filtered_run_end = RunEndArray::try_from(filtered).unwrap();

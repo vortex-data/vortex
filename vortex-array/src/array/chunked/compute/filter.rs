@@ -2,40 +2,28 @@ use arrow_buffer::BooleanBufferBuilder;
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::array::{BoolArray, ChunkedArray, PrimitiveArray};
-use crate::compute::{filter, take, FilterFn, SearchSorted, SearchSortedSide, TakeOptions};
+use crate::compute::{
+    filter, take, FilterFn, FilterMask, SearchSorted, SearchSortedSide, TakeOptions,
+};
 use crate::{ArrayDType, ArrayData, IntoArrayData, IntoCanonical};
 
 // This is modeled after the constant with the equivalent name in arrow-rs.
 const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
 
 impl FilterFn for ChunkedArray {
-    fn filter(&self, predicate: &ArrayData) -> VortexResult<ArrayData> {
-        predicate.with_dyn(move |a| {
-            // SAFETY: the DType should be checked in the top-level `filter` function.
-            let bool_array = a.as_bool_array_unchecked();
-            let selected = bool_array.true_count();
+    fn filter(&self, mask: &FilterMask) -> VortexResult<ArrayData> {
+        let selected = mask.true_count();
 
-            if selected == self.len() {
-                // Fast path 1: no filtering
-                Ok(self.clone().into_array())
-            } else if selected == 0 {
-                // Fast path 2: empty array after filter.
-                Ok(ChunkedArray::try_new(vec![], self.dtype().clone())?.into_array())
-            } else {
-                // General path: perform filtering.
-                //
-                // Based on filter selectivity, we take the values between a range of slices, or
-                // we take individual indices.
-                let selectivity = selected as f64 / self.len() as f64;
-                let chunks = if selectivity > FILTER_SLICES_SELECTIVITY_THRESHOLD {
-                    filter_slices(self, bool_array.maybe_null_slices_iter())?
-                } else {
-                    filter_indices(self, bool_array.maybe_null_indices_iter())?
-                };
+        // Based on filter selectivity, we take the values between a range of slices, or
+        // we take individual indices.
+        let selectivity = selected as f64 / self.len() as f64;
+        let chunks = if selectivity > FILTER_SLICES_SELECTIVITY_THRESHOLD {
+            filter_slices(self, mask)
+        } else {
+            filter_indices(self, mask)
+        };
 
-                Ok(ChunkedArray::try_new(chunks, self.dtype().clone())?.into_array())
-            }
-        })
+        Ok(ChunkedArray::try_new(chunks?, self.dtype().clone())?.into_array())
     }
 }
 
@@ -52,7 +40,7 @@ enum ChunkFilter {
 
 /// Given a sequence of slices that indicate ranges of set values, returns a boolean array
 /// representing the same thing.
-fn slices_to_predicate(slices: &[(usize, usize)], len: usize) -> ArrayData {
+fn slices_to_mask(slices: &[(usize, usize)], len: usize) -> FilterMask {
     let mut buffer = BooleanBufferBuilder::new(len);
 
     let mut pos = 0;
@@ -69,14 +57,11 @@ fn slices_to_predicate(slices: &[(usize, usize)], len: usize) -> ArrayData {
     let n_trailing_false = len - pos;
     buffer.append_n(n_trailing_false, false);
 
-    BoolArray::from(buffer.finish()).into_array()
+    FilterMask::from(BoolArray::from(buffer.finish()))
 }
 
 /// Filter the chunks using slice ranges.
-fn filter_slices<'a>(
-    array: &'a ChunkedArray,
-    set_slices: Box<dyn Iterator<Item = (usize, usize)> + 'a>,
-) -> VortexResult<Vec<ArrayData>> {
+fn filter_slices(array: &ChunkedArray, mask: &FilterMask) -> VortexResult<Vec<ArrayData>> {
     let mut result = Vec::with_capacity(array.nchunks());
 
     // Pre-materialize the chunk ends for performance.
@@ -86,7 +71,7 @@ fn filter_slices<'a>(
 
     let mut chunk_filters = vec![ChunkFilter::None; array.nchunks()];
 
-    for (slice_start, slice_end) in set_slices {
+    for (slice_start, slice_end) in mask.iter_slices()? {
         let (start_chunk, start_idx) = find_chunk_idx(slice_start, chunk_ends);
         // NOTE: we adjust slice end back by one, in case it ends on a chunk boundary, we do not
         // want to index into the unused chunk.
@@ -141,7 +126,7 @@ fn filter_slices<'a>(
             ChunkFilter::None => {}
             // Slices => turn the slices into a boolean buffer.
             ChunkFilter::Slices(slices) => {
-                result.push(filter(&chunk, slices_to_predicate(slices, chunk.len()))?);
+                result.push(filter(&chunk, &slices_to_mask(slices, chunk.len()))?);
             }
         }
     }
@@ -150,10 +135,7 @@ fn filter_slices<'a>(
 }
 
 /// Filter the chunks using indices.
-fn filter_indices<'a>(
-    array: &'a ChunkedArray,
-    set_indices: Box<dyn Iterator<Item = usize> + 'a>,
-) -> VortexResult<Vec<ArrayData>> {
+fn filter_indices(array: &ChunkedArray, mask: &FilterMask) -> VortexResult<Vec<ArrayData>> {
     let mut result = Vec::new();
     let mut current_chunk_id = 0;
     let mut chunk_indices = Vec::new();
@@ -163,7 +145,7 @@ fn filter_indices<'a>(
     let chunk_ends = array.chunk_offsets().into_canonical()?.into_primitive()?;
     let chunk_ends = chunk_ends.maybe_null_slice::<u64>();
 
-    for set_index in set_indices {
+    for set_index in mask.iter_indices()? {
         let (chunk_id, index) = find_chunk_idx(set_index, chunk_ends);
         if chunk_id != current_chunk_id {
             // Push the chunk we've accumulated.
@@ -220,22 +202,17 @@ mod test {
     use vortex_dtype::half::f16;
     use vortex_dtype::{DType, Nullability, PType};
 
-    use crate::array::chunked::compute::filter::slices_to_predicate;
-    use crate::array::{BoolArray, ChunkedArray, PrimitiveArray};
-    use crate::compute::filter;
-    use crate::{IntoArrayData, IntoArrayVariant};
+    use crate::array::chunked::compute::filter::slices_to_mask;
+    use crate::array::{ChunkedArray, PrimitiveArray};
+    use crate::compute::{filter, FilterMask};
+    use crate::IntoArrayData;
 
     #[test]
     fn test_slices_to_predicate() {
         let slices = [(2, 4), (6, 8), (9, 10)];
-        let predicate = slices_to_predicate(&slices, 11);
+        let predicate = slices_to_mask(&slices, 11);
 
-        let bools = predicate
-            .into_bool()
-            .unwrap()
-            .boolean_buffer()
-            .iter()
-            .collect_vec();
+        let bools = predicate.to_boolean_buffer().unwrap().iter().collect_vec();
 
         assert_eq!(
             bools,
@@ -269,10 +246,9 @@ mod test {
         )
         .unwrap()
         .into_array();
-        let mask = BoolArray::from_iter([
+        let mask = FilterMask::from_iter([
             true, false, false, true, true, true, true, true, true, true, true,
-        ])
-        .into_array();
+        ]);
         let filtered = filter(&chunked, &mask).unwrap();
         assert_eq!(filtered.len(), 9);
     }

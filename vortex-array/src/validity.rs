@@ -13,7 +13,7 @@ use vortex_error::{
 
 use crate::array::{BoolArray, ConstantArray};
 use crate::compute::unary::scalar_at_unchecked;
-use crate::compute::{filter, slice, take, TakeOptions};
+use crate::compute::{filter, slice, take, FilterMask, TakeOptions};
 use crate::stats::ArrayStatistics;
 use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 
@@ -170,12 +170,12 @@ impl Validity {
         }
     }
 
-    pub fn filter(&self, predicate: &ArrayData) -> VortexResult<Self> {
+    pub fn filter(&self, mask: &FilterMask) -> VortexResult<Self> {
         match self {
             v @ (Validity::NonNullable | Validity::AllValid | Validity::AllInvalid) => {
                 Ok(v.clone())
             }
-            Validity::Array(arr) => Ok(Validity::Array(filter(arr, predicate)?)),
+            Validity::Array(arr) => Ok(Validity::Array(filter(arr, mask)?)),
         }
     }
 
