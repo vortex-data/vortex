@@ -1,4 +1,3 @@
-use std::io::Cursor;
 use std::sync::Arc;
 
 use arrow_array::cast::AsArray as _;
@@ -8,6 +7,7 @@ use vortex_array::arrow::FromArrowArray;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::{ArrayData, Context, IntoCanonical};
 use vortex_buffer::Buffer;
+use vortex_io::VortexBufReader;
 
 use crate::stream_reader::StreamArrayReader;
 use crate::stream_writer::StreamArrayWriter;
@@ -22,9 +22,10 @@ async fn broken_data() {
         .unwrap()
         .into_inner();
     let written = Buffer::from(written);
-    let reader = StreamArrayReader::try_new(Cursor::new(written), Arc::new(Context::default()))
-        .await
-        .unwrap();
+    let reader =
+        StreamArrayReader::try_new(VortexBufReader::new(written), Arc::new(Context::default()))
+            .await
+            .unwrap();
     let arr = reader
         .load_dtype()
         .await

@@ -7,17 +7,17 @@ use arrow_ipc::reader::StreamReader;
 use arrow_ipc::writer::{IpcWriteOptions, StreamWriter as ArrowStreamWriter};
 use arrow_ipc::{CompressionType, MetadataVersion};
 use arrow_schema::{DataType, Field, Schema};
+use bytes::Bytes;
 use criterion::async_executor::FuturesExecutor;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use futures_executor::block_on;
-use futures_util::io::Cursor;
 use futures_util::{pin_mut, TryStreamExt};
 use itertools::Itertools;
 use vortex_array::array::PrimitiveArray;
 use vortex_array::compress::CompressionStrategy;
 use vortex_array::compute::{take, TakeOptions};
 use vortex_array::{Context, IntoArrayData};
-use vortex_io::FuturesAdapter;
+use vortex_io::VortexBufReader;
 use vortex_ipc::stream_reader::StreamArrayReader;
 use vortex_ipc::stream_writer::StreamArrayWriter;
 use vortex_sampling_compressor::SamplingCompressor;
@@ -73,11 +73,13 @@ fn ipc_take(c: &mut Criterion) {
         let indices_ref = &indices;
 
         b.to_async(FuturesExecutor).iter(|| async move {
-            let stream_reader =
-                StreamArrayReader::try_new(FuturesAdapter(Cursor::new(ro_buffer)), ctx_ref.clone())
-                    .await?
-                    .load_dtype()
-                    .await?;
+            let stream_reader = StreamArrayReader::try_new(
+                VortexBufReader::new(Bytes::from(ro_buffer.to_vec())),
+                ctx_ref.clone(),
+            )
+            .await?
+            .load_dtype()
+            .await?;
             let reader = stream_reader.into_array_stream();
             pin_mut!(reader);
             let array_view = reader.try_next().await?.unwrap();

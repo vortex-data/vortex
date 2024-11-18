@@ -7,25 +7,14 @@ use std::path::Path;
 use std::sync::Arc;
 
 use bytes::{Bytes, BytesMut};
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncWrite, AsyncWriteExt};
 use vortex_buffer::io_buf::IoBuf;
 use vortex_error::vortex_panic;
 
 use super::VortexReadAt;
-use crate::{VortexRead, VortexWrite};
+use crate::VortexWrite;
 
 pub struct TokioAdapter<IO>(pub IO);
-
-impl<IO: AsyncRead + Unpin> VortexRead for TokioAdapter<IO> {
-    async fn read_bytes(&mut self, len: u64) -> io::Result<Bytes> {
-        let mut buffer = BytesMut::with_capacity(len as usize);
-        unsafe {
-            buffer.set_len(len as usize);
-        }
-        self.0.read_exact(buffer.as_mut()).await?;
-        Ok(buffer.freeze())
-    }
-}
 
 impl<W: AsyncWrite + Unpin> VortexWrite for TokioAdapter<W> {
     async fn write_all<B: IoBuf>(&mut self, buffer: B) -> io::Result<B> {
