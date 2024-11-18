@@ -115,7 +115,7 @@ impl Buffer {
             // This is cheeky. But it uses From<bytes::Bytes> for arrow_buffer::Bytes, even though
             // arrow_buffer::Bytes is only pub(crate). Seems weird...
             // See: https://github.com/apache/arrow-rs/issues/6033
-            Inner::Bytes(b) => ArrowBuffer::from(b.into()),
+            Inner::Bytes(b) => ArrowBuffer::from_bytes(b.into()),
         }
     }
 }
