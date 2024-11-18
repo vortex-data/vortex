@@ -6,7 +6,7 @@ use arrow_buffer::BooleanBuffer;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
 
-use crate::array::{BoolArray, ExtensionArray};
+use crate::array::BoolArray;
 use crate::arrow::FromArrowArray;
 use crate::stats::ArrayStatistics;
 use crate::{ArrayDType, ArrayData, Canonical, IntoArrayData, IntoCanonical};
