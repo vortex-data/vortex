@@ -210,9 +210,9 @@ impl ArrayStatisticsCompute for StructArray {
                 .reduce(|acc, field_size| acc.zip(field_size).map(|(a, b)| a + b))
                 .flatten()
                 .map(|size| StatsSet::of(stat, size))
-                .unwrap_or_else(StatsSet::new),
+                .unwrap_or_default(),
             Stat::NullCount => StatsSet::of(stat, self.validity().null_count(self.len())?),
-            _ => StatsSet::new(),
+            _ => StatsSet::default(),
         })
     }
 }

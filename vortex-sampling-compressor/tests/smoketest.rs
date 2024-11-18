@@ -21,9 +21,7 @@ use vortex_sampling_compressor::{CompressConfig, SamplingCompressor};
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::array::{
-        Bool, Bool, BooleanBuffer, ChunkedArray, ChunkedArray, VarBin, VarBin,
-    };
+    use vortex_array::array::{Bool, BooleanBuffer, ChunkedArray, VarBin};
     use vortex_array::stats::{ArrayStatistics, Stat};
     use vortex_array::variants::{ArrayVariants, StructArrayTrait};
     use vortex_array::ArrayDef;
