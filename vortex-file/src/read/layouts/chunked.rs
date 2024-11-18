@@ -2,10 +2,10 @@ use std::collections::{BTreeSet, VecDeque};
 
 use bytes::Bytes;
 use itertools::Itertools;
-use vortex_error::{vortex_err, VortexResult};
+use vortex_error::{vortex_err, VortexExpect as _, VortexResult};
 use vortex_flatbuffers::footer;
 
-use crate::read::buffered::{BufferedLayoutReader, RangedLayoutReader};
+use crate::read::buffered::{BufferedLayoutReader, MetadataReader, RangedLayoutReader};
 use crate::read::cache::RelativeLayoutCache;
 use crate::read::mask::RowMask;
 use crate::{
@@ -162,10 +162,18 @@ impl LayoutReader for ChunkedLayout {
         if let Some(br) = &mut self.chunk_reader {
             br.read_next(selector)
         } else {
-            self.chunk_reader = Some(BufferedLayoutReader::new(self.child_layouts(|i| {
-                self.message_cache
-                    .relative(i, self.message_cache.dtype().clone())
-            })?));
+            let metadata_reader = match self.metadata_layout()? {
+                Some(metadata_layout) => MetadataReader::NotYetRead(metadata_layout),
+                None => MetadataReader::NoMetadata,
+            };
+            self.chunk_reader = Some(BufferedLayoutReader::new(
+                metadata_reader,
+                self.child_layouts(|i| {
+                    self.message_cache
+                        .relative(i, self.message_cache.dtype().clone())
+                })?,
+                self.scan.clone(),
+            ));
             self.read_selection(selector)
         }
     }

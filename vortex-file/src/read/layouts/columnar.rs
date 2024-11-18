@@ -188,12 +188,12 @@ impl ColumnarLayout {
             .map(|e| e.as_any().downcast_ref::<RowFilter>().is_some())
             .unwrap_or(false)
             .then(|| {
-                Arc::new(RowFilter::from_conjunction(
+                RowFilter::from_conjunction_expr(
                     handled_names
                         .iter()
                         .map(|f| Column::new_expr(Field::from(&**f)))
                         .collect(),
-                )) as _
+                )
             });
         let shortcircuit_siblings = top_level_expr.is_some();
         Ok(ColumnBatchReader::new(
