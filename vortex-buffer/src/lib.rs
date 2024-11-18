@@ -11,6 +11,8 @@
 
 use core::cmp::Ordering;
 use core::ops::{Deref, Range};
+use std::ptr::NonNull;
+use std::sync::Arc;
 
 use arrow_buffer::{ArrowNativeType, Buffer as ArrowBuffer, MutableBuffer as ArrowMutableBuffer};
 pub use string::*;
@@ -112,7 +114,16 @@ impl Buffer {
     pub fn into_arrow(self) -> ArrowBuffer {
         match self.0 {
             Inner::Arrow(a) => a,
-            Inner::Bytes(b) => ArrowBuffer::from_vec(Vec::<u8>::from(b)),
+            Inner::Bytes(b) => {
+                unsafe {
+                    // SAFETY: Arrow's bytes are internally immutable, it's not clear why they
+                    // require a NonNull mutable pointer to construct this...
+                    let ptr = NonNull::new_unchecked(b.as_ptr() as *mut u8);
+                    let len = b.len();
+                    let dealloc = Arc::new(b);
+                    ArrowBuffer::from_custom_allocation(ptr, len, dealloc)
+                }
+            }
         }
     }
 }
