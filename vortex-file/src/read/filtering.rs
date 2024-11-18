@@ -18,7 +18,7 @@ use crate::read::expr_project::expr_project;
 
 #[derive(Debug, Clone)]
 pub struct RowFilter {
-    conjunction: Vec<ExprRef>,
+    pub(crate) conjunction: Vec<ExprRef>,
 }
 
 impl RowFilter {
@@ -37,7 +37,12 @@ impl RowFilter {
         Self { conjunction }
     }
 
-    pub fn only_fields(&self, fields: &[Field]) -> Option<Self> {
+    /// Create a new row filter from a conjunction. The conjunction **must** have length > 0.
+    pub(crate) fn from_conjunction_expr(conjunction: Vec<ExprRef>) -> ExprRef {
+        Arc::new(Self::from_conjunction(conjunction))
+    }
+
+    pub fn only_fields(&self, fields: &[Field]) -> Option<ExprRef> {
         let conj = self
             .conjunction
             .iter()
@@ -47,7 +52,7 @@ impl RowFilter {
         if conj.is_empty() {
             None
         } else {
-            Some(Self::from_conjunction(conj))
+            Some(Self::from_conjunction_expr(conj))
         }
     }
 }
