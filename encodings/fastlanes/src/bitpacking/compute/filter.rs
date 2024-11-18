@@ -75,13 +75,12 @@ fn filter_indices<T: NativePType + BitPacking + ArrowNativeType>(
     let chunk_len = 128 * array.bit_width() as usize / size_of::<T>();
 
     chunked.into_iter().for_each(|(chunk_idx, indices)| {
+        let packed = &array.packed_slice::<T>()[chunk_idx * chunk_len..(chunk_idx + 1) * chunk_len];
+
         // Re-use the indices buffer to store the indices within the current chunk.
         indices_within_chunk.clear();
         indices_within_chunk.extend(indices.map(|idx| (idx + offset) % 1024));
 
-        let packed = &array.packed_slice::<T>()[chunk_idx * chunk_len..(chunk_idx + 1) * chunk_len];
-
-        // TODO(ngates): switch on the length of the indices.
         if indices_within_chunk.len() == 1024 {
             // Unpack the entire chunk.
             unsafe { BitPacking::unchecked_unpack(array.bit_width() as usize, packed, &mut values) }
