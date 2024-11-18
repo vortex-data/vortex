@@ -1,3 +1,4 @@
+use core::array;
 use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
@@ -190,20 +191,17 @@ impl<'a> CompressedArray<'a> {
     }
 
     pub fn compressed(
-        compressed_array: ArrayData,
+        array: ArrayData,
         path: Option<CompressionTree<'a>>,
-        original_array: Option<&dyn Statistics>,
+        stats_to_inherit: Option<&dyn Statistics>,
     ) -> Self {
-        if let Some(stats) = original_array {
+        if let Some(stats) = stats_to_inherit {
             // eagerly compute uncompressed size in bytes at compression time, since it's
             // too expensive to compute after compression
             let _ = stats.compute_uncompressed_size_in_bytes();
-            compressed_array.inherit_statistics(stats);
+            array.inherit_statistics(stats);
         }
-        Self {
-            array: compressed_array,
-            path,
-        }
+        Self { array, path }
     }
 
     #[inline]

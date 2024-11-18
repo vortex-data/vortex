@@ -6,7 +6,7 @@ use fsst::Compressor;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{VarBin, VarBinArray, VarBinView};
 use vortex_array::encoding::EncodingRef;
-use vortex_array::stats::ArrayStatistics;
+use vortex_array::stats::ArrayStatistics as _;
 use vortex_array::{ArrayDType, ArrayDef, IntoArrayData};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexResult};
