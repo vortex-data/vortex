@@ -4,7 +4,7 @@ use std::mem;
 use vortex_array::array::ChunkedArray;
 use vortex_array::compute::unary::scalar_at;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_scalar::BoolScalar;
 
 use crate::pruning::PruningPredicate;
@@ -106,8 +106,7 @@ impl BufferedLayoutReader {
                 .map(|chunk_mask| -> VortexResult<_> {
                     Ok(BoolScalar::try_from(&scalar_at(chunk_mask, index)?)?
                         .value()
-                        // FIXME(DK): what does a null in the array mean
-                        .unwrap_or(false))
+                        .vortex_expect("chunk_mask should be nonnullable"))
                 })
                 .transpose()?
                 .unwrap_or(false);
