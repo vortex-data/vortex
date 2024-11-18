@@ -114,16 +114,10 @@ impl Buffer {
     pub fn into_arrow(self) -> ArrowBuffer {
         match self.0 {
             Inner::Arrow(a) => a,
-            Inner::Bytes(b) => {
-                unsafe {
-                    // SAFETY: Arrow's bytes are internally immutable, it's not clear why they
-                    // require a NonNull mutable pointer to construct this...
-                    let ptr = NonNull::new_unchecked(b.as_ptr() as *mut u8);
-                    let len = b.len();
-                    let dealloc = Arc::new(b);
-                    ArrowBuffer::from_custom_allocation(ptr, len, dealloc)
-                }
-            }
+            // This is cheeky. But it uses From<bytes::Bytes> for arrow_buffer::Bytes, even though
+            // arrow_buffer::Bytes is only pub(crate). Seems weird...
+            // See: https://github.com/apache/arrow-rs/issues/6033
+            Inner::Bytes(b) => ArrowBuffer::from(b.into()),
         }
     }
 }
