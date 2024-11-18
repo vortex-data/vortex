@@ -1,6 +1,7 @@
 use std::process::ExitCode;
 use std::sync;
-use std::time::SystemTime;
+use std::sync::mpsc::Receiver;
+use std::time::{Duration, Instant};
 
 use bench_vortex::tpch::dbgen::{DBGen, DBGenOptions};
 use bench_vortex::tpch::{
@@ -26,6 +27,21 @@ struct Args {
     warmup: bool,
     #[arg(short, long, default_value = "10")]
     iterations: usize,
+    #[arg(short, long)]
+    output_format: OutputFormat,
+}
+
+#[derive(clap::ValueEnum, Default, Clone, Debug)]
+enum OutputFormat {
+    #[default]
+    Table,
+    GhJson,
+}
+
+struct Measurement {
+    query_idx: usize,
+    time: Duration,
+    format: Format,
 }
 
 fn main() -> ExitCode {
@@ -51,7 +67,36 @@ fn main() -> ExitCode {
         args.exclude_queries,
         args.iterations,
         args.warmup,
+        args.output_format,
     ))
+}
+
+fn render_table(receiver: Receiver<Measurement>, formats: &[Format]) -> anyhow::Result<()> {
+    let mut measurements = Vec::new();
+
+    while let Ok(m) = receiver.recv() {
+        measurements.push(m);
+    }
+
+    let mut table = Table::new();
+    {
+        let mut cells = vec![Cell::new("Query")];
+        cells.extend(formats.iter().map(|f| Cell::new(&format!("{:?}", f))));
+        table.add_row(Row::new(cells));
+    }
+
+    // let mut rows = vec![];
+    // while let Ok((idx, row)) = rows_rx.recv() {
+    //     rows.push((idx, row));
+    // }
+    // rows.sort_by_key(|(idx, _)| *idx);
+    // for (_, row) in rows {
+    //     table.add_row(row);
+    // }
+
+    table.printstd();
+
+    Ok(())
 }
 
 async fn bench_main(
@@ -59,6 +104,7 @@ async fn bench_main(
     exclude_queries: Option<Vec<usize>>,
     iterations: usize,
     warmup: bool,
+    output_format: OutputFormat,
 ) -> ExitCode {
     // uncomment the below to enable trace logging of datafusion execution
     // setup_logger(LevelFilter::Trace);
@@ -71,16 +117,10 @@ async fn bench_main(
         Format::Arrow,
         Format::Parquet,
         Format::InMemoryVortex {
-            enable_pushdown: false,
-        },
-        Format::InMemoryVortex {
             enable_pushdown: true,
         },
         Format::OnDiskVortex {
             enable_compression: true,
-        },
-        Format::OnDiskVortex {
-            enable_compression: false,
         },
     ];
 
@@ -89,42 +129,35 @@ async fn bench_main(
         .await
         .unwrap();
 
-    // Set up a results table
-    let mut table = Table::new();
-    {
-        let mut cells = vec![Cell::new("Query")];
-        cells.extend(formats.iter().map(|f| Cell::new(&format!("{:?}", f))));
-        table.add_row(Row::new(cells));
-    }
-
     let query_count = queries.as_ref().map_or(22, |c| c.len());
 
     // Setup a progress bar
     let progress = ProgressBar::new((query_count * formats.len()) as u64);
 
     // Send back a channel with the results of Row.
-    let (rows_tx, rows_rx) = sync::mpsc::channel();
+    let (measurements_tx, measurements_rx) = sync::mpsc::channel();
     let (row_count_tx, row_count_rx) = sync::mpsc::channel();
-    for (q, sql_queries) in tpch_queries() {
+
+    for (query_idx, sql_queries) in tpch_queries() {
         if queries
             .as_ref()
-            .map_or(false, |included| !included.contains(&q))
+            .map_or(false, |included| !included.contains(&query_idx))
         {
             continue;
         }
 
-        if exclude_queries.as_ref().map_or(false, |e| e.contains(&q)) {
+        if exclude_queries
+            .as_ref()
+            .map_or(false, |e| e.contains(&query_idx))
+        {
             continue;
         }
         let ctxs = ctxs.clone();
-        let tx = rows_tx.clone();
+        let tx = measurements_tx.clone();
         let count_tx = row_count_tx.clone();
         let progress = progress.clone();
         rayon::spawn_fifo(move || {
-            let mut cells = Vec::with_capacity(formats.len());
-            cells.push(Cell::new(&format!("Q{}", q)));
-
-            let mut elapsed_us = Vec::new();
+            // let mut elapsed_us = Vec::new();
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
@@ -132,56 +165,61 @@ async fn bench_main(
             for (ctx, format) in ctxs.iter().zip(formats.iter()) {
                 if warmup {
                     for i in 0..3 {
-                        let row_count = rt.block_on(run_tpch_query(ctx, &sql_queries, q, *format));
+                        let row_count =
+                            rt.block_on(run_tpch_query(ctx, &sql_queries, query_idx, *format));
                         if i == 0 {
-                            count_tx.send((q, *format, row_count)).unwrap();
+                            count_tx.send((query_idx, *format, row_count)).unwrap();
                         }
                     }
                 }
 
-                let mut measure = Vec::new();
+                let mut measures = Vec::new();
                 for _ in 0..iterations {
-                    let start = SystemTime::now();
-                    rt.block_on(run_tpch_query(ctx, &sql_queries, q, *format));
-                    let elapsed = start.elapsed().unwrap();
-                    measure.push(elapsed);
+                    let start = Instant::now();
+                    rt.block_on(run_tpch_query(ctx, &sql_queries, query_idx, *format));
+                    let elapsed = start.elapsed();
+                    measures.push(elapsed);
                 }
-                let fastest = measure.iter().cloned().min().unwrap();
-                elapsed_us.push(fastest);
+                let fastest = measures.iter().cloned().min().unwrap();
+
+                tx.send(Measurement {
+                    query_idx,
+                    time: fastest,
+                    format: *format,
+                })
+                .unwrap();
 
                 progress.inc(1);
             }
 
-            let baseline = elapsed_us.first().unwrap();
-            // yellow: 10% slower than baseline
-            let yellow = baseline.as_micros() + (baseline.as_micros() / 10);
-            // red: 50% slower than baseline
-            let red = baseline.as_micros() + (baseline.as_micros() / 2);
-            cells.push(Cell::new(&format!("{} us", baseline.as_micros())).style_spec("b"));
-            for measure in elapsed_us.iter().skip(1) {
-                let style_spec = if measure.as_micros() > red {
-                    "bBr"
-                } else if measure.as_micros() > yellow {
-                    "bFdBy"
-                } else {
-                    "bFdBG"
-                };
-                cells.push(
-                    Cell::new(&format!(
-                        "{} us ({:.2})",
-                        measure.as_micros(),
-                        measure.as_micros() as f64 / baseline.as_micros() as f64
-                    ))
-                    .style_spec(style_spec),
-                );
-            }
-
-            tx.send((q, Row::new(cells))).unwrap();
+            // let baseline = elapsed_us.first().unwrap();
+            // // yellow: 10% slower than baseline
+            // let yellow = baseline.as_micros() + (baseline.as_micros() / 10);
+            // // red: 50% slower than baseline
+            // let red = baseline.as_micros() + (baseline.as_micros() / 2);
+            // cells.push(Cell::new(&format!("{} us", baseline.as_micros())).style_spec("b"));
+            // for measure in elapsed_us.iter().skip(1) {
+            //     let style_spec = if measure.as_micros() > red {
+            //         "bBr"
+            //     } else if measure.as_micros() > yellow {
+            //         "bFdBy"
+            //     } else {
+            //         "bFdBG"
+            //     };
+            //     cells.push(
+            //         Cell::new(&format!(
+            //             "{} us ({:.2})",
+            //             measure.as_micros(),
+            //             measure.as_micros() as f64 / baseline.as_micros() as f64
+            //         ))
+            //         .style_spec(style_spec),
+            //     );
+            // }
         });
     }
 
     // delete parent handle to tx
-    drop(rows_tx);
+    drop(measurements_tx);
     drop(row_count_tx);
 
     let mut format_row_counts: HashMap<Format, Vec<usize>> = HashMap::new();
@@ -191,17 +229,7 @@ async fn bench_main(
             .or_insert_with(|| vec![0; EXPECTED_ROW_COUNTS.len()])[idx] = row_count;
     }
 
-    let mut rows = vec![];
-    while let Ok((idx, row)) = rows_rx.recv() {
-        rows.push((idx, row));
-    }
-    rows.sort_by(|(idx0, _), (idx1, _)| idx0.cmp(idx1));
-    for (_, row) in rows {
-        table.add_row(row);
-    }
-
     progress.finish();
-    table.printstd();
 
     let mut mismatched = false;
     for (format, row_counts) in format_row_counts {
@@ -217,6 +245,14 @@ async fn bench_main(
                 }
             })
     }
+
+    match output_format {
+        OutputFormat::Table => {
+            render_table(measurements_rx, &formats).unwrap();
+        }
+        OutputFormat::GhJson => todo!(),
+    }
+
     if mismatched {
         ExitCode::FAILURE
     } else {
