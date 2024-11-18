@@ -1,3 +1,4 @@
+use std::iter::TrustedLen;
 use std::sync::OnceLock;
 
 use arrow_array::BooleanArray;
@@ -113,11 +114,48 @@ impl Clone for FilterMask {
     }
 }
 
+/// Wrapper around Arrow's BitIndexIterator that knows its total length.
+pub struct BitIndexIterator<'a> {
+    inner: arrow_buffer::bit_iterator::BitIndexIterator<'a>,
+    index: usize,
+    trusted_len: usize,
+}
+
+impl<'a> BitIndexIterator<'a> {
+    pub fn new(
+        inner: arrow_buffer::bit_iterator::BitIndexIterator<'a>,
+        trusted_len: usize,
+    ) -> Self {
+        Self {
+            inner,
+            index: 0,
+            trusted_len,
+        }
+    }
+}
+
+impl<'a> Iterator for BitIndexIterator<'a> {
+    type Item = usize;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.index += 1;
+        self.inner.next()
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.trusted_len - self.index;
+        (remaining, Some(remaining))
+    }
+}
+
+/// Safety: BitIndexIterator is TrustedLen because it knows its total length.
+unsafe impl<'a> TrustedLen for BitIndexIterator<'a> {}
+
 pub enum FilterIter<'a> {
     // Slice of pre-cached indices of a filter mask.
     Indices(&'a [usize]),
     // Iterator over set bits of the filter mask's boolean buffer.
-    IndicesIter(arrow_buffer::bit_iterator::BitIndexIterator<'a>),
+    IndicesIter(BitIndexIterator<'a>),
     // Slice of pre-cached slices of a filter mask.
     Slices(&'a [(usize, usize)]),
     // Iterator over contiguous ranges of set bits of the filter mask's boolean buffer.
@@ -191,7 +229,10 @@ impl FilterMask {
             if let Some(indices) = self.indices.get() {
                 FilterIter::Indices(indices.as_slice())
             } else {
-                FilterIter::IndicesIter(self.boolean_buffer()?.set_indices())
+                FilterIter::IndicesIter(BitIndexIterator::new(
+                    self.boolean_buffer()?.set_indices(),
+                    self.true_count,
+                ))
             }
         })
     }

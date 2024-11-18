@@ -5,7 +5,7 @@ use crate::compute::{AndFn, ArrayCompute, OrFn, SliceFn, TakeFn};
 mod boolean;
 
 mod fill;
-mod filter;
+pub mod filter;
 mod flatten;
 mod scalar_at;
 mod slice;

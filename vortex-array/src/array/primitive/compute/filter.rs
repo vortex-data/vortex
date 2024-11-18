@@ -10,34 +10,33 @@ impl FilterFn for PrimitiveArray {
     fn filter(&self, mask: FilterMask) -> VortexResult<ArrayData> {
         let validity = self.validity().filter(&mask)?;
         match_each_native_ptype!(self.ptype(), |$T| {
-            let mut values = Vec::with_capacity(mask.true_count());
-            match mask.iter()? {
-                FilterIter::Indices(indices) => filter_primitive_indices(&mut values, self.maybe_null_slice::<$T>(), indices.iter().copied()),
-                FilterIter::IndicesIter(iter) => filter_primitive_indices(&mut values, self.maybe_null_slice::<$T>(), iter),
-                FilterIter::Slices(slices) => filter_primitive_slices(&mut values, self.maybe_null_slice::<$T>(), slices.iter().copied()),
-                FilterIter::SlicesIter(iter) => filter_primitive_slices(&mut values, self.maybe_null_slice::<$T>(), iter),
-            }
+            let values = match mask.iter()? {
+                FilterIter::Indices(indices) => filter_primitive_indices(self.maybe_null_slice::<$T>(), indices.iter().copied()),
+                FilterIter::IndicesIter(iter) => filter_primitive_indices(self.maybe_null_slice::<$T>(), iter),
+                FilterIter::Slices(slices) => filter_primitive_slices(self.maybe_null_slice::<$T>(), mask.true_count(), slices.iter().copied()),
+                FilterIter::SlicesIter(iter) => filter_primitive_slices(self.maybe_null_slice::<$T>(), mask.true_count(), iter),
+            };
             Ok(PrimitiveArray::from_vec(values, validity).into_array())
         })
     }
 }
 
-fn filter_primitive_indices<T: Copy>(
-    output: &mut Vec<T>,
-    values: &[T],
-    indices: impl Iterator<Item = usize>,
-) {
-    output.extend(indices.map(|idx| *unsafe { values.get_unchecked(idx) }));
+fn filter_primitive_indices<T: Copy>(values: &[T], indices: impl Iterator<Item = usize>) -> Vec<T> {
+    indices
+        .map(|idx| *unsafe { values.get_unchecked(idx) })
+        .collect()
 }
 
 fn filter_primitive_slices<T: Clone>(
-    output: &mut Vec<T>,
     values: &[T],
+    indices_len: usize,
     indices: impl Iterator<Item = (usize, usize)>,
-) {
+) -> Vec<T> {
+    let mut output = Vec::with_capacity(indices_len);
     for (start, end) in indices {
         output.extend_from_slice(&values[start..end]);
     }
+    output
 }
 
 #[cfg(test)]

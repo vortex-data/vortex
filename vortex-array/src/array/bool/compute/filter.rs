@@ -10,17 +10,17 @@ impl FilterFn for BoolArray {
         let validity = self.validity().filter(&mask)?;
 
         let buffer = match mask.iter()? {
-            FilterIter::Indices(indices) => filter_indices_slice(self.boolean_buffer(), indices),
+            FilterIter::Indices(indices) => filter_indices_slice(&self.boolean_buffer(), indices),
             FilterIter::IndicesIter(iter) => {
-                filter_indices(self.boolean_buffer(), mask.true_count(), iter)
+                filter_indices(&self.boolean_buffer(), mask.true_count(), iter)
             }
             FilterIter::Slices(slices) => filter_slices(
-                self.boolean_buffer(),
+                &self.boolean_buffer(),
                 mask.true_count(),
                 slices.iter().copied(),
             ),
             FilterIter::SlicesIter(iter) => {
-                filter_slices(self.boolean_buffer(), mask.true_count(), iter)
+                filter_slices(&self.boolean_buffer(), mask.true_count(), iter)
             }
         };
 
@@ -28,17 +28,19 @@ impl FilterFn for BoolArray {
     }
 }
 
-fn filter_indices_slice(buffer: BooleanBuffer, indices: &[usize]) -> BooleanBuffer {
+/// Select indices from a boolean buffer.
+/// NOTE: it was benchmarked to be faster using collect_bool to index into a slice than to
+///  pass the indices as an iterator of usize. So we keep this alternate implementation.
+fn filter_indices_slice(buffer: &BooleanBuffer, indices: &[usize]) -> BooleanBuffer {
     let src = buffer.values().as_ptr();
     let offset = buffer.offset();
-
     BooleanBuffer::collect_bool(indices.len(), |idx| unsafe {
         bit_util::get_bit_raw(src, *indices.get_unchecked(idx) + offset)
     })
 }
 
-fn filter_indices(
-    buffer: BooleanBuffer,
+pub fn filter_indices(
+    buffer: &BooleanBuffer,
     indices_len: usize,
     mut indices: impl Iterator<Item = usize>,
 ) -> BooleanBuffer {
@@ -46,13 +48,15 @@ fn filter_indices(
     let offset = buffer.offset();
 
     BooleanBuffer::collect_bool(indices_len, |_idx| {
-        let idx = indices.next().vortex_expect("iterator length must match");
+        let idx = indices
+            .next()
+            .vortex_expect("iterator is guaranteed to be within the length of the array.");
         unsafe { bit_util::get_bit_raw(src, idx + offset) }
     })
 }
 
-fn filter_slices(
-    buffer: BooleanBuffer,
+pub fn filter_slices(
+    buffer: &BooleanBuffer,
     indices_len: usize,
     slices: impl Iterator<Item = (usize, usize)>,
 ) -> BooleanBuffer {
@@ -96,7 +100,7 @@ mod test {
     fn filter_bool_by_slice_test() {
         let arr = BoolArray::from_iter([true, true, false]);
 
-        let filtered = filter_slices(arr.boolean_buffer(), 2, [(0, 1), (2, 3)].into_iter());
+        let filtered = filter_slices(&arr.boolean_buffer(), 2, [(0, 1), (2, 3)].into_iter());
         assert_eq!(2, filtered.len());
 
         assert_eq!(vec![true, false], filtered.iter().collect_vec())
@@ -106,7 +110,7 @@ mod test {
     fn filter_bool_by_index_test() {
         let arr = BoolArray::from_iter([true, true, false]);
 
-        let filtered = filter_indices(arr.boolean_buffer(), 2, [0, 2].into_iter());
+        let filtered = filter_indices(&arr.boolean_buffer(), 2, [0, 2].into_iter());
         assert_eq!(2, filtered.len());
 
         assert_eq!(vec![true, false], filtered.iter().collect_vec())

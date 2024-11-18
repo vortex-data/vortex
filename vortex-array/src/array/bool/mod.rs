@@ -19,7 +19,7 @@ use crate::{
 };
 
 mod accessors;
-mod compute;
+pub mod compute;
 mod stats;
 
 // Re-export the BooleanBuffer type on our API surface.
