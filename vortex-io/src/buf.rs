@@ -22,7 +22,7 @@ impl<R> VortexBufReader<R> {
 
     /// Set the position of the next `read_bytes` call directly.
     ///
-    /// Note: this method will not fail if the position is passed the end of the valid range,
+    /// Note: this method will not fail if the position is past the end of the valid range,
     /// the failure will occur at read time and result in an [`UnexpectedEof`][std::io::ErrorKind::UnexpectedEof] error.
     pub fn set_position(&mut self, pos: u64) {
         self.pos = pos;
