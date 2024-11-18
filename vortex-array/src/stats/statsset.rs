@@ -100,7 +100,10 @@ impl StatsSet {
         self.values[stat].as_ref()
     }
 
-    fn get_as<T: for<'a> TryFrom<&'a Scalar, Error = VortexError>>(&self, stat: Stat) -> Option<T> {
+    pub fn get_as<T: for<'a> TryFrom<&'a Scalar, Error = VortexError>>(
+        &self,
+        stat: Stat,
+    ) -> Option<T> {
         self.get(stat).map(|v| {
             T::try_from(v).unwrap_or_else(|err| {
                 vortex_panic!(
@@ -138,6 +141,7 @@ impl StatsSet {
                 Stat::RunCount => self.merge_run_count(other),
                 Stat::TrueCount => self.merge_true_count(other),
                 Stat::NullCount => self.merge_null_count(other),
+                Stat::UncompressedSizeInBytes => self.merge_uncompressed_size_in_bytes(other),
             }
         }
 
@@ -161,6 +165,7 @@ impl StatsSet {
                 Stat::Min => self.merge_min(other),
                 Stat::TrueCount => self.merge_true_count(other),
                 Stat::NullCount => self.merge_null_count(other),
+                Stat::UncompressedSizeInBytes => self.merge_uncompressed_size_in_bytes(other),
                 _ => vortex_panic!("Unrecognized commutative stat {}", s),
             }
         }
@@ -239,6 +244,10 @@ impl StatsSet {
 
     fn merge_null_count(&mut self, other: &Self) {
         self.merge_sum_stat(other, Stat::NullCount)
+    }
+
+    fn merge_uncompressed_size_in_bytes(&mut self, other: &Self) {
+        self.merge_sum_stat(other, Stat::UncompressedSizeInBytes)
     }
 
     fn merge_sum_stat(&mut self, other: &Self, stat: Stat) {

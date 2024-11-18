@@ -162,7 +162,7 @@ jobs:
         with:
           version: v1.0.0
       - name: Rust Bench as test
-        run: cargo bench --bench '*[!noci]' -- --test
+        run: cargo bench --bench '*[!noci]' --profile benchtest -- --test
 
   generated-files:
     name: "Check generated proto/fbs files are up to date"

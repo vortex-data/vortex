@@ -53,7 +53,15 @@ pub fn check_statistics_unchanged(arr: &ArrayData, compressed: &ArrayData) {
     let _ = compressed;
     #[cfg(debug_assertions)]
     {
-        for (stat, value) in arr.statistics().to_set().into_iter() {
+        use crate::stats::Stat;
+
+        // Run count merge_ordered assumes that the run is "broken" on each chunk, which is a useful estimate but not guaranteed to be correct.
+        for (stat, value) in arr
+            .statistics()
+            .to_set()
+            .into_iter()
+            .filter(|(stat, _)| *stat != Stat::RunCount)
+        {
             debug_assert_eq!(
                 compressed.statistics().get(stat),
                 Some(value.clone()),
@@ -68,7 +76,9 @@ pub fn check_statistics_unchanged(arr: &ArrayData, compressed: &ArrayData) {
     }
 }
 
-/// Compute pruning stats for an array.
-pub fn compute_pruning_stats(arr: &ArrayData) -> VortexResult<()> {
+/// Eagerly compute certain statistics (i.e., pruning stats plus UncompressedSizeInBytes) for an array.
+/// This function is intended to be called in compressors, immediately before compression occurs.
+pub fn compute_precompression_stats(arr: &ArrayData) -> VortexResult<()> {
+    arr.statistics().compute_uncompressed_size_in_bytes();
     arr.statistics().compute_all(PRUNING_STATS).map(|_| ())
 }

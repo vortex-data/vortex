@@ -24,6 +24,7 @@ table ArrayStats {
     null_count: uint64 = null;
     bit_width_freq: [uint64];
     trailing_zero_freq: [uint64];
+    uncompressed_size_in_bytes: uint64 = null;
 }
 
 

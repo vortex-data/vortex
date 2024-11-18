@@ -54,7 +54,11 @@ impl ArrayValidity for NullArray {
 }
 
 impl ArrayStatisticsCompute for NullArray {
-    fn compute_statistics(&self, _stat: Stat) -> VortexResult<StatsSet> {
+    fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
+        if stat == Stat::UncompressedSizeInBytes {
+            return Ok(StatsSet::of(stat, self.nbytes()));
+        }
+
         Ok(StatsSet::nulls(self.len(), &DType::Null))
     }
 }
