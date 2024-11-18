@@ -1,15 +1,13 @@
 use std::collections::VecDeque;
 use std::mem;
 
-use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::ChunkedArray;
 use vortex_array::compute::unary::scalar_at;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
-use vortex_expr::ExprRef;
+use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_scalar::BoolScalar;
 
-use crate::pruning::{stat_column_name_string, PruningPredicate};
+use crate::pruning::PruningPredicate;
 use crate::read::mask::RowMask;
 use crate::read::{BatchRead, LayoutReader, MessageLocator, Scan};
 
@@ -108,8 +106,7 @@ impl BufferedLayoutReader {
                 .map(|chunk_mask| -> VortexResult<_> {
                     Ok(BoolScalar::try_from(&scalar_at(chunk_mask, index)?)?
                         .value()
-                        // FIXME(DK): what does a null in the array mean
-                        .unwrap_or(false))
+                        .vortex_expect("chunk_mask should be nonnullable"))
                 })
                 .transpose()?
                 .unwrap_or(false);
