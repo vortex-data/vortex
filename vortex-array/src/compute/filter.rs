@@ -6,7 +6,7 @@ use arrow_buffer::BooleanBuffer;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
 
-use crate::array::BoolArray;
+use crate::array::{BoolArray, ExtensionArray};
 use crate::arrow::FromArrowArray;
 use crate::stats::ArrayStatistics;
 use crate::{ArrayDType, ArrayData, Canonical, IntoArrayData, IntoCanonical};
@@ -150,6 +150,7 @@ impl<'a> Iterator for BitIndexIterator<'a> {
 
 /// Safety: BitIndexIterator is TrustedLen because it knows its total length.
 unsafe impl<'a> TrustedLen for BitIndexIterator<'a> {}
+impl<'a> ExactSizeIterator for BitIndexIterator<'a> {}
 
 pub enum FilterIter<'a> {
     // Slice of pre-cached indices of a filter mask.
