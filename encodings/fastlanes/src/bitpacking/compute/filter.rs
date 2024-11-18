@@ -30,12 +30,14 @@ fn filter_primitive<T: NativePType + BitPacking + ArrowNativeType>(
         .patches()
         .map(|patches| filter(&patches, mask.clone()))
         .transpose()?
-        .map(|array| SparseArray::try_from(array))
+        .map(SparseArray::try_from)
         .transpose()?;
 
     let values: Vec<T> = match mask.iter()? {
-        FilterIter::Indices(indices) => filter_indices(array, indices.iter().copied()),
-        FilterIter::IndicesIter(iter) => filter_indices(array, iter),
+        FilterIter::Indices(indices) => {
+            filter_indices(array, mask.true_count(), indices.iter().copied())
+        }
+        FilterIter::IndicesIter(iter) => filter_indices(array, mask.true_count(), iter),
         FilterIter::Slices(slices) => {
             filter_slices(array, mask.true_count(), slices.iter().copied())
         }
@@ -58,24 +60,26 @@ fn filter_primitive<T: NativePType + BitPacking + ArrowNativeType>(
 
 fn filter_indices<T: NativePType + BitPacking + ArrowNativeType>(
     array: &BitPackedArray,
-    indices: impl Iterator<Item = usize> + ExactSizeIterator,
+    indices_len: usize,
+    indices: impl Iterator<Item = usize>,
 ) -> Vec<T> {
     let offset = array.offset() as usize;
-    let mut values = Vec::with_capacity(indices.len());
+    let mut values = Vec::with_capacity(indices_len);
 
     // Some re-usable memory to store per-chunk indices.
     let mut indices_within_chunk: Vec<usize> = Vec::with_capacity(1024);
-    let mut unpacked: Vec<T> = Vec::with_capacity(1024);
+    let mut unpacked = vec![T::zero(); 1024];
 
     // Group the indices by the FastLanes chunk they belong to.
     let chunked = indices.chunk_by(|&idx| (idx + offset) / 1024);
+    let chunk_len = 128 * array.bit_width() as usize / size_of::<T>();
 
     chunked.into_iter().for_each(|(chunk_idx, indices)| {
         // Re-use the indices buffer to store the indices within the current chunk.
         indices_within_chunk.clear();
         indices_within_chunk.extend(indices.map(|idx| (idx + offset) % 1024));
 
-        let packed = &array.packed_slice::<T>()[chunk_idx * 1024..(chunk_idx + 1) * 1024];
+        let packed = &array.packed_slice::<T>()[chunk_idx * chunk_len..(chunk_idx + 1) * chunk_len];
 
         // TODO(ngates): switch on the length of the indices.
         if indices_within_chunk.len() == 1024 {
@@ -91,7 +95,6 @@ fn filter_indices<T: NativePType + BitPacking + ArrowNativeType>(
                     .iter()
                     .map(|&idx| unsafe { *unpacked.get_unchecked(idx) }),
             );
-            unpacked.clear();
         } else {
             // Otherwise, unpack each element individually.
             values.extend(indices_within_chunk.iter().map(|&idx| unsafe {
@@ -103,12 +106,17 @@ fn filter_indices<T: NativePType + BitPacking + ArrowNativeType>(
     values
 }
 
-fn filter_slices<T>(
-    _array: &BitPackedArray,
-    _true_count: usize,
-    _slices: impl Iterator<Item = (usize, usize)>,
+fn filter_slices<T: NativePType + BitPacking + ArrowNativeType>(
+    array: &BitPackedArray,
+    indices_len: usize,
+    slices: impl Iterator<Item = (usize, usize)>,
 ) -> Vec<T> {
-    todo!()
+    // TODO(ngates): can we do this more efficiently?
+    filter_indices(
+        array,
+        indices_len,
+        slices.into_iter().flat_map(|(start, end)| start..end),
+    )
 }
 
 #[cfg(test)]
