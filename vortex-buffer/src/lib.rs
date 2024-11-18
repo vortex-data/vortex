@@ -11,8 +11,6 @@
 
 use core::cmp::Ordering;
 use core::ops::{Deref, Range};
-use std::ptr::NonNull;
-use std::sync::Arc;
 
 use arrow_buffer::{ArrowNativeType, Buffer as ArrowBuffer, MutableBuffer as ArrowMutableBuffer};
 pub use string::*;
