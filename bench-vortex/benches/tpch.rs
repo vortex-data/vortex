@@ -11,7 +11,9 @@ fn benchmark(c: &mut Criterion) {
         .unwrap();
 
     // Run TPC-H data gen.
-    let data_dir = DBGen::new(DBGenOptions::default()).generate().unwrap();
+    let data_dir = DBGen::new(DBGenOptions::default().with_scale_factor(10))
+        .generate()
+        .unwrap();
 
     let vortex_ctx = runtime
         .block_on(load_datasets(

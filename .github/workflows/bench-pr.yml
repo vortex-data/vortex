@@ -34,7 +34,7 @@ jobs:
           - id: bytes_at
             name: Vortex bytes_at
     runs-on: self-hosted
-    if: ${{ contains(github.event.head_commit.message, '[benchmark]') || github.event.label.name == 'benchmark' && github.event_name == 'pull_request' }}
+    if: false
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/cleanup

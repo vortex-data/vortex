@@ -48,8 +48,16 @@ impl Default for DBGenOptions {
 impl DBGenOptions {
     pub fn with_base_dir<P: AsRef<Path>>(self, dir: P) -> Self {
         Self {
-            base_dir: dir.as_ref().to_owned(),
             scale_factor: self.scale_factor,
+            base_dir: dir.as_ref().to_owned(),
+            cache_dir: self.cache_dir,
+        }
+    }
+
+    pub fn with_scale_factor(self, scale_factor: u8) -> Self {
+        Self {
+            scale_factor,
+            base_dir: self.base_dir,
             cache_dir: self.cache_dir,
         }
     }
