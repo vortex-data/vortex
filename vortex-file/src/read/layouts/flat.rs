@@ -11,8 +11,8 @@ use vortex_ipc::stream_writer::ByteRange;
 use crate::read::cache::RelativeLayoutCache;
 use crate::read::mask::RowMask;
 use crate::{
-    BatchRead, Layout, LayoutDeserializer, LayoutId, LayoutReader, MessageLocator, MetadataRead,
-    Scan, FLAT_LAYOUT_ID,
+    BatchRead, IsPrunedRead, Layout, LayoutDeserializer, LayoutId, LayoutReader, MessageLocator,
+    MetadataRead, Scan, FLAT_LAYOUT_ID,
 };
 
 #[derive(Debug)]
@@ -119,6 +119,10 @@ impl LayoutReader for FlatLayoutReader {
 
     fn read_metadata(&self) -> VortexResult<MetadataRead> {
         Ok(MetadataRead::None)
+    }
+
+    fn is_pruned(&self, _begin: usize, _end: usize) -> VortexResult<IsPrunedRead> {
+        Ok(IsPrunedRead::IsPruned(false))
     }
 }
 

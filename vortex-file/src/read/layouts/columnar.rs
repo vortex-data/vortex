@@ -18,8 +18,8 @@ use crate::read::cache::{LazyDType, RelativeLayoutCache};
 use crate::read::expr_project::expr_project;
 use crate::read::mask::RowMask;
 use crate::{
-    BatchRead, Layout, LayoutDeserializer, LayoutId, LayoutReader, MetadataRead, RowFilter, Scan,
-    COLUMNAR_LAYOUT_ID,
+    BatchRead, IsPrunedRead, Layout, LayoutDeserializer, LayoutId, LayoutReader, MetadataRead,
+    RowFilter, Scan, COLUMNAR_LAYOUT_ID,
 };
 
 #[derive(Debug)]
@@ -144,12 +144,12 @@ impl ColumnarLayoutBuilder {
             .map(|e| e.as_any().downcast_ref::<RowFilter>().is_some())
             .unwrap_or(false)
             .then(|| {
-                Arc::new(RowFilter::from_conjunction(
+                RowFilter::from_conjunction_expr(
                     handled_names
                         .iter()
                         .map(|f| Column::new_expr(Field::from(&**f)))
                         .collect(),
-                )) as _
+                )
             });
         let shortcircuit_siblings = top_level_expr.is_some();
         Ok(ColumnarLayoutReader::new(
@@ -191,6 +191,7 @@ impl ColumnarLayoutBuilder {
 }
 
 type InProgressRanges = RwLock<HashMap<(usize, usize), Vec<Option<ArrayData>>>>;
+type InProgressPrunes = RwLock<HashMap<(usize, usize), Vec<Option<bool>>>>;
 
 /// In memory representation of Columnar NestedLayout.
 ///
@@ -199,11 +200,12 @@ type InProgressRanges = RwLock<HashMap<(usize, usize), Vec<Option<ArrayData>>>>;
 pub struct ColumnarLayoutReader {
     names: FieldNames,
     children: Vec<Box<dyn LayoutReader>>,
-    in_progress_ranges: InProgressRanges,
     expr: Option<Arc<dyn VortexExpr>>,
     // TODO(robert): This is a hack/optimization that tells us if we're reducing results with AND or not
     shortcircuit_siblings: bool,
+    in_progress_ranges: InProgressRanges,
     in_progress_metadata: RwLock<HashMap<FieldName, Option<ArrayData>>>,
+    in_progress_prunes: InProgressPrunes,
 }
 
 impl ColumnarLayoutReader {
@@ -225,6 +227,7 @@ impl ColumnarLayoutReader {
             shortcircuit_siblings,
             in_progress_ranges: RwLock::new(HashMap::new()),
             in_progress_metadata: RwLock::new(HashMap::new()),
+            in_progress_prunes: RwLock::new(HashMap::new()),
         }
     }
 }
@@ -341,6 +344,39 @@ impl LayoutReader for ColumnarLayoutReader {
             Ok(MetadataRead::Batches(child_arrays))
         } else {
             Ok(MetadataRead::ReadMore(messages))
+        }
+    }
+
+    fn is_pruned(&self, begin: usize, end: usize) -> VortexResult<IsPrunedRead> {
+        let mut in_progress_guard = self
+            .in_progress_prunes
+            .write()
+            .unwrap_or_else(|poison| vortex_panic!("Failed to write to message cache: {poison}"));
+        let selection_range = (begin, end);
+        let in_progress_selection = in_progress_guard
+            .entry(selection_range)
+            .or_insert_with(|| vec![None; self.children.len()]);
+        let mut messages = Vec::new();
+        for (i, child_is_pruned) in in_progress_selection
+            .iter_mut()
+            .enumerate()
+            .filter(|(_, a)| a.is_none())
+        {
+            match self.children[i].is_pruned(begin, end)? {
+                IsPrunedRead::ReadMore(message) => messages.extend(message),
+                IsPrunedRead::IsPruned(is_pruned) => *child_is_pruned = Some(is_pruned),
+            }
+        }
+
+        if messages.is_empty() {
+            let any_child_is_pruned = in_progress_guard
+                .remove(&selection_range)
+                .ok_or_else(|| vortex_err!("There were no is_pruned results and no messages"))?
+                .into_iter()
+                .any(|x| x.vortex_expect("all pruned-ness should be available"));
+            Ok(IsPrunedRead::IsPruned(any_child_is_pruned))
+        } else {
+            Ok(IsPrunedRead::ReadMore(messages))
         }
     }
 }
