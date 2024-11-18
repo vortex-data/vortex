@@ -1,7 +1,7 @@
 use itertools::Itertools;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{Struct, StructArray};
-use vortex_array::compress::compute_pruning_stats;
+use vortex_array::compress::compute_precompression_stats;
 use vortex_array::encoding::EncodingRef;
 use vortex_array::stats::ArrayStatistics as _;
 use vortex_array::variants::StructArrayTrait;
@@ -51,7 +51,7 @@ impl EncodingCompressor for StructCompressor {
                 // to compute post-compression. That's because not all encodings implement stats, so we would
                 // potentially have to canonicalize during writes just to get stats, which would be silly.
                 // Also, we only really require them for column chunks, not for every array.
-                compute_pruning_stats(&array)?;
+                compute_precompression_stats(&array)?;
                 ctx.compress(&array, like.as_ref())
             })
             .process_results(|iter| iter.map(|x| (x.array, x.path)).unzip())?;

@@ -4,7 +4,7 @@ use std::sync::Arc;
 use log::info;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{Chunked, ChunkedArray};
-use vortex_array::compress::compute_pruning_stats;
+use vortex_array::compress::compute_precompression_stats;
 use vortex_array::encoding::EncodingRef;
 use vortex_array::stats::ArrayStatistics as _;
 use vortex_array::{ArrayDType, ArrayData, ArrayDef, IntoArrayData};
@@ -122,7 +122,7 @@ impl ChunkedCompressor {
             // to compute post-compression. That's because not all encodings implement stats, so we would
             // potentially have to canonicalize during writes just to get stats, which would be silly.
             // Also, we only really require them for column chunks, not for every array.
-            compute_pruning_stats(&chunk)?;
+            compute_precompression_stats(&chunk)?;
 
             let like = previous.as_ref().map(|(like, _)| like);
             let (compressed_chunk, tree) = ctx

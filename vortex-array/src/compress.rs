@@ -76,7 +76,9 @@ pub fn check_statistics_unchanged(arr: &ArrayData, compressed: &ArrayData) {
     }
 }
 
-/// Compute pruning stats for an array.
-pub fn compute_pruning_stats(arr: &ArrayData) -> VortexResult<()> {
+/// Eagerly compute certain statistics (i.e., pruning stats plus UncompressedSizeInBytes) for an array.
+/// This function is intended to be called in compressors, immediately before compression occurs.
+pub fn compute_precompression_stats(arr: &ArrayData) -> VortexResult<()> {
+    arr.statistics().compute_uncompressed_size_in_bytes();
     arr.statistics().compute_all(PRUNING_STATS).map(|_| ())
 }

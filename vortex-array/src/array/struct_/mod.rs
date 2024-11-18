@@ -77,16 +77,6 @@ impl StructArray {
             children.push(v);
         }
 
-        // UncompressedSizeInBytes is the only stat that we aggregate from children
-        // we do this eagerly so that `check_statistics_unchanged` check will pass in struct compressor
-        let stats = children
-            .iter()
-            .map(|f| f.statistics().compute_uncompressed_size_in_bytes())
-            .reduce(|acc, field_size| acc.zip(field_size).map(|(a, b)| a + b))
-            .flatten()
-            .map(|size| StatsSet::of(Stat::UncompressedSizeInBytes, size))
-            .unwrap_or_default();
-
         Self::try_from_parts(
             DType::Struct(StructDType::new(names, field_dtypes), nullability),
             length,
@@ -94,7 +84,7 @@ impl StructArray {
                 validity: validity_metadata,
             },
             children.into(),
-            stats,
+            StatsSet::default(),
         )
     }
 
