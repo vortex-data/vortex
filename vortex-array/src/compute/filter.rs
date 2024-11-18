@@ -51,6 +51,11 @@ pub fn filter(array: &ArrayData, mask: &FilterMask) -> VortexResult<ArrayData> {
             filter_fn.filter(mask)
         } else {
             // Fallback: implement using Arrow kernels.
+            log::debug!(
+                "No filter implementation found for {}",
+                array.encoding().id(),
+            );
+
             let array_ref = array.clone().into_canonical()?.into_arrow()?;
             let mask_array = BooleanArray::new(mask.to_boolean_buffer()?, None);
             let filtered = arrow_select::filter::filter(array_ref.as_ref(), &mask_array)?;
@@ -66,6 +71,7 @@ pub fn filter(array: &ArrayData, mask: &FilterMask) -> VortexResult<ArrayData> {
 pub struct FilterMask {
     array: ArrayData,
     true_count: usize,
+    run_count: OnceLock<usize>,
     buffer: OnceLock<BooleanBuffer>,
 }
 
@@ -88,6 +94,15 @@ impl FilterMask {
         self.array.len() - self.true_count
     }
 
+    pub fn run_count(&self) -> usize {
+        *self.run_count.get_or_init(|| {
+            self.array
+                .statistics()
+                .compute_run_count()
+                .unwrap_or_else(|| self.len())
+        })
+    }
+
     /// Return the selectivity of the mask.
     pub fn selectivity(&self) -> f64 {
         self.true_count as f64 / self.array.len() as f64
@@ -95,7 +110,16 @@ impl FilterMask {
 
     /// Get the canonical representation of the mask.
     pub fn to_boolean_buffer(&self) -> VortexResult<BooleanBuffer> {
-        self.buffer
+        log::debug!(
+            "FilterMask: len {} selectivity: {} true_count: {} run_count: {} avg_run_length: {}",
+            self.len(),
+            self.selectivity(),
+            self.true_count,
+            self.run_count(),
+            self.len() as f64 / self.run_count() as f64,
+        );
+
+        let buffer = self.buffer
             .get_or_try_init(|| {
                 Ok(self
                     .array
@@ -104,7 +128,11 @@ impl FilterMask {
                     .into_bool()?
                     .boolean_buffer())
             })
-            .cloned()
+            .cloned()?;
+
+        buffer.set_indices().fir
+
+        Ok(buffer)
     }
 
     /// Returns an iterator over the set bits in this mask.
@@ -144,6 +172,7 @@ impl TryFrom<ArrayData> for FilterMask {
         Ok(Self {
             array,
             true_count,
+            run_count: OnceLock::new(),
             buffer: OnceLock::new(),
         })
     }
@@ -170,6 +199,7 @@ impl From<BoolArray> for FilterMask {
         Self {
             array: array.into_array(),
             true_count,
+            run_count: OnceLock::new(),
             buffer: OnceLock::new(),
         }
     }

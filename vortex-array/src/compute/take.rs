@@ -28,6 +28,9 @@ pub fn take(
         );
     }
 
+    // TODO(ngates): if indices are sorted and unique (strict-sorted), then we should delegate to
+    //  the filter function since they're typically optimised for this case.
+
     // If the indices are all within bounds, we can skip bounds checking.
     if indices
         .statistics()
