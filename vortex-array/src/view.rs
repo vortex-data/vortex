@@ -227,6 +227,11 @@ impl Statistics for ViewedArrayData {
                 .trailing_zero_freq()
                 .map(|v| v.iter().collect_vec())
                 .map(|v| v.into()),
+            Stat::UncompressedSizeInBytes => self
+                .flatbuffer()
+                .stats()?
+                .uncompressed_size_in_bytes()
+                .map(u64::into),
         }
     }
 

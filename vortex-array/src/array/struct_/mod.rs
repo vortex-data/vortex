@@ -7,7 +7,7 @@ use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, Vor
 
 use crate::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use crate::encoding::ids;
-use crate::stats::{ArrayStatisticsCompute, StatsSet};
+use crate::stats::{ArrayStatistics, ArrayStatisticsCompute, Stat, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
 use crate::variants::{ArrayVariants, StructArrayTrait};
 use crate::{
@@ -191,7 +191,21 @@ impl AcceptArrayVisitor for StructArray {
     }
 }
 
-impl ArrayStatisticsCompute for StructArray {}
+impl ArrayStatisticsCompute for StructArray {
+    fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
+        Ok(match stat {
+            Stat::UncompressedSizeInBytes => self
+                .children()
+                .map(|f| f.statistics().compute_uncompressed_size_in_bytes())
+                .reduce(|acc, field_size| acc.zip(field_size).map(|(a, b)| a + b))
+                .flatten()
+                .map(|size| StatsSet::of(stat, size))
+                .unwrap_or_default(),
+            Stat::NullCount => StatsSet::of(stat, self.validity().null_count(self.len())?),
+            _ => StatsSet::default(),
+        })
+    }
+}
 
 #[cfg(test)]
 mod test {
