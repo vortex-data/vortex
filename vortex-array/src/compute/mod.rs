@@ -8,11 +8,12 @@
 //! from Arrow.
 
 pub use boolean::{and, and_kleene, or, or_kleene, AndFn, OrFn};
+pub(crate) use compare::arrow_compare;
 pub use compare::{compare, scalar_cmp, CompareFn, MaybeCompareFn, Operator};
-pub use filter::{filter, FilterFn};
+pub use filter::{filter, FilterFn, FilterMask};
 pub use search_sorted::*;
 pub use slice::{slice, SliceFn};
-pub use take::{take, TakeFn};
+pub use take::*;
 use unary::{CastFn, FillForwardFn, ScalarAtFn, SubtractScalarFn};
 use vortex_error::VortexResult;
 

@@ -150,13 +150,13 @@ mod tests {
     use std::iter;
     use std::sync::{Arc, RwLock};
 
+    use arrow_buffer::BooleanBufferBuilder;
     use bytes::Bytes;
-    use croaring::Bitmap;
     use flatbuffers::{root_unchecked, FlatBufferBuilder};
     use futures_util::TryStreamExt;
-    use vortex_array::array::{ChunkedArray, PrimitiveArray};
+    use vortex_array::array::{BoolArray, ChunkedArray, PrimitiveArray};
     use vortex_array::{ArrayDType, IntoArrayData, IntoArrayVariant};
-    use vortex_dtype::PType;
+    use vortex_dtype::{Nullability, PType};
     use vortex_expr::{BinaryExpr, Identity, Literal, Operator};
     use vortex_flatbuffers::{footer, WriteFlatBuffer};
     use vortex_ipc::messages::writer::MessageWriter;
@@ -292,7 +292,7 @@ mod tests {
             &mut projection_layout,
             cache,
             &buf,
-            &RowMask::try_new(Bitmap::from_range(0..500), 0, 500).unwrap(),
+            &RowMask::new_valid_between(0, 500),
         );
 
         assert!(arr.is_some());
@@ -309,10 +309,29 @@ mod tests {
         let cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
         let (_, mut projection_layout, buf, _) =
             layout_and_bytes(cache.clone(), Scan::new(None)).await;
+
+        let mut first_range = BooleanBufferBuilder::new(200);
+        first_range.append_n(150, true);
+        first_range.append_n(50, false);
+
+        let mut snd_range = BooleanBufferBuilder::new(200);
+        snd_range.append_n(50, false);
+        snd_range.append_n(100, true);
+        snd_range.append_n(50, false);
         let mut arr = [
-            RowMask::try_new(Bitmap::from_range(0..150), 0, 200).unwrap(),
-            RowMask::try_new(Bitmap::from_range(50..150), 200, 400).unwrap(),
-            RowMask::try_new(Bitmap::from_range(0..100), 400, 500).unwrap(),
+            RowMask::try_new(
+                BoolArray::new(first_range.finish(), Nullability::NonNullable).into_array(),
+                0,
+                200,
+            )
+            .unwrap(),
+            RowMask::try_new(
+                BoolArray::new(snd_range.finish(), Nullability::NonNullable).into_array(),
+                200,
+                400,
+            )
+            .unwrap(),
+            RowMask::new_valid_between(400, 500),
         ]
         .into_iter()
         .flat_map(|s| read_layout_data(&mut projection_layout, cache.clone(), &buf, &s))

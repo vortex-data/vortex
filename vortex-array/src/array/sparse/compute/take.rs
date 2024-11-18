@@ -7,12 +7,12 @@ use vortex_error::VortexResult;
 use crate::aliases::hash_map::HashMap;
 use crate::array::primitive::PrimitiveArray;
 use crate::array::sparse::SparseArray;
-use crate::compute::{take, TakeFn};
+use crate::compute::{take, TakeFn, TakeOptions};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
 
 impl TakeFn for SparseArray {
-    fn take(&self, indices: &ArrayData) -> VortexResult<ArrayData> {
+    fn take(&self, indices: &ArrayData, options: TakeOptions) -> VortexResult<ArrayData> {
         let flat_indices = indices.clone().into_primitive()?;
         // if we are taking a lot of values we should build a hashmap
         let (positions, physical_take_indices) = if indices.len() > 128 {
@@ -21,7 +21,7 @@ impl TakeFn for SparseArray {
             take_search_sorted(self, &flat_indices)?
         };
 
-        let taken_values = take(self.values(), physical_take_indices)?;
+        let taken_values = take(self.values(), physical_take_indices, options)?;
 
         Ok(Self::try_new(
             positions.into_array(),
@@ -96,7 +96,7 @@ mod test {
     use crate::array::primitive::PrimitiveArray;
     use crate::array::sparse::compute::take::take_map;
     use crate::array::sparse::SparseArray;
-    use crate::compute::take;
+    use crate::compute::{take, TakeOptions};
     use crate::validity::Validity;
     use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
 
@@ -115,9 +115,15 @@ mod test {
     #[test]
     fn sparse_take() {
         let sparse = sparse_array();
-        let taken =
-            SparseArray::try_from(take(sparse, vec![0, 47, 47, 0, 99].into_array()).unwrap())
-                .unwrap();
+        let taken = SparseArray::try_from(
+            take(
+                sparse,
+                vec![0, 47, 47, 0, 99].into_array(),
+                TakeOptions::default(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
         assert_eq!(
             taken
                 .indices()
@@ -139,7 +145,10 @@ mod test {
     #[test]
     fn nonexistent_take() {
         let sparse = sparse_array();
-        let taken = SparseArray::try_from(take(sparse, vec![69].into_array()).unwrap()).unwrap();
+        let taken = SparseArray::try_from(
+            take(sparse, vec![69].into_array(), TakeOptions::default()).unwrap(),
+        )
+        .unwrap();
         assert!(taken
             .indices()
             .into_primitive()
@@ -157,8 +166,10 @@ mod test {
     #[test]
     fn ordered_take() {
         let sparse = sparse_array();
-        let taken =
-            SparseArray::try_from(take(&sparse, vec![69, 37].into_array()).unwrap()).unwrap();
+        let taken = SparseArray::try_from(
+            take(&sparse, vec![69, 37].into_array(), TakeOptions::default()).unwrap(),
+        )
+        .unwrap();
         assert_eq!(
             taken
                 .indices()

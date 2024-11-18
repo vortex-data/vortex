@@ -49,7 +49,7 @@ impl FoRArray {
                 shift,
             },
             [child].into(),
-            StatsSet::new(),
+            StatsSet::default(),
         )
     }
 

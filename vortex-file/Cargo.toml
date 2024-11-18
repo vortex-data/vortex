@@ -18,7 +18,6 @@ arrow-array = { workspace = true }
 arrow-buffer = { workspace = true }
 arrow-schema = { workspace = true }
 bytes = { workspace = true }
-croaring = { workspace = true }
 compio = { workspace = true, features = ["bytes", "macros"], optional = true }
 flatbuffers = { workspace = true }
 flume = { workspace = true }

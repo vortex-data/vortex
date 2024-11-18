@@ -54,13 +54,13 @@ impl RoaringIntArray {
             );
         }
 
-        let mut stats = StatsSet::new();
-        stats.set(Stat::NullCount, 0.into());
-        stats.set(Stat::Max, max.into());
-        stats.set(Stat::Min, bitmap.minimum().into());
-        stats.set(Stat::IsConstant, (length <= 1).into());
-        stats.set(Stat::IsSorted, true.into());
-        stats.set(Stat::IsStrictSorted, true.into());
+        let mut stats = StatsSet::default();
+        stats.set(Stat::NullCount, 0);
+        stats.set(Stat::Max, max);
+        stats.set(Stat::Min, bitmap.minimum());
+        stats.set(Stat::IsConstant, length <= 1);
+        stats.set(Stat::IsSorted, true);
+        stats.set(Stat::IsStrictSorted, true);
 
         Ok(Self {
             typed: TypedArray::try_from_parts(
@@ -69,7 +69,7 @@ impl RoaringIntArray {
                 RoaringIntMetadata { ptype },
                 Some(Buffer::from(bitmap.serialize::<Portable>())),
                 vec![].into(),
-                StatsSet::new(),
+                StatsSet::default(),
             )?,
         })
     }
@@ -148,7 +148,7 @@ impl ArrayStatisticsCompute for RoaringIntArray {
                 Stat::RunCount,
             ])
         } else {
-            Ok(StatsSet::new())
+            Ok(StatsSet::default())
         }
     }
 }

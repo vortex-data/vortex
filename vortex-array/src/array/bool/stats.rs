@@ -5,7 +5,6 @@ use itertools::Itertools;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::VortexResult;
 
-use crate::aliases::hash_map::HashMap;
 use crate::array::BoolArray;
 use crate::stats::{ArrayStatisticsCompute, Stat, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity};
@@ -18,7 +17,13 @@ impl ArrayStatisticsCompute for BoolArray {
         }
 
         if self.is_empty() {
-            return Ok(StatsSet::new());
+            return Ok(StatsSet::from_iter([
+                (Stat::TrueCount, 0.into()),
+                (Stat::NullCount, 0.into()),
+                (Stat::IsSorted, true.into()),
+                (Stat::IsStrictSorted, true.into()),
+                (Stat::RunCount, 0.into()),
+            ]));
         }
 
         match self.logical_validity() {
@@ -146,7 +151,7 @@ impl BoolStatsAccumulator {
     }
 
     pub fn finish(self) -> StatsSet {
-        StatsSet::from(HashMap::from([
+        StatsSet::from_iter([
             (Stat::NullCount, self.null_count.into()),
             (Stat::IsSorted, self.is_sorted.into()),
             (
@@ -155,7 +160,7 @@ impl BoolStatsAccumulator {
                     .into(),
             ),
             (Stat::RunCount, self.run_count.into()),
-        ]))
+        ])
     }
 }
 
@@ -170,7 +175,7 @@ mod test {
 
     #[test]
     fn bool_stats() {
-        let bool_arr = BoolArray::from(vec![false, false, true, true, false, true, true, false]);
+        let bool_arr = BoolArray::from_iter([false, false, true, true, false, true, true, false]);
         assert!(!bool_arr.statistics().compute_is_strict_sorted().unwrap());
         assert!(!bool_arr.statistics().compute_is_sorted().unwrap());
         assert!(!bool_arr.statistics().compute_is_constant().unwrap());
@@ -183,23 +188,23 @@ mod test {
 
     #[test]
     fn strict_sorted() {
-        let bool_arr_1 = BoolArray::from(vec![false, true]);
+        let bool_arr_1 = BoolArray::from_iter([false, true]);
         assert!(bool_arr_1.statistics().compute_is_strict_sorted().unwrap());
         assert!(bool_arr_1.statistics().compute_is_sorted().unwrap());
 
-        let bool_arr_2 = BoolArray::from(vec![true]);
+        let bool_arr_2 = BoolArray::from_iter([true]);
         assert!(bool_arr_2.statistics().compute_is_strict_sorted().unwrap());
         assert!(bool_arr_2.statistics().compute_is_sorted().unwrap());
 
-        let bool_arr_3 = BoolArray::from(vec![false]);
+        let bool_arr_3 = BoolArray::from_iter([false]);
         assert!(bool_arr_3.statistics().compute_is_strict_sorted().unwrap());
         assert!(bool_arr_3.statistics().compute_is_sorted().unwrap());
 
-        let bool_arr_4 = BoolArray::from(vec![true, false]);
+        let bool_arr_4 = BoolArray::from_iter([true, false]);
         assert!(!bool_arr_4.statistics().compute_is_strict_sorted().unwrap());
         assert!(!bool_arr_4.statistics().compute_is_sorted().unwrap());
 
-        let bool_arr_5 = BoolArray::from(vec![false, true, true]);
+        let bool_arr_5 = BoolArray::from_iter([false, true, true]);
         assert!(!bool_arr_5.statistics().compute_is_strict_sorted().unwrap());
         assert!(bool_arr_5.statistics().compute_is_sorted().unwrap());
     }

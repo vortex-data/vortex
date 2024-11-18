@@ -89,7 +89,7 @@ impl SparseArray {
                 u64_indices: matches!(indices.dtype(), &DType::IDX),
             },
             [indices, values].into(),
-            StatsSet::new(),
+            StatsSet::default(),
         )
     }
 

@@ -1,4 +1,3 @@
-use std::io::Cursor;
 use std::ops::Range;
 
 use futures_util::{stream, StreamExt, TryStreamExt};
@@ -6,13 +5,13 @@ use itertools::Itertools;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::array::{ChunkedArray, PrimitiveArray};
 use vortex_array::compute::unary::{subtract_scalar, try_cast};
-use vortex_array::compute::{search_sorted, slice, take, SearchSortedSide};
+use vortex_array::compute::{search_sorted, slice, take, SearchSortedSide, TakeOptions};
 use vortex_array::stats::ArrayStatistics;
 use vortex_array::stream::{ArrayStream, ArrayStreamExt};
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::PType;
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
-use vortex_io::VortexReadAt;
+use vortex_io::{VortexBufReader, VortexReadAt};
 use vortex_ipc::stream_reader::StreamArrayReader;
 use vortex_scalar::Scalar;
 
@@ -74,12 +73,16 @@ impl<R: VortexReadAt> ChunkedArrayReader<R> {
 
         // Grab the row and byte offsets for each chunk range.
         let start_chunks = PrimitiveArray::from(start_chunks).into_array();
-        let start_rows = take(&self.row_offsets, &start_chunks)?.into_primitive()?;
-        let start_bytes = take(&self.byte_offsets, &start_chunks)?.into_primitive()?;
+        let start_rows =
+            take(&self.row_offsets, &start_chunks, TakeOptions::default())?.into_primitive()?;
+        let start_bytes =
+            take(&self.byte_offsets, &start_chunks, TakeOptions::default())?.into_primitive()?;
 
         let stop_chunks = PrimitiveArray::from(stop_chunks).into_array();
-        let stop_rows = take(&self.row_offsets, &stop_chunks)?.into_primitive()?;
-        let stop_bytes = take(&self.byte_offsets, &stop_chunks)?.into_primitive()?;
+        let stop_rows =
+            take(&self.row_offsets, &stop_chunks, TakeOptions::default())?.into_primitive()?;
+        let stop_bytes =
+            take(&self.byte_offsets, &stop_chunks, TakeOptions::default())?.into_primitive()?;
 
         // For each chunk-range, read the data as an ArrayStream and call take on it.
         let chunks = stream::iter(0..coalesced_chunks.len())
@@ -141,7 +144,9 @@ impl<R: VortexReadAt> ChunkedArrayReader<R> {
             .read_byte_range(byte_range.start, range_byte_len)
             .await?;
 
-        let reader = StreamArrayReader::try_new(Cursor::new(buffer), self.context.clone())
+        let buf_reader = VortexBufReader::new(buffer);
+
+        let reader = StreamArrayReader::try_new(buf_reader, self.context.clone())
             .await?
             .with_dtype(self.dtype.clone());
 
@@ -207,7 +212,6 @@ struct ChunkIndices {
 #[cfg(test)]
 #[allow(clippy::panic_in_result_fn)]
 mod test {
-    use std::io::Cursor;
     use std::sync::Arc;
 
     use futures_executor::block_on;
@@ -217,6 +221,7 @@ mod test {
     use vortex_buffer::Buffer;
     use vortex_dtype::PType;
     use vortex_error::VortexResult;
+    use vortex_io::VortexBufReader;
     use vortex_ipc::messages::reader::MessageReader;
     use vortex_ipc::stream_writer::StreamArrayWriter;
 
@@ -244,7 +249,7 @@ mod test {
         let buffer = Buffer::from(writer.into_inner());
 
         let mut msgs =
-            block_on(async { MessageReader::try_new(Cursor::new(buffer.clone())).await })?;
+            block_on(async { MessageReader::try_new(VortexBufReader::new(buffer.clone())).await })?;
         let dtype = Arc::new(block_on(async { msgs.read_dtype().await })?);
 
         let mut reader = ChunkedArrayReader::try_new(

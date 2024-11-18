@@ -49,7 +49,7 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)]
     pub fn test_scalar_at() {
-        let bool = BoolArray::from(vec![true, false, true, true]);
+        let bool = BoolArray::from_iter([true, false, true, true]);
         let array = RoaringBoolArray::encode(bool.into_array()).unwrap();
 
         let truthy: Scalar = true.into();
@@ -64,7 +64,7 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)]
     pub fn test_slice() {
-        let bool = BoolArray::from(vec![true, false, true, true]);
+        let bool = BoolArray::from_iter([true, false, true, true]);
         let array = RoaringBoolArray::encode(bool.into_array()).unwrap();
         let sliced = slice(&array, 1, 3).unwrap();
 

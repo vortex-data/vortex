@@ -50,7 +50,7 @@ pub fn runend_bool_decode(
 ) -> VortexResult<BoolArray> {
     match_each_integer_ptype!(run_ends.ptype(), |$E| {
         let bools = runend_bool_decode_slice::<$E>(run_ends.maybe_null_slice(), start, offset, length);
-        BoolArray::try_new(bools, validity)
+        Ok(BoolArray::try_new(bools, validity)?)
     })
 }
 
@@ -173,7 +173,7 @@ mod test {
     fn encode_decode_offset_array() {
         let mut rng = StdRng::seed_from_u64(39451);
         let input = (0..1024 * 8 - 61).map(|_x| rng.gen::<bool>()).collect_vec();
-        let b = BoolArray::from(input.clone());
+        let b = BoolArray::from_iter(input.clone());
         let b = b.slice(3, 1024 * 8 - 66).unwrap().into_bool().unwrap();
         let (ends, start) = runend_bool_encode(&b);
 

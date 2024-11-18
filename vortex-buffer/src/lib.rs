@@ -112,7 +112,10 @@ impl Buffer {
     pub fn into_arrow(self) -> ArrowBuffer {
         match self.0 {
             Inner::Arrow(a) => a,
-            Inner::Bytes(b) => ArrowBuffer::from_vec(Vec::<u8>::from(b)),
+            // This is cheeky. But it uses From<bytes::Bytes> for arrow_buffer::Bytes, even though
+            // arrow_buffer::Bytes is only pub(crate). Seems weird...
+            // See: https://github.com/apache/arrow-rs/issues/6033
+            Inner::Bytes(b) => ArrowBuffer::from_bytes(b.into()),
         }
     }
 }

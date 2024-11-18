@@ -62,15 +62,6 @@ impl BoolArrayTrait for SparseArray {
         )
         .map(|a| a.into_array())
     }
-
-    fn maybe_null_indices_iter(&self) -> Box<dyn Iterator<Item = usize>> {
-        // TODO(robert): Indices of the array can include true and false values, fill value can be true
-        todo!()
-    }
-
-    fn maybe_null_slices_iter(&self) -> Box<dyn Iterator<Item = (usize, usize)>> {
-        todo!()
-    }
 }
 
 impl PrimitiveArrayTrait for SparseArray {}
@@ -146,7 +137,7 @@ mod tests {
     fn invert_bools_non_null_fill() {
         let sparse_bools = SparseArray::try_new(
             PrimitiveArray::from(vec![0u64]).into_array(),
-            BoolArray::from(vec![false]).into_array(),
+            BoolArray::from_iter([false]).into_array(),
             2,
             true.into(),
         )

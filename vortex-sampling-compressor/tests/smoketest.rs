@@ -21,7 +21,9 @@ use vortex_sampling_compressor::{CompressConfig, SamplingCompressor};
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::array::{Bool, ChunkedArray, VarBin};
+    use vortex_array::array::{
+        Bool, Bool, BooleanBuffer, ChunkedArray, ChunkedArray, VarBin, VarBin,
+    };
     use vortex_array::stats::{ArrayStatistics, Stat};
     use vortex_array::variants::{ArrayVariants, StructArrayTrait};
     use vortex_array::ArrayDef;
@@ -219,8 +221,11 @@ mod tests {
     }
 
     fn make_bool_column(count: usize) -> ArrayData {
-        let bools: Vec<bool> = (0..count).map(|_| rand::random::<bool>()).collect();
-        BoolArray::from_vec(bools, Validity::NonNullable).into_array()
+        BoolArray::new(
+            BooleanBuffer::from_iter((0..count).map(|_| rand::random::<bool>())),
+            Nullability::NonNullable,
+        )
+        .into_array()
     }
 
     fn make_string_column(count: usize) -> ArrayData {

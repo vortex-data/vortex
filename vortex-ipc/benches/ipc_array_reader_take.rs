@@ -2,17 +2,17 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use bytes::Bytes;
 use criterion::async_executor::FuturesExecutor;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use futures_executor::block_on;
-use futures_util::io::Cursor;
 use futures_util::{pin_mut, TryStreamExt};
 use itertools::Itertools;
 use vortex_array::array::{ChunkedArray, PrimitiveArray};
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::validity::Validity;
 use vortex_array::{Context, IntoArrayData};
-use vortex_io::FuturesAdapter;
+use vortex_io::VortexBufReader;
 use vortex_ipc::stream_reader::StreamArrayReader;
 use vortex_ipc::stream_writer::StreamArrayWriter;
 
@@ -40,11 +40,13 @@ fn ipc_array_reader_take(c: &mut Criterion) {
             .unwrap()
             .into_inner();
 
+        let buffer = Bytes::from(buffer);
+
         let indices = indices.clone().into_array();
 
         b.to_async(FuturesExecutor).iter(|| async {
             let stream_reader =
-                StreamArrayReader::try_new(FuturesAdapter(Cursor::new(&buffer)), ctx.clone())
+                StreamArrayReader::try_new(VortexBufReader::new(buffer.clone()), ctx.clone())
                     .await
                     .unwrap()
                     .load_dtype()

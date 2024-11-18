@@ -1,9 +1,10 @@
 use vortex_array::accessor::ArrayAccessor;
-use vortex_array::array::{BoolArray, PrimitiveArray, StructArray, VarBinViewArray};
+use vortex_array::array::{BoolArray, BooleanBuffer, PrimitiveArray, StructArray, VarBinViewArray};
 use vortex_array::validity::{ArrayValidity, Validity};
 use vortex_array::variants::StructArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::{match_each_native_ptype, DType};
+use vortex_error::VortexExpect;
 
 pub fn filter_canonical_array(array: &ArrayData, filter: &[bool]) -> ArrayData {
     match array.dtype() {
@@ -15,22 +16,23 @@ pub fn filter_canonical_array(array: &ArrayData, filter: &[bool]) -> ArrayData {
                 .into_bool()
                 .unwrap()
                 .boolean_buffer();
-            BoolArray::from_vec(
-                filter
-                    .iter()
-                    .zip(bool_array.boolean_buffer().iter())
-                    .filter(|(f, _)| **f)
-                    .map(|(_, v)| v)
-                    .collect::<Vec<_>>(),
-                Validity::from(
+            BoolArray::try_new(
+                BooleanBuffer::from_iter(
+                    filter
+                        .iter()
+                        .zip(bool_array.boolean_buffer().iter())
+                        .filter(|(f, _)| **f)
+                        .map(|(_, v)| v),
+                ),
+                Validity::from_iter(
                     filter
                         .iter()
                         .zip(vec_validity.iter())
                         .filter(|(f, _)| **f)
-                        .map(|(_, v)| v)
-                        .collect::<Vec<_>>(),
+                        .map(|(_, v)| v),
                 ),
             )
+            .vortex_expect("Validity length cannot mismatch")
             .into_array()
         }
         DType::Primitive(p, _) => match_each_native_ptype!(p, |$P| {
@@ -48,13 +50,12 @@ pub fn filter_canonical_array(array: &ArrayData, filter: &[bool]) -> ArrayData {
                     .filter(|(f, _)| **f)
                     .map(|(_, v)| v)
                     .collect::<Vec<_>>(),
-                Validity::from(
+                Validity::from_iter(
                     filter
                         .iter()
                         .zip(vec_validity.iter())
                         .filter(|(f, _)| **f)
                         .map(|(_, v)| v)
-                        .collect::<Vec<_>>(),
                 ),
             )
             .into_array()
@@ -88,13 +89,12 @@ pub fn filter_canonical_array(array: &ArrayData, filter: &[bool]) -> ArrayData {
                 struct_array.names().clone(),
                 filtered_children,
                 filter.iter().filter(|b| **b).map(|b| *b as usize).sum(),
-                Validity::from(
+                Validity::from_iter(
                     filter
                         .iter()
                         .zip(vec_validity.iter())
                         .filter(|(f, _)| **f)
-                        .map(|(_, v)| v)
-                        .collect::<Vec<_>>(),
+                        .map(|(_, v)| v),
                 ),
             )
             .unwrap()

@@ -1,3 +1,4 @@
+#![feature(once_cell_try)]
 //! Vortex crate containing core logic for encoding and memory representation of [arrays](ArrayData).
 //!
 //! At the heart of Vortex are [arrays](ArrayData) and [encodings](crate::encoding::ArrayEncoding).

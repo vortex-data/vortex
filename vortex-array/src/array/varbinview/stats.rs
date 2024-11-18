@@ -13,7 +13,7 @@ impl ArrayStatisticsCompute for VarBinViewArray {
         }
 
         if self.is_empty() {
-            return Ok(StatsSet::new());
+            return Ok(StatsSet::default());
         }
 
         self.with_iterator(|iter| compute_stats(iter, self.dtype()))

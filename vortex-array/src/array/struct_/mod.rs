@@ -85,7 +85,7 @@ impl StructArray {
             .reduce(|acc, field_size| acc.zip(field_size).map(|(a, b)| a + b))
             .flatten()
             .map(|size| StatsSet::of(Stat::UncompressedSizeInBytes, size))
-            .unwrap_or_else(StatsSet::new);
+            .unwrap_or_default();
 
         Self::try_from_parts(
             DType::Struct(StructDType::new(names, field_dtypes), nullability),
@@ -237,7 +237,7 @@ mod test {
             vec!["a", "b", "c", "d", "e"],
             DType::Utf8(Nullability::NonNullable),
         );
-        let zs = BoolArray::from_vec(vec![true, true, true, false, false], Validity::NonNullable);
+        let zs = BoolArray::from_iter([true, true, true, false, false]);
 
         let struct_a = StructArray::try_new(
             FieldNames::from(["xs".into(), "ys".into(), "zs".into()]),

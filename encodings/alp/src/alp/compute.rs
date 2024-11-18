@@ -1,12 +1,13 @@
-use vortex_array::array::{BoolArray, ConstantArray};
+use vortex_array::array::ConstantArray;
 use vortex_array::compute::unary::{scalar_at, scalar_at_unchecked, ScalarAtFn};
 use vortex_array::compute::{
-    compare, filter, slice, take, ArrayCompute, FilterFn, MaybeCompareFn, Operator, SliceFn, TakeFn,
+    compare, filter, slice, take, ArrayCompute, FilterFn, FilterMask, MaybeCompareFn, Operator,
+    SliceFn, TakeFn, TakeOptions,
 };
 use vortex_array::stats::{ArrayStatistics, Stat};
-use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
+use vortex_dtype::Nullability;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::{PValue, Scalar};
 
@@ -60,12 +61,14 @@ impl ScalarAtFn for ALPArray {
 }
 
 impl TakeFn for ALPArray {
-    fn take(&self, indices: &ArrayData) -> VortexResult<ArrayData> {
+    fn take(&self, indices: &ArrayData, options: TakeOptions) -> VortexResult<ArrayData> {
         // TODO(ngates): wrap up indices in an array that caches decompression?
         Ok(Self::try_new(
-            take(self.encoded(), indices)?,
+            take(self.encoded(), indices, options)?,
             self.exponents(),
-            self.patches().map(|p| take(&p, indices)).transpose()?,
+            self.patches()
+                .map(|p| take(&p, indices, options))
+                .transpose()?,
         )?
         .into_array())
     }
@@ -83,11 +86,11 @@ impl SliceFn for ALPArray {
 }
 
 impl FilterFn for ALPArray {
-    fn filter(&self, predicate: &ArrayData) -> VortexResult<ArrayData> {
+    fn filter(&self, mask: &FilterMask) -> VortexResult<ArrayData> {
         Ok(Self::try_new(
-            filter(self.encoded(), predicate)?,
+            filter(&self.encoded(), mask)?,
             self.exponents(),
-            self.patches().map(|p| filter(&p, predicate)).transpose()?,
+            self.patches().map(|p| filter(&p, mask)).transpose()?,
         )?
         .into_array())
     }
@@ -114,9 +117,9 @@ impl MaybeCompareFn for ALPArray {
             match pvalue {
                 Some(PValue::F32(f)) => Some(alp_scalar_compare(self, f, operator)),
                 Some(PValue::F64(f)) => Some(alp_scalar_compare(self, f, operator)),
-                Some(_) | None => Some(Ok(BoolArray::from_vec(
-                    vec![false; self.len()],
-                    Validity::AllValid,
+                Some(_) | None => Some(Ok(ConstantArray::new(
+                    Scalar::bool(false, Nullability::Nullable),
+                    self.len(),
                 )
                 .into_array())),
             }
@@ -145,7 +148,10 @@ where
                 let s = ConstantArray::new(exception, alp.len());
                 compare(patches, s.as_ref(), operator)
             } else {
-                Ok(BoolArray::from_vec(vec![false; alp.len()], Validity::AllValid).into_array())
+                Ok(
+                    ConstantArray::new(Scalar::bool(false, Nullability::Nullable), alp.len())
+                        .into_array(),
+                )
             }
         }
     }

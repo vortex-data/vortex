@@ -14,11 +14,11 @@ use arrow_array::types::{
 };
 use arrow_array::{BinaryViewArray, GenericByteViewArray, StringViewArray};
 use arrow_buffer::buffer::{NullBuffer, OffsetBuffer};
-use arrow_buffer::{ArrowNativeType, Buffer, ScalarBuffer};
+use arrow_buffer::{ArrowNativeType, BooleanBuffer, Buffer, ScalarBuffer};
 use arrow_schema::{DataType, TimeUnit as ArrowTimeUnit};
 use itertools::Itertools;
 use vortex_datetime_dtype::TimeUnit;
-use vortex_dtype::{DType, NativePType, PType};
+use vortex_dtype::{DType, NativePType, Nullability, PType};
 use vortex_error::{vortex_panic, VortexExpect as _};
 
 use crate::array::{
@@ -35,11 +35,9 @@ impl From<Buffer> for ArrayData {
     }
 }
 
-impl From<NullBuffer> for ArrayData {
-    fn from(value: NullBuffer) -> Self {
-        BoolArray::try_new(value.into_inner(), Validity::NonNullable)
-            .vortex_expect("Failed to convert null buffer to BoolArray")
-            .into_array()
+impl From<BooleanBuffer> for ArrayData {
+    fn from(value: BooleanBuffer) -> Self {
+        BoolArray::new(value, Nullability::NonNullable).into_array()
     }
 }
 
@@ -151,7 +149,7 @@ impl<T: ByteViewType> FromArrowArray<&GenericByteViewArray<T>> for ArrayData {
 impl FromArrowArray<&ArrowBooleanArray> for ArrayData {
     fn from_arrow(value: &ArrowBooleanArray, nullable: bool) -> Self {
         BoolArray::try_new(value.values().clone(), nulls(value.nulls(), nullable))
-            .vortex_expect("Failed to convert Arrow BooleanArray to Vortex BoolArray")
+            .vortex_expect("Validity length cannot mismatch")
             .into()
     }
 }

@@ -1,4 +1,3 @@
-use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::stats::{ArrayStatisticsCompute, Stat, StatsSet};
 use vortex_error::{vortex_err, VortexResult};
 
@@ -34,13 +33,13 @@ impl ArrayStatisticsCompute for RoaringBoolArray {
 
             let is_strict_sorted =
                 is_sorted && (self.len() <= 1 || (self.len() == 2 && true_count == 1));
-            return Ok(StatsSet::from(HashMap::from([
+            return Ok(StatsSet::from_iter([
                 (Stat::IsSorted, is_sorted.into()),
                 (Stat::IsStrictSorted, is_strict_sorted.into()),
-            ])));
+            ]));
         }
 
-        Ok(StatsSet::new())
+        Ok(StatsSet::default())
     }
 }
 
@@ -56,7 +55,7 @@ mod test {
     #[cfg_attr(miri, ignore)]
     fn bool_stats() {
         let bool_arr = RoaringBoolArray::encode(
-            BoolArray::from(vec![false, false, true, true, false, true, true, false]).into_array(),
+            BoolArray::from_iter([false, false, true, true, false, true, true, false]).into_array(),
         )
         .unwrap();
         assert!(!bool_arr.statistics().compute_is_strict_sorted().unwrap());
@@ -71,27 +70,27 @@ mod test {
     #[cfg_attr(miri, ignore)]
     fn strict_sorted() {
         let bool_arr_1 =
-            RoaringBoolArray::encode(BoolArray::from(vec![false, true]).into_array()).unwrap();
+            RoaringBoolArray::encode(BoolArray::from_iter([false, true]).into_array()).unwrap();
         assert!(bool_arr_1.statistics().compute_is_strict_sorted().unwrap());
         assert!(bool_arr_1.statistics().compute_is_sorted().unwrap());
 
         let bool_arr_2 =
-            RoaringBoolArray::encode(BoolArray::from(vec![true]).into_array()).unwrap();
+            RoaringBoolArray::encode(BoolArray::from_iter([true]).into_array()).unwrap();
         assert!(bool_arr_2.statistics().compute_is_strict_sorted().unwrap());
         assert!(bool_arr_2.statistics().compute_is_sorted().unwrap());
 
         let bool_arr_3 =
-            RoaringBoolArray::encode(BoolArray::from(vec![false]).into_array()).unwrap();
+            RoaringBoolArray::encode(BoolArray::from_iter([false]).into_array()).unwrap();
         assert!(bool_arr_3.statistics().compute_is_strict_sorted().unwrap());
         assert!(bool_arr_3.statistics().compute_is_sorted().unwrap());
 
         let bool_arr_4 =
-            RoaringBoolArray::encode(BoolArray::from(vec![true, false]).into_array()).unwrap();
+            RoaringBoolArray::encode(BoolArray::from_iter([true, false]).into_array()).unwrap();
         assert!(!bool_arr_4.statistics().compute_is_strict_sorted().unwrap());
         assert!(!bool_arr_4.statistics().compute_is_sorted().unwrap());
 
         let bool_arr_5 =
-            RoaringBoolArray::encode(BoolArray::from(vec![false, true, true]).into_array())
+            RoaringBoolArray::encode(BoolArray::from_iter([false, true, true]).into_array())
                 .unwrap();
         assert!(!bool_arr_5.statistics().compute_is_strict_sorted().unwrap());
         assert!(bool_arr_5.statistics().compute_is_sorted().unwrap());

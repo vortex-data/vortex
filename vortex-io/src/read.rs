@@ -1,22 +1,10 @@
 use std::future::{self, Future};
 use std::io;
-use std::io::Cursor;
 use std::sync::Arc;
 
 use bytes::{Bytes, BytesMut};
 use vortex_buffer::Buffer;
 use vortex_error::vortex_err;
-
-/// An asynchronous streaming reader.
-///
-/// Implementations expose data via the asynchronous [`read_bytes`][VortexRead::read_bytes], which
-/// will fill the exact number of bytes and advance the stream.
-///
-/// If the exact number of bytes is not available from the stream, an
-/// [`UnexpectedEof`][std::io::ErrorKind::UnexpectedEof] error is returned.
-pub trait VortexRead {
-    fn read_bytes(&mut self, len: u64) -> impl Future<Output = io::Result<Bytes>>;
-}
 
 /// A trait for types that support asynchronous reads.
 ///
@@ -28,7 +16,7 @@ pub trait VortexReadAt: Send + Sync + Clone + 'static {
     /// Request an asynchronous positional read. Results will be returned as an owned [`Bytes`].
     ///
     /// If the reader does not have the requested number of bytes, the returned Future will complete
-    /// with an [`io::Error`].
+    /// with an [`UnexpectedEof`][std::io::ErrorKind::UnexpectedEof].
     ///
     /// ## Thread Safety
     ///
@@ -68,28 +56,6 @@ impl<T: VortexReadAt> VortexReadAt for Arc<T> {
 
     fn size(&self) -> impl Future<Output = u64> + 'static {
         T::size(self)
-    }
-}
-
-impl VortexRead for BytesMut {
-    async fn read_bytes(&mut self, len: u64) -> io::Result<Bytes> {
-        if (len as usize) > self.len() {
-            Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                vortex_err!("unexpected eof"),
-            ))
-        } else {
-            Ok(self.split_to(len as usize).freeze())
-        }
-    }
-}
-
-// Implement reading for a cursor operation.
-impl<R: VortexReadAt> VortexRead for Cursor<R> {
-    async fn read_bytes(&mut self, len: u64) -> io::Result<Bytes> {
-        let res = R::read_byte_range(self.get_ref(), self.position(), len).await?;
-        self.set_position(self.position() + len);
-        Ok(res)
     }
 }
 

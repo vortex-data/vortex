@@ -76,7 +76,7 @@ impl DateTimePartsArray {
             length,
             metadata,
             [days, seconds, subsecond].into(),
-            StatsSet::new(),
+            StatsSet::default(),
         )
     }
 
@@ -168,7 +168,7 @@ impl ArrayStatisticsCompute for DateTimePartsArray {
             _ => None,
         };
 
-        let mut stats = StatsSet::new();
+        let mut stats = StatsSet::default();
         if let Some(value) = maybe_stat {
             stats.set(stat, value);
         }
