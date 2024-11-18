@@ -87,7 +87,7 @@ fn test_fsst_array_ops() {
     // test filter
     let mask = FilterMask::from_iter([false, true, false]);
 
-    let fsst_filtered = filter(&fsst_array, &mask).unwrap();
+    let fsst_filtered = filter(&fsst_array, mask).unwrap();
     assert_eq!(fsst_filtered.encoding().id(), FSST::ENCODING.id());
     assert_eq!(fsst_filtered.len(), 1);
     assert_nth_scalar!(

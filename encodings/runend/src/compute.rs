@@ -445,7 +445,7 @@ mod test {
         let arr = ree_array();
         let filtered = filter(
             arr.as_ref(),
-            &FilterMask::from_iter([
+            FilterMask::from_iter([
                 true, true, false, false, false, false, false, false, false, false, true, true,
             ]),
         )

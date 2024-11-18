@@ -43,13 +43,10 @@ mod test {
         assert!(encoded.left_parts_exceptions().is_some());
 
         // The first two values need no patching
-        let filtered = filter(
-            encoded.as_ref(),
-            &FilterMask::from_iter([true, false, true]),
-        )
-        .unwrap()
-        .into_primitive()
-        .unwrap();
+        let filtered = filter(encoded.as_ref(), FilterMask::from_iter([true, false, true]))
+            .unwrap()
+            .into_primitive()
+            .unwrap();
         assert_eq!(filtered.maybe_null_slice::<T>(), &[a, outlier]);
     }
 }
