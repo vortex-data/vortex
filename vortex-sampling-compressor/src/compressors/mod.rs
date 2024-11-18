@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::encoding::EncodingRef;
-use vortex_array::stats::{ArrayStatistics, Stat};
+use vortex_array::stats::{ArrayStatistics, Statistics};
 use vortex_array::ArrayData;
 use vortex_error::VortexResult;
 
@@ -192,29 +192,13 @@ impl<'a> CompressedArray<'a> {
     pub fn compressed(
         compressed_array: ArrayData,
         path: Option<CompressionTree<'a>>,
-        original_array: Option<impl AsRef<ArrayData>>,
+        original_array: Option<&dyn Statistics>,
     ) -> Self {
-        if let Some(original_array) = original_array {
-            let original_array = original_array.as_ref();
-
-            // we do some special handling to ensure that we compute uncompressed size
-            // before compression happens, and that we propagate it correctly
-            let _ = original_array
-                .statistics()
-                .compute_uncompressed_size_in_bytes();
-            compressed_array.inherit_statistics(original_array.statistics());
-
-            // ensure that we compute uncompressed size in bytes
-            if compressed_array
-                .statistics()
-                .get(Stat::UncompressedSizeInBytes)
-                .is_none()
-            {
-                compressed_array.statistics().set(
-                    Stat::UncompressedSizeInBytes,
-                    original_array.nbytes().into(),
-                );
-            }
+        if let Some(stats) = original_array {
+            // eagerly compute uncompressed size in bytes at compression time, since it's
+            // too expensive to compute after compression
+            let _ = stats.compute_uncompressed_size_in_bytes();
+            compressed_array.inherit_statistics(stats);
         }
         Self {
             array: compressed_array,

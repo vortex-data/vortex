@@ -1,6 +1,7 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::PrimitiveArray;
 use vortex_array::encoding::EncodingRef;
+use vortex_array::stats::ArrayStatistics;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayData, ArrayDef, IntoArrayData};
 use vortex_error::VortexResult;
@@ -57,7 +58,7 @@ impl EncodingCompressor for DeltaCompressor {
             DeltaArray::try_from_delta_compress_parts(bases.array, deltas.array, validity)?
                 .into_array(),
             Some(CompressionTree::new(self, vec![bases.path, deltas.path])),
-            Some(array),
+            Some(array.statistics()),
         ))
     }
 

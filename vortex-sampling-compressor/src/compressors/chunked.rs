@@ -6,6 +6,7 @@ use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{Chunked, ChunkedArray};
 use vortex_array::compress::compute_pruning_stats;
 use vortex_array::encoding::EncodingRef;
+use vortex_array::stats::ArrayStatistics;
 use vortex_array::{ArrayDType, ArrayData, ArrayDef, IntoArrayData};
 use vortex_error::{vortex_bail, VortexResult};
 
@@ -159,7 +160,7 @@ impl ChunkedCompressor {
                 vec![child],
                 Arc::new(ChunkedCompressorMetadata(ratio)),
             )),
-            Some(array),
+            Some(array.statistics()),
         ))
     }
 }

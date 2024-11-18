@@ -126,7 +126,7 @@ impl EncodingCompressor for BitPackedCompressor {
                 self,
                 vec![patches.and_then(|p| p.path)],
             )),
-            Some(array),
+            Some(array.statistics()),
         ))
     }
 

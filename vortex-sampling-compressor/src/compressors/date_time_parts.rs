@@ -1,6 +1,7 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::TemporalArray;
 use vortex_array::encoding::EncodingRef;
+use vortex_array::stats::ArrayStatistics;
 use vortex_array::{ArrayDType, ArrayData, ArrayDef, IntoArrayData};
 use vortex_datetime_dtype::TemporalMetadata;
 use vortex_datetime_parts::{
@@ -68,7 +69,7 @@ impl EncodingCompressor for DateTimePartsCompressor {
                 self,
                 vec![days.path, seconds.path, subsecond.path],
             )),
-            Some(array),
+            Some(array.statistics()),
         ))
     }
 

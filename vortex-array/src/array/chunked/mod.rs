@@ -49,9 +49,6 @@ impl ChunkedArray {
             if chunk.dtype() != &dtype {
                 vortex_bail!(MismatchedTypes: dtype, chunk.dtype());
             }
-            // NB: we eagerly compute this stat on construction so that `check_statistics_unchanged`
-            // passes after we rechunk in the chunked compressor
-            let _ = chunk.statistics().compute_uncompressed_size_in_bytes();
         }
 
         let chunk_offsets = [0u64]
@@ -71,8 +68,15 @@ impl ChunkedArray {
 
         let stats = chunks
             .iter()
-            .map(|c| c.statistics().to_set())
+            .map(|chunk| {
+                // we eagerly compute this stat on construction so that `check_statistics_unchanged`
+                // passes after we rechunk in the chunked compressor
+                let _ = chunk.statistics().compute_uncompressed_size_in_bytes();
+                chunk.statistics().to_set()
+            })
             .reduce(|mut acc, stats| {
+                // for UncompressedSizeInBytes, we end up with sum of chunk uncompressed sizes
+                // this ignores the `chunk_offsets` array child, so it won't exactly match self.nbytes()
                 acc.merge_ordered(&stats);
                 acc
             })

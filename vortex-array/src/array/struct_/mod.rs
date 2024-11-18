@@ -78,7 +78,7 @@ impl StructArray {
         }
 
         // UncompressedSizeInBytes is the only stat that we aggregate from children
-        // NB: we do this eagerly so that `check_statistics_unchanged` check will pass in struct compressor
+        // we do this eagerly so that `check_statistics_unchanged` check will pass in struct compressor
         let stats = children
             .iter()
             .map(|f| f.statistics().compute_uncompressed_size_in_bytes())
