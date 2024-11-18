@@ -3,18 +3,22 @@ use std::sync::OnceLock;
 use arrow_array::BooleanArray;
 use arrow_buffer::BooleanBuffer;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{
-    vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult,
-};
+use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
 
 use crate::array::BoolArray;
 use crate::arrow::FromArrowArray;
 use crate::stats::ArrayStatistics;
 use crate::{ArrayDType, ArrayData, Canonical, IntoArrayData, IntoCanonical};
 
+/// If the filter selects more than this fraction of rows, iterate over slices instead of indices.
+///
+/// Threshold of 0.8 chosen based on Arrow Rust, which is in turn based on:
+///   <https://dl.acm.org/doi/abs/10.1145/3465998.3466009>
+const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
+
 pub trait FilterFn {
     /// Filter an array by the provided predicate.
-    fn filter(&self, mask: &FilterMask) -> VortexResult<ArrayData>;
+    fn filter(&self, mask: FilterMask) -> VortexResult<ArrayData>;
 }
 
 /// Return a new array by applying a boolean predicate to select items from a base Array.
@@ -27,7 +31,7 @@ pub trait FilterFn {
 ///
 /// The `predicate` must receive an Array with type non-nullable bool, and will panic if this is
 /// not the case.
-pub fn filter(array: &ArrayData, mask: &FilterMask) -> VortexResult<ArrayData> {
+pub fn filter(array: &ArrayData, mask: FilterMask) -> VortexResult<ArrayData> {
     if mask.len() != array.len() {
         vortex_bail!(
             "mask.len() is {}, does not equal array.len() of {}",
@@ -46,9 +50,11 @@ pub fn filter(array: &ArrayData, mask: &FilterMask) -> VortexResult<ArrayData> {
         return Ok(array.clone());
     }
 
-    array.with_dyn(|a| {
+    array.with_dyn(move |a| {
         if let Some(filter_fn) = a.filter() {
-            filter_fn.filter(mask)
+            // FIXME(ngates): when we get rid of with_dyn we won't need to eagerly clone
+            //   the FilterMask, which triggers computation of slices
+            filter_fn.filter(mask.clone())
         } else {
             // Fallback: implement using Arrow kernels.
             log::debug!(
@@ -71,8 +77,51 @@ pub fn filter(array: &ArrayData, mask: &FilterMask) -> VortexResult<ArrayData> {
 pub struct FilterMask {
     array: ArrayData,
     true_count: usize,
-    run_count: OnceLock<usize>,
+    true_range: (usize, usize),
+    selectivity: f64,
+    indices: OnceLock<Vec<usize>>,
+    slices: OnceLock<Vec<(usize, usize)>>,
     buffer: OnceLock<BooleanBuffer>,
+}
+
+/// We implement Clone manually to trigger population of our cached indices or slices.
+/// By making the filter API take FilterMask by value, whenever it gets used multiple times
+/// in a recursive function, we will cache the slices internally.
+impl Clone for FilterMask {
+    fn clone(&self) -> Self {
+        if self.selectivity > FILTER_SLICES_SELECTIVITY_THRESHOLD {
+            let _: VortexResult<_> = self
+                .slices
+                .get_or_try_init(|| Ok(self.boolean_buffer()?.set_slices().collect()));
+        } else {
+            let _: VortexResult<_> = self.indices.get_or_try_init(|| {
+                let mut indices = Vec::with_capacity(self.true_count());
+                indices.extend(self.boolean_buffer()?.set_indices());
+                Ok(indices)
+            });
+        }
+
+        Self {
+            array: self.array.clone(),
+            true_count: self.true_count,
+            true_range: self.true_range,
+            selectivity: self.selectivity,
+            indices: self.indices.clone(),
+            slices: self.slices.clone(),
+            buffer: self.buffer.clone(),
+        }
+    }
+}
+
+pub enum FilterIter<'a> {
+    // Iterator over pre-cached indices of a filter mask.
+    Indices(std::iter::Copied<std::slice::Iter<'a, usize>>),
+    // Iterator over set bits of the filter mask's boolean buffer.
+    LazyIndices(arrow_buffer::bit_iterator::BitIndexIterator<'a>),
+    // Iterator over pre-cached slices of a filter mask.
+    Slices(std::iter::Copied<std::slice::Iter<'a, (usize, usize)>>),
+    // Iterator over contiguous ranges of set bits of the filter mask's boolean buffer.
+    LazySlices(arrow_buffer::bit_iterator::BitSliceIterator<'a>),
 }
 
 impl FilterMask {
@@ -94,64 +143,67 @@ impl FilterMask {
         self.array.len() - self.true_count
     }
 
-    pub fn run_count(&self) -> usize {
-        *self.run_count.get_or_init(|| {
-            self.array
-                .statistics()
-                .compute_run_count()
-                .unwrap_or_else(|| self.len())
-        })
+    pub fn true_range(&self) -> (usize, usize) {
+        self.true_range
     }
 
     /// Return the selectivity of the mask.
     pub fn selectivity(&self) -> f64 {
-        self.true_count as f64 / self.array.len() as f64
+        self.selectivity
     }
 
     /// Get the canonical representation of the mask.
     pub fn to_boolean_buffer(&self) -> VortexResult<BooleanBuffer> {
         log::debug!(
-            "FilterMask: len {} selectivity: {} true_count: {} run_count: {} avg_run_length: {}",
+            "FilterMask: len {} selectivity: {} true_count: {} true_range: {:?}",
             self.len(),
             self.selectivity(),
             self.true_count,
-            self.run_count(),
-            self.len() as f64 / self.run_count() as f64,
+            self.true_range(),
         );
-
-        let buffer = self.buffer
-            .get_or_try_init(|| {
-                Ok(self
-                    .array
-                    .clone()
-                    .into_canonical()?
-                    .into_bool()?
-                    .boolean_buffer())
-            })
-            .cloned()?;
-
-        buffer.set_indices().fir
-
-        Ok(buffer)
+        self.boolean_buffer().cloned()
     }
 
-    /// Returns an iterator over the set bits in this mask.
-    pub fn iter_indices(&self) -> VortexResult<impl Iterator<Item = usize> + '_> {
-        let _ = self.to_boolean_buffer()?; // Compute the buffer
-        match self.buffer.get() {
-            None => vortex_bail!("Failed to compute boolean buffer"),
-            Some(buffer) => Ok(buffer.set_indices()),
-        }
+    fn boolean_buffer(&self) -> VortexResult<&BooleanBuffer> {
+        self.buffer.get_or_try_init(|| {
+            Ok(self
+                .array
+                .clone()
+                .into_canonical()?
+                .into_bool()?
+                .boolean_buffer())
+        })
     }
 
-    /// Iterator of contiguous ranges of set bits.
-    /// Returns (usize, usize) each representing an interval where the corresponding bits are set.
+    /// Returns the best iterator based on a selectivity threshold.
+    ///
+    /// Currently, this threshold is fixed at 0.8 based on Arrow Rust.
+    pub fn iter(&self) -> VortexResult<FilterIter> {
+        Ok(if self.selectivity > FILTER_SLICES_SELECTIVITY_THRESHOLD {
+            // Iterate over slices
+            if let Some(slices) = self.slices.get() {
+                FilterIter::Slices(slices.iter().copied())
+            } else {
+                FilterIter::LazySlices(self.boolean_buffer()?.set_slices())
+            }
+        } else {
+            // Iterate over indices
+            if let Some(indices) = self.indices.get() {
+                FilterIter::Indices(indices.iter().copied())
+            } else {
+                FilterIter::LazyIndices(self.boolean_buffer()?.set_indices())
+            }
+        })
+    }
+
+    #[deprecated(note = "Move to using iter() instead")]
     pub fn iter_slices(&self) -> VortexResult<impl Iterator<Item = (usize, usize)> + '_> {
-        let _ = self.to_boolean_buffer()?; // Compute the buffer
-        match self.buffer.get() {
-            None => vortex_bail!("Failed to compute boolean buffer"),
-            Some(buffer) => Ok(buffer.set_slices()),
-        }
+        Ok(self.boolean_buffer()?.set_slices())
+    }
+
+    #[deprecated(note = "Move to using iter() instead")]
+    pub fn iter_indices(&self) -> VortexResult<impl Iterator<Item = usize> + '_> {
+        Ok(self.boolean_buffer()?.set_indices())
     }
 }
 
@@ -165,14 +217,40 @@ impl TryFrom<ArrayData> for FilterMask {
                 array.dtype(),
             );
         }
+
         let true_count = array
             .statistics()
             .compute_true_count()
             .ok_or_else(|| vortex_err!("Failed to compute true count for boolean array"))?;
+
+        // We try to compute a tighter range over the true values of the mask. This provides a
+        // better measure of selectivity when deciding between iter_indices and iter_slices.
+        let true_range = if let Ok(bool) = BoolArray::try_from(array.clone()) {
+            let start = bool
+                .boolean_buffer()
+                .set_indices()
+                .next()
+                .unwrap_or_default();
+            // TODO(ngates): we can find this faster by creating a reverse iterator.
+            let end = bool
+                .boolean_buffer()
+                .set_indices()
+                .last()
+                .unwrap_or_else(|| array.len());
+            (start, end)
+        } else {
+            (0, array.len())
+        };
+
+        let selectivity = true_count as f64 / (true_range.1 - true_range.0) as f64;
+
         Ok(Self {
             array,
             true_count,
-            run_count: OnceLock::new(),
+            true_range,
+            selectivity,
+            indices: OnceLock::new(),
+            slices: OnceLock::new(),
             buffer: OnceLock::new(),
         })
     }
@@ -180,34 +258,14 @@ impl TryFrom<ArrayData> for FilterMask {
 
 impl From<BooleanBuffer> for FilterMask {
     fn from(value: BooleanBuffer) -> Self {
-        Self::from(BoolArray::from(value))
-    }
-}
-
-impl From<BoolArray> for FilterMask {
-    fn from(array: BoolArray) -> Self {
-        if array.dtype() != &DType::Bool(Nullability::NonNullable) {
-            vortex_panic!(
-                "mask must be non-nullable bool, has dtype {}",
-                array.dtype(),
-            );
-        }
-        let true_count = array
-            .statistics()
-            .compute_true_count()
-            .vortex_expect("Failed to compute true count for boolean array");
-        Self {
-            array: array.into_array(),
-            true_count,
-            run_count: OnceLock::new(),
-            buffer: OnceLock::new(),
-        }
+        Self::try_from(BoolArray::from(value).into_array())
+            .vortex_expect("Failed to convert BooleanBuffer to FilterMask")
     }
 }
 
 impl FromIterator<bool> for FilterMask {
     fn from_iter<T: IntoIterator<Item = bool>>(iter: T) -> Self {
-        Self::from(BoolArray::from_iter(iter))
+        Self::from(BooleanBuffer::from_iter(iter))
     }
 }
 
@@ -228,7 +286,7 @@ mod test {
         )
         .unwrap();
 
-        let filtered = filter(&items, &mask).unwrap();
+        let filtered = filter(&items, mask).unwrap();
         assert_eq!(
             filtered
                 .into_canonical()

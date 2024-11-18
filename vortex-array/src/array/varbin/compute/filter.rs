@@ -11,12 +11,12 @@ use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 
 impl FilterFn for VarBinArray {
-    fn filter(&self, mask: &FilterMask) -> VortexResult<ArrayData> {
+    fn filter(&self, mask: FilterMask) -> VortexResult<ArrayData> {
         filter_select_var_bin(self, mask).map(|a| a.into_array())
     }
 }
 
-fn filter_select_var_bin(arr: &VarBinArray, mask: &FilterMask) -> VortexResult<VarBinArray> {
+fn filter_select_var_bin(arr: &VarBinArray, mask: FilterMask) -> VortexResult<VarBinArray> {
     let selection_count = mask.true_count();
     if selection_count * 2 > mask.len() {
         filter_select_var_bin_by_slice(arr, mask, selection_count)
@@ -27,7 +27,7 @@ fn filter_select_var_bin(arr: &VarBinArray, mask: &FilterMask) -> VortexResult<V
 
 fn filter_select_var_bin_by_slice(
     values: &VarBinArray,
-    mask: &FilterMask,
+    mask: FilterMask,
     selection_count: usize,
 ) -> VortexResult<VarBinArray> {
     let offsets = values.offsets().into_primitive()?;
@@ -43,11 +43,12 @@ fn filter_select_var_bin_by_slice(
     })
 }
 
+#[allow(deprecated)]
 fn filter_select_var_bin_by_slice_primitive_offset<O>(
     dtype: DType,
     offsets: &[O],
     data: &[u8],
-    mask: &FilterMask,
+    mask: FilterMask,
     validity: Validity,
     selection_count: usize,
 ) -> VortexResult<VarBinArray>
@@ -126,7 +127,7 @@ fn update_non_nullable_slice<O>(
 
 fn filter_select_var_bin_by_index(
     values: &VarBinArray,
-    mask: &FilterMask,
+    mask: FilterMask,
     selection_count: usize,
 ) -> VortexResult<VarBinArray> {
     let offsets = values.offsets().into_primitive()?;
@@ -142,11 +143,12 @@ fn filter_select_var_bin_by_index(
     })
 }
 
+#[allow(deprecated)]
 fn filter_select_var_bin_by_index_primitive_offset<O: NativePType>(
     dtype: DType,
     offsets: &[O],
     data: &[u8],
-    mask: &FilterMask,
+    mask: FilterMask,
     validity: Validity,
     selection_count: usize,
 ) -> VortexResult<VarBinArray> {
@@ -203,7 +205,7 @@ mod test {
         );
         let filter = FilterMask::from_iter([true, false, true]);
 
-        let buf = filter_select_var_bin_by_index(&arr, &filter, 2)
+        let buf = filter_select_var_bin_by_index(&arr, filter, 2)
             .unwrap()
             .to_array();
 
@@ -226,7 +228,7 @@ mod test {
         );
         let filter = FilterMask::from_iter([true, false, true, false, true]);
 
-        let buf = filter_select_var_bin_by_slice(&arr, &filter, 3)
+        let buf = filter_select_var_bin_by_slice(&arr, filter, 3)
             .unwrap()
             .to_array();
 
@@ -258,7 +260,7 @@ mod test {
         let arr = VarBinArray::try_new(offsets, bytes, DType::Utf8(Nullable), validity).unwrap();
         let filter = FilterMask::from_iter([true, true, true, false, true, true]);
 
-        let buf = filter_select_var_bin_by_slice(&arr, &filter, 5)
+        let buf = filter_select_var_bin_by_slice(&arr, filter, 5)
             .unwrap()
             .to_array();
 

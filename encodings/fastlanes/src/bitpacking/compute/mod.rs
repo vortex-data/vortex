@@ -3,7 +3,6 @@ use vortex_array::compute::{ArrayCompute, SearchSortedFn, SliceFn, TakeFn};
 
 use crate::BitPackedArray;
 
-mod filter;
 mod scalar_at;
 mod search_sorted;
 mod slice;

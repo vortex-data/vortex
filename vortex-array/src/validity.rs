@@ -175,7 +175,7 @@ impl Validity {
             v @ (Validity::NonNullable | Validity::AllValid | Validity::AllInvalid) => {
                 Ok(v.clone())
             }
-            Validity::Array(arr) => Ok(Validity::Array(filter(arr, mask)?)),
+            Validity::Array(arr) => Ok(Validity::Array(filter(arr, mask.clone())?)),
         }
     }
 

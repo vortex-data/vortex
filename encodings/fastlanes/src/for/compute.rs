@@ -48,7 +48,7 @@ impl TakeFn for FoRArray {
 }
 
 impl FilterFn for FoRArray {
-    fn filter(&self, mask: &FilterMask) -> VortexResult<ArrayData> {
+    fn filter(&self, mask: FilterMask) -> VortexResult<ArrayData> {
         Self::try_new(
             filter(&self.encoded(), mask)?,
             self.owned_reference_scalar(),

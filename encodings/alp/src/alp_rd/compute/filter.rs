@@ -5,15 +5,15 @@ use vortex_error::VortexResult;
 use crate::ALPRDArray;
 
 impl FilterFn for ALPRDArray {
-    fn filter(&self, mask: &FilterMask) -> VortexResult<ArrayData> {
+    fn filter(&self, mask: FilterMask) -> VortexResult<ArrayData> {
         let left_parts_exceptions = self
             .left_parts_exceptions()
-            .map(|array| filter(&array, mask))
+            .map(|array| filter(&array, mask.clone()))
             .transpose()?;
 
         Ok(ALPRDArray::try_new(
             self.dtype().clone(),
-            filter(&self.left_parts(), mask)?,
+            filter(&self.left_parts(), mask.clone())?,
             self.left_parts_dict(),
             filter(&self.right_parts(), mask)?,
             self.right_bit_width(),

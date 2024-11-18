@@ -79,23 +79,19 @@ impl SliceFn for StructArray {
 }
 
 impl FilterFn for StructArray {
-    fn filter(&self, mask: &FilterMask) -> VortexResult<ArrayData> {
+    fn filter(&self, mask: FilterMask) -> VortexResult<ArrayData> {
+        let validity = self.validity().filter(&mask)?;
+
         let fields: Vec<ArrayData> = self
             .children()
-            .map(|field| filter(&field, mask))
+            .map(|field| filter(&field, mask.clone()))
             .try_collect()?;
         let length = fields
             .first()
             .map(|a| a.len())
             .unwrap_or_else(|| mask.true_count());
 
-        Self::try_new(
-            self.names().clone(),
-            fields,
-            length,
-            self.validity().filter(mask)?,
-        )
-        .map(|a| a.into_array())
+        Self::try_new(self.names().clone(), fields, length, validity).map(|a| a.into_array())
     }
 }
 
@@ -112,7 +108,7 @@ mod tests {
         let mask = vec![
             false, true, false, true, false, true, false, true, false, true,
         ];
-        let filtered = filter(struct_arr.as_ref(), &FilterMask::from_iter(mask)).unwrap();
+        let filtered = filter(struct_arr.as_ref(), FilterMask::from_iter(mask)).unwrap();
         assert_eq!(filtered.len(), 5);
     }
 
@@ -120,8 +116,7 @@ mod tests {
     fn filter_empty_struct_with_empty_filter() {
         let struct_arr =
             StructArray::try_new(vec![].into(), vec![], 0, Validity::NonNullable).unwrap();
-        let filtered =
-            filter(struct_arr.as_ref(), &FilterMask::from_iter::<[bool; 0]>([])).unwrap();
+        let filtered = filter(struct_arr.as_ref(), FilterMask::from_iter::<[bool; 0]>([])).unwrap();
         assert_eq!(filtered.len(), 0);
     }
 }

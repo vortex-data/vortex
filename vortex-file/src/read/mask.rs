@@ -3,7 +3,7 @@ use std::fmt::{Display, Formatter};
 
 use arrow_buffer::{BooleanBuffer, MutableBuffer};
 use croaring::Bitmap;
-use vortex_array::array::{BoolArray, PrimitiveArray, SparseArray};
+use vortex_array::array::{PrimitiveArray, SparseArray};
 use vortex_array::compute::{filter, slice, take, FilterMask, TakeOptions};
 use vortex_array::validity::{LogicalValidity, Validity};
 use vortex_array::{
@@ -216,7 +216,7 @@ impl RowMask {
             take(sliced, indices, TakeOptions::default()).map(Some)
         } else {
             let mask = self.to_filter_mask()?;
-            filter(sliced, &mask).map(Some)
+            filter(sliced, mask).map(Some)
         }
     }
 
@@ -237,11 +237,11 @@ impl RowMask {
             buffer.extend_zeros(byte_length - bitset.size_in_bytes());
         }
 
-        Ok(FilterMask::from(BoolArray::from(BooleanBuffer::new(
+        Ok(FilterMask::from(BooleanBuffer::new(
             buffer.into(),
             0,
             self.len(),
-        ))))
+        )))
     }
 
     pub fn shift(self, offset: usize) -> VortexResult<RowMask> {
