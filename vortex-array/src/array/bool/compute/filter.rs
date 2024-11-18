@@ -50,7 +50,7 @@ fn filter_slices(
     let src = buffer.values();
     let offset = buffer.offset();
 
-    let mut builder = BooleanBufferBuilder::new(bit_util::ceil(indices_len, 8));
+    let mut builder = BooleanBufferBuilder::new(indices_len.div_ceil(8));
     for (start, end) in slices {
         builder.append_packed_range(start + offset..end + offset, src)
     }
