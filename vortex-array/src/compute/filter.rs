@@ -2,11 +2,11 @@ use std::iter::TrustedLen;
 use std::sync::OnceLock;
 
 use arrow_array::BooleanArray;
-use arrow_buffer::BooleanBuffer;
+use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, MutableBuffer};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
 
-use crate::array::{BoolArray, ExtensionArray};
+use crate::array::BoolArray;
 use crate::arrow::FromArrowArray;
 use crate::stats::ArrayStatistics;
 use crate::{ArrayDType, ArrayData, Canonical, IntoArrayData, IntoCanonical};
@@ -164,6 +164,15 @@ pub enum FilterIter<'a> {
 }
 
 impl FilterMask {
+    /// Create a new FilterMask where the given indices are set.
+    pub fn from_indices<I: IntoIterator<Item = usize>>(length: usize, indices: I) -> Self {
+        let mut buffer = MutableBuffer::new_null(length);
+        indices
+            .into_iter()
+            .for_each(|idx| arrow_buffer::bit_util::set_bit(&mut buffer, idx));
+        Self::from(BooleanBufferBuilder::new_from_buffer(buffer, length).finish())
+    }
+
     pub fn len(&self) -> usize {
         self.array.len()
     }
