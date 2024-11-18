@@ -114,14 +114,14 @@ impl Clone for FilterMask {
 }
 
 pub enum FilterIter<'a> {
-    // Iterator over pre-cached indices of a filter mask.
-    Indices(std::iter::Copied<std::slice::Iter<'a, usize>>),
+    // Slice of pre-cached indices of a filter mask.
+    Indices(&'a [usize]),
     // Iterator over set bits of the filter mask's boolean buffer.
-    LazyIndices(arrow_buffer::bit_iterator::BitIndexIterator<'a>),
-    // Iterator over pre-cached slices of a filter mask.
-    Slices(std::iter::Copied<std::slice::Iter<'a, (usize, usize)>>),
+    IndicesIter(arrow_buffer::bit_iterator::BitIndexIterator<'a>),
+    // Slice of pre-cached slices of a filter mask.
+    Slices(&'a [(usize, usize)]),
     // Iterator over contiguous ranges of set bits of the filter mask's boolean buffer.
-    LazySlices(arrow_buffer::bit_iterator::BitSliceIterator<'a>),
+    SlicesIter(arrow_buffer::bit_iterator::BitSliceIterator<'a>),
 }
 
 impl FilterMask {
@@ -182,16 +182,16 @@ impl FilterMask {
         Ok(if self.selectivity > FILTER_SLICES_SELECTIVITY_THRESHOLD {
             // Iterate over slices
             if let Some(slices) = self.slices.get() {
-                FilterIter::Slices(slices.iter().copied())
+                FilterIter::Slices(slices.as_slice())
             } else {
-                FilterIter::LazySlices(self.boolean_buffer()?.set_slices())
+                FilterIter::SlicesIter(self.boolean_buffer()?.set_slices())
             }
         } else {
             // Iterate over indices
             if let Some(indices) = self.indices.get() {
-                FilterIter::Indices(indices.iter().copied())
+                FilterIter::Indices(indices.as_slice())
             } else {
-                FilterIter::LazyIndices(self.boolean_buffer()?.set_indices())
+                FilterIter::IndicesIter(self.boolean_buffer()?.set_indices())
             }
         })
     }

@@ -10,22 +10,31 @@ impl FilterFn for BoolArray {
         let validity = self.validity().filter(&mask)?;
 
         let buffer = match mask.iter()? {
-            FilterIter::Indices(iter) => {
+            FilterIter::Indices(indices) => filter_indices_slice(self.boolean_buffer(), indices),
+            FilterIter::IndicesIter(iter) => {
                 filter_indices(self.boolean_buffer(), mask.true_count(), iter)
             }
-            FilterIter::LazyIndices(iter) => {
-                filter_indices(self.boolean_buffer(), mask.true_count(), iter)
-            }
-            FilterIter::Slices(iter) => {
-                filter_slices(self.boolean_buffer(), mask.true_count(), iter)
-            }
-            FilterIter::LazySlices(iter) => {
+            FilterIter::Slices(slices) => filter_slices(
+                self.boolean_buffer(),
+                mask.true_count(),
+                slices.iter().copied(),
+            ),
+            FilterIter::SlicesIter(iter) => {
                 filter_slices(self.boolean_buffer(), mask.true_count(), iter)
             }
         };
 
         Ok(Self::try_new(buffer, validity)?.into_array())
     }
+}
+
+fn filter_indices_slice(buffer: BooleanBuffer, indices: &[usize]) -> BooleanBuffer {
+    let src = buffer.values().as_ptr();
+    let offset = buffer.offset();
+
+    BooleanBuffer::collect_bool(indices.len(), |idx| unsafe {
+        bit_util::get_bit_raw(src, *indices.get_unchecked(idx) + offset)
+    })
 }
 
 fn filter_indices(

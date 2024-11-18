@@ -12,10 +12,10 @@ impl FilterFn for PrimitiveArray {
         match_each_native_ptype!(self.ptype(), |$T| {
             let mut values = Vec::with_capacity(mask.true_count());
             match mask.iter()? {
-                FilterIter::Indices(iter) => filter_primitive_indices(&mut values, self.maybe_null_slice::<$T>(), iter),
-                FilterIter::LazyIndices(iter) => filter_primitive_indices(&mut values, self.maybe_null_slice::<$T>(), iter),
-                FilterIter::Slices(iter) => filter_primitive_slices(&mut values, self.maybe_null_slice::<$T>(), iter),
-                FilterIter::LazySlices(iter) => filter_primitive_slices(&mut values, self.maybe_null_slice::<$T>(), iter),
+                FilterIter::Indices(indices) => filter_primitive_indices(&mut values, self.maybe_null_slice::<$T>(), indices.iter().copied()),
+                FilterIter::IndicesIter(iter) => filter_primitive_indices(&mut values, self.maybe_null_slice::<$T>(), iter),
+                FilterIter::Slices(slices) => filter_primitive_slices(&mut values, self.maybe_null_slice::<$T>(), slices.iter().copied()),
+                FilterIter::SlicesIter(iter) => filter_primitive_slices(&mut values, self.maybe_null_slice::<$T>(), iter),
             }
             Ok(PrimitiveArray::from_vec(values, validity).into_array())
         })
