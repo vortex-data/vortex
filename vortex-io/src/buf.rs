@@ -43,3 +43,39 @@ impl<R: VortexReadAt> VortexBufReader<R> {
         Ok(result)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::io;
+
+    use bytes::Bytes;
+
+    use crate::VortexBufReader;
+
+    #[tokio::test]
+    async fn test_buf_reader() {
+        let reader = Bytes::from("0123456789".as_bytes());
+        let mut buf_reader = VortexBufReader::new(reader);
+
+        let first2 = buf_reader.read_bytes(2).await.unwrap();
+        assert_eq!(first2.as_ref(), "01".as_bytes());
+
+        buf_reader.set_position(8);
+        let last2 = buf_reader.read_bytes(2).await.unwrap();
+        assert_eq!(last2.as_ref(), "89".as_bytes());
+    }
+
+    #[tokio::test]
+    async fn test_eof() {
+        let reader = Bytes::from("0123456789".as_bytes());
+        let mut buf_reader = VortexBufReader::new(reader);
+
+        // Read past end of internal reader
+        buf_reader.set_position(10);
+
+        assert_eq!(
+            buf_reader.read_bytes(1).await.unwrap_err().kind(),
+            io::ErrorKind::UnexpectedEof,
+        );
+    }
+}
