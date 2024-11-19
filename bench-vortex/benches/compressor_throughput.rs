@@ -19,6 +19,8 @@ use vortex::sampling_compressor::compressors::bitpacked::{
 use vortex::sampling_compressor::compressors::delta::DeltaCompressor;
 use vortex::sampling_compressor::compressors::dict::DictCompressor;
 use vortex::sampling_compressor::compressors::r#for::FoRCompressor;
+use vortex::sampling_compressor::compressors::roaring_bool::RoaringBoolCompressor;
+use vortex::sampling_compressor::compressors::roaring_int::RoaringIntCompressor;
 use vortex::sampling_compressor::compressors::runend::DEFAULT_RUN_END_COMPRESSOR;
 use vortex::sampling_compressor::compressors::runend_bool::RunEndBoolCompressor;
 use vortex::sampling_compressor::compressors::zigzag::ZigZagCompressor;
@@ -46,12 +48,19 @@ fn primitive(c: &mut Criterion) {
     )
     .into_array();
     let int_array = try_cast(uint_array.clone(), PType::I32.into()).unwrap();
+
     let bool_array = compare(
         &uint_array,
         ConstantArray::new(Scalar::from(0i32), uint_array.len()),
         Operator::Eq,
     )
     .unwrap();
+
+    let index_array = PrimitiveArray::from_vec(
+        (0..num_values).map(|i| (i * 2) as u32 + 42).collect_vec(),
+        Validity::NonNullable,
+    )
+    .into_array();
 
     let float_array = try_cast(uint_array.clone(), PType::F32.into()).unwrap();
 
@@ -65,6 +74,9 @@ fn primitive(c: &mut Criterion) {
         (&DEFAULT_RUN_END_COMPRESSOR, "runend", &uint_array),
         (&DeltaCompressor, "delta", &uint_array),
         (&DictCompressor, "dict", &uint_array),
+        (&RoaringBoolCompressor, "roaring_bool", &bool_array),
+        (&RoaringIntCompressor, "roaring_int", &index_array),
+        (&DEFAULT_RUN_END_COMPRESSOR, "runend", &bool_array),
         (&RunEndBoolCompressor, "runend_bool", &bool_array),
         (&FoRCompressor, "frame_of_reference", &int_array),
         (&ZigZagCompressor, "zigzag", &int_array),
