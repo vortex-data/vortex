@@ -2,10 +2,12 @@
 
 use std::marker::PhantomData;
 
-use vortex_error::VortexError;
+use vortex_error::{VortexError, VortexResult};
 
-use crate::encoding::{ArrayEncoding, ArrayEncodingExt, ArrayEncodingRef, EncodingId, EncodingRef};
-use crate::{ArrayData, ArrayMetadata, ArrayTrait, TryDeserializeArrayMetadata, TypedArray};
+use crate::encoding::{
+    ArrayEncoding, ArrayEncodingExt, ArrayEncodingRef, ArrayMetadataVTable, EncodingId, EncodingRef,
+};
+use crate::{ArrayData, ArrayMetadata, ArrayTrait, TryDeserializeArrayMetadata};
 
 /// Trait the defines the set of types relating to an array.
 /// Because it has associated types it can't be used as a trait object.
@@ -24,6 +26,12 @@ pub trait ArrayDef {
 pub struct Array<E> {
     data: ArrayData,
     encoding: PhantomData<E>,
+}
+
+impl<E: ArrayEncoding> Array<E> {
+    fn metadata(&self) -> Box<dyn ArrayMetadata> {
+        self.data.encoding().metadata(&self.data)
+    }
 }
 
 impl<E> AsRef<ArrayData> for Array<E> {
@@ -51,13 +59,8 @@ macro_rules! impl_encoding {
                 type Encoding = [<$Name Encoding>];
             }
 
-            #[derive(std::fmt::Debug, Clone)]
-            pub type [<$Name Array>] = Array<$Name>;
-            impl AsRef<$crate::ArrayData> for [<$Name Array>] {
-                fn as_ref(&self) -> &$crate::ArrayData {
-                    self.typed.array()
-                }
-            }
+            pub type [<$Name Array>] = $crate::Array<$Name>;
+
             impl [<$Name Array>] {
                 #[allow(clippy::same_name_method)]
                 fn metadata(&self) -> &[<$Name Metadata>] {
@@ -152,6 +155,13 @@ macro_rules! impl_encoding {
             }
             impl $crate::encoding::ArrayEncodingExt for [<$Name Encoding>] {
                 type D = $Name;
+            }
+            impl $crate::encoding::ArrayMetadataVTable<ArrayData> for [<$Name Encoding>] {
+                fn metadata(&self, array: &ArrayData) -> VortexResult<Box<dyn $crate::ArrayMetadata>> {
+                    Ok(Box::new([<$Name Metadata>]::try_deserialize_metadata(Some(
+                        array.metadata()?.as_ref(),
+                    ))?))
+                }
             }
 
             /// Implement ArrayMetadata

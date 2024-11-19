@@ -7,7 +7,7 @@ use vortex_error::{vortex_panic, VortexResult};
 
 use crate::canonical::{Canonical, IntoCanonical};
 use crate::stats::ArrayStatistics as _;
-use crate::{ArrayData, ArrayDef, ArrayTrait};
+use crate::{ArrayData, ArrayDef, ArrayMetadata, ArrayTrait};
 
 pub mod opaque;
 
@@ -47,7 +47,7 @@ impl AsRef<str> for EncodingId {
 pub type EncodingRef = &'static dyn ArrayEncoding;
 
 /// Object-safe encoding trait for an array.
-pub trait ArrayEncoding: 'static + Sync + Send + Debug {
+pub trait ArrayEncoding: 'static + Sync + Send + Debug + ArrayMetadataVTable<ArrayData> {
     fn id(&self) -> EncodingId;
 
     /// Flatten the given array.
@@ -59,6 +59,11 @@ pub trait ArrayEncoding: 'static + Sync + Send + Debug {
         array: &ArrayData,
         f: &mut dyn for<'b> FnMut(&'b (dyn ArrayTrait + 'b)) -> VortexResult<()>,
     ) -> VortexResult<()>;
+}
+
+// TODO(ngates): move this alongside other vtables when we add them.
+pub trait ArrayMetadataVTable<A> {
+    fn metadata(&self, array: &A) -> VortexResult<Box<dyn ArrayMetadata>>;
 }
 
 impl PartialEq for dyn ArrayEncoding + '_ {
