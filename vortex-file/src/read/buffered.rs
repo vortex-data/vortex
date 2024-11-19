@@ -111,7 +111,10 @@ impl BufferedLayoutReader {
                 })
                 .transpose()?
                 .unwrap_or(false);
-            if chunk_is_pruned || mask.end() > begin && mask.begin() <= end {
+            if chunk_is_pruned {
+                continue;
+            }
+            if mask.end() > begin && mask.begin() <= end {
                 self.layouts.push_front((index, ((begin, end), layout)));
                 break;
             }
