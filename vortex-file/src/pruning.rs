@@ -519,8 +519,7 @@ mod tests {
     fn display_pruning_predicate() {
         let column = Field::from("a");
         let other_col = Literal::new_expr(42.into());
-        let not_eq_expr =
-            BinaryExpr::new_expr(Column::new_expr(column.clone()), Operator::Lt, other_col);
+        let not_eq_expr = BinaryExpr::new_expr(Column::new_expr(column), Operator::Lt, other_col);
 
         assert_eq!(
             PruningPredicate::try_new(&not_eq_expr).unwrap().to_string(),

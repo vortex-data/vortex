@@ -2,7 +2,6 @@ use std::collections::{BTreeSet, VecDeque};
 use std::sync::{Arc, RwLock};
 
 use bytes::Bytes;
-use croaring::Bitmap;
 use itertools::Itertools;
 use vortex_array::ArrayData;
 use vortex_error::VortexUnwrap;
@@ -17,9 +16,7 @@ pub fn layout_splits(layout: &mut dyn LayoutReader, length: usize) -> Vec<RowMas
     splits
         .into_iter()
         .tuple_windows::<(usize, usize)>()
-        .map(|(begin, end)| unsafe {
-            RowMask::new_unchecked(Bitmap::from_range(begin as u32..end as u32), 0, end)
-        })
+        .map(|(begin, end)| RowMask::new_valid_between(begin, end))
         .collect::<Vec<_>>()
 }
 

@@ -12,8 +12,9 @@ impl ArrayStatisticsCompute for RoaringBoolArray {
             stat,
             Stat::TrueCount | Stat::Min | Stat::Max | Stat::IsConstant
         ) {
-            return Ok(StatsSet::bools_with_true_count(
+            return Ok(StatsSet::bools_with_true_and_null_count(
                 true_count as usize,
+                0,
                 self.len(),
             ));
         }

@@ -1,5 +1,4 @@
 use std::future::Future;
-use std::io::Cursor;
 use std::ops::Range;
 use std::sync::Arc;
 use std::{io, mem};
@@ -11,14 +10,14 @@ use vortex_buffer::io_buf::IoBuf;
 use vortex_buffer::Buffer;
 use vortex_error::{vortex_panic, VortexError, VortexResult};
 
-use crate::{VortexRead, VortexReadAt, VortexWrite};
+use crate::{VortexBufReader, VortexReadAt, VortexWrite};
 
 pub trait ObjectStoreExt {
     fn vortex_read(
         &self,
         location: &Path,
         range: Range<usize>,
-    ) -> impl Future<Output = VortexResult<impl VortexRead>>;
+    ) -> impl Future<Output = VortexResult<VortexBufReader<impl VortexReadAt>>>;
 
     fn vortex_reader(&self, location: &Path) -> impl VortexReadAt;
 
@@ -33,9 +32,9 @@ impl ObjectStoreExt for Arc<dyn ObjectStore> {
         &self,
         location: &Path,
         range: Range<usize>,
-    ) -> VortexResult<impl VortexRead> {
+    ) -> VortexResult<VortexBufReader<impl VortexReadAt>> {
         let bytes = self.get_range(location, range).await?;
-        Ok(Cursor::new(Buffer::from(bytes)))
+        Ok(VortexBufReader::new(Buffer::from(bytes)))
     }
 
     fn vortex_reader(&self, location: &Path) -> impl VortexReadAt {

@@ -16,7 +16,7 @@ use crate::{unpack_single_primitive, BitPackedArray};
 // assuming the buffer is already allocated (which will happen at most once) then unpacking
 // all 1024 elements takes ~8.8x as long as unpacking a single element on an M2 Macbook Air.
 // see https://github.com/spiraldb/vortex/pull/190#issue-2223752833
-const UNPACK_CHUNK_THRESHOLD: usize = 8;
+pub(super) const UNPACK_CHUNK_THRESHOLD: usize = 8;
 const BULK_PATCH_THRESHOLD: usize = 64;
 
 impl TakeFn for BitPackedArray {

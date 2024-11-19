@@ -181,6 +181,8 @@ impl Iterator for FixedSplitIterator {
 mod tests {
     use std::collections::BTreeSet;
 
+    use vortex_array::array::BoolArray;
+    use vortex_array::IntoArrayData;
     use vortex_error::VortexResult;
 
     use crate::read::splits::{FixedSplitIterator, MaskIterator, SplitMask};
@@ -204,10 +206,22 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn filters_empty() {
-        let mut mask_iter =
-            FixedSplitIterator::new(10, Some(RowMask::try_new((4..6).collect(), 0, 10).unwrap()));
+        let mut mask_iter = FixedSplitIterator::new(
+            10,
+            Some(
+                RowMask::try_new(
+                    BoolArray::from_iter([
+                        false, false, false, false, true, true, false, false, false, false,
+                    ])
+                    .into_array(),
+                    0,
+                    10,
+                )
+                .unwrap(),
+            ),
+        );
         mask_iter
-            .additional_splits(&mut BTreeSet::from([2, 4, 6, 8, 10]))
+            .additional_splits(&mut BTreeSet::from([0, 2, 4, 6, 8, 10]))
             .unwrap();
         assert_eq!(
             mask_iter

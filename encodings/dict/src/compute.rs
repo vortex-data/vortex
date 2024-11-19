@@ -48,7 +48,7 @@ impl MaybeCompareFn for DictArray {
                 // Ensure the other is the same length as the dictionary
                 slice(other, 0, self.values().len())
                     .and_then(|other| compare(self.values(), other, operator))
-                    .and_then(|values| Self::try_new(self.codes().clone(), values))
+                    .and_then(|values| Self::try_new(self.codes(), values))
                     .map(|a| a.into_array()),
             );
         }
@@ -86,7 +86,7 @@ impl TakeFn for DictArray {
 }
 
 impl FilterFn for DictArray {
-    fn filter(&self, mask: &FilterMask) -> VortexResult<ArrayData> {
+    fn filter(&self, mask: FilterMask) -> VortexResult<ArrayData> {
         let codes = filter(&self.codes(), mask)?;
         Self::try_new(codes, self.values()).map(|a| a.into_array())
     }

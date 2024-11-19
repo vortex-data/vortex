@@ -1,10 +1,10 @@
 use std::any::Any;
 use std::sync::Arc;
 
-use log::warn;
+use log::info;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{Chunked, ChunkedArray};
-use vortex_array::compress::compute_pruning_stats;
+use vortex_array::compress::compute_precompression_stats;
 use vortex_array::encoding::EncodingRef;
 use vortex_array::stats::ArrayStatistics as _;
 use vortex_array::{ArrayDType, ArrayData, ArrayDef, IntoArrayData};
@@ -12,7 +12,7 @@ use vortex_error::{vortex_bail, VortexResult};
 
 use super::EncoderMetadata;
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
-use crate::SamplingCompressor;
+use crate::{constants, SamplingCompressor};
 
 #[derive(Debug)]
 pub struct ChunkedCompressor {
@@ -37,7 +37,7 @@ impl EncodingCompressor for ChunkedCompressor {
     }
 
     fn cost(&self) -> u8 {
-        0
+        constants::CHUNKED_COST
     }
 
     fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {
@@ -115,13 +115,14 @@ impl ChunkedCompressor {
             ctx.options().target_block_bytesize,
             ctx.options().target_block_size,
         )?;
+
         let mut compressed_chunks = Vec::with_capacity(less_chunked.nchunks());
         for (index, chunk) in less_chunked.chunks().enumerate() {
             // these are extremely valuable when reading/writing, but are potentially much more expensive
             // to compute post-compression. That's because not all encodings implement stats, so we would
             // potentially have to canonicalize during writes just to get stats, which would be silly.
             // Also, we only really require them for column chunks, not for every array.
-            compute_pruning_stats(&chunk)?;
+            compute_precompression_stats(&chunk)?;
 
             let like = previous.as_ref().map(|(like, _)| like);
             let (compressed_chunk, tree) = ctx
@@ -136,7 +137,7 @@ impl ChunkedCompressor {
                 .unwrap_or(false);
 
             if ratio > 1.0 || exceeded_target_ratio {
-                warn!("unsatisfactory ratio {} {:?}", ratio, previous);
+                info!("unsatisfactory ratio {}, previous: {:?}", ratio, previous);
                 let (compressed_chunk, tree) = ctx.compress_array(&chunk)?.into_parts();
                 let new_ratio = (compressed_chunk.nbytes() as f32) / (chunk.nbytes() as f32);
                 previous = tree.map(|tree| (tree, new_ratio));

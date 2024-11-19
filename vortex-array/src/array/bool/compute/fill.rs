@@ -16,9 +16,7 @@ impl FillForwardFn for BoolArray {
         }
         // all valid, but we need to convert to non-nullable
         if validity.all_valid() {
-            return Ok(
-                Self::new(self.boolean_buffer().clone(), Nullability::Nullable).into_array(),
-            );
+            return Ok(Self::new(self.boolean_buffer(), Nullability::Nullable).into_array());
         }
         // all invalid => fill with default value (false)
         if validity.all_invalid() {

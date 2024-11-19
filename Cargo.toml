@@ -206,6 +206,7 @@ multiple_crate_versions = "allow"
 or_fun_call = "deny"
 panic_in_result_fn = "deny"
 panic = "deny"
+redundant_clone = "deny"
 same_name_method = "deny"
 tests_outside_test_module = "deny"
 # todo = "deny"
@@ -222,3 +223,7 @@ lto = "thin"      # attempts to perform optimizations across all crates within t
 codegen-units = 16 # default for "release", which "bench" inherits
 lto = false        # default
 debug = true
+
+[profile.benchtest]
+inherits = "bench"
+debug-assertions = true
