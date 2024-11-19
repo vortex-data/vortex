@@ -216,20 +216,20 @@ impl ArrayData {
     pub fn metadata<M: ArrayMetadata + Clone + for<'m> TryDeserializeArrayMetadata<'m>>(
         &self,
     ) -> VortexResult<M> {
-        let meta = match &self.0 {
-            InnerArrayData::Owned(d) => d.metadata().clone(),
-            InnerArrayData::Viewed(v) => Arc::new(M::try_deserialize_metadata(v.metadata())?),
-        };
-
-        meta.as_any()
-            .downcast_ref::<M>()
-            .ok_or_else(|| {
-                vortex_err!(
-                    "Failed to downcast metadata to {}",
-                    std::any::type_name::<M>()
-                )
-            })
-            .cloned()
+        match &self.0 {
+            InnerArrayData::Owned(d) => d
+                .metadata()
+                .as_any()
+                .downcast_ref::<M>()
+                .ok_or_else(|| {
+                    vortex_err!(
+                        "Failed to downcast metadata to {}",
+                        std::any::type_name::<M>()
+                    )
+                })
+                .cloned(),
+            InnerArrayData::Viewed(v) => M::try_deserialize_metadata(v.metadata()),
+        }
     }
 
     /// Get back the (possibly owned) metadata for the array.
