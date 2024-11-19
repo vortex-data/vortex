@@ -91,7 +91,7 @@ impl StatsSet {
             (Stat::Max, (true_count > 0).into()),
             (
                 Stat::IsConstant,
-                ((true_count == 0 || true_count == len) && null_count == 0).into(),
+                ((true_count == 0 && null_count == 0) || true_count == len).into(),
             ),
         ])
     }
