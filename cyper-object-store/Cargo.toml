@@ -1,0 +1,37 @@
+[package]
+name = "cyper-object-store"
+description = "An ObjectStore implementation on top of the cyper HTTP client and the compio runtime"
+version.workspace = true
+homepage.workspace = true
+repository.workspace = true
+authors.workspace = true
+license.workspace = true
+keywords.workspace = true
+include.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+readme.workspace = true
+categories.workspace = true
+
+[dependencies]
+aws-sigv4 = { workspace = true }
+async-trait = { workspace = true }
+bytes = { workspace = true }
+chrono = { workspace = true }
+compio = { workspace = true, features = ["macros"] }
+cyper = { workspace = true }
+futures = { workspace = true }
+hex = { workspace = true }
+http = { workspace = true }
+object_store = { workspace = true, features = ["aws"] }
+sha2 = { workspace = true }
+url = { workspace = true }
+vortex-error = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+local_s3 = { workspace = true }
+
+
+[lints]
+workspace = true
