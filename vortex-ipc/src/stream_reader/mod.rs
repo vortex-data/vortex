@@ -8,18 +8,18 @@ use vortex_array::Context;
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult};
-use vortex_io::VortexRead;
+use vortex_io::{VortexBufReader, VortexReadAt};
 
 use crate::messages::reader::MessageReader;
 
-pub struct StreamArrayReader<R: VortexRead> {
+pub struct StreamArrayReader<R: VortexReadAt> {
     msgs: MessageReader<R>,
     ctx: Arc<Context>,
     dtype: Option<Arc<DType>>,
 }
 
-impl<R: VortexRead> StreamArrayReader<R> {
-    pub async fn try_new(read: R, ctx: Arc<Context>) -> VortexResult<Self> {
+impl<R: VortexReadAt> StreamArrayReader<R> {
+    pub async fn try_new(read: VortexBufReader<R>, ctx: Arc<Context>) -> VortexResult<Self> {
         Ok(Self {
             msgs: MessageReader::try_new(read).await?,
             ctx,
@@ -57,7 +57,7 @@ impl<R: VortexRead> StreamArrayReader<R> {
             .vortex_expect("Cannot read array from stream: DType not set")
             .deref()
             .clone();
-        self.msgs.into_array_stream(self.ctx.clone(), dtype)
+        self.msgs.into_array_stream(self.ctx, dtype)
     }
 
     /// Reads a single page from the stream.

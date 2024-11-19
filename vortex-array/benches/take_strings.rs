@@ -2,7 +2,7 @@
 
 use criterion::{criterion_group, criterion_main, Criterion};
 use vortex_array::array::{PrimitiveArray, VarBinArray};
-use vortex_array::compute::take;
+use vortex_array::compute::{take, TakeOptions};
 use vortex_array::validity::Validity;
 use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::{DType, Nullability};
@@ -33,7 +33,9 @@ fn bench_varbin(c: &mut Criterion) {
     let array = fixture(65_535);
     let indices = indices(1024);
 
-    c.bench_function("varbin", |b| b.iter(|| take(&array, &indices).unwrap()));
+    c.bench_function("varbin", |b| {
+        b.iter(|| take(&array, &indices, TakeOptions::default()).unwrap())
+    });
 }
 
 fn bench_varbinview(c: &mut Criterion) {
@@ -41,7 +43,7 @@ fn bench_varbinview(c: &mut Criterion) {
     let indices = indices(1024);
 
     c.bench_function("varbinview", |b| {
-        b.iter(|| take(array.as_ref(), &indices).unwrap())
+        b.iter(|| take(array.as_ref(), &indices, TakeOptions::default()).unwrap())
     });
 }
 

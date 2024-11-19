@@ -7,7 +7,7 @@ use super::ByteBoolArray;
 impl ArrayStatisticsCompute for ByteBoolArray {
     fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
         if self.is_empty() {
-            return Ok(StatsSet::new());
+            return Ok(StatsSet::default());
         }
 
         // TODO(adamgs): This is slightly wasteful and could be optimized in the future

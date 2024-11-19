@@ -1,6 +1,6 @@
 use num_traits::AsPrimitive;
 use vortex_array::compute::unary::{FillForwardFn, ScalarAtFn};
-use vortex_array::compute::{ArrayCompute, SliceFn, TakeFn};
+use vortex_array::compute::{ArrayCompute, SliceFn, TakeFn, TakeOptions};
 use vortex_array::validity::{ArrayValidity, Validity};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
@@ -49,7 +49,7 @@ impl SliceFn for ByteBoolArray {
 }
 
 impl TakeFn for ByteBoolArray {
-    fn take(&self, indices: &ArrayData) -> VortexResult<ArrayData> {
+    fn take(&self, indices: &ArrayData, _options: TakeOptions) -> VortexResult<ArrayData> {
         let validity = self.validity();
         let indices = indices.clone().as_primitive();
         let bools = self.maybe_null_slice();
@@ -144,7 +144,7 @@ mod tests {
     #[test]
     fn test_slice() {
         let original = vec![Some(true), Some(true), None, Some(false), None];
-        let vortex_arr = ByteBoolArray::from(original.clone());
+        let vortex_arr = ByteBoolArray::from(original);
 
         let sliced_arr = slice(vortex_arr.as_ref(), 1, 4).unwrap();
         let sliced_arr = ByteBoolArray::try_from(sliced_arr).unwrap();

@@ -5,7 +5,7 @@ use crate::array::extension::ExtensionArray;
 use crate::array::ConstantArray;
 use crate::compute::unary::{scalar_at, scalar_at_unchecked, CastFn, ScalarAtFn};
 use crate::compute::{
-    compare, slice, take, ArrayCompute, MaybeCompareFn, Operator, SliceFn, TakeFn,
+    compare, slice, take, ArrayCompute, MaybeCompareFn, Operator, SliceFn, TakeFn, TakeOptions,
 };
 use crate::variants::ExtensionArrayTrait;
 use crate::{ArrayDType, ArrayData, IntoArrayData};
@@ -87,7 +87,11 @@ impl SliceFn for ExtensionArray {
 }
 
 impl TakeFn for ExtensionArray {
-    fn take(&self, indices: &ArrayData) -> VortexResult<ArrayData> {
-        Ok(Self::new(self.ext_dtype().clone(), take(self.storage(), indices)?).into_array())
+    fn take(&self, indices: &ArrayData, options: TakeOptions) -> VortexResult<ArrayData> {
+        Ok(Self::new(
+            self.ext_dtype().clone(),
+            take(self.storage(), indices, options)?,
+        )
+        .into_array())
     }
 }

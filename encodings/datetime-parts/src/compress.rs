@@ -17,7 +17,7 @@ pub struct TemporalParts {
 /// cascading compression.
 pub fn split_temporal(array: TemporalArray) -> VortexResult<TemporalParts> {
     let temporal_values = array.temporal_values().into_primitive()?;
-    let validity = temporal_values.validity().clone();
+    let validity = temporal_values.validity();
 
     // After this operation, timestamps will be non-nullable PrimitiveArray<i64>
     let timestamps = try_cast(

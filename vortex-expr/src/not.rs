@@ -71,7 +71,7 @@ mod tests {
     #[test]
     fn invert_booleans() {
         let not_expr = Not::new_expr(Arc::new(Identity));
-        let bools = BoolArray::from(vec![false, true, false, false, true, true]);
+        let bools = BoolArray::from_iter([false, true, false, false, true, true]);
         assert_eq!(
             not_expr
                 .evaluate(bools.as_ref())

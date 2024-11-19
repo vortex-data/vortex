@@ -80,12 +80,12 @@ fn enc_impls() -> Vec<ArrayData> {
         BitPackedArray::encode(&PrimitiveArray::from(vec![100u32]).into_array(), 8)
             .unwrap()
             .into_array(),
-        BoolArray::from(vec![false]).into_array(),
+        BoolArray::from_iter([false]).into_array(),
         ByteBoolArray::from(vec![false]).into_array(),
         ChunkedArray::try_new(
             vec![
-                BoolArray::from(vec![false]).into_array(),
-                BoolArray::from(vec![true]).into_array(),
+                BoolArray::from_iter([false]).into_array(),
+                BoolArray::from_iter([true]).into_array(),
             ],
             DType::Bool(Nullability::NonNullable),
         )

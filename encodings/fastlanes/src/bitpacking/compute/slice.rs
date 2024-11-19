@@ -47,7 +47,7 @@ mod test {
     use itertools::Itertools;
     use vortex_array::array::{PrimitiveArray, SparseArray};
     use vortex_array::compute::unary::scalar_at;
-    use vortex_array::compute::{slice, take};
+    use vortex_array::compute::{slice, take, TakeOptions};
     use vortex_array::IntoArrayData;
 
     use crate::BitPackedArray;
@@ -201,6 +201,7 @@ mod test {
         let taken = take(
             &sliced,
             PrimitiveArray::from(vec![101i64, 1125i64, 1138i64]).as_ref(),
+            TakeOptions::default(),
         )
         .unwrap();
         assert_eq!(taken.len(), 3);

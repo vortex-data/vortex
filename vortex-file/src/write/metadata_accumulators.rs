@@ -105,7 +105,7 @@ impl<T> StandardAccumulator<T> {
 impl<T> MetadataAccumulator for StandardAccumulator<T>
 where
     Option<T>: TryFrom<ScalarValue, Error = VortexError>,
-    ArrayData: From<Vec<Option<T>>>,
+    ArrayData: FromIterator<Option<T>>,
 {
     fn push_chunk(&mut self, array: &ArrayData) {
         self.maxima.push_chunk(array);
@@ -195,7 +195,7 @@ impl<T> UnwrappedStatAccumulator<T> {
 impl<T> SingularAccumulator for UnwrappedStatAccumulator<T>
 where
     Option<T>: TryFrom<ScalarValue, Error = VortexError>,
-    ArrayData: From<Vec<Option<T>>>,
+    ArrayData: FromIterator<Option<T>>,
 {
     fn push_chunk(&mut self, array: &ArrayData) {
         self.values.push(
@@ -209,7 +209,7 @@ where
 
     fn into_column(self) -> Option<(FieldName, ArrayData)> {
         if self.values.iter().any(Option::is_some) {
-            return Some((self.name, ArrayData::from(self.values)));
+            return Some((self.name, ArrayData::from_iter(self.values)));
         }
         None
     }
@@ -238,7 +238,7 @@ mod tests {
     #[test]
     fn test_bool_metadata_schema() {
         let mut bool_accumulator = BoolAccumulator::new();
-        let chunk = BoolArray::from_vec(vec![true], Validity::AllValid).into_array();
+        let chunk = BoolArray::from_iter([true]).into_array();
         bool_accumulator.push_chunk(&chunk);
 
         let struct_array =

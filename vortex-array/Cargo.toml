@@ -32,6 +32,7 @@ arrow-schema = { workspace = true }
 arrow-select = { workspace = true }
 bytes = { workspace = true }
 enum-iterator = { workspace = true }
+enum-map = { workspace = true }
 flatbuffers = { workspace = true, optional = true }
 flexbuffers = { workspace = true, optional = true }
 futures-util = { workspace = true }

@@ -1,24 +1,23 @@
 use std::future::Future;
-use std::io::Cursor;
 use std::ops::Range;
 use std::sync::Arc;
 use std::{io, mem};
 
-use bytes::BytesMut;
+use bytes::Bytes;
 use object_store::path::Path;
 use object_store::{ObjectStore, WriteMultipart};
 use vortex_buffer::io_buf::IoBuf;
 use vortex_buffer::Buffer;
 use vortex_error::{vortex_panic, VortexError, VortexResult};
 
-use crate::{VortexRead, VortexReadAt, VortexWrite};
+use crate::{VortexBufReader, VortexReadAt, VortexWrite};
 
 pub trait ObjectStoreExt {
     fn vortex_read(
         &self,
         location: &Path,
         range: Range<usize>,
-    ) -> impl Future<Output = VortexResult<impl VortexRead>>;
+    ) -> impl Future<Output = VortexResult<VortexBufReader<impl VortexReadAt>>>;
 
     fn vortex_reader(&self, location: &Path) -> impl VortexReadAt;
 
@@ -33,9 +32,9 @@ impl ObjectStoreExt for Arc<dyn ObjectStore> {
         &self,
         location: &Path,
         range: Range<usize>,
-    ) -> VortexResult<impl VortexRead> {
+    ) -> VortexResult<VortexBufReader<impl VortexReadAt>> {
         let bytes = self.get_range(location, range).await?;
-        Ok(Cursor::new(Buffer::from(bytes)))
+        Ok(VortexBufReader::new(Buffer::from(bytes)))
     }
 
     fn vortex_reader(&self, location: &Path) -> impl VortexReadAt {
@@ -66,21 +65,20 @@ impl ObjectStoreReadAt {
 }
 
 impl VortexReadAt for ObjectStoreReadAt {
-    fn read_at_into(
+    fn read_byte_range(
         &self,
         pos: u64,
-        mut buffer: BytesMut,
-    ) -> impl Future<Output = io::Result<BytesMut>> + 'static {
+        len: u64,
+    ) -> impl Future<Output = io::Result<Bytes>> + 'static {
         let object_store = self.object_store.clone();
         let location = self.location.clone();
 
         Box::pin(async move {
             let start_range = pos as usize;
             let bytes = object_store
-                .get_range(&location, start_range..(start_range + buffer.len()))
+                .get_range(&location, start_range..(start_range + len as usize))
                 .await?;
-            buffer.as_mut().copy_from_slice(bytes.as_ref());
-            Ok(buffer)
+            Ok(bytes)
         })
     }
 

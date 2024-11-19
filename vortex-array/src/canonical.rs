@@ -23,6 +23,7 @@ use crate::array::{
     varbinview_as_arrow, BoolArray, ExtensionArray, NullArray, PrimitiveArray, StructArray,
     TemporalArray, VarBinViewArray,
 };
+use crate::arrow::{infer_data_type, FromArrowArray};
 use crate::compute::unary::try_cast;
 use crate::encoding::ArrayEncoding;
 use crate::validity::ArrayValidity;
@@ -86,6 +87,18 @@ impl Canonical {
                 }
             }
         })
+    }
+}
+
+impl Canonical {
+    // Create an empty canonical array of the given dtype.
+    pub fn empty(dtype: &DType) -> VortexResult<Canonical> {
+        let arrow_dtype = infer_data_type(dtype)?;
+        ArrayData::from_arrow(
+            arrow_array::new_empty_array(&arrow_dtype),
+            dtype.is_nullable(),
+        )
+        .into_canonical()
     }
 }
 
@@ -174,19 +187,11 @@ fn struct_to_arrow(struct_array: StructArray) -> VortexResult<ArrayRef> {
     let field_arrays: Vec<ArrayRef> =
         Iterator::zip(struct_array.names().iter(), struct_array.children())
             .map(|(name, f)| {
-                let canonical = f.into_canonical().map_err(|err| {
-                    err.with_context(format!("Failed to canonicalize field {}", name))
-                })?;
-                match canonical {
-                    // visit nested structs recursively
-                    Canonical::Struct(a) => struct_to_arrow(a),
-                    _ => canonical.into_arrow().map_err(|err| {
-                        err.with_context(format!(
-                            "Failed to convert canonicalized field {} to arrow",
-                            name
-                        ))
-                    }),
-                }
+                f.into_canonical()
+                    .map_err(|err| {
+                        err.with_context(format!("Failed to canonicalize field {}", name))
+                    })
+                    .and_then(|c| c.into_arrow())
             })
             .collect::<VortexResult<Vec<_>>>()?;
 
@@ -356,6 +361,7 @@ where
 /// the array's internal codec.
 impl IntoCanonical for ArrayData {
     fn into_canonical(self) -> VortexResult<Canonical> {
+        log::debug!("Canonicalizing array with encoding {:?}", self.encoding());
         ArrayEncoding::canonicalize(self.encoding(), self)
     }
 }
@@ -461,8 +467,7 @@ mod test {
             .as_any()
             .downcast_ref::<ArrowStructArray>()
             .cloned()
-            .unwrap()
-            .clone();
+            .unwrap();
 
         let inner_a = inner_struct
             .column(0)

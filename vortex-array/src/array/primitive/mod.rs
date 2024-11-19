@@ -64,7 +64,7 @@ impl PrimitiveArray {
                 },
                 Some(buffer),
                 validity.into_array().into_iter().collect_vec().into(),
-                StatsSet::new(),
+                StatsSet::default(),
             )
             .vortex_expect("PrimitiveArray::new should never fail!"),
         }
@@ -82,7 +82,7 @@ impl PrimitiveArray {
 
     pub fn from_nullable_vec<T: NativePType>(values: Vec<Option<T>>) -> Self {
         let elems: Vec<T> = values.iter().map(|v| v.unwrap_or_default()).collect();
-        let validity = Validity::from(values.iter().map(|v| v.is_some()).collect::<Vec<_>>());
+        let validity = Validity::from_iter(values.iter().map(|v| v.is_some()));
         Self::from_vec(elems, validity)
     }
 

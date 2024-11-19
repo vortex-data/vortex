@@ -100,7 +100,7 @@ impl ALPRDArray {
                 has_exceptions,
             },
             children.into(),
-            StatsSet::new(),
+            StatsSet::default(),
         )
     }
 

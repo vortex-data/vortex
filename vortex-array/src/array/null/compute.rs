@@ -4,7 +4,7 @@ use vortex_scalar::Scalar;
 
 use crate::array::null::NullArray;
 use crate::compute::unary::ScalarAtFn;
-use crate::compute::{ArrayCompute, SliceFn, TakeFn};
+use crate::compute::{ArrayCompute, SliceFn, TakeFn, TakeOptions};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
 
@@ -39,17 +39,19 @@ impl ScalarAtFn for NullArray {
 }
 
 impl TakeFn for NullArray {
-    fn take(&self, indices: &ArrayData) -> VortexResult<ArrayData> {
+    fn take(&self, indices: &ArrayData, options: TakeOptions) -> VortexResult<ArrayData> {
         let indices = indices.clone().into_primitive()?;
 
         // Enforce all indices are valid
-        match_each_integer_ptype!(indices.ptype(), |$T| {
-            for index in indices.maybe_null_slice::<$T>() {
-                if !((*index as usize) < self.len()) {
-                    vortex_bail!(OutOfBounds: *index as usize, 0, self.len());
+        if !options.skip_bounds_check {
+            match_each_integer_ptype!(indices.ptype(), |$T| {
+                for index in indices.maybe_null_slice::<$T>() {
+                    if !((*index as usize) < self.len()) {
+                        vortex_bail!(OutOfBounds: *index as usize, 0, self.len());
+                    }
                 }
-            }
-        });
+            });
+        }
 
         Ok(NullArray::new(indices.len()).into_array())
     }
@@ -61,14 +63,14 @@ mod test {
 
     use crate::array::null::NullArray;
     use crate::compute::unary::scalar_at;
-    use crate::compute::{slice, take};
+    use crate::compute::{SliceFn, TakeFn, TakeOptions};
     use crate::validity::{ArrayValidity, LogicalValidity};
     use crate::IntoArrayData;
 
     #[test]
     fn test_slice_nulls() {
-        let nulls = NullArray::new(10).into_array();
-        let sliced = NullArray::try_from(slice(&nulls, 0, 4).unwrap()).unwrap();
+        let nulls = NullArray::new(10);
+        let sliced = NullArray::try_from(nulls.slice(0, 4).unwrap()).unwrap();
 
         assert_eq!(sliced.len(), 4);
         assert!(matches!(
@@ -79,9 +81,13 @@ mod test {
 
     #[test]
     fn test_take_nulls() {
-        let nulls = NullArray::new(10).into_array();
-        let taken = NullArray::try_from(take(&nulls, vec![0u64, 2, 4, 6, 8].into_array()).unwrap())
-            .unwrap();
+        let nulls = NullArray::new(10);
+        let taken = NullArray::try_from(
+            nulls
+                .take(&vec![0u64, 2, 4, 6, 8].into_array(), TakeOptions::default())
+                .unwrap(),
+        )
+        .unwrap();
 
         assert_eq!(taken.len(), 5);
         assert!(matches!(

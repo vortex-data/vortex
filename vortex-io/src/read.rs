@@ -1,22 +1,10 @@
 use std::future::{self, Future};
 use std::io;
-use std::io::Cursor;
 use std::sync::Arc;
 
-use bytes::BytesMut;
+use bytes::{Bytes, BytesMut};
 use vortex_buffer::Buffer;
 use vortex_error::vortex_err;
-
-/// An asynchronous streaming reader.
-///
-/// Implementations expose data via the asynchronous [`read_into`][VortexRead::read_into], which
-/// will fill the exact number of bytes and advance the stream.
-///
-/// If the exact number of bytes is not available from the stream, an
-/// [`UnexpectedEof`][std::io::ErrorKind::UnexpectedEof] error is returned.
-pub trait VortexRead {
-    fn read_into(&mut self, buffer: BytesMut) -> impl Future<Output = io::Result<BytesMut>>;
-}
 
 /// A trait for types that support asynchronous reads.
 ///
@@ -25,23 +13,20 @@ pub trait VortexRead {
 ///
 /// Readers must be cheaply cloneable to allow for easy sharing across tasks or threads.
 pub trait VortexReadAt: Send + Sync + Clone + 'static {
-    /// Request an asynchronous positional read to be done, with results written into the provided `buffer`.
+    /// Request an asynchronous positional read. Results will be returned as an owned [`Bytes`].
     ///
-    /// This method will take ownership of the provided `buffer`, and upon successful completion will return
-    /// the buffer completely full with data.
-    ///
-    /// If the reader does not have enough data available to fill the buffer, the returned Future will complete
-    /// with an [`io::Error`].
+    /// If the reader does not have the requested number of bytes, the returned Future will complete
+    /// with an [`UnexpectedEof`][std::io::ErrorKind::UnexpectedEof].
     ///
     /// ## Thread Safety
     ///
     /// The resultant Future need not be [`Send`], allowing implementations that use thread-per-core
     /// executors.
-    fn read_at_into(
+    fn read_byte_range(
         &self,
         pos: u64,
-        buffer: BytesMut,
-    ) -> impl Future<Output = io::Result<BytesMut>> + 'static;
+        len: u64,
+    ) -> impl Future<Output = io::Result<Bytes>> + 'static;
 
     // TODO(ngates): the read implementation should be able to hint at its latency/throughput
     //  allowing the caller to make better decisions about how to coalesce reads.
@@ -57,12 +42,12 @@ pub trait VortexReadAt: Send + Sync + Clone + 'static {
 }
 
 impl<T: VortexReadAt> VortexReadAt for Arc<T> {
-    fn read_at_into(
+    fn read_byte_range(
         &self,
         pos: u64,
-        buffer: BytesMut,
-    ) -> impl Future<Output = io::Result<BytesMut>> + 'static {
-        T::read_at_into(self, pos, buffer)
+        len: u64,
+    ) -> impl Future<Output = io::Result<Bytes>> + 'static {
+        T::read_byte_range(self, pos, len)
     }
 
     fn performance_hint(&self) -> usize {
@@ -74,50 +59,51 @@ impl<T: VortexReadAt> VortexReadAt for Arc<T> {
     }
 }
 
-impl VortexRead for BytesMut {
-    async fn read_into(&mut self, buffer: BytesMut) -> io::Result<BytesMut> {
-        if buffer.len() > self.len() {
-            Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                vortex_err!("unexpected eof"),
-            ))
-        } else {
-            Ok(self.split_to(buffer.len()))
-        }
-    }
-}
-
-// Implement reading for a cursor operation.
-impl<R: VortexReadAt> VortexRead for Cursor<R> {
-    async fn read_into(&mut self, buffer: BytesMut) -> io::Result<BytesMut> {
-        let res = R::read_at_into(self.get_ref(), self.position(), buffer).await?;
-        self.set_position(self.position() + res.len() as u64);
-        Ok(res)
-    }
-}
-
 impl VortexReadAt for Buffer {
-    fn read_at_into(
+    fn read_byte_range(
         &self,
         pos: u64,
-        mut buffer: BytesMut,
-    ) -> impl Future<Output = io::Result<BytesMut>> + 'static {
-        if buffer.len() + pos as usize > self.len() {
+        len: u64,
+    ) -> impl Future<Output = io::Result<Bytes>> + 'static {
+        if (len + pos) as usize > self.len() {
             future::ready(Err(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
                 vortex_err!("unexpected eof"),
             )))
         } else {
-            let buffer_len = buffer.len();
-            buffer.copy_from_slice(
-                self.slice(pos as usize..pos as usize + buffer_len)
-                    .as_slice(),
-            );
-            future::ready(Ok(buffer))
+            let mut buffer = BytesMut::with_capacity(len as usize);
+            unsafe {
+                buffer.set_len(len as usize);
+            }
+            buffer.copy_from_slice(self.slice(pos as usize..(pos + len) as usize).as_slice());
+            future::ready(Ok(buffer.freeze()))
         }
     }
 
     fn size(&self) -> impl Future<Output = u64> + 'static {
         future::ready(self.len() as u64)
+    }
+}
+
+impl VortexReadAt for Bytes {
+    fn read_byte_range(
+        &self,
+        pos: u64,
+        len: u64,
+    ) -> impl Future<Output = io::Result<Bytes>> + 'static {
+        if (pos + len) as usize > self.len() {
+            future::ready(Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                vortex_err!("unexpected eof"),
+            )))
+        } else {
+            let sliced = self.slice(pos as usize..(pos + len) as usize);
+            future::ready(Ok(sliced))
+        }
+    }
+
+    fn size(&self) -> impl Future<Output = u64> + 'static {
+        let len = self.len() as u64;
+        future::ready(len)
     }
 }

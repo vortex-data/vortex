@@ -273,7 +273,13 @@ impl VarBinViewArray {
             children.push(a)
         }
 
-        Self::try_from_parts(dtype, num_views, metadata, children.into(), StatsSet::new())
+        Self::try_from_parts(
+            dtype,
+            num_views,
+            metadata,
+            children.into(),
+            StatsSet::default(),
+        )
     }
 
     /// Number of raw string data buffers held by this array.

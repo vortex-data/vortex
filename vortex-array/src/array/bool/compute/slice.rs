@@ -6,11 +6,11 @@ use crate::{ArrayData, IntoArrayData};
 
 impl SliceFn for BoolArray {
     fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData> {
-        Self::try_new(
+        Ok(Self::try_new(
             self.boolean_buffer().slice(start, stop - start),
             self.validity().slice(start, stop)?,
-        )
-        .map(|a| a.into_array())
+        )?
+        .into_array())
     }
 }
 

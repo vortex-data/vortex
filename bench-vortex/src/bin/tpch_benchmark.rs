@@ -3,6 +3,7 @@ use std::sync;
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
+use bench_vortex::setup_logger;
 use bench_vortex::tpch::dbgen::{DBGen, DBGenOptions};
 use bench_vortex::tpch::{
     load_datasets, run_tpch_query, tpch_queries, Format, EXPECTED_ROW_COUNTS,
@@ -11,6 +12,7 @@ use clap::{ArgAction, Parser};
 use futures::future::try_join_all;
 use indicatif::ProgressBar;
 use itertools::Itertools;
+use log::LevelFilter;
 use prettytable::{Cell, Row, Table};
 use vortex::aliases::hash_map::HashMap;
 
@@ -27,12 +29,16 @@ struct Args {
     warmup: bool,
     #[arg(short, long, default_value = "10")]
     iterations: usize,
+    #[arg(long)]
+    vortex_only: bool,
     #[arg(short, long)]
-    output_format: OutputFormat,
+    verbose: bool,
+    #[arg(short, long)]
+    display_format: DisplayFormat,
 }
 
 #[derive(clap::ValueEnum, Default, Clone, Debug)]
-enum OutputFormat {
+enum DisplayFormat {
     #[default]
     Table,
     GhJson,
@@ -46,6 +52,12 @@ struct Measurement {
 
 fn main() -> ExitCode {
     let args = Args::parse();
+
+    setup_logger(if args.verbose {
+        LevelFilter::Debug
+    } else {
+        LevelFilter::Info
+    });
 
     let runtime = match args.threads {
         Some(0) => panic!("Can't use 0 threads for runtime"),
@@ -67,7 +79,8 @@ fn main() -> ExitCode {
         args.exclude_queries,
         args.iterations,
         args.warmup,
-        args.output_format,
+        args.vortex_only,
+        args.display_format,
     ))
 }
 
@@ -104,7 +117,8 @@ async fn bench_main(
     exclude_queries: Option<Vec<usize>>,
     iterations: usize,
     warmup: bool,
-    output_format: OutputFormat,
+    vortex_only: bool,
+    display_format: DisplayFormat,
 ) -> ExitCode {
     // uncomment the below to enable trace logging of datafusion execution
     // setup_logger(LevelFilter::Trace);
@@ -113,21 +127,40 @@ async fn bench_main(
     let data_dir = DBGen::new(DBGenOptions::default()).generate().unwrap();
 
     // The formats to run against (vs the baseline)
-    let formats = [
-        Format::Arrow,
-        Format::Parquet,
-        Format::InMemoryVortex {
-            enable_pushdown: true,
-        },
-        Format::OnDiskVortex {
-            enable_compression: true,
-        },
-    ];
+    let formats = if vortex_only {
+        vec![
+            Format::Arrow,
+            Format::OnDiskVortex {
+                enable_compression: true,
+            },
+        ]
+    } else {
+        vec![
+            Format::Arrow,
+            Format::Parquet,
+            Format::InMemoryVortex {
+                enable_pushdown: false,
+            },
+            Format::InMemoryVortex {
+                enable_pushdown: true,
+            },
+            Format::OnDiskVortex {
+                enable_compression: true,
+            },
+            Format::OnDiskVortex {
+                enable_compression: false,
+            },
+        ]
+    };
 
     // Load datasets
-    let ctxs = try_join_all(formats.map(|format| load_datasets(&data_dir, format)))
-        .await
-        .unwrap();
+    let ctxs = try_join_all(
+        formats
+            .iter()
+            .map(|format| load_datasets(&data_dir, *format)),
+    )
+    .await
+    .unwrap();
 
     let query_count = queries.as_ref().map_or(22, |c| c.len());
 
@@ -156,6 +189,7 @@ async fn bench_main(
         let tx = measurements_tx.clone();
         let count_tx = row_count_tx.clone();
         let progress = progress.clone();
+        let formats = formats.clone();
         rayon::spawn_fifo(move || {
             // let mut elapsed_us = Vec::new();
             let rt = tokio::runtime::Builder::new_current_thread()
@@ -246,11 +280,11 @@ async fn bench_main(
             })
     }
 
-    match output_format {
-        OutputFormat::Table => {
+    match display_format {
+        DisplayFormat::Table => {
             render_table(measurements_rx, &formats).unwrap();
         }
-        OutputFormat::GhJson => todo!(),
+        DisplayFormat::GhJson => todo!(),
     }
 
     if mismatched {

@@ -4,8 +4,9 @@ use vortex_scalar::Scalar;
 
 use crate::array::struct_::StructArray;
 use crate::compute::unary::{scalar_at, scalar_at_unchecked, ScalarAtFn};
-use crate::compute::{filter, slice, take, ArrayCompute, FilterFn, SliceFn, TakeFn};
-use crate::stats::ArrayStatistics;
+use crate::compute::{
+    filter, slice, take, ArrayCompute, FilterFn, FilterMask, SliceFn, TakeFn, TakeOptions,
+};
 use crate::variants::StructArrayTrait;
 use crate::{ArrayDType, ArrayData, IntoArrayData};
 
@@ -48,14 +49,14 @@ impl ScalarAtFn for StructArray {
 }
 
 impl TakeFn for StructArray {
-    fn take(&self, indices: &ArrayData) -> VortexResult<ArrayData> {
+    fn take(&self, indices: &ArrayData, options: TakeOptions) -> VortexResult<ArrayData> {
         Self::try_new(
             self.names().clone(),
             self.children()
-                .map(|field| take(&field, indices))
+                .map(|field| take(&field, indices, options))
                 .try_collect()?,
             indices.len(),
-            self.validity().take(indices)?,
+            self.validity().take(indices, options)?,
         )
         .map(|a| a.into_array())
     }
@@ -78,31 +79,26 @@ impl SliceFn for StructArray {
 }
 
 impl FilterFn for StructArray {
-    fn filter(&self, predicate: &ArrayData) -> VortexResult<ArrayData> {
+    fn filter(&self, mask: FilterMask) -> VortexResult<ArrayData> {
+        let validity = self.validity().filter(&mask)?;
+
         let fields: Vec<ArrayData> = self
             .children()
-            .map(|field| filter(&field, predicate))
+            .map(|field| filter(&field, mask.clone()))
             .try_collect()?;
         let length = fields
             .first()
             .map(|a| a.len())
-            .or_else(|| predicate.statistics().compute_true_count())
-            .unwrap_or_default();
+            .unwrap_or_else(|| mask.true_count());
 
-        Self::try_new(
-            self.names().clone(),
-            fields,
-            length,
-            self.validity().filter(predicate)?,
-        )
-        .map(|a| a.into_array())
+        Self::try_new(self.names().clone(), fields, length, validity).map(|a| a.into_array())
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::array::{BoolArray, StructArray};
-    use crate::compute::filter;
+    use crate::array::StructArray;
+    use crate::compute::{filter, FilterMask};
     use crate::validity::Validity;
 
     #[test]
@@ -112,7 +108,7 @@ mod tests {
         let mask = vec![
             false, true, false, true, false, true, false, true, false, true,
         ];
-        let filtered = filter(struct_arr.as_ref(), BoolArray::from(mask)).unwrap();
+        let filtered = filter(struct_arr.as_ref(), FilterMask::from_iter(mask)).unwrap();
         assert_eq!(filtered.len(), 5);
     }
 
@@ -120,7 +116,7 @@ mod tests {
     fn filter_empty_struct_with_empty_filter() {
         let struct_arr =
             StructArray::try_new(vec![].into(), vec![], 0, Validity::NonNullable).unwrap();
-        let filtered = filter(struct_arr.as_ref(), BoolArray::from(vec![])).unwrap();
+        let filtered = filter(struct_arr.as_ref(), FilterMask::from_iter::<[bool; 0]>([])).unwrap();
         assert_eq!(filtered.len(), 0);
     }
 }

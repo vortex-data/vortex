@@ -27,7 +27,7 @@ impl EncodingCompressor for RunEndCompressor {
     }
 
     fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {
-        if array.encoding().id() != Primitive::ID {
+        if !array.is_encoding(Primitive::ID) {
             return None;
         }
 

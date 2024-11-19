@@ -4,6 +4,7 @@ use std::fmt::{Display, Formatter};
 use std::hash::Hash;
 
 use enum_iterator::Sequence;
+use enum_map::Enum;
 use itertools::Itertools;
 pub use statsset::*;
 use vortex_dtype::Nullability::NonNullable;
@@ -19,7 +20,7 @@ mod statsset;
 /// Statistics that are used for pruning files (i.e., we want to ensure they are computed when compressing/writing).
 pub(crate) const PRUNING_STATS: &[Stat] = &[Stat::Min, Stat::Max, Stat::TrueCount, Stat::NullCount];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Sequence)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Sequence, Enum)]
 #[non_exhaustive]
 pub enum Stat {
     /// Frequency of each bit width (nulls are treated as 0)
@@ -43,6 +44,7 @@ pub enum Stat {
     TrueCount,
     /// The number of null values in the array
     NullCount,
+    UncompressedSizeInBytes,
 }
 
 impl Stat {
@@ -58,6 +60,7 @@ impl Stat {
                 | Stat::Min
                 | Stat::TrueCount
                 | Stat::NullCount
+                | Stat::UncompressedSizeInBytes
         )
     }
 
@@ -80,6 +83,7 @@ impl Display for Stat {
             Self::RunCount => write!(f, "run_count"),
             Self::TrueCount => write!(f, "true_count"),
             Self::NullCount => write!(f, "null_count"),
+            Self::UncompressedSizeInBytes => write!(f, "uncompressed_size_in_bytes"),
         }
     }
 }
@@ -99,10 +103,13 @@ pub trait Statistics {
     /// Compute all of the requested statistics (if not already present)
     /// Returns a StatsSet with the requested stats and any additional available stats
     fn compute_all(&self, stats: &[Stat]) -> VortexResult<StatsSet> {
+        let mut stats_set = self.to_set();
         for stat in stats {
-            let _ = self.compute(*stat);
+            if let Some(s) = self.compute(*stat) {
+                stats_set.set(*stat, s)
+            }
         }
-        Ok(self.to_set())
+        Ok(stats_set)
     }
 }
 
@@ -115,7 +122,7 @@ pub trait ArrayStatistics {
 pub trait ArrayStatisticsCompute {
     /// Compute the requested statistic. Can return additional stats.
     fn compute_statistics(&self, _stat: Stat) -> VortexResult<StatsSet> {
-        Ok(StatsSet::new())
+        Ok(StatsSet::default())
     }
 }
 
@@ -220,6 +227,10 @@ impl dyn Statistics + '_ {
 
     pub fn compute_trailing_zero_freq(&self) -> Option<Vec<usize>> {
         self.compute_as::<Vec<usize>>(Stat::TrailingZeroFreq)
+    }
+
+    pub fn compute_uncompressed_size_in_bytes(&self) -> Option<usize> {
+        self.compute_as(Stat::UncompressedSizeInBytes)
     }
 }
 

@@ -244,7 +244,7 @@ mod test {
     #[test]
     fn test_schema_conversion() {
         let struct_dtype = the_struct();
-        let schema_nonnull = DType::Struct(struct_dtype.clone(), Nullability::NonNullable);
+        let schema_nonnull = DType::Struct(struct_dtype, Nullability::NonNullable);
 
         assert_eq!(
             infer_schema(&schema_nonnull).unwrap(),
@@ -260,7 +260,7 @@ mod test {
     #[should_panic]
     fn test_schema_conversion_panics() {
         let struct_dtype = the_struct();
-        let schema_null = DType::Struct(struct_dtype.clone(), Nullability::Nullable);
+        let schema_null = DType::Struct(struct_dtype, Nullability::Nullable);
         let _ = infer_schema(&schema_null).unwrap();
     }
 

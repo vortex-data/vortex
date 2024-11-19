@@ -10,12 +10,11 @@ use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability};
 use vortex_error::{vortex_panic, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::aliases::hash_map::HashMap;
 use crate::array::primitive::PrimitiveArray;
 use crate::stats::{ArrayStatisticsCompute, Stat, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity};
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayDType, IntoArrayVariant};
+use crate::{ArrayDType, ArrayTrait as _, IntoArrayVariant};
 
 trait PStatsType: NativePType + Into<Scalar> + BitWidth {}
 
@@ -23,6 +22,10 @@ impl<T: NativePType + Into<Scalar> + BitWidth> PStatsType for T {}
 
 impl ArrayStatisticsCompute for PrimitiveArray {
     fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
+        if stat == Stat::UncompressedSizeInBytes {
+            return Ok(StatsSet::of(stat, self.nbytes()));
+        }
+
         let mut stats = match_each_native_ptype!(self.ptype(), |$P| {
             match self.logical_validity() {
                 LogicalValidity::AllValid(_) => self.maybe_null_slice::<$P>().compute_statistics(stat),
@@ -48,7 +51,7 @@ impl ArrayStatisticsCompute for PrimitiveArray {
 impl<T: PStatsType> ArrayStatisticsCompute for &[T] {
     fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
         if self.is_empty() {
-            return Ok(StatsSet::new());
+            return Ok(StatsSet::default());
         }
 
         Ok(match stat {
@@ -60,17 +63,16 @@ impl<T: PStatsType> ArrayStatisticsCompute for &[T] {
                         .get(Stat::Min)
                         .zip(stats.get(Stat::Max))
                         .map(|(min, max)| min == max)
-                        .unwrap_or(false)
-                        .into(),
+                        .unwrap_or(false),
                 );
                 stats
             }
             Stat::IsConstant => {
                 let first = self[0];
                 let is_constant = self.iter().all(|x| first.is_eq(*x));
-                StatsSet::from(HashMap::from([(Stat::IsConstant, is_constant.into())]))
+                StatsSet::from_iter([(Stat::IsConstant, is_constant.into())])
             }
-            Stat::NullCount => StatsSet::from(HashMap::from([(Stat::NullCount, 0u64.into())])),
+            Stat::NullCount => StatsSet::from_iter([(Stat::NullCount, 0u64.into())]),
             Stat::IsSorted => compute_is_sorted(self.iter().copied()),
             Stat::IsStrictSorted => compute_is_strict_sorted(self.iter().copied()),
             Stat::RunCount => compute_run_count(self.iter().copied()),
@@ -79,7 +81,7 @@ impl<T: PStatsType> ArrayStatisticsCompute for &[T] {
                 self.iter().skip(1).for_each(|next| stats.next(*next));
                 stats.finish()
             }
-            Stat::TrueCount => StatsSet::new(),
+            Stat::TrueCount | Stat::UncompressedSizeInBytes => StatsSet::default(),
         })
     }
 }
@@ -89,8 +91,8 @@ struct NullableValues<'a, T: PStatsType>(&'a [T], &'a BooleanBuffer);
 impl<T: PStatsType> ArrayStatisticsCompute for NullableValues<'_, T> {
     fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
         let values = self.0;
-        if values.is_empty() || stat == Stat::TrueCount {
-            return Ok(StatsSet::new());
+        if values.is_empty() || stat == Stat::TrueCount || stat == Stat::UncompressedSizeInBytes {
+            return Ok(StatsSet::default());
         }
 
         let null_count = values.len() - self.1.count_set_bits();
@@ -105,10 +107,10 @@ impl<T: PStatsType> ArrayStatisticsCompute for NullableValues<'_, T> {
             ));
         }
 
-        let mut stats = StatsSet::from(HashMap::from([
+        let mut stats = StatsSet::from_iter([
             (Stat::NullCount, null_count.into()),
             (Stat::IsConstant, false.into()),
-        ]));
+        ]);
         // we know that there is at least one null, but not all nulls, so it's not constant
         if stat == Stat::IsConstant {
             return Ok(stats);
@@ -157,30 +159,30 @@ fn compute_min_max<T: PStatsType>(
 ) -> StatsSet {
     // this `compare` function provides a total ordering (even for NaN values)
     match iter.minmax_by(|a, b| a.total_compare(*b)) {
-        MinMaxResult::NoElements => StatsSet::new(),
+        MinMaxResult::NoElements => StatsSet::default(),
         MinMaxResult::OneElement(x) => {
             let scalar: Scalar = x.into();
-            StatsSet::from(HashMap::from([
+            StatsSet::from_iter([
                 (Stat::Min, scalar.clone()),
                 (Stat::Max, scalar),
                 (Stat::IsConstant, could_be_constant.into()),
-            ]))
+            ])
         }
-        MinMaxResult::MinMax(min, max) => StatsSet::from(HashMap::from([
+        MinMaxResult::MinMax(min, max) => StatsSet::from_iter([
             (Stat::Min, min.into()),
             (Stat::Max, max.into()),
             (
                 Stat::IsConstant,
                 (could_be_constant && min.total_compare(max) == Ordering::Equal).into(),
             ),
-        ])),
+        ]),
     }
 }
 
 fn compute_is_sorted<T: PStatsType>(mut iter: impl Iterator<Item = T>) -> StatsSet {
     let mut sorted = true;
     let Some(mut prev) = iter.next() else {
-        return StatsSet::new();
+        return StatsSet::default();
     };
     for next in iter {
         if matches!(next.total_compare(prev), Ordering::Less) {
@@ -191,19 +193,19 @@ fn compute_is_sorted<T: PStatsType>(mut iter: impl Iterator<Item = T>) -> StatsS
     }
 
     if sorted {
-        StatsSet::from(HashMap::from([(Stat::IsSorted, true.into())]))
+        StatsSet::from_iter([(Stat::IsSorted, true.into())])
     } else {
-        StatsSet::from(HashMap::from([
+        StatsSet::from_iter([
             (Stat::IsSorted, false.into()),
             (Stat::IsStrictSorted, false.into()),
-        ]))
+        ])
     }
 }
 
 fn compute_is_strict_sorted<T: PStatsType>(mut iter: impl Iterator<Item = T>) -> StatsSet {
     let mut strict_sorted = true;
     let Some(mut prev) = iter.next() else {
-        return StatsSet::new();
+        return StatsSet::default();
     };
 
     for next in iter {
@@ -215,19 +217,19 @@ fn compute_is_strict_sorted<T: PStatsType>(mut iter: impl Iterator<Item = T>) ->
     }
 
     if strict_sorted {
-        StatsSet::from(HashMap::from([
+        StatsSet::from_iter([
             (Stat::IsSorted, true.into()),
             (Stat::IsStrictSorted, true.into()),
-        ]))
+        ])
     } else {
-        StatsSet::from(HashMap::from([(Stat::IsStrictSorted, false.into())]))
+        StatsSet::from_iter([(Stat::IsStrictSorted, false.into())])
     }
 }
 
 fn compute_run_count<T: PStatsType>(mut iter: impl Iterator<Item = T>) -> StatsSet {
     let mut run_count = 1;
     let Some(mut prev) = iter.next() else {
-        return StatsSet::new();
+        return StatsSet::default();
     };
     for next in iter {
         if !prev.is_eq(next) {
@@ -235,7 +237,7 @@ fn compute_run_count<T: PStatsType>(mut iter: impl Iterator<Item = T>) -> StatsS
             prev = next;
         }
     }
-    StatsSet::from(HashMap::from([(Stat::RunCount, run_count.into())]))
+    StatsSet::from_iter([(Stat::RunCount, run_count.into())])
 }
 
 trait BitWidth {
@@ -314,10 +316,10 @@ impl<T: PStatsType> BitWidthAccumulator<T> {
     }
 
     pub fn finish(self) -> StatsSet {
-        StatsSet::from(HashMap::from([
+        StatsSet::from_iter([
             (Stat::BitWidthFreq, self.bit_widths.into()),
             (Stat::TrailingZeroFreq, self.trailing_zeros.into()),
-        ]))
+        ])
     }
 }
 

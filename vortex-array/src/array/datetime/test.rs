@@ -118,7 +118,7 @@ test_fail_case!(test_fail_date64, i32, TemporalArray::new_date, TimeUnit::Ms);
 #[test]
 fn test_timestamp() {
     let ts = PrimitiveArray::from_vec(vec![100i64], Validity::NonNullable);
-    let ts_array = ts.clone().into_array();
+    let ts_array = ts.into_array();
 
     for unit in [TimeUnit::S, TimeUnit::Ms, TimeUnit::Us, TimeUnit::Ns] {
         for tz in [Some("UTC".to_string()), None] {
@@ -138,7 +138,7 @@ fn test_timestamp() {
 #[should_panic]
 fn test_timestamp_fails_i32() {
     let ts = PrimitiveArray::from_vec(vec![100i32], Validity::NonNullable);
-    let ts_array = ts.clone().into_array();
+    let ts_array = ts.into_array();
 
-    let _ = TemporalArray::new_timestamp(ts_array.clone(), TimeUnit::S, None);
+    let _ = TemporalArray::new_timestamp(ts_array, TimeUnit::S, None);
 }
