@@ -98,7 +98,15 @@ fn assert_array_eq(lhs: &ArrayData, rhs: &ArrayData, step: usize) {
         let l = scalar_at(lhs, idx).unwrap();
         let r = scalar_at(rhs, idx).unwrap();
 
-        assert_eq!(l.is_valid(), r.is_valid());
+        assert_eq!(
+            l.is_valid(),
+            r.is_valid(),
+            "LHS validity {} != RHS validity {} at index {idx}, lhs is {} rhs is {} in step {step}",
+            l.is_valid(),
+            r.is_valid(),
+            lhs.encoding().id(),
+            rhs.encoding().id()
+        );
         assert!(
             equal_scalar_values(l.value(), r.value()),
             "{l} != {r} at index {idx}, lhs is {} rhs is {} in step {step}",

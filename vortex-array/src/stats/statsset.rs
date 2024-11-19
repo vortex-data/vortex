@@ -80,14 +80,18 @@ impl StatsSet {
         stats
     }
 
-    pub fn bools_with_true_count(true_count: usize, len: usize) -> StatsSet {
+    pub fn bools_with_true_and_null_count(
+        true_count: usize,
+        null_count: usize,
+        len: usize,
+    ) -> StatsSet {
         StatsSet::from_iter([
             (Stat::TrueCount, true_count.into()),
             (Stat::Min, (true_count == len).into()),
             (Stat::Max, (true_count > 0).into()),
             (
                 Stat::IsConstant,
-                (true_count == 0 || true_count == len).into(),
+                ((true_count == 0 && null_count == 0) || true_count == len).into(),
             ),
         ])
     }

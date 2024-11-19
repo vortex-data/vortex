@@ -105,7 +105,7 @@ impl TableProvider for VortexMemTable {
                     self.schema_ref.clone(),
                     filter_expr,
                     self.array.clone(),
-                    output_projection.clone(),
+                    output_projection,
                     state,
                 )
             }
@@ -128,7 +128,7 @@ impl TableProvider for VortexMemTable {
 
                 Ok(Arc::new(VortexScanExec::try_new(
                     self.array.clone(),
-                    output_projection.clone(),
+                    output_projection,
                     plan_properties,
                 )?))
             }
@@ -199,9 +199,9 @@ fn make_filter_then_take_plan(
     let row_selector_op = Arc::new(RowSelectorExec::try_new(filter_expr, &chunked_array)?);
 
     Ok(Arc::new(TakeRowsExec::new(
-        schema.clone(),
+        schema,
         &output_projection,
-        row_selector_op.clone(),
+        row_selector_op,
         &chunked_array,
     )))
 }

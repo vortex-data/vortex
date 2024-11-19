@@ -2,7 +2,7 @@ use std::iter::TrustedLen;
 use std::sync::OnceLock;
 
 use arrow_array::BooleanArray;
-use arrow_buffer::BooleanBuffer;
+use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, MutableBuffer};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
 
@@ -79,7 +79,7 @@ pub struct FilterMask {
     array: ArrayData,
     true_count: usize,
     true_range: (usize, usize),
-    selectivity: f64,
+    range_selectivity: f64,
     indices: OnceLock<Vec<usize>>,
     slices: OnceLock<Vec<(usize, usize)>>,
     buffer: OnceLock<BooleanBuffer>,
@@ -90,7 +90,7 @@ pub struct FilterMask {
 /// in a recursive function, we will cache the slices internally.
 impl Clone for FilterMask {
     fn clone(&self) -> Self {
-        if self.selectivity > FILTER_SLICES_SELECTIVITY_THRESHOLD {
+        if self.range_selectivity > FILTER_SLICES_SELECTIVITY_THRESHOLD {
             let _: VortexResult<_> = self
                 .slices
                 .get_or_try_init(|| Ok(self.boolean_buffer()?.set_slices().collect()));
@@ -106,7 +106,7 @@ impl Clone for FilterMask {
             array: self.array.clone(),
             true_count: self.true_count,
             true_range: self.true_range,
-            selectivity: self.selectivity,
+            range_selectivity: self.range_selectivity,
             indices: self.indices.clone(),
             slices: self.slices.clone(),
             buffer: self.buffer.clone(),
@@ -164,6 +164,15 @@ pub enum FilterIter<'a> {
 }
 
 impl FilterMask {
+    /// Create a new FilterMask where the given indices are set.
+    pub fn from_indices<I: IntoIterator<Item = usize>>(length: usize, indices: I) -> Self {
+        let mut buffer = MutableBuffer::new_null(length);
+        indices
+            .into_iter()
+            .for_each(|idx| arrow_buffer::bit_util::set_bit(&mut buffer, idx));
+        Self::from(BooleanBufferBuilder::new_from_buffer(buffer, length).finish())
+    }
+
     pub fn len(&self) -> usize {
         self.array.len()
     }
@@ -186,9 +195,14 @@ impl FilterMask {
         self.true_range
     }
 
-    /// Return the selectivity of the mask.
+    /// Return the selectivity of the full mask.
     pub fn selectivity(&self) -> f64 {
-        self.selectivity
+        self.true_count as f64 / self.len() as f64
+    }
+
+    /// Return the selectivity of the range of true values of the mask.
+    pub fn range_selectivity(&self) -> f64 {
+        self.range_selectivity
     }
 
     /// Get the canonical representation of the mask.
@@ -196,7 +210,7 @@ impl FilterMask {
         log::debug!(
             "FilterMask: len {} selectivity: {} true_count: {} true_range: {:?}",
             self.len(),
-            self.selectivity(),
+            self.range_selectivity(),
             self.true_count,
             self.true_range(),
         );
@@ -218,24 +232,26 @@ impl FilterMask {
     ///
     /// Currently, this threshold is fixed at 0.8 based on Arrow Rust.
     pub fn iter(&self) -> VortexResult<FilterIter> {
-        Ok(if self.selectivity > FILTER_SLICES_SELECTIVITY_THRESHOLD {
-            // Iterate over slices
-            if let Some(slices) = self.slices.get() {
-                FilterIter::Slices(slices.as_slice())
+        Ok(
+            if self.range_selectivity > FILTER_SLICES_SELECTIVITY_THRESHOLD {
+                // Iterate over slices
+                if let Some(slices) = self.slices.get() {
+                    FilterIter::Slices(slices.as_slice())
+                } else {
+                    FilterIter::SlicesIter(self.boolean_buffer()?.set_slices())
+                }
             } else {
-                FilterIter::SlicesIter(self.boolean_buffer()?.set_slices())
-            }
-        } else {
-            // Iterate over indices
-            if let Some(indices) = self.indices.get() {
-                FilterIter::Indices(indices.as_slice())
-            } else {
-                FilterIter::IndicesIter(BitIndexIterator::new(
-                    self.boolean_buffer()?.set_indices(),
-                    self.true_count,
-                ))
-            }
-        })
+                // Iterate over indices
+                if let Some(indices) = self.indices.get() {
+                    FilterIter::Indices(indices.as_slice())
+                } else {
+                    FilterIter::IndicesIter(BitIndexIterator::new(
+                        self.boolean_buffer()?.set_indices(),
+                        self.true_count,
+                    ))
+                }
+            },
+        )
     }
 
     #[deprecated(note = "Move to using iter() instead")]
@@ -290,7 +306,7 @@ impl TryFrom<ArrayData> for FilterMask {
             array,
             true_count,
             true_range,
-            selectivity,
+            range_selectivity: selectivity,
             indices: OnceLock::new(),
             slices: OnceLock::new(),
             buffer: OnceLock::new(),

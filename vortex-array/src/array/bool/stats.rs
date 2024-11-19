@@ -20,8 +20,6 @@ impl ArrayStatisticsCompute for BoolArray {
             return Ok(StatsSet::from_iter([
                 (Stat::TrueCount, 0.into()),
                 (Stat::NullCount, 0.into()),
-                (Stat::IsSorted, true.into()),
-                (Stat::IsStrictSorted, true.into()),
                 (Stat::RunCount, 0.into()),
             ]));
         }
@@ -29,11 +27,10 @@ impl ArrayStatisticsCompute for BoolArray {
         match self.logical_validity() {
             LogicalValidity::AllValid(_) => self.boolean_buffer().compute_statistics(stat),
             LogicalValidity::AllInvalid(v) => Ok(StatsSet::nulls(v, self.dtype())),
-            LogicalValidity::Array(a) => NullableBools(
-                &self.boolean_buffer(),
-                &a.clone().into_bool()?.boolean_buffer(),
-            )
-            .compute_statistics(stat),
+            LogicalValidity::Array(a) => {
+                NullableBools(&self.boolean_buffer(), &a.into_bool()?.boolean_buffer())
+                    .compute_statistics(stat)
+            }
         }
     }
 }
@@ -47,8 +44,9 @@ impl ArrayStatisticsCompute for NullableBools<'_> {
             stat,
             Stat::TrueCount | Stat::Min | Stat::Max | Stat::IsConstant
         ) {
-            return Ok(StatsSet::bools_with_true_count(
+            return Ok(StatsSet::bools_with_true_and_null_count(
                 self.0.bitand(self.1).count_set_bits(),
+                self.1.count_set_bits(),
                 self.0.len(),
             ));
         }
@@ -87,8 +85,9 @@ impl ArrayStatisticsCompute for BooleanBuffer {
             stat,
             Stat::TrueCount | Stat::Min | Stat::Max | Stat::IsConstant
         ) {
-            return Ok(StatsSet::bools_with_true_count(
+            return Ok(StatsSet::bools_with_true_and_null_count(
                 self.count_set_bits(),
+                0,
                 self.len(),
             ));
         }
@@ -166,8 +165,9 @@ impl BoolStatsAccumulator {
 
 #[cfg(test)]
 mod test {
-    use vortex_dtype::DType;
+    use arrow_buffer::BooleanBuffer;
     use vortex_dtype::Nullability::Nullable;
+    use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;
 
     use crate::array::BoolArray;
@@ -227,6 +227,46 @@ mod test {
         assert!(bool_arr.statistics().compute_max::<bool>().unwrap());
         assert_eq!(bool_arr.statistics().compute_run_count().unwrap(), 3);
         assert_eq!(bool_arr.statistics().compute_true_count().unwrap(), 2);
+        assert_eq!(bool_arr.statistics().compute_null_count().unwrap(), 3);
+    }
+
+    #[test]
+    fn one_non_null_value() {
+        let bool_arr = BoolArray::from_iter(vec![Some(false), None]);
+        assert!(!bool_arr.statistics().compute_is_strict_sorted().unwrap());
+        assert!(bool_arr.statistics().compute_is_sorted().unwrap());
+        assert!(!bool_arr.statistics().compute_is_constant().unwrap());
+        assert!(!bool_arr.statistics().compute_min::<bool>().unwrap());
+        assert!(!bool_arr.statistics().compute_max::<bool>().unwrap());
+        assert_eq!(bool_arr.statistics().compute_run_count().unwrap(), 1);
+        assert_eq!(bool_arr.statistics().compute_true_count().unwrap(), 0);
+        assert_eq!(bool_arr.statistics().compute_null_count().unwrap(), 1);
+    }
+
+    #[test]
+    fn empty_array() {
+        let bool_arr = BoolArray::new(BooleanBuffer::new_set(0), Nullability::NonNullable);
+        assert!(bool_arr.statistics().compute_is_strict_sorted().is_none());
+        assert!(bool_arr.statistics().compute_is_sorted().is_none());
+        assert!(bool_arr.statistics().compute_is_constant().is_none());
+        assert!(bool_arr.statistics().compute_min::<bool>().is_none());
+        assert!(bool_arr.statistics().compute_max::<bool>().is_none());
+        assert_eq!(bool_arr.statistics().compute_run_count().unwrap(), 0);
+        assert_eq!(bool_arr.statistics().compute_true_count().unwrap(), 0);
+        assert_eq!(bool_arr.statistics().compute_null_count().unwrap(), 0);
+    }
+
+    #[test]
+    fn all_false() {
+        let bool_arr = BoolArray::from_iter(vec![false, false, false]);
+        assert!(!bool_arr.statistics().compute_is_strict_sorted().unwrap());
+        assert!(bool_arr.statistics().compute_is_sorted().unwrap());
+        assert!(bool_arr.statistics().compute_is_constant().unwrap());
+        assert!(!bool_arr.statistics().compute_min::<bool>().unwrap());
+        assert!(!bool_arr.statistics().compute_max::<bool>().unwrap());
+        assert_eq!(bool_arr.statistics().compute_run_count().unwrap(), 1);
+        assert_eq!(bool_arr.statistics().compute_true_count().unwrap(), 0);
+        assert_eq!(bool_arr.statistics().compute_null_count().unwrap(), 0);
     }
 
     #[test]
@@ -245,5 +285,6 @@ mod test {
         );
         assert_eq!(bool_arr.statistics().compute_run_count().unwrap(), 1);
         assert_eq!(bool_arr.statistics().compute_true_count().unwrap(), 0);
+        assert_eq!(bool_arr.statistics().compute_null_count().unwrap(), 5);
     }
 }

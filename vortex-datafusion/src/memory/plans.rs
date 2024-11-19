@@ -221,7 +221,7 @@ impl TakeRowsExec {
             plan_properties,
             projection: projection.iter().copied().map(Field::from).collect(),
             input: row_indices,
-            output_schema: output_schema.clone(),
+            output_schema,
             table: table.clone(),
         }
     }
@@ -413,13 +413,13 @@ mod test {
         let logical_expr = and((col("a")).eq(lit(2u64)), col("b").eq(lit(true)));
         let df_expr = create_physical_expr(
             &logical_expr,
-            &schema.clone().to_dfschema().unwrap(),
+            &schema.to_dfschema().unwrap(),
             &ExecutionProps::new(),
         )
         .unwrap();
 
         let filtering_stream = RowIndicesStream {
-            chunked_array: chunked_array.clone(),
+            chunked_array,
             chunk_idx: 0,
             conjunction_expr: convert_expr_to_vortex(df_expr).unwrap(),
             filter_projection: vec![Field::from(0), Field::from(1)],

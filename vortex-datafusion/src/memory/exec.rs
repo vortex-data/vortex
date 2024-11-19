@@ -87,7 +87,7 @@ impl ExecutionPlan for VortexScanExec {
     ) -> DFResult<SendableRecordBatchStream> {
         // Send back a stream of RecordBatch that returns the next element of the chunk each time.
         Ok(Box::pin(VortexRecordBatchStream {
-            schema_ref: self.schema().clone(),
+            schema_ref: self.schema(),
             idx: 0,
             num_chunks: self.array.nchunks(),
             chunks: self.array.clone(),

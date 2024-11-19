@@ -145,7 +145,7 @@ mod test {
             assert_eq!(stats.get(stat), array.statistics().compute(stat).as_ref());
         }
 
-        let sliced = ZigZagArray::try_from(slice(zigzag.clone(), 0, 2).unwrap()).unwrap();
+        let sliced = ZigZagArray::try_from(slice(zigzag, 0, 2).unwrap()).unwrap();
         assert_eq!(
             scalar_at(&sliced, sliced.len() - 1).unwrap(),
             Scalar::from(-5i32)

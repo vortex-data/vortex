@@ -85,7 +85,7 @@ where
 
         match T::DATA_TYPE {
             DataType::Timestamp(time_unit, tz) => {
-                let tz = tz.clone().map(|s| s.to_string());
+                let tz = tz.map(|s| s.to_string());
                 TemporalArray::new_timestamp(arr.into(), time_unit.into(), tz).into()
             }
             DataType::Time32(time_unit) => {
