@@ -523,7 +523,7 @@ impl PyArray {
     ///       metadata: PrimitiveMetadata { validity: Array }
     ///       buffer: 32 B
     ///       validity: vortex.bool(0x02)(bool, len=4) nbytes=1 B (3.03%)
-    ///         metadata: BoolMetadata { validity: NonNullable, first_byte_bit_offset: 0 }
+    ///         metadata: ???
     ///         buffer: 1 B
     ///     <BLANKLINE>
     ///
