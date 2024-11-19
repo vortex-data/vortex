@@ -18,7 +18,7 @@ pub struct BufferedLayoutReader {
     splits: Vec<(usize, usize)>,
     layouts: VecDeque<RangedLayoutReader>,
     arrays: Vec<ArrayData>,
-    chunk_mask: Option<ArrayData>,
+    chunk_mask: Option<(usize, ArrayData)>,
 }
 
 impl BufferedLayoutReader {
@@ -30,7 +30,7 @@ impl BufferedLayoutReader {
                 .collect::<Vec<_>>(),
             layouts,
             arrays: Vec::new(),
-            chunk_mask,
+            chunk_mask: chunk_mask.map(|x| (0, x)),
         }
     }
 
@@ -92,16 +92,29 @@ impl BufferedLayoutReader {
         }
     }
 
-    pub fn is_pruned(&self, begin: usize, end: usize) -> VortexResult<bool> {
+    pub fn is_pruned(&mut self, begin: usize, end: usize) -> VortexResult<bool> {
         // println!(
         //     "Buffered::is_pruned {}-{} {}",
         //     begin,
         //     end,
         //     self.chunk_mask.is_some()
         // );
-        let Some(ref chunk_mask) = self.chunk_mask else {
+        let Some((guessed_index, ref chunk_mask)) = self.chunk_mask else {
             return Ok(false);
         };
+
+        let (first_guess_begin, first_guess_end) = self.splits[guessed_index];
+        if begin < first_guess_end && end > first_guess_begin {
+            let chunk_is_pruned = BoolScalar::try_from(&scalar_at(chunk_mask, guessed_index)?)?
+                .value()
+                .vortex_expect("chunk_mask should be nonnullable");
+            // println!(
+            //     "buffered: {}-{}: fast path, pruned={}",
+            //     begin, end, chunk_is_pruned
+            // );
+            self.chunk_mask = Some((guessed_index + 1, chunk_mask.clone()));
+            return Ok(chunk_is_pruned);
+        }
 
         let needle = (begin, end);
         match self.splits.binary_search_by(|probe| probe.cmp(&needle)) {
@@ -109,18 +122,27 @@ impl BufferedLayoutReader {
                 let chunk_is_pruned = BoolScalar::try_from(&scalar_at(chunk_mask, index)?)?
                     .value()
                     .vortex_expect("chunk_mask should be nonnullable");
+                // println!(
+                //     "buffered: {}-{}: exact match, pruned={}",
+                //     begin, end, chunk_is_pruned
+                // );
                 Ok(chunk_is_pruned)
             }
             Err(index) => {
                 if index < self.splits.len() {
-                    let (_, split_end) = self.splits[index];
+                    let (_split_begin, split_end) = self.splits[index];
                     if begin > split_end || end > split_end {
                         // FIXME(DK): we could check if all overlapping splits are pruned
+                        // println!(
+                        //     "{}-{} not matching {}-{}",
+                        //     begin, end, split_begin, split_end
+                        // );
                         return Ok(false);
                     }
                     let chunk_is_pruned = BoolScalar::try_from(&scalar_at(chunk_mask, index)?)?
                         .value()
                         .vortex_expect("chunk_mask should be nonnullable");
+                    // println!("buffered: {}-{}: pruned={}", begin, end, chunk_is_pruned);
                     Ok(chunk_is_pruned)
                 } else {
                     vortex_bail!("could not find {}-{} in this layout reader", begin, end)
