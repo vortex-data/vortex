@@ -40,16 +40,17 @@ impl FileOpener for VortexFileOpener {
         )
         .with_io_dispatcher(IO_DISPATCHER.clone());
 
+        // We split the predicate and filter out the conjunction members that we can't push down
         let row_filter = self
             .predicate
             .as_ref()
-            .map(split_conjunction)
-            .and_then(|c| {
-                c.into_iter()
+            .map(|filter_expr| {
+                split_conjunction(filter_expr)
+                    .into_iter()
                     .filter_map(|e| convert_expr_to_vortex(e.clone()).ok())
-                    .reduce(|acc, e| BinaryExpr::new_expr(acc, Operator::And, e))
+                    .collect::<Vec<_>>()
             })
-            .map(RowFilter::new);
+            .map(RowFilter::from_conjunction);
 
         if let Some(row_filter) = row_filter {
             builder = builder.with_row_filter(row_filter);

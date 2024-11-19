@@ -31,7 +31,7 @@ impl RowFilter {
         Arc::new(Self::new(expr))
     }
 
-    pub(crate) fn from_conjunction(conjunction: Vec<ExprRef>) -> Self {
+    pub fn from_conjunction(conjunction: Vec<ExprRef>) -> Self {
         Self { conjunction }
     }
 
