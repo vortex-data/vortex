@@ -119,8 +119,6 @@ impl FileFormat for VortexFormat {
         Ok(exec)
     }
 
-    /// Take a list of files and the configuration to convert it to the
-    /// appropriate writer executor according to this file format.
     async fn create_writer_physical_plan(
         &self,
         _input: Arc<dyn ExecutionPlan>,

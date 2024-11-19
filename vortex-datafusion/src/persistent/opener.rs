@@ -51,13 +51,6 @@ impl FileOpener for VortexFileOpener {
             })
             .map(RowFilter::new);
 
-        // let row_filter = self
-        //     .predicate
-        //     .clone()
-        //     .map(convert_expr_to_vortex)
-        //     .transpose()?
-        //     .map(RowFilter::new);
-
         if let Some(row_filter) = row_filter {
             builder = builder.with_row_filter(row_filter);
         }
