@@ -5,50 +5,24 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_panic, VortexResult};
 use vortex_scalar::Scalar;
 
+use crate::data::InnerArrayData;
 use crate::encoding::EncodingRef;
 use crate::stats::{Stat, Statistics, StatsSet};
-use crate::{ArrayDType, ArrayData, ArrayMetadata, ToArrayData};
+use crate::{ArrayDType, ArrayData, ArrayMetadata};
 
 /// Owned [`ArrayData`] with serialized metadata, backed by heap-allocated memory.
 #[derive(Clone, Debug)]
-pub struct OwnedArrayData {
-    encoding: EncodingRef,
-    dtype: DType, // FIXME(ngates): Arc?
-    len: usize,
-    metadata: Arc<dyn ArrayMetadata>,
-    buffer: Option<Buffer>,
-    children: Arc<[ArrayData]>,
-    stats_map: Arc<RwLock<StatsSet>>,
+pub(crate) struct OwnedArrayData {
+    pub(crate) encoding: EncodingRef,
+    pub(crate) dtype: DType, // FIXME(ngates): Arc?
+    pub(crate) len: usize,
+    pub(crate) metadata: Arc<dyn ArrayMetadata>,
+    pub(crate) buffer: Option<Buffer>,
+    pub(crate) children: Arc<[ArrayData]>,
+    pub(crate) stats_map: Arc<RwLock<StatsSet>>,
 }
 
 impl OwnedArrayData {
-    pub fn try_new(
-        encoding: EncodingRef,
-        dtype: DType,
-        len: usize,
-        metadata: Arc<dyn ArrayMetadata>,
-        buffer: Option<Buffer>,
-        children: Arc<[ArrayData]>,
-        statistics: StatsSet,
-    ) -> VortexResult<Self> {
-        let data = Self {
-            encoding,
-            dtype,
-            len,
-            metadata,
-            buffer,
-            children,
-            stats_map: Arc::new(RwLock::new(statistics)),
-        };
-
-        let array = ArrayData::from(data);
-        // Validate here that the metadata correctly parses, so that an encoding can infallibly
-        // FIXME(robert): Encoding::with_dyn no longer eagerly validates metadata, come up with a way to validate metadata
-        encoding.with_dyn(&array, &mut |_| Ok(()))?;
-
-        Ok(array.into())
-    }
-
     pub fn encoding(&self) -> EncodingRef {
         self.encoding
     }
@@ -155,8 +129,7 @@ impl Statistics for OwnedArrayData {
             return Some(s);
         }
 
-        let computed = self
-            .to_array()
+        let computed = ArrayData::from(self.clone())
             .with_dyn(|a| a.compute_statistics(stat))
             .ok()?;
 
@@ -167,5 +140,11 @@ impl Statistics for OwnedArrayData {
             })
             .extend(computed);
         self.get(stat)
+    }
+}
+
+impl From<OwnedArrayData> for ArrayData {
+    fn from(value: OwnedArrayData) -> Self {
+        ArrayData(InnerArrayData::Owned(value))
     }
 }

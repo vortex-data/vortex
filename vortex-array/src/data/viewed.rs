@@ -5,25 +5,26 @@ use enum_iterator::all;
 use itertools::Itertools;
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{vortex_err, VortexError, VortexExpect as _, VortexResult};
+use vortex_error::{vortex_err, VortexExpect as _, VortexResult};
 use vortex_scalar::{PValue, Scalar, ScalarValue};
 
 use crate::array::visitor::ArrayVisitor;
+use crate::data::InnerArrayData;
 use crate::encoding::opaque::OpaqueEncoding;
 use crate::encoding::EncodingRef;
 use crate::stats::{Stat, Statistics, StatsSet};
-use crate::{flatbuffers as fb, ArrayData, Context, IntoArrayData, ToArrayData};
+use crate::{flatbuffers as fb, ArrayData, Context};
 
 /// Zero-copy view over flatbuffer-encoded array data, created without eager serialization.
 #[derive(Clone)]
-pub struct ViewedArrayData {
-    encoding: EncodingRef,
-    dtype: DType,
-    len: usize,
-    flatbuffer: Buffer,
-    flatbuffer_loc: usize,
-    buffers: Arc<[Buffer]>,
-    ctx: Arc<Context>,
+pub(crate) struct ViewedArrayData {
+    pub(crate) encoding: EncodingRef,
+    pub(crate) dtype: DType,
+    pub(crate) len: usize,
+    pub(crate) flatbuffer: Buffer,
+    pub(crate) flatbuffer_loc: usize,
+    pub(crate) buffers: Arc<[Buffer]>,
+    pub(crate) ctx: Arc<Context>,
     // TODO(ngates): a store a Projection. A projected ArrayView contains the full fb::Array
     //  metadata, but only the buffers from the selected columns. Therefore we need to know
     //  which fb:Array children to skip when calculating how to slice into buffers.
@@ -41,46 +42,6 @@ impl Debug for ViewedArrayData {
 }
 
 impl ViewedArrayData {
-    pub fn try_new<F>(
-        ctx: Arc<Context>,
-        dtype: DType,
-        len: usize,
-        flatbuffer: Buffer,
-        flatbuffer_init: F,
-        buffers: Vec<Buffer>,
-    ) -> VortexResult<Self>
-    where
-        F: FnOnce(&[u8]) -> VortexResult<fb::Array>,
-    {
-        let array = flatbuffer_init(flatbuffer.as_ref())?;
-        let flatbuffer_loc = array._tab.loc();
-
-        let encoding = ctx.lookup_encoding(array.encoding()).ok_or_else(
-            || {
-                let pretty_known_encodings = ctx.encodings()
-                    .format_with("\n", |e, f| f(&format_args!("- {}", e.id())));
-                vortex_err!(InvalidSerde: "Unknown encoding with ID {:#02x}. Known encodings:\n{pretty_known_encodings}", array.encoding())
-            },
-        )?;
-
-        let view = Self {
-            encoding,
-            dtype,
-            len,
-            flatbuffer,
-            flatbuffer_loc,
-            buffers: buffers.into(),
-            ctx,
-        };
-
-        // Validate here that the metadata correctly parses, so that an encoding can infallibly
-        // implement Encoding::with_view().
-        // FIXME(ngates): validate the metadata
-        view.to_array().with_dyn(|_| Ok::<(), VortexError>(()))?;
-
-        Ok(view)
-    }
-
     pub fn flatbuffer(&self) -> fb::Array {
         unsafe {
             let tab = flatbuffers::Table::new(self.flatbuffer.as_ref(), self.flatbuffer_loc);
@@ -148,16 +109,10 @@ impl ViewedArrayData {
 
     pub fn children(&self) -> Vec<ArrayData> {
         let mut collector = ChildrenCollector::default();
-        self.clone()
-            .into_array()
+        ArrayData::from(self.clone())
             .with_dyn(|a| a.accept(&mut collector))
             .vortex_expect("Failed to get children");
         collector.children
-    }
-
-    /// Whether the current Array makes use of a buffer
-    pub fn has_buffer(&self) -> bool {
-        self.flatbuffer().buffer_index().is_some()
     }
 
     pub fn buffer(&self) -> Option<&Buffer> {
@@ -168,6 +123,12 @@ impl ViewedArrayData {
 
     pub fn statistics(&self) -> &dyn Statistics {
         self
+    }
+}
+
+impl From<ViewedArrayData> for ArrayData {
+    fn from(value: ViewedArrayData) -> Self {
+        ArrayData(InnerArrayData::Viewed(value))
     }
 }
 
@@ -260,7 +221,7 @@ impl Statistics for ViewedArrayData {
             return Some(s);
         }
 
-        self.to_array()
+        ArrayData::from(self.clone())
             .with_dyn(|a| a.compute_statistics(stat))
             .ok()?
             .get(stat)

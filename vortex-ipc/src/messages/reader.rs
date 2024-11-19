@@ -5,7 +5,7 @@ use bytes::{Buf, Bytes};
 use flatbuffers::{root, root_unchecked};
 use futures_util::stream::try_unfold;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
-use vortex_array::{ArrayData, Context, IntoArrayData, ViewedArrayData};
+use vortex_array::{ArrayData, Context};
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
@@ -326,7 +326,7 @@ impl ArrayMessageReader {
         let fb_msg = self
             .fb_msg
             .ok_or_else(|| vortex_err!("Populated in previous step"))?;
-        let view = ViewedArrayData::try_new(
+        ArrayData::try_new_viewed(
             ctx,
             dtype,
             length,
@@ -339,9 +339,7 @@ impl ArrayMessageReader {
                     .ok_or_else(|| vortex_err!("Chunk missing Array"))
             },
             self.buffers,
-        )?;
-
-        Ok(view.into_array())
+        )
     }
 }
 
