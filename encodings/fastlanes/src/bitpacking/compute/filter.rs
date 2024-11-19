@@ -14,7 +14,7 @@ use crate::BitPackedArray;
 impl FilterFn for BitPackedArray {
     fn filter(&self, mask: FilterMask) -> VortexResult<ArrayData> {
         let primitive = match_each_unsigned_integer_ptype!(self.ptype(), |$I| {
-            filter_primitive::<$I>(self, mask.clone())
+            filter_primitive::<$I>(self, mask)
         });
         Ok(primitive?.into_array())
     }
@@ -35,7 +35,7 @@ fn filter_primitive<T: NativePType + BitPacking + ArrowNativeType>(
 
     // Short-circuit if the selectivity is high enough.
     if mask.selectivity() > 0.8 {
-        return filter(array.clone().into_primitive()?.as_ref(), mask.clone())
+        return filter(array.clone().into_primitive()?.as_ref(), mask)
             .and_then(|a| a.into_primitive());
     }
 
