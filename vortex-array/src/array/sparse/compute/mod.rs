@@ -109,7 +109,7 @@ impl FilterFn for SparseArray {
                 TakeOptions::default(),
             )?,
             buffer.count_set_bits(),
-            self.fill_value().clone(),
+            self.fill_value(),
         )?
         .into_array())
     }

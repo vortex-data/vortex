@@ -407,8 +407,8 @@ mod test {
         ]);
         let arr = RunEndArray::try_new(
             vec![2u32, 5, 10].into_array(),
-            uncompressed.into(),
-            Validity::Array(validity.into()),
+            uncompressed.into_array(),
+            Validity::Array(validity.into_array()),
         )
         .unwrap();
 

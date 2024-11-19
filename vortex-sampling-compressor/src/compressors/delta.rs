@@ -24,7 +24,7 @@ impl EncodingCompressor for DeltaCompressor {
 
     fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {
         // Only support primitive arrays
-        let parray = PrimitiveArray::try_from(array).ok()?;
+        let parray = PrimitiveArray::try_from(array.clone()).ok()?;
 
         // Only supports ints
         if !parray.ptype().is_unsigned_int() {
@@ -40,7 +40,7 @@ impl EncodingCompressor for DeltaCompressor {
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
-        let parray = PrimitiveArray::try_from(array)?;
+        let parray = PrimitiveArray::try_from(array.clone())?;
         let validity = ctx.compress_validity(parray.validity())?;
 
         // Compress the filled array

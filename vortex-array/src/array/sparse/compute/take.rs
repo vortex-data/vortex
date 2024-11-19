@@ -27,7 +27,7 @@ impl TakeFn for SparseArray {
             positions.into_array(),
             taken_values,
             indices.len(),
-            self.fill_value().clone(),
+            self.fill_value(),
         )?
         .into_array())
     }

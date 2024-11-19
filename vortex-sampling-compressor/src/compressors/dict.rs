@@ -55,17 +55,17 @@ impl EncodingCompressor for DictCompressor {
     ) -> VortexResult<CompressedArray<'a>> {
         let (codes, values) = match array.encoding().id() {
             Primitive::ID => {
-                let p = PrimitiveArray::try_from(array)?;
+                let p = PrimitiveArray::try_from(array.clone())?;
                 let (codes, values) = dict_encode_primitive(&p);
                 (codes.into_array(), values.into_array())
             }
             VarBin::ID => {
-                let vb = VarBinArray::try_from(array)?;
+                let vb = VarBinArray::try_from(array.clone())?;
                 let (codes, values) = dict_encode_varbin(&vb);
                 (codes.into_array(), values.into_array())
             }
             VarBinView::ID => {
-                let vb = VarBinViewArray::try_from(array)?;
+                let vb = VarBinViewArray::try_from(array.clone())?;
                 let (codes, values) = dict_encode_varbinview(&vb);
                 (codes.into_array(), values.into_array())
             }

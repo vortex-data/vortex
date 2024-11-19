@@ -215,7 +215,7 @@ impl Validity {
             (Validity::Array(a), Validity::AllValid)
             | (Validity::Array(a), Validity::NonNullable)
             | (Validity::NonNullable, Validity::Array(a))
-            | (Validity::AllValid, Validity::Array(a)) => Validity::Array(a.clone()),
+            | (Validity::AllValid, Validity::Array(a)) => Validity::Array(a),
             // Both sides are all valid
             (Validity::NonNullable, Validity::AllValid)
             | (Validity::AllValid, Validity::NonNullable)

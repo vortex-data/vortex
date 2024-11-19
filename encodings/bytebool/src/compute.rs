@@ -3,7 +3,7 @@ use vortex_array::compute::unary::{FillForwardFn, ScalarAtFn};
 use vortex_array::compute::{ArrayCompute, SliceFn, TakeFn, TakeOptions};
 use vortex_array::validity::{ArrayValidity, Validity};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant, ToArrayData};
 use vortex_dtype::{match_each_integer_ptype, Nullability};
 use vortex_error::{vortex_err, VortexResult};
 use vortex_scalar::Scalar;
@@ -97,7 +97,7 @@ impl FillForwardFn for ByteBoolArray {
     fn fill_forward(&self) -> VortexResult<ArrayData> {
         let validity = self.logical_validity();
         if self.dtype().nullability() == Nullability::NonNullable {
-            return Ok(self.clone().into());
+            return Ok(self.to_array());
         }
         // all valid, but we need to convert to non-nullable
         if validity.all_valid() {

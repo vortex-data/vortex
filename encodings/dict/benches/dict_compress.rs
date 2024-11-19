@@ -5,7 +5,7 @@ use rand::distributions::{Alphanumeric, Uniform};
 use rand::prelude::SliceRandom;
 use rand::{thread_rng, Rng};
 use vortex_array::array::{PrimitiveArray, VarBinArray, VarBinViewArray};
-use vortex_array::{ArrayTrait, IntoArrayData as _, IntoCanonical as _};
+use vortex_array::{ArrayTrait, IntoCanonical as _, ToArrayData};
 use vortex_dict::{dict_encode_primitive, dict_encode_varbin, dict_encode_varbinview, DictArray};
 
 fn gen_primitive_dict(len: usize, uniqueness: f64) -> PrimitiveArray {
@@ -64,7 +64,7 @@ fn dict_decode(c: &mut Criterion) {
     group.throughput(Throughput::Bytes(primitive_arr.nbytes() as u64));
     group.bench_function("dict_decode_primitives", |b| {
         b.iter_batched(
-            || DictArray::try_new(codes.clone().into_array(), values.clone().into_array()).unwrap(),
+            || DictArray::try_new(codes.to_array(), values.to_array()).unwrap(),
             |dict_arr| black_box(dict_arr.into_canonical().unwrap()),
             BatchSize::SmallInput,
         );
@@ -75,7 +75,7 @@ fn dict_decode(c: &mut Criterion) {
     group.throughput(Throughput::Bytes(varbin_arr.nbytes() as u64));
     group.bench_function("dict_decode_varbin", |b| {
         b.iter_batched(
-            || DictArray::try_new(codes.clone().into_array(), values.clone().into_array()).unwrap(),
+            || DictArray::try_new(codes.to_array(), values.to_array()).unwrap(),
             |dict_arr| black_box(dict_arr.into_canonical().unwrap()),
             BatchSize::SmallInput,
         );
@@ -86,7 +86,7 @@ fn dict_decode(c: &mut Criterion) {
     group.throughput(Throughput::Bytes(varbin_arr.nbytes() as u64));
     group.bench_function("dict_decode_varbinview", |b| {
         b.iter_batched(
-            || DictArray::try_new(codes.clone().into_array(), values.clone().into_array()).unwrap(),
+            || DictArray::try_new(codes.to_array(), values.to_array()).unwrap(),
             |dict_arr| black_box(dict_arr.into_canonical().unwrap()),
             BatchSize::SmallInput,
         );

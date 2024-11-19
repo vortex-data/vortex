@@ -28,7 +28,7 @@ use vortex::sampling_compressor::compressors::CompressorRef;
 use vortex::sampling_compressor::SamplingCompressor;
 use vortex::scalar::Scalar;
 use vortex::validity::Validity;
-use vortex::{IntoArrayData as _, IntoCanonical};
+use vortex::{IntoArrayData as _, IntoCanonical, ToArrayData};
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -118,19 +118,17 @@ fn strings(c: &mut Criterion) {
 
     let varbinview_arr = VarBinViewArray::from_iter_str(gen_varbin_words(1_000_000, 0.00005));
     let (codes, values) = dict_encode_varbinview(&varbinview_arr);
-    group.throughput(Throughput::Bytes(
-        varbinview_arr.clone().into_array().nbytes() as u64,
-    ));
+    group.throughput(Throughput::Bytes(varbinview_arr.to_array().nbytes() as u64));
     group.bench_function("dict_decode_varbinview", |b| {
         b.iter_batched(
-            || DictArray::try_new(codes.clone().into_array(), values.clone().into_array()).unwrap(),
+            || DictArray::try_new(codes.to_array(), values.to_array()).unwrap(),
             |dict_arr| black_box(dict_arr.into_canonical().unwrap()),
             BatchSize::SmallInput,
         );
     });
 
-    let fsst_compressor = fsst_train_compressor(&varbinview_arr.clone().into_array()).unwrap();
-    let fsst_array = fsst_compress(&varbinview_arr.clone().into_array(), &fsst_compressor).unwrap();
+    let fsst_compressor = fsst_train_compressor(&varbinview_arr.to_array()).unwrap();
+    let fsst_array = fsst_compress(&varbinview_arr.to_array(), &fsst_compressor).unwrap();
     group.bench_function("fsst_decompress_varbinview", |b| {
         b.iter_batched(
             || fsst_array.clone(),

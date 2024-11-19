@@ -14,7 +14,7 @@ pub use sort::sort_canonical_array;
 use vortex_array::array::PrimitiveArray;
 use vortex_array::compute::unary::scalar_at;
 use vortex_array::compute::{FilterMask, SearchResult, SearchSortedSide};
-use vortex_array::{ArrayDType, ArrayData};
+use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_sampling_compressor::SamplingCompressor;
 use vortex_scalar::arbitrary::random_scalar;
 use vortex_scalar::Scalar;
@@ -101,7 +101,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     current_array = take_canonical_array(&current_array, &indices);
                     let indices_array =
                         PrimitiveArray::from(indices.iter().map(|i| *i as u64).collect::<Vec<_>>())
-                            .into();
+                            .into_array();
                     let compressed = SamplingCompressor::default()
                         .compress(&indices_array, None)
                         .unwrap();

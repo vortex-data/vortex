@@ -15,7 +15,7 @@ impl SliceFn for SparseArray {
             slice(self.values(), index_start_index, index_end_index)?,
             stop - start,
             self.indices_offset() + start,
-            self.fill_value().clone(),
+            self.fill_value(),
         )?
         .into_array())
     }

@@ -79,7 +79,7 @@ mod tests {
 
         fn chunked(arrays: Vec<ArrayData>) -> ArrayData {
             let dtype = arrays[0].dtype().clone();
-            ChunkedArray::try_new(arrays, dtype).unwrap().into()
+            ChunkedArray::try_new(arrays, dtype).unwrap().into_array()
         }
 
         let to_compress = StructArray::try_new(

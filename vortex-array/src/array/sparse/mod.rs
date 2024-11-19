@@ -127,7 +127,7 @@ impl SparseArray {
 
     #[inline]
     pub fn fill_scalar(&self) -> Scalar {
-        Scalar::new(self.dtype().clone(), self.fill_value().clone())
+        Scalar::new(self.dtype().clone(), self.fill_value())
     }
 
     /// Returns the position or the insertion point of a given index in the indices array.

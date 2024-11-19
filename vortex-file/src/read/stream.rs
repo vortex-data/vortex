@@ -9,7 +9,7 @@ use futures::future::BoxFuture;
 use futures::Stream;
 use futures_util::{stream, FutureExt, StreamExt, TryStreamExt};
 use vortex_array::array::ChunkedArray;
-use vortex_array::ArrayData;
+use vortex_array::{ArrayData, IntoArrayData};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_panic, VortexError, VortexExpect, VortexResult};
 use vortex_io::VortexReadAt;
@@ -294,7 +294,7 @@ impl<R: VortexReadAt + Unpin> VortexFileArrayStream<R> {
                 )
             })
         } else {
-            ChunkedArray::try_new(vecs, dtype).map(|e| e.into())
+            ChunkedArray::try_new(vecs, dtype).map(|e| e.into_array())
         }
     }
 }

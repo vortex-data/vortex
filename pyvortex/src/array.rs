@@ -118,7 +118,7 @@ impl PyArray {
         let py = self_.py();
         let vortex = &self_.inner;
 
-        if let Ok(chunked_array) = ChunkedArray::try_from(vortex) {
+        if let Ok(chunked_array) = ChunkedArray::try_from(vortex.clone()) {
             let chunks: Vec<ArrayRef> = chunked_array
                 .chunks()
                 .map(|chunk| -> PyResult<ArrayRef> {

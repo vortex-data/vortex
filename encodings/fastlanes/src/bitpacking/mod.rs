@@ -1,4 +1,5 @@
 use std::fmt::{Debug, Display};
+use std::sync::Arc;
 
 use ::serde::{Deserialize, Serialize};
 pub use compress::*;
@@ -9,9 +10,7 @@ use vortex_array::encoding::ids;
 use vortex_array::stats::{ArrayStatisticsCompute, StatsSet};
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
 use vortex_array::variants::{ArrayVariants, PrimitiveArrayTrait};
-use vortex_array::{
-    impl_encoding, ArrayDType, ArrayData, ArrayTrait, Canonical, IntoCanonical, TypedArray,
-};
+use vortex_array::{impl_encoding, ArrayDType, ArrayData, ArrayTrait, Canonical, IntoCanonical};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, NativePType, Nullability, PType};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
@@ -97,7 +96,7 @@ impl BitPackedArray {
                 )
             }
 
-            if SparseArray::try_from(parray)?.indices().is_empty() {
+            if SparseArray::try_from(parray.clone())?.indices().is_empty() {
                 vortex_bail!("cannot construct BitPackedArray using patches without indices");
             }
         }
@@ -117,16 +116,16 @@ impl BitPackedArray {
             children.push(a)
         }
 
-        Ok(Self {
-            typed: TypedArray::try_from_parts(
-                dtype,
-                length,
-                metadata,
-                Some(packed),
-                children.into(),
-                StatsSet::default(),
-            )?,
-        })
+        ArrayData::try_new_owned(
+            &BitPackedEncoding,
+            dtype,
+            length,
+            Arc::new(metadata),
+            Some(packed),
+            children.into(),
+            StatsSet::default(),
+        )?
+        .try_into()
     }
 
     #[inline]
@@ -188,7 +187,7 @@ impl BitPackedArray {
     }
 
     pub fn encode(array: &ArrayData, bit_width: u8) -> VortexResult<Self> {
-        if let Ok(parray) = PrimitiveArray::try_from(array) {
+        if let Ok(parray) = PrimitiveArray::try_from(array.clone()) {
             bitpack_encode(parray, bit_width)
         } else {
             vortex_bail!("Bitpacking can only encode primitive arrays");

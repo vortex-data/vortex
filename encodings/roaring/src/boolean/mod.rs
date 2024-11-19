@@ -1,4 +1,5 @@
 use std::fmt::{Debug, Display};
+use std::sync::Arc;
 
 use arrow_buffer::{BooleanBuffer, MutableBuffer};
 pub use compress::*;
@@ -11,9 +12,7 @@ use vortex_array::encoding::ids;
 use vortex_array::stats::StatsSet;
 use vortex_array::validity::{ArrayValidity, LogicalValidity};
 use vortex_array::variants::{ArrayVariants, BoolArrayTrait};
-use vortex_array::{
-    impl_encoding, ArrayData, ArrayTrait, Canonical, IntoArrayData, IntoCanonical, TypedArray,
-};
+use vortex_array::{impl_encoding, ArrayData, ArrayTrait, Canonical, IntoArrayData, IntoCanonical};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
@@ -49,16 +48,16 @@ impl RoaringBoolArray {
             length,
         );
 
-        Ok(Self {
-            typed: TypedArray::try_from_parts(
-                DType::Bool(Nullability::NonNullable),
-                length,
-                RoaringBoolMetadata,
-                Some(Buffer::from(bitmap.serialize::<Native>())),
-                vec![].into(),
-                stats,
-            )?,
-        })
+        ArrayData::try_new_owned(
+            &RoaringBoolEncoding,
+            DType::Bool(Nullability::NonNullable),
+            length,
+            Arc::new(RoaringBoolMetadata),
+            Some(Buffer::from(bitmap.serialize::<Native>())),
+            vec![].into(),
+            stats,
+        )?
+        .try_into()
     }
 
     pub fn bitmap(&self) -> Bitmap {

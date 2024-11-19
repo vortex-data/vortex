@@ -8,7 +8,7 @@ use vortex_array::accessor::ArrayAccessor;
 use vortex_array::array::{ChunkedArray, PrimitiveArray, StructArray, VarBinArray};
 use vortex_array::validity::Validity;
 use vortex_array::variants::{PrimitiveArrayTrait, StructArrayTrait};
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant, ToArrayData};
 use vortex_buffer::Buffer;
 use vortex_dtype::field::Field;
 use vortex_dtype::{DType, Nullability, PType, StructDType};
@@ -417,7 +417,7 @@ async fn filter_or() {
     let ages = PrimitiveArray::from_nullable_vec(vec![Some(25), Some(31), None, Some(57), None]);
     let st = StructArray::try_new(
         ["name".into(), "age".into()].into(),
-        vec![names.clone().into_array(), ages.clone().into_array()],
+        vec![names.to_array(), ages.to_array()],
         5,
         Validity::NonNullable,
     )
@@ -493,7 +493,7 @@ async fn filter_and() {
     let ages = PrimitiveArray::from_nullable_vec(vec![Some(25), Some(31), None, Some(57), None]);
     let st = StructArray::try_new(
         ["name".into(), "age".into()].into(),
-        vec![names.clone().into_array(), ages.clone().into_array()],
+        vec![names.to_array(), ages.to_array()],
         5,
         Validity::NonNullable,
     )

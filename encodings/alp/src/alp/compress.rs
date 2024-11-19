@@ -82,7 +82,7 @@ fn patch_decoded(array: PrimitiveArray, patches: &ArrayData) -> VortexResult<Pri
     match patches.encoding().id() {
         Sparse::ID => {
             match_each_alp_float_ptype!(array.ptype(), |$T| {
-                let typed_patches = SparseArray::try_from(patches).unwrap();
+                let typed_patches = SparseArray::try_from(patches.clone()).unwrap();
                 let primitive_values = typed_patches.values().into_primitive()?;
                 array.patch(
                     &typed_patches.resolved_indices(),

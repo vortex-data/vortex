@@ -5,12 +5,12 @@ use crate::array::primitive::PrimitiveArray;
 use crate::compute::unary::FillForwardFn;
 use crate::validity::{ArrayValidity, Validity};
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayDType, ArrayData, IntoArrayData};
+use crate::{ArrayDType, ArrayData, IntoArrayData, ToArrayData};
 
 impl FillForwardFn for PrimitiveArray {
     fn fill_forward(&self) -> VortexResult<ArrayData> {
         if self.dtype().nullability() == Nullability::NonNullable {
-            return Ok(self.clone().into());
+            return Ok(self.to_array());
         }
 
         let validity = self.logical_validity();

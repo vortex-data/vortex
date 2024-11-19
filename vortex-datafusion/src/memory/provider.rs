@@ -44,7 +44,7 @@ impl VortexMemTable {
         let arrow_schema = infer_schema(array.dtype()).vortex_expect("schema is inferable");
         let schema_ref = SchemaRef::new(arrow_schema);
 
-        let array = match ChunkedArray::try_from(&array) {
+        let array = match ChunkedArray::try_from(array.clone()) {
             Ok(a) => a,
             _ => {
                 let dtype = array.dtype().clone();

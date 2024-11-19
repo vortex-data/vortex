@@ -50,7 +50,7 @@ impl EncodingCompressor for ChunkedCompressor {
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
-        let chunked_array = ChunkedArray::try_from(array)?;
+        let chunked_array = ChunkedArray::try_from(array.clone())?;
         let like_and_ratio = like_into_parts(like)?;
         self.compress_chunked(&chunked_array, like_and_ratio, ctx)
     }

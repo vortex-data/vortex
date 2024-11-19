@@ -374,12 +374,12 @@ impl IntoCanonical for ArrayData {
 impl From<Canonical> for ArrayData {
     fn from(value: Canonical) -> Self {
         match value {
-            Canonical::Null(a) => a.into(),
-            Canonical::Bool(a) => a.into(),
-            Canonical::Primitive(a) => a.into(),
-            Canonical::Struct(a) => a.into(),
-            Canonical::VarBinView(a) => a.into(),
-            Canonical::Extension(a) => a.into(),
+            Canonical::Null(a) => a.into_array(),
+            Canonical::Bool(a) => a.into_array(),
+            Canonical::Primitive(a) => a.into_array(),
+            Canonical::Struct(a) => a.into_array(),
+            Canonical::VarBinView(a) => a.into_array(),
+            Canonical::Extension(a) => a.into_array(),
         }
     }
 }

@@ -80,22 +80,22 @@ where
         );
 
         if T::DATA_TYPE.is_numeric() {
-            return arr.into();
+            return arr.into_array();
         }
 
         match T::DATA_TYPE {
             DataType::Timestamp(time_unit, tz) => {
                 let tz = tz.map(|s| s.to_string());
-                TemporalArray::new_timestamp(arr.into(), time_unit.into(), tz).into()
+                TemporalArray::new_timestamp(arr.into_array(), time_unit.into(), tz).into()
             }
             DataType::Time32(time_unit) => {
-                TemporalArray::new_time(arr.into(), time_unit.into()).into()
+                TemporalArray::new_time(arr.into_array(), time_unit.into()).into()
             }
             DataType::Time64(time_unit) => {
-                TemporalArray::new_time(arr.into(), time_unit.into()).into()
+                TemporalArray::new_time(arr.into_array(), time_unit.into()).into()
             }
-            DataType::Date32 => TemporalArray::new_date(arr.into(), TimeUnit::D).into(),
-            DataType::Date64 => TemporalArray::new_date(arr.into(), TimeUnit::Ms).into(),
+            DataType::Date32 => TemporalArray::new_date(arr.into_array(), TimeUnit::D).into(),
+            DataType::Date64 => TemporalArray::new_date(arr.into_array(), TimeUnit::Ms).into(),
             DataType::Duration(_) => unimplemented!(),
             DataType::Interval(_) => unimplemented!(),
             _ => vortex_panic!("Invalid data type for PrimitiveArray: {}", T::DATA_TYPE),
@@ -120,7 +120,7 @@ where
             nulls(value.nulls(), nullable),
         )
         .vortex_expect("Failed to convert Arrow GenericByteArray to Vortex VarBinArray")
-        .into()
+        .into_array()
     }
 }
 
@@ -142,7 +142,7 @@ impl<T: ByteViewType> FromArrowArray<&GenericByteViewArray<T>> for ArrayData {
             nulls(value.nulls(), nullable),
         )
         .vortex_expect("Failed to convert Arrow GenericByteViewArray to Vortex VarBinViewArray")
-        .into()
+        .into_array()
     }
 }
 
@@ -150,7 +150,7 @@ impl FromArrowArray<&ArrowBooleanArray> for ArrayData {
     fn from_arrow(value: &ArrowBooleanArray, nullable: bool) -> Self {
         BoolArray::try_new(value.values().clone(), nulls(value.nulls(), nullable))
             .vortex_expect("Validity length cannot mismatch")
-            .into()
+            .into_array()
     }
 }
 
@@ -173,14 +173,14 @@ impl FromArrowArray<&ArrowStructArray> for ArrayData {
             nulls(value.nulls(), nullable),
         )
         .vortex_expect("Failed to convert Arrow StructArray to Vortex StructArray")
-        .into()
+        .into_array()
     }
 }
 
 impl FromArrowArray<&ArrowNullArray> for ArrayData {
     fn from_arrow(value: &ArrowNullArray, nullable: bool) -> Self {
         assert!(nullable);
-        NullArray::new(value.len()).into()
+        NullArray::new(value.len()).into_array()
     }
 }
 

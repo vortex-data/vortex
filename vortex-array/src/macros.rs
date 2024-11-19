@@ -121,7 +121,7 @@ macro_rules! impl_encoding {
                         );
                     }
                     // SAFETY: We know that our Array struct has an identical layout to ArrayData.
-                    Ok(unsafe { std::mem::transmute(data) })
+                    Ok(unsafe { std::mem::transmute::<$crate::ArrayData, [<$Name Array>]>(data) })
                 }
             }
 

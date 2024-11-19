@@ -51,7 +51,7 @@ impl<W: VortexWrite> VortexFileWriter<W> {
     }
 
     pub async fn write_array_columns(self, array: ArrayData) -> VortexResult<Self> {
-        if let Ok(chunked) = ChunkedArray::try_from(&array) {
+        if let Ok(chunked) = ChunkedArray::try_from(array.clone()) {
             self.write_array_columns_stream(chunked.array_stream())
                 .await
         } else {
@@ -78,7 +78,7 @@ impl<W: VortexWrite> VortexFileWriter<W> {
         }
 
         while let Some(columns) = array_stream.try_next().await? {
-            let st = StructArray::try_from(&columns)?;
+            let st = StructArray::try_from(columns)?;
             self.row_count += st.len() as u64;
             for (i, field) in st.children().enumerate() {
                 if let Ok(chunked_array) = ChunkedArray::try_from(field.clone()) {
