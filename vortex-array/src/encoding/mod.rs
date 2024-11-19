@@ -7,7 +7,7 @@ use vortex_error::{vortex_panic, VortexResult};
 
 use crate::canonical::{Canonical, IntoCanonical};
 use crate::stats::ArrayStatistics as _;
-use crate::{ArrayData, ArrayDef, ArrayMetadata, ArrayTrait};
+use crate::{ArrayData, ArrayDef, ArrayTrait};
 
 pub mod opaque;
 
