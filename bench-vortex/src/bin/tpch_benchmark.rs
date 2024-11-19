@@ -1,3 +1,4 @@
+use std::cmp::Reverse;
 use std::process::ExitCode;
 use std::sync;
 use std::sync::mpsc::Receiver;
@@ -13,8 +14,9 @@ use futures::future::try_join_all;
 use indicatif::ProgressBar;
 use itertools::Itertools;
 use log::LevelFilter;
-use prettytable::{Cell, Row, Table};
 use serde::Serialize;
+use tabled::builder::Builder;
+use tabled::settings::Style;
 use vortex::aliases::hash_map::HashMap;
 
 #[derive(Parser, Debug)]
@@ -50,6 +52,18 @@ struct Measurement {
     time: Duration,
     format: Format,
 }
+
+// impl Tabled for Measurement {
+//     const LENGTH: usize = 3;
+
+//     fn fields(&self) -> Vec<std::borrow::Cow<'_, str>> {
+//         vec![]
+//     }
+
+//     fn headers() -> Vec<std::borrow::Cow<'static, str>> {
+//         vec["query_idx".into(), "time".into(), "format".into()]
+//     }
+// }
 
 #[derive(Serialize)]
 struct JsonValue {
@@ -109,29 +123,37 @@ fn main() -> ExitCode {
 }
 
 fn render_table(receiver: Receiver<Measurement>, formats: &[Format]) -> anyhow::Result<()> {
-    let mut measurements = Vec::new();
+    let mut measurements: HashMap<Format, Vec<Measurement>> = HashMap::default();
 
     while let Ok(m) = receiver.recv() {
-        measurements.push(m);
+        measurements.entry(m.format).or_default().push(m);
     }
 
-    let mut table = Table::new();
-    {
-        let mut cells = vec![Cell::new("Query")];
-        cells.extend(formats.iter().map(|f| Cell::new(&format!("{:?}", f))));
-        table.add_row(Row::new(cells));
+    measurements.values_mut().for_each(|v| {
+        v.sort_by_key(|m| Reverse(m.query_idx));
+    });
+
+    let mut table_builder = Builder::default();
+
+    let mut header = vec!["Query".to_string()];
+    header.extend(formats.iter().map(|f| format!("{:?}", f)));
+    table_builder.push_record(header);
+
+    for query_idx in 0_usize..22 {
+        let mut row = vec![query_idx.to_string()];
+        for format in formats {
+            let measurement = &measurements[format][query_idx];
+            row.push(measurement.time.as_millis().to_string());
+        }
+        table_builder.push_record(row);
     }
 
-    // let mut rows = vec![];
-    // while let Ok((idx, row)) = rows_rx.recv() {
-    //     rows.push((idx, row));
-    // }
-    // rows.sort_by_key(|(idx, _)| *idx);
-    // for (_, row) in rows {
-    //     table.add_row(row);
-    // }
-
-    table.printstd();
+    let table = table_builder
+        .build()
+        .with(Style::modern())
+        .with(Colorization)
+        .to_string();
+    println!("{table}");
 
     Ok(())
 }
