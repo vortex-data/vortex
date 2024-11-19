@@ -18,7 +18,7 @@ pub struct OwnedArrayData {
     metadata: Arc<dyn ArrayMetadata>,
     buffer: Option<Buffer>,
     children: Arc<[ArrayData]>,
-    stats_map: Arc<RwLock<StatsSet>>,
+    stats_set: Arc<RwLock<StatsSet>>,
 }
 
 impl OwnedArrayData {
@@ -38,7 +38,7 @@ impl OwnedArrayData {
             metadata,
             buffer,
             children,
-            stats_map: Arc::new(RwLock::new(statistics)),
+            stats_set: Arc::new(RwLock::new(statistics)),
         };
 
         let array = ArrayData::from(data);
@@ -118,7 +118,7 @@ impl OwnedArrayData {
 
 impl Statistics for OwnedArrayData {
     fn get(&self, stat: Stat) -> Option<Scalar> {
-        self.stats_map
+        self.stats_set
             .read()
             .unwrap_or_else(|_| {
                 vortex_panic!(
@@ -131,14 +131,14 @@ impl Statistics for OwnedArrayData {
     }
 
     fn to_set(&self) -> StatsSet {
-        self.stats_map
+        self.stats_set
             .read()
             .unwrap_or_else(|_| vortex_panic!("Failed to acquire read lock on stats map"))
             .clone()
     }
 
     fn set(&self, stat: Stat, value: Scalar) {
-        self.stats_map
+        self.stats_set
             .write()
             .unwrap_or_else(|_| {
                 vortex_panic!(
@@ -151,7 +151,7 @@ impl Statistics for OwnedArrayData {
     }
 
     fn clear(&self, stat: Stat) {
-        self.stats_map
+        self.stats_set
             .write()
             .unwrap_or_else(|_| vortex_panic!("Failed to acquire write lock on stats map"))
             .clear(stat);
@@ -167,12 +167,19 @@ impl Statistics for OwnedArrayData {
             .with_dyn(|a| a.compute_statistics(stat))
             .ok()?;
 
-        self.stats_map
+        self.stats_set
             .write()
             .unwrap_or_else(|_| {
                 vortex_panic!("Failed to write to stats map while computing {}", stat)
             })
             .extend(computed);
         self.get(stat)
+    }
+
+    fn retain_only(&self, stats: &[Stat]) {
+        self.stats_set
+            .write()
+            .unwrap_or_else(|_| vortex_panic!("Failed to acquire write lock on stats map"))
+            .retain_only(stats);
     }
 }

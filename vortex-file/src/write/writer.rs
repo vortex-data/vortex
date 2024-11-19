@@ -20,6 +20,17 @@ use crate::write::metadata_accumulators::{new_metadata_accumulator, MetadataAccu
 use crate::write::postscript::Postscript;
 use crate::{EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
 
+const STATS_TO_WRITE: &[Stat] = &[
+    Stat::Min,
+    Stat::Max,
+    Stat::TrueCount,
+    Stat::NullCount,
+    Stat::IsConstant,
+    Stat::IsSorted,
+    Stat::IsStrictSorted,
+    Stat::UncompressedSizeInBytes,
+];
+
 pub struct VortexFileWriter<W> {
     msgs: MessageWriter<W>,
 
@@ -223,8 +234,7 @@ impl ColumnWriter {
             self.metadata.push_chunk(&chunk);
 
             // clear the stats that we don't want to serialize into the file
-            chunk.statistics().clear(Stat::TrailingZeroFreq);
-            chunk.statistics().clear(Stat::BitWidthFreq);
+            chunk.statistics().retain_only(STATS_TO_WRITE);
 
             msgs.write_batch(chunk).await?;
             offsets.push(msgs.tell());

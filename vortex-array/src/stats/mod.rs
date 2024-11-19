@@ -116,6 +116,8 @@ pub trait Statistics {
         }
         Ok(stats_set)
     }
+
+    fn retain_only(&self, stats: &[Stat]);
 }
 
 pub trait ArrayStatistics {

@@ -1,3 +1,5 @@
+use core::mem;
+
 use enum_iterator::all;
 use enum_map::EnumMap;
 use itertools::{EitherOrBoth, Itertools};
@@ -128,6 +130,13 @@ impl StatsSet {
     /// Clear the stat `stat` from the set.
     pub fn clear(&mut self, stat: Stat) {
         self.values[stat] = None;
+    }
+
+    pub fn retain_only(&mut self, stats: &[Stat]) {
+        let mut old_map = mem::take(&mut self.values);
+        for stat in stats {
+            self.values[*stat] = old_map[*stat].take();
+        }
     }
 
     /// Merge stats set `other` into `self`, with the semantic assumption that `other`
