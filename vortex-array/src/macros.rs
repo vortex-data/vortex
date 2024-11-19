@@ -96,8 +96,6 @@ macro_rules! impl_encoding {
                 type Error = vortex_error::VortexError;
 
                 fn try_from(data: $crate::ArrayData) -> vortex_error::VortexResult<Self> {
-                    use $crate::TryDeserializeArrayMetadata;
-
                     if data.encoding().id() != <$Name as $crate::ArrayDef>::ID {
                         vortex_error::vortex_bail!(
                             "Mismatched encoding {}, expected {}",
@@ -106,9 +104,7 @@ macro_rules! impl_encoding {
                         );
                     }
 
-                    let metadata = [<$Name Metadata>]::try_deserialize_metadata(Some(
-                        data.as_ref().metadata()?.as_ref(),
-                    ))?;
+                    let metadata = data.metadata::<[<$Name Metadata>]>()?;
 
                     Ok(Self { data, metadata })
                 }
