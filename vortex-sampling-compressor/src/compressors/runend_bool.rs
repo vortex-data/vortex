@@ -28,10 +28,6 @@ impl EncodingCompressor for RunEndBoolCompressor {
             return None;
         }
 
-        if array.len() > u32::MAX as usize {
-            return None;
-        }
-
         Some(self)
     }
 

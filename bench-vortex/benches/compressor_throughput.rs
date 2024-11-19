@@ -76,7 +76,6 @@ fn primitive(c: &mut Criterion) {
         (&DictCompressor, "dict", &uint_array),
         (&RoaringBoolCompressor, "roaring_bool", &bool_array),
         (&RoaringIntCompressor, "roaring_int", &index_array),
-        (&DEFAULT_RUN_END_COMPRESSOR, "runend", &bool_array),
         (&RunEndBoolCompressor, "runend_bool", &bool_array),
         (&FoRCompressor, "frame_of_reference", &int_array),
         (&ZigZagCompressor, "zigzag", &int_array),
