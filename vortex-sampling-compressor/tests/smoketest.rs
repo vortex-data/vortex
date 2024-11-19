@@ -11,8 +11,6 @@ use vortex_sampling_compressor::compressors::alp::ALPCompressor;
 use vortex_sampling_compressor::compressors::date_time_parts::DateTimePartsCompressor;
 use vortex_sampling_compressor::compressors::dict::DictCompressor;
 use vortex_sampling_compressor::compressors::r#for::FoRCompressor;
-use vortex_sampling_compressor::compressors::runend_bool::RoaringBoolCompressor;
-use vortex_sampling_compressor::compressors::roaring_int::RoaringIntCompressor;
 use vortex_sampling_compressor::compressors::runend::DEFAULT_RUN_END_COMPRESSOR;
 use vortex_sampling_compressor::compressors::sparse::SparseCompressor;
 use vortex_sampling_compressor::compressors::zigzag::ZigZagCompressor;
@@ -34,6 +32,7 @@ mod tests {
     use vortex_sampling_compressor::compressors::bitpacked::BITPACK_WITH_PATCHES;
     use vortex_sampling_compressor::compressors::delta::DeltaCompressor;
     use vortex_sampling_compressor::compressors::fsst::FSSTCompressor;
+    use vortex_sampling_compressor::compressors::runend_bool::RunEndBoolCompressor;
     use vortex_scalar::Scalar;
 
     use super::*;
@@ -51,8 +50,7 @@ mod tests {
                 &DictCompressor,
                 &FoRCompressor,
                 &FSSTCompressor,
-                &RoaringBoolCompressor,
-                &RoaringIntCompressor,
+                &RunEndBoolCompressor,
                 &DEFAULT_RUN_END_COMPRESSOR,
                 &SparseCompressor,
                 &ZigZagCompressor,

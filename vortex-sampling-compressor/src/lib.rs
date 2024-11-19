@@ -11,6 +11,7 @@ use vortex_datetime_parts::DateTimePartsEncoding;
 use vortex_dict::DictEncoding;
 use vortex_fastlanes::{BitPackedEncoding, DeltaEncoding, FoREncoding};
 use vortex_fsst::FSSTEncoding;
+use vortex_roaring::{RoaringBoolEncoding, RoaringIntEncoding};
 use vortex_runend::RunEndEncoding;
 use vortex_runend_bool::RunEndBoolEncoding;
 use vortex_zigzag::ZigZagEncoding;
@@ -34,7 +35,7 @@ mod sampling_compressor;
 
 pub use sampling_compressor::SamplingCompressor;
 
-pub static DEFAULT_COMPRESSORS: LazyLock<[CompressorRef<'static>; 9]> = LazyLock::new(|| {
+pub static DEFAULT_COMPRESSORS: LazyLock<[CompressorRef<'static>; 10]> = LazyLock::new(|| {
     [
         &ALPCompressor as CompressorRef,
         &BITPACK_WITH_PATCHES,
