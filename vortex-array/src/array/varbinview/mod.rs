@@ -408,10 +408,7 @@ impl VarBinViewArray {
             DType::Binary(nullability) => {
                 let binary_view_array = generic_byte_view_builder::<BinaryViewType, _, _>(
                     iter.into_iter(),
-                    |builder, v| match v {
-                        None => builder.append_null(),
-                        Some(bytes) => builder.append_value(bytes.as_ref()),
-                    },
+                    GenericByteViewBuilder::append_option,
                 );
                 VarBinViewArray::try_from(ArrayData::from_arrow(
                     &binary_view_array,

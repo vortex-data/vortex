@@ -4,11 +4,9 @@ use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_panic, VortexError, VortexResult};
 
+use crate::data::InnerArrayData;
 use crate::stats::StatsSet;
-use crate::{
-    ArrayData, ArrayDef, InnerArrayData, IntoArrayData, OwnedArrayData, ToArrayData,
-    TryDeserializeArrayMetadata,
-};
+use crate::{ArrayData, ArrayDef, IntoArrayData, ToArrayData, TryDeserializeArrayMetadata};
 
 /// Container for an array with all the associated implementation type information (encoding reference and ID, actual array type, metadata type).
 #[derive(Debug, Clone)]
@@ -26,7 +24,7 @@ impl<D: ArrayDef> TypedArray<D> {
         children: Arc<[ArrayData]>,
         stats: StatsSet,
     ) -> VortexResult<Self> {
-        let array = OwnedArrayData::try_new(
+        let array = ArrayData::try_new_owned(
             D::ENCODING,
             dtype,
             len,
@@ -34,8 +32,7 @@ impl<D: ArrayDef> TypedArray<D> {
             buffer,
             children,
             stats,
-        )?
-        .into();
+        )?;
         Ok(Self {
             array,
             lazy_metadata: OnceLock::new(),

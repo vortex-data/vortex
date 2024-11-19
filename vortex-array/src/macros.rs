@@ -1,15 +1,9 @@
 //! The core Vortex macro to create new encodings and array types.
 
-use vortex_buffer::Buffer;
-use vortex_error::{vortex_bail, VortexError, VortexExpect as _, VortexResult};
+use vortex_error::VortexError;
 
-use crate::array::visitor::ArrayVisitor;
 use crate::encoding::{ArrayEncoding, ArrayEncodingExt, ArrayEncodingRef, EncodingId, EncodingRef};
-use crate::stats::ArrayStatistics;
-use crate::{
-    ArrayDType, ArrayData, ArrayMetadata, ArrayTrait, GetArrayMetadata, InnerArrayData,
-    IntoArrayData, OwnedArrayData, ToOwnedArrayData, TryDeserializeArrayMetadata,
-};
+use crate::{ArrayData, ArrayMetadata, ArrayTrait, TryDeserializeArrayMetadata};
 
 /// Trait the defines the set of types relating to an array.
 /// Because it has associated types it can't be used as a trait object.
@@ -165,56 +159,6 @@ macro_rules! impl_encoding {
 impl<T: AsRef<ArrayData>> ArrayEncodingRef for T {
     fn encoding(&self) -> EncodingRef {
         self.as_ref().encoding()
-    }
-}
-
-impl<D> ToOwnedArrayData for D
-where
-    D: IntoArrayData + ArrayEncodingRef + ArrayStatistics + GetArrayMetadata + Clone,
-{
-    fn to_owned_array_data(&self) -> OwnedArrayData {
-        let array = self.clone().into_array();
-        match array.0 {
-            InnerArrayData::Owned(d) => d,
-            InnerArrayData::Viewed(ref view) => {
-                struct Visitor {
-                    buffer: Option<Buffer>,
-                    children: Vec<ArrayData>,
-                }
-                impl ArrayVisitor for Visitor {
-                    fn visit_child(&mut self, _name: &str, array: &ArrayData) -> VortexResult<()> {
-                        self.children.push(array.clone());
-                        Ok(())
-                    }
-
-                    fn visit_buffer(&mut self, buffer: &Buffer) -> VortexResult<()> {
-                        if self.buffer.is_some() {
-                            vortex_bail!("Multiple buffers found in view")
-                        }
-                        self.buffer = Some(buffer.clone());
-                        Ok(())
-                    }
-                }
-                let mut visitor = Visitor {
-                    buffer: None,
-                    children: vec![],
-                };
-                array.with_dyn(|a| {
-                    a.accept(&mut visitor)
-                        .vortex_expect("Error while visiting Array View children")
-                });
-                OwnedArrayData::try_new(
-                    view.encoding(),
-                    array.dtype().clone(),
-                    array.len(),
-                    self.metadata(),
-                    visitor.buffer,
-                    visitor.children.into(),
-                    view.statistics().to_set(),
-                )
-                .vortex_expect("Failed to create ArrayData from Array View")
-            }
-        }
     }
 }
 

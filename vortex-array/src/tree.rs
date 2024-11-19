@@ -7,7 +7,7 @@ use vortex_error::{VortexError, VortexResult};
 
 use crate::array::visitor::ArrayVisitor;
 use crate::array::ChunkedArray;
-use crate::{ArrayData, OwnedArrayData};
+use crate::ArrayData;
 
 impl ArrayData {
     pub fn tree_display(&self) -> TreeDisplayWrapper {
@@ -55,8 +55,9 @@ impl<'a, 'b: 'a> ArrayVisitor for TreeFormatter<'a, 'b> {
                 100f64 * nbytes as f64 / total_size as f64
             )?;
             self.indent(|i| {
-                let array_data = OwnedArrayData::from(array.clone());
-                writeln!(i.fmt, "{}metadata: {}", i.indent, array_data.metadata())
+                // FIXME(ngates): support metadata display via vtables
+                // let array_data = array.metadata();
+                writeln!(i.fmt, "{}metadata: ???", i.indent)
             })?;
 
             let old_total_size = self.total_size;

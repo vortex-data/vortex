@@ -31,7 +31,9 @@ impl RowFilter {
         Arc::new(Self::new(expr))
     }
 
-    pub(crate) fn from_conjunction(conjunction: Vec<ExprRef>) -> Self {
+    /// Create a new row filter from a conjunction. The conjunction **must** have length > 0.
+    pub fn from_conjunction(conjunction: Vec<ExprRef>) -> Self {
+        assert!(!conjunction.is_empty());
         Self { conjunction }
     }
 
