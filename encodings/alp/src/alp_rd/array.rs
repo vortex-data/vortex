@@ -166,9 +166,8 @@ impl ALPRDArray {
 
     /// The dictionary that maps the codes in `left_parts` into bit patterns.
     #[inline]
-    pub fn left_parts_dict(&self) -> Vec<u16> {
-        // FIXME(ngates): can we pull these as a slice directly out of the metadata?
-        self.metadata().dict[0..self.metadata().dict_len as usize].to_vec()
+    pub fn left_parts_dict(&self) -> &[u16] {
+        &self.metadata().dict[0..self.metadata().dict_len as usize]
     }
 
     #[inline]
