@@ -1,4 +1,3 @@
-use std::cmp::Reverse;
 use std::process::ExitCode;
 use std::sync;
 use std::sync::mpsc::Receiver;
@@ -9,7 +8,7 @@ use bench_vortex::tpch::dbgen::{DBGen, DBGenOptions};
 use bench_vortex::tpch::{
     load_datasets, run_tpch_query, tpch_queries, Format, EXPECTED_ROW_COUNTS,
 };
-use clap::{ArgAction, Parser};
+use clap::{ArgAction, Parser, ValueEnum};
 use futures::future::try_join_all;
 use indicatif::ProgressBar;
 use itertools::Itertools;
@@ -34,14 +33,14 @@ struct Args {
     #[arg(short, long, default_value = "10")]
     iterations: usize,
     #[arg(long)]
-    vortex_only: bool,
+    only_vortex: bool,
     #[arg(short, long)]
     verbose: bool,
     #[arg(short, long, default_value_t, value_enum)]
     display_format: DisplayFormat,
 }
 
-#[derive(clap::ValueEnum, Default, Clone, Debug)]
+#[derive(ValueEnum, Default, Clone, Debug)]
 enum DisplayFormat {
     #[default]
     Table,
@@ -107,7 +106,7 @@ fn main() -> ExitCode {
         args.exclude_queries,
         args.iterations,
         args.warmup,
-        args.vortex_only,
+        args.only_vortex,
         args.display_format,
     ))
 }
@@ -120,7 +119,7 @@ fn render_table(receiver: Receiver<Measurement>, formats: &[Format]) -> anyhow::
     }
 
     measurements.values_mut().for_each(|v| {
-        v.sort_by_key(|m| Reverse(m.query_idx));
+        v.sort_by_key(|m| m.query_idx);
     });
 
     // The first format serves as the baseline
@@ -135,12 +134,13 @@ fn render_table(receiver: Receiver<Measurement>, formats: &[Format]) -> anyhow::
     table_builder.push_record(header);
 
     for query_idx in 0_usize..22 {
+        let query_baseline = baseline[query_idx].time.as_micros();
         let mut row = vec![query_idx.to_string()];
         for (col_idx, format) in formats.iter().enumerate() {
             let time_us = measurements[format][query_idx].time.as_micros();
 
             if format != baseline_format {
-                let color = color(baseline[query_idx].time.as_micros(), time_us);
+                let color = color(query_baseline, time_us);
 
                 colors.push(Colorization::exact(
                     vec![color],
@@ -148,7 +148,8 @@ fn render_table(receiver: Receiver<Measurement>, formats: &[Format]) -> anyhow::
                 ))
             }
 
-            row.push(format!("{time_us} us"));
+            let ratio = time_us as f64/ query_baseline as f64;
+            row.push(format!("{time_us} us ({ratio:.2})"));
         }
         table_builder.push_record(row);
     }
@@ -194,7 +195,7 @@ async fn bench_main(
     exclude_queries: Option<Vec<usize>>,
     iterations: usize,
     warmup: bool,
-    vortex_only: bool,
+    only_vortex: bool,
     display_format: DisplayFormat,
 ) -> ExitCode {
     // uncomment the below to enable trace logging of datafusion execution
@@ -204,7 +205,7 @@ async fn bench_main(
     let data_dir = DBGen::new(DBGenOptions::default()).generate().unwrap();
 
     // The formats to run against (vs the baseline)
-    let formats = if vortex_only {
+    let formats = if only_vortex {
         vec![
             Format::Arrow,
             Format::OnDiskVortex {
