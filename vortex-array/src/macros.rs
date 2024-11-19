@@ -1,9 +1,11 @@
 //! The core Vortex macro to create new encodings and array types.
 
+use std::marker::PhantomData;
+
 use vortex_error::VortexError;
 
 use crate::encoding::{ArrayEncoding, ArrayEncodingExt, ArrayEncodingRef, EncodingId, EncodingRef};
-use crate::{ArrayData, ArrayMetadata, ArrayTrait, TryDeserializeArrayMetadata};
+use crate::{ArrayData, ArrayMetadata, ArrayTrait, TryDeserializeArrayMetadata, TypedArray};
 
 /// Trait the defines the set of types relating to an array.
 /// Because it has associated types it can't be used as a trait object.
@@ -14,6 +16,20 @@ pub trait ArrayDef {
     type Array: ArrayTrait + TryFrom<ArrayData, Error = VortexError>;
     type Metadata: ArrayMetadata + Clone + for<'m> TryDeserializeArrayMetadata<'m>;
     type Encoding: ArrayEncoding + ArrayEncodingExt<D = Self>;
+}
+
+/// Typed array wrapper around an array data.
+/// TODO(ngates): unwrap TypedArray.
+#[derive(Debug, Clone)]
+pub struct Array<E> {
+    data: ArrayData,
+    encoding: PhantomData<E>,
+}
+
+impl<E> AsRef<ArrayData> for Array<E> {
+    fn as_ref(&self) -> &ArrayData {
+        &self.data
+    }
 }
 
 /// Macro to generate all the necessary code for a new type of array encoding. Including:
@@ -36,9 +52,7 @@ macro_rules! impl_encoding {
             }
 
             #[derive(std::fmt::Debug, Clone)]
-            pub struct [<$Name Array>] {
-                typed: $crate::TypedArray<$Name>
-            }
+            pub type [<$Name Array>] = Array<$Name>;
             impl AsRef<$crate::ArrayData> for [<$Name Array>] {
                 fn as_ref(&self) -> &$crate::ArrayData {
                     self.typed.array()
