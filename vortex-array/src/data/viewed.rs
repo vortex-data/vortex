@@ -213,7 +213,15 @@ impl Statistics for ViewedArrayData {
     /// We want to avoid any sort of allocation on instantiation of the ArrayView, so we
     /// do not allocate a stats_set to cache values.
     fn set(&self, _stat: Stat, _value: Scalar) {
-        // We cannot set stats on a view
+        // We cannot modify stats on a view
+    }
+
+    fn clear(&self, _stat: Stat) {
+        // We cannot modify stats on a view
+    }
+
+    fn retain_only(&self, _stats: &[Stat]) {
+        // We cannot modify stats on a view
     }
 
     fn compute(&self, stat: Stat) -> Option<Scalar> {

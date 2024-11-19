@@ -24,6 +24,7 @@ pub mod fsst;
 pub mod roaring_bool;
 pub mod roaring_int;
 pub mod runend;
+pub mod runend_bool;
 pub mod sparse;
 pub mod struct_;
 pub mod zigzag;

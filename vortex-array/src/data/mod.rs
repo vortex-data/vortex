@@ -51,7 +51,7 @@ impl ArrayData {
             metadata,
             buffer,
             children,
-            stats_map: Arc::new(RwLock::new(statistics)),
+            stats_set: Arc::new(RwLock::new(statistics)),
         };
 
         let array = ArrayData(InnerArrayData::Owned(data));

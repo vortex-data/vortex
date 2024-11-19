@@ -7,16 +7,6 @@ use vortex_array::array::{BoolArray, PrimitiveArray, StructArray, TemporalArray}
 use vortex_array::validity::Validity;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
-use vortex_sampling_compressor::compressors::alp::ALPCompressor;
-use vortex_sampling_compressor::compressors::date_time_parts::DateTimePartsCompressor;
-use vortex_sampling_compressor::compressors::dict::DictCompressor;
-use vortex_sampling_compressor::compressors::r#for::FoRCompressor;
-use vortex_sampling_compressor::compressors::roaring_bool::RoaringBoolCompressor;
-use vortex_sampling_compressor::compressors::roaring_int::RoaringIntCompressor;
-use vortex_sampling_compressor::compressors::runend::DEFAULT_RUN_END_COMPRESSOR;
-use vortex_sampling_compressor::compressors::sparse::SparseCompressor;
-use vortex_sampling_compressor::compressors::zigzag::ZigZagCompressor;
-use vortex_sampling_compressor::compressors::CompressorRef;
 use vortex_sampling_compressor::{CompressConfig, SamplingCompressor};
 
 #[cfg(test)]
@@ -30,10 +20,7 @@ mod tests {
     use vortex_dict::Dict;
     use vortex_fastlanes::FoR;
     use vortex_fsst::FSST;
-    use vortex_sampling_compressor::compressors::alp_rd::ALPRDCompressor;
-    use vortex_sampling_compressor::compressors::bitpacked::BITPACK_WITH_PATCHES;
-    use vortex_sampling_compressor::compressors::delta::DeltaCompressor;
-    use vortex_sampling_compressor::compressors::fsst::FSSTCompressor;
+    use vortex_sampling_compressor::ALL_COMPRESSORS;
     use vortex_scalar::Scalar;
 
     use super::*;
@@ -42,21 +29,7 @@ mod tests {
     #[cfg_attr(miri, ignore)] // This test is too slow on miri
     pub fn smoketest_compressor() {
         let compressor = SamplingCompressor::new_with_options(
-            HashSet::from([
-                &ALPCompressor as CompressorRef,
-                &ALPRDCompressor,
-                &BITPACK_WITH_PATCHES,
-                &DateTimePartsCompressor,
-                &DeltaCompressor,
-                &DictCompressor,
-                &FoRCompressor,
-                &FSSTCompressor,
-                &RoaringBoolCompressor,
-                &RoaringIntCompressor,
-                &DEFAULT_RUN_END_COMPRESSOR,
-                &SparseCompressor,
-                &ZigZagCompressor,
-            ]),
+            HashSet::from_iter(ALL_COMPRESSORS),
             CompressConfig::default(),
         );
 

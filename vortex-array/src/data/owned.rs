@@ -19,7 +19,7 @@ pub(crate) struct OwnedArrayData {
     pub(crate) metadata: Arc<dyn ArrayMetadata>,
     pub(crate) buffer: Option<Buffer>,
     pub(crate) children: Arc<[ArrayData]>,
-    pub(crate) stats_map: Arc<RwLock<StatsSet>>,
+    pub(crate) stats_set: Arc<RwLock<StatsSet>>,
 }
 
 impl OwnedArrayData {
@@ -92,7 +92,7 @@ impl OwnedArrayData {
 
 impl Statistics for OwnedArrayData {
     fn get(&self, stat: Stat) -> Option<Scalar> {
-        self.stats_map
+        self.stats_set
             .read()
             .unwrap_or_else(|_| {
                 vortex_panic!(
@@ -105,14 +105,14 @@ impl Statistics for OwnedArrayData {
     }
 
     fn to_set(&self) -> StatsSet {
-        self.stats_map
+        self.stats_set
             .read()
             .unwrap_or_else(|_| vortex_panic!("Failed to acquire read lock on stats map"))
             .clone()
     }
 
     fn set(&self, stat: Stat, value: Scalar) {
-        self.stats_map
+        self.stats_set
             .write()
             .unwrap_or_else(|_| {
                 vortex_panic!(
@@ -124,6 +124,13 @@ impl Statistics for OwnedArrayData {
             .set(stat, value);
     }
 
+    fn clear(&self, stat: Stat) {
+        self.stats_set
+            .write()
+            .unwrap_or_else(|_| vortex_panic!("Failed to acquire write lock on stats map"))
+            .clear(stat);
+    }
+
     fn compute(&self, stat: Stat) -> Option<Scalar> {
         if let Some(s) = self.get(stat) {
             return Some(s);
@@ -133,13 +140,20 @@ impl Statistics for OwnedArrayData {
             .with_dyn(|a| a.compute_statistics(stat))
             .ok()?;
 
-        self.stats_map
+        self.stats_set
             .write()
             .unwrap_or_else(|_| {
                 vortex_panic!("Failed to write to stats map while computing {}", stat)
             })
             .extend(computed);
         self.get(stat)
+    }
+
+    fn retain_only(&self, stats: &[Stat]) {
+        self.stats_set
+            .write()
+            .unwrap_or_else(|_| vortex_panic!("Failed to acquire write lock on stats map"))
+            .retain_only(stats);
     }
 }
 
