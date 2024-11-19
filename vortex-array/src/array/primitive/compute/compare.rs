@@ -21,7 +21,8 @@ impl MaybeCompareFn for PrimitiveArray {
         }
 
         // If the RHS is primitive, then delegate to Arrow.
-        if let Ok(primitive) = PrimitiveArray::try_from(other) {
+        // TODO(ngates): do not use try_from to test for encoding.
+        if let Ok(primitive) = PrimitiveArray::try_from(other.clone()) {
             return Some(arrow_compare(self.as_ref(), primitive.as_ref(), operator));
         }
 

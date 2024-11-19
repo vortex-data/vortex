@@ -7,7 +7,9 @@ use vortex_error::{VortexError, VortexResult};
 use crate::encoding::{
     ArrayEncoding, ArrayEncodingExt, ArrayEncodingRef, ArrayMetadataVTable, EncodingId, EncodingRef,
 };
-use crate::{ArrayData, ArrayMetadata, ArrayTrait, TryDeserializeArrayMetadata};
+use crate::{
+    ArrayData, ArrayMetadata, ArrayTrait, IntoArrayData, ToArrayData, TryDeserializeArrayMetadata,
+};
 
 /// Trait the defines the set of types relating to an array.
 /// Because it has associated types it can't be used as a trait object.
@@ -29,8 +31,27 @@ pub struct Array<E> {
 }
 
 impl<E: ArrayEncoding> Array<E> {
-    fn metadata(&self) -> Box<dyn ArrayMetadata> {
+    fn metadata(&self) -> VortexResult<Box<dyn ArrayMetadata>> {
         self.data.encoding().metadata(&self.data)
+    }
+}
+
+impl<E> ToArrayData for Array<E> {
+    fn to_array(&self) -> ArrayData {
+        self.data.clone()
+    }
+}
+
+impl<E> IntoArrayData for Array<E> {
+    fn into_array(self) -> ArrayData {
+        self.data
+    }
+}
+
+impl<E> From<Array<E>> for ArrayData {
+    fn from(array: Array<E>) -> ArrayData {
+        // TODO(ngates): maybe we should deprecate either this or IntoArrayData.
+        array.into_array()
     }
 }
 
@@ -62,17 +83,27 @@ macro_rules! impl_encoding {
             pub type [<$Name Array>] = $crate::Array<$Name>;
 
             impl [<$Name Array>] {
-                #[allow(clippy::same_name_method)]
-                fn metadata(&self) -> &[<$Name Metadata>] {
-                    self.typed.metadata()
+                fn metadata(&self) -> [<$Name Metadata>] {
+                    use $crate::metadata::TryDeserializeArrayMetadata;
+                    use vortex_error::VortexExpect;
+                    [<$Name Metadata>]::try_deserialize_metadata(Some(
+                        self.as_ref().metadata()
+                            .vortex_expect("FIXME(ngates): OwnedData to hold metadata bytes")
+                            .as_ref(),
+                    )).vortex_expect("Metadata validated on creation of ArrayData")
                 }
 
+                // fn metadata(&self) -> Box<dyn $crate::ArrayMetadata> {
+                //     self.as_ref().encoding().metadata(self.as_ref())
+                //         .vortex_expect("Metadata validated on creation of ArrayData")
+                // }
+
                 pub fn len(&self) -> usize {
-                    self.typed.array().len()
+                    self.as_ref().len()
                 }
 
                 pub fn is_empty(&self) -> bool {
-                    self.typed.array().is_empty()
+                    self.as_ref().is_empty()
                 }
 
                 #[allow(dead_code)]
@@ -83,50 +114,31 @@ macro_rules! impl_encoding {
                     children: std::sync::Arc<[$crate::ArrayData]>,
                     stats: $crate::stats::StatsSet,
                 ) -> VortexResult<Self> {
-                    Ok(Self { typed: $crate::TypedArray::try_from_parts(dtype, len, metadata, None, children, stats)? })
+                    Self::try_from($crate::ArrayData::try_new_owned(
+                            &[<$Name Encoding>],
+                            dtype,
+                            len,
+                            std::sync::Arc::new(metadata),
+                            None,
+                            children,
+                            stats
+                    )?)
                 }
             }
-            impl $crate::GetArrayMetadata for [<$Name Array>] {
-                #[allow(clippy::same_name_method)]
-                fn metadata(&self) -> std::sync::Arc<dyn $crate::ArrayMetadata> {
-                    std::sync::Arc::new(self.metadata().clone())
-                }
-            }
-            impl $crate::ToArrayData for [<$Name Array>] {
-                fn to_array(&self) -> $crate::ArrayData {
-                    self.typed.to_array()
-                }
-            }
-            impl $crate::IntoArrayData for [<$Name Array>] {
-                fn into_array(self) -> $crate::ArrayData {
-                    self.typed.into_array()
-                }
-            }
-            impl From<$crate::TypedArray<$Name>> for [<$Name Array>] {
-                fn from(typed: $crate::TypedArray<$Name>) -> Self {
-                    Self { typed }
-                }
-            }
+
             impl TryFrom<$crate::ArrayData> for [<$Name Array>] {
                 type Error = vortex_error::VortexError;
 
-                #[inline]
-                fn try_from(array: $crate::ArrayData) -> Result<Self, Self::Error> {
-                    $crate::TypedArray::<$Name>::try_from(array).map(Self::from)
-                }
-            }
-            impl TryFrom<&$crate::ArrayData> for [<$Name Array>] {
-                type Error = vortex_error::VortexError;
-
-                #[inline]
-                fn try_from(array: &$crate::ArrayData) -> Result<Self, Self::Error> {
-                    $crate::TypedArray::<$Name>::try_from(array).map(Self::from)
-                }
-            }
-            impl From<[<$Name Array>]> for $crate::ArrayData {
-                fn from(value: [<$Name Array>]) -> $crate::ArrayData {
-                    use $crate::IntoArrayData;
-                    value.typed.into_array()
+                fn try_from(value: $crate::ArrayData) -> Result<Self, Self::Error> {
+                    if value.encoding().id() != <$Name as $crate::ArrayDef>::ID {
+                        vortex_error::vortex_bail!(
+                            "Mismatched encoding {}, expected {}",
+                            value.encoding().id().as_ref(),
+                            <$Name as $crate::ArrayDef>::ID,
+                        );
+                    }
+                    // SAFETY: We know that our Array struct has an identical layout to ArrayData.
+                    Ok(unsafe { std::mem::transmute(value) })
                 }
             }
 
@@ -156,8 +168,9 @@ macro_rules! impl_encoding {
             impl $crate::encoding::ArrayEncodingExt for [<$Name Encoding>] {
                 type D = $Name;
             }
-            impl $crate::encoding::ArrayMetadataVTable<ArrayData> for [<$Name Encoding>] {
-                fn metadata(&self, array: &ArrayData) -> VortexResult<Box<dyn $crate::ArrayMetadata>> {
+            impl $crate::encoding::ArrayMetadataVTable<$crate::ArrayData> for [<$Name Encoding>] {
+                fn metadata(&self, array: &$crate::ArrayData) -> vortex_error::VortexResult<Box<dyn $crate::ArrayMetadata>> {
+                    use $crate::metadata::TryDeserializeArrayMetadata;
                     Ok(Box::new([<$Name Metadata>]::try_deserialize_metadata(Some(
                         array.metadata()?.as_ref(),
                     ))?))

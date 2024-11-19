@@ -21,7 +21,6 @@ use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata
 use crate::variants::{ArrayVariants, PrimitiveArrayTrait};
 use crate::{
     impl_encoding, ArrayDType, ArrayData, ArrayTrait, Canonical, IntoArrayData, IntoCanonical,
-    TypedArray,
 };
 
 mod accessor;
@@ -53,21 +52,21 @@ impl PrimitiveArray {
             values.len()
         });
 
-        Self {
-            typed: TypedArray::try_from_parts(
-                DType::from(ptype).with_nullability(validity.nullability()),
-                length,
-                PrimitiveMetadata {
-                    validity: validity
-                        .to_metadata(length)
-                        .vortex_expect("Invalid validity"),
-                },
-                Some(buffer),
-                validity.into_array().into_iter().collect_vec().into(),
-                StatsSet::default(),
-            )
-            .vortex_expect("PrimitiveArray::new should never fail!"),
-        }
+        ArrayData::try_new_owned(
+            &PrimitiveEncoding,
+            DType::from(ptype).with_nullability(validity.nullability()),
+            length,
+            Arc::new(PrimitiveMetadata {
+                validity: validity
+                    .to_metadata(length)
+                    .vortex_expect("Invalid validity"),
+            }),
+            Some(buffer),
+            validity.into_array().into_iter().collect_vec().into(),
+            StatsSet::default(),
+        )
+        .and_then(|data| data.try_into())
+        .vortex_expect("Should not fail to create PrimitiveArray")
     }
 
     pub fn from_vec<T: NativePType>(values: Vec<T>, validity: Validity) -> Self {

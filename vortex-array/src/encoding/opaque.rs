@@ -2,8 +2,8 @@ use std::fmt::Debug;
 
 use vortex_error::{vortex_bail, VortexResult};
 
-use crate::encoding::{ArrayEncoding, EncodingId};
-use crate::{ArrayData, ArrayTrait, Canonical};
+use crate::encoding::{ArrayEncoding, ArrayMetadataVTable, EncodingId};
+use crate::{ArrayData, ArrayMetadata, ArrayTrait, Canonical};
 
 /// An encoding of an array that we cannot interpret.
 ///
@@ -37,6 +37,15 @@ impl ArrayEncoding for OpaqueEncoding {
     ) -> VortexResult<()> {
         vortex_bail!(
             "OpaqueEncoding: with_dyn cannot be called for opaque array ({})",
+            self.0
+        )
+    }
+}
+
+impl ArrayMetadataVTable<ArrayData> for OpaqueEncoding {
+    fn metadata(&self, array: &ArrayData) -> VortexResult<Box<dyn ArrayMetadata>> {
+        vortex_bail!(
+            "OpaqueEncoding: metadata cannot be called for opaque array ({})",
             self.0
         )
     }

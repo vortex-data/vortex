@@ -188,7 +188,7 @@ impl From<TemporalArray> for ArrayData {
     }
 }
 
-impl TryFrom<&ArrayData> for TemporalArray {
+impl TryFrom<ArrayData> for TemporalArray {
     type Error = VortexError;
 
     /// Try to specialize a generic Vortex array as a TemporalArray.
@@ -199,7 +199,7 @@ impl TryFrom<&ArrayData> for TemporalArray {
     ///
     /// If the provided Array does not have recognized ExtMetadata corresponding to one of the known
     /// `TemporalMetadata` variants, an error is returned.
-    fn try_from(value: &ArrayData) -> Result<Self, Self::Error> {
+    fn try_from(value: ArrayData) -> Result<Self, Self::Error> {
         let ext = ExtensionArray::try_from(value)?;
         let temporal_metadata = TemporalMetadata::try_from(ext.ext_dtype().as_ref())?;
 
@@ -207,17 +207,6 @@ impl TryFrom<&ArrayData> for TemporalArray {
             ext,
             temporal_metadata,
         })
-    }
-}
-
-impl TryFrom<ArrayData> for TemporalArray {
-    type Error = VortexError;
-
-    /// Try to specialize a generic Vortex array as a TemporalArray.
-    ///
-    /// Delegates to `TryFrom<&Array>`.
-    fn try_from(value: ArrayData) -> Result<Self, Self::Error> {
-        TemporalArray::try_from(&value)
     }
 }
 

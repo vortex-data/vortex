@@ -1,4 +1,5 @@
 use std::fmt::{Debug, Display};
+use std::sync::Arc;
 
 use arrow_array::BooleanArray;
 use arrow_buffer::{BooleanBufferBuilder, MutableBuffer};
@@ -14,9 +15,7 @@ use crate::encoding::ids;
 use crate::stats::StatsSet;
 use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
 use crate::variants::{ArrayVariants, BoolArrayTrait};
-use crate::{
-    impl_encoding, ArrayData, ArrayTrait, Canonical, IntoArrayData, IntoCanonical, TypedArray,
-};
+use crate::{impl_encoding, ArrayData, ArrayTrait, Canonical, IntoArrayData, IntoCanonical};
 
 mod accessors;
 pub mod compute;
@@ -119,20 +118,19 @@ impl BoolArray {
             .into_inner()
             .bit_slice(buffer_byte_offset, buffer_len);
 
-        Ok(Self {
-            typed: TypedArray::try_from_parts(
-                DType::Bool(validity.nullability()),
-                buffer_len,
-                BoolMetadata {
-                    validity: validity.to_metadata(buffer_len)?,
-                    first_byte_bit_offset,
-                },
-                Some(Buffer::from(inner)),
-                validity.into_array().into_iter().collect_vec().into(),
-                StatsSet::default(),
-            )
-            .vortex_expect("Metadata is known to be good"),
-        })
+        ArrayData::try_new_owned(
+            &BoolEncoding,
+            DType::Bool(validity.nullability()),
+            buffer_len,
+            Arc::new(BoolMetadata {
+                validity: validity.to_metadata(buffer_len)?,
+                first_byte_bit_offset,
+            }),
+            Some(Buffer::from(inner)),
+            validity.into_array().into_iter().collect_vec().into(),
+            StatsSet::default(),
+        )?
+        .try_into()
     }
 
     pub fn patch<P: AsPrimitive<usize>>(

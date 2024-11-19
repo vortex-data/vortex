@@ -98,7 +98,7 @@ impl MaybeCompareFn for ConstantArray {
         other: &ArrayData,
         operator: Operator,
     ) -> Option<VortexResult<ArrayData>> {
-        (ConstantArray::try_from(other).is_ok()
+        (ConstantArray::try_from(other.clone()).is_ok()
             || other
                 .statistics()
                 .get_as::<bool>(Stat::IsConstant)

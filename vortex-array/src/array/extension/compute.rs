@@ -41,7 +41,8 @@ impl MaybeCompareFn for ExtensionArray {
         other: &ArrayData,
         operator: Operator,
     ) -> Option<VortexResult<ArrayData>> {
-        if let Ok(const_ext) = ConstantArray::try_from(other) {
+        // TODO(ngates): do not use try_from to test for encoding.
+        if let Ok(const_ext) = ConstantArray::try_from(other.clone()) {
             let scalar_ext = ExtScalar::try_new(const_ext.dtype(), const_ext.scalar_value())
                 .vortex_expect("Expected ExtScalar");
             let const_storage = ConstantArray::new(
@@ -52,7 +53,8 @@ impl MaybeCompareFn for ExtensionArray {
             return Some(compare(self.storage(), const_storage, operator));
         }
 
-        if let Ok(rhs_ext) = ExtensionArray::try_from(other) {
+        // TODO(ngates): do not use try_from to test for encoding.
+        if let Ok(rhs_ext) = ExtensionArray::try_from(other.clone()) {
             return Some(compare(self.storage(), rhs_ext.storage(), operator));
         }
 
