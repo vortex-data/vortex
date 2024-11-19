@@ -2,15 +2,17 @@ use std::collections::{BTreeSet, VecDeque};
 
 use bytes::Bytes;
 use itertools::Itertools;
-use vortex_error::{VortexExpect as _, VortexResult};
+use vortex_array::ArrayData;
+use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_flatbuffers::footer;
 
-use crate::read::buffered::{BufferedLayoutReader, MetadataReader, RangedLayoutReader};
+use crate::pruning::PruningPredicate;
+use crate::read::buffered::{BufferedLayoutReader, RangedLayoutReader};
 use crate::read::cache::RelativeLayoutCache;
 use crate::read::mask::RowMask;
 use crate::{
-    BatchRead, LayoutDeserializer, LayoutId, LayoutPartId, LayoutReader, LayoutSpec, Scan,
-    CHUNKED_LAYOUT_ID,
+    BatchRead, IsPrunedRead, LayoutDeserializer, LayoutId, LayoutPartId, LayoutReader, LayoutSpec,
+    Scan, CHUNKED_LAYOUT_ID,
 };
 #[derive(Default, Debug)]
 pub struct ChunkedLayoutSpec;
@@ -46,10 +48,11 @@ impl LayoutSpec for ChunkedLayoutSpec {
 pub struct ChunkedLayout {
     fb_bytes: Bytes,
     fb_loc: usize,
-    scan: Scan,
+    scan: Scan, // FIXME(DK): should chunked layout even have a scan any more?
     layout_builder: LayoutDeserializer,
     message_cache: RelativeLayoutCache,
     chunk_reader: Option<BufferedLayoutReader>,
+    metadata_reader: Option<MetadataReader>,
 }
 
 impl ChunkedLayout {
@@ -67,6 +70,7 @@ impl ChunkedLayout {
             layout_builder,
             message_cache,
             chunk_reader: None,
+            metadata_reader: None,
         }
     }
 
@@ -102,6 +106,11 @@ impl ChunkedLayout {
             .metadata()
             .map(|b| b.bytes()[0] != 0)
             .unwrap_or(false)
+    }
+
+    fn n_chunks(&self) -> usize {
+        self.flatbuffer().children().unwrap_or_default().len()
+            - (if self.has_metadata() { 1 } else { 0 })
     }
 
     fn children(&self) -> impl Iterator<Item = (usize, footer::Layout)> {
@@ -143,6 +152,13 @@ impl ChunkedLayout {
     }
 }
 
+#[derive(Debug)]
+pub enum MetadataReader {
+    NoMetadata,
+    NotYetRead(Box<dyn LayoutReader>),
+    FinishedReading(Option<ArrayData>),
+}
+
 impl LayoutReader for ChunkedLayout {
     fn add_splits(&self, row_offset: usize, splits: &mut BTreeSet<usize>) -> VortexResult<()> {
         for ((begin, _), child) in self.child_layouts(|i| self.message_cache.unknown_dtype(i))? {
@@ -155,19 +171,73 @@ impl LayoutReader for ChunkedLayout {
         if let Some(br) = &mut self.chunk_reader {
             br.read_next(selector)
         } else {
-            let metadata_reader = match self.metadata_layout()? {
-                Some(metadata_layout) => MetadataReader::NotYetRead(metadata_layout),
-                None => MetadataReader::NoMetadata,
-            };
             self.chunk_reader = Some(BufferedLayoutReader::new(
-                metadata_reader,
                 self.child_layouts(|i| {
                     self.message_cache
                         .relative(i, self.message_cache.dtype().clone())
                 })?,
                 self.scan.clone(),
+                // FIXME(DK): this sucks, if you call read_selection first you cannot prune
+                None,
             ));
             self.read_selection(selector)
+        }
+    }
+
+    fn is_pruned(&mut self, begin: usize, end: usize) -> VortexResult<IsPrunedRead> {
+        println!("chunked: is_pruned {}-{}", begin, end);
+        let Some(expr) = &self.scan.expr else {
+            vortex_bail!("why prune without expr?");
+        };
+        let n_chunks = self.n_chunks();
+        let mut metadata_reader = match &mut self.metadata_reader {
+            None => {
+                let metadata_reader = match self.metadata_layout()? {
+                    Some(metadata_layout) => MetadataReader::NotYetRead(metadata_layout),
+                    None => MetadataReader::NoMetadata,
+                };
+                self.metadata_reader = Some(metadata_reader);
+                self.metadata_reader.as_mut().vortex_expect("it is Some")
+            }
+            Some(x) => x,
+        };
+
+        let prunability = match &mut metadata_reader {
+            MetadataReader::NoMetadata => return Ok(IsPrunedRead::IsPruned(false)),
+            MetadataReader::NotYetRead(reader) => {
+                match reader.read_selection(&RowMask::new_valid_between(0, n_chunks))? {
+                    Some(BatchRead::ReadMore(messages)) => {
+                        return Ok(IsPrunedRead::ReadMore(messages));
+                    }
+                    Some(BatchRead::Batch(metadata)) => {
+                        let prunability = PruningPredicate::try_new(expr)
+                            .map(|p| p.evaluate(&metadata))
+                            .transpose()?
+                            .flatten();
+                        self.metadata_reader =
+                            Some(MetadataReader::FinishedReading(prunability.clone()));
+                        prunability
+                    }
+                    None => {
+                        vortex_bail!("unexpected end of stream while reading metadata array")
+                    }
+                }
+            }
+            MetadataReader::FinishedReading(prunability) => prunability.clone(),
+        };
+
+        if let Some(br) = &mut self.chunk_reader {
+            Ok(IsPrunedRead::IsPruned(br.is_pruned(begin, end)?))
+        } else {
+            self.chunk_reader = Some(BufferedLayoutReader::new(
+                self.child_layouts(|i| {
+                    self.message_cache
+                        .relative(i, self.message_cache.dtype().clone())
+                })?,
+                self.scan.clone(),
+                prunability,
+            ));
+            self.is_pruned(begin, end)
         }
     }
 }

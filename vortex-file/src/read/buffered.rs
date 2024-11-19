@@ -4,10 +4,9 @@ use std::mem;
 use vortex_array::array::ChunkedArray;
 use vortex_array::compute::unary::scalar_at;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
-use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
+use vortex_error::{VortexExpect as _, VortexResult};
 use vortex_scalar::BoolScalar;
 
-use crate::pruning::PruningPredicate;
 use crate::read::mask::RowMask;
 use crate::read::{BatchRead, LayoutReader, MessageLocator, Scan};
 
@@ -16,90 +15,28 @@ pub type RangedLayoutReader = ((usize, usize), Box<dyn LayoutReader>);
 /// Layout reader that continues reading children until all rows referenced in the mask have been handled
 #[derive(Debug)]
 pub struct BufferedLayoutReader {
-    metadata_reader: Option<MetadataReader>,
     layouts: VecDeque<(usize, RangedLayoutReader)>,
     arrays: Vec<ArrayData>,
-    n_chunks: usize,
     scan: Scan,
     chunk_mask: Option<ArrayData>,
 }
 
-#[derive(Debug)]
-pub enum MetadataReader {
-    NoMetadata,
-    NotYetRead(Box<dyn LayoutReader>),
-    Read(ArrayData),
-}
-
 impl BufferedLayoutReader {
     pub fn new(
-        metadata_reader: MetadataReader,
         layouts: VecDeque<RangedLayoutReader>,
         scan: Scan,
+        chunk_mask: Option<ArrayData>,
     ) -> Self {
-        let n_chunks = layouts.len();
         Self {
-            metadata_reader: Some(metadata_reader),
             layouts: layouts.into_iter().enumerate().collect::<VecDeque<_>>(),
             arrays: Vec::new(),
-            n_chunks,
             scan,
-            chunk_mask: None,
+            chunk_mask,
         }
-    }
-
-    fn ensure_pruning_mask(&mut self) -> VortexResult<Option<Vec<MessageLocator>>> {
-        if self.chunk_mask.is_some() {
-            return Ok(None);
-        }
-
-        let metadata = match mem::take(&mut self.metadata_reader) {
-            metadata_reader @ Some(MetadataReader::NoMetadata) => {
-                self.metadata_reader = metadata_reader;
-                None
-            }
-            Some(MetadataReader::NotYetRead(mut reader)) => {
-                match reader.read_selection(&RowMask::new_valid_between(0, self.n_chunks))? {
-                    Some(BatchRead::ReadMore(messages)) => {
-                        self.metadata_reader = Some(MetadataReader::NotYetRead(reader));
-                        return Ok(Some(messages));
-                    }
-                    Some(BatchRead::Batch(array)) => {
-                        self.metadata_reader = Some(MetadataReader::Read(array.clone()));
-                        Some(array)
-                    }
-                    None => {
-                        vortex_bail!("unexpected end of stream while reading metadata array")
-                    }
-                }
-            }
-            Some(MetadataReader::Read(array)) => {
-                self.metadata_reader = Some(MetadataReader::Read(array.clone()));
-                Some(array)
-            }
-            None => vortex_bail!("Called buffer_read while buffer_read was running"),
-        };
-
-        self.chunk_mask = self
-            .scan
-            .expr
-            .as_ref()
-            .zip(metadata)
-            .and_then(|(expression, metadata)| {
-                PruningPredicate::try_new(expression).map(|p| p.evaluate(&metadata))
-            })
-            .transpose()?
-            .flatten();
-
-        Ok(None)
     }
 
     // TODO(robert): Support out of order reads
     fn buffer_read(&mut self, mask: &RowMask) -> VortexResult<Option<Vec<MessageLocator>>> {
-        if let Some(requested_messages) = self.ensure_pruning_mask()? {
-            return Ok(Some(requested_messages));
-        }
-
         while let Some((index, ((begin, end), layout))) = self.layouts.pop_front() {
             let chunk_is_pruned = self
                 .chunk_mask
@@ -111,6 +48,18 @@ impl BufferedLayoutReader {
                 })
                 .transpose()?
                 .unwrap_or(false);
+            println!(
+                "xx index {} {}-{} {} {}",
+                index,
+                begin,
+                end,
+                chunk_is_pruned,
+                self.scan
+                    .expr
+                    .clone()
+                    .map(|x| x.to_string())
+                    .unwrap_or_default()
+            );
             if chunk_is_pruned {
                 continue;
             }
@@ -167,5 +116,34 @@ impl BufferedLayoutReader {
                 )))
             }
         }
+    }
+
+    pub fn is_pruned(&self, begin: usize, end: usize) -> VortexResult<bool> {
+        println!(
+            "Buffered::is_pruned {}-{} {}",
+            begin,
+            end,
+            self.chunk_mask.is_some()
+        );
+        let Some(ref chunk_mask) = self.chunk_mask else {
+            return Ok(false);
+        };
+
+        for (index, ((chunk_begin, chunk_end), _)) in self.layouts.iter() {
+            if !(*chunk_begin == begin && *chunk_end == end) {
+                continue;
+            }
+
+            let chunk_is_pruned = BoolScalar::try_from(&scalar_at(chunk_mask, *index)?)?
+                .value()
+                .vortex_expect("chunk_mask should be nonnullable");
+            println!(
+                "is_pruned: index {} {}-{} {}",
+                index, begin, end, chunk_is_pruned
+            );
+            return Ok(chunk_is_pruned);
+        }
+        println!("could not find {} {} in layouts", begin, end);
+        Ok(false)
     }
 }

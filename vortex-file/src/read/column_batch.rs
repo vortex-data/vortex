@@ -9,6 +9,7 @@ use vortex_dtype::FieldNames;
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_expr::ExprRef;
 
+use super::IsPrunedRead;
 use crate::read::mask::RowMask;
 use crate::read::{BatchRead, LayoutReader};
 
@@ -20,6 +21,7 @@ pub struct ColumnBatchReader {
     names: FieldNames,
     children: Vec<Box<dyn LayoutReader>>,
     arrays: Vec<Option<ArrayData>>,
+    pruned: Vec<Option<bool>>,
     expr: Option<ExprRef>,
     // TODO(robert): This is a hack/optimization that tells us if we're reducing results with AND or not
     shortcircuit_siblings: bool,
@@ -38,10 +40,12 @@ impl ColumnBatchReader {
             "Names and children must be of same length"
         );
         let arrays = vec![None; children.len()];
+        let pruned = vec![None; children.len()];
         Self {
             names,
             children,
             arrays,
+            pruned,
             expr,
             shortcircuit_siblings,
         }
@@ -114,6 +118,32 @@ impl LayoutReader for ColumnBatchReader {
                 .map(Some)
         } else {
             Ok(Some(BatchRead::ReadMore(messages)))
+        }
+    }
+
+    fn is_pruned(&mut self, begin: usize, end: usize) -> VortexResult<IsPrunedRead> {
+        let mut messages = Vec::new();
+        for (i, child_is_pruned) in self
+            .pruned
+            .iter_mut()
+            .enumerate()
+            .filter(|(_, a)| a.is_none())
+        {
+            match self.children[i].is_pruned(begin, end)? {
+                IsPrunedRead::ReadMore(message) => messages.extend(message),
+                IsPrunedRead::IsPruned(is_pruned) => *child_is_pruned = Some(is_pruned),
+            }
+        }
+
+        if messages.is_empty() {
+            let any_child_is_pruned = self
+                .pruned
+                .iter()
+                .any(|x| x.vortex_expect("all pruned-ness should be available"));
+            self.pruned = vec![None; self.pruned.len()]; // FIXME(DK): very not thread safe
+            Ok(IsPrunedRead::IsPruned(any_child_is_pruned))
+        } else {
+            Ok(IsPrunedRead::ReadMore(messages))
         }
     }
 }

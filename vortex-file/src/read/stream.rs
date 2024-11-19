@@ -17,7 +17,7 @@ use vortex_schema::Schema;
 
 use crate::read::cache::LayoutMessageCache;
 use crate::read::mask::RowMask;
-use crate::read::splits::{FilteringRowSplitIterator, FixedSplitIterator, MaskIterator, SplitMask};
+use crate::read::splits::{FixedSplitIterator, MaskIterator, PrunedSplitIterator, SplitMask};
 use crate::read::{BatchRead, LayoutReader, MessageId, MessageLocator};
 
 /// An asynchronous Vortex file that returns a [`Stream`] of [`ArrayData`]s.
@@ -50,7 +50,7 @@ impl<R: VortexReadAt> VortexFileArrayStream<R> {
         dispatcher: Arc<IoDispatcher>,
     ) -> Self {
         let mask_iterator = if let Some(fr) = filter_reader {
-            Box::new(FilteringRowSplitIterator::new(fr, row_count, row_mask)) as MaskIteratorRef
+            Box::new(PrunedSplitIterator::new(fr, row_count, row_mask)) as MaskIteratorRef
         } else {
             Box::new(FixedSplitIterator::new(row_count, row_mask))
         };
