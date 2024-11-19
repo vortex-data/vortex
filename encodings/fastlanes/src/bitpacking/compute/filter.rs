@@ -33,6 +33,12 @@ fn filter_primitive<T: NativePType + BitPacking + ArrowNativeType>(
         .map(SparseArray::try_from)
         .transpose()?;
 
+    // Short-circuit if the selectivity is high enough.
+    if mask.selectivity() > 0.8 {
+        return filter(array.clone().into_primitive()?.as_ref(), mask.clone())
+            .and_then(|a| a.into_primitive());
+    }
+
     let values: Vec<T> = match mask.iter()? {
         FilterIter::Indices(indices) => {
             filter_indices(array, mask.true_count(), indices.iter().copied())
@@ -110,7 +116,7 @@ fn filter_slices<T: NativePType + BitPacking + ArrowNativeType>(
     indices_len: usize,
     slices: impl Iterator<Item = (usize, usize)>,
 ) -> Vec<T> {
-    // TODO(ngates): can we do this more efficiently?
+    // TODO(ngates): do this more efficiently.
     filter_indices(
         array,
         indices_len,
