@@ -33,7 +33,7 @@ impl EncodingCompressor for ConstantCompressor {
     ) -> VortexResult<CompressedArray<'a>> {
         Ok(CompressedArray::compressed(
             ConstantArray::new(
-                array.constant().vortex_expect("checked earlier"),
+                array.constant().vortex_expect("ConstantCompressor expects constant array"),
                 array.len(),
             )
             .into_array(),
