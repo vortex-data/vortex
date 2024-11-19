@@ -9,7 +9,6 @@ use futures::{FutureExt as _, StreamExt, TryStreamExt};
 use object_store::ObjectStore;
 use vortex_array::Context;
 use vortex_expr::datafusion::convert_expr_to_vortex;
-use vortex_expr::{BinaryExpr, Operator};
 use vortex_file::{
     IoDispatcher, LayoutContext, LayoutDeserializer, Projection, RowFilter, VortexReadBuilder,
 };
