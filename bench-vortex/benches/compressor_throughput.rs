@@ -51,7 +51,7 @@ fn primitive(c: &mut Criterion) {
 
     let bool_array = compare(
         &uint_array,
-        ConstantArray::new(Scalar::from(0i32), uint_array.len()),
+        ConstantArray::new(Scalar::from(0u32), uint_array.len()),
         Operator::Eq,
     )
     .unwrap();
