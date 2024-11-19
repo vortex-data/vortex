@@ -141,7 +141,7 @@ mod test {
 
         let compressed = for_compress(&array).unwrap();
         let constant = ConstantArray::try_from(compressed).unwrap();
-        assert_eq!(constant.scalar_value(), ScalarValue::from(0i32));
+        assert_eq!(constant.scalar_value(), &ScalarValue::from(0i32));
     }
 
     #[test]
@@ -158,7 +158,7 @@ mod test {
         let compressed = for_compress(&array).unwrap();
         let sparse = SparseArray::try_from(compressed).unwrap();
         assert!(sparse.statistics().to_set().into_iter().next().is_none());
-        assert_eq!(sparse.fill_value(), ScalarValue::Null);
+        assert_eq!(sparse.fill_value(), &ScalarValue::Null);
         assert_eq!(
             sparse.scalar_at(0).unwrap(),
             Scalar::primitive(0i32, Nullability::Nullable)

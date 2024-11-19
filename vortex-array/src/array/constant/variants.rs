@@ -165,7 +165,7 @@ impl BinaryArrayTrait for ConstantArray {}
 
 impl StructArrayTrait for ConstantArray {
     fn field(&self, idx: usize) -> Option<ArrayData> {
-        StructScalar::try_new(self.dtype(), &self.scalar_value())
+        StructScalar::try_new(self.dtype(), self.scalar_value())
             .ok()?
             .field_by_idx(idx)
             .map(|scalar| ConstantArray::new(scalar, self.len()).into_array())
@@ -173,7 +173,7 @@ impl StructArrayTrait for ConstantArray {
 
     fn project(&self, projection: &[Field]) -> VortexResult<ArrayData> {
         Ok(ConstantArray::new(
-            StructScalar::try_new(self.dtype(), &self.scalar_value())?.project(projection)?,
+            StructScalar::try_new(self.dtype(), self.scalar_value())?.project(projection)?,
             self.len(),
         )
         .into_array())
