@@ -49,6 +49,7 @@ impl FileOpener for VortexFileOpener {
                     .filter_map(|e| convert_expr_to_vortex(e.clone()).ok())
                     .collect::<Vec<_>>()
             })
+            .filter(|conjunction| conjunction.len() > 0)
             .map(RowFilter::from_conjunction);
 
         if let Some(row_filter) = row_filter {
