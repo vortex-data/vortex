@@ -44,12 +44,11 @@ impl FileOpener for VortexFileOpener {
             .predicate
             .as_ref()
             .map(split_conjunction)
-            .map(|c| {
+            .and_then(|c| {
                 c.into_iter()
                     .filter_map(|e| convert_expr_to_vortex(e.clone()).ok())
                     .reduce(|acc, e| BinaryExpr::new_expr(acc, Operator::And, e))
             })
-            .flatten()
             .map(RowFilter::new);
 
         // let row_filter = self
