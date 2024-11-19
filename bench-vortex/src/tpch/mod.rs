@@ -7,9 +7,12 @@ use std::sync::Arc;
 use arrow_array::StructArray as ArrowStructArray;
 use arrow_schema::Schema;
 use datafusion::dataframe::DataFrameWriteOptions;
+use datafusion::datasource::listing::{
+    ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
+};
 use datafusion::datasource::MemTable;
-use datafusion::execution::object_store::ObjectStoreUrl;
 use datafusion::prelude::{CsvReadOptions, ParquetReadOptions, SessionContext};
+use datafusion_common::TableReference;
 use tokio::fs::OpenOptions;
 use vortex::aliases::hash_map::HashMap;
 use vortex::array::{ChunkedArray, StructArray};
@@ -20,7 +23,7 @@ use vortex::sampling_compressor::SamplingCompressor;
 use vortex::variants::StructArrayTrait;
 use vortex::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_datafusion::memory::VortexMemTableOptions;
-use vortex_datafusion::persistent::config::{VortexFile, VortexTableOptions};
+use vortex_datafusion::persistent::format::VortexFormat;
 use vortex_datafusion::SessionContextExt;
 
 use crate::{idempotent_async, CTX};
@@ -218,7 +221,7 @@ async fn register_parquet(
 
 async fn register_vortex_file(
     session: &SessionContext,
-    name: &str,
+    table_name: &str,
     file: &Path,
     schema: &Schema,
     enable_compression: bool,
@@ -311,27 +314,16 @@ async fn register_vortex_file(
     })
     .await?;
 
-    let f = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(&vtx_file)
+    let format = Arc::new(VortexFormat::new(&CTX));
+    let table_url = ListingTableUrl::parse(vtx_file.to_str().unwrap())?;
+    let config = ListingTableConfig::new(table_url)
+        .with_listing_options(ListingOptions::new(format as _))
+        .infer_schema(&session.state())
         .await?;
-    let file_size = f.metadata().await?.len();
 
-    let schema_ref = Arc::new(schema.clone());
+    let listing_table = Arc::new(ListingTable::try_new(config)?);
 
-    session.register_disk_vortex_opts(
-        name,
-        ObjectStoreUrl::local_filesystem(),
-        VortexTableOptions::new(
-            schema_ref,
-            vec![VortexFile::new(
-                vtx_file.to_str().unwrap().to_string(),
-                file_size,
-            )],
-            CTX.clone(),
-        ),
-    )?;
+    session.register_table(TableReference::parse_str(table_name), listing_table as _)?;
 
     Ok(())
 }

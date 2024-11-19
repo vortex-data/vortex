@@ -1,7 +1,9 @@
 use arrow_array::builder::make_view;
 use arrow_buffer::Buffer;
 use vortex_array::array::{PrimitiveArray, VarBinArray, VarBinViewArray};
-use vortex_array::{ArrayDType, ArrayData, Canonical, IntoArrayData, IntoCanonical};
+use vortex_array::{
+    ArrayDType, ArrayData, Canonical, IntoArrayData, IntoArrayVariant, IntoCanonical,
+};
 use vortex_error::VortexResult;
 
 use crate::FSSTArray;
@@ -21,7 +23,7 @@ impl IntoCanonical for FSSTArray {
 
             let compressed_bytes = VarBinArray::try_from(self.codes())?
                 .sliced_bytes()?
-                .as_primitive();
+                .into_primitive()?;
 
             // Bulk-decompress the entire array.
             let uncompressed_bytes =

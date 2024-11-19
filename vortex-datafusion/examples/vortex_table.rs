@@ -1,19 +1,19 @@
 use std::sync::Arc;
 
-use arrow_schema::{DataType, Field, Schema};
+use datafusion::datasource::listing::{
+    ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
+};
 use datafusion::prelude::SessionContext;
-use datafusion_execution::object_store::ObjectStoreUrl;
 use object_store::local::LocalFileSystem;
-use object_store::path::Path;
 use object_store::ObjectStore;
 use tempfile::tempdir;
 use tokio::fs::OpenOptions;
 use url::Url;
 use vortex_array::array::{ChunkedArray, PrimitiveArray, StructArray, VarBinArray};
 use vortex_array::validity::Validity;
-use vortex_array::{Context, IntoArrayData};
-use vortex_datafusion::persistent::config::{VortexFile, VortexTableOptions};
-use vortex_datafusion::persistent::provider::VortexFileTableProvider;
+use vortex_array::IntoArrayData;
+use vortex_datafusion::persistent::format::VortexFormat;
+use vortex_error::vortex_err;
 use vortex_file::VortexFileWriter;
 
 #[tokio::main]
@@ -51,30 +51,26 @@ async fn main() -> anyhow::Result<()> {
     let writer = writer.write_array_columns(st.into_array()).await?;
     writer.finalize().await?;
 
-    let f = tokio::fs::File::open(&filepath).await?;
-    let file_size = f.metadata().await?.len();
+    let ctx = SessionContext::new();
 
     let object_store: Arc<dyn ObjectStore> = Arc::new(LocalFileSystem::new());
-    let url = ObjectStoreUrl::local_filesystem();
-
-    let p = Path::from_filesystem_path(filepath)?;
-
-    let config = VortexTableOptions::new(
-        Arc::new(Schema::new(vec![
-            Field::new("strings", DataType::Utf8, false),
-            Field::new("numbers", DataType::UInt32, false),
-        ])),
-        vec![VortexFile::new(p, file_size)],
-        Arc::new(Context::default()),
-    );
-
-    let provider = Arc::new(VortexFileTableProvider::try_new(url, config)?);
-
-    let ctx = SessionContext::new();
-    ctx.register_table("vortex_tbl", Arc::clone(&provider) as _)?;
-
-    let url = Url::try_from("file://")?;
+    let url: Url = Url::try_from("file://")?;
     ctx.register_object_store(&url, object_store);
+
+    let format = Arc::new(VortexFormat::default());
+    let table_url = ListingTableUrl::parse(
+        filepath
+            .to_str()
+            .ok_or_else(|| vortex_err!("Path is not valid UTF-8"))?,
+    )?;
+    let config = ListingTableConfig::new(table_url)
+        .with_listing_options(ListingOptions::new(format as _))
+        .infer_schema(&ctx.state())
+        .await?;
+
+    let listing_table = Arc::new(ListingTable::try_new(config)?);
+
+    ctx.register_table("vortex_tbl", listing_table as _)?;
 
     run_query(&ctx, "SELECT * FROM vortex_tbl").await?;
 

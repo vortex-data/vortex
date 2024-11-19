@@ -34,7 +34,9 @@ pub fn convert_expr_to_vortex(physical_expr: Arc<dyn PhysicalExpr>) -> VortexRes
         return Ok(Literal::new_expr(value));
     }
 
-    vortex_bail!("Couldn't convert DataFusion physical expression to a vortex expression")
+    vortex_bail!(
+        "Couldn't convert DataFusion physical {physical_expr} expression to a vortex expression"
+    )
 }
 
 impl TryFrom<DFOperator> for Operator {

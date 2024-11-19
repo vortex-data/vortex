@@ -177,6 +177,7 @@ macro_rules! impl_encoding {
                 }
             }
 
+
             /// Implement ArrayMetadata
             impl $crate::ArrayMetadata for [<$Name Metadata>] {
                 #[inline]
