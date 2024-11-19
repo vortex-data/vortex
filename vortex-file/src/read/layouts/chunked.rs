@@ -176,7 +176,6 @@ impl LayoutReader for ChunkedLayout {
                     self.message_cache
                         .relative(i, self.message_cache.dtype().clone())
                 })?,
-                self.scan.clone(),
                 // FIXME(DK): this sucks, if you call read_selection first you cannot prune
                 None,
             ));
@@ -234,7 +233,6 @@ impl LayoutReader for ChunkedLayout {
                     self.message_cache
                         .relative(i, self.message_cache.dtype().clone())
                 })?,
-                self.scan.clone(),
                 prunability,
             ));
             self.is_pruned(begin, end)
