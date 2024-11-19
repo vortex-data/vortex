@@ -43,8 +43,11 @@ impl RoaringBoolArray {
             )
         }
 
-        let stats =
-            StatsSet::bools_with_true_count(bitmap.statistics().cardinality as usize, length);
+        let stats = StatsSet::bools_with_true_and_null_count(
+            bitmap.statistics().cardinality as usize,
+            0,
+            length,
+        );
 
         Ok(Self {
             typed: TypedArray::try_from_parts(
