@@ -534,7 +534,7 @@ impl IntoCanonical for VarBinViewArray {
         let vortex_array = ArrayData::from_arrow(arrow_self, nullable);
 
         Ok(Canonical::VarBinView(VarBinViewArray::try_from(
-            &vortex_array,
+            vortex_array,
         )?))
     }
 }

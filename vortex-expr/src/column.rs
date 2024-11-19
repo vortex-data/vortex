@@ -54,7 +54,7 @@ impl VortexExpr for Column {
     }
 
     fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
-        let s = StructArray::try_from(batch)?;
+        let s = StructArray::try_from(batch.clone())?;
 
         match &self.field {
             Field::Name(n) => s.field_by_name(n),

@@ -17,7 +17,7 @@ impl IntoCanonical for SparseArray {
 
         if matches!(self.dtype(), DType::Bool(_)) {
             let values = self.values().into_bool()?;
-            canonicalize_sparse_bools(values, &indices, self.len(), self.fill_value())
+            canonicalize_sparse_bools(values, &indices, self.len(), &self.fill_value())
         } else {
             let values = self.values().into_primitive()?;
             match_each_native_ptype!(values.ptype(), |$P| {
@@ -25,7 +25,7 @@ impl IntoCanonical for SparseArray {
                     values,
                     &indices,
                     self.len(),
-                    self.fill_value(),
+                    &self.fill_value(),
                 )
             })
         }

@@ -1,15 +1,9 @@
 //! The core Vortex macro to create new encodings and array types.
 
-use std::marker::PhantomData;
+use vortex_error::VortexError;
 
-use vortex_error::{VortexError, VortexResult};
-
-use crate::encoding::{
-    ArrayEncoding, ArrayEncodingExt, ArrayEncodingRef, ArrayMetadataVTable, EncodingId, EncodingRef,
-};
-use crate::{
-    ArrayData, ArrayMetadata, ArrayTrait, IntoArrayData, ToArrayData, TryDeserializeArrayMetadata,
-};
+use crate::encoding::{ArrayEncoding, ArrayEncodingExt, ArrayEncodingRef, EncodingId, EncodingRef};
+use crate::{ArrayData, ArrayMetadata, ArrayTrait, ToArrayData, TryDeserializeArrayMetadata};
 
 /// Trait the defines the set of types relating to an array.
 /// Because it has associated types it can't be used as a trait object.
@@ -22,42 +16,10 @@ pub trait ArrayDef {
     type Encoding: ArrayEncoding + ArrayEncodingExt<D = Self>;
 }
 
-/// Typed array wrapper around an array data.
-/// TODO(ngates): unwrap TypedArray.
-#[derive(Debug, Clone)]
-pub struct Array<E> {
-    data: ArrayData,
-    encoding: PhantomData<E>,
-}
-
-impl<E: ArrayEncoding> Array<E> {
-    fn metadata(&self) -> VortexResult<Box<dyn ArrayMetadata>> {
-        self.data.encoding().metadata(&self.data)
-    }
-}
-
-impl<E> ToArrayData for Array<E> {
+// TODO(ngates): deprecate this trait in favor of From.
+impl<A: AsRef<ArrayData>> ToArrayData for A {
     fn to_array(&self) -> ArrayData {
-        self.data.clone()
-    }
-}
-
-impl<E> IntoArrayData for Array<E> {
-    fn into_array(self) -> ArrayData {
-        self.data
-    }
-}
-
-impl<E> From<Array<E>> for ArrayData {
-    fn from(array: Array<E>) -> ArrayData {
-        // TODO(ngates): maybe we should deprecate either this or IntoArrayData.
-        array.into_array()
-    }
-}
-
-impl<E> AsRef<ArrayData> for Array<E> {
-    fn as_ref(&self) -> &ArrayData {
-        &self.data
+        self.as_ref().clone()
     }
 }
 
@@ -80,9 +42,30 @@ macro_rules! impl_encoding {
                 type Encoding = [<$Name Encoding>];
             }
 
-            pub type [<$Name Array>] = $crate::Array<$Name>;
+            #[derive(std::fmt::Debug, Clone)]
+            pub struct [<$Name Array>] {
+                data: $crate::ArrayData,
+            }
+
+            impl $crate::IntoArrayData for [<$Name Array>] {
+                fn into_array(self) -> $crate::ArrayData {
+                    self.data
+                }
+            }
+            impl AsRef<$crate::ArrayData> for [<$Name Array>] {
+                fn as_ref(&self) -> &$crate::ArrayData {
+                    &self.data
+                }
+            }
+            // TODO(ngates): remove this impl
+            impl From<&[<$Name Array>]> for $crate::ArrayData {
+                fn from(array: &[<$Name Array>]) -> $crate::ArrayData {
+                    array.data.clone()
+                }
+            }
 
             impl [<$Name Array>] {
+                #[allow(dead_code)]
                 fn metadata(&self) -> [<$Name Metadata>] {
                     use $crate::metadata::TryDeserializeArrayMetadata;
                     use vortex_error::VortexExpect;
@@ -129,16 +112,16 @@ macro_rules! impl_encoding {
             impl TryFrom<$crate::ArrayData> for [<$Name Array>] {
                 type Error = vortex_error::VortexError;
 
-                fn try_from(value: $crate::ArrayData) -> Result<Self, Self::Error> {
-                    if value.encoding().id() != <$Name as $crate::ArrayDef>::ID {
+                fn try_from(data: $crate::ArrayData) -> vortex_error::VortexResult<Self> {
+                    if data.encoding().id() != <$Name as $crate::ArrayDef>::ID {
                         vortex_error::vortex_bail!(
                             "Mismatched encoding {}, expected {}",
-                            value.encoding().id().as_ref(),
+                            data.encoding().id().as_ref(),
                             <$Name as $crate::ArrayDef>::ID,
                         );
                     }
                     // SAFETY: We know that our Array struct has an identical layout to ArrayData.
-                    Ok(unsafe { std::mem::transmute(value) })
+                    Ok(unsafe { std::mem::transmute(data) })
                 }
             }
 

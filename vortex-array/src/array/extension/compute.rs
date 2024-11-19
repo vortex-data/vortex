@@ -43,7 +43,8 @@ impl MaybeCompareFn for ExtensionArray {
     ) -> Option<VortexResult<ArrayData>> {
         // TODO(ngates): do not use try_from to test for encoding.
         if let Ok(const_ext) = ConstantArray::try_from(other.clone()) {
-            let scalar_ext = ExtScalar::try_new(const_ext.dtype(), const_ext.scalar_value())
+            let scalar_value = const_ext.scalar_value();
+            let scalar_ext = ExtScalar::try_new(const_ext.dtype(), &scalar_value)
                 .vortex_expect("Expected ExtScalar");
             let const_storage = ConstantArray::new(
                 Scalar::new(self.storage().dtype().clone(), scalar_ext.value().clone()),

@@ -206,7 +206,7 @@ impl Validity {
 
     /// Logically & two Validity values of the same length
     pub fn and(self, rhs: Validity) -> VortexResult<Validity> {
-        let validity = match (&self, &rhs) {
+        let validity = match (self, rhs) {
             // Should be pretty clear
             (Validity::NonNullable, Validity::NonNullable) => Validity::NonNullable,
             // Any `AllInvalid` makes the output all invalid values

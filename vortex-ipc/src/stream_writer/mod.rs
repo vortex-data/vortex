@@ -2,7 +2,8 @@ use std::fmt::{Display, Formatter};
 use std::ops::Range;
 
 use futures_util::{Stream, TryStreamExt};
-use vortex_array::array::ChunkedArray;
+use vortex_array::array::{ChunkedArray, ChunkedEncoding};
+use vortex_array::encoding::ArrayEncoding;
 use vortex_array::stream::ArrayStream;
 use vortex_array::ArrayData;
 use vortex_buffer::Buffer;
@@ -82,8 +83,9 @@ impl<W: VortexWrite> StreamArrayWriter<W> {
     }
 
     pub async fn write_array(self, array: ArrayData) -> VortexResult<Self> {
-        if let Ok(chunked) = ChunkedArray::try_from(&array) {
-            self.write_array_stream(chunked.array_stream()).await
+        if array.is_encoding(ChunkedEncoding.id()) {
+            self.write_array_stream(ChunkedArray::try_from(array)?.array_stream())
+                .await
         } else {
             self.write_array_stream(array.into_array_stream()).await
         }

@@ -121,8 +121,8 @@ impl SparseArray {
     }
 
     #[inline]
-    pub fn fill_value(&self) -> &ScalarValue {
-        &self.metadata().fill_value
+    pub fn fill_value(&self) -> ScalarValue {
+        self.metadata().fill_value
     }
 
     #[inline]

@@ -6,7 +6,8 @@ use vortex_buffer::Buffer;
 use vortex_error::{VortexError, VortexResult};
 
 use crate::array::visitor::ArrayVisitor;
-use crate::array::ChunkedArray;
+use crate::array::ChunkedEncoding;
+use crate::encoding::ArrayEncoding;
 use crate::ArrayData;
 
 impl ArrayData {
@@ -61,7 +62,7 @@ impl<'a, 'b: 'a> ArrayVisitor for TreeFormatter<'a, 'b> {
             })?;
 
             let old_total_size = self.total_size;
-            if ChunkedArray::try_from(array).is_ok() {
+            if array.is_encoding(ChunkedEncoding.id()) {
                 // Clear the total size so each chunk is treated as a new root.
                 self.total_size = None
             } else {

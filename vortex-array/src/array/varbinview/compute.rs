@@ -131,7 +131,7 @@ impl MaybeCompareFn for VarBinViewArray {
         other: &ArrayData,
         operator: Operator,
     ) -> Option<VortexResult<ArrayData>> {
-        if let Ok(rhs_const) = ConstantArray::try_from(other) {
+        if let Ok(rhs_const) = ConstantArray::try_from(other.clone()) {
             Some(compare_constant(self, &rhs_const, operator))
         } else {
             None

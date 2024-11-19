@@ -78,7 +78,7 @@ impl Canonical {
             Canonical::VarBinView(a) => varbinview_as_arrow(&a),
             Canonical::Extension(a) => {
                 if is_temporal_ext_type(a.id()) {
-                    temporal_to_arrow(TemporalArray::try_from(&a.into_array())?)?
+                    temporal_to_arrow(TemporalArray::try_from(a.into_array())?)?
                 } else {
                     // Convert storage array directly into arrow, losing type information
                     // that will let us round-trip.

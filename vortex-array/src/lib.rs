@@ -43,7 +43,7 @@ pub mod elementwise;
 pub mod encoding;
 pub mod iter;
 mod macros;
-mod metadata;
+pub mod metadata;
 pub mod stats;
 pub mod stream;
 pub mod tree;

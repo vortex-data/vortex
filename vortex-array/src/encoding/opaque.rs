@@ -43,7 +43,7 @@ impl ArrayEncoding for OpaqueEncoding {
 }
 
 impl ArrayMetadataVTable<ArrayData> for OpaqueEncoding {
-    fn metadata(&self, array: &ArrayData) -> VortexResult<Box<dyn ArrayMetadata>> {
+    fn metadata(&self, _array: &ArrayData) -> VortexResult<Box<dyn ArrayMetadata>> {
         vortex_bail!(
             "OpaqueEncoding: metadata cannot be called for opaque array ({})",
             self.0
