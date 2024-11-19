@@ -124,7 +124,7 @@ impl BitPackedArray {
                 metadata,
                 Some(packed),
                 children.into(),
-                StatsSet::new(),
+                StatsSet::default(),
             )?,
         })
     }

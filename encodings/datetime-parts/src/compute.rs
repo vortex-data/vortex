@@ -1,7 +1,7 @@
 use itertools::Itertools as _;
 use vortex_array::array::{PrimitiveArray, TemporalArray};
 use vortex_array::compute::unary::{scalar_at, ScalarAtFn};
-use vortex_array::compute::{slice, take, ArrayCompute, SliceFn, TakeFn};
+use vortex_array::compute::{slice, take, ArrayCompute, SliceFn, TakeFn, TakeOptions};
 use vortex_array::validity::ArrayValidity;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_datetime_dtype::{TemporalMetadata, TimeUnit};
@@ -26,12 +26,12 @@ impl ArrayCompute for DateTimePartsArray {
 }
 
 impl TakeFn for DateTimePartsArray {
-    fn take(&self, indices: &ArrayData) -> VortexResult<ArrayData> {
+    fn take(&self, indices: &ArrayData, options: TakeOptions) -> VortexResult<ArrayData> {
         Ok(Self::try_new(
             self.dtype().clone(),
-            take(self.days(), indices)?,
-            take(self.seconds(), indices)?,
-            take(self.subsecond(), indices)?,
+            take(self.days(), indices, options)?,
+            take(self.seconds(), indices, options)?,
+            take(self.subsecond(), indices, options)?,
         )?
         .into_array())
     }
@@ -122,7 +122,7 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalAr
         .collect::<Vec<_>>();
 
     Ok(TemporalArray::new_timestamp(
-        PrimitiveArray::from_vec(values, array.validity().clone()).into_array(),
+        PrimitiveArray::from_vec(values, array.validity()).into_array(),
         temporal_metadata.time_unit(),
         temporal_metadata.time_zone().map(ToString::to_string),
     ))
@@ -150,7 +150,7 @@ mod test {
         do_roundtrip_test(&raw_values, Validity::NonNullable);
         do_roundtrip_test(&raw_values, Validity::AllValid);
         do_roundtrip_test(&raw_values, Validity::AllInvalid);
-        do_roundtrip_test(&raw_values, Validity::from(vec![true, false, true]));
+        do_roundtrip_test(&raw_values, Validity::from_iter([true, false, true]));
     }
 
     fn do_roundtrip_test(raw_values: &[i64], validity: Validity) {
@@ -182,7 +182,7 @@ mod test {
         assert_eq!(validity, raw_millis.validity());
 
         let date_times = DateTimePartsArray::try_new(
-            DType::Extension(temporal_array.ext_dtype().clone()),
+            DType::Extension(temporal_array.ext_dtype()),
             days,
             seconds,
             subseconds,

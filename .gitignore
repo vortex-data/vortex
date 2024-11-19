@@ -170,6 +170,7 @@ prof/
 *.lprof
 *.callgrind
 result.json
+profile.json
 
 # zig language server
 zig-cache/

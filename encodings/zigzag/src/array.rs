@@ -42,7 +42,13 @@ impl ZigZagArray {
         let len = encoded.len();
         let children = [encoded];
 
-        Self::try_from_parts(dtype, len, ZigZagMetadata, children.into(), StatsSet::new())
+        Self::try_from_parts(
+            dtype,
+            len,
+            ZigZagMetadata,
+            children.into(),
+            StatsSet::default(),
+        )
     }
 
     pub fn encode(array: &ArrayData) -> VortexResult<ZigZagArray> {
@@ -90,7 +96,7 @@ impl AcceptArrayVisitor for ZigZagArray {
 
 impl ArrayStatisticsCompute for ZigZagArray {
     fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
-        let mut stats = StatsSet::new();
+        let mut stats = StatsSet::default();
 
         // these stats are the same for self and self.encoded()
         if matches!(stat, Stat::IsConstant | Stat::NullCount) {
@@ -139,7 +145,7 @@ mod test {
             assert_eq!(stats.get(stat), array.statistics().compute(stat).as_ref());
         }
 
-        let sliced = ZigZagArray::try_from(slice(zigzag.clone(), 0, 2).unwrap()).unwrap();
+        let sliced = ZigZagArray::try_from(slice(zigzag, 0, 2).unwrap()).unwrap();
         assert_eq!(
             scalar_at(&sliced, sliced.len() - 1).unwrap(),
             Scalar::from(-5i32)

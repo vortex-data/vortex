@@ -6,7 +6,9 @@ use vortex_array::array::{
     BoolEncoding, PrimitiveEncoding, StructEncoding, VarBinEncoding, VarBinViewEncoding,
 };
 use vortex_array::compute::unary::scalar_at;
-use vortex_array::compute::{filter, search_sorted, slice, take, SearchResult, SearchSortedSide};
+use vortex_array::compute::{
+    filter, search_sorted, slice, take, SearchResult, SearchSortedSide, TakeOptions,
+};
 use vortex_array::encoding::EncodingRef;
 use vortex_array::{ArrayData, IntoCanonical};
 use vortex_fuzz::{sort_canonical_array, Action, FuzzArrayAction};
@@ -35,7 +37,7 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
                 if indices.is_empty() {
                     return Corpus::Reject;
                 }
-                current_array = take(&current_array, &indices).unwrap();
+                current_array = take(&current_array, &indices, TakeOptions::default()).unwrap();
                 assert_array_eq(&expected.array(), &current_array, i);
             }
             Action::SearchSorted(s, side) => {
@@ -56,7 +58,7 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
                 assert_search_sorted(sorted, s, side, expected.search(), i)
             }
             Action::Filter(mask) => {
-                current_array = filter(&current_array, &mask).unwrap();
+                current_array = filter(&current_array, mask).unwrap();
                 assert_array_eq(&expected.array(), &current_array, i);
             }
         }
@@ -96,7 +98,15 @@ fn assert_array_eq(lhs: &ArrayData, rhs: &ArrayData, step: usize) {
         let l = scalar_at(lhs, idx).unwrap();
         let r = scalar_at(rhs, idx).unwrap();
 
-        assert_eq!(l.is_valid(), r.is_valid());
+        assert_eq!(
+            l.is_valid(),
+            r.is_valid(),
+            "LHS validity {} != RHS validity {} at index {idx}, lhs is {} rhs is {} in step {step}",
+            l.is_valid(),
+            r.is_valid(),
+            lhs.encoding().id(),
+            rhs.encoding().id()
+        );
         assert!(
             equal_scalar_values(l.value(), r.value()),
             "{l} != {r} at index {idx}, lhs is {} rhs is {} in step {step}",

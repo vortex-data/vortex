@@ -1,7 +1,6 @@
 use std::fmt::{Debug, Display};
 
 use serde::{Deserialize, Serialize};
-use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use vortex_array::array::PrimitiveArray;
 use vortex_array::compute::unary::scalar_at;
@@ -86,14 +85,14 @@ impl RunEndArray {
         let stats = if matches!(validity, Validity::AllValid | Validity::NonNullable) {
             let ends_len = ends.len();
             let is_constant = ends_len <= 1;
-            StatsSet::from(HashMap::from([
+            StatsSet::from_iter([
                 (Stat::IsConstant, is_constant.into()),
                 (Stat::RunCount, (ends_len as u64).into()),
-            ]))
+            ])
         } else if matches!(validity, Validity::AllInvalid) {
             StatsSet::nulls(length, &dtype)
         } else {
-            StatsSet::new()
+            StatsSet::default()
         };
 
         let mut children = Vec::with_capacity(3);
@@ -235,7 +234,7 @@ impl ArrayStatisticsCompute for RunEndArray {
             _ => None,
         };
 
-        let mut stats = StatsSet::new();
+        let mut stats = StatsSet::default();
         if let Some(stat_value) = maybe_stat {
             stats.set(stat, stat_value);
         }

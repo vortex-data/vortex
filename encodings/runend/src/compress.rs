@@ -140,7 +140,7 @@ mod test {
             let mut validity = vec![true; 10];
             validity[2] = false;
             validity[7] = false;
-            Validity::from(validity)
+            Validity::from_iter(validity)
         };
         let arr = RunEndArray::try_new(
             vec![2u32, 5, 10].into_array(),
@@ -164,9 +164,7 @@ mod test {
         );
         assert_eq!(
             decoded.logical_validity().into_validity(),
-            Validity::from(vec![
-                true, true, false, true, true, true, true, false, true, true,
-            ])
+            Validity::from_iter([true, true, false, true, true, true, true, false, true, true,])
         );
     }
 }

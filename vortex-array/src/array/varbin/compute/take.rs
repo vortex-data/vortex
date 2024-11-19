@@ -4,13 +4,13 @@ use vortex_error::{vortex_err, vortex_panic, VortexResult};
 
 use crate::array::varbin::builder::VarBinBuilder;
 use crate::array::varbin::VarBinArray;
-use crate::compute::TakeFn;
+use crate::compute::{TakeFn, TakeOptions};
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 
 impl TakeFn for VarBinArray {
-    fn take(&self, indices: &ArrayData) -> VortexResult<ArrayData> {
+    fn take(&self, indices: &ArrayData, _options: TakeOptions) -> VortexResult<ArrayData> {
         let offsets = self.offsets().into_primitive()?;
         let data = self.bytes().into_primitive()?;
         let indices = indices.clone().into_primitive()?;

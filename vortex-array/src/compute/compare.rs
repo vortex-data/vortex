@@ -7,8 +7,8 @@ use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::array::Constant;
-use crate::arrow::FromArrowArray;
-use crate::{ArrayDType, ArrayData, ArrayDef, IntoCanonical};
+use crate::arrow::{Datum, FromArrowArray};
+use crate::{ArrayDType, ArrayData, ArrayDef};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd)]
 pub enum Operator {
@@ -99,29 +99,53 @@ pub fn compare(
         vortex_bail!("Compare operations only support arrays of the same type");
     }
 
+    // Always try to put constants on the right-hand side so encodings can optimise themselves.
     if left.is_encoding(Constant::ID) && !right.is_encoding(Constant::ID) {
         return compare(right, left, operator.swap());
     }
 
     if let Some(selection) = left.with_dyn(|lhs| lhs.compare(right, operator)) {
         return selection;
+    } else {
+        log::debug!(
+            "No compare implementation found for LHS {}, RHS {}, and operator {}",
+            left.encoding().id(),
+            right.encoding().id(),
+            operator,
+        );
     }
 
     if let Some(selection) = right.with_dyn(|rhs| rhs.compare(left, operator.swap())) {
         return selection;
+    } else {
+        log::debug!(
+            "No compare implementation found for LHS {}, RHS {}, and operator {}",
+            right.encoding().id(),
+            left.encoding().id(),
+            operator.swap(),
+        );
     }
 
     // Fallback to arrow on canonical types
-    let lhs = left.clone().into_canonical()?.into_arrow()?;
-    let rhs = right.clone().into_canonical()?.into_arrow()?;
+    arrow_compare(left, right, operator)
+}
+
+/// Implementation of `CompareFn` using the Arrow crate.
+pub(crate) fn arrow_compare(
+    lhs: &ArrayData,
+    rhs: &ArrayData,
+    operator: Operator,
+) -> VortexResult<ArrayData> {
+    let lhs = Datum::try_from(lhs.clone())?;
+    let rhs = Datum::try_from(rhs.clone())?;
 
     let array = match operator {
-        Operator::Eq => cmp::eq(&lhs.as_ref(), &rhs.as_ref())?,
-        Operator::NotEq => cmp::neq(&lhs.as_ref(), &rhs.as_ref())?,
-        Operator::Gt => cmp::gt(&lhs.as_ref(), &rhs.as_ref())?,
-        Operator::Gte => cmp::gt_eq(&lhs.as_ref(), &rhs.as_ref())?,
-        Operator::Lt => cmp::lt(&lhs.as_ref(), &rhs.as_ref())?,
-        Operator::Lte => cmp::lt_eq(&lhs.as_ref(), &rhs.as_ref())?,
+        Operator::Eq => cmp::eq(&lhs, &rhs)?,
+        Operator::NotEq => cmp::neq(&lhs, &rhs)?,
+        Operator::Gt => cmp::gt(&lhs, &rhs)?,
+        Operator::Gte => cmp::gt_eq(&lhs, &rhs)?,
+        Operator::Lt => cmp::lt(&lhs, &rhs)?,
+        Operator::Lte => cmp::lt_eq(&lhs, &rhs)?,
     };
 
     Ok(ArrayData::from_arrow(&array, true))
@@ -146,6 +170,7 @@ pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: Operator) -> Scalar {
 
 #[cfg(test)]
 mod tests {
+    use arrow_buffer::BooleanBuffer;
     use itertools::Itertools;
     use vortex_scalar::ScalarValue;
 
@@ -175,10 +200,11 @@ mod tests {
 
     #[test]
     fn test_bool_basic_comparisons() {
-        let arr = BoolArray::from_vec(
-            vec![true, true, false, true, false],
-            Validity::Array(BoolArray::from(vec![false, true, true, true, true]).into_array()),
+        let arr = BoolArray::try_new(
+            BooleanBuffer::from_iter([true, true, false, true, false]),
+            Validity::from_iter([false, true, true, true, true]),
         )
+        .unwrap()
         .into_array();
 
         let matches = compare(&arr, &arr, Operator::Eq)
@@ -195,10 +221,11 @@ mod tests {
         let empty: [u64; 0] = [];
         assert_eq!(to_int_indices(matches), empty);
 
-        let other = BoolArray::from_vec(
-            vec![false, false, false, true, true],
-            Validity::Array(BoolArray::from(vec![false, true, true, true, true]).into_array()),
+        let other = BoolArray::try_new(
+            BooleanBuffer::from_iter([false, false, false, true, true]),
+            Validity::from_iter([false, true, true, true, true]),
         )
+        .unwrap()
         .into_array();
 
         let matches = compare(&arr, &other, Operator::Lte)

@@ -147,7 +147,11 @@ impl<'a, T: BitPacking + NativePType> BitPackedSearch<'a, T> {
             Validity::AllInvalid => 0,
             Validity::Array(varray) => {
                 // In sorted order, nulls come after all the non-null values.
-                varray.with_dyn(|a| a.as_bool_array_unchecked().true_count())
+                varray.with_dyn(|a| {
+                    a.statistics()
+                        .compute_true_count()
+                        .vortex_expect("Failed to compute true count")
+                })
             }
         };
 

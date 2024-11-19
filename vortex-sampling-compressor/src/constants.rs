@@ -2,8 +2,8 @@
 
 // structural pass-throughs have no cost
 pub const SPARSE_COST: u8 = 0;
-// TODO: struct
-// TODO: chunked
+pub const CHUNKED_COST: u8 = 0;
+pub const STRUCT_COST: u8 = 0;
 
 // so fast that we can ignore the cost
 pub const BITPACKED_NO_PATCHES_COST: u8 = 0;

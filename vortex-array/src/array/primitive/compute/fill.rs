@@ -78,7 +78,7 @@ mod test {
     fn nullable_non_null() {
         let arr = PrimitiveArray::from_vec(
             vec![8u8, 10u8, 12u8, 14u8, 16u8],
-            Validity::Array(BoolArray::from(vec![true, true, true, true, true]).into_array()),
+            Validity::Array(BoolArray::from_iter([true, true, true, true, true]).into_array()),
         )
         .into_array();
         let p = fill_forward(&arr).unwrap().as_primitive();

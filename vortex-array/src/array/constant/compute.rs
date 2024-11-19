@@ -1,14 +1,14 @@
 use std::cmp::Ordering;
 
 use vortex_dtype::Nullability;
-use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::array::constant::ConstantArray;
 use crate::compute::unary::{scalar_at, ScalarAtFn};
 use crate::compute::{
-    scalar_cmp, AndFn, ArrayCompute, FilterFn, MaybeCompareFn, Operator, OrFn, SearchResult,
-    SearchSortedFn, SearchSortedSide, SliceFn, TakeFn,
+    scalar_cmp, AndFn, ArrayCompute, FilterFn, FilterMask, MaybeCompareFn, Operator, OrFn,
+    SearchResult, SearchSortedFn, SearchSortedSide, SliceFn, TakeFn, TakeOptions,
 };
 use crate::stats::{ArrayStatistics, Stat};
 use crate::{ArrayDType, ArrayData, IntoArrayData};
@@ -58,7 +58,7 @@ impl ScalarAtFn for ConstantArray {
 }
 
 impl TakeFn for ConstantArray {
-    fn take(&self, indices: &ArrayData) -> VortexResult<ArrayData> {
+    fn take(&self, indices: &ArrayData, _options: TakeOptions) -> VortexResult<ArrayData> {
         Ok(Self::new(self.owned_scalar(), indices.len()).into_array())
     }
 }
@@ -70,19 +70,8 @@ impl SliceFn for ConstantArray {
 }
 
 impl FilterFn for ConstantArray {
-    fn filter(&self, predicate: &ArrayData) -> VortexResult<ArrayData> {
-        Ok(Self::new(
-            self.owned_scalar(),
-            predicate.with_dyn(|p| {
-                p.as_bool_array()
-                    .ok_or(vortex_err!(
-                        NotImplemented: "as_bool_array",
-                        predicate.encoding().id()
-                    ))
-                    .map(|x| x.true_count())
-            })?,
-        )
-        .into_array())
+    fn filter(&self, mask: FilterMask) -> VortexResult<ArrayData> {
+        Ok(Self::new(self.owned_scalar(), mask.true_count()).into_array())
     }
 }
 
@@ -242,8 +231,10 @@ mod test {
     }
 
     #[rstest]
-    #[case(ConstantArray::new(true, 4).into_array(), BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)].into_iter()).into_array())]
-    #[case(BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)].into_iter()).into_array(), ConstantArray::new(true, 4).into_array())]
+    #[case(ConstantArray::new(true, 4).into_array(), BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)].into_iter()).into_array()
+    )]
+    #[case(BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)].into_iter()).into_array(), ConstantArray::new(true, 4).into_array()
+    )]
     fn test_or(#[case] lhs: ArrayData, #[case] rhs: ArrayData) {
         let r = or(&lhs, &rhs).unwrap().into_bool().unwrap().into_array();
 
@@ -259,7 +250,8 @@ mod test {
     }
 
     #[rstest]
-    #[case(ConstantArray::new(true, 4).into_array(), BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)].into_iter()).into_array())]
+    #[case(ConstantArray::new(true, 4).into_array(), BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)].into_iter()).into_array()
+    )]
     #[case(BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)].into_iter()).into_array(),
         ConstantArray::new(true, 4).into_array())]
     fn test_and(#[case] lhs: ArrayData, #[case] rhs: ArrayData) {

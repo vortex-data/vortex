@@ -112,9 +112,7 @@ impl PartialEq<dyn Any> for RowFilter {
 pub fn null_as_false(array: BoolArray) -> VortexResult<ArrayData> {
     Ok(match array.validity() {
         Validity::NonNullable => array.into_array(),
-        Validity::AllValid => {
-            BoolArray::try_new(array.boolean_buffer(), Validity::NonNullable)?.into_array()
-        }
+        Validity::AllValid => BoolArray::from(array.boolean_buffer()).into_array(),
         Validity::AllInvalid => BoolArray::from(BooleanBuffer::new_unset(array.len())).into_array(),
         Validity::Array(v) => {
             let bool_buffer = &array.boolean_buffer() & &v.into_bool()?.boolean_buffer();
@@ -133,10 +131,11 @@ mod tests {
 
     #[test]
     fn coerces_nulls() {
-        let bool_array = BoolArray::from_vec(
-            vec![true, true, false, false],
-            Validity::Array(BoolArray::from(vec![true, false, true, false]).into()),
-        );
+        let bool_array = BoolArray::try_new(
+            BooleanBuffer::from_iter([true, true, false, false]),
+            Validity::from_iter([true, false, true, false]),
+        )
+        .unwrap();
         let non_null_array = null_as_false(bool_array).unwrap().into_bool().unwrap();
         assert_eq!(
             non_null_array.boolean_buffer().iter().collect::<Vec<_>>(),

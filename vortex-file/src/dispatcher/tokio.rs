@@ -117,7 +117,6 @@ impl Dispatch for TokioDispatcher {
 mod tests {
     use std::io::Write;
 
-    use bytes::BytesMut;
     use tempfile::NamedTempFile;
     use vortex_io::{TokioFile, VortexReadAt};
 
@@ -133,8 +132,8 @@ mod tests {
         let rx = dispatcher
             .dispatch(|| async move {
                 let file = TokioFile::open(tmpfile.path()).unwrap();
-                let bytes = BytesMut::zeroed(4);
-                file.read_at_into(0, bytes).await.unwrap()
+
+                file.read_byte_range(0, 4).await.unwrap()
             })
             .unwrap();
 

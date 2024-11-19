@@ -31,7 +31,7 @@ mod tests {
         let values = vec![15_u32, 135, 13531, 42].into_array();
         let indices = vec![10_u64, 11, 50, 100].into_array();
 
-        let sparse = SparseArray::try_new(indices.clone(), values, 101, 0_u32.into())
+        let sparse = SparseArray::try_new(indices, values, 101, 0_u32.into())
             .unwrap()
             .into_array();
 
@@ -51,7 +51,7 @@ mod tests {
         let values = vec![15_u32, 135, 13531, 42].into_array();
         let indices = vec![10_u64, 11, 50, 100].into_array();
 
-        let sparse = SparseArray::try_new(indices.clone(), values, 101, 0_u32.into())
+        let sparse = SparseArray::try_new(indices, values, 101, 0_u32.into())
             .unwrap()
             .into_array();
 

@@ -103,6 +103,8 @@ fn decompress_primitive<T: NativePType + ALPFloat>(
     exponents: Exponents,
 ) -> Vec<T> {
     values
+        // NOTE(ngates): Rust should optimise this into_iter.map to re-use the memory
+        //  of the Vec rather than allocating a new one.
         .into_iter()
         .map(|v| T::decode_single(v, exponents))
         .collect()

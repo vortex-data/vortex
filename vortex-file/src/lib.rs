@@ -204,9 +204,9 @@ pub use write::*;
 #[cfg(test)]
 #[allow(clippy::panic_in_result_fn)]
 mod test {
-    use std::io::Cursor;
     use std::sync::Arc;
 
+    use bytes::Bytes;
     use futures_executor::block_on;
     use futures_util::{pin_mut, StreamExt, TryStreamExt};
     use itertools::Itertools;
@@ -216,7 +216,7 @@ mod test {
     use vortex_array::{ArrayDType, Context, IntoArrayData};
     use vortex_buffer::Buffer;
     use vortex_error::VortexResult;
-    use vortex_io::TokioAdapter;
+    use vortex_io::VortexBufReader;
     use vortex_ipc::stream_reader::StreamArrayReader;
     use vortex_ipc::stream_writer::StreamArrayWriter;
 
@@ -239,12 +239,13 @@ mod test {
         let indices = PrimitiveArray::from(vec![1, 2, 10]).into_array();
 
         let ctx = Arc::new(Context::default());
-        let stream_reader = StreamArrayReader::try_new(TokioAdapter(buffer.as_slice()), ctx)
-            .await
-            .unwrap()
-            .load_dtype()
-            .await
-            .unwrap();
+        let stream_reader =
+            StreamArrayReader::try_new(VortexBufReader::new(Bytes::from(buffer)), ctx)
+                .await
+                .unwrap()
+                .load_dtype()
+                .await
+                .unwrap();
         let reader = stream_reader.into_array_stream();
 
         let result_iter = reader.take_rows(indices)?;
@@ -271,7 +272,7 @@ mod test {
         let buffer = Buffer::from(buffer);
 
         let ctx = Arc::new(Context::default());
-        let stream_reader = StreamArrayReader::try_new(TokioAdapter(Cursor::new(buffer)), ctx)
+        let stream_reader = StreamArrayReader::try_new(VortexBufReader::new(buffer), ctx)
             .await
             .unwrap()
             .load_dtype()

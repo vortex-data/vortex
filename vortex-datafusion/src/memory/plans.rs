@@ -20,7 +20,7 @@ use futures::{ready, Stream};
 use pin_project::pin_project;
 use vortex_array::array::ChunkedArray;
 use vortex_array::arrow::FromArrowArray;
-use vortex_array::compute::take;
+use vortex_array::compute::{take, TakeOptions};
 use vortex_array::{ArrayData, IntoArrayVariant, IntoCanonical};
 use vortex_dtype::field::Field;
 use vortex_error::{vortex_err, vortex_panic, VortexError};
@@ -221,7 +221,7 @@ impl TakeRowsExec {
             plan_properties,
             projection: projection.iter().copied().map(Field::from).collect(),
             input: row_indices,
-            output_schema: output_schema.clone(),
+            output_schema,
             table: table.clone(),
         }
     }
@@ -350,7 +350,7 @@ where
         //  We should find a way to avoid decoding the filter columns and only decode the other
         //  columns, then stitch the StructArray back together from those.
         let projected_for_output = chunk.project(this.output_projection)?;
-        let decoded = take(projected_for_output, &row_indices)?
+        let decoded = take(projected_for_output, &row_indices, TakeOptions::default())?
             .into_canonical()?
             .into_arrow()?;
 
@@ -397,7 +397,7 @@ mod test {
             Arc::new([FieldName::from("a"), FieldName::from("b")]),
             vec![
                 PrimitiveArray::from(vec![0u64, 1, 2]).into_array(),
-                BoolArray::from(vec![false, false, true]).into_array(),
+                BoolArray::from_iter([false, false, true]).into_array(),
             ],
             3,
             Validity::NonNullable,
@@ -413,13 +413,13 @@ mod test {
         let logical_expr = and((col("a")).eq(lit(2u64)), col("b").eq(lit(true)));
         let df_expr = create_physical_expr(
             &logical_expr,
-            &schema.clone().to_dfschema().unwrap(),
+            &schema.to_dfschema().unwrap(),
             &ExecutionProps::new(),
         )
         .unwrap();
 
         let filtering_stream = RowIndicesStream {
-            chunked_array: chunked_array.clone(),
+            chunked_array,
             chunk_idx: 0,
             conjunction_expr: convert_expr_to_vortex(df_expr).unwrap(),
             filter_projection: vec![Field::from(0), Field::from(1)],

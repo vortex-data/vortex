@@ -3,7 +3,6 @@ use std::sync::Arc;
 
 use enum_iterator::all;
 use itertools::Itertools;
-use log::warn;
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_err, VortexError, VortexExpect as _, VortexResult};
@@ -228,15 +227,20 @@ impl Statistics for ViewedArrayData {
                 .trailing_zero_freq()
                 .map(|v| v.iter().collect_vec())
                 .map(|v| v.into()),
+            Stat::UncompressedSizeInBytes => self
+                .flatbuffer()
+                .stats()?
+                .uncompressed_size_in_bytes()
+                .map(u64::into),
         }
     }
 
     /// NB: part of the contract for to_set is that it does not do any expensive computation.
     /// In other implementations, this means returning the underlying stats map, but for the flatbuffer
-    /// implemetation, we have 'precalculated' stats in the flatbuffer itself, so we need to
-    /// alllocate a stats map and populate it with those fields.
+    /// implementation, we have 'precalculated' stats in the flatbuffer itself, so we need to
+    /// allocate a stats map and populate it with those fields.
     fn to_set(&self) -> StatsSet {
-        let mut result = StatsSet::new();
+        let mut result = StatsSet::default();
         for stat in all::<Stat>() {
             if let Some(value) = self.get(stat) {
                 result.set(stat, value)
@@ -248,7 +252,7 @@ impl Statistics for ViewedArrayData {
     /// We want to avoid any sort of allocation on instantiation of the ArrayView, so we
     /// do not allocate a stats_set to cache values.
     fn set(&self, _stat: Stat, _value: Scalar) {
-        warn!("Cannot write stats to a view")
+        // We cannot set stats on a view
     }
 
     fn compute(&self, stat: Stat) -> Option<Scalar> {

@@ -49,7 +49,7 @@ impl ByteBoolArray {
             },
             Some(buffer),
             validity.into_array().into_iter().collect::<Vec<_>>().into(),
-            StatsSet::new(),
+            StatsSet::default(),
         )?;
 
         Ok(typed.into())
@@ -99,14 +99,6 @@ impl BoolArrayTrait for ByteBoolArray {
         )
         .map(|a| a.into_array())
     }
-
-    fn maybe_null_indices_iter<'a>(&'a self) -> Box<dyn Iterator<Item = usize> + 'a> {
-        todo!()
-    }
-
-    fn maybe_null_slices_iter<'a>(&'a self) -> Box<dyn Iterator<Item = (usize, usize)> + 'a> {
-        todo!()
-    }
 }
 
 impl From<Vec<bool>> for ByteBoolArray {
@@ -118,7 +110,7 @@ impl From<Vec<bool>> for ByteBoolArray {
 
 impl From<Vec<Option<bool>>> for ByteBoolArray {
     fn from(value: Vec<Option<bool>>) -> Self {
-        let validity = Validity::from_iter(value.iter());
+        let validity = Validity::from_iter(value.iter().map(|v| v.is_some()));
 
         // This doesn't reallocate, and the compiler even vectorizes it
         let data = value.into_iter().map(Option::unwrap_or_default).collect();
@@ -133,7 +125,10 @@ impl IntoCanonical for ByteBoolArray {
         let boolean_buffer = BooleanBuffer::from(self.maybe_null_slice());
         let validity = self.validity();
 
-        BoolArray::try_new(boolean_buffer, validity).map(Canonical::Bool)
+        Ok(Canonical::Bool(BoolArray::try_new(
+            boolean_buffer,
+            validity,
+        )?))
     }
 }
 
