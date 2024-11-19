@@ -6,7 +6,7 @@ use vortex_array::array::PrimitiveArray;
 use vortex_array::encoding::EncodingRef;
 use vortex_array::stats::ArrayStatistics as _;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayData, ArrayDef, IntoArrayData};
+use vortex_array::{ArrayData, ArrayDef, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
 
@@ -45,7 +45,7 @@ impl EncodingCompressor for ALPCompressor {
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
         // TODO(robert): Fill forward nulls?
-        let parray = array.as_primitive();
+        let parray = array.clone().into_primitive()?;
 
         let (exponents, encoded, patches) = match_each_alp_float_ptype!(
             parray.ptype(), |$T| {

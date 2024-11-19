@@ -176,9 +176,15 @@ mod test {
             seconds,
             subseconds,
         } = split_temporal(temporal_array.clone()).unwrap();
-        assert_eq!(days.as_primitive().validity(), validity);
-        assert_eq!(seconds.as_primitive().validity(), Validity::NonNullable);
-        assert_eq!(subseconds.as_primitive().validity(), Validity::NonNullable);
+        assert_eq!(days.clone().into_primitive().unwrap().validity(), validity);
+        assert_eq!(
+            seconds.clone().into_primitive().unwrap().validity(),
+            Validity::NonNullable
+        );
+        assert_eq!(
+            subseconds.clone().into_primitive().unwrap().validity(),
+            Validity::NonNullable
+        );
         assert_eq!(validity, raw_millis.validity());
 
         let date_times = DateTimePartsArray::try_new(

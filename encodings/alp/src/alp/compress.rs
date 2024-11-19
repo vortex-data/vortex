@@ -124,7 +124,11 @@ mod tests {
         let encoded = alp_encode(&array).unwrap();
         assert!(encoded.patches().is_none());
         assert_eq!(
-            encoded.encoded().as_primitive().maybe_null_slice::<i32>(),
+            encoded
+                .encoded()
+                .into_primitive()
+                .unwrap()
+                .maybe_null_slice::<i32>(),
             vec![1234; 1025]
         );
         assert_eq!(encoded.exponents(), Exponents { e: 9, f: 6 });
@@ -142,7 +146,11 @@ mod tests {
         let encoded = alp_encode(&array).unwrap();
         assert!(encoded.patches().is_none());
         assert_eq!(
-            encoded.encoded().as_primitive().maybe_null_slice::<i32>(),
+            encoded
+                .encoded()
+                .into_primitive()
+                .unwrap()
+                .maybe_null_slice::<i32>(),
             vec![0, 1234, 0]
         );
         assert_eq!(encoded.exponents(), Exponents { e: 9, f: 6 });
@@ -160,7 +168,11 @@ mod tests {
         let encoded = alp_encode(&array).unwrap();
         assert!(encoded.patches().is_some());
         assert_eq!(
-            encoded.encoded().as_primitive().maybe_null_slice::<i64>(),
+            encoded
+                .encoded()
+                .into_primitive()
+                .unwrap()
+                .maybe_null_slice::<i64>(),
             vec![1234i64, 2718, 1234, 4000] // fill forward
         );
         assert_eq!(encoded.exponents(), Exponents { e: 16, f: 13 });

@@ -148,7 +148,7 @@ pub fn runend_decode_typed_bool<E: NativePType + AsPrimitive<usize> + FromPrimit
 mod test {
     use vortex_array::array::PrimitiveArray;
     use vortex_array::validity::{ArrayValidity, Validity};
-    use vortex_array::IntoArrayData;
+    use vortex_array::{IntoArrayData, IntoArrayVariant};
 
     use crate::compress::{runend_decode_primitive, runend_encode};
     use crate::RunEndArray;
@@ -190,8 +190,8 @@ mod test {
         .unwrap();
 
         let decoded = runend_decode_primitive(
-            arr.ends().as_primitive(),
-            arr.values().as_primitive(),
+            arr.ends().into_primitive().unwrap(),
+            arr.values().into_primitive().unwrap(),
             arr.validity(),
             0,
             arr.len(),

@@ -24,7 +24,7 @@ pub fn split_temporal(array: TemporalArray) -> VortexResult<TemporalParts> {
         &temporal_values,
         &DType::Primitive(PType::I64, temporal_values.dtype().nullability()),
     )?
-    .as_primitive();
+    .into_primitive()?;
 
     let divisor = match array.temporal_metadata().time_unit() {
         TimeUnit::Ns => 1_000_000_000,

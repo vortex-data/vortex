@@ -213,7 +213,7 @@ mod test {
     use vortex_array::array::{ChunkedArray, PrimitiveArray, PrimitiveEncoding};
     use vortex_array::encoding::ArrayEncoding;
     use vortex_array::stream::ArrayStreamExt;
-    use vortex_array::{ArrayDType, Context, IntoArrayData};
+    use vortex_array::{ArrayDType, Context, IntoArrayData, IntoArrayVariant};
     use vortex_buffer::Buffer;
     use vortex_error::VortexResult;
     use vortex_io::VortexBufReader;
@@ -286,13 +286,14 @@ mod test {
         assert_eq!(next.encoding().id(), PrimitiveEncoding.id());
 
         assert_eq!(
-            next.as_primitive().maybe_null_slice::<i32>(),
+            next.into_primitive().unwrap().maybe_null_slice::<i32>(),
             vec![2999989, 2999988, 2999987, 2999986, 2899999, 0, 0]
         );
         assert_eq!(
             block_on(async { take_iter.try_next().await })?
                 .expect("Expected a chunk")
-                .as_primitive()
+                .into_primitive()
+                .unwrap()
                 .maybe_null_slice::<i32>(),
             vec![5999999]
         );

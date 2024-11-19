@@ -172,7 +172,11 @@ mod tests {
         let encoded = alp_encode(&array).unwrap();
         assert!(encoded.patches().is_none());
         assert_eq!(
-            encoded.encoded().as_primitive().maybe_null_slice::<i32>(),
+            encoded
+                .encoded()
+                .into_primitive()
+                .unwrap()
+                .maybe_null_slice::<i32>(),
             vec![1234; 1025]
         );
 
