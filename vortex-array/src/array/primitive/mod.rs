@@ -334,12 +334,6 @@ impl AcceptArrayVisitor for PrimitiveArray {
     }
 }
 
-impl ArrayData {
-    pub fn as_primitive(&self) -> PrimitiveArray {
-        PrimitiveArray::try_from(self).vortex_expect("Expected primitive array")
-    }
-}
-
 // This is an arbitrary value, tried a few seems like this is a better value than smaller ones,
 // I assume there's some hardware dependency here but this seems to be good enough
 const CHUNK_SIZE: usize = 1024;
