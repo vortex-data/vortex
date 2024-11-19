@@ -25,7 +25,7 @@ impl IntoCanonical for SparseArray {
                     values,
                     &indices,
                     self.len(),
-                    &self.fill_value(),
+                    self.fill_value(),
                 )
             })
         }

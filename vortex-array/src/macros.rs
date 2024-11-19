@@ -16,7 +16,6 @@ pub trait ArrayDef {
     type Encoding: ArrayEncoding + ArrayEncodingExt<D = Self>;
 }
 
-// TODO(ngates): deprecate this trait in favor of From.
 impl<A: AsRef<ArrayData>> ToArrayData for A {
     fn to_array(&self) -> ArrayData {
         self.as_ref().clone()
@@ -58,12 +57,6 @@ macro_rules! impl_encoding {
                     &self.data
                 }
             }
-            // TODO(ngates): remove this impl
-            impl From<&[<$Name Array>]> for $crate::ArrayData {
-                fn from(array: &[<$Name Array>]) -> $crate::ArrayData {
-                    array.data.clone()
-                }
-            }
 
             impl [<$Name Array>] {
                 #[allow(dead_code)]
@@ -103,7 +96,7 @@ macro_rules! impl_encoding {
                 type Error = vortex_error::VortexError;
 
                 fn try_from(data: $crate::ArrayData) -> vortex_error::VortexResult<Self> {
-                    use $crate::metadata::TryDeserializeArrayMetadata;
+                    use $crate::TryDeserializeArrayMetadata;
 
                     if data.encoding().id() != <$Name as $crate::ArrayDef>::ID {
                         vortex_error::vortex_bail!(
@@ -147,15 +140,6 @@ macro_rules! impl_encoding {
             impl $crate::encoding::ArrayEncodingExt for [<$Name Encoding>] {
                 type D = $Name;
             }
-            impl $crate::encoding::ArrayMetadataVTable<$crate::ArrayData> for [<$Name Encoding>] {
-                fn metadata(&self, array: &$crate::ArrayData) -> vortex_error::VortexResult<Box<dyn $crate::ArrayMetadata>> {
-                    use $crate::metadata::TryDeserializeArrayMetadata;
-                    Ok(Box::new([<$Name Metadata>]::try_deserialize_metadata(Some(
-                        array.metadata()?.as_ref(),
-                    ))?))
-                }
-            }
-
 
             /// Implement ArrayMetadata
             impl $crate::ArrayMetadata for [<$Name Metadata>] {
