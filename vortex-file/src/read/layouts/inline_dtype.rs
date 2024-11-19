@@ -12,7 +12,7 @@ use vortex_ipc::stream_writer::ByteRange;
 use crate::read::cache::{LazilyDeserializedDType, RelativeLayoutCache};
 use crate::read::mask::RowMask;
 use crate::{
-    BatchRead, LayoutDeserializer, LayoutId, LayoutPartId, LayoutReader, LayoutSpec,
+    BatchRead, IsPrunedRead, LayoutDeserializer, LayoutId, LayoutPartId, LayoutReader, LayoutSpec,
     MessageLocator, Scan, INLINE_SCHEMA_LAYOUT_ID,
 };
 
@@ -163,5 +163,9 @@ impl LayoutReader for InlineDTypeLayout {
                 }
             }
         }
+    }
+
+    fn is_pruned(&mut self, _begin: usize, _end: usize) -> VortexResult<IsPrunedRead> {
+        Ok(IsPrunedRead::IsPruned(false))
     }
 }

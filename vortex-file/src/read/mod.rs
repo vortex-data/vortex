@@ -61,6 +61,12 @@ pub enum BatchRead {
     Batch(ArrayData),
 }
 
+#[derive(Debug)]
+pub enum IsPrunedRead {
+    ReadMore(Vec<MessageLocator>),
+    IsPruned(bool),
+}
+
 /// A reader for a layout, a serialized sequence of Vortex arrays.
 ///
 /// Some layouts are _horizontally divisble_: they can read a sub-sequence of rows independently of
@@ -85,4 +91,7 @@ pub trait LayoutReader: Debug + Send {
     ///
     /// The layout is finished producing data for selection when it returns None
     fn read_selection(&mut self, selector: &RowMask) -> VortexResult<Option<BatchRead>>;
+
+    // FIXME: Maybe &ExprRef ?
+    fn is_pruned(&mut self, begin: usize, end: usize) -> VortexResult<IsPrunedRead>;
 }
