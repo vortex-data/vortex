@@ -244,7 +244,7 @@ mod test {
 
         let array_layout = writer.array_layouts()[0].clone();
         let byte_offsets = PrimitiveArray::from(array_layout.chunks.byte_offsets.clone());
-        let row_offsets = PrimitiveArray::from(array_layout.chunks.row_offsets.clone());
+        let row_offsets = PrimitiveArray::from(array_layout.chunks.row_offsets);
 
         let buffer = Buffer::from(writer.into_inner());
 

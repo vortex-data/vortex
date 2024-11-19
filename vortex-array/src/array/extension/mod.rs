@@ -152,7 +152,7 @@ mod tests {
         assert_eq!(
             stats.get(Stat::Max),
             Some(&Scalar::extension(
-                ext_dtype.clone(),
+                ext_dtype,
                 ScalarValue::Primitive(PValue::I64(5))
             ))
         );

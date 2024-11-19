@@ -48,7 +48,7 @@ impl MaybeCompareFn for DictArray {
                 // Ensure the other is the same length as the dictionary
                 slice(other, 0, self.values().len())
                     .and_then(|other| compare(self.values(), other, operator))
-                    .and_then(|values| Self::try_new(self.codes().clone(), values))
+                    .and_then(|values| Self::try_new(self.codes(), values))
                     .map(|a| a.into_array()),
             );
         }

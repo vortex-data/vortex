@@ -104,7 +104,7 @@ async fn test_splits() {
         &initial_read,
         &layout_serde,
         Scan::new(None),
-        RelativeLayoutCache::new(cache.clone(), dtype.clone()),
+        RelativeLayoutCache::new(cache, dtype),
     )
     .unwrap();
 

@@ -144,7 +144,7 @@ mod tests {
     #[test]
     fn test_slice() {
         let original = vec![Some(true), Some(true), None, Some(false), None];
-        let vortex_arr = ByteBoolArray::from(original.clone());
+        let vortex_arr = ByteBoolArray::from(original);
 
         let sliced_arr = slice(vortex_arr.as_ref(), 1, 4).unwrap();
         let sliced_arr = ByteBoolArray::try_from(sliced_arr).unwrap();

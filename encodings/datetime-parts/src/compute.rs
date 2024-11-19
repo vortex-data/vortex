@@ -122,7 +122,7 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalAr
         .collect::<Vec<_>>();
 
     Ok(TemporalArray::new_timestamp(
-        PrimitiveArray::from_vec(values, array.validity().clone()).into_array(),
+        PrimitiveArray::from_vec(values, array.validity()).into_array(),
         temporal_metadata.time_unit(),
         temporal_metadata.time_zone().map(ToString::to_string),
     ))
@@ -182,7 +182,7 @@ mod test {
         assert_eq!(validity, raw_millis.validity());
 
         let date_times = DateTimePartsArray::try_new(
-            DType::Extension(temporal_array.ext_dtype().clone()),
+            DType::Extension(temporal_array.ext_dtype()),
             days,
             seconds,
             subseconds,

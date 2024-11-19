@@ -57,7 +57,7 @@ impl<R: VortexReadAt> StreamArrayReader<R> {
             .vortex_expect("Cannot read array from stream: DType not set")
             .deref()
             .clone();
-        self.msgs.into_array_stream(self.ctx.clone(), dtype)
+        self.msgs.into_array_stream(self.ctx, dtype)
     }
 
     /// Reads a single page from the stream.

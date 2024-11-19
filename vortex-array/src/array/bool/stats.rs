@@ -29,11 +29,10 @@ impl ArrayStatisticsCompute for BoolArray {
         match self.logical_validity() {
             LogicalValidity::AllValid(_) => self.boolean_buffer().compute_statistics(stat),
             LogicalValidity::AllInvalid(v) => Ok(StatsSet::nulls(v, self.dtype())),
-            LogicalValidity::Array(a) => NullableBools(
-                &self.boolean_buffer(),
-                &a.clone().into_bool()?.boolean_buffer(),
-            )
-            .compute_statistics(stat),
+            LogicalValidity::Array(a) => {
+                NullableBools(&self.boolean_buffer(), &a.into_bool()?.boolean_buffer())
+                    .compute_statistics(stat)
+            }
         }
     }
 }

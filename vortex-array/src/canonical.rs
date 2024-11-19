@@ -467,8 +467,7 @@ mod test {
             .as_any()
             .downcast_ref::<ArrowStructArray>()
             .cloned()
-            .unwrap()
-            .clone();
+            .unwrap();
 
         let inner_a = inner_struct
             .column(0)

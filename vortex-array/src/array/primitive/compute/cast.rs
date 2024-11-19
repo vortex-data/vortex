@@ -16,7 +16,7 @@ impl CastFn for PrimitiveArray {
 
         // First, check that the cast is compatible with the source array's validity
         let new_validity = if self.dtype().nullability() == new_nullability {
-            self.validity().clone()
+            self.validity()
         } else if new_nullability == Nullability::Nullable {
             // from non-nullable to nullable
             self.validity().into_nullable()

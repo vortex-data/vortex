@@ -54,7 +54,7 @@ impl MaybeCompareFn for RunEndArray {
             return Some(
                 slice(other, 0, self.values().len())
                     .and_then(|other| compare(self.values(), other, operator))
-                    .and_then(|values| Self::try_new(self.ends().clone(), values, self.validity()))
+                    .and_then(|values| Self::try_new(self.ends(), values, self.validity()))
                     .map(|a| a.into_array()),
             );
         }
@@ -265,7 +265,7 @@ mod test {
     fn ree_null_scalar() {
         let array = ree_array();
         let null_ree = RunEndArray::try_new(
-            array.ends().clone(),
+            array.ends(),
             try_cast(array.values(), &array.values().dtype().as_nullable()).unwrap(),
             Validity::AllInvalid,
         )
