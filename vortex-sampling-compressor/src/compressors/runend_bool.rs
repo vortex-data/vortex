@@ -24,7 +24,7 @@ impl EncodingCompressor for RunEndBoolCompressor {
 
     fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {
         // Only support bool arrays
-        if array.encoding().id() != Bool::ID {
+        if !array.is_encoding(Bool::ID) {
             return None;
         }
 
