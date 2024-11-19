@@ -184,7 +184,7 @@ impl LayoutReader for ChunkedLayout {
     }
 
     fn is_pruned(&mut self, begin: usize, end: usize) -> VortexResult<IsPrunedRead> {
-        println!("chunked: is_pruned {}-{}", begin, end);
+        // println!("chunked: is_pruned {}-{}", begin, end);
         let Some(expr) = &self.scan.expr else {
             vortex_bail!("why prune without expr?");
         };

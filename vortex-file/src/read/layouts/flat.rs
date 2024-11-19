@@ -118,7 +118,7 @@ impl LayoutReader for FlatLayout {
     }
 
     fn is_pruned(&mut self, _begin: usize, _end: usize) -> VortexResult<IsPrunedRead> {
-        println!("flat: is_pruned {}-{}", _begin, _end);
+        // println!("flat: is_pruned {}-{}", _begin, _end);
         Ok(IsPrunedRead::IsPruned(false))
     }
 }

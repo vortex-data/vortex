@@ -9,7 +9,7 @@ use crate::RowFilter;
 
 /// Restrict expression to only the fields that appear in projection
 pub fn expr_project(expr: &ExprRef, projection: &[Field]) -> Option<ExprRef> {
-    println!("expr_project: expr: {}, {:?}", expr, projection);
+    // println!("expr_project: expr: {}, {:?}", expr, projection);
     if let Some(rf) = expr.as_any().downcast_ref::<RowFilter>() {
         rf.only_fields(projection)
     } else if expr.as_any().downcast_ref::<Literal>().is_some() {
@@ -57,7 +57,7 @@ pub fn expr_project(expr: &ExprRef, projection: &[Field]) -> Option<ExprRef> {
             None
         }
     } else if let Some(bexp) = expr.as_any().downcast_ref::<BinaryExpr>() {
-        println!("expr_project: bexp: {}", bexp);
+        // println!("expr_project: bexp: {}", bexp);
         let lhs_proj = expr_project(bexp.lhs(), projection);
         let rhs_proj = expr_project(bexp.rhs(), projection);
         if bexp.op() == Operator::And {

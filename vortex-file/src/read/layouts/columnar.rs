@@ -127,13 +127,13 @@ impl ColumnarLayout {
                 .expr
                 .as_ref()
                 .and_then(|e| expr_project(e, &[field]));
-            println!(
-                "projected_expr: {}",
-                projected_expr
-                    .as_ref()
-                    .map(|x| x.to_string())
-                    .unwrap_or_default()
-            );
+            // println!(
+            //     "projected_expr: {}",
+            //     projected_expr
+            //         .as_ref()
+            //         .map(|x| x.to_string())
+            //         .unwrap_or_default()
+            // );
 
             let handled =
                 self.scan.expr.is_none() || (self.scan.expr.is_some() && projected_expr.is_some());
@@ -259,7 +259,7 @@ impl LayoutReader for ColumnarLayout {
     }
 
     fn is_pruned(&mut self, begin: usize, end: usize) -> VortexResult<crate::IsPrunedRead> {
-        println!("columnar: is_pruned {}-{}", begin, end);
+        // println!("columnar: is_pruned {}-{}", begin, end);
         if let Some(r) = &mut self.reader {
             r.is_pruned(begin, end)
         } else {

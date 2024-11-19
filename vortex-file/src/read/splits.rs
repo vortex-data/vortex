@@ -242,9 +242,8 @@ impl PrunedSplitIterator {
         match &mut self.splits {
             SplitState2::Ranges(ranges) => {
                 while let Some((begin, end)) = ranges.pop_front() {
-                    println!("split {}-{}", begin, end);
                     let is_pruned = self.reader.is_pruned(begin, end)?;
-                    println!("split {}-{} {:?}", begin, end, is_pruned);
+                    // println!("split {}-{} {:?}", begin, end, is_pruned);
 
                     match is_pruned {
                         IsPrunedRead::ReadMore(messages) => {

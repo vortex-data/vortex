@@ -94,12 +94,12 @@ impl BufferedLayoutReader {
     }
 
     pub fn is_pruned(&self, begin: usize, end: usize) -> VortexResult<bool> {
-        println!(
-            "Buffered::is_pruned {}-{} {}",
-            begin,
-            end,
-            self.chunk_mask.is_some()
-        );
+        // println!(
+        //     "Buffered::is_pruned {}-{} {}",
+        //     begin,
+        //     end,
+        //     self.chunk_mask.is_some()
+        // );
         let Some(ref chunk_mask) = self.chunk_mask else {
             return Ok(false);
         };
@@ -112,13 +112,13 @@ impl BufferedLayoutReader {
             let chunk_is_pruned = BoolScalar::try_from(&scalar_at(chunk_mask, *index)?)?
                 .value()
                 .vortex_expect("chunk_mask should be nonnullable");
-            println!(
-                "is_pruned: index {} {}-{} {}",
-                index, begin, end, chunk_is_pruned
-            );
+            // println!(
+            //     "is_pruned: index {} {}-{} {}",
+            //     index, begin, end, chunk_is_pruned
+            // );
             return Ok(chunk_is_pruned);
         }
-        println!("could not find {} {} in layouts", begin, end);
+        // println!("could not find {} {} in layouts", begin, end);
         Ok(false)
     }
 }
