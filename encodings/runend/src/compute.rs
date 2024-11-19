@@ -54,7 +54,9 @@ impl MaybeCompareFn for RunEndArray {
             return Some(
                 slice(other, 0, self.values().len())
                     .and_then(|other| compare(self.values(), other, operator))
-                    .and_then(|values| Self::try_new(self.ends(), values, self.validity()))
+                    .and_then(|values| {
+                        Self::try_new(self.ends(), values, self.validity().into_nullable())
+                    })
                     .map(|a| a.into_array()),
             );
         }
@@ -199,9 +201,9 @@ fn filter_run_ends<R: NativePType + AddAssign + From<bool> + AsPrimitive<u64>>(
 
 #[cfg(test)]
 mod test {
-    use vortex_array::array::{BoolArray, PrimitiveArray};
+    use vortex_array::array::{BoolArray, BooleanBuffer, ConstantArray, PrimitiveArray};
     use vortex_array::compute::unary::{scalar_at, try_cast};
-    use vortex_array::compute::{filter, slice, take, FilterMask, TakeOptions};
+    use vortex_array::compute::{compare, filter, slice, take, FilterMask, Operator, TakeOptions};
     use vortex_array::validity::{ArrayValidity, Validity};
     use vortex_array::{ArrayDType, IntoArrayData, IntoArrayVariant, ToArrayData};
     use vortex_dtype::{DType, Nullability, PType};
@@ -467,6 +469,19 @@ mod test {
                 .unwrap()
                 .maybe_null_slice::<i32>(),
             [1, 5]
+        );
+    }
+
+    #[test]
+    fn compare_run_end() {
+        let arr = ree_array();
+        let res = compare(arr, ConstantArray::new(5, 12), Operator::Eq).unwrap();
+        let res_canon = res.into_bool().unwrap();
+        assert_eq!(
+            res_canon.boolean_buffer(),
+            BooleanBuffer::from(vec![
+                false, false, false, false, false, false, false, false, true, true, true, true
+            ])
         );
     }
 }

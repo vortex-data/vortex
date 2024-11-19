@@ -8,16 +8,16 @@ use vortex_array::compute::{search_sorted, search_sorted_u64_many, SearchSortedS
 use vortex_array::encoding::ids;
 use vortex_array::stats::{ArrayStatistics, ArrayStatisticsCompute, Stat, StatsSet};
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
-use vortex_array::variants::{ArrayVariants, PrimitiveArrayTrait};
+use vortex_array::variants::{ArrayVariants, BoolArrayTrait, PrimitiveArrayTrait};
 use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayTrait, Canonical, IntoArrayData, IntoArrayVariant,
     IntoCanonical,
 };
 use vortex_dtype::{DType, PType};
-use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::compress::{runend_decode, runend_encode};
+use crate::compress::{runend_decode_bools, runend_decode_primitive, runend_encode};
 
 impl_encoding!("vortex.runend", ids::RUN_END, RunEnd);
 
@@ -52,6 +52,13 @@ impl RunEndArray {
         offset: usize,
         length: usize,
     ) -> VortexResult<Self> {
+        if !matches!(values.dtype(), &DType::Bool(_) | &DType::Primitive(_, _)) {
+            vortex_bail!(
+                "RunEnd array can only have Bool or Primitive values, {} given",
+                values.dtype()
+            );
+        }
+
         if values.dtype().nullability() != validity.nullability() {
             vortex_bail!(
                 "invalid validity {:?} for dtype {}",
@@ -192,6 +199,23 @@ impl ArrayVariants for RunEndArray {
 
 impl PrimitiveArrayTrait for RunEndArray {}
 
+impl BoolArrayTrait for RunEndArray {
+    fn invert(&self) -> VortexResult<ArrayData> {
+        RunEndArray::with_offset_and_length(
+            self.ends(),
+            self.values().with_dyn(|v| {
+                v.as_bool_array()
+                    .ok_or_else(|| vortex_err!("Values were not a bool dtype array"))?
+                    .invert()
+            })?,
+            self.validity(),
+            self.len(),
+            self.offset(),
+        )
+        .map(|a| a.into_array())
+    }
+}
+
 impl ArrayValidity for RunEndArray {
     fn is_valid(&self, index: usize) -> bool {
         self.validity().is_valid(index)
@@ -205,9 +229,19 @@ impl ArrayValidity for RunEndArray {
 impl IntoCanonical for RunEndArray {
     fn into_canonical(self) -> VortexResult<Canonical> {
         let pends = self.ends().into_primitive()?;
-        let pvalues = self.values().into_primitive()?;
-        runend_decode(&pends, &pvalues, self.validity(), self.offset(), self.len())
-            .map(Canonical::Primitive)
+        match self.dtype() {
+            DType::Bool(_) => {
+                let bools = self.values().into_bool()?;
+                runend_decode_bools(pends, bools, self.validity(), self.offset(), self.len())
+                    .map(Canonical::Bool)
+            }
+            DType::Primitive(..) => {
+                let pvalues = self.values().into_primitive()?;
+                runend_decode_primitive(pends, pvalues, self.validity(), self.offset(), self.len())
+                    .map(Canonical::Primitive)
+            }
+            _ => vortex_bail!("Only Primitive and Bool values are supported"),
+        }
     }
 }
 

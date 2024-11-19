@@ -2,22 +2,22 @@ use std::collections::{BTreeSet, VecDeque};
 use std::sync::{Arc, RwLock};
 
 use bytes::Bytes;
-use itertools::Itertools;
 use vortex_array::ArrayData;
-use vortex_error::VortexUnwrap;
+use vortex_error::{vortex_panic, VortexUnwrap};
 
 use crate::read::mask::RowMask;
+use crate::read::splits::{FixedSplitIterator, MaskIterator, SplitMask};
 use crate::{BatchRead, LayoutMessageCache, LayoutReader, MessageLocator};
 
-pub fn layout_splits(layout: &mut dyn LayoutReader, length: usize) -> Vec<RowMask> {
+fn layout_splits(layout: &mut dyn LayoutReader, length: usize) -> impl Iterator<Item = RowMask> {
+    let mut iter = FixedSplitIterator::new(length as u64, None);
     let mut splits = BTreeSet::new();
-    splits.insert(length);
     layout.add_splits(0, &mut splits).vortex_unwrap();
-    splits
-        .into_iter()
-        .tuple_windows::<(usize, usize)>()
-        .map(|(begin, end)| RowMask::new_valid_between(begin, end))
-        .collect::<Vec<_>>()
+    iter.additional_splits(&mut splits).vortex_unwrap();
+    iter.map(|m| m.vortex_unwrap()).map(|m| match m {
+        SplitMask::ReadMore(_) => vortex_panic!("Will never read more"),
+        SplitMask::Mask(m) => m,
+    })
 }
 
 pub fn read_layout_data(
@@ -73,7 +73,6 @@ pub fn filter_read_layout(
     length: usize,
 ) -> VecDeque<ArrayData> {
     layout_splits(filter_layout, length)
-        .into_iter()
         .flat_map(|s| read_filters(filter_layout, cache.clone(), buf, &s))
         .flat_map(|s| read_layout_data(layout, cache.clone(), buf, &s))
         .collect()
@@ -86,7 +85,6 @@ pub fn read_layout(
     length: usize,
 ) -> VecDeque<ArrayData> {
     layout_splits(layout, length)
-        .into_iter()
         .flat_map(|s| read_layout_data(layout, cache.clone(), buf, &s))
         .collect()
 }
