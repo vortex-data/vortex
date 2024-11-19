@@ -15,7 +15,7 @@ pub type RangedLayoutReader = ((usize, usize), Box<dyn LayoutReader>);
 /// Layout reader that continues reading children until all rows referenced in the mask have been handled
 #[derive(Debug)]
 pub struct BufferedLayoutReader {
-    splits: Vec<(usize, (usize, usize))>,
+    splits: Vec<(usize, usize)>,
     layouts: VecDeque<RangedLayoutReader>,
     arrays: Vec<ArrayData>,
     chunk_mask: Option<ArrayData>,
@@ -27,7 +27,6 @@ impl BufferedLayoutReader {
             splits: layouts
                 .iter()
                 .map(|((begin, end), _)| (*begin, *end))
-                .enumerate()
                 .collect::<Vec<_>>(),
             layouts,
             arrays: Vec::new(),
@@ -105,16 +104,28 @@ impl BufferedLayoutReader {
         };
 
         let needle = (begin, end);
-        let Ok(index) = self
-            .splits
-            .binary_search_by(|(_, probe)| probe.cmp(&needle))
-        else {
-            vortex_bail!("could not find {}-{} in this layout reader", begin, end)
-        };
-
-        let chunk_is_pruned = BoolScalar::try_from(&scalar_at(chunk_mask, index)?)?
-            .value()
-            .vortex_expect("chunk_mask should be nonnullable");
-        Ok(chunk_is_pruned)
+        match self.splits.binary_search_by(|probe| probe.cmp(&needle)) {
+            Ok(index) => {
+                let chunk_is_pruned = BoolScalar::try_from(&scalar_at(chunk_mask, index)?)?
+                    .value()
+                    .vortex_expect("chunk_mask should be nonnullable");
+                Ok(chunk_is_pruned)
+            }
+            Err(index) => {
+                if index < self.splits.len() {
+                    let (_, split_end) = self.splits[index];
+                    if begin > split_end || end > split_end {
+                        // FIXME(DK): we could check if all overlapping splits are pruned
+                        return Ok(false);
+                    }
+                    let chunk_is_pruned = BoolScalar::try_from(&scalar_at(chunk_mask, index)?)?
+                        .value()
+                        .vortex_expect("chunk_mask should be nonnullable");
+                    Ok(chunk_is_pruned)
+                } else {
+                    vortex_bail!("could not find {}-{} in this layout reader", begin, end)
+                }
+            }
+        }
     }
 }
