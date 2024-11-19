@@ -44,6 +44,7 @@ pub enum Stat {
     TrueCount,
     /// The number of null values in the array
     NullCount,
+    /// The uncompressed size of the array in bytes
     UncompressedSizeInBytes,
 }
 
@@ -95,7 +96,11 @@ pub trait Statistics {
     /// Get all existing statistics
     fn to_set(&self) -> StatsSet;
 
+    /// Set the value of the statistic
     fn set(&self, stat: Stat, value: Scalar);
+
+    /// Clear the value of the statistic
+    fn clear(&self, stat: Stat);
 
     /// Computes the value of the stat if it's not present
     fn compute(&self, stat: Stat) -> Option<Scalar>;

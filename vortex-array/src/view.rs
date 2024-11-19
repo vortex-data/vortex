@@ -255,6 +255,10 @@ impl Statistics for ViewedArrayData {
         // We cannot set stats on a view
     }
 
+    fn clear(&self, _stat: Stat) {
+        // We cannot clear stats on a view
+    }
+
     fn compute(&self, stat: Stat) -> Option<Scalar> {
         if let Some(s) = self.get(stat) {
             return Some(s);

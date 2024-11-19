@@ -150,6 +150,13 @@ impl Statistics for OwnedArrayData {
             .set(stat, value);
     }
 
+    fn clear(&self, stat: Stat) {
+        self.stats_map
+            .write()
+            .unwrap_or_else(|_| vortex_panic!("Failed to acquire write lock on stats map"))
+            .clear(stat);
+    }
+
     fn compute(&self, stat: Stat) -> Option<Scalar> {
         if let Some(s) = self.get(stat) {
             return Some(s);

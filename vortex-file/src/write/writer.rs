@@ -3,6 +3,7 @@ use std::{io, mem};
 use flatbuffers::FlatBufferBuilder;
 use futures::TryStreamExt;
 use vortex_array::array::{ChunkedArray, StructArray};
+use vortex_array::stats::{ArrayStatistics, Stat};
 use vortex_array::stream::ArrayStream;
 use vortex_array::{ArrayDType as _, ArrayData};
 use vortex_buffer::io_buf::IoBuf;
@@ -217,7 +218,14 @@ impl ColumnWriter {
 
         while let Some(chunk) = stream.try_next().await? {
             rows_written += chunk.len() as u64;
+
+            // accumulate the stats for the stats table
             self.metadata.push_chunk(&chunk);
+
+            // clear the stats that we don't want to serialize into the file
+            chunk.statistics().clear(Stat::TrailingZeroFreq);
+            chunk.statistics().clear(Stat::BitWidthFreq);
+
             msgs.write_batch(chunk).await?;
             offsets.push(msgs.tell());
             row_offsets.push(rows_written);
