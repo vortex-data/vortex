@@ -14,8 +14,6 @@ use vortex_file::{
 };
 use vortex_io::ObjectStoreReadAt;
 
-// use crate::can_be_pushed_down;
-
 /// Share an IO dispatcher across all DataFusion instances.
 static IO_DISPATCHER: LazyLock<Arc<IoDispatcher>> =
     LazyLock::new(|| Arc::new(IoDispatcher::new_tokio(1)));
