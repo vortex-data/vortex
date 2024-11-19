@@ -5,21 +5,20 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_panic, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::data::InnerArrayData;
 use crate::encoding::EncodingRef;
 use crate::stats::{Stat, Statistics, StatsSet};
 use crate::{ArrayDType, ArrayData, ArrayMetadata};
 
 /// Owned [`ArrayData`] with serialized metadata, backed by heap-allocated memory.
 #[derive(Clone, Debug)]
-pub(crate) struct OwnedArrayData {
-    pub(crate) encoding: EncodingRef,
-    pub(crate) dtype: DType, // FIXME(ngates): Arc?
-    pub(crate) len: usize,
-    pub(crate) metadata: Arc<dyn ArrayMetadata>,
-    pub(crate) buffer: Option<Buffer>,
-    pub(crate) children: Arc<[ArrayData]>,
-    pub(crate) stats_set: Arc<RwLock<StatsSet>>,
+pub(super) struct OwnedArrayData {
+    pub(super) encoding: EncodingRef,
+    pub(super) dtype: DType, // FIXME(ngates): Arc?
+    pub(super) len: usize,
+    pub(super) metadata: Arc<dyn ArrayMetadata>,
+    pub(super) buffer: Option<Buffer>,
+    pub(super) children: Arc<[ArrayData]>,
+    pub(super) stats_set: Arc<RwLock<StatsSet>>,
 }
 
 impl OwnedArrayData {
@@ -154,11 +153,5 @@ impl Statistics for OwnedArrayData {
             .write()
             .unwrap_or_else(|_| vortex_panic!("Failed to acquire write lock on stats map"))
             .retain_only(stats);
-    }
-}
-
-impl From<OwnedArrayData> for ArrayData {
-    fn from(value: OwnedArrayData) -> Self {
-        ArrayData(InnerArrayData::Owned(value))
     }
 }

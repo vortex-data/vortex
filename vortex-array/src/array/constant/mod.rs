@@ -56,13 +56,13 @@ impl ConstantArray {
         })
     }
 
-    pub fn scalar_value(&self) -> ScalarValue {
-        self.metadata().scalar_value
+    pub fn scalar_value(&self) -> &ScalarValue {
+        &self.metadata().scalar_value
     }
 
     /// Construct an owned [`vortex_scalar::Scalar`] with a value equal to [`Self::scalar_value()`].
     pub fn owned_scalar(&self) -> Scalar {
-        Scalar::new(self.dtype().clone(), self.scalar_value())
+        Scalar::new(self.dtype().clone(), self.scalar_value().clone())
     }
 }
 

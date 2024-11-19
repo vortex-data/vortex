@@ -45,6 +45,7 @@ macro_rules! impl_encoding {
             #[derive(std::fmt::Debug, Clone)]
             pub struct [<$Name Array>] {
                 data: $crate::ArrayData,
+                metadata: [<$Name Metadata>],
             }
 
             impl $crate::IntoArrayData for [<$Name Array>] {
@@ -66,20 +67,9 @@ macro_rules! impl_encoding {
 
             impl [<$Name Array>] {
                 #[allow(dead_code)]
-                fn metadata(&self) -> [<$Name Metadata>] {
-                    use $crate::metadata::TryDeserializeArrayMetadata;
-                    use vortex_error::VortexExpect;
-                    [<$Name Metadata>]::try_deserialize_metadata(Some(
-                        self.as_ref().metadata()
-                            .vortex_expect("FIXME(ngates): OwnedData to hold metadata bytes")
-                            .as_ref(),
-                    )).vortex_expect("Metadata validated on creation of ArrayData")
+                fn metadata(&self) -> &[<$Name Metadata>] {
+                    &self.metadata
                 }
-
-                // fn metadata(&self) -> Box<dyn $crate::ArrayMetadata> {
-                //     self.as_ref().encoding().metadata(self.as_ref())
-                //         .vortex_expect("Metadata validated on creation of ArrayData")
-                // }
 
                 pub fn len(&self) -> usize {
                     self.as_ref().len()
@@ -113,6 +103,8 @@ macro_rules! impl_encoding {
                 type Error = vortex_error::VortexError;
 
                 fn try_from(data: $crate::ArrayData) -> vortex_error::VortexResult<Self> {
+                    use $crate::metadata::TryDeserializeArrayMetadata;
+
                     if data.encoding().id() != <$Name as $crate::ArrayDef>::ID {
                         vortex_error::vortex_bail!(
                             "Mismatched encoding {}, expected {}",
@@ -120,8 +112,12 @@ macro_rules! impl_encoding {
                             <$Name as $crate::ArrayDef>::ID,
                         );
                     }
-                    // SAFETY: We know that our Array struct has an identical layout to ArrayData.
-                    Ok(unsafe { std::mem::transmute::<$crate::ArrayData, [<$Name Array>]>(data) })
+
+                    let metadata = [<$Name Metadata>]::try_deserialize_metadata(Some(
+                        data.as_ref().metadata()?.as_ref(),
+                    ))?;
+
+                    Ok(Self { data, metadata })
                 }
             }
 

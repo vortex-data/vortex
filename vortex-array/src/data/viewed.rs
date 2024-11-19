@@ -9,7 +9,6 @@ use vortex_error::{vortex_err, VortexExpect as _, VortexResult};
 use vortex_scalar::{PValue, Scalar, ScalarValue};
 
 use crate::array::visitor::ArrayVisitor;
-use crate::data::InnerArrayData;
 use crate::encoding::opaque::OpaqueEncoding;
 use crate::encoding::EncodingRef;
 use crate::stats::{Stat, Statistics, StatsSet};
@@ -17,14 +16,14 @@ use crate::{flatbuffers as fb, ArrayData, Context};
 
 /// Zero-copy view over flatbuffer-encoded array data, created without eager serialization.
 #[derive(Clone)]
-pub(crate) struct ViewedArrayData {
-    pub(crate) encoding: EncodingRef,
-    pub(crate) dtype: DType,
-    pub(crate) len: usize,
-    pub(crate) flatbuffer: Buffer,
-    pub(crate) flatbuffer_loc: usize,
-    pub(crate) buffers: Arc<[Buffer]>,
-    pub(crate) ctx: Arc<Context>,
+pub(super) struct ViewedArrayData {
+    pub(super) encoding: EncodingRef,
+    pub(super) dtype: DType,
+    pub(super) len: usize,
+    pub(super) flatbuffer: Buffer,
+    pub(super) flatbuffer_loc: usize,
+    pub(super) buffers: Arc<[Buffer]>,
+    pub(super) ctx: Arc<Context>,
     // TODO(ngates): a store a Projection. A projected ArrayView contains the full fb::Array
     //  metadata, but only the buffers from the selected columns. Therefore we need to know
     //  which fb:Array children to skip when calculating how to slice into buffers.
@@ -123,12 +122,6 @@ impl ViewedArrayData {
 
     pub fn statistics(&self) -> &dyn Statistics {
         self
-    }
-}
-
-impl From<ViewedArrayData> for ArrayData {
-    fn from(value: ViewedArrayData) -> Self {
-        ArrayData(InnerArrayData::Viewed(value))
     }
 }
 

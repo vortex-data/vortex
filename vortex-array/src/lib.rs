@@ -17,8 +17,6 @@ pub use data::*;
 pub use macros::*;
 pub use metadata::*;
 pub use paste;
-use stats::Statistics;
-pub use typed::*;
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
@@ -47,7 +45,6 @@ pub mod metadata;
 pub mod stats;
 pub mod stream;
 pub mod tree;
-mod typed;
 pub mod validity;
 pub mod variants;
 
@@ -117,35 +114,10 @@ pub trait ArrayDType {
     fn dtype(&self) -> &DType;
 }
 
-impl<T: AsRef<ArrayData>> ArrayDType for T {
-    fn dtype(&self) -> &DType {
-        match &self.as_ref().0 {
-            InnerArrayData::Owned(array_data) => array_data.dtype(),
-            InnerArrayData::Viewed(array_view) => array_view.dtype(),
-        }
-    }
-}
-
 pub trait ArrayLen {
     fn len(&self) -> usize;
 
     fn is_empty(&self) -> bool;
-}
-
-impl<T: AsRef<ArrayData>> ArrayLen for T {
-    fn len(&self) -> usize {
-        match &self.as_ref().0 {
-            InnerArrayData::Owned(d) => d.len(),
-            InnerArrayData::Viewed(v) => v.len(),
-        }
-    }
-
-    fn is_empty(&self) -> bool {
-        match &self.as_ref().0 {
-            InnerArrayData::Owned(d) => d.is_empty(),
-            InnerArrayData::Viewed(v) => v.is_empty(),
-        }
-    }
 }
 
 struct NBytesVisitor(usize);
@@ -159,21 +131,5 @@ impl ArrayVisitor for NBytesVisitor {
     fn visit_buffer(&mut self, buffer: &Buffer) -> VortexResult<()> {
         self.0 += buffer.len();
         Ok(())
-    }
-}
-
-impl<T: AsRef<ArrayData>> ArrayStatistics for T {
-    fn statistics(&self) -> &(dyn Statistics + '_) {
-        match &self.as_ref().0 {
-            InnerArrayData::Owned(d) => d.statistics(),
-            InnerArrayData::Viewed(v) => v.statistics(),
-        }
-    }
-
-    fn inherit_statistics(&self, parent: &dyn Statistics) {
-        let stats = self.statistics();
-        for (stat, scalar) in parent.to_set() {
-            stats.set(stat, scalar);
-        }
     }
 }

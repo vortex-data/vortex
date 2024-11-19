@@ -75,7 +75,7 @@ where
     }
 
     fn value_unchecked(&self, _index: usize) -> T {
-        T::try_from(self.scalar_value()).vortex_expect("Failed to convert scalar to value")
+        T::try_from(self.scalar_value().clone()).vortex_expect("Failed to convert scalar to value")
     }
 
     fn array_validity(&self) -> Validity {
@@ -185,6 +185,10 @@ impl ListArrayTrait for ConstantArray {}
 impl ExtensionArrayTrait for ConstantArray {
     fn storage_data(&self) -> ArrayData {
         let storage_dtype = self.ext_dtype().storage_dtype().clone();
-        ConstantArray::new(Scalar::new(storage_dtype, self.scalar_value()), self.len()).into_array()
+        ConstantArray::new(
+            Scalar::new(storage_dtype, self.scalar_value().clone()),
+            self.len(),
+        )
+        .into_array()
     }
 }

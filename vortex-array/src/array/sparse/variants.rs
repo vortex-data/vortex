@@ -122,7 +122,7 @@ impl ExtensionArrayTrait for SparseArray {
                 .with_dyn(|a| a.as_extension_array_unchecked().storage_data()),
             self.len(),
             self.indices_offset(),
-            self.fill_value(),
+            self.fill_value().clone(),
         )
         .vortex_expect("Failed to create new sparse array")
         .into_array()
