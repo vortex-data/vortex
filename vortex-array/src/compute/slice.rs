@@ -1,8 +1,6 @@
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
 use crate::array::ConstantArray;
-use crate::compute::unary::scalar_at;
-use crate::stats::{ArrayStatistics, Stat};
 use crate::{ArrayData, IntoArrayData};
 
 /// Limit array to start...stop range
@@ -26,12 +24,8 @@ pub fn slice(array: impl AsRef<ArrayData>, start: usize, stop: usize) -> VortexR
     let array = array.as_ref();
     check_slice_bounds(array, start, stop)?;
 
-    if array
-        .statistics()
-        .get_as(Stat::IsConstant)
-        .unwrap_or_default()
-    {
-        return Ok(ConstantArray::new(scalar_at(array, 0)?, stop - start).into_array());
+    if let Some(const_scalar) = array.as_constant() {
+        return Ok(ConstantArray::new(const_scalar, stop - start).into_array());
     }
 
     array.with_dyn(|c| {

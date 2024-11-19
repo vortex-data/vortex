@@ -9,10 +9,12 @@ use viewed::ViewedArrayData;
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult};
+use vortex_scalar::Scalar;
 
+use crate::compute::unary::scalar_at;
 use crate::encoding::{EncodingId, EncodingRef};
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
-use crate::stats::{ArrayStatistics, Statistics, StatsSet};
+use crate::stats::{ArrayStatistics, Stat, Statistics, StatsSet};
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::{ArrayChildrenIterator, ArrayDType, ArrayLen, ArrayMetadata, ArrayTrait, Context};
 
@@ -113,6 +115,7 @@ impl ArrayData {
         Ok(view.into())
     }
 
+    /// Return the array's encoding
     pub fn encoding(&self) -> EncodingRef {
         match &self.0 {
             InnerArrayData::Owned(d) => d.encoding(),
@@ -129,11 +132,19 @@ impl ArrayData {
         }
     }
 
+    /// Check whether the array has any data
     pub fn is_empty(&self) -> bool {
         match &self.0 {
             InnerArrayData::Owned(d) => d.is_empty(),
             InnerArrayData::Viewed(v) => v.is_empty(),
         }
+    }
+
+    /// Return scalar value of this array if the array is constant
+    pub fn as_constant(&self) -> Option<Scalar> {
+        (self.statistics().get_as::<bool>(Stat::IsConstant)?)
+            // This is safe to unwrap as long as empty arrays aren't constant
+            .then(|| scalar_at(self, 0).vortex_expect("expected a scalar value"))
     }
 
     /// Total size of the array in bytes, including all children and buffers.

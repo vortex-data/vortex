@@ -29,12 +29,15 @@ impl StatsSet {
         let mut stats = Self::from_iter([
             (Stat::Min, Scalar::null(dtype.clone())),
             (Stat::Max, Scalar::null(dtype.clone())),
-            (Stat::IsConstant, true.into()),
-            (Stat::IsSorted, true.into()),
-            (Stat::IsStrictSorted, (len < 2).into()),
             (Stat::RunCount, 1.into()),
             (Stat::NullCount, len.into()),
         ]);
+
+        if len > 0 {
+            stats.set(Stat::IsConstant, true);
+            stats.set(Stat::IsSorted, true);
+            stats.set(Stat::IsStrictSorted, len < 2);
+        }
 
         // Add any DType-specific stats.
         match dtype {
@@ -57,9 +60,11 @@ impl StatsSet {
 
     pub fn constant(scalar: Scalar, length: usize) -> Self {
         let mut stats = Self::default();
-        stats.set(Stat::IsConstant, true);
-        stats.set(Stat::IsSorted, true);
-        stats.set(Stat::IsStrictSorted, length <= 1);
+        if length > 0 {
+            stats.set(Stat::IsConstant, true);
+            stats.set(Stat::IsSorted, true);
+            stats.set(Stat::IsStrictSorted, length <= 1);
+        }
 
         let run_count = if length == 0 { 0u64 } else { 1 };
         stats.set(Stat::RunCount, run_count);

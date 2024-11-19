@@ -7,7 +7,6 @@ use vortex_array::compute::{
     compare, filter, slice, take, ArrayCompute, FilterFn, FilterMask, MaybeCompareFn, Operator,
     SliceFn, TakeFn, TakeOptions,
 };
-use vortex_array::stats::{ArrayStatistics, Stat};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
@@ -46,22 +45,15 @@ impl MaybeCompareFn for RunEndArray {
         operator: Operator,
     ) -> Option<VortexResult<ArrayData>> {
         // If the RHS is constant, then we just need to compare against our encoded values.
-        if other
-            .statistics()
-            .get_as::<bool>(Stat::IsConstant)
-            .unwrap_or_default()
-        {
-            return Some(
-                slice(other, 0, self.values().len())
-                    .and_then(|other| compare(self.values(), other, operator))
-                    .and_then(|values| {
-                        Self::try_new(self.ends(), values, self.validity().into_nullable())
-                    })
-                    .map(|a| a.into_array()),
-            );
-        }
-
-        None
+        other.as_constant().map(|const_scalar| {
+            compare(
+                self.values(),
+                ConstantArray::new(const_scalar, self.values().len()),
+                operator,
+            )
+            .and_then(|values| Self::try_new(self.ends(), values, self.validity().into_nullable()))
+            .map(|a| a.into_array())
+        })
     }
 }
 

@@ -1,9 +1,9 @@
+use vortex_array::array::ConstantArray;
 use vortex_array::compute::unary::{scalar_at, scalar_at_unchecked, ScalarAtFn};
 use vortex_array::compute::{
     compare, filter, slice, take, ArrayCompute, FilterFn, FilterMask, MaybeCompareFn, Operator,
     SliceFn, TakeFn, TakeOptions,
 };
-use vortex_array::stats::{ArrayStatistics, Stat};
 use vortex_array::{ArrayData, IntoArrayData};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
@@ -39,17 +39,16 @@ impl MaybeCompareFn for DictArray {
         operator: Operator,
     ) -> Option<VortexResult<ArrayData>> {
         // If the RHS is constant, then we just need to compare against our encoded values.
-        if other
-            .statistics()
-            .get_as::<bool>(Stat::IsConstant)
-            .unwrap_or_default()
-        {
+        if let Some(const_scalar) = other.as_constant() {
             return Some(
                 // Ensure the other is the same length as the dictionary
-                slice(other, 0, self.values().len())
-                    .and_then(|other| compare(self.values(), other, operator))
-                    .and_then(|values| Self::try_new(self.codes(), values))
-                    .map(|a| a.into_array()),
+                compare(
+                    self.values(),
+                    ConstantArray::new(const_scalar, self.values().len()),
+                    operator,
+                )
+                .and_then(|values| Self::try_new(self.codes(), values))
+                .map(|a| a.into_array()),
             );
         }
 
@@ -102,14 +101,19 @@ impl SliceFn for DictArray {
 #[cfg(test)]
 mod test {
     use vortex_array::accessor::ArrayAccessor;
-    use vortex_array::array::{PrimitiveArray, VarBinViewArray};
+    use vortex_array::array::{ConstantArray, PrimitiveArray, VarBinViewArray};
+    use vortex_array::compute::unary::scalar_at;
+    use vortex_array::compute::{compare, slice, Operator};
     use vortex_array::{IntoArrayData, IntoArrayVariant, ToArrayData};
     use vortex_dtype::{DType, Nullability};
+    use vortex_scalar::Scalar;
 
-    use crate::{dict_encode_typed_primitive, dict_encode_varbinview, DictArray};
+    use crate::{
+        dict_encode_primitive, dict_encode_typed_primitive, dict_encode_varbinview, DictArray,
+    };
 
     #[test]
-    fn flatten_nullable_primitive() {
+    fn canonicalise_nullable_primitive() {
         let reference = PrimitiveArray::from_nullable_vec(vec![
             Some(42),
             Some(-9),
@@ -125,7 +129,7 @@ mod test {
     }
 
     #[test]
-    fn flatten_nullable_varbin() {
+    fn canonicalise_nullable_varbin() {
         let reference = VarBinViewArray::from_iter(
             vec![Some("a"), Some("b"), None, Some("a"), None, Some("b")],
             DType::Utf8(Nullability::Nullable),
@@ -145,6 +149,34 @@ mod test {
                     .map(|slice| slice.map(|s| s.to_vec()))
                     .collect::<Vec<_>>())
                 .unwrap(),
+        );
+    }
+
+    #[test]
+    fn compare_sliced_dict() {
+        let reference = PrimitiveArray::from_nullable_vec(vec![
+            Some(42),
+            Some(-9),
+            None,
+            Some(42),
+            Some(1),
+            Some(5),
+        ]);
+        let (codes, values) = dict_encode_primitive(&reference);
+        let dict = DictArray::try_new(codes.into_array(), values.into_array()).unwrap();
+        let sliced = slice(dict, 1, 4).unwrap();
+        let compared = compare(sliced, ConstantArray::new(42, 3), Operator::Eq).unwrap();
+        assert_eq!(
+            scalar_at(&compared, 0).unwrap(),
+            Scalar::bool(false, Nullability::Nullable)
+        );
+        assert_eq!(
+            scalar_at(&compared, 1).unwrap(),
+            Scalar::null(DType::Bool(Nullability::Nullable))
+        );
+        assert_eq!(
+            scalar_at(compared, 2).unwrap(),
+            Scalar::bool(true, Nullability::Nullable)
         );
     }
 }
