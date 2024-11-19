@@ -25,6 +25,7 @@ const STATS_TO_WRITE: &[Stat] = &[
     Stat::Max,
     Stat::TrueCount,
     Stat::NullCount,
+    Stat::RunCount,
     Stat::IsConstant,
     Stat::IsSorted,
     Stat::IsStrictSorted,
@@ -310,11 +311,13 @@ mod tests {
     use flatbuffers::FlatBufferBuilder;
     use futures_executor::block_on;
     use vortex_array::array::{PrimitiveArray, StructArray, VarBinArray};
+    use vortex_array::stats::PRUNING_STATS;
     use vortex_array::validity::Validity;
     use vortex_array::IntoArrayData;
     use vortex_flatbuffers::WriteFlatBuffer;
 
     use crate::write::postscript::Postscript;
+    use crate::write::writer::STATS_TO_WRITE;
     use crate::{VortexFileWriter, V1_FOOTER_FBS_SIZE};
 
     #[test]
@@ -345,5 +348,12 @@ mod tests {
         let buffer_end = buffer.len();
 
         assert_eq!(buffer[buffer_begin..buffer_end].len(), V1_FOOTER_FBS_SIZE);
+    }
+
+    #[test]
+    fn stats_to_write() {
+        for stat in PRUNING_STATS {
+            assert!(STATS_TO_WRITE.contains(stat));
+        }
     }
 }

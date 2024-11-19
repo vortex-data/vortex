@@ -18,7 +18,7 @@ pub mod flatbuffers;
 mod statsset;
 
 /// Statistics that are used for pruning files (i.e., we want to ensure they are computed when compressing/writing).
-pub(crate) const PRUNING_STATS: &[Stat] = &[Stat::Min, Stat::Max, Stat::TrueCount, Stat::NullCount];
+pub const PRUNING_STATS: &[Stat] = &[Stat::Min, Stat::Max, Stat::TrueCount, Stat::NullCount];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Sequence, Enum)]
 #[non_exhaustive]
