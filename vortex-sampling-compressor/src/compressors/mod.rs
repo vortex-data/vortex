@@ -21,11 +21,34 @@ pub mod delta;
 pub mod dict;
 pub mod r#for;
 pub mod fsst;
+pub mod roaring_bool;
+pub mod roaring_int;
 pub mod runend;
 pub mod runend_bool;
 pub mod sparse;
 pub mod struct_;
 pub mod zigzag;
+
+pub const ALL_COMPRESSORS: [CompressorRef; 18] = [
+    &alp::ALPCompressor as CompressorRef,
+    &alp_rd::ALPRDCompressor,
+    &bitpacked::BITPACK_WITH_PATCHES,
+    &bitpacked::BITPACK_NO_PATCHES,
+    &chunked::DEFAULT_CHUNKED_COMPRESSOR,
+    &constant::ConstantCompressor,
+    &date_time_parts::DateTimePartsCompressor,
+    &delta::DeltaCompressor,
+    &dict::DictCompressor,
+    &r#for::FoRCompressor,
+    &fsst::FSSTCompressor,
+    &roaring_bool::RoaringBoolCompressor,
+    &roaring_int::RoaringIntCompressor,
+    &runend_bool::RunEndBoolCompressor,
+    &runend::DEFAULT_RUN_END_COMPRESSOR,
+    &sparse::SparseCompressor,
+    &struct_::StructCompressor,
+    &zigzag::ZigZagCompressor,
+];
 
 pub trait EncodingCompressor: Sync + Send + Debug {
     fn id(&self) -> &str;
