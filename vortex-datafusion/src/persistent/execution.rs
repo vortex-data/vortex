@@ -26,11 +26,13 @@ impl VortexExec {
     pub fn try_new(
         file_scan_config: FileScanConfig,
         metrics: ExecutionPlanMetricsSet,
-        projection: Option<&Vec<usize>>,
         predicate: Option<Arc<dyn PhysicalExpr>>,
         ctx: Arc<Context>,
     ) -> DFResult<Self> {
-        let projected_schema = project_schema(&file_scan_config.file_schema, projection)?;
+        let projected_schema = project_schema(
+            &file_scan_config.file_schema,
+            file_scan_config.projection.as_ref(),
+        )?;
         let plan_properties = PlanProperties::new(
             EquivalenceProperties::new(projected_schema),
             Partitioning::UnknownPartitioning(1),

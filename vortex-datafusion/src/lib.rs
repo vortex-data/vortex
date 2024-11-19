@@ -7,10 +7,7 @@ use std::sync::Arc;
 use arrow_schema::{DataType, Schema};
 use datafusion::prelude::{DataFrame, SessionContext};
 use datafusion_common::Result as DFResult;
-use datafusion_execution::object_store::ObjectStoreUrl;
 use datafusion_expr::{Expr, Operator};
-use persistent::config::VortexTableOptions;
-use persistent::provider::VortexFileTableProvider;
 use vortex_array::{ArrayDType, ArrayData};
 use vortex_error::vortex_err;
 
@@ -67,19 +64,6 @@ pub trait SessionContextExt {
         array: ArrayData,
         options: VortexMemTableOptions,
     ) -> DFResult<DataFrame>;
-
-    fn register_disk_vortex_opts<S: AsRef<str>>(
-        &self,
-        name: S,
-        url: ObjectStoreUrl,
-        options: VortexTableOptions,
-    ) -> DFResult<()>;
-
-    fn read_disk_vortex_opts(
-        &self,
-        url: ObjectStoreUrl,
-        options: VortexTableOptions,
-    ) -> DFResult<DataFrame>;
 }
 
 impl SessionContextExt for SessionContext {
@@ -118,27 +102,6 @@ impl SessionContextExt for SessionContext {
         let vortex_table = VortexMemTable::new(array, options);
 
         self.read_table(Arc::new(vortex_table))
-    }
-
-    fn register_disk_vortex_opts<S: AsRef<str>>(
-        &self,
-        name: S,
-        url: ObjectStoreUrl,
-        options: VortexTableOptions,
-    ) -> DFResult<()> {
-        let provider = Arc::new(VortexFileTableProvider::try_new(url, options)?);
-        self.register_table(name.as_ref(), provider as _)?;
-
-        Ok(())
-    }
-
-    fn read_disk_vortex_opts(
-        &self,
-        url: ObjectStoreUrl,
-        options: VortexTableOptions,
-    ) -> DFResult<DataFrame> {
-        let provider = Arc::new(VortexFileTableProvider::try_new(url, options)?);
-        self.read_table(provider)
     }
 }
 
