@@ -101,7 +101,7 @@ impl MaybeCompareFn for ALPArray {
         array: &ArrayData,
         operator: Operator,
     ) -> Option<VortexResult<ArrayData>> {
-        if let Some(const_scalar) = array.constant() {
+        if let Some(const_scalar) = array.as_constant() {
             let pvalue = const_scalar
                 .value()
                 .as_pvalue()

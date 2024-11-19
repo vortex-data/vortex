@@ -34,7 +34,7 @@ impl EncodingCompressor for ConstantCompressor {
         Ok(CompressedArray::compressed(
             ConstantArray::new(
                 array
-                    .constant()
+                    .as_constant()
                     .vortex_expect("ConstantCompressor expects constant array"),
                 array.len(),
             )

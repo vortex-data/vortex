@@ -39,7 +39,7 @@ impl MaybeCompareFn for DictArray {
         operator: Operator,
     ) -> Option<VortexResult<ArrayData>> {
         // If the RHS is constant, then we just need to compare against our encoded values.
-        if let Some(const_scalar) = other.constant() {
+        if let Some(const_scalar) = other.as_constant() {
             return Some(
                 // Ensure the other is the same length as the dictionary
                 compare(
