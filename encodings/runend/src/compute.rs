@@ -45,10 +45,10 @@ impl MaybeCompareFn for RunEndArray {
         operator: Operator,
     ) -> Option<VortexResult<ArrayData>> {
         // If the RHS is constant, then we just need to compare against our encoded values.
-        other.constant().map(|rhs| {
+        other.constant().map(|const_scalar| {
             compare(
                 self.values(),
-                ConstantArray::new(rhs, self.values().len()),
+                ConstantArray::new(const_scalar, self.values().len()),
                 operator,
             )
             .and_then(|values| Self::try_new(self.ends(), values, self.validity().into_nullable()))

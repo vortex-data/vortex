@@ -101,8 +101,8 @@ impl MaybeCompareFn for ALPArray {
         array: &ArrayData,
         operator: Operator,
     ) -> Option<VortexResult<ArrayData>> {
-        if let Some(rhs) = array.constant() {
-            let pvalue = rhs
+        if let Some(const_scalar) = array.constant() {
+            let pvalue = const_scalar
                 .value()
                 .as_pvalue()
                 .vortex_expect("Expected primitive value");

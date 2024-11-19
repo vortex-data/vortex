@@ -55,9 +55,11 @@ impl StatsSet {
 
     pub fn constant(scalar: Scalar, length: usize) -> Self {
         let mut stats = Self::default();
-        stats.set(Stat::IsConstant, true);
-        stats.set(Stat::IsSorted, true);
-        stats.set(Stat::IsStrictSorted, length <= 1);
+        if length > 0 {
+            stats.set(Stat::IsConstant, true);
+            stats.set(Stat::IsSorted, true);
+            stats.set(Stat::IsStrictSorted, length <= 1);
+        }
 
         let run_count = if length == 0 { 0u64 } else { 1 };
         stats.set(Stat::RunCount, run_count);

@@ -98,9 +98,9 @@ impl MaybeCompareFn for ConstantArray {
         other: &ArrayData,
         operator: Operator,
     ) -> Option<VortexResult<ArrayData>> {
-        other.constant().map(|rhs| {
+        other.constant().map(|const_scalar| {
             let lhs = self.owned_scalar();
-            let scalar = scalar_cmp(&lhs, &rhs, operator);
+            let scalar = scalar_cmp(&lhs, &const_scalar, operator);
             Ok(ConstantArray::new(scalar, self.len()).into_array())
         })
     }
