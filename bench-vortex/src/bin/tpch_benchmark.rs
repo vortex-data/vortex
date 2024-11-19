@@ -14,6 +14,7 @@ use indicatif::ProgressBar;
 use itertools::Itertools;
 use log::LevelFilter;
 use prettytable::{Cell, Row, Table};
+use serde::Serialize;
 use vortex::aliases::hash_map::HashMap;
 
 #[derive(Parser, Debug)]
@@ -48,6 +49,29 @@ struct Measurement {
     query_idx: usize,
     time: Duration,
     format: Format,
+}
+
+#[derive(Serialize)]
+struct JsonValue {
+    name: String,
+    unit: String,
+    value: u128,
+}
+
+impl Measurement {
+    fn to_json(&self) -> JsonValue {
+        let name = format!(
+            "{format}/q{query_idx}",
+            format = self.format,
+            query_idx = self.query_idx
+        );
+
+        JsonValue {
+            name,
+            unit: "ms/iter".to_string(),
+            value: self.time.as_millis(),
+        }
+    }
 }
 
 fn main() -> ExitCode {
@@ -108,6 +132,20 @@ fn render_table(receiver: Receiver<Measurement>, formats: &[Format]) -> anyhow::
     // }
 
     table.printstd();
+
+    Ok(())
+}
+
+fn print_measurements_json(receiver: Receiver<Measurement>) -> anyhow::Result<()> {
+    let mut measurements = Vec::new();
+
+    while let Ok(m) = receiver.recv() {
+        measurements.push(m.to_json());
+    }
+
+    let output = serde_json::to_string(&measurements)?;
+
+    println!("{output}");
 
     Ok(())
 }
@@ -284,7 +322,9 @@ async fn bench_main(
         DisplayFormat::Table => {
             render_table(measurements_rx, &formats).unwrap();
         }
-        DisplayFormat::GhJson => todo!(),
+        DisplayFormat::GhJson => {
+            print_measurements_json(measurements_rx).unwrap();
+        }
     }
 
     if mismatched {
