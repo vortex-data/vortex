@@ -24,7 +24,7 @@ pub fn slice(array: impl AsRef<ArrayData>, start: usize, stop: usize) -> VortexR
     let array = array.as_ref();
     check_slice_bounds(array, start, stop)?;
 
-    if let Some(rhs) = array.constant() {
+    if let Some(const_scalar) = array.constant() {
         return Ok(ConstantArray::new(rhs, stop - start).into_array());
     }
 
