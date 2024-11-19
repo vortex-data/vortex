@@ -5,7 +5,8 @@ use vortex_array::compress::compute_precompression_stats;
 use vortex_array::encoding::EncodingRef;
 use vortex_array::stats::ArrayStatistics as _;
 use vortex_array::variants::StructArrayTrait;
-use vortex_array::{ArrayData, ArrayDef, IntoArrayData};
+use vortex_array::{ArrayDType, ArrayData, ArrayDef, IntoArrayData};
+use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
@@ -24,9 +25,8 @@ impl EncodingCompressor for StructCompressor {
     }
 
     fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {
-        StructArray::try_from(array)
-            .ok()
-            .map(|_| self as &dyn EncodingCompressor)
+        let is_struct = matches!(array.dtype(), DType::Struct(..)) && array.is_encoding(Struct::ID);
+        is_struct.then_some(self)
     }
 
     fn compress<'a>(

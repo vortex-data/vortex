@@ -20,7 +20,7 @@ mod tests {
     use vortex_dict::Dict;
     use vortex_fastlanes::FoR;
     use vortex_fsst::FSST;
-    use vortex_sampling_compressor::compressors::ALL_COMPRESSORS;
+    use vortex_sampling_compressor::ALL_COMPRESSORS;
     use vortex_scalar::Scalar;
 
     use super::*;

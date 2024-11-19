@@ -55,7 +55,7 @@ impl CompressionStrategy for SamplingCompressor<'_> {
 
 impl Default for SamplingCompressor<'_> {
     fn default() -> Self {
-        Self::new(HashSet::from(*DEFAULT_COMPRESSORS))
+        Self::new(HashSet::from_iter(DEFAULT_COMPRESSORS))
     }
 }
 
