@@ -59,7 +59,7 @@ impl ArrayData {
         // FIXME(robert): Encoding::with_dyn no longer eagerly validates metadata, come up with a way to validate metadata
         encoding.with_dyn(&array, &mut |_| Ok(()))?;
 
-        Ok(array.into())
+        Ok(array)
     }
 
     pub fn try_new_viewed<F>(

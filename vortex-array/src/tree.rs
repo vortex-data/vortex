@@ -56,8 +56,8 @@ impl<'a, 'b: 'a> ArrayVisitor for TreeFormatter<'a, 'b> {
             )?;
             self.indent(|i| {
                 // FIXME(ngates): support metadata display via vtables
-                let array_data = array.metadata();
-                writeln!(i.fmt, "{}metadata: {:?}", i.indent, array_data)
+                // let array_data = array.metadata();
+                writeln!(i.fmt, "{}metadata: ???", i.indent)
             })?;
 
             let old_total_size = self.total_size;

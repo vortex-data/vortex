@@ -32,8 +32,7 @@ impl<D: ArrayDef> TypedArray<D> {
             buffer,
             children,
             stats,
-        )?
-        .into();
+        )?;
         Ok(Self {
             array,
             lazy_metadata: OnceLock::new(),
