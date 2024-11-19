@@ -1,10 +1,9 @@
 use vortex_array::array::ConstantArray;
-use vortex_array::compute::unary::{scalar_at, scalar_at_unchecked, ScalarAtFn};
+use vortex_array::compute::unary::{scalar_at_unchecked, ScalarAtFn};
 use vortex_array::compute::{
     compare, filter, slice, take, ArrayCompute, FilterFn, FilterMask, MaybeCompareFn, Operator,
     SliceFn, TakeFn, TakeOptions,
 };
-use vortex_array::stats::{ArrayStatistics, Stat};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_dtype::Nullability;
@@ -14,6 +13,14 @@ use vortex_scalar::{PValue, Scalar};
 use crate::{match_each_alp_float_ptype, ALPArray, ALPFloat};
 
 impl ArrayCompute for ALPArray {
+    fn compare(&self, other: &ArrayData, operator: Operator) -> Option<VortexResult<ArrayData>> {
+        MaybeCompareFn::maybe_compare(self, other, operator)
+    }
+
+    fn filter(&self) -> Option<&dyn FilterFn> {
+        Some(self)
+    }
+
     fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
         Some(self)
     }
@@ -23,14 +30,6 @@ impl ArrayCompute for ALPArray {
     }
 
     fn take(&self) -> Option<&dyn TakeFn> {
-        Some(self)
-    }
-
-    fn compare(&self, other: &ArrayData, operator: Operator) -> Option<VortexResult<ArrayData>> {
-        MaybeCompareFn::maybe_compare(self, other, operator)
-    }
-
-    fn filter(&self) -> Option<&dyn FilterFn> {
         Some(self)
     }
 }
@@ -102,13 +101,7 @@ impl MaybeCompareFn for ALPArray {
         array: &ArrayData,
         operator: Operator,
     ) -> Option<VortexResult<ArrayData>> {
-        if ConstantArray::try_from(array).is_ok()
-            || array
-                .statistics()
-                .get_as::<bool>(Stat::IsConstant)
-                .unwrap_or_default()
-        {
-            let rhs = scalar_at(array, 0).vortex_expect("should be scalar");
+        if let Some(rhs) = array.constant() {
             let pvalue = rhs
                 .value()
                 .as_pvalue()
