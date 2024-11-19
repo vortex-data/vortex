@@ -2,7 +2,7 @@ use std::cmp::Reverse;
 use std::process::ExitCode;
 use std::sync;
 use std::sync::mpsc::Receiver;
-use std::time::{Duration, Instant};
+use std::time::{Duration, SystemTime};
 
 use bench_vortex::setup_logger;
 use bench_vortex::tpch::dbgen::{DBGen, DBGenOptions};
@@ -16,7 +16,8 @@ use itertools::Itertools;
 use log::LevelFilter;
 use serde::Serialize;
 use tabled::builder::Builder;
-use tabled::settings::Style;
+use tabled::settings::themes::Colorization;
+use tabled::settings::{Color, Style};
 use vortex::aliases::hash_map::HashMap;
 
 #[derive(Parser, Debug)]
@@ -36,7 +37,7 @@ struct Args {
     vortex_only: bool,
     #[arg(short, long)]
     verbose: bool,
-    #[arg(short, long)]
+    #[arg(short, long, default_value_t, value_enum)]
     display_format: DisplayFormat,
 }
 
@@ -47,23 +48,12 @@ enum DisplayFormat {
     GhJson,
 }
 
+#[derive(Clone)]
 struct Measurement {
     query_idx: usize,
     time: Duration,
     format: Format,
 }
-
-// impl Tabled for Measurement {
-//     const LENGTH: usize = 3;
-
-//     fn fields(&self) -> Vec<std::borrow::Cow<'_, str>> {
-//         vec![]
-//     }
-
-//     fn headers() -> Vec<std::borrow::Cow<'static, str>> {
-//         vec["query_idx".into(), "time".into(), "format".into()]
-//     }
-// }
 
 #[derive(Serialize)]
 struct JsonValue {
@@ -133,7 +123,12 @@ fn render_table(receiver: Receiver<Measurement>, formats: &[Format]) -> anyhow::
         v.sort_by_key(|m| Reverse(m.query_idx));
     });
 
+    // The first format serves as the baseline
+    let baseline_format = &formats[0];
+    let baseline = measurements[baseline_format].clone();
+
     let mut table_builder = Builder::default();
+    let mut colors = vec![];
 
     let mut header = vec!["Query".to_string()];
     header.extend(formats.iter().map(|f| format!("{:?}", f)));
@@ -141,21 +136,43 @@ fn render_table(receiver: Receiver<Measurement>, formats: &[Format]) -> anyhow::
 
     for query_idx in 0_usize..22 {
         let mut row = vec![query_idx.to_string()];
-        for format in formats {
-            let measurement = &measurements[format][query_idx];
-            row.push(measurement.time.as_millis().to_string());
+        for (col_idx, format) in formats.iter().enumerate() {
+            let time_us = measurements[format][query_idx].time.as_micros();
+
+            if format != baseline_format {
+                let color = color(baseline[query_idx].time.as_micros(), time_us);
+
+                colors.push(Colorization::exact(
+                    vec![color],
+                    (query_idx + 1, col_idx + 1),
+                ))
+            }
+
+            row.push(format!("{time_us} us"));
         }
         table_builder.push_record(row);
     }
 
-    let table = table_builder
-        .build()
-        .with(Style::modern())
-        .with(Colorization)
-        .to_string();
-    println!("{table}");
+    let mut table = table_builder.build();
+    table.with(Style::modern());
+
+    for color in colors.into_iter() {
+        table.with(color);
+    }
+
+    println!("{}", table.to_string());
 
     Ok(())
+}
+
+fn color(baseline_time: u128, test_time: u128) -> Color {
+    if test_time > (baseline_time + baseline_time / 2) {
+        Color::BG_RED
+    } else if test_time > (baseline_time + baseline_time / 10) {
+        Color::BG_YELLOW
+    } else {
+        Color::BG_BRIGHT_GREEN
+    }
 }
 
 fn print_measurements_json(receiver: Receiver<Measurement>) -> anyhow::Result<()> {
@@ -269,9 +286,10 @@ async fn bench_main(
 
                 let mut measures = Vec::new();
                 for _ in 0..iterations {
-                    let start = Instant::now();
+                    // let start = Instant::now();
+                    let start = SystemTime::now();
                     rt.block_on(run_tpch_query(ctx, &sql_queries, query_idx, *format));
-                    let elapsed = start.elapsed();
+                    let elapsed = start.elapsed().unwrap();
                     measures.push(elapsed);
                 }
                 let fastest = measures.iter().cloned().min().unwrap();
@@ -285,30 +303,6 @@ async fn bench_main(
 
                 progress.inc(1);
             }
-
-            // let baseline = elapsed_us.first().unwrap();
-            // // yellow: 10% slower than baseline
-            // let yellow = baseline.as_micros() + (baseline.as_micros() / 10);
-            // // red: 50% slower than baseline
-            // let red = baseline.as_micros() + (baseline.as_micros() / 2);
-            // cells.push(Cell::new(&format!("{} us", baseline.as_micros())).style_spec("b"));
-            // for measure in elapsed_us.iter().skip(1) {
-            //     let style_spec = if measure.as_micros() > red {
-            //         "bBr"
-            //     } else if measure.as_micros() > yellow {
-            //         "bFdBy"
-            //     } else {
-            //         "bFdBG"
-            //     };
-            //     cells.push(
-            //         Cell::new(&format!(
-            //             "{} us ({:.2})",
-            //             measure.as_micros(),
-            //             measure.as_micros() as f64 / baseline.as_micros() as f64
-            //         ))
-            //         .style_spec(style_spec),
-            //     );
-            // }
         });
     }
 
