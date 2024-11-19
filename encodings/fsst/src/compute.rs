@@ -41,10 +41,10 @@ impl MaybeCompareFn for FSSTArray {
         other: &ArrayData,
         operator: Operator,
     ) -> Option<VortexResult<ArrayData>> {
-        match (ConstantArray::try_from(other), operator) {
-            (Ok(constant_array), Operator::Eq | Operator::NotEq) => Some(compare_fsst_constant(
+        match (other.as_constant(), operator) {
+            (Some(constant_array), Operator::Eq | Operator::NotEq) => Some(compare_fsst_constant(
                 self,
-                &constant_array,
+                &ConstantArray::new(constant_array, self.len()),
                 operator == Operator::Eq,
             )),
             _ => None,

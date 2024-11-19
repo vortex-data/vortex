@@ -21,7 +21,9 @@ impl EncodingCompressor for ConstantCompressor {
     }
 
     fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {
-        (!array.is_empty() && array.statistics().compute_is_constant().unwrap_or(false))
+        array
+            .statistics()
+            .compute_is_constant()?
             .then_some(self as &dyn EncodingCompressor)
     }
 
