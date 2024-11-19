@@ -8,91 +8,66 @@ use vortex_error::{VortexExpect as _, VortexResult};
 use vortex_scalar::BoolScalar;
 
 use crate::read::mask::RowMask;
-use crate::read::{BatchRead, LayoutReader, MessageLocator, Scan};
+use crate::read::{BatchRead, LayoutReader, MessageLocator};
 
 pub type RangedLayoutReader = ((usize, usize), Box<dyn LayoutReader>);
 
 /// Layout reader that continues reading children until all rows referenced in the mask have been handled
 #[derive(Debug)]
 pub struct BufferedLayoutReader {
-    layouts: VecDeque<(usize, RangedLayoutReader)>,
+    splits: Vec<(usize, (usize, usize))>,
+    layouts: VecDeque<RangedLayoutReader>,
     arrays: Vec<ArrayData>,
-    scan: Scan,
     chunk_mask: Option<ArrayData>,
 }
 
 impl BufferedLayoutReader {
-    pub fn new(
-        layouts: VecDeque<RangedLayoutReader>,
-        scan: Scan,
-        chunk_mask: Option<ArrayData>,
-    ) -> Self {
+    pub fn new(layouts: VecDeque<RangedLayoutReader>, chunk_mask: Option<ArrayData>) -> Self {
         Self {
-            layouts: layouts.into_iter().enumerate().collect::<VecDeque<_>>(),
+            splits: layouts
+                .iter()
+                .map(|((begin, end), _)| (*begin, *end))
+                .enumerate()
+                .collect::<Vec<_>>(),
+            layouts,
             arrays: Vec::new(),
-            scan,
             chunk_mask,
         }
     }
 
     // TODO(robert): Support out of order reads
     fn buffer_read(&mut self, mask: &RowMask) -> VortexResult<Option<Vec<MessageLocator>>> {
-        while let Some((index, ((begin, end), layout))) = self.layouts.pop_front() {
-            let chunk_is_pruned = self
-                .chunk_mask
-                .as_ref()
-                .map(|chunk_mask| -> VortexResult<_> {
-                    Ok(BoolScalar::try_from(&scalar_at(chunk_mask, index)?)?
-                        .value()
-                        .vortex_expect("chunk_mask should be nonnullable"))
-                })
-                .transpose()?
-                .unwrap_or(false);
-            println!(
-                "xx index {} {}-{} {} {}",
-                index,
-                begin,
-                end,
-                chunk_is_pruned,
-                self.scan
-                    .expr
-                    .clone()
-                    .map(|x| x.to_string())
-                    .unwrap_or_default()
-            );
-            if chunk_is_pruned {
-                continue;
-            }
+        while let Some(((begin, end), layout)) = self.layouts.pop_front() {
             if mask.end() > begin && mask.begin() <= end {
-                self.layouts.push_front((index, ((begin, end), layout)));
+                self.layouts.push_front(((begin, end), layout));
                 break;
             }
         }
 
-        while let Some((index, ((begin, end), mut layout))) = self.layouts.pop_front() {
+        while let Some(((begin, end), mut layout)) = self.layouts.pop_front() {
             // This selection doesn't know about rows in this chunk, we should put it back and wait for another request with different range
             if mask.end() <= begin || mask.begin() > end {
-                self.layouts.push_front((index, ((begin, end), layout)));
+                self.layouts.push_front(((begin, end), layout));
                 return Ok(None);
             }
             let layout_selection = mask.slice(begin, end).shift(begin)?;
             if let Some(rr) = layout.read_selection(&layout_selection)? {
                 match rr {
                     BatchRead::ReadMore(m) => {
-                        self.layouts.push_front((index, ((begin, end), layout)));
+                        self.layouts.push_front(((begin, end), layout));
                         return Ok(Some(m));
                     }
                     BatchRead::Batch(a) => {
                         self.arrays.push(a);
                         if end > mask.end() {
-                            self.layouts.push_front((index, ((begin, end), layout)));
+                            self.layouts.push_front(((begin, end), layout));
                             return Ok(None);
                         }
                     }
                 }
             } else {
                 if end > mask.end() && begin < mask.end() {
-                    self.layouts.push_front((index, ((begin, end), layout)));
+                    self.layouts.push_front(((begin, end), layout));
                     return Ok(None);
                 }
                 continue;
@@ -129,7 +104,7 @@ impl BufferedLayoutReader {
             return Ok(false);
         };
 
-        for (index, ((chunk_begin, chunk_end), _)) in self.layouts.iter() {
+        for (index, (chunk_begin, chunk_end)) in self.splits.iter() {
             if !(*chunk_begin == begin && *chunk_end == end) {
                 continue;
             }
