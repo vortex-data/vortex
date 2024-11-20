@@ -217,16 +217,10 @@ async fn bench_main(
             Format::Arrow,
             Format::Parquet,
             Format::InMemoryVortex {
-                enable_pushdown: false,
-            },
-            Format::InMemoryVortex {
                 enable_pushdown: true,
             },
             Format::OnDiskVortex {
                 enable_compression: true,
-            },
-            Format::OnDiskVortex {
-                enable_compression: false,
             },
         ]
     };
