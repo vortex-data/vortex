@@ -118,7 +118,7 @@ pub fn setup_logger(level: LevelFilter) {
     TermLogger::init(
         level,
         Config::default(),
-        TerminalMode::Mixed,
+        TerminalMode::Stderr,
         ColorChoice::Auto,
     )
     .unwrap();
