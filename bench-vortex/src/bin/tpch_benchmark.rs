@@ -216,9 +216,6 @@ async fn bench_main(
         vec![
             Format::Arrow,
             Format::Parquet,
-            Format::InMemoryVortex {
-                enable_pushdown: true,
-            },
             Format::OnDiskVortex {
                 enable_compression: true,
             },

@@ -1,4 +1,4 @@
-name: Benchmarks
+name: TPC-H
 
 on:
   push:
@@ -11,17 +11,6 @@ permissions:
 
 jobs:
   bench:
-    strategy:
-      matrix:
-        benchmark:
-          - id: datafusion
-            name: DataFusion
-          - id: random_access
-            name: Random Access
-          - id: compress_noci
-            name: Vortex Compression
-          - id: bytes_at
-            name: Vortex bytes_at
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
@@ -41,41 +30,22 @@ jobs:
         run: |
             echo "TMPDIR=/work" >> $GITHUB_ENV
 
-      - name: Run benchmark
+      - name: Run TPC-H benchmark
         shell: bash
         env:
           BENCH_VORTEX_RATIOS: '.*'
           RUSTFLAGS: '-C target-cpu=native'
         run: |
-          cargo install cargo-criterion
-
-          cargo criterion --bench ${{ matrix.benchmark.id }} --message-format=json 2>&1 | tee out.json
-
-          cat out.json
-
-          sudo apt-get update && sudo apt-get install -y jq
-
-          jq --raw-input --compact-output '
-                 fromjson?
-                 | [ (if .mean != null then {name: .id, value: .mean.estimate, unit: .unit, range: ((.mean.upper_bound - .mean.lower_bound) / 2) } else {} end),
-                     (if .throughput != null then {name: (.id + " throughput"), value: .throughput[].per_iteration, unit: .throughput[].unit, range: 0} else {} end),
-                     {name, value, unit, range} ]
-                 | .[]
-                 | select(.value != null)
-              ' \
-              out.json \
-              | jq --slurp --compact-output '.' >${{ matrix.benchmark.id }}.json
-
-          cat ${{ matrix.benchmark.id }}.json
+          cargo run --bin tpch_benchmark --release -- -d gh-json -t 1 | tee tpch.json
       - name: Store benchmark result
         if: '!cancelled()'
         uses: benchmark-action/github-action-benchmark@v1
         with:
-          name: ${{ matrix.benchmark.name }}
+          name: 'TPC-H'
           tool: 'customSmallerIsBetter'
           gh-pages-branch: gh-pages-bench
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          output-file-path: ${{ matrix.benchmark.id }}.json
+          output-file-path: tpch.json
           summary-always: true
           auto-push: true
           fail-on-alert: false
