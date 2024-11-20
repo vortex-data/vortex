@@ -71,7 +71,7 @@ impl Measurement {
 
         JsonValue {
             name,
-            unit: "ns/iter".to_string(),
+            unit: "ns".to_string(),
             value: self.time.as_nanos(),
         }
     }
@@ -185,7 +185,7 @@ fn print_measurements_json(receiver: Receiver<Measurement>) -> anyhow::Result<()
 
     let output = serde_json::to_string(&measurements)?;
 
-    println!("{output}");
+    print!("{output}");
 
     Ok(())
 }
