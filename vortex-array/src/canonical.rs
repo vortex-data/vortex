@@ -26,9 +26,10 @@ use crate::array::{
 use crate::arrow::{infer_data_type, FromArrowArray};
 use crate::compute::unary::try_cast;
 use crate::encoding::Encoding;
+use crate::stats::ArrayStatistics;
 use crate::validity::ArrayValidity;
 use crate::variants::{PrimitiveArrayTrait, StructArrayTrait};
-use crate::{ArrayDType, ArrayData, IntoArrayData};
+use crate::{canonical, ArrayDType, ArrayData, IntoArrayData};
 
 /// The set of canonical array encodings, also the set of encodings that can be transferred to
 /// Arrow with zero-copy.
@@ -320,7 +321,9 @@ where
     E::Array: TryFrom<ArrayData, Error = VortexError>,
 {
     fn into_canonical(&self, data: ArrayData) -> VortexResult<Canonical> {
-        E::Array::try_from(data)?.into_canonical()
+        let canonical = E::Array::try_from(data.clone())?.into_canonical()?;
+        canonical.inherit_statistics(data.statistics());
+        Ok(canonical)
     }
 }
 
