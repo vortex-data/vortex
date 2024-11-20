@@ -70,6 +70,7 @@ mod test {
     use vortex_dtype::DType;
 
     use crate::array::null::NullArray;
+    use crate::array::ConstantArray;
     use crate::compute::unary::scalar_at;
     use crate::compute::{slice, take, TakeOptions};
     use crate::validity::{ArrayValidity, LogicalValidity};
@@ -78,7 +79,10 @@ mod test {
     #[test]
     fn test_slice_nulls() {
         let nulls = NullArray::new(10);
-        let sliced = NullArray::try_from(slice(nulls.into_array(), 0, 4).unwrap()).unwrap();
+
+        // Turns out, the slice function has a short-cut for constant arrays.
+        // Sooo... we get back a constant!
+        let sliced = ConstantArray::try_from(slice(nulls.into_array(), 0, 4).unwrap()).unwrap();
 
         assert_eq!(sliced.len(), 4);
         assert!(matches!(
