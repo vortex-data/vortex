@@ -216,6 +216,13 @@ impl ArrayData {
         offsets
     }
 
+    pub fn array_metadata(&self) -> &dyn ArrayMetadata {
+        match &self.0 {
+            InnerArrayData::Owned(d) => &*d.metadata,
+            InnerArrayData::Viewed(v) => &*v.metadata,
+        }
+    }
+
     pub fn metadata<M: ArrayMetadata + Clone + for<'m> TryDeserializeArrayMetadata<'m>>(
         &self,
     ) -> VortexResult<&M> {
