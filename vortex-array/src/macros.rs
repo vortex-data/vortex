@@ -43,6 +43,7 @@ macro_rules! impl_encoding {
 
             impl $crate::encoding::Encoding for [<$Name Encoding>] {
                 type Array = [<$Name Array>];
+                type Metadata = [<$Name Metadata>];
             }
 
             #[derive(std::fmt::Debug, Clone)]

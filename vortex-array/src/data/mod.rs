@@ -100,10 +100,13 @@ impl ArrayData {
             },
         )?;
 
+        let metadata = encoding.load_metadata(array.metadata().map(|v| v.bytes()))?;
+
         let view = ViewedArrayData {
             encoding,
             dtype,
             len,
+            metadata,
             flatbuffer,
             flatbuffer_loc,
             buffers: buffers.into(),
@@ -216,20 +219,21 @@ impl ArrayData {
     pub fn metadata<M: ArrayMetadata + Clone + for<'m> TryDeserializeArrayMetadata<'m>>(
         &self,
     ) -> VortexResult<M> {
-        match &self.0 {
-            InnerArrayData::Owned(d) => d
-                .metadata()
-                .as_any()
-                .downcast_ref::<M>()
-                .ok_or_else(|| {
-                    vortex_err!(
-                        "Failed to downcast metadata to {}",
-                        std::any::type_name::<M>()
-                    )
-                })
-                .cloned(),
-            InnerArrayData::Viewed(v) => M::try_deserialize_metadata(v.metadata()),
-        }
+        let arc_metadata = match &self.0 {
+            InnerArrayData::Owned(d) => &d.metadata,
+            InnerArrayData::Viewed(v) => &v.metadata,
+        };
+
+        arc_metadata
+            .as_any()
+            .downcast_ref::<M>()
+            .ok_or_else(|| {
+                vortex_err!(
+                    "Failed to downcast metadata to {}",
+                    std::any::type_name::<M>()
+                )
+            })
+            .cloned()
     }
 
     /// Get back the (possibly owned) metadata for the array.
@@ -251,7 +255,7 @@ impl ArrayData {
             InnerArrayData::Viewed(array_view) => {
                 // View arrays have direct access to metadata bytes.
                 array_view
-                    .metadata()
+                    .metadata_bytes()
                     .ok_or_else(|| vortex_err!("things"))
                     .map(Cow::Borrowed)
             }

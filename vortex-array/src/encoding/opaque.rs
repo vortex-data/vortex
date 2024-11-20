@@ -1,9 +1,14 @@
-use std::fmt::Debug;
+use std::any::Any;
+use std::fmt::{Debug, Display, Formatter};
+use std::sync::Arc;
 
 use vortex_error::{vortex_bail, VortexResult};
 
 use crate::encoding::{ArrayEncoding, EncodingId};
-use crate::{ArrayData, ArrayTrait, Canonical, IntoCanonicalVTable};
+use crate::{
+    ArrayData, ArrayMetadata, ArrayTrait, Canonical, IntoCanonicalVTable, MetadataVTable,
+    TrySerializeArrayMetadata,
+};
 
 /// An encoding of an array that we cannot interpret.
 ///
@@ -41,5 +46,36 @@ impl IntoCanonicalVTable for OpaqueEncoding {
             "OpaqueEncoding: into_canonical cannot be called for opaque array ({})",
             self.0
         )
+    }
+}
+
+impl MetadataVTable for OpaqueEncoding {
+    fn load_metadata(&self, _metadata: Option<&[u8]>) -> VortexResult<Arc<dyn ArrayMetadata>> {
+        Ok(Arc::new(OpaqueMetadata))
+    }
+}
+
+#[derive(Debug)]
+pub struct OpaqueMetadata;
+
+impl TrySerializeArrayMetadata for OpaqueMetadata {
+    fn try_serialize_metadata(&self) -> VortexResult<Arc<[u8]>> {
+        vortex_bail!("OpaqueMetadata cannot be serialized")
+    }
+}
+
+impl Display for OpaqueMetadata {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "OpaqueMetadata")
+    }
+}
+
+impl ArrayMetadata for OpaqueMetadata {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync> {
+        self
     }
 }
