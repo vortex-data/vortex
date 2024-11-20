@@ -9,9 +9,7 @@ use futures::{FutureExt as _, StreamExt, TryStreamExt};
 use object_store::ObjectStore;
 use vortex_array::Context;
 use vortex_expr::datafusion::convert_expr_to_vortex;
-use vortex_file::{
-    LayoutContext, LayoutDeserializer, Projection, RowFilter, VortexReadBuilder,
-};
+use vortex_file::{LayoutContext, LayoutDeserializer, Projection, RowFilter, VortexReadBuilder};
 use vortex_io::{IoDispatcher, ObjectStoreReadAt};
 
 /// Share an IO dispatcher across all DataFusion instances.
@@ -35,7 +33,7 @@ impl FileOpener for VortexFileOpener {
             read_at,
             LayoutDeserializer::new(self.ctx.clone(), Arc::new(LayoutContext::default())),
         )
-            .with_io_dispatcher(IO_DISPATCHER.clone());
+        .with_io_dispatcher(IO_DISPATCHER.clone());
 
         // We split the predicate and filter out the conjunction members that we can't push down
         let row_filter = self
@@ -68,6 +66,6 @@ impl FileOpener for VortexFileOpener {
                     .map_err(|e| e.into()),
             ) as _)
         }
-            .boxed())
+        .boxed())
     }
 }
