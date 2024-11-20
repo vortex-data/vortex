@@ -13,19 +13,6 @@ permissions:
 
 jobs:
   bench:
-    strategy:
-      matrix:
-        benchmark:
-          - id: datafusion
-            name: DataFusion
-          - id: random_access
-            name: Random Access
-          - id: tpch
-            name: TPC-H
-          - id: compress_noci
-            name: Vortex Compression
-          - id: bytes_at
-            name: Vortex bytes_at
     runs-on: self-hosted
     if: ${{ contains(github.event.head_commit.message, '[quick-benchmark]') || github.event.label.name == 'quick-benchmark' && github.event_name == 'pull_request' }}
     steps:
