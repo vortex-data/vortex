@@ -12,7 +12,16 @@ permissions:
   pull-requests: write
 
 jobs:
+  label_trigger:
+    runs-on: ubuntu-latest
+    if: ${{ contains(github.event.head_commit.message, '[benchmark]') || github.event.label.name == 'benchmark' && github.event_name == 'pull_request' }}
+    steps:
+      # We remove the benchmark label first so that the workflow can be re-triggered.
+      - uses: actions-ecosystem/action-remove-labels@v1
+        with:
+          labels: benchmark
   bench:
+    needs: label_trigger
     strategy:
       matrix:
         benchmark:
@@ -29,11 +38,6 @@ jobs:
     runs-on: self-hosted
     if: ${{ contains(github.event.head_commit.message, '[benchmark]') || github.event.label.name == 'benchmark' && github.event_name == 'pull_request' }}
     steps:
-      # We remove the benchmark label first so that the workflow can be re-triggered.
-      - uses: actions-ecosystem/action-remove-labels@v1
-        with:
-          labels: benchmark
-
       - uses: actions/checkout@v4
       - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
@@ -86,6 +90,54 @@ jobs:
           gh-pages-branch: gh-pages-bench
           github-token: ${{ secrets.GITHUB_TOKEN }}
           output-file-path: ${{ matrix.benchmark.id }}.json
+          summary-always: true
+          comment-always: true
+          auto-push: false
+          save-data-file: false
+          fail-on-alert: false
+        env:
+          # AWS Credentials for R2 storage tests
+          AWS_BUCKET: vortex-test
+          AWS_ENDPOINT: ${{ secrets.AWS_ENDPOINT }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  tpch:
+    needs: label_trigger
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/cleanup
+      - uses: ./.github/actions/setup-rust
+      - uses: spiraldb/actions/.github/actions/setup-uv@0.2.0
+
+      # The compression benchmarks rely on DuckDB being installed to convert CSV to Parquet
+      - name: Install DuckDB
+        uses: opt-nc/setup-duckdb-action@v1.0.9
+        if: runner.environment != 'self-hosted'
+        with:
+          version: v1.0.0
+
+      - name: Set tempdir
+        if: runner.environment == 'self-hosted'
+        run: |
+          echo "TMPDIR=/work" >> $GITHUB_ENV
+
+      - name: Run TPC-H benchmark
+        shell: bash
+        env:
+          BENCH_VORTEX_RATIOS: '.*'
+          RUSTFLAGS: '-C target-cpu=native'
+        run: |
+          cargo run --bin tpch_benchmark --release -- -d gh-json -t 1 | tee tpch.json
+      - name: Store benchmark result
+        if: '!cancelled()'
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: 'TPC-H'
+          tool: 'customSmallerIsBetter'
+          gh-pages-branch: gh-pages-bench
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          output-file-path: tpch.json
           summary-always: true
           comment-always: true
           auto-push: false
