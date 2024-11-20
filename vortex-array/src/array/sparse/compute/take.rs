@@ -98,7 +98,7 @@ mod test {
     use crate::array::sparse::SparseArray;
     use crate::compute::{take, TakeOptions};
     use crate::validity::Validity;
-    use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
+    use crate::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
 
     fn sparse_array() -> ArrayData {
         SparseArray::try_new(

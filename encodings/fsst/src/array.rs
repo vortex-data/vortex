@@ -9,7 +9,9 @@ use vortex_array::encoding::ids;
 use vortex_array::stats::{ArrayStatisticsCompute, StatsSet};
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity};
 use vortex_array::variants::{ArrayVariants, BinaryArrayTrait, Utf8ArrayTrait};
-use vortex_array::{impl_encoding, ArrayDType, ArrayData, ArrayDef, ArrayTrait, IntoCanonical};
+use vortex_array::{
+    impl_encoding, ArrayDType, ArrayData, ArrayDef, ArrayLen, ArrayTrait, IntoCanonical,
+};
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 

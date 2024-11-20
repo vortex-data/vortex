@@ -5,7 +5,7 @@ use vortex_array::compute::{
     SliceFn, TakeFn, TakeOptions,
 };
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
+use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData};
 use vortex_dtype::Nullability;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::{PValue, Scalar};

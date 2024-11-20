@@ -5,7 +5,7 @@ use crate::array::{ChunkedArray, PrimitiveArray};
 use crate::compute::{
     filter, take, FilterFn, FilterMask, SearchSorted, SearchSortedSide, TakeOptions,
 };
-use crate::{ArrayDType, ArrayData, IntoArrayData, IntoCanonical};
+use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoCanonical};
 
 // This is modeled after the constant with the equivalent name in arrow-rs.
 const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;

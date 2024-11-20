@@ -8,7 +8,7 @@ use vortex_array::compute::unary::{subtract_scalar, try_cast};
 use vortex_array::compute::{search_sorted, slice, take, SearchSortedSide, TakeOptions};
 use vortex_array::stats::ArrayStatistics;
 use vortex_array::stream::{ArrayStream, ArrayStreamExt};
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::PType;
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 use vortex_io::{VortexBufReader, VortexReadAt};
@@ -217,7 +217,7 @@ mod test {
     use futures_executor::block_on;
     use itertools::Itertools;
     use vortex_array::array::{ChunkedArray, PrimitiveArray};
-    use vortex_array::{Context, IntoArrayData, IntoArrayVariant};
+    use vortex_array::{ArrayLen, Context, IntoArrayData, IntoArrayVariant};
     use vortex_buffer::Buffer;
     use vortex_dtype::PType;
     use vortex_error::VortexResult;

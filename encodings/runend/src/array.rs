@@ -10,8 +10,8 @@ use vortex_array::stats::{ArrayStatistics, ArrayStatisticsCompute, Stat, StatsSe
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
 use vortex_array::variants::{ArrayVariants, BoolArrayTrait, PrimitiveArrayTrait};
 use vortex_array::{
-    impl_encoding, ArrayDType, ArrayData, ArrayTrait, Canonical, IntoArrayData, IntoArrayVariant,
-    IntoCanonical,
+    impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
+    IntoArrayVariant, IntoCanonical,
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
@@ -280,7 +280,7 @@ impl ArrayStatisticsCompute for RunEndArray {
 mod tests {
     use vortex_array::compute::unary::scalar_at;
     use vortex_array::validity::Validity;
-    use vortex_array::{ArrayDType, IntoArrayData};
+    use vortex_array::{ArrayDType, ArrayLen, IntoArrayData};
     use vortex_dtype::{DType, Nullability, PType};
 
     use crate::RunEndArray;

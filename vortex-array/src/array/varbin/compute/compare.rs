@@ -11,7 +11,7 @@ use crate::array::varbin::arrow::{varbin_datum, varbin_to_arrow};
 use crate::array::{ConstantArray, VarBinArray};
 use crate::arrow::FromArrowArray;
 use crate::compute::{MaybeCompareFn, Operator};
-use crate::ArrayData;
+use crate::{ArrayData, ArrayLen};
 
 impl MaybeCompareFn for VarBinArray {
     fn maybe_compare(

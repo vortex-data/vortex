@@ -112,7 +112,7 @@ pub fn runend_decode_typed_bool(
 mod test {
     use vortex_array::array::PrimitiveArray;
     use vortex_array::validity::{ArrayValidity, Validity};
-    use vortex_array::{IntoArrayData, IntoArrayVariant};
+    use vortex_array::{ArrayLen, IntoArrayData, IntoArrayVariant};
 
     use crate::compress::{runend_decode_primitive, runend_encode};
     use crate::RunEndArray;

@@ -21,7 +21,8 @@ use crate::stats::StatsSet;
 use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{
-    impl_encoding, ArrayDType, ArrayData, ArrayTrait, Canonical, IntoArrayVariant, IntoCanonical,
+    impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayVariant,
+    IntoCanonical,
 };
 
 mod accessor;
@@ -637,7 +638,7 @@ mod test {
     use crate::array::varbinview::{BinaryView, VarBinViewArray, VIEW_SIZE_BYTES};
     use crate::compute::slice;
     use crate::compute::unary::scalar_at;
-    use crate::{Canonical, IntoArrayData, IntoCanonical};
+    use crate::{ArrayLen, Canonical, IntoArrayData, IntoCanonical};
 
     #[test]
     pub fn varbin_view() {

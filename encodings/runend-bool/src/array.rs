@@ -10,8 +10,8 @@ use vortex_array::stats::{ArrayStatistics, ArrayStatisticsCompute, Stat, StatsSe
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
 use vortex_array::variants::{ArrayVariants, BoolArrayTrait, PrimitiveArrayTrait};
 use vortex_array::{
-    impl_encoding, ArrayDType, ArrayData, ArrayTrait, Canonical, IntoArrayData, IntoArrayVariant,
-    IntoCanonical,
+    impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
+    IntoArrayVariant, IntoCanonical,
 };
 use vortex_dtype::{match_each_integer_ptype, match_each_unsigned_integer_ptype, DType, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
@@ -264,7 +264,9 @@ mod test {
     use vortex_array::compute::{slice, take, TakeOptions};
     use vortex_array::stats::{ArrayStatistics as _, ArrayStatisticsCompute};
     use vortex_array::validity::Validity;
-    use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoCanonical, ToArrayData};
+    use vortex_array::{
+        ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoCanonical, ToArrayData,
+    };
     use vortex_dtype::{DType, Nullability};
 
     use crate::RunEndBoolArray;

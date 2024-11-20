@@ -77,7 +77,7 @@ mod test {
     use crate::array::bool::compute::filter::{filter_indices, filter_slices};
     use crate::array::BoolArray;
     use crate::compute::{filter, FilterMask};
-    use crate::{IntoArrayData, IntoArrayVariant};
+    use crate::{ArrayLen, IntoArrayData, IntoArrayVariant};
 
     #[test]
     fn filter_bool_test() {

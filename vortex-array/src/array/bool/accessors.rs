@@ -3,7 +3,7 @@ use vortex_error::VortexResult;
 use crate::accessor::ArrayAccessor;
 use crate::array::BoolArray;
 use crate::validity::Validity;
-use crate::IntoArrayVariant;
+use crate::{ArrayLen, IntoArrayVariant};
 
 static TRUE: bool = true;
 static FALSE: bool = false;

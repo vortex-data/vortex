@@ -21,7 +21,9 @@ use crate::stats::ArrayStatistics;
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::validity::Validity::NonNullable;
 use crate::validity::{ArrayValidity, LogicalValidity, Validity};
-use crate::{impl_encoding, ArrayDType, ArrayData, ArrayTrait, IntoArrayData, IntoCanonical};
+use crate::{
+    impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, IntoArrayData, IntoCanonical,
+};
 
 mod canonical;
 mod compute;

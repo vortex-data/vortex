@@ -5,7 +5,7 @@ use vortex_array::compute::{
     compare, filter, slice, take, ArrayCompute, FilterFn, FilterMask, MaybeCompareFn, Operator,
     SliceFn, TakeFn, TakeOptions,
 };
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant, ToArrayData};
+use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexResult, VortexUnwrap};
@@ -168,7 +168,7 @@ mod tests {
     use vortex_array::array::{ConstantArray, VarBinArray};
     use vortex_array::compute::unary::scalar_at_unchecked;
     use vortex_array::compute::{MaybeCompareFn, Operator};
-    use vortex_array::{IntoArrayData, IntoArrayVariant};
+    use vortex_array::{ArrayLen, IntoArrayData, IntoArrayVariant};
     use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;
 

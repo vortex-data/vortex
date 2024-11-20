@@ -5,7 +5,7 @@ use crate::array::primitive::PrimitiveArray;
 use crate::compute::unary::CastFn;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayDType, ArrayData, IntoArrayData};
+use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData};
 
 impl CastFn for PrimitiveArray {
     fn cast(&self, dtype: &DType) -> VortexResult<ArrayData> {

@@ -126,7 +126,7 @@ mod test {
         filter, search_sorted, slice, FilterMask, SearchResult, SearchSortedSide,
     };
     use crate::validity::Validity;
-    use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
+    use crate::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
 
     #[fixture]
     fn array() -> ArrayData {

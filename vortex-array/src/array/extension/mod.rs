@@ -11,7 +11,7 @@ use crate::encoding::ids;
 use crate::stats::{ArrayStatistics as _, ArrayStatisticsCompute, Stat, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity};
 use crate::variants::{ArrayVariants, ExtensionArrayTrait};
-use crate::{impl_encoding, ArrayDType, ArrayData, ArrayTrait, Canonical, IntoCanonical};
+use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoCanonical};
 
 mod compute;
 

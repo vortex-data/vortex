@@ -104,7 +104,7 @@ mod test {
     use vortex_array::array::{ConstantArray, PrimitiveArray, VarBinViewArray};
     use vortex_array::compute::unary::scalar_at;
     use vortex_array::compute::{compare, slice, Operator};
-    use vortex_array::{IntoArrayData, IntoArrayVariant, ToArrayData};
+    use vortex_array::{ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
     use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;
 

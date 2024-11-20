@@ -9,7 +9,7 @@ use vortex_array::array::{BoolArray, ConstantArray};
 use vortex_array::compute::and_kleene;
 use vortex_array::stats::ArrayStatistics;
 use vortex_array::validity::Validity;
-use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::field::Field;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::{split_conjunction, unbox_any, ExprRef, VortexExpr};

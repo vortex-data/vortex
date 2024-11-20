@@ -5,7 +5,9 @@ use itertools::Itertools;
 use vortex_array::array::{PrimitiveArray, SparseArray};
 use vortex_array::compute::{slice, take, TakeFn, TakeOptions};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant, IntoCanonical};
+use vortex_array::{
+    ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, IntoCanonical,
+};
 use vortex_dtype::{
     match_each_integer_ptype, match_each_unsigned_integer_ptype, NativePType, PType,
 };

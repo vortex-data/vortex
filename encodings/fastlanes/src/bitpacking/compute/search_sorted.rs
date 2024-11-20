@@ -11,7 +11,7 @@ use vortex_array::compute::{
 };
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::ArrayDType;
+use vortex_array::{ArrayDType, ArrayLen};
 use vortex_dtype::{match_each_unsigned_integer_ptype, NativePType};
 use vortex_error::{VortexError, VortexExpect as _, VortexResult};
 use vortex_scalar::Scalar;

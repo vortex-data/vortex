@@ -219,6 +219,7 @@ where
 mod tests {
     use vortex_array::array::{BoolArray, ConstantArray, PrimitiveArray};
     use vortex_array::variants::StructArrayTrait;
+    use vortex_array::ArrayLen;
     use vortex_dtype::{Nullability, PType};
     use vortex_scalar::Scalar;
 

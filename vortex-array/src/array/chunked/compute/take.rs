@@ -7,7 +7,7 @@ use crate::array::chunked::ChunkedArray;
 use crate::compute::unary::{scalar_at, subtract_scalar, try_cast};
 use crate::compute::{search_sorted, slice, take, SearchSortedSide, TakeFn, TakeOptions};
 use crate::stats::ArrayStatistics;
-use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant, ToArrayData};
+use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
 
 impl TakeFn for ChunkedArray {
     fn take(&self, indices: &ArrayData, options: TakeOptions) -> VortexResult<ArrayData> {
@@ -122,7 +122,7 @@ fn take_strict_sorted(
 mod test {
     use crate::array::chunked::ChunkedArray;
     use crate::compute::{take, TakeOptions};
-    use crate::{ArrayDType, IntoArrayData, IntoArrayVariant};
+    use crate::{ArrayDType, ArrayLen, IntoArrayData, IntoArrayVariant};
 
     #[test]
     fn test_take() {

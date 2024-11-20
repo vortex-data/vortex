@@ -10,7 +10,7 @@ use vortex_array::compute::{
 };
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::{match_each_integer_ptype, match_each_unsigned_integer_ptype, NativePType};
 use vortex_error::{VortexExpect as _, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
@@ -199,7 +199,7 @@ mod test {
     use vortex_array::compute::unary::{scalar_at, try_cast};
     use vortex_array::compute::{compare, filter, slice, take, FilterMask, Operator, TakeOptions};
     use vortex_array::validity::{ArrayValidity, Validity};
-    use vortex_array::{ArrayDType, IntoArrayData, IntoArrayVariant, ToArrayData};
+    use vortex_array::{ArrayDType, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_scalar::Scalar;
 
