@@ -1,3 +1,4 @@
+use std::cmp::min;
 use std::ops::AddAssign;
 
 use num_traits::AsPrimitive;
@@ -76,9 +77,8 @@ impl TakeFn for RunEndArray {
         let primitive_indices = indices.clone().into_primitive()?;
         let u64_indices = match_each_integer_ptype!(primitive_indices.ptype(), |$P| {
             primitive_indices
-                .maybe_null_slice::<$P>()
-                .iter()
-                .copied()
+                .into_maybe_null_slice::<$P>()
+                .into_iter()
                 .map(|idx| {
                     let usize_idx = idx as usize;
                     if usize_idx >= self.len() {
@@ -89,11 +89,11 @@ impl TakeFn for RunEndArray {
                 })
                 .collect::<VortexResult<Vec<u64>>>()?
         });
-        let physical_indices: Vec<u64> = self
+        let physical_indices = self
             .find_physical_indices(&u64_indices)?
-            .iter()
-            .map(|idx| *idx as u64)
-            .collect();
+            .into_iter()
+            .map(|idx| idx as u64)
+            .collect::<Vec<_>>();
         let physical_indices_array = PrimitiveArray::from(physical_indices).into_array();
         let dense_values = take(self.values(), &physical_indices_array, options)?;
 
@@ -146,12 +146,12 @@ impl SliceFn for RunEndArray {
 
 impl FilterFn for RunEndArray {
     fn filter(&self, mask: FilterMask) -> VortexResult<ArrayData> {
-        let primitive_run_ends = self.ends().into_primitive()?;
-        let (run_ends, mask) = match_each_unsigned_integer_ptype!(primitive_run_ends.ptype(), |$P| {
-            filter_run_ends(primitive_run_ends.maybe_null_slice::<$P>(), mask)?
-        });
         let validity = self.validity().filter(&mask)?;
-        let values = filter(&self.values(), mask)?;
+        let primitive_run_ends = self.ends().into_primitive()?;
+        let (run_ends, values_mask) = match_each_unsigned_integer_ptype!(primitive_run_ends.ptype(), |$P| {
+            filter_run_ends(primitive_run_ends.maybe_null_slice::<$P>(), self.offset() as u64, self.len() as u64, mask)?
+        });
+        let values = filter(&self.values(), values_mask)?;
 
         RunEndArray::try_new(run_ends.into_array(), values, validity).map(|a| a.into_array())
     }
@@ -160,6 +160,8 @@ impl FilterFn for RunEndArray {
 // Code adapted from apache arrow-rs https://github.com/apache/arrow-rs/blob/b1f5c250ebb6c1252b4e7c51d15b8e77f4c361fa/arrow-select/src/filter.rs#L425
 fn filter_run_ends<R: NativePType + AddAssign + From<bool> + AsPrimitive<u64>>(
     run_ends: &[R],
+    offset: u64,
+    length: u64,
     mask: FilterMask,
 ) -> VortexResult<(PrimitiveArray, FilterMask)> {
     let mut new_run_ends = vec![R::zero(); run_ends.len()];
@@ -171,7 +173,7 @@ fn filter_run_ends<R: NativePType + AddAssign + From<bool> + AsPrimitive<u64>>(
 
     let new_mask: FilterMask = BooleanBuffer::collect_bool(run_ends.len(), |i| {
         let mut keep = false;
-        let end = run_ends[i].as_();
+        let end = min(run_ends[i].as_() - offset, length);
 
         // Safety: predicate must be the same length as the array the ends have been taken from
         for pred in (start..end).map(|i| unsafe { filter_values.value_unchecked(i as usize) }) {
@@ -461,6 +463,34 @@ mod test {
                 .unwrap()
                 .maybe_null_slice::<i32>(),
             [1, 5]
+        );
+    }
+
+    #[test]
+    fn filter_sliced_run_end() {
+        let arr = slice(ree_array(), 2, 7).unwrap();
+        let filtered = filter(
+            &arr,
+            FilterMask::from_iter([true, false, false, true, true]),
+        )
+        .unwrap();
+        let filtered_run_end = RunEndArray::try_from(filtered).unwrap();
+
+        assert_eq!(
+            filtered_run_end
+                .ends()
+                .into_primitive()
+                .unwrap()
+                .maybe_null_slice::<u64>(),
+            [1, 2, 3]
+        );
+        assert_eq!(
+            filtered_run_end
+                .values()
+                .into_primitive()
+                .unwrap()
+                .maybe_null_slice::<i32>(),
+            [1, 4, 2]
         );
     }
 

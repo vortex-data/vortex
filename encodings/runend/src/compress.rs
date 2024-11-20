@@ -1,14 +1,13 @@
-use std::cmp::min;
-
 use arrow_buffer::BooleanBufferBuilder;
 use itertools::Itertools;
-use num_traits::{AsPrimitive, FromPrimitive};
 use vortex_array::array::{BoolArray, BooleanBuffer, PrimitiveArray};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::ArrayDType;
 use vortex_dtype::{match_each_integer_ptype, match_each_native_ptype, NativePType, Nullability};
-use vortex_error::{vortex_panic, VortexResult};
+use vortex_error::VortexResult;
+
+use crate::iter::trimmed_ends_iter;
 
 pub fn runend_encode(array: &PrimitiveArray) -> (PrimitiveArray, PrimitiveArray) {
     let validity = if array.dtype().nullability() == Nullability::NonNullable {
@@ -61,9 +60,8 @@ pub fn runend_decode_primitive(
     match_each_native_ptype!(values.ptype(), |$P| {
         match_each_integer_ptype!(ends.ptype(), |$E| {
             Ok(PrimitiveArray::from_vec(runend_decode_typed_primitive(
-                ends.maybe_null_slice::<$E>(),
+                trimmed_ends_iter(ends.maybe_null_slice::<$E>(), offset, length),
                 values.maybe_null_slice::<$P>(),
-                offset,
                 length,
             ), validity))
         })
@@ -79,67 +77,33 @@ pub fn runend_decode_bools(
 ) -> VortexResult<BoolArray> {
     match_each_integer_ptype!(ends.ptype(), |$E| {
         BoolArray::try_new(runend_decode_typed_bool(
-            ends.maybe_null_slice::<$E>(),
+            trimmed_ends_iter(ends.maybe_null_slice::<$E>(), offset, length),
             values.boolean_buffer(),
-            offset,
             length,
         ), validity)
     })
 }
 
-#[inline]
-fn trimmed_run_ends<E: NativePType + AsPrimitive<usize> + FromPrimitive + Ord>(
-    run_ends: &[E],
-    offset: usize,
-    length: usize,
-) -> impl Iterator<Item = E> + use<'_, E> {
-    let offset_e = E::from_usize(offset).unwrap_or_else(|| {
-        vortex_panic!(
-            "offset {} cannot be converted to {}",
-            offset,
-            std::any::type_name::<E>()
-        )
-    });
-    let length_e = E::from_usize(length).unwrap_or_else(|| {
-        vortex_panic!(
-            "length {} cannot be converted to {}",
-            length,
-            std::any::type_name::<E>()
-        )
-    });
-    run_ends
-        .iter()
-        .map(move |&v| v - offset_e)
-        .map(move |v| min(v, length_e))
-}
-
-pub fn runend_decode_typed_primitive<
-    E: NativePType + AsPrimitive<usize> + FromPrimitive + Ord,
-    T: NativePType,
->(
-    run_ends: &[E],
+pub fn runend_decode_typed_primitive<T: NativePType>(
+    run_ends: impl Iterator<Item = usize>,
     values: &[T],
-    offset: usize,
     length: usize,
 ) -> Vec<T> {
-    let trimmed_ends = trimmed_run_ends(run_ends, offset, length);
     let mut decoded = Vec::with_capacity(length);
-    for (end, value) in trimmed_ends.zip_eq(values) {
-        decoded.extend(std::iter::repeat_n(value, end.as_() - decoded.len()));
+    for (end, value) in run_ends.zip_eq(values) {
+        decoded.extend(std::iter::repeat_n(value, end - decoded.len()));
     }
     decoded
 }
 
-pub fn runend_decode_typed_bool<E: NativePType + AsPrimitive<usize> + FromPrimitive + Ord>(
-    run_ends: &[E],
+pub fn runend_decode_typed_bool(
+    run_ends: impl Iterator<Item = usize>,
     values: BooleanBuffer,
-    offset: usize,
     length: usize,
 ) -> BooleanBuffer {
-    let trimmed_ends = trimmed_run_ends(run_ends, offset, length);
     let mut decoded = BooleanBufferBuilder::new(length);
-    for (end, value) in trimmed_ends.zip_eq(values.iter()) {
-        decoded.append_n(end.as_() - decoded.len(), value);
+    for (end, value) in run_ends.zip_eq(values.iter()) {
+        decoded.append_n(end - decoded.len(), value);
     }
     decoded.finish()
 }
