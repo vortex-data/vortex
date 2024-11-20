@@ -262,43 +262,36 @@ async fn bench_main(
         let count_tx = row_count_tx.clone();
         let progress = progress.clone();
         let formats = formats.clone();
-        rayon::spawn_fifo(move || {
-            // let mut elapsed_us = Vec::new();
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap();
-            for (ctx, format) in ctxs.iter().zip(formats.iter()) {
-                if warmup {
-                    for i in 0..3 {
-                        let row_count =
-                            rt.block_on(run_tpch_query(ctx, &sql_queries, query_idx, *format));
-                        if i == 0 {
-                            count_tx.send((query_idx, *format, row_count)).unwrap();
-                        }
+
+        for (ctx, format) in ctxs.iter().zip(formats.iter()) {
+            if warmup {
+                for i in 0..3 {
+                    let row_count = run_tpch_query(ctx, &sql_queries, query_idx, *format).await;
+                    if i == 0 {
+                        count_tx.send((query_idx, *format, row_count)).unwrap();
                     }
                 }
-
-                let mut measures = Vec::new();
-                for _ in 0..iterations {
-                    // let start = Instant::now();
-                    let start = SystemTime::now();
-                    rt.block_on(run_tpch_query(ctx, &sql_queries, query_idx, *format));
-                    let elapsed = start.elapsed().unwrap();
-                    measures.push(elapsed);
-                }
-                let fastest = measures.iter().cloned().min().unwrap();
-
-                tx.send(Measurement {
-                    query_idx,
-                    time: fastest,
-                    format: *format,
-                })
-                .unwrap();
-
-                progress.inc(1);
             }
-        });
+
+            let mut measures = Vec::new();
+            for _ in 0..iterations {
+                // let start = Instant::now();
+                let start = SystemTime::now();
+                run_tpch_query(ctx, &sql_queries, query_idx, *format).await;
+                let elapsed = start.elapsed().unwrap();
+                measures.push(elapsed);
+            }
+            let fastest = measures.iter().cloned().min().unwrap();
+
+            tx.send(Measurement {
+                query_idx,
+                time: fastest,
+                format: *format,
+            })
+            .unwrap();
+
+            progress.inc(1);
+        }
     }
 
     // delete parent handle to tx
