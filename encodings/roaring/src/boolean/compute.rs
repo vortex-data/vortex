@@ -7,25 +7,21 @@ use vortex_scalar::Scalar;
 
 use crate::{RoaringBoolArray, RoaringBoolEncoding};
 
-impl ArrayCompute for RoaringBoolArray {
-    fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
-        Some(self)
-    }
-}
+impl ArrayCompute for RoaringBoolArray {}
 
 impl ComputeVTable for RoaringBoolEncoding {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
+        Some(self)
+    }
+
     fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
         Some(self)
     }
 }
 
-impl ScalarAtFn for RoaringBoolArray {
-    fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
-        Ok(<Self as ScalarAtFn>::scalar_at_unchecked(self, index))
-    }
-
-    fn scalar_at_unchecked(&self, index: usize) -> Scalar {
-        self.bitmap().contains(index as u32).into()
+impl ScalarAtFn<RoaringBoolArray> for RoaringBoolEncoding {
+    fn scalar_at(&self, array: &RoaringBoolArray, index: usize) -> VortexResult<Scalar> {
+        Ok(array.bitmap().contains(index as u32).into())
     }
 }
 

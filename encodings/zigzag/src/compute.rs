@@ -1,31 +1,31 @@
-use vortex_array::compute::unary::{scalar_at_unchecked, ScalarAtFn};
+use vortex_array::compute::unary::{scalar_at, ScalarAtFn};
 use vortex_array::compute::{slice, ArrayCompute, ComputeVTable, SliceFn};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_dtype::match_each_unsigned_integer_ptype;
-use vortex_error::{vortex_err, VortexResult, VortexUnwrap as _};
+use vortex_error::{vortex_err, VortexResult};
 use vortex_scalar::{PrimitiveScalar, Scalar};
 use zigzag::{ZigZag as ExternalZigZag, ZigZag};
 
 use crate::{ZigZagArray, ZigZagEncoding};
 
-impl ArrayCompute for ZigZagArray {
-    fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
-        Some(self)
-    }
-}
+impl ArrayCompute for ZigZagArray {}
 
 impl ComputeVTable for ZigZagEncoding {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
+        Some(self)
+    }
+
     fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
         Some(self)
     }
 }
 
-impl ScalarAtFn for ZigZagArray {
-    fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
-        let scalar = scalar_at_unchecked(self.encoded(), index);
+impl ScalarAtFn<ZigZagArray> for ZigZagEncoding {
+    fn scalar_at(&self, array: &ZigZagArray, index: usize) -> VortexResult<Scalar> {
+        let scalar = scalar_at(array.encoded(), index)?;
         if scalar.is_null() {
-            return Ok(scalar.reinterpret_cast(self.ptype()));
+            return Ok(scalar.reinterpret_cast(array.ptype()));
         }
 
         let pscalar = PrimitiveScalar::try_from(&scalar)?;
@@ -38,13 +38,9 @@ impl ScalarAtFn for ZigZagArray {
                         pscalar.ptype()
                     )
                 })?),
-                self.dtype().nullability(),
+                array.dtype().nullability(),
             ))
         })
-    }
-
-    fn scalar_at_unchecked(&self, index: usize) -> Scalar {
-        <Self as ScalarAtFn>::scalar_at(self, index).vortex_unwrap()
     }
 }
 

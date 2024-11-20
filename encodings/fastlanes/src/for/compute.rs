@@ -1,7 +1,7 @@
 use std::ops::{AddAssign, Shl, Shr};
 
 use num_traits::{WrappingAdd, WrappingSub};
-use vortex_array::compute::unary::{scalar_at_unchecked, ScalarAtFn};
+use vortex_array::compute::unary::{scalar_at, ScalarAtFn};
 use vortex_array::compute::{
     filter, search_sorted, slice, take, ArrayCompute, ComputeVTable, FilterFn, FilterMask,
     SearchResult, SearchSortedFn, SearchSortedSide, SliceFn, TakeFn, TakeOptions,
@@ -15,10 +15,6 @@ use vortex_scalar::{PValue, Scalar};
 use crate::{FoRArray, FoREncoding};
 
 impl ArrayCompute for FoRArray {
-    fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
-        Some(self)
-    }
-
     fn search_sorted(&self) -> Option<&dyn SearchSortedFn> {
         Some(self)
     }
@@ -26,6 +22,10 @@ impl ArrayCompute for FoRArray {
 
 impl ComputeVTable for FoREncoding {
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
         Some(self)
     }
 
@@ -65,30 +65,26 @@ impl FilterFn<FoRArray> for FoREncoding {
     }
 }
 
-impl ScalarAtFn for FoRArray {
-    fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
-        Ok(self.scalar_at_unchecked(index))
-    }
-
-    fn scalar_at_unchecked(&self, index: usize) -> Scalar {
-        let encoded_pvalue = scalar_at_unchecked(self.encoded(), index)
+impl ScalarAtFn<FoRArray> for FoREncoding {
+    fn scalar_at(&self, array: &FoRArray, index: usize) -> VortexResult<Scalar> {
+        let encoded_pvalue = scalar_at(array.encoded(), index)?
             .into_value()
             .as_pvalue()
             .vortex_expect("Encoded scalar must be primitive")
-            .map(|p| p.reinterpret_cast(self.ptype()));
-        let reference = self
+            .map(|p| p.reinterpret_cast(array.ptype()));
+        let reference = array
             .reference()
             .as_pvalue()
             .vortex_expect("Reference scalar must be primitive")
             .vortex_expect("Reference scalar cannot be null");
 
-        match_each_integer_ptype!(self.ptype(), |$P| {
+        Ok(match_each_integer_ptype!(array.ptype(), |$P| {
             encoded_pvalue
                 .map(|v| v.as_primitive::<$P>().vortex_unwrap())
-                .map(|v| (v << self.shift()).wrapping_add(reference.as_primitive::<$P>().vortex_unwrap()))
-                .map(|v| Scalar::primitive::<$P>(v, self.dtype().nullability()))
-                .unwrap_or_else(|| Scalar::null(self.dtype().clone()))
-        })
+                .map(|v| (v << array.shift()).wrapping_add(reference.as_primitive::<$P>().vortex_unwrap()))
+                .map(|v| Scalar::primitive::<$P>(v, array.dtype().nullability()))
+                .unwrap_or_else(|| Scalar::null(array.dtype().clone()))
+        }))
     }
 }
 

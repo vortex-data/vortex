@@ -1,37 +1,29 @@
 use std::cmp::min;
 
-use vortex_array::compute::unary::ScalarAtFn;
+use vortex_array::compute::unary::{scalar_at, ScalarAtFn};
 use vortex_array::compute::{slice, ArrayCompute, ComputeVTable, SliceFn};
 use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::{DeltaArray, DeltaEncoding};
 
-impl ArrayCompute for DeltaArray {
-    fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
-        Some(self)
-    }
-}
+impl ArrayCompute for DeltaArray {}
 
 impl ComputeVTable for DeltaEncoding {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
+        Some(self)
+    }
+
     fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
         Some(self)
     }
 }
 
-impl ScalarAtFn for DeltaArray {
-    fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
-        let decompressed = slice(self, index, index + 1)?.into_primitive()?;
-        ScalarAtFn::scalar_at(&decompressed, 0)
-    }
-
-    fn scalar_at_unchecked(&self, index: usize) -> Scalar {
-        let decompressed = slice(self, index, index + 1)
-            .vortex_expect("DeltaArray slice for one value should work")
-            .into_primitive()
-            .vortex_expect("Converting slice into primitive should work");
-        ScalarAtFn::scalar_at_unchecked(&decompressed, 0)
+impl ScalarAtFn<DeltaArray> for DeltaEncoding {
+    fn scalar_at(&self, array: &DeltaArray, index: usize) -> VortexResult<Scalar> {
+        let decompressed = slice(array, index, index + 1)?.into_primitive()?;
+        scalar_at(decompressed, 0)
     }
 }
 
@@ -79,7 +71,7 @@ impl SliceFn<DeltaArray> for DeltaEncoding {
 #[cfg(test)]
 mod test {
     use vortex_array::compute::slice;
-    use vortex_array::compute::unary::{scalar_at, scalar_at_unchecked};
+    use vortex_array::compute::unary::scalar_at;
     use vortex_array::IntoArrayVariant;
     use vortex_error::VortexError;
 
@@ -92,25 +84,12 @@ mod test {
             .into_array();
 
         assert_eq!(scalar_at(&delta, 0).unwrap(), 0_u32.into());
-        assert_eq!(scalar_at_unchecked(&delta, 0), 0_u32.into());
-
         assert_eq!(scalar_at(&delta, 1).unwrap(), 1_u32.into());
-        assert_eq!(scalar_at_unchecked(&delta, 1), 1_u32.into());
-
         assert_eq!(scalar_at(&delta, 10).unwrap(), 10_u32.into());
-        assert_eq!(scalar_at_unchecked(&delta, 10), 10_u32.into());
-
         assert_eq!(scalar_at(&delta, 1023).unwrap(), 1023_u32.into());
-        assert_eq!(scalar_at_unchecked(&delta, 1023), 1023_u32.into());
-
         assert_eq!(scalar_at(&delta, 1024).unwrap(), 1024_u32.into());
-        assert_eq!(scalar_at_unchecked(&delta, 1024), 1024_u32.into());
-
         assert_eq!(scalar_at(&delta, 1025).unwrap(), 1025_u32.into());
-        assert_eq!(scalar_at_unchecked(&delta, 1025), 1025_u32.into());
-
         assert_eq!(scalar_at(&delta, 2047).unwrap(), 2047_u32.into());
-        assert_eq!(scalar_at_unchecked(&delta, 2047), 2047_u32.into());
 
         assert!(matches!(
             scalar_at(&delta, 2048),
@@ -130,25 +109,12 @@ mod test {
             .into_array();
 
         assert_eq!(scalar_at(&delta, 0).unwrap(), 0_u32.into());
-        assert_eq!(scalar_at_unchecked(&delta, 0), 0_u32.into());
-
         assert_eq!(scalar_at(&delta, 1).unwrap(), 1_u32.into());
-        assert_eq!(scalar_at_unchecked(&delta, 1), 1_u32.into());
-
         assert_eq!(scalar_at(&delta, 10).unwrap(), 10_u32.into());
-        assert_eq!(scalar_at_unchecked(&delta, 10), 10_u32.into());
-
         assert_eq!(scalar_at(&delta, 1023).unwrap(), 1023_u32.into());
-        assert_eq!(scalar_at_unchecked(&delta, 1023), 1023_u32.into());
-
         assert_eq!(scalar_at(&delta, 1024).unwrap(), 1024_u32.into());
-        assert_eq!(scalar_at_unchecked(&delta, 1024), 1024_u32.into());
-
         assert_eq!(scalar_at(&delta, 1025).unwrap(), 1025_u32.into());
-        assert_eq!(scalar_at_unchecked(&delta, 1025), 1025_u32.into());
-
         assert_eq!(scalar_at(&delta, 1999).unwrap(), 1999_u32.into());
-        assert_eq!(scalar_at_unchecked(&delta, 1999), 1999_u32.into());
 
         assert!(matches!(
             scalar_at(&delta, 2000),

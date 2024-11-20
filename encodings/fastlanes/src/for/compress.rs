@@ -119,7 +119,7 @@ fn decompress_primitive<T: NativePType + WrappingAdd + PrimInt>(
 
 #[cfg(test)]
 mod test {
-    use vortex_array::compute::unary::ScalarAtFn;
+    use vortex_array::compute::unary::scalar_at;
     use vortex_array::IntoArrayVariant;
     use vortex_dtype::Nullability;
 
@@ -160,11 +160,11 @@ mod test {
         assert!(sparse.statistics().to_set().into_iter().next().is_none());
         assert_eq!(sparse.fill_value(), &ScalarValue::Null);
         assert_eq!(
-            sparse.scalar_at(0).unwrap(),
+            scalar_at(&sparse, 0).unwrap(),
             Scalar::primitive(0i32, Nullability::Nullable)
         );
         assert_eq!(
-            sparse.scalar_at(1).unwrap(),
+            scalar_at(&sparse, 1).unwrap(),
             Scalar::null(sparse.dtype().clone())
         );
     }
@@ -211,7 +211,7 @@ mod test {
             .for_each(|(i, v)| {
                 assert_eq!(
                     *v,
-                    i8::try_from(compressed.scalar_at(i).unwrap().as_ref()).unwrap()
+                    i8::try_from(scalar_at(&compressed, i).unwrap().as_ref()).unwrap()
                 );
             });
     }

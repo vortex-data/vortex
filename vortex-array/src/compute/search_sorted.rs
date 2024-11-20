@@ -147,7 +147,7 @@ pub fn search_sorted<T: Into<Scalar>>(
             return search_sorted.search_sorted(&scalar, side);
         }
 
-        if a.scalar_at().is_some() {
+        if array.encoding().scalar_at_fn().is_some() {
             return Ok(array.search_sorted(&scalar, side));
         }
 
@@ -166,7 +166,7 @@ pub fn search_sorted_u64(
     array.with_dyn(|a| {
         if let Some(search_sorted) = a.search_sorted() {
             search_sorted.search_sorted_u64(target, side)
-        } else if a.scalar_at().is_some() {
+        } else if a.encoding().scalar_at_fn().is_some() {
             let scalar = Scalar::primitive(target, array.dtype().nullability());
             Ok(array.search_sorted(&scalar, side))
         } else {

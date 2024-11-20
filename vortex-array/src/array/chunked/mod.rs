@@ -13,7 +13,7 @@ use vortex_scalar::Scalar;
 
 use crate::array::primitive::PrimitiveArray;
 use crate::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
-use crate::compute::unary::{scalar_at, scalar_at_unchecked, subtract_scalar, SubtractScalarFn};
+use crate::compute::unary::{scalar_at, subtract_scalar, SubtractScalarFn};
 use crate::compute::{search_sorted, SearchSortedSide};
 use crate::encoding::ids;
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
@@ -96,8 +96,8 @@ impl ChunkedArray {
             vortex_bail!("chunk index {} > num chunks ({})", idx, self.nchunks());
         }
 
-        let chunk_start = usize::try_from(&scalar_at_unchecked(self.chunk_offsets(), idx))?;
-        let chunk_end = usize::try_from(&scalar_at_unchecked(self.chunk_offsets(), idx + 1))?;
+        let chunk_start = usize::try_from(&scalar_at(self.chunk_offsets(), idx)?)?;
+        let chunk_end = usize::try_from(&scalar_at(self.chunk_offsets(), idx + 1)?)?;
 
         // Offset the index since chunk_ends is child 0.
         self.as_ref()

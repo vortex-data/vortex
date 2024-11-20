@@ -3,7 +3,7 @@ use std::ops::AddAssign;
 
 use num_traits::AsPrimitive;
 use vortex_array::array::{BooleanBuffer, ConstantArray, PrimitiveArray, SparseArray};
-use vortex_array::compute::unary::{scalar_at, scalar_at_unchecked, ScalarAtFn};
+use vortex_array::compute::unary::{scalar_at, ScalarAtFn};
 use vortex_array::compute::{
     compare, filter, slice, take, ArrayCompute, ComputeVTable, FilterFn, FilterMask,
     MaybeCompareFn, Operator, SliceFn, TakeFn, TakeOptions,
@@ -12,7 +12,7 @@ use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::{match_each_integer_ptype, match_each_unsigned_integer_ptype, NativePType};
-use vortex_error::{VortexExpect as _, VortexResult};
+use vortex_error::VortexResult;
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::{RunEndArray, RunEndEncoding};
@@ -21,14 +21,14 @@ impl ArrayCompute for RunEndArray {
     fn compare(&self, other: &ArrayData, operator: Operator) -> Option<VortexResult<ArrayData>> {
         MaybeCompareFn::maybe_compare(self, other, operator)
     }
-
-    fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
-        Some(self)
-    }
 }
 
 impl ComputeVTable for RunEndEncoding {
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
         Some(self)
     }
 
@@ -68,16 +68,9 @@ impl MaybeCompareFn for RunEndArray {
     }
 }
 
-impl ScalarAtFn for RunEndArray {
-    fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
-        scalar_at(self.values(), self.find_physical_index(index)?)
-    }
-
-    fn scalar_at_unchecked(&self, index: usize) -> Scalar {
-        let idx = self
-            .find_physical_index(index)
-            .vortex_expect("Search must be implemented for the underlying index array");
-        scalar_at_unchecked(self.values(), idx)
+impl ScalarAtFn<RunEndArray> for RunEndEncoding {
+    fn scalar_at(&self, array: &RunEndArray, index: usize) -> VortexResult<Scalar> {
+        scalar_at(array.values(), array.find_physical_index(index)?)
     }
 }
 

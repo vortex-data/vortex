@@ -1,12 +1,30 @@
-use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
+use crate::encoding::Encoding;
 use crate::{ArrayDType, ArrayData};
 
-pub trait ScalarAtFn {
-    fn scalar_at(&self, index: usize) -> VortexResult<Scalar>;
+/// Implementation of scalar_at for an encoding.
+///
+/// SAFETY: the index is guaranteed to be within the bounds of the [ArrayData].
+pub trait ScalarAtFn<Array> {
+    fn scalar_at(&self, array: &Array, index: usize) -> VortexResult<Scalar>;
+}
 
-    fn scalar_at_unchecked(&self, index: usize) -> Scalar;
+impl<E: Encoding + 'static> ScalarAtFn<ArrayData> for E
+where
+    E: ScalarAtFn<E::Array>,
+    for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
+{
+    fn scalar_at(&self, array: &ArrayData, index: usize) -> VortexResult<Scalar> {
+        let array_ref = <&E::Array>::try_from(array)?;
+        let encoding = array
+            .encoding()
+            .as_any()
+            .downcast_ref::<E>()
+            .ok_or_else(|| vortex_err!("Mismatched encoding"))?;
+        ScalarAtFn::scalar_at(encoding, array_ref, index)
+    }
 }
 
 pub fn scalar_at(array: impl AsRef<ArrayData>, index: usize) -> VortexResult<Scalar> {
@@ -19,17 +37,9 @@ pub fn scalar_at(array: impl AsRef<ArrayData>, index: usize) -> VortexResult<Sca
         return Ok(Scalar::null(array.dtype().clone()));
     }
 
-    array.with_dyn(|a| {
-        a.scalar_at()
-            .map(|t| t.scalar_at(index))
-            .unwrap_or_else(|| Err(vortex_err!(NotImplemented: "scalar_at", array.encoding().id())))
-    })
-}
-
-/// Returns a [`Scalar`] value without checking for validity or array bounds. Might panic *OR* return an invalid value if used incorrectly.
-pub fn scalar_at_unchecked(array: impl AsRef<ArrayData>, index: usize) -> Scalar {
-    let array = array.as_ref();
     array
-        .with_dyn(|a| a.scalar_at().map(|s| s.scalar_at_unchecked(index)))
-        .unwrap_or_else(|| vortex_panic!(NotImplemented: "scalar_at", array.encoding().id()))
+        .encoding()
+        .scalar_at_fn()
+        .map(|f| f.scalar_at(array, index))
+        .unwrap_or_else(|| Err(vortex_err!(NotImplemented: "scalar_at", array.encoding().id())))
 }

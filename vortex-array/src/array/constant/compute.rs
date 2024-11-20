@@ -19,10 +19,6 @@ impl ArrayCompute for ConstantArray {
         MaybeCompareFn::maybe_compare(self, other, operator)
     }
 
-    fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
-        Some(self)
-    }
-
     fn search_sorted(&self) -> Option<&dyn SearchSortedFn> {
         Some(self)
     }
@@ -41,6 +37,9 @@ impl ComputeVTable for ConstantEncoding {
         Some(self)
     }
 
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
+        Some(self)
+    }
     fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
         Some(self)
     }
@@ -50,13 +49,9 @@ impl ComputeVTable for ConstantEncoding {
     }
 }
 
-impl ScalarAtFn for ConstantArray {
-    fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
-        Ok(<Self as ScalarAtFn>::scalar_at_unchecked(self, index))
-    }
-
-    fn scalar_at_unchecked(&self, _index: usize) -> Scalar {
-        self.owned_scalar()
+impl ScalarAtFn<ConstantArray> for ConstantEncoding {
+    fn scalar_at(&self, array: &ConstantArray, _index: usize) -> VortexResult<Scalar> {
+        Ok(array.owned_scalar())
     }
 }
 

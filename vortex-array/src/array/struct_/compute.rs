@@ -4,7 +4,7 @@ use vortex_scalar::Scalar;
 
 use crate::array::struct_::StructArray;
 use crate::array::StructEncoding;
-use crate::compute::unary::{scalar_at, scalar_at_unchecked, ScalarAtFn};
+use crate::compute::unary::{scalar_at, ScalarAtFn};
 use crate::compute::{
     filter, slice, take, ArrayCompute, ComputeVTable, FilterFn, FilterMask, SliceFn, TakeFn,
     TakeOptions,
@@ -12,14 +12,14 @@ use crate::compute::{
 use crate::variants::StructArrayTrait;
 use crate::{ArrayDType, ArrayData, IntoArrayData};
 
-impl ArrayCompute for StructArray {
-    fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
-        Some(self)
-    }
-}
+impl ArrayCompute for StructArray {}
 
 impl ComputeVTable for StructEncoding {
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
         Some(self)
     }
 
@@ -32,23 +32,15 @@ impl ComputeVTable for StructEncoding {
     }
 }
 
-impl ScalarAtFn for StructArray {
-    fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
+impl ScalarAtFn<StructArray> for StructEncoding {
+    fn scalar_at(&self, array: &StructArray, index: usize) -> VortexResult<Scalar> {
         Ok(Scalar::r#struct(
-            self.dtype().clone(),
-            self.children()
+            array.dtype().clone(),
+            array
+                .children()
                 .map(|field| scalar_at(&field, index).map(|s| s.into_value()))
                 .try_collect()?,
         ))
-    }
-
-    fn scalar_at_unchecked(&self, index: usize) -> Scalar {
-        Scalar::r#struct(
-            self.dtype().clone(),
-            self.children()
-                .map(|field| scalar_at_unchecked(&field, index).into_value())
-                .collect(),
-        )
     }
 }
 

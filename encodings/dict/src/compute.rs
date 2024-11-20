@@ -1,11 +1,11 @@
 use vortex_array::array::ConstantArray;
-use vortex_array::compute::unary::{scalar_at, scalar_at_unchecked, ScalarAtFn};
+use vortex_array::compute::unary::{scalar_at, ScalarAtFn};
 use vortex_array::compute::{
     compare, filter, slice, take, ArrayCompute, ComputeVTable, FilterFn, FilterMask,
     MaybeCompareFn, Operator, SliceFn, TakeFn, TakeOptions,
 };
 use vortex_array::{ArrayData, IntoArrayData};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::{DictArray, DictEncoding};
@@ -14,14 +14,14 @@ impl ArrayCompute for DictArray {
     fn compare(&self, other: &ArrayData, operator: Operator) -> Option<VortexResult<ArrayData>> {
         MaybeCompareFn::maybe_compare(self, other, operator)
     }
-
-    fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
-        Some(self)
-    }
 }
 
 impl ComputeVTable for DictEncoding {
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
         Some(self)
     }
 
@@ -60,19 +60,10 @@ impl MaybeCompareFn for DictArray {
     }
 }
 
-impl ScalarAtFn for DictArray {
-    fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
-        let dict_index: usize = scalar_at(self.codes(), index)?.as_ref().try_into()?;
-        Ok(scalar_at_unchecked(self.values(), dict_index))
-    }
-
-    fn scalar_at_unchecked(&self, index: usize) -> Scalar {
-        let dict_index: usize = scalar_at_unchecked(self.codes(), index)
-            .as_ref()
-            .try_into()
-            .vortex_expect("Invalid dict index");
-
-        scalar_at_unchecked(self.values(), dict_index)
+impl ScalarAtFn<DictArray> for DictEncoding {
+    fn scalar_at(&self, array: &DictArray, index: usize) -> VortexResult<Scalar> {
+        let dict_index: usize = scalar_at(array.codes(), index)?.as_ref().try_into()?;
+        scalar_at(array.values(), dict_index)
     }
 }
 

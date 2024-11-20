@@ -9,19 +9,21 @@ mod scalar_at;
 mod slice;
 mod take;
 
-impl ArrayCompute for ALPRDArray {
-    fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
-        Some(self)
-    }
-}
+impl ArrayCompute for ALPRDArray {}
 
 impl ComputeVTable for ALPRDEncoding {
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
         Some(self)
     }
+
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
+        Some(self)
+    }
+
     fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
         Some(self)
     }
+
     fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
         Some(self)
     }

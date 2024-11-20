@@ -3,30 +3,30 @@ use vortex_array::compute::unary::ScalarAtFn;
 use vortex_array::compute::{ArrayCompute, ComputeVTable, SliceFn};
 use vortex_array::{ArrayData, ArrayLen, IntoArrayData};
 use vortex_dtype::PType;
-use vortex_error::{vortex_err, VortexResult, VortexUnwrap as _};
+use vortex_error::{vortex_err, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::{RoaringIntArray, RoaringIntEncoding};
 
-impl ArrayCompute for RoaringIntArray {
-    fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
-        Some(self)
-    }
-}
+impl ArrayCompute for RoaringIntArray {}
 
 impl ComputeVTable for RoaringIntEncoding {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
+        Some(self)
+    }
+
     fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
         Some(self)
     }
 }
 
-impl ScalarAtFn for RoaringIntArray {
-    fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
-        let bitmap_value = self
+impl ScalarAtFn<RoaringIntArray> for RoaringIntEncoding {
+    fn scalar_at(&self, array: &RoaringIntArray, index: usize) -> VortexResult<Scalar> {
+        let bitmap_value = array
             .owned_bitmap()
             .select(index as u32)
-            .ok_or_else(|| vortex_err!(OutOfBounds: index, 0, self.len()))?;
-        let scalar: Scalar = match self.metadata().ptype {
+            .ok_or_else(|| vortex_err!(OutOfBounds: index, 0, array.len()))?;
+        let scalar: Scalar = match array.metadata().ptype {
             PType::U8 => (bitmap_value as u8).into(),
             PType::U16 => (bitmap_value as u16).into(),
             PType::U32 => bitmap_value.into(),
@@ -34,10 +34,6 @@ impl ScalarAtFn for RoaringIntArray {
             _ => unreachable!("RoaringIntArray constructor should have disallowed this type"),
         };
         Ok(scalar)
-    }
-
-    fn scalar_at_unchecked(&self, index: usize) -> Scalar {
-        <Self as ScalarAtFn>::scalar_at(self, index).vortex_unwrap()
     }
 }
 

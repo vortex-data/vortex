@@ -14,13 +14,13 @@ impl ArrayCompute for ByteBoolArray {
     fn fill_forward(&self) -> Option<&dyn FillForwardFn> {
         None
     }
-
-    fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
-        Some(self)
-    }
 }
 
 impl ComputeVTable for ByteBoolEncoding {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
+        Some(self)
+    }
+
     fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
         Some(self)
     }
@@ -30,13 +30,12 @@ impl ComputeVTable for ByteBoolEncoding {
     }
 }
 
-impl ScalarAtFn for ByteBoolArray {
-    fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
-        Ok(self.scalar_at_unchecked(index))
-    }
-
-    fn scalar_at_unchecked(&self, index: usize) -> Scalar {
-        Scalar::bool(self.buffer()[index] == 1, self.dtype().nullability())
+impl ScalarAtFn<ByteBoolArray> for ByteBoolEncoding {
+    fn scalar_at(&self, array: &ByteBoolArray, index: usize) -> VortexResult<Scalar> {
+        Ok(Scalar::bool(
+            array.buffer()[index] == 1,
+            array.dtype().nullability(),
+        ))
     }
 }
 
@@ -142,7 +141,7 @@ impl FillForwardFn for ByteBoolArray {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::compute::unary::{scalar_at, scalar_at_unchecked};
+    use vortex_array::compute::unary::scalar_at;
     use vortex_array::compute::{compare, slice, Operator};
     use vortex_scalar::ScalarValue;
 
@@ -156,7 +155,7 @@ mod tests {
         let sliced_arr = slice(vortex_arr.as_ref(), 1, 4).unwrap();
         let sliced_arr = ByteBoolArray::try_from(sliced_arr).unwrap();
 
-        let s = scalar_at_unchecked(sliced_arr.as_ref(), 0);
+        let s = scalar_at(sliced_arr.as_ref(), 0).unwrap();
         assert_eq!(s.into_value().as_bool().unwrap(), Some(true));
 
         let s = scalar_at(sliced_arr.as_ref(), 1).unwrap();
@@ -164,7 +163,7 @@ mod tests {
         assert!(s.is_null());
         assert_eq!(s.into_value().as_bool().unwrap(), None);
 
-        let s = scalar_at_unchecked(sliced_arr.as_ref(), 2);
+        let s = scalar_at(sliced_arr.as_ref(), 2).unwrap();
         assert_eq!(s.into_value().as_bool().unwrap(), Some(false));
     }
 
@@ -176,7 +175,7 @@ mod tests {
         let arr = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
 
         for i in 0..arr.len() {
-            let s = scalar_at_unchecked(arr.as_ref(), i);
+            let s = scalar_at(arr.as_ref(), i).unwrap();
             assert!(s.is_valid());
             assert_eq!(s.value(), &ScalarValue::Bool(true));
         }

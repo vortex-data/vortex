@@ -12,7 +12,7 @@ use vortex_error::{
 };
 
 use crate::array::{BoolArray, ConstantArray};
-use crate::compute::unary::scalar_at_unchecked;
+use crate::compute::unary::scalar_at;
 use crate::compute::{filter, slice, take, FilterMask, TakeOptions};
 use crate::stats::ArrayStatistics;
 use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
@@ -137,15 +137,15 @@ impl Validity {
         match self {
             Self::NonNullable | Self::AllValid => true,
             Self::AllInvalid => false,
-            Self::Array(a) => {
-                bool::try_from(&scalar_at_unchecked(a, index)).unwrap_or_else(|err| {
+            Self::Array(a) => scalar_at(a, index)
+                .and_then(|s| bool::try_from(&s))
+                .unwrap_or_else(|err| {
                     vortex_panic!(
                         err,
                         "Failed to get bool from Validity Array at index {}",
                         index
                     )
-                })
-            }
+                }),
         }
     }
 

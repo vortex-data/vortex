@@ -17,10 +17,6 @@ impl ArrayCompute for BoolArray {
         Some(self)
     }
 
-    fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
-        Some(self)
-    }
-
     fn and(&self) -> Option<&dyn AndFn> {
         Some(self)
     }
@@ -32,6 +28,10 @@ impl ArrayCompute for BoolArray {
 
 impl ComputeVTable for BoolEncoding {
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
         Some(self)
     }
 

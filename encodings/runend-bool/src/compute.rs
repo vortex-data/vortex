@@ -4,18 +4,17 @@ use vortex_array::compute::{slice, ArrayCompute, ComputeVTable, SliceFn, TakeFn,
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
 use vortex_dtype::match_each_integer_ptype;
-use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::{value_at_index, RunEndBoolArray, RunEndBoolEncoding};
 
-impl ArrayCompute for RunEndBoolArray {
-    fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
-        Some(self)
-    }
-}
+impl ArrayCompute for RunEndBoolArray {}
 
 impl ComputeVTable for RunEndBoolEncoding {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
+        Some(self)
+    }
     fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
         Some(self)
     }
@@ -24,22 +23,13 @@ impl ComputeVTable for RunEndBoolEncoding {
     }
 }
 
-impl ScalarAtFn for RunEndBoolArray {
-    fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
-        let start = self.start();
+impl ScalarAtFn<RunEndBoolArray> for RunEndBoolEncoding {
+    fn scalar_at(&self, array: &RunEndBoolArray, index: usize) -> VortexResult<Scalar> {
+        let start = array.start();
         Ok(Scalar::from(value_at_index(
-            self.find_physical_index(index)?,
+            array.find_physical_index(index)?,
             start,
         )))
-    }
-
-    fn scalar_at_unchecked(&self, index: usize) -> Scalar {
-        let start = self.start();
-        Scalar::from(value_at_index(
-            self.find_physical_index(index)
-                .vortex_expect("Search must be implemented for the underlying index array"),
-            start,
-        ))
     }
 }
 

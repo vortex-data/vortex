@@ -44,6 +44,13 @@ pub trait ComputeVTable {
         None
     }
 
+    /// Single item indexing on Vortex arrays.
+    ///
+    /// See: [ScalarAtFn].
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
+        None
+    }
+
     /// Perform zero-copy slicing of an array.
     ///
     /// See: [SliceFn].
@@ -73,13 +80,6 @@ pub trait ArrayCompute {
     ///
     /// See: [FillForwardFn].
     fn fill_forward(&self) -> Option<&dyn FillForwardFn> {
-        None
-    }
-
-    /// Single item indexing on Vortex arrays.
-    ///
-    /// See: [ScalarAtFn].
-    fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
         None
     }
 

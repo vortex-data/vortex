@@ -1,4 +1,4 @@
-use vortex_error::{VortexResult, VortexUnwrap as _};
+use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::array::varbin::{varbin_scalar, VarBinArray};
@@ -18,14 +18,14 @@ impl ArrayCompute for VarBinArray {
     fn compare(&self, other: &ArrayData, operator: Operator) -> Option<VortexResult<ArrayData>> {
         MaybeCompareFn::maybe_compare(self, other, operator)
     }
-
-    fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
-        Some(self)
-    }
 }
 
 impl ComputeVTable for VarBinEncoding {
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
         Some(self)
     }
 
@@ -38,12 +38,8 @@ impl ComputeVTable for VarBinEncoding {
     }
 }
 
-impl ScalarAtFn for VarBinArray {
-    fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
-        Ok(varbin_scalar(self.bytes_at(index)?, self.dtype()))
-    }
-
-    fn scalar_at_unchecked(&self, index: usize) -> Scalar {
-        varbin_scalar(self.bytes_at(index).vortex_unwrap(), self.dtype())
+impl ScalarAtFn<VarBinArray> for VarBinEncoding {
+    fn scalar_at(&self, array: &VarBinArray, index: usize) -> VortexResult<Scalar> {
+        Ok(varbin_scalar(array.bytes_at(index)?, array.dtype()))
     }
 }

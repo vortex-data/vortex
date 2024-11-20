@@ -3,7 +3,7 @@ use vortex_scalar::{ExtScalar, Scalar};
 
 use crate::array::extension::ExtensionArray;
 use crate::array::{ConstantArray, ExtensionEncoding};
-use crate::compute::unary::{scalar_at, scalar_at_unchecked, CastFn, ScalarAtFn};
+use crate::compute::unary::{scalar_at, CastFn, ScalarAtFn};
 use crate::compute::{
     compare, slice, take, ArrayCompute, ComputeVTable, MaybeCompareFn, Operator, SliceFn, TakeFn,
     TakeOptions,
@@ -15,10 +15,6 @@ impl ArrayCompute for ExtensionArray {
     fn compare(&self, other: &ArrayData, operator: Operator) -> Option<VortexResult<ArrayData>> {
         MaybeCompareFn::maybe_compare(self, other, operator)
     }
-
-    fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
-        Some(self)
-    }
 }
 
 impl ComputeVTable for ExtensionEncoding {
@@ -27,6 +23,10 @@ impl ComputeVTable for ExtensionEncoding {
         // TODO(ngates): we should allow some extension arrays to implement a callback
         //  to support this
         None
+    }
+
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
+        Some(self)
     }
 
     fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
@@ -64,19 +64,12 @@ impl MaybeCompareFn for ExtensionArray {
     }
 }
 
-impl ScalarAtFn for ExtensionArray {
-    fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
+impl ScalarAtFn<ExtensionArray> for ExtensionEncoding {
+    fn scalar_at(&self, array: &ExtensionArray, index: usize) -> VortexResult<Scalar> {
         Ok(Scalar::extension(
-            self.ext_dtype().clone(),
-            scalar_at(self.storage(), index)?.into_value(),
+            array.ext_dtype().clone(),
+            scalar_at(array.storage(), index)?.into_value(),
         ))
-    }
-
-    fn scalar_at_unchecked(&self, index: usize) -> Scalar {
-        Scalar::extension(
-            self.ext_dtype().clone(),
-            scalar_at_unchecked(self.storage(), index).into_value(),
-        )
     }
 }
 

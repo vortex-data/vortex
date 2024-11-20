@@ -200,7 +200,7 @@ fn compute_funcs(encodings: &[ArrayData]) {
         impls.push(bool_to_cell(arr.encoding().cast_fn().is_some()));
         impls.push(bool_to_cell(arr.with_dyn(|a| a.fill_forward().is_some())));
         impls.push(bool_to_cell(arr.encoding().filter_fn().is_some()));
-        impls.push(bool_to_cell(arr.with_dyn(|a| a.scalar_at().is_some())));
+        impls.push(bool_to_cell(arr.encoding().scalar_at_fn().is_some()));
         impls.push(bool_to_cell(
             arr.with_dyn(|a| a.subtract_scalar().is_some()),
         ));

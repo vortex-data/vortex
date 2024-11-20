@@ -10,7 +10,7 @@ use itertools::Itertools;
 use num_traits::AsPrimitive;
 use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_integer_ptype, PType};
-use vortex_error::{vortex_bail, VortexResult, VortexUnwrap};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::array::varbin::varbin_scalar;
@@ -29,13 +29,13 @@ impl ArrayCompute for VarBinViewArray {
     fn compare(&self, other: &ArrayData, operator: Operator) -> Option<VortexResult<ArrayData>> {
         MaybeCompareFn::maybe_compare(self, other, operator)
     }
-
-    fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
-        Some(self)
-    }
 }
 
 impl ComputeVTable for VarBinViewEncoding {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
+        Some(self)
+    }
+
     fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
         Some(self)
     }
@@ -45,14 +45,11 @@ impl ComputeVTable for VarBinViewEncoding {
     }
 }
 
-impl ScalarAtFn for VarBinViewArray {
-    fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
-        self.bytes_at(index)
-            .map(|bytes| varbin_scalar(Buffer::from(bytes), self.dtype()))
-    }
-
-    fn scalar_at_unchecked(&self, index: usize) -> Scalar {
-        <Self as ScalarAtFn>::scalar_at(self, index).vortex_unwrap()
+impl ScalarAtFn<VarBinViewArray> for VarBinViewEncoding {
+    fn scalar_at(&self, array: &VarBinViewArray, index: usize) -> VortexResult<Scalar> {
+        array
+            .bytes_at(index)
+            .map(|bytes| varbin_scalar(Buffer::from(bytes), array.dtype()))
     }
 }
 

@@ -9,13 +9,13 @@ use crate::compute::{ArrayCompute, ComputeVTable, SliceFn, TakeFn, TakeOptions};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
 
-impl ArrayCompute for NullArray {
-    fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
-        Some(self)
-    }
-}
+impl ArrayCompute for NullArray {}
 
 impl ComputeVTable for NullEncoding {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
+        Some(self)
+    }
+
     fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
         Some(self)
     }
@@ -31,13 +31,9 @@ impl SliceFn<NullArray> for NullEncoding {
     }
 }
 
-impl ScalarAtFn for NullArray {
-    fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
-        Ok(self.scalar_at_unchecked(index))
-    }
-
-    fn scalar_at_unchecked(&self, _index: usize) -> Scalar {
-        Scalar::null(DType::Null)
+impl ScalarAtFn<NullArray> for NullEncoding {
+    fn scalar_at(&self, _array: &NullArray, _index: usize) -> VortexResult<Scalar> {
+        Ok(Scalar::null(DType::Null))
     }
 }
 

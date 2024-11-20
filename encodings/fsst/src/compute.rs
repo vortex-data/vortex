@@ -1,6 +1,6 @@
 use fsst::Symbol;
 use vortex_array::array::{varbin_scalar, ConstantArray};
-use vortex_array::compute::unary::{scalar_at_unchecked, ScalarAtFn};
+use vortex_array::compute::unary::{scalar_at, ScalarAtFn};
 use vortex_array::compute::{
     compare, filter, slice, take, ArrayCompute, ComputeVTable, FilterFn, FilterMask,
     MaybeCompareFn, Operator, SliceFn, TakeFn, TakeOptions,
@@ -8,7 +8,7 @@ use vortex_array::compute::{
 use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
-use vortex_error::{vortex_err, VortexResult, VortexUnwrap};
+use vortex_error::{vortex_err, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::{FSSTArray, FSSTEncoding};
@@ -17,14 +17,14 @@ impl ArrayCompute for FSSTArray {
     fn compare(&self, other: &ArrayData, operator: Operator) -> Option<VortexResult<ArrayData>> {
         MaybeCompareFn::maybe_compare(self, other, operator)
     }
-
-    fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
-        Some(self)
-    }
 }
 
 impl ComputeVTable for FSSTEncoding {
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
         Some(self)
     }
 
@@ -137,22 +137,18 @@ impl TakeFn<FSSTArray> for FSSTEncoding {
     }
 }
 
-impl ScalarAtFn for FSSTArray {
-    fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
-        let compressed = scalar_at_unchecked(self.codes(), index);
+impl ScalarAtFn<FSSTArray> for FSSTEncoding {
+    fn scalar_at(&self, array: &FSSTArray, index: usize) -> VortexResult<Scalar> {
+        let compressed = scalar_at(array.codes(), index)?;
         let binary_datum = compressed
             .value()
             .as_buffer()?
             .ok_or_else(|| vortex_err!("Expected a binary scalar, found {}", compressed.dtype()))?;
 
-        self.with_decompressor(|decompressor| {
+        array.with_decompressor(|decompressor| {
             let decoded_buffer: Buffer = decompressor.decompress(binary_datum.as_slice()).into();
-            Ok(varbin_scalar(decoded_buffer, self.dtype()))
+            Ok(varbin_scalar(decoded_buffer, array.dtype()))
         })
-    }
-
-    fn scalar_at_unchecked(&self, index: usize) -> Scalar {
-        <Self as ScalarAtFn>::scalar_at(self, index).vortex_unwrap()
     }
 }
 
@@ -173,7 +169,7 @@ impl FilterFn<FSSTArray> for FSSTEncoding {
 #[cfg(test)]
 mod tests {
     use vortex_array::array::{ConstantArray, VarBinArray};
-    use vortex_array::compute::unary::scalar_at_unchecked;
+    use vortex_array::compute::unary::scalar_at;
     use vortex_array::compute::{MaybeCompareFn, Operator};
     use vortex_array::{ArrayLen, IntoArrayData, IntoArrayVariant};
     use vortex_dtype::{DType, Nullability};
@@ -231,14 +227,14 @@ mod tests {
             .unwrap()
             .unwrap();
         for idx in 0..lhs.len() {
-            assert!(scalar_at_unchecked(&equals_null, idx).is_null());
+            assert!(scalar_at(&equals_null, idx).unwrap().is_null());
         }
 
         let noteq_null = MaybeCompareFn::maybe_compare(&lhs, null_rhs.as_ref(), Operator::NotEq)
             .unwrap()
             .unwrap();
         for idx in 0..lhs.len() {
-            assert!(scalar_at_unchecked(&noteq_null, idx).is_null());
+            assert!(scalar_at(&noteq_null, idx).unwrap().is_null());
         }
     }
 }
