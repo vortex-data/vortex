@@ -1,7 +1,7 @@
 use std::process::ExitCode;
 use std::sync;
 use std::sync::mpsc::Receiver;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use bench_vortex::setup_logger;
 use bench_vortex::tpch::dbgen::{DBGen, DBGenOptions};
@@ -30,7 +30,7 @@ struct Args {
     threads: Option<usize>,
     #[arg(short, long, default_value_t = true, default_missing_value = "true", action = ArgAction::Set)]
     warmup: bool,
-    #[arg(short, long, default_value = "10")]
+    #[arg(short, long, default_value = "8")]
     iterations: usize,
     #[arg(long)]
     only_vortex: bool,
@@ -265,7 +265,7 @@ async fn bench_main(
 
         for (ctx, format) in ctxs.iter().zip(formats.iter()) {
             if warmup {
-                for i in 0..3 {
+                for i in 0..2 {
                     let row_count = run_tpch_query(ctx, &sql_queries, query_idx, *format).await;
                     if i == 0 {
                         count_tx.send((query_idx, *format, row_count)).unwrap();
@@ -275,10 +275,9 @@ async fn bench_main(
 
             let mut measures = Vec::new();
             for _ in 0..iterations {
-                // let start = Instant::now();
-                let start = SystemTime::now();
+                let start = Instant::now();
                 run_tpch_query(ctx, &sql_queries, query_idx, *format).await;
-                let elapsed = start.elapsed().unwrap();
+                let elapsed = start.elapsed();
                 measures.push(elapsed);
             }
             let fastest = measures.iter().cloned().min().unwrap();
