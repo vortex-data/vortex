@@ -15,10 +15,6 @@ mod slice;
 mod take;
 
 impl ArrayCompute for ChunkedArray {
-    fn cast(&self) -> Option<&dyn CastFn> {
-        Some(self)
-    }
-
     fn compare(&self, other: &ArrayData, operator: Operator) -> Option<VortexResult<ArrayData>> {
         Some(CompareFn::compare(self, other, operator))
     }
@@ -41,15 +37,19 @@ impl ArrayCompute for ChunkedArray {
 }
 
 impl ComputeVTable for ChunkedEncoding {
+    fn cast_fn(&self) -> Option<&dyn CastFn<ArrayData>> {
+        Some(self)
+    }
+
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
         Some(self)
     }
 }
 
-impl CastFn for ChunkedArray {
-    fn cast(&self, dtype: &DType) -> VortexResult<ArrayData> {
+impl CastFn<ChunkedArray> for ChunkedEncoding {
+    fn cast(&self, array: &ChunkedArray, dtype: &DType) -> VortexResult<ArrayData> {
         let mut cast_chunks = Vec::new();
-        for chunk in self.chunks() {
+        for chunk in array.chunks() {
             cast_chunks.push(try_cast(&chunk, dtype)?);
         }
 

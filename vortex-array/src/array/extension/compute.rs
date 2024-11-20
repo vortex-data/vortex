@@ -12,13 +12,6 @@ use crate::variants::ExtensionArrayTrait;
 use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData};
 
 impl ArrayCompute for ExtensionArray {
-    fn cast(&self) -> Option<&dyn CastFn> {
-        // It's not possible to cast an extension array to another type.
-        // TODO(ngates): we should allow some extension arrays to implement a callback
-        //  to support this
-        None
-    }
-
     fn compare(&self, other: &ArrayData, operator: Operator) -> Option<VortexResult<ArrayData>> {
         MaybeCompareFn::maybe_compare(self, other, operator)
     }
@@ -36,7 +29,14 @@ impl ArrayCompute for ExtensionArray {
     }
 }
 
-impl ComputeVTable for ExtensionEncoding {}
+impl ComputeVTable for ExtensionEncoding {
+    fn cast_fn(&self) -> Option<&dyn CastFn<ArrayData>> {
+        // It's not possible to cast an extension array to another type.
+        // TODO(ngates): we should allow some extension arrays to implement a callback
+        //  to support this
+        None
+    }
+}
 
 impl MaybeCompareFn for ExtensionArray {
     fn maybe_compare(

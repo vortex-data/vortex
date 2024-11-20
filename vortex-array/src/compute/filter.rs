@@ -8,7 +8,6 @@ use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexRes
 
 use crate::array::BoolArray;
 use crate::arrow::FromArrowArray;
-use crate::compute::ComputeVTable;
 use crate::encoding::Encoding;
 use crate::stats::ArrayStatistics;
 use crate::{ArrayDType, ArrayData, Canonical, IntoArrayData, IntoCanonical};
@@ -19,7 +18,7 @@ use crate::{ArrayDType, ArrayData, Canonical, IntoArrayData, IntoCanonical};
 ///   <https://dl.acm.org/doi/abs/10.1145/3465998.3466009>
 const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
 
-pub trait FilterFn<Array>: ComputeVTable {
+pub trait FilterFn<Array> {
     /// Filter an array by the provided predicate.
     fn filter(&self, array: &Array, mask: FilterMask) -> VortexResult<ArrayData>;
 }

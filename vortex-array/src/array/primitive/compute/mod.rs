@@ -20,10 +20,6 @@ mod subtract_scalar;
 mod take;
 
 impl ArrayCompute for PrimitiveArray {
-    fn cast(&self) -> Option<&dyn CastFn> {
-        Some(self)
-    }
-
     fn compare(&self, other: &ArrayData, operator: Operator) -> Option<VortexResult<ArrayData>> {
         MaybeCompareFn::maybe_compare(self, other, operator)
     }
@@ -54,6 +50,10 @@ impl ArrayCompute for PrimitiveArray {
 }
 
 impl ComputeVTable for PrimitiveEncoding {
+    fn cast_fn(&self) -> Option<&dyn CastFn<ArrayData>> {
+        Some(self)
+    }
+
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
         Some(self)
     }

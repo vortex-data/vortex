@@ -30,6 +30,13 @@ pub mod unary;
 
 /// VTable for dispatching compute functions to Vortex encodings.
 pub trait ComputeVTable {
+    /// Implemented for arrays that can be casted to different types.
+    ///
+    /// See: [CastFn].
+    fn cast_fn(&self) -> Option<&dyn CastFn<ArrayData>> {
+        None
+    }
+
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
         None
     }
@@ -37,13 +44,6 @@ pub trait ComputeVTable {
 
 /// Trait providing compute functions on top of Vortex arrays.
 pub trait ArrayCompute {
-    /// Implemented for arrays that can be casted to different types.
-    ///
-    /// See: [CastFn].
-    fn cast(&self) -> Option<&dyn CastFn> {
-        None
-    }
-
     /// Binary operator implementation for arrays against other arrays.
     ///
     ///See: [CompareFn].
