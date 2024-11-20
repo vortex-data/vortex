@@ -4,10 +4,11 @@ use std::fmt::{Debug, Display, Formatter};
 use std::hint;
 
 use itertools::Itertools;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::compute::unary::scalar_at;
+use crate::encoding::Encoding;
 use crate::{ArrayDType, ArrayData};
 
 #[derive(Debug, Copy, Clone)]
@@ -144,6 +145,72 @@ pub trait SearchSortedFn<Array> {
     }
 }
 
+impl<E: Encoding + 'static> SearchSortedFn<ArrayData> for E
+where
+    E: SearchSortedFn<E::Array>,
+    for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
+{
+    fn search_sorted(
+        &self,
+        array: &ArrayData,
+        value: &Scalar,
+        side: SearchSortedSide,
+    ) -> VortexResult<SearchResult> {
+        let array_ref = <&E::Array>::try_from(array)?;
+        let encoding = array
+            .encoding()
+            .as_any()
+            .downcast_ref::<E>()
+            .ok_or_else(|| vortex_err!("Mismatched encoding"))?;
+        SearchSortedFn::search_sorted(encoding, array_ref, value, side)
+    }
+
+    fn search_sorted_usize(
+        &self,
+        array: &ArrayData,
+        value: usize,
+        side: SearchSortedSide,
+    ) -> VortexResult<SearchResult> {
+        let array_ref = <&E::Array>::try_from(array)?;
+        let encoding = array
+            .encoding()
+            .as_any()
+            .downcast_ref::<E>()
+            .ok_or_else(|| vortex_err!("Mismatched encoding"))?;
+        SearchSortedFn::search_sorted_usize(encoding, array_ref, value, side)
+    }
+
+    fn search_sorted_many(
+        &self,
+        array: &ArrayData,
+        values: &[Scalar],
+        sides: &[SearchSortedSide],
+    ) -> VortexResult<Vec<SearchResult>> {
+        let array_ref = <&E::Array>::try_from(array)?;
+        let encoding = array
+            .encoding()
+            .as_any()
+            .downcast_ref::<E>()
+            .ok_or_else(|| vortex_err!("Mismatched encoding"))?;
+        SearchSortedFn::search_sorted_many(encoding, array_ref, values, sides)
+    }
+
+    fn search_sorted_usize_many(
+        &self,
+        array: &ArrayData,
+        values: &[usize],
+        sides: &[SearchSortedSide],
+    ) -> VortexResult<Vec<SearchResult>> {
+        let array_ref = <&E::Array>::try_from(array)?;
+        let encoding = array
+            .encoding()
+            .as_any()
+            .downcast_ref::<E>()
+            .ok_or_else(|| vortex_err!("Mismatched encoding"))?;
+        SearchSortedFn::search_sorted_usize_many(encoding, array_ref, values, sides)
+    }
+}
+
 pub fn search_sorted<T: Into<Scalar>>(
     array: &ArrayData,
     target: T,
@@ -159,7 +226,7 @@ pub fn search_sorted<T: Into<Scalar>>(
     }
 
     // Fallback to a generic search_sorted using scalar_at
-    if let Some(f) = array.encoding().scalar_at_fn() {
+    if array.encoding().scalar_at_fn().is_some() {
         return Ok(SearchSorted::search_sorted(array, &scalar, side));
     }
 

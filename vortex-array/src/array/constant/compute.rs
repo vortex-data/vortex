@@ -19,10 +19,6 @@ impl ArrayCompute for ConstantArray {
         MaybeCompareFn::maybe_compare(self, other, operator)
     }
 
-    fn search_sorted_fn(&self) -> Option<&dyn SearchSortedFn<ArrayData>> {
-        Some(self)
-    }
-
     fn and(&self) -> Option<&dyn AndFn> {
         Some(self)
     }
@@ -40,6 +36,11 @@ impl ComputeVTable for ConstantEncoding {
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
         Some(self)
     }
+
+    fn search_sorted_fn(&self) -> Option<&dyn SearchSortedFn<ArrayData>> {
+        Some(self)
+    }
+
     fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
         Some(self)
     }
@@ -78,18 +79,23 @@ impl FilterFn<ConstantArray> for ConstantEncoding {
     }
 }
 
-impl SearchSortedFn for ConstantArray {
-    fn search_sorted(&self, value: &Scalar, side: SearchSortedSide) -> VortexResult<SearchResult> {
-        match self
+impl SearchSortedFn<ConstantArray> for ConstantEncoding {
+    fn search_sorted(
+        &self,
+        array: &ConstantArray,
+        value: &Scalar,
+        side: SearchSortedSide,
+    ) -> VortexResult<SearchResult> {
+        match array
             .scalar_value()
             .partial_cmp(value.value())
             .unwrap_or(Ordering::Less)
         {
             Ordering::Greater => Ok(SearchResult::NotFound(0)),
-            Ordering::Less => Ok(SearchResult::NotFound(self.len())),
+            Ordering::Less => Ok(SearchResult::NotFound(array.len())),
             Ordering::Equal => match side {
                 SearchSortedSide::Left => Ok(SearchResult::Found(0)),
-                SearchSortedSide::Right => Ok(SearchResult::Found(self.len())),
+                SearchSortedSide::Right => Ok(SearchResult::Found(array.len())),
             },
         }
     }

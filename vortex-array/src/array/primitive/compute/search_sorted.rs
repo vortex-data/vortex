@@ -6,23 +6,29 @@ use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::array::primitive::PrimitiveArray;
+use crate::array::PrimitiveEncoding;
 use crate::compute::{IndexOrd, Len, SearchResult, SearchSorted, SearchSortedFn, SearchSortedSide};
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayDType, ArrayLen};
 
-impl SearchSortedFn for PrimitiveArray {
-    fn search_sorted(&self, value: &Scalar, side: SearchSortedSide) -> VortexResult<SearchResult> {
-        match_each_native_ptype!(self.ptype(), |$T| {
-            match self.validity() {
+impl SearchSortedFn<PrimitiveArray> for PrimitiveEncoding {
+    fn search_sorted(
+        &self,
+        array: &PrimitiveArray,
+        value: &Scalar,
+        side: SearchSortedSide,
+    ) -> VortexResult<SearchResult> {
+        match_each_native_ptype!(array.ptype(), |$T| {
+            match array.validity() {
                 Validity::NonNullable | Validity::AllValid => {
-                    let pvalue: $T = value.cast(self.dtype())?.try_into()?;
-                    Ok(SearchSortedPrimitive::new(self).search_sorted(&pvalue, side))
+                    let pvalue: $T = value.cast(array.dtype())?.try_into()?;
+                    Ok(SearchSortedPrimitive::new(array).search_sorted(&pvalue, side))
                 }
                 Validity::AllInvalid => Ok(SearchResult::NotFound(0)),
                 Validity::Array(_) => {
-                    let pvalue: $T = value.cast(self.dtype())?.try_into()?;
-                    Ok(SearchSortedNullsLast::new(self).search_sorted(&pvalue, side))
+                    let pvalue: $T = value.cast(array.dtype())?.try_into()?;
+                    Ok(SearchSortedNullsLast::new(array).search_sorted(&pvalue, side))
                 }
             }
         })
@@ -31,26 +37,27 @@ impl SearchSortedFn for PrimitiveArray {
     #[allow(clippy::cognitive_complexity)]
     fn search_sorted_usize(
         &self,
+        array: &PrimitiveArray,
         value: usize,
         side: SearchSortedSide,
     ) -> VortexResult<SearchResult> {
-        match_each_native_ptype!(self.ptype(), |$T| {
+        match_each_native_ptype!(array.ptype(), |$T| {
             if let Some(pvalue) = num_traits::cast::<usize, $T>(value) {
-                match self.validity() {
+                match array.validity() {
                     Validity::NonNullable | Validity::AllValid => {
                         // null-free search
-                        Ok(SearchSortedPrimitive::new(self).search_sorted(&pvalue, side))
+                        Ok(SearchSortedPrimitive::new(array).search_sorted(&pvalue, side))
                     }
                     Validity::AllInvalid => Ok(SearchResult::NotFound(0)),
                     Validity::Array(_) => {
                         // null-aware search
-                        Ok(SearchSortedNullsLast::new(self).search_sorted(&pvalue, side))
+                        Ok(SearchSortedNullsLast::new(array).search_sorted(&pvalue, side))
                     }
                 }
             } else {
                 // provided u64 is too large to fit in the provided PType, value must be off
                 // the right end of the array.
-                Ok(SearchResult::NotFound(self.len()))
+                Ok(SearchResult::NotFound(array.len()))
             }
         })
     }
