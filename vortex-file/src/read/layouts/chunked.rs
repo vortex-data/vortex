@@ -2,7 +2,7 @@ use std::collections::{BTreeSet, VecDeque};
 
 use bytes::Bytes;
 use itertools::Itertools;
-use vortex_error::{vortex_err, VortexExpect as _, VortexResult};
+use vortex_error::{vortex_err, VortexResult};
 use vortex_flatbuffers::footer;
 
 use crate::read::buffered::{BufferedLayoutReader, MetadataReader, RangedLayoutReader};
