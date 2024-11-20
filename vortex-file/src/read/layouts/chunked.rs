@@ -2,7 +2,7 @@ use std::collections::{BTreeSet, VecDeque};
 
 use bytes::Bytes;
 use itertools::Itertools;
-use vortex_error::{VortexExpect as _, VortexResult};
+use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_flatbuffers::footer;
 
 use crate::read::buffered::{BufferedLayoutReader, RangedLayoutReader};
@@ -79,6 +79,7 @@ impl ChunkedLayout {
         }
     }
 
+    #[allow(dead_code)]
     fn metadata_layout(&self) -> VortexResult<Option<Box<dyn LayoutReader>>> {
         self.has_metadata()
             .then(|| {
@@ -106,6 +107,7 @@ impl ChunkedLayout {
             .unwrap_or(false)
     }
 
+    #[allow(dead_code)]
     fn n_chunks(&self) -> usize {
         self.flatbuffer().children().unwrap_or_default().len()
             - (if self.has_metadata() { 1 } else { 0 })
@@ -139,7 +141,9 @@ impl ChunkedLayout {
             .zip_eq(self.child_ranges())
             .map(|((i, c), (begin, end))| {
                 let layout_part_id = i as u16;
-                assert!(layout_part_id != METADATA_LAYOUT_PART_ID);
+                if layout_part_id == METADATA_LAYOUT_PART_ID {
+                    vortex_bail!("metadata should not be among children");
+                }
                 let layout = self.layout_builder.read_layout(
                     self.fb_bytes.clone(),
                     c._tab.loc(),
@@ -278,6 +282,13 @@ mod tests {
             )))),
         )
         .await;
+
+        assert_eq!(filter_layout.n_chunks(), 1);
+        assert_eq!(projection_layout.n_chunks(), 1);
+
+        assert!(filter_layout.metadata_layout().unwrap().is_some());
+        assert!(projection_layout.metadata_layout().unwrap().is_some());
+
         let arr = filter_read_layout(
             &mut filter_layout,
             &mut projection_layout,
