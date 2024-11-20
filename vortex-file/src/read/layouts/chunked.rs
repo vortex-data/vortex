@@ -2,7 +2,7 @@ use std::collections::{BTreeSet, VecDeque};
 
 use bytes::Bytes;
 use itertools::Itertools;
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect as _, VortexResult};
 use vortex_flatbuffers::footer;
 
 use crate::read::buffered::{BufferedLayoutReader, RangedLayoutReader};
@@ -77,11 +77,36 @@ impl ChunkedLayout {
         }
     }
 
+    fn metadata_layout(&self) -> VortexResult<Option<Box<dyn LayoutReader>>> {
+        self.has_metadata()
+            .then(|| {
+                let metadata_fb = self
+                    .flatbuffer()
+                    .children()
+                    .unwrap_or_default()
+                    .iter()
+                    .next()
+                    .vortex_expect("must have metadata");
+                self.layout_builder.read_layout(
+                    self.fb_bytes.clone(),
+                    metadata_fb._tab.loc(),
+                    Scan::new(None),
+                    self.message_cache.unknown_dtype(0xFFFF_u16), // FIXME(DK): metadata needs an id
+                )
+            })
+            .transpose()
+    }
+
     fn has_metadata(&self) -> bool {
         self.flatbuffer()
             .metadata()
             .map(|b| b.bytes()[0] != 0)
             .unwrap_or(false)
+    }
+
+    fn n_chunks(&self) -> usize {
+        self.flatbuffer().children().unwrap_or_default().len()
+            - (if self.has_metadata() { 1 } else { 0 })
     }
 
     fn children(&self) -> impl Iterator<Item = (usize, footer::Layout)> {
