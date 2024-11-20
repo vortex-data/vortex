@@ -2,34 +2,35 @@ use vortex_dtype::{match_each_native_ptype, Nullability};
 use vortex_error::{vortex_err, VortexResult};
 
 use crate::array::primitive::PrimitiveArray;
+use crate::array::PrimitiveEncoding;
 use crate::compute::unary::FillForwardFn;
 use crate::validity::{ArrayValidity, Validity};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, ToArrayData};
 
-impl FillForwardFn for PrimitiveArray {
-    fn fill_forward(&self) -> VortexResult<ArrayData> {
-        if self.dtype().nullability() == Nullability::NonNullable {
-            return Ok(self.to_array());
+impl FillForwardFn<PrimitiveArray> for PrimitiveEncoding {
+    fn fill_forward(&self, array: &PrimitiveArray) -> VortexResult<ArrayData> {
+        if array.dtype().nullability() == Nullability::NonNullable {
+            return Ok(array.to_array());
         }
 
-        let validity = self.logical_validity();
+        let validity = array.logical_validity();
         if validity.all_valid() {
             return Ok(PrimitiveArray::new(
-                self.buffer().clone(),
-                self.ptype(),
+                array.buffer().clone(),
+                array.ptype(),
                 Validity::AllValid,
             )
             .into_array());
         }
 
-        match_each_native_ptype!(self.ptype(), |$T| {
+        match_each_native_ptype!(array.ptype(), |$T| {
             if validity.all_invalid() {
-                return Ok(PrimitiveArray::from_vec(vec![$T::default(); self.len()], Validity::AllValid).into_array());
+                return Ok(PrimitiveArray::from_vec(vec![$T::default(); array.len()], Validity::AllValid).into_array());
             }
 
             let nulls = validity.to_null_buffer()?.ok_or_else(|| vortex_err!("Failed to convert array validity to null buffer"))?;
-            let maybe_null_slice = self.maybe_null_slice::<$T>();
+            let maybe_null_slice = array.maybe_null_slice::<$T>();
             let mut last_value = $T::default();
             let filled = maybe_null_slice
                 .iter()

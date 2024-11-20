@@ -24,10 +24,6 @@ impl ArrayCompute for PrimitiveArray {
         MaybeCompareFn::maybe_compare(self, other, operator)
     }
 
-    fn fill_forward(&self) -> Option<&dyn FillForwardFn> {
-        Some(self)
-    }
-
     fn subtract_scalar(&self) -> Option<&dyn SubtractScalarFn> {
         Some(self)
     }
@@ -39,6 +35,10 @@ impl ArrayCompute for PrimitiveArray {
 
 impl ComputeVTable for PrimitiveEncoding {
     fn cast_fn(&self) -> Option<&dyn CastFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn fill_forward_fn(&self) -> Option<&dyn FillForwardFn<ArrayData>> {
         Some(self)
     }
 
