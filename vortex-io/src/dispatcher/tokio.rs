@@ -1,6 +1,7 @@
 use std::future::Future;
 use std::panic::resume_unwind;
 use std::thread::JoinHandle;
+
 use futures::channel::oneshot;
 use tokio::task::{JoinHandle as TokioJoinHandle, LocalSet};
 use vortex_error::{vortex_bail, vortex_panic, VortexResult};
@@ -67,7 +68,7 @@ struct TokioTask<F, R> {
 impl<F, Fut, R> TokioSpawn for TokioTask<F, R>
 where
     F: FnOnce() -> Fut + Send + 'static,
-    Fut: Future<Output=R>,
+    Fut: Future<Output = R>,
     R: Send + 'static,
 {
     fn spawn(self: Box<Self>) -> TokioJoinHandle<()> {
@@ -83,7 +84,7 @@ impl Dispatch for TokioDispatcher {
     fn dispatch<F, Fut, R>(&self, task: F) -> VortexResult<oneshot::Receiver<R>>
     where
         F: (FnOnce() -> Fut) + Send + 'static,
-        Fut: Future<Output=R> + 'static,
+        Fut: Future<Output = R> + 'static,
         R: Send + 'static,
     {
         let (tx, rx) = oneshot::channel();

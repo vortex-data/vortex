@@ -18,6 +18,7 @@ pub use write::*;
 mod buf;
 #[cfg(feature = "compio")]
 mod compio;
+pub mod dispatcher;
 #[cfg(feature = "object_store")]
 mod object_store;
 pub mod offset;
@@ -25,4 +26,3 @@ mod read;
 #[cfg(feature = "tokio")]
 mod tokio;
 mod write;
-pub mod dispatcher;

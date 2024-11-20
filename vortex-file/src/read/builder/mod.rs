@@ -6,10 +6,10 @@ use vortex_dtype::flatbuffers::deserialize_and_project;
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexResult};
 use vortex_expr::Select;
+use vortex_io::dispatcher::IoDispatcher;
 use vortex_io::VortexReadAt;
 use vortex_schema::projection::Projection;
 
-use vortex_io::dispatcher::IoDispatcher;
 use crate::read::cache::{LayoutMessageCache, RelativeLayoutCache};
 use crate::read::context::LayoutDeserializer;
 use crate::read::filtering::RowFilter;
