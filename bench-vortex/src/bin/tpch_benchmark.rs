@@ -71,7 +71,7 @@ impl Measurement {
 
         JsonValue {
             name,
-            unit: "ns".to_string(),
+            unit: "ns/iter".to_string(),
             value: self.time.as_nanos(),
         }
     }
