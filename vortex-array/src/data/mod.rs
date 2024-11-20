@@ -146,6 +146,13 @@ impl ArrayData {
         }
     }
 
+    /// Return whether the array is constant.
+    pub fn is_constant(&self) -> bool {
+        self.statistics()
+            .get_as::<bool>(Stat::IsConstant)
+            .unwrap_or(false)
+    }
+
     /// Return scalar value of this array if the array is constant
     pub fn as_constant(&self) -> Option<Scalar> {
         (self.statistics().get_as::<bool>(Stat::IsConstant)?)

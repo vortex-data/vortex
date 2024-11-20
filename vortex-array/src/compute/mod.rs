@@ -7,7 +7,7 @@
 //! implementations of these operators, else we will decode, and perform the equivalent operator
 //! from Arrow.
 
-pub use boolean::{and, and_kleene, or, or_kleene, AndFn, OrFn};
+pub use boolean::*;
 pub(crate) use compare::arrow_compare;
 pub use compare::{compare, scalar_cmp, CompareFn, MaybeCompareFn, Operator};
 pub use filter::*;
@@ -30,6 +30,17 @@ pub mod unary;
 
 /// VTable for dispatching compute functions to Vortex encodings.
 pub trait ComputeVTable {
+    /// Implementation of binary boolean logic operations.
+    ///
+    /// See: [BinaryBooleanFn].
+    fn binary_boolean_fn(
+        &self,
+        _lhs: &ArrayData,
+        _rhs: &ArrayData,
+    ) -> Option<&dyn BinaryBooleanFn<ArrayData>> {
+        None
+    }
+
     /// Implemented for arrays that can be casted to different types.
     ///
     /// See: [CastFn].
@@ -94,34 +105,6 @@ pub trait ArrayCompute {
     ///
     /// See: [SearchSortedFn].
     fn search_sorted(&self) -> Option<&dyn SearchSortedFn> {
-        None
-    }
-
-    /// Perform an Arrow-style boolean AND operation over two arrays
-    ///
-    /// See: [AndFn].
-    fn and(&self) -> Option<&dyn AndFn> {
-        None
-    }
-
-    /// Perform a Kleene-style boolean AND operation over two arrays
-    ///
-    /// See: [AndFn].
-    fn and_kleene(&self) -> Option<&dyn AndFn> {
-        None
-    }
-
-    /// Perform an Arrow-style boolean OR operation over two arrays
-    ///
-    /// See: [OrFn].
-    fn or(&self) -> Option<&dyn OrFn> {
-        None
-    }
-
-    /// Perform a Kleene-style boolean OR operation over two arrays
-    ///
-    /// See: [OrFn].
-    fn or_kleene(&self) -> Option<&dyn OrFn> {
         None
     }
 }

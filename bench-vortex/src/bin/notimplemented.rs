@@ -188,8 +188,6 @@ fn compute_funcs(encodings: &[ArrayData]) {
             "search_sorted",
             "slice",
             "take",
-            "and",
-            "or",
         ]
         .into_iter()
         .map(Cell::new)
@@ -207,8 +205,6 @@ fn compute_funcs(encodings: &[ArrayData]) {
         impls.push(bool_to_cell(arr.with_dyn(|a| a.search_sorted().is_some())));
         impls.push(bool_to_cell(arr.encoding().slice_fn().is_some()));
         impls.push(bool_to_cell(arr.encoding().take_fn().is_some()));
-        impls.push(bool_to_cell(arr.with_dyn(|a| a.and().is_some())));
-        impls.push(bool_to_cell(arr.with_dyn(|a| a.or().is_some())));
         table.add_row(Row::new(impls));
     }
     table.printstd();
