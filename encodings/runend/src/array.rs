@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use vortex_array::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use vortex_array::array::PrimitiveArray;
 use vortex_array::compute::unary::scalar_at;
-use vortex_array::compute::{search_sorted, search_sorted_u64_many, SearchSortedSide};
+use vortex_array::compute::{search_sorted, search_sorted_usize_many, SearchSortedSide};
 use vortex_array::encoding::ids;
 use vortex_array::stats::{ArrayStatistics, ArrayStatisticsCompute, Stat, StatsSet};
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
@@ -122,8 +122,8 @@ impl RunEndArray {
     /// [Self::find_physical_index]
     ///
     /// See: [find_physical_index][Self::find_physical_index].
-    pub fn find_physical_indices(&self, indices: &[u64]) -> VortexResult<Vec<usize>> {
-        search_sorted_u64_many(
+    pub fn find_physical_indices(&self, indices: &[usize]) -> VortexResult<Vec<usize>> {
+        search_sorted_usize_many(
             &self.ends(),
             indices,
             &vec![SearchSortedSide::Right; indices.len()],

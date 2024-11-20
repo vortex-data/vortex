@@ -100,9 +100,13 @@ impl Display for SearchResult {
 pub trait SearchSortedFn {
     fn search_sorted(&self, value: &Scalar, side: SearchSortedSide) -> VortexResult<SearchResult>;
 
-    fn search_sorted_u64(&self, value: u64, side: SearchSortedSide) -> VortexResult<SearchResult> {
-        let u64_scalar = Scalar::from(value);
-        self.search_sorted(&u64_scalar, side)
+    fn search_sorted_usize(
+        &self,
+        value: usize,
+        side: SearchSortedSide,
+    ) -> VortexResult<SearchResult> {
+        let usize_scalar = Scalar::from(value);
+        self.search_sorted(&usize_scalar, side)
     }
 
     /// Bulk search for many values.
@@ -118,16 +122,16 @@ pub trait SearchSortedFn {
             .try_collect()
     }
 
-    fn search_sorted_u64_many(
+    fn search_sorted_usize_many(
         &self,
-        values: &[u64],
+        values: &[usize],
         sides: &[SearchSortedSide],
     ) -> VortexResult<Vec<SearchResult>> {
         values
             .iter()
             .copied()
             .zip(sides.iter().copied())
-            .map(|(value, side)| self.search_sorted_u64(value, side))
+            .map(|(value, side)| self.search_sorted_usize(value, side))
             .try_collect()
     }
 }
@@ -158,20 +162,20 @@ pub fn search_sorted<T: Into<Scalar>>(
     })
 }
 
-pub fn search_sorted_u64(
+pub fn search_sorted_usize(
     array: &ArrayData,
-    target: u64,
+    target: usize,
     side: SearchSortedSide,
 ) -> VortexResult<SearchResult> {
     array.with_dyn(|a| {
         if let Some(search_sorted) = a.search_sorted() {
-            search_sorted.search_sorted_u64(target, side)
+            search_sorted.search_sorted_usize(target, side)
         } else if a.encoding().scalar_at_fn().is_some() {
-            let scalar = Scalar::primitive(target, array.dtype().nullability());
+            let scalar = Scalar::primitive(target as u64, array.dtype().nullability());
             Ok(array.search_sorted(&scalar, side))
         } else {
             vortex_bail!(
-                NotImplemented: "search_sorted_u64",
+                NotImplemented: "search_sorted_usize",
                 array.encoding().id()
             )
         }
@@ -204,21 +208,21 @@ pub fn search_sorted_many<T: Into<Scalar> + Clone>(
 }
 
 // Native functions for each of the values, cast up to u64 or down to something lower.
-pub fn search_sorted_u64_many(
+pub fn search_sorted_usize_many(
     array: &ArrayData,
-    targets: &[u64],
+    targets: &[usize],
     sides: &[SearchSortedSide],
 ) -> VortexResult<Vec<SearchResult>> {
     array.with_dyn(|a| {
         if let Some(search_sorted) = a.search_sorted() {
-            search_sorted.search_sorted_u64_many(targets, sides)
+            search_sorted.search_sorted_usize_many(targets, sides)
         } else {
             // Call in loop and collect
             targets
                 .iter()
                 .copied()
                 .zip(sides.iter().copied())
-                .map(|(target, side)| search_sorted_u64(array, target, side))
+                .map(|(target, side)| search_sorted_usize(array, target, side))
                 .try_collect()
         }
     })
