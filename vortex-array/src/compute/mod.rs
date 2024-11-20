@@ -37,6 +37,13 @@ pub trait ComputeVTable {
         None
     }
 
+    /// Array function that returns new arrays a non-null value is repeated across runs of nulls.
+    ///
+    /// See: [FillForwardFn].
+    fn fill_forward_fn(&self) -> Option<&dyn FillForwardFn<ArrayData>> {
+        None
+    }
+
     /// Filter an array with a given mask.
     ///
     /// See: [FilterFn].
@@ -73,13 +80,6 @@ pub trait ArrayCompute {
     ///
     ///See: [CompareFn].
     fn compare(&self, _other: &ArrayData, _operator: Operator) -> Option<VortexResult<ArrayData>> {
-        None
-    }
-
-    /// Array function that returns new arrays a non-null value is repeated across runs of nulls.
-    ///
-    /// See: [FillForwardFn].
-    fn fill_forward(&self) -> Option<&dyn FillForwardFn> {
         None
     }
 

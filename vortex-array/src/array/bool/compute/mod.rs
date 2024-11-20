@@ -13,10 +13,6 @@ mod slice;
 mod take;
 
 impl ArrayCompute for BoolArray {
-    fn fill_forward(&self) -> Option<&dyn FillForwardFn> {
-        Some(self)
-    }
-
     fn and(&self) -> Option<&dyn AndFn> {
         Some(self)
     }
@@ -27,6 +23,10 @@ impl ArrayCompute for BoolArray {
 }
 
 impl ComputeVTable for BoolEncoding {
+    fn fill_forward_fn(&self) -> Option<&dyn FillForwardFn<ArrayData>> {
+        Some(self)
+    }
+
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
         Some(self)
     }

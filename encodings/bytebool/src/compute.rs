@@ -10,13 +10,13 @@ use vortex_scalar::Scalar;
 
 use super::{ByteBoolArray, ByteBoolEncoding};
 
-impl ArrayCompute for ByteBoolArray {
-    fn fill_forward(&self) -> Option<&dyn FillForwardFn> {
-        None
-    }
-}
+impl ArrayCompute for ByteBoolArray {}
 
 impl ComputeVTable for ByteBoolEncoding {
+    fn fill_forward_fn(&self) -> Option<&dyn FillForwardFn<ArrayData>> {
+        None
+    }
+
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
         Some(self)
     }
@@ -99,20 +99,23 @@ impl TakeFn<ByteBoolArray> for ByteBoolEncoding {
     }
 }
 
-impl FillForwardFn for ByteBoolArray {
-    fn fill_forward(&self) -> VortexResult<ArrayData> {
-        let validity = self.logical_validity();
-        if self.dtype().nullability() == Nullability::NonNullable {
-            return Ok(self.to_array());
+impl FillForwardFn<ByteBoolArray> for ByteBoolEncoding {
+    fn fill_forward(&self, array: &ByteBoolArray) -> VortexResult<ArrayData> {
+        let validity = array.logical_validity();
+        if array.dtype().nullability() == Nullability::NonNullable {
+            return Ok(array.to_array());
         }
         // all valid, but we need to convert to non-nullable
         if validity.all_valid() {
-            return Ok(Self::try_new(self.buffer().clone(), Validity::AllValid)?.into_array());
+            return Ok(
+                ByteBoolArray::try_new(array.buffer().clone(), Validity::AllValid)?.into_array(),
+            );
         }
         // all invalid => fill with default value (false)
         if validity.all_invalid() {
             return Ok(
-                Self::try_from_vec(vec![false; self.len()], Validity::AllValid)?.into_array(),
+                ByteBoolArray::try_from_vec(vec![false; array.len()], Validity::AllValid)?
+                    .into_array(),
             );
         }
 
@@ -120,7 +123,7 @@ impl FillForwardFn for ByteBoolArray {
             .to_null_buffer()?
             .ok_or_else(|| vortex_err!("Failed to convert array validity to null buffer"))?;
 
-        let bools = self.maybe_null_slice();
+        let bools = array.maybe_null_slice();
         let mut last_value = bool::default();
 
         let filled = bools
@@ -135,7 +138,7 @@ impl FillForwardFn for ByteBoolArray {
             })
             .collect::<Vec<_>>();
 
-        Ok(Self::try_from_vec(filled, Validity::AllValid)?.into_array())
+        Ok(ByteBoolArray::try_from_vec(filled, Validity::AllValid)?.into_array())
     }
 }
 
