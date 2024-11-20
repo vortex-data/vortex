@@ -70,15 +70,16 @@ fn filter_indices<T: NativePType + BitPacking + ArrowNativeType>(
     indices: impl Iterator<Item = usize>,
 ) -> Vec<T> {
     let offset = array.offset() as usize;
+    let bit_width = array.bit_width() as usize;
     let mut values = Vec::with_capacity(indices_len);
 
     // Some re-usable memory to store per-chunk indices.
     let mut indices_within_chunk: Vec<usize> = Vec::with_capacity(1024);
-    let mut unpacked = vec![T::zero(); 1024];
+    let mut unpacked = [T::zero(); 1024];
 
     // Group the indices by the FastLanes chunk they belong to.
     let chunked = indices.chunk_by(|&idx| (idx + offset) / 1024);
-    let chunk_len = 128 * array.bit_width() as usize / size_of::<T>();
+    let chunk_len = 128 * bit_width / size_of::<T>();
 
     chunked.into_iter().for_each(|(chunk_idx, indices)| {
         let packed = &array.packed_slice::<T>()[chunk_idx * chunk_len..(chunk_idx + 1) * chunk_len];
@@ -89,12 +90,18 @@ fn filter_indices<T: NativePType + BitPacking + ArrowNativeType>(
 
         if indices_within_chunk.len() == 1024 {
             // Unpack the entire chunk.
-            unsafe { BitPacking::unchecked_unpack(array.bit_width() as usize, packed, &mut values) }
+            unsafe {
+                let values_len = values.len();
+                values.set_len(values_len + 1024);
+                BitPacking::unchecked_unpack(
+                    bit_width,
+                    packed,
+                    &mut values.as_mut_slice()[values_len..],
+                );
+            }
         } else if indices_within_chunk.len() > UNPACK_CHUNK_THRESHOLD {
             // Unpack into a temporary chunk and then copy the values.
-            unsafe {
-                BitPacking::unchecked_unpack(array.bit_width() as usize, packed, &mut unpacked)
-            }
+            unsafe { BitPacking::unchecked_unpack(bit_width, packed, &mut unpacked) }
             values.extend(
                 indices_within_chunk
                     .iter()
@@ -103,7 +110,7 @@ fn filter_indices<T: NativePType + BitPacking + ArrowNativeType>(
         } else {
             // Otherwise, unpack each element individually.
             values.extend(indices_within_chunk.iter().map(|&idx| unsafe {
-                BitPacking::unchecked_unpack_single(array.bit_width() as usize, packed, idx)
+                BitPacking::unchecked_unpack_single(bit_width, packed, idx)
             }));
         }
     });
@@ -160,5 +167,16 @@ mod test {
         let primitive_result = filter(&sliced, mask).unwrap().into_primitive().unwrap();
         let res_bytes = primitive_result.maybe_null_slice::<u8>();
         assert_eq!(res_bytes, &[31, 33]);
+    }
+
+    #[test]
+    fn filter_bitpacked() {
+        let unpacked = PrimitiveArray::from((0..4096).map(|i| (i % 63) as u8).collect::<Vec<_>>());
+        let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 6).unwrap();
+        let filtered = filter(bitpacked.as_ref(), FilterMask::from_indices(4096, 0..1024)).unwrap();
+        assert_eq!(
+            filtered.into_primitive().unwrap().maybe_null_slice::<u8>(),
+            (0..1024).map(|i| (i % 63) as u8).collect::<Vec<_>>()
+        );
     }
 }
