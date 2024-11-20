@@ -2,7 +2,7 @@ use std::collections::{BTreeSet, VecDeque};
 
 use bytes::Bytes;
 use itertools::Itertools;
-use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
+use vortex_error::{vortex_err, VortexResult};
 use vortex_flatbuffers::footer;
 
 use crate::read::buffered::{BufferedLayoutReader, RangedLayoutReader};
@@ -86,10 +86,8 @@ impl ChunkedLayout {
                 let metadata_fb = self
                     .flatbuffer()
                     .children()
-                    .unwrap_or_default()
-                    .iter()
-                    .next()
-                    .vortex_expect("must have metadata");
+                    .ok_or_else(|| vortex_err!("must have metadata"))?
+                    .get(0);
                 self.layout_builder.read_layout(
                     self.fb_bytes.clone(),
                     metadata_fb._tab.loc(),
@@ -140,15 +138,11 @@ impl ChunkedLayout {
         self.children()
             .zip_eq(self.child_ranges())
             .map(|((i, c), (begin, end))| {
-                let layout_part_id = i as u16;
-                if layout_part_id == METADATA_LAYOUT_PART_ID {
-                    vortex_bail!("metadata should not be among children");
-                }
                 let layout = self.layout_builder.read_layout(
                     self.fb_bytes.clone(),
                     c._tab.loc(),
                     self.scan.clone(),
-                    cache(layout_part_id),
+                    cache(i as LayoutPartId),
                 )?;
                 Ok(((begin, end), layout))
             })
@@ -283,11 +277,11 @@ mod tests {
         )
         .await;
 
-        assert_eq!(filter_layout.n_chunks(), 1);
-        assert_eq!(projection_layout.n_chunks(), 1);
+        assert_eq!(filter_layout.n_chunks(), 5);
+        assert_eq!(projection_layout.n_chunks(), 5);
 
-        assert!(filter_layout.metadata_layout().unwrap().is_some());
-        assert!(projection_layout.metadata_layout().unwrap().is_some());
+        assert!(filter_layout.metadata_layout().unwrap().is_none());
+        assert!(projection_layout.metadata_layout().unwrap().is_none());
 
         let arr = filter_read_layout(
             &mut filter_layout,
