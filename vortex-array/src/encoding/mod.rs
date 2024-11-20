@@ -19,7 +19,7 @@ pub mod opaque;
 /// 0x0001 - 0x0400 - vortex internal encodings (1 - 1024)
 /// 0x0401 - 0x7FFF - well known extension encodings (1025 - 32767)
 /// 0x8000 - 0xFFFF - custom extension encodings (32768 - 65535)
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Copy, Debug, Eq)]
 pub struct EncodingId(&'static str, u16);
 
 impl EncodingId {
@@ -29,6 +29,19 @@ impl EncodingId {
 
     pub const fn code(&self) -> u16 {
         self.1
+    }
+}
+
+// The encoding is identified only by its numeric ID, so we only use that for PartialEq and Hash
+impl PartialEq for EncodingId {
+    fn eq(&self, other: &Self) -> bool {
+        self.1 == other.1
+    }
+}
+
+impl Hash for EncodingId {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.1.hash(state);
     }
 }
 
