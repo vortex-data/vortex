@@ -6,6 +6,7 @@ use futures::StreamExt;
 use itertools::Itertools;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::array::{ChunkedArray, PrimitiveArray, StructArray, VarBinArray};
+use vortex_array::compute::unary::scalar_at;
 use vortex_array::validity::Validity;
 use vortex_array::variants::{PrimitiveArrayTrait, StructArrayTrait};
 use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
@@ -787,5 +788,212 @@ async fn test_with_indices_and_with_row_filter_simple() {
             .cloned()
             .collect::<Vec<_>>(),
         actual_numbers
+    );
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn filter_string_chunked() {
+    let name_chunk1 = ArrayData::from_iter(vec![
+        Some("Joseph".to_owned()),
+        Some("James".to_owned()),
+        Some("Angela".to_owned()),
+    ]);
+    let age_chunk1 = ArrayData::from_iter(vec![Some(25_i32), Some(31), None]);
+    let name_chunk2 = ArrayData::from_iter(vec![
+        Some("Pharrell".to_owned()),
+        Some("Khalil".to_owned()),
+        Some("Mikhail".to_owned()),
+        None,
+    ]);
+    let age_chunk2 = ArrayData::from_iter(vec![Some(57_i32), Some(18), None, Some(32)]);
+
+    let chunk1 = StructArray::from_fields(&[("name", name_chunk1), ("age", age_chunk1)])
+        .unwrap()
+        .into_array();
+    let chunk2 = StructArray::from_fields(&[("name", name_chunk2), ("age", age_chunk2)])
+        .unwrap()
+        .into_array();
+    let dtype = chunk1.dtype().clone();
+
+    let array = ChunkedArray::try_new(vec![chunk1, chunk2], dtype)
+        .unwrap()
+        .into_array();
+
+    let buffer = Vec::new();
+    let written_bytes = VortexFileWriter::new(buffer)
+        .write_array_columns(array)
+        .await
+        .unwrap()
+        .finalize()
+        .await
+        .unwrap();
+    let actual_array =
+        VortexReadBuilder::new(Buffer::from(written_bytes), LayoutDeserializer::default())
+            .with_row_filter(RowFilter::new(BinaryExpr::new_expr(
+                Column::new_expr(Field::from("name")),
+                Operator::Eq,
+                Literal::new_expr("Joseph".into()),
+            )))
+            .build()
+            .await
+            .unwrap()
+            .read_all()
+            .await
+            .unwrap();
+
+    assert_eq!(actual_array.len(), 1);
+    let names = actual_array
+        .with_dyn(|a| a.as_struct_array_unchecked().field(0))
+        .unwrap();
+    assert_eq!(
+        names
+            .into_varbinview()
+            .unwrap()
+            .with_iterator(|iter| iter
+                .flatten()
+                .map(|s| unsafe { String::from_utf8_unchecked(s.to_vec()) })
+                .collect::<Vec<_>>())
+            .unwrap(),
+        vec!["Joseph".to_string()]
+    );
+    let ages = actual_array
+        .with_dyn(|a| a.as_struct_array_unchecked().field(1))
+        .unwrap();
+    assert_eq!(
+        ages.into_primitive().unwrap().maybe_null_slice::<i32>(),
+        vec![25]
+    );
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_pruning_with_or() {
+    let letter_chunk1 = ArrayData::from_iter(vec![
+        Some("A".to_owned()),
+        Some("B".to_owned()),
+        Some("D".to_owned()),
+    ]);
+    let number_chunk1 = ArrayData::from_iter(vec![Some(25_i32), Some(31), None]);
+    let letter_chunk2 = ArrayData::from_iter(vec![
+        Some("G".to_owned()),
+        Some("I".to_owned()),
+        Some("J".to_owned()),
+        None,
+    ]);
+    let number_chunk2 = ArrayData::from_iter(vec![Some(4_i32), Some(18), None, Some(21)]);
+    let letter_chunk3 = ArrayData::from_iter(vec![
+        Some("L".to_owned()),
+        None,
+        Some("O".to_owned()),
+        Some("P".to_owned()),
+    ]);
+    let number_chunk3 = ArrayData::from_iter(vec![Some(10_i32), Some(15), None, Some(22)]);
+    let letter_chunk4 = ArrayData::from_iter(vec![
+        Some("X".to_owned()),
+        Some("Y".to_owned()),
+        Some("Z".to_owned()),
+    ]);
+    let number_chunk4 = ArrayData::from_iter(vec![Some(66_i32), Some(77), Some(88)]);
+
+    let chunk1 = StructArray::from_fields(&[("letter", letter_chunk1), ("number", number_chunk1)])
+        .unwrap()
+        .into_array();
+    let chunk2 = StructArray::from_fields(&[("letter", letter_chunk2), ("number", number_chunk2)])
+        .unwrap()
+        .into_array();
+    let chunk3 = StructArray::from_fields(&[("letter", letter_chunk3), ("number", number_chunk3)])
+        .unwrap()
+        .into_array();
+    let chunk4 = StructArray::from_fields(&[("letter", letter_chunk4), ("number", number_chunk4)])
+        .unwrap()
+        .into_array();
+    let dtype = chunk1.dtype().clone();
+
+    let array = ChunkedArray::try_new(vec![chunk1, chunk2, chunk3, chunk4], dtype)
+        .unwrap()
+        .into_array();
+
+    let buffer = Vec::new();
+    let written_bytes = VortexFileWriter::new(buffer)
+        .write_array_columns(array)
+        .await
+        .unwrap()
+        .finalize()
+        .await
+        .unwrap();
+    let actual_array =
+        VortexReadBuilder::new(Buffer::from(written_bytes), LayoutDeserializer::default())
+            .with_row_filter(RowFilter::new(BinaryExpr::new_expr(
+                BinaryExpr::new_expr(
+                    Column::new_expr(Field::from("letter")),
+                    Operator::Lte,
+                    Literal::new_expr("J".into()),
+                ),
+                Operator::Or,
+                BinaryExpr::new_expr(
+                    Column::new_expr(Field::from("number")),
+                    Operator::Lt,
+                    Literal::new_expr(25.into()),
+                ),
+            )))
+            .build()
+            .await
+            .unwrap()
+            .read_all()
+            .await
+            .unwrap();
+
+    assert_eq!(actual_array.len(), 10);
+    let letters = actual_array
+        .with_dyn(|a| a.as_struct_array_unchecked().field(0))
+        .unwrap();
+    assert_eq!(
+        letters
+            .into_varbinview()
+            .unwrap()
+            .with_iterator(|iter| iter
+                .map(|opt| opt.map(|s| unsafe { String::from_utf8_unchecked(s.to_vec()) }))
+                .collect::<Vec<_>>())
+            .unwrap(),
+        vec![
+            Some("A".to_string()),
+            Some("B".to_string()),
+            Some("D".to_string()),
+            Some("G".to_string()),
+            Some("I".to_string()),
+            Some("J".to_string()),
+            None,
+            Some("L".to_string()),
+            None,
+            Some("P".to_string())
+        ]
+    );
+    let numbers = actual_array
+        .with_dyn(|a| a.as_struct_array_unchecked().field(1))
+        .unwrap();
+    assert_eq!(
+        (0..numbers.len())
+            .map(|index| -> Option<i32> {
+                scalar_at(&numbers, index)
+                    .unwrap()
+                    .into_value()
+                    .as_pvalue()
+                    .unwrap()
+                    .map(|x| i32::try_from(x).unwrap())
+            })
+            .collect::<Vec<_>>(),
+        vec![
+            Some(25),
+            Some(31),
+            None,
+            Some(4),
+            Some(18),
+            None,
+            Some(21),
+            Some(10),
+            Some(15),
+            Some(22)
+        ]
     );
 }
