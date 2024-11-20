@@ -46,7 +46,7 @@ mimalloc = { workspace = true }
 object_store = { workspace = true, features = ["aws"] }
 parquet = { workspace = true, features = ["async"] }
 prettytable-rs = { workspace = true }
-tabled = { workspace = true }
+tabled = { workspace = true, features = ["std"] }
 rand = { workspace = true }
 rayon = { workspace = true }
 regex = { workspace = true }
