@@ -67,6 +67,28 @@ impl Display for Format {
     }
 }
 
+impl Format {
+    pub fn name(&self) -> String {
+        match self {
+            Format::Csv => "csv".to_string(),
+            Format::Arrow => "arrow".to_string(),
+            Format::Parquet => "parquet".to_string(),
+            Format::InMemoryVortex { enable_pushdown } => if *enable_pushdown {
+                "vortex-in-memory-pushdown"
+            } else {
+                "vortex-in-memory"
+            }
+            .to_string(),
+            Format::OnDiskVortex { enable_compression } => if *enable_compression {
+                "vortex-file-compressed"
+            } else {
+                "vortex-file-uncompressed"
+            }
+            .to_string(),
+        }
+    }
+}
+
 // Generate table dataset.
 pub async fn load_datasets<P: AsRef<Path>>(
     base_dir: P,

@@ -64,15 +64,15 @@ struct JsonValue {
 impl Measurement {
     fn to_json(&self) -> JsonValue {
         let name = format!(
-            "{format}/q{query_idx}",
-            format = self.format,
+            "tpch_q{query_idx}/{format}",
+            format = self.format.name(),
             query_idx = self.query_idx
         );
 
         JsonValue {
             name,
-            unit: "ms/iter".to_string(),
-            value: self.time.as_millis(),
+            unit: "ns".to_string(),
+            value: self.time.as_nanos(),
         }
     }
 }
@@ -148,7 +148,7 @@ fn render_table(receiver: Receiver<Measurement>, formats: &[Format]) -> anyhow::
                 ))
             }
 
-            let ratio = time_us as f64/ query_baseline as f64;
+            let ratio = time_us as f64 / query_baseline as f64;
             row.push(format!("{time_us} us ({ratio:.2})"));
         }
         table_builder.push_record(row);
