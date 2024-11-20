@@ -42,6 +42,7 @@ impl LayoutSpec for InlineDTypeLayoutSpec {
     }
 }
 
+/// Layout that contains its own DType.
 #[derive(Debug)]
 pub struct InlineDTypeLayout {
     fb_bytes: Bytes,

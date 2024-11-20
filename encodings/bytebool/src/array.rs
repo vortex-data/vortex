@@ -1,5 +1,6 @@
 use std::fmt::{Debug, Display};
 use std::mem::ManuallyDrop;
+use std::sync::Arc;
 
 use arrow_buffer::BooleanBuffer;
 use serde::{Deserialize, Serialize};
@@ -9,9 +10,7 @@ use vortex_array::encoding::ids;
 use vortex_array::stats::StatsSet;
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
 use vortex_array::variants::{ArrayVariants, BoolArrayTrait};
-use vortex_array::{
-    impl_encoding, ArrayData, ArrayTrait, Canonical, IntoArrayData, IntoCanonical, TypedArray,
-};
+use vortex_array::{impl_encoding, ArrayData, ArrayTrait, Canonical, IntoArrayData, IntoCanonical};
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult};
@@ -41,18 +40,18 @@ impl ByteBoolArray {
     pub fn try_new(buffer: Buffer, validity: Validity) -> VortexResult<Self> {
         let length = buffer.len();
 
-        let typed = TypedArray::try_from_parts(
+        ArrayData::try_new_owned(
+            &ByteBoolEncoding,
             DType::Bool(validity.nullability()),
             length,
-            ByteBoolMetadata {
+            Arc::new(ByteBoolMetadata {
                 validity: validity.to_metadata(length)?,
-            },
+            }),
             Some(buffer),
             validity.into_array().into_iter().collect::<Vec<_>>().into(),
             StatsSet::default(),
-        )?;
-
-        Ok(typed.into())
+        )?
+        .try_into()
     }
 
     pub fn try_from_vec<V: Into<Validity>>(data: Vec<bool>, validity: V) -> VortexResult<Self> {

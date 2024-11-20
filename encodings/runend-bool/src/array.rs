@@ -2,6 +2,7 @@ use std::fmt::{Debug, Display};
 
 use serde::{Deserialize, Serialize};
 use vortex_array::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
+use vortex_array::array::{BoolArray, PrimitiveArray};
 use vortex_array::compute::unary::scalar_at;
 use vortex_array::compute::{search_sorted, SearchSortedSide};
 use vortex_array::encoding::ids;
@@ -12,11 +13,11 @@ use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayTrait, Canonical, IntoArrayData, IntoArrayVariant,
     IntoCanonical,
 };
-use vortex_dtype::{match_each_unsigned_integer_ptype, DType, PType};
+use vortex_dtype::{match_each_integer_ptype, match_each_unsigned_integer_ptype, DType, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::compress::runend_bool_decode;
+use crate::compress::{runend_bool_decode_slice, runend_bool_encode_slice};
 
 impl_encoding!("vortex.runendbool", ids::RUN_END_BOOL, RunEndBool);
 
@@ -146,6 +147,36 @@ impl RunEndBoolArray {
     }
 }
 
+pub fn encode_runend_bool(array: &BoolArray) -> VortexResult<RunEndBoolArray> {
+    let (ends, start) = runend_bool_encode_slice(&array.boolean_buffer());
+    RunEndBoolArray::try_new(
+        PrimitiveArray::from(ends).into_array(),
+        start,
+        array.validity(),
+    )
+}
+
+pub(crate) fn decode_runend_bool(
+    run_ends: &PrimitiveArray,
+    start: bool,
+    validity: Validity,
+    offset: usize,
+    length: usize,
+) -> VortexResult<BoolArray> {
+    match_each_integer_ptype!(run_ends.ptype(), |$E| {
+        let bools = runend_bool_decode_slice::<$E>(run_ends.maybe_null_slice(), start, offset, length);
+        Ok(BoolArray::try_new(bools, validity)?)
+    })
+}
+
+pub(crate) fn value_at_index(idx: usize, start: bool) -> bool {
+    if idx % 2 == 0 {
+        start
+    } else {
+        !start
+    }
+}
+
 impl BoolArrayTrait for RunEndBoolArray {
     fn invert(&self) -> VortexResult<ArrayData> {
         RunEndBoolArray::try_new(self.ends(), !self.start(), self.validity())
@@ -174,7 +205,7 @@ impl ArrayValidity for RunEndBoolArray {
 impl IntoCanonical for RunEndBoolArray {
     fn into_canonical(self) -> VortexResult<Canonical> {
         let pends = self.ends().into_primitive()?;
-        runend_bool_decode(
+        decode_runend_bool(
             &pends,
             self.start(),
             self.validity(),

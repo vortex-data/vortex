@@ -104,7 +104,7 @@ fn parquet_decompress_read(buf: bytes::Bytes) -> usize {
 }
 
 fn parquet_compressed_written_size(array: &ArrayData, compression: Compression) -> usize {
-    let chunked = ChunkedArray::try_from(array).unwrap();
+    let chunked = ChunkedArray::try_from(array.clone()).unwrap();
     let (batches, schema) = chunked_to_vec_record_batch(chunked);
     parquet_compress_write(batches, schema, compression, &mut Vec::new())
 }
@@ -216,7 +216,7 @@ fn benchmark_compress<F, U>(
         measurement_time.map(|t| group.measurement_time(t));
 
         group.bench_function(bench_name, |b| {
-            let chunked = ChunkedArray::try_from(uncompressed.as_ref()).unwrap();
+            let chunked = ChunkedArray::try_from(uncompressed.as_ref().clone()).unwrap();
             let (batches, schema) = chunked_to_vec_record_batch(chunked);
 
             b.iter_with_large_drop(|| {
@@ -258,7 +258,7 @@ fn benchmark_compress<F, U>(
         measurement_time.map(|t| group.measurement_time(t));
 
         let buffer = LazyCell::new(|| {
-            let chunked = ChunkedArray::try_from(uncompressed.as_ref()).unwrap();
+            let chunked = ChunkedArray::try_from(uncompressed.as_ref().clone()).unwrap();
             let (batches, schema) = chunked_to_vec_record_batch(chunked);
             let mut buf = Vec::new();
             parquet_compress_write(

@@ -193,7 +193,7 @@ benchmarks/.out
 *.vortex
 
 # TPC-H benchmarking data
-data/
+/data/
 
 # vscode
 .vscode/

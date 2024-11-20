@@ -193,7 +193,7 @@ fn patch_unpacked(array: PrimitiveArray, patches: &ArrayData) -> VortexResult<Pr
     match patches.encoding().id() {
         Sparse::ID => {
             match_each_integer_ptype!(array.ptype(), |$T| {
-                let typed_patches = SparseArray::try_from(patches).unwrap();
+                let typed_patches = SparseArray::try_from(patches.clone()).unwrap();
                 let primitive_values = typed_patches.values().into_primitive()?;
                 array.patch(
                     &typed_patches.resolved_indices(),

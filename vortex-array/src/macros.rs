@@ -1,15 +1,9 @@
 //! The core Vortex macro to create new encodings and array types.
 
-use vortex_buffer::Buffer;
-use vortex_error::{vortex_bail, VortexError, VortexExpect as _, VortexResult};
+use vortex_error::VortexError;
 
-use crate::array::visitor::ArrayVisitor;
 use crate::encoding::{ArrayEncoding, ArrayEncodingExt, ArrayEncodingRef, EncodingId, EncodingRef};
-use crate::stats::ArrayStatistics;
-use crate::{
-    ArrayDType, ArrayData, ArrayMetadata, ArrayTrait, GetArrayMetadata, InnerArrayData,
-    IntoArrayData, OwnedArrayData, ToOwnedArrayData, TryDeserializeArrayMetadata,
-};
+use crate::{ArrayData, ArrayMetadata, ArrayTrait, ToArrayData, TryDeserializeArrayMetadata};
 
 /// Trait the defines the set of types relating to an array.
 /// Because it has associated types it can't be used as a trait object.
@@ -20,6 +14,12 @@ pub trait ArrayDef {
     type Array: ArrayTrait + TryFrom<ArrayData, Error = VortexError>;
     type Metadata: ArrayMetadata + Clone + for<'m> TryDeserializeArrayMetadata<'m>;
     type Encoding: ArrayEncoding + ArrayEncodingExt<D = Self>;
+}
+
+impl<A: AsRef<ArrayData>> ToArrayData for A {
+    fn to_array(&self) -> ArrayData {
+        self.as_ref().clone()
+    }
 }
 
 /// Macro to generate all the necessary code for a new type of array encoding. Including:
@@ -43,25 +43,33 @@ macro_rules! impl_encoding {
 
             #[derive(std::fmt::Debug, Clone)]
             pub struct [<$Name Array>] {
-                typed: $crate::TypedArray<$Name>
+                data: $crate::ArrayData,
+                metadata: [<$Name Metadata>],
+            }
+
+            impl $crate::IntoArrayData for [<$Name Array>] {
+                fn into_array(self) -> $crate::ArrayData {
+                    self.data
+                }
             }
             impl AsRef<$crate::ArrayData> for [<$Name Array>] {
                 fn as_ref(&self) -> &$crate::ArrayData {
-                    self.typed.array()
+                    &self.data
                 }
             }
+
             impl [<$Name Array>] {
-                #[allow(clippy::same_name_method)]
+                #[allow(dead_code)]
                 fn metadata(&self) -> &[<$Name Metadata>] {
-                    self.typed.metadata()
+                    &self.metadata
                 }
 
                 pub fn len(&self) -> usize {
-                    self.typed.array().len()
+                    self.as_ref().len()
                 }
 
                 pub fn is_empty(&self) -> bool {
-                    self.typed.array().is_empty()
+                    self.as_ref().is_empty()
                 }
 
                 #[allow(dead_code)]
@@ -72,50 +80,33 @@ macro_rules! impl_encoding {
                     children: std::sync::Arc<[$crate::ArrayData]>,
                     stats: $crate::stats::StatsSet,
                 ) -> VortexResult<Self> {
-                    Ok(Self { typed: $crate::TypedArray::try_from_parts(dtype, len, metadata, None, children, stats)? })
+                    Self::try_from($crate::ArrayData::try_new_owned(
+                            &[<$Name Encoding>],
+                            dtype,
+                            len,
+                            std::sync::Arc::new(metadata),
+                            None,
+                            children,
+                            stats
+                    )?)
                 }
             }
-            impl $crate::GetArrayMetadata for [<$Name Array>] {
-                #[allow(clippy::same_name_method)]
-                fn metadata(&self) -> std::sync::Arc<dyn $crate::ArrayMetadata> {
-                    std::sync::Arc::new(self.metadata().clone())
-                }
-            }
-            impl $crate::ToArrayData for [<$Name Array>] {
-                fn to_array(&self) -> $crate::ArrayData {
-                    self.typed.to_array()
-                }
-            }
-            impl $crate::IntoArrayData for [<$Name Array>] {
-                fn into_array(self) -> $crate::ArrayData {
-                    self.typed.into_array()
-                }
-            }
-            impl From<$crate::TypedArray<$Name>> for [<$Name Array>] {
-                fn from(typed: $crate::TypedArray<$Name>) -> Self {
-                    Self { typed }
-                }
-            }
+
             impl TryFrom<$crate::ArrayData> for [<$Name Array>] {
                 type Error = vortex_error::VortexError;
 
-                #[inline]
-                fn try_from(array: $crate::ArrayData) -> Result<Self, Self::Error> {
-                    $crate::TypedArray::<$Name>::try_from(array).map(Self::from)
-                }
-            }
-            impl TryFrom<&$crate::ArrayData> for [<$Name Array>] {
-                type Error = vortex_error::VortexError;
+                fn try_from(data: $crate::ArrayData) -> vortex_error::VortexResult<Self> {
+                    if data.encoding().id() != <$Name as $crate::ArrayDef>::ID {
+                        vortex_error::vortex_bail!(
+                            "Mismatched encoding {}, expected {}",
+                            data.encoding().id().as_ref(),
+                            <$Name as $crate::ArrayDef>::ID,
+                        );
+                    }
 
-                #[inline]
-                fn try_from(array: &$crate::ArrayData) -> Result<Self, Self::Error> {
-                    $crate::TypedArray::<$Name>::try_from(array).map(Self::from)
-                }
-            }
-            impl From<[<$Name Array>]> for $crate::ArrayData {
-                fn from(value: [<$Name Array>]) -> $crate::ArrayData {
-                    use $crate::IntoArrayData;
-                    value.typed.into_array()
+                    let metadata = data.metadata::<[<$Name Metadata>]>()?;
+
+                    Ok(Self { data, metadata })
                 }
             }
 
@@ -165,56 +156,6 @@ macro_rules! impl_encoding {
 impl<T: AsRef<ArrayData>> ArrayEncodingRef for T {
     fn encoding(&self) -> EncodingRef {
         self.as_ref().encoding()
-    }
-}
-
-impl<D> ToOwnedArrayData for D
-where
-    D: IntoArrayData + ArrayEncodingRef + ArrayStatistics + GetArrayMetadata + Clone,
-{
-    fn to_owned_array_data(&self) -> OwnedArrayData {
-        let array = self.clone().into_array();
-        match array.0 {
-            InnerArrayData::Owned(d) => d,
-            InnerArrayData::Viewed(ref view) => {
-                struct Visitor {
-                    buffer: Option<Buffer>,
-                    children: Vec<ArrayData>,
-                }
-                impl ArrayVisitor for Visitor {
-                    fn visit_child(&mut self, _name: &str, array: &ArrayData) -> VortexResult<()> {
-                        self.children.push(array.clone());
-                        Ok(())
-                    }
-
-                    fn visit_buffer(&mut self, buffer: &Buffer) -> VortexResult<()> {
-                        if self.buffer.is_some() {
-                            vortex_bail!("Multiple buffers found in view")
-                        }
-                        self.buffer = Some(buffer.clone());
-                        Ok(())
-                    }
-                }
-                let mut visitor = Visitor {
-                    buffer: None,
-                    children: vec![],
-                };
-                array.with_dyn(|a| {
-                    a.accept(&mut visitor)
-                        .vortex_expect("Error while visiting Array View children")
-                });
-                OwnedArrayData::try_new(
-                    view.encoding(),
-                    array.dtype().clone(),
-                    array.len(),
-                    self.metadata(),
-                    visitor.buffer,
-                    visitor.children.into(),
-                    view.statistics().to_set(),
-                )
-                .vortex_expect("Failed to create ArrayData from Array View")
-            }
-        }
     }
 }
 

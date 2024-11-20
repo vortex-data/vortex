@@ -1,7 +1,13 @@
 use std::sync::{Arc, LazyLock};
 
 use compressors::bitpacked::BITPACK_WITH_PATCHES;
+use compressors::chunked::DEFAULT_CHUNKED_COMPRESSOR;
+use compressors::constant::ConstantCompressor;
+use compressors::delta::DeltaCompressor;
 use compressors::fsst::FSSTCompressor;
+use compressors::roaring_bool::RoaringBoolCompressor;
+use compressors::roaring_int::RoaringIntCompressor;
+use compressors::struct_::StructCompressor;
 use compressors::{CompressedArray, CompressionTree};
 use vortex_alp::{ALPEncoding, ALPRDEncoding};
 use vortex_array::encoding::EncodingRef;
@@ -21,6 +27,7 @@ use crate::compressors::date_time_parts::DateTimePartsCompressor;
 use crate::compressors::dict::DictCompressor;
 use crate::compressors::r#for::FoRCompressor;
 use crate::compressors::runend::DEFAULT_RUN_END_COMPRESSOR;
+use crate::compressors::runend_bool::RunEndBoolCompressor;
 use crate::compressors::sparse::SparseCompressor;
 use crate::compressors::zigzag::ZigZagCompressor;
 use crate::compressors::CompressorRef;
@@ -34,34 +41,43 @@ mod sampling_compressor;
 
 pub use sampling_compressor::SamplingCompressor;
 
-pub static DEFAULT_COMPRESSORS: LazyLock<[CompressorRef<'static>; 9]> = LazyLock::new(|| {
-    [
-        &ALPCompressor as CompressorRef,
-        &BITPACK_WITH_PATCHES,
-        &DateTimePartsCompressor,
-        &DEFAULT_RUN_END_COMPRESSOR,
-        // &DeltaCompressor,
-        &DictCompressor,
-        &FoRCompressor,
-        &FSSTCompressor,
-        // &RoaringBoolCompressor,
-        // &RoaringIntCompressor,
-        &SparseCompressor,
-        &ZigZagCompressor,
-    ]
-});
+pub const DEFAULT_COMPRESSORS: [CompressorRef; 13] = [
+    &ALPCompressor as CompressorRef,
+    &BITPACK_WITH_PATCHES,
+    &DEFAULT_CHUNKED_COMPRESSOR,
+    &ConstantCompressor,
+    &DateTimePartsCompressor,
+    // &DeltaCompressor,
+    &DictCompressor,
+    &FoRCompressor,
+    &FSSTCompressor,
+    //&RoaringBoolCompressor,
+    //&RoaringIntCompressor,
+    &RunEndBoolCompressor,
+    &DEFAULT_RUN_END_COMPRESSOR,
+    &SparseCompressor,
+    &StructCompressor,
+    &ZigZagCompressor,
+];
 
-pub static FASTEST_COMPRESSORS: LazyLock<[CompressorRef<'static>; 7]> = LazyLock::new(|| {
-    [
-        &BITPACK_WITH_PATCHES,
-        &DateTimePartsCompressor,
-        &DEFAULT_RUN_END_COMPRESSOR, // replace with FastLanes RLE
-        &DictCompressor,             // replace with FastLanes Dictionary
-        &FoRCompressor,
-        &SparseCompressor,
-        &ZigZagCompressor,
-    ]
-});
+pub const ALL_COMPRESSORS: [CompressorRef; 16] = [
+    &ALPCompressor as CompressorRef,
+    &BITPACK_WITH_PATCHES,
+    &DEFAULT_CHUNKED_COMPRESSOR,
+    &ConstantCompressor,
+    &DateTimePartsCompressor,
+    &DeltaCompressor,
+    &DictCompressor,
+    &FoRCompressor,
+    &FSSTCompressor,
+    &RoaringBoolCompressor,
+    &RoaringIntCompressor,
+    &RunEndBoolCompressor,
+    &DEFAULT_RUN_END_COMPRESSOR,
+    &SparseCompressor,
+    &StructCompressor,
+    &ZigZagCompressor,
+];
 
 pub static ALL_ENCODINGS_CONTEXT: LazyLock<Arc<Context>> = LazyLock::new(|| {
     Arc::new(Context::default().with_encodings([

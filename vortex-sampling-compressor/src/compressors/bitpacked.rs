@@ -3,7 +3,7 @@ use vortex_array::array::PrimitiveArray;
 use vortex_array::encoding::EncodingRef;
 use vortex_array::stats::ArrayStatistics;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayData, IntoArrayData};
+use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_error::{vortex_err, vortex_panic, VortexResult};
 use vortex_fastlanes::{
     bitpack, count_exceptions, find_best_bit_width, find_min_patchless_bit_width, gather_patches,
@@ -54,7 +54,7 @@ impl EncodingCompressor for BitPackedCompressor {
 
     fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {
         // Only support primitive arrays
-        let parray = PrimitiveArray::try_from(array).ok()?;
+        let parray = PrimitiveArray::try_from(array.clone()).ok()?;
 
         // Only supports unsigned ints
         if !parray.ptype().is_unsigned_int() {
@@ -77,7 +77,7 @@ impl EncodingCompressor for BitPackedCompressor {
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
-        let parray = array.as_primitive();
+        let parray = array.clone().into_primitive()?;
         let bit_width_freq = parray
             .statistics()
             .compute_bit_width_freq()

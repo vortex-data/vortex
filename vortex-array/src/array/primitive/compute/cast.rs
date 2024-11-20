@@ -69,42 +69,49 @@ mod test {
     use crate::array::PrimitiveArray;
     use crate::compute::unary::try_cast;
     use crate::validity::Validity;
-    use crate::IntoArrayData;
+    use crate::{IntoArrayData, IntoArrayVariant};
 
     #[test]
     fn cast_u32_u8() {
         let arr = vec![0u32, 10, 200].into_array();
 
         // cast from u32 to u8
-        let p = try_cast(&arr, PType::U8.into()).unwrap().as_primitive();
+        let p = try_cast(&arr, PType::U8.into())
+            .unwrap()
+            .into_primitive()
+            .unwrap();
         assert_eq!(p.maybe_null_slice::<u8>(), vec![0u8, 10, 200]);
         assert_eq!(p.validity(), Validity::NonNullable);
 
         // to nullable
         let p = try_cast(&p, &DType::Primitive(PType::U8, Nullability::Nullable))
             .unwrap()
-            .as_primitive();
+            .into_primitive()
+            .unwrap();
         assert_eq!(p.maybe_null_slice::<u8>(), vec![0u8, 10, 200]);
         assert_eq!(p.validity(), Validity::AllValid);
 
         // back to non-nullable
         let p = try_cast(&p, &DType::Primitive(PType::U8, Nullability::NonNullable))
             .unwrap()
-            .as_primitive();
+            .into_primitive()
+            .unwrap();
         assert_eq!(p.maybe_null_slice::<u8>(), vec![0u8, 10, 200]);
         assert_eq!(p.validity(), Validity::NonNullable);
 
         // to nullable u32
         let p = try_cast(&p, &DType::Primitive(PType::U32, Nullability::Nullable))
             .unwrap()
-            .as_primitive();
+            .into_primitive()
+            .unwrap();
         assert_eq!(p.maybe_null_slice::<u32>(), vec![0u32, 10, 200]);
         assert_eq!(p.validity(), Validity::AllValid);
 
         // to non-nullable u8
         let p = try_cast(&p, &DType::Primitive(PType::U8, Nullability::NonNullable))
             .unwrap()
-            .as_primitive();
+            .into_primitive()
+            .unwrap();
         assert_eq!(p.maybe_null_slice::<u8>(), vec![0u8, 10, 200]);
         assert_eq!(p.validity(), Validity::NonNullable);
     }
@@ -112,7 +119,10 @@ mod test {
     #[test]
     fn cast_u32_f32() {
         let arr = vec![0u32, 10, 200].into_array();
-        let u8arr = try_cast(&arr, PType::F32.into()).unwrap().as_primitive();
+        let u8arr = try_cast(&arr, PType::F32.into())
+            .unwrap()
+            .into_primitive()
+            .unwrap();
         assert_eq!(u8arr.maybe_null_slice::<f32>(), vec![0.0f32, 10., 200.]);
     }
 

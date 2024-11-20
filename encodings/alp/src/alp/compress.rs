@@ -82,7 +82,7 @@ fn patch_decoded(array: PrimitiveArray, patches: &ArrayData) -> VortexResult<Pri
     match patches.encoding().id() {
         Sparse::ID => {
             match_each_alp_float_ptype!(array.ptype(), |$T| {
-                let typed_patches = SparseArray::try_from(patches).unwrap();
+                let typed_patches = SparseArray::try_from(patches.clone()).unwrap();
                 let primitive_values = typed_patches.values().into_primitive()?;
                 array.patch(
                     &typed_patches.resolved_indices(),
@@ -124,7 +124,11 @@ mod tests {
         let encoded = alp_encode(&array).unwrap();
         assert!(encoded.patches().is_none());
         assert_eq!(
-            encoded.encoded().as_primitive().maybe_null_slice::<i32>(),
+            encoded
+                .encoded()
+                .into_primitive()
+                .unwrap()
+                .maybe_null_slice::<i32>(),
             vec![1234; 1025]
         );
         assert_eq!(encoded.exponents(), Exponents { e: 9, f: 6 });
@@ -142,7 +146,11 @@ mod tests {
         let encoded = alp_encode(&array).unwrap();
         assert!(encoded.patches().is_none());
         assert_eq!(
-            encoded.encoded().as_primitive().maybe_null_slice::<i32>(),
+            encoded
+                .encoded()
+                .into_primitive()
+                .unwrap()
+                .maybe_null_slice::<i32>(),
             vec![0, 1234, 0]
         );
         assert_eq!(encoded.exponents(), Exponents { e: 9, f: 6 });
@@ -160,7 +168,11 @@ mod tests {
         let encoded = alp_encode(&array).unwrap();
         assert!(encoded.patches().is_some());
         assert_eq!(
-            encoded.encoded().as_primitive().maybe_null_slice::<i64>(),
+            encoded
+                .encoded()
+                .into_primitive()
+                .unwrap()
+                .maybe_null_slice::<i64>(),
             vec![1234i64, 2718, 1234, 4000] // fill forward
         );
         assert_eq!(encoded.exponents(), Exponents { e: 16, f: 13 });

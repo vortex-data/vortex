@@ -5,12 +5,12 @@ use crate::array::primitive::PrimitiveArray;
 use crate::compute::unary::FillForwardFn;
 use crate::validity::{ArrayValidity, Validity};
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayDType, ArrayData, IntoArrayData};
+use crate::{ArrayDType, ArrayData, IntoArrayData, ToArrayData};
 
 impl FillForwardFn for PrimitiveArray {
     fn fill_forward(&self) -> VortexResult<ArrayData> {
         if self.dtype().nullability() == Nullability::NonNullable {
-            return Ok(self.clone().into());
+            return Ok(self.to_array());
         }
 
         let validity = self.logical_validity();
@@ -52,13 +52,13 @@ mod test {
     use crate::array::BoolArray;
     use crate::compute::unary::fill_forward;
     use crate::validity::{ArrayValidity, Validity};
-    use crate::IntoArrayData;
+    use crate::{IntoArrayData, IntoArrayVariant};
 
     #[test]
     fn leading_none() {
         let arr = PrimitiveArray::from_nullable_vec(vec![None, Some(8u8), None, Some(10), None])
             .into_array();
-        let p = fill_forward(&arr).unwrap().as_primitive();
+        let p = fill_forward(&arr).unwrap().into_primitive().unwrap();
         assert_eq!(p.maybe_null_slice::<u8>(), vec![0, 8, 8, 10, 10]);
         assert!(p.logical_validity().all_valid());
     }
@@ -69,7 +69,7 @@ mod test {
             PrimitiveArray::from_nullable_vec(vec![Option::<u8>::None, None, None, None, None])
                 .into_array();
 
-        let p = fill_forward(&arr).unwrap().as_primitive();
+        let p = fill_forward(&arr).unwrap().into_primitive().unwrap();
         assert_eq!(p.maybe_null_slice::<u8>(), vec![0, 0, 0, 0, 0]);
         assert!(p.logical_validity().all_valid());
     }
@@ -81,7 +81,7 @@ mod test {
             Validity::Array(BoolArray::from_iter([true, true, true, true, true]).into_array()),
         )
         .into_array();
-        let p = fill_forward(&arr).unwrap().as_primitive();
+        let p = fill_forward(&arr).unwrap().into_primitive().unwrap();
         assert_eq!(p.maybe_null_slice::<u8>(), vec![8, 10, 12, 14, 16]);
         assert!(p.logical_validity().all_valid());
     }

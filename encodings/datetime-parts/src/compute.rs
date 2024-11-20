@@ -132,7 +132,7 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalAr
 mod test {
     use vortex_array::array::{PrimitiveArray, TemporalArray};
     use vortex_array::validity::Validity;
-    use vortex_array::{IntoArrayData, IntoArrayVariant};
+    use vortex_array::{IntoArrayVariant, ToArrayData};
     use vortex_datetime_dtype::TimeUnit;
     use vortex_dtype::DType;
 
@@ -158,7 +158,7 @@ mod test {
         assert_eq!(raw_millis.validity(), validity);
 
         let temporal_array = TemporalArray::new_timestamp(
-            raw_millis.clone().into_array(),
+            raw_millis.to_array(),
             TimeUnit::Ms,
             Some("UTC".to_string()),
         );
@@ -176,9 +176,15 @@ mod test {
             seconds,
             subseconds,
         } = split_temporal(temporal_array.clone()).unwrap();
-        assert_eq!(days.as_primitive().validity(), validity);
-        assert_eq!(seconds.as_primitive().validity(), Validity::NonNullable);
-        assert_eq!(subseconds.as_primitive().validity(), Validity::NonNullable);
+        assert_eq!(days.clone().into_primitive().unwrap().validity(), validity);
+        assert_eq!(
+            seconds.clone().into_primitive().unwrap().validity(),
+            Validity::NonNullable
+        );
+        assert_eq!(
+            subseconds.clone().into_primitive().unwrap().validity(),
+            Validity::NonNullable
+        );
         assert_eq!(validity, raw_millis.validity());
 
         let date_times = DateTimePartsArray::try_new(

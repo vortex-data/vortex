@@ -18,7 +18,7 @@ pub mod flatbuffers;
 mod statsset;
 
 /// Statistics that are used for pruning files (i.e., we want to ensure they are computed when compressing/writing).
-pub(crate) const PRUNING_STATS: &[Stat] = &[Stat::Min, Stat::Max, Stat::TrueCount, Stat::NullCount];
+pub const PRUNING_STATS: &[Stat] = &[Stat::Min, Stat::Max, Stat::TrueCount, Stat::NullCount];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Sequence, Enum)]
 #[non_exhaustive]
@@ -44,6 +44,7 @@ pub enum Stat {
     TrueCount,
     /// The number of null values in the array
     NullCount,
+    /// The uncompressed size of the array in bytes
     UncompressedSizeInBytes,
 }
 
@@ -95,7 +96,11 @@ pub trait Statistics {
     /// Get all existing statistics
     fn to_set(&self) -> StatsSet;
 
+    /// Set the value of the statistic
     fn set(&self, stat: Stat, value: Scalar);
+
+    /// Clear the value of the statistic
+    fn clear(&self, stat: Stat);
 
     /// Computes the value of the stat if it's not present
     fn compute(&self, stat: Stat) -> Option<Scalar>;
@@ -111,6 +116,8 @@ pub trait Statistics {
         }
         Ok(stats_set)
     }
+
+    fn retain_only(&self, stats: &[Stat]);
 }
 
 pub trait ArrayStatistics {

@@ -115,7 +115,7 @@ impl WriteFlatBuffer for IPCArray<'_> {
 
         let encoding = column_data.encoding().id().code();
         let metadata = column_data
-            .metadata()
+            .metadata_bytes()
             .vortex_expect("IPCArray is missing metadata during serialization");
         let metadata = Some(fbb.create_vector(metadata.as_ref()));
 

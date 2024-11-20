@@ -6,8 +6,9 @@ use vortex_buffer::Buffer;
 use vortex_error::{VortexError, VortexResult};
 
 use crate::array::visitor::ArrayVisitor;
-use crate::array::ChunkedArray;
-use crate::{ArrayData, OwnedArrayData};
+use crate::array::ChunkedEncoding;
+use crate::encoding::ArrayEncoding;
+use crate::ArrayData;
 
 impl ArrayData {
     pub fn tree_display(&self) -> TreeDisplayWrapper {
@@ -55,12 +56,13 @@ impl<'a, 'b: 'a> ArrayVisitor for TreeFormatter<'a, 'b> {
                 100f64 * nbytes as f64 / total_size as f64
             )?;
             self.indent(|i| {
-                let array_data = OwnedArrayData::from(array.clone());
-                writeln!(i.fmt, "{}metadata: {}", i.indent, array_data.metadata())
+                // FIXME(ngates): support metadata display via vtables
+                // let array_data = array.metadata();
+                writeln!(i.fmt, "{}metadata: ???", i.indent)
             })?;
 
             let old_total_size = self.total_size;
-            if ChunkedArray::try_from(array).is_ok() {
+            if array.is_encoding(ChunkedEncoding.id()) {
                 // Clear the total size so each chunk is treated as a new root.
                 self.total_size = None
             } else {

@@ -3,6 +3,7 @@ use std::{io, mem};
 use flatbuffers::FlatBufferBuilder;
 use futures::TryStreamExt;
 use vortex_array::array::{ChunkedArray, StructArray};
+use vortex_array::stats::{ArrayStatistics, Stat};
 use vortex_array::stream::ArrayStream;
 use vortex_array::{ArrayDType as _, ArrayData};
 use vortex_buffer::io_buf::IoBuf;
@@ -18,6 +19,18 @@ use crate::write::layout::Layout;
 use crate::write::metadata_accumulators::{new_metadata_accumulator, MetadataAccumulator};
 use crate::write::postscript::Postscript;
 use crate::{EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
+
+const STATS_TO_WRITE: &[Stat] = &[
+    Stat::Min,
+    Stat::Max,
+    Stat::TrueCount,
+    Stat::NullCount,
+    Stat::RunCount,
+    Stat::IsConstant,
+    Stat::IsSorted,
+    Stat::IsStrictSorted,
+    Stat::UncompressedSizeInBytes,
+];
 
 pub struct VortexFileWriter<W> {
     msgs: MessageWriter<W>,
@@ -38,7 +51,7 @@ impl<W: VortexWrite> VortexFileWriter<W> {
     }
 
     pub async fn write_array_columns(self, array: ArrayData) -> VortexResult<Self> {
-        if let Ok(chunked) = ChunkedArray::try_from(&array) {
+        if let Ok(chunked) = ChunkedArray::try_from(array.clone()) {
             self.write_array_columns_stream(chunked.array_stream())
                 .await
         } else {
@@ -65,7 +78,7 @@ impl<W: VortexWrite> VortexFileWriter<W> {
         }
 
         while let Some(columns) = array_stream.try_next().await? {
-            let st = StructArray::try_from(&columns)?;
+            let st = StructArray::try_from(columns)?;
             self.row_count += st.len() as u64;
             for (i, field) in st.children().enumerate() {
                 if let Ok(chunked_array) = ChunkedArray::try_from(field.clone()) {
@@ -217,7 +230,13 @@ impl ColumnWriter {
 
         while let Some(chunk) = stream.try_next().await? {
             rows_written += chunk.len() as u64;
+
+            // accumulate the stats for the stats table
             self.metadata.push_chunk(&chunk);
+
+            // clear the stats that we don't want to serialize into the file
+            chunk.statistics().retain_only(STATS_TO_WRITE);
+
             msgs.write_batch(chunk).await?;
             offsets.push(msgs.tell());
             row_offsets.push(rows_written);
@@ -292,11 +311,13 @@ mod tests {
     use flatbuffers::FlatBufferBuilder;
     use futures_executor::block_on;
     use vortex_array::array::{PrimitiveArray, StructArray, VarBinArray};
+    use vortex_array::stats::PRUNING_STATS;
     use vortex_array::validity::Validity;
     use vortex_array::IntoArrayData;
     use vortex_flatbuffers::WriteFlatBuffer;
 
     use crate::write::postscript::Postscript;
+    use crate::write::writer::STATS_TO_WRITE;
     use crate::{VortexFileWriter, V1_FOOTER_FBS_SIZE};
 
     #[test]
@@ -327,5 +348,12 @@ mod tests {
         let buffer_end = buffer.len();
 
         assert_eq!(buffer[buffer_begin..buffer_end].len(), V1_FOOTER_FBS_SIZE);
+    }
+
+    #[test]
+    fn stats_to_write() {
+        for stat in PRUNING_STATS {
+            assert!(STATS_TO_WRITE.contains(stat));
+        }
     }
 }

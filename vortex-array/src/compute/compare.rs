@@ -258,8 +258,9 @@ mod tests {
         let left = ConstantArray::new(Scalar::from(2u32), 10);
         let right = ConstantArray::new(Scalar::from(10u32), 10);
 
-        let res = ConstantArray::try_from(compare(left, right, Operator::Gt).unwrap()).unwrap();
-        assert_eq!(res.scalar_value(), &ScalarValue::Bool(false));
-        assert_eq!(res.len(), 10);
+        let compare = compare(left, right, Operator::Gt).unwrap();
+        let res = compare.as_constant().unwrap();
+        assert_eq!(res.value(), &ScalarValue::Bool(false));
+        assert_eq!(compare.len(), 10);
     }
 }

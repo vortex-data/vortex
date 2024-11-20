@@ -12,7 +12,7 @@ use crate::variants::{
     ArrayVariants, BinaryArrayTrait, BoolArrayTrait, ExtensionArrayTrait, ListArrayTrait,
     NullArrayTrait, PrimitiveArrayTrait, StructArrayTrait, Utf8ArrayTrait,
 };
-use crate::{ArrayDType, ArrayData, IntoArrayData};
+use crate::{ArrayDType, ArrayData, IntoArrayData, ToArrayData};
 
 /// Constant arrays support all DTypes
 impl ArrayVariants for ConstantArray {
@@ -55,7 +55,7 @@ impl BoolArrayTrait for ConstantArray {
     fn invert(&self) -> VortexResult<ArrayData> {
         let value = self.scalar_value().as_bool()?;
         match value {
-            None => Ok(self.clone().into_array()),
+            None => Ok(self.to_array()),
             Some(b) => Ok(ConstantArray::new(!b, self.len()).into_array()),
         }
     }

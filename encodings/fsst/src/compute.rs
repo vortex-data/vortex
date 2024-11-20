@@ -5,7 +5,7 @@ use vortex_array::compute::{
     compare, filter, slice, take, ArrayCompute, FilterFn, FilterMask, MaybeCompareFn, Operator,
     SliceFn, TakeFn, TakeOptions,
 };
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant, ToArrayData};
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexResult, VortexUnwrap};
@@ -41,10 +41,10 @@ impl MaybeCompareFn for FSSTArray {
         other: &ArrayData,
         operator: Operator,
     ) -> Option<VortexResult<ArrayData>> {
-        match (ConstantArray::try_from(other), operator) {
-            (Ok(constant_array), Operator::Eq | Operator::NotEq) => Some(compare_fsst_constant(
+        match (other.as_constant(), operator) {
+            (Some(constant_array), Operator::Eq | Operator::NotEq) => Some(compare_fsst_constant(
                 self,
-                &constant_array,
+                &ConstantArray::new(constant_array, self.len()),
                 operator == Operator::Eq,
             )),
             _ => None,
@@ -87,7 +87,7 @@ fn compare_fsst_constant(
     match encoded_scalar {
         None => {
             // Eq and NotEq on null values yield nulls, per the Arrow behavior.
-            Ok(right.clone().into_array())
+            Ok(right.to_array())
         }
         Some(encoded_scalar) => {
             let rhs = ConstantArray::new(encoded_scalar, left.len());

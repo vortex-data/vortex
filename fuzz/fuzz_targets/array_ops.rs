@@ -93,7 +93,15 @@ fn assert_search_sorted(
 }
 
 fn assert_array_eq(lhs: &ArrayData, rhs: &ArrayData, step: usize) {
-    assert_eq!(lhs.len(), rhs.len());
+    assert_eq!(
+        lhs.len(),
+        rhs.len(),
+        "LHS len {} != RHS len {}, lhs is {} rhs is {} in step {step}",
+        lhs.len(),
+        rhs.len(),
+        lhs.encoding().id(),
+        rhs.encoding().id()
+    );
     for idx in 0..lhs.len() {
         let l = scalar_at(lhs, idx).unwrap();
         let r = scalar_at(rhs, idx).unwrap();

@@ -8,7 +8,7 @@ use vortex_dtype::half::f16;
 use vortex_dtype::{NativePType, PType};
 use vortex_error::{vortex_err, VortexError};
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy)]
 pub enum PValue {
     U8(u8),
     U16(u16),
@@ -21,6 +21,25 @@ pub enum PValue {
     F16(f16),
     F32(f32),
     F64(f64),
+}
+
+impl PartialEq for PValue {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::U8(s), Self::U8(o)) => s.is_eq(*o),
+            (Self::U16(s), Self::U16(o)) => s.is_eq(*o),
+            (Self::U32(s), Self::U32(o)) => s.is_eq(*o),
+            (Self::U64(s), Self::U64(o)) => s.is_eq(*o),
+            (Self::I8(s), Self::I8(o)) => s.is_eq(*o),
+            (Self::I16(s), Self::I16(o)) => s.is_eq(*o),
+            (Self::I32(s), Self::I32(o)) => s.is_eq(*o),
+            (Self::I64(s), Self::I64(o)) => s.is_eq(*o),
+            (Self::F16(s), Self::F16(o)) => s.is_eq(*o),
+            (Self::F32(s), Self::F32(o)) => s.is_eq(*o),
+            (Self::F64(s), Self::F64(o)) => s.is_eq(*o),
+            (..) => false,
+        }
+    }
 }
 
 impl PartialOrd for PValue {

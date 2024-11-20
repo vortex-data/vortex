@@ -1,4 +1,5 @@
 use std::fmt::{Debug, Display};
+use std::sync::Arc;
 
 pub use compress::*;
 use croaring::{Bitmap, Portable};
@@ -12,7 +13,6 @@ use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity};
 use vortex_array::variants::{ArrayVariants, PrimitiveArrayTrait};
 use vortex_array::{
     impl_encoding, ArrayDType as _, ArrayData, ArrayTrait, Canonical, IntoArrayData, IntoCanonical,
-    TypedArray,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::Nullability::NonNullable;
@@ -62,16 +62,16 @@ impl RoaringIntArray {
         stats.set(Stat::IsSorted, true);
         stats.set(Stat::IsStrictSorted, true);
 
-        Ok(Self {
-            typed: TypedArray::try_from_parts(
-                DType::Primitive(ptype, NonNullable),
-                length,
-                RoaringIntMetadata { ptype },
-                Some(Buffer::from(bitmap.serialize::<Portable>())),
-                vec![].into(),
-                StatsSet::default(),
-            )?,
-        })
+        ArrayData::try_new_owned(
+            &RoaringIntEncoding,
+            DType::Primitive(ptype, NonNullable),
+            length,
+            Arc::new(RoaringIntMetadata { ptype }),
+            Some(Buffer::from(bitmap.serialize::<Portable>())),
+            vec![].into(),
+            stats,
+        )?
+        .try_into()
     }
 
     pub fn owned_bitmap(&self) -> Bitmap {

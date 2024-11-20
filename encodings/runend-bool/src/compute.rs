@@ -7,8 +7,7 @@ use vortex_dtype::match_each_integer_ptype;
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::compress::value_at_index;
-use crate::RunEndBoolArray;
+use crate::{value_at_index, RunEndBoolArray};
 
 impl ArrayCompute for RunEndBoolArray {
     fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
