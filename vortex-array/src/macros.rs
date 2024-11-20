@@ -41,6 +41,10 @@ macro_rules! impl_encoding {
                 type Encoding = [<$Name Encoding>];
             }
 
+            impl $crate::encoding::Encoding for [<$Name Encoding>] {
+                type Array = [<$Name Array>];
+            }
+
             #[derive(std::fmt::Debug, Clone)]
             pub struct [<$Name Array>] {
                 data: $crate::ArrayData,
@@ -117,11 +121,6 @@ macro_rules! impl_encoding {
                 #[inline]
                 fn id(&self) -> $crate::encoding::EncodingId {
                     <$Name as $crate::ArrayDef>::ID
-                }
-
-                #[inline]
-                fn canonicalize(&self, array: $crate::ArrayData) -> vortex_error::VortexResult<$crate::Canonical> {
-                    <Self as $crate::encoding::ArrayEncodingExt>::into_canonical(array)
                 }
 
                 #[inline]

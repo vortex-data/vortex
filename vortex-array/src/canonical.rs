@@ -17,7 +17,7 @@ use arrow_buffer::ScalarBuffer;
 use arrow_schema::{Field, Fields};
 use vortex_datetime_dtype::{is_temporal_ext_type, TemporalMetadata, TimeUnit};
 use vortex_dtype::{DType, NativePType, PType};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{vortex_bail, VortexError, VortexResult};
 
 use crate::array::{
     varbinview_as_arrow, BoolArray, ExtensionArray, NullArray, PrimitiveArray, StructArray,
@@ -25,7 +25,7 @@ use crate::array::{
 };
 use crate::arrow::{infer_data_type, FromArrowArray};
 use crate::compute::unary::try_cast;
-use crate::encoding::ArrayEncoding;
+use crate::encoding::Encoding;
 use crate::validity::ArrayValidity;
 use crate::variants::{PrimitiveArrayTrait, StructArrayTrait};
 use crate::{ArrayDType, ArrayData, IntoArrayData};
@@ -307,6 +307,23 @@ pub trait IntoCanonical {
     fn into_canonical(self) -> VortexResult<Canonical>;
 }
 
+/// Encoding VTable for canonicalizing an array.
+#[allow(clippy::wrong_self_convention)]
+pub trait IntoCanonicalVTable {
+    fn into_canonical(&self, array: ArrayData) -> VortexResult<Canonical>;
+}
+
+/// Implement the [IntoCanonicalVTable] for all encodings with arrays implementing [IntoCanonical].
+impl<E: Encoding> IntoCanonicalVTable for E
+where
+    E::Array: IntoCanonical,
+    E::Array: TryFrom<ArrayData, Error = VortexError>,
+{
+    fn into_canonical(&self, data: ArrayData) -> VortexResult<Canonical> {
+        E::Array::try_from(data)?.into_canonical()
+    }
+}
+
 /// Trait for types that can be converted from an owned type into an owned array variant.
 ///
 /// # Canonicalization
@@ -362,7 +379,7 @@ where
 impl IntoCanonical for ArrayData {
     fn into_canonical(self) -> VortexResult<Canonical> {
         log::debug!("Canonicalizing array with encoding {:?}", self.encoding());
-        ArrayEncoding::canonicalize(self.encoding(), self)
+        self.encoding().into_canonical(self)
     }
 }
 

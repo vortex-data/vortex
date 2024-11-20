@@ -7,7 +7,7 @@ use vortex_error::{vortex_panic, VortexResult};
 
 use crate::canonical::{Canonical, IntoCanonical};
 use crate::stats::ArrayStatistics as _;
-use crate::{ArrayData, ArrayDef, ArrayTrait};
+use crate::{ArrayData, ArrayDef, ArrayTrait, IntoCanonicalVTable};
 
 pub mod opaque;
 
@@ -44,14 +44,17 @@ impl AsRef<str> for EncodingId {
     }
 }
 
+/// Marker trait for array encodings with their associated Array type.
+pub trait Encoding {
+    type Array;
+}
+
 pub type EncodingRef = &'static dyn ArrayEncoding;
 
 /// Object-safe encoding trait for an array.
-pub trait ArrayEncoding: 'static + Sync + Send + Debug {
+/// TOOD(ngates): rename this EncodingVTable.
+pub trait ArrayEncoding: 'static + Sync + Send + Debug + IntoCanonicalVTable {
     fn id(&self) -> EncodingId;
-
-    /// Flatten the given array.
-    fn canonicalize(&self, array: ArrayData) -> VortexResult<Canonical>;
 
     /// Unwrap the provided array into an implementation of ArrayTrait
     fn with_dyn(
