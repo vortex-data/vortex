@@ -7,7 +7,7 @@
 //! implementations of these operators, else we will decode, and perform the equivalent operator
 //! from Arrow.
 
-pub use boolean::*;
+pub use boolean::{and, and_kleene, or, or_kleene, BinaryBooleanFn, BinaryOperator};
 pub(crate) use compare::arrow_compare;
 pub use compare::{compare, scalar_cmp, CompareFn, MaybeCompareFn, Operator};
 pub use filter::*;

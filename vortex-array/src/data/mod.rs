@@ -155,7 +155,7 @@ impl ArrayData {
 
     /// Return scalar value of this array if the array is constant
     pub fn as_constant(&self) -> Option<Scalar> {
-        (self.statistics().get_as::<bool>(Stat::IsConstant)?)
+        self.is_constant()
             // This is safe to unwrap as long as empty arrays aren't constant
             .then(|| scalar_at(self, 0).vortex_expect("expected a scalar value"))
     }

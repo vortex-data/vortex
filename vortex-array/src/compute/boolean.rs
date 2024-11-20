@@ -49,22 +49,6 @@ where
     }
 }
 
-pub trait AndFn<Array> {
-    fn and(&self, array: Array, other: &ArrayData) -> VortexResult<ArrayData>;
-}
-
-pub trait AndKleeneFn<Array> {
-    fn and_kleene(&self, array: &Array, other: &ArrayData) -> VortexResult<ArrayData>;
-}
-
-pub trait OrFn<Array> {
-    fn or(&self, array: &Array, other: &ArrayData) -> VortexResult<ArrayData>;
-}
-
-pub trait OrKleeneFn<Array> {
-    fn or_kleene(&self, array: &Array, other: &ArrayData) -> VortexResult<ArrayData>;
-}
-
 /// Point-wise logical _and_ between two Boolean arrays.
 ///
 /// This method uses Arrow-style null propagation rather than the Kleene logic semantics.
@@ -194,8 +178,7 @@ fn binary_boolean(lhs: &ArrayData, rhs: &ArrayData, op: BinaryOperator) -> Vorte
         );
     }
 
-    // If neither side implements the trait, we try to expand the left-hand side into a `BoolArray`,
-    // which we know does implement it, and call into that implementation.
+    // If neither side implements the trait, then we delegate to Arrow compute.
     arrow_boolean(lhs.clone(), rhs.clone(), op)
 }
 
