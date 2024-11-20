@@ -37,7 +37,17 @@ pub trait ComputeVTable {
         None
     }
 
+    /// Filter an array with a given mask.
+    ///
+    /// See: [FilterFn].
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
+        None
+    }
+
+    /// Perform zero-copy slicing of an array.
+    ///
+    /// See: [SliceFn].
+    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
         None
     }
 }
@@ -76,13 +86,6 @@ pub trait ArrayCompute {
     ///
     /// See: [SearchSortedFn].
     fn search_sorted(&self) -> Option<&dyn SearchSortedFn> {
-        None
-    }
-
-    /// Perform zero-copy slicing of an array.
-    ///
-    /// See: [SliceFn].
-    fn slice(&self) -> Option<&dyn SliceFn> {
         None
     }
 

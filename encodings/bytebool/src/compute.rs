@@ -19,16 +19,16 @@ impl ArrayCompute for ByteBoolArray {
         Some(self)
     }
 
-    fn slice(&self) -> Option<&dyn SliceFn> {
-        Some(self)
-    }
-
     fn take(&self) -> Option<&dyn TakeFn> {
         Some(self)
     }
 }
 
-impl ComputeVTable for ByteBoolEncoding {}
+impl ComputeVTable for ByteBoolEncoding {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+        Some(self)
+    }
+}
 
 impl ScalarAtFn for ByteBoolArray {
     fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
@@ -40,11 +40,11 @@ impl ScalarAtFn for ByteBoolArray {
     }
 }
 
-impl SliceFn for ByteBoolArray {
-    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData> {
+impl SliceFn<ByteBoolArray> for ByteBoolEncoding {
+    fn slice(&self, array: &ByteBoolArray, start: usize, stop: usize) -> VortexResult<ArrayData> {
         Ok(ByteBoolArray::try_new(
-            self.buffer().slice(start..stop),
-            self.validity().slice(start, stop)?,
+            array.buffer().slice(start..stop),
+            array.validity().slice(start, stop)?,
         )?
         .into_array())
     }

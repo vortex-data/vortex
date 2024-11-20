@@ -14,16 +14,16 @@ impl ArrayCompute for RunEndBoolArray {
         Some(self)
     }
 
-    fn slice(&self) -> Option<&dyn SliceFn> {
-        Some(self)
-    }
-
     fn take(&self) -> Option<&dyn TakeFn> {
         Some(self)
     }
 }
 
-impl ComputeVTable for RunEndBoolEncoding {}
+impl ComputeVTable for RunEndBoolEncoding {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+        Some(self)
+    }
+}
 
 impl ScalarAtFn for RunEndBoolArray {
     fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
@@ -68,15 +68,15 @@ impl TakeFn for RunEndBoolArray {
     }
 }
 
-impl SliceFn for RunEndBoolArray {
-    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData> {
-        let slice_begin = self.find_physical_index(start)?;
-        let slice_end = self.find_physical_index(stop)?;
+impl SliceFn<RunEndBoolArray> for RunEndBoolEncoding {
+    fn slice(&self, array: &RunEndBoolArray, start: usize, stop: usize) -> VortexResult<ArrayData> {
+        let slice_begin = array.find_physical_index(start)?;
+        let slice_end = array.find_physical_index(stop)?;
 
-        Ok(Self::with_offset_and_size(
-            slice(self.ends(), slice_begin, slice_end + 1)?,
-            value_at_index(slice_begin, self.start()),
-            self.validity().slice(slice_begin, slice_end + 1)?,
+        Ok(RunEndBoolArray::with_offset_and_size(
+            slice(array.ends(), slice_begin, slice_end + 1)?,
+            value_at_index(slice_begin, array.start()),
+            array.validity().slice(slice_begin, slice_end + 1)?,
             stop - start,
             start,
         )?

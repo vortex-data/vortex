@@ -1,21 +1,22 @@
 use vortex_error::VortexResult;
 
 use crate::array::sparse::SparseArray;
+use crate::array::SparseEncoding;
 use crate::compute::{slice, SliceFn};
 use crate::{ArrayData, IntoArrayData};
 
-impl SliceFn for SparseArray {
-    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData> {
+impl SliceFn<SparseArray> for SparseEncoding {
+    fn slice(&self, array: &SparseArray, start: usize, stop: usize) -> VortexResult<ArrayData> {
         // Find the index of the first patch index that is greater than or equal to the offset of this array
-        let index_start_index = self.search_index(start)?.to_index();
-        let index_end_index = self.search_index(stop)?.to_index();
+        let index_start_index = array.search_index(start)?.to_index();
+        let index_end_index = array.search_index(stop)?.to_index();
 
-        Ok(Self::try_new_with_offset(
-            slice(self.indices(), index_start_index, index_end_index)?,
-            slice(self.values(), index_start_index, index_end_index)?,
+        Ok(SparseArray::try_new_with_offset(
+            slice(array.indices(), index_start_index, index_end_index)?,
+            slice(array.values(), index_start_index, index_end_index)?,
             stop - start,
-            self.indices_offset() + start,
-            self.fill_value().clone(),
+            array.indices_offset() + start,
+            array.fill_value().clone(),
         )?
         .into_array())
     }

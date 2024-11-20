@@ -27,10 +27,6 @@ impl ArrayCompute for ConstantArray {
         Some(self)
     }
 
-    fn slice(&self) -> Option<&dyn SliceFn> {
-        Some(self)
-    }
-
     fn take(&self) -> Option<&dyn TakeFn> {
         Some(self)
     }
@@ -46,6 +42,10 @@ impl ArrayCompute for ConstantArray {
 
 impl ComputeVTable for ConstantEncoding {
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
         Some(self)
     }
 }
@@ -66,9 +66,9 @@ impl TakeFn for ConstantArray {
     }
 }
 
-impl SliceFn for ConstantArray {
-    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData> {
-        Ok(Self::new(self.owned_scalar(), stop - start).into_array())
+impl SliceFn<ConstantArray> for ConstantEncoding {
+    fn slice(&self, array: &ConstantArray, start: usize, stop: usize) -> VortexResult<ArrayData> {
+        Ok(ConstantArray::new(array.owned_scalar(), stop - start).into_array())
     }
 }
 

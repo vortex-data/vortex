@@ -12,13 +12,13 @@ impl ArrayCompute for RoaringIntArray {
     fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
         Some(self)
     }
+}
 
-    fn slice(&self) -> Option<&dyn SliceFn> {
+impl ComputeVTable for RoaringIntEncoding {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
         Some(self)
     }
 }
-
-impl ComputeVTable for RoaringIntEncoding {}
 
 impl ScalarAtFn for RoaringIntArray {
     fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
@@ -41,22 +41,22 @@ impl ScalarAtFn for RoaringIntArray {
     }
 }
 
-impl SliceFn for RoaringIntArray {
-    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData> {
-        let mut bitmap = self.owned_bitmap();
+impl SliceFn<RoaringIntArray> for RoaringIntEncoding {
+    fn slice(&self, array: &RoaringIntArray, start: usize, stop: usize) -> VortexResult<ArrayData> {
+        let mut bitmap = array.owned_bitmap();
         let start = bitmap
             .select(start as u32)
-            .ok_or_else(|| vortex_err!(OutOfBounds: start, 0, self.len()))?;
-        let stop_inclusive = if stop == self.len() {
+            .ok_or_else(|| vortex_err!(OutOfBounds: start, 0, array.len()))?;
+        let stop_inclusive = if stop == array.len() {
             bitmap.maximum().unwrap_or(0)
         } else {
             bitmap
                 .select(stop.saturating_sub(1) as u32)
-                .ok_or_else(|| vortex_err!(OutOfBounds: stop, 0, self.len()))?
+                .ok_or_else(|| vortex_err!(OutOfBounds: stop, 0, array.len()))?
         };
 
         bitmap.and_inplace(&Bitmap::from_range(start..=stop_inclusive));
-        Self::try_new(bitmap, self.cached_ptype()).map(IntoArrayData::into_array)
+        RoaringIntArray::try_new(bitmap, array.cached_ptype()).map(IntoArrayData::into_array)
     }
 }
 

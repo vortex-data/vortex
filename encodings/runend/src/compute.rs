@@ -26,10 +26,6 @@ impl ArrayCompute for RunEndArray {
         Some(self)
     }
 
-    fn slice(&self) -> Option<&dyn SliceFn> {
-        Some(self)
-    }
-
     fn take(&self) -> Option<&dyn TakeFn> {
         Some(self)
     }
@@ -37,6 +33,10 @@ impl ArrayCompute for RunEndArray {
 
 impl ComputeVTable for RunEndEncoding {
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
         Some(self)
     }
 }
@@ -138,16 +138,16 @@ impl TakeFn for RunEndArray {
     }
 }
 
-impl SliceFn for RunEndArray {
-    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData> {
-        let slice_begin = self.find_physical_index(start)?;
-        let slice_end = self.find_physical_index(stop)?;
+impl SliceFn<RunEndArray> for RunEndEncoding {
+    fn slice(&self, array: &RunEndArray, start: usize, stop: usize) -> VortexResult<ArrayData> {
+        let slice_begin = array.find_physical_index(start)?;
+        let slice_end = array.find_physical_index(stop)?;
 
-        Ok(Self::with_offset_and_length(
-            slice(self.ends(), slice_begin, slice_end + 1)?,
-            slice(self.values(), slice_begin, slice_end + 1)?,
-            self.validity().slice(start, stop)?,
-            start + self.offset(),
+        Ok(RunEndArray::with_offset_and_length(
+            slice(array.ends(), slice_begin, slice_end + 1)?,
+            slice(array.values(), slice_begin, slice_end + 1)?,
+            array.validity().slice(start, stop)?,
+            start + array.offset(),
             stop - start,
         )?
         .into_array())

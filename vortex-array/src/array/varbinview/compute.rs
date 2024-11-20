@@ -34,16 +34,16 @@ impl ArrayCompute for VarBinViewArray {
         Some(self)
     }
 
-    fn slice(&self) -> Option<&dyn SliceFn> {
-        Some(self)
-    }
-
     fn take(&self) -> Option<&dyn TakeFn> {
         Some(self)
     }
 }
 
-impl ComputeVTable for VarBinViewEncoding {}
+impl ComputeVTable for VarBinViewEncoding {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+        Some(self)
+    }
+}
 
 impl ScalarAtFn for VarBinViewArray {
     fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
@@ -56,19 +56,19 @@ impl ScalarAtFn for VarBinViewArray {
     }
 }
 
-impl SliceFn for VarBinViewArray {
-    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData> {
-        Ok(Self::try_new(
+impl SliceFn<VarBinViewArray> for VarBinViewEncoding {
+    fn slice(&self, array: &VarBinViewArray, start: usize, stop: usize) -> VortexResult<ArrayData> {
+        Ok(VarBinViewArray::try_new(
             slice(
-                self.views(),
+                array.views(),
                 start * VIEW_SIZE_BYTES,
                 stop * VIEW_SIZE_BYTES,
             )?,
-            (0..self.metadata().buffer_lens.len())
-                .map(|i| self.buffer(i))
+            (0..array.metadata().buffer_lens.len())
+                .map(|i| array.buffer(i))
                 .collect::<Vec<_>>(),
-            self.dtype().clone(),
-            self.validity().slice(start, stop)?,
+            array.dtype().clone(),
+            array.validity().slice(start, stop)?,
         )?
         .into_array())
     }

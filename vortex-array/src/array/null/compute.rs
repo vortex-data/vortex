@@ -14,19 +14,19 @@ impl ArrayCompute for NullArray {
         Some(self)
     }
 
-    fn slice(&self) -> Option<&dyn SliceFn> {
-        Some(self)
-    }
-
     fn take(&self) -> Option<&dyn TakeFn> {
         Some(self)
     }
 }
 
-impl ComputeVTable for NullEncoding {}
+impl ComputeVTable for NullEncoding {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+        Some(self)
+    }
+}
 
-impl SliceFn for NullArray {
-    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData> {
+impl SliceFn<NullArray> for NullEncoding {
+    fn slice(&self, _array: &NullArray, start: usize, stop: usize) -> VortexResult<ArrayData> {
         Ok(NullArray::new(stop - start).into_array())
     }
 }
@@ -66,14 +66,14 @@ mod test {
 
     use crate::array::null::NullArray;
     use crate::compute::unary::scalar_at;
-    use crate::compute::{SliceFn, TakeFn, TakeOptions};
+    use crate::compute::{slice, TakeFn, TakeOptions};
     use crate::validity::{ArrayValidity, LogicalValidity};
     use crate::{ArrayLen, IntoArrayData};
 
     #[test]
     fn test_slice_nulls() {
         let nulls = NullArray::new(10);
-        let sliced = NullArray::try_from(nulls.slice(0, 4).unwrap()).unwrap();
+        let sliced = NullArray::try_from(slice(nulls.into_array(), 0, 4).unwrap()).unwrap();
 
         assert_eq!(sliced.len(), 4);
         assert!(matches!(

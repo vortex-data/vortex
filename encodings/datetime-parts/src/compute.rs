@@ -18,16 +18,16 @@ impl ArrayCompute for DateTimePartsArray {
         Some(self)
     }
 
-    fn slice(&self) -> Option<&dyn SliceFn> {
-        Some(self)
-    }
-
     fn take(&self) -> Option<&dyn TakeFn> {
         Some(self)
     }
 }
 
-impl ComputeVTable for DateTimePartsEncoding {}
+impl ComputeVTable for DateTimePartsEncoding {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+        Some(self)
+    }
+}
 
 impl TakeFn for DateTimePartsArray {
     fn take(&self, indices: &ArrayData, options: TakeOptions) -> VortexResult<ArrayData> {
@@ -41,13 +41,18 @@ impl TakeFn for DateTimePartsArray {
     }
 }
 
-impl SliceFn for DateTimePartsArray {
-    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData> {
-        Ok(Self::try_new(
-            self.dtype().clone(),
-            slice(self.days(), start, stop)?,
-            slice(self.seconds(), start, stop)?,
-            slice(self.subsecond(), start, stop)?,
+impl SliceFn<DateTimePartsArray> for DateTimePartsEncoding {
+    fn slice(
+        &self,
+        array: &DateTimePartsArray,
+        start: usize,
+        stop: usize,
+    ) -> VortexResult<ArrayData> {
+        Ok(DateTimePartsArray::try_new(
+            array.dtype().clone(),
+            slice(array.days(), start, stop)?,
+            slice(array.seconds(), start, stop)?,
+            slice(array.subsecond(), start, stop)?,
         )?
         .into_array())
     }

@@ -1,14 +1,31 @@
-use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 
 use crate::array::ConstantArray;
+use crate::encoding::Encoding;
 use crate::{ArrayData, IntoArrayData};
 
 /// Limit array to start...stop range
-pub trait SliceFn {
+pub trait SliceFn<Array> {
     /// Return a zero-copy slice of an array, between `start` (inclusive) and `end` (exclusive).
     /// If start >= stop, returns an empty array of the same type as `self`.
     /// Assumes that start or stop are out of bounds, may panic otherwise.
-    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData>;
+    fn slice(&self, array: &Array, start: usize, stop: usize) -> VortexResult<ArrayData>;
+}
+
+impl<E: Encoding + 'static> SliceFn<ArrayData> for E
+where
+    E: SliceFn<E::Array>,
+    for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
+{
+    fn slice(&self, array: &ArrayData, start: usize, stop: usize) -> VortexResult<ArrayData> {
+        let array_ref = <&E::Array>::try_from(array)?;
+        let encoding = array
+            .encoding()
+            .as_any()
+            .downcast_ref::<E>()
+            .ok_or_else(|| vortex_err!("Mismatched encoding"))?;
+        SliceFn::slice(encoding, array_ref, start, stop)
+    }
 }
 
 /// Return a zero-copy slice of an array, between `start` (inclusive) and `end` (exclusive).
@@ -28,14 +45,16 @@ pub fn slice(array: impl AsRef<ArrayData>, start: usize, stop: usize) -> VortexR
         return Ok(ConstantArray::new(const_scalar, stop - start).into_array());
     }
 
-    array.with_dyn(|c| {
-        c.slice().map(|t| t.slice(start, stop)).unwrap_or_else(|| {
+    array
+        .encoding()
+        .slice_fn()
+        .map(|f| f.slice(array, start, stop))
+        .unwrap_or_else(|| {
             Err(vortex_err!(
                 NotImplemented: "slice",
                 array.encoding().id()
             ))
         })
-    })
 }
 
 fn check_slice_bounds(array: &ArrayData, start: usize, stop: usize) -> VortexResult<()> {

@@ -22,10 +22,6 @@ impl ArrayCompute for FSSTArray {
         Some(self)
     }
 
-    fn slice(&self) -> Option<&dyn SliceFn> {
-        Some(self)
-    }
-
     fn take(&self) -> Option<&dyn TakeFn> {
         Some(self)
     }
@@ -33,6 +29,10 @@ impl ArrayCompute for FSSTArray {
 
 impl ComputeVTable for FSSTEncoding {
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
         Some(self)
     }
 }
@@ -103,16 +103,16 @@ fn compare_fsst_constant(
     }
 }
 
-impl SliceFn for FSSTArray {
-    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData> {
+impl SliceFn<FSSTArray> for FSSTEncoding {
+    fn slice(&self, array: &FSSTArray, start: usize, stop: usize) -> VortexResult<ArrayData> {
         // Slicing an FSST array leaves the symbol table unmodified,
         // only slicing the `codes` array.
-        Ok(Self::try_new(
-            self.dtype().clone(),
-            self.symbols(),
-            self.symbol_lengths(),
-            slice(self.codes(), start, stop)?,
-            slice(self.uncompressed_lengths(), start, stop)?,
+        Ok(FSSTArray::try_new(
+            array.dtype().clone(),
+            array.symbols(),
+            array.symbol_lengths(),
+            slice(array.codes(), start, stop)?,
+            slice(array.uncompressed_lengths(), start, stop)?,
         )?
         .into_array())
     }

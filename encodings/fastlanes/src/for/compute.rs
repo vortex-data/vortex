@@ -23,10 +23,6 @@ impl ArrayCompute for FoRArray {
         Some(self)
     }
 
-    fn slice(&self) -> Option<&dyn SliceFn> {
-        Some(self)
-    }
-
     fn take(&self) -> Option<&dyn TakeFn> {
         Some(self)
     }
@@ -34,6 +30,10 @@ impl ArrayCompute for FoRArray {
 
 impl ComputeVTable for FoREncoding {
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
         Some(self)
     }
 }
@@ -87,12 +87,12 @@ impl ScalarAtFn for FoRArray {
     }
 }
 
-impl SliceFn for FoRArray {
-    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData> {
-        Self::try_new(
-            slice(self.encoded(), start, stop)?,
-            self.owned_reference_scalar(),
-            self.shift(),
+impl SliceFn<FoRArray> for FoREncoding {
+    fn slice(&self, array: &FoRArray, start: usize, stop: usize) -> VortexResult<ArrayData> {
+        FoRArray::try_new(
+            slice(array.encoded(), start, stop)?,
+            array.owned_reference_scalar(),
+            array.shift(),
         )
         .map(|a| a.into_array())
     }

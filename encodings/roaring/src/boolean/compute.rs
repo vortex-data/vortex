@@ -11,13 +11,13 @@ impl ArrayCompute for RoaringBoolArray {
     fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
         Some(self)
     }
+}
 
-    fn slice(&self) -> Option<&dyn SliceFn> {
+impl ComputeVTable for RoaringBoolEncoding {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
         Some(self)
     }
 }
-
-impl ComputeVTable for RoaringBoolEncoding {}
 
 impl ScalarAtFn for RoaringBoolArray {
     fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
@@ -29,12 +29,20 @@ impl ScalarAtFn for RoaringBoolArray {
     }
 }
 
-impl SliceFn for RoaringBoolArray {
-    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData> {
+impl SliceFn<RoaringBoolArray> for RoaringBoolEncoding {
+    fn slice(
+        &self,
+        array: &RoaringBoolArray,
+        start: usize,
+        stop: usize,
+    ) -> VortexResult<ArrayData> {
         let slice_bitmap = Bitmap::from_range(start as u32..stop as u32);
-        let bitmap = self.bitmap().and(&slice_bitmap).add_offset(-(start as i64));
+        let bitmap = array
+            .bitmap()
+            .and(&slice_bitmap)
+            .add_offset(-(start as i64));
 
-        Self::try_new(bitmap, stop - start).map(IntoArrayData::into_array)
+        RoaringBoolArray::try_new(bitmap, stop - start).map(IntoArrayData::into_array)
     }
 }
 

@@ -21,10 +21,6 @@ impl ArrayCompute for ALPArray {
         Some(self)
     }
 
-    fn slice(&self) -> Option<&dyn SliceFn> {
-        Some(self)
-    }
-
     fn take(&self) -> Option<&dyn TakeFn> {
         Some(self)
     }
@@ -32,6 +28,10 @@ impl ArrayCompute for ALPArray {
 
 impl ComputeVTable for ALPEncoding {
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
         Some(self)
     }
 }
@@ -75,12 +75,12 @@ impl TakeFn for ALPArray {
     }
 }
 
-impl SliceFn for ALPArray {
-    fn slice(&self, start: usize, end: usize) -> VortexResult<ArrayData> {
-        Ok(Self::try_new(
-            slice(self.encoded(), start, end)?,
-            self.exponents(),
-            self.patches().map(|p| slice(&p, start, end)).transpose()?,
+impl SliceFn<ALPArray> for ALPEncoding {
+    fn slice(&self, array: &ALPArray, start: usize, end: usize) -> VortexResult<ArrayData> {
+        Ok(ALPArray::try_new(
+            slice(array.encoded(), start, end)?,
+            array.exponents(),
+            array.patches().map(|p| slice(&p, start, end)).transpose()?,
         )?
         .into_array())
     }

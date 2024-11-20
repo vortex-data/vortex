@@ -6,24 +6,25 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayData, IntoArrayData};
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::BitPackedArray;
+use crate::{BitPackedArray, BitPackedEncoding};
 
-impl SliceFn for BitPackedArray {
-    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData> {
-        let offset_start = start + self.offset() as usize;
-        let offset_stop = stop + self.offset() as usize;
+impl SliceFn<BitPackedArray> for BitPackedEncoding {
+    fn slice(&self, array: &BitPackedArray, start: usize, stop: usize) -> VortexResult<ArrayData> {
+        let offset_start = start + array.offset() as usize;
+        let offset_stop = stop + array.offset() as usize;
         let offset = offset_start % 1024;
         let block_start = max(0, offset_start - offset);
         let block_stop = ((offset_stop + 1023) / 1024) * 1024;
 
-        let encoded_start = (block_start / 8) * self.bit_width() as usize;
-        let encoded_stop = (block_stop / 8) * self.bit_width() as usize;
+        let encoded_start = (block_start / 8) * array.bit_width() as usize;
+        let encoded_stop = (block_stop / 8) * array.bit_width() as usize;
         // slice the buffer using the encoded start/stop values
-        Self::try_new_from_offset(
-            self.packed().slice(encoded_start..encoded_stop),
-            self.ptype(),
-            self.validity().slice(start, stop)?,
-            self.patches()
+        BitPackedArray::try_new_from_offset(
+            array.packed().slice(encoded_start..encoded_stop),
+            array.ptype(),
+            array.validity().slice(start, stop)?,
+            array
+                .patches()
                 .map(|p| slice(&p, start, stop))
                 .transpose()?
                 .filter(|a| {
@@ -34,7 +35,7 @@ impl SliceFn for BitPackedArray {
                         .indices()
                         .is_empty()
                 }),
-            self.bit_width(),
+            array.bit_width(),
             stop - start,
             offset as u16,
         )

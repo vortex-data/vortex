@@ -205,7 +205,7 @@ fn compute_funcs(encodings: &[ArrayData]) {
             arr.with_dyn(|a| a.subtract_scalar().is_some()),
         ));
         impls.push(bool_to_cell(arr.with_dyn(|a| a.search_sorted().is_some())));
-        impls.push(bool_to_cell(arr.with_dyn(|a| a.slice().is_some())));
+        impls.push(bool_to_cell(arr.encoding().slice_fn().is_some()));
         impls.push(bool_to_cell(arr.with_dyn(|a| a.take().is_some())));
         impls.push(bool_to_cell(arr.with_dyn(|a| a.and().is_some())));
         impls.push(bool_to_cell(arr.with_dyn(|a| a.or().is_some())));

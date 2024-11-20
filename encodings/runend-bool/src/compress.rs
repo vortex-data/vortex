@@ -74,7 +74,7 @@ mod test {
     use rand::prelude::StdRng;
     use rand::{Rng, SeedableRng};
     use vortex_array::array::{BoolArray, PrimitiveArray};
-    use vortex_array::compute::SliceFn;
+    use vortex_array::compute::slice;
     use vortex_array::validity::Validity;
     use vortex_array::IntoArrayVariant;
 
@@ -146,7 +146,7 @@ mod test {
         let mut rng = StdRng::seed_from_u64(39451);
         let input = (0..1024 * 8 - 61).map(|_x| rng.gen::<bool>()).collect_vec();
         let b = BoolArray::from_iter(input.clone());
-        let b = b.slice(3, 1024 * 8 - 66).unwrap().into_bool().unwrap();
+        let b = slice(b, 3, 1024 * 8 - 66).unwrap().into_bool().unwrap();
         let (ends, start) = runend_bool_encode_slice(&b.boolean_buffer());
         let ends = PrimitiveArray::from(ends);
 

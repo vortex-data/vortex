@@ -12,13 +12,13 @@ impl ArrayCompute for DeltaArray {
     fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
         Some(self)
     }
+}
 
-    fn slice(&self) -> Option<&dyn SliceFn> {
+impl ComputeVTable for DeltaEncoding {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
         Some(self)
     }
 }
-
-impl ComputeVTable for DeltaEncoding {}
 
 impl ScalarAtFn for DeltaArray {
     fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
@@ -35,29 +35,29 @@ impl ScalarAtFn for DeltaArray {
     }
 }
 
-impl SliceFn for DeltaArray {
-    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData> {
-        let physical_start = start + self.offset();
-        let physical_stop = stop + self.offset();
+impl SliceFn<DeltaArray> for DeltaEncoding {
+    fn slice(&self, array: &DeltaArray, start: usize, stop: usize) -> VortexResult<ArrayData> {
+        let physical_start = start + array.offset();
+        let physical_stop = stop + array.offset();
 
         let start_chunk = physical_start / 1024;
         let stop_chunk = physical_stop.div_ceil(1024);
 
-        let bases = self.bases();
-        let deltas = self.deltas();
-        let validity = self.validity();
-        let lanes = self.lanes();
+        let bases = array.bases();
+        let deltas = array.deltas();
+        let validity = array.validity();
+        let lanes = array.lanes();
 
         let new_bases = slice(
             bases,
-            min(start_chunk * lanes, self.bases_len()),
-            min(stop_chunk * lanes, self.bases_len()),
+            min(start_chunk * lanes, array.bases_len()),
+            min(stop_chunk * lanes, array.bases_len()),
         )?;
 
         let new_deltas = slice(
             deltas,
-            min(start_chunk * 1024, self.deltas_len()),
-            min(stop_chunk * 1024, self.deltas_len()),
+            min(start_chunk * 1024, array.deltas_len()),
+            min(stop_chunk * 1024, array.deltas_len()),
         )?;
 
         let new_validity = validity.slice(start, stop)?;
@@ -166,7 +166,7 @@ mod test {
         let delta = DeltaArray::try_from_vec((0u32..2048).collect()).unwrap();
 
         assert_eq!(
-            SliceFn::slice(&delta, 10, 250)
+            slice(&delta, 10, 250)
                 .unwrap()
                 .into_primitive()
                 .unwrap()
@@ -180,7 +180,7 @@ mod test {
         let delta = DeltaArray::try_from_vec((0u32..2048).collect()).unwrap();
 
         assert_eq!(
-            SliceFn::slice(&delta, 1024 + 10, 1024 + 250)
+            slice(&delta, 1024 + 10, 1024 + 250)
                 .unwrap()
                 .into_primitive()
                 .unwrap()
@@ -194,7 +194,7 @@ mod test {
         let delta = DeltaArray::try_from_vec((0u32..2048).collect()).unwrap();
 
         assert_eq!(
-            SliceFn::slice(&delta, 1000, 1048)
+            slice(&delta, 1000, 1048)
                 .unwrap()
                 .into_primitive()
                 .unwrap()
@@ -208,7 +208,7 @@ mod test {
         let delta = DeltaArray::try_from_vec((0u32..4096).collect()).unwrap();
 
         assert_eq!(
-            SliceFn::slice(&delta, 2040, 2050)
+            slice(&delta, 2040, 2050)
                 .unwrap()
                 .into_primitive()
                 .unwrap()
@@ -222,7 +222,7 @@ mod test {
         let delta = DeltaArray::try_from_vec((0u32..4096).collect()).unwrap();
 
         assert_eq!(
-            SliceFn::slice(&delta, 0, 4096)
+            slice(&delta, 0, 4096)
                 .unwrap()
                 .into_primitive()
                 .unwrap()
@@ -236,7 +236,7 @@ mod test {
         let delta = DeltaArray::try_from_vec((0u32..4096).collect()).unwrap();
 
         assert_eq!(
-            SliceFn::slice(&delta, 0, 0)
+            slice(&delta, 0, 0)
                 .unwrap()
                 .into_primitive()
                 .unwrap()
@@ -245,7 +245,7 @@ mod test {
         );
 
         assert_eq!(
-            SliceFn::slice(&delta, 4096, 4096)
+            slice(&delta, 4096, 4096)
                 .unwrap()
                 .into_primitive()
                 .unwrap()
@@ -254,7 +254,7 @@ mod test {
         );
 
         assert_eq!(
-            SliceFn::slice(&delta, 1024, 1024)
+            slice(&delta, 1024, 1024)
                 .unwrap()
                 .into_primitive()
                 .unwrap()
@@ -268,7 +268,7 @@ mod test {
         let delta = DeltaArray::try_from_vec((0u32..2000).collect()).unwrap();
 
         assert_eq!(
-            SliceFn::slice(&delta, 1024 + 10, 1024 + 250)
+            slice(&delta, 1024 + 10, 1024 + 250)
                 .unwrap()
                 .into_primitive()
                 .unwrap()
@@ -282,7 +282,7 @@ mod test {
         let delta = DeltaArray::try_from_vec((0u32..4000).collect()).unwrap();
 
         assert_eq!(
-            SliceFn::slice(&delta, 0, 0)
+            slice(&delta, 0, 0)
                 .unwrap()
                 .into_primitive()
                 .unwrap()
@@ -291,7 +291,7 @@ mod test {
         );
 
         assert_eq!(
-            SliceFn::slice(&delta, 4096, 4096)
+            slice(&delta, 4096, 4096)
                 .unwrap()
                 .into_primitive()
                 .unwrap()
@@ -300,7 +300,7 @@ mod test {
         );
 
         assert_eq!(
-            SliceFn::slice(&delta, 1024, 1024)
+            slice(&delta, 1024, 1024)
                 .unwrap()
                 .into_primitive()
                 .unwrap()
@@ -313,7 +313,7 @@ mod test {
     fn test_slice_of_slice_of_non_jagged() {
         let delta = DeltaArray::try_from_vec((0u32..2048).collect()).unwrap();
 
-        let sliced = SliceFn::slice(&delta, 10, 1013).unwrap();
+        let sliced = slice(&delta, 10, 1013).unwrap();
         let sliced_again = slice(sliced, 0, 2).unwrap();
 
         assert_eq!(
@@ -329,7 +329,7 @@ mod test {
     fn test_slice_of_slice_of_jagged() {
         let delta = DeltaArray::try_from_vec((0u32..2000).collect()).unwrap();
 
-        let sliced = SliceFn::slice(&delta, 10, 1013).unwrap();
+        let sliced = slice(&delta, 10, 1013).unwrap();
         let sliced_again = slice(sliced, 0, 2).unwrap();
 
         assert_eq!(
@@ -345,7 +345,7 @@ mod test {
     fn test_slice_of_slice_second_chunk_of_non_jagged() {
         let delta = DeltaArray::try_from_vec((0u32..2048).collect()).unwrap();
 
-        let sliced = SliceFn::slice(&delta, 1034, 1050).unwrap();
+        let sliced = slice(&delta, 1034, 1050).unwrap();
         let sliced_again = slice(sliced, 0, 2).unwrap();
 
         assert_eq!(
@@ -361,7 +361,7 @@ mod test {
     fn test_slice_of_slice_second_chunk_of_jagged() {
         let delta = DeltaArray::try_from_vec((0u32..2000).collect()).unwrap();
 
-        let sliced = SliceFn::slice(&delta, 1034, 1050).unwrap();
+        let sliced = slice(&delta, 1034, 1050).unwrap();
         let sliced_again = slice(sliced, 0, 2).unwrap();
 
         assert_eq!(
@@ -377,7 +377,7 @@ mod test {
     fn test_slice_of_slice_spanning_two_chunks_of_non_jagged() {
         let delta = DeltaArray::try_from_vec((0u32..2048).collect()).unwrap();
 
-        let sliced = SliceFn::slice(&delta, 1010, 1050).unwrap();
+        let sliced = slice(&delta, 1010, 1050).unwrap();
         let sliced_again = slice(sliced, 5, 20).unwrap();
 
         assert_eq!(
@@ -393,7 +393,7 @@ mod test {
     fn test_slice_of_slice_spanning_two_chunks_of_jagged() {
         let delta = DeltaArray::try_from_vec((0u32..2000).collect()).unwrap();
 
-        let sliced = SliceFn::slice(&delta, 1010, 1050).unwrap();
+        let sliced = slice(&delta, 1010, 1050).unwrap();
         let sliced_again = slice(sliced, 5, 20).unwrap();
 
         assert_eq!(

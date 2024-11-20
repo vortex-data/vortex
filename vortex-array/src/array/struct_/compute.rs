@@ -17,10 +17,6 @@ impl ArrayCompute for StructArray {
         Some(self)
     }
 
-    fn slice(&self) -> Option<&dyn SliceFn> {
-        Some(self)
-    }
-
     fn take(&self) -> Option<&dyn TakeFn> {
         Some(self)
     }
@@ -28,6 +24,10 @@ impl ArrayCompute for StructArray {
 
 impl ComputeVTable for StructEncoding {
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
         Some(self)
     }
 }
@@ -66,17 +66,17 @@ impl TakeFn for StructArray {
     }
 }
 
-impl SliceFn for StructArray {
-    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData> {
-        let fields = self
+impl SliceFn<StructArray> for StructEncoding {
+    fn slice(&self, array: &StructArray, start: usize, stop: usize) -> VortexResult<ArrayData> {
+        let fields = array
             .children()
             .map(|field| slice(&field, start, stop))
             .try_collect()?;
-        Self::try_new(
-            self.names().clone(),
+        StructArray::try_new(
+            array.names().clone(),
             fields,
             stop - start,
-            self.validity().slice(start, stop)?,
+            array.validity().slice(start, stop)?,
         )
         .map(|a| a.into_array())
     }

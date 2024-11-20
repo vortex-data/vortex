@@ -19,10 +19,6 @@ impl ArrayCompute for DictArray {
         Some(self)
     }
 
-    fn slice(&self) -> Option<&dyn SliceFn> {
-        Some(self)
-    }
-
     fn take(&self) -> Option<&dyn TakeFn> {
         Some(self)
     }
@@ -30,6 +26,10 @@ impl ArrayCompute for DictArray {
 
 impl ComputeVTable for DictEncoding {
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
         Some(self)
     }
 }
@@ -93,10 +93,11 @@ impl FilterFn<DictArray> for DictEncoding {
     }
 }
 
-impl SliceFn for DictArray {
+impl SliceFn<DictArray> for DictEncoding {
     // TODO(robert): Add function to trim the dictionary
-    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData> {
-        Self::try_new(slice(self.codes(), start, stop)?, self.values()).map(|a| a.into_array())
+    fn slice(&self, array: &DictArray, start: usize, stop: usize) -> VortexResult<ArrayData> {
+        DictArray::try_new(slice(array.codes(), start, stop)?, array.values())
+            .map(|a| a.into_array())
     }
 }
 

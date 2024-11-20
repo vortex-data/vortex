@@ -2,21 +2,21 @@ use vortex_array::compute::{slice, SliceFn};
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
 
-use crate::ALPRDArray;
+use crate::{ALPRDArray, ALPRDEncoding};
 
-impl SliceFn for ALPRDArray {
-    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData> {
-        let left_parts_exceptions = self
+impl SliceFn<ALPRDArray> for ALPRDEncoding {
+    fn slice(&self, array: &ALPRDArray, start: usize, stop: usize) -> VortexResult<ArrayData> {
+        let left_parts_exceptions = array
             .left_parts_exceptions()
             .map(|array| slice(&array, start, stop))
             .transpose()?;
 
         Ok(ALPRDArray::try_new(
-            self.dtype().clone(),
-            slice(self.left_parts(), start, stop)?,
-            self.left_parts_dict(),
-            slice(self.right_parts(), start, stop)?,
-            self.right_bit_width(),
+            array.dtype().clone(),
+            slice(array.left_parts(), start, stop)?,
+            array.left_parts_dict(),
+            slice(array.right_parts(), start, stop)?,
+            array.right_bit_width(),
             left_parts_exceptions,
         )?
         .into_array())

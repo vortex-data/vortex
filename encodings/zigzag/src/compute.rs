@@ -13,13 +13,13 @@ impl ArrayCompute for ZigZagArray {
     fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
         Some(self)
     }
+}
 
-    fn slice(&self) -> Option<&dyn SliceFn> {
+impl ComputeVTable for ZigZagEncoding {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
         Some(self)
     }
 }
-
-impl ComputeVTable for ZigZagEncoding {}
 
 impl ScalarAtFn for ZigZagArray {
     fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
@@ -68,9 +68,9 @@ impl ZigZagEncoded for u64 {
     type Int = i64;
 }
 
-impl SliceFn for ZigZagArray {
-    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData> {
-        Ok(Self::try_new(slice(self.encoded(), start, stop)?)?.into_array())
+impl SliceFn<ZigZagArray> for ZigZagEncoding {
+    fn slice(&self, array: &ZigZagArray, start: usize, stop: usize) -> VortexResult<ArrayData> {
+        Ok(ZigZagArray::try_new(slice(array.encoded(), start, stop)?)?.into_array())
     }
 }
 
