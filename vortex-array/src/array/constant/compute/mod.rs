@@ -1,6 +1,5 @@
 mod boolean;
-
-use std::cmp::Ordering;
+mod search_sorted;
 
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
@@ -10,7 +9,7 @@ use crate::array::ConstantEncoding;
 use crate::compute::unary::ScalarAtFn;
 use crate::compute::{
     scalar_cmp, ArrayCompute, BinaryBooleanFn, ComputeVTable, FilterFn, FilterMask, MaybeCompareFn,
-    Operator, SearchResult, SearchSortedFn, SearchSortedSide, SliceFn, TakeFn, TakeOptions,
+    Operator, SearchSortedFn, SliceFn, TakeFn, TakeOptions,
 };
 use crate::{ArrayData, ArrayLen, IntoArrayData};
 
@@ -81,23 +80,6 @@ impl FilterFn<ConstantArray> for ConstantEncoding {
     }
 }
 
-impl SearchSortedFn for ConstantArray {
-    fn search_sorted(&self, value: &Scalar, side: SearchSortedSide) -> VortexResult<SearchResult> {
-        match self
-            .scalar_value()
-            .partial_cmp(value.value())
-            .unwrap_or(Ordering::Less)
-        {
-            Ordering::Greater => Ok(SearchResult::NotFound(0)),
-            Ordering::Less => Ok(SearchResult::NotFound(self.len())),
-            Ordering::Equal => match side {
-                SearchSortedSide::Left => Ok(SearchResult::Found(0)),
-                SearchSortedSide::Right => Ok(SearchResult::Found(self.len())),
-            },
-        }
-    }
-}
-
 impl MaybeCompareFn for ConstantArray {
     fn maybe_compare(
         &self,
@@ -109,38 +91,5 @@ impl MaybeCompareFn for ConstantArray {
             let scalar = scalar_cmp(&lhs, &const_scalar, operator);
             Ok(ConstantArray::new(scalar, self.len()).into_array())
         })
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use crate::array::constant::ConstantArray;
-    use crate::compute::{search_sorted, SearchResult, SearchSortedSide};
-    use crate::IntoArrayData;
-
-    #[test]
-    pub fn search() {
-        let cst = ConstantArray::new(42, 5000).into_array();
-        assert_eq!(
-            search_sorted(&cst, 33, SearchSortedSide::Left).unwrap(),
-            SearchResult::NotFound(0)
-        );
-        assert_eq!(
-            search_sorted(&cst, 55, SearchSortedSide::Left).unwrap(),
-            SearchResult::NotFound(5000)
-        );
-    }
-
-    #[test]
-    pub fn search_equals() {
-        let cst = ConstantArray::new(42, 5000).into_array();
-        assert_eq!(
-            search_sorted(&cst, 42, SearchSortedSide::Left).unwrap(),
-            SearchResult::Found(0)
-        );
-        assert_eq!(
-            search_sorted(&cst, 42, SearchSortedSide::Right).unwrap(),
-            SearchResult::Found(5000)
-        );
     }
 }
