@@ -46,7 +46,6 @@ jobs:
         run: |
           cargo run --bin tpch_benchmark --release -- -d gh-json | tee tpch.json
           cat tpch.json
-          cat tpch.json
       - name: Store benchmark result
         if: '!cancelled()'
         uses: benchmark-action/github-action-benchmark@v1
