@@ -3,7 +3,7 @@ use std::panic::resume_unwind;
 use std::thread::JoinHandle;
 
 use compio::runtime::{JoinHandle as CompioJoinHandle, Runtime, RuntimeBuilder};
-use futures_channel::oneshot;
+use futures::channel::oneshot;
 use vortex_error::{vortex_bail, vortex_panic, VortexResult};
 
 use super::Dispatch;
@@ -20,7 +20,7 @@ struct CompioTask<F, R> {
 impl<F, Fut, R> CompioSpawn for CompioTask<F, R>
 where
     F: FnOnce() -> Fut + Send + 'static,
-    Fut: Future<Output = R>,
+    Fut: Future<Output=R>,
     R: Send + 'static,
 {
     fn spawn(self: Box<Self>) -> CompioJoinHandle<()> {
@@ -74,7 +74,7 @@ impl Dispatch for CompioDispatcher {
     fn dispatch<F, Fut, R>(&self, task: F) -> VortexResult<oneshot::Receiver<R>>
     where
         F: (FnOnce() -> Fut) + Send + 'static,
-        Fut: Future<Output = R> + 'static,
+        Fut: Future<Output=R> + 'static,
         R: Send + 'static,
     {
         let (tx, rx) = oneshot::channel();
