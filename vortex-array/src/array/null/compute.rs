@@ -97,7 +97,7 @@ mod test {
         let taken = NullArray::try_from(
             take(
                 nulls,
-                &vec![0u64, 2, 4, 6, 8].into_array(),
+                vec![0u64, 2, 4, 6, 8].into_array(),
                 TakeOptions::default(),
             )
             .unwrap(),
