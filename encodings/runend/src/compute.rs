@@ -83,7 +83,7 @@ impl TakeFn<RunEndArray> for RunEndEncoding {
         options: TakeOptions,
     ) -> VortexResult<ArrayData> {
         let primitive_indices = indices.clone().into_primitive()?;
-        let u64_indices = match_each_integer_ptype!(primitive_indices.ptype(), |$P| {
+        let usize_indices = match_each_integer_ptype!(primitive_indices.ptype(), |$P| {
             primitive_indices
                 .into_maybe_null_slice::<$P>()
                 .into_iter()
@@ -93,12 +93,12 @@ impl TakeFn<RunEndArray> for RunEndEncoding {
                         vortex_error::vortex_bail!(OutOfBounds: usize_idx, 0, array.len());
                     }
 
-                    Ok((usize_idx + array.offset()) as u64)
+                    Ok(usize_idx + array.offset())
                 })
-                .collect::<VortexResult<Vec<u64>>>()?
+                .collect::<VortexResult<Vec<usize>>>()?
         });
         let physical_indices = array
-            .find_physical_indices(&u64_indices)?
+            .find_physical_indices(&usize_indices)?
             .into_iter()
             .map(|idx| idx as u64)
             .collect::<Vec<_>>();

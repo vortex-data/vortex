@@ -29,9 +29,13 @@ impl SearchSortedFn for PrimitiveArray {
     }
 
     #[allow(clippy::cognitive_complexity)]
-    fn search_sorted_u64(&self, value: u64, side: SearchSortedSide) -> VortexResult<SearchResult> {
+    fn search_sorted_usize(
+        &self,
+        value: usize,
+        side: SearchSortedSide,
+    ) -> VortexResult<SearchResult> {
         match_each_native_ptype!(self.ptype(), |$T| {
-            if let Some(pvalue) = num_traits::cast::<u64, $T>(value) {
+            if let Some(pvalue) = num_traits::cast::<usize, $T>(value) {
                 match self.validity() {
                     Validity::NonNullable | Validity::AllValid => {
                         // null-free search
