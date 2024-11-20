@@ -133,8 +133,8 @@ fn render_table(receiver: Receiver<Measurement>, formats: &[Format]) -> anyhow::
     header.extend(formats.iter().map(|f| format!("{:?}", f)));
     table_builder.push_record(header);
 
-    for query_idx in 0_usize..22 {
-        let query_baseline = baseline[query_idx].time.as_micros();
+    for (query_idx, baseline_measure) in baseline.iter().enumerate().take(22) {
+        let query_baseline = baseline_measure.time.as_micros();
         let mut row = vec![query_idx.to_string()];
         for (col_idx, format) in formats.iter().enumerate() {
             let time_us = measurements[format][query_idx].time.as_micros();
@@ -161,7 +161,7 @@ fn render_table(receiver: Receiver<Measurement>, formats: &[Format]) -> anyhow::
         table.with(color);
     }
 
-    println!("{}", table.to_string());
+    println!("{table}");
 
     Ok(())
 }
