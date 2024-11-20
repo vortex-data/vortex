@@ -291,7 +291,7 @@ mod test {
         );
 
         assert_eq!(
-            slice(&delta, 4096, 4096)
+            slice(&delta, 4000, 4000)
                 .unwrap()
                 .into_primitive()
                 .unwrap()
