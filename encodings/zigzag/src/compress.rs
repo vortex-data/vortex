@@ -63,7 +63,7 @@ where
 
 #[cfg(test)]
 mod test {
-    use vortex_array::encoding::ArrayEncoding;
+    use vortex_array::encoding::EncodingVTable;
 
     use super::*;
     use crate::ZigZagEncoding;

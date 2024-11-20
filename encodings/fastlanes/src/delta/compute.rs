@@ -1,12 +1,12 @@
 use std::cmp::min;
 
 use vortex_array::compute::unary::ScalarAtFn;
-use vortex_array::compute::{slice, ArrayCompute, SliceFn};
+use vortex_array::compute::{slice, ArrayCompute, ComputeVTable, SliceFn};
 use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::DeltaArray;
+use crate::{DeltaArray, DeltaEncoding};
 
 impl ArrayCompute for DeltaArray {
     fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
@@ -17,6 +17,8 @@ impl ArrayCompute for DeltaArray {
         Some(self)
     }
 }
+
+impl ComputeVTable for DeltaEncoding {}
 
 impl ScalarAtFn for DeltaArray {
     fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {

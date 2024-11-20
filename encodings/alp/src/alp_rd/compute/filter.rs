@@ -2,21 +2,21 @@ use vortex_array::compute::{filter, FilterFn, FilterMask};
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
 
-use crate::ALPRDArray;
+use crate::{ALPRDArray, ALPRDEncoding};
 
-impl FilterFn for ALPRDArray {
-    fn filter(&self, mask: FilterMask) -> VortexResult<ArrayData> {
-        let left_parts_exceptions = self
+impl FilterFn<ALPRDArray> for ALPRDEncoding {
+    fn filter(&self, array: &ALPRDArray, mask: FilterMask) -> VortexResult<ArrayData> {
+        let left_parts_exceptions = array
             .left_parts_exceptions()
             .map(|array| filter(&array, mask.clone()))
             .transpose()?;
 
         Ok(ALPRDArray::try_new(
-            self.dtype().clone(),
-            filter(&self.left_parts(), mask.clone())?,
-            self.left_parts_dict(),
-            filter(&self.right_parts(), mask)?,
-            self.right_bit_width(),
+            array.dtype().clone(),
+            filter(&array.left_parts(), mask.clone())?,
+            array.left_parts_dict(),
+            filter(&array.right_parts(), mask)?,
+            array.right_bit_width(),
             left_parts_exceptions,
         )?
         .into_array())

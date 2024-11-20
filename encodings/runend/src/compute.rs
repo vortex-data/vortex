@@ -5,8 +5,8 @@ use num_traits::AsPrimitive;
 use vortex_array::array::{BooleanBuffer, ConstantArray, PrimitiveArray, SparseArray};
 use vortex_array::compute::unary::{scalar_at, scalar_at_unchecked, ScalarAtFn};
 use vortex_array::compute::{
-    compare, filter, slice, take, ArrayCompute, FilterFn, FilterMask, MaybeCompareFn, Operator,
-    SliceFn, TakeFn, TakeOptions,
+    compare, filter, slice, take, ArrayCompute, ComputeVTable, FilterFn, FilterMask,
+    MaybeCompareFn, Operator, SliceFn, TakeFn, TakeOptions,
 };
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
@@ -15,15 +15,11 @@ use vortex_dtype::{match_each_integer_ptype, match_each_unsigned_integer_ptype, 
 use vortex_error::{VortexExpect as _, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
-use crate::RunEndArray;
+use crate::{RunEndArray, RunEndEncoding};
 
 impl ArrayCompute for RunEndArray {
     fn compare(&self, other: &ArrayData, operator: Operator) -> Option<VortexResult<ArrayData>> {
         MaybeCompareFn::maybe_compare(self, other, operator)
-    }
-
-    fn filter(&self) -> Option<&dyn FilterFn> {
-        Some(self)
     }
 
     fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
@@ -35,6 +31,12 @@ impl ArrayCompute for RunEndArray {
     }
 
     fn take(&self) -> Option<&dyn TakeFn> {
+        Some(self)
+    }
+}
+
+impl ComputeVTable for RunEndEncoding {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
         Some(self)
     }
 }
@@ -152,14 +154,14 @@ impl SliceFn for RunEndArray {
     }
 }
 
-impl FilterFn for RunEndArray {
-    fn filter(&self, mask: FilterMask) -> VortexResult<ArrayData> {
-        let validity = self.validity().filter(&mask)?;
-        let primitive_run_ends = self.ends().into_primitive()?;
+impl FilterFn<RunEndArray> for RunEndEncoding {
+    fn filter(&self, array: &RunEndArray, mask: FilterMask) -> VortexResult<ArrayData> {
+        let validity = array.validity().filter(&mask)?;
+        let primitive_run_ends = array.ends().into_primitive()?;
         let (run_ends, values_mask) = match_each_unsigned_integer_ptype!(primitive_run_ends.ptype(), |$P| {
-            filter_run_ends(primitive_run_ends.maybe_null_slice::<$P>(), self.offset() as u64, self.len() as u64, mask)?
+            filter_run_ends(primitive_run_ends.maybe_null_slice::<$P>(), array.offset() as u64, array.len() as u64, mask)?
         });
-        let values = filter(&self.values(), values_mask)?;
+        let values = filter(&array.values(), values_mask)?;
 
         RunEndArray::try_new(run_ends.into_array(), values, validity).map(|a| a.into_array())
     }

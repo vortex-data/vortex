@@ -3,7 +3,7 @@ use std::ops::Range;
 
 use futures_util::{Stream, TryStreamExt};
 use vortex_array::array::{ChunkedArray, ChunkedEncoding};
-use vortex_array::encoding::ArrayEncoding;
+use vortex_array::encoding::EncodingVTable;
 use vortex_array::stream::ArrayStream;
 use vortex_array::ArrayData;
 use vortex_buffer::Buffer;

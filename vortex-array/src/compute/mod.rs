@@ -28,6 +28,13 @@ mod take;
 
 pub mod unary;
 
+/// VTable for dispatching compute functions to Vortex encodings.
+pub trait ComputeVTable {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
+        None
+    }
+}
+
 /// Trait providing compute functions on top of Vortex arrays.
 pub trait ArrayCompute {
     /// Implemented for arrays that can be casted to different types.
@@ -48,13 +55,6 @@ pub trait ArrayCompute {
     ///
     /// See: [FillForwardFn].
     fn fill_forward(&self) -> Option<&dyn FillForwardFn> {
-        None
-    }
-
-    /// Filtering function on arrays of predicates.
-    ///
-    /// See: [FilterFn].
-    fn filter(&self) -> Option<&dyn FilterFn> {
         None
     }
 

@@ -2,7 +2,7 @@
 #![feature(trusted_len)]
 //! Vortex crate containing core logic for encoding and memory representation of [arrays](ArrayData).
 //!
-//! At the heart of Vortex are [arrays](ArrayData) and [encodings](crate::encoding::ArrayEncoding).
+//! At the heart of Vortex are [arrays](ArrayData) and [encodings](crate::encoding::EncodingVTable).
 //! Arrays are typed views of memory buffers that hold [scalars](vortex_scalar::Scalar). These
 //! buffers can be held in a number of physical encodings to perform lightweight compression that
 //! exploits the particular data distribution of the array's values.

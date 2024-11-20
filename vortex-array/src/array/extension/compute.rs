@@ -2,10 +2,11 @@ use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::{ExtScalar, Scalar};
 
 use crate::array::extension::ExtensionArray;
-use crate::array::ConstantArray;
+use crate::array::{ConstantArray, ExtensionEncoding};
 use crate::compute::unary::{scalar_at, scalar_at_unchecked, CastFn, ScalarAtFn};
 use crate::compute::{
-    compare, slice, take, ArrayCompute, MaybeCompareFn, Operator, SliceFn, TakeFn, TakeOptions,
+    compare, slice, take, ArrayCompute, ComputeVTable, MaybeCompareFn, Operator, SliceFn, TakeFn,
+    TakeOptions,
 };
 use crate::variants::ExtensionArrayTrait;
 use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData};
@@ -34,6 +35,8 @@ impl ArrayCompute for ExtensionArray {
         Some(self)
     }
 }
+
+impl ComputeVTable for ExtensionEncoding {}
 
 impl MaybeCompareFn for ExtensionArray {
     fn maybe_compare(

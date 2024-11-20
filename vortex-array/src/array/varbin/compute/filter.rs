@@ -5,14 +5,15 @@ use vortex_error::{vortex_err, vortex_panic, VortexResult};
 
 use crate::array::varbin::builder::VarBinBuilder;
 use crate::array::varbin::VarBinArray;
+use crate::array::VarBinEncoding;
 use crate::compute::{FilterFn, FilterMask};
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 
-impl FilterFn for VarBinArray {
-    fn filter(&self, mask: FilterMask) -> VortexResult<ArrayData> {
-        filter_select_var_bin(self, mask).map(|a| a.into_array())
+impl FilterFn<VarBinArray> for VarBinEncoding {
+    fn filter(&self, array: &VarBinArray, mask: FilterMask) -> VortexResult<ArrayData> {
+        filter_select_var_bin(array, mask).map(|a| a.into_array())
     }
 }
 

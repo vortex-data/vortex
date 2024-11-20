@@ -1,8 +1,8 @@
 use vortex_array::array::ConstantArray;
 use vortex_array::compute::unary::{scalar_at_unchecked, ScalarAtFn};
 use vortex_array::compute::{
-    compare, filter, slice, take, ArrayCompute, FilterFn, FilterMask, MaybeCompareFn, Operator,
-    SliceFn, TakeFn, TakeOptions,
+    compare, filter, slice, take, ArrayCompute, ComputeVTable, FilterFn, FilterMask,
+    MaybeCompareFn, Operator, SliceFn, TakeFn, TakeOptions,
 };
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData};
@@ -10,15 +10,11 @@ use vortex_dtype::Nullability;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::{PValue, Scalar};
 
-use crate::{match_each_alp_float_ptype, ALPArray, ALPFloat};
+use crate::{match_each_alp_float_ptype, ALPArray, ALPEncoding, ALPFloat};
 
 impl ArrayCompute for ALPArray {
     fn compare(&self, other: &ArrayData, operator: Operator) -> Option<VortexResult<ArrayData>> {
         MaybeCompareFn::maybe_compare(self, other, operator)
-    }
-
-    fn filter(&self) -> Option<&dyn FilterFn> {
-        Some(self)
     }
 
     fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
@@ -30,6 +26,12 @@ impl ArrayCompute for ALPArray {
     }
 
     fn take(&self) -> Option<&dyn TakeFn> {
+        Some(self)
+    }
+}
+
+impl ComputeVTable for ALPEncoding {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
         Some(self)
     }
 }
@@ -84,12 +86,12 @@ impl SliceFn for ALPArray {
     }
 }
 
-impl FilterFn for ALPArray {
-    fn filter(&self, mask: FilterMask) -> VortexResult<ArrayData> {
-        Ok(Self::try_new(
-            filter(&self.encoded(), mask.clone())?,
-            self.exponents(),
-            self.patches().map(|p| filter(&p, mask)).transpose()?,
+impl FilterFn<ALPArray> for ALPEncoding {
+    fn filter(&self, array: &ALPArray, mask: FilterMask) -> VortexResult<ArrayData> {
+        Ok(ALPArray::try_new(
+            filter(&array.encoded(), mask.clone())?,
+            array.exponents(),
+            array.patches().map(|p| filter(&p, mask)).transpose()?,
         )?
         .into_array())
     }

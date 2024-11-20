@@ -1,22 +1,18 @@
 use vortex_array::array::ConstantArray;
 use vortex_array::compute::unary::{scalar_at, scalar_at_unchecked, ScalarAtFn};
 use vortex_array::compute::{
-    compare, filter, slice, take, ArrayCompute, FilterFn, FilterMask, MaybeCompareFn, Operator,
-    SliceFn, TakeFn, TakeOptions,
+    compare, filter, slice, take, ArrayCompute, ComputeVTable, FilterFn, FilterMask,
+    MaybeCompareFn, Operator, SliceFn, TakeFn, TakeOptions,
 };
 use vortex_array::{ArrayData, IntoArrayData};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::DictArray;
+use crate::{DictArray, DictEncoding};
 
 impl ArrayCompute for DictArray {
     fn compare(&self, other: &ArrayData, operator: Operator) -> Option<VortexResult<ArrayData>> {
         MaybeCompareFn::maybe_compare(self, other, operator)
-    }
-
-    fn filter(&self) -> Option<&dyn FilterFn> {
-        Some(self)
     }
 
     fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
@@ -28,6 +24,12 @@ impl ArrayCompute for DictArray {
     }
 
     fn take(&self) -> Option<&dyn TakeFn> {
+        Some(self)
+    }
+}
+
+impl ComputeVTable for DictEncoding {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
         Some(self)
     }
 }
@@ -84,10 +86,10 @@ impl TakeFn for DictArray {
     }
 }
 
-impl FilterFn for DictArray {
-    fn filter(&self, mask: FilterMask) -> VortexResult<ArrayData> {
-        let codes = filter(&self.codes(), mask)?;
-        Self::try_new(codes, self.values()).map(|a| a.into_array())
+impl FilterFn<DictArray> for DictEncoding {
+    fn filter(&self, array: &DictArray, mask: FilterMask) -> VortexResult<ArrayData> {
+        let codes = filter(&array.codes(), mask)?;
+        DictArray::try_new(codes, array.values()).map(|a| a.into_array())
     }
 }
 

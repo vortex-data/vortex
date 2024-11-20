@@ -2,7 +2,9 @@
 
 use vortex_error::VortexError;
 
-use crate::encoding::{ArrayEncoding, ArrayEncodingExt, ArrayEncodingRef, EncodingId, EncodingRef};
+use crate::encoding::{
+    ArrayEncodingExt, ArrayEncodingRef, EncodingId, EncodingRef, EncodingVTable,
+};
 use crate::{ArrayData, ArrayMetadata, ArrayTrait, ToArrayData, TryDeserializeArrayMetadata};
 
 /// Trait the defines the set of types relating to an array.
@@ -13,7 +15,7 @@ pub trait ArrayDef {
 
     type Array: ArrayTrait + TryFrom<ArrayData, Error = VortexError>;
     type Metadata: ArrayMetadata + Clone + for<'m> TryDeserializeArrayMetadata<'m>;
-    type Encoding: ArrayEncoding + ArrayEncodingExt<D = Self>;
+    type Encoding: EncodingVTable + ArrayEncodingExt<D = Self>;
 }
 
 impl<A: AsRef<ArrayData>> ToArrayData for A {
@@ -104,13 +106,34 @@ macro_rules! impl_encoding {
                 }
             }
 
+            // NOTE(ngates): this is the cheeky one.... Since we know that Arrays are structurally
+            //  equal to ArrayData, we can transmute a &ArrayData to a &Array.
+            impl<'a> TryFrom<&'a $crate::ArrayData> for &'a [<$Name Array>] {
+                type Error = vortex_error::VortexError;
+
+                fn try_from(data: &'a $crate::ArrayData) -> vortex_error::VortexResult<Self> {
+                    if data.encoding().id() != <$Name as $crate::ArrayDef>::ID {
+                        vortex_error::vortex_bail!(
+                            "Mismatched encoding {}, expected {}",
+                            data.encoding().id().as_ref(),
+                            <$Name as $crate::ArrayDef>::ID,
+                        );
+                    }
+                    Ok(unsafe { std::mem::transmute::<&$crate::ArrayData, &[<$Name Array>]>(data) })
+                }
+            }
+
             /// The array encoding
             #[derive(std::fmt::Debug)]
             pub struct [<$Name Encoding>];
-            impl $crate::encoding::ArrayEncoding for [<$Name Encoding>] {
+            impl $crate::encoding::EncodingVTable for [<$Name Encoding>] {
                 #[inline]
                 fn id(&self) -> $crate::encoding::EncodingId {
                     <$Name as $crate::ArrayDef>::ID
+                }
+
+                fn as_any(&self) -> &dyn std::any::Any {
+                    self
                 }
 
                 #[inline]

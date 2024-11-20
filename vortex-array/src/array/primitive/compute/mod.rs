@@ -1,8 +1,12 @@
 use vortex_error::VortexResult;
 
 use crate::array::primitive::PrimitiveArray;
+use crate::array::PrimitiveEncoding;
 use crate::compute::unary::{CastFn, FillForwardFn, ScalarAtFn, SubtractScalarFn};
-use crate::compute::{ArrayCompute, MaybeCompareFn, Operator, SearchSortedFn, SliceFn, TakeFn};
+use crate::compute::{
+    ArrayCompute, ComputeVTable, FilterFn, MaybeCompareFn, Operator, SearchSortedFn, SliceFn,
+    TakeFn,
+};
 use crate::ArrayData;
 
 mod cast;
@@ -45,6 +49,12 @@ impl ArrayCompute for PrimitiveArray {
     }
 
     fn take(&self) -> Option<&dyn TakeFn> {
+        Some(self)
+    }
+}
+
+impl ComputeVTable for PrimitiveEncoding {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
         Some(self)
     }
 }

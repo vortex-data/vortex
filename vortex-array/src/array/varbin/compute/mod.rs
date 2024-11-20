@@ -2,8 +2,11 @@ use vortex_error::{VortexResult, VortexUnwrap as _};
 use vortex_scalar::Scalar;
 
 use crate::array::varbin::{varbin_scalar, VarBinArray};
+use crate::array::VarBinEncoding;
 use crate::compute::unary::ScalarAtFn;
-use crate::compute::{ArrayCompute, FilterFn, MaybeCompareFn, Operator, SliceFn, TakeFn};
+use crate::compute::{
+    ArrayCompute, ComputeVTable, FilterFn, MaybeCompareFn, Operator, SliceFn, TakeFn,
+};
 use crate::{ArrayDType, ArrayData};
 
 mod compare;
@@ -16,10 +19,6 @@ impl ArrayCompute for VarBinArray {
         MaybeCompareFn::maybe_compare(self, other, operator)
     }
 
-    fn filter(&self) -> Option<&dyn FilterFn> {
-        Some(self)
-    }
-
     fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
         Some(self)
     }
@@ -29,6 +28,12 @@ impl ArrayCompute for VarBinArray {
     }
 
     fn take(&self) -> Option<&dyn TakeFn> {
+        Some(self)
+    }
+}
+
+impl ComputeVTable for VarBinEncoding {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
         Some(self)
     }
 }

@@ -1,6 +1,6 @@
 use num_traits::AsPrimitive;
 use vortex_array::compute::unary::{FillForwardFn, ScalarAtFn};
-use vortex_array::compute::{ArrayCompute, SliceFn, TakeFn, TakeOptions};
+use vortex_array::compute::{ArrayCompute, ComputeVTable, SliceFn, TakeFn, TakeOptions};
 use vortex_array::validity::{ArrayValidity, Validity};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
@@ -8,7 +8,7 @@ use vortex_dtype::{match_each_integer_ptype, Nullability};
 use vortex_error::{vortex_err, VortexResult};
 use vortex_scalar::Scalar;
 
-use super::ByteBoolArray;
+use super::{ByteBoolArray, ByteBoolEncoding};
 
 impl ArrayCompute for ByteBoolArray {
     fn fill_forward(&self) -> Option<&dyn FillForwardFn> {
@@ -27,6 +27,8 @@ impl ArrayCompute for ByteBoolArray {
         Some(self)
     }
 }
+
+impl ComputeVTable for ByteBoolEncoding {}
 
 impl ScalarAtFn for ByteBoolArray {
     fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {

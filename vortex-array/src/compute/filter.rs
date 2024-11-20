@@ -8,6 +8,8 @@ use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexRes
 
 use crate::array::BoolArray;
 use crate::arrow::FromArrowArray;
+use crate::compute::ComputeVTable;
+use crate::encoding::Encoding;
 use crate::stats::ArrayStatistics;
 use crate::{ArrayDType, ArrayData, Canonical, IntoArrayData, IntoCanonical};
 
@@ -17,9 +19,26 @@ use crate::{ArrayDType, ArrayData, Canonical, IntoArrayData, IntoCanonical};
 ///   <https://dl.acm.org/doi/abs/10.1145/3465998.3466009>
 const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
 
-pub trait FilterFn {
+pub trait FilterFn<Array>: ComputeVTable {
     /// Filter an array by the provided predicate.
-    fn filter(&self, mask: FilterMask) -> VortexResult<ArrayData>;
+    fn filter(&self, array: &Array, mask: FilterMask) -> VortexResult<ArrayData>;
+}
+
+// TODO(ngates): write a macro for dispatching array-specific compute over ArrayData.
+impl<E: Encoding + 'static> FilterFn<ArrayData> for E
+where
+    E: FilterFn<E::Array>,
+    for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
+{
+    fn filter(&self, array: &ArrayData, mask: FilterMask) -> VortexResult<ArrayData> {
+        let array_ref = <&E::Array>::try_from(array)?;
+        let encoding = array
+            .encoding()
+            .as_any()
+            .downcast_ref::<E>()
+            .ok_or_else(|| vortex_err!("Mismatched encoding"))?;
+        FilterFn::filter(encoding, array_ref, mask)
+    }
 }
 
 /// Return a new array by applying a boolean predicate to select items from a base Array.
@@ -51,25 +70,21 @@ pub fn filter(array: &ArrayData, mask: FilterMask) -> VortexResult<ArrayData> {
         return Ok(array.clone());
     }
 
-    array.with_dyn(move |a| {
-        if let Some(filter_fn) = a.filter() {
-            // FIXME(ngates): when we get rid of with_dyn we won't need to eagerly clone
-            //   the FilterMask, which triggers computation of slices
-            filter_fn.filter(mask.clone())
-        } else {
-            // Fallback: implement using Arrow kernels.
-            log::debug!(
-                "No filter implementation found for {}",
-                array.encoding().id(),
-            );
+    if let Some(filter_fn) = array.encoding().filter_fn() {
+        filter_fn.filter(array, mask)
+    } else {
+        // Fallback: implement using Arrow kernels.
+        log::debug!(
+            "No filter implementation found for {}",
+            array.encoding().id(),
+        );
 
-            let array_ref = array.clone().into_canonical()?.into_arrow()?;
-            let mask_array = BooleanArray::new(mask.to_boolean_buffer()?, None);
-            let filtered = arrow_select::filter::filter(array_ref.as_ref(), &mask_array)?;
+        let array_ref = array.clone().into_canonical()?.into_arrow()?;
+        let mask_array = BooleanArray::new(mask.to_boolean_buffer()?, None);
+        let filtered = arrow_select::filter::filter(array_ref.as_ref(), &mask_array)?;
 
-            Ok(ArrayData::from_arrow(filtered, array.dtype().is_nullable()))
-        }
-    })
+        Ok(ArrayData::from_arrow(filtered, array.dtype().is_nullable()))
+    }
 }
 
 /// Represents the mask argument to a filter function.

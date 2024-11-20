@@ -3,8 +3,9 @@ use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::array::null::NullArray;
+use crate::array::NullEncoding;
 use crate::compute::unary::ScalarAtFn;
-use crate::compute::{ArrayCompute, SliceFn, TakeFn, TakeOptions};
+use crate::compute::{ArrayCompute, ComputeVTable, SliceFn, TakeFn, TakeOptions};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
 
@@ -21,6 +22,8 @@ impl ArrayCompute for NullArray {
         Some(self)
     }
 }
+
+impl ComputeVTable for NullEncoding {}
 
 impl SliceFn for NullArray {
     fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData> {

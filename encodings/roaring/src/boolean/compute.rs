@@ -1,11 +1,11 @@
 use croaring::Bitmap;
 use vortex_array::compute::unary::ScalarAtFn;
-use vortex_array::compute::{ArrayCompute, SliceFn};
+use vortex_array::compute::{ArrayCompute, ComputeVTable, SliceFn};
 use vortex_array::{ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::RoaringBoolArray;
+use crate::{RoaringBoolArray, RoaringBoolEncoding};
 
 impl ArrayCompute for RoaringBoolArray {
     fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
@@ -16,6 +16,8 @@ impl ArrayCompute for RoaringBoolArray {
         Some(self)
     }
 }
+
+impl ComputeVTable for RoaringBoolEncoding {}
 
 impl ScalarAtFn for RoaringBoolArray {
     fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {

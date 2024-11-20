@@ -3,11 +3,11 @@ use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _};
 use vortex_scalar::Scalar;
 
 use crate::array::sparse::SparseArray;
-use crate::array::PrimitiveArray;
+use crate::array::{PrimitiveArray, SparseEncoding};
 use crate::compute::unary::{scalar_at, scalar_at_unchecked, ScalarAtFn};
 use crate::compute::{
-    search_sorted, take, ArrayCompute, FilterFn, FilterMask, SearchResult, SearchSortedFn,
-    SearchSortedSide, SliceFn, TakeFn, TakeOptions,
+    search_sorted, take, ArrayCompute, ComputeVTable, FilterFn, FilterMask, SearchResult,
+    SearchSortedFn, SearchSortedSide, SliceFn, TakeFn, TakeOptions,
 };
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
@@ -31,8 +31,10 @@ impl ArrayCompute for SparseArray {
     fn take(&self) -> Option<&dyn TakeFn> {
         Some(self)
     }
+}
 
-    fn filter(&self) -> Option<&dyn FilterFn> {
+impl ComputeVTable for SparseEncoding {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
         Some(self)
     }
 }
@@ -74,14 +76,14 @@ impl SearchSortedFn for SparseArray {
     }
 }
 
-impl FilterFn for SparseArray {
-    fn filter(&self, mask: FilterMask) -> VortexResult<ArrayData> {
+impl FilterFn<SparseArray> for SparseEncoding {
+    fn filter(&self, array: &SparseArray, mask: FilterMask) -> VortexResult<ArrayData> {
         let buffer = mask.to_boolean_buffer()?;
         let mut coordinate_indices: Vec<u64> = Vec::new();
         let mut value_indices = Vec::new();
         let mut last_inserted_index = 0;
 
-        let flat_indices = self
+        let flat_indices = array
             .indices()
             .into_primitive()
             .vortex_expect("Failed to convert SparseArray indices to primitive array");
@@ -89,7 +91,7 @@ impl FilterFn for SparseArray {
             let indices = flat_indices
                 .maybe_null_slice::<$P>()
                 .iter()
-                .map(|v| (*v as usize) - self.indices_offset());
+                .map(|v| (*v as usize) - array.indices_offset());
             for (value_idx, coordinate) in indices.enumerate() {
                 if buffer.value(coordinate) {
                     // We count the number of truthy values between this coordinate and the previous truthy one
@@ -104,12 +106,12 @@ impl FilterFn for SparseArray {
         Ok(SparseArray::try_new(
             PrimitiveArray::from(coordinate_indices).into_array(),
             take(
-                self.values(),
+                array.values(),
                 PrimitiveArray::from(value_indices),
                 TakeOptions::default(),
             )?,
             buffer.count_set_bits(),
-            self.fill_value().clone(),
+            array.fill_value().clone(),
         )?
         .into_array())
     }

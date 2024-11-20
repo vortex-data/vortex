@@ -15,10 +15,12 @@ use vortex_scalar::Scalar;
 
 use crate::array::varbin::varbin_scalar;
 use crate::array::varbinview::{VarBinViewArray, VIEW_SIZE_BYTES};
-use crate::array::{ConstantArray, PrimitiveArray};
+use crate::array::{ConstantArray, PrimitiveArray, VarBinViewEncoding};
 use crate::arrow::FromArrowArray;
 use crate::compute::unary::ScalarAtFn;
-use crate::compute::{slice, ArrayCompute, MaybeCompareFn, Operator, SliceFn, TakeFn, TakeOptions};
+use crate::compute::{
+    slice, ArrayCompute, ComputeVTable, MaybeCompareFn, Operator, SliceFn, TakeFn, TakeOptions,
+};
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, IntoCanonical};
@@ -40,6 +42,8 @@ impl ArrayCompute for VarBinViewArray {
         Some(self)
     }
 }
+
+impl ComputeVTable for VarBinViewEncoding {}
 
 impl ScalarAtFn for VarBinViewArray {
     fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {

@@ -9,12 +9,12 @@ use vortex_dtype::{match_each_unsigned_integer_ptype, NativePType};
 use vortex_error::VortexResult;
 
 use crate::bitpacking::compute::take::UNPACK_CHUNK_THRESHOLD;
-use crate::BitPackedArray;
+use crate::{BitPackedArray, BitPackedEncoding};
 
-impl FilterFn for BitPackedArray {
-    fn filter(&self, mask: FilterMask) -> VortexResult<ArrayData> {
-        let primitive = match_each_unsigned_integer_ptype!(self.ptype(), |$I| {
-            filter_primitive::<$I>(self, mask)
+impl FilterFn<BitPackedArray> for BitPackedEncoding {
+    fn filter(&self, array: &BitPackedArray, mask: FilterMask) -> VortexResult<ArrayData> {
+        let primitive = match_each_unsigned_integer_ptype!(array.ptype(), |$I| {
+            filter_primitive::<$I>(array, mask)
         });
         Ok(primitive?.into_array())
     }

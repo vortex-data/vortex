@@ -5,10 +5,11 @@ use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::array::constant::ConstantArray;
+use crate::array::ConstantEncoding;
 use crate::compute::unary::{scalar_at, ScalarAtFn};
 use crate::compute::{
-    scalar_cmp, AndFn, ArrayCompute, FilterFn, FilterMask, MaybeCompareFn, Operator, OrFn,
-    SearchResult, SearchSortedFn, SearchSortedSide, SliceFn, TakeFn, TakeOptions,
+    scalar_cmp, AndFn, ArrayCompute, ComputeVTable, FilterFn, FilterMask, MaybeCompareFn, Operator,
+    OrFn, SearchResult, SearchSortedFn, SearchSortedSide, SliceFn, TakeFn, TakeOptions,
 };
 use crate::stats::{ArrayStatistics, Stat};
 use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData};
@@ -16,10 +17,6 @@ use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData};
 impl ArrayCompute for ConstantArray {
     fn compare(&self, other: &ArrayData, operator: Operator) -> Option<VortexResult<ArrayData>> {
         MaybeCompareFn::maybe_compare(self, other, operator)
-    }
-
-    fn filter(&self) -> Option<&dyn FilterFn> {
-        Some(self)
     }
 
     fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
@@ -47,6 +44,12 @@ impl ArrayCompute for ConstantArray {
     }
 }
 
+impl ComputeVTable for ConstantEncoding {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
+        Some(self)
+    }
+}
+
 impl ScalarAtFn for ConstantArray {
     fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
         Ok(<Self as ScalarAtFn>::scalar_at_unchecked(self, index))
@@ -69,9 +72,9 @@ impl SliceFn for ConstantArray {
     }
 }
 
-impl FilterFn for ConstantArray {
-    fn filter(&self, mask: FilterMask) -> VortexResult<ArrayData> {
-        Ok(Self::new(self.owned_scalar(), mask.true_count()).into_array())
+impl FilterFn<ConstantArray> for ConstantEncoding {
+    fn filter(&self, array: &ConstantArray, mask: FilterMask) -> VortexResult<ArrayData> {
+        Ok(ConstantArray::new(array.owned_scalar(), mask.true_count()).into_array())
     }
 }
 

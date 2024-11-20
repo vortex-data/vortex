@@ -209,7 +209,7 @@ mod test {
     use futures_util::{pin_mut, StreamExt, TryStreamExt};
     use itertools::Itertools;
     use vortex_array::array::{ChunkedArray, PrimitiveArray, PrimitiveEncoding};
-    use vortex_array::encoding::ArrayEncoding;
+    use vortex_array::encoding::EncodingVTable;
     use vortex_array::stream::ArrayStreamExt;
     use vortex_array::{ArrayDType, Context, IntoArrayData, IntoArrayVariant};
     use vortex_buffer::Buffer;

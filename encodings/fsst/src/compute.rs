@@ -2,8 +2,8 @@ use fsst::Symbol;
 use vortex_array::array::{varbin_scalar, ConstantArray};
 use vortex_array::compute::unary::{scalar_at_unchecked, ScalarAtFn};
 use vortex_array::compute::{
-    compare, filter, slice, take, ArrayCompute, FilterFn, FilterMask, MaybeCompareFn, Operator,
-    SliceFn, TakeFn, TakeOptions,
+    compare, filter, slice, take, ArrayCompute, ComputeVTable, FilterFn, FilterMask,
+    MaybeCompareFn, Operator, SliceFn, TakeFn, TakeOptions,
 };
 use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
 use vortex_buffer::Buffer;
@@ -11,15 +11,11 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexResult, VortexUnwrap};
 use vortex_scalar::Scalar;
 
-use crate::FSSTArray;
+use crate::{FSSTArray, FSSTEncoding};
 
 impl ArrayCompute for FSSTArray {
     fn compare(&self, other: &ArrayData, operator: Operator) -> Option<VortexResult<ArrayData>> {
         MaybeCompareFn::maybe_compare(self, other, operator)
-    }
-
-    fn filter(&self) -> Option<&dyn FilterFn> {
-        Some(self)
     }
 
     fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
@@ -31,6 +27,12 @@ impl ArrayCompute for FSSTArray {
     }
 
     fn take(&self) -> Option<&dyn TakeFn> {
+        Some(self)
+    }
+}
+
+impl ComputeVTable for FSSTEncoding {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
         Some(self)
     }
 }
@@ -149,15 +151,15 @@ impl ScalarAtFn for FSSTArray {
     }
 }
 
-impl FilterFn for FSSTArray {
+impl FilterFn<FSSTArray> for FSSTEncoding {
     // Filtering an FSSTArray filters the codes array, leaving the symbols array untouched
-    fn filter(&self, mask: FilterMask) -> VortexResult<ArrayData> {
-        Ok(Self::try_new(
-            self.dtype().clone(),
-            self.symbols(),
-            self.symbol_lengths(),
-            filter(&self.codes(), mask.clone())?,
-            filter(&self.uncompressed_lengths(), mask)?,
+    fn filter(&self, array: &FSSTArray, mask: FilterMask) -> VortexResult<ArrayData> {
+        Ok(FSSTArray::try_new(
+            array.dtype().clone(),
+            array.symbols(),
+            array.symbol_lengths(),
+            filter(&array.codes(), mask.clone())?,
+            filter(&array.uncompressed_lengths(), mask)?,
         )?
         .into_array())
     }

@@ -4,7 +4,8 @@ use std::sync::Arc;
 
 use vortex_error::{vortex_bail, VortexResult};
 
-use crate::encoding::{ArrayEncoding, EncodingId};
+use crate::compute::ComputeVTable;
+use crate::encoding::{EncodingId, EncodingVTable};
 use crate::{
     ArrayData, ArrayMetadata, ArrayTrait, Canonical, IntoCanonicalVTable, MetadataVTable,
     TrySerializeArrayMetadata,
@@ -23,9 +24,13 @@ use crate::{
 #[derive(Debug, Clone, Copy)]
 pub struct OpaqueEncoding(pub u16);
 
-impl ArrayEncoding for OpaqueEncoding {
+impl EncodingVTable for OpaqueEncoding {
     fn id(&self) -> EncodingId {
         EncodingId::new("vortex.opaque", self.0)
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 
     fn with_dyn(
@@ -48,6 +53,8 @@ impl IntoCanonicalVTable for OpaqueEncoding {
         )
     }
 }
+
+impl ComputeVTable for OpaqueEncoding {}
 
 impl MetadataVTable for OpaqueEncoding {
     fn load_metadata(&self, _metadata: Option<&[u8]>) -> VortexResult<Arc<dyn ArrayMetadata>> {

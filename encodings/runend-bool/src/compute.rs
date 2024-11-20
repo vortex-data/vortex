@@ -1,13 +1,13 @@
 use vortex_array::array::BoolArray;
 use vortex_array::compute::unary::ScalarAtFn;
-use vortex_array::compute::{slice, ArrayCompute, SliceFn, TakeFn, TakeOptions};
+use vortex_array::compute::{slice, ArrayCompute, ComputeVTable, SliceFn, TakeFn, TakeOptions};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::{value_at_index, RunEndBoolArray};
+use crate::{value_at_index, RunEndBoolArray, RunEndBoolEncoding};
 
 impl ArrayCompute for RunEndBoolArray {
     fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
@@ -22,6 +22,8 @@ impl ArrayCompute for RunEndBoolArray {
         Some(self)
     }
 }
+
+impl ComputeVTable for RunEndBoolEncoding {}
 
 impl ScalarAtFn for RunEndBoolArray {
     fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {

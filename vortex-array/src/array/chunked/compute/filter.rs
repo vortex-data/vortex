@@ -1,7 +1,7 @@
 use arrow_buffer::BooleanBufferBuilder;
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::array::{ChunkedArray, PrimitiveArray};
+use crate::array::{ChunkedArray, ChunkedEncoding, PrimitiveArray};
 use crate::compute::{
     filter, take, FilterFn, FilterMask, SearchSorted, SearchSortedSide, TakeOptions,
 };
@@ -10,20 +10,20 @@ use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoCanonical};
 // This is modeled after the constant with the equivalent name in arrow-rs.
 const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
 
-impl FilterFn for ChunkedArray {
-    fn filter(&self, mask: FilterMask) -> VortexResult<ArrayData> {
+impl FilterFn<ChunkedArray> for ChunkedEncoding {
+    fn filter(&self, array: &ChunkedArray, mask: FilterMask) -> VortexResult<ArrayData> {
         let selected = mask.true_count();
 
         // Based on filter selectivity, we take the values between a range of slices, or
         // we take individual indices.
-        let selectivity = selected as f64 / self.len() as f64;
+        let selectivity = selected as f64 / array.len() as f64;
         let chunks = if selectivity > FILTER_SLICES_SELECTIVITY_THRESHOLD {
-            filter_slices(self, mask)
+            filter_slices(array, mask)
         } else {
-            filter_indices(self, mask)
+            filter_indices(array, mask)
         };
 
-        Ok(ChunkedArray::try_new(chunks?, self.dtype().clone())?.into_array())
+        Ok(ChunkedArray::try_new(chunks?, array.dtype().clone())?.into_array())
     }
 }
 

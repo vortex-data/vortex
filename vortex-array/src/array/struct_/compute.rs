@@ -3,18 +3,16 @@ use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::array::struct_::StructArray;
+use crate::array::StructEncoding;
 use crate::compute::unary::{scalar_at, scalar_at_unchecked, ScalarAtFn};
 use crate::compute::{
-    filter, slice, take, ArrayCompute, FilterFn, FilterMask, SliceFn, TakeFn, TakeOptions,
+    filter, slice, take, ArrayCompute, ComputeVTable, FilterFn, FilterMask, SliceFn, TakeFn,
+    TakeOptions,
 };
 use crate::variants::StructArrayTrait;
 use crate::{ArrayDType, ArrayData, IntoArrayData};
 
 impl ArrayCompute for StructArray {
-    fn filter(&self) -> Option<&dyn FilterFn> {
-        Some(self)
-    }
-
     fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
         Some(self)
     }
@@ -24,6 +22,12 @@ impl ArrayCompute for StructArray {
     }
 
     fn take(&self) -> Option<&dyn TakeFn> {
+        Some(self)
+    }
+}
+
+impl ComputeVTable for StructEncoding {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
         Some(self)
     }
 }
@@ -78,11 +82,11 @@ impl SliceFn for StructArray {
     }
 }
 
-impl FilterFn for StructArray {
-    fn filter(&self, mask: FilterMask) -> VortexResult<ArrayData> {
-        let validity = self.validity().filter(&mask)?;
+impl FilterFn<StructArray> for StructEncoding {
+    fn filter(&self, array: &StructArray, mask: FilterMask) -> VortexResult<ArrayData> {
+        let validity = array.validity().filter(&mask)?;
 
-        let fields: Vec<ArrayData> = self
+        let fields: Vec<ArrayData> = array
             .children()
             .map(|field| filter(&field, mask.clone()))
             .try_collect()?;
@@ -91,7 +95,8 @@ impl FilterFn for StructArray {
             .map(|a| a.len())
             .unwrap_or_else(|| mask.true_count());
 
-        Self::try_new(self.names().clone(), fields, length, validity).map(|a| a.into_array())
+        StructArray::try_new(array.names().clone(), fields, length, validity)
+            .map(|a| a.into_array())
     }
 }
 

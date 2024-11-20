@@ -1,12 +1,12 @@
 //! Traits and types to define shared unique encoding identifiers.
 
+use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 
 use vortex_error::{vortex_panic, VortexResult};
 
-use crate::canonical::{Canonical, IntoCanonical};
-use crate::stats::ArrayStatistics as _;
+use crate::compute::ComputeVTable;
 use crate::{ArrayData, ArrayDef, ArrayMetadata, ArrayTrait, IntoCanonicalVTable, MetadataVTable};
 
 pub mod opaque;
@@ -50,14 +50,15 @@ pub trait Encoding {
     type Metadata: ArrayMetadata;
 }
 
-pub type EncodingRef = &'static dyn ArrayEncoding;
+pub type EncodingRef = &'static dyn EncodingVTable;
 
 /// Object-safe encoding trait for an array.
-/// TOOD(ngates): rename this EncodingVTable.
-pub trait ArrayEncoding:
-    'static + Sync + Send + Debug + IntoCanonicalVTable + MetadataVTable
+pub trait EncodingVTable:
+    'static + Sync + Send + Debug + IntoCanonicalVTable + MetadataVTable + ComputeVTable
 {
     fn id(&self) -> EncodingId;
+
+    fn as_any(&self) -> &dyn Any;
 
     /// Unwrap the provided array into an implementation of ArrayTrait
     fn with_dyn(
@@ -67,13 +68,13 @@ pub trait ArrayEncoding:
     ) -> VortexResult<()>;
 }
 
-impl PartialEq for dyn ArrayEncoding + '_ {
+impl PartialEq for dyn EncodingVTable + '_ {
     fn eq(&self, other: &Self) -> bool {
         self.id() == other.id()
     }
 }
-impl Eq for dyn ArrayEncoding + '_ {}
-impl Hash for dyn ArrayEncoding + '_ {
+impl Eq for dyn EncodingVTable + '_ {}
+impl Hash for dyn EncodingVTable + '_ {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.id().hash(state)
     }
@@ -82,20 +83,6 @@ impl Hash for dyn ArrayEncoding + '_ {
 /// Non-object-safe extensions to the ArrayEncoding trait.
 pub trait ArrayEncodingExt {
     type D: ArrayDef;
-
-    fn into_canonical(array: ArrayData) -> VortexResult<Canonical> {
-        // get the stats before converting to the typed array
-        let stats = array.statistics().to_set();
-
-        let typed = <<Self::D as ArrayDef>::Array as TryFrom<ArrayData>>::try_from(array)?;
-        let canonical = IntoCanonical::into_canonical(typed)?;
-
-        // propagate the stats to the canonicalized array
-        for (stat, scalar) in stats {
-            canonical.statistics().set(stat, scalar);
-        }
-        Ok(canonical)
-    }
 
     fn with_dyn<R, F>(array: &ArrayData, mut f: F) -> R
     where

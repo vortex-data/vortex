@@ -2,9 +2,10 @@ use vortex_dtype::{DType, Nullability};
 use vortex_error::VortexResult;
 
 use crate::array::chunked::ChunkedArray;
+use crate::array::ChunkedEncoding;
 use crate::compute::unary::{try_cast, CastFn, ScalarAtFn, SubtractScalarFn};
 use crate::compute::{
-    compare, slice, ArrayCompute, CompareFn, FilterFn, Operator, SliceFn, TakeFn,
+    compare, slice, ArrayCompute, CompareFn, ComputeVTable, FilterFn, Operator, SliceFn, TakeFn,
 };
 use crate::{ArrayData, IntoArrayData};
 
@@ -37,8 +38,10 @@ impl ArrayCompute for ChunkedArray {
     fn take(&self) -> Option<&dyn TakeFn> {
         Some(self)
     }
+}
 
-    fn filter(&self) -> Option<&dyn FilterFn> {
+impl ComputeVTable for ChunkedEncoding {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
         Some(self)
     }
 }

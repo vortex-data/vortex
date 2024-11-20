@@ -1,6 +1,7 @@
-use crate::array::BoolArray;
+use crate::array::{BoolArray, BoolEncoding};
 use crate::compute::unary::{FillForwardFn, ScalarAtFn};
-use crate::compute::{AndFn, ArrayCompute, OrFn, SliceFn, TakeFn};
+use crate::compute::{AndFn, ArrayCompute, ComputeVTable, FilterFn, OrFn, SliceFn, TakeFn};
+use crate::ArrayData;
 
 mod boolean;
 
@@ -33,6 +34,12 @@ impl ArrayCompute for BoolArray {
     }
 
     fn or(&self) -> Option<&dyn OrFn> {
+        Some(self)
+    }
+}
+
+impl ComputeVTable for BoolEncoding {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
         Some(self)
     }
 }
