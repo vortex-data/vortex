@@ -1,8 +1,7 @@
 use std::future::Future;
 use std::panic::resume_unwind;
 use std::thread::JoinHandle;
-
-use futures_channel::oneshot;
+use futures::channel::oneshot;
 use tokio::task::{JoinHandle as TokioJoinHandle, LocalSet};
 use vortex_error::{vortex_bail, vortex_panic, VortexResult};
 
@@ -15,7 +14,7 @@ trait TokioSpawn {
 /// A [dispatcher][Dispatch] of IO operations that runs tasks on one of several
 /// Tokio `current_thread` runtimes.
 #[derive(Debug)]
-pub(super) struct TokioDispatcher {
+pub struct TokioDispatcher {
     submitter: flume::Sender<Box<dyn TokioSpawn + Send>>,
     threads: Vec<JoinHandle<()>>,
 }
@@ -68,7 +67,7 @@ struct TokioTask<F, R> {
 impl<F, Fut, R> TokioSpawn for TokioTask<F, R>
 where
     F: FnOnce() -> Fut + Send + 'static,
-    Fut: Future<Output = R>,
+    Fut: Future<Output=R>,
     R: Send + 'static,
 {
     fn spawn(self: Box<Self>) -> TokioJoinHandle<()> {
@@ -84,7 +83,7 @@ impl Dispatch for TokioDispatcher {
     fn dispatch<F, Fut, R>(&self, task: F) -> VortexResult<oneshot::Receiver<R>>
     where
         F: (FnOnce() -> Fut) + Send + 'static,
-        Fut: Future<Output = R> + 'static,
+        Fut: Future<Output=R> + 'static,
         R: Send + 'static,
     {
         let (tx, rx) = oneshot::channel();
@@ -118,10 +117,10 @@ mod tests {
     use std::io::Write;
 
     use tempfile::NamedTempFile;
-    use vortex_io::{TokioFile, VortexReadAt};
 
     use super::TokioDispatcher;
     use crate::dispatcher::Dispatch;
+    use crate::{TokioFile, VortexReadAt};
 
     #[tokio::test]
     async fn test_tokio_dispatch_simple() {

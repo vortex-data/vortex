@@ -22,7 +22,6 @@ compio = { workspace = true, features = ["bytes", "macros"], optional = true }
 flatbuffers = { workspace = true }
 flume = { workspace = true }
 futures = { workspace = true, features = ["std"] }
-futures-channel = { workspace = true }
 futures-executor = { workspace = true }
 futures-util = { workspace = true }
 itertools = { workspace = true }

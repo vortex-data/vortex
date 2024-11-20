@@ -19,6 +19,7 @@ compio = { workspace = true, features = ["bytes", "macros"], optional = true }
 tokio = { workspace = true, features = ["fs"], optional = true }
 futures = { workspace = true, features = ["std"] }
 futures-util = { workspace = true }
+flume = { workspace = true }
 object_store = { workspace = true, optional = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }

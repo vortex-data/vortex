@@ -9,7 +9,7 @@ use vortex_expr::Select;
 use vortex_io::VortexReadAt;
 use vortex_schema::projection::Projection;
 
-use crate::dispatcher::IoDispatcher;
+use vortex_io::dispatcher::IoDispatcher;
 use crate::read::cache::{LayoutMessageCache, RelativeLayoutCache};
 use crate::read::context::LayoutDeserializer;
 use crate::read::filtering::RowFilter;

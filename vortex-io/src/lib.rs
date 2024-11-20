@@ -25,3 +25,4 @@ mod read;
 #[cfg(feature = "tokio")]
 mod tokio;
 mod write;
+pub mod dispatcher;
