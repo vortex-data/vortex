@@ -150,7 +150,7 @@ jobs:
 
   bench-test:
     name: "bench test"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-large
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/cleanup
