@@ -13,7 +13,7 @@ mod slice;
 mod take;
 
 impl ArrayCompute for BitPackedArray {
-    fn search_sorted(&self) -> Option<&dyn SearchSortedFn> {
+    fn search_sorted_fn(&self) -> Option<&dyn SearchSortedFn<ArrayData>> {
         Some(self)
     }
 }

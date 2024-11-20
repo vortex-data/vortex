@@ -15,7 +15,7 @@ use vortex_scalar::{PValue, Scalar};
 use crate::{FoRArray, FoREncoding};
 
 impl ArrayCompute for FoRArray {
-    fn search_sorted(&self) -> Option<&dyn SearchSortedFn> {
+    fn search_sorted_fn(&self) -> Option<&dyn SearchSortedFn<ArrayData>> {
         Some(self)
     }
 }

@@ -19,7 +19,7 @@ impl ArrayCompute for ConstantArray {
         MaybeCompareFn::maybe_compare(self, other, operator)
     }
 
-    fn search_sorted(&self) -> Option<&dyn SearchSortedFn> {
+    fn search_sorted_fn(&self) -> Option<&dyn SearchSortedFn<ArrayData>> {
         Some(self)
     }
 

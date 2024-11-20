@@ -28,7 +28,7 @@ impl ArrayCompute for PrimitiveArray {
         Some(self)
     }
 
-    fn search_sorted(&self) -> Option<&dyn SearchSortedFn> {
+    fn search_sorted_fn(&self) -> Option<&dyn SearchSortedFn<ArrayData>> {
         Some(self)
     }
 }

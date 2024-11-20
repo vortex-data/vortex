@@ -58,6 +58,13 @@ pub trait ComputeVTable {
         None
     }
 
+    /// Perform a search over an ordered array.
+    ///
+    /// See: [SearchSortedFn].
+    fn search_sorted_fn(&self) -> Option<&dyn SearchSortedFn<ArrayData>> {
+        None
+    }
+
     /// Perform zero-copy slicing of an array.
     ///
     /// See: [SliceFn].
@@ -87,13 +94,6 @@ pub trait ArrayCompute {
     ///
     /// See: [SubtractScalarFn].
     fn subtract_scalar(&self) -> Option<&dyn SubtractScalarFn> {
-        None
-    }
-
-    /// Perform a search over an ordered array.
-    ///
-    /// See: [SearchSortedFn].
-    fn search_sorted(&self) -> Option<&dyn SearchSortedFn> {
         None
     }
 
