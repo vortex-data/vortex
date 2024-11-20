@@ -53,24 +53,20 @@ impl EncodingCompressor for DictCompressor {
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
-        let (codes, values) = match array.encoding().id() {
-            Primitive::ID => {
-                let p = PrimitiveArray::try_from(array.clone())?;
-                let (codes, values) = dict_encode_primitive(&p);
-                (codes.into_array(), values.into_array())
-            }
-            VarBin::ID => {
-                let vb = VarBinArray::try_from(array.clone())?;
-                let (codes, values) = dict_encode_varbin(&vb);
-                (codes.into_array(), values.into_array())
-            }
-            VarBinView::ID => {
-                let vb = VarBinViewArray::try_from(array.clone())?;
-                let (codes, values) = dict_encode_varbinview(&vb);
-                (codes.into_array(), values.into_array())
-            }
-
-            _ => unreachable!("This array kind should have been filtered out"),
+        let (codes, values) = if array.is_encoding(Primitive::ID) {
+            let p = PrimitiveArray::try_from(array.clone())?;
+            let (codes, values) = dict_encode_primitive(&p);
+            (codes.into_array(), values.into_array())
+        } else if array.is_encoding(VarBin::ID) {
+            let vb = VarBinArray::try_from(array.clone())?;
+            let (codes, values) = dict_encode_varbin(&vb);
+            (codes.into_array(), values.into_array())
+        } else if array.is_encoding(VarBinView::ID) {
+            let vb = VarBinViewArray::try_from(array.clone())?;
+            let (codes, values) = dict_encode_varbinview(&vb);
+            (codes.into_array(), values.into_array())
+        } else {
+            unreachable!("This array kind should have been filtered out");
         };
 
         let (codes, values) = (

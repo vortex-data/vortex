@@ -177,7 +177,7 @@ pub mod ids {
 
 #[cfg(test)]
 mod tests {
-    use super::ids;
+    use super::{ids, EncodingId};
     use crate::aliases::hash_set::HashSet;
 
     #[test]
@@ -223,5 +223,15 @@ mod tests {
             // monotonic with no gaps
             assert_eq!(i as u16, *id, "id at index {} is not equal to index", i);
         }
+    }
+
+    #[test]
+    fn test_encoding_id_eq() {
+        let fizz = EncodingId::new("fizz", 0);
+        let buzz = EncodingId::new("buzz", 0);
+        let fizzbuzz = EncodingId::new("fizzbuzz", 1);
+
+        assert_eq!(fizz, buzz);
+        assert_ne!(fizz, fizzbuzz);
     }
 }

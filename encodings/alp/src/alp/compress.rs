@@ -1,7 +1,7 @@
-use vortex_array::array::{PrimitiveArray, Sparse, SparseArray};
+use vortex_array::array::{PrimitiveArray, SparseArray};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayDType, ArrayData, ArrayDef, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::{NativePType, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_scalar::ScalarValue;
@@ -79,23 +79,15 @@ pub fn decompress(array: ALPArray) -> VortexResult<PrimitiveArray> {
 }
 
 fn patch_decoded(array: PrimitiveArray, patches: &ArrayData) -> VortexResult<PrimitiveArray> {
-    match patches.encoding().id() {
-        Sparse::ID => {
-            match_each_alp_float_ptype!(array.ptype(), |$T| {
-                let typed_patches = SparseArray::try_from(patches.clone()).unwrap();
-                let primitive_values = typed_patches.values().into_primitive()?;
-                array.patch(
-                    &typed_patches.resolved_indices(),
-                    primitive_values.maybe_null_slice::<$T>(),
-                    primitive_values.validity())
-            })
-        }
-        _ => vortex_bail!(
-            "Can't patch ALP array with {}; only {} is supported",
-            patches,
-            Sparse::ID
-        ),
-    }
+    let typed_patches = SparseArray::try_from(patches.clone())?;
+
+    match_each_alp_float_ptype!(array.ptype(), |$T| {
+        let primitive_values = typed_patches.values().into_primitive()?;
+        array.patch(
+            &typed_patches.resolved_indices(),
+            primitive_values.maybe_null_slice::<$T>(),
+            primitive_values.validity())
+    })
 }
 
 fn decompress_primitive<T: NativePType + ALPFloat>(
