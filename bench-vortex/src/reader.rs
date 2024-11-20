@@ -28,9 +28,9 @@ use vortex::compress::CompressionStrategy;
 use vortex::dtype::DType;
 use vortex::error::VortexResult;
 use vortex::file::{
-    IoDispatcher, LayoutContext, LayoutDeserializer, VortexFileWriter, VortexReadBuilder,
+    LayoutContext, LayoutDeserializer, VortexFileWriter, VortexReadBuilder,
 };
-use vortex::io::{ObjectStoreReadAt, TokioFile, VortexReadAt, VortexWrite};
+use vortex::io::{IoDispatcher, ObjectStoreReadAt, TokioFile, VortexReadAt, VortexWrite};
 use vortex::sampling_compressor::{SamplingCompressor, ALL_ENCODINGS_CONTEXT};
 use vortex::{ArrayData, IntoArrayData, IntoCanonical};
 
@@ -56,11 +56,11 @@ pub async fn open_vortex(path: &Path) -> VortexResult<ArrayData> {
             LayoutContext::default().into(),
         ),
     )
-    .with_io_dispatcher(DISPATCHER.clone())
-    .build()
-    .await?
-    .read_all()
-    .await
+        .with_io_dispatcher(DISPATCHER.clone())
+        .build()
+        .await?
+        .read_all()
+        .await
 }
 
 pub async fn rewrite_parquet_as_vortex<W: VortexWrite>(
@@ -125,14 +125,14 @@ async fn take_vortex<T: VortexReadAt + Unpin + 'static>(
             LayoutContext::default().into(),
         ),
     )
-    .with_indices(ArrayData::from(indices.to_vec()))
-    .build()
-    .await?
-    .read_all()
-    .await
-    // For equivalence.... we decompress to make sure we're not cheating too much.
-    .and_then(IntoCanonical::into_canonical)
-    .map(ArrayData::from)
+        .with_indices(ArrayData::from(indices.to_vec()))
+        .build()
+        .await?
+        .read_all()
+        .await
+        // For equivalence.... we decompress to make sure we're not cheating too much.
+        .and_then(IntoCanonical::into_canonical)
+        .map(ArrayData::from)
 }
 
 pub async fn take_vortex_object_store(
@@ -170,7 +170,7 @@ async fn parquet_take_from_stream<T: AsyncFileReader + Unpin + Send + 'static>(
         async_reader,
         ArrowReaderOptions::new().with_page_index(true),
     )
-    .await?;
+        .await?;
 
     // We figure out which row groups we need to read and a selection filter for each of them.
     let mut row_groups = HashMap::new();

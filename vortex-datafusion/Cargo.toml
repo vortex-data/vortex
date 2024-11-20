@@ -37,7 +37,7 @@ vortex-datetime-dtype = { workspace = true }
 vortex-dtype = { workspace = true }
 vortex-error = { workspace = true, features = ["datafusion"] }
 vortex-expr = { workspace = true, features = ["datafusion"] }
-vortex-file = { workspace = true, features = ["object_store", "tokio"] }
+vortex-file = { workspace = true, features = ["object_store"] }
 vortex-io = { workspace = true, features = ["object_store", "tokio"] }
 
 [dev-dependencies]

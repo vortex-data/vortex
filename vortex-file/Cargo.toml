@@ -28,14 +28,14 @@ tokio = { workspace = true, features = [
     "io-util",
     "fs",
     "rt-multi-thread",
-], optional = true }
+] }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true, features = ["flatbuffers"] }
 vortex-error = { workspace = true }
 vortex-expr = { workspace = true }
 vortex-flatbuffers = { workspace = true, features = ["file"] }
-vortex-io = { workspace = true }
+vortex-io = { workspace = true, features = ["tokio"] }
 vortex-ipc = { workspace = true }
 vortex-scalar = { workspace = true, features = ["flatbuffers"] }
 vortex-schema = { workspace = true }
@@ -52,10 +52,7 @@ vortex-sampling-compressor = { path = "../vortex-sampling-compressor" }
 workspace = true
 
 [features]
-default = ["tokio"]
 futures = ["futures-util/io", "vortex-io/futures"]
-compio = ["vortex-io/compio"]
-tokio = ["dep:tokio", "vortex-io/tokio"]
 object_store = [
     "vortex-error/object_store",
     "vortex-io/object_store",
