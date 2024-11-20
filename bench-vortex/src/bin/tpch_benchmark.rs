@@ -1,7 +1,7 @@
 use std::process::ExitCode;
 use std::sync;
 use std::sync::mpsc::Receiver;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 
 use bench_vortex::setup_logger;
 use bench_vortex::tpch::dbgen::{DBGen, DBGenOptions};
