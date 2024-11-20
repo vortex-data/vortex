@@ -118,7 +118,7 @@ impl PyArray {
         let py = self_.py();
         let vortex = &self_.inner;
 
-        if let Ok(chunked_array) = ChunkedArray::try_from(vortex) {
+        if let Ok(chunked_array) = ChunkedArray::try_from(vortex.clone()) {
             let chunks: Vec<ArrayRef> = chunked_array
                 .chunks()
                 .map(|chunk| -> PyResult<ArrayRef> {
@@ -268,7 +268,7 @@ impl PyArray {
     fn filter(&self, filter: &Bound<PyArray>) -> PyResult<PyArray> {
         let filter = filter.borrow();
         let inner =
-            vortex::compute::filter(&self.inner, &FilterMask::try_from(filter.inner.clone())?)?;
+            vortex::compute::filter(&self.inner, FilterMask::try_from(filter.inner.clone())?)?;
         Ok(PyArray { inner })
     }
 
