@@ -38,6 +38,8 @@ impl LayoutSpec for ChunkedLayoutSpec {
     }
 }
 
+const METADATA_LAYOUT_PART_ID: LayoutPartId = 0;
+
 /// In memory representation of Chunked NestedLayout.
 ///
 /// First child in the list is the metadata table
@@ -91,7 +93,7 @@ impl ChunkedLayout {
                     self.fb_bytes.clone(),
                     metadata_fb._tab.loc(),
                     Scan::new(None),
-                    self.message_cache.unknown_dtype(0xFFFF_u16), // FIXME(DK): metadata needs an id
+                    self.message_cache.unknown_dtype(METADATA_LAYOUT_PART_ID),
                 )
             })
             .transpose()
@@ -136,11 +138,13 @@ impl ChunkedLayout {
         self.children()
             .zip_eq(self.child_ranges())
             .map(|((i, c), (begin, end))| {
+                let layout_part_id = i as u16;
+                assert!(layout_part_id != METADATA_LAYOUT_PART_ID);
                 let layout = self.layout_builder.read_layout(
                     self.fb_bytes.clone(),
                     c._tab.loc(),
                     self.scan.clone(),
-                    cache(i as u16),
+                    cache(layout_part_id),
                 )?;
                 Ok(((begin, end), layout))
             })
