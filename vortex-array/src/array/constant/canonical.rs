@@ -11,7 +11,7 @@ use crate::array::{
     BinaryView, BoolArray, ExtensionArray, NullArray, VarBinViewArray, VIEW_SIZE_BYTES,
 };
 use crate::validity::Validity;
-use crate::{ArrayDType, Canonical, IntoArrayData, IntoCanonical};
+use crate::{ArrayDType, ArrayLen, Canonical, IntoArrayData, IntoCanonical};
 
 impl IntoCanonical for ConstantArray {
     fn into_canonical(self) -> VortexResult<Canonical> {
@@ -127,7 +127,7 @@ mod tests {
     use crate::array::ConstantArray;
     use crate::compute::unary::scalar_at;
     use crate::stats::{ArrayStatistics as _, StatsSet};
-    use crate::{IntoArrayData as _, IntoCanonical};
+    use crate::{ArrayLen, IntoArrayData as _, IntoCanonical};
 
     #[test]
     fn test_canonicalize_null() {

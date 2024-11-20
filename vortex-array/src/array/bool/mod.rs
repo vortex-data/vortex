@@ -15,7 +15,9 @@ use crate::encoding::ids;
 use crate::stats::StatsSet;
 use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
 use crate::variants::{ArrayVariants, BoolArrayTrait};
-use crate::{impl_encoding, ArrayData, ArrayTrait, Canonical, IntoArrayData, IntoCanonical};
+use crate::{
+    impl_encoding, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData, IntoCanonical,
+};
 
 mod accessors;
 pub mod compute;

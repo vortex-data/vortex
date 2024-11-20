@@ -279,12 +279,22 @@ mod tests {
         scan: Scan,
     ) -> (Box<dyn LayoutReader>, Box<dyn LayoutReader>, Bytes, usize) {
         let int_array = PrimitiveArray::from((0..100).collect::<Vec<_>>()).into_array();
+        let int2_array = PrimitiveArray::from((100..200).collect::<Vec<_>>()).into_array();
         let int_dtype = int_array.dtype().clone();
-        let chunked = ChunkedArray::try_new(iter::repeat(int_array).take(5).collect(), int_dtype)
-            .unwrap()
-            .into_array();
+        let chunked = ChunkedArray::try_new(
+            iter::repeat_n(int_array.clone(), 2)
+                .chain(iter::repeat_n(int2_array, 2))
+                .chain(iter::once(int_array))
+                .collect(),
+            int_dtype,
+        )
+        .unwrap()
+        .into_array();
         let str_array = VarBinArray::from_vec(
-            iter::repeat("test text").take(500).collect(),
+            iter::repeat_n("test text", 200)
+                .chain(iter::repeat_n("it", 200))
+                .chain(iter::repeat_n("test text", 100))
+                .collect(),
             DType::Utf8(Nullability::NonNullable),
         )
         .into_array();
@@ -415,6 +425,84 @@ mod tests {
                     .collect::<Vec<_>>())
                 .unwrap(),
             iter::repeat("test text").take(100).collect::<Vec<_>>()
+        );
+    }
+
+    #[tokio::test]
+    #[cfg_attr(miri, ignore)]
+    async fn short_circuit() {
+        let cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
+        let (mut filter_layout, mut project_layout, buf, length) = layout_and_bytes(
+            cache.clone(),
+            Scan::new(Some(RowFilter::new_expr(BinaryExpr::new_expr(
+                BinaryExpr::new_expr(
+                    Column::new_expr(Field::from("strs")),
+                    Operator::Eq,
+                    Literal::new_expr("it".into()),
+                ),
+                Operator::And,
+                BinaryExpr::new_expr(
+                    Column::new_expr(Field::from("ints")),
+                    Operator::Lt,
+                    Literal::new_expr(150.into()),
+                ),
+            )))),
+        )
+        .await;
+        let arr = filter_read_layout(
+            filter_layout.as_mut(),
+            project_layout.as_mut(),
+            cache,
+            &buf,
+            length,
+        );
+
+        assert_eq!(arr.len(), 2);
+        let prim_arr = arr[0]
+            .with_dyn(|a| a.as_struct_array_unchecked().field(0))
+            .unwrap()
+            .into_primitive()
+            .unwrap();
+        let str_arr = arr[0]
+            .with_dyn(|a| a.as_struct_array_unchecked().field(1))
+            .unwrap()
+            .into_varbinview()
+            .unwrap();
+        assert_eq!(
+            prim_arr.maybe_null_slice::<i32>(),
+            (100..150).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            str_arr
+                .with_iterator(|iter| iter
+                    .flatten()
+                    .map(|s| unsafe { String::from_utf8_unchecked(s.to_vec()) })
+                    .collect::<Vec<_>>())
+                .unwrap(),
+            iter::repeat("it").take(50).collect::<Vec<_>>()
+        );
+        let prim_arr2 = arr[1]
+            .with_dyn(|a| a.as_struct_array_unchecked().field(0))
+            .unwrap()
+            .into_primitive()
+            .unwrap();
+        let str_arr2 = arr[1]
+            .with_dyn(|a| a.as_struct_array_unchecked().field(1))
+            .unwrap()
+            .into_varbinview()
+            .unwrap();
+        assert_eq!(
+            prim_arr2.maybe_null_slice::<i32>(),
+            (100..150).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            str_arr2
+                .with_iterator(|iter| iter
+                    .flatten()
+                    .map(|s| unsafe { String::from_utf8_unchecked(s.to_vec()) })
+                    .collect::<Vec<_>>())
+                .unwrap(),
+            iter::repeat("it").take(50).collect::<Vec<_>>()
         );
     }
 }

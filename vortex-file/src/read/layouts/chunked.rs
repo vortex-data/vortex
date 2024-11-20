@@ -155,7 +155,7 @@ mod tests {
     use flatbuffers::{root_unchecked, FlatBufferBuilder};
     use futures_util::TryStreamExt;
     use vortex_array::array::{BoolArray, ChunkedArray, PrimitiveArray};
-    use vortex_array::{ArrayDType, IntoArrayData, IntoArrayVariant};
+    use vortex_array::{ArrayDType, ArrayLen, IntoArrayData, IntoArrayVariant};
     use vortex_dtype::{Nullability, PType};
     use vortex_expr::{BinaryExpr, Identity, Literal, Operator};
     use vortex_flatbuffers::{footer, WriteFlatBuffer};

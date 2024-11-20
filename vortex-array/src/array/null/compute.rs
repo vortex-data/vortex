@@ -6,7 +6,7 @@ use crate::array::null::NullArray;
 use crate::compute::unary::ScalarAtFn;
 use crate::compute::{ArrayCompute, SliceFn, TakeFn, TakeOptions};
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
+use crate::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
 
 impl ArrayCompute for NullArray {
     fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
@@ -65,7 +65,7 @@ mod test {
     use crate::compute::unary::scalar_at;
     use crate::compute::{SliceFn, TakeFn, TakeOptions};
     use crate::validity::{ArrayValidity, LogicalValidity};
-    use crate::IntoArrayData;
+    use crate::{ArrayLen, IntoArrayData};
 
     #[test]
     fn test_slice_nulls() {

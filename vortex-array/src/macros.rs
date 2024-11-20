@@ -64,14 +64,6 @@ macro_rules! impl_encoding {
                     &self.metadata
                 }
 
-                pub fn len(&self) -> usize {
-                    self.as_ref().len()
-                }
-
-                pub fn is_empty(&self) -> bool {
-                    self.as_ref().is_empty()
-                }
-
                 #[allow(dead_code)]
                 fn try_from_parts(
                     dtype: vortex_dtype::DType,

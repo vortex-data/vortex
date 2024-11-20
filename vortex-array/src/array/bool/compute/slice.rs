@@ -16,11 +16,11 @@ impl SliceFn for BoolArray {
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
     use crate::compute::slice;
     use crate::compute::unary::scalar_at;
     use crate::validity::ArrayValidity;
+    use crate::ArrayLen;
 
     #[test]
     fn test_slice() {

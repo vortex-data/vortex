@@ -142,7 +142,6 @@ pub use dtype_reader::*;
 
 pub const ALIGNMENT: usize = 64;
 
-mod dispatcher;
 mod read;
 mod write;
 
@@ -196,7 +195,6 @@ mod forever_constant {
     }
 }
 
-pub use dispatcher::*;
 pub use forever_constant::*;
 pub use read::*;
 pub use write::*;

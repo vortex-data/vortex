@@ -3,7 +3,7 @@ use std::panic::resume_unwind;
 use std::thread::JoinHandle;
 
 use compio::runtime::{JoinHandle as CompioJoinHandle, Runtime, RuntimeBuilder};
-use futures_channel::oneshot;
+use futures::channel::oneshot;
 use vortex_error::{vortex_bail, vortex_panic, VortexResult};
 
 use super::Dispatch;
@@ -35,7 +35,7 @@ where
 }
 
 #[derive(Debug)]
-pub struct CompioDispatcher {
+pub(super) struct CompioDispatcher {
     submitter: flume::Sender<Box<dyn CompioSpawn + Send>>,
     threads: Vec<JoinHandle<()>>,
 }

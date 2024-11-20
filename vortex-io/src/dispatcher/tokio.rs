@@ -2,7 +2,7 @@ use std::future::Future;
 use std::panic::resume_unwind;
 use std::thread::JoinHandle;
 
-use futures_channel::oneshot;
+use futures::channel::oneshot;
 use tokio::task::{JoinHandle as TokioJoinHandle, LocalSet};
 use vortex_error::{vortex_bail, vortex_panic, VortexResult};
 
@@ -118,10 +118,10 @@ mod tests {
     use std::io::Write;
 
     use tempfile::NamedTempFile;
-    use vortex_io::{TokioFile, VortexReadAt};
 
     use super::TokioDispatcher;
     use crate::dispatcher::Dispatch;
+    use crate::{TokioFile, VortexReadAt};
 
     #[tokio::test]
     async fn test_tokio_dispatch_simple() {

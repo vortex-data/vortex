@@ -4,7 +4,7 @@ mod compio;
 mod tokio;
 use std::future::Future;
 
-use futures_channel::oneshot;
+use futures::channel::oneshot;
 use vortex_error::VortexResult;
 
 #[cfg(feature = "compio")]

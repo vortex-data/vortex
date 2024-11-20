@@ -5,7 +5,7 @@ use futures::TryStreamExt;
 use vortex_array::array::{ChunkedArray, StructArray};
 use vortex_array::stats::{ArrayStatistics, Stat};
 use vortex_array::stream::ArrayStream;
-use vortex_array::{ArrayDType as _, ArrayData};
+use vortex_array::{ArrayDType as _, ArrayData, ArrayLen};
 use vortex_buffer::io_buf::IoBuf;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};

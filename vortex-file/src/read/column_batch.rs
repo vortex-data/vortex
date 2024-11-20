@@ -75,6 +75,8 @@ impl LayoutReader for ColumnBatchReader {
                                 "must be a bool array if shortcircuit_siblings is set to true",
                             ) == 0
                         {
+                            // Reset local state when short circuiting, these arrays are no longer necessary
+                            self.arrays = vec![None; self.children.len()];
                             return Ok(None);
                         }
                         *child_array = Some(arr)

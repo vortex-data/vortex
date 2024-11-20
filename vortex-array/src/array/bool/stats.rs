@@ -8,7 +8,7 @@ use vortex_error::VortexResult;
 use crate::array::BoolArray;
 use crate::stats::{ArrayStatisticsCompute, Stat, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity};
-use crate::{ArrayDType, ArrayTrait as _, IntoArrayVariant};
+use crate::{ArrayDType, ArrayLen, ArrayTrait as _, IntoArrayVariant};
 
 impl ArrayStatisticsCompute for BoolArray {
     fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {

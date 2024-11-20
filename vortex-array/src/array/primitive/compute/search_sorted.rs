@@ -9,7 +9,7 @@ use crate::array::primitive::PrimitiveArray;
 use crate::compute::{IndexOrd, Len, SearchResult, SearchSorted, SearchSortedFn, SearchSortedSide};
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::ArrayDType;
+use crate::{ArrayDType, ArrayLen};
 
 impl SearchSortedFn for PrimitiveArray {
     fn search_sorted(&self, value: &Scalar, side: SearchSortedSide) -> VortexResult<SearchResult> {

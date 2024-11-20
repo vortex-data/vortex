@@ -8,7 +8,7 @@ use crate::compute::{
     compare, slice, take, ArrayCompute, MaybeCompareFn, Operator, SliceFn, TakeFn, TakeOptions,
 };
 use crate::variants::ExtensionArrayTrait;
-use crate::{ArrayDType, ArrayData, IntoArrayData};
+use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData};
 
 impl ArrayCompute for ExtensionArray {
     fn cast(&self) -> Option<&dyn CastFn> {

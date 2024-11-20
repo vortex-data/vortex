@@ -128,7 +128,7 @@ fn filter_slices<T: NativePType + BitPacking + ArrowNativeType>(
 mod test {
     use vortex_array::array::PrimitiveArray;
     use vortex_array::compute::{filter, slice, FilterMask};
-    use vortex_array::IntoArrayVariant;
+    use vortex_array::{ArrayLen, IntoArrayVariant};
 
     use crate::BitPackedArray;
 

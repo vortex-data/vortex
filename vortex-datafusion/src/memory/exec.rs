@@ -6,7 +6,7 @@ use datafusion_common::{Result as DFResult, Statistics};
 use datafusion_execution::{SendableRecordBatchStream, TaskContext};
 use datafusion_physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
 use vortex_array::array::ChunkedArray;
-use vortex_array::ArrayDType;
+use vortex_array::{ArrayDType, ArrayLen};
 use vortex_dtype::field::Field;
 use vortex_error::VortexResult;
 

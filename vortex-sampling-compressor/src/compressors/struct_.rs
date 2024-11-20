@@ -5,7 +5,7 @@ use vortex_array::compress::compute_precompression_stats;
 use vortex_array::encoding::EncodingRef;
 use vortex_array::stats::ArrayStatistics as _;
 use vortex_array::variants::StructArrayTrait;
-use vortex_array::{ArrayDType, ArrayData, ArrayDef, IntoArrayData};
+use vortex_array::{ArrayDType, ArrayData, ArrayDef, ArrayLen, IntoArrayData};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 

@@ -9,7 +9,7 @@ use crate::encoding::ids;
 use crate::stats::{ArrayStatisticsCompute, Stat, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity, Validity};
 use crate::variants::{ArrayVariants, NullArrayTrait};
-use crate::{impl_encoding, ArrayTrait, Canonical, IntoCanonical};
+use crate::{impl_encoding, ArrayLen, ArrayTrait, Canonical, IntoCanonical};
 
 mod compute;
 

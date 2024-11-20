@@ -8,6 +8,7 @@
 //! flags implements the core traits for several common async runtimes and backing stores.
 
 pub use buf::*;
+pub use dispatcher::*;
 #[cfg(feature = "object_store")]
 pub use object_store::*;
 pub use read::*;
@@ -18,6 +19,7 @@ pub use write::*;
 mod buf;
 #[cfg(feature = "compio")]
 mod compio;
+mod dispatcher;
 #[cfg(feature = "object_store")]
 mod object_store;
 pub mod offset;

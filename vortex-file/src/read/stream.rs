@@ -12,14 +12,13 @@ use vortex_array::array::ChunkedArray;
 use vortex_array::{ArrayData, IntoArrayData};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_panic, VortexError, VortexExpect, VortexResult};
-use vortex_io::VortexReadAt;
+use vortex_io::{Dispatch, IoDispatcher, VortexReadAt};
 use vortex_schema::Schema;
 
 use crate::read::cache::LayoutMessageCache;
 use crate::read::mask::RowMask;
 use crate::read::splits::{FilteringRowSplitIterator, FixedSplitIterator, MaskIterator, SplitMask};
 use crate::read::{BatchRead, LayoutReader, MessageId, MessageLocator};
-use crate::{Dispatch, IoDispatcher};
 
 /// An asynchronous Vortex file that returns a [`Stream`] of [`ArrayData`]s.
 ///

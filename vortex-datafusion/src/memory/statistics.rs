@@ -3,6 +3,7 @@ use datafusion_common::{ColumnStatistics, Result as DFResult, ScalarValue, Stati
 use itertools::Itertools;
 use vortex_array::array::ChunkedArray;
 use vortex_array::stats::{ArrayStatistics, Stat};
+use vortex_array::ArrayLen;
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 
 pub fn chunked_array_df_stats(array: &ChunkedArray, projection: &[usize]) -> DFResult<Statistics> {

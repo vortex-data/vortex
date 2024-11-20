@@ -18,28 +18,24 @@ arrow-array = { workspace = true }
 arrow-buffer = { workspace = true }
 arrow-schema = { workspace = true }
 bytes = { workspace = true }
-compio = { workspace = true, features = ["bytes", "macros"], optional = true }
 flatbuffers = { workspace = true }
-flume = { workspace = true }
 futures = { workspace = true, features = ["std"] }
-futures-channel = { workspace = true }
 futures-executor = { workspace = true }
 futures-util = { workspace = true }
 itertools = { workspace = true }
-object_store = { workspace = true, optional = true }
 once_cell = { workspace = true }
 tokio = { workspace = true, features = [
     "io-util",
     "fs",
     "rt-multi-thread",
-], optional = true }
+] }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true, features = ["flatbuffers"] }
 vortex-error = { workspace = true }
 vortex-expr = { workspace = true }
 vortex-flatbuffers = { workspace = true, features = ["file"] }
-vortex-io = { workspace = true }
+vortex-io = { workspace = true, features = ["tokio"] }
 vortex-ipc = { workspace = true }
 vortex-scalar = { workspace = true, features = ["flatbuffers"] }
 vortex-schema = { workspace = true }
@@ -56,12 +52,8 @@ vortex-sampling-compressor = { path = "../vortex-sampling-compressor" }
 workspace = true
 
 [features]
-default = ["tokio"]
 futures = ["futures-util/io", "vortex-io/futures"]
-compio = ["dep:compio", "vortex-io/compio"]
-tokio = ["dep:tokio", "vortex-io/tokio"]
 object_store = [
-    "dep:object_store",
     "vortex-error/object_store",
     "vortex-io/object_store",
 ]

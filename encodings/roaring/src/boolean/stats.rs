@@ -1,4 +1,5 @@
 use vortex_array::stats::{ArrayStatisticsCompute, Stat, StatsSet};
+use vortex_array::ArrayLen;
 use vortex_error::{vortex_err, VortexResult};
 
 use crate::RoaringBoolArray;

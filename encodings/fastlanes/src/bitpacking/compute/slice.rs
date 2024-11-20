@@ -48,7 +48,7 @@ mod test {
     use vortex_array::array::{PrimitiveArray, SparseArray};
     use vortex_array::compute::unary::scalar_at;
     use vortex_array::compute::{slice, take, TakeOptions};
-    use vortex_array::IntoArrayData;
+    use vortex_array::{ArrayLen, IntoArrayData};
 
     use crate::BitPackedArray;
 

@@ -6,7 +6,7 @@ use vortex_array::compute::unary::fill_forward;
 use vortex_array::compute::SliceFn;
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::IntoArrayVariant;
+use vortex_array::{ArrayLen, IntoArrayVariant};
 use vortex_dtype::{match_each_unsigned_integer_ptype, NativePType, Nullability};
 use vortex_error::VortexResult;
 
@@ -168,6 +168,8 @@ where
 
 #[cfg(test)]
 mod test {
+    use vortex_array::ArrayLen;
+
     use super::*;
 
     #[test]

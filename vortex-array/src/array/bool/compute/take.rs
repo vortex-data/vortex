@@ -7,7 +7,7 @@ use vortex_error::VortexResult;
 use crate::array::BoolArray;
 use crate::compute::{TakeFn, TakeOptions};
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
+use crate::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
 
 impl TakeFn for BoolArray {
     fn take(&self, indices: &ArrayData, options: TakeOptions) -> VortexResult<ArrayData> {

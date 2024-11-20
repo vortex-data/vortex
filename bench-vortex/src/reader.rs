@@ -27,10 +27,8 @@ use vortex::arrow::FromArrowType;
 use vortex::compress::CompressionStrategy;
 use vortex::dtype::DType;
 use vortex::error::VortexResult;
-use vortex::file::{
-    IoDispatcher, LayoutContext, LayoutDeserializer, VortexFileWriter, VortexReadBuilder,
-};
-use vortex::io::{ObjectStoreReadAt, TokioFile, VortexReadAt, VortexWrite};
+use vortex::file::{LayoutContext, LayoutDeserializer, VortexFileWriter, VortexReadBuilder};
+use vortex::io::{IoDispatcher, ObjectStoreReadAt, TokioFile, VortexReadAt, VortexWrite};
 use vortex::sampling_compressor::{SamplingCompressor, ALL_ENCODINGS_CONTEXT};
 use vortex::{ArrayData, IntoArrayData, IntoCanonical};
 

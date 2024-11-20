@@ -21,7 +21,7 @@ use crate::compute::unary::ScalarAtFn;
 use crate::compute::{slice, ArrayCompute, MaybeCompareFn, Operator, SliceFn, TakeFn, TakeOptions};
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant, IntoCanonical};
+use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, IntoCanonical};
 
 impl ArrayCompute for VarBinViewArray {
     fn compare(&self, other: &ArrayData, operator: Operator) -> Option<VortexResult<ArrayData>> {
@@ -184,7 +184,7 @@ mod tests {
     use crate::array::varbinview::compute::compare_constant;
     use crate::array::{ConstantArray, PrimitiveArray, VarBinViewArray};
     use crate::compute::{take, Operator, TakeOptions};
-    use crate::{ArrayDType, IntoArrayData, IntoArrayVariant};
+    use crate::{ArrayDType, ArrayLen, IntoArrayData, IntoArrayVariant};
 
     #[test]
     fn basic_test() {

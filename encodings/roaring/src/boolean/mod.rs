@@ -12,7 +12,9 @@ use vortex_array::encoding::ids;
 use vortex_array::stats::StatsSet;
 use vortex_array::validity::{ArrayValidity, LogicalValidity};
 use vortex_array::variants::{ArrayVariants, BoolArrayTrait};
-use vortex_array::{impl_encoding, ArrayData, ArrayTrait, Canonical, IntoArrayData, IntoCanonical};
+use vortex_array::{
+    impl_encoding, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData, IntoCanonical,
+};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
@@ -142,7 +144,7 @@ mod test {
     use std::iter;
 
     use vortex_array::array::BoolArray;
-    use vortex_array::{IntoArrayData, IntoArrayVariant};
+    use vortex_array::{ArrayLen, IntoArrayData, IntoArrayVariant};
 
     use crate::RoaringBoolArray;
 

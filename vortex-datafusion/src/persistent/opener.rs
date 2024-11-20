@@ -9,10 +9,8 @@ use futures::{FutureExt as _, StreamExt, TryStreamExt};
 use object_store::ObjectStore;
 use vortex_array::Context;
 use vortex_expr::datafusion::convert_expr_to_vortex;
-use vortex_file::{
-    IoDispatcher, LayoutContext, LayoutDeserializer, Projection, RowFilter, VortexReadBuilder,
-};
-use vortex_io::ObjectStoreReadAt;
+use vortex_file::{LayoutContext, LayoutDeserializer, Projection, RowFilter, VortexReadBuilder};
+use vortex_io::{IoDispatcher, ObjectStoreReadAt};
 
 /// Share an IO dispatcher across all DataFusion instances.
 static IO_DISPATCHER: LazyLock<Arc<IoDispatcher>> =
