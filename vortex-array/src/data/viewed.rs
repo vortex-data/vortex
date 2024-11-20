@@ -25,9 +25,6 @@ pub(super) struct ViewedArrayData {
     pub(super) flatbuffer_loc: usize,
     pub(super) buffers: Arc<[Buffer]>,
     pub(super) ctx: Arc<Context>,
-    // TODO(ngates): a store a Projection. A projected ArrayView contains the full fb::Array
-    //  metadata, but only the buffers from the selected columns. Therefore we need to know
-    //  which fb:Array children to skip when calculating how to slice into buffers.
 }
 
 impl Debug for ViewedArrayData {

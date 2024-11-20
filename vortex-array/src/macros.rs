@@ -47,26 +47,26 @@ macro_rules! impl_encoding {
             }
 
             #[derive(std::fmt::Debug, Clone)]
-            pub struct [<$Name Array>] {
-                data: $crate::ArrayData,
-                metadata: [<$Name Metadata>],
-            }
+            #[repr(transparent)]
+            pub struct [<$Name Array>]($crate::ArrayData);
 
             impl $crate::IntoArrayData for [<$Name Array>] {
                 fn into_array(self) -> $crate::ArrayData {
-                    self.data
+                    self.0
                 }
             }
             impl AsRef<$crate::ArrayData> for [<$Name Array>] {
                 fn as_ref(&self) -> &$crate::ArrayData {
-                    &self.data
+                    &self.0
                 }
             }
 
             impl [<$Name Array>] {
                 #[allow(dead_code)]
                 fn metadata(&self) -> &[<$Name Metadata>] {
-                    &self.metadata
+                    use vortex_error::VortexExpect;
+                    self.0.metadata::<[<$Name Metadata>]>()
+                        .vortex_expect("Metadata should be tied to the encoding")
                 }
 
                 pub fn len(&self) -> usize {
@@ -108,10 +108,7 @@ macro_rules! impl_encoding {
                             <$Name as $crate::ArrayDef>::ID,
                         );
                     }
-
-                    let metadata = data.metadata::<[<$Name Metadata>]>()?;
-
-                    Ok(Self { data, metadata })
+                    Ok(Self(data))
                 }
             }
 
