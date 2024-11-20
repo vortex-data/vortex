@@ -52,7 +52,15 @@ impl MaybeCompareFn for RunEndArray {
                 ConstantArray::new(const_scalar, self.values().len()),
                 operator,
             )
-            .and_then(|values| Self::try_new(self.ends(), values, self.validity().into_nullable()))
+            .and_then(|values| {
+                Self::with_offset_and_length(
+                    self.ends(),
+                    values,
+                    self.validity().into_nullable(),
+                    self.offset(),
+                    self.len(),
+                )
+            })
             .map(|a| a.into_array())
         })
     }
