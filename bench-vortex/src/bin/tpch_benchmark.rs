@@ -323,7 +323,7 @@ async fn bench_main(
             .filter(|(idx, _)| queries.as_ref().map(|q| q.contains(idx)).unwrap_or(true))
             .for_each(|(idx, (row_count, expected_row_count))| {
                 if row_count != expected_row_count {
-                    println!("Mismatched row count {row_count} instead of {expected_row_count} in query {idx} for format {format:?}");
+                    eprintln!("Mismatched row count {row_count} instead of {expected_row_count} in query {idx} for format {format:?}");
                     mismatched = true;
                 }
             })
