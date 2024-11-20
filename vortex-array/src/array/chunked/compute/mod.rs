@@ -26,10 +26,6 @@ impl ArrayCompute for ChunkedArray {
     fn subtract_scalar(&self) -> Option<&dyn SubtractScalarFn> {
         Some(self)
     }
-
-    fn take(&self) -> Option<&dyn TakeFn> {
-        Some(self)
-    }
 }
 
 impl ComputeVTable for ChunkedEncoding {
@@ -42,6 +38,10 @@ impl ComputeVTable for ChunkedEncoding {
     }
 
     fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
         Some(self)
     }
 }

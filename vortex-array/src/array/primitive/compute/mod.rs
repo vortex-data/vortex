@@ -39,10 +39,6 @@ impl ArrayCompute for PrimitiveArray {
     fn search_sorted(&self) -> Option<&dyn SearchSortedFn> {
         Some(self)
     }
-
-    fn take(&self) -> Option<&dyn TakeFn> {
-        Some(self)
-    }
 }
 
 impl ComputeVTable for PrimitiveEncoding {
@@ -55,6 +51,10 @@ impl ComputeVTable for PrimitiveEncoding {
     }
 
     fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
         Some(self)
     }
 }

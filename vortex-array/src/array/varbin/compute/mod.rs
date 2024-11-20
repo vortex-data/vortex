@@ -22,10 +22,6 @@ impl ArrayCompute for VarBinArray {
     fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
         Some(self)
     }
-
-    fn take(&self) -> Option<&dyn TakeFn> {
-        Some(self)
-    }
 }
 
 impl ComputeVTable for VarBinEncoding {
@@ -34,6 +30,10 @@ impl ComputeVTable for VarBinEncoding {
     }
 
     fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
         Some(self)
     }
 }

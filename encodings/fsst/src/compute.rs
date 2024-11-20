@@ -21,10 +21,6 @@ impl ArrayCompute for FSSTArray {
     fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
         Some(self)
     }
-
-    fn take(&self) -> Option<&dyn TakeFn> {
-        Some(self)
-    }
 }
 
 impl ComputeVTable for FSSTEncoding {
@@ -33,6 +29,10 @@ impl ComputeVTable for FSSTEncoding {
     }
 
     fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
         Some(self)
     }
 }
@@ -118,15 +118,20 @@ impl SliceFn<FSSTArray> for FSSTEncoding {
     }
 }
 
-impl TakeFn for FSSTArray {
+impl TakeFn<FSSTArray> for FSSTEncoding {
     // Take on an FSSTArray is a simple take on the codes array.
-    fn take(&self, indices: &ArrayData, options: TakeOptions) -> VortexResult<ArrayData> {
-        Ok(Self::try_new(
-            self.dtype().clone(),
-            self.symbols(),
-            self.symbol_lengths(),
-            take(self.codes(), indices, options)?,
-            take(self.uncompressed_lengths(), indices, options)?,
+    fn take(
+        &self,
+        array: &FSSTArray,
+        indices: &ArrayData,
+        options: TakeOptions,
+    ) -> VortexResult<ArrayData> {
+        Ok(FSSTArray::try_new(
+            array.dtype().clone(),
+            array.symbols(),
+            array.symbol_lengths(),
+            take(array.codes(), indices, options)?,
+            take(array.uncompressed_lengths(), indices, options)?,
         )?
         .into_array())
     }

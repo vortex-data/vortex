@@ -25,10 +25,6 @@ impl ArrayCompute for RunEndArray {
     fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
         Some(self)
     }
-
-    fn take(&self) -> Option<&dyn TakeFn> {
-        Some(self)
-    }
 }
 
 impl ComputeVTable for RunEndEncoding {
@@ -37,6 +33,10 @@ impl ComputeVTable for RunEndEncoding {
     }
 
     fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
         Some(self)
     }
 }
@@ -81,9 +81,14 @@ impl ScalarAtFn for RunEndArray {
     }
 }
 
-impl TakeFn for RunEndArray {
+impl TakeFn<RunEndArray> for RunEndEncoding {
     #[allow(deprecated)]
-    fn take(&self, indices: &ArrayData, options: TakeOptions) -> VortexResult<ArrayData> {
+    fn take(
+        &self,
+        array: &RunEndArray,
+        indices: &ArrayData,
+        options: TakeOptions,
+    ) -> VortexResult<ArrayData> {
         let primitive_indices = indices.clone().into_primitive()?;
         let u64_indices = match_each_integer_ptype!(primitive_indices.ptype(), |$P| {
             primitive_indices
@@ -91,27 +96,27 @@ impl TakeFn for RunEndArray {
                 .into_iter()
                 .map(|idx| {
                     let usize_idx = idx as usize;
-                    if usize_idx >= self.len() {
-                        vortex_error::vortex_bail!(OutOfBounds: usize_idx, 0, self.len());
+                    if usize_idx >= array.len() {
+                        vortex_error::vortex_bail!(OutOfBounds: usize_idx, 0, array.len());
                     }
 
-                    Ok((usize_idx + self.offset()) as u64)
+                    Ok((usize_idx + array.offset()) as u64)
                 })
                 .collect::<VortexResult<Vec<u64>>>()?
         });
-        let physical_indices = self
+        let physical_indices = array
             .find_physical_indices(&u64_indices)?
             .into_iter()
             .map(|idx| idx as u64)
             .collect::<Vec<_>>();
         let physical_indices_array = PrimitiveArray::from(physical_indices).into_array();
-        let dense_values = take(self.values(), &physical_indices_array, options)?;
+        let dense_values = take(array.values(), &physical_indices_array, options)?;
 
-        Ok(match self.validity() {
+        Ok(match array.validity() {
             Validity::NonNullable => dense_values,
             Validity::AllValid => dense_values,
             Validity::AllInvalid => {
-                ConstantArray::new(Scalar::null(self.dtype().clone()), indices.len()).into_array()
+                ConstantArray::new(Scalar::null(array.dtype().clone()), indices.len()).into_array()
             }
             Validity::Array(original_validity) => {
                 let dense_validity =

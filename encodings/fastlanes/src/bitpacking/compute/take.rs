@@ -13,7 +13,7 @@ use vortex_dtype::{
 };
 use vortex_error::{VortexExpect as _, VortexResult};
 
-use crate::{unpack_single_primitive, BitPackedArray};
+use crate::{unpack_single_primitive, BitPackedArray, BitPackedEncoding};
 
 // assuming the buffer is already allocated (which will happen at most once) then unpacking
 // all 1024 elements takes ~8.8x as long as unpacking a single element on an M2 Macbook Air.
@@ -21,25 +21,30 @@ use crate::{unpack_single_primitive, BitPackedArray};
 pub(super) const UNPACK_CHUNK_THRESHOLD: usize = 8;
 const BULK_PATCH_THRESHOLD: usize = 64;
 
-impl TakeFn for BitPackedArray {
-    fn take(&self, indices: &ArrayData, options: TakeOptions) -> VortexResult<ArrayData> {
+impl TakeFn<BitPackedArray> for BitPackedEncoding {
+    fn take(
+        &self,
+        array: &BitPackedArray,
+        indices: &ArrayData,
+        options: TakeOptions,
+    ) -> VortexResult<ArrayData> {
         // If the indices are large enough, it's faster to flatten and take the primitive array.
-        if indices.len() * UNPACK_CHUNK_THRESHOLD > self.len() {
-            return self
-                .clone()
-                .into_canonical()?
-                .into_primitive()?
-                .take(indices, options);
+        if indices.len() * UNPACK_CHUNK_THRESHOLD > array.len() {
+            return take(
+                array.clone().into_canonical()?.into_primitive()?,
+                indices,
+                options,
+            );
         }
 
-        let ptype: PType = self.dtype().try_into()?;
-        let validity = self.validity();
+        let ptype: PType = array.dtype().try_into()?;
+        let validity = array.validity();
         let taken_validity = validity.take(indices, options)?;
 
         let indices = indices.clone().into_primitive()?;
         let taken = match_each_unsigned_integer_ptype!(ptype, |$T| {
             match_each_integer_ptype!(indices.ptype(), |$I| {
-                PrimitiveArray::from_vec(take_primitive::<$T, $I>(self, &indices, options)?, taken_validity)
+                PrimitiveArray::from_vec(take_primitive::<$T, $I>(array, &indices, options)?, taken_validity)
             })
         });
         Ok(taken.reinterpret_cast(ptype).into_array())

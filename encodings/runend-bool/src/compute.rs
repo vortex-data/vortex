@@ -13,14 +13,13 @@ impl ArrayCompute for RunEndBoolArray {
     fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
         Some(self)
     }
-
-    fn take(&self) -> Option<&dyn TakeFn> {
-        Some(self)
-    }
 }
 
 impl ComputeVTable for RunEndBoolEncoding {
     fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+        Some(self)
+    }
+    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
         Some(self)
     }
 }
@@ -44,8 +43,13 @@ impl ScalarAtFn for RunEndBoolArray {
     }
 }
 
-impl TakeFn for RunEndBoolArray {
-    fn take(&self, indices: &ArrayData, _options: TakeOptions) -> VortexResult<ArrayData> {
+impl TakeFn<RunEndBoolArray> for RunEndBoolEncoding {
+    fn take(
+        &self,
+        array: &RunEndBoolArray,
+        indices: &ArrayData,
+        _options: TakeOptions,
+    ) -> VortexResult<ArrayData> {
         let primitive_indices = indices.clone().into_primitive()?;
         let physical_indices = match_each_integer_ptype!(primitive_indices.ptype(), |$P| {
             primitive_indices
@@ -53,14 +57,14 @@ impl TakeFn for RunEndBoolArray {
                 .iter()
                 .map(|idx| *idx as usize)
                 .map(|idx| {
-                    if idx >= self.len() {
-                        vortex_bail!(OutOfBounds: idx, 0, self.len())
+                    if idx >= array.len() {
+                        vortex_bail!(OutOfBounds: idx, 0, array.len())
                     }
-                    self.find_physical_index(idx)
+                    array.find_physical_index(idx)
                 })
                 .collect::<VortexResult<Vec<_>>>()?
         });
-        let start = self.start();
+        let start = array.start();
         Ok(
             BoolArray::from_iter(physical_indices.iter().map(|&it| value_at_index(it, start)))
                 .to_array(),

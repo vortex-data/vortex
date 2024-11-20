@@ -33,14 +33,14 @@ impl ArrayCompute for VarBinViewArray {
     fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
         Some(self)
     }
-
-    fn take(&self) -> Option<&dyn TakeFn> {
-        Some(self)
-    }
 }
 
 impl ComputeVTable for VarBinViewEncoding {
     fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
         Some(self)
     }
 }
@@ -75,14 +75,19 @@ impl SliceFn<VarBinViewArray> for VarBinViewEncoding {
 }
 
 /// Take involves creating a new array that references the old array, just with the given set of views.
-impl TakeFn for VarBinViewArray {
-    fn take(&self, indices: &ArrayData, options: TakeOptions) -> VortexResult<ArrayData> {
+impl TakeFn<VarBinViewArray> for VarBinViewEncoding {
+    fn take(
+        &self,
+        array: &VarBinViewArray,
+        indices: &ArrayData,
+        options: TakeOptions,
+    ) -> VortexResult<ArrayData> {
         // Compute the new validity
-        let validity = self.validity().take(indices, options)?;
+        let validity = array.validity().take(indices, options)?;
 
         // Convert our views array into an Arrow u128 ScalarBuffer (16 bytes per view)
         let views_buffer =
-            ScalarBuffer::<u128>::from(self.views().into_primitive()?.into_buffer().into_arrow());
+            ScalarBuffer::<u128>::from(array.views().into_primitive()?.into_buffer().into_arrow());
 
         let indices = indices.clone().into_primitive()?;
 
@@ -101,10 +106,10 @@ impl TakeFn for VarBinViewArray {
             Validity::NonNullable,
         );
 
-        Ok(Self::try_new(
+        Ok(VarBinViewArray::try_new(
             views_array.into_array(),
-            self.buffers().collect_vec(),
-            self.dtype().clone(),
+            array.buffers().collect_vec(),
+            array.dtype().clone(),
             validity,
         )?
         .into_array())

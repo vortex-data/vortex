@@ -18,14 +18,14 @@ impl ArrayCompute for ByteBoolArray {
     fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
         Some(self)
     }
-
-    fn take(&self) -> Option<&dyn TakeFn> {
-        Some(self)
-    }
 }
 
 impl ComputeVTable for ByteBoolEncoding {
     fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
         Some(self)
     }
 }
@@ -50,11 +50,16 @@ impl SliceFn<ByteBoolArray> for ByteBoolEncoding {
     }
 }
 
-impl TakeFn for ByteBoolArray {
-    fn take(&self, indices: &ArrayData, _options: TakeOptions) -> VortexResult<ArrayData> {
-        let validity = self.validity();
+impl TakeFn<ByteBoolArray> for ByteBoolEncoding {
+    fn take(
+        &self,
+        array: &ByteBoolArray,
+        indices: &ArrayData,
+        _options: TakeOptions,
+    ) -> VortexResult<ArrayData> {
+        let validity = array.validity();
         let indices = indices.clone().into_primitive()?;
-        let bools = self.maybe_null_slice();
+        let bools = array.maybe_null_slice();
 
         let arr = match validity {
             Validity::AllValid | Validity::NonNullable => {
@@ -68,9 +73,9 @@ impl TakeFn for ByteBoolArray {
                     .collect::<Vec<_>>()
                 });
 
-                Self::from(bools).into_array()
+                ByteBoolArray::from(bools).into_array()
             }
-            Validity::AllInvalid => Self::from(vec![None; indices.len()]).into_array(),
+            Validity::AllInvalid => ByteBoolArray::from(vec![None; indices.len()]).into_array(),
 
             Validity::Array(_) => {
                 let bools = match_each_integer_ptype!(indices.ptype(), |$I| {
@@ -87,7 +92,7 @@ impl TakeFn for ByteBoolArray {
                     .collect::<Vec<Option<_>>>()
                 });
 
-                Self::from(bools).into_array()
+                ByteBoolArray::from(bools).into_array()
             }
         };
 

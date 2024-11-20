@@ -17,25 +17,30 @@ impl ArrayCompute for DateTimePartsArray {
     fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
         Some(self)
     }
-
-    fn take(&self) -> Option<&dyn TakeFn> {
-        Some(self)
-    }
 }
 
 impl ComputeVTable for DateTimePartsEncoding {
     fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
         Some(self)
     }
+
+    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
+        Some(self)
+    }
 }
 
-impl TakeFn for DateTimePartsArray {
-    fn take(&self, indices: &ArrayData, options: TakeOptions) -> VortexResult<ArrayData> {
-        Ok(Self::try_new(
-            self.dtype().clone(),
-            take(self.days(), indices, options)?,
-            take(self.seconds(), indices, options)?,
-            take(self.subsecond(), indices, options)?,
+impl TakeFn<DateTimePartsArray> for DateTimePartsEncoding {
+    fn take(
+        &self,
+        array: &DateTimePartsArray,
+        indices: &ArrayData,
+        options: TakeOptions,
+    ) -> VortexResult<ArrayData> {
+        Ok(DateTimePartsArray::try_new(
+            array.dtype().clone(),
+            take(array.days(), indices, options)?,
+            take(array.seconds(), indices, options)?,
+            take(array.subsecond(), indices, options)?,
         )?
         .into_array())
     }

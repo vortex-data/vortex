@@ -4,24 +4,30 @@ use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::array::chunked::ChunkedArray;
+use crate::array::ChunkedEncoding;
 use crate::compute::unary::{scalar_at, subtract_scalar, try_cast};
 use crate::compute::{search_sorted, slice, take, SearchSortedSide, TakeFn, TakeOptions};
 use crate::stats::ArrayStatistics;
 use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
 
-impl TakeFn for ChunkedArray {
-    fn take(&self, indices: &ArrayData, options: TakeOptions) -> VortexResult<ArrayData> {
+impl TakeFn<ChunkedArray> for ChunkedEncoding {
+    fn take(
+        &self,
+        array: &ChunkedArray,
+        indices: &ArrayData,
+        options: TakeOptions,
+    ) -> VortexResult<ArrayData> {
         // Fast path for strict sorted indices.
         if indices
             .statistics()
             .compute_is_strict_sorted()
             .unwrap_or(false)
         {
-            if self.len() == indices.len() {
-                return Ok(self.to_array());
+            if array.len() == indices.len() {
+                return Ok(array.to_array());
             }
 
-            return take_strict_sorted(self, indices, options);
+            return take_strict_sorted(array, indices, options);
         }
 
         let indices = try_cast(indices, PType::U64.into())?.into_primitive()?;
@@ -29,17 +35,17 @@ impl TakeFn for ChunkedArray {
         // While the chunk idx remains the same, accumulate a list of chunk indices.
         let mut chunks = Vec::new();
         let mut indices_in_chunk = Vec::new();
-        let mut prev_chunk_idx = self
+        let mut prev_chunk_idx = array
             .find_chunk_idx(indices.maybe_null_slice::<u64>()[0] as usize)
             .0;
         for idx in indices.maybe_null_slice::<u64>() {
-            let (chunk_idx, idx_in_chunk) = self.find_chunk_idx(*idx as usize);
+            let (chunk_idx, idx_in_chunk) = array.find_chunk_idx(*idx as usize);
 
             if chunk_idx != prev_chunk_idx {
                 // Start a new chunk
                 let indices_in_chunk_array = indices_in_chunk.clone().into_array();
                 chunks.push(take(
-                    &self.chunk(prev_chunk_idx)?,
+                    &array.chunk(prev_chunk_idx)?,
                     &indices_in_chunk_array,
                     options,
                 )?);
@@ -53,13 +59,13 @@ impl TakeFn for ChunkedArray {
         if !indices_in_chunk.is_empty() {
             let indices_in_chunk_array = indices_in_chunk.into_array();
             chunks.push(take(
-                &self.chunk(prev_chunk_idx)?,
+                &array.chunk(prev_chunk_idx)?,
                 &indices_in_chunk_array,
                 options,
             )?);
         }
 
-        Ok(Self::try_new(chunks, self.dtype().clone())?.into_array())
+        Ok(ChunkedArray::try_new(chunks, array.dtype().clone())?.into_array())
     }
 }
 

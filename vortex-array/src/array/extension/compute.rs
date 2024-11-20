@@ -19,10 +19,6 @@ impl ArrayCompute for ExtensionArray {
     fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
         Some(self)
     }
-
-    fn take(&self) -> Option<&dyn TakeFn> {
-        Some(self)
-    }
 }
 
 impl ComputeVTable for ExtensionEncoding {
@@ -34,6 +30,10 @@ impl ComputeVTable for ExtensionEncoding {
     }
 
     fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
         Some(self)
     }
 }
@@ -90,11 +90,16 @@ impl SliceFn<ExtensionArray> for ExtensionEncoding {
     }
 }
 
-impl TakeFn for ExtensionArray {
-    fn take(&self, indices: &ArrayData, options: TakeOptions) -> VortexResult<ArrayData> {
-        Ok(Self::new(
-            self.ext_dtype().clone(),
-            take(self.storage(), indices, options)?,
+impl TakeFn<ExtensionArray> for ExtensionEncoding {
+    fn take(
+        &self,
+        array: &ExtensionArray,
+        indices: &ArrayData,
+        options: TakeOptions,
+    ) -> VortexResult<ArrayData> {
+        Ok(ExtensionArray::new(
+            array.ext_dtype().clone(),
+            take(array.storage(), indices, options)?,
         )
         .into_array())
     }

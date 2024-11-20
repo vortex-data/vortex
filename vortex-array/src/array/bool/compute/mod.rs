@@ -21,10 +21,6 @@ impl ArrayCompute for BoolArray {
         Some(self)
     }
 
-    fn take(&self) -> Option<&dyn TakeFn> {
-        Some(self)
-    }
-
     fn and(&self) -> Option<&dyn AndFn> {
         Some(self)
     }
@@ -40,6 +36,10 @@ impl ComputeVTable for BoolEncoding {
     }
 
     fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
         Some(self)
     }
 }

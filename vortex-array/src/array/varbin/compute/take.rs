@@ -4,24 +4,30 @@ use vortex_error::{vortex_err, vortex_panic, VortexResult};
 
 use crate::array::varbin::builder::VarBinBuilder;
 use crate::array::varbin::VarBinArray;
+use crate::array::VarBinEncoding;
 use crate::compute::{TakeFn, TakeOptions};
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 
-impl TakeFn for VarBinArray {
-    fn take(&self, indices: &ArrayData, _options: TakeOptions) -> VortexResult<ArrayData> {
-        let offsets = self.offsets().into_primitive()?;
-        let data = self.bytes().into_primitive()?;
+impl TakeFn<VarBinArray> for VarBinEncoding {
+    fn take(
+        &self,
+        array: &VarBinArray,
+        indices: &ArrayData,
+        _options: TakeOptions,
+    ) -> VortexResult<ArrayData> {
+        let offsets = array.offsets().into_primitive()?;
+        let data = array.bytes().into_primitive()?;
         let indices = indices.clone().into_primitive()?;
         match_each_integer_ptype!(offsets.ptype(), |$O| {
             match_each_integer_ptype!(indices.ptype(), |$I| {
                 Ok(take(
-                    self.dtype().clone(),
+                    array.dtype().clone(),
                     offsets.maybe_null_slice::<$O>(),
                     data.maybe_null_slice::<u8>(),
                     indices.maybe_null_slice::<$I>(),
-                    self.validity(),
+                    array.validity(),
                 )?.into_array())
             })
         })

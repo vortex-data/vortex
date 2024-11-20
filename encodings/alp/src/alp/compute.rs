@@ -20,10 +20,6 @@ impl ArrayCompute for ALPArray {
     fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
         Some(self)
     }
-
-    fn take(&self) -> Option<&dyn TakeFn> {
-        Some(self)
-    }
 }
 
 impl ComputeVTable for ALPEncoding {
@@ -32,6 +28,10 @@ impl ComputeVTable for ALPEncoding {
     }
 
     fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
         Some(self)
     }
 }
@@ -61,13 +61,19 @@ impl ScalarAtFn for ALPArray {
     }
 }
 
-impl TakeFn for ALPArray {
-    fn take(&self, indices: &ArrayData, options: TakeOptions) -> VortexResult<ArrayData> {
+impl TakeFn<ALPArray> for ALPEncoding {
+    fn take(
+        &self,
+        array: &ALPArray,
+        indices: &ArrayData,
+        options: TakeOptions,
+    ) -> VortexResult<ArrayData> {
         // TODO(ngates): wrap up indices in an array that caches decompression?
-        Ok(Self::try_new(
-            take(self.encoded(), indices, options)?,
-            self.exponents(),
-            self.patches()
+        Ok(ALPArray::try_new(
+            take(array.encoded(), indices, options)?,
+            array.exponents(),
+            array
+                .patches()
                 .map(|p| take(&p, indices, options))
                 .transpose()?,
         )?

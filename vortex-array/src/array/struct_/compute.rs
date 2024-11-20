@@ -16,10 +16,6 @@ impl ArrayCompute for StructArray {
     fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
         Some(self)
     }
-
-    fn take(&self) -> Option<&dyn TakeFn> {
-        Some(self)
-    }
 }
 
 impl ComputeVTable for StructEncoding {
@@ -28,6 +24,10 @@ impl ComputeVTable for StructEncoding {
     }
 
     fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
         Some(self)
     }
 }
@@ -52,15 +52,21 @@ impl ScalarAtFn for StructArray {
     }
 }
 
-impl TakeFn for StructArray {
-    fn take(&self, indices: &ArrayData, options: TakeOptions) -> VortexResult<ArrayData> {
-        Self::try_new(
-            self.names().clone(),
-            self.children()
+impl TakeFn<StructArray> for StructEncoding {
+    fn take(
+        &self,
+        array: &StructArray,
+        indices: &ArrayData,
+        options: TakeOptions,
+    ) -> VortexResult<ArrayData> {
+        StructArray::try_new(
+            array.names().clone(),
+            array
+                .children()
                 .map(|field| take(&field, indices, options))
                 .try_collect()?,
             indices.len(),
-            self.validity().take(indices, options)?,
+            array.validity().take(indices, options)?,
         )
         .map(|a| a.into_array())
     }

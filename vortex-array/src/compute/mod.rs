@@ -50,6 +50,14 @@ pub trait ComputeVTable {
     fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
         None
     }
+
+    /// Take a set of indices from an array. This often forces allocations and decoding of
+    /// the receiver.
+    ///
+    /// See: [TakeFn].
+    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
+        None
+    }
 }
 
 /// Trait providing compute functions on top of Vortex arrays.
@@ -86,14 +94,6 @@ pub trait ArrayCompute {
     ///
     /// See: [SearchSortedFn].
     fn search_sorted(&self) -> Option<&dyn SearchSortedFn> {
-        None
-    }
-
-    /// Take a set of indices from an array. This often forces allocations and decoding of
-    /// the receiver.
-    ///
-    /// See: [TakeFn].
-    fn take(&self) -> Option<&dyn TakeFn> {
         None
     }
 

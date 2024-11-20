@@ -13,14 +13,14 @@ impl ArrayCompute for NullArray {
     fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
         Some(self)
     }
-
-    fn take(&self) -> Option<&dyn TakeFn> {
-        Some(self)
-    }
 }
 
 impl ComputeVTable for NullEncoding {
     fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
         Some(self)
     }
 }
@@ -41,16 +41,21 @@ impl ScalarAtFn for NullArray {
     }
 }
 
-impl TakeFn for NullArray {
-    fn take(&self, indices: &ArrayData, options: TakeOptions) -> VortexResult<ArrayData> {
+impl TakeFn<NullArray> for NullEncoding {
+    fn take(
+        &self,
+        array: &NullArray,
+        indices: &ArrayData,
+        options: TakeOptions,
+    ) -> VortexResult<ArrayData> {
         let indices = indices.clone().into_primitive()?;
 
         // Enforce all indices are valid
         if !options.skip_bounds_check {
             match_each_integer_ptype!(indices.ptype(), |$T| {
                 for index in indices.maybe_null_slice::<$T>() {
-                    if !((*index as usize) < self.len()) {
-                        vortex_bail!(OutOfBounds: *index as usize, 0, self.len());
+                    if !((*index as usize) < array.len()) {
+                        vortex_bail!(OutOfBounds: *index as usize, 0, array.len());
                     }
                 }
             });
@@ -66,7 +71,7 @@ mod test {
 
     use crate::array::null::NullArray;
     use crate::compute::unary::scalar_at;
-    use crate::compute::{slice, TakeFn, TakeOptions};
+    use crate::compute::{slice, take, TakeOptions};
     use crate::validity::{ArrayValidity, LogicalValidity};
     use crate::{ArrayLen, IntoArrayData};
 
@@ -86,9 +91,12 @@ mod test {
     fn test_take_nulls() {
         let nulls = NullArray::new(10);
         let taken = NullArray::try_from(
-            nulls
-                .take(&vec![0u64, 2, 4, 6, 8].into_array(), TakeOptions::default())
-                .unwrap(),
+            take(
+                nulls,
+                &vec![0u64, 2, 4, 6, 8].into_array(),
+                TakeOptions::default(),
+            )
+            .unwrap(),
         )
         .unwrap();
 

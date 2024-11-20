@@ -20,10 +20,6 @@ impl ArrayCompute for BitPackedArray {
     fn search_sorted(&self) -> Option<&dyn SearchSortedFn> {
         Some(self)
     }
-
-    fn take(&self) -> Option<&dyn TakeFn> {
-        Some(self)
-    }
 }
 
 impl ComputeVTable for BitPackedEncoding {
@@ -32,6 +28,10 @@ impl ComputeVTable for BitPackedEncoding {
     }
 
     fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
         Some(self)
     }
 }

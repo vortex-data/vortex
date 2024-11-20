@@ -13,10 +13,6 @@ impl ArrayCompute for ALPRDArray {
     fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
         Some(self)
     }
-
-    fn take(&self) -> Option<&dyn TakeFn> {
-        Some(self)
-    }
 }
 
 impl ComputeVTable for ALPRDEncoding {
@@ -24,6 +20,9 @@ impl ComputeVTable for ALPRDEncoding {
         Some(self)
     }
     fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+        Some(self)
+    }
+    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
         Some(self)
     }
 }

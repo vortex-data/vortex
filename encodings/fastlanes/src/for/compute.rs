@@ -22,10 +22,6 @@ impl ArrayCompute for FoRArray {
     fn search_sorted(&self) -> Option<&dyn SearchSortedFn> {
         Some(self)
     }
-
-    fn take(&self) -> Option<&dyn TakeFn> {
-        Some(self)
-    }
 }
 
 impl ComputeVTable for FoREncoding {
@@ -36,14 +32,23 @@ impl ComputeVTable for FoREncoding {
     fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
         Some(self)
     }
+
+    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
+        Some(self)
+    }
 }
 
-impl TakeFn for FoRArray {
-    fn take(&self, indices: &ArrayData, options: TakeOptions) -> VortexResult<ArrayData> {
-        Self::try_new(
-            take(self.encoded(), indices, options)?,
-            self.owned_reference_scalar(),
-            self.shift(),
+impl TakeFn<FoRArray> for FoREncoding {
+    fn take(
+        &self,
+        array: &FoRArray,
+        indices: &ArrayData,
+        options: TakeOptions,
+    ) -> VortexResult<ArrayData> {
+        FoRArray::try_new(
+            take(array.encoded(), indices, options)?,
+            array.owned_reference_scalar(),
+            array.shift(),
         )
         .map(|a| a.into_array())
     }

@@ -2,21 +2,26 @@ use vortex_array::compute::{take, TakeFn, TakeOptions};
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
 
-use crate::ALPRDArray;
+use crate::{ALPRDArray, ALPRDEncoding};
 
-impl TakeFn for ALPRDArray {
-    fn take(&self, indices: &ArrayData, options: TakeOptions) -> VortexResult<ArrayData> {
-        let left_parts_exceptions = self
+impl TakeFn<ALPRDArray> for ALPRDEncoding {
+    fn take(
+        &self,
+        array: &ALPRDArray,
+        indices: &ArrayData,
+        options: TakeOptions,
+    ) -> VortexResult<ArrayData> {
+        let left_parts_exceptions = array
             .left_parts_exceptions()
             .map(|array| take(&array, indices, options))
             .transpose()?;
 
         Ok(ALPRDArray::try_new(
-            self.dtype().clone(),
-            take(self.left_parts(), indices, options)?,
-            self.left_parts_dict(),
-            take(self.right_parts(), indices, options)?,
-            self.right_bit_width(),
+            array.dtype().clone(),
+            take(array.left_parts(), indices, options)?,
+            array.left_parts_dict(),
+            take(array.right_parts(), indices, options)?,
+            array.right_bit_width(),
             left_parts_exceptions,
         )?
         .into_array())

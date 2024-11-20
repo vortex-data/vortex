@@ -18,10 +18,6 @@ impl ArrayCompute for DictArray {
     fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
         Some(self)
     }
-
-    fn take(&self) -> Option<&dyn TakeFn> {
-        Some(self)
-    }
 }
 
 impl ComputeVTable for DictEncoding {
@@ -30,6 +26,10 @@ impl ComputeVTable for DictEncoding {
     }
 
     fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
         Some(self)
     }
 }
@@ -76,13 +76,18 @@ impl ScalarAtFn for DictArray {
     }
 }
 
-impl TakeFn for DictArray {
-    fn take(&self, indices: &ArrayData, options: TakeOptions) -> VortexResult<ArrayData> {
+impl TakeFn<DictArray> for DictEncoding {
+    fn take(
+        &self,
+        array: &DictArray,
+        indices: &ArrayData,
+        options: TakeOptions,
+    ) -> VortexResult<ArrayData> {
         // Dict
         //   codes: 0 0 1
         //   dict: a b c d e f g h
-        let codes = take(self.codes(), indices, options)?;
-        Self::try_new(codes, self.values()).map(|a| a.into_array())
+        let codes = take(array.codes(), indices, options)?;
+        DictArray::try_new(codes, array.values()).map(|a| a.into_array())
     }
 }
 
