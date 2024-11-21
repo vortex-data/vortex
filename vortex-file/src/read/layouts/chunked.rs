@@ -189,6 +189,7 @@ impl ChunkedLayoutReader {
             .iter()
             .map(|i| &self.layouts[*i])
             .zip(in_progress_range)
+            .filter(|(_, array)| array.is_none())
         {
             let layout_selection = mask.slice(*begin, *end).shift(*begin)?;
             if let Some(rr) = layout.read_selection(&layout_selection)? {
