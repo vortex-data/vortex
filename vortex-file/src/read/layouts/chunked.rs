@@ -185,7 +185,6 @@ impl ChunkedLayoutReader {
     }
 
     fn buffer_read(&self, mask: &RowMask) -> VortexResult<Vec<MessageLocator>> {
-        println!("Buffer read mask: {}", mask);
         let mut in_progress_guard = self
             .in_progress_ranges
             .write()
