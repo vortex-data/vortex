@@ -4,7 +4,7 @@ pub use compress::*;
 use serde::{Deserialize, Serialize};
 use vortex_array::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use vortex_array::encoding::ids;
-use vortex_array::stats::{ArrayStatisticsCompute, StatsSet};
+use vortex_array::stats::{StatisticsVTable, StatsSet};
 use vortex_array::validity::{ArrayValidity, LogicalValidity};
 use vortex_array::variants::{ArrayVariants, PrimitiveArrayTrait};
 use vortex_array::{
@@ -105,7 +105,7 @@ impl AcceptArrayVisitor for FoRArray {
     }
 }
 
-impl ArrayStatisticsCompute for FoRArray {}
+impl StatisticsVTable<FoRArray> for FoREncoding {}
 
 impl ArrayTrait for FoRArray {
     fn nbytes(&self) -> usize {

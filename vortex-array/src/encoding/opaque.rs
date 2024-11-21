@@ -6,6 +6,7 @@ use vortex_error::{vortex_bail, VortexResult};
 
 use crate::compute::ComputeVTable;
 use crate::encoding::{EncodingId, EncodingVTable};
+use crate::stats::StatisticsVTable;
 use crate::{
     ArrayData, ArrayMetadata, ArrayTrait, Canonical, IntoCanonicalVTable, MetadataVTable,
     TrySerializeArrayMetadata,
@@ -61,6 +62,8 @@ impl MetadataVTable for OpaqueEncoding {
         Ok(Arc::new(OpaqueMetadata))
     }
 }
+
+impl StatisticsVTable<ArrayData> for OpaqueEncoding {}
 
 #[derive(Debug)]
 pub struct OpaqueMetadata;

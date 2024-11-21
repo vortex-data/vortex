@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use vortex_array::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use vortex_array::array::{PrimitiveArray, SparseArray};
 use vortex_array::encoding::ids;
-use vortex_array::stats::{ArrayStatisticsCompute, StatsSet};
+use vortex_array::stats::{StatisticsVTable, StatsSet};
 use vortex_array::validity::{ArrayValidity, LogicalValidity};
 use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoCanonical,
@@ -259,7 +259,7 @@ impl AcceptArrayVisitor for ALPRDArray {
     }
 }
 
-impl ArrayStatisticsCompute for ALPRDArray {}
+impl StatisticsVTable<ALPRDArray> for ALPRDEncoding {}
 
 impl ArrayTrait for ALPRDArray {}
 

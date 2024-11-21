@@ -10,7 +10,7 @@ use crate::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use crate::compute::unary::scalar_at;
 use crate::compute::{search_sorted, SearchResult, SearchSortedSide};
 use crate::encoding::ids;
-use crate::stats::{ArrayStatistics, ArrayStatisticsCompute, Stat, StatsSet};
+use crate::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{
@@ -192,21 +192,21 @@ impl AcceptArrayVisitor for SparseArray {
     }
 }
 
-impl ArrayStatisticsCompute for SparseArray {
-    fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
-        let mut stats = self.values().statistics().compute_all(&[stat])?;
-        if self.len() == self.values().len() {
+impl StatisticsVTable<SparseArray> for SparseEncoding {
+    fn compute_statistics(&self, array: &SparseArray, stat: Stat) -> VortexResult<StatsSet> {
+        let mut stats = array.values().statistics().compute_all(&[stat])?;
+        if array.len() == array.values().len() {
             return Ok(stats);
         }
 
-        let fill_len = self.len() - self.values().len();
-        let fill_stats = if self.fill_value().is_null() {
-            StatsSet::nulls(fill_len, self.dtype())
+        let fill_len = array.len() - array.values().len();
+        let fill_stats = if array.fill_value().is_null() {
+            StatsSet::nulls(fill_len, array.dtype())
         } else {
-            StatsSet::constant(self.fill_scalar(), fill_len)
+            StatsSet::constant(array.fill_scalar(), fill_len)
         };
 
-        if self.values().is_empty() {
+        if array.values().is_empty() {
             return Ok(fill_stats);
         }
 

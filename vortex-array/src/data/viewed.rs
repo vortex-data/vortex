@@ -223,8 +223,8 @@ impl Statistics for ViewedArrayData {
             return Some(s);
         }
 
-        ArrayData::from(self.clone())
-            .with_dyn(|a| a.compute_statistics(stat))
+        self.encoding()
+            .compute_statistics(&ArrayData::from(self.clone()), stat)
             .ok()?
             .get(stat)
             .cloned()

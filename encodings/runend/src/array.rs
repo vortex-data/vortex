@@ -6,7 +6,7 @@ use vortex_array::array::PrimitiveArray;
 use vortex_array::compute::unary::scalar_at;
 use vortex_array::compute::{search_sorted, search_sorted_usize_many, SearchSortedSide};
 use vortex_array::encoding::ids;
-use vortex_array::stats::{ArrayStatistics, ArrayStatisticsCompute, Stat, StatsSet};
+use vortex_array::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
 use vortex_array::variants::{ArrayVariants, BoolArrayTrait, PrimitiveArrayTrait};
 use vortex_array::{
@@ -248,17 +248,18 @@ impl AcceptArrayVisitor for RunEndArray {
     }
 }
 
-impl ArrayStatisticsCompute for RunEndArray {
-    fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
+impl StatisticsVTable<RunEndArray> for RunEndEncoding {
+    fn compute_statistics(&self, array: &RunEndArray, stat: Stat) -> VortexResult<StatsSet> {
         let maybe_stat = match stat {
-            Stat::Min | Stat::Max => self.values().statistics().compute(stat),
-            Stat::NullCount => Some(Scalar::from(self.validity().null_count(self.len())?)),
+            Stat::Min | Stat::Max => array.values().statistics().compute(stat),
+            Stat::NullCount => Some(Scalar::from(array.validity().null_count(array.len())?)),
             Stat::IsSorted => Some(Scalar::from(
-                self.values()
+                array
+                    .values()
                     .statistics()
                     .compute_is_sorted()
                     .unwrap_or(false)
-                    && self.logical_validity().all_valid(),
+                    && array.logical_validity().all_valid(),
             )),
             _ => None,
         };

@@ -11,7 +11,8 @@ use vortex_error::{vortex_panic, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::array::primitive::PrimitiveArray;
-use crate::stats::{ArrayStatisticsCompute, Stat, StatsSet};
+use crate::array::PrimitiveEncoding;
+use crate::stats::{Stat, StatisticsVTable, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayDType, ArrayTrait as _, IntoArrayVariant};
@@ -20,43 +21,45 @@ trait PStatsType: NativePType + Into<Scalar> + BitWidth {}
 
 impl<T: NativePType + Into<Scalar> + BitWidth> PStatsType for T {}
 
-impl ArrayStatisticsCompute for PrimitiveArray {
-    fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
+impl StatisticsVTable<PrimitiveArray> for PrimitiveEncoding {
+    fn compute_statistics(&self, array: &PrimitiveArray, stat: Stat) -> VortexResult<StatsSet> {
         if stat == Stat::UncompressedSizeInBytes {
-            return Ok(StatsSet::of(stat, self.nbytes()));
+            return Ok(StatsSet::of(stat, array.nbytes()));
         }
 
-        let mut stats = match_each_native_ptype!(self.ptype(), |$P| {
-            match self.logical_validity() {
-                LogicalValidity::AllValid(_) => self.maybe_null_slice::<$P>().compute_statistics(stat),
-                LogicalValidity::AllInvalid(v) => Ok(StatsSet::nulls(v, self.dtype())),
-                LogicalValidity::Array(a) => NullableValues(
-                    self.maybe_null_slice::<$P>(),
-                    &a.clone().into_bool()?.boolean_buffer(),
-                )
-                .compute_statistics(stat),
+        let mut stats = match_each_native_ptype!(array.ptype(), |$P| {
+            match array.logical_validity() {
+                LogicalValidity::AllValid(_) => self.compute_statistics(array.maybe_null_slice::<$P>(), stat),
+                LogicalValidity::AllInvalid(v) => Ok(StatsSet::nulls(v, array.dtype())),
+                LogicalValidity::Array(a) => self.compute_statistics(
+                    &NullableValues(
+                        array.maybe_null_slice::<$P>(),
+                        &a.clone().into_bool()?.boolean_buffer(),
+                    ),
+                    stat
+                ),
             }
         })?;
 
         if let Some(min) = stats.get(Stat::Min) {
-            stats.set(Stat::Min, min.cast(self.dtype())?);
+            stats.set(Stat::Min, min.cast(array.dtype())?);
         }
         if let Some(max) = stats.get(Stat::Max) {
-            stats.set(Stat::Max, max.cast(self.dtype())?);
+            stats.set(Stat::Max, max.cast(array.dtype())?);
         }
         Ok(stats)
     }
 }
 
-impl<T: PStatsType> ArrayStatisticsCompute for &[T] {
-    fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
-        if self.is_empty() {
+impl<T: PStatsType> StatisticsVTable<[T]> for PrimitiveEncoding {
+    fn compute_statistics(&self, array: &[T], stat: Stat) -> VortexResult<StatsSet> {
+        if array.is_empty() {
             return Ok(StatsSet::default());
         }
 
         Ok(match stat {
             Stat::Min | Stat::Max => {
-                let mut stats = compute_min_max(self.iter().copied(), true);
+                let mut stats = compute_min_max(array.iter().copied(), true);
                 stats.set(
                     Stat::IsConstant,
                     stats
@@ -68,17 +71,17 @@ impl<T: PStatsType> ArrayStatisticsCompute for &[T] {
                 stats
             }
             Stat::IsConstant => {
-                let first = self[0];
-                let is_constant = self.iter().all(|x| first.is_eq(*x));
+                let first = array[0];
+                let is_constant = array.iter().all(|x| first.is_eq(*x));
                 StatsSet::from_iter([(Stat::IsConstant, is_constant.into())])
             }
             Stat::NullCount => StatsSet::from_iter([(Stat::NullCount, 0u64.into())]),
-            Stat::IsSorted => compute_is_sorted(self.iter().copied()),
-            Stat::IsStrictSorted => compute_is_strict_sorted(self.iter().copied()),
-            Stat::RunCount => compute_run_count(self.iter().copied()),
+            Stat::IsSorted => compute_is_sorted(array.iter().copied()),
+            Stat::IsStrictSorted => compute_is_strict_sorted(array.iter().copied()),
+            Stat::RunCount => compute_run_count(array.iter().copied()),
             Stat::BitWidthFreq | Stat::TrailingZeroFreq => {
-                let mut stats = BitWidthAccumulator::new(self[0]);
-                self.iter().skip(1).for_each(|next| stats.next(*next));
+                let mut stats = BitWidthAccumulator::new(array[0]);
+                array.iter().skip(1).for_each(|next| stats.next(*next));
                 stats.finish()
             }
             Stat::TrueCount | Stat::UncompressedSizeInBytes => StatsSet::default(),
@@ -88,17 +91,21 @@ impl<T: PStatsType> ArrayStatisticsCompute for &[T] {
 
 struct NullableValues<'a, T: PStatsType>(&'a [T], &'a BooleanBuffer);
 
-impl<T: PStatsType> ArrayStatisticsCompute for NullableValues<'_, T> {
-    fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
-        let values = self.0;
+impl<T: PStatsType> StatisticsVTable<NullableValues<'_, T>> for PrimitiveEncoding {
+    fn compute_statistics(
+        &self,
+        nulls: &NullableValues<'_, T>,
+        stat: Stat,
+    ) -> VortexResult<StatsSet> {
+        let values = nulls.0;
         if values.is_empty() || stat == Stat::TrueCount || stat == Stat::UncompressedSizeInBytes {
             return Ok(StatsSet::default());
         }
 
-        let null_count = values.len() - self.1.count_set_bits();
+        let null_count = values.len() - nulls.1.count_set_bits();
         if null_count == 0 {
             // no nulls, use the fast path on the values
-            return values.compute_statistics(stat);
+            return self.compute_statistics(values, stat);
         } else if null_count == values.len() {
             // all nulls!
             return Ok(StatsSet::nulls(
@@ -116,7 +123,7 @@ impl<T: PStatsType> ArrayStatisticsCompute for NullableValues<'_, T> {
             return Ok(stats);
         }
 
-        let mut set_indices = self.1.set_indices();
+        let mut set_indices = nulls.1.set_indices();
         if matches!(stat, Stat::Min | Stat::Max) {
             stats.extend(compute_min_max(set_indices.map(|next| values[next]), false));
         } else if stat == Stat::IsSorted {

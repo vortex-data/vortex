@@ -7,6 +7,7 @@ use std::hash::{Hash, Hasher};
 use vortex_error::{vortex_panic, VortexResult};
 
 use crate::compute::ComputeVTable;
+use crate::stats::StatisticsVTable;
 use crate::{ArrayData, ArrayDef, ArrayMetadata, ArrayTrait, IntoCanonicalVTable, MetadataVTable};
 
 pub mod opaque;
@@ -67,7 +68,14 @@ pub type EncodingRef = &'static dyn EncodingVTable;
 
 /// Object-safe encoding trait for an array.
 pub trait EncodingVTable:
-    'static + Sync + Send + Debug + IntoCanonicalVTable + MetadataVTable + ComputeVTable
+    'static
+    + Sync
+    + Send
+    + Debug
+    + IntoCanonicalVTable
+    + MetadataVTable
+    + ComputeVTable
+    + StatisticsVTable<ArrayData>
 {
     fn id(&self) -> EncodingId;
 

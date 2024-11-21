@@ -8,7 +8,7 @@ use vortex_array::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use vortex_array::array::PrimitiveArray;
 use vortex_array::compute::unary::try_cast;
 use vortex_array::encoding::ids;
-use vortex_array::stats::{ArrayStatistics, ArrayStatisticsCompute, Stat, StatsSet};
+use vortex_array::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity};
 use vortex_array::variants::{ArrayVariants, PrimitiveArrayTrait};
 use vortex_array::{
@@ -137,12 +137,12 @@ impl AcceptArrayVisitor for RoaringIntArray {
     }
 }
 
-impl ArrayStatisticsCompute for RoaringIntArray {
-    fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
+impl StatisticsVTable<RoaringIntArray> for RoaringIntEncoding {
+    fn compute_statistics(&self, array: &RoaringIntArray, stat: Stat) -> VortexResult<StatsSet> {
         // possibly faster to write an accumulator over the iterator, though not necessarily
         if stat == Stat::TrailingZeroFreq || stat == Stat::BitWidthFreq || stat == Stat::RunCount {
             let primitive =
-                PrimitiveArray::from_vec(self.owned_bitmap().to_vec(), Validity::NonNullable);
+                PrimitiveArray::from_vec(array.owned_bitmap().to_vec(), Validity::NonNullable);
             primitive.statistics().compute_all(&[
                 Stat::TrailingZeroFreq,
                 Stat::BitWidthFreq,

@@ -6,7 +6,7 @@ use vortex_array::array::{BoolArray, PrimitiveArray};
 use vortex_array::compute::unary::scalar_at;
 use vortex_array::compute::{search_sorted, SearchSortedSide};
 use vortex_array::encoding::ids;
-use vortex_array::stats::{ArrayStatistics, ArrayStatisticsCompute, Stat, StatsSet};
+use vortex_array::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
 use vortex_array::variants::{ArrayVariants, BoolArrayTrait, PrimitiveArrayTrait};
 use vortex_array::{
@@ -229,17 +229,17 @@ impl AcceptArrayVisitor for RunEndBoolArray {
     }
 }
 
-impl ArrayStatisticsCompute for RunEndBoolArray {
-    fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
+impl StatisticsVTable<RunEndBoolArray> for RunEndBoolEncoding {
+    fn compute_statistics(&self, array: &RunEndBoolArray, stat: Stat) -> VortexResult<StatsSet> {
         let maybe_scalar: Option<Scalar> = match stat {
-            Stat::NullCount => Some(self.validity().null_count(self.len())?.into()),
+            Stat::NullCount => Some(array.validity().null_count(array.len())?.into()),
             Stat::TrueCount => {
-                let pends = self.ends().into_primitive()?;
+                let pends = array.ends().into_primitive()?;
                 let mut true_count: usize = 0;
                 let mut prev_end: usize = 0;
-                let mut include = self.start();
+                let mut include = array.start();
                 match_each_unsigned_integer_ptype!(pends.ptype(), |$P| {
-                    for end in trimmed_ends_iter(pends.maybe_null_slice::<$P>(), self.offset(), self.len()) {
+                    for end in trimmed_ends_iter(pends.maybe_null_slice::<$P>(), array.offset(), array.len()) {
                         if include {
                             true_count += end - prev_end;
                         }
@@ -268,7 +268,7 @@ mod test {
     use vortex_array::array::{BoolArray, PrimitiveArray};
     use vortex_array::compute::unary::scalar_at;
     use vortex_array::compute::{slice, take, TakeOptions};
-    use vortex_array::stats::{ArrayStatistics as _, ArrayStatisticsCompute};
+    use vortex_array::stats::ArrayStatistics;
     use vortex_array::validity::Validity;
     use vortex_array::{
         ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoCanonical, ToArrayData,
@@ -406,10 +406,9 @@ mod test {
             Stat::IsStrictSorted,
         ] {
             // call compute_statistics directly to avoid caching
-            let bools_stats = bools.compute_statistics(stat).unwrap();
-            let expected = bools_stats.get(stat).unwrap();
+            let expected = bools.statistics().compute(stat).unwrap();
             let actual = arr.statistics().compute(stat).unwrap();
-            assert_eq!(expected, &actual);
+            assert_eq!(expected, actual);
         }
 
         assert_eq!(arr.statistics().compute_run_count(), Some(ends_len));

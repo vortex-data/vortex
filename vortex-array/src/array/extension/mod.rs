@@ -8,7 +8,7 @@ use vortex_error::{VortexExpect as _, VortexResult};
 
 use crate::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use crate::encoding::ids;
-use crate::stats::{ArrayStatistics as _, ArrayStatisticsCompute, Stat, StatsSet};
+use crate::stats::{ArrayStatistics as _, Stat, StatisticsVTable, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity};
 use crate::variants::{ArrayVariants, ExtensionArrayTrait};
 use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoCanonical};
@@ -93,15 +93,15 @@ impl AcceptArrayVisitor for ExtensionArray {
     }
 }
 
-impl ArrayStatisticsCompute for ExtensionArray {
-    fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
-        let mut stats = self.storage().statistics().compute_all(&[stat])?;
+impl StatisticsVTable<ExtensionArray> for ExtensionEncoding {
+    fn compute_statistics(&self, array: &ExtensionArray, stat: Stat) -> VortexResult<StatsSet> {
+        let mut stats = array.storage().statistics().compute_all(&[stat])?;
 
         // for e.g., min/max, we want to cast to the extension array's dtype
         // for other stats, we don't need to change anything
         for stat in all::<Stat>().filter(|s| s.has_same_dtype_as_array()) {
             if let Some(value) = stats.get(stat) {
-                stats.set(stat, value.cast(self.dtype())?);
+                stats.set(stat, value.cast(array.dtype())?);
             }
         }
 

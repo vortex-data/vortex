@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use vortex_array::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use vortex_array::array::PrimitiveArray;
 use vortex_array::encoding::ids;
-use vortex_array::stats::{ArrayStatistics, ArrayStatisticsCompute, Stat, StatsSet};
+use vortex_array::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
 use vortex_array::validity::{ArrayValidity, LogicalValidity};
 use vortex_array::variants::{ArrayVariants, PrimitiveArrayTrait};
 use vortex_array::{
@@ -95,17 +95,17 @@ impl AcceptArrayVisitor for ZigZagArray {
     }
 }
 
-impl ArrayStatisticsCompute for ZigZagArray {
-    fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
+impl StatisticsVTable<ZigZagArray> for ZigZagEncoding {
+    fn compute_statistics(&self, array: &ZigZagArray, stat: Stat) -> VortexResult<StatsSet> {
         let mut stats = StatsSet::default();
 
-        // these stats are the same for self and self.encoded()
+        // these stats are the same for array and array.encoded()
         if matches!(stat, Stat::IsConstant | Stat::NullCount) {
-            if let Some(val) = self.encoded().statistics().compute(stat) {
+            if let Some(val) = array.encoded().statistics().compute(stat) {
                 stats.set(stat, val);
             }
         } else if matches!(stat, Stat::Min | Stat::Max) {
-            let encoded_max = self
+            let encoded_max = array
                 .encoded()
                 .statistics()
                 .compute_as_cast::<u64>(Stat::Max);
@@ -113,7 +113,7 @@ impl ArrayStatisticsCompute for ZigZagArray {
                 // the max of the encoded array is the element with the highest absolute value (so either min if negative, or max if positive)
                 let decoded = <i64 as ExternalZigZag>::decode(val);
                 let decoded_stat = if decoded < 0 { Stat::Min } else { Stat::Max };
-                stats.set(decoded_stat, Scalar::from(decoded).cast(self.dtype())?);
+                stats.set(decoded_stat, Scalar::from(decoded).cast(array.dtype())?);
             }
         }
 
@@ -142,8 +142,8 @@ mod test {
         let zigzag = ZigZagArray::encode(&array).unwrap();
 
         for stat in [Stat::Max, Stat::NullCount, Stat::IsConstant] {
-            let stats = zigzag.compute_statistics(stat).unwrap();
-            assert_eq!(stats.get(stat), array.statistics().compute(stat).as_ref());
+            let value = zigzag.statistics().compute(stat);
+            assert_eq!(value, array.statistics().compute(stat));
         }
 
         let sliced = ZigZagArray::try_from(slice(zigzag, 0, 2).unwrap()).unwrap();
@@ -152,8 +152,8 @@ mod test {
             Scalar::from(-5i32)
         );
         for stat in [Stat::Min, Stat::NullCount, Stat::IsConstant] {
-            let stats = sliced.compute_statistics(stat).unwrap();
-            assert_eq!(stats.get(stat), array.statistics().compute(stat).as_ref());
+            let value = sliced.statistics().compute(stat);
+            assert_eq!(value, array.statistics().compute(stat));
         }
     }
 }
