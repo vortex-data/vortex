@@ -25,7 +25,8 @@ impl TokioDispatcher {
         let (submitter, rx) = flume::unbounded();
         let threads: Vec<_> = (0..num_threads)
             .map(|tid| {
-                let worker_thread = std::thread::Builder::new().name(format!("tokio-dispatch-{tid}"));
+                let worker_thread =
+                    std::thread::Builder::new().name(format!("tokio-dispatch-{tid}"));
                 let rx: flume::Receiver<Box<dyn TokioSpawn + Send>> = rx.clone();
 
                 worker_thread
@@ -70,7 +71,7 @@ struct TokioTask<F, R> {
 impl<F, Fut, R> TokioSpawn for TokioTask<F, R>
 where
     F: FnOnce() -> Fut + Send + 'static,
-    Fut: Future<Output=R>,
+    Fut: Future<Output = R>,
     R: Send + 'static,
 {
     fn spawn(self: Box<Self>) -> TokioJoinHandle<()> {
@@ -86,7 +87,7 @@ impl Dispatch for TokioDispatcher {
     fn dispatch<F, Fut, R>(&self, task: F) -> VortexResult<oneshot::Receiver<R>>
     where
         F: (FnOnce() -> Fut) + Send + 'static,
-        Fut: Future<Output=R> + 'static,
+        Fut: Future<Output = R> + 'static,
         R: Send + 'static,
     {
         let (tx, rx) = oneshot::channel();
