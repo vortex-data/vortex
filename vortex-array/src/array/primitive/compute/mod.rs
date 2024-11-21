@@ -17,10 +17,6 @@ impl ArrayCompute for PrimitiveArray {
     fn subtract_scalar(&self) -> Option<&dyn SubtractScalarFn> {
         Some(self)
     }
-
-    fn search_sorted(&self) -> Option<&dyn SearchSortedFn> {
-        Some(self)
-    }
 }
 
 impl ComputeVTable for PrimitiveEncoding {
@@ -37,6 +33,10 @@ impl ComputeVTable for PrimitiveEncoding {
     }
 
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn search_sorted_fn(&self) -> Option<&dyn SearchSortedFn<ArrayData>> {
         Some(self)
     }
 

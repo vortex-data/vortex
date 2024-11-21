@@ -15,19 +15,21 @@ use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
 mod slice;
 mod take;
 
-impl ArrayCompute for SparseArray {
-    fn search_sorted(&self) -> Option<&dyn SearchSortedFn> {
-        Some(self)
-    }
-}
+impl ArrayCompute for SparseArray {}
 
 impl ComputeVTable for SparseEncoding {
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
         Some(self)
     }
+
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
         Some(self)
     }
+
+    fn search_sorted_fn(&self) -> Option<&dyn SearchSortedFn<ArrayData>> {
+        Some(self)
+    }
+
     fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
         Some(self)
     }
@@ -46,21 +48,26 @@ impl ScalarAtFn<SparseArray> for SparseEncoding {
     }
 }
 
-impl SearchSortedFn for SparseArray {
-    fn search_sorted(&self, value: &Scalar, side: SearchSortedSide) -> VortexResult<SearchResult> {
-        search_sorted(&self.values(), value.clone(), side).and_then(|sr| {
-            let sidx = sr.to_offsets_index(self.metadata().indices_len);
-            let index: usize = scalar_at(self.indices(), sidx)?.as_ref().try_into()?;
+impl SearchSortedFn<SparseArray> for SparseEncoding {
+    fn search_sorted(
+        &self,
+        array: &SparseArray,
+        value: &Scalar,
+        side: SearchSortedSide,
+    ) -> VortexResult<SearchResult> {
+        search_sorted(&array.values(), value.clone(), side).and_then(|sr| {
+            let sidx = sr.to_offsets_index(array.metadata().indices_len);
+            let index: usize = scalar_at(array.indices(), sidx)?.as_ref().try_into()?;
             Ok(match sr {
                 SearchResult::Found(i) => SearchResult::Found(
-                    if i == self.metadata().indices_len {
+                    if i == array.metadata().indices_len {
                         index + 1
                     } else {
                         index
-                    } - self.indices_offset(),
+                    } - array.indices_offset(),
                 ),
                 SearchResult::NotFound(i) => SearchResult::NotFound(
-                    if i == 0 { index } else { index + 1 } - self.indices_offset(),
+                    if i == 0 { index } else { index + 1 } - array.indices_offset(),
                 ),
             })
         })

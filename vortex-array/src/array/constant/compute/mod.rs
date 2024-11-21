@@ -1,7 +1,6 @@
 mod boolean;
 mod compare;
-
-use std::cmp::Ordering;
+mod search_sorted;
 
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
@@ -10,17 +9,13 @@ use crate::array::constant::ConstantArray;
 use crate::array::ConstantEncoding;
 use crate::compute::unary::ScalarAtFn;
 use crate::compute::{
-    ArrayCompute, BinaryBooleanFn, CompareFn, ComputeVTable, FilterFn, FilterMask, SearchResult,
-    SearchSortedFn, SearchSortedSide, SliceFn, TakeFn, TakeOptions,
+    ArrayCompute, BinaryBooleanFn, CompareFn, ComputeVTable, FilterFn, FilterMask, SearchSortedFn,
+    SliceFn, TakeFn, TakeOptions,
 };
 use crate::{ArrayData, ArrayLen, IntoArrayData};
 
 impl ArrayCompute for ConstantArray {
     fn compare(&self) -> Option<&dyn CompareFn> {
-        Some(self)
-    }
-
-    fn search_sorted(&self) -> Option<&dyn SearchSortedFn> {
         Some(self)
     }
 }
@@ -41,6 +36,10 @@ impl ComputeVTable for ConstantEncoding {
     }
 
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn search_sorted_fn(&self) -> Option<&dyn SearchSortedFn<ArrayData>> {
         Some(self)
     }
 
@@ -79,55 +78,5 @@ impl SliceFn<ConstantArray> for ConstantEncoding {
 impl FilterFn<ConstantArray> for ConstantEncoding {
     fn filter(&self, array: &ConstantArray, mask: FilterMask) -> VortexResult<ArrayData> {
         Ok(ConstantArray::new(array.owned_scalar(), mask.true_count()).into_array())
-    }
-}
-
-impl SearchSortedFn for ConstantArray {
-    fn search_sorted(&self, value: &Scalar, side: SearchSortedSide) -> VortexResult<SearchResult> {
-        match self
-            .scalar_value()
-            .partial_cmp(value.value())
-            .unwrap_or(Ordering::Less)
-        {
-            Ordering::Greater => Ok(SearchResult::NotFound(0)),
-            Ordering::Less => Ok(SearchResult::NotFound(self.len())),
-            Ordering::Equal => match side {
-                SearchSortedSide::Left => Ok(SearchResult::Found(0)),
-                SearchSortedSide::Right => Ok(SearchResult::Found(self.len())),
-            },
-        }
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use crate::array::constant::ConstantArray;
-    use crate::compute::{search_sorted, SearchResult, SearchSortedSide};
-    use crate::IntoArrayData;
-
-    #[test]
-    pub fn search() {
-        let cst = ConstantArray::new(42, 5000).into_array();
-        assert_eq!(
-            search_sorted(&cst, 33, SearchSortedSide::Left).unwrap(),
-            SearchResult::NotFound(0)
-        );
-        assert_eq!(
-            search_sorted(&cst, 55, SearchSortedSide::Left).unwrap(),
-            SearchResult::NotFound(5000)
-        );
-    }
-
-    #[test]
-    pub fn search_equals() {
-        let cst = ConstantArray::new(42, 5000).into_array();
-        assert_eq!(
-            search_sorted(&cst, 42, SearchSortedSide::Left).unwrap(),
-            SearchResult::Found(0)
-        );
-        assert_eq!(
-            search_sorted(&cst, 42, SearchSortedSide::Right).unwrap(),
-            SearchResult::Found(5000)
-        );
     }
 }

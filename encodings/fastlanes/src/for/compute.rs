@@ -14,11 +14,7 @@ use vortex_scalar::{PValue, Scalar};
 
 use crate::{FoRArray, FoREncoding};
 
-impl ArrayCompute for FoRArray {
-    fn search_sorted(&self) -> Option<&dyn SearchSortedFn> {
-        Some(self)
-    }
-}
+impl ArrayCompute for FoRArray {}
 
 impl ComputeVTable for FoREncoding {
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
@@ -26,6 +22,10 @@ impl ComputeVTable for FoREncoding {
     }
 
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn search_sorted_fn(&self) -> Option<&dyn SearchSortedFn<ArrayData>> {
         Some(self)
     }
 
@@ -99,10 +99,15 @@ impl SliceFn<FoRArray> for FoREncoding {
     }
 }
 
-impl SearchSortedFn for FoRArray {
-    fn search_sorted(&self, value: &Scalar, side: SearchSortedSide) -> VortexResult<SearchResult> {
-        match_each_integer_ptype!(self.ptype(), |$P| {
-            search_sorted_typed::<$P>(self, value, side)
+impl SearchSortedFn<FoRArray> for FoREncoding {
+    fn search_sorted(
+        &self,
+        array: &FoRArray,
+        value: &Scalar,
+        side: SearchSortedSide,
+    ) -> VortexResult<SearchResult> {
+        match_each_integer_ptype!(array.ptype(), |$P| {
+            search_sorted_typed::<$P>(array, value, side)
         })
     }
 }

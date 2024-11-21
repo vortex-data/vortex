@@ -12,11 +12,7 @@ mod search_sorted;
 mod slice;
 mod take;
 
-impl ArrayCompute for BitPackedArray {
-    fn search_sorted(&self) -> Option<&dyn SearchSortedFn> {
-        Some(self)
-    }
-}
+impl ArrayCompute for BitPackedArray {}
 
 impl ComputeVTable for BitPackedEncoding {
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
@@ -24,6 +20,10 @@ impl ComputeVTable for BitPackedEncoding {
     }
 
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn search_sorted_fn(&self) -> Option<&dyn SearchSortedFn<ArrayData>> {
         Some(self)
     }
 
