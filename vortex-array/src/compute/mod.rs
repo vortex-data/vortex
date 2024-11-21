@@ -81,6 +81,13 @@ pub trait ComputeVTable {
         None
     }
 
+    /// Broadcast subtraction of scalar from Vortex array.
+    ///
+    /// See: [SubtractScalarFn].
+    fn subtract_scalar_fn(&self) -> Option<&dyn SubtractScalarFn<ArrayData>> {
+        None
+    }
+
     /// Take a set of indices from an array. This often forces allocations and decoding of
     /// the receiver.
     ///
@@ -96,13 +103,6 @@ pub trait ArrayCompute {
     ///
     ///See: [CompareFn].
     fn compare(&self) -> Option<&dyn CompareFn> {
-        None
-    }
-
-    /// Broadcast subtraction of scalar from Vortex array.
-    ///
-    /// See: [SubtractScalarFn].
-    fn subtract_scalar(&self) -> Option<&dyn SubtractScalarFn> {
         None
     }
 }

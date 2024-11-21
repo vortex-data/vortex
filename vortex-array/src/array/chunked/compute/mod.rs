@@ -18,10 +18,6 @@ impl ArrayCompute for ChunkedArray {
     fn compare(&self) -> Option<&dyn CompareFn> {
         Some(self)
     }
-
-    fn subtract_scalar(&self) -> Option<&dyn SubtractScalarFn> {
-        Some(self)
-    }
 }
 
 impl ComputeVTable for ChunkedEncoding {
@@ -37,6 +33,10 @@ impl ComputeVTable for ChunkedEncoding {
         Some(self)
     }
     fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn subtract_scalar_fn(&self) -> Option<&dyn SubtractScalarFn<ArrayData>> {
         Some(self)
     }
 
