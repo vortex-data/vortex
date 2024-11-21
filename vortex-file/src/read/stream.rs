@@ -15,7 +15,6 @@ use vortex_error::{
     vortex_bail, vortex_panic, VortexError, VortexExpect, VortexResult, VortexUnwrap,
 };
 use vortex_io::{Dispatch, IoDispatcher, VortexReadAt};
-use vortex_schema::Schema;
 
 use crate::read::cache::LayoutMessageCache;
 use crate::read::mask::RowMask;
@@ -75,10 +74,6 @@ impl<R: VortexReadAt> VortexFileArrayStream<R> {
 
     pub fn row_count(&self) -> u64 {
         self.row_count
-    }
-
-    pub fn schema(&self) -> Schema {
-        Schema::new(self.dtype.value().vortex_unwrap().clone())
     }
 
     fn store_messages(&self, messages: Vec<Message>) {

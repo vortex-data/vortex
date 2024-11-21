@@ -44,7 +44,6 @@ vortex-runend = { workspace = true }
 vortex-runend-bool = { workspace = true }
 vortex-sampling-compressor = { workspace = true }
 vortex-scalar = { workspace = true, default-features = true }
-vortex-schema = { workspace = true }
 vortex-zigzag = { workspace = true }
 
 [features]

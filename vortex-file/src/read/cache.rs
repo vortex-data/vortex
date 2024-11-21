@@ -11,8 +11,8 @@ use vortex_dtype::{DType, FieldNames};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexResult};
 use vortex_flatbuffers::dtype::Struct_;
 use vortex_flatbuffers::message;
-use vortex_schema::projection::Projection;
 
+use crate::read::projection::Projection;
 use crate::read::{LayoutPartId, MessageId};
 
 #[derive(Default, Debug)]
@@ -41,9 +41,53 @@ impl LayoutMessageCache {
 }
 
 #[derive(Debug)]
+enum SerializedDTypeField {
+    Projection(Projection),
+    Field(Field),
+}
+
+impl SerializedDTypeField {
+    pub fn project(&self, fields: &[Field]) -> VortexResult<Self> {
+        match self {
+            SerializedDTypeField::Projection(p) => {
+                Ok(SerializedDTypeField::Projection(p.project(fields)?))
+            }
+            SerializedDTypeField::Field(f) => {
+                if fields.len() > 1 && &fields[0] != f {
+                    vortex_bail!("Can't project field {f} into {fields:?}")
+                }
+                Ok(SerializedDTypeField::Field(f.clone()))
+            }
+        }
+    }
+
+    pub fn field(&self, field: &Field) -> VortexResult<Self> {
+        match self {
+            SerializedDTypeField::Projection(p) => {
+                match p {
+                    Projection::All => {}
+                    Projection::Flat(fields) => {
+                        if !fields.iter().any(|pf| pf == field) {
+                            vortex_bail!("Can't project {fields:?} into {field}")
+                        }
+                    }
+                }
+                Ok(SerializedDTypeField::Field(field.clone()))
+            }
+            SerializedDTypeField::Field(f) => {
+                if f != field {
+                    vortex_bail!("Can't extract field from field")
+                }
+                Ok(SerializedDTypeField::Field(field.clone()))
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
 enum LazyDTypeState {
     DType(DType),
-    Serialized(Bytes, OnceCell<DType>, Projection),
+    Serialized(Bytes, OnceCell<DType>, SerializedDTypeField),
     Unknown,
 }
 
@@ -61,7 +105,11 @@ impl LazyDType {
     /// representing a message::Schema.
     pub unsafe fn from_schema_bytes(dtype_bytes: Bytes) -> Self {
         Self {
-            inner: LazyDTypeState::Serialized(dtype_bytes, OnceCell::new(), Projection::All),
+            inner: LazyDTypeState::Serialized(
+                dtype_bytes,
+                OnceCell::new(),
+                SerializedDTypeField::Projection(Projection::All),
+            ),
         }
     }
 
@@ -78,23 +126,44 @@ impl LazyDType {
     }
 
     /// Restrict the underlying dtype to selected fields
-    pub fn project(&self, projection: &Projection) -> VortexResult<Arc<Self>> {
+    pub fn project(&self, fields: &[Field]) -> VortexResult<Arc<Self>> {
         match &self.inner {
             LazyDTypeState::DType(dtype) => {
                 let DType::Struct(sdt, n) = dtype else {
                     vortex_bail!("Not a struct dtype")
                 };
-                Ok(Arc::new(LazyDType::from_dtype(match projection {
-                    Projection::All => dtype.clone(),
-                    Projection::Flat(p) => DType::Struct(sdt.project(p)?, *n),
-                    Projection::SingleField(f) => sdt.field_info(f)?.dtype.clone(),
-                })))
+                Ok(Arc::new(LazyDType::from_dtype(DType::Struct(
+                    sdt.project(fields)?,
+                    *n,
+                ))))
             }
             LazyDTypeState::Serialized(b, _, current_projection) => Ok(Arc::new(Self {
                 inner: LazyDTypeState::Serialized(
                     b.clone(),
                     OnceCell::new(),
-                    current_projection.project(projection)?,
+                    current_projection.project(fields)?,
+                ),
+            })),
+            LazyDTypeState::Unknown => vortex_bail!("Unknown dtype"),
+        }
+    }
+
+    /// Extract single field out of this dtype
+    pub fn field(&self, field: &Field) -> VortexResult<Arc<Self>> {
+        match &self.inner {
+            LazyDTypeState::DType(dtype) => {
+                let DType::Struct(sdt, _) = dtype else {
+                    vortex_bail!("Not a struct dtype")
+                };
+                Ok(Arc::new(LazyDType::from_dtype(
+                    sdt.field_info(field)?.dtype.clone(),
+                )))
+            }
+            LazyDTypeState::Serialized(b, _, current_projection) => Ok(Arc::new(Self {
+                inner: LazyDTypeState::Serialized(
+                    b.clone(),
+                    OnceCell::new(),
+                    current_projection.field(field)?,
                 ),
             })),
             LazyDTypeState::Unknown => vortex_bail!("Unknown dtype"),
@@ -148,32 +217,37 @@ impl LazyDType {
     }
 }
 
-fn field_names(bytes: &[u8], projection: &Projection) -> VortexResult<FieldNames> {
+fn field_names(bytes: &[u8], dtype_field: &SerializedDTypeField) -> VortexResult<FieldNames> {
     let struct_field = fb_struct(bytes)?;
     let names = struct_field
         .names()
         .ok_or_else(|| vortex_err!("Not a struct dtype"))?;
-    match projection {
-        Projection::All => Ok(names.iter().map(Arc::from).collect()),
-        Projection::Flat(fields) => fields
-            .iter()
-            .map(|f| resolve_field(struct_field, f))
-            .map(|idx| idx.map(|i| Arc::from(names.get(i))))
-            .collect(),
-        Projection::SingleField(f) => Ok(Arc::new([Arc::from(
+    match dtype_field {
+        SerializedDTypeField::Projection(projection) => match projection {
+            Projection::All => Ok(names.iter().map(Arc::from).collect()),
+            Projection::Flat(fields) => fields
+                .iter()
+                .map(|f| resolve_field(struct_field, f))
+                .map(|idx| idx.map(|i| Arc::from(names.get(i))))
+                .collect(),
+        },
+        SerializedDTypeField::Field(f) => Ok(Arc::new([Arc::from(
             names.get(resolve_field(struct_field, f)?),
         )])),
     }
 }
 
-fn project_dtype_bytes(bytes: &[u8], projection: &Projection) -> VortexResult<DType> {
+fn project_dtype_bytes(bytes: &[u8], dtype_field: &SerializedDTypeField) -> VortexResult<DType> {
     let fb_dtype = fb_schema(bytes)
         .dtype()
         .ok_or_else(|| vortex_err!(InvalidSerde: "Schema missing DType"))?;
-    match projection {
-        Projection::All => DType::try_from(fb_dtype),
-        Projection::Flat(p) => project_and_deserialize(fb_dtype, p),
-        Projection::SingleField(f) => extract_field(fb_dtype, f),
+
+    match dtype_field {
+        SerializedDTypeField::Projection(projection) => match projection {
+            Projection::All => DType::try_from(fb_dtype),
+            Projection::Flat(p) => project_and_deserialize(fb_dtype, p),
+        },
+        SerializedDTypeField::Field(f) => extract_field(fb_dtype, f),
     }
 }
 

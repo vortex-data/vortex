@@ -5,11 +5,11 @@ use vortex_array::{ArrayDType, ArrayData};
 use vortex_error::VortexResult;
 use vortex_expr::Select;
 use vortex_io::{IoDispatcher, VortexReadAt};
-use vortex_schema::projection::Projection;
 
 use crate::read::cache::{LayoutMessageCache, RelativeLayoutCache};
 use crate::read::context::LayoutDeserializer;
 use crate::read::filtering::RowFilter;
+use crate::read::projection::Projection;
 use crate::read::stream::VortexFileArrayStream;
 use crate::read::{RowMask, Scan};
 
@@ -124,7 +124,10 @@ impl<R: VortexReadAt> VortexReadBuilder<R> {
         let read_projection = self.projection.unwrap_or_default();
         let lazy_dtype = Arc::new(initial_read.lazy_dtype()?);
 
-        let projected_dtype = lazy_dtype.project(&read_projection)?;
+        let projected_dtype = match read_projection {
+            Projection::All => lazy_dtype.clone(),
+            Projection::Flat(ref fields) => lazy_dtype.project(fields)?,
+        };
 
         let message_cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
         let layout_reader = read_layout_from_initial(
@@ -133,7 +136,6 @@ impl<R: VortexReadAt> VortexReadBuilder<R> {
             Scan::new(match read_projection {
                 Projection::All => None,
                 Projection::Flat(p) => Some(Arc::new(Select::include(p))),
-                Projection::SingleField(f) => Some(Arc::new(Select::include(vec![f]))),
             }),
             RelativeLayoutCache::new(message_cache.clone(), lazy_dtype.clone()),
         )?;

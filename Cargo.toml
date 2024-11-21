@@ -19,7 +19,6 @@ members = [
     "vortex-proto",
     "vortex-sampling-compressor",
     "vortex-scalar",
-    "vortex-schema",
     "xtask",
 ]
 resolver = "2"

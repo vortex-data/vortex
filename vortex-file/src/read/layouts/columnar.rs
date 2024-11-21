@@ -13,7 +13,6 @@ use vortex_dtype::FieldNames;
 use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
 use vortex_expr::{Column, Select, VortexExpr};
 use vortex_flatbuffers::footer;
-use vortex_schema::projection::Projection;
 
 use crate::read::cache::{LazyDType, RelativeLayoutCache};
 use crate::read::expr_project::expr_project;
@@ -79,7 +78,7 @@ impl ColumnarLayoutBuilder {
 
         for (field, name) in refs.into_iter().zip_eq(lazy_dtype.names()?.iter()) {
             let resolved_child = lazy_dtype.resolve_field(&field)?;
-            let projection = Projection::SingleField(field.clone());
+            let child_field = lazy_dtype.field(&field)?;
             let child_loc = fb_children.get(resolved_child)._tab.loc();
             let projected_expr = self
                 .scan
@@ -95,7 +94,7 @@ impl ColumnarLayoutBuilder {
                 child_loc,
                 Scan::new(projected_expr),
                 self.message_cache
-                    .relative(resolved_child as u16, lazy_dtype.project(&projection)?),
+                    .relative(resolved_child as u16, child_field),
             )?;
 
             if handled {
@@ -167,11 +166,7 @@ impl ColumnarLayoutBuilder {
         let field_refs = self.scan_fields();
         let lazy_dtype = field_refs
             .as_ref()
-            .map(|e| {
-                self.message_cache
-                    .dtype()
-                    .project(&Projection::Flat(e.clone()))
-            })
+            .map(|e| self.message_cache.dtype().project(e))
             .unwrap_or_else(|| Ok(self.message_cache.dtype().clone()))?;
 
         Ok((

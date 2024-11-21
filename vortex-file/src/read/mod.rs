@@ -11,6 +11,7 @@ mod expr_project;
 mod filtering;
 pub mod layouts;
 mod mask;
+pub mod projection;
 mod recordbatchreader;
 mod splits;
 mod stream;
@@ -20,12 +21,11 @@ pub use builder::VortexReadBuilder;
 pub use cache::*;
 pub use context::*;
 pub use filtering::RowFilter;
+pub use projection::Projection;
 pub use recordbatchreader::{AsyncRuntime, VortexRecordBatchReader};
 pub use stream::VortexFileArrayStream;
 use vortex_expr::ExprRef;
 use vortex_ipc::stream_writer::ByteRange;
-pub use vortex_schema::projection::Projection;
-pub use vortex_schema::Schema;
 
 pub use crate::read::mask::RowMask;
 
