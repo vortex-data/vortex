@@ -7,5 +7,5 @@ pub use {
     vortex_fsst as fsst, vortex_io as io, vortex_ipc as ipc, vortex_proto as proto,
     vortex_roaring as roaring, vortex_runend as runend, vortex_runend_bool as runend_bool,
     vortex_sampling_compressor as sampling_compressor, vortex_scalar as scalar,
-    vortex_schema as schema, vortex_zigzag as zigzag,
+    vortex_zigzag as zigzag,
 };
