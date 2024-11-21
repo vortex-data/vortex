@@ -7,8 +7,10 @@ use itertools::Itertools;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::stats::Stat;
+use vortex_array::ArrayData;
 use vortex_dtype::field::Field;
 use vortex_dtype::Nullability;
+use vortex_error::{VortexExpect as _, VortexResult};
 use vortex_expr::{BinaryExpr, Column, ExprRef, Literal, Not, Operator};
 use vortex_scalar::Scalar;
 
@@ -66,6 +68,33 @@ impl PruningPredicate {
 
     pub fn required_stats(&self) -> &HashMap<Field, HashSet<Stat>> {
         &self.required_stats
+    }
+
+    /// Evaluate this predicate against a per-chunk statistics table.
+    ///
+    /// Returns None if any of the requried statistics are not present in metadata.
+    pub fn evaluate(&self, metadata: &ArrayData) -> VortexResult<Option<ArrayData>> {
+        let known_stats = metadata.with_dyn(|x| {
+            HashSet::from_iter(
+                x.as_struct_array()
+                    .vortex_expect("metadata must be struct array")
+                    .names()
+                    .iter()
+                    .map(|x| x.to_string()),
+            )
+        });
+        let required_stats = self
+            .required_stats()
+            .iter()
+            .flat_map(|(key, value)| value.iter().map(|stat| stat_column_name_string(key, *stat)))
+            .collect::<HashSet<_>>();
+        let missing_stats = required_stats.difference(&known_stats).collect::<Vec<_>>();
+
+        if !missing_stats.is_empty() {
+            return Ok(None);
+        }
+
+        Ok(Some(self.expr.evaluate(metadata)?))
     }
 }
 
@@ -276,9 +305,13 @@ fn replace_column_with_stat(
 }
 
 pub(crate) fn stat_column_name(field: &Field, stat: Stat) -> Field {
+    Field::Name(stat_column_name_string(field, stat))
+}
+
+pub(crate) fn stat_column_name_string(field: &Field, stat: Stat) -> String {
     match field {
-        Field::Name(n) => Field::Name(format!("{n}_{stat}")),
-        Field::Index(i) => Field::Name(format!("{i}_{stat}")),
+        Field::Name(n) => format!("{n}_{stat}"),
+        Field::Index(i) => format!("{i}_{stat}"),
     }
 }
 
