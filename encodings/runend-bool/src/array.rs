@@ -265,7 +265,7 @@ mod test {
 
     use itertools::Itertools as _;
     use rstest::rstest;
-    use vortex_array::array::BoolArray;
+    use vortex_array::array::{BoolArray, PrimitiveArray};
     use vortex_array::compute::unary::scalar_at;
     use vortex_array::compute::{slice, take, TakeOptions};
     use vortex_array::stats::{ArrayStatistics as _, ArrayStatisticsCompute};
@@ -413,5 +413,17 @@ mod test {
         }
 
         assert_eq!(arr.statistics().compute_run_count(), Some(ends_len));
+    }
+
+    #[test]
+    fn sliced_true_count() {
+        let arr = RunEndBoolArray::try_new(
+            PrimitiveArray::from(vec![5u32, 7, 10]).into_array(),
+            true,
+            Validity::NonNullable,
+        )
+        .unwrap();
+        let sliced = slice(&arr, 4, 8).unwrap();
+        assert_eq!(sliced.statistics().compute_true_count().unwrap(), 2);
     }
 }
