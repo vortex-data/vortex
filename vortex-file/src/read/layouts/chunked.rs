@@ -142,7 +142,27 @@ impl ChunkedLayoutBuilder {
     }
 }
 
-type InProgressLayoutRanges = RwLock<HashMap<(usize, usize), (Vec<usize>, Vec<Option<ArrayData>>)>>;
+#[derive(Debug, Default, Clone)]
+enum ChildRead {
+    #[default]
+    NotStarted,
+    Finished(Option<ArrayData>),
+}
+
+impl ChildRead {
+    pub fn finished(&self) -> bool {
+        matches!(self, Self::Finished(_))
+    }
+
+    pub fn into_value(self) -> Option<ArrayData> {
+        match self {
+            ChildRead::NotStarted => None,
+            ChildRead::Finished(v) => v,
+        }
+    }
+}
+
+type InProgressLayoutRanges = RwLock<HashMap<(usize, usize), (Vec<usize>, Vec<ChildRead>)>>;
 
 #[allow(dead_code)]
 #[derive(Debug)]
@@ -165,6 +185,7 @@ impl ChunkedLayoutReader {
     }
 
     fn buffer_read(&self, mask: &RowMask) -> VortexResult<Vec<MessageLocator>> {
+        println!("Buffer read mask: {}", mask);
         let mut in_progress_guard = self
             .in_progress_ranges
             .write()
@@ -177,11 +198,11 @@ impl ChunkedLayoutReader {
                     .iter()
                     .enumerate()
                     .filter_map(|(i, ((begin, end), _))| {
-                        (mask.end() >= *begin && mask.begin() <= *end).then_some(i)
+                        (mask.end() > *begin && mask.begin() < *end).then_some(i)
                     })
                     .collect::<Vec<_>>();
                 let num_layouts = layouts_in_range.len();
-                (layouts_in_range, vec![None; num_layouts])
+                (layouts_in_range, vec![ChildRead::default(); num_layouts])
             });
 
         let mut messages_to_fetch = Vec::new();
@@ -189,7 +210,7 @@ impl ChunkedLayoutReader {
             .iter()
             .map(|i| &self.layouts[*i])
             .zip(in_progress_range)
-            .filter(|(_, array)| array.is_none())
+            .filter(|(_, cr)| !cr.finished())
         {
             let layout_selection = mask.slice(*begin, *end).shift(*begin)?;
             if let Some(rr) = layout.read_selection(&layout_selection)? {
@@ -198,9 +219,11 @@ impl ChunkedLayoutReader {
                         messages_to_fetch.extend(m);
                     }
                     BatchRead::Batch(a) => {
-                        *array_slot = Some(a);
+                        *array_slot = ChildRead::Finished(Some(a));
                     }
                 }
+            } else {
+                *array_slot = ChildRead::Finished(None);
             }
         }
 
@@ -238,7 +261,10 @@ impl LayoutReader for ChunkedLayoutReader {
             .unwrap_or_else(|poison| vortex_panic!("Failed to write to message cache: {poison}"))
             .remove(&(selector.begin(), selector.end()))
         {
-            let mut child_arrays = arrays_in_range.into_iter().flatten().collect::<Vec<_>>();
+            let mut child_arrays = arrays_in_range
+                .into_iter()
+                .filter_map(ChildRead::into_value)
+                .collect::<Vec<_>>();
             match child_arrays.len() {
                 0 | 1 => Ok(child_arrays.pop().map(BatchRead::Batch)),
                 _ => {
