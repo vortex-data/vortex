@@ -1,9 +1,12 @@
 #![allow(dead_code)]
 
+pub const DEFAULT_MAX_COST: u8 = 3;
+
 // structural pass-throughs have no cost
 pub const CHUNKED_COST: u8 = 0;
 pub const SPARSE_COST: u8 = 0;
 pub const STRUCT_COST: u8 = 0;
+pub const VARBIN_COST: u8 = 0;
 
 // so fast that we can ignore the cost
 pub const BITPACKED_NO_PATCHES_COST: u8 = 0;

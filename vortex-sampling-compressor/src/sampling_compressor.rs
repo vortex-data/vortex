@@ -22,7 +22,6 @@ use super::{CompressConfig, Objective, DEFAULT_COMPRESSORS};
 use crate::compressors::constant::ConstantCompressor;
 use crate::compressors::{CompressedArray, CompressionTree, CompressorRef, EncodingCompressor};
 use crate::sampling::stratified_slices;
-use crate::MaxThroughputConfig;
 
 #[derive(Debug, Clone)]
 pub struct SamplingCompressor<'a> {
@@ -342,13 +341,11 @@ pub(crate) fn find_best_compression<'a>(
     }
 
     info!(
-        "{} best compression ({} bytes, {} objective fn value, {} compression ratio, {} download time, {} decompression time)",
+        "{} best compression ({} bytes, {} objective fn value, {} compression ratio",
         ctx,
         best.nbytes(),
         best_objective,
         best_compression_ratio,
-        MaxThroughputConfig::default().download_time_ms(best.nbytes() as u64),
-        best.decompression_time_ms(MaxThroughputConfig::default().assumed_compression_ratio),
     );
 
     Ok(best)
