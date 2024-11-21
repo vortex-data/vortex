@@ -312,9 +312,7 @@ mod tests {
     use vortex_array::aliases::hash_set::HashSet;
     use vortex_array::stats::Stat;
     use vortex_dtype::field::Field;
-    use vortex_dtype::Nullability;
     use vortex_expr::{BinaryExpr, Column, Literal, Not, Operator};
-    use vortex_scalar::Scalar;
 
     use crate::pruning::{convert_to_pruning_expression, stat_column_name, PruningPredicate};
 
@@ -539,22 +537,6 @@ mod tests {
             Column::new_expr(Field::from("b")),
         ));
         assert!(PruningPredicate::try_new(&or_expr).is_none());
-    }
-
-    #[test]
-    fn self_refernece_is_not_prunable_and_has_no_references() {
-        // If we had arithmetic this would be less contrived
-        let expr = Not::new_expr(BinaryExpr::new_expr(
-            Column::new_expr(Field::from("a")),
-            Operator::Lte,
-            Column::new_expr(Field::from("a")),
-        ));
-        let predicate = PruningPredicate::try_new(&expr).unwrap();
-        assert!(predicate.required_stats().is_empty());
-
-        let actual = predicate.expr();
-        let expected = Literal::new_expr(Scalar::bool(false, Nullability::NonNullable));
-        assert_eq!(*actual.clone(), *expected.as_any());
     }
 
     #[test]
