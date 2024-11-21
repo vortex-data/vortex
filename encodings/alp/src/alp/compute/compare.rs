@@ -15,12 +15,10 @@ impl CompareFn for ALPArray {
             return match pvalue {
                 Some(PValue::F32(f)) => alp_scalar_compare(self, f, operator).map(Some),
                 Some(PValue::F64(f)) => alp_scalar_compare(self, f, operator).map(Some),
-                Some(_) | None => Ok(ConstantArray::new(
-                    Scalar::bool(false, Nullability::Nullable),
-                    self.len(),
-                )
-                .into_array())
-                .map(Some),
+                Some(_) | None => Ok(Some(
+                    ConstantArray::new(Scalar::bool(false, Nullability::Nullable), self.len())
+                        .into_array(),
+                )),
             };
         }
 

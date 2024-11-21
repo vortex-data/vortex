@@ -69,8 +69,9 @@ impl CompareFn for ChunkedArray {
             idx += chunk.len();
         }
 
-        Ok(ChunkedArray::try_new(compare_chunks, DType::Bool(Nullability::Nullable))?.into_array())
-            .map(Some)
+        Ok(Some(
+            ChunkedArray::try_new(compare_chunks, DType::Bool(Nullability::Nullable))?.into_array(),
+        ))
     }
 }
 
