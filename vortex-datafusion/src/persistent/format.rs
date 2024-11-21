@@ -68,8 +68,8 @@ impl FileFormat for VortexFormat {
         for o in objects {
             let os_read_at = ObjectStoreReadAt::new(store.clone(), o.location.clone());
             let initial_read = read_initial_bytes(&os_read_at, o.size as u64).await?;
-            let dtype = initial_read.lazy_dtype()?.value()?;
-            let s = infer_schema(dtype)?;
+            let lazy_dtype = initial_read.lazy_dtype()?;
+            let s = infer_schema(lazy_dtype.value()?)?;
             file_schemas.push(s);
         }
 
@@ -84,7 +84,7 @@ impl FileFormat for VortexFormat {
         object: &ObjectMeta,
     ) -> DFResult<Statistics> {
         let os_read_at = ObjectStoreReadAt::new(store.clone(), object.location.clone());
-        let initial_read = vortex_file::read_initial_bytes(&os_read_at, object.size as u64).await?;
+        let initial_read = read_initial_bytes(&os_read_at, object.size as u64).await?;
         let layout = initial_read.fb_layout()?;
         let row_count = layout.row_count();
 
