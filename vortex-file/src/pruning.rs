@@ -8,8 +8,10 @@ use itertools::Itertools;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::stats::Stat;
+use vortex_array::ArrayData;
 use vortex_dtype::field::Field;
 use vortex_dtype::Nullability;
+use vortex_error::{VortexExpect as _, VortexResult};
 use vortex_expr::{BinaryExpr, Column, ExprRef, Literal, Not, Operator};
 use vortex_scalar::Scalar;
 
@@ -117,6 +119,40 @@ impl PruningPredicate {
     pub fn required_stats(&self) -> &HashMap<Field, HashSet<Stat>> {
         &self.required_stats.map
     }
+
+    /// Evaluate this predicate against a per-chunk statistics table.
+    ///
+    /// Returns None if any of the requried statistics are not present in metadata.
+    pub fn evaluate(&self, metadata: &ArrayData) -> VortexResult<Option<ArrayData>> {
+        let known_stats = metadata.with_dyn(|x| {
+            HashSet::from_iter(
+                x.as_struct_array()
+                    .vortex_expect("metadata must be struct array")
+                    .names()
+                    .iter()
+                    .map(|x| x.to_string()),
+            )
+        });
+        let required_stats = self
+            .required_stats()
+            .iter()
+            .flat_map(|(key, value)| value.iter().map(|stat| stat_column_name_string(key, *stat)))
+            .collect::<HashSet<_>>();
+        let missing_stats = required_stats.difference(&known_stats).collect::<Vec<_>>();
+
+        if !missing_stats.is_empty() {
+            return Ok(None);
+        }
+
+        Ok(Some(self.expr.evaluate(metadata)?))
+    }
+}
+
+fn not_prunable() -> PruningPredicateStats {
+    (
+        Literal::new_expr(Scalar::bool(false, Nullability::NonNullable)),
+        Relation::new(),
+    )
 }
 
 // Anything that can't be translated has to be represented as
@@ -146,12 +182,7 @@ fn convert_to_pruning_expression(expr: &ExprRef) -> PruningPredicateStats {
         if let Some(col) = bexp.lhs().as_any().downcast_ref::<Column>() {
             return PruningPredicateRewriter::try_new(col.field().clone(), bexp.op(), bexp.rhs())
                 .and_then(PruningPredicateRewriter::rewrite)
-                .unwrap_or_else(|| {
-                    (
-                        Literal::new_expr(Scalar::bool(false, Nullability::NonNullable)),
-                        Relation::new(),
-                    )
-                });
+                .unwrap_or_else(not_prunable);
         };
 
         if let Some(col) = bexp.rhs().as_any().downcast_ref::<Column>() {
@@ -161,13 +192,8 @@ fn convert_to_pruning_expression(expr: &ExprRef) -> PruningPredicateStats {
                 bexp.lhs(),
             )
             .and_then(PruningPredicateRewriter::rewrite)
-            .unwrap_or_else(|| {
-                (
-                    Literal::new_expr(Scalar::bool(false, Nullability::NonNullable)),
-                    Relation::new(),
-                )
-            });
-        };
+            .unwrap_or_else(not_prunable);
+        }
     }
 
     if let Some(RowFilter { conjunction }) = expr.as_any().downcast_ref::<RowFilter>() {
@@ -185,29 +211,25 @@ fn convert_to_pruning_expression(expr: &ExprRef) -> PruningPredicateStats {
         );
     }
 
-    (
-        Literal::new_expr(Scalar::bool(false, Nullability::NonNullable)),
-        Relation::new(),
-    )
+    not_prunable()
 }
 
 fn convert_column_reference(expr: &ExprRef, invert: bool) -> PruningPredicateStats {
     let mut refs = Relation::new();
-    let min_expr = replace_column_with_stat(expr, Stat::Min, &mut refs);
-    let max_expr = replace_column_with_stat(expr, Stat::Max, &mut refs);
-    (
-        min_expr
-            .zip(max_expr)
-            .map(|(min_exp, max_exp)| {
-                if invert {
-                    BinaryExpr::new_expr(min_exp, Operator::And, max_exp)
-                } else {
-                    Not::new_expr(BinaryExpr::new_expr(min_exp, Operator::Or, max_exp))
-                }
-            })
-            .unwrap_or_else(|| Literal::new_expr(Scalar::bool(false, Nullability::NonNullable))),
-        refs,
-    )
+    let Some(min_expr) = replace_column_with_stat(expr, Stat::Min, &mut refs) else {
+        return not_prunable();
+    };
+    let Some(max_expr) = replace_column_with_stat(expr, Stat::Max, &mut refs) else {
+        return not_prunable();
+    };
+
+    let expr = if invert {
+        BinaryExpr::new_expr(min_expr, Operator::And, max_expr)
+    } else {
+        Not::new_expr(BinaryExpr::new_expr(min_expr, Operator::Or, max_expr))
+    };
+
+    (expr, refs)
 }
 
 struct PruningPredicateRewriter<'a> {
@@ -335,9 +357,13 @@ fn replace_column_with_stat(
 }
 
 pub(crate) fn stat_column_name(field: &Field, stat: Stat) -> Field {
+    Field::Name(stat_column_name_string(field, stat))
+}
+
+pub(crate) fn stat_column_name_string(field: &Field, stat: Stat) -> String {
     match field {
-        Field::Name(n) => Field::Name(format!("{n}_{stat}")),
-        Field::Index(i) => Field::Name(format!("{i}_{stat}")),
+        Field::Name(n) => format!("{n}_{stat}"),
+        Field::Index(i) => format!("{i}_{stat}"),
     }
 }
 
