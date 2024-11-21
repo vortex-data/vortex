@@ -117,6 +117,9 @@ impl ChunkedCompressor {
         )?;
 
         let mut compressed_chunks = Vec::with_capacity(less_chunked.nchunks());
+        let mut compressed_trees = Vec::with_capacity(less_chunked.nchunks() + 1);
+        compressed_trees.push(None); // for the chunk offsets
+
         for (index, chunk) in less_chunked.chunks().enumerate() {
             // these are extremely valuable when reading/writing, but are potentially much more expensive
             // to compute post-compression. That's because not all encodings implement stats, so we would
@@ -140,24 +143,23 @@ impl ChunkedCompressor {
                 info!("unsatisfactory ratio {}, previous: {:?}", ratio, previous);
                 let (compressed_chunk, tree) = ctx.compress_array(&chunk)?.into_parts();
                 let new_ratio = (compressed_chunk.nbytes() as f32) / (chunk.nbytes() as f32);
+
+                compressed_chunks.push(compressed_chunk);
+                compressed_trees.push(tree.clone());
                 previous = tree.map(|tree| (tree, new_ratio));
-                compressed_chunks.push(compressed_chunk);
             } else {
-                previous = previous.or_else(|| tree.map(|tree| (tree, ratio)));
                 compressed_chunks.push(compressed_chunk);
+                compressed_trees.push(tree.clone());
+                previous = previous.or_else(|| tree.map(|tree| (tree, ratio)));
             }
         }
 
-        let (child, ratio) = match previous {
-            Some((child, ratio)) => (Some(child), Some(ratio)),
-            None => (None, None),
-        };
-
+        let ratio = previous.map(|(_, ratio)| ratio);
         Ok(CompressedArray::compressed(
             ChunkedArray::try_new(compressed_chunks, array.dtype().clone())?.into_array(),
             Some(CompressionTree::new_with_metadata(
                 self,
-                vec![child],
+                compressed_trees,
                 Arc::new(ChunkedCompressorMetadata(ratio)),
             )),
             Some(array.statistics()),

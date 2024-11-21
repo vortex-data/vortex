@@ -9,7 +9,7 @@ use vortex_array::encoding::EncodingRef;
 use vortex_array::stats::{ArrayStatistics, Statistics};
 use vortex_array::tree::TreeFormatter;
 use vortex_array::ArrayData;
-use vortex_error::{vortex_panic, VortexResult};
+use vortex_error::{vortex_panic, VortexExpect, VortexResult};
 
 use crate::SamplingCompressor;
 
@@ -217,35 +217,42 @@ impl<'a> CompressedArray<'a> {
         path: Option<CompressionTree<'a>>,
         stats_to_inherit: Option<&dyn Statistics>,
     ) -> Self {
-        if let Some(path) = path.as_ref() {
-            path.children
-                .iter()
-                .zip_longest(array.children().iter())
-                .for_each(|pair| match pair {
-                    EitherOrBoth::Both(Some(child_tree), child_array) => {
-                        CompressedArray::compressed(
-                            child_array.clone(),
-                            Some(child_tree.clone()),
-                            None::<&dyn Statistics>,
-                        );
-                    }
-                    EitherOrBoth::Left(Some(child_tree)) => {
-                            vortex_panic!(
-                                "Child tree without child array!!\ncompressed array: {}\nchild_tree: {child_tree}",
-                                array.tree_display()
-                            );
-                        }
-                    // if the child_tree is None, we have an uncompressed child array or both were None; fine either way
-                    _ => {},
-                });
-        }
         if let Some(stats) = stats_to_inherit {
             // eagerly compute uncompressed size in bytes at compression time, since it's
             // too expensive to compute after compression
             let _ = stats.compute_uncompressed_size_in_bytes();
             array.inherit_statistics(stats);
         }
-        Self { array, path }
+        let compressed = Self { array, path };
+        compressed.validate();
+        compressed
+    }
+
+    fn validate(&self) {
+        self.validate_children(self.path.as_ref(), &self.array)
+    }
+
+    fn validate_children(&self, path: Option<&CompressionTree>, array: &ArrayData) {
+        if let Some(path) = path.as_ref() {
+            path.children
+                .iter()
+                .zip_longest(array.children().iter())
+                .for_each(|pair| match pair {
+                    EitherOrBoth::Both(Some(child_tree), child_array) => {
+                        self.validate_children(Some(child_tree), child_array);
+                    }
+                    EitherOrBoth::Left(Some(child_tree)) => {
+                        vortex_panic!(
+                            "Child tree without child array!!\nroot tree: {}\nroot array: {}\nlocal tree: {path}\nlocal array: {}\nproblematic child_tree: {child_tree}",
+                            self.path().as_ref().vortex_expect("must be present"),
+                            self.array.tree_display(),
+                            array.tree_display()
+                        );
+                    }
+                    // if the child_tree is None, we have an uncompressed child array or both were None; fine either way
+                    _ => {},
+                });
+        }
     }
 
     #[inline]
