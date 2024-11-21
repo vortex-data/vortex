@@ -51,7 +51,7 @@ pub struct ChunkedLayout {
     scan: Scan,
     layout_builder: LayoutDeserializer,
     message_cache: RelativeLayoutCache,
-    chunk_reader: Option<BufferedLayoutReader>,
+    chunk_reader: Option<BuffezredLayoutReader>,
 }
 
 impl ChunkedLayout {
@@ -91,7 +91,7 @@ impl ChunkedLayout {
                 self.layout_builder.read_layout(
                     self.fb_bytes.clone(),
                     metadata_fb._tab.loc(),
-                    Scan::new(None),
+                    Scan::empty(),
                     self.message_cache.unknown_dtype(METADATA_LAYOUT_PART_ID),
                 )
             })
@@ -167,6 +167,16 @@ impl LayoutReader for ChunkedLayout {
                     .relative(i, self.message_cache.dtype().clone())
             })?));
             self.read_selection(selector)
+        }
+    }
+
+    fn read_metadata(&mut self) -> VortexResult<Option<Vec<BatchRead>>> {
+        let reader = self.metadata_layout()?;
+        match reader {
+            None => return Ok(None),
+            Some(metadata_layout) => {
+                let data = metadata_layout.read_selection(selector)?;
+            }
         }
     }
 }

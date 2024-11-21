@@ -109,8 +109,7 @@ enum ReadingPoll {
 impl ReadingFor {
     fn future(&mut self) -> &mut StreamStateFuture {
         match self {
-            ReadingFor::Read(future, ..) => future,
-            ReadingFor::NextSplit(future, ..) => future,
+            ReadingFor::Read(future, ..) | ReadingFor::NextSplit(future, ..) => future,
         }
     }
 

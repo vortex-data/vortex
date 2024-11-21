@@ -13,6 +13,7 @@ mod expr_project;
 mod filtering;
 pub mod layouts;
 mod mask;
+pub mod metadata;
 mod recordbatchreader;
 mod splits;
 mod stream;
@@ -41,6 +42,10 @@ pub struct Scan {
 }
 
 impl Scan {
+    pub fn empty() -> Self {
+        Self { expr: None }
+    }
+
     pub fn new(expr: Option<ExprRef>) -> Self {
         Self { expr }
     }
@@ -85,4 +90,6 @@ pub trait LayoutReader: Debug + Send {
     ///
     /// The layout is finished producing data for selection when it returns None
     fn read_selection(&mut self, selector: &RowMask) -> VortexResult<Option<BatchRead>>;
+
+    fn read_metadata(&mut self) -> VortexResult<Option<Vec<ArrayData>>>;
 }

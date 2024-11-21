@@ -1,5 +1,5 @@
 use std::any::Any;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use arrow_schema::{Schema, SchemaRef};
 use async_trait::async_trait;
@@ -18,7 +18,10 @@ use object_store::{ObjectMeta, ObjectStore};
 use vortex_array::arrow::infer_schema;
 use vortex_array::Context;
 use vortex_dtype::DType;
-use vortex_file::VORTEX_FILE_EXTENSION;
+use vortex_file::{
+    read_layout_from_initial, LayoutContext, LayoutDeserializer, LayoutMessageCache,
+    RelativeLayoutCache, Scan, VortexFileArrayStream, VortexReadBuilder, VORTEX_FILE_EXTENSION,
+};
 use vortex_io::ObjectStoreReadAt;
 
 use super::execution::VortexExec;
@@ -87,9 +90,25 @@ impl FileFormat for VortexFormat {
         object: &ObjectMeta,
     ) -> DFResult<Statistics> {
         let os_read_at = ObjectStoreReadAt::new(store.clone(), object.location.clone());
+
         let initial_read = vortex_file::read_initial_bytes(&os_read_at, object.size as u64).await?;
         let layout = initial_read.fb_layout()?;
+        let dtype = DType::try_from(initial_read.fb_schema()?.dtype().ok_or_else(|| {
+            DataFusionError::External("Failed to fetch dtype from initial read".into())
+        })?)?;
         let row_count = layout.row_count();
+
+        let layout_deserializer =
+            LayoutDeserializer::new(Context::default().into(), LayoutContext::default().into());
+        let layout_message_cache = Arc::new(RwLock::new(LayoutMessageCache::new()));
+        let relative_message_cache = RelativeLayoutCache::new(layout_message_cache, dtype);
+
+        // let top_level_layout = read_layout_from_initial(
+        //     &initial_read,
+        //     &layout_deserializer,
+        //     Scan::empty(),
+        //     relative_message_cache,
+        // )?;
 
         let stats = Statistics {
             num_rows: Precision::Exact(row_count as usize),

@@ -250,6 +250,10 @@ impl LayoutReader for ColumnarLayout {
             self.read_selection(selector)
         }
     }
+
+    fn read_metadata(&mut self) -> VortexResult<Option<Vec<ArrayData>>> {
+        todo!("This is going to be fun")
+    }
 }
 
 #[cfg(test)]

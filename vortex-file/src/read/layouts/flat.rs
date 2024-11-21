@@ -116,6 +116,10 @@ impl LayoutReader for FlatLayout {
             Ok(Some(BatchRead::ReadMore(vec![self.own_message()])))
         }
     }
+
+    fn read_metadata(&mut self) -> VortexResult<Option<Vec<ArrayData>>> {
+        Ok(None)
+    }
 }
 
 #[cfg(test)]
