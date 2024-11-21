@@ -109,14 +109,14 @@ pub static ALL_ENCODINGS_CONTEXT: LazyLock<Arc<Context>> = LazyLock::new(|| {
 });
 
 #[derive(Debug, Clone)]
-pub struct MaxThroughputConfig {
+pub struct MaxScanTputConfig {
     /// MiB per second of download throughput
     mib_per_second: f64,
     /// Compression ratio to assume when calculating decompression time
     assumed_compression_ratio: f64,
 }
 
-impl MaxThroughputConfig {
+impl MaxScanTputConfig {
     pub fn download_time_ms(&self, nbytes: u64) -> f64 {
         const MS_PER_SEC: f64 = 1000.0;
         const BYTES_PER_MIB: f64 = (1 << 20) as f64;
@@ -124,7 +124,7 @@ impl MaxThroughputConfig {
     }
 }
 
-impl Default for MaxThroughputConfig {
+impl Default for MaxScanTputConfig {
     fn default() -> Self {
         Self {
             mib_per_second: 500.0,           // 500 MiB/s for object storage
@@ -135,8 +135,10 @@ impl Default for MaxThroughputConfig {
 
 #[derive(Debug, Clone)]
 pub enum Objective {
+    /// Minimize the size of the compressed array
     MinSize,
-    MaxThroughput(MaxThroughputConfig),
+    /// Maximize the throughput of a full scan of the compressed array (download + decompression)
+    MaxScanTput(MaxScanTputConfig),
 }
 
 impl Objective {
@@ -145,7 +147,7 @@ impl Objective {
             // if we're minimizing size, we should never choose a worse compression ratio than "uncompressed"
             Objective::MinSize => 1.0,
             // if we're maximizing performance, the units are in milliseconds
-            Objective::MaxThroughput(_) => f64::INFINITY,
+            Objective::MaxScanTput(_) => f64::INFINITY,
         }
     }
 
@@ -164,7 +166,7 @@ impl Objective {
 
         match &config.objective {
             Objective::MinSize => (size_in_bytes as f64) / (base_size_bytes as f64),
-            Objective::MaxThroughput(config) => {
+            Objective::MaxScanTput(config) => {
                 let download_time = config.download_time_ms(size_in_bytes);
                 let decompression_time =
                     array.decompression_time_ms(config.assumed_compression_ratio);
