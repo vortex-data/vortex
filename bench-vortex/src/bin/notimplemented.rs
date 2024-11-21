@@ -191,9 +191,7 @@ fn compute_funcs(encodings: &[ArrayData]) {
         impls.push(bool_to_cell(arr.encoding().fill_forward_fn().is_some()));
         impls.push(bool_to_cell(arr.encoding().filter_fn().is_some()));
         impls.push(bool_to_cell(arr.encoding().scalar_at_fn().is_some()));
-        impls.push(bool_to_cell(
-            arr.with_dyn(|a| a.subtract_scalar().is_some()),
-        ));
+        impls.push(bool_to_cell(arr.encoding().subtract_scalar_fn().is_some()));
         impls.push(bool_to_cell(arr.encoding().search_sorted_fn().is_some()));
         impls.push(bool_to_cell(arr.encoding().slice_fn().is_some()));
         impls.push(bool_to_cell(arr.encoding().take_fn().is_some()));

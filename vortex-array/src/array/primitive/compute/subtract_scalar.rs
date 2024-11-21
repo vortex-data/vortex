@@ -6,37 +6,42 @@ use vortex_scalar::{PrimitiveScalar, Scalar};
 
 use crate::array::constant::ConstantArray;
 use crate::array::primitive::PrimitiveArray;
+use crate::array::PrimitiveEncoding;
 use crate::compute::unary::SubtractScalarFn;
 use crate::validity::ArrayValidity;
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData};
 
-impl SubtractScalarFn for PrimitiveArray {
-    fn subtract_scalar(&self, to_subtract: &Scalar) -> VortexResult<ArrayData> {
-        if self.dtype() != to_subtract.dtype() {
-            vortex_bail!(MismatchedTypes: self.dtype(), to_subtract.dtype())
+impl SubtractScalarFn<PrimitiveArray> for PrimitiveEncoding {
+    fn subtract_scalar(
+        &self,
+        array: &PrimitiveArray,
+        to_subtract: &Scalar,
+    ) -> VortexResult<ArrayData> {
+        if array.dtype() != to_subtract.dtype() {
+            vortex_bail!(MismatchedTypes: array.dtype(), to_subtract.dtype())
         }
 
-        let validity = self.validity().to_logical(self.len());
+        let validity = array.validity().to_logical(array.len());
         if validity.all_invalid() {
             return Ok(
-                ConstantArray::new(Scalar::null(self.dtype().clone()), self.len()).into_array(),
+                ConstantArray::new(Scalar::null(array.dtype().clone()), array.len()).into_array(),
             );
         }
 
         let result = if to_subtract.dtype().is_int() {
-            match_each_integer_ptype!(self.ptype(), |$T| {
+            match_each_integer_ptype!(array.ptype(), |$T| {
                 let to_subtract: $T = PrimitiveScalar::try_from(to_subtract)?
                     .typed_value::<$T>()
                     .ok_or_else(|| vortex_err!("expected primitive"))?;
-                subtract_scalar_integer::<$T>(self, to_subtract)?
+                subtract_scalar_integer::<$T>(array, to_subtract)?
             })
         } else {
-            match_each_float_ptype!(self.ptype(), |$T| {
+            match_each_float_ptype!(array.ptype(), |$T| {
                 let to_subtract: $T = PrimitiveScalar::try_from(to_subtract)?
                     .typed_value::<$T>()
                     .ok_or_else(|| vortex_err!("expected primitive"))?;
-                let sub_vec : Vec<$T> = self.maybe_null_slice::<$T>()
+                let sub_vec : Vec<$T> = array.maybe_null_slice::<$T>()
                 .iter()
                 .map(|&v| v - to_subtract).collect_vec();
                 PrimitiveArray::from(sub_vec)
