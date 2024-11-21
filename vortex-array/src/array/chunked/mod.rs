@@ -240,13 +240,17 @@ impl ArrayValidity for ChunkedArray {
     }
 }
 
-impl SubtractScalarFn for ChunkedArray {
-    fn subtract_scalar(&self, to_subtract: &Scalar) -> VortexResult<ArrayData> {
-        let chunks = self
+impl SubtractScalarFn<ChunkedArray> for ChunkedEncoding {
+    fn subtract_scalar(
+        &self,
+        array: &ChunkedArray,
+        to_subtract: &Scalar,
+    ) -> VortexResult<ArrayData> {
+        let chunks = array
             .chunks()
             .map(|chunk| subtract_scalar(&chunk, to_subtract))
             .collect::<VortexResult<Vec<_>>>()?;
-        Ok(Self::try_new(chunks, self.dtype().clone())?.into_array())
+        Ok(ChunkedArray::try_new(chunks, array.dtype().clone())?.into_array())
     }
 }
 

@@ -11,8 +11,12 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
+use crate::array::{
+    BoolEncoding, ExtensionEncoding, NullEncoding, PrimitiveEncoding, StructEncoding,
+    VarBinEncoding, VarBinViewEncoding,
+};
 use crate::compute::unary::scalar_at;
-use crate::encoding::{EncodingId, EncodingRef};
+use crate::encoding::{EncodingId, EncodingRef, EncodingVTable};
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
 use crate::stats::{ArrayStatistics, Stat, Statistics, StatsSet};
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
@@ -144,6 +148,26 @@ impl ArrayData {
             InnerArrayData::Owned(d) => d.is_empty(),
             InnerArrayData::Viewed(v) => v.is_empty(),
         }
+    }
+
+    /// Whether the array is of a canonical encoding.
+    pub fn is_canonical(&self) -> bool {
+        self.is_encoding(NullEncoding.id())
+            || self.is_encoding(BoolEncoding.id())
+            || self.is_encoding(PrimitiveEncoding.id())
+            || self.is_encoding(StructEncoding.id())
+            || self.is_encoding(VarBinViewEncoding.id())
+            || self.is_encoding(ExtensionEncoding.id())
+    }
+
+    /// Whether the array is fully zero-copy to Arrow (including children).
+    /// This means any nested types, like Structs, Lists, and Extensions are not present.
+    pub fn is_arrow(&self) -> bool {
+        self.is_encoding(NullEncoding.id())
+            || self.is_encoding(BoolEncoding.id())
+            || self.is_encoding(PrimitiveEncoding.id())
+            || self.is_encoding(VarBinEncoding.id())
+            || self.is_encoding(VarBinViewEncoding.id())
     }
 
     /// Return whether the array is constant.

@@ -8,14 +8,12 @@
 //! from Arrow.
 
 pub use boolean::{and, and_kleene, or, or_kleene, BinaryBooleanFn, BinaryOperator};
-pub(crate) use compare::arrow_compare;
-pub use compare::{compare, scalar_cmp, CompareFn, MaybeCompareFn, Operator};
+pub use compare::{compare, scalar_cmp, CompareFn, Operator};
 pub use filter::*;
 pub use search_sorted::*;
 pub use slice::{slice, SliceFn};
 pub use take::*;
 use unary::{CastFn, FillForwardFn, ScalarAtFn, SubtractScalarFn};
-use vortex_error::VortexResult;
 
 use crate::ArrayData;
 
@@ -45,6 +43,13 @@ pub trait ComputeVTable {
     ///
     /// See: [CastFn].
     fn cast_fn(&self) -> Option<&dyn CastFn<ArrayData>> {
+        None
+    }
+
+    /// Binary operator implementation for arrays against other arrays.
+    ///
+    ///See: [CompareFn].
+    fn compare_fn(&self) -> Option<&dyn CompareFn<ArrayData>> {
         None
     }
 
@@ -83,6 +88,13 @@ pub trait ComputeVTable {
         None
     }
 
+    /// Broadcast subtraction of scalar from Vortex array.
+    ///
+    /// See: [SubtractScalarFn].
+    fn subtract_scalar_fn(&self) -> Option<&dyn SubtractScalarFn<ArrayData>> {
+        None
+    }
+
     /// Take a set of indices from an array. This often forces allocations and decoding of
     /// the receiver.
     ///
@@ -93,18 +105,4 @@ pub trait ComputeVTable {
 }
 
 /// Trait providing compute functions on top of Vortex arrays.
-pub trait ArrayCompute {
-    /// Binary operator implementation for arrays against other arrays.
-    ///
-    ///See: [CompareFn].
-    fn compare(&self, _other: &ArrayData, _operator: Operator) -> Option<VortexResult<ArrayData>> {
-        None
-    }
-
-    /// Broadcast subtraction of scalar from Vortex array.
-    ///
-    /// See: [SubtractScalarFn].
-    fn subtract_scalar(&self) -> Option<&dyn SubtractScalarFn> {
-        None
-    }
-}
+pub trait ArrayCompute {}

@@ -121,12 +121,11 @@ pub trait SearchSortedFn<Array> {
         &self,
         array: &Array,
         values: &[Scalar],
-        sides: &[SearchSortedSide],
+        side: SearchSortedSide,
     ) -> VortexResult<Vec<SearchResult>> {
         values
             .iter()
-            .zip(sides.iter())
-            .map(|(value, side)| self.search_sorted(array, value, *side))
+            .map(|value| self.search_sorted(array, value, side))
             .try_collect()
     }
 
@@ -134,13 +133,11 @@ pub trait SearchSortedFn<Array> {
         &self,
         array: &Array,
         values: &[usize],
-        sides: &[SearchSortedSide],
+        side: SearchSortedSide,
     ) -> VortexResult<Vec<SearchResult>> {
         values
             .iter()
-            .copied()
-            .zip(sides.iter().copied())
-            .map(|(value, side)| self.search_sorted_usize(array, value, side))
+            .map(|&value| self.search_sorted_usize(array, value, side))
             .try_collect()
     }
 }
@@ -184,7 +181,7 @@ where
         &self,
         array: &ArrayData,
         values: &[Scalar],
-        sides: &[SearchSortedSide],
+        side: SearchSortedSide,
     ) -> VortexResult<Vec<SearchResult>> {
         let array_ref = <&E::Array>::try_from(array)?;
         let encoding = array
@@ -192,14 +189,14 @@ where
             .as_any()
             .downcast_ref::<E>()
             .ok_or_else(|| vortex_err!("Mismatched encoding"))?;
-        SearchSortedFn::search_sorted_many(encoding, array_ref, values, sides)
+        SearchSortedFn::search_sorted_many(encoding, array_ref, values, side)
     }
 
     fn search_sorted_usize_many(
         &self,
         array: &ArrayData,
         values: &[usize],
-        sides: &[SearchSortedSide],
+        side: SearchSortedSide,
     ) -> VortexResult<Vec<SearchResult>> {
         let array_ref = <&E::Array>::try_from(array)?;
         let encoding = array
@@ -207,7 +204,7 @@ where
             .as_any()
             .downcast_ref::<E>()
             .ok_or_else(|| vortex_err!("Mismatched encoding"))?;
-        SearchSortedFn::search_sorted_usize_many(encoding, array_ref, values, sides)
+        SearchSortedFn::search_sorted_usize_many(encoding, array_ref, values, side)
     }
 }
 
@@ -261,7 +258,7 @@ pub fn search_sorted_usize(
 pub fn search_sorted_many<T: Into<Scalar> + Clone>(
     array: &ArrayData,
     targets: &[T],
-    sides: &[SearchSortedSide],
+    side: SearchSortedSide,
 ) -> VortexResult<Vec<SearchResult>> {
     if let Some(f) = array.encoding().search_sorted_fn() {
         let values: Vec<Scalar> = targets
@@ -269,14 +266,13 @@ pub fn search_sorted_many<T: Into<Scalar> + Clone>(
             .map(|t| t.clone().into().cast(array.dtype()))
             .try_collect()?;
 
-        return f.search_sorted_many(array, &values, sides);
+        return f.search_sorted_many(array, &values, side);
     }
 
     // Call in loop and collect
     targets
         .iter()
-        .zip(sides.iter().copied())
-        .map(|(target, side)| search_sorted(array, target.clone(), side))
+        .map(|target| search_sorted(array, target.clone(), side))
         .try_collect()
 }
 
@@ -284,18 +280,16 @@ pub fn search_sorted_many<T: Into<Scalar> + Clone>(
 pub fn search_sorted_usize_many(
     array: &ArrayData,
     targets: &[usize],
-    sides: &[SearchSortedSide],
+    side: SearchSortedSide,
 ) -> VortexResult<Vec<SearchResult>> {
     if let Some(f) = array.encoding().search_sorted_fn() {
-        return f.search_sorted_usize_many(array, targets, sides);
+        return f.search_sorted_usize_many(array, targets, side);
     }
 
     // Call in loop and collect
     targets
         .iter()
-        .copied()
-        .zip(sides.iter().copied())
-        .map(|(target, side)| search_sorted_usize(array, target, side))
+        .map(|&target| search_sorted_usize(array, target, side))
         .try_collect()
 }
 

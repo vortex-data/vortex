@@ -25,14 +25,17 @@ impl TokioDispatcher {
         let (submitter, rx) = flume::unbounded();
         let threads: Vec<_> = (0..num_threads)
             .map(|tid| {
-                let worker_thread = std::thread::Builder::new();
+                let worker_thread =
+                    std::thread::Builder::new().name(format!("tokio-dispatch-{tid}"));
                 let rx: flume::Receiver<Box<dyn TokioSpawn + Send>> = rx.clone();
 
                 worker_thread
                     .spawn(move || {
                         // Create a runtime-per-thread
                         let rt = tokio::runtime::Builder::new_current_thread()
-                            .thread_name(format!("tokio-dispatch-{tid}"))
+                            // The dispatcher should not have any blocking work.
+                            // Maybe in the future we can add this as a config param.
+                            .max_blocking_threads(1)
                             .enable_all()
                             .build()
                             .unwrap_or_else(|e| {

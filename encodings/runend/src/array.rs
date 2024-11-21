@@ -123,12 +123,7 @@ impl RunEndArray {
     ///
     /// See: [find_physical_index][Self::find_physical_index].
     pub fn find_physical_indices(&self, indices: &[usize]) -> VortexResult<Vec<usize>> {
-        search_sorted_usize_many(
-            &self.ends(),
-            indices,
-            &vec![SearchSortedSide::Right; indices.len()],
-        )
-        .map(|results| {
+        search_sorted_usize_many(&self.ends(), indices, SearchSortedSide::Right).map(|results| {
             results
                 .iter()
                 .map(|result| result.to_ends_index(self.ends().len()))

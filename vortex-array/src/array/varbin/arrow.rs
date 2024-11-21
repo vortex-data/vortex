@@ -1,9 +1,8 @@
 use std::sync::Arc;
 
-use arrow_array::{ArrayRef, BinaryArray, Datum, LargeBinaryArray, LargeStringArray, StringArray};
+use arrow_array::{ArrayRef, BinaryArray, LargeBinaryArray, LargeStringArray, StringArray};
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, VortexResult};
-use vortex_scalar::Scalar;
 
 use crate::array::VarBinArray;
 use crate::arrow::wrappers::as_offset_buffer;
@@ -83,26 +82,4 @@ pub(crate) fn varbin_to_arrow(varbin_array: &VarBinArray) -> VortexResult<ArrayR
             varbin_array.dtype()
         ),
     })
-}
-
-/// Create a [`Datum`] from a Utf8 or Binary scalar.
-pub(crate) fn varbin_datum(scalar: Scalar) -> VortexResult<Arc<dyn Datum>> {
-    match scalar.dtype() {
-        DType::Utf8(_) => Ok(Arc::new(
-            scalar
-                .value()
-                .as_buffer_string()?
-                .map(StringArray::new_scalar)
-                .unwrap_or_else(|| arrow_array::Scalar::new(StringArray::new_null(1))),
-        )),
-        DType::Binary(_) => Ok(Arc::new(
-            scalar
-                .value()
-                .as_buffer()?
-                .map(BinaryArray::new_scalar)
-                .unwrap_or_else(|| arrow_array::Scalar::new(BinaryArray::new_null(1))),
-        )),
-
-        other => vortex_bail!("Expected Utf8 or Binary scalar, found {other}"),
-    }
 }

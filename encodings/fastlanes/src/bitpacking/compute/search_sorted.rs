@@ -53,18 +53,16 @@ impl SearchSortedFn<BitPackedArray> for BitPackedEncoding {
         &self,
         array: &BitPackedArray,
         values: &[Scalar],
-        sides: &[SearchSortedSide],
+        side: SearchSortedSide,
     ) -> VortexResult<Vec<SearchResult>> {
         match_each_unsigned_integer_ptype!(array.ptype(), |$P| {
             let searcher = BitPackedSearch::<'_, $P>::new(array);
 
             values
                 .iter()
-                .zip(sides.iter().copied())
-                .map(|(value, side)| {
+                .map(|value| {
                     // Unwrap to native value
                     let unwrapped_value: $P = value.cast(array.dtype())?.try_into()?;
-
                     Ok(searcher.search_sorted(&unwrapped_value, side))
                 })
                 .try_collect()
@@ -75,16 +73,14 @@ impl SearchSortedFn<BitPackedArray> for BitPackedEncoding {
         &self,
         array: &BitPackedArray,
         values: &[usize],
-        sides: &[SearchSortedSide],
+        side: SearchSortedSide,
     ) -> VortexResult<Vec<SearchResult>> {
         match_each_unsigned_integer_ptype!(array.ptype(), |$P| {
             let searcher = BitPackedSearch::<'_, $P>::new(array);
 
             values
                 .iter()
-                .copied()
-                .zip(sides.iter().copied())
-                .map(|(value, side)| {
+                .map(|&value| {
                     // NOTE: truncating cast
                     let cast_value: $P = value as $P;
                     Ok(searcher.search_sorted(&cast_value, side))
@@ -299,11 +295,7 @@ mod test {
         let results = search_sorted_many(
             bitpacked.as_ref(),
             &[3u64, 2u64, 1u64],
-            &[
-                SearchSortedSide::Left,
-                SearchSortedSide::Left,
-                SearchSortedSide::Left,
-            ],
+            SearchSortedSide::Left,
         )
         .unwrap();
 

@@ -17,7 +17,7 @@ use vortex_dtype::{match_each_integer_ptype, match_each_unsigned_integer_ptype, 
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::compress::{runend_bool_decode_slice, runend_bool_encode_slice};
+use crate::compress::{runend_bool_decode_slice, runend_bool_encode_slice, trimmed_ends_iter};
 
 impl_encoding!("vortex.runendbool", ids::RUN_END_BOOL, RunEndBool);
 
@@ -164,7 +164,7 @@ pub(crate) fn decode_runend_bool(
     length: usize,
 ) -> VortexResult<BoolArray> {
     match_each_integer_ptype!(run_ends.ptype(), |$E| {
-        let bools = runend_bool_decode_slice::<$E>(run_ends.maybe_null_slice(), start, offset, length);
+        let bools = runend_bool_decode_slice(trimmed_ends_iter(run_ends.maybe_null_slice::<$E>(), offset, length), start, length);
         Ok(BoolArray::try_new(bools, validity)?)
     })
 }
@@ -179,8 +179,14 @@ pub(crate) fn value_at_index(idx: usize, start: bool) -> bool {
 
 impl BoolArrayTrait for RunEndBoolArray {
     fn invert(&self) -> VortexResult<ArrayData> {
-        RunEndBoolArray::try_new(self.ends(), !self.start(), self.validity())
-            .map(|a| a.into_array())
+        RunEndBoolArray::with_offset_and_size(
+            self.ends(),
+            !self.start(),
+            self.validity(),
+            self.len(),
+            self.offset(),
+        )
+        .map(|a| a.into_array())
     }
 }
 
@@ -229,19 +235,19 @@ impl ArrayStatisticsCompute for RunEndBoolArray {
             Stat::NullCount => Some(self.validity().null_count(self.len())?.into()),
             Stat::TrueCount => {
                 let pends = self.ends().into_primitive()?;
-                let mut true_count: u64 = 0;
-                let mut prev_end: u64 = 0;
+                let mut true_count: usize = 0;
+                let mut prev_end: usize = 0;
                 let mut include = self.start();
                 match_each_unsigned_integer_ptype!(pends.ptype(), |$P| {
-                    for end in pends.maybe_null_slice::<$P>() {
+                    for end in trimmed_ends_iter(pends.maybe_null_slice::<$P>(), self.offset(), self.len()) {
                         if include {
-                            true_count += (*end as u64 - prev_end);
+                            true_count += end - prev_end;
                         }
                         include = !include;
-                        prev_end = *end as u64;
+                        prev_end = end;
                     }
                 });
-                Some(true_count.into())
+                Some((true_count as u64).into())
             }
             _ => None,
         };
@@ -259,7 +265,7 @@ mod test {
 
     use itertools::Itertools as _;
     use rstest::rstest;
-    use vortex_array::array::BoolArray;
+    use vortex_array::array::{BoolArray, PrimitiveArray};
     use vortex_array::compute::unary::scalar_at;
     use vortex_array::compute::{slice, take, TakeOptions};
     use vortex_array::stats::{ArrayStatistics as _, ArrayStatisticsCompute};
@@ -407,5 +413,17 @@ mod test {
         }
 
         assert_eq!(arr.statistics().compute_run_count(), Some(ends_len));
+    }
+
+    #[test]
+    fn sliced_true_count() {
+        let arr = RunEndBoolArray::try_new(
+            PrimitiveArray::from(vec![5u32, 7, 10]).into_array(),
+            true,
+            Validity::NonNullable,
+        )
+        .unwrap();
+        let sliced = slice(&arr, 4, 8).unwrap();
+        assert_eq!(sliced.statistics().compute_true_count().unwrap(), 2);
     }
 }
