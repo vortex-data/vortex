@@ -1,6 +1,6 @@
-use std::ops::{AddAssign, Shl, Shr};
+use std::ops::AddAssign;
 
-use num_traits::{WrappingAdd, WrappingSub};
+use num_traits::{CheckedShl, CheckedShr, WrappingAdd, WrappingSub};
 use vortex_array::compute::unary::{scalar_at, ScalarAtFn};
 use vortex_array::compute::{
     filter, search_sorted, slice, take, ArrayCompute, ComputeVTable, FilterFn, FilterMask,
@@ -81,7 +81,7 @@ impl ScalarAtFn<FoRArray> for FoREncoding {
         Ok(match_each_integer_ptype!(array.ptype(), |$P| {
             encoded_pvalue
                 .map(|v| v.as_primitive::<$P>().vortex_unwrap())
-                .map(|v| (v << array.shift()).wrapping_add(reference.as_primitive::<$P>().vortex_unwrap()))
+                .map(|v| v.checked_shl(array.shift() as u32).unwrap_or_default().wrapping_add(reference.as_primitive::<$P>().vortex_unwrap()))
                 .map(|v| Scalar::primitive::<$P>(v, array.dtype().nullability()))
                 .unwrap_or_else(|| Scalar::null(array.dtype().clone()))
         }))
@@ -121,8 +121,8 @@ where
     T: NativePType
         + for<'a> TryFrom<&'a Scalar, Error = VortexError>
         + TryFrom<PValue, Error = VortexError>
-        + Shr<u8, Output = T>
-        + Shl<u8, Output = T>
+        + CheckedShr
+        + CheckedShl
         + WrappingSub
         + WrappingAdd
         + AddAssign
@@ -141,8 +141,14 @@ where
 
     // When the values in the array are shifted, not all values in the domain are representable in the compressed
     // space. Multiple different search values can translate to same value in the compressed space.
-    let encoded_value = primitive_value.wrapping_sub(&min) >> array.shift();
-    let decoded_value = (encoded_value << array.shift()).wrapping_add(&min);
+    let encoded_value = primitive_value
+        .wrapping_sub(&min)
+        .checked_shr(array.shift() as u32)
+        .unwrap_or_default();
+    let decoded_value = encoded_value
+        .checked_shl(array.shift() as u32)
+        .unwrap_or_default()
+        .wrapping_add(&min);
 
     // We first determine whether the value can be represented in the compressed array. For any value that is not
     // representable, it is by definition NotFound. For NotFound values, the correct insertion index is by definition
@@ -176,6 +182,7 @@ mod test {
     use vortex_array::array::PrimitiveArray;
     use vortex_array::compute::unary::scalar_at;
     use vortex_array::compute::{search_sorted, SearchResult, SearchSortedSide};
+    use vortex_array::IntoArrayData;
 
     use crate::{for_compress, FoRArray};
 
@@ -190,7 +197,9 @@ mod test {
 
     #[test]
     fn for_search() {
-        let for_arr = for_compress(&PrimitiveArray::from(vec![1100, 1500, 1900])).unwrap();
+        let for_arr = for_compress(&PrimitiveArray::from(vec![1100, 1500, 1900]))
+            .unwrap()
+            .into_array();
         assert_eq!(
             search_sorted(&for_arr, 1500, SearchSortedSide::Left).unwrap(),
             SearchResult::Found(1)
@@ -207,17 +216,17 @@ mod test {
 
     #[test]
     fn search_with_shift_notfound() {
-        let for_arr = for_compress(&PrimitiveArray::from(vec![62, 114])).unwrap();
+        let for_arr = for_compress(&PrimitiveArray::from(vec![62, 114]))
+            .unwrap()
+            .into_array();
         assert_eq!(
             search_sorted(&for_arr, 63, SearchSortedSide::Left).unwrap(),
             SearchResult::NotFound(1)
         );
-        let for_arr = for_compress(&PrimitiveArray::from(vec![62, 114])).unwrap();
         assert_eq!(
             search_sorted(&for_arr, 61, SearchSortedSide::Left).unwrap(),
             SearchResult::NotFound(0)
         );
-        let for_arr = for_compress(&PrimitiveArray::from(vec![62, 114])).unwrap();
         assert_eq!(
             search_sorted(&for_arr, 113, SearchSortedSide::Left).unwrap(),
             SearchResult::NotFound(1)
@@ -230,7 +239,9 @@ mod test {
 
     #[test]
     fn search_with_shift_repeated() {
-        let arr = for_compress(&PrimitiveArray::from(vec![62, 62, 114, 114])).unwrap();
+        let arr = for_compress(&PrimitiveArray::from(vec![62, 62, 114, 114]))
+            .unwrap()
+            .into_array();
         let for_array = FoRArray::try_from(arr.clone()).unwrap();
 
         let min: i32 = for_array.reference().try_into().unwrap();

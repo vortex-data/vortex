@@ -1,7 +1,7 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{Sparse, SparseArray, SparseEncoding};
 use vortex_array::encoding::EncodingRef;
-use vortex_array::stats::ArrayStatistics as _;
+use vortex_array::stats::ArrayStatistics;
 use vortex_array::{ArrayData, ArrayDef, ArrayLen, IntoArrayData};
 use vortex_error::VortexResult;
 
@@ -37,7 +37,7 @@ impl EncodingCompressor for SparseCompressor {
         )?;
         let values = ctx.named("values").compress(
             &sparse_array.values(),
-            like.as_ref().and_then(|l| l.child(0)),
+            like.as_ref().and_then(|l| l.child(1)),
         )?;
         Ok(CompressedArray::compressed(
             SparseArray::try_new(
