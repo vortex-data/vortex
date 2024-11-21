@@ -62,6 +62,7 @@ impl Deref for TokioFile {
 }
 
 impl VortexReadAt for TokioFile {
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
     fn read_byte_range(
         &self,
         pos: u64,
@@ -79,6 +80,7 @@ impl VortexReadAt for TokioFile {
         }
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
     fn size(&self) -> impl Future<Output = u64> + 'static {
         let this = self.clone();
 

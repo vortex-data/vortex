@@ -4835,6 +4835,7 @@ dependencies = [
  "rstest",
  "tempfile",
  "tokio",
+ "tracing",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",
@@ -4895,6 +4896,7 @@ dependencies = [
  "object_store",
  "tempfile",
  "tokio",
+ "tracing",
  "vortex-buffer",
  "vortex-error",
 ]

@@ -298,6 +298,7 @@ impl<R: VortexReadAt + Unpin> VortexFileArrayStream<R> {
     }
 }
 
+#[cfg_attr(feature = "tracing", tracing::instrument(skip_all))]
 async fn read_ranges<R: VortexReadAt>(
     reader: R,
     ranges: Vec<MessageLocator>,
