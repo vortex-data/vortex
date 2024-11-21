@@ -273,6 +273,18 @@ impl RelativeLayoutCache {
         }
     }
 
+    pub fn unknown_dtype(&self, id: LayoutPartId) -> Self {
+        let absolute_path = self.absolute_id(&[id]);
+        self.relative(
+            id,
+            Arc::new(unsafe {
+                LazilyDeserializedDType::from_lazy_schema_bytes(move || {
+                    vortex_panic!("Unknown schema for layout {absolute_path:?}")
+                })
+            }),
+        )
+    }
+
     pub fn get(&self, path: &[LayoutPartId]) -> Option<Bytes> {
         self.root
             .read()

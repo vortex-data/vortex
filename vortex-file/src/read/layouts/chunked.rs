@@ -142,6 +142,7 @@ impl ChunkedLayoutBuilder {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct ChunkedLayoutReader {
     layouts: Vec<RangedLayoutReader>,
@@ -193,10 +194,12 @@ impl ChunkedLayoutReader {
         Ok(messages_to_fetch)
     }
 
+    #[allow(dead_code)]
     pub fn n_chunks(&self) -> usize {
         self.layouts.len()
     }
 
+    #[allow(dead_code)]
     pub fn metadata_layout(&self) -> Option<&dyn LayoutReader> {
         self.metadata_layout.as_deref()
     }
