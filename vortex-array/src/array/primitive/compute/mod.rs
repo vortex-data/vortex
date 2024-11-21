@@ -1,13 +1,10 @@
 use crate::array::primitive::PrimitiveArray;
 use crate::array::PrimitiveEncoding;
 use crate::compute::unary::{CastFn, FillForwardFn, ScalarAtFn, SubtractScalarFn};
-use crate::compute::{
-    ArrayCompute, CompareFn, ComputeVTable, FilterFn, SearchSortedFn, SliceFn, TakeFn,
-};
+use crate::compute::{ArrayCompute, ComputeVTable, FilterFn, SearchSortedFn, SliceFn, TakeFn};
 use crate::ArrayData;
 
 mod cast;
-mod compare;
 mod fill;
 mod filter;
 mod scalar_at;
@@ -17,10 +14,6 @@ mod subtract_scalar;
 mod take;
 
 impl ArrayCompute for PrimitiveArray {
-    fn compare(&self) -> Option<&dyn CompareFn> {
-        Some(self)
-    }
-
     fn subtract_scalar(&self) -> Option<&dyn SubtractScalarFn> {
         Some(self)
     }

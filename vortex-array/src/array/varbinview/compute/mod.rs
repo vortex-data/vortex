@@ -1,5 +1,3 @@
-mod compare;
-
 use arrow_buffer::ScalarBuffer;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
@@ -12,16 +10,12 @@ use crate::array::varbin::varbin_scalar;
 use crate::array::varbinview::{VarBinViewArray, VIEW_SIZE_BYTES};
 use crate::array::{PrimitiveArray, VarBinViewEncoding};
 use crate::compute::unary::ScalarAtFn;
-use crate::compute::{slice, ArrayCompute, CompareFn, ComputeVTable, SliceFn, TakeFn, TakeOptions};
+use crate::compute::{slice, ArrayCompute, ComputeVTable, SliceFn, TakeFn, TakeOptions};
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 
-impl ArrayCompute for VarBinViewArray {
-    fn compare(&self) -> Option<&dyn CompareFn> {
-        Some(self)
-    }
-}
+impl ArrayCompute for VarBinViewArray {}
 
 impl ComputeVTable for VarBinViewEncoding {
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {

@@ -8,7 +8,6 @@
 //! from Arrow.
 
 pub use boolean::{and, and_kleene, or, or_kleene, BinaryBooleanFn, BinaryOperator};
-pub(crate) use compare::arrow_compare;
 pub use compare::{compare, scalar_cmp, CompareFn, Operator};
 pub use filter::*;
 pub use search_sorted::*;

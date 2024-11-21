@@ -6,9 +6,8 @@ use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::array::Constant;
 use crate::arrow::{Datum, FromArrowArray};
-use crate::{ArrayDType, ArrayData, ArrayDef};
+use crate::{ArrayDType, ArrayData};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd)]
 pub enum Operator {
@@ -94,8 +93,13 @@ pub fn compare(
     }
 
     // Always try to put constants on the right-hand side so encodings can optimise themselves.
-    if left.is_encoding(Constant::ID) && !right.is_encoding(Constant::ID) {
+    if left.is_constant() && !right.is_constant() {
         return compare(right, left, operator.swap());
+    }
+
+    // If the RHS is constant and the LHS is Arrow, we can't do any better than arrow_compare.
+    if left.is_arrow() && right.is_constant() {
+        return arrow_compare(left, right, operator);
     }
 
     if let Some(result) = left.with_dyn(|lhs| {
