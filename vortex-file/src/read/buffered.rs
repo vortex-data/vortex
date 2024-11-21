@@ -37,7 +37,7 @@ impl BufferedLayoutReader {
 
         while let Some(((begin, end), mut layout)) = self.layouts.pop_front() {
             // This selection doesn't know about rows in this chunk, we should put it back and wait for another request with different range
-            if mask.end() < begin || mask.begin() > end {
+            if mask.end() <= begin || mask.begin() >= end {
                 self.layouts.push_front(((begin, end), layout));
                 return Ok(None);
             }
