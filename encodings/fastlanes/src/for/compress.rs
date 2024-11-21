@@ -8,7 +8,7 @@ use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVari
 use vortex_dtype::{
     match_each_integer_ptype, match_each_unsigned_integer_ptype, DType, NativePType, Nullability,
 };
-use vortex_error::{vortex_err, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::FoRArray;
@@ -24,7 +24,8 @@ pub fn for_compress(array: &PrimitiveArray) -> VortexResult<FoRArray> {
     let encoded = match_each_integer_ptype!(array.ptype(), |$T| {
         if shift == <$T>::PTYPE.bit_width() as u8 {
             assert_eq!(min, Scalar::zero::<$T>(array.dtype().nullability()));
-            encoded_zero::<$T>(array.validity().to_logical(array.len()), nullability)?
+            encoded_zero::<$T>(array.validity().to_logical(array.len()), nullability)
+                .vortex_expect("Failed to encode all zeroes")
         } else {
             compress_primitive::<$T>(&array, shift, $T::try_from(&min)?)
                 .reinterpret_cast(array.ptype().to_unsigned())
@@ -38,9 +39,16 @@ fn encoded_zero<T: NativePType>(
     logical_validity: LogicalValidity,
     nullability: Nullability,
 ) -> VortexResult<ArrayData> {
+    if nullability == Nullability::NonNullable
+        && !matches!(logical_validity, LogicalValidity::AllValid(_))
+    {
+        vortex_bail!("Must have LogicalValidity::AllValid with non-nullable DType")
+    }
+
     let encoded_ptype = T::PTYPE.to_unsigned();
     let zero =
         match_each_unsigned_integer_ptype!(encoded_ptype, |$T| Scalar::zero::<$T>(nullability));
+
     Ok(match logical_validity {
         LogicalValidity::AllValid(len) => ConstantArray::new(zero, len).into_array(),
         LogicalValidity::AllInvalid(len) => ConstantArray::new(
@@ -49,7 +57,6 @@ fn encoded_zero<T: NativePType>(
         )
         .into_array(),
         LogicalValidity::Array(a) => {
-            assert_eq!(nullability, Nullability::Nullable);
             let len = a.len();
             let valid_indices = PrimitiveArray::from(
                 a.into_bool()?
