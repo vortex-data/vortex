@@ -24,6 +24,10 @@ impl EncodingCompressor for StructCompressor {
         constants::STRUCT_COST
     }
 
+    fn decompression_gib_per_second(&self) -> f64 {
+        constants::STRUCT_GIB_PER_S
+    }
+
     fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {
         let is_struct = matches!(array.dtype(), DType::Struct(..)) && array.is_encoding(Struct::ID);
         is_struct.then_some(self)

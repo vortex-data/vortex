@@ -40,6 +40,10 @@ impl EncodingCompressor for FSSTCompressor {
         constants::FSST_COST
     }
 
+    fn decompression_gib_per_second(&self) -> f64 {
+        constants::FSST_GIB_PER_S
+    }
+
     fn can_compress(&self, array: &vortex_array::ArrayData) -> Option<&dyn EncodingCompressor> {
         // FSST arrays must have DType::Utf8.
         //

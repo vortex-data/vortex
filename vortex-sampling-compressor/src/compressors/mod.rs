@@ -37,6 +37,8 @@ pub trait EncodingCompressor: Sync + Send + Debug {
 
     fn cost(&self) -> u8;
 
+    fn decompression_gib_per_second(&self) -> f64;
+
     fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor>;
 
     fn compress<'a>(
@@ -229,30 +231,7 @@ impl<'a> CompressedArray<'a> {
     }
 
     fn validate(&self) {
-        self.validate_children(self.path.as_ref(), &self.array)
-    }
-
-    fn validate_children(&self, path: Option<&CompressionTree>, array: &ArrayData) {
-        if let Some(path) = path.as_ref() {
-            path.children
-                .iter()
-                .zip_longest(array.children().iter())
-                .for_each(|pair| match pair {
-                    EitherOrBoth::Both(Some(child_tree), child_array) => {
-                        self.validate_children(Some(child_tree), child_array);
-                    }
-                    EitherOrBoth::Left(Some(child_tree)) => {
-                        vortex_panic!(
-                            "Child tree without child array!!\nroot tree: {}\nroot array: {}\nlocal tree: {path}\nlocal array: {}\nproblematic child_tree: {child_tree}",
-                            self.path().as_ref().vortex_expect("must be present"),
-                            self.array.tree_display(),
-                            array.tree_display()
-                        );
-                    }
-                    // if the child_tree is None, we have an uncompressed child array or both were None; fine either way
-                    _ => {},
-                });
-        }
+        validate_children_recursive(self, self.path.as_ref(), &self.array)
     }
 
     #[inline]
@@ -285,6 +264,88 @@ impl<'a> CompressedArray<'a> {
     pub fn nbytes(&self) -> usize {
         self.array.nbytes()
     }
+
+    pub fn decompression_time_ms(&self, assumed_compression_ratio: f64) -> f64 {
+        decompression_time_ms_recursive(&self.array, self.path.as_ref(), assumed_compression_ratio)
+    }
+}
+
+fn validate_children_recursive(
+    root: &CompressedArray,
+    path: Option<&CompressionTree>,
+    array: &ArrayData,
+) {
+    if let Some(path) = path.as_ref() {
+        path.children
+            .iter()
+            .zip_longest(array.children().iter())
+            .for_each(|pair| match pair {
+                EitherOrBoth::Both(Some(child_tree), child_array) => {
+                    validate_children_recursive(root, Some(child_tree), child_array);
+                }
+                EitherOrBoth::Left(Some(child_tree)) => {
+                    vortex_panic!(
+                        "Child tree without child array!!\nroot tree: {}\nroot array: {}\nlocal tree: {path}\nlocal array: {}\nproblematic child_tree: {child_tree}",
+                        root.path().as_ref().vortex_expect("must be present"),
+                        root.array.tree_display(),
+                        array.tree_display()
+                    );
+                }
+                // if the child_tree is None, we have an uncompressed child array or both were None; fine either way
+                _ => {},
+            });
+    }
+}
+
+fn decompression_time_ms_recursive(
+    array: &ArrayData,
+    tree: Option<&CompressionTree>,
+    assumed_compression_ratio: f64,
+) -> f64 {
+    const MS_PER_SEC: f64 = 1000.0;
+    const BYTES_PER_GB: f64 = 1_073_741_824.0;
+
+    // recursively compute the time to decompress all children
+    let children_time_ms = tree
+        .map(|tree| {
+            tree.children
+                .iter()
+                .zip_longest(array.children().iter())
+                .map(|pair| match pair {
+                    EitherOrBoth::Both(Some(child_tree), child_array) => {
+                        decompression_time_ms_recursive(
+                            child_array,
+                            Some(child_tree),
+                            assumed_compression_ratio,
+                        )
+                    }
+                    EitherOrBoth::Left(Some(_)) => {
+                        // this should never happen, since we validate on construction
+                        vortex_panic!("Unreachable: child tree without child array!!")
+                    }
+                    // if the child_tree is None, we have an uncompressed child array or both were None; costless either way
+                    _ => 0.0,
+                })
+                .sum::<f64>()
+        })
+        .unwrap_or_default();
+
+    // get or estimate the output size from decompressing `self`
+    let uncompressed_size = array
+        .statistics()
+        .compute_uncompressed_size_in_bytes()
+        .map(|size| size as f64)
+        .unwrap_or_else(|| array.nbytes() as f64 * assumed_compression_ratio);
+
+    // get the decompression speed of this compressor
+    let decompression_gib_per_sec = tree
+        .map(|c| c.compressor().decompression_gib_per_second())
+        .unwrap_or(500.0);
+
+    // compute the time to decompress `self`
+    let self_time_ms = (MS_PER_SEC / decompression_gib_per_sec) * uncompressed_size / BYTES_PER_GB;
+
+    self_time_ms + children_time_ms
 }
 
 impl AsRef<ArrayData> for CompressedArray<'_> {

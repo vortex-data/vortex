@@ -22,6 +22,10 @@ impl EncodingCompressor for RunEndBoolCompressor {
         constants::RUN_END_BOOL_COST
     }
 
+    fn decompression_gib_per_second(&self) -> f64 {
+        constants::RUN_END_BOOL_GIB_PER_S
+    }
+
     fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {
         // Only support bool arrays
         if !array.is_encoding(Bool::ID) {

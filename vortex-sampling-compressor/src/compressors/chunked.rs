@@ -40,6 +40,10 @@ impl EncodingCompressor for ChunkedCompressor {
         constants::CHUNKED_COST
     }
 
+    fn decompression_gib_per_second(&self) -> f64 {
+        constants::CHUNKED_GIB_PER_S
+    }
+
     fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {
         array.is_encoding(Chunked::ID).then_some(self)
     }

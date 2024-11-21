@@ -26,6 +26,10 @@ impl EncodingCompressor for RunEndCompressor {
         constants::RUN_END_COST
     }
 
+    fn decompression_gib_per_second(&self) -> f64 {
+        constants::RUN_END_GIB_PER_S
+    }
+
     fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {
         if !array.is_encoding(Primitive::ID) {
             return None;
