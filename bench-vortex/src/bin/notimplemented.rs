@@ -187,7 +187,7 @@ fn compute_funcs(encodings: &[ArrayData]) {
     for arr in encodings {
         let mut impls = vec![Cell::new(arr.encoding().id().as_ref())];
         impls.push(bool_to_cell(arr.encoding().cast_fn().is_some()));
-        impls.push(bool_to_cell(arr.with_dyn(|a| a.compare().is_some())));
+        impls.push(bool_to_cell(arr.encoding().compare_fn().is_some()));
         impls.push(bool_to_cell(arr.encoding().fill_forward_fn().is_some()));
         impls.push(bool_to_cell(arr.encoding().filter_fn().is_some()));
         impls.push(bool_to_cell(arr.encoding().scalar_at_fn().is_some()));

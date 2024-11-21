@@ -6,15 +6,20 @@ use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::FSSTArray;
+use crate::{FSSTArray, FSSTEncoding};
 
-impl CompareFn for FSSTArray {
-    fn compare(&self, other: &ArrayData, operator: Operator) -> VortexResult<Option<ArrayData>> {
-        match (other.as_constant(), operator) {
+impl CompareFn<FSSTArray> for FSSTEncoding {
+    fn compare(
+        &self,
+        lhs: &FSSTArray,
+        rhs: &ArrayData,
+        operator: Operator,
+    ) -> VortexResult<Option<ArrayData>> {
+        match (rhs.as_constant(), operator) {
             // TODO(ngates): implement short-circuit comparisons for other operators.
             (Some(constant_array), Operator::Eq | Operator::NotEq) => compare_fsst_constant(
-                self,
-                &ConstantArray::new(constant_array, self.len()),
+                lhs,
+                &ConstantArray::new(constant_array, lhs.len()),
                 operator == Operator::Eq,
             )
             .map(Some),

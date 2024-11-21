@@ -11,13 +11,13 @@ use vortex_scalar::Scalar;
 
 use crate::{DictArray, DictEncoding};
 
-impl ArrayCompute for DictArray {
-    fn compare(&self) -> Option<&dyn CompareFn> {
-        Some(self)
-    }
-}
+impl ArrayCompute for DictArray {}
 
 impl ComputeVTable for DictEncoding {
+    fn compare_fn(&self) -> Option<&dyn CompareFn<ArrayData>> {
+        Some(self)
+    }
+
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
         Some(self)
     }

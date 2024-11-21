@@ -19,13 +19,13 @@ use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::{RunEndArray, RunEndEncoding};
 
-impl ArrayCompute for RunEndArray {
-    fn compare(&self) -> Option<&dyn CompareFn> {
-        Some(self)
-    }
-}
+impl ArrayCompute for RunEndArray {}
 
 impl ComputeVTable for RunEndEncoding {
+    fn compare_fn(&self) -> Option<&dyn CompareFn<ArrayData>> {
+        Some(self)
+    }
+
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
         Some(self)
     }

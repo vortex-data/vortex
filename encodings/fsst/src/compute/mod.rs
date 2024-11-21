@@ -13,13 +13,13 @@ use vortex_scalar::Scalar;
 
 use crate::{FSSTArray, FSSTEncoding};
 
-impl ArrayCompute for FSSTArray {
-    fn compare(&self) -> Option<&dyn CompareFn> {
-        Some(self)
-    }
-}
+impl ArrayCompute for FSSTArray {}
 
 impl ComputeVTable for FSSTEncoding {
+    fn compare_fn(&self) -> Option<&dyn CompareFn<ArrayData>> {
+        Some(self)
+    }
+
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
         Some(self)
     }

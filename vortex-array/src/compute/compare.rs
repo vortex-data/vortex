@@ -3,10 +3,11 @@ use std::fmt::{Display, Formatter};
 
 use arrow_ord::cmp;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::arrow::{Datum, FromArrowArray};
+use crate::encoding::Encoding;
 use crate::{ArrayDType, ArrayData};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd)]
@@ -69,10 +70,36 @@ impl Operator {
     }
 }
 
-pub trait CompareFn {
+pub trait CompareFn<Array> {
     /// Compares two arrays and returns a new boolean array with the result of the comparison.
     /// Or, returns None if comparison is not supported for these arrays.
-    fn compare(&self, other: &ArrayData, operator: Operator) -> VortexResult<Option<ArrayData>>;
+    fn compare(
+        &self,
+        lhs: &Array,
+        rhs: &ArrayData,
+        operator: Operator,
+    ) -> VortexResult<Option<ArrayData>>;
+}
+
+impl<E: Encoding + 'static> CompareFn<ArrayData> for E
+where
+    E: CompareFn<E::Array>,
+    for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
+{
+    fn compare(
+        &self,
+        lhs: &ArrayData,
+        rhs: &ArrayData,
+        operator: Operator,
+    ) -> VortexResult<Option<ArrayData>> {
+        let lhs_ref = <&E::Array>::try_from(lhs)?;
+        let encoding = lhs
+            .encoding()
+            .as_any()
+            .downcast_ref::<E>()
+            .ok_or_else(|| vortex_err!("Mismatched encoding"))?;
+        CompareFn::compare(encoding, lhs_ref, rhs, operator)
+    }
 }
 
 pub fn compare(
@@ -102,10 +129,11 @@ pub fn compare(
         return arrow_compare(left, right, operator);
     }
 
-    if let Some(result) = left.with_dyn(|lhs| {
-        lhs.compare()
-            .and_then(|f| f.compare(right, operator).transpose())
-    }) {
+    if let Some(result) = left
+        .encoding()
+        .compare_fn()
+        .and_then(|f| f.compare(left, right, operator).transpose())
+    {
         return result;
     } else {
         log::debug!(
@@ -116,10 +144,11 @@ pub fn compare(
         );
     }
 
-    if let Some(result) = right.with_dyn(|rhs| {
-        rhs.compare()
-            .and_then(|f| f.compare(left, operator.swap()).transpose())
-    }) {
+    if let Some(result) = right
+        .encoding()
+        .compare_fn()
+        .and_then(|f| f.compare(right, left, operator.swap()).transpose())
+    {
         return result;
     } else {
         log::debug!(

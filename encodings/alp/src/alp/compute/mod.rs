@@ -12,13 +12,13 @@ use vortex_scalar::Scalar;
 
 use crate::{match_each_alp_float_ptype, ALPArray, ALPEncoding, ALPFloat};
 
-impl ArrayCompute for ALPArray {
-    fn compare(&self) -> Option<&dyn CompareFn> {
-        Some(self)
-    }
-}
+impl ArrayCompute for ALPArray {}
 
 impl ComputeVTable for ALPEncoding {
+    fn compare_fn(&self) -> Option<&dyn CompareFn<ArrayData>> {
+        Some(self)
+    }
+
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
         Some(self)
     }

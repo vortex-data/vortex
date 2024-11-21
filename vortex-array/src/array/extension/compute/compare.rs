@@ -6,23 +6,28 @@ use crate::compute::{compare, CompareFn, Operator};
 use crate::encoding::EncodingVTable;
 use crate::{ArrayDType, ArrayData, ArrayLen};
 
-impl CompareFn for ExtensionArray {
-    fn compare(&self, other: &ArrayData, operator: Operator) -> VortexResult<Option<ArrayData>> {
+impl CompareFn<ExtensionArray> for ExtensionEncoding {
+    fn compare(
+        &self,
+        lhs: &ExtensionArray,
+        rhs: &ArrayData,
+        operator: Operator,
+    ) -> VortexResult<Option<ArrayData>> {
         // If the RHS is a constant, we can extract the storage scalar.
-        if let Some(const_ext) = other.as_constant() {
+        if let Some(const_ext) = rhs.as_constant() {
             let scalar_ext = ExtScalar::try_new(const_ext.dtype(), const_ext.value())?;
             let storage_scalar = ConstantArray::new(
-                Scalar::new(self.storage().dtype().clone(), scalar_ext.value().clone()),
-                self.len(),
+                Scalar::new(lhs.storage().dtype().clone(), scalar_ext.value().clone()),
+                lhs.len(),
             );
 
-            return compare(self.storage(), storage_scalar, operator).map(Some);
+            return compare(lhs.storage(), storage_scalar, operator).map(Some);
         }
 
         // If the RHS is an extension array matching ours, we can extract the storage.
-        if other.is_encoding(ExtensionEncoding.id()) {
-            let rhs_ext = ExtensionArray::try_from(other.clone())?;
-            return compare(self.storage(), rhs_ext.storage(), operator).map(Some);
+        if rhs.is_encoding(ExtensionEncoding.id()) {
+            let rhs_ext = ExtensionArray::try_from(rhs.clone())?;
+            return compare(lhs.storage(), rhs_ext.storage(), operator).map(Some);
         }
 
         // Otherwise, we need the RHS to handle this comparison.
