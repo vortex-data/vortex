@@ -1,6 +1,4 @@
-use vortex_alp::{
-    alp_encode_components, match_each_alp_float_ptype, ALPArray, ALPEncoding, ALP,
-};
+use vortex_alp::{alp_encode_components, match_each_alp_float_ptype, ALPArray, ALPEncoding, ALP};
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::PrimitiveArray;
 use vortex_array::encoding::EncodingRef;

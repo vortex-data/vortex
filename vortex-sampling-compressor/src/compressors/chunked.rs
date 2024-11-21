@@ -146,13 +146,13 @@ fn like_into_parts(
 
     // must have one for the chunk offsets and one per chunk (and at least one chunk!)
     if children.len() < 2 {
-        vortex_bail!(
-            "Chunked array compression tree must have at least two children"
-        )
+        vortex_bail!("Chunked array compression tree must have at least two children")
     }
 
     // since we compress sequentially, we take the last child as the previous (and thus presumably most-similar) chunk
-    let latest_child = children.pop().vortex_expect("Unreachable: tree must have at least two children");
+    let latest_child = children
+        .pop()
+        .vortex_expect("Unreachable: tree must have at least two children");
 
     let Some(target_ratio) = metadata else {
         vortex_bail!("Chunked array compression tree must have metadata")
