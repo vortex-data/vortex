@@ -29,8 +29,6 @@ jobs:
             name: DataFusion
           - id: random_access
             name: Random Access
-          - id: tpch
-            name: TPC-H
           - id: compress_noci
             name: Vortex Compression
           - id: bytes_at
