@@ -12,7 +12,7 @@ use crate::compute::{
     ArrayCompute, BinaryBooleanFn, CompareFn, ComputeVTable, FilterFn, FilterMask, SearchSortedFn,
     SliceFn, TakeFn, TakeOptions,
 };
-use crate::{ArrayData, ArrayLen, IntoArrayData};
+use crate::{ArrayData, IntoArrayData};
 
 impl ArrayCompute for ConstantArray {
     fn compare(&self) -> Option<&dyn CompareFn> {
