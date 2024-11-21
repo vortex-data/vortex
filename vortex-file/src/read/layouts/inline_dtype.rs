@@ -2,13 +2,14 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use bytes::Bytes;
+use flatbuffers::root;
 use once_cell::sync::OnceCell;
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
-use vortex_flatbuffers::footer;
+use vortex_error::{vortex_bail, VortexResult};
+use vortex_flatbuffers::{footer, message};
 use vortex_ipc::messages::reader::MESSAGE_PREFIX_LENGTH;
 use vortex_ipc::stream_writer::ByteRange;
 
-use crate::read::cache::{LazilyDeserializedDType, RelativeLayoutCache};
+use crate::read::cache::{LazyDType, RelativeLayoutCache};
 use crate::read::mask::RowMask;
 use crate::{
     BatchRead, Layout, LayoutDeserializer, LayoutId, LayoutPartId, LayoutReader, MessageLocator,
@@ -92,18 +93,13 @@ impl InlineDTypeLayoutReader {
         ))
     }
 
-    fn dtype(&self) -> Arc<LazilyDeserializedDType> {
-        Arc::new(unsafe {
-            LazilyDeserializedDType::from_lazy_schema_bytes({
-                let cache = self.message_cache.clone();
-                move || {
-                    cache
-                        .get(&[INLINE_DTYPE_BUFFER_IDX])
-                        .vortex_expect("Must have populated message cache with dtype message")
-                        .slice(MESSAGE_PREFIX_LENGTH..)
-                }
-            })
-        })
+    fn dtype(&self) -> VortexResult<Arc<LazyDType>> {
+        if let Some(dt_bytes) = self.message_cache.get(&[INLINE_DTYPE_BUFFER_IDX]) {
+            root::<message::Schema>(&dt_bytes[MESSAGE_PREFIX_LENGTH..])?;
+            Ok(Arc::new(unsafe { LazyDType::from_schema_bytes(dt_bytes) }))
+        } else {
+            Ok(Arc::new(LazyDType::unknown()))
+        }
     }
 
     fn child_reader(&self) -> VortexResult<Box<dyn LayoutReader>> {
@@ -112,7 +108,7 @@ impl InlineDTypeLayoutReader {
             self.child_layout()?._tab.loc(),
             self.scan.clone(),
             self.message_cache
-                .relative(INLINE_DTYPE_CHILD_IDX, self.dtype()),
+                .relative(INLINE_DTYPE_CHILD_IDX, self.dtype()?),
         )
     }
 
@@ -134,7 +130,10 @@ impl LayoutReader for InlineDTypeLayoutReader {
         if let Some(cr) = self.child_layout.get() {
             cr.read_selection(selector)
         } else {
-            self.child_layout.get_or_try_init(|| self.child_reader())?;
+            if self.message_cache.get(&[INLINE_DTYPE_BUFFER_IDX]).is_some() {
+                self.child_layout.get_or_try_init(|| self.child_reader())?;
+                return self.read_selection(selector);
+            }
             Ok(Some(BatchRead::ReadMore(vec![self.dtype_message()?])))
         }
     }

@@ -298,7 +298,7 @@ mod tests {
     use vortex_ipc::stream_writer::ByteRange;
 
     use crate::layouts::chunked::{ChunkedLayoutBuilder, ChunkedLayoutReader};
-    use crate::read::cache::{LazilyDeserializedDType, RelativeLayoutCache};
+    use crate::read::cache::{LazyDType, RelativeLayoutCache};
     use crate::read::layouts::test_read::{filter_read_layout, read_layout, read_layout_data};
     use crate::read::mask::RowMask;
     use crate::{write, LayoutDeserializer, LayoutMessageCache, RowFilter, Scan};
@@ -350,7 +350,7 @@ mod tests {
             ._tab
             .loc();
 
-        let dtype = Arc::new(LazilyDeserializedDType::from_dtype(PType::I32.into()));
+        let dtype = Arc::new(LazyDType::from_dtype(PType::I32.into()));
         let layout_builder = LayoutDeserializer::default();
         (
             ChunkedLayoutBuilder {

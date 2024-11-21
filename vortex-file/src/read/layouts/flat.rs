@@ -131,13 +131,13 @@ mod tests {
     use vortex_ipc::stream_writer::ByteRange;
 
     use crate::layouts::flat::FlatLayoutReader;
-    use crate::read::cache::{LazilyDeserializedDType, RelativeLayoutCache};
+    use crate::read::cache::{LazyDType, RelativeLayoutCache};
     use crate::read::layouts::test_read::{filter_read_layout, read_layout};
     use crate::{LayoutMessageCache, RowFilter, Scan};
 
     async fn read_only_layout(
         cache: Arc<RwLock<LayoutMessageCache>>,
-    ) -> (FlatLayoutReader, Bytes, usize, Arc<LazilyDeserializedDType>) {
+    ) -> (FlatLayoutReader, Bytes, usize, Arc<LazyDType>) {
         let mut writer = MessageWriter::new(Vec::new());
         let array = PrimitiveArray::from((0..100).collect::<Vec<_>>()).into_array();
         let len = array.len();
@@ -145,7 +145,7 @@ mod tests {
         let written = writer.into_inner();
 
         let projection_scan = Scan::new(None);
-        let dtype = Arc::new(LazilyDeserializedDType::from_dtype(PType::I32.into()));
+        let dtype = Arc::new(LazyDType::from_dtype(PType::I32.into()));
 
         (
             FlatLayoutReader::new(

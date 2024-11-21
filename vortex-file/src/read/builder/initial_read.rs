@@ -7,7 +7,7 @@ use vortex_flatbuffers::{footer, message};
 use vortex_io::VortexReadAt;
 
 use crate::{
-    LayoutDeserializer, LayoutReader, LazilyDeserializedDType, RelativeLayoutCache, Scan, EOF_SIZE,
+    LayoutDeserializer, LayoutReader, LazyDType, RelativeLayoutCache, Scan, EOF_SIZE,
     INITIAL_READ_SIZE, MAGIC_BYTES, VERSION,
 };
 
@@ -50,10 +50,10 @@ impl InitialRead {
         Ok(schema_start..schema_end)
     }
 
-    pub fn lazy_dtype(&self) -> VortexResult<LazilyDeserializedDType> {
+    pub fn lazy_dtype(&self) -> VortexResult<LazyDType> {
         // we validated the schema bytes at construction time
         unsafe {
-            Ok(LazilyDeserializedDType::from_schema_bytes(
+            Ok(LazyDType::from_schema_bytes(
                 self.buf.slice(self.fb_schema_byte_range()?),
             ))
         }

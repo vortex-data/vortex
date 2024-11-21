@@ -21,7 +21,7 @@ use crate::read::cache::LayoutMessageCache;
 use crate::read::mask::RowMask;
 use crate::read::splits::{FilteringRowSplitIterator, FixedSplitIterator, MaskIterator, SplitMask};
 use crate::read::{BatchRead, LayoutReader, MessageId, MessageLocator};
-use crate::LazilyDeserializedDType;
+use crate::LazyDType;
 
 /// An asynchronous Vortex file that returns a [`Stream`] of [`ArrayData`]s.
 ///
@@ -31,7 +31,7 @@ use crate::LazilyDeserializedDType;
 /// Use [VortexReadBuilder][crate::read::builder::VortexReadBuilder] to build one
 /// from a reader.
 pub struct VortexFileArrayStream<R> {
-    dtype: Arc<LazilyDeserializedDType>,
+    dtype: Arc<LazyDType>,
     row_count: u64,
     layout_reader: Box<dyn LayoutReader>,
     messages_cache: Arc<RwLock<LayoutMessageCache>>,
@@ -47,7 +47,7 @@ impl<R: VortexReadAt> VortexFileArrayStream<R> {
         layout_reader: Box<dyn LayoutReader>,
         filter_reader: Option<Box<dyn LayoutReader>>,
         messages_cache: Arc<RwLock<LayoutMessageCache>>,
-        dtype: Arc<LazilyDeserializedDType>,
+        dtype: Arc<LazyDType>,
         row_count: u64,
         row_mask: Option<RowMask>,
         dispatcher: Arc<IoDispatcher>,

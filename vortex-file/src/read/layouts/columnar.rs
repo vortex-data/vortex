@@ -15,7 +15,7 @@ use vortex_expr::{Column, Select, VortexExpr};
 use vortex_flatbuffers::footer;
 use vortex_schema::projection::Projection;
 
-use crate::read::cache::{LazilyDeserializedDType, RelativeLayoutCache};
+use crate::read::cache::{LazyDType, RelativeLayoutCache};
 use crate::read::expr_project::expr_project;
 use crate::read::mask::RowMask;
 use crate::{
@@ -162,7 +162,7 @@ impl ColumnarLayoutBuilder {
     }
 
     /// Get fields referenced by scan expression along with their dtype
-    fn fields_with_dtypes(&self) -> VortexResult<(Vec<Field>, Arc<LazilyDeserializedDType>)> {
+    fn fields_with_dtypes(&self) -> VortexResult<(Vec<Field>, Arc<LazyDType>)> {
         let fb_children = self.flatbuffer().children().unwrap_or_default();
         let field_refs = self.scan_fields();
         let lazy_dtype = field_refs
