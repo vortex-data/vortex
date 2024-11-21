@@ -166,7 +166,7 @@ impl<'a> SamplingCompressor<'a> {
     pub(crate) fn compress_array(&self, array: &ArrayData) -> VortexResult<CompressedArray<'a>> {
         let mut rng = StdRng::seed_from_u64(self.options.rng_seed);
 
-        if array.encoding().id() == Constant::ID {
+        if array.is_encoding(Constant::ID) {
             // Not much better we can do than constant!
             return Ok(CompressedArray::uncompressed(array.clone()));
         }

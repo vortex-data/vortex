@@ -1,14 +1,16 @@
+use core::iter;
 use std::any::Any;
 use std::sync::Arc;
 
+use itertools::Itertools;
 use log::info;
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::array::{Chunked, ChunkedArray};
+use vortex_array::array::{Chunked, ChunkedArray, ChunkedEncoding};
 use vortex_array::compress::compute_precompression_stats;
 use vortex_array::encoding::EncodingRef;
 use vortex_array::stats::ArrayStatistics;
 use vortex_array::{ArrayDType, ArrayData, ArrayDef, IntoArrayData};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult};
 
 use super::EncoderMetadata;
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
@@ -23,7 +25,7 @@ pub const DEFAULT_CHUNKED_COMPRESSOR: ChunkedCompressor = ChunkedCompressor {
     relatively_good_ratio: 1.2,
 };
 
-pub struct ChunkedCompressorMetadata(Option<f32>);
+pub struct ChunkedCompressorMetadata(Vec<f32>);
 
 impl EncoderMetadata for ChunkedCompressorMetadata {
     fn as_any(&self) -> &dyn Any {
@@ -51,43 +53,11 @@ impl EncodingCompressor for ChunkedCompressor {
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
         let chunked_array = ChunkedArray::try_from(array.clone())?;
-        let like_and_ratio = like_into_parts(like)?;
-        self.compress_chunked(&chunked_array, like_and_ratio, ctx)
+        self.compress_chunked(&chunked_array, like, ctx)
     }
 
     fn used_encodings(&self) -> HashSet<EncodingRef> {
-        HashSet::from([])
-    }
-}
-
-fn like_into_parts(
-    tree: Option<CompressionTree<'_>>,
-) -> VortexResult<Option<(CompressionTree<'_>, f32)>> {
-    let (_, mut children, metadata) = match tree {
-        None => return Ok(None),
-        Some(tree) => tree.into_parts(),
-    };
-
-    let Some(target_ratio) = metadata else {
-        vortex_bail!("chunked array compression tree must have metadata")
-    };
-
-    let Some(ChunkedCompressorMetadata(target_ratio)) =
-        target_ratio.as_ref().as_any().downcast_ref()
-    else {
-        vortex_bail!("chunked array compression tree must be ChunkedCompressorMetadata")
-    };
-
-    if children.len() != 1 {
-        vortex_bail!("chunked array compression tree must have one child")
-    }
-
-    let child = children.remove(0);
-
-    match (child, target_ratio) {
-        (None, None) => Ok(None),
-        (Some(child), Some(ratio)) => Ok(Some((child, *ratio))),
-        (..) => vortex_bail!("chunked array compression tree must have a child iff it has a ratio"),
+        HashSet::from([&ChunkedEncoding as EncodingRef])
     }
 }
 
@@ -108,7 +78,7 @@ impl ChunkedCompressor {
     fn compress_chunked<'a>(
         &'a self,
         array: &ChunkedArray,
-        mut previous: Option<(CompressionTree<'a>, f32)>,
+        like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
         let less_chunked = array.rechunk(
@@ -116,10 +86,13 @@ impl ChunkedCompressor {
             ctx.options().target_block_size,
         )?;
 
+        let chunk_likes = like_into_parts(like, less_chunked.nchunks())?;
+
         let mut compressed_chunks = Vec::with_capacity(less_chunked.nchunks());
         let mut compressed_trees = Vec::with_capacity(less_chunked.nchunks() + 1);
         compressed_trees.push(None); // for the chunk offsets
 
+        let mut previous: Option<(&CompressionTree<'a>, f32)> = None;
         for (index, chunk) in less_chunked.chunks().enumerate() {
             // these are extremely valuable when reading/writing, but are potentially much more expensive
             // to compute post-compression. That's because not all encodings implement stats, so we would
@@ -127,7 +100,8 @@ impl ChunkedCompressor {
             // Also, we only really require them for column chunks, not for every array.
             compute_precompression_stats(&chunk)?;
 
-            let like = previous.as_ref().map(|(like, _)| like);
+            let like = chunk_likes[index].as_ref();
+
             let (compressed_chunk, tree) = ctx
                 .named(&format!("chunk-{}", index))
                 .compress(&chunk, like)?
@@ -135,7 +109,6 @@ impl ChunkedCompressor {
 
             let ratio = (compressed_chunk.nbytes() as f32) / (chunk.nbytes() as f32);
             let exceeded_target_ratio = previous
-                .as_ref()
                 .map(|(_, target_ratio)| ratio > target_ratio * self.relatively_good_ratio())
                 .unwrap_or(false);
 
@@ -165,4 +138,30 @@ impl ChunkedCompressor {
             Some(array.statistics()),
         ))
     }
+}
+
+fn like_into_parts<'a>(
+    tree: Option<CompressionTree<'a>>,
+    nchunks: usize,
+) -> VortexResult<Vec<Option<CompressionTree<'a>>>> {
+    let Some(tree) = tree else {
+        return Ok(vec![None; nchunks]);
+    };
+
+    let (_, mut children, _) = tree.into_parts();
+
+    if children.len() != nchunks + 1 {
+        vortex_bail!(
+            "chunked array compression tree must have one child per chunk, plus one for the chunk offsets, got {} for {} chunks",
+            children.len(),
+            nchunks
+        )
+    }
+
+    let chunk_offsets_like = children.remove(0);
+    if chunk_offsets_like.is_some() {
+        vortex_panic!("Chunked array compression tree doesn't compress chunk offsets");
+    }
+
+    Ok(children)
 }

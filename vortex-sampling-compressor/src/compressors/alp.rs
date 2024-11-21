@@ -85,6 +85,6 @@ impl EncodingCompressor for ALPCompressor {
     }
 
     fn used_encodings(&self) -> HashSet<EncodingRef> {
-        HashSet::from([&ALPEncoding as EncodingRef, &ALPRDEncoding])
+        HashSet::from([&ALPEncoding as EncodingRef])
     }
 }
