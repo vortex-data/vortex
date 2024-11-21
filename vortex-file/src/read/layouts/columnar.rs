@@ -7,7 +7,7 @@ use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::array::StructArray;
 use vortex_array::stats::ArrayStatistics;
 use vortex_array::validity::Validity;
-use vortex_array::IntoArrayData;
+use vortex_array::{ArrayData, IntoArrayData};
 use vortex_dtype::field::Field;
 use vortex_dtype::FieldNames;
 use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
@@ -15,7 +15,6 @@ use vortex_expr::{Column, Select, VortexExpr};
 use vortex_flatbuffers::footer;
 use vortex_schema::projection::Projection;
 
-use crate::layouts::InProgressRanges;
 use crate::read::cache::{LazilyDeserializedDType, RelativeLayoutCache};
 use crate::read::expr_project::expr_project;
 use crate::read::mask::RowMask;
@@ -196,6 +195,8 @@ impl ColumnarLayoutBuilder {
     }
 }
 
+type InProgressRanges = RwLock<HashMap<(usize, usize), Vec<Option<ArrayData>>>>;
+
 /// In memory representation of Columnar NestedLayout.
 ///
 /// Each child represents a column
@@ -265,6 +266,7 @@ impl LayoutReader for ColumnarLayoutReader {
                                 "must be a bool array if shortcircuit_siblings is set to true",
                             ) == 0
                         {
+                            in_progress_guard.remove(&selection_range);
                             return Ok(None);
                         }
                         *child_array = Some(arr)
