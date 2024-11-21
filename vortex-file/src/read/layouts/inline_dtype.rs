@@ -6,7 +6,6 @@ use flatbuffers::root;
 use once_cell::sync::OnceCell;
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_flatbuffers::{footer, message};
-use vortex_ipc::messages::reader::MESSAGE_PREFIX_LENGTH;
 use vortex_ipc::stream_writer::ByteRange;
 
 use crate::read::cache::{LazyDType, RelativeLayoutCache};
@@ -95,7 +94,7 @@ impl InlineDTypeLayoutReader {
 
     fn dtype(&self) -> VortexResult<Arc<LazyDType>> {
         if let Some(dt_bytes) = self.message_cache.get(&[INLINE_DTYPE_BUFFER_IDX]) {
-            root::<message::Schema>(&dt_bytes[MESSAGE_PREFIX_LENGTH..])?;
+            root::<message::Schema>(&dt_bytes)?;
             Ok(Arc::new(unsafe { LazyDType::from_schema_bytes(dt_bytes) }))
         } else {
             Ok(Arc::new(LazyDType::unknown()))

@@ -274,7 +274,7 @@ impl ColumnWriter {
             let expected_n_data_chunks = metadata_array.len();
 
             let dtype_begin = msgs.tell();
-            msgs.write_dtype(metadata_array.dtype()).await?;
+            msgs.write_dtype_raw(metadata_array.dtype()).await?;
             let dtype_end = msgs.tell();
             msgs.write_batch(metadata_array).await?;
             let metadata_array_end = msgs.tell();
