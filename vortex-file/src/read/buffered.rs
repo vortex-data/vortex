@@ -28,7 +28,8 @@ impl BufferedLayoutReader {
     // TODO(robert): Support out of order reads
     fn buffer_read(&mut self, mask: &RowMask) -> VortexResult<Option<Vec<MessageLocator>>> {
         while let Some(((begin, end), layout)) = self.layouts.pop_front() {
-            if mask.end() > begin && mask.begin() <= end {
+            // Since ends are exclusive there's only overlap if either end is larger/smaller by at least 1
+            if mask.end() > begin && mask.begin() < end {
                 self.layouts.push_front(((begin, end), layout));
                 break;
             }
@@ -36,7 +37,7 @@ impl BufferedLayoutReader {
 
         while let Some(((begin, end), mut layout)) = self.layouts.pop_front() {
             // This selection doesn't know about rows in this chunk, we should put it back and wait for another request with different range
-            if mask.end() <= begin || mask.begin() > end {
+            if mask.end() < begin || mask.begin() > end {
                 self.layouts.push_front(((begin, end), layout));
                 return Ok(None);
             }
