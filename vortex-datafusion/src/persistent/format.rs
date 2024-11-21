@@ -17,8 +17,7 @@ use datafusion_physical_plan::ExecutionPlan;
 use object_store::{ObjectMeta, ObjectStore};
 use vortex_array::arrow::infer_schema;
 use vortex_array::Context;
-use vortex_dtype::DType;
-use vortex_file::VORTEX_FILE_EXTENSION;
+use vortex_file::{read_initial_bytes, VORTEX_FILE_EXTENSION};
 use vortex_io::ObjectStoreReadAt;
 
 use super::execution::VortexExec;
@@ -68,11 +67,9 @@ impl FileFormat for VortexFormat {
         let mut file_schemas = Vec::default();
         for o in objects {
             let os_read_at = ObjectStoreReadAt::new(store.clone(), o.location.clone());
-            let initial_read = vortex_file::read_initial_bytes(&os_read_at, o.size as u64).await?;
-            let dtype = DType::try_from(initial_read.fb_schema()?.dtype().ok_or_else(|| {
-                DataFusionError::External("Failed to fetch dtype from initial read".into())
-            })?)?;
-            let s = infer_schema(&dtype)?;
+            let initial_read = read_initial_bytes(&os_read_at, o.size as u64).await?;
+            let dtype = initial_read.lazy_dtype()?.value()?;
+            let s = infer_schema(dtype)?;
             file_schemas.push(s);
         }
 

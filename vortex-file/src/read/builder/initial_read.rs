@@ -50,11 +50,6 @@ impl InitialRead {
         Ok(schema_start..schema_end)
     }
 
-    /// The `Schema` flatbuffer.
-    pub fn fb_schema(&self) -> VortexResult<message::Schema> {
-        Ok(unsafe { root_unchecked::<message::Schema>(&self.buf[self.fb_schema_byte_range()?]) })
-    }
-
     pub fn lazy_dtype(&self) -> VortexResult<LazilyDeserializedDType> {
         // we validated the schema bytes at construction time
         unsafe {

@@ -157,7 +157,7 @@ impl LazilyDeserializedDType {
             }
             LazyDTypeState::Serialized(b, _, proj) => field_names(b, proj),
             LazyDTypeState::Closure(c, bytes, _, proj) => {
-                let bytes = bytes.get_or_init(|| c());
+                let bytes = bytes.get_or_try_init(|| validate_schema_bytes(c()))?;
                 field_names(bytes, proj)
             }
         }
