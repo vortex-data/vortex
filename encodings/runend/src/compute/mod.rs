@@ -1,3 +1,5 @@
+mod compare;
+
 use std::cmp::min;
 use std::ops::AddAssign;
 
@@ -5,8 +7,8 @@ use num_traits::AsPrimitive;
 use vortex_array::array::{BooleanBuffer, ConstantArray, PrimitiveArray, SparseArray};
 use vortex_array::compute::unary::{scalar_at, ScalarAtFn};
 use vortex_array::compute::{
-    compare, filter, slice, take, ArrayCompute, ComputeVTable, FilterFn, FilterMask,
-    MaybeCompareFn, Operator, SliceFn, TakeFn, TakeOptions,
+    filter, slice, take, ArrayCompute, CompareFn, ComputeVTable, FilterFn, FilterMask, SliceFn,
+    TakeFn, TakeOptions,
 };
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
@@ -18,8 +20,8 @@ use vortex_scalar::{Scalar, ScalarValue};
 use crate::{RunEndArray, RunEndEncoding};
 
 impl ArrayCompute for RunEndArray {
-    fn compare(&self, other: &ArrayData, operator: Operator) -> Option<VortexResult<ArrayData>> {
-        MaybeCompareFn::maybe_compare(self, other, operator)
+    fn compare(&self) -> Option<&dyn CompareFn> {
+        Some(self)
     }
 }
 
@@ -38,33 +40,6 @@ impl ComputeVTable for RunEndEncoding {
 
     fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
         Some(self)
-    }
-}
-
-impl MaybeCompareFn for RunEndArray {
-    fn maybe_compare(
-        &self,
-        other: &ArrayData,
-        operator: Operator,
-    ) -> Option<VortexResult<ArrayData>> {
-        // If the RHS is constant, then we just need to compare against our encoded values.
-        other.as_constant().map(|const_scalar| {
-            compare(
-                self.values(),
-                ConstantArray::new(const_scalar, self.values().len()),
-                operator,
-            )
-            .and_then(|values| {
-                Self::with_offset_and_length(
-                    self.ends(),
-                    values,
-                    self.validity().into_nullable(),
-                    self.offset(),
-                    self.len(),
-                )
-            })
-            .map(|a| a.into_array())
-        })
     }
 }
 
@@ -203,9 +178,9 @@ fn filter_run_ends<R: NativePType + AddAssign + From<bool> + AsPrimitive<u64>>(
 
 #[cfg(test)]
 mod test {
-    use vortex_array::array::{BoolArray, BooleanBuffer, ConstantArray, PrimitiveArray};
+    use vortex_array::array::{BoolArray, PrimitiveArray};
     use vortex_array::compute::unary::{scalar_at, try_cast};
-    use vortex_array::compute::{compare, filter, slice, take, FilterMask, Operator, TakeOptions};
+    use vortex_array::compute::{filter, slice, take, FilterMask, TakeOptions};
     use vortex_array::validity::{ArrayValidity, Validity};
     use vortex_array::{ArrayDType, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
     use vortex_dtype::{DType, Nullability, PType};
@@ -213,7 +188,7 @@ mod test {
 
     use crate::RunEndArray;
 
-    fn ree_array() -> RunEndArray {
+    pub(crate) fn ree_array() -> RunEndArray {
         RunEndArray::encode(
             PrimitiveArray::from(vec![1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5]).to_array(),
         )
@@ -499,19 +474,6 @@ mod test {
                 .unwrap()
                 .maybe_null_slice::<i32>(),
             [1, 4, 2]
-        );
-    }
-
-    #[test]
-    fn compare_run_end() {
-        let arr = ree_array();
-        let res = compare(arr, ConstantArray::new(5, 12), Operator::Eq).unwrap();
-        let res_canon = res.into_bool().unwrap();
-        assert_eq!(
-            res_canon.boolean_buffer(),
-            BooleanBuffer::from(vec![
-                false, false, false, false, false, false, false, false, true, true, true, true
-            ])
         );
     }
 }

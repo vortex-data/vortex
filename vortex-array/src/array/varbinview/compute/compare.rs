@@ -1,47 +1,42 @@
 use vortex_error::VortexResult;
 
-use crate::array::VarBinArray;
+use crate::array::VarBinViewArray;
 use crate::compute::{arrow_compare, CompareFn, Operator};
 use crate::ArrayData;
 
-impl CompareFn for VarBinArray {
+impl CompareFn for VarBinViewArray {
+    // TODO(ngates): this implementation is arguably the same for _all_ canonical encodings.
+    //  Maybe the entry-point function should handle this?
     fn compare(&self, other: &ArrayData, operator: Operator) -> VortexResult<Option<ArrayData>> {
         // If the RHS is a constant, we know we should use Arrow kernels.
         if other.is_constant() {
             return arrow_compare(self.as_ref(), other, operator).map(Some);
         }
 
-        // Otherwise, we fall back to see if the RHS supports us.
+        // Otherwise, continue with the fall back
         Ok(None)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::{DType, Nullability};
+    use vortex_dtype::Nullability;
     use vortex_scalar::Scalar;
 
-    use super::*;
-    use crate::array::builder::VarBinBuilder;
-    use crate::array::ConstantArray;
-    use crate::compute::compare;
+    use crate::array::{ConstantArray, VarBinViewArray};
+    use crate::compute::{compare, Operator};
     use crate::{ArrayLen, IntoArrayVariant};
 
     #[test]
     fn basic_test() {
-        let mut builder = VarBinBuilder::<i32>::new();
-        for v in [
-            b"one".as_slice(),
-            b"two".as_slice(),
-            b"three".as_slice(),
-            b"four".as_slice(),
-            b"five".as_slice(),
-            b"six".as_slice(),
-        ] {
-            builder.push_value(v);
-        }
-
-        let arr = builder.finish(DType::Utf8(Nullability::Nullable));
+        let arr = VarBinViewArray::from_iter_nullable_str([
+            Some("one"),
+            Some("two"),
+            Some("three"),
+            Some("four"),
+            Some("five"),
+            Some("six"),
+        ]);
 
         let s = Scalar::utf8("seven".to_string(), Nullability::Nullable);
 
@@ -52,8 +47,6 @@ mod tests {
             .into_bool()
             .unwrap();
 
-        for v in r.boolean_buffer().iter() {
-            assert!(!v);
-        }
+        assert!(r.boolean_buffer().iter().all(|v| !v));
     }
 }

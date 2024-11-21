@@ -1,19 +1,20 @@
-use vortex_error::{VortexExpect, VortexResult};
-use vortex_scalar::{ExtScalar, Scalar};
+mod compare;
+
+use vortex_error::VortexResult;
+use vortex_scalar::Scalar;
 
 use crate::array::extension::ExtensionArray;
-use crate::array::{ConstantArray, ExtensionEncoding};
+use crate::array::ExtensionEncoding;
 use crate::compute::unary::{scalar_at, CastFn, ScalarAtFn};
 use crate::compute::{
-    compare, slice, take, ArrayCompute, ComputeVTable, MaybeCompareFn, Operator, SliceFn, TakeFn,
-    TakeOptions,
+    slice, take, ArrayCompute, CompareFn, ComputeVTable, SliceFn, TakeFn, TakeOptions,
 };
 use crate::variants::ExtensionArrayTrait;
-use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData};
+use crate::{ArrayData, IntoArrayData};
 
 impl ArrayCompute for ExtensionArray {
-    fn compare(&self, other: &ArrayData, operator: Operator) -> Option<VortexResult<ArrayData>> {
-        MaybeCompareFn::maybe_compare(self, other, operator)
+    fn compare(&self) -> Option<&dyn CompareFn> {
+        Some(self)
     }
 }
 
@@ -35,32 +36,6 @@ impl ComputeVTable for ExtensionEncoding {
 
     fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
         Some(self)
-    }
-}
-
-impl MaybeCompareFn for ExtensionArray {
-    fn maybe_compare(
-        &self,
-        other: &ArrayData,
-        operator: Operator,
-    ) -> Option<VortexResult<ArrayData>> {
-        if let Some(const_ext) = other.as_constant() {
-            let scalar_ext = ExtScalar::try_new(const_ext.dtype(), const_ext.value())
-                .vortex_expect("Expected ExtScalar");
-            let const_storage = ConstantArray::new(
-                Scalar::new(self.storage().dtype().clone(), scalar_ext.value().clone()),
-                self.len(),
-            );
-
-            return Some(compare(self.storage(), const_storage, operator));
-        }
-
-        // TODO(ngates): do not use try_from to test for encoding.
-        if let Ok(rhs_ext) = ExtensionArray::try_from(other.clone()) {
-            return Some(compare(self.storage(), rhs_ext.storage(), operator));
-        }
-
-        None
     }
 }
 

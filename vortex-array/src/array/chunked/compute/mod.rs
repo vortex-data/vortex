@@ -15,8 +15,8 @@ mod slice;
 mod take;
 
 impl ArrayCompute for ChunkedArray {
-    fn compare(&self, other: &ArrayData, operator: Operator) -> Option<VortexResult<ArrayData>> {
-        Some(CompareFn::compare(self, other, operator))
+    fn compare(&self) -> Option<&dyn CompareFn> {
+        Some(self)
     }
 
     fn subtract_scalar(&self) -> Option<&dyn SubtractScalarFn> {
@@ -57,7 +57,7 @@ impl CastFn<ChunkedArray> for ChunkedEncoding {
 }
 
 impl CompareFn for ChunkedArray {
-    fn compare(&self, array: &ArrayData, operator: Operator) -> VortexResult<ArrayData> {
+    fn compare(&self, array: &ArrayData, operator: Operator) -> VortexResult<Option<ArrayData>> {
         let mut idx = 0;
         let mut compare_chunks = Vec::with_capacity(self.nchunks());
 
@@ -70,6 +70,7 @@ impl CompareFn for ChunkedArray {
         }
 
         Ok(ChunkedArray::try_new(compare_chunks, DType::Bool(Nullability::Nullable))?.into_array())
+            .map(Some)
     }
 }
 

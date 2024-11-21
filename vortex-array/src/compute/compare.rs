@@ -71,15 +71,9 @@ impl Operator {
 }
 
 pub trait CompareFn {
-    fn compare(&self, other: &ArrayData, operator: Operator) -> VortexResult<ArrayData>;
-}
-
-pub trait MaybeCompareFn {
-    fn maybe_compare(
-        &self,
-        other: &ArrayData,
-        operator: Operator,
-    ) -> Option<VortexResult<ArrayData>>;
+    /// Compares two arrays and returns a new boolean array with the result of the comparison.
+    /// Or, returns None if comparison is not supported for these arrays.
+    fn compare(&self, other: &ArrayData, operator: Operator) -> VortexResult<Option<ArrayData>>;
 }
 
 pub fn compare(
@@ -104,8 +98,11 @@ pub fn compare(
         return compare(right, left, operator.swap());
     }
 
-    if let Some(selection) = left.with_dyn(|lhs| lhs.compare(right, operator)) {
-        return selection;
+    if let Some(result) = left.with_dyn(|lhs| {
+        lhs.compare()
+            .and_then(|f| f.compare(right, operator).transpose())
+    }) {
+        return result;
     } else {
         log::debug!(
             "No compare implementation found for LHS {}, RHS {}, and operator {}",
@@ -115,8 +112,11 @@ pub fn compare(
         );
     }
 
-    if let Some(selection) = right.with_dyn(|rhs| rhs.compare(left, operator.swap())) {
-        return selection;
+    if let Some(result) = right.with_dyn(|rhs| {
+        rhs.compare()
+            .and_then(|f| f.compare(left, operator.swap()).transpose())
+    }) {
+        return result;
     } else {
         log::debug!(
             "No compare implementation found for LHS {}, RHS {}, and operator {}",

@@ -11,7 +11,6 @@ use vortex::array::{
     VarBinViewArray,
 };
 use vortex::bytebool::ByteBoolArray;
-use vortex::compute::Operator;
 use vortex::datetime_dtype::{TemporalMetadata, TimeUnit, TIME_ID};
 use vortex::datetime_parts::DateTimePartsArray;
 use vortex::dict::DictArray;
@@ -25,15 +24,6 @@ use vortex::scalar::ScalarValue;
 use vortex::validity::Validity;
 use vortex::zigzag::ZigZagArray;
 use vortex::{ArrayData, IntoArrayData};
-
-const OPERATORS: [Operator; 6] = [
-    Operator::Lte,
-    Operator::Lt,
-    Operator::Gt,
-    Operator::Gte,
-    Operator::Eq,
-    Operator::NotEq,
-];
 
 fn fsst_array() -> ArrayData {
     let input_array = varbin_array();
@@ -181,6 +171,7 @@ fn compute_funcs(encodings: &[ArrayData]) {
         vec![
             "Encoding",
             "cast",
+            "compare",
             "fill_forward",
             "filter",
             "scalar_at",
@@ -196,6 +187,7 @@ fn compute_funcs(encodings: &[ArrayData]) {
     for arr in encodings {
         let mut impls = vec![Cell::new(arr.encoding().id().as_ref())];
         impls.push(bool_to_cell(arr.encoding().cast_fn().is_some()));
+        impls.push(bool_to_cell(arr.with_dyn(|a| a.compare().is_some())));
         impls.push(bool_to_cell(arr.encoding().fill_forward_fn().is_some()));
         impls.push(bool_to_cell(arr.encoding().filter_fn().is_some()));
         impls.push(bool_to_cell(arr.encoding().scalar_at_fn().is_some()));
@@ -210,32 +202,8 @@ fn compute_funcs(encodings: &[ArrayData]) {
     table.printstd();
 }
 
-fn compare_funcs(encodings: &[ArrayData]) {
-    for arr in encodings {
-        println!("\nArray {} compare functions", arr.encoding().id().as_ref());
-        let mut table = Table::new();
-        table.add_row(Row::new(
-            [Cell::new("Encoding")]
-                .into_iter()
-                .chain(OPERATORS.iter().map(|a| Cell::new(a.to_string().as_ref())))
-                .collect(),
-        ));
-        for arr2 in encodings {
-            let mut impls = vec![Cell::new(arr2.encoding().id().as_ref())];
-            for op in OPERATORS {
-                impls.push(bool_to_cell(
-                    arr.with_dyn(|a1| a1.compare(arr2, op).is_some()),
-                ));
-            }
-            table.add_row(Row::new(impls));
-        }
-        table.printstd();
-    }
-}
-
 fn main() -> ExitCode {
     let arrays = enc_impls();
     compute_funcs(&arrays);
-    compare_funcs(&arrays);
     ExitCode::SUCCESS
 }

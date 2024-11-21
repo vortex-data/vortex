@@ -1,8 +1,9 @@
-use vortex_array::array::ConstantArray;
+mod compare;
+
 use vortex_array::compute::unary::{scalar_at, ScalarAtFn};
 use vortex_array::compute::{
-    compare, filter, slice, take, ArrayCompute, ComputeVTable, FilterFn, FilterMask,
-    MaybeCompareFn, Operator, SliceFn, TakeFn, TakeOptions,
+    filter, slice, take, ArrayCompute, CompareFn, ComputeVTable, FilterFn, FilterMask, SliceFn,
+    TakeFn, TakeOptions,
 };
 use vortex_array::{ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
@@ -11,8 +12,8 @@ use vortex_scalar::Scalar;
 use crate::{DictArray, DictEncoding};
 
 impl ArrayCompute for DictArray {
-    fn compare(&self, other: &ArrayData, operator: Operator) -> Option<VortexResult<ArrayData>> {
-        MaybeCompareFn::maybe_compare(self, other, operator)
+    fn compare(&self) -> Option<&dyn CompareFn> {
+        Some(self)
     }
 }
 
@@ -31,32 +32,6 @@ impl ComputeVTable for DictEncoding {
 
     fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
         Some(self)
-    }
-}
-
-impl MaybeCompareFn for DictArray {
-    fn maybe_compare(
-        &self,
-        other: &ArrayData,
-        operator: Operator,
-    ) -> Option<VortexResult<ArrayData>> {
-        // If the RHS is constant, then we just need to compare against our encoded values.
-        if let Some(const_scalar) = other.as_constant() {
-            return Some(
-                // Ensure the other is the same length as the dictionary
-                compare(
-                    self.values(),
-                    ConstantArray::new(const_scalar, self.values().len()),
-                    operator,
-                )
-                .and_then(|values| Self::try_new(self.codes(), values))
-                .map(|a| a.into_array()),
-            );
-        }
-
-        // It's a little more complex, but we could perform a comparison against the dictionary
-        // values in the future.
-        None
     }
 }
 
