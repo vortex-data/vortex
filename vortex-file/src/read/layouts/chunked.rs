@@ -1,5 +1,5 @@
 use std::collections::BTreeSet;
-use std::sync::RwLock;
+use std::sync::{OnceLock, RwLock};
 
 use bytes::Bytes;
 use itertools::Itertools;
@@ -170,6 +170,7 @@ pub struct ChunkedLayoutReader {
     layouts: Vec<RangedLayoutReader>,
     metadata_layout: Option<Box<dyn LayoutReader>>,
     in_progress_ranges: InProgressLayoutRanges,
+    cached_metadata: OnceLock<ArrayData>,
 }
 
 impl ChunkedLayoutReader {
@@ -181,6 +182,7 @@ impl ChunkedLayoutReader {
             layouts,
             metadata_layout,
             in_progress_ranges: RwLock::new(HashMap::new()),
+            cached_metadata: OnceLock::new(),
         }
     }
 
@@ -234,7 +236,6 @@ impl ChunkedLayoutReader {
         self.layouts.len()
     }
 
-    #[allow(dead_code)]
     pub fn metadata_layout(&self) -> Option<&dyn LayoutReader> {
         self.metadata_layout.as_deref()
     }
@@ -281,8 +282,22 @@ impl LayoutReader for ChunkedLayoutReader {
     fn read_metadata(&self) -> VortexResult<Option<BatchRead>> {
         match self.metadata_layout() {
             None => Ok(None),
-            Some(_metadata_layout) => {
-                todo!()
+            Some(metadata_layout) => {
+                if let Some(md) = self.cached_metadata.get() {
+                    return Ok(Some(BatchRead::Batch(md.clone())));
+                }
+
+                match metadata_layout
+                    .read_selection(&RowMask::new_valid_between(0, self.n_chunks()))?
+                {
+                    Some(BatchRead::Batch(ad)) => {
+                        // We don't care if the write failed
+                        _ = self.cached_metadata.set(ad.clone());
+                        Ok(Some(BatchRead::Batch(ad)))
+                    }
+                    br @ Some(BatchRead::ReadMore(_)) => Ok(br),
+                    None => Ok(None),
+                }
             }
         }
     }
