@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 use itertools::{Itertools, MinMaxResult};
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
-use vortex_error::{vortex_panic, VortexExpect, VortexResult};
+use vortex_error::{vortex_panic, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::accessor::ArrayAccessor;
@@ -21,22 +21,25 @@ impl StatisticsVTable<VarBinArray> for VarBinEncoding {
 
         if array.is_empty()
             || stat == Stat::TrueCount
+            || stat == Stat::RunCount
             || stat == Stat::BitWidthFreq
             || stat == Stat::TrailingZeroFreq
         {
             return Ok(StatsSet::default());
         }
 
-        let null_count = array.validity().null_count(array.len())?;
-        if null_count == array.len() {
-            return Ok(StatsSet::nulls(array.len(), array.dtype()));
-        } else if stat == Stat::NullCount {
-            return Ok(StatsSet::of(Stat::NullCount, null_count));
-        }
+        Ok(match stat {
+            Stat::IsConstant | Stat::NullCount => {
+                let null_count = array.validity().null_count(array.len())?;
+                if null_count == array.len() {
+                    return Ok(StatsSet::nulls(array.len(), array.dtype()));
+                }
 
-        let mut stats = StatsSet::of(Stat::NullCount, null_count);
-        match stat {
-            Stat::IsConstant => {
+                let mut stats = StatsSet::of(Stat::NullCount, null_count);
+                if stat == Stat::NullCount {
+                    return Ok(stats);
+                }
+
                 let is_constant = if null_count > 0 {
                     // we know that there is at least one null, but not all nulls, so it's not constant
                     false
@@ -44,6 +47,7 @@ impl StatisticsVTable<VarBinArray> for VarBinEncoding {
                     array.with_iterator(|iter| compute_is_constant(&mut iter.flatten()))?
                 };
                 stats.set(Stat::IsConstant, is_constant);
+                stats
             }
             Stat::Min | Stat::Max => {
                 // handle min and max in the same loop
@@ -54,32 +58,30 @@ impl StatisticsVTable<VarBinArray> for VarBinEncoding {
                         "Unreachable: already checked that array has at least one non-null element"
                     );
                 };
-                stats.set(Stat::Min, min);
-                stats.set(Stat::Max, max);
+                StatsSet::from_iter([(Stat::Min, min), (Stat::Max, max)])
             }
             Stat::IsSorted => {
                 let is_sorted = array.with_iterator(|iter| iter.flatten().is_sorted())?;
-                stats.set(Stat::IsSorted, is_sorted);
+                let mut stats = StatsSet::of(Stat::IsSorted, is_sorted);
                 if !is_sorted {
                     stats.set(Stat::IsStrictSorted, false);
                 }
+                stats
             }
             Stat::IsStrictSorted => {
                 let is_strict_sorted = array.with_iterator(|iter| {
                     iter.flatten()
                         .is_sorted_by(|a, b| matches!(a.cmp(b), Ordering::Less))
                 })?;
-                stats.set(Stat::IsStrictSorted, is_strict_sorted);
+                let mut stats = StatsSet::of(Stat::IsStrictSorted, is_strict_sorted);
                 if is_strict_sorted {
                     stats.set(Stat::IsSorted, true);
                 }
-            }
-            Stat::RunCount => {
-                // needs its own full pass
+                stats
             }
             Stat::UncompressedSizeInBytes
             | Stat::TrueCount
-            | Stat::NullCount
+            | Stat::RunCount
             | Stat::BitWidthFreq
             | Stat::TrailingZeroFreq => {
                 vortex_panic!(
@@ -87,8 +89,7 @@ impl StatisticsVTable<VarBinArray> for VarBinEncoding {
                     stat
                 )
             }
-        }
-        Ok(stats)
+        })
     }
 }
 
@@ -96,7 +97,6 @@ fn compute_is_constant(iter: &mut dyn Iterator<Item = &[u8]>) -> bool {
     let Some(first_value) = iter.next() else {
         return true;
     };
-    let first_value = first_value;
     for v in iter {
         if v != first_value {
             return false;
