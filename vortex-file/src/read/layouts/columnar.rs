@@ -9,7 +9,7 @@ use vortex_array::stats::ArrayStatistics;
 use vortex_array::validity::Validity;
 use vortex_array::{ArrayData, IntoArrayData};
 use vortex_dtype::field::Field;
-use vortex_dtype::FieldNames;
+use vortex_dtype::{FieldName, FieldNames};
 use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
 use vortex_expr::{Column, Select, VortexExpr};
 use vortex_flatbuffers::footer;
@@ -203,6 +203,7 @@ pub struct ColumnarLayoutReader {
     expr: Option<Arc<dyn VortexExpr>>,
     // TODO(robert): This is a hack/optimization that tells us if we're reducing results with AND or not
     shortcircuit_siblings: bool,
+    in_progress_metadata: RwLock<HashMap<FieldName, Option<ArrayData>>>,
 }
 
 impl ColumnarLayoutReader {
@@ -220,9 +221,10 @@ impl ColumnarLayoutReader {
         Self {
             names,
             children,
-            in_progress_ranges: RwLock::new(HashMap::new()),
             expr,
             shortcircuit_siblings,
+            in_progress_ranges: RwLock::new(HashMap::new()),
+            in_progress_metadata: RwLock::new(HashMap::new()),
         }
     }
 }
@@ -305,7 +307,39 @@ impl LayoutReader for ColumnarLayoutReader {
     }
 
     fn read_metadata(&self) -> VortexResult<Option<BatchRead>> {
-        todo!("This is going to be fun")
+        let mut guard = self.in_progress_metadata.write().unwrap();
+        let mut messages = Vec::default();
+
+        for (name, child_reader) in self.names.iter().zip(self.children.iter()) {
+            match child_reader.read_metadata()? {
+                Some(BatchRead::Batch(data)) => {
+                    guard.insert(name.clone(), Some(data));
+                }
+                Some(BatchRead::ReadMore(rm)) => {
+                    messages.extend(rm);
+                }
+                None => {
+                    guard.insert(name.clone(), None);
+                }
+            }
+        }
+
+        // We're done reading
+        if messages.is_empty() {
+            let child_arrays = self
+                .names
+                .iter()
+                .map(|name| guard[name].clone().unwrap()) // TODO(Adam): Some columns might not have statistics
+                .collect::<Vec<_>>();
+            let len = child_arrays.first().map(ArrayData::len).unwrap();
+            let array =
+                StructArray::try_new(self.names.clone(), child_arrays, len, Validity::NonNullable)?
+                    .into_array();
+
+            Ok(Some(BatchRead::Batch(array)))
+        } else {
+            Ok(Some(BatchRead::ReadMore(messages)))
+        }
     }
 }
 
