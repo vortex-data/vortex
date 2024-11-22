@@ -4,6 +4,7 @@
 ///
 /// For more information, see the [dbgen](https://github.com/spiraldb/tpch-dbgen) project.
 use std::fmt::{Display, Formatter};
+use std::fs;
 use std::fs::File;
 use std::io::copy;
 use std::path::{Path, PathBuf};
@@ -198,6 +199,9 @@ fn get_or_cache_toolchain(
             anyhow::bail!("failed to extract {:?} in {download_dir:?}", entry.path()?);
         }
     }
+
+    // Cleanup the original tarball now that we've unpacked it
+    fs::remove_file(&zip_path)?;
 
     Ok(dbgen_binary(cache_dir, version, platform))
 }

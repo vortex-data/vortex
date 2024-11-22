@@ -37,6 +37,7 @@ datafusion = { workspace = true, features = [
 ] }
 datafusion-common = { workspace = true }
 datafusion-physical-plan = { workspace = true }
+dotenv = { workspace = true }
 enum-iterator = { workspace = true }
 futures = { workspace = true, features = ["executor"] }
 governor = { workspace = true }
@@ -46,7 +47,7 @@ indicatif = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true, features = ["max_level_debug"] }
 mimalloc = { workspace = true }
-object_store = { workspace = true, features = ["aws"] }
+object_store = { workspace = true, features = ["aws", "gcp"] }
 parquet = { workspace = true, features = ["async"] }
 rand = { workspace = true }
 rand_distr = { workspace = true }
@@ -60,8 +61,11 @@ tabled = { workspace = true, features = ["std"] }
 tar = { workspace = true }
 tikv-jemallocator = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["full"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+url = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
-vortex = { workspace = true, features = ["object_store", "parquet"] }
+vortex = { workspace = true, features = ["object_store", "parquet", "tracing"] }
 vortex-datafusion = { workspace = true }
 xshell = { workspace = true }
 
@@ -71,6 +75,11 @@ criterion = { workspace = true, features = ["html_reports", "async_tokio"] }
 [features]
 mimalloc = []
 jemalloc = ["dep:tikv-jemallocator"]
+
+[[bin]]
+name = "tpch_vortex"
+test = false
+bench = false
 
 [[bench]]
 name = "compress"
