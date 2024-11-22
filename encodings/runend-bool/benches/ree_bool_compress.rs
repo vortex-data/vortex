@@ -8,7 +8,10 @@ use itertools::Itertools;
 use rand::distributions::Open01;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
-use vortex_runend_bool::compress::{runend_bool_decode_slice, runend_bool_encode_slice};
+use vortex_error::VortexExpect;
+use vortex_runend_bool::compress::{
+    runend_bool_decode_slice, runend_bool_encode_slice, trimmed_ends_iter,
+};
 
 fn compress_compare(c: &mut Criterion) {
     compress_compare_param(c, 0.);
@@ -38,8 +41,15 @@ fn compress_compare_param(c: &mut Criterion, sel_fac: f32) {
     });
 
     let (ends, start) = runend_bool_encode_slice(&boolbuf);
+    let length = ends.last().copied().vortex_expect("must have one elem") as usize;
     group.bench_function("ree bool decompress", |b| {
-        b.iter(|| black_box(runend_bool_decode_slice(&ends, start, 0, ends.len())));
+        b.iter(|| {
+            black_box(runend_bool_decode_slice(
+                trimmed_ends_iter(&ends, 0, length),
+                start,
+                length,
+            ))
+        });
     });
     group.finish()
 }

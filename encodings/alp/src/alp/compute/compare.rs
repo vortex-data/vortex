@@ -5,18 +5,23 @@ use vortex_dtype::Nullability;
 use vortex_error::VortexResult;
 use vortex_scalar::{PValue, Scalar};
 
-use crate::{ALPArray, ALPFloat};
+use crate::{ALPArray, ALPEncoding, ALPFloat};
 
-impl CompareFn for ALPArray {
-    fn compare(&self, array: &ArrayData, operator: Operator) -> VortexResult<Option<ArrayData>> {
-        if let Some(const_scalar) = array.as_constant() {
+impl CompareFn<ALPArray> for ALPEncoding {
+    fn compare(
+        &self,
+        lhs: &ALPArray,
+        rhs: &ArrayData,
+        operator: Operator,
+    ) -> VortexResult<Option<ArrayData>> {
+        if let Some(const_scalar) = rhs.as_constant() {
             let pvalue = const_scalar.value().as_pvalue()?;
 
             return match pvalue {
-                Some(PValue::F32(f)) => alp_scalar_compare(self, f, operator).map(Some),
-                Some(PValue::F64(f)) => alp_scalar_compare(self, f, operator).map(Some),
+                Some(PValue::F32(f)) => alp_scalar_compare(lhs, f, operator).map(Some),
+                Some(PValue::F64(f)) => alp_scalar_compare(lhs, f, operator).map(Some),
                 Some(_) | None => Ok(Some(
-                    ConstantArray::new(Scalar::bool(false, Nullability::Nullable), self.len())
+                    ConstantArray::new(Scalar::bool(false, Nullability::Nullable), lhs.len())
                         .into_array(),
                 )),
             };

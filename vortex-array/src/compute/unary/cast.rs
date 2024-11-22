@@ -8,7 +8,7 @@ pub trait CastFn<Array> {
     fn cast(&self, array: &Array, dtype: &DType) -> VortexResult<ArrayData>;
 }
 
-impl<E: Encoding + 'static> CastFn<ArrayData> for E
+impl<E: Encoding> CastFn<ArrayData> for E
 where
     E: CastFn<E::Array>,
     for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,

@@ -1,8 +1,8 @@
 mod tokio_runtime;
 
+use core::cell::LazyCell;
 use core::str::FromStr;
 use core::sync::atomic::{AtomicBool, Ordering};
-use std::cell::LazyCell;
 use std::io::Cursor;
 use std::path::Path;
 use std::sync::Arc;

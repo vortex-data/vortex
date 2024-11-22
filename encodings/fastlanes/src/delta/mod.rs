@@ -2,12 +2,12 @@ use std::fmt::{Debug, Display};
 
 pub use compress::*;
 use serde::{Deserialize, Serialize};
-use vortex_array::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use vortex_array::array::PrimitiveArray;
 use vortex_array::encoding::ids;
-use vortex_array::stats::{ArrayStatisticsCompute, StatsSet};
+use vortex_array::stats::{StatisticsVTable, StatsSet};
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
 use vortex_array::variants::{ArrayVariants, PrimitiveArrayTrait};
+use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
     IntoCanonical,
@@ -242,11 +242,11 @@ impl ArrayValidity for DeltaArray {
     }
 }
 
-impl AcceptArrayVisitor for DeltaArray {
-    fn accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_child("bases", &self.bases())?;
-        visitor.visit_child("deltas", &self.deltas())
+impl VisitorVTable<DeltaArray> for DeltaEncoding {
+    fn accept(&self, array: &DeltaArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+        visitor.visit_child("bases", &array.bases())?;
+        visitor.visit_child("deltas", &array.deltas())
     }
 }
 
-impl ArrayStatisticsCompute for DeltaArray {}
+impl StatisticsVTable<DeltaArray> for DeltaEncoding {}

@@ -1,8 +1,9 @@
-use std::fmt::{Debug, Display, Formatter};
+use core::fmt::Formatter;
+use std::fmt::Display;
 
-use log::{debug, warn};
+use log::{debug, info, warn};
 use rand::rngs::StdRng;
-use rand::SeedableRng;
+use rand::SeedableRng as _;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{ChunkedArray, Constant};
 use vortex_array::compress::{
@@ -15,12 +16,12 @@ use vortex_array::validity::Validity;
 use vortex_array::{ArrayDType, ArrayData, ArrayDef, IntoCanonical};
 use vortex_error::{VortexExpect as _, VortexResult};
 
-use crate::compressors::chunked::DEFAULT_CHUNKED_COMPRESSOR;
+use super::compressors::chunked::DEFAULT_CHUNKED_COMPRESSOR;
+use super::compressors::struct_::StructCompressor;
+use super::{CompressConfig, Objective, DEFAULT_COMPRESSORS};
 use crate::compressors::constant::ConstantCompressor;
-use crate::compressors::struct_::StructCompressor;
 use crate::compressors::{CompressedArray, CompressionTree, CompressorRef, EncodingCompressor};
 use crate::sampling::stratified_slices;
-use crate::{CompressConfig, Objective, DEFAULT_COMPRESSORS};
 
 #[derive(Debug, Clone)]
 pub struct SamplingCompressor<'a> {
@@ -115,6 +116,13 @@ impl<'a> SamplingCompressor<'a> {
         cloned
     }
 
+    pub fn including_only(&self, compressors: &[CompressorRef<'a>]) -> Self {
+        let mut cloned = self.clone();
+        cloned.compressors.clear();
+        cloned.compressors.extend(compressors);
+        cloned
+    }
+
     #[allow(clippy::same_name_method)]
     pub fn compress(
         &self,
@@ -135,10 +143,7 @@ impl<'a> SamplingCompressor<'a> {
                 check_statistics_unchanged(arr, compressed.as_ref());
                 return Ok(compressed);
             } else {
-                warn!(
-                    "{} cannot find compressor to compress {} like {}",
-                    self, arr, l
-                );
+                warn!("{} cannot compress {} like {}", self, arr, l);
             }
         }
 
@@ -158,10 +163,10 @@ impl<'a> SamplingCompressor<'a> {
         }
     }
 
-    pub fn compress_array(&self, array: &ArrayData) -> VortexResult<CompressedArray<'a>> {
+    pub(crate) fn compress_array(&self, array: &ArrayData) -> VortexResult<CompressedArray<'a>> {
         let mut rng = StdRng::seed_from_u64(self.options.rng_seed);
 
-        if array.encoding().id() == Constant::ID {
+        if array.is_encoding(Constant::ID) {
             // Not much better we can do than constant!
             return Ok(CompressedArray::uncompressed(array.clone()));
         }
@@ -258,7 +263,7 @@ impl<'a> SamplingCompressor<'a> {
     }
 }
 
-fn find_best_compression<'a>(
+pub(crate) fn find_best_compression<'a>(
     candidates: Vec<&'a dyn EncodingCompressor>,
     sample: &ArrayData,
     ctx: &SamplingCompressor<'a>,
@@ -267,8 +272,8 @@ fn find_best_compression<'a>(
     let mut best_objective = ctx.options().objective.starting_value();
     let mut best_objective_ratio = 1.0;
     // for logging
-    let mut best_ratio = 1.0;
-    let mut best_ratio_sample = None;
+    let mut best_compression_ratio = 1.0;
+    let mut best_compression_ratio_sample = None;
 
     for compression in candidates {
         debug!(
@@ -287,17 +292,18 @@ fn find_best_compression<'a>(
         let objective = Objective::evaluate(&compressed_sample, sample.nbytes(), ctx.options());
 
         // track the compression ratio, just for logging
-        if ratio < best_ratio {
-            best_ratio = ratio;
+        if ratio < best_compression_ratio {
+            best_compression_ratio = ratio;
 
             // if we find one with a better compression ratio but worse objective value, save it
             // for debug logging later.
             if ratio < best_objective_ratio && objective >= best_objective {
-                best_ratio_sample = Some(compressed_sample.clone());
+                best_compression_ratio_sample = Some(compressed_sample.clone());
             }
         }
 
-        if objective < best_objective {
+        // don't consider anything that compresses to be *larger* than uncompressed
+        if objective < best_objective && ratio < 1.0 {
             best_objective = objective;
             best_objective_ratio = ratio;
             best = Some(compressed_sample);
@@ -309,30 +315,38 @@ fn find_best_compression<'a>(
             compression.id(),
             ratio,
             objective,
-            best_ratio,
+            best_compression_ratio,
             best_objective
         );
     }
 
     let best = best.unwrap_or_else(|| CompressedArray::uncompressed(sample.clone()));
-    if best_ratio < best_objective_ratio && best_ratio_sample.is_some() {
+    if best_compression_ratio < best_objective_ratio && best_compression_ratio_sample.is_some() {
         let best_ratio_sample =
-            best_ratio_sample.vortex_expect("already checked that this Option is Some");
+            best_compression_ratio_sample.vortex_expect("already checked that this Option is Some");
         debug!(
             "{} best objective fn value ({}) has ratio {} from {}",
             ctx,
             best_objective,
-            best_ratio,
+            best_compression_ratio,
             best.array().tree_display()
         );
         debug!(
             "{} best ratio ({}) has objective fn value {} from {}",
             ctx,
-            best_ratio,
+            best_compression_ratio,
             best_objective,
             best_ratio_sample.array().tree_display()
         );
     }
+
+    info!(
+        "{} best compression ({} bytes, {} objective fn value, {} compression ratio",
+        ctx,
+        best.nbytes(),
+        best_objective,
+        best_compression_ratio,
+    );
 
     Ok(best)
 }

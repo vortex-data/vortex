@@ -6,12 +6,12 @@ pub use compress::*;
 use croaring::Native;
 pub use croaring::{Bitmap, Portable};
 use serde::{Deserialize, Serialize};
-use vortex_array::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use vortex_array::array::BoolArray;
 use vortex_array::encoding::ids;
 use vortex_array::stats::StatsSet;
 use vortex_array::validity::{ArrayValidity, LogicalValidity};
 use vortex_array::variants::{ArrayVariants, BoolArrayTrait};
+use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
     impl_encoding, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData, IntoCanonical,
 };
@@ -97,13 +97,13 @@ impl BoolArrayTrait for RoaringBoolArray {
     }
 }
 
-impl AcceptArrayVisitor for RoaringBoolArray {
-    fn accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+impl VisitorVTable<RoaringBoolArray> for RoaringBoolEncoding {
+    fn accept(&self, array: &RoaringBoolArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
         // TODO(ngates): should we store a buffer in memory? Or delay serialization?
         //  Or serialize into metadata? The only reason we support buffers is so we can write to
         //  the wire without copying into FlatBuffers. But if we need to allocate to serialize
         //  the bitmap anyway, then may as well shove it into metadata.
-        visitor.visit_buffer(self.buffer())
+        visitor.visit_buffer(array.buffer())
     }
 }
 

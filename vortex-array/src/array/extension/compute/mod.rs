@@ -6,17 +6,9 @@ use vortex_scalar::Scalar;
 use crate::array::extension::ExtensionArray;
 use crate::array::ExtensionEncoding;
 use crate::compute::unary::{scalar_at, CastFn, ScalarAtFn};
-use crate::compute::{
-    slice, take, ArrayCompute, CompareFn, ComputeVTable, SliceFn, TakeFn, TakeOptions,
-};
+use crate::compute::{slice, take, CompareFn, ComputeVTable, SliceFn, TakeFn, TakeOptions};
 use crate::variants::ExtensionArrayTrait;
 use crate::{ArrayData, IntoArrayData};
-
-impl ArrayCompute for ExtensionArray {
-    fn compare(&self) -> Option<&dyn CompareFn> {
-        Some(self)
-    }
-}
 
 impl ComputeVTable for ExtensionEncoding {
     fn cast_fn(&self) -> Option<&dyn CastFn<ArrayData>> {
@@ -24,6 +16,10 @@ impl ComputeVTable for ExtensionEncoding {
         // TODO(ngates): we should allow some extension arrays to implement a callback
         //  to support this
         None
+    }
+
+    fn compare_fn(&self) -> Option<&dyn CompareFn<ArrayData>> {
+        Some(self)
     }
 
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {

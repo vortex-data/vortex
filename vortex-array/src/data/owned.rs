@@ -135,8 +135,9 @@ impl Statistics for OwnedArrayData {
             return Some(s);
         }
 
-        let computed = ArrayData::from(self.clone())
-            .with_dyn(|a| a.compute_statistics(stat))
+        let computed = self
+            .encoding()
+            .compute_statistics(&ArrayData::from(self.clone()), stat)
             .ok()?;
 
         self.stats_set

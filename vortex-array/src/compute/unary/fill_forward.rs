@@ -12,7 +12,7 @@ pub trait FillForwardFn<Array> {
     fn fill_forward(&self, array: &Array) -> VortexResult<ArrayData>;
 }
 
-impl<E: Encoding + 'static> FillForwardFn<ArrayData> for E
+impl<E: Encoding> FillForwardFn<ArrayData> for E
 where
     E: FillForwardFn<E::Array>,
     for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,

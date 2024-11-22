@@ -2,11 +2,11 @@ use std::fmt::{Debug, Display};
 
 pub use compress::*;
 use serde::{Deserialize, Serialize};
-use vortex_array::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use vortex_array::encoding::ids;
-use vortex_array::stats::{ArrayStatisticsCompute, StatsSet};
+use vortex_array::stats::{StatisticsVTable, StatsSet};
 use vortex_array::validity::{ArrayValidity, LogicalValidity};
 use vortex_array::variants::{ArrayVariants, PrimitiveArrayTrait};
+use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoCanonical,
 };
@@ -99,13 +99,13 @@ impl IntoCanonical for FoRArray {
     }
 }
 
-impl AcceptArrayVisitor for FoRArray {
-    fn accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_child("encoded", &self.encoded())
+impl VisitorVTable<FoRArray> for FoREncoding {
+    fn accept(&self, array: &FoRArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+        visitor.visit_child("encoded", &array.encoded())
     }
 }
 
-impl ArrayStatisticsCompute for FoRArray {}
+impl StatisticsVTable<FoRArray> for FoREncoding {}
 
 impl ArrayTrait for FoRArray {
     fn nbytes(&self) -> usize {

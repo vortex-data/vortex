@@ -5,11 +5,11 @@ use vortex_dtype::field::Field;
 use vortex_dtype::{DType, FieldName, FieldNames, StructDType};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
 
-use crate::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use crate::encoding::ids;
-use crate::stats::{ArrayStatistics, ArrayStatisticsCompute, Stat, StatsSet};
+use crate::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
 use crate::variants::{ArrayVariants, StructArrayTrait};
+use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
     IntoCanonical,
@@ -180,29 +180,29 @@ impl ArrayValidity for StructArray {
     }
 }
 
-impl AcceptArrayVisitor for StructArray {
-    fn accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        for (idx, name) in self.names().iter().enumerate() {
-            let child = self
+impl VisitorVTable<StructArray> for StructEncoding {
+    fn accept(&self, array: &StructArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+        for (idx, name) in array.names().iter().enumerate() {
+            let child = array
                 .field(idx)
-                .ok_or_else(|| vortex_err!(OutOfBounds: idx, 0, self.nfields()))?;
+                .ok_or_else(|| vortex_err!(OutOfBounds: idx, 0, array.nfields()))?;
             visitor.visit_child(&format!("\"{}\"", name), &child)?;
         }
         Ok(())
     }
 }
 
-impl ArrayStatisticsCompute for StructArray {
-    fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
+impl StatisticsVTable<StructArray> for StructEncoding {
+    fn compute_statistics(&self, array: &StructArray, stat: Stat) -> VortexResult<StatsSet> {
         Ok(match stat {
-            Stat::UncompressedSizeInBytes => self
+            Stat::UncompressedSizeInBytes => array
                 .children()
                 .map(|f| f.statistics().compute_uncompressed_size_in_bytes())
                 .reduce(|acc, field_size| acc.zip(field_size).map(|(a, b)| a + b))
                 .flatten()
                 .map(|size| StatsSet::of(stat, size))
                 .unwrap_or_default(),
-            Stat::NullCount => StatsSet::of(stat, self.validity().null_count(self.len())?),
+            Stat::NullCount => StatsSet::of(stat, array.validity().null_count(array.len())?),
             _ => StatsSet::default(),
         })
     }

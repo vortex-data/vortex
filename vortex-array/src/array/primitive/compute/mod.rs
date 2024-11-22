@@ -1,7 +1,6 @@
-use crate::array::primitive::PrimitiveArray;
 use crate::array::PrimitiveEncoding;
 use crate::compute::unary::{CastFn, FillForwardFn, ScalarAtFn, SubtractScalarFn};
-use crate::compute::{ArrayCompute, ComputeVTable, FilterFn, SearchSortedFn, SliceFn, TakeFn};
+use crate::compute::{ComputeVTable, FilterFn, SearchSortedFn, SliceFn, TakeFn};
 use crate::ArrayData;
 
 mod cast;
@@ -12,12 +11,6 @@ mod search_sorted;
 mod slice;
 mod subtract_scalar;
 mod take;
-
-impl ArrayCompute for PrimitiveArray {
-    fn subtract_scalar(&self) -> Option<&dyn SubtractScalarFn> {
-        Some(self)
-    }
-}
 
 impl ComputeVTable for PrimitiveEncoding {
     fn cast_fn(&self) -> Option<&dyn CastFn<ArrayData>> {
@@ -41,6 +34,10 @@ impl ComputeVTable for PrimitiveEncoding {
     }
 
     fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn subtract_scalar_fn(&self) -> Option<&dyn SubtractScalarFn<ArrayData>> {
         Some(self)
     }
 

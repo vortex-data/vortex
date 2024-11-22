@@ -46,6 +46,13 @@ pub trait ComputeVTable {
         None
     }
 
+    /// Binary operator implementation for arrays against other arrays.
+    ///
+    ///See: [CompareFn].
+    fn compare_fn(&self) -> Option<&dyn CompareFn<ArrayData>> {
+        None
+    }
+
     /// Array function that returns new arrays a non-null value is repeated across runs of nulls.
     ///
     /// See: [FillForwardFn].
@@ -81,28 +88,18 @@ pub trait ComputeVTable {
         None
     }
 
+    /// Broadcast subtraction of scalar from Vortex array.
+    ///
+    /// See: [SubtractScalarFn].
+    fn subtract_scalar_fn(&self) -> Option<&dyn SubtractScalarFn<ArrayData>> {
+        None
+    }
+
     /// Take a set of indices from an array. This often forces allocations and decoding of
     /// the receiver.
     ///
     /// See: [TakeFn].
     fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
-        None
-    }
-}
-
-/// Trait providing compute functions on top of Vortex arrays.
-pub trait ArrayCompute {
-    /// Binary operator implementation for arrays against other arrays.
-    ///
-    ///See: [CompareFn].
-    fn compare(&self) -> Option<&dyn CompareFn> {
-        None
-    }
-
-    /// Broadcast subtraction of scalar from Vortex array.
-    ///
-    /// See: [SubtractScalarFn].
-    fn subtract_scalar(&self) -> Option<&dyn SubtractScalarFn> {
         None
     }
 }

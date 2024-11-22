@@ -29,6 +29,7 @@ tokio = { workspace = true, features = [
     "fs",
     "rt-multi-thread",
 ] }
+tracing = { workspace = true, optional = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true, features = ["flatbuffers"] }
@@ -38,15 +39,11 @@ vortex-flatbuffers = { workspace = true, features = ["file"] }
 vortex-io = { workspace = true, features = ["tokio"] }
 vortex-ipc = { workspace = true }
 vortex-scalar = { workspace = true, features = ["flatbuffers"] }
-vortex-schema = { workspace = true }
 
 [dev-dependencies]
 arrow-schema = { workspace = true }
-arrow-select = { workspace = true }
 rstest = { workspace = true }
-tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
-vortex-sampling-compressor = { path = "../vortex-sampling-compressor" }
 
 [lints]
 workspace = true
@@ -57,3 +54,4 @@ object_store = [
     "vortex-error/object_store",
     "vortex-io/object_store",
 ]
+tracing = ["dep:tracing", "vortex-io/tracing"]

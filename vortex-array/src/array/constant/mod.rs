@@ -4,10 +4,10 @@ use serde::{Deserialize, Serialize};
 use vortex_error::{vortex_panic, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
-use crate::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use crate::encoding::ids;
-use crate::stats::{ArrayStatisticsCompute, Stat, StatsSet};
+use crate::stats::{Stat, StatisticsVTable, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity};
+use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{impl_encoding, ArrayDType, ArrayLen, ArrayTrait};
 
 mod canonical;
@@ -81,14 +81,14 @@ impl ArrayValidity for ConstantArray {
     }
 }
 
-impl ArrayStatisticsCompute for ConstantArray {
-    fn compute_statistics(&self, _stat: Stat) -> VortexResult<StatsSet> {
-        Ok(StatsSet::constant(self.owned_scalar(), self.len()))
+impl StatisticsVTable<ConstantArray> for ConstantEncoding {
+    fn compute_statistics(&self, array: &ConstantArray, _stat: Stat) -> VortexResult<StatsSet> {
+        Ok(StatsSet::constant(array.owned_scalar(), array.len()))
     }
 }
 
-impl AcceptArrayVisitor for ConstantArray {
-    fn accept(&self, _visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+impl VisitorVTable<ConstantArray> for ConstantEncoding {
+    fn accept(&self, _array: &ConstantArray, _visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
         Ok(())
     }
 }

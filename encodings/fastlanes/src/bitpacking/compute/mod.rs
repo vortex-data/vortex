@@ -1,18 +1,14 @@
 use vortex_array::compute::unary::ScalarAtFn;
-use vortex_array::compute::{
-    ArrayCompute, ComputeVTable, FilterFn, SearchSortedFn, SliceFn, TakeFn,
-};
+use vortex_array::compute::{ComputeVTable, FilterFn, SearchSortedFn, SliceFn, TakeFn};
 use vortex_array::ArrayData;
 
-use crate::{BitPackedArray, BitPackedEncoding};
+use crate::BitPackedEncoding;
 
 mod filter;
 mod scalar_at;
 mod search_sorted;
 mod slice;
 mod take;
-
-impl ArrayCompute for BitPackedArray {}
 
 impl ComputeVTable for BitPackedEncoding {
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {

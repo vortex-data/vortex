@@ -3,24 +3,29 @@ use vortex_array::compute::{compare, CompareFn, Operator};
 use vortex_array::{ArrayData, ArrayLen, IntoArrayData};
 use vortex_error::VortexResult;
 
-use crate::RunEndArray;
+use crate::{RunEndArray, RunEndEncoding};
 
-impl CompareFn for RunEndArray {
-    fn compare(&self, other: &ArrayData, operator: Operator) -> VortexResult<Option<ArrayData>> {
+impl CompareFn<RunEndArray> for RunEndEncoding {
+    fn compare(
+        &self,
+        lhs: &RunEndArray,
+        rhs: &ArrayData,
+        operator: Operator,
+    ) -> VortexResult<Option<ArrayData>> {
         // If the RHS is constant, then we just need to compare against our encoded values.
-        if let Some(const_scalar) = other.as_constant() {
+        if let Some(const_scalar) = rhs.as_constant() {
             return compare(
-                self.values(),
-                ConstantArray::new(const_scalar, self.values().len()),
+                lhs.values(),
+                ConstantArray::new(const_scalar, lhs.values().len()),
                 operator,
             )
             .and_then(|values| {
-                Self::with_offset_and_length(
-                    self.ends(),
+                RunEndArray::with_offset_and_length(
+                    lhs.ends(),
                     values,
-                    self.validity().into_nullable(),
-                    self.offset(),
-                    self.len(),
+                    lhs.validity().into_nullable(),
+                    lhs.offset(),
+                    lhs.len(),
                 )
             })
             .map(|a| a.into_array())

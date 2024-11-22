@@ -1,14 +1,14 @@
 use std::fmt::{Debug, Display};
 
 use serde::{Deserialize, Serialize};
-use vortex_array::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use vortex_array::array::{BoolArray, PrimitiveArray};
 use vortex_array::compute::unary::scalar_at;
 use vortex_array::compute::{search_sorted, SearchSortedSide};
 use vortex_array::encoding::ids;
-use vortex_array::stats::{ArrayStatistics, ArrayStatisticsCompute, Stat, StatsSet};
+use vortex_array::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
 use vortex_array::variants::{ArrayVariants, BoolArrayTrait, PrimitiveArrayTrait};
+use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
     IntoArrayVariant, IntoCanonical,
@@ -17,7 +17,7 @@ use vortex_dtype::{match_each_integer_ptype, match_each_unsigned_integer_ptype, 
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::compress::{runend_bool_decode_slice, runend_bool_encode_slice};
+use crate::compress::{runend_bool_decode_slice, runend_bool_encode_slice, trimmed_ends_iter};
 
 impl_encoding!("vortex.runendbool", ids::RUN_END_BOOL, RunEndBool);
 
@@ -164,7 +164,7 @@ pub(crate) fn decode_runend_bool(
     length: usize,
 ) -> VortexResult<BoolArray> {
     match_each_integer_ptype!(run_ends.ptype(), |$E| {
-        let bools = runend_bool_decode_slice::<$E>(run_ends.maybe_null_slice(), start, offset, length);
+        let bools = runend_bool_decode_slice(trimmed_ends_iter(run_ends.maybe_null_slice::<$E>(), offset, length), start, length);
         Ok(BoolArray::try_new(bools, validity)?)
     })
 }
@@ -179,8 +179,14 @@ pub(crate) fn value_at_index(idx: usize, start: bool) -> bool {
 
 impl BoolArrayTrait for RunEndBoolArray {
     fn invert(&self) -> VortexResult<ArrayData> {
-        RunEndBoolArray::try_new(self.ends(), !self.start(), self.validity())
-            .map(|a| a.into_array())
+        RunEndBoolArray::with_offset_and_size(
+            self.ends(),
+            !self.start(),
+            self.validity(),
+            self.len(),
+            self.offset(),
+        )
+        .map(|a| a.into_array())
     }
 }
 
@@ -216,32 +222,32 @@ impl IntoCanonical for RunEndBoolArray {
     }
 }
 
-impl AcceptArrayVisitor for RunEndBoolArray {
-    fn accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_child("ends", &self.ends())?;
-        visitor.visit_validity(&self.validity())
+impl VisitorVTable<RunEndBoolArray> for RunEndBoolEncoding {
+    fn accept(&self, array: &RunEndBoolArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+        visitor.visit_child("ends", &array.ends())?;
+        visitor.visit_validity(&array.validity())
     }
 }
 
-impl ArrayStatisticsCompute for RunEndBoolArray {
-    fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
+impl StatisticsVTable<RunEndBoolArray> for RunEndBoolEncoding {
+    fn compute_statistics(&self, array: &RunEndBoolArray, stat: Stat) -> VortexResult<StatsSet> {
         let maybe_scalar: Option<Scalar> = match stat {
-            Stat::NullCount => Some(self.validity().null_count(self.len())?.into()),
+            Stat::NullCount => Some(array.validity().null_count(array.len())?.into()),
             Stat::TrueCount => {
-                let pends = self.ends().into_primitive()?;
-                let mut true_count: u64 = 0;
-                let mut prev_end: u64 = 0;
-                let mut include = self.start();
+                let pends = array.ends().into_primitive()?;
+                let mut true_count: usize = 0;
+                let mut prev_end: usize = 0;
+                let mut include = array.start();
                 match_each_unsigned_integer_ptype!(pends.ptype(), |$P| {
-                    for end in pends.maybe_null_slice::<$P>() {
+                    for end in trimmed_ends_iter(pends.maybe_null_slice::<$P>(), array.offset(), array.len()) {
                         if include {
-                            true_count += (*end as u64 - prev_end);
+                            true_count += end - prev_end;
                         }
                         include = !include;
-                        prev_end = *end as u64;
+                        prev_end = end;
                     }
                 });
-                Some(true_count.into())
+                Some((true_count as u64).into())
             }
             _ => None,
         };
@@ -259,10 +265,10 @@ mod test {
 
     use itertools::Itertools as _;
     use rstest::rstest;
-    use vortex_array::array::BoolArray;
+    use vortex_array::array::{BoolArray, PrimitiveArray};
     use vortex_array::compute::unary::scalar_at;
     use vortex_array::compute::{slice, take, TakeOptions};
-    use vortex_array::stats::{ArrayStatistics as _, ArrayStatisticsCompute};
+    use vortex_array::stats::ArrayStatistics;
     use vortex_array::validity::Validity;
     use vortex_array::{
         ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoCanonical, ToArrayData,
@@ -400,12 +406,23 @@ mod test {
             Stat::IsStrictSorted,
         ] {
             // call compute_statistics directly to avoid caching
-            let bools_stats = bools.compute_statistics(stat).unwrap();
-            let expected = bools_stats.get(stat).unwrap();
+            let expected = bools.statistics().compute(stat).unwrap();
             let actual = arr.statistics().compute(stat).unwrap();
-            assert_eq!(expected, &actual);
+            assert_eq!(expected, actual);
         }
 
         assert_eq!(arr.statistics().compute_run_count(), Some(ends_len));
+    }
+
+    #[test]
+    fn sliced_true_count() {
+        let arr = RunEndBoolArray::try_new(
+            PrimitiveArray::from(vec![5u32, 7, 10]).into_array(),
+            true,
+            Validity::NonNullable,
+        )
+        .unwrap();
+        let sliced = slice(&arr, 4, 8).unwrap();
+        assert_eq!(sliced.statistics().compute_true_count().unwrap(), 2);
     }
 }

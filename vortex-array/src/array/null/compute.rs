@@ -5,11 +5,9 @@ use vortex_scalar::Scalar;
 use crate::array::null::NullArray;
 use crate::array::NullEncoding;
 use crate::compute::unary::ScalarAtFn;
-use crate::compute::{ArrayCompute, ComputeVTable, SliceFn, TakeFn, TakeOptions};
+use crate::compute::{ComputeVTable, SliceFn, TakeFn, TakeOptions};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
-
-impl ArrayCompute for NullArray {}
 
 impl ComputeVTable for NullEncoding {
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {

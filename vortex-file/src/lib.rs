@@ -4,15 +4,15 @@
 //! A layout is a serialized array which is stored in some linear and contiguous block of
 //! memory. Layouts are recursively defined in terms of one of three kinds:
 //!
-//! 1. The [flat layout][layouts::FlatLayoutSpec]. A contiguously serialized array using the [Vortex
+//! 1. The [flat layout][layouts::FlatLayout]. A contiguously serialized array using the [Vortex
 //!    flatbuffer Batch message][vortex_flatbuffers::message].
 //!
-//! 2. The [columnar layout][layouts::ColumnarLayoutSpec]. Each column of a
+//! 2. The [columnar layout][layouts::ColumnarLayout]. Each column of a
 //!    [StructArray][vortex_array::array::StructArray] is sequentially laid out at known
 //!    offsets. This permits reading a subset of columns in time linear in the number of kept
 //!    columns.
 //!
-//! 3. The [chunked layout][layouts::ChunkedLayoutSpec]. Each chunk of a
+//! 3. The [chunked layout][layouts::ChunkedLayout]. Each chunk of a
 //!    [ChunkedArray][vortex_array::array::ChunkedArray] is sequentially laid out at known
 //!    offsets. This permits reading a subset of rows in time linear in the number of kept rows.
 //!

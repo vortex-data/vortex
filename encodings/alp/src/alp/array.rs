@@ -2,13 +2,13 @@ use std::fmt::{Debug, Display};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
-use vortex_array::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use vortex_array::array::PrimitiveArray;
 use vortex_array::encoding::ids;
 use vortex_array::iter::{Accessor, AccessorRef};
-use vortex_array::stats::ArrayStatisticsCompute;
+use vortex_array::stats::StatisticsVTable;
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity};
 use vortex_array::variants::{ArrayVariants, PrimitiveArrayTrait};
+use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
     IntoCanonical,
@@ -268,14 +268,14 @@ impl IntoCanonical for ALPArray {
     }
 }
 
-impl AcceptArrayVisitor for ALPArray {
-    fn accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_child("encoded", &self.encoded())?;
-        if let Some(patches) = self.patches().as_ref() {
+impl VisitorVTable<ALPArray> for ALPEncoding {
+    fn accept(&self, array: &ALPArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+        visitor.visit_child("encoded", &array.encoded())?;
+        if let Some(patches) = array.patches().as_ref() {
             visitor.visit_child("patches", patches)?;
         }
         Ok(())
     }
 }
 
-impl ArrayStatisticsCompute for ALPArray {}
+impl StatisticsVTable<ALPArray> for ALPEncoding {}

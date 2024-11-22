@@ -23,8 +23,7 @@ pub trait FilterFn<Array> {
     fn filter(&self, array: &Array, mask: FilterMask) -> VortexResult<ArrayData>;
 }
 
-// TODO(ngates): write a macro for dispatching array-specific compute over ArrayData.
-impl<E: Encoding + 'static> FilterFn<ArrayData> for E
+impl<E: Encoding> FilterFn<ArrayData> for E
 where
     E: FilterFn<E::Array>,
     for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,

@@ -19,7 +19,7 @@ pub trait TakeFn<Array> {
     ) -> VortexResult<ArrayData>;
 }
 
-impl<E: Encoding + 'static> TakeFn<ArrayData> for E
+impl<E: Encoding> TakeFn<ArrayData> for E
 where
     E: TakeFn<E::Array>,
     for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,

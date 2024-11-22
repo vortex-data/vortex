@@ -2,8 +2,8 @@ mod compare;
 
 use vortex_array::compute::unary::{scalar_at, ScalarAtFn};
 use vortex_array::compute::{
-    filter, slice, take, ArrayCompute, CompareFn, ComputeVTable, FilterFn, FilterMask, SliceFn,
-    TakeFn, TakeOptions,
+    filter, slice, take, CompareFn, ComputeVTable, FilterFn, FilterMask, SliceFn, TakeFn,
+    TakeOptions,
 };
 use vortex_array::{ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
@@ -11,13 +11,11 @@ use vortex_scalar::Scalar;
 
 use crate::{DictArray, DictEncoding};
 
-impl ArrayCompute for DictArray {
-    fn compare(&self) -> Option<&dyn CompareFn> {
+impl ComputeVTable for DictEncoding {
+    fn compare_fn(&self) -> Option<&dyn CompareFn<ArrayData>> {
         Some(self)
     }
-}
 
-impl ComputeVTable for DictEncoding {
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
         Some(self)
     }

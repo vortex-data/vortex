@@ -28,7 +28,7 @@ pub trait BinaryBooleanFn<Array> {
     ) -> VortexResult<ArrayData>;
 }
 
-impl<E: Encoding + 'static> BinaryBooleanFn<ArrayData> for E
+impl<E: Encoding> BinaryBooleanFn<ArrayData> for E
 where
     E: BinaryBooleanFn<E::Array>,
     for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,

@@ -52,8 +52,8 @@ impl<R: VortexReadAt + Unpin> MetadataReader<R> {
 impl<R: VortexReadAt + Unpin> Future for MetadataReader<R> {
     type Output = VortexResult<Option<Vec<ArrayData>>>;
 
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match self.state {
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        match &mut self.state {
             State::Initial => match self.root_layout.read_metadata()? {
                 Some(batch_read) => match batch_read {
                     BatchRead::ReadMore(ranges) => {
@@ -66,9 +66,9 @@ impl<R: VortexReadAt + Unpin> Future for MetadataReader<R> {
                         return Poll::Pending;
                     }
                 },
-                None => return Poll::Ready(Ok(Some(self.stats))),
+                None => return Poll::Ready(Ok(Some(std::mem::take(&mut self.stats)))),
             },
-            State::Reading(f) => {
+            State::Reading(ref mut f) => {
                 let a = ready!(f.poll_unpin(cx));
                 todo!()
             }

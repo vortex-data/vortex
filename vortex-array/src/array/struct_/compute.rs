@@ -6,13 +6,10 @@ use crate::array::struct_::StructArray;
 use crate::array::StructEncoding;
 use crate::compute::unary::{scalar_at, ScalarAtFn};
 use crate::compute::{
-    filter, slice, take, ArrayCompute, ComputeVTable, FilterFn, FilterMask, SliceFn, TakeFn,
-    TakeOptions,
+    filter, slice, take, ComputeVTable, FilterFn, FilterMask, SliceFn, TakeFn, TakeOptions,
 };
 use crate::variants::StructArrayTrait;
 use crate::{ArrayDType, ArrayData, IntoArrayData};
-
-impl ArrayCompute for StructArray {}
 
 impl ComputeVTable for StructEncoding {
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {

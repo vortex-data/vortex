@@ -4,12 +4,12 @@ use std::sync::Arc;
 use ::serde::{Deserialize, Serialize};
 pub use compress::*;
 use fastlanes::BitPacking;
-use vortex_array::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use vortex_array::array::{PrimitiveArray, SparseArray};
 use vortex_array::encoding::ids;
-use vortex_array::stats::{ArrayStatisticsCompute, StatsSet};
+use vortex_array::stats::{StatisticsVTable, StatsSet};
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
 use vortex_array::variants::{ArrayVariants, PrimitiveArrayTrait};
+use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoCanonical,
 };
@@ -218,17 +218,17 @@ impl ArrayValidity for BitPackedArray {
     }
 }
 
-impl AcceptArrayVisitor for BitPackedArray {
-    fn accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_buffer(self.packed())?;
-        if let Some(patches) = self.patches().as_ref() {
+impl VisitorVTable<BitPackedArray> for BitPackedEncoding {
+    fn accept(&self, array: &BitPackedArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+        visitor.visit_buffer(array.packed())?;
+        if let Some(patches) = array.patches().as_ref() {
             visitor.visit_child("patches", patches)?;
         }
-        visitor.visit_validity(&self.validity())
+        visitor.visit_validity(&array.validity())
     }
 }
 
-impl ArrayStatisticsCompute for BitPackedArray {}
+impl StatisticsVTable<BitPackedArray> for BitPackedEncoding {}
 
 impl ArrayTrait for BitPackedArray {
     fn nbytes(&self) -> usize {

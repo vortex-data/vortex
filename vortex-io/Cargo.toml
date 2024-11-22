@@ -17,6 +17,7 @@ categories.workspace = true
 bytes = { workspace = true }
 compio = { workspace = true, features = ["bytes", "macros"], optional = true }
 tokio = { workspace = true, features = ["fs"], optional = true }
+tracing = { workspace = true, optional = true }
 futures = { workspace = true, features = ["std"] }
 futures-util = { workspace = true }
 flume = { workspace = true }
@@ -31,8 +32,6 @@ tokio = { workspace = true, features = ["full"] }
 
 [features]
 futures = ["futures-util/io"]
-compio = ["dep:compio"]
-tokio = ["dep:tokio"]
 object_store = ["dep:object_store", "vortex-error/object_store"]
 
 [lints]

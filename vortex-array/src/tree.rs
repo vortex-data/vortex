@@ -5,9 +5,9 @@ use serde::ser::Error;
 use vortex_buffer::Buffer;
 use vortex_error::{VortexError, VortexResult};
 
-use crate::array::visitor::ArrayVisitor;
 use crate::array::ChunkedEncoding;
 use crate::encoding::EncodingVTable;
+use crate::visitor::ArrayVisitor;
 use crate::ArrayData;
 
 impl ArrayData {
@@ -65,8 +65,13 @@ impl<'a, 'b: 'a> ArrayVisitor for TreeFormatter<'a, 'b> {
                 self.total_size = Some(total_size);
             }
 
-            self.indent(|i| a.accept(i).map_err(fmt::Error::custom))
-                .map_err(VortexError::from)?;
+            self.indent(|i| {
+                array
+                    .encoding()
+                    .accept(array, i)
+                    .map_err(fmt::Error::custom)
+            })
+            .map_err(VortexError::from)?;
 
             self.total_size = old_total_size;
             Ok(())
@@ -84,7 +89,7 @@ impl<'a, 'b: 'a> ArrayVisitor for TreeFormatter<'a, 'b> {
 }
 
 impl<'a, 'b: 'a> TreeFormatter<'a, 'b> {
-    fn new(fmt: &'a mut fmt::Formatter<'b>, indent: String) -> Self {
+    pub fn new(fmt: &'a mut fmt::Formatter<'b>, indent: String) -> Self {
         TreeFormatter {
             fmt,
             indent,
@@ -92,7 +97,7 @@ impl<'a, 'b: 'a> TreeFormatter<'a, 'b> {
         }
     }
 
-    fn indent<F>(&mut self, indented: F) -> fmt::Result
+    pub fn indent<F>(&mut self, indented: F) -> fmt::Result
     where
         F: FnOnce(&mut TreeFormatter) -> fmt::Result,
     {
@@ -101,5 +106,9 @@ impl<'a, 'b: 'a> TreeFormatter<'a, 'b> {
         let res = indented(self);
         self.indent = original_ident;
         res
+    }
+
+    pub fn write_fmt(&mut self, fmt: fmt::Arguments<'_>) -> fmt::Result {
+        write!(self.fmt, "{}{}", self.indent, fmt)
     }
 }

@@ -7,6 +7,8 @@ use std::hash::{Hash, Hasher};
 use vortex_error::{vortex_panic, VortexResult};
 
 use crate::compute::ComputeVTable;
+use crate::stats::StatisticsVTable;
+use crate::visitor::VisitorVTable;
 use crate::{ArrayData, ArrayDef, ArrayMetadata, ArrayTrait, IntoCanonicalVTable, MetadataVTable};
 
 pub mod opaque;
@@ -58,7 +60,7 @@ impl AsRef<str> for EncodingId {
 }
 
 /// Marker trait for array encodings with their associated Array type.
-pub trait Encoding {
+pub trait Encoding: 'static {
     type Array;
     type Metadata: ArrayMetadata;
 }
@@ -67,7 +69,15 @@ pub type EncodingRef = &'static dyn EncodingVTable;
 
 /// Object-safe encoding trait for an array.
 pub trait EncodingVTable:
-    'static + Sync + Send + Debug + IntoCanonicalVTable + MetadataVTable + ComputeVTable
+    'static
+    + Sync
+    + Send
+    + Debug
+    + IntoCanonicalVTable
+    + MetadataVTable
+    + ComputeVTable
+    + StatisticsVTable<ArrayData>
+    + VisitorVTable<ArrayData>
 {
     fn id(&self) -> EncodingId;
 

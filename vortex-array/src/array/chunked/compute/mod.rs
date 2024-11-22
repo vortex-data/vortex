@@ -5,7 +5,7 @@ use crate::array::chunked::ChunkedArray;
 use crate::array::ChunkedEncoding;
 use crate::compute::unary::{try_cast, CastFn, ScalarAtFn, SubtractScalarFn};
 use crate::compute::{
-    compare, slice, ArrayCompute, CompareFn, ComputeVTable, FilterFn, Operator, SliceFn, TakeFn,
+    compare, slice, CompareFn, ComputeVTable, FilterFn, Operator, SliceFn, TakeFn,
 };
 use crate::{ArrayData, IntoArrayData};
 
@@ -14,18 +14,12 @@ mod scalar_at;
 mod slice;
 mod take;
 
-impl ArrayCompute for ChunkedArray {
-    fn compare(&self) -> Option<&dyn CompareFn> {
-        Some(self)
-    }
-
-    fn subtract_scalar(&self) -> Option<&dyn SubtractScalarFn> {
-        Some(self)
-    }
-}
-
 impl ComputeVTable for ChunkedEncoding {
     fn cast_fn(&self) -> Option<&dyn CastFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn compare_fn(&self) -> Option<&dyn CompareFn<ArrayData>> {
         Some(self)
     }
 
@@ -37,6 +31,10 @@ impl ComputeVTable for ChunkedEncoding {
         Some(self)
     }
     fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn subtract_scalar_fn(&self) -> Option<&dyn SubtractScalarFn<ArrayData>> {
         Some(self)
     }
 
@@ -56,13 +54,18 @@ impl CastFn<ChunkedArray> for ChunkedEncoding {
     }
 }
 
-impl CompareFn for ChunkedArray {
-    fn compare(&self, array: &ArrayData, operator: Operator) -> VortexResult<Option<ArrayData>> {
+impl CompareFn<ChunkedArray> for ChunkedEncoding {
+    fn compare(
+        &self,
+        lhs: &ChunkedArray,
+        rhs: &ArrayData,
+        operator: Operator,
+    ) -> VortexResult<Option<ArrayData>> {
         let mut idx = 0;
-        let mut compare_chunks = Vec::with_capacity(self.nchunks());
+        let mut compare_chunks = Vec::with_capacity(lhs.nchunks());
 
-        for chunk in self.chunks() {
-            let sliced = slice(array, idx, idx + chunk.len())?;
+        for chunk in lhs.chunks() {
+            let sliced = slice(rhs, idx, idx + chunk.len())?;
             let cmp_result = compare(&chunk, &sliced, operator)?;
             compare_chunks.push(cmp_result);
 

@@ -8,15 +8,15 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
-pub struct Layout {
+pub struct LayoutSpec {
     id: LayoutId,
     buffers: Option<Vec<ByteRange>>,
-    children: Option<Vec<Layout>>,
+    children: Option<Vec<LayoutSpec>>,
     row_count: u64,
     metadata: Option<Bytes>,
 }
 
-impl Layout {
+impl LayoutSpec {
     pub fn flat(buffer: ByteRange, row_count: u64) -> Self {
         Self {
             id: FLAT_LAYOUT_ID,
@@ -30,7 +30,7 @@ impl Layout {
     /// Create a chunked layout with children.
     ///
     /// has_metadata indicates whether first child is a layout containing metadata about other children.
-    pub fn chunked(children: Vec<Layout>, row_count: u64, has_metadata: bool) -> Self {
+    pub fn chunked(children: Vec<LayoutSpec>, row_count: u64, has_metadata: bool) -> Self {
         Self {
             id: CHUNKED_LAYOUT_ID,
             buffers: None,
@@ -40,7 +40,7 @@ impl Layout {
         }
     }
 
-    pub fn column(children: Vec<Layout>, row_count: u64) -> Self {
+    pub fn column(children: Vec<LayoutSpec>, row_count: u64) -> Self {
         Self {
             id: COLUMNAR_LAYOUT_ID,
             buffers: None,
@@ -50,7 +50,11 @@ impl Layout {
         }
     }
 
-    pub fn inlined_schema(children: Vec<Layout>, row_count: u64, dtype_buffer: ByteRange) -> Self {
+    pub fn inlined_schema(
+        children: Vec<LayoutSpec>,
+        row_count: u64,
+        dtype_buffer: ByteRange,
+    ) -> Self {
         Self {
             id: INLINE_SCHEMA_LAYOUT_ID,
             buffers: Some(vec![dtype_buffer]),
@@ -61,7 +65,7 @@ impl Layout {
     }
 }
 
-impl WriteFlatBuffer for Layout {
+impl WriteFlatBuffer for LayoutSpec {
     type Target<'a> = fb::Layout<'a>;
 
     fn write_flatbuffer<'fb>(
