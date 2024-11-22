@@ -438,6 +438,27 @@ impl LogicalValidity {
             Self::Array(a) => Validity::Array(a),
         }
     }
+
+    pub fn null_count(&self, length: usize) -> VortexResult<usize> {
+        match self {
+            Self::AllValid(_) => Ok(0),
+            Self::AllInvalid(_) => Ok(length),
+            Self::Array(a) => {
+                let validity_len = a.len();
+                if validity_len != length {
+                    vortex_bail!(
+                        "Validity array length {} doesn't match array length {}",
+                        validity_len,
+                        length
+                    )
+                }
+                let true_count = a.statistics().compute_true_count().ok_or_else(|| {
+                    vortex_err!("Failed to compute true count from validity array")
+                })?;
+                Ok(length - true_count)
+            }
+        }
+    }
 }
 
 impl TryFrom<ArrayData> for LogicalValidity {
