@@ -123,6 +123,10 @@ impl<'a> SamplingCompressor<'a> {
         cloned
     }
 
+    pub fn is_enabled(&self, compressor: CompressorRef<'a>) -> bool {
+        self.compressors.contains(compressor) && !self.disabled_compressors.contains(compressor)
+    }
+
     #[allow(clippy::same_name_method)]
     pub fn compress(
         &self,
@@ -179,8 +183,10 @@ impl<'a> SamplingCompressor<'a> {
             return cc.compress(array, None, self.clone());
         }
 
-        if let Some(cc) = ConstantCompressor.can_compress(array) {
-            return cc.compress(array, None, self.clone());
+        // short-circuit because seriously nothing beats constant
+        if self.is_enabled(&ConstantCompressor) && ConstantCompressor.can_compress(array).is_some()
+        {
+            return ConstantCompressor.compress(array, None, self.clone());
         }
 
         let (mut candidates, too_deep) = self
