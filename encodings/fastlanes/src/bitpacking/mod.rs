@@ -230,13 +230,7 @@ impl VisitorVTable<BitPackedArray> for BitPackedEncoding {
 
 impl StatisticsVTable<BitPackedArray> for BitPackedEncoding {}
 
-impl ArrayTrait for BitPackedArray {
-    fn nbytes(&self) -> usize {
-        // Ignore any overheads like padding or the bit-width flag.
-        let packed_size = ((self.bit_width() as usize * self.len()) + 7) / 8;
-        packed_size + self.patches().map(|p| p.nbytes()).unwrap_or(0)
-    }
-}
+impl ArrayTrait for BitPackedArray {}
 
 impl ArrayVariants for BitPackedArray {
     fn as_primitive_array(&self) -> Option<&dyn PrimitiveArrayTrait> {

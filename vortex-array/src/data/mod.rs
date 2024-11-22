@@ -184,11 +184,6 @@ impl ArrayData {
             .then(|| scalar_at(self, 0).vortex_expect("expected a scalar value"))
     }
 
-    /// Total size of the array in bytes, including all children and buffers.
-    pub fn nbytes(&self) -> usize {
-        self.with_dyn(|a| a.nbytes())
-    }
-
     pub fn child<'a>(&'a self, idx: usize, dtype: &'a DType, len: usize) -> VortexResult<Self> {
         match &self.0 {
             InnerArrayData::Owned(d) => d.child(idx, dtype, len).cloned(),

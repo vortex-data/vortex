@@ -17,15 +17,13 @@ pub use data::*;
 pub use macros::*;
 pub use metadata::*;
 pub use paste;
-use vortex_buffer::Buffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult};
 
 use crate::encoding::ArrayEncodingRef;
+use crate::nbytes::ArrayNBytes;
 use crate::stats::ArrayStatistics;
 use crate::validity::ArrayValidity;
 use crate::variants::ArrayVariants;
-use crate::visitor::ArrayVisitor;
 
 pub mod accessor;
 pub mod aliases;
@@ -41,6 +39,7 @@ pub mod encoding;
 pub mod iter;
 mod macros;
 mod metadata;
+pub mod nbytes;
 pub mod stats;
 pub mod stream;
 pub mod tree;
@@ -93,19 +92,12 @@ pub trait ArrayTrait:
     + ArrayEncodingRef
     + ArrayDType
     + ArrayLen
+    + ArrayNBytes
     + ArrayVariants
     + IntoCanonical
     + ArrayValidity
     + ArrayStatistics
 {
-    /// Total size of the array in bytes, including all children and buffers.
-    fn nbytes(&self) -> usize {
-        let mut visitor = NBytesVisitor(0);
-        self.encoding()
-            .accept(self.as_ref(), &mut visitor)
-            .vortex_expect("Failed to get nbytes from Array");
-        visitor.0
-    }
 }
 
 pub trait ArrayDType {
@@ -117,18 +109,4 @@ pub trait ArrayLen {
     fn len(&self) -> usize;
 
     fn is_empty(&self) -> bool;
-}
-
-struct NBytesVisitor(usize);
-
-impl ArrayVisitor for NBytesVisitor {
-    fn visit_child(&mut self, _name: &str, array: &ArrayData) -> VortexResult<()> {
-        self.0 += array.with_dyn(|a| a.nbytes());
-        Ok(())
-    }
-
-    fn visit_buffer(&mut self, buffer: &Buffer) -> VortexResult<()> {
-        self.0 += buffer.len();
-        Ok(())
-    }
 }

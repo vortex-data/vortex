@@ -4,8 +4,9 @@ use crate::accessor::ArrayAccessor;
 use crate::array::varbin::compute_stats;
 use crate::array::varbinview::VarBinViewArray;
 use crate::array::VarBinViewEncoding;
+use crate::nbytes::ArrayNBytes;
 use crate::stats::{Stat, StatisticsVTable, StatsSet};
-use crate::{ArrayDType, ArrayLen, ArrayTrait as _};
+use crate::{ArrayDType, ArrayLen};
 
 impl StatisticsVTable<VarBinViewArray> for VarBinViewEncoding {
     fn compute_statistics(&self, array: &VarBinViewArray, stat: Stat) -> VortexResult<StatsSet> {

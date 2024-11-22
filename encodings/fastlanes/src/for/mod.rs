@@ -107,11 +107,7 @@ impl VisitorVTable<FoRArray> for FoREncoding {
 
 impl StatisticsVTable<FoRArray> for FoREncoding {}
 
-impl ArrayTrait for FoRArray {
-    fn nbytes(&self) -> usize {
-        self.encoded().nbytes()
-    }
-}
+impl ArrayTrait for FoRArray {}
 
 impl ArrayVariants for FoRArray {
     fn as_primitive_array(&self) -> Option<&dyn PrimitiveArrayTrait> {

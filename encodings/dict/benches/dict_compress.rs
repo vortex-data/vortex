@@ -5,7 +5,8 @@ use rand::distributions::{Alphanumeric, Uniform};
 use rand::prelude::SliceRandom;
 use rand::{thread_rng, Rng};
 use vortex_array::array::{PrimitiveArray, VarBinArray, VarBinViewArray};
-use vortex_array::{ArrayTrait, IntoCanonical as _, ToArrayData};
+use vortex_array::nbytes::ArrayNBytes;
+use vortex_array::{IntoCanonical as _, ToArrayData};
 use vortex_dict::{dict_encode_primitive, dict_encode_varbin, dict_encode_varbinview, DictArray};
 
 fn gen_primitive_dict(len: usize, uniqueness: f64) -> PrimitiveArray {
