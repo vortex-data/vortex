@@ -184,7 +184,8 @@ impl<'a> SamplingCompressor<'a> {
         }
 
         // short-circuit because seriously nothing beats constant
-        if self.is_enabled(&ConstantCompressor) && ConstantCompressor.can_compress(array).is_some() {
+        if self.is_enabled(&ConstantCompressor) && ConstantCompressor.can_compress(array).is_some()
+        {
             return ConstantCompressor.compress(array, None, self.clone());
         }
 
