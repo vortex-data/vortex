@@ -103,6 +103,3 @@ pub trait ComputeVTable {
         None
     }
 }
-
-/// Trait providing compute functions on top of Vortex arrays.
-pub trait ArrayCompute {}

@@ -3,8 +3,8 @@ mod compare;
 use vortex_array::array::varbin_scalar;
 use vortex_array::compute::unary::{scalar_at, ScalarAtFn};
 use vortex_array::compute::{
-    filter, slice, take, ArrayCompute, CompareFn, ComputeVTable, FilterFn, FilterMask, SliceFn,
-    TakeFn, TakeOptions,
+    filter, slice, take, CompareFn, ComputeVTable, FilterFn, FilterMask, SliceFn, TakeFn,
+    TakeOptions,
 };
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_buffer::Buffer;
@@ -12,8 +12,6 @@ use vortex_error::{vortex_err, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::{FSSTArray, FSSTEncoding};
-
-impl ArrayCompute for FSSTArray {}
 
 impl ComputeVTable for FSSTEncoding {
     fn compare_fn(&self) -> Option<&dyn CompareFn<ArrayData>> {

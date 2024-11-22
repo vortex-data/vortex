@@ -1,6 +1,6 @@
-use crate::array::{BoolArray, BoolEncoding};
+use crate::array::BoolEncoding;
 use crate::compute::unary::{FillForwardFn, ScalarAtFn};
-use crate::compute::{ArrayCompute, BinaryBooleanFn, ComputeVTable, FilterFn, SliceFn, TakeFn};
+use crate::compute::{BinaryBooleanFn, ComputeVTable, FilterFn, SliceFn, TakeFn};
 use crate::ArrayData;
 
 mod fill;
@@ -9,8 +9,6 @@ mod flatten;
 mod scalar_at;
 mod slice;
 mod take;
-
-impl ArrayCompute for BoolArray {}
 
 impl ComputeVTable for BoolEncoding {
     fn binary_boolean_fn(

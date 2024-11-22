@@ -1,9 +1,7 @@
 use itertools::Itertools as _;
 use vortex_array::array::{PrimitiveArray, TemporalArray};
 use vortex_array::compute::unary::{scalar_at, ScalarAtFn};
-use vortex_array::compute::{
-    slice, take, ArrayCompute, ComputeVTable, SliceFn, TakeFn, TakeOptions,
-};
+use vortex_array::compute::{slice, take, ComputeVTable, SliceFn, TakeFn, TakeOptions};
 use vortex_array::validity::ArrayValidity;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_datetime_dtype::{TemporalMetadata, TimeUnit};
@@ -12,8 +10,6 @@ use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::{DateTimePartsArray, DateTimePartsEncoding};
-
-impl ArrayCompute for DateTimePartsArray {}
 
 impl ComputeVTable for DateTimePartsEncoding {
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {

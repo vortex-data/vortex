@@ -9,12 +9,10 @@ use crate::array::constant::ConstantArray;
 use crate::array::ConstantEncoding;
 use crate::compute::unary::ScalarAtFn;
 use crate::compute::{
-    ArrayCompute, BinaryBooleanFn, CompareFn, ComputeVTable, FilterFn, FilterMask, SearchSortedFn,
-    SliceFn, TakeFn, TakeOptions,
+    BinaryBooleanFn, CompareFn, ComputeVTable, FilterFn, FilterMask, SearchSortedFn, SliceFn,
+    TakeFn, TakeOptions,
 };
 use crate::{ArrayData, IntoArrayData};
-
-impl ArrayCompute for ConstantArray {}
 
 impl ComputeVTable for ConstantEncoding {
     fn binary_boolean_fn(

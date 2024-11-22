@@ -1,15 +1,13 @@
 use vortex_array::compute::unary::ScalarAtFn;
-use vortex_array::compute::{ArrayCompute, ComputeVTable, FilterFn, SliceFn, TakeFn};
+use vortex_array::compute::{ComputeVTable, FilterFn, SliceFn, TakeFn};
 use vortex_array::ArrayData;
 
-use crate::{ALPRDArray, ALPRDEncoding};
+use crate::ALPRDEncoding;
 
 mod filter;
 mod scalar_at;
 mod slice;
 mod take;
-
-impl ArrayCompute for ALPRDArray {}
 
 impl ComputeVTable for ALPRDEncoding {
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {

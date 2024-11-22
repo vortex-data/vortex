@@ -1,6 +1,6 @@
 use vortex_array::array::BoolArray;
 use vortex_array::compute::unary::ScalarAtFn;
-use vortex_array::compute::{slice, ArrayCompute, ComputeVTable, SliceFn, TakeFn, TakeOptions};
+use vortex_array::compute::{slice, ComputeVTable, SliceFn, TakeFn, TakeOptions};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
 use vortex_dtype::match_each_integer_ptype;
@@ -8,8 +8,6 @@ use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::{value_at_index, RunEndBoolArray, RunEndBoolEncoding};
-
-impl ArrayCompute for RunEndBoolArray {}
 
 impl ComputeVTable for RunEndBoolEncoding {
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {

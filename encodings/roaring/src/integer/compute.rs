@@ -1,14 +1,12 @@
 use croaring::Bitmap;
 use vortex_array::compute::unary::ScalarAtFn;
-use vortex_array::compute::{ArrayCompute, ComputeVTable, SliceFn};
+use vortex_array::compute::{ComputeVTable, SliceFn};
 use vortex_array::{ArrayData, ArrayLen, IntoArrayData};
 use vortex_dtype::PType;
 use vortex_error::{vortex_err, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::{RoaringIntArray, RoaringIntEncoding};
-
-impl ArrayCompute for RoaringIntArray {}
 
 impl ComputeVTable for RoaringIntEncoding {
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {

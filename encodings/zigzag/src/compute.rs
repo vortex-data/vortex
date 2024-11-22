@@ -1,5 +1,5 @@
 use vortex_array::compute::unary::{scalar_at, ScalarAtFn};
-use vortex_array::compute::{slice, ArrayCompute, ComputeVTable, SliceFn};
+use vortex_array::compute::{slice, ComputeVTable, SliceFn};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_dtype::match_each_unsigned_integer_ptype;
@@ -8,8 +8,6 @@ use vortex_scalar::{PrimitiveScalar, Scalar};
 use zigzag::{ZigZag as ExternalZigZag, ZigZag};
 
 use crate::{ZigZagArray, ZigZagEncoding};
-
-impl ArrayCompute for ZigZagArray {}
 
 impl ComputeVTable for ZigZagEncoding {
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {

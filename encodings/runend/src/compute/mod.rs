@@ -7,8 +7,8 @@ use num_traits::AsPrimitive;
 use vortex_array::array::{BooleanBuffer, ConstantArray, PrimitiveArray, SparseArray};
 use vortex_array::compute::unary::{scalar_at, ScalarAtFn};
 use vortex_array::compute::{
-    filter, slice, take, ArrayCompute, CompareFn, ComputeVTable, FilterFn, FilterMask, SliceFn,
-    TakeFn, TakeOptions,
+    filter, slice, take, CompareFn, ComputeVTable, FilterFn, FilterMask, SliceFn, TakeFn,
+    TakeOptions,
 };
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
@@ -18,8 +18,6 @@ use vortex_error::VortexResult;
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::{RunEndArray, RunEndEncoding};
-
-impl ArrayCompute for RunEndArray {}
 
 impl ComputeVTable for RunEndEncoding {
     fn compare_fn(&self) -> Option<&dyn CompareFn<ArrayData>> {

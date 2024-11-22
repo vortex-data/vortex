@@ -5,7 +5,7 @@ use crate::array::chunked::ChunkedArray;
 use crate::array::ChunkedEncoding;
 use crate::compute::unary::{try_cast, CastFn, ScalarAtFn, SubtractScalarFn};
 use crate::compute::{
-    compare, slice, ArrayCompute, CompareFn, ComputeVTable, FilterFn, Operator, SliceFn, TakeFn,
+    compare, slice, CompareFn, ComputeVTable, FilterFn, Operator, SliceFn, TakeFn,
 };
 use crate::{ArrayData, IntoArrayData};
 
@@ -13,8 +13,6 @@ mod filter;
 mod scalar_at;
 mod slice;
 mod take;
-
-impl ArrayCompute for ChunkedArray {}
 
 impl ComputeVTable for ChunkedEncoding {
     fn cast_fn(&self) -> Option<&dyn CastFn<ArrayData>> {

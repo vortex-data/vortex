@@ -2,8 +2,8 @@ mod compare;
 
 use vortex_array::compute::unary::{scalar_at, ScalarAtFn};
 use vortex_array::compute::{
-    filter, slice, take, ArrayCompute, CompareFn, ComputeVTable, FilterFn, FilterMask, SliceFn,
-    TakeFn, TakeOptions,
+    filter, slice, take, CompareFn, ComputeVTable, FilterFn, FilterMask, SliceFn, TakeFn,
+    TakeOptions,
 };
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
@@ -11,8 +11,6 @@ use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::{match_each_alp_float_ptype, ALPArray, ALPEncoding, ALPFloat};
-
-impl ArrayCompute for ALPArray {}
 
 impl ComputeVTable for ALPEncoding {
     fn compare_fn(&self) -> Option<&dyn CompareFn<ArrayData>> {

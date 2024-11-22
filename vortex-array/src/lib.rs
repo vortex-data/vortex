@@ -21,7 +21,6 @@ use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::compute::ArrayCompute;
 use crate::encoding::ArrayEncodingRef;
 use crate::stats::ArrayStatistics;
 use crate::validity::ArrayValidity;
@@ -92,7 +91,6 @@ pub trait IntoArrayData {
 pub trait ArrayTrait:
     AsRef<ArrayData>
     + ArrayEncodingRef
-    + ArrayCompute
     + ArrayDType
     + ArrayLen
     + ArrayVariants
