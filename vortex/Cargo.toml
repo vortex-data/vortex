@@ -50,3 +50,4 @@ vortex-zigzag = { workspace = true }
 object_store = ["vortex-file/object_store"]
 parquet = ["vortex-error/parquet"]
 python = ["vortex-error/python"]
+tracing = ["vortex-file/tracing", "vortex-io/tracing"]
