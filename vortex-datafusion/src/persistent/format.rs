@@ -17,7 +17,10 @@ use datafusion_physical_plan::ExecutionPlan;
 use object_store::{ObjectMeta, ObjectStore};
 use vortex_array::arrow::infer_schema;
 use vortex_array::Context;
-use vortex_file::{read_initial_bytes, VORTEX_FILE_EXTENSION};
+use vortex_file::{
+    read_initial_bytes, LayoutContext, LayoutDeserializer, LayoutMessageCache, RelativeLayoutCache,
+    VORTEX_FILE_EXTENSION,
+};
 use vortex_io::ObjectStoreReadAt;
 
 use super::execution::VortexExec;
@@ -86,15 +89,15 @@ impl FileFormat for VortexFormat {
         let os_read_at = ObjectStoreReadAt::new(store.clone(), object.location.clone());
         let initial_read = read_initial_bytes(&os_read_at, object.size as u64).await?;
         let layout = initial_read.fb_layout()?;
-        let dtype = DType::try_from(initial_read.fb_schema()?.dtype().ok_or_else(|| {
+        let dtype = initial_read.lazy_dtype().map_err(|_e| {
             DataFusionError::External("Failed to fetch dtype from initial read".into())
-        })?)?;
+        })?;
         let row_count = layout.row_count();
 
-        let layout_deserializer =
+        let _layout_deserializer =
             LayoutDeserializer::new(Context::default().into(), LayoutContext::default().into());
         let layout_message_cache = Arc::new(RwLock::new(LayoutMessageCache::new()));
-        let relative_message_cache = RelativeLayoutCache::new(layout_message_cache, dtype);
+        let _relative_message_cache = RelativeLayoutCache::new(layout_message_cache, dtype.into());
 
         // let top_level_layout = read_layout_from_initial(
         //     &initial_read,

@@ -278,16 +278,13 @@ impl LayoutReader for ChunkedLayoutReader {
         }
     }
 
-    fn read_metadata(&mut self) -> VortexResult<Option<Vec<BatchRead>>> {
-        let reader = self.metadata_layout()?;
-        match reader {
-            None => return Ok(None),
-            Some(metadata_layout) => {
-                let data = metadata_layout.read_selection(selector)?;
+    fn read_metadata(&self) -> VortexResult<Option<BatchRead>> {
+        match self.metadata_layout() {
+            None => Ok(None),
+            Some(_metadata_layout) => {
+                todo!()
             }
         }
-
-        todo!()
     }
 }
 

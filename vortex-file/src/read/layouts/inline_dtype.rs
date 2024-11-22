@@ -136,4 +136,8 @@ impl LayoutReader for InlineDTypeLayoutReader {
             Ok(Some(BatchRead::ReadMore(vec![self.dtype_message()?])))
         }
     }
+
+    fn read_metadata(&self) -> VortexResult<Option<BatchRead>> {
+        Ok(None)
+    }
 }

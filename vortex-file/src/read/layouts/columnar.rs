@@ -304,7 +304,7 @@ impl LayoutReader for ColumnarLayoutReader {
         }
     }
 
-    fn read_metadata(&mut self) -> VortexResult<Option<Vec<ArrayData>>> {
+    fn read_metadata(&self) -> VortexResult<Option<BatchRead>> {
         todo!("This is going to be fun")
     }
 }

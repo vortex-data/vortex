@@ -117,7 +117,7 @@ impl LayoutReader for FlatLayoutReader {
         }
     }
 
-    fn read_metadata(&mut self) -> VortexResult<Option<Vec<ArrayData>>> {
+    fn read_metadata(&self) -> VortexResult<Option<BatchRead>> {
         Ok(None)
     }
 }
