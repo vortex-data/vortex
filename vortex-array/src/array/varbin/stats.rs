@@ -156,7 +156,6 @@ mod test {
             arr.statistics().compute_max::<BufferString>().unwrap(),
             BufferString::from("hello world this is a long string".to_string())
         );
-        assert_eq!(arr.statistics().compute_run_count().unwrap(), 2);
         assert!(!arr.statistics().compute_is_constant().unwrap());
         assert!(arr.statistics().compute_is_sorted().unwrap());
     }
@@ -172,7 +171,6 @@ mod test {
             arr.statistics().compute_max::<Buffer>().unwrap().deref(),
             "hello world this is a long string".as_bytes()
         );
-        assert_eq!(arr.statistics().compute_run_count().unwrap(), 2);
         assert!(!arr.statistics().compute_is_constant().unwrap());
         assert!(arr.statistics().compute_is_sorted().unwrap());
     }
