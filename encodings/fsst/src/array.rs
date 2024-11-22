@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use vortex_array::array::{VarBin, VarBinArray};
 use vortex_array::encoding::ids;
 use vortex_array::stats::{StatisticsVTable, StatsSet};
-use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity};
+use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityVTable};
 use vortex_array::variants::{ArrayVariants, BinaryArrayTrait, Utf8ArrayTrait};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
@@ -202,13 +202,13 @@ impl VisitorVTable<FSSTArray> for FSSTEncoding {
 
 impl StatisticsVTable<FSSTArray> for FSSTEncoding {}
 
-impl ArrayValidity for FSSTArray {
-    fn is_valid(&self, index: usize) -> bool {
-        self.codes().with_dyn(|a| a.is_valid(index))
+impl ValidityVTable<FSSTArray> for FSSTEncoding {
+    fn is_valid(&self, array: &FSSTArray, index: usize) -> bool {
+        array.codes().is_valid(index)
     }
 
-    fn logical_validity(&self) -> LogicalValidity {
-        self.codes().with_dyn(|a| a.logical_validity())
+    fn logical_validity(&self, array: &FSSTArray) -> LogicalValidity {
+        array.codes().logical_validity()
     }
 }
 

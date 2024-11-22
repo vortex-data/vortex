@@ -8,7 +8,7 @@ use vortex_array::array::PrimitiveArray;
 use vortex_array::compute::unary::try_cast;
 use vortex_array::encoding::ids;
 use vortex_array::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
-use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity};
+use vortex_array::validity::{LogicalValidity, Validity, ValidityVTable};
 use vortex_array::variants::{ArrayVariants, PrimitiveArrayTrait};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
@@ -107,13 +107,13 @@ impl ArrayVariants for RoaringIntArray {
 
 impl PrimitiveArrayTrait for RoaringIntArray {}
 
-impl ArrayValidity for RoaringIntArray {
-    fn is_valid(&self, _index: usize) -> bool {
+impl ValidityVTable<RoaringIntArray> for RoaringIntEncoding {
+    fn is_valid(&self, _array: &RoaringIntArray, _index: usize) -> bool {
         true
     }
 
-    fn logical_validity(&self) -> LogicalValidity {
-        LogicalValidity::AllValid(self.len())
+    fn logical_validity(&self, array: &RoaringIntArray) -> LogicalValidity {
+        LogicalValidity::AllValid(array.len())
     }
 }
 

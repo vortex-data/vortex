@@ -7,7 +7,7 @@ use vortex_error::{VortexExpect as _, VortexResult};
 use crate::encoding::ids;
 use crate::nbytes::ArrayNBytes;
 use crate::stats::{Stat, StatisticsVTable, StatsSet};
-use crate::validity::{ArrayValidity, LogicalValidity, Validity};
+use crate::validity::{LogicalValidity, Validity, ValidityVTable};
 use crate::variants::{ArrayVariants, NullArrayTrait};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{impl_encoding, ArrayLen, ArrayTrait, Canonical, IntoCanonical};
@@ -44,13 +44,13 @@ impl IntoCanonical for NullArray {
     }
 }
 
-impl ArrayValidity for NullArray {
-    fn is_valid(&self, _: usize) -> bool {
+impl ValidityVTable<NullArray> for NullEncoding {
+    fn is_valid(&self, _array: &NullArray, _idx: usize) -> bool {
         false
     }
 
-    fn logical_validity(&self) -> LogicalValidity {
-        LogicalValidity::AllInvalid(self.len())
+    fn logical_validity(&self, array: &NullArray) -> LogicalValidity {
+        LogicalValidity::AllInvalid(array.len())
     }
 }
 

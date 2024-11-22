@@ -10,7 +10,7 @@ use crate::compute::unary::scalar_at;
 use crate::compute::{search_sorted, SearchResult, SearchSortedSide};
 use crate::encoding::ids;
 use crate::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
-use crate::validity::{ArrayValidity, LogicalValidity};
+use crate::validity::{LogicalValidity, ValidityVTable};
 use crate::variants::PrimitiveArrayTrait;
 use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{
@@ -215,35 +215,36 @@ impl StatisticsVTable<SparseArray> for SparseEncoding {
     }
 }
 
-impl ArrayValidity for SparseArray {
-    fn is_valid(&self, index: usize) -> bool {
-        match self.search_index(index).map(SearchResult::to_found) {
-            Ok(None) => !self.fill_value().is_null(),
-            Ok(Some(idx)) => self.values().with_dyn(|a| a.is_valid(idx)),
+impl ValidityVTable<SparseArray> for SparseEncoding {
+    fn is_valid(&self, array: &SparseArray, index: usize) -> bool {
+        match array.search_index(index).map(SearchResult::to_found) {
+            Ok(None) => !array.fill_value().is_null(),
+            Ok(Some(idx)) => array.values().with_dyn(|a| a.is_valid(idx)),
             Err(e) => vortex_panic!(e, "Error while finding index {} in sparse array", index),
         }
     }
 
-    fn logical_validity(&self) -> LogicalValidity {
-        let validity = if self.fill_value().is_null() {
+    fn logical_validity(&self, array: &SparseArray) -> LogicalValidity {
+        let validity = if array.fill_value().is_null() {
             // If we have a null fill value, then the result is a Sparse array with a fill_value
             // of true, and patch values of false.
-            Self::try_new_with_offset(
-                self.indices(),
-                ConstantArray::new(true, self.indices().len()).into_array(),
-                self.len(),
-                self.indices_offset(),
+            SparseArray::try_new_with_offset(
+                array.indices(),
+                ConstantArray::new(true, array.indices().len()).into_array(),
+                array.len(),
+                array.indices_offset(),
                 false.into(),
             )
         } else {
             // If the fill_value is non-null, then the validity is based on the validity of the
             // existing values.
-            Self::try_new_with_offset(
-                self.indices(),
-                self.values()
+            SparseArray::try_new_with_offset(
+                array.indices(),
+                array
+                    .values()
                     .with_dyn(|a| a.logical_validity().into_array()),
-                self.len(),
-                self.indices_offset(),
+                array.len(),
+                array.indices_offset(),
                 true.into(),
             )
         }

@@ -6,7 +6,9 @@ use vortex_array::compute::unary::scalar_at;
 use vortex_array::compute::{search_sorted, search_sorted_usize_many, SearchSortedSide};
 use vortex_array::encoding::ids;
 use vortex_array::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
-use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
+use vortex_array::validity::{
+    ArrayValidity, LogicalValidity, Validity, ValidityMetadata, ValidityVTable,
+};
 use vortex_array::variants::{ArrayVariants, BoolArrayTrait, PrimitiveArrayTrait};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
@@ -211,13 +213,13 @@ impl BoolArrayTrait for RunEndArray {
     }
 }
 
-impl ArrayValidity for RunEndArray {
-    fn is_valid(&self, index: usize) -> bool {
-        self.validity().is_valid(index)
+impl ValidityVTable<RunEndArray> for RunEndEncoding {
+    fn is_valid(&self, array: &RunEndArray, index: usize) -> bool {
+        array.validity().is_valid(index)
     }
 
-    fn logical_validity(&self) -> LogicalValidity {
-        self.validity().to_logical(self.len())
+    fn logical_validity(&self, array: &RunEndArray) -> LogicalValidity {
+        array.validity().to_logical(array.len())
     }
 }
 

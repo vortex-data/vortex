@@ -8,6 +8,7 @@ use vortex_error::{vortex_panic, VortexResult};
 
 use crate::compute::ComputeVTable;
 use crate::stats::StatisticsVTable;
+use crate::validity::ValidityVTable;
 use crate::visitor::VisitorVTable;
 use crate::{ArrayData, ArrayDef, ArrayMetadata, ArrayTrait, IntoCanonicalVTable, MetadataVTable};
 
@@ -77,6 +78,7 @@ pub trait EncodingVTable:
     + MetadataVTable
     + ComputeVTable
     + StatisticsVTable<ArrayData>
+    + ValidityVTable<ArrayData>
     + VisitorVTable<ArrayData>
 {
     fn id(&self) -> EncodingId;
