@@ -5,11 +5,11 @@ use vortex_dtype::field::Field;
 use vortex_dtype::{DType, FieldName, FieldNames, StructDType};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
 
-use crate::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use crate::encoding::ids;
 use crate::stats::{ArrayStatistics, ArrayStatisticsCompute, Stat, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
 use crate::variants::{ArrayVariants, StructArrayTrait};
+use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
     IntoCanonical,
@@ -180,12 +180,12 @@ impl ArrayValidity for StructArray {
     }
 }
 
-impl AcceptArrayVisitor for StructArray {
-    fn accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        for (idx, name) in self.names().iter().enumerate() {
-            let child = self
+impl VisitorVTable<StructArray> for StructEncoding {
+    fn accept(&self, array: &StructArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+        for (idx, name) in array.names().iter().enumerate() {
+            let child = array
                 .field(idx)
-                .ok_or_else(|| vortex_err!(OutOfBounds: idx, 0, self.nfields()))?;
+                .ok_or_else(|| vortex_err!(OutOfBounds: idx, 0, array.nfields()))?;
             visitor.visit_child(&format!("\"{}\"", name), &child)?;
         }
         Ok(())

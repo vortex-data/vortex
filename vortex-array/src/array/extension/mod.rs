@@ -6,11 +6,11 @@ use serde::{Deserialize, Serialize};
 use vortex_dtype::{DType, ExtDType, ExtID};
 use vortex_error::{VortexExpect as _, VortexResult};
 
-use crate::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use crate::encoding::ids;
 use crate::stats::{ArrayStatistics as _, ArrayStatisticsCompute, Stat, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity};
 use crate::variants::{ArrayVariants, ExtensionArrayTrait};
+use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoCanonical};
 
 mod compute;
@@ -87,9 +87,9 @@ impl ArrayValidity for ExtensionArray {
     }
 }
 
-impl AcceptArrayVisitor for ExtensionArray {
-    fn accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_child("storage", &self.storage())
+impl VisitorVTable<ExtensionArray> for ExtensionEncoding {
+    fn accept(&self, array: &ExtensionArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+        visitor.visit_child("storage", &array.storage())
     }
 }
 

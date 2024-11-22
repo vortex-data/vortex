@@ -1,13 +1,13 @@
 use std::fmt::{Debug, Display};
 
 use serde::{Deserialize, Serialize};
-use vortex_array::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use vortex_array::array::StructArray;
 use vortex_array::compute::unary::try_cast;
 use vortex_array::encoding::ids;
 use vortex_array::stats::{ArrayStatisticsCompute, Stat, StatsSet};
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity};
 use vortex_array::variants::{ArrayVariants, ExtensionArrayTrait};
+use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
     IntoCanonical,
@@ -154,11 +154,15 @@ impl ArrayValidity for DateTimePartsArray {
     }
 }
 
-impl AcceptArrayVisitor for DateTimePartsArray {
-    fn accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_child("days", &self.days())?;
-        visitor.visit_child("seconds", &self.seconds())?;
-        visitor.visit_child("subsecond", &self.subsecond())
+impl VisitorVTable<DateTimePartsArray> for DateTimePartsEncoding {
+    fn accept(
+        &self,
+        array: &DateTimePartsArray,
+        visitor: &mut dyn ArrayVisitor,
+    ) -> VortexResult<()> {
+        visitor.visit_child("days", &array.days())?;
+        visitor.visit_child("seconds", &array.seconds())?;
+        visitor.visit_child("subsecond", &array.subsecond())
     }
 }
 

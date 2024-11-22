@@ -12,7 +12,6 @@ use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::array::primitive::PrimitiveArray;
-use crate::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use crate::compute::unary::{scalar_at, subtract_scalar, SubtractScalarFn};
 use crate::compute::{search_sorted, SearchSortedSide};
 use crate::encoding::ids;
@@ -21,6 +20,7 @@ use crate::stats::ArrayStatistics;
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::validity::Validity::NonNullable;
 use crate::validity::{ArrayValidity, LogicalValidity, Validity};
+use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, IntoArrayData, IntoCanonical,
 };
@@ -211,10 +211,10 @@ impl FromIterator<ArrayData> for ChunkedArray {
     }
 }
 
-impl AcceptArrayVisitor for ChunkedArray {
-    fn accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_child("chunk_ends", &self.chunk_offsets())?;
-        for (idx, chunk) in self.chunks().enumerate() {
+impl VisitorVTable<ChunkedArray> for ChunkedEncoding {
+    fn accept(&self, array: &ChunkedArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+        visitor.visit_child("chunk_ends", &array.chunk_offsets())?;
+        for (idx, chunk) in array.chunks().enumerate() {
             visitor.visit_child(format!("[{}]", idx).as_str(), &chunk)?;
         }
         Ok(())

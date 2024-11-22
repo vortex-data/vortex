@@ -1,7 +1,6 @@
 use std::fmt::{Debug, Display};
 
 use serde::{Deserialize, Serialize};
-use vortex_array::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use vortex_array::array::PrimitiveArray;
 use vortex_array::compute::unary::scalar_at;
 use vortex_array::compute::{search_sorted, search_sorted_usize_many, SearchSortedSide};
@@ -9,6 +8,7 @@ use vortex_array::encoding::ids;
 use vortex_array::stats::{ArrayStatistics, ArrayStatisticsCompute, Stat, StatsSet};
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
 use vortex_array::variants::{ArrayVariants, BoolArrayTrait, PrimitiveArrayTrait};
+use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
     IntoArrayVariant, IntoCanonical,
@@ -240,11 +240,11 @@ impl IntoCanonical for RunEndArray {
     }
 }
 
-impl AcceptArrayVisitor for RunEndArray {
-    fn accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_child("ends", &self.ends())?;
-        visitor.visit_child("values", &self.values())?;
-        visitor.visit_validity(&self.validity())
+impl VisitorVTable<RunEndArray> for RunEndEncoding {
+    fn accept(&self, array: &RunEndArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+        visitor.visit_child("ends", &array.ends())?;
+        visitor.visit_child("values", &array.values())?;
+        visitor.visit_validity(&array.validity())
     }
 }
 

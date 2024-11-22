@@ -8,10 +8,10 @@ use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_err, VortexExpect as _, VortexResult};
 use vortex_scalar::{PValue, Scalar, ScalarValue};
 
-use crate::array::visitor::ArrayVisitor;
 use crate::encoding::opaque::OpaqueEncoding;
 use crate::encoding::EncodingRef;
 use crate::stats::{Stat, Statistics, StatsSet};
+use crate::visitor::ArrayVisitor;
 use crate::{flatbuffers as fb, ArrayData, ArrayMetadata, Context};
 
 /// Zero-copy view over flatbuffer-encoded array data, created without eager serialization.
@@ -109,8 +109,8 @@ impl ViewedArrayData {
 
     pub fn children(&self) -> Vec<ArrayData> {
         let mut collector = ChildrenCollector::default();
-        ArrayData::from(self.clone())
-            .with_dyn(|a| a.accept(&mut collector))
+        self.encoding()
+            .accept(&ArrayData::from(self.clone()), &mut collector)
             .vortex_expect("Failed to get children");
         collector.children
     }

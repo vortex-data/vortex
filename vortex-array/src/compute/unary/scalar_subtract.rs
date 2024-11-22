@@ -9,7 +9,7 @@ pub trait SubtractScalarFn<Array> {
     fn subtract_scalar(&self, array: &Array, to_subtract: &Scalar) -> VortexResult<ArrayData>;
 }
 
-impl<E: Encoding + 'static> SubtractScalarFn<ArrayData> for E
+impl<E: Encoding> SubtractScalarFn<ArrayData> for E
 where
     E: SubtractScalarFn<E::Array>,
     for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,

@@ -12,7 +12,7 @@ pub trait SliceFn<Array> {
     fn slice(&self, array: &Array, start: usize, stop: usize) -> VortexResult<ArrayData>;
 }
 
-impl<E: Encoding + 'static> SliceFn<ArrayData> for E
+impl<E: Encoding> SliceFn<ArrayData> for E
 where
     E: SliceFn<E::Array>,
     for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,

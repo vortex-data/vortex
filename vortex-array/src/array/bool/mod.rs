@@ -10,11 +10,11 @@ use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 
-use crate::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use crate::encoding::ids;
 use crate::stats::StatsSet;
 use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
 use crate::variants::{ArrayVariants, BoolArrayTrait};
+use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{
     impl_encoding, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData, IntoCanonical,
 };
@@ -217,10 +217,10 @@ impl ArrayValidity for BoolArray {
     }
 }
 
-impl AcceptArrayVisitor for BoolArray {
-    fn accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_buffer(self.buffer())?;
-        visitor.visit_validity(&self.validity())
+impl VisitorVTable<BoolArray> for BoolEncoding {
+    fn accept(&self, array: &BoolArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+        visitor.visit_buffer(array.buffer())?;
+        visitor.visit_validity(&array.validity())
     }
 }
 

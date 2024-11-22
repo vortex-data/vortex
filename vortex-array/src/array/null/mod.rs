@@ -4,11 +4,11 @@ use serde::{Deserialize, Serialize};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult};
 
-use crate::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use crate::encoding::ids;
 use crate::stats::{ArrayStatisticsCompute, Stat, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity, Validity};
 use crate::variants::{ArrayVariants, NullArrayTrait};
+use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{impl_encoding, ArrayLen, ArrayTrait, Canonical, IntoCanonical};
 
 mod compute;
@@ -63,8 +63,8 @@ impl ArrayStatisticsCompute for NullArray {
     }
 }
 
-impl AcceptArrayVisitor for NullArray {
-    fn accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+impl VisitorVTable<NullArray> for NullEncoding {
+    fn accept(&self, _array: &NullArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
         visitor.visit_validity(&Validity::AllInvalid)
     }
 }

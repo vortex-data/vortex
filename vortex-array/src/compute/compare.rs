@@ -81,7 +81,7 @@ pub trait CompareFn<Array> {
     ) -> VortexResult<Option<ArrayData>>;
 }
 
-impl<E: Encoding + 'static> CompareFn<ArrayData> for E
+impl<E: Encoding> CompareFn<ArrayData> for E
 where
     E: CompareFn<E::Array>,
     for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,

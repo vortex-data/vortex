@@ -11,7 +11,7 @@ pub trait ScalarAtFn<Array> {
     fn scalar_at(&self, array: &Array, index: usize) -> VortexResult<Scalar>;
 }
 
-impl<E: Encoding + 'static> ScalarAtFn<ArrayData> for E
+impl<E: Encoding> ScalarAtFn<ArrayData> for E
 where
     E: ScalarAtFn<E::Array>,
     for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,

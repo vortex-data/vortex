@@ -4,13 +4,13 @@ use std::sync::Arc;
 pub use compress::*;
 use croaring::{Bitmap, Portable};
 use serde::{Deserialize, Serialize};
-use vortex_array::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use vortex_array::array::PrimitiveArray;
 use vortex_array::compute::unary::try_cast;
 use vortex_array::encoding::ids;
 use vortex_array::stats::{ArrayStatistics, ArrayStatisticsCompute, Stat, StatsSet};
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity};
 use vortex_array::variants::{ArrayVariants, PrimitiveArrayTrait};
+use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
     impl_encoding, ArrayDType as _, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
     IntoCanonical,
@@ -127,10 +127,11 @@ impl IntoCanonical for RoaringIntArray {
     }
 }
 
-impl AcceptArrayVisitor for RoaringIntArray {
-    fn accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+impl VisitorVTable<RoaringIntArray> for RoaringIntEncoding {
+    fn accept(&self, array: &RoaringIntArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
         visitor.visit_buffer(
-            self.as_ref()
+            array
+                .as_ref()
                 .buffer()
                 .vortex_expect("Missing buffer in RoaringIntArray"),
         )

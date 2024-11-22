@@ -2,7 +2,6 @@ use std::fmt::{Debug, Display};
 
 use arrow_buffer::BooleanBuffer;
 use serde::{Deserialize, Serialize};
-use vortex_array::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use vortex_array::array::BoolArray;
 use vortex_array::compute::unary::scalar_at;
 use vortex_array::compute::{take, TakeOptions};
@@ -10,6 +9,7 @@ use vortex_array::encoding::ids;
 use vortex_array::stats::StatsSet;
 use vortex_array::validity::{ArrayValidity, LogicalValidity};
 use vortex_array::variants::PrimitiveArrayTrait;
+use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
     IntoArrayVariant, IntoCanonical,
@@ -115,9 +115,9 @@ impl ArrayValidity for DictArray {
     }
 }
 
-impl AcceptArrayVisitor for DictArray {
-    fn accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_child("values", &self.values())?;
-        visitor.visit_child("codes", &self.codes())
+impl VisitorVTable<DictArray> for DictEncoding {
+    fn accept(&self, array: &DictArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+        visitor.visit_child("values", &array.values())?;
+        visitor.visit_child("codes", &array.codes())
     }
 }

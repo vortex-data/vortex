@@ -142,7 +142,7 @@ pub trait SearchSortedFn<Array> {
     }
 }
 
-impl<E: Encoding + 'static> SearchSortedFn<ArrayData> for E
+impl<E: Encoding> SearchSortedFn<ArrayData> for E
 where
     E: SearchSortedFn<E::Array>,
     for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,

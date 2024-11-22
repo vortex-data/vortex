@@ -1,12 +1,12 @@
 use std::fmt::Display;
 
 use serde::{Deserialize, Serialize};
-use vortex_array::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use vortex_array::array::PrimitiveArray;
 use vortex_array::encoding::ids;
 use vortex_array::stats::{ArrayStatistics, ArrayStatisticsCompute, Stat, StatsSet};
 use vortex_array::validity::{ArrayValidity, LogicalValidity};
 use vortex_array::variants::{ArrayVariants, PrimitiveArrayTrait};
+use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayVariant,
     IntoCanonical,
@@ -89,9 +89,9 @@ impl ArrayValidity for ZigZagArray {
     }
 }
 
-impl AcceptArrayVisitor for ZigZagArray {
-    fn accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_child("encoded", &self.encoded())
+impl VisitorVTable<ZigZagArray> for ZigZagEncoding {
+    fn accept(&self, array: &ZigZagArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+        visitor.visit_child("encoded", &array.encoded())
     }
 }
 
