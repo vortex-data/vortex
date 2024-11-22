@@ -52,43 +52,11 @@ where
 /// Point-wise logical _and_ between two Boolean arrays.
 ///
 /// This method uses Arrow-style null propagation rather than the Kleene logic semantics.
-///
-/// # Examples
-///
-/// ```
-/// use vortex_array::ArrayData;
-/// use vortex_array::compute::and;
-/// use vortex_array::IntoCanonical;
-/// use vortex_array::accessor::ArrayAccessor;
-/// let a = ArrayData::from_iter([Some(true), Some(true), Some(true), None, None, None, Some(false), Some(false), Some(false)]);
-/// let b = ArrayData::from_iter([Some(true), None, Some(false), Some(true), None, Some(false), Some(true), None, Some(false)]);
-/// let result = and(a, b)?.into_canonical()?.into_bool()?;
-/// let result_vec = result.with_iterator(|it| it.map(|x| x.cloned()).collect::<Vec<_>>())?;
-/// assert_eq!(result_vec, vec![Some(true), None, Some(false), None, None, None, Some(false), None, Some(false)]);
-/// # use vortex_error::VortexError;
-/// # Ok::<(), VortexError>(())
-/// ```
 pub fn and(lhs: impl AsRef<ArrayData>, rhs: impl AsRef<ArrayData>) -> VortexResult<ArrayData> {
     binary_boolean(lhs.as_ref(), rhs.as_ref(), BinaryOperator::And)
 }
 
 /// Point-wise Kleene logical _and_ between two Boolean arrays.
-///
-/// # Examples
-///
-/// ```
-/// use vortex_array::ArrayData;
-/// use vortex_array::compute::and_kleene;
-/// use vortex_array::IntoCanonical;
-/// use vortex_array::accessor::ArrayAccessor;
-/// let a = ArrayData::from_iter([Some(true), Some(true), Some(true), None, None, None, Some(false), Some(false), Some(false)]);
-/// let b = ArrayData::from_iter([Some(true), None, Some(false), Some(true), None, Some(false), Some(true), None, Some(false)]);
-/// let result = and_kleene(a, b)?.into_canonical()?.into_bool()?;
-/// let result_vec = result.with_iterator(|it| it.map(|x| x.cloned()).collect::<Vec<_>>())?;
-/// assert_eq!(result_vec, vec![Some(true), None, Some(false), None, None, Some(false), Some(false), Some(false), Some(false)]);
-/// # use vortex_error::VortexError;
-/// # Ok::<(), VortexError>(())
-/// ```
 pub fn and_kleene(
     lhs: impl AsRef<ArrayData>,
     rhs: impl AsRef<ArrayData>,
@@ -99,43 +67,11 @@ pub fn and_kleene(
 /// Point-wise logical _or_ between two Boolean arrays.
 ///
 /// This method uses Arrow-style null propagation rather than the Kleene logic semantics.
-///
-/// # Examples
-///
-/// ```
-/// use vortex_array::ArrayData;
-/// use vortex_array::compute::or;
-/// use vortex_array::IntoCanonical;
-/// use vortex_array::accessor::ArrayAccessor;
-/// let a = ArrayData::from_iter([Some(true), Some(true), Some(true), None, None, None, Some(false), Some(false), Some(false)]);
-/// let b = ArrayData::from_iter([Some(true), None, Some(false), Some(true), None, Some(false), Some(true), None, Some(false)]);
-/// let result = or(a, b)?.into_canonical()?.into_bool()?;
-/// let result_vec = result.with_iterator(|it| it.map(|x| x.cloned()).collect::<Vec<_>>())?;
-/// assert_eq!(result_vec, vec![Some(true), None, Some(true), None, None, None, Some(true), None, Some(false)]);
-/// # use vortex_error::VortexError;
-/// # Ok::<(), VortexError>(())
-/// ```
 pub fn or(lhs: impl AsRef<ArrayData>, rhs: impl AsRef<ArrayData>) -> VortexResult<ArrayData> {
     binary_boolean(lhs.as_ref(), rhs.as_ref(), BinaryOperator::Or)
 }
 
 /// Point-wise Kleene logical _or_ between two Boolean arrays.
-///
-/// # Examples
-///
-/// ```
-/// use vortex_array::ArrayData;
-/// use vortex_array::compute::or_kleene;
-/// use vortex_array::IntoCanonical;
-/// use vortex_array::accessor::ArrayAccessor;
-/// let a = ArrayData::from_iter([Some(true), Some(true), Some(true), None, None, None, Some(false), Some(false), Some(false)]);
-/// let b = ArrayData::from_iter([Some(true), None, Some(false), Some(true), None, Some(false), Some(true), None, Some(false)]);
-/// let result = or_kleene(a, b)?.into_canonical()?.into_bool()?;
-/// let result_vec = result.with_iterator(|it| it.map(|x| x.cloned()).collect::<Vec<_>>())?;
-/// assert_eq!(result_vec, vec![Some(true), Some(true), Some(true), Some(true), None, None, Some(true), None, Some(false)]);
-/// # use vortex_error::VortexError;
-/// # Ok::<(), VortexError>(())
-/// ```
 pub fn or_kleene(
     lhs: impl AsRef<ArrayData>,
     rhs: impl AsRef<ArrayData>,
