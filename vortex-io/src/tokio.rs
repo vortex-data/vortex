@@ -6,13 +6,13 @@ use std::os::unix::fs::FileExt;
 use std::path::Path;
 use std::sync::Arc;
 
-use bytes::{Bytes, BytesMut};
+use bytes::Bytes;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 use vortex_buffer::io_buf::IoBuf;
 use vortex_error::vortex_panic;
 
-use super::VortexReadAt;
-use crate::VortexWrite;
+use crate::aligned::AlignedBytesMut;
+use crate::{VortexReadAt, VortexWrite, ALIGNMENT};
 
 pub struct TokioAdapter<IO>(pub IO);
 
@@ -70,7 +70,7 @@ impl VortexReadAt for TokioFile {
     ) -> impl Future<Output = io::Result<Bytes>> + 'static {
         let this = self.clone();
 
-        let mut buffer = BytesMut::with_capacity(len as usize);
+        let mut buffer = AlignedBytesMut::<ALIGNMENT>::with_capacity(len as usize);
         unsafe {
             buffer.set_len(len as usize);
         }

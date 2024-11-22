@@ -11,7 +11,8 @@ use vortex_buffer::io_buf::IoBuf;
 use vortex_buffer::Buffer;
 use vortex_error::{vortex_panic, VortexError, VortexResult};
 
-use crate::{VortexBufReader, VortexReadAt, VortexWrite, BUFFER_ALIGNMENT};
+use crate::aligned::AlignedBytesMut;
+use crate::{VortexBufReader, VortexReadAt, VortexWrite, ALIGNMENT};
 
 pub trait ObjectStoreExt {
     fn vortex_read(
@@ -78,17 +79,9 @@ impl VortexReadAt for ObjectStoreReadAt {
         Box::pin(async move {
             let start_range = pos as usize;
 
-            // Allocate a Vec<u8> that has at least BUFFER_ALIGNMENT-1 bytes of extra capacity.
-            // This is important as it allows us to return a properly aligned Bytes to the caller,
-            // without needing to write a custom Allocator.
-            let alloc_size =
-                ((len as usize) + (BUFFER_ALIGNMENT - 1)).next_multiple_of(BUFFER_ALIGNMENT);
-            let mut buf = Vec::<u8>::with_capacity(alloc_size as _);
-            let padding = buf.as_ptr().align_offset(BUFFER_ALIGNMENT);
-            unsafe { buf.set_len(padding) };
+            let mut buf = AlignedBytesMut::<ALIGNMENT>::with_capacity(len as _);
 
             let get_range = start_range..(start_range + len as usize);
-
             let response = object_store
                 .get_opts(
                     &location,
@@ -105,31 +98,7 @@ impl VortexReadAt for ObjectStoreReadAt {
                 buf.extend_from_slice(&bytes);
             }
 
-            // bytes_unaligned will contain the entire allocation, so that on Drop the entire buf
-            // is freed.
-            //
-            // bytes_aligned is a sliced view on top of bytes_unaligned.
-            //
-            // bytes_aligned
-            //     | parent    \  *ptr
-            //     v            |
-            // bytes_unaligned  |
-            //     |            |
-            //     | *ptr       |
-            //     v            v
-            //     +------------+------------------+----------------+
-            //     | padding    |   content        | spare capacity |
-            //     +------------+------------------+----------------+
-            //
-            let bytes_unaligned = Bytes::from(buf);
-            let bytes_aligned = bytes_unaligned.slice(padding..);
-
-            assert_eq!(
-                bytes_aligned.as_ptr().align_offset(BUFFER_ALIGNMENT),
-                0,
-                "buffer must be 64-byte aligned"
-            );
-            Ok(bytes_aligned)
+            Ok(buf.freeze())
         })
     }
 

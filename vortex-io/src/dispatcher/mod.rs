@@ -67,17 +67,18 @@ enum Inner {
 }
 
 impl Dispatch for IoDispatcher {
+    #[allow(unused_variables)]
     fn dispatch<F, Fut, R>(&self, task: F) -> VortexResult<oneshot::Receiver<R>>
     where
         F: (FnOnce() -> Fut) + Send + 'static,
         Fut: Future<Output = R> + 'static,
         R: Send + 'static,
     {
-        match &self.0 {
+        match self.0 {
             #[cfg(feature = "tokio")]
-            Inner::Tokio(tokio_dispatch) => tokio_dispatch.dispatch(task),
+            Inner::Tokio(ref tokio_dispatch) => tokio_dispatch.dispatch(task),
             #[cfg(feature = "compio")]
-            Inner::Compio(compio_dispatch) => compio_dispatch.dispatch(task),
+            Inner::Compio(ref compio_dispatch) => compio_dispatch.dispatch(task),
         }
     }
 
