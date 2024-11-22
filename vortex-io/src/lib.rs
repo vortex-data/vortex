@@ -27,3 +27,6 @@ mod read;
 #[cfg(feature = "tokio")]
 mod tokio;
 mod write;
+
+/// Required alignment for all custom buffer allocations.
+pub const BUFFER_ALIGNMENT: usize = 64;

@@ -140,8 +140,6 @@ mod dtype_reader;
 
 pub use dtype_reader::*;
 
-pub const ALIGNMENT: usize = 64;
-
 mod read;
 mod write;
 

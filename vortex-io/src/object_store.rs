@@ -4,13 +4,14 @@ use std::sync::Arc;
 use std::{io, mem};
 
 use bytes::Bytes;
+use futures_util::StreamExt;
 use object_store::path::Path;
-use object_store::{ObjectStore, WriteMultipart};
+use object_store::{GetOptions, GetRange, ObjectStore, WriteMultipart};
 use vortex_buffer::io_buf::IoBuf;
 use vortex_buffer::Buffer;
 use vortex_error::{vortex_panic, VortexError, VortexResult};
 
-use crate::{VortexBufReader, VortexReadAt, VortexWrite};
+use crate::{VortexBufReader, VortexReadAt, VortexWrite, BUFFER_ALIGNMENT};
 
 pub trait ObjectStoreExt {
     fn vortex_read(
@@ -76,10 +77,59 @@ impl VortexReadAt for ObjectStoreReadAt {
 
         Box::pin(async move {
             let start_range = pos as usize;
-            let bytes = object_store
-                .get_range(&location, start_range..(start_range + len as usize))
+
+            // Allocate an aligned vector to read into.
+            //
+            // This is
+            let alloc_size =
+                ((len as usize) + (BUFFER_ALIGNMENT - 1)).next_multiple_of(BUFFER_ALIGNMENT);
+            let mut buf = Vec::<u8>::with_capacity(alloc_size as _);
+            let padding = buf.as_ptr().align_offset(BUFFER_ALIGNMENT);
+            unsafe { buf.set_len(padding) };
+
+            let get_range = start_range..(start_range + len as usize);
+
+            let response = object_store
+                .get_opts(
+                    &location,
+                    GetOptions {
+                        range: Some(GetRange::Bounded(get_range)),
+                        ..Default::default()
+                    },
+                )
                 .await?;
-            Ok(bytes)
+
+            let mut byte_stream = response.into_stream();
+            while let Some(bytes) = byte_stream.next().await {
+                let bytes = bytes?;
+                buf.extend_from_slice(&bytes);
+            }
+
+            // bytes_unaligned will contain the entire allocation, so that on Drop the entire buf
+            // is freed.
+            //
+            // bytes_unaligned is a sliced view on top of bytes_unaligned.
+            //
+            // bytes_aligned
+            //     | parent    \  *ptr
+            //     v            |
+            // bytes_unaligned  |
+            //     |            |
+            //     | *ptr       |
+            //     v            v
+            //     +------------+------------------+----------------+
+            //     | padding    |   content        | spare capacity |
+            //     +------------+------------------+----------------+
+            //
+            let bytes_unaligned = Bytes::from(buf);
+            let bytes_aligned = bytes_unaligned.slice(padding..);
+
+            assert_eq!(
+                bytes_aligned.as_ptr().align_offset(BUFFER_ALIGNMENT),
+                0,
+                "buffer must be 64-byte aligned"
+            );
+            Ok(bytes_aligned)
         })
     }
 
