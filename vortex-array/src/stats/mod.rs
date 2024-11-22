@@ -31,9 +31,9 @@ pub enum Stat {
     /// Whether all values are the same (nulls are not equal to other non-null values,
     /// so this is true iff all values are null or all values are the same non-null value)
     IsConstant,
-    /// Whether the array is sorted
+    /// Whether the non-null values in the array are sorted (i.e., we skip nulls)
     IsSorted,
-    /// Whether the array is strictly sorted (i.e., sorted with no duplicates)
+    /// Whether the non-null values in the array are strictly sorted (i.e., sorted with no duplicates)
     IsStrictSorted,
     /// The maximum value in the array (ignoring nulls, unless all values are null)
     Max,

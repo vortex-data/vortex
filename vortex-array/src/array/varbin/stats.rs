@@ -1,8 +1,10 @@
 use std::cmp::Ordering;
 
+use itertools::{Itertools, MinMaxResult};
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
+use vortex_error::{vortex_panic, VortexExpect, VortexResult};
+use vortex_scalar::Scalar;
 
 use crate::accessor::ArrayAccessor;
 use crate::array::varbin::{varbin_scalar, VarBinArray};
@@ -17,11 +19,107 @@ impl StatisticsVTable<VarBinArray> for VarBinEncoding {
             return Ok(StatsSet::of(stat, array.nbytes()));
         }
 
-        if array.is_empty() {
+        if array.is_empty()
+            || stat == Stat::TrueCount
+            || stat == Stat::BitWidthFreq
+            || stat == Stat::TrailingZeroFreq
+        {
             return Ok(StatsSet::default());
         }
-        array.with_iterator(|iter| compute_stats(iter, array.dtype()))
+
+        let null_count = array.validity().null_count(array.len())?;
+        if null_count == array.len() {
+            return Ok(StatsSet::nulls(array.len(), array.dtype()));
+        } else if stat == Stat::NullCount {
+            return Ok(StatsSet::of(Stat::NullCount, null_count));
+        }
+
+        let mut stats = StatsSet::of(Stat::NullCount, null_count);
+        match stat {
+            Stat::IsConstant => {
+                let is_constant = if null_count > 0 {
+                    // we know that there is at least one null, but not all nulls, so it's not constant
+                    false
+                } else {
+                    array.with_iterator(|iter| compute_is_constant(&mut iter.flatten()))?
+                };
+                stats.set(Stat::IsConstant, is_constant);
+            }
+            Stat::Min | Stat::Max => {
+                // handle min and max in the same loop
+                let Some((min, max)) = array
+                    .with_iterator(|iter| compute_min_max(&mut iter.flatten(), array.dtype()))?
+                else {
+                    vortex_panic!(
+                        "Unreachable: already checked that array has at least one non-null element"
+                    );
+                };
+                stats.set(Stat::Min, min);
+                stats.set(Stat::Max, max);
+            }
+            Stat::IsSorted => {
+                let is_sorted = array.with_iterator(|iter| iter.flatten().is_sorted())?;
+                stats.set(Stat::IsSorted, is_sorted);
+                if !is_sorted {
+                    stats.set(Stat::IsStrictSorted, false);
+                }
+            }
+            Stat::IsStrictSorted => {
+                let is_strict_sorted = array.with_iterator(|iter| {
+                    iter.flatten()
+                        .is_sorted_by(|a, b| matches!(a.cmp(b), Ordering::Less))
+                })?;
+                stats.set(Stat::IsStrictSorted, is_strict_sorted);
+                if is_strict_sorted {
+                    stats.set(Stat::IsSorted, true);
+                }
+            }
+            Stat::RunCount => {
+                // needs its own full pass
+            }
+            Stat::UncompressedSizeInBytes
+            | Stat::TrueCount
+            | Stat::NullCount
+            | Stat::BitWidthFreq
+            | Stat::TrailingZeroFreq => {
+                vortex_panic!(
+                    "Unreachable, stat {} should have already been handled",
+                    stat
+                )
+            }
+        }
+        Ok(stats)
     }
+}
+
+fn compute_is_constant(iter: &mut dyn Iterator<Item = &[u8]>) -> bool {
+    let Some(first_value) = iter.next() else {
+        return true;
+    };
+    let first_value = first_value;
+    for v in iter {
+        if v != first_value {
+            return false;
+        }
+    }
+    true
+}
+
+fn compute_min_max(
+    iter: &mut dyn Iterator<Item = &[u8]>,
+    dtype: &DType,
+) -> Option<(Scalar, Scalar)> {
+    Some(match iter.minmax() {
+        MinMaxResult::NoElements => return None,
+        MinMaxResult::OneElement(v) => {
+            let scalar = varbin_scalar(Buffer::from(v), dtype);
+            (scalar.clone(), scalar)
+        }
+        MinMaxResult::MinMax(min, max) => (
+            varbin_scalar(Buffer::from(min), dtype),
+            varbin_scalar(Buffer::from(max), dtype),
+        ),
+    })
 }
 
 pub fn compute_stats(iter: &mut dyn Iterator<Item = Option<&[u8]>>, dtype: &DType) -> StatsSet {
