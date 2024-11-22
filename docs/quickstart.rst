@@ -46,9 +46,9 @@ Use :func:`~vortex.encoding.compress` to compress the Vortex array and check the
 
    >>> cvtx = vortex.compress(vtx)
    >>> cvtx.nbytes
-   13963
+   15243
    >>> cvtx.nbytes / vtx.nbytes
-   0.099...
+   0.108...
 
 Vortex uses nearly ten times fewer bytes than Arrow. Fewer bytes means more of your data fits in
 cache and RAM.
