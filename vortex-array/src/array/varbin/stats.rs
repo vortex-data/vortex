@@ -34,32 +34,27 @@ pub fn compute_varbin_statistics<T: ArrayTrait + ArrayAccessor<[u8]>>(
     }
 
     Ok(match stat {
-        Stat::IsConstant | Stat::NullCount => {
+        Stat::NullCount => {
             let null_count = array.logical_validity().null_count(array.len())?;
             if null_count == array.len() {
                 return Ok(StatsSet::nulls(array.len(), array.dtype()));
             }
 
             let mut stats = StatsSet::of(Stat::NullCount, null_count);
-            if stat == Stat::NullCount {
-                return Ok(stats);
-            }
-
-            let is_constant = if null_count > 0 {
+            if null_count > 0 {
                 // we know that there is at least one null, but not all nulls, so it's not constant
-                false
-            } else {
-                array.with_iterator(|iter| compute_is_constant(&mut iter.flatten()))?
-            };
-
-            if is_constant {
-                // this array is all-valid and not empty
-                let value = scalar_at(array, 0)?;
-                stats.extend(StatsSet::constant(value, array.len()));
-            } else {
-                stats.set(Stat::IsConstant, is_constant);
+                stats.set(Stat::IsConstant, false);
             }
             stats
+        }
+        Stat::IsConstant => {
+            let is_constant = array.with_iterator(compute_is_constant)?;
+            if is_constant {
+                // we know that the array is not empty
+                StatsSet::constant(scalar_at(array, 0)?, array.len())
+            } else {
+                StatsSet::of(Stat::IsConstant, is_constant)
+            }
         }
         Stat::Min | Stat::Max => compute_min_max(array)?,
         Stat::IsSorted => {
@@ -94,9 +89,9 @@ pub fn compute_varbin_statistics<T: ArrayTrait + ArrayAccessor<[u8]>>(
     })
 }
 
-fn compute_is_constant(iter: &mut dyn Iterator<Item = &[u8]>) -> bool {
+fn compute_is_constant(iter: &mut dyn Iterator<Item = Option<&[u8]>>) -> bool {
     let Some(first_value) = iter.next() else {
-        return true;
+        return true; // empty array is constant
     };
     for v in iter {
         if v != first_value {
