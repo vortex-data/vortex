@@ -6,9 +6,10 @@ use vortex_dtype::{DType, Nullability};
 use vortex_error::VortexResult;
 
 use crate::array::{BoolArray, BoolEncoding};
+use crate::nbytes::ArrayNBytes;
 use crate::stats::{Stat, StatisticsVTable, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity};
-use crate::{ArrayDType, ArrayLen, ArrayTrait as _, IntoArrayVariant};
+use crate::{ArrayDType, ArrayLen, IntoArrayVariant};
 
 impl StatisticsVTable<BoolArray> for BoolEncoding {
     fn compute_statistics(&self, array: &BoolArray, stat: Stat) -> VortexResult<StatsSet> {

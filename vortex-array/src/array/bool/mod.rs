@@ -19,7 +19,6 @@ use crate::{
     impl_encoding, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData, IntoCanonical,
 };
 
-mod accessors;
 pub mod compute;
 mod stats;
 
@@ -161,6 +160,19 @@ impl BoolArray {
         }
 
         Self::try_new(own_values.finish().slice(bit_offset, len), result_validity)
+    }
+
+    /// Create a new BoolArray from a set of indices and a length.
+    /// All indices must be less than the length.
+    pub fn from_indices<I: IntoIterator<Item = usize>>(length: usize, indices: I) -> Self {
+        let mut buffer = MutableBuffer::new_null(length);
+        indices
+            .into_iter()
+            .for_each(|idx| arrow_buffer::bit_util::set_bit(&mut buffer, idx));
+        Self::new(
+            BooleanBufferBuilder::new_from_buffer(buffer, length).finish(),
+            Nullability::NonNullable,
+        )
     }
 }
 

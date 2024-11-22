@@ -1,7 +1,7 @@
 use std::fmt::{Debug, Display};
-use std::mem::{transmute, MaybeUninit};
 use std::ptr;
 use std::sync::Arc;
+mod accessor;
 
 use arrow_buffer::{ArrowNativeType, Buffer as ArrowBuffer, MutableBuffer};
 use bytes::Bytes;
@@ -12,9 +12,8 @@ use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 
-use crate::elementwise::{dyn_cast_array_iter, BinaryFn, UnaryFn};
 use crate::encoding::ids;
-use crate::iter::{Accessor, AccessorRef, Batch, ITER_BATCH_SIZE};
+use crate::iter::Accessor;
 use crate::stats::StatsSet;
 use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
 use crate::variants::{ArrayVariants, PrimitiveArrayTrait};
@@ -24,7 +23,6 @@ use crate::{
     IntoCanonical,
 };
 
-mod accessor;
 mod compute;
 mod stats;
 
@@ -245,59 +243,7 @@ impl<T: NativePType> Accessor<T> for PrimitiveArray {
     }
 }
 
-macro_rules! primitive_accessor_ref {
-    ($self:expr, $ptype:ident) => {
-        match $self.dtype() {
-            DType::Primitive(PType::$ptype, _) => {
-                let accessor = Arc::new($self.clone());
-                Some(accessor)
-            }
-            _ => None,
-        }
-    };
-}
-
-impl PrimitiveArrayTrait for PrimitiveArray {
-    fn f32_accessor(&self) -> Option<AccessorRef<f32>> {
-        primitive_accessor_ref!(self, F32)
-    }
-
-    fn f64_accessor(&self) -> Option<AccessorRef<f64>> {
-        primitive_accessor_ref!(self, F64)
-    }
-
-    fn u8_accessor(&self) -> Option<AccessorRef<u8>> {
-        primitive_accessor_ref!(self, U8)
-    }
-
-    fn u16_accessor(&self) -> Option<AccessorRef<u16>> {
-        primitive_accessor_ref!(self, U16)
-    }
-
-    fn u32_accessor(&self) -> Option<AccessorRef<u32>> {
-        primitive_accessor_ref!(self, U32)
-    }
-
-    fn u64_accessor(&self) -> Option<AccessorRef<u64>> {
-        primitive_accessor_ref!(self, U64)
-    }
-
-    fn i8_accessor(&self) -> Option<AccessorRef<i8>> {
-        primitive_accessor_ref!(self, I8)
-    }
-
-    fn i16_accessor(&self) -> Option<AccessorRef<i16>> {
-        primitive_accessor_ref!(self, I16)
-    }
-
-    fn i32_accessor(&self) -> Option<AccessorRef<i32>> {
-        primitive_accessor_ref!(self, I32)
-    }
-
-    fn i64_accessor(&self) -> Option<AccessorRef<i64>> {
-        primitive_accessor_ref!(self, I64)
-    }
-}
+impl PrimitiveArrayTrait for PrimitiveArray {}
 
 impl<T: NativePType> From<Vec<T>> for PrimitiveArray {
     fn from(values: Vec<T>) -> Self {
@@ -334,230 +280,11 @@ impl VisitorVTable<PrimitiveArray> for PrimitiveEncoding {
     }
 }
 
-// This is an arbitrary value, tried a few seems like this is a better value than smaller ones,
-// I assume there's some hardware dependency here but this seems to be good enough
-const CHUNK_SIZE: usize = 1024;
-
-impl UnaryFn for PrimitiveArray {
-    fn unary<I: NativePType, O: NativePType, F: Fn(I) -> O>(
-        &self,
-        unary_fn: F,
-    ) -> VortexResult<ArrayData> {
-        let data = self.maybe_null_slice::<I>();
-        let mut output: Vec<MaybeUninit<O>> = Vec::with_capacity(data.len());
-        // Safety: we are going to apply the fn to every element and store it so the full length will be utilized
-        unsafe { output.set_len(data.len()) };
-
-        let chunks = data.chunks_exact(CHUNK_SIZE);
-
-        // We start with the reminder because of ownership
-        let reminder_start_idx = data.len() - (data.len() % CHUNK_SIZE);
-        for (index, item) in chunks.remainder().iter().enumerate() {
-            // Safety: This access is bound by the same range as the output's capacity and length, so its within the Vec's allocated memory
-            unsafe {
-                *output.get_unchecked_mut(reminder_start_idx + index) =
-                    MaybeUninit::new(unary_fn(*item));
-            }
-        }
-
-        let mut offset = 0;
-
-        for chunk in chunks {
-            // We know the size of the chunk, and we know output is the same length as the input array
-            let chunk: [I; CHUNK_SIZE] = chunk.try_into()?;
-            let output_slice: &mut [_; CHUNK_SIZE] =
-                (&mut output[offset..offset + CHUNK_SIZE]).try_into()?;
-
-            for idx in 0..CHUNK_SIZE {
-                output_slice[idx] = MaybeUninit::new(unary_fn(chunk[idx]));
-            }
-
-            offset += CHUNK_SIZE;
-        }
-
-        // Safety: `MaybeUninit` is a transparent struct and we know the actual length of the vec.
-        let output = unsafe { transmute::<Vec<MaybeUninit<O>>, Vec<O>>(output) };
-
-        Ok(PrimitiveArray::from_vec(output, self.validity()).into_array())
-    }
-}
-
-impl BinaryFn for PrimitiveArray {
-    fn binary<I: NativePType, U: NativePType, O: NativePType, F: Fn(I, U) -> O>(
-        &self,
-        rhs: ArrayData,
-        binary_fn: F,
-    ) -> VortexResult<ArrayData> {
-        if self.len() != rhs.len() {
-            vortex_bail!(InvalidArgument: "Both arguments to `binary` should be of the same length");
-        }
-        if !self.dtype().eq_ignore_nullability(rhs.dtype()) {
-            vortex_bail!(MismatchedTypes: self.dtype(), rhs.dtype());
-        }
-
-        if PType::try_from(self.dtype())? != I::PTYPE {
-            vortex_bail!(MismatchedTypes: self.dtype(), I::PTYPE);
-        }
-
-        let lhs = self.maybe_null_slice::<I>();
-
-        let mut output: Vec<MaybeUninit<O>> = Vec::with_capacity(self.len());
-        // Safety: we are going to apply the fn to every element and store it so the full length will be utilized
-        unsafe { output.set_len(self.len()) };
-
-        let validity = self
-            .validity()
-            .and(rhs.with_dyn(|a| a.logical_validity().into_validity()))?;
-
-        let mut idx_offset = 0;
-        let rhs_iter = dyn_cast_array_iter::<U>(&rhs);
-
-        for batch in rhs_iter {
-            let batch_len = batch.len();
-            process_batch(
-                &lhs[idx_offset..idx_offset + batch_len],
-                batch,
-                &binary_fn,
-                idx_offset,
-                output.as_mut_slice(),
-            );
-            idx_offset += batch_len;
-        }
-
-        // Safety: `MaybeUninit` is a transparent struct and we know the actual length of the vec.
-        let output = unsafe { transmute::<Vec<MaybeUninit<O>>, Vec<O>>(output) };
-
-        Ok(PrimitiveArray::from_vec(output, validity).into_array())
-    }
-}
-
-#[allow(clippy::unwrap_used)]
-fn process_batch<I: NativePType, U: NativePType, O: NativePType, F: Fn(I, U) -> O>(
-    lhs: &[I],
-    batch: Batch<U>,
-    f: F,
-    idx_offset: usize,
-    output: &mut [MaybeUninit<O>],
-) {
-    assert_eq!(batch.len(), lhs.len());
-
-    if batch.len() == ITER_BATCH_SIZE {
-        let lhs: [I; ITER_BATCH_SIZE] = lhs.try_into().unwrap();
-        let rhs: [U; ITER_BATCH_SIZE] = batch.data().try_into().unwrap();
-        // We know output is of the same length and lhs/rhs
-        let output_slice: &mut [_; ITER_BATCH_SIZE] = (&mut output
-            [idx_offset..idx_offset + ITER_BATCH_SIZE])
-            .try_into()
-            .unwrap();
-
-        for idx in 0..ITER_BATCH_SIZE {
-            unsafe {
-                *output_slice.get_unchecked_mut(idx) = MaybeUninit::new(f(lhs[idx], rhs[idx]));
-            }
-        }
-    } else {
-        for (idx, rhs_item) in batch.data().iter().enumerate() {
-            // Safety: output is the same length as the original array, so we know these are still valid indexes
-            unsafe {
-                *output.get_unchecked_mut(idx + idx_offset) =
-                    MaybeUninit::new(f(lhs[idx], *rhs_item));
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use vortex_scalar::Scalar;
-
     use super::*;
     use crate::compute::slice;
     use crate::IntoArrayVariant;
-
-    #[test]
-    fn batched_iter() {
-        let v = PrimitiveArray::from_vec((0_u32..10_000).collect(), Validity::AllValid);
-        let iter = v.u32_iter().unwrap();
-
-        let mut items_counter = 0;
-
-        for batch in iter {
-            let batch_size = batch.len();
-            for idx in 0..batch_size {
-                assert!(batch.is_valid(idx));
-                assert_eq!((items_counter + idx) as u32, unsafe {
-                    *batch.get_unchecked(idx)
-                });
-            }
-
-            items_counter += batch_size;
-        }
-    }
-
-    #[test]
-    fn flattened_iter() {
-        let v = PrimitiveArray::from_vec((0_u32..10_000).collect(), Validity::AllValid);
-        let iter = v.u32_iter().unwrap();
-
-        for (idx, v) in iter.flatten().enumerate() {
-            assert_eq!(idx as u32, v.unwrap());
-        }
-    }
-
-    #[test]
-    fn binary_fn_example() {
-        let input = PrimitiveArray::from_vec(vec![2u32, 2, 2, 2], Validity::AllValid);
-
-        let scalar = Scalar::from(2u32);
-
-        let o = input
-            .unary(move |v: u32| {
-                let scalar_v = u32::try_from(&scalar).unwrap();
-                if v == scalar_v {
-                    1_u8
-                } else {
-                    0_u8
-                }
-            })
-            .unwrap();
-
-        let output_iter = o
-            .with_dyn(|a| a.as_primitive_array_unchecked().u8_iter())
-            .unwrap()
-            .flatten();
-
-        for v in output_iter {
-            assert_eq!(v.unwrap(), 1);
-        }
-    }
-
-    #[test]
-    fn unary_fn_example() {
-        let input = PrimitiveArray::from_vec(vec![2u32, 2, 2, 2], Validity::AllValid);
-        let output = input.unary(|u: u32| u + 1).unwrap();
-
-        for o in output
-            .with_dyn(|a| a.as_primitive_array_unchecked().u32_iter())
-            .unwrap()
-            .flatten()
-        {
-            assert_eq!(o.unwrap(), 3);
-        }
-    }
-
-    #[test]
-    fn unary_fn_large_example() {
-        let input = PrimitiveArray::from_vec(vec![2u32; 1025], Validity::AllValid);
-        let output = input.unary(|u: u32| u + 1).unwrap();
-
-        for o in output
-            .with_dyn(|a| a.as_primitive_array_unchecked().u32_iter())
-            .unwrap()
-            .flatten()
-        {
-            assert_eq!(o.unwrap(), 3);
-        }
-    }
 
     #[test]
     fn patch_sliced() {

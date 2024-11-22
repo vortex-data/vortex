@@ -1,14 +1,16 @@
 use std::cmp::{max, min};
 use std::fmt::{Display, Formatter};
 
-use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, MutableBuffer};
+use arrow_buffer::BooleanBuffer;
 use vortex_array::array::{BoolArray, PrimitiveArray, SparseArray};
+use vortex_array::compute::unary::try_cast;
 use vortex_array::compute::{and, filter, slice, take, FilterMask, TakeOptions};
 use vortex_array::stats::ArrayStatistics;
 use vortex_array::validity::LogicalValidity;
-use vortex_array::{iterate_integer_array, ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
-use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
+use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_dtype::Nullability::NonNullable;
+use vortex_dtype::{DType, PType};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 const PREFER_TAKE_TO_FILTER_DENSITY: f64 = 1.0 / 1024.0;
 
@@ -49,7 +51,7 @@ impl Display for RowMask {
 
 impl RowMask {
     pub fn try_new(bitmask: ArrayData, begin: usize, end: usize) -> VortexResult<Self> {
-        if bitmask.dtype() != &DType::Bool(Nullability::NonNullable) {
+        if bitmask.dtype() != &DType::Bool(NonNullable) {
             vortex_bail!(
                 "bitmask must be a nonnullable bool array {}",
                 bitmask.dtype()
@@ -123,27 +125,16 @@ impl RowMask {
     ///
     /// The array values are interpreted as indices and those indices are kept by the returned mask.
     pub fn from_index_array(array: &ArrayData, begin: usize, end: usize) -> VortexResult<Self> {
-        array.with_dyn(|a| {
-            let err = || vortex_err!(InvalidArgument: "index array must be integers in the range [0, 2^32)");
-            let array = a.as_primitive_array().ok_or_else(err)?;
-
-            if !array.ptype().is_int() {
-                return Err(err());
-            }
-
-            let len = end - begin;
-            let mut buffer_builder = BooleanBufferBuilder::new_from_buffer(MutableBuffer::from_len_zeroed(len.div_ceil(8)), len);
-
-            iterate_integer_array!(array, |$P, $iterator| {
-                for batch in $iterator {
-                    for index in batch.data() {
-                        buffer_builder.set_bit(*index as usize, true)
-                    }
-                }
-            });
-
-            Ok(unsafe { RowMask::new_unchecked(BoolArray::new(buffer_builder.finish(), Nullability::NonNullable).into_array(), begin, end) })
-        })
+        let indices =
+            try_cast(array, &DType::Primitive(PType::U64, NonNullable))?.into_primitive()?;
+        let bools = BoolArray::from_indices(
+            end - begin,
+            indices
+                .maybe_null_slice::<u64>()
+                .iter()
+                .map(|&i| i as usize),
+        );
+        RowMask::try_new(bools.into_array(), begin, end)
     }
 
     /// Combine the RowMask with bitmask values resulting in new RowMask containing only values true in the bitmask

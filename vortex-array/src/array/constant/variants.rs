@@ -1,12 +1,10 @@
-use std::sync::Arc;
-
 use vortex_dtype::field::Field;
-use vortex_dtype::{DType, PType};
+use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexExpect as _, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue, StructScalar};
 
 use crate::array::constant::ConstantArray;
-use crate::iter::{Accessor, AccessorRef};
+use crate::iter::Accessor;
 use crate::validity::{ArrayValidity, Validity};
 use crate::variants::{
     ArrayVariants, BinaryArrayTrait, BoolArrayTrait, ExtensionArrayTrait, ListArrayTrait,
@@ -87,77 +85,7 @@ where
     }
 }
 
-impl PrimitiveArrayTrait for ConstantArray {
-    fn f32_accessor(&self) -> Option<AccessorRef<f32>> {
-        match self.dtype() {
-            DType::Primitive(PType::F32, _) => Some(Arc::new(self.clone())),
-            _ => None,
-        }
-    }
-
-    fn f64_accessor(&self) -> Option<AccessorRef<f64>> {
-        match self.dtype() {
-            DType::Primitive(PType::F64, _) => Some(Arc::new(self.clone())),
-            _ => None,
-        }
-    }
-
-    fn u8_accessor(&self) -> Option<AccessorRef<u8>> {
-        match self.dtype() {
-            DType::Primitive(PType::U8, _) => Some(Arc::new(self.clone())),
-            _ => None,
-        }
-    }
-
-    fn u16_accessor(&self) -> Option<AccessorRef<u16>> {
-        match self.dtype() {
-            DType::Primitive(PType::U16, _) => Some(Arc::new(self.clone())),
-            _ => None,
-        }
-    }
-
-    fn u32_accessor(&self) -> Option<AccessorRef<u32>> {
-        match self.dtype() {
-            DType::Primitive(PType::U32, _) => Some(Arc::new(self.clone())),
-            _ => None,
-        }
-    }
-
-    fn u64_accessor(&self) -> Option<AccessorRef<u64>> {
-        match self.dtype() {
-            DType::Primitive(PType::U64, _) => Some(Arc::new(self.clone())),
-            _ => None,
-        }
-    }
-
-    fn i8_accessor(&self) -> Option<AccessorRef<i8>> {
-        match self.dtype() {
-            DType::Primitive(PType::I8, _) => Some(Arc::new(self.clone())),
-            _ => None,
-        }
-    }
-
-    fn i16_accessor(&self) -> Option<AccessorRef<i16>> {
-        match self.dtype() {
-            DType::Primitive(PType::I16, _) => Some(Arc::new(self.clone())),
-            _ => None,
-        }
-    }
-
-    fn i32_accessor(&self) -> Option<AccessorRef<i32>> {
-        match self.dtype() {
-            DType::Primitive(PType::I32, _) => Some(Arc::new(self.clone())),
-            _ => None,
-        }
-    }
-
-    fn i64_accessor(&self) -> Option<AccessorRef<i64>> {
-        match self.dtype() {
-            DType::Primitive(PType::I64, _) => Some(Arc::new(self.clone())),
-            _ => None,
-        }
-    }
-}
+impl PrimitiveArrayTrait for ConstantArray {}
 
 impl Utf8ArrayTrait for ConstantArray {}
 

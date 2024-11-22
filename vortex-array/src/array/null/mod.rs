@@ -5,6 +5,7 @@ use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult};
 
 use crate::encoding::ids;
+use crate::nbytes::ArrayNBytes;
 use crate::stats::{Stat, StatisticsVTable, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity, Validity};
 use crate::variants::{ArrayVariants, NullArrayTrait};
@@ -69,11 +70,7 @@ impl VisitorVTable<NullArray> for NullEncoding {
     }
 }
 
-impl ArrayTrait for NullArray {
-    fn nbytes(&self) -> usize {
-        0
-    }
-}
+impl ArrayTrait for NullArray {}
 
 impl ArrayVariants for NullArray {
     fn as_null_array(&self) -> Option<&dyn NullArrayTrait> {

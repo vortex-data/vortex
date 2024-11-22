@@ -106,7 +106,7 @@ pub trait Statistics {
     /// Computes the value of the stat if it's not present
     fn compute(&self, stat: Stat) -> Option<Scalar>;
 
-    /// Compute all of the requested statistics (if not already present)
+    /// Compute all the requested statistics (if not already present)
     /// Returns a StatsSet with the requested stats and any additional available stats
     fn compute_all(&self, stats: &[Stat]) -> VortexResult<StatsSet> {
         let mut stats_set = self.to_set();
