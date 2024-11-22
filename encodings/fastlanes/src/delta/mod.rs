@@ -4,7 +4,7 @@ pub use compress::*;
 use serde::{Deserialize, Serialize};
 use vortex_array::array::PrimitiveArray;
 use vortex_array::encoding::ids;
-use vortex_array::stats::{ArrayStatisticsCompute, StatsSet};
+use vortex_array::stats::{StatisticsVTable, StatsSet};
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
 use vortex_array::variants::{ArrayVariants, PrimitiveArrayTrait};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
@@ -249,4 +249,4 @@ impl VisitorVTable<DeltaArray> for DeltaEncoding {
     }
 }
 
-impl ArrayStatisticsCompute for DeltaArray {}
+impl StatisticsVTable<DeltaArray> for DeltaEncoding {}

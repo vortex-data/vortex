@@ -44,23 +44,23 @@ impl DictArray {
                     .vortex_expect("codes dtype must be uint"),
                 values_len: values.len(),
             },
-            [values, codes].into(),
+            [codes, values].into(),
             StatsSet::default(),
         )
     }
 
     #[inline]
-    pub fn values(&self) -> ArrayData {
+    pub fn codes(&self) -> ArrayData {
         self.as_ref()
-            .child(0, self.dtype(), self.metadata().values_len)
-            .vortex_expect("DictArray is missing its values child array")
+            .child(0, &DType::from(self.metadata().codes_ptype), self.len())
+            .vortex_expect("DictArray is missing its codes child array")
     }
 
     #[inline]
-    pub fn codes(&self) -> ArrayData {
+    pub fn values(&self) -> ArrayData {
         self.as_ref()
-            .child(1, &DType::from(self.metadata().codes_ptype), self.len())
-            .vortex_expect("DictArray is missing its codes child array")
+            .child(1, self.dtype(), self.metadata().values_len)
+            .vortex_expect("DictArray is missing its values child array")
     }
 }
 

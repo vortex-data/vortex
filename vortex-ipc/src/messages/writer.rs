@@ -43,6 +43,27 @@ impl<W: VortexWrite> MessageWriter<W> {
         self.pos
     }
 
+    pub async fn write_dtype_raw(&mut self, dtype: &DType) -> io::Result<()> {
+        let fb = IPCSchema(dtype);
+        let mut fbb = FlatBufferBuilder::new();
+        let ps_fb = fb.write_flatbuffer(&mut fbb);
+        fbb.finish_minimal(ps_fb);
+
+        let (buffer, buffer_begin) = fbb.collapse();
+        let buffer_end = buffer.len();
+
+        let written_len = buffer_end - buffer_begin;
+        let bytes = buffer.slice_owned(buffer_begin..buffer_end);
+        self.write_all(bytes).await?;
+
+        let aligned_size = written_len.next_multiple_of(self.alignment);
+        let padding = aligned_size - written_len;
+
+        self.write_all(&ZEROS[0..padding]).await?;
+
+        Ok(())
+    }
+
     pub async fn write_dtype(&mut self, dtype: &DType) -> io::Result<()> {
         self.write_message(IPCMessage::Schema(IPCSchema(dtype)))
             .await

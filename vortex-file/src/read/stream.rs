@@ -11,14 +11,16 @@ use futures_util::{stream, FutureExt, StreamExt, TryStreamExt};
 use vortex_array::array::ChunkedArray;
 use vortex_array::{ArrayData, IntoArrayData};
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_panic, VortexError, VortexExpect, VortexResult};
+use vortex_error::{
+    vortex_bail, vortex_panic, VortexError, VortexExpect, VortexResult, VortexUnwrap,
+};
 use vortex_io::{Dispatch, IoDispatcher, VortexReadAt};
-use vortex_schema::Schema;
 
 use crate::read::cache::LayoutMessageCache;
 use crate::read::mask::RowMask;
 use crate::read::splits::{FilteringRowSplitIterator, FixedSplitIterator, MaskIterator, SplitMask};
 use crate::read::{BatchRead, LayoutReader, MessageId, MessageLocator};
+use crate::LazyDType;
 
 /// An asynchronous Vortex file that returns a [`Stream`] of [`ArrayData`]s.
 ///
@@ -28,7 +30,7 @@ use crate::read::{BatchRead, LayoutReader, MessageId, MessageLocator};
 /// Use [VortexReadBuilder][crate::read::builder::VortexReadBuilder] to build one
 /// from a reader.
 pub struct VortexFileArrayStream<R> {
-    dtype: DType,
+    dtype: Arc<LazyDType>,
     row_count: u64,
     layout_reader: Box<dyn LayoutReader>,
     messages_cache: Arc<RwLock<LayoutMessageCache>>,
@@ -44,7 +46,7 @@ impl<R: VortexReadAt> VortexFileArrayStream<R> {
         layout_reader: Box<dyn LayoutReader>,
         filter_reader: Option<Box<dyn LayoutReader>>,
         messages_cache: Arc<RwLock<LayoutMessageCache>>,
-        dtype: DType,
+        dtype: Arc<LazyDType>,
         row_count: u64,
         row_mask: Option<RowMask>,
         dispatcher: Arc<IoDispatcher>,
@@ -67,15 +69,11 @@ impl<R: VortexReadAt> VortexFileArrayStream<R> {
     }
 
     pub fn dtype(&self) -> &DType {
-        &self.dtype
+        self.dtype.value().vortex_unwrap()
     }
 
     pub fn row_count(&self) -> u64 {
         self.row_count
-    }
-
-    pub fn schema(&self) -> Schema {
-        Schema::new(self.dtype.clone())
     }
 
     fn store_messages(&self, messages: Vec<Message>) {
@@ -175,7 +173,7 @@ fn finished() -> VortexResult<StreamingTransition> {
 
 impl<R: VortexReadAt + Unpin> VortexFileArrayStream<R> {
     fn step(
-        mut self: Pin<&mut Self>,
+        self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         current_state: StreamingState,
     ) -> VortexResult<StreamingTransition> {

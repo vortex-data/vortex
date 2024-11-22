@@ -23,7 +23,7 @@ use vortex_error::{VortexExpect, VortexResult};
 
 use crate::compute::ArrayCompute;
 use crate::encoding::ArrayEncodingRef;
-use crate::stats::{ArrayStatistics, ArrayStatisticsCompute};
+use crate::stats::ArrayStatistics;
 use crate::validity::ArrayValidity;
 use crate::variants::ArrayVariants;
 use crate::visitor::ArrayVisitor;
@@ -99,7 +99,6 @@ pub trait ArrayTrait:
     + IntoCanonical
     + ArrayValidity
     + ArrayStatistics
-    + ArrayStatisticsCompute
 {
     /// Total size of the array in bytes, including all children and buffers.
     fn nbytes(&self) -> usize {

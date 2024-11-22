@@ -6,7 +6,7 @@ pub use compress::*;
 use fastlanes::BitPacking;
 use vortex_array::array::{PrimitiveArray, SparseArray};
 use vortex_array::encoding::ids;
-use vortex_array::stats::{ArrayStatisticsCompute, StatsSet};
+use vortex_array::stats::{StatisticsVTable, StatsSet};
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
 use vortex_array::variants::{ArrayVariants, PrimitiveArrayTrait};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
@@ -228,7 +228,7 @@ impl VisitorVTable<BitPackedArray> for BitPackedEncoding {
     }
 }
 
-impl ArrayStatisticsCompute for BitPackedArray {}
+impl StatisticsVTable<BitPackedArray> for BitPackedEncoding {}
 
 impl ArrayTrait for BitPackedArray {
     fn nbytes(&self) -> usize {

@@ -1,18 +1,24 @@
-use vortex_array::stats::{ArrayStatisticsCompute, Stat, StatsSet};
+use vortex_array::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
 use vortex_array::{ArrayLen, IntoArrayVariant};
 use vortex_error::VortexResult;
 
-use super::ByteBoolArray;
+use super::{ByteBoolArray, ByteBoolEncoding};
 
-impl ArrayStatisticsCompute for ByteBoolArray {
-    fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
-        if self.is_empty() {
+impl StatisticsVTable<ByteBoolArray> for ByteBoolEncoding {
+    fn compute_statistics(&self, array: &ByteBoolArray, stat: Stat) -> VortexResult<StatsSet> {
+        if array.is_empty() {
             return Ok(StatsSet::default());
         }
 
         // TODO(adamgs): This is slightly wasteful and could be optimized in the future
-        let bools = self.as_ref().clone().into_bool()?;
-        bools.compute_statistics(stat)
+        let bools = array.as_ref().clone().into_bool()?;
+        Ok(StatsSet::from_iter(
+            bools
+                .statistics()
+                .compute(stat)
+                .into_iter()
+                .map(|value| (stat, value)),
+        ))
     }
 }
 

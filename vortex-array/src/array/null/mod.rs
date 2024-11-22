@@ -5,7 +5,7 @@ use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult};
 
 use crate::encoding::ids;
-use crate::stats::{ArrayStatisticsCompute, Stat, StatsSet};
+use crate::stats::{Stat, StatisticsVTable, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity, Validity};
 use crate::variants::{ArrayVariants, NullArrayTrait};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
@@ -53,13 +53,13 @@ impl ArrayValidity for NullArray {
     }
 }
 
-impl ArrayStatisticsCompute for NullArray {
-    fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
+impl StatisticsVTable<NullArray> for NullEncoding {
+    fn compute_statistics(&self, array: &NullArray, stat: Stat) -> VortexResult<StatsSet> {
         if stat == Stat::UncompressedSizeInBytes {
-            return Ok(StatsSet::of(stat, self.nbytes()));
+            return Ok(StatsSet::of(stat, array.nbytes()));
         }
 
-        Ok(StatsSet::nulls(self.len(), &DType::Null))
+        Ok(StatsSet::nulls(array.len(), &DType::Null))
     }
 }
 

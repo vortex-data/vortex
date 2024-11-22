@@ -1,32 +1,36 @@
 use std::collections::BTreeSet;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use bytes::Bytes;
 use itertools::Itertools;
+use vortex_array::aliases::hash_map::HashMap;
+use vortex_array::array::StructArray;
+use vortex_array::stats::ArrayStatistics;
+use vortex_array::validity::Validity;
+use vortex_array::{ArrayData, IntoArrayData};
 use vortex_dtype::field::Field;
-use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexResult};
-use vortex_expr::{Column, Select};
+use vortex_dtype::FieldNames;
+use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
+use vortex_expr::{Column, Select, VortexExpr};
 use vortex_flatbuffers::footer;
 
-use crate::read::cache::{LazilyDeserializedDType, RelativeLayoutCache};
-use crate::read::column_batch::ColumnBatchReader;
+use crate::read::cache::{LazyDType, RelativeLayoutCache};
 use crate::read::expr_project::expr_project;
 use crate::read::mask::RowMask;
 use crate::{
-    BatchRead, LayoutDeserializer, LayoutId, LayoutReader, LayoutSpec, RowFilter, Scan,
+    BatchRead, Layout, LayoutDeserializer, LayoutId, LayoutReader, RowFilter, Scan,
     COLUMNAR_LAYOUT_ID,
 };
 
 #[derive(Debug)]
-pub struct ColumnarLayoutSpec;
+pub struct ColumnarLayout;
 
-impl LayoutSpec for ColumnarLayoutSpec {
+impl Layout for ColumnarLayout {
     fn id(&self) -> LayoutId {
         COLUMNAR_LAYOUT_ID
     }
 
-    fn layout_reader(
+    fn reader(
         &self,
         fb_bytes: Bytes,
         fb_loc: usize,
@@ -34,47 +38,28 @@ impl LayoutSpec for ColumnarLayoutSpec {
         layout_serde: LayoutDeserializer,
         message_cache: RelativeLayoutCache,
     ) -> VortexResult<Box<dyn LayoutReader>> {
-        Ok(Box::new(ColumnarLayout::new(
-            fb_bytes,
-            fb_loc,
-            scan,
-            layout_serde,
-            message_cache,
-        )))
+        Ok(Box::new(
+            ColumnarLayoutBuilder {
+                fb_bytes,
+                fb_loc,
+                scan,
+                layout_serde,
+                message_cache,
+            }
+            .build()?,
+        ))
     }
 }
 
-/// In memory representation of Columnar NestedLayout.
-///
-/// Each child represents a column
-#[derive(Debug)]
-pub struct ColumnarLayout {
+struct ColumnarLayoutBuilder {
     fb_bytes: Bytes,
     fb_loc: usize,
     scan: Scan,
     layout_serde: LayoutDeserializer,
     message_cache: RelativeLayoutCache,
-    reader: Option<ColumnBatchReader>,
 }
 
-impl ColumnarLayout {
-    pub fn new(
-        fb_bytes: Bytes,
-        fb_loc: usize,
-        scan: Scan,
-        layout_serde: LayoutDeserializer,
-        message_cache: RelativeLayoutCache,
-    ) -> Self {
-        Self {
-            fb_bytes,
-            fb_loc,
-            scan,
-            layout_serde,
-            message_cache,
-            reader: None,
-        }
-    }
-
+impl ColumnarLayoutBuilder {
     fn flatbuffer(&self) -> footer::Layout {
         unsafe {
             let tab = flatbuffers::Table::new(&self.fb_bytes, self.fb_loc);
@@ -82,45 +67,18 @@ impl ColumnarLayout {
         }
     }
 
-    /// Perform minimal amount of work to construct children that can be queried for splits
-    fn children_for_splits(&self) -> VortexResult<Vec<Box<dyn LayoutReader>>> {
+    fn build(&self) -> VortexResult<ColumnarLayoutReader> {
         let (refs, lazy_dtype) = self.fields_with_dtypes()?;
         let fb_children = self.flatbuffer().children().unwrap_or_default();
-
-        refs.into_iter()
-            .map(|field| {
-                let resolved_child = lazy_dtype.resolve_field(&field)?;
-                let child_loc = fb_children.get(resolved_child)._tab.loc();
-
-                self.layout_serde.read_layout(
-                    self.fb_bytes.clone(),
-                    child_loc,
-                    Scan::new(None),
-                    self.message_cache.unknown_dtype(resolved_child as u16),
-                )
-            })
-            .collect::<VortexResult<Vec<_>>>()
-    }
-
-    fn column_reader(&self) -> VortexResult<ColumnBatchReader> {
-        let (refs, lazy_dtype) = self.fields_with_dtypes()?;
-        let fb_children = self.flatbuffer().children().unwrap_or_default();
-
-        let filter_dtype = lazy_dtype.value()?;
-        let DType::Struct(s, ..) = filter_dtype else {
-            vortex_bail!("Column layout must have struct dtype")
-        };
 
         let mut unhandled_names = Vec::new();
         let mut unhandled_children = Vec::new();
         let mut handled_children = Vec::new();
         let mut handled_names = Vec::new();
 
-        for (field, (name, dtype)) in refs
-            .into_iter()
-            .zip_eq(s.names().iter().cloned().zip_eq(s.dtypes().iter().cloned()))
-        {
+        for (field, name) in refs.into_iter().zip_eq(lazy_dtype.names()?.iter()) {
             let resolved_child = lazy_dtype.resolve_field(&field)?;
+            let child_field = lazy_dtype.field(&field)?;
             let child_loc = fb_children.get(resolved_child)._tab.loc();
             let projected_expr = self
                 .scan
@@ -135,18 +93,16 @@ impl ColumnarLayout {
                 self.fb_bytes.clone(),
                 child_loc,
                 Scan::new(projected_expr),
-                self.message_cache.relative(
-                    resolved_child as u16,
-                    Arc::new(LazilyDeserializedDType::from_dtype(dtype)),
-                ),
+                self.message_cache
+                    .relative(resolved_child as u16, child_field),
             )?;
 
             if handled {
                 handled_children.push(child);
-                handled_names.push(name);
+                handled_names.push(name.clone());
             } else {
                 unhandled_children.push(child);
-                unhandled_names.push(name);
+                unhandled_names.push(name.clone());
             }
         }
 
@@ -172,7 +128,7 @@ impl ColumnarLayout {
                     )
                 })?;
 
-            handled_children.push(Box::new(ColumnBatchReader::new(
+            handled_children.push(Box::new(ColumnarLayoutReader::new(
                 unhandled_names.into(),
                 unhandled_children,
                 Some(prf),
@@ -196,7 +152,7 @@ impl ColumnarLayout {
                 )) as _
             });
         let shortcircuit_siblings = top_level_expr.is_some();
-        Ok(ColumnBatchReader::new(
+        Ok(ColumnarLayoutReader::new(
             handled_names.into(),
             handled_children,
             top_level_expr,
@@ -205,7 +161,7 @@ impl ColumnarLayout {
     }
 
     /// Get fields referenced by scan expression along with their dtype
-    fn fields_with_dtypes(&self) -> VortexResult<(Vec<Field>, Arc<LazilyDeserializedDType>)> {
+    fn fields_with_dtypes(&self) -> VortexResult<(Vec<Field>, Arc<LazyDType>)> {
         let fb_children = self.flatbuffer().children().unwrap_or_default();
         let field_refs = self.scan_fields();
         let lazy_dtype = field_refs
@@ -234,20 +190,117 @@ impl ColumnarLayout {
     }
 }
 
-impl LayoutReader for ColumnarLayout {
+type InProgressRanges = RwLock<HashMap<(usize, usize), Vec<Option<ArrayData>>>>;
+
+/// In memory representation of Columnar NestedLayout.
+///
+/// Each child represents a column
+#[derive(Debug)]
+pub struct ColumnarLayoutReader {
+    names: FieldNames,
+    children: Vec<Box<dyn LayoutReader>>,
+    in_progress_ranges: InProgressRanges,
+    expr: Option<Arc<dyn VortexExpr>>,
+    // TODO(robert): This is a hack/optimization that tells us if we're reducing results with AND or not
+    shortcircuit_siblings: bool,
+}
+
+impl ColumnarLayoutReader {
+    pub fn new(
+        names: FieldNames,
+        children: Vec<Box<dyn LayoutReader>>,
+        expr: Option<Arc<dyn VortexExpr>>,
+        shortcircuit_siblings: bool,
+    ) -> Self {
+        assert_eq!(
+            names.len(),
+            children.len(),
+            "Names and children must be of same length"
+        );
+        Self {
+            names,
+            children,
+            in_progress_ranges: RwLock::new(HashMap::new()),
+            expr,
+            shortcircuit_siblings,
+        }
+    }
+}
+
+impl LayoutReader for ColumnarLayoutReader {
     fn add_splits(&self, row_offset: usize, splits: &mut BTreeSet<usize>) -> VortexResult<()> {
-        for child in self.children_for_splits()? {
+        for child in &self.children {
             child.add_splits(row_offset, splits)?
         }
         Ok(())
     }
 
-    fn read_selection(&mut self, selector: &RowMask) -> VortexResult<Option<BatchRead>> {
-        if let Some(r) = &mut self.reader {
-            r.read_selection(selector)
+    fn read_selection(&self, selection: &RowMask) -> VortexResult<Option<BatchRead>> {
+        let mut in_progress_guard = self
+            .in_progress_ranges
+            .write()
+            .unwrap_or_else(|poison| vortex_panic!("Failed to write to message cache: {poison}"));
+        let selection_range = (selection.begin(), selection.end());
+        let in_progress_selection = in_progress_guard
+            .entry(selection_range)
+            .or_insert_with(|| vec![None; self.children.len()]);
+        let mut messages = Vec::new();
+        for (i, child_array) in in_progress_selection
+            .iter_mut()
+            .enumerate()
+            .filter(|(_, a)| a.is_none())
+        {
+            match self.children[i].read_selection(selection)? {
+                Some(rr) => match rr {
+                    BatchRead::ReadMore(message) => {
+                        messages.extend(message);
+                    }
+                    BatchRead::Batch(arr) => {
+                        if self.shortcircuit_siblings
+                            && arr.statistics().compute_true_count().vortex_expect(
+                                "must be a bool array if shortcircuit_siblings is set to true",
+                            ) == 0
+                        {
+                            in_progress_guard.remove(&selection_range);
+                            return Ok(None);
+                        }
+                        *child_array = Some(arr)
+                    }
+                },
+                None => {
+                    debug_assert!(
+                        in_progress_selection.iter().all(Option::is_none),
+                        "Expected layout {}({i}) to produce an array but it was empty",
+                        self.names[i]
+                    );
+                    return Ok(None);
+                }
+            }
+        }
+
+        if messages.is_empty() {
+            let child_arrays = in_progress_guard
+                .remove(&selection_range)
+                .ok_or_else(|| vortex_err!("There were no arrays and no messages"))?
+                .into_iter()
+                .enumerate()
+                .map(|(i, a)| a.ok_or_else(|| vortex_err!("Missing child array at index {i}")))
+                .collect::<VortexResult<Vec<_>>>()?;
+            let len = child_arrays
+                .first()
+                .map(|l| l.len())
+                .unwrap_or(selection.len());
+            let array =
+                StructArray::try_new(self.names.clone(), child_arrays, len, Validity::NonNullable)?
+                    .into_array();
+            self.expr
+                .as_ref()
+                .map(|e| e.evaluate(&array))
+                .unwrap_or_else(|| Ok(array))
+                .map(BatchRead::Batch)
+                .map(Some)
         } else {
-            self.reader = Some(self.column_reader()?);
-            self.read_selection(selector)
+            Ok(Some(BatchRead::ReadMore(messages)))
         }
     }
 }

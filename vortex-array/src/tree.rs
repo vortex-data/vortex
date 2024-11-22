@@ -89,7 +89,7 @@ impl<'a, 'b: 'a> ArrayVisitor for TreeFormatter<'a, 'b> {
 }
 
 impl<'a, 'b: 'a> TreeFormatter<'a, 'b> {
-    fn new(fmt: &'a mut fmt::Formatter<'b>, indent: String) -> Self {
+    pub fn new(fmt: &'a mut fmt::Formatter<'b>, indent: String) -> Self {
         TreeFormatter {
             fmt,
             indent,
@@ -97,7 +97,7 @@ impl<'a, 'b: 'a> TreeFormatter<'a, 'b> {
         }
     }
 
-    fn indent<F>(&mut self, indented: F) -> fmt::Result
+    pub fn indent<F>(&mut self, indented: F) -> fmt::Result
     where
         F: FnOnce(&mut TreeFormatter) -> fmt::Result,
     {
@@ -106,5 +106,9 @@ impl<'a, 'b: 'a> TreeFormatter<'a, 'b> {
         let res = indented(self);
         self.indent = original_ident;
         res
+    }
+
+    pub fn write_fmt(&mut self, fmt: fmt::Arguments<'_>) -> fmt::Result {
+        write!(self.fmt, "{}{}", self.indent, fmt)
     }
 }

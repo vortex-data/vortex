@@ -6,6 +6,7 @@ use vortex_error::{vortex_bail, VortexResult};
 
 use crate::compute::ComputeVTable;
 use crate::encoding::{EncodingId, EncodingVTable};
+use crate::stats::StatisticsVTable;
 use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{
     ArrayData, ArrayMetadata, ArrayTrait, Canonical, IntoCanonicalVTable, MetadataVTable,
@@ -62,6 +63,8 @@ impl MetadataVTable for OpaqueEncoding {
         Ok(Arc::new(OpaqueMetadata))
     }
 }
+
+impl StatisticsVTable<ArrayData> for OpaqueEncoding {}
 
 impl VisitorVTable<ArrayData> for OpaqueEncoding {
     fn accept(&self, _array: &ArrayData, _visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {

@@ -7,6 +7,7 @@ use std::hash::{Hash, Hasher};
 use vortex_error::{vortex_panic, VortexResult};
 
 use crate::compute::ComputeVTable;
+use crate::stats::StatisticsVTable;
 use crate::visitor::VisitorVTable;
 use crate::{ArrayData, ArrayDef, ArrayMetadata, ArrayTrait, IntoCanonicalVTable, MetadataVTable};
 
@@ -75,6 +76,7 @@ pub trait EncodingVTable:
     + IntoCanonicalVTable
     + MetadataVTable
     + ComputeVTable
+    + StatisticsVTable<ArrayData>
     + VisitorVTable<ArrayData>
 {
     fn id(&self) -> EncodingId;

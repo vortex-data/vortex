@@ -23,8 +23,17 @@ pub fn resolve_field<'a, 'b: 'a>(fb: fb::Struct_<'b>, field: &'a Field) -> Vorte
     }
 }
 
+/// Deserialize single field out of a struct dtype and as a top level dtype
+pub fn extract_field(fb_dtype: fb::DType<'_>, field: &Field) -> VortexResult<DType> {
+    let fb_struct = fb_dtype
+        .type__as_struct_()
+        .ok_or_else(|| vortex_err!("The top-level type should be a struct"))?;
+    let (_, dtype) = read_field(fb_struct, resolve_field(fb_struct, field)?)?;
+    Ok(dtype)
+}
+
 /// Deserialize flatbuffer schema selecting only columns defined by projection
-pub fn deserialize_and_project(
+pub fn project_and_deserialize(
     fb_dtype: fb::DType<'_>,
     projection: &[Field],
 ) -> VortexResult<DType> {

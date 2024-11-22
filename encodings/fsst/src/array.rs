@@ -5,7 +5,7 @@ use fsst::{Decompressor, Symbol};
 use serde::{Deserialize, Serialize};
 use vortex_array::array::{VarBin, VarBinArray};
 use vortex_array::encoding::ids;
-use vortex_array::stats::{ArrayStatisticsCompute, StatsSet};
+use vortex_array::stats::{StatisticsVTable, StatsSet};
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity};
 use vortex_array::variants::{ArrayVariants, BinaryArrayTrait, Utf8ArrayTrait};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
@@ -200,7 +200,7 @@ impl VisitorVTable<FSSTArray> for FSSTEncoding {
     }
 }
 
-impl ArrayStatisticsCompute for FSSTArray {}
+impl StatisticsVTable<FSSTArray> for FSSTEncoding {}
 
 impl ArrayValidity for FSSTArray {
     fn is_valid(&self, index: usize) -> bool {

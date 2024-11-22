@@ -4,15 +4,14 @@ use std::fmt::Debug;
 use vortex_array::ArrayData;
 use vortex_error::VortexResult;
 
-mod buffered;
 pub mod builder;
 mod cache;
-mod column_batch;
 mod context;
 mod expr_project;
 mod filtering;
 pub mod layouts;
 mod mask;
+pub mod projection;
 mod recordbatchreader;
 mod splits;
 mod stream;
@@ -22,12 +21,11 @@ pub use builder::VortexReadBuilder;
 pub use cache::*;
 pub use context::*;
 pub use filtering::RowFilter;
+pub use projection::Projection;
 pub use recordbatchreader::{AsyncRuntime, VortexRecordBatchReader};
 pub use stream::VortexFileArrayStream;
 use vortex_expr::ExprRef;
 use vortex_ipc::stream_writer::ByteRange;
-pub use vortex_schema::projection::Projection;
-pub use vortex_schema::Schema;
 
 pub use crate::read::mask::RowMask;
 
@@ -84,5 +82,5 @@ pub trait LayoutReader: Debug + Send {
     /// creating the invoked instance of this trait and then call back into this function.
     ///
     /// The layout is finished producing data for selection when it returns None
-    fn read_selection(&mut self, selector: &RowMask) -> VortexResult<Option<BatchRead>>;
+    fn read_selection(&self, selector: &RowMask) -> VortexResult<Option<BatchRead>>;
 }

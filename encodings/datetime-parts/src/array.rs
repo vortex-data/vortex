@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use vortex_array::array::StructArray;
 use vortex_array::compute::unary::try_cast;
 use vortex_array::encoding::ids;
-use vortex_array::stats::{ArrayStatisticsCompute, Stat, StatsSet};
+use vortex_array::stats::{Stat, StatisticsVTable, StatsSet};
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity};
 use vortex_array::variants::{ArrayVariants, ExtensionArrayTrait};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
@@ -166,10 +166,10 @@ impl VisitorVTable<DateTimePartsArray> for DateTimePartsEncoding {
     }
 }
 
-impl ArrayStatisticsCompute for DateTimePartsArray {
-    fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
+impl StatisticsVTable<DateTimePartsArray> for DateTimePartsEncoding {
+    fn compute_statistics(&self, array: &DateTimePartsArray, stat: Stat) -> VortexResult<StatsSet> {
         let maybe_stat = match stat {
-            Stat::NullCount => Some(Scalar::from(self.validity().null_count(self.len())?)),
+            Stat::NullCount => Some(Scalar::from(array.validity().null_count(array.len())?)),
             _ => None,
         };
 
