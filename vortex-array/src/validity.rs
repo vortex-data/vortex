@@ -14,8 +14,43 @@ use vortex_error::{
 use crate::array::{BoolArray, ConstantArray};
 use crate::compute::unary::scalar_at;
 use crate::compute::{filter, slice, take, FilterMask, TakeOptions};
+use crate::encoding::Encoding;
 use crate::stats::ArrayStatistics;
 use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
+
+pub trait ValidityVTable<Array> {
+    // TODO(ngates): can we implement this based on logical validity? Or is that too expensive?
+    fn is_valid(&self, array: &Array, index: usize) -> bool;
+    fn logical_validity(&self, array: &Array) -> LogicalValidity;
+}
+
+impl<E: Encoding> ValidityVTable<ArrayData> for E
+where
+    E: ValidityVTable<E::Array>,
+    for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
+{
+    fn is_valid(&self, array: &ArrayData, index: usize) -> bool {
+        let array_ref =
+            <&E::Array>::try_from(array).vortex_expect("Failed to get array as reference");
+        let encoding = array
+            .encoding()
+            .as_any()
+            .downcast_ref::<E>()
+            .vortex_expect("Failed to downcast encoding");
+        ValidityVTable::is_valid(encoding, array_ref, index)
+    }
+
+    fn logical_validity(&self, array: &ArrayData) -> LogicalValidity {
+        let array_ref =
+            <&E::Array>::try_from(array).vortex_expect("Failed to get array as reference");
+        let encoding = array
+            .encoding()
+            .as_any()
+            .downcast_ref::<E>()
+            .vortex_expect("Failed to downcast encoding");
+        ValidityVTable::logical_validity(encoding, array_ref)
+    }
+}
 
 pub trait ArrayValidity {
     fn is_valid(&self, index: usize) -> bool;

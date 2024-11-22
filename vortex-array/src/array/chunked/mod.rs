@@ -19,7 +19,7 @@ use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
 use crate::stats::ArrayStatistics;
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::validity::Validity::NonNullable;
-use crate::validity::{ArrayValidity, LogicalValidity, Validity};
+use crate::validity::{LogicalValidity, Validity, ValidityVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, IntoArrayData, IntoCanonical,
@@ -221,22 +221,23 @@ impl VisitorVTable<ChunkedArray> for ChunkedEncoding {
     }
 }
 
-impl ArrayValidity for ChunkedArray {
-    fn is_valid(&self, index: usize) -> bool {
-        let (chunk, offset_in_chunk) = self.find_chunk_idx(index);
-        self.chunk(chunk)
+impl ValidityVTable<ChunkedArray> for ChunkedEncoding {
+    fn is_valid(&self, array: &ChunkedArray, index: usize) -> bool {
+        let (chunk, offset_in_chunk) = array.find_chunk_idx(index);
+        array
+            .chunk(chunk)
             .unwrap_or_else(|e| {
                 vortex_panic!(e, "ChunkedArray: is_valid failed to find chunk {}", index)
             })
             .with_dyn(|a| a.is_valid(offset_in_chunk))
     }
 
-    fn logical_validity(&self) -> LogicalValidity {
-        let validity = self
+    fn logical_validity(&self, array: &ChunkedArray) -> LogicalValidity {
+        let validity = array
             .chunks()
             .map(|a| a.with_dyn(|arr| arr.logical_validity()))
             .collect::<Validity>();
-        validity.to_logical(self.len())
+        validity.to_logical(array.len())
     }
 }
 

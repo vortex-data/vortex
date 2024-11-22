@@ -8,7 +8,7 @@ use vortex_error::{VortexExpect as _, VortexResult};
 
 use crate::encoding::ids;
 use crate::stats::{ArrayStatistics as _, Stat, StatisticsVTable, StatsSet};
-use crate::validity::{ArrayValidity, LogicalValidity};
+use crate::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use crate::variants::{ArrayVariants, ExtensionArrayTrait};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoCanonical};
@@ -77,13 +77,13 @@ impl IntoCanonical for ExtensionArray {
     }
 }
 
-impl ArrayValidity for ExtensionArray {
-    fn is_valid(&self, index: usize) -> bool {
-        self.storage().with_dyn(|a| a.is_valid(index))
+impl ValidityVTable<ExtensionArray> for ExtensionEncoding {
+    fn is_valid(&self, array: &ExtensionArray, index: usize) -> bool {
+        array.storage().is_valid(index)
     }
 
-    fn logical_validity(&self) -> LogicalValidity {
-        self.storage().with_dyn(|a| a.logical_validity())
+    fn logical_validity(&self, array: &ExtensionArray) -> LogicalValidity {
+        array.storage().logical_validity()
     }
 }
 

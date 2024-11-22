@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use vortex_array::array::BoolArray;
 use vortex_array::encoding::ids;
 use vortex_array::stats::StatsSet;
-use vortex_array::validity::{ArrayValidity, LogicalValidity};
+use vortex_array::validity::{LogicalValidity, ValidityVTable};
 use vortex_array::variants::{ArrayVariants, BoolArrayTrait};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
@@ -107,13 +107,13 @@ impl VisitorVTable<RoaringBoolArray> for RoaringBoolEncoding {
     }
 }
 
-impl ArrayValidity for RoaringBoolArray {
-    fn is_valid(&self, _index: usize) -> bool {
+impl ValidityVTable<RoaringBoolArray> for RoaringBoolEncoding {
+    fn is_valid(&self, _array: &RoaringBoolArray, _index: usize) -> bool {
         true
     }
 
-    fn logical_validity(&self) -> LogicalValidity {
-        LogicalValidity::AllValid(self.len())
+    fn logical_validity(&self, array: &RoaringBoolArray) -> LogicalValidity {
+        LogicalValidity::AllValid(array.len())
     }
 }
 

@@ -15,7 +15,7 @@ use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use crate::encoding::ids;
 use crate::iter::Accessor;
 use crate::stats::StatsSet;
-use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
+use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use crate::variants::{ArrayVariants, PrimitiveArrayTrait};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{
@@ -263,13 +263,13 @@ impl IntoCanonical for PrimitiveArray {
     }
 }
 
-impl ArrayValidity for PrimitiveArray {
-    fn is_valid(&self, index: usize) -> bool {
-        self.validity().is_valid(index)
+impl ValidityVTable<PrimitiveArray> for PrimitiveEncoding {
+    fn is_valid(&self, array: &PrimitiveArray, index: usize) -> bool {
+        array.validity().is_valid(index)
     }
 
-    fn logical_validity(&self) -> LogicalValidity {
-        self.validity().to_logical(self.len())
+    fn logical_validity(&self, array: &PrimitiveArray) -> LogicalValidity {
+        array.validity().to_logical(array.len())
     }
 }
 
