@@ -1,14 +1,12 @@
 use std::cmp::Ordering;
 
 use itertools::{Itertools, MinMaxResult};
-use vortex_buffer::Buffer;
-use vortex_dtype::DType;
 use vortex_error::{vortex_panic, VortexResult};
-use vortex_scalar::Scalar;
 
 use crate::accessor::ArrayAccessor;
-use crate::array::varbin::{varbin_scalar, VarBinArray};
+use crate::array::varbin::VarBinArray;
 use crate::array::VarBinEncoding;
+use crate::compute::unary::scalar_at;
 use crate::stats::{Stat, StatisticsVTable, StatsSet};
 use crate::ArrayTrait;
 
@@ -53,20 +51,17 @@ pub fn compute_varbin_statistics<T: ArrayTrait + ArrayAccessor<[u8]>>(
             } else {
                 array.with_iterator(|iter| compute_is_constant(&mut iter.flatten()))?
             };
-            stats.set(Stat::IsConstant, is_constant);
+
+            if is_constant {
+                // this array is all-valid and not empty
+                let value = scalar_at(array, 0)?;
+                stats.extend(StatsSet::constant(value, array.len()));
+            } else {
+                stats.set(Stat::IsConstant, is_constant);
+            }
             stats
         }
-        Stat::Min | Stat::Max => {
-            // handle min and max in the same loop
-            let Some((min, max)) =
-                array.with_iterator(|iter| compute_min_max(&mut iter.flatten(), array.dtype()))?
-            else {
-                vortex_panic!(
-                    "Unreachable: already checked that array has at least one non-null element"
-                );
-            };
-            StatsSet::from_iter([(Stat::Min, min), (Stat::Max, max)])
-        }
+        Stat::Min | Stat::Max => compute_min_max(array)?,
         Stat::IsSorted => {
             let is_sorted = array.with_iterator(|iter| iter.flatten().is_sorted())?;
             let mut stats = StatsSet::of(Stat::IsSorted, is_sorted);
@@ -111,21 +106,53 @@ fn compute_is_constant(iter: &mut dyn Iterator<Item = &[u8]>) -> bool {
     true
 }
 
-fn compute_min_max(
-    iter: &mut dyn Iterator<Item = &[u8]>,
-    dtype: &DType,
-) -> Option<(Scalar, Scalar)> {
-    Some(match iter.minmax() {
-        MinMaxResult::NoElements => return None,
-        MinMaxResult::OneElement(v) => {
-            let scalar = varbin_scalar(Buffer::from(v), dtype);
-            (scalar.clone(), scalar)
+fn compute_min_max<T: ArrayTrait + ArrayAccessor<[u8]>>(array: &T) -> VortexResult<StatsSet> {
+    let mut stats = StatsSet::default();
+
+    let minmaxpos = array.with_iterator(|iter| iter.flatten().position_minmax())?;
+    let (min_idx, min_scalar, max_idx, max_scalar) = match minmaxpos {
+        MinMaxResult::NoElements => {
+            vortex_panic!(
+                "Unreachable: already checked that array has at least one non-null element"
+            );
         }
-        MinMaxResult::MinMax(min, max) => (
-            varbin_scalar(Buffer::from(min), dtype),
-            varbin_scalar(Buffer::from(max), dtype),
+        MinMaxResult::OneElement(idx) => {
+            let scalar = scalar_at(array, idx)?;
+            (idx, scalar.clone(), idx, scalar)
+        }
+        MinMaxResult::MinMax(min_idx, max_idx) => (
+            min_idx,
+            scalar_at(array, min_idx)?,
+            max_idx,
+            scalar_at(array, max_idx)?,
         ),
-    })
+    };
+
+    // get (don't compute) null count if `min == max` to determine if it's constant
+    let min_eq_max = min_scalar == max_scalar;
+    if min_eq_max
+        && array
+            .statistics()
+            .get_as::<u64>(Stat::NullCount)
+            .map_or(false, |null_count| null_count == 0)
+    {
+        // if there are no nulls, then the array is constant
+        return Ok(StatsSet::constant(min_scalar, array.len()));
+    }
+    if !min_eq_max {
+        stats.set(Stat::IsConstant, false);
+    }
+
+    stats.set(Stat::Min, min_scalar);
+    stats.set(Stat::Max, max_scalar);
+
+    // if max comes before min, then it's not sorted
+    if max_idx < min_idx {
+        stats.set(Stat::IsSorted, false);
+        stats.set(Stat::IsStrictSorted, false);
+    }
+
+    Ok(stats)
 }
 
 #[cfg(test)]
