@@ -260,7 +260,6 @@ mod test {
     use vortex_error::VortexError;
     use vortex_scalar::Scalar;
 
-    use crate::accessor::ArrayAccessor;
     use crate::array::sparse::SparseArray;
     use crate::compute::slice;
     use crate::compute::unary::{scalar_at, try_cast};
@@ -287,64 +286,6 @@ mod test {
         )
         .unwrap()
         .into_array()
-    }
-
-    fn assert_sparse_array(sparse: &ArrayData, values: &[Option<i32>]) {
-        let sparse_arrow = ArrayAccessor::<i32>::with_iterator(
-            &sparse.clone().into_primitive().unwrap(),
-            |iter| iter.map(|v| v.cloned()).collect_vec(),
-        )
-        .unwrap();
-        assert_eq!(&sparse_arrow, values);
-    }
-
-    #[test]
-    pub fn iter() {
-        assert_sparse_array(
-            &sparse_array(nullable_fill()),
-            &[
-                None,
-                None,
-                Some(100),
-                None,
-                None,
-                Some(200),
-                None,
-                None,
-                Some(300),
-                None,
-            ],
-        );
-    }
-
-    #[test]
-    pub fn iter_sliced() {
-        let p_fill_val = Some(non_nullable_fill().as_ref().try_into().unwrap());
-        assert_sparse_array(
-            &slice(sparse_array(non_nullable_fill()), 2, 7).unwrap(),
-            &[Some(100), p_fill_val, p_fill_val, Some(200), p_fill_val],
-        );
-    }
-
-    #[test]
-    pub fn iter_sliced_nullable() {
-        assert_sparse_array(
-            &slice(sparse_array(nullable_fill()), 2, 7).unwrap(),
-            &[Some(100), None, None, Some(200), None],
-        );
-    }
-
-    #[test]
-    pub fn iter_sliced_twice() {
-        let sliced_once = slice(sparse_array(nullable_fill()), 1, 8).unwrap();
-        assert_sparse_array(
-            &sliced_once,
-            &[None, Some(100), None, None, Some(200), None, None],
-        );
-        assert_sparse_array(
-            &slice(&sliced_once, 1, 6).unwrap(),
-            &[Some(100), None, None, Some(200), None],
-        );
     }
 
     #[test]

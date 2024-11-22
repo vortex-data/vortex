@@ -36,7 +36,6 @@ pub mod compress;
 pub mod compute;
 mod context;
 mod data;
-pub mod elementwise;
 pub mod encoding;
 pub mod iter;
 mod macros;

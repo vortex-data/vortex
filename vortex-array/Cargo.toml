@@ -89,13 +89,5 @@ name = "compare"
 harness = false
 
 [[bench]]
-name = "iter"
-harness = false
-
-[[bench]]
-name = "fn"
-harness = false
-
-[[bench]]
 name = "take_strings"
 harness = false
