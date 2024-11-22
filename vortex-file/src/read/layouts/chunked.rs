@@ -51,7 +51,7 @@ pub struct ChunkedLayout {
     scan: Scan,
     layout_builder: LayoutDeserializer,
     message_cache: RelativeLayoutCache,
-    chunk_reader: Option<BuffezredLayoutReader>,
+    chunk_reader: Option<BufferedLayoutReader>,
 }
 
 impl ChunkedLayout {
@@ -178,6 +178,8 @@ impl LayoutReader for ChunkedLayout {
                 let data = metadata_layout.read_selection(selector)?;
             }
         }
+
+        todo!()
     }
 }
 

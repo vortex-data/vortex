@@ -91,5 +91,6 @@ pub trait LayoutReader: Debug + Send {
     /// The layout is finished producing data for selection when it returns None
     fn read_selection(&mut self, selector: &RowMask) -> VortexResult<Option<BatchRead>>;
 
-    fn read_metadata(&mut self) -> VortexResult<Option<Vec<ArrayData>>>;
+    /// Reads the metadata of the layout, if it exists.
+    fn read_metadata(&mut self) -> VortexResult<Option<BatchRead>>;
 }

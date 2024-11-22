@@ -93,8 +93,8 @@ impl<R: VortexReadAt> VortexFileArrayStream<R> {
 #[derive(Debug, Clone)]
 struct Message(pub MessageId, pub Bytes);
 
-type StreamMessages = Vec<Message>;
-type StreamStateFuture = BoxFuture<'static, VortexResult<StreamMessages>>;
+pub type StreamMessages = Vec<Message>;
+pub type StreamStateFuture = BoxFuture<'static, VortexResult<StreamMessages>>;
 
 enum ReadingFor {
     Read(StreamStateFuture, RowMask, MaskIteratorRef),
@@ -297,7 +297,7 @@ impl<R: VortexReadAt + Unpin> VortexFileArrayStream<R> {
     }
 }
 
-async fn read_ranges<R: VortexReadAt>(
+pub(crate) async fn read_ranges<R: VortexReadAt>(
     reader: R,
     ranges: Vec<MessageLocator>,
 ) -> VortexResult<Vec<Message>> {
