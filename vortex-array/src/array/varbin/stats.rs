@@ -105,22 +105,25 @@ fn compute_is_constant(iter: &mut dyn Iterator<Item = Option<&[u8]>>) -> bool {
 
 fn compute_min_max<T: ArrayTrait + ArrayAccessor<[u8]>>(array: &T) -> VortexResult<StatsSet> {
     let mut stats = StatsSet::default();
+    if array.is_empty() {
+        return Ok(stats);
+    }
 
-    let (min, max) = array.with_iterator(|iter| match iter.flatten().minmax() {
-        MinMaxResult::NoElements => {
-            vortex_panic!(
-                "Unreachable: already checked that array has at least one non-null element"
-            );
-        }
+    let minmax = array.with_iterator(|iter| match iter.flatten().minmax() {
+        MinMaxResult::NoElements => None,
         MinMaxResult::OneElement(value) => {
             let scalar = varbin_scalar(Buffer::from(value), array.dtype());
-            (scalar.clone(), scalar)
+            Some((scalar.clone(), scalar))
         }
-        MinMaxResult::MinMax(min, max) => (
+        MinMaxResult::MinMax(min, max) => Some((
             varbin_scalar(Buffer::from(min), array.dtype()),
             varbin_scalar(Buffer::from(max), array.dtype()),
-        ),
+        )),
     })?;
+    let Some((min, max)) = minmax else {
+        // we know that the array is not empty, so it must be all nulls
+        return Ok(StatsSet::nulls(array.len(), array.dtype()));
+    };
 
     if min == max {
         // get (don't compute) null count if `min == max` to determine if it's constant
