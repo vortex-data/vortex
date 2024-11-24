@@ -91,7 +91,6 @@ pub fn filter(array: &ArrayData, mask: FilterMask) -> VortexResult<ArrayData> {
 pub struct FilterMask {
     array: ArrayData,
     true_count: usize,
-    true_range: (usize, usize),
     range_selectivity: f64,
     indices: OnceLock<Vec<usize>>,
     slices: OnceLock<Vec<(usize, usize)>>,
@@ -118,7 +117,6 @@ impl Clone for FilterMask {
         Self {
             array: self.array.clone(),
             true_count: self.true_count,
-            true_range: self.true_range,
             range_selectivity: self.range_selectivity,
             indices: self.indices.clone(),
             slices: self.slices.clone(),
@@ -204,10 +202,6 @@ impl FilterMask {
         self.array.len() - self.true_count
     }
 
-    pub fn true_range(&self) -> (usize, usize) {
-        self.true_range
-    }
-
     /// Return the selectivity of the full mask.
     pub fn selectivity(&self) -> f64 {
         self.true_count as f64 / self.len() as f64
@@ -221,11 +215,10 @@ impl FilterMask {
     /// Get the canonical representation of the mask.
     pub fn to_boolean_buffer(&self) -> VortexResult<BooleanBuffer> {
         log::debug!(
-            "FilterMask: len {} selectivity: {} true_count: {} true_range: {:?}",
+            "FilterMask: len {} selectivity: {} true_count: {}",
             self.len(),
             self.range_selectivity(),
             self.true_count,
-            self.true_range(),
         );
         self.boolean_buffer().cloned()
     }
@@ -294,31 +287,11 @@ impl TryFrom<ArrayData> for FilterMask {
             .compute_true_count()
             .ok_or_else(|| vortex_err!("Failed to compute true count for boolean array"))?;
 
-        // We try to compute a tighter range over the true values of the mask. This provides a
-        // better measure of selectivity when deciding between iter_indices and iter_slices.
-        let true_range = if let Ok(bool) = BoolArray::try_from(array.clone()) {
-            let start = bool
-                .boolean_buffer()
-                .set_indices()
-                .next()
-                .unwrap_or_default();
-            // TODO(ngates): we can find this faster by creating a reverse iterator.
-            let end = bool
-                .boolean_buffer()
-                .set_indices()
-                .last()
-                .unwrap_or_else(|| array.len());
-            (start, end)
-        } else {
-            (0, array.len())
-        };
-
-        let selectivity = true_count as f64 / (true_range.1 - true_range.0) as f64;
+        let selectivity = true_count as f64 / array.len() as f64;
 
         Ok(Self {
             array,
             true_count,
-            true_range,
             range_selectivity: selectivity,
             indices: OnceLock::new(),
             slices: OnceLock::new(),
