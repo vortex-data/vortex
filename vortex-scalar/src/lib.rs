@@ -31,14 +31,20 @@ pub use pvalue::*;
 pub use struct_::*;
 pub use utf8::*;
 pub use value::*;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 /// A single logical item, composed of both a [`ScalarValue`] and a logical [`DType`].
+///
+/// A [`ScalarValue`] is opaque, and should be accessed via one of the type-specific scalar wrappers
+/// for example [`BoolScalar`], [`PrimitiveScalar`], etc.
+///
+/// Note: [`PartialEq`] and [`PartialOrd`] are implemented only for an exact match of the scalar's
+/// dtype, including nullability.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct Scalar {
-    pub(crate) dtype: DType,
-    pub(crate) value: ScalarValue,
+    dtype: DType,
+    value: ScalarValue,
 }
 
 impl Scalar {
@@ -51,6 +57,7 @@ impl Scalar {
         &self.dtype
     }
 
+    /// Only the scalar crate should access the ScalarValue directly.
     #[inline]
     pub fn value(&self) -> &ScalarValue {
         &self.value
@@ -119,16 +126,76 @@ impl Scalar {
     }
 }
 
+impl Scalar {
+    pub fn as_bool(&self) -> BoolScalar {
+        BoolScalar::try_from(self).vortex_expect("Failed to convert scalar to bool")
+    }
+
+    pub fn as_bool_opt(&self) -> Option<BoolScalar> {
+        matches!(self.dtype, DType::Bool(..)).then(|| self.as_bool())
+    }
+
+    pub fn as_primitive(&self) -> PrimitiveScalar {
+        PrimitiveScalar::try_from(self).vortex_expect("Failed to convert scalar to primitive")
+    }
+
+    pub fn as_primitive_opt(&self) -> Option<PrimitiveScalar> {
+        matches!(self.dtype, DType::Primitive(..)).then(|| self.as_primitive())
+    }
+
+    pub fn as_utf8(&self) -> Utf8Scalar {
+        Utf8Scalar::try_from(self).vortex_expect("Failed to convert scalar to utf8")
+    }
+
+    pub fn as_utf8_opt(&self) -> Option<Utf8Scalar> {
+        matches!(self.dtype, DType::Utf8(..)).then(|| self.as_utf8())
+    }
+
+    pub fn as_binary(&self) -> BinaryScalar {
+        BinaryScalar::try_from(self).vortex_expect("Failed to convert scalar to binary")
+    }
+
+    pub fn as_binary_opt(&self) -> Option<BinaryScalar> {
+        matches!(self.dtype, DType::Binary(..)).then(|| self.as_binary())
+    }
+
+    pub fn as_struct(&self) -> StructScalar {
+        StructScalar::try_from(self).vortex_expect("Failed to convert scalar to struct")
+    }
+
+    pub fn as_struct_opt(&self) -> Option<StructScalar> {
+        matches!(self.dtype, DType::Struct(..)).then(|| self.as_struct())
+    }
+
+    pub fn as_list(&self) -> ListScalar {
+        ListScalar::try_from(self).vortex_expect("Failed to convert scalar to list")
+    }
+
+    pub fn as_list_opt(&self) -> Option<ListScalar> {
+        matches!(self.dtype, DType::List(..)).then(|| self.as_list())
+    }
+
+    pub fn as_extension(&self) -> ExtScalar {
+        ExtScalar::try_from(self).vortex_expect("Failed to convert scalar to extension")
+    }
+
+    pub fn as_extension_opt(&self) -> Option<ExtScalar> {
+        matches!(self.dtype, DType::Extension(..)).then(|| self.as_extension())
+    }
+}
+
 impl PartialEq for Scalar {
-    fn eq(&self, other: &Self) -> bool {
-        self.dtype == other.dtype && self.value == other.value
+    fn eq(&self, _other: &Self) -> bool {
+        todo!("How do we implement this when ScalarValue doesn't implement Eq?")
+        // self.dtype == other.dtype && self.value == other.value
     }
 }
 
 impl PartialOrd for Scalar {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         if self.dtype().eq_ignore_nullability(other.dtype()) {
-            self.value.partial_cmp(&other.value)
+            todo!("How do we implement this when ScalarValue doesn't implement PartialOrd?")
+            // self.value.partial_cmp(&other.value)
         } else {
             None
         }

@@ -12,9 +12,14 @@ use crate::pvalue::PValue;
 /// up with a DType to make a Scalar.
 ///
 /// Note that these values can be deserialized from JSON or other formats. So a PValue may not
-/// have the correct width for what the DType expects. This means primitive values must be
-/// cast on-read.
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+/// have the correct width for what the DType expects. Primitive values should therefore be
+/// read using [PrimitiveScalar] which will handle the conversion.
+///
+/// For this reason, [`PartialEq`] and [`PartialOrd`] are only defined over [`Scalar`] and not
+/// [`ScalarValue`].
+///
+/// FIXME(ngates): make this opaque with an InnerScalarValue
+#[derive(Debug, Clone)]
 pub enum ScalarValue {
     Bool(bool),
     Primitive(PValue),
@@ -37,9 +42,9 @@ fn to_hex(slice: &[u8]) -> Result<String, std::fmt::Error> {
 impl Display for ScalarValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ScalarValue::Bool(b) => write!(f, "{}", b),
-            ScalarValue::Primitive(pvalue) => write!(f, "{}", pvalue),
-            ScalarValue::Buffer(buf) => {
+            Self::Bool(b) => write!(f, "{}", b),
+            Self::Primitive(pvalue) => write!(f, "{}", pvalue),
+            Self::Buffer(buf) => {
                 if buf.len() > 10 {
                     write!(
                         f,
@@ -51,7 +56,7 @@ impl Display for ScalarValue {
                     write!(f, "{}", to_hex(buf.as_slice())?)
                 }
             }
-            ScalarValue::BufferString(bufstr) => {
+            Self::BufferString(bufstr) => {
                 if bufstr.len() > 10 {
                     write!(
                         f,
@@ -63,8 +68,8 @@ impl Display for ScalarValue {
                     write!(f, "{}", bufstr.as_str())
                 }
             }
-            ScalarValue::List(_) => todo!(),
-            ScalarValue::Null => write!(f, "null"),
+            Self::List(_) => todo!(),
+            Self::Null => write!(f, "null"),
         }
     }
 }
@@ -76,20 +81,18 @@ impl ScalarValue {
 
     pub fn is_instance_of(&self, dtype: &DType) -> bool {
         match (self, dtype) {
-            (ScalarValue::Bool(_), DType::Bool(_)) => true,
-            (ScalarValue::Primitive(pvalue), DType::Primitive(ptype, _)) => {
-                pvalue.is_instance_of(ptype)
-            }
-            (ScalarValue::Buffer(_), DType::Binary(_)) => true,
-            (ScalarValue::BufferString(_), DType::Utf8(_)) => true,
-            (ScalarValue::List(values), DType::List(dtype, _)) => {
+            (Self::Bool(_), DType::Bool(_)) => true,
+            (Self::Primitive(pvalue), DType::Primitive(ptype, _)) => pvalue.is_instance_of(ptype),
+            (Self::Buffer(_), DType::Binary(_)) => true,
+            (Self::BufferString(_), DType::Utf8(_)) => true,
+            (Self::List(values), DType::List(dtype, _)) => {
                 values.iter().all(|v| v.is_instance_of(dtype))
             }
-            (ScalarValue::List(values), DType::Struct(structdt, _)) => values
+            (Self::List(values), DType::Struct(structdt, _)) => values
                 .iter()
                 .zip(structdt.dtypes().to_vec())
                 .all(|(v, dt)| v.is_instance_of(&dt)),
-            (ScalarValue::Null, dtype) => dtype.is_nullable(),
+            (Self::Null, dtype) => dtype.is_nullable(),
             (_, DType::Extension(ext_dtype)) => self.is_instance_of(ext_dtype.storage_dtype()),
             _ => false,
         }

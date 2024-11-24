@@ -23,11 +23,11 @@ impl WriteFlatBuffer for &dyn Statistics {
 
         let min = self
             .get(Stat::Min)
-            .map(|min| min.value().write_flatbuffer(fbb));
+            .map(|min| min.into_value().write_flatbuffer(fbb));
 
         let max = self
             .get(Stat::Max)
-            .map(|max| max.value().write_flatbuffer(fbb));
+            .map(|max| max.into_value().write_flatbuffer(fbb));
 
         let stat_args = &crate::flatbuffers::ArrayStatsArgs {
             min,

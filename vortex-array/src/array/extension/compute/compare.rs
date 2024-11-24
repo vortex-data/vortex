@@ -15,13 +15,16 @@ impl CompareFn<ExtensionArray> for ExtensionEncoding {
     ) -> VortexResult<Option<ArrayData>> {
         // If the RHS is a constant, we can extract the storage scalar.
         if let Some(const_ext) = rhs.as_constant() {
-            let scalar_ext = ExtScalar::try_new(const_ext.dtype(), const_ext.value())?;
-            let storage_scalar = ConstantArray::new(
-                Scalar::new(lhs.storage().dtype().clone(), scalar_ext.value().clone()),
-                lhs.len(),
-            );
+            let scalar_ext = ExtScalar::try_from(&const_ext)?;
+            let storage_scalar =
+                Scalar::new(lhs.storage().dtype().clone(), scalar_ext.value().clone());
 
-            return compare(lhs.storage(), storage_scalar, operator).map(Some);
+            return compare(
+                lhs.storage(),
+                ConstantArray::new(storage_scalar, lhs.len()),
+                operator,
+            )
+            .map(Some);
         }
 
         // If the RHS is an extension array matching ours, we can extract the storage.

@@ -14,11 +14,7 @@ impl SearchSortedFn<ConstantArray> for ConstantEncoding {
         value: &Scalar,
         side: SearchSortedSide,
     ) -> VortexResult<SearchResult> {
-        match array
-            .scalar_value()
-            .partial_cmp(value.value())
-            .unwrap_or(Ordering::Less)
-        {
+        match array.scalar().partial_cmp(value).unwrap_or(Ordering::Less) {
             Ordering::Greater => Ok(SearchResult::NotFound(0)),
             Ordering::Less => Ok(SearchResult::NotFound(array.len())),
             Ordering::Equal => match side {

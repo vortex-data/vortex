@@ -85,7 +85,7 @@ impl StructArrayTrait for SparseArray {
                 values,
                 self.len(),
                 self.indices_offset(),
-                scalar.value().clone(),
+                scalar.into_value(),
             )
             .ok()?
             .into_array(),
@@ -105,7 +105,7 @@ impl StructArrayTrait for SparseArray {
             values,
             self.len(),
             self.indices_offset(),
-            scalar.value().clone(),
+            scalar.into_value(),
         )
         .map(|a| a.into_array())
     }

@@ -1,6 +1,6 @@
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexResult};
-use vortex_scalar::Scalar;
+use vortex_scalar::{BoolScalar, Scalar};
 
 use crate::array::{ConstantArray, ConstantEncoding};
 use crate::compute::{BinaryBooleanFn, BinaryOperator};
@@ -15,11 +15,11 @@ impl BinaryBooleanFn<ConstantArray> for ConstantEncoding {
     ) -> VortexResult<ArrayData> {
         let length = lhs.len();
         let nullable = lhs.dtype().is_nullable() || rhs.dtype().is_nullable();
-        let lhs = <Option<bool>>::try_from(lhs.scalar_value())?;
+        let lhs = lhs.scalar().as_bool().value();
         let Some(rhs) = rhs.as_constant() else {
             vortex_bail!("Binary boolean operation requires both sides to be constant");
         };
-        let rhs = <Option<bool>>::try_from(rhs.value())?;
+        let rhs = BoolScalar::try_from(&rhs)?.value();
 
         let result = match op {
             BinaryOperator::And => and(lhs, rhs),
@@ -82,10 +82,10 @@ mod test {
     fn test_or(#[case] lhs: ArrayData, #[case] rhs: ArrayData) {
         let r = or(&lhs, &rhs).unwrap().into_bool().unwrap().into_array();
 
-        let v0 = scalar_at(&r, 0).unwrap().value().as_bool().unwrap();
-        let v1 = scalar_at(&r, 1).unwrap().value().as_bool().unwrap();
-        let v2 = scalar_at(&r, 2).unwrap().value().as_bool().unwrap();
-        let v3 = scalar_at(&r, 3).unwrap().value().as_bool().unwrap();
+        let v0 = scalar_at(&r, 0).unwrap().as_bool().value();
+        let v1 = scalar_at(&r, 1).unwrap().as_bool().value();
+        let v2 = scalar_at(&r, 2).unwrap().as_bool().value();
+        let v3 = scalar_at(&r, 3).unwrap().as_bool().value();
 
         assert!(v0.unwrap());
         assert!(v1.unwrap());

@@ -33,6 +33,7 @@ pub enum DType {
     /// Binary data
     Binary(Nullability),
     /// A struct is composed of an ordered list of fields, each with a corresponding name and DType
+    /// TODO(ngates): we may want StructDType to be Arc<[Field]> instead so it's only a single Arc.
     Struct(StructDType, Nullability),
     /// A variable-length list type, parameterized by a single element DType
     List(Arc<DType>, Nullability),

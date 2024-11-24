@@ -203,7 +203,7 @@ impl StatisticsVTable<SparseArray> for SparseEncoding {
         let fill_stats = if array.fill_value().is_null() {
             StatsSet::nulls(fill_len, array.dtype())
         } else {
-            StatsSet::constant(array.fill_scalar(), fill_len)
+            StatsSet::constant(&array.fill_scalar(), fill_len)
         };
 
         if array.values().is_empty() {
