@@ -14,7 +14,7 @@ use crate::read::cache::RelativeLayoutCache;
 use crate::read::mask::RowMask;
 use crate::{
     BatchRead, Layout, LayoutDeserializer, LayoutId, LayoutPartId, LayoutReader, MessageLocator,
-    Scan, CHUNKED_LAYOUT_ID,
+    MetadataRead, Scan, CHUNKED_LAYOUT_ID,
 };
 
 #[derive(Default, Debug)]
@@ -279,24 +279,25 @@ impl LayoutReader for ChunkedLayoutReader {
         }
     }
 
-    fn read_metadata(&self) -> VortexResult<Option<BatchRead>> {
+    fn read_metadata(&self) -> VortexResult<MetadataRead> {
+        println!("ChunkedLayoutReader::read_metadata");
         match self.metadata_layout() {
-            None => Ok(None),
+            None => Ok(MetadataRead::None),
             Some(metadata_layout) => {
                 if let Some(md) = self.cached_metadata.get() {
-                    return Ok(Some(BatchRead::Batch(md.clone())));
+                    return Ok(MetadataRead::Batches(vec![md.clone()]));
                 }
 
                 match metadata_layout
                     .read_selection(&RowMask::new_valid_between(0, self.n_chunks()))?
                 {
-                    Some(BatchRead::Batch(ad)) => {
+                    Some(BatchRead::Batch(array)) => {
                         // We don't care if the write failed
-                        _ = self.cached_metadata.set(ad.clone());
-                        Ok(Some(BatchRead::Batch(ad)))
+                        _ = self.cached_metadata.set(array.clone());
+                        Ok(MetadataRead::Batches(vec![array]))
                     }
-                    br @ Some(BatchRead::ReadMore(_)) => Ok(br),
-                    None => Ok(None),
+                    Some(BatchRead::ReadMore(messages)) => Ok(MetadataRead::ReadMore(messages)),
+                    None => Ok(MetadataRead::None),
                 }
             }
         }

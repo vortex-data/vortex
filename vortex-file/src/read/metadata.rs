@@ -10,16 +10,15 @@ use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_io::{Dispatch as _, IoDispatcher, VortexReadAt};
 
 use super::stream::{read_ranges, StreamMessages};
-use super::{BatchRead, LayoutMessageCache, LayoutReader, MessageLocator};
+use super::{LayoutMessageCache, LayoutReader, MessageLocator, MetadataRead};
 use crate::read::stream::Message;
 
-pub struct MetadataReader<R: VortexReadAt> {
+pub struct MetadataFetcher<R: VortexReadAt> {
     input: R,
     dispatcher: Arc<IoDispatcher>,
     root_layout: Box<dyn LayoutReader>,
     layout_cache: Arc<RwLock<LayoutMessageCache>>,
     state: State,
-    metadata_table: Vec<ArrayData>,
 }
 
 enum State {
@@ -27,8 +26,8 @@ enum State {
     Reading(BoxFuture<'static, VortexResult<StreamMessages>>),
 }
 
-impl<R: VortexReadAt + Unpin> MetadataReader<R> {
-    pub fn new(
+impl<R: VortexReadAt + Unpin> MetadataFetcher<R> {
+    pub fn fetch(
         input: R,
         dispatcher: Arc<IoDispatcher>,
         root_layout: Box<dyn LayoutReader>,
@@ -40,9 +39,9 @@ impl<R: VortexReadAt + Unpin> MetadataReader<R> {
             root_layout,
             layout_cache,
             state: State::Initial,
-            metadata_table: Vec::default(),
         }
     }
+
     /// Schedule an asynchronous read of several byte ranges.
     ///
     /// IO is scheduled on the provided IO dispatcher.
@@ -66,37 +65,43 @@ impl<R: VortexReadAt + Unpin> MetadataReader<R> {
     }
 }
 
-impl<R: VortexReadAt + Unpin> Future for MetadataReader<R> {
+impl<R: VortexReadAt + Unpin> Future for MetadataFetcher<R> {
     type Output = VortexResult<Option<Vec<ArrayData>>>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match &mut self.state {
-            State::Initial => match self.root_layout.read_metadata()? {
-                Some(batch_read) => match batch_read {
-                    BatchRead::ReadMore(ranges) => {
-                        let read_future = self.read_ranges(ranges);
+        println!("MetadataFetcher::poll");
+
+        loop {
+            match &mut self.state {
+                State::Initial => match self.root_layout.read_metadata()? {
+                    MetadataRead::ReadMore(messages) => {
+                        let read_future = self.read_ranges(messages);
                         self.state = State::Reading(read_future);
-                        Poll::Pending
                     }
-                    BatchRead::Batch(array_data) => {
-                        self.metadata_table.push(array_data);
-                        Poll::Pending
+                    MetadataRead::Batches(array_data) => {
+                        return Poll::Ready(Ok(Some(array_data)));
+                    }
+                    MetadataRead::None => {
+                        return Poll::Ready(Ok(None));
                     }
                 },
-                None => Poll::Ready(Ok(Some(std::mem::take(&mut self.metadata_table)))),
-            },
-            State::Reading(ref mut f) => {
-                let messages = ready!(f.poll_unpin(cx))?;
-                let mut write_cache_guard = self.layout_cache.write().unwrap_or_else(|poison| {
-                    vortex_panic!("Failed to write to message cache: {poison}")
-                });
+                State::Reading(ref mut f) => {
+                    println!("State::Reading");
+                    let messages = ready!(f.poll_unpin(cx))?;
+                    println!("State::ready");
+                    match self.layout_cache.write() {
+                        Ok(mut cache) => {
+                            for Message(message_id, bytes) in messages.into_iter() {
+                                cache.set(message_id, bytes);
+                            }
+                        }
+                        Err(poison) => {
+                            vortex_panic!("Failed to write to message cache: {poison}")
+                        }
+                    }
 
-                for Message(message_id, bytes) in messages.into_iter() {
-                    write_cache_guard.set(message_id, bytes);
+                    self.state = State::Initial;
                 }
-                drop(write_cache_guard);
-                self.state = State::Initial;
-                Poll::Pending
             }
         }
     }

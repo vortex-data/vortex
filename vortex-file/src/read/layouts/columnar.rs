@@ -18,7 +18,7 @@ use crate::read::cache::{LazyDType, RelativeLayoutCache};
 use crate::read::expr_project::expr_project;
 use crate::read::mask::RowMask;
 use crate::{
-    BatchRead, Layout, LayoutDeserializer, LayoutId, LayoutReader, RowFilter, Scan,
+    BatchRead, Layout, LayoutDeserializer, LayoutId, LayoutReader, MetadataRead, RowFilter, Scan,
     COLUMNAR_LAYOUT_ID,
 };
 
@@ -306,39 +306,43 @@ impl LayoutReader for ColumnarLayoutReader {
         }
     }
 
-    fn read_metadata(&self) -> VortexResult<Option<BatchRead>> {
-        let mut guard = self.in_progress_metadata.write().unwrap();
+    fn read_metadata(&self) -> VortexResult<MetadataRead> {
+        println!("ColumnarLayoutReader::read_metadata");
+        let mut in_progress_metadata = self.in_progress_metadata.write().unwrap();
         let mut messages = Vec::default();
 
         for (name, child_reader) in self.names.iter().zip(self.children.iter()) {
             match child_reader.read_metadata()? {
-                Some(BatchRead::Batch(data)) => {
-                    guard.insert(name.clone(), Some(data));
+                MetadataRead::Batches(data) => {
+                    in_progress_metadata.insert(name.clone(), Some(data[0].clone()));
                 }
-                Some(BatchRead::ReadMore(rm)) => {
+                MetadataRead::ReadMore(rm) => {
                     messages.extend(rm);
                 }
-                None => {
-                    guard.insert(name.clone(), None);
+                MetadataRead::None => {
+                    in_progress_metadata.insert(name.clone(), None);
                 }
             }
         }
 
+        println!("ColumnarLayoutReader - finished reading");
+
+        dbg!(messages.len());
         // We're done reading
         if messages.is_empty() {
             let child_arrays = self
                 .names
                 .iter()
-                .map(|name| guard[name].clone().unwrap()) // TODO(Adam): Some columns might not have statistics
+                .map(|name| in_progress_metadata[name].clone().unwrap()) // TODO(Adam): Some columns might not have statistics
                 .collect::<Vec<_>>();
-            let len = child_arrays.first().map(ArrayData::len).unwrap();
-            let array =
-                StructArray::try_new(self.names.clone(), child_arrays, len, Validity::NonNullable)?
-                    .into_array();
+            // let len = child_arrays.first().map(ArrayData::len).unwrap();
+            // let array =
+            //     StructArray::try_new(self.names.clone(), child_arrays, len, Validity::NonNullable)?
+            //         .into_array();
 
-            Ok(Some(BatchRead::Batch(array)))
+            Ok(MetadataRead::Batches(child_arrays))
         } else {
-            Ok(Some(BatchRead::ReadMore(messages)))
+            Ok(MetadataRead::ReadMore(messages))
         }
     }
 }

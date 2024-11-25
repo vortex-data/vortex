@@ -17,11 +17,12 @@ use datafusion_physical_plan::ExecutionPlan;
 use object_store::{ObjectMeta, ObjectStore};
 use vortex_array::arrow::infer_schema;
 use vortex_array::Context;
+use vortex_file::metadata::MetadataFetcher;
 use vortex_file::{
     read_initial_bytes, LayoutContext, LayoutDeserializer, LayoutMessageCache, RelativeLayoutCache,
-    VORTEX_FILE_EXTENSION,
+    Scan, VORTEX_FILE_EXTENSION,
 };
-use vortex_io::ObjectStoreReadAt;
+use vortex_io::{IoDispatcher, ObjectStoreReadAt};
 
 use super::execution::VortexExec;
 use crate::can_be_pushed_down;
@@ -86,6 +87,7 @@ impl FileFormat for VortexFormat {
         table_schema: SchemaRef,
         object: &ObjectMeta,
     ) -> DFResult<Statistics> {
+        println!("VortexFormat::infer_stats");
         let os_read_at = ObjectStoreReadAt::new(store.clone(), object.location.clone());
         let initial_read = read_initial_bytes(&os_read_at, object.size as u64).await?;
         let layout = initial_read.fb_layout()?;
@@ -94,23 +96,42 @@ impl FileFormat for VortexFormat {
         })?;
         let row_count = layout.row_count();
 
-        let _layout_deserializer =
+        let layout_deserializer =
             LayoutDeserializer::new(Context::default().into(), LayoutContext::default().into());
         let layout_message_cache = Arc::new(RwLock::new(LayoutMessageCache::new()));
-        let _relative_message_cache = RelativeLayoutCache::new(layout_message_cache, dtype.into());
+        let relative_message_cache =
+            RelativeLayoutCache::new(layout_message_cache.clone(), dtype.into());
 
-        // let top_level_layout = vortex_file::read_layout_from_initial(
-        //     &initial_read,
-        //     &layout_deserializer,
-        //     Scan::empty(),
-        //     relative_message_cache,
-        // )?;
+        let root_layout = vortex_file::read_layout_from_initial(
+            &initial_read,
+            &layout_deserializer,
+            Scan::empty(),
+            relative_message_cache,
+        )?;
 
-        let stats = Statistics {
-            num_rows: Precision::Exact(row_count as usize),
-            total_byte_size: Precision::Absent,
-            column_statistics: Statistics::unknown_column(&table_schema),
-        };
+        let io = IoDispatcher::new_tokio(4);
+        let mut stats = Statistics::new_unknown(&table_schema);
+        stats.num_rows = Precision::Exact(row_count as usize);
+
+        let metadata =
+            MetadataFetcher::fetch(os_read_at, io.into(), root_layout, layout_message_cache)
+                .await?;
+
+        println!("Got metadata");
+
+        if let Some(metadata) = metadata {
+            let mut col_stats = Vec::with_capacity(table_schema.fields().len());
+
+            for col_stats_array in metadata.into_iter() {
+                col_stats.push(crate::persistent::statistics::array_to_col_statistics(
+                    col_stats_array.try_into()?,
+                )?);
+            }
+
+            stats.column_statistics = col_stats;
+        }
+
+        println!("VortexFormat::got_stats");
 
         Ok(stats)
     }

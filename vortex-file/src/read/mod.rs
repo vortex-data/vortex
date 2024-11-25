@@ -64,6 +64,15 @@ pub enum BatchRead {
     Batch(ArrayData),
 }
 
+#[derive(Debug)]
+pub enum MetadataRead {
+    /// Layout has no metadata
+    None,
+    /// Additional IO is required
+    ReadMore(Vec<MessageLocator>),
+    Batches(Vec<ArrayData>),
+}
+
 /// A reader for a layout, a serialized sequence of Vortex arrays.
 ///
 /// Some layouts are _horizontally divisble_: they can read a sub-sequence of rows independently of
@@ -90,5 +99,5 @@ pub trait LayoutReader: Debug + Send {
     fn read_selection(&self, selector: &RowMask) -> VortexResult<Option<BatchRead>>;
 
     /// Reads the metadata of the layout, if it exists.
-    fn read_metadata(&self) -> VortexResult<Option<BatchRead>>;
+    fn read_metadata(&self) -> VortexResult<MetadataRead>;
 }
