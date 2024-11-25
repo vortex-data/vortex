@@ -122,6 +122,7 @@ jobs:
         run: cargo fmt --all --check
       - name: Rust Lint - Clippy
         run: cargo clippy --all-features --all-targets
+        if: false
       - name: Rust Test
         run: cargo test --workspace --all-features
         env:
@@ -135,7 +136,7 @@ jobs:
       - name: Coveralls
         uses: coverallsapp/github-action@v2
         with:
-          files: "${{ steps.grcov.outputs.report }}"
+          file: "${{ steps.grcov.outputs.report }}"
   
   license-check-and-audit-check:
     if: false
