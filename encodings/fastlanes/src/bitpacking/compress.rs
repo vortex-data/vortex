@@ -1,10 +1,10 @@
 use arrow_buffer::ArrowNativeType;
 use fastlanes::BitPacking;
-use vortex_array::array::{PrimitiveArray, Sparse, SparseArray};
+use vortex_array::array::{PrimitiveArray, SparseArray};
 use vortex_array::stats::ArrayStatistics;
 use vortex_array::validity::{ArrayValidity, Validity};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayDType, ArrayData, ArrayDef, ArrayLen, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
 use vortex_buffer::Buffer;
 use vortex_dtype::{
     match_each_integer_ptype, match_each_unsigned_integer_ptype, NativePType, PType,
@@ -190,23 +190,15 @@ pub fn unpack(array: BitPackedArray) -> VortexResult<PrimitiveArray> {
 }
 
 fn patch_unpacked(array: PrimitiveArray, patches: &ArrayData) -> VortexResult<PrimitiveArray> {
-    match patches.encoding().id() {
-        Sparse::ID => {
-            match_each_integer_ptype!(array.ptype(), |$T| {
-                let typed_patches = SparseArray::try_from(patches.clone()).unwrap();
-                let primitive_values = typed_patches.values().into_primitive()?;
-                array.patch(
-                    &typed_patches.resolved_indices(),
-                    primitive_values.maybe_null_slice::<$T>(),
-                    primitive_values.validity())
-            })
-        }
-        _ => vortex_bail!(
-            "Can't patch bitpacked array with {}, only {} is supported",
-            patches,
-            Sparse::ID
-        ),
-    }
+    let typed_patches = SparseArray::try_from(patches.clone())?;
+
+    match_each_integer_ptype!(array.ptype(), |$T| {
+        let primitive_values = typed_patches.values().into_primitive()?;
+        array.patch(
+            &typed_patches.resolved_indices(),
+            primitive_values.maybe_null_slice::<$T>(),
+            primitive_values.validity())
+    })
 }
 
 pub fn unpack_primitive<T: NativePType + BitPacking>(

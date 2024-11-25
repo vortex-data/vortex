@@ -1,117 +1,88 @@
+mod compare;
+
 use std::cmp::min;
 use std::ops::AddAssign;
 
 use num_traits::AsPrimitive;
 use vortex_array::array::{BooleanBuffer, ConstantArray, PrimitiveArray, SparseArray};
-use vortex_array::compute::unary::{scalar_at, scalar_at_unchecked, ScalarAtFn};
+use vortex_array::compute::unary::{scalar_at, ScalarAtFn};
 use vortex_array::compute::{
-    compare, filter, slice, take, ArrayCompute, ComputeVTable, FilterFn, FilterMask,
-    MaybeCompareFn, Operator, SliceFn, TakeFn, TakeOptions,
+    filter, slice, take, CompareFn, ComputeVTable, FilterFn, FilterMask, SliceFn, TakeFn,
+    TakeOptions,
 };
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::{match_each_integer_ptype, match_each_unsigned_integer_ptype, NativePType};
-use vortex_error::{VortexExpect as _, VortexResult};
+use vortex_error::VortexResult;
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::{RunEndArray, RunEndEncoding};
 
-impl ArrayCompute for RunEndArray {
-    fn compare(&self, other: &ArrayData, operator: Operator) -> Option<VortexResult<ArrayData>> {
-        MaybeCompareFn::maybe_compare(self, other, operator)
-    }
-
-    fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
-        Some(self)
-    }
-
-    fn slice(&self) -> Option<&dyn SliceFn> {
-        Some(self)
-    }
-
-    fn take(&self) -> Option<&dyn TakeFn> {
-        Some(self)
-    }
-}
-
 impl ComputeVTable for RunEndEncoding {
+    fn compare_fn(&self) -> Option<&dyn CompareFn<ArrayData>> {
+        Some(self)
+    }
+
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
         Some(self)
     }
-}
 
-impl MaybeCompareFn for RunEndArray {
-    fn maybe_compare(
-        &self,
-        other: &ArrayData,
-        operator: Operator,
-    ) -> Option<VortexResult<ArrayData>> {
-        // If the RHS is constant, then we just need to compare against our encoded values.
-        other.as_constant().map(|const_scalar| {
-            compare(
-                self.values(),
-                ConstantArray::new(const_scalar, self.values().len()),
-                operator,
-            )
-            .and_then(|values| {
-                Self::with_offset_and_length(
-                    self.ends(),
-                    values,
-                    self.validity().into_nullable(),
-                    self.offset(),
-                    self.len(),
-                )
-            })
-            .map(|a| a.into_array())
-        })
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
+        Some(self)
     }
 }
 
-impl ScalarAtFn for RunEndArray {
-    fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
-        scalar_at(self.values(), self.find_physical_index(index)?)
-    }
-
-    fn scalar_at_unchecked(&self, index: usize) -> Scalar {
-        let idx = self
-            .find_physical_index(index)
-            .vortex_expect("Search must be implemented for the underlying index array");
-        scalar_at_unchecked(self.values(), idx)
+impl ScalarAtFn<RunEndArray> for RunEndEncoding {
+    fn scalar_at(&self, array: &RunEndArray, index: usize) -> VortexResult<Scalar> {
+        scalar_at(array.values(), array.find_physical_index(index)?)
     }
 }
 
-impl TakeFn for RunEndArray {
+impl TakeFn<RunEndArray> for RunEndEncoding {
     #[allow(deprecated)]
-    fn take(&self, indices: &ArrayData, options: TakeOptions) -> VortexResult<ArrayData> {
+    fn take(
+        &self,
+        array: &RunEndArray,
+        indices: &ArrayData,
+        options: TakeOptions,
+    ) -> VortexResult<ArrayData> {
         let primitive_indices = indices.clone().into_primitive()?;
-        let u64_indices = match_each_integer_ptype!(primitive_indices.ptype(), |$P| {
+        let usize_indices = match_each_integer_ptype!(primitive_indices.ptype(), |$P| {
             primitive_indices
                 .into_maybe_null_slice::<$P>()
                 .into_iter()
                 .map(|idx| {
                     let usize_idx = idx as usize;
-                    if usize_idx >= self.len() {
-                        vortex_error::vortex_bail!(OutOfBounds: usize_idx, 0, self.len());
+                    if usize_idx >= array.len() {
+                        vortex_error::vortex_bail!(OutOfBounds: usize_idx, 0, array.len());
                     }
 
-                    Ok((usize_idx + self.offset()) as u64)
+                    Ok(usize_idx + array.offset())
                 })
-                .collect::<VortexResult<Vec<u64>>>()?
+                .collect::<VortexResult<Vec<usize>>>()?
         });
-        let physical_indices = self
-            .find_physical_indices(&u64_indices)?
+        let physical_indices = array
+            .find_physical_indices(&usize_indices)?
             .into_iter()
             .map(|idx| idx as u64)
             .collect::<Vec<_>>();
         let physical_indices_array = PrimitiveArray::from(physical_indices).into_array();
-        let dense_values = take(self.values(), &physical_indices_array, options)?;
+        let dense_values = take(array.values(), &physical_indices_array, options)?;
 
-        Ok(match self.validity() {
+        Ok(match array.validity() {
             Validity::NonNullable => dense_values,
             Validity::AllValid => dense_values,
             Validity::AllInvalid => {
-                ConstantArray::new(Scalar::null(self.dtype().clone()), indices.len()).into_array()
+                ConstantArray::new(Scalar::null(array.dtype().clone()), indices.len()).into_array()
             }
             Validity::Array(original_validity) => {
                 let dense_validity =
@@ -138,16 +109,16 @@ impl TakeFn for RunEndArray {
     }
 }
 
-impl SliceFn for RunEndArray {
-    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData> {
-        let slice_begin = self.find_physical_index(start)?;
-        let slice_end = self.find_physical_index(stop)?;
+impl SliceFn<RunEndArray> for RunEndEncoding {
+    fn slice(&self, array: &RunEndArray, start: usize, stop: usize) -> VortexResult<ArrayData> {
+        let slice_begin = array.find_physical_index(start)?;
+        let slice_end = array.find_physical_index(stop)?;
 
-        Ok(Self::with_offset_and_length(
-            slice(self.ends(), slice_begin, slice_end + 1)?,
-            slice(self.values(), slice_begin, slice_end + 1)?,
-            self.validity().slice(start, stop)?,
-            start + self.offset(),
+        Ok(RunEndArray::with_offset_and_length(
+            slice(array.ends(), slice_begin, slice_end + 1)?,
+            slice(array.values(), slice_begin, slice_end + 1)?,
+            array.validity().slice(start, stop)?,
+            start + array.offset(),
             stop - start,
         )?
         .into_array())
@@ -205,9 +176,9 @@ fn filter_run_ends<R: NativePType + AddAssign + From<bool> + AsPrimitive<u64>>(
 
 #[cfg(test)]
 mod test {
-    use vortex_array::array::{BoolArray, BooleanBuffer, ConstantArray, PrimitiveArray};
+    use vortex_array::array::{BoolArray, PrimitiveArray};
     use vortex_array::compute::unary::{scalar_at, try_cast};
-    use vortex_array::compute::{compare, filter, slice, take, FilterMask, Operator, TakeOptions};
+    use vortex_array::compute::{filter, slice, take, FilterMask, TakeOptions};
     use vortex_array::validity::{ArrayValidity, Validity};
     use vortex_array::{ArrayDType, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
     use vortex_dtype::{DType, Nullability, PType};
@@ -215,7 +186,7 @@ mod test {
 
     use crate::RunEndArray;
 
-    fn ree_array() -> RunEndArray {
+    pub(crate) fn ree_array() -> RunEndArray {
         RunEndArray::encode(
             PrimitiveArray::from(vec![1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5]).to_array(),
         )
@@ -501,19 +472,6 @@ mod test {
                 .unwrap()
                 .maybe_null_slice::<i32>(),
             [1, 4, 2]
-        );
-    }
-
-    #[test]
-    fn compare_run_end() {
-        let arr = ree_array();
-        let res = compare(arr, ConstantArray::new(5, 12), Operator::Eq).unwrap();
-        let res_canon = res.into_bool().unwrap();
-        assert_eq!(
-            res_canon.boolean_buffer(),
-            BooleanBuffer::from(vec![
-                false, false, false, false, false, false, false, false, true, true, true, true
-            ])
         );
     }
 }

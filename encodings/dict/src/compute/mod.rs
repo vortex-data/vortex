@@ -1,88 +1,57 @@
-use vortex_array::array::ConstantArray;
-use vortex_array::compute::unary::{scalar_at, scalar_at_unchecked, ScalarAtFn};
+mod compare;
+
+use vortex_array::compute::unary::{scalar_at, ScalarAtFn};
 use vortex_array::compute::{
-    compare, filter, slice, take, ArrayCompute, ComputeVTable, FilterFn, FilterMask,
-    MaybeCompareFn, Operator, SliceFn, TakeFn, TakeOptions,
+    filter, slice, take, CompareFn, ComputeVTable, FilterFn, FilterMask, SliceFn, TakeFn,
+    TakeOptions,
 };
 use vortex_array::{ArrayData, IntoArrayData};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::{DictArray, DictEncoding};
 
-impl ArrayCompute for DictArray {
-    fn compare(&self, other: &ArrayData, operator: Operator) -> Option<VortexResult<ArrayData>> {
-        MaybeCompareFn::maybe_compare(self, other, operator)
-    }
-
-    fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
-        Some(self)
-    }
-
-    fn slice(&self) -> Option<&dyn SliceFn> {
-        Some(self)
-    }
-
-    fn take(&self) -> Option<&dyn TakeFn> {
-        Some(self)
-    }
-}
-
 impl ComputeVTable for DictEncoding {
+    fn compare_fn(&self) -> Option<&dyn CompareFn<ArrayData>> {
+        Some(self)
+    }
+
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
         Some(self)
     }
+
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
+        Some(self)
+    }
 }
 
-impl MaybeCompareFn for DictArray {
-    fn maybe_compare(
+impl ScalarAtFn<DictArray> for DictEncoding {
+    fn scalar_at(&self, array: &DictArray, index: usize) -> VortexResult<Scalar> {
+        let dict_index: usize = scalar_at(array.codes(), index)?.as_ref().try_into()?;
+        scalar_at(array.values(), dict_index)
+    }
+}
+
+impl TakeFn<DictArray> for DictEncoding {
+    fn take(
         &self,
-        other: &ArrayData,
-        operator: Operator,
-    ) -> Option<VortexResult<ArrayData>> {
-        // If the RHS is constant, then we just need to compare against our encoded values.
-        if let Some(const_scalar) = other.as_constant() {
-            return Some(
-                // Ensure the other is the same length as the dictionary
-                compare(
-                    self.values(),
-                    ConstantArray::new(const_scalar, self.values().len()),
-                    operator,
-                )
-                .and_then(|values| Self::try_new(self.codes(), values))
-                .map(|a| a.into_array()),
-            );
-        }
-
-        // It's a little more complex, but we could perform a comparison against the dictionary
-        // values in the future.
-        None
-    }
-}
-
-impl ScalarAtFn for DictArray {
-    fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
-        let dict_index: usize = scalar_at(self.codes(), index)?.as_ref().try_into()?;
-        Ok(scalar_at_unchecked(self.values(), dict_index))
-    }
-
-    fn scalar_at_unchecked(&self, index: usize) -> Scalar {
-        let dict_index: usize = scalar_at_unchecked(self.codes(), index)
-            .as_ref()
-            .try_into()
-            .vortex_expect("Invalid dict index");
-
-        scalar_at_unchecked(self.values(), dict_index)
-    }
-}
-
-impl TakeFn for DictArray {
-    fn take(&self, indices: &ArrayData, options: TakeOptions) -> VortexResult<ArrayData> {
+        array: &DictArray,
+        indices: &ArrayData,
+        options: TakeOptions,
+    ) -> VortexResult<ArrayData> {
         // Dict
         //   codes: 0 0 1
         //   dict: a b c d e f g h
-        let codes = take(self.codes(), indices, options)?;
-        Self::try_new(codes, self.values()).map(|a| a.into_array())
+        let codes = take(array.codes(), indices, options)?;
+        DictArray::try_new(codes, array.values()).map(|a| a.into_array())
     }
 }
 
@@ -93,10 +62,11 @@ impl FilterFn<DictArray> for DictEncoding {
     }
 }
 
-impl SliceFn for DictArray {
+impl SliceFn<DictArray> for DictEncoding {
     // TODO(robert): Add function to trim the dictionary
-    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData> {
-        Self::try_new(slice(self.codes(), start, stop)?, self.values()).map(|a| a.into_array())
+    fn slice(&self, array: &DictArray, start: usize, stop: usize) -> VortexResult<ArrayData> {
+        DictArray::try_new(slice(array.codes(), start, stop)?, array.values())
+            .map(|a| a.into_array())
     }
 }
 

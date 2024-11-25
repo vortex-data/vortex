@@ -3,12 +3,12 @@ use std::fmt::{Display, Formatter};
 
 use arrow_ord::cmp;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::array::Constant;
 use crate::arrow::{Datum, FromArrowArray};
-use crate::{ArrayDType, ArrayData, ArrayDef};
+use crate::encoding::Encoding;
+use crate::{ArrayDType, ArrayData};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd)]
 pub enum Operator {
@@ -70,16 +70,36 @@ impl Operator {
     }
 }
 
-pub trait CompareFn {
-    fn compare(&self, other: &ArrayData, operator: Operator) -> VortexResult<ArrayData>;
+pub trait CompareFn<Array> {
+    /// Compares two arrays and returns a new boolean array with the result of the comparison.
+    /// Or, returns None if comparison is not supported for these arrays.
+    fn compare(
+        &self,
+        lhs: &Array,
+        rhs: &ArrayData,
+        operator: Operator,
+    ) -> VortexResult<Option<ArrayData>>;
 }
 
-pub trait MaybeCompareFn {
-    fn maybe_compare(
+impl<E: Encoding> CompareFn<ArrayData> for E
+where
+    E: CompareFn<E::Array>,
+    for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
+{
+    fn compare(
         &self,
-        other: &ArrayData,
+        lhs: &ArrayData,
+        rhs: &ArrayData,
         operator: Operator,
-    ) -> Option<VortexResult<ArrayData>>;
+    ) -> VortexResult<Option<ArrayData>> {
+        let lhs_ref = <&E::Array>::try_from(lhs)?;
+        let encoding = lhs
+            .encoding()
+            .as_any()
+            .downcast_ref::<E>()
+            .ok_or_else(|| vortex_err!("Mismatched encoding"))?;
+        CompareFn::compare(encoding, lhs_ref, rhs, operator)
+    }
 }
 
 pub fn compare(
@@ -100,12 +120,21 @@ pub fn compare(
     }
 
     // Always try to put constants on the right-hand side so encodings can optimise themselves.
-    if left.is_encoding(Constant::ID) && !right.is_encoding(Constant::ID) {
+    if left.is_constant() && !right.is_constant() {
         return compare(right, left, operator.swap());
     }
 
-    if let Some(selection) = left.with_dyn(|lhs| lhs.compare(right, operator)) {
-        return selection;
+    // If the RHS is constant and the LHS is Arrow, we can't do any better than arrow_compare.
+    if left.is_arrow() && right.is_constant() {
+        return arrow_compare(left, right, operator);
+    }
+
+    if let Some(result) = left
+        .encoding()
+        .compare_fn()
+        .and_then(|f| f.compare(left, right, operator).transpose())
+    {
+        return result;
     } else {
         log::debug!(
             "No compare implementation found for LHS {}, RHS {}, and operator {}",
@@ -115,8 +144,12 @@ pub fn compare(
         );
     }
 
-    if let Some(selection) = right.with_dyn(|rhs| rhs.compare(left, operator.swap())) {
-        return selection;
+    if let Some(result) = right
+        .encoding()
+        .compare_fn()
+        .and_then(|f| f.compare(right, left, operator.swap()).transpose())
+    {
+        return result;
     } else {
         log::debug!(
             "No compare implementation found for LHS {}, RHS {}, and operator {}",

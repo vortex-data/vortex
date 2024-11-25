@@ -12,15 +12,15 @@ use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::array::primitive::PrimitiveArray;
-use crate::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
-use crate::compute::unary::{scalar_at, scalar_at_unchecked, subtract_scalar, SubtractScalarFn};
+use crate::compute::unary::{scalar_at, subtract_scalar, SubtractScalarFn};
 use crate::compute::{search_sorted, SearchSortedSide};
 use crate::encoding::ids;
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
 use crate::stats::ArrayStatistics;
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::validity::Validity::NonNullable;
-use crate::validity::{ArrayValidity, LogicalValidity, Validity};
+use crate::validity::{LogicalValidity, Validity, ValidityVTable};
+use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, IntoArrayData, IntoCanonical,
 };
@@ -96,8 +96,8 @@ impl ChunkedArray {
             vortex_bail!("chunk index {} > num chunks ({})", idx, self.nchunks());
         }
 
-        let chunk_start = usize::try_from(&scalar_at_unchecked(self.chunk_offsets(), idx))?;
-        let chunk_end = usize::try_from(&scalar_at_unchecked(self.chunk_offsets(), idx + 1))?;
+        let chunk_start = usize::try_from(&scalar_at(self.chunk_offsets(), idx)?)?;
+        let chunk_end = usize::try_from(&scalar_at(self.chunk_offsets(), idx + 1)?)?;
 
         // Offset the index since chunk_ends is child 0.
         self.as_ref()
@@ -211,42 +211,47 @@ impl FromIterator<ArrayData> for ChunkedArray {
     }
 }
 
-impl AcceptArrayVisitor for ChunkedArray {
-    fn accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_child("chunk_ends", &self.chunk_offsets())?;
-        for (idx, chunk) in self.chunks().enumerate() {
+impl VisitorVTable<ChunkedArray> for ChunkedEncoding {
+    fn accept(&self, array: &ChunkedArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+        visitor.visit_child("chunk_ends", &array.chunk_offsets())?;
+        for (idx, chunk) in array.chunks().enumerate() {
             visitor.visit_child(format!("[{}]", idx).as_str(), &chunk)?;
         }
         Ok(())
     }
 }
 
-impl ArrayValidity for ChunkedArray {
-    fn is_valid(&self, index: usize) -> bool {
-        let (chunk, offset_in_chunk) = self.find_chunk_idx(index);
-        self.chunk(chunk)
+impl ValidityVTable<ChunkedArray> for ChunkedEncoding {
+    fn is_valid(&self, array: &ChunkedArray, index: usize) -> bool {
+        let (chunk, offset_in_chunk) = array.find_chunk_idx(index);
+        array
+            .chunk(chunk)
             .unwrap_or_else(|e| {
                 vortex_panic!(e, "ChunkedArray: is_valid failed to find chunk {}", index)
             })
             .with_dyn(|a| a.is_valid(offset_in_chunk))
     }
 
-    fn logical_validity(&self) -> LogicalValidity {
-        let validity = self
+    fn logical_validity(&self, array: &ChunkedArray) -> LogicalValidity {
+        let validity = array
             .chunks()
             .map(|a| a.with_dyn(|arr| arr.logical_validity()))
             .collect::<Validity>();
-        validity.to_logical(self.len())
+        validity.to_logical(array.len())
     }
 }
 
-impl SubtractScalarFn for ChunkedArray {
-    fn subtract_scalar(&self, to_subtract: &Scalar) -> VortexResult<ArrayData> {
-        let chunks = self
+impl SubtractScalarFn<ChunkedArray> for ChunkedEncoding {
+    fn subtract_scalar(
+        &self,
+        array: &ChunkedArray,
+        to_subtract: &Scalar,
+    ) -> VortexResult<ArrayData> {
+        let chunks = array
             .chunks()
             .map(|chunk| subtract_scalar(&chunk, to_subtract))
             .collect::<VortexResult<Vec<_>>>()?;
-        Ok(Self::try_new(chunks, self.dtype().clone())?.into_array())
+        Ok(ChunkedArray::try_new(chunks, array.dtype().clone())?.into_array())
     }
 }
 

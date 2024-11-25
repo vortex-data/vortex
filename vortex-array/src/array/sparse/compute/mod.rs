@@ -1,13 +1,13 @@
 use vortex_dtype::match_each_integer_ptype;
-use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _};
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::array::sparse::SparseArray;
 use crate::array::{PrimitiveArray, SparseEncoding};
-use crate::compute::unary::{scalar_at, scalar_at_unchecked, ScalarAtFn};
+use crate::compute::unary::{scalar_at, ScalarAtFn};
 use crate::compute::{
-    search_sorted, take, ArrayCompute, ComputeVTable, FilterFn, FilterMask, SearchResult,
-    SearchSortedFn, SearchSortedSide, SliceFn, TakeFn, TakeOptions,
+    search_sorted, take, ComputeVTable, FilterFn, FilterMask, SearchResult, SearchSortedFn,
+    SearchSortedSide, SliceFn, TakeFn, TakeOptions,
 };
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
@@ -15,61 +15,57 @@ use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
 mod slice;
 mod take;
 
-impl ArrayCompute for SparseArray {
-    fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
-        Some(self)
-    }
-
-    fn search_sorted(&self) -> Option<&dyn SearchSortedFn> {
-        Some(self)
-    }
-
-    fn slice(&self) -> Option<&dyn SliceFn> {
-        Some(self)
-    }
-
-    fn take(&self) -> Option<&dyn TakeFn> {
-        Some(self)
-    }
-}
-
 impl ComputeVTable for SparseEncoding {
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
         Some(self)
     }
+
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn search_sorted_fn(&self) -> Option<&dyn SearchSortedFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
+        Some(self)
+    }
 }
 
-impl ScalarAtFn for SparseArray {
-    fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
-        Ok(match self.search_index(index)?.to_found() {
-            None => self.fill_scalar(),
-            Some(idx) => scalar_at_unchecked(self.values(), idx),
+impl ScalarAtFn<SparseArray> for SparseEncoding {
+    fn scalar_at(&self, array: &SparseArray, index: usize) -> VortexResult<Scalar> {
+        Ok(match array.search_index(index)?.to_found() {
+            None => array.fill_scalar(),
+            Some(idx) => scalar_at(array.values(), idx)?,
         })
     }
-
-    fn scalar_at_unchecked(&self, index: usize) -> Scalar {
-        match self.search_index(index).vortex_unwrap().to_found() {
-            None => self.fill_scalar(),
-            Some(idx) => scalar_at_unchecked(self.values(), idx),
-        }
-    }
 }
 
-impl SearchSortedFn for SparseArray {
-    fn search_sorted(&self, value: &Scalar, side: SearchSortedSide) -> VortexResult<SearchResult> {
-        search_sorted(&self.values(), value.clone(), side).and_then(|sr| {
-            let sidx = sr.to_offsets_index(self.metadata().indices_len);
-            let index: usize = scalar_at(self.indices(), sidx)?.as_ref().try_into()?;
+impl SearchSortedFn<SparseArray> for SparseEncoding {
+    fn search_sorted(
+        &self,
+        array: &SparseArray,
+        value: &Scalar,
+        side: SearchSortedSide,
+    ) -> VortexResult<SearchResult> {
+        search_sorted(&array.values(), value.clone(), side).and_then(|sr| {
+            let sidx = sr.to_offsets_index(array.metadata().indices_len);
+            let index: usize = scalar_at(array.indices(), sidx)?.as_ref().try_into()?;
             Ok(match sr {
                 SearchResult::Found(i) => SearchResult::Found(
-                    if i == self.metadata().indices_len {
+                    if i == array.metadata().indices_len {
                         index + 1
                     } else {
                         index
-                    } - self.indices_offset(),
+                    } - array.indices_offset(),
                 ),
                 SearchResult::NotFound(i) => SearchResult::NotFound(
-                    if i == 0 { index } else { index + 1 } - self.indices_offset(),
+                    if i == 0 { index } else { index + 1 } - array.indices_offset(),
                 ),
             })
         })

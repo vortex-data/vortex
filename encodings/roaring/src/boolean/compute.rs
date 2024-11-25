@@ -1,40 +1,42 @@
 use croaring::Bitmap;
 use vortex_array::compute::unary::ScalarAtFn;
-use vortex_array::compute::{ArrayCompute, ComputeVTable, SliceFn};
+use vortex_array::compute::{ComputeVTable, SliceFn};
 use vortex_array::{ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::{RoaringBoolArray, RoaringBoolEncoding};
 
-impl ArrayCompute for RoaringBoolArray {
-    fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
+impl ComputeVTable for RoaringBoolEncoding {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
         Some(self)
     }
 
-    fn slice(&self) -> Option<&dyn SliceFn> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
         Some(self)
     }
 }
 
-impl ComputeVTable for RoaringBoolEncoding {}
-
-impl ScalarAtFn for RoaringBoolArray {
-    fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
-        Ok(<Self as ScalarAtFn>::scalar_at_unchecked(self, index))
-    }
-
-    fn scalar_at_unchecked(&self, index: usize) -> Scalar {
-        self.bitmap().contains(index as u32).into()
+impl ScalarAtFn<RoaringBoolArray> for RoaringBoolEncoding {
+    fn scalar_at(&self, array: &RoaringBoolArray, index: usize) -> VortexResult<Scalar> {
+        Ok(array.bitmap().contains(index as u32).into())
     }
 }
 
-impl SliceFn for RoaringBoolArray {
-    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData> {
+impl SliceFn<RoaringBoolArray> for RoaringBoolEncoding {
+    fn slice(
+        &self,
+        array: &RoaringBoolArray,
+        start: usize,
+        stop: usize,
+    ) -> VortexResult<ArrayData> {
         let slice_bitmap = Bitmap::from_range(start as u32..stop as u32);
-        let bitmap = self.bitmap().and(&slice_bitmap).add_offset(-(start as i64));
+        let bitmap = array
+            .bitmap()
+            .and(&slice_bitmap)
+            .add_offset(-(start as i64));
 
-        Self::try_new(bitmap, stop - start).map(IntoArrayData::into_array)
+        RoaringBoolArray::try_new(bitmap, stop - start).map(IntoArrayData::into_array)
     }
 }
 

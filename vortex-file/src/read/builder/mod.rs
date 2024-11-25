@@ -2,16 +2,14 @@ use std::sync::{Arc, RwLock};
 
 use initial_read::{read_initial_bytes, read_layout_from_initial};
 use vortex_array::{ArrayDType, ArrayData};
-use vortex_dtype::flatbuffers::deserialize_and_project;
-use vortex_dtype::DType;
-use vortex_error::{vortex_err, VortexResult};
+use vortex_error::VortexResult;
 use vortex_expr::Select;
 use vortex_io::{IoDispatcher, VortexReadAt};
-use vortex_schema::projection::Projection;
 
 use crate::read::cache::{LayoutMessageCache, RelativeLayoutCache};
 use crate::read::context::LayoutDeserializer;
 use crate::read::filtering::RowFilter;
+use crate::read::projection::Projection;
 use crate::read::stream::VortexFileArrayStream;
 use crate::read::{RowMask, Scan};
 
@@ -121,23 +119,17 @@ impl<R: VortexReadAt> VortexReadBuilder<R> {
         let initial_read = read_initial_bytes(&self.read_at, self.size().await).await?;
 
         let layout = initial_read.fb_layout()?;
-        let schema = initial_read.fb_schema()?;
 
         let row_count = layout.row_count();
         let read_projection = self.projection.unwrap_or_default();
+        let lazy_dtype = Arc::new(initial_read.lazy_dtype()?);
 
-        let projected_dtype = {
-            let fb_dtype = schema
-                .dtype()
-                .ok_or_else(|| vortex_err!(InvalidSerde: "Schema missing DType"))?;
-            match read_projection {
-                Projection::All => DType::try_from(fb_dtype)?,
-                Projection::Flat(ref projection) => deserialize_and_project(fb_dtype, projection)?,
-            }
+        let projected_dtype = match read_projection {
+            Projection::All => lazy_dtype.clone(),
+            Projection::Flat(ref fields) => lazy_dtype.project(fields)?,
         };
 
         let message_cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
-        let lazy_dtype = Arc::new(initial_read.lazy_dtype()?);
         let layout_reader = read_layout_from_initial(
             &initial_read,
             &self.layout_serde,

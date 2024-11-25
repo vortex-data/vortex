@@ -1,16 +1,9 @@
-use vortex_error::VortexResult;
-
-use crate::array::primitive::PrimitiveArray;
 use crate::array::PrimitiveEncoding;
 use crate::compute::unary::{CastFn, FillForwardFn, ScalarAtFn, SubtractScalarFn};
-use crate::compute::{
-    ArrayCompute, ComputeVTable, FilterFn, MaybeCompareFn, Operator, SearchSortedFn, SliceFn,
-    TakeFn,
-};
+use crate::compute::{ComputeVTable, FilterFn, SearchSortedFn, SliceFn, TakeFn};
 use crate::ArrayData;
 
 mod cast;
-mod compare;
 mod fill;
 mod filter;
 mod scalar_at;
@@ -19,42 +12,36 @@ mod slice;
 mod subtract_scalar;
 mod take;
 
-impl ArrayCompute for PrimitiveArray {
-    fn cast(&self) -> Option<&dyn CastFn> {
-        Some(self)
-    }
-
-    fn compare(&self, other: &ArrayData, operator: Operator) -> Option<VortexResult<ArrayData>> {
-        MaybeCompareFn::maybe_compare(self, other, operator)
-    }
-
-    fn fill_forward(&self) -> Option<&dyn FillForwardFn> {
-        Some(self)
-    }
-
-    fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
-        Some(self)
-    }
-
-    fn subtract_scalar(&self) -> Option<&dyn SubtractScalarFn> {
-        Some(self)
-    }
-
-    fn search_sorted(&self) -> Option<&dyn SearchSortedFn> {
-        Some(self)
-    }
-
-    fn slice(&self) -> Option<&dyn SliceFn> {
-        Some(self)
-    }
-
-    fn take(&self) -> Option<&dyn TakeFn> {
-        Some(self)
-    }
-}
-
 impl ComputeVTable for PrimitiveEncoding {
+    fn cast_fn(&self) -> Option<&dyn CastFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn fill_forward_fn(&self) -> Option<&dyn FillForwardFn<ArrayData>> {
+        Some(self)
+    }
+
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn search_sorted_fn(&self) -> Option<&dyn SearchSortedFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn subtract_scalar_fn(&self) -> Option<&dyn SubtractScalarFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
         Some(self)
     }
 }

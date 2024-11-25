@@ -3,12 +3,12 @@ use std::sync::Arc;
 
 use fsst::{Decompressor, Symbol};
 use serde::{Deserialize, Serialize};
-use vortex_array::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use vortex_array::array::{VarBin, VarBinArray};
 use vortex_array::encoding::ids;
-use vortex_array::stats::{ArrayStatisticsCompute, StatsSet};
-use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity};
+use vortex_array::stats::{StatisticsVTable, StatsSet};
+use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityVTable};
 use vortex_array::variants::{ArrayVariants, BinaryArrayTrait, Utf8ArrayTrait};
+use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayDef, ArrayLen, ArrayTrait, IntoCanonical,
 };
@@ -191,24 +191,24 @@ impl FSSTArray {
     }
 }
 
-impl AcceptArrayVisitor for FSSTArray {
-    fn accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_child("symbols", &self.symbols())?;
-        visitor.visit_child("symbol_lengths", &self.symbol_lengths())?;
-        visitor.visit_child("codes", &self.codes())?;
-        visitor.visit_child("uncompressed_lengths", &self.uncompressed_lengths())
+impl VisitorVTable<FSSTArray> for FSSTEncoding {
+    fn accept(&self, array: &FSSTArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+        visitor.visit_child("symbols", &array.symbols())?;
+        visitor.visit_child("symbol_lengths", &array.symbol_lengths())?;
+        visitor.visit_child("codes", &array.codes())?;
+        visitor.visit_child("uncompressed_lengths", &array.uncompressed_lengths())
     }
 }
 
-impl ArrayStatisticsCompute for FSSTArray {}
+impl StatisticsVTable<FSSTArray> for FSSTEncoding {}
 
-impl ArrayValidity for FSSTArray {
-    fn is_valid(&self, index: usize) -> bool {
-        self.codes().with_dyn(|a| a.is_valid(index))
+impl ValidityVTable<FSSTArray> for FSSTEncoding {
+    fn is_valid(&self, array: &FSSTArray, index: usize) -> bool {
+        array.codes().is_valid(index)
     }
 
-    fn logical_validity(&self) -> LogicalValidity {
-        self.codes().with_dyn(|a| a.logical_validity())
+    fn logical_validity(&self, array: &FSSTArray) -> LogicalValidity {
+        array.codes().logical_validity()
     }
 }
 

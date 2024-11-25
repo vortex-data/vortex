@@ -417,6 +417,19 @@ impl AsRef<ArrayData> for Canonical {
     }
 }
 
+impl IntoArrayData for Canonical {
+    fn into_array(self) -> ArrayData {
+        match self {
+            Canonical::Null(a) => a.into_array(),
+            Canonical::Bool(a) => a.into_array(),
+            Canonical::Primitive(a) => a.into_array(),
+            Canonical::Struct(a) => a.into_array(),
+            Canonical::VarBinView(a) => a.into_array(),
+            Canonical::Extension(a) => a.into_array(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use std::sync::Arc;

@@ -13,13 +13,13 @@ use vortex_buffer::Buffer;
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult};
 
-use crate::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use crate::arrow::FromArrowArray;
 use crate::compute::slice;
 use crate::encoding::ids;
 use crate::stats::StatsSet;
-use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
+use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use crate::variants::PrimitiveArrayTrait;
+use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayVariant,
     IntoCanonical,
@@ -587,23 +587,23 @@ pub(crate) fn varbinview_as_arrow(var_bin_view: &VarBinViewArray) -> ArrayRef {
     }
 }
 
-impl ArrayValidity for VarBinViewArray {
-    fn is_valid(&self, index: usize) -> bool {
-        self.validity().is_valid(index)
+impl ValidityVTable<VarBinViewArray> for VarBinViewEncoding {
+    fn is_valid(&self, array: &VarBinViewArray, index: usize) -> bool {
+        array.validity().is_valid(index)
     }
 
-    fn logical_validity(&self) -> LogicalValidity {
-        self.validity().to_logical(self.len())
+    fn logical_validity(&self, array: &VarBinViewArray) -> LogicalValidity {
+        array.validity().to_logical(array.len())
     }
 }
 
-impl AcceptArrayVisitor for VarBinViewArray {
-    fn accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_child("views", &self.views())?;
-        for i in 0..self.metadata().buffer_lens.len() {
-            visitor.visit_child(format!("bytes_{i}").as_str(), &self.buffer(i))?;
+impl VisitorVTable<VarBinViewArray> for VarBinViewEncoding {
+    fn accept(&self, array: &VarBinViewArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+        visitor.visit_child("views", &array.views())?;
+        for i in 0..array.metadata().buffer_lens.len() {
+            visitor.visit_child(format!("bytes_{i}").as_str(), &array.buffer(i))?;
         }
-        visitor.visit_validity(&self.validity())
+        visitor.visit_validity(&array.validity())
     }
 }
 

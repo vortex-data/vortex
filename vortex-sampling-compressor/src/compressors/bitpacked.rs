@@ -99,7 +99,7 @@ impl EncodingCompressor for BitPackedCompressor {
         }
 
         let validity = ctx.compress_validity(parray.validity())?;
-        let packed = bitpack(&parray, bit_width)?;
+        let packed_buffer = bitpack(&parray, bit_width)?;
         let patches = (num_exceptions > 0)
             .then(|| {
                 gather_patches(&parray, bit_width, num_exceptions).map(|p| {
@@ -114,7 +114,7 @@ impl EncodingCompressor for BitPackedCompressor {
 
         Ok(CompressedArray::compressed(
             BitPackedArray::try_new(
-                packed,
+                packed_buffer,
                 parray.ptype(),
                 validity,
                 patches.as_ref().map(|p| p.array.clone()),

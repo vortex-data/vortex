@@ -1,6 +1,6 @@
 use num_traits::AsPrimitive;
 use vortex_array::compute::unary::{FillForwardFn, ScalarAtFn};
-use vortex_array::compute::{ArrayCompute, ComputeVTable, SliceFn, TakeFn, TakeOptions};
+use vortex_array::compute::{ComputeVTable, SliceFn, TakeFn, TakeOptions};
 use vortex_array::validity::{ArrayValidity, Validity};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
@@ -10,51 +10,53 @@ use vortex_scalar::Scalar;
 
 use super::{ByteBoolArray, ByteBoolEncoding};
 
-impl ArrayCompute for ByteBoolArray {
-    fn fill_forward(&self) -> Option<&dyn FillForwardFn> {
+impl ComputeVTable for ByteBoolEncoding {
+    fn fill_forward_fn(&self) -> Option<&dyn FillForwardFn<ArrayData>> {
         None
     }
 
-    fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
         Some(self)
     }
 
-    fn slice(&self) -> Option<&dyn SliceFn> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
         Some(self)
     }
 
-    fn take(&self) -> Option<&dyn TakeFn> {
+    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
         Some(self)
     }
 }
 
-impl ComputeVTable for ByteBoolEncoding {}
-
-impl ScalarAtFn for ByteBoolArray {
-    fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
-        Ok(self.scalar_at_unchecked(index))
-    }
-
-    fn scalar_at_unchecked(&self, index: usize) -> Scalar {
-        Scalar::bool(self.buffer()[index] == 1, self.dtype().nullability())
+impl ScalarAtFn<ByteBoolArray> for ByteBoolEncoding {
+    fn scalar_at(&self, array: &ByteBoolArray, index: usize) -> VortexResult<Scalar> {
+        Ok(Scalar::bool(
+            array.buffer()[index] == 1,
+            array.dtype().nullability(),
+        ))
     }
 }
 
-impl SliceFn for ByteBoolArray {
-    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData> {
+impl SliceFn<ByteBoolArray> for ByteBoolEncoding {
+    fn slice(&self, array: &ByteBoolArray, start: usize, stop: usize) -> VortexResult<ArrayData> {
         Ok(ByteBoolArray::try_new(
-            self.buffer().slice(start..stop),
-            self.validity().slice(start, stop)?,
+            array.buffer().slice(start..stop),
+            array.validity().slice(start, stop)?,
         )?
         .into_array())
     }
 }
 
-impl TakeFn for ByteBoolArray {
-    fn take(&self, indices: &ArrayData, _options: TakeOptions) -> VortexResult<ArrayData> {
-        let validity = self.validity();
+impl TakeFn<ByteBoolArray> for ByteBoolEncoding {
+    fn take(
+        &self,
+        array: &ByteBoolArray,
+        indices: &ArrayData,
+        _options: TakeOptions,
+    ) -> VortexResult<ArrayData> {
+        let validity = array.validity();
         let indices = indices.clone().into_primitive()?;
-        let bools = self.maybe_null_slice();
+        let bools = array.maybe_null_slice();
 
         let arr = match validity {
             Validity::AllValid | Validity::NonNullable => {
@@ -68,9 +70,9 @@ impl TakeFn for ByteBoolArray {
                     .collect::<Vec<_>>()
                 });
 
-                Self::from(bools).into_array()
+                ByteBoolArray::from(bools).into_array()
             }
-            Validity::AllInvalid => Self::from(vec![None; indices.len()]).into_array(),
+            Validity::AllInvalid => ByteBoolArray::from(vec![None; indices.len()]).into_array(),
 
             Validity::Array(_) => {
                 let bools = match_each_integer_ptype!(indices.ptype(), |$I| {
@@ -87,7 +89,7 @@ impl TakeFn for ByteBoolArray {
                     .collect::<Vec<Option<_>>>()
                 });
 
-                Self::from(bools).into_array()
+                ByteBoolArray::from(bools).into_array()
             }
         };
 
@@ -95,20 +97,23 @@ impl TakeFn for ByteBoolArray {
     }
 }
 
-impl FillForwardFn for ByteBoolArray {
-    fn fill_forward(&self) -> VortexResult<ArrayData> {
-        let validity = self.logical_validity();
-        if self.dtype().nullability() == Nullability::NonNullable {
-            return Ok(self.to_array());
+impl FillForwardFn<ByteBoolArray> for ByteBoolEncoding {
+    fn fill_forward(&self, array: &ByteBoolArray) -> VortexResult<ArrayData> {
+        let validity = array.logical_validity();
+        if array.dtype().nullability() == Nullability::NonNullable {
+            return Ok(array.to_array());
         }
         // all valid, but we need to convert to non-nullable
         if validity.all_valid() {
-            return Ok(Self::try_new(self.buffer().clone(), Validity::AllValid)?.into_array());
+            return Ok(
+                ByteBoolArray::try_new(array.buffer().clone(), Validity::AllValid)?.into_array(),
+            );
         }
         // all invalid => fill with default value (false)
         if validity.all_invalid() {
             return Ok(
-                Self::try_from_vec(vec![false; self.len()], Validity::AllValid)?.into_array(),
+                ByteBoolArray::try_from_vec(vec![false; array.len()], Validity::AllValid)?
+                    .into_array(),
             );
         }
 
@@ -116,7 +121,7 @@ impl FillForwardFn for ByteBoolArray {
             .to_null_buffer()?
             .ok_or_else(|| vortex_err!("Failed to convert array validity to null buffer"))?;
 
-        let bools = self.maybe_null_slice();
+        let bools = array.maybe_null_slice();
         let mut last_value = bool::default();
 
         let filled = bools
@@ -131,13 +136,13 @@ impl FillForwardFn for ByteBoolArray {
             })
             .collect::<Vec<_>>();
 
-        Ok(Self::try_from_vec(filled, Validity::AllValid)?.into_array())
+        Ok(ByteBoolArray::try_from_vec(filled, Validity::AllValid)?.into_array())
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::compute::unary::{scalar_at, scalar_at_unchecked};
+    use vortex_array::compute::unary::scalar_at;
     use vortex_array::compute::{compare, slice, Operator};
     use vortex_scalar::ScalarValue;
 
@@ -151,7 +156,7 @@ mod tests {
         let sliced_arr = slice(vortex_arr.as_ref(), 1, 4).unwrap();
         let sliced_arr = ByteBoolArray::try_from(sliced_arr).unwrap();
 
-        let s = scalar_at_unchecked(sliced_arr.as_ref(), 0);
+        let s = scalar_at(sliced_arr.as_ref(), 0).unwrap();
         assert_eq!(s.into_value().as_bool().unwrap(), Some(true));
 
         let s = scalar_at(sliced_arr.as_ref(), 1).unwrap();
@@ -159,7 +164,7 @@ mod tests {
         assert!(s.is_null());
         assert_eq!(s.into_value().as_bool().unwrap(), None);
 
-        let s = scalar_at_unchecked(sliced_arr.as_ref(), 2);
+        let s = scalar_at(sliced_arr.as_ref(), 2).unwrap();
         assert_eq!(s.into_value().as_bool().unwrap(), Some(false));
     }
 
@@ -171,7 +176,7 @@ mod tests {
         let arr = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
 
         for i in 0..arr.len() {
-            let s = scalar_at_unchecked(arr.as_ref(), i);
+            let s = scalar_at(arr.as_ref(), i).unwrap();
             assert!(s.is_valid());
             assert_eq!(s.value(), &ScalarValue::Bool(true));
         }

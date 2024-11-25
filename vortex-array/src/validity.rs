@@ -12,10 +12,45 @@ use vortex_error::{
 };
 
 use crate::array::{BoolArray, ConstantArray};
-use crate::compute::unary::scalar_at_unchecked;
+use crate::compute::unary::scalar_at;
 use crate::compute::{filter, slice, take, FilterMask, TakeOptions};
+use crate::encoding::Encoding;
 use crate::stats::ArrayStatistics;
 use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
+
+pub trait ValidityVTable<Array> {
+    // TODO(ngates): can we implement this based on logical validity? Or is that too expensive?
+    fn is_valid(&self, array: &Array, index: usize) -> bool;
+    fn logical_validity(&self, array: &Array) -> LogicalValidity;
+}
+
+impl<E: Encoding> ValidityVTable<ArrayData> for E
+where
+    E: ValidityVTable<E::Array>,
+    for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
+{
+    fn is_valid(&self, array: &ArrayData, index: usize) -> bool {
+        let array_ref =
+            <&E::Array>::try_from(array).vortex_expect("Failed to get array as reference");
+        let encoding = array
+            .encoding()
+            .as_any()
+            .downcast_ref::<E>()
+            .vortex_expect("Failed to downcast encoding");
+        ValidityVTable::is_valid(encoding, array_ref, index)
+    }
+
+    fn logical_validity(&self, array: &ArrayData) -> LogicalValidity {
+        let array_ref =
+            <&E::Array>::try_from(array).vortex_expect("Failed to get array as reference");
+        let encoding = array
+            .encoding()
+            .as_any()
+            .downcast_ref::<E>()
+            .vortex_expect("Failed to downcast encoding");
+        ValidityVTable::logical_validity(encoding, array_ref)
+    }
+}
 
 pub trait ArrayValidity {
     fn is_valid(&self, index: usize) -> bool;
@@ -137,15 +172,15 @@ impl Validity {
         match self {
             Self::NonNullable | Self::AllValid => true,
             Self::AllInvalid => false,
-            Self::Array(a) => {
-                bool::try_from(&scalar_at_unchecked(a, index)).unwrap_or_else(|err| {
+            Self::Array(a) => scalar_at(a, index)
+                .and_then(|s| bool::try_from(&s))
+                .unwrap_or_else(|err| {
                     vortex_panic!(
                         err,
                         "Failed to get bool from Validity Array at index {}",
                         index
                     )
-                })
-            }
+                }),
         }
     }
 
@@ -436,6 +471,27 @@ impl LogicalValidity {
             Self::AllValid(_) => Validity::AllValid,
             Self::AllInvalid(_) => Validity::AllInvalid,
             Self::Array(a) => Validity::Array(a),
+        }
+    }
+
+    pub fn null_count(&self, length: usize) -> VortexResult<usize> {
+        match self {
+            Self::AllValid(_) => Ok(0),
+            Self::AllInvalid(_) => Ok(length),
+            Self::Array(a) => {
+                let validity_len = a.len();
+                if validity_len != length {
+                    vortex_bail!(
+                        "Validity array length {} doesn't match array length {}",
+                        validity_len,
+                        length
+                    )
+                }
+                let true_count = a.statistics().compute_true_count().ok_or_else(|| {
+                    vortex_err!("Failed to compute true count from validity array")
+                })?;
+                Ok(length - true_count)
+            }
         }
     }
 }

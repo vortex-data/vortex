@@ -1,13 +1,13 @@
 use std::fmt::{Debug, Display};
 
 use serde::{Deserialize, Serialize};
-use vortex_array::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use vortex_array::array::StructArray;
 use vortex_array::compute::unary::try_cast;
 use vortex_array::encoding::ids;
-use vortex_array::stats::{ArrayStatisticsCompute, Stat, StatsSet};
-use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity};
+use vortex_array::stats::{Stat, StatisticsVTable, StatsSet};
+use vortex_array::validity::{LogicalValidity, Validity, ValidityVTable};
 use vortex_array::variants::{ArrayVariants, ExtensionArrayTrait};
+use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
     IntoCanonical,
@@ -144,28 +144,32 @@ impl IntoCanonical for DateTimePartsArray {
     }
 }
 
-impl ArrayValidity for DateTimePartsArray {
-    fn is_valid(&self, index: usize) -> bool {
-        self.validity().is_valid(index)
+impl ValidityVTable<DateTimePartsArray> for DateTimePartsEncoding {
+    fn is_valid(&self, array: &DateTimePartsArray, index: usize) -> bool {
+        array.validity().is_valid(index)
     }
 
-    fn logical_validity(&self) -> LogicalValidity {
-        self.validity().to_logical(self.len())
-    }
-}
-
-impl AcceptArrayVisitor for DateTimePartsArray {
-    fn accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_child("days", &self.days())?;
-        visitor.visit_child("seconds", &self.seconds())?;
-        visitor.visit_child("subsecond", &self.subsecond())
+    fn logical_validity(&self, array: &DateTimePartsArray) -> LogicalValidity {
+        array.validity().to_logical(array.len())
     }
 }
 
-impl ArrayStatisticsCompute for DateTimePartsArray {
-    fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
+impl VisitorVTable<DateTimePartsArray> for DateTimePartsEncoding {
+    fn accept(
+        &self,
+        array: &DateTimePartsArray,
+        visitor: &mut dyn ArrayVisitor,
+    ) -> VortexResult<()> {
+        visitor.visit_child("days", &array.days())?;
+        visitor.visit_child("seconds", &array.seconds())?;
+        visitor.visit_child("subsecond", &array.subsecond())
+    }
+}
+
+impl StatisticsVTable<DateTimePartsArray> for DateTimePartsEncoding {
+    fn compute_statistics(&self, array: &DateTimePartsArray, stat: Stat) -> VortexResult<StatsSet> {
         let maybe_stat = match stat {
-            Stat::NullCount => Some(Scalar::from(self.validity().null_count(self.len())?)),
+            Stat::NullCount => Some(Scalar::from(array.validity().null_count(array.len())?)),
             _ => None,
         };
 

@@ -339,8 +339,7 @@ impl FromIterator<(Stat, Scalar)> for StatsSet {
 impl Extend<(Stat, Scalar)> for StatsSet {
     #[inline]
     fn extend<T: IntoIterator<Item = (Stat, Scalar)>>(&mut self, iter: T) {
-        let stats = iter.into_iter().collect_vec();
-        stats.into_iter().for_each(|(stat, scalar)| {
+        iter.into_iter().for_each(|(stat, scalar)| {
             self.set(stat, scalar);
         });
     }

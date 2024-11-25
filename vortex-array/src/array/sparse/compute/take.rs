@@ -7,27 +7,33 @@ use vortex_error::VortexResult;
 use crate::aliases::hash_map::HashMap;
 use crate::array::primitive::PrimitiveArray;
 use crate::array::sparse::SparseArray;
+use crate::array::SparseEncoding;
 use crate::compute::{take, TakeFn, TakeOptions};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
 
-impl TakeFn for SparseArray {
-    fn take(&self, indices: &ArrayData, options: TakeOptions) -> VortexResult<ArrayData> {
+impl TakeFn<SparseArray> for SparseEncoding {
+    fn take(
+        &self,
+        array: &SparseArray,
+        indices: &ArrayData,
+        options: TakeOptions,
+    ) -> VortexResult<ArrayData> {
         let flat_indices = indices.clone().into_primitive()?;
         // if we are taking a lot of values we should build a hashmap
         let (positions, physical_take_indices) = if indices.len() > 128 {
-            take_map(self, &flat_indices)?
+            take_map(array, &flat_indices)?
         } else {
-            take_search_sorted(self, &flat_indices)?
+            take_search_sorted(array, &flat_indices)?
         };
 
-        let taken_values = take(self.values(), physical_take_indices, options)?;
+        let taken_values = take(array.values(), physical_take_indices, options)?;
 
-        Ok(Self::try_new(
+        Ok(SparseArray::try_new(
             positions.into_array(),
             taken_values,
             indices.len(),
-            self.fill_value().clone(),
+            array.fill_value().clone(),
         )?
         .into_array())
     }

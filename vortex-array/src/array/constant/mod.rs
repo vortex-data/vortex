@@ -4,10 +4,10 @@ use serde::{Deserialize, Serialize};
 use vortex_error::{vortex_panic, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
-use crate::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use crate::encoding::ids;
-use crate::stats::{ArrayStatisticsCompute, Stat, StatsSet};
-use crate::validity::{ArrayValidity, LogicalValidity};
+use crate::stats::{Stat, StatisticsVTable, StatsSet};
+use crate::validity::{LogicalValidity, ValidityVTable};
+use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{impl_encoding, ArrayDType, ArrayLen, ArrayTrait};
 
 mod canonical;
@@ -68,27 +68,27 @@ impl ConstantArray {
 
 impl ArrayTrait for ConstantArray {}
 
-impl ArrayValidity for ConstantArray {
-    fn is_valid(&self, _index: usize) -> bool {
-        !self.scalar_value().is_null()
+impl ValidityVTable<ConstantArray> for ConstantEncoding {
+    fn is_valid(&self, array: &ConstantArray, _index: usize) -> bool {
+        !array.scalar_value().is_null()
     }
 
-    fn logical_validity(&self) -> LogicalValidity {
-        match self.scalar_value().is_null() {
-            true => LogicalValidity::AllInvalid(self.len()),
-            false => LogicalValidity::AllValid(self.len()),
+    fn logical_validity(&self, array: &ConstantArray) -> LogicalValidity {
+        match array.scalar_value().is_null() {
+            true => LogicalValidity::AllInvalid(array.len()),
+            false => LogicalValidity::AllValid(array.len()),
         }
     }
 }
 
-impl ArrayStatisticsCompute for ConstantArray {
-    fn compute_statistics(&self, _stat: Stat) -> VortexResult<StatsSet> {
-        Ok(StatsSet::constant(self.owned_scalar(), self.len()))
+impl StatisticsVTable<ConstantArray> for ConstantEncoding {
+    fn compute_statistics(&self, array: &ConstantArray, _stat: Stat) -> VortexResult<StatsSet> {
+        Ok(StatsSet::constant(array.owned_scalar(), array.len()))
     }
 }
 
-impl AcceptArrayVisitor for ConstantArray {
-    fn accept(&self, _visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+impl VisitorVTable<ConstantArray> for ConstantEncoding {
+    fn accept(&self, _array: &ConstantArray, _visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
         Ok(())
     }
 }

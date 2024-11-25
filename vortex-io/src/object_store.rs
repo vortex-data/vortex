@@ -65,6 +65,7 @@ impl ObjectStoreReadAt {
 }
 
 impl VortexReadAt for ObjectStoreReadAt {
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
     fn read_byte_range(
         &self,
         pos: u64,
@@ -82,6 +83,7 @@ impl VortexReadAt for ObjectStoreReadAt {
         })
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
     fn size(&self) -> impl Future<Output = u64> + 'static {
         let object_store = self.object_store.clone();
         let location = self.location.clone();

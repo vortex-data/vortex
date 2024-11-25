@@ -1,64 +1,70 @@
 use itertools::Itertools as _;
 use vortex_array::array::{PrimitiveArray, TemporalArray};
 use vortex_array::compute::unary::{scalar_at, ScalarAtFn};
-use vortex_array::compute::{
-    slice, take, ArrayCompute, ComputeVTable, SliceFn, TakeFn, TakeOptions,
-};
+use vortex_array::compute::{slice, take, ComputeVTable, SliceFn, TakeFn, TakeOptions};
 use vortex_array::validity::ArrayValidity;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_datetime_dtype::{TemporalMetadata, TimeUnit};
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexResult, VortexUnwrap as _};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::{DateTimePartsArray, DateTimePartsEncoding};
 
-impl ArrayCompute for DateTimePartsArray {
-    fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
+impl ComputeVTable for DateTimePartsEncoding {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
         Some(self)
     }
 
-    fn slice(&self) -> Option<&dyn SliceFn> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
         Some(self)
     }
 
-    fn take(&self) -> Option<&dyn TakeFn> {
+    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
         Some(self)
     }
 }
 
-impl ComputeVTable for DateTimePartsEncoding {}
-
-impl TakeFn for DateTimePartsArray {
-    fn take(&self, indices: &ArrayData, options: TakeOptions) -> VortexResult<ArrayData> {
-        Ok(Self::try_new(
-            self.dtype().clone(),
-            take(self.days(), indices, options)?,
-            take(self.seconds(), indices, options)?,
-            take(self.subsecond(), indices, options)?,
+impl TakeFn<DateTimePartsArray> for DateTimePartsEncoding {
+    fn take(
+        &self,
+        array: &DateTimePartsArray,
+        indices: &ArrayData,
+        options: TakeOptions,
+    ) -> VortexResult<ArrayData> {
+        Ok(DateTimePartsArray::try_new(
+            array.dtype().clone(),
+            take(array.days(), indices, options)?,
+            take(array.seconds(), indices, options)?,
+            take(array.subsecond(), indices, options)?,
         )?
         .into_array())
     }
 }
 
-impl SliceFn for DateTimePartsArray {
-    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData> {
-        Ok(Self::try_new(
-            self.dtype().clone(),
-            slice(self.days(), start, stop)?,
-            slice(self.seconds(), start, stop)?,
-            slice(self.subsecond(), start, stop)?,
+impl SliceFn<DateTimePartsArray> for DateTimePartsEncoding {
+    fn slice(
+        &self,
+        array: &DateTimePartsArray,
+        start: usize,
+        stop: usize,
+    ) -> VortexResult<ArrayData> {
+        Ok(DateTimePartsArray::try_new(
+            array.dtype().clone(),
+            slice(array.days(), start, stop)?,
+            slice(array.seconds(), start, stop)?,
+            slice(array.subsecond(), start, stop)?,
         )?
         .into_array())
     }
 }
 
-impl ScalarAtFn for DateTimePartsArray {
-    fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
-        let DType::Extension(ext) = self.dtype().clone() else {
+impl ScalarAtFn<DateTimePartsArray> for DateTimePartsEncoding {
+    fn scalar_at(&self, array: &DateTimePartsArray, index: usize) -> VortexResult<Scalar> {
+        let DType::Extension(ext) = array.dtype().clone() else {
             vortex_bail!(
                 "DateTimePartsArray must have extension dtype, found {}",
-                self.dtype()
+                array.dtype()
             );
         };
 
@@ -67,7 +73,7 @@ impl ScalarAtFn for DateTimePartsArray {
             vortex_bail!("Metadata must be Timestamp, found {}", ext.id());
         };
 
-        if !self.is_valid(index) {
+        if !array.is_valid(index) {
             return Ok(Scalar::extension(ext, ScalarValue::Null));
         }
 
@@ -79,17 +85,13 @@ impl ScalarAtFn for DateTimePartsArray {
             TimeUnit::D => vortex_bail!("Invalid time unit D"),
         };
 
-        let days: i64 = scalar_at(self.days(), index)?.try_into()?;
-        let seconds: i64 = scalar_at(self.seconds(), index)?.try_into()?;
-        let subseconds: i64 = scalar_at(self.subsecond(), index)?.try_into()?;
+        let days: i64 = scalar_at(array.days(), index)?.try_into()?;
+        let seconds: i64 = scalar_at(array.seconds(), index)?.try_into()?;
+        let subseconds: i64 = scalar_at(array.subsecond(), index)?.try_into()?;
 
         let scalar = days * 86_400 * divisor + seconds * divisor + subseconds;
 
         Ok(Scalar::extension(ext, scalar.into()))
-    }
-
-    fn scalar_at_unchecked(&self, index: usize) -> Scalar {
-        <Self as ScalarAtFn>::scalar_at(self, index).vortex_unwrap()
     }
 }
 

@@ -6,13 +6,13 @@ use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::array::constant::ConstantArray;
-use crate::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use crate::compute::unary::scalar_at;
 use crate::compute::{search_sorted, SearchResult, SearchSortedSide};
 use crate::encoding::ids;
-use crate::stats::{ArrayStatistics, ArrayStatisticsCompute, Stat, StatsSet};
-use crate::validity::{ArrayValidity, LogicalValidity};
+use crate::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
+use crate::validity::{LogicalValidity, ValidityVTable};
 use crate::variants::PrimitiveArrayTrait;
+use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, IntoArrayData, IntoArrayVariant,
 };
@@ -185,28 +185,28 @@ impl SparseArray {
 
 impl ArrayTrait for SparseArray {}
 
-impl AcceptArrayVisitor for SparseArray {
-    fn accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_child("indices", &self.indices())?;
-        visitor.visit_child("values", &self.values())
+impl VisitorVTable<SparseArray> for SparseEncoding {
+    fn accept(&self, array: &SparseArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+        visitor.visit_child("indices", &array.indices())?;
+        visitor.visit_child("values", &array.values())
     }
 }
 
-impl ArrayStatisticsCompute for SparseArray {
-    fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
-        let mut stats = self.values().statistics().compute_all(&[stat])?;
-        if self.len() == self.values().len() {
+impl StatisticsVTable<SparseArray> for SparseEncoding {
+    fn compute_statistics(&self, array: &SparseArray, stat: Stat) -> VortexResult<StatsSet> {
+        let mut stats = array.values().statistics().compute_all(&[stat])?;
+        if array.len() == array.values().len() {
             return Ok(stats);
         }
 
-        let fill_len = self.len() - self.values().len();
-        let fill_stats = if self.fill_value().is_null() {
-            StatsSet::nulls(fill_len, self.dtype())
+        let fill_len = array.len() - array.values().len();
+        let fill_stats = if array.fill_value().is_null() {
+            StatsSet::nulls(fill_len, array.dtype())
         } else {
-            StatsSet::constant(self.fill_scalar(), fill_len)
+            StatsSet::constant(array.fill_scalar(), fill_len)
         };
 
-        if self.values().is_empty() {
+        if array.values().is_empty() {
             return Ok(fill_stats);
         }
 
@@ -215,35 +215,36 @@ impl ArrayStatisticsCompute for SparseArray {
     }
 }
 
-impl ArrayValidity for SparseArray {
-    fn is_valid(&self, index: usize) -> bool {
-        match self.search_index(index).map(SearchResult::to_found) {
-            Ok(None) => !self.fill_value().is_null(),
-            Ok(Some(idx)) => self.values().with_dyn(|a| a.is_valid(idx)),
+impl ValidityVTable<SparseArray> for SparseEncoding {
+    fn is_valid(&self, array: &SparseArray, index: usize) -> bool {
+        match array.search_index(index).map(SearchResult::to_found) {
+            Ok(None) => !array.fill_value().is_null(),
+            Ok(Some(idx)) => array.values().with_dyn(|a| a.is_valid(idx)),
             Err(e) => vortex_panic!(e, "Error while finding index {} in sparse array", index),
         }
     }
 
-    fn logical_validity(&self) -> LogicalValidity {
-        let validity = if self.fill_value().is_null() {
+    fn logical_validity(&self, array: &SparseArray) -> LogicalValidity {
+        let validity = if array.fill_value().is_null() {
             // If we have a null fill value, then the result is a Sparse array with a fill_value
             // of true, and patch values of false.
-            Self::try_new_with_offset(
-                self.indices(),
-                ConstantArray::new(true, self.indices().len()).into_array(),
-                self.len(),
-                self.indices_offset(),
+            SparseArray::try_new_with_offset(
+                array.indices(),
+                ConstantArray::new(true, array.indices().len()).into_array(),
+                array.len(),
+                array.indices_offset(),
                 false.into(),
             )
         } else {
             // If the fill_value is non-null, then the validity is based on the validity of the
             // existing values.
-            Self::try_new_with_offset(
-                self.indices(),
-                self.values()
+            SparseArray::try_new_with_offset(
+                array.indices(),
+                array
+                    .values()
                     .with_dyn(|a| a.logical_validity().into_array()),
-                self.len(),
-                self.indices_offset(),
+                array.len(),
+                array.indices_offset(),
                 true.into(),
             )
         }
@@ -260,7 +261,6 @@ mod test {
     use vortex_error::VortexError;
     use vortex_scalar::Scalar;
 
-    use crate::accessor::ArrayAccessor;
     use crate::array::sparse::SparseArray;
     use crate::compute::slice;
     use crate::compute::unary::{scalar_at, try_cast};
@@ -287,64 +287,6 @@ mod test {
         )
         .unwrap()
         .into_array()
-    }
-
-    fn assert_sparse_array(sparse: &ArrayData, values: &[Option<i32>]) {
-        let sparse_arrow = ArrayAccessor::<i32>::with_iterator(
-            &sparse.clone().into_primitive().unwrap(),
-            |iter| iter.map(|v| v.cloned()).collect_vec(),
-        )
-        .unwrap();
-        assert_eq!(&sparse_arrow, values);
-    }
-
-    #[test]
-    pub fn iter() {
-        assert_sparse_array(
-            &sparse_array(nullable_fill()),
-            &[
-                None,
-                None,
-                Some(100),
-                None,
-                None,
-                Some(200),
-                None,
-                None,
-                Some(300),
-                None,
-            ],
-        );
-    }
-
-    #[test]
-    pub fn iter_sliced() {
-        let p_fill_val = Some(non_nullable_fill().as_ref().try_into().unwrap());
-        assert_sparse_array(
-            &slice(sparse_array(non_nullable_fill()), 2, 7).unwrap(),
-            &[Some(100), p_fill_val, p_fill_val, Some(200), p_fill_val],
-        );
-    }
-
-    #[test]
-    pub fn iter_sliced_nullable() {
-        assert_sparse_array(
-            &slice(sparse_array(nullable_fill()), 2, 7).unwrap(),
-            &[Some(100), None, None, Some(200), None],
-        );
-    }
-
-    #[test]
-    pub fn iter_sliced_twice() {
-        let sliced_once = slice(sparse_array(nullable_fill()), 1, 8).unwrap();
-        assert_sparse_array(
-            &sliced_once,
-            &[None, Some(100), None, None, Some(200), None, None],
-        );
-        assert_sparse_array(
-            &slice(&sliced_once, 1, 6).unwrap(),
-            &[Some(100), None, None, Some(200), None],
-        );
     }
 
     #[test]

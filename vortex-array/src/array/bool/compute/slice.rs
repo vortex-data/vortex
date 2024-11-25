@@ -1,14 +1,14 @@
 use vortex_error::VortexResult;
 
-use crate::array::BoolArray;
+use crate::array::{BoolArray, BoolEncoding};
 use crate::compute::SliceFn;
 use crate::{ArrayData, IntoArrayData};
 
-impl SliceFn for BoolArray {
-    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData> {
-        Ok(Self::try_new(
-            self.boolean_buffer().slice(start, stop - start),
-            self.validity().slice(start, stop)?,
+impl SliceFn<BoolArray> for BoolEncoding {
+    fn slice(&self, array: &BoolArray, start: usize, stop: usize) -> VortexResult<ArrayData> {
+        Ok(BoolArray::try_new(
+            array.boolean_buffer().slice(start, stop - start),
+            array.validity().slice(start, stop)?,
         )?
         .into_array())
     }

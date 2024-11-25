@@ -1,24 +1,20 @@
-use vortex_array::compute::unary::{scalar_at_unchecked, ScalarAtFn};
+use vortex_array::compute::unary::{scalar_at, ScalarAtFn};
 use vortex_array::ArrayDType;
-use vortex_error::{VortexResult, VortexUnwrap as _};
+use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::{unpack_single, BitPackedArray};
+use crate::{unpack_single, BitPackedArray, BitPackedEncoding};
 
-impl ScalarAtFn for BitPackedArray {
-    fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
-        if let Some(patches) = self.patches() {
+impl ScalarAtFn<BitPackedArray> for BitPackedEncoding {
+    fn scalar_at(&self, array: &BitPackedArray, index: usize) -> VortexResult<Scalar> {
+        if let Some(patches) = array.patches() {
             // NB: All non-null values are considered patches
             if patches.with_dyn(|a| a.is_valid(index)) {
-                return scalar_at_unchecked(&patches, index).cast(self.dtype());
+                return scalar_at(&patches, index)?.cast(array.dtype());
             }
         }
 
-        unpack_single(self, index)?.cast(self.dtype())
-    }
-
-    fn scalar_at_unchecked(&self, index: usize) -> Scalar {
-        self.scalar_at(index).vortex_unwrap()
+        unpack_single(array, index)?.cast(array.dtype())
     }
 }
 

@@ -1,13 +1,20 @@
 use std::any::Any;
 use std::fmt::Display;
+use std::sync::Arc;
 
 use vortex_array::ArrayData;
 use vortex_error::VortexResult;
 
-use crate::{unbox_any, VortexExpr};
+use crate::{unbox_any, ExprRef, VortexExpr};
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Identity;
+
+impl Identity {
+    pub fn new_expr() -> ExprRef {
+        Arc::new(Identity)
+    }
+}
 
 impl Display for Identity {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

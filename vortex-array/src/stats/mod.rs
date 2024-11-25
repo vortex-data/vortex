@@ -9,9 +9,10 @@ use itertools::Itertools;
 pub use statsset::*;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, NativePType};
-use vortex_error::{vortex_panic, VortexError, VortexResult};
+use vortex_error::{vortex_err, vortex_panic, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
+use crate::encoding::Encoding;
 use crate::ArrayData;
 
 pub mod flatbuffers;
@@ -30,9 +31,9 @@ pub enum Stat {
     /// Whether all values are the same (nulls are not equal to other non-null values,
     /// so this is true iff all values are null or all values are the same non-null value)
     IsConstant,
-    /// Whether the array is sorted
+    /// Whether the non-null values in the array are sorted (i.e., we skip nulls)
     IsSorted,
-    /// Whether the array is strictly sorted (i.e., sorted with no duplicates)
+    /// Whether the non-null values in the array are strictly sorted (i.e., sorted with no duplicates)
     IsStrictSorted,
     /// The maximum value in the array (ignoring nulls, unless all values are null)
     Max,
@@ -105,7 +106,7 @@ pub trait Statistics {
     /// Computes the value of the stat if it's not present
     fn compute(&self, stat: Stat) -> Option<Scalar>;
 
-    /// Compute all of the requested statistics (if not already present)
+    /// Compute all the requested statistics (if not already present)
     /// Returns a StatsSet with the requested stats and any additional available stats
     fn compute_all(&self, stats: &[Stat]) -> VortexResult<StatsSet> {
         let mut stats_set = self.to_set();
@@ -126,10 +127,27 @@ pub trait ArrayStatistics {
     fn inherit_statistics(&self, parent: &dyn Statistics);
 }
 
-pub trait ArrayStatisticsCompute {
+/// Encoding VTable for computing array statistics.
+pub trait StatisticsVTable<Array: ?Sized> {
     /// Compute the requested statistic. Can return additional stats.
-    fn compute_statistics(&self, _stat: Stat) -> VortexResult<StatsSet> {
+    fn compute_statistics(&self, _array: &Array, _stat: Stat) -> VortexResult<StatsSet> {
         Ok(StatsSet::default())
+    }
+}
+
+impl<E: Encoding + 'static> StatisticsVTable<ArrayData> for E
+where
+    E: StatisticsVTable<E::Array>,
+    for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
+{
+    fn compute_statistics(&self, array: &ArrayData, stat: Stat) -> VortexResult<StatsSet> {
+        let array_ref = <&E::Array>::try_from(array)?;
+        let encoding = array
+            .encoding()
+            .as_any()
+            .downcast_ref::<E>()
+            .ok_or_else(|| vortex_err!("Mismatched encoding"))?;
+        StatisticsVTable::compute_statistics(encoding, array_ref, stat)
     }
 }
 

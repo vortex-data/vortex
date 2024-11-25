@@ -2,14 +2,14 @@ use std::fmt::{Debug, Display};
 
 use arrow_buffer::BooleanBuffer;
 use serde::{Deserialize, Serialize};
-use vortex_array::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use vortex_array::array::BoolArray;
 use vortex_array::compute::unary::scalar_at;
 use vortex_array::compute::{take, TakeOptions};
 use vortex_array::encoding::ids;
 use vortex_array::stats::StatsSet;
-use vortex_array::validity::{ArrayValidity, LogicalValidity};
+use vortex_array::validity::{LogicalValidity, ValidityVTable};
 use vortex_array::variants::PrimitiveArrayTrait;
+use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
     IntoArrayVariant, IntoCanonical,
@@ -44,23 +44,23 @@ impl DictArray {
                     .vortex_expect("codes dtype must be uint"),
                 values_len: values.len(),
             },
-            [values, codes].into(),
+            [codes, values].into(),
             StatsSet::default(),
         )
     }
 
     #[inline]
-    pub fn values(&self) -> ArrayData {
+    pub fn codes(&self) -> ArrayData {
         self.as_ref()
-            .child(0, self.dtype(), self.metadata().values_len)
-            .vortex_expect("DictArray is missing its values child array")
+            .child(0, &DType::from(self.metadata().codes_ptype), self.len())
+            .vortex_expect("DictArray is missing its codes child array")
     }
 
     #[inline]
-    pub fn codes(&self) -> ArrayData {
+    pub fn values(&self) -> ArrayData {
         self.as_ref()
-            .child(1, &DType::from(self.metadata().codes_ptype), self.len())
-            .vortex_expect("DictArray is missing its codes child array")
+            .child(1, self.dtype(), self.metadata().values_len)
+            .vortex_expect("DictArray is missing its values child array")
     }
 }
 
@@ -83,21 +83,21 @@ impl IntoCanonical for DictArray {
     }
 }
 
-impl ArrayValidity for DictArray {
-    fn is_valid(&self, index: usize) -> bool {
-        let values_index = scalar_at(self.codes(), index)
+impl ValidityVTable<DictArray> for DictEncoding {
+    fn is_valid(&self, array: &DictArray, index: usize) -> bool {
+        let values_index = scalar_at(array.codes(), index)
             .unwrap_or_else(|err| {
                 vortex_panic!(err, "Failed to get index {} from DictArray codes", index)
             })
             .as_ref()
             .try_into()
             .vortex_expect("Failed to convert dictionary code to usize");
-        self.values().with_dyn(|a| a.is_valid(values_index))
+        array.values().with_dyn(|a| a.is_valid(values_index))
     }
 
-    fn logical_validity(&self) -> LogicalValidity {
-        if self.dtype().is_nullable() {
-            let primitive_codes = self
+    fn logical_validity(&self, array: &DictArray) -> LogicalValidity {
+        if array.dtype().is_nullable() {
+            let primitive_codes = array
                 .codes()
                 .into_primitive()
                 .vortex_expect("Failed to convert DictArray codes to primitive array");
@@ -110,14 +110,14 @@ impl ArrayValidity for DictArray {
                 LogicalValidity::Array(BoolArray::from(is_valid_buffer).into_array())
             })
         } else {
-            LogicalValidity::AllValid(self.len())
+            LogicalValidity::AllValid(array.len())
         }
     }
 }
 
-impl AcceptArrayVisitor for DictArray {
-    fn accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_child("values", &self.values())?;
-        visitor.visit_child("codes", &self.codes())
+impl VisitorVTable<DictArray> for DictEncoding {
+    fn accept(&self, array: &DictArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+        visitor.visit_child("values", &array.values())?;
+        visitor.visit_child("codes", &array.codes())
     }
 }

@@ -7,6 +7,9 @@ use std::hash::{Hash, Hasher};
 use vortex_error::{vortex_panic, VortexResult};
 
 use crate::compute::ComputeVTable;
+use crate::stats::StatisticsVTable;
+use crate::validity::ValidityVTable;
+use crate::visitor::VisitorVTable;
 use crate::{ArrayData, ArrayDef, ArrayMetadata, ArrayTrait, IntoCanonicalVTable, MetadataVTable};
 
 pub mod opaque;
@@ -19,7 +22,7 @@ pub mod opaque;
 /// 0x0001 - 0x0400 - vortex internal encodings (1 - 1024)
 /// 0x0401 - 0x7FFF - well known extension encodings (1025 - 32767)
 /// 0x8000 - 0xFFFF - custom extension encodings (32768 - 65535)
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Copy, Debug, Eq)]
 pub struct EncodingId(&'static str, u16);
 
 impl EncodingId {
@@ -29,6 +32,19 @@ impl EncodingId {
 
     pub const fn code(&self) -> u16 {
         self.1
+    }
+}
+
+// The encoding is identified only by its numeric ID, so we only use that for PartialEq and Hash
+impl PartialEq for EncodingId {
+    fn eq(&self, other: &Self) -> bool {
+        self.1 == other.1
+    }
+}
+
+impl Hash for EncodingId {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.1.hash(state);
     }
 }
 
@@ -45,7 +61,7 @@ impl AsRef<str> for EncodingId {
 }
 
 /// Marker trait for array encodings with their associated Array type.
-pub trait Encoding {
+pub trait Encoding: 'static {
     type Array;
     type Metadata: ArrayMetadata;
 }
@@ -54,7 +70,16 @@ pub type EncodingRef = &'static dyn EncodingVTable;
 
 /// Object-safe encoding trait for an array.
 pub trait EncodingVTable:
-    'static + Sync + Send + Debug + IntoCanonicalVTable + MetadataVTable + ComputeVTable
+    'static
+    + Sync
+    + Send
+    + Debug
+    + IntoCanonicalVTable
+    + MetadataVTable
+    + ComputeVTable
+    + StatisticsVTable<ArrayData>
+    + ValidityVTable<ArrayData>
+    + VisitorVTable<ArrayData>
 {
     fn id(&self) -> EncodingId;
 
@@ -151,7 +176,7 @@ pub mod ids {
 
 #[cfg(test)]
 mod tests {
-    use super::ids;
+    use super::{ids, EncodingId};
     use crate::aliases::hash_set::HashSet;
 
     #[test]
@@ -197,5 +222,15 @@ mod tests {
             // monotonic with no gaps
             assert_eq!(i as u16, *id, "id at index {} is not equal to index", i);
         }
+    }
+
+    #[test]
+    fn test_encoding_id_eq() {
+        let fizz = EncodingId::new("fizz", 0);
+        let buzz = EncodingId::new("buzz", 0);
+        let fizzbuzz = EncodingId::new("fizzbuzz", 1);
+
+        assert_eq!(fizz, buzz);
+        assert_ne!(fizz, fizzbuzz);
     }
 }

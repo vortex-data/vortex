@@ -3,22 +3,28 @@ use vortex_dtype::{match_each_integer_ptype, match_each_native_ptype, NativePTyp
 use vortex_error::VortexResult;
 
 use crate::array::primitive::PrimitiveArray;
+use crate::array::PrimitiveEncoding;
 use crate::compute::{TakeFn, TakeOptions};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
 
-impl TakeFn for PrimitiveArray {
+impl TakeFn<PrimitiveArray> for PrimitiveEncoding {
     #[allow(clippy::cognitive_complexity)]
-    fn take(&self, indices: &ArrayData, options: TakeOptions) -> VortexResult<ArrayData> {
+    fn take(
+        &self,
+        array: &PrimitiveArray,
+        indices: &ArrayData,
+        options: TakeOptions,
+    ) -> VortexResult<ArrayData> {
         let indices = indices.clone().into_primitive()?;
-        let validity = self.validity().take(indices.as_ref(), options)?;
+        let validity = array.validity().take(indices.as_ref(), options)?;
 
-        match_each_native_ptype!(self.ptype(), |$T| {
+        match_each_native_ptype!(array.ptype(), |$T| {
             match_each_integer_ptype!(indices.ptype(), |$I| {
                 let values = if options.skip_bounds_check {
-                    take_primitive_unchecked(self.maybe_null_slice::<$T>(), indices.into_maybe_null_slice::<$I>())
+                    take_primitive_unchecked(array.maybe_null_slice::<$T>(), indices.into_maybe_null_slice::<$I>())
                 } else {
-                    take_primitive(self.maybe_null_slice::<$T>(), indices.into_maybe_null_slice::<$I>())
+                    take_primitive(array.maybe_null_slice::<$T>(), indices.into_maybe_null_slice::<$I>())
                 };
                 Ok(PrimitiveArray::from_vec(values,validity).into_array())
             })

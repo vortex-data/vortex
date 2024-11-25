@@ -2,26 +2,27 @@ use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability};
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
 use crate::array::primitive::PrimitiveArray;
+use crate::array::PrimitiveEncoding;
 use crate::compute::unary::CastFn;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData};
 
-impl CastFn for PrimitiveArray {
-    fn cast(&self, dtype: &DType) -> VortexResult<ArrayData> {
+impl CastFn<PrimitiveArray> for PrimitiveEncoding {
+    fn cast(&self, array: &PrimitiveArray, dtype: &DType) -> VortexResult<ArrayData> {
         let DType::Primitive(new_ptype, new_nullability) = dtype else {
             vortex_bail!(MismatchedTypes: "primitive type", dtype);
         };
         let (new_ptype, new_nullability) = (*new_ptype, *new_nullability);
 
         // First, check that the cast is compatible with the source array's validity
-        let new_validity = if self.dtype().nullability() == new_nullability {
-            self.validity()
+        let new_validity = if array.dtype().nullability() == new_nullability {
+            array.validity()
         } else if new_nullability == Nullability::Nullable {
             // from non-nullable to nullable
-            self.validity().into_nullable()
+            array.validity().into_nullable()
         } else if new_nullability == Nullability::NonNullable
-            && self.validity().to_logical(self.len()).all_valid()
+            && array.validity().to_logical(array.len()).all_valid()
         {
             // from nullable but all valid, to non-nullable
             Validity::NonNullable
@@ -30,16 +31,17 @@ impl CastFn for PrimitiveArray {
         };
 
         // If the bit width is the same, we can short-circuit and simply update the validity
-        if self.ptype() == new_ptype {
+        if array.ptype() == new_ptype {
             return Ok(
-                PrimitiveArray::new(self.buffer().clone(), self.ptype(), new_validity).into_array(),
+                PrimitiveArray::new(array.buffer().clone(), array.ptype(), new_validity)
+                    .into_array(),
             );
         }
 
         // Otherwise, we need to cast the values one-by-one
         match_each_native_ptype!(new_ptype, |$T| {
             Ok(PrimitiveArray::from_vec(
-                cast::<$T>(self)?,
+                cast::<$T>(array)?,
                 new_validity,
             ).into_array())
         })

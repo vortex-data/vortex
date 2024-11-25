@@ -4,10 +4,11 @@ use std::fmt::{Debug, Display, Formatter};
 use std::hint;
 
 use itertools::Itertools;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::compute::unary::scalar_at;
+use crate::encoding::Encoding;
 use crate::{ArrayDType, ArrayData};
 
 #[derive(Debug, Copy, Clone)]
@@ -97,38 +98,113 @@ impl Display for SearchResult {
 /// Searches for value assuming the array is sorted.
 ///
 /// For nullable arrays we assume that the nulls are sorted last, i.e. they're the greatest value
-pub trait SearchSortedFn {
-    fn search_sorted(&self, value: &Scalar, side: SearchSortedSide) -> VortexResult<SearchResult>;
+pub trait SearchSortedFn<Array> {
+    fn search_sorted(
+        &self,
+        array: &Array,
+        value: &Scalar,
+        side: SearchSortedSide,
+    ) -> VortexResult<SearchResult>;
 
-    fn search_sorted_u64(&self, value: u64, side: SearchSortedSide) -> VortexResult<SearchResult> {
-        let u64_scalar = Scalar::from(value);
-        self.search_sorted(&u64_scalar, side)
+    fn search_sorted_usize(
+        &self,
+        array: &Array,
+        value: usize,
+        side: SearchSortedSide,
+    ) -> VortexResult<SearchResult> {
+        let usize_scalar = Scalar::from(value);
+        self.search_sorted(array, &usize_scalar, side)
     }
 
     /// Bulk search for many values.
     fn search_sorted_many(
         &self,
+        array: &Array,
         values: &[Scalar],
-        sides: &[SearchSortedSide],
+        side: SearchSortedSide,
     ) -> VortexResult<Vec<SearchResult>> {
         values
             .iter()
-            .zip(sides.iter())
-            .map(|(value, side)| self.search_sorted(value, *side))
+            .map(|value| self.search_sorted(array, value, side))
             .try_collect()
     }
 
-    fn search_sorted_u64_many(
+    fn search_sorted_usize_many(
         &self,
-        values: &[u64],
-        sides: &[SearchSortedSide],
+        array: &Array,
+        values: &[usize],
+        side: SearchSortedSide,
     ) -> VortexResult<Vec<SearchResult>> {
         values
             .iter()
-            .copied()
-            .zip(sides.iter().copied())
-            .map(|(value, side)| self.search_sorted_u64(value, side))
+            .map(|&value| self.search_sorted_usize(array, value, side))
             .try_collect()
+    }
+}
+
+impl<E: Encoding> SearchSortedFn<ArrayData> for E
+where
+    E: SearchSortedFn<E::Array>,
+    for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
+{
+    fn search_sorted(
+        &self,
+        array: &ArrayData,
+        value: &Scalar,
+        side: SearchSortedSide,
+    ) -> VortexResult<SearchResult> {
+        let array_ref = <&E::Array>::try_from(array)?;
+        let encoding = array
+            .encoding()
+            .as_any()
+            .downcast_ref::<E>()
+            .ok_or_else(|| vortex_err!("Mismatched encoding"))?;
+        SearchSortedFn::search_sorted(encoding, array_ref, value, side)
+    }
+
+    fn search_sorted_usize(
+        &self,
+        array: &ArrayData,
+        value: usize,
+        side: SearchSortedSide,
+    ) -> VortexResult<SearchResult> {
+        let array_ref = <&E::Array>::try_from(array)?;
+        let encoding = array
+            .encoding()
+            .as_any()
+            .downcast_ref::<E>()
+            .ok_or_else(|| vortex_err!("Mismatched encoding"))?;
+        SearchSortedFn::search_sorted_usize(encoding, array_ref, value, side)
+    }
+
+    fn search_sorted_many(
+        &self,
+        array: &ArrayData,
+        values: &[Scalar],
+        side: SearchSortedSide,
+    ) -> VortexResult<Vec<SearchResult>> {
+        let array_ref = <&E::Array>::try_from(array)?;
+        let encoding = array
+            .encoding()
+            .as_any()
+            .downcast_ref::<E>()
+            .ok_or_else(|| vortex_err!("Mismatched encoding"))?;
+        SearchSortedFn::search_sorted_many(encoding, array_ref, values, side)
+    }
+
+    fn search_sorted_usize_many(
+        &self,
+        array: &ArrayData,
+        values: &[usize],
+        side: SearchSortedSide,
+    ) -> VortexResult<Vec<SearchResult>> {
+        let array_ref = <&E::Array>::try_from(array)?;
+        let encoding = array
+            .encoding()
+            .as_any()
+            .downcast_ref::<E>()
+            .ok_or_else(|| vortex_err!("Mismatched encoding"))?;
+        SearchSortedFn::search_sorted_usize_many(encoding, array_ref, values, side)
     }
 }
 
@@ -142,86 +218,79 @@ pub fn search_sorted<T: Into<Scalar>>(
         vortex_bail!("Search sorted with null value is not supported");
     }
 
-    array.with_dyn(|a| {
-        if let Some(search_sorted) = a.search_sorted() {
-            return search_sorted.search_sorted(&scalar, side);
-        }
+    if let Some(f) = array.encoding().search_sorted_fn() {
+        return f.search_sorted(array, &scalar, side);
+    }
 
-        if a.scalar_at().is_some() {
-            return Ok(array.search_sorted(&scalar, side));
-        }
+    // Fallback to a generic search_sorted using scalar_at
+    if array.encoding().scalar_at_fn().is_some() {
+        return Ok(SearchSorted::search_sorted(array, &scalar, side));
+    }
 
-        vortex_bail!(
-            NotImplemented: "search_sorted",
-            array.encoding().id()
-        )
-    })
+    vortex_bail!(
+        NotImplemented: "search_sorted",
+        array.encoding().id()
+    )
 }
 
-pub fn search_sorted_u64(
+pub fn search_sorted_usize(
     array: &ArrayData,
-    target: u64,
+    target: usize,
     side: SearchSortedSide,
 ) -> VortexResult<SearchResult> {
-    array.with_dyn(|a| {
-        if let Some(search_sorted) = a.search_sorted() {
-            search_sorted.search_sorted_u64(target, side)
-        } else if a.scalar_at().is_some() {
-            let scalar = Scalar::primitive(target, array.dtype().nullability());
-            Ok(array.search_sorted(&scalar, side))
-        } else {
-            vortex_bail!(
-                NotImplemented: "search_sorted_u64",
-                array.encoding().id()
-            )
-        }
-    })
+    if let Some(f) = array.encoding().search_sorted_fn() {
+        return f.search_sorted_usize(array, target, side);
+    }
+
+    // Fallback to a generic search_sorted using scalar_at
+    if array.encoding().scalar_at_fn().is_some() {
+        let scalar = Scalar::primitive(target as u64, array.dtype().nullability());
+        return Ok(SearchSorted::search_sorted(array, &scalar, side));
+    }
+
+    vortex_bail!(
+    NotImplemented: "search_sorted_usize",
+        array.encoding().id()
+    )
 }
 
 /// Search for many elements in the array.
 pub fn search_sorted_many<T: Into<Scalar> + Clone>(
     array: &ArrayData,
     targets: &[T],
-    sides: &[SearchSortedSide],
+    side: SearchSortedSide,
 ) -> VortexResult<Vec<SearchResult>> {
-    array.with_dyn(|a| {
-        if let Some(search_sorted) = a.search_sorted() {
-            let values: Vec<Scalar> = targets
-                .iter()
-                .map(|t| t.clone().into().cast(array.dtype()))
-                .try_collect()?;
+    if let Some(f) = array.encoding().search_sorted_fn() {
+        let values: Vec<Scalar> = targets
+            .iter()
+            .map(|t| t.clone().into().cast(array.dtype()))
+            .try_collect()?;
 
-            search_sorted.search_sorted_many(&values, sides)
-        } else {
-            // Call in loop and collect
-            targets
-                .iter()
-                .zip(sides.iter().copied())
-                .map(|(target, side)| search_sorted(array, target.clone(), side))
-                .try_collect()
-        }
-    })
+        return f.search_sorted_many(array, &values, side);
+    }
+
+    // Call in loop and collect
+    targets
+        .iter()
+        .map(|target| search_sorted(array, target.clone(), side))
+        .try_collect()
 }
 
 // Native functions for each of the values, cast up to u64 or down to something lower.
-pub fn search_sorted_u64_many(
+pub fn search_sorted_usize_many(
     array: &ArrayData,
-    targets: &[u64],
-    sides: &[SearchSortedSide],
+    targets: &[usize],
+    side: SearchSortedSide,
 ) -> VortexResult<Vec<SearchResult>> {
-    array.with_dyn(|a| {
-        if let Some(search_sorted) = a.search_sorted() {
-            search_sorted.search_sorted_u64_many(targets, sides)
-        } else {
-            // Call in loop and collect
-            targets
-                .iter()
-                .copied()
-                .zip(sides.iter().copied())
-                .map(|(target, side)| search_sorted_u64(array, target, side))
-                .try_collect()
-        }
-    })
+    if let Some(f) = array.encoding().search_sorted_fn() {
+        return f.search_sorted_usize_many(array, targets, side);
+    }
+
+    // Call in loop and collect
+    targets
+        .iter()
+        .map(|&target| search_sorted_usize(array, target, side))
+        .try_collect()
 }
 
 pub trait IndexOrd<V> {

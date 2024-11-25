@@ -5,10 +5,9 @@ use flatbuffers::{root, root_unchecked};
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 use vortex_flatbuffers::{footer, message};
 use vortex_io::VortexReadAt;
-use vortex_schema::projection::Projection;
 
 use crate::{
-    LayoutDeserializer, LayoutReader, LazilyDeserializedDType, RelativeLayoutCache, Scan, EOF_SIZE,
+    LayoutDeserializer, LayoutReader, LazyDType, RelativeLayoutCache, Scan, EOF_SIZE,
     INITIAL_READ_SIZE, MAGIC_BYTES, VERSION,
 };
 
@@ -51,17 +50,11 @@ impl InitialRead {
         Ok(schema_start..schema_end)
     }
 
-    /// The `Schema` flatbuffer.
-    pub fn fb_schema(&self) -> VortexResult<message::Schema> {
-        Ok(unsafe { root_unchecked::<message::Schema>(&self.buf[self.fb_schema_byte_range()?]) })
-    }
-
-    pub fn lazy_dtype(&self) -> VortexResult<LazilyDeserializedDType> {
+    pub fn lazy_dtype(&self) -> VortexResult<LazyDType> {
         // we validated the schema bytes at construction time
         unsafe {
-            Ok(LazilyDeserializedDType::from_schema_bytes(
+            Ok(LazyDType::from_schema_bytes(
                 self.buf.slice(self.fb_schema_byte_range()?),
-                Projection::All,
             ))
         }
     }
@@ -176,8 +169,7 @@ pub async fn read_initial_bytes<R: VortexReadAt>(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::MAX_FOOTER_SIZE;
+    use crate::{EOF_SIZE, INITIAL_READ_SIZE, MAX_FOOTER_SIZE};
 
     #[test]
     fn big_enough_initial_read() {

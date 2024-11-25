@@ -2,7 +2,7 @@ use std::fmt::{Debug, Display};
 
 use num_traits::AsPrimitive;
 use serde::{Deserialize, Serialize};
-pub use stats::compute_stats;
+pub use stats::compute_varbin_statistics;
 use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
 use vortex_error::{

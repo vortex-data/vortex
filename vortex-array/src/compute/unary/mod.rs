@@ -1,6 +1,6 @@
 pub use cast::{try_cast, CastFn};
 pub use fill_forward::{fill_forward, FillForwardFn};
-pub use scalar_at::{scalar_at, scalar_at_unchecked, ScalarAtFn};
+pub use scalar_at::{scalar_at, ScalarAtFn};
 pub use scalar_subtract::{subtract_scalar, SubtractScalarFn};
 
 mod cast;

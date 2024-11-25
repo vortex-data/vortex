@@ -58,34 +58,20 @@ impl EncodingCompressor for FoRCompressor {
     ) -> VortexResult<CompressedArray<'a>> {
         let compressed = for_compress(&array.clone().into_primitive()?)?;
 
-        if let Ok(for_array) = FoRArray::try_from(compressed.clone()) {
-            let compressed_child = ctx
-                .named("for")
-                .excluding(self)
-                .compress(&for_array.encoded(), like.as_ref().and_then(|l| l.child(0)))?;
-            Ok(CompressedArray::compressed(
-                FoRArray::try_new(
-                    compressed_child.array,
-                    for_array.owned_reference_scalar(),
-                    for_array.shift(),
-                )
-                .map(|a| a.into_array())?,
-                Some(CompressionTree::new(self, vec![compressed_child.path])),
-                Some(array.statistics()),
-            ))
-        } else {
-            // otherwise, we chose a different encoding (e.g., constant or sparse), try compressing that
-            // (will no-op for constant, may compress indices/values for sparse)
-            let compressed_child = ctx
-                .named("for")
-                .excluding(self)
-                .compress(&compressed, like.as_ref().and_then(|l| l.child(0)))?;
-            Ok(CompressedArray::compressed(
+        let compressed_child = ctx.named("for_encoded").excluding(self).compress(
+            &compressed.encoded(),
+            like.as_ref().and_then(|l| l.child(0)),
+        )?;
+        Ok(CompressedArray::compressed(
+            FoRArray::try_new(
                 compressed_child.array,
-                Some(CompressionTree::new(self, vec![compressed_child.path])),
-                Some(array.statistics()),
-            ))
-        }
+                compressed.owned_reference_scalar(),
+                compressed.shift(),
+            )
+            .map(|a| a.into_array())?,
+            Some(CompressionTree::new(self, vec![compressed_child.path])),
+            Some(array.statistics()),
+        ))
     }
 
     fn used_encodings(&self) -> HashSet<EncodingRef> {

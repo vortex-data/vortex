@@ -5,52 +5,51 @@ use vortex_scalar::Scalar;
 use crate::array::null::NullArray;
 use crate::array::NullEncoding;
 use crate::compute::unary::ScalarAtFn;
-use crate::compute::{ArrayCompute, ComputeVTable, SliceFn, TakeFn, TakeOptions};
+use crate::compute::{ComputeVTable, SliceFn, TakeFn, TakeOptions};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
 
-impl ArrayCompute for NullArray {
-    fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
+impl ComputeVTable for NullEncoding {
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
         Some(self)
     }
 
-    fn slice(&self) -> Option<&dyn SliceFn> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
         Some(self)
     }
 
-    fn take(&self) -> Option<&dyn TakeFn> {
+    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
         Some(self)
     }
 }
 
-impl ComputeVTable for NullEncoding {}
-
-impl SliceFn for NullArray {
-    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData> {
+impl SliceFn<NullArray> for NullEncoding {
+    fn slice(&self, _array: &NullArray, start: usize, stop: usize) -> VortexResult<ArrayData> {
         Ok(NullArray::new(stop - start).into_array())
     }
 }
 
-impl ScalarAtFn for NullArray {
-    fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
-        Ok(self.scalar_at_unchecked(index))
-    }
-
-    fn scalar_at_unchecked(&self, _index: usize) -> Scalar {
-        Scalar::null(DType::Null)
+impl ScalarAtFn<NullArray> for NullEncoding {
+    fn scalar_at(&self, _array: &NullArray, _index: usize) -> VortexResult<Scalar> {
+        Ok(Scalar::null(DType::Null))
     }
 }
 
-impl TakeFn for NullArray {
-    fn take(&self, indices: &ArrayData, options: TakeOptions) -> VortexResult<ArrayData> {
+impl TakeFn<NullArray> for NullEncoding {
+    fn take(
+        &self,
+        array: &NullArray,
+        indices: &ArrayData,
+        options: TakeOptions,
+    ) -> VortexResult<ArrayData> {
         let indices = indices.clone().into_primitive()?;
 
         // Enforce all indices are valid
         if !options.skip_bounds_check {
             match_each_integer_ptype!(indices.ptype(), |$T| {
                 for index in indices.maybe_null_slice::<$T>() {
-                    if !((*index as usize) < self.len()) {
-                        vortex_bail!(OutOfBounds: *index as usize, 0, self.len());
+                    if !((*index as usize) < array.len()) {
+                        vortex_bail!(OutOfBounds: *index as usize, 0, array.len());
                     }
                 }
             });
@@ -65,15 +64,19 @@ mod test {
     use vortex_dtype::DType;
 
     use crate::array::null::NullArray;
+    use crate::array::ConstantArray;
     use crate::compute::unary::scalar_at;
-    use crate::compute::{SliceFn, TakeFn, TakeOptions};
+    use crate::compute::{slice, take, TakeOptions};
     use crate::validity::{ArrayValidity, LogicalValidity};
     use crate::{ArrayLen, IntoArrayData};
 
     #[test]
     fn test_slice_nulls() {
         let nulls = NullArray::new(10);
-        let sliced = NullArray::try_from(nulls.slice(0, 4).unwrap()).unwrap();
+
+        // Turns out, the slice function has a short-cut for constant arrays.
+        // Sooo... we get back a constant!
+        let sliced = ConstantArray::try_from(slice(nulls.into_array(), 0, 4).unwrap()).unwrap();
 
         assert_eq!(sliced.len(), 4);
         assert!(matches!(
@@ -86,9 +89,12 @@ mod test {
     fn test_take_nulls() {
         let nulls = NullArray::new(10);
         let taken = NullArray::try_from(
-            nulls
-                .take(&vec![0u64, 2, 4, 6, 8].into_array(), TakeOptions::default())
-                .unwrap(),
+            take(
+                nulls,
+                vec![0u64, 2, 4, 6, 8].into_array(),
+                TakeOptions::default(),
+            )
+            .unwrap(),
         )
         .unwrap();
 

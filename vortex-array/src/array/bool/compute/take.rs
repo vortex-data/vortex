@@ -4,20 +4,25 @@ use num_traits::AsPrimitive;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 
-use crate::array::BoolArray;
+use crate::array::{BoolArray, BoolEncoding};
 use crate::compute::{TakeFn, TakeOptions};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
 
-impl TakeFn for BoolArray {
-    fn take(&self, indices: &ArrayData, options: TakeOptions) -> VortexResult<ArrayData> {
-        let validity = self.validity();
+impl TakeFn<BoolArray> for BoolEncoding {
+    fn take(
+        &self,
+        array: &BoolArray,
+        indices: &ArrayData,
+        options: TakeOptions,
+    ) -> VortexResult<ArrayData> {
+        let validity = array.validity();
         let indices = indices.clone().into_primitive()?;
 
         // For boolean arrays that roughly fit into a single page (at least, on Linux), it's worth
         // the overhead to convert to a Vec<bool>.
-        let buffer = if self.len() <= 4096 {
-            let bools = self.boolean_buffer().into_iter().collect_vec();
+        let buffer = if array.len() <= 4096 {
+            let bools = array.boolean_buffer().into_iter().collect_vec();
             match_each_integer_ptype!(indices.ptype(), |$I| {
                 if options.skip_bounds_check {
                     take_byte_bool_unchecked(bools, indices.maybe_null_slice::<$I>())
@@ -28,9 +33,9 @@ impl TakeFn for BoolArray {
         } else {
             match_each_integer_ptype!(indices.ptype(), |$I| {
                 if options.skip_bounds_check {
-                    take_bool_unchecked(&self.boolean_buffer(), indices.maybe_null_slice::<$I>())
+                    take_bool_unchecked(&array.boolean_buffer(), indices.maybe_null_slice::<$I>())
                 } else {
-                    take_bool(&self.boolean_buffer(), indices.maybe_null_slice::<$I>())
+                    take_bool(&array.boolean_buffer(), indices.maybe_null_slice::<$I>())
                 }
             })
         };

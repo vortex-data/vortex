@@ -1,4 +1,4 @@
-pub use layout::Layout;
+pub use layout::LayoutSpec;
 pub use writer::VortexFileWriter;
 
 mod layout;

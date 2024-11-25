@@ -4,79 +4,74 @@ use vortex_scalar::Scalar;
 
 use crate::array::struct_::StructArray;
 use crate::array::StructEncoding;
-use crate::compute::unary::{scalar_at, scalar_at_unchecked, ScalarAtFn};
+use crate::compute::unary::{scalar_at, ScalarAtFn};
 use crate::compute::{
-    filter, slice, take, ArrayCompute, ComputeVTable, FilterFn, FilterMask, SliceFn, TakeFn,
-    TakeOptions,
+    filter, slice, take, ComputeVTable, FilterFn, FilterMask, SliceFn, TakeFn, TakeOptions,
 };
 use crate::variants::StructArrayTrait;
 use crate::{ArrayDType, ArrayData, IntoArrayData};
-
-impl ArrayCompute for StructArray {
-    fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
-        Some(self)
-    }
-
-    fn slice(&self) -> Option<&dyn SliceFn> {
-        Some(self)
-    }
-
-    fn take(&self) -> Option<&dyn TakeFn> {
-        Some(self)
-    }
-}
 
 impl ComputeVTable for StructEncoding {
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
         Some(self)
     }
+
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
+        Some(self)
+    }
 }
 
-impl ScalarAtFn for StructArray {
-    fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
+impl ScalarAtFn<StructArray> for StructEncoding {
+    fn scalar_at(&self, array: &StructArray, index: usize) -> VortexResult<Scalar> {
         Ok(Scalar::r#struct(
-            self.dtype().clone(),
-            self.children()
+            array.dtype().clone(),
+            array
+                .children()
                 .map(|field| scalar_at(&field, index).map(|s| s.into_value()))
                 .try_collect()?,
         ))
     }
-
-    fn scalar_at_unchecked(&self, index: usize) -> Scalar {
-        Scalar::r#struct(
-            self.dtype().clone(),
-            self.children()
-                .map(|field| scalar_at_unchecked(&field, index).into_value())
-                .collect(),
-        )
-    }
 }
 
-impl TakeFn for StructArray {
-    fn take(&self, indices: &ArrayData, options: TakeOptions) -> VortexResult<ArrayData> {
-        Self::try_new(
-            self.names().clone(),
-            self.children()
+impl TakeFn<StructArray> for StructEncoding {
+    fn take(
+        &self,
+        array: &StructArray,
+        indices: &ArrayData,
+        options: TakeOptions,
+    ) -> VortexResult<ArrayData> {
+        StructArray::try_new(
+            array.names().clone(),
+            array
+                .children()
                 .map(|field| take(&field, indices, options))
                 .try_collect()?,
             indices.len(),
-            self.validity().take(indices, options)?,
+            array.validity().take(indices, options)?,
         )
         .map(|a| a.into_array())
     }
 }
 
-impl SliceFn for StructArray {
-    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayData> {
-        let fields = self
+impl SliceFn<StructArray> for StructEncoding {
+    fn slice(&self, array: &StructArray, start: usize, stop: usize) -> VortexResult<ArrayData> {
+        let fields = array
             .children()
             .map(|field| slice(&field, start, stop))
             .try_collect()?;
-        Self::try_new(
-            self.names().clone(),
+        StructArray::try_new(
+            array.names().clone(),
             fields,
             stop - start,
-            self.validity().slice(start, stop)?,
+            array.validity().slice(start, stop)?,
         )
         .map(|a| a.into_array())
     }

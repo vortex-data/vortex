@@ -4,11 +4,12 @@ use serde::{Deserialize, Serialize};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult};
 
-use crate::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use crate::encoding::ids;
-use crate::stats::{ArrayStatisticsCompute, Stat, StatsSet};
-use crate::validity::{ArrayValidity, LogicalValidity, Validity};
+use crate::nbytes::ArrayNBytes;
+use crate::stats::{Stat, StatisticsVTable, StatsSet};
+use crate::validity::{LogicalValidity, Validity, ValidityVTable};
 use crate::variants::{ArrayVariants, NullArrayTrait};
+use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{impl_encoding, ArrayLen, ArrayTrait, Canonical, IntoCanonical};
 
 mod compute;
@@ -43,37 +44,33 @@ impl IntoCanonical for NullArray {
     }
 }
 
-impl ArrayValidity for NullArray {
-    fn is_valid(&self, _: usize) -> bool {
+impl ValidityVTable<NullArray> for NullEncoding {
+    fn is_valid(&self, _array: &NullArray, _idx: usize) -> bool {
         false
     }
 
-    fn logical_validity(&self) -> LogicalValidity {
-        LogicalValidity::AllInvalid(self.len())
+    fn logical_validity(&self, array: &NullArray) -> LogicalValidity {
+        LogicalValidity::AllInvalid(array.len())
     }
 }
 
-impl ArrayStatisticsCompute for NullArray {
-    fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
+impl StatisticsVTable<NullArray> for NullEncoding {
+    fn compute_statistics(&self, array: &NullArray, stat: Stat) -> VortexResult<StatsSet> {
         if stat == Stat::UncompressedSizeInBytes {
-            return Ok(StatsSet::of(stat, self.nbytes()));
+            return Ok(StatsSet::of(stat, array.nbytes()));
         }
 
-        Ok(StatsSet::nulls(self.len(), &DType::Null))
+        Ok(StatsSet::nulls(array.len(), &DType::Null))
     }
 }
 
-impl AcceptArrayVisitor for NullArray {
-    fn accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+impl VisitorVTable<NullArray> for NullEncoding {
+    fn accept(&self, _array: &NullArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
         visitor.visit_validity(&Validity::AllInvalid)
     }
 }
 
-impl ArrayTrait for NullArray {
-    fn nbytes(&self) -> usize {
-        0
-    }
-}
+impl ArrayTrait for NullArray {}
 
 impl ArrayVariants for NullArray {
     fn as_null_array(&self) -> Option<&dyn NullArrayTrait> {

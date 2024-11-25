@@ -1,24 +1,25 @@
 use vortex_error::VortexResult;
 
 use crate::array::varbin::VarBinArray;
-use crate::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
-use crate::validity::{ArrayValidity, LogicalValidity};
+use crate::array::VarBinEncoding;
+use crate::validity::{LogicalValidity, ValidityVTable};
+use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::ArrayLen;
 
-impl ArrayValidity for VarBinArray {
-    fn is_valid(&self, index: usize) -> bool {
-        self.validity().is_valid(index)
+impl ValidityVTable<VarBinArray> for VarBinEncoding {
+    fn is_valid(&self, array: &VarBinArray, index: usize) -> bool {
+        array.validity().is_valid(index)
     }
 
-    fn logical_validity(&self) -> LogicalValidity {
-        self.validity().to_logical(self.len())
+    fn logical_validity(&self, array: &VarBinArray) -> LogicalValidity {
+        array.validity().to_logical(array.len())
     }
 }
 
-impl AcceptArrayVisitor for VarBinArray {
-    fn accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_child("offsets", &self.offsets())?;
-        visitor.visit_child("bytes", &self.bytes())?;
-        visitor.visit_validity(&self.validity())
+impl VisitorVTable<VarBinArray> for VarBinEncoding {
+    fn accept(&self, array: &VarBinArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+        visitor.visit_child("offsets", &array.offsets())?;
+        visitor.visit_child("bytes", &array.bytes())?;
+        visitor.visit_validity(&array.validity())
     }
 }

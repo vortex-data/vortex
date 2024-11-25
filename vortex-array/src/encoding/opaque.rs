@@ -2,10 +2,13 @@ use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
 use std::sync::Arc;
 
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{vortex_bail, vortex_panic, VortexResult};
 
 use crate::compute::ComputeVTable;
 use crate::encoding::{EncodingId, EncodingVTable};
+use crate::stats::StatisticsVTable;
+use crate::validity::{LogicalValidity, ValidityVTable};
+use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{
     ArrayData, ArrayMetadata, ArrayTrait, Canonical, IntoCanonicalVTable, MetadataVTable,
     TrySerializeArrayMetadata,
@@ -59,6 +62,33 @@ impl ComputeVTable for OpaqueEncoding {}
 impl MetadataVTable for OpaqueEncoding {
     fn load_metadata(&self, _metadata: Option<&[u8]>) -> VortexResult<Arc<dyn ArrayMetadata>> {
         Ok(Arc::new(OpaqueMetadata))
+    }
+}
+
+impl StatisticsVTable<ArrayData> for OpaqueEncoding {}
+
+impl ValidityVTable<ArrayData> for OpaqueEncoding {
+    fn is_valid(&self, _array: &ArrayData, _index: usize) -> bool {
+        vortex_panic!(
+            "OpaqueEncoding: is_valid cannot be called for opaque array ({})",
+            self.0
+        )
+    }
+
+    fn logical_validity(&self, _array: &ArrayData) -> LogicalValidity {
+        vortex_panic!(
+            "OpaqueEncoding: logical_validity cannot be called for opaque array ({})",
+            self.0
+        )
+    }
+}
+
+impl VisitorVTable<ArrayData> for OpaqueEncoding {
+    fn accept(&self, _array: &ArrayData, _visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+        vortex_bail!(
+            "OpaqueEncoding: into_canonical cannot be called for opaque array ({})",
+            self.0
+        )
     }
 }
 

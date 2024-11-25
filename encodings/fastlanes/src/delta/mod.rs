@@ -2,12 +2,12 @@ use std::fmt::{Debug, Display};
 
 pub use compress::*;
 use serde::{Deserialize, Serialize};
-use vortex_array::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use vortex_array::array::PrimitiveArray;
 use vortex_array::encoding::ids;
-use vortex_array::stats::{ArrayStatisticsCompute, StatsSet};
-use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
+use vortex_array::stats::{StatisticsVTable, StatsSet};
+use vortex_array::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use vortex_array::variants::{ArrayVariants, PrimitiveArrayTrait};
+use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
     IntoCanonical,
@@ -232,21 +232,21 @@ impl IntoCanonical for DeltaArray {
     }
 }
 
-impl ArrayValidity for DeltaArray {
-    fn is_valid(&self, index: usize) -> bool {
-        self.validity().is_valid(index)
+impl ValidityVTable<DeltaArray> for DeltaEncoding {
+    fn is_valid(&self, array: &DeltaArray, index: usize) -> bool {
+        array.validity().is_valid(index)
     }
 
-    fn logical_validity(&self) -> LogicalValidity {
-        self.validity().to_logical(self.len())
-    }
-}
-
-impl AcceptArrayVisitor for DeltaArray {
-    fn accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_child("bases", &self.bases())?;
-        visitor.visit_child("deltas", &self.deltas())
+    fn logical_validity(&self, array: &DeltaArray) -> LogicalValidity {
+        array.validity().to_logical(array.len())
     }
 }
 
-impl ArrayStatisticsCompute for DeltaArray {}
+impl VisitorVTable<DeltaArray> for DeltaEncoding {
+    fn accept(&self, array: &DeltaArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+        visitor.visit_child("bases", &array.bases())?;
+        visitor.visit_child("deltas", &array.deltas())
+    }
+}
+
+impl StatisticsVTable<DeltaArray> for DeltaEncoding {}

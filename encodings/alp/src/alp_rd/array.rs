@@ -1,11 +1,11 @@
 use std::fmt::{Debug, Display};
 
 use serde::{Deserialize, Serialize};
-use vortex_array::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use vortex_array::array::{PrimitiveArray, SparseArray};
 use vortex_array::encoding::ids;
-use vortex_array::stats::{ArrayStatisticsCompute, StatsSet};
-use vortex_array::validity::{ArrayValidity, LogicalValidity};
+use vortex_array::stats::{StatisticsVTable, StatsSet};
+use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
+use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoCanonical,
 };
@@ -236,22 +236,23 @@ impl IntoCanonical for ALPRDArray {
     }
 }
 
-impl ArrayValidity for ALPRDArray {
-    fn is_valid(&self, index: usize) -> bool {
+impl ValidityVTable<ALPRDArray> for ALPRDEncoding {
+    fn is_valid(&self, array: &ALPRDArray, index: usize) -> bool {
         // Use validity from left_parts
-        self.left_parts().with_dyn(|a| a.is_valid(index))
+        array.left_parts().is_valid(index)
     }
 
-    fn logical_validity(&self) -> LogicalValidity {
-        self.left_parts().with_dyn(|a| a.logical_validity())
+    fn logical_validity(&self, array: &ALPRDArray) -> LogicalValidity {
+        // Use validity from left_parts
+        array.left_parts().logical_validity()
     }
 }
 
-impl AcceptArrayVisitor for ALPRDArray {
-    fn accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_child("left_parts", &self.left_parts())?;
-        visitor.visit_child("right_parts", &self.right_parts())?;
-        if let Some(left_parts_exceptions) = self.left_parts_exceptions() {
+impl VisitorVTable<ALPRDArray> for ALPRDEncoding {
+    fn accept(&self, array: &ALPRDArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+        visitor.visit_child("left_parts", &array.left_parts())?;
+        visitor.visit_child("right_parts", &array.right_parts())?;
+        if let Some(left_parts_exceptions) = array.left_parts_exceptions() {
             visitor.visit_child("left_parts_exceptions", &left_parts_exceptions)
         } else {
             Ok(())
@@ -259,7 +260,7 @@ impl AcceptArrayVisitor for ALPRDArray {
     }
 }
 
-impl ArrayStatisticsCompute for ALPRDArray {}
+impl StatisticsVTable<ALPRDArray> for ALPRDEncoding {}
 
 impl ArrayTrait for ALPRDArray {}
 

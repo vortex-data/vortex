@@ -520,10 +520,10 @@ impl PyArray {
     ///     >>> arr = vortex.array([1, 2, None, 3])
     ///     >>> print(arr.tree_display())
     ///     root: vortex.primitive(0x03)(i64?, len=4) nbytes=33 B (100.00%)
-    ///       metadata: ???
+    ///       metadata: PrimitiveMetadata { validity: Array }
     ///       buffer: 32 B
     ///       validity: vortex.bool(0x02)(bool, len=4) nbytes=1 B (3.03%)
-    ///         metadata: ???
+    ///         metadata: BoolMetadata { validity: NonNullable, first_byte_bit_offset: 0 }
     ///         buffer: 1 B
     ///     <BLANKLINE>
     ///

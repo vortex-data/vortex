@@ -11,19 +11,19 @@ use vortex_ipc::stream_writer::ByteRange;
 use crate::read::cache::RelativeLayoutCache;
 use crate::read::mask::RowMask;
 use crate::{
-    BatchRead, LayoutDeserializer, LayoutId, LayoutReader, LayoutSpec, MessageLocator, Scan,
+    BatchRead, Layout, LayoutDeserializer, LayoutId, LayoutReader, MessageLocator, Scan,
     FLAT_LAYOUT_ID,
 };
 
 #[derive(Debug)]
-pub struct FlatLayoutSpec;
+pub struct FlatLayout;
 
-impl LayoutSpec for FlatLayoutSpec {
+impl Layout for FlatLayout {
     fn id(&self) -> LayoutId {
         FLAT_LAYOUT_ID
     }
 
-    fn layout_reader(
+    fn reader(
         &self,
         fb_bytes: Bytes,
         fb_loc: usize,
@@ -41,7 +41,7 @@ impl LayoutSpec for FlatLayoutSpec {
         }
         let buf = buffers.get(0);
 
-        Ok(Box::new(FlatLayout::new(
+        Ok(Box::new(FlatLayoutReader::new(
             ByteRange::new(buf.begin(), buf.end()),
             scan,
             layout_serde.ctx(),
@@ -51,14 +51,14 @@ impl LayoutSpec for FlatLayoutSpec {
 }
 
 #[derive(Debug)]
-pub struct FlatLayout {
+pub struct FlatLayoutReader {
     range: ByteRange,
     scan: Scan,
     ctx: Arc<Context>,
     message_cache: RelativeLayoutCache,
 }
 
-impl FlatLayout {
+impl FlatLayoutReader {
     pub fn new(
         range: ByteRange,
         scan: Scan,
@@ -90,13 +90,13 @@ impl FlatLayout {
     }
 }
 
-impl LayoutReader for FlatLayout {
+impl LayoutReader for FlatLayoutReader {
     fn add_splits(&self, row_offset: usize, splits: &mut BTreeSet<usize>) -> VortexResult<()> {
         splits.insert(row_offset);
         Ok(())
     }
 
-    fn read_selection(&mut self, selection: &RowMask) -> VortexResult<Option<BatchRead>> {
+    fn read_selection(&self, selection: &RowMask) -> VortexResult<Option<BatchRead>> {
         if let Some(buf) = self.message_cache.get(&[]) {
             let array = self.array_from_bytes(buf)?;
             selection
@@ -130,14 +130,14 @@ mod tests {
     use vortex_ipc::messages::writer::MessageWriter;
     use vortex_ipc::stream_writer::ByteRange;
 
-    use crate::read::cache::{LazilyDeserializedDType, RelativeLayoutCache};
-    use crate::read::layouts::flat::FlatLayout;
+    use crate::layouts::flat::FlatLayoutReader;
+    use crate::read::cache::{LazyDType, RelativeLayoutCache};
     use crate::read::layouts::test_read::{filter_read_layout, read_layout};
     use crate::{LayoutMessageCache, RowFilter, Scan};
 
     async fn read_only_layout(
         cache: Arc<RwLock<LayoutMessageCache>>,
-    ) -> (FlatLayout, Bytes, usize, Arc<LazilyDeserializedDType>) {
+    ) -> (FlatLayoutReader, Bytes, usize, Arc<LazyDType>) {
         let mut writer = MessageWriter::new(Vec::new());
         let array = PrimitiveArray::from((0..100).collect::<Vec<_>>()).into_array();
         let len = array.len();
@@ -145,10 +145,10 @@ mod tests {
         let written = writer.into_inner();
 
         let projection_scan = Scan::new(None);
-        let dtype = Arc::new(LazilyDeserializedDType::from_dtype(PType::I32.into()));
+        let dtype = Arc::new(LazyDType::from_dtype(PType::I32.into()));
 
         (
-            FlatLayout::new(
+            FlatLayoutReader::new(
                 ByteRange::new(0, written.len() as u64),
                 projection_scan,
                 Arc::new(Context::default()),
@@ -163,11 +163,11 @@ mod tests {
     async fn layout_and_bytes(
         cache: Arc<RwLock<LayoutMessageCache>>,
         scan: Scan,
-    ) -> (FlatLayout, FlatLayout, Bytes, usize) {
+    ) -> (FlatLayoutReader, FlatLayoutReader, Bytes, usize) {
         let (read_layout, bytes, len, dtype) = read_only_layout(cache.clone()).await;
 
         (
-            FlatLayout::new(
+            FlatLayoutReader::new(
                 ByteRange::new(0, bytes.len() as u64),
                 scan,
                 Arc::new(Context::default()),

@@ -4,13 +4,13 @@ use std::sync::Arc;
 pub use compress::*;
 use croaring::{Bitmap, Portable};
 use serde::{Deserialize, Serialize};
-use vortex_array::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use vortex_array::array::PrimitiveArray;
 use vortex_array::compute::unary::try_cast;
 use vortex_array::encoding::ids;
-use vortex_array::stats::{ArrayStatistics, ArrayStatisticsCompute, Stat, StatsSet};
-use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity};
+use vortex_array::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
+use vortex_array::validity::{LogicalValidity, Validity, ValidityVTable};
 use vortex_array::variants::{ArrayVariants, PrimitiveArrayTrait};
+use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
     impl_encoding, ArrayDType as _, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
     IntoCanonical,
@@ -107,13 +107,13 @@ impl ArrayVariants for RoaringIntArray {
 
 impl PrimitiveArrayTrait for RoaringIntArray {}
 
-impl ArrayValidity for RoaringIntArray {
-    fn is_valid(&self, _index: usize) -> bool {
+impl ValidityVTable<RoaringIntArray> for RoaringIntEncoding {
+    fn is_valid(&self, _array: &RoaringIntArray, _index: usize) -> bool {
         true
     }
 
-    fn logical_validity(&self) -> LogicalValidity {
-        LogicalValidity::AllValid(self.len())
+    fn logical_validity(&self, array: &RoaringIntArray) -> LogicalValidity {
+        LogicalValidity::AllValid(array.len())
     }
 }
 
@@ -127,22 +127,23 @@ impl IntoCanonical for RoaringIntArray {
     }
 }
 
-impl AcceptArrayVisitor for RoaringIntArray {
-    fn accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+impl VisitorVTable<RoaringIntArray> for RoaringIntEncoding {
+    fn accept(&self, array: &RoaringIntArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
         visitor.visit_buffer(
-            self.as_ref()
+            array
+                .as_ref()
                 .buffer()
                 .vortex_expect("Missing buffer in RoaringIntArray"),
         )
     }
 }
 
-impl ArrayStatisticsCompute for RoaringIntArray {
-    fn compute_statistics(&self, stat: Stat) -> VortexResult<StatsSet> {
+impl StatisticsVTable<RoaringIntArray> for RoaringIntEncoding {
+    fn compute_statistics(&self, array: &RoaringIntArray, stat: Stat) -> VortexResult<StatsSet> {
         // possibly faster to write an accumulator over the iterator, though not necessarily
         if stat == Stat::TrailingZeroFreq || stat == Stat::BitWidthFreq || stat == Stat::RunCount {
             let primitive =
-                PrimitiveArray::from_vec(self.owned_bitmap().to_vec(), Validity::NonNullable);
+                PrimitiveArray::from_vec(array.owned_bitmap().to_vec(), Validity::NonNullable);
             primitive.statistics().compute_all(&[
                 Stat::TrailingZeroFreq,
                 Stat::BitWidthFreq,

@@ -3,11 +3,13 @@ use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
+use itertools::{EitherOrBoth, Itertools};
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::encoding::EncodingRef;
 use vortex_array::stats::{ArrayStatistics, Statistics};
+use vortex_array::tree::TreeFormatter;
 use vortex_array::ArrayData;
-use vortex_error::VortexResult;
+use vortex_error::{vortex_panic, VortexExpect, VortexResult};
 
 use crate::SamplingCompressor;
 
@@ -27,6 +29,7 @@ pub mod runend;
 pub mod runend_bool;
 pub mod sparse;
 pub mod struct_;
+pub mod varbin;
 pub mod zigzag;
 
 pub trait EncodingCompressor: Sync + Send + Debug {
@@ -83,8 +86,27 @@ pub trait EncoderMetadata {
 
 impl Display for CompressionTree<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        Display::fmt(self.compressor.id(), f)
+        let mut fmt = TreeFormatter::new(f, "".to_string());
+        visit_child("root", Some(self), &mut fmt)
     }
+}
+
+fn visit_child(
+    name: &str,
+    child: Option<&CompressionTree>,
+    fmt: &mut TreeFormatter,
+) -> std::fmt::Result {
+    fmt.indent(|f| {
+        if let Some(child) = child {
+            writeln!(f, "{name}: {}", child.compressor.id())?;
+            for (i, c) in child.children.iter().enumerate() {
+                visit_child(&format!("{name}.{}", i), c.as_ref(), f)?;
+            }
+        } else {
+            writeln!(f, "{name}: uncompressed")?;
+        }
+        Ok(())
+    })
 }
 
 impl<'a> CompressionTree<'a> {
@@ -201,7 +223,36 @@ impl<'a> CompressedArray<'a> {
             let _ = stats.compute_uncompressed_size_in_bytes();
             array.inherit_statistics(stats);
         }
-        Self { array, path }
+        let compressed = Self { array, path };
+        compressed.validate();
+        compressed
+    }
+
+    fn validate(&self) {
+        self.validate_children(self.path.as_ref(), &self.array)
+    }
+
+    fn validate_children(&self, path: Option<&CompressionTree>, array: &ArrayData) {
+        if let Some(path) = path.as_ref() {
+            path.children
+                .iter()
+                .zip_longest(array.children().iter())
+                .for_each(|pair| match pair {
+                    EitherOrBoth::Both(Some(child_tree), child_array) => {
+                        self.validate_children(Some(child_tree), child_array);
+                    }
+                    EitherOrBoth::Left(Some(child_tree)) => {
+                        vortex_panic!(
+                            "Child tree without child array!!\nroot tree: {}\nroot array: {}\nlocal tree: {path}\nlocal array: {}\nproblematic child_tree: {child_tree}",
+                            self.path().as_ref().vortex_expect("must be present"),
+                            self.array.tree_display(),
+                            array.tree_display()
+                        );
+                    }
+                    // if the child_tree is None, we have an uncompressed child array or both were None; fine either way
+                    _ => {},
+                });
+        }
     }
 
     #[inline]

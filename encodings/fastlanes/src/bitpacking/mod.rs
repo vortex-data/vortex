@@ -4,12 +4,12 @@ use std::sync::Arc;
 use ::serde::{Deserialize, Serialize};
 pub use compress::*;
 use fastlanes::BitPacking;
-use vortex_array::array::visitor::{AcceptArrayVisitor, ArrayVisitor};
 use vortex_array::array::{PrimitiveArray, SparseArray};
 use vortex_array::encoding::ids;
-use vortex_array::stats::{ArrayStatisticsCompute, StatsSet};
-use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
+use vortex_array::stats::{StatisticsVTable, StatsSet};
+use vortex_array::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use vortex_array::variants::{ArrayVariants, PrimitiveArrayTrait};
+use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoCanonical,
 };
@@ -208,35 +208,29 @@ impl IntoCanonical for BitPackedArray {
     }
 }
 
-impl ArrayValidity for BitPackedArray {
-    fn is_valid(&self, index: usize) -> bool {
-        self.validity().is_valid(index)
+impl ValidityVTable<BitPackedArray> for BitPackedEncoding {
+    fn is_valid(&self, array: &BitPackedArray, index: usize) -> bool {
+        array.validity().is_valid(index)
     }
 
-    fn logical_validity(&self) -> LogicalValidity {
-        self.validity().to_logical(self.len())
+    fn logical_validity(&self, array: &BitPackedArray) -> LogicalValidity {
+        array.validity().to_logical(array.len())
     }
 }
 
-impl AcceptArrayVisitor for BitPackedArray {
-    fn accept(&self, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_buffer(self.packed())?;
-        if let Some(patches) = self.patches().as_ref() {
+impl VisitorVTable<BitPackedArray> for BitPackedEncoding {
+    fn accept(&self, array: &BitPackedArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+        visitor.visit_buffer(array.packed())?;
+        if let Some(patches) = array.patches().as_ref() {
             visitor.visit_child("patches", patches)?;
         }
-        visitor.visit_validity(&self.validity())
+        visitor.visit_validity(&array.validity())
     }
 }
 
-impl ArrayStatisticsCompute for BitPackedArray {}
+impl StatisticsVTable<BitPackedArray> for BitPackedEncoding {}
 
-impl ArrayTrait for BitPackedArray {
-    fn nbytes(&self) -> usize {
-        // Ignore any overheads like padding or the bit-width flag.
-        let packed_size = ((self.bit_width() as usize * self.len()) + 7) / 8;
-        packed_size + self.patches().map(|p| p.nbytes()).unwrap_or(0)
-    }
-}
+impl ArrayTrait for BitPackedArray {}
 
 impl ArrayVariants for BitPackedArray {
     fn as_primitive_array(&self) -> Option<&dyn PrimitiveArrayTrait> {

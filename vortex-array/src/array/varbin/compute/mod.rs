@@ -1,49 +1,36 @@
-use vortex_error::{VortexResult, VortexUnwrap as _};
+use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::array::varbin::{varbin_scalar, VarBinArray};
 use crate::array::VarBinEncoding;
 use crate::compute::unary::ScalarAtFn;
-use crate::compute::{
-    ArrayCompute, ComputeVTable, FilterFn, MaybeCompareFn, Operator, SliceFn, TakeFn,
-};
+use crate::compute::{ComputeVTable, FilterFn, SliceFn, TakeFn};
 use crate::{ArrayDType, ArrayData};
 
-mod compare;
 mod filter;
 mod slice;
 mod take;
-
-impl ArrayCompute for VarBinArray {
-    fn compare(&self, other: &ArrayData, operator: Operator) -> Option<VortexResult<ArrayData>> {
-        MaybeCompareFn::maybe_compare(self, other, operator)
-    }
-
-    fn scalar_at(&self) -> Option<&dyn ScalarAtFn> {
-        Some(self)
-    }
-
-    fn slice(&self) -> Option<&dyn SliceFn> {
-        Some(self)
-    }
-
-    fn take(&self) -> Option<&dyn TakeFn> {
-        Some(self)
-    }
-}
 
 impl ComputeVTable for VarBinEncoding {
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
         Some(self)
     }
-}
 
-impl ScalarAtFn for VarBinArray {
-    fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
-        Ok(varbin_scalar(self.bytes_at(index)?, self.dtype()))
+    fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
+        Some(self)
     }
 
-    fn scalar_at_unchecked(&self, index: usize) -> Scalar {
-        varbin_scalar(self.bytes_at(index).vortex_unwrap(), self.dtype())
+    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
+        Some(self)
+    }
+}
+
+impl ScalarAtFn<VarBinArray> for VarBinEncoding {
+    fn scalar_at(&self, array: &VarBinArray, index: usize) -> VortexResult<Scalar> {
+        Ok(varbin_scalar(array.bytes_at(index)?, array.dtype()))
     }
 }

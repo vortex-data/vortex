@@ -11,11 +11,16 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
+use crate::array::{
+    BoolEncoding, ExtensionEncoding, NullEncoding, PrimitiveEncoding, StructEncoding,
+    VarBinEncoding, VarBinViewEncoding,
+};
 use crate::compute::unary::scalar_at;
-use crate::encoding::{EncodingId, EncodingRef};
+use crate::encoding::{EncodingId, EncodingRef, EncodingVTable};
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
 use crate::stats::{ArrayStatistics, Stat, Statistics, StatsSet};
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
+use crate::validity::{ArrayValidity, LogicalValidity};
 use crate::{
     ArrayChildrenIterator, ArrayDType, ArrayLen, ArrayMetadata, ArrayTrait, Context,
     TryDeserializeArrayMetadata,
@@ -146,16 +151,48 @@ impl ArrayData {
         }
     }
 
-    /// Return scalar value of this array if the array is constant
-    pub fn as_constant(&self) -> Option<Scalar> {
-        (self.statistics().get_as::<bool>(Stat::IsConstant)?)
-            // This is safe to unwrap as long as empty arrays aren't constant
-            .then(|| scalar_at(self, 0).vortex_expect("expected a scalar value"))
+    /// Return whether the element at the given index is valid (true) or null (false).
+    fn is_valid(&self, index: usize) -> bool {
+        self.encoding().is_valid(self, index)
     }
 
-    /// Total size of the array in bytes, including all children and buffers.
-    pub fn nbytes(&self) -> usize {
-        self.with_dyn(|a| a.nbytes())
+    /// Return the logical validity of the array.
+    fn logical_validity(&self) -> LogicalValidity {
+        self.encoding().logical_validity(self)
+    }
+
+    /// Whether the array is of a canonical encoding.
+    pub fn is_canonical(&self) -> bool {
+        self.is_encoding(NullEncoding.id())
+            || self.is_encoding(BoolEncoding.id())
+            || self.is_encoding(PrimitiveEncoding.id())
+            || self.is_encoding(StructEncoding.id())
+            || self.is_encoding(VarBinViewEncoding.id())
+            || self.is_encoding(ExtensionEncoding.id())
+    }
+
+    /// Whether the array is fully zero-copy to Arrow (including children).
+    /// This means any nested types, like Structs, Lists, and Extensions are not present.
+    pub fn is_arrow(&self) -> bool {
+        self.is_encoding(NullEncoding.id())
+            || self.is_encoding(BoolEncoding.id())
+            || self.is_encoding(PrimitiveEncoding.id())
+            || self.is_encoding(VarBinEncoding.id())
+            || self.is_encoding(VarBinViewEncoding.id())
+    }
+
+    /// Return whether the array is constant.
+    pub fn is_constant(&self) -> bool {
+        self.statistics()
+            .get_as::<bool>(Stat::IsConstant)
+            .unwrap_or(false)
+    }
+
+    /// Return scalar value of this array if the array is constant
+    pub fn as_constant(&self) -> Option<Scalar> {
+        self.is_constant()
+            // This is safe to unwrap as long as empty arrays aren't constant
+            .then(|| scalar_at(self, 0).vortex_expect("expected a scalar value"))
     }
 
     pub fn child<'a>(&'a self, idx: usize, dtype: &'a DType, len: usize) -> VortexResult<Self> {
@@ -214,6 +251,13 @@ impl ArrayData {
         offsets.push(offset as u64);
 
         offsets
+    }
+
+    pub fn array_metadata(&self) -> &dyn ArrayMetadata {
+        match &self.0 {
+            InnerArrayData::Owned(d) => &*d.metadata,
+            InnerArrayData::Viewed(v) => &*v.metadata,
+        }
     }
 
     pub fn metadata<M: ArrayMetadata + Clone + for<'m> TryDeserializeArrayMetadata<'m>>(
@@ -364,6 +408,16 @@ impl<T: AsRef<ArrayData>> ArrayLen for T {
 
     fn is_empty(&self) -> bool {
         self.as_ref().is_empty()
+    }
+}
+
+impl<A: AsRef<ArrayData>> ArrayValidity for A {
+    fn is_valid(&self, index: usize) -> bool {
+        self.as_ref().is_valid(index)
+    }
+
+    fn logical_validity(&self) -> LogicalValidity {
+        self.as_ref().logical_validity()
     }
 }
 

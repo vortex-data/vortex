@@ -9,7 +9,6 @@ use vortex_dtype::field::Field;
 use vortex_dtype::{DType, ExtDType, FieldNames, PType};
 use vortex_error::{vortex_panic, VortexExpect as _, VortexResult};
 
-use crate::iter::{AccessorRef, VectorizedArrayIter};
 use crate::{ArrayData, ArrayTrait};
 
 pub trait ArrayVariants {
@@ -142,94 +141,6 @@ pub trait PrimitiveArrayTrait: ArrayTrait {
         } else {
             vortex_panic!("array must have primitive data type");
         }
-    }
-
-    fn u8_accessor(&self) -> Option<AccessorRef<u8>> {
-        None
-    }
-
-    fn u16_accessor(&self) -> Option<AccessorRef<u16>> {
-        None
-    }
-
-    fn u32_accessor(&self) -> Option<AccessorRef<u32>> {
-        None
-    }
-
-    fn u64_accessor(&self) -> Option<AccessorRef<u64>> {
-        None
-    }
-
-    fn i8_accessor(&self) -> Option<AccessorRef<i8>> {
-        None
-    }
-
-    fn i16_accessor(&self) -> Option<AccessorRef<i16>> {
-        None
-    }
-
-    fn i32_accessor(&self) -> Option<AccessorRef<i32>> {
-        None
-    }
-
-    fn i64_accessor(&self) -> Option<AccessorRef<i64>> {
-        None
-    }
-
-    fn f16_accessor(&self) -> Option<AccessorRef<vortex_dtype::half::f16>> {
-        None
-    }
-
-    fn f32_accessor(&self) -> Option<AccessorRef<f32>> {
-        None
-    }
-
-    fn f64_accessor(&self) -> Option<AccessorRef<f64>> {
-        None
-    }
-
-    fn u8_iter(&self) -> Option<VectorizedArrayIter<u8>> {
-        self.u8_accessor().map(VectorizedArrayIter::new)
-    }
-
-    fn u16_iter(&self) -> Option<VectorizedArrayIter<u16>> {
-        self.u16_accessor().map(VectorizedArrayIter::new)
-    }
-
-    fn u32_iter(&self) -> Option<VectorizedArrayIter<u32>> {
-        self.u32_accessor().map(VectorizedArrayIter::new)
-    }
-
-    fn u64_iter(&self) -> Option<VectorizedArrayIter<u64>> {
-        self.u64_accessor().map(VectorizedArrayIter::new)
-    }
-
-    fn i8_iter(&self) -> Option<VectorizedArrayIter<i8>> {
-        self.i8_accessor().map(VectorizedArrayIter::new)
-    }
-
-    fn i16_iter(&self) -> Option<VectorizedArrayIter<i16>> {
-        self.i16_accessor().map(VectorizedArrayIter::new)
-    }
-
-    fn i32_iter(&self) -> Option<VectorizedArrayIter<i32>> {
-        self.i32_accessor().map(VectorizedArrayIter::new)
-    }
-
-    fn i64_iter(&self) -> Option<VectorizedArrayIter<i64>> {
-        self.i64_accessor().map(VectorizedArrayIter::new)
-    }
-
-    fn f16_iter(&self) -> Option<VectorizedArrayIter<vortex_dtype::half::f16>> {
-        self.f16_accessor().map(VectorizedArrayIter::new)
-    }
-
-    fn f32_iter(&self) -> Option<VectorizedArrayIter<f32>> {
-        self.f32_accessor().map(VectorizedArrayIter::new)
-    }
-
-    fn f64_iter(&self) -> Option<VectorizedArrayIter<f64>> {
-        self.f64_accessor().map(VectorizedArrayIter::new)
     }
 }
 
