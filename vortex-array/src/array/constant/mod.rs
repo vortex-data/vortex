@@ -49,15 +49,10 @@ impl ConstantArray {
         .vortex_expect("Failed to create Constant array")
     }
 
-    /// Returns the [`ScalarValue`] of this constant array.
-    pub fn scalar_value(&self) -> &ScalarValue {
-        &self.metadata().scalar_value
-    }
-
     /// Returns the [`Scalar`] value of this constant array.
     pub fn scalar(&self) -> Scalar {
         // NOTE(ngates): these clones are pretty cheap.
-        Scalar::new(self.dtype().clone(), self.scalar_value().clone())
+        Scalar::new(self.dtype().clone(), self.metadata().scalar_value.clone())
     }
 }
 
@@ -65,11 +60,11 @@ impl ArrayTrait for ConstantArray {}
 
 impl ValidityVTable<ConstantArray> for ConstantEncoding {
     fn is_valid(&self, array: &ConstantArray, _index: usize) -> bool {
-        !array.scalar_value().is_null()
+        !array.scalar().is_null()
     }
 
     fn logical_validity(&self, array: &ConstantArray) -> LogicalValidity {
-        match array.scalar_value().is_null() {
+        match array.scalar().is_null() {
             true => LogicalValidity::AllInvalid(array.len()),
             false => LogicalValidity::AllValid(array.len()),
         }

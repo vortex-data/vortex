@@ -9,7 +9,7 @@ use vortex_array::{ArrayData, IntoArrayData};
 use vortex_buffer::{Buffer, BufferString};
 use vortex_dtype::{match_each_native_ptype, DType, FieldName};
 use vortex_error::{VortexError, VortexResult};
-use vortex_scalar::ScalarValue;
+use vortex_scalar::Scalar;
 
 pub fn new_metadata_accumulator(dtype: &DType) -> Box<dyn MetadataAccumulator> {
     match dtype {
@@ -104,7 +104,7 @@ impl<T> StandardAccumulator<T> {
 
 impl<T> MetadataAccumulator for StandardAccumulator<T>
 where
-    Option<T>: TryFrom<ScalarValue, Error = VortexError>,
+    Option<T>: TryFrom<Scalar, Error = VortexError>,
     ArrayData: FromIterator<Option<T>>,
 {
     fn push_chunk(&mut self, array: &ArrayData) {
@@ -194,7 +194,7 @@ impl<T> UnwrappedStatAccumulator<T> {
 
 impl<T> SingularAccumulator for UnwrappedStatAccumulator<T>
 where
-    Option<T>: TryFrom<ScalarValue, Error = VortexError>,
+    Option<T>: TryFrom<Scalar, Error = VortexError>,
     ArrayData: FromIterator<Option<T>>,
 {
     fn push_chunk(&mut self, array: &ArrayData) {
@@ -202,7 +202,7 @@ where
             array
                 .statistics()
                 .compute(self.stat)
-                .and_then(|s| Option::<T>::try_from(s.into_value()).ok())
+                .and_then(|s| Option::<T>::try_from(s).ok())
                 .flatten(),
         )
     }

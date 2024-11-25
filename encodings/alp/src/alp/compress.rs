@@ -2,9 +2,9 @@ use vortex_array::array::{PrimitiveArray, SparseArray};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
-use vortex_dtype::{NativePType, PType};
+use vortex_dtype::{DType, NativePType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
-use vortex_scalar::ScalarValue;
+use vortex_scalar::Scalar;
 
 use crate::alp::{ALPArray, ALPFloat};
 use crate::Exponents;
@@ -42,7 +42,7 @@ where
                 PrimitiveArray::from(exc_pos).into_array(),
                 PrimitiveArray::from_vec(exc, Validity::AllValid).into_array(),
                 len,
-                ScalarValue::Null,
+                Scalar::null(DType::Primitive(T::PTYPE, Nullability::Nullable)),
             )
             .vortex_expect("Failed to create SparseArray for ALP patches")
             .into_array()

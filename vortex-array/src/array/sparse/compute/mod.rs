@@ -107,7 +107,7 @@ impl FilterFn<SparseArray> for SparseEncoding {
                 TakeOptions::default(),
             )?,
             buffer.count_set_bits(),
-            array.fill_value().clone(),
+            array.fill_scalar(),
         )?
         .into_array())
     }

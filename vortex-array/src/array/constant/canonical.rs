@@ -3,7 +3,7 @@ use arrow_buffer::{BooleanBuffer, BufferBuilder};
 use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_native_ptype, DType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexResult};
-use vortex_scalar::{BinaryScalar, BoolScalar, ExtScalar, Scalar, Utf8Scalar};
+use vortex_scalar::{BinaryScalar, BoolScalar, ExtScalar, Utf8Scalar};
 
 use crate::array::constant::ConstantArray;
 use crate::array::primitive::PrimitiveArray;
@@ -58,8 +58,7 @@ impl IntoCanonical for ConstantArray {
             DType::Extension(ext_dtype) => {
                 let s = ExtScalar::try_from(scalar)?;
 
-                let storage_dtype = ext_dtype.storage_dtype();
-                let storage_scalar = Scalar::new(storage_dtype.clone(), s.value().clone());
+                let storage_scalar = s.storage();
                 let storage_array = ConstantArray::new(storage_scalar, self.len()).into_array();
                 ExtensionArray::new(ext_dtype.clone(), storage_array).into_canonical()?
             }

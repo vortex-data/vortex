@@ -1,7 +1,7 @@
 use arrow_buffer::{ArrowNativeType, BooleanBuffer};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability};
 use vortex_error::{VortexError, VortexResult};
-use vortex_scalar::ScalarValue;
+use vortex_scalar::Scalar;
 
 use crate::array::primitive::PrimitiveArray;
 use crate::array::sparse::SparseArray;
@@ -17,7 +17,7 @@ impl IntoCanonical for SparseArray {
 
         if matches!(self.dtype(), DType::Bool(_)) {
             let values = self.values().into_bool()?;
-            canonicalize_sparse_bools(values, &indices, self.len(), self.fill_value())
+            canonicalize_sparse_bools(values, &indices, self.len(), &self.fill_scalar())
         } else {
             let values = self.values().into_primitive()?;
             match_each_native_ptype!(values.ptype(), |$P| {
@@ -25,7 +25,7 @@ impl IntoCanonical for SparseArray {
                     values,
                     &indices,
                     self.len(),
-                    self.fill_value(),
+                    &self.fill_scalar(),
                 )
             })
         }
@@ -36,7 +36,7 @@ fn canonicalize_sparse_bools(
     values: BoolArray,
     indices: &[usize],
     len: usize,
-    fill_value: &ScalarValue,
+    fill_value: &Scalar,
 ) -> VortexResult<Canonical> {
     let (fill_bool, validity) = if fill_value.is_null() {
         (false, Validity::AllInvalid)
@@ -64,12 +64,12 @@ fn canonicalize_sparse_bools(
 }
 
 fn canonicalize_sparse_primitives<
-    T: NativePType + for<'a> TryFrom<&'a ScalarValue, Error = VortexError> + ArrowNativeType,
+    T: NativePType + for<'a> TryFrom<&'a Scalar, Error = VortexError> + ArrowNativeType,
 >(
     values: PrimitiveArray,
     indices: &[usize],
     len: usize,
-    fill_value: &ScalarValue,
+    fill_value: &Scalar,
 ) -> VortexResult<Canonical> {
     let values_validity = values.validity();
     let (primitive_fill, validity) = if fill_value.is_null() {

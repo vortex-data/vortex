@@ -52,7 +52,16 @@ impl<'a> TryFrom<&'a Scalar> for Buffer {
     type Error = VortexError;
 
     fn try_from(scalar: &'a Scalar) -> VortexResult<Self> {
-        Buffer::try_from(scalar.value())
+        <Option<Buffer>>::try_from(scalar)?
+            .ok_or_else(|| vortex_err!("Can't extract present value from null scalar"))
+    }
+}
+
+impl<'a> TryFrom<&'a Scalar> for Option<Buffer> {
+    type Error = VortexError;
+
+    fn try_from(scalar: &'a Scalar) -> VortexResult<Self> {
+        Ok(BinaryScalar::try_from(scalar)?.value())
     }
 }
 
@@ -60,39 +69,32 @@ impl TryFrom<Scalar> for Buffer {
     type Error = VortexError;
 
     fn try_from(scalar: Scalar) -> VortexResult<Self> {
-        Buffer::try_from(&scalar)
+        Self::try_from(&scalar)
     }
 }
 
-impl TryFrom<&ScalarValue> for Buffer {
+impl TryFrom<Scalar> for Option<Buffer> {
     type Error = VortexError;
 
-    fn try_from(value: &ScalarValue) -> Result<Self, Self::Error> {
-        Option::<Buffer>::try_from(value)?
-            .ok_or_else(|| vortex_err!("Can't extract present value from null scalar"))
+    fn try_from(scalar: Scalar) -> VortexResult<Self> {
+        Self::try_from(&scalar)
     }
 }
 
-impl TryFrom<ScalarValue> for Buffer {
-    type Error = VortexError;
-
-    fn try_from(value: ScalarValue) -> Result<Self, Self::Error> {
-        Buffer::try_from(&value)
+impl From<bytes::Bytes> for Scalar {
+    fn from(value: bytes::Bytes) -> Self {
+        Self {
+            dtype: DType::Binary(Nullability::NonNullable),
+            value: ScalarValue::Buffer(value.into()),
+        }
     }
 }
 
-impl TryFrom<&ScalarValue> for Option<Buffer> {
-    type Error = VortexError;
-
-    fn try_from(value: &ScalarValue) -> Result<Self, Self::Error> {
-        value.as_buffer()
-    }
-}
-
-impl TryFrom<ScalarValue> for Option<Buffer> {
-    type Error = VortexError;
-
-    fn try_from(value: ScalarValue) -> Result<Self, Self::Error> {
-        Option::<Buffer>::try_from(&value)
+impl From<Buffer> for Scalar {
+    fn from(value: Buffer) -> Self {
+        Self {
+            dtype: DType::Binary(Nullability::NonNullable),
+            value: ScalarValue::Buffer(value),
+        }
     }
 }

@@ -9,7 +9,7 @@ use vortex_array::compute::{
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_dtype::{match_each_integer_ptype, NativePType};
-use vortex_error::{VortexError, VortexExpect as _, VortexResult, VortexUnwrap as _};
+use vortex_error::{VortexError, VortexExpect as _, VortexResult};
 use vortex_scalar::{PValue, Scalar};
 
 use crate::{FoRArray, FoREncoding};
@@ -65,21 +65,15 @@ impl FilterFn<FoRArray> for FoREncoding {
 
 impl ScalarAtFn<FoRArray> for FoREncoding {
     fn scalar_at(&self, array: &FoRArray, index: usize) -> VortexResult<Scalar> {
-        let encoded_pvalue = scalar_at(array.encoded(), index)?
-            .into_value()
-            .as_pvalue()
-            .vortex_expect("Encoded scalar must be primitive")
-            .map(|p| p.reinterpret_cast(array.ptype()));
-        let reference = array
-            .reference()
-            .as_pvalue()
-            .vortex_expect("Reference scalar must be primitive")
-            .vortex_expect("Reference scalar cannot be null");
+        let encoded_pvalue = scalar_at(array.encoded(), index)?.reinterpret_cast(array.ptype());
+        let encoded_pvalue = encoded_pvalue.as_primitive();
+        let reference = array.owned_reference_scalar();
+        let reference = reference.as_primitive();
 
         Ok(match_each_integer_ptype!(array.ptype(), |$P| {
             encoded_pvalue
-                .map(|v| v.as_primitive::<$P>().vortex_unwrap())
-                .map(|v| v.checked_shl(array.shift() as u32).unwrap_or_default().wrapping_add(reference.as_primitive::<$P>().vortex_unwrap()))
+                .typed_value::<$P>()
+                .map(|v| v.checked_shl(array.shift() as u32).unwrap_or_default().wrapping_add(reference.typed_value::<$P>().vortex_expect("reference must be non-null")))
                 .map(|v| Scalar::primitive::<$P>(v, array.dtype().nullability()))
                 .unwrap_or_else(|| Scalar::null(array.dtype().clone()))
         }))
@@ -127,10 +121,10 @@ where
         + Into<PValue>,
 {
     let min: T = array
-        .reference()
-        .as_pvalue()?
-        .vortex_expect("Reference value cannot be null")
-        .as_primitive::<T>()?;
+        .owned_reference_scalar()
+        .as_primitive()
+        .typed_value::<T>()
+        .vortex_expect("Reference value cannot be null");
     let primitive_value: T = value.cast(array.dtype())?.as_ref().try_into()?;
     // Make sure that smaller values are still smaller and not larger than (which they would be after wrapping_sub)
     if primitive_value < min {

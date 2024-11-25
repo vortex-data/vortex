@@ -33,7 +33,7 @@ impl TakeFn<SparseArray> for SparseEncoding {
             positions.into_array(),
             taken_values,
             indices.len(),
-            array.fill_value().clone(),
+            array.fill_scalar(),
         )?
         .into_array())
     }

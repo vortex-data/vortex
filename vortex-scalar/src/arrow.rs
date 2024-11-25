@@ -76,7 +76,7 @@ impl TryFrom<&Scalar> for Arc<dyn Datum> {
                 value_to_arrow_scalar!(value.as_utf8().value(), StringViewArray)
             }
             DType::Binary(_) => {
-                value_to_arrow_scalar!(value.value.as_buffer()?, BinaryViewArray)
+                value_to_arrow_scalar!(value.as_binary().value(), BinaryViewArray)
             }
             DType::Struct(..) => {
                 todo!("struct scalar conversion")

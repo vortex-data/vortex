@@ -79,11 +79,30 @@ impl From<&str> for Scalar {
     }
 }
 
+impl From<String> for Scalar {
+    fn from(value: String) -> Self {
+        Self {
+            dtype: DType::Utf8(NonNullable),
+            value: ScalarValue::BufferString(value.into()),
+        }
+    }
+}
+
+impl From<BufferString> for Scalar {
+    fn from(value: BufferString) -> Self {
+        Self {
+            dtype: DType::Utf8(NonNullable),
+            value: ScalarValue::BufferString(value),
+        }
+    }
+}
+
 impl<'a> TryFrom<&'a Scalar> for BufferString {
     type Error = VortexError;
 
     fn try_from(scalar: &'a Scalar) -> VortexResult<Self> {
-        BufferString::try_from(scalar.value())
+        <Option<BufferString>>::try_from(scalar)?
+            .ok_or_else(|| vortex_err!("Can't extract present value from null scalar"))
     }
 }
 
@@ -91,39 +110,22 @@ impl TryFrom<Scalar> for BufferString {
     type Error = VortexError;
 
     fn try_from(scalar: Scalar) -> Result<Self, Self::Error> {
-        BufferString::try_from(&scalar)
+        Self::try_from(&scalar)
     }
 }
 
-impl TryFrom<&ScalarValue> for BufferString {
+impl<'a> TryFrom<&'a Scalar> for Option<BufferString> {
     type Error = VortexError;
 
-    fn try_from(value: &ScalarValue) -> Result<Self, Self::Error> {
-        Option::<BufferString>::try_from(value)?
-            .ok_or_else(|| vortex_err!("Can't extract present value from null scalar"))
+    fn try_from(scalar: &'a Scalar) -> Result<Self, Self::Error> {
+        Ok(Utf8Scalar::try_from(scalar)?.value())
     }
 }
 
-impl TryFrom<ScalarValue> for BufferString {
+impl TryFrom<Scalar> for Option<BufferString> {
     type Error = VortexError;
 
-    fn try_from(value: ScalarValue) -> Result<Self, Self::Error> {
-        BufferString::try_from(&value)
-    }
-}
-
-impl TryFrom<&ScalarValue> for Option<BufferString> {
-    type Error = VortexError;
-
-    fn try_from(value: &ScalarValue) -> Result<Self, Self::Error> {
-        value.as_buffer_string()
-    }
-}
-
-impl TryFrom<ScalarValue> for Option<BufferString> {
-    type Error = VortexError;
-
-    fn try_from(value: ScalarValue) -> Result<Self, Self::Error> {
-        Option::<BufferString>::try_from(&value)
+    fn try_from(scalar: Scalar) -> Result<Self, Self::Error> {
+        Self::try_from(&scalar)
     }
 }

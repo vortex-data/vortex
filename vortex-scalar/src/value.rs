@@ -2,7 +2,6 @@ use std::fmt::{Display, Write};
 use std::sync::Arc;
 
 use vortex_buffer::{Buffer, BufferString};
-use vortex_dtype::half::f16;
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexResult};
 
@@ -98,16 +97,14 @@ impl ScalarValue {
         }
     }
 
-    #[deprecated(note = "Downcast Scalar to access values, rather than via ScalarValue")]
-    pub fn as_null(&self) -> VortexResult<()> {
+    pub(crate) fn as_null(&self) -> VortexResult<()> {
         match self {
             Self::Null => Ok(()),
             _ => Err(vortex_err!("Expected a Null scalar, found {:?}", self)),
         }
     }
 
-    #[deprecated(note = "Downcast Scalar to access values, rather than via ScalarValue")]
-    pub fn as_bool(&self) -> VortexResult<Option<bool>> {
+    pub(crate) fn as_bool(&self) -> VortexResult<Option<bool>> {
         match self {
             Self::Null => Ok(None),
             Self::Bool(b) => Ok(Some(*b)),
@@ -118,8 +115,7 @@ impl ScalarValue {
     /// FIXME(ngates): PValues are such a footgun... we should probably remove this.
     ///  But the other accessors can sometimes be useful? e.g. as_buffer. But maybe we just force
     ///  the user to switch over Utf8 and Binary and use the correct Scalar wrapper?
-    #[deprecated(note = "Downcast Scalar to access values, rather than via ScalarValue")]
-    pub fn as_pvalue(&self) -> VortexResult<Option<PValue>> {
+    pub(crate) fn as_pvalue(&self) -> VortexResult<Option<PValue>> {
         match self {
             Self::Null => Ok(None),
             Self::Primitive(p) => Ok(Some(*p)),
@@ -127,8 +123,7 @@ impl ScalarValue {
         }
     }
 
-    #[deprecated(note = "Downcast Scalar to access values, rather than via ScalarValue")]
-    pub fn as_buffer(&self) -> VortexResult<Option<Buffer>> {
+    pub(crate) fn as_buffer(&self) -> VortexResult<Option<Buffer>> {
         match self {
             Self::Null => Ok(None),
             Self::Buffer(b) => Ok(Some(b.clone())),
@@ -136,8 +131,7 @@ impl ScalarValue {
         }
     }
 
-    #[deprecated(note = "Downcast Scalar to access values, rather than via ScalarValue")]
-    pub fn as_buffer_string(&self) -> VortexResult<Option<BufferString>> {
+    pub(crate) fn as_buffer_string(&self) -> VortexResult<Option<BufferString>> {
         match self {
             Self::Null => Ok(None),
             Self::Buffer(b) => Ok(Some(BufferString::try_from(b.clone())?)),
@@ -146,8 +140,7 @@ impl ScalarValue {
         }
     }
 
-    #[deprecated(note = "Downcast Scalar to access values, rather than via ScalarValue")]
-    pub fn as_list(&self) -> VortexResult<Option<&Arc<[Self]>>> {
+    pub(crate) fn as_list(&self) -> VortexResult<Option<&Arc<[Self]>>> {
         match self {
             Self::Null => Ok(None),
             Self::List(l) => Ok(Some(l)),
@@ -156,80 +149,80 @@ impl ScalarValue {
     }
 }
 
-impl From<usize> for ScalarValue {
-    fn from(value: usize) -> Self {
-        ScalarValue::Primitive(PValue::from(value))
-    }
-}
+// impl From<usize> for ScalarValue {
+//     fn from(value: usize) -> Self {
+//         ScalarValue::Primitive(PValue::from(value))
+//     }
+// }
 
-impl From<String> for ScalarValue {
-    fn from(value: String) -> Self {
-        ScalarValue::BufferString(BufferString::from(value))
-    }
-}
+// impl From<String> for ScalarValue {
+//     fn from(value: String) -> Self {
+//         ScalarValue::BufferString(BufferString::from(value))
+//     }
+// }
 
-impl From<BufferString> for ScalarValue {
-    fn from(value: BufferString) -> Self {
-        ScalarValue::BufferString(value)
-    }
-}
+// impl From<BufferString> for ScalarValue {
+//     fn from(value: BufferString) -> Self {
+//         ScalarValue::BufferString(value)
+//     }
+// }
 
-impl From<bytes::Bytes> for ScalarValue {
-    fn from(value: bytes::Bytes) -> Self {
-        ScalarValue::Buffer(Buffer::from(value))
-    }
-}
+// impl From<bytes::Bytes> for ScalarValue {
+//     fn from(value: bytes::Bytes) -> Self {
+//         ScalarValue::Buffer(Buffer::from(value))
+//     }
+// }
 
-impl From<Buffer> for ScalarValue {
-    fn from(value: Buffer) -> Self {
-        ScalarValue::Buffer(value)
-    }
-}
+// impl From<Buffer> for ScalarValue {
+//     fn from(value: Buffer) -> Self {
+//         ScalarValue::Buffer(value)
+//     }
+// }
 
-impl<T> From<Option<T>> for ScalarValue
-where
-    ScalarValue: From<T>,
-{
-    fn from(value: Option<T>) -> Self {
-        match value {
-            None => ScalarValue::Null,
-            Some(value) => ScalarValue::from(value),
-        }
-    }
-}
+// impl<T> From<Option<T>> for ScalarValue
+// where
+//     ScalarValue: From<T>,
+// {
+//     fn from(value: Option<T>) -> Self {
+//         match value {
+//             None => ScalarValue::Null,
+//             Some(value) => ScalarValue::from(value),
+//         }
+//     }
+// }
 
-macro_rules! from_vec_for_scalar_value {
-    ($T:ty) => {
-        impl From<Vec<$T>> for ScalarValue {
-            fn from(value: Vec<$T>) -> Self {
-                ScalarValue::List(
-                    value
-                        .into_iter()
-                        .map(ScalarValue::from)
-                        .collect::<Vec<_>>()
-                        .into(),
-                )
-            }
-        }
-    };
-}
+// macro_rules! from_vec_for_scalar_value {
+//     ($T:ty) => {
+//         impl From<Vec<$T>> for ScalarValue {
+//             fn from(value: Vec<$T>) -> Self {
+//                 ScalarValue::List(
+//                     value
+//                         .into_iter()
+//                         .map(ScalarValue::from)
+//                         .collect::<Vec<_>>()
+//                         .into(),
+//                 )
+//             }
+//         }
+//     };
+// }
 
-// no From<Vec<u8>> because it could either be a List or a Buffer
-from_vec_for_scalar_value!(u16);
-from_vec_for_scalar_value!(u32);
-from_vec_for_scalar_value!(u64);
-from_vec_for_scalar_value!(usize);
-from_vec_for_scalar_value!(i8);
-from_vec_for_scalar_value!(i16);
-from_vec_for_scalar_value!(i32);
-from_vec_for_scalar_value!(i64);
-from_vec_for_scalar_value!(f16);
-from_vec_for_scalar_value!(f32);
-from_vec_for_scalar_value!(f64);
-from_vec_for_scalar_value!(String);
-from_vec_for_scalar_value!(BufferString);
-from_vec_for_scalar_value!(bytes::Bytes);
-from_vec_for_scalar_value!(Buffer);
+// // no From<Vec<u8>> because it could either be a List or a Buffer
+// from_vec_for_scalar_value!(u16);
+// from_vec_for_scalar_value!(u32);
+// from_vec_for_scalar_value!(u64);
+// from_vec_for_scalar_value!(usize);
+// from_vec_for_scalar_value!(i8);
+// from_vec_for_scalar_value!(i16);
+// from_vec_for_scalar_value!(i32);
+// from_vec_for_scalar_value!(i64);
+// from_vec_for_scalar_value!(f16);
+// from_vec_for_scalar_value!(f32);
+// from_vec_for_scalar_value!(f64);
+// from_vec_for_scalar_value!(String);
+// from_vec_for_scalar_value!(BufferString);
+// from_vec_for_scalar_value!(bytes::Bytes);
+// from_vec_for_scalar_value!(Buffer);
 
 #[cfg(test)]
 mod test {

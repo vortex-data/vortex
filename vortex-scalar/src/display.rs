@@ -3,12 +3,13 @@ use std::fmt::{Display, Formatter};
 use itertools::Itertools;
 use vortex_datetime_dtype::{is_temporal_ext_type, TemporalMetadata};
 use vortex_dtype::DType;
+use vortex_error::vortex_panic;
 
 use crate::binary::BinaryScalar;
 use crate::extension::ExtScalar;
 use crate::struct_::StructScalar;
 use crate::utf8::Utf8Scalar;
-use crate::{PValue, Scalar, ScalarValue};
+use crate::Scalar;
 
 impl Display for Scalar {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -66,47 +67,34 @@ impl Display for Scalar {
                 let storage_scalar = self.as_extension().storage();
 
                 match storage_scalar.dtype() {
+                    DType::Null => {
+                        write!(f, "null")
+                    }
                     DType::Primitive(..) => {
-                        let pv = storage_scalar.as_primitive();
-                        write!(
-                            f,
-                            "{}",
-                            pv.as_::<i64>()
-                                .and_then(|v| v.map(|v| metadata.to_jiff(v)))
-                                .map_err(|_| std::fmt::Error)?
-                        )
+                        let maybe_timestamp = storage_scalar
+                            .as_primitive()
+                            .as_::<i64>()
+                            .and_then(|maybe_timestamp| {
+                                maybe_timestamp.map(|v| metadata.to_jiff(v)).transpose()
+                            })
+                            .map_err(|_| std::fmt::Error)?;
+                        match maybe_timestamp {
+                            None => write!(f, "null"),
+                            Some(v) => write!(f, "{}", v),
+                        }
                     }
-                }
-
-                match ExtScalar::try_from(self)
-                    .map_err(|_| std::fmt::Error)?
-                    .value()
-                {
-                    ScalarValue::Null => write!(f, "null"),
-                    ScalarValue::Primitive(PValue::I32(v)) => {
-                        write!(
-                            f,
-                            "{}",
-                            metadata.to_jiff(*v as i64).map_err(|_| std::fmt::Error)?
-                        )
+                    _ => {
+                        vortex_panic!("Expected temporal extension data type to have Primitive or Null storage type")
                     }
-                    ScalarValue::Primitive(PValue::I64(v)) => {
-                        write!(f, "{}", metadata.to_jiff(*v).map_err(|_| std::fmt::Error)?)
-                    }
-                    _ => Err(std::fmt::Error),
                 }
             }
             // Generic handling of unknown extension types.
             // TODO(aduffy): Allow extension authors plugin their own Scalar display.
             DType::Extension(..) => {
-                let scalar_value = ExtScalar::try_from(self)
+                let storage_value = ExtScalar::try_from(self)
                     .map_err(|_| std::fmt::Error)?
-                    .value();
-                if scalar_value.is_null() {
-                    write!(f, "null")
-                } else {
-                    write!(f, "{}", scalar_value)
-                }
+                    .storage();
+                write!(f, "{}", storage_value)
             }
         }
     }

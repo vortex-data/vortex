@@ -96,12 +96,13 @@ impl TakeFn<RunEndArray> for RunEndEncoding {
                 )
                 .into_array();
                 let filtered_values = filter(&dense_values, dense_validity)?;
+                let dtype = filtered_values.dtype().clone();
 
                 SparseArray::try_new(
                     dense_nonnull_indices,
                     filtered_values,
                     length,
-                    ScalarValue::Null,
+                    Scalar::new(dtype, ScalarValue::Null),
                 )?
                 .into_array()
             }

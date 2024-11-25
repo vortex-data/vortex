@@ -58,9 +58,16 @@ impl TryFrom<&Scalar> for bool {
     type Error = VortexError;
 
     fn try_from(value: &Scalar) -> VortexResult<Self> {
-        BoolScalar::try_from(value)?
-            .value()
+        <Option<bool>>::try_from(value)?
             .ok_or_else(|| vortex_err!("Can't extract present value from null scalar"))
+    }
+}
+
+impl TryFrom<&Scalar> for Option<bool> {
+    type Error = VortexError;
+
+    fn try_from(value: &Scalar) -> VortexResult<Self> {
+        Ok(BoolScalar::try_from(value)?.value())
     }
 }
 
@@ -68,7 +75,15 @@ impl TryFrom<Scalar> for bool {
     type Error = VortexError;
 
     fn try_from(value: Scalar) -> VortexResult<Self> {
-        bool::try_from(&value)
+        Self::try_from(&value)
+    }
+}
+
+impl TryFrom<Scalar> for Option<bool> {
+    type Error = VortexError;
+
+    fn try_from(value: Scalar) -> VortexResult<Self> {
+        Self::try_from(&value)
     }
 }
 
@@ -84,39 +99,6 @@ impl From<bool> for Scalar {
 impl From<bool> for ScalarValue {
     fn from(value: bool) -> Self {
         ScalarValue::Bool(value)
-    }
-}
-
-impl TryFrom<&ScalarValue> for Option<bool> {
-    type Error = VortexError;
-
-    fn try_from(value: &ScalarValue) -> VortexResult<Self> {
-        value.as_bool()
-    }
-}
-
-impl TryFrom<ScalarValue> for Option<bool> {
-    type Error = VortexError;
-
-    fn try_from(value: ScalarValue) -> VortexResult<Self> {
-        Option::<bool>::try_from(&value)
-    }
-}
-
-impl TryFrom<&ScalarValue> for bool {
-    type Error = VortexError;
-
-    fn try_from(value: &ScalarValue) -> VortexResult<Self> {
-        Option::<bool>::try_from(value)?
-            .ok_or_else(|| vortex_err!("Can't extract present value from null scalar"))
-    }
-}
-
-impl TryFrom<ScalarValue> for bool {
-    type Error = VortexError;
-
-    fn try_from(value: ScalarValue) -> VortexResult<Self> {
-        bool::try_from(&value)
     }
 }
 

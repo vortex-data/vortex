@@ -9,7 +9,7 @@ use vortex_dtype::{
     match_each_integer_ptype, match_each_unsigned_integer_ptype, DType, NativePType, Nullability,
 };
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
-use vortex_scalar::{Scalar, ScalarValue};
+use vortex_scalar::{PrimitiveScalar, Scalar, ScalarValue};
 
 use crate::FoRArray;
 
@@ -71,7 +71,10 @@ fn encoded_zero<T: NativePType>(
                 valid_indices,
                 ConstantArray::new(zero, valid_len).into_array(),
                 len,
-                ScalarValue::Null,
+                Scalar::new(
+                    DType::Primitive(encoded_ptype, Nullability::Nullable),
+                    ScalarValue::Null,
+                ),
             )?
             .into_array()
         }
@@ -111,7 +114,9 @@ pub fn decompress(array: FoRArray) -> VortexResult<PrimitiveArray> {
         if shift == <$T>::PTYPE.bit_width() {
             encoded
         } else {
-            let min: $T = array.reference().try_into()?;
+            let min: $T = PrimitiveScalar::try_from(&array.owned_reference_scalar())?
+                .typed_value::<$T>()
+                .ok_or_else(|| vortex_err!("expected reference to be non-null"))?;
             PrimitiveArray::from_vec(
                 decompress_primitive(encoded.into_maybe_null_slice::<$T>(), min, shift),
                 validity,

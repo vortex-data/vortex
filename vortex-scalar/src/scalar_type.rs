@@ -8,6 +8,12 @@ pub trait ScalarType {
     fn dtype() -> DType;
 }
 
+impl ScalarType for bool {
+    fn dtype() -> DType {
+        DType::Bool(Nullability::NonNullable)
+    }
+}
+
 macro_rules! scalar_type_for_vec {
     ($T:ty) => {
         impl ScalarType for Vec<$T> {
