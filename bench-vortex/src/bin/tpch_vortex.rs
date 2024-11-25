@@ -18,7 +18,8 @@ use object_store::gcp::GoogleCloudStorageBuilder;
 use object_store::local::LocalFileSystem;
 use object_store::ObjectStore;
 use tokio::runtime::Builder;
-use tracing::{debug, info, Level};
+use tracing::instrument::WithSubscriber;
+use tracing::{debug, info, info_span, Level};
 use tracing_subscriber::fmt::format::FmtSpan;
 use url::Url;
 use vortex_datafusion::persistent::format::VortexFormat;
@@ -29,8 +30,14 @@ struct Cli {
     ///
     /// All TPC-H files must be generated before calling this CLI.
     source: Url,
+
     #[arg(long)]
     format: Format,
+
+    /// Specify TPC-H queries to run by their indices (e.g. -q 1 -q 2).
+    /// If not specified, all queries will be run.
+    #[arg(short = 'q', long = "query", action = ArgAction::Append)]
+    queries: Option<Vec<usize>>,
 
     /// Override the number of worker threads tokio uses for its thread pool.
     #[arg(long)]
@@ -88,6 +95,33 @@ pub fn main() {
         .block_on(async_main(cli));
 }
 
+const QUERIES: [&str; 23] = [
+    // this slot exists simply so that QUERIES[IDX] will yield TPC-H query "$IDX".
+    "unused",
+    include_str!("../../tpch/q1.sql"),
+    include_str!("../../tpch/q2.sql"),
+    include_str!("../../tpch/q3.sql"),
+    include_str!("../../tpch/q4.sql"),
+    include_str!("../../tpch/q5.sql"),
+    include_str!("../../tpch/q6.sql"),
+    include_str!("../../tpch/q7.sql"),
+    include_str!("../../tpch/q8.sql"),
+    include_str!("../../tpch/q9.sql"),
+    include_str!("../../tpch/q10.sql"),
+    include_str!("../../tpch/q11.sql"),
+    include_str!("../../tpch/q12.sql"),
+    include_str!("../../tpch/q13.sql"),
+    include_str!("../../tpch/q14.sql"),
+    include_str!("../../tpch/q15.sql"),
+    include_str!("../../tpch/q16.sql"),
+    include_str!("../../tpch/q17.sql"),
+    include_str!("../../tpch/q18.sql"),
+    include_str!("../../tpch/q19.sql"),
+    include_str!("../../tpch/q20.sql"),
+    include_str!("../../tpch/q21.sql"),
+    include_str!("../../tpch/q22.sql"),
+];
+
 async fn async_main(cli: Cli) {
     // Create the datafusion context
     let df = SessionContext::default();
@@ -107,14 +141,23 @@ async fn async_main(cli: Cli) {
             .unwrap();
     }
 
-    // For every requested query, execute it.
-    let q1 = include_str!("../../tpch/q2.sql");
-    df.sql(q1)
-        .await
-        .unwrap()
-        .show()
-        .await
-        .unwrap();
+    let queries_to_run = cli.queries.unwrap_or_else(|| (1..QUERIES.len()).collect());
+
+    for query in queries_to_run {
+        if query == 15 {
+            info!("skipping q15, datafusion only supports single statements");
+        }
+        let _span = info_span!("tpch", query = query);
+        info!(query = query, "begin query");
+        df.sql(QUERIES[query])
+            .with_current_subscriber()
+            .await
+            .unwrap()
+            .count()
+            .await
+            .unwrap();
+        info!(query = query, "end query");
+    }
 }
 
 fn make_object_store(source: &Url) -> Arc<dyn ObjectStore> {
