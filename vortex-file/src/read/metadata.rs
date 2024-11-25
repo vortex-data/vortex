@@ -19,7 +19,7 @@ pub struct MetadataReader<R: VortexReadAt> {
     root_layout: Box<dyn LayoutReader>,
     layout_cache: Arc<RwLock<LayoutMessageCache>>,
     state: State,
-    stats: Vec<ArrayData>,
+    metadata_table: Vec<ArrayData>,
 }
 
 enum State {
@@ -40,7 +40,7 @@ impl<R: VortexReadAt + Unpin> MetadataReader<R> {
             root_layout,
             layout_cache,
             state: State::Initial,
-            stats: Vec::default(),
+            metadata_table: Vec::default(),
         }
     }
     /// Schedule an asynchronous read of several byte ranges.
@@ -79,11 +79,11 @@ impl<R: VortexReadAt + Unpin> Future for MetadataReader<R> {
                         Poll::Pending
                     }
                     BatchRead::Batch(array_data) => {
-                        self.stats.push(array_data);
+                        self.metadata_table.push(array_data);
                         Poll::Pending
                     }
                 },
-                None => Poll::Ready(Ok(Some(std::mem::take(&mut self.stats)))),
+                None => Poll::Ready(Ok(Some(std::mem::take(&mut self.metadata_table)))),
             },
             State::Reading(ref mut f) => {
                 let messages = ready!(f.poll_unpin(cx))?;

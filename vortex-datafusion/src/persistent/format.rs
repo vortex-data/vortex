@@ -99,7 +99,7 @@ impl FileFormat for VortexFormat {
         let layout_message_cache = Arc::new(RwLock::new(LayoutMessageCache::new()));
         let _relative_message_cache = RelativeLayoutCache::new(layout_message_cache, dtype.into());
 
-        // let top_level_layout = read_layout_from_initial(
+        // let top_level_layout = vortex_file::read_layout_from_initial(
         //     &initial_read,
         //     &layout_deserializer,
         //     Scan::empty(),
