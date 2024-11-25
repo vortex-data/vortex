@@ -1,5 +1,4 @@
-use std::convert::identity;
-use std::fs::{File};
+use std::fs::File;
 use std::future::{self, Future};
 use std::io;
 use std::ops::Deref;
@@ -67,7 +66,7 @@ impl VortexReadAt for TokioFile {
         &self,
         pos: u64,
         len: u64,
-    ) -> impl Future<Output=io::Result<Bytes>> + 'static {
+    ) -> impl Future<Output = io::Result<Bytes>> + 'static {
         let this = self.clone();
 
         let mut buffer = BytesMut::with_capacity(len as usize);
@@ -81,18 +80,10 @@ impl VortexReadAt for TokioFile {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
-    fn size(&self) -> impl Future<Output=io::Result<u64>> + 'static {
+    fn size(&self) -> impl Future<Output = io::Result<u64>> + 'static {
         let this = self.clone();
 
-        async move {
-            tokio::task::spawn_blocking(move || {
-                this.metadata()
-                    .map(|metadata| metadata.len())
-            })
-                .await
-                .map_err(io::Error::other)
-                .and_then(identity)
-        }
+        async move { this.metadata().map(|metadata| metadata.len()) }
     }
 }
 
