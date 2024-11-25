@@ -21,6 +21,8 @@ fn benchmark(c: &mut Criterion) {
 
     let output_path = basepath.join("processed.parquet");
 
+    // The clickbench-provided file is missing some higher-level type info, so we reprocess it
+    // to add that info, see https://github.com/ClickHouse/ClickBench/issues/7.
     let final_parquet_path = idempotent(&output_path, |output_path| {
         eprintln!("Fixing parquet file");
         let command = format!(
