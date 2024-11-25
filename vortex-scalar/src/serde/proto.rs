@@ -1,5 +1,5 @@
-use half::f16;
 use vortex_buffer::{Buffer, BufferString};
+use vortex_dtype::half::f16;
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 use vortex_proto::scalar as pb;
@@ -164,8 +164,8 @@ fn deserialize_scalar_value(dtype: &DType, value: &pb::ScalarValue) -> VortexRes
 mod test {
     use std::sync::Arc;
 
-    use half::f16;
     use vortex_buffer::BufferString;
+    use vortex_dtype::half::f16;
     use vortex_dtype::PType::{self, I32};
     use vortex_dtype::{DType, Nullability};
     use vortex_proto::scalar as pb;

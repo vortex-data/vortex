@@ -63,6 +63,21 @@ impl Display for Scalar {
             DType::Extension(dtype) if is_temporal_ext_type(dtype.id()) => {
                 let metadata =
                     TemporalMetadata::try_from(dtype.as_ref()).map_err(|_| std::fmt::Error)?;
+                let storage_scalar = self.as_extension().storage();
+
+                match storage_scalar.dtype() {
+                    DType::Primitive(..) => {
+                        let pv = storage_scalar.as_primitive();
+                        write!(
+                            f,
+                            "{}",
+                            pv.as_::<i64>()
+                                .and_then(|v| v.map(|v| metadata.to_jiff(v)))
+                                .map_err(|_| std::fmt::Error)?
+                        )
+                    }
+                }
+
                 match ExtScalar::try_from(self)
                     .map_err(|_| std::fmt::Error)?
                     .value()

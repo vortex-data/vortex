@@ -1,8 +1,8 @@
 use std::fmt::{Display, Write};
 use std::sync::Arc;
 
-use half::f16;
 use vortex_buffer::{Buffer, BufferString};
+use vortex_dtype::half::f16;
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexResult};
 
@@ -75,7 +75,7 @@ impl Display for ScalarValue {
 }
 
 impl ScalarValue {
-    pub fn is_null(&self) -> bool {
+    pub(crate) fn is_null(&self) -> bool {
         matches!(self, Self::Null)
     }
 
@@ -98,6 +98,7 @@ impl ScalarValue {
         }
     }
 
+    #[deprecated(note = "Downcast Scalar to access values, rather than via ScalarValue")]
     pub fn as_null(&self) -> VortexResult<()> {
         match self {
             Self::Null => Ok(()),
@@ -105,6 +106,7 @@ impl ScalarValue {
         }
     }
 
+    #[deprecated(note = "Downcast Scalar to access values, rather than via ScalarValue")]
     pub fn as_bool(&self) -> VortexResult<Option<bool>> {
         match self {
             Self::Null => Ok(None),
@@ -113,6 +115,10 @@ impl ScalarValue {
         }
     }
 
+    /// FIXME(ngates): PValues are such a footgun... we should probably remove this.
+    ///  But the other accessors can sometimes be useful? e.g. as_buffer. But maybe we just force
+    ///  the user to switch over Utf8 and Binary and use the correct Scalar wrapper?
+    #[deprecated(note = "Downcast Scalar to access values, rather than via ScalarValue")]
     pub fn as_pvalue(&self) -> VortexResult<Option<PValue>> {
         match self {
             Self::Null => Ok(None),
@@ -121,6 +127,7 @@ impl ScalarValue {
         }
     }
 
+    #[deprecated(note = "Downcast Scalar to access values, rather than via ScalarValue")]
     pub fn as_buffer(&self) -> VortexResult<Option<Buffer>> {
         match self {
             Self::Null => Ok(None),
@@ -129,6 +136,7 @@ impl ScalarValue {
         }
     }
 
+    #[deprecated(note = "Downcast Scalar to access values, rather than via ScalarValue")]
     pub fn as_buffer_string(&self) -> VortexResult<Option<BufferString>> {
         match self {
             Self::Null => Ok(None),
@@ -138,6 +146,7 @@ impl ScalarValue {
         }
     }
 
+    #[deprecated(note = "Downcast Scalar to access values, rather than via ScalarValue")]
     pub fn as_list(&self) -> VortexResult<Option<&Arc<[Self]>>> {
         match self {
             Self::Null => Ok(None),

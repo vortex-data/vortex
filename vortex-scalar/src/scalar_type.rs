@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use half::f16;
 use vortex_buffer::{Buffer, BufferString};
+use vortex_dtype::half::f16;
 use vortex_dtype::{DType, NativePType, Nullability, PType};
 
 pub trait ScalarType {

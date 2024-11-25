@@ -27,7 +27,18 @@ impl<'a> ExtScalar<'a> {
         self.dtype
     }
 
+    /// Returns the storage scalar of the extension scalar.
+    pub fn storage(&self) -> Scalar {
+        let storage_dtype = if let DType::Extension(ext_dtype) = self.dtype() {
+            ext_dtype.storage_dtype().clone()
+        } else {
+            unreachable!("Expected extension DType");
+        };
+        Scalar::new(storage_dtype, self.value.clone())
+    }
+
     /// Returns the stored value of the extension scalar.
+    #[deprecated(since = "0.1.0", note = "Use `storage` instead")]
     pub fn value(&self) -> &'a ScalarValue {
         self.value
     }
