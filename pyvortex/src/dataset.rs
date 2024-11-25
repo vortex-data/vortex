@@ -35,7 +35,7 @@ pub async fn layout_stream_from_reader<T: VortexReadAt + Unpin>(
             LayoutContext::default().into(),
         ),
     )
-        .with_projection(projection);
+    .with_projection(projection);
 
     if let Some(row_filter) = row_filter {
         builder = builder.with_row_filter(row_filter);
@@ -122,7 +122,7 @@ impl TokioFileDataset {
             row_filter_from_python(row_filter),
             indices.map(PyArray::unwrap).cloned(),
         )
-            .await?;
+        .await?;
         Ok(PyArray::new(inner))
     }
 
@@ -138,7 +138,7 @@ impl TokioFileDataset {
             row_filter_from_python(row_filter),
             indices.map(PyArray::unwrap).cloned(),
         )
-            .await?;
+        .await?;
 
         let record_batch_reader: Box<dyn RecordBatchReader + Send> = Box::new(
             VortexRecordBatchReader::try_new(layout_reader, &*TOKIO_RUNTIME)?,
@@ -206,7 +206,7 @@ impl ObjectStoreUrlDataset {
             row_filter_from_python(row_filter),
             indices.map(PyArray::unwrap).cloned(),
         )
-            .await?;
+        .await?;
         Ok(PyArray::new(inner))
     }
 
@@ -222,7 +222,7 @@ impl ObjectStoreUrlDataset {
             row_filter_from_python(row_filter),
             indices.map(PyArray::unwrap).cloned(),
         )
-            .await?;
+        .await?;
 
         let record_batch_reader: Box<dyn RecordBatchReader + Send> = Box::new(
             VortexRecordBatchReader::try_new(layout_reader, &*TOKIO_RUNTIME)?,

@@ -8,7 +8,7 @@ use object_store::path::Path;
 use object_store::{ObjectStore, WriteMultipart};
 use vortex_buffer::io_buf::IoBuf;
 use vortex_buffer::Buffer;
-use vortex_error::{VortexResult};
+use vortex_error::VortexResult;
 
 use crate::{VortexBufReader, VortexReadAt, VortexWrite};
 
@@ -17,14 +17,14 @@ pub trait ObjectStoreExt {
         &self,
         location: &Path,
         range: Range<usize>,
-    ) -> impl Future<Output=VortexResult<VortexBufReader<impl VortexReadAt>>>;
+    ) -> impl Future<Output = VortexResult<VortexBufReader<impl VortexReadAt>>>;
 
     fn vortex_reader(&self, location: &Path) -> impl VortexReadAt;
 
     fn vortex_writer(
         &self,
         location: &Path,
-    ) -> impl Future<Output=VortexResult<impl VortexWrite>>;
+    ) -> impl Future<Output = VortexResult<impl VortexWrite>>;
 }
 
 impl ObjectStoreExt for Arc<dyn ObjectStore> {
@@ -70,7 +70,7 @@ impl VortexReadAt for ObjectStoreReadAt {
         &self,
         pos: u64,
         len: u64,
-    ) -> impl Future<Output=io::Result<Bytes>> + 'static {
+    ) -> impl Future<Output = io::Result<Bytes>> + 'static {
         let object_store = self.object_store.clone();
         let location = self.location.clone();
 
@@ -84,7 +84,7 @@ impl VortexReadAt for ObjectStoreReadAt {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
-    fn size(&self) -> impl Future<Output=io::Result<u64>> + 'static {
+    fn size(&self) -> impl Future<Output = io::Result<u64>> + 'static {
         let object_store = self.object_store.clone();
         let location = self.location.clone();
 
