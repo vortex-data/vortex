@@ -1,4 +1,5 @@
-use std::fs::File;
+use std::convert::identity;
+use std::fs::{File};
 use std::future::{self, Future};
 use std::io;
 use std::ops::Deref;
@@ -9,7 +10,6 @@ use std::sync::Arc;
 use bytes::{Bytes, BytesMut};
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 use vortex_buffer::io_buf::IoBuf;
-use vortex_error::vortex_panic;
 
 use super::VortexReadAt;
 use crate::VortexWrite;
@@ -67,7 +67,7 @@ impl VortexReadAt for TokioFile {
         &self,
         pos: u64,
         len: u64,
-    ) -> impl Future<Output = io::Result<Bytes>> + 'static {
+    ) -> impl Future<Output=io::Result<Bytes>> + 'static {
         let this = self.clone();
 
         let mut buffer = BytesMut::with_capacity(len as usize);
@@ -81,17 +81,17 @@ impl VortexReadAt for TokioFile {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
-    fn size(&self) -> impl Future<Output = io::Result<u64>> + 'static {
+    fn size(&self) -> impl Future<Output=io::Result<u64>> + 'static {
         let this = self.clone();
 
         async move {
             tokio::task::spawn_blocking(move || {
                 this.metadata()
-                    .unwrap_or_else(|e| vortex_panic!("access TokioFile metadata: {e}"))
-                    .len()
+                    .map(|metadata| metadata.len())
             })
-            .await
-            .map_err(io::Error::other)
+                .await
+                .map_err(io::Error::other)
+                .and_then(identity)
         }
     }
 }
