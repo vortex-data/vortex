@@ -581,20 +581,14 @@ mod test {
             merged
                 .get(Stat::NullCount)
                 .unwrap()
-                .value()
-                .as_pvalue()
-                .unwrap()
-                .unwrap()
-                .as_u64()
+                .as_primitive()
+                .typed_value::<u64>()
                 .unwrap(),
             2 * stats
                 .get(Stat::NullCount)
                 .unwrap()
-                .value()
-                .as_pvalue()
-                .unwrap()
-                .unwrap()
-                .as_u64()
+                .as_primitive()
+                .typed_value::<u64>()
                 .unwrap()
         );
     }

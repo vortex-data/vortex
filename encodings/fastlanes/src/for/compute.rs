@@ -236,7 +236,11 @@ mod test {
             .into_array();
         let for_array = FoRArray::try_from(arr.clone()).unwrap();
 
-        let min: i32 = for_array.reference().try_into().unwrap();
+        let min: i32 = for_array
+            .owned_reference_scalar()
+            .as_primitive()
+            .typed_value::<i32>()
+            .unwrap();
         assert_eq!(min, 62);
         assert_eq!(for_array.shift(), 1);
 

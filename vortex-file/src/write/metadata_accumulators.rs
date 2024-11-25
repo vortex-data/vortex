@@ -220,7 +220,7 @@ mod tests {
     use vortex_array::array::{BoolArray, ConstantArray, PrimitiveArray};
     use vortex_array::variants::StructArrayTrait;
     use vortex_array::ArrayLen;
-    use vortex_dtype::{Nullability, PType};
+    use vortex_dtype::Nullability;
     use vortex_scalar::Scalar;
 
     use super::*;
@@ -287,11 +287,7 @@ mod tests {
     #[test]
     fn test_standard_metadata_all_null() {
         let mut standard_accumulator = StandardAccumulator::<u64>::new();
-        let chunk = ConstantArray::new(
-            Scalar::null(DType::Primitive(PType::U64, Nullability::Nullable)),
-            10,
-        )
-        .into_array();
+        let chunk = ConstantArray::new(Scalar::null_typed::<u64>(), 10).into_array();
         standard_accumulator.push_chunk(&chunk);
 
         let metadata_array = StructArray::try_from(
@@ -308,11 +304,7 @@ mod tests {
     #[test]
     fn test_standard_metadata_empty() {
         let mut standard_accumulator = StandardAccumulator::<u64>::new();
-        let chunk = ConstantArray::new(
-            Scalar::null(DType::Primitive(PType::U64, Nullability::Nullable)),
-            0,
-        )
-        .into_array();
+        let chunk = ConstantArray::new(Scalar::null_typed::<u64>(), 0).into_array();
         standard_accumulator.push_chunk(&chunk);
 
         let metadata_array = StructArray::try_from(

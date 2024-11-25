@@ -10,7 +10,7 @@ use crate::{InnerScalarValue, Scalar};
 
 pub struct ListScalar<'a> {
     dtype: &'a DType,
-    elements: Option<Arc<[ScalarValue]>>,
+    elements: Option<Arc<[InnerScalarValue]>>,
 }
 
 impl<'a> ListScalar<'a> {
@@ -45,7 +45,7 @@ impl<'a> ListScalar<'a> {
             .and_then(|l| l.get(idx))
             .map(|value| Scalar {
                 dtype: self.element_dtype(),
-                value: value.clone(),
+                value: ScalarValue(value.clone()),
             })
     }
 
@@ -53,11 +53,11 @@ impl<'a> ListScalar<'a> {
         self.elements
             .as_ref()
             .map(AsRef::as_ref)
-            .unwrap_or_else(|| &[] as &[ScalarValue])
+            .unwrap_or_else(|| &[] as &[InnerScalarValue])
             .iter()
             .map(|e| Scalar {
                 dtype: self.element_dtype(),
-                value: e.clone(),
+                value: ScalarValue(e.clone()),
             })
     }
 
@@ -80,7 +80,10 @@ impl Scalar {
         Self {
             dtype: DType::List(element_dtype, NonNullable),
             value: ScalarValue(InnerScalarValue::List(
-                children.into_iter().map(|x| x.value).collect::<Arc<[_]>>(),
+                children
+                    .into_iter()
+                    .map(|x| x.value.0)
+                    .collect::<Arc<[_]>>(),
             )),
         }
     }

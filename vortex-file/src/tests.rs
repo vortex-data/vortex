@@ -977,10 +977,8 @@ async fn test_pruning_with_or() {
             .map(|index| -> Option<i32> {
                 scalar_at(&numbers, index)
                     .unwrap()
-                    .into_value()
-                    .as_pvalue()
-                    .unwrap()
-                    .map(|x| i32::try_from(x).unwrap())
+                    .as_primitive()
+                    .typed_value::<i32>()
             })
             .collect::<Vec<_>>(),
         vec![

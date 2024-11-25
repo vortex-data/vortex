@@ -137,7 +137,7 @@ fn enc_impls() -> Vec<ArrayData> {
             PrimitiveArray::from(vec![5u64, 8]).into_array(),
             PrimitiveArray::from_vec(vec![3u32, 6], Validity::AllValid).into_array(),
             10,
-            Scalar::null(DType::Primitive(PType::U32, Nullability::Nullable)),
+            Scalar::null_typed::<u32>(),
         )
         .unwrap()
         .into_array(),

@@ -157,7 +157,7 @@ pub fn gather_patches(
                 indices.into_array(),
                 PrimitiveArray::from_vec(values, Validity::AllValid).into_array(),
                 parray.len(),
-                Scalar::null(parray.dtype().clone()),
+                Scalar::null(parray.dtype().as_nullable()),
             )
             .vortex_unwrap()
             .into_array()

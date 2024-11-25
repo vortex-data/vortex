@@ -37,7 +37,8 @@ impl From<&ScalarValue> for pb::ScalarValue {
             ScalarValue(InnerScalarValue::List(v)) => {
                 let mut values = Vec::with_capacity(v.len());
                 for elem in v.iter() {
-                    values.push(pb::ScalarValue::from(elem));
+                    // FIXME(DK): protobufs should probably also have inner vs non-inner?
+                    values.push(pb::ScalarValue::from(&ScalarValue(elem.clone())));
                 }
                 pb::ScalarValue {
                     kind: Some(Kind::ListValue(ListValue { values })),
@@ -163,7 +164,9 @@ fn deserialize_scalar_value(dtype: &DType, value: &pb::ScalarValue) -> VortexRes
                 }
                 _ => vortex_bail!("invalid dtype for list value {}", dtype),
             }
-            Ok(ScalarValue(InnerScalarValue::List(values.into())))
+            Ok(ScalarValue(InnerScalarValue::List(
+                values.iter().map(|x| x.0.clone()).collect(),
+            )))
         }
     }
 }
@@ -178,7 +181,7 @@ mod test {
     use vortex_dtype::{DType, Nullability};
     use vortex_proto::scalar as pb;
 
-    use crate::{PValue, Scalar, ScalarValue};
+    use crate::{InnerScalarValue, PValue, Scalar, ScalarValue};
 
     fn round_trip(scalar: Scalar) {
         assert_eq!(
@@ -196,7 +199,7 @@ mod test {
     fn test_bool() {
         round_trip(Scalar::new(
             DType::Bool(Nullability::Nullable),
-            ScalarValue::Bool(true),
+            ScalarValue(InnerScalarValue::Bool(true)),
         ));
     }
 
@@ -204,7 +207,7 @@ mod test {
     fn test_primitive() {
         round_trip(Scalar::new(
             DType::Primitive(I32, Nullability::Nullable),
-            ScalarValue::Primitive(42i32.into()),
+            ScalarValue(InnerScalarValue::Primitive(42i32.into())),
         ));
     }
 
@@ -212,7 +215,7 @@ mod test {
     fn test_buffer() {
         round_trip(Scalar::new(
             DType::Binary(Nullability::Nullable),
-            ScalarValue::Buffer(vec![1, 2, 3].into()),
+            ScalarValue(InnerScalarValue::Buffer(vec![1, 2, 3].into())),
         ));
     }
 
@@ -220,7 +223,9 @@ mod test {
     fn test_buffer_string() {
         round_trip(Scalar::new(
             DType::Utf8(Nullability::Nullable),
-            ScalarValue::BufferString(BufferString::from("hello".to_string())),
+            ScalarValue(InnerScalarValue::BufferString(BufferString::from(
+                "hello".to_string(),
+            ))),
         ));
     }
 
@@ -231,13 +236,13 @@ mod test {
                 Arc::new(DType::Primitive(I32, Nullability::Nullable)),
                 Nullability::Nullable,
             ),
-            ScalarValue::List(
+            ScalarValue(InnerScalarValue::List(
                 vec![
-                    ScalarValue::Primitive(42i32.into()),
-                    ScalarValue::Primitive(43i32.into()),
+                    InnerScalarValue::Primitive(42i32.into()),
+                    InnerScalarValue::Primitive(43i32.into()),
                 ]
                 .into(),
-            ),
+            )),
         ));
     }
 
@@ -245,7 +250,9 @@ mod test {
     fn test_f16() {
         round_trip(Scalar::new(
             DType::Primitive(PType::F16, Nullability::Nullable),
-            ScalarValue::Primitive(PValue::F16(f16::from_f32(0.42))),
+            ScalarValue(InnerScalarValue::Primitive(PValue::F16(f16::from_f32(
+                0.42,
+            )))),
         ));
     }
 }

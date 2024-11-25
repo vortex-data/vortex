@@ -29,6 +29,23 @@ impl<'a> BoolScalar<'a> {
             _ => vortex_bail!("Can't cast {} to bool", dtype),
         }
     }
+
+    pub fn invert(self) -> BoolScalar<'a> {
+        BoolScalar {
+            dtype: self.dtype,
+            value: self.value.map(|v| !v),
+        }
+    }
+
+    pub fn into_scalar(self) -> Scalar {
+        Scalar {
+            dtype: self.dtype.clone(),
+            value: self
+                .value
+                .map(|x| ScalarValue(InnerScalarValue::Bool(x)))
+                .unwrap_or_else(|| ScalarValue(InnerScalarValue::Null)),
+        }
+    }
 }
 
 impl Scalar {

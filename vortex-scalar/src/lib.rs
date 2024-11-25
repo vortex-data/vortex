@@ -61,7 +61,7 @@ impl Scalar {
 
     /// Only the scalar crate should access the ScalarValue directly.
     #[inline]
-    pub fn value(&self) -> &ScalarValue {
+    pub(crate) fn value(&self) -> &ScalarValue {
         &self.value
     }
 
@@ -87,6 +87,13 @@ impl Scalar {
         assert!(dtype.is_nullable());
         Self {
             dtype,
+            value: ScalarValue(InnerScalarValue::Null),
+        }
+    }
+
+    pub fn null_typed<T: ScalarType>() -> Self {
+        Self {
+            dtype: T::dtype().as_nullable(),
             value: ScalarValue(InnerScalarValue::Null),
         }
     }
@@ -124,6 +131,13 @@ impl Scalar {
                     self.cast(ext_dtype.storage_dtype())?,
                 ))
             }
+        }
+    }
+
+    pub fn into_nullable(self) -> Self {
+        Self {
+            dtype: self.dtype.as_nullable(),
+            value: self.value,
         }
     }
 }
@@ -187,17 +201,15 @@ impl Scalar {
 }
 
 impl PartialEq for Scalar {
-    fn eq(&self, _other: &Self) -> bool {
-        todo!("How do we implement this when ScalarValue doesn't implement Eq?")
-        // self.dtype == other.dtype && self.value == other.value
+    fn eq(&self, other: &Self) -> bool {
+        self.dtype == other.dtype && self.value.0 == other.value.0
     }
 }
 
 impl PartialOrd for Scalar {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         if self.dtype().eq_ignore_nullability(other.dtype()) {
-            todo!("How do we implement this when ScalarValue doesn't implement PartialOrd?")
-            // self.value.partial_cmp(&other.value)
+            self.value.0.partial_cmp(&other.value.0)
         } else {
             None
         }
@@ -216,10 +228,13 @@ where
     Scalar: From<T>,
 {
     fn from(value: Option<T>) -> Self {
-        value.map(Scalar::from).unwrap_or_else(|| Scalar {
-            dtype: T::dtype().as_nullable(),
-            value: ScalarValue(InnerScalarValue::Null),
-        })
+        value
+            .map(Scalar::from)
+            .map(|x| x.into_nullable())
+            .unwrap_or_else(|| Scalar {
+                dtype: T::dtype().as_nullable(),
+                value: ScalarValue(InnerScalarValue::Null),
+            })
     }
 }
 
@@ -233,9 +248,8 @@ macro_rules! from_vec_for_scalar {
                         value
                             .into_iter()
                             .map(Scalar::from)
-                            .map(|x| x.value)
-                            .collect::<Vec<_>>()
-                            .into(),
+                            .map(|x| x.value.0)
+                            .collect::<Arc<[_]>>(),
                     )),
                 }
             }

@@ -2,7 +2,7 @@ use vortex_array::array::ConstantArray;
 use vortex_array::compute::{compare, CompareFn, Operator};
 use vortex_array::{ArrayData, ArrayLen, IntoArrayData};
 use vortex_dtype::Nullability;
-use vortex_error::{VortexExpect as _, VortexResult};
+use vortex_error::VortexResult;
 use vortex_scalar::{PrimitiveScalar, Scalar};
 
 use crate::{match_each_alp_float_ptype, ALPArray, ALPEncoding, ALPFloat};
@@ -18,8 +18,12 @@ impl CompareFn<ALPArray> for ALPEncoding {
             let pscalar = PrimitiveScalar::try_from(&const_scalar)?;
 
             match_each_alp_float_ptype!(pscalar.ptype(), |$T| {
-                let value: $T = pscalar.typed_value().vortex_expect("must be non null");
-                return alp_scalar_compare(lhs, value, operator).map(Some);
+                match pscalar.typed_value::<$T>() {
+                    Some(value) => return alp_scalar_compare(lhs, value, operator).map(Some),
+                    None => return Ok(Some(ConstantArray::new(
+                        Scalar::bool(false, Nullability::Nullable), lhs.len()
+                    ).into_array())),
+                }
             });
         }
 

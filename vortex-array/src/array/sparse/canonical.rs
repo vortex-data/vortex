@@ -96,7 +96,7 @@ mod test {
     use rstest::rstest;
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_error::VortexExpect;
-    use vortex_scalar::ScalarValue;
+    use vortex_scalar::Scalar;
 
     use crate::array::sparse::SparseArray;
     use crate::array::{BoolArray, PrimitiveArray};
@@ -112,7 +112,7 @@ mod test {
         let values = bool_array_from_nullable_vec(vec![Some(true), None, Some(false)], fill_value)
             .into_array();
         let sparse_bools =
-            SparseArray::try_new(indices, values, 10, ScalarValue::from(fill_value)).unwrap();
+            SparseArray::try_new(indices, values, 10, Scalar::from(fill_value)).unwrap();
         assert_eq!(*sparse_bools.dtype(), DType::Bool(Nullability::Nullable));
 
         let flat_bools = sparse_bools.into_canonical().unwrap().into_bool().unwrap();
@@ -166,11 +166,13 @@ mod test {
     #[case(Some(-1i32))]
     #[case(None)]
     fn test_sparse_primitive(#[case] fill_value: Option<i32>) {
+        use vortex_scalar::Scalar;
+
         let indices = vec![0u64, 1, 7].into_array();
         let values =
             PrimitiveArray::from_nullable_vec(vec![Some(0i32), None, Some(1)]).into_array();
         let sparse_ints =
-            SparseArray::try_new(indices, values, 10, ScalarValue::from(fill_value)).unwrap();
+            SparseArray::try_new(indices, values, 10, Scalar::from(fill_value)).unwrap();
         assert_eq!(
             *sparse_ints.dtype(),
             DType::Primitive(PType::I32, Nullability::Nullable)

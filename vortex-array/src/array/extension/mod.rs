@@ -112,7 +112,7 @@ impl StatisticsVTable<ExtensionArray> for ExtensionEncoding {
 #[cfg(test)]
 mod tests {
     use vortex_dtype::PType;
-    use vortex_scalar::{PValue, Scalar, ScalarValue};
+    use vortex_scalar::Scalar;
 
     use super::*;
     use crate::array::PrimitiveArray;
@@ -144,17 +144,11 @@ mod tests {
 
         assert_eq!(
             stats.get(Stat::Min),
-            Some(&Scalar::extension(
-                ext_dtype.clone(),
-                ScalarValue::Primitive(PValue::I64(1))
-            ))
+            Some(&Scalar::extension(ext_dtype.clone(), Scalar::from(1_i64)))
         );
         assert_eq!(
             stats.get(Stat::Max),
-            Some(&Scalar::extension(
-                ext_dtype,
-                ScalarValue::Primitive(PValue::I64(5))
-            ))
+            Some(&Scalar::extension(ext_dtype, Scalar::from(5_i64)))
         );
         assert_eq!(stats.get(Stat::NullCount), Some(&0u64.into()));
     }

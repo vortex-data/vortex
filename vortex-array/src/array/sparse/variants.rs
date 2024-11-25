@@ -1,7 +1,7 @@
 use vortex_dtype::field::Field;
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
-use vortex_scalar::{BoolScalar, Scalar, StructScalar};
+use vortex_scalar::StructScalar;
 
 use crate::array::sparse::SparseArray;
 use crate::variants::{
@@ -49,9 +49,7 @@ impl NullArrayTrait for SparseArray {}
 
 impl BoolArrayTrait for SparseArray {
     fn invert(&self) -> VortexResult<ArrayData> {
-        let inverted_fill = BoolScalar::try_from(&self.fill_scalar())?
-            .value()
-            .map(|v| !v);
+        let inverted_fill = self.fill_scalar().as_bool().invert().into_scalar();
         SparseArray::try_new(
             self.indices(),
             self.values().with_dyn(|a| {
@@ -60,7 +58,7 @@ impl BoolArrayTrait for SparseArray {
                     .and_then(|b| b.invert())
             })?,
             self.len(),
-            Scalar::from(inverted_fill),
+            inverted_fill,
         )
         .map(|a| a.into_array())
     }
@@ -132,6 +130,8 @@ impl ExtensionArrayTrait for SparseArray {
 
 #[cfg(test)]
 mod tests {
+    use vortex_scalar::Scalar;
+
     use crate::array::{BoolArray, PrimitiveArray, SparseArray};
     use crate::{IntoArrayData, IntoArrayVariant};
 
@@ -141,7 +141,7 @@ mod tests {
             PrimitiveArray::from(vec![0u64]).into_array(),
             BoolArray::from_iter([false]).into_array(),
             2,
-            true.into(),
+            Scalar::from(true),
         )
         .unwrap()
         .into_array();

@@ -12,7 +12,7 @@ use crate::{InnerScalarValue, Scalar};
 
 pub struct StructScalar<'a> {
     dtype: &'a DType,
-    fields: Option<&'a Arc<[ScalarValue]>>,
+    fields: Option<&'a Arc<[InnerScalarValue]>>,
 }
 
 impl<'a> StructScalar<'a> {
@@ -53,7 +53,7 @@ impl<'a> StructScalar<'a> {
             .and_then(|fields| fields.get(idx))
             .map(|field| Scalar {
                 dtype: st.dtypes()[idx].clone(),
-                value: field.clone(),
+                value: ScalarValue(field.clone()),
             })
     }
 
@@ -74,7 +74,7 @@ impl<'a> StructScalar<'a> {
         )
     }
 
-    pub(crate) fn field_values(&self) -> Option<&[ScalarValue]> {
+    pub(crate) fn field_values(&self) -> Option<&[InnerScalarValue]> {
         self.fields.map(Arc::deref)
     }
 
@@ -101,7 +101,7 @@ impl<'a> StructScalar<'a> {
                 .map(|(i, f)| {
                     Scalar {
                         dtype: own_st.dtypes()[i].clone(),
-                        value: f.clone(),
+                        value: ScalarValue(f.clone()),
                     }
                     .cast(&st.dtypes()[i])
                     .map(|s| s.value)
@@ -109,7 +109,9 @@ impl<'a> StructScalar<'a> {
                 .collect::<VortexResult<Vec<_>>>()?;
             Ok(Scalar {
                 dtype: dtype.clone(),
-                value: ScalarValue(InnerScalarValue::List(fields.into())),
+                value: ScalarValue(InnerScalarValue::List(
+                    fields.iter().cloned().map(|x| x.0).collect(),
+                )),
             })
         } else {
             Ok(Scalar::null(dtype.clone()))
@@ -146,10 +148,12 @@ impl<'a> StructScalar<'a> {
 }
 
 impl Scalar {
-    pub fn r#struct(dtype: DType, children: Vec<ScalarValue>) -> Self {
+    pub fn r#struct(dtype: DType, children: Vec<Scalar>) -> Self {
         Self {
             dtype,
-            value: ScalarValue(InnerScalarValue::List(children.into())),
+            value: ScalarValue(InnerScalarValue::List(
+                children.into_iter().map(|x| x.into_value().0).collect(),
+            )),
         }
     }
 }

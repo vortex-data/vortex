@@ -205,7 +205,6 @@ pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: Operator) -> Scalar {
 mod tests {
     use arrow_buffer::BooleanBuffer;
     use itertools::Itertools;
-    use vortex_scalar::ScalarValue;
 
     use super::*;
     use crate::array::{BoolArray, ConstantArray};
@@ -293,7 +292,7 @@ mod tests {
 
         let compare = compare(left, right, Operator::Gt).unwrap();
         let res = compare.as_constant().unwrap();
-        assert_eq!(res.value(), &ScalarValue::Bool(false));
+        assert_eq!(res.as_bool().value(), Some(false));
         assert_eq!(compare.len(), 10);
     }
 }

@@ -26,7 +26,7 @@ mod test {
     use vortex_array::IntoArrayData;
     use vortex_buffer::Buffer;
     use vortex_dtype::{DType, Nullability, PType};
-    use vortex_scalar::{Scalar, ScalarValue};
+    use vortex_scalar::Scalar;
 
     use crate::BitPackedArray;
 
@@ -41,7 +41,7 @@ mod test {
                     PrimitiveArray::from(vec![1u64]).into_array(),
                     PrimitiveArray::from_vec(vec![999u32], Validity::AllValid).into_array(),
                     8,
-                    ScalarValue::Null,
+                    Scalar::null_typed::<u32>(),
                 )
                 .unwrap()
                 .into_array(),

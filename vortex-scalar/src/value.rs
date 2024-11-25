@@ -19,13 +19,13 @@ use crate::pvalue::PValue;
 #[derive(Debug, Clone)]
 pub struct ScalarValue(pub(crate) InnerScalarValue);
 
-#[derive(Debug, Clone)]
-pub enum InnerScalarValue {
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub(crate) enum InnerScalarValue {
     Bool(bool),
     Primitive(PValue),
     Buffer(Buffer),
     BufferString(BufferString),
-    List(Arc<[ScalarValue]>),
+    List(Arc<[InnerScalarValue]>),
     // It's significant that Null is last in this list. As a result generated PartialOrd sorts Scalar
     // values such that Nulls are last (greatest)
     Null,
@@ -82,11 +82,48 @@ impl Display for InnerScalarValue {
 
 impl ScalarValue {
     pub(crate) fn is_null(&self) -> bool {
-        matches!(self.0, InnerScalarValue::Null)
+        self.0.is_null()
     }
 
     pub fn is_instance_of(&self, dtype: &DType) -> bool {
-        match (&self.0, dtype) {
+        self.0.is_instance_of(dtype)
+    }
+
+    pub(crate) fn as_null(&self) -> VortexResult<()> {
+        self.0.as_null()
+    }
+
+    pub(crate) fn as_bool(&self) -> VortexResult<Option<bool>> {
+        self.0.as_bool()
+    }
+
+    /// FIXME(ngates): PValues are such a footgun... we should probably remove this.
+    ///  But the other accessors can sometimes be useful? e.g. as_buffer. But maybe we just force
+    ///  the user to switch over Utf8 and Binary and use the correct Scalar wrapper?
+    pub(crate) fn as_pvalue(&self) -> VortexResult<Option<PValue>> {
+        self.0.as_pvalue()
+    }
+
+    pub(crate) fn as_buffer(&self) -> VortexResult<Option<Buffer>> {
+        self.0.as_buffer()
+    }
+
+    pub(crate) fn as_buffer_string(&self) -> VortexResult<Option<BufferString>> {
+        self.0.as_buffer_string()
+    }
+
+    pub(crate) fn as_list(&self) -> VortexResult<Option<&Arc<[InnerScalarValue]>>> {
+        self.0.as_list()
+    }
+}
+
+impl InnerScalarValue {
+    pub(crate) fn is_null(&self) -> bool {
+        matches!(self, InnerScalarValue::Null)
+    }
+
+    pub fn is_instance_of(&self, dtype: &DType) -> bool {
+        match (&self, dtype) {
             (InnerScalarValue::Bool(_), DType::Bool(_)) => true,
             (InnerScalarValue::Primitive(pvalue), DType::Primitive(ptype, _)) => {
                 pvalue.is_instance_of(ptype)
@@ -107,17 +144,17 @@ impl ScalarValue {
     }
 
     pub(crate) fn as_null(&self) -> VortexResult<()> {
-        match self.0 {
+        match self {
             InnerScalarValue::Null => Ok(()),
-            _ => Err(vortex_err!("Expected a Null scalar, found {:?}", self.0)),
+            _ => Err(vortex_err!("Expected a Null scalar, found {:?}", self)),
         }
     }
 
     pub(crate) fn as_bool(&self) -> VortexResult<Option<bool>> {
-        match &self.0 {
+        match &self {
             InnerScalarValue::Null => Ok(None),
             InnerScalarValue::Bool(b) => Ok(Some(*b)),
-            _ => Err(vortex_err!("Expected a bool scalar, found {:?}", self.0)),
+            _ => Err(vortex_err!("Expected a bool scalar, found {:?}", self)),
         }
     }
 
@@ -125,38 +162,35 @@ impl ScalarValue {
     ///  But the other accessors can sometimes be useful? e.g. as_buffer. But maybe we just force
     ///  the user to switch over Utf8 and Binary and use the correct Scalar wrapper?
     pub(crate) fn as_pvalue(&self) -> VortexResult<Option<PValue>> {
-        match &self.0 {
+        match &self {
             InnerScalarValue::Null => Ok(None),
             InnerScalarValue::Primitive(p) => Ok(Some(*p)),
-            _ => Err(vortex_err!(
-                "Expected a primitive scalar, found {:?}",
-                self.0
-            )),
+            _ => Err(vortex_err!("Expected a primitive scalar, found {:?}", self)),
         }
     }
 
     pub(crate) fn as_buffer(&self) -> VortexResult<Option<Buffer>> {
-        match &self.0 {
+        match &self {
             InnerScalarValue::Null => Ok(None),
             InnerScalarValue::Buffer(b) => Ok(Some(b.clone())),
-            _ => Err(vortex_err!("Expected a binary scalar, found {:?}", self.0)),
+            _ => Err(vortex_err!("Expected a binary scalar, found {:?}", self)),
         }
     }
 
     pub(crate) fn as_buffer_string(&self) -> VortexResult<Option<BufferString>> {
-        match &self.0 {
+        match &self {
             InnerScalarValue::Null => Ok(None),
             InnerScalarValue::Buffer(b) => Ok(Some(BufferString::try_from(b.clone())?)),
             InnerScalarValue::BufferString(b) => Ok(Some(b.clone())),
-            _ => Err(vortex_err!("Expected a string scalar, found {:?}", self.0)),
+            _ => Err(vortex_err!("Expected a string scalar, found {:?}", self)),
         }
     }
 
     pub(crate) fn as_list(&self) -> VortexResult<Option<&Arc<[Self]>>> {
-        match &self.0 {
+        match &self {
             InnerScalarValue::Null => Ok(None),
             InnerScalarValue::List(l) => Ok(Some(l)),
-            _ => Err(vortex_err!("Expected a list scalar, found {:?}", self.0)),
+            _ => Err(vortex_err!("Expected a list scalar, found {:?}", self)),
         }
     }
 }
@@ -169,15 +203,19 @@ mod test {
 
     #[test]
     pub fn test_is_instance_of_bool() {
-        assert!(ScalarValue::Bool(true).is_instance_of(&DType::Bool(Nullability::Nullable)));
-        assert!(ScalarValue::Bool(true).is_instance_of(&DType::Bool(Nullability::NonNullable)));
-        assert!(ScalarValue::Bool(false).is_instance_of(&DType::Bool(Nullability::Nullable)));
-        assert!(ScalarValue::Bool(false).is_instance_of(&DType::Bool(Nullability::NonNullable)));
+        assert!(ScalarValue(InnerScalarValue::Bool(true))
+            .is_instance_of(&DType::Bool(Nullability::Nullable)));
+        assert!(ScalarValue(InnerScalarValue::Bool(true))
+            .is_instance_of(&DType::Bool(Nullability::NonNullable)));
+        assert!(ScalarValue(InnerScalarValue::Bool(false))
+            .is_instance_of(&DType::Bool(Nullability::Nullable)));
+        assert!(ScalarValue(InnerScalarValue::Bool(false))
+            .is_instance_of(&DType::Bool(Nullability::NonNullable)));
     }
 
     #[test]
     pub fn test_is_instance_of_primitive() {
-        assert!(ScalarValue::Primitive(PValue::F64(0.0))
+        assert!(ScalarValue(InnerScalarValue::Primitive(PValue::F64(0.0)))
             .is_instance_of(&DType::Primitive(PType::F64, Nullability::NonNullable)));
     }
 
@@ -187,11 +225,12 @@ mod test {
         let tboolnull = DType::Bool(Nullability::Nullable);
         let tnull = DType::Null;
 
-        let bool_null = ScalarValue::List(
-            vec![ScalarValue::Bool(true), ScalarValue(InnerScalarValue::Null)].into(),
-        );
-        let bool_bool =
-            ScalarValue::List(vec![ScalarValue::Bool(true), ScalarValue::Bool(false)].into());
+        let bool_null = ScalarValue(InnerScalarValue::List(
+            vec![InnerScalarValue::Bool(true), InnerScalarValue::Null].into(),
+        ));
+        let bool_bool = ScalarValue(InnerScalarValue::List(
+            vec![InnerScalarValue::Bool(true), InnerScalarValue::Bool(false)].into(),
+        ));
 
         fn tlist(element: &DType) -> DType {
             DType::List(element.clone().into(), Nullability::NonNullable)

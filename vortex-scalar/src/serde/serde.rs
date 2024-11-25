@@ -153,7 +153,9 @@ impl<'de> Deserialize<'de> for ScalarValue {
                 while let Some(e) = seq.next_element::<ScalarValue>()? {
                     elems.push(e);
                 }
-                Ok(ScalarValue(InnerScalarValue::List(elems.into())))
+                Ok(ScalarValue(InnerScalarValue::List(
+                    elems.iter().map(|x| x.0.clone()).collect(),
+                )))
             }
         }
 
