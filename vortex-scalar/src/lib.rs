@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 use std::sync::Arc;
 
-use scalar_type::ScalarType;
+pub use scalar_type::ScalarType;
 use vortex_buffer::{Buffer, BufferString};
 use vortex_dtype::half::f16;
 use vortex_dtype::{DType, Nullability};

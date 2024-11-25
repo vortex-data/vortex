@@ -12,9 +12,9 @@ use crate::pvalue::PValue;
 ///
 /// Note that these values can be deserialized from JSON or other formats. So a PValue may not
 /// have the correct width for what the DType expects. Primitive values should therefore be
-/// read using [PrimitiveScalar] which will handle the conversion.
+/// read using [crate::PrimitiveScalar] which will handle the conversion.
 ///
-/// For this reason, [`PartialEq`] and [`PartialOrd`] are only defined over [`Scalar`] and not
+/// For this reason, [`PartialEq`] and [`PartialOrd`] are only defined over [`crate::Scalar`] and not
 /// [`ScalarValue`].
 #[derive(Debug, Clone)]
 pub struct ScalarValue(pub(crate) InnerScalarValue);
