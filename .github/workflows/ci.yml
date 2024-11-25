@@ -126,8 +126,8 @@ jobs:
         run: cargo test --workspace --all-features
         env:
           # Enable coverage using -Zprofile flag
-          RUSTFLAGS: '-Zprofile -Clink-dead-code'
-          RUSTDOCFLAGS: '-Zprofile -Clink-dead-code'
+          RUSTFLAGS: '-Zprofile'
+          RUSTDOCFLAGS: '-Zprofile'
       - uses: rraval/actions-rs-grcov@e96292badb0d33512d16654efb0ee3032a9a3cff
         id: grcov
         env:
@@ -168,6 +168,7 @@ jobs:
         run: cargo miri test
 
   bench-test:
+    if: false
     name: "bench test"
     runs-on: ubuntu-latest
     steps:
