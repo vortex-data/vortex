@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: ["develop"]
-  pull_request: {}
-  workflow_dispatch: {}
+    branches: [ "develop" ]
+  pull_request: { }
+  workflow_dispatch: { }
 
 permissions:
   actions: read
@@ -119,7 +119,19 @@ jobs:
         run: cargo clippy --all-features --all-targets
       - name: Rust Test
         run: cargo test --workspace --all-features
-
+        env:
+          # Enable coverage using -Zprofile flag
+          RUSTFLAGS: '-Zprofile -Ccodegen-units=1 -Clink-dead-code'
+          RUSTDOCFLAGS: '-Zprofile -Ccodegen-units=1 -Clink-dead-code'
+      - uses: rraval/actions-rs-grcov@e96292b
+        id: grcov
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Coveralls
+        uses: coverallsapp/github-action@v2
+        with:
+          files: "${{ steps.grcov.outputs.report }}"
+  
   license-check-and-audit-check:
     name: License Check and Audit Check
     runs-on: ubuntu-latest
