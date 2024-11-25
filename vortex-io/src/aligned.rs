@@ -73,6 +73,12 @@ where
     ///
     /// Failure to do so could cause uninitialized memory to be readable.
     pub unsafe fn set_len(&mut self, len: usize) {
+        assert!(
+            len <= self.capacity,
+            "set_len call out of bounds: {} > {}",
+            len,
+            self.capacity
+        );
         unsafe { self.buf.set_len(len + self.padding) }
     }
 
