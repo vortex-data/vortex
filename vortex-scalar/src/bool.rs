@@ -3,7 +3,7 @@ use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 
 use crate::value::ScalarValue;
-use crate::{Inner, Scalar};
+use crate::{InnerScalarValue, Scalar};
 
 pub struct BoolScalar<'a> {
     dtype: &'a DType,
@@ -35,7 +35,7 @@ impl Scalar {
     pub fn bool(value: bool, nullability: Nullability) -> Self {
         Self {
             dtype: DType::Bool(nullability),
-            value: ScalarValue(Inner::Bool(value)),
+            value: ScalarValue(InnerScalarValue::Bool(value)),
         }
     }
 }
@@ -98,7 +98,7 @@ impl From<bool> for Scalar {
 
 impl From<bool> for ScalarValue {
     fn from(value: bool) -> Self {
-        ScalarValue(Inner::Bool(value))
+        ScalarValue(InnerScalarValue::Bool(value))
     }
 }
 

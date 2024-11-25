@@ -37,12 +37,6 @@ impl<'a> ExtScalar<'a> {
         Scalar::new(storage_dtype, self.value.clone())
     }
 
-    /// Returns the stored value of the extension scalar.
-    #[deprecated(since = "0.1.0", note = "Use `storage` instead")]
-    pub fn value(&self) -> &'a ScalarValue {
-        self.value
-    }
-
     pub fn cast(&self, _dtype: &DType) -> VortexResult<Scalar> {
         todo!()
     }

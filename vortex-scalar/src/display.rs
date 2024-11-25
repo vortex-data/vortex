@@ -191,7 +191,7 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                Scalar::r#struct(dtype(), vec![ScalarValue(Inner::Null)])
+                Scalar::r#struct(dtype(), vec![ScalarValue(InnerScalarValue::Null)])
             ),
             "{foo:null}"
         );
@@ -201,7 +201,7 @@ mod tests {
                 "{}",
                 Scalar::r#struct(
                     dtype(),
-                    vec![ScalarValue(Inner::Primitive(PValue::U32(32)))]
+                    vec![ScalarValue(InnerScalarValue::Primitive(PValue::U32(32)))]
                 )
             ),
             "{foo:32_u32}"
@@ -233,7 +233,7 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                Scalar::r#struct(dtype(), vec![ScalarValue(Inner::Bool(true))])
+                Scalar::r#struct(dtype(), vec![ScalarValue(InnerScalarValue::Bool(true))])
             ),
             "{foo:true,bar:null}"
         );
@@ -244,8 +244,8 @@ mod tests {
                 Scalar::r#struct(
                     dtype(),
                     vec![
-                        ScalarValue(Inner::Bool(true)),
-                        ScalarValue(Inner::Primitive(PValue::U32(32)))
+                        ScalarValue(InnerScalarValue::Bool(true)),
+                        ScalarValue(InnerScalarValue::Primitive(PValue::U32(32)))
                     ]
                 )
             ),
@@ -270,7 +270,7 @@ mod tests {
                 "{}",
                 Scalar::new(
                     dtype(),
-                    ScalarValue(Inner::Primitive(PValue::I32(3 * MINUTES + 25)))
+                    ScalarValue(InnerScalarValue::Primitive(PValue::I32(3 * MINUTES + 25)))
                 )
             ),
             "00:03:25"
@@ -292,7 +292,10 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                Scalar::new(dtype(), ScalarValue(Inner::Primitive(PValue::I32(25))))
+                Scalar::new(
+                    dtype(),
+                    ScalarValue(InnerScalarValue::Primitive(PValue::I32(25)))
+                )
             ),
             "1970-01-26"
         );
@@ -300,7 +303,10 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                Scalar::new(dtype(), ScalarValue(Inner::Primitive(PValue::I32(365))))
+                Scalar::new(
+                    dtype(),
+                    ScalarValue(InnerScalarValue::Primitive(PValue::I32(365)))
+                )
             ),
             "1971-01-01"
         );
@@ -308,7 +314,10 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                Scalar::new(dtype(), ScalarValue(Inner::Primitive(PValue::I32(365 * 4))))
+                Scalar::new(
+                    dtype(),
+                    ScalarValue(InnerScalarValue::Primitive(PValue::I32(365 * 4)))
+                )
             ),
             "1973-12-31"
         );
@@ -334,7 +343,7 @@ mod tests {
                 "{}",
                 Scalar::new(
                     dtype(),
-                    ScalarValue(Inner::Primitive(PValue::I32(
+                    ScalarValue(InnerScalarValue::Primitive(PValue::I32(
                         3 * DAYS + 2 * HOURS + 5 * MINUTES + 10
                     )))
                 )
@@ -362,7 +371,10 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                Scalar::new(dtype(), ScalarValue(Inner::Primitive(PValue::I32(0))))
+                Scalar::new(
+                    dtype(),
+                    ScalarValue(InnerScalarValue::Primitive(PValue::I32(0)))
+                )
             ),
             "1970-01-01T10:00:00+10:00[Pacific/Guam]"
         );
@@ -372,7 +384,7 @@ mod tests {
                 "{}",
                 Scalar::new(
                     dtype(),
-                    ScalarValue(Inner::Primitive(PValue::I32(
+                    ScalarValue(InnerScalarValue::Primitive(PValue::I32(
                         3 * DAYS + 2 * HOURS + 5 * MINUTES + 10
                     )))
                 )

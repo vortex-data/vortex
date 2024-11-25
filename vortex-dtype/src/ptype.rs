@@ -64,9 +64,6 @@ pub trait NativePType:
     /// The PType that corresponds to this native type
     const PTYPE: PType;
 
-    // /// The NonNullable DType that corresponds to this native type
-    // const DTYPE: DType;
-
     /// Whether this instance (`self`) is NaN
     /// For integer types, this is always `false`
     fn is_nan(self) -> bool;
@@ -82,7 +79,6 @@ macro_rules! native_ptype {
     ($T:ty, $ptype:tt) => {
         impl NativePType for $T {
             const PTYPE: PType = PType::$ptype;
-            // const DTYPE: DType = DType::Primitive(Self::PTYPE, Nullability::NonNullable);
 
             fn is_nan(self) -> bool {
                 false
@@ -103,7 +99,6 @@ macro_rules! native_float_ptype {
     ($T:ty, $ptype:tt) => {
         impl NativePType for $T {
             const PTYPE: PType = PType::$ptype;
-            // const DTYPE: DType = DType::Primitive(Self::PTYPE, Nullability::NonNullable);
 
             fn is_nan(self) -> bool {
                 <$T>::is_nan(self)

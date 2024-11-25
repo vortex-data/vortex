@@ -6,7 +6,7 @@ use vortex_dtype::Nullability::NonNullable;
 use vortex_error::{vortex_bail, vortex_panic, VortexError, VortexResult};
 
 use crate::value::ScalarValue;
-use crate::{Inner, Scalar};
+use crate::{InnerScalarValue, Scalar};
 
 pub struct ListScalar<'a> {
     dtype: &'a DType,
@@ -79,7 +79,7 @@ impl Scalar {
         }
         Self {
             dtype: DType::List(element_dtype, NonNullable),
-            value: ScalarValue(Inner::List(
+            value: ScalarValue(InnerScalarValue::List(
                 children.into_iter().map(|x| x.value).collect::<Arc<[_]>>(),
             )),
         }

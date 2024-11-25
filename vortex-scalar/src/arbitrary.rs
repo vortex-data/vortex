@@ -5,7 +5,7 @@ use vortex_buffer::{Buffer, BufferString};
 use vortex_dtype::half::f16;
 use vortex_dtype::{DType, PType};
 
-use crate::{Inner, PValue, Scalar, ScalarValue};
+use crate::{InnerScalarValue, PValue, Scalar, ScalarValue};
 
 pub fn random_scalar(u: &mut Unstructured, dtype: &DType) -> Result<Scalar> {
     Ok(Scalar::new(dtype.clone(), random_scalar_value(u, dtype)?))
@@ -13,23 +13,25 @@ pub fn random_scalar(u: &mut Unstructured, dtype: &DType) -> Result<Scalar> {
 
 fn random_scalar_value(u: &mut Unstructured, dtype: &DType) -> Result<ScalarValue> {
     match dtype {
-        DType::Null => Ok(ScalarValue(Inner::Null)),
-        DType::Bool(_) => Ok(ScalarValue(Inner::Bool(u.arbitrary()?))),
-        DType::Primitive(p, _) => Ok(ScalarValue(Inner::Primitive(random_pvalue(u, p)?))),
-        DType::Utf8(_) => Ok(ScalarValue(Inner::BufferString(BufferString::from(
-            u.arbitrary::<String>()?,
-        )))),
-        DType::Binary(_) => Ok(ScalarValue(Inner::Buffer(Buffer::from(
+        DType::Null => Ok(ScalarValue(InnerScalarValue::Null)),
+        DType::Bool(_) => Ok(ScalarValue(InnerScalarValue::Bool(u.arbitrary()?))),
+        DType::Primitive(p, _) => Ok(ScalarValue(InnerScalarValue::Primitive(random_pvalue(
+            u, p,
+        )?))),
+        DType::Utf8(_) => Ok(ScalarValue(InnerScalarValue::BufferString(
+            BufferString::from(u.arbitrary::<String>()?),
+        ))),
+        DType::Binary(_) => Ok(ScalarValue(InnerScalarValue::Buffer(Buffer::from(
             u.arbitrary::<Vec<u8>>()?,
         )))),
-        DType::Struct(sdt, _) => Ok(ScalarValue(Inner::List(
+        DType::Struct(sdt, _) => Ok(ScalarValue(InnerScalarValue::List(
             sdt.dtypes()
                 .iter()
                 .map(|d| random_scalar_value(u, d))
                 .collect::<Result<Vec<_>>>()?
                 .into(),
         ))),
-        DType::List(edt, _) => Ok(ScalarValue(Inner::List(
+        DType::List(edt, _) => Ok(ScalarValue(InnerScalarValue::List(
             iter::from_fn(|| {
                 u.arbitrary()
                     .unwrap_or(false)

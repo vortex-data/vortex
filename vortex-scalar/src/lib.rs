@@ -87,7 +87,7 @@ impl Scalar {
         assert!(dtype.is_nullable());
         Self {
             dtype,
-            value: ScalarValue(Inner::Null),
+            value: ScalarValue(InnerScalarValue::Null),
         }
     }
 
@@ -210,34 +210,6 @@ impl AsRef<Self> for Scalar {
     }
 }
 
-// macro_rules! from_scalar_for_primitive {
-//     ($T:ty) => {
-//         impl TryFrom<Scalar> for $T {
-//             type Error = VortexError;
-
-//             fn try_from(value: Scalar) -> Result<Self, Self::Error> {
-//                 value
-//                     .as_primitive_opt()
-//                     .vortex_expect("expeced primitive value")
-//                     .typed_value::<$T>()
-//                     .ok_or_else(|| vortex_err!("cannot convert null"))
-//             }
-//         }
-//     };
-// }
-
-// from_scalar_for_primitive!(u8);
-// from_scalar_for_primitive!(u16);
-// from_scalar_for_primitive!(u32);
-// from_scalar_for_primitive!(u64);
-// from_scalar_for_primitive!(i8);
-// from_scalar_for_primitive!(i16);
-// from_scalar_for_primitive!(i32);
-// from_scalar_for_primitive!(i64);
-// from_scalar_for_primitive!(f16);
-// from_scalar_for_primitive!(f32);
-// from_scalar_for_primitive!(f64);
-
 impl<T> From<Option<T>> for Scalar
 where
     T: ScalarType,
@@ -246,7 +218,7 @@ where
     fn from(value: Option<T>) -> Self {
         value.map(Scalar::from).unwrap_or_else(|| Scalar {
             dtype: T::dtype().as_nullable(),
-            value: ScalarValue(Inner::Null),
+            value: ScalarValue(InnerScalarValue::Null),
         })
     }
 }
@@ -257,7 +229,7 @@ macro_rules! from_vec_for_scalar {
             fn from(value: Vec<$T>) -> Self {
                 Scalar {
                     dtype: DType::List(Arc::from(<$T>::dtype()), Nullability::NonNullable),
-                    value: ScalarValue(Inner::List(
+                    value: ScalarValue(InnerScalarValue::List(
                         value
                             .into_iter()
                             .map(Scalar::from)
@@ -275,7 +247,7 @@ macro_rules! from_vec_for_scalar {
 from_vec_for_scalar!(u16);
 from_vec_for_scalar!(u32);
 from_vec_for_scalar!(u64);
-from_vec_for_scalar!(usize);
+from_vec_for_scalar!(usize); // For usize only, we implicitly cast for better ergonomics.
 from_vec_for_scalar!(i8);
 from_vec_for_scalar!(i16);
 from_vec_for_scalar!(i32);
@@ -287,42 +259,3 @@ from_vec_for_scalar!(String);
 from_vec_for_scalar!(BufferString);
 from_vec_for_scalar!(bytes::Bytes);
 from_vec_for_scalar!(Buffer);
-
-// impl From<Vec<usize>> for Scalar {
-//     fn from(value: Vec<usize>) -> Self {
-//         Scalar {
-//             dtype: DType::List(Arc::from(u64::DTYPE), Nullability::NonNullable),
-//             value: ScalarValue::List(
-//                 value
-//                     .into_iter()
-//                     .map(Scalar::from)
-//                     .map(|x| x.value)
-//                     .collect::<Vec<_>>()
-//                     .into(),
-//             ),
-//         }
-//     }
-// }
-
-// impl<T> From<T> for Scalar
-// where
-//     T: ScalarType,
-//     ScalarValue: From<T>,
-// {
-//     fn from(value: T) -> Self {
-//         Scalar::new(T::dtype(), ScalarValue::from(value))
-//     }
-// }
-
-// impl<T> From<Option<T>> for Scalar
-// where
-//     T: ScalarType,
-//     ScalarValue: From<Option<T>>,
-// {
-//     fn from(value: Option<T>) -> Self {
-//         Scalar {
-//             dtype: T::dtype().as_nullable(),
-//             value: value.into(),
-//         }
-//     }
-// }

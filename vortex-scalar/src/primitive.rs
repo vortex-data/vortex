@@ -9,7 +9,7 @@ use vortex_error::{
 
 use crate::pvalue::PValue;
 use crate::value::ScalarValue;
-use crate::{Inner, Scalar};
+use crate::{InnerScalarValue, Scalar};
 
 #[derive(Debug, Clone)]
 pub struct PrimitiveScalar<'a> {
@@ -164,7 +164,7 @@ impl Scalar {
     pub fn primitive<T: NativePType + Into<PValue>>(value: T, nullability: Nullability) -> Self {
         Self {
             dtype: DType::Primitive(T::PTYPE, nullability),
-            value: ScalarValue(Inner::Primitive(value.into())),
+            value: ScalarValue(InnerScalarValue::Primitive(value.into())),
         }
     }
 
@@ -187,15 +187,15 @@ impl Scalar {
             primitive
                 .pvalue
                 .map(|p| p.reinterpret_cast(ptype))
-                .map(|x| ScalarValue(Inner::Primitive(x)))
-                .unwrap_or_else(|| ScalarValue(Inner::Null)),
+                .map(|x| ScalarValue(InnerScalarValue::Primitive(x)))
+                .unwrap_or_else(|| ScalarValue(InnerScalarValue::Null)),
         )
     }
 
     pub fn zero<T: NativePType + Into<PValue>>(nullability: Nullability) -> Self {
         Self {
             dtype: DType::Primitive(T::PTYPE, nullability),
-            value: ScalarValue(Inner::Primitive(T::zero().into())),
+            value: ScalarValue(InnerScalarValue::Primitive(T::zero().into())),
         }
     }
 }
@@ -239,47 +239,10 @@ macro_rules! primitive_scalar {
             fn from(value: $T) -> Self {
                 Scalar {
                     dtype: DType::Primitive(<$T>::PTYPE, Nullability::NonNullable),
-                    value: ScalarValue(Inner::Primitive(value.into())),
+                    value: ScalarValue(InnerScalarValue::Primitive(value.into())),
                 }
             }
         }
-
-        //     impl TryFrom<&ScalarValue> for $T {
-        //         type Error = VortexError;
-
-        //         fn try_from(value: &ScalarValue) -> Result<Self, Self::Error> {
-        //             Option::<$T>::try_from(value)?
-        //                 .ok_or_else(|| vortex_err!("Can't extract present value from null scalar"))
-        //         }
-        //     }
-
-        //     impl TryFrom<ScalarValue> for $T {
-        //         type Error = VortexError;
-
-        //         fn try_from(value: ScalarValue) -> Result<Self, Self::Error> {
-        //             <$T>::try_from(&value)
-        //         }
-        //     }
-
-        //     impl TryFrom<&ScalarValue> for Option<$T> {
-        //         type Error = VortexError;
-
-        //         fn try_from(value: &ScalarValue) -> Result<Self, Self::Error> {
-        //             match value {
-        //                 ScalarValue(Inner::Null) => Ok(None),
-        //                 ScalarValue::Primitive(pvalue) => Ok(Some(<$T>::try_from(*pvalue)?)),
-        //                 _ => vortex_bail!("expected primitive"),
-        //             }
-        //         }
-        //     }
-
-        //     impl TryFrom<ScalarValue> for Option<$T> {
-        //         type Error = VortexError;
-
-        //         fn try_from(value: ScalarValue) -> Result<Self, Self::Error> {
-        //             Option::<$T>::try_from(&value)
-        //         }
-        //     }
     };
 }
 
@@ -313,12 +276,3 @@ impl From<usize> for Scalar {
         Scalar::primitive(value as u64, Nullability::NonNullable)
     }
 }
-
-// /// Read a scalar as usize. For usize only, we implicitly cast for better ergonomics.
-// impl TryFrom<&ScalarValue> for usize {
-//     type Error = VortexError;
-
-//     fn try_from(value: &ScalarValue) -> Result<Self, Self::Error> {
-//         u64::try_from(value).map(|v| v as Self)
-//     }
-// }
