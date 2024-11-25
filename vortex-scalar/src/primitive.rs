@@ -9,7 +9,7 @@ use vortex_error::{
 
 use crate::pvalue::PValue;
 use crate::value::ScalarValue;
-use crate::Scalar;
+use crate::{Inner, Scalar};
 
 #[derive(Debug, Clone)]
 pub struct PrimitiveScalar<'a> {
@@ -164,7 +164,7 @@ impl Scalar {
     pub fn primitive<T: NativePType + Into<PValue>>(value: T, nullability: Nullability) -> Self {
         Self {
             dtype: DType::Primitive(T::PTYPE, nullability),
-            value: ScalarValue::Primitive(value.into()),
+            value: ScalarValue(Inner::Primitive(value.into())),
         }
     }
 
@@ -187,15 +187,15 @@ impl Scalar {
             primitive
                 .pvalue
                 .map(|p| p.reinterpret_cast(ptype))
-                .map(ScalarValue::Primitive)
-                .unwrap_or_else(|| ScalarValue::Null),
+                .map(|x| ScalarValue(Inner::Primitive(x)))
+                .unwrap_or_else(|| ScalarValue(Inner::Null)),
         )
     }
 
     pub fn zero<T: NativePType + Into<PValue>>(nullability: Nullability) -> Self {
         Self {
             dtype: DType::Primitive(T::PTYPE, nullability),
-            value: ScalarValue::Primitive(T::zero().into()),
+            value: ScalarValue(Inner::Primitive(T::zero().into())),
         }
     }
 }
@@ -239,7 +239,7 @@ macro_rules! primitive_scalar {
             fn from(value: $T) -> Self {
                 Scalar {
                     dtype: DType::Primitive(<$T>::PTYPE, Nullability::NonNullable),
-                    value: ScalarValue::Primitive(value.into()),
+                    value: ScalarValue(Inner::Primitive(value.into())),
                 }
             }
         }
@@ -266,7 +266,7 @@ macro_rules! primitive_scalar {
 
         //         fn try_from(value: &ScalarValue) -> Result<Self, Self::Error> {
         //             match value {
-        //                 ScalarValue::Null => Ok(None),
+        //                 ScalarValue(Inner::Null) => Ok(None),
         //                 ScalarValue::Primitive(pvalue) => Ok(Some(<$T>::try_from(*pvalue)?)),
         //                 _ => vortex_bail!("expected primitive"),
         //             }

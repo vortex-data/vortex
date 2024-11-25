@@ -2,7 +2,7 @@ use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 
-use crate::value::ScalarValue;
+use crate::value::{Inner, ScalarValue};
 use crate::Scalar;
 
 pub struct BinaryScalar<'a> {
@@ -29,7 +29,7 @@ impl Scalar {
     pub fn binary(buffer: Buffer, nullability: Nullability) -> Self {
         Self {
             dtype: DType::Binary(nullability),
-            value: ScalarValue::Buffer(buffer),
+            value: ScalarValue(Inner::Buffer(buffer)),
         }
     }
 }
@@ -81,11 +81,20 @@ impl TryFrom<Scalar> for Option<Buffer> {
     }
 }
 
+impl From<&[u8]> for Scalar {
+    fn from(value: &[u8]) -> Self {
+        Self {
+            dtype: DType::Binary(Nullability::NonNullable),
+            value: ScalarValue(Inner::Buffer(value.into())),
+        }
+    }
+}
+
 impl From<bytes::Bytes> for Scalar {
     fn from(value: bytes::Bytes) -> Self {
         Self {
             dtype: DType::Binary(Nullability::NonNullable),
-            value: ScalarValue::Buffer(value.into()),
+            value: ScalarValue(Inner::Buffer(value.into())),
         }
     }
 }
@@ -94,7 +103,7 @@ impl From<Buffer> for Scalar {
     fn from(value: Buffer) -> Self {
         Self {
             dtype: DType::Binary(Nullability::NonNullable),
-            value: ScalarValue::Buffer(value),
+            value: ScalarValue(Inner::Buffer(value)),
         }
     }
 }

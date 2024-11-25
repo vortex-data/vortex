@@ -9,7 +9,7 @@ use vortex_dtype::{
     match_each_integer_ptype, match_each_unsigned_integer_ptype, DType, NativePType, Nullability,
 };
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
-use vortex_scalar::{PrimitiveScalar, Scalar, ScalarValue};
+use vortex_scalar::{PrimitiveScalar, Scalar};
 
 use crate::FoRArray;
 
@@ -71,10 +71,7 @@ fn encoded_zero<T: NativePType>(
                 valid_indices,
                 ConstantArray::new(zero, valid_len).into_array(),
                 len,
-                Scalar::new(
-                    DType::Primitive(encoded_ptype, Nullability::Nullable),
-                    ScalarValue::Null,
-                ),
+                Scalar::null(DType::Primitive(encoded_ptype, Nullability::Nullable)),
             )?
             .into_array()
         }

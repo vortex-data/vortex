@@ -87,7 +87,7 @@ impl Scalar {
         assert!(dtype.is_nullable());
         Self {
             dtype,
-            value: ScalarValue::Null,
+            value: ScalarValue(Inner::Null),
         }
     }
 
@@ -121,7 +121,7 @@ impl Scalar {
                 }
                 Ok(Scalar::extension(
                     ext_dtype.clone(),
-                    self.cast(ext_dtype.storage_dtype())?.value,
+                    self.cast(ext_dtype.storage_dtype())?,
                 ))
             }
         }
@@ -246,7 +246,7 @@ where
     fn from(value: Option<T>) -> Self {
         value.map(Scalar::from).unwrap_or_else(|| Scalar {
             dtype: T::dtype().as_nullable(),
-            value: ScalarValue::Null,
+            value: ScalarValue(Inner::Null),
         })
     }
 }
@@ -257,14 +257,14 @@ macro_rules! from_vec_for_scalar {
             fn from(value: Vec<$T>) -> Self {
                 Scalar {
                     dtype: DType::List(Arc::from(<$T>::dtype()), Nullability::NonNullable),
-                    value: ScalarValue::List(
+                    value: ScalarValue(Inner::List(
                         value
                             .into_iter()
                             .map(Scalar::from)
                             .map(|x| x.value)
                             .collect::<Vec<_>>()
                             .into(),
-                    ),
+                    )),
                 }
             }
         }

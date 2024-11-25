@@ -4,72 +4,75 @@
 //! :meth:`.Array.scalar_at`. They represent shared-memory views into individual values of a Vortex
 //! array.
 
-use std::sync::Arc;
-
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use vortex::buffer::{Buffer, BufferString};
-use vortex::dtype::{DType, StructDType};
-use vortex::error::vortex_panic;
-use vortex::scalar::{PValue, Scalar, ScalarValue};
+use vortex::dtype::half::f16;
+use vortex::dtype::PType;
+use vortex::error::VortexExpect as _;
+use vortex::scalar::{ListScalar, Scalar, StructScalar};
 
 pub fn scalar_into_py(py: Python, x: Scalar, copy_into_python: bool) -> PyResult<PyObject> {
-    let (dtype, value) = x.into_parts();
-    scalar_value_into_py(py, value, &dtype, copy_into_python)
-}
-
-pub fn scalar_value_into_py(
-    py: Python,
-    x: ScalarValue,
-    dtype: &DType,
-    copy_into_python: bool,
-) -> PyResult<PyObject> {
-    match x {
-        ScalarValue::Bool(x) => Ok(x.into_py(py)),
-        ScalarValue::Primitive(PValue::U8(x)) => Ok(x.into_py(py)),
-        ScalarValue::Primitive(PValue::U16(x)) => Ok(x.into_py(py)),
-        ScalarValue::Primitive(PValue::U32(x)) => Ok(x.into_py(py)),
-        ScalarValue::Primitive(PValue::U64(x)) => Ok(x.into_py(py)),
-        ScalarValue::Primitive(PValue::I8(x)) => Ok(x.into_py(py)),
-        ScalarValue::Primitive(PValue::I16(x)) => Ok(x.into_py(py)),
-        ScalarValue::Primitive(PValue::I32(x)) => Ok(x.into_py(py)),
-        ScalarValue::Primitive(PValue::I64(x)) => Ok(x.into_py(py)),
-        ScalarValue::Primitive(PValue::F16(x)) => Ok(x.to_f32().into_py(py)),
-        ScalarValue::Primitive(PValue::F32(x)) => Ok(x.into_py(py)),
-        ScalarValue::Primitive(PValue::F64(x)) => Ok(x.into_py(py)),
-        ScalarValue::Buffer(x) => {
-            if copy_into_python {
-                Ok(x.into_py(py))
-            } else {
-                PyBuffer::new_pyobject(py, x)
-            }
-        }
-        ScalarValue::BufferString(x) => {
-            if copy_into_python {
-                Ok(x.into_py(py))
-            } else {
-                PyBufferString::new_pyobject(py, x)
-            }
-        }
-        ScalarValue::List(x) => match dtype {
-            DType::List(dtype, ..) => {
-                if copy_into_python {
-                    to_python_list(py, &x, dtype, true)
-                } else {
-                    PyVortexList::new_pyobject(py, x, dtype.clone())
-                }
-            }
-            DType::Struct(dtype, ..) => {
-                if copy_into_python {
-                    to_python_dict(py, &x, dtype, true)
-                } else {
-                    PyVortexStruct::new_pyobject(py, x, dtype.clone())
-                }
-            }
-            _ => vortex_panic!("impossible"),
-        },
-        ScalarValue::Null => Ok(py.None()),
+    if x.is_null() {
+        return Ok(py.None());
     }
+
+    if let Some(b) = x.as_bool_opt() {
+        return Ok(b.value().into_py(py));
+    }
+
+    if let Some(p) = x.as_primitive_opt() {
+        return Ok(match p.ptype() {
+            PType::U8 => p.typed_value::<u8>().into_py(py),
+            PType::U16 => p.typed_value::<u16>().into_py(py),
+            PType::U32 => p.typed_value::<u32>().into_py(py),
+            PType::U64 => p.typed_value::<u64>().into_py(py),
+            PType::I8 => p.typed_value::<i8>().into_py(py),
+            PType::I16 => p.typed_value::<i16>().into_py(py),
+            PType::I32 => p.typed_value::<i32>().into_py(py),
+            PType::I64 => p.typed_value::<i64>().into_py(py),
+            PType::F16 => p.typed_value::<f16>().map(f16::to_f32).into_py(py),
+            PType::F32 => p.typed_value::<f32>().into_py(py),
+            PType::F64 => p.typed_value::<f64>().into_py(py),
+        });
+    }
+
+    if let Some(x) = x.as_binary_opt() {
+        let x = x.value().vortex_expect("already handled null");
+        if copy_into_python {
+            return Ok(x.as_slice().into_py(py));
+        } else {
+            return PyBuffer::new_pyobject(py, x);
+        }
+    }
+
+    if let Some(x) = x.as_utf8_opt() {
+        let x = x.value().vortex_expect("already handled null");
+        if copy_into_python {
+            return Ok(x.as_str().into_py(py));
+        } else {
+            return PyBufferString::new_pyobject(py, x);
+        }
+    }
+
+    if let Some(struct_scalar) = x.as_struct_opt() {
+        if copy_into_python {
+            return to_python_dict(py, struct_scalar, true);
+        } else {
+            return PyVortexStruct::new_pyobject(py, x);
+        }
+    }
+
+    if let Some(list_scalar) = x.as_list_opt() {
+        if copy_into_python {
+            return to_python_list(py, list_scalar, true);
+        } else {
+            return PyVortexList::new_pyobject(py, x);
+        }
+    }
+
+    Err(PyValueError::new_err(format!("unknown scalar: {}", x)))
 }
 
 #[pyclass(name = "Buffer", module = "vortex", sequence, subclass)]
@@ -145,33 +148,24 @@ impl PyBufferString {
 #[pyclass(name = "VortexList", module = "vortex", sequence, subclass)]
 /// A view of a variable-length list of data from a Vortex array.
 pub struct PyVortexList {
-    inner: Arc<[ScalarValue]>,
-    dtype: Arc<DType>,
+    inner: Scalar,
 }
 
 impl PyVortexList {
-    pub fn new(inner: Arc<[ScalarValue]>, dtype: Arc<DType>) -> PyVortexList {
-        PyVortexList { inner, dtype }
+    pub fn new(inner: Scalar) -> PyVortexList {
+        PyVortexList { inner }
     }
 
-    pub fn new_bound(
-        py: Python,
-        inner: Arc<[ScalarValue]>,
-        dtype: Arc<DType>,
-    ) -> PyResult<Bound<PyVortexList>> {
-        Bound::new(py, Self::new(inner, dtype))
+    pub fn new_bound(py: Python, inner: Scalar) -> PyResult<Bound<PyVortexList>> {
+        Bound::new(py, Self::new(inner))
     }
 
-    pub fn new_pyobject(
-        py: Python,
-        inner: Arc<[ScalarValue]>,
-        dtype: Arc<DType>,
-    ) -> PyResult<PyObject> {
-        let bound = Bound::new(py, Self::new(inner, dtype))?;
+    pub fn new_pyobject(py: Python, inner: Scalar) -> PyResult<PyObject> {
+        let bound = Bound::new(py, Self::new(inner))?;
         Ok(bound.into_py(py))
     }
 
-    pub fn unwrap(&self) -> &Arc<[ScalarValue]> {
+    pub fn unwrap(&self) -> &Scalar {
         &self.inner
     }
 }
@@ -181,54 +175,39 @@ impl PyVortexList {
     /// Copy the elements of this list from array memory into a :class:`list`.
     #[pyo3(signature = (*, recursive = false))]
     pub fn into_python(self_: PyRef<Self>, recursive: bool) -> PyResult<PyObject> {
-        to_python_list(self_.py(), &self_.inner, &self_.dtype, recursive)
+        to_python_list(self_.py(), self_.inner.as_list(), recursive)
     }
 }
 
-fn to_python_list(
-    py: Python,
-    values: &[ScalarValue],
-    dtype: &DType,
-    recursive: bool,
-) -> PyResult<PyObject> {
-    Ok(values
-        .iter()
-        .cloned()
-        .map(|x| scalar_value_into_py(py, x, dtype, recursive))
-        .collect::<Result<Vec<_>, _>>()?
+fn to_python_list(py: Python, scalar: ListScalar<'_>, recursive: bool) -> PyResult<PyObject> {
+    Ok(scalar
+        .elements()
+        .map(|x| scalar_into_py(py, x, recursive))
+        .collect::<PyResult<Vec<_>>>()?
         .into_py(py))
 }
 
 #[pyclass(name = "VortexStruct", module = "vortex", sequence, subclass)]
 /// A view of structured data from a Vortex array.
 pub struct PyVortexStruct {
-    inner: Arc<[ScalarValue]>,
-    dtype: StructDType,
+    inner: Scalar,
 }
 
 impl PyVortexStruct {
-    pub fn new(inner: Arc<[ScalarValue]>, dtype: StructDType) -> PyVortexStruct {
-        PyVortexStruct { inner, dtype }
+    pub fn new(inner: Scalar) -> PyVortexStruct {
+        PyVortexStruct { inner }
     }
 
-    pub fn new_bound(
-        py: Python,
-        inner: Arc<[ScalarValue]>,
-        dtype: StructDType,
-    ) -> PyResult<Bound<PyVortexStruct>> {
-        Bound::new(py, Self::new(inner, dtype))
+    pub fn new_bound(py: Python, inner: Scalar) -> PyResult<Bound<PyVortexStruct>> {
+        Bound::new(py, Self::new(inner))
     }
 
-    pub fn new_pyobject(
-        py: Python,
-        inner: Arc<[ScalarValue]>,
-        dtype: StructDType,
-    ) -> PyResult<PyObject> {
-        let bound = Bound::new(py, Self::new(inner, dtype))?;
+    pub fn new_pyobject(py: Python, inner: Scalar) -> PyResult<PyObject> {
+        let bound = Bound::new(py, Self::new(inner))?;
         Ok(bound.into_py(py))
     }
 
-    pub fn unwrap(&self) -> &Arc<[ScalarValue]> {
+    pub fn unwrap(&self) -> &Scalar {
         &self.inner
     }
 }
@@ -238,26 +217,26 @@ impl PyVortexStruct {
     #[pyo3(signature = (*, recursive = false))]
     /// Copy the elements of this list from array memory into a :class:`dict`.
     pub fn into_python(self_: PyRef<Self>, recursive: bool) -> PyResult<PyObject> {
-        to_python_dict(self_.py(), &self_.inner, &self_.dtype, recursive)
+        to_python_dict(self_.py(), self_.inner.as_struct(), recursive)
     }
 }
 
 fn to_python_dict(
     py: Python,
-    values: &[ScalarValue],
-    dtype: &StructDType,
+    struct_scalar: StructScalar<'_>,
     recursive: bool,
 ) -> PyResult<PyObject> {
+    let Some(fields) = struct_scalar.fields() else {
+        return Ok(py.None());
+    };
+
+    let dtype = struct_scalar.struct_dtype();
+
     let dict = PyDict::new_bound(py);
-    for ((child, name), dtype) in values
-        .iter()
-        .cloned()
-        .zip(dtype.names().iter())
-        .zip(dtype.dtypes().iter())
-    {
+    for (child, name) in fields.iter().zip(dtype.names().iter()) {
         dict.set_item(
             name.to_string(),
-            scalar_value_into_py(py, child, dtype, recursive)?,
+            scalar_into_py(py, child.clone(), recursive)?,
         )?
     }
     Ok(dict.into_py(py))

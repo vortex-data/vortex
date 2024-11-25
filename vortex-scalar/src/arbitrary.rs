@@ -5,7 +5,7 @@ use vortex_buffer::{Buffer, BufferString};
 use vortex_dtype::half::f16;
 use vortex_dtype::{DType, PType};
 
-use crate::{PValue, Scalar, ScalarValue};
+use crate::{Inner, PValue, Scalar, ScalarValue};
 
 pub fn random_scalar(u: &mut Unstructured, dtype: &DType) -> Result<Scalar> {
     Ok(Scalar::new(dtype.clone(), random_scalar_value(u, dtype)?))
@@ -13,21 +13,23 @@ pub fn random_scalar(u: &mut Unstructured, dtype: &DType) -> Result<Scalar> {
 
 fn random_scalar_value(u: &mut Unstructured, dtype: &DType) -> Result<ScalarValue> {
     match dtype {
-        DType::Null => Ok(ScalarValue::Null),
-        DType::Bool(_) => Ok(ScalarValue::Bool(u.arbitrary()?)),
-        DType::Primitive(p, _) => Ok(ScalarValue::Primitive(random_pvalue(u, p)?)),
-        DType::Utf8(_) => Ok(ScalarValue::BufferString(BufferString::from(
+        DType::Null => Ok(ScalarValue(Inner::Null)),
+        DType::Bool(_) => Ok(ScalarValue(Inner::Bool(u.arbitrary()?))),
+        DType::Primitive(p, _) => Ok(ScalarValue(Inner::Primitive(random_pvalue(u, p)?))),
+        DType::Utf8(_) => Ok(ScalarValue(Inner::BufferString(BufferString::from(
             u.arbitrary::<String>()?,
-        ))),
-        DType::Binary(_) => Ok(ScalarValue::Buffer(Buffer::from(u.arbitrary::<Vec<u8>>()?))),
-        DType::Struct(sdt, _) => Ok(ScalarValue::List(
+        )))),
+        DType::Binary(_) => Ok(ScalarValue(Inner::Buffer(Buffer::from(
+            u.arbitrary::<Vec<u8>>()?,
+        )))),
+        DType::Struct(sdt, _) => Ok(ScalarValue(Inner::List(
             sdt.dtypes()
                 .iter()
                 .map(|d| random_scalar_value(u, d))
                 .collect::<Result<Vec<_>>>()?
                 .into(),
-        )),
-        DType::List(edt, _) => Ok(ScalarValue::List(
+        ))),
+        DType::List(edt, _) => Ok(ScalarValue(Inner::List(
             iter::from_fn(|| {
                 u.arbitrary()
                     .unwrap_or(false)
@@ -35,7 +37,7 @@ fn random_scalar_value(u: &mut Unstructured, dtype: &DType) -> Result<ScalarValu
             })
             .collect::<Result<Vec<ScalarValue>>>()?
             .into(),
-        )),
+        ))),
         DType::Extension(..) => {
             unreachable!("Can't yet generate arbitrary scalars for ext dtype")
         }

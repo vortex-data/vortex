@@ -9,7 +9,7 @@ use vortex_dtype::half::f16;
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::VortexError;
 
-use crate::{PValue, Scalar};
+use crate::{Inner, PValue, Scalar};
 
 impl TryFrom<Scalar> for ScalarValue {
     type Error = VortexError;
@@ -135,7 +135,7 @@ impl From<ScalarValue> for Scalar {
                     .with_nullability(Nullability::Nullable);
                 Scalar::new(
                     DType::Extension(Arc::new(ext_dtype)),
-                    crate::ScalarValue::Primitive(PValue::I32(i)),
+                    crate::ScalarValue(Inner::Primitive(PValue::I32(i))),
                 )
             }),
             ScalarValue::Date64(v)
@@ -148,7 +148,7 @@ impl From<ScalarValue> for Scalar {
                 let ext_dtype = make_temporal_ext_dtype(&value.data_type());
                 Scalar::new(
                     DType::Extension(Arc::new(ext_dtype.with_nullability(Nullability::Nullable))),
-                    crate::ScalarValue::Primitive(PValue::I64(i)),
+                    crate::ScalarValue(Inner::Primitive(PValue::I64(i))),
                 )
             }),
             _ => unimplemented!("Can't convert {value:?} value to a Vortex scalar"),
