@@ -26,7 +26,7 @@ pub trait VortexReadAt: Send + Sync + Clone + 'static {
         &self,
         pos: u64,
         len: u64,
-    ) -> impl Future<Output = io::Result<Bytes>> + 'static;
+    ) -> impl Future<Output=io::Result<Bytes>> + 'static;
 
     // TODO(ngates): the read implementation should be able to hint at its latency/throughput
     //  allowing the caller to make better decisions about how to coalesce reads.
@@ -38,7 +38,7 @@ pub trait VortexReadAt: Send + Sync + Clone + 'static {
     ///
     /// For a file it will be the size in bytes, for an object in an
     /// `ObjectStore` it will be the `ObjectMeta::size`.
-    fn size(&self) -> impl Future<Output = u64> + 'static;
+    fn size(&self) -> impl Future<Output=io::Result<u64>> + 'static;
 }
 
 impl<T: VortexReadAt> VortexReadAt for Arc<T> {
@@ -46,7 +46,7 @@ impl<T: VortexReadAt> VortexReadAt for Arc<T> {
         &self,
         pos: u64,
         len: u64,
-    ) -> impl Future<Output = io::Result<Bytes>> + 'static {
+    ) -> impl Future<Output=io::Result<Bytes>> + 'static {
         T::read_byte_range(self, pos, len)
     }
 
@@ -54,7 +54,7 @@ impl<T: VortexReadAt> VortexReadAt for Arc<T> {
         T::performance_hint(self)
     }
 
-    fn size(&self) -> impl Future<Output = u64> + 'static {
+    fn size(&self) -> impl Future<Output=io::Result<u64>> + 'static {
         T::size(self)
     }
 }
@@ -64,7 +64,7 @@ impl VortexReadAt for Buffer {
         &self,
         pos: u64,
         len: u64,
-    ) -> impl Future<Output = io::Result<Bytes>> + 'static {
+    ) -> impl Future<Output=io::Result<Bytes>> + 'static {
         if (len + pos) as usize > self.len() {
             future::ready(Err(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
@@ -80,8 +80,8 @@ impl VortexReadAt for Buffer {
         }
     }
 
-    fn size(&self) -> impl Future<Output = u64> + 'static {
-        future::ready(self.len() as u64)
+    fn size(&self) -> impl Future<Output=io::Result<u64>> + 'static {
+        future::ready(Ok(self.len() as u64))
     }
 }
 
@@ -90,7 +90,7 @@ impl VortexReadAt for Bytes {
         &self,
         pos: u64,
         len: u64,
-    ) -> impl Future<Output = io::Result<Bytes>> + 'static {
+    ) -> impl Future<Output=io::Result<Bytes>> + 'static {
         if (pos + len) as usize > self.len() {
             future::ready(Err(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
@@ -102,8 +102,8 @@ impl VortexReadAt for Bytes {
         }
     }
 
-    fn size(&self) -> impl Future<Output = u64> + 'static {
-        let len = self.len() as u64;
+    fn size(&self) -> impl Future<Output=io::Result<u64>> + 'static {
+        let len = Ok(self.len() as u64);
         future::ready(len)
     }
 }

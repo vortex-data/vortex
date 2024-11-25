@@ -67,7 +67,7 @@ impl VortexReadAt for TokioFile {
         &self,
         pos: u64,
         len: u64,
-    ) -> impl Future<Output = io::Result<Bytes>> + 'static {
+    ) -> impl Future<Output=io::Result<Bytes>> + 'static {
         let this = self.clone();
 
         let mut buffer = BytesMut::with_capacity(len as usize);
@@ -81,18 +81,17 @@ impl VortexReadAt for TokioFile {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
-    fn size(&self) -> impl Future<Output = u64> + 'static {
+    fn size(&self) -> impl Future<Output=io::Result<u64>> + 'static {
         let this = self.clone();
 
         async move {
-            let res = tokio::task::spawn_blocking(move || {
+            tokio::task::spawn_blocking(move || {
                 this.metadata()
                     .unwrap_or_else(|e| vortex_panic!("access TokioFile metadata: {e}"))
                     .len()
             })
-            .await;
-
-            res.unwrap_or_else(|e| vortex_panic!("Joining spawn_blocking: size: {e}"))
+                .await
+                .map_err(io::Error::other)
         }
     }
 }

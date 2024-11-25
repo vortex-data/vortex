@@ -116,7 +116,7 @@ impl<R: VortexReadAt> VortexReadBuilder<R> {
 
     pub async fn build(self) -> VortexResult<VortexFileArrayStream<R>> {
         // we do a large enough initial read to get footer, layout, and schema
-        let initial_read = read_initial_bytes(&self.read_at, self.size().await).await?;
+        let initial_read = read_initial_bytes(&self.read_at, self.size().await?).await?;
 
         let layout = initial_read.fb_layout()?;
 
@@ -181,10 +181,10 @@ impl<R: VortexReadAt> VortexReadBuilder<R> {
         ))
     }
 
-    async fn size(&self) -> u64 {
-        match self.size {
+    async fn size(&self) -> VortexResult<u64> {
+        Ok(match self.size {
             Some(s) => s,
-            None => self.read_at.size().await,
-        }
+            None => self.read_at.size().await?,
+        })
     }
 }
