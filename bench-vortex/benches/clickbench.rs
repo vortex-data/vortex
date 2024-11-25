@@ -22,7 +22,7 @@ fn benchmark(c: &mut Criterion) {
     let output_path = basepath.join("processed.parquet");
 
     let final_parquet_path = idempotent(&output_path, |output_path| {
-        println!("Fixing parquet file");
+        eprintln!("Fixing parquet file");
         let command = format!(
             "COPY (SELECT * REPLACE 
                 (epoch_ms(EventTime * 1000) AS EventTime, \
