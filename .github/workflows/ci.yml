@@ -123,7 +123,7 @@ jobs:
           # Enable coverage using -Zprofile flag
           RUSTFLAGS: '-Zprofile -Ccodegen-units=1 -Clink-dead-code'
           RUSTDOCFLAGS: '-Zprofile -Ccodegen-units=1 -Clink-dead-code'
-      - uses: rraval/actions-rs-grcov@e96292b
+      - uses: rraval/actions-rs-grcov@e96292badb0d33512d16654efb0ee3032a9a3cff
         id: grcov
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
