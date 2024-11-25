@@ -7,7 +7,7 @@ use fastlanes::BitPacking;
 use vortex_array::array::{PrimitiveArray, SparseArray};
 use vortex_array::encoding::ids;
 use vortex_array::stats::{StatisticsVTable, StatsSet};
-use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
+use vortex_array::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use vortex_array::variants::{ArrayVariants, PrimitiveArrayTrait};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
@@ -208,13 +208,13 @@ impl IntoCanonical for BitPackedArray {
     }
 }
 
-impl ArrayValidity for BitPackedArray {
-    fn is_valid(&self, index: usize) -> bool {
-        self.validity().is_valid(index)
+impl ValidityVTable<BitPackedArray> for BitPackedEncoding {
+    fn is_valid(&self, array: &BitPackedArray, index: usize) -> bool {
+        array.validity().is_valid(index)
     }
 
-    fn logical_validity(&self) -> LogicalValidity {
-        self.validity().to_logical(self.len())
+    fn logical_validity(&self, array: &BitPackedArray) -> LogicalValidity {
+        array.validity().to_logical(array.len())
     }
 }
 

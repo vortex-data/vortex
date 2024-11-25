@@ -1,129 +1,148 @@
 use std::cmp::Ordering;
 
+use itertools::{Itertools, MinMaxResult};
 use vortex_buffer::Buffer;
-use vortex_dtype::DType;
-use vortex_error::VortexResult;
+use vortex_error::{vortex_panic, VortexResult};
 
+use super::varbin_scalar;
 use crate::accessor::ArrayAccessor;
-use crate::array::varbin::{varbin_scalar, VarBinArray};
+use crate::array::varbin::VarBinArray;
 use crate::array::VarBinEncoding;
-use crate::nbytes::ArrayNBytes;
+use crate::compute::unary::scalar_at;
 use crate::stats::{Stat, StatisticsVTable, StatsSet};
-use crate::{ArrayDType, ArrayLen};
+use crate::ArrayTrait;
 
 impl StatisticsVTable<VarBinArray> for VarBinEncoding {
     fn compute_statistics(&self, array: &VarBinArray, stat: Stat) -> VortexResult<StatsSet> {
-        if stat == Stat::UncompressedSizeInBytes {
-            return Ok(StatsSet::of(stat, array.nbytes()));
-        }
-
-        if array.is_empty() {
-            return Ok(StatsSet::default());
-        }
-        array.with_iterator(|iter| compute_stats(iter, array.dtype()))
+        compute_varbin_statistics(array, stat)
     }
 }
 
-pub fn compute_stats(iter: &mut dyn Iterator<Item = Option<&[u8]>>, dtype: &DType) -> StatsSet {
-    let mut leading_nulls: usize = 0;
-    let mut first_value: Option<&[u8]> = None;
-    for v in &mut *iter {
-        if v.is_none() {
-            leading_nulls += 1;
-        } else {
-            first_value = v;
-            break;
-        }
+pub fn compute_varbin_statistics<T: ArrayTrait + ArrayAccessor<[u8]>>(
+    array: &T,
+    stat: Stat,
+) -> VortexResult<StatsSet> {
+    if stat == Stat::UncompressedSizeInBytes {
+        return Ok(StatsSet::of(stat, array.nbytes()));
     }
 
-    if let Some(first_non_null) = first_value {
-        let mut acc = VarBinAccumulator::new(first_non_null);
-        acc.n_nulls(leading_nulls);
-        iter.for_each(|n| acc.nullable_next(n));
-        acc.finish(dtype)
+    if array.is_empty()
+        || stat == Stat::TrueCount
+        || stat == Stat::RunCount
+        || stat == Stat::BitWidthFreq
+        || stat == Stat::TrailingZeroFreq
+    {
+        return Ok(StatsSet::default());
+    }
+
+    Ok(match stat {
+        Stat::NullCount => {
+            let null_count = array.logical_validity().null_count(array.len())?;
+            if null_count == array.len() {
+                return Ok(StatsSet::nulls(array.len(), array.dtype()));
+            }
+
+            let mut stats = StatsSet::of(Stat::NullCount, null_count);
+            if null_count > 0 {
+                // we know that there is at least one null, but not all nulls, so it's not constant
+                stats.set(Stat::IsConstant, false);
+            }
+            stats
+        }
+        Stat::IsConstant => {
+            let is_constant = array.with_iterator(compute_is_constant)?;
+            if is_constant {
+                // we know that the array is not empty
+                StatsSet::constant(scalar_at(array, 0)?, array.len())
+            } else {
+                StatsSet::of(Stat::IsConstant, is_constant)
+            }
+        }
+        Stat::Min | Stat::Max => compute_min_max(array)?,
+        Stat::IsSorted => {
+            let is_sorted = array.with_iterator(|iter| iter.flatten().is_sorted())?;
+            let mut stats = StatsSet::of(Stat::IsSorted, is_sorted);
+            if !is_sorted {
+                stats.set(Stat::IsStrictSorted, false);
+            }
+            stats
+        }
+        Stat::IsStrictSorted => {
+            let is_strict_sorted = array.with_iterator(|iter| {
+                iter.flatten()
+                    .is_sorted_by(|a, b| matches!(a.cmp(b), Ordering::Less))
+            })?;
+            let mut stats = StatsSet::of(Stat::IsStrictSorted, is_strict_sorted);
+            if is_strict_sorted {
+                stats.set(Stat::IsSorted, true);
+            }
+            stats
+        }
+        Stat::UncompressedSizeInBytes
+        | Stat::TrueCount
+        | Stat::RunCount
+        | Stat::BitWidthFreq
+        | Stat::TrailingZeroFreq => {
+            vortex_panic!(
+                "Unreachable, stat {} should have already been handled",
+                stat
+            )
+        }
+    })
+}
+
+fn compute_is_constant(iter: &mut dyn Iterator<Item = Option<&[u8]>>) -> bool {
+    let Some(first_value) = iter.next() else {
+        return true; // empty array is constant
+    };
+    for v in iter {
+        if v != first_value {
+            return false;
+        }
+    }
+    true
+}
+
+fn compute_min_max<T: ArrayTrait + ArrayAccessor<[u8]>>(array: &T) -> VortexResult<StatsSet> {
+    let mut stats = StatsSet::default();
+    if array.is_empty() {
+        return Ok(stats);
+    }
+
+    let minmax = array.with_iterator(|iter| match iter.flatten().minmax() {
+        MinMaxResult::NoElements => None,
+        MinMaxResult::OneElement(value) => {
+            let scalar = varbin_scalar(Buffer::from(value), array.dtype());
+            Some((scalar.clone(), scalar))
+        }
+        MinMaxResult::MinMax(min, max) => Some((
+            varbin_scalar(Buffer::from(min), array.dtype()),
+            varbin_scalar(Buffer::from(max), array.dtype()),
+        )),
+    })?;
+    let Some((min, max)) = minmax else {
+        // we know that the array is not empty, so it must be all nulls
+        return Ok(StatsSet::nulls(array.len(), array.dtype()));
+    };
+
+    if min == max {
+        // get (don't compute) null count if `min == max` to determine if it's constant
+        if array
+            .statistics()
+            .get_as::<u64>(Stat::NullCount)
+            .map_or(false, |null_count| null_count == 0)
+        {
+            // if there are no nulls, then the array is constant
+            return Ok(StatsSet::constant(min, array.len()));
+        }
     } else {
-        StatsSet::nulls(leading_nulls, dtype)
-    }
-}
-
-pub struct VarBinAccumulator<'a> {
-    min: &'a [u8],
-    max: &'a [u8],
-    is_sorted: bool,
-    is_strict_sorted: bool,
-    last_value: &'a [u8],
-    null_count: usize,
-    runs: usize,
-    len: usize,
-}
-
-impl<'a> VarBinAccumulator<'a> {
-    pub fn new(value: &'a [u8]) -> Self {
-        Self {
-            min: value,
-            max: value,
-            is_sorted: true,
-            is_strict_sorted: true,
-            last_value: value,
-            runs: 1,
-            null_count: 0,
-            len: 1,
-        }
+        stats.set(Stat::IsConstant, false);
     }
 
-    pub fn nullable_next(&mut self, val: Option<&'a [u8]>) {
-        match val {
-            None => {
-                self.null_count += 1;
-                self.len += 1;
-            }
-            Some(v) => self.next(v),
-        }
-    }
+    stats.set(Stat::Min, min);
+    stats.set(Stat::Max, max);
 
-    pub fn n_nulls(&mut self, null_count: usize) {
-        self.len += null_count;
-        self.null_count += null_count;
-    }
-
-    pub fn next(&mut self, val: &'a [u8]) {
-        self.len += 1;
-
-        if val < self.min {
-            self.min.clone_from(&val);
-        } else if val > self.max {
-            self.max.clone_from(&val);
-        }
-
-        match val.cmp(self.last_value) {
-            Ordering::Less => {
-                self.is_sorted = false;
-                self.is_strict_sorted = false;
-            }
-            Ordering::Equal => {
-                self.is_strict_sorted = false;
-                return;
-            }
-            Ordering::Greater => {}
-        }
-        self.last_value = val;
-        self.runs += 1;
-    }
-
-    pub fn finish(&self, dtype: &DType) -> StatsSet {
-        let is_constant =
-            (self.min == self.max && self.null_count == 0) || self.null_count == self.len;
-
-        StatsSet::from_iter([
-            (Stat::Min, varbin_scalar(Buffer::from(self.min), dtype)),
-            (Stat::Max, varbin_scalar(Buffer::from(self.max), dtype)),
-            (Stat::RunCount, self.runs.into()),
-            (Stat::IsSorted, self.is_sorted.into()),
-            (Stat::IsStrictSorted, self.is_strict_sorted.into()),
-            (Stat::IsConstant, is_constant.into()),
-            (Stat::NullCount, self.null_count.into()),
-        ])
-    }
+    Ok(stats)
 }
 
 #[cfg(test)]
@@ -154,7 +173,6 @@ mod test {
             arr.statistics().compute_max::<BufferString>().unwrap(),
             BufferString::from("hello world this is a long string".to_string())
         );
-        assert_eq!(arr.statistics().compute_run_count().unwrap(), 2);
         assert!(!arr.statistics().compute_is_constant().unwrap());
         assert!(arr.statistics().compute_is_sorted().unwrap());
     }
@@ -170,7 +188,6 @@ mod test {
             arr.statistics().compute_max::<Buffer>().unwrap().deref(),
             "hello world this is a long string".as_bytes()
         );
-        assert_eq!(arr.statistics().compute_run_count().unwrap(), 2);
         assert!(!arr.statistics().compute_is_constant().unwrap());
         assert!(arr.statistics().compute_is_sorted().unwrap());
     }

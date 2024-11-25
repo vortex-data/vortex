@@ -7,7 +7,7 @@ use vortex_array::compute::unary::scalar_at;
 use vortex_array::compute::{take, TakeOptions};
 use vortex_array::encoding::ids;
 use vortex_array::stats::StatsSet;
-use vortex_array::validity::{ArrayValidity, LogicalValidity};
+use vortex_array::validity::{LogicalValidity, ValidityVTable};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
@@ -83,21 +83,21 @@ impl IntoCanonical for DictArray {
     }
 }
 
-impl ArrayValidity for DictArray {
-    fn is_valid(&self, index: usize) -> bool {
-        let values_index = scalar_at(self.codes(), index)
+impl ValidityVTable<DictArray> for DictEncoding {
+    fn is_valid(&self, array: &DictArray, index: usize) -> bool {
+        let values_index = scalar_at(array.codes(), index)
             .unwrap_or_else(|err| {
                 vortex_panic!(err, "Failed to get index {} from DictArray codes", index)
             })
             .as_ref()
             .try_into()
             .vortex_expect("Failed to convert dictionary code to usize");
-        self.values().with_dyn(|a| a.is_valid(values_index))
+        array.values().with_dyn(|a| a.is_valid(values_index))
     }
 
-    fn logical_validity(&self) -> LogicalValidity {
-        if self.dtype().is_nullable() {
-            let primitive_codes = self
+    fn logical_validity(&self, array: &DictArray) -> LogicalValidity {
+        if array.dtype().is_nullable() {
+            let primitive_codes = array
                 .codes()
                 .into_primitive()
                 .vortex_expect("Failed to convert DictArray codes to primitive array");
@@ -110,7 +110,7 @@ impl ArrayValidity for DictArray {
                 LogicalValidity::Array(BoolArray::from(is_valid_buffer).into_array())
             })
         } else {
-            LogicalValidity::AllValid(self.len())
+            LogicalValidity::AllValid(array.len())
         }
     }
 }

@@ -7,7 +7,7 @@ use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, Vor
 
 use crate::encoding::ids;
 use crate::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
-use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
+use crate::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use crate::variants::{ArrayVariants, StructArrayTrait};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{
@@ -170,13 +170,13 @@ impl IntoCanonical for StructArray {
     }
 }
 
-impl ArrayValidity for StructArray {
-    fn is_valid(&self, index: usize) -> bool {
-        self.validity().is_valid(index)
+impl ValidityVTable<StructArray> for StructEncoding {
+    fn is_valid(&self, array: &StructArray, index: usize) -> bool {
+        array.validity().is_valid(index)
     }
 
-    fn logical_validity(&self) -> LogicalValidity {
-        self.validity().to_logical(self.len())
+    fn logical_validity(&self, array: &StructArray) -> LogicalValidity {
+        array.validity().to_logical(array.len())
     }
 }
 

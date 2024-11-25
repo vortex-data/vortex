@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use vortex_array::array::BoolArray;
 use vortex_array::encoding::ids;
 use vortex_array::stats::StatsSet;
-use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
+use vortex_array::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use vortex_array::variants::{ArrayVariants, BoolArrayTrait};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
@@ -133,13 +133,13 @@ impl IntoCanonical for ByteBoolArray {
     }
 }
 
-impl ArrayValidity for ByteBoolArray {
-    fn is_valid(&self, index: usize) -> bool {
-        self.validity().is_valid(index)
+impl ValidityVTable<ByteBoolArray> for ByteBoolEncoding {
+    fn is_valid(&self, array: &ByteBoolArray, index: usize) -> bool {
+        array.validity().is_valid(index)
     }
 
-    fn logical_validity(&self) -> LogicalValidity {
-        self.validity().to_logical(self.len())
+    fn logical_validity(&self, array: &ByteBoolArray) -> LogicalValidity {
+        array.validity().to_logical(array.len())
     }
 }
 
@@ -152,6 +152,8 @@ impl VisitorVTable<ByteBoolArray> for ByteBoolEncoding {
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::validity::ArrayValidity;
+
     use super::*;
 
     #[test]

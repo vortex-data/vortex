@@ -5,7 +5,7 @@ use vortex_array::array::StructArray;
 use vortex_array::compute::unary::try_cast;
 use vortex_array::encoding::ids;
 use vortex_array::stats::{Stat, StatisticsVTable, StatsSet};
-use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity};
+use vortex_array::validity::{LogicalValidity, Validity, ValidityVTable};
 use vortex_array::variants::{ArrayVariants, ExtensionArrayTrait};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
@@ -144,13 +144,13 @@ impl IntoCanonical for DateTimePartsArray {
     }
 }
 
-impl ArrayValidity for DateTimePartsArray {
-    fn is_valid(&self, index: usize) -> bool {
-        self.validity().is_valid(index)
+impl ValidityVTable<DateTimePartsArray> for DateTimePartsEncoding {
+    fn is_valid(&self, array: &DateTimePartsArray, index: usize) -> bool {
+        array.validity().is_valid(index)
     }
 
-    fn logical_validity(&self) -> LogicalValidity {
-        self.validity().to_logical(self.len())
+    fn logical_validity(&self, array: &DateTimePartsArray) -> LogicalValidity {
+        array.validity().to_logical(array.len())
     }
 }
 

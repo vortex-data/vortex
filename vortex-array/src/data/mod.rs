@@ -20,6 +20,7 @@ use crate::encoding::{EncodingId, EncodingRef, EncodingVTable};
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
 use crate::stats::{ArrayStatistics, Stat, Statistics, StatsSet};
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
+use crate::validity::{ArrayValidity, LogicalValidity};
 use crate::{
     ArrayChildrenIterator, ArrayDType, ArrayLen, ArrayMetadata, ArrayTrait, Context,
     TryDeserializeArrayMetadata,
@@ -148,6 +149,16 @@ impl ArrayData {
             InnerArrayData::Owned(d) => d.is_empty(),
             InnerArrayData::Viewed(v) => v.is_empty(),
         }
+    }
+
+    /// Return whether the element at the given index is valid (true) or null (false).
+    fn is_valid(&self, index: usize) -> bool {
+        self.encoding().is_valid(self, index)
+    }
+
+    /// Return the logical validity of the array.
+    fn logical_validity(&self) -> LogicalValidity {
+        self.encoding().logical_validity(self)
     }
 
     /// Whether the array is of a canonical encoding.
@@ -397,6 +408,16 @@ impl<T: AsRef<ArrayData>> ArrayLen for T {
 
     fn is_empty(&self) -> bool {
         self.as_ref().is_empty()
+    }
+}
+
+impl<A: AsRef<ArrayData>> ArrayValidity for A {
+    fn is_valid(&self, index: usize) -> bool {
+        self.as_ref().is_valid(index)
+    }
+
+    fn logical_validity(&self) -> LogicalValidity {
+        self.as_ref().logical_validity()
     }
 }
 

@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use vortex_array::array::{PrimitiveArray, SparseArray};
 use vortex_array::encoding::ids;
 use vortex_array::stats::{StatisticsVTable, StatsSet};
-use vortex_array::validity::{ArrayValidity, LogicalValidity};
+use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoCanonical,
@@ -236,14 +236,15 @@ impl IntoCanonical for ALPRDArray {
     }
 }
 
-impl ArrayValidity for ALPRDArray {
-    fn is_valid(&self, index: usize) -> bool {
+impl ValidityVTable<ALPRDArray> for ALPRDEncoding {
+    fn is_valid(&self, array: &ALPRDArray, index: usize) -> bool {
         // Use validity from left_parts
-        self.left_parts().with_dyn(|a| a.is_valid(index))
+        array.left_parts().is_valid(index)
     }
 
-    fn logical_validity(&self) -> LogicalValidity {
-        self.left_parts().with_dyn(|a| a.logical_validity())
+    fn logical_validity(&self, array: &ALPRDArray) -> LogicalValidity {
+        // Use validity from left_parts
+        array.left_parts().logical_validity()
     }
 }
 

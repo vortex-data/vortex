@@ -102,7 +102,7 @@ impl EncodingCompressor for FSSTCompressor {
 
         let codes = fsst_array.codes();
         let compressed_codes = ctx
-            .named("fsst_codes")
+            .auxiliary("fsst_codes")
             .excluding(self)
             .including_only(&[
                 &VarBinCompressor,

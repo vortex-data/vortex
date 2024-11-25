@@ -12,7 +12,7 @@ use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 
 use crate::encoding::ids;
 use crate::stats::StatsSet;
-use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata};
+use crate::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use crate::variants::{ArrayVariants, BoolArrayTrait};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{
@@ -219,13 +219,13 @@ impl IntoCanonical for BoolArray {
     }
 }
 
-impl ArrayValidity for BoolArray {
-    fn is_valid(&self, index: usize) -> bool {
-        self.validity().is_valid(index)
+impl ValidityVTable<BoolArray> for BoolEncoding {
+    fn is_valid(&self, array: &BoolArray, index: usize) -> bool {
+        array.validity().is_valid(index)
     }
 
-    fn logical_validity(&self) -> LogicalValidity {
-        self.validity().to_logical(self.len())
+    fn logical_validity(&self, array: &BoolArray) -> LogicalValidity {
+        array.validity().to_logical(array.len())
     }
 }
 

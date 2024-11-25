@@ -4,7 +4,7 @@ pub use compress::*;
 use serde::{Deserialize, Serialize};
 use vortex_array::encoding::ids;
 use vortex_array::stats::{StatisticsVTable, StatsSet};
-use vortex_array::validity::{ArrayValidity, LogicalValidity};
+use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use vortex_array::variants::{ArrayVariants, PrimitiveArrayTrait};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
@@ -83,13 +83,13 @@ impl FoRArray {
     }
 }
 
-impl ArrayValidity for FoRArray {
-    fn is_valid(&self, index: usize) -> bool {
-        self.encoded().with_dyn(|a| a.is_valid(index))
+impl ValidityVTable<FoRArray> for FoREncoding {
+    fn is_valid(&self, array: &FoRArray, index: usize) -> bool {
+        array.encoded().is_valid(index)
     }
 
-    fn logical_validity(&self) -> LogicalValidity {
-        self.encoded().with_dyn(|a| a.logical_validity())
+    fn logical_validity(&self, array: &FoRArray) -> LogicalValidity {
+        array.encoded().logical_validity()
     }
 }
 
