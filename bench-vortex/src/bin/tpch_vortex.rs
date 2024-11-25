@@ -146,6 +146,7 @@ async fn async_main(cli: Cli) {
     for query in queries_to_run {
         if query == 15 {
             info!("skipping q15, datafusion only supports single statements");
+            continue
         }
         let _span = info_span!("tpch", query = query);
         info!(query = query, "begin query");
