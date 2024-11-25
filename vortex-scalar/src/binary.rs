@@ -52,7 +52,12 @@ impl<'a> TryFrom<&'a Scalar> for Buffer {
     type Error = VortexError;
 
     fn try_from(scalar: &'a Scalar) -> VortexResult<Self> {
-        <Option<Buffer>>::try_from(scalar)?
+        let binary = scalar
+            .as_binary_opt()
+            .ok_or_else(|| vortex_err!("Cannot extract buffer from non-buffer scalar"))?;
+
+        binary
+            .value()
             .ok_or_else(|| vortex_err!("Can't extract present value from null scalar"))
     }
 }

@@ -148,7 +148,7 @@ impl<'a> StructScalar<'a> {
 }
 
 impl Scalar {
-    pub fn r#struct(dtype: DType, children: Vec<Scalar>) -> Self {
+    pub fn struct_(dtype: DType, children: Vec<Scalar>) -> Self {
         Self {
             dtype,
             value: ScalarValue(InnerScalarValue::List(

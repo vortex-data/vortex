@@ -45,7 +45,7 @@ impl TakeFn<FoRArray> for FoREncoding {
     ) -> VortexResult<ArrayData> {
         FoRArray::try_new(
             take(array.encoded(), indices, options)?,
-            array.owned_reference_scalar(),
+            array.reference_scalar(),
             array.shift(),
         )
         .map(|a| a.into_array())
@@ -56,7 +56,7 @@ impl FilterFn<FoRArray> for FoREncoding {
     fn filter(&self, array: &FoRArray, mask: FilterMask) -> VortexResult<ArrayData> {
         FoRArray::try_new(
             filter(&array.encoded(), mask)?,
-            array.owned_reference_scalar(),
+            array.reference_scalar(),
             array.shift(),
         )
         .map(|a| a.into_array())
@@ -67,13 +67,19 @@ impl ScalarAtFn<FoRArray> for FoREncoding {
     fn scalar_at(&self, array: &FoRArray, index: usize) -> VortexResult<Scalar> {
         let encoded_pvalue = scalar_at(array.encoded(), index)?.reinterpret_cast(array.ptype());
         let encoded_pvalue = encoded_pvalue.as_primitive();
-        let reference = array.owned_reference_scalar();
+        let reference = array.reference_scalar();
         let reference = reference.as_primitive();
 
         Ok(match_each_integer_ptype!(array.ptype(), |$P| {
             encoded_pvalue
                 .typed_value::<$P>()
-                .map(|v| v.checked_shl(array.shift() as u32).unwrap_or_default().wrapping_add(reference.typed_value::<$P>().vortex_expect("reference must be non-null")))
+                .map(|v|
+                     v.checked_shl(array.shift() as u32)
+                     .unwrap_or_default()
+                     .wrapping_add(
+                         reference
+                             .typed_value::<$P>()
+                             .vortex_expect("FoRArray Reference value cannot be null")))
                 .map(|v| Scalar::primitive::<$P>(v, array.dtype().nullability()))
                 .unwrap_or_else(|| Scalar::null(array.dtype().clone()))
         }))
@@ -84,7 +90,7 @@ impl SliceFn<FoRArray> for FoREncoding {
     fn slice(&self, array: &FoRArray, start: usize, stop: usize) -> VortexResult<ArrayData> {
         FoRArray::try_new(
             slice(array.encoded(), start, stop)?,
-            array.owned_reference_scalar(),
+            array.reference_scalar(),
             array.shift(),
         )
         .map(|a| a.into_array())
@@ -121,7 +127,7 @@ where
         + Into<PValue>,
 {
     let min: T = array
-        .owned_reference_scalar()
+        .reference_scalar()
         .as_primitive()
         .typed_value::<T>()
         .vortex_expect("Reference value cannot be null");
@@ -237,7 +243,7 @@ mod test {
         let for_array = FoRArray::try_from(arr.clone()).unwrap();
 
         let min: i32 = for_array
-            .owned_reference_scalar()
+            .reference_scalar()
             .as_primitive()
             .typed_value::<i32>()
             .unwrap();

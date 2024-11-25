@@ -200,7 +200,7 @@ mod tests {
         );
 
         assert_eq!(
-            Literal::new_expr(Scalar::r#struct(
+            Literal::new_expr(Scalar::struct_(
                 DType::Struct(
                     StructDType::new(
                         Arc::from([Arc::from("dog"), Arc::from("cat")]),

@@ -31,7 +31,7 @@ impl ComputeVTable for StructEncoding {
 
 impl ScalarAtFn<StructArray> for StructEncoding {
     fn scalar_at(&self, array: &StructArray, index: usize) -> VortexResult<Scalar> {
-        Ok(Scalar::r#struct(
+        Ok(Scalar::struct_(
             array.dtype().clone(),
             array
                 .children()

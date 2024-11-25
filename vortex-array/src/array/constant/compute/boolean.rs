@@ -1,6 +1,6 @@
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexResult};
-use vortex_scalar::{BoolScalar, Scalar};
+use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_scalar::Scalar;
 
 use crate::array::{ConstantArray, ConstantEncoding};
 use crate::compute::{BinaryBooleanFn, BinaryOperator};
@@ -19,7 +19,10 @@ impl BinaryBooleanFn<ConstantArray> for ConstantEncoding {
         let Some(rhs) = rhs.as_constant() else {
             vortex_bail!("Binary boolean operation requires both sides to be constant");
         };
-        let rhs = BoolScalar::try_from(&rhs)?.value();
+        let rhs = rhs
+            .as_bool_opt()
+            .ok_or_else(|| vortex_err!("expected rhs to be boolean"))?
+            .value();
 
         let result = match op {
             BinaryOperator::And => and(lhs, rhs),

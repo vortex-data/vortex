@@ -1,7 +1,7 @@
 use vortex_dtype::field::Field;
 use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexExpect as _, VortexResult};
-use vortex_scalar::{ExtScalar, Scalar};
+use vortex_scalar::Scalar;
 
 use crate::array::constant::ConstantArray;
 use crate::iter::Accessor;
@@ -110,12 +110,6 @@ impl ListArrayTrait for ConstantArray {}
 
 impl ExtensionArrayTrait for ConstantArray {
     fn storage_data(&self) -> ArrayData {
-        ConstantArray::new(
-            ExtScalar::try_from(&self.scalar())
-                .vortex_expect("extension typed constant array must have an extension scalar")
-                .storage(),
-            self.len(),
-        )
-        .into_array()
+        ConstantArray::new(self.scalar().as_extension().storage(), self.len()).into_array()
     }
 }

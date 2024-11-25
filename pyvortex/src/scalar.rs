@@ -4,75 +4,79 @@
 //! :meth:`.Array.scalar_at`. They represent shared-memory views into individual values of a Vortex
 //! array.
 
-use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use vortex::buffer::{Buffer, BufferString};
 use vortex::dtype::half::f16;
-use vortex::dtype::PType;
-use vortex::error::VortexExpect as _;
+use vortex::dtype::{DType, PType};
 use vortex::scalar::{ListScalar, Scalar, StructScalar};
 
 pub fn scalar_into_py(py: Python, x: Scalar, copy_into_python: bool) -> PyResult<PyObject> {
-    if x.is_null() {
-        return Ok(py.None());
-    }
-
-    if let Some(b) = x.as_bool_opt() {
-        return Ok(b.value().into_py(py));
-    }
-
-    if let Some(p) = x.as_primitive_opt() {
-        return Ok(match p.ptype() {
-            PType::U8 => p.typed_value::<u8>().into_py(py),
-            PType::U16 => p.typed_value::<u16>().into_py(py),
-            PType::U32 => p.typed_value::<u32>().into_py(py),
-            PType::U64 => p.typed_value::<u64>().into_py(py),
-            PType::I8 => p.typed_value::<i8>().into_py(py),
-            PType::I16 => p.typed_value::<i16>().into_py(py),
-            PType::I32 => p.typed_value::<i32>().into_py(py),
-            PType::I64 => p.typed_value::<i64>().into_py(py),
-            PType::F16 => p.typed_value::<f16>().map(f16::to_f32).into_py(py),
-            PType::F32 => p.typed_value::<f32>().into_py(py),
-            PType::F64 => p.typed_value::<f64>().into_py(py),
-        });
-    }
-
-    if let Some(x) = x.as_binary_opt() {
-        let x = x.value().vortex_expect("already handled null");
-        if copy_into_python {
-            return Ok(x.as_slice().into_py(py));
-        } else {
-            return PyBuffer::new_pyobject(py, x);
+    Ok(match x.dtype() {
+        DType::Null => py.None(),
+        DType::Bool(_) => x.as_bool().value().into_py(py),
+        DType::Primitive(ptype, ..) => {
+            let p = x.as_primitive();
+            match ptype {
+                PType::U8 => p.typed_value::<u8>().into_py(py),
+                PType::U16 => p.typed_value::<u16>().into_py(py),
+                PType::U32 => p.typed_value::<u32>().into_py(py),
+                PType::U64 => p.typed_value::<u64>().into_py(py),
+                PType::I8 => p.typed_value::<i8>().into_py(py),
+                PType::I16 => p.typed_value::<i16>().into_py(py),
+                PType::I32 => p.typed_value::<i32>().into_py(py),
+                PType::I64 => p.typed_value::<i64>().into_py(py),
+                PType::F16 => p.typed_value::<f16>().map(f16::to_f32).into_py(py),
+                PType::F32 => p.typed_value::<f32>().into_py(py),
+                PType::F64 => p.typed_value::<f64>().into_py(py),
+            }
         }
-    }
-
-    if let Some(x) = x.as_utf8_opt() {
-        let x = x.value().vortex_expect("already handled null");
-        if copy_into_python {
-            return Ok(x.as_str().into_py(py));
-        } else {
-            return PyBufferString::new_pyobject(py, x);
+        DType::Utf8(_) => {
+            let x = x.as_utf8().value();
+            match x {
+                None => py.None(),
+                Some(x) => {
+                    if copy_into_python {
+                        return Ok(x.as_str().into_py(py));
+                    } else {
+                        return PyBufferString::new_pyobject(py, x);
+                    }
+                }
+            }
         }
-    }
-
-    if let Some(struct_scalar) = x.as_struct_opt() {
-        if copy_into_python {
-            return to_python_dict(py, struct_scalar, true);
-        } else {
-            return PyVortexStruct::new_pyobject(py, x);
+        DType::Binary(_) => {
+            let x = x.as_binary().value();
+            match x {
+                None => py.None(),
+                Some(x) => {
+                    if copy_into_python {
+                        return Ok(x.as_slice().into_py(py));
+                    } else {
+                        return PyBuffer::new_pyobject(py, x);
+                    }
+                }
+            }
         }
-    }
-
-    if let Some(list_scalar) = x.as_list_opt() {
-        if copy_into_python {
-            return to_python_list(py, list_scalar, true);
-        } else {
-            return PyVortexList::new_pyobject(py, x);
+        DType::Struct(..) => {
+            let struct_scalar = x.as_struct();
+            if copy_into_python {
+                return to_python_dict(py, struct_scalar, true);
+            } else {
+                return PyVortexStruct::new_pyobject(py, x);
+            }
         }
-    }
-
-    Err(PyValueError::new_err(format!("unknown scalar: {}", x)))
+        DType::List(..) => {
+            let list_scalar = x.as_list();
+            if copy_into_python {
+                return to_python_list(py, list_scalar, true);
+            } else {
+                return PyVortexList::new_pyobject(py, x);
+            }
+        }
+        DType::Extension(_) => {
+            todo!()
+        }
+    })
 }
 
 #[pyclass(name = "Buffer", module = "vortex", sequence, subclass)]

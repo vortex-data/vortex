@@ -68,13 +68,7 @@ impl FoRArray {
     }
 
     #[inline]
-    #[deprecated]
-    pub fn reference(&self) -> &ScalarValue {
-        &self.metadata().reference
-    }
-
-    #[inline]
-    pub fn owned_reference_scalar(&self) -> Scalar {
+    pub fn reference_scalar(&self) -> Scalar {
         Scalar::new(self.dtype().clone(), self.metadata().reference.clone())
     }
 

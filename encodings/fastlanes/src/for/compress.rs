@@ -9,7 +9,7 @@ use vortex_dtype::{
     match_each_integer_ptype, match_each_unsigned_integer_ptype, DType, NativePType, Nullability,
 };
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
-use vortex_scalar::{PrimitiveScalar, Scalar};
+use vortex_scalar::Scalar;
 
 use crate::FoRArray;
 
@@ -111,7 +111,8 @@ pub fn decompress(array: FoRArray) -> VortexResult<PrimitiveArray> {
         if shift == <$T>::PTYPE.bit_width() {
             encoded
         } else {
-            let min: $T = PrimitiveScalar::try_from(&array.owned_reference_scalar())?
+            let min = array.reference_scalar()
+                .as_primitive()
                 .typed_value::<$T>()
                 .ok_or_else(|| vortex_err!("expected reference to be non-null"))?;
             PrimitiveArray::from_vec(
@@ -155,7 +156,7 @@ mod test {
         let array = PrimitiveArray::from((0u32..10_000).map(|v| v + 1_000_000).collect_vec());
         let compressed = for_compress(&array).unwrap();
         assert_eq!(
-            u32::try_from(compressed.owned_reference_scalar()).unwrap(),
+            u32::try_from(compressed.reference_scalar()).unwrap(),
             1_000_000u32
         );
     }
@@ -236,7 +237,7 @@ mod test {
         assert_eq!(
             i8::MIN,
             compressed
-                .owned_reference_scalar()
+                .reference_scalar()
                 .as_primitive()
                 .typed_value::<i8>()
                 .unwrap()
