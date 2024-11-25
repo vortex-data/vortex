@@ -107,7 +107,9 @@ async fn async_main(cli: Cli) {
             .unwrap();
     }
 
-    df.sql("SELECT * FROM nation")
+    // For every requested query, execute it.
+    let q1 = include_str!("../../tpch/q2.sql");
+    df.sql(q1)
         .await
         .unwrap()
         .show()
@@ -161,7 +163,6 @@ async fn register_table(
     debug!(table = name, url = file_url.as_str(), "registering table");
 
     let file_format = Arc::new(VortexFormat::new(&CTX));
-    // Listing Table Urls here instead.
     let table_url = ListingTableUrl::parse(file_url.as_str())?;
     info!(table_url = table_url.as_str(), "using table_url");
 
