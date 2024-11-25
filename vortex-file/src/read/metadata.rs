@@ -69,8 +69,6 @@ impl<R: VortexReadAt + Unpin> Future for MetadataFetcher<R> {
     type Output = VortexResult<Option<Vec<ArrayData>>>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        println!("MetadataFetcher::poll");
-
         loop {
             match &mut self.state {
                 State::Initial => match self.root_layout.read_metadata()? {
@@ -86,9 +84,8 @@ impl<R: VortexReadAt + Unpin> Future for MetadataFetcher<R> {
                     }
                 },
                 State::Reading(ref mut f) => {
-                    println!("State::Reading");
                     let messages = ready!(f.poll_unpin(cx))?;
-                    println!("State::ready");
+
                     match self.layout_cache.write() {
                         Ok(mut cache) => {
                             for Message(message_id, bytes) in messages.into_iter() {

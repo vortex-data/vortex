@@ -307,7 +307,6 @@ impl LayoutReader for ColumnarLayoutReader {
     }
 
     fn read_metadata(&self) -> VortexResult<MetadataRead> {
-        println!("ColumnarLayoutReader::read_metadata");
         let mut in_progress_metadata = self.in_progress_metadata.write().unwrap();
         let mut messages = Vec::default();
 
@@ -325,9 +324,6 @@ impl LayoutReader for ColumnarLayoutReader {
             }
         }
 
-        println!("ColumnarLayoutReader - finished reading");
-
-        dbg!(messages.len());
         // We're done reading
         if messages.is_empty() {
             let child_arrays = self

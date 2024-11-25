@@ -87,7 +87,6 @@ impl FileFormat for VortexFormat {
         table_schema: SchemaRef,
         object: &ObjectMeta,
     ) -> DFResult<Statistics> {
-        println!("VortexFormat::infer_stats");
         let os_read_at = ObjectStoreReadAt::new(store.clone(), object.location.clone());
         let initial_read = read_initial_bytes(&os_read_at, object.size as u64).await?;
         let layout = initial_read.fb_layout()?;
@@ -117,8 +116,6 @@ impl FileFormat for VortexFormat {
             MetadataFetcher::fetch(os_read_at, io.into(), root_layout, layout_message_cache)
                 .await?;
 
-        println!("Got metadata");
-
         if let Some(metadata) = metadata {
             let mut col_stats = Vec::with_capacity(table_schema.fields().len());
 
@@ -130,8 +127,6 @@ impl FileFormat for VortexFormat {
 
             stats.column_statistics = col_stats;
         }
-
-        println!("VortexFormat::got_stats");
 
         Ok(stats)
     }

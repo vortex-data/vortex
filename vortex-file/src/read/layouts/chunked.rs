@@ -280,7 +280,6 @@ impl LayoutReader for ChunkedLayoutReader {
     }
 
     fn read_metadata(&self) -> VortexResult<MetadataRead> {
-        println!("ChunkedLayoutReader::read_metadata");
         match self.metadata_layout() {
             None => Ok(MetadataRead::None),
             Some(metadata_layout) => {
