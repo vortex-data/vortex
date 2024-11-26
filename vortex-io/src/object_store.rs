@@ -1,12 +1,13 @@
 use std::future::Future;
 use std::ops::Range;
+use std::os::unix::fs::FileExt;
 use std::sync::Arc;
 use std::{io, mem};
 
 use bytes::Bytes;
 use futures_util::StreamExt;
 use object_store::path::Path;
-use object_store::{GetOptions, GetRange, ObjectStore, WriteMultipart};
+use object_store::{GetOptions, GetRange, GetResultPayload, ObjectStore, WriteMultipart};
 use vortex_buffer::io_buf::IoBuf;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
@@ -92,10 +93,22 @@ impl VortexReadAt for ObjectStoreReadAt {
                 )
                 .await?;
 
-            let mut byte_stream = response.into_stream();
-            while let Some(bytes) = byte_stream.next().await {
-                let bytes = bytes?;
-                buf.extend_from_slice(&bytes);
+            // NOTE: ObjectStore specializes the payload based on if it is backed by a File or if
+            //  it's coming from a network stream. Internally they optimize the File implementation
+            //  to only perform a single allocation when calling `.bytes().await`, which we
+            //  replicate here by emitting the contents directly into our aligned buffer.
+            match response.payload {
+                GetResultPayload::File(file, _) => {
+                    unsafe {
+                        buf.set_len(len as _);
+                    }
+                    file.read_exact_at(&mut buf, pos)?;
+                }
+                GetResultPayload::Stream(mut byte_stream) => {
+                    while let Some(bytes) = byte_stream.next().await {
+                        buf.extend_from_slice(&bytes?);
+                    }
+                }
             }
 
             Ok(buf.freeze())
