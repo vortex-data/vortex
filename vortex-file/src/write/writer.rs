@@ -259,12 +259,14 @@ impl ColumnWriter {
             .flat_map(|(byte_offsets, row_offsets)| {
                 byte_offsets
                     .iter()
-                    .zip(byte_offsets.iter().skip(1))
-                    .map(|(begin, end)| ByteRange::new(*begin, *end))
+                    .cloned()
+                    .zip(byte_offsets.iter().skip(1).cloned())
+                    .map(|(begin, end)| ByteRange::new(begin, end))
                     .zip(
                         row_offsets
                             .iter()
-                            .zip(row_offsets.iter().skip(1))
+                            .cloned()
+                            .zip(row_offsets.iter().skip(1).cloned())
                             .map(|(begin, end)| end - begin),
                     )
                     .map(|(range, len)| LayoutSpec::flat(range, len))
