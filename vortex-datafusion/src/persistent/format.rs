@@ -111,7 +111,7 @@ impl FileFormat for VortexFormat {
             relative_message_cache,
         )?;
 
-        let io = IoDispatcher::new_tokio(4);
+        let io = IoDispatcher::default();
         let mut stats = Statistics::new_unknown(&table_schema);
         stats.num_rows = Precision::Exact(row_count as usize);
 

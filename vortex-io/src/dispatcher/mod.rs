@@ -66,6 +66,15 @@ enum Inner {
     Compio(CompioDispatcher),
 }
 
+impl Default for IoDispatcher {
+    fn default() -> Self {
+        #[cfg(feature = "tokio")]
+        return Self(Inner::Tokio(TokioDispatcher::new(1)));
+        #[cfg(all(feature = "compio", not(feature = "tokio")))]
+        return Self(Inner::Compio(CompioDispatcher::new(1)));
+    }
+}
+
 impl Dispatch for IoDispatcher {
     fn dispatch<F, Fut, R>(&self, task: F) -> VortexResult<oneshot::Receiver<R>>
     where
