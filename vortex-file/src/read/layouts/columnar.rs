@@ -10,7 +10,7 @@ use vortex_array::validity::Validity;
 use vortex_array::{ArrayData, IntoArrayData};
 use vortex_dtype::field::Field;
 use vortex_dtype::{FieldName, FieldNames};
-use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult};
 use vortex_expr::{Column, Select, VortexExpr};
 use vortex_flatbuffers::footer;
 
@@ -316,6 +316,9 @@ impl LayoutReader for ColumnarLayoutReader {
         for (name, child_reader) in self.names.iter().zip(self.children.iter()) {
             match child_reader.read_metadata()? {
                 MetadataRead::Batches(data) => {
+                    if data.len() != 1 {
+                        vortex_bail!("expected exactly one metadata array per-child");
+                    }
                     in_progress_metadata.insert(name.clone(), data[0].clone());
                 }
                 MetadataRead::ReadMore(rm) => {
