@@ -5,7 +5,7 @@ use enum_map::EnumMap;
 use itertools::{EitherOrBoth, Itertools};
 use vortex_dtype::DType;
 use vortex_error::{vortex_panic, VortexError};
-use vortex_scalar::{Scalar, ScalarValue};
+use vortex_scalar::Scalar;
 
 use crate::stats::Stat;
 
@@ -58,7 +58,7 @@ impl StatsSet {
         stats
     }
 
-    pub fn constant(scalar: Scalar, length: usize) -> Self {
+    pub fn constant(scalar: &Scalar, length: usize) -> Self {
         let mut stats = Self::default();
         if length > 0 {
             stats.set(Stat::IsConstant, true);
@@ -69,20 +69,19 @@ impl StatsSet {
         let run_count = if length == 0 { 0u64 } else { 1 };
         stats.set(Stat::RunCount, run_count);
 
-        let null_count = if scalar.value().is_null() {
-            length as u64
-        } else {
-            0
-        };
+        let null_count = if scalar.is_null() { length as u64 } else { 0 };
         stats.set(Stat::NullCount, null_count);
 
-        if let ScalarValue::Bool(b) = scalar.value() {
-            let true_count = if *b { length as u64 } else { 0 };
+        if let Some(bool_scalar) = scalar.as_bool_opt() {
+            let true_count = bool_scalar
+                .value()
+                .map(|b| if b { length as u64 } else { 0 })
+                .unwrap_or(0);
             stats.set(Stat::TrueCount, true_count);
         }
 
         stats.set(Stat::Min, scalar.clone());
-        stats.set(Stat::Max, scalar);
+        stats.set(Stat::Max, scalar.clone());
 
         stats
     }
@@ -582,20 +581,14 @@ mod test {
             merged
                 .get(Stat::NullCount)
                 .unwrap()
-                .value()
-                .as_pvalue()
-                .unwrap()
-                .unwrap()
-                .as_u64()
+                .as_primitive()
+                .typed_value::<u64>()
                 .unwrap(),
             2 * stats
                 .get(Stat::NullCount)
                 .unwrap()
-                .value()
-                .as_pvalue()
-                .unwrap()
-                .unwrap()
-                .as_u64()
+                .as_primitive()
+                .typed_value::<u64>()
                 .unwrap()
         );
     }

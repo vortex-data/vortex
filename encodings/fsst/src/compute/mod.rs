@@ -73,9 +73,9 @@ impl ScalarAtFn<FSSTArray> for FSSTEncoding {
     fn scalar_at(&self, array: &FSSTArray, index: usize) -> VortexResult<Scalar> {
         let compressed = scalar_at(array.codes(), index)?;
         let binary_datum = compressed
+            .as_binary()
             .value()
-            .as_buffer()?
-            .ok_or_else(|| vortex_err!("Expected a binary scalar, found {}", compressed.dtype()))?;
+            .ok_or_else(|| vortex_err!("expected null to already be handled"))?;
 
         array.with_decompressor(|decompressor| {
             let decoded_buffer: Buffer = decompressor.decompress(binary_datum.as_slice()).into();

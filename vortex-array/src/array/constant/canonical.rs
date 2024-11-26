@@ -3,7 +3,7 @@ use arrow_buffer::{BooleanBuffer, BufferBuilder};
 use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_native_ptype, DType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexResult};
-use vortex_scalar::{BinaryScalar, BoolScalar, ExtScalar, Scalar, Utf8Scalar};
+use vortex_scalar::{BinaryScalar, BoolScalar, ExtScalar, Utf8Scalar};
 
 use crate::array::constant::ConstantArray;
 use crate::array::primitive::PrimitiveArray;
@@ -15,7 +15,7 @@ use crate::{ArrayDType, ArrayLen, Canonical, IntoArrayData, IntoCanonical};
 
 impl IntoCanonical for ConstantArray {
     fn into_canonical(self) -> VortexResult<Canonical> {
-        let scalar = &self.owned_scalar();
+        let scalar = &self.scalar();
 
         let validity = match self.dtype().nullability() {
             Nullability::NonNullable => Validity::NonNullable,
@@ -58,8 +58,7 @@ impl IntoCanonical for ConstantArray {
             DType::Extension(ext_dtype) => {
                 let s = ExtScalar::try_from(scalar)?;
 
-                let storage_dtype = ext_dtype.storage_dtype();
-                let storage_scalar = Scalar::new(storage_dtype.clone(), s.value().clone());
+                let storage_scalar = s.storage();
                 let storage_array = ConstantArray::new(storage_scalar, self.len()).into_array();
                 ExtensionArray::new(ext_dtype.clone(), storage_array).into_canonical()?
             }
@@ -164,7 +163,7 @@ mod tests {
         let canonical = const_array.into_canonical().unwrap();
         let canonical_stats = canonical.statistics().to_set();
 
-        assert_eq!(canonical_stats, StatsSet::constant(scalar, 4));
+        assert_eq!(canonical_stats, StatsSet::constant(&scalar, 4));
         assert_eq!(canonical_stats, stats);
     }
 }

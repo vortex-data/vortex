@@ -6,6 +6,460 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## `vortex-datafusion` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-datafusion-v0.19.0...vortex-datafusion-v0.20.0) - 2024-11-26
+
+### Fixed
+- Remove redundant len/is_empty implementations on typed array structs ([#1384](https://github.com/spiraldb/vortex/pull/1384))
+
+### Other
+- :read_selection uses immutable reference ([#1295](https://github.com/spiraldb/vortex/pull/1295))
+- Move dispatcher into vortex io from vortex file ([#1385](https://github.com/spiraldb/vortex/pull/1385))
+- Remove TypedArray, make InnerArrayData non-pub ([#1378](https://github.com/spiraldb/vortex/pull/1378))
+- Change Datafusion integration to FileFormat instead of a TableProvider ([#1364](https://github.com/spiraldb/vortex/pull/1364))
+- Enable Clippy redundant clone check ([#1361](https://github.com/spiraldb/vortex/pull/1361))
+- Add TakeOptions to skip bounds checking ([#1343](https://github.com/spiraldb/vortex/pull/1343))
+- Remove BoolArray::from_vec ([#1332](https://github.com/spiraldb/vortex/pull/1332))
+
+## `vortex-zigzag` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-zigzag-v0.19.0...vortex-zigzag-v0.20.0) - 2024-11-26
+
+### Fixed
+- Remove redundant len/is_empty implementations on typed array structs ([#1384](https://github.com/spiraldb/vortex/pull/1384))
+
+### Other
+- Validity VTable ([#1454](https://github.com/spiraldb/vortex/pull/1454))
+- Remove ArrayCompute ([#1446](https://github.com/spiraldb/vortex/pull/1446))
+- Visitor VTable ([#1445](https://github.com/spiraldb/vortex/pull/1445))
+- StatsCompute VTable ([#1434](https://github.com/spiraldb/vortex/pull/1434))
+- ScalarAt VTable ([#1404](https://github.com/spiraldb/vortex/pull/1404))
+- Slice VTable ([#1398](https://github.com/spiraldb/vortex/pull/1398))
+- FilterFn vtable ([#1390](https://github.com/spiraldb/vortex/pull/1390))
+- Remove TypedArray, make InnerArrayData non-pub ([#1378](https://github.com/spiraldb/vortex/pull/1378))
+- Enable Clippy redundant clone check ([#1361](https://github.com/spiraldb/vortex/pull/1361))
+- Use enum map for stats instead of HashMap ([#1341](https://github.com/spiraldb/vortex/pull/1341))
+
+## `vortex-runend-bool` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-runend-bool-v0.19.0...vortex-runend-bool-v0.20.0) - 2024-11-26
+
+### Added
+- run end bool compressor ([#1355](https://github.com/spiraldb/vortex/pull/1355))
+
+### Fixed
+- RunEndBool stats and slice accounts for offsets ([#1428](https://github.com/spiraldb/vortex/pull/1428))
+- Remove redundant len/is_empty implementations on typed array structs ([#1384](https://github.com/spiraldb/vortex/pull/1384))
+
+### Other
+- Validity VTable ([#1454](https://github.com/spiraldb/vortex/pull/1454))
+- Remove ArrayCompute ([#1446](https://github.com/spiraldb/vortex/pull/1446))
+- Visitor VTable ([#1445](https://github.com/spiraldb/vortex/pull/1445))
+- StatsCompute VTable ([#1434](https://github.com/spiraldb/vortex/pull/1434))
+- ScalarAt VTable ([#1404](https://github.com/spiraldb/vortex/pull/1404))
+- Take VTable ([#1401](https://github.com/spiraldb/vortex/pull/1401))
+- Slice VTable ([#1398](https://github.com/spiraldb/vortex/pull/1398))
+- FilterFn vtable ([#1390](https://github.com/spiraldb/vortex/pull/1390))
+- Filter mask ([#1327](https://github.com/spiraldb/vortex/pull/1327))
+- Add TakeOptions to skip bounds checking ([#1343](https://github.com/spiraldb/vortex/pull/1343))
+- Use enum map for stats instead of HashMap ([#1341](https://github.com/spiraldb/vortex/pull/1341))
+- Remove BoolArray::from_vec ([#1332](https://github.com/spiraldb/vortex/pull/1332))
+
+## `vortex-runend` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-runend-v0.19.0...vortex-runend-v0.20.0) - 2024-11-26
+
+### Added
+- cache FilterMask iterators ([#1351](https://github.com/spiraldb/vortex/pull/1351))
+
+### Fixed
+- Remove redundant len/is_empty implementations on typed array structs ([#1384](https://github.com/spiraldb/vortex/pull/1384))
+
+### Other
+- Validity VTable ([#1454](https://github.com/spiraldb/vortex/pull/1454))
+- Remove ArrayCompute ([#1446](https://github.com/spiraldb/vortex/pull/1446))
+- Visitor VTable ([#1445](https://github.com/spiraldb/vortex/pull/1445))
+- StatsCompute VTable ([#1434](https://github.com/spiraldb/vortex/pull/1434))
+- SearchSorted Many Side ([#1427](https://github.com/spiraldb/vortex/pull/1427))
+- CompareFn VTable ([#1426](https://github.com/spiraldb/vortex/pull/1426))
+- Remove MaybeCompare and arrow-compatible compare impls ([#1418](https://github.com/spiraldb/vortex/pull/1418))
+- Search sorted usize ([#1410](https://github.com/spiraldb/vortex/pull/1410))
+- ScalarAt VTable ([#1404](https://github.com/spiraldb/vortex/pull/1404))
+- Take VTable ([#1401](https://github.com/spiraldb/vortex/pull/1401))
+- Slice VTable ([#1398](https://github.com/spiraldb/vortex/pull/1398))
+- FilterFn vtable ([#1390](https://github.com/spiraldb/vortex/pull/1390))
+- RunEnd compare preserves offset ([#1387](https://github.com/spiraldb/vortex/pull/1387))
+- Fix RunEndArray filter ([#1380](https://github.com/spiraldb/vortex/pull/1380))
+- Remove TypedArray, make InnerArrayData non-pub ([#1378](https://github.com/spiraldb/vortex/pull/1378))
+- Add helper function to unpack constant scalar out of array ([#1373](https://github.com/spiraldb/vortex/pull/1373))
+- Remove as_primitive ([#1376](https://github.com/spiraldb/vortex/pull/1376))
+- Support RunEnd array with bool values ([#1365](https://github.com/spiraldb/vortex/pull/1365))
+- Enable Clippy redundant clone check ([#1361](https://github.com/spiraldb/vortex/pull/1361))
+- Filter mask ([#1327](https://github.com/spiraldb/vortex/pull/1327))
+- Add TakeOptions to skip bounds checking ([#1343](https://github.com/spiraldb/vortex/pull/1343))
+- Implement filter for RunEnd array ([#1342](https://github.com/spiraldb/vortex/pull/1342))
+- Use enum map for stats instead of HashMap ([#1341](https://github.com/spiraldb/vortex/pull/1341))
+- Push-down compare function for Dictionary and RunEnd ([#1339](https://github.com/spiraldb/vortex/pull/1339))
+- Remove BoolArray::from_vec ([#1332](https://github.com/spiraldb/vortex/pull/1332))
+
+## `vortex-roaring` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-roaring-v0.19.0...vortex-roaring-v0.20.0) - 2024-11-26
+
+### Fixed
+- Remove redundant len/is_empty implementations on typed array structs ([#1384](https://github.com/spiraldb/vortex/pull/1384))
+- Bool arrays with one value and rest being nulls are not constant ([#1360](https://github.com/spiraldb/vortex/pull/1360))
+
+### Other
+- Validity VTable ([#1454](https://github.com/spiraldb/vortex/pull/1454))
+- Remove ArrayCompute ([#1446](https://github.com/spiraldb/vortex/pull/1446))
+- Visitor VTable ([#1445](https://github.com/spiraldb/vortex/pull/1445))
+- StatsCompute VTable ([#1434](https://github.com/spiraldb/vortex/pull/1434))
+- ScalarAt VTable ([#1404](https://github.com/spiraldb/vortex/pull/1404))
+- Slice VTable ([#1398](https://github.com/spiraldb/vortex/pull/1398))
+- FilterFn vtable ([#1390](https://github.com/spiraldb/vortex/pull/1390))
+- Remove TypedArray, make InnerArrayData non-pub ([#1378](https://github.com/spiraldb/vortex/pull/1378))
+- Filter mask ([#1327](https://github.com/spiraldb/vortex/pull/1327))
+- Use enum map for stats instead of HashMap ([#1341](https://github.com/spiraldb/vortex/pull/1341))
+- Remove BoolArray::from_vec ([#1332](https://github.com/spiraldb/vortex/pull/1332))
+
+## `vortex-fsst` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-fsst-v0.19.0...vortex-fsst-v0.20.0) - 2024-11-26
+
+### Added
+- cache FilterMask iterators ([#1351](https://github.com/spiraldb/vortex/pull/1351))
+
+### Fixed
+- Remove redundant len/is_empty implementations on typed array structs ([#1384](https://github.com/spiraldb/vortex/pull/1384))
+
+### Other
+- Validity VTable ([#1454](https://github.com/spiraldb/vortex/pull/1454))
+- Remove ArrayCompute ([#1446](https://github.com/spiraldb/vortex/pull/1446))
+- Visitor VTable ([#1445](https://github.com/spiraldb/vortex/pull/1445))
+- StatsCompute VTable ([#1434](https://github.com/spiraldb/vortex/pull/1434))
+- CompareFn VTable ([#1426](https://github.com/spiraldb/vortex/pull/1426))
+- Remove MaybeCompare and arrow-compatible compare impls ([#1418](https://github.com/spiraldb/vortex/pull/1418))
+- ScalarAt VTable ([#1404](https://github.com/spiraldb/vortex/pull/1404))
+- Take VTable ([#1401](https://github.com/spiraldb/vortex/pull/1401))
+- Slice VTable ([#1398](https://github.com/spiraldb/vortex/pull/1398))
+- FilterFn vtable ([#1390](https://github.com/spiraldb/vortex/pull/1390))
+- Remove TypedArray, make InnerArrayData non-pub ([#1378](https://github.com/spiraldb/vortex/pull/1378))
+- Add helper function to unpack constant scalar out of array ([#1373](https://github.com/spiraldb/vortex/pull/1373))
+- Remove as_primitive ([#1376](https://github.com/spiraldb/vortex/pull/1376))
+- Filter mask ([#1327](https://github.com/spiraldb/vortex/pull/1327))
+- Add TakeOptions to skip bounds checking ([#1343](https://github.com/spiraldb/vortex/pull/1343))
+- Use enum map for stats instead of HashMap ([#1341](https://github.com/spiraldb/vortex/pull/1341))
+
+## `vortex-sampling-compressor` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-sampling-compressor-v0.19.0...vortex-sampling-compressor-v0.20.0) - 2024-11-26
+
+### Added
+- split computations of stats for VarBin & VarBinView ([#1457](https://github.com/spiraldb/vortex/pull/1457))
+- run end bool compressor ([#1355](https://github.com/spiraldb/vortex/pull/1355))
+- add stat for uncompressed size in bytes ([#1315](https://github.com/spiraldb/vortex/pull/1315))
+
+### Fixed
+- FSST compress-like child indices ([#1480](https://github.com/spiraldb/vortex/pull/1480))
+- compress_noci benchmark broken on develop ([#1450](https://github.com/spiraldb/vortex/pull/1450))
+- CompressionTrees diverge from the actual array children  ([#1430](https://github.com/spiraldb/vortex/pull/1430))
+- Remove redundant len/is_empty implementations on typed array structs ([#1384](https://github.com/spiraldb/vortex/pull/1384))
+
+### Other
+- Hash and PartialEq EncodingId only by the numeric value ([#1391](https://github.com/spiraldb/vortex/pull/1391))
+- Remove TypedArray, make InnerArrayData non-pub ([#1378](https://github.com/spiraldb/vortex/pull/1378))
+- Add helper function to unpack constant scalar out of array ([#1373](https://github.com/spiraldb/vortex/pull/1373))
+- Remove as_primitive ([#1376](https://github.com/spiraldb/vortex/pull/1376))
+- Support RunEnd array with bool values ([#1365](https://github.com/spiraldb/vortex/pull/1365))
+
+## `vortex-ipc` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-ipc-v0.19.0...vortex-ipc-v0.20.0) - 2024-11-26
+
+### Added
+- VortexFileWriter is Send ([#1479](https://github.com/spiraldb/vortex/pull/1479))
+- eliminate VortexRead, replace with struct VortexBufReader ([#1349](https://github.com/spiraldb/vortex/pull/1349))
+
+### Fixed
+- restore reading of inline dtype layout ([#1442](https://github.com/spiraldb/vortex/pull/1442))
+
+### Other
+- FilterFn vtable ([#1390](https://github.com/spiraldb/vortex/pull/1390))
+- Remove TypedArray, make InnerArrayData non-pub ([#1378](https://github.com/spiraldb/vortex/pull/1378))
+- Move ArrayData into a module ([#1370](https://github.com/spiraldb/vortex/pull/1370))
+- Enable Clippy redundant clone check ([#1361](https://github.com/spiraldb/vortex/pull/1361))
+- Add TakeOptions to skip bounds checking ([#1343](https://github.com/spiraldb/vortex/pull/1343))
+
+## `vortex-io` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-io-v0.19.0...vortex-io-v0.20.0) - 2024-11-26
+
+### Added
+- implement SizeLimitedStream for backpressure ([#1477](https://github.com/spiraldb/vortex/pull/1477))
+- add optional instrumentation to readers ([#1431](https://github.com/spiraldb/vortex/pull/1431))
+- eliminate VortexRead, replace with struct VortexBufReader ([#1349](https://github.com/spiraldb/vortex/pull/1349))
+
+### Fixed
+- allocate aligned buffers for VortexReadAt impls ([#1456](https://github.com/spiraldb/vortex/pull/1456))
+
+### Other
+- Make the VortexReadAt::size method return an io::Result ([#1471](https://github.com/spiraldb/vortex/pull/1471))
+- Update name of thread and set max blocking threads to once ([#1419](https://github.com/spiraldb/vortex/pull/1419))
+- Move dispatcher into vortex io from vortex file ([#1385](https://github.com/spiraldb/vortex/pull/1385))
+
+## `vortex-file` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-file-v0.19.0...vortex-file-v0.20.0) - 2024-11-26
+
+### Added
+- VortexFileWriter is Send ([#1479](https://github.com/spiraldb/vortex/pull/1479))
+- support Identity in pruner ([#1441](https://github.com/spiraldb/vortex/pull/1441))
+- RowFilter is a valid pruning predicate ([#1438](https://github.com/spiraldb/vortex/pull/1438))
+- teach PruningPredicate to evaluate itself against a stats table ([#1436](https://github.com/spiraldb/vortex/pull/1436))
+- add optional instrumentation to readers ([#1431](https://github.com/spiraldb/vortex/pull/1431))
+- teach ChunkedLayout how to read metadata ([#1399](https://github.com/spiraldb/vortex/pull/1399))
+- don't write leading/trailing zero histograms into file ([#1372](https://github.com/spiraldb/vortex/pull/1372))
+- cache FilterMask iterators ([#1351](https://github.com/spiraldb/vortex/pull/1351))
+- eliminate VortexRead, replace with struct VortexBufReader ([#1349](https://github.com/spiraldb/vortex/pull/1349))
+
+### Fixed
+- allocate aligned buffers for VortexReadAt impls ([#1456](https://github.com/spiraldb/vortex/pull/1456))
+- restore reading of inline dtype layout ([#1442](https://github.com/spiraldb/vortex/pull/1442))
+- required stats are relations not maps ([#1432](https://github.com/spiraldb/vortex/pull/1432))
+- Stop producing empty row masks in chunked reader ([#1429](https://github.com/spiraldb/vortex/pull/1429))
+- Remove redundant len/is_empty implementations on typed array structs ([#1384](https://github.com/spiraldb/vortex/pull/1384))
+
+### Other
+- Make the VortexReadAt::size method return an io::Result ([#1471](https://github.com/spiraldb/vortex/pull/1471))
+- Remove array iterators ([#1451](https://github.com/spiraldb/vortex/pull/1451))
+- :read_selection uses immutable reference ([#1295](https://github.com/spiraldb/vortex/pull/1295))
+- introduce not_prunable ([#1435](https://github.com/spiraldb/vortex/pull/1435))
+- test filter conditions interacting with chunks ([#1400](https://github.com/spiraldb/vortex/pull/1400))
+- FilterFn vtable ([#1390](https://github.com/spiraldb/vortex/pull/1390))
+- Reset ColumnarBatchReader state when short circuiting ([#1386](https://github.com/spiraldb/vortex/pull/1386))
+- Move dispatcher into vortex io from vortex file ([#1385](https://github.com/spiraldb/vortex/pull/1385))
+- Remove TypedArray, make InnerArrayData non-pub ([#1378](https://github.com/spiraldb/vortex/pull/1378))
+- Remove as_primitive ([#1376](https://github.com/spiraldb/vortex/pull/1376))
+- Change Datafusion integration to FileFormat instead of a TableProvider ([#1364](https://github.com/spiraldb/vortex/pull/1364))
+- Use SplitIterator in layout tests ([#1363](https://github.com/spiraldb/vortex/pull/1363))
+- Enable Clippy redundant clone check ([#1361](https://github.com/spiraldb/vortex/pull/1361))
+- RowMasks use bitmasks instead of bitmaps ([#1346](https://github.com/spiraldb/vortex/pull/1346))
+- Filter mask ([#1327](https://github.com/spiraldb/vortex/pull/1327))
+- Add TakeOptions to skip bounds checking ([#1343](https://github.com/spiraldb/vortex/pull/1343))
+- Remove BoolArray::from_vec ([#1332](https://github.com/spiraldb/vortex/pull/1332))
+
+## `vortex-expr` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-expr-v0.19.0...vortex-expr-v0.20.0) - 2024-11-26
+
+### Added
+- support Identity in pruner ([#1441](https://github.com/spiraldb/vortex/pull/1441))
+
+### Other
+- Remove TypedArray, make InnerArrayData non-pub ([#1378](https://github.com/spiraldb/vortex/pull/1378))
+- Change Datafusion integration to FileFormat instead of a TableProvider ([#1364](https://github.com/spiraldb/vortex/pull/1364))
+- Remove BoolArray::from_vec ([#1332](https://github.com/spiraldb/vortex/pull/1332))
+
+## `vortex-dict` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-dict-v0.19.0...vortex-dict-v0.20.0) - 2024-11-26
+
+### Added
+- cache FilterMask iterators ([#1351](https://github.com/spiraldb/vortex/pull/1351))
+
+### Fixed
+- CompressionTrees diverge from the actual array children  ([#1430](https://github.com/spiraldb/vortex/pull/1430))
+- Remove redundant len/is_empty implementations on typed array structs ([#1384](https://github.com/spiraldb/vortex/pull/1384))
+
+### Other
+- Validity VTable ([#1454](https://github.com/spiraldb/vortex/pull/1454))
+- Implement NBytes only using visitor ([#1449](https://github.com/spiraldb/vortex/pull/1449))
+- Remove ArrayCompute ([#1446](https://github.com/spiraldb/vortex/pull/1446))
+- Visitor VTable ([#1445](https://github.com/spiraldb/vortex/pull/1445))
+- StatsCompute VTable ([#1434](https://github.com/spiraldb/vortex/pull/1434))
+- CompareFn VTable ([#1426](https://github.com/spiraldb/vortex/pull/1426))
+- Remove MaybeCompare and arrow-compatible compare impls ([#1418](https://github.com/spiraldb/vortex/pull/1418))
+- ScalarAt VTable ([#1404](https://github.com/spiraldb/vortex/pull/1404))
+- Take VTable ([#1401](https://github.com/spiraldb/vortex/pull/1401))
+- Slice VTable ([#1398](https://github.com/spiraldb/vortex/pull/1398))
+- FilterFn vtable ([#1390](https://github.com/spiraldb/vortex/pull/1390))
+- Remove TypedArray, make InnerArrayData non-pub ([#1378](https://github.com/spiraldb/vortex/pull/1378))
+- Add helper function to unpack constant scalar out of array ([#1373](https://github.com/spiraldb/vortex/pull/1373))
+- Enable Clippy redundant clone check ([#1361](https://github.com/spiraldb/vortex/pull/1361))
+- Filter mask ([#1327](https://github.com/spiraldb/vortex/pull/1327))
+- Add TakeOptions to skip bounds checking ([#1343](https://github.com/spiraldb/vortex/pull/1343))
+- Use enum map for stats instead of HashMap ([#1341](https://github.com/spiraldb/vortex/pull/1341))
+- Push-down compare function for Dictionary and RunEnd ([#1339](https://github.com/spiraldb/vortex/pull/1339))
+
+## `vortex-datetime-parts` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-datetime-parts-v0.19.0...vortex-datetime-parts-v0.20.0) - 2024-11-26
+
+### Fixed
+- Remove redundant len/is_empty implementations on typed array structs ([#1384](https://github.com/spiraldb/vortex/pull/1384))
+
+### Other
+- Validity VTable ([#1454](https://github.com/spiraldb/vortex/pull/1454))
+- Remove ArrayCompute ([#1446](https://github.com/spiraldb/vortex/pull/1446))
+- Visitor VTable ([#1445](https://github.com/spiraldb/vortex/pull/1445))
+- StatsCompute VTable ([#1434](https://github.com/spiraldb/vortex/pull/1434))
+- ScalarAt VTable ([#1404](https://github.com/spiraldb/vortex/pull/1404))
+- Take VTable ([#1401](https://github.com/spiraldb/vortex/pull/1401))
+- Slice VTable ([#1398](https://github.com/spiraldb/vortex/pull/1398))
+- FilterFn vtable ([#1390](https://github.com/spiraldb/vortex/pull/1390))
+- Remove TypedArray, make InnerArrayData non-pub ([#1378](https://github.com/spiraldb/vortex/pull/1378))
+- Remove as_primitive ([#1376](https://github.com/spiraldb/vortex/pull/1376))
+- Enable Clippy redundant clone check ([#1361](https://github.com/spiraldb/vortex/pull/1361))
+- Add TakeOptions to skip bounds checking ([#1343](https://github.com/spiraldb/vortex/pull/1343))
+- Use enum map for stats instead of HashMap ([#1341](https://github.com/spiraldb/vortex/pull/1341))
+- Remove BoolArray::from_vec ([#1332](https://github.com/spiraldb/vortex/pull/1332))
+
+## `vortex-bytebool` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-bytebool-v0.19.0...vortex-bytebool-v0.20.0) - 2024-11-26
+
+### Fixed
+- Remove redundant len/is_empty implementations on typed array structs ([#1384](https://github.com/spiraldb/vortex/pull/1384))
+
+### Other
+- Validity VTable ([#1454](https://github.com/spiraldb/vortex/pull/1454))
+- Remove ArrayCompute ([#1446](https://github.com/spiraldb/vortex/pull/1446))
+- Visitor VTable ([#1445](https://github.com/spiraldb/vortex/pull/1445))
+- StatsCompute VTable ([#1434](https://github.com/spiraldb/vortex/pull/1434))
+- FillForward VTable ([#1405](https://github.com/spiraldb/vortex/pull/1405))
+- ScalarAt VTable ([#1404](https://github.com/spiraldb/vortex/pull/1404))
+- Take VTable ([#1401](https://github.com/spiraldb/vortex/pull/1401))
+- Slice VTable ([#1398](https://github.com/spiraldb/vortex/pull/1398))
+- FilterFn vtable ([#1390](https://github.com/spiraldb/vortex/pull/1390))
+- Remove TypedArray, make InnerArrayData non-pub ([#1378](https://github.com/spiraldb/vortex/pull/1378))
+- Remove as_primitive ([#1376](https://github.com/spiraldb/vortex/pull/1376))
+- Enable Clippy redundant clone check ([#1361](https://github.com/spiraldb/vortex/pull/1361))
+- Filter mask ([#1327](https://github.com/spiraldb/vortex/pull/1327))
+- Add TakeOptions to skip bounds checking ([#1343](https://github.com/spiraldb/vortex/pull/1343))
+- Use enum map for stats instead of HashMap ([#1341](https://github.com/spiraldb/vortex/pull/1341))
+- Remove BoolArray::from_vec ([#1332](https://github.com/spiraldb/vortex/pull/1332))
+
+## `vortex-fastlanes` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-fastlanes-v0.19.0...vortex-fastlanes-v0.20.0) - 2024-11-26
+
+### Added
+- cache FilterMask iterators ([#1351](https://github.com/spiraldb/vortex/pull/1351))
+
+### Fixed
+- CompressionTrees diverge from the actual array children  ([#1430](https://github.com/spiraldb/vortex/pull/1430))
+- BitPackedArray filter correctly stores fully unpacked chunks ([#1393](https://github.com/spiraldb/vortex/pull/1393))
+- Remove redundant len/is_empty implementations on typed array structs ([#1384](https://github.com/spiraldb/vortex/pull/1384))
+
+### Other
+- Validity VTable ([#1454](https://github.com/spiraldb/vortex/pull/1454))
+- Implement NBytes only using visitor ([#1449](https://github.com/spiraldb/vortex/pull/1449))
+- Remove ArrayCompute ([#1446](https://github.com/spiraldb/vortex/pull/1446))
+- Visitor VTable ([#1445](https://github.com/spiraldb/vortex/pull/1445))
+- StatsCompute VTable ([#1434](https://github.com/spiraldb/vortex/pull/1434))
+- SearchSorted Many Side ([#1427](https://github.com/spiraldb/vortex/pull/1427))
+- SearchSorted VTable ([#1414](https://github.com/spiraldb/vortex/pull/1414))
+- Search sorted usize ([#1410](https://github.com/spiraldb/vortex/pull/1410))
+- ScalarAt VTable ([#1404](https://github.com/spiraldb/vortex/pull/1404))
+- Take VTable ([#1401](https://github.com/spiraldb/vortex/pull/1401))
+- Slice VTable ([#1398](https://github.com/spiraldb/vortex/pull/1398))
+- Hash and PartialEq EncodingId only by the numeric value ([#1391](https://github.com/spiraldb/vortex/pull/1391))
+- FilterFn vtable ([#1390](https://github.com/spiraldb/vortex/pull/1390))
+- Remove TypedArray, make InnerArrayData non-pub ([#1378](https://github.com/spiraldb/vortex/pull/1378))
+- Add helper function to unpack constant scalar out of array ([#1373](https://github.com/spiraldb/vortex/pull/1373))
+- Implement FilterFn for BitPackedArray ([#1356](https://github.com/spiraldb/vortex/pull/1356))
+- Filter mask ([#1327](https://github.com/spiraldb/vortex/pull/1327))
+- Add TakeOptions to skip bounds checking ([#1343](https://github.com/spiraldb/vortex/pull/1343))
+- Use enum map for stats instead of HashMap ([#1341](https://github.com/spiraldb/vortex/pull/1341))
+- Remove BoolArray::from_vec ([#1332](https://github.com/spiraldb/vortex/pull/1332))
+
+## `vortex-scalar` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-scalar-v0.19.0...vortex-scalar-v0.20.0) - 2024-11-26
+
+### Other
+- PValue PartialEq uses NativePType aware equality ([#1374](https://github.com/spiraldb/vortex/pull/1374))
+
+## `vortex-flatbuffers` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-flatbuffers-v0.19.0...vortex-flatbuffers-v0.20.0) - 2024-11-26
+
+### Added
+- add stat for uncompressed size in bytes ([#1315](https://github.com/spiraldb/vortex/pull/1315))
+
+## `vortex-dtype` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-dtype-v0.19.0...vortex-dtype-v0.20.0) - 2024-11-26
+
+### Other
+- :read_selection uses immutable reference ([#1295](https://github.com/spiraldb/vortex/pull/1295))
+
+## `vortex-buffer` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-buffer-v0.19.0...vortex-buffer-v0.20.0) - 2024-11-26
+
+### Added
+- VortexFileWriter is Send ([#1479](https://github.com/spiraldb/vortex/pull/1479))
+
+### Other
+- Always zero-copy from VortexBuffer to ArrowBuffer ([#1348](https://github.com/spiraldb/vortex/pull/1348))
+
+## `vortex-array` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-array-v0.19.0...vortex-array-v0.20.0) - 2024-11-26
+
+### Added
+- split computations of stats for VarBin & VarBinView ([#1457](https://github.com/spiraldb/vortex/pull/1457))
+- don't write leading/trailing zero histograms into file ([#1372](https://github.com/spiraldb/vortex/pull/1372))
+- add stat for uncompressed size in bytes ([#1315](https://github.com/spiraldb/vortex/pull/1315))
+- cache FilterMask iterators ([#1351](https://github.com/spiraldb/vortex/pull/1351))
+
+### Fixed
+- CompressionTrees diverge from the actual array children  ([#1430](https://github.com/spiraldb/vortex/pull/1430))
+- Remove redundant len/is_empty implementations on typed array structs ([#1384](https://github.com/spiraldb/vortex/pull/1384))
+- Bool arrays with one value and rest being nulls are not constant ([#1360](https://github.com/spiraldb/vortex/pull/1360))
+
+### Other
+- Use array len as denominator for selectivity ([#1468](https://github.com/spiraldb/vortex/pull/1468))
+- Validity VTable ([#1454](https://github.com/spiraldb/vortex/pull/1454))
+- Remove array iterators ([#1451](https://github.com/spiraldb/vortex/pull/1451))
+- Implement NBytes only using visitor ([#1449](https://github.com/spiraldb/vortex/pull/1449))
+- Remove ArrayCompute ([#1446](https://github.com/spiraldb/vortex/pull/1446))
+- Visitor VTable ([#1445](https://github.com/spiraldb/vortex/pull/1445))
+- StatsCompute VTable ([#1434](https://github.com/spiraldb/vortex/pull/1434))
+- SearchSorted Many Side ([#1427](https://github.com/spiraldb/vortex/pull/1427))
+- CompareFn VTable ([#1426](https://github.com/spiraldb/vortex/pull/1426))
+- Subtract scalar VTable ([#1422](https://github.com/spiraldb/vortex/pull/1422))
+- Remove MaybeCompare and arrow-compatible compare impls ([#1418](https://github.com/spiraldb/vortex/pull/1418))
+- SearchSorted VTable ([#1414](https://github.com/spiraldb/vortex/pull/1414))
+- Binary Boolean VTable ([#1407](https://github.com/spiraldb/vortex/pull/1407))
+- Search sorted usize ([#1410](https://github.com/spiraldb/vortex/pull/1410))
+- FillForward VTable ([#1405](https://github.com/spiraldb/vortex/pull/1405))
+- ScalarAt VTable ([#1404](https://github.com/spiraldb/vortex/pull/1404))
+- test filter conditions interacting with chunks ([#1400](https://github.com/spiraldb/vortex/pull/1400))
+- Take VTable ([#1401](https://github.com/spiraldb/vortex/pull/1401))
+- Slice VTable ([#1398](https://github.com/spiraldb/vortex/pull/1398))
+- Cast VTable ([#1397](https://github.com/spiraldb/vortex/pull/1397))
+- Fix metadata printing ([#1392](https://github.com/spiraldb/vortex/pull/1392))
+- Hash and PartialEq EncodingId only by the numeric value ([#1391](https://github.com/spiraldb/vortex/pull/1391))
+- FilterFn vtable ([#1390](https://github.com/spiraldb/vortex/pull/1390))
+- Load metadata in ViewedArrayData ([#1383](https://github.com/spiraldb/vortex/pull/1383))
+- Remove TypedArray, make InnerArrayData non-pub ([#1378](https://github.com/spiraldb/vortex/pull/1378))
+- Add helper function to unpack constant scalar out of array ([#1373](https://github.com/spiraldb/vortex/pull/1373))
+- Remove as_primitive ([#1376](https://github.com/spiraldb/vortex/pull/1376))
+- Move ArrayData into a module ([#1370](https://github.com/spiraldb/vortex/pull/1370))
+- Change Datafusion integration to FileFormat instead of a TableProvider ([#1364](https://github.com/spiraldb/vortex/pull/1364))
+- Support RunEnd array with bool values ([#1365](https://github.com/spiraldb/vortex/pull/1365))
+- Implement FilterFn for BitPackedArray ([#1356](https://github.com/spiraldb/vortex/pull/1356))
+- Enable Clippy redundant clone check ([#1361](https://github.com/spiraldb/vortex/pull/1361))
+- Avoid unnecessary backtrace generation ([#1353](https://github.com/spiraldb/vortex/pull/1353))
+- Filter mask ([#1327](https://github.com/spiraldb/vortex/pull/1327))
+- Implement VarBinView take using ScalarBuffer selection ([#1344](https://github.com/spiraldb/vortex/pull/1344))
+- Fix compression benchmarks ([#1345](https://github.com/spiraldb/vortex/pull/1345))
+- Add TakeOptions to skip bounds checking ([#1343](https://github.com/spiraldb/vortex/pull/1343))
+- Use enum map for stats instead of HashMap ([#1341](https://github.com/spiraldb/vortex/pull/1341))
+- Push-down compare function for Dictionary and RunEnd ([#1339](https://github.com/spiraldb/vortex/pull/1339))
+- Remove primitive compare impl ([#1337](https://github.com/spiraldb/vortex/pull/1337))
+- Use arrow scalars for cmp where possible ([#1334](https://github.com/spiraldb/vortex/pull/1334))
+- Remove BoolArray::from_vec ([#1332](https://github.com/spiraldb/vortex/pull/1332))
+
+## `vortex-alp` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-alp-v0.19.0...vortex-alp-v0.20.0) - 2024-11-26
+
+### Added
+- cache FilterMask iterators ([#1351](https://github.com/spiraldb/vortex/pull/1351))
+
+### Fixed
+- Remove redundant len/is_empty implementations on typed array structs ([#1384](https://github.com/spiraldb/vortex/pull/1384))
+
+### Other
+- Validity VTable ([#1454](https://github.com/spiraldb/vortex/pull/1454))
+- Remove array iterators ([#1451](https://github.com/spiraldb/vortex/pull/1451))
+- Remove ArrayCompute ([#1446](https://github.com/spiraldb/vortex/pull/1446))
+- Visitor VTable ([#1445](https://github.com/spiraldb/vortex/pull/1445))
+- StatsCompute VTable ([#1434](https://github.com/spiraldb/vortex/pull/1434))
+- CompareFn VTable ([#1426](https://github.com/spiraldb/vortex/pull/1426))
+- Remove MaybeCompare and arrow-compatible compare impls ([#1418](https://github.com/spiraldb/vortex/pull/1418))
+- ScalarAt VTable ([#1404](https://github.com/spiraldb/vortex/pull/1404))
+- Take VTable ([#1401](https://github.com/spiraldb/vortex/pull/1401))
+- Slice VTable ([#1398](https://github.com/spiraldb/vortex/pull/1398))
+- Hash and PartialEq EncodingId only by the numeric value ([#1391](https://github.com/spiraldb/vortex/pull/1391))
+- FilterFn vtable ([#1390](https://github.com/spiraldb/vortex/pull/1390))
+- Remove TypedArray, make InnerArrayData non-pub ([#1378](https://github.com/spiraldb/vortex/pull/1378))
+- Add helper function to unpack constant scalar out of array ([#1373](https://github.com/spiraldb/vortex/pull/1373))
+- Remove as_primitive ([#1376](https://github.com/spiraldb/vortex/pull/1376))
+- Filter mask ([#1327](https://github.com/spiraldb/vortex/pull/1327))
+- Add TakeOptions to skip bounds checking ([#1343](https://github.com/spiraldb/vortex/pull/1343))
+- Use enum map for stats instead of HashMap ([#1341](https://github.com/spiraldb/vortex/pull/1341))
+- Remove BoolArray::from_vec ([#1332](https://github.com/spiraldb/vortex/pull/1332))
+
+## `vortex` - [0.20.0](https://github.com/spiraldb/vortex/compare/0.19.0...0.20.0) - 2024-11-26
+
+### Other
+- :read_selection uses immutable reference ([#1295](https://github.com/spiraldb/vortex/pull/1295))
+- Move dispatcher into vortex io from vortex file ([#1385](https://github.com/spiraldb/vortex/pull/1385))
+
 ## `vortex-ipc` - [0.19.0](https://github.com/spiraldb/vortex/compare/vortex-ipc-v0.18.1...vortex-ipc-v0.19.0) - 2024-11-15
 
 ### Added

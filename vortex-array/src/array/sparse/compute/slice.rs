@@ -16,7 +16,7 @@ impl SliceFn<SparseArray> for SparseEncoding {
             slice(array.values(), index_start_index, index_end_index)?,
             stop - start,
             array.indices_offset() + start,
-            array.fill_value().clone(),
+            array.fill_scalar(),
         )?
         .into_array())
     }

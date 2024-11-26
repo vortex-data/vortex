@@ -16,7 +16,7 @@ use vortex_array::{ArrayDType, IntoArrayData};
 use vortex_dtype::{DType, NativePType};
 use vortex_error::{VortexExpect, VortexUnwrap};
 use vortex_fastlanes::bitpack_encode_unchecked;
-use vortex_scalar::ScalarValue;
+use vortex_scalar::Scalar;
 
 use crate::match_each_alp_float_ptype;
 
@@ -234,9 +234,15 @@ impl RDEncoder {
             };
 
             let exc_array = PrimitiveArray::from_vec(exceptions, Validity::AllValid).into_array();
-            SparseArray::try_new(packed_pos, exc_array, doubles.len(), ScalarValue::Null)
-                .vortex_expect("ALP-RD: construction of exceptions SparseArray")
-                .into_array()
+            let nullable_dtype = exc_array.dtype().as_nullable();
+            SparseArray::try_new(
+                packed_pos,
+                exc_array,
+                doubles.len(),
+                Scalar::null(nullable_dtype),
+            )
+            .vortex_expect("ALP-RD: construction of exceptions SparseArray")
+            .into_array()
         });
 
         ALPRDArray::try_new(

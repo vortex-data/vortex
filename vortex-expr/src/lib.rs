@@ -83,7 +83,7 @@ pub fn unbox_any(any: &dyn Any) -> &dyn Any {
 mod tests {
     use vortex_dtype::field::Field;
     use vortex_dtype::{DType, Nullability, PType, StructDType};
-    use vortex_scalar::{Scalar, ScalarValue};
+    use vortex_scalar::Scalar;
 
     use super::*;
 
@@ -200,7 +200,7 @@ mod tests {
         );
 
         assert_eq!(
-            Literal::new_expr(Scalar::new(
+            Literal::new_expr(Scalar::struct_(
                 DType::Struct(
                     StructDType::new(
                         Arc::from([Arc::from("dog"), Arc::from("cat")]),
@@ -211,10 +211,7 @@ mod tests {
                     ),
                     Nullability::NonNullable
                 ),
-                ScalarValue::List(Arc::from([
-                    ScalarValue::from(32_u32),
-                    ScalarValue::from("rufus".to_string())
-                ]))
+                vec![Scalar::from(32_u32), Scalar::from("rufus".to_string())]
             ))
             .to_string(),
             "{dog:32_u32,cat:rufus}"

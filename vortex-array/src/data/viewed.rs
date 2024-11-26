@@ -4,9 +4,9 @@ use std::sync::Arc;
 use enum_iterator::all;
 use itertools::Itertools;
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, Nullability};
+use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_err, VortexExpect as _, VortexResult};
-use vortex_scalar::{PValue, Scalar, ScalarValue};
+use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::encoding::opaque::OpaqueEncoding;
 use crate::encoding::EncodingRef;
@@ -161,21 +161,15 @@ impl Statistics for ViewedArrayData {
             Stat::RunCount => self.flatbuffer().stats()?.run_count().map(u64::into),
             Stat::TrueCount => self.flatbuffer().stats()?.true_count().map(u64::into),
             Stat::NullCount => self.flatbuffer().stats()?.null_count().map(u64::into),
-            Stat::BitWidthFreq => self
-                .flatbuffer()
-                .stats()?
-                .bit_width_freq()
-                .map(|v| {
-                    v.iter()
-                        .map(|v| ScalarValue::Primitive(PValue::U64(v)))
-                        .collect_vec()
-                })
-                .map(|v| {
-                    Scalar::list(
-                        DType::Primitive(vortex_dtype::PType::U64, Nullability::NonNullable),
-                        v,
-                    )
-                }),
+            Stat::BitWidthFreq => {
+                let element_dtype =
+                    Arc::new(DType::Primitive(PType::U64, Nullability::NonNullable));
+                self.flatbuffer()
+                    .stats()?
+                    .bit_width_freq()
+                    .map(|v| v.iter().map(Scalar::from).collect_vec())
+                    .map(|v| Scalar::list(element_dtype, v))
+            }
             Stat::TrailingZeroFreq => self
                 .flatbuffer()
                 .stats()?

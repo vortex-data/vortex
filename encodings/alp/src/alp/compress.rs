@@ -4,7 +4,7 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::{NativePType, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
-use vortex_scalar::ScalarValue;
+use vortex_scalar::{Scalar, ScalarType};
 
 use crate::alp::{ALPArray, ALPFloat};
 use crate::Exponents;
@@ -31,6 +31,7 @@ pub fn alp_encode_components<T>(
 where
     T: ALPFloat + NativePType,
     T::ALPInt: NativePType,
+    T: ScalarType,
 {
     let (exponents, encoded, exc_pos, exc) = T::encode(values.maybe_null_slice::<T>(), exponents);
     let len = encoded.len();
@@ -42,7 +43,7 @@ where
                 PrimitiveArray::from(exc_pos).into_array(),
                 PrimitiveArray::from_vec(exc, Validity::AllValid).into_array(),
                 len,
-                ScalarValue::Null,
+                Scalar::null_typed::<T>(),
             )
             .vortex_expect("Failed to create SparseArray for ALP patches")
             .into_array()

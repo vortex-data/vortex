@@ -7,7 +7,7 @@ use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_datetime_dtype::{TemporalMetadata, TimeUnit};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexResult};
-use vortex_scalar::{Scalar, ScalarValue};
+use vortex_scalar::Scalar;
 
 use crate::{DateTimePartsArray, DateTimePartsEncoding};
 
@@ -74,7 +74,7 @@ impl ScalarAtFn<DateTimePartsArray> for DateTimePartsEncoding {
         };
 
         if !array.is_valid(index) {
-            return Ok(Scalar::extension(ext, ScalarValue::Null));
+            return Ok(Scalar::null(DType::Extension(ext)));
         }
 
         let divisor = match time_unit {
@@ -91,7 +91,7 @@ impl ScalarAtFn<DateTimePartsArray> for DateTimePartsEncoding {
 
         let scalar = days * 86_400 * divisor + seconds * divisor + subseconds;
 
-        Ok(Scalar::extension(ext, scalar.into()))
+        Ok(Scalar::extension(ext, Scalar::from(scalar)))
     }
 }
 

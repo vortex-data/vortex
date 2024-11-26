@@ -168,10 +168,10 @@ mod tests {
 
         let r = r.into_bool().unwrap().into_array();
 
-        let v0 = scalar_at(&r, 0).unwrap().value().as_bool().unwrap();
-        let v1 = scalar_at(&r, 1).unwrap().value().as_bool().unwrap();
-        let v2 = scalar_at(&r, 2).unwrap().value().as_bool().unwrap();
-        let v3 = scalar_at(&r, 3).unwrap().value().as_bool().unwrap();
+        let v0 = scalar_at(&r, 0).unwrap().as_bool().value();
+        let v1 = scalar_at(&r, 1).unwrap().as_bool().value();
+        let v2 = scalar_at(&r, 2).unwrap().as_bool().value();
+        let v3 = scalar_at(&r, 3).unwrap().as_bool().value();
 
         assert!(v0.unwrap());
         assert!(v1.unwrap());
@@ -188,10 +188,10 @@ mod tests {
     fn test_and(#[case] lhs: ArrayData, #[case] rhs: ArrayData) {
         let r = and(&lhs, &rhs).unwrap().into_bool().unwrap().into_array();
 
-        let v0 = scalar_at(&r, 0).unwrap().value().as_bool().unwrap();
-        let v1 = scalar_at(&r, 1).unwrap().value().as_bool().unwrap();
-        let v2 = scalar_at(&r, 2).unwrap().value().as_bool().unwrap();
-        let v3 = scalar_at(&r, 3).unwrap().value().as_bool().unwrap();
+        let v0 = scalar_at(&r, 0).unwrap().as_bool().value();
+        let v1 = scalar_at(&r, 1).unwrap().as_bool().value();
+        let v2 = scalar_at(&r, 2).unwrap().as_bool().value();
+        let v3 = scalar_at(&r, 3).unwrap().as_bool().value();
 
         assert!(v0.unwrap());
         assert!(!v1.unwrap());

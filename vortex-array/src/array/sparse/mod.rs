@@ -43,7 +43,7 @@ impl SparseArray {
         indices: ArrayData,
         values: ArrayData,
         len: usize,
-        fill_value: ScalarValue,
+        fill_value: Scalar,
     ) -> VortexResult<Self> {
         Self::try_new_with_offset(indices, values, len, 0, fill_value)
     }
@@ -53,12 +53,12 @@ impl SparseArray {
         values: ArrayData,
         len: usize,
         indices_offset: usize,
-        fill_value: ScalarValue,
+        fill_value: Scalar,
     ) -> VortexResult<Self> {
         if !matches!(indices.dtype(), &DType::IDX | &DType::IDX_32) {
             vortex_bail!("Cannot use {} as indices", indices.dtype());
         }
-        if !fill_value.is_instance_of(values.dtype()) {
+        if fill_value.dtype() != values.dtype() {
             vortex_bail!(
                 "fill value, {:?}, should be instance of values dtype, {}",
                 fill_value,
@@ -87,7 +87,7 @@ impl SparseArray {
             SparseMetadata {
                 indices_offset,
                 indices_len: indices.len(),
-                fill_value,
+                fill_value: fill_value.into_value(),
                 u64_indices: matches!(indices.dtype(), &DType::IDX),
             },
             [indices, values].into(),
@@ -123,13 +123,8 @@ impl SparseArray {
     }
 
     #[inline]
-    pub fn fill_value(&self) -> &ScalarValue {
-        &self.metadata().fill_value
-    }
-
-    #[inline]
     pub fn fill_scalar(&self) -> Scalar {
-        Scalar::new(self.dtype().clone(), self.fill_value().clone())
+        Scalar::new(self.dtype().clone(), self.metadata().fill_value.clone())
     }
 
     /// Returns the position or the insertion point of a given index in the indices array.
@@ -200,10 +195,10 @@ impl StatisticsVTable<SparseArray> for SparseEncoding {
         }
 
         let fill_len = array.len() - array.values().len();
-        let fill_stats = if array.fill_value().is_null() {
+        let fill_stats = if array.fill_scalar().is_null() {
             StatsSet::nulls(fill_len, array.dtype())
         } else {
-            StatsSet::constant(array.fill_scalar(), fill_len)
+            StatsSet::constant(&array.fill_scalar(), fill_len)
         };
 
         if array.values().is_empty() {
@@ -218,14 +213,14 @@ impl StatisticsVTable<SparseArray> for SparseEncoding {
 impl ValidityVTable<SparseArray> for SparseEncoding {
     fn is_valid(&self, array: &SparseArray, index: usize) -> bool {
         match array.search_index(index).map(SearchResult::to_found) {
-            Ok(None) => !array.fill_value().is_null(),
+            Ok(None) => !array.fill_scalar().is_null(),
             Ok(Some(idx)) => array.values().with_dyn(|a| a.is_valid(idx)),
             Err(e) => vortex_panic!(e, "Error while finding index {} in sparse array", index),
         }
     }
 
     fn logical_validity(&self, array: &SparseArray) -> LogicalValidity {
-        let validity = if array.fill_value().is_null() {
+        let validity = if array.fill_scalar().is_null() {
             // If we have a null fill value, then the result is a Sparse array with a fill_value
             // of true, and patch values of false.
             SparseArray::try_new_with_offset(
@@ -279,14 +274,9 @@ mod test {
         let mut values = vec![100i32, 200, 300].into_array();
         values = try_cast(&values, fill_value.dtype()).unwrap();
 
-        SparseArray::try_new(
-            vec![2u64, 5, 8].into_array(),
-            values,
-            10,
-            fill_value.value().clone(),
-        )
-        .unwrap()
-        .into_array()
+        SparseArray::try_new(vec![2u64, 5, 8].into_array(), values, 10, fill_value)
+            .unwrap()
+            .into_array()
     }
 
     #[test]

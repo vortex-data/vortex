@@ -9,6 +9,8 @@
 
 pub use buf::*;
 pub use dispatcher::*;
+#[cfg(feature = "tokio")]
+pub use limit::*;
 #[cfg(feature = "object_store")]
 pub use object_store::*;
 pub use read::*;
@@ -16,10 +18,13 @@ pub use read::*;
 pub use tokio::*;
 pub use write::*;
 
+mod aligned;
 mod buf;
 #[cfg(feature = "compio")]
 mod compio;
 mod dispatcher;
+#[cfg(feature = "tokio")]
+mod limit;
 #[cfg(feature = "object_store")]
 mod object_store;
 pub mod offset;
@@ -27,3 +32,6 @@ mod read;
 #[cfg(feature = "tokio")]
 mod tokio;
 mod write;
+
+/// Required alignment for all custom buffer allocations.
+pub const ALIGNMENT: usize = 64;

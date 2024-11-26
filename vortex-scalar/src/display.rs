@@ -3,12 +3,13 @@ use std::fmt::{Display, Formatter};
 use itertools::Itertools;
 use vortex_datetime_dtype::{is_temporal_ext_type, TemporalMetadata};
 use vortex_dtype::DType;
+use vortex_error::vortex_panic;
 
 use crate::binary::BinaryScalar;
 use crate::extension::ExtScalar;
 use crate::struct_::StructScalar;
 use crate::utf8::Utf8Scalar;
-use crate::{PValue, Scalar, ScalarValue};
+use crate::Scalar;
 
 impl Display for Scalar {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -63,35 +64,37 @@ impl Display for Scalar {
             DType::Extension(dtype) if is_temporal_ext_type(dtype.id()) => {
                 let metadata =
                     TemporalMetadata::try_from(dtype.as_ref()).map_err(|_| std::fmt::Error)?;
-                match ExtScalar::try_from(self)
-                    .map_err(|_| std::fmt::Error)?
-                    .value()
-                {
-                    ScalarValue::Null => write!(f, "null"),
-                    ScalarValue::Primitive(PValue::I32(v)) => {
-                        write!(
-                            f,
-                            "{}",
-                            metadata.to_jiff(*v as i64).map_err(|_| std::fmt::Error)?
-                        )
+                let storage_scalar = self.as_extension().storage();
+
+                match storage_scalar.dtype() {
+                    DType::Null => {
+                        write!(f, "null")
                     }
-                    ScalarValue::Primitive(PValue::I64(v)) => {
-                        write!(f, "{}", metadata.to_jiff(*v).map_err(|_| std::fmt::Error)?)
+                    DType::Primitive(..) => {
+                        let maybe_timestamp = storage_scalar
+                            .as_primitive()
+                            .as_::<i64>()
+                            .and_then(|maybe_timestamp| {
+                                maybe_timestamp.map(|v| metadata.to_jiff(v)).transpose()
+                            })
+                            .map_err(|_| std::fmt::Error)?;
+                        match maybe_timestamp {
+                            None => write!(f, "null"),
+                            Some(v) => write!(f, "{}", v),
+                        }
                     }
-                    _ => Err(std::fmt::Error),
+                    _ => {
+                        vortex_panic!("Expected temporal extension data type to have Primitive or Null storage type")
+                    }
                 }
             }
             // Generic handling of unknown extension types.
             // TODO(aduffy): Allow extension authors plugin their own Scalar display.
             DType::Extension(..) => {
-                let scalar_value = ExtScalar::try_from(self)
+                let storage_value = ExtScalar::try_from(self)
                     .map_err(|_| std::fmt::Error)?
-                    .value();
-                if scalar_value.is_null() {
-                    write!(f, "null")
-                } else {
-                    write!(f, "{}", scalar_value)
-                }
+                    .storage();
+                write!(f, "{}", storage_value)
             }
         }
     }
@@ -106,7 +109,7 @@ mod tests {
     use vortex_dtype::Nullability::{NonNullable, Nullable};
     use vortex_dtype::{DType, ExtDType, ExtMetadata, PType, StructDType};
 
-    use crate::{PValue, Scalar, ScalarValue};
+    use crate::{InnerScalarValue, PValue, Scalar, ScalarValue};
 
     const MINUTES: i32 = 60;
     const HOURS: i32 = 60 * MINUTES;
@@ -168,7 +171,7 @@ mod tests {
 
         assert_eq!(format!("{}", Scalar::null(dtype())), "null");
 
-        assert_eq!(format!("{}", Scalar::r#struct(dtype(), vec![])), "{}");
+        assert_eq!(format!("{}", Scalar::struct_(dtype(), vec![])), "{}");
     }
 
     #[test]
@@ -186,15 +189,15 @@ mod tests {
         assert_eq!(format!("{}", Scalar::null(dtype())), "null");
 
         assert_eq!(
-            format!("{}", Scalar::r#struct(dtype(), vec![ScalarValue::Null])),
+            format!(
+                "{}",
+                Scalar::struct_(dtype(), vec![Scalar::null_typed::<u32>()])
+            ),
             "{foo:null}"
         );
 
         assert_eq!(
-            format!(
-                "{}",
-                Scalar::r#struct(dtype(), vec![ScalarValue::Primitive(PValue::U32(32))])
-            ),
+            format!("{}", Scalar::struct_(dtype(), vec![Scalar::from(32_u32)])),
             "{foo:32_u32}"
         );
     }
@@ -217,28 +220,19 @@ mod tests {
         assert_eq!(format!("{}", Scalar::null(dtype())), "null");
 
         assert_eq!(
-            format!("{}", Scalar::r#struct(dtype(), vec![])),
+            format!("{}", Scalar::struct_(dtype(), vec![])),
             "{foo:null,bar:null}"
         );
 
         assert_eq!(
-            format!(
-                "{}",
-                Scalar::r#struct(dtype(), vec![ScalarValue::Bool(true)])
-            ),
+            format!("{}", Scalar::struct_(dtype(), vec![Scalar::from(true)])),
             "{foo:true,bar:null}"
         );
 
         assert_eq!(
             format!(
                 "{}",
-                Scalar::r#struct(
-                    dtype(),
-                    vec![
-                        ScalarValue::Bool(true),
-                        ScalarValue::Primitive(PValue::U32(32))
-                    ]
-                )
+                Scalar::struct_(dtype(), vec![Scalar::from(true), Scalar::from(32_u32)])
             ),
             "{foo:true,bar:32_u32}"
         );
@@ -261,7 +255,7 @@ mod tests {
                 "{}",
                 Scalar::new(
                     dtype(),
-                    ScalarValue::Primitive(PValue::I32(3 * MINUTES + 25))
+                    ScalarValue(InnerScalarValue::Primitive(PValue::I32(3 * MINUTES + 25)))
                 )
             ),
             "00:03:25"
@@ -283,7 +277,10 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                Scalar::new(dtype(), ScalarValue::Primitive(PValue::I32(25)))
+                Scalar::new(
+                    dtype(),
+                    ScalarValue(InnerScalarValue::Primitive(PValue::I32(25)))
+                )
             ),
             "1970-01-26"
         );
@@ -291,7 +288,10 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                Scalar::new(dtype(), ScalarValue::Primitive(PValue::I32(365)))
+                Scalar::new(
+                    dtype(),
+                    ScalarValue(InnerScalarValue::Primitive(PValue::I32(365)))
+                )
             ),
             "1971-01-01"
         );
@@ -299,7 +299,10 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                Scalar::new(dtype(), ScalarValue::Primitive(PValue::I32(365 * 4)))
+                Scalar::new(
+                    dtype(),
+                    ScalarValue(InnerScalarValue::Primitive(PValue::I32(365 * 4)))
+                )
             ),
             "1973-12-31"
         );
@@ -325,7 +328,9 @@ mod tests {
                 "{}",
                 Scalar::new(
                     dtype(),
-                    ScalarValue::Primitive(PValue::I32(3 * DAYS + 2 * HOURS + 5 * MINUTES + 10))
+                    ScalarValue(InnerScalarValue::Primitive(PValue::I32(
+                        3 * DAYS + 2 * HOURS + 5 * MINUTES + 10
+                    )))
                 )
             ),
             "1970-01-04T02:05:10Z"
@@ -351,7 +356,10 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                Scalar::new(dtype(), ScalarValue::Primitive(PValue::I32(0)))
+                Scalar::new(
+                    dtype(),
+                    ScalarValue(InnerScalarValue::Primitive(PValue::I32(0)))
+                )
             ),
             "1970-01-01T10:00:00+10:00[Pacific/Guam]"
         );
@@ -361,7 +369,9 @@ mod tests {
                 "{}",
                 Scalar::new(
                     dtype(),
-                    ScalarValue::Primitive(PValue::I32(3 * DAYS + 2 * HOURS + 5 * MINUTES + 10))
+                    ScalarValue(InnerScalarValue::Primitive(PValue::I32(
+                        3 * DAYS + 2 * HOURS + 5 * MINUTES + 10
+                    )))
                 )
             ),
             "1970-01-04T12:05:10+10:00[Pacific/Guam]"

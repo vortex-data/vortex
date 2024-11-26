@@ -50,14 +50,15 @@ fn compare_fsst_constant(
 
     let encoded_scalar = match left.dtype() {
         DType::Utf8(_) => right
-            .scalar_value()
-            .as_buffer_string()?
+            .scalar()
+            .as_utf8()
+            .value()
             .map(|scalar| Buffer::from(compressor.compress(scalar.as_bytes()))),
         DType::Binary(_) => right
-            .scalar_value()
-            .as_buffer()?
+            .scalar()
+            .as_binary()
+            .value()
             .map(|scalar| Buffer::from(compressor.compress(scalar.as_slice()))),
-
         _ => unreachable!("FSSTArray can only have string or binary data type"),
     };
 

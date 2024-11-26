@@ -1,7 +1,7 @@
 use vortex_dtype::field::Field;
 use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexExpect as _, VortexResult};
-use vortex_scalar::{Scalar, ScalarValue, StructScalar};
+use vortex_scalar::Scalar;
 
 use crate::array::constant::ConstantArray;
 use crate::iter::Accessor;
@@ -51,8 +51,7 @@ impl NullArrayTrait for ConstantArray {}
 
 impl BoolArrayTrait for ConstantArray {
     fn invert(&self) -> VortexResult<ArrayData> {
-        let value = self.scalar_value().as_bool()?;
-        match value {
+        match self.scalar().as_bool().value() {
             None => Ok(self.to_array()),
             Some(b) => Ok(ConstantArray::new(!b, self.len()).into_array()),
         }
@@ -62,7 +61,7 @@ impl BoolArrayTrait for ConstantArray {
 impl<T> Accessor<T> for ConstantArray
 where
     T: Clone,
-    T: TryFrom<ScalarValue, Error = VortexError>,
+    T: TryFrom<Scalar, Error = VortexError>,
 {
     fn array_len(&self) -> usize {
         self.len()
@@ -73,11 +72,11 @@ where
     }
 
     fn value_unchecked(&self, _index: usize) -> T {
-        T::try_from(self.scalar_value().clone()).vortex_expect("Failed to convert scalar to value")
+        T::try_from(self.scalar()).vortex_expect("Failed to convert scalar to value")
     }
 
     fn array_validity(&self) -> Validity {
-        if self.scalar_value().is_null() {
+        if self.scalar().is_null() {
             Validity::AllInvalid
         } else {
             Validity::AllValid
@@ -93,18 +92,17 @@ impl BinaryArrayTrait for ConstantArray {}
 
 impl StructArrayTrait for ConstantArray {
     fn field(&self, idx: usize) -> Option<ArrayData> {
-        StructScalar::try_new(self.dtype(), self.scalar_value())
-            .ok()?
+        self.scalar()
+            .as_struct()
             .field_by_idx(idx)
             .map(|scalar| ConstantArray::new(scalar, self.len()).into_array())
     }
 
     fn project(&self, projection: &[Field]) -> VortexResult<ArrayData> {
-        Ok(ConstantArray::new(
-            StructScalar::try_new(self.dtype(), self.scalar_value())?.project(projection)?,
-            self.len(),
+        Ok(
+            ConstantArray::new(self.scalar().as_struct().project(projection)?, self.len())
+                .into_array(),
         )
-        .into_array())
     }
 }
 
@@ -112,11 +110,6 @@ impl ListArrayTrait for ConstantArray {}
 
 impl ExtensionArrayTrait for ConstantArray {
     fn storage_data(&self) -> ArrayData {
-        let storage_dtype = self.ext_dtype().storage_dtype().clone();
-        ConstantArray::new(
-            Scalar::new(storage_dtype, self.scalar_value().clone()),
-            self.len(),
-        )
-        .into_array()
+        ConstantArray::new(self.scalar().as_extension().storage(), self.len()).into_array()
     }
 }

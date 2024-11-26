@@ -13,7 +13,7 @@ use vortex_array::encoding::EncodingRef;
 use vortex_array::{ArrayData, IntoCanonical};
 use vortex_fuzz::{sort_canonical_array, Action, FuzzArrayAction};
 use vortex_sampling_compressor::SamplingCompressor;
-use vortex_scalar::{PValue, Scalar, ScalarValue};
+use vortex_scalar::Scalar;
 
 fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
     let FuzzArrayAction { array, actions } = fuzz_action;
@@ -92,6 +92,7 @@ fn assert_search_sorted(
     );
 }
 
+// TODO(ngates): this is horrific... we should have an array_equals compute function?
 fn assert_array_eq(lhs: &ArrayData, rhs: &ArrayData, step: usize) {
     assert_eq!(
         lhs.len(),
@@ -107,39 +108,11 @@ fn assert_array_eq(lhs: &ArrayData, rhs: &ArrayData, step: usize) {
         let r = scalar_at(rhs, idx).unwrap();
 
         assert_eq!(
-            l.is_valid(),
-            r.is_valid(),
-            "LHS validity {} != RHS validity {} at index {idx}, lhs is {} rhs is {} in step {step}",
-            l.is_valid(),
-            r.is_valid(),
-            lhs.encoding().id(),
-            rhs.encoding().id()
-        );
-        assert!(
-            equal_scalar_values(l.value(), r.value()),
+            l,
+            r,
             "{l} != {r} at index {idx}, lhs is {} rhs is {} in step {step}",
             lhs.encoding().id(),
             rhs.encoding().id()
         );
-    }
-}
-
-fn equal_scalar_values(l: &ScalarValue, r: &ScalarValue) -> bool {
-    match (l, r) {
-        (ScalarValue::Primitive(l), ScalarValue::Primitive(r))
-            if l.ptype().is_float() && r.ptype().is_float() =>
-        {
-            match (l, r) {
-                (PValue::F16(l), PValue::F16(r)) => l == r || (l.is_nan() && r.is_nan()),
-                (PValue::F32(l), PValue::F32(r)) => l == r || (l.is_nan() && r.is_nan()),
-                (PValue::F64(l), PValue::F64(r)) => l == r || (l.is_nan() && r.is_nan()),
-                _ => unreachable!(),
-            }
-        }
-        (ScalarValue::List(lc), ScalarValue::List(rc)) => lc
-            .iter()
-            .zip(rc.iter())
-            .all(|(l, r)| equal_scalar_values(l, r)),
-        _ => l == r,
     }
 }

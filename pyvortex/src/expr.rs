@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::*;
@@ -7,7 +5,7 @@ use vortex::dtype::field::Field;
 use vortex::dtype::half::f16;
 use vortex::dtype::{DType, Nullability, PType};
 use vortex::expr::{BinaryExpr, Column, ExprRef, Literal, Operator};
-use vortex::scalar::{PValue, Scalar, ScalarValue};
+use vortex::scalar::Scalar;
 
 use crate::dtype::PyDType;
 
@@ -266,50 +264,47 @@ pub fn scalar<'py>(dtype: DType, value: &Bound<'py, PyAny>) -> PyResult<Bound<'p
     Bound::new(
         py,
         PyExpr {
-            inner: Literal::new_expr(Scalar::new(dtype.clone(), scalar_value(dtype, value)?)),
+            inner: Literal::new_expr(scalar_helper(dtype, value)?),
         },
     )
 }
 
-pub fn scalar_value(dtype: DType, value: &Bound<'_, PyAny>) -> PyResult<ScalarValue> {
+pub fn scalar_helper(dtype: DType, value: &Bound<'_, PyAny>) -> PyResult<Scalar> {
     match dtype {
         DType::Null => {
             value.downcast::<PyNone>()?;
-            Ok(ScalarValue::Null)
+            Ok(Scalar::null(dtype))
         }
         DType::Bool(_) => {
             let value = value.downcast::<PyBool>()?;
-            Ok(ScalarValue::Bool(value.extract()?))
+            Ok(Scalar::from(value.extract::<bool>()?))
         }
-        DType::Primitive(ptype, _) => {
-            let pvalue = match ptype {
-                PType::I8 => PValue::I8(value.extract()?),
-                PType::I16 => PValue::I16(value.extract()?),
-                PType::I32 => PValue::I32(value.extract()?),
-                PType::I64 => PValue::I64(value.extract()?),
-                PType::U8 => PValue::U8(value.extract()?),
-                PType::U16 => PValue::U16(value.extract()?),
-                PType::U32 => PValue::U32(value.extract()?),
-                PType::U64 => PValue::U64(value.extract()?),
-                PType::F16 => {
-                    let float = value.extract::<f32>()?;
-                    PValue::F16(f16::from_f32(float))
-                }
-                PType::F32 => PValue::F32(value.extract()?),
-                PType::F64 => PValue::F64(value.extract()?),
-            };
-            Ok(ScalarValue::Primitive(pvalue))
-        }
-        DType::Utf8(_) => Ok(ScalarValue::BufferString(value.extract::<String>()?.into())),
-        DType::Binary(_) => Ok(ScalarValue::Buffer(value.extract::<&[u8]>()?.into())),
+        DType::Primitive(ptype, _) => match ptype {
+            PType::I8 => Ok(Scalar::from(value.extract::<i8>()?)),
+            PType::I16 => Ok(Scalar::from(value.extract::<i16>()?)),
+            PType::I32 => Ok(Scalar::from(value.extract::<i32>()?)),
+            PType::I64 => Ok(Scalar::from(value.extract::<i64>()?)),
+            PType::U8 => Ok(Scalar::from(value.extract::<u8>()?)),
+            PType::U16 => Ok(Scalar::from(value.extract::<u16>()?)),
+            PType::U32 => Ok(Scalar::from(value.extract::<u32>()?)),
+            PType::U64 => Ok(Scalar::from(value.extract::<u64>()?)),
+            PType::F16 => {
+                let float = value.extract::<f32>()?;
+                Ok(Scalar::from(f16::from_f32(float)))
+            }
+            PType::F32 => Ok(Scalar::from(value.extract::<f32>()?)),
+            PType::F64 => Ok(Scalar::from(value.extract::<f64>()?)),
+        },
+        DType::Utf8(_) => Ok(Scalar::from(value.extract::<String>()?)),
+        DType::Binary(_) => Ok(Scalar::from(value.extract::<&[u8]>()?)),
         DType::Struct(..) => todo!(),
         DType::List(element_type, _) => {
             let list = value.downcast::<PyList>();
-            let values: Vec<ScalarValue> = list
+            let values = list
                 .iter()
-                .map(|element| scalar_value(element_type.as_ref().clone(), element))
-                .collect::<PyResult<Vec<ScalarValue>>>()?;
-            Ok(ScalarValue::List(Arc::from(values.into_boxed_slice())))
+                .map(|element| scalar_helper(element_type.as_ref().clone(), element))
+                .collect::<PyResult<Vec<_>>>()?;
+            Ok(Scalar::list(element_type, values))
         }
         DType::Extension(..) => todo!(),
     }

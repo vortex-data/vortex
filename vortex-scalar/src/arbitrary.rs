@@ -5,7 +5,7 @@ use vortex_buffer::{Buffer, BufferString};
 use vortex_dtype::half::f16;
 use vortex_dtype::{DType, PType};
 
-use crate::{PValue, Scalar, ScalarValue};
+use crate::{InnerScalarValue, PValue, Scalar, ScalarValue};
 
 pub fn random_scalar(u: &mut Unstructured, dtype: &DType) -> Result<Scalar> {
     Ok(Scalar::new(dtype.clone(), random_scalar_value(u, dtype)?))
@@ -13,29 +13,33 @@ pub fn random_scalar(u: &mut Unstructured, dtype: &DType) -> Result<Scalar> {
 
 fn random_scalar_value(u: &mut Unstructured, dtype: &DType) -> Result<ScalarValue> {
     match dtype {
-        DType::Null => Ok(ScalarValue::Null),
-        DType::Bool(_) => Ok(ScalarValue::Bool(u.arbitrary()?)),
-        DType::Primitive(p, _) => Ok(ScalarValue::Primitive(random_pvalue(u, p)?)),
-        DType::Utf8(_) => Ok(ScalarValue::BufferString(BufferString::from(
-            u.arbitrary::<String>()?,
+        DType::Null => Ok(ScalarValue(InnerScalarValue::Null)),
+        DType::Bool(_) => Ok(ScalarValue(InnerScalarValue::Bool(u.arbitrary()?))),
+        DType::Primitive(p, _) => Ok(ScalarValue(InnerScalarValue::Primitive(random_pvalue(
+            u, p,
+        )?))),
+        DType::Utf8(_) => Ok(ScalarValue(InnerScalarValue::BufferString(
+            BufferString::from(u.arbitrary::<String>()?),
         ))),
-        DType::Binary(_) => Ok(ScalarValue::Buffer(Buffer::from(u.arbitrary::<Vec<u8>>()?))),
-        DType::Struct(sdt, _) => Ok(ScalarValue::List(
+        DType::Binary(_) => Ok(ScalarValue(InnerScalarValue::Buffer(Buffer::from(
+            u.arbitrary::<Vec<u8>>()?,
+        )))),
+        DType::Struct(sdt, _) => Ok(ScalarValue(InnerScalarValue::List(
             sdt.dtypes()
                 .iter()
-                .map(|d| random_scalar_value(u, d))
+                .map(|d| random_scalar_value(u, d).map(|x| x.0))
                 .collect::<Result<Vec<_>>>()?
                 .into(),
-        )),
-        DType::List(edt, _) => Ok(ScalarValue::List(
+        ))),
+        DType::List(edt, _) => Ok(ScalarValue(InnerScalarValue::List(
             iter::from_fn(|| {
                 u.arbitrary()
                     .unwrap_or(false)
-                    .then(|| random_scalar_value(u, edt))
+                    .then(|| random_scalar_value(u, edt).map(|x| x.0))
             })
-            .collect::<Result<Vec<ScalarValue>>>()?
+            .collect::<Result<Vec<_>>>()?
             .into(),
-        )),
+        ))),
         DType::Extension(..) => {
             unreachable!("Can't yet generate arbitrary scalars for ext dtype")
         }

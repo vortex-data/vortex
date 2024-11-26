@@ -1,10 +1,9 @@
 use vortex_error::VortexResult;
-use vortex_scalar::{ExtScalar, Scalar};
 
 use crate::array::{ConstantArray, ExtensionArray, ExtensionEncoding};
 use crate::compute::{compare, CompareFn, Operator};
 use crate::encoding::EncodingVTable;
-use crate::{ArrayDType, ArrayData, ArrayLen};
+use crate::{ArrayData, ArrayLen};
 
 impl CompareFn<ExtensionArray> for ExtensionEncoding {
     fn compare(
@@ -15,13 +14,13 @@ impl CompareFn<ExtensionArray> for ExtensionEncoding {
     ) -> VortexResult<Option<ArrayData>> {
         // If the RHS is a constant, we can extract the storage scalar.
         if let Some(const_ext) = rhs.as_constant() {
-            let scalar_ext = ExtScalar::try_new(const_ext.dtype(), const_ext.value())?;
-            let storage_scalar = ConstantArray::new(
-                Scalar::new(lhs.storage().dtype().clone(), scalar_ext.value().clone()),
-                lhs.len(),
-            );
-
-            return compare(lhs.storage(), storage_scalar, operator).map(Some);
+            let storage_scalar = const_ext.as_extension().storage();
+            return compare(
+                lhs.storage(),
+                ConstantArray::new(storage_scalar, lhs.len()),
+                operator,
+            )
+            .map(Some);
         }
 
         // If the RHS is an extension array matching ours, we can extract the storage.

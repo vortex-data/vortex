@@ -38,7 +38,7 @@ pub trait VortexReadAt: Send + Sync + Clone + 'static {
     ///
     /// For a file it will be the size in bytes, for an object in an
     /// `ObjectStore` it will be the `ObjectMeta::size`.
-    fn size(&self) -> impl Future<Output = u64> + 'static;
+    fn size(&self) -> impl Future<Output = io::Result<u64>> + 'static;
 }
 
 impl<T: VortexReadAt> VortexReadAt for Arc<T> {
@@ -54,7 +54,7 @@ impl<T: VortexReadAt> VortexReadAt for Arc<T> {
         T::performance_hint(self)
     }
 
-    fn size(&self) -> impl Future<Output = u64> + 'static {
+    fn size(&self) -> impl Future<Output = io::Result<u64>> + 'static {
         T::size(self)
     }
 }
@@ -80,8 +80,8 @@ impl VortexReadAt for Buffer {
         }
     }
 
-    fn size(&self) -> impl Future<Output = u64> + 'static {
-        future::ready(self.len() as u64)
+    fn size(&self) -> impl Future<Output = io::Result<u64>> + 'static {
+        future::ready(Ok(self.len() as u64))
     }
 }
 
@@ -102,8 +102,8 @@ impl VortexReadAt for Bytes {
         }
     }
 
-    fn size(&self) -> impl Future<Output = u64> + 'static {
-        let len = self.len() as u64;
+    fn size(&self) -> impl Future<Output = io::Result<u64>> + 'static {
+        let len = Ok(self.len() as u64);
         future::ready(len)
     }
 }
