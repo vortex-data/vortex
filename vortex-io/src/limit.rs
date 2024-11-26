@@ -37,14 +37,12 @@ impl<Fut: Future> Future for SizedFut<Fut> {
 /// This crate internally makes use of tokio's [Semaphore], and thus is only available with
 /// the `tokio` feature enabled.
 #[pin_project]
-#[cfg(feature = "tokio")]
 pub struct SizeLimitedStream<Fut> {
     #[pin]
     inflight: FuturesUnordered<SizedFut<Fut>>,
     bytes_available: Semaphore,
 }
 
-#[cfg(feature = "tokio")]
 impl<Fut> SizeLimitedStream<Fut> {
     pub fn new(max_bytes: usize) -> Self {
         Self {
@@ -58,7 +56,6 @@ impl<Fut> SizeLimitedStream<Fut> {
     }
 }
 
-#[cfg(feature = "tokio")]
 impl<Fut> SizeLimitedStream<Fut>
 where
     Fut: Future,
@@ -115,7 +112,6 @@ where
     }
 }
 
-#[cfg(feature = "tokio")]
 impl<Fut> Stream for SizeLimitedStream<Fut>
 where
     Fut: Future,
