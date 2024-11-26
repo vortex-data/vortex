@@ -93,8 +93,10 @@ impl FileFormat for VortexFormat {
         let os_read_at = ObjectStoreReadAt::new(store.clone(), object.location.clone());
         let initial_read = read_initial_bytes(&os_read_at, object.size as u64).await?;
         let layout = initial_read.fb_layout()?;
-        let dtype = initial_read.lazy_dtype().map_err(|_e| {
-            DataFusionError::External("Failed to fetch dtype from initial read".into())
+        let dtype = initial_read.lazy_dtype().map_err(|e| {
+            DataFusionError::External(Box::new(
+                e.with_context("Failed to fetch dtype from initial read"),
+            ))
         })?;
         let row_count = layout.row_count();
 
