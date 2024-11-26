@@ -58,7 +58,7 @@ impl<'a> TryFrom<&'a Scalar> for Buffer {
 
         binary
             .value()
-            .ok_or_else(|| vortex_err!("Can't extract present value from null scalar"))
+            .ok_or_else(|| vortex_err!("Cannot extract present value from null scalar"))
     }
 }
 
@@ -68,7 +68,7 @@ impl<'a> TryFrom<&'a Scalar> for Option<Buffer> {
     fn try_from(scalar: &'a Scalar) -> VortexResult<Self> {
         Ok(scalar
             .as_binary_opt()
-            .ok_or_else(|| vortex_err!("cannot convert non-binary scalar to buffer"))?
+            .ok_or_else(|| vortex_err!("Cannot extract buffer from non-buffer scalar"))?
             .value())
     }
 }
