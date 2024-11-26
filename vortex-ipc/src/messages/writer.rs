@@ -86,6 +86,7 @@ impl<W: VortexWrite> MessageWriter<W> {
             let buffer_len = buffer.len();
             self.write_all(buffer).await?;
             let padding = (buffer_end as usize) - current_offset - buffer_len;
+            // TODO: use ZEROES
             self.write_all(vec![0; padding]).await?;
             current_offset = buffer_end as usize;
         }
@@ -101,6 +102,7 @@ impl<W: VortexWrite> MessageWriter<W> {
 
         let aligned_size = buffer_len.next_multiple_of(self.alignment);
         let padding = aligned_size - buffer_len;
+        // TODO: use ZEROES
         self.write_all(vec![0u8; padding]).await?;
 
         Ok(())
@@ -136,8 +138,8 @@ impl<W: VortexWrite> MessageWriter<W> {
             .write_all(buffer.slice_owned(buffer_begin..buffer_end))
             .await?
             .into_inner();
+        // TODO: use ZEROES
         self.write_all(vec![0; padding_bytes]).await?;
-        // self.write_all(&ZEROS[0..padding_bytes]).await?;
 
         assert_eq!(self.pos % self.alignment as u64, 0);
 
