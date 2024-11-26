@@ -1,3 +1,4 @@
+#![allow(clippy::assertions_on_constants)]
 use std::io;
 
 use flatbuffers::FlatBufferBuilder;
@@ -12,9 +13,6 @@ use vortex_io::VortexWrite;
 use crate::messages::{IPCBatch, IPCMessage, IPCPage, IPCSchema};
 use crate::ALIGNMENT;
 
-const ZEROS: [u8; 512] = [0u8; 512];
-const FOUR_ZEROS: [u8; 4] = [0u8; 4];
-
 #[derive(Debug)]
 pub struct MessageWriter<W> {
     write: W,
@@ -26,7 +24,7 @@ pub struct MessageWriter<W> {
 
 impl<W: VortexWrite> MessageWriter<W> {
     pub fn new(write: W) -> Self {
-        assert!(ALIGNMENT <= ZEROS.len(), "ALIGNMENT must be <= 512");
+        assert!(ALIGNMENT <= 512, "ALIGNMENT must be <= 512");
         Self {
             write,
             pos: 0,
@@ -119,7 +117,7 @@ impl<W: VortexWrite> MessageWriter<W> {
 
         // In order for FlatBuffers to use the correct alignment, we insert 4 bytes at the start
         // of the flatbuffer vector since we will be writing this to the stream later.
-        scratch.extend_from_slice(&FOUR_ZEROS);
+        scratch.extend_from_slice(&[0_u8; 4]);
 
         let mut fbb = FlatBufferBuilder::from_vec(scratch);
         let root = flatbuffer.write_flatbuffer(&mut fbb);
