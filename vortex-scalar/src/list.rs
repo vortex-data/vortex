@@ -32,6 +32,11 @@ impl<'a> ListScalar<'a> {
         }
     }
 
+    #[inline]
+    pub fn is_null(&self) -> bool {
+        self.elements.is_none()
+    }
+
     pub fn element_dtype(&self) -> DType {
         let DType::List(element_type, _) = self.dtype() else {
             unreachable!();

@@ -59,7 +59,9 @@ pub fn scalar_into_py(py: Python, x: Scalar, copy_into_python: bool) -> PyResult
         }
         DType::Struct(..) => {
             let struct_scalar = x.as_struct();
-            if copy_into_python {
+            if struct_scalar.is_null() {
+                py.None()
+            } else if copy_into_python {
                 to_python_dict(py, struct_scalar, true)?
             } else {
                 PyVortexStruct::new_pyobject(py, x)?
@@ -67,7 +69,9 @@ pub fn scalar_into_py(py: Python, x: Scalar, copy_into_python: bool) -> PyResult
         }
         DType::List(..) => {
             let list_scalar = x.as_list();
-            if copy_into_python {
+            if list_scalar.is_null() {
+                py.None()
+            } else if copy_into_python {
                 to_python_list(py, list_scalar, true)?
             } else {
                 PyVortexList::new_pyobject(py, x)?
