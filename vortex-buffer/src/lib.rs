@@ -35,8 +35,8 @@ enum Inner {
     Bytes(bytes::Bytes),
 }
 
-unsafe impl Send for Buffer {}
-unsafe impl Sync for Buffer {}
+// unsafe impl Send for Buffer {}
+// unsafe impl Sync for Buffer {}
 
 impl Buffer {
     /// Create a new buffer of the provided length with all bytes set to `0u8`.

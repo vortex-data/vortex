@@ -195,7 +195,7 @@ async fn write_fb_raw<W: VortexWrite, F: WriteFlatBuffer>(
 }
 
 struct ColumnWriter {
-    metadata: Box<dyn MetadataAccumulator>,
+    metadata: Box<dyn MetadataAccumulator + Send>,
     batch_byte_offsets: Vec<Vec<u64>>,
     batch_row_offsets: Vec<Vec<u64>>,
 }

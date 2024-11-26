@@ -11,7 +11,7 @@ use vortex_dtype::{match_each_native_ptype, DType, FieldName};
 use vortex_error::{VortexError, VortexResult};
 use vortex_scalar::ScalarValue;
 
-pub fn new_metadata_accumulator(dtype: &DType) -> Box<dyn MetadataAccumulator> {
+pub fn new_metadata_accumulator(dtype: &DType) -> Box<dyn MetadataAccumulator + Send> {
     match dtype {
         DType::Null => Box::new(BasicAccumulator::new()),
         DType::Bool(..) => Box::new(BoolAccumulator::new()),
