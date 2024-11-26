@@ -44,7 +44,7 @@ impl EncodingCompressor for SparseCompressor {
                 indices.array,
                 values.array,
                 sparse_array.len(),
-                sparse_array.fill_value().clone(),
+                sparse_array.fill_scalar(),
             )?
             .into_array(),
             Some(CompressionTree::new(self, vec![indices.path, values.path])),

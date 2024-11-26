@@ -5,9 +5,18 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use vortex_buffer::BufferString;
 
 use crate::pvalue::PValue;
-use crate::value::ScalarValue;
+use crate::value::{InnerScalarValue, ScalarValue};
 
 impl Serialize for ScalarValue {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        self.0.serialize(serializer)
+    }
+}
+
+impl Serialize for InnerScalarValue {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -40,98 +49,100 @@ impl<'de> Deserialize<'de> for ScalarValue {
             where
                 E: Error,
             {
-                Ok(ScalarValue::Bool(v))
+                Ok(ScalarValue(InnerScalarValue::Bool(v)))
             }
 
             fn visit_i8<E>(self, v: i8) -> Result<Self::Value, E>
             where
                 E: Error,
             {
-                Ok(ScalarValue::Primitive(PValue::I8(v)))
+                Ok(ScalarValue(InnerScalarValue::Primitive(PValue::I8(v))))
             }
 
             fn visit_i16<E>(self, v: i16) -> Result<Self::Value, E>
             where
                 E: Error,
             {
-                Ok(ScalarValue::Primitive(PValue::I16(v)))
+                Ok(ScalarValue(InnerScalarValue::Primitive(PValue::I16(v))))
             }
 
             fn visit_i32<E>(self, v: i32) -> Result<Self::Value, E>
             where
                 E: Error,
             {
-                Ok(ScalarValue::Primitive(PValue::I32(v)))
+                Ok(ScalarValue(InnerScalarValue::Primitive(PValue::I32(v))))
             }
 
             fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E>
             where
                 E: Error,
             {
-                Ok(ScalarValue::Primitive(PValue::I64(v)))
+                Ok(ScalarValue(InnerScalarValue::Primitive(PValue::I64(v))))
             }
 
             fn visit_u8<E>(self, v: u8) -> Result<Self::Value, E>
             where
                 E: Error,
             {
-                Ok(ScalarValue::Primitive(PValue::U8(v)))
+                Ok(ScalarValue(InnerScalarValue::Primitive(PValue::U8(v))))
             }
 
             fn visit_u16<E>(self, v: u16) -> Result<Self::Value, E>
             where
                 E: Error,
             {
-                Ok(ScalarValue::Primitive(PValue::U16(v)))
+                Ok(ScalarValue(InnerScalarValue::Primitive(PValue::U16(v))))
             }
 
             fn visit_u32<E>(self, v: u32) -> Result<Self::Value, E>
             where
                 E: Error,
             {
-                Ok(ScalarValue::Primitive(PValue::U32(v)))
+                Ok(ScalarValue(InnerScalarValue::Primitive(PValue::U32(v))))
             }
 
             fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
             where
                 E: Error,
             {
-                Ok(ScalarValue::Primitive(PValue::U64(v)))
+                Ok(ScalarValue(InnerScalarValue::Primitive(PValue::U64(v))))
             }
 
             fn visit_f32<E>(self, v: f32) -> Result<Self::Value, E>
             where
                 E: Error,
             {
-                Ok(ScalarValue::Primitive(PValue::F32(v)))
+                Ok(ScalarValue(InnerScalarValue::Primitive(PValue::F32(v))))
             }
 
             fn visit_f64<E>(self, v: f64) -> Result<Self::Value, E>
             where
                 E: Error,
             {
-                Ok(ScalarValue::Primitive(PValue::F64(v)))
+                Ok(ScalarValue(InnerScalarValue::Primitive(PValue::F64(v))))
             }
 
             fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
             where
                 E: Error,
             {
-                Ok(ScalarValue::BufferString(BufferString::from(v.to_string())))
+                Ok(ScalarValue(InnerScalarValue::BufferString(
+                    BufferString::from(v.to_string()),
+                )))
             }
 
             fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
             where
                 E: Error,
             {
-                Ok(ScalarValue::Buffer(v.to_vec().into()))
+                Ok(ScalarValue(InnerScalarValue::Buffer(v.to_vec().into())))
             }
 
             fn visit_unit<E>(self) -> Result<Self::Value, E>
             where
                 E: Error,
             {
-                Ok(ScalarValue::Null)
+                Ok(ScalarValue(InnerScalarValue::Null))
             }
 
             fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
@@ -142,7 +153,9 @@ impl<'de> Deserialize<'de> for ScalarValue {
                 while let Some(e) = seq.next_element::<ScalarValue>()? {
                     elems.push(e);
                 }
-                Ok(ScalarValue::List(elems.into()))
+                Ok(ScalarValue(InnerScalarValue::List(
+                    elems.iter().map(|x| x.0.clone()).collect(),
+                )))
             }
         }
 

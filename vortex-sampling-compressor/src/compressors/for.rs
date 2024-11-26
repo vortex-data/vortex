@@ -65,7 +65,7 @@ impl EncodingCompressor for FoRCompressor {
         Ok(CompressedArray::compressed(
             FoRArray::try_new(
                 compressed_child.array,
-                compressed.owned_reference_scalar(),
+                compressed.reference_scalar(),
                 compressed.shift(),
             )
             .map(|a| a.into_array())?,

@@ -13,7 +13,7 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, IntoArrayData, IntoCanonical};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, ToBytes};
 use vortex_error::{VortexExpect as _, VortexUnwrap};
-use vortex_scalar::ScalarValue;
+use vortex_scalar::Scalar;
 
 /// Statically assigned code for a null value.
 pub const NULL_CODE: u64 = 0;
@@ -169,7 +169,7 @@ fn dict_values_validity(nullable: bool, len: usize) -> Validity {
                 ConstantArray::new(0u64, 1).into_array(),
                 ConstantArray::new(false, 1).into_array(),
                 len,
-                ScalarValue::Bool(true),
+                Scalar::from(true),
             )
             .vortex_unwrap()
             .into_array(),

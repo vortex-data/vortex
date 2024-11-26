@@ -33,7 +33,7 @@ impl TakeFn<SparseArray> for SparseEncoding {
             positions.into_array(),
             taken_values,
             indices.len(),
-            array.fill_value().clone(),
+            array.fill_scalar(),
         )?
         .into_array())
     }
@@ -97,7 +97,7 @@ fn take_search_sorted(
 #[cfg(test)]
 mod test {
     use itertools::Itertools;
-    use vortex_scalar::ScalarValue;
+    use vortex_scalar::Scalar;
 
     use crate::array::primitive::PrimitiveArray;
     use crate::array::sparse::compute::take::take_map;
@@ -112,7 +112,7 @@ mod test {
             PrimitiveArray::from_vec(vec![1.23f64, 0.47, 9.99, 3.5], Validity::AllValid)
                 .into_array(),
             100,
-            ScalarValue::Null,
+            Scalar::null_typed::<f64>(),
         )
         .unwrap()
         .into_array()

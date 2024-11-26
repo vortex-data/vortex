@@ -53,7 +53,7 @@ pub fn compute_varbin_statistics<T: ArrayTrait + ArrayAccessor<[u8]>>(
             let is_constant = array.with_iterator(compute_is_constant)?;
             if is_constant {
                 // we know that the array is not empty
-                StatsSet::constant(scalar_at(array, 0)?, array.len())
+                StatsSet::constant(&scalar_at(array, 0)?, array.len())
             } else {
                 StatsSet::of(Stat::IsConstant, is_constant)
             }
@@ -133,7 +133,7 @@ fn compute_min_max<T: ArrayTrait + ArrayAccessor<[u8]>>(array: &T) -> VortexResu
             .map_or(false, |null_count| null_count == 0)
         {
             // if there are no nulls, then the array is constant
-            return Ok(StatsSet::constant(min, array.len()));
+            return Ok(StatsSet::constant(&min, array.len()));
         }
     } else {
         stats.set(Stat::IsConstant, false);

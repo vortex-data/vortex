@@ -52,7 +52,7 @@ impl ComputeVTable for ConstantEncoding {
 
 impl ScalarAtFn<ConstantArray> for ConstantEncoding {
     fn scalar_at(&self, array: &ConstantArray, _index: usize) -> VortexResult<Scalar> {
-        Ok(array.owned_scalar())
+        Ok(array.scalar())
     }
 }
 
@@ -63,18 +63,18 @@ impl TakeFn<ConstantArray> for ConstantEncoding {
         indices: &ArrayData,
         _options: TakeOptions,
     ) -> VortexResult<ArrayData> {
-        Ok(ConstantArray::new(array.owned_scalar(), indices.len()).into_array())
+        Ok(ConstantArray::new(array.scalar(), indices.len()).into_array())
     }
 }
 
 impl SliceFn<ConstantArray> for ConstantEncoding {
     fn slice(&self, array: &ConstantArray, start: usize, stop: usize) -> VortexResult<ArrayData> {
-        Ok(ConstantArray::new(array.owned_scalar(), stop - start).into_array())
+        Ok(ConstantArray::new(array.scalar(), stop - start).into_array())
     }
 }
 
 impl FilterFn<ConstantArray> for ConstantEncoding {
     fn filter(&self, array: &ConstantArray, mask: FilterMask) -> VortexResult<ArrayData> {
-        Ok(ConstantArray::new(array.owned_scalar(), mask.true_count()).into_array())
+        Ok(ConstantArray::new(array.scalar(), mask.true_count()).into_array())
     }
 }

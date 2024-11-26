@@ -144,7 +144,6 @@ impl FillForwardFn<ByteBoolArray> for ByteBoolEncoding {
 mod tests {
     use vortex_array::compute::unary::scalar_at;
     use vortex_array::compute::{compare, slice, Operator};
-    use vortex_scalar::ScalarValue;
 
     use super::*;
 
@@ -157,15 +156,15 @@ mod tests {
         let sliced_arr = ByteBoolArray::try_from(sliced_arr).unwrap();
 
         let s = scalar_at(sliced_arr.as_ref(), 0).unwrap();
-        assert_eq!(s.into_value().as_bool().unwrap(), Some(true));
+        assert_eq!(s.as_bool().value(), Some(true));
 
         let s = scalar_at(sliced_arr.as_ref(), 1).unwrap();
         assert!(!sliced_arr.is_valid(1));
         assert!(s.is_null());
-        assert_eq!(s.into_value().as_bool().unwrap(), None);
+        assert_eq!(s.as_bool().value(), None);
 
         let s = scalar_at(sliced_arr.as_ref(), 2).unwrap();
-        assert_eq!(s.into_value().as_bool().unwrap(), Some(false));
+        assert_eq!(s.as_bool().value(), Some(false));
     }
 
     #[test]
@@ -178,7 +177,7 @@ mod tests {
         for i in 0..arr.len() {
             let s = scalar_at(arr.as_ref(), i).unwrap();
             assert!(s.is_valid());
-            assert_eq!(s.value(), &ScalarValue::Bool(true));
+            assert_eq!(s.as_bool().value(), Some(true));
         }
     }
 
@@ -192,7 +191,7 @@ mod tests {
         for i in 0..arr.len() {
             let s = scalar_at(&arr, i).unwrap();
             assert!(s.is_valid());
-            assert_eq!(s.value(), &ScalarValue::Bool(false));
+            assert_eq!(s.as_bool().value(), Some(false));
         }
     }
 
@@ -206,12 +205,12 @@ mod tests {
         for i in 0..3 {
             let s = scalar_at(&arr, i).unwrap();
             assert!(s.is_valid());
-            assert_eq!(s.value(), &ScalarValue::Bool(true));
+            assert_eq!(s.as_bool().value(), Some(true));
         }
 
         let s = scalar_at(&arr, 3).unwrap();
         assert!(s.is_valid());
-        assert_eq!(s.value(), &ScalarValue::Bool(false));
+        assert_eq!(s.as_bool().value(), Some(false));
 
         let s = scalar_at(&arr, 4).unwrap();
         assert!(s.is_null());

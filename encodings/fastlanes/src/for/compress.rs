@@ -9,7 +9,7 @@ use vortex_dtype::{
     match_each_integer_ptype, match_each_unsigned_integer_ptype, DType, NativePType, Nullability,
 };
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
-use vortex_scalar::{Scalar, ScalarValue};
+use vortex_scalar::Scalar;
 
 use crate::FoRArray;
 
@@ -71,7 +71,7 @@ fn encoded_zero<T: NativePType>(
                 valid_indices,
                 ConstantArray::new(zero, valid_len).into_array(),
                 len,
-                ScalarValue::Null,
+                Scalar::null(DType::Primitive(encoded_ptype, Nullability::Nullable)),
             )?
             .into_array()
         }
@@ -111,7 +111,10 @@ pub fn decompress(array: FoRArray) -> VortexResult<PrimitiveArray> {
         if shift == <$T>::PTYPE.bit_width() {
             encoded
         } else {
-            let min: $T = array.reference().try_into()?;
+            let min = array.reference_scalar()
+                .as_primitive()
+                .typed_value::<$T>()
+                .ok_or_else(|| vortex_err!("expected reference to be non-null"))?;
             PrimitiveArray::from_vec(
                 decompress_primitive(encoded.into_maybe_null_slice::<$T>(), min, shift),
                 validity,
@@ -152,7 +155,10 @@ mod test {
         // Create a range offset by a million
         let array = PrimitiveArray::from((0u32..10_000).map(|v| v + 1_000_000).collect_vec());
         let compressed = for_compress(&array).unwrap();
-        assert_eq!(u32::try_from(compressed.reference()).unwrap(), 1_000_000u32);
+        assert_eq!(
+            u32::try_from(compressed.reference_scalar()).unwrap(),
+            1_000_000u32
+        );
     }
 
     #[test]
@@ -166,7 +172,7 @@ mod test {
         assert!(compressed.encoded().dtype().is_unsigned_int());
 
         let constant = compressed.encoded().as_constant().unwrap();
-        assert_eq!(constant.value(), &ScalarValue::from(0u32));
+        assert_eq!(constant, Scalar::from(0u32));
     }
 
     #[test]
@@ -195,7 +201,7 @@ mod test {
         let sparse = SparseArray::try_from(compressed.encoded()).unwrap();
         assert!(sparse.dtype().is_unsigned_int());
         assert!(sparse.statistics().to_set().into_iter().next().is_none());
-        assert_eq!(sparse.fill_value(), &ScalarValue::Null);
+        assert_eq!(sparse.fill_scalar(), Scalar::null(sparse.dtype().clone()));
         assert_eq!(
             scalar_at(&sparse, 0).unwrap(),
             Scalar::primitive(0u32, Nullability::Nullable)
@@ -228,7 +234,14 @@ mod test {
     fn test_overflow() {
         let array = PrimitiveArray::from((i8::MIN..=i8::MAX).collect_vec());
         let compressed = for_compress(&array).unwrap();
-        assert_eq!(i8::MIN, i8::try_from(compressed.reference()).unwrap());
+        assert_eq!(
+            i8::MIN,
+            compressed
+                .reference_scalar()
+                .as_primitive()
+                .typed_value::<i8>()
+                .unwrap()
+        );
 
         let encoded = compressed.encoded().into_primitive().unwrap();
         let encoded_bytes: &[u8] = encoded.maybe_null_slice::<u8>();

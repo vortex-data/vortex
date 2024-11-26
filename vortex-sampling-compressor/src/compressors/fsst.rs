@@ -91,15 +91,6 @@ impl EncodingCompressor for FSSTCompressor {
             )
         };
 
-        // Compress the uncompressed_lengths array.
-        let uncompressed_lengths = ctx
-            .auxiliary("uncompressed_lengths")
-            .excluding(self)
-            .compress(
-                &fsst_array.uncompressed_lengths(),
-                like.as_ref().and_then(|l| l.child(0)),
-            )?;
-
         let codes = fsst_array.codes();
         let compressed_codes = ctx
             .auxiliary("fsst_codes")
@@ -110,7 +101,16 @@ impl EncodingCompressor for FSSTCompressor {
                 &FoRCompressor,
                 &BITPACK_WITH_PATCHES,
             ])
-            .compress(&codes, like.as_ref().and_then(|l| l.child(1)))?;
+            .compress(&codes, like.as_ref().and_then(|l| l.child(2)))?;
+
+        // Compress the uncompressed_lengths array.
+        let uncompressed_lengths = ctx
+            .auxiliary("uncompressed_lengths")
+            .excluding(self)
+            .compress(
+                &fsst_array.uncompressed_lengths(),
+                like.as_ref().and_then(|l| l.child(3)),
+            )?;
 
         Ok(CompressedArray::compressed(
             FSSTArray::try_new(

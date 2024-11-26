@@ -2,6 +2,7 @@ use std::{io, mem};
 
 use flatbuffers::FlatBufferBuilder;
 use futures::TryStreamExt;
+use itertools::Itertools;
 use vortex_array::array::{ChunkedArray, StructArray};
 use vortex_array::stats::{ArrayStatistics, Stat};
 use vortex_array::stream::ArrayStream;
@@ -254,17 +255,17 @@ impl ColumnWriter {
     ) -> VortexResult<LayoutSpec> {
         let data_chunks = self
             .batch_byte_offsets
-            .iter()
-            .zip(self.batch_row_offsets.iter())
+            .into_iter()
+            .zip(self.batch_row_offsets.into_iter())
             .flat_map(|(byte_offsets, row_offsets)| {
                 byte_offsets
-                    .iter()
-                    .zip(byte_offsets.iter().skip(1))
-                    .map(|(begin, end)| ByteRange::new(*begin, *end))
+                    .into_iter()
+                    .tuple_windows::<(_, _)>()
+                    .map(|(begin, end)| ByteRange::new(begin, end))
                     .zip(
                         row_offsets
-                            .iter()
-                            .zip(row_offsets.iter().skip(1))
+                            .into_iter()
+                            .tuple_windows::<(_, _)>()
                             .map(|(begin, end)| end - begin),
                     )
                     .map(|(range, len)| LayoutSpec::flat(range, len))

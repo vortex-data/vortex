@@ -9,7 +9,7 @@ use vortex_array::{ArrayData, IntoArrayData};
 use vortex_buffer::{Buffer, BufferString};
 use vortex_dtype::{match_each_native_ptype, DType, FieldName};
 use vortex_error::{VortexError, VortexResult};
-use vortex_scalar::ScalarValue;
+use vortex_scalar::Scalar;
 
 pub fn new_metadata_accumulator(dtype: &DType) -> Box<dyn MetadataAccumulator> {
     match dtype {
@@ -29,7 +29,7 @@ pub fn new_metadata_accumulator(dtype: &DType) -> Box<dyn MetadataAccumulator> {
 }
 
 /// Accumulates zero or more series of metadata across the chunks of a column.
-pub trait MetadataAccumulator {
+pub trait MetadataAccumulator: Send {
     fn push_chunk(&mut self, array: &ArrayData);
 
     fn into_array(self: Box<Self>) -> VortexResult<Option<ArrayData>>;
@@ -102,9 +102,9 @@ impl<T> StandardAccumulator<T> {
     }
 }
 
-impl<T> MetadataAccumulator for StandardAccumulator<T>
+impl<T: Send> MetadataAccumulator for StandardAccumulator<T>
 where
-    Option<T>: TryFrom<ScalarValue, Error = VortexError>,
+    Option<T>: TryFrom<Scalar, Error = VortexError>,
     ArrayData: FromIterator<Option<T>>,
 {
     fn push_chunk(&mut self, array: &ArrayData) {
@@ -194,7 +194,7 @@ impl<T> UnwrappedStatAccumulator<T> {
 
 impl<T> SingularAccumulator for UnwrappedStatAccumulator<T>
 where
-    Option<T>: TryFrom<ScalarValue, Error = VortexError>,
+    Option<T>: TryFrom<Scalar, Error = VortexError>,
     ArrayData: FromIterator<Option<T>>,
 {
     fn push_chunk(&mut self, array: &ArrayData) {
@@ -202,7 +202,7 @@ where
             array
                 .statistics()
                 .compute(self.stat)
-                .and_then(|s| Option::<T>::try_from(s.into_value()).ok())
+                .and_then(|s| Option::<T>::try_from(s).ok())
                 .flatten(),
         )
     }
@@ -220,7 +220,7 @@ mod tests {
     use vortex_array::array::{BoolArray, ConstantArray, PrimitiveArray};
     use vortex_array::variants::StructArrayTrait;
     use vortex_array::ArrayLen;
-    use vortex_dtype::{Nullability, PType};
+    use vortex_dtype::Nullability;
     use vortex_scalar::Scalar;
 
     use super::*;
@@ -287,11 +287,7 @@ mod tests {
     #[test]
     fn test_standard_metadata_all_null() {
         let mut standard_accumulator = StandardAccumulator::<u64>::new();
-        let chunk = ConstantArray::new(
-            Scalar::null(DType::Primitive(PType::U64, Nullability::Nullable)),
-            10,
-        )
-        .into_array();
+        let chunk = ConstantArray::new(Scalar::null_typed::<u64>(), 10).into_array();
         standard_accumulator.push_chunk(&chunk);
 
         let metadata_array = StructArray::try_from(
@@ -308,11 +304,7 @@ mod tests {
     #[test]
     fn test_standard_metadata_empty() {
         let mut standard_accumulator = StandardAccumulator::<u64>::new();
-        let chunk = ConstantArray::new(
-            Scalar::null(DType::Primitive(PType::U64, Nullability::Nullable)),
-            0,
-        )
-        .into_array();
+        let chunk = ConstantArray::new(Scalar::null_typed::<u64>(), 0).into_array();
         standard_accumulator.push_chunk(&chunk);
 
         let metadata_array = StructArray::try_from(

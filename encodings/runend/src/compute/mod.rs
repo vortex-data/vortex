@@ -15,7 +15,7 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::{match_each_integer_ptype, match_each_unsigned_integer_ptype, NativePType};
 use vortex_error::VortexResult;
-use vortex_scalar::{Scalar, ScalarValue};
+use vortex_scalar::Scalar;
 
 use crate::{RunEndArray, RunEndEncoding};
 
@@ -96,12 +96,13 @@ impl TakeFn<RunEndArray> for RunEndEncoding {
                 )
                 .into_array();
                 let filtered_values = filter(&dense_values, dense_validity)?;
+                let dtype = filtered_values.dtype().clone();
 
                 SparseArray::try_new(
                     dense_nonnull_indices,
                     filtered_values,
                     length,
-                    ScalarValue::Null,
+                    Scalar::null(dtype),
                 )?
                 .into_array()
             }

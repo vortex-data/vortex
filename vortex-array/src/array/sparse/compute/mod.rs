@@ -107,7 +107,7 @@ impl FilterFn<SparseArray> for SparseEncoding {
                 TakeOptions::default(),
             )?,
             buffer.count_set_bits(),
-            array.fill_value().clone(),
+            array.fill_scalar(),
         )?
         .into_array())
     }
@@ -116,7 +116,7 @@ impl FilterFn<SparseArray> for SparseEncoding {
 #[cfg(test)]
 mod test {
     use rstest::{fixture, rstest};
-    use vortex_scalar::ScalarValue;
+    use vortex_scalar::Scalar;
 
     use crate::array::primitive::PrimitiveArray;
     use crate::array::sparse::SparseArray;
@@ -132,7 +132,7 @@ mod test {
             PrimitiveArray::from(vec![2u64, 9, 15]).into_array(),
             PrimitiveArray::from_vec(vec![33_i32, 44, 55], Validity::AllValid).into_array(),
             20,
-            ScalarValue::Null,
+            Scalar::null_typed::<i32>(),
         )
         .unwrap()
         .into_array()
@@ -177,7 +177,7 @@ mod test {
             PrimitiveArray::from(vec![0u64]).into_array(),
             PrimitiveArray::from_vec(vec![0u8], Validity::AllValid).into_array(),
             2,
-            ScalarValue::Null,
+            Scalar::null_typed::<u8>(),
         )
         .unwrap()
         .into_array();
@@ -213,7 +213,7 @@ mod test {
             PrimitiveArray::from(vec![0_u64, 3, 6]).into_array(),
             PrimitiveArray::from_vec(vec![33_i32, 44, 55], Validity::AllValid).into_array(),
             7,
-            ScalarValue::Null,
+            Scalar::null_typed::<i32>(),
         )
         .unwrap()
         .into_array();

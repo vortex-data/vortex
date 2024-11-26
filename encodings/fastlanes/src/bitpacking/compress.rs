@@ -10,7 +10,7 @@ use vortex_dtype::{
     match_each_integer_ptype, match_each_unsigned_integer_ptype, NativePType, PType,
 };
 use vortex_error::{vortex_bail, vortex_err, VortexResult, VortexUnwrap};
-use vortex_scalar::{Scalar, ScalarValue};
+use vortex_scalar::Scalar;
 
 use crate::BitPackedArray;
 
@@ -157,7 +157,7 @@ pub fn gather_patches(
                 indices.into_array(),
                 PrimitiveArray::from_vec(values, Validity::AllValid).into_array(),
                 parray.len(),
-                ScalarValue::Null,
+                Scalar::null(parray.dtype().as_nullable()),
             )
             .vortex_unwrap()
             .into_array()

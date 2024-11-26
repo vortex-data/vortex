@@ -61,7 +61,7 @@ pub async fn read_array_from_reader<T: VortexReadAt + Unpin + 'static>(
 }
 
 pub async fn read_dtype_from_reader<T: VortexReadAt + Unpin>(reader: T) -> VortexResult<DType> {
-    let initial_read = read_initial_bytes(&reader, reader.size().await).await?;
+    let initial_read = read_initial_bytes(&reader, reader.size().await?).await?;
     initial_read.lazy_dtype()?.value().cloned()
 }
 

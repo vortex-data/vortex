@@ -90,10 +90,8 @@ impl PruningPredicate {
             // Is the expression constant false, i.e. prune nothing
             if lexp
                 .value()
-                .value()
-                .as_bool()
-                .ok()
-                .flatten()
+                .as_bool_opt()
+                .and_then(|b| b.value())
                 .map(|b| !b)
                 .unwrap_or(false)
             {

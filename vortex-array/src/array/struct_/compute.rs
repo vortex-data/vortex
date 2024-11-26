@@ -31,11 +31,11 @@ impl ComputeVTable for StructEncoding {
 
 impl ScalarAtFn<StructArray> for StructEncoding {
     fn scalar_at(&self, array: &StructArray, index: usize) -> VortexResult<Scalar> {
-        Ok(Scalar::r#struct(
+        Ok(Scalar::struct_(
             array.dtype().clone(),
             array
                 .children()
-                .map(|field| scalar_at(&field, index).map(|s| s.into_value()))
+                .map(|field| scalar_at(&field, index))
                 .try_collect()?,
         ))
     }

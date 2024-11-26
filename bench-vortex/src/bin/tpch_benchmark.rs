@@ -135,7 +135,7 @@ fn render_table(receiver: Receiver<Measurement>, formats: &[Format]) -> anyhow::
 
     for (query_idx, baseline_measure) in baseline.iter().enumerate().take(22) {
         let query_baseline = baseline_measure.time.as_micros();
-        let mut row = vec![query_idx.to_string()];
+        let mut row = vec![(query_idx + 1).to_string()];
         for (col_idx, format) in formats.iter().enumerate() {
             let time_us = measurements[format][query_idx].time.as_micros();
 
