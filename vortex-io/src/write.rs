@@ -49,15 +49,6 @@ impl<T> VortexWrite for Cursor<T>
 where
     Cursor<T>: Write,
 {
-    async fn write_zeros(&mut self, mut len: usize) -> io::Result<()> {
-        while len != 0 {
-            let k = std::cmp::min(len, ZEROS.len());
-            Write::write_all(self, &ZEROS[0..k])?;
-            len -= k;
-        }
-        Ok(())
-    }
-
     fn write_all<B: IoBuf>(&mut self, buffer: B) -> impl Future<Output = io::Result<B>> {
         ready(Write::write_all(self, buffer.as_slice()).map(|_| buffer))
     }
@@ -72,15 +63,6 @@ where
 }
 
 impl<W: VortexWrite> VortexWrite for &mut W {
-    async fn write_zeros(&mut self, mut len: usize) -> io::Result<()> {
-        while len != 0 {
-            let k = std::cmp::min(len, ZEROS.len());
-            (*self).write_all(&ZEROS[0..k]).await?;
-            len -= k;
-        }
-        Ok(())
-    }
-
     fn write_all<B: IoBuf>(&mut self, buffer: B) -> impl Future<Output = io::Result<B>> {
         (*self).write_all(buffer)
     }
