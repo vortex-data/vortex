@@ -24,11 +24,7 @@ futures-executor = { workspace = true }
 futures-util = { workspace = true }
 itertools = { workspace = true }
 once_cell = { workspace = true }
-tokio = { workspace = true, features = [
-    "io-util",
-    "fs",
-    "rt-multi-thread",
-] }
+tokio = { workspace = true, features = ["io-util", "fs", "rt-multi-thread"] }
 tracing = { workspace = true, optional = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
@@ -50,8 +46,5 @@ workspace = true
 
 [features]
 futures = ["futures-util/io", "vortex-io/futures"]
-object_store = [
-    "vortex-error/object_store",
-    "vortex-io/object_store",
-]
+object_store = ["vortex-error/object_store", "vortex-io/object_store"]
 tracing = ["dep:tracing", "vortex-io/tracing"]

@@ -9,8 +9,8 @@ use vortex_array::stats::ArrayStatistics;
 use vortex_array::validity::Validity;
 use vortex_array::{ArrayData, IntoArrayData};
 use vortex_dtype::field::Field;
-use vortex_dtype::FieldNames;
-use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
+use vortex_dtype::{FieldName, FieldNames};
+use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult};
 use vortex_expr::{Column, Select, VortexExpr};
 use vortex_flatbuffers::footer;
 
@@ -18,7 +18,7 @@ use crate::read::cache::{LazyDType, RelativeLayoutCache};
 use crate::read::expr_project::expr_project;
 use crate::read::mask::RowMask;
 use crate::{
-    BatchRead, Layout, LayoutDeserializer, LayoutId, LayoutReader, RowFilter, Scan,
+    BatchRead, Layout, LayoutDeserializer, LayoutId, LayoutReader, MetadataRead, RowFilter, Scan,
     COLUMNAR_LAYOUT_ID,
 };
 
@@ -203,6 +203,7 @@ pub struct ColumnarLayoutReader {
     expr: Option<Arc<dyn VortexExpr>>,
     // TODO(robert): This is a hack/optimization that tells us if we're reducing results with AND or not
     shortcircuit_siblings: bool,
+    in_progress_metadata: RwLock<HashMap<FieldName, Option<ArrayData>>>,
 }
 
 impl ColumnarLayoutReader {
@@ -220,9 +221,10 @@ impl ColumnarLayoutReader {
         Self {
             names,
             children,
-            in_progress_ranges: RwLock::new(HashMap::new()),
             expr,
             shortcircuit_siblings,
+            in_progress_ranges: RwLock::new(HashMap::new()),
+            in_progress_metadata: RwLock::new(HashMap::new()),
         }
     }
 }
@@ -301,6 +303,44 @@ impl LayoutReader for ColumnarLayoutReader {
                 .map(Some)
         } else {
             Ok(Some(BatchRead::ReadMore(messages)))
+        }
+    }
+
+    fn read_metadata(&self) -> VortexResult<MetadataRead> {
+        let mut in_progress_metadata = self
+            .in_progress_metadata
+            .write()
+            .unwrap_or_else(|e| vortex_panic!("lock is poisoned: {e}"));
+        let mut messages = Vec::default();
+
+        for (name, child_reader) in self.names.iter().zip(self.children.iter()) {
+            match child_reader.read_metadata()? {
+                MetadataRead::Batches(data) => {
+                    if data.len() != 1 {
+                        vortex_bail!("expected exactly one metadata array per-child");
+                    }
+                    in_progress_metadata.insert(name.clone(), data[0].clone());
+                }
+                MetadataRead::ReadMore(rm) => {
+                    messages.extend(rm);
+                }
+                MetadataRead::None => {
+                    in_progress_metadata.insert(name.clone(), None);
+                }
+            }
+        }
+
+        // We're done reading
+        if messages.is_empty() {
+            let child_arrays = self
+                .names
+                .iter()
+                .map(|name| in_progress_metadata[name].clone()) // TODO(Adam): Some columns might not have statistics
+                .collect::<Vec<_>>();
+
+            Ok(MetadataRead::Batches(child_arrays))
+        } else {
+            Ok(MetadataRead::ReadMore(messages))
         }
     }
 }

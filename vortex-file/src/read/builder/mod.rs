@@ -165,9 +165,7 @@ impl<R: VortexReadAt> VortexReadBuilder<R> {
             .transpose()?;
 
         // Default: fallback to single-threaded tokio dispatcher.
-        let io_dispatcher = self
-            .io_dispatcher
-            .unwrap_or_else(|| Arc::new(IoDispatcher::new_tokio(1)));
+        let io_dispatcher = self.io_dispatcher.unwrap_or_default();
 
         Ok(VortexFileArrayStream::new(
             self.read_at,

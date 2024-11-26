@@ -89,10 +89,10 @@ impl<R: VortexReadAt> VortexFileArrayStream<R> {
 
 /// A message that has had its bytes materialized onto the heap.
 #[derive(Debug, Clone)]
-struct Message(pub MessageId, pub Bytes);
+pub(crate) struct Message(pub MessageId, pub Bytes);
 
-type StreamMessages = Vec<Message>;
-type StreamStateFuture = BoxFuture<'static, VortexResult<StreamMessages>>;
+pub(crate) type StreamMessages = Vec<Message>;
+pub(crate) type StreamStateFuture = BoxFuture<'static, VortexResult<StreamMessages>>;
 
 enum ReadingFor {
     Read(StreamStateFuture, RowMask, MaskIteratorRef),
@@ -107,8 +107,7 @@ enum ReadingPoll {
 impl ReadingFor {
     fn future(&mut self) -> &mut StreamStateFuture {
         match self {
-            ReadingFor::Read(future, ..) => future,
-            ReadingFor::NextSplit(future, ..) => future,
+            ReadingFor::Read(future, ..) | ReadingFor::NextSplit(future, ..) => future,
         }
     }
 
@@ -297,7 +296,7 @@ impl<R: VortexReadAt + Unpin> VortexFileArrayStream<R> {
 }
 
 #[cfg_attr(feature = "tracing", tracing::instrument(skip_all))]
-async fn read_ranges<R: VortexReadAt>(
+pub async fn read_ranges<R: VortexReadAt>(
     reader: R,
     ranges: Vec<MessageLocator>,
 ) -> VortexResult<Vec<Message>> {

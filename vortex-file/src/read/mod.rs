@@ -11,6 +11,7 @@ mod expr_project;
 mod filtering;
 pub mod layouts;
 mod mask;
+pub mod metadata;
 pub mod projection;
 mod recordbatchreader;
 mod splits;
@@ -39,6 +40,10 @@ pub struct Scan {
 }
 
 impl Scan {
+    pub fn empty() -> Self {
+        Self { expr: None }
+    }
+
     pub fn new(expr: Option<ExprRef>) -> Self {
         Self { expr }
     }
@@ -57,6 +62,15 @@ pub struct MessageLocator(pub MessageId, pub ByteRange);
 pub enum BatchRead {
     ReadMore(Vec<MessageLocator>),
     Batch(ArrayData),
+}
+
+#[derive(Debug)]
+pub enum MetadataRead {
+    /// Layout has no metadata
+    None,
+    /// Additional IO is required
+    ReadMore(Vec<MessageLocator>),
+    Batches(Vec<Option<ArrayData>>),
 }
 
 /// A reader for a layout, a serialized sequence of Vortex arrays.
@@ -83,4 +97,7 @@ pub trait LayoutReader: Debug + Send {
     ///
     /// The layout is finished producing data for selection when it returns None
     fn read_selection(&self, selector: &RowMask) -> VortexResult<Option<BatchRead>>;
+
+    /// Reads the metadata of the layout, if it exists.
+    fn read_metadata(&self) -> VortexResult<MetadataRead>;
 }

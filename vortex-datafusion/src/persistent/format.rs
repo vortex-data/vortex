@@ -1,5 +1,5 @@
 use std::any::Any;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use arrow_schema::{Schema, SchemaRef};
 use async_trait::async_trait;
@@ -9,7 +9,9 @@ use datafusion::datasource::physical_plan::{FileScanConfig, FileSinkConfig};
 use datafusion::execution::SessionState;
 use datafusion_common::parsers::CompressionTypeVariant;
 use datafusion_common::stats::Precision;
-use datafusion_common::{not_impl_err, DataFusionError, Result as DFResult, Statistics};
+use datafusion_common::{
+    not_impl_err, ColumnStatistics, DataFusionError, Result as DFResult, Statistics,
+};
 use datafusion_expr::Expr;
 use datafusion_physical_expr::{LexRequirement, PhysicalExpr};
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
@@ -17,10 +19,15 @@ use datafusion_physical_plan::ExecutionPlan;
 use object_store::{ObjectMeta, ObjectStore};
 use vortex_array::arrow::infer_schema;
 use vortex_array::Context;
-use vortex_file::{read_initial_bytes, VORTEX_FILE_EXTENSION};
-use vortex_io::ObjectStoreReadAt;
+use vortex_file::metadata::MetadataFetcher;
+use vortex_file::{
+    read_initial_bytes, LayoutContext, LayoutDeserializer, LayoutMessageCache, RelativeLayoutCache,
+    Scan, VORTEX_FILE_EXTENSION,
+};
+use vortex_io::{IoDispatcher, ObjectStoreReadAt};
 
 use super::execution::VortexExec;
+use super::statistics::array_to_col_statistics;
 use crate::can_be_pushed_down;
 
 #[derive(Debug, Default)]
@@ -86,13 +93,48 @@ impl FileFormat for VortexFormat {
         let os_read_at = ObjectStoreReadAt::new(store.clone(), object.location.clone());
         let initial_read = read_initial_bytes(&os_read_at, object.size as u64).await?;
         let layout = initial_read.fb_layout()?;
+        let dtype = initial_read.lazy_dtype().map_err(|e| {
+            DataFusionError::External(Box::new(
+                e.with_context("Failed to fetch dtype from initial read"),
+            ))
+        })?;
         let row_count = layout.row_count();
 
-        let stats = Statistics {
-            num_rows: Precision::Exact(row_count as usize),
-            total_byte_size: Precision::Absent,
-            column_statistics: Statistics::unknown_column(&table_schema),
-        };
+        let layout_deserializer =
+            LayoutDeserializer::new(Context::default().into(), LayoutContext::default().into());
+        let layout_message_cache = Arc::new(RwLock::new(LayoutMessageCache::new()));
+        let relative_message_cache =
+            RelativeLayoutCache::new(layout_message_cache.clone(), dtype.into());
+
+        let root_layout = vortex_file::read_layout_from_initial(
+            &initial_read,
+            &layout_deserializer,
+            Scan::empty(),
+            relative_message_cache,
+        )?;
+
+        let io = IoDispatcher::default();
+        let mut stats = Statistics::new_unknown(&table_schema);
+        stats.num_rows = Precision::Exact(row_count as usize);
+
+        let metadata_table =
+            MetadataFetcher::fetch(os_read_at, io.into(), root_layout, layout_message_cache)
+                .await?;
+
+        if let Some(metadata) = metadata_table {
+            let mut column_statistics = Vec::with_capacity(table_schema.fields().len());
+
+            for col_stats in metadata.into_iter() {
+                let col_stats = match col_stats {
+                    Some(array) => array_to_col_statistics(array.try_into()?)?,
+                    None => ColumnStatistics::new_unknown(),
+                };
+
+                column_statistics.push(col_stats);
+            }
+
+            stats.column_statistics = column_statistics;
+        }
 
         Ok(stats)
     }

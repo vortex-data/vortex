@@ -1,5 +1,5 @@
 use std::collections::BTreeSet;
-use std::sync::RwLock;
+use std::sync::{OnceLock, RwLock};
 
 use bytes::Bytes;
 use itertools::Itertools;
@@ -14,7 +14,7 @@ use crate::read::cache::RelativeLayoutCache;
 use crate::read::mask::RowMask;
 use crate::{
     BatchRead, Layout, LayoutDeserializer, LayoutId, LayoutPartId, LayoutReader, MessageLocator,
-    Scan, CHUNKED_LAYOUT_ID,
+    MetadataRead, Scan, CHUNKED_LAYOUT_ID,
 };
 
 #[derive(Default, Debug)]
@@ -84,7 +84,7 @@ impl ChunkedLayoutBuilder {
                     self.fb_bytes.clone(),
                     metadata_fb._tab.loc(),
                     // TODO(robert): Create stats projection
-                    Scan::new(None),
+                    Scan::empty(),
                     self.message_cache.unknown_dtype(METADATA_LAYOUT_PART_ID),
                 )
             })
@@ -170,6 +170,7 @@ pub struct ChunkedLayoutReader {
     layouts: Vec<RangedLayoutReader>,
     metadata_layout: Option<Box<dyn LayoutReader>>,
     in_progress_ranges: InProgressLayoutRanges,
+    cached_metadata: OnceLock<ArrayData>,
 }
 
 impl ChunkedLayoutReader {
@@ -181,6 +182,7 @@ impl ChunkedLayoutReader {
             layouts,
             metadata_layout,
             in_progress_ranges: RwLock::new(HashMap::new()),
+            cached_metadata: OnceLock::new(),
         }
     }
 
@@ -234,7 +236,6 @@ impl ChunkedLayoutReader {
         self.layouts.len()
     }
 
-    #[allow(dead_code)]
     pub fn metadata_layout(&self) -> Option<&dyn LayoutReader> {
         self.metadata_layout.as_deref()
     }
@@ -275,6 +276,29 @@ impl LayoutReader for ChunkedLayoutReader {
             }
         } else {
             Ok(None)
+        }
+    }
+
+    fn read_metadata(&self) -> VortexResult<MetadataRead> {
+        match self.metadata_layout() {
+            None => Ok(MetadataRead::None),
+            Some(metadata_layout) => {
+                if let Some(md) = self.cached_metadata.get() {
+                    return Ok(MetadataRead::Batches(vec![Some(md.clone())]));
+                }
+
+                match metadata_layout
+                    .read_selection(&RowMask::new_valid_between(0, self.n_chunks()))?
+                {
+                    Some(BatchRead::Batch(array)) => {
+                        // We don't care if the write failed
+                        _ = self.cached_metadata.set(array.clone());
+                        Ok(MetadataRead::Batches(vec![Some(array)]))
+                    }
+                    Some(BatchRead::ReadMore(messages)) => Ok(MetadataRead::ReadMore(messages)),
+                    None => Ok(MetadataRead::None),
+                }
+            }
         }
     }
 }

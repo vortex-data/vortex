@@ -44,6 +44,12 @@ impl From<String> for BufferString {
     }
 }
 
+impl From<&str> for BufferString {
+    fn from(value: &str) -> Self {
+        Self(Buffer::from(String::from(value).into_bytes()))
+    }
+}
+
 impl TryFrom<Buffer> for BufferString {
     type Error = Utf8Error;
 
