@@ -1,6 +1,7 @@
 #![allow(clippy::assertions_on_constants)]
 use std::io;
 
+use bytes::Bytes;
 use flatbuffers::FlatBufferBuilder;
 use itertools::Itertools;
 use vortex_array::ArrayData;
@@ -12,6 +13,8 @@ use vortex_io::VortexWrite;
 
 use crate::messages::{IPCBatch, IPCMessage, IPCPage, IPCSchema};
 use crate::ALIGNMENT;
+
+static ZEROS: [u8; 512] = [0; 512];
 
 #[derive(Debug)]
 pub struct MessageWriter<W> {
@@ -58,7 +61,7 @@ impl<W: VortexWrite> MessageWriter<W> {
         let aligned_size = written_len.next_multiple_of(self.alignment);
         let padding = aligned_size - written_len;
 
-        self.write_zeros(padding).await?;
+        self.write_all(Bytes::from(&ZEROS[..padding])).await?;
 
         Ok(())
     }
@@ -85,7 +88,7 @@ impl<W: VortexWrite> MessageWriter<W> {
             let buffer_len = buffer.len();
             self.write_all(buffer).await?;
             let padding = (buffer_end as usize) - current_offset - buffer_len;
-            self.write_zeros(padding).await?;
+            self.write_all(Bytes::from(&ZEROS[..padding])).await?;
             current_offset = buffer_end as usize;
         }
 
@@ -100,7 +103,7 @@ impl<W: VortexWrite> MessageWriter<W> {
 
         let aligned_size = buffer_len.next_multiple_of(self.alignment);
         let padding = aligned_size - buffer_len;
-        self.write_zeros(padding).await?;
+        self.write_all(Bytes::from(&ZEROS[..padding])).await?;
 
         Ok(())
     }
@@ -126,7 +129,7 @@ impl<W: VortexWrite> MessageWriter<W> {
 
         let unaligned_size = 4 + buffer_len;
         let aligned_size = (unaligned_size + (self.alignment - 1)) & !(self.alignment - 1);
-        let padding_bytes = aligned_size - unaligned_size;
+        let padding = aligned_size - unaligned_size;
 
         // Write the size as u32, followed by the buffer, followed by padding.
         self.write_all(((aligned_size - 4) as u32).to_le_bytes())
@@ -135,7 +138,7 @@ impl<W: VortexWrite> MessageWriter<W> {
             .write_all(buffer.slice_owned(buffer_begin..buffer_end))
             .await?
             .into_inner();
-        self.write_zeros(padding_bytes).await?;
+        self.write_all(Bytes::from(&ZEROS[..padding])).await?;
 
         assert_eq!(self.pos % self.alignment as u64, 0);
 
@@ -149,11 +152,5 @@ impl<W: VortexWrite> MessageWriter<W> {
         let buf = self.write.write_all(buf).await?;
         self.pos += buf.bytes_init() as u64;
         Ok(buf)
-    }
-
-    async fn write_zeros(&mut self, len: usize) -> io::Result<()> {
-        self.write.write_zeros(len).await?;
-        self.pos += len as u64;
-        Ok(())
     }
 }

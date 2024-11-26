@@ -2,6 +2,8 @@
 
 use std::ops::Range;
 
+use bytes::Bytes;
+
 use crate::Buffer;
 
 /// Trait for types that can provide a readonly byte buffer interface to I/O frameworks.
@@ -54,7 +56,7 @@ unsafe impl IoBuf for &'static [u8] {
 
     #[inline]
     fn bytes_init(&self) -> usize {
-        <[u8]>::len(self)
+        self.len()
     }
 
     #[inline]
@@ -92,6 +94,20 @@ unsafe impl IoBuf for Vec<u8> {
     }
 
     #[inline]
+    fn as_slice(&self) -> &[u8] {
+        self.as_ref()
+    }
+}
+
+unsafe impl IoBuf for Bytes {
+    fn read_ptr(&self) -> *const u8 {
+        self.as_ptr()
+    }
+
+    fn bytes_init(&self) -> usize {
+        self.len()
+    }
+
     fn as_slice(&self) -> &[u8] {
         self.as_ref()
     }
