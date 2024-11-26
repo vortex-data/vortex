@@ -18,7 +18,7 @@ use crate::read::cache::{LazyDType, RelativeLayoutCache};
 use crate::read::expr_project::expr_project;
 use crate::read::mask::RowMask;
 use crate::{
-    BatchRead, IsPrunedRead, Layout, LayoutDeserializer, LayoutId, LayoutReader, MetadataRead,
+    BatchRead, Layout, LayoutDeserializer, LayoutId, LayoutReader, MetadataRead, PruningRead,
     RowFilter, Scan, COLUMNAR_LAYOUT_ID,
 };
 
@@ -347,7 +347,7 @@ impl LayoutReader for ColumnarLayoutReader {
         }
     }
 
-    fn is_pruned(&self, begin: usize, end: usize) -> VortexResult<IsPrunedRead> {
+    fn can_prune(&self, begin: usize, end: usize) -> VortexResult<PruningRead> {
         let mut in_progress_guard = self
             .in_progress_prunes
             .write()
@@ -357,26 +357,26 @@ impl LayoutReader for ColumnarLayoutReader {
             .entry(selection_range)
             .or_insert_with(|| vec![None; self.children.len()]);
         let mut messages = Vec::new();
-        for (i, child_is_pruned) in in_progress_selection
+        for (i, can_prune_child) in in_progress_selection
             .iter_mut()
             .enumerate()
             .filter(|(_, a)| a.is_none())
         {
-            match self.children[i].is_pruned(begin, end)? {
-                IsPrunedRead::ReadMore(message) => messages.extend(message),
-                IsPrunedRead::IsPruned(is_pruned) => *child_is_pruned = Some(is_pruned),
+            match self.children[i].can_prune(begin, end)? {
+                PruningRead::ReadMore(message) => messages.extend(message),
+                PruningRead::CanPrune(is_pruned) => *can_prune_child = Some(is_pruned),
             }
         }
 
         if messages.is_empty() {
             let any_child_is_pruned = in_progress_guard
                 .remove(&selection_range)
-                .ok_or_else(|| vortex_err!("There were no is_pruned results and no messages"))?
+                .ok_or_else(|| vortex_err!("There were no can_prune results and no messages"))?
                 .into_iter()
                 .any(|x| x.vortex_expect("all pruned-ness should be available"));
-            Ok(IsPrunedRead::IsPruned(any_child_is_pruned))
+            Ok(PruningRead::CanPrune(any_child_is_pruned))
         } else {
-            Ok(IsPrunedRead::ReadMore(messages))
+            Ok(PruningRead::ReadMore(messages))
         }
     }
 }

@@ -17,8 +17,8 @@ use crate::pruning::PruningPredicate;
 use crate::read::cache::RelativeLayoutCache;
 use crate::read::mask::RowMask;
 use crate::{
-    BatchRead, IsPrunedRead, Layout, LayoutDeserializer, LayoutId, LayoutPartId, LayoutReader,
-    MessageLocator, MetadataRead, Scan, CHUNKED_LAYOUT_ID,
+    BatchRead, Layout, LayoutDeserializer, LayoutId, LayoutPartId, LayoutReader, MessageLocator,
+    MetadataRead, PruningRead, Scan, CHUNKED_LAYOUT_ID,
 };
 
 #[derive(Default, Debug)]
@@ -349,9 +349,9 @@ impl LayoutReader for ChunkedLayoutReader {
         }
     }
 
-    fn is_pruned(&self, begin: usize, end: usize) -> VortexResult<IsPrunedRead> {
+    fn can_prune(&self, begin: usize, end: usize) -> VortexResult<PruningRead> {
         if let Some(chunk_prunability) = self.cached_prunability.get() {
-            return Ok(IsPrunedRead::IsPruned(self.are_overlapping_chunks_pruned(
+            return Ok(PruningRead::CanPrune(self.are_overlapping_chunks_pruned(
                 chunk_prunability,
                 begin,
                 end,
@@ -359,12 +359,12 @@ impl LayoutReader for ChunkedLayoutReader {
         }
 
         let Some(predicate_expression) = self.scan.expr.as_ref() else {
-            return Ok(IsPrunedRead::IsPruned(false));
+            return Ok(PruningRead::CanPrune(false));
         };
 
         Ok(match self.read_metadata()? {
-            MetadataRead::None => IsPrunedRead::IsPruned(false),
-            MetadataRead::ReadMore(messages) => IsPrunedRead::ReadMore(messages),
+            MetadataRead::None => PruningRead::CanPrune(false),
+            MetadataRead::ReadMore(messages) => PruningRead::ReadMore(messages),
             MetadataRead::Batches(mut batches) => {
                 if batches.len() != 1 {
                     vortex_bail!("chunked layout should have exactly one metadata array");
@@ -382,9 +382,9 @@ impl LayoutReader for ChunkedLayoutReader {
                         let is_selection_pruned =
                             self.are_overlapping_chunks_pruned(&chunk_prunability, begin, end)?;
                         let _ = self.cached_prunability.set(chunk_prunability); // Losing the race is fine
-                        IsPrunedRead::IsPruned(is_selection_pruned)
+                        PruningRead::CanPrune(is_selection_pruned)
                     }
-                    None => IsPrunedRead::IsPruned(false),
+                    None => PruningRead::CanPrune(false),
                 }
             }
         })

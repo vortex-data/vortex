@@ -6,8 +6,9 @@ use itertools::Itertools;
 use vortex_array::stats::ArrayStatistics;
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
-use super::IsPrunedRead;
+use super::PruningRead;
 use crate::{BatchRead, LayoutReader, MessageLocator, RowMask};
+
 pub enum SplitMask {
     ReadMore(Vec<MessageLocator>),
     Mask(RowMask),
@@ -19,20 +20,20 @@ pub trait MaskIterator: Iterator<Item = VortexResult<SplitMask>> + Send {
     fn additional_splits(&mut self, splits: &mut BTreeSet<usize>) -> VortexResult<()>;
 }
 
-enum PrunedSplitState {
+enum PruningSplitState {
     Ranges(VecDeque<(usize, usize)>),
     Splits(BTreeSet<usize>),
 }
 
-pub struct PrunedSplitIterator {
+pub struct PruningSplitIterator {
     reader: Box<dyn LayoutReader>,
     in_progress_masks: VecDeque<RowMask>,
     registered_splits: AtomicBool,
-    splits: PrunedSplitState,
+    splits: PruningSplitState,
     row_mask: Option<RowMask>,
 }
 
-impl PrunedSplitIterator {
+impl PruningSplitIterator {
     pub fn new(reader: Box<dyn LayoutReader>, row_count: u64, row_mask: Option<RowMask>) -> Self {
         let mut splits = BTreeSet::new();
         splits.insert(row_count as usize);
@@ -40,7 +41,7 @@ impl PrunedSplitIterator {
             reader,
             in_progress_masks: VecDeque::new(),
             registered_splits: AtomicBool::new(false),
-            splits: PrunedSplitState::Splits(splits),
+            splits: PruningSplitState::Splits(splits),
             row_mask,
         }
     }
@@ -82,24 +83,26 @@ impl PrunedSplitIterator {
         }
 
         match &mut self.splits {
-            PrunedSplitState::Ranges(ranges) => {
+            PruningSplitState::Ranges(ranges) => {
                 while let Some((begin, end)) = ranges.pop_front() {
-                    let is_pruned = self.reader.is_pruned(begin, end)?;
-                    // println!("split {}-{} {:?}", begin, end, is_pruned);
+                    // check if we can prune the entire range (because stats indicate that it's all false)
+                    let can_prune = self.reader.can_prune(begin, end)?;
 
-                    match is_pruned {
-                        IsPrunedRead::ReadMore(messages) => {
+                    match can_prune {
+                        PruningRead::ReadMore(messages) => {
                             ranges.push_front((begin, end));
                             return Ok(Some(SplitMask::ReadMore(messages)));
                         }
-                        IsPrunedRead::IsPruned(true) => continue,
-                        IsPrunedRead::IsPruned(false) => {}
+                        PruningRead::CanPrune(true) => continue,
+                        PruningRead::CanPrune(false) => {}
                     };
 
+                    // we couldn't prune the whole range, but we can still read/apply the row_mask
                     let Some(ref row_mask) = self.row_mask else {
                         return self.read_mask(RowMask::new_valid_between(begin, end));
                     };
 
+                    // we masked everything out, so move on
                     if row_mask.slice(begin, end).is_empty() {
                         continue;
                     }
@@ -109,11 +112,11 @@ impl PrunedSplitIterator {
 
                 Ok(None)
             }
-            PrunedSplitState::Splits(s) => {
+            PruningSplitState::Splits(s) => {
                 // FIXME(DK): is this a spinlock waiting for one thread to add_splits?
                 if !self.registered_splits.swap(true, Ordering::SeqCst) {
                     self.reader.add_splits(0, s)?;
-                    self.splits = PrunedSplitState::Ranges(
+                    self.splits = PruningSplitState::Ranges(
                         mem::take(s)
                             .into_iter()
                             .tuple_windows::<(usize, usize)>()
@@ -126,13 +129,15 @@ impl PrunedSplitIterator {
     }
 }
 
-impl MaskIterator for PrunedSplitIterator {
+impl MaskIterator for PruningSplitIterator {
     fn additional_splits(&mut self, splits: &mut BTreeSet<usize>) -> VortexResult<()> {
         match &mut self.splits {
-            PrunedSplitState::Ranges(_) => {
-                vortex_bail!("Can't insert additional splits if we started producing row ranges")
+            PruningSplitState::Ranges(_) => {
+                vortex_bail!(
+                    "Can't insert additional splits, we've already started producing row ranges"
+                )
             }
-            PrunedSplitState::Splits(s) => {
+            PruningSplitState::Splits(s) => {
                 s.append(splits);
                 Ok(())
             }
@@ -140,7 +145,7 @@ impl MaskIterator for PrunedSplitIterator {
     }
 }
 
-impl Iterator for PrunedSplitIterator {
+impl Iterator for PruningSplitIterator {
     type Item = VortexResult<SplitMask>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -148,13 +153,13 @@ impl Iterator for PrunedSplitIterator {
     }
 }
 
-enum SplitState {
+enum FixedSplitState {
     Ranges(Box<dyn Iterator<Item = (usize, usize)> + Send>),
     Splits(BTreeSet<usize>),
 }
 
 pub struct FixedSplitIterator {
-    splits: SplitState,
+    splits: FixedSplitState,
     row_mask: Option<RowMask>,
 }
 
@@ -163,7 +168,7 @@ impl FixedSplitIterator {
         let mut splits = BTreeSet::new();
         splits.insert(row_count as usize);
         Self {
-            splits: SplitState::Splits(splits),
+            splits: FixedSplitState::Splits(splits),
             row_mask,
         }
     }
@@ -172,10 +177,10 @@ impl FixedSplitIterator {
 impl MaskIterator for FixedSplitIterator {
     fn additional_splits(&mut self, splits: &mut BTreeSet<usize>) -> VortexResult<()> {
         match &mut self.splits {
-            SplitState::Ranges(_) => {
+            FixedSplitState::Ranges(_) => {
                 vortex_bail!("Can't insert additional splits if we started producing row ranges")
             }
-            SplitState::Splits(s) => {
+            FixedSplitState::Splits(s) => {
                 s.append(splits);
                 Ok(())
             }
@@ -188,7 +193,7 @@ impl Iterator for FixedSplitIterator {
 
     fn next(&mut self) -> Option<Self::Item> {
         match &mut self.splits {
-            SplitState::Ranges(ranges) => {
+            FixedSplitState::Ranges(ranges) => {
                 // Find next range that's not filtered out by supplied row_mask
                 for (begin, end) in ranges {
                     return if let Some(ref row_mask) = self.row_mask {
@@ -202,8 +207,8 @@ impl Iterator for FixedSplitIterator {
                 }
                 None
             }
-            SplitState::Splits(s) => {
-                self.splits = SplitState::Ranges(Box::new(
+            FixedSplitState::Splits(s) => {
+                self.splits = FixedSplitState::Ranges(Box::new(
                     mem::take(s).into_iter().tuple_windows::<(usize, usize)>(),
                 ));
                 self.next()

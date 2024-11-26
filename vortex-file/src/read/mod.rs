@@ -73,9 +73,12 @@ pub enum MetadataRead {
     Batches(Vec<Option<ArrayData>>),
 }
 
-pub enum IsPrunedRead {
+#[derive(Debug)]
+pub enum PruningRead {
+    /// Additional IO is required
     ReadMore(Vec<MessageLocator>),
-    IsPruned(bool),
+    /// If true, the layout can be pruned; otherwise, it cannot
+    CanPrune(bool),
 }
 
 /// A reader for a layout, a serialized sequence of Vortex arrays.
@@ -107,5 +110,5 @@ pub trait LayoutReader: Debug + Send {
     fn read_metadata(&self) -> VortexResult<MetadataRead>;
 
     /// Returns true if this range contains no rows passing the filter condition.
-    fn is_pruned(&self, begin: usize, end: usize) -> VortexResult<IsPrunedRead>;
+    fn can_prune(&self, begin: usize, end: usize) -> VortexResult<PruningRead>;
 }
