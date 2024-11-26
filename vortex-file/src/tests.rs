@@ -90,13 +90,12 @@ async fn test_read_simple_with_spawn() {
     let written = tokio::spawn(async {
         let mut writer = VortexFileWriter::new(buf);
         writer = writer.write_array_columns(st.into_array()).await.unwrap();
-        let written = Buffer::from(writer.finalize().await.unwrap());
-        written
+        Buffer::from(writer.finalize().await.unwrap())
     })
     .await
     .unwrap();
 
-    assert!(written.len() > 0);
+    assert!(!written.is_empty());
 }
 
 #[tokio::test]
