@@ -72,6 +72,8 @@ impl Default for IoDispatcher {
         return Self(Inner::Tokio(TokioDispatcher::new(1)));
         #[cfg(all(feature = "compio", not(feature = "tokio")))]
         return Self(Inner::Compio(CompioDispatcher::new(1)));
+        #[cfg(not(any(feature = "compio", feature = "tokio")))]
+        return Self(Inner {});
     }
 }
 
