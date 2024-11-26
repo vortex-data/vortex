@@ -61,14 +61,17 @@ jobs:
         run: |
           echo "TMPDIR=/work" >> $GITHUB_ENV
 
+      - name: Download Clickbench data
+        if: matrix.benchmark.id == 'clickbench'
+        run:
+          aws s3 cp s3://vortex-bench-dev/clickbench/processed.parquet bench-vortex/data/clickbench/
+
       - name: Run benchmark
         shell: bash
         env:
           BENCH_VORTEX_RATIOS: '.*'
           RUSTFLAGS: '-C target-cpu=native'
         run: |
-          aws s3 cp s3://vortex-bench-dev/clickbench/processed.parquet bench-vortex/data/clickbench/
-          
           cargo install cargo-criterion
           
           cargo criterion --bench ${{ matrix.benchmark.id }} --message-format=json 2>&1 | tee out.json
