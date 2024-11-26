@@ -27,7 +27,7 @@ pub struct MessageWriter<W> {
 
 impl<W: VortexWrite> MessageWriter<W> {
     pub fn new(write: W) -> Self {
-        assert!(ALIGNMENT <= 512, "ALIGNMENT must be <= 512");
+        assert!(ALIGNMENT <= ZEROS.len(), "ALIGNMENT must be <= 512");
         Self {
             write,
             pos: 0,
