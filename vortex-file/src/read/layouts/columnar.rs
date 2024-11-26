@@ -307,13 +307,16 @@ impl LayoutReader for ColumnarLayoutReader {
     }
 
     fn read_metadata(&self) -> VortexResult<MetadataRead> {
-        let mut in_progress_metadata = self.in_progress_metadata.write().unwrap();
+        let mut in_progress_metadata = self
+            .in_progress_metadata
+            .write()
+            .unwrap_or_else(|e| vortex_panic!("lock is poisoned: {e}"));
         let mut messages = Vec::default();
 
         for (name, child_reader) in self.names.iter().zip(self.children.iter()) {
             match child_reader.read_metadata()? {
                 MetadataRead::Batches(data) => {
-                    in_progress_metadata.insert(name.clone(), Some(data[0].clone()));
+                    in_progress_metadata.insert(name.clone(), data[0].clone());
                 }
                 MetadataRead::ReadMore(rm) => {
                     messages.extend(rm);
@@ -329,12 +332,8 @@ impl LayoutReader for ColumnarLayoutReader {
             let child_arrays = self
                 .names
                 .iter()
-                .map(|name| in_progress_metadata[name].clone().unwrap()) // TODO(Adam): Some columns might not have statistics
+                .map(|name| in_progress_metadata[name].clone()) // TODO(Adam): Some columns might not have statistics
                 .collect::<Vec<_>>();
-            // let len = child_arrays.first().map(ArrayData::len).unwrap();
-            // let array =
-            //     StructArray::try_new(self.names.clone(), child_arrays, len, Validity::NonNullable)?
-            //         .into_array();
 
             Ok(MetadataRead::Batches(child_arrays))
         } else {

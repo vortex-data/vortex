@@ -66,7 +66,7 @@ impl<R: VortexReadAt + Unpin> MetadataFetcher<R> {
 }
 
 impl<R: VortexReadAt + Unpin> Future for MetadataFetcher<R> {
-    type Output = VortexResult<Option<Vec<ArrayData>>>;
+    type Output = VortexResult<Option<Vec<Option<ArrayData>>>>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         loop {

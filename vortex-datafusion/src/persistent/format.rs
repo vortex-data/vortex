@@ -9,7 +9,9 @@ use datafusion::datasource::physical_plan::{FileScanConfig, FileSinkConfig};
 use datafusion::execution::SessionState;
 use datafusion_common::parsers::CompressionTypeVariant;
 use datafusion_common::stats::Precision;
-use datafusion_common::{not_impl_err, DataFusionError, Result as DFResult, Statistics};
+use datafusion_common::{
+    not_impl_err, ColumnStatistics, DataFusionError, Result as DFResult, Statistics,
+};
 use datafusion_expr::Expr;
 use datafusion_physical_expr::{LexRequirement, PhysicalExpr};
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
@@ -25,6 +27,7 @@ use vortex_file::{
 use vortex_io::{IoDispatcher, ObjectStoreReadAt};
 
 use super::execution::VortexExec;
+use super::statistics::array_to_col_statistics;
 use crate::can_be_pushed_down;
 
 #[derive(Debug, Default)]
@@ -112,20 +115,23 @@ impl FileFormat for VortexFormat {
         let mut stats = Statistics::new_unknown(&table_schema);
         stats.num_rows = Precision::Exact(row_count as usize);
 
-        let metadata =
+        let metadata_table =
             MetadataFetcher::fetch(os_read_at, io.into(), root_layout, layout_message_cache)
                 .await?;
 
-        if let Some(metadata) = metadata {
-            let mut col_stats = Vec::with_capacity(table_schema.fields().len());
+        if let Some(metadata) = metadata_table {
+            let mut column_statistics = Vec::with_capacity(table_schema.fields().len());
 
-            for col_stats_array in metadata.into_iter() {
-                col_stats.push(crate::persistent::statistics::array_to_col_statistics(
-                    col_stats_array.try_into()?,
-                )?);
+            for col_stats in metadata.into_iter() {
+                let col_stats = match col_stats {
+                    Some(array) => array_to_col_statistics(array.try_into()?)?,
+                    None => ColumnStatistics::new_unknown(),
+                };
+
+                column_statistics.push(col_stats);
             }
 
-            stats.column_statistics = col_stats;
+            stats.column_statistics = column_statistics;
         }
 
         Ok(stats)

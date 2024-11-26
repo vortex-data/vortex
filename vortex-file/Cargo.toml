@@ -42,7 +42,7 @@ rstest = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 
 [lints]
-# workspace = true
+workspace = true
 
 [features]
 futures = ["futures-util/io", "vortex-io/futures"]

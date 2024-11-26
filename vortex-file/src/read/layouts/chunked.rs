@@ -284,7 +284,7 @@ impl LayoutReader for ChunkedLayoutReader {
             None => Ok(MetadataRead::None),
             Some(metadata_layout) => {
                 if let Some(md) = self.cached_metadata.get() {
-                    return Ok(MetadataRead::Batches(vec![md.clone()]));
+                    return Ok(MetadataRead::Batches(vec![Some(md.clone())]));
                 }
 
                 match metadata_layout
@@ -293,7 +293,7 @@ impl LayoutReader for ChunkedLayoutReader {
                     Some(BatchRead::Batch(array)) => {
                         // We don't care if the write failed
                         _ = self.cached_metadata.set(array.clone());
-                        Ok(MetadataRead::Batches(vec![array]))
+                        Ok(MetadataRead::Batches(vec![Some(array)]))
                     }
                     Some(BatchRead::ReadMore(messages)) => Ok(MetadataRead::ReadMore(messages)),
                     None => Ok(MetadataRead::None),

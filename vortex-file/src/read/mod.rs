@@ -70,7 +70,7 @@ pub enum MetadataRead {
     None,
     /// Additional IO is required
     ReadMore(Vec<MessageLocator>),
-    Batches(Vec<ArrayData>),
+    Batches(Vec<Option<ArrayData>>),
 }
 
 /// A reader for a layout, a serialized sequence of Vortex arrays.
