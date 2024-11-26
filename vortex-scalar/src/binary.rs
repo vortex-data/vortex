@@ -66,7 +66,10 @@ impl<'a> TryFrom<&'a Scalar> for Option<Buffer> {
     type Error = VortexError;
 
     fn try_from(scalar: &'a Scalar) -> VortexResult<Self> {
-        Ok(BinaryScalar::try_from(scalar)?.value())
+        Ok(scalar
+            .as_binary_opt()
+            .ok_or_else(|| vortex_err!("cannot convert non-binary scalar to buffer"))?
+            .value())
     }
 }
 
