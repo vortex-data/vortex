@@ -38,13 +38,13 @@ async fn test_read_simple() {
         VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array(),
         VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array(),
     ])
-    .into_array();
+        .into_array();
 
     let numbers = ChunkedArray::from_iter([
         PrimitiveArray::from(vec![1u32, 2, 3, 4]).into_array(),
         PrimitiveArray::from(vec![5u32, 6, 7, 8]).into_array(),
     ])
-    .into_array();
+        .into_array();
 
     let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
     let buf = Vec::new();
@@ -71,20 +71,62 @@ async fn test_read_simple() {
 
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
+async fn test_read_simple_with_spawn() {
+    let strings = ChunkedArray::from_iter([
+        VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array(),
+        VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array(),
+    ])
+        .into_array();
+
+    let numbers = ChunkedArray::from_iter([
+        PrimitiveArray::from(vec![1u32, 2, 3, 4]).into_array(),
+        PrimitiveArray::from(vec![5u32, 6, 7, 8]).into_array(),
+    ])
+        .into_array();
+
+    let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
+    let buf = Vec::new();
+
+    let written = tokio::spawn(async {
+        let mut writer = VortexFileWriter::new(buf);
+        writer = writer.write_array_columns(st.into_array()).await.unwrap();
+        let written = Buffer::from(writer.finalize().await.unwrap());
+        written
+    }).await.unwrap();
+
+    let mut stream = VortexReadBuilder::new(written, LayoutDeserializer::default())
+        .build()
+        .await
+        .unwrap();
+    let mut batch_count = 0;
+    let mut row_count = 0;
+
+    while let Some(array) = stream.next().await {
+        let array = array.unwrap();
+        batch_count += 1;
+        row_count += array.len();
+    }
+
+    assert_eq!(batch_count, 2);
+    assert_eq!(row_count, 8);
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
 async fn test_splits() {
     let strings = ChunkedArray::from_iter([
         VarBinArray::from(vec!["ab", "foo", "baz"]).into_array(),
         VarBinArray::from(vec!["ab", "foo"]).into_array(),
         VarBinArray::from(vec!["ab", "foo", "bar"]).into_array(),
     ])
-    .into_array();
+        .into_array();
 
     let numbers = ChunkedArray::from_iter([
         PrimitiveArray::from(vec![1u32, 2, 3]).into_array(),
         PrimitiveArray::from(vec![4u32, 5, 6]).into_array(),
         PrimitiveArray::from(vec![7u32, 8]).into_array(),
     ])
-    .into_array();
+        .into_array();
 
     let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
     let len = st.len();
@@ -107,7 +149,7 @@ async fn test_splits() {
         Scan::new(None),
         RelativeLayoutCache::new(cache, dtype),
     )
-    .unwrap();
+        .unwrap();
 
     let mut splits = BTreeSet::new();
     layout_reader.add_splits(0, &mut splits).unwrap();
@@ -123,7 +165,7 @@ async fn test_read_projection() {
         VarBinArray::from(strings_expected[..4].to_vec()).into_array(),
         VarBinArray::from(strings_expected[4..].to_vec()).into_array(),
     ])
-    .into_array();
+        .into_array();
     let strings_dtype = strings.dtype().clone();
 
     let numbers_expected = [1u32, 2, 3, 4, 5, 6, 7, 8];
@@ -131,7 +173,7 @@ async fn test_read_projection() {
         PrimitiveArray::from(numbers_expected[..4].to_vec()).into_array(),
         PrimitiveArray::from(numbers_expected[4..].to_vec()).into_array(),
     ])
-    .into_array();
+        .into_array();
     let numbers_dtype = numbers.dtype().clone();
 
     let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
@@ -264,13 +306,13 @@ async fn unequal_batches() {
         VarBinArray::from(vec!["ab", "foo", "bar", "bob"]).into_array(),
         VarBinArray::from(vec!["baz", "ab", "foo", "bar", "baz", "alice"]).into_array(),
     ])
-    .into_array();
+        .into_array();
 
     let numbers = ChunkedArray::from_iter([
         PrimitiveArray::from(vec![1u32, 2, 3, 4, 5]).into_array(),
         PrimitiveArray::from(vec![6u32, 7, 8, 9, 10]).into_array(),
     ])
-    .into_array();
+        .into_array();
 
     let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
     let buf = Vec::new();
@@ -324,8 +366,8 @@ async fn write_chunked() {
         16,
         Validity::NonNullable,
     )
-    .unwrap()
-    .into_array();
+        .unwrap()
+        .into_array();
     let st_dtype = st.dtype().clone();
 
     let chunked_st = ChunkedArray::try_new(iter::repeat(st).take(3).collect(), st_dtype)
@@ -354,7 +396,7 @@ async fn filter_string() {
         vec![Some("Joseph"), None, Some("Angela"), Some("Mikhail"), None],
         DType::Utf8(Nullability::Nullable),
     )
-    .into_array();
+        .into_array();
     let ages_orig =
         PrimitiveArray::from_nullable_vec(vec![Some(25), Some(31), None, Some(57), None])
             .into_array();
@@ -364,8 +406,8 @@ async fn filter_string() {
         5,
         Validity::NonNullable,
     )
-    .unwrap()
-    .into_array();
+        .unwrap()
+        .into_array();
     let mut writer = VortexFileWriter::new(Vec::new());
     writer = writer.write_array_columns(st).await.unwrap();
 
@@ -422,8 +464,8 @@ async fn filter_or() {
         5,
         Validity::NonNullable,
     )
-    .unwrap()
-    .into_array();
+        .unwrap()
+        .into_array();
     let mut writer = VortexFileWriter::new(Vec::new());
     writer = writer.write_array_columns(st).await.unwrap();
     let written = Buffer::from(writer.finalize().await.unwrap());
@@ -498,8 +540,8 @@ async fn filter_and() {
         5,
         Validity::NonNullable,
     )
-    .unwrap()
-    .into_array();
+        .unwrap()
+        .into_array();
     let mut writer = VortexFileWriter::new(Vec::new());
     writer = writer.write_array_columns(st).await.unwrap();
     let written = Buffer::from(writer.finalize().await.unwrap());
@@ -557,7 +599,7 @@ async fn test_with_indices_simple() {
         ChunkedArray::from_iter(expected_numbers_split.iter().cloned().map(ArrayData::from))
             .into_array(),
     )])
-    .unwrap();
+        .unwrap();
     let expected_numbers: Vec<i16> = expected_numbers_split.into_iter().flatten().collect();
 
     let writer = VortexFileWriter::new(Vec::new())
@@ -632,14 +674,14 @@ async fn test_with_indices_on_two_columns() {
         VarBinArray::from(strings_expected[..4].to_vec()).into_array(),
         VarBinArray::from(strings_expected[4..].to_vec()).into_array(),
     ])
-    .into_array();
+        .into_array();
 
     let numbers_expected = [1u32, 2, 3, 4, 5, 6, 7, 8];
     let numbers = ChunkedArray::from_iter([
         PrimitiveArray::from(numbers_expected[..4].to_vec()).into_array(),
         PrimitiveArray::from(numbers_expected[4..].to_vec()).into_array(),
     ])
-    .into_array();
+        .into_array();
 
     let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
     let buf = Vec::new();
@@ -699,7 +741,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
         ChunkedArray::from_iter(expected_numbers_split.iter().cloned().map(ArrayData::from))
             .into_array(),
     )])
-    .unwrap();
+        .unwrap();
     let expected_numbers: Vec<i16> = expected_numbers_split.into_iter().flatten().collect();
 
     let writer = VortexFileWriter::new(Vec::new())
