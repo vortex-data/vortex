@@ -16,7 +16,8 @@ categories.workspace = true
 [dependencies]
 bytes = { workspace = true }
 compio = { workspace = true, features = ["bytes", "macros"], optional = true }
-tokio = { workspace = true, features = ["fs", "io-util", "rt"], optional = true }
+pin-project = { workspace = true }
+tokio = { workspace = true, features = ["fs", "io-util", "rt", "sync"], optional = true }
 tracing = { workspace = true, optional = true }
 futures = { workspace = true, features = ["std"] }
 futures-util = { workspace = true }
