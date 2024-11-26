@@ -87,7 +87,7 @@ async fn test_read_simple_with_spawn() {
     let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
     let buf = Vec::new();
 
-    let written = tokio::spawn(async {
+    let written = tokio::spawn(async move {
         let mut writer = VortexFileWriter::new(buf);
         writer = writer.write_array_columns(st.into_array()).await.unwrap();
         Buffer::from(writer.finalize().await.unwrap())
