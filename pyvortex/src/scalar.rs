@@ -37,7 +37,7 @@ pub fn scalar_into_py(py: Python, x: Scalar, copy_into_python: bool) -> PyResult
                 None => py.None(),
                 Some(x) => {
                     if copy_into_python {
-                        return Ok(x.as_str().into_py(py));
+                        x.as_str().into_py(py)
                     } else {
                         return PyBufferString::new_pyobject(py, x);
                     }
@@ -50,9 +50,9 @@ pub fn scalar_into_py(py: Python, x: Scalar, copy_into_python: bool) -> PyResult
                 None => py.None(),
                 Some(x) => {
                     if copy_into_python {
-                        return Ok(x.as_slice().into_py(py));
+                        x.as_slice().into_py(py)
                     } else {
-                        return PyBuffer::new_pyobject(py, x);
+                        PyBuffer::new_pyobject(py, x)?
                     }
                 }
             }
@@ -60,17 +60,17 @@ pub fn scalar_into_py(py: Python, x: Scalar, copy_into_python: bool) -> PyResult
         DType::Struct(..) => {
             let struct_scalar = x.as_struct();
             if copy_into_python {
-                return to_python_dict(py, struct_scalar, true);
+                to_python_dict(py, struct_scalar, true)?
             } else {
-                return PyVortexStruct::new_pyobject(py, x);
+                PyVortexStruct::new_pyobject(py, x)?
             }
         }
         DType::List(..) => {
             let list_scalar = x.as_list();
             if copy_into_python {
-                return to_python_list(py, list_scalar, true);
+                to_python_list(py, list_scalar, true)?
             } else {
-                return PyVortexList::new_pyobject(py, x);
+                PyVortexList::new_pyobject(py, x)?
             }
         }
         DType::Extension(_) => {
