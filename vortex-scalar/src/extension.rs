@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use vortex_dtype::{DType, ExtDType};
-use vortex_error::{vortex_bail, VortexError, VortexResult};
+use vortex_error::{vortex_bail, vortex_panic, VortexError, VortexResult};
 
 use crate::value::ScalarValue;
 use crate::Scalar;
@@ -32,7 +32,7 @@ impl<'a> ExtScalar<'a> {
         let storage_dtype = if let DType::Extension(ext_dtype) = self.dtype() {
             ext_dtype.storage_dtype().clone()
         } else {
-            unreachable!("Expected extension DType");
+            vortex_panic!("Expected extension DType: {}", self.dtype());
         };
         Scalar::new(storage_dtype, self.value.clone())
     }

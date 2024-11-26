@@ -88,19 +88,13 @@ impl TryFrom<Scalar> for Option<Buffer> {
 
 impl From<&[u8]> for Scalar {
     fn from(value: &[u8]) -> Self {
-        Self {
-            dtype: DType::Binary(Nullability::NonNullable),
-            value: ScalarValue(InnerScalarValue::Buffer(value.into())),
-        }
+        Scalar::from(Buffer::from(value))
     }
 }
 
 impl From<bytes::Bytes> for Scalar {
     fn from(value: bytes::Bytes) -> Self {
-        Self {
-            dtype: DType::Binary(Nullability::NonNullable),
-            value: ScalarValue(InnerScalarValue::Buffer(value.into())),
-        }
+        Scalar::from(Buffer::from(value))
     }
 }
 
