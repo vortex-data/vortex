@@ -59,7 +59,7 @@ impl<W: VortexWrite> VortexFileWriter<W> {
         }
     }
 
-    pub async fn write_array_columns_stream<S: ArrayStream + Unpin>(
+    pub async fn write_array_columns_stream<S: ArrayStream + Unpin + Send>(
         mut self,
         mut array_stream: S,
     ) -> VortexResult<Self> {
@@ -95,7 +95,7 @@ impl<W: VortexWrite> VortexFileWriter<W> {
 
     async fn write_column_chunks<S>(&mut self, stream: S, column_idx: usize) -> VortexResult<()>
     where
-        S: ArrayStream + Unpin,
+        S: ArrayStream + Unpin + Send,
     {
         let column_writer = match self.column_writers.get_mut(column_idx) {
             None => {

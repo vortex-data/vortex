@@ -29,7 +29,7 @@ pub fn new_metadata_accumulator(dtype: &DType) -> Box<dyn MetadataAccumulator> {
 }
 
 /// Accumulates zero or more series of metadata across the chunks of a column.
-pub trait MetadataAccumulator {
+pub trait MetadataAccumulator: Send {
     fn push_chunk(&mut self, array: &ArrayData);
 
     fn into_array(self: Box<Self>) -> VortexResult<Option<ArrayData>>;
@@ -102,7 +102,7 @@ impl<T> StandardAccumulator<T> {
     }
 }
 
-impl<T> MetadataAccumulator for StandardAccumulator<T>
+impl<T: Send> MetadataAccumulator for StandardAccumulator<T>
 where
     Option<T>: TryFrom<ScalarValue, Error = VortexError>,
     ArrayData: FromIterator<Option<T>>,

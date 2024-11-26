@@ -13,6 +13,7 @@ use crate::messages::{IPCBatch, IPCMessage, IPCPage, IPCSchema};
 use crate::ALIGNMENT;
 
 const ZEROS: [u8; 512] = [0u8; 512];
+const FOUR_ZEROS: [u8; 4] = [0u8; 4];
 
 #[derive(Debug)]
 pub struct MessageWriter<W> {
@@ -59,7 +60,8 @@ impl<W: VortexWrite> MessageWriter<W> {
         let aligned_size = written_len.next_multiple_of(self.alignment);
         let padding = aligned_size - written_len;
 
-        self.write_all(&ZEROS[0..padding]).await?;
+        self.write_all((0..padding).map(|_| 0_u8).collect::<Vec<_>>())
+            .await?;
 
         Ok(())
     }
@@ -86,7 +88,8 @@ impl<W: VortexWrite> MessageWriter<W> {
             let buffer_len = buffer.len();
             self.write_all(buffer).await?;
             let padding = (buffer_end as usize) - current_offset - buffer_len;
-            self.write_all(&ZEROS[0..padding]).await?;
+            self.write_all((0..padding).map(|_| 0_u8).collect::<Vec<_>>())
+                .await?;
             current_offset = buffer_end as usize;
         }
 
@@ -101,7 +104,8 @@ impl<W: VortexWrite> MessageWriter<W> {
 
         let aligned_size = buffer_len.next_multiple_of(self.alignment);
         let padding = aligned_size - buffer_len;
-        self.write_all(&ZEROS[0..padding]).await?;
+        self.write_all((0..padding).map(|_| 0_u8).collect::<Vec<_>>())
+            .await?;
 
         Ok(())
     }
@@ -115,7 +119,7 @@ impl<W: VortexWrite> MessageWriter<W> {
 
         // In order for FlatBuffers to use the correct alignment, we insert 4 bytes at the start
         // of the flatbuffer vector since we will be writing this to the stream later.
-        scratch.extend_from_slice(&[0u8; 4]);
+        scratch.extend_from_slice(&FOUR_ZEROS);
 
         let mut fbb = FlatBufferBuilder::from_vec(scratch);
         let root = flatbuffer.write_flatbuffer(&mut fbb);
@@ -136,7 +140,8 @@ impl<W: VortexWrite> MessageWriter<W> {
             .write_all(buffer.slice_owned(buffer_begin..buffer_end))
             .await?
             .into_inner();
-        self.write_all(&ZEROS[0..padding_bytes]).await?;
+        self.write_all((0..padding_bytes).map(|_| 0_u8).collect::<Vec<_>>())
+            .await?;
 
         assert_eq!(self.pos % self.alignment as u64, 0);
 
