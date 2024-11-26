@@ -14,7 +14,7 @@ use vortex_io::{IoDispatcher, ObjectStoreReadAt};
 
 /// Share an IO dispatcher across all DataFusion instances.
 static IO_DISPATCHER: LazyLock<Arc<IoDispatcher>> =
-    LazyLock::new(|| Arc::new(IoDispatcher::new_tokio(1)));
+    LazyLock::new(|| Arc::new(IoDispatcher::default()));
 
 pub struct VortexFileOpener {
     pub ctx: Arc<Context>,

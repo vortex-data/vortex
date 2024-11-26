@@ -33,7 +33,7 @@ use vortex::sampling_compressor::{SamplingCompressor, ALL_ENCODINGS_CONTEXT};
 use vortex::{ArrayData, IntoArrayData, IntoCanonical};
 
 static DISPATCHER: LazyLock<Arc<IoDispatcher>> =
-    LazyLock::new(|| Arc::new(IoDispatcher::new_tokio(1)));
+    LazyLock::new(|| Arc::new(IoDispatcher::default()));
 
 pub const BATCH_SIZE: usize = 65_536;
 
