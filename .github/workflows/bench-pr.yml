@@ -40,6 +40,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/cleanup
+      - name: Configure AWS Credentials for S3 requester pays
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          audience: sts.amazonaws.com
+          aws-region: us-west-2
+          role-to-assume: arn:aws:iam::375504701696:role/spiraldb-s3-requester-pays
       - uses: ./.github/actions/setup-rust
       - uses: spiraldb/actions/.github/actions/setup-uv@0.2.0
 
@@ -61,10 +67,12 @@ jobs:
           BENCH_VORTEX_RATIOS: '.*'
           RUSTFLAGS: '-C target-cpu=native'
         run: |
+          aws s3 cp s3://vortex-bench-dev/clickbench/processed.parquet bench-vortex/data/clickbench/
+          
           cargo install cargo-criterion
-
+          
           cargo criterion --bench ${{ matrix.benchmark.id }} --message-format=json 2>&1 | tee out.json
-
+          
           cat out.json
 
           sudo apt-get update && sudo apt-get install -y jq

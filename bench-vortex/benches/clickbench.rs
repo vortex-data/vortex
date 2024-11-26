@@ -1,11 +1,7 @@
 #![feature(exit_status_error)]
 
-use std::path::PathBuf;
-use std::process::Command;
-
 use bench_vortex::clickbench::{clickbench_queries, HITS_SCHEMA};
-use bench_vortex::data_downloads::download_data;
-use bench_vortex::{clickbench, execute_query, idempotent, IdempotentPath};
+use bench_vortex::{clickbench, execute_query, IdempotentPath};
 use criterion::{criterion_group, criterion_main, Criterion};
 use datafusion::prelude::SessionContext;
 use tokio::runtime::Builder;
@@ -14,50 +10,45 @@ fn benchmark(c: &mut Criterion) {
     let runtime = Builder::new_current_thread().enable_all().build().unwrap();
     let basepath = "clickbench".to_data_path();
 
-    let raw_data = download_data(
-        basepath.join("hits.parquet"),
-        "https://datasets.clickhouse.com/hits_compatible/hits.parquet",
-    );
+    // let raw_data = download_data(
+    //     basepath.join("hits.parquet"),
+    //     "https://datasets.clickhouse.com/hits_compatible/hits.parquet",
+    // );
 
     let output_path = basepath.join("processed.parquet");
 
     // The clickbench-provided file is missing some higher-level type info, so we reprocess it
     // to add that info, see https://github.com/ClickHouse/ClickBench/issues/7.
-    let final_parquet_path = idempotent(&output_path, |output_path| {
-        eprintln!("Fixing parquet file");
-        let command = format!(
-            "COPY (SELECT * REPLACE 
-                (epoch_ms(EventTime * 1000) AS EventTime, \
-                epoch_ms(ClientEventTime * 1000) AS ClientEventTime, \
-                epoch_ms(LocalEventTime * 1000) AS LocalEventTime, \
-                    DATE '1970-01-01' + INTERVAL (EventDate) DAYS AS EventDate) \
-            FROM read_parquet('{}')) TO '{}' (FORMAT 'parquet');",
-            raw_data.to_str().unwrap(),
-            output_path.to_str().unwrap()
-        );
-        Command::new("duckdb")
-            .arg("-c")
-            .arg(command)
-            .status()?
-            .exit_ok()?;
+    // let final_parquet_path = idempotent(&output_path, |output_path| {
+    //     eprintln!("Fixing parquet file");
+    //     let command = format!(
+    //         "COPY (SELECT * REPLACE
+    //             (epoch_ms(EventTime * 1000) AS EventTime, \
+    //             epoch_ms(ClientEventTime * 1000) AS ClientEventTime, \
+    //             epoch_ms(LocalEventTime * 1000) AS LocalEventTime, \
+    //                 DATE '1970-01-01' + INTERVAL (EventDate) DAYS AS EventDate) \
+    //         FROM read_parquet('{}')) TO '{}' (FORMAT 'parquet');",
+    //         raw_data.to_str().unwrap(),
+    //         output_path.to_str().unwrap()
+    //     );
+    //     Command::new("duckdb")
+    //         .arg("-c")
+    //         .arg(command)
+    //         .status()?
+    //         .exit_ok()?;
 
-        anyhow::Ok(PathBuf::from(output_path))
-    })
-    .unwrap();
+    //     anyhow::Ok(PathBuf::from(output_path))
+    // })
+    // .unwrap();
 
-    println!("Registering Vortex file from {final_parquet_path:?}");
+    // println!("Registering Vortex file from {final_parquet_path:?}");
 
     let session_context = SessionContext::new();
     let context = session_context.clone();
     runtime.block_on(async move {
-        clickbench::register_vortex_file(
-            &context,
-            "hits",
-            final_parquet_path.as_path(),
-            &HITS_SCHEMA,
-        )
-        .await
-        .unwrap();
+        clickbench::register_vortex_file(&context, "hits", output_path.as_path(), &HITS_SCHEMA)
+            .await
+            .unwrap();
     });
 
     let mut group = c.benchmark_group("clickbench");
