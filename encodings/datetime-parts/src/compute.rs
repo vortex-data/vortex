@@ -1,7 +1,8 @@
 use itertools::Itertools as _;
 use vortex_array::array::{PrimitiveArray, TemporalArray};
-use vortex_array::compute::unary::{scalar_at, ScalarAtFn};
-use vortex_array::compute::{slice, take, ComputeVTable, SliceFn, TakeFn, TakeOptions};
+use vortex_array::compute::{
+    scalar_at, slice, take, ComputeVTable, ScalarAtFn, SliceFn, TakeFn, TakeOptions,
+};
 use vortex_array::validity::ArrayValidity;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_datetime_dtype::{TemporalMetadata, TimeUnit};

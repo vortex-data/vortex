@@ -107,7 +107,7 @@ fn decompress_primitive<T: NativePType + ALPFloat>(
 mod tests {
     use core::f64;
 
-    use vortex_array::compute::unary::scalar_at;
+    use vortex_array::compute::scalar_at;
 
     use super::*;
 

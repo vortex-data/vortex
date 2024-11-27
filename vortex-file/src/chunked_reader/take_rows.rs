@@ -4,8 +4,9 @@ use futures_util::{stream, StreamExt, TryStreamExt};
 use itertools::Itertools;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::array::{ChunkedArray, PrimitiveArray};
-use vortex_array::compute::unary::{subtract_scalar, try_cast};
-use vortex_array::compute::{search_sorted, slice, take, SearchSortedSide, TakeOptions};
+use vortex_array::compute::{
+    search_sorted, slice, subtract_scalar, take, try_cast, SearchSortedSide, TakeOptions,
+};
 use vortex_array::stats::ArrayStatistics;
 use vortex_array::stream::{ArrayStream, ArrayStreamExt};
 use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};

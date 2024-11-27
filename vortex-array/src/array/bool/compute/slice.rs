@@ -17,8 +17,7 @@ impl SliceFn<BoolArray> for BoolEncoding {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::compute::slice;
-    use crate::compute::unary::scalar_at;
+    use crate::compute::{scalar_at, slice};
     use crate::validity::ArrayValidity;
     use crate::ArrayLen;
 

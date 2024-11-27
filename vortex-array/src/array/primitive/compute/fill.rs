@@ -3,7 +3,7 @@ use vortex_error::{vortex_err, VortexResult};
 
 use crate::array::primitive::PrimitiveArray;
 use crate::array::PrimitiveEncoding;
-use crate::compute::unary::FillForwardFn;
+use crate::compute::FillForwardFn;
 use crate::validity::{ArrayValidity, Validity};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, ToArrayData};
@@ -51,7 +51,7 @@ impl FillForwardFn<PrimitiveArray> for PrimitiveEncoding {
 mod test {
     use crate::array::primitive::PrimitiveArray;
     use crate::array::BoolArray;
-    use crate::compute::unary::fill_forward;
+    use crate::compute::fill_forward;
     use crate::validity::{ArrayValidity, Validity};
     use crate::{IntoArrayData, IntoArrayVariant};
 

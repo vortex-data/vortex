@@ -3,7 +3,7 @@ use vortex_dtype::Nullability;
 use vortex_error::{vortex_err, VortexResult};
 
 use crate::array::{BoolArray, BoolEncoding};
-use crate::compute::unary::FillForwardFn;
+use crate::compute::FillForwardFn;
 use crate::validity::{ArrayValidity, Validity};
 use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, ToArrayData};
 
@@ -56,8 +56,7 @@ mod test {
     fn fill_forward() {
         let barr =
             BoolArray::from_iter(vec![None, Some(false), None, Some(true), None]).into_array();
-        let filled_bool =
-            BoolArray::try_from(compute::unary::fill_forward(&barr).unwrap()).unwrap();
+        let filled_bool = BoolArray::try_from(compute::fill_forward(&barr).unwrap()).unwrap();
         assert_eq!(
             filled_bool.boolean_buffer().iter().collect::<Vec<bool>>(),
             vec![false, false, false, true, true]

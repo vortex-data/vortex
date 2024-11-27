@@ -241,8 +241,7 @@ mod test {
     use rand::distributions::Uniform;
     use rand::{thread_rng, Rng};
     use vortex_array::array::{PrimitiveArray, SparseArray};
-    use vortex_array::compute::unary::scalar_at;
-    use vortex_array::compute::{slice, take, TakeOptions};
+    use vortex_array::compute::{scalar_at, slice, take, TakeOptions};
     use vortex_array::{IntoArrayData, IntoArrayVariant};
 
     use crate::BitPackedArray;

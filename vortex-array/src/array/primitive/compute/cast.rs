@@ -3,7 +3,7 @@ use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
 use crate::array::primitive::PrimitiveArray;
 use crate::array::PrimitiveEncoding;
-use crate::compute::unary::CastFn;
+use crate::compute::CastFn;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData};
@@ -69,7 +69,7 @@ mod test {
     use vortex_error::VortexError;
 
     use crate::array::PrimitiveArray;
-    use crate::compute::unary::try_cast;
+    use crate::compute::try_cast;
     use crate::validity::Validity;
     use crate::{IntoArrayData, IntoArrayVariant};
 
