@@ -7,7 +7,7 @@ use vortex_array::compute::unary::scalar_at;
 use vortex_array::compute::{take, TakeOptions};
 use vortex_array::encoding::ids;
 use vortex_array::stats::StatsSet;
-use vortex_array::validity::{LogicalValidity, ValidityVTable};
+use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
@@ -92,7 +92,7 @@ impl ValidityVTable<DictArray> for DictEncoding {
             .as_ref()
             .try_into()
             .vortex_expect("Failed to convert dictionary code to usize");
-        array.values().with_dyn(|a| a.is_valid(values_index))
+        array.values().is_valid(values_index)
     }
 
     fn logical_validity(&self, array: &DictArray) -> LogicalValidity {

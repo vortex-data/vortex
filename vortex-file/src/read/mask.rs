@@ -6,7 +6,7 @@ use vortex_array::array::{BoolArray, PrimitiveArray, SparseArray};
 use vortex_array::compute::unary::try_cast;
 use vortex_array::compute::{and, filter, slice, take, FilterMask, TakeOptions};
 use vortex_array::stats::ArrayStatistics;
-use vortex_array::validity::LogicalValidity;
+use vortex_array::validity::{ArrayValidity, LogicalValidity};
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, PType};
@@ -111,7 +111,7 @@ impl RowMask {
     ///
     /// True-valued positions are kept by the returned mask.
     pub fn from_mask_array(array: &ArrayData, begin: usize, end: usize) -> VortexResult<Self> {
-        match array.with_dyn(|a| a.logical_validity()) {
+        match array.logical_validity() {
             LogicalValidity::AllValid(_) => Self::try_new(array.clone(), begin, end),
             LogicalValidity::AllInvalid(_) => Ok(Self::new_invalid_between(begin, end)),
             LogicalValidity::Array(validity) => {
