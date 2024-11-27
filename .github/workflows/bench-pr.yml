@@ -47,7 +47,7 @@ jobs:
         with:
           audience: sts.amazonaws.com
           aws-region: us-west-2
-          role-to-assume: arn:aws:iam::375504701696:role/spiraldb-s3-requester-pays
+          role-to-assume: arn:aws:iam::375504701696:role/vortex-benchmark
       - uses: ./.github/actions/setup-rust
       - uses: spiraldb/actions/.github/actions/setup-uv@0.2.0
 
