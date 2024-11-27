@@ -5,7 +5,7 @@ use crate::encoding::Encoding;
 use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 
 pub trait InvertFn<Array> {
-    /// Logically invert a boolean array.
+    /// Logically invert a boolean array. Converts true -> false, false -> true, null -> null.
     fn invert(&self, array: &Array) -> VortexResult<ArrayData>;
 }
 

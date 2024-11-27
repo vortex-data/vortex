@@ -70,7 +70,7 @@ pub trait ComputeVTable {
         None
     }
 
-    /// Invert a boolean array.
+    /// Invert a boolean array. Converts true -> false, false -> true, null -> null.
     ///
     /// See [InvertFn]
     fn invert_fn(&self) -> Option<&dyn InvertFn<ArrayData>> {
