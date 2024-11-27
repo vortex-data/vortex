@@ -47,22 +47,7 @@ impl ArrayVariants for SparseArray {
 
 impl NullArrayTrait for SparseArray {}
 
-impl BoolArrayTrait for SparseArray {
-    fn invert(&self) -> VortexResult<ArrayData> {
-        let inverted_fill = self.fill_scalar().as_bool().invert().into_scalar();
-        SparseArray::try_new(
-            self.indices(),
-            self.values().with_dyn(|a| {
-                a.as_bool_array()
-                    .ok_or_else(|| vortex_err!("Not a bool array"))
-                    .and_then(|b| b.invert())
-            })?,
-            self.len(),
-            inverted_fill,
-        )
-        .map(|a| a.into_array())
-    }
-}
+impl BoolArrayTrait for SparseArray {}
 
 impl PrimitiveArrayTrait for SparseArray {}
 
@@ -133,6 +118,7 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use crate::array::{BoolArray, PrimitiveArray, SparseArray};
+    use crate::compute::invert;
     use crate::{IntoArrayData, IntoArrayVariant};
 
     #[test]
@@ -145,9 +131,7 @@ mod tests {
         )
         .unwrap()
         .into_array();
-        let inverted = sparse_bools
-            .with_dyn(|a| a.as_bool_array_unchecked().invert())
-            .unwrap();
+        let inverted = invert(&sparse_bools).unwrap();
         assert_eq!(
             inverted
                 .into_bool()

@@ -10,9 +10,7 @@ use vortex_array::stats::StatsSet;
 use vortex_array::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use vortex_array::variants::{ArrayVariants, BoolArrayTrait};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
-use vortex_array::{
-    impl_encoding, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData, IntoCanonical,
-};
+use vortex_array::{impl_encoding, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoCanonical};
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult};
@@ -92,15 +90,7 @@ impl ArrayVariants for ByteBoolArray {
     }
 }
 
-impl BoolArrayTrait for ByteBoolArray {
-    fn invert(&self) -> VortexResult<ArrayData> {
-        ByteBoolArray::try_from_vec(
-            self.maybe_null_slice().iter().map(|v| !v).collect(),
-            self.validity(),
-        )
-        .map(|a| a.into_array())
-    }
-}
+impl BoolArrayTrait for ByteBoolArray {}
 
 impl From<Vec<bool>> for ByteBoolArray {
     fn from(value: Vec<bool>) -> Self {

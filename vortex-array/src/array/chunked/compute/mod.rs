@@ -5,11 +5,12 @@ use crate::array::chunked::ChunkedArray;
 use crate::array::ChunkedEncoding;
 use crate::compute::unary::{try_cast, CastFn, ScalarAtFn, SubtractScalarFn};
 use crate::compute::{
-    compare, slice, CompareFn, ComputeVTable, FilterFn, Operator, SliceFn, TakeFn,
+    compare, slice, CompareFn, ComputeVTable, FilterFn, InvertFn, Operator, SliceFn, TakeFn,
 };
 use crate::{ArrayData, IntoArrayData};
 
 mod filter;
+mod invert;
 mod scalar_at;
 mod slice;
 mod take;
@@ -24,6 +25,10 @@ impl ComputeVTable for ChunkedEncoding {
     }
 
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn invert_fn(&self) -> Option<&dyn InvertFn<ArrayData>> {
         Some(self)
     }
 

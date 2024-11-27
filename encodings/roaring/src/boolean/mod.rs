@@ -90,12 +90,7 @@ impl ArrayVariants for RoaringBoolArray {
     }
 }
 
-impl BoolArrayTrait for RoaringBoolArray {
-    fn invert(&self) -> VortexResult<ArrayData> {
-        RoaringBoolArray::try_new(self.bitmap().flip(0..(self.len() as u32)), self.len())
-            .map(|a| a.into_array())
-    }
-}
+impl BoolArrayTrait for RoaringBoolArray {}
 
 impl VisitorVTable<RoaringBoolArray> for RoaringBoolEncoding {
     fn accept(&self, array: &RoaringBoolArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {

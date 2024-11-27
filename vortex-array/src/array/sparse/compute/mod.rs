@@ -6,17 +6,22 @@ use crate::array::sparse::SparseArray;
 use crate::array::{PrimitiveArray, SparseEncoding};
 use crate::compute::unary::{scalar_at, ScalarAtFn};
 use crate::compute::{
-    search_sorted, take, ComputeVTable, FilterFn, FilterMask, SearchResult, SearchSortedFn,
-    SearchSortedSide, SliceFn, TakeFn, TakeOptions,
+    search_sorted, take, ComputeVTable, FilterFn, FilterMask, InvertFn, SearchResult,
+    SearchSortedFn, SearchSortedSide, SliceFn, TakeFn, TakeOptions,
 };
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
 
+mod invert;
 mod slice;
 mod take;
 
 impl ComputeVTable for SparseEncoding {
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn invert_fn(&self) -> Option<&dyn InvertFn<ArrayData>> {
         Some(self)
     }
 

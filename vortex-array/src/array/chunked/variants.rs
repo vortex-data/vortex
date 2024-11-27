@@ -46,21 +46,7 @@ impl ArrayVariants for ChunkedArray {
 
 impl NullArrayTrait for ChunkedArray {}
 
-impl BoolArrayTrait for ChunkedArray {
-    fn invert(&self) -> VortexResult<ArrayData> {
-        let chunks = self
-            .chunks()
-            .map(|c| {
-                c.with_dyn(|a| {
-                    a.as_bool_array()
-                        .ok_or_else(|| vortex_err!("Child was not a bool array"))
-                        .and_then(|b| b.invert())
-                })
-            })
-            .collect::<VortexResult<Vec<_>>>()?;
-        ChunkedArray::try_new(chunks, self.dtype().clone()).map(|a| a.into_array())
-    }
-}
+impl BoolArrayTrait for ChunkedArray {}
 
 impl PrimitiveArrayTrait for ChunkedArray {}
 
