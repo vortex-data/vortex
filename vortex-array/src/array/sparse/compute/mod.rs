@@ -5,17 +5,22 @@ use vortex_scalar::Scalar;
 use crate::array::sparse::SparseArray;
 use crate::array::{PrimitiveArray, SparseEncoding};
 use crate::compute::{
-    scalar_at, search_sorted, take, ComputeVTable, FilterFn, FilterMask, ScalarAtFn, SearchResult,
-    SearchSortedFn, SearchSortedSide, SliceFn, TakeFn, TakeOptions,
+    scalar_at, search_sorted, take, ComputeVTable, FilterFn, FilterMask, InvertFn, ScalarAtFn,
+    SearchResult, SearchSortedFn, SearchSortedSide, SliceFn, TakeFn, TakeOptions,
 };
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
 
+mod invert;
 mod slice;
 mod take;
 
 impl ComputeVTable for SparseEncoding {
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn invert_fn(&self) -> Option<&dyn InvertFn<ArrayData>> {
         Some(self)
     }
 

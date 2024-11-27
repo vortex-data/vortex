@@ -81,14 +81,7 @@ pub trait ArrayVariants {
 
 pub trait NullArrayTrait: ArrayTrait {}
 
-pub trait BoolArrayTrait: ArrayTrait {
-    /// Return a new inverted version of this array.
-    ///
-    /// True -> False
-    /// False -> True
-    /// Null -> Null
-    fn invert(&self) -> VortexResult<ArrayData>;
-}
+pub trait BoolArrayTrait: ArrayTrait {}
 
 /// Iterate over an array of primitives by dispatching at run-time on the array type.
 #[macro_export]

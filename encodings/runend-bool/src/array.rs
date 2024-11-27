@@ -176,18 +176,7 @@ pub(crate) fn value_at_index(idx: usize, start: bool) -> bool {
     }
 }
 
-impl BoolArrayTrait for RunEndBoolArray {
-    fn invert(&self) -> VortexResult<ArrayData> {
-        RunEndBoolArray::with_offset_and_size(
-            self.ends(),
-            !self.start(),
-            self.validity(),
-            self.len(),
-            self.offset(),
-        )
-        .map(|a| a.into_array())
-    }
-}
+impl BoolArrayTrait for RunEndBoolArray {}
 
 impl ArrayVariants for RunEndBoolArray {
     fn as_bool_array(&self) -> Option<&dyn BoolArrayTrait> {

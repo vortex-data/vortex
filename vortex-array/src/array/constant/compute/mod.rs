@@ -1,5 +1,6 @@
 mod boolean;
 mod compare;
+mod invert;
 mod search_sorted;
 
 use vortex_error::VortexResult;
@@ -8,8 +9,8 @@ use vortex_scalar::Scalar;
 use crate::array::constant::ConstantArray;
 use crate::array::ConstantEncoding;
 use crate::compute::{
-    BinaryBooleanFn, CompareFn, ComputeVTable, FilterFn, FilterMask, ScalarAtFn, SearchSortedFn,
-    SliceFn, TakeFn, TakeOptions,
+    BinaryBooleanFn, CompareFn, ComputeVTable, FilterFn, FilterMask, InvertFn, ScalarAtFn,
+    SearchSortedFn, SliceFn, TakeFn, TakeOptions,
 };
 use crate::{ArrayData, IntoArrayData};
 
@@ -23,6 +24,10 @@ impl ComputeVTable for ConstantEncoding {
     }
 
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn invert_fn(&self) -> Option<&dyn InvertFn<ArrayData>> {
         Some(self)
     }
 

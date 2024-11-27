@@ -1,5 +1,9 @@
+mod invert;
+
 use vortex_array::array::BoolArray;
-use vortex_array::compute::{slice, ComputeVTable, ScalarAtFn, SliceFn, TakeFn, TakeOptions};
+use vortex_array::compute::{
+    slice, ComputeVTable, InvertFn, ScalarAtFn, SliceFn, TakeFn, TakeOptions,
+};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
 use vortex_dtype::match_each_integer_ptype;
@@ -9,6 +13,10 @@ use vortex_scalar::Scalar;
 use crate::{value_at_index, RunEndBoolArray, RunEndBoolEncoding};
 
 impl ComputeVTable for RunEndBoolEncoding {
+    fn invert_fn(&self) -> Option<&dyn InvertFn<ArrayData>> {
+        Some(self)
+    }
+
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
         Some(self)
     }

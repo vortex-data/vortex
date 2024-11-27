@@ -1,4 +1,5 @@
 mod compare;
+mod invert;
 
 use std::cmp::min;
 use std::ops::AddAssign;
@@ -6,8 +7,8 @@ use std::ops::AddAssign;
 use num_traits::AsPrimitive;
 use vortex_array::array::{BooleanBuffer, ConstantArray, PrimitiveArray, SparseArray};
 use vortex_array::compute::{
-    filter, scalar_at, slice, take, CompareFn, ComputeVTable, FilterFn, FilterMask, ScalarAtFn,
-    SliceFn, TakeFn, TakeOptions,
+    filter, scalar_at, slice, take, CompareFn, ComputeVTable, FilterFn, FilterMask, InvertFn,
+    ScalarAtFn, SliceFn, TakeFn, TakeOptions,
 };
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
@@ -24,6 +25,10 @@ impl ComputeVTable for RunEndEncoding {
     }
 
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn invert_fn(&self) -> Option<&dyn InvertFn<ArrayData>> {
         Some(self)
     }
 

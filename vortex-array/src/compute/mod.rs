@@ -12,6 +12,7 @@ pub use cast::{try_cast, CastFn};
 pub use compare::{compare, scalar_cmp, CompareFn, Operator};
 pub use fill_forward::{fill_forward, FillForwardFn};
 pub use filter::*;
+pub use invert::{invert, InvertFn};
 pub use scalar_at::{scalar_at, ScalarAtFn};
 pub use scalar_subtract::{subtract_scalar, SubtractScalarFn};
 pub use search_sorted::*;
@@ -25,6 +26,7 @@ mod cast;
 mod compare;
 mod fill_forward;
 mod filter;
+mod invert;
 mod scalar_at;
 mod scalar_subtract;
 mod search_sorted;
@@ -65,6 +67,13 @@ pub trait ComputeVTable {
     ///
     /// See: [FilterFn].
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
+        None
+    }
+
+    /// Invert a boolean array. Converts true -> false, false -> true, null -> null.
+    ///
+    /// See [InvertFn]
+    fn invert_fn(&self) -> Option<&dyn InvertFn<ArrayData>> {
         None
     }
 

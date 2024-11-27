@@ -1,9 +1,8 @@
 use vortex_array::variants::{
     ArrayVariants, BinaryArrayTrait, BoolArrayTrait, PrimitiveArrayTrait, Utf8ArrayTrait,
 };
-use vortex_array::{ArrayDType, ArrayData};
+use vortex_array::ArrayDType;
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
 
 use crate::DictArray;
 
@@ -25,11 +24,7 @@ impl ArrayVariants for DictArray {
     }
 }
 
-impl BoolArrayTrait for DictArray {
-    fn invert(&self) -> VortexResult<ArrayData> {
-        todo!()
-    }
-}
+impl BoolArrayTrait for DictArray {}
 
 impl PrimitiveArrayTrait for DictArray {}
 

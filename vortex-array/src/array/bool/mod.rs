@@ -184,11 +184,7 @@ impl ArrayVariants for BoolArray {
     }
 }
 
-impl BoolArrayTrait for BoolArray {
-    fn invert(&self) -> VortexResult<ArrayData> {
-        Ok(BoolArray::try_new(!&self.boolean_buffer(), self.validity())?.into_array())
-    }
-}
+impl BoolArrayTrait for BoolArray {}
 
 impl From<BooleanBuffer> for BoolArray {
     fn from(value: BooleanBuffer) -> Self {

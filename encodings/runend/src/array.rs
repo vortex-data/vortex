@@ -15,7 +15,7 @@ use vortex_array::{
     IntoArrayVariant, IntoCanonical,
 };
 use vortex_dtype::{DType, PType};
-use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
+use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::compress::{runend_decode_bools, runend_decode_primitive, runend_encode};
@@ -195,22 +195,7 @@ impl ArrayVariants for RunEndArray {
 
 impl PrimitiveArrayTrait for RunEndArray {}
 
-impl BoolArrayTrait for RunEndArray {
-    fn invert(&self) -> VortexResult<ArrayData> {
-        RunEndArray::with_offset_and_length(
-            self.ends(),
-            self.values().with_dyn(|v| {
-                v.as_bool_array()
-                    .ok_or_else(|| vortex_err!("Values were not a bool dtype array"))?
-                    .invert()
-            })?,
-            self.validity(),
-            self.len(),
-            self.offset(),
-        )
-        .map(|a| a.into_array())
-    }
-}
+impl BoolArrayTrait for RunEndArray {}
 
 impl ValidityVTable<RunEndArray> for RunEndEncoding {
     fn is_valid(&self, array: &RunEndArray, index: usize) -> bool {

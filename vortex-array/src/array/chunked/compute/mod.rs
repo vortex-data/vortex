@@ -4,12 +4,13 @@ use vortex_error::VortexResult;
 use crate::array::chunked::ChunkedArray;
 use crate::array::ChunkedEncoding;
 use crate::compute::{
-    compare, slice, try_cast, CastFn, CompareFn, ComputeVTable, FilterFn, Operator, ScalarAtFn,
-    SliceFn, SubtractScalarFn, TakeFn,
+    compare, slice, try_cast, CastFn, CompareFn, ComputeVTable, FilterFn, InvertFn, Operator,
+    ScalarAtFn, SliceFn, SubtractScalarFn, TakeFn,
 };
 use crate::{ArrayData, IntoArrayData};
 
 mod filter;
+mod invert;
 mod scalar_at;
 mod slice;
 mod take;
@@ -24,6 +25,10 @@ impl ComputeVTable for ChunkedEncoding {
     }
 
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn invert_fn(&self) -> Option<&dyn InvertFn<ArrayData>> {
         Some(self)
     }
 
