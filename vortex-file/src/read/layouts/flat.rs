@@ -11,8 +11,8 @@ use vortex_ipc::stream_writer::ByteRange;
 use crate::read::cache::RelativeLayoutCache;
 use crate::read::mask::RowMask;
 use crate::{
-    BatchRead, Layout, LayoutDeserializer, LayoutId, LayoutReader, MessageLocator, MetadataRead,
-    Scan, FLAT_LAYOUT_ID,
+    Layout, LayoutDeserializer, LayoutId, LayoutReader, MessageLocator, PollRead, Scan,
+    FLAT_LAYOUT_ID,
 };
 
 #[derive(Debug)]
@@ -50,6 +50,11 @@ impl Layout for FlatLayout {
     }
 }
 
+/// [`LayoutReader`] for "flat" layouts, i.e. a layout of an array that does not contain any
+/// nesting.
+///
+/// Any [array][ArrayData] can be written with a flat layout, which is simply a set of IPC messages
+/// packed into a single buffer.
 #[derive(Debug)]
 pub struct FlatLayoutReader {
     range: ByteRange,
@@ -96,29 +101,30 @@ impl LayoutReader for FlatLayoutReader {
         Ok(())
     }
 
-    fn read_selection(&self, selection: &RowMask) -> VortexResult<Option<BatchRead>> {
+    fn poll_read(&self, selection: &RowMask) -> VortexResult<PollRead<Option<ArrayData>>> {
         if let Some(buf) = self.message_cache.get(&[]) {
             let array = self.array_from_bytes(buf)?;
-            selection
-                .filter_array(array)?
-                .map(|s| {
-                    Ok(BatchRead::Batch(
-                        self.scan
-                            .expr
-                            .as_ref()
-                            .map(|e| e.evaluate(&s))
-                            .transpose()?
-                            .unwrap_or(s),
-                    ))
-                })
-                .transpose()
+
+            if let Some(selected) = selection.filter_array(array)? {
+                let filtered = self
+                    .scan
+                    .expr
+                    .as_ref()
+                    .map(|e| e.evaluate(&selected))
+                    .transpose()?
+                    .unwrap_or(selected);
+                Ok(PollRead::Ready(Some(filtered)))
+            } else {
+                Ok(PollRead::Ready(None))
+            }
         } else {
-            Ok(Some(BatchRead::ReadMore(vec![self.own_message()])))
+            Ok(PollRead::ReadMore(vec![self.own_message()]))
         }
     }
 
-    fn read_metadata(&self) -> VortexResult<MetadataRead> {
-        Ok(MetadataRead::None)
+    fn poll_metadata(&self) -> VortexResult<PollRead<Option<Vec<Option<ArrayData>>>>> {
+        // Flat layouts do not have metadata
+        Ok(PollRead::Ready(None))
     }
 }
 

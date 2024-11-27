@@ -19,7 +19,7 @@ use vortex_io::{Dispatch, IoDispatcher, VortexReadAt};
 use crate::read::cache::LayoutMessageCache;
 use crate::read::mask::RowMask;
 use crate::read::splits::{FilteringRowSplitIterator, FixedSplitIterator, MaskIterator, SplitMask};
-use crate::read::{BatchRead, LayoutReader, MessageId, MessageLocator};
+use crate::read::{LayoutReader, MessageId, MessageLocator, PollRead};
 use crate::LazyDType;
 
 /// An asynchronous Vortex file that returns a [`Stream`] of [`ArrayData`]s.
@@ -195,8 +195,8 @@ impl<R: VortexReadAt + Unpin> VortexFileArrayStream<R> {
                 }
             }
             StreamingState::Read(selector, filter_reader) => {
-                match self.layout_reader.read_selection(&selector)? {
-                    Some(BatchRead::ReadMore(message_ranges)) => {
+                match self.layout_reader.poll_read(&selector)? {
+                    PollRead::ReadMore(message_ranges) => {
                         let read_future = self.read_ranges(message_ranges);
                         goto(StreamingState::Reading(ReadingFor::Read(
                             read_future,
@@ -204,10 +204,10 @@ impl<R: VortexReadAt + Unpin> VortexFileArrayStream<R> {
                             filter_reader,
                         )))
                     }
-                    Some(BatchRead::Batch(array)) => {
+                    PollRead::Ready(Some(array)) => {
                         produce(StreamingState::NextSplit(filter_reader), array)
                     }
-                    None => goto(StreamingState::NextSplit(filter_reader)),
+                    PollRead::Ready(None) => goto(StreamingState::NextSplit(filter_reader)),
                 }
             }
             StreamingState::Reading(reading_state) => match reading_state.poll_unpin(cx)? {

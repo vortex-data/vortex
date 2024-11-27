@@ -4,6 +4,7 @@ use std::sync::Arc;
 use bytes::Bytes;
 use flatbuffers::root;
 use once_cell::sync::OnceCell;
+use vortex_array::ArrayData;
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_flatbuffers::{footer, message};
 use vortex_ipc::stream_writer::ByteRange;
@@ -11,8 +12,8 @@ use vortex_ipc::stream_writer::ByteRange;
 use crate::read::cache::{LazyDType, RelativeLayoutCache};
 use crate::read::mask::RowMask;
 use crate::{
-    BatchRead, Layout, LayoutDeserializer, LayoutId, LayoutPartId, LayoutReader, MessageLocator,
-    MetadataRead, Scan, INLINE_SCHEMA_LAYOUT_ID,
+    Layout, LayoutDeserializer, LayoutId, LayoutPartId, LayoutReader, MessageLocator, PollRead,
+    Scan, INLINE_SCHEMA_LAYOUT_ID,
 };
 
 #[derive(Debug)]
@@ -125,19 +126,19 @@ impl LayoutReader for InlineDTypeLayoutReader {
         self.child_reader()?.add_splits(row_offset, splits)
     }
 
-    fn read_selection(&self, selector: &RowMask) -> VortexResult<Option<BatchRead>> {
+    fn poll_read(&self, selector: &RowMask) -> VortexResult<PollRead<Option<ArrayData>>> {
         if let Some(cr) = self.child_layout.get() {
-            cr.read_selection(selector)
+            cr.poll_read(selector)
         } else {
             if self.message_cache.get(&[INLINE_DTYPE_BUFFER_IDX]).is_some() {
                 self.child_layout.get_or_try_init(|| self.child_reader())?;
-                return self.read_selection(selector);
+                return self.poll_read(selector);
             }
-            Ok(Some(BatchRead::ReadMore(vec![self.dtype_message()?])))
+            Ok(PollRead::ReadMore(vec![self.dtype_message()?]))
         }
     }
 
-    fn read_metadata(&self) -> VortexResult<MetadataRead> {
-        Ok(MetadataRead::None)
+    fn poll_metadata(&self) -> VortexResult<PollRead<Option<Vec<Option<ArrayData>>>>> {
+        Ok(PollRead::Ready(None))
     }
 }

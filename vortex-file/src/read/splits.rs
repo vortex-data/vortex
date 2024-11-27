@@ -6,7 +6,7 @@ use itertools::Itertools;
 use vortex_array::stats::ArrayStatistics;
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
-use crate::{BatchRead, LayoutReader, MessageLocator, RowMask};
+use crate::{LayoutReader, MessageLocator, PollRead, RowMask};
 
 pub enum SplitMask {
     ReadMore(Vec<MessageLocator>),
@@ -47,29 +47,27 @@ impl FilteringRowSplitIterator {
 
     /// Read given mask out of the reader
     fn read_mask(&mut self, mask: RowMask) -> VortexResult<Option<SplitMask>> {
-        if let Some(rs) = self.reader.read_selection(&mask)? {
-            return match rs {
-                BatchRead::ReadMore(rm) => {
-                    // If the reader needs more data we put the mask back into queue for to come back to it later
-                    self.in_progress_masks.push_back(mask);
-                    Ok(Some(SplitMask::ReadMore(rm)))
+        match self.reader.poll_read(&mask)? {
+            PollRead::ReadMore(rm) => {
+                // If the reader needs more data we put the mask back into queue for to come back to it later
+                self.in_progress_masks.push_back(mask);
+                Ok(Some(SplitMask::ReadMore(rm)))
+            }
+            PollRead::Ready(Some(batch)) => {
+                // If the mask is all FALSE we can safely discard it
+                if batch
+                    .statistics()
+                    .compute_true_count()
+                    .vortex_expect("must be a bool array if it's a result of a filter")
+                    == 0
+                {
+                    return Ok(None);
                 }
-                BatchRead::Batch(batch) => {
-                    // If the mask is all FALSE we can safely discard it
-                    if batch
-                        .statistics()
-                        .compute_true_count()
-                        .vortex_expect("must be a bool array if it's a result of a filter")
-                        == 0
-                    {
-                        return Ok(None);
-                    }
-                    // Combine requested mask with the result of filter read
-                    Ok(Some(SplitMask::Mask(mask.and_bitmask(batch)?)))
-                }
-            };
+                // Combine requested mask with the result of filter read
+                Ok(Some(SplitMask::Mask(mask.and_bitmask(batch)?)))
+            }
+            PollRead::Ready(None) => Ok(None),
         }
-        Ok(None)
     }
 
     /// Return next not all false mask or request to read more data.

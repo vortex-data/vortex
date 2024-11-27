@@ -13,8 +13,8 @@ use crate::layouts::RangedLayoutReader;
 use crate::read::cache::RelativeLayoutCache;
 use crate::read::mask::RowMask;
 use crate::{
-    BatchRead, Layout, LayoutDeserializer, LayoutId, LayoutPartId, LayoutReader, MessageLocator,
-    MetadataRead, Scan, CHUNKED_LAYOUT_ID,
+    Layout, LayoutDeserializer, LayoutId, LayoutPartId, LayoutReader, MessageLocator, PollRead,
+    Scan, CHUNKED_LAYOUT_ID,
 };
 
 #[derive(Default, Debug)]
@@ -164,6 +164,15 @@ impl ChildRead {
 
 type InProgressLayoutRanges = RwLock<HashMap<(usize, usize), (Vec<usize>, Vec<ChildRead>)>>;
 
+/// Reader for chunked arrays.
+///
+/// `ChunkedLayoutReader` is a nested layout that provides a reader for each chunk, as well as an
+/// optional "metadata layout".
+///
+/// ## Metadata Layout
+///
+/// The metadata layout provides a way to read a [table][ArrayData] of statistics. These statistics
+/// can be examined to make pruning decisions at scan time.
 #[allow(dead_code)]
 #[derive(Debug)]
 pub struct ChunkedLayoutReader {
@@ -214,17 +223,14 @@ impl ChunkedLayoutReader {
             .filter(|(_, cr)| !cr.finished())
         {
             let layout_selection = mask.slice(*begin, *end).shift(*begin)?;
-            if let Some(rr) = layout.read_selection(&layout_selection)? {
-                match rr {
-                    BatchRead::ReadMore(m) => {
-                        messages_to_fetch.extend(m);
-                    }
-                    BatchRead::Batch(a) => {
-                        *array_slot = ChildRead::Finished(Some(a));
-                    }
+            match layout.poll_read(&layout_selection)? {
+                PollRead::ReadMore(m) => {
+                    messages_to_fetch.extend(m);
                 }
-            } else {
-                *array_slot = ChildRead::Finished(None);
+                PollRead::Ready(Some(a)) => {
+                    *array_slot = ChildRead::Finished(Some(a));
+                }
+                PollRead::Ready(None) => *array_slot = ChildRead::Finished(None),
             }
         }
 
@@ -249,10 +255,10 @@ impl LayoutReader for ChunkedLayoutReader {
         Ok(())
     }
 
-    fn read_selection(&self, selector: &RowMask) -> VortexResult<Option<BatchRead>> {
+    fn poll_read(&self, selector: &RowMask) -> VortexResult<PollRead<Option<ArrayData>>> {
         let messages_to_fetch = self.buffer_read(selector)?;
         if !messages_to_fetch.is_empty() {
-            return Ok(Some(BatchRead::ReadMore(messages_to_fetch)));
+            return Ok(PollRead::ReadMore(messages_to_fetch));
         }
 
         if let Some((_, arrays_in_range)) = self
@@ -265,38 +271,39 @@ impl LayoutReader for ChunkedLayoutReader {
                 .into_iter()
                 .filter_map(ChildRead::into_value)
                 .collect::<Vec<_>>();
+
             match child_arrays.len() {
-                0 | 1 => Ok(child_arrays.pop().map(BatchRead::Batch)),
+                0 | 1 => Ok(PollRead::Ready(child_arrays.pop())),
                 _ => {
                     let dtype = child_arrays[0].dtype().clone();
-                    Ok(Some(BatchRead::Batch(
+                    Ok(PollRead::Ready(Some(
                         ChunkedArray::try_new(child_arrays, dtype)?.into_array(),
                     )))
                 }
             }
         } else {
-            Ok(None)
+            Ok(PollRead::Ready(None))
         }
     }
 
-    fn read_metadata(&self) -> VortexResult<MetadataRead> {
+    fn poll_metadata(&self) -> VortexResult<PollRead<Option<Vec<Option<ArrayData>>>>> {
         match self.metadata_layout() {
-            None => Ok(MetadataRead::None),
+            // No metadata layout means no metadata
+            None => Ok(PollRead::Ready(None)),
             Some(metadata_layout) => {
                 if let Some(md) = self.cached_metadata.get() {
-                    return Ok(MetadataRead::Batches(vec![Some(md.clone())]));
+                    return Ok(PollRead::Ready(Some(vec![Some(md.clone())])));
                 }
 
-                match metadata_layout
-                    .read_selection(&RowMask::new_valid_between(0, self.n_chunks()))?
-                {
-                    Some(BatchRead::Batch(array)) => {
+                match metadata_layout.poll_read(&RowMask::new_valid_between(0, self.n_chunks()))? {
+                    PollRead::Ready(Some(array)) => {
                         // We don't care if the write failed
-                        _ = self.cached_metadata.set(array.clone());
-                        Ok(MetadataRead::Batches(vec![Some(array)]))
+                        self.cached_metadata.set(array.clone()).ok();
+
+                        Ok(PollRead::Ready(Some(vec![Some(array)])))
                     }
-                    Some(BatchRead::ReadMore(messages)) => Ok(MetadataRead::ReadMore(messages)),
-                    None => Ok(MetadataRead::None),
+                    PollRead::Ready(None) => Ok(PollRead::Ready(None)),
+                    PollRead::ReadMore(messages) => Ok(PollRead::ReadMore(messages)),
                 }
             }
         }

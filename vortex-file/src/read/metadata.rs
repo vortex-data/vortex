@@ -10,8 +10,9 @@ use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_io::{Dispatch as _, IoDispatcher, VortexReadAt};
 
 use super::stream::{read_ranges, StreamMessages};
-use super::{LayoutMessageCache, LayoutReader, MessageLocator, MetadataRead};
+use super::{LayoutMessageCache, LayoutReader, MessageLocator};
 use crate::read::stream::Message;
+use crate::PollRead;
 
 pub struct MetadataFetcher<R: VortexReadAt> {
     input: R,
@@ -71,15 +72,15 @@ impl<R: VortexReadAt + Unpin> Future for MetadataFetcher<R> {
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         loop {
             match &mut self.state {
-                State::Initial => match self.root_layout.read_metadata()? {
-                    MetadataRead::ReadMore(messages) => {
+                State::Initial => match self.root_layout.poll_metadata()? {
+                    PollRead::ReadMore(messages) => {
                         let read_future = self.read_ranges(messages);
                         self.state = State::Reading(read_future);
                     }
-                    MetadataRead::Batches(array_data) => {
+                    PollRead::Ready(Some(array_data)) => {
                         return Poll::Ready(Ok(Some(array_data)));
                     }
-                    MetadataRead::None => {
+                    PollRead::Ready(None) => {
                         return Poll::Ready(Ok(None));
                     }
                 },

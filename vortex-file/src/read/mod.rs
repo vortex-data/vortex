@@ -59,28 +59,19 @@ pub type MessageId = Vec<LayoutPartId>;
 pub struct MessageLocator(pub MessageId, pub ByteRange);
 
 #[derive(Debug)]
-pub enum BatchRead {
+pub enum PollRead<T> {
     ReadMore(Vec<MessageLocator>),
-    Batch(ArrayData),
-}
-
-#[derive(Debug)]
-pub enum MetadataRead {
-    /// Layout has no metadata
-    None,
-    /// Additional IO is required
-    ReadMore(Vec<MessageLocator>),
-    Batches(Vec<Option<ArrayData>>),
+    Ready(T),
 }
 
 /// A reader for a layout, a serialized sequence of Vortex arrays.
 ///
-/// Some layouts are _horizontally divisble_: they can read a sub-sequence of rows independently of
-/// other sub-sequences. A layout advertises its sub-divisions in its [add_splits][Self::add_splits]
-/// method. Any layout which is or contains a chunked layout is horizontally divisble.
+/// Some layouts are _horizontally divisible_: they can read a sub-sequence of rows independently of
+/// other sub-sequences. A layout advertises its subdivisions in its [add_splits][Self::add_splits]
+/// method. Any layout which is or contains a chunked layout is horizontally divisible.
 ///
-/// The [read_selection][Self::read_selection] method accepts and applies a [RowMask], reading only
-/// the sub-divisions which contain the selected (i.e. masked) rows.
+/// The [poll_read][Self::poll_read] method accepts and applies a [RowMask], reading only
+/// the subdivisions which contain the selected (i.e. masked) rows.
 pub trait LayoutReader: Debug + Send {
     /// Register all horizontal row boundaries of this layout.
     ///
@@ -96,8 +87,12 @@ pub trait LayoutReader: Debug + Send {
     /// creating the invoked instance of this trait and then call back into this function.
     ///
     /// The layout is finished producing data for selection when it returns None
-    fn read_selection(&self, selector: &RowMask) -> VortexResult<Option<BatchRead>>;
+    fn poll_read(&self, selector: &RowMask) -> VortexResult<PollRead<Option<ArrayData>>>;
 
     /// Reads the metadata of the layout, if it exists.
-    fn read_metadata(&self) -> VortexResult<MetadataRead>;
+    ///
+    /// Layouts can return a [metadata table][ArrayData], which is simply a `StructArray` that
+    /// contains information potentially useful for scan pruning. The interpretation of metadata is
+    /// specific to each `LayoutReader` variant.
+    fn poll_metadata(&self) -> VortexResult<PollRead<Option<Vec<Option<ArrayData>>>>>;
 }

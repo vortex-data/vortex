@@ -7,7 +7,7 @@ use vortex_error::{vortex_panic, VortexUnwrap};
 
 use crate::read::mask::RowMask;
 use crate::read::splits::{FixedSplitIterator, MaskIterator, SplitMask};
-use crate::{BatchRead, LayoutMessageCache, LayoutReader, MessageLocator};
+use crate::{LayoutMessageCache, LayoutReader, MessageLocator, PollRead};
 
 fn layout_splits(
     layouts: &[&mut dyn LayoutReader],
@@ -31,18 +31,17 @@ pub fn read_layout_data(
     buf: &Bytes,
     selector: &RowMask,
 ) -> Option<ArrayData> {
-    while let Some(rr) = layout.read_selection(selector).unwrap() {
-        match rr {
-            BatchRead::ReadMore(m) => {
+    loop {
+        match layout.poll_read(selector).unwrap() {
+            PollRead::ReadMore(m) => {
                 let mut write_cache_guard = cache.write().unwrap();
                 for MessageLocator(id, range) in m {
                     write_cache_guard.set(id, buf.slice(range.to_range()));
                 }
             }
-            BatchRead::Batch(a) => return Some(a),
+            PollRead::Ready(maybe_array) => return maybe_array,
         }
     }
-    None
 }
 
 pub fn read_filters(
@@ -51,23 +50,22 @@ pub fn read_filters(
     buf: &Bytes,
     selector: &RowMask,
 ) -> Option<RowMask> {
-    while let Some(rr) = layout.read_selection(selector).unwrap() {
-        match rr {
-            BatchRead::ReadMore(m) => {
+    loop {
+        match layout.poll_read(selector).unwrap() {
+            PollRead::ReadMore(m) => {
                 let mut write_cache_guard = cache.write().unwrap();
                 for MessageLocator(id, range) in m {
                     write_cache_guard.set(id, buf.slice(range.to_range()));
                 }
             }
-            BatchRead::Batch(a) => {
+            PollRead::Ready(Some(a)) => {
                 return Some(
                     RowMask::from_mask_array(&a, selector.begin(), selector.end()).unwrap(),
                 );
             }
+            PollRead::Ready(None) => return None,
         }
     }
-
-    None
 }
 
 pub fn filter_read_layout(

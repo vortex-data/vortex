@@ -18,7 +18,7 @@ use crate::read::cache::{LazyDType, RelativeLayoutCache};
 use crate::read::expr_project::expr_project;
 use crate::read::mask::RowMask;
 use crate::{
-    BatchRead, Layout, LayoutDeserializer, LayoutId, LayoutReader, MetadataRead, RowFilter, Scan,
+    Layout, LayoutDeserializer, LayoutId, LayoutReader, PollRead, RowFilter, Scan,
     COLUMNAR_LAYOUT_ID,
 };
 
@@ -237,7 +237,7 @@ impl LayoutReader for ColumnarLayoutReader {
         Ok(())
     }
 
-    fn read_selection(&self, selection: &RowMask) -> VortexResult<Option<BatchRead>> {
+    fn poll_read(&self, selection: &RowMask) -> VortexResult<PollRead<Option<ArrayData>>> {
         let mut in_progress_guard = self
             .in_progress_ranges
             .write()
@@ -252,30 +252,29 @@ impl LayoutReader for ColumnarLayoutReader {
             .enumerate()
             .filter(|(_, a)| a.is_none())
         {
-            match self.children[i].read_selection(selection)? {
-                Some(rr) => match rr {
-                    BatchRead::ReadMore(message) => {
-                        messages.extend(message);
+            match self.children[i].poll_read(selection)? {
+                PollRead::ReadMore(message) => {
+                    messages.extend(message);
+                }
+                PollRead::Ready(Some(arr)) => {
+                    if self.shortcircuit_siblings
+                        && arr.statistics().compute_true_count().vortex_expect(
+                            "must be a bool array if shortcircuit_siblings is set to true",
+                        ) == 0
+                    {
+                        in_progress_guard.remove(&selection_range);
+                        return Ok(PollRead::Ready(None));
                     }
-                    BatchRead::Batch(arr) => {
-                        if self.shortcircuit_siblings
-                            && arr.statistics().compute_true_count().vortex_expect(
-                                "must be a bool array if shortcircuit_siblings is set to true",
-                            ) == 0
-                        {
-                            in_progress_guard.remove(&selection_range);
-                            return Ok(None);
-                        }
-                        *child_array = Some(arr)
-                    }
-                },
-                None => {
+
+                    *child_array = Some(arr)
+                }
+                PollRead::Ready(None) => {
                     debug_assert!(
                         in_progress_selection.iter().all(Option::is_none),
                         "Expected layout {}({i}) to produce an array but it was empty",
                         self.names[i]
                     );
-                    return Ok(None);
+                    return Ok(PollRead::Ready(None));
                 }
             }
         }
@@ -299,14 +298,14 @@ impl LayoutReader for ColumnarLayoutReader {
                 .as_ref()
                 .map(|e| e.evaluate(&array))
                 .unwrap_or_else(|| Ok(array))
-                .map(BatchRead::Batch)
                 .map(Some)
+                .map(PollRead::Ready)
         } else {
-            Ok(Some(BatchRead::ReadMore(messages)))
+            Ok(PollRead::ReadMore(messages))
         }
     }
 
-    fn read_metadata(&self) -> VortexResult<MetadataRead> {
+    fn poll_metadata(&self) -> VortexResult<PollRead<Option<Vec<Option<ArrayData>>>>> {
         let mut in_progress_metadata = self
             .in_progress_metadata
             .write()
@@ -314,18 +313,19 @@ impl LayoutReader for ColumnarLayoutReader {
         let mut messages = Vec::default();
 
         for (name, child_reader) in self.names.iter().zip(self.children.iter()) {
-            match child_reader.read_metadata()? {
-                MetadataRead::Batches(data) => {
+            match child_reader.poll_metadata()? {
+                PollRead::Ready(Some(data)) => {
                     if data.len() != 1 {
                         vortex_bail!("expected exactly one metadata array per-child");
                     }
                     in_progress_metadata.insert(name.clone(), data[0].clone());
                 }
-                MetadataRead::ReadMore(rm) => {
-                    messages.extend(rm);
-                }
-                MetadataRead::None => {
+                PollRead::Ready(None) => {
+                    // There is no metadata for whatever the child array is.
                     in_progress_metadata.insert(name.clone(), None);
+                }
+                PollRead::ReadMore(rm) => {
+                    messages.extend(rm);
                 }
             }
         }
@@ -338,9 +338,9 @@ impl LayoutReader for ColumnarLayoutReader {
                 .map(|name| in_progress_metadata[name].clone()) // TODO(Adam): Some columns might not have statistics
                 .collect::<Vec<_>>();
 
-            Ok(MetadataRead::Batches(child_arrays))
+            Ok(PollRead::Ready(Some(child_arrays)))
         } else {
-            Ok(MetadataRead::ReadMore(messages))
+            Ok(PollRead::ReadMore(messages))
         }
     }
 }
