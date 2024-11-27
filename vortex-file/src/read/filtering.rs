@@ -74,6 +74,7 @@ impl VortexExpr for RowFilter {
             .next()
             .vortex_expect("must have at least one predicate")
             .evaluate(batch)?;
+
         for expr in filter_iter {
             if mask.statistics().compute_true_count().unwrap_or_default() == 0 {
                 return Ok(ConstantArray::new(false, batch.len()).into_array());
