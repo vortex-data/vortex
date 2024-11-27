@@ -5,10 +5,9 @@ use std::ops::AddAssign;
 
 use num_traits::AsPrimitive;
 use vortex_array::array::{BooleanBuffer, ConstantArray, PrimitiveArray, SparseArray};
-use vortex_array::compute::unary::{scalar_at, ScalarAtFn};
 use vortex_array::compute::{
-    filter, slice, take, CompareFn, ComputeVTable, FilterFn, FilterMask, SliceFn, TakeFn,
-    TakeOptions,
+    filter, scalar_at, slice, take, CompareFn, ComputeVTable, FilterFn, FilterMask, ScalarAtFn,
+    SliceFn, TakeFn, TakeOptions,
 };
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
@@ -178,8 +177,9 @@ fn filter_run_ends<R: NativePType + AddAssign + From<bool> + AsPrimitive<u64>>(
 #[cfg(test)]
 mod test {
     use vortex_array::array::{BoolArray, PrimitiveArray};
-    use vortex_array::compute::unary::{scalar_at, try_cast};
-    use vortex_array::compute::{filter, slice, take, FilterMask, TakeOptions};
+    use vortex_array::compute::{
+        filter, scalar_at, slice, take, try_cast, FilterMask, TakeOptions,
+    };
     use vortex_array::validity::{ArrayValidity, Validity};
     use vortex_array::{ArrayDType, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
     use vortex_dtype::{DType, Nullability, PType};

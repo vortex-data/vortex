@@ -7,10 +7,9 @@ use vortex_scalar::Scalar;
 
 use crate::array::constant::ConstantArray;
 use crate::array::ConstantEncoding;
-use crate::compute::unary::ScalarAtFn;
 use crate::compute::{
-    BinaryBooleanFn, CompareFn, ComputeVTable, FilterFn, FilterMask, SearchSortedFn, SliceFn,
-    TakeFn, TakeOptions,
+    BinaryBooleanFn, CompareFn, ComputeVTable, FilterFn, FilterMask, ScalarAtFn, SearchSortedFn,
+    SliceFn, TakeFn, TakeOptions,
 };
 use crate::{ArrayData, IntoArrayData};
 

@@ -636,8 +636,7 @@ mod test {
     use vortex_scalar::Scalar;
 
     use crate::array::varbinview::{BinaryView, VarBinViewArray, VIEW_SIZE_BYTES};
-    use crate::compute::slice;
-    use crate::compute::unary::scalar_at;
+    use crate::compute::{scalar_at, slice};
     use crate::{ArrayLen, Canonical, IntoArrayData, IntoCanonical};
 
     #[test]

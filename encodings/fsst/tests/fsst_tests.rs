@@ -2,8 +2,7 @@
 
 use vortex_array::array::builder::VarBinBuilder;
 use vortex_array::array::PrimitiveArray;
-use vortex_array::compute::unary::scalar_at;
-use vortex_array::compute::{filter, slice, take, FilterMask, TakeOptions};
+use vortex_array::compute::{filter, scalar_at, slice, take, FilterMask, TakeOptions};
 use vortex_array::validity::Validity;
 use vortex_array::{ArrayData, ArrayDef, IntoArrayData, IntoCanonical};
 use vortex_dtype::{DType, Nullability};

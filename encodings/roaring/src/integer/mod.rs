@@ -5,7 +5,7 @@ pub use compress::*;
 use croaring::{Bitmap, Portable};
 use serde::{Deserialize, Serialize};
 use vortex_array::array::PrimitiveArray;
-use vortex_array::compute::unary::try_cast;
+use vortex_array::compute::try_cast;
 use vortex_array::encoding::ids;
 use vortex_array::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
 use vortex_array::validity::{LogicalValidity, Validity, ValidityVTable};

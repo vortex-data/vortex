@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use vortex_array::compute::unary::scalar_at;
+use vortex_array::compute::scalar_at;
 use vortex_array::stream::ArrayStream;
 use vortex_array::{ArrayData, Context};
 use vortex_dtype::DType;

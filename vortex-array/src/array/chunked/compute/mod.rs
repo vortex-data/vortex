@@ -3,9 +3,9 @@ use vortex_error::VortexResult;
 
 use crate::array::chunked::ChunkedArray;
 use crate::array::ChunkedEncoding;
-use crate::compute::unary::{try_cast, CastFn, ScalarAtFn, SubtractScalarFn};
 use crate::compute::{
-    compare, slice, CompareFn, ComputeVTable, FilterFn, Operator, SliceFn, TakeFn,
+    compare, slice, try_cast, CastFn, CompareFn, ComputeVTable, FilterFn, Operator, ScalarAtFn,
+    SliceFn, SubtractScalarFn, TakeFn,
 };
 use crate::{ArrayData, IntoArrayData};
 
@@ -84,7 +84,7 @@ mod test {
 
     use crate::array::chunked::ChunkedArray;
     use crate::array::primitive::PrimitiveArray;
-    use crate::compute::unary::try_cast;
+    use crate::compute::try_cast;
     use crate::validity::Validity;
     use crate::{IntoArrayData, IntoArrayVariant};
 

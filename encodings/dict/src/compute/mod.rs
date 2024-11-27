@@ -1,9 +1,8 @@
 mod compare;
 
-use vortex_array::compute::unary::{scalar_at, ScalarAtFn};
 use vortex_array::compute::{
-    filter, slice, take, CompareFn, ComputeVTable, FilterFn, FilterMask, SliceFn, TakeFn,
-    TakeOptions,
+    filter, scalar_at, slice, take, CompareFn, ComputeVTable, FilterFn, FilterMask, ScalarAtFn,
+    SliceFn, TakeFn, TakeOptions,
 };
 use vortex_array::{ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
@@ -74,8 +73,7 @@ impl SliceFn<DictArray> for DictEncoding {
 mod test {
     use vortex_array::accessor::ArrayAccessor;
     use vortex_array::array::{ConstantArray, PrimitiveArray, VarBinViewArray};
-    use vortex_array::compute::unary::scalar_at;
-    use vortex_array::compute::{compare, slice, Operator};
+    use vortex_array::compute::{compare, scalar_at, slice, Operator};
     use vortex_array::{ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
     use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;

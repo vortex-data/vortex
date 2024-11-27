@@ -109,7 +109,7 @@ mod test {
     use std::sync::{Arc, RwLock};
 
     use vortex_array::array::{ChunkedArray, StructArray};
-    use vortex_array::compute::unary::scalar_at;
+    use vortex_array::compute::scalar_at;
     use vortex_array::{ArrayDType as _, ArrayData, IntoArrayData as _};
     use vortex_buffer::{Buffer, BufferString};
     use vortex_io::IoDispatcher;

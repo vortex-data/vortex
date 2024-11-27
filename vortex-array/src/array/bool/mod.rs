@@ -241,8 +241,7 @@ mod tests {
     use arrow_buffer::BooleanBuffer;
 
     use crate::array::BoolArray;
-    use crate::compute::slice;
-    use crate::compute::unary::scalar_at;
+    use crate::compute::{scalar_at, slice};
     use crate::validity::Validity;
     use crate::{IntoArrayData, IntoArrayVariant};
 

@@ -13,8 +13,7 @@ use vortex_scalar::Scalar;
 
 use crate::array::primitive::PrimitiveArray;
 use crate::array::varbin::builder::VarBinBuilder;
-use crate::compute::slice;
-use crate::compute::unary::scalar_at;
+use crate::compute::{scalar_at, slice};
 use crate::encoding::ids;
 use crate::stats::StatsSet;
 use crate::validity::{Validity, ValidityMetadata};
@@ -293,8 +292,7 @@ mod test {
 
     use crate::array::primitive::PrimitiveArray;
     use crate::array::varbin::VarBinArray;
-    use crate::compute::slice;
-    use crate::compute::unary::scalar_at;
+    use crate::compute::{scalar_at, slice};
     use crate::validity::Validity;
     use crate::{ArrayData, IntoArrayData};
 

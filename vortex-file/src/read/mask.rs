@@ -3,8 +3,7 @@ use std::fmt::{Display, Formatter};
 
 use arrow_buffer::BooleanBuffer;
 use vortex_array::array::{BoolArray, PrimitiveArray, SparseArray};
-use vortex_array::compute::unary::try_cast;
-use vortex_array::compute::{and, filter, slice, take, FilterMask, TakeOptions};
+use vortex_array::compute::{and, filter, slice, take, try_cast, FilterMask, TakeOptions};
 use vortex_array::stats::ArrayStatistics;
 use vortex_array::validity::LogicalValidity;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};

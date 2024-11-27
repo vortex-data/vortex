@@ -73,8 +73,7 @@ mod test {
 
     use crate::array::constant::ConstantArray;
     use crate::array::BoolArray;
-    use crate::compute::unary::scalar_at;
-    use crate::compute::{and, or};
+    use crate::compute::{and, or, scalar_at};
     use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
 
     #[rstest]
