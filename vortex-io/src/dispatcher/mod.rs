@@ -5,6 +5,8 @@ mod tokio;
 use std::future::Future;
 
 use futures::channel::oneshot;
+#[cfg(not(any(feature = "compio", feature = "tokio")))]
+use vortex_error::vortex_panic;
 use vortex_error::VortexResult;
 
 #[cfg(feature = "compio")]
@@ -73,7 +75,7 @@ impl Default for IoDispatcher {
         #[cfg(all(feature = "compio", not(feature = "tokio")))]
         return Self(Inner::Compio(CompioDispatcher::new(1)));
         #[cfg(not(any(feature = "compio", feature = "tokio")))]
-        return Self(Inner {});
+        vortex_panic!("must enable one of compio or tokio to use IoDispatcher");
     }
 }
 
