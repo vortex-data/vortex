@@ -33,12 +33,11 @@ fn benchmark(c: &mut Criterion) {
                 .arg(command)
                 .status()?
                 .exit_ok()?;
-    
+
             anyhow::Ok(PathBuf::from(output_path))
         })
         .unwrap();
     }
-
 
     let session_context = SessionContext::new();
     let context = session_context.clone();
