@@ -8,7 +8,7 @@ use itertools::Itertools;
 use vortex_array::stats::ArrayStatistics;
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
-use crate::read::coalescer::RowMaskReader;
+use crate::read::buffered::RowMaskReader;
 use crate::{BatchRead, LayoutReader, MessageRead, PruningRead, RowMask, SplitRead};
 
 pub struct RowMaskLayoutReader {

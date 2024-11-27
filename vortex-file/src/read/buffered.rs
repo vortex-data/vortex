@@ -43,7 +43,7 @@ enum RowMaskState<V> {
     Empty,
 }
 
-pub struct Coalescer<R, S, V, RM> {
+pub struct BufferedLayoutReader<R, S, V, RM> {
     values: S,
     row_mask_reader: RM,
     in_flight: Option<BoxFuture<'static, io::Result<Vec<Message>>>>,
@@ -53,7 +53,7 @@ pub struct Coalescer<R, S, V, RM> {
     cache: Arc<RwLock<LayoutMessageCache>>,
 }
 
-impl<R, S, V, RM> Coalescer<R, S, V, RM>
+impl<R, S, V, RM> BufferedLayoutReader<R, S, V, RM>
 where
     R: VortexReadAt,
     S: Stream<Item = VortexResult<RowMask>> + Unpin,
@@ -177,7 +177,7 @@ where
     }
 }
 
-impl<R, S, V, RM> Stream for Coalescer<R, S, V, RM>
+impl<R, S, V, RM> Stream for BufferedLayoutReader<R, S, V, RM>
 where
     R: VortexReadAt + Unpin,
     S: Stream<Item = VortexResult<RowMask>> + Unpin,

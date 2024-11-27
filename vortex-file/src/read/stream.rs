@@ -11,8 +11,8 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_panic, VortexResult, VortexUnwrap};
 use vortex_io::{IoDispatcher, VortexReadAt};
 
+use crate::read::buffered::{BufferedLayoutReader, MaskLayoutReader};
 use crate::read::cache::LayoutMessageCache;
-use crate::read::coalescer::{Coalescer, MaskLayoutReader};
 use crate::read::mask::RowMask;
 use crate::read::splits::{FixedSplitIterator, RowMaskLayoutReader};
 use crate::read::LayoutReader;
@@ -28,7 +28,7 @@ use crate::LazyDType;
 pub struct VortexFileArrayStream<R> {
     dtype: Arc<LazyDType>,
     row_count: u64,
-    array_reader: Coalescer<
+    array_reader: BufferedLayoutReader<
         R,
         Box<dyn Stream<Item = VortexResult<RowMask>> + Send + Unpin>,
         ArrayData,
@@ -57,7 +57,7 @@ impl<R: VortexReadAt + Unpin> VortexFileArrayStream<R> {
         split_iterator.additional_splits(&mut reader_splits)?;
 
         let mask_iterator = if let Some(fr) = filter_reader {
-            Box::new(Coalescer::new(
+            Box::new(BufferedLayoutReader::new(
                 input.clone(),
                 dispatcher.clone(),
                 split_iterator,
@@ -68,7 +68,7 @@ impl<R: VortexReadAt + Unpin> VortexFileArrayStream<R> {
             Box::new(split_iterator) as _
         };
 
-        let array_reader = Coalescer::new(
+        let array_reader = BufferedLayoutReader::new(
             input,
             dispatcher,
             mask_iterator,

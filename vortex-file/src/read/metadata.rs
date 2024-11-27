@@ -11,10 +11,10 @@ use vortex_error::VortexResult;
 use vortex_io::{IoDispatcher, VortexReadAt};
 
 use super::{LayoutMessageCache, LayoutReader};
-use crate::read::coalescer::{Coalescer, RowMaskReader};
+use crate::read::buffered::{BufferedLayoutReader, RowMaskReader};
 use crate::{MessageRead, RowMask};
 
-type MetadataCoalescer<R> = Coalescer<
+type MetadataCoalescer<R> = BufferedLayoutReader<
     R,
     Box<dyn Stream<Item = VortexResult<RowMask>> + Send + Unpin>,
     Vec<Option<ArrayData>>,
@@ -51,7 +51,7 @@ impl<R: VortexReadAt + Unpin> MetadataFetcher<R> {
         root_layout: Box<dyn LayoutReader>,
         layout_cache: Arc<RwLock<LayoutMessageCache>>,
     ) -> Self {
-        let metadata_reader = Coalescer::new(
+        let metadata_reader = BufferedLayoutReader::new(
             input,
             dispatcher,
             Box::new(stream::iter(iter::once(Ok(RowMask::new_valid_between(

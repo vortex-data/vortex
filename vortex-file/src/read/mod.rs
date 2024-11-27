@@ -5,9 +5,9 @@ use bytes::Bytes;
 use vortex_array::ArrayData;
 use vortex_error::VortexResult;
 
+mod buffered;
 pub mod builder;
 mod cache;
-mod coalescer;
 mod context;
 mod expr_project;
 mod filtering;
