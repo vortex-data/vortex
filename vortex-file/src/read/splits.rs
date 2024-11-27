@@ -103,11 +103,12 @@ impl PruningSplitIterator {
                     };
 
                     // we masked everything out, so move on
-                    if row_mask.slice(begin, end).is_empty() {
+                    let sliced = row_mask.slice(begin, end)?;
+                    if sliced.is_empty() {
                         continue;
                     }
 
-                    return self.read_mask(row_mask.slice(begin, end));
+                    return self.read_mask(sliced);
                 }
 
                 Ok(None)
@@ -197,10 +198,15 @@ impl Iterator for FixedSplitIterator {
                 // Find next range that's not filtered out by supplied row_mask
                 for (begin, end) in ranges {
                     return if let Some(ref row_mask) = self.row_mask {
-                        if row_mask.slice(begin, end).is_empty() {
+                        let sliced = match row_mask.slice(begin, end) {
+                            Ok(s) => s,
+                            Err(e) => return Some(Err(e)),
+                        };
+
+                        if sliced.is_empty() {
                             continue;
                         }
-                        Some(Ok(SplitMask::Mask(row_mask.slice(begin, end))))
+                        Some(Ok(SplitMask::Mask(sliced)))
                     } else {
                         Some(Ok(SplitMask::Mask(RowMask::new_valid_between(begin, end))))
                     };

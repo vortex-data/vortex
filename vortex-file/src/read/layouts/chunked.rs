@@ -215,7 +215,7 @@ impl ChunkedLayoutReader {
             .zip(in_progress_range)
             .filter(|(_, cr)| !cr.finished())
         {
-            let layout_selection = mask.slice(*begin, *end).shift(*begin)?;
+            let layout_selection = mask.slice(*begin, *end)?.shift(*begin)?;
             if let Some(rr) = layout.read_selection(&layout_selection)? {
                 match rr {
                     BatchRead::ReadMore(m) => {
