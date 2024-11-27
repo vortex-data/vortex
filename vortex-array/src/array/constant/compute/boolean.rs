@@ -12,7 +12,13 @@ impl BinaryBooleanFn<ConstantArray> for ConstantEncoding {
         lhs: &ConstantArray,
         rhs: &ArrayData,
         op: BinaryOperator,
-    ) -> VortexResult<ArrayData> {
+    ) -> VortexResult<Option<ArrayData>> {
+        // We only implement this for constant <-> constant arrays, otherwise we allow fall back
+        // to the Arrow implementation.
+        if !rhs.is_constant() {
+            return Ok(None);
+        }
+
         let length = lhs.len();
         let nullable = lhs.dtype().is_nullable() || rhs.dtype().is_nullable();
         let lhs = lhs.scalar().as_bool().value();
@@ -35,7 +41,7 @@ impl BinaryBooleanFn<ConstantArray> for ConstantEncoding {
             .map(|b| Scalar::bool(b, nullable.into()))
             .unwrap_or_else(|| Scalar::null(DType::Bool(nullable.into())));
 
-        Ok(ConstantArray::new(scalar, length).into_array())
+        Ok(Some(ConstantArray::new(scalar, length).into_array()))
     }
 }
 

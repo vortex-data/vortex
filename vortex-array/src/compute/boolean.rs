@@ -25,7 +25,7 @@ pub trait BinaryBooleanFn<Array> {
         array: &Array,
         other: &ArrayData,
         op: BinaryOperator,
-    ) -> VortexResult<ArrayData>;
+    ) -> VortexResult<Option<ArrayData>>;
 }
 
 impl<E: Encoding> BinaryBooleanFn<ArrayData> for E
@@ -38,7 +38,7 @@ where
         lhs: &ArrayData,
         rhs: &ArrayData,
         op: BinaryOperator,
-    ) -> VortexResult<ArrayData> {
+    ) -> VortexResult<Option<ArrayData>> {
         let array_ref = <&E::Array>::try_from(lhs)?;
         let encoding = lhs
             .encoding()
@@ -92,9 +92,18 @@ fn binary_boolean(lhs: &ArrayData, rhs: &ArrayData, op: BinaryOperator) -> Vorte
         return binary_boolean(rhs, lhs, op);
     }
 
+    // If the RHS is constant and the LHS is Arrow, we can't do any better than arrow_compare.
+    if lhs.is_arrow() && rhs.is_constant() {
+        return arrow_boolean(lhs.clone(), rhs.clone(), op);
+    }
+
     // Check if either LHS or RHS supports the operation directly.
-    if let Some(f) = lhs.encoding().binary_boolean_fn(lhs, rhs) {
-        return f.binary_boolean(lhs, rhs, op);
+    if let Some(result) = lhs
+        .encoding()
+        .binary_boolean_fn()
+        .and_then(|f| f.binary_boolean(lhs, rhs, op).transpose())
+    {
+        return result;
     } else {
         log::debug!(
             "No boolean implementation found for LHS {}, RHS {}, and operator {:?}",
@@ -103,8 +112,13 @@ fn binary_boolean(lhs: &ArrayData, rhs: &ArrayData, op: BinaryOperator) -> Vorte
             op,
         );
     }
-    if let Some(f) = rhs.encoding().binary_boolean_fn(rhs, lhs) {
-        return f.binary_boolean(rhs, lhs, op);
+
+    if let Some(result) = rhs
+        .encoding()
+        .binary_boolean_fn()
+        .and_then(|f| f.binary_boolean(rhs, lhs, op).transpose())
+    {
+        return result;
     } else {
         log::debug!(
             "No boolean implementation found for LHS {}, RHS {}, and operator {:?}",
