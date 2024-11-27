@@ -5,9 +5,8 @@ use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{
     BoolEncoding, PrimitiveEncoding, StructEncoding, VarBinEncoding, VarBinViewEncoding,
 };
-use vortex_array::compute::unary::scalar_at;
 use vortex_array::compute::{
-    filter, search_sorted, slice, take, SearchResult, SearchSortedSide, TakeOptions,
+    filter, scalar_at, search_sorted, slice, take, SearchResult, SearchSortedSide, TakeOptions,
 };
 use vortex_array::encoding::EncodingRef;
 use vortex_array::{ArrayData, IntoCanonical};

@@ -2,7 +2,7 @@ use std::fmt::{Debug, Display};
 
 use serde::{Deserialize, Serialize};
 use vortex_array::array::StructArray;
-use vortex_array::compute::unary::try_cast;
+use vortex_array::compute::try_cast;
 use vortex_array::encoding::ids;
 use vortex_array::stats::{Stat, StatisticsVTable, StatsSet};
 use vortex_array::validity::{LogicalValidity, Validity, ValidityVTable};

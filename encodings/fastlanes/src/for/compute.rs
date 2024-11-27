@@ -1,10 +1,9 @@
 use std::ops::AddAssign;
 
 use num_traits::{CheckedShl, CheckedShr, WrappingAdd, WrappingSub};
-use vortex_array::compute::unary::{scalar_at, ScalarAtFn};
 use vortex_array::compute::{
-    filter, search_sorted, slice, take, ComputeVTable, FilterFn, FilterMask, SearchResult,
-    SearchSortedFn, SearchSortedSide, SliceFn, TakeFn, TakeOptions,
+    filter, scalar_at, search_sorted, slice, take, ComputeVTable, FilterFn, FilterMask, ScalarAtFn,
+    SearchResult, SearchSortedFn, SearchSortedSide, SliceFn, TakeFn, TakeOptions,
 };
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
@@ -178,8 +177,7 @@ where
 #[cfg(test)]
 mod test {
     use vortex_array::array::PrimitiveArray;
-    use vortex_array::compute::unary::scalar_at;
-    use vortex_array::compute::{search_sorted, SearchResult, SearchSortedSide};
+    use vortex_array::compute::{scalar_at, search_sorted, SearchResult, SearchSortedSide};
     use vortex_array::IntoArrayData;
 
     use crate::{for_compress, FoRArray};

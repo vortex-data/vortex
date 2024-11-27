@@ -144,7 +144,7 @@ fn decompress_primitive<T: NativePType + WrappingAdd + PrimInt>(
 
 #[cfg(test)]
 mod test {
-    use vortex_array::compute::unary::scalar_at;
+    use vortex_array::compute::scalar_at;
     use vortex_array::IntoArrayVariant;
     use vortex_dtype::Nullability;
 
