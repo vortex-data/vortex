@@ -369,6 +369,13 @@ impl LayoutReader for ColumnarLayoutReader {
         }
 
         if messages.is_empty() {
+            // Each child's scan expression evaluates to false if and only if our scan expression
+            // would evaluate to false. Examples:
+            //
+            // 1. `x = 3 AND y = 3`: The child scan expressions will be `x = 3` and `y = 3`. If
+            //    either expression is false, the row must be excluded.
+            //
+            // 2. `x = 3 OR y = 3`: The child scan expressions will both be None.
             let any_child_is_pruned = in_progress_guard
                 .remove(&selection_range)
                 .ok_or_else(|| vortex_err!("There were no can_prune results and no messages"))?
