@@ -4,8 +4,9 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyInt, PyList};
 use vortex::array::ChunkedArray;
-use vortex::compute::unary::{fill_forward, scalar_at};
-use vortex::compute::{compare, slice, take, FilterMask, Operator, TakeOptions};
+use vortex::compute::{
+    compare, fill_forward, scalar_at, slice, take, FilterMask, Operator, TakeOptions,
+};
 use vortex::{ArrayDType, ArrayData, IntoCanonical};
 
 use crate::dtype::PyDType;

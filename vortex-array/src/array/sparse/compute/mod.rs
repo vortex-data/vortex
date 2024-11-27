@@ -4,10 +4,9 @@ use vortex_scalar::Scalar;
 
 use crate::array::sparse::SparseArray;
 use crate::array::{PrimitiveArray, SparseEncoding};
-use crate::compute::unary::{scalar_at, ScalarAtFn};
 use crate::compute::{
-    search_sorted, take, ComputeVTable, FilterFn, FilterMask, SearchResult, SearchSortedFn,
-    SearchSortedSide, SliceFn, TakeFn, TakeOptions,
+    scalar_at, search_sorted, take, ComputeVTable, FilterFn, FilterMask, ScalarAtFn, SearchResult,
+    SearchSortedFn, SearchSortedSide, SliceFn, TakeFn, TakeOptions,
 };
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayData, IntoArrayData, IntoArrayVariant};

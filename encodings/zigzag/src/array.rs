@@ -129,8 +129,7 @@ impl IntoCanonical for ZigZagArray {
 
 #[cfg(test)]
 mod test {
-    use vortex_array::compute::slice;
-    use vortex_array::compute::unary::scalar_at;
+    use vortex_array::compute::{scalar_at, slice};
     use vortex_array::IntoArrayData;
 
     use super::*;

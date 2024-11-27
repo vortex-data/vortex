@@ -154,7 +154,7 @@ mod tests {
 
     use super::*;
     use crate::array::BoolArray;
-    use crate::compute::unary::scalar_at;
+    use crate::compute::scalar_at;
     use crate::IntoArrayData;
 
     #[rstest]

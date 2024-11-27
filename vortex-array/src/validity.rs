@@ -12,8 +12,7 @@ use vortex_error::{
 };
 
 use crate::array::{BoolArray, ConstantArray};
-use crate::compute::unary::scalar_at;
-use crate::compute::{filter, slice, take, FilterMask, TakeOptions};
+use crate::compute::{filter, scalar_at, slice, take, FilterMask, TakeOptions};
 use crate::encoding::Encoding;
 use crate::stats::ArrayStatistics;
 use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};

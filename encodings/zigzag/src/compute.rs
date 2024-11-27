@@ -1,5 +1,4 @@
-use vortex_array::compute::unary::{scalar_at, ScalarAtFn};
-use vortex_array::compute::{slice, ComputeVTable, SliceFn};
+use vortex_array::compute::{scalar_at, slice, ComputeVTable, ScalarAtFn, SliceFn};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_dtype::match_each_unsigned_integer_ptype;
@@ -71,8 +70,7 @@ impl SliceFn<ZigZagArray> for ZigZagEncoding {
 #[cfg(test)]
 mod tests {
     use vortex_array::array::PrimitiveArray;
-    use vortex_array::compute::unary::scalar_at;
-    use vortex_array::compute::{search_sorted, SearchResult, SearchSortedSide};
+    use vortex_array::compute::{scalar_at, search_sorted, SearchResult, SearchSortedSide};
     use vortex_array::validity::Validity;
     use vortex_array::IntoArrayData;
     use vortex_dtype::Nullability;

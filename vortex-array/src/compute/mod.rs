@@ -8,23 +8,28 @@
 //! from Arrow.
 
 pub use boolean::{and, and_kleene, or, or_kleene, BinaryBooleanFn, BinaryOperator};
+pub use cast::{try_cast, CastFn};
 pub use compare::{compare, scalar_cmp, CompareFn, Operator};
+pub use fill_forward::{fill_forward, FillForwardFn};
 pub use filter::*;
+pub use scalar_at::{scalar_at, ScalarAtFn};
+pub use scalar_subtract::{subtract_scalar, SubtractScalarFn};
 pub use search_sorted::*;
 pub use slice::{slice, SliceFn};
 pub use take::*;
-use unary::{CastFn, FillForwardFn, ScalarAtFn, SubtractScalarFn};
 
 use crate::ArrayData;
 
 mod boolean;
+mod cast;
 mod compare;
+mod fill_forward;
 mod filter;
+mod scalar_at;
+mod scalar_subtract;
 mod search_sorted;
 mod slice;
 mod take;
-
-pub mod unary;
 
 /// VTable for dispatching compute functions to Vortex encodings.
 pub trait ComputeVTable {
