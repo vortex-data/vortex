@@ -41,7 +41,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/cleanup
-      - name: Configure AWS Credentials for S3 requester pays
+      - name: Configure AWS Credentials for benchmark data
         uses: aws-actions/configure-aws-credentials@v4
         if: matrix.benchmark.id == 'clickbench'
         with:
@@ -99,6 +99,10 @@ jobs:
               | jq --slurp --compact-output '.' >${{ matrix.benchmark.id }}.json
 
           cat ${{ matrix.benchmark.id }}.json
+      - name: Cleanup Raw Data
+        if: always()
+        run:
+          rm -rf bench-vortex/data/
       - name: Store benchmark result
         if: '!cancelled()'
         uses: benchmark-action/github-action-benchmark@v1
