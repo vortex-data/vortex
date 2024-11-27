@@ -251,7 +251,7 @@ impl ChunkedLayoutReader {
             .collect::<Vec<_>>()
     }
 
-    fn are_overlapping_chunks_pruned(
+    fn can_prune_overlapping_chunks(
         &self,
         chunk_prunability: &ArrayData,
         begin: usize,
@@ -350,7 +350,7 @@ impl LayoutReader for ChunkedLayoutReader {
 
     fn can_prune(&self, begin: usize, end: usize) -> VortexResult<PruningRead> {
         if let Some(chunk_prunability) = self.cached_prunability.get() {
-            return Ok(PruningRead::CanPrune(self.are_overlapping_chunks_pruned(
+            return Ok(PruningRead::CanPrune(self.can_prune_overlapping_chunks(
                 chunk_prunability,
                 begin,
                 end,
@@ -379,7 +379,7 @@ impl LayoutReader for ChunkedLayoutReader {
                 match prunability {
                     Some(chunk_prunability) => {
                         let is_selection_pruned =
-                            self.are_overlapping_chunks_pruned(&chunk_prunability, begin, end)?;
+                            self.can_prune_overlapping_chunks(&chunk_prunability, begin, end)?;
                         let _ = self.cached_prunability.set(chunk_prunability); // Losing the race is fine
                         PruningRead::CanPrune(is_selection_pruned)
                     }
