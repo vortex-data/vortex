@@ -43,6 +43,7 @@ jobs:
       - uses: ./.github/actions/cleanup
       - name: Configure AWS Credentials for S3 requester pays
         uses: aws-actions/configure-aws-credentials@v4
+        if: matrix.benchmark.id == 'clickbench'
         with:
           audience: sts.amazonaws.com
           aws-region: us-west-2
@@ -72,6 +73,11 @@ jobs:
         env:
           BENCH_VORTEX_RATIOS: '.*'
           RUSTFLAGS: '-C target-cpu=native'
+            # AWS Credentials for R2 storage tests
+          AWS_BUCKET: vortex-test
+          AWS_ENDPOINT: ${{ secrets.AWS_ENDPOINT }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         run: |
           cargo install cargo-criterion
           
