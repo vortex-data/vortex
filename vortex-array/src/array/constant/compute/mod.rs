@@ -14,14 +14,8 @@ use crate::compute::{
 use crate::{ArrayData, IntoArrayData};
 
 impl ComputeVTable for ConstantEncoding {
-    fn binary_boolean_fn(
-        &self,
-        lhs: &ArrayData,
-        rhs: &ArrayData,
-    ) -> Option<&dyn BinaryBooleanFn<ArrayData>> {
-        // We only need to deal with this if both sides are constant, otherwise other arrays
-        // will have handled the RHS being constant.
-        (lhs.is_constant() && rhs.is_constant()).then_some(self)
+    fn binary_boolean_fn(&self) -> Option<&dyn BinaryBooleanFn<ArrayData>> {
+        Some(self)
     }
 
     fn compare_fn(&self) -> Option<&dyn CompareFn<ArrayData>> {

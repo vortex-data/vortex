@@ -36,11 +36,7 @@ pub trait ComputeVTable {
     /// Implementation of binary boolean logic operations.
     ///
     /// See: [BinaryBooleanFn].
-    fn binary_boolean_fn(
-        &self,
-        _lhs: &ArrayData,
-        _rhs: &ArrayData,
-    ) -> Option<&dyn BinaryBooleanFn<ArrayData>> {
+    fn binary_boolean_fn(&self) -> Option<&dyn BinaryBooleanFn<ArrayData>> {
         None
     }
 

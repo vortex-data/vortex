@@ -12,11 +12,7 @@ mod slice;
 mod take;
 
 impl ComputeVTable for BoolEncoding {
-    fn binary_boolean_fn(
-        &self,
-        _lhs: &ArrayData,
-        _rhs: &ArrayData,
-    ) -> Option<&dyn BinaryBooleanFn<ArrayData>> {
+    fn binary_boolean_fn(&self) -> Option<&dyn BinaryBooleanFn<ArrayData>> {
         // We only implement this when other is a constant value, otherwise we fall back to the
         // default implementation that canonicalizes to Arrow.
         // TODO(ngates): implement this for constants.
