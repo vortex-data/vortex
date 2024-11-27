@@ -87,7 +87,7 @@ fn merge_ranges(mut ranges: Vec<Range<usize>>, max_gap: usize) -> Vec<Range<usiz
     let mut merged_ranges = Vec::with_capacity(ranges.len());
 
     let mut start_idx = 0;
-    let mut end_idx = 0;
+    let mut end_idx = 1;
 
     while start_idx < ranges.len() {
         let mut range_end = ranges[start_idx].end;
