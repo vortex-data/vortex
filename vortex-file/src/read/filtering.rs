@@ -76,11 +76,11 @@ impl VortexExpr for RowFilter {
             .evaluate(batch)?;
         for expr in filter_iter {
             let n_true = mask.statistics().compute_true_count().unwrap_or_default();
-            if n_true == 0 {
+            let n_null = mask.statistics().compute_null_count().unwrap_or_default();
+
+            if n_true == 0 && n_null == 0 {
+                // false AND x = false
                 return Ok(ConstantArray::new(false, batch.len()).into_array());
-            }
-            if n_true == batch.len() {
-                return Ok(ConstantArray::new(true, batch.len()).into_array());
             }
 
             let new_mask = expr.evaluate(batch)?;

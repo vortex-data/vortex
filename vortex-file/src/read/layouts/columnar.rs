@@ -594,22 +594,22 @@ mod tests {
         );
 
         assert_eq!(arr.len(), 2);
-        let prim_arr = arr[0]
+        let prim_arr_chunk0 = arr[0]
             .with_dyn(|a| a.as_struct_array_unchecked().field(0))
             .unwrap()
             .into_primitive()
             .unwrap();
-        let str_arr = arr[0]
+        let str_arr_chunk0 = arr[0]
             .with_dyn(|a| a.as_struct_array_unchecked().field(1))
             .unwrap()
             .into_varbinview()
             .unwrap();
         assert_eq!(
-            prim_arr.maybe_null_slice::<i32>(),
+            prim_arr_chunk0.maybe_null_slice::<i32>(),
             (100..150).collect::<Vec<_>>()
         );
         assert_eq!(
-            str_arr
+            str_arr_chunk0
                 .with_iterator(|iter| iter
                     .flatten()
                     .map(|s| unsafe { String::from_utf8_unchecked(s.to_vec()) })
@@ -617,22 +617,22 @@ mod tests {
                 .unwrap(),
             iter::repeat("it").take(50).collect::<Vec<_>>()
         );
-        let prim_arr2 = arr[1]
+        let prim_arr_chunk1 = arr[1]
             .with_dyn(|a| a.as_struct_array_unchecked().field(0))
             .unwrap()
             .into_primitive()
             .unwrap();
-        let str_arr2 = arr[1]
+        let str_arr_chunk1 = arr[1]
             .with_dyn(|a| a.as_struct_array_unchecked().field(1))
             .unwrap()
             .into_varbinview()
             .unwrap();
         assert_eq!(
-            prim_arr2.maybe_null_slice::<i32>(),
+            prim_arr_chunk1.maybe_null_slice::<i32>(),
             (100..150).collect::<Vec<_>>()
         );
         assert_eq!(
-            str_arr2
+            str_arr_chunk1
                 .with_iterator(|iter| iter
                     .flatten()
                     .map(|s| unsafe { String::from_utf8_unchecked(s.to_vec()) })
