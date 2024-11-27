@@ -25,7 +25,7 @@ fn benchmark(c: &mut Criterion) {
                     epoch_ms(ClientEventTime * 1000) AS ClientEventTime, \
                     epoch_ms(LocalEventTime * 1000) AS LocalEventTime, \
                         DATE '1970-01-01' + INTERVAL (EventDate) DAYS AS EventDate) \
-                FROM read_parquet('https://datasets.clickhouse.com/hits_compatible/athena_partitioned/hits_{idx}.parquet')) TO '{}' (FORMAT 'parquet');",
+                FROM read_parquet('https://datasets.clickhouse.com/hits_compatible/athena_partitioned/hits_{idx}.parquet', binary_as_string=True)) TO '{}' (FORMAT 'parquet');",
                 output_path.to_str().unwrap()
             );
             Command::new("duckdb")

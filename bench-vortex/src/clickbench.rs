@@ -147,7 +147,7 @@ pub async fn register_vortex_file(
     let vortex_dir = input_path.parent().unwrap().join("vortex_compressed");
     create_dir_all(&vortex_dir).await?;
 
-    for idx in 0..1 {
+    for idx in 0..100 {
         let parquet_file_path = input_path.join(format!("hits_{idx}.parquet"));
         let output_path = vortex_dir.join(format!("hits_{idx}.{VORTEX_FILE_EXTENSION}"));
         idempotent_async(&output_path, |vtx_file| async move {
