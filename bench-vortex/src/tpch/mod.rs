@@ -26,6 +26,7 @@ use vortex_datafusion::memory::VortexMemTableOptions;
 use vortex_datafusion::persistent::format::VortexFormat;
 use vortex_datafusion::SessionContextExt;
 
+use crate::clickbench::HITS_SCHEMA;
 use crate::{idempotent_async, CTX, TARGET_BLOCK_BYTESIZE, TARGET_BLOCK_SIZE};
 
 pub mod dbgen;
@@ -336,8 +337,9 @@ async fn register_vortex_file(
     let table_url = ListingTableUrl::parse(vtx_file.to_str().unwrap())?;
     let config = ListingTableConfig::new(table_url)
         .with_listing_options(ListingOptions::new(format as _))
-        .infer_schema(&session.state())
-        .await?;
+        .with_schema(HITS_SCHEMA.clone().into());
+    // .infer_schema(&session.state())
+    // .await?;
 
     let listing_table = Arc::new(ListingTable::try_new(config)?);
 

@@ -80,7 +80,11 @@ impl FileFormat for VortexFormat {
             file_schemas.push(s);
         }
 
-        Ok(Arc::new(Schema::try_merge(file_schemas)?))
+        let schema = Arc::new(Schema::try_merge(file_schemas)?);
+
+        dbg!(&schema);
+
+        Ok(schema)
     }
 
     async fn infer_stats(

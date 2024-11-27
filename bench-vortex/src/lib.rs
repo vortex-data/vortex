@@ -198,6 +198,7 @@ pub struct CompressionRunResults {
 
 pub async fn execute_query(ctx: &SessionContext, query: &str) -> anyhow::Result<Vec<RecordBatch>> {
     let plan = ctx.sql(query).await?;
+    plan.clone().show().await?;
     let (state, plan) = plan.into_parts();
     let optimized = state.optimize(&plan)?;
     let physical_plan = state.create_physical_plan(&optimized).await?;

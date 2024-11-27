@@ -141,88 +141,95 @@ pub static HITS_SCHEMA: LazyLock<Schema> = LazyLock::new(|| {
 pub async fn register_vortex_file(
     session: &SessionContext,
     table_name: &str,
-    input_file: &Path,
+    input_path: &Path,
     schema: &Schema,
 ) -> anyhow::Result<()> {
-    let vortex_dir = input_file.parent().unwrap().join("vortex_compressed");
+    let vortex_dir = input_path.parent().unwrap().join("vortex_compressed");
     create_dir_all(&vortex_dir).await?;
-    let output_file = &vortex_dir
-        .join(input_file.file_name().unwrap())
-        .with_extension(VORTEX_FILE_EXTENSION);
-    let vtx_file = idempotent_async(output_file, |vtx_file| async move {
-        let record_batches = session
-            .read_parquet(input_file.to_str().unwrap(), ParquetReadOptions::default())
-            .await?
-            .collect()
-            .await?;
 
-        // Create a ChunkedArray from the set of chunks.
-        let sts = record_batches
-            .into_iter()
-            .map(ArrayData::try_from)
-            .map(|a| a.unwrap().into_struct().unwrap())
-            .collect::<Vec<_>>();
+    for idx in 0..1 {
+        let parquet_file_path = input_path.join(format!("hits_{idx}.parquet"));
+        let output_path = vortex_dir.join(format!("hits_{idx}.{VORTEX_FILE_EXTENSION}"));
+        idempotent_async(&output_path, |vtx_file| async move {
+            eprintln!("Processing file {idx}");
+            let record_batches = session
+                .read_parquet(
+                    parquet_file_path.to_str().unwrap(),
+                    ParquetReadOptions::default(),
+                )
+                .await?
+                .collect()
+                .await?;
 
-        let mut arrays_map: HashMap<Arc<str>, Vec<ArrayData>> = HashMap::default();
-        let mut types_map: HashMap<Arc<str>, DType> = HashMap::default();
+            // Create a ChunkedArray from the set of chunks.
+            let sts = record_batches
+                .into_iter()
+                .map(ArrayData::try_from)
+                .map(|a| a.unwrap().into_struct().unwrap())
+                .collect::<Vec<_>>();
 
-        for st in sts.into_iter() {
-            let struct_dtype = st.dtype().as_struct().unwrap();
-            let names = struct_dtype.names().iter();
-            let types = struct_dtype.dtypes().iter();
+            let mut arrays_map: HashMap<Arc<str>, Vec<ArrayData>> = HashMap::default();
+            let mut types_map: HashMap<Arc<str>, DType> = HashMap::default();
 
-            for (field_name, field_type) in names.zip(types) {
-                let lower_case: Arc<str> = field_name.to_lowercase().into();
-                let val = arrays_map.entry(lower_case.clone()).or_default();
-                val.push(st.field_by_name(field_name.as_ref()).unwrap());
+            for st in sts.into_iter() {
+                let struct_dtype = st.dtype().as_struct().unwrap();
+                let names = struct_dtype.names().iter();
+                let types = struct_dtype.dtypes().iter();
 
-                types_map.insert(lower_case, field_type.clone());
+                for (field_name, field_type) in names.zip(types) {
+                    let lower_case: Arc<str> = field_name.to_lowercase().into();
+                    let val = arrays_map.entry(lower_case.clone()).or_default();
+                    val.push(st.field_by_name(field_name.as_ref()).unwrap());
+
+                    types_map.insert(lower_case, field_type.clone());
+                }
             }
-        }
 
-        let fields = schema
-            .fields()
-            .iter()
-            .map(|field| {
-                let name: Arc<str> = field.name().to_ascii_lowercase().as_str().into();
-                let dtype = types_map[&name].clone();
-                let chunks = arrays_map.remove(&name).unwrap();
-                let chunked_child = ChunkedArray::try_new(chunks, dtype).unwrap();
+            let fields = schema
+                .fields()
+                .iter()
+                .map(|field| {
+                    let name: Arc<str> = field.name().to_ascii_lowercase().as_str().into();
+                    let dtype = types_map[&name].clone();
+                    let chunks = arrays_map.remove(&name).unwrap();
+                    let chunked_child = ChunkedArray::try_new(chunks, dtype).unwrap();
 
-                (name, chunked_child.into_array())
-            })
-            .collect::<Vec<_>>();
+                    (name, chunked_child.into_array())
+                })
+                .collect::<Vec<_>>();
 
-        let data = StructArray::from_fields(&fields)?.into_array();
+            let data = StructArray::from_fields(&fields)?.into_array();
 
-        let compressor = SamplingCompressor::default();
-        let data = compressor.compress(&data, None)?.into_array();
+            let compressor = SamplingCompressor::default();
+            let data = compressor.compress(&data, None)?.into_array();
 
-        let f = OpenOptions::new()
-            .write(true)
-            .truncate(true)
-            .create(true)
-            .open(&vtx_file)
-            .await?;
+            let f = OpenOptions::new()
+                .write(true)
+                .truncate(true)
+                .create(true)
+                .open(&vtx_file)
+                .await?;
 
-        let mut writer = VortexFileWriter::new(f);
-        writer = writer.write_array_columns(data).await?;
-        writer.finalize().await?;
+            let mut writer = VortexFileWriter::new(f);
+            writer = writer.write_array_columns(data).await?;
+            writer.finalize().await?;
 
-        anyhow::Ok(())
-    })
-    .await?;
+            anyhow::Ok(())
+        })
+        .await?;
+    }
 
     let format = Arc::new(VortexFormat::new(&CTX));
-    let table_url = ListingTableUrl::parse(
-        vtx_file
-            .to_str()
-            .ok_or_else(|| vortex_err!("Path is not valid UTF-8"))?,
-    )?;
+    let table_path = vortex_dir
+        .to_str()
+        .ok_or_else(|| vortex_err!("Path is not valid UTF-8"))?;
+    let table_path = format!("file://{table_path}/");
+    dbg!(&table_path);
+    let table_url = ListingTableUrl::parse(table_path)?;
+
     let config = ListingTableConfig::new(table_url)
         .with_listing_options(ListingOptions::new(format as _))
-        .infer_schema(&session.state())
-        .await?;
+        .with_schema(HITS_SCHEMA.clone().into());
 
     let listing_table = Arc::new(ListingTable::try_new(config)?);
 
