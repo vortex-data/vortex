@@ -115,8 +115,20 @@ jobs:
       - uses: ./.github/actions/setup-rust
       - name: Rust Lint - Format
         run: cargo fmt --all --check
-      - name: Rust Lint - Clippy
+      - name: Rust Lint - Clippy All Features
         run: cargo clippy --all-features --all-targets
+      - name: Rust Lint - Clippy Default Features
+        run: cargo clippy --all-targets
+      - name: Rust Lint - Clippy No Default Features
+        run: |
+          set -ex
+
+          # https://spiraldb.slack.com/archives/C07BV3GKAJ2/p1732736281946729
+          for package in $(cargo check -p  2>&1 | grep '^    ')
+          do
+              echo ---- $package ----
+              cargo clippy --package $package --no-default-features
+          done
       - name: Rust Test
         run: cargo test --workspace --all-features
 
