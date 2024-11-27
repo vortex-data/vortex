@@ -10,7 +10,7 @@ use crate::RowFilter;
 /// Restrict expression to only the fields that appear in projection
 pub fn expr_project(expr: &ExprRef, projection: &[Field]) -> Option<ExprRef> {
     if let Some(rf) = expr.as_any().downcast_ref::<RowFilter>() {
-        rf.only_fields(projection).map(|rf| Arc::new(rf) as _)
+        rf.only_fields(projection)
     } else if expr.as_any().downcast_ref::<Literal>().is_some() {
         Some(expr.clone())
     } else if let Some(s) = expr.as_any().downcast_ref::<Select>() {

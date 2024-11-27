@@ -18,8 +18,8 @@ use crate::read::cache::{LazyDType, RelativeLayoutCache};
 use crate::read::expr_project::expr_project;
 use crate::read::mask::RowMask;
 use crate::{
-    BatchRead, Layout, LayoutDeserializer, LayoutId, LayoutReader, MetadataRead, RowFilter, Scan,
-    COLUMNAR_LAYOUT_ID,
+    BatchRead, Layout, LayoutDeserializer, LayoutId, LayoutReader, MetadataRead, PruningRead,
+    RowFilter, Scan, COLUMNAR_LAYOUT_ID,
 };
 
 #[derive(Debug)]
@@ -144,12 +144,12 @@ impl ColumnarLayoutBuilder {
             .map(|e| e.as_any().downcast_ref::<RowFilter>().is_some())
             .unwrap_or(false)
             .then(|| {
-                Arc::new(RowFilter::from_conjunction(
+                RowFilter::from_conjunction_expr(
                     handled_names
                         .iter()
                         .map(|f| Column::new_expr(Field::from(&**f)))
                         .collect(),
-                )) as _
+                )
             });
         let shortcircuit_siblings = top_level_expr.is_some();
         Ok(ColumnarLayoutReader::new(
@@ -191,6 +191,7 @@ impl ColumnarLayoutBuilder {
 }
 
 type InProgressRanges = RwLock<HashMap<(usize, usize), Vec<Option<ArrayData>>>>;
+type InProgressPrunes = RwLock<HashMap<(usize, usize), Vec<Option<bool>>>>;
 
 /// In memory representation of Columnar NestedLayout.
 ///
@@ -199,11 +200,12 @@ type InProgressRanges = RwLock<HashMap<(usize, usize), Vec<Option<ArrayData>>>>;
 pub struct ColumnarLayoutReader {
     names: FieldNames,
     children: Vec<Box<dyn LayoutReader>>,
-    in_progress_ranges: InProgressRanges,
     expr: Option<Arc<dyn VortexExpr>>,
     // TODO(robert): This is a hack/optimization that tells us if we're reducing results with AND or not
     shortcircuit_siblings: bool,
+    in_progress_ranges: InProgressRanges,
     in_progress_metadata: RwLock<HashMap<FieldName, Option<ArrayData>>>,
+    in_progress_prunes: InProgressPrunes,
 }
 
 impl ColumnarLayoutReader {
@@ -225,6 +227,7 @@ impl ColumnarLayoutReader {
             shortcircuit_siblings,
             in_progress_ranges: RwLock::new(HashMap::new()),
             in_progress_metadata: RwLock::new(HashMap::new()),
+            in_progress_prunes: RwLock::new(HashMap::new()),
         }
     }
 }
@@ -341,6 +344,46 @@ impl LayoutReader for ColumnarLayoutReader {
             Ok(MetadataRead::Batches(child_arrays))
         } else {
             Ok(MetadataRead::ReadMore(messages))
+        }
+    }
+
+    fn can_prune(&self, begin: usize, end: usize) -> VortexResult<PruningRead> {
+        let mut in_progress_guard = self
+            .in_progress_prunes
+            .write()
+            .unwrap_or_else(|poison| vortex_panic!("Failed to write to message cache: {poison}"));
+        let selection_range = (begin, end);
+        let in_progress_selection = in_progress_guard
+            .entry(selection_range)
+            .or_insert_with(|| vec![None; self.children.len()]);
+        let mut messages = Vec::new();
+        for (i, can_prune_child) in in_progress_selection
+            .iter_mut()
+            .enumerate()
+            .filter(|(_, a)| a.is_none())
+        {
+            match self.children[i].can_prune(begin, end)? {
+                PruningRead::ReadMore(message) => messages.extend(message),
+                PruningRead::CanPrune(is_pruned) => *can_prune_child = Some(is_pruned),
+            }
+        }
+
+        if messages.is_empty() {
+            // Each child's scan expression evaluates to false if and only if our scan expression
+            // would evaluate to false. Examples:
+            //
+            // 1. `x = 3 AND y = 3`: The child scan expressions will be `x = 3` and `y = 3`. If
+            //    either expression is false, the row must be excluded.
+            //
+            // 2. `x = 3 OR y = 3`: The child scan expressions will both be None.
+            let any_child_is_pruned = in_progress_guard
+                .remove(&selection_range)
+                .ok_or_else(|| vortex_err!("There were no can_prune results and no messages"))?
+                .into_iter()
+                .any(|x| x.vortex_expect("all pruned-ness should be available"));
+            Ok(PruningRead::CanPrune(any_child_is_pruned))
+        } else {
+            Ok(PruningRead::ReadMore(messages))
         }
     }
 }
@@ -551,22 +594,22 @@ mod tests {
         );
 
         assert_eq!(arr.len(), 2);
-        let prim_arr = arr[0]
+        let prim_arr_chunk0 = arr[0]
             .with_dyn(|a| a.as_struct_array_unchecked().field(0))
             .unwrap()
             .into_primitive()
             .unwrap();
-        let str_arr = arr[0]
+        let str_arr_chunk0 = arr[0]
             .with_dyn(|a| a.as_struct_array_unchecked().field(1))
             .unwrap()
             .into_varbinview()
             .unwrap();
         assert_eq!(
-            prim_arr.maybe_null_slice::<i32>(),
+            prim_arr_chunk0.maybe_null_slice::<i32>(),
             (100..150).collect::<Vec<_>>()
         );
         assert_eq!(
-            str_arr
+            str_arr_chunk0
                 .with_iterator(|iter| iter
                     .flatten()
                     .map(|s| unsafe { String::from_utf8_unchecked(s.to_vec()) })
@@ -574,22 +617,22 @@ mod tests {
                 .unwrap(),
             iter::repeat("it").take(50).collect::<Vec<_>>()
         );
-        let prim_arr2 = arr[1]
+        let prim_arr_chunk1 = arr[1]
             .with_dyn(|a| a.as_struct_array_unchecked().field(0))
             .unwrap()
             .into_primitive()
             .unwrap();
-        let str_arr2 = arr[1]
+        let str_arr_chunk1 = arr[1]
             .with_dyn(|a| a.as_struct_array_unchecked().field(1))
             .unwrap()
             .into_varbinview()
             .unwrap();
         assert_eq!(
-            prim_arr2.maybe_null_slice::<i32>(),
+            prim_arr_chunk1.maybe_null_slice::<i32>(),
             (100..150).collect::<Vec<_>>()
         );
         assert_eq!(
-            str_arr2
+            str_arr_chunk1
                 .with_iterator(|iter| iter
                     .flatten()
                     .map(|s| unsafe { String::from_utf8_unchecked(s.to_vec()) })

@@ -6,16 +6,12 @@ use itertools::Itertools;
 use vortex_array::stats::ArrayStatistics;
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
+use super::PruningRead;
 use crate::{BatchRead, LayoutReader, MessageLocator, RowMask};
 
 pub enum SplitMask {
     ReadMore(Vec<MessageLocator>),
     Mask(RowMask),
-}
-
-enum SplitState {
-    Ranges(Box<dyn Iterator<Item = (usize, usize)> + Send>),
-    Splits(BTreeSet<usize>),
 }
 
 /// Iterator over row ranges of a vortex file with bitmaps of valid values in those ranges
@@ -24,24 +20,29 @@ pub trait MaskIterator: Iterator<Item = VortexResult<SplitMask>> + Send {
     fn additional_splits(&mut self, splits: &mut BTreeSet<usize>) -> VortexResult<()>;
 }
 
-/// MaskIterator that reads boolean arrays out of provided reader and further filters generated masks
-///
-/// Arrays returned by the reader must be of boolean dtype.
-pub struct FilteringRowSplitIterator {
-    reader: Box<dyn LayoutReader>,
-    static_splits: FixedSplitIterator,
-    in_progress_masks: VecDeque<RowMask>,
-    registered_splits: AtomicBool,
+enum PruningSplitState {
+    Ranges(VecDeque<(usize, usize)>),
+    Splits(BTreeSet<usize>),
 }
 
-impl FilteringRowSplitIterator {
+pub struct PruningSplitIterator {
+    reader: Box<dyn LayoutReader>,
+    in_progress_masks: VecDeque<RowMask>,
+    registered_splits: AtomicBool,
+    splits: PruningSplitState,
+    row_mask: Option<RowMask>,
+}
+
+impl PruningSplitIterator {
     pub fn new(reader: Box<dyn LayoutReader>, row_count: u64, row_mask: Option<RowMask>) -> Self {
-        let static_splits = FixedSplitIterator::new(row_count, row_mask);
+        let mut splits = BTreeSet::new();
+        splits.insert(row_count as usize);
         Self {
             reader,
-            static_splits,
             in_progress_masks: VecDeque::new(),
             registered_splits: AtomicBool::new(false),
+            splits: PruningSplitState::Splits(splits),
+            row_mask,
         }
     }
 
@@ -72,14 +73,8 @@ impl FilteringRowSplitIterator {
         Ok(None)
     }
 
-    /// Return next not all false mask or request to read more data.
+    /// Return next mask that contains at least one row or request to read more data.
     fn next_mask(&mut self) -> VortexResult<Option<SplitMask>> {
-        if !self.registered_splits.swap(true, Ordering::SeqCst) {
-            let mut own_splits = BTreeSet::new();
-            self.reader.add_splits(0, &mut own_splits)?;
-            self.static_splits.additional_splits(&mut own_splits)?;
-        }
-
         // First consider masks we have previously started reading to return them in order
         while let Some(mask) = self.in_progress_masks.pop_front() {
             if let Some(read_mask) = self.read_mask(mask)? {
@@ -87,30 +82,70 @@ impl FilteringRowSplitIterator {
             }
         }
 
-        // Lastly take next statically generated mask and perform read with it on our reader
-        while let Some(mask) = self.static_splits.next() {
-            match mask? {
-                SplitMask::ReadMore(_) => {
-                    unreachable!("StaticSplitProducer never returns ReadMore")
-                }
-                SplitMask::Mask(m) => {
-                    if let Some(read_mask) = self.read_mask(m)? {
-                        return Ok(Some(read_mask));
+        match &mut self.splits {
+            PruningSplitState::Ranges(ranges) => {
+                while let Some((begin, end)) = ranges.pop_front() {
+                    // check if we can prune the entire range (because stats indicate that it's all false)
+                    let can_prune = self.reader.can_prune(begin, end)?;
+
+                    match can_prune {
+                        PruningRead::ReadMore(messages) => {
+                            ranges.push_front((begin, end));
+                            return Ok(Some(SplitMask::ReadMore(messages)));
+                        }
+                        PruningRead::CanPrune(true) => continue,
+                        PruningRead::CanPrune(false) => {}
+                    };
+
+                    // we couldn't prune the whole range, but we can still read/apply the row_mask
+                    let Some(ref row_mask) = self.row_mask else {
+                        return self.read_mask(RowMask::new_valid_between(begin, end));
+                    };
+
+                    // we masked everything out, so move on
+                    if row_mask.slice(begin, end).is_empty() {
+                        continue;
                     }
+
+                    return self.read_mask(row_mask.slice(begin, end));
                 }
+
+                Ok(None)
+            }
+            PruningSplitState::Splits(s) => {
+                // FIXME(DK): is this a spinlock waiting for one thread to add_splits?
+                if !self.registered_splits.swap(true, Ordering::SeqCst) {
+                    self.reader.add_splits(0, s)?;
+                    self.splits = PruningSplitState::Ranges(
+                        mem::take(s)
+                            .into_iter()
+                            .tuple_windows::<(usize, usize)>()
+                            .collect::<VecDeque<_>>(),
+                    );
+                }
+                self.next_mask()
             }
         }
-        Ok(None)
     }
 }
 
-impl MaskIterator for FilteringRowSplitIterator {
+impl MaskIterator for PruningSplitIterator {
     fn additional_splits(&mut self, splits: &mut BTreeSet<usize>) -> VortexResult<()> {
-        self.static_splits.additional_splits(splits)
+        match &mut self.splits {
+            PruningSplitState::Ranges(_) => {
+                vortex_bail!(
+                    "Can't insert additional splits, we've already started producing row ranges"
+                )
+            }
+            PruningSplitState::Splits(s) => {
+                s.append(splits);
+                Ok(())
+            }
+        }
     }
 }
 
-impl Iterator for FilteringRowSplitIterator {
+impl Iterator for PruningSplitIterator {
     type Item = VortexResult<SplitMask>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -118,8 +153,13 @@ impl Iterator for FilteringRowSplitIterator {
     }
 }
 
+enum FixedSplitState {
+    Ranges(Box<dyn Iterator<Item = (usize, usize)> + Send>),
+    Splits(BTreeSet<usize>),
+}
+
 pub struct FixedSplitIterator {
-    splits: SplitState,
+    splits: FixedSplitState,
     row_mask: Option<RowMask>,
 }
 
@@ -128,7 +168,7 @@ impl FixedSplitIterator {
         let mut splits = BTreeSet::new();
         splits.insert(row_count as usize);
         Self {
-            splits: SplitState::Splits(splits),
+            splits: FixedSplitState::Splits(splits),
             row_mask,
         }
     }
@@ -137,10 +177,10 @@ impl FixedSplitIterator {
 impl MaskIterator for FixedSplitIterator {
     fn additional_splits(&mut self, splits: &mut BTreeSet<usize>) -> VortexResult<()> {
         match &mut self.splits {
-            SplitState::Ranges(_) => {
+            FixedSplitState::Ranges(_) => {
                 vortex_bail!("Can't insert additional splits if we started producing row ranges")
             }
-            SplitState::Splits(s) => {
+            FixedSplitState::Splits(s) => {
                 s.append(splits);
                 Ok(())
             }
@@ -153,7 +193,7 @@ impl Iterator for FixedSplitIterator {
 
     fn next(&mut self) -> Option<Self::Item> {
         match &mut self.splits {
-            SplitState::Ranges(ranges) => {
+            FixedSplitState::Ranges(ranges) => {
                 // Find next range that's not filtered out by supplied row_mask
                 for (begin, end) in ranges {
                     return if let Some(ref row_mask) = self.row_mask {
@@ -167,8 +207,8 @@ impl Iterator for FixedSplitIterator {
                 }
                 None
             }
-            SplitState::Splits(s) => {
-                self.splits = SplitState::Ranges(Box::new(
+            FixedSplitState::Splits(s) => {
+                self.splits = FixedSplitState::Ranges(Box::new(
                     mem::take(s).into_iter().tuple_windows::<(usize, usize)>(),
                 ));
                 self.next()

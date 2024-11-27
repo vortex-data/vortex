@@ -12,7 +12,7 @@ use crate::read::cache::{LazyDType, RelativeLayoutCache};
 use crate::read::mask::RowMask;
 use crate::{
     BatchRead, Layout, LayoutDeserializer, LayoutId, LayoutPartId, LayoutReader, MessageLocator,
-    MetadataRead, Scan, INLINE_SCHEMA_LAYOUT_ID,
+    MetadataRead, PruningRead, Scan, INLINE_SCHEMA_LAYOUT_ID,
 };
 
 #[derive(Debug)]
@@ -139,5 +139,9 @@ impl LayoutReader for InlineDTypeLayoutReader {
 
     fn read_metadata(&self) -> VortexResult<MetadataRead> {
         Ok(MetadataRead::None)
+    }
+
+    fn can_prune(&self, _begin: usize, _end: usize) -> VortexResult<PruningRead> {
+        Ok(PruningRead::CanPrune(false))
     }
 }

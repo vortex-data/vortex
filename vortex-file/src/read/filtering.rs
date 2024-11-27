@@ -38,11 +38,11 @@ impl RowFilter {
     }
 
     /// Create a new row filter from a conjunction. The conjunction **must** have length > 0.
-    pub fn from_conjunction_expr(conjunction: Vec<ExprRef>) -> Arc<Self> {
+    pub fn from_conjunction_expr(conjunction: Vec<ExprRef>) -> ExprRef {
         Arc::new(Self::from_conjunction(conjunction))
     }
 
-    pub fn only_fields(&self, fields: &[Field]) -> Option<Self> {
+    pub fn only_fields(&self, fields: &[Field]) -> Option<ExprRef> {
         let conj = self
             .conjunction
             .iter()
@@ -52,7 +52,7 @@ impl RowFilter {
         if conj.is_empty() {
             None
         } else {
-            Some(Self::from_conjunction(conj))
+            Some(Self::from_conjunction_expr(conj))
         }
     }
 }
@@ -75,7 +75,11 @@ impl VortexExpr for RowFilter {
             .vortex_expect("must have at least one predicate")
             .evaluate(batch)?;
         for expr in filter_iter {
-            if mask.statistics().compute_true_count().unwrap_or_default() == 0 {
+            let n_true = mask.statistics().compute_true_count().unwrap_or_default();
+            let n_null = mask.statistics().compute_null_count().unwrap_or_default();
+
+            if n_true == 0 && n_null == 0 {
+                // false AND x = false
                 return Ok(ConstantArray::new(false, batch.len()).into_array());
             }
 
