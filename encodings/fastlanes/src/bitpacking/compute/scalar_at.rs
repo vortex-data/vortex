@@ -1,4 +1,4 @@
-use vortex_array::compute::unary::{scalar_at, ScalarAtFn};
+use vortex_array::compute::{scalar_at, ScalarAtFn};
 use vortex_array::ArrayDType;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
@@ -21,7 +21,7 @@ impl ScalarAtFn<BitPackedArray> for BitPackedEncoding {
 #[cfg(test)]
 mod test {
     use vortex_array::array::{PrimitiveArray, SparseArray};
-    use vortex_array::compute::unary::scalar_at;
+    use vortex_array::compute::scalar_at;
     use vortex_array::validity::Validity;
     use vortex_array::IntoArrayData;
     use vortex_buffer::Buffer;

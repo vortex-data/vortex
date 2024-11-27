@@ -1,6 +1,5 @@
 use croaring::Bitmap;
-use vortex_array::compute::unary::ScalarAtFn;
-use vortex_array::compute::{ComputeVTable, SliceFn};
+use vortex_array::compute::{ComputeVTable, ScalarAtFn, SliceFn};
 use vortex_array::{ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
@@ -43,8 +42,7 @@ impl SliceFn<RoaringBoolArray> for RoaringBoolEncoding {
 #[cfg(test)]
 mod tests {
     use vortex_array::array::BoolArray;
-    use vortex_array::compute::slice;
-    use vortex_array::compute::unary::scalar_at;
+    use vortex_array::compute::{scalar_at, slice};
     use vortex_array::{IntoArrayData, IntoArrayVariant};
     use vortex_scalar::Scalar;
 

@@ -2,8 +2,7 @@ use std::fmt::{Debug, Display};
 
 use serde::{Deserialize, Serialize};
 use vortex_array::array::{BoolArray, PrimitiveArray};
-use vortex_array::compute::unary::scalar_at;
-use vortex_array::compute::{search_sorted, SearchSortedSide};
+use vortex_array::compute::{scalar_at, search_sorted, SearchSortedSide};
 use vortex_array::encoding::ids;
 use vortex_array::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
 use vortex_array::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
@@ -266,8 +265,7 @@ mod test {
     use itertools::Itertools as _;
     use rstest::rstest;
     use vortex_array::array::{BoolArray, PrimitiveArray};
-    use vortex_array::compute::unary::scalar_at;
-    use vortex_array::compute::{slice, take, TakeOptions};
+    use vortex_array::compute::{scalar_at, slice, take, TakeOptions};
     use vortex_array::stats::ArrayStatistics;
     use vortex_array::validity::Validity;
     use vortex_array::{

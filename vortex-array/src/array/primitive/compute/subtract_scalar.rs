@@ -7,7 +7,7 @@ use vortex_scalar::{PrimitiveScalar, Scalar};
 use crate::array::constant::ConstantArray;
 use crate::array::primitive::PrimitiveArray;
 use crate::array::PrimitiveEncoding;
-use crate::compute::unary::SubtractScalarFn;
+use crate::compute::SubtractScalarFn;
 use crate::validity::ArrayValidity;
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData};
@@ -85,7 +85,7 @@ mod test {
     use itertools::Itertools;
 
     use crate::array::primitive::PrimitiveArray;
-    use crate::compute::unary::subtract_scalar;
+    use crate::compute::subtract_scalar;
     use crate::{ArrayLen, IntoArrayData, IntoArrayVariant};
 
     #[test]

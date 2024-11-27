@@ -1,8 +1,9 @@
 use std::cmp::Ordering;
 
 use vortex_array::accessor::ArrayAccessor;
-use vortex_array::compute::unary::scalar_at;
-use vortex_array::compute::{IndexOrd, Len, SearchResult, SearchSorted, SearchSortedSide};
+use vortex_array::compute::{
+    scalar_at, IndexOrd, Len, SearchResult, SearchSorted, SearchSortedSide,
+};
 use vortex_array::validity::ArrayValidity;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_buffer::{Buffer, BufferString};

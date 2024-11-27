@@ -4,9 +4,9 @@ use vortex_scalar::Scalar;
 
 use crate::array::struct_::StructArray;
 use crate::array::StructEncoding;
-use crate::compute::unary::{scalar_at, ScalarAtFn};
 use crate::compute::{
-    filter, slice, take, ComputeVTable, FilterFn, FilterMask, SliceFn, TakeFn, TakeOptions,
+    filter, scalar_at, slice, take, ComputeVTable, FilterFn, FilterMask, ScalarAtFn, SliceFn,
+    TakeFn, TakeOptions,
 };
 use crate::variants::StructArrayTrait;
 use crate::{ArrayDType, ArrayData, IntoArrayData};

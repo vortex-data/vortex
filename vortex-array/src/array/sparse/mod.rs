@@ -6,8 +6,7 @@ use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::array::constant::ConstantArray;
-use crate::compute::unary::scalar_at;
-use crate::compute::{search_sorted, SearchResult, SearchSortedSide};
+use crate::compute::{scalar_at, search_sorted, SearchResult, SearchSortedSide};
 use crate::encoding::ids;
 use crate::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
 use crate::validity::{LogicalValidity, ValidityVTable};
@@ -257,8 +256,7 @@ mod test {
     use vortex_scalar::Scalar;
 
     use crate::array::sparse::SparseArray;
-    use crate::compute::slice;
-    use crate::compute::unary::{scalar_at, try_cast};
+    use crate::compute::{scalar_at, slice, try_cast};
     use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
 
     fn nullable_fill() -> Scalar {

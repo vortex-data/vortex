@@ -15,7 +15,7 @@ use crate::array::{
     BoolEncoding, ExtensionEncoding, NullEncoding, PrimitiveEncoding, StructEncoding,
     VarBinEncoding, VarBinViewEncoding,
 };
-use crate::compute::unary::scalar_at;
+use crate::compute::scalar_at;
 use crate::encoding::{EncodingId, EncodingRef, EncodingVTable};
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
 use crate::stats::{ArrayStatistics, Stat, Statistics, StatsSet};

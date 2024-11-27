@@ -12,8 +12,9 @@ use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::array::primitive::PrimitiveArray;
-use crate::compute::unary::{scalar_at, subtract_scalar, SubtractScalarFn};
-use crate::compute::{search_sorted, SearchSortedSide};
+use crate::compute::{
+    scalar_at, search_sorted, subtract_scalar, SearchSortedSide, SubtractScalarFn,
+};
 use crate::encoding::ids;
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
 use crate::stats::ArrayStatistics;
@@ -261,7 +262,7 @@ mod test {
     use vortex_error::VortexResult;
 
     use crate::array::chunked::ChunkedArray;
-    use crate::compute::unary::{scalar_at, subtract_scalar};
+    use crate::compute::{scalar_at, subtract_scalar};
     use crate::{assert_arrays_eq, ArrayDType, IntoArrayData, IntoArrayVariant};
 
     fn chunked_array() -> ChunkedArray {

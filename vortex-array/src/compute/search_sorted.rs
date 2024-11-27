@@ -7,7 +7,7 @@ use itertools::Itertools;
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::compute::unary::scalar_at;
+use crate::compute::scalar_at;
 use crate::encoding::Encoding;
 use crate::{ArrayDType, ArrayData};
 

@@ -5,8 +5,10 @@ use vortex_scalar::Scalar;
 
 use crate::array::extension::ExtensionArray;
 use crate::array::ExtensionEncoding;
-use crate::compute::unary::{scalar_at, CastFn, ScalarAtFn};
-use crate::compute::{slice, take, CompareFn, ComputeVTable, SliceFn, TakeFn, TakeOptions};
+use crate::compute::{
+    scalar_at, slice, take, CastFn, CompareFn, ComputeVTable, ScalarAtFn, SliceFn, TakeFn,
+    TakeOptions,
+};
 use crate::variants::ExtensionArrayTrait;
 use crate::{ArrayData, IntoArrayData};
 
