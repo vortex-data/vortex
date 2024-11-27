@@ -44,12 +44,12 @@ enum RowMaskState<V> {
 }
 
 pub struct Coalescer<R, S, V, RM> {
-    values_iter: S,
+    values: S,
+    row_mask_reader: RM,
     in_flight: Option<BoxFuture<'static, io::Result<Vec<Message>>>>,
     queued: VecDeque<RowMaskState<V>>,
     io_read: VortexReadRanges<R>,
     dispatcher: Arc<IoDispatcher>,
-    row_mask_reader: RM,
     cache: Arc<RwLock<LayoutMessageCache>>,
 }
 
@@ -62,17 +62,17 @@ where
     pub fn new(
         read: R,
         dispatcher: Arc<IoDispatcher>,
-        values_iter: S,
+        values: S,
         row_mask_reader: RM,
         cache: Arc<RwLock<LayoutMessageCache>>,
     ) -> Self {
         Self {
-            values_iter,
+            values,
+            row_mask_reader,
             in_flight: None,
             queued: VecDeque::new(),
             io_read: VortexReadRanges::new(read, dispatcher.clone(), 1 << 20),
             dispatcher,
-            row_mask_reader,
             cache,
         }
     }
@@ -119,7 +119,7 @@ where
 
         let mut exhausted = false;
         while read_more_count < NUM_TO_COALESCE {
-            match self.values_iter.poll_next_unpin(cx) {
+            match self.values.poll_next_unpin(cx) {
                 Poll::Ready(Some(Ok(next_mask))) => {
                     if let Some(read_result) = self.row_mask_reader.read_mask(&next_mask)? {
                         match read_result {
