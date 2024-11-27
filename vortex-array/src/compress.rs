@@ -3,7 +3,6 @@ use vortex_error::VortexResult;
 use crate::aliases::hash_set::HashSet;
 use crate::encoding::EncodingRef;
 use crate::stats::{ArrayStatistics as _, PRUNING_STATS};
-use crate::validity::ArrayValidity;
 use crate::ArrayData;
 
 pub trait CompressionStrategy {
@@ -18,6 +17,8 @@ pub fn check_validity_unchanged(arr: &ArrayData, compressed: &ArrayData) {
     let _ = compressed;
     #[cfg(debug_assertions)]
     {
+        use crate::validity::ArrayValidity;
+
         let old_validity = arr.logical_validity().len();
         let new_validity = compressed.logical_validity().len();
 
