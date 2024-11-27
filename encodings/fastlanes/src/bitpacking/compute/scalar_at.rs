@@ -1,4 +1,5 @@
 use vortex_array::compute::{scalar_at, ScalarAtFn};
+use vortex_array::validity::ArrayValidity;
 use vortex_array::ArrayDType;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
@@ -9,7 +10,7 @@ impl ScalarAtFn<BitPackedArray> for BitPackedEncoding {
     fn scalar_at(&self, array: &BitPackedArray, index: usize) -> VortexResult<Scalar> {
         if let Some(patches) = array.patches() {
             // NB: All non-null values are considered patches
-            if patches.with_dyn(|a| a.is_valid(index)) {
+            if patches.is_valid(index) {
                 return scalar_at(&patches, index)?.cast(array.dtype());
             }
         }

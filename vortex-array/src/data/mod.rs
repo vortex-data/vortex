@@ -20,7 +20,7 @@ use crate::encoding::{EncodingId, EncodingRef, EncodingVTable};
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
 use crate::stats::{ArrayStatistics, Stat, Statistics, StatsSet};
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
-use crate::validity::{ArrayValidity, LogicalValidity};
+use crate::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use crate::{
     ArrayChildrenIterator, ArrayDType, ArrayLen, ArrayMetadata, ArrayTrait, Context,
     TryDeserializeArrayMetadata,
@@ -129,8 +129,8 @@ impl ArrayData {
     /// Return the array's encoding
     pub fn encoding(&self) -> EncodingRef {
         match &self.0 {
-            InnerArrayData::Owned(d) => d.encoding(),
-            InnerArrayData::Viewed(v) => v.encoding(),
+            InnerArrayData::Owned(d) => d.encoding,
+            InnerArrayData::Viewed(v) => v.encoding,
         }
     }
 
@@ -138,27 +138,14 @@ impl ArrayData {
     #[allow(clippy::same_name_method)]
     pub fn len(&self) -> usize {
         match &self.0 {
-            InnerArrayData::Owned(d) => d.len(),
-            InnerArrayData::Viewed(v) => v.len(),
+            InnerArrayData::Owned(d) => d.len,
+            InnerArrayData::Viewed(v) => v.len,
         }
     }
 
     /// Check whether the array has any data
     pub fn is_empty(&self) -> bool {
-        match &self.0 {
-            InnerArrayData::Owned(d) => d.is_empty(),
-            InnerArrayData::Viewed(v) => v.is_empty(),
-        }
-    }
-
-    /// Return whether the element at the given index is valid (true) or null (false).
-    fn is_valid(&self, index: usize) -> bool {
-        self.encoding().is_valid(self, index)
-    }
-
-    /// Return the logical validity of the array.
-    fn logical_validity(&self) -> LogicalValidity {
-        self.encoding().logical_validity(self)
+        self.len() == 0
     }
 
     /// Whether the array is of a canonical encoding.
@@ -207,7 +194,7 @@ impl ArrayData {
     /// Returns a Vec of Arrays with all the array's child arrays.
     pub fn children(&self) -> Vec<ArrayData> {
         match &self.0 {
-            InnerArrayData::Owned(d) => d.children().iter().cloned().collect_vec(),
+            InnerArrayData::Owned(d) => d.children().to_vec(),
             InnerArrayData::Viewed(v) => v.children(),
         }
     }
@@ -395,8 +382,8 @@ impl Display for ArrayData {
 impl<T: AsRef<ArrayData>> ArrayDType for T {
     fn dtype(&self) -> &DType {
         match &self.as_ref().0 {
-            InnerArrayData::Owned(d) => d.dtype(),
-            InnerArrayData::Viewed(v) => v.dtype(),
+            InnerArrayData::Owned(d) => &d.dtype,
+            InnerArrayData::Viewed(v) => &v.dtype,
         }
     }
 }
@@ -412,20 +399,22 @@ impl<T: AsRef<ArrayData>> ArrayLen for T {
 }
 
 impl<A: AsRef<ArrayData>> ArrayValidity for A {
+    /// Return whether the element at the given index is valid (true) or null (false).
     fn is_valid(&self, index: usize) -> bool {
-        self.as_ref().is_valid(index)
+        ValidityVTable::<ArrayData>::is_valid(self.as_ref().encoding(), self.as_ref(), index)
     }
 
+    /// Return the logical validity of the array.
     fn logical_validity(&self) -> LogicalValidity {
-        self.as_ref().logical_validity()
+        ValidityVTable::<ArrayData>::logical_validity(self.as_ref().encoding(), self.as_ref())
     }
 }
 
 impl<T: AsRef<ArrayData>> ArrayStatistics for T {
     fn statistics(&self) -> &(dyn Statistics + '_) {
         match &self.as_ref().0 {
-            InnerArrayData::Owned(d) => d.statistics(),
-            InnerArrayData::Viewed(v) => v.statistics(),
+            InnerArrayData::Owned(d) => d,
+            InnerArrayData::Viewed(v) => v,
         }
     }
 
