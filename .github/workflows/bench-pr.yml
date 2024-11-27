@@ -10,6 +10,7 @@ permissions:
   actions: write
   contents: read
   pull-requests: write
+  id-token: write
 
 jobs:
   label_trigger:
