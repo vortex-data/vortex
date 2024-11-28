@@ -38,7 +38,7 @@ pub trait Dispatch: sealed::Sealed {
     fn dispatch<F, Fut, R>(&self, task: F) -> VortexResult<oneshot::Receiver<R>>
     where
         F: (FnOnce() -> Fut) + Send + 'static,
-        Fut: Future<Output = R> + 'static,
+        Fut: Future<Output=R> + 'static,
         R: Send + 'static;
 
     /// Gracefully shutdown the dispatcher, consuming it.
@@ -75,7 +75,7 @@ impl Default for IoDispatcher {
         #[cfg(all(feature = "compio", not(feature = "tokio")))]
         return Self(Inner::Compio(CompioDispatcher::new(1)));
         #[cfg(not(any(feature = "compio", feature = "tokio")))]
-        vortex_panic!("must enable one of compio or tokio to use IoDispatcher");
+        compile_error!("must enable one of compio or tokio to use IoDispatcher");
     }
 }
 
@@ -84,7 +84,7 @@ impl Dispatch for IoDispatcher {
     fn dispatch<F, Fut, R>(&self, task: F) -> VortexResult<oneshot::Receiver<R>>
     where
         F: (FnOnce() -> Fut) + Send + 'static,
-        Fut: Future<Output = R> + 'static,
+        Fut: Future<Output=R> + 'static,
         R: Send + 'static,
     {
         match self.0 {
