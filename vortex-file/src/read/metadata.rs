@@ -1,10 +1,10 @@
 use std::future::Future;
 use std::iter;
+use std::iter::Once;
 use std::pin::Pin;
 use std::sync::{Arc, RwLock};
 use std::task::{ready, Context, Poll};
 
-use futures::Stream;
 use futures_util::{stream, StreamExt};
 use vortex_array::ArrayData;
 use vortex_error::VortexResult;
@@ -16,7 +16,7 @@ use crate::{MessageRead, RowMask};
 
 type MetadataCoalescer<R> = BufferedLayoutReader<
     R,
-    Box<dyn Stream<Item = VortexResult<RowMask>> + Send + Unpin>,
+    stream::Iter<Once<VortexResult<RowMask>>>,
     Vec<Option<ArrayData>>,
     MetadataMaskReader,
 >;
@@ -54,9 +54,7 @@ impl<R: VortexReadAt + Unpin> MetadataFetcher<R> {
         let metadata_reader = BufferedLayoutReader::new(
             input,
             dispatcher,
-            Box::new(stream::iter(iter::once(Ok(RowMask::new_valid_between(
-                0, 1,
-            ))))) as _,
+            stream::iter(iter::once(Ok(RowMask::new_valid_between(0, 1)))),
             MetadataMaskReader::new(root_layout),
             layout_cache,
         );
