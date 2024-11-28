@@ -120,17 +120,8 @@ jobs:
       - name: Rust Lint - Clippy Default Features
         run: cargo clippy --all-targets
       - name: Rust Lint - Clippy No Default Features
-        run: |
-          set -ex
-
-          # https://spiraldb.slack.com/archives/C07BV3GKAJ2/p1732736281946729
-          for package in $(cargo check -p  2>&1 | grep '^    ')
-          do
-              echo ---- $package ----
-              stderr_output=$(cargo clippy --package $package --no-default-features 2>&1 1>/dev/null)
-              $0 || grep -q "compile_error!(\""
-          
-          done
+        run:
+          ./scripts/clippy_no_default.sh
       - name: Rust Test
         run: cargo test --workspace --all-features
 
