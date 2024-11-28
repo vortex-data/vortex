@@ -38,7 +38,7 @@ pub trait Dispatch: sealed::Sealed {
     fn dispatch<F, Fut, R>(&self, task: F) -> VortexResult<oneshot::Receiver<R>>
     where
         F: (FnOnce() -> Fut) + Send + 'static,
-        Fut: Future<Output=R> + 'static,
+        Fut: Future<Output = R> + 'static,
         R: Send + 'static;
 
     /// Gracefully shutdown the dispatcher, consuming it.
@@ -84,7 +84,7 @@ impl Dispatch for IoDispatcher {
     fn dispatch<F, Fut, R>(&self, task: F) -> VortexResult<oneshot::Receiver<R>>
     where
         F: (FnOnce() -> Fut) + Send + 'static,
-        Fut: Future<Output=R> + 'static,
+        Fut: Future<Output = R> + 'static,
         R: Send + 'static,
     {
         match self.0 {
