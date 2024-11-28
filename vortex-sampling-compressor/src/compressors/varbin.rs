@@ -1,8 +1,8 @@
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::array::{VarBin, VarBinArray, VarBinEncoding};
-use vortex_array::encoding::EncodingRef;
+use vortex_array::array::{VarBinArray, VarBinEncoding};
+use vortex_array::encoding::{Encoding, EncodingRef};
 use vortex_array::stats::ArrayStatistics;
-use vortex_array::{ArrayDType, ArrayData, ArrayDef, IntoArrayData};
+use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
@@ -13,7 +13,7 @@ pub struct VarBinCompressor;
 
 impl EncodingCompressor for VarBinCompressor {
     fn id(&self) -> &str {
-        VarBin::ID.as_ref()
+        VarBinEncoding::ID.as_ref()
     }
 
     fn cost(&self) -> u8 {
@@ -21,7 +21,7 @@ impl EncodingCompressor for VarBinCompressor {
     }
 
     fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {
-        array.is_encoding(VarBin::ID).then_some(self)
+        array.is_encoding(VarBinEncoding::ID).then_some(self)
     }
 
     fn compress<'a>(

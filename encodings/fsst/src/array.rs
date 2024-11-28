@@ -3,15 +3,13 @@ use std::sync::Arc;
 
 use fsst::{Decompressor, Symbol};
 use serde::{Deserialize, Serialize};
-use vortex_array::array::{VarBin, VarBinArray};
-use vortex_array::encoding::ids;
+use vortex_array::array::{VarBinArray, VarBinEncoding};
+use vortex_array::encoding::{ids, Encoding};
 use vortex_array::stats::{StatisticsVTable, StatsSet};
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityVTable};
 use vortex_array::variants::{BinaryArrayTrait, Utf8ArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
-use vortex_array::{
-    impl_encoding, ArrayDType, ArrayData, ArrayDef, ArrayLen, ArrayTrait, IntoCanonical,
-};
+use vortex_array::{impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, IntoCanonical};
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
@@ -75,7 +73,7 @@ impl FSSTArray {
             vortex_bail!(InvalidArgument: "uncompressed_lengths must have integer type and cannot be nullable");
         }
 
-        if codes.encoding().id() != VarBin::ID {
+        if codes.encoding().id() != VarBinEncoding::ID {
             vortex_bail!(
                 InvalidArgument: "codes must have varbin encoding, was {}",
                 codes.encoding().id()

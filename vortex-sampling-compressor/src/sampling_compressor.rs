@@ -5,15 +5,15 @@ use log::{debug, info, warn};
 use rand::rngs::StdRng;
 use rand::SeedableRng as _;
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::array::{ChunkedArray, Constant};
+use vortex_array::array::{ChunkedArray, ConstantEncoding};
 use vortex_array::compress::{
     check_dtype_unchanged, check_statistics_unchanged, check_validity_unchanged,
     CompressionStrategy,
 };
 use vortex_array::compute::slice;
-use vortex_array::encoding::EncodingRef;
+use vortex_array::encoding::{Encoding, EncodingRef};
 use vortex_array::validity::Validity;
-use vortex_array::{ArrayDType, ArrayData, ArrayDef, IntoCanonical};
+use vortex_array::{ArrayDType, ArrayData, IntoCanonical};
 use vortex_error::{VortexExpect as _, VortexResult};
 
 use super::compressors::chunked::DEFAULT_CHUNKED_COMPRESSOR;
@@ -170,7 +170,7 @@ impl<'a> SamplingCompressor<'a> {
     pub(crate) fn compress_array(&self, array: &ArrayData) -> VortexResult<CompressedArray<'a>> {
         let mut rng = StdRng::seed_from_u64(self.options.rng_seed);
 
-        if array.is_encoding(Constant::ID) {
+        if array.is_encoding(ConstantEncoding::ID) {
             // Not much better we can do than constant!
             return Ok(CompressedArray::uncompressed(array.clone()));
         }

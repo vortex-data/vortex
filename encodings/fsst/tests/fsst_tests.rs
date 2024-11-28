@@ -3,10 +3,11 @@
 use vortex_array::array::builder::VarBinBuilder;
 use vortex_array::array::PrimitiveArray;
 use vortex_array::compute::{filter, scalar_at, slice, take, FilterMask, TakeOptions};
+use vortex_array::encoding::Encoding;
 use vortex_array::validity::Validity;
-use vortex_array::{ArrayData, ArrayDef, IntoArrayData, IntoCanonical};
+use vortex_array::{ArrayData, IntoArrayData, IntoCanonical};
 use vortex_dtype::{DType, Nullability};
-use vortex_fsst::{fsst_compress, fsst_train_compressor, FSST};
+use vortex_fsst::{fsst_compress, fsst_train_compressor, FSSTEncoding};
 
 macro_rules! assert_nth_scalar {
     ($arr:expr, $n:expr, $expected:expr) => {
@@ -55,7 +56,7 @@ fn test_fsst_array_ops() {
 
     // test slice
     let fsst_sliced = slice(&fsst_array, 1, 3).unwrap();
-    assert_eq!(fsst_sliced.encoding().id(), FSST::ENCODING.id());
+    assert_eq!(fsst_sliced.encoding().id(), FSSTEncoding::ID);
     assert_eq!(fsst_sliced.len(), 2);
     assert_nth_scalar!(
         fsst_sliced,
@@ -87,7 +88,7 @@ fn test_fsst_array_ops() {
     let mask = FilterMask::from_iter([false, true, false]);
 
     let fsst_filtered = filter(&fsst_array, mask).unwrap();
-    assert_eq!(fsst_filtered.encoding().id(), FSST::ENCODING.id());
+    assert_eq!(fsst_filtered.encoding().id(), FSSTEncoding::ID);
     assert_eq!(fsst_filtered.len(), 1);
     assert_nth_scalar!(
         fsst_filtered,

@@ -11,7 +11,7 @@ use crate::validity::{LogicalValidity, ValidityVTable};
 use crate::variants::VariantsVTable;
 use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{
-    ArrayData, ArrayMetadata, ArrayTrait, Canonical, IntoCanonicalVTable, MetadataVTable,
+    ArrayData, ArrayMetadata, Canonical, IntoCanonicalVTable, MetadataVTable,
     TrySerializeArrayMetadata,
 };
 
@@ -37,17 +37,6 @@ impl EncodingVTable for OpaqueEncoding {
 
     fn as_any(&self) -> &dyn Any {
         self
-    }
-
-    fn with_dyn(
-        &self,
-        _array: &ArrayData,
-        _f: &mut dyn for<'b> FnMut(&'b (dyn ArrayTrait + 'b)) -> VortexResult<()>,
-    ) -> VortexResult<()> {
-        vortex_bail!(
-            "OpaqueEncoding: with_dyn cannot be called for opaque array ({})",
-            self.0
-        )
     }
 }
 

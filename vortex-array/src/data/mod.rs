@@ -8,7 +8,7 @@ use owned::OwnedArrayData;
 use viewed::ViewedArrayData;
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
-use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::array::{
@@ -22,7 +22,7 @@ use crate::stats::{ArrayStatistics, Stat, Statistics, StatsSet};
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use crate::{
-    ArrayChildrenIterator, ArrayDType, ArrayLen, ArrayMetadata, ArrayTrait, Context,
+    ArrayChildrenIterator, ArrayDType, ArrayLen, ArrayMetadata, Context,
     TryDeserializeArrayMetadata,
 };
 
@@ -334,30 +334,6 @@ impl ArrayData {
     /// Checks whether array is of a given encoding.
     pub fn is_encoding(&self, id: EncodingId) -> bool {
         self.encoding().id() == id
-    }
-
-    #[inline]
-    pub fn with_dyn<R, F>(&self, mut f: F) -> R
-    where
-        F: FnMut(&dyn ArrayTrait) -> R,
-    {
-        let mut result = None;
-
-        self.encoding()
-            .with_dyn(self, &mut |array| {
-                result = Some(f(array));
-                Ok(())
-            })
-            .unwrap_or_else(|err| {
-                vortex_panic!(
-                    err,
-                    "Failed to convert Array to {}",
-                    std::any::type_name::<dyn ArrayTrait>()
-                )
-            });
-
-        // Now we unwrap the optional, which we know to be populated by the closure.
-        result.vortex_expect("Failed to get result from Array::with_dyn")
     }
 }
 
