@@ -1,49 +1,55 @@
 use vortex_dtype::field::Field;
-use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexExpect as _, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::array::constant::ConstantArray;
+use crate::array::ConstantEncoding;
 use crate::iter::Accessor;
 use crate::validity::{ArrayValidity, Validity};
 use crate::variants::{
-    ArrayVariants, BinaryArrayTrait, BoolArrayTrait, ExtensionArrayTrait, ListArrayTrait,
-    NullArrayTrait, PrimitiveArrayTrait, StructArrayTrait, Utf8ArrayTrait,
+    BinaryArrayTrait, BoolArrayTrait, ExtensionArrayTrait, ListArrayTrait, NullArrayTrait,
+    PrimitiveArrayTrait, StructArrayTrait, Utf8ArrayTrait, VariantsVTable,
 };
-use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData};
+use crate::{ArrayData, ArrayLen, IntoArrayData};
 
 /// Constant arrays support all DTypes
-impl ArrayVariants for ConstantArray {
-    fn as_null_array(&self) -> Option<&dyn NullArrayTrait> {
-        matches!(self.dtype(), DType::Null).then_some(self)
+impl VariantsVTable<ConstantArray> for ConstantEncoding {
+    fn as_null_array<'a>(&self, array: &'a ConstantArray) -> Option<&'a dyn NullArrayTrait> {
+        Some(array)
     }
 
-    fn as_bool_array(&self) -> Option<&dyn BoolArrayTrait> {
-        matches!(self.dtype(), DType::Bool(_)).then_some(self)
+    fn as_bool_array<'a>(&self, array: &'a ConstantArray) -> Option<&'a dyn BoolArrayTrait> {
+        Some(array)
     }
 
-    fn as_primitive_array(&self) -> Option<&dyn PrimitiveArrayTrait> {
-        matches!(self.dtype(), DType::Primitive(..)).then_some(self)
+    fn as_primitive_array<'a>(
+        &self,
+        array: &'a ConstantArray,
+    ) -> Option<&'a dyn PrimitiveArrayTrait> {
+        Some(array)
     }
 
-    fn as_utf8_array(&self) -> Option<&dyn Utf8ArrayTrait> {
-        matches!(self.dtype(), DType::Utf8(_)).then_some(self)
+    fn as_utf8_array<'a>(&self, array: &'a ConstantArray) -> Option<&'a dyn Utf8ArrayTrait> {
+        Some(array)
     }
 
-    fn as_binary_array(&self) -> Option<&dyn BinaryArrayTrait> {
-        matches!(self.dtype(), DType::Binary(_)).then_some(self)
+    fn as_binary_array<'a>(&self, array: &'a ConstantArray) -> Option<&'a dyn BinaryArrayTrait> {
+        Some(array)
     }
 
-    fn as_struct_array(&self) -> Option<&dyn StructArrayTrait> {
-        matches!(self.dtype(), DType::Struct(..)).then_some(self)
+    fn as_struct_array<'a>(&self, array: &'a ConstantArray) -> Option<&'a dyn StructArrayTrait> {
+        Some(array)
     }
 
-    fn as_list_array(&self) -> Option<&dyn ListArrayTrait> {
-        matches!(self.dtype(), DType::List(..)).then_some(self)
+    fn as_list_array<'a>(&self, array: &'a ConstantArray) -> Option<&'a dyn ListArrayTrait> {
+        Some(array)
     }
 
-    fn as_extension_array(&self) -> Option<&dyn ExtensionArrayTrait> {
-        matches!(self.dtype(), DType::Extension(..)).then_some(self)
+    fn as_extension_array<'a>(
+        &self,
+        array: &'a ConstantArray,
+    ) -> Option<&'a dyn ExtensionArrayTrait> {
+        Some(array)
     }
 }
 

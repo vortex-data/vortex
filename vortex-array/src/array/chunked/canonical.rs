@@ -1,6 +1,6 @@
 use arrow_buffer::{BooleanBufferBuilder, Buffer, MutableBuffer, ScalarBuffer};
 use vortex_dtype::{DType, PType, StructDType};
-use vortex_error::{vortex_bail, vortex_err, ErrString, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, ErrString, VortexExpect, VortexResult};
 
 use crate::array::chunked::ChunkedArray;
 use crate::array::extension::ExtensionArray;
@@ -131,11 +131,11 @@ fn swizzle_struct_chunks(
     let mut field_arrays = Vec::new();
 
     for (field_idx, field_dtype) in struct_dtype.dtypes().iter().enumerate() {
-        let field_chunks = chunks.iter().map(|c| c.with_dyn(|d|
-            d.as_struct_array_unchecked()
+        let field_chunks = chunks.iter().map(|c| c.as_struct_array()
+                .vortex_expect("Chunk was not a StructArray")
                 .field(field_idx)
-                .ok_or_else(|| vortex_err!("All chunks must have same dtype; missing field at index {}, current chunk dtype: {}", field_idx, c.dtype())),
-        )).collect::<VortexResult<Vec<_>>>()?;
+                .ok_or_else(|| vortex_err!("All chunks must have same dtype; missing field at index {}, current chunk dtype: {}", field_idx, c.dtype()))
+        ).collect::<VortexResult<Vec<_>>>()?;
         let field_array = ChunkedArray::try_new(field_chunks, field_dtype.clone())?;
         field_arrays.push(field_array.into_array());
     }

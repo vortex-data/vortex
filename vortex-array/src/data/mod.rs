@@ -8,7 +8,7 @@ use owned::OwnedArrayData;
 use viewed::ViewedArrayData;
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
-use vortex_error::{vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult};
+use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::array::{
@@ -65,7 +65,7 @@ impl ArrayData {
         children: Arc<[ArrayData]>,
         statistics: StatsSet,
     ) -> VortexResult<Self> {
-        let data = OwnedArrayData {
+        Self::try_new(InnerArrayData::Owned(OwnedArrayData {
             encoding,
             dtype,
             len,
@@ -73,14 +73,7 @@ impl ArrayData {
             buffer,
             children,
             stats_set: Arc::new(RwLock::new(statistics)),
-        };
-
-        let array = ArrayData(InnerArrayData::Owned(data));
-        // Validate here that the metadata correctly parses, so that an encoding can infallibly
-        // FIXME(robert): Encoding::with_dyn no longer eagerly validates metadata, come up with a way to validate metadata
-        encoding.with_dyn(&array, &mut |_| Ok(()))?;
-
-        Ok(array)
+        }))
     }
 
     pub fn try_new_viewed<F>(
@@ -105,6 +98,7 @@ impl ArrayData {
             },
         )?;
 
+        // Parse the array metadata
         let metadata = encoding.load_metadata(array.metadata().map(|v| v.bytes()))?;
 
         let view = ViewedArrayData {
@@ -118,12 +112,34 @@ impl ArrayData {
             ctx,
         };
 
-        // Validate here that the metadata correctly parses, so that an encoding can infallibly
-        // implement Encoding::with_view().
-        // FIXME(ngates): validate the metadata
-        ArrayData::from(view.clone()).with_dyn(|_| Ok::<(), VortexError>(()))?;
+        Self::try_new(InnerArrayData::Viewed(view))
+    }
 
-        Ok(view.into())
+    /// Shared constructor that performs common array validation.
+    fn try_new(inner: InnerArrayData) -> VortexResult<Self> {
+        let array = ArrayData(inner);
+
+        // Sanity check that the encoding implements the correct array trait
+        debug_assert!(
+            match array.dtype() {
+                DType::Null => array.as_null_array().is_some(),
+                DType::Bool(_) => array.as_bool_array().is_some(),
+                DType::Primitive(..) => array.as_primitive_array().is_some(),
+                DType::Utf8(_) => array.as_utf8_array().is_some(),
+                DType::Binary(_) => array.as_binary_array().is_some(),
+                DType::Struct(..) => array.as_struct_array().is_some(),
+                DType::List(..) => array.as_list_array().is_some(),
+                DType::Extension(..) => array.as_extension_array().is_some(),
+            },
+            "Encoding {} does not implement the variant trait for {}",
+            array.encoding().id(),
+            array.dtype()
+        );
+
+        // TODO(ngates): we should run something like encoding.validate(array) so the encoding
+        //  can check the number of children, number of buffers, and metadata values etc.
+
+        Ok(array)
     }
 
     /// Return the array's encoding
@@ -329,23 +345,6 @@ impl ArrayData {
 
         self.encoding()
             .with_dyn(self, &mut |array| {
-                // Sanity check that the encoding implements the correct array trait
-                debug_assert!(
-                    match array.dtype() {
-                        DType::Null => array.as_null_array().is_some(),
-                        DType::Bool(_) => array.as_bool_array().is_some(),
-                        DType::Primitive(..) => array.as_primitive_array().is_some(),
-                        DType::Utf8(_) => array.as_utf8_array().is_some(),
-                        DType::Binary(_) => array.as_binary_array().is_some(),
-                        DType::Struct(..) => array.as_struct_array().is_some(),
-                        DType::List(..) => array.as_list_array().is_some(),
-                        DType::Extension(..) => array.as_extension_array().is_some(),
-                    },
-                    "Encoding {} does not implement the variant trait for {}",
-                    self.encoding().id(),
-                    array.dtype()
-                );
-
                 result = Some(f(array));
                 Ok(())
             })

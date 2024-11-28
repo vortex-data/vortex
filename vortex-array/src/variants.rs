@@ -7,125 +7,194 @@ use std::sync::Arc;
 
 use vortex_dtype::field::Field;
 use vortex_dtype::{DType, ExtDType, FieldNames, PType};
-use vortex_error::{vortex_panic, VortexExpect as _, VortexResult};
+use vortex_error::{vortex_panic, VortexError, VortexExpect as _, VortexResult};
 
-use crate::{ArrayData, ArrayTrait};
+use crate::encoding::Encoding;
+use crate::{ArrayDType, ArrayData, ArrayTrait};
 
-pub trait ArrayVariants {
-    fn as_null_array(&self) -> Option<&dyn NullArrayTrait> {
+/// An Array encoding must declare which DTypes it can be downcast into.
+pub trait VariantsVTable<Array> {
+    fn as_null_array<'a>(&self, array: &'a Array) -> Option<&'a dyn NullArrayTrait> {
         None
     }
 
-    fn as_null_array_unchecked(&self) -> &dyn NullArrayTrait {
-        self.as_null_array().vortex_expect("Expected NullArray")
-    }
-
-    fn as_bool_array(&self) -> Option<&dyn BoolArrayTrait> {
+    fn as_bool_array<'a>(&self, array: &'a Array) -> Option<&'a dyn BoolArrayTrait> {
         None
     }
 
-    fn as_bool_array_unchecked(&self) -> &dyn BoolArrayTrait {
-        self.as_bool_array().vortex_expect("Expected BoolArray")
-    }
-
-    fn as_primitive_array(&self) -> Option<&dyn PrimitiveArrayTrait> {
+    fn as_primitive_array<'a>(&self, array: &'a Array) -> Option<&'a dyn PrimitiveArrayTrait> {
         None
     }
 
-    fn as_primitive_array_unchecked(&self) -> &dyn PrimitiveArrayTrait {
-        self.as_primitive_array()
-            .vortex_expect("Expected PrimitiveArray")
-    }
-
-    fn as_utf8_array(&self) -> Option<&dyn Utf8ArrayTrait> {
+    fn as_utf8_array<'a>(&self, array: &'a Array) -> Option<&'a dyn Utf8ArrayTrait> {
         None
     }
 
-    fn as_utf8_array_unchecked(&self) -> &dyn Utf8ArrayTrait {
-        self.as_utf8_array().vortex_expect("Expected Utf8Array")
-    }
-
-    fn as_binary_array(&self) -> Option<&dyn BinaryArrayTrait> {
+    fn as_binary_array<'a>(&self, array: &'a Array) -> Option<&'a dyn BinaryArrayTrait> {
         None
     }
 
-    fn as_binary_array_unchecked(&self) -> &dyn BinaryArrayTrait {
-        self.as_binary_array().vortex_expect("Expected BinaryArray")
-    }
-
-    fn as_struct_array(&self) -> Option<&dyn StructArrayTrait> {
+    fn as_struct_array<'a>(&self, array: &'a Array) -> Option<&'a dyn StructArrayTrait> {
         None
     }
 
-    fn as_struct_array_unchecked(&self) -> &dyn StructArrayTrait {
-        self.as_struct_array().vortex_expect("Expected StructArray")
-    }
-
-    fn as_list_array(&self) -> Option<&dyn ListArrayTrait> {
+    fn as_list_array<'a>(&self, array: &'a Array) -> Option<&'a dyn ListArrayTrait> {
         None
     }
 
-    fn as_list_array_unchecked(&self) -> &dyn ListArrayTrait {
-        self.as_list_array().vortex_expect("Expected ListArray")
-    }
-
-    fn as_extension_array(&self) -> Option<&dyn ExtensionArrayTrait> {
+    fn as_extension_array<'a>(&self, array: &'a Array) -> Option<&'a dyn ExtensionArrayTrait> {
         None
     }
+}
 
-    fn as_extension_array_unchecked(&self) -> &dyn ExtensionArrayTrait {
-        self.as_extension_array()
-            .vortex_expect("Expected ExtensionArray")
+impl<E: Encoding> VariantsVTable<ArrayData> for E
+where
+    E: VariantsVTable<E::Array>,
+    for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
+{
+    fn as_null_array<'a>(&self, array: &'a ArrayData) -> Option<&'a dyn NullArrayTrait> {
+        let array_ref =
+            <&E::Array>::try_from(array).vortex_expect("Failed to get array as reference");
+        let encoding = array
+            .encoding()
+            .as_any()
+            .downcast_ref::<E>()
+            .vortex_expect("Failed to downcast encoding");
+        VariantsVTable::as_null_array(encoding, array_ref)
+    }
+
+    fn as_bool_array<'a>(&self, array: &'a ArrayData) -> Option<&'a dyn BoolArrayTrait> {
+        let array_ref =
+            <&E::Array>::try_from(array).vortex_expect("Failed to get array as reference");
+        let encoding = array
+            .encoding()
+            .as_any()
+            .downcast_ref::<E>()
+            .vortex_expect("Failed to downcast encoding");
+        VariantsVTable::as_bool_array(encoding, array_ref)
+    }
+
+    fn as_primitive_array<'a>(&self, array: &'a ArrayData) -> Option<&'a dyn PrimitiveArrayTrait> {
+        let array_ref =
+            <&E::Array>::try_from(array).vortex_expect("Failed to get array as reference");
+        let encoding = array
+            .encoding()
+            .as_any()
+            .downcast_ref::<E>()
+            .vortex_expect("Failed to downcast encoding");
+        VariantsVTable::as_primitive_array(encoding, array_ref)
+    }
+
+    fn as_utf8_array<'a>(&self, array: &'a ArrayData) -> Option<&'a dyn Utf8ArrayTrait> {
+        let array_ref =
+            <&E::Array>::try_from(array).vortex_expect("Failed to get array as reference");
+        let encoding = array
+            .encoding()
+            .as_any()
+            .downcast_ref::<E>()
+            .vortex_expect("Failed to downcast encoding");
+        VariantsVTable::as_utf8_array(encoding, array_ref)
+    }
+
+    fn as_binary_array<'a>(&self, array: &'a ArrayData) -> Option<&'a dyn BinaryArrayTrait> {
+        let array_ref =
+            <&E::Array>::try_from(array).vortex_expect("Failed to get array as reference");
+        let encoding = array
+            .encoding()
+            .as_any()
+            .downcast_ref::<E>()
+            .vortex_expect("Failed to downcast encoding");
+        VariantsVTable::as_binary_array(encoding, array_ref)
+    }
+
+    fn as_struct_array<'a>(&self, array: &'a ArrayData) -> Option<&'a dyn StructArrayTrait> {
+        let array_ref =
+            <&E::Array>::try_from(array).vortex_expect("Failed to get array as reference");
+        let encoding = array
+            .encoding()
+            .as_any()
+            .downcast_ref::<E>()
+            .vortex_expect("Failed to downcast encoding");
+        VariantsVTable::as_struct_array(encoding, array_ref)
+    }
+
+    fn as_list_array<'a>(&self, array: &'a ArrayData) -> Option<&'a dyn ListArrayTrait> {
+        let array_ref =
+            <&E::Array>::try_from(array).vortex_expect("Failed to get array as reference");
+        let encoding = array
+            .encoding()
+            .as_any()
+            .downcast_ref::<E>()
+            .vortex_expect("Failed to downcast encoding");
+        VariantsVTable::as_list_array(encoding, array_ref)
+    }
+
+    fn as_extension_array<'a>(&self, array: &'a ArrayData) -> Option<&'a dyn ExtensionArrayTrait> {
+        let array_ref =
+            <&E::Array>::try_from(array).vortex_expect("Failed to get array as reference");
+        let encoding = array
+            .encoding()
+            .as_any()
+            .downcast_ref::<E>()
+            .vortex_expect("Failed to downcast encoding");
+        VariantsVTable::as_extension_array(encoding, array_ref)
+    }
+}
+
+/// Provide functions on type-erased ArrayData to downcast into dtype-specific array variants.
+impl ArrayData {
+    pub fn as_null_array(&self) -> Option<&dyn NullArrayTrait> {
+        matches!(self.dtype(), DType::Null)
+            .then(|| self.encoding().as_null_array(self))
+            .flatten()
+    }
+
+    pub fn as_bool_array(&self) -> Option<&dyn BoolArrayTrait> {
+        matches!(self.dtype(), DType::Bool(..))
+            .then(|| self.encoding().as_bool_array(self))
+            .flatten()
+    }
+
+    pub fn as_primitive_array(&self) -> Option<&dyn PrimitiveArrayTrait> {
+        matches!(self.dtype(), DType::Primitive(..))
+            .then(|| self.encoding().as_primitive_array(self))
+            .flatten()
+    }
+
+    pub fn as_utf8_array(&self) -> Option<&dyn Utf8ArrayTrait> {
+        matches!(self.dtype(), DType::Utf8(..))
+            .then(|| self.encoding().as_utf8_array(self))
+            .flatten()
+    }
+
+    pub fn as_binary_array(&self) -> Option<&dyn BinaryArrayTrait> {
+        matches!(self.dtype(), DType::Binary(..))
+            .then(|| self.encoding().as_binary_array(self))
+            .flatten()
+    }
+
+    pub fn as_struct_array(&self) -> Option<&dyn StructArrayTrait> {
+        matches!(self.dtype(), DType::Struct(..))
+            .then(|| self.encoding().as_struct_array(self))
+            .flatten()
+    }
+
+    pub fn as_list_array(&self) -> Option<&dyn ListArrayTrait> {
+        matches!(self.dtype(), DType::List(..))
+            .then(|| self.encoding().as_list_array(self))
+            .flatten()
+    }
+
+    pub fn as_extension_array(&self) -> Option<&dyn ExtensionArrayTrait> {
+        matches!(self.dtype(), DType::Extension(..))
+            .then(|| self.encoding().as_extension_array(self))
+            .flatten()
     }
 }
 
 pub trait NullArrayTrait: ArrayTrait {}
 
 pub trait BoolArrayTrait: ArrayTrait {}
-
-/// Iterate over an array of primitives by dispatching at run-time on the array type.
-#[macro_export]
-macro_rules! iterate_primitive_array {
-    ($self:expr, | $_1:tt $rust_type:ident, $_2:tt $iterator:ident | $($body:tt)*) => ({
-        macro_rules! __with__ {( $_1:tt $rust_type:ident, $_2:tt $iterator:ident ) => ( $($body)* )}
-        use vortex_error::VortexExpect;
-        match $self.ptype() {
-            PType::I8 => __with__! { i8, $self.i8_iter().vortex_expect("i8 array must have i8_iter") },
-            PType::I16 => __with__! { i16, $self.i16_iter().vortex_expect("i16 array must have i16_iter") },
-            PType::I32 => __with__! { i32, $self.i32_iter().vortex_expect("i32 array must have i32_iter") },
-            PType::I64 => __with__! { i64, $self.i64_iter().vortex_expect("i64 array must have i64_iter") },
-            PType::U8 => __with__! { u8, $self.u8_iter().vortex_expect("u8 array must have u8_iter") },
-            PType::U16 => __with__! { u16, $self.u16_iter().vortex_expect("u16 array must have u16_iter") },
-            PType::U32 => __with__! { u32, $self.u32_iter().vortex_expect("u32 array must have u32_iter") },
-            PType::U64 => __with__! { u64, $self.u64_iter().vortex_expect("u64 array must have u64_iter") },
-            PType::F16 => __with__! { f16, $self.f16_iter().vortex_expect("f16 array must have f16_iter") },
-            PType::F32 => __with__! { f32, $self.f32_iter().vortex_expect("f32 array must have f32_iter") },
-            PType::F64 => __with__! { f64, $self.f64_iter().vortex_expect("f64 array must have f64_iter") },
-        }
-    })
-}
-
-/// Iterate over an array of integers by dispatching at run-time on the array type.
-#[macro_export]
-macro_rules! iterate_integer_array {
-    ($self:expr, | $_1:tt $rust_type:ident, $_2:tt $iterator:ident | $($body:tt)*) => ({
-        macro_rules! __with__ {( $_1 $rust_type:ident, $_2 $iterator:expr ) => ( $($body)* )}
-        use vortex_error::VortexExpect;
-        match $self.ptype() {
-            PType::I8 => __with__! { i8, $self.i8_iter().vortex_expect("i8 array must have i8_iter") },
-            PType::I16 => __with__! { i16, $self.i16_iter().vortex_expect("i16 array must have i16_iter") },
-            PType::I32 => __with__! { i32, $self.i32_iter().vortex_expect("i32 array must have i32_iter") },
-            PType::I64 => __with__! { i64, $self.i64_iter().vortex_expect("i64 array must have i64_iter") },
-            PType::U8 => __with__! { u8, $self.u8_iter().vortex_expect("u8 array must have u8_iter") },
-            PType::U16 => __with__! { u16, $self.u16_iter().vortex_expect("u16 array must have u16_iter") },
-            PType::U32 => __with__! { u32, $self.u32_iter().vortex_expect("u32 array must have u32_iter") },
-            PType::U64 => __with__! { u64, $self.u64_iter().vortex_expect("u64 array must have u64_iter") },
-            PType::F16 => panic!("unsupported type: f16"),
-            PType::F32 => panic!("unsupported type: f32"),
-            PType::F64 => panic!("unsupported type: f64"),
-        }
-    })
-}
 
 pub trait PrimitiveArrayTrait: ArrayTrait {
     fn ptype(&self) -> PType {

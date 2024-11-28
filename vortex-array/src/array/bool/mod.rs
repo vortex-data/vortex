@@ -13,7 +13,7 @@ use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use crate::encoding::ids;
 use crate::stats::StatsSet;
 use crate::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
-use crate::variants::{ArrayVariants, BoolArrayTrait};
+use crate::variants::{BoolArrayTrait, VariantsVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{
     impl_encoding, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData, IntoCanonical,
@@ -178,9 +178,9 @@ impl BoolArray {
 
 impl ArrayTrait for BoolArray {}
 
-impl ArrayVariants for BoolArray {
-    fn as_bool_array(&self) -> Option<&dyn BoolArrayTrait> {
-        Some(self)
+impl VariantsVTable<BoolArray> for BoolEncoding {
+    fn as_bool_array<'a>(&self, array: &'a BoolArray) -> Option<&'a dyn BoolArrayTrait> {
+        Some(array)
     }
 }
 

@@ -23,7 +23,6 @@ use crate::encoding::ArrayEncodingRef;
 use crate::nbytes::ArrayNBytes;
 use crate::stats::ArrayStatistics;
 use crate::validity::ArrayValidity;
-use crate::variants::ArrayVariants;
 
 pub mod accessor;
 pub mod aliases;
@@ -92,7 +91,6 @@ pub trait ArrayTrait:
     + ArrayDType
     + ArrayLen
     + ArrayNBytes
-    + ArrayVariants
     + IntoCanonical
     + ArrayValidity
     + ArrayStatistics

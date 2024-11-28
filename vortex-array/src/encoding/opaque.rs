@@ -8,6 +8,7 @@ use crate::compute::ComputeVTable;
 use crate::encoding::{EncodingId, EncodingVTable};
 use crate::stats::StatisticsVTable;
 use crate::validity::{LogicalValidity, ValidityVTable};
+use crate::variants::VariantsVTable;
 use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{
     ArrayData, ArrayMetadata, ArrayTrait, Canonical, IntoCanonicalVTable, MetadataVTable,
@@ -26,6 +27,8 @@ use crate::{
 /// We hold the original 16-bit encoding ID for producing helpful error messages.
 #[derive(Debug, Clone, Copy)]
 pub struct OpaqueEncoding(pub u16);
+
+impl VariantsVTable<ArrayData> for OpaqueEncoding {}
 
 impl EncodingVTable for OpaqueEncoding {
     fn id(&self) -> EncodingId {

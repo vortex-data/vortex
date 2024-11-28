@@ -1,46 +1,53 @@
 use vortex_dtype::field::Field;
 use vortex_dtype::DType;
-use vortex_error::{vortex_err, vortex_panic, VortexResult};
+use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
 
 use crate::array::chunked::ChunkedArray;
+use crate::array::ChunkedEncoding;
 use crate::variants::{
-    ArrayVariants, BinaryArrayTrait, BoolArrayTrait, ExtensionArrayTrait, ListArrayTrait,
-    NullArrayTrait, PrimitiveArrayTrait, StructArrayTrait, Utf8ArrayTrait,
+    BinaryArrayTrait, BoolArrayTrait, ExtensionArrayTrait, ListArrayTrait, NullArrayTrait,
+    PrimitiveArrayTrait, StructArrayTrait, Utf8ArrayTrait, VariantsVTable,
 };
 use crate::{ArrayDType, ArrayData, IntoArrayData};
 
 /// Chunked arrays support all DTypes
-impl ArrayVariants for ChunkedArray {
-    fn as_null_array(&self) -> Option<&dyn NullArrayTrait> {
-        matches!(self.dtype(), DType::Null).then_some(self)
+impl VariantsVTable<ChunkedArray> for ChunkedEncoding {
+    fn as_null_array<'a>(&self, array: &'a ChunkedArray) -> Option<&'a dyn NullArrayTrait> {
+        Some(array)
     }
 
-    fn as_bool_array(&self) -> Option<&dyn BoolArrayTrait> {
-        matches!(self.dtype(), DType::Bool(_)).then_some(self)
+    fn as_bool_array<'a>(&self, array: &'a ChunkedArray) -> Option<&'a dyn BoolArrayTrait> {
+        Some(array)
     }
 
-    fn as_primitive_array(&self) -> Option<&dyn PrimitiveArrayTrait> {
-        matches!(self.dtype(), DType::Primitive(..)).then_some(self)
+    fn as_primitive_array<'a>(
+        &self,
+        array: &'a ChunkedArray,
+    ) -> Option<&'a dyn PrimitiveArrayTrait> {
+        Some(array)
     }
 
-    fn as_utf8_array(&self) -> Option<&dyn Utf8ArrayTrait> {
-        matches!(self.dtype(), DType::Utf8(_)).then_some(self)
+    fn as_utf8_array<'a>(&self, array: &'a ChunkedArray) -> Option<&'a dyn Utf8ArrayTrait> {
+        Some(array)
     }
 
-    fn as_binary_array(&self) -> Option<&dyn BinaryArrayTrait> {
-        matches!(self.dtype(), DType::Binary(_)).then_some(self)
+    fn as_binary_array<'a>(&self, array: &'a ChunkedArray) -> Option<&'a dyn BinaryArrayTrait> {
+        Some(array)
     }
 
-    fn as_struct_array(&self) -> Option<&dyn StructArrayTrait> {
-        matches!(self.dtype(), DType::Struct(..)).then_some(self)
+    fn as_struct_array<'a>(&self, array: &'a ChunkedArray) -> Option<&'a dyn StructArrayTrait> {
+        Some(array)
     }
 
-    fn as_list_array(&self) -> Option<&dyn ListArrayTrait> {
-        matches!(self.dtype(), DType::List(..)).then_some(self)
+    fn as_list_array<'a>(&self, array: &'a ChunkedArray) -> Option<&'a dyn ListArrayTrait> {
+        Some(array)
     }
 
-    fn as_extension_array(&self) -> Option<&dyn ExtensionArrayTrait> {
-        matches!(self.dtype(), DType::Extension(..)).then_some(self)
+    fn as_extension_array<'a>(
+        &self,
+        array: &'a ChunkedArray,
+    ) -> Option<&'a dyn ExtensionArrayTrait> {
+        Some(array)
     }
 }
 
@@ -58,7 +65,7 @@ impl StructArrayTrait for ChunkedArray {
     fn field(&self, idx: usize) -> Option<ArrayData> {
         let mut chunks = Vec::with_capacity(self.nchunks());
         for chunk in self.chunks() {
-            chunks.push(chunk.with_dyn(|a| a.as_struct_array().and_then(|s| s.field(idx)))?);
+            chunks.push(chunk.as_struct_array().and_then(|s| s.field(idx))?);
         }
 
         let projected_dtype = self.dtype().as_struct().and_then(|s| s.dtypes().get(idx))?;
@@ -77,11 +84,12 @@ impl StructArrayTrait for ChunkedArray {
     fn project(&self, projection: &[Field]) -> VortexResult<ArrayData> {
         let mut chunks = Vec::with_capacity(self.nchunks());
         for chunk in self.chunks() {
-            chunks.push(chunk.with_dyn(|a| {
-                a.as_struct_array()
+            chunks.push(
+                chunk
+                    .as_struct_array()
                     .ok_or_else(|| vortex_err!("Chunk was not a StructArray"))?
-                    .project(projection)
-            })?);
+                    .project(projection)?,
+            );
         }
 
         let projected_dtype = self
@@ -101,10 +109,12 @@ impl ListArrayTrait for ChunkedArray {}
 
 impl ExtensionArrayTrait for ChunkedArray {
     fn storage_data(&self) -> ArrayData {
-        ChunkedArray::from_iter(
-            self.chunks()
-                .map(|chunk| chunk.with_dyn(|a| a.as_extension_array_unchecked().storage_data())),
-        )
+        ChunkedArray::from_iter(self.chunks().map(|chunk| {
+            chunk
+                .as_extension_array()
+                .vortex_expect("Expected extension array")
+                .storage_data()
+        }))
         .into_array()
     }
 }
