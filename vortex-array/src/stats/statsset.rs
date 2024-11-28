@@ -90,9 +90,10 @@ impl StatsSet {
         true_count: usize,
         null_count: usize,
         len: usize,
-    ) -> StatsSet {
+    ) -> Self {
         StatsSet::from_iter([
             (Stat::TrueCount, true_count.into()),
+            (Stat::NullCount, null_count.into()),
             (Stat::Min, (true_count == len).into()),
             (Stat::Max, (true_count > 0).into()),
             (
