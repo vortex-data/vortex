@@ -70,16 +70,16 @@ pub type EncodingRef = &'static dyn EncodingVTable;
 
 /// Object-safe encoding trait for an array.
 pub trait EncodingVTable:
-    'static
-    + Sync
-    + Send
-    + Debug
-    + IntoCanonicalVTable
-    + MetadataVTable
-    + ComputeVTable
-    + StatisticsVTable<ArrayData>
-    + ValidityVTable<ArrayData>
-    + VisitorVTable<ArrayData>
+'static
++ Sync
++ Send
++ Debug
++ IntoCanonicalVTable
++ MetadataVTable
++ ComputeVTable
++ StatisticsVTable<ArrayData>
++ ValidityVTable<ArrayData>
++ VisitorVTable<ArrayData>
 {
     fn id(&self) -> EncodingId;
 
@@ -147,10 +147,10 @@ pub mod ids {
     pub const SPARSE: u16 = 8;
     pub const CONSTANT: u16 = 9;
     pub const CHUNKED: u16 = 10;
+    pub(crate) const LIST: u16 = 11;
 
     // currently unused, saved for future built-ins
-    // e.g., List, FixedList, Union, Tensor, etc.
-    pub(crate) const RESERVED_11: u16 = 11;
+    // e.g., FixedList, Union, Tensor, etc.
     pub(crate) const RESERVED_12: u16 = 12;
     pub(crate) const RESERVED_13: u16 = 13;
     pub(crate) const RESERVED_14: u16 = 14;
@@ -193,7 +193,7 @@ mod tests {
             ids::SPARSE,
             ids::CONSTANT,
             ids::CHUNKED,
-            ids::RESERVED_11,
+            ids::LIST,
             ids::RESERVED_12,
             ids::RESERVED_13,
             ids::RESERVED_14,

@@ -14,6 +14,7 @@ mod sparse;
 mod struct_;
 mod varbin;
 mod varbinview;
+mod list;
 
 pub mod from;
 
@@ -31,3 +32,4 @@ pub use self::sparse::*;
 pub use self::struct_::*;
 pub use self::varbin::*;
 pub use self::varbinview::*;
+pub use self::list::*;
