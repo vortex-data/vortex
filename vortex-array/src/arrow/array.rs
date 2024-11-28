@@ -177,6 +177,29 @@ impl FromArrowArray<&ArrowStructArray> for ArrayData {
     }
 }
 
+impl FromArrowArray<&GenericListArray> for ArrayData {
+    fn from_arrow(value: &ArrowStructArray, nullable: bool) -> Self {
+        StructArray::try_new(
+            value
+                .column_names()
+                .iter()
+                .map(|s| (*s).into())
+                .collect_vec()
+                .into(),
+            value
+                .columns()
+                .iter()
+                .zip(value.fields())
+                .map(|(c, field)| Self::from_arrow(c.clone(), field.is_nullable()))
+                .collect(),
+            value.len(),
+            nulls(value.nulls(), nullable),
+        )
+            .vortex_expect("Failed to convert Arrow StructArray to Vortex StructArray")
+            .into_array()
+    }
+}
+
 impl FromArrowArray<&ArrowNullArray> for ArrayData {
     fn from_arrow(value: &ArrowNullArray, nullable: bool) -> Self {
         assert!(nullable);
