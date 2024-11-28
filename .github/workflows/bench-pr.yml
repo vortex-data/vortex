@@ -32,8 +32,6 @@ jobs:
             name: Random Access
           - id: compress_noci
             name: Vortex Compression
-          - id: bytes_at
-            name: Vortex bytes_at
           - id: clickbench
             name: Vortex Clickbench
     runs-on: self-hosted

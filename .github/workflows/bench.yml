@@ -20,8 +20,6 @@ jobs:
             name: Random Access
           - id: compress_noci
             name: Vortex Compression
-          - id: bytes_at
-            name: Vortex bytes_at
           - id: clickbench
             name: Vortex Clickbench
     runs-on: self-hosted
@@ -41,7 +39,7 @@ jobs:
       - name: Set tempdir
         if: runner.environment == 'self-hosted'
         run: |
-            echo "TMPDIR=/work" >> $GITHUB_ENV
+          echo "TMPDIR=/work" >> $GITHUB_ENV
 
       - name: Run benchmark
         shell: bash
@@ -105,7 +103,7 @@ jobs:
       - name: Set tempdir
         if: runner.environment == 'self-hosted'
         run: |
-            echo "TMPDIR=/work" >> $GITHUB_ENV
+          echo "TMPDIR=/work" >> $GITHUB_ENV
 
       - name: Run TPC-H benchmark
         shell: bash
