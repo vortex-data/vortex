@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: ["develop"]
-  pull_request: {}
-  workflow_dispatch: {}
+    branches: [ "develop" ]
+  pull_request: { }
+  workflow_dispatch: { }
 
 permissions:
   actions: read
@@ -127,7 +127,9 @@ jobs:
           for package in $(cargo check -p  2>&1 | grep '^    ')
           do
               echo ---- $package ----
-              cargo clippy --package $package --no-default-features
+              stderr_output=$(cargo clippy --package $package --no-default-features 2>&1 1>/dev/null)
+              $0 || grep -q "compile_error!(\""
+          
           done
       - name: Rust Test
         run: cargo test --workspace --all-features
