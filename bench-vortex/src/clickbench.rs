@@ -224,12 +224,12 @@ pub async fn register_vortex_file(
         .to_str()
         .ok_or_else(|| vortex_err!("Path is not valid UTF-8"))?;
     let table_path = format!("file://{table_path}/");
-    dbg!(&table_path);
     let table_url = ListingTableUrl::parse(table_path)?;
 
     let config = ListingTableConfig::new(table_url)
         .with_listing_options(ListingOptions::new(format as _))
-        .with_schema(HITS_SCHEMA.clone().into());
+        .infer_schema(&session.state())
+        .await?;
 
     let listing_table = Arc::new(ListingTable::try_new(config)?);
 

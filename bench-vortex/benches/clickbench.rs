@@ -10,7 +10,7 @@ use datafusion::prelude::SessionContext;
 use tokio::runtime::Builder;
 
 fn benchmark(c: &mut Criterion) {
-    let runtime = Builder::new_current_thread().enable_all().build().unwrap();
+    let runtime = Builder::new_multi_thread().enable_all().build().unwrap();
     let basepath = "clickbench".to_data_path();
 
     // The clickbench-provided file is missing some higher-level type info, so we reprocess it

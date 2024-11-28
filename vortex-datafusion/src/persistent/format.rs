@@ -82,8 +82,6 @@ impl FileFormat for VortexFormat {
 
         let schema = Arc::new(Schema::try_merge(file_schemas)?);
 
-        dbg!(&schema);
-
         Ok(schema)
     }
 
