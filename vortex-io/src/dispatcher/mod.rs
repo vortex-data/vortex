@@ -12,6 +12,9 @@ use self::compio::*;
 #[cfg(feature = "tokio")]
 use self::tokio::*;
 
+#[cfg(not(any(feature = "compio", feature = "tokio")))]
+compile_error!("must enable one of compio or tokio to use IoDispatcher");
+
 mod sealed {
     pub trait Sealed {}
 
@@ -72,8 +75,6 @@ impl Default for IoDispatcher {
         return Self(Inner::Tokio(TokioDispatcher::new(1)));
         #[cfg(all(feature = "compio", not(feature = "tokio")))]
         return Self(Inner::Compio(CompioDispatcher::new(1)));
-        #[cfg(not(any(feature = "compio", feature = "tokio")))]
-        compile_error!("must enable one of compio or tokio to use IoDispatcher");
     }
 }
 
