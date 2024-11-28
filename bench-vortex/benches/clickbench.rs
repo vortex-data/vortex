@@ -20,7 +20,10 @@ fn benchmark(c: &mut Criterion) {
         idempotent(&output_path, |output_path| {
             eprintln!("Fixing parquet file {idx}");
             let command = format!(
-                "COPY (SELECT * REPLACE
+                "
+                SET home_directory='/home/ci-runner/';
+                INSTALL HTTPFS;
+                COPY (SELECT * REPLACE
                     (epoch_ms(EventTime * 1000) AS EventTime, \
                     epoch_ms(ClientEventTime * 1000) AS ClientEventTime, \
                     epoch_ms(LocalEventTime * 1000) AS LocalEventTime, \
