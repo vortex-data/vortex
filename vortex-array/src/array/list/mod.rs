@@ -153,6 +153,8 @@ impl ListArray {
     }
 }
 
+impl ListArrayTrait for ListArray {}
+
 impl VariantsVTable<ListArray> for ListEncoding {
     fn as_list_array<'a>(&self, array: &'a ListArray) -> Option<&'a dyn ListArrayTrait> {
         Some(array)
@@ -181,8 +183,6 @@ impl StatisticsVTable<ListArray> for ListEncoding {
     }
 }
 
-impl ListArrayTrait for ListArray {}
-
 impl ValidityVTable<ListArray> for ListEncoding {
     fn is_valid(&self, array: &ListArray, index: usize) -> bool {
         array.is_valid(index)
@@ -205,6 +205,23 @@ mod test {
     use crate::compute::scalar_at;
     use crate::validity::Validity;
     use crate::{ArrayLen, IntoArrayData};
+
+    fn idx_into_slice<T: NativePType + ArrowNativeType>(list: &ListArray, idx: usize) -> Vec<T> {
+        let binding = list.index(idx).unwrap().into_primitive().unwrap();
+        binding.into_maybe_null_slice::<T>()
+    }
+
+    fn idx_into_opt_slice_opt<T: NativePType + ArrowNativeType>(
+        list: &ListArray,
+        idx: usize,
+    ) -> Option<Vec<Option<T>>> {
+        let binding = list.index(idx)?.into_primitive().unwrap();
+        Some(
+            binding
+                .with_iterator(|iter| iter.map(|i| i.cloned()).collect_vec())
+                .unwrap(),
+        )
+    }
 
     #[test]
     fn test_empty_list_array() {
@@ -239,5 +256,22 @@ mod test {
             Scalar::list(Arc::new(PType::I32.into()), vec![5.into()]),
             scalar_at(&list, 2).unwrap()
         );
+    }
+
+    #[test]
+    fn test_list_validation_array() {
+        let elements = PrimitiveArray::from_nullable_vec(vec![None, Some(2), Some(3)]);
+        let offsets = PrimitiveArray::from(vec![0, 0, 2, 3]);
+        let validity = Validity::Array(BoolArray::from_iter(vec![false, true, true]).into_array());
+
+        let list =
+            ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
+
+        assert_eq!(None, idx_into_opt_slice_opt::<i32>(&list, 0));
+        assert_eq!(
+            Some(vec![None, Some(2)]),
+            idx_into_opt_slice_opt::<i32>(&list, 1)
+        );
+        assert_eq!(Some(vec![Some(3)]), idx_into_opt_slice_opt::<i32>(&list, 2));
     }
 }

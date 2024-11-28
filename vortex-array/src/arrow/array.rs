@@ -120,8 +120,8 @@ where
             dtype,
             nulls(value.nulls(), nullable),
         )
-        .vortex_expect("Failed to convert Arrow GenericByteArray to Vortex VarBinArray")
-        .into_array()
+            .vortex_expect("Failed to convert Arrow GenericByteArray to Vortex VarBinArray")
+            .into_array()
     }
 }
 
@@ -142,8 +142,8 @@ impl<T: ByteViewType> FromArrowArray<&GenericByteViewArray<T>> for ArrayData {
             dtype,
             nulls(value.nulls(), nullable),
         )
-        .vortex_expect("Failed to convert Arrow GenericByteViewArray to Vortex VarBinViewArray")
-        .into_array()
+            .vortex_expect("Failed to convert Arrow GenericByteViewArray to Vortex VarBinViewArray")
+            .into_array()
     }
 }
 
@@ -173,8 +173,8 @@ impl FromArrowArray<&ArrowStructArray> for ArrayData {
             value.len(),
             nulls(value.nulls(), nullable),
         )
-        .vortex_expect("Failed to convert Arrow StructArray to Vortex StructArray")
-        .into_array()
+            .vortex_expect("Failed to convert Arrow StructArray to Vortex StructArray")
+            .into_array()
     }
 }
 
@@ -300,6 +300,7 @@ impl FromArrowArray<ArrowArrayRef> for ArrayData {
                     Self::from_arrow(array.as_primitive::<DurationNanosecondType>(), nullable)
                 }
             },
+            // TODO support list
             _ => vortex_panic!(
                 "Array encoding not implemented for Arrow data type {}",
                 array.data_type().clone()
