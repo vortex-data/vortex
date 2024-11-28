@@ -136,7 +136,6 @@ impl FileFormat for VortexFormat {
             stats.column_statistics = column_statistics;
         }
 
-        log::info!("Inferred stats: {:?}", stats);
         Ok(stats)
     }
 
