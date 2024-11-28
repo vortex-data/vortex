@@ -319,7 +319,7 @@ async fn unequal_batches() {
         item_count += array.len();
         batch_count += 1;
 
-        let numbers = array.with_dyn(|a| a.as_struct_array_unchecked().field_by_name("numbers"));
+        let numbers = array.as_struct_array().unwrap().field_by_name("numbers");
 
         if let Some(numbers) = numbers {
             let numbers = numbers.into_primitive().unwrap();
@@ -414,9 +414,7 @@ async fn filter_string() {
         result.push(array.unwrap());
     }
     assert_eq!(result.len(), 1);
-    let names = result[0]
-        .with_dyn(|a| a.as_struct_array_unchecked().field(0))
-        .unwrap();
+    let names = result[0].as_struct_array().unwrap().field(0).unwrap();
     assert_eq!(
         names
             .into_varbinview()
@@ -428,9 +426,7 @@ async fn filter_string() {
             .unwrap(),
         vec!["Joseph".to_string()]
     );
-    let ages = result[0]
-        .with_dyn(|a| a.as_struct_array_unchecked().field(1))
-        .unwrap();
+    let ages = result[0].as_struct_array().unwrap().field(1).unwrap();
     assert_eq!(
         ages.into_primitive().unwrap().maybe_null_slice::<i32>(),
         vec![25]
@@ -487,9 +483,7 @@ async fn filter_or() {
         result.push(array.unwrap());
     }
     assert_eq!(result.len(), 1);
-    let names = result[0]
-        .with_dyn(|a| a.as_struct_array_unchecked().field(0))
-        .unwrap();
+    let names = result[0].as_struct_array().unwrap().field(0).unwrap();
     assert_eq!(
         names
             .into_varbinview()
@@ -501,9 +495,7 @@ async fn filter_or() {
             .unwrap(),
         vec!["Joseph".to_string(), "Angela".to_string()]
     );
-    let ages = result[0]
-        .with_dyn(|a| a.as_struct_array_unchecked().field(1))
-        .unwrap();
+    let ages = result[0].as_struct_array().unwrap().field(1).unwrap();
     assert_eq!(
         ages.into_primitive()
             .unwrap()
@@ -555,9 +547,7 @@ async fn filter_and() {
         result.push(array.unwrap());
     }
     assert_eq!(result.len(), 1);
-    let names = result[0]
-        .with_dyn(|a| a.as_struct_array_unchecked().field(0))
-        .unwrap();
+    let names = result[0].as_struct_array().unwrap().field(0).unwrap();
     assert_eq!(
         names
             .into_varbinview()
@@ -568,9 +558,7 @@ async fn filter_and() {
             .unwrap(),
         vec![Some("Joseph".to_string()), None]
     );
-    let ages = result[0]
-        .with_dyn(|a| a.as_struct_array_unchecked().field(1))
-        .unwrap();
+    let ages = result[0].as_struct_array().unwrap().field(1).unwrap();
     assert_eq!(
         ages.into_primitive().unwrap().maybe_null_slice::<i32>(),
         vec![25, 31]
@@ -872,9 +860,7 @@ async fn filter_string_chunked() {
             .unwrap();
 
     assert_eq!(actual_array.len(), 1);
-    let names = actual_array
-        .with_dyn(|a| a.as_struct_array_unchecked().field(0))
-        .unwrap();
+    let names = actual_array.as_struct_array().unwrap().field(0).unwrap();
     assert_eq!(
         names
             .into_varbinview()
@@ -886,9 +872,7 @@ async fn filter_string_chunked() {
             .unwrap(),
         vec!["Joseph".to_string()]
     );
-    let ages = actual_array
-        .with_dyn(|a| a.as_struct_array_unchecked().field(1))
-        .unwrap();
+    let ages = actual_array.as_struct_array().unwrap().field(1).unwrap();
     assert_eq!(
         ages.into_primitive().unwrap().maybe_null_slice::<i32>(),
         vec![25]
@@ -974,9 +958,7 @@ async fn test_pruning_with_or() {
             .unwrap();
 
     assert_eq!(actual_array.len(), 10);
-    let letters = actual_array
-        .with_dyn(|a| a.as_struct_array_unchecked().field(0))
-        .unwrap();
+    let letters = actual_array.as_struct_array().unwrap().field(0).unwrap();
     assert_eq!(
         letters
             .into_varbinview()
@@ -998,9 +980,7 @@ async fn test_pruning_with_or() {
             Some("P".to_string())
         ]
     );
-    let numbers = actual_array
-        .with_dyn(|a| a.as_struct_array_unchecked().field(1))
-        .unwrap();
+    let numbers = actual_array.as_struct_array().unwrap().field(1).unwrap();
     assert_eq!(
         (0..numbers.len())
             .map(|index| -> Option<i32> {

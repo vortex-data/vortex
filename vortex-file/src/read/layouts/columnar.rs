@@ -500,14 +500,18 @@ mod tests {
         let prim_arr = arr
             .as_ref()
             .unwrap()
-            .with_dyn(|a| a.as_struct_array_unchecked().field(0))
+            .as_struct_array()
+            .unwrap()
+            .field(0)
             .unwrap()
             .into_primitive()
             .unwrap();
         let str_arr = arr
             .as_ref()
             .unwrap()
-            .with_dyn(|a| a.as_struct_array_unchecked().field(1))
+            .as_struct_array()
+            .unwrap()
+            .field(1)
             .unwrap()
             .into_varbinview()
             .unwrap();
@@ -538,14 +542,18 @@ mod tests {
         let prim_arr = arr
             .as_ref()
             .unwrap()
-            .with_dyn(|a| a.as_struct_array_unchecked().field(0))
+            .as_struct_array()
+            .unwrap()
+            .field(0)
             .unwrap()
             .into_primitive()
             .unwrap();
         let str_arr = arr
             .as_ref()
             .unwrap()
-            .with_dyn(|a| a.as_struct_array_unchecked().field(1))
+            .as_struct_array()
+            .unwrap()
+            .field(1)
             .unwrap()
             .into_varbinview()
             .unwrap();
@@ -595,12 +603,16 @@ mod tests {
 
         assert_eq!(arr.len(), 2);
         let prim_arr_chunk0 = arr[0]
-            .with_dyn(|a| a.as_struct_array_unchecked().field(0))
+            .as_struct_array()
+            .unwrap()
+            .field(0)
             .unwrap()
             .into_primitive()
             .unwrap();
         let str_arr_chunk0 = arr[0]
-            .with_dyn(|a| a.as_struct_array_unchecked().field(1))
+            .as_struct_array()
+            .unwrap()
+            .field(1)
             .unwrap()
             .into_varbinview()
             .unwrap();
@@ -618,12 +630,16 @@ mod tests {
             iter::repeat("it").take(50).collect::<Vec<_>>()
         );
         let prim_arr_chunk1 = arr[1]
-            .with_dyn(|a| a.as_struct_array_unchecked().field(0))
+            .as_struct_array()
+            .unwrap()
+            .field(0)
             .unwrap()
             .into_primitive()
             .unwrap();
         let str_arr_chunk1 = arr[1]
-            .with_dyn(|a| a.as_struct_array_unchecked().field(1))
+            .as_struct_array()
+            .unwrap()
+            .field(1)
             .unwrap()
             .into_varbinview()
             .unwrap();

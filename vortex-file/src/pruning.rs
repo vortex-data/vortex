@@ -124,15 +124,14 @@ impl PruningPredicate {
     /// If it returns Ok(Some(array)), the array is a boolean array with the same length as the
     /// metadata, and the values indicate whether the corresponding chunk can be pruned.
     pub fn evaluate(&self, metadata: &ArrayData) -> VortexResult<Option<ArrayData>> {
-        let known_stats = metadata.with_dyn(|x| {
-            HashSet::from_iter(
-                x.as_struct_array()
-                    .vortex_expect("metadata must be struct array")
-                    .names()
-                    .iter()
-                    .map(|x| x.to_string()),
-            )
-        });
+        let known_stats = HashSet::from_iter(
+            metadata
+                .as_struct_array()
+                .vortex_expect("metadata must be struct array")
+                .names()
+                .iter()
+                .map(|x| x.to_string()),
+        );
         let required_stats = self
             .required_stats()
             .iter()

@@ -8,7 +8,7 @@ use vortex_array::array::BoolArray;
 use vortex_array::encoding::ids;
 use vortex_array::stats::StatsSet;
 use vortex_array::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
-use vortex_array::variants::{ArrayVariants, BoolArrayTrait};
+use vortex_array::variants::{BoolArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{impl_encoding, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoCanonical};
 use vortex_buffer::Buffer;
@@ -84,9 +84,9 @@ impl ByteBoolArray {
 
 impl ArrayTrait for ByteBoolArray {}
 
-impl ArrayVariants for ByteBoolArray {
-    fn as_bool_array(&self) -> Option<&dyn BoolArrayTrait> {
-        Some(self)
+impl VariantsVTable<ByteBoolArray> for ByteBoolEncoding {
+    fn as_bool_array<'a>(&self, array: &'a ByteBoolArray) -> Option<&'a dyn BoolArrayTrait> {
+        Some(array)
     }
 }
 

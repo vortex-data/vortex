@@ -1,26 +1,24 @@
 use vortex_array::variants::{
-    ArrayVariants, BinaryArrayTrait, BoolArrayTrait, PrimitiveArrayTrait, Utf8ArrayTrait,
+    BinaryArrayTrait, BoolArrayTrait, PrimitiveArrayTrait, Utf8ArrayTrait, VariantsVTable,
 };
-use vortex_array::ArrayDType;
-use vortex_dtype::DType;
 
-use crate::DictArray;
+use crate::{DictArray, DictEncoding};
 
-impl ArrayVariants for DictArray {
-    fn as_bool_array(&self) -> Option<&dyn BoolArrayTrait> {
-        matches!(self.dtype(), DType::Bool(..)).then_some(self)
+impl VariantsVTable<DictArray> for DictEncoding {
+    fn as_bool_array<'a>(&self, array: &'a DictArray) -> Option<&'a dyn BoolArrayTrait> {
+        Some(array)
     }
 
-    fn as_primitive_array(&self) -> Option<&dyn PrimitiveArrayTrait> {
-        matches!(self.dtype(), DType::Primitive(..)).then_some(self)
+    fn as_primitive_array<'a>(&self, array: &'a DictArray) -> Option<&'a dyn PrimitiveArrayTrait> {
+        Some(array)
     }
 
-    fn as_utf8_array(&self) -> Option<&dyn Utf8ArrayTrait> {
-        matches!(self.dtype(), DType::Utf8(..)).then_some(self)
+    fn as_utf8_array<'a>(&self, array: &'a DictArray) -> Option<&'a dyn Utf8ArrayTrait> {
+        Some(array)
     }
 
-    fn as_binary_array(&self) -> Option<&dyn BinaryArrayTrait> {
-        matches!(self.dtype(), DType::Binary(..)).then_some(self)
+    fn as_binary_array<'a>(&self, array: &'a DictArray) -> Option<&'a dyn BinaryArrayTrait> {
+        Some(array)
     }
 }
 

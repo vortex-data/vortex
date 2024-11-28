@@ -6,7 +6,7 @@ use vortex_array::compute::{scalar_at, search_sorted, SearchSortedSide};
 use vortex_array::encoding::ids;
 use vortex_array::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
 use vortex_array::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
-use vortex_array::variants::{ArrayVariants, BoolArrayTrait, PrimitiveArrayTrait};
+use vortex_array::variants::{BoolArrayTrait, PrimitiveArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
@@ -178,9 +178,9 @@ pub(crate) fn value_at_index(idx: usize, start: bool) -> bool {
 
 impl BoolArrayTrait for RunEndBoolArray {}
 
-impl ArrayVariants for RunEndBoolArray {
-    fn as_bool_array(&self) -> Option<&dyn BoolArrayTrait> {
-        Some(self)
+impl VariantsVTable<RunEndBoolArray> for RunEndBoolEncoding {
+    fn as_bool_array<'a>(&self, array: &'a RunEndBoolArray) -> Option<&'a dyn BoolArrayTrait> {
+        Some(array)
     }
 }
 

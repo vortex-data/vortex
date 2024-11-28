@@ -13,7 +13,7 @@ use vortex_sampling_compressor::{CompressConfig, SamplingCompressor};
 mod tests {
     use vortex_array::array::{Bool, BooleanBuffer, ChunkedArray, VarBin};
     use vortex_array::stats::{ArrayStatistics, Stat};
-    use vortex_array::variants::{ArrayVariants, StructArrayTrait};
+    use vortex_array::variants::StructArrayTrait;
     use vortex_array::ArrayDef;
     use vortex_datetime_dtype::TimeUnit;
     use vortex_datetime_parts::DateTimeParts;
@@ -114,7 +114,6 @@ mod tests {
         assert_eq!(compressed.dtype(), to_compress.dtype());
 
         let struct_array: StructArray = compressed.try_into().unwrap();
-        let struct_array: &dyn StructArrayTrait = struct_array.as_struct_array().unwrap();
 
         let prim_col: ChunkedArray = struct_array
             .field_by_name("prim_col")

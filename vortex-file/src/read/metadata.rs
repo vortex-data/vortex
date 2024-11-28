@@ -188,78 +188,76 @@ mod test {
         assert!(metadata_table.len() == 2);
         assert!(metadata_table.iter().all(Option::is_some));
 
-        metadata_table[0]
+        let name_metadata_table = metadata_table[0]
             .as_ref()
             .unwrap()
-            .with_dyn(|name_metadata_table| {
-                let name_metadata_table = name_metadata_table.as_struct_array().unwrap();
+            .as_struct_array()
+            .unwrap();
 
-                let min = name_metadata_table.field_by_name("min").unwrap();
-                let chunk1_min = scalar_at(&min, 0).unwrap();
-                let chunk2_min = scalar_at(&min, 1).unwrap();
-                assert_eq!(
-                    chunk1_min.as_utf8().value(),
-                    Some(BufferString::from("Angela"))
-                );
-                assert_eq!(
-                    chunk2_min.as_utf8().value(),
-                    Some(BufferString::from("Khalil"))
-                );
+        let min = name_metadata_table.field_by_name("min").unwrap();
+        let chunk1_min = scalar_at(&min, 0).unwrap();
+        let chunk2_min = scalar_at(&min, 1).unwrap();
+        assert_eq!(
+            chunk1_min.as_utf8().value(),
+            Some(BufferString::from("Angela"))
+        );
+        assert_eq!(
+            chunk2_min.as_utf8().value(),
+            Some(BufferString::from("Khalil"))
+        );
 
-                let max = name_metadata_table.field_by_name("max").unwrap();
-                let chunk1_max = scalar_at(&max, 0).unwrap();
-                let chunk2_max = scalar_at(&max, 1).unwrap();
-                assert_eq!(
-                    chunk1_max.as_utf8().value(),
-                    Some(BufferString::from("Joseph"))
-                );
-                assert_eq!(
-                    chunk2_max.as_utf8().value(),
-                    Some(BufferString::from("Pharrell"))
-                );
+        let max = name_metadata_table.field_by_name("max").unwrap();
+        let chunk1_max = scalar_at(&max, 0).unwrap();
+        let chunk2_max = scalar_at(&max, 1).unwrap();
+        assert_eq!(
+            chunk1_max.as_utf8().value(),
+            Some(BufferString::from("Joseph"))
+        );
+        assert_eq!(
+            chunk2_max.as_utf8().value(),
+            Some(BufferString::from("Pharrell"))
+        );
 
-                let null_count = name_metadata_table.field_by_name("null_count").unwrap();
-                let chunk1_null_count = scalar_at(&null_count, 0).unwrap();
-                let chunk2_null_count = scalar_at(&null_count, 1).unwrap();
-                assert_eq!(
-                    chunk1_null_count.as_primitive().typed_value::<u64>(),
-                    Some(0)
-                );
-                assert_eq!(
-                    chunk2_null_count.as_primitive().typed_value::<u64>(),
-                    Some(1)
-                );
-            });
+        let null_count = name_metadata_table.field_by_name("null_count").unwrap();
+        let chunk1_null_count = scalar_at(&null_count, 0).unwrap();
+        let chunk2_null_count = scalar_at(&null_count, 1).unwrap();
+        assert_eq!(
+            chunk1_null_count.as_primitive().typed_value::<u64>(),
+            Some(0)
+        );
+        assert_eq!(
+            chunk2_null_count.as_primitive().typed_value::<u64>(),
+            Some(1)
+        );
 
-        metadata_table[1]
+        let age_metadata_table = metadata_table[1]
             .as_ref()
             .unwrap()
-            .with_dyn(|age_metadata_table| {
-                let age_metadata_table = age_metadata_table.as_struct_array().unwrap();
+            .as_struct_array()
+            .unwrap();
 
-                let min = age_metadata_table.field_by_name("min").unwrap();
-                let chunk1_min = scalar_at(&min, 0).unwrap();
-                let chunk2_min = scalar_at(&min, 1).unwrap();
-                assert_eq!(chunk1_min.as_primitive().typed_value::<i32>(), Some(25));
-                assert_eq!(chunk2_min.as_primitive().typed_value::<i32>(), Some(18));
+        let min = age_metadata_table.field_by_name("min").unwrap();
+        let chunk1_min = scalar_at(&min, 0).unwrap();
+        let chunk2_min = scalar_at(&min, 1).unwrap();
+        assert_eq!(chunk1_min.as_primitive().typed_value::<i32>(), Some(25));
+        assert_eq!(chunk2_min.as_primitive().typed_value::<i32>(), Some(18));
 
-                let max = age_metadata_table.field_by_name("max").unwrap();
-                let chunk1_max = scalar_at(&max, 0).unwrap();
-                let chunk2_max = scalar_at(&max, 1).unwrap();
-                assert_eq!(chunk1_max.as_primitive().typed_value::<i32>(), Some(31));
-                assert_eq!(chunk2_max.as_primitive().typed_value::<i32>(), Some(57));
+        let max = age_metadata_table.field_by_name("max").unwrap();
+        let chunk1_max = scalar_at(&max, 0).unwrap();
+        let chunk2_max = scalar_at(&max, 1).unwrap();
+        assert_eq!(chunk1_max.as_primitive().typed_value::<i32>(), Some(31));
+        assert_eq!(chunk2_max.as_primitive().typed_value::<i32>(), Some(57));
 
-                let null_count = age_metadata_table.field_by_name("null_count").unwrap();
-                let chunk1_null_count = scalar_at(&null_count, 0).unwrap();
-                let chunk2_null_count = scalar_at(&null_count, 1).unwrap();
-                assert_eq!(
-                    chunk1_null_count.as_primitive().typed_value::<u64>(),
-                    Some(1)
-                );
-                assert_eq!(
-                    chunk2_null_count.as_primitive().typed_value::<u64>(),
-                    Some(1)
-                );
-            });
+        let null_count = age_metadata_table.field_by_name("null_count").unwrap();
+        let chunk1_null_count = scalar_at(&null_count, 0).unwrap();
+        let chunk2_null_count = scalar_at(&null_count, 1).unwrap();
+        assert_eq!(
+            chunk1_null_count.as_primitive().typed_value::<u64>(),
+            Some(1)
+        );
+        assert_eq!(
+            chunk2_null_count.as_primitive().typed_value::<u64>(),
+            Some(1)
+        );
     }
 }

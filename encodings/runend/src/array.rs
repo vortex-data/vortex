@@ -8,7 +8,7 @@ use vortex_array::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
 use vortex_array::validity::{
     ArrayValidity, LogicalValidity, Validity, ValidityMetadata, ValidityVTable,
 };
-use vortex_array::variants::{ArrayVariants, BoolArrayTrait, PrimitiveArrayTrait};
+use vortex_array::variants::{BoolArrayTrait, PrimitiveArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
@@ -187,9 +187,16 @@ impl RunEndArray {
 
 impl ArrayTrait for RunEndArray {}
 
-impl ArrayVariants for RunEndArray {
-    fn as_primitive_array(&self) -> Option<&dyn PrimitiveArrayTrait> {
-        Some(self)
+impl VariantsVTable<RunEndArray> for RunEndEncoding {
+    fn as_bool_array<'a>(&self, array: &'a RunEndArray) -> Option<&'a dyn BoolArrayTrait> {
+        Some(array)
+    }
+
+    fn as_primitive_array<'a>(
+        &self,
+        array: &'a RunEndArray,
+    ) -> Option<&'a dyn PrimitiveArrayTrait> {
+        Some(array)
     }
 }
 

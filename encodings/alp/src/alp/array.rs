@@ -5,7 +5,7 @@ use vortex_array::array::PrimitiveArray;
 use vortex_array::encoding::ids;
 use vortex_array::stats::StatisticsVTable;
 use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
-use vortex_array::variants::{ArrayVariants, PrimitiveArrayTrait};
+use vortex_array::variants::{PrimitiveArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
@@ -124,9 +124,9 @@ impl ALPArray {
 
 impl ArrayTrait for ALPArray {}
 
-impl ArrayVariants for ALPArray {
-    fn as_primitive_array(&self) -> Option<&dyn PrimitiveArrayTrait> {
-        Some(self)
+impl VariantsVTable<ALPArray> for ALPEncoding {
+    fn as_primitive_array<'a>(&self, array: &'a ALPArray) -> Option<&'a dyn PrimitiveArrayTrait> {
+        Some(array)
     }
 }
 
