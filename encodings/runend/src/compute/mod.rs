@@ -132,7 +132,11 @@ impl SliceFn<RunEndArray> for RunEndEncoding {
             slice(array.ends(), slice_begin, slice_end)?,
             slice(array.values(), slice_begin, slice_end)?,
             array.validity().slice(start, stop)?,
-            start + array.offset(),
+            if new_length == 0 {
+                0
+            } else {
+                start + array.offset()
+            },
             new_length,
         )?
         .into_array())
