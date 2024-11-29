@@ -21,8 +21,8 @@ use vortex_array::arrow::infer_schema;
 use vortex_array::Context;
 use vortex_file::metadata::MetadataFetcher;
 use vortex_file::{
-    read_initial_bytes, LayoutContext, LayoutDeserializer, LayoutMessageCache, RelativeLayoutCache,
-    Scan, VORTEX_FILE_EXTENSION,
+    read_initial_bytes, read_layout_from_initial, LayoutContext, LayoutDeserializer,
+    LayoutMessageCache, RelativeLayoutCache, Scan, VORTEX_FILE_EXTENSION,
 };
 use vortex_io::{IoDispatcher, ObjectStoreReadAt};
 
@@ -106,7 +106,7 @@ impl FileFormat for VortexFormat {
         let relative_message_cache =
             RelativeLayoutCache::new(layout_message_cache.clone(), dtype.into());
 
-        let root_layout = vortex_file::read_layout_from_initial(
+        let root_layout = read_layout_from_initial(
             &initial_read,
             &layout_deserializer,
             Scan::empty(),
