@@ -357,6 +357,8 @@ pub trait IntoArrayVariant {
 
     fn into_struct(self) -> VortexResult<StructArray>;
 
+    fn into_list(self) -> VortexResult<ListArray>;
+
     fn into_varbinview(self) -> VortexResult<VarBinViewArray>;
 
     fn into_extension(self) -> VortexResult<ExtensionArray>;
@@ -380,6 +382,10 @@ where
 
     fn into_struct(self) -> VortexResult<StructArray> {
         self.into_canonical()?.into_struct()
+    }
+
+    fn into_list(self) -> VortexResult<ListArray> {
+        self.into_canonical()?.into_list()
     }
 
     fn into_varbinview(self) -> VortexResult<VarBinViewArray> {

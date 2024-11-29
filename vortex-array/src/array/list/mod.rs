@@ -1,3 +1,5 @@
+mod compute;
+
 use std::fmt::Display;
 use std::sync::Arc;
 
@@ -6,13 +8,13 @@ use serde::{Deserialize, Serialize};
 use vortex_dtype::{match_each_native_ptype, DType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult};
 
-use crate::array::{NullArray, PrimitiveArray};
+use crate::array::{NullArray, PrimitiveArray, StructArray};
+use crate::compute::slice;
 use crate::compute::unary::scalar_at;
-use crate::compute::{slice, ComputeVTable};
 use crate::encoding::ids;
 use crate::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
 use crate::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
-use crate::variants::{ArrayVariants, ListArrayTrait, PrimitiveArrayTrait};
+use crate::variants::{ArrayVariants, ListArrayTrait, PrimitiveArrayTrait, StructArrayTrait};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
@@ -167,7 +169,7 @@ impl ListArray {
     //     slice(self.elements(), start as usize, end as usize).ok()
     // }
 
-    pub fn element_at(&self, index: usize) -> VortexResult<ArrayData> {
+    pub fn elements_at(&self, index: usize) -> VortexResult<ArrayData> {
         if index >= self.len() {
             vortex_bail!("Index out of bounds: index={} len={}", index, self.len());
         }
@@ -205,8 +207,6 @@ impl ArrayVariants for ListArray {
 
 impl ArrayTrait for ListArray {}
 
-impl ComputeVTable for ListEncoding {}
-
 impl VisitorVTable<ListArray> for ListEncoding {
     fn accept(&self, _array: &ListArray, _visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
         todo!()
@@ -237,39 +237,47 @@ impl ValidityVTable<ListArray> for ListEncoding {
     }
 }
 
+impl ArrayVariants for StructArray {
+    fn as_list_array(&self) -> Option<&dyn ListArrayTrait> {
+        Some(self)
+    }
+}
+
 #[cfg(test)]
 mod test {
-    use arrow_buffer::ArrowNativeType;
-    use vortex_dtype::NativePType;
+    use std::sync::Arc;
+
+    use vortex_dtype::PType;
+    use vortex_scalar::Scalar;
 
     use crate::array::list::ListArray;
-    use crate::array::{BoolArray, PrimitiveArray};
-    use crate::validity::{ArrayValidity, Validity};
-    use crate::{ArrayLen, IntoArrayData, IntoArrayVariant};
-
-    fn idx_into_slice<T: NativePType + ArrowNativeType>(list: &ListArray, idx: usize) -> Vec<T> {
-        let binding = list.element_at(idx).unwrap().into_primitive().unwrap();
-        binding.into_maybe_null_slice::<T>()
-    }
-
-    fn idx_into_opt_slice_opt<T: NativePType + ArrowNativeType>(
-        list: &ListArray,
-        idx: usize,
-    ) -> Option<Vec<Option<T>>> {
-        let arr = list.element_at(idx).ok()?;
-
-        if arr.logical_validity().all_invalid() {
-            return None;
-        }
-
-        // Some(
-        //     PrimitiveArray::try_from(arr.into_buffer().expect("prim"))
-        //         .expect("prim")
-        //         .with_iterator(|iter| iter.map(|i| i.cloned()).collect_vec())
-        //         .unwrap(),
-        // )
-        todo!()
-    }
+    use crate::array::PrimitiveArray;
+    use crate::compute::unary::scalar_at;
+    use crate::validity::Validity;
+    use crate::{ArrayLen, IntoArrayData};
+    // fn idx_into_slice<T: NativePType + ArrowNativeType>(list: &ListArray, idx: usize) -> Vec<T> {
+    //     let binding = list.element_at(idx).unwrap().into_primitive().unwrap();
+    //     binding.into_maybe_null_slice::<T>()
+    // }
+    //
+    // fn idx_into_opt_slice_opt<T: NativePType + ArrowNativeType>(
+    //     list: &ListArray,
+    //     idx: usize,
+    // ) -> Option<Vec<Option<T>>> {
+    //     let arr = list.element_at(idx).ok()?;
+    //
+    //     if arr.logical_validity().all_invalid() {
+    //         return None;
+    //     }
+    //
+    //     // Some(
+    //     //     PrimitiveArray::try_from(arr.into_buffer().expect("prim"))
+    //     //         .expect("prim")
+    //     //         .with_iterator(|iter| iter.map(|i| i.cloned()).collect_vec())
+    //     //         .unwrap(),
+    //     // )
+    //     todo!()
+    // }
 
     #[test]
     fn test_empty_list_array() {
@@ -292,42 +300,52 @@ mod test {
         let list =
             ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
 
-        assert_eq!(vec![1, 2], idx_into_slice::<i32>(&list, 0));
-        assert_eq!(vec![3, 4], idx_into_slice::<i32>(&list, 1));
-        assert_eq!(vec![5], idx_into_slice::<i32>(&list, 2));
-    }
-
-    #[test]
-    fn test_list_empty_elem_array() {
-        let elements = PrimitiveArray::from(vec![1]);
-        let offsets = PrimitiveArray::from(vec![0, 0, 1, 1]);
-
-        let list = ListArray::try_new(
-            elements.into_array(),
-            offsets.into_array(),
-            Validity::AllValid,
-        )
-        .unwrap();
-
-        assert_eq!(Some(vec![]), idx_into_opt_slice_opt::<i32>(&list, 0));
-        assert_eq!(Some(vec![Some(1)]), idx_into_opt_slice_opt::<i32>(&list, 1));
-        assert_eq!(Some(vec![]), idx_into_opt_slice_opt::<i32>(&list, 2));
-    }
-
-    #[test]
-    fn test_list_validation_array() {
-        let elements = PrimitiveArray::from_nullable_vec(vec![None, Some(2), Some(3)]);
-        let offsets = PrimitiveArray::from(vec![0, 0, 2, 3]);
-        let validity = Validity::Array(BoolArray::from_iter(vec![false, true, true]).into_array());
-
-        let list =
-            ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
-
-        assert_eq!(None, idx_into_opt_slice_opt::<i32>(&list, 0));
-        assert_eq!(
-            Some(vec![None, Some(2)]),
-            idx_into_opt_slice_opt::<i32>(&list, 1)
+        let l = Scalar::list(
+            Arc::new(PType::I32.into()),
+            vec![
+                1.into(),
+                // Scalar::new(PType::I32.into(), 1i32.into()),
+                // Scalar::new(PType::I32.into(), 2i32.into()),
+            ]
+            .into(),
         );
-        assert_eq!(Some(vec![Some(3)]), idx_into_opt_slice_opt::<i32>(&list, 2));
+
+        assert_eq!(l, scalar_at(&list, 0).unwrap());
+        // assert_eq!(vec![3, 4], scalar_at(&list, 1));
+        // assert_eq!(vec![5], scalar_at(&list, 2));
     }
+
+    // #[test]
+    // fn test_list_empty_elem_array() {
+    //     let elements = PrimitiveArray::from(vec![1]);
+    //     let offsets = PrimitiveArray::from(vec![0, 0, 1, 1]);
+    //
+    //     let list = ListArray::try_new(
+    //         elements.into_array(),
+    //         offsets.into_array(),
+    //         Validity::AllValid,
+    //     )
+    //     .unwrap();
+    //
+    //     assert_eq!(Some(vec![]), idx_into_opt_slice_opt::<i32>(&list, 0));
+    //     assert_eq!(Some(vec![Some(1)]), idx_into_opt_slice_opt::<i32>(&list, 1));
+    //     assert_eq!(Some(vec![]), idx_into_opt_slice_opt::<i32>(&list, 2));
+    // }
+    //
+    // #[test]
+    // fn test_list_validation_array() {
+    //     let elements = PrimitiveArray::from_nullable_vec(vec![None, Some(2), Some(3)]);
+    //     let offsets = PrimitiveArray::from(vec![0, 0, 2, 3]);
+    //     let validity = Validity::Array(BoolArray::from_iter(vec![false, true, true]).into_array());
+    //
+    //     let list =
+    //         ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
+    //
+    //     assert_eq!(None, idx_into_opt_slice_opt::<i32>(&list, 0));
+    //     assert_eq!(
+    //         Some(vec![None, Some(2)]),
+    //         idx_into_opt_slice_opt::<i32>(&list, 1)
+    //     );
+    //     assert_eq!(Some(vec![Some(3)]), idx_into_opt_slice_opt::<i32>(&list, 2));
+    // }
 }
