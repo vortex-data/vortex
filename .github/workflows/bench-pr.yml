@@ -172,7 +172,7 @@ jobs:
         env:
           BENCH_VORTEX_RATIOS: '.*'
           RUSTFLAGS: '-C target-cpu=native'
-          HOME: /home/c-runner/
+          HOME: /home/ci-runner
         run: |
           cargo run --bin clickbench --release -- -d gh-json | tee clickbench.json
       - name: Store benchmark result
