@@ -1,6 +1,7 @@
 use num_traits::AsPrimitive;
-use vortex_array::compute::unary::{FillForwardFn, ScalarAtFn};
-use vortex_array::compute::{ComputeVTable, SliceFn, TakeFn, TakeOptions};
+use vortex_array::compute::{
+    ComputeVTable, FillForwardFn, ScalarAtFn, SliceFn, TakeFn, TakeOptions,
+};
 use vortex_array::validity::{ArrayValidity, Validity};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
@@ -142,8 +143,7 @@ impl FillForwardFn<ByteBoolArray> for ByteBoolEncoding {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::compute::unary::scalar_at;
-    use vortex_array::compute::{compare, slice, Operator};
+    use vortex_array::compute::{compare, scalar_at, slice, Operator};
 
     use super::*;
 

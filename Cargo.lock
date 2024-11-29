@@ -452,7 +452,7 @@ checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
 name = "bench-vortex"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "anyhow",
  "arrow-array",
@@ -554,9 +554,9 @@ checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 
 [[package]]
 name = "bytes"
-version = "1.8.0"
+version = "1.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9ac0150caa2ae65ca5bd83f25c7de183dea78d4d366469f148435e2acfbad0da"
+checksum = "325918d6fe32f23b19878fe4b34794ae41fc19ddbe53b10571a4874d44ffd39b"
 
 [[package]]
 name = "bzip2"
@@ -3437,7 +3437,7 @@ dependencies = [
 
 [[package]]
 name = "pyvortex"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "arrow",
  "flume",
@@ -4504,9 +4504,9 @@ checksum = "8df9b6e13f2d32c91b9bd719c00d1958837bc7dec474d94952798cc8e69eeec3"
 
 [[package]]
 name = "tracing"
-version = "0.1.40"
+version = "0.1.41"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3523ab5a71916ccf420eebdf5521fcef02141234bbc0b8a49f2fdc4544364ef"
+checksum = "784e0ac535deb450455cbfa28a6f0df145ea1bb7ae51b821cf5e7927fdcfbdd0"
 dependencies = [
  "pin-project-lite",
  "tracing-attributes",
@@ -4515,9 +4515,9 @@ dependencies = [
 
 [[package]]
 name = "tracing-attributes"
-version = "0.1.27"
+version = "0.1.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34704c8d6ebcbc939824180af020566b01a7c01f80641264eba0999f6c2b6be7"
+checksum = "395ae124c09f9e6918a2310af6038fba074bcf474ac352496d5910dd59a2226d"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4526,9 +4526,9 @@ dependencies = [
 
 [[package]]
 name = "tracing-core"
-version = "0.1.32"
+version = "0.1.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c06d3da6113f116aaee68e4d601191614c9053067f9ab7f6edbcb161237daa54"
+checksum = "e672c95779cf947c5311f83787af4fa8fffd12fb27e4993211a84bdfd9610f9c"
 dependencies = [
  "once_cell",
 ]
@@ -4643,7 +4643,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vortex"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "vortex-alp",
  "vortex-array",
@@ -4672,7 +4672,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-alp"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "arrow-array",
  "divan",
@@ -4689,7 +4689,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-array"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "arbitrary",
  "arrow-arith",
@@ -4728,7 +4728,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-buffer"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "arrow-buffer",
  "bytes",
@@ -4737,7 +4737,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-bytebool"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "arrow-buffer",
  "num-traits",
@@ -4751,7 +4751,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-datafusion"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "anyhow",
  "arrow-array",
@@ -4782,7 +4782,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-datetime-dtype"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "arrow-schema",
  "jiff",
@@ -4794,7 +4794,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-datetime-parts"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "itertools 0.13.0",
  "serde",
@@ -4807,7 +4807,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-dict"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "arrow-buffer",
  "criterion",
@@ -4823,7 +4823,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-dtype"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "arbitrary",
  "flatbuffers",
@@ -4841,7 +4841,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-error"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "arrow-schema",
  "datafusion-common",
@@ -4858,7 +4858,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-expr"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "datafusion-expr",
  "datafusion-physical-expr",
@@ -4874,7 +4874,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-fastlanes"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "arrayref",
  "arrow-buffer",
@@ -4893,7 +4893,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-file"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -4921,14 +4921,14 @@ dependencies = [
 
 [[package]]
 name = "vortex-flatbuffers"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "flatbuffers",
 ]
 
 [[package]]
 name = "vortex-fsst"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -4943,7 +4943,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-fuzz"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "libfuzzer-sys",
  "vortex-array",
@@ -4956,7 +4956,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-io"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "bytes",
  "compio",
@@ -4974,7 +4974,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-ipc"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "arrow-array",
  "arrow-ipc",
@@ -4998,7 +4998,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-proto"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "prost",
  "prost-types",
@@ -5006,7 +5006,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-roaring"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "arrow-buffer",
  "croaring",
@@ -5021,7 +5021,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-runend"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "arrow-buffer",
  "itertools 0.13.0",
@@ -5035,7 +5035,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-runend-bool"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "arrow-buffer",
  "criterion",
@@ -5052,7 +5052,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-sampling-compressor"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "arbitrary",
  "chrono",
@@ -5079,7 +5079,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-scalar"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "arbitrary",
  "arrow-array",
@@ -5103,7 +5103,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-zigzag"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "serde",
  "vortex-array",
@@ -5581,7 +5581,7 @@ checksum = "32ac00cd3f8ec9c1d33fb3e7958a82df6989c42d747bd326c822b1d625283547"
 
 [[package]]
 name = "xtask"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "anyhow",
  "clap",

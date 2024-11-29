@@ -1,14 +1,10 @@
-use vortex_array::variants::{ArrayVariants, PrimitiveArrayTrait};
+use vortex_array::variants::{PrimitiveArrayTrait, VariantsVTable};
 
-use crate::ALPRDArray;
+use crate::{ALPRDArray, ALPRDEncoding};
 
-impl ArrayVariants for ALPRDArray {
-    fn as_primitive_array(&self) -> Option<&dyn PrimitiveArrayTrait> {
-        Some(self)
-    }
-
-    fn as_primitive_array_unchecked(&self) -> &dyn PrimitiveArrayTrait {
-        self
+impl VariantsVTable<ALPRDArray> for ALPRDEncoding {
+    fn as_primitive_array<'a>(&self, array: &'a ALPRDArray) -> Option<&'a dyn PrimitiveArrayTrait> {
+        Some(array)
     }
 }
 

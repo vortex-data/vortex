@@ -1,14 +1,14 @@
 mod compare;
+mod invert;
 
 use std::cmp::min;
 use std::ops::AddAssign;
 
 use num_traits::AsPrimitive;
 use vortex_array::array::{BooleanBuffer, ConstantArray, PrimitiveArray, SparseArray};
-use vortex_array::compute::unary::{scalar_at, ScalarAtFn};
 use vortex_array::compute::{
-    filter, slice, take, CompareFn, ComputeVTable, FilterFn, FilterMask, SliceFn, TakeFn,
-    TakeOptions,
+    filter, scalar_at, slice, take, CompareFn, ComputeVTable, FilterFn, FilterMask, InvertFn,
+    ScalarAtFn, SliceFn, TakeFn, TakeOptions,
 };
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
@@ -25,6 +25,10 @@ impl ComputeVTable for RunEndEncoding {
     }
 
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn invert_fn(&self) -> Option<&dyn InvertFn<ArrayData>> {
         Some(self)
     }
 
@@ -112,15 +116,28 @@ impl TakeFn<RunEndArray> for RunEndEncoding {
 
 impl SliceFn<RunEndArray> for RunEndEncoding {
     fn slice(&self, array: &RunEndArray, start: usize, stop: usize) -> VortexResult<ArrayData> {
-        let slice_begin = array.find_physical_index(start)?;
-        let slice_end = array.find_physical_index(stop)?;
+        let new_length = stop - start;
+
+        let (slice_begin, slice_end) = if new_length == 0 {
+            let values_len = array.values().len();
+            (values_len, values_len)
+        } else {
+            let physical_start = array.find_physical_index(start)?;
+            let physical_stop = array.find_physical_index(stop)?;
+
+            (physical_start, physical_stop + 1)
+        };
 
         Ok(RunEndArray::with_offset_and_length(
-            slice(array.ends(), slice_begin, slice_end + 1)?,
-            slice(array.values(), slice_begin, slice_end + 1)?,
+            slice(array.ends(), slice_begin, slice_end)?,
+            slice(array.values(), slice_begin, slice_end)?,
             array.validity().slice(start, stop)?,
-            start + array.offset(),
-            stop - start,
+            if new_length == 0 {
+                0
+            } else {
+                start + array.offset()
+            },
+            new_length,
         )?
         .into_array())
     }
@@ -178,8 +195,9 @@ fn filter_run_ends<R: NativePType + AddAssign + From<bool> + AsPrimitive<u64>>(
 #[cfg(test)]
 mod test {
     use vortex_array::array::{BoolArray, PrimitiveArray};
-    use vortex_array::compute::unary::{scalar_at, try_cast};
-    use vortex_array::compute::{filter, slice, take, FilterMask, TakeOptions};
+    use vortex_array::compute::{
+        filter, scalar_at, slice, take, try_cast, FilterMask, TakeOptions,
+    };
     use vortex_array::validity::{ArrayValidity, Validity};
     use vortex_array::{ArrayDType, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
     use vortex_dtype::{DType, Nullability, PType};
@@ -400,6 +418,25 @@ mod test {
                 .collect::<Vec<Option<i32>>>(),
             vec![Some(1), None, None, Some(3),]
         );
+    }
+
+    #[test]
+    fn slice_at_end() {
+        let re_array = RunEndArray::try_new(
+            vec![7_u64, 10].into_array(),
+            vec![2_u64, 3].into_array(),
+            Validity::NonNullable,
+        )
+        .unwrap();
+
+        assert_eq!(re_array.len(), 10);
+
+        let sliced_array = slice(&re_array, re_array.len(), re_array.len()).unwrap();
+        assert!(sliced_array.is_empty());
+
+        let re_slice = RunEndArray::try_from(sliced_array).unwrap();
+        assert!(re_slice.ends().is_empty());
+        assert!(re_slice.values().is_empty())
     }
 
     #[test]

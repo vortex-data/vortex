@@ -9,6 +9,7 @@ use vortex_error::{vortex_panic, VortexResult};
 use crate::compute::ComputeVTable;
 use crate::stats::StatisticsVTable;
 use crate::validity::ValidityVTable;
+use crate::variants::VariantsVTable;
 use crate::visitor::VisitorVTable;
 use crate::{ArrayData, ArrayDef, ArrayMetadata, ArrayTrait, IntoCanonicalVTable, MetadataVTable};
 
@@ -70,16 +71,17 @@ pub type EncodingRef = &'static dyn EncodingVTable;
 
 /// Object-safe encoding trait for an array.
 pub trait EncodingVTable:
-'static
-+ Sync
-+ Send
-+ Debug
-+ IntoCanonicalVTable
-+ MetadataVTable
-+ ComputeVTable
-+ StatisticsVTable<ArrayData>
-+ ValidityVTable<ArrayData>
-+ VisitorVTable<ArrayData>
+    'static
+    + Sync
+    + Send
+    + Debug
+    + IntoCanonicalVTable
+    + MetadataVTable
+    + ComputeVTable
+    + StatisticsVTable<ArrayData>
+    + ValidityVTable<ArrayData>
+    + VariantsVTable<ArrayData>
+    + VisitorVTable<ArrayData>
 {
     fn id(&self) -> EncodingId;
 

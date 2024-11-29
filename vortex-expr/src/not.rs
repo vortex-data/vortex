@@ -3,9 +3,10 @@ use std::fmt::Display;
 use std::sync::Arc;
 
 use vortex_array::aliases::hash_set::HashSet;
+use vortex_array::compute::invert;
 use vortex_array::ArrayData;
 use vortex_dtype::field::Field;
-use vortex_error::{vortex_err, VortexResult};
+use vortex_error::VortexResult;
 
 use crate::{unbox_any, ExprRef, VortexExpr};
 
@@ -38,11 +39,7 @@ impl VortexExpr for Not {
 
     fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
         let child_result = self.child.evaluate(batch)?;
-        child_result.with_dyn(|a| {
-            a.as_bool_array()
-                .ok_or_else(|| vortex_err!("Child was not a bool array"))
-                .and_then(|b| b.invert())
-        })
+        invert(&child_result)
     }
 
     fn collect_references<'a>(&'a self, references: &mut HashSet<&'a Field>) {

@@ -18,7 +18,7 @@ use vortex_io::{Dispatch, IoDispatcher, VortexReadAt};
 
 use crate::read::cache::LayoutMessageCache;
 use crate::read::mask::RowMask;
-use crate::read::splits::{FilteringRowSplitIterator, FixedSplitIterator, MaskIterator, SplitMask};
+use crate::read::splits::{FixedSplitIterator, MaskIterator, PruningSplitIterator, SplitMask};
 use crate::read::{BatchRead, LayoutReader, MessageId, MessageLocator};
 use crate::LazyDType;
 
@@ -52,7 +52,7 @@ impl<R: VortexReadAt> VortexFileArrayStream<R> {
         dispatcher: Arc<IoDispatcher>,
     ) -> Self {
         let mask_iterator = if let Some(fr) = filter_reader {
-            Box::new(FilteringRowSplitIterator::new(fr, row_count, row_mask)) as MaskIteratorRef
+            Box::new(PruningSplitIterator::new(fr, row_count, row_mask)) as MaskIteratorRef
         } else {
             Box::new(FixedSplitIterator::new(row_count, row_mask))
         };

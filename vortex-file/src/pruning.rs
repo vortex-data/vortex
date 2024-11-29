@@ -120,17 +120,18 @@ impl PruningPredicate {
 
     /// Evaluate this predicate against a per-chunk statistics table.
     ///
-    /// Returns None if any of the requried statistics are not present in metadata.
+    /// Returns Ok(None) if any of the required statistics are not present in metadata.
+    /// If it returns Ok(Some(array)), the array is a boolean array with the same length as the
+    /// metadata, and the values indicate whether the corresponding chunk can be pruned.
     pub fn evaluate(&self, metadata: &ArrayData) -> VortexResult<Option<ArrayData>> {
-        let known_stats = metadata.with_dyn(|x| {
-            HashSet::from_iter(
-                x.as_struct_array()
-                    .vortex_expect("metadata must be struct array")
-                    .names()
-                    .iter()
-                    .map(|x| x.to_string()),
-            )
-        });
+        let known_stats = HashSet::from_iter(
+            metadata
+                .as_struct_array()
+                .vortex_expect("metadata must be struct array")
+                .names()
+                .iter()
+                .map(|x| x.to_string()),
+        );
         let required_stats = self
             .required_stats()
             .iter()

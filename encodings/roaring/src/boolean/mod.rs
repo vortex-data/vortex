@@ -10,7 +10,7 @@ use vortex_array::array::BoolArray;
 use vortex_array::encoding::ids;
 use vortex_array::stats::StatsSet;
 use vortex_array::validity::{LogicalValidity, ValidityVTable};
-use vortex_array::variants::{ArrayVariants, BoolArrayTrait};
+use vortex_array::variants::{BoolArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
     impl_encoding, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData, IntoCanonical,
@@ -84,18 +84,13 @@ impl RoaringBoolArray {
 
 impl ArrayTrait for RoaringBoolArray {}
 
-impl ArrayVariants for RoaringBoolArray {
-    fn as_bool_array(&self) -> Option<&dyn BoolArrayTrait> {
-        Some(self)
+impl VariantsVTable<RoaringBoolArray> for RoaringBoolEncoding {
+    fn as_bool_array<'a>(&self, array: &'a RoaringBoolArray) -> Option<&'a dyn BoolArrayTrait> {
+        Some(array)
     }
 }
 
-impl BoolArrayTrait for RoaringBoolArray {
-    fn invert(&self) -> VortexResult<ArrayData> {
-        RoaringBoolArray::try_new(self.bitmap().flip(0..(self.len() as u32)), self.len())
-            .map(|a| a.into_array())
-    }
-}
+impl BoolArrayTrait for RoaringBoolArray {}
 
 impl VisitorVTable<RoaringBoolArray> for RoaringBoolEncoding {
     fn accept(&self, array: &RoaringBoolArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {

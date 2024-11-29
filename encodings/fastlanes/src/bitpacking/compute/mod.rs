@@ -1,5 +1,4 @@
-use vortex_array::compute::unary::ScalarAtFn;
-use vortex_array::compute::{ComputeVTable, FilterFn, SearchSortedFn, SliceFn, TakeFn};
+use vortex_array::compute::{ComputeVTable, FilterFn, ScalarAtFn, SearchSortedFn, SliceFn, TakeFn};
 use vortex_array::ArrayData;
 
 use crate::BitPackedEncoding;

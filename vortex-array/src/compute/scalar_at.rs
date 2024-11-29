@@ -2,6 +2,7 @@ use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::encoding::Encoding;
+use crate::validity::ArrayValidity;
 use crate::{ArrayDType, ArrayData};
 
 /// Implementation of scalar_at for an encoding.
@@ -33,7 +34,7 @@ pub fn scalar_at(array: impl AsRef<ArrayData>, index: usize) -> VortexResult<Sca
         vortex_bail!(OutOfBounds: index, 0, array.len());
     }
 
-    if !array.with_dyn(|a| a.is_valid(index)) {
+    if !array.is_valid(index) {
         return Ok(Scalar::null(array.dtype().clone()));
     }
 

@@ -2,21 +2,20 @@ use std::fmt::{Debug, Display};
 
 use serde::{Deserialize, Serialize};
 use vortex_array::array::PrimitiveArray;
-use vortex_array::compute::unary::scalar_at;
-use vortex_array::compute::{search_sorted, search_sorted_usize_many, SearchSortedSide};
+use vortex_array::compute::{scalar_at, search_sorted, search_sorted_usize_many, SearchSortedSide};
 use vortex_array::encoding::ids;
 use vortex_array::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
 use vortex_array::validity::{
     ArrayValidity, LogicalValidity, Validity, ValidityMetadata, ValidityVTable,
 };
-use vortex_array::variants::{ArrayVariants, BoolArrayTrait, PrimitiveArrayTrait};
+use vortex_array::variants::{BoolArrayTrait, PrimitiveArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
     IntoArrayVariant, IntoCanonical,
 };
 use vortex_dtype::{DType, PType};
-use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
+use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::compress::{runend_decode_bools, runend_decode_primitive, runend_encode};
@@ -69,7 +68,7 @@ impl RunEndArray {
             );
         }
 
-        if offset != 0 && !ends.is_empty() {
+        if offset != 0 {
             let first_run_end: usize = scalar_at(&ends, 0)?.as_ref().try_into()?;
             if first_run_end <= offset {
                 vortex_bail!("First run end {first_run_end} must be bigger than offset {offset}");
@@ -188,30 +187,22 @@ impl RunEndArray {
 
 impl ArrayTrait for RunEndArray {}
 
-impl ArrayVariants for RunEndArray {
-    fn as_primitive_array(&self) -> Option<&dyn PrimitiveArrayTrait> {
-        Some(self)
+impl VariantsVTable<RunEndArray> for RunEndEncoding {
+    fn as_bool_array<'a>(&self, array: &'a RunEndArray) -> Option<&'a dyn BoolArrayTrait> {
+        Some(array)
+    }
+
+    fn as_primitive_array<'a>(
+        &self,
+        array: &'a RunEndArray,
+    ) -> Option<&'a dyn PrimitiveArrayTrait> {
+        Some(array)
     }
 }
 
 impl PrimitiveArrayTrait for RunEndArray {}
 
-impl BoolArrayTrait for RunEndArray {
-    fn invert(&self) -> VortexResult<ArrayData> {
-        RunEndArray::with_offset_and_length(
-            self.ends(),
-            self.values().with_dyn(|v| {
-                v.as_bool_array()
-                    .ok_or_else(|| vortex_err!("Values were not a bool dtype array"))?
-                    .invert()
-            })?,
-            self.validity(),
-            self.len(),
-            self.offset(),
-        )
-        .map(|a| a.into_array())
-    }
-}
+impl BoolArrayTrait for RunEndArray {}
 
 impl ValidityVTable<RunEndArray> for RunEndEncoding {
     fn is_valid(&self, array: &RunEndArray, index: usize) -> bool {
@@ -276,7 +267,7 @@ impl StatisticsVTable<RunEndArray> for RunEndEncoding {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::compute::unary::scalar_at;
+    use vortex_array::compute::scalar_at;
     use vortex_array::validity::Validity;
     use vortex_array::{ArrayDType, ArrayLen, IntoArrayData};
     use vortex_dtype::{DType, Nullability, PType};

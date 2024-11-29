@@ -47,8 +47,7 @@ impl SliceFn<BitPackedArray> for BitPackedEncoding {
 mod test {
     use itertools::Itertools;
     use vortex_array::array::{PrimitiveArray, SparseArray};
-    use vortex_array::compute::unary::scalar_at;
-    use vortex_array::compute::{slice, take, TakeOptions};
+    use vortex_array::compute::{scalar_at, slice, take, TakeOptions};
     use vortex_array::{ArrayLen, IntoArrayData};
 
     use crate::BitPackedArray;

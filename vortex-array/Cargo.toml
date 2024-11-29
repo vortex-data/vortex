@@ -33,8 +33,8 @@ arrow-select = { workspace = true }
 bytes = { workspace = true }
 enum-iterator = { workspace = true }
 enum-map = { workspace = true }
-flatbuffers = { workspace = true, optional = true }
-flexbuffers = { workspace = true, optional = true }
+flatbuffers = { workspace = true }
+flexbuffers = { workspace = true }
 futures-util = { workspace = true }
 hashbrown = { workspace = true }
 humansize = { workspace = true }
@@ -48,25 +48,13 @@ serde = { workspace = true, features = ["derive"] }
 static_assertions = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-datetime-dtype = { workspace = true }
-vortex-dtype = { workspace = true }
-vortex-error = { workspace = true }
-vortex-flatbuffers = { workspace = true, optional = true }
-vortex-scalar = { workspace = true }
+vortex-dtype = { workspace = true, features = ["flatbuffers", "serde"] }
+vortex-error = { workspace = true, features = ["flatbuffers", "flexbuffers"] }
+vortex-flatbuffers = { workspace = true, features = ["array"] }
+vortex-scalar = { workspace = true, features = ["flatbuffers", "serde"] }
 
 [features]
-default = ["flatbuffers", "serde"]
 arbitrary = ["dep:arbitrary", "vortex-dtype/arbitrary"]
-flatbuffers = [
-    "dep:flatbuffers",
-    "dep:flexbuffers",
-    "dep:vortex-flatbuffers",
-    "vortex-flatbuffers/array",
-    "vortex-dtype/flatbuffers",
-    "vortex-error/flatbuffers",
-    "vortex-error/flexbuffers",
-    "vortex-scalar/flatbuffers",
-]
-serde = ["vortex-dtype/serde", "vortex-scalar/serde"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # Enable the JS feature of getrandom (via rand) to supprt wasm32 target
