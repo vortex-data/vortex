@@ -14,15 +14,16 @@ use arrow_array::{
     TimestampMillisecondArray, TimestampNanosecondArray, TimestampSecondArray,
 };
 use arrow_buffer::ScalarBuffer;
-use arrow_schema::{Field, Fields};
+use arrow_schema::{Field, FieldRef, Fields};
 use vortex_datetime_dtype::{is_temporal_ext_type, TemporalMetadata, TimeUnit};
 use vortex_dtype::{DType, NativePType, PType};
 use vortex_error::{vortex_bail, VortexError, VortexResult};
 
 use crate::array::{
-    varbinview_as_arrow, BoolArray, ExtensionArray, NullArray, PrimitiveArray, StructArray,
-    TemporalArray, VarBinViewArray,
+    varbinview_as_arrow, BoolArray, ExtensionArray, ListArray, NullArray, PrimitiveArray,
+    StructArray, TemporalArray, VarBinViewArray,
 };
+use crate::arrow::wrappers::as_offset_buffer;
 use crate::arrow::{infer_data_type, FromArrowArray};
 use crate::compute::unary::try_cast;
 use crate::encoding::Encoding;
@@ -60,6 +61,8 @@ pub enum Canonical {
     Bool(BoolArray),
     Primitive(PrimitiveArray),
     Struct(StructArray),
+    // TODO(joe): maybe this should be a ListView, however this will be annoying in spiral
+    List(ListArray),
     VarBinView(VarBinViewArray),
     Extension(ExtensionArray),
 }
@@ -76,6 +79,7 @@ impl Canonical {
             Canonical::Bool(a) => bool_to_arrow(a)?,
             Canonical::Primitive(a) => primitive_to_arrow(a)?,
             Canonical::Struct(a) => struct_to_arrow(a)?,
+            Canonical::List(a) => list_to_arrow(a)?,
             Canonical::VarBinView(a) => varbinview_as_arrow(&a),
             Canonical::Extension(a) => {
                 if is_temporal_ext_type(a.id()) {
@@ -218,6 +222,18 @@ fn struct_to_arrow(struct_array: StructArray) -> VortexResult<ArrayRef> {
         field_arrays,
         nulls,
     )?))
+}
+
+fn list_to_arrow(list: ListArray) -> VortexResult<ArrayRef> {
+    Ok(Arc::new(arrow_array::ListArray::try_new(
+        FieldRef::new(Field::new_list_field(
+            infer_data_type(list.elements().dtype())?,
+            list.validity().nullability().into(),
+        )),
+        as_offset_buffer::<i32>(list.offsets().into_primitive()?),
+        list.elements().into_canonical()?.into_arrow()?,
+        list.logical_validity().to_null_buffer()?,
+    )?) as ArrayRef)
 }
 
 fn temporal_to_arrow(temporal_array: TemporalArray) -> VortexResult<ArrayRef> {
@@ -398,6 +414,7 @@ impl From<Canonical> for ArrayData {
             Canonical::Bool(a) => a.into_array(),
             Canonical::Primitive(a) => a.into_array(),
             Canonical::Struct(a) => a.into_array(),
+            Canonical::List(a) => a.into_array(),
             Canonical::VarBinView(a) => a.into_array(),
             Canonical::Extension(a) => a.into_array(),
         }
@@ -411,6 +428,7 @@ impl AsRef<ArrayData> for Canonical {
             Canonical::Bool(a) => a.as_ref(),
             Canonical::Primitive(a) => a.as_ref(),
             Canonical::Struct(a) => a.as_ref(),
+            Canonical::List(a) => a.as_ref(),
             Canonical::VarBinView(a) => a.as_ref(),
             Canonical::Extension(a) => a.as_ref(),
         }
@@ -424,6 +442,7 @@ impl IntoArrayData for Canonical {
             Canonical::Bool(a) => a.into_array(),
             Canonical::Primitive(a) => a.into_array(),
             Canonical::Struct(a) => a.into_array(),
+            Canonical::List(a) => a.into_array(),
             Canonical::VarBinView(a) => a.into_array(),
             Canonical::Extension(a) => a.into_array(),
         }

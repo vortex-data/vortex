@@ -1,16 +1,23 @@
 use std::fmt::Display;
 use std::sync::Arc;
-use crate::encoding::{ids};
-use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayVariant, IntoCanonical};
+
+use num_traits::AsPrimitive;
 use serde::{Deserialize, Serialize};
-use vortex_dtype::{DType};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
-use crate::array::PrimitiveArray;
+use vortex_dtype::{match_each_native_ptype, DType};
+use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult};
+
+use crate::array::{NullArray, PrimitiveArray};
+use crate::compute::unary::scalar_at;
 use crate::compute::{slice, ComputeVTable};
+use crate::encoding::ids;
 use crate::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
 use crate::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
-use crate::variants::ArrayVariants;
+use crate::variants::{ArrayVariants, ListArrayTrait, PrimitiveArrayTrait};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
+use crate::{
+    impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
+    IntoArrayVariant, IntoCanonical,
+};
 
 impl_encoding!("vortex.list", ids::LIST, List);
 
@@ -27,8 +34,13 @@ impl Display for ListMetadata {
     }
 }
 
+#[allow(dead_code)]
 impl ListArray {
-    pub fn try_new(elements: ArrayData, offsets: ArrayData, validity: Validity) -> VortexResult<Self> {
+    pub fn try_new(
+        elements: ArrayData,
+        offsets: ArrayData,
+        validity: Validity,
+    ) -> VortexResult<Self> {
         let nullability = validity.nullability();
         let list_len = offsets.len() - 1;
         let element_len = elements.len();
@@ -37,7 +49,10 @@ impl ListArray {
         let validity_metadata = validity.to_metadata(list_len)?;
 
         if !offsets.dtype().is_int() || offsets.dtype().is_nullable() {
-            vortex_bail!("Expected offsets to be an non-nullable integer type, got {:?}", offsets.dtype());
+            vortex_bail!(
+                "Expected offsets to be an non-nullable integer type, got {:?}",
+                offsets.dtype()
+            );
         }
 
         // A list is valid if the:
@@ -54,17 +69,27 @@ impl ListArray {
             unreachable!("Array must have min value");
         };
         if min_value != 0 {
-            vortex_bail!("Expected smallest value in offsets array to be 0, however it was {}", min_value);
+            vortex_bail!(
+                "Expected smallest value in offsets array to be 0, however it was {}",
+                min_value
+            );
         }
 
-
         if offsets.dtype().is_signed_int() {
-            let final_idx = slice(&offsets, list_len, list_len + 1).vortex_expect("slice exists").into_primitive().vortex_expect("prim").get_as_cast::<i64>(0);
+            let final_idx = slice(&offsets, list_len, list_len + 1)
+                .vortex_expect("slice exists")
+                .into_primitive()
+                .vortex_expect("prim")
+                .get_as_cast::<i64>(0);
             if final_idx != element_len as i64 {
                 vortex_bail!("Expected final to point to final element of elements list, however final idx=({}) and final element idx=({})", final_idx, element_len);
             }
         } else if offsets.dtype().is_unsigned_int() {
-            let final_idx = slice(&offsets, list_len, list_len + 1).vortex_expect("slice exists").into_primitive().vortex_expect("prim").get_as_cast::<u64>(0);
+            let final_idx = slice(&offsets, list_len, list_len + 1)
+                .vortex_expect("slice exists")
+                .into_primitive()
+                .vortex_expect("prim")
+                .get_as_cast::<u64>(0);
             if final_idx != element_len as u64 {
                 vortex_bail!("Expected final to point to final element of elements list, however final idx=({}) and element len=({})", final_idx, elements.len());
             }
@@ -72,10 +97,9 @@ impl ListArray {
             unreachable!("Offsets are integers");
         }
 
-
         let is_sorted = offsets.statistics().compute_is_sorted();
         if !is_sorted.unwrap_or(false) {
-            vortex_bail!("Expected offsets to be sorted, got {:?}",is_sorted);
+            vortex_bail!("Expected offsets to be sorted, got {:?}", is_sorted);
         }
 
         let list_dtype = DType::List(Arc::new(elements.dtype().clone()), nullability);
@@ -84,7 +108,6 @@ impl ListArray {
         if let Some(val) = validity.into_array() {
             children.push(val);
         }
-
 
         Self::try_from_parts(
             list_dtype,
@@ -107,36 +130,78 @@ impl ListArray {
         })
     }
 
-
     fn is_valid(&self, index: usize) -> bool {
         self.validity().is_valid(index)
     }
 
-    fn index(&self, index: usize) -> Option<ArrayData> {
+    pub fn offset_at(&self, index: usize) -> usize {
+        PrimitiveArray::try_from(self.offsets())
+            .ok()
+            .map(|p| {
+                match_each_native_ptype!(p.ptype(), |$P| {
+                    p.maybe_null_slice::<$P>()[index].as_()
+                })
+            })
+            .unwrap_or_else(|| {
+                scalar_at(self.offsets(), index)
+                    .unwrap_or_else(|err| {
+                        vortex_panic!(err, "Failed to get offset at index: {}", index)
+                    })
+                    .as_ref()
+                    .try_into()
+                    .vortex_expect("Failed to convert offset to usize")
+            })
+    }
+
+    // pub fn index(&self, index: usize) -> Option<ArrayData> {
+    //     if index >= self.len() {
+    //         return None;
+    //     }
+    //     if !self.is_valid(index) {
+    //         return None;
+    //     }
+    //     let offsets = self.offsets();
+    //     let start = offsets.get_as_cast::<i64>(index);
+    //     let end = offsets.get_as_cast::<i64>(index + 1);
+    //
+    //     slice(self.elements(), start as usize, end as usize).ok()
+    // }
+
+    pub fn element_at(&self, index: usize) -> VortexResult<ArrayData> {
         if index >= self.len() {
-            return None;
+            vortex_bail!("Index out of bounds: index={} len={}", index, self.len());
         }
         if !self.is_valid(index) {
-            return None;
+            return Ok(NullArray::new(1).into_array());
         }
-        let offsets = self.offsets();
-        let start = offsets.get_as_cast::<i64>(index);
-        let end = offsets.get_as_cast::<i64>(index + 1);
-
-        slice(self.elements(), start as usize, end as usize).ok()
+        let start = self.offset_at(index);
+        let end = self.offset_at(index + 1);
+        slice(self.elements(), start, end)
     }
 
-    fn offsets(&self) -> PrimitiveArray {
-        // TODO: find cheep transform
-        self.as_ref().child(1, &self.metadata().offset_dtype, self.len() + 1).vortex_expect("array contains offsets").into_primitive().vortex_expect("offsets are primitive")
+    pub fn offsets(&self) -> ArrayData {
+        // TODO: find cheap transform
+        self.as_ref()
+            .child(1, &self.metadata().offset_dtype, self.len() + 1)
+            .vortex_expect("array contains offsets")
     }
 
-    fn elements(&self) -> ArrayData {
-        self.as_ref().child(0, self.dtype().as_list().vortex_expect("must be list dtype"), self.metadata().element_len).vortex_expect("array contains elements")
+    pub fn elements(&self) -> ArrayData {
+        self.as_ref()
+            .child(
+                0,
+                self.dtype().as_list().vortex_expect("must be list dtype"),
+                self.metadata().element_len,
+            )
+            .vortex_expect("array contains elements")
     }
 }
 
-impl ArrayVariants for ListArray {}
+impl ArrayVariants for ListArray {
+    fn as_list_array(&self) -> Option<&dyn ListArrayTrait> {
+        Some(self)
+    }
+}
 
 impl ArrayTrait for ListArray {}
 
@@ -150,15 +215,17 @@ impl VisitorVTable<ListArray> for ListEncoding {
 
 impl IntoCanonical for ListArray {
     fn into_canonical(self) -> VortexResult<Canonical> {
-        todo!()
+        Ok(Canonical::List(self))
     }
 }
 
 impl StatisticsVTable<ListArray> for ListEncoding {
     fn compute_statistics(&self, _array: &ListArray, _stat: Stat) -> VortexResult<StatsSet> {
-        todo!()
+        Ok(StatsSet::default())
     }
 }
+
+impl ListArrayTrait for ListArray {}
 
 impl ValidityVTable<ListArray> for ListEncoding {
     fn is_valid(&self, array: &ListArray, index: usize) -> bool {
@@ -173,22 +240,35 @@ impl ValidityVTable<ListArray> for ListEncoding {
 #[cfg(test)]
 mod test {
     use arrow_buffer::ArrowNativeType;
-    use itertools::Itertools;
     use vortex_dtype::NativePType;
+
     use crate::array::list::ListArray;
     use crate::array::{BoolArray, PrimitiveArray};
+    use crate::validity::{ArrayValidity, Validity};
     use crate::{ArrayLen, IntoArrayData, IntoArrayVariant};
-    use crate::accessor::ArrayAccessor;
-    use crate::validity::Validity;
 
     fn idx_into_slice<T: NativePType + ArrowNativeType>(list: &ListArray, idx: usize) -> Vec<T> {
-        let binding = list.index(idx).unwrap().into_primitive().unwrap();
+        let binding = list.element_at(idx).unwrap().into_primitive().unwrap();
         binding.into_maybe_null_slice::<T>()
     }
 
-    fn idx_into_opt_slice_opt<T: NativePType + ArrowNativeType>(list: &ListArray, idx: usize) -> Option<Vec<Option<T>>> {
-        let binding = list.index(idx)?.into_primitive().unwrap();
-        Some(binding.with_iterator(|iter| iter.map(|i| i.cloned()).collect_vec()).unwrap())
+    fn idx_into_opt_slice_opt<T: NativePType + ArrowNativeType>(
+        list: &ListArray,
+        idx: usize,
+    ) -> Option<Vec<Option<T>>> {
+        let arr = list.element_at(idx).ok()?;
+
+        if arr.logical_validity().all_invalid() {
+            return None;
+        }
+
+        // Some(
+        //     PrimitiveArray::try_from(arr.into_buffer().expect("prim"))
+        //         .expect("prim")
+        //         .with_iterator(|iter| iter.map(|i| i.cloned()).collect_vec())
+        //         .unwrap(),
+        // )
+        todo!()
     }
 
     #[test]
@@ -197,7 +277,8 @@ mod test {
         let offsets = PrimitiveArray::from(vec![0]);
         let validity = Validity::AllValid;
 
-        let list = ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
+        let list =
+            ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
 
         assert_eq!(0, list.len());
     }
@@ -208,7 +289,8 @@ mod test {
         let offsets = PrimitiveArray::from(vec![0, 2, 4, 5]);
         let validity = Validity::AllValid;
 
-        let list = ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
+        let list =
+            ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
 
         assert_eq!(vec![1, 2], idx_into_slice::<i32>(&list, 0));
         assert_eq!(vec![3, 4], idx_into_slice::<i32>(&list, 1));
@@ -220,7 +302,12 @@ mod test {
         let elements = PrimitiveArray::from(vec![1]);
         let offsets = PrimitiveArray::from(vec![0, 0, 1, 1]);
 
-        let list = ListArray::try_new(elements.into_array(), offsets.into_array(), Validity::AllValid).unwrap();
+        let list = ListArray::try_new(
+            elements.into_array(),
+            offsets.into_array(),
+            Validity::AllValid,
+        )
+        .unwrap();
 
         assert_eq!(Some(vec![]), idx_into_opt_slice_opt::<i32>(&list, 0));
         assert_eq!(Some(vec![Some(1)]), idx_into_opt_slice_opt::<i32>(&list, 1));
@@ -233,10 +320,14 @@ mod test {
         let offsets = PrimitiveArray::from(vec![0, 0, 2, 3]);
         let validity = Validity::Array(BoolArray::from_iter(vec![false, true, true]).into_array());
 
-        let list = ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
+        let list =
+            ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
 
         assert_eq!(None, idx_into_opt_slice_opt::<i32>(&list, 0));
-        assert_eq!(Some(vec![None, Some(2)]), idx_into_opt_slice_opt::<i32>(&list, 1));
+        assert_eq!(
+            Some(vec![None, Some(2)]),
+            idx_into_opt_slice_opt::<i32>(&list, 1)
+        );
         assert_eq!(Some(vec![Some(3)]), idx_into_opt_slice_opt::<i32>(&list, 2));
     }
 }
