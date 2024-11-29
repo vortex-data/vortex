@@ -14,7 +14,7 @@ use super::{LayoutMessageCache, LayoutReader};
 use crate::read::buffered::{BufferedLayoutReader, RowMaskReader};
 use crate::{MessageRead, RowMask};
 
-type MetadataCoalescer<R> = BufferedLayoutReader<
+type MetadataBufferedReader<R> = BufferedLayoutReader<
     R,
     stream::Iter<Once<VortexResult<RowMask>>>,
     Vec<Option<ArrayData>>,
@@ -22,7 +22,7 @@ type MetadataCoalescer<R> = BufferedLayoutReader<
 >;
 
 pub struct MetadataFetcher<R: VortexReadAt> {
-    metadata_reader: MetadataCoalescer<R>,
+    metadata_reader: MetadataBufferedReader<R>,
 }
 
 struct MetadataMaskReader {
