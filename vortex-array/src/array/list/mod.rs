@@ -183,6 +183,8 @@ impl StatisticsVTable<ListArray> for ListEncoding {
     }
 }
 
+impl ListArrayTrait for ListArray {}
+
 impl ValidityVTable<ListArray> for ListEncoding {
     fn is_valid(&self, array: &ListArray, index: usize) -> bool {
         array.is_valid(index)
@@ -207,7 +209,7 @@ mod test {
     use crate::{ArrayLen, IntoArrayData};
 
     fn idx_into_slice<T: NativePType + ArrowNativeType>(list: &ListArray, idx: usize) -> Vec<T> {
-        let binding = list.index(idx).unwrap().into_primitive().unwrap();
+        let binding = list.element_at(idx).unwrap().into_primitive().unwrap();
         binding.into_maybe_null_slice::<T>()
     }
 
