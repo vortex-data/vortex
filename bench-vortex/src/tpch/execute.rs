@@ -1,7 +1,6 @@
 use datafusion::prelude::SessionContext;
 
-use crate::execute_query;
-use crate::tpch::Format;
+use crate::{execute_query, Format};
 
 pub async fn run_tpch_query(
     ctx: &SessionContext,

@@ -54,7 +54,7 @@ fn benchmark(c: &mut Criterion) {
 
     for (idx, query) in clickbench_queries().into_iter() {
         let context = session_context.clone();
-        group.bench_function(format!("q-{:02}", idx + 1), |b| {
+        group.bench_function(format!("q-{:02}", idx), |b| {
             b.to_async(&runtime)
                 .iter(|| async { execute_query(&context, &query).await.unwrap() });
         });
