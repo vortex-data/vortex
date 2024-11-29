@@ -183,8 +183,6 @@ impl StatisticsVTable<ListArray> for ListEncoding {
     }
 }
 
-impl ListArrayTrait for ListArray {}
-
 impl ValidityVTable<ListArray> for ListEncoding {
     fn is_valid(&self, array: &ListArray, index: usize) -> bool {
         array.is_valid(index)
@@ -192,12 +190,6 @@ impl ValidityVTable<ListArray> for ListEncoding {
 
     fn logical_validity(&self, array: &ListArray) -> LogicalValidity {
         array.validity().to_logical(array.len())
-    }
-}
-
-impl ArrayVariants for StructArray {
-    fn as_list_array(&self) -> Option<&dyn ListArrayTrait> {
-        Some(self)
     }
 }
 
