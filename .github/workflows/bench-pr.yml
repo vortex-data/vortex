@@ -179,7 +179,7 @@ jobs:
         if: '!cancelled()'
         uses: benchmark-action/github-action-benchmark@v1
         with:
-          name: 'TPC-H'
+          name: 'Clickbench'
           tool: 'customSmallerIsBetter'
           gh-pages-branch: gh-pages-bench
           github-token: ${{ secrets.GITHUB_TOKEN }}
