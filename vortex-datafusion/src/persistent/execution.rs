@@ -2,7 +2,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use datafusion::datasource::physical_plan::{FileScanConfig, FileStream};
-use datafusion_common::{project_schema, Result as DFResult};
+use datafusion_common::{project_schema, Result as DFResult, Statistics};
 use datafusion_execution::{SendableRecordBatchStream, TaskContext};
 use datafusion_physical_expr::{EquivalenceProperties, Partitioning, PhysicalExpr};
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
@@ -19,6 +19,7 @@ pub struct VortexExec {
     metrics: ExecutionPlanMetricsSet,
     predicate: Option<Arc<dyn PhysicalExpr>>,
     plan_properties: PlanProperties,
+    projected_statistics: Statistics,
     ctx: Arc<Context>,
 }
 
@@ -39,11 +40,23 @@ impl VortexExec {
             ExecutionMode::Bounded,
         );
 
+        // We project our statistics to only the selected columns
+        // We must also take care to report in-exact statistics if we have any form of filter
+        // push-down.
+        let mut projected_statistics = file_scan_config
+            .statistics
+            .clone()
+            .project(file_scan_config.projection.as_ref());
+        if predicate.is_some() {
+            projected_statistics = projected_statistics.to_inexact();
+        }
+
         Ok(Self {
             file_scan_config,
             metrics,
             predicate,
             plan_properties,
+            projected_statistics,
             ctx,
         })
     }
@@ -106,5 +119,9 @@ impl ExecutionPlan for VortexExec {
         let stream = FileStream::new(&self.file_scan_config, partition, opener, &self.metrics)?;
 
         Ok(Box::pin(stream))
+    }
+
+    fn statistics(&self) -> DFResult<Statistics> {
+        Ok(self.projected_statistics.clone())
     }
 }

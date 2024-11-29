@@ -20,8 +20,6 @@ jobs:
             name: Random Access
           - id: compress_noci
             name: Vortex Compression
-          - id: bytes_at
-            name: Vortex bytes_at
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
@@ -39,7 +37,7 @@ jobs:
       - name: Set tempdir
         if: runner.environment == 'self-hosted'
         run: |
-            echo "TMPDIR=/work" >> $GITHUB_ENV
+          echo "TMPDIR=/work" >> $GITHUB_ENV
 
       - name: Run benchmark
         shell: bash
@@ -103,7 +101,7 @@ jobs:
       - name: Set tempdir
         if: runner.environment == 'self-hosted'
         run: |
-            echo "TMPDIR=/work" >> $GITHUB_ENV
+          echo "TMPDIR=/work" >> $GITHUB_ENV
 
       - name: Run TPC-H benchmark
         shell: bash
