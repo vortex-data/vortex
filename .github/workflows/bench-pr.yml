@@ -59,6 +59,7 @@ jobs:
         env:
           BENCH_VORTEX_RATIOS: '.*'
           RUSTFLAGS: '-C target-cpu=native'
+          HOME: /home/ci-runner/
         run: |
           cargo install cargo-criterion
           
