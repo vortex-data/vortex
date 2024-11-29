@@ -139,10 +139,10 @@ impl DType {
         }
     }
 
-    /// Get the `StructDType` if `self` is a `StructDType`, otherwise `None`
-    pub fn as_list(&self) -> Option<&DType> {
+    /// Get the inner dtype if `self` is a `ListDType`, otherwise `None`
+    pub fn as_list(&self) -> Option<(&DType, &Nullability)> {
         match self {
-            List(s, _) => Some(s.as_ref()),
+            List(s, n) => Some((s.as_ref(), n)),
             _ => None,
         }
     }
@@ -287,7 +287,7 @@ mod test {
             StructDType::new(vec![].into(), Vec::new()),
             Nullability::NonNullable
         )
-            .is_nullable());
+        .is_nullable());
 
         let primitive = DType::Primitive(PType::U8, Nullability::Nullable);
         assert!(primitive.is_nullable());

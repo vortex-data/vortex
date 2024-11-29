@@ -8,13 +8,12 @@ use serde::{Deserialize, Serialize};
 use vortex_dtype::{match_each_native_ptype, DType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult};
 
-use crate::array::{NullArray, PrimitiveArray, StructArray};
-use crate::compute::slice;
-use crate::compute::unary::scalar_at;
+use crate::array::{NullArray, PrimitiveArray};
+use crate::compute::{scalar_at, slice};
 use crate::encoding::ids;
 use crate::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
 use crate::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
-use crate::variants::{ArrayVariants, ListArrayTrait, PrimitiveArrayTrait, StructArrayTrait};
+use crate::variants::{ListArrayTrait, PrimitiveArrayTrait, VariantsVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
@@ -58,10 +57,11 @@ impl ListArray {
         }
 
         // A list is valid if the:
-        // - offsets start at 0
+        // - offsets start at a value in elements
         // - offsets are sorted
-        // - the final offset points to the final element in the elements list, pointing to zero
-        //   if elements are empty
+        // - the final offset points to an element in the elements list, pointing to zero
+        //   if elements are empty.
+        // - final >= start
 
         if offsets.is_empty() {
             vortex_bail!("Offsets must have at least one element, [0] for an empty list");
@@ -70,9 +70,9 @@ impl ListArray {
         let Some(min_value) = offsets.statistics().compute_as_cast::<i64>(Stat::Min) else {
             unreachable!("Array must have min value");
         };
-        if min_value != 0 {
+        if min_value < 0 {
             vortex_bail!(
-                "Expected smallest value in offsets array to be 0, however it was {}",
+                "Expected smallest value in offsets array must be, non-negative {}",
                 min_value
             );
         }
@@ -83,8 +83,14 @@ impl ListArray {
                 .into_primitive()
                 .vortex_expect("prim")
                 .get_as_cast::<i64>(0);
-            if final_idx != element_len as i64 {
+            if final_idx > element_len as i64 {
                 vortex_bail!("Expected final to point to final element of elements list, however final idx=({}) and final element idx=({})", final_idx, element_len);
+            }
+            if min_value > final_idx {
+                vortex_bail!(
+                    "Expected smallest value in offsets array must be, less than final idx {}",
+                    final_idx
+                );
             }
         } else if offsets.dtype().is_unsigned_int() {
             let final_idx = slice(&offsets, list_len, list_len + 1)
@@ -92,8 +98,14 @@ impl ListArray {
                 .into_primitive()
                 .vortex_expect("prim")
                 .get_as_cast::<u64>(0);
-            if final_idx != element_len as u64 {
+            if final_idx > element_len as u64 {
                 vortex_bail!("Expected final to point to final element of elements list, however final idx=({}) and element len=({})", final_idx, elements.len());
+            }
+            if min_value > final_idx as i64 {
+                vortex_bail!(
+                    "Expected smallest value in offsets array must be, less than final idx {}",
+                    final_idx
+                );
             }
         } else {
             unreachable!("Offsets are integers");
@@ -199,9 +211,9 @@ impl ListArray {
     }
 }
 
-impl ArrayVariants for ListArray {
-    fn as_list_array(&self) -> Option<&dyn ListArrayTrait> {
-        Some(self)
+impl VariantsVTable<ListArray> for ListEncoding {
+    fn as_list_array<'a>(&self, array: &'a ListArray) -> Option<&'a dyn ListArrayTrait> {
+        Some(array)
     }
 }
 
@@ -237,12 +249,6 @@ impl ValidityVTable<ListArray> for ListEncoding {
     }
 }
 
-impl ArrayVariants for StructArray {
-    fn as_list_array(&self) -> Option<&dyn ListArrayTrait> {
-        Some(self)
-    }
-}
-
 #[cfg(test)]
 mod test {
     use std::sync::Arc;
@@ -252,7 +258,7 @@ mod test {
 
     use crate::array::list::ListArray;
     use crate::array::PrimitiveArray;
-    use crate::compute::unary::scalar_at;
+    use crate::compute::scalar_at;
     use crate::validity::Validity;
     use crate::{ArrayLen, IntoArrayData};
     // fn idx_into_slice<T: NativePType + ArrowNativeType>(list: &ListArray, idx: usize) -> Vec<T> {

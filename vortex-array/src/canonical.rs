@@ -137,6 +137,13 @@ impl Canonical {
         }
     }
 
+    pub fn into_list(self) -> VortexResult<ListArray> {
+        match self {
+            Canonical::List(a) => Ok(a),
+            _ => vortex_bail!("Cannot unwrap StructArray from {:?}", &self),
+        }
+    }
+
     pub fn into_varbinview(self) -> VortexResult<VarBinViewArray> {
         match self {
             Canonical::VarBinView(a) => Ok(a),
