@@ -1,14 +1,16 @@
-use vortex_dtype::{DType, Nullability};
+use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::array::chunked::ChunkedArray;
 use crate::array::ChunkedEncoding;
 use crate::compute::{
-    compare, slice, try_cast, CastFn, CompareFn, ComputeVTable, FilterFn, InvertFn, Operator,
-    ScalarAtFn, SliceFn, SubtractScalarFn, TakeFn,
+    try_cast, BinaryBooleanFn, CastFn, CompareFn, ComputeVTable, FilterFn, InvertFn, ScalarAtFn,
+    SliceFn, SubtractScalarFn, TakeFn,
 };
 use crate::{ArrayData, IntoArrayData};
 
+mod boolean;
+mod compare;
 mod filter;
 mod invert;
 mod scalar_at;
@@ -16,6 +18,10 @@ mod slice;
 mod take;
 
 impl ComputeVTable for ChunkedEncoding {
+    fn binary_boolean_fn(&self) -> Option<&dyn BinaryBooleanFn<ArrayData>> {
+        Some(self)
+    }
+
     fn cast_fn(&self) -> Option<&dyn CastFn<ArrayData>> {
         Some(self)
     }
@@ -56,30 +62,6 @@ impl CastFn<ChunkedArray> for ChunkedEncoding {
         }
 
         Ok(ChunkedArray::try_new(cast_chunks, dtype.clone())?.into_array())
-    }
-}
-
-impl CompareFn<ChunkedArray> for ChunkedEncoding {
-    fn compare(
-        &self,
-        lhs: &ChunkedArray,
-        rhs: &ArrayData,
-        operator: Operator,
-    ) -> VortexResult<Option<ArrayData>> {
-        let mut idx = 0;
-        let mut compare_chunks = Vec::with_capacity(lhs.nchunks());
-
-        for chunk in lhs.chunks() {
-            let sliced = slice(rhs, idx, idx + chunk.len())?;
-            let cmp_result = compare(&chunk, &sliced, operator)?;
-            compare_chunks.push(cmp_result);
-
-            idx += chunk.len();
-        }
-
-        Ok(Some(
-            ChunkedArray::try_new(compare_chunks, DType::Bool(Nullability::Nullable))?.into_array(),
-        ))
     }
 }
 

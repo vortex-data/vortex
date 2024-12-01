@@ -20,12 +20,12 @@ use vortex_dtype::{DType, NativePType, PType};
 use vortex_error::{vortex_bail, VortexError, VortexResult};
 
 use crate::array::{
-    varbinview_as_arrow, BoolArray, ExtensionArray, NullArray, PrimitiveArray, StructArray,
-    TemporalArray, VarBinViewArray,
+    varbinview_as_arrow, BoolArray, ConstantEncoding, ExtensionArray, NullArray, PrimitiveArray,
+    StructArray, TemporalArray, VarBinViewArray,
 };
 use crate::arrow::{infer_data_type, FromArrowArray};
 use crate::compute::try_cast;
-use crate::encoding::Encoding;
+use crate::encoding::{Encoding, EncodingVTable};
 use crate::stats::ArrayStatistics;
 use crate::validity::ArrayValidity;
 use crate::variants::{PrimitiveArrayTrait, StructArrayTrait};
@@ -381,7 +381,13 @@ where
 /// the array's internal codec.
 impl IntoCanonical for ArrayData {
     fn into_canonical(self) -> VortexResult<Canonical> {
-        log::debug!("Canonicalizing array with encoding {:?}", self.encoding());
+        // We only care to know when we canonicalize something non-trivial.
+        if !self.is_canonical() && self.len() > 1 {
+            log::debug!("Canonicalizing array with encoding {:?}", self.encoding());
+        }
+        if self.is_encoding(ConstantEncoding.id()) && self.len() != 1 {
+            println!("ConstantEncoding");
+        }
         self.encoding().into_canonical(self)
     }
 }
