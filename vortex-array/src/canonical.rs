@@ -385,9 +385,6 @@ impl IntoCanonical for ArrayData {
         if !self.is_canonical() && self.len() > 1 {
             log::debug!("Canonicalizing array with encoding {:?}", self.encoding());
         }
-        if self.is_encoding(ConstantEncoding.id()) && self.len() != 1 {
-            println!("ConstantEncoding");
-        }
         self.encoding().into_canonical(self)
     }
 }
