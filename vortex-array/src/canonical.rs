@@ -20,12 +20,12 @@ use vortex_dtype::{DType, NativePType, PType};
 use vortex_error::{vortex_bail, VortexError, VortexResult};
 
 use crate::array::{
-    varbinview_as_arrow, BoolArray, ConstantEncoding, ExtensionArray, NullArray, PrimitiveArray,
-    StructArray, TemporalArray, VarBinViewArray,
+    varbinview_as_arrow, BoolArray, ExtensionArray, NullArray, PrimitiveArray, StructArray,
+    TemporalArray, VarBinViewArray,
 };
 use crate::arrow::{infer_data_type, FromArrowArray};
 use crate::compute::try_cast;
-use crate::encoding::{Encoding, EncodingVTable};
+use crate::encoding::Encoding;
 use crate::stats::ArrayStatistics;
 use crate::validity::ArrayValidity;
 use crate::variants::{PrimitiveArrayTrait, StructArrayTrait};
