@@ -4,7 +4,7 @@ use itertools::Itertools;
 use vortex_array::array::{PrimitiveArray, SparseArray};
 use vortex_array::compute::{filter, FilterFn, FilterIter, FilterMask};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, IntoCanonical};
 use vortex_dtype::{match_each_unsigned_integer_ptype, NativePType};
 use vortex_error::VortexResult;
 
@@ -13,6 +13,18 @@ use crate::{BitPackedArray, BitPackedEncoding};
 
 impl FilterFn<BitPackedArray> for BitPackedEncoding {
     fn filter(&self, array: &BitPackedArray, mask: FilterMask) -> VortexResult<ArrayData> {
+        // If the indices are large enough, it's faster to flatten and take the primitive array.
+        if mask.true_count() * UNPACK_CHUNK_THRESHOLD > array.len() {
+            return filter(
+                &array
+                    .clone()
+                    .into_canonical()?
+                    .into_primitive()?
+                    .into_array(),
+                mask,
+            );
+        }
+
         let primitive = match_each_unsigned_integer_ptype!(array.ptype(), |$I| {
             filter_primitive::<$I>(array, mask)
         });
@@ -32,12 +44,6 @@ fn filter_primitive<T: NativePType + BitPacking + ArrowNativeType>(
         .transpose()?
         .map(SparseArray::try_from)
         .transpose()?;
-
-    // Short-circuit if the selectivity is high enough.
-    if mask.selectivity() > 0.8 {
-        return filter(array.clone().into_primitive()?.as_ref(), mask)
-            .and_then(|a| a.into_primitive());
-    }
 
     let values: Vec<T> = match mask.iter()? {
         FilterIter::Indices(indices) => {
@@ -99,7 +105,7 @@ fn filter_indices<T: NativePType + BitPacking + ArrowNativeType>(
                     &mut values.as_mut_slice()[values_len..],
                 );
             }
-        } else if indices_within_chunk.len() > UNPACK_CHUNK_THRESHOLD {
+        } else if indices_within_chunk.len() * UNPACK_CHUNK_THRESHOLD > 1024 {
             // Unpack into a temporary chunk and then copy the values.
             unsafe { BitPacking::unchecked_unpack(bit_width, packed, &mut unpacked) }
             values.extend(
