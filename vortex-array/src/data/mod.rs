@@ -33,7 +33,7 @@ mod viewed;
 ///
 /// This is the main entrypoint for working with in-memory Vortex data, and dispatches work over the underlying encoding or memory representations.
 #[derive(Debug, Clone)]
-pub struct ArrayData(InnerArrayData);
+pub struct ArrayData(Arc<InnerArrayData>);
 
 #[derive(Debug, Clone)]
 enum InnerArrayData {
@@ -45,13 +45,13 @@ enum InnerArrayData {
 
 impl From<OwnedArrayData> for ArrayData {
     fn from(data: OwnedArrayData) -> Self {
-        ArrayData(InnerArrayData::Owned(data))
+        ArrayData(Arc::new(InnerArrayData::Owned(data)))
     }
 }
 
 impl From<ViewedArrayData> for ArrayData {
     fn from(data: ViewedArrayData) -> Self {
-        ArrayData(InnerArrayData::Viewed(data))
+        ArrayData(Arc::new(InnerArrayData::Viewed(data)))
     }
 }
 
@@ -117,7 +117,7 @@ impl ArrayData {
 
     /// Shared constructor that performs common array validation.
     fn try_new(inner: InnerArrayData) -> VortexResult<Self> {
-        let array = ArrayData(inner);
+        let array = ArrayData(Arc::new(inner));
 
         // Sanity check that the encoding implements the correct array trait
         debug_assert!(
@@ -144,7 +144,7 @@ impl ArrayData {
 
     /// Return the array's encoding
     pub fn encoding(&self) -> EncodingRef {
-        match &self.0 {
+        match self.0.as_ref() {
             InnerArrayData::Owned(d) => d.encoding,
             InnerArrayData::Viewed(v) => v.encoding,
         }
@@ -153,7 +153,7 @@ impl ArrayData {
     /// Returns the number of logical elements in the array.
     #[allow(clippy::same_name_method)]
     pub fn len(&self) -> usize {
-        match &self.0 {
+        match self.0.as_ref() {
             InnerArrayData::Owned(d) => d.len,
             InnerArrayData::Viewed(v) => v.len,
         }
@@ -199,17 +199,17 @@ impl ArrayData {
     }
 
     pub fn child<'a>(&'a self, idx: usize, dtype: &'a DType, len: usize) -> VortexResult<Self> {
-        match &self.0 {
+        match self.0.as_ref() {
             InnerArrayData::Owned(d) => d.child(idx, dtype, len).cloned(),
             InnerArrayData::Viewed(v) => v
                 .child(idx, dtype, len)
-                .map(|view| ArrayData(InnerArrayData::Viewed(view))),
+                .map(|view| ArrayData(Arc::new(InnerArrayData::Viewed(view)))),
         }
     }
 
     /// Returns a Vec of Arrays with all the array's child arrays.
     pub fn children(&self) -> Vec<ArrayData> {
-        match &self.0 {
+        match self.0.as_ref() {
             InnerArrayData::Owned(d) => d.children().to_vec(),
             InnerArrayData::Viewed(v) => v.children(),
         }
@@ -217,7 +217,7 @@ impl ArrayData {
 
     /// Returns the number of child arrays
     pub fn nchildren(&self) -> usize {
-        match &self.0 {
+        match self.0.as_ref() {
             InnerArrayData::Owned(d) => d.nchildren(),
             InnerArrayData::Viewed(v) => v.nchildren(),
         }
@@ -257,7 +257,7 @@ impl ArrayData {
     }
 
     pub fn array_metadata(&self) -> &dyn ArrayMetadata {
-        match &self.0 {
+        match self.0.as_ref() {
             InnerArrayData::Owned(d) => &*d.metadata,
             InnerArrayData::Viewed(v) => &*v.metadata,
         }
@@ -266,7 +266,7 @@ impl ArrayData {
     pub fn metadata<M: ArrayMetadata + Clone + for<'m> TryDeserializeArrayMetadata<'m>>(
         &self,
     ) -> VortexResult<&M> {
-        match &self.0 {
+        match self.0.as_ref() {
             InnerArrayData::Owned(d) => &d.metadata,
             InnerArrayData::Viewed(v) => &v.metadata,
         }
@@ -285,7 +285,7 @@ impl ArrayData {
     /// View arrays will return a reference to their bytes, while heap-backed arrays
     /// must first serialize their metadata, returning an owned byte array to the caller.
     pub fn metadata_bytes(&self) -> VortexResult<Cow<[u8]>> {
-        match &self.0 {
+        match self.0.as_ref() {
             InnerArrayData::Owned(array_data) => {
                 // Heap-backed arrays must first try and serialize the metadata.
                 let owned_meta: Vec<u8> = array_data
@@ -307,16 +307,20 @@ impl ArrayData {
     }
 
     pub fn buffer(&self) -> Option<&Buffer> {
-        match &self.0 {
+        match self.0.as_ref() {
             InnerArrayData::Owned(d) => d.buffer(),
             InnerArrayData::Viewed(v) => v.buffer(),
         }
     }
 
     pub fn into_buffer(self) -> Option<Buffer> {
-        match self.0 {
-            InnerArrayData::Owned(d) => d.into_buffer(),
-            InnerArrayData::Viewed(v) => v.buffer().cloned(),
+        match Arc::try_unwrap(self.0) {
+            Ok(InnerArrayData::Owned(d)) => d.into_buffer(),
+            Ok(InnerArrayData::Viewed(v)) => v.buffer().cloned(),
+            Err(slf) => match slf.as_ref() {
+                InnerArrayData::Owned(o) => o.buffer().cloned(),
+                InnerArrayData::Viewed(v) => v.buffer().cloned(),
+            },
         }
     }
 
@@ -339,7 +343,7 @@ impl ArrayData {
 
 impl Display for ArrayData {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let prefix = match &self.0 {
+        let prefix = match self.0.as_ref() {
             InnerArrayData::Owned(_) => "",
             InnerArrayData::Viewed(_) => "$",
         };
@@ -356,7 +360,7 @@ impl Display for ArrayData {
 
 impl<T: AsRef<ArrayData>> ArrayDType for T {
     fn dtype(&self) -> &DType {
-        match &self.as_ref().0 {
+        match self.as_ref().0.as_ref() {
             InnerArrayData::Owned(d) => &d.dtype,
             InnerArrayData::Viewed(v) => &v.dtype,
         }
@@ -387,7 +391,7 @@ impl<A: AsRef<ArrayData>> ArrayValidity for A {
 
 impl<T: AsRef<ArrayData>> ArrayStatistics for T {
     fn statistics(&self) -> &(dyn Statistics + '_) {
-        match &self.as_ref().0 {
+        match self.as_ref().0.as_ref() {
             InnerArrayData::Owned(d) => d,
             InnerArrayData::Viewed(v) => v,
         }
