@@ -2,15 +2,13 @@ use std::cmp::{max, min};
 use std::fmt::{Display, Formatter};
 
 use vortex_array::array::{BoolArray, ConstantArray, PrimitiveArray, SparseArray};
-use vortex_array::compute::{and, filter, slice, take, try_cast, FilterMask, TakeOptions};
+use vortex_array::compute::{and, filter, slice, try_cast, FilterMask};
 use vortex_array::stats::ArrayStatistics;
 use vortex_array::validity::{ArrayValidity, LogicalValidity};
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult, VortexUnwrap};
-
-const PREFER_TAKE_TO_FILTER_DENSITY: f64 = 1.0 / 1024.0;
 
 /// Bitmap of selected rows within given [begin, end) row range
 #[derive(Debug, Clone)]
@@ -213,13 +211,8 @@ impl RowMask {
             return Ok(Some(sliced.clone()));
         }
 
-        if (true_count as f64 / sliced.len() as f64) < PREFER_TAKE_TO_FILTER_DENSITY {
-            let indices = self.to_indices_array()?;
-            take(sliced, indices, TakeOptions::default()).map(Some)
-        } else {
-            let mask = FilterMask::try_from(self.bitmask.clone())?;
-            filter(sliced, mask).map(Some)
-        }
+        let mask = FilterMask::try_from(self.bitmask.clone())?;
+        filter(sliced, mask).map(Some)
     }
 
     pub fn to_indices_array(&self) -> VortexResult<ArrayData> {

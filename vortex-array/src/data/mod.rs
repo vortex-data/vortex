@@ -393,8 +393,10 @@ impl<T: AsRef<ArrayData>> ArrayStatistics for T {
         }
     }
 
+    // FIXME(ngates): this is really slow...
     fn inherit_statistics(&self, parent: &dyn Statistics) {
         let stats = self.statistics();
+        // The to_set call performs a slow clone of the stats
         for (stat, scalar) in parent.to_set() {
             stats.set(stat, scalar);
         }

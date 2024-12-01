@@ -123,6 +123,7 @@ async fn take_vortex<T: VortexReadAt + Unpin + 'static>(
             LayoutContext::default().into(),
         ),
     )
+    .with_io_dispatcher(DISPATCHER.clone())
     .with_indices(ArrayData::from(indices.to_vec()))
     .build()
     .await?
