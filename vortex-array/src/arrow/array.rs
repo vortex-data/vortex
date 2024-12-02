@@ -300,7 +300,6 @@ impl FromArrowArray<ArrowArrayRef> for ArrayData {
                     Self::from_arrow(array.as_primitive::<DurationNanosecondType>(), nullable)
                 }
             },
-            // TODO support list
             _ => vortex_panic!(
                 "Array encoding not implemented for Arrow data type {}",
                 array.data_type().clone()
