@@ -6,6 +6,7 @@ use datafusion::prelude::SessionContext;
 use datafusion_common::config::ConfigOptions;
 use datafusion_expr::expr::ScalarFunction;
 use datafusion_expr::{col, Expr, LogicalPlanBuilder};
+use datafusion_physical_plan::projection::ProjectionExec;
 use datafusion_physical_plan::ExecutionPlan;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
@@ -13,6 +14,7 @@ use vortex_array::array::{ChunkedArray, PrimitiveArray, StructArray, VarBinArray
 use vortex_array::validity::Validity;
 use vortex_array::IntoArrayData;
 use vortex_datafusion::memory::{VortexMemTable, VortexMemTableOptions, VortexScanExec};
+use vortex_expr::datafusion::convert_expr_to_vortex;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -75,10 +77,27 @@ impl PhysicalOptimizerRule for VortexTableScanPushdown {
         if children.len() != 1 {
             return Ok(plan);
         }
-        if let Some(_vortex_scan) = children[0].as_any().downcast_ref::<VortexScanExec>() {
-            println!("{:?}", plan);
-            // FIXME(marko): Re-write the expression instead a VortexScanExec.
-            Ok(plan)
+        if let Some(vortex_scan) = children[0].as_any().downcast_ref::<VortexScanExec>() {
+            if let Some(projection_exec) = plan.as_any().downcast_ref::<ProjectionExec>() {
+                if projection_exec.expr().len() == 1 {
+                    match convert_expr_to_vortex(projection_exec.expr()[0].0.clone()) {
+                        Ok(vortex_expr) => {
+                            println!("{:?}", plan);
+                            Ok(Arc::new(vortex_scan.with_scan_projection(vortex_expr).map_err(|e| {
+                                datafusion_common::DataFusionError::Execution(format!("Error in VortexTableScanPushdown: {}", e))
+                            })?))
+                        }
+                        Err(e) => {
+                            println!("{:?}", e);
+                            Ok(plan)
+                        }
+                    }
+                } else {
+                    Ok(plan)
+                }
+            } else {
+                Ok(plan)
+            }
         } else {
             Ok(plan)
         }
