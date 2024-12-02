@@ -7,6 +7,7 @@ requires-python = ">= 3.10"
 dependencies = [
     "vortex-array",
     "docs",
+    "vortex-genetics",
 ]
 
 [build-system]
@@ -39,6 +40,7 @@ members = ["pyvortex", "docs", "vortex-genetics"]
 [tool.uv.sources]
 vortex-array = { workspace = true }
 docs = { workspace = true }
+vortex-genetics = { workspace = true }
 
 [tool.ruff]
 line-length = 120
