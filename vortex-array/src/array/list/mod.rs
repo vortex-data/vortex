@@ -273,15 +273,15 @@ mod test {
             ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
 
         assert_eq!(
-            Scalar::list(Arc::new(PType::I32.into()), vec![1.into(), 2.into()].into()),
+            Scalar::list(Arc::new(PType::I32.into()), vec![1.into(), 2.into()]),
             scalar_at(&list, 0).unwrap()
         );
         assert_eq!(
-            Scalar::list(Arc::new(PType::I32.into()), vec![3.into(), 4.into()].into()),
+            Scalar::list(Arc::new(PType::I32.into()), vec![3.into(), 4.into()]),
             scalar_at(&list, 1).unwrap()
         );
         assert_eq!(
-            Scalar::list(Arc::new(PType::I32.into()), vec![5.into()].into()),
+            Scalar::list(Arc::new(PType::I32.into()), vec![5.into()]),
             scalar_at(&list, 2).unwrap()
         );
     }
