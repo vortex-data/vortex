@@ -3,21 +3,21 @@ mod compute;
 use std::fmt::Display;
 use std::sync::Arc;
 
-use num_traits::{AsPrimitive, Zero};
+use num_traits::AsPrimitive;
 use serde::{Deserialize, Serialize};
-use vortex_dtype::{match_each_native_ptype, DType, NativePType};
+use vortex_dtype::{match_each_native_ptype, DType, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult};
 
 use crate::array::{NullArray, PrimitiveArray};
 use crate::compute::{scalar_at, slice};
 use crate::encoding::ids;
-use crate::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
+use crate::stats::{Stat, StatisticsVTable, StatsSet};
 use crate::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use crate::variants::{ListArrayTrait, PrimitiveArrayTrait, VariantsVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
-    IntoArrayVariant, IntoCanonical,
+    IntoCanonical,
 };
 
 impl_encoding!("vortex.list", ids::LIST, List);
@@ -26,7 +26,7 @@ impl_encoding!("vortex.list", ids::LIST, List);
 pub struct ListMetadata {
     validity: ValidityMetadata,
     elements_len: usize,
-    offset_dtype: DType,
+    offset_ptype: PType,
 }
 
 impl Display for ListMetadata {
@@ -44,53 +44,6 @@ impl Display for ListMetadata {
 // - The size of the validity is the size-1 of the offset array
 
 impl ListArray {
-    fn check_values<T: NativePType + Zero>(
-        offsets: &ArrayData,
-        list_len: usize,
-        element_len: T,
-    ) -> VortexResult<()> {
-        let min_idx = slice(offsets, 0, 1)
-            .vortex_expect("slice exists")
-            .into_primitive()
-            .vortex_expect("prim")
-            .get_as_cast::<T>(0);
-        if min_idx < T::zero() {
-            vortex_bail!(
-                "Expected smallest value in offsets array must be, non-negative {}",
-                min_idx
-            );
-        }
-
-        let final_idx = slice(offsets, list_len, list_len + 1)
-            .vortex_expect("slice exists")
-            .into_primitive()
-            .vortex_expect("prim")
-            .get_as_cast::<T>(0);
-        if final_idx > element_len as T {
-            vortex_bail!("Expected final to point to final element of elements list, however final idx=({}) and final element idx=({})", final_idx, element_len);
-        }
-        if min_idx > final_idx {
-            vortex_bail!(
-                "Expected smallest value in offsets array must be, less than final idx {}",
-                final_idx
-            );
-        };
-        Ok(())
-    }
-
-    pub fn try_new_checked(
-        elements: ArrayData,
-        offsets: ArrayData,
-        validity: Validity,
-    ) -> VortexResult<Self> {
-        let is_sorted = offsets.statistics().compute_is_sorted();
-        if !is_sorted.unwrap_or(false) {
-            vortex_bail!("Expected offsets to be sorted, got {:?}", is_sorted);
-        }
-
-        Self::try_new(elements, offsets, validity)
-    }
-
     pub fn try_new(
         elements: ArrayData,
         offsets: ArrayData,
@@ -99,7 +52,6 @@ impl ListArray {
         let nullability = validity.nullability();
         let list_len = offsets.len() - 1;
         let element_len = elements.len();
-        let offset_dtype = offsets.dtype().clone();
 
         let validity_metadata = validity.to_metadata(list_len)?;
 
@@ -114,13 +66,7 @@ impl ListArray {
             vortex_bail!("Offsets must have at least one element, [0] for an empty list");
         }
 
-        if offsets.dtype().is_signed_int() {
-            Self::check_values::<i64>(&offsets, list_len, element_len as i64)?;
-        } else if offsets.dtype().is_unsigned_int() {
-            Self::check_values::<u64>(&offsets, list_len, element_len as u64)?;
-        } else {
-            unreachable!("Offsets are integers");
-        }
+        let offset_ptype = PType::try_from(offsets.dtype())?;
 
         let list_dtype = DType::List(Arc::new(elements.dtype().clone()), nullability);
 
@@ -135,7 +81,7 @@ impl ListArray {
             ListMetadata {
                 validity: validity_metadata,
                 elements_len: element_len,
-                offset_dtype,
+                offset_ptype,
             },
             children.into(),
             StatsSet::default(),
@@ -191,7 +137,7 @@ impl ListArray {
     pub fn offsets(&self) -> ArrayData {
         // TODO: find cheap transform
         self.as_ref()
-            .child(1, &self.metadata().offset_dtype, self.len() + 1)
+            .child(1, &self.metadata().offset_ptype.into(), self.len() + 1)
             .vortex_expect("array contains offsets")
     }
 
@@ -267,8 +213,7 @@ mod test {
         let validity = Validity::AllValid;
 
         let list =
-            ListArray::try_new_checked(elements.into_array(), offsets.into_array(), validity)
-                .unwrap();
+            ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
 
         assert_eq!(0, list.len());
     }
@@ -280,8 +225,7 @@ mod test {
         let validity = Validity::AllValid;
 
         let list =
-            ListArray::try_new_checked(elements.into_array(), offsets.into_array(), validity)
-                .unwrap();
+            ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
 
         assert_eq!(
             Scalar::list(Arc::new(PType::I32.into()), vec![1.into(), 2.into()]),
