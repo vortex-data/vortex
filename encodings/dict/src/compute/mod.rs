@@ -1,8 +1,9 @@
 mod compare;
+mod like;
 
 use vortex_array::compute::{
-    filter, scalar_at, slice, take, CompareFn, ComputeVTable, FilterFn, FilterMask, ScalarAtFn,
-    SliceFn, TakeFn, TakeOptions,
+    filter, scalar_at, slice, take, CompareFn, ComputeVTable, FilterFn, FilterMask, LikeFn,
+    ScalarAtFn, SliceFn, TakeFn, TakeOptions,
 };
 use vortex_array::{ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
@@ -16,6 +17,10 @@ impl ComputeVTable for DictEncoding {
     }
 
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn like_fn(&self) -> Option<&dyn LikeFn<ArrayData>> {
         Some(self)
     }
 
