@@ -377,11 +377,10 @@ mod tests {
             Validity::NonNullable,
         )
         .unwrap();
-        println!("l1 dt {:?}", l1.dtype());
 
         let chunked_list = ChunkedArray::try_new(
             vec![l1.clone().into_array(), l2.clone().into_array()],
-            List(Arc::new(Primitive(I32.into(), NonNullable)), NonNullable),
+            List(Arc::new(Primitive(I32, NonNullable)), NonNullable),
         );
 
         let canon_values = chunked_list.unwrap().into_list().unwrap();
