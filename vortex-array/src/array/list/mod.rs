@@ -201,12 +201,9 @@ impl ListArray {
     }
 
     pub fn elements(&self) -> ArrayData {
+        let (dtype, _) = self.dtype().as_list().vortex_expect("must be list dtype");
         self.as_ref()
-            .child(
-                0,
-                self.dtype().as_list().vortex_expect("must be list dtype"),
-                self.metadata().element_len,
-            )
+            .child(0, dtype, self.metadata().element_len)
             .vortex_expect("array contains elements")
     }
 }
@@ -310,6 +307,7 @@ mod test {
             Arc::new(PType::I32.into()),
             vec![
                 1.into(),
+                2.into(),
                 // Scalar::new(PType::I32.into(), 1i32.into()),
                 // Scalar::new(PType::I32.into(), 2i32.into()),
             ]
