@@ -217,8 +217,10 @@ impl VariantsVTable<ListArray> for ListEncoding {
 impl ArrayTrait for ListArray {}
 
 impl VisitorVTable<ListArray> for ListEncoding {
-    fn accept(&self, _array: &ListArray, _visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        todo!()
+    fn accept(&self, array: &ListArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
+        visitor.visit_child("offsets", &array.offsets())?;
+        visitor.visit_child("elements", &array.elements())?;
+        visitor.visit_validity(&array.validity())
     }
 }
 
