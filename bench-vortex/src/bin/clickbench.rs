@@ -62,9 +62,14 @@ fn main() {
         let output_path = basepath.join(format!("hits_{idx}.parquet"));
         idempotent(&output_path, |output_path| {
             eprintln!("Fixing parquet file {idx}");
+
+            // We need to set the home directory because GitHub Actions doesn't set it in a way
+            // that DuckDB respects.
+            let home = std::env::var("HOME").unwrap_or("/home/ci-runner".to_string());
+
             let command = format!(
                 "
-                SET home_directory='/home/ci-runner/';
+                SET home_directory='{home}';
                 INSTALL HTTPFS;
                 COPY (SELECT * REPLACE
                     (epoch_ms(EventTime * 1000) AS EventTime, \
@@ -85,12 +90,18 @@ fn main() {
         .unwrap();
     });
 
-    let formats = [
-        Format::Parquet,
-        Format::OnDiskVortex {
+    let formats = if args.only_vortex {
+        vec![Format::OnDiskVortex {
             enable_compression: true,
-        },
-    ];
+        }]
+    } else {
+        vec![
+            Format::Parquet,
+            Format::OnDiskVortex {
+                enable_compression: true,
+            },
+        ]
+    };
 
     let queries = match args.queries.clone() {
         None => clickbench_queries(),
@@ -104,7 +115,7 @@ fn main() {
 
     let mut all_measurements = Vec::default();
 
-    for format in formats {
+    for format in &formats {
         let session_context = SessionContext::new();
         let context = session_context.clone();
         match format {
@@ -152,7 +163,7 @@ fn main() {
             all_measurements.push(Measurement {
                 query_idx,
                 time: fastest_result,
-                format,
+                format: format.clone(),
                 dataset: "clickbench".to_string(),
             });
         }
