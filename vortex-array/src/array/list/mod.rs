@@ -35,7 +35,14 @@ impl Display for ListMetadata {
     }
 }
 
-#[allow(dead_code)]
+// A list is valid if the:
+// - offsets start at a value in elements
+// - offsets are sorted
+// - the final offset points to an element in the elements list, pointing to zero
+//   if elements are empty.
+// - final_offset >= start_offset
+// - The size of the validity is the size-1 of the offset array
+
 impl ListArray {
     pub fn try_new(
         elements: ArrayData,
@@ -55,13 +62,6 @@ impl ListArray {
                 offsets.dtype()
             );
         }
-
-        // A list is valid if the:
-        // - offsets start at a value in elements
-        // - offsets are sorted
-        // - the final offset points to an element in the elements list, pointing to zero
-        //   if elements are empty.
-        // - final >= start
 
         if offsets.is_empty() {
             vortex_bail!("Offsets must have at least one element, [0] for an empty list");
@@ -148,6 +148,7 @@ impl ListArray {
         self.validity().is_valid(index)
     }
 
+    // TODO: merge logic with varbin
     pub fn offset_at(&self, index: usize) -> usize {
         PrimitiveArray::try_from(self.offsets())
             .ok()
@@ -167,20 +168,7 @@ impl ListArray {
             })
     }
 
-    // pub fn index(&self, index: usize) -> Option<ArrayData> {
-    //     if index >= self.len() {
-    //         return None;
-    //     }
-    //     if !self.is_valid(index) {
-    //         return None;
-    //     }
-    //     let offsets = self.offsets();
-    //     let start = offsets.get_as_cast::<i64>(index);
-    //     let end = offsets.get_as_cast::<i64>(index + 1);
-    //
-    //     slice(self.elements(), start as usize, end as usize).ok()
-    // }
-
+    // TODO: fetches the elements at index
     pub fn elements_at(&self, index: usize) -> VortexResult<ArrayData> {
         if index >= self.len() {
             vortex_bail!("Index out of bounds: index={} len={}", index, self.len());
@@ -193,6 +181,7 @@ impl ListArray {
         slice(self.elements(), start, end)
     }
 
+    // TODO: fetches the offsets of the array ignoring validity
     pub fn offsets(&self) -> ArrayData {
         // TODO: find cheap transform
         self.as_ref()
@@ -200,8 +189,9 @@ impl ListArray {
             .vortex_expect("array contains offsets")
     }
 
+    // TODO: fetches the elements of the array ignoring validity
     pub fn elements(&self) -> ArrayData {
-        let (dtype, _) = self.dtype().as_list().vortex_expect("must be list dtype");
+        let dtype = self.dtype().as_list().vortex_expect("must be list dtype");
         self.as_ref()
             .child(0, dtype, self.metadata().element_len)
             .vortex_expect("array contains elements")
@@ -260,29 +250,6 @@ mod test {
     use crate::compute::scalar_at;
     use crate::validity::Validity;
     use crate::{ArrayLen, IntoArrayData};
-    // fn idx_into_slice<T: NativePType + ArrowNativeType>(list: &ListArray, idx: usize) -> Vec<T> {
-    //     let binding = list.element_at(idx).unwrap().into_primitive().unwrap();
-    //     binding.into_maybe_null_slice::<T>()
-    // }
-    //
-    // fn idx_into_opt_slice_opt<T: NativePType + ArrowNativeType>(
-    //     list: &ListArray,
-    //     idx: usize,
-    // ) -> Option<Vec<Option<T>>> {
-    //     let arr = list.element_at(idx).ok()?;
-    //
-    //     if arr.logical_validity().all_invalid() {
-    //         return None;
-    //     }
-    //
-    //     // Some(
-    //     //     PrimitiveArray::try_from(arr.into_buffer().expect("prim"))
-    //     //         .expect("prim")
-    //     //         .with_iterator(|iter| iter.map(|i| i.cloned()).collect_vec())
-    //     //         .unwrap(),
-    //     // )
-    //     todo!()
-    // }
 
     #[test]
     fn test_empty_list_array() {
@@ -305,53 +272,17 @@ mod test {
         let list =
             ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
 
-        let l = Scalar::list(
-            Arc::new(PType::I32.into()),
-            vec![
-                1.into(),
-                2.into(),
-                // Scalar::new(PType::I32.into(), 1i32.into()),
-                // Scalar::new(PType::I32.into(), 2i32.into()),
-            ]
-            .into(),
+        assert_eq!(
+            Scalar::list(Arc::new(PType::I32.into()), vec![1.into(), 2.into()]),
+            scalar_at(&list, 0).unwrap()
         );
-
-        assert_eq!(l, scalar_at(&list, 0).unwrap());
-        // assert_eq!(vec![3, 4], scalar_at(&list, 1));
-        // assert_eq!(vec![5], scalar_at(&list, 2));
+        assert_eq!(
+            Scalar::list(Arc::new(PType::I32.into()), vec![3.into(), 4.into()]),
+            scalar_at(&list, 1).unwrap()
+        );
+        assert_eq!(
+            Scalar::list(Arc::new(PType::I32.into()), vec![5.into()]),
+            scalar_at(&list, 2).unwrap()
+        );
     }
-
-    // #[test]
-    // fn test_list_empty_elem_array() {
-    //     let elements = PrimitiveArray::from(vec![1]);
-    //     let offsets = PrimitiveArray::from(vec![0, 0, 1, 1]);
-    //
-    //     let list = ListArray::try_new(
-    //         elements.into_array(),
-    //         offsets.into_array(),
-    //         Validity::AllValid,
-    //     )
-    //     .unwrap();
-    //
-    //     assert_eq!(Some(vec![]), idx_into_opt_slice_opt::<i32>(&list, 0));
-    //     assert_eq!(Some(vec![Some(1)]), idx_into_opt_slice_opt::<i32>(&list, 1));
-    //     assert_eq!(Some(vec![]), idx_into_opt_slice_opt::<i32>(&list, 2));
-    // }
-    //
-    // #[test]
-    // fn test_list_validation_array() {
-    //     let elements = PrimitiveArray::from_nullable_vec(vec![None, Some(2), Some(3)]);
-    //     let offsets = PrimitiveArray::from(vec![0, 0, 2, 3]);
-    //     let validity = Validity::Array(BoolArray::from_iter(vec![false, true, true]).into_array());
-    //
-    //     let list =
-    //         ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
-    //
-    //     assert_eq!(None, idx_into_opt_slice_opt::<i32>(&list, 0));
-    //     assert_eq!(
-    //         Some(vec![None, Some(2)]),
-    //         idx_into_opt_slice_opt::<i32>(&list, 1)
-    //     );
-    //     assert_eq!(Some(vec![Some(3)]), idx_into_opt_slice_opt::<i32>(&list, 2));
-    // }
 }

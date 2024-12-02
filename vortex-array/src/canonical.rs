@@ -30,7 +30,7 @@ use crate::encoding::Encoding;
 use crate::stats::ArrayStatistics;
 use crate::validity::ArrayValidity;
 use crate::variants::{PrimitiveArrayTrait, StructArrayTrait};
-use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData};
+use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, ToArrayData};
 
 /// The set of canonical array encodings, also the set of encodings that can be transferred to
 /// Arrow with zero-copy.
@@ -231,16 +231,47 @@ fn struct_to_arrow(struct_array: StructArray) -> VortexResult<ArrayRef> {
     )?))
 }
 
+// TODO(joe): unify with varbin
 fn list_to_arrow(list: ListArray) -> VortexResult<ArrayRef> {
-    Ok(Arc::new(arrow_array::ListArray::try_new(
-        FieldRef::new(Field::new_list_field(
-            infer_data_type(list.elements().dtype())?,
-            list.validity().nullability().into(),
-        )),
-        as_offset_buffer::<i32>(list.offsets().into_primitive()?),
-        list.elements().into_canonical()?.into_arrow()?,
-        list.logical_validity().to_null_buffer()?,
-    )?) as ArrayRef)
+    let offsets = list
+        .offsets()
+        .into_primitive()
+        .map_err(|err| err.with_context("Failed to canonicalize offsets"))?;
+
+    let offsets = match offsets.ptype() {
+        PType::I32 | PType::I64 => offsets,
+        PType::U64 => try_cast(offsets, PType::I64.into())?.into_primitive()?,
+        PType::U32 => try_cast(offsets, PType::I32.into())?.into_primitive()?,
+
+        // Unless it's u64, everything else can be converted into an i32.
+        _ => try_cast(offsets.to_array(), PType::I32.into())
+            .and_then(|a| a.into_primitive())
+            .map_err(|err| err.with_context("Failed to cast offsets to PrimitiveArray of i32"))?,
+    };
+
+    let field_ref = FieldRef::new(Field::new_list_field(
+        infer_data_type(list.elements().dtype())?,
+        list.validity().nullability().into(),
+    ));
+
+    let values = list.elements().into_canonical()?.into_arrow()?;
+    let nulls = list.logical_validity().to_null_buffer()?;
+
+    Ok(match offsets.ptype() {
+        PType::I32 => Arc::new(arrow_array::ListArray::try_new(
+            field_ref,
+            as_offset_buffer::<i32>(list.offsets().into_primitive()?),
+            values,
+            nulls,
+        )?),
+        PType::I64 => Arc::new(arrow_array::LargeListArray::try_new(
+            field_ref,
+            as_offset_buffer::<i64>(list.offsets().into_primitive()?),
+            values,
+            nulls,
+        )?),
+        _ => vortex_bail!("Invalid offsets type {}", offsets.ptype()),
+    })
 }
 
 fn temporal_to_arrow(temporal_array: TemporalArray) -> VortexResult<ArrayRef> {

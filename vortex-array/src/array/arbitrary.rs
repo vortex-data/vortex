@@ -81,6 +81,7 @@ fn random_array(u: &mut Unstructured, dtype: &DType, len: Option<usize>) -> Resu
                     .vortex_unwrap()
                     .into_array())
                 }
+                // TOOD(joe): add arbitrary list
                 DType::List(..) => {
                     todo!("List arrays are not implemented")
                 }

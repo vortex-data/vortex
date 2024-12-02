@@ -180,7 +180,6 @@ impl FromArrowArray<&ArrowStructArray> for ArrayData {
 
 impl<O: OffsetSizeTrait + NativePType> FromArrowArray<&GenericListArray<O>> for ArrayData {
     fn from_arrow(value: &GenericListArray<O>, nullable: bool) -> Self {
-        // let elements = Self::from_arrow(value.values(), value.values().is_nullable());
         ListArray::try_new(
             Self::from_arrow(value.values().clone(), value.values().is_nullable()),
             // offsets are always non-nullable
