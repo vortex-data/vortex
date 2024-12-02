@@ -1,4 +1,3 @@
-use log::info;
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 
 use crate::encoding::Encoding;
@@ -75,7 +74,7 @@ pub fn take(
     }
 
     // Otherwise, flatten and try again.
-    info!("TakeFn not implemented for {}, flattening", array);
+    log::debug!("TakeFn not implemented for {}, flattening", array);
     let canonical = array.clone().into_canonical()?.into_array();
     canonical
         .encoding()

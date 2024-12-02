@@ -67,6 +67,10 @@ impl ArrayTrait for DictArray {}
 
 impl IntoCanonical for DictArray {
     fn into_canonical(self) -> VortexResult<Canonical> {
+        // We know that everyone will need to iterate the codes as plain integers, so we
+        // canonicalize them here.
+        let codes = self.codes().into_canonical()?.into_array();
+
         match self.dtype() {
             // NOTE: Utf8 and Binary will decompress into VarBinViewArray, which requires a full
             // decompression to construct the views child array.
@@ -74,10 +78,10 @@ impl IntoCanonical for DictArray {
             // copies of the view pointers.
             DType::Utf8(_) | DType::Binary(_) => {
                 let canonical_values: ArrayData = self.values().into_canonical()?.into();
-                take(canonical_values, self.codes(), TakeOptions::default())?.into_canonical()
+                take(canonical_values, &codes, TakeOptions::default())?.into_canonical()
             }
             // Non-string case: take and then canonicalize
-            _ => take(self.values(), self.codes(), TakeOptions::default())?.into_canonical(),
+            _ => take(self.values(), &codes, TakeOptions::default())?.into_canonical(),
         }
     }
 }
