@@ -364,14 +364,14 @@ mod tests {
 
     #[test]
     pub fn pack_nested_lists() {
-        let l1 = ListArray::try_new(
+        let l1 = ListArray::try_new_checked(
             vec![1, 2, 3, 4].into_array(),
             vec![0, 3].into_array(),
             Validity::NonNullable,
         )
         .unwrap();
 
-        let l2 = ListArray::try_new(
+        let l2 = ListArray::try_new_checked(
             vec![5, 6].into_array(),
             vec![0, 2].into_array(),
             Validity::NonNullable,

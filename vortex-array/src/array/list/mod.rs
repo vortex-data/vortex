@@ -78,7 +78,7 @@ impl ListArray {
         Ok(())
     }
 
-    pub fn try_new(
+    pub fn try_new_checked(
         elements: ArrayData,
         offsets: ArrayData,
         validity: Validity,
@@ -88,10 +88,10 @@ impl ListArray {
             vortex_bail!("Expected offsets to be sorted, got {:?}", is_sorted);
         }
 
-        Self::try_new_unchecked_offsets(elements, offsets, validity)
+        Self::try_new(elements, offsets, validity)
     }
 
-    pub fn try_new_unchecked_offsets(
+    pub fn try_new(
         elements: ArrayData,
         offsets: ArrayData,
         validity: Validity,
@@ -277,7 +277,8 @@ mod test {
         let validity = Validity::AllValid;
 
         let list =
-            ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
+            ListArray::try_new_checked(elements.into_array(), offsets.into_array(), validity)
+                .unwrap();
 
         assert_eq!(0, list.len());
     }
@@ -289,7 +290,8 @@ mod test {
         let validity = Validity::AllValid;
 
         let list =
-            ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
+            ListArray::try_new_checked(elements.into_array(), offsets.into_array(), validity)
+                .unwrap();
 
         assert_eq!(
             Scalar::list(Arc::new(PType::I32.into()), vec![1.into(), 2.into()]),
