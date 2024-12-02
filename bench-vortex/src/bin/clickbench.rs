@@ -13,6 +13,7 @@ use indicatif::ProgressBar;
 use itertools::Itertools;
 use rayon::iter::{IntoParallelIterator, ParallelIterator as _};
 use tokio::runtime::Builder;
+use vortex::error::vortex_panic;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -69,58 +70,81 @@ fn main() {
         .unwrap();
     });
 
-    let session_context = SessionContext::new();
-    let context = session_context.clone();
-    runtime.block_on(async {
-        clickbench::register_vortex_file(&context, "hits", basepath.as_path(), &HITS_SCHEMA)
-            .await
-            .unwrap();
-    });
+    let formats = [
+        Format::Parquet,
+        Format::OnDiskVortex {
+            enable_compression: true,
+        },
+    ];
 
     let mut all_measurements = Vec::default();
 
-    let queries = match args.queries {
-        None => clickbench_queries(),
-        Some(queries) => clickbench_queries()
-            .into_iter()
-            .filter(|(q_idx, _)| queries.iter().contains(q_idx))
-            .collect(),
-    };
-
-    let progress_bar = ProgressBar::new(queries.len() as u64);
-
-    for (query_idx, query) in queries.into_iter() {
-        let mut fastest_result = Duration::from_millis(u64::MAX);
-        for _ in 0..10 {
-            let exec_duration = runtime.block_on(async {
-                let start = Instant::now();
-                execute_query(&context, &query).await.unwrap();
-                start.elapsed()
-            });
-
-            fastest_result = fastest_result.min(exec_duration);
+    for format in formats {
+        let session_context = SessionContext::new();
+        let context = session_context.clone();
+        match format {
+            Format::Parquet => runtime.block_on(async {
+                clickbench::register_parquet_files(
+                    &context,
+                    "hits",
+                    basepath.as_path(),
+                    &HITS_SCHEMA,
+                )
+                .await
+                .unwrap()
+            }),
+            Format::OnDiskVortex {
+                enable_compression: true,
+            } => {
+                runtime.block_on(async {
+                    clickbench::register_vortex_files(
+                        &context,
+                        "hits",
+                        basepath.as_path(),
+                        &HITS_SCHEMA,
+                    )
+                    .await
+                    .unwrap();
+                });
+            }
+            other => vortex_panic!("Format {other} isn't supported on ClickBench"),
         }
 
-        progress_bar.inc(1);
+        let queries = match args.queries.clone() {
+            None => clickbench_queries(),
+            Some(queries) => clickbench_queries()
+                .into_iter()
+                .filter(|(q_idx, _)| queries.iter().contains(q_idx))
+                .collect(),
+        };
 
-        all_measurements.push(Measurement {
-            query_idx,
-            time: fastest_result,
-            format: Format::OnDiskVortex {
-                enable_compression: true,
-            },
-            dataset: "clickbench".to_string(),
-        });
+        let progress_bar = ProgressBar::new(queries.len() as u64);
+
+        for (query_idx, query) in queries.into_iter() {
+            let mut fastest_result = Duration::from_millis(u64::MAX);
+            for _ in 0..10 {
+                let exec_duration = runtime.block_on(async {
+                    let start = Instant::now();
+                    execute_query(&context, &query).await.unwrap();
+                    start.elapsed()
+                });
+
+                fastest_result = fastest_result.min(exec_duration);
+            }
+
+            progress_bar.inc(1);
+
+            all_measurements.push(Measurement {
+                query_idx,
+                time: fastest_result,
+                format,
+                dataset: "clickbench".to_string(),
+            });
+        }
     }
 
     match args.display_format {
-        DisplayFormat::Table => render_table(
-            all_measurements,
-            &[Format::OnDiskVortex {
-                enable_compression: true,
-            }],
-        )
-        .unwrap(),
+        DisplayFormat::Table => render_table(all_measurements, &formats).unwrap(),
         DisplayFormat::GhJson => print_measurements_json(all_measurements).unwrap(),
     }
 }

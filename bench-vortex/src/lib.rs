@@ -255,7 +255,7 @@ pub async fn execute_query(ctx: &SessionContext, query: &str) -> anyhow::Result<
     Ok(result)
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Measurement {
     pub query_idx: usize,
     pub time: Duration,

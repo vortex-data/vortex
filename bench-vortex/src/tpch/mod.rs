@@ -11,7 +11,6 @@ use datafusion::datasource::listing::{
 };
 use datafusion::datasource::MemTable;
 use datafusion::prelude::{CsvReadOptions, ParquetReadOptions, SessionContext};
-use datafusion_common::TableReference;
 use tokio::fs::OpenOptions;
 use vortex::aliases::hash_map::HashMap;
 use vortex::array::{ChunkedArray, StructArray};
@@ -293,7 +292,7 @@ async fn register_vortex_file(
 
     let listing_table = Arc::new(ListingTable::try_new(config)?);
 
-    session.register_table(TableReference::parse_str(table_name), listing_table as _)?;
+    session.register_table(table_name, listing_table as _)?;
 
     Ok(())
 }
