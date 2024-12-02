@@ -245,7 +245,9 @@ pub trait StructArrayTrait: ArrayTrait {
     fn project(&self, projection: &[Field]) -> VortexResult<ArrayData>;
 }
 
-pub trait ListArrayTrait: ArrayTrait {}
+pub trait ListArrayTrait: ArrayTrait {
+    // fn mean(&self) -> ArrayData;
+}
 
 pub trait ExtensionArrayTrait: ArrayTrait {
     /// Returns the extension logical [`DType`].
