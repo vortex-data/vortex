@@ -121,6 +121,7 @@ pub fn sum_sq(array: impl AsRef<ArrayData>) -> VortexResult<Scalar> {
     }
 }
 
+#[cfg(test)]
 mod tests {
     use crate::array::PrimitiveArray;
     use crate::compute::sum::{sum, sum_sq};

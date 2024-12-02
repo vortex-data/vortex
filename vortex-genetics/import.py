@@ -9,6 +9,7 @@
 import hail as hl
 import pyarrow as pa
 import pyarrow.parquet as pq
+import pandas as pd
 
 hl.init(master='local[*]')
 hl.default_reference('GRCh38')
@@ -37,3 +38,12 @@ df = mt.to_pandas()
 
 df = pa.Table.from_pandas(df)
 pq.write_table(df, 'tiny-no-lists-of-lists.vcf.parquet')
+
+vortex.io.write_path(
+    vortex.encoding.compress(
+        vortex.array(
+            pa.Table.from_pandas(pd.read_parquet('tiny-no-lists-of-lists.vcf.parquet'))
+        )
+    ),
+    'tiny-no-lists-of-lists.vcf.vortex'
+)
