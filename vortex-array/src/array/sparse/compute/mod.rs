@@ -198,14 +198,14 @@ mod test {
 
     #[rstest]
     fn test_filter(array: ArrayData) {
-        let mut predicate = vec![false, true, true];
+        let mut predicate = vec![false, false, true];
         predicate.extend_from_slice(&[false; 17]);
         let mask = FilterMask::from_iter(predicate);
 
         let filtered_array = filter(&array, mask).unwrap();
         let filtered_array = SparseArray::try_from(filtered_array).unwrap();
 
-        assert_eq!(filtered_array.len(), 2);
+        assert_eq!(filtered_array.len(), 1);
         assert_eq!(filtered_array.values().len(), 1);
         assert_eq!(filtered_array.indices().len(), 1);
     }

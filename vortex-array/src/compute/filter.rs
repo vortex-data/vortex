@@ -69,15 +69,15 @@ pub fn filter(array: &ArrayData, mask: FilterMask) -> VortexResult<ArrayData> {
         return Ok(array.clone());
     }
 
-    // Fast-path for length-1 mask
-    if mask.true_count() == 1 {
-        let idx = mask.indices()?[0];
-        return Ok(ConstantArray::new(scalar_at(array, idx)?, 1).into_array());
-    }
-
     if let Some(filter_fn) = array.encoding().filter_fn() {
         filter_fn.filter(array, mask)
     } else {
+        // We can use scalar_at if the mask has length 1.
+        if mask.true_count() == 1 && array.encoding().scalar_at_fn().is_some() {
+            let idx = mask.indices()?[0];
+            return Ok(ConstantArray::new(scalar_at(array, idx)?, 1).into_array());
+        }
+
         // Fallback: implement using Arrow kernels.
         log::debug!(
             "No filter implementation found for {}",
