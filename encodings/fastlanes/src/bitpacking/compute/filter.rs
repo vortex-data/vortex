@@ -13,11 +13,6 @@ use crate::{BitPackedArray, BitPackedEncoding};
 
 impl FilterFn<BitPackedArray> for BitPackedEncoding {
     fn filter(&self, array: &BitPackedArray, mask: FilterMask) -> VortexResult<ArrayData> {
-        // If the indices are large enough, it's faster to flatten and take the primitive array.
-        if mask.true_count() * UNPACK_CHUNK_THRESHOLD > array.len() {
-            return filter(&array.clone().into_canonical()?.into_array(), mask);
-        }
-
         let primitive = match_each_unsigned_integer_ptype!(array.ptype(), |$I| {
             filter_primitive::<$I>(array, mask)
         });
