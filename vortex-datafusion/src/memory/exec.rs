@@ -36,6 +36,16 @@ impl VortexScanExec {
             statistics,
         })
     }
+
+    pub fn with_scan_projection(&self, scan_projection: ExprRef) -> VortexResult<Self> {
+        let statistics = chunked_array_df_stats(&self.array, &scan_projection)?;
+        Ok(Self {
+            array: self.array.clone(),
+            scan_projection,
+            plan_properties: self.plan_properties.clone(),
+            statistics,
+        })
+    }
 }
 
 impl Debug for VortexScanExec {
