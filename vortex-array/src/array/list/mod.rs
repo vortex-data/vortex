@@ -3,7 +3,7 @@ mod compute;
 use std::fmt::Display;
 use std::sync::Arc;
 
-use num_traits::{AsPrimitive, Zero};
+use num_traits::AsPrimitive;
 use serde::{Deserialize, Serialize};
 use vortex_dtype::{match_each_native_ptype, DType, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult};
@@ -44,53 +44,6 @@ impl Display for ListMetadata {
 // - The size of the validity is the size-1 of the offset array
 
 impl ListArray {
-    fn check_values<T: NativePType + Zero>(
-        offsets: &ArrayData,
-        list_len: usize,
-        element_len: T,
-    ) -> VortexResult<()> {
-        let min_idx = slice(offsets, 0, 1)
-            .vortex_expect("slice exists")
-            .into_primitive()
-            .vortex_expect("prim")
-            .get_as_cast::<T>(0);
-        if min_idx < T::zero() {
-            vortex_bail!(
-                "Expected smallest value in offsets array must be, non-negative {}",
-                min_idx
-            );
-        }
-
-        let final_idx = slice(offsets, list_len, list_len + 1)
-            .vortex_expect("slice exists")
-            .into_primitive()
-            .vortex_expect("prim")
-            .get_as_cast::<T>(0);
-        if final_idx > element_len as T {
-            vortex_bail!("Expected final to point to final element of elements list, however final idx=({}) and final element idx=({})", final_idx, element_len);
-        }
-        if min_idx > final_idx {
-            vortex_bail!(
-                "Expected smallest value in offsets array must be, less than final idx {}",
-                final_idx
-            );
-        };
-        Ok(())
-    }
-
-    pub fn try_new_checked(
-        elements: ArrayData,
-        offsets: ArrayData,
-        validity: Validity,
-    ) -> VortexResult<Self> {
-        let is_sorted = offsets.statistics().compute_is_sorted();
-        if !is_sorted.unwrap_or(false) {
-            vortex_bail!("Expected offsets to be sorted, got {:?}", is_sorted);
-        }
-
-        Self::try_new(elements, offsets, validity)
-    }
-
     pub fn try_new(
         elements: ArrayData,
         offsets: ArrayData,
@@ -277,8 +230,7 @@ mod test {
         let validity = Validity::AllValid;
 
         let list =
-            ListArray::try_new_checked(elements.into_array(), offsets.into_array(), validity)
-                .unwrap();
+            ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
 
         assert_eq!(0, list.len());
     }
@@ -290,8 +242,7 @@ mod test {
         let validity = Validity::AllValid;
 
         let list =
-            ListArray::try_new_checked(elements.into_array(), offsets.into_array(), validity)
-                .unwrap();
+            ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
 
         assert_eq!(
             Scalar::list(Arc::new(PType::I32.into()), vec![1.into(), 2.into()]),

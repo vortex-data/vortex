@@ -29,7 +29,7 @@ impl ScalarAtFn<ListArray> for ListEncoding {
 
 impl SliceFn<ListArray> for ListEncoding {
     fn slice(&self, array: &ListArray, start: usize, stop: usize) -> VortexResult<ArrayData> {
-        Ok(ListArray::try_new_checked(
+        Ok(ListArray::try_new(
             array.elements(),
             slice(array.offsets(), start, stop + 1)?,
             array.validity().slice(start, stop)?,
