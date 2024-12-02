@@ -191,7 +191,7 @@ impl ListArray {
 
     // TODO: fetches the elements of the array ignoring validity
     pub fn elements(&self) -> ArrayData {
-        let (dtype, _) = self.dtype().as_list().vortex_expect("must be list dtype");
+        let dtype = self.dtype().as_list().vortex_expect("must be list dtype");
         self.as_ref()
             .child(0, dtype, self.metadata().element_len)
             .vortex_expect("array contains elements")

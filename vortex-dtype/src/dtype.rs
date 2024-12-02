@@ -140,9 +140,9 @@ impl DType {
     }
 
     /// Get the inner dtype if `self` is a `ListDType`, otherwise `None`
-    pub fn as_list(&self) -> Option<(&DType, &Nullability)> {
+    pub fn as_list(&self) -> Option<&DType> {
         match self {
-            List(s, n) => Some((s.as_ref(), n)),
+            List(s, _) => Some(s.as_ref()),
             _ => None,
         }
     }
