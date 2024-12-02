@@ -1,17 +1,18 @@
 use datafusion::datasource::DefaultTableSource;
 use datafusion::execution::SessionStateBuilder;
+use datafusion::functions::string::upper;
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion::prelude::SessionContext;
 use datafusion_common::config::ConfigOptions;
-use datafusion_expr::{col, LogicalPlanBuilder};
+use datafusion_expr::expr::ScalarFunction;
+use datafusion_expr::{col, Expr, LogicalPlanBuilder};
 use datafusion_physical_plan::ExecutionPlan;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
-use datafusion::functions_aggregate::variance::var_pop;
 use vortex_array::array::{ChunkedArray, PrimitiveArray, StructArray, VarBinArray};
 use vortex_array::validity::Validity;
 use vortex_array::IntoArrayData;
-use vortex_datafusion::memory::{VortexMemTable, VortexMemTableOptions};
+use vortex_datafusion::memory::{VortexMemTable, VortexMemTableOptions, VortexScanExec};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -43,8 +44,13 @@ async fn main() -> anyhow::Result<()> {
     );
 
     let df = ctx.execute_logical_plan(logical_plan).await?;
-    // df.select_columns(&["strings"])?.show().await?;
-    df.aggregate(vec![col("strings")], vec![var_pop(col("numbers"))])?.show().await?;
+    // FIXME(marko): Figure out what's the expression that we're running here!
+    df.select(vec![
+        Expr::ScalarFunction(ScalarFunction::new_udf(
+            upper(),
+            vec![col("strings")],
+        ))
+    ])?.show().await?;
 
     Ok(())
 }
@@ -65,8 +71,17 @@ impl Debug for VortexTableScanPushdown {
 
 impl PhysicalOptimizerRule for VortexTableScanPushdown {
     fn optimize(&self, plan: Arc<dyn ExecutionPlan>, _config: &ConfigOptions) -> datafusion_common::Result<Arc<dyn ExecutionPlan>> {
-        println!("{:?}", plan);
-        Ok(plan)
+        let children = plan.children();
+        if children.len() != 1 {
+            return Ok(plan);
+        }
+        if let Some(_vortex_scan) = children[0].as_any().downcast_ref::<VortexScanExec>() {
+            println!("{:?}", plan);
+            // FIXME(marko): Re-write the expression instead a VortexScanExec.
+            Ok(plan)
+        } else {
+            Ok(plan)
+        }
     }
 
     fn name(&self) -> &str {
@@ -76,4 +91,4 @@ impl PhysicalOptimizerRule for VortexTableScanPushdown {
     fn schema_check(&self) -> bool {
         true
     }
-
+}
