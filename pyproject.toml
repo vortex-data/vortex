@@ -34,7 +34,7 @@ dev-dependencies = [
 ]
 
 [tool.uv.workspace]
-members = ["pyvortex", "docs"]
+members = ["pyvortex", "docs", "vortex-genetics"]
 
 [tool.uv.sources]
 vortex-array = { workspace = true }

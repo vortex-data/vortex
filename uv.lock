@@ -10,6 +10,7 @@ resolution-markers = [
 members = [
     "docs",
     "vortex-array",
+    "vortex-genetics",
     "workspace",
 ]
 
@@ -247,6 +248,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/8c/e3/7d45f492c2c4a0e8e0fad57d081a7c8a0286cdd86372b070cca1ec0caa1e/executing-2.1.0.tar.gz", hash = "sha256:8ea27ddd260da8150fa5a708269c4a10e76161e2496ec3e587da9e3c0fe4b9ab", size = 977485 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b5/fd/afcd0496feca3276f509df3dbd5dae726fcc756f1a08d9e25abe1733f962/executing-2.1.0-py2.py3-none-any.whl", hash = "sha256:8d63781349375b5ebccc3142f4b30350c0cd9c79f921cde38be2be4637e98eaf", size = 25805 },
+]
+
+[[package]]
+name = "hail"
+version = "0.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/6d/5a/405b478c327f6cffb300b410b0d4eb1741f1bdec6f91a078865ce94b500b/hail-0.2.tar.gz", hash = "sha256:aa90fadca0368fed4dfc4f12f0c29fac55add4d10183d088d5dee16fe5df9dbf", size = 667 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e3/8d/dc8fa3103af8e2296388f7c900d52fcd11e5c6fe9be855a5db619a9a723e/hail-0.2-py3-none-any.whl", hash = "sha256:a9d4e3e39547b2b99be8800d385bed7828484849a44f96b6535abc69392b4562", size = 1682 },
 ]
 
 [[package]]
@@ -1028,6 +1038,21 @@ requires-dist = [
     { name = "polars", marker = "extra == 'polars'", specifier = ">=1.9.0" },
     { name = "pyarrow", specifier = ">=17.0.0" },
     { name = "substrait", specifier = ">=0.23.0" },
+]
+
+[[package]]
+name = "vortex-genetics"
+version = "0.1.0"
+source = { virtual = "vortex-genetics" }
+dependencies = [
+    { name = "hail" },
+    { name = "vortex-array" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "hail", specifier = ">=0.2" },
+    { name = "vortex-array", editable = "pyvortex" },
 ]
 
 [[package]]
