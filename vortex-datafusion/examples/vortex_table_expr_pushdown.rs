@@ -1,7 +1,13 @@
 use datafusion::datasource::DefaultTableSource;
+use datafusion::execution::SessionStateBuilder;
+use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion::prelude::SessionContext;
-use datafusion_expr::LogicalPlanBuilder;
+use datafusion_common::config::ConfigOptions;
+use datafusion_expr::{col, LogicalPlanBuilder};
+use datafusion_physical_plan::ExecutionPlan;
+use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
+use datafusion::functions_aggregate::variance::var_pop;
 use vortex_array::array::{ChunkedArray, PrimitiveArray, StructArray, VarBinArray};
 use vortex_array::validity::Validity;
 use vortex_array::IntoArrayData;
@@ -27,19 +33,47 @@ async fn main() -> anyhow::Result<()> {
     )?;
 
     let table_provider = VortexMemTable::new(st.into_array(), VortexMemTableOptions::default());
-    // .aggregate([col("strings")].into_iter(), [var_pop(col("numbers"), )].into_iter())?
     let logical_plan = LogicalPlanBuilder::scan(
         "vortex_tbl",
         Arc::new(DefaultTableSource::new(Arc::new(table_provider))),
         None,
-    )?.select([0].into_iter())?.build()?;
-    println!("{}", logical_plan);
+    )?.build()?;
+    let ctx = SessionContext::new_with_state(
+        SessionStateBuilder::new().with_physical_optimizer_rule(Arc::new(VortexTableScanPushdown::new())).build(),
+    );
 
-    // TODO(marko): Rewrite the plan.
-
-    let ctx = SessionContext::new();
     let df = ctx.execute_logical_plan(logical_plan).await?;
-    df.show().await?;
+    // df.select_columns(&["strings"])?.show().await?;
+    df.aggregate(vec![col("strings")], vec![var_pop(col("numbers"))])?.show().await?;
 
     Ok(())
 }
+
+struct VortexTableScanPushdown {}
+
+impl VortexTableScanPushdown {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+impl Debug for VortexTableScanPushdown {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str("VortexTableScanPushdown")
+    }
+}
+
+impl PhysicalOptimizerRule for VortexTableScanPushdown {
+    fn optimize(&self, plan: Arc<dyn ExecutionPlan>, _config: &ConfigOptions) -> datafusion_common::Result<Arc<dyn ExecutionPlan>> {
+        println!("{:?}", plan);
+        Ok(plan)
+    }
+
+    fn name(&self) -> &str {
+        "VortexTableScanPushdown"
+    }
+
+    fn schema_check(&self) -> bool {
+        true
+    }
+
