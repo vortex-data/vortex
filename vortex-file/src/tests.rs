@@ -1,3 +1,4 @@
+#![allow(clippy::cast_possible_truncation)]
 use std::collections::BTreeSet;
 use std::iter;
 use std::sync::{Arc, RwLock};

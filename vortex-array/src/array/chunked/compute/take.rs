@@ -38,10 +38,11 @@ impl TakeFn<ChunkedArray> for ChunkedEncoding {
         let mut chunks = Vec::new();
         let mut indices_in_chunk = Vec::new();
         let mut prev_chunk_idx = array
-            .find_chunk_idx(indices.maybe_null_slice::<u64>()[0] as usize)
+            .find_chunk_idx(indices.maybe_null_slice::<u64>()[0].try_into()?)
             .0;
         for idx in indices.maybe_null_slice::<u64>() {
-            let (chunk_idx, idx_in_chunk) = array.find_chunk_idx(*idx as usize);
+            let idx = usize::try_from(*idx)?;
+            let (chunk_idx, idx_in_chunk) = array.find_chunk_idx(idx);
 
             if chunk_idx != prev_chunk_idx {
                 // Start a new chunk
@@ -97,18 +98,21 @@ fn take_strict_sorted(
         // Adjust the indices so they're relative to the chunk
         // Note. Indices might not have a dtype big enough to fit chunk_begin after cast,
         // if it does cast the scalar otherwise upcast the indices.
-        let chunk_indices =
-            if chunk_begin < PType::try_from(chunk_indices.dtype())?.max_value_as_u64() as usize {
-                subtract_scalar(
-                    &chunk_indices,
-                    &Scalar::from(chunk_begin).cast(chunk_indices.dtype())?,
-                )?
-            } else {
-                // Note. this try_cast (memory copy) is unnecessary, could instead upcast in the subtract fn.
-                //  and avoid an extra
-                let u64_chunk_indices = try_cast(&chunk_indices, PType::U64.into())?;
-                subtract_scalar(&u64_chunk_indices, &chunk_begin.into())?
-            };
+        let chunk_indices = if chunk_begin
+            < PType::try_from(chunk_indices.dtype())?
+                .max_value_as_u64()
+                .try_into()?
+        {
+            subtract_scalar(
+                &chunk_indices,
+                &Scalar::from(chunk_begin).cast(chunk_indices.dtype())?,
+            )?
+        } else {
+            // Note. this try_cast (memory copy) is unnecessary, could instead upcast in the subtract fn.
+            //  and avoid an extra
+            let u64_chunk_indices = try_cast(&chunk_indices, PType::U64.into())?;
+            subtract_scalar(&u64_chunk_indices, &chunk_begin.into())?
+        };
 
         indices_by_chunk[chunk_idx] = Some(chunk_indices);
 

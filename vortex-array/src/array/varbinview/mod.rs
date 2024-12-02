@@ -11,7 +11,9 @@ use itertools::Itertools;
 use static_assertions::{assert_eq_align, assert_eq_size};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, PType};
-use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult};
+use vortex_error::{
+    vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult, VortexUnwrap,
+};
 
 use crate::arrow::FromArrowArray;
 use crate::compute::slice;
@@ -45,7 +47,7 @@ impl Inlined {
             value.len()
         );
         let mut inlined = Self {
-            size: value.len() as u32,
+            size: value.len().try_into().vortex_unwrap(),
             data: [0u8; BinaryView::MAX_INLINED_SIZE],
         };
         inlined.data[..value.len()].copy_from_slice(value);
@@ -150,6 +152,7 @@ impl BinaryView {
     }
 
     #[inline]
+    #[allow(clippy::cast_possible_truncation)]
     pub fn is_inlined(&self) -> bool {
         self.len() <= (Self::MAX_INLINED_SIZE as u32)
     }

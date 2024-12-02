@@ -24,7 +24,7 @@ futures-executor = { workspace = true }
 futures-util = { workspace = true }
 itertools = { workspace = true }
 once_cell = { workspace = true }
-tokio = { workspace = true, features = ["io-util", "fs", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["rt"] }
 tracing = { workspace = true, optional = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
@@ -32,7 +32,7 @@ vortex-dtype = { workspace = true, features = ["flatbuffers"] }
 vortex-error = { workspace = true }
 vortex-expr = { workspace = true }
 vortex-flatbuffers = { workspace = true, features = ["file"] }
-vortex-io = { workspace = true, features = ["tokio"] }
+vortex-io = { workspace = true }
 vortex-ipc = { workspace = true }
 vortex-scalar = { workspace = true, features = ["flatbuffers"] }
 

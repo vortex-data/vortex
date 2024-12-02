@@ -14,7 +14,7 @@ use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::{match_each_integer_ptype, match_each_unsigned_integer_ptype, NativePType};
-use vortex_error::VortexResult;
+use vortex_error::{VortexResult, VortexUnwrap};
 use vortex_scalar::Scalar;
 
 use crate::{RunEndArray, RunEndEncoding};
@@ -175,7 +175,9 @@ fn filter_run_ends<R: NativePType + AddAssign + From<bool> + AsPrimitive<u64>>(
         let end = min(run_ends[i].as_() - offset, length);
 
         // Safety: predicate must be the same length as the array the ends have been taken from
-        for pred in (start..end).map(|i| unsafe { filter_values.value_unchecked(i as usize) }) {
+        for pred in (start..end)
+            .map(|i| unsafe { filter_values.value_unchecked(i.try_into().vortex_unwrap()) })
+        {
             count += <R as From<bool>>::from(pred);
             keep |= pred
         }

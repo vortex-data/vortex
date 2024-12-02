@@ -8,7 +8,7 @@ use futures_util::stream;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
+use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult, VortexUnwrap};
 use vortex_scalar::Scalar;
 
 use crate::array::primitive::PrimitiveArray;
@@ -66,8 +66,7 @@ impl ChunkedArray {
         let nchunks = chunk_offsets.len() - 1;
         let length = *chunk_offsets
             .last()
-            .vortex_expect("Chunk ends is guaranteed to have at least one element")
-            as usize;
+            .vortex_expect("Chunk ends is guaranteed to have at least one element");
 
         let stats = chunks
             .iter()
@@ -84,7 +83,7 @@ impl ChunkedArray {
 
         Self::try_from_parts(
             dtype,
-            length,
+            length.try_into().vortex_unwrap(),
             ChunkedMetadata { nchunks },
             children.into(),
             stats,

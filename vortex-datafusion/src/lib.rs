@@ -1,6 +1,7 @@
 //! Connectors to enable DataFusion to read Vortex data.
 
 #![allow(clippy::nonminimal_bool)]
+#![allow(clippy::cast_possible_truncation)]
 
 use std::sync::Arc;
 

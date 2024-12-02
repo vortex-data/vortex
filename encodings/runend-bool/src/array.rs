@@ -248,6 +248,7 @@ impl StatisticsVTable<RunEndBoolArray> for RunEndBoolEncoding {
 }
 
 #[cfg(test)]
+#[allow(clippy::cast_possible_truncation)]
 mod test {
     use core::iter;
 

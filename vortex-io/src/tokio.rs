@@ -9,6 +9,7 @@ use std::sync::Arc;
 use bytes::Bytes;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 use vortex_buffer::io_buf::IoBuf;
+use vortex_error::VortexUnwrap;
 
 use crate::aligned::AlignedBytesMut;
 use crate::{VortexReadAt, VortexWrite, ALIGNMENT};
@@ -69,9 +70,10 @@ impl VortexReadAt for TokioFile {
     ) -> impl Future<Output = io::Result<Bytes>> + 'static {
         let this = self.clone();
 
-        let mut buffer = AlignedBytesMut::<ALIGNMENT>::with_capacity(len as usize);
+        let mut buffer =
+            AlignedBytesMut::<ALIGNMENT>::with_capacity(len.try_into().vortex_unwrap());
         unsafe {
-            buffer.set_len(len as usize);
+            buffer.set_len(len.try_into().vortex_unwrap());
         }
         match this.read_exact_at(&mut buffer, pos) {
             Ok(()) => future::ready(Ok(buffer.freeze())),

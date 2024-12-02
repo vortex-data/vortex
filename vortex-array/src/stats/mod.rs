@@ -9,7 +9,7 @@ use itertools::Itertools;
 pub use statsset::*;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, NativePType};
-use vortex_error::{vortex_err, vortex_panic, VortexError, VortexResult};
+use vortex_error::{vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::encoding::Encoding;
@@ -269,7 +269,9 @@ pub fn trailing_zeros(array: &ArrayData) -> u8 {
         .enumerate()
         .find_or_first(|(_, &v)| v > 0)
         .map(|(i, _)| i)
-        .unwrap_or(0) as u8
+        .unwrap_or(0)
+        .try_into()
+        .vortex_expect("tz_freq must fit in u8")
 }
 
 #[cfg(test)]
