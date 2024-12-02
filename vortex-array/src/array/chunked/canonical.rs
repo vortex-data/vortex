@@ -1,5 +1,5 @@
 use arrow_buffer::{BooleanBufferBuilder, Buffer, MutableBuffer, ScalarBuffer};
-use vortex_dtype::{DType, PType, StructDType};
+use vortex_dtype::{DType, Nullability, PType, StructDType};
 use vortex_error::{vortex_bail, vortex_err, ErrString, VortexExpect, VortexResult};
 
 use crate::array::chunked::ChunkedArray;
@@ -7,7 +7,8 @@ use crate::array::extension::ExtensionArray;
 use crate::array::null::NullArray;
 use crate::array::primitive::PrimitiveArray;
 use crate::array::struct_::StructArray;
-use crate::array::{BinaryView, BoolArray, VarBinViewArray};
+use crate::array::{BinaryView, BoolArray, ListArray, VarBinViewArray};
+use crate::compute::{scalar_at, try_cast};
 use crate::validity::Validity;
 use crate::{
     ArrayDType, ArrayData, ArrayValidity, Canonical, IntoArrayData, IntoArrayVariant, IntoCanonical,
@@ -88,9 +89,11 @@ pub(crate) fn try_canonicalize_chunks(
             )))
         }
 
-        // TODO(aduffy): better list support
         DType::List(..) => {
-            todo!()
+            // TODO: improve performance
+
+            let list = pack_lists(chunks.as_slice(), validity, dtype)?;
+            Ok(Canonical::List(list))
         }
 
         DType::Bool(_) => {
@@ -115,6 +118,41 @@ pub(crate) fn try_canonicalize_chunks(
             Ok(Canonical::Null(null_array))
         }
     }
+}
+
+fn pack_lists(chunks: &[ArrayData], validity: Validity, dtype: &DType) -> VortexResult<ListArray> {
+    let len: usize = chunks.iter().map(|c| c.len()).sum();
+    let mut offsets = Vec::with_capacity(len + 1);
+    offsets.push(0);
+    let mut elements = Vec::new();
+
+    for chunk in chunks {
+        let chunk = chunk.clone().into_list()?;
+        // TODO: handle i32 offsets if they fit.
+        let offsets_arr = try_cast(
+            chunk.offsets().into_primitive()?.as_ref(),
+            &DType::Primitive(PType::I64, Nullability::NonNullable),
+        )?
+        .into_primitive()?;
+
+        let first_offset_value: usize = usize::try_from(&scalar_at(offsets_arr.as_ref(), 0)?)?;
+        elements.push(chunk.elements());
+
+        let adjustment_from_previous = *offsets
+            .last()
+            .ok_or_else(|| vortex_err!("VarBinArray offsets must have at least one element"))?;
+        offsets.extend(
+            offsets_arr
+                .maybe_null_slice::<i64>()
+                .iter()
+                .skip(1)
+                .map(|off| off + adjustment_from_previous - first_offset_value as i64),
+        );
+    }
+    let chunked_elements = ChunkedArray::try_new(elements, dtype.clone())?.into_array();
+    let offsets = PrimitiveArray::from_vec(offsets, Validity::NonNullable);
+
+    ListArray::try_new(chunked_elements, offsets.into_array(), validity)
 }
 
 /// Swizzle the pointers within a ChunkedArray of StructArrays to instead be a single
