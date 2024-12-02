@@ -16,23 +16,30 @@ use crate::{LayoutMessageCache, LayoutReader, Message, MessageLocator, MessageRe
 
 const NUM_TO_COALESCE: usize = 8;
 
-pub trait RowMaskReader<V> {
-    fn read_mask(&self, mask: &RowMask) -> VortexResult<Option<MessageRead<V>>>;
+pub(crate) trait ReadMasked {
+    type Value;
+
+    /// Read a Layout into a `V`, applying the given bitmask. Only entries corresponding to positions
+    /// where mask is `true` will be included in the output.
+    fn read_masked(&self, mask: &RowMask) -> VortexResult<Option<MessageRead<Self::Value>>>;
 }
 
-pub struct MaskLayoutReader {
+/// Read an array with a [`RowMask`].
+pub(crate) struct ReadArray {
     layout: Box<dyn LayoutReader>,
 }
 
-impl MaskLayoutReader {
-    pub fn new(layout: Box<dyn LayoutReader>) -> Self {
+impl ReadArray {
+    pub(crate) fn new(layout: Box<dyn LayoutReader>) -> Self {
         Self { layout }
     }
 }
 
-impl RowMaskReader<ArrayData> for MaskLayoutReader {
+impl ReadMasked for ReadArray {
+    type Value = ArrayData;
+
     /// Read given mask out of the reader
-    fn read_mask(&self, mask: &RowMask) -> VortexResult<Option<MessageRead<ArrayData>>> {
+    fn read_masked(&self, mask: &RowMask) -> VortexResult<Option<MessageRead<ArrayData>>> {
         self.layout.read_selection(mask)
     }
 }
@@ -57,7 +64,7 @@ impl<R, S, V, RM> BufferedLayoutReader<R, S, V, RM>
 where
     R: VortexReadAt,
     S: Stream<Item = VortexResult<RowMask>> + Unpin,
-    RM: RowMaskReader<V>,
+    RM: ReadMasked<Value = V>,
 {
     pub fn new(
         read: R,
@@ -98,7 +105,7 @@ where
         for queued_res in self.queued.iter_mut() {
             match queued_res {
                 RowMaskState::Pending(pending_mask) => {
-                    if let Some(pending_read) = self.row_mask_reader.read_mask(pending_mask)? {
+                    if let Some(pending_read) = self.row_mask_reader.read_masked(pending_mask)? {
                         match pending_read {
                             MessageRead::ReadMore(m) => {
                                 to_read.extend(m);
@@ -121,7 +128,7 @@ where
         while read_more_count < NUM_TO_COALESCE {
             match self.values.poll_next_unpin(cx) {
                 Poll::Ready(Some(Ok(next_mask))) => {
-                    if let Some(read_result) = self.row_mask_reader.read_mask(&next_mask)? {
+                    if let Some(read_result) = self.row_mask_reader.read_masked(&next_mask)? {
                         match read_result {
                             MessageRead::ReadMore(m) => {
                                 self.queued.push_back(RowMaskState::Pending(next_mask));
@@ -181,7 +188,7 @@ impl<R, S, V, RM> Stream for BufferedLayoutReader<R, S, V, RM>
 where
     R: VortexReadAt + Unpin,
     S: Stream<Item = VortexResult<RowMask>> + Unpin,
-    RM: RowMaskReader<V> + Unpin,
+    RM: ReadMasked<Value = V> + Unpin,
     V: Unpin,
 {
     type Item = VortexResult<V>;

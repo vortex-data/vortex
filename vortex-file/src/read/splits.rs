@@ -8,22 +8,28 @@ use itertools::Itertools;
 use vortex_array::stats::ArrayStatistics;
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
-use crate::read::buffered::RowMaskReader;
+use crate::read::buffered::ReadMasked;
 use crate::{BatchRead, LayoutReader, MessageRead, PruningRead, RowMask, SplitRead};
 
-pub struct RowMaskLayoutReader {
+/// Reads an array out of a [`LayoutReader`] as a [`RowMask`].
+///
+/// Similar to `ReadArray`, this wraps a layout to read an array, but `ReadRowMask` will interpret
+/// that array as a `RowMask`, and performs some optimizations to apply pruning first.
+pub(crate) struct ReadRowMask {
     layout: Box<dyn LayoutReader>,
 }
 
-impl RowMaskLayoutReader {
-    pub fn new(layout: Box<dyn LayoutReader>) -> Self {
+impl ReadRowMask {
+    pub(crate) fn new(layout: Box<dyn LayoutReader>) -> Self {
         Self { layout }
     }
 }
 
-impl RowMaskReader<RowMask> for RowMaskLayoutReader {
+impl ReadMasked for ReadRowMask {
+    type Value = RowMask;
+
     /// Read given mask out of the reader
-    fn read_mask(&self, mask: &RowMask) -> VortexResult<Option<MessageRead<RowMask>>> {
+    fn read_masked(&self, mask: &RowMask) -> VortexResult<Option<MessageRead<RowMask>>> {
         let can_prune = self.layout.can_prune(mask.begin(), mask.end())?;
 
         match can_prune {
