@@ -5,16 +5,18 @@ use vortex_array::array::ChunkedArray;
 use vortex_array::stats::{ArrayStatistics, Stat};
 use vortex_array::variants::StructArrayTrait;
 use vortex_array::ArrayLen;
+use vortex_dtype::field::Field;
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_expr::ExprRef;
 
-pub fn chunked_array_df_stats(array: &ChunkedArray, projection: &[usize]) -> DFResult<Statistics> {
+pub fn chunked_array_df_stats(array: &ChunkedArray, projection: &ExprRef) -> DFResult<Statistics> {
     let mut nbytes: usize = 0;
-    let column_statistics = projection
-        .iter()
-        .map(|i| {
-            array
-                .field(*i)
-                .ok_or_else(|| vortex_err!("Projection references unknown field {i}"))
+    let column_statistics = projection.references().into_iter()
+        .map(|f| {
+            match f {
+                Field::Name(name) => array.field_by_name(name.as_str()),
+                Field::Index(idx) => array.field(*idx),
+            }.ok_or_else(|| vortex_err!("Projection references unknown field {f}"))
         })
         .map_ok(|arr| {
             nbytes += arr.nbytes();
