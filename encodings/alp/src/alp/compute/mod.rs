@@ -88,11 +88,14 @@ impl SliceFn<ALPArray> for ALPEncoding {
 
 impl FilterFn<ALPArray> for ALPEncoding {
     fn filter(&self, array: &ALPArray, mask: FilterMask) -> VortexResult<ArrayData> {
-        Ok(ALPArray::try_new(
-            filter(&array.encoded(), mask.clone())?,
-            array.exponents(),
-            array.patches().map(|p| filter(&p, mask)).transpose()?,
-        )?
-        .into_array())
+        let patches = array
+            .patches()
+            .map(|p| filter(&p, mask.clone()))
+            .transpose()?;
+
+        Ok(
+            ALPArray::try_new(filter(&array.encoded(), mask)?, array.exponents(), patches)?
+                .into_array(),
+        )
     }
 }
