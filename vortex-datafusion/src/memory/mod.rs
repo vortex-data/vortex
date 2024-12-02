@@ -5,3 +5,4 @@ mod statistics;
 mod stream;
 
 pub use provider::*;
+pub use exec::VortexScanExec;
