@@ -88,10 +88,10 @@ impl ListArray {
             vortex_bail!("Expected offsets to be sorted, got {:?}", is_sorted);
         }
 
-        Self::try_new_unchecked(elements, offsets, validity)
+        Self::try_new_unchecked_offsets(elements, offsets, validity)
     }
 
-    pub fn try_new_unchecked(
+    pub fn try_new_unchecked_offsets(
         elements: ArrayData,
         offsets: ArrayData,
         validity: Validity,
