@@ -122,7 +122,7 @@ pub mod ids {
     pub const SPARSE: u16 = 8;
     pub const CONSTANT: u16 = 9;
     pub const CHUNKED: u16 = 10;
-    pub(crate) const LIST: u16 = 11;
+    pub const LIST: u16 = 11;
 
     // currently unused, saved for future built-ins
     // e.g., FixedList, Union, Tensor, etc.

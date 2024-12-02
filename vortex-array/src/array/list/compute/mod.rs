@@ -20,7 +20,10 @@ impl ComputeVTable for ListEncoding {
 
 impl ScalarAtFn<ListArray> for ListEncoding {
     fn scalar_at(&self, array: &ListArray, index: usize) -> VortexResult<Scalar> {
-        list_scalar_of(array.elements_at(index)?)
+        let elem = array.elements_at(index)?;
+        let scalars: Vec<Scalar> = (0..elem.len()).map(|i| scalar_at(&elem, i)).try_collect()?;
+
+        Ok(Scalar::list(Arc::new(elem.dtype().clone()), scalars))
     }
 }
 
@@ -33,12 +36,4 @@ impl SliceFn<ListArray> for ListEncoding {
         )?
         .into_array())
     }
-}
-
-fn list_scalar_of(array: ArrayData) -> VortexResult<Scalar> {
-    let scalars: Vec<Scalar> = (0..array.len())
-        .map(|i| scalar_at(&array, i))
-        .try_collect()?;
-
-    Ok(Scalar::list(Arc::new(array.dtype().clone()), scalars))
 }
