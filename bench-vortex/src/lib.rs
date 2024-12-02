@@ -5,11 +5,15 @@ use std::fs::{create_dir_all, File};
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
+use std::time::Duration;
 
-use arrow_array::RecordBatchReader;
+use arrow_array::{RecordBatch, RecordBatchReader};
+use datafusion::prelude::SessionContext;
+use datafusion_physical_plan::collect;
 use itertools::Itertools;
 use log::LevelFilter;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+use serde::Serialize;
 use simplelog::{ColorChoice, Config, TermLogger, TerminalMode};
 use vortex::array::ChunkedArray;
 use vortex::arrow::FromArrowType;
@@ -23,13 +27,19 @@ use crate::data_downloads::FileType;
 use crate::reader::BATCH_SIZE;
 use crate::taxi_data::taxi_data_parquet;
 
+pub mod clickbench;
 pub mod data_downloads;
+pub mod display;
 pub mod parquet_utils;
 pub mod public_bi_data;
 pub mod reader;
 pub mod taxi_data;
 pub mod tpch;
 pub mod vortex_utils;
+
+// Sizes match default compressor configuration
+const TARGET_BLOCK_BYTESIZE: usize = 16 * (1 << 20);
+const TARGET_BLOCK_SIZE: usize = 64 * (1 << 10);
 
 pub static CTX: LazyLock<Arc<Context>> = LazyLock::new(|| {
     Arc::new(
@@ -38,6 +48,53 @@ pub static CTX: LazyLock<Arc<Context>> = LazyLock::new(|| {
             .with_encoding(&DeltaEncoding),
     )
 });
+
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub enum Format {
+    Csv,
+    Arrow,
+    Parquet,
+    InMemoryVortex { enable_pushdown: bool },
+    OnDiskVortex { enable_compression: bool },
+}
+
+impl std::fmt::Display for Format {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Format::Csv => write!(f, "csv"),
+            Format::Arrow => write!(f, "arrow"),
+            Format::Parquet => write!(f, "parquet"),
+            Format::InMemoryVortex { enable_pushdown } => {
+                write!(f, "in_memory_vortex(pushdown={enable_pushdown})")
+            }
+            Format::OnDiskVortex { enable_compression } => {
+                write!(f, "on_disk_vortex(compressed={enable_compression})")
+            }
+        }
+    }
+}
+
+impl Format {
+    pub fn name(&self) -> String {
+        match self {
+            Format::Csv => "csv".to_string(),
+            Format::Arrow => "arrow".to_string(),
+            Format::Parquet => "parquet".to_string(),
+            Format::InMemoryVortex { enable_pushdown } => if *enable_pushdown {
+                "vortex-in-memory-pushdown"
+            } else {
+                "vortex-in-memory"
+            }
+            .to_string(),
+            Format::OnDiskVortex { enable_compression } => if *enable_compression {
+                "vortex-file-compressed"
+            } else {
+                "vortex-file-uncompressed"
+            }
+            .to_string(),
+        }
+    }
+}
 
 /// Creates a file if it doesn't already exist.
 /// NB: Does NOT modify the given path to ensure that it resides in the data directory.
@@ -187,6 +244,47 @@ pub struct CompressionRunResults {
     pub column_type: String,
     pub compressed_size: u64,
     pub total_compressed_size: Option<u64>,
+}
+
+pub async fn execute_query(ctx: &SessionContext, query: &str) -> anyhow::Result<Vec<RecordBatch>> {
+    let plan = ctx.sql(query).await?;
+    let (state, plan) = plan.into_parts();
+    let optimized = state.optimize(&plan)?;
+    let physical_plan = state.create_physical_plan(&optimized).await?;
+    let result = collect(physical_plan.clone(), state.task_ctx()).await?;
+    Ok(result)
+}
+
+#[derive(Clone)]
+pub struct Measurement {
+    pub query_idx: usize,
+    pub time: Duration,
+    pub format: Format,
+    pub dataset: String,
+}
+
+#[derive(Serialize)]
+pub struct JsonValue {
+    pub name: String,
+    pub unit: String,
+    pub value: u128,
+}
+
+impl Measurement {
+    pub fn to_json(&self) -> JsonValue {
+        let name = format!(
+            "{dataset}_q{query_idx}/{format}",
+            dataset = self.dataset,
+            format = self.format.name(),
+            query_idx = self.query_idx
+        );
+
+        JsonValue {
+            name,
+            unit: "ns".to_string(),
+            value: self.time.as_nanos(),
+        }
+    }
 }
 
 #[cfg(test)]

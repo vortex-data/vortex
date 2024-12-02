@@ -1,13 +1,13 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{
-    Primitive, PrimitiveArray, VarBin, VarBinArray, VarBinView, VarBinViewArray,
+    PrimitiveArray, PrimitiveEncoding, VarBinArray, VarBinEncoding, VarBinViewArray,
+    VarBinViewEncoding,
 };
-use vortex_array::encoding::EncodingRef;
+use vortex_array::encoding::{Encoding, EncodingRef};
 use vortex_array::stats::ArrayStatistics;
-use vortex_array::{ArrayData, ArrayDef, IntoArrayData};
+use vortex_array::{ArrayData, IntoArrayData};
 use vortex_dict::{
-    dict_encode_primitive, dict_encode_varbin, dict_encode_varbinview, Dict, DictArray,
-    DictEncoding,
+    dict_encode_primitive, dict_encode_varbin, dict_encode_varbinview, DictArray, DictEncoding,
 };
 use vortex_error::VortexResult;
 
@@ -19,7 +19,7 @@ pub struct DictCompressor;
 
 impl EncodingCompressor for DictCompressor {
     fn id(&self) -> &str {
-        Dict::ID.as_ref()
+        DictEncoding::ID.as_ref()
     }
 
     fn cost(&self) -> u8 {
@@ -27,9 +27,9 @@ impl EncodingCompressor for DictCompressor {
     }
 
     fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {
-        if !array.is_encoding(Primitive::ID)
-            && !array.is_encoding(VarBin::ID)
-            && !array.is_encoding(VarBinView::ID)
+        if !array.is_encoding(PrimitiveEncoding::ID)
+            && !array.is_encoding(VarBinEncoding::ID)
+            && !array.is_encoding(VarBinViewEncoding::ID)
         {
             return None;
         };
@@ -53,15 +53,15 @@ impl EncodingCompressor for DictCompressor {
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
-        let (codes, values) = if array.is_encoding(Primitive::ID) {
+        let (codes, values) = if array.is_encoding(PrimitiveEncoding::ID) {
             let p = PrimitiveArray::try_from(array.clone())?;
             let (codes, values) = dict_encode_primitive(&p);
             (codes.into_array(), values.into_array())
-        } else if array.is_encoding(VarBin::ID) {
+        } else if array.is_encoding(VarBinEncoding::ID) {
             let vb = VarBinArray::try_from(array.clone())?;
             let (codes, values) = dict_encode_varbin(&vb);
             (codes.into_array(), values.into_array())
-        } else if array.is_encoding(VarBinView::ID) {
+        } else if array.is_encoding(VarBinViewEncoding::ID) {
             let vb = VarBinViewArray::try_from(array.clone())?;
             let (codes, values) = dict_encode_varbinview(&vb);
             (codes.into_array(), values.into_array())

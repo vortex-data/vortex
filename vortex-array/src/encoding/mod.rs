@@ -4,14 +4,12 @@ use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 
-use vortex_error::{vortex_panic, VortexResult};
-
 use crate::compute::ComputeVTable;
 use crate::stats::StatisticsVTable;
 use crate::validity::ValidityVTable;
 use crate::variants::VariantsVTable;
 use crate::visitor::VisitorVTable;
-use crate::{ArrayData, ArrayDef, ArrayMetadata, ArrayTrait, IntoCanonicalVTable, MetadataVTable};
+use crate::{ArrayData, ArrayMetadata, IntoCanonicalVTable, MetadataVTable};
 
 pub mod opaque;
 
@@ -63,6 +61,8 @@ impl AsRef<str> for EncodingId {
 
 /// Marker trait for array encodings with their associated Array type.
 pub trait Encoding: 'static {
+    const ID: EncodingId;
+
     type Array;
     type Metadata: ArrayMetadata;
 }
@@ -86,13 +86,6 @@ pub trait EncodingVTable:
     fn id(&self) -> EncodingId;
 
     fn as_any(&self) -> &dyn Any;
-
-    /// Unwrap the provided array into an implementation of ArrayTrait
-    fn with_dyn(
-        &self,
-        array: &ArrayData,
-        f: &mut dyn for<'b> FnMut(&'b (dyn ArrayTrait + 'b)) -> VortexResult<()>,
-    ) -> VortexResult<()>;
 }
 
 impl PartialEq for dyn EncodingVTable + '_ {
@@ -104,26 +97,6 @@ impl Eq for dyn EncodingVTable + '_ {}
 impl Hash for dyn EncodingVTable + '_ {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.id().hash(state)
-    }
-}
-
-/// Non-object-safe extensions to the ArrayEncoding trait.
-pub trait ArrayEncodingExt {
-    type D: ArrayDef;
-
-    fn with_dyn<R, F>(array: &ArrayData, mut f: F) -> R
-    where
-        F: for<'b> FnMut(&'b (dyn ArrayTrait + 'b)) -> R,
-    {
-        let typed = <<Self::D as ArrayDef>::Array as TryFrom<ArrayData>>::try_from(array.clone())
-            .unwrap_or_else(|err| {
-                vortex_panic!(
-                    err,
-                    "Failed to convert array to {}",
-                    std::any::type_name::<<Self::D as ArrayDef>::Array>()
-                )
-            });
-        f(&typed)
     }
 }
 

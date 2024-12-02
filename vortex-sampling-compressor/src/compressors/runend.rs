@@ -1,11 +1,11 @@
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::array::Primitive;
-use vortex_array::encoding::EncodingRef;
+use vortex_array::array::PrimitiveEncoding;
+use vortex_array::encoding::{Encoding, EncodingRef};
 use vortex_array::stats::ArrayStatistics;
-use vortex_array::{ArrayData, ArrayDef, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_error::VortexResult;
 use vortex_runend::compress::runend_encode;
-use vortex_runend::{RunEnd, RunEndArray, RunEndEncoding};
+use vortex_runend::{RunEndArray, RunEndEncoding};
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
 use crate::{constants, SamplingCompressor};
@@ -19,7 +19,7 @@ pub struct RunEndCompressor {
 
 impl EncodingCompressor for RunEndCompressor {
     fn id(&self) -> &str {
-        RunEnd::ID.as_ref()
+        RunEndEncoding::ID.as_ref()
     }
 
     fn cost(&self) -> u8 {
@@ -27,7 +27,7 @@ impl EncodingCompressor for RunEndCompressor {
     }
 
     fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {
-        if !array.is_encoding(Primitive::ID) {
+        if !array.is_encoding(PrimitiveEncoding::ID) {
             return None;
         }
 

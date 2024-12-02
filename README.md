@@ -5,6 +5,9 @@
 [![Documentation](https://docs.rs/vortex-array/badge.svg)](https://docs.rs/vortex-array)
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/vortex-array)](https://pypi.org/project/vortex-array/)
 
+> [!TIP]
+> Check out the [Docs](https://spiraldb.github.io/vortex/docs/) or jump straight into the [Getting Started Guide](https://spiraldb.github.io/vortex/docs/quickstart.html)
+
 Vortex is an extensible, state-of-the-art columnar file format, with associated tools for working with compressed Apache Arrow arrays
 in-memory, on-disk, and over-the-wire.
 

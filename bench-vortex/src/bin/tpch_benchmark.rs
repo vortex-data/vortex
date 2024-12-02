@@ -1,22 +1,17 @@
 use std::process::ExitCode;
 use std::sync;
-use std::sync::mpsc::Receiver;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
-use bench_vortex::setup_logger;
+use bench_vortex::display::{print_measurements_json, render_table, DisplayFormat};
 use bench_vortex::tpch::dbgen::{DBGen, DBGenOptions};
-use bench_vortex::tpch::{
-    load_datasets, run_tpch_query, tpch_queries, Format, EXPECTED_ROW_COUNTS,
-};
-use clap::{ArgAction, Parser, ValueEnum};
+use bench_vortex::tpch::{load_datasets, run_tpch_query, tpch_queries, EXPECTED_ROW_COUNTS};
+use bench_vortex::{setup_logger, Format, Measurement};
+use clap::{ArgAction, Parser};
 use futures::future::try_join_all;
 use indicatif::ProgressBar;
 use itertools::Itertools;
 use log::LevelFilter;
-use serde::Serialize;
-use tabled::builder::Builder;
-use tabled::settings::themes::Colorization;
-use tabled::settings::{Color, Style};
+use tokio::runtime::Builder;
 use vortex::aliases::hash_map::HashMap;
 
 #[derive(Parser, Debug)]
@@ -40,43 +35,6 @@ struct Args {
     display_format: DisplayFormat,
 }
 
-#[derive(ValueEnum, Default, Clone, Debug)]
-enum DisplayFormat {
-    #[default]
-    Table,
-    GhJson,
-}
-
-#[derive(Clone)]
-struct Measurement {
-    query_idx: usize,
-    time: Duration,
-    format: Format,
-}
-
-#[derive(Serialize)]
-struct JsonValue {
-    name: String,
-    unit: String,
-    value: u128,
-}
-
-impl Measurement {
-    fn to_json(&self) -> JsonValue {
-        let name = format!(
-            "tpch_q{query_idx}/{format}",
-            format = self.format.name(),
-            query_idx = self.query_idx
-        );
-
-        JsonValue {
-            name,
-            unit: "ns".to_string(),
-            value: self.time.as_nanos(),
-        }
-    }
-}
-
 fn main() -> ExitCode {
     let args = Args::parse();
 
@@ -88,16 +46,12 @@ fn main() -> ExitCode {
 
     let runtime = match args.threads {
         Some(0) => panic!("Can't use 0 threads for runtime"),
-        Some(1) => tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build(),
-        Some(n) => tokio::runtime::Builder::new_multi_thread()
+        Some(1) => Builder::new_current_thread().enable_all().build(),
+        Some(n) => Builder::new_multi_thread()
             .worker_threads(n)
             .enable_all()
             .build(),
-        None => tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build(),
+        None => Builder::new_multi_thread().enable_all().build(),
     }
     .expect("Failed building the Runtime");
 
@@ -109,85 +63,6 @@ fn main() -> ExitCode {
         args.only_vortex,
         args.display_format,
     ))
-}
-
-fn render_table(receiver: Receiver<Measurement>, formats: &[Format]) -> anyhow::Result<()> {
-    let mut measurements: HashMap<Format, Vec<Measurement>> = HashMap::default();
-
-    while let Ok(m) = receiver.recv() {
-        measurements.entry(m.format).or_default().push(m);
-    }
-
-    measurements.values_mut().for_each(|v| {
-        v.sort_by_key(|m| m.query_idx);
-    });
-
-    // The first format serves as the baseline
-    let baseline_format = &formats[0];
-    let baseline = measurements[baseline_format].clone();
-
-    let mut table_builder = Builder::default();
-    let mut colors = vec![];
-
-    let mut header = vec!["Query".to_string()];
-    header.extend(formats.iter().map(|f| format!("{:?}", f)));
-    table_builder.push_record(header);
-
-    for (query_idx, baseline_measure) in baseline.iter().enumerate().take(22) {
-        let query_baseline = baseline_measure.time.as_micros();
-        let mut row = vec![(query_idx + 1).to_string()];
-        for (col_idx, format) in formats.iter().enumerate() {
-            let time_us = measurements[format][query_idx].time.as_micros();
-
-            if format != baseline_format {
-                let color = color(query_baseline, time_us);
-
-                colors.push(Colorization::exact(
-                    vec![color],
-                    (query_idx + 1, col_idx + 1),
-                ))
-            }
-
-            let ratio = time_us as f64 / query_baseline as f64;
-            row.push(format!("{time_us} us ({ratio:.2})"));
-        }
-        table_builder.push_record(row);
-    }
-
-    let mut table = table_builder.build();
-    table.with(Style::modern());
-
-    for color in colors.into_iter() {
-        table.with(color);
-    }
-
-    println!("{table}");
-
-    Ok(())
-}
-
-fn color(baseline_time: u128, test_time: u128) -> Color {
-    if test_time > (baseline_time + baseline_time / 2) {
-        Color::BG_RED
-    } else if test_time > (baseline_time + baseline_time / 10) {
-        Color::BG_YELLOW
-    } else {
-        Color::BG_BRIGHT_GREEN
-    }
-}
-
-fn print_measurements_json(receiver: Receiver<Measurement>) -> anyhow::Result<()> {
-    let mut measurements = Vec::new();
-
-    while let Ok(m) = receiver.recv() {
-        measurements.push(m.to_json());
-    }
-
-    let output = serde_json::to_string(&measurements)?;
-
-    print!("{output}");
-
-    Ok(())
 }
 
 async fn bench_main(
@@ -283,6 +158,7 @@ async fn bench_main(
                 query_idx,
                 time: fastest,
                 format: *format,
+                dataset: "tpch".to_string(),
             })
             .unwrap();
 
@@ -318,12 +194,14 @@ async fn bench_main(
             })
     }
 
+    let all_measurements = measurements_rx.into_iter().collect::<Vec<_>>();
+
     match display_format {
         DisplayFormat::Table => {
-            render_table(measurements_rx, &formats).unwrap();
+            render_table(all_measurements, &formats).unwrap();
         }
         DisplayFormat::GhJson => {
-            print_measurements_json(measurements_rx).unwrap();
+            print_measurements_json(all_measurements).unwrap();
         }
     }
 

@@ -123,7 +123,7 @@ pub fn compare(
     }
 
     // If the RHS is constant and the LHS is Arrow, we can't do any better than arrow_compare.
-    if left.is_arrow() && right.is_constant() {
+    if left.is_arrow() && (right.is_arrow() || right.is_constant()) {
         return arrow_compare(left, right, operator);
     }
 
@@ -133,13 +133,6 @@ pub fn compare(
         .and_then(|f| f.compare(left, right, operator).transpose())
     {
         return result;
-    } else {
-        log::debug!(
-            "No compare implementation found for LHS {}, RHS {}, and operator {}",
-            left.encoding().id(),
-            right.encoding().id(),
-            operator,
-        );
     }
 
     if let Some(result) = right
@@ -148,14 +141,14 @@ pub fn compare(
         .and_then(|f| f.compare(right, left, operator.swap()).transpose())
     {
         return result;
-    } else {
-        log::debug!(
-            "No compare implementation found for LHS {}, RHS {}, and operator {}",
-            right.encoding().id(),
-            left.encoding().id(),
-            operator.swap(),
-        );
     }
+
+    log::debug!(
+        "No compare implementation found for LHS {}, RHS {}, and operator {} (or inverse)",
+        right.encoding().id(),
+        left.encoding().id(),
+        operator.swap(),
+    );
 
     // Fallback to arrow on canonical types
     arrow_compare(left, right, operator)

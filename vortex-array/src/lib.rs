@@ -14,7 +14,6 @@
 pub use canonical::*;
 pub use context::*;
 pub use data::*;
-pub use macros::*;
 pub use metadata::*;
 pub use paste;
 use vortex_dtype::DType;

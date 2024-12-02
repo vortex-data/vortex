@@ -93,7 +93,7 @@ fn binary_boolean(lhs: &ArrayData, rhs: &ArrayData, op: BinaryOperator) -> Vorte
     }
 
     // If the RHS is constant and the LHS is Arrow, we can't do any better than arrow_compare.
-    if lhs.is_arrow() && rhs.is_constant() {
+    if lhs.is_arrow() && (rhs.is_arrow() || rhs.is_constant()) {
         return arrow_boolean(lhs.clone(), rhs.clone(), op);
     }
 
@@ -104,13 +104,6 @@ fn binary_boolean(lhs: &ArrayData, rhs: &ArrayData, op: BinaryOperator) -> Vorte
         .and_then(|f| f.binary_boolean(lhs, rhs, op).transpose())
     {
         return result;
-    } else {
-        log::debug!(
-            "No boolean implementation found for LHS {}, RHS {}, and operator {:?}",
-            lhs.encoding().id(),
-            rhs.encoding().id(),
-            op,
-        );
     }
 
     if let Some(result) = rhs
@@ -119,14 +112,14 @@ fn binary_boolean(lhs: &ArrayData, rhs: &ArrayData, op: BinaryOperator) -> Vorte
         .and_then(|f| f.binary_boolean(rhs, lhs, op).transpose())
     {
         return result;
-    } else {
-        log::debug!(
-            "No boolean implementation found for LHS {}, RHS {}, and operator {:?}",
-            rhs.encoding().id(),
-            lhs.encoding().id(),
-            op,
-        );
     }
+
+    log::debug!(
+        "No boolean implementation found for LHS {}, RHS {}, and operator {:?} (or inverse)",
+        rhs.encoding().id(),
+        lhs.encoding().id(),
+        op,
+    );
 
     // If neither side implements the trait, then we delegate to Arrow compute.
     arrow_boolean(lhs.clone(), rhs.clone(), op)

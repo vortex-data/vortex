@@ -10,6 +10,7 @@ use vortex_array::compute::{
     search_sorted_usize, IndexOrd, Len, SearchResult, SearchSorted, SearchSortedFn,
     SearchSortedSide,
 };
+use vortex_array::stats::ArrayStatistics;
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayLen};
@@ -156,11 +157,10 @@ impl<'a, T: BitPacking + NativePType> BitPackedSearch<'a, T> {
             Validity::AllInvalid => 0,
             Validity::Array(varray) => {
                 // In sorted order, nulls come after all the non-null values.
-                varray.with_dyn(|a| {
-                    a.statistics()
-                        .compute_true_count()
-                        .vortex_expect("Failed to compute true count")
-                })
+                varray
+                    .statistics()
+                    .compute_true_count()
+                    .vortex_expect("Failed to compute true count")
             }
         };
 

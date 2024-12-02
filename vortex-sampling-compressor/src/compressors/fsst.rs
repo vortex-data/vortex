@@ -4,13 +4,13 @@ use std::sync::Arc;
 
 use fsst::Compressor;
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::array::{VarBin, VarBinView};
-use vortex_array::encoding::EncodingRef;
+use vortex_array::array::{VarBinEncoding, VarBinViewEncoding};
+use vortex_array::encoding::{Encoding, EncodingRef};
 use vortex_array::stats::ArrayStatistics;
-use vortex_array::{ArrayDType, ArrayDef, IntoArrayData};
+use vortex_array::{ArrayDType, IntoArrayData};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexResult};
-use vortex_fsst::{fsst_compress, fsst_train_compressor, FSSTArray, FSSTEncoding, FSST};
+use vortex_fsst::{fsst_compress, fsst_train_compressor, FSSTArray, FSSTEncoding};
 
 use super::bitpacked::BITPACK_WITH_PATCHES;
 use super::delta::DeltaCompressor;
@@ -33,7 +33,7 @@ impl EncoderMetadata for Compressor {
 
 impl EncodingCompressor for FSSTCompressor {
     fn id(&self) -> &str {
-        FSST::ID.as_ref()
+        FSSTEncoding::ID.as_ref()
     }
 
     fn cost(&self) -> u8 {
@@ -49,7 +49,7 @@ impl EncodingCompressor for FSSTCompressor {
         }
 
         // FSST can be applied on top of VarBin and VarBinView
-        if array.is_encoding(VarBin::ID) || array.is_encoding(VarBinView::ID) {
+        if array.is_encoding(VarBinEncoding::ID) || array.is_encoding(VarBinViewEncoding::ID) {
             return Some(self);
         }
 
@@ -81,15 +81,16 @@ impl EncodingCompressor for FSSTCompressor {
             vortex_bail!("Could not downcast metadata as FSST Compressor")
         };
 
-        let fsst_array = if array.is_encoding(VarBin::ID) || array.is_encoding(VarBinView::ID) {
-            // For a VarBinArray or VarBinViewArray, compress directly.
-            fsst_compress(array, fsst_compressor)?
-        } else {
-            vortex_bail!(
-                "Unsupported encoding for FSSTCompressor: {}",
-                array.encoding().id()
-            )
-        };
+        let fsst_array =
+            if array.is_encoding(VarBinEncoding::ID) || array.is_encoding(VarBinViewEncoding::ID) {
+                // For a VarBinArray or VarBinViewArray, compress directly.
+                fsst_compress(array, fsst_compressor)?
+            } else {
+                vortex_bail!(
+                    "Unsupported encoding for FSSTCompressor: {}",
+                    array.encoding().id()
+                )
+            };
 
         let codes = fsst_array.codes();
         let compressed_codes = ctx

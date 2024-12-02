@@ -1,4 +1,3 @@
-use std::fmt::{Display, Formatter};
 use std::fs;
 use std::fs::create_dir_all;
 use std::path::Path;
@@ -26,7 +25,7 @@ use vortex_datafusion::memory::VortexMemTableOptions;
 use vortex_datafusion::persistent::format::VortexFormat;
 use vortex_datafusion::SessionContextExt;
 
-use crate::{idempotent_async, CTX};
+use crate::{idempotent_async, Format, CTX, TARGET_BLOCK_BYTESIZE, TARGET_BLOCK_SIZE};
 
 pub mod dbgen;
 mod execute;
@@ -37,57 +36,6 @@ pub use execute::*;
 pub const EXPECTED_ROW_COUNTS: [usize; 23] = [
     0, 4, 460, 11620, 5, 5, 1, 4, 2, 175, 37967, 1048, 2, 42, 1, 1, 18314, 1, 57, 1, 186, 411, 7,
 ];
-
-// Sizes match default compressor configuration
-const TARGET_BLOCK_BYTESIZE: usize = 16 * (1 << 20);
-const TARGET_BLOCK_SIZE: usize = 64 * (1 << 10);
-
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
-pub enum Format {
-    Csv,
-    Arrow,
-    Parquet,
-    InMemoryVortex { enable_pushdown: bool },
-    OnDiskVortex { enable_compression: bool },
-}
-
-impl Display for Format {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Format::Csv => write!(f, "csv"),
-            Format::Arrow => write!(f, "arrow"),
-            Format::Parquet => write!(f, "parquet"),
-            Format::InMemoryVortex { enable_pushdown } => {
-                write!(f, "in_memory_vortex(pushdown={enable_pushdown})")
-            }
-            Format::OnDiskVortex { enable_compression } => {
-                write!(f, "on_disk_vortex(compressed={enable_compression})")
-            }
-        }
-    }
-}
-
-impl Format {
-    pub fn name(&self) -> String {
-        match self {
-            Format::Csv => "csv".to_string(),
-            Format::Arrow => "arrow".to_string(),
-            Format::Parquet => "parquet".to_string(),
-            Format::InMemoryVortex { enable_pushdown } => if *enable_pushdown {
-                "vortex-in-memory-pushdown"
-            } else {
-                "vortex-in-memory"
-            }
-            .to_string(),
-            Format::OnDiskVortex { enable_compression } => if *enable_compression {
-                "vortex-file-compressed"
-            } else {
-                "vortex-file-uncompressed"
-            }
-            .to_string(),
-        }
-    }
-}
 
 // Generate table dataset.
 pub async fn load_datasets<P: AsRef<Path>>(

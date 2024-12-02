@@ -1,8 +1,8 @@
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::array::{Sparse, SparseArray, SparseEncoding};
-use vortex_array::encoding::EncodingRef;
+use vortex_array::array::{SparseArray, SparseEncoding};
+use vortex_array::encoding::{Encoding, EncodingRef};
 use vortex_array::stats::ArrayStatistics;
-use vortex_array::{ArrayData, ArrayDef, ArrayLen, IntoArrayData};
+use vortex_array::{ArrayData, ArrayLen, IntoArrayData};
 use vortex_error::VortexResult;
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
@@ -13,7 +13,7 @@ pub struct SparseCompressor;
 
 impl EncodingCompressor for SparseCompressor {
     fn id(&self) -> &str {
-        Sparse::ID.as_ref()
+        SparseEncoding::ID.as_ref()
     }
 
     fn cost(&self) -> u8 {
@@ -21,7 +21,7 @@ impl EncodingCompressor for SparseCompressor {
     }
 
     fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {
-        array.is_encoding(Sparse::ID).then_some(self)
+        array.is_encoding(SparseEncoding::ID).then_some(self)
     }
 
     fn compress<'a>(

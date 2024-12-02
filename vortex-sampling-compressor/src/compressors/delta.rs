@@ -1,11 +1,11 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::PrimitiveArray;
-use vortex_array::encoding::EncodingRef;
+use vortex_array::encoding::{Encoding, EncodingRef};
 use vortex_array::stats::ArrayStatistics;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayData, ArrayDef, IntoArrayData};
+use vortex_array::{ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
-use vortex_fastlanes::{delta_compress, Delta, DeltaArray, DeltaEncoding};
+use vortex_fastlanes::{delta_compress, DeltaArray, DeltaEncoding};
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
 use crate::{constants, SamplingCompressor};
@@ -15,7 +15,7 @@ pub struct DeltaCompressor;
 
 impl EncodingCompressor for DeltaCompressor {
     fn id(&self) -> &str {
-        Delta::ID.as_ref()
+        DeltaEncoding::ID.as_ref()
     }
 
     fn cost(&self) -> u8 {

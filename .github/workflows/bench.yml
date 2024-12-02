@@ -128,4 +128,51 @@ jobs:
           AWS_ENDPOINT: ${{ secrets.AWS_ENDPOINT }}
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  clickbench:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/cleanup
+      - uses: ./.github/actions/setup-rust
+      - uses: spiraldb/actions/.github/actions/setup-uv@0.2.0
+
+      # The compression benchmarks rely on DuckDB being installed to convert CSV to Parquet
+      - name: Install DuckDB
+        uses: opt-nc/setup-duckdb-action@v1.0.9
+        if: runner.environment != 'self-hosted'
+        with:
+          version: v1.0.0
+
+      - name: Set tempdir
+        if: runner.environment == 'self-hosted'
+        run: |
+          echo "TMPDIR=/work" >> $GITHUB_ENV
+
+      - name: Run Clickbench benchmark
+        shell: bash
+        env:
+          BENCH_VORTEX_RATIOS: '.*'
+          RUSTFLAGS: '-C target-cpu=native'
+          HOME: /home/ci-runner
+        run: |
+          cargo run --bin clickbench --release -- -d gh-json | tee clickbench.json
+      - name: Store benchmark result
+        if: '!cancelled()'
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: 'Clickbench'
+          tool: 'customSmallerIsBetter'
+          gh-pages-branch: gh-pages-bench
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          output-file-path: clickbench.json
+          summary-always: true
+          auto-push: true
+          fail-on-alert: false
+        env:
+          # AWS Credentials for R2 storage tests
+          AWS_BUCKET: vortex-test
+          AWS_ENDPOINT: ${{ secrets.AWS_ENDPOINT }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
 

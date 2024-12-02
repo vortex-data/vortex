@@ -1,11 +1,11 @@
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::array::{Bool, PrimitiveArray};
-use vortex_array::encoding::EncodingRef;
+use vortex_array::array::{BoolEncoding, PrimitiveArray};
+use vortex_array::encoding::{Encoding, EncodingRef};
 use vortex_array::stats::ArrayStatistics as _;
-use vortex_array::{ArrayData, ArrayDef, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_error::VortexResult;
 use vortex_runend_bool::compress::runend_bool_encode_slice;
-use vortex_runend_bool::{RunEndBool, RunEndBoolArray, RunEndBoolEncoding};
+use vortex_runend_bool::{RunEndBoolArray, RunEndBoolEncoding};
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
 use crate::{constants, SamplingCompressor};
@@ -15,7 +15,7 @@ pub struct RunEndBoolCompressor;
 
 impl EncodingCompressor for RunEndBoolCompressor {
     fn id(&self) -> &str {
-        RunEndBool::ID.as_ref()
+        RunEndBoolEncoding::ID.as_ref()
     }
 
     fn cost(&self) -> u8 {
@@ -24,7 +24,7 @@ impl EncodingCompressor for RunEndBoolCompressor {
 
     fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {
         // Only support bool arrays
-        if !array.is_encoding(Bool::ID) {
+        if !array.is_encoding(BoolEncoding::ID) {
             return None;
         }
 

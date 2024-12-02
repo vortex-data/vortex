@@ -1,5 +1,6 @@
 use bench_vortex::tpch::dbgen::{DBGen, DBGenOptions};
-use bench_vortex::tpch::{load_datasets, run_tpch_query, tpch_queries, Format};
+use bench_vortex::tpch::{load_datasets, run_tpch_query, tpch_queries};
+use bench_vortex::Format;
 use criterion::{criterion_group, criterion_main, Criterion};
 use tokio::runtime::Builder;
 
