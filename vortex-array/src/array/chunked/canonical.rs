@@ -8,10 +8,11 @@ use crate::array::null::NullArray;
 use crate::array::primitive::PrimitiveArray;
 use crate::array::struct_::StructArray;
 use crate::array::{BinaryView, BoolArray, ListArray, VarBinViewArray};
-use crate::compute::{scalar_at, try_cast};
+use crate::compute::{scalar_at, slice, try_cast};
 use crate::validity::Validity;
 use crate::{
-    ArrayDType, ArrayData, ArrayValidity, Canonical, IntoArrayData, IntoArrayVariant, IntoCanonical,
+    ArrayDType, ArrayData, ArrayLen, ArrayValidity, Canonical, IntoArrayData, IntoArrayVariant,
+    IntoCanonical,
 };
 
 impl IntoCanonical for ChunkedArray {
@@ -125,6 +126,9 @@ fn pack_lists(chunks: &[ArrayData], validity: Validity, dtype: &DType) -> Vortex
     let mut offsets = Vec::with_capacity(len + 1);
     offsets.push(0);
     let mut elements = Vec::new();
+    let elem_dtype = dtype
+        .as_list()
+        .vortex_expect("ListArray must have List dtype");
 
     for chunk in chunks {
         let chunk = chunk.clone().into_list()?;
@@ -136,7 +140,13 @@ fn pack_lists(chunks: &[ArrayData], validity: Validity, dtype: &DType) -> Vortex
         .into_primitive()?;
 
         let first_offset_value: usize = usize::try_from(&scalar_at(offsets_arr.as_ref(), 0)?)?;
-        elements.push(chunk.elements());
+        let last_offset_value: usize =
+            usize::try_from(&scalar_at(offsets_arr.as_ref(), offsets_arr.len() - 1)?)?;
+        elements.push(slice(
+            chunk.elements(),
+            first_offset_value,
+            last_offset_value,
+        )?);
 
         let adjustment_from_previous = *offsets
             .last()
@@ -149,7 +159,7 @@ fn pack_lists(chunks: &[ArrayData], validity: Validity, dtype: &DType) -> Vortex
                 .map(|off| off + adjustment_from_previous - first_offset_value as i64),
         );
     }
-    let chunked_elements = ChunkedArray::try_new(elements, dtype.clone())?.into_array();
+    let chunked_elements = ChunkedArray::try_new(elements, elem_dtype.clone())?.into_array();
     let offsets = PrimitiveArray::from_vec(offsets, Validity::NonNullable);
 
     ListArray::try_new(chunked_elements, offsets.into_array(), validity)
@@ -276,12 +286,17 @@ fn pack_views(
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::{DType, Nullability};
+    use std::sync::Arc;
+
+    use vortex_dtype::DType;
+    use vortex_dtype::DType::{List, Primitive};
+    use vortex_dtype::Nullability::NonNullable;
+    use vortex_dtype::PType::I32;
 
     use crate::accessor::ArrayAccessor;
     use crate::array::chunked::canonical::pack_views;
-    use crate::array::{ChunkedArray, StructArray, VarBinViewArray};
-    use crate::compute::slice;
+    use crate::array::{ChunkedArray, ListArray, StructArray, VarBinViewArray};
+    use crate::compute::{scalar_at, slice};
     use crate::validity::Validity;
     use crate::variants::StructArrayTrait;
     use crate::{ArrayDType, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
@@ -296,7 +311,7 @@ mod tests {
         let array2 = slice(stringview_array().as_ref(), 2, 4).unwrap();
         let packed = pack_views(
             &[array1, array2],
-            &DType::Utf8(Nullability::NonNullable),
+            &DType::Utf8(NonNullable),
             Validity::NonNullable,
         )
         .unwrap();
@@ -345,5 +360,39 @@ mod tests {
             .with_iterator(|it| it.map(|a| a.map(|v| v.to_vec())).collect::<Vec<_>>())
             .unwrap();
         assert_eq!(orig_values, canon_values);
+    }
+
+    #[test]
+    pub fn pack_nested_lists() {
+        let l1 = ListArray::try_new(
+            vec![1, 2, 3, 4].into_array(),
+            vec![0, 3].into_array(),
+            Validity::NonNullable,
+        )
+        .unwrap();
+
+        let l2 = ListArray::try_new(
+            vec![5, 6].into_array(),
+            vec![0, 2].into_array(),
+            Validity::NonNullable,
+        )
+        .unwrap();
+        println!("l1 dt {:?}", l1.dtype());
+
+        let chunked_list = ChunkedArray::try_new(
+            vec![l1.clone().into_array(), l2.clone().into_array()],
+            List(Arc::new(Primitive(I32.into(), NonNullable)), NonNullable),
+        );
+
+        let canon_values = chunked_list.unwrap().into_list().unwrap();
+
+        assert_eq!(
+            scalar_at(l1, 0).unwrap(),
+            scalar_at(canon_values.clone(), 0).unwrap()
+        );
+        assert_eq!(
+            scalar_at(l2, 0).unwrap(),
+            scalar_at(canon_values, 1).unwrap()
+        );
     }
 }
