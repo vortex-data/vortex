@@ -15,9 +15,10 @@ use itertools::Itertools;
 use vortex_array::array::ChunkedArray;
 use vortex_array::arrow::infer_schema;
 use vortex_array::{ArrayDType as _, ArrayData};
+use vortex_dtype::field::Field;
 use vortex_error::{VortexError, VortexExpect as _};
 use vortex_expr::datafusion::convert_expr_to_vortex;
-use vortex_expr::ExprRef;
+use vortex_expr::{ExprRef, Select};
 
 use crate::can_be_pushed_down;
 use crate::memory::exec::VortexScanExec;
@@ -126,9 +127,16 @@ impl TableProvider for VortexMemTable {
                     ExecutionMode::Bounded,
                 );
 
+                let scan_projection = Arc::new(Select::include(
+                    output_projection
+                        .iter()
+                        .map(|i| Field::Index(*i))
+                        .collect_vec(),
+                ));
+
                 Ok(Arc::new(VortexScanExec::try_new(
                     self.array.clone(),
-                    output_projection,
+                    scan_projection,
                     plan_properties,
                 )?))
             }

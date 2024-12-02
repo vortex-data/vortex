@@ -9,7 +9,7 @@ use datafusion_execution::RecordBatchStream;
 use futures::Stream;
 use vortex_array::array::ChunkedArray;
 use vortex_array::IntoArrayVariant;
-use vortex_dtype::field::Field;
+use vortex_expr::ExprRef;
 
 pub(crate) struct VortexRecordBatchStream {
     pub(crate) schema_ref: SchemaRef,
@@ -18,7 +18,7 @@ pub(crate) struct VortexRecordBatchStream {
     pub(crate) num_chunks: usize,
     pub(crate) chunks: ChunkedArray,
 
-    pub(crate) projection: Vec<Field>,
+    pub(crate) projection: ExprRef,
 }
 
 impl Stream for VortexRecordBatchStream {
@@ -37,11 +37,12 @@ impl Stream for VortexRecordBatchStream {
             .into_struct()
             .map_err(|vortex_error| DataFusionError::Execution(format!("{}", vortex_error)))?;
 
-        let projected_struct = struct_array
-            .project(&self.projection)
-            .map_err(|vortex_err| {
-                exec_datafusion_err!("projection pushdown to Vortex failed: {vortex_err}")
-            })?;
+        let projected_struct =
+            self.projection
+                .evaluate(struct_array.as_ref())
+                .map_err(|vortex_err| {
+                    exec_datafusion_err!("projection pushdown to Vortex failed: {vortex_err}")
+                })?;
 
         Poll::Ready(Some(Ok(projected_struct.try_into()?)))
     }
