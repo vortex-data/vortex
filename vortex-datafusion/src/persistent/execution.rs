@@ -34,22 +34,21 @@ impl VortexExec {
             &file_scan_config.file_schema,
             file_scan_config.projection.as_ref(),
         )?;
-        let plan_properties = PlanProperties::new(
-            EquivalenceProperties::new(projected_schema),
-            Partitioning::UnknownPartitioning(1),
-            ExecutionMode::Bounded,
-        );
+
+        let (_schema, mut projected_statistics, orderings) = file_scan_config.project();
 
         // We project our statistics to only the selected columns
         // We must also take care to report in-exact statistics if we have any form of filter
         // push-down.
-        let mut projected_statistics = file_scan_config
-            .statistics
-            .clone()
-            .project(file_scan_config.projection.as_ref());
         if predicate.is_some() {
             projected_statistics = projected_statistics.to_inexact();
         }
+
+        let plan_properties = PlanProperties::new(
+            EquivalenceProperties::new_with_orderings(projected_schema, &orderings),
+            Partitioning::UnknownPartitioning(1),
+            ExecutionMode::Bounded,
+        );
 
         Ok(Self {
             file_scan_config,
