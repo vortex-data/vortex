@@ -91,7 +91,7 @@ pub(crate) fn try_canonicalize_chunks(
         }
 
         DType::List(..) => {
-            // TODO: improve performance
+            // TODO(joe): improve performance, use a listview, once it exists
 
             let list = pack_lists(chunks.as_slice(), validity, dtype)?;
             Ok(Canonical::List(list))
@@ -127,14 +127,14 @@ fn pack_lists(chunks: &[ArrayData], validity: Validity, dtype: &DType) -> Vortex
     offsets.push(0);
     let mut elements = Vec::new();
     let elem_dtype = dtype
-        .as_list()
+        .as_list_element()
         .vortex_expect("ListArray must have List dtype");
 
     for chunk in chunks {
         let chunk = chunk.clone().into_list()?;
         // TODO: handle i32 offsets if they fit.
         let offsets_arr = try_cast(
-            chunk.offsets().into_primitive()?.as_ref(),
+            chunk.offsets(),
             &DType::Primitive(PType::I64, Nullability::NonNullable),
         )?
         .into_primitive()?;
@@ -150,7 +150,7 @@ fn pack_lists(chunks: &[ArrayData], validity: Validity, dtype: &DType) -> Vortex
 
         let adjustment_from_previous = *offsets
             .last()
-            .ok_or_else(|| vortex_err!("VarBinArray offsets must have at least one element"))?;
+            .ok_or_else(|| vortex_err!("List offsets must have at least one element"))?;
         offsets.extend(
             offsets_arr
                 .maybe_null_slice::<i64>()

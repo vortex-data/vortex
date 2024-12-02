@@ -3,9 +3,9 @@ mod compute;
 use std::fmt::Display;
 use std::sync::Arc;
 
-use num_traits::AsPrimitive;
+use num_traits::{AsPrimitive, Zero};
 use serde::{Deserialize, Serialize};
-use vortex_dtype::{match_each_native_ptype, DType};
+use vortex_dtype::{match_each_native_ptype, DType, NativePType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult};
 
 use crate::array::{NullArray, PrimitiveArray};
@@ -25,7 +25,7 @@ impl_encoding!("vortex.list", ids::LIST, List);
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ListMetadata {
     validity: ValidityMetadata,
-    element_len: usize,
+    elements_len: usize,
     offset_dtype: DType,
 }
 
@@ -44,7 +44,54 @@ impl Display for ListMetadata {
 // - The size of the validity is the size-1 of the offset array
 
 impl ListArray {
+    fn check_values<T: NativePType + Zero>(
+        offsets: &ArrayData,
+        list_len: usize,
+        element_len: T,
+    ) -> VortexResult<()> {
+        let min_idx = slice(offsets, 0, 1)
+            .vortex_expect("slice exists")
+            .into_primitive()
+            .vortex_expect("prim")
+            .get_as_cast::<T>(0);
+        if min_idx < T::zero() {
+            vortex_bail!(
+                "Expected smallest value in offsets array must be, non-negative {}",
+                min_idx
+            );
+        }
+
+        let final_idx = slice(offsets, list_len, list_len + 1)
+            .vortex_expect("slice exists")
+            .into_primitive()
+            .vortex_expect("prim")
+            .get_as_cast::<T>(0);
+        if final_idx > element_len as T {
+            vortex_bail!("Expected final to point to final element of elements list, however final idx=({}) and final element idx=({})", final_idx, element_len);
+        }
+        if min_idx > final_idx {
+            vortex_bail!(
+                "Expected smallest value in offsets array must be, less than final idx {}",
+                final_idx
+            );
+        };
+        Ok(())
+    }
+
     pub fn try_new(
+        elements: ArrayData,
+        offsets: ArrayData,
+        validity: Validity,
+    ) -> VortexResult<Self> {
+        let is_sorted = offsets.statistics().compute_is_sorted();
+        if !is_sorted.unwrap_or(false) {
+            vortex_bail!("Expected offsets to be sorted, got {:?}", is_sorted);
+        }
+
+        Self::try_new_unchecked(elements, offsets, validity)
+    }
+
+    pub fn try_new_unchecked(
         elements: ArrayData,
         offsets: ArrayData,
         validity: Validity,
@@ -67,53 +114,12 @@ impl ListArray {
             vortex_bail!("Offsets must have at least one element, [0] for an empty list");
         }
 
-        let Some(min_value) = offsets.statistics().compute_as_cast::<i64>(Stat::Min) else {
-            unreachable!("Array must have min value");
-        };
-        if min_value < 0 {
-            vortex_bail!(
-                "Expected smallest value in offsets array must be, non-negative {}",
-                min_value
-            );
-        }
-
         if offsets.dtype().is_signed_int() {
-            let final_idx = slice(&offsets, list_len, list_len + 1)
-                .vortex_expect("slice exists")
-                .into_primitive()
-                .vortex_expect("prim")
-                .get_as_cast::<i64>(0);
-            if final_idx > element_len as i64 {
-                vortex_bail!("Expected final to point to final element of elements list, however final idx=({}) and final element idx=({})", final_idx, element_len);
-            }
-            if min_value > final_idx {
-                vortex_bail!(
-                    "Expected smallest value in offsets array must be, less than final idx {}",
-                    final_idx
-                );
-            }
+            Self::check_values::<i64>(&offsets, list_len, element_len as i64)?;
         } else if offsets.dtype().is_unsigned_int() {
-            let final_idx = slice(&offsets, list_len, list_len + 1)
-                .vortex_expect("slice exists")
-                .into_primitive()
-                .vortex_expect("prim")
-                .get_as_cast::<u64>(0);
-            if final_idx > element_len as u64 {
-                vortex_bail!("Expected final to point to final element of elements list, however final idx=({}) and element len=({})", final_idx, elements.len());
-            }
-            if min_value > final_idx as i64 {
-                vortex_bail!(
-                    "Expected smallest value in offsets array must be, less than final idx {}",
-                    final_idx
-                );
-            }
+            Self::check_values::<u64>(&offsets, list_len, element_len as u64)?;
         } else {
             unreachable!("Offsets are integers");
-        }
-
-        let is_sorted = offsets.statistics().compute_is_sorted();
-        if !is_sorted.unwrap_or(false) {
-            vortex_bail!("Expected offsets to be sorted, got {:?}", is_sorted);
         }
 
         let list_dtype = DType::List(Arc::new(elements.dtype().clone()), nullability);
@@ -128,7 +134,7 @@ impl ListArray {
             list_len,
             ListMetadata {
                 validity: validity_metadata,
-                element_len,
+                elements_len: element_len,
                 offset_dtype,
             },
             children.into(),
@@ -191,9 +197,12 @@ impl ListArray {
 
     // TODO: fetches the elements of the array ignoring validity
     pub fn elements(&self) -> ArrayData {
-        let dtype = self.dtype().as_list().vortex_expect("must be list dtype");
+        let dtype = self
+            .dtype()
+            .as_list_element()
+            .vortex_expect("must be list dtype");
         self.as_ref()
-            .child(0, dtype, self.metadata().element_len)
+            .child(0, dtype, self.metadata().elements_len)
             .vortex_expect("array contains elements")
     }
 }
