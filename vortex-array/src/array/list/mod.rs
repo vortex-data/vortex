@@ -35,7 +35,14 @@ impl Display for ListMetadata {
     }
 }
 
-#[allow(dead_code)]
+// A list is valid if the:
+// - offsets start at a value in elements
+// - offsets are sorted
+// - the final offset points to an element in the elements list, pointing to zero
+//   if elements are empty.
+// - final_offset >= start_offset
+// - The size of the validity is the size-1 of the offset array
+
 impl ListArray {
     pub fn try_new(
         elements: ArrayData,
@@ -55,13 +62,6 @@ impl ListArray {
                 offsets.dtype()
             );
         }
-
-        // A list is valid if the:
-        // - offsets start at a value in elements
-        // - offsets are sorted
-        // - the final offset points to an element in the elements list, pointing to zero
-        //   if elements are empty.
-        // - final >= start
 
         if offsets.is_empty() {
             vortex_bail!("Offsets must have at least one element, [0] for an empty list");
