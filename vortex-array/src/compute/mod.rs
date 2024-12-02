@@ -13,6 +13,7 @@ pub use compare::{compare, scalar_cmp, CompareFn, Operator};
 pub use fill_forward::{fill_forward, FillForwardFn};
 pub use filter::*;
 pub use invert::{invert, InvertFn};
+pub use like::*;
 pub use scalar_at::{scalar_at, ScalarAtFn};
 pub use scalar_subtract::{subtract_scalar, SubtractScalarFn};
 pub use search_sorted::*;
@@ -27,6 +28,7 @@ mod compare;
 mod fill_forward;
 mod filter;
 mod invert;
+mod like;
 mod scalar_at;
 mod scalar_subtract;
 mod search_sorted;
@@ -74,6 +76,13 @@ pub trait ComputeVTable {
     ///
     /// See [InvertFn]
     fn invert_fn(&self) -> Option<&dyn InvertFn<ArrayData>> {
+        None
+    }
+
+    /// Perform a SQL LIKE operation on two arrays.
+    ///
+    /// See: [LikeFn].
+    fn like_fn(&self) -> Option<&dyn LikeFn<ArrayData>> {
         None
     }
 

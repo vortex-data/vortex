@@ -26,7 +26,7 @@ const SUPPORTED_BINARY_OPS: &[Operator] = &[
 ];
 
 fn supported_data_types(dt: DataType) -> bool {
-    dt.is_integer()
+    let is_supported = dt.is_integer()
         || dt.is_floating()
         || dt.is_null()
         || dt == DataType::Boolean
@@ -40,7 +40,13 @@ fn supported_data_types(dt: DataType) -> bool {
         || matches!(
             dt,
             DataType::Timestamp(_, _) | DataType::Time32(_) | DataType::Time64(_)
-        )
+        );
+
+    if !is_supported {
+        log::debug!("DataFusion data type {:?} is not supported", dt);
+    }
+
+    is_supported
 }
 
 pub trait SessionContextExt {
@@ -117,7 +123,17 @@ fn can_be_pushed_down(expr: &Expr, schema: &Schema) -> bool {
             Some((_, field)) => supported_data_types(field.data_type().clone()),
             _ => false,
         },
+        Expr::Like(like) => {
+            if like.case_insensitive || like.negated || like.escape_char.is_some() {
+                log::debug!("DataFusion expression can't be pushed down: {:?}", expr);
+                return false;
+            }
+            can_be_pushed_down(&like.expr, schema) && can_be_pushed_down(&like.pattern, schema)
+        }
         Expr::Literal(lit) => supported_data_types(lit.data_type()),
-        _ => false,
+        _ => {
+            log::debug!("DataFusion expression can't be pushed down: {:?}", expr);
+            false
+        }
     }
 }

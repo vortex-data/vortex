@@ -6,11 +6,14 @@ use std::time::{Duration, Instant};
 
 use bench_vortex::clickbench::{self, clickbench_queries, HITS_SCHEMA};
 use bench_vortex::display::{print_measurements_json, render_table, DisplayFormat};
-use bench_vortex::{execute_query, idempotent, Format, IdempotentPath as _, Measurement};
+use bench_vortex::{
+    execute_query, idempotent, setup_logger, Format, IdempotentPath as _, Measurement,
+};
 use clap::Parser;
 use datafusion::prelude::SessionContext;
 use indicatif::ProgressBar;
 use itertools::Itertools;
+use log::LevelFilter;
 use rayon::iter::{IntoParallelIterator, ParallelIterator as _};
 use tokio::runtime::Builder;
 use vortex::error::vortex_panic;
@@ -18,8 +21,14 @@ use vortex::error::vortex_panic;
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
+    #[arg(short, long, default_value = "8")]
+    iterations: usize,
     #[arg(short, long)]
     threads: Option<usize>,
+    #[arg(long)]
+    only_vortex: bool,
+    #[arg(short, long)]
+    verbose: bool,
     #[arg(short, long, default_value_t, value_enum)]
     display_format: DisplayFormat,
     #[arg(short, long, value_delimiter = ',')]
@@ -28,6 +37,12 @@ struct Args {
 
 fn main() {
     let args = Args::parse();
+
+    setup_logger(if args.verbose {
+        LevelFilter::Debug
+    } else {
+        LevelFilter::Info
+    });
 
     let runtime = match args.threads {
         Some(0) => panic!("Can't use 0 threads for runtime"),
@@ -77,6 +92,16 @@ fn main() {
         },
     ];
 
+    let queries = match args.queries.clone() {
+        None => clickbench_queries(),
+        Some(queries) => clickbench_queries()
+            .into_iter()
+            .filter(|(q_idx, _)| queries.iter().contains(q_idx))
+            .collect(),
+    };
+
+    let progress_bar = ProgressBar::new((queries.len() * formats.len()) as u64);
+
     let mut all_measurements = Vec::default();
 
     for format in formats {
@@ -110,19 +135,9 @@ fn main() {
             other => vortex_panic!("Format {other} isn't supported on ClickBench"),
         }
 
-        let queries = match args.queries.clone() {
-            None => clickbench_queries(),
-            Some(queries) => clickbench_queries()
-                .into_iter()
-                .filter(|(q_idx, _)| queries.iter().contains(q_idx))
-                .collect(),
-        };
-
-        let progress_bar = ProgressBar::new(queries.len() as u64);
-
-        for (query_idx, query) in queries.into_iter() {
+        for (query_idx, query) in queries.clone().into_iter() {
             let mut fastest_result = Duration::from_millis(u64::MAX);
-            for _ in 0..10 {
+            for _ in 0..args.iterations {
                 let exec_duration = runtime.block_on(async {
                     let start = Instant::now();
                     execute_query(&context, &query).await.unwrap();

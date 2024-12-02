@@ -273,7 +273,7 @@ pub struct JsonValue {
 impl Measurement {
     pub fn to_json(&self) -> JsonValue {
         let name = format!(
-            "{dataset}_q{query_idx}/{format}",
+            "{dataset}_q{query_idx:02}/{format}",
             dataset = self.dataset,
             format = self.format.name(),
             query_idx = self.query_idx

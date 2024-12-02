@@ -249,7 +249,6 @@ pub async fn register_parquet_files(
         .to_str()
         .ok_or_else(|| vortex_err!("Path is not valid UTF-8"))?;
     let table_path = format!("file://{table_path}/");
-    dbg!(&table_path);
     let table_url = ListingTableUrl::parse(table_path)?;
 
     let config = ListingTableConfig::new(table_url)
