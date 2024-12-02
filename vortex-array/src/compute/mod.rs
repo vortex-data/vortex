@@ -19,6 +19,7 @@ pub use search_sorted::*;
 pub use slice::{slice, SliceFn};
 pub use take::*;
 
+use crate::compute::sum::SumFn;
 use crate::ArrayData;
 
 mod boolean;
@@ -31,6 +32,7 @@ mod scalar_at;
 mod scalar_subtract;
 mod search_sorted;
 mod slice;
+mod sum;
 mod take;
 
 /// VTable for dispatching compute functions to Vortex encodings.
@@ -110,6 +112,10 @@ pub trait ComputeVTable {
     ///
     /// See: [TakeFn].
     fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
+        None
+    }
+
+    fn sum_fn(&self) -> Option<&dyn SumFn<ArrayData>> {
         None
     }
 }
