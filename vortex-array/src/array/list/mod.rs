@@ -272,43 +272,5 @@ mod test {
             Some(vec![None, Some(2)]),
             idx_into_opt_slice_opt::<i32>(&list, 1)
         );
-
-        assert_eq!(l, scalar_at(&list, 0).unwrap());
-        // assert_eq!(vec![3, 4], scalar_at(&list, 1));
-        // assert_eq!(vec![5], scalar_at(&list, 2));
     }
-
-    // #[test]
-    // fn test_list_empty_elem_array() {
-    //     let elements = PrimitiveArray::from(vec![1]);
-    //     let offsets = PrimitiveArray::from(vec![0, 0, 1, 1]);
-    //
-    //     let list = ListArray::try_new(
-    //         elements.into_array(),
-    //         offsets.into_array(),
-    //         Validity::AllValid,
-    //     )
-    //     .unwrap();
-    //
-    //     assert_eq!(Some(vec![]), idx_into_opt_slice_opt::<i32>(&list, 0));
-    //     assert_eq!(Some(vec![Some(1)]), idx_into_opt_slice_opt::<i32>(&list, 1));
-    //     assert_eq!(Some(vec![]), idx_into_opt_slice_opt::<i32>(&list, 2));
-    // }
-    //
-    // #[test]
-    // fn test_list_validation_array() {
-    //     let elements = PrimitiveArray::from_nullable_vec(vec![None, Some(2), Some(3)]);
-    //     let offsets = PrimitiveArray::from(vec![0, 0, 2, 3]);
-    //     let validity = Validity::Array(BoolArray::from_iter(vec![false, true, true]).into_array());
-    //
-    //     let list =
-    //         ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
-    //
-    //     assert_eq!(None, idx_into_opt_slice_opt::<i32>(&list, 0));
-    //     assert_eq!(
-    //         Some(vec![None, Some(2)]),
-    //         idx_into_opt_slice_opt::<i32>(&list, 1)
-    //     );
-    //     assert_eq!(Some(vec![Some(3)]), idx_into_opt_slice_opt::<i32>(&list, 2));
-    // }
 }
