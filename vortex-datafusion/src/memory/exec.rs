@@ -1,11 +1,11 @@
 use std::any::Any;
-use std::collections::HashSet;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 
 use datafusion_common::{Result as DFResult, Statistics};
 use datafusion_execution::{SendableRecordBatchStream, TaskContext};
 use datafusion_physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
+use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::ChunkedArray;
 use vortex_array::{ArrayDType, ArrayLen};
 use vortex_error::VortexResult;
@@ -42,8 +42,15 @@ impl VortexScanExec {
         })
     }
 
-    pub fn with_scan_projection(&self, scan_projection: Vec<(ExprRef, String)>) -> VortexResult<Self> {
-        Self::try_new(self.array.clone(), scan_projection, self.plan_properties.clone())
+    pub fn with_scan_projection(
+        &self,
+        scan_projection: Vec<(ExprRef, String)>,
+    ) -> VortexResult<Self> {
+        Self::try_new(
+            self.array.clone(),
+            scan_projection,
+            self.plan_properties.clone(),
+        )
     }
 }
 

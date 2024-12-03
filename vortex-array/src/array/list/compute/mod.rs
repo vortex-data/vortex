@@ -1,14 +1,17 @@
+use std::sync::Arc;
+
 use arrow_array::types::Int32Type;
 use arrow_array::PrimitiveArray;
 use itertools::Itertools;
-use std::sync::Arc;
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::array::{ListArray, ListEncoding};
 use crate::arrow::FromArrowArray;
-use crate::compute::{div, list_sum, scalar_at, slice, sub, sum, try_cast, ComputeVTable, ListFn, ScalarAtFn, SliceFn};
+use crate::compute::{
+    div, list_sum, scalar_at, slice, sub, sum, try_cast, ComputeVTable, ListFn, ScalarAtFn, SliceFn,
+};
 use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
 
 impl ComputeVTable for ListEncoding {
@@ -55,16 +58,15 @@ impl ListFn<ListArray> for ListEncoding {
         let mut sums = PrimitiveArray::<Int32Type>::builder(array.len() - 1);
 
         // TODO(marko): This is going to be slow...
-        for i in 1..ends.len() {
-            let end = ends[i];
-            let sum = sum(slice(&elements, begin as usize, end as usize)?)?;
+        for end in ends.iter().skip(1) {
+            let sum = sum(slice(&elements, begin as usize, *end as usize)?)?;
             match sum.as_primitive().as_::<i32>()? {
                 Some(sum) => sums.append_value(sum),
                 None => {
                     vortex_bail!("Expected an i64 sum, found {:?}", sum.dtype());
                 }
             }
-            begin = end;
+            begin = *end;
         }
 
         let sums_array = sums.finish();
@@ -82,17 +84,17 @@ impl ListFn<ListArray> for ListEncoding {
         // Cast the sum array to a float type - the mean is always a float.
         let (float_ptype, nullability) = match sum_array.dtype() {
             DType::Primitive(ptype, nullability) => match ptype {
-                PType::U8 => (PType::F16, nullability.clone()),
-                PType::U16 => (PType::F32, nullability.clone()),
-                PType::U32 => (PType::F64, nullability.clone()),
-                PType::U64 => (PType::F64, nullability.clone()),
-                PType::I8 => (PType::F16, nullability.clone()),
-                PType::I16 => (PType::F32, nullability.clone()),
-                PType::I32 => (PType::F64, nullability.clone()),
-                PType::I64 => (PType::F64, nullability.clone()),
-                PType::F16 => (PType::F16, nullability.clone()),
-                PType::F32 => (PType::F32, nullability.clone()),
-                PType::F64 => (PType::F64, nullability.clone()),
+                PType::U8 => (PType::F16, *nullability),
+                PType::U16 => (PType::F32, *nullability),
+                PType::U32 => (PType::F64, *nullability),
+                PType::U64 => (PType::F64, *nullability),
+                PType::I8 => (PType::F16, *nullability),
+                PType::I16 => (PType::F32, *nullability),
+                PType::I32 => (PType::F64, *nullability),
+                PType::I64 => (PType::F64, *nullability),
+                PType::F16 => (PType::F16, *nullability),
+                PType::F32 => (PType::F32, *nullability),
+                PType::F64 => (PType::F64, *nullability),
             },
             _ => {
                 vortex_bail!("Expected a primitive dtype, found {:?}", sum_array.dtype());
