@@ -54,7 +54,7 @@ impl StatsAccumulator {
 
     pub fn push_chunk(&mut self, array: &ArrayData) -> VortexResult<()> {
         for (s, builder) in self.stats.iter().zip_eq(self.builders.iter_mut()) {
-            if let Some(v) = array.statistics().get(*s) {
+            if let Some(v) = array.statistics().compute(*s) {
                 builder.append_scalar(&v.cast(builder.dtype())?)?;
             } else {
                 builder.append_null();
@@ -80,6 +80,10 @@ impl StatsAccumulator {
 
             names.push(stat.to_string().into());
             fields.push(values);
+        }
+
+        if names.is_empty() {
+            return Ok(None);
         }
 
         Ok(Some(
