@@ -20,6 +20,7 @@ pub use scalar_at::{scalar_at, ScalarAtFn};
 pub use scalar_subtract::{subtract_scalar, SubtractScalarFn};
 pub use search_sorted::*;
 pub use slice::{slice, SliceFn};
+pub use sum::*;
 pub use take::*;
 
 use crate::compute::sum::SumFn;
