@@ -22,7 +22,7 @@ pub use search_sorted::*;
 pub use slice::{slice, SliceFn};
 pub use sum::*;
 pub use take::*;
-pub use list_mean::ListMeanFn;
+pub use list::*;
 pub use numeric::*;
 
 use crate::ArrayData;
@@ -40,7 +40,7 @@ mod search_sorted;
 mod slice;
 mod sum;
 mod take;
-mod list_mean;
+mod list;
 mod numeric;
 
 /// VTable for dispatching compute functions to Vortex encodings.
@@ -141,10 +141,7 @@ pub trait ComputeVTable {
         None
     }
 
-    /// Compute the mean of each element of a list array.
-    ///
-    /// See: [ListMeanFn].
-    fn list_mean_fn(&self) -> Option<&dyn ListMeanFn<ArrayData>> {
+    fn list_fn(&self) -> Option<&dyn ListFn<ArrayData>> {
         None
     }
 }
