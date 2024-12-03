@@ -60,4 +60,4 @@ if not os.path.exists('tiny-no-lists-of-lists.vcf.vortex'):
         'tiny-no-lists-of-lists.vcf.vortex'
     )
 else:
-    print('found: tiny-no-lists-of-lists.vcf.parquet')
+    file = vortex.io.read_url('file:////Users/joeisaacs/git/spiraldb/vortex/vortex-genetics/tiny-no-lists-of-lists.vcf.vortex')
