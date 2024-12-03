@@ -41,7 +41,7 @@ impl EncodingCompressor for ListCompressor {
         )?;
         Ok(CompressedArray::compressed(
             ListArray::try_new(
-                compressed_elements.array, // we don't compress the raw bytes
+                compressed_elements.array,
                 compressed_offsets.array,
                 list_array.validity(),
             )?
