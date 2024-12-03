@@ -15,6 +15,7 @@ use crate::array::primitive::PrimitiveArray;
 use crate::array::varbin::builder::VarBinBuilder;
 use crate::compute::{scalar_at, slice};
 use crate::encoding::ids;
+use crate::nbytes::ArrayNBytes;
 use crate::stats::StatsSet;
 use crate::validity::{Validity, ValidityMetadata};
 use crate::variants::PrimitiveArrayTrait;
@@ -222,6 +223,12 @@ impl VarBinArray {
             self.offsets(),
             self.validity(),
         )
+    }
+}
+
+impl ArrayNBytes for VarBinArray {
+    fn nbytes(&self) -> usize {
+        self.as_ref().nbytes()
     }
 }
 

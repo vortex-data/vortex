@@ -16,6 +16,7 @@ use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexRe
 use crate::arrow::FromArrowArray;
 use crate::compute::slice;
 use crate::encoding::ids;
+use crate::nbytes::ArrayNBytes;
 use crate::stats::StatsSet;
 use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use crate::variants::PrimitiveArrayTrait;
@@ -524,6 +525,12 @@ where
     }
 
     builder.finish()
+}
+
+impl ArrayNBytes for VarBinViewArray {
+    fn nbytes(&self) -> usize {
+        self.as_ref().nbytes()
+    }
 }
 
 impl ArrayTrait for VarBinViewArray {}

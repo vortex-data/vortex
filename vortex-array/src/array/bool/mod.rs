@@ -25,6 +25,8 @@ mod stats;
 // Re-export the BooleanBuffer type on our API surface.
 pub use arrow_buffer::BooleanBuffer;
 
+use crate::nbytes::ArrayNBytes;
+
 impl_encoding!("vortex.bool", ids::BOOL, Bool);
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -173,6 +175,12 @@ impl BoolArray {
             BooleanBufferBuilder::new_from_buffer(buffer, length).finish(),
             Nullability::NonNullable,
         )
+    }
+}
+
+impl ArrayNBytes for BoolArray {
+    fn nbytes(&self) -> usize {
+        self.as_ref().nbytes()
     }
 }
 

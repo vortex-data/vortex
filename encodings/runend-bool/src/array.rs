@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use vortex_array::array::{BoolArray, PrimitiveArray};
 use vortex_array::compute::{scalar_at, search_sorted, SearchSortedSide};
 use vortex_array::encoding::ids;
+use vortex_array::nbytes::ArrayNBytes;
 use vortex_array::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
 use vortex_array::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use vortex_array::variants::{BoolArrayTrait, PrimitiveArrayTrait, VariantsVTable};
@@ -181,6 +182,12 @@ impl BoolArrayTrait for RunEndBoolArray {}
 impl VariantsVTable<RunEndBoolArray> for RunEndBoolEncoding {
     fn as_bool_array<'a>(&self, array: &'a RunEndBoolArray) -> Option<&'a dyn BoolArrayTrait> {
         Some(array)
+    }
+}
+
+impl ArrayNBytes for RunEndBoolArray {
+    fn nbytes(&self) -> usize {
+        self.as_ref().nbytes()
     }
 }
 

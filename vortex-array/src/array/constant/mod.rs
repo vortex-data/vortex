@@ -5,6 +5,7 @@ use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::encoding::ids;
+use crate::nbytes::ArrayNBytes;
 use crate::stats::{Stat, StatisticsVTable, StatsSet};
 use crate::validity::{LogicalValidity, ValidityVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
@@ -57,6 +58,12 @@ impl ConstantArray {
 }
 
 impl ArrayTrait for ConstantArray {}
+
+impl ArrayNBytes for ConstantArray {
+    fn nbytes(&self) -> usize {
+        size_of::<ScalarValue>()
+    }
+}
 
 impl ValidityVTable<ConstantArray> for ConstantEncoding {
     fn is_valid(&self, array: &ConstantArray, _index: usize) -> bool {

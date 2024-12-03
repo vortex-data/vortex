@@ -3,6 +3,7 @@ use std::fmt::{Debug, Display};
 use serde::{Deserialize, Serialize};
 use vortex_array::array::{PrimitiveArray, SparseArray};
 use vortex_array::encoding::ids;
+use vortex_array::nbytes::ArrayNBytes;
 use vortex_array::stats::{StatisticsVTable, StatsSet};
 use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
@@ -261,6 +262,12 @@ impl VisitorVTable<ALPRDArray> for ALPRDEncoding {
 }
 
 impl StatisticsVTable<ALPRDArray> for ALPRDEncoding {}
+
+impl ArrayNBytes for ALPRDArray {
+    fn nbytes(&self) -> usize {
+        self.as_ref().nbytes()
+    }
+}
 
 impl ArrayTrait for ALPRDArray {}
 

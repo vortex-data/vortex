@@ -20,14 +20,6 @@ pub trait ArrayNBytes {
     fn nbytes(&self) -> usize;
 }
 
-// Implement ArrayNBytes for all concrete arrays.
-impl<A: AsRef<ArrayData>> ArrayNBytes for A {
-    #[inline(always)]
-    fn nbytes(&self) -> usize {
-        self.as_ref().nbytes()
-    }
-}
-
 struct NBytesVisitor(usize);
 
 impl ArrayVisitor for NBytesVisitor {

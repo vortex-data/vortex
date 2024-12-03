@@ -6,6 +6,7 @@ use vortex_dtype::{DType, FieldName, FieldNames, StructDType};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
 
 use crate::encoding::ids;
+use crate::nbytes::ArrayNBytes;
 use crate::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
 use crate::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use crate::variants::{StructArrayTrait, VariantsVTable};
@@ -138,6 +139,12 @@ impl StructArray {
             self.len(),
             self.validity(),
         )
+    }
+}
+
+impl ArrayNBytes for StructArray {
+    fn nbytes(&self) -> usize {
+        self.as_ref().nbytes()
     }
 }
 

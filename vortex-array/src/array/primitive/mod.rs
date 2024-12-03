@@ -14,6 +14,7 @@ use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 
 use crate::encoding::ids;
 use crate::iter::Accessor;
+use crate::nbytes::ArrayNBytes;
 use crate::stats::StatsSet;
 use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use crate::variants::{PrimitiveArrayTrait, VariantsVTable};
@@ -195,6 +196,12 @@ impl PrimitiveArray {
         self.into_array()
             .into_buffer()
             .vortex_expect("PrimitiveArray must have a buffer")
+    }
+}
+
+impl ArrayNBytes for PrimitiveArray {
+    fn nbytes(&self) -> usize {
+        self.as_ref().nbytes()
     }
 }
 

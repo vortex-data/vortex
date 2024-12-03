@@ -3,6 +3,7 @@ use std::fmt::{Debug, Display};
 pub use compress::*;
 use serde::{Deserialize, Serialize};
 use vortex_array::encoding::ids;
+use vortex_array::nbytes::ArrayNBytes;
 use vortex_array::stats::{StatisticsVTable, StatsSet};
 use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use vortex_array::variants::{PrimitiveArrayTrait, VariantsVTable};
@@ -101,6 +102,12 @@ impl VisitorVTable<FoRArray> for FoREncoding {
 }
 
 impl StatisticsVTable<FoRArray> for FoREncoding {}
+
+impl ArrayNBytes for FoRArray {
+    fn nbytes(&self) -> usize {
+        self.as_ref().nbytes()
+    }
+}
 
 impl ArrayTrait for FoRArray {}
 

@@ -70,6 +70,12 @@ impl VisitorVTable<NullArray> for NullEncoding {
     }
 }
 
+impl ArrayNBytes for NullArray {
+    fn nbytes(&self) -> usize {
+        self.as_ref().nbytes()
+    }
+}
+
 impl ArrayTrait for NullArray {}
 
 impl VariantsVTable<NullArray> for NullEncoding {

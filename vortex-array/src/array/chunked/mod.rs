@@ -17,6 +17,7 @@ use crate::compute::{
 };
 use crate::encoding::ids;
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
+use crate::nbytes::ArrayNBytes;
 use crate::stats::ArrayStatistics;
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::validity::Validity::NonNullable;
@@ -196,6 +197,12 @@ impl ChunkedArray {
         }
 
         Self::try_new(new_chunks, self.dtype().clone())
+    }
+}
+
+impl ArrayNBytes for ChunkedArray {
+    fn nbytes(&self) -> usize {
+        self.as_ref().nbytes()
     }
 }
 

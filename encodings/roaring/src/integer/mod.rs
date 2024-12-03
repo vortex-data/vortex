@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use vortex_array::array::PrimitiveArray;
 use vortex_array::compute::try_cast;
 use vortex_array::encoding::ids;
+use vortex_array::nbytes::ArrayNBytes;
 use vortex_array::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
 use vortex_array::validity::{LogicalValidity, Validity, ValidityVTable};
 use vortex_array::variants::{PrimitiveArrayTrait, VariantsVTable};
@@ -94,6 +95,12 @@ impl RoaringIntArray {
         } else {
             vortex_bail!("RoaringInt can only encode primitive arrays")
         }
+    }
+}
+
+impl ArrayNBytes for RoaringIntArray {
+    fn nbytes(&self) -> usize {
+        self.as_ref().nbytes()
     }
 }
 

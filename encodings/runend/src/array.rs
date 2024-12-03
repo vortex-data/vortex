@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use vortex_array::array::PrimitiveArray;
 use vortex_array::compute::{scalar_at, search_sorted, search_sorted_usize_many, SearchSortedSide};
 use vortex_array::encoding::ids;
+use vortex_array::nbytes::ArrayNBytes;
 use vortex_array::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
 use vortex_array::validity::{
     ArrayValidity, LogicalValidity, Validity, ValidityMetadata, ValidityVTable,
@@ -182,6 +183,12 @@ impl RunEndArray {
         self.as_ref()
             .child(1, self.dtype(), self.metadata().num_runs)
             .vortex_expect("RunEndArray is missing its values")
+    }
+}
+
+impl ArrayNBytes for RunEndArray {
+    fn nbytes(&self) -> usize {
+        self.as_ref().nbytes()
     }
 }
 

@@ -8,6 +8,7 @@ use vortex_scalar::{Scalar, ScalarValue};
 use crate::array::constant::ConstantArray;
 use crate::compute::{scalar_at, search_sorted, SearchResult, SearchSortedSide};
 use crate::encoding::ids;
+use crate::nbytes::ArrayNBytes;
 use crate::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use crate::variants::PrimitiveArrayTrait;
@@ -174,6 +175,12 @@ impl SparseArray {
                 .vortex_expect("SparseArray indices is non-empty");
             max_index - self.indices_offset()
         })
+    }
+}
+
+impl ArrayNBytes for SparseArray {
+    fn nbytes(&self) -> usize {
+        self.as_ref().nbytes()
     }
 }
 

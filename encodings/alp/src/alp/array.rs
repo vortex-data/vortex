@@ -3,6 +3,7 @@ use std::fmt::{Debug, Display};
 use serde::{Deserialize, Serialize};
 use vortex_array::array::PrimitiveArray;
 use vortex_array::encoding::ids;
+use vortex_array::nbytes::ArrayNBytes;
 use vortex_array::stats::StatisticsVTable;
 use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use vortex_array::variants::{PrimitiveArrayTrait, VariantsVTable};
@@ -119,6 +120,12 @@ impl ALPArray {
     #[inline]
     fn patches_dtype(&self) -> DType {
         self.dtype().as_nullable()
+    }
+}
+
+impl ArrayNBytes for ALPArray {
+    fn nbytes(&self) -> usize {
+        self.as_ref().nbytes()
     }
 }
 

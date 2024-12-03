@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use vortex_array::array::StructArray;
 use vortex_array::compute::try_cast;
 use vortex_array::encoding::ids;
+use vortex_array::nbytes::ArrayNBytes;
 use vortex_array::stats::{Stat, StatisticsVTable, StatsSet};
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityVTable};
 use vortex_array::variants::{ExtensionArrayTrait, VariantsVTable};
@@ -109,6 +110,12 @@ impl DateTimePartsArray {
         } else {
             Validity::NonNullable
         }
+    }
+}
+
+impl ArrayNBytes for DateTimePartsArray {
+    fn nbytes(&self) -> usize {
+        self.as_ref().nbytes()
     }
 }
 

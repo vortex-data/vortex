@@ -11,6 +11,7 @@ use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult};
 use crate::array::{NullArray, PrimitiveArray};
 use crate::compute::{scalar_at, slice};
 use crate::encoding::ids;
+use crate::nbytes::ArrayNBytes;
 use crate::stats::{Stat, StatisticsVTable, StatsSet};
 use crate::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use crate::variants::{ListArrayTrait, PrimitiveArrayTrait, VariantsVTable};
@@ -156,6 +157,12 @@ impl ListArray {
 impl VariantsVTable<ListArray> for ListEncoding {
     fn as_list_array<'a>(&self, array: &'a ListArray) -> Option<&'a dyn ListArrayTrait> {
         Some(array)
+    }
+}
+
+impl ArrayNBytes for ListArray {
+    fn nbytes(&self) -> usize {
+        self.as_ref().nbytes()
     }
 }
 

@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use vortex_array::array::BoolArray;
 use vortex_array::compute::{scalar_at, take, TakeOptions};
 use vortex_array::encoding::ids;
+use vortex_array::nbytes::ArrayNBytes;
 use vortex_array::stats::StatsSet;
 use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use vortex_array::variants::PrimitiveArrayTrait;
@@ -60,6 +61,12 @@ impl DictArray {
         self.as_ref()
             .child(1, self.dtype(), self.metadata().values_len)
             .vortex_expect("DictArray is missing its values child array")
+    }
+}
+
+impl ArrayNBytes for DictArray {
+    fn nbytes(&self) -> usize {
+        self.as_ref().nbytes()
     }
 }
 

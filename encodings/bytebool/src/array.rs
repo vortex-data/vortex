@@ -6,6 +6,7 @@ use arrow_buffer::BooleanBuffer;
 use serde::{Deserialize, Serialize};
 use vortex_array::array::BoolArray;
 use vortex_array::encoding::ids;
+use vortex_array::nbytes::ArrayNBytes;
 use vortex_array::stats::StatsSet;
 use vortex_array::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use vortex_array::variants::{BoolArrayTrait, VariantsVTable};
@@ -79,6 +80,12 @@ impl ByteBoolArray {
     pub fn maybe_null_slice(&self) -> &[bool] {
         // Safety: The internal buffer contains byte-sized bools
         unsafe { std::mem::transmute(self.buffer().as_slice()) }
+    }
+}
+
+impl ArrayNBytes for ByteBoolArray {
+    fn nbytes(&self) -> usize {
+        self.as_ref().nbytes()
     }
 }
 

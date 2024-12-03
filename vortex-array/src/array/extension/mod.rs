@@ -7,6 +7,7 @@ use vortex_dtype::{DType, ExtDType, ExtID};
 use vortex_error::{VortexExpect as _, VortexResult};
 
 use crate::encoding::ids;
+use crate::nbytes::ArrayNBytes;
 use crate::stats::{ArrayStatistics as _, Stat, StatisticsVTable, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use crate::variants::{ExtensionArrayTrait, VariantsVTable};
@@ -54,6 +55,12 @@ impl ExtensionArray {
     #[inline]
     pub fn id(&self) -> &ExtID {
         self.ext_dtype().id()
+    }
+}
+
+impl ArrayNBytes for ExtensionArray {
+    fn nbytes(&self) -> usize {
+        self.as_ref().nbytes()
     }
 }
 
