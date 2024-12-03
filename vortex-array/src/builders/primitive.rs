@@ -17,7 +17,11 @@ pub struct PrimitiveBuilder<T: NativePType> {
     // TODO(ngates): track stats?
 }
 
-impl<T: NativePType> PrimitiveBuilder<T> {
+impl<T: NativePType> PrimitiveBuilder<T>
+where
+    T: NativePType + 'static,
+    <T::ArrowPrimitiveType as ArrowPrimitiveType>::Native: NativePType,
+{
     pub fn new(nullability: Nullability) -> Self {
         Self::with_capacity(nullability, 1024) // Same as Arrow builders
     }
@@ -27,10 +31,6 @@ impl<T: NativePType> PrimitiveBuilder<T> {
             inner: ArrowPrimitiveBuilder::<T::ArrowPrimitiveType>::with_capacity(capacity),
             dtype: DType::Primitive(T::PTYPE, nullability),
         }
-    }
-
-    pub fn append_null(&mut self) {
-        self.inner.append_null();
     }
 
     pub fn append_value(
@@ -66,6 +66,17 @@ where
 
     fn len(&self) -> usize {
         self.inner.len()
+    }
+
+    fn append_zeros(&mut self, n: usize) {
+        self.inner.append_value_n(
+            <<T::ArrowPrimitiveType as ArrowPrimitiveType>::Native>::default(),
+            n,
+        );
+    }
+
+    fn append_nulls(&mut self, n: usize) {
+        self.inner.append_nulls(n);
     }
 
     fn finish(&mut self) -> VortexResult<ArrayData> {

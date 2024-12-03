@@ -23,11 +23,31 @@ use crate::ArrayData;
 
 pub trait ArrayBuilder {
     fn as_any(&self) -> &dyn Any;
+
     fn as_any_mut(&mut self) -> &mut dyn Any;
+
     fn len(&self) -> usize;
+
     fn is_empty(&self) -> bool {
         self.len() == 0
     }
+
+    /// Append a "zero" value to the array.
+    fn append_zero(&mut self) {
+        self.append_zeros(1)
+    }
+
+    /// Appends n "zero" values to the array.
+    fn append_zeros(&mut self, n: usize);
+
+    /// Append a "null" value to the array.
+    fn append_null(&mut self) {
+        self.append_nulls(1)
+    }
+
+    /// Appends n "null" values to the array.
+    fn append_nulls(&mut self, n: usize);
+
     fn finish(&mut self) -> VortexResult<ArrayData>;
 }
 

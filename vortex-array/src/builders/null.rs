@@ -33,6 +33,14 @@ impl ArrayBuilder for NullBuilder {
         self.length
     }
 
+    fn append_zeros(&mut self, n: usize) {
+        self.length += n;
+    }
+
+    fn append_nulls(&mut self, n: usize) {
+        self.length += n;
+    }
+
     fn finish(&mut self) -> VortexResult<ArrayData> {
         Ok(NullArray::new(self.length).into_array())
     }

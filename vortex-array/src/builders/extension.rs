@@ -65,6 +65,14 @@ impl ArrayBuilder for ExtensionBuilder {
         self.storage.len()
     }
 
+    fn append_zeros(&mut self, n: usize) {
+        self.storage.append_zeros(n)
+    }
+
+    fn append_nulls(&mut self, n: usize) {
+        self.storage.append_nulls(n)
+    }
+
     fn finish(&mut self) -> VortexResult<ArrayData> {
         let storage = self.storage.finish()?;
         Ok(ExtensionArray::new(self.ext_dtype(), storage).into_array())

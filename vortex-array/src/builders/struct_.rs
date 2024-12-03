@@ -50,6 +50,22 @@ impl ArrayBuilder for StructBuilder {
         self.validity.len()
     }
 
+    fn append_zeros(&mut self, n: usize) {
+        self.builders
+            .iter_mut()
+            .for_each(|builder| builder.append_zeros(n));
+        self.validity.append_values(true, n);
+    }
+
+    fn append_nulls(&mut self, n: usize) {
+        self.builders
+            .iter_mut()
+            // We push zero values into our children when appending a null in case the children are
+            // themselves non-nullable.
+            .for_each(|builder| builder.append_zeros(n));
+        self.validity.append_value(false);
+    }
+
     fn finish(&mut self) -> VortexResult<ArrayData> {
         let fields: Vec<ArrayData> = self
             .builders

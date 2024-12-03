@@ -27,12 +27,12 @@ impl BoolBuilder {
         }
     }
 
-    pub fn append_null(&mut self) {
-        self.inner.append_null();
-    }
-
     pub fn append_value(&mut self, value: bool) {
         self.inner.append_value(value);
+    }
+
+    pub fn append_values(&mut self, value: bool, n: usize) {
+        self.inner.append_n(n, value);
     }
 
     pub fn append_option(&mut self, value: Option<bool>) {
@@ -54,6 +54,14 @@ impl ArrayBuilder for BoolBuilder {
 
     fn len(&self) -> usize {
         self.inner.len()
+    }
+
+    fn append_zeros(&mut self, n: usize) {
+        self.inner.append_n(n, false);
+    }
+
+    fn append_nulls(&mut self, n: usize) {
+        self.inner.append_nulls(n);
     }
 
     fn finish(&mut self) -> VortexResult<ArrayData> {

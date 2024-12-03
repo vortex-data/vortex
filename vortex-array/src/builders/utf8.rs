@@ -48,6 +48,18 @@ impl ArrayBuilder for Utf8Builder {
         self.inner.len()
     }
 
+    fn append_zeros(&mut self, n: usize) {
+        for _ in 0..n {
+            self.inner.append_value("")
+        }
+    }
+
+    fn append_nulls(&mut self, n: usize) {
+        for _ in 0..n {
+            self.inner.append_null()
+        }
+    }
+
     fn finish(&mut self) -> VortexResult<ArrayData> {
         let arrow = self.inner.finish();
 
