@@ -37,7 +37,6 @@ impl EncodingCompressor for StructCompressor {
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
         let array = StructArray::try_from(array.clone())?;
-        let compressed_validity = ctx.compress_validity(array.validity())?;
 
         let children_trees = match like {
             Some(tree) => tree.children,
@@ -62,7 +61,7 @@ impl EncodingCompressor for StructCompressor {
                 array.names().clone(),
                 arrays,
                 array.len(),
-                compressed_validity,
+                ctx.compress_validity(array.validity())?,
             )?
             .into_array(),
             Some(CompressionTree::new(self, trees)),

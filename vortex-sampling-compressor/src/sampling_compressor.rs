@@ -1,7 +1,6 @@
 use core::fmt::Formatter;
 use std::fmt::Display;
 
-use log::{debug, info, warn};
 use rand::rngs::StdRng;
 use rand::SeedableRng as _;
 use vortex_array::aliases::hash_set::HashSet;
@@ -147,7 +146,7 @@ impl<'a> SamplingCompressor<'a> {
                 check_statistics_unchanged(arr, compressed.as_ref());
                 return Ok(compressed);
             } else {
-                warn!("{} cannot compress {} like {}", self, arr, l);
+                log::warn!("{} cannot compress {} like {}", self, arr, l);
             }
         }
 
@@ -199,7 +198,7 @@ impl<'a> SamplingCompressor<'a> {
             });
 
         if !too_deep.is_empty() {
-            debug!(
+            log::debug!(
                 "{} skipping encodings due to depth/cost: {}",
                 self,
                 too_deep
@@ -210,10 +209,10 @@ impl<'a> SamplingCompressor<'a> {
             );
         }
 
-        debug!("{} candidates for {}: {:?}", self, array, candidates);
+        log::debug!("{} candidates for {}: {:?}", self, array, candidates);
 
         if candidates.is_empty() {
-            debug!(
+            log::debug!(
                 "{} no compressors for array with dtype: {} and encoding: {}",
                 self,
                 array.dtype(),
@@ -257,9 +256,11 @@ impl<'a> SamplingCompressor<'a> {
         let best = find_best_compression(candidates, &sample, self)?
             .into_path()
             .map(|best_compressor| {
-                debug!(
+                log::debug!(
                     "{} Compressing array {} with {}",
-                    self, array, best_compressor
+                    self,
+                    array,
+                    best_compressor
                 );
                 best_compressor.compress_unchecked(array, self)
             })
@@ -282,7 +283,7 @@ pub(crate) fn find_best_compression<'a>(
     let mut best_compression_ratio_sample = None;
 
     for compression in candidates {
-        debug!(
+        log::debug!(
             "{} trying candidate {} for {}",
             ctx,
             compression.id(),
@@ -315,7 +316,7 @@ pub(crate) fn find_best_compression<'a>(
             best = Some(compressed_sample);
         }
 
-        debug!(
+        log::debug!(
             "{} with {}: ratio ({}), objective fn value ({}); best so far: ratio ({}), objective fn value ({})",
             ctx,
             compression.id(),
@@ -330,14 +331,14 @@ pub(crate) fn find_best_compression<'a>(
     if best_compression_ratio < best_objective_ratio && best_compression_ratio_sample.is_some() {
         let best_ratio_sample =
             best_compression_ratio_sample.vortex_expect("already checked that this Option is Some");
-        debug!(
+        log::debug!(
             "{} best objective fn value ({}) has ratio {} from {}",
             ctx,
             best_objective,
             best_compression_ratio,
             best.array().tree_display()
         );
-        debug!(
+        log::debug!(
             "{} best ratio ({}) has objective fn value {} from {}",
             ctx,
             best_compression_ratio,
@@ -346,7 +347,7 @@ pub(crate) fn find_best_compression<'a>(
         );
     }
 
-    info!(
+    log::debug!(
         "{} best compression ({} bytes, {} objective fn value, {} compression ratio",
         ctx,
         best.nbytes(),

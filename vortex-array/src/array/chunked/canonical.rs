@@ -134,7 +134,7 @@ fn pack_lists(chunks: &[ArrayData], validity: Validity, dtype: &DType) -> Vortex
         let chunk = chunk.clone().into_list()?;
         // TODO: handle i32 offsets if they fit.
         let offsets_arr = try_cast(
-            chunk.offsets(),
+            chunk.offsets().into_primitive()?,
             &DType::Primitive(PType::I64, Nullability::NonNullable),
         )?
         .into_primitive()?;

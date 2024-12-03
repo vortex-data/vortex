@@ -6,7 +6,12 @@ use crate::encoding::Encoding;
 use crate::{ArrayDType, ArrayData};
 
 pub trait LikeFn<Array> {
-    fn like(&self, array: &Array, pattern: &ArrayData) -> VortexResult<ArrayData>;
+    fn like(
+        &self,
+        array: &Array,
+        pattern: &ArrayData,
+        options: LikeOptions,
+    ) -> VortexResult<ArrayData>;
 }
 
 impl<E: Encoding> LikeFn<ArrayData> for E
@@ -14,15 +19,27 @@ where
     E: LikeFn<E::Array>,
     for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
 {
-    fn like(&self, array: &ArrayData, pattern: &ArrayData) -> VortexResult<ArrayData> {
+    fn like(
+        &self,
+        array: &ArrayData,
+        pattern: &ArrayData,
+        options: LikeOptions,
+    ) -> VortexResult<ArrayData> {
         let array_ref = <&E::Array>::try_from(array)?;
         let encoding = array
             .encoding()
             .as_any()
             .downcast_ref::<E>()
             .ok_or_else(|| vortex_err!("Mismatched encoding"))?;
-        LikeFn::like(encoding, array_ref, pattern)
+        LikeFn::like(encoding, array_ref, pattern, options)
     }
+}
+
+/// Options for SQL LIKE function
+#[derive(Default, Debug, Clone, Copy)]
+pub struct LikeOptions {
+    pub negated: bool,
+    pub case_insensitive: bool,
 }
 
 /// Perform SQL left LIKE right
@@ -30,7 +47,11 @@ where
 /// There are two wildcards supported with the LIKE operator:
 /// - %: matches zero or more characters
 /// - _: matches exactly one character
-pub fn like(array: &ArrayData, pattern: &ArrayData) -> VortexResult<ArrayData> {
+pub fn like(
+    array: &ArrayData,
+    pattern: &ArrayData,
+    options: LikeOptions,
+) -> VortexResult<ArrayData> {
     if !matches!(array.dtype(), DType::Utf8(..)) {
         vortex_bail!("Expected utf8 array, got {}", array.dtype());
     }
@@ -39,7 +60,7 @@ pub fn like(array: &ArrayData, pattern: &ArrayData) -> VortexResult<ArrayData> {
     }
 
     if let Some(f) = array.encoding().like_fn() {
-        return f.like(array, pattern);
+        return f.like(array, pattern, options);
     }
 
     // Otherwise, we canonicalize into a UTF8 array.
@@ -47,15 +68,25 @@ pub fn like(array: &ArrayData, pattern: &ArrayData) -> VortexResult<ArrayData> {
         "No like implementation found for encoding {}",
         array.encoding().id(),
     );
-    arrow_like(array, pattern)
+    arrow_like(array, pattern, options)
 }
 
 /// Implementation of `LikeFn` using the Arrow crate.
-pub(crate) fn arrow_like(child: &ArrayData, pattern: &ArrayData) -> VortexResult<ArrayData> {
+pub(crate) fn arrow_like(
+    child: &ArrayData,
+    pattern: &ArrayData,
+    options: LikeOptions,
+) -> VortexResult<ArrayData> {
     let nullable = child.dtype().is_nullable();
     let child = Datum::try_from(child.clone())?;
     let pattern = Datum::try_from(pattern.clone())?;
 
-    let array = arrow_string::like::like(&child, &pattern)?;
+    let array = match (options.negated, options.case_insensitive) {
+        (false, false) => arrow_string::like::like(&child, &pattern)?,
+        (true, false) => arrow_string::like::nlike(&child, &pattern)?,
+        (false, true) => arrow_string::like::ilike(&child, &pattern)?,
+        (true, true) => arrow_string::like::nilike(&child, &pattern)?,
+    };
+
     Ok(ArrayData::from_arrow(&array, nullable))
 }

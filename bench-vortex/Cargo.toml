@@ -70,7 +70,7 @@ test = false
 bench = false
 
 [[bench]]
-name = "compress_noci"
+name = "compress"
 test = false
 harness = false
 
