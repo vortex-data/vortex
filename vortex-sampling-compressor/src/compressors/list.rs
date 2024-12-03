@@ -1,8 +1,8 @@
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::array::{ListArray, ListEncoding, VarBinArray, VarBinEncoding};
-use vortex_array::encoding::{Encoding, EncodingRef, EncodingVTable};
+use vortex_array::array::{ListArray, ListEncoding};
+use vortex_array::encoding::{Encoding, EncodingRef};
 use vortex_array::stats::ArrayStatistics;
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
+use vortex_array::{ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
@@ -13,7 +13,7 @@ pub struct ListCompressor;
 
 impl EncodingCompressor for ListCompressor {
     fn id(&self) -> &str {
-        ListEncoding.id().as_ref()
+        ListEncoding::ID.as_ref()
     }
 
     fn cost(&self) -> u8 {
