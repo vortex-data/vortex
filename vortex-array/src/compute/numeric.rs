@@ -1,13 +1,12 @@
 use std::sync::Arc;
 
-use arrow_array::cast::AsArray;
 use arrow_array::ArrayRef;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 
 use crate::arrow::FromArrowArray;
 use crate::encoding::Encoding;
-use crate::{ArrayDType, ArrayData, Canonical, IntoArrayVariant, IntoCanonical};
+use crate::{ArrayDType, ArrayData, IntoCanonical};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NumericOperator {
@@ -47,34 +46,31 @@ where
 }
 
 /// Point-wise add between two numeric arrays.
-pub fn add(
-    lhs: impl AsRef<ArrayData>,
-    rhs: impl AsRef<ArrayData>,
-) -> VortexResult<ArrayData> {
+pub fn add(lhs: impl AsRef<ArrayData>, rhs: impl AsRef<ArrayData>) -> VortexResult<ArrayData> {
     binary_numeric(lhs.as_ref(), rhs.as_ref(), NumericOperator::Add)
 }
 
 /// Point-wise sub between two numeric arrays.
-pub fn sub(
-    lhs: impl AsRef<ArrayData>,
-    rhs: impl AsRef<ArrayData>,
-) -> VortexResult<ArrayData> {
+pub fn sub(lhs: impl AsRef<ArrayData>, rhs: impl AsRef<ArrayData>) -> VortexResult<ArrayData> {
     binary_numeric(lhs.as_ref(), rhs.as_ref(), NumericOperator::Sub)
 }
 
 /// Point-wise division between two numeric arrays.
-pub fn div(
-    lhs: impl AsRef<ArrayData>,
-    rhs: impl AsRef<ArrayData>,
-) -> VortexResult<ArrayData> {
+pub fn div(lhs: impl AsRef<ArrayData>, rhs: impl AsRef<ArrayData>) -> VortexResult<ArrayData> {
     binary_numeric(lhs.as_ref(), rhs.as_ref(), NumericOperator::Div)
 }
 
-fn binary_numeric(lhs: &ArrayData, rhs: &ArrayData, op: NumericOperator) -> VortexResult<ArrayData> {
+fn binary_numeric(
+    lhs: &ArrayData,
+    rhs: &ArrayData,
+    op: NumericOperator,
+) -> VortexResult<ArrayData> {
     if lhs.len() != rhs.len() {
         vortex_bail!("Numeric operations aren't supported on arrays of different lengths")
     }
-    if !matches!(lhs.dtype(), DType::Primitive(_, _)) || !matches!(rhs.dtype(), DType::Primitive(_, _)) {
+    if !matches!(lhs.dtype(), DType::Primitive(_, _))
+        || !matches!(rhs.dtype(), DType::Primitive(_, _))
+    {
         vortex_bail!("Numeric operations are only supported on primitive arrays")
     }
 

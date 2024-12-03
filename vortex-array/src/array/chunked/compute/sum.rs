@@ -3,7 +3,6 @@ use vortex_scalar::Scalar;
 
 use crate::array::{ChunkedArray, ChunkedEncoding};
 use crate::compute::SumFn;
-use crate::encoding::ArrayEncodingRef;
 use crate::{ArrayDType, ArrayLen};
 
 impl SumFn<ChunkedArray> for ChunkedEncoding {
