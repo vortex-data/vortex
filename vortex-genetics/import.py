@@ -52,12 +52,12 @@ if not os.path.exists('100_000-no-lists-of-lists.vcf.parquet'):
 else:
     print('found: 100_000-no-lists-of-lists.vcf.parquet')
 
-if not os.path.exists('100_000-no-lists-of-lists.vcf.ht'):
-    print('writing: 100_000-no-lists-of-lists.vcf.ht')
-    ht = get_ht()
-    ht.write('100_000-no-lists-of-lists.vcf.ht')
-else:
-    print('found: 100_000-no-lists-of-lists.vcf.ht')
+# if not os.path.exists('100_000-no-lists-of-lists.vcf.ht'):
+#     print('writing: 100_000-no-lists-of-lists.vcf.ht')
+#     ht = get_ht()
+#     ht.write('100_000-no-lists-of-lists.vcf.ht')
+# else:
+#     print('found: 100_000-no-lists-of-lists.vcf.ht')
 
 
 if not os.path.exists('100_000-no-lists-of-lists.vcf.vortex'):
