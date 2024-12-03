@@ -5,6 +5,11 @@ use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::panic::RefUnwindSafe;
 
+use arrow_array::types::{
+    Float16Type, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type, UInt16Type,
+    UInt32Type, UInt64Type, UInt8Type,
+};
+use arrow_array::ArrowPrimitiveType;
 use num_traits::bounds::UpperBounded;
 use num_traits::{FromPrimitive, Num, NumCast, ToPrimitive};
 use vortex_error::{vortex_err, VortexError, VortexResult};
@@ -64,6 +69,9 @@ pub trait NativePType:
     /// The PType that corresponds to this native type
     const PTYPE: PType;
 
+    /// The Arrow primitive type that corresponds to this native type
+    type ArrowPrimitiveType: ArrowPrimitiveType;
+
     /// Whether this instance (`self`) is NaN
     /// For integer types, this is always `false`
     fn is_nan(self) -> bool;
@@ -76,9 +84,10 @@ pub trait NativePType:
 }
 
 macro_rules! native_ptype {
-    ($T:ty, $ptype:tt) => {
+    ($T:ty, $ptype:tt, $arrow:tt) => {
         impl NativePType for $T {
             const PTYPE: PType = PType::$ptype;
+            type ArrowPrimitiveType = $arrow;
 
             fn is_nan(self) -> bool {
                 false
@@ -96,9 +105,10 @@ macro_rules! native_ptype {
 }
 
 macro_rules! native_float_ptype {
-    ($T:ty, $ptype:tt) => {
+    ($T:ty, $ptype:tt, $arrow:tt) => {
         impl NativePType for $T {
             const PTYPE: PType = PType::$ptype;
+            type ArrowPrimitiveType = $arrow;
 
             fn is_nan(self) -> bool {
                 <$T>::is_nan(self)
@@ -115,17 +125,17 @@ macro_rules! native_float_ptype {
     };
 }
 
-native_ptype!(u8, U8);
-native_ptype!(u16, U16);
-native_ptype!(u32, U32);
-native_ptype!(u64, U64);
-native_ptype!(i8, I8);
-native_ptype!(i16, I16);
-native_ptype!(i32, I32);
-native_ptype!(i64, I64);
-native_float_ptype!(f16, F16);
-native_float_ptype!(f32, F32);
-native_float_ptype!(f64, F64);
+native_ptype!(u8, U8, UInt8Type);
+native_ptype!(u16, U16, UInt16Type);
+native_ptype!(u32, U32, UInt32Type);
+native_ptype!(u64, U64, UInt64Type);
+native_ptype!(i8, I8, Int8Type);
+native_ptype!(i16, I16, Int16Type);
+native_ptype!(i32, I32, Int32Type);
+native_ptype!(i64, I64, Int64Type);
+native_float_ptype!(f16, F16, Float16Type);
+native_float_ptype!(f32, F32, Float32Type);
+native_float_ptype!(f64, F64, Float64Type);
 
 /// Macro to match over each PType, binding the corresponding native type (from `NativePType`)
 #[macro_export]

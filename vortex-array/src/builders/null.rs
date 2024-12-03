@@ -1,0 +1,39 @@
+use std::any::Any;
+
+use vortex_error::VortexResult;
+
+use crate::array::NullArray;
+use crate::builders::ArrayBuilder;
+use crate::{ArrayData, IntoArrayData};
+
+pub struct NullBuilder {
+    length: usize,
+}
+
+impl NullBuilder {
+    pub fn new() -> Self {
+        Self { length: 0 }
+    }
+
+    pub fn append_null(&mut self) {
+        self.length += 1;
+    }
+}
+
+impl ArrayBuilder for NullBuilder {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn len(&self) -> usize {
+        self.length
+    }
+
+    fn finish(&mut self) -> VortexResult<ArrayData> {
+        Ok(NullArray::new(self.length).into_array())
+    }
+}
