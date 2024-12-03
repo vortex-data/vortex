@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use arrow_array::{RecordBatch, RecordBatchReader};
 use datafusion::prelude::SessionContext;
-use datafusion_physical_plan::collect;
+use datafusion_physical_plan::{collect, ExecutionPlan};
 use itertools::Itertools;
 use log::LevelFilter;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
@@ -253,6 +253,16 @@ pub async fn execute_query(ctx: &SessionContext, query: &str) -> anyhow::Result<
     let physical_plan = state.create_physical_plan(&optimized).await?;
     let result = collect(physical_plan.clone(), state.task_ctx()).await?;
     Ok(result)
+}
+
+pub async fn physical_plan(
+    ctx: &SessionContext,
+    query: &str,
+) -> anyhow::Result<Arc<dyn ExecutionPlan>> {
+    let plan = ctx.sql(query).await?;
+    let (state, plan) = plan.into_parts();
+    let optimized = state.optimize(&plan)?;
+    Ok(state.create_physical_plan(&optimized).await?)
 }
 
 #[derive(Clone, Debug)]
