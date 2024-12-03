@@ -50,7 +50,7 @@ impl EncodingCompressor for StructCompressor {
 
         let (arrays, mut trees): (Vec<_>, Vec<_>) = array
             .children()
-            .zip_eq(children_trees)
+            .zip_eq(children_trees.iter().take(array.nfields()))
             .map(|(array, like)| {
                 // these are extremely valuable when reading/writing, but are potentially much more expensive
                 // to compute post-compression. That's because not all encodings implement stats, so we would
