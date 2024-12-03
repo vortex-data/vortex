@@ -4972,6 +4972,7 @@ dependencies = [
  "tracing",
  "vortex-buffer",
  "vortex-error",
+ "wasm-bindgen-futures",
 ]
 
 [[package]]

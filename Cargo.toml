@@ -125,6 +125,7 @@ tokio = "1.37.0"
 tracing = "0.1"
 url = "2"
 uuid = "1.8.0"
+wasm-bindgen-futures = "0.4"
 
 # BEGIN crates published by this project
 vortex = { version = "0.21.0", path = "./vortex" }
