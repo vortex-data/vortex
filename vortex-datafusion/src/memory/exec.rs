@@ -1,4 +1,5 @@
 use std::any::Any;
+use std::collections::HashSet;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 
@@ -17,7 +18,7 @@ use crate::memory::stream::VortexRecordBatchStream;
 #[derive(Clone)]
 pub struct VortexScanExec {
     array: ChunkedArray,
-    scan_projection: ExprRef,
+    scan_projection: Vec<(ExprRef, String)>,
     plan_properties: PlanProperties,
     statistics: Statistics,
 }
@@ -25,16 +26,24 @@ pub struct VortexScanExec {
 impl VortexScanExec {
     pub fn try_new(
         array: ChunkedArray,
-        scan_projection: ExprRef,
+        scan_projection: Vec<(ExprRef, String)>,
         plan_properties: PlanProperties,
     ) -> VortexResult<Self> {
-        let statistics = chunked_array_df_stats(&array, &scan_projection)?;
+        let mut fields = HashSet::new();
+        for (expr, _) in &scan_projection {
+            fields.extend(expr.references());
+        }
+        let statistics = chunked_array_df_stats(&array, fields.into_iter())?;
         Ok(Self {
             array,
             scan_projection,
             plan_properties,
             statistics,
         })
+    }
+
+    pub fn with_scan_projection(&self, scan_projection: Vec<(ExprRef, String)>) -> VortexResult<Self> {
+        Self::try_new(self.array.clone(), scan_projection, self.plan_properties.clone())
     }
 }
 
