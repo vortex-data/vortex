@@ -80,14 +80,14 @@ pub(crate) fn arrow_like(
 
     let array = if negated {
         if case_sensitive {
-            arrow_string::like::nilike(&child, &pattern)?
-        } else {
             arrow_string::like::nlike(&child, &pattern)?
+        } else {
+            arrow_string::like::nilike(&child, &pattern)?
         }
     } else if case_sensitive {
-        arrow_string::like::ilike(&child, &pattern)?
-    } else {
         arrow_string::like::like(&child, &pattern)?
+    } else {
+        arrow_string::like::ilike(&child, &pattern)?
     };
 
     Ok(ArrayData::from_arrow(&array, nullable))
