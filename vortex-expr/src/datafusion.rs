@@ -33,7 +33,12 @@ pub fn convert_expr_to_vortex(physical_expr: Arc<dyn PhysicalExpr>) -> VortexRes
     {
         let child = convert_expr_to_vortex(like.expr().clone())?;
         let pattern = convert_expr_to_vortex(like.pattern().clone())?;
-        return Ok(Like::new_expr(child, pattern));
+        return Ok(Like::new_expr(
+            child,
+            pattern,
+            like.negated(),
+            like.case_insensitive(),
+        ));
     }
 
     if let Some(lit) = physical_expr

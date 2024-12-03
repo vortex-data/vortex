@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: ["develop"]
-  pull_request: {}
-  workflow_dispatch: {}
+    branches: [ "develop" ]
+  pull_request: { }
+  workflow_dispatch: { }
 
 permissions:
   actions: read
@@ -173,8 +173,8 @@ jobs:
         uses: opt-nc/setup-duckdb-action@v1.0.9
         with:
           version: v1.0.0
-      - name: Rust Bench as test
-        run: cargo bench --bench '*[!noci|clickbench]' --profile benchtest -- --test
+      - name: Rust TPC-H and Random access Bench as test
+        run: cargo bench --bench tpch --bench random_access --profile benchtest -- --test
 
   generated-files:
     name: "Check generated proto/fbs files are up to date"

@@ -84,7 +84,12 @@ pub fn expr_project(expr: &ExprRef, projection: &[Field]) -> Option<ExprRef> {
     } else if let Some(l) = expr.as_any().downcast_ref::<Like>() {
         let child = expr_project(l.child(), projection)?;
         let pattern = expr_project(l.pattern(), projection)?;
-        Some(Like::new_expr(child, pattern))
+        Some(Like::new_expr(
+            child,
+            pattern,
+            l.negated(),
+            l.case_insensitive(),
+        ))
     } else {
         None
     }
