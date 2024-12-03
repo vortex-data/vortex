@@ -1,20 +1,14 @@
 use datafusion::datasource::DefaultTableSource;
 use datafusion::execution::SessionStateBuilder;
 use datafusion::functions::string::upper;
-use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion::prelude::SessionContext;
-use datafusion_common::config::ConfigOptions;
 use datafusion_expr::expr::ScalarFunction;
 use datafusion_expr::{col, Expr, LogicalPlanBuilder};
-use datafusion_physical_plan::projection::ProjectionExec;
-use datafusion_physical_plan::ExecutionPlan;
-use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 use vortex_array::array::{ChunkedArray, PrimitiveArray, StructArray, VarBinArray};
 use vortex_array::validity::Validity;
 use vortex_array::IntoArrayData;
-use vortex_datafusion::memory::{VortexMemTable, VortexMemTableOptions, VortexScanExec};
-use vortex_expr::datafusion::convert_expr_to_vortex;
+use vortex_datafusion::memory::{VortexMemTable, VortexMemTableOptions, VortexScanProjectionPushdown};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -42,10 +36,10 @@ async fn main() -> anyhow::Result<()> {
         None,
     )?.build()?;
     let ctx = SessionContext::new_with_state(
-        SessionStateBuilder::new().with_physical_optimizer_rule(Arc::new(VortexTableScanPushdown::new())).build(),
+        SessionStateBuilder::new().with_physical_optimizer_rule(Arc::new(VortexScanProjectionPushdown::new())).build(),
     );
-
     let df = ctx.execute_logical_plan(logical_plan).await?;
+
     // FIXME(marko): Figure out what's the expression that we're running here!
     df.select(vec![
         Expr::ScalarFunction(ScalarFunction::new_udf(
@@ -55,59 +49,4 @@ async fn main() -> anyhow::Result<()> {
     ])?.show().await?;
 
     Ok(())
-}
-
-struct VortexTableScanPushdown {}
-
-impl VortexTableScanPushdown {
-    pub fn new() -> Self {
-        Self {}
-    }
-}
-
-impl Debug for VortexTableScanPushdown {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str("VortexTableScanPushdown")
-    }
-}
-
-impl PhysicalOptimizerRule for VortexTableScanPushdown {
-    fn optimize(&self, plan: Arc<dyn ExecutionPlan>, _config: &ConfigOptions) -> datafusion_common::Result<Arc<dyn ExecutionPlan>> {
-        let children = plan.children();
-        if children.len() != 1 {
-            return Ok(plan);
-        }
-        if let Some(vortex_scan) = children[0].as_any().downcast_ref::<VortexScanExec>() {
-            if let Some(projection_exec) = plan.as_any().downcast_ref::<ProjectionExec>() {
-                if projection_exec.expr().len() == 1 {
-                    match convert_expr_to_vortex(projection_exec.expr()[0].0.clone()) {
-                        Ok(vortex_expr) => {
-                            println!("{:?}", plan);
-                            Ok(Arc::new(vortex_scan.with_scan_projection(vortex_expr).map_err(|e| {
-                                datafusion_common::DataFusionError::Execution(format!("Error in VortexTableScanPushdown: {}", e))
-                            })?))
-                        }
-                        Err(e) => {
-                            println!("{:?}", e);
-                            Ok(plan)
-                        }
-                    }
-                } else {
-                    Ok(plan)
-                }
-            } else {
-                Ok(plan)
-            }
-        } else {
-            Ok(plan)
-        }
-    }
-
-    fn name(&self) -> &str {
-        "VortexTableScanPushdown"
-    }
-
-    fn schema_check(&self) -> bool {
-        true
-    }
 }
