@@ -173,7 +173,7 @@ jobs:
         uses: opt-nc/setup-duckdb-action@v1.0.9
         with:
           version: v1.0.0
-      - name: Rust TPC-H Bench as test
+      - name: Rust TPC-H and Random access Bench as test
         run: cargo bench --bench tpch --bench random_access --profile benchtest -- --test
 
   generated-files:
