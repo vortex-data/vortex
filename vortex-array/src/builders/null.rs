@@ -1,5 +1,6 @@
 use std::any::Any;
 
+use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::array::NullArray;
@@ -29,6 +30,10 @@ impl ArrayBuilder for NullBuilder {
 
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
+    }
+
+    fn dtype(&self) -> &DType {
+        &DType::Null
     }
 
     fn len(&self) -> usize {

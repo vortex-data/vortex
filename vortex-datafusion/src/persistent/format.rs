@@ -142,16 +142,6 @@ impl FileFormat for VortexFormat {
                 };
                 column_statistics.push(col_stats);
             }
-
-            table_schema
-                .fields
-                .iter()
-                .map(|f| f.name())
-                .zip(column_statistics.iter())
-                .for_each(|(name, stats)| {
-                    println!("Column: {}, Stats: {:#?}", name, stats);
-                });
-
             stats.column_statistics = column_statistics;
             stats.total_byte_size = Precision::Inexact(total_size as usize);
         }
