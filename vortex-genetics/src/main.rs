@@ -1,11 +1,14 @@
 use std::sync::{Arc, LazyLock};
 
+// use itertools::Itertools as _;
 use vortex::alp::{ALPEncoding, ALPRDEncoding};
 use vortex::array::{
     PrimitiveEncoding, SparseEncoding, StructEncoding, VarBinEncoding, VarBinViewEncoding,
 };
 use vortex::bytebool::ByteBoolEncoding;
-use vortex::compute::list_mean;
+use vortex::compute::{
+    list_mean, // scalar_at
+};
 use vortex::datetime_parts::DateTimePartsEncoding;
 use vortex::dict::DictEncoding;
 use vortex::dtype::field::Field;
@@ -70,7 +73,13 @@ async fn main() -> VortexResult<()> {
             .unwrap(),
     )?;
 
-    println!("the means {}", means);
+    println!(
+        "the means {}",
+        means,
+        // (0..means.len())
+        //     .map(|index| scalar_at(means.clone(), index).unwrap())
+        //     .join(",")
+    );
 
     Ok(())
 }
