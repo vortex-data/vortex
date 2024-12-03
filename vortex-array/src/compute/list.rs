@@ -62,3 +62,24 @@ pub fn list_mean(array: impl AsRef<ArrayData>) -> VortexResult<ArrayData> {
         array.encoding().id()
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::array::{ListArray, PrimitiveArray};
+    use crate::compute::list_mean;
+    use crate::validity::Validity;
+    use crate::{IntoArrayData, IntoArrayVariant};
+
+    #[test]
+    fn test_list_mean() {
+        let elements = PrimitiveArray::from(vec![1i32, 2, 3, 4, 5]);
+        let offsets = PrimitiveArray::from(vec![0, 2, 4, 5]);
+        let validity = Validity::AllValid;
+
+        let list =
+            ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
+
+        let mean = list_mean(&list).unwrap();
+        assert_eq!(mean.into_primitive().unwrap().maybe_null_slice::<f64>(), &[1.5, 3.5, 5.0]);
+    }
+}
