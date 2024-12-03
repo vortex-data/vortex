@@ -1,10 +1,12 @@
 use std::any::Any;
 use std::fmt::Display;
 use std::sync::Arc;
+
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::ArrayData;
 use vortex_dtype::field::Field;
 use vortex_error::VortexResult;
+
 use crate::{unbox_any, ExprRef, VortexExpr};
 
 #[derive(Debug, Clone)]
@@ -34,7 +36,7 @@ impl VortexExpr for ListMean {
     }
 
     fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
-        let child_result = self.child.evaluate(batch)?;
+        let _child_result = self.child.evaluate(batch)?;
         todo!()
     }
 

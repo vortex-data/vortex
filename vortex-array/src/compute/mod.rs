@@ -23,7 +23,6 @@ pub use take::*;
 pub use list_mean::ListMeanFn;
 pub use numeric::*;
 
-use crate::compute::sum::SumFn;
 use crate::ArrayData;
 
 mod boolean;

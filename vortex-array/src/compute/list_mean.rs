@@ -1,6 +1,7 @@
 use vortex_error::{vortex_err, VortexError, VortexResult};
-use crate::ArrayData;
+
 use crate::encoding::Encoding;
+use crate::ArrayData;
 
 pub trait ListMeanFn<Array> {
     fn list_mean(&self, array: &Array) -> VortexResult<ArrayData>;
@@ -23,6 +24,7 @@ where
 }
 
 /// Return the mean of each element in the list array.
+#[allow(dead_code)]
 pub fn list_mean(array: impl AsRef<ArrayData>) -> VortexResult<ArrayData> {
     let array = array.as_ref();
 

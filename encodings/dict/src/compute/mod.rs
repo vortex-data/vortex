@@ -1,5 +1,6 @@
 mod compare;
 mod like;
+mod sum;
 
 use vortex_array::compute::{
     filter, scalar_at, slice, take, CompareFn, ComputeVTable, FilterFn, FilterMask, LikeFn,
