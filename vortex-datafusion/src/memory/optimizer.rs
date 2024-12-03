@@ -17,6 +17,12 @@ impl VortexScanProjectionPushdown {
     }
 }
 
+impl Default for VortexScanProjectionPushdown {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Debug for VortexScanProjectionPushdown {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str("VortexScanProjectionPushdown")
@@ -65,6 +71,7 @@ impl PhysicalOptimizerRule for VortexScanProjectionPushdown {
                     None => {
                         return Ok(plan);
                     }
+                    None => Ok(plan),
                 }
             }
             None => Ok(plan),

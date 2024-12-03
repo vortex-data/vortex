@@ -16,6 +16,7 @@ pub fn chunked_array_df_stats(
 ) -> DFResult<Statistics> {
     let mut nbytes: usize = 0;
     let column_statistics = fields
+        .into_iter()
         .map(|f| {
             match f {
                 Field::Name(name) => array.field_by_name(name.as_str()),
