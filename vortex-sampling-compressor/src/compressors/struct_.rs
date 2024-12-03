@@ -38,12 +38,17 @@ impl EncodingCompressor for StructCompressor {
     ) -> VortexResult<CompressedArray<'a>> {
         let array = StructArray::try_from(array.clone())?;
 
+        let (validity, validity_path) = ctx.compress_validity(
+            array.validity(),
+            like.as_ref().and_then(|l| l.child(array.nfields())),
+        )?;
+
         let children_trees = match like {
             Some(tree) => tree.children,
             None => vec![None; array.nfields()],
         };
 
-        let (arrays, trees) = array
+        let (arrays, mut trees): (Vec<_>, Vec<_>) = array
             .children()
             .zip_eq(children_trees)
             .map(|(array, like)| {
@@ -56,14 +61,11 @@ impl EncodingCompressor for StructCompressor {
             })
             .process_results(|iter| iter.map(|x| (x.array, x.path)).unzip())?;
 
+        trees.push(validity_path);
+
         Ok(CompressedArray::compressed(
-            StructArray::try_new(
-                array.names().clone(),
-                arrays,
-                array.len(),
-                ctx.compress_validity(array.validity())?,
-            )?
-            .into_array(),
+            StructArray::try_new(array.names().clone(), arrays, array.len(), validity)?
+                .into_array(),
             Some(CompressionTree::new(self, trees)),
             Some(array.statistics()),
         ))

@@ -98,7 +98,8 @@ impl EncodingCompressor for BitPackedCompressor {
             return Ok(CompressedArray::uncompressed(array.clone()));
         }
 
-        let validity = ctx.compress_validity(parray.validity())?;
+        let (validity, validity_path) =
+            ctx.compress_validity(parray.validity(), like.as_ref().and_then(|l| l.child(1)))?;
         let packed_buffer = bitpack(&parray, bit_width)?;
         let patches = (num_exceptions > 0)
             .then(|| {
@@ -124,7 +125,7 @@ impl EncodingCompressor for BitPackedCompressor {
             .into_array(),
             Some(CompressionTree::new(
                 self,
-                vec![patches.and_then(|p| p.path)],
+                vec![patches.and_then(|p| p.path), validity_path],
             )),
             Some(array.statistics()),
         ))

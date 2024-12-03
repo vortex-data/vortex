@@ -41,8 +41,6 @@ impl EncodingCompressor for DeltaCompressor {
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
         let parray = PrimitiveArray::try_from(array.clone())?;
-        let validity = ctx.compress_validity(parray.validity())?;
-
         // Compress the filled array
         let (bases, deltas) = delta_compress(&parray)?;
 
@@ -53,11 +51,16 @@ impl EncodingCompressor for DeltaCompressor {
         let deltas = ctx
             .named("deltas")
             .compress(deltas.as_ref(), like.as_ref().and_then(|l| l.child(1)))?;
+        let (validity, validity_path) =
+            ctx.compress_validity(parray.validity(), like.as_ref().and_then(|l| l.child(2)))?;
 
         Ok(CompressedArray::compressed(
             DeltaArray::try_from_delta_compress_parts(bases.array, deltas.array, validity)?
                 .into_array(),
-            Some(CompressionTree::new(self, vec![bases.path, deltas.path])),
+            Some(CompressionTree::new(
+                self,
+                vec![bases.path, deltas.path, validity_path],
+            )),
             Some(array.statistics()),
         ))
     }
