@@ -88,7 +88,7 @@ pub fn expr_project(expr: &ExprRef, projection: &[Field]) -> Option<ExprRef> {
             child,
             pattern,
             l.negated(),
-            l.case_sensitive(),
+            l.case_insensitive(),
         ))
     } else {
         None

@@ -124,10 +124,6 @@ fn can_be_pushed_down(expr: &Expr, schema: &Schema) -> bool {
             _ => false,
         },
         Expr::Like(like) => {
-            if like.case_insensitive || like.negated || like.escape_char.is_some() {
-                log::debug!("DataFusion expression can't be pushed down: {:?}", expr);
-                return false;
-            }
             can_be_pushed_down(&like.expr, schema) && can_be_pushed_down(&like.pattern, schema)
         }
         Expr::Literal(lit) => supported_data_types(lit.data_type()),

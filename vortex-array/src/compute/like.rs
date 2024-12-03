@@ -10,8 +10,7 @@ pub trait LikeFn<Array> {
         &self,
         array: &Array,
         pattern: &ArrayData,
-        negated: bool,
-        case_sensitive: bool,
+        options: LikeOptions,
     ) -> VortexResult<ArrayData>;
 }
 
@@ -24,8 +23,7 @@ where
         &self,
         array: &ArrayData,
         pattern: &ArrayData,
-        negated: bool,
-        case_sensitive: bool,
+        options: LikeOptions,
     ) -> VortexResult<ArrayData> {
         let array_ref = <&E::Array>::try_from(array)?;
         let encoding = array
@@ -33,8 +31,15 @@ where
             .as_any()
             .downcast_ref::<E>()
             .ok_or_else(|| vortex_err!("Mismatched encoding"))?;
-        LikeFn::like(encoding, array_ref, pattern, negated, case_sensitive)
+        LikeFn::like(encoding, array_ref, pattern, options)
     }
+}
+
+/// Options for SQL LIKE function
+#[derive(Default, Debug, Clone, Copy)]
+pub struct LikeOptions {
+    pub negated: bool,
+    pub case_insensitive: bool,
 }
 
 /// Perform SQL left LIKE right
@@ -45,8 +50,7 @@ where
 pub fn like(
     array: &ArrayData,
     pattern: &ArrayData,
-    negated: bool,
-    case_sensitive: bool,
+    options: LikeOptions,
 ) -> VortexResult<ArrayData> {
     if !matches!(array.dtype(), DType::Utf8(..)) {
         vortex_bail!("Expected utf8 array, got {}", array.dtype());
@@ -56,7 +60,7 @@ pub fn like(
     }
 
     if let Some(f) = array.encoding().like_fn() {
-        return f.like(array, pattern, negated, case_sensitive);
+        return f.like(array, pattern, options);
     }
 
     // Otherwise, we canonicalize into a UTF8 array.
@@ -64,30 +68,24 @@ pub fn like(
         "No like implementation found for encoding {}",
         array.encoding().id(),
     );
-    arrow_like(array, pattern, negated, case_sensitive)
+    arrow_like(array, pattern, options)
 }
 
 /// Implementation of `LikeFn` using the Arrow crate.
 pub(crate) fn arrow_like(
     child: &ArrayData,
     pattern: &ArrayData,
-    negated: bool,
-    case_sensitive: bool,
+    options: LikeOptions,
 ) -> VortexResult<ArrayData> {
     let nullable = child.dtype().is_nullable();
     let child = Datum::try_from(child.clone())?;
     let pattern = Datum::try_from(pattern.clone())?;
 
-    let array = if negated {
-        if case_sensitive {
-            arrow_string::like::nlike(&child, &pattern)?
-        } else {
-            arrow_string::like::nilike(&child, &pattern)?
-        }
-    } else if case_sensitive {
-        arrow_string::like::like(&child, &pattern)?
-    } else {
-        arrow_string::like::ilike(&child, &pattern)?
+    let array = match (options.negated, options.case_insensitive) {
+        (false, false) => arrow_string::like::like(&child, &pattern)?,
+        (true, false) => arrow_string::like::nlike(&child, &pattern)?,
+        (false, true) => arrow_string::like::ilike(&child, &pattern)?,
+        (true, true) => arrow_string::like::nilike(&child, &pattern)?,
     };
 
     Ok(ArrayData::from_arrow(&array, nullable))
