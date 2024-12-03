@@ -14,14 +14,14 @@ pub use fill_forward::{fill_forward, FillForwardFn};
 pub use filter::*;
 pub use invert::{invert, InvertFn};
 pub use like::*;
+pub use list::*;
+pub use numeric::*;
 pub use scalar_at::{scalar_at, ScalarAtFn};
 pub use scalar_subtract::{subtract_scalar, SubtractScalarFn};
 pub use search_sorted::*;
 pub use slice::{slice, SliceFn};
 pub use sum::*;
 pub use take::*;
-pub use list::*;
-pub use numeric::*;
 
 use crate::ArrayData;
 
@@ -32,14 +32,14 @@ mod fill_forward;
 mod filter;
 mod invert;
 mod like;
+mod list;
+mod numeric;
 mod scalar_at;
 mod scalar_subtract;
 mod search_sorted;
 mod slice;
 mod sum;
 mod take;
-mod list;
-mod numeric;
 
 /// VTable for dispatching compute functions to Vortex encodings.
 pub trait ComputeVTable {

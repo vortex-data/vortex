@@ -42,8 +42,15 @@ impl VortexScanExec {
         })
     }
 
-    pub fn with_scan_projection(&self, scan_projection: Vec<(ExprRef, String)>) -> VortexResult<Self> {
-        Self::try_new(self.array.clone(), scan_projection, self.plan_properties.clone())
+    pub fn with_scan_projection(
+        &self,
+        scan_projection: Vec<(ExprRef, String)>,
+    ) -> VortexResult<Self> {
+        Self::try_new(
+            self.array.clone(),
+            scan_projection,
+            self.plan_properties.clone(),
+        )
     }
 }
 
