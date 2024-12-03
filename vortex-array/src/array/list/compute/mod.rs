@@ -1,14 +1,17 @@
+use std::sync::Arc;
+
 use arrow_array::types::Int32Type;
 use arrow_array::PrimitiveArray;
 use itertools::Itertools;
-use std::sync::Arc;
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::array::{ListArray, ListEncoding};
 use crate::arrow::FromArrowArray;
-use crate::compute::{div, list_sum, scalar_at, slice, sub, sum, try_cast, ComputeVTable, ListFn, ScalarAtFn, SliceFn};
+use crate::compute::{
+    div, list_sum, scalar_at, slice, sub, sum, try_cast, ComputeVTable, ListFn, ScalarAtFn, SliceFn,
+};
 use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
 
 impl ComputeVTable for ListEncoding {

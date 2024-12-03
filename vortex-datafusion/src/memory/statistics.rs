@@ -1,4 +1,5 @@
 use std::collections::hash_set::IntoIter;
+
 use datafusion_common::stats::Precision;
 use datafusion_common::{ColumnStatistics, Result as DFResult, ScalarValue, Statistics};
 use itertools::Itertools;
@@ -9,14 +10,18 @@ use vortex_array::ArrayLen;
 use vortex_dtype::field::Field;
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 
-pub fn chunked_array_df_stats(array: &ChunkedArray, fields: IntoIter<&Field>) -> DFResult<Statistics> {
+pub fn chunked_array_df_stats(
+    array: &ChunkedArray,
+    fields: IntoIter<&Field>,
+) -> DFResult<Statistics> {
     let mut nbytes: usize = 0;
     let column_statistics = fields
         .map(|f| {
             match f {
                 Field::Name(name) => array.field_by_name(name.as_str()),
                 Field::Index(idx) => array.field(*idx),
-            }.ok_or_else(|| vortex_err!("Projection references unknown field {f}"))
+            }
+            .ok_or_else(|| vortex_err!("Projection references unknown field {f}"))
         })
         .map_ok(|arr| {
             nbytes += arr.nbytes();

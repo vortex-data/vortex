@@ -1,9 +1,9 @@
 mod exec;
+mod optimizer;
 mod plans;
 mod provider;
 mod statistics;
 mod stream;
-mod optimizer;
 
-pub use provider::*;
 pub use optimizer::*;
+pub use provider::*;

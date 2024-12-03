@@ -4959,35 +4959,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "vortex-genetics"
-version = "0.21.0"
-dependencies = [
- "arrow-array",
- "arrow-schema",
- "async-trait",
- "chrono",
- "datafusion",
- "datafusion-common",
- "datafusion-execution",
- "datafusion-expr",
- "datafusion-physical-expr",
- "datafusion-physical-plan",
- "futures",
- "itertools 0.13.0",
- "object_store",
- "pin-project",
- "tokio",
- "vortex-array",
- "vortex-datafusion",
- "vortex-datetime-dtype",
- "vortex-dtype",
- "vortex-error",
- "vortex-expr",
- "vortex-file",
- "vortex-io",
-]
-
-[[package]]
 name = "vortex-io"
 version = "0.21.0"
 dependencies = [

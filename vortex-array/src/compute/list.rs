@@ -80,6 +80,9 @@ mod tests {
             ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
 
         let mean = list_mean(&list).unwrap();
-        assert_eq!(mean.into_primitive().unwrap().maybe_null_slice::<f64>(), &[1.5, 3.5, 5.0]);
+        assert_eq!(
+            mean.into_primitive().unwrap().maybe_null_slice::<f64>(),
+            &[1.5, 3.5, 5.0]
+        );
     }
 }
