@@ -44,9 +44,9 @@ where
 pub fn sum(array: impl AsRef<ArrayData>) -> VortexResult<Scalar> {
     let array = array.as_ref();
 
-    // if let Some(f) = array.encoding().sum_fn() {
-    //     return f.sum(array);
-    // }
+    if let Some(f) = array.encoding().sum_fn() {
+        return f.sum(array);
+    }
 
     // if subtraction is not implemented for the given array type, but the array has a numeric
     // DType, we can flatten the array and apply subtraction to the flattened primitive array
