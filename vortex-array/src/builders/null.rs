@@ -20,10 +20,6 @@ impl NullBuilder {
     pub fn new() -> Self {
         Self { length: 0 }
     }
-
-    pub fn append_null(&mut self) {
-        self.length += 1;
-    }
 }
 
 impl ArrayBuilder for NullBuilder {

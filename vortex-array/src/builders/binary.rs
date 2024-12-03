@@ -22,10 +22,6 @@ impl BinaryBuilder {
         }
     }
 
-    pub fn append_null(&mut self) {
-        self.inner.append_null()
-    }
-
     pub fn append_value<S: AsRef<[u8]>>(&mut self, value: S) {
         self.inner.append_value(value.as_ref())
     }

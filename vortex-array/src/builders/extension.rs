@@ -26,11 +26,6 @@ impl ExtensionBuilder {
         }
     }
 
-    pub fn append_null(&mut self) -> VortexResult<()> {
-        self.storage
-            .append_scalar(&Scalar::null(self.dtype.clone()))
-    }
-
     pub fn append_value(&mut self, value: ExtScalar) -> VortexResult<()> {
         self.storage
             .append_scalar(&Scalar::extension(self.ext_dtype(), value.storage()))
@@ -39,7 +34,10 @@ impl ExtensionBuilder {
     pub fn append_option(&mut self, value: Option<ExtScalar>) -> VortexResult<()> {
         match value {
             Some(value) => self.append_value(value),
-            None => self.append_null(),
+            None => {
+                self.append_nulls(1);
+                Ok(())
+            }
         }
     }
 

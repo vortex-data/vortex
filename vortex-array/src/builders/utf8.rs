@@ -22,10 +22,6 @@ impl Utf8Builder {
         }
     }
 
-    pub fn append_null(&mut self) {
-        self.inner.append_null()
-    }
-
     pub fn append_value<S: AsRef<str>>(&mut self, value: S) {
         self.inner.append_value(value.as_ref())
     }
