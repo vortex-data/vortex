@@ -1,6 +1,10 @@
 use arrow_array::cast::AsArray;
-use arrow_array::types::Int32Type;
+use arrow_array::types::{
+    Float16Type, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type, UInt16Type,
+    UInt32Type, UInt64Type, UInt8Type,
+};
 use arrow_array::{downcast_primitive, ArrayRef};
+use arrow_schema::DataType;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 use vortex_scalar::Scalar;
@@ -44,9 +48,9 @@ where
 pub fn sum(array: impl AsRef<ArrayData>) -> VortexResult<Scalar> {
     let array = array.as_ref();
 
-    // if let Some(f) = array.encoding().sum_fn() {
-    //     return f.sum(array);
-    // }
+    if let Some(f) = array.encoding().sum_fn() {
+        return f.sum(array);
+    }
 
     // if subtraction is not implemented for the given array type, but the array has a numeric
     // DType, we can flatten the array and apply subtraction to the flattened primitive array
@@ -56,18 +60,74 @@ pub fn sum(array: impl AsRef<ArrayData>) -> VortexResult<Scalar> {
 
             let dt = arr.data_type();
 
-            macro_rules! primitive_helper {
-                ($T:ty) => {
-                    Scalar::from(arrow_arith::aggregate::sum_array::<Int32Type, _>(
-                        arr.as_primitive::<Int32Type>(),
-                    ))
-                };
+            match dt {
+                DataType::Int8 => Ok(Scalar::from(
+                    arrow_arith::aggregate::sum_array::<Int8Type, _>(
+                        arr.as_primitive::<Int8Type>(),
+                    ),
+                )),
+                DataType::Int16 => Ok(Scalar::from(arrow_arith::aggregate::sum_array::<
+                    Int16Type,
+                    _,
+                >(
+                    arr.as_primitive::<Int16Type>()
+                ))),
+                DataType::Int32 => Ok(Scalar::from(arrow_arith::aggregate::sum_array::<
+                    Int32Type,
+                    _,
+                >(
+                    arr.as_primitive::<Int32Type>()
+                ))),
+                DataType::Int64 => Ok(Scalar::from(arrow_arith::aggregate::sum_array::<
+                    Int64Type,
+                    _,
+                >(
+                    arr.as_primitive::<Int64Type>()
+                ))),
+                DataType::UInt8 => Ok(Scalar::from(arrow_arith::aggregate::sum_array::<
+                    UInt8Type,
+                    _,
+                >(
+                    arr.as_primitive::<UInt8Type>()
+                ))),
+                DataType::UInt16 => Ok(Scalar::from(arrow_arith::aggregate::sum_array::<
+                    UInt16Type,
+                    _,
+                >(
+                    arr.as_primitive::<UInt16Type>()
+                ))),
+                DataType::UInt32 => Ok(Scalar::from(arrow_arith::aggregate::sum_array::<
+                    UInt32Type,
+                    _,
+                >(
+                    arr.as_primitive::<UInt32Type>()
+                ))),
+                DataType::UInt64 => Ok(Scalar::from(arrow_arith::aggregate::sum_array::<
+                    UInt64Type,
+                    _,
+                >(
+                    arr.as_primitive::<UInt64Type>()
+                ))),
+                DataType::Float16 => Ok(Scalar::from(arrow_arith::aggregate::sum_array::<
+                    Float16Type,
+                    _,
+                >(
+                    arr.as_primitive::<Float16Type>()
+                ))),
+                DataType::Float32 => Ok(Scalar::from(arrow_arith::aggregate::sum_array::<
+                    Float32Type,
+                    _,
+                >(
+                    arr.as_primitive::<Float32Type>()
+                ))),
+                DataType::Float64 => Ok(Scalar::from(arrow_arith::aggregate::sum_array::<
+                    Float64Type,
+                    _,
+                >(
+                    arr.as_primitive::<Float64Type>()
+                ))),
+                _ => todo!(),
             }
-
-            Ok(downcast_primitive!(
-                dt => (primitive_helper),
-                _ => vortex_bail!("Expected numeric array")
-            ))
         }
         _ => Err(vortex_err!(
             NotImplemented: "sum",

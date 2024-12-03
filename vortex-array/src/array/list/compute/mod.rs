@@ -1,12 +1,18 @@
 use std::sync::Arc;
 
+use arrow_array::types::Int32Type;
+use arrow_array::PrimitiveArray;
 use itertools::Itertools;
-use vortex_error::VortexResult;
+use vortex_dtype::{DType, PType};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::array::{ListArray, ListEncoding};
-use crate::compute::{scalar_at, slice, ComputeVTable, ListMeanFn, ScalarAtFn, SliceFn};
-use crate::{ArrayDType, ArrayData, IntoArrayData};
+use crate::arrow::FromArrowArray;
+use crate::compute::{
+    div, list_sum, scalar_at, slice, sub, sum, try_cast, ComputeVTable, ListFn, ScalarAtFn, SliceFn,
+};
+use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
 
 impl ComputeVTable for ListEncoding {
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
@@ -17,7 +23,7 @@ impl ComputeVTable for ListEncoding {
         Some(self)
     }
 
-    fn list_mean_fn(&self) -> Option<&dyn ListMeanFn<ArrayData>> {
+    fn list_fn(&self) -> Option<&dyn ListFn<ArrayData>> {
         Some(self)
     }
 }
@@ -42,37 +48,63 @@ impl SliceFn<ListArray> for ListEncoding {
     }
 }
 
-impl ListMeanFn<ListArray> for ListEncoding {
-    fn list_mean(&self, _array: &ListArray) -> VortexResult<ArrayData> {
-        todo!()
-        // let offsets = array.offsets();
-        // let ends = slice(&offsets, 1, 0)?;
-        // let begins = slice(&offsets, 0, ends.len())?;
-        // let _lengths = sub(&ends, &begins)?;
-        //
-        // let sum_array: ArrayData = todo!();
-        //
-        // let (float_ptype, nullability) = match sum_array.dtype() {
-        //     DType::Primitive(ptype, nullability) => match ptype {
-        //         PType::U8 => (PType::F16, nullability.clone()),
-        //         PType::U16 => (PType::F32, nullability.clone()),
-        //         PType::U32 => (PType::F64, nullability.clone()),
-        //         PType::U64 => (PType::F64, nullability.clone()),
-        //         PType::I8 => (PType::F16, nullability.clone()),
-        //         PType::I16 => (PType::F32, nullability.clone()),
-        //         PType::I32 => (PType::F64, nullability.clone()),
-        //         PType::I64 => (PType::F64, nullability.clone()),
-        //         PType::F16 => (PType::F16, nullability.clone()),
-        //         PType::F32 => (PType::F32, nullability.clone()),
-        //         PType::F64 => (PType::F64, nullability.clone()),
-        //     },
-        //     _ => {
-        //         vortex_bail!("Expected a primitive dtype, found {:?}", sum_array.dtype());
-        //     }
-        // };
-        // let sum_float_array = try_cast(&sum_array, &DType::Primitive(float_ptype, nullability))?;
-        //
-        // let mean_array = div(&sum_float_array, &lengths)?;
-        // Ok(mean_array)
+impl ListFn<ListArray> for ListEncoding {
+    fn sum(&self, array: &ListArray) -> VortexResult<ArrayData> {
+        let offsets = array.offsets().into_primitive()?;
+        let elements = array.elements();
+
+        let mut begin = 0;
+        let ends = offsets.maybe_null_slice::<i32>();
+        let mut sums = PrimitiveArray::<Int32Type>::builder(array.len() - 1);
+
+        // TODO(marko): This is going to be slow...
+        for end in ends.iter().skip(1) {
+            let sum = sum(slice(&elements, begin as usize, *end as usize)?)?;
+            match sum.as_primitive().as_::<i32>()? {
+                Some(sum) => sums.append_value(sum),
+                None => {
+                    vortex_bail!("Expected an i64 sum, found {:?}", sum.dtype());
+                }
+            }
+            begin = *end;
+        }
+
+        let sums_array = sums.finish();
+        Ok(ArrayData::from_arrow(&sums_array, false))
+    }
+
+    fn mean(&self, array: &ListArray) -> VortexResult<ArrayData> {
+        let offsets = array.offsets();
+        let ends = slice(&offsets, 1, offsets.len())?;
+        let begins = slice(&offsets, 0, offsets.len() - 1)?;
+        let lengths = sub(&ends, &begins)?;
+
+        let sum_array: ArrayData = list_sum(array)?;
+
+        // Cast the sum array to a float type - the mean is always a float.
+        let (float_ptype, nullability) = match sum_array.dtype() {
+            DType::Primitive(ptype, nullability) => match ptype {
+                PType::U8 => (PType::F16, *nullability),
+                PType::U16 => (PType::F32, *nullability),
+                PType::U32 => (PType::F64, *nullability),
+                PType::U64 => (PType::F64, *nullability),
+                PType::I8 => (PType::F16, *nullability),
+                PType::I16 => (PType::F32, *nullability),
+                PType::I32 => (PType::F64, *nullability),
+                PType::I64 => (PType::F64, *nullability),
+                PType::F16 => (PType::F16, *nullability),
+                PType::F32 => (PType::F32, *nullability),
+                PType::F64 => (PType::F64, *nullability),
+            },
+            _ => {
+                vortex_bail!("Expected a primitive dtype, found {:?}", sum_array.dtype());
+            }
+        };
+
+        let sum_float_array = try_cast(&sum_array, &DType::Primitive(float_ptype, nullability))?;
+        let lengths_float_array = try_cast(&lengths, &DType::Primitive(float_ptype, nullability))?;
+        let mean_array = div(&sum_float_array, &lengths_float_array)?;
+
+        Ok(mean_array)
     }
 }

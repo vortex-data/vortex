@@ -1,4 +1,4 @@
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::array::{ChunkedArray, ChunkedEncoding};
@@ -10,17 +10,29 @@ impl SumFn<ChunkedArray> for ChunkedEncoding {
         if !(array.dtype().is_float() || array.dtype().is_int()) {
             vortex_bail!("cannot sum non-numeric array")
         }
-        assert_eq!(array.len(), 1);
+        if array.len() != 1 {
+            vortex_bail!("length must be one");
+        }
         let inner = array.chunk(0)?;
-        inner.encoding().sum_fn().expect("sum_fn").sum(&inner)
+        inner
+            .encoding()
+            .sum_fn()
+            .ok_or_else(|| vortex_err!("chunked children must have sum"))?
+            .sum(&inner)
     }
 
     fn sum_sq(&self, array: &ChunkedArray) -> VortexResult<Scalar> {
         if !(array.dtype().is_float() || array.dtype().is_int()) {
             vortex_bail!("cannot sum non-numeric array")
         }
-        assert_eq!(array.len(), 1);
+        if array.len() != 1 {
+            vortex_bail!("length must be one");
+        }
         let inner = array.chunk(0)?;
-        inner.encoding().sum_fn().expect("sum_fn").sum_sq(&inner)
+        inner
+            .encoding()
+            .sum_fn()
+            .ok_or_else(|| vortex_err!("chunked children must have sum"))?
+            .sum_sq(&inner)
     }
 }

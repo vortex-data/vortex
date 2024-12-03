@@ -38,17 +38,17 @@ impl Stream for VortexRecordBatchStream {
             .into_struct()
             .map_err(|vortex_error| DataFusionError::Execution(format!("{}", vortex_error)))?;
 
-        let mut projection_arrays: Vec<(&str, ArrayRef)> = Vec::with_capacity(self.projection.len());
+        let mut projection_arrays: Vec<(&str, ArrayRef)> =
+            Vec::with_capacity(self.projection.len());
         for (expr, name) in &self.projection {
-            let projected_array = expr.evaluate(struct_array.as_ref())
-                .map_err(|vortex_err| {
-                    exec_datafusion_err!("projection pushdown to Vortex failed: {vortex_err}")
-                })?;
-            let projected_array_ref = projected_array.into_canonical().map_err(|e| {
-                exec_datafusion_err!("projection array into canonical failed: {e}")
-            })?.into_arrow().map_err(|e| {
-                exec_datafusion_err!("projection array into arrow failed: {e}")
+            let projected_array = expr.evaluate(struct_array.as_ref()).map_err(|vortex_err| {
+                exec_datafusion_err!("projection pushdown to Vortex failed: {vortex_err}")
             })?;
+            let projected_array_ref = projected_array
+                .into_canonical()
+                .map_err(|e| exec_datafusion_err!("projection array into canonical failed: {e}"))?
+                .into_arrow()
+                .map_err(|e| exec_datafusion_err!("projection array into arrow failed: {e}"))?;
             projection_arrays.push((name.as_str(), projected_array_ref));
         }
         let projected_struct = StructArray::try_from(projection_arrays)?;
