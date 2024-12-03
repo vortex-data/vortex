@@ -16,8 +16,8 @@ use vortex_ipc::messages::writer::MessageWriter;
 use vortex_ipc::messages::IPCSchema;
 use vortex_ipc::stream_writer::ByteRange;
 
-use crate::write::stats_accumulator::StatsAccumulator;
 use crate::write::postscript::Postscript;
+use crate::write::stats_accumulator::StatsAccumulator;
 use crate::{LayoutSpec, EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
 
 const STATS_TO_WRITE: &[Stat] = &[
