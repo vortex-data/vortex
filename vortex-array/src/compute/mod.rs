@@ -20,6 +20,8 @@ pub use search_sorted::*;
 pub use slice::{slice, SliceFn};
 pub use sum::*;
 pub use take::*;
+pub use list_mean::ListMeanFn;
+pub use numeric::*;
 
 use crate::compute::sum::SumFn;
 use crate::ArrayData;
@@ -37,6 +39,8 @@ mod search_sorted;
 mod slice;
 mod sum;
 mod take;
+mod list_mean;
+mod numeric;
 
 /// VTable for dispatching compute functions to Vortex encodings.
 pub trait ComputeVTable {
@@ -44,6 +48,13 @@ pub trait ComputeVTable {
     ///
     /// See: [BinaryBooleanFn].
     fn binary_boolean_fn(&self) -> Option<&dyn BinaryBooleanFn<ArrayData>> {
+        None
+    }
+
+    /// Implementation of binary numeric operations.
+    ///
+    /// See: [BinaryNumericFn].
+    fn binary_numeric_fn(&self) -> Option<&dyn BinaryNumericFn<ArrayData>> {
         None
     }
 
@@ -126,6 +137,13 @@ pub trait ComputeVTable {
     }
 
     fn sum_fn(&self) -> Option<&dyn SumFn<ArrayData>> {
+        None
+    }
+
+    /// Compute the mean of each element of a list array.
+    ///
+    /// See: [ListMeanFn].
+    fn list_mean_fn(&self) -> Option<&dyn ListMeanFn<ArrayData>> {
         None
     }
 }
