@@ -49,7 +49,7 @@ impl EncodingCompressor for RunEndBoolCompressor {
             RunEndBoolArray::try_new(
                 compressed_ends.array,
                 start,
-                ctx.compress_validity(bool_array.validity()),
+                ctx.compress_validity(bool_array.validity())?,
             )?
             .into_array(),
             Some(CompressionTree::new(self, vec![compressed_ends.path])),
