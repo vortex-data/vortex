@@ -34,11 +34,11 @@ impl<R: VortexReadAt> VortexReadRanges<R> {
     pub fn read_byte_ranges(
         &self,
         ranges: Vec<Range<usize>>,
-    ) -> impl Future<Output = io::Result<Vec<Bytes>>> + 'static {
+    ) -> impl Future<Output = io::Result<Vec<Bytes>>> + Send + 'static {
         let dispatcher = self.dispatcher.clone();
         let reader = self.read.clone();
         let max_gap = self.max_gap;
-        Box::pin(async move {
+        async move {
             let merged_ranges = merge_ranges(ranges.clone(), max_gap);
             let read_ranges = stream::iter(merged_ranges.iter().cloned())
                 .map(|r| {
@@ -74,7 +74,7 @@ impl<R: VortexReadAt> VortexReadRanges<R> {
             }
 
             Ok(result_bytes)
-        })
+        }
     }
 }
 
