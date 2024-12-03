@@ -11,10 +11,10 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_panic, VortexResult, VortexUnwrap};
 use vortex_io::{IoDispatcher, VortexReadAt};
 
-use crate::read::buffered::{BufferedLayoutReader, MaskLayoutReader};
+use crate::read::buffered::{BufferedLayoutReader, ReadArray};
 use crate::read::cache::LayoutMessageCache;
 use crate::read::mask::RowMask;
-use crate::read::splits::{FixedSplitIterator, RowMaskLayoutReader};
+use crate::read::splits::{FixedSplitIterator, ReadRowMask};
 use crate::read::LayoutReader;
 use crate::LazyDType;
 
@@ -32,7 +32,7 @@ pub struct VortexFileArrayStream<R> {
         R,
         Box<dyn Stream<Item = VortexResult<RowMask>> + Send + Unpin>,
         ArrayData,
-        MaskLayoutReader,
+        ReadArray,
     >,
 }
 
@@ -61,7 +61,7 @@ impl<R: VortexReadAt + Unpin> VortexFileArrayStream<R> {
                 input.clone(),
                 dispatcher.clone(),
                 split_iterator,
-                RowMaskLayoutReader::new(fr),
+                ReadRowMask::new(fr),
                 messages_cache.clone(),
             )) as _
         } else {
@@ -72,7 +72,7 @@ impl<R: VortexReadAt + Unpin> VortexFileArrayStream<R> {
             input,
             dispatcher,
             mask_iterator,
-            MaskLayoutReader::new(layout_reader),
+            ReadArray::new(layout_reader),
             messages_cache,
         );
 

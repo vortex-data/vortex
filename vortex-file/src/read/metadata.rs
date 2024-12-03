@@ -11,7 +11,7 @@ use vortex_error::VortexResult;
 use vortex_io::{IoDispatcher, VortexReadAt};
 
 use super::{LayoutMessageCache, LayoutReader};
-use crate::read::buffered::{BufferedLayoutReader, RowMaskReader};
+use crate::read::buffered::{BufferedLayoutReader, ReadMasked};
 use crate::{MessageRead, RowMask};
 
 type MetadataBufferedReader<R> = BufferedLayoutReader<
@@ -35,8 +35,10 @@ impl MetadataMaskReader {
     }
 }
 
-impl RowMaskReader<Vec<Option<ArrayData>>> for MetadataMaskReader {
-    fn read_mask(
+impl ReadMasked for MetadataMaskReader {
+    type Value = Vec<Option<ArrayData>>;
+
+    fn read_masked(
         &self,
         _mask: &RowMask,
     ) -> VortexResult<Option<MessageRead<Vec<Option<ArrayData>>>>> {
