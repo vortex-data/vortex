@@ -260,7 +260,7 @@ impl LayoutReader for ColumnarLayoutReader {
                     BatchRead::ReadMore(message) => {
                         messages.extend(message);
                     }
-                    BatchRead::Batch(arr) => {
+                    BatchRead::Value(arr) => {
                         if self.shortcircuit_siblings
                             && arr.statistics().compute_true_count().vortex_expect(
                                 "must be a bool array if shortcircuit_siblings is set to true",
@@ -302,14 +302,14 @@ impl LayoutReader for ColumnarLayoutReader {
                 .as_ref()
                 .map(|e| e.evaluate(&array))
                 .unwrap_or_else(|| Ok(array))
-                .map(BatchRead::Batch)
+                .map(BatchRead::Value)
                 .map(Some)
         } else {
             Ok(Some(BatchRead::ReadMore(messages)))
         }
     }
 
-    fn read_metadata(&self) -> VortexResult<MetadataRead> {
+    fn read_metadata(&self) -> VortexResult<Option<MetadataRead>> {
         let mut in_progress_metadata = self
             .in_progress_metadata
             .write()
@@ -317,19 +317,20 @@ impl LayoutReader for ColumnarLayoutReader {
         let mut messages = Vec::default();
 
         for (name, child_reader) in self.names.iter().zip(self.children.iter()) {
-            match child_reader.read_metadata()? {
-                MetadataRead::Batches(data) => {
-                    if data.len() != 1 {
-                        vortex_bail!("expected exactly one metadata array per-child");
+            if let Some(child_metadata) = child_reader.read_metadata()? {
+                match child_metadata {
+                    MetadataRead::Value(data) => {
+                        if data.len() != 1 {
+                            vortex_bail!("expected exactly one metadata array per-child");
+                        }
+                        in_progress_metadata.insert(name.clone(), data[0].clone());
                     }
-                    in_progress_metadata.insert(name.clone(), data[0].clone());
+                    MetadataRead::ReadMore(rm) => {
+                        messages.extend(rm);
+                    }
                 }
-                MetadataRead::ReadMore(rm) => {
-                    messages.extend(rm);
-                }
-                MetadataRead::None => {
-                    in_progress_metadata.insert(name.clone(), None);
-                }
+            } else {
+                in_progress_metadata.insert(name.clone(), None);
             }
         }
 
@@ -341,9 +342,9 @@ impl LayoutReader for ColumnarLayoutReader {
                 .map(|name| in_progress_metadata[name].clone()) // TODO(Adam): Some columns might not have statistics
                 .collect::<Vec<_>>();
 
-            Ok(MetadataRead::Batches(child_arrays))
+            Ok(Some(MetadataRead::Value(child_arrays)))
         } else {
-            Ok(MetadataRead::ReadMore(messages))
+            Ok(Some(MetadataRead::ReadMore(messages)))
         }
     }
 
@@ -364,7 +365,7 @@ impl LayoutReader for ColumnarLayoutReader {
         {
             match self.children[i].can_prune(begin, end)? {
                 PruningRead::ReadMore(message) => messages.extend(message),
-                PruningRead::CanPrune(is_pruned) => *can_prune_child = Some(is_pruned),
+                PruningRead::Value(is_pruned) => *can_prune_child = Some(is_pruned),
             }
         }
 
@@ -381,7 +382,7 @@ impl LayoutReader for ColumnarLayoutReader {
                 .ok_or_else(|| vortex_err!("There were no can_prune results and no messages"))?
                 .into_iter()
                 .any(|x| x.vortex_expect("all pruned-ness should be available"));
-            Ok(PruningRead::CanPrune(any_child_is_pruned))
+            Ok(PruningRead::Value(any_child_is_pruned))
         } else {
             Ok(PruningRead::ReadMore(messages))
         }

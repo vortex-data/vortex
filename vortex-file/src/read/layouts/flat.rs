@@ -102,7 +102,7 @@ impl LayoutReader for FlatLayoutReader {
             selection
                 .filter_array(array)?
                 .map(|s| {
-                    Ok(BatchRead::Batch(
+                    Ok(BatchRead::Value(
                         self.scan
                             .expr
                             .as_ref()
@@ -117,12 +117,12 @@ impl LayoutReader for FlatLayoutReader {
         }
     }
 
-    fn read_metadata(&self) -> VortexResult<MetadataRead> {
-        Ok(MetadataRead::None)
+    fn read_metadata(&self) -> VortexResult<Option<MetadataRead>> {
+        Ok(None)
     }
 
     fn can_prune(&self, _begin: usize, _end: usize) -> VortexResult<PruningRead> {
-        Ok(PruningRead::CanPrune(false))
+        Ok(PruningRead::Value(false))
     }
 }
 
