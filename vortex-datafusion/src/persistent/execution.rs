@@ -1,7 +1,8 @@
 use std::fmt;
 use std::sync::Arc;
 
-use datafusion::datasource::physical_plan::{FileScanConfig, FileStream};
+use datafusion::config::ConfigOptions;
+use datafusion::datasource::physical_plan::{FileGroupPartitioner, FileScanConfig, FileStream};
 use datafusion_common::{project_schema, Result as DFResult, Statistics};
 use datafusion_execution::{SendableRecordBatchStream, TaskContext};
 use datafusion_physical_expr::{EquivalenceProperties, Partitioning, PhysicalExpr};
@@ -13,7 +14,7 @@ use vortex_array::Context;
 
 use crate::persistent::opener::VortexFileOpener;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct VortexExec {
     file_scan_config: FileScanConfig,
     metrics: ExecutionPlanMetricsSet,
@@ -34,22 +35,21 @@ impl VortexExec {
             &file_scan_config.file_schema,
             file_scan_config.projection.as_ref(),
         )?;
-        let plan_properties = PlanProperties::new(
-            EquivalenceProperties::new(projected_schema),
-            Partitioning::UnknownPartitioning(1),
-            ExecutionMode::Bounded,
-        );
+
+        let (_schema, mut projected_statistics, orderings) = file_scan_config.project();
 
         // We project our statistics to only the selected columns
         // We must also take care to report in-exact statistics if we have any form of filter
         // push-down.
-        let mut projected_statistics = file_scan_config
-            .statistics
-            .clone()
-            .project(file_scan_config.projection.as_ref());
         if predicate.is_some() {
             projected_statistics = projected_statistics.to_inexact();
         }
+
+        let plan_properties = PlanProperties::new(
+            EquivalenceProperties::new_with_orderings(projected_schema, &orderings),
+            Partitioning::UnknownPartitioning(1),
+            ExecutionMode::Bounded,
+        );
 
         Ok(Self {
             file_scan_config,
@@ -123,5 +123,26 @@ impl ExecutionPlan for VortexExec {
 
     fn statistics(&self) -> DFResult<Statistics> {
         Ok(self.projected_statistics.clone())
+    }
+
+    fn repartitioned(
+        &self,
+        target_partitions: usize,
+        config: &ConfigOptions,
+    ) -> DFResult<Option<Arc<dyn ExecutionPlan>>> {
+        let repartition_file_min_size = config.optimizer.repartition_file_min_size;
+        let repartitioned_file_groups_option = FileGroupPartitioner::new()
+            .with_target_partitions(target_partitions)
+            .with_repartition_file_min_size(repartition_file_min_size)
+            .with_preserve_order_within_groups(self.properties().output_ordering().is_some())
+            .repartition_file_groups(&self.file_scan_config.file_groups);
+
+        let mut new_plan = self.clone();
+        if let Some(repartitioned_file_groups) = repartitioned_file_groups_option {
+            let mut config = new_plan.file_scan_config;
+            config = config.with_file_groups(repartitioned_file_groups);
+            new_plan.file_scan_config = config;
+        }
+        Ok(Some(Arc::new(new_plan)))
     }
 }
