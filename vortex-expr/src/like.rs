@@ -14,11 +14,23 @@ use crate::{unbox_any, ExprRef, VortexExpr};
 pub struct Like {
     child: ExprRef,
     pattern: ExprRef,
+    negated: bool,
+    case_sensitive: bool,
 }
 
 impl Like {
-    pub fn new_expr(child: ExprRef, pattern: ExprRef) -> ExprRef {
-        Arc::new(Self { child, pattern })
+    pub fn new_expr(
+        child: ExprRef,
+        pattern: ExprRef,
+        negated: bool,
+        case_sensitive: bool,
+    ) -> ExprRef {
+        Arc::new(Self {
+            child,
+            pattern,
+            negated,
+            case_sensitive,
+        })
     }
 
     pub fn child(&self) -> &ExprRef {
@@ -27,6 +39,14 @@ impl Like {
 
     pub fn pattern(&self) -> &ExprRef {
         &self.pattern
+    }
+
+    pub fn negated(&self) -> bool {
+        self.negated
+    }
+
+    pub fn case_sensitive(&self) -> bool {
+        self.case_sensitive
     }
 }
 
@@ -44,7 +64,7 @@ impl VortexExpr for Like {
     fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
         let child = self.child().evaluate(batch)?;
         let pattern = self.pattern().evaluate(batch)?;
-        like(&child, &pattern)
+        like(&child, &pattern, self.negated, self.case_sensitive)
     }
 
     fn collect_references<'a>(&'a self, references: &mut HashSet<&'a Field>) {
