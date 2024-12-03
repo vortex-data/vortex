@@ -208,7 +208,7 @@ lto = "thin"      # attempts to perform optimizations across all crates within t
 [profile.quick-release]
 inherits = "release"
 codegen-units = 16
-lto = false     # attempts to perform optimizations across all crates within the dependency graph
+lto = false
 
 [profile.bench]
 codegen-units = 16 # default for "release", which "bench" inherits
