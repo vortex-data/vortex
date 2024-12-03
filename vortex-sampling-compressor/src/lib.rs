@@ -44,7 +44,9 @@ mod sampling_compressor;
 
 pub use sampling_compressor::*;
 
-pub const DEFAULT_COMPRESSORS: [CompressorRef; 14] = [
+use crate::compressors::list::ListCompressor;
+
+pub const DEFAULT_COMPRESSORS: [CompressorRef; 15] = [
     &ALPCompressor as CompressorRef,
     &BITPACK_WITH_PATCHES,
     &DEFAULT_CHUNKED_COMPRESSOR,
@@ -60,6 +62,7 @@ pub const DEFAULT_COMPRESSORS: [CompressorRef; 14] = [
     &DEFAULT_RUN_END_COMPRESSOR,
     &SparseCompressor,
     &StructCompressor,
+    &ListCompressor,
     &VarBinCompressor,
     &ZigZagCompressor,
 ];
