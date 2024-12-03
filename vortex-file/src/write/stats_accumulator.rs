@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use itertools::Itertools;
 use vortex_array::array::StructArray;
 use vortex_array::builders::{builder_with_capacity, ArrayBuilder, ArrayBuilderExt};
 use vortex_array::stats::{ArrayStatistics as _, Stat};
@@ -52,7 +53,7 @@ impl StatsAccumulator {
     }
 
     pub fn push_chunk(&mut self, array: &ArrayData) -> VortexResult<()> {
-        for (s, builder) in self.stats.iter().zip(self.builders.iter_mut()) {
+        for (s, builder) in self.stats.iter().zip_eq(self.builders.iter_mut()) {
             if let Some(v) = array.statistics().get(*s) {
                 builder.append_scalar(&v.cast(builder.dtype())?)?;
             } else {
