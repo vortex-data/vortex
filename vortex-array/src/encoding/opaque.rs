@@ -6,7 +6,7 @@ use vortex_error::{vortex_bail, vortex_panic, VortexResult};
 
 use crate::compute::ComputeVTable;
 use crate::encoding::{EncodingId, EncodingVTable};
-use crate::stats::StatisticsVTable;
+use crate::stats::{Stat, StatisticsVTable, StatsSet};
 use crate::validity::{LogicalValidity, ValidityVTable};
 use crate::variants::VariantsVTable;
 use crate::visitor::{ArrayVisitor, VisitorVTable};
@@ -57,7 +57,12 @@ impl MetadataVTable for OpaqueEncoding {
     }
 }
 
-impl StatisticsVTable<ArrayData> for OpaqueEncoding {}
+impl StatisticsVTable<ArrayData> for OpaqueEncoding {
+    fn compute_statistics(&self, _array: &ArrayData, stat: Stat) -> VortexResult<StatsSet> {
+        println!("OPAUQE STATS CALLED {}", stat);
+        Ok(StatsSet::default())
+    }
+}
 
 impl ValidityVTable<ArrayData> for OpaqueEncoding {
     fn is_valid(&self, _array: &ArrayData, _index: usize) -> bool {

@@ -17,6 +17,7 @@ use datafusion_physical_expr::{LexRequirement, PhysicalExpr};
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use datafusion_physical_plan::ExecutionPlan;
 use object_store::{ObjectMeta, ObjectStore};
+use vortex_array::array::StructArray;
 use vortex_array::arrow::infer_schema;
 use vortex_array::Context;
 use vortex_file::metadata::MetadataFetcher;
@@ -103,7 +104,7 @@ impl FileFormat for VortexFormat {
         let row_count = layout.row_count();
 
         let layout_deserializer =
-            LayoutDeserializer::new(Context::default().into(), LayoutContext::default().into());
+            LayoutDeserializer::new(self.context.clone(), LayoutContext::default().into());
         let layout_message_cache = Arc::new(RwLock::new(LayoutMessageCache::new()));
         let relative_message_cache =
             RelativeLayoutCache::new(layout_message_cache.clone(), dtype.into());
@@ -125,15 +126,27 @@ impl FileFormat for VortexFormat {
 
         if let Some(metadata) = metadata_table {
             let mut column_statistics = Vec::with_capacity(table_schema.fields().len());
-
-            for col_stats in metadata.into_iter() {
+            for (field, col_stats) in table_schema.fields.iter().zip(metadata.into_iter()) {
                 let col_stats = match col_stats {
-                    Some(array) => array_to_col_statistics(array.try_into()?)?,
+                    Some(array) => {
+                        let array = StructArray::try_from(array)?;
+                        let stats = array_to_col_statistics(array.clone())?;
+                        println!("Stats: {} {:#?}", field.name(), &array);
+                        stats
+                    }
                     None => ColumnStatistics::new_unknown(),
                 };
-
                 column_statistics.push(col_stats);
             }
+
+            table_schema
+                .fields
+                .iter()
+                .map(|f| f.name())
+                .zip(column_statistics.iter())
+                .for_each(|(name, stats)| {
+                    println!("Column: {}, Stats: {:#?}", name, stats);
+                });
 
             stats.column_statistics = column_statistics;
         }

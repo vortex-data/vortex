@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use arrow_array::builder::ArrayBuilder;
 use vortex_array::array::StructArray;
 use vortex_array::stats::{ArrayStatistics as _, Stat};
 use vortex_array::validity::Validity;

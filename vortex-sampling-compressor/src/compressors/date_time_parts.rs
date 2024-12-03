@@ -57,6 +57,7 @@ impl EncodingCompressor for DateTimePartsCompressor {
         let subsecond = ctx
             .named("subsecond")
             .compress(&subseconds, like.as_ref().and_then(|l| l.child(2)))?;
+
         Ok(CompressedArray::compressed(
             DateTimePartsArray::try_new(
                 array.dtype().clone(),

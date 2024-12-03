@@ -4901,6 +4901,7 @@ dependencies = [
  "arrow-buffer",
  "arrow-schema",
  "bytes",
+ "enum-iterator",
  "flatbuffers",
  "futures",
  "futures-executor",
