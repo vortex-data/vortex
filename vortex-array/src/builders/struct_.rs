@@ -1,8 +1,9 @@
 use std::any::Any;
 
 use itertools::Itertools;
-use vortex_dtype::{Nullability, StructDType};
-use vortex_error::VortexResult;
+use vortex_dtype::{DType, Nullability, StructDType};
+use vortex_error::{vortex_bail, VortexResult};
+use vortex_scalar::StructScalar;
 
 use crate::array::StructArray;
 use crate::builders::{builder_with_capacity, ArrayBuilder, BoolBuilder};
@@ -34,6 +35,26 @@ impl StructBuilder {
             struct_dtype,
             nullability,
         }
+    }
+
+    pub fn append_value(&mut self, struct_scalar: StructScalar) -> VortexResult<()> {
+        if struct_scalar.dtype() != &DType::Struct(self.struct_dtype.clone(), self.nullability) {
+            vortex_bail!(
+                "Expected struct scalar with dtype {:?}, found {:?}",
+                self.struct_dtype,
+                struct_scalar.dtype()
+            )
+        }
+
+        if let Some(fields) = struct_scalar.fields() {
+            for (builder, field) in self.builders.iter_mut().zip(fields) {
+                builder.append_scalar(&field)?;
+            }
+        } else {
+            self.append_null()
+        }
+
+        Ok(())
     }
 }
 

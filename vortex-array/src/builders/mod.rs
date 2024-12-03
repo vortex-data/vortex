@@ -16,7 +16,9 @@ pub use primitive::*;
 pub use utf8::*;
 use vortex_dtype::{match_each_native_ptype, DType};
 use vortex_error::{vortex_err, VortexResult};
-use vortex_scalar::{BoolScalar, PrimitiveScalar, Scalar};
+use vortex_scalar::{
+    BinaryScalar, BoolScalar, ExtScalar, PrimitiveScalar, Scalar, StructScalar, Utf8Scalar,
+};
 
 use crate::builders::struct_::StructBuilder;
 use crate::ArrayData;
@@ -101,11 +103,29 @@ impl dyn ArrayBuilder + '_ {
                     .append_option(PrimitiveScalar::try_from(scalar)?.typed_value::<$P>())
                 })
             }
-            DType::Utf8(_) => {}
-            DType::Binary(_) => {}
-            DType::Struct(..) => {}
+            DType::Utf8(_) => self
+                .as_any_mut()
+                .downcast_mut::<Utf8Builder>()
+                .ok_or_else(|| vortex_err!("Cannot append utf8 scalar to non-utf8 builder"))?
+                .append_option(Utf8Scalar::try_from(scalar)?.value()),
+            DType::Binary(_) => self
+                .as_any_mut()
+                .downcast_mut::<BinaryBuilder>()
+                .ok_or_else(|| vortex_err!("Cannot append binary scalar to non-binary builder"))?
+                .append_option(BinaryScalar::try_from(scalar)?.value()),
+            DType::Struct(..) => self
+                .as_any_mut()
+                .downcast_mut::<StructBuilder>()
+                .ok_or_else(|| vortex_err!("Cannot append struct scalar to non-struct builder"))?
+                .append_value(StructScalar::try_from(scalar)?)?,
             DType::List(..) => {}
-            DType::Extension(_) => {}
+            DType::Extension(..) => self
+                .as_any_mut()
+                .downcast_mut::<ExtensionBuilder>()
+                .ok_or_else(|| {
+                    vortex_err!("Cannot append extension scalar to non-extension builder")
+                })?
+                .append_value(ExtScalar::try_from(scalar)?)?,
         }
         Ok(())
     }
