@@ -138,6 +138,14 @@ impl DType {
             _ => None,
         }
     }
+
+    /// Get the inner dtype if `self` is a `ListDType`, otherwise `None`
+    pub fn as_list_element(&self) -> Option<&DType> {
+        match self {
+            List(s, _) => Some(s.as_ref()),
+            _ => None,
+        }
+    }
 }
 
 impl Display for DType {
