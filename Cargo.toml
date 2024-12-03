@@ -14,6 +14,7 @@ members = [
     "vortex-expr",
     "vortex-file",
     "vortex-flatbuffers",
+    "vortex-genetics",
     "vortex-io",
     "vortex-ipc",
     "vortex-proto",
