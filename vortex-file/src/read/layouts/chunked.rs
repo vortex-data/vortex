@@ -221,7 +221,7 @@ impl ChunkedLayoutReader {
                     BatchRead::ReadMore(m) => {
                         messages_to_fetch.extend(m);
                     }
-                    BatchRead::Batch(a) => {
+                    BatchRead::Value(a) => {
                         *array_slot = ChildRead::Finished(Some(a));
                     }
                 }
@@ -312,10 +312,10 @@ impl LayoutReader for ChunkedLayoutReader {
                 .filter_map(ChildRead::into_value)
                 .collect::<Vec<_>>();
             match child_arrays.len() {
-                0 | 1 => Ok(child_arrays.pop().map(BatchRead::Batch)),
+                0 | 1 => Ok(child_arrays.pop().map(BatchRead::Value)),
                 _ => {
                     let dtype = child_arrays[0].dtype().clone();
-                    Ok(Some(BatchRead::Batch(
+                    Ok(Some(BatchRead::Value(
                         ChunkedArray::try_new(child_arrays, dtype)?.into_array(),
                     )))
                 }
@@ -325,24 +325,26 @@ impl LayoutReader for ChunkedLayoutReader {
         }
     }
 
-    fn read_metadata(&self) -> VortexResult<MetadataRead> {
+    fn read_metadata(&self) -> VortexResult<Option<MetadataRead>> {
         match self.metadata_layout() {
-            None => Ok(MetadataRead::None),
+            None => Ok(None),
             Some(metadata_layout) => {
                 if let Some(md) = self.cached_metadata.get() {
-                    return Ok(MetadataRead::Batches(vec![Some(md.clone())]));
+                    return Ok(Some(MetadataRead::Value(vec![Some(md.clone())])));
                 }
 
                 match metadata_layout
                     .read_selection(&RowMask::new_valid_between(0, self.n_chunks()))?
                 {
-                    Some(BatchRead::Batch(array)) => {
+                    Some(BatchRead::Value(array)) => {
                         // We don't care if the write failed
                         _ = self.cached_metadata.set(array.clone());
-                        Ok(MetadataRead::Batches(vec![Some(array)]))
+                        Ok(Some(MetadataRead::Value(vec![Some(array)])))
                     }
-                    Some(BatchRead::ReadMore(messages)) => Ok(MetadataRead::ReadMore(messages)),
-                    None => Ok(MetadataRead::None),
+                    Some(BatchRead::ReadMore(messages)) => {
+                        Ok(Some(MetadataRead::ReadMore(messages)))
+                    }
+                    None => Ok(None),
                 }
             }
         }
@@ -350,7 +352,7 @@ impl LayoutReader for ChunkedLayoutReader {
 
     fn can_prune(&self, begin: usize, end: usize) -> VortexResult<PruningRead> {
         if let Some(chunk_prunability) = self.cached_prunability.get() {
-            return Ok(PruningRead::CanPrune(self.can_prune_overlapping_chunks(
+            return Ok(PruningRead::Value(self.can_prune_overlapping_chunks(
                 chunk_prunability,
                 begin,
                 end,
@@ -358,35 +360,38 @@ impl LayoutReader for ChunkedLayoutReader {
         }
 
         let Some(predicate_expression) = self.scan.expr.as_ref() else {
-            return Ok(PruningRead::CanPrune(false));
+            return Ok(PruningRead::Value(false));
         };
 
-        Ok(match self.read_metadata()? {
-            MetadataRead::None => PruningRead::CanPrune(false),
-            MetadataRead::ReadMore(messages) => PruningRead::ReadMore(messages),
-            MetadataRead::Batches(mut batches) => {
-                if batches.len() != 1 {
-                    vortex_bail!("chunked layout should have exactly one metadata array");
-                }
-                let Some(metadata) = batches.swap_remove(0) else {
-                    vortex_bail!("chunked layout should have exactly one metadata array")
-                };
-                let prunability = PruningPredicate::try_new(predicate_expression)
-                    .map(|p| p.evaluate(&metadata))
-                    .transpose()?
-                    .flatten();
-
-                match prunability {
-                    Some(chunk_prunability) => {
-                        let is_selection_pruned =
-                            self.can_prune_overlapping_chunks(&chunk_prunability, begin, end)?;
-                        let _ = self.cached_prunability.set(chunk_prunability); // Losing the race is fine
-                        PruningRead::CanPrune(is_selection_pruned)
+        if let Some(mr) = self.read_metadata()? {
+            Ok(match mr {
+                MetadataRead::ReadMore(messages) => PruningRead::ReadMore(messages),
+                MetadataRead::Value(mut batches) => {
+                    if batches.len() != 1 {
+                        vortex_bail!("chunked layout should have exactly one metadata array");
                     }
-                    None => PruningRead::CanPrune(false),
+                    let Some(metadata) = batches.swap_remove(0) else {
+                        vortex_bail!("chunked layout should have exactly one metadata array")
+                    };
+                    let prunability = PruningPredicate::try_new(predicate_expression)
+                        .map(|p| p.evaluate(&metadata))
+                        .transpose()?
+                        .flatten();
+
+                    match prunability {
+                        Some(chunk_prunability) => {
+                            let is_selection_pruned =
+                                self.can_prune_overlapping_chunks(&chunk_prunability, begin, end)?;
+                            let _ = self.cached_prunability.set(chunk_prunability); // Losing the race is fine
+                            PruningRead::Value(is_selection_pruned)
+                        }
+                        None => PruningRead::Value(false),
+                    }
                 }
-            }
-        })
+            })
+        } else {
+            Ok(PruningRead::Value(false))
+        }
     }
 }
 

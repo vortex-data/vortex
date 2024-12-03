@@ -137,11 +137,11 @@ impl LayoutReader for InlineDTypeLayoutReader {
         }
     }
 
-    fn read_metadata(&self) -> VortexResult<MetadataRead> {
-        Ok(MetadataRead::None)
+    fn read_metadata(&self) -> VortexResult<Option<MetadataRead>> {
+        Ok(None)
     }
 
     fn can_prune(&self, _begin: usize, _end: usize) -> VortexResult<PruningRead> {
-        Ok(PruningRead::CanPrune(false))
+        Ok(PruningRead::Value(false))
     }
 }

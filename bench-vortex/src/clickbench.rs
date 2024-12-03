@@ -2,6 +2,7 @@ use std::path::Path;
 use std::sync::{Arc, LazyLock};
 
 use arrow_schema::{DataType, Field, Schema, TimeUnit};
+use datafusion::datasource::file_format::parquet::ParquetFormat;
 use datafusion::datasource::listing::{
     ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
 };
@@ -22,123 +23,123 @@ use crate::{idempotent_async, CTX};
 pub static HITS_SCHEMA: LazyLock<Schema> = LazyLock::new(|| {
     use DataType::*;
     Schema::new(vec![
-        Field::new("watchid", Int64, false),
-        Field::new("javaenable", Int16, false),
-        Field::new("title", Utf8View, false),
-        Field::new("goodevent", Int16, false),
-        Field::new("eventtime", Timestamp(TimeUnit::Microsecond, None), false),
-        Field::new("eventdate", Timestamp(TimeUnit::Microsecond, None), false),
-        Field::new("counterid", Int32, false),
-        Field::new("clientip", Int32, false),
-        Field::new("regionid", Int32, false),
-        Field::new("userid", Int64, false),
-        Field::new("counterclass", Int16, false),
-        Field::new("os", Int16, false),
-        Field::new("useragent", Int16, false),
-        Field::new("url", Utf8View, false),
-        Field::new("referer", Utf8View, false),
-        Field::new("isrefresh", Int16, false),
-        Field::new("referercategoryid", Int16, false),
-        Field::new("refererregionid", Int32, false),
-        Field::new("urlcategoryid", Int16, false),
-        Field::new("urlregionid", Int32, false),
-        Field::new("resolutionwidth", Int16, false),
-        Field::new("resolutionheight", Int16, false),
-        Field::new("resolutiondepth", Int16, false),
-        Field::new("flashmajor", Int16, false),
-        Field::new("flashminor", Int16, false),
-        Field::new("flashminor2", Utf8View, false),
-        Field::new("netmajor", Int16, false),
-        Field::new("netminor", Int16, false),
-        Field::new("useragentmajor", Int16, false),
-        Field::new("useragentminor", Utf8View, false),
-        Field::new("cookieenable", Int16, false),
-        Field::new("javascriptenable", Int16, false),
-        Field::new("ismobile", Int16, false),
-        Field::new("mobilephone", Int16, false),
-        Field::new("mobilephonemodel", Utf8View, false),
-        Field::new("params", Utf8View, false),
-        Field::new("ipnetworkid", Int32, false),
-        Field::new("traficsourceid", Int16, false),
-        Field::new("searchengineid", Int16, false),
-        Field::new("searchphrase", Utf8View, false),
-        Field::new("advengineid", Int16, false),
-        Field::new("isartifical", Int16, false),
-        Field::new("windowclientwidth", Int16, false),
-        Field::new("windowclientheight", Int16, false),
-        Field::new("clienttimezone", Int16, false),
+        Field::new("WatchID", Int64, false),
+        Field::new("JavaEnable", Int16, false),
+        Field::new("Title", Utf8View, false),
+        Field::new("GoodEvent", Int16, false),
+        Field::new("EventTime", Timestamp(TimeUnit::Microsecond, None), false),
+        Field::new("EventDate", Timestamp(TimeUnit::Microsecond, None), false),
+        Field::new("CounterID", Int32, false),
+        Field::new("ClientIP", Int32, false),
+        Field::new("RegionID", Int32, false),
+        Field::new("UserID", Int64, false),
+        Field::new("CounterClass", Int16, false),
+        Field::new("OS", Int16, false),
+        Field::new("UserAgent", Int16, false),
+        Field::new("URL", Utf8View, false),
+        Field::new("Referer", Utf8View, false),
+        Field::new("IsRefresh", Int16, false),
+        Field::new("RefererCategoryID", Int16, false),
+        Field::new("RefererRegionID", Int32, false),
+        Field::new("URLCategoryID", Int16, false),
+        Field::new("URLRegionID", Int32, false),
+        Field::new("ResolutionWidth", Int16, false),
+        Field::new("ResolutionHeight", Int16, false),
+        Field::new("ResolutionDepth", Int16, false),
+        Field::new("FlashMajor", Int16, false),
+        Field::new("FlashMinor", Int16, false),
+        Field::new("FlashMinor2", Utf8View, false),
+        Field::new("NetMajor", Int16, false),
+        Field::new("NetMinor", Int16, false),
+        Field::new("UserAgentMajor", Int16, false),
+        Field::new("UserAgentMinor", Utf8View, false),
+        Field::new("CookieEnable", Int16, false),
+        Field::new("JavascriptEnable", Int16, false),
+        Field::new("IsMobile", Int16, false),
+        Field::new("MobilePhone", Int16, false),
+        Field::new("MobilePhoneModel", Utf8View, false),
+        Field::new("Params", Utf8View, false),
+        Field::new("IPNetworkID", Int32, false),
+        Field::new("TraficSourceID", Int16, false),
+        Field::new("SearchEngineID", Int16, false),
+        Field::new("SearchPhrase", Utf8View, false),
+        Field::new("AdvEngineID", Int16, false),
+        Field::new("IsArtifical", Int16, false),
+        Field::new("WindowClientWidth", Int16, false),
+        Field::new("WindowClientHeight", Int16, false),
+        Field::new("ClientTimeZone", Int16, false),
         Field::new(
-            "clienteventtime",
+            "ClientEventTime",
             Timestamp(TimeUnit::Microsecond, None),
             false,
         ),
-        Field::new("silverlightversion1", Int16, false),
-        Field::new("silverlightversion2", Int16, false),
-        Field::new("silverlightversion3", Int32, false),
-        Field::new("silverlightversion4", Int16, false),
-        Field::new("pagecharset", Utf8View, false),
-        Field::new("codeversion", Int32, false),
-        Field::new("islink", Int16, false),
-        Field::new("isdownload", Int16, false),
-        Field::new("isnotbounce", Int16, false),
-        Field::new("funiqid", Int64, false),
-        Field::new("originalurl", Utf8View, false),
-        Field::new("hid", Int32, false),
-        Field::new("isoldcounter", Int16, false),
-        Field::new("isevent", Int16, false),
-        Field::new("isparameter", Int16, false),
-        Field::new("dontcounthits", Int16, false),
-        Field::new("withhash", Int16, false),
-        Field::new("hitcolor", Utf8View, false),
+        Field::new("SilverlightVersion1", Int16, false),
+        Field::new("SilverlightVersion2", Int16, false),
+        Field::new("SilverlightVersion3", Int32, false),
+        Field::new("SilverlightVersion4", Int16, false),
+        Field::new("PageCharset", Utf8View, false),
+        Field::new("CodeVersion", Int32, false),
+        Field::new("IsLink", Int16, false),
+        Field::new("IsDownload", Int16, false),
+        Field::new("IsNotBounce", Int16, false),
+        Field::new("FUniqID", Int64, false),
+        Field::new("OriginalURL", Utf8View, false),
+        Field::new("HID", Int32, false),
+        Field::new("IsOldCounter", Int16, false),
+        Field::new("IsEvent", Int16, false),
+        Field::new("IsParameter", Int16, false),
+        Field::new("DontCountHits", Int16, false),
+        Field::new("WithHash", Int16, false),
+        Field::new("HitColor", Utf8View, false),
         Field::new(
-            "localeventtime",
+            "LocalEventTime",
             Timestamp(TimeUnit::Microsecond, None),
             false,
         ),
-        Field::new("age", Int16, false),
-        Field::new("sex", Int16, false),
-        Field::new("income", Int16, false),
-        Field::new("interests", Int16, false),
-        Field::new("robotness", Int16, false),
-        Field::new("remoteip", Int32, false),
-        Field::new("windowname", Int32, false),
-        Field::new("openername", Int32, false),
-        Field::new("historylength", Int16, false),
-        Field::new("browserlanguage", Utf8View, false),
-        Field::new("browsercountry", Utf8View, false),
-        Field::new("socialnetwork", Utf8View, false),
-        Field::new("socialaction", Utf8View, false),
-        Field::new("httperror", Int16, false),
-        Field::new("sendtiming", Int32, false),
-        Field::new("dnstiming", Int32, false),
-        Field::new("connecttiming", Int32, false),
-        Field::new("responsestarttiming", Int32, false),
-        Field::new("responseendtiming", Int32, false),
-        Field::new("fetchtiming", Int32, false),
-        Field::new("socialsourcenetworkid", Int16, false),
-        Field::new("socialsourcepage", Utf8View, false),
-        Field::new("paramprice", Int64, false),
-        Field::new("paramorderid", Utf8View, false),
-        Field::new("paramcurrency", Utf8View, false),
-        Field::new("paramcurrencyid", Int16, false),
-        Field::new("openstatservicename", Utf8View, false),
-        Field::new("openstatcampaignid", Utf8View, false),
-        Field::new("openstatadid", Utf8View, false),
-        Field::new("openstatsourceid", Utf8View, false),
-        Field::new("utmsource", Utf8View, false),
-        Field::new("utmmedium", Utf8View, false),
-        Field::new("utmcampaign", Utf8View, false),
-        Field::new("utmcontent", Utf8View, false),
-        Field::new("utmterm", Utf8View, false),
-        Field::new("fromtag", Utf8View, false),
-        Field::new("hasgclid", Int16, false),
-        Field::new("refererhash", Int64, false),
-        Field::new("urlhash", Int64, false),
-        Field::new("clid", Int32, false),
+        Field::new("Age", Int16, false),
+        Field::new("Sex", Int16, false),
+        Field::new("Income", Int16, false),
+        Field::new("Interests", Int16, false),
+        Field::new("Robotness", Int16, false),
+        Field::new("RemoteIP", Int32, false),
+        Field::new("WindowName", Int32, false),
+        Field::new("OpenerName", Int32, false),
+        Field::new("HistoryLength", Int16, false),
+        Field::new("BrowserLanguage", Utf8View, false),
+        Field::new("BrowserCountry", Utf8View, false),
+        Field::new("SocialNetwork", Utf8View, false),
+        Field::new("SocialAction", Utf8View, false),
+        Field::new("HTTPError", Int16, false),
+        Field::new("SendTiming", Int32, false),
+        Field::new("DNSTiming", Int32, false),
+        Field::new("ConnectTiming", Int32, false),
+        Field::new("ResponseStartTiming", Int32, false),
+        Field::new("ResponseEndTiming", Int32, false),
+        Field::new("FetchTiming", Int32, false),
+        Field::new("SocialSourceNetworkID", Int16, false),
+        Field::new("SocialSourcePage", Utf8View, false),
+        Field::new("ParamPrice", Int64, false),
+        Field::new("ParamOrderID", Utf8View, false),
+        Field::new("ParamCurrency", Utf8View, false),
+        Field::new("ParamCurrencyID", Int16, false),
+        Field::new("OpenstatServiceName", Utf8View, false),
+        Field::new("OpenstatCampaignID", Utf8View, false),
+        Field::new("OpenstatAdID", Utf8View, false),
+        Field::new("OpenstatSourceID", Utf8View, false),
+        Field::new("UTMSource", Utf8View, false),
+        Field::new("UTMMedium", Utf8View, false),
+        Field::new("UTMCampaign", Utf8View, false),
+        Field::new("UTMContent", Utf8View, false),
+        Field::new("UTMTerm", Utf8View, false),
+        Field::new("FromTag", Utf8View, false),
+        Field::new("HasGCLID", Int16, false),
+        Field::new("RefererHash", Int64, false),
+        Field::new("URLHash", Int64, false),
+        Field::new("CLID", Int32, false),
     ])
 });
 
-pub async fn register_vortex_file(
+pub async fn register_vortex_files(
     session: &SessionContext,
     table_name: &str,
     input_path: &Path,
@@ -177,11 +178,10 @@ pub async fn register_vortex_file(
                 let types = struct_dtype.dtypes().iter();
 
                 for (field_name, field_type) in names.zip(types) {
-                    let lower_case: Arc<str> = field_name.to_lowercase().into();
-                    let val = arrays_map.entry(lower_case.clone()).or_default();
+                    let val = arrays_map.entry(field_name.clone()).or_default();
                     val.push(st.field_by_name(field_name.as_ref()).unwrap());
 
-                    types_map.insert(lower_case, field_type.clone());
+                    types_map.insert(field_name.clone(), field_type.clone());
                 }
             }
 
@@ -189,7 +189,7 @@ pub async fn register_vortex_file(
                 .fields()
                 .iter()
                 .map(|field| {
-                    let name: Arc<str> = field.name().to_ascii_lowercase().as_str().into();
+                    let name: Arc<str> = field.name().as_str().into();
                     let dtype = types_map[&name].clone();
                     let chunks = arrays_map.remove(&name).unwrap();
                     let chunked_child = ChunkedArray::try_new(chunks, dtype).unwrap();
@@ -228,7 +228,33 @@ pub async fn register_vortex_file(
 
     let config = ListingTableConfig::new(table_url)
         .with_listing_options(ListingOptions::new(format as _))
-        .with_schema(schema.clone().into());
+        .infer_schema(&session.state())
+        .await?;
+
+    let listing_table = Arc::new(ListingTable::try_new(config)?);
+
+    session.register_table(table_name, listing_table as _)?;
+
+    Ok(())
+}
+
+pub async fn register_parquet_files(
+    session: &SessionContext,
+    table_name: &str,
+    input_path: &Path,
+    _schema: &Schema,
+) -> anyhow::Result<()> {
+    let format = Arc::new(ParquetFormat::new());
+    let table_path = input_path
+        .to_str()
+        .ok_or_else(|| vortex_err!("Path is not valid UTF-8"))?;
+    let table_path = format!("file://{table_path}/");
+    let table_url = ListingTableUrl::parse(table_path)?;
+
+    let config = ListingTableConfig::new(table_url)
+        .with_listing_options(ListingOptions::new(format as _))
+        .infer_schema(&session.state())
+        .await?;
 
     let listing_table = Arc::new(ListingTable::try_new(config)?);
 

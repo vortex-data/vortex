@@ -108,7 +108,7 @@ async fn bench_main(
 
     let query_count = queries.as_ref().map_or(22, |c| c.len());
 
-    // Setup a progress bar
+    // Set up a progress bar
     let progress = ProgressBar::new((query_count * formats.len()) as u64);
 
     // Send back a channel with the results of Row.

@@ -6,6 +6,7 @@ pub const DEFAULT_MAX_COST: u8 = 3;
 pub const CHUNKED_COST: u8 = 0;
 pub const SPARSE_COST: u8 = 0;
 pub const STRUCT_COST: u8 = 0;
+pub const LIST_COST: u8 = 0;
 pub const VARBIN_COST: u8 = 0;
 
 // so fast that we can ignore the cost

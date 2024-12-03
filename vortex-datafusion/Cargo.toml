@@ -30,6 +30,7 @@ datafusion-physical-expr = { workspace = true }
 datafusion-physical-plan = { workspace = true }
 futures = { workspace = true }
 itertools = { workspace = true }
+log = { workspace = true }
 object_store = { workspace = true }
 pin-project = { workspace = true }
 vortex-array = { workspace = true }
