@@ -15,6 +15,7 @@ mod filter;
 mod invert;
 mod scalar_at;
 mod slice;
+mod sum;
 mod take;
 
 impl ComputeVTable for ChunkedEncoding {
@@ -50,6 +51,10 @@ impl ComputeVTable for ChunkedEncoding {
     }
 
     fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn sum_fn(&self) -> Option<&dyn crate::compute::SumFn<ArrayData>> {
         Some(self)
     }
 }
