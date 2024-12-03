@@ -3,8 +3,8 @@ use std::any::Any;
 use arrow_array::builder::{
     ArrayBuilder as ArrowArrayBuilder, PrimitiveBuilder as ArrowPrimitiveBuilder,
 };
-use arrow_array::Array;
-use vortex_dtype::{DType, NativePType, Nullability, PType};
+use arrow_array::{Array, ArrowPrimitiveType};
+use vortex_dtype::{DType, NativePType, Nullability};
 use vortex_error::{vortex_bail, VortexResult};
 
 use crate::arrow::FromArrowArray;
@@ -18,14 +18,14 @@ pub struct PrimitiveBuilder<T: NativePType> {
 }
 
 impl<T: NativePType> PrimitiveBuilder<T> {
-    pub fn new(ptype: PType, nullability: Nullability) -> Self {
-        Self::with_capacity(ptype, nullability, 1024) // Same as Arrow builders
+    pub fn new(nullability: Nullability) -> Self {
+        Self::with_capacity(nullability, 1024) // Same as Arrow builders
     }
 
-    pub fn with_capacity(ptype: PType, nullability: Nullability, capacity: usize) -> Self {
+    pub fn with_capacity(nullability: Nullability, capacity: usize) -> Self {
         Self {
             inner: ArrowPrimitiveBuilder::<T::ArrowPrimitiveType>::with_capacity(capacity),
-            dtype: DType::Primitive(ptype, nullability),
+            dtype: DType::Primitive(T::PTYPE, nullability),
         }
     }
 
@@ -33,11 +33,17 @@ impl<T: NativePType> PrimitiveBuilder<T> {
         self.inner.append_null();
     }
 
-    pub fn append_value(&mut self, value: bool) {
+    pub fn append_value(
+        &mut self,
+        value: <<T as NativePType>::ArrowPrimitiveType as ArrowPrimitiveType>::Native,
+    ) {
         self.inner.append_value(value);
     }
 
-    pub fn append_option(&mut self, value: Option<bool>) {
+    pub fn append_option(
+        &mut self,
+        value: Option<<<T as NativePType>::ArrowPrimitiveType as ArrowPrimitiveType>::Native>,
+    ) {
         match value {
             Some(value) => self.append_value(value),
             None => self.append_null(),
@@ -45,7 +51,11 @@ impl<T: NativePType> PrimitiveBuilder<T> {
     }
 }
 
-impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
+impl<T> ArrayBuilder for PrimitiveBuilder<T>
+where
+    T: NativePType + 'static,
+    <T::ArrowPrimitiveType as ArrowPrimitiveType>::Native: NativePType,
+{
     fn as_any(&self) -> &dyn Any {
         self
     }

@@ -1,15 +1,24 @@
+mod binary;
 mod bool;
+mod extension;
 mod null;
 mod primitive;
+mod struct_;
+mod utf8;
 
 use std::any::Any;
 
+pub use binary::*;
 pub use bool::*;
+pub use extension::*;
 pub use null::*;
-use vortex_dtype::DType;
+pub use primitive::*;
+pub use utf8::*;
+use vortex_dtype::{match_each_native_ptype, DType};
 use vortex_error::{vortex_err, VortexResult};
-use vortex_scalar::Scalar;
+use vortex_scalar::{BoolScalar, PrimitiveScalar, Scalar};
 
+use crate::builders::struct_::StructBuilder;
 use crate::ArrayData;
 
 pub trait ArrayBuilder {
@@ -22,6 +31,31 @@ pub trait ArrayBuilder {
     fn finish(&mut self) -> VortexResult<ArrayData>;
 }
 
+pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBuilder> {
+    match dtype {
+        DType::Null => Box::new(NullBuilder::new()),
+        DType::Bool(n) => Box::new(BoolBuilder::with_capacity(*n, capacity)),
+        DType::Primitive(ptype, n) => {
+            match_each_native_ptype!(ptype, |$P| {
+                Box::new(PrimitiveBuilder::<$P>::with_capacity(*n, capacity))
+            })
+        }
+        DType::Utf8(n) => Box::new(Utf8Builder::with_capacity(*n, capacity)),
+        DType::Binary(n) => Box::new(BinaryBuilder::with_capacity(*n, capacity)),
+        DType::Struct(struct_dtype, n) => Box::new(StructBuilder::with_capacity(
+            struct_dtype.clone(),
+            *n,
+            capacity,
+        )),
+        DType::List(..) => {
+            todo!()
+        }
+        DType::Extension(ext_dtype) => {
+            Box::new(ExtensionBuilder::with_capacity(ext_dtype.clone(), capacity))
+        }
+    }
+}
+
 impl dyn ArrayBuilder + '_ {
     /// A generic function to append a scalar to the builder.
     pub fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
@@ -31,8 +65,22 @@ impl dyn ArrayBuilder + '_ {
                 .downcast_mut::<NullBuilder>()
                 .ok_or_else(|| vortex_err!("Cannot append null scalar to non-null builder"))?
                 .append_null(),
-            DType::Bool(_) => {}
-            DType::Primitive(..) => {}
+            DType::Bool(_) => self
+                .as_any_mut()
+                .downcast_mut::<BoolBuilder>()
+                .ok_or_else(|| vortex_err!("Cannot append bool scalar to non-bool builder"))?
+                .append_option(BoolScalar::try_from(scalar)?.value()),
+            DType::Primitive(ptype, ..) => {
+                match_each_native_ptype!(ptype, |$P| {
+                    self
+                    .as_any_mut()
+                    .downcast_mut::<PrimitiveBuilder<$P>>()
+                    .ok_or_else(|| {
+                        vortex_err!("Cannot append primitive scalar to non-primitive builder")
+                    })?
+                    .append_option(PrimitiveScalar::try_from(scalar)?.typed_value::<$P>())
+                })
+            }
             DType::Utf8(_) => {}
             DType::Binary(_) => {}
             DType::Struct(..) => {}

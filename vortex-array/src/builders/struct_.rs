@@ -1,0 +1,73 @@
+use std::any::Any;
+
+use itertools::Itertools;
+use vortex_dtype::{Nullability, StructDType};
+use vortex_error::VortexResult;
+
+use crate::array::StructArray;
+use crate::builders::{builder_with_capacity, ArrayBuilder, BoolBuilder};
+use crate::validity::Validity;
+use crate::{ArrayData, IntoArrayData};
+
+pub struct StructBuilder {
+    builders: Vec<Box<dyn ArrayBuilder>>,
+    validity: BoolBuilder,
+    struct_dtype: StructDType,
+    nullability: Nullability,
+}
+
+impl StructBuilder {
+    pub fn with_capacity(
+        struct_dtype: StructDType,
+        nullability: Nullability,
+        capacity: usize,
+    ) -> Self {
+        let builders = struct_dtype
+            .dtypes()
+            .iter()
+            .map(|dt| builder_with_capacity(dt, capacity))
+            .collect();
+
+        Self {
+            builders,
+            validity: BoolBuilder::with_capacity(Nullability::NonNullable, capacity),
+            struct_dtype,
+            nullability,
+        }
+    }
+}
+
+impl ArrayBuilder for StructBuilder {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn len(&self) -> usize {
+        self.validity.len()
+    }
+
+    fn finish(&mut self) -> VortexResult<ArrayData> {
+        let fields: Vec<ArrayData> = self
+            .builders
+            .iter_mut()
+            .map(|builder| builder.finish())
+            .try_collect()?;
+
+        let validity = match self.nullability {
+            Nullability::NonNullable => Validity::NonNullable,
+            Nullability::Nullable => Validity::Array(self.validity.finish()?),
+        };
+
+        Ok(StructArray::try_new(
+            self.struct_dtype.names().clone(),
+            fields,
+            self.len(),
+            validity,
+        )?
+        .into_array())
+    }
+}
