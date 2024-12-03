@@ -80,7 +80,7 @@ impl Default for IoDispatcher {
 }
 
 impl Dispatch for IoDispatcher {
-    #[allow(unused_variables)]
+    #[allow(unused_variables)] // If no features are enabled `task` ends up being unused
     fn dispatch<F, Fut, R>(&self, task: F) -> VortexResult<oneshot::Receiver<R>>
     where
         F: (FnOnce() -> Fut) + Send + 'static,

@@ -41,6 +41,7 @@ struct BoolAccumulator {
     minima: UnwrappedStatAccumulator<bool>,
     true_count: UnwrappedStatAccumulator<u64>,
     null_count: UnwrappedStatAccumulator<u64>,
+    uncompressed_size: UnwrappedStatAccumulator<u64>,
 }
 
 impl BoolAccumulator {
@@ -50,6 +51,10 @@ impl BoolAccumulator {
             minima: UnwrappedStatAccumulator::new(Stat::Min, "min".into()),
             true_count: UnwrappedStatAccumulator::new(Stat::TrueCount, "true_count".into()),
             null_count: UnwrappedStatAccumulator::new(Stat::NullCount, "null_count".into()),
+            uncompressed_size: UnwrappedStatAccumulator::new(
+                Stat::UncompressedSizeInBytes,
+                "uncompressed_size".into(),
+            ),
         }
     }
 }
@@ -60,6 +65,7 @@ impl MetadataAccumulator for BoolAccumulator {
         self.minima.push_chunk(array);
         self.true_count.push_chunk(array);
         self.null_count.push_chunk(array);
+        self.uncompressed_size.push_chunk(array);
     }
 
     fn into_array(self: Box<Self>) -> VortexResult<Option<ArrayData>> {
@@ -68,6 +74,7 @@ impl MetadataAccumulator for BoolAccumulator {
             self.minima.into_column(),
             self.true_count.into_column(),
             self.null_count.into_column(),
+            self.uncompressed_size.into_column(),
         ]
         .into_iter()
         .flatten()
@@ -90,6 +97,7 @@ struct StandardAccumulator<T> {
     maxima: UnwrappedStatAccumulator<T>,
     minima: UnwrappedStatAccumulator<T>,
     null_count: UnwrappedStatAccumulator<u64>,
+    uncompressed_size: UnwrappedStatAccumulator<u64>,
 }
 
 impl<T> StandardAccumulator<T> {
@@ -98,6 +106,10 @@ impl<T> StandardAccumulator<T> {
             maxima: UnwrappedStatAccumulator::new(Stat::Max, "max".into()),
             minima: UnwrappedStatAccumulator::new(Stat::Min, "min".into()),
             null_count: UnwrappedStatAccumulator::new(Stat::NullCount, "null_count".into()),
+            uncompressed_size: UnwrappedStatAccumulator::new(
+                Stat::UncompressedSizeInBytes,
+                "uncompressed_size".into(),
+            ),
         }
     }
 }
@@ -111,6 +123,7 @@ where
         self.maxima.push_chunk(array);
         self.minima.push_chunk(array);
         self.null_count.push_chunk(array);
+        self.uncompressed_size.push_chunk(array);
     }
 
     fn into_array(self: Box<Self>) -> VortexResult<Option<ArrayData>> {
@@ -118,6 +131,7 @@ where
             self.maxima.into_column(),
             self.minima.into_column(),
             self.null_count.into_column(),
+            self.uncompressed_size.into_column(),
         ]
         .into_iter()
         .flatten()
@@ -134,29 +148,38 @@ where
     }
 }
 
-/// A minimal accumulator which only tracks null counts.
+/// A minimal accumulator which only tracks null counts and total uncompressed size.
 struct BasicAccumulator {
     null_count: UnwrappedStatAccumulator<u64>,
+    uncompressed_size: UnwrappedStatAccumulator<u64>,
 }
 
 impl BasicAccumulator {
     fn new() -> Self {
         Self {
             null_count: UnwrappedStatAccumulator::new(Stat::NullCount, "null_count".into()),
+            uncompressed_size: UnwrappedStatAccumulator::new(
+                Stat::UncompressedSizeInBytes,
+                "uncompressed_size".into(),
+            ),
         }
     }
 }
 
 impl MetadataAccumulator for BasicAccumulator {
     fn push_chunk(&mut self, array: &ArrayData) {
-        self.null_count.push_chunk(array)
+        self.null_count.push_chunk(array);
+        self.uncompressed_size.push_chunk(array);
     }
 
     fn into_array(self: Box<Self>) -> VortexResult<Option<ArrayData>> {
-        let (names, fields): (Vec<FieldName>, Vec<ArrayData>) = [self.null_count.into_column()]
-            .into_iter()
-            .flatten()
-            .unzip();
+        let (names, fields): (Vec<FieldName>, Vec<ArrayData>) = [
+            self.null_count.into_column(),
+            self.uncompressed_size.into_column(),
+        ]
+        .into_iter()
+        .flatten()
+        .unzip();
         if fields.is_empty() {
             Ok(None)
         } else {
@@ -246,7 +269,16 @@ mod tests {
             StructArray::try_from(Box::new(bool_accumulator).into_array().unwrap().unwrap())
                 .unwrap();
         assert_eq!(struct_array.len(), 1);
-        assert_field_names(&struct_array, &["max", "min", "true_count", "null_count"]);
+        assert_field_names(
+            &struct_array,
+            &[
+                "max",
+                "min",
+                "true_count",
+                "null_count",
+                "uncompressed_size",
+            ],
+        );
     }
 
     #[test]
@@ -263,7 +295,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(struct_array.len(), 1);
-        assert_field_names(&struct_array, &["max", "min", "null_count"]);
+        assert_field_names(
+            &struct_array,
+            &["max", "min", "null_count", "uncompressed_size"],
+        );
     }
 
     #[test]
@@ -328,6 +363,6 @@ mod tests {
             StructArray::try_from(Box::new(basic_accumulator).into_array().unwrap().unwrap())
                 .unwrap();
         assert_eq!(struct_array.len(), 1);
-        assert_field_names(&struct_array, &["null_count"]);
+        assert_field_names(&struct_array, &["null_count", "uncompressed_size"]);
     }
 }

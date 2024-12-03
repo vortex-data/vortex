@@ -6,19 +6,29 @@ use std::time::{Duration, Instant};
 
 use bench_vortex::clickbench::{self, clickbench_queries, HITS_SCHEMA};
 use bench_vortex::display::{print_measurements_json, render_table, DisplayFormat};
-use bench_vortex::{execute_query, idempotent, Format, IdempotentPath as _, Measurement};
+use bench_vortex::{
+    execute_query, idempotent, setup_logger, Format, IdempotentPath as _, Measurement,
+};
 use clap::Parser;
 use datafusion::prelude::SessionContext;
 use indicatif::ProgressBar;
 use itertools::Itertools;
+use log::LevelFilter;
 use rayon::iter::{IntoParallelIterator, ParallelIterator as _};
 use tokio::runtime::Builder;
+use vortex::error::vortex_panic;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
+    #[arg(short, long, default_value = "8")]
+    iterations: usize,
     #[arg(short, long)]
     threads: Option<usize>,
+    #[arg(long)]
+    only_vortex: bool,
+    #[arg(short, long)]
+    verbose: bool,
     #[arg(short, long, default_value_t, value_enum)]
     display_format: DisplayFormat,
     #[arg(short, long, value_delimiter = ',')]
@@ -27,6 +37,12 @@ struct Args {
 
 fn main() {
     let args = Args::parse();
+
+    setup_logger(if args.verbose {
+        LevelFilter::Debug
+    } else {
+        LevelFilter::Info
+    });
 
     let runtime = match args.threads {
         Some(0) => panic!("Can't use 0 threads for runtime"),
@@ -69,17 +85,14 @@ fn main() {
         .unwrap();
     });
 
-    let session_context = SessionContext::new();
-    let context = session_context.clone();
-    runtime.block_on(async {
-        clickbench::register_vortex_file(&context, "hits", basepath.as_path(), &HITS_SCHEMA)
-            .await
-            .unwrap();
-    });
+    let formats = [
+        Format::Parquet,
+        Format::OnDiskVortex {
+            enable_compression: true,
+        },
+    ];
 
-    let mut all_measurements = Vec::default();
-
-    let queries = match args.queries {
+    let queries = match args.queries.clone() {
         None => clickbench_queries(),
         Some(queries) => clickbench_queries()
             .into_iter()
@@ -87,40 +100,66 @@ fn main() {
             .collect(),
     };
 
-    let progress_bar = ProgressBar::new(queries.len() as u64);
+    let progress_bar = ProgressBar::new((queries.len() * formats.len()) as u64);
 
-    for (query_idx, query) in queries.into_iter() {
-        let mut fastest_result = Duration::from_millis(u64::MAX);
-        for _ in 0..10 {
-            let exec_duration = runtime.block_on(async {
-                let start = Instant::now();
-                execute_query(&context, &query).await.unwrap();
-                start.elapsed()
-            });
+    let mut all_measurements = Vec::default();
 
-            fastest_result = fastest_result.min(exec_duration);
+    for format in formats {
+        let session_context = SessionContext::new();
+        let context = session_context.clone();
+        match format {
+            Format::Parquet => runtime.block_on(async {
+                clickbench::register_parquet_files(
+                    &context,
+                    "hits",
+                    basepath.as_path(),
+                    &HITS_SCHEMA,
+                )
+                .await
+                .unwrap()
+            }),
+            Format::OnDiskVortex {
+                enable_compression: true,
+            } => {
+                runtime.block_on(async {
+                    clickbench::register_vortex_files(
+                        &context,
+                        "hits",
+                        basepath.as_path(),
+                        &HITS_SCHEMA,
+                    )
+                    .await
+                    .unwrap();
+                });
+            }
+            other => vortex_panic!("Format {other} isn't supported on ClickBench"),
         }
 
-        progress_bar.inc(1);
+        for (query_idx, query) in queries.clone().into_iter() {
+            let mut fastest_result = Duration::from_millis(u64::MAX);
+            for _ in 0..args.iterations {
+                let exec_duration = runtime.block_on(async {
+                    let start = Instant::now();
+                    execute_query(&context, &query).await.unwrap();
+                    start.elapsed()
+                });
 
-        all_measurements.push(Measurement {
-            query_idx,
-            time: fastest_result,
-            format: Format::OnDiskVortex {
-                enable_compression: true,
-            },
-            dataset: "clickbench".to_string(),
-        });
+                fastest_result = fastest_result.min(exec_duration);
+            }
+
+            progress_bar.inc(1);
+
+            all_measurements.push(Measurement {
+                query_idx,
+                time: fastest_result,
+                format,
+                dataset: "clickbench".to_string(),
+            });
+        }
     }
 
     match args.display_format {
-        DisplayFormat::Table => render_table(
-            all_measurements,
-            &[Format::OnDiskVortex {
-                enable_compression: true,
-            }],
-        )
-        .unwrap(),
+        DisplayFormat::Table => render_table(all_measurements, &formats).unwrap(),
         DisplayFormat::GhJson => print_measurements_json(all_measurements).unwrap(),
     }
 }

@@ -255,7 +255,7 @@ pub async fn execute_query(ctx: &SessionContext, query: &str) -> anyhow::Result<
     Ok(result)
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Measurement {
     pub query_idx: usize,
     pub time: Duration,
@@ -273,7 +273,7 @@ pub struct JsonValue {
 impl Measurement {
     pub fn to_json(&self) -> JsonValue {
         let name = format!(
-            "{dataset}_q{query_idx}/{format}",
+            "{dataset}_q{query_idx:02}/{format}",
             dataset = self.dataset,
             format = self.format.name(),
             query_idx = self.query_idx

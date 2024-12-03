@@ -14,6 +14,7 @@ pub use limit::*;
 #[cfg(feature = "object_store")]
 pub use object_store::*;
 pub use read::*;
+pub use read_ranges::*;
 #[cfg(feature = "tokio")]
 pub use tokio::*;
 pub use write::*;
@@ -29,6 +30,7 @@ mod limit;
 mod object_store;
 pub mod offset;
 mod read;
+mod read_ranges;
 #[cfg(feature = "tokio")]
 mod tokio;
 mod write;

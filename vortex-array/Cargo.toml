@@ -30,6 +30,7 @@ arrow-cast = { workspace = true }
 arrow-ord = { workspace = true }
 arrow-schema = { workspace = true }
 arrow-select = { workspace = true }
+arrow-string = { workspace = true }
 bytes = { workspace = true }
 enum-iterator = { workspace = true }
 enum-map = { workspace = true }

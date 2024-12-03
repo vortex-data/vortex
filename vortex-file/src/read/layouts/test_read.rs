@@ -3,10 +3,10 @@ use std::sync::{Arc, RwLock};
 
 use bytes::Bytes;
 use vortex_array::ArrayData;
-use vortex_error::{vortex_panic, VortexUnwrap};
+use vortex_error::VortexUnwrap;
 
 use crate::read::mask::RowMask;
-use crate::read::splits::{FixedSplitIterator, MaskIterator, SplitMask};
+use crate::read::splits::FixedSplitIterator;
 use crate::{BatchRead, LayoutMessageCache, LayoutReader, MessageLocator};
 
 fn layout_splits(
@@ -19,10 +19,7 @@ fn layout_splits(
         layout.add_splits(0, &mut splits).vortex_unwrap();
     }
     iter.additional_splits(&mut splits).vortex_unwrap();
-    iter.map(|m| m.vortex_unwrap()).map(|m| match m {
-        SplitMask::ReadMore(_) => vortex_panic!("Will never read more"),
-        SplitMask::Mask(m) => m,
-    })
+    iter.map(|m| m.unwrap())
 }
 
 pub fn read_layout_data(
@@ -39,7 +36,7 @@ pub fn read_layout_data(
                     write_cache_guard.set(id, buf.slice(range.to_range()));
                 }
             }
-            BatchRead::Batch(a) => return Some(a),
+            BatchRead::Value(a) => return Some(a),
         }
     }
     None
@@ -59,7 +56,7 @@ pub fn read_filters(
                     write_cache_guard.set(id, buf.slice(range.to_range()));
                 }
             }
-            BatchRead::Batch(a) => {
+            BatchRead::Value(a) => {
                 return Some(
                     RowMask::from_mask_array(&a, selector.begin(), selector.end()).unwrap(),
                 );

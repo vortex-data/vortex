@@ -119,7 +119,7 @@ impl RowMask {
     }
 
     /// Combine the RowMask with bitmask values resulting in new RowMask containing only values true in the bitmask
-    pub fn and_bitmask(self, bitmask: ArrayData) -> VortexResult<Self> {
+    pub fn and_bitmask(&self, bitmask: ArrayData) -> VortexResult<Self> {
         // If we are a dense all true bitmap just take the bitmask array
         if self.len()
             == self

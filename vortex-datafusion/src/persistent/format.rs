@@ -17,17 +17,18 @@ use datafusion_physical_expr::{LexRequirement, PhysicalExpr};
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use datafusion_physical_plan::ExecutionPlan;
 use object_store::{ObjectMeta, ObjectStore};
+use vortex_array::array::StructArray;
 use vortex_array::arrow::infer_schema;
 use vortex_array::Context;
 use vortex_file::metadata::MetadataFetcher;
 use vortex_file::{
-    read_initial_bytes, LayoutContext, LayoutDeserializer, LayoutMessageCache, RelativeLayoutCache,
-    Scan, VORTEX_FILE_EXTENSION,
+    read_initial_bytes, read_layout_from_initial, LayoutContext, LayoutDeserializer,
+    LayoutMessageCache, RelativeLayoutCache, Scan, VORTEX_FILE_EXTENSION,
 };
 use vortex_io::{IoDispatcher, ObjectStoreReadAt};
 
 use super::execution::VortexExec;
-use super::statistics::array_to_col_statistics;
+use super::statistics::{array_to_col_statistics, uncompressed_col_size};
 use crate::can_be_pushed_down;
 
 #[derive(Debug, Default)]
@@ -108,7 +109,7 @@ impl FileFormat for VortexFormat {
         let relative_message_cache =
             RelativeLayoutCache::new(layout_message_cache.clone(), dtype.into());
 
-        let root_layout = vortex_file::read_layout_from_initial(
+        let root_layout = read_layout_from_initial(
             &initial_read,
             &layout_deserializer,
             Scan::empty(),
@@ -125,10 +126,18 @@ impl FileFormat for VortexFormat {
 
         if let Some(metadata) = metadata_table {
             let mut column_statistics = Vec::with_capacity(table_schema.fields().len());
+            let mut total_size = 0_u64;
 
             for col_stats in metadata.into_iter() {
                 let col_stats = match col_stats {
-                    Some(array) => array_to_col_statistics(array.try_into()?)?,
+                    Some(array) => {
+                        let col_metadata_array = StructArray::try_from(array)?;
+                        let col_stats = array_to_col_statistics(&col_metadata_array)?;
+
+                        total_size +=
+                            uncompressed_col_size(&col_metadata_array)?.unwrap_or_default();
+                        col_stats
+                    }
                     None => ColumnStatistics::new_unknown(),
                 };
 
@@ -136,6 +145,7 @@ impl FileFormat for VortexFormat {
             }
 
             stats.column_statistics = column_statistics;
+            stats.total_byte_size = Precision::Inexact(total_size as usize);
         }
 
         Ok(stats)

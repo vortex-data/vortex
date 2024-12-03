@@ -1,9 +1,11 @@
 use std::collections::BTreeSet;
 use std::fmt::Debug;
 
+use bytes::Bytes;
 use vortex_array::ArrayData;
 use vortex_error::VortexResult;
 
+mod buffered;
 pub mod builder;
 mod cache;
 mod context;
@@ -57,28 +59,19 @@ pub type MessageId = Vec<LayoutPartId>;
 /// the message contents.
 #[derive(Debug, Clone)]
 pub struct MessageLocator(pub MessageId, pub ByteRange);
+/// A message that has had its bytes materialized onto the heap.
+#[derive(Debug, Clone)]
+pub struct Message(pub MessageId, pub Bytes);
+
+pub type BatchRead = MessageRead<ArrayData>;
+pub type SplitRead = MessageRead<RowMask>;
+pub type MetadataRead = MessageRead<Vec<Option<ArrayData>>>;
+pub type PruningRead = MessageRead<bool>;
 
 #[derive(Debug)]
-pub enum BatchRead {
+pub enum MessageRead<T> {
     ReadMore(Vec<MessageLocator>),
-    Batch(ArrayData),
-}
-
-#[derive(Debug)]
-pub enum MetadataRead {
-    /// Layout has no metadata
-    None,
-    /// Additional IO is required
-    ReadMore(Vec<MessageLocator>),
-    Batches(Vec<Option<ArrayData>>),
-}
-
-#[derive(Debug)]
-pub enum PruningRead {
-    /// Additional IO is required
-    ReadMore(Vec<MessageLocator>),
-    /// If true, the layout can be pruned; otherwise, it cannot
-    CanPrune(bool),
+    Value(T),
 }
 
 /// A reader for a layout, a serialized sequence of Vortex arrays.
@@ -107,7 +100,7 @@ pub trait LayoutReader: Debug + Send {
     fn read_selection(&self, selector: &RowMask) -> VortexResult<Option<BatchRead>>;
 
     /// Reads the metadata of the layout, if it exists.
-    fn read_metadata(&self) -> VortexResult<MetadataRead>;
+    fn read_metadata(&self) -> VortexResult<Option<MetadataRead>>;
 
     /// Returns true if this range contains no rows passing the filter condition.
     fn can_prune(&self, begin: usize, end: usize) -> VortexResult<PruningRead>;

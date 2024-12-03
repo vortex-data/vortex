@@ -45,7 +45,7 @@ fn benchmark(c: &mut Criterion) {
     let session_context = SessionContext::new();
     let context = session_context.clone();
     runtime.block_on(async move {
-        clickbench::register_vortex_file(&context, "hits", basepath.as_path(), &HITS_SCHEMA)
+        clickbench::register_vortex_files(&context, "hits", basepath.as_path(), &HITS_SCHEMA)
             .await
             .unwrap();
     });
