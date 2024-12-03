@@ -82,10 +82,8 @@ where
     fn finish(&mut self) -> VortexResult<ArrayData> {
         let arrow = self.inner.finish();
 
-        if self.dtype.is_nullable() {
-            if arrow.null_count() > 0 {
-                vortex_bail!("Non-nullable builder has null values");
-            }
+        if self.dtype.is_nullable() && arrow.null_count() > 0 {
+            vortex_bail!("Non-nullable builder has null values");
         }
 
         Ok(ArrayData::from_arrow(&arrow, self.dtype.is_nullable()))

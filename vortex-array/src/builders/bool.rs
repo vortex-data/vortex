@@ -67,10 +67,8 @@ impl ArrayBuilder for BoolBuilder {
     fn finish(&mut self) -> VortexResult<ArrayData> {
         let arrow = self.inner.finish();
 
-        if self.nullability == Nullability::NonNullable {
-            if arrow.null_count() > 0 {
-                vortex_bail!("Non-nullable builder has null values");
-            }
+        if self.nullability == Nullability::NonNullable && arrow.null_count() > 0 {
+            vortex_bail!("Non-nullable builder has null values");
         }
 
         Ok(ArrayData::from_arrow(&arrow, self.nullability.into()))

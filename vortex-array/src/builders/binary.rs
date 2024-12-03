@@ -50,7 +50,7 @@ impl ArrayBuilder for BinaryBuilder {
 
     fn append_zeros(&mut self, n: usize) {
         for _ in 0..n {
-            self.inner.append_value(&[])
+            self.inner.append_value([])
         }
     }
 
@@ -63,10 +63,8 @@ impl ArrayBuilder for BinaryBuilder {
     fn finish(&mut self) -> VortexResult<ArrayData> {
         let arrow = self.inner.finish();
 
-        if self.nullability == Nullability::NonNullable {
-            if arrow.null_count() > 0 {
-                vortex_bail!("Non-nullable builder has null values");
-            }
+        if self.nullability == Nullability::NonNullable && arrow.null_count() > 0 {
+            vortex_bail!("Non-nullable builder has null values");
         }
 
         Ok(ArrayData::from_arrow(&arrow, self.nullability.into()))

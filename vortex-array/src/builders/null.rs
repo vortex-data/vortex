@@ -10,6 +10,12 @@ pub struct NullBuilder {
     length: usize,
 }
 
+impl Default for NullBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NullBuilder {
     pub fn new() -> Self {
         Self { length: 0 }
