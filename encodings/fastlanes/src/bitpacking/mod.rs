@@ -8,7 +8,7 @@ use vortex_array::array::{PrimitiveArray, SparseArray};
 use vortex_array::encoding::ids;
 use vortex_array::stats::{StatisticsVTable, StatsSet};
 use vortex_array::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
-use vortex_array::variants::{ArrayVariants, PrimitiveArrayTrait};
+use vortex_array::variants::{PrimitiveArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoCanonical,
@@ -232,9 +232,12 @@ impl StatisticsVTable<BitPackedArray> for BitPackedEncoding {}
 
 impl ArrayTrait for BitPackedArray {}
 
-impl ArrayVariants for BitPackedArray {
-    fn as_primitive_array(&self) -> Option<&dyn PrimitiveArrayTrait> {
-        Some(self)
+impl VariantsVTable<BitPackedArray> for BitPackedEncoding {
+    fn as_primitive_array<'a>(
+        &self,
+        array: &'a BitPackedArray,
+    ) -> Option<&'a dyn PrimitiveArrayTrait> {
+        Some(array)
     }
 }
 

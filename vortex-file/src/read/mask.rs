@@ -1,18 +1,14 @@
 use std::cmp::{max, min};
 use std::fmt::{Display, Formatter};
 
-use arrow_buffer::BooleanBuffer;
-use vortex_array::array::{BoolArray, PrimitiveArray, SparseArray};
-use vortex_array::compute::unary::try_cast;
-use vortex_array::compute::{and, filter, slice, take, FilterMask, TakeOptions};
+use vortex_array::array::{BoolArray, ConstantArray, PrimitiveArray, SparseArray};
+use vortex_array::compute::{and, filter, slice, try_cast, FilterMask};
 use vortex_array::stats::ArrayStatistics;
-use vortex_array::validity::LogicalValidity;
+use vortex_array::validity::{ArrayValidity, LogicalValidity};
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, PType};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
-
-const PREFER_TAKE_TO_FILTER_DENSITY: f64 = 1.0 / 1024.0;
+use vortex_error::{vortex_bail, VortexExpect, VortexResult, VortexUnwrap};
 
 /// Bitmap of selected rows within given [begin, end) row range
 #[derive(Debug, Clone)]
@@ -74,44 +70,29 @@ impl RowMask {
 
     /// Construct a RowMask which is valid in the given range.
     pub fn new_valid_between(begin: usize, end: usize) -> Self {
-        unsafe {
-            RowMask::new_unchecked(
-                BoolArray::from(BooleanBuffer::new_set(end - begin)).into_array(),
-                begin,
-                end,
-            )
-        }
+        RowMask::try_new(
+            ConstantArray::new(true, end - begin).into_array(),
+            begin,
+            end,
+        )
+        .vortex_unwrap()
     }
 
     /// Construct a RowMask which is invalid everywhere in the given range.
     pub fn new_invalid_between(begin: usize, end: usize) -> Self {
-        unsafe {
-            RowMask::new_unchecked(
-                BoolArray::from(BooleanBuffer::new_unset(end - begin)).into_array(),
-                begin,
-                end,
-            )
-        }
-    }
-
-    /// Construct a RowMask from given bitmask, begin and end.
-    ///
-    /// # Safety
-    ///
-    /// The bitmask must be of a nonnullable bool array and length of end - begin
-    pub unsafe fn new_unchecked(bitmask: ArrayData, begin: usize, end: usize) -> Self {
-        Self {
-            bitmask,
+        RowMask::try_new(
+            ConstantArray::new(false, end - begin).into_array(),
             begin,
             end,
-        }
+        )
+        .vortex_unwrap()
     }
 
     /// Construct a RowMask from a Boolean typed array.
     ///
     /// True-valued positions are kept by the returned mask.
     pub fn from_mask_array(array: &ArrayData, begin: usize, end: usize) -> VortexResult<Self> {
-        match array.with_dyn(|a| a.logical_validity()) {
+        match array.logical_validity() {
             LogicalValidity::AllValid(_) => Self::try_new(array.clone(), begin, end),
             LogicalValidity::AllInvalid(_) => Ok(Self::new_invalid_between(begin, end)),
             LogicalValidity::Array(validity) => {
@@ -138,7 +119,7 @@ impl RowMask {
     }
 
     /// Combine the RowMask with bitmask values resulting in new RowMask containing only values true in the bitmask
-    pub fn and_bitmask(self, bitmask: ArrayData) -> VortexResult<Self> {
+    pub fn and_bitmask(&self, bitmask: ArrayData) -> VortexResult<Self> {
         // If we are a dense all true bitmap just take the bitmask array
         if self.len()
             == self
@@ -186,25 +167,22 @@ impl RowMask {
     }
 
     /// Limit mask to [begin..end) range
-    pub fn slice(&self, begin: usize, end: usize) -> Self {
+    pub fn slice(&self, begin: usize, end: usize) -> VortexResult<Self> {
         let range_begin = max(self.begin, begin);
         let range_end = min(self.end, end);
-        unsafe {
-            RowMask::new_unchecked(
-                if range_begin == self.begin && range_end == self.end {
-                    self.bitmask.clone()
-                } else {
-                    slice(
-                        &self.bitmask,
-                        range_begin - self.begin,
-                        range_end - self.begin,
-                    )
-                    .vortex_expect("Must be a valid slice")
-                },
-                range_begin,
-                range_end,
-            )
-        }
+        RowMask::try_new(
+            if range_begin == self.begin && range_end == self.end {
+                self.bitmask.clone()
+            } else {
+                slice(
+                    &self.bitmask,
+                    range_begin - self.begin,
+                    range_end - self.begin,
+                )?
+            },
+            range_begin,
+            range_end,
+        )
     }
 
     /// Filter array with this `RowMask`.
@@ -233,13 +211,8 @@ impl RowMask {
             return Ok(Some(sliced.clone()));
         }
 
-        if (true_count as f64 / sliced.len() as f64) < PREFER_TAKE_TO_FILTER_DENSITY {
-            let indices = self.to_indices_array()?;
-            take(sliced, indices, TakeOptions::default()).map(Some)
-        } else {
-            let mask = FilterMask::try_from(self.bitmask.clone())?;
-            filter(sliced, mask).map(Some)
-        }
+        let mask = FilterMask::try_from(self.bitmask.clone())?;
+        filter(sliced, mask).map(Some)
     }
 
     pub fn to_indices_array(&self) -> VortexResult<ArrayData> {
@@ -263,7 +236,7 @@ impl RowMask {
                 self.begin
             )
         }
-        Ok(unsafe { RowMask::new_unchecked(self.bitmask, self.begin - offset, self.end - offset) })
+        RowMask::try_new(self.bitmask, self.begin - offset, self.end - offset)
     }
 }
 
@@ -274,6 +247,7 @@ mod tests {
     use vortex_array::array::{BoolArray, PrimitiveArray};
     use vortex_array::{IntoArrayData, IntoArrayVariant};
     use vortex_dtype::Nullability;
+    use vortex_error::VortexUnwrap;
 
     use crate::read::mask::RowMask;
 
@@ -300,7 +274,7 @@ mod tests {
         RowMask::try_new(BoolArray::from_iter([false, true]).into_array(), 3, 5).unwrap())]
     #[cfg_attr(miri, ignore)]
     fn slice(#[case] first: RowMask, #[case] range: (usize, usize), #[case] expected: RowMask) {
-        assert_eq!(first.slice(range.0, range.1), expected);
+        assert_eq!(first.slice(range.0, range.1).vortex_unwrap(), expected);
     }
 
     #[test]

@@ -1,19 +1,29 @@
 use croaring::Bitmap;
-use vortex_array::compute::unary::ScalarAtFn;
-use vortex_array::compute::{ComputeVTable, SliceFn};
-use vortex_array::{ArrayData, IntoArrayData};
+use vortex_array::compute::{ComputeVTable, InvertFn, ScalarAtFn, SliceFn};
+use vortex_array::{ArrayData, ArrayLen, IntoArrayData};
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::{RoaringBoolArray, RoaringBoolEncoding};
 
 impl ComputeVTable for RoaringBoolEncoding {
+    fn invert_fn(&self) -> Option<&dyn InvertFn<ArrayData>> {
+        Some(self)
+    }
+
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
         Some(self)
     }
 
     fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
         Some(self)
+    }
+}
+
+impl InvertFn<RoaringBoolArray> for RoaringBoolEncoding {
+    fn invert(&self, array: &RoaringBoolArray) -> VortexResult<ArrayData> {
+        RoaringBoolArray::try_new(array.bitmap().flip(0..(array.len() as u32)), array.len())
+            .map(|a| a.into_array())
     }
 }
 
@@ -43,8 +53,7 @@ impl SliceFn<RoaringBoolArray> for RoaringBoolEncoding {
 #[cfg(test)]
 mod tests {
     use vortex_array::array::BoolArray;
-    use vortex_array::compute::slice;
-    use vortex_array::compute::unary::scalar_at;
+    use vortex_array::compute::{scalar_at, slice};
     use vortex_array::{IntoArrayData, IntoArrayVariant};
     use vortex_scalar::Scalar;
 

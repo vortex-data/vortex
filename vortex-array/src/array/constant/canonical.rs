@@ -124,7 +124,7 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use crate::array::ConstantArray;
-    use crate::compute::unary::scalar_at;
+    use crate::compute::scalar_at;
     use crate::stats::{ArrayStatistics as _, StatsSet};
     use crate::{ArrayLen, IntoArrayData as _, IntoCanonical};
 

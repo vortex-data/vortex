@@ -1,21 +1,19 @@
 use crate::array::BoolEncoding;
-use crate::compute::unary::{FillForwardFn, ScalarAtFn};
-use crate::compute::{BinaryBooleanFn, ComputeVTable, FilterFn, SliceFn, TakeFn};
+use crate::compute::{
+    BinaryBooleanFn, ComputeVTable, FillForwardFn, FilterFn, InvertFn, ScalarAtFn, SliceFn, TakeFn,
+};
 use crate::ArrayData;
 
 mod fill;
 pub mod filter;
 mod flatten;
+mod invert;
 mod scalar_at;
 mod slice;
 mod take;
 
 impl ComputeVTable for BoolEncoding {
-    fn binary_boolean_fn(
-        &self,
-        _lhs: &ArrayData,
-        _rhs: &ArrayData,
-    ) -> Option<&dyn BinaryBooleanFn<ArrayData>> {
+    fn binary_boolean_fn(&self) -> Option<&dyn BinaryBooleanFn<ArrayData>> {
         // We only implement this when other is a constant value, otherwise we fall back to the
         // default implementation that canonicalizes to Arrow.
         // TODO(ngates): implement this for constants.
@@ -28,6 +26,10 @@ impl ComputeVTable for BoolEncoding {
     }
 
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn invert_fn(&self) -> Option<&dyn InvertFn<ArrayData>> {
         Some(self)
     }
 

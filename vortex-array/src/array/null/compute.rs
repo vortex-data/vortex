@@ -4,8 +4,7 @@ use vortex_scalar::Scalar;
 
 use crate::array::null::NullArray;
 use crate::array::NullEncoding;
-use crate::compute::unary::ScalarAtFn;
-use crate::compute::{ComputeVTable, SliceFn, TakeFn, TakeOptions};
+use crate::compute::{ComputeVTable, ScalarAtFn, SliceFn, TakeFn, TakeOptions};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
 
@@ -65,8 +64,7 @@ mod test {
 
     use crate::array::null::NullArray;
     use crate::array::ConstantArray;
-    use crate::compute::unary::scalar_at;
-    use crate::compute::{slice, take, TakeOptions};
+    use crate::compute::{scalar_at, slice, take, TakeOptions};
     use crate::validity::{ArrayValidity, LogicalValidity};
     use crate::{ArrayLen, IntoArrayData};
 

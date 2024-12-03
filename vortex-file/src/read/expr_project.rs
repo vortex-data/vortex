@@ -2,15 +2,17 @@ use std::sync::Arc;
 
 use vortex_dtype::field::Field;
 use vortex_expr::{
-    BinaryExpr, Column, ExprRef, Identity, Literal, Not, Operator, Select, VortexExpr,
+    BinaryExpr, Column, ExprRef, Identity, Like, Literal, Not, Operator, Select, VortexExpr,
 };
 
 use crate::RowFilter;
 
 /// Restrict expression to only the fields that appear in projection
+///
+/// TODO(ngates): expressions should have tree-traversal API so this is generic.
 pub fn expr_project(expr: &ExprRef, projection: &[Field]) -> Option<ExprRef> {
     if let Some(rf) = expr.as_any().downcast_ref::<RowFilter>() {
-        rf.only_fields(projection).map(|rf| Arc::new(rf) as _)
+        rf.only_fields(projection)
     } else if expr.as_any().downcast_ref::<Literal>().is_some() {
         Some(expr.clone())
     } else if let Some(s) = expr.as_any().downcast_ref::<Select>() {
@@ -79,6 +81,15 @@ pub fn expr_project(expr: &ExprRef, projection: &[Field]) -> Option<ExprRef> {
         } else {
             Some(BinaryExpr::new_expr(lhs_proj?, bexp.op(), rhs_proj?))
         }
+    } else if let Some(l) = expr.as_any().downcast_ref::<Like>() {
+        let child = expr_project(l.child(), projection)?;
+        let pattern = expr_project(l.pattern(), projection)?;
+        Some(Like::new_expr(
+            child,
+            pattern,
+            l.negated(),
+            l.case_insensitive(),
+        ))
     } else {
         None
     }

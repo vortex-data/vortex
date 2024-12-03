@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: ["develop"]
-  pull_request: {}
-  workflow_dispatch: {}
+    branches: [ "develop" ]
+  pull_request: { }
+  workflow_dispatch: { }
 
 permissions:
   actions: read
@@ -115,8 +115,20 @@ jobs:
       - uses: ./.github/actions/setup-rust
       - name: Rust Lint - Format
         run: cargo fmt --all --check
-      - name: Rust Lint - Clippy
+      - name: Rust Lint - Clippy All Features
         run: cargo clippy --all-features --all-targets
+      - name: Rust Lint - Clippy Default Features
+        run: cargo clippy --all-targets
+      - name: Rust Lint - Clippy No Default Features
+        run: |
+          set -ex
+
+          # https://spiraldb.slack.com/archives/C07BV3GKAJ2/p1732736281946729
+          for package in $(cargo check -p  2>&1 | grep '^    ')
+          do
+              echo ---- $package ----
+              cargo clippy --package $package --no-default-features
+          done
       - name: Rust Test
         run: cargo test --workspace --all-features
 
@@ -161,8 +173,8 @@ jobs:
         uses: opt-nc/setup-duckdb-action@v1.0.9
         with:
           version: v1.0.0
-      - name: Rust Bench as test
-        run: cargo bench --bench '*[!noci]' --profile benchtest -- --test
+      - name: Rust TPC-H and Random access Bench as test
+        run: cargo bench --bench tpch --bench random_access --profile benchtest -- --test
 
   generated-files:
     name: "Check generated proto/fbs files are up to date"

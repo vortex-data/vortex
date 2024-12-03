@@ -6,11 +6,10 @@ use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::array::constant::ConstantArray;
-use crate::compute::unary::scalar_at;
-use crate::compute::{search_sorted, SearchResult, SearchSortedSide};
+use crate::compute::{scalar_at, search_sorted, SearchResult, SearchSortedSide};
 use crate::encoding::ids;
 use crate::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
-use crate::validity::{LogicalValidity, ValidityVTable};
+use crate::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use crate::variants::PrimitiveArrayTrait;
 use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{
@@ -214,7 +213,7 @@ impl ValidityVTable<SparseArray> for SparseEncoding {
     fn is_valid(&self, array: &SparseArray, index: usize) -> bool {
         match array.search_index(index).map(SearchResult::to_found) {
             Ok(None) => !array.fill_scalar().is_null(),
-            Ok(Some(idx)) => array.values().with_dyn(|a| a.is_valid(idx)),
+            Ok(Some(idx)) => array.values().is_valid(idx),
             Err(e) => vortex_panic!(e, "Error while finding index {} in sparse array", index),
         }
     }
@@ -235,9 +234,7 @@ impl ValidityVTable<SparseArray> for SparseEncoding {
             // existing values.
             SparseArray::try_new_with_offset(
                 array.indices(),
-                array
-                    .values()
-                    .with_dyn(|a| a.logical_validity().into_array()),
+                array.values().logical_validity().into_array(),
                 array.len(),
                 array.indices_offset(),
                 true.into(),
@@ -257,8 +254,8 @@ mod test {
     use vortex_scalar::Scalar;
 
     use crate::array::sparse::SparseArray;
-    use crate::compute::slice;
-    use crate::compute::unary::{scalar_at, try_cast};
+    use crate::compute::{scalar_at, slice, try_cast};
+    use crate::validity::ArrayValidity;
     use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
 
     fn nullable_fill() -> Scalar {
@@ -350,11 +347,7 @@ mod test {
     #[test]
     pub fn sparse_logical_validity() {
         let array = sparse_array(nullable_fill());
-        let validity = array
-            .with_dyn(|a| a.logical_validity())
-            .into_array()
-            .into_bool()
-            .unwrap();
+        let validity = array.logical_validity().into_array().into_bool().unwrap();
         assert_eq!(
             validity.boolean_buffer().iter().collect_vec(),
             [false, false, true, false, false, true, false, false, true, false]
@@ -367,7 +360,7 @@ mod test {
 
         assert_eq!(
             array
-                .with_dyn(|a| a.logical_validity())
+                .logical_validity()
                 .into_array()
                 .into_bool()
                 .unwrap()

@@ -1,9 +1,9 @@
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::encoding::EncodingRef;
+use vortex_array::encoding::{Encoding, EncodingRef};
 use vortex_array::stats::ArrayStatistics;
-use vortex_array::{ArrayDType, ArrayData, ArrayDef, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_error::VortexResult;
-use vortex_roaring::{roaring_int_encode, RoaringInt, RoaringIntEncoding};
+use vortex_roaring::{roaring_int_encode, RoaringIntEncoding};
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
 use crate::{constants, SamplingCompressor};
@@ -13,7 +13,7 @@ pub struct RoaringIntCompressor;
 
 impl EncodingCompressor for RoaringIntCompressor {
     fn id(&self) -> &str {
-        RoaringInt::ID.as_ref()
+        RoaringIntEncoding::ID.as_ref()
     }
 
     fn cost(&self) -> u8 {

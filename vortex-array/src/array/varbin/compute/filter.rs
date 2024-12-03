@@ -185,8 +185,7 @@ mod test {
     };
     use crate::array::varbin::VarBinArray;
     use crate::array::BoolArray;
-    use crate::compute::unary::scalar_at;
-    use crate::compute::FilterMask;
+    use crate::compute::{scalar_at, FilterMask};
     use crate::validity::Validity;
     use crate::ToArrayData;
 

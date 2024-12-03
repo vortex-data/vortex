@@ -1,12 +1,12 @@
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::array::Bool;
-use vortex_array::encoding::EncodingRef;
+use vortex_array::array::BoolEncoding;
+use vortex_array::encoding::{Encoding, EncodingRef};
 use vortex_array::stats::ArrayStatistics;
-use vortex_array::{ArrayDType, ArrayData, ArrayDef, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::DType;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_error::VortexResult;
-use vortex_roaring::{roaring_bool_encode, RoaringBool, RoaringBoolEncoding};
+use vortex_roaring::{roaring_bool_encode, RoaringBoolEncoding};
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
 use crate::{constants, SamplingCompressor};
@@ -16,7 +16,7 @@ pub struct RoaringBoolCompressor;
 
 impl EncodingCompressor for RoaringBoolCompressor {
     fn id(&self) -> &str {
-        RoaringBool::ID.as_ref()
+        RoaringBoolEncoding::ID.as_ref()
     }
 
     fn cost(&self) -> u8 {
@@ -25,7 +25,7 @@ impl EncodingCompressor for RoaringBoolCompressor {
 
     fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {
         // Only support bool arrays
-        if array.encoding().id() != Bool::ID {
+        if array.encoding().id() != BoolEncoding::ID {
             return None;
         }
 

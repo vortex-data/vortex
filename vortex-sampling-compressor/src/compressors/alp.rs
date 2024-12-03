@@ -1,10 +1,10 @@
-use vortex_alp::{alp_encode_components, match_each_alp_float_ptype, ALPArray, ALPEncoding, ALP};
+use vortex_alp::{alp_encode_components, match_each_alp_float_ptype, ALPArray, ALPEncoding};
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::PrimitiveArray;
-use vortex_array::encoding::EncodingRef;
+use vortex_array::encoding::{Encoding, EncodingRef};
 use vortex_array::stats::ArrayStatistics;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayData, ArrayDef, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
 
@@ -17,7 +17,7 @@ pub struct ALPCompressor;
 
 impl EncodingCompressor for ALPCompressor {
     fn id(&self) -> &str {
-        ALP::ID.as_ref()
+        ALPEncoding::ID.as_ref()
     }
 
     fn cost(&self) -> u8 {

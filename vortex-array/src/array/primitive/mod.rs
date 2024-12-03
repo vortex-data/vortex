@@ -16,7 +16,7 @@ use crate::encoding::ids;
 use crate::iter::Accessor;
 use crate::stats::StatsSet;
 use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
-use crate::variants::{ArrayVariants, PrimitiveArrayTrait};
+use crate::variants::{PrimitiveArrayTrait, VariantsVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
@@ -200,9 +200,12 @@ impl PrimitiveArray {
 
 impl ArrayTrait for PrimitiveArray {}
 
-impl ArrayVariants for PrimitiveArray {
-    fn as_primitive_array(&self) -> Option<&dyn PrimitiveArrayTrait> {
-        Some(self)
+impl VariantsVTable<PrimitiveArray> for PrimitiveEncoding {
+    fn as_primitive_array<'a>(
+        &self,
+        array: &'a PrimitiveArray,
+    ) -> Option<&'a dyn PrimitiveArrayTrait> {
+        Some(array)
     }
 }
 

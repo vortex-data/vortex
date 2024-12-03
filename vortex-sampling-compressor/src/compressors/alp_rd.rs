@@ -1,13 +1,13 @@
 use std::any::Any;
 use std::sync::Arc;
 
-use vortex_alp::{match_each_alp_float_ptype, ALPRDEncoding, RDEncoder as ALPRDEncoder, ALPRD};
+use vortex_alp::{match_each_alp_float_ptype, ALPRDEncoding, RDEncoder as ALPRDEncoder};
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::PrimitiveArray;
-use vortex_array::encoding::EncodingRef;
+use vortex_array::encoding::{Encoding, EncodingRef};
 use vortex_array::stats::ArrayStatistics;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayData, ArrayDef, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::PType;
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_fastlanes::BitPackedEncoding;
@@ -26,7 +26,7 @@ impl EncoderMetadata for ALPRDEncoder {
 
 impl EncodingCompressor for ALPRDCompressor {
     fn id(&self) -> &str {
-        ALPRD::ID.as_ref()
+        ALPRDEncoding::ID.as_ref()
     }
 
     fn cost(&self) -> u8 {

@@ -8,7 +8,7 @@ use crate::encoding::ids;
 use crate::nbytes::ArrayNBytes;
 use crate::stats::{Stat, StatisticsVTable, StatsSet};
 use crate::validity::{LogicalValidity, Validity, ValidityVTable};
-use crate::variants::{ArrayVariants, NullArrayTrait};
+use crate::variants::{NullArrayTrait, VariantsVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{impl_encoding, ArrayLen, ArrayTrait, Canonical, IntoCanonical};
 
@@ -72,9 +72,9 @@ impl VisitorVTable<NullArray> for NullEncoding {
 
 impl ArrayTrait for NullArray {}
 
-impl ArrayVariants for NullArray {
-    fn as_null_array(&self) -> Option<&dyn NullArrayTrait> {
-        Some(self)
+impl VariantsVTable<NullArray> for NullEncoding {
+    fn as_null_array<'a>(&self, array: &'a NullArray) -> Option<&'a dyn NullArrayTrait> {
+        Some(array)
     }
 }
 

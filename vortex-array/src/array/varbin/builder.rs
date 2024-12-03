@@ -102,7 +102,7 @@ mod test {
     use vortex_scalar::Scalar;
 
     use crate::array::varbin::builder::VarBinBuilder;
-    use crate::compute::unary::scalar_at;
+    use crate::compute::scalar_at;
     use crate::{ArrayDType, IntoArrayData};
 
     #[test]

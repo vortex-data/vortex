@@ -8,8 +8,6 @@ use crate::Scalar;
 
 pub struct ExtScalar<'a> {
     dtype: &'a DType,
-    // TODO(ngates): we may need to serialize the value's dtype too so we can pull
-    //  it out as a scalar.
     value: &'a ScalarValue,
 }
 

@@ -1,16 +1,14 @@
-use vortex_dtype::DType;
-
 use crate::array::varbinview::VarBinViewArray;
-use crate::variants::{ArrayVariants, BinaryArrayTrait, Utf8ArrayTrait};
-use crate::ArrayDType;
+use crate::array::VarBinViewEncoding;
+use crate::variants::{BinaryArrayTrait, Utf8ArrayTrait, VariantsVTable};
 
-impl ArrayVariants for VarBinViewArray {
-    fn as_utf8_array(&self) -> Option<&dyn Utf8ArrayTrait> {
-        matches!(self.dtype(), DType::Utf8(..)).then_some(self)
+impl VariantsVTable<VarBinViewArray> for VarBinViewEncoding {
+    fn as_utf8_array<'a>(&self, array: &'a VarBinViewArray) -> Option<&'a dyn Utf8ArrayTrait> {
+        Some(array)
     }
 
-    fn as_binary_array(&self) -> Option<&dyn BinaryArrayTrait> {
-        matches!(self.dtype(), DType::Binary(..)).then_some(self)
+    fn as_binary_array<'a>(&self, array: &'a VarBinViewArray) -> Option<&'a dyn BinaryArrayTrait> {
+        Some(array)
     }
 }
 

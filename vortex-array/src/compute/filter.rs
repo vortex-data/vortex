@@ -6,8 +6,9 @@ use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, MutableBuffer};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
 
-use crate::array::BoolArray;
+use crate::array::{BoolArray, ConstantArray};
 use crate::arrow::FromArrowArray;
+use crate::compute::scalar_at;
 use crate::encoding::Encoding;
 use crate::stats::ArrayStatistics;
 use crate::{ArrayDType, ArrayData, Canonical, IntoArrayData, IntoCanonical};
@@ -71,6 +72,12 @@ pub fn filter(array: &ArrayData, mask: FilterMask) -> VortexResult<ArrayData> {
     if let Some(filter_fn) = array.encoding().filter_fn() {
         filter_fn.filter(array, mask)
     } else {
+        // We can use scalar_at if the mask has length 1.
+        if mask.true_count() == 1 && array.encoding().scalar_at_fn().is_some() {
+            let idx = mask.indices()?[0];
+            return Ok(ConstantArray::new(scalar_at(array, idx)?, 1).into_array());
+        }
+
         // Fallback: implement using Arrow kernels.
         log::debug!(
             "No filter implementation found for {}",
@@ -107,11 +114,7 @@ impl Clone for FilterMask {
                 .slices
                 .get_or_try_init(|| Ok(self.boolean_buffer()?.set_slices().collect()));
         } else {
-            let _: VortexResult<_> = self.indices.get_or_try_init(|| {
-                let mut indices = Vec::with_capacity(self.true_count());
-                indices.extend(self.boolean_buffer()?.set_indices());
-                Ok(indices)
-            });
+            let _: VortexResult<_> = self.indices();
         }
 
         Self {
@@ -232,6 +235,16 @@ impl FilterMask {
                 .into_bool()?
                 .boolean_buffer())
         })
+    }
+
+    fn indices(&self) -> VortexResult<&[usize]> {
+        self.indices
+            .get_or_try_init(|| {
+                let mut indices = Vec::with_capacity(self.true_count());
+                indices.extend(self.boolean_buffer()?.set_indices());
+                Ok(indices)
+            })
+            .map(|v| v.as_slice())
     }
 
     /// Returns the best iterator based on a selectivity threshold.

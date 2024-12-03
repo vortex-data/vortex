@@ -12,7 +12,7 @@ use crate::read::cache::RelativeLayoutCache;
 use crate::read::mask::RowMask;
 use crate::{
     BatchRead, Layout, LayoutDeserializer, LayoutId, LayoutReader, MessageLocator, MetadataRead,
-    Scan, FLAT_LAYOUT_ID,
+    PruningRead, Scan, FLAT_LAYOUT_ID,
 };
 
 #[derive(Debug)]
@@ -102,7 +102,7 @@ impl LayoutReader for FlatLayoutReader {
             selection
                 .filter_array(array)?
                 .map(|s| {
-                    Ok(BatchRead::Batch(
+                    Ok(BatchRead::Value(
                         self.scan
                             .expr
                             .as_ref()
@@ -117,8 +117,12 @@ impl LayoutReader for FlatLayoutReader {
         }
     }
 
-    fn read_metadata(&self) -> VortexResult<MetadataRead> {
-        Ok(MetadataRead::None)
+    fn read_metadata(&self) -> VortexResult<Option<MetadataRead>> {
+        Ok(None)
+    }
+
+    fn can_prune(&self, _begin: usize, _end: usize) -> VortexResult<PruningRead> {
+        Ok(PruningRead::Value(false))
     }
 }
 

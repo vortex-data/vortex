@@ -46,22 +46,6 @@ impl ViewedArrayData {
         }
     }
 
-    pub fn encoding(&self) -> EncodingRef {
-        self.encoding
-    }
-
-    pub fn dtype(&self) -> &DType {
-        &self.dtype
-    }
-
-    pub fn len(&self) -> usize {
-        self.len
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.len == 0
-    }
-
     pub fn metadata_bytes(&self) -> Option<&[u8]> {
         self.flatbuffer().metadata().map(|m| m.bytes())
     }
@@ -109,7 +93,7 @@ impl ViewedArrayData {
 
     pub fn children(&self) -> Vec<ArrayData> {
         let mut collector = ChildrenCollector::default();
-        self.encoding()
+        self.encoding
             .accept(&ArrayData::from(self.clone()), &mut collector)
             .vortex_expect("Failed to get children");
         collector.children
@@ -119,10 +103,6 @@ impl ViewedArrayData {
         self.flatbuffer()
             .buffer_index()
             .map(|idx| &self.buffers[idx as usize])
-    }
-
-    pub fn statistics(&self) -> &dyn Statistics {
-        self
     }
 }
 
@@ -217,7 +197,7 @@ impl Statistics for ViewedArrayData {
             return Some(s);
         }
 
-        self.encoding()
+        self.encoding
             .compute_statistics(&ArrayData::from(self.clone()), stat)
             .ok()?
             .get(stat)

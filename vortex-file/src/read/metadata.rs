@@ -1,29 +1,49 @@
 use std::future::Future;
+use std::iter;
+use std::iter::Once;
 use std::pin::Pin;
 use std::sync::{Arc, RwLock};
 use std::task::{ready, Context, Poll};
 
-use futures::future::BoxFuture;
-use futures::FutureExt as _;
+use futures_util::{stream, StreamExt};
 use vortex_array::ArrayData;
-use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
-use vortex_io::{Dispatch as _, IoDispatcher, VortexReadAt};
+use vortex_error::VortexResult;
+use vortex_io::{IoDispatcher, VortexReadAt};
 
-use super::stream::{read_ranges, StreamMessages};
-use super::{LayoutMessageCache, LayoutReader, MessageLocator, MetadataRead};
-use crate::read::stream::Message;
+use super::{LayoutMessageCache, LayoutReader};
+use crate::read::buffered::{BufferedLayoutReader, ReadMasked};
+use crate::{MessageRead, RowMask};
+
+type MetadataBufferedReader<R> = BufferedLayoutReader<
+    R,
+    stream::Iter<Once<VortexResult<RowMask>>>,
+    Vec<Option<ArrayData>>,
+    MetadataMaskReader,
+>;
 
 pub struct MetadataFetcher<R: VortexReadAt> {
-    input: R,
-    dispatcher: Arc<IoDispatcher>,
-    root_layout: Box<dyn LayoutReader>,
-    layout_cache: Arc<RwLock<LayoutMessageCache>>,
-    state: State,
+    metadata_reader: MetadataBufferedReader<R>,
 }
 
-enum State {
-    Initial,
-    Reading(BoxFuture<'static, VortexResult<StreamMessages>>),
+struct MetadataMaskReader {
+    layout: Box<dyn LayoutReader>,
+}
+
+impl MetadataMaskReader {
+    pub fn new(layout: Box<dyn LayoutReader>) -> Self {
+        Self { layout }
+    }
+}
+
+impl ReadMasked for MetadataMaskReader {
+    type Value = Vec<Option<ArrayData>>;
+
+    fn read_masked(
+        &self,
+        _mask: &RowMask,
+    ) -> VortexResult<Option<MessageRead<Vec<Option<ArrayData>>>>> {
+        self.layout.read_metadata()
+    }
 }
 
 impl<R: VortexReadAt + Unpin> MetadataFetcher<R> {
@@ -33,35 +53,14 @@ impl<R: VortexReadAt + Unpin> MetadataFetcher<R> {
         root_layout: Box<dyn LayoutReader>,
         layout_cache: Arc<RwLock<LayoutMessageCache>>,
     ) -> Self {
-        Self {
+        let metadata_reader = BufferedLayoutReader::new(
             input,
             dispatcher,
-            root_layout,
+            stream::iter(iter::once(Ok(RowMask::new_valid_between(0, 1)))),
+            MetadataMaskReader::new(root_layout),
             layout_cache,
-            state: State::Initial,
-        }
-    }
-
-    /// Schedule an asynchronous read of several byte ranges.
-    ///
-    /// IO is scheduled on the provided IO dispatcher.
-    fn read_ranges(
-        &self,
-        ranges: Vec<MessageLocator>,
-    ) -> BoxFuture<'static, VortexResult<StreamMessages>> {
-        let reader = self.input.clone();
-
-        let result_rx = self
-            .dispatcher
-            .dispatch(move || async move { read_ranges(reader, ranges).await })
-            .vortex_expect("dispatch async task");
-
-        result_rx
-            .map(|res| match res {
-                Ok(result) => result,
-                Err(e) => vortex_bail!("dispatcher channel canceled: {e}"),
-            })
-            .boxed()
+        );
+        Self { metadata_reader }
     }
 }
 
@@ -69,38 +68,7 @@ impl<R: VortexReadAt + Unpin> Future for MetadataFetcher<R> {
     type Output = VortexResult<Option<Vec<Option<ArrayData>>>>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        loop {
-            match &mut self.state {
-                State::Initial => match self.root_layout.read_metadata()? {
-                    MetadataRead::ReadMore(messages) => {
-                        let read_future = self.read_ranges(messages);
-                        self.state = State::Reading(read_future);
-                    }
-                    MetadataRead::Batches(array_data) => {
-                        return Poll::Ready(Ok(Some(array_data)));
-                    }
-                    MetadataRead::None => {
-                        return Poll::Ready(Ok(None));
-                    }
-                },
-                State::Reading(ref mut f) => {
-                    let messages = ready!(f.poll_unpin(cx))?;
-
-                    match self.layout_cache.write() {
-                        Ok(mut cache) => {
-                            for Message(message_id, bytes) in messages.into_iter() {
-                                cache.set(message_id, bytes);
-                            }
-                        }
-                        Err(poison) => {
-                            vortex_panic!("Failed to write to message cache: {poison}")
-                        }
-                    }
-
-                    self.state = State::Initial;
-                }
-            }
-        }
+        Poll::Ready(ready!(self.metadata_reader.poll_next_unpin(cx)).transpose())
     }
 }
 
@@ -109,7 +77,7 @@ mod test {
     use std::sync::{Arc, RwLock};
 
     use vortex_array::array::{ChunkedArray, StructArray};
-    use vortex_array::compute::unary::scalar_at;
+    use vortex_array::compute::scalar_at;
     use vortex_array::{ArrayDType as _, ArrayData, IntoArrayData as _};
     use vortex_buffer::{Buffer, BufferString};
     use vortex_io::IoDispatcher;
@@ -188,78 +156,76 @@ mod test {
         assert!(metadata_table.len() == 2);
         assert!(metadata_table.iter().all(Option::is_some));
 
-        metadata_table[0]
+        let name_metadata_table = metadata_table[0]
             .as_ref()
             .unwrap()
-            .with_dyn(|name_metadata_table| {
-                let name_metadata_table = name_metadata_table.as_struct_array().unwrap();
+            .as_struct_array()
+            .unwrap();
 
-                let min = name_metadata_table.field_by_name("min").unwrap();
-                let chunk1_min = scalar_at(&min, 0).unwrap();
-                let chunk2_min = scalar_at(&min, 1).unwrap();
-                assert_eq!(
-                    chunk1_min.as_utf8().value(),
-                    Some(BufferString::from("Angela"))
-                );
-                assert_eq!(
-                    chunk2_min.as_utf8().value(),
-                    Some(BufferString::from("Khalil"))
-                );
+        let min = name_metadata_table.field_by_name("min").unwrap();
+        let chunk1_min = scalar_at(&min, 0).unwrap();
+        let chunk2_min = scalar_at(&min, 1).unwrap();
+        assert_eq!(
+            chunk1_min.as_utf8().value(),
+            Some(BufferString::from("Angela"))
+        );
+        assert_eq!(
+            chunk2_min.as_utf8().value(),
+            Some(BufferString::from("Khalil"))
+        );
 
-                let max = name_metadata_table.field_by_name("max").unwrap();
-                let chunk1_max = scalar_at(&max, 0).unwrap();
-                let chunk2_max = scalar_at(&max, 1).unwrap();
-                assert_eq!(
-                    chunk1_max.as_utf8().value(),
-                    Some(BufferString::from("Joseph"))
-                );
-                assert_eq!(
-                    chunk2_max.as_utf8().value(),
-                    Some(BufferString::from("Pharrell"))
-                );
+        let max = name_metadata_table.field_by_name("max").unwrap();
+        let chunk1_max = scalar_at(&max, 0).unwrap();
+        let chunk2_max = scalar_at(&max, 1).unwrap();
+        assert_eq!(
+            chunk1_max.as_utf8().value(),
+            Some(BufferString::from("Joseph"))
+        );
+        assert_eq!(
+            chunk2_max.as_utf8().value(),
+            Some(BufferString::from("Pharrell"))
+        );
 
-                let null_count = name_metadata_table.field_by_name("null_count").unwrap();
-                let chunk1_null_count = scalar_at(&null_count, 0).unwrap();
-                let chunk2_null_count = scalar_at(&null_count, 1).unwrap();
-                assert_eq!(
-                    chunk1_null_count.as_primitive().typed_value::<u64>(),
-                    Some(0)
-                );
-                assert_eq!(
-                    chunk2_null_count.as_primitive().typed_value::<u64>(),
-                    Some(1)
-                );
-            });
+        let null_count = name_metadata_table.field_by_name("null_count").unwrap();
+        let chunk1_null_count = scalar_at(&null_count, 0).unwrap();
+        let chunk2_null_count = scalar_at(&null_count, 1).unwrap();
+        assert_eq!(
+            chunk1_null_count.as_primitive().typed_value::<u64>(),
+            Some(0)
+        );
+        assert_eq!(
+            chunk2_null_count.as_primitive().typed_value::<u64>(),
+            Some(1)
+        );
 
-        metadata_table[1]
+        let age_metadata_table = metadata_table[1]
             .as_ref()
             .unwrap()
-            .with_dyn(|age_metadata_table| {
-                let age_metadata_table = age_metadata_table.as_struct_array().unwrap();
+            .as_struct_array()
+            .unwrap();
 
-                let min = age_metadata_table.field_by_name("min").unwrap();
-                let chunk1_min = scalar_at(&min, 0).unwrap();
-                let chunk2_min = scalar_at(&min, 1).unwrap();
-                assert_eq!(chunk1_min.as_primitive().typed_value::<i32>(), Some(25));
-                assert_eq!(chunk2_min.as_primitive().typed_value::<i32>(), Some(18));
+        let min = age_metadata_table.field_by_name("min").unwrap();
+        let chunk1_min = scalar_at(&min, 0).unwrap();
+        let chunk2_min = scalar_at(&min, 1).unwrap();
+        assert_eq!(chunk1_min.as_primitive().typed_value::<i32>(), Some(25));
+        assert_eq!(chunk2_min.as_primitive().typed_value::<i32>(), Some(18));
 
-                let max = age_metadata_table.field_by_name("max").unwrap();
-                let chunk1_max = scalar_at(&max, 0).unwrap();
-                let chunk2_max = scalar_at(&max, 1).unwrap();
-                assert_eq!(chunk1_max.as_primitive().typed_value::<i32>(), Some(31));
-                assert_eq!(chunk2_max.as_primitive().typed_value::<i32>(), Some(57));
+        let max = age_metadata_table.field_by_name("max").unwrap();
+        let chunk1_max = scalar_at(&max, 0).unwrap();
+        let chunk2_max = scalar_at(&max, 1).unwrap();
+        assert_eq!(chunk1_max.as_primitive().typed_value::<i32>(), Some(31));
+        assert_eq!(chunk2_max.as_primitive().typed_value::<i32>(), Some(57));
 
-                let null_count = age_metadata_table.field_by_name("null_count").unwrap();
-                let chunk1_null_count = scalar_at(&null_count, 0).unwrap();
-                let chunk2_null_count = scalar_at(&null_count, 1).unwrap();
-                assert_eq!(
-                    chunk1_null_count.as_primitive().typed_value::<u64>(),
-                    Some(1)
-                );
-                assert_eq!(
-                    chunk2_null_count.as_primitive().typed_value::<u64>(),
-                    Some(1)
-                );
-            });
+        let null_count = age_metadata_table.field_by_name("null_count").unwrap();
+        let chunk1_null_count = scalar_at(&null_count, 0).unwrap();
+        let chunk2_null_count = scalar_at(&null_count, 1).unwrap();
+        assert_eq!(
+            chunk1_null_count.as_primitive().typed_value::<u64>(),
+            Some(1)
+        );
+        assert_eq!(
+            chunk2_null_count.as_primitive().typed_value::<u64>(),
+            Some(1)
+        );
     }
 }

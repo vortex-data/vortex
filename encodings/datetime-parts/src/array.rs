@@ -2,11 +2,11 @@ use std::fmt::{Debug, Display};
 
 use serde::{Deserialize, Serialize};
 use vortex_array::array::StructArray;
-use vortex_array::compute::unary::try_cast;
+use vortex_array::compute::try_cast;
 use vortex_array::encoding::ids;
 use vortex_array::stats::{Stat, StatisticsVTable, StatsSet};
-use vortex_array::validity::{LogicalValidity, Validity, ValidityVTable};
-use vortex_array::variants::{ArrayVariants, ExtensionArrayTrait};
+use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityVTable};
+use vortex_array::variants::{ExtensionArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
@@ -105,9 +105,7 @@ impl DateTimePartsArray {
 
     pub fn validity(&self) -> Validity {
         if self.dtype().is_nullable() {
-            self.days()
-                .with_dyn(|a| a.logical_validity())
-                .into_validity()
+            self.days().logical_validity().into_validity()
         } else {
             Validity::NonNullable
         }
@@ -116,9 +114,12 @@ impl DateTimePartsArray {
 
 impl ArrayTrait for DateTimePartsArray {}
 
-impl ArrayVariants for DateTimePartsArray {
-    fn as_extension_array(&self) -> Option<&dyn ExtensionArrayTrait> {
-        Some(self)
+impl VariantsVTable<DateTimePartsArray> for DateTimePartsEncoding {
+    fn as_extension_array<'a>(
+        &self,
+        array: &'a DateTimePartsArray,
+    ) -> Option<&'a dyn ExtensionArrayTrait> {
+        Some(array)
     }
 }
 

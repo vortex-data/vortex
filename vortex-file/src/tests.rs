@@ -3,10 +3,11 @@ use std::iter;
 use std::sync::{Arc, RwLock};
 
 use futures::StreamExt;
+use futures_util::TryStreamExt;
 use itertools::Itertools;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::array::{ChunkedArray, PrimitiveArray, StructArray, VarBinArray};
-use vortex_array::compute::unary::scalar_at;
+use vortex_array::compute::scalar_at;
 use vortex_array::validity::Validity;
 use vortex_array::variants::{PrimitiveArrayTrait, StructArrayTrait};
 use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
@@ -319,7 +320,7 @@ async fn unequal_batches() {
         item_count += array.len();
         batch_count += 1;
 
-        let numbers = array.with_dyn(|a| a.as_struct_array_unchecked().field_by_name("numbers"));
+        let numbers = array.as_struct_array().unwrap().field_by_name("numbers");
 
         if let Some(numbers) = numbers {
             let numbers = numbers.into_primitive().unwrap();
@@ -399,7 +400,7 @@ async fn filter_string() {
     writer = writer.write_array_columns(st).await.unwrap();
 
     let written = Buffer::from(writer.finalize().await.unwrap());
-    let mut reader = VortexReadBuilder::new(written, LayoutDeserializer::default())
+    let reader = VortexReadBuilder::new(written, LayoutDeserializer::default())
         .with_row_filter(RowFilter::new(BinaryExpr::new_expr(
             Column::new_expr(Field::from("name")),
             Operator::Eq,
@@ -409,14 +410,9 @@ async fn filter_string() {
         .await
         .unwrap();
 
-    let mut result = Vec::new();
-    while let Some(array) = reader.next().await {
-        result.push(array.unwrap());
-    }
+    let result = reader.try_collect::<Vec<_>>().await.unwrap();
     assert_eq!(result.len(), 1);
-    let names = result[0]
-        .with_dyn(|a| a.as_struct_array_unchecked().field(0))
-        .unwrap();
+    let names = result[0].as_struct_array().unwrap().field(0).unwrap();
     assert_eq!(
         names
             .into_varbinview()
@@ -428,9 +424,7 @@ async fn filter_string() {
             .unwrap(),
         vec!["Joseph".to_string()]
     );
-    let ages = result[0]
-        .with_dyn(|a| a.as_struct_array_unchecked().field(1))
-        .unwrap();
+    let ages = result[0].as_struct_array().unwrap().field(1).unwrap();
     assert_eq!(
         ages.into_primitive().unwrap().maybe_null_slice::<i32>(),
         vec![25]
@@ -487,9 +481,7 @@ async fn filter_or() {
         result.push(array.unwrap());
     }
     assert_eq!(result.len(), 1);
-    let names = result[0]
-        .with_dyn(|a| a.as_struct_array_unchecked().field(0))
-        .unwrap();
+    let names = result[0].as_struct_array().unwrap().field(0).unwrap();
     assert_eq!(
         names
             .into_varbinview()
@@ -501,9 +493,7 @@ async fn filter_or() {
             .unwrap(),
         vec!["Joseph".to_string(), "Angela".to_string()]
     );
-    let ages = result[0]
-        .with_dyn(|a| a.as_struct_array_unchecked().field(1))
-        .unwrap();
+    let ages = result[0].as_struct_array().unwrap().field(1).unwrap();
     assert_eq!(
         ages.into_primitive()
             .unwrap()
@@ -555,9 +545,7 @@ async fn filter_and() {
         result.push(array.unwrap());
     }
     assert_eq!(result.len(), 1);
-    let names = result[0]
-        .with_dyn(|a| a.as_struct_array_unchecked().field(0))
-        .unwrap();
+    let names = result[0].as_struct_array().unwrap().field(0).unwrap();
     assert_eq!(
         names
             .into_varbinview()
@@ -568,9 +556,7 @@ async fn filter_and() {
             .unwrap(),
         vec![Some("Joseph".to_string()), None]
     );
-    let ages = result[0]
-        .with_dyn(|a| a.as_struct_array_unchecked().field(1))
-        .unwrap();
+    let ages = result[0].as_struct_array().unwrap().field(1).unwrap();
     assert_eq!(
         ages.into_primitive().unwrap().maybe_null_slice::<i32>(),
         vec![25, 31]
@@ -872,9 +858,7 @@ async fn filter_string_chunked() {
             .unwrap();
 
     assert_eq!(actual_array.len(), 1);
-    let names = actual_array
-        .with_dyn(|a| a.as_struct_array_unchecked().field(0))
-        .unwrap();
+    let names = actual_array.as_struct_array().unwrap().field(0).unwrap();
     assert_eq!(
         names
             .into_varbinview()
@@ -886,9 +870,7 @@ async fn filter_string_chunked() {
             .unwrap(),
         vec!["Joseph".to_string()]
     );
-    let ages = actual_array
-        .with_dyn(|a| a.as_struct_array_unchecked().field(1))
-        .unwrap();
+    let ages = actual_array.as_struct_array().unwrap().field(1).unwrap();
     assert_eq!(
         ages.into_primitive().unwrap().maybe_null_slice::<i32>(),
         vec![25]
@@ -974,9 +956,7 @@ async fn test_pruning_with_or() {
             .unwrap();
 
     assert_eq!(actual_array.len(), 10);
-    let letters = actual_array
-        .with_dyn(|a| a.as_struct_array_unchecked().field(0))
-        .unwrap();
+    let letters = actual_array.as_struct_array().unwrap().field(0).unwrap();
     assert_eq!(
         letters
             .into_varbinview()
@@ -998,9 +978,7 @@ async fn test_pruning_with_or() {
             Some("P".to_string())
         ]
     );
-    let numbers = actual_array
-        .with_dyn(|a| a.as_struct_array_unchecked().field(1))
-        .unwrap();
+    let numbers = actual_array.as_struct_array().unwrap().field(1).unwrap();
     assert_eq!(
         (0..numbers.len())
             .map(|index| -> Option<i32> {

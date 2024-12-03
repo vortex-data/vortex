@@ -2,34 +2,31 @@
 
 use std::sync::Arc;
 
-use arrow_array::types::{
-    Float16Type, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type, UInt16Type,
-    UInt32Type, UInt64Type, UInt8Type,
-};
 use arrow_array::{
-    ArrayRef, ArrowPrimitiveType, BooleanArray as ArrowBoolArray, Date32Array, Date64Array,
+    ArrayRef, BooleanArray as ArrowBoolArray, Date32Array, Date64Array,
     NullArray as ArrowNullArray, PrimitiveArray as ArrowPrimitiveArray,
     StructArray as ArrowStructArray, Time32MillisecondArray, Time32SecondArray,
     Time64MicrosecondArray, Time64NanosecondArray, TimestampMicrosecondArray,
     TimestampMillisecondArray, TimestampNanosecondArray, TimestampSecondArray,
 };
 use arrow_buffer::ScalarBuffer;
-use arrow_schema::{Field, Fields};
+use arrow_schema::{Field, FieldRef, Fields};
 use vortex_datetime_dtype::{is_temporal_ext_type, TemporalMetadata, TimeUnit};
-use vortex_dtype::{DType, NativePType, PType};
+use vortex_dtype::{match_each_native_ptype, DType, NativePType, PType};
 use vortex_error::{vortex_bail, VortexError, VortexResult};
 
 use crate::array::{
-    varbinview_as_arrow, BoolArray, ExtensionArray, NullArray, PrimitiveArray, StructArray,
-    TemporalArray, VarBinViewArray,
+    varbinview_as_arrow, BoolArray, ExtensionArray, ListArray, NullArray, PrimitiveArray,
+    StructArray, TemporalArray, VarBinViewArray,
 };
+use crate::arrow::wrappers::as_offset_buffer;
 use crate::arrow::{infer_data_type, FromArrowArray};
-use crate::compute::unary::try_cast;
+use crate::compute::try_cast;
 use crate::encoding::Encoding;
 use crate::stats::ArrayStatistics;
 use crate::validity::ArrayValidity;
 use crate::variants::{PrimitiveArrayTrait, StructArrayTrait};
-use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData};
+use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, ToArrayData};
 
 /// The set of canonical array encodings, also the set of encodings that can be transferred to
 /// Arrow with zero-copy.
@@ -60,6 +57,8 @@ pub enum Canonical {
     Bool(BoolArray),
     Primitive(PrimitiveArray),
     Struct(StructArray),
+    // TODO(joe): maybe this should be a ListView, however this will be annoying in spiral
+    List(ListArray),
     VarBinView(VarBinViewArray),
     Extension(ExtensionArray),
 }
@@ -76,6 +75,7 @@ impl Canonical {
             Canonical::Bool(a) => bool_to_arrow(a)?,
             Canonical::Primitive(a) => primitive_to_arrow(a)?,
             Canonical::Struct(a) => struct_to_arrow(a)?,
+            Canonical::List(a) => list_to_arrow(a)?,
             Canonical::VarBinView(a) => varbinview_as_arrow(&a),
             Canonical::Extension(a) => {
                 if is_temporal_ext_type(a.id()) {
@@ -133,6 +133,13 @@ impl Canonical {
         }
     }
 
+    pub fn into_list(self) -> VortexResult<ListArray> {
+        match self {
+            Canonical::List(a) => Ok(a),
+            _ => vortex_bail!("Cannot unwrap StructArray from {:?}", &self),
+        }
+    }
+
     pub fn into_varbinview(self) -> VortexResult<VarBinViewArray> {
         match self {
             Canonical::VarBinView(a) => Ok(a),
@@ -159,28 +166,12 @@ fn bool_to_arrow(bool_array: BoolArray) -> VortexResult<ArrayRef> {
     )))
 }
 
-fn primitive_to_arrow(primitive_array: PrimitiveArray) -> VortexResult<ArrayRef> {
-    fn as_arrow_array_primitive<T: ArrowPrimitiveType>(
-        array: &PrimitiveArray,
-    ) -> VortexResult<Arc<ArrowPrimitiveArray<T>>> {
-        Ok(Arc::new(ArrowPrimitiveArray::new(
-            ScalarBuffer::<T::Native>::new(array.buffer().clone().into_arrow(), 0, array.len()),
+fn primitive_to_arrow(array: PrimitiveArray) -> VortexResult<ArrayRef> {
+    match_each_native_ptype!(array.ptype(), |$P| {
+        Ok(Arc::new(ArrowPrimitiveArray::<<$P as NativePType>::ArrowPrimitiveType>::new(
+            ScalarBuffer::<$P>::new(array.buffer().clone().into_arrow(), 0, array.len()),
             array.logical_validity().to_null_buffer()?,
         )))
-    }
-
-    Ok(match primitive_array.ptype() {
-        PType::U8 => as_arrow_array_primitive::<UInt8Type>(&primitive_array)?,
-        PType::U16 => as_arrow_array_primitive::<UInt16Type>(&primitive_array)?,
-        PType::U32 => as_arrow_array_primitive::<UInt32Type>(&primitive_array)?,
-        PType::U64 => as_arrow_array_primitive::<UInt64Type>(&primitive_array)?,
-        PType::I8 => as_arrow_array_primitive::<Int8Type>(&primitive_array)?,
-        PType::I16 => as_arrow_array_primitive::<Int16Type>(&primitive_array)?,
-        PType::I32 => as_arrow_array_primitive::<Int32Type>(&primitive_array)?,
-        PType::I64 => as_arrow_array_primitive::<Int64Type>(&primitive_array)?,
-        PType::F16 => as_arrow_array_primitive::<Float16Type>(&primitive_array)?,
-        PType::F32 => as_arrow_array_primitive::<Float32Type>(&primitive_array)?,
-        PType::F64 => as_arrow_array_primitive::<Float64Type>(&primitive_array)?,
     })
 }
 
@@ -218,6 +209,49 @@ fn struct_to_arrow(struct_array: StructArray) -> VortexResult<ArrayRef> {
         field_arrays,
         nulls,
     )?))
+}
+
+// TODO(joe): unify with varbin
+fn list_to_arrow(list: ListArray) -> VortexResult<ArrayRef> {
+    let offsets = list
+        .offsets()
+        .into_primitive()
+        .map_err(|err| err.with_context("Failed to canonicalize offsets"))?;
+
+    let offsets = match offsets.ptype() {
+        PType::I32 | PType::I64 => offsets,
+        PType::U64 => try_cast(offsets, PType::I64.into())?.into_primitive()?,
+        PType::U32 => try_cast(offsets, PType::I32.into())?.into_primitive()?,
+
+        // Unless it's u64, everything else can be converted into an i32.
+        _ => try_cast(offsets.to_array(), PType::I32.into())
+            .and_then(|a| a.into_primitive())
+            .map_err(|err| err.with_context("Failed to cast offsets to PrimitiveArray of i32"))?,
+    };
+
+    let field_ref = FieldRef::new(Field::new_list_field(
+        infer_data_type(list.elements().dtype())?,
+        list.validity().nullability().into(),
+    ));
+
+    let values = list.elements().into_canonical()?.into_arrow()?;
+    let nulls = list.logical_validity().to_null_buffer()?;
+
+    Ok(match offsets.ptype() {
+        PType::I32 => Arc::new(arrow_array::ListArray::try_new(
+            field_ref,
+            as_offset_buffer::<i32>(list.offsets().into_primitive()?),
+            values,
+            nulls,
+        )?),
+        PType::I64 => Arc::new(arrow_array::LargeListArray::try_new(
+            field_ref,
+            as_offset_buffer::<i64>(list.offsets().into_primitive()?),
+            values,
+            nulls,
+        )?),
+        _ => vortex_bail!("Invalid offsets type {}", offsets.ptype()),
+    })
 }
 
 fn temporal_to_arrow(temporal_array: TemporalArray) -> VortexResult<ArrayRef> {
@@ -341,6 +375,8 @@ pub trait IntoArrayVariant {
 
     fn into_struct(self) -> VortexResult<StructArray>;
 
+    fn into_list(self) -> VortexResult<ListArray>;
+
     fn into_varbinview(self) -> VortexResult<VarBinViewArray>;
 
     fn into_extension(self) -> VortexResult<ExtensionArray>;
@@ -366,6 +402,10 @@ where
         self.into_canonical()?.into_struct()
     }
 
+    fn into_list(self) -> VortexResult<ListArray> {
+        self.into_canonical()?.into_list()
+    }
+
     fn into_varbinview(self) -> VortexResult<VarBinViewArray> {
         self.into_canonical()?.into_varbinview()
     }
@@ -381,7 +421,10 @@ where
 /// the array's internal codec.
 impl IntoCanonical for ArrayData {
     fn into_canonical(self) -> VortexResult<Canonical> {
-        log::debug!("Canonicalizing array with encoding {:?}", self.encoding());
+        // We only care to know when we canonicalize something non-trivial.
+        if !self.is_canonical() && self.len() > 1 {
+            log::debug!("Canonicalizing array with encoding {:?}", self.encoding());
+        }
         self.encoding().into_canonical(self)
     }
 }
@@ -398,6 +441,7 @@ impl From<Canonical> for ArrayData {
             Canonical::Bool(a) => a.into_array(),
             Canonical::Primitive(a) => a.into_array(),
             Canonical::Struct(a) => a.into_array(),
+            Canonical::List(a) => a.into_array(),
             Canonical::VarBinView(a) => a.into_array(),
             Canonical::Extension(a) => a.into_array(),
         }
@@ -411,6 +455,7 @@ impl AsRef<ArrayData> for Canonical {
             Canonical::Bool(a) => a.as_ref(),
             Canonical::Primitive(a) => a.as_ref(),
             Canonical::Struct(a) => a.as_ref(),
+            Canonical::List(a) => a.as_ref(),
             Canonical::VarBinView(a) => a.as_ref(),
             Canonical::Extension(a) => a.as_ref(),
         }
@@ -424,6 +469,7 @@ impl IntoArrayData for Canonical {
             Canonical::Bool(a) => a.into_array(),
             Canonical::Primitive(a) => a.into_array(),
             Canonical::Struct(a) => a.into_array(),
+            Canonical::List(a) => a.into_array(),
             Canonical::VarBinView(a) => a.into_array(),
             Canonical::Extension(a) => a.into_array(),
         }

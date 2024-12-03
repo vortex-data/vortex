@@ -1,7 +1,11 @@
+mod filter;
+mod take;
+
 use itertools::Itertools as _;
 use vortex_array::array::{PrimitiveArray, TemporalArray};
-use vortex_array::compute::unary::{scalar_at, ScalarAtFn};
-use vortex_array::compute::{slice, take, ComputeVTable, SliceFn, TakeFn, TakeOptions};
+use vortex_array::compute::{
+    scalar_at, slice, ComputeVTable, FilterFn, ScalarAtFn, SliceFn, TakeFn,
+};
 use vortex_array::validity::ArrayValidity;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_datetime_dtype::{TemporalMetadata, TimeUnit};
@@ -12,6 +16,10 @@ use vortex_scalar::Scalar;
 use crate::{DateTimePartsArray, DateTimePartsEncoding};
 
 impl ComputeVTable for DateTimePartsEncoding {
+    fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
+        Some(self)
+    }
+
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
         Some(self)
     }
@@ -22,23 +30,6 @@ impl ComputeVTable for DateTimePartsEncoding {
 
     fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
         Some(self)
-    }
-}
-
-impl TakeFn<DateTimePartsArray> for DateTimePartsEncoding {
-    fn take(
-        &self,
-        array: &DateTimePartsArray,
-        indices: &ArrayData,
-        options: TakeOptions,
-    ) -> VortexResult<ArrayData> {
-        Ok(DateTimePartsArray::try_new(
-            array.dtype().clone(),
-            take(array.days(), indices, options)?,
-            take(array.seconds(), indices, options)?,
-            take(array.subsecond(), indices, options)?,
-        )?
-        .into_array())
     }
 }
 

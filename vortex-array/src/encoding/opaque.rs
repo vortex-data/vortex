@@ -8,9 +8,10 @@ use crate::compute::ComputeVTable;
 use crate::encoding::{EncodingId, EncodingVTable};
 use crate::stats::StatisticsVTable;
 use crate::validity::{LogicalValidity, ValidityVTable};
+use crate::variants::VariantsVTable;
 use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{
-    ArrayData, ArrayMetadata, ArrayTrait, Canonical, IntoCanonicalVTable, MetadataVTable,
+    ArrayData, ArrayMetadata, Canonical, IntoCanonicalVTable, MetadataVTable,
     TrySerializeArrayMetadata,
 };
 
@@ -27,6 +28,8 @@ use crate::{
 #[derive(Debug, Clone, Copy)]
 pub struct OpaqueEncoding(pub u16);
 
+impl VariantsVTable<ArrayData> for OpaqueEncoding {}
+
 impl EncodingVTable for OpaqueEncoding {
     fn id(&self) -> EncodingId {
         EncodingId::new("vortex.opaque", self.0)
@@ -34,17 +37,6 @@ impl EncodingVTable for OpaqueEncoding {
 
     fn as_any(&self) -> &dyn Any {
         self
-    }
-
-    fn with_dyn(
-        &self,
-        _array: &ArrayData,
-        _f: &mut dyn for<'b> FnMut(&'b (dyn ArrayTrait + 'b)) -> VortexResult<()>,
-    ) -> VortexResult<()> {
-        vortex_bail!(
-            "OpaqueEncoding: with_dyn cannot be called for opaque array ({})",
-            self.0
-        )
     }
 }
 

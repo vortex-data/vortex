@@ -1,4 +1,5 @@
-use vortex_array::compute::unary::{scalar_at, ScalarAtFn};
+use vortex_array::compute::{scalar_at, ScalarAtFn};
+use vortex_array::validity::ArrayValidity;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
@@ -10,7 +11,7 @@ impl ScalarAtFn<ALPRDArray> for ALPRDEncoding {
         // The left value can either be a direct value, or an exception.
         // The exceptions array represents exception positions with non-null values.
         let left: u16 = match array.left_parts_exceptions() {
-            Some(exceptions) if exceptions.with_dyn(|a| a.is_valid(index)) => {
+            Some(exceptions) if exceptions.is_valid(index) => {
                 scalar_at(&exceptions, index)?.try_into()?
             }
             _ => {
@@ -36,7 +37,7 @@ impl ScalarAtFn<ALPRDArray> for ALPRDEncoding {
 mod test {
     use rstest::rstest;
     use vortex_array::array::PrimitiveArray;
-    use vortex_array::compute::unary::scalar_at;
+    use vortex_array::compute::scalar_at;
     use vortex_scalar::Scalar;
 
     use crate::{ALPRDFloat, RDEncoder};

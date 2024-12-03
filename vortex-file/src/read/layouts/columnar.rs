@@ -18,8 +18,8 @@ use crate::read::cache::{LazyDType, RelativeLayoutCache};
 use crate::read::expr_project::expr_project;
 use crate::read::mask::RowMask;
 use crate::{
-    BatchRead, Layout, LayoutDeserializer, LayoutId, LayoutReader, MetadataRead, RowFilter, Scan,
-    COLUMNAR_LAYOUT_ID,
+    BatchRead, Layout, LayoutDeserializer, LayoutId, LayoutReader, MetadataRead, PruningRead,
+    RowFilter, Scan, COLUMNAR_LAYOUT_ID,
 };
 
 #[derive(Debug)]
@@ -144,12 +144,12 @@ impl ColumnarLayoutBuilder {
             .map(|e| e.as_any().downcast_ref::<RowFilter>().is_some())
             .unwrap_or(false)
             .then(|| {
-                Arc::new(RowFilter::from_conjunction(
+                RowFilter::from_conjunction_expr(
                     handled_names
                         .iter()
                         .map(|f| Column::new_expr(Field::from(&**f)))
                         .collect(),
-                )) as _
+                )
             });
         let shortcircuit_siblings = top_level_expr.is_some();
         Ok(ColumnarLayoutReader::new(
@@ -191,6 +191,7 @@ impl ColumnarLayoutBuilder {
 }
 
 type InProgressRanges = RwLock<HashMap<(usize, usize), Vec<Option<ArrayData>>>>;
+type InProgressPrunes = RwLock<HashMap<(usize, usize), Vec<Option<bool>>>>;
 
 /// In memory representation of Columnar NestedLayout.
 ///
@@ -199,11 +200,12 @@ type InProgressRanges = RwLock<HashMap<(usize, usize), Vec<Option<ArrayData>>>>;
 pub struct ColumnarLayoutReader {
     names: FieldNames,
     children: Vec<Box<dyn LayoutReader>>,
-    in_progress_ranges: InProgressRanges,
     expr: Option<Arc<dyn VortexExpr>>,
     // TODO(robert): This is a hack/optimization that tells us if we're reducing results with AND or not
     shortcircuit_siblings: bool,
+    in_progress_ranges: InProgressRanges,
     in_progress_metadata: RwLock<HashMap<FieldName, Option<ArrayData>>>,
+    in_progress_prunes: InProgressPrunes,
 }
 
 impl ColumnarLayoutReader {
@@ -225,6 +227,7 @@ impl ColumnarLayoutReader {
             shortcircuit_siblings,
             in_progress_ranges: RwLock::new(HashMap::new()),
             in_progress_metadata: RwLock::new(HashMap::new()),
+            in_progress_prunes: RwLock::new(HashMap::new()),
         }
     }
 }
@@ -257,7 +260,7 @@ impl LayoutReader for ColumnarLayoutReader {
                     BatchRead::ReadMore(message) => {
                         messages.extend(message);
                     }
-                    BatchRead::Batch(arr) => {
+                    BatchRead::Value(arr) => {
                         if self.shortcircuit_siblings
                             && arr.statistics().compute_true_count().vortex_expect(
                                 "must be a bool array if shortcircuit_siblings is set to true",
@@ -299,14 +302,14 @@ impl LayoutReader for ColumnarLayoutReader {
                 .as_ref()
                 .map(|e| e.evaluate(&array))
                 .unwrap_or_else(|| Ok(array))
-                .map(BatchRead::Batch)
+                .map(BatchRead::Value)
                 .map(Some)
         } else {
             Ok(Some(BatchRead::ReadMore(messages)))
         }
     }
 
-    fn read_metadata(&self) -> VortexResult<MetadataRead> {
+    fn read_metadata(&self) -> VortexResult<Option<MetadataRead>> {
         let mut in_progress_metadata = self
             .in_progress_metadata
             .write()
@@ -314,19 +317,20 @@ impl LayoutReader for ColumnarLayoutReader {
         let mut messages = Vec::default();
 
         for (name, child_reader) in self.names.iter().zip(self.children.iter()) {
-            match child_reader.read_metadata()? {
-                MetadataRead::Batches(data) => {
-                    if data.len() != 1 {
-                        vortex_bail!("expected exactly one metadata array per-child");
+            if let Some(child_metadata) = child_reader.read_metadata()? {
+                match child_metadata {
+                    MetadataRead::Value(data) => {
+                        if data.len() != 1 {
+                            vortex_bail!("expected exactly one metadata array per-child");
+                        }
+                        in_progress_metadata.insert(name.clone(), data[0].clone());
                     }
-                    in_progress_metadata.insert(name.clone(), data[0].clone());
+                    MetadataRead::ReadMore(rm) => {
+                        messages.extend(rm);
+                    }
                 }
-                MetadataRead::ReadMore(rm) => {
-                    messages.extend(rm);
-                }
-                MetadataRead::None => {
-                    in_progress_metadata.insert(name.clone(), None);
-                }
+            } else {
+                in_progress_metadata.insert(name.clone(), None);
             }
         }
 
@@ -338,9 +342,49 @@ impl LayoutReader for ColumnarLayoutReader {
                 .map(|name| in_progress_metadata[name].clone()) // TODO(Adam): Some columns might not have statistics
                 .collect::<Vec<_>>();
 
-            Ok(MetadataRead::Batches(child_arrays))
+            Ok(Some(MetadataRead::Value(child_arrays)))
         } else {
-            Ok(MetadataRead::ReadMore(messages))
+            Ok(Some(MetadataRead::ReadMore(messages)))
+        }
+    }
+
+    fn can_prune(&self, begin: usize, end: usize) -> VortexResult<PruningRead> {
+        let mut in_progress_guard = self
+            .in_progress_prunes
+            .write()
+            .unwrap_or_else(|poison| vortex_panic!("Failed to write to message cache: {poison}"));
+        let selection_range = (begin, end);
+        let in_progress_selection = in_progress_guard
+            .entry(selection_range)
+            .or_insert_with(|| vec![None; self.children.len()]);
+        let mut messages = Vec::new();
+        for (i, can_prune_child) in in_progress_selection
+            .iter_mut()
+            .enumerate()
+            .filter(|(_, a)| a.is_none())
+        {
+            match self.children[i].can_prune(begin, end)? {
+                PruningRead::ReadMore(message) => messages.extend(message),
+                PruningRead::Value(is_pruned) => *can_prune_child = Some(is_pruned),
+            }
+        }
+
+        if messages.is_empty() {
+            // Each child's scan expression evaluates to false if and only if our scan expression
+            // would evaluate to false. Examples:
+            //
+            // 1. `x = 3 AND y = 3`: The child scan expressions will be `x = 3` and `y = 3`. If
+            //    either expression is false, the row must be excluded.
+            //
+            // 2. `x = 3 OR y = 3`: The child scan expressions will both be None.
+            let any_child_is_pruned = in_progress_guard
+                .remove(&selection_range)
+                .ok_or_else(|| vortex_err!("There were no can_prune results and no messages"))?
+                .into_iter()
+                .any(|x| x.vortex_expect("all pruned-ness should be available"));
+            Ok(PruningRead::Value(any_child_is_pruned))
+        } else {
+            Ok(PruningRead::ReadMore(messages))
         }
     }
 }
@@ -457,14 +501,18 @@ mod tests {
         let prim_arr = arr
             .as_ref()
             .unwrap()
-            .with_dyn(|a| a.as_struct_array_unchecked().field(0))
+            .as_struct_array()
+            .unwrap()
+            .field(0)
             .unwrap()
             .into_primitive()
             .unwrap();
         let str_arr = arr
             .as_ref()
             .unwrap()
-            .with_dyn(|a| a.as_struct_array_unchecked().field(1))
+            .as_struct_array()
+            .unwrap()
+            .field(1)
             .unwrap()
             .into_varbinview()
             .unwrap();
@@ -495,14 +543,18 @@ mod tests {
         let prim_arr = arr
             .as_ref()
             .unwrap()
-            .with_dyn(|a| a.as_struct_array_unchecked().field(0))
+            .as_struct_array()
+            .unwrap()
+            .field(0)
             .unwrap()
             .into_primitive()
             .unwrap();
         let str_arr = arr
             .as_ref()
             .unwrap()
-            .with_dyn(|a| a.as_struct_array_unchecked().field(1))
+            .as_struct_array()
+            .unwrap()
+            .field(1)
             .unwrap()
             .into_varbinview()
             .unwrap();
@@ -551,22 +603,26 @@ mod tests {
         );
 
         assert_eq!(arr.len(), 2);
-        let prim_arr = arr[0]
-            .with_dyn(|a| a.as_struct_array_unchecked().field(0))
+        let prim_arr_chunk0 = arr[0]
+            .as_struct_array()
+            .unwrap()
+            .field(0)
             .unwrap()
             .into_primitive()
             .unwrap();
-        let str_arr = arr[0]
-            .with_dyn(|a| a.as_struct_array_unchecked().field(1))
+        let str_arr_chunk0 = arr[0]
+            .as_struct_array()
+            .unwrap()
+            .field(1)
             .unwrap()
             .into_varbinview()
             .unwrap();
         assert_eq!(
-            prim_arr.maybe_null_slice::<i32>(),
+            prim_arr_chunk0.maybe_null_slice::<i32>(),
             (100..150).collect::<Vec<_>>()
         );
         assert_eq!(
-            str_arr
+            str_arr_chunk0
                 .with_iterator(|iter| iter
                     .flatten()
                     .map(|s| unsafe { String::from_utf8_unchecked(s.to_vec()) })
@@ -574,22 +630,26 @@ mod tests {
                 .unwrap(),
             iter::repeat("it").take(50).collect::<Vec<_>>()
         );
-        let prim_arr2 = arr[1]
-            .with_dyn(|a| a.as_struct_array_unchecked().field(0))
+        let prim_arr_chunk1 = arr[1]
+            .as_struct_array()
+            .unwrap()
+            .field(0)
             .unwrap()
             .into_primitive()
             .unwrap();
-        let str_arr2 = arr[1]
-            .with_dyn(|a| a.as_struct_array_unchecked().field(1))
+        let str_arr_chunk1 = arr[1]
+            .as_struct_array()
+            .unwrap()
+            .field(1)
             .unwrap()
             .into_varbinview()
             .unwrap();
         assert_eq!(
-            prim_arr2.maybe_null_slice::<i32>(),
+            prim_arr_chunk1.maybe_null_slice::<i32>(),
             (100..150).collect::<Vec<_>>()
         );
         assert_eq!(
-            str_arr2
+            str_arr_chunk1
                 .with_iterator(|iter| iter
                     .flatten()
                     .map(|s| unsafe { String::from_utf8_unchecked(s.to_vec()) })

@@ -195,7 +195,7 @@ mod test {
 
     use vortex_array::accessor::ArrayAccessor;
     use vortex_array::array::{PrimitiveArray, VarBinArray};
-    use vortex_array::compute::unary::scalar_at;
+    use vortex_array::compute::scalar_at;
     use vortex_dtype::Nullability::Nullable;
     use vortex_dtype::{DType, PType};
     use vortex_scalar::Scalar;

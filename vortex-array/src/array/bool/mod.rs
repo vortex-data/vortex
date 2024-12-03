@@ -13,7 +13,7 @@ use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use crate::encoding::ids;
 use crate::stats::StatsSet;
 use crate::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
-use crate::variants::{ArrayVariants, BoolArrayTrait};
+use crate::variants::{BoolArrayTrait, VariantsVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{
     impl_encoding, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData, IntoCanonical,
@@ -178,17 +178,13 @@ impl BoolArray {
 
 impl ArrayTrait for BoolArray {}
 
-impl ArrayVariants for BoolArray {
-    fn as_bool_array(&self) -> Option<&dyn BoolArrayTrait> {
-        Some(self)
+impl VariantsVTable<BoolArray> for BoolEncoding {
+    fn as_bool_array<'a>(&self, array: &'a BoolArray) -> Option<&'a dyn BoolArrayTrait> {
+        Some(array)
     }
 }
 
-impl BoolArrayTrait for BoolArray {
-    fn invert(&self) -> VortexResult<ArrayData> {
-        Ok(BoolArray::try_new(!&self.boolean_buffer(), self.validity())?.into_array())
-    }
-}
+impl BoolArrayTrait for BoolArray {}
 
 impl From<BooleanBuffer> for BoolArray {
     fn from(value: BooleanBuffer) -> Self {
@@ -241,8 +237,7 @@ mod tests {
     use arrow_buffer::BooleanBuffer;
 
     use crate::array::BoolArray;
-    use crate::compute::slice;
-    use crate::compute::unary::scalar_at;
+    use crate::compute::{scalar_at, slice};
     use crate::validity::Validity;
     use crate::{IntoArrayData, IntoArrayVariant};
 
