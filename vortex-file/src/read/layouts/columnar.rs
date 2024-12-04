@@ -1,8 +1,6 @@
 use std::collections::BTreeSet;
 use std::sync::{Arc, RwLock};
 
-use bytes::Bytes;
-use itertools::Itertools;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::array::StructArray;
 use vortex_array::stats::ArrayStatistics;
@@ -32,16 +30,14 @@ impl Layout for ColumnarLayout {
 
     fn reader(
         &self,
-        fb_bytes: Bytes,
-        fb_loc: usize,
+        layout: footer::Layout,
         scan: Scan,
         layout_serde: LayoutDeserializer,
         message_cache: RelativeLayoutCache,
     ) -> VortexResult<Box<dyn LayoutReader>> {
         Ok(Box::new(
             ColumnarLayoutBuilder {
-                fb_bytes,
-                fb_loc,
+                layout,
                 scan,
                 layout_serde,
                 message_cache,
@@ -51,25 +47,17 @@ impl Layout for ColumnarLayout {
     }
 }
 
-struct ColumnarLayoutBuilder {
-    fb_bytes: Bytes,
-    fb_loc: usize,
+struct ColumnarLayoutBuilder<'a> {
+    layout: footer::Layout<'a>,
     scan: Scan,
     layout_serde: LayoutDeserializer,
     message_cache: RelativeLayoutCache,
 }
 
-impl ColumnarLayoutBuilder {
-    fn flatbuffer(&self) -> footer::Layout {
-        unsafe {
-            let tab = flatbuffers::Table::new(&self.fb_bytes, self.fb_loc);
-            footer::Layout::init_from_table(tab)
-        }
-    }
-
+impl ColumnarLayoutBuilder<'_> {
     fn build(&self) -> VortexResult<ColumnarLayoutReader> {
         let (refs, lazy_dtype) = self.fields_with_dtypes()?;
-        let fb_children = self.flatbuffer().children().unwrap_or_default();
+        let fb_children = self.layout.children().unwrap_or_default();
 
         let mut unhandled_names = Vec::new();
         let mut unhandled_children = Vec::new();
@@ -79,7 +67,7 @@ impl ColumnarLayoutBuilder {
         for (field, name) in refs.into_iter().zip_eq(lazy_dtype.names()?.iter()) {
             let resolved_child = lazy_dtype.resolve_field(&field)?;
             let child_field = lazy_dtype.field(&field)?;
-            let child_loc = fb_children.get(resolved_child)._tab.loc();
+            let child_layout = fb_children.get(resolved_child);
             let projected_expr = self
                 .scan
                 .expr
@@ -90,8 +78,7 @@ impl ColumnarLayoutBuilder {
                 self.scan.expr.is_none() || (self.scan.expr.is_some() && projected_expr.is_some());
 
             let child = self.layout_serde.read_layout(
-                self.fb_bytes.clone(),
-                child_loc,
+                child_layout,
                 Scan::new(projected_expr),
                 self.message_cache
                     .relative(resolved_child as u16, child_field),

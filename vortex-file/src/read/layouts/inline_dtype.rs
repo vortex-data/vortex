@@ -25,15 +25,13 @@ impl Layout for InlineDTypeLayout {
 
     fn reader(
         &self,
-        fb_bytes: Bytes,
-        fb_loc: usize,
+        layout: footer::Layout,
         scan: Scan,
         layout_reader: LayoutDeserializer,
         message_cache: RelativeLayoutCache,
     ) -> VortexResult<Box<dyn LayoutReader>> {
         Ok(Box::new(InlineDTypeLayoutReader::new(
-            fb_bytes,
-            fb_loc,
+            layout,
             scan,
             layout_reader,
             message_cache,
@@ -49,7 +47,7 @@ pub struct InlineDTypeLayoutReader {
     scan: Scan,
     layout_builder: LayoutDeserializer,
     message_cache: RelativeLayoutCache,
-    child_layout: OnceCell<Box<dyn LayoutReader>>,
+    child_layout: Box<dyn LayoutReader>,
 }
 
 const INLINE_DTYPE_BUFFER_IDX: LayoutPartId = 0;
@@ -70,13 +68,6 @@ impl InlineDTypeLayoutReader {
             layout_builder,
             message_cache,
             child_layout: OnceCell::new(),
-        }
-    }
-
-    fn flatbuffer(&self) -> footer::Layout {
-        unsafe {
-            let tab = flatbuffers::Table::new(&self.fb_bytes, self.fb_loc);
-            footer::Layout::init_from_table(tab)
         }
     }
 
