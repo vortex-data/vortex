@@ -9,8 +9,8 @@ use vortex_array::stats::{stats_from_bitset_bytes, ArrayStatistics as _, Stat};
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_dtype::{DType, Nullability, StructDType};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
-use vortex_flatbuffers::{footer as fb};
 use vortex_expr::Select;
+use vortex_flatbuffers::footer as fb;
 
 use crate::layouts::RangedLayoutReader;
 use crate::pruning::PruningPredicate;
@@ -67,7 +67,7 @@ struct ChunkedLayoutBuilder<'a> {
 
 impl ChunkedLayoutBuilder<'_> {
     fn metadata_layout(&self) -> VortexResult<Option<Box<dyn LayoutReader>>> {
-        self.flatbuffer()
+        self.layout
             .metadata()
             .map(|m| {
                 let set_stats = stats_from_bitset_bytes(m.bytes());
@@ -77,8 +77,7 @@ impl ChunkedLayoutBuilder<'_> {
                     .ok_or_else(|| vortex_err!("Must have children if layout has metadata"))?
                     .get(0);
                 self.layout_builder.read_layout(
-                    self.fb_bytes.clone(),
-                    metadata_fb._tab.loc(),
+                    metadata_fb,
                     Scan::new(Some(Arc::new(Select::include(
                         set_stats.iter().map(|s| s.to_string().into()).collect(),
                     )))),
@@ -94,23 +93,13 @@ impl ChunkedLayoutBuilder<'_> {
             .transpose()
     }
 
-<<<<<<< HEAD
-    fn has_metadata(&self) -> bool {
-        self.layout
-            .metadata()
-            .map(|b| b.bytes()[0] != 0)
-            .unwrap_or(false)
-    }
-
-=======
->>>>>>> develop
-    fn children(&self) -> impl Iterator<Item = (usize, footer::Layout)> {
+    fn children(&self) -> impl Iterator<Item = (usize, fb::Layout)> {
         self.layout
             .children()
             .unwrap_or_default()
             .iter()
             .enumerate()
-            .skip(if self.flatbuffer().metadata().is_some() {
+            .skip(if self.layout.metadata().is_some() {
                 1
             } else {
                 0

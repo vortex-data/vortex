@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 use std::sync::{Arc, RwLock};
 
+use itertools::Itertools;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::array::StructArray;
 use vortex_array::stats::ArrayStatistics;
@@ -149,7 +150,7 @@ impl ColumnarLayoutBuilder<'_> {
 
     /// Get fields referenced by scan expression along with their dtype
     fn fields_with_dtypes(&self) -> VortexResult<(Vec<Field>, Arc<LazyDType>)> {
-        let fb_children = self.flatbuffer().children().unwrap_or_default();
+        let fb_children = self.layout.children().unwrap_or_default();
         let field_refs = self.scan_fields();
         let lazy_dtype = field_refs
             .as_ref()
@@ -391,7 +392,7 @@ mod tests {
     use vortex_dtype::{DType, Nullability};
     use vortex_expr::{BinaryExpr, Column, Literal, Operator};
 
-    use crate::read::builder::initial_read::{read_initial_bytes, read_layout_from_initial};
+    use crate::read::builder::initial_read::read_initial_bytes;
     use crate::read::cache::RelativeLayoutCache;
     use crate::read::layouts::test_read::{filter_read_layout, read_layout};
     use crate::{
@@ -443,20 +444,20 @@ mod tests {
 
         let dtype = Arc::new(initial_read.lazy_dtype().unwrap());
         (
-            read_layout_from_initial(
-                &initial_read,
-                &layout_serde,
-                scan,
-                RelativeLayoutCache::new(cache.clone(), dtype.clone()),
-            )
-            .unwrap(),
-            read_layout_from_initial(
-                &initial_read,
-                &layout_serde,
-                Scan::new(None),
-                RelativeLayoutCache::new(cache.clone(), dtype),
-            )
-            .unwrap(),
+            layout_serde
+                .read_layout(
+                    initial_read.fb_layout().unwrap(),
+                    scan,
+                    RelativeLayoutCache::new(cache.clone(), dtype.clone()),
+                )
+                .unwrap(),
+            layout_serde
+                .read_layout(
+                    initial_read.fb_layout().unwrap(),
+                    Scan::new(None),
+                    RelativeLayoutCache::new(cache.clone(), dtype),
+                )
+                .unwrap(),
             Bytes::copy_from_slice(&written),
             len,
         )

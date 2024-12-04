@@ -1,6 +1,6 @@
 use std::sync::{Arc, RwLock};
 
-use initial_read::{read_initial_bytes, read_layout_from_initial};
+use initial_read::read_initial_bytes;
 use vortex_array::{ArrayDType, ArrayData};
 use vortex_error::VortexResult;
 use vortex_expr::Select;
@@ -130,9 +130,8 @@ impl<R: VortexReadAt + Unpin> VortexReadBuilder<R> {
         };
 
         let message_cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
-        let layout_reader = read_layout_from_initial(
-            &initial_read,
-            &self.layout_serde,
+        let layout_reader = self.layout_serde.read_layout(
+            initial_read.fb_layout()?,
             Scan::new(match read_projection {
                 Projection::All => None,
                 Projection::Flat(p) => Some(Arc::new(Select::include(p))),
@@ -143,9 +142,8 @@ impl<R: VortexReadAt + Unpin> VortexReadBuilder<R> {
         let filter_reader = self
             .row_filter
             .map(|row_filter| {
-                read_layout_from_initial(
-                    &initial_read,
-                    &self.layout_serde,
+                self.layout_serde.read_layout(
+                    initial_read.fb_layout()?,
                     Scan::new(Some(Arc::new(row_filter))),
                     RelativeLayoutCache::new(message_cache.clone(), lazy_dtype),
                 )
