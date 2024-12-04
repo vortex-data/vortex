@@ -4,6 +4,7 @@ use std::fmt::{Display, Formatter};
 use std::hash::Hash;
 use std::sync::Arc;
 
+use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, Buffer, MutableBuffer};
 use enum_iterator::{cardinality, Sequence};
 use enum_map::Enum;
 use itertools::Itertools;
@@ -96,10 +97,31 @@ impl Stat {
             Stat::UncompressedSizeInBytes => DType::Primitive(PType::U64, NonNullable),
         }
     }
+}
 
-    pub fn cardinality() -> usize {
-        cardinality::<Stat>()
+pub fn as_stat_bitset_bytes(stats: &[Stat]) -> Vec<u8> {
+    let stat_count = cardinality::<Stat>();
+    let mut stat_bitset = BooleanBufferBuilder::new_from_buffer(
+        MutableBuffer::from_len_zeroed(stat_count.div_ceil(8)),
+        stat_count,
+    );
+    for stat in stats {
+        stat_bitset.set_bit(u8::from(*stat) as usize, true);
     }
+
+    stat_bitset
+        .finish()
+        .into_inner()
+        .into_vec()
+        .unwrap_or_else(|b| b.to_vec())
+}
+
+pub fn stats_from_bitset_bytes(bytes: &[u8]) -> Vec<Stat> {
+    BooleanBuffer::new(Buffer::from(bytes), 0, bytes.len() * 8)
+        .set_indices()
+        // Filter out indices failing conversion, these are stats written by newer version of library
+        .filter_map(|i| Stat::try_from(i as u8).ok())
+        .collect::<Vec<_>>()
 }
 
 impl Display for Stat {

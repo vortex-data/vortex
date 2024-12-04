@@ -1,13 +1,12 @@
 use std::collections::BTreeSet;
 use std::sync::{Arc, OnceLock, RwLock};
 
-use arrow_buffer::{BooleanBuffer, Buffer};
 use bytes::Bytes;
 use itertools::Itertools;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::array::ChunkedArray;
 use vortex_array::compute::{scalar_at, take, TakeOptions};
-use vortex_array::stats::{ArrayStatistics as _, Stat};
+use vortex_array::stats::{stats_from_bitset_bytes, ArrayStatistics as _, Stat};
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_dtype::{DType, Nullability, StructDType};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
@@ -82,13 +81,7 @@ impl ChunkedLayoutBuilder {
         self.flatbuffer()
             .metadata()
             .map(|m| {
-                let set_stats = BooleanBuffer::new(Buffer::from(m.bytes()), 0, m.bytes().len() * 8)
-                    .set_indices()
-                    .map(|i| {
-                        Stat::try_from(i as u8)
-                            .map_err(|e| vortex_err!("Cannot create stat from bitset index {e}"))
-                    })
-                    .collect::<VortexResult<Vec<_>>>()?;
+                let set_stats = stats_from_bitset_bytes(m.bytes());
                 let metadata_fb = self
                     .flatbuffer()
                     .children()

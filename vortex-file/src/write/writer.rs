@@ -1,12 +1,11 @@
 use std::{io, iter, mem};
 
-use arrow_buffer::{BooleanBufferBuilder, MutableBuffer};
 use bytes::Bytes;
 use flatbuffers::FlatBufferBuilder;
 use futures::TryStreamExt;
 use itertools::Itertools;
 use vortex_array::array::{ChunkedArray, StructArray};
-use vortex_array::stats::{ArrayStatistics, Stat};
+use vortex_array::stats::{as_stat_bitset_bytes, ArrayStatistics, Stat};
 use vortex_array::stream::ArrayStream;
 use vortex_array::{ArrayData, ArrayLen};
 use vortex_buffer::io_buf::IoBuf;
@@ -19,7 +18,7 @@ use vortex_ipc::messages::IPCSchema;
 use vortex_ipc::stream_writer::ByteRange;
 
 use crate::write::postscript::Postscript;
-use crate::write::stats_accumulator::StatsAccumulator;
+use crate::write::stats_accumulator::{StatArray, StatsAccumulator};
 use crate::{LayoutSpec, EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
 
 const STATS_TO_WRITE: &[Stat] = &[
@@ -273,17 +272,10 @@ impl ColumnWriter {
                     .map(|(range, len)| LayoutSpec::flat(range, len))
             });
 
-        if let Some((metadata_array, present_stats)) = self.metadata.into_array()? {
+        if let Some(StatArray(metadata_array, present_stats)) = self.metadata.into_array()? {
             let expected_n_data_chunks = metadata_array.len();
 
-            let stat_count = Stat::cardinality();
-            let mut stat_bitset = BooleanBufferBuilder::new_from_buffer(
-                MutableBuffer::from_len_zeroed(stat_count.div_ceil(8)),
-                stat_count,
-            );
-            for stat in present_stats {
-                stat_bitset.set_bit(u8::from(stat) as usize, true);
-            }
+            let stat_bitset = as_stat_bitset_bytes(&present_stats);
 
             let metadata_array_begin = msgs.tell();
             msgs.write_batch(metadata_array).await?;
@@ -307,13 +299,7 @@ impl ColumnWriter {
             Ok(LayoutSpec::chunked(
                 layouts,
                 row_count,
-                Some(Bytes::from(
-                    stat_bitset
-                        .finish()
-                        .into_inner()
-                        .into_vec()
-                        .unwrap_or_else(|b| b.to_vec()),
-                )),
+                Some(Bytes::from(stat_bitset)),
             ))
         } else {
             Ok(LayoutSpec::chunked(data_chunks.collect(), row_count, None))

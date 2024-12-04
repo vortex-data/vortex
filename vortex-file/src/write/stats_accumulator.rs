@@ -42,7 +42,7 @@ impl StatsAccumulator {
         Ok(())
     }
 
-    pub fn into_array(mut self) -> VortexResult<Option<(ArrayData, Vec<Stat>)>> {
+    pub fn into_array(mut self) -> VortexResult<Option<StatArray>> {
         let mut names = Vec::new();
         let mut fields = Vec::new();
         let mut stats = Vec::new();
@@ -66,10 +66,12 @@ impl StatsAccumulator {
             return Ok(None);
         }
 
-        Ok(Some((
+        Ok(Some(StatArray(
             StructArray::try_new(names.into(), fields, self.length, Validity::NonNullable)?
                 .into_array(),
             stats,
         )))
     }
 }
+
+pub struct StatArray(pub ArrayData, pub Vec<Stat>);
