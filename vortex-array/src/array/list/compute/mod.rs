@@ -1,15 +1,16 @@
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_dtype::{DType, PType};
+use vortex_dtype::{match_each_integer_ptype, DType, PType};
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::array::{ListArray, ListEncoding};
 use crate::compute::{
-    div, list_sum, scalar_at, slice, sub, try_cast, ComputeVTable, ListFn, ScalarAtFn, SliceFn,
+    div, list_sum, scalar_at, slice, sub, sum, try_cast, ComputeVTable, ListFn, ScalarAtFn, SliceFn,
 };
-use crate::{ArrayDType, ArrayData, IntoArrayData};
+use crate::variants::PrimitiveArrayTrait as _;
+use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant as _};
 
 impl ComputeVTable for ListEncoding {
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
@@ -46,8 +47,15 @@ impl SliceFn<ListArray> for ListEncoding {
 }
 
 impl ListFn<ListArray> for ListEncoding {
-    fn sum(&self, _array: &ListArray) -> VortexResult<ArrayData> {
-        todo!()
+    fn sum(&self, array: &ListArray) -> VortexResult<ArrayData> {
+        let offsets = array.offsets().into_primitive()?;
+        let elements = array.elements();
+
+        match_each_integer_ptype!(offsets.ptype(), |$P| {
+            let offsets = offsets.maybe_null_slice::<$P>().iter().map(|x| *x as u64).collect::<Vec<u64>>();
+            sum(elements, &offsets)
+        })
+
         // let offsets = array.offsets().into_primitive()?;
         // let elements = array.elements();
         //

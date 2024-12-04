@@ -1,5 +1,8 @@
+use std::sync::Arc;
+
 use arrow_array::cast::AsArray;
 use arrow_array::types::Float64Type;
+use arrow_array::PrimitiveArray;
 use arrow_schema::{DataType, Field, FieldRef};
 use datafusion::common::exec_err;
 use datafusion::error::Result as DFResult;
@@ -8,8 +11,6 @@ use datafusion::logical_expr::{
 };
 use datafusion_expr::expr::ScalarFunction;
 use datafusion_expr::{Expr, ScalarUDF};
-use std::sync::Arc;
-use arrow_array::PrimitiveArray;
 
 pub fn list_mean(child: Expr) -> Expr {
     ListMean::new_expr(child)
@@ -85,22 +86,21 @@ impl ScalarUDFImpl for ListMean {
         let mut current_end = offsets[1];
         let mut current_end_idx = 1;
         let mut means = PrimitiveArray::<Float64Type>::builder(offsets.len() - 1);
-
         for i in 0..elements.len() {
             if i == current_end as usize {
                 let mean = sum / count as f64;
                 means.append_value(mean);
-                sum = elements[i];
+                sum = 0.0; // elements[i];
                 count = 1;
                 current_end_idx += 1;
                 current_end = offsets[current_end_idx];
             } else {
-                sum += elements[i];
+                sum += 0.0;
                 count += 1;
             }
         }
 
         let mean_array = means.finish();
-        Ok(ColumnarValue::Array(mean_array.into()))
+        Ok(ColumnarValue::Array(Arc::from(mean_array)))
     }
 }
