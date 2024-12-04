@@ -48,7 +48,7 @@ where
     E: FmaFn<E::Array>,
     for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
 {
-    fn fma(&self, array: &ArrayData, ends: &[u64], values: ArrayData) -> VortexResult<ArrayData> {
+    fn fma(&self, array: &ArrayData, ends: &[u64], values: &ArrayData) -> VortexResult<ArrayData> {
         let array_ref = <&E::Array>::try_from(array)?;
         let encoding = array
             .encoding()
