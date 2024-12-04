@@ -1,6 +1,5 @@
 mod compare;
 mod invert;
-mod sum;
 
 use std::cmp::min;
 use std::ops::AddAssign;
@@ -42,10 +41,6 @@ impl ComputeVTable for RunEndEncoding {
     }
 
     fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
-        Some(self)
-    }
-
-    fn sum_fn(&self) -> Option<&dyn SumFn<ArrayData>> {
         Some(self)
     }
 }

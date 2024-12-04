@@ -1,18 +1,15 @@
 use std::sync::Arc;
 
-use arrow_array::types::Float64Type;
-use arrow_array::PrimitiveArray;
 use itertools::Itertools;
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::array::{ListArray, ListEncoding};
-use crate::arrow::FromArrowArray;
 use crate::compute::{
     div, list_sum, scalar_at, slice, sub, try_cast, ComputeVTable, ListFn, ScalarAtFn, SliceFn,
 };
-use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
+use crate::{ArrayDType, ArrayData, IntoArrayData};
 
 impl ComputeVTable for ListEncoding {
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
@@ -49,25 +46,26 @@ impl SliceFn<ListArray> for ListEncoding {
 }
 
 impl ListFn<ListArray> for ListEncoding {
-    fn sum(&self, array: &ListArray) -> VortexResult<ArrayData> {
-        let offsets = array.offsets().into_primitive()?;
-        let elements = array.elements();
-
-        let ends = offsets.maybe_null_slice::<i32>();
-        let mut sums = PrimitiveArray::<Float64Type>::builder(array.len() - 1);
-
-        let elements = elements.into_primitive()?;
-        let elements = elements.maybe_null_slice::<f64>();
-
-        // TODO(marko): This is going to be slow...
-        let mut start = 0;
-        for &end in ends.iter().skip(1) {
-            sums.append_value(elements[start as usize..end as usize].iter().sum());
-            start = end;
-        }
-
-        let sums_array = sums.finish();
-        Ok(ArrayData::from_arrow(&sums_array, false))
+    fn sum(&self, _array: &ListArray) -> VortexResult<ArrayData> {
+        todo!()
+        // let offsets = array.offsets().into_primitive()?;
+        // let elements = array.elements();
+        //
+        // let ends = offsets.maybe_null_slice::<i32>();
+        // let mut sums = PrimitiveArray::<Float64Type>::builder(array.len() - 1);
+        //
+        // let elements = elements.into_primitive()?;
+        // let elements = elements.maybe_null_slice::<f64>();
+        //
+        // // TODO(marko): This is going to be slow...
+        // let mut start = 0;
+        // for &end in ends.iter().skip(1) {
+        //     sums.append_value(elements[start as usize..end as usize].iter().sum());
+        //     start = end;
+        // }
+        //
+        // let sums_array = sums.finish();
+        // Ok(ArrayData::from_arrow(&sums_array, false))
     }
 
     fn mean(&self, array: &ListArray) -> VortexResult<ArrayData> {
