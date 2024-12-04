@@ -1,21 +1,21 @@
+use aggregate::sum_array;
+use arrow_arith::aggregate;
 use arrow_array::cast::AsArray;
 use arrow_array::types::{
     Float16Type, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type, UInt16Type,
-    UInt32Type, UInt64Type, UInt8Type,
+    UInt32Type, UInt64Type,
 };
-use arrow_array::{downcast_primitive, ArrayRef};
+use arrow_array::{Array, ArrayRef, ArrowNativeTypeOp, ArrowNumericType};
 use arrow_schema::DataType;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
+use vortex_error::{vortex_err, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::encoding::Encoding;
 use crate::{ArrayDType, ArrayData, IntoCanonical};
 
 pub trait SumFn<Array> {
-    fn sum(&self, array: &Array) -> VortexResult<Scalar>;
-
-    fn sum_sq(&self, array: &Array) -> VortexResult<Scalar>;
+    fn sum(&self, array: &Array, ends: &[u64]) -> VortexResult<ArrayData>;
 }
 
 impl<E: Encoding> SumFn<ArrayData> for E
@@ -23,109 +23,53 @@ where
     E: SumFn<E::Array>,
     for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
 {
-    fn sum(&self, array: &ArrayData) -> VortexResult<Scalar> {
+    fn sum(&self, array: &ArrayData, ends: &[u64]) -> VortexResult<ArrayData> {
         let array_ref = <&E::Array>::try_from(array)?;
         let encoding = array
             .encoding()
             .as_any()
             .downcast_ref::<E>()
             .ok_or_else(|| vortex_err!("Mismatched encoding"))?;
-        SumFn::sum(encoding, array_ref)
+        SumFn::sum(encoding, array_ref, ends)
     }
 
-    fn sum_sq(&self, array: &ArrayData) -> VortexResult<Scalar> {
-        let array_ref = <&E::Array>::try_from(array)?;
-        let encoding = array
-            .encoding()
-            .as_any()
-            .downcast_ref::<E>()
-            .ok_or_else(|| vortex_err!("Mismatched encoding"))?;
-        SumFn::sum_sq(encoding, array_ref)
-    }
+    // fn sum_sq(&self, array: &ArrayData) -> VortexResult<Scalar> {
+    //     let array_ref = <&E::Array>::try_from(array)?;
+    //     let encoding = array
+    //         .encoding()
+    //         .as_any()
+    //         .downcast_ref::<E>()
+    //         .ok_or_else(|| vortex_err!("Mismatched encoding"))?;
+    //     SumFn::sum_sq(encoding, array_ref)
+    // }
 }
 
 #[allow(dead_code)]
-pub fn sum(array: impl AsRef<ArrayData>) -> VortexResult<Scalar> {
+pub fn sum(array: impl AsRef<ArrayData>, ends: &[u64]) -> VortexResult<ArrayData> {
     let array = array.as_ref();
 
     if let Some(f) = array.encoding().sum_fn() {
-        return f.sum(array);
+        return f.sum(array, ends);
     }
+
+    let dt = array.dtype();
 
     // if subtraction is not implemented for the given array type, but the array has a numeric
     // DType, we can flatten the array and apply subtraction to the flattened primitive array
-    match array.dtype() {
+    match dt {
         DType::Primitive(..) => {
             let arr = array.clone().into_canonical()?.into_arrow()?;
-
-            let dt = arr.data_type();
-
-            match dt {
-                DataType::Int8 => Ok(Scalar::from(
-                    arrow_arith::aggregate::sum_array::<Int8Type, _>(
-                        arr.as_primitive::<Int8Type>(),
-                    ),
-                )),
-                DataType::Int16 => Ok(Scalar::from(arrow_arith::aggregate::sum_array::<
-                    Int16Type,
-                    _,
-                >(
-                    arr.as_primitive::<Int16Type>()
-                ))),
-                DataType::Int32 => Ok(Scalar::from(arrow_arith::aggregate::sum_array::<
-                    Int32Type,
-                    _,
-                >(
-                    arr.as_primitive::<Int32Type>()
-                ))),
-                DataType::Int64 => Ok(Scalar::from(arrow_arith::aggregate::sum_array::<
-                    Int64Type,
-                    _,
-                >(
-                    arr.as_primitive::<Int64Type>()
-                ))),
-                DataType::UInt8 => Ok(Scalar::from(arrow_arith::aggregate::sum_array::<
-                    UInt8Type,
-                    _,
-                >(
-                    arr.as_primitive::<UInt8Type>()
-                ))),
-                DataType::UInt16 => Ok(Scalar::from(arrow_arith::aggregate::sum_array::<
-                    UInt16Type,
-                    _,
-                >(
-                    arr.as_primitive::<UInt16Type>()
-                ))),
-                DataType::UInt32 => Ok(Scalar::from(arrow_arith::aggregate::sum_array::<
-                    UInt32Type,
-                    _,
-                >(
-                    arr.as_primitive::<UInt32Type>()
-                ))),
-                DataType::UInt64 => Ok(Scalar::from(arrow_arith::aggregate::sum_array::<
-                    UInt64Type,
-                    _,
-                >(
-                    arr.as_primitive::<UInt64Type>()
-                ))),
-                DataType::Float16 => Ok(Scalar::from(arrow_arith::aggregate::sum_array::<
-                    Float16Type,
-                    _,
-                >(
-                    arr.as_primitive::<Float16Type>()
-                ))),
-                DataType::Float32 => Ok(Scalar::from(arrow_arith::aggregate::sum_array::<
-                    Float32Type,
-                    _,
-                >(
-                    arr.as_primitive::<Float32Type>()
-                ))),
-                DataType::Float64 => Ok(Scalar::from(arrow_arith::aggregate::sum_array::<
-                    Float64Type,
-                    _,
-                >(
-                    arr.as_primitive::<Float64Type>()
-                ))),
+            match arr.data_type() {
+                DataType::Int8 => Ok(ends_add::<Int8Type>(arr, ends).into()),
+                DataType::Int16 => Ok(ends_add::<Int16Type>(arr, ends).into()),
+                DataType::Int32 => Ok(ends_add::<Int32Type>(arr, ends).into()),
+                DataType::Int64 => Ok(ends_add::<Int64Type>(arr, ends).into()),
+                DataType::UInt16 => Ok(ends_add::<UInt16Type>(arr, ends).into()),
+                DataType::UInt32 => Ok(ends_add::<UInt32Type>(arr, ends).into()),
+                DataType::UInt64 => Ok(ends_add::<UInt64Type>(arr, ends).into()),
+                DataType::Float16 => Ok(ends_add::<Float16Type>(arr, ends).into()),
+                DataType::Float32 => Ok(ends_add::<Float32Type>(arr, ends).into()),
+                DataType::Float64 => Ok(ends_add::<Float64Type>(arr, ends).into()),
                 _ => todo!(),
             }
         }
@@ -136,64 +80,47 @@ pub fn sum(array: impl AsRef<ArrayData>) -> VortexResult<Scalar> {
     }
 }
 
-#[allow(dead_code)]
-fn sum_p(a: ArrayRef) -> Scalar {
-    let pa = a.as_primitive::<Int32Type>();
-    let res = arrow_arith::aggregate::sum_array::<Int32Type, _>(pa);
-    Scalar::from(res)
+fn ends_add<T>(arr: ArrayRef, ends: &[u64]) -> Vec<T::Native>
+where
+    T: ArrowNumericType,
+    T::Native: ArrowNativeTypeOp,
+{
+    let mut res = Vec::with_capacity(ends.len());
+    let mut start = 0;
+    let prim = arr.as_primitive::<T>();
+    for &end in ends {
+        let slice = prim.slice(start, end as usize);
+        res.push(
+            sum_array::<T, _>(&slice)
+                .map(|v| v)
+                .unwrap_or(T::Native::ZERO),
+        );
+        start = end as usize;
+    }
+    res
 }
 
 #[allow(dead_code)]
-pub fn sum_sq(array: impl AsRef<ArrayData>) -> VortexResult<Scalar> {
-    let array = array.as_ref();
-
-    if let Some(f) = array.encoding().sum_fn() {
-        return f.sum_sq(array);
-    }
-
-    // if subtraction is not implemented for the given array type, but the array has a numeric
-    // DType, we can flatten the array and apply subtraction to the flattened primitive array
-    match array.dtype() {
-        DType::Primitive(..) => {
-            let arr = array.clone().into_canonical()?.into_arrow()?;
-
-            let arr = arrow_arith::numeric::mul(&arr.clone(), &arr)?;
-
-            let dt = arr.data_type();
-
-            macro_rules! primitive_helper {
-                ($T:ty) => {
-                    Scalar::from(arrow_arith::aggregate::sum_array::<Int32Type, _>(
-                        arr.as_primitive::<Int32Type>(),
-                    ))
-                };
-            }
-
-            Ok(downcast_primitive!(
-                dt => (primitive_helper),
-                _ => vortex_bail!("Expected numeric array")
-            ))
-        }
-        _ => Err(vortex_err!(
-            NotImplemented: "sum_sq",
-            array.encoding().id()
-        )),
-    }
+fn sum_p(a: ArrayRef) -> Scalar {
+    let pa = a.as_primitive::<Int32Type>();
+    let res = sum_array::<Int32Type, _>(pa);
+    Scalar::from(res)
 }
 
 #[cfg(test)]
 mod tests {
     use crate::array::PrimitiveArray;
-    use crate::compute::sum::{sum, sum_sq};
-    use crate::IntoArrayData;
+    use crate::compute::sum::sum;
+    use crate::{IntoArrayData, IntoArrayVariant};
 
     #[test]
     fn test_sum() {
         let elements = PrimitiveArray::from(vec![1i32, 2, 3, 4, 5]);
 
-        let sum_ = sum(elements.clone().into_array()).unwrap();
-        println!("sum {:?}", sum_);
-        let sum_sq_ = sum_sq(elements.into_array()).unwrap();
-        println!("sum sq {:?}", sum_sq_)
+        let sum_ = sum(elements.clone().into_array(), vec![5].as_slice()).unwrap();
+        assert_eq!(
+            sum_.into_primitive().unwrap().maybe_null_slice::<i32>(),
+            &[15]
+        );
     }
 }
