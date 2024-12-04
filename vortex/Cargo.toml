@@ -49,6 +49,7 @@ vortex-zigzag = { workspace = true }
 vortex-roaring = { workspace = true }
 
 [features]
+tokio = ["vortex-io/tokio"]
 object_store = ["vortex-file/object_store"]
 parquet = ["vortex-error/parquet"]
 python = ["vortex-error/python"]
