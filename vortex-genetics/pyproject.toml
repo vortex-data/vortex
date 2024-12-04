@@ -8,6 +8,7 @@ dependencies = [
     "vortex-array",
     "hail>=0.2.133",
     "pyarrow>=18.1.0",
+    "pcodec>=0.3.2"
 ]
 
 [tool.uv]
