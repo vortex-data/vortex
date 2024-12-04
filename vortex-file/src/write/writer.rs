@@ -8,7 +8,7 @@ use itertools::Itertools;
 use vortex_array::array::{ChunkedArray, StructArray};
 use vortex_array::stats::{ArrayStatistics, Stat};
 use vortex_array::stream::ArrayStream;
-use vortex_array::{ArrayDType, ArrayData, ArrayLen};
+use vortex_array::{ArrayData, ArrayLen};
 use vortex_buffer::io_buf::IoBuf;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
@@ -303,10 +303,17 @@ impl ColumnWriter {
                     layouts.len()
                 );
             }
+
             Ok(LayoutSpec::chunked(
                 layouts,
                 row_count,
-                Some(Bytes::copy_from_slice(stat_bitset.as_slice())),
+                Some(Bytes::from(
+                    stat_bitset
+                        .finish()
+                        .into_inner()
+                        .into_vec()
+                        .unwrap_or_else(|b| b.to_vec()),
+                )),
             ))
         } else {
             Ok(LayoutSpec::chunked(data_chunks.collect(), row_count, None))
