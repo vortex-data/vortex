@@ -37,20 +37,16 @@ impl EncodingCompressor for StructCompressor {
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
         let array = StructArray::try_from(array.clone())?;
-
-        let (validity, validity_path) = ctx.compress_validity(
-            array.validity(),
-            like.as_ref().and_then(|l| l.child(array.nfields())),
-        )?;
+        let compressed_validity = ctx.compress_validity(array.validity())?;
 
         let children_trees = match like {
             Some(tree) => tree.children,
             None => vec![None; array.nfields()],
         };
 
-        let (arrays, mut trees): (Vec<_>, Vec<_>) = array
+        let (arrays, trees) = array
             .children()
-            .zip_eq(children_trees.iter().take(array.nfields()))
+            .zip_eq(children_trees)
             .map(|(array, like)| {
                 // these are extremely valuable when reading/writing, but are potentially much more expensive
                 // to compute post-compression. That's because not all encodings implement stats, so we would
@@ -61,11 +57,14 @@ impl EncodingCompressor for StructCompressor {
             })
             .process_results(|iter| iter.map(|x| (x.array, x.path)).unzip())?;
 
-        trees.push(validity_path);
-
         Ok(CompressedArray::compressed(
-            StructArray::try_new(array.names().clone(), arrays, array.len(), validity)?
-                .into_array(),
+            StructArray::try_new(
+                array.names().clone(),
+                arrays,
+                array.len(),
+                compressed_validity,
+            )?
+            .into_array(),
             Some(CompressionTree::new(self, trees)),
             Some(array.statistics()),
         ))

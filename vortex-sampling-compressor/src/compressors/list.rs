@@ -39,25 +39,16 @@ impl EncodingCompressor for ListCompressor {
             &list_array.offsets(),
             like.as_ref().and_then(|l| l.child(1)),
         )?;
-        let (validity, validity_path) = ctx.compress_validity(
-            list_array.validity(),
-            like.as_ref().and_then(|l| l.child(2)),
-        )?;
-
         Ok(CompressedArray::compressed(
             ListArray::try_new(
                 compressed_elements.array,
                 compressed_offsets.array,
-                validity,
+                list_array.validity(),
             )?
             .into_array(),
             Some(CompressionTree::new(
                 self,
-                vec![
-                    compressed_elements.path,
-                    compressed_offsets.path,
-                    validity_path,
-                ],
+                vec![compressed_elements.path, compressed_offsets.path, None],
             )),
             Some(array.statistics()),
         ))

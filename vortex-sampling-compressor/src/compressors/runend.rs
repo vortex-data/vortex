@@ -60,17 +60,16 @@ impl EncodingCompressor for RunEndCompressor {
             .excluding(self)
             .compress(&values.into_array(), like.as_ref().and_then(|l| l.child(1)))?;
 
-        let (validity, validity_path) = ctx.compress_validity(
-            primitive_array.validity(),
-            like.as_ref().and_then(|l| l.child(2)),
-        )?;
-
         Ok(CompressedArray::compressed(
-            RunEndArray::try_new(compressed_ends.array, compressed_values.array, validity)
-                .map(|a| a.into_array())?,
+            RunEndArray::try_new(
+                compressed_ends.array,
+                compressed_values.array,
+                ctx.compress_validity(primitive_array.validity())?,
+            )
+            .map(|a| a.into_array())?,
             Some(CompressionTree::new(
                 self,
-                vec![compressed_ends.path, compressed_values.path, validity_path],
+                vec![compressed_ends.path, compressed_values.path],
             )),
             Some(array.statistics()),
         ))

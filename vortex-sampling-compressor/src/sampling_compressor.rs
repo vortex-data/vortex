@@ -159,17 +159,10 @@ impl<'a> SamplingCompressor<'a> {
         Ok(compressed)
     }
 
-    pub fn compress_validity(
-        &self,
-        validity: Validity,
-        like: Option<&CompressionTree<'a>>,
-    ) -> VortexResult<(Validity, Option<CompressionTree<'a>>)> {
+    pub fn compress_validity(&self, validity: Validity) -> VortexResult<Validity> {
         match validity {
-            Validity::Array(a) => {
-                let val = self.named("validity").compress(&a, like)?;
-                Ok((Validity::Array(val.clone().into_array()), val.into_path()))
-            }
-            a => Ok((a, None)),
+            Validity::Array(a) => Ok(Validity::Array(self.compress(&a, None)?.into_array())),
+            a => Ok(a),
         }
     }
 

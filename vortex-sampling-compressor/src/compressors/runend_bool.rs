@@ -45,17 +45,10 @@ impl EncodingCompressor for RunEndBoolCompressor {
             .auxiliary("ends")
             .compress(&ends.into_array(), like.as_ref().and_then(|l| l.child(0)))?;
 
-        let (validity, validity_path) = ctx.compress_validity(
-            bool_array.validity(),
-            like.as_ref().and_then(|l| l.child(1)),
-        )?;
-
         Ok(CompressedArray::compressed(
-            RunEndBoolArray::try_new(compressed_ends.array, start, validity)?.into_array(),
-            Some(CompressionTree::new(
-                self,
-                vec![compressed_ends.path, validity_path],
-            )),
+            RunEndBoolArray::try_new(compressed_ends.array, start, bool_array.validity())?
+                .into_array(),
+            Some(CompressionTree::new(self, vec![compressed_ends.path])),
             Some(array.statistics()),
         ))
     }
