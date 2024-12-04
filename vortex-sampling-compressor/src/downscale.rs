@@ -7,7 +7,11 @@ use vortex_error::{vortex_err, VortexResult};
 
 /// Downscale a primitive array to the narrowest PType that fits all the values.
 pub fn downscale_integer_array(array: ArrayData) -> VortexResult<ArrayData> {
-    let array = PrimitiveArray::try_from(array)?;
+    let Ok(array) = PrimitiveArray::try_from(array) else {
+        // This can happen if e.g. the array is ConstantArray.
+        return Ok(array);
+    };
+
     let min = array
         .statistics()
         .compute(Stat::Min)
