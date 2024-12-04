@@ -50,9 +50,12 @@ pub fn convert_expr_to_vortex(physical_expr: Arc<dyn PhysicalExpr>) -> VortexRes
     }
 
     if let Some(udf) = physical_expr.as_any().downcast_ref::<ScalarFunctionExpr>() {
-        if udf.name() == "list.mean" {
-            let child = convert_expr_to_vortex(udf.args()[0].clone())?;
-            return Ok(ListMean::new_expr(child));
+        match udf.name() {
+            "list.mean" => {
+                let child = convert_expr_to_vortex(udf.args()[0].clone())?;
+                return Ok(ListMean::new_expr(child));
+            }
+            _ => {}
         }
     }
 
