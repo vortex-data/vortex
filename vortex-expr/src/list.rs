@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::ArrayData;
+use vortex_array::compute::list_mean;
 use vortex_dtype::field::Field;
 use vortex_error::VortexResult;
 
@@ -36,8 +37,7 @@ impl VortexExpr for ListMean {
     }
 
     fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
-        let _child_result = self.child.evaluate(batch)?;
-        todo!()
+        list_mean(&self.child.evaluate(batch)?)
     }
 
     fn collect_references<'a>(&'a self, references: &mut HashSet<&'a Field>) {

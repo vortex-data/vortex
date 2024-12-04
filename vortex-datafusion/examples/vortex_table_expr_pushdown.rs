@@ -3,19 +3,18 @@ use std::sync::Arc;
 use datafusion::datasource::DefaultTableSource;
 use datafusion::execution::SessionStateBuilder;
 use datafusion::prelude::SessionContext;
-use datafusion_expr::expr::ScalarFunction;
-use datafusion_expr::{col, Expr, LogicalPlanBuilder, ScalarUDF};
+use datafusion_expr::{col, LogicalPlanBuilder};
 use vortex_array::array::{ListArray, PrimitiveArray, StructArray};
 use vortex_array::validity::Validity;
 use vortex_array::IntoArrayData;
-use vortex_datafusion::expr::ListMean;
+use vortex_datafusion::expr::list_mean;
 use vortex_datafusion::memory::{
     VortexMemTable, VortexMemTableOptions, VortexScanProjectionPushdown,
 };
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let elements = PrimitiveArray::from(vec![1i32, 2, 3, 4, 5]);
+    let elements = PrimitiveArray::from(vec![1.0f64, 2.0, 3.0, 4.0, 5.0]);
     let offsets = PrimitiveArray::from(vec![0, 2, 4, 5]);
     let list = ListArray::try_new(
         elements.into_array(),
@@ -44,12 +43,7 @@ async fn main() -> anyhow::Result<()> {
     );
     let df = ctx.execute_logical_plan(logical_plan).await?;
 
-    df.select(vec![Expr::ScalarFunction(ScalarFunction::new_udf(
-        Arc::new(ScalarUDF::new_from_impl(ListMean::default())),
-        vec![col("numbers")],
-    ))])?
-    .show()
-    .await?;
+    df.select(vec![list_mean(col("numbers"))])?.show().await?;
 
     Ok(())
 }

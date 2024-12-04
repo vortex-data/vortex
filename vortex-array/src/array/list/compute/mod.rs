@@ -64,14 +64,6 @@ impl ListFn<ListArray> for ListEncoding {
         for &end in ends.iter().skip(1) {
             sums.append_value(elements[start as usize..end as usize].iter().sum());
             start = end;
-            // // let sum = sum(slice(&elements, begin as usize, *end as usize)?)?;
-            // match sum.as_primitive().as_::<i32>()? {
-            //     Some(sum) => sums.append_value(sum),
-            //     None => {
-            //         vortex_bail!("Expected an i64 sum, found {:?}", sum.dtype());
-            //     }
-            // }
-            // begin = *end;
         }
 
         let sums_array = sums.finish();
