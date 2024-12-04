@@ -39,6 +39,12 @@ pub fn try_cast(array: impl AsRef<ArrayData>, dtype: &DType) -> VortexResult<Arr
     }
 
     // Otherwise, we fall back to the canonical implementations.
+    log::debug!(
+        "Falling back to canonical cast for encoding {} and dtype {} to {}",
+        array.encoding().id(),
+        array.dtype(),
+        dtype
+    );
     let canonicalized = array.clone().into_canonical()?.into_array();
     if let Some(f) = canonicalized.encoding().cast_fn() {
         return f.cast(&canonicalized, dtype);
