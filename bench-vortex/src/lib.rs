@@ -306,8 +306,8 @@ pub fn get_session_with_cache() -> SessionContext {
     let list_file_cache = Arc::new(DefaultListFilesCache::default());
 
     let cache_config = cache_config
-        .with_files_statistics_cache(Some(file_static_cache.clone()))
-        .with_list_files_cache(Some(list_file_cache.clone()));
+        .with_files_statistics_cache(Some(file_static_cache))
+        .with_list_files_cache(Some(list_file_cache));
 
     let rt = RuntimeEnvBuilder::new()
         .with_cache_manager(cache_config)
