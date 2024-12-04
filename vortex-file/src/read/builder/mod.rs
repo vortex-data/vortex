@@ -126,7 +126,7 @@ impl<R: VortexReadAt + Unpin> VortexReadBuilder<R> {
         let projected_dtype = match self.projection {
             Projection::All => lazy_dtype.clone(),
             Projection::Flat(ref fields) => lazy_dtype.project(fields)?,
-            Projection::Expr(_) => { todo!() }
+            Projection::Expr(ref e) => lazy_dtype.evaluate(e.clone())?,
         };
 
         let message_cache = Arc::new(RwLock::new(LayoutMessageCache::default()));

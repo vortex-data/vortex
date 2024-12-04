@@ -17,8 +17,8 @@ use vortex_array::array::{
 use vortex_array::encoding::EncodingRef;
 use vortex_array::Context;
 use vortex_datafusion::expr::list_mean;
-use vortex_datafusion::memory::VortexScanProjectionPushdown;
 use vortex_datafusion::persistent::format::VortexFormat;
+use vortex_datafusion::persistent::optimizer::VortexExecProjectionPushdown;
 use vortex_dict::DictEncoding;
 use vortex_fastlanes::{BitPackedEncoding, DeltaEncoding, FoREncoding};
 use vortex_fsst::FSSTEncoding;
@@ -52,7 +52,7 @@ async fn main() -> anyhow::Result<()> {
 
     let format = Arc::new(VortexFormat::new(&ALL_ENCODINGS_CONTEXT.clone()));
     let table_url = ListingTableUrl::parse(
-        "/Users/danielking/projects/vortex/vortex-genetics/100_000-no-lists-of-lists.vcf.vortex",
+        "/Users/mbakovic/git/vortex/vortex-genetics/100_000-no-lists-of-lists.vcf.vortex",
     )?;
     let config = ListingTableConfig::new(table_url)
         .with_listing_options(ListingOptions::new(format as _))
@@ -69,14 +69,12 @@ async fn main() -> anyhow::Result<()> {
     .build()?;
     let ctx = SessionContext::new_with_state(
         SessionStateBuilder::new()
-            .with_physical_optimizer_rule(Arc::new(VortexScanProjectionPushdown::new()))
+            .with_physical_optimizer_rule(Arc::new(VortexExecProjectionPushdown::new()))
             .build(),
     );
     let df = ctx.execute_logical_plan(logical_plan).await?;
 
-    df.select(vec![list_mean(col("vortex_tbl.\"GT\""))])?
-        .show()
-        .await?;
+    df.select(vec![list_mean(col("vortex_tbl.\"GT\""))])?.show_limit(20).await?;
 
     Ok(())
 }
