@@ -71,8 +71,10 @@ pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBui
             *n,
             capacity,
         )),
-        DType::List(..) => {
-            todo!()
+        DType::List(_dt, n) =>
+        // TODO(joe): fix me use correct builder
+        {
+            Box::new(Utf8Builder::with_capacity(*n, capacity))
         }
         DType::Extension(ext_dtype) => {
             Box::new(ExtensionBuilder::with_capacity(ext_dtype.clone(), capacity))
