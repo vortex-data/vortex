@@ -58,6 +58,10 @@ macro_rules! impl_encoding {
                             stats
                     )?)
                 }
+
+                pub fn maybe_from(data: $crate::ArrayData) -> Option<Self> {
+                    (data.encoding().id() == <[<$Name Encoding>] as $crate::encoding::Encoding>::ID).then_some(Self(data))
+                }
             }
 
             impl TryFrom<$crate::ArrayData> for [<$Name Array>] {

@@ -26,7 +26,7 @@ impl EncodingCompressor for FoRCompressor {
 
     fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {
         // Only support primitive arrays
-        let parray = PrimitiveArray::try_from(array.clone()).ok()?;
+        let parray = PrimitiveArray::maybe_from(array.clone())?;
 
         // Only supports integers
         if !parray.ptype().is_int() {
