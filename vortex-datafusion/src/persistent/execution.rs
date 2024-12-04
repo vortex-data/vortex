@@ -2,6 +2,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use datafusion::config::ConfigOptions;
+use datafusion::datasource::listing::PartitionedFile;
 use datafusion::datasource::physical_plan::{FileScanConfig, FileStream};
 use datafusion_common::{project_schema, Result as DFResult, Statistics};
 use datafusion_execution::{SendableRecordBatchStream, TaskContext};
@@ -134,14 +135,8 @@ impl ExecutionPlan for VortexExec {
         _config: &ConfigOptions,
     ) -> DFResult<Option<Arc<dyn ExecutionPlan>>> {
         let file_groups = self.file_scan_config.file_groups.clone();
-        let all_files = file_groups.into_iter().concat();
 
-        let approx_files_per_partition = all_files.len().div_ceil(target_partitions);
-        let mut repartitioned_file_groups = Vec::default();
-
-        for chunk in &all_files.into_iter().chunks(approx_files_per_partition) {
-            repartitioned_file_groups.push(chunk.collect::<Vec<_>>());
-        }
+        let repartitioned_file_groups = repartition_by_count(file_groups, target_partitions);
 
         let mut new_plan = self.clone();
         let mut config = new_plan.file_scan_config;
@@ -153,5 +148,41 @@ impl ExecutionPlan for VortexExec {
         new_plan.plan_properties.partitioning = Partitioning::UnknownPartitioning(num_partitions);
 
         Ok(Some(Arc::new(new_plan)))
+    }
+}
+
+fn repartition_by_count(
+    file_groups: Vec<Vec<PartitionedFile>>,
+    desired_partitions: usize,
+) -> Vec<Vec<PartitionedFile>> {
+    let all_files = file_groups.into_iter().concat();
+
+    let approx_files_per_partition = all_files.len().div_ceil(desired_partitions);
+    let mut repartitioned_file_groups = Vec::default();
+
+    for chunk in &all_files.into_iter().chunks(approx_files_per_partition) {
+        repartitioned_file_groups.push(chunk.collect::<Vec<_>>());
+    }
+
+    repartitioned_file_groups
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn basic_repartition_test() {
+        let input_file_groups = vec![vec![
+            PartitionedFile::new("a", 0),
+            PartitionedFile::new("b", 0),
+            PartitionedFile::new("c", 0),
+            PartitionedFile::new("d", 0),
+            PartitionedFile::new("e", 0),
+        ]];
+
+        let file_groups = repartition_by_count(input_file_groups, 2);
+
+        assert_eq!(file_groups.len(), 2);
     }
 }
