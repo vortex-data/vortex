@@ -11,7 +11,7 @@ impl ArrayData {
         self.encoding()
             .accept(self.as_ref(), &mut visitor)
             .vortex_expect("Failed to get nbytes from Array");
-        visitor.0
+        visitor.0 + size_of_val(self.array_metadata())
     }
 }
 

@@ -13,7 +13,6 @@ use crate::encoding::Encoding;
 /// Note that this allows us to restrict the ('static + Send + Sync) requirement to just the
 /// metadata trait, and not the entire array trait. We require 'static so that we can downcast
 /// use the Any trait.
-/// TODO(ngates): add Display
 pub trait ArrayMetadata:
     'static + Send + Sync + Debug + TrySerializeArrayMetadata + Display
 {

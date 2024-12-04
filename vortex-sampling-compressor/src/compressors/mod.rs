@@ -183,13 +183,6 @@ impl<'a> CompressionTree<'a> {
         std::mem::take(&mut self.metadata)
     }
 
-    pub fn num_descendants(&self) -> usize {
-        self.children
-            .iter()
-            .filter_map(|child| child.as_ref().map(|c| c.num_descendants() + 1))
-            .sum::<usize>()
-    }
-
     #[allow(clippy::type_complexity)]
     pub fn into_parts(
         self,
