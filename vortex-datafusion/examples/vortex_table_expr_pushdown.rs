@@ -1,38 +1,69 @@
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
+use datafusion::datasource::listing::{
+    ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
+};
 use datafusion::datasource::DefaultTableSource;
 use datafusion::execution::SessionStateBuilder;
 use datafusion::prelude::SessionContext;
 use datafusion_expr::{col, LogicalPlanBuilder};
-use vortex_array::array::{ListArray, PrimitiveArray, StructArray};
-use vortex_array::validity::Validity;
-use vortex_array::IntoArrayData;
-use vortex_datafusion::expr::list_mean;
-use vortex_datafusion::memory::{
-    VortexMemTable, VortexMemTableOptions, VortexScanProjectionPushdown,
+use object_store::local::LocalFileSystem;
+use object_store::ObjectStore;
+use url::Url;
+use vortex_alp::{ALPEncoding, ALPRDEncoding};
+use vortex_array::array::{
+    PrimitiveEncoding, SparseEncoding, StructEncoding, VarBinEncoding, VarBinViewEncoding,
 };
+use vortex_array::encoding::EncodingRef;
+use vortex_array::Context;
+use vortex_datafusion::expr::list_mean;
+use vortex_datafusion::memory::VortexScanProjectionPushdown;
+use vortex_datafusion::persistent::format::VortexFormat;
+use vortex_dict::DictEncoding;
+use vortex_fastlanes::{BitPackedEncoding, DeltaEncoding, FoREncoding};
+use vortex_fsst::FSSTEncoding;
+use vortex_runend::RunEndEncoding;
+
+pub static ALL_ENCODINGS_CONTEXT: LazyLock<Arc<Context>> = LazyLock::new(|| {
+    Arc::new(Context::default().with_encodings([
+        &ALPEncoding as EncodingRef,
+        &ALPRDEncoding,
+        &DictEncoding,
+        &BitPackedEncoding,
+        &DeltaEncoding,
+        &FoREncoding,
+        &FSSTEncoding,
+        &PrimitiveEncoding,
+        &RunEndEncoding,
+        &SparseEncoding,
+        &StructEncoding,
+        &VarBinEncoding,
+        &VarBinViewEncoding,
+    ]))
+});
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let elements = PrimitiveArray::from(vec![1.0f64, 2.0, 3.0, 4.0, 5.0]);
-    let offsets = PrimitiveArray::from(vec![0, 2, 4, 5]);
-    let list = ListArray::try_new(
-        elements.into_array(),
-        offsets.into_array(),
-        Validity::AllValid,
-    )
-    .unwrap();
-    let st = StructArray::try_new(
-        ["numbers".into()].into(),
-        vec![list.into_array()],
-        3,
-        Validity::NonNullable,
-    )?;
+    let ctx = SessionContext::new();
 
-    let table_provider = VortexMemTable::new(st.into_array(), VortexMemTableOptions::default());
+    let object_store: Arc<dyn ObjectStore> = Arc::new(LocalFileSystem::new());
+    let url: Url = Url::try_from("file://")?;
+    ctx.register_object_store(&url, object_store);
+
+    let format = Arc::new(VortexFormat::new(&ALL_ENCODINGS_CONTEXT.clone()));
+    let table_url = ListingTableUrl::parse(
+        "/Users/danielking/projects/vortex/vortex-genetics/100_000-no-lists-of-lists.vcf.vortex",
+    )?;
+    let config = ListingTableConfig::new(table_url)
+        .with_listing_options(ListingOptions::new(format as _))
+        .infer_schema(&ctx.state())
+        .await?;
+
+    let listing_table = Arc::new(ListingTable::try_new(config)?);
+
     let logical_plan = LogicalPlanBuilder::scan(
         "vortex_tbl",
-        Arc::new(DefaultTableSource::new(Arc::new(table_provider))),
+        Arc::new(DefaultTableSource::new(listing_table as _)),
         None,
     )?
     .build()?;
@@ -43,7 +74,9 @@ async fn main() -> anyhow::Result<()> {
     );
     let df = ctx.execute_logical_plan(logical_plan).await?;
 
-    df.select(vec![list_mean(col("numbers"))])?.show().await?;
+    df.select(vec![list_mean(col("vortex_tbl.\"GT\""))])?
+        .show()
+        .await?;
 
     Ok(())
 }
