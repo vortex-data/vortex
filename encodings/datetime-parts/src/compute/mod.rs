@@ -123,13 +123,13 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalAr
                 .typed_value::<i64>()
                 .vortex_expect("non-nullable");
         for v in values.iter_mut() {
-            *v = *v + (seconds * divisor);
+            *v += seconds * divisor;
         }
     } else {
         let seconds_buf = try_cast(array.seconds(), &DType::Primitive(PType::U32, NonNullable))?
             .into_primitive()?;
         for (v, second) in values.iter_mut().zip(seconds_buf.maybe_null_slice::<u32>()) {
-            *v = *v + ((*second as i64) * divisor);
+            *v += (*second as i64) * divisor;
         }
     }
 
@@ -140,7 +140,7 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalAr
         .typed_value::<i64>()
         .vortex_expect("non-nullable");
         for v in values.iter_mut() {
-            *v = *v + subseconds;
+            *v += subseconds;
         }
     } else {
         let subsecond_buf = try_cast(
@@ -152,7 +152,7 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalAr
             .iter_mut()
             .zip(subsecond_buf.maybe_null_slice::<i64>())
         {
-            *v = *v + *subsecond;
+            *v += *subsecond;
         }
     }
 
