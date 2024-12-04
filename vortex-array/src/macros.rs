@@ -59,6 +59,10 @@ macro_rules! impl_encoding {
                     )?)
                 }
 
+                /// Optionally downcast an [`ArrayData`] instance to a specific encoding.
+                ///
+                /// Preferred in cases where a backtrace isn't needed, like when trying multiple encoding to go
+                /// down different code paths.
                 pub fn maybe_from(data: $crate::ArrayData) -> Option<Self> {
                     (data.encoding().id() == <[<$Name Encoding>] as $crate::encoding::Encoding>::ID).then_some(Self(data))
                 }
