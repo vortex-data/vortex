@@ -128,7 +128,7 @@ async fn test_splits() {
         .unwrap();
     let layout_serde = LayoutDeserializer::default();
 
-    let dtype = Arc::new(initial_read.lazy_dtype().unwrap());
+    let dtype = Arc::new(initial_read.lazy_dtype());
     let cache = Arc::new(RwLock::new(LayoutMessageCache::new()));
 
     let layout_reader = read_layout_from_initial(

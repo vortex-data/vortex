@@ -131,7 +131,7 @@ mod test {
         let initial_read = read_initial_bytes(&written_bytes, n_bytes as u64)
             .await
             .unwrap();
-        let lazy_dtype = Arc::new(initial_read.lazy_dtype().unwrap());
+        let lazy_dtype = Arc::new(initial_read.lazy_dtype());
         let layout_deserializer = LayoutDeserializer::default();
         let layout_message_cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
         let layout_reader = read_layout_from_initial(
