@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use arrow_array::types::Int32Type;
+use arrow_array::types::Float64Type;
 use arrow_array::PrimitiveArray;
 use itertools::Itertools;
 use vortex_dtype::{DType, PType};
@@ -10,7 +10,7 @@ use vortex_scalar::Scalar;
 use crate::array::{ListArray, ListEncoding};
 use crate::arrow::FromArrowArray;
 use crate::compute::{
-    div, list_sum, scalar_at, slice, sub, sum, try_cast, ComputeVTable, ListFn, ScalarAtFn, SliceFn,
+    div, list_sum, scalar_at, slice, sub, try_cast, ComputeVTable, ListFn, ScalarAtFn, SliceFn,
 };
 use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
 
@@ -53,20 +53,25 @@ impl ListFn<ListArray> for ListEncoding {
         let offsets = array.offsets().into_primitive()?;
         let elements = array.elements();
 
-        let mut begin = 0;
         let ends = offsets.maybe_null_slice::<i32>();
-        let mut sums = PrimitiveArray::<Int32Type>::builder(array.len() - 1);
+        let mut sums = PrimitiveArray::<Float64Type>::builder(array.len() - 1);
+
+        let elements = elements.into_primitive()?;
+        let elements = elements.maybe_null_slice::<f64>();
 
         // TODO(marko): This is going to be slow...
-        for end in ends.iter().skip(1) {
-            let sum = sum(slice(&elements, begin as usize, *end as usize)?)?;
-            match sum.as_primitive().as_::<i32>()? {
-                Some(sum) => sums.append_value(sum),
-                None => {
-                    vortex_bail!("Expected an i64 sum, found {:?}", sum.dtype());
-                }
-            }
-            begin = *end;
+        let mut start = 0;
+        for &end in ends.iter().skip(1) {
+            sums.append_value(elements[start as usize..end as usize].iter().sum());
+            start = end;
+            // // let sum = sum(slice(&elements, begin as usize, *end as usize)?)?;
+            // match sum.as_primitive().as_::<i32>()? {
+            //     Some(sum) => sums.append_value(sum),
+            //     None => {
+            //         vortex_bail!("Expected an i64 sum, found {:?}", sum.dtype());
+            //     }
+            // }
+            // begin = *end;
         }
 
         let sums_array = sums.finish();
