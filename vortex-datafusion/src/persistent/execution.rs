@@ -139,12 +139,11 @@ impl ExecutionPlan for VortexExec {
         let repartitioned_file_groups = repartition_by_count(file_groups, target_partitions);
 
         let mut new_plan = self.clone();
-        let mut config = new_plan.file_scan_config;
+
         let num_partitions = repartitioned_file_groups.len();
 
         log::debug!("VortexExec repartitioned to {num_partitions} partitions");
-        config = config.with_file_groups(repartitioned_file_groups);
-        new_plan.file_scan_config = config;
+        new_plan.file_scan_config.file_groups = repartitioned_file_groups;
         new_plan.plan_properties.partitioning = Partitioning::UnknownPartitioning(num_partitions);
 
         Ok(Some(Arc::new(new_plan)))
