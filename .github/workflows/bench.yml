@@ -18,7 +18,7 @@ jobs:
             name: DataFusion
           - id: random_access
             name: Random Access
-          - id: compress_noci
+          - id: compress
             name: Vortex Compression
     runs-on: self-hosted
     steps:

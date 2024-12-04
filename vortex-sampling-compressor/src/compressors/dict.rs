@@ -12,6 +12,7 @@ use vortex_dict::{
 use vortex_error::VortexResult;
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
+use crate::downscale::downscale_integer_array;
 use crate::{constants, SamplingCompressor};
 
 #[derive(Debug)]
@@ -70,9 +71,10 @@ impl EncodingCompressor for DictCompressor {
         };
 
         let (codes, values) = (
-            ctx.auxiliary("codes")
-                .excluding(self)
-                .compress(&codes, like.as_ref().and_then(|l| l.child(0)))?,
+            ctx.auxiliary("codes").excluding(self).compress(
+                &downscale_integer_array(codes)?,
+                like.as_ref().and_then(|l| l.child(0)),
+            )?,
             ctx.named("values")
                 .excluding(self)
                 .compress(&values, like.as_ref().and_then(|l| l.child(1)))?,

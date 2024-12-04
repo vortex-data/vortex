@@ -1,7 +1,8 @@
 use std::fmt::{Debug, Display};
 
 use ::serde::{Deserialize, Serialize};
-use vortex_dtype::{match_each_integer_ptype, DType};
+use vortex_dtype::Nullability::NonNullable;
+use vortex_dtype::{match_each_integer_ptype, DType, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
@@ -27,8 +28,8 @@ pub struct SparseMetadata {
     // Offset value for patch indices as a result of slicing
     indices_offset: usize,
     indices_len: usize,
+    indices_ptype: PType,
     fill_value: ScalarValue,
-    u64_indices: bool,
 }
 
 impl Display for SparseMetadata {
@@ -54,9 +55,6 @@ impl SparseArray {
         indices_offset: usize,
         fill_value: Scalar,
     ) -> VortexResult<Self> {
-        if !matches!(indices.dtype(), &DType::IDX | &DType::IDX_32) {
-            vortex_bail!("Cannot use {} as indices", indices.dtype());
-        }
         if fill_value.dtype() != values.dtype() {
             vortex_bail!(
                 "fill value, {:?}, should be instance of values dtype, {}",
@@ -80,14 +78,16 @@ impl SparseArray {
             }
         }
 
+        let indices_ptype = PType::try_from(indices.dtype())?;
+
         Self::try_from_parts(
             values.dtype().clone(),
             len,
             SparseMetadata {
                 indices_offset,
                 indices_len: indices.len(),
+                indices_ptype,
                 fill_value: fill_value.into_value(),
-                u64_indices: matches!(indices.dtype(), &DType::IDX),
             },
             [indices, values].into(),
             StatsSet::default(),
@@ -111,11 +111,7 @@ impl SparseArray {
         self.as_ref()
             .child(
                 0,
-                if self.metadata().u64_indices {
-                    &DType::IDX
-                } else {
-                    &DType::IDX_32
-                },
+                &DType::Primitive(self.metadata().indices_ptype, NonNullable),
                 self.metadata().indices_len,
             )
             .vortex_expect("Missing indices array in SparseArray")

@@ -27,6 +27,7 @@ pub mod accessor;
 pub mod aliases;
 pub mod array;
 pub mod arrow;
+pub mod builders;
 mod canonical;
 pub mod compress;
 pub mod compute;

@@ -473,23 +473,15 @@ impl LogicalValidity {
         }
     }
 
-    pub fn null_count(&self, length: usize) -> VortexResult<usize> {
+    pub fn null_count(&self) -> VortexResult<usize> {
         match self {
             Self::AllValid(_) => Ok(0),
-            Self::AllInvalid(_) => Ok(length),
+            Self::AllInvalid(len) => Ok(*len),
             Self::Array(a) => {
-                let validity_len = a.len();
-                if validity_len != length {
-                    vortex_bail!(
-                        "Validity array length {} doesn't match array length {}",
-                        validity_len,
-                        length
-                    )
-                }
                 let true_count = a.statistics().compute_true_count().ok_or_else(|| {
                     vortex_err!("Failed to compute true count from validity array")
                 })?;
-                Ok(length - true_count)
+                Ok(a.len() - true_count)
             }
         }
     }
