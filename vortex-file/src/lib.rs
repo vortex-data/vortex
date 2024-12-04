@@ -135,7 +135,6 @@
 //! If you ultimately seek Arrow arrays, [VortexRecordBatchReader] converts a [VortexFileArrayStream]
 //! into a RecordBatchReader.
 
-pub mod chunked_reader;
 mod dtype_reader;
 
 pub use dtype_reader::*;
