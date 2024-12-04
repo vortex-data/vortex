@@ -1,5 +1,6 @@
 #![feature(exit_status_error)]
 
+use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -7,10 +8,10 @@ use std::time::{Duration, Instant};
 use bench_vortex::clickbench::{self, clickbench_queries, HITS_SCHEMA};
 use bench_vortex::display::{print_measurements_json, render_table, DisplayFormat};
 use bench_vortex::{
-    execute_query, idempotent, setup_logger, Format, IdempotentPath as _, Measurement,
+    execute_query, get_session_with_cache, idempotent, physical_plan, setup_logger, Format,
+    IdempotentPath as _, Measurement,
 };
 use clap::Parser;
-use datafusion::prelude::SessionContext;
 use indicatif::ProgressBar;
 use itertools::Itertools;
 use log::LevelFilter;
@@ -33,6 +34,8 @@ struct Args {
     display_format: DisplayFormat,
     #[arg(short, long, value_delimiter = ',')]
     queries: Option<Vec<usize>>,
+    #[arg(long, default_value = "false")]
+    emit_plan: bool,
 }
 
 fn main() {
@@ -62,9 +65,14 @@ fn main() {
         let output_path = basepath.join(format!("hits_{idx}.parquet"));
         idempotent(&output_path, |output_path| {
             eprintln!("Fixing parquet file {idx}");
+
+            // We need to set the home directory because GitHub Actions doesn't set it in a way
+            // that DuckDB respects.
+            let home = std::env::var("HOME").unwrap_or_else(|_| "/home/ci-runner".to_string());
+
             let command = format!(
                 "
-                SET home_directory='/home/ci-runner/';
+                SET home_directory='{home}';
                 INSTALL HTTPFS;
                 COPY (SELECT * REPLACE
                     (epoch_ms(EventTime * 1000) AS EventTime, \
@@ -85,12 +93,18 @@ fn main() {
         .unwrap();
     });
 
-    let formats = [
-        Format::Parquet,
-        Format::OnDiskVortex {
+    let formats = if args.only_vortex {
+        vec![Format::OnDiskVortex {
             enable_compression: true,
-        },
-    ];
+        }]
+    } else {
+        vec![
+            Format::Parquet,
+            Format::OnDiskVortex {
+                enable_compression: true,
+            },
+        ]
+    };
 
     let queries = match args.queries.clone() {
         None => clickbench_queries(),
@@ -104,8 +118,8 @@ fn main() {
 
     let mut all_measurements = Vec::default();
 
-    for format in formats {
-        let session_context = SessionContext::new();
+    for format in &formats {
+        let session_context = get_session_with_cache();
         let context = session_context.clone();
         match format {
             Format::Parquet => runtime.block_on(async {
@@ -136,6 +150,15 @@ fn main() {
         }
 
         for (query_idx, query) in queries.clone().into_iter() {
+            if args.emit_plan {
+                let plan = runtime.block_on(physical_plan(&context, &query)).unwrap();
+                fs::write(
+                    format!("clickbench_{format}_q{query_idx:02}.plan",),
+                    format!("{:#?}", plan),
+                )
+                .expect("Unable to write file");
+            }
+
             let mut fastest_result = Duration::from_millis(u64::MAX);
             for _ in 0..args.iterations {
                 let exec_duration = runtime.block_on(async {
@@ -152,7 +175,7 @@ fn main() {
             all_measurements.push(Measurement {
                 query_idx,
                 time: fastest_result,
-                format,
+                format: *format,
                 dataset: "clickbench".to_string(),
             });
         }

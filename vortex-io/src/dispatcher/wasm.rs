@@ -31,7 +31,7 @@ impl Dispatch for WasmDispatcher {
             let result = task().await;
             tx.send(result)
                 // NOTE: We don't know if the err is Debug
-                .unwrap_or_else(|_err| vortex_panic!("implement more of these"));
+                .unwrap_or_else(|_err| vortex_panic!("WasmDispatcher: task submit failed"));
         })
         .start();
 

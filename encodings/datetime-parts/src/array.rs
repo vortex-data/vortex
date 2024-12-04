@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use vortex_array::array::StructArray;
 use vortex_array::compute::try_cast;
 use vortex_array::encoding::ids;
-use vortex_array::stats::{Stat, StatisticsVTable, StatsSet};
+use vortex_array::stats::StatsSet;
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityVTable};
 use vortex_array::variants::{ExtensionArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
@@ -14,7 +14,6 @@ use vortex_array::{
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult, VortexUnwrap};
-use vortex_scalar::Scalar;
 
 use crate::compute::decode_to_temporal;
 
@@ -164,20 +163,5 @@ impl VisitorVTable<DateTimePartsArray> for DateTimePartsEncoding {
         visitor.visit_child("days", &array.days())?;
         visitor.visit_child("seconds", &array.seconds())?;
         visitor.visit_child("subsecond", &array.subsecond())
-    }
-}
-
-impl StatisticsVTable<DateTimePartsArray> for DateTimePartsEncoding {
-    fn compute_statistics(&self, array: &DateTimePartsArray, stat: Stat) -> VortexResult<StatsSet> {
-        let maybe_stat = match stat {
-            Stat::NullCount => Some(Scalar::from(array.validity().null_count(array.len())?)),
-            _ => None,
-        };
-
-        let mut stats = StatsSet::default();
-        if let Some(value) = maybe_stat {
-            stats.set(stat, value);
-        }
-        Ok(stats)
     }
 }

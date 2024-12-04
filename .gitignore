@@ -203,3 +203,5 @@ benchmarks/.out
 
 # Zed
 .zed/
+
+*.plan

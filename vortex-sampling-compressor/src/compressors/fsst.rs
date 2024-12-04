@@ -17,6 +17,7 @@ use super::delta::DeltaCompressor;
 use super::r#for::FoRCompressor;
 use super::varbin::VarBinCompressor;
 use super::{CompressedArray, CompressionTree, EncoderMetadata, EncodingCompressor};
+use crate::downscale::downscale_integer_array;
 use crate::{constants, SamplingCompressor};
 
 #[derive(Debug)]
@@ -109,7 +110,7 @@ impl EncodingCompressor for FSSTCompressor {
             .auxiliary("uncompressed_lengths")
             .excluding(self)
             .compress(
-                &fsst_array.uncompressed_lengths(),
+                &downscale_integer_array(fsst_array.uncompressed_lengths())?,
                 like.as_ref().and_then(|l| l.child(3)),
             )?;
 

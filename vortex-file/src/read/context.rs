@@ -7,7 +7,7 @@ use vortex_array::Context;
 use vortex_error::{vortex_err, VortexResult};
 use vortex_flatbuffers::footer as fb;
 
-use crate::layouts::{ChunkedLayout, ColumnarLayout, FlatLayout, InlineDTypeLayout};
+use crate::layouts::{ChunkedLayout, ColumnarLayout, FlatLayout};
 use crate::{LayoutReader, RelativeLayoutCache, Scan};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
@@ -52,15 +52,10 @@ impl LayoutContext {
 impl Default for LayoutContext {
     fn default() -> Self {
         Self::new(
-            [
-                &ColumnarLayout as LayoutRef,
-                &ChunkedLayout,
-                &InlineDTypeLayout,
-                &FlatLayout,
-            ]
-            .into_iter()
-            .map(|l| (l.id(), l))
-            .collect(),
+            [&ColumnarLayout as LayoutRef, &ChunkedLayout, &FlatLayout]
+                .into_iter()
+                .map(|l| (l.id(), l))
+                .collect(),
         )
     }
 }

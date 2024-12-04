@@ -3,7 +3,7 @@ use std::fmt::Display;
 use std::sync::Arc;
 
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::compute::like;
+use vortex_array::compute::{like, LikeOptions};
 use vortex_array::ArrayData;
 use vortex_dtype::field::Field;
 use vortex_error::VortexResult;
@@ -14,11 +14,23 @@ use crate::{unbox_any, ExprRef, VortexExpr};
 pub struct Like {
     child: ExprRef,
     pattern: ExprRef,
+    negated: bool,
+    case_insensitive: bool,
 }
 
 impl Like {
-    pub fn new_expr(child: ExprRef, pattern: ExprRef) -> ExprRef {
-        Arc::new(Self { child, pattern })
+    pub fn new_expr(
+        child: ExprRef,
+        pattern: ExprRef,
+        negated: bool,
+        case_insensitive: bool,
+    ) -> ExprRef {
+        Arc::new(Self {
+            child,
+            pattern,
+            negated,
+            case_insensitive,
+        })
     }
 
     pub fn child(&self) -> &ExprRef {
@@ -27,6 +39,14 @@ impl Like {
 
     pub fn pattern(&self) -> &ExprRef {
         &self.pattern
+    }
+
+    pub fn negated(&self) -> bool {
+        self.negated
+    }
+
+    pub fn case_insensitive(&self) -> bool {
+        self.case_insensitive
     }
 }
 
@@ -44,7 +64,14 @@ impl VortexExpr for Like {
     fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
         let child = self.child().evaluate(batch)?;
         let pattern = self.pattern().evaluate(batch)?;
-        like(&child, &pattern)
+        like(
+            &child,
+            &pattern,
+            LikeOptions {
+                negated: self.negated,
+                case_insensitive: self.case_insensitive,
+            },
+        )
     }
 
     fn collect_references<'a>(&'a self, references: &mut HashSet<&'a Field>) {

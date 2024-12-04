@@ -23,6 +23,7 @@ pub mod delta;
 pub mod dict;
 pub mod r#for;
 pub mod fsst;
+pub mod list;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod roaring_bool;
 #[cfg(not(target_arch = "wasm32"))]
@@ -182,13 +183,6 @@ impl<'a> CompressionTree<'a> {
     /// The value of `T` will almost always be `EncodingCompressor`-specific.
     pub fn metadata(&mut self) -> Option<Arc<dyn EncoderMetadata>> {
         std::mem::take(&mut self.metadata)
-    }
-
-    pub fn num_descendants(&self) -> usize {
-        self.children
-            .iter()
-            .filter_map(|child| child.as_ref().map(|c| c.num_descendants() + 1))
-            .sum::<usize>()
     }
 
     #[allow(clippy::type_complexity)]

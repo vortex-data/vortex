@@ -11,7 +11,7 @@ use compressors::roaring_bool::RoaringBoolCompressor;
 use compressors::roaring_int::RoaringIntCompressor;
 use compressors::struct_::StructCompressor;
 use compressors::varbin::VarBinCompressor;
-use compressors::{CompressedArray, CompressionTree, CompressorRef};
+use compressors::{CompressedArray, CompressorRef};
 use vortex_alp::{ALPEncoding, ALPRDEncoding};
 use vortex_array::array::{
     PrimitiveEncoding, SparseEncoding, StructEncoding, VarBinEncoding, VarBinViewEncoding,
@@ -42,12 +42,15 @@ use crate::compressors::zigzag::ZigZagCompressor;
 pub mod arbitrary;
 pub mod compressors;
 mod constants;
+mod downscale;
 mod sampling;
 mod sampling_compressor;
 
 pub use sampling_compressor::*;
 
-pub const DEFAULT_COMPRESSORS: [CompressorRef; 14] = [
+use crate::compressors::list::ListCompressor;
+
+pub const DEFAULT_COMPRESSORS: [CompressorRef; 15] = [
     &ALPCompressor as CompressorRef,
     &BITPACK_WITH_PATCHES,
     &DEFAULT_CHUNKED_COMPRESSOR,
@@ -63,6 +66,7 @@ pub const DEFAULT_COMPRESSORS: [CompressorRef; 14] = [
     &DEFAULT_RUN_END_COMPRESSOR,
     &SparseCompressor,
     &StructCompressor,
+    &ListCompressor,
     &VarBinCompressor,
     &ZigZagCompressor,
 ];
@@ -152,16 +156,8 @@ impl Objective {
         base_size_bytes: usize,
         config: &CompressConfig,
     ) -> f64 {
-        let num_descendants = array
-            .path()
-            .as_ref()
-            .map(CompressionTree::num_descendants)
-            .unwrap_or(0) as u64;
-        let overhead_bytes = num_descendants * config.overhead_bytes_per_array;
-        let size_in_bytes = array.nbytes() as u64 + overhead_bytes;
-
         match &config.objective {
-            Objective::MinSize => (size_in_bytes as f64) / (base_size_bytes as f64),
+            Objective::MinSize => (array.nbytes() as f64) / (base_size_bytes as f64),
         }
     }
 }
@@ -179,8 +175,6 @@ pub struct CompressConfig {
     max_cost: u8,
     // Are we minimizing size or maximizing performance?
     objective: Objective,
-    /// Penalty in bytes per compression level
-    overhead_bytes_per_array: u64,
 
     // Target chunk size in bytes
     target_block_bytesize: usize,
@@ -198,7 +192,6 @@ impl Default for CompressConfig {
             sample_count: 16,
             max_cost: constants::DEFAULT_MAX_COST,
             objective: Objective::MinSize,
-            overhead_bytes_per_array: 64,
             target_block_bytesize: 16 * mib,
             target_block_size: 64 * kib,
             rng_seed: 0,

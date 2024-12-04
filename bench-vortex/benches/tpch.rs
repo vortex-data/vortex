@@ -1,5 +1,5 @@
 use bench_vortex::tpch::dbgen::{DBGen, DBGenOptions};
-use bench_vortex::tpch::{load_datasets, run_tpch_query, tpch_queries};
+use bench_vortex::tpch::{load_datasets, run_tpch_query, tpch_queries, EXPECTED_ROW_COUNTS};
 use bench_vortex::Format;
 use criterion::{criterion_group, criterion_main, Criterion};
 use tokio::runtime::Builder;
@@ -38,12 +38,13 @@ fn benchmark(c: &mut Criterion) {
         .unwrap();
 
     for (q, sql_queries) in tpch_queries() {
+        let expected_row_count = EXPECTED_ROW_COUNTS[q];
         let mut group = c.benchmark_group(format!("tpch_q{q}"));
         group.sample_size(10);
 
         group.bench_function("vortex-in-memory-pushdown", |b| {
             b.to_async(&runtime).iter(|| async {
-                run_tpch_query(
+                let row_count = run_tpch_query(
                     &vortex_ctx,
                     &sql_queries,
                     q,
@@ -52,24 +53,28 @@ fn benchmark(c: &mut Criterion) {
                     },
                 )
                 .await;
+                assert_eq!(expected_row_count, row_count, "Mismatched row count {row_count} instead of {expected_row_count} in query {q} for in memory pushdown format");
+
             })
         });
 
         group.bench_function("arrow", |b| {
             b.to_async(&runtime).iter(|| async {
-                run_tpch_query(&arrow_ctx, &sql_queries, q, Format::Arrow).await;
+                let row_count = run_tpch_query(&arrow_ctx, &sql_queries, q, Format::Arrow).await;
+                assert_eq!(expected_row_count, row_count, "Mismatched row count {row_count} instead of {expected_row_count} in query {q} for arrow format");
             })
         });
 
         group.bench_function("parquet", |b| {
             b.to_async(&runtime).iter(|| async {
-                run_tpch_query(&parquet_ctx, &sql_queries, q, Format::Parquet).await;
+                let row_count = run_tpch_query(&parquet_ctx, &sql_queries, q, Format::Parquet).await;
+                assert_eq!(expected_row_count, row_count, "Mismatched row count {row_count} instead of {expected_row_count} in query {q} for parquet format");
             })
         });
 
         group.bench_function("vortex-file-compressed", |b| {
             b.to_async(&runtime).iter(|| async {
-                run_tpch_query(
+                let row_count = run_tpch_query(
                     &vortex_compressed_ctx,
                     &sql_queries,
                     q,
@@ -78,6 +83,7 @@ fn benchmark(c: &mut Criterion) {
                     },
                 )
                 .await;
+                assert_eq!(expected_row_count, row_count, "Mismatched row count {row_count} instead of {expected_row_count} in query {q} for on disk compressed format");
             })
         });
     }

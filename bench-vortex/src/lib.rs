@@ -8,8 +8,11 @@ use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
 use arrow_array::{RecordBatch, RecordBatchReader};
-use datafusion::prelude::SessionContext;
-use datafusion_physical_plan::collect;
+use datafusion::execution::cache::cache_manager::CacheManagerConfig;
+use datafusion::execution::cache::cache_unit::{DefaultFileStatisticsCache, DefaultListFilesCache};
+use datafusion::execution::runtime_env::RuntimeEnvBuilder;
+use datafusion::prelude::{SessionConfig, SessionContext};
+use datafusion_physical_plan::{collect, ExecutionPlan};
 use itertools::Itertools;
 use log::LevelFilter;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
@@ -255,6 +258,16 @@ pub async fn execute_query(ctx: &SessionContext, query: &str) -> anyhow::Result<
     Ok(result)
 }
 
+pub async fn physical_plan(
+    ctx: &SessionContext,
+    query: &str,
+) -> anyhow::Result<Arc<dyn ExecutionPlan>> {
+    let plan = ctx.sql(query).await?;
+    let (state, plan) = plan.into_parts();
+    let optimized = state.optimize(&plan)?;
+    Ok(state.create_physical_plan(&optimized).await?)
+}
+
 #[derive(Clone, Debug)]
 pub struct Measurement {
     pub query_idx: usize,
@@ -285,6 +298,23 @@ impl Measurement {
             value: self.time.as_nanos(),
         }
     }
+}
+
+pub fn get_session_with_cache() -> SessionContext {
+    let cache_config = CacheManagerConfig::default();
+    let file_static_cache = Arc::new(DefaultFileStatisticsCache::default());
+    let list_file_cache = Arc::new(DefaultListFilesCache::default());
+
+    let cache_config = cache_config
+        .with_files_statistics_cache(Some(file_static_cache))
+        .with_list_files_cache(Some(list_file_cache));
+
+    let rt = RuntimeEnvBuilder::new()
+        .with_cache_manager(cache_config)
+        .build_arc()
+        .expect("could not build runtime environment");
+
+    SessionContext::new_with_config_rt(SessionConfig::default(), rt)
 }
 
 #[cfg(test)]

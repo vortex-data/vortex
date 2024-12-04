@@ -71,7 +71,7 @@ impl<'a> PrimitiveScalar<'a> {
             match_each_native_ptype!(self.ptype(), |$T| {
                 Ok(Scalar::primitive::<$Q>(
                     <$Q as NumCast>::from(self.typed_value::<$T>().expect("Invalid value"))
-                        .ok_or_else(|| vortex_err!("Can't cast {} scalar to {}", self.ptype, dtype))?,
+                        .ok_or_else(|| vortex_err!("Can't cast {} scalar {} to {}", self.ptype, self.typed_value::<$T>().expect("Invalid value"), dtype))?,
                     dtype.nullability(),
                 ))
             })
