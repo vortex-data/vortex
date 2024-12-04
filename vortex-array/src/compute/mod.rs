@@ -141,6 +141,10 @@ pub trait ComputeVTable {
         None
     }
 
+    fn fma_fn(&self) -> Option<&dyn FmaFn<ArrayData>> {
+        None
+    }
+
     fn list_fn(&self) -> Option<&dyn ListFn<ArrayData>> {
         None
     }
