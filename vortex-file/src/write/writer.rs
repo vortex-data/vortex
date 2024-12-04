@@ -1,5 +1,7 @@
-use std::{io, mem};
+use std::{io, iter, mem};
 
+use arrow_buffer::{BooleanBufferBuilder, MutableBuffer};
+use bytes::Bytes;
 use flatbuffers::FlatBufferBuilder;
 use futures::TryStreamExt;
 use itertools::Itertools;
@@ -271,24 +273,27 @@ impl ColumnWriter {
                     .map(|(range, len)| LayoutSpec::flat(range, len))
             });
 
-        if let Some(metadata_array) = self.metadata.into_array()? {
+        if let Some((metadata_array, present_stats)) = self.metadata.into_array()? {
             let expected_n_data_chunks = metadata_array.len();
 
-            let dtype_begin = msgs.tell();
-            msgs.write_dtype_raw(metadata_array.dtype()).await?;
-            let dtype_end = msgs.tell();
+            let stat_count = Stat::cardinality();
+            let mut stat_bitset = BooleanBufferBuilder::new_from_buffer(
+                MutableBuffer::from_len_zeroed(stat_count.div_ceil(8)),
+                stat_count,
+            );
+            for stat in present_stats {
+                stat_bitset.set_bit(u8::from(stat) as usize, true);
+            }
+
+            println!("Metadata schema {}", metadata_array.dtype());
+            let metadata_array_begin = msgs.tell();
             msgs.write_batch(metadata_array).await?;
             let metadata_array_end = msgs.tell();
 
-            let layouts = [LayoutSpec::inlined_schema(
-                vec![LayoutSpec::flat(
-                    ByteRange::new(dtype_end, metadata_array_end),
-                    expected_n_data_chunks as u64,
-                )],
+            let layouts = iter::once(LayoutSpec::flat(
+                ByteRange::new(metadata_array_begin, metadata_array_end),
                 expected_n_data_chunks as u64,
-                ByteRange::new(dtype_begin, dtype_end),
-            )]
-            .into_iter()
+            ))
             .chain(data_chunks)
             .collect::<Vec<_>>();
 
@@ -299,9 +304,13 @@ impl ColumnWriter {
                     layouts.len()
                 );
             }
-            Ok(LayoutSpec::chunked(layouts, row_count, true))
+            Ok(LayoutSpec::chunked(
+                layouts,
+                row_count,
+                Some(Bytes::copy_from_slice(stat_bitset.as_slice())),
+            ))
         } else {
-            Ok(LayoutSpec::chunked(data_chunks.collect(), row_count, false))
+            Ok(LayoutSpec::chunked(data_chunks.collect(), row_count, None))
         }
     }
 }

@@ -4713,6 +4713,7 @@ dependencies = [
  "itertools 0.13.0",
  "log",
  "num-traits",
+ "num_enum 0.7.3",
  "paste",
  "pin-project",
  "rand",

@@ -2,13 +2,15 @@
 
 use std::fmt::{Display, Formatter};
 use std::hash::Hash;
+use std::sync::Arc;
 
-use enum_iterator::Sequence;
+use enum_iterator::{cardinality, Sequence};
 use enum_map::Enum;
 use itertools::Itertools;
+use num_enum::{IntoPrimitive, TryFromPrimitive};
 pub use statsset::*;
 use vortex_dtype::Nullability::NonNullable;
-use vortex_dtype::{DType, NativePType};
+use vortex_dtype::{DType, NativePType, PType};
 use vortex_error::{vortex_err, vortex_panic, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
@@ -21,7 +23,10 @@ mod statsset;
 /// Statistics that are used for pruning files (i.e., we want to ensure they are computed when compressing/writing).
 pub const PRUNING_STATS: &[Stat] = &[Stat::Min, Stat::Max, Stat::TrueCount, Stat::NullCount];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Sequence, Enum)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Sequence, Enum, IntoPrimitive, TryFromPrimitive,
+)]
+#[repr(u8)]
 pub enum Stat {
     /// Frequency of each bit width (nulls are treated as 0)
     BitWidthFreq,
@@ -68,6 +73,32 @@ impl Stat {
     /// Whether the statistic has the same dtype as the array it's computed on
     pub fn has_same_dtype_as_array(&self) -> bool {
         matches!(self, Stat::Min | Stat::Max)
+    }
+
+    pub fn dtype(&self, data_type: &DType) -> DType {
+        match self {
+            Stat::BitWidthFreq => DType::List(
+                Arc::new(DType::Primitive(PType::U64, NonNullable)),
+                NonNullable,
+            ),
+            Stat::TrailingZeroFreq => DType::List(
+                Arc::new(DType::Primitive(PType::U64, NonNullable)),
+                NonNullable,
+            ),
+            Stat::IsConstant => DType::Bool(NonNullable),
+            Stat::IsSorted => DType::Bool(NonNullable),
+            Stat::IsStrictSorted => DType::Bool(NonNullable),
+            Stat::Max => data_type.clone(),
+            Stat::Min => data_type.clone(),
+            Stat::RunCount => DType::Primitive(PType::U64, NonNullable),
+            Stat::TrueCount => DType::Primitive(PType::U64, NonNullable),
+            Stat::NullCount => DType::Primitive(PType::U64, NonNullable),
+            Stat::UncompressedSizeInBytes => DType::Primitive(PType::U64, NonNullable),
+        }
+    }
+
+    pub fn cardinality() -> usize {
+        cardinality::<Stat>()
     }
 }
 
