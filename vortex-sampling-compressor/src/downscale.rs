@@ -1,5 +1,6 @@
-use vortex_array::array::PrimitiveArray;
+use vortex_array::array::{PrimitiveArray, PrimitiveEncoding};
 use vortex_array::compute::try_cast;
+use vortex_array::encoding::EncodingVTable;
 use vortex_array::stats::{ArrayStatistics, Stat};
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::{DType, PType};
@@ -7,10 +8,11 @@ use vortex_error::{vortex_err, VortexResult};
 
 /// Downscale a primitive array to the narrowest PType that fits all the values.
 pub fn downscale_integer_array(array: ArrayData) -> VortexResult<ArrayData> {
-    let Ok(array) = PrimitiveArray::try_from(array) else {
+    if !array.is_encoding(PrimitiveEncoding.id()) {
         // This can happen if e.g. the array is ConstantArray.
         return Ok(array);
-    };
+    }
+    let array = PrimitiveArray::try_from(array)?;
 
     let min = array
         .statistics()
