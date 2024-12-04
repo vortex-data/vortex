@@ -6,6 +6,7 @@ use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
+use crate::downscale::downscale_integer_array;
 use crate::{constants, SamplingCompressor};
 
 #[derive(Debug)]
@@ -32,7 +33,7 @@ impl EncodingCompressor for VarBinCompressor {
     ) -> VortexResult<CompressedArray<'a>> {
         let varbin_array = VarBinArray::try_from(array.clone())?;
         let offsets = ctx.auxiliary("offsets").compress(
-            &varbin_array.offsets(),
+            &downscale_integer_array(varbin_array.offsets())?,
             like.as_ref().and_then(|l| l.child(0)),
         )?;
         Ok(CompressedArray::compressed(

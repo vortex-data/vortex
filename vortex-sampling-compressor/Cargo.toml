@@ -18,6 +18,7 @@ arbitrary = { workspace = true, optional = true }
 fsst-rs = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
+num-traits = { workspace = true }
 rand = { workspace = true }
 vortex-alp = { workspace = true }
 vortex-array = { workspace = true }
