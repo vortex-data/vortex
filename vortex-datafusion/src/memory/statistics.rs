@@ -9,13 +9,12 @@ use vortex_array::variants::StructArrayTrait;
 use vortex_array::ArrayLen;
 use vortex_dtype::field::Field;
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_expr::ExprRef;
 
-pub fn chunked_array_df_stats(
-    array: &ChunkedArray,
-    fields: IntoIter<&Field>,
-) -> DFResult<Statistics> {
+pub fn chunked_array_df_stats(array: &ChunkedArray, expr: ExprRef) -> DFResult<Statistics> {
     let mut nbytes: usize = 0;
-    let column_statistics = fields
+    let column_statistics = expr
+        .references()
         .into_iter()
         .map(|f| {
             match f {

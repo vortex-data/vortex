@@ -13,7 +13,8 @@ use datafusion_physical_plan::{
 };
 use itertools::Itertools;
 use vortex_array::Context;
-
+use vortex_dtype::field::Field;
+use vortex_expr::VortexExpr;
 use crate::persistent::opener::VortexFileOpener;
 
 #[derive(Debug, Clone)]
@@ -113,10 +114,14 @@ impl ExecutionPlan for VortexExec {
 
         let arrow_schema = self.file_scan_config.file_schema.clone();
 
+        let projection: Option<Arc<dyn VortexExpr>> = match self.file_scan_config.projection.as_ref() {
+            None => None,
+            Some(indices) => Some(Arc::new(vortex_expr::Select::include(indices.iter().map(|i| Field::Index(*i)).collect_vec()))),
+        };
         let opener = VortexFileOpener {
             ctx: self.ctx.clone(),
             object_store,
-            projection: self.file_scan_config.projection.clone(),
+            projection,
             predicate: self.predicate.clone(),
             arrow_schema,
         };

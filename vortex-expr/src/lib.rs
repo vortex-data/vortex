@@ -14,6 +14,7 @@ mod literal;
 mod not;
 mod operators;
 mod select;
+mod pack;
 
 pub use binary::*;
 pub use column::*;
@@ -24,6 +25,7 @@ pub use literal::*;
 pub use not::*;
 pub use operators::*;
 pub use select::*;
+pub use pack::*;
 use vortex_array::ArrayData;
 use vortex_dtype::field::Field;
 use vortex_error::{VortexExpect, VortexResult};

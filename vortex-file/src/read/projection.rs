@@ -1,5 +1,6 @@
 use vortex_dtype::field::Field;
 use vortex_error::{vortex_bail, VortexResult};
+use vortex_expr::ExprRef;
 
 // TODO(robert): Add ability to project nested columns.
 //  Until datafusion supports nested column pruning we should create a separate variant to implement it
@@ -8,11 +9,16 @@ pub enum Projection {
     #[default]
     All,
     Flat(Vec<Field>),
+    Expr(ExprRef),
 }
 
 impl Projection {
     pub fn new(indices: impl AsRef<[usize]>) -> Self {
         Self::Flat(indices.as_ref().iter().copied().map(Field::from).collect())
+    }
+
+    pub fn expr(expr: ExprRef) -> Self {
+        Self::Expr(expr)
     }
 
     pub fn project(&self, fields: &[Field]) -> VortexResult<Self> {
@@ -24,6 +30,7 @@ impl Projection {
                 }
                 Projection::Flat(fields.to_vec())
             }
+            Projection::Expr(_) => { todo!() }
         })
     }
 }
