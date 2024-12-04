@@ -8,7 +8,7 @@ use num_traits::AsPrimitive;
 use vortex_array::array::{BooleanBuffer, ConstantArray, PrimitiveArray, SparseArray};
 use vortex_array::compute::{
     filter, scalar_at, slice, take, CompareFn, ComputeVTable, FilterFn, FilterMask, InvertFn,
-    ScalarAtFn, SliceFn, SumFn, TakeFn, TakeOptions,
+    ScalarAtFn, SliceFn, TakeFn, TakeOptions,
 };
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
