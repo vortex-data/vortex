@@ -285,7 +285,6 @@ impl ColumnWriter {
                 stat_bitset.set_bit(u8::from(stat) as usize, true);
             }
 
-            println!("Metadata schema {}", metadata_array.dtype());
             let metadata_array_begin = msgs.tell();
             msgs.write_batch(metadata_array).await?;
             let metadata_array_end = msgs.tell();
