@@ -18,6 +18,15 @@ pub trait SumFn<Array> {
     fn sum(&self, array: &Array, ends: &[u64]) -> VortexResult<ArrayData>;
 }
 
+pub trait FmaFn<Array> {
+    // Applies the Fused Multiply-Add operation to the array, returning a new array of size |ends|
+    // where each value is the sum of the array element between successive ends times by the values
+    // at that index.
+
+    // There will the size of ends matches to size of values.
+    fn fma(&self, array: &Array, ends: &[u64], values: &ArrayData) -> VortexResult<ArrayData>;
+}
+
 impl<E: Encoding> SumFn<ArrayData> for E
 where
     E: SumFn<E::Array>,
@@ -32,16 +41,22 @@ where
             .ok_or_else(|| vortex_err!("Mismatched encoding"))?;
         SumFn::sum(encoding, array_ref, ends)
     }
+}
 
-    // fn sum_sq(&self, array: &ArrayData) -> VortexResult<Scalar> {
-    //     let array_ref = <&E::Array>::try_from(array)?;
-    //     let encoding = array
-    //         .encoding()
-    //         .as_any()
-    //         .downcast_ref::<E>()
-    //         .ok_or_else(|| vortex_err!("Mismatched encoding"))?;
-    //     SumFn::sum_sq(encoding, array_ref)
-    // }
+impl<E: Encoding> FmaFn<ArrayData> for E
+where
+    E: FmaFn<E::Array>,
+    for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
+{
+    fn fma(&self, array: &ArrayData, ends: &[u64], values: ArrayData) -> VortexResult<ArrayData> {
+        let array_ref = <&E::Array>::try_from(array)?;
+        let encoding = array
+            .encoding()
+            .as_any()
+            .downcast_ref::<E>()
+            .ok_or_else(|| vortex_err!("Mismatched encoding"))?;
+        FmaFn::fma(encoding, array_ref, ends, values)
+    }
 }
 
 #[allow(dead_code)]
