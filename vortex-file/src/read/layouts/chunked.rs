@@ -1,22 +1,24 @@
 use std::collections::BTreeSet;
-use std::sync::{OnceLock, RwLock};
+use std::sync::{Arc, OnceLock, RwLock};
 
 use itertools::Itertools;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::array::ChunkedArray;
 use vortex_array::compute::{scalar_at, take, TakeOptions};
-use vortex_array::stats::{ArrayStatistics as _, Stat};
+use vortex_array::stats::{stats_from_bitset_bytes, ArrayStatistics as _, Stat};
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
+use vortex_dtype::{DType, Nullability, StructDType};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
-use vortex_flatbuffers::{footer as fb, footer};
+use vortex_flatbuffers::{footer as fb};
+use vortex_expr::Select;
 
 use crate::layouts::RangedLayoutReader;
 use crate::pruning::PruningPredicate;
 use crate::read::cache::RelativeLayoutCache;
 use crate::read::mask::RowMask;
 use crate::{
-    BatchRead, Layout, LayoutDeserializer, LayoutId, LayoutPartId, LayoutReader, MessageLocator,
-    MetadataRead, PruningRead, Scan, CHUNKED_LAYOUT_ID,
+    BatchRead, Layout, LayoutDeserializer, LayoutId, LayoutPartId, LayoutReader, LazyDType,
+    MessageLocator, MetadataRead, PruningRead, Scan, CHUNKED_LAYOUT_ID,
 };
 
 #[derive(Default, Debug)]
@@ -65,23 +67,34 @@ struct ChunkedLayoutBuilder<'a> {
 
 impl ChunkedLayoutBuilder<'_> {
     fn metadata_layout(&self) -> VortexResult<Option<Box<dyn LayoutReader>>> {
-        self.has_metadata()
-            .then(|| {
+        self.flatbuffer()
+            .metadata()
+            .map(|m| {
+                let set_stats = stats_from_bitset_bytes(m.bytes());
                 let metadata_fb = self
                     .layout
                     .children()
-                    .ok_or_else(|| vortex_err!("must have metadata"))?
+                    .ok_or_else(|| vortex_err!("Must have children if layout has metadata"))?
                     .get(0);
                 self.layout_builder.read_layout(
-                    self.layout,
-                    // TODO(robert): Create stats projection
-                    Scan::empty(),
-                    self.message_cache.unknown_dtype(METADATA_LAYOUT_PART_ID),
+                    self.fb_bytes.clone(),
+                    metadata_fb._tab.loc(),
+                    Scan::new(Some(Arc::new(Select::include(
+                        set_stats.iter().map(|s| s.to_string().into()).collect(),
+                    )))),
+                    self.message_cache.relative(
+                        METADATA_LAYOUT_PART_ID,
+                        Arc::new(LazyDType::from_dtype(stats_table_dtype(
+                            &set_stats,
+                            self.message_cache.dtype().value()?,
+                        ))),
+                    ),
                 )
             })
             .transpose()
     }
 
+<<<<<<< HEAD
     fn has_metadata(&self) -> bool {
         self.layout
             .metadata()
@@ -89,13 +102,19 @@ impl ChunkedLayoutBuilder<'_> {
             .unwrap_or(false)
     }
 
+=======
+>>>>>>> develop
     fn children(&self) -> impl Iterator<Item = (usize, footer::Layout)> {
         self.layout
             .children()
             .unwrap_or_default()
             .iter()
             .enumerate()
-            .skip(if self.has_metadata() { 1 } else { 0 })
+            .skip(if self.flatbuffer().metadata().is_some() {
+                1
+            } else {
+                0
+            })
     }
 
     fn children_ranges(&self) -> Vec<(usize, usize)> {
@@ -131,6 +150,15 @@ impl ChunkedLayoutBuilder<'_> {
             self.scan.clone(),
         ))
     }
+}
+
+fn stats_table_dtype(stats: &[Stat], dtype: &DType) -> DType {
+    let dtypes = stats.iter().map(|s| s.dtype(dtype).as_nullable()).collect();
+
+    DType::Struct(
+        StructDType::new(stats.iter().map(|s| s.to_string().into()).collect(), dtypes),
+        Nullability::NonNullable,
+    )
 }
 
 #[derive(Debug, Default, Clone)]
@@ -445,7 +473,7 @@ mod tests {
 
         let mut fb = FlatBufferBuilder::new();
         // FIXME(ngates): impl From<LayoutSpec> for fb::Layout
-        let chunked_layout = write::LayoutSpec::chunked(flat_layouts.into(), len as u64, false);
+        let chunked_layout = write::LayoutSpec::chunked(flat_layouts.into(), len as u64, None);
         let flat_buf = chunked_layout.write_flatbuffer(&mut fb);
         fb.finish_minimal(flat_buf);
         let fb_bytes = Bytes::copy_from_slice(fb.finished_data());

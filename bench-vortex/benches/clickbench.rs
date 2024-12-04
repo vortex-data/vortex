@@ -4,9 +4,8 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use bench_vortex::clickbench::{clickbench_queries, HITS_SCHEMA};
-use bench_vortex::{clickbench, execute_query, idempotent, IdempotentPath};
+use bench_vortex::{clickbench, execute_query, get_session_with_cache, idempotent, IdempotentPath};
 use criterion::{criterion_group, criterion_main, Criterion};
-use datafusion::prelude::SessionContext;
 use tokio::runtime::Builder;
 
 fn benchmark(c: &mut Criterion) {
@@ -42,8 +41,9 @@ fn benchmark(c: &mut Criterion) {
         .unwrap();
     }
 
-    let session_context = SessionContext::new();
+    let session_context = get_session_with_cache();
     let context = session_context.clone();
+
     runtime.block_on(async move {
         clickbench::register_vortex_files(&context, "hits", basepath.as_path(), &HITS_SCHEMA)
             .await

@@ -8,7 +8,10 @@ use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
 use arrow_array::{RecordBatch, RecordBatchReader};
-use datafusion::prelude::SessionContext;
+use datafusion::execution::cache::cache_manager::CacheManagerConfig;
+use datafusion::execution::cache::cache_unit::{DefaultFileStatisticsCache, DefaultListFilesCache};
+use datafusion::execution::runtime_env::RuntimeEnvBuilder;
+use datafusion::prelude::{SessionConfig, SessionContext};
 use datafusion_physical_plan::{collect, ExecutionPlan};
 use itertools::Itertools;
 use log::LevelFilter;
@@ -295,6 +298,23 @@ impl Measurement {
             value: self.time.as_nanos(),
         }
     }
+}
+
+pub fn get_session_with_cache() -> SessionContext {
+    let cache_config = CacheManagerConfig::default();
+    let file_static_cache = Arc::new(DefaultFileStatisticsCache::default());
+    let list_file_cache = Arc::new(DefaultListFilesCache::default());
+
+    let cache_config = cache_config
+        .with_files_statistics_cache(Some(file_static_cache))
+        .with_list_files_cache(Some(list_file_cache));
+
+    let rt = RuntimeEnvBuilder::new()
+        .with_cache_manager(cache_config)
+        .build_arc()
+        .expect("could not build runtime environment");
+
+    SessionContext::new_with_config_rt(SessionConfig::default(), rt)
 }
 
 #[cfg(test)]

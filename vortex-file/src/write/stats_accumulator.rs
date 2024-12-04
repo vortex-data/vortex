@@ -1,15 +1,12 @@
 //! Metadata accumulators track the per-chunk-of-a-column metadata, layout locations, and row counts.
 
-use std::sync::Arc;
-
 use itertools::Itertools;
 use vortex_array::array::StructArray;
 use vortex_array::builders::{builder_with_capacity, ArrayBuilder, ArrayBuilderExt};
 use vortex_array::stats::{ArrayStatistics as _, Stat};
 use vortex_array::validity::{ArrayValidity, Validity};
 use vortex_array::{ArrayData, IntoArrayData};
-use vortex_dtype::Nullability::{NonNullable, Nullable};
-use vortex_dtype::{DType, PType};
+use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 pub struct StatsAccumulator {
@@ -19,31 +16,12 @@ pub struct StatsAccumulator {
 }
 
 impl StatsAccumulator {
-    pub fn new(dtype: &DType, stats: Vec<Stat>) -> Self {
+    pub fn new(dtype: &DType, mut stats: Vec<Stat>) -> Self {
+        // Sort stats by their ordinal so we can recreate their dtype from bitset
+        stats.sort_by_key(|s| u8::from(*s));
         let builders = stats
             .iter()
-            .map(|s| {
-                let dtype = match s {
-                    Stat::BitWidthFreq => DType::List(
-                        Arc::new(DType::Primitive(PType::U64, NonNullable)),
-                        Nullable,
-                    ),
-                    Stat::TrailingZeroFreq => DType::List(
-                        Arc::new(DType::Primitive(PType::U64, NonNullable)),
-                        Nullable,
-                    ),
-                    Stat::IsConstant => DType::Bool(Nullable),
-                    Stat::IsSorted => DType::Bool(Nullable),
-                    Stat::IsStrictSorted => DType::Bool(Nullable),
-                    Stat::Max => dtype.as_nullable(),
-                    Stat::Min => dtype.as_nullable(),
-                    Stat::RunCount => DType::Primitive(PType::U64, Nullable),
-                    Stat::TrueCount => DType::Primitive(PType::U64, Nullable),
-                    Stat::NullCount => DType::Primitive(PType::U64, Nullable),
-                    Stat::UncompressedSizeInBytes => DType::Primitive(PType::U64, Nullable),
-                };
-                builder_with_capacity(&dtype, 1024)
-            })
+            .map(|s| builder_with_capacity(&s.dtype(dtype).as_nullable(), 1024))
             .collect();
         Self {
             stats,
@@ -64,20 +42,22 @@ impl StatsAccumulator {
         Ok(())
     }
 
-    pub fn into_array(mut self) -> VortexResult<Option<ArrayData>> {
-        let mut names = vec![];
-        let mut fields = vec![];
+    pub fn into_array(mut self) -> VortexResult<Option<StatArray>> {
+        let mut names = Vec::new();
+        let mut fields = Vec::new();
+        let mut stats = Vec::new();
 
         for (stat, builder) in self.stats.iter().zip(self.builders.iter_mut()) {
-            let values = builder.finish().map_err(|e| {
-                e.with_context(format!("Failed to finish stat builder for {}", stat))
-            })?;
+            let values = builder
+                .finish()
+                .map_err(|e| e.with_context(format!("Failed to finish stat builder for {stat}")))?;
 
             // We drop any all-null stats columns
             if values.logical_validity().null_count()? == values.len() {
                 continue;
             }
 
+            stats.push(*stat);
             names.push(stat.to_string().into());
             fields.push(values);
         }
@@ -86,9 +66,12 @@ impl StatsAccumulator {
             return Ok(None);
         }
 
-        Ok(Some(
+        Ok(Some(StatArray(
             StructArray::try_new(names.into(), fields, self.length, Validity::NonNullable)?
                 .into_array(),
-        ))
+            stats,
+        )))
     }
 }
+
+pub struct StatArray(pub ArrayData, pub Vec<Stat>);

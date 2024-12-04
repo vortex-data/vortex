@@ -153,7 +153,7 @@ mod test {
 
         assert!(metadata_table.is_some());
         let metadata_table = metadata_table.unwrap();
-        assert!(metadata_table.len() == 2);
+        assert_eq!(metadata_table.len(), 2);
         assert!(metadata_table.iter().all(Option::is_some));
 
         let name_metadata_table = metadata_table[0]
