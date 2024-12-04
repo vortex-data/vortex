@@ -2,9 +2,10 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
-use arrow_array::{ArrayRef, RecordBatch, StructArray};
+use arrow_array::cast::AsArray;
+use arrow_array::RecordBatch;
 use arrow_schema::SchemaRef;
-use datafusion_common::{exec_datafusion_err, DataFusionError, Result as DFResult};
+use datafusion_common::{DataFusionError, Result as DFResult};
 use datafusion_execution::RecordBatchStream;
 use futures::Stream;
 use vortex_array::array::ChunkedArray;
@@ -19,7 +20,7 @@ pub(crate) struct VortexRecordBatchStream {
     pub(crate) chunks: ChunkedArray,
 
     // The projection expressions stored as tuples of (expression, output column name)
-    pub(crate) projection: Vec<(ExprRef, String)>,
+    pub(crate) projection: ExprRef,
 }
 
 impl Stream for VortexRecordBatchStream {
@@ -38,22 +39,9 @@ impl Stream for VortexRecordBatchStream {
             .into_struct()
             .map_err(|vortex_error| DataFusionError::Execution(format!("{}", vortex_error)))?;
 
-        let mut projection_arrays: Vec<(&str, ArrayRef)> =
-            Vec::with_capacity(self.projection.len());
-        for (expr, name) in &self.projection {
-            let projected_array = expr.evaluate(struct_array.as_ref()).map_err(|vortex_err| {
-                exec_datafusion_err!("projection pushdown to Vortex failed: {vortex_err}")
-            })?;
-            let projected_array_ref = projected_array
-                .into_canonical()
-                .map_err(|e| exec_datafusion_err!("projection array into canonical failed: {e}"))?
-                .into_arrow()
-                .map_err(|e| exec_datafusion_err!("projection array into arrow failed: {e}"))?;
-            projection_arrays.push((name.as_str(), projected_array_ref));
-        }
-        let projected_struct = StructArray::try_from(projection_arrays)?;
+        let projected_struct = self.projection.evaluate(struct_array.as_ref())?.into_canonical()?.into_arrow()?;
 
-        Poll::Ready(Some(Ok(projected_struct.into())))
+        Poll::Ready(Some(Ok(projected_struct.as_struct().into())))
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {

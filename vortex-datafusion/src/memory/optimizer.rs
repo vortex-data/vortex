@@ -35,9 +35,7 @@ impl PhysicalOptimizerRule for VortexScanProjectionPushdown {
         plan: Arc<dyn ExecutionPlan>,
         _config: &ConfigOptions,
     ) -> datafusion_common::Result<Arc<dyn ExecutionPlan>> {
-        if true {
-            println!("{:#?}", plan);
-        }
+        println!("{:#?}", plan);
         match plan.as_any().downcast_ref::<ProjectionExec>() {
             Some(projection_exec) => {
                 match projection_exec
@@ -46,12 +44,14 @@ impl PhysicalOptimizerRule for VortexScanProjectionPushdown {
                     .downcast_ref::<VortexScanExec>()
                 {
                     Some(vortex_scan) => {
-                        let mut projection = Vec::with_capacity(projection_exec.expr().len());
+                        let mut projections = Vec::with_capacity(projection_exec.expr().len());
+                        let mut names = Vec::with_capacity(projection_exec.expr().len());
                         for (expr, name) in projection_exec.expr() {
                             match convert_expr_to_vortex(expr.clone()) {
                                 Ok(vortex_expr) => {
                                     // println!("{:?}: {:?}", name, vortex_expr);
-                                    projection.push((vortex_expr, name.clone()));
+                                    projections.push(vortex_expr);
+                                    names.push(name.clone());
                                 }
                                 Err(e) => {
                                     println!("{:?}", e);
@@ -60,6 +60,7 @@ impl PhysicalOptimizerRule for VortexScanProjectionPushdown {
                                 }
                             }
                         }
+                        let projection = vortex_expr::Pack::new_expr(projections, names);
 
                         // Push-down the projection.
                         // println!("{:?}", plan);

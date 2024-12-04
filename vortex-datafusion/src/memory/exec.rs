@@ -5,7 +5,6 @@ use std::sync::Arc;
 use datafusion_common::{Result as DFResult, Statistics};
 use datafusion_execution::{SendableRecordBatchStream, TaskContext};
 use datafusion_physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
-use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::ChunkedArray;
 use vortex_array::{ArrayDType, ArrayLen};
 use vortex_error::VortexResult;
@@ -18,7 +17,7 @@ use crate::memory::stream::VortexRecordBatchStream;
 #[derive(Clone)]
 pub struct VortexScanExec {
     array: ChunkedArray,
-    scan_projection: Vec<(ExprRef, String)>,
+    scan_projection: ExprRef,
     plan_properties: PlanProperties,
     statistics: Statistics,
 }
@@ -26,14 +25,10 @@ pub struct VortexScanExec {
 impl VortexScanExec {
     pub fn try_new(
         array: ChunkedArray,
-        scan_projection: Vec<(ExprRef, String)>,
+        scan_projection: ExprRef,
         plan_properties: PlanProperties,
     ) -> VortexResult<Self> {
-        let mut fields = HashSet::new();
-        for (expr, _) in &scan_projection {
-            fields.extend(expr.references());
-        }
-        let statistics = chunked_array_df_stats(&array, fields.into_iter())?;
+        let statistics = chunked_array_df_stats(&array, scan_projection.clone())?;
         Ok(Self {
             array,
             scan_projection,
@@ -44,7 +39,7 @@ impl VortexScanExec {
 
     pub fn with_scan_projection(
         &self,
-        scan_projection: Vec<(ExprRef, String)>,
+        scan_projection: ExprRef,
     ) -> VortexResult<Self> {
         Self::try_new(
             self.array.clone(),

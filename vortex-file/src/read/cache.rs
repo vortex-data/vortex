@@ -71,6 +71,7 @@ impl SerializedDTypeField {
                             vortex_bail!("Can't project {fields:?} into {field}")
                         }
                     }
+                    Projection::Expr(_) => { todo!() }
                 }
                 Ok(SerializedDTypeField::Field(field.clone()))
             }
@@ -230,6 +231,7 @@ fn field_names(bytes: &[u8], dtype_field: &SerializedDTypeField) -> VortexResult
                 .map(|f| resolve_field(struct_field, f))
                 .map(|idx| idx.map(|i| Arc::from(names.get(i))))
                 .collect(),
+            Projection::Expr(_) => { todo!() }
         },
         SerializedDTypeField::Field(f) => Ok(Arc::new([Arc::from(
             names.get(resolve_field(struct_field, f)?),
@@ -246,6 +248,7 @@ fn project_dtype_bytes(bytes: &[u8], dtype_field: &SerializedDTypeField) -> Vort
         SerializedDTypeField::Projection(projection) => match projection {
             Projection::All => DType::try_from(fb_dtype),
             Projection::Flat(p) => project_and_deserialize(fb_dtype, p),
+            Projection::Expr(_) => { todo!() }
         },
         SerializedDTypeField::Field(f) => extract_field(fb_dtype, f),
     }

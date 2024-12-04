@@ -7,14 +7,14 @@ use vortex_array::variants::StructArrayTrait;
 use vortex_array::ArrayLen;
 use vortex_dtype::field::Field;
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_expr::ExprRef;
 
-pub fn chunked_array_df_stats<'a>(
-    array: &'a ChunkedArray,
-    fields: impl IntoIterator<Item = &'a Field>,
+pub fn chunked_array_df_stats(
+    array: &ChunkedArray,
+    expr: ExprRef,
 ) -> DFResult<Statistics> {
     let mut nbytes: usize = 0;
-    let column_statistics = fields
-        .into_iter()
+    let column_statistics = expr.references().into_iter()
         .map(|f| {
             match f {
                 Field::Name(name) => array.field_by_name(name.as_str()),

@@ -127,15 +127,9 @@ impl TableProvider for VortexMemTable {
                     ExecutionMode::Bounded,
                 );
 
-                let scan_projection = output_projection
-                    .iter()
-                    .map(|i| {
-                        (
-                            vortex_expr::Column::new_expr(Field::Index(*i)),
-                            self.schema_ref.field(*i).name().clone(),
-                        )
-                    })
-                    .collect_vec();
+                let scan_projection = Arc::new(vortex_expr::Select::include(output_projection.iter()
+                    .map(|i| Field::Index(*i))
+                    .collect_vec()));
 
                 Ok(Arc::new(VortexScanExec::try_new(
                     self.array.clone(),

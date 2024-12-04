@@ -127,6 +127,7 @@ impl<R: VortexReadAt + Unpin> VortexReadBuilder<R> {
         let projected_dtype = match read_projection {
             Projection::All => lazy_dtype.clone(),
             Projection::Flat(ref fields) => lazy_dtype.project(fields)?,
+            Projection::Expr(_) => { todo!() }
         };
 
         let message_cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
@@ -136,6 +137,7 @@ impl<R: VortexReadAt + Unpin> VortexReadBuilder<R> {
             Scan::new(match read_projection {
                 Projection::All => None,
                 Projection::Flat(p) => Some(Arc::new(Select::include(p))),
+                Projection::Expr(e) => Some(e),
             }),
             RelativeLayoutCache::new(message_cache.clone(), lazy_dtype.clone()),
         )?;
