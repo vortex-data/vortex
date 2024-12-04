@@ -3,11 +3,11 @@
 use std::sync::Arc;
 
 use datafusion_expr::Operator as DFOperator;
-use datafusion_physical_expr::{expressions, PhysicalExpr};
+use datafusion_physical_expr::{expressions, PhysicalExpr, ScalarFunctionExpr};
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::{BinaryExpr, Column, ExprRef, Like, Literal, Operator};
+use crate::{BinaryExpr, Column, ExprRef, Like, ListMean, Literal, Operator};
 
 pub fn convert_expr_to_vortex(physical_expr: Arc<dyn PhysicalExpr>) -> VortexResult<ExprRef> {
     if let Some(binary_expr) = physical_expr
@@ -47,6 +47,13 @@ pub fn convert_expr_to_vortex(physical_expr: Arc<dyn PhysicalExpr>) -> VortexRes
     {
         let value = Scalar::from(lit.value().clone());
         return Ok(Literal::new_expr(value));
+    }
+
+    if let Some(udf) = physical_expr.as_any().downcast_ref::<ScalarFunctionExpr>() {
+        if udf.name() == "list.mean" {
+            let child = convert_expr_to_vortex(udf.args()[0].clone())?;
+            return Ok(ListMean::new_expr(child));
+        }
     }
 
     vortex_bail!(
