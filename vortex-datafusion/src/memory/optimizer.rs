@@ -35,6 +35,9 @@ impl PhysicalOptimizerRule for VortexScanProjectionPushdown {
         plan: Arc<dyn ExecutionPlan>,
         _config: &ConfigOptions,
     ) -> datafusion_common::Result<Arc<dyn ExecutionPlan>> {
+        if true {
+            println!("{:#?}", plan);
+        }
         match plan.as_any().downcast_ref::<ProjectionExec>() {
             Some(projection_exec) => {
                 match projection_exec

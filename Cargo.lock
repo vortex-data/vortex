@@ -4774,13 +4774,18 @@ dependencies = [
  "tempfile",
  "tokio",
  "url",
+ "vortex-alp",
  "vortex-array",
  "vortex-datetime-dtype",
+ "vortex-dict",
  "vortex-dtype",
  "vortex-error",
  "vortex-expr",
+ "vortex-fastlanes",
  "vortex-file",
+ "vortex-fsst",
  "vortex-io",
+ "vortex-runend",
 ]
 
 [[package]]

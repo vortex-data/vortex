@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
-use arrow_array::cast::AsArray;
-use arrow_array::types::Float64Type;
-use arrow_array::PrimitiveArray;
+// use arrow_array::cast::AsArray;
+// use arrow_array::types::Float64Type;
+// use arrow_array::PrimitiveArray;
 use arrow_schema::{DataType, Field, FieldRef};
-use datafusion::common::exec_err;
+// use datafusion::common::exec_err;
 use datafusion::error::Result as DFResult;
 use datafusion::logical_expr::{
     ColumnarValue, ScalarUDFImpl, Signature, TypeSignature, Volatility,
@@ -66,41 +66,47 @@ impl ScalarUDFImpl for ListMean {
         Ok(DataType::Float64)
     }
 
-    fn invoke_batch(&self, args: &[ColumnarValue], _number_rows: usize) -> DFResult<ColumnarValue> {
-        let [list] = args else {
-            return exec_err!("The number of arguments provided must be exactly 1");
-        };
+    fn invoke_batch(
+        &self,
+        _args: &[ColumnarValue],
+        _number_rows: usize,
+    ) -> DFResult<ColumnarValue> {
+        // let [list] = args else {
+        //     return exec_err!("The number of arguments provided must be exactly 1");
+        // };
 
-        let list_arr = match list {
-            ColumnarValue::Array(arr) => arr.as_list::<i32>(),
-            // TODO(marko): Support scalar.
-            _ => exec_err!("first arg must be an array")?,
-        };
+        todo!();
 
-        let offsets = list_arr.offsets();
-        // TODO(marko): numeric is valid.
-        let elements = list_arr.values().as_primitive::<Float64Type>();
+        // let list_arr = match list {
+        //     ColumnarValue::Array(arr) => arr.as_list::<i32>(),
+        //     // TODO(marko): Support scalar.
+        //     _ => exec_err!("first arg must be an array")?,
+        // };
 
-        let mut sum = 0f64;
-        let mut count = 0;
-        let mut current_end = offsets[1];
-        let mut current_end_idx = 1;
-        let mut means = PrimitiveArray::<Float64Type>::builder(offsets.len() - 1);
-        for i in 0..elements.len() {
-            if i == current_end as usize {
-                let mean = sum / count as f64;
-                means.append_value(mean);
-                sum = 0.0; // elements[i];
-                count = 1;
-                current_end_idx += 1;
-                current_end = offsets[current_end_idx];
-            } else {
-                sum += 0.0;
-                count += 1;
-            }
-        }
+        // let offsets = list_arr.offsets();
+        // // TODO(marko): numeric is valid.
+        // let elements = list_arr.values().as_primitive::<Float64Type>();
 
-        let mean_array = means.finish();
-        Ok(ColumnarValue::Array(Arc::from(mean_array)))
+        // let mut sum = 0f64;
+        // let mut count = 0;
+        // let mut current_end = offsets[1];
+        // let mut current_end_idx = 1;
+        // let mut means = PrimitiveArray::<Float64Type>::builder(offsets.len() - 1);
+        // for i in 0..elements.len() {
+        //     if i == current_end as usize {
+        //         let mean = sum / count as f64;
+        //         means.append_value(mean);
+        //         sum = 0.0; // elements[i];
+        //         count = 1;
+        //         current_end_idx += 1;
+        //         current_end = offsets[current_end_idx];
+        //     } else {
+        //         sum += 0.0;
+        //         count += 1;
+        //     }
+        // }
+
+        // let mean_array = means.finish();
+        // Ok(ColumnarValue::Array(Arc::from(mean_array)))
     }
 }
