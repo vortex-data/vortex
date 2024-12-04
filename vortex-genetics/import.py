@@ -1,3 +1,9 @@
+import logging
+
+FORMAT = '[%(levelname)s %(asctime)-15s %(filename)s:%(lineno)d] %(message)s'
+logging.basicConfig(format=FORMAT)
+logging.getLogger().setLevel(logging.DEBUG)
+
 # Install a JRE 11: https://adoptium.net/temurin/releases/
 #
 # install the gcs conenctor:
@@ -61,7 +67,7 @@ else:
 
 
 if not os.path.exists('100_000-no-lists-of-lists.vcf.vortex'):
-    print('writing: 100_000-no-lists-of-lists.vcf.parquet')
+    print('writing: 100_000-no-lists-of-lists.vcf.vortex')
     vortex.io.write_path(
         vortex.encoding.compress(
             vortex.array(
@@ -71,5 +77,5 @@ if not os.path.exists('100_000-no-lists-of-lists.vcf.vortex'):
         '100_000-no-lists-of-lists.vcf.vortex'
     )
 else:
-    print('found: 100_000-no-lists-of-lists.vcf.parquet')
+    print('found: 100_000-no-lists-of-lists.vcf.vortex')
 

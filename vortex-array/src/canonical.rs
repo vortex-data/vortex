@@ -423,7 +423,7 @@ impl IntoCanonical for ArrayData {
     fn into_canonical(self) -> VortexResult<Canonical> {
         // We only care to know when we canonicalize something non-trivial.
         if !self.is_canonical() && self.len() > 1 {
-            log::debug!("Canonicalizing array with encoding {:?}", self.encoding());
+            log::trace!("Canonicalizing array with encoding {:?}", self.encoding());
         }
         self.encoding().into_canonical(self)
     }

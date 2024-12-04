@@ -4,7 +4,7 @@ use std::sync::LazyLock;
 
 use array::PyArray;
 use expr::PyExpr;
-use pyo3::exceptions::PyRuntimeError;
+// use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use scalar::{PyBuffer, PyBufferString, PyVortexList, PyVortexStruct};
 
@@ -18,8 +18,8 @@ mod io;
 mod object_store_urls;
 mod python_repr;
 mod scalar;
-use log::LevelFilter;
-use pyo3_log::{Caching, Logger};
+// use log::LevelFilter;
+// use pyo3_log::{Caching, Logger};
 use tokio::runtime::Runtime;
 use vortex::error::{VortexError, VortexExpect as _};
 
@@ -32,14 +32,15 @@ pub static TOKIO_RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
 /// Vortex is an Apache Arrow-compatible toolkit for working with compressed array data.
 #[pymodule]
 fn _lib(py: Python, m: &Bound<PyModule>) -> PyResult<()> {
-    Python::with_gil(|py| -> PyResult<()> {
-        Logger::new(py, Caching::LoggersAndLevels)?
-            .filter(LevelFilter::Info)
-            .filter_target("my_module::verbose_submodule".to_owned(), LevelFilter::Warn)
-            .install()
-            .map(|_| ())
-            .map_err(|err| PyRuntimeError::new_err(format!("could not initialize logger {}", err)))
-    })?;
+    pyo3_log::init();
+    // Python::with_gil(|py| -> PyResult<()> {
+    //     Logger::new(py, Caching::LoggersAndLevels)?
+    //         .filter(LevelFilter::Trace)
+    //         // .filter_target("my_module::verbose_submodule".to_owned(), LevelFilter::Warn)
+    //         .install()
+    //         .map(|_| ())
+    //         .map_err(|err| PyRuntimeError::new_err(format!("could not initialize logger {}", err)))
+    // })?;
 
     let dtype = PyModule::new_bound(py, "dtype")?;
     m.add_submodule(&dtype)?;
