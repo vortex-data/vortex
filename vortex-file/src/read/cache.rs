@@ -7,8 +7,9 @@ use once_cell::sync::OnceCell;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_dtype::field::Field;
 use vortex_dtype::flatbuffers::{extract_field, project_and_deserialize, resolve_field};
-use vortex_dtype::{DType, FieldNames};
+use vortex_dtype::{DType, FieldName, FieldNames, Nullability, PType, StructDType};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexResult};
+use vortex_expr::ExprRef;
 use vortex_flatbuffers::dtype::Struct_;
 use vortex_flatbuffers::message;
 
@@ -147,6 +148,19 @@ impl LazyDType {
             })),
             LazyDTypeState::Unknown => vortex_bail!("Unknown dtype"),
         }
+    }
+
+    pub fn evaluate(&self, _expr: ExprRef) -> VortexResult<Arc<Self>> {
+        // FIXME(marko): hardcoded for mean...
+        Ok(Arc::new(
+            LazyDType::from_dtype(
+                DType::Struct(StructDType::new(
+                    // "list.mean(vortex_tbl.GT)"
+                    Arc::new([FieldName::from("GT")]),
+                    vec![DType::Primitive(PType::F64, Nullability::Nullable)],
+                ), Nullability::Nullable),
+            )
+        ))
     }
 
     /// Extract single field out of this dtype

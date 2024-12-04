@@ -68,6 +68,6 @@ impl ScalarUDFImpl for ListMean {
         _number_rows: usize,
     ) -> DFResult<ColumnarValue> {
         // This is optimized away (pushed down into vortex)
-        todo!();
+        todo!("FAILED TO PUSHDOWN");
     }
 }

@@ -3,3 +3,4 @@ pub mod execution;
 pub mod format;
 pub mod opener;
 pub mod statistics;
+pub mod optimizer;

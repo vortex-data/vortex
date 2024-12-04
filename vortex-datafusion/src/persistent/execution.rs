@@ -1,6 +1,5 @@
-use std::fmt;
-use std::sync::Arc;
-
+use crate::persistent::opener::VortexFileOpener;
+use arrow_schema::{DataType, Schema};
 use datafusion::config::ConfigOptions;
 use datafusion::datasource::physical_plan::{FileGroupPartitioner, FileScanConfig, FileStream};
 use datafusion_common::{project_schema, Result as DFResult, Statistics};
@@ -11,10 +10,11 @@ use datafusion_physical_plan::{
     DisplayAs, DisplayFormatType, ExecutionMode, ExecutionPlan, PlanProperties,
 };
 use itertools::Itertools;
+use std::fmt;
+use std::sync::Arc;
 use vortex_array::Context;
 use vortex_dtype::field::Field;
-use vortex_expr::VortexExpr;
-use crate::persistent::opener::VortexFileOpener;
+use vortex_expr::{ExprRef, VortexExpr};
 
 #[derive(Debug, Clone)]
 pub struct VortexExec {
@@ -24,6 +24,7 @@ pub struct VortexExec {
     plan_properties: PlanProperties,
     projected_statistics: Statistics,
     ctx: Arc<Context>,
+    projection: Option<ExprRef>,
 }
 
 impl VortexExec {
@@ -60,10 +61,26 @@ impl VortexExec {
             plan_properties,
             projected_statistics,
             ctx,
+            projection: None,
         })
     }
     pub(crate) fn into_arc(self) -> Arc<dyn ExecutionPlan> {
         Arc::new(self) as _
+    }
+
+    pub(crate) fn with_projection(self, projection: ExprRef) -> VortexExec {
+        Self {
+            // FIXME(marko): hack hack...
+            file_scan_config: FileScanConfig {
+                file_schema: Arc::new(Schema::new(
+                    vec![Arc::new(arrow_schema::Field::new(
+                        "list.mean(GT)", DataType::Float64, false))])),
+                projection: None,
+                ..self.file_scan_config
+            },
+            projection: Some(projection),
+            ..self
+        }
     }
 }
 
@@ -111,9 +128,14 @@ impl ExecutionPlan for VortexExec {
 
         let arrow_schema = self.file_scan_config.file_schema.clone();
 
-        let projection: Option<Arc<dyn VortexExpr>> = match self.file_scan_config.projection.as_ref() {
-            None => None,
-            Some(indices) => Some(Arc::new(vortex_expr::Select::include(indices.iter().map(|i| Field::Index(*i)).collect_vec()))),
+        let projection: Option<Arc<dyn VortexExpr>> = match self.projection.as_ref() {
+            None => {
+                match self.file_scan_config.projection.as_ref() {
+                    None => None,
+                    Some(indices) => Some(Arc::new(vortex_expr::Select::include(indices.iter().map(|i| Field::Index(*i)).collect_vec()))),
+                }
+            }
+            Some(expr) => Some(expr.clone()),
         };
         let opener = VortexFileOpener {
             ctx: self.ctx.clone(),

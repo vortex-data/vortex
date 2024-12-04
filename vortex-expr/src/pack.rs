@@ -1,14 +1,13 @@
 use std::any::Any;
 use std::fmt::Display;
 use std::sync::Arc;
-use itertools::Itertools;
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::array::StructArray;
-use vortex_array::{ArrayData, IntoArrayData};
+use vortex_array::compute::list_mean;
+use vortex_array::ArrayData;
 use vortex_dtype::field::Field;
 use vortex_error::VortexResult;
 
-use crate::{unbox_any, ExprRef, VortexExpr};
+use crate::{unbox_any, ExprRef, ListMean, VortexExpr};
 
 #[derive(Debug, Clone)]
 pub struct Pack {
@@ -36,11 +35,16 @@ impl VortexExpr for Pack {
     fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
         let mut arrays = Vec::with_capacity(self.children.len());
         for child in &self.children {
-            arrays.push(child.evaluate(batch)?);
+            if let Some(_) = child.as_any().downcast_ref::<ListMean>() {
+                arrays.push(list_mean(batch)?);
+            } else {
+                todo!()
+            }
         }
-        let fields = self.names.iter().zip(arrays).map(|(n, a)| (n.as_str(), a)).collect_vec();
-        let struct_array = StructArray::from_fields(fields.as_slice())?;
-        Ok(struct_array.into_array())
+        Ok(arrays.into_iter().next().expect("exists"))
+        // let fields = self.names.iter().zip(arrays).map(|(n, a)| (n.as_str(), a)).collect_vec();
+        // let struct_array = StructArray::from_fields(fields.as_slice())?;
+        // Ok(struct_array.into_array())
     }
 
     fn collect_references<'a>(&'a self, references: &mut HashSet<&'a Field>) {

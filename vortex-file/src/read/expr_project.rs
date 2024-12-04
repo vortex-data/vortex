@@ -1,9 +1,7 @@
 use std::sync::Arc;
 
 use vortex_dtype::field::Field;
-use vortex_expr::{
-    BinaryExpr, Column, ExprRef, Identity, Like, Literal, Not, Operator, Select, VortexExpr,
-};
+use vortex_expr::{BinaryExpr, Column, ExprRef, Identity, Like, Literal, Not, Operator, Pack, Select, VortexExpr};
 
 use crate::RowFilter;
 
@@ -90,6 +88,9 @@ pub fn expr_project(expr: &ExprRef, projection: &[Field]) -> Option<ExprRef> {
             l.negated(),
             l.case_insensitive(),
         ))
+    } else if let Some(_) = expr.as_any().downcast_ref::<Pack>() {
+        // TODO(marko): Actually restrict...
+        Some(expr.clone())
     } else {
         None
     }
