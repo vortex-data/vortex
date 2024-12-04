@@ -82,7 +82,7 @@ impl ChunkedLayoutBuilder {
         self.flatbuffer()
             .metadata()
             .map(|m| {
-                let set_stats = BooleanBuffer::new(Buffer::from(m.bytes()), 0, Stat::cardinality())
+                let set_stats = BooleanBuffer::new(Buffer::from(m.bytes()), 0, m.bytes().len() * 8)
                     .set_indices()
                     .map(|i| {
                         Stat::try_from(i as u8)
