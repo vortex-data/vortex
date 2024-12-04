@@ -124,7 +124,7 @@ impl EncodingCompressor for BitPackedCompressor {
             .into_array(),
             Some(CompressionTree::new(
                 self,
-                vec![patches.and_then(|p| p.path)],
+                vec![patches.and_then(|p| p.path), None],
             )),
             Some(array.statistics()),
         ))
