@@ -104,7 +104,7 @@ impl FileFormat for VortexFormat {
         let row_count = layout.row_count();
 
         let layout_deserializer =
-            LayoutDeserializer::new(Context::default().into(), LayoutContext::default().into());
+            LayoutDeserializer::new(self.context.clone(), LayoutContext::default().into());
         let layout_message_cache = Arc::new(RwLock::new(LayoutMessageCache::new()));
         let relative_message_cache =
             RelativeLayoutCache::new(layout_message_cache.clone(), dtype.into());
@@ -140,10 +140,8 @@ impl FileFormat for VortexFormat {
                     }
                     None => ColumnStatistics::new_unknown(),
                 };
-
                 column_statistics.push(col_stats);
             }
-
             stats.column_statistics = column_statistics;
             stats.total_byte_size = Precision::Inexact(total_size as usize);
         }

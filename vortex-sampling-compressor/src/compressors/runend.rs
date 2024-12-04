@@ -8,6 +8,7 @@ use vortex_runend::compress::runend_encode;
 use vortex_runend::{RunEndArray, RunEndEncoding};
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
+use crate::downscale::downscale_integer_array;
 use crate::{constants, SamplingCompressor};
 
 pub const DEFAULT_RUN_END_COMPRESSOR: RunEndCompressor = RunEndCompressor { ree_threshold: 2.0 };
@@ -52,9 +53,10 @@ impl EncodingCompressor for RunEndCompressor {
         let primitive_array = array.clone().into_primitive()?;
 
         let (ends, values) = runend_encode(&primitive_array);
-        let compressed_ends = ctx
-            .auxiliary("ends")
-            .compress(&ends.into_array(), like.as_ref().and_then(|l| l.child(0)))?;
+        let compressed_ends = ctx.auxiliary("ends").compress(
+            &downscale_integer_array(ends.into_array())?,
+            like.as_ref().and_then(|l| l.child(0)),
+        )?;
         let compressed_values = ctx
             .named("values")
             .excluding(self)

@@ -22,7 +22,6 @@ mod statsset;
 pub const PRUNING_STATS: &[Stat] = &[Stat::Min, Stat::Max, Stat::TrueCount, Stat::NullCount];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Sequence, Enum)]
-#[non_exhaustive]
 pub enum Stat {
     /// Frequency of each bit width (nulls are treated as 0)
     BitWidthFreq,

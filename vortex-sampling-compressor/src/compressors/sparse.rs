@@ -6,6 +6,7 @@ use vortex_array::{ArrayData, ArrayLen, IntoArrayData};
 use vortex_error::VortexResult;
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
+use crate::downscale::downscale_integer_array;
 use crate::{constants, SamplingCompressor};
 
 #[derive(Debug)]
@@ -32,7 +33,7 @@ impl EncodingCompressor for SparseCompressor {
     ) -> VortexResult<CompressedArray<'a>> {
         let sparse_array = SparseArray::try_from(array.clone())?;
         let indices = ctx.auxiliary("indices").compress(
-            &sparse_array.indices(),
+            &downscale_integer_array(sparse_array.indices())?,
             like.as_ref().and_then(|l| l.child(0)),
         )?;
         let values = ctx.named("values").compress(

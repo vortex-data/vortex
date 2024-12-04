@@ -10,6 +10,7 @@ use vortex_datetime_parts::{
 use vortex_error::VortexResult;
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
+use crate::downscale::downscale_integer_array;
 use crate::{constants, SamplingCompressor};
 
 #[derive(Debug)]
@@ -48,15 +49,18 @@ impl EncodingCompressor for DateTimePartsCompressor {
             subseconds,
         } = split_temporal(TemporalArray::try_from(array.clone())?)?;
 
-        let days = ctx
-            .named("days")
-            .compress(&days, like.as_ref().and_then(|l| l.child(0)))?;
-        let seconds = ctx
-            .named("seconds")
-            .compress(&seconds, like.as_ref().and_then(|l| l.child(1)))?;
-        let subsecond = ctx
-            .named("subsecond")
-            .compress(&subseconds, like.as_ref().and_then(|l| l.child(2)))?;
+        let days = ctx.named("days").compress(
+            &downscale_integer_array(days)?,
+            like.as_ref().and_then(|l| l.child(0)),
+        )?;
+        let seconds = ctx.named("seconds").compress(
+            &downscale_integer_array(seconds)?,
+            like.as_ref().and_then(|l| l.child(1)),
+        )?;
+        let subsecond = ctx.named("subsecond").compress(
+            &downscale_integer_array(subseconds)?,
+            like.as_ref().and_then(|l| l.child(2)),
+        )?;
         Ok(CompressedArray::compressed(
             DateTimePartsArray::try_new(
                 array.dtype().clone(),
