@@ -2,33 +2,31 @@ use std::sync::Arc;
 
 use datafusion::datasource::DefaultTableSource;
 use datafusion::execution::SessionStateBuilder;
-use datafusion::functions::string::upper;
 use datafusion::prelude::SessionContext;
 use datafusion_expr::expr::ScalarFunction;
-use datafusion_expr::{col, Expr, LogicalPlanBuilder};
-use vortex_array::array::{ChunkedArray, PrimitiveArray, StructArray, VarBinArray};
+use datafusion_expr::{col, Expr, LogicalPlanBuilder, ScalarUDF};
+use vortex_array::array::{ListArray, PrimitiveArray, StructArray};
 use vortex_array::validity::Validity;
 use vortex_array::IntoArrayData;
+use vortex_datafusion::expr::ListMean;
 use vortex_datafusion::memory::{
     VortexMemTable, VortexMemTableOptions, VortexScanProjectionPushdown,
 };
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let strings = ChunkedArray::from_iter([
-        VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array(),
-        VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array(),
-    ])
-    .into_array();
-    let numbers = ChunkedArray::from_iter([
-        PrimitiveArray::from(vec![1u32, 2, 3, 4]).into_array(),
-        PrimitiveArray::from(vec![5u32, 6, 7, 8]).into_array(),
-    ])
-    .into_array();
+    let elements = PrimitiveArray::from(vec![1i32, 2, 3, 4, 5]);
+    let offsets = PrimitiveArray::from(vec![0, 2, 4, 5]);
+    let list = ListArray::try_new(
+        elements.into_array(),
+        offsets.into_array(),
+        Validity::AllValid,
+    )
+    .unwrap();
     let st = StructArray::try_new(
-        ["strings".into(), "numbers".into()].into(),
-        vec![strings, numbers],
-        8,
+        ["numbers".into()].into(),
+        vec![list.into_array()],
+        3,
         Validity::NonNullable,
     )?;
 
@@ -46,10 +44,9 @@ async fn main() -> anyhow::Result<()> {
     );
     let df = ctx.execute_logical_plan(logical_plan).await?;
 
-    // FIXME(marko): Figure out what's the expression that we're running here!
     df.select(vec![Expr::ScalarFunction(ScalarFunction::new_udf(
-        upper(),
-        vec![col("strings")],
+        Arc::new(ScalarUDF::new_from_impl(ListMean::default())),
+        vec![col("numbers")],
     ))])?
     .show()
     .await?;

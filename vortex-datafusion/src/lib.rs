@@ -13,6 +13,7 @@ use vortex_error::vortex_err;
 
 use crate::memory::{VortexMemTable, VortexMemTableOptions};
 
+pub mod expr;
 pub mod memory;
 pub mod persistent;
 
