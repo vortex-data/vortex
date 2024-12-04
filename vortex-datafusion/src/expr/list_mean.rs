@@ -1,12 +1,15 @@
-use std::sync::Arc;
+use arrow_array::cast::AsArray;
+use arrow_array::types::Float64Type;
 use arrow_schema::{DataType, Field, FieldRef};
 use datafusion::common::exec_err;
 use datafusion::error::Result as DFResult;
 use datafusion::logical_expr::{
     ColumnarValue, ScalarUDFImpl, Signature, TypeSignature, Volatility,
 };
-use datafusion_expr::{Expr, ScalarUDF};
 use datafusion_expr::expr::ScalarFunction;
+use datafusion_expr::{Expr, ScalarUDF};
+use std::sync::Arc;
+use arrow_array::PrimitiveArray;
 
 pub fn list_mean(child: Expr) -> Expr {
     ListMean::new_expr(child)
@@ -67,12 +70,37 @@ impl ScalarUDFImpl for ListMean {
             return exec_err!("The number of arguments provided must be exactly 1");
         };
 
-        let _list_arr = match list {
-            ColumnarValue::Array(arr) => arr,
+        let list_arr = match list {
+            ColumnarValue::Array(arr) => arr.as_list::<i32>(),
             // TODO(marko): Support scalar.
             _ => exec_err!("first arg must be an array")?,
         };
 
-        todo!()
+        let offsets = list_arr.offsets();
+        // TODO(marko): numeric is valid.
+        let elements = list_arr.values().as_primitive::<Float64Type>();
+
+        let mut sum = 0f64;
+        let mut count = 0;
+        let mut current_end = offsets[1];
+        let mut current_end_idx = 1;
+        let mut means = PrimitiveArray::<Float64Type>::builder(offsets.len() - 1);
+
+        for i in 0..elements.len() {
+            if i == current_end as usize {
+                let mean = sum / count as f64;
+                means.append_value(mean);
+                sum = elements[i];
+                count = 1;
+                current_end_idx += 1;
+                current_end = offsets[current_end_idx];
+            } else {
+                sum += elements[i];
+                count += 1;
+            }
+        }
+
+        let mean_array = means.finish();
+        Ok(ColumnarValue::Array(mean_array.into()))
     }
 }
