@@ -47,6 +47,7 @@ impl PhysicalOptimizerRule for VortexScanProjectionPushdown {
                         for (expr, name) in projection_exec.expr() {
                             match convert_expr_to_vortex(expr.clone()) {
                                 Ok(vortex_expr) => {
+                                    // println!("{:?}: {:?}", name, vortex_expr);
                                     projection.push((vortex_expr, name.clone()));
                                 }
                                 Err(e) => {
@@ -58,7 +59,7 @@ impl PhysicalOptimizerRule for VortexScanProjectionPushdown {
                         }
 
                         // Push-down the projection.
-                        println!("{:?}", plan);
+                        // println!("{:?}", plan);
                         Ok(Arc::new(
                             vortex_scan.with_scan_projection(projection).map_err(|e| {
                                 datafusion_common::DataFusionError::Execution(format!(
@@ -83,6 +84,6 @@ impl PhysicalOptimizerRule for VortexScanProjectionPushdown {
     }
 
     fn schema_check(&self) -> bool {
-        true
+        false
     }
 }

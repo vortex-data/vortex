@@ -72,7 +72,7 @@ mod tests {
 
     #[test]
     fn test_list_mean() {
-        let elements = PrimitiveArray::from(vec![1i32, 2, 3, 4, 5]);
+        let elements = PrimitiveArray::from(vec![1.0f64, 2.0, 3.0, 4.0, 5.0]);
         let offsets = PrimitiveArray::from(vec![0, 2, 4, 5]);
         let validity = Validity::AllValid;
 

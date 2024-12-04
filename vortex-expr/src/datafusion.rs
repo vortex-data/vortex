@@ -56,6 +56,8 @@ pub fn convert_expr_to_vortex(physical_expr: Arc<dyn PhysicalExpr>) -> VortexRes
         }
     }
 
+    // TODO(marko): Need to support cast.
+
     vortex_bail!(
         "Couldn't convert DataFusion physical {physical_expr} expression to a vortex expression"
     )
