@@ -8,7 +8,7 @@ use vortex_array::compute::{
 use vortex_array::validity::ArrayValidity;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_datetime_dtype::{TemporalMetadata, TimeUnit};
-use vortex_dtype::Nullability::NonNullable;
+use vortex_dtype::Nullability::{NonNullable, Nullable};
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_scalar::{PrimitiveScalar, Scalar};
@@ -76,9 +76,15 @@ impl ScalarAtFn<DateTimePartsArray> for DateTimePartsEncoding {
             TimeUnit::D => vortex_bail!("Invalid time unit D"),
         };
 
-        let days: i64 = scalar_at(array.days(), index)?.try_into()?;
-        let seconds: i64 = scalar_at(array.seconds(), index)?.try_into()?;
-        let subseconds: i64 = scalar_at(array.subsecond(), index)?.try_into()?;
+        let days: i64 = scalar_at(array.days(), index)?
+            .cast(&DType::Primitive(PType::I64, Nullable))?
+            .try_into()?;
+        let seconds: i64 = scalar_at(array.seconds(), index)?
+            .cast(&DType::Primitive(PType::I64, NonNullable))?
+            .try_into()?;
+        let subseconds: i64 = scalar_at(array.subsecond(), index)?
+            .cast(&DType::Primitive(PType::I64, NonNullable))?
+            .try_into()?;
 
         let scalar = days * 86_400 * divisor + seconds * divisor + subseconds;
 
