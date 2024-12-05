@@ -1,9 +1,5 @@
-use std::future::Future;
 use std::iter;
-use std::iter::Once;
-use std::pin::Pin;
 use std::sync::{Arc, RwLock};
-use std::task::{ready, Context, Poll};
 
 use futures_util::{stream, StreamExt};
 use vortex_array::ArrayData;
@@ -13,17 +9,6 @@ use vortex_io::{IoDispatcher, VortexReadAt};
 use super::{LayoutMessageCache, LayoutReader};
 use crate::read::buffered::{BufferedLayoutReader, ReadMasked};
 use crate::{MessageRead, RowMask};
-
-type MetadataBufferedReader<R> = BufferedLayoutReader<
-    R,
-    stream::Iter<Once<VortexResult<RowMask>>>,
-    Vec<Option<ArrayData>>,
-    MetadataMaskReader,
->;
-
-pub struct MetadataFetcher<R: VortexReadAt> {
-    metadata_reader: MetadataBufferedReader<R>,
-}
 
 struct MetadataMaskReader {
     layout: Box<dyn LayoutReader>,
@@ -46,30 +31,21 @@ impl ReadMasked for MetadataMaskReader {
     }
 }
 
-impl<R: VortexReadAt + Unpin> MetadataFetcher<R> {
-    pub fn fetch(
-        input: R,
-        dispatcher: Arc<IoDispatcher>,
-        root_layout: Box<dyn LayoutReader>,
-        layout_cache: Arc<RwLock<LayoutMessageCache>>,
-    ) -> Self {
-        let metadata_reader = BufferedLayoutReader::new(
-            input,
-            dispatcher,
-            stream::iter(iter::once(Ok(RowMask::new_valid_between(0, 1)))),
-            MetadataMaskReader::new(root_layout),
-            layout_cache,
-        );
-        Self { metadata_reader }
-    }
-}
+pub async fn fetch_metadata<R: VortexReadAt + Unpin>(
+    input: R,
+    dispatcher: Arc<IoDispatcher>,
+    root_layout: Box<dyn LayoutReader>,
+    layout_cache: Arc<RwLock<LayoutMessageCache>>,
+) -> VortexResult<Option<Vec<Option<ArrayData>>>> {
+    let mut metadata_reader = BufferedLayoutReader::new(
+        input,
+        dispatcher,
+        stream::iter(iter::once(Ok(RowMask::new_valid_between(0, 1)))),
+        MetadataMaskReader::new(root_layout),
+        layout_cache,
+    );
 
-impl<R: VortexReadAt + Unpin> Future for MetadataFetcher<R> {
-    type Output = VortexResult<Option<Vec<Option<ArrayData>>>>;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        Poll::Ready(ready!(self.metadata_reader.poll_next_unpin(cx)).transpose())
-    }
+    metadata_reader.next().await.transpose()
 }
 
 #[cfg(test)]
@@ -82,7 +58,7 @@ mod test {
     use vortex_buffer::{Buffer, BufferString};
     use vortex_io::IoDispatcher;
 
-    use crate::metadata::MetadataFetcher;
+    use crate::metadata::fetch_metadata;
     use crate::{
         read_initial_bytes, read_layout_from_initial, LayoutDeserializer, LayoutMessageCache,
         RelativeLayoutCache, Scan, VortexFileWriter,
@@ -142,7 +118,7 @@ mod test {
         )
         .unwrap();
         let io = IoDispatcher::default();
-        let metadata_table = MetadataFetcher::fetch(
+        let metadata_table = fetch_metadata(
             written_bytes,
             io.into(),
             layout_reader,
