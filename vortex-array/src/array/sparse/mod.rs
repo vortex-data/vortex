@@ -7,7 +7,7 @@ use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::array::constant::ConstantArray;
-use crate::compute::{scalar_at, search_sorted, SearchResult, SearchSortedSide};
+use crate::compute::{scalar_at, search_sorted_usize, SearchResult, SearchSortedSide};
 use crate::encoding::ids;
 use crate::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
@@ -124,7 +124,7 @@ impl SparseArray {
 
     /// Returns the position or the insertion point of a given index in the indices array.
     fn search_index(&self, index: usize) -> VortexResult<SearchResult> {
-        search_sorted(
+        search_sorted_usize(
             &self.indices(),
             self.indices_offset() + index,
             SearchSortedSide::Left,
