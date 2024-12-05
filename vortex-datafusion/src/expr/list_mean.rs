@@ -37,7 +37,7 @@ impl Default for ListMean {
         Self {
             signature: Signature::new(
                 TypeSignature::Coercible(vec![DataType::List(FieldRef::new(
-                    Field::new_list_field(DataType::Float64, true),
+                    Field::new_list_field(DataType::Int64, true),
                 ))]),
                 Volatility::Immutable,
             ),
