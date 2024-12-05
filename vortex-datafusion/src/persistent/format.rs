@@ -112,7 +112,6 @@ impl FileFormat for VortexFormat {
         table_schema: SchemaRef,
         object: &ObjectMeta,
     ) -> DFResult<Statistics> {
-        println!("initial read stats");
         let os_read_at = ObjectStoreReadAt::new(store.clone(), object.location.clone());
         let initial_read = read_initial_bytes(&os_read_at, object.size as u64).await?;
         let layout = initial_read.fb_layout();
