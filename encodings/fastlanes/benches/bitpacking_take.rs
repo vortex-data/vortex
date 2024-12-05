@@ -1,4 +1,5 @@
 #![allow(clippy::unwrap_used)]
+#![allow(clippy::cast_possible_truncation)]
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use itertools::Itertools;

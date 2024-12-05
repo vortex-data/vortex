@@ -281,8 +281,14 @@ impl Validity {
             }
         }
 
-        if matches!(self, Validity::NonNullable | Validity::AllValid)
-            && matches!(patches, Validity::NonNullable | Validity::AllValid)
+        if matches!(self, Validity::NonNullable) {
+            if patches.null_count(positions.len())? > 0 {
+                vortex_bail!("Can't patch a non-nullable validity with null values")
+            }
+            return Ok(self);
+        }
+
+        if matches!(self, Validity::AllValid) && matches!(patches, Validity::AllValid)
             || self == patches
         {
             return Ok(self);
@@ -399,7 +405,7 @@ impl FromIterator<LogicalValidity> for Validity {
 
 impl FromIterator<bool> for Validity {
     fn from_iter<T: IntoIterator<Item = bool>>(iter: T) -> Self {
-        Self::Array(BoolArray::from_iter(iter).into_array())
+        Validity::from(BooleanBuffer::from_iter(iter))
     }
 }
 
@@ -473,23 +479,15 @@ impl LogicalValidity {
         }
     }
 
-    pub fn null_count(&self, length: usize) -> VortexResult<usize> {
+    pub fn null_count(&self) -> VortexResult<usize> {
         match self {
             Self::AllValid(_) => Ok(0),
-            Self::AllInvalid(_) => Ok(length),
+            Self::AllInvalid(len) => Ok(*len),
             Self::Array(a) => {
-                let validity_len = a.len();
-                if validity_len != length {
-                    vortex_bail!(
-                        "Validity array length {} doesn't match array length {}",
-                        validity_len,
-                        length
-                    )
-                }
                 let true_count = a.statistics().compute_true_count().ok_or_else(|| {
                     vortex_err!("Failed to compute true count from validity array")
                 })?;
-                Ok(length - true_count)
+                Ok(a.len() - true_count)
             }
         }
     }
@@ -524,10 +522,6 @@ mod tests {
     #[rstest]
     #[case(Validity::NonNullable, 5, &[2, 4], Validity::NonNullable, Validity::NonNullable)]
     #[case(Validity::NonNullable, 5, &[2, 4], Validity::AllValid, Validity::NonNullable)]
-    #[case(Validity::NonNullable, 5, &[2, 4], Validity::AllInvalid, Validity::Array(BoolArray::from_iter([true, true, false, true, false]).into_array())
-    )]
-    #[case(Validity::NonNullable, 5, &[2, 4], Validity::Array(BoolArray::from_iter([true, false]).into_array()), Validity::Array(BoolArray::from_iter([true, true, true, true, false]).into_array())
-    )]
     #[case(Validity::AllValid, 5, &[2, 4], Validity::NonNullable, Validity::AllValid)]
     #[case(Validity::AllValid, 5, &[2, 4], Validity::AllValid, Validity::AllValid)]
     #[case(Validity::AllValid, 5, &[2, 4], Validity::AllInvalid, Validity::Array(BoolArray::from_iter([true, true, false, true, false]).into_array())

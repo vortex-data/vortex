@@ -1,11 +1,11 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{SparseArray, SparseEncoding};
 use vortex_array::encoding::{Encoding, EncodingRef};
-use vortex_array::stats::ArrayStatistics;
 use vortex_array::{ArrayData, ArrayLen, IntoArrayData};
 use vortex_error::VortexResult;
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
+use crate::downscale::downscale_integer_array;
 use crate::{constants, SamplingCompressor};
 
 #[derive(Debug)]
@@ -32,7 +32,7 @@ impl EncodingCompressor for SparseCompressor {
     ) -> VortexResult<CompressedArray<'a>> {
         let sparse_array = SparseArray::try_from(array.clone())?;
         let indices = ctx.auxiliary("indices").compress(
-            &sparse_array.indices(),
+            &downscale_integer_array(sparse_array.indices())?,
             like.as_ref().and_then(|l| l.child(0)),
         )?;
         let values = ctx.named("values").compress(
@@ -48,7 +48,7 @@ impl EncodingCompressor for SparseCompressor {
             )?
             .into_array(),
             Some(CompressionTree::new(self, vec![indices.path, values.path])),
-            Some(array.statistics()),
+            array,
         ))
     }
 

@@ -8,6 +8,7 @@ use vortex_array::ArrayData;
 use vortex_buffer::io_buf::IoBuf;
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
+use vortex_error::VortexUnwrap;
 use vortex_flatbuffers::WriteFlatBuffer;
 use vortex_io::VortexWrite;
 
@@ -80,16 +81,17 @@ impl<W: VortexWrite> MessageWriter<W> {
 
         // Keep track of the offset to add padding after each buffer.
         let mut current_offset = 0;
-        for (buffer, &buffer_end) in chunk
+        for (buffer, buffer_end) in chunk
             .depth_first_traversal()
             .flat_map(|data| data.into_buffer().into_iter())
-            .zip_eq(buffer_offsets.iter().skip(1))
+            .zip_eq(buffer_offsets.into_iter().skip(1))
         {
             let buffer_len = buffer.len();
+            let buffer_end: usize = buffer_end.try_into().vortex_unwrap();
             self.write_all(buffer).await?;
-            let padding = (buffer_end as usize) - current_offset - buffer_len;
+            let padding = buffer_end - current_offset - buffer_len;
             self.write_all(Bytes::from(&ZEROS[..padding])).await?;
-            current_offset = buffer_end as usize;
+            current_offset = buffer_end;
         }
 
         Ok(())
@@ -132,8 +134,12 @@ impl<W: VortexWrite> MessageWriter<W> {
         let padding = aligned_size - unaligned_size;
 
         // Write the size as u32, followed by the buffer, followed by padding.
-        self.write_all(((aligned_size - 4) as u32).to_le_bytes())
-            .await?;
+        self.write_all(
+            u32::try_from(aligned_size - 4)
+                .vortex_unwrap()
+                .to_le_bytes(),
+        )
+        .await?;
         let buffer = self
             .write_all(buffer.slice_owned(buffer_begin..buffer_end))
             .await?

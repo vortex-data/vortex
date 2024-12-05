@@ -53,9 +53,11 @@ impl<R: VortexReadAt + Unpin> VortexFileArrayStream<R> {
         if let Some(ref fr) = filter_reader {
             fr.add_splits(0, &mut reader_splits)?;
         }
+
         let mut split_iterator = FixedSplitIterator::new(row_count, row_mask);
         split_iterator.additional_splits(&mut reader_splits)?;
 
+        // Set up a stream of RowMask that result from applying a filter expression over the file.
         let mask_iterator = if let Some(fr) = filter_reader {
             Box::new(BufferedLayoutReader::new(
                 input.clone(),
@@ -68,6 +70,8 @@ impl<R: VortexReadAt + Unpin> VortexFileArrayStream<R> {
             Box::new(split_iterator) as _
         };
 
+        // Set up a stream of result ArrayData that result from applying the filter and projection
+        // expressions over the file.
         let array_reader = BufferedLayoutReader::new(
             input,
             dispatcher,
@@ -84,6 +88,7 @@ impl<R: VortexReadAt + Unpin> VortexFileArrayStream<R> {
     }
 
     pub fn dtype(&self) -> &DType {
+        // FIXME(ngates): why is this allowed to unwrap?
         self.dtype.value().vortex_unwrap()
     }
 

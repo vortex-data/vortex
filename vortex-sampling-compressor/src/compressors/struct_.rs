@@ -3,7 +3,6 @@ use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{StructArray, StructEncoding};
 use vortex_array::compress::compute_precompression_stats;
 use vortex_array::encoding::{Encoding, EncodingRef};
-use vortex_array::stats::ArrayStatistics;
 use vortex_array::variants::StructArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData};
 use vortex_dtype::DType;
@@ -67,7 +66,7 @@ impl EncodingCompressor for StructCompressor {
             StructArray::try_new(array.names().clone(), arrays, array.len(), validity)?
                 .into_array(),
             Some(CompressionTree::new(self, trees)),
-            Some(array.statistics()),
+            array,
         ))
     }
 

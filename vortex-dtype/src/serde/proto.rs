@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use vortex_error::{vortex_err, VortexError, VortexResult};
+use vortex_error::{vortex_err, VortexError, VortexResult, VortexUnwrap};
 
 use crate::field::{Field, FieldPath};
 use crate::proto::dtype as pb;
@@ -147,7 +147,9 @@ impl TryFrom<&pb::FieldPath> for FieldPath {
                 .ok_or_else(|| vortex_err!(InvalidSerde: "FieldPath part missing type"))?
             {
                 FieldType::Name(name) => path.push(Field::from(name.as_str())),
-                FieldType::Index(idx) => path.push(Field::from(*idx as usize)),
+                FieldType::Index(idx) => {
+                    path.push(Field::from(usize::try_from(*idx).vortex_unwrap()))
+                }
             }
         }
         Ok(FieldPath::from(path))

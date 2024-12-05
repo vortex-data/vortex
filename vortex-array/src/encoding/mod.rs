@@ -150,6 +150,7 @@ pub mod ids {
 }
 
 #[cfg(test)]
+#[allow(clippy::cast_possible_truncation)]
 mod tests {
     use super::{ids, EncodingId};
     use crate::aliases::hash_set::HashSet;

@@ -23,40 +23,36 @@ pub struct InitialRead {
 }
 
 impl InitialRead {
-    pub fn fb_postscript(&self) -> VortexResult<footer::Postscript> {
-        Ok(unsafe {
+    pub fn fb_postscript(&self) -> footer::Postscript {
+        unsafe {
             root_unchecked::<footer::Postscript>(&self.buf[self.fb_postscript_byte_range.clone()])
-        })
+        }
     }
 
     /// The bytes of the `Layout` flatbuffer.
-    pub fn fb_layout_byte_range(&self) -> VortexResult<Range<usize>> {
-        let footer = self.fb_postscript()?;
+    pub fn fb_layout_byte_range(&self) -> Range<usize> {
+        let footer = self.fb_postscript();
         let layout_start = (footer.layout_offset() - self.initial_read_offset) as usize;
         let layout_end = self.fb_postscript_byte_range.start;
-        Ok(layout_start..layout_end)
+        layout_start..layout_end
     }
 
     /// The `Layout` flatbuffer.
-    pub fn fb_layout(&self) -> VortexResult<footer::Layout> {
-        Ok(unsafe { root_unchecked::<footer::Layout>(&self.buf[self.fb_layout_byte_range()?]) })
+    pub fn fb_layout(&self) -> footer::Layout {
+        unsafe { root_unchecked::<footer::Layout>(&self.buf[self.fb_layout_byte_range()]) }
     }
 
     /// The bytes of the `Schema` flatbuffer.
-    pub fn fb_schema_byte_range(&self) -> VortexResult<Range<usize>> {
-        let footer = self.fb_postscript()?;
+    pub fn fb_schema_byte_range(&self) -> Range<usize> {
+        let footer = self.fb_postscript();
         let schema_start = (footer.schema_offset() - self.initial_read_offset) as usize;
         let schema_end = (footer.layout_offset() - self.initial_read_offset) as usize;
-        Ok(schema_start..schema_end)
+        schema_start..schema_end
     }
 
-    pub fn lazy_dtype(&self) -> VortexResult<LazyDType> {
+    pub fn lazy_dtype(&self) -> LazyDType {
         // we validated the schema bytes at construction time
-        unsafe {
-            Ok(LazyDType::from_schema_bytes(
-                self.buf.slice(self.fb_schema_byte_range()?),
-            ))
-        }
+        unsafe { LazyDType::from_schema_bytes(self.buf.slice(self.fb_schema_byte_range())) }
     }
 }
 
@@ -66,8 +62,8 @@ pub fn read_layout_from_initial(
     scan: Scan,
     message_cache: RelativeLayoutCache,
 ) -> VortexResult<Box<dyn LayoutReader>> {
-    let layout_bytes = initial_read.buf.slice(initial_read.fb_layout_byte_range()?);
-    let fb_loc = initial_read.fb_layout()?._tab.loc();
+    let layout_bytes = initial_read.buf.slice(initial_read.fb_layout_byte_range());
+    let fb_loc = initial_read.fb_layout()._tab.loc();
     layout_serde.read_layout(layout_bytes, fb_loc, scan, message_cache)
 }
 

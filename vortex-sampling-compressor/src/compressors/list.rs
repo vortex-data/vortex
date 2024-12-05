@@ -1,11 +1,11 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{ListArray, ListEncoding};
 use vortex_array::encoding::{Encoding, EncodingRef};
-use vortex_array::stats::ArrayStatistics;
 use vortex_array::{ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
+use crate::downscale::downscale_integer_array;
 use crate::{constants, SamplingCompressor};
 
 #[derive(Debug)]
@@ -36,7 +36,7 @@ impl EncodingCompressor for ListCompressor {
             like.as_ref().and_then(|l| l.child(0)),
         )?;
         let compressed_offsets = ctx.auxiliary("offsets").compress(
-            &list_array.offsets(),
+            &downscale_integer_array(list_array.offsets())?,
             like.as_ref().and_then(|l| l.child(1)),
         )?;
         let (validity, validity_path) = ctx.compress_validity(
@@ -59,7 +59,7 @@ impl EncodingCompressor for ListCompressor {
                     validity_path,
                 ],
             )),
-            Some(array.statistics()),
+            array,
         ))
     }
 

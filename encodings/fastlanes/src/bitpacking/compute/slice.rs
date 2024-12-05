@@ -30,7 +30,7 @@ impl SliceFn<BitPackedArray> for BitPackedEncoding {
                 .filter(|a| {
                     // If the sliced patch_indices is empty, we should not propagate the patches.
                     // There may be other logic that depends on Some(patches) indicating non-empty.
-                    !SparseArray::try_from(a.clone())
+                    !SparseArray::maybe_from(a.clone())
                         .vortex_expect("BitPackedArray must encode patches as SparseArray")
                         .indices()
                         .is_empty()

@@ -139,7 +139,7 @@ fn dict_encode_varbin_bytes<'a, I: Iterator<Item = Option<&'a [u8]>>>(
                     .or_insert_with(|| {
                         let next_code = offsets.len() as u64 - 1;
                         bytes.extend_from_slice(val);
-                        offsets.push(bytes.len() as u32);
+                        offsets.push(bytes.len().try_into().vortex_unwrap());
                         next_code
                     })
                     .get();

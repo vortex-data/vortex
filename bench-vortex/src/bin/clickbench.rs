@@ -8,11 +8,10 @@ use std::time::{Duration, Instant};
 use bench_vortex::clickbench::{self, clickbench_queries, HITS_SCHEMA};
 use bench_vortex::display::{print_measurements_json, render_table, DisplayFormat};
 use bench_vortex::{
-    execute_query, idempotent, physical_plan, setup_logger, Format, IdempotentPath as _,
-    Measurement,
+    execute_query, get_session_with_cache, idempotent, physical_plan, setup_logger, Format,
+    IdempotentPath as _, Measurement,
 };
 use clap::Parser;
-use datafusion::prelude::SessionContext;
 use indicatif::ProgressBar;
 use itertools::Itertools;
 use log::LevelFilter;
@@ -120,7 +119,7 @@ fn main() {
     let mut all_measurements = Vec::default();
 
     for format in &formats {
-        let session_context = SessionContext::new();
+        let session_context = get_session_with_cache();
         let context = session_context.clone();
         match format {
             Format::Parquet => runtime.block_on(async {
