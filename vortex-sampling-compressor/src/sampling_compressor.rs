@@ -12,7 +12,7 @@ use vortex_array::compress::{
 use vortex_array::compute::slice;
 use vortex_array::encoding::{Encoding, EncodingRef};
 use vortex_array::validity::Validity;
-use vortex_array::{ArrayDType, ArrayData, IntoCanonical};
+use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoCanonical};
 use vortex_error::{VortexExpect as _, VortexResult};
 
 use super::compressors::chunked::DEFAULT_CHUNKED_COMPRESSOR;
@@ -166,8 +166,14 @@ impl<'a> SamplingCompressor<'a> {
     ) -> VortexResult<(Validity, Option<CompressionTree<'a>>)> {
         match validity {
             Validity::Array(a) => {
-                let val = self.named("validity").compress(&a, like)?;
-                Ok((Validity::Array(val.clone().into_array()), val.into_path()))
+                let comp = self.named("validity").compress(&a, like)?;
+                let arr = Validity::Array(comp.clone().into_array());
+                let val = arr.to_logical(comp.len()).into_validity();
+                if val.as_array().is_some() {
+                    Ok((val, comp.into_path()))
+                } else {
+                    Ok((val, None))
+                }
             }
             a => Ok((a, None)),
         }
