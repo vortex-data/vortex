@@ -33,14 +33,6 @@ pub static TOKIO_RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
 #[pymodule]
 fn _lib(py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     pyo3_log::init();
-    // Python::with_gil(|py| -> PyResult<()> {
-    //     Logger::new(py, Caching::LoggersAndLevels)?
-    //         .filter(LevelFilter::Trace)
-    //         // .filter_target("my_module::verbose_submodule".to_owned(), LevelFilter::Warn)
-    //         .install()
-    //         .map(|_| ())
-    //         .map_err(|err| PyRuntimeError::new_err(format!("could not initialize logger {}", err)))
-    // })?;
 
     let dtype = PyModule::new_bound(py, "dtype")?;
     m.add_submodule(&dtype)?;

@@ -20,6 +20,7 @@ import vortex
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pandas as pd
+import orjson
 
 
 def get_ht():
@@ -49,21 +50,29 @@ def get_ht():
     return ht
 
 
-if not os.path.exists('100_000-no-lists-of-lists.vcf.parquet'):
-    print('writing: 100_000-no-lists-of-lists.vcf.parquet')
-
-    df = get_ht().to_pandas()
-    df = pa.Table.from_pandas(df)
-    pq.write_table(df, '100_000-no-lists-of-lists.vcf.parquet')
+if not os.path.exists('100_000-no-lists-of-lists.vcf.tsv'):
+    print('writing: 100_000-no-lists-of-lists.vcf.tsv')
+    get_ht().export('100_000-no-lists-of-lists.vcf.tsv')
 else:
     print('found: 100_000-no-lists-of-lists.vcf.parquet')
 
-# if not os.path.exists('100_000-no-lists-of-lists.vcf.ht'):
-#     print('writing: 100_000-no-lists-of-lists.vcf.ht')
-#     ht = get_ht()
-#     ht.write('100_000-no-lists-of-lists.vcf.ht')
-# else:
-#     print('found: 100_000-no-lists-of-lists.vcf.ht')
+
+if not os.path.exists('100_000-no-lists-of-lists.vcf.parquet'):
+    print('writing: 100_000-no-lists-of-lists.vcf.parquet')
+    df = pd.read_csv('100_000-no-lists-of-lists.vcf.tsv', sep='\t')
+    df['GT'] = df['GT'].apply(orjson.loads)
+    df['GQ'] = df['GQ'].apply(orjson.loads)
+    df.to_parquet('100_000-no-lists-of-lists.vcf.parquet')
+else:
+    print('found: 100_000-no-lists-of-lists.vcf.parquet')
+
+
+if not os.path.exists('100_000-no-lists-of-lists.vcf.ht'):
+    print('writing: 100_000-no-lists-of-lists.vcf.ht')
+    ht = get_ht()
+    ht.write('100_000-no-lists-of-lists.vcf.ht')
+else:
+    print('found: 100_000-no-lists-of-lists.vcf.ht')
 
 
 if not os.path.exists('100_000-no-lists-of-lists.vcf.vortex'):
@@ -71,7 +80,7 @@ if not os.path.exists('100_000-no-lists-of-lists.vcf.vortex'):
     vortex.io.write_path(
         vortex.encoding.compress(
             vortex.array(
-                pa.Table.from_pandas(pd.read_parquet('100_000-no-lists-of-lists.vcf.parquet'))
+                pq.read_table('100_000-no-lists-of-lists.vcf.parquet')
             )
         ),
         '100_000-no-lists-of-lists.vcf.vortex'

@@ -51,9 +51,7 @@ async fn main() -> anyhow::Result<()> {
     ctx.register_object_store(&url, object_store);
 
     let format = Arc::new(VortexFormat::new(&ALL_ENCODINGS_CONTEXT.clone()));
-    let table_url = ListingTableUrl::parse(
-        "/Users/mbakovic/git/vortex/vortex-genetics/100_000-no-lists-of-lists.vcf.vortex",
-    )?;
+    let table_url = ListingTableUrl::parse("100_000-no-lists-of-lists.vcf.vortex")?;
     let config = ListingTableConfig::new(table_url)
         .with_listing_options(ListingOptions::new(format as _))
         .infer_schema(&ctx.state())
@@ -74,7 +72,9 @@ async fn main() -> anyhow::Result<()> {
     );
     let df = ctx.execute_logical_plan(logical_plan).await?;
 
-    df.select(vec![list_mean(col("vortex_tbl.\"GT\""))])?.show_limit(20).await?;
+    df.select(vec![list_mean(col("vortex_tbl.\"GT\""))])?
+        .show_limit(20)
+        .await?;
 
     Ok(())
 }
