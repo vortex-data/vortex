@@ -20,7 +20,6 @@ use object_store::{ObjectMeta, ObjectStore};
 use vortex_array::array::StructArray;
 use vortex_array::arrow::infer_schema;
 use vortex_array::Context;
-use vortex_error::vortex_panic;
 use vortex_file::metadata::fetch_metadata;
 use vortex_file::{
     read_initial_bytes, read_layout_from_initial, LayoutContext, LayoutDeserializer,
