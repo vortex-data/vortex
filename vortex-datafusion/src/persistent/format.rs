@@ -17,9 +17,11 @@ use datafusion_physical_expr::{LexRequirement, PhysicalExpr};
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use datafusion_physical_plan::ExecutionPlan;
 use object_store::{ObjectMeta, ObjectStore};
+use tokio::task::JoinSet;
 use vortex_array::array::StructArray;
 use vortex_array::arrow::infer_schema;
 use vortex_array::Context;
+use vortex_error::vortex_panic;
 use vortex_file::metadata::MetadataFetcher;
 use vortex_file::{
     read_initial_bytes, read_layout_from_initial, LayoutContext, LayoutDeserializer,
@@ -73,12 +75,29 @@ impl FileFormat for VortexFormat {
         objects: &[ObjectMeta],
     ) -> DFResult<SchemaRef> {
         let mut file_schemas = Vec::default();
-        for o in objects {
-            let os_read_at = ObjectStoreReadAt::new(store.clone(), o.location.clone());
-            let initial_read = read_initial_bytes(&os_read_at, o.size as u64).await?;
-            let lazy_dtype = initial_read.lazy_dtype();
-            let s = infer_schema(lazy_dtype.value()?)?;
-            file_schemas.push(s);
+        let mut tasks: JoinSet<DFResult<Schema>> = objects
+            .iter()
+            .map(|o| {
+                let store = store.clone();
+                let o = o.clone();
+                async move {
+                    let os_read_at = ObjectStoreReadAt::new(store, o.location.clone());
+                    let initial_read = read_initial_bytes(&os_read_at, o.size as u64).await?;
+                    let lazy_dtype = initial_read.lazy_dtype();
+                    let s = infer_schema(lazy_dtype.value()?)?;
+
+                    DFResult::Ok(s)
+                }
+            })
+            .collect::<JoinSet<_>>();
+
+        while let Some(s) = tasks.join_next().await {
+            match s {
+                Ok(s) => {
+                    file_schemas.push(s?);
+                }
+                Err(e) => vortex_panic!("Tokio Join Error: {e}"),
+            }
         }
 
         let schema = Arc::new(Schema::try_merge(file_schemas)?);
@@ -93,6 +112,7 @@ impl FileFormat for VortexFormat {
         table_schema: SchemaRef,
         object: &ObjectMeta,
     ) -> DFResult<Statistics> {
+        println!("initial read stats");
         let os_read_at = ObjectStoreReadAt::new(store.clone(), object.location.clone());
         let initial_read = read_initial_bytes(&os_read_at, object.size as u64).await?;
         let layout = initial_read.fb_layout();
