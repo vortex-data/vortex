@@ -247,9 +247,10 @@ mod test {
     use vortex_dtype::Nullability::Nullable;
     use vortex_dtype::{DType, PType};
     use vortex_error::VortexError;
-    use vortex_scalar::Scalar;
+    use vortex_scalar::{PrimitiveScalar, Scalar};
 
     use crate::array::sparse::SparseArray;
+    use crate::array::ConstantArray;
     use crate::compute::{scalar_at, slice, try_cast};
     use crate::validity::ArrayValidity;
     use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
@@ -293,6 +294,26 @@ mod test {
         assert_eq!(i, 10);
         assert_eq!(start, 0);
         assert_eq!(stop, 10);
+    }
+
+    #[test]
+    pub fn test_scalar_at_again() {
+        let arr = SparseArray::try_new(
+            ConstantArray::new(10u32, 1).into_array(),
+            ConstantArray::new(Scalar::primitive(1234u32, Nullable), 1).into_array(),
+            100,
+            Scalar::null(DType::Primitive(PType::U32, Nullable)),
+        )
+        .unwrap();
+
+        assert_eq!(
+            PrimitiveScalar::try_from(&scalar_at(&arr, 10).unwrap())
+                .unwrap()
+                .typed_value::<u32>(),
+            Some(1234)
+        );
+        assert!(scalar_at(&arr, 0).unwrap().is_null());
+        assert!(scalar_at(&arr, 99).unwrap().is_null());
     }
 
     #[test]
