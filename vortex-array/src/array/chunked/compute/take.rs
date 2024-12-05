@@ -6,8 +6,8 @@ use vortex_scalar::Scalar;
 use crate::array::chunked::ChunkedArray;
 use crate::array::ChunkedEncoding;
 use crate::compute::{
-    scalar_at, search_sorted_usize, slice, subtract_scalar, take, try_cast,
-    SearchSortedSide, TakeFn, TakeOptions,
+    scalar_at, search_sorted_usize, slice, subtract_scalar, take, try_cast, SearchSortedSide,
+    TakeFn, TakeOptions,
 };
 use crate::stats::ArrayStatistics;
 use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};

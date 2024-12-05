@@ -13,8 +13,7 @@ use vortex_scalar::Scalar;
 
 use crate::array::primitive::PrimitiveArray;
 use crate::compute::{
-    scalar_at, search_sorted_usize, subtract_scalar, SearchSortedSide,
-    SubtractScalarFn,
+    scalar_at, search_sorted_usize, subtract_scalar, SearchSortedSide, SubtractScalarFn,
 };
 use crate::encoding::ids;
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
