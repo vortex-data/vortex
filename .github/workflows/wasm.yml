@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [ "develop" ]
+  pull_request: { }
+  workflow_dispatch: { }
+
+permissions:
+  actions: read
+  contents: read
+  checks: write # audit-check creates checks
+  issues: write # audit-check creates issues
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  build:
+    name: "build for wasm32-wasip1"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/cleanup
+      - uses: rui314/setup-mold@v1
+      - uses: ./.github/actions/setup-rust
+      - uses: jetli/wasm-pack-action@v0.4.0
+        with:
+          # Optional version of wasm-pack to install(eg. 'v0.9.1', 'latest')
+          version: 'latest'
+      - name: build for wasm32-wasip1 target
+        working-directory: ./vortex-wasm
+        run: |
+          echo 'building Rust + TS, making sure it completes with success'
+          npm run build
+
+
