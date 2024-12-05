@@ -98,6 +98,22 @@ impl Stat {
             Stat::UncompressedSizeInBytes => DType::Primitive(PType::U64, NonNullable),
         }
     }
+
+    pub fn name(&self) -> &str {
+        match self {
+            Self::BitWidthFreq => "bit_width_frequency",
+            Self::TrailingZeroFreq => "trailing_zero_frequency",
+            Self::IsConstant => "is_constant",
+            Self::IsSorted => "is_sorted",
+            Self::IsStrictSorted => "is_strict_sorted",
+            Self::Max => "max",
+            Self::Min => "min",
+            Self::RunCount => "run_count",
+            Self::TrueCount => "true_count",
+            Self::NullCount => "null_count",
+            Self::UncompressedSizeInBytes => "uncompressed_size_in_bytes",
+        }
+    }
 }
 
 pub fn as_stat_bitset_bytes(stats: &[Stat]) -> Vec<u8> {
@@ -134,19 +150,7 @@ pub fn stats_from_bitset_bytes(bytes: &[u8]) -> Vec<Stat> {
 
 impl Display for Stat {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::BitWidthFreq => write!(f, "bit_width_frequency"),
-            Self::TrailingZeroFreq => write!(f, "trailing_zero_frequency"),
-            Self::IsConstant => write!(f, "is_constant"),
-            Self::IsSorted => write!(f, "is_sorted"),
-            Self::IsStrictSorted => write!(f, "is_strict_sorted"),
-            Self::Max => write!(f, "max"),
-            Self::Min => write!(f, "min"),
-            Self::RunCount => write!(f, "run_count"),
-            Self::TrueCount => write!(f, "true_count"),
-            Self::NullCount => write!(f, "null_count"),
-            Self::UncompressedSizeInBytes => write!(f, "uncompressed_size_in_bytes"),
-        }
+        write!(f, "{}", self.name())
     }
 }
 
