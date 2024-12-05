@@ -112,7 +112,7 @@ mod test {
         let layout_message_cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
         let layout_reader = layout_deserializer
             .read_layout(
-                initial_read.fb_layout().unwrap(),
+                initial_read.fb_layout(),
                 Scan::empty(),
                 RelativeLayoutCache::new(layout_message_cache.clone(), lazy_dtype.clone()),
             )

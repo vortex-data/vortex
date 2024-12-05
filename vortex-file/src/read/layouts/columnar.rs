@@ -446,14 +446,14 @@ mod tests {
         (
             layout_serde
                 .read_layout(
-                    initial_read.fb_layout().unwrap(),
+                    initial_read.fb_layout(),
                     scan,
                     RelativeLayoutCache::new(cache.clone(), dtype.clone()),
                 )
                 .unwrap(),
             layout_serde
                 .read_layout(
-                    initial_read.fb_layout().unwrap(),
+                    initial_read.fb_layout(),
                     Scan::new(None),
                     RelativeLayoutCache::new(cache.clone(), dtype),
                 )

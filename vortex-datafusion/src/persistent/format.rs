@@ -107,7 +107,7 @@ impl FileFormat for VortexFormat {
         );
 
         let root_layout = layout_deserializer.read_layout(
-            initial_read.fb_layout()?,
+            initial_read.fb_layout(),
             Scan::empty(),
             relative_message_cache,
         )?;

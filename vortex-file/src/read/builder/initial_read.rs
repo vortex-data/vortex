@@ -6,7 +6,7 @@ use vortex_error::{vortex_bail, vortex_err, VortexResult};
 use vortex_flatbuffers::{footer, message};
 use vortex_io::VortexReadAt;
 
-use crate::{LayoutDeserializer, LazyDType, EOF_SIZE, INITIAL_READ_SIZE, MAGIC_BYTES, VERSION};
+use crate::{LazyDType, EOF_SIZE, INITIAL_READ_SIZE, MAGIC_BYTES, VERSION};
 
 #[derive(Debug)]
 pub struct InitialRead {
