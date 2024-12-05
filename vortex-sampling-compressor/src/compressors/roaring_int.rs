@@ -51,7 +51,7 @@ impl EncodingCompressor for RoaringIntCompressor {
         Ok(CompressedArray::compressed(
             roaring_int_encode(array.clone().into_primitive()?)?.into_array(),
             Some(CompressionTree::flat(self)),
-            Some(array.statistics()),
+            array,
         ))
     }
 

@@ -1,11 +1,11 @@
 use std::cmp::Ordering;
 
-use vortex_error::VortexResult;
+use vortex_error::{vortex_err, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::array::{ConstantArray, ConstantEncoding};
 use crate::compute::{SearchResult, SearchSortedFn, SearchSortedSide};
-use crate::ArrayLen;
+use crate::{ArrayDType, ArrayLen};
 
 impl SearchSortedFn<ConstantArray> for ConstantEncoding {
     fn search_sorted(
@@ -14,7 +14,13 @@ impl SearchSortedFn<ConstantArray> for ConstantEncoding {
         value: &Scalar,
         side: SearchSortedSide,
     ) -> VortexResult<SearchResult> {
-        match array.scalar().partial_cmp(value).unwrap_or(Ordering::Less) {
+        match array.scalar().partial_cmp(value).ok_or_else(|| {
+            vortex_err!(
+                "Cannot search sorted array type {} with value type {}",
+                array.dtype(),
+                value.dtype()
+            )
+        })? {
             Ordering::Greater => Ok(SearchResult::NotFound(0)),
             Ordering::Less => Ok(SearchResult::NotFound(array.len())),
             Ordering::Equal => match side {
