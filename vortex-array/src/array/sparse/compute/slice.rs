@@ -81,7 +81,6 @@ mod tests {
         let values = vec![0u64].into_array();
         let indices = vec![0u8].into_array();
 
-        // 512 means that you can slice past the valid end of the u8 indices.
         let sparse = SparseArray::try_new(indices, values, 1000, 999u64.into()).unwrap();
         let sliced = slice(&sparse, 0, 1000).unwrap();
         let mut expected = vec![999u64; 1000];
