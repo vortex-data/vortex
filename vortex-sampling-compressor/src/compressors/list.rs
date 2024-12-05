@@ -1,7 +1,6 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{ListArray, ListEncoding};
 use vortex_array::encoding::{Encoding, EncodingRef};
-use vortex_array::stats::ArrayStatistics;
 use vortex_array::{ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
 
@@ -51,7 +50,7 @@ impl EncodingCompressor for ListCompressor {
                 self,
                 vec![compressed_elements.path, compressed_offsets.path, None],
             )),
-            Some(array.statistics()),
+            array,
         ))
     }
 

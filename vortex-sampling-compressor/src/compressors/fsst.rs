@@ -6,7 +6,6 @@ use fsst::Compressor;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{VarBinEncoding, VarBinViewEncoding};
 use vortex_array::encoding::{Encoding, EncodingRef};
-use vortex_array::stats::ArrayStatistics;
 use vortex_array::{ArrayDType, IntoArrayData};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexResult};
@@ -128,7 +127,7 @@ impl EncodingCompressor for FSSTCompressor {
                 vec![None, None, compressed_codes.path, uncompressed_lengths.path],
                 compressor,
             )),
-            Some(array.statistics()),
+            array,
         ))
     }
 
