@@ -2,7 +2,7 @@ use std::fmt::{Debug, Display};
 
 use serde::{Deserialize, Serialize};
 use vortex_array::array::{BoolArray, PrimitiveArray};
-use vortex_array::compute::{scalar_at, search_sorted, SearchSortedSide};
+use vortex_array::compute::{scalar_at, search_sorted_usize, SearchSortedSide};
 use vortex_array::encoding::ids;
 use vortex_array::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
 use vortex_array::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
@@ -112,7 +112,7 @@ impl RunEndBoolArray {
     }
 
     pub(crate) fn find_physical_index(&self, index: usize) -> VortexResult<usize> {
-        search_sorted(&self.ends(), index + self.offset(), SearchSortedSide::Right)
+        search_sorted_usize(&self.ends(), index + self.offset(), SearchSortedSide::Right)
             .map(|s| s.to_ends_index(self.ends().len()))
     }
 

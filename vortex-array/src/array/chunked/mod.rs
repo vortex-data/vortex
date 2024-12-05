@@ -13,7 +13,8 @@ use vortex_scalar::Scalar;
 
 use crate::array::primitive::PrimitiveArray;
 use crate::compute::{
-    scalar_at, search_sorted, subtract_scalar, SearchSortedSide, SubtractScalarFn,
+    scalar_at, search_sorted_usize, subtract_scalar, SearchSortedSide,
+    SubtractScalarFn,
 };
 use crate::encoding::ids;
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
@@ -120,10 +121,11 @@ impl ChunkedArray {
 
         // Since there might be duplicate values in offsets because of empty chunks we want to search from right
         // and take the last chunk (we subtract 1 since there's a leading 0)
-        let index_chunk = search_sorted(&self.chunk_offsets(), index, SearchSortedSide::Right)
-            .vortex_expect("Search sorted failed in find_chunk_idx")
-            .to_ends_index(self.nchunks() + 1)
-            .saturating_sub(1);
+        let index_chunk =
+            search_sorted_usize(&self.chunk_offsets(), index, SearchSortedSide::Right)
+                .vortex_expect("Search sorted failed in find_chunk_idx")
+                .to_ends_index(self.nchunks() + 1)
+                .saturating_sub(1);
         let chunk_start = scalar_at(self.chunk_offsets(), index_chunk)
             .and_then(|s| usize::try_from(&s))
             .vortex_expect("Failed to find chunk start in find_chunk_idx");
