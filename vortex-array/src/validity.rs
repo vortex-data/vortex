@@ -405,7 +405,7 @@ impl FromIterator<LogicalValidity> for Validity {
 
 impl FromIterator<bool> for Validity {
     fn from_iter<T: IntoIterator<Item = bool>>(iter: T) -> Self {
-        Self::Array(BoolArray::from_iter(iter).into_array())
+        Validity::from(BooleanBuffer::from_iter(iter))
     }
 }
 
