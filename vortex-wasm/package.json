@@ -1,0 +1,27 @@
+{
+  "name": "@vortex-dev/vortex",
+  "version": "0.2.0",
+  "description": "Vortex WASM bindings (WIP)",
+  "type": "module",
+  "module": "./vortex.js",
+  "types": "./vortex.d.ts",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "build": "wasm-pack build --target web && tsc"
+  },
+  "author": "",
+  "license": "ISC",
+  "files": [
+    "vortex.ts",
+    "vortex.js",
+    "vortex.d.ts",
+    "pkg/vortex_wasm.js",
+    "pkg/vortex_wasm_bg.wasm",
+    "pkg/vortex_wasm_bg.wasm.d.ts"
+  ],
+  "devDependencies": {
+    "typescript": "~5.6.2"
+  }
+}

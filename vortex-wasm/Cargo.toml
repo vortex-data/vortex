@@ -1,0 +1,53 @@
+[package]
+name = "vortex-wasm"
+description = "Vortex WebAssembly bindings"
+publish = false
+version = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+keywords = { workspace = true }
+include = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+categories = { workspace = true }
+readme = { workspace = true }
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["console_error_panic_hook"]
+
+[dependencies]
+
+# The `console_error_panic_hook` crate provides better debugging of panics by
+# logging them with `console.error`. This is great for development, but requires
+# all the `std::fmt` and `std::panicking` infrastructure, so isn't great for
+# code size when deploying.
+console_error_panic_hook = { version = "0.1.7", optional = true }
+bytes = { workspace = true }
+vortex = { workspace = true }
+js-sys = { workspace = true }
+futures-channel = { workspace = true }
+futures-util = { workspace = true }
+wasm-bindgen = { workspace = true }
+wasm-bindgen-futures = { workspace = true }
+web-sys = { workspace = true, features = [
+    "console",
+    "Blob",
+    "File",
+    "FileReader",
+    'ReadableStream',
+    "ReadableStreamByobReader",
+    "ReadableStreamByobRequest",
+    "ReadableStreamDefaultReader",
+    "ReadableStreamReadResult",
+    "ReadableStreamReaderMode",
+    "ReadableStreamGetReaderOptions",
+] }
+
+[profile.release]
+# Tell `rustc` to optimize for small code size.
+opt-level = "s"

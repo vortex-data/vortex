@@ -1,0 +1,11 @@
+/target
+/.idea
+**/*.rs.bk
+Cargo.lock
+bin/
+pkg/
+wasm-pack.log
+/vortex.js
+/vortex.d.ts
+tsconfig.tsbuildinfo
+/node_modules
