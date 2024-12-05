@@ -109,6 +109,7 @@ impl BoolArray {
 
     /// Create a new BoolArray from a buffer and validity metadata.
     /// Returns an error if the validity length does not match the buffer length.
+    #[allow(clippy::cast_possible_truncation)]
     pub fn try_new(buffer: BooleanBuffer, validity: Validity) -> VortexResult<Self> {
         let buffer_len = buffer.len();
         let buffer_offset = buffer.offset();

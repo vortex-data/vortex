@@ -5,7 +5,7 @@ use enum_iterator::all;
 use itertools::Itertools;
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{vortex_err, VortexExpect as _, VortexResult};
+use vortex_error::{vortex_err, VortexExpect as _, VortexResult, VortexUnwrap};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::encoding::opaque::OpaqueEncoding;
@@ -102,7 +102,7 @@ impl ViewedArrayData {
     pub fn buffer(&self) -> Option<&Buffer> {
         self.flatbuffer()
             .buffer_index()
-            .map(|idx| &self.buffers[idx as usize])
+            .map(|idx| &self.buffers[usize::try_from(idx).vortex_unwrap()])
     }
 }
 

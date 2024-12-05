@@ -20,7 +20,7 @@ use object_store::{ObjectMeta, ObjectStore};
 use vortex_array::array::StructArray;
 use vortex_array::arrow::infer_schema;
 use vortex_array::Context;
-use vortex_file::metadata::MetadataFetcher;
+use vortex_file::metadata::fetch_metadata;
 use vortex_file::{
     read_initial_bytes, LayoutContext, LayoutDeserializer, LayoutMessageCache, RelativeLayoutCache,
     Scan, VORTEX_FILE_EXTENSION,
@@ -76,7 +76,7 @@ impl FileFormat for VortexFormat {
         for o in objects {
             let os_read_at = ObjectStoreReadAt::new(store.clone(), o.location.clone());
             let initial_read = read_initial_bytes(&os_read_at, o.size as u64).await?;
-            let lazy_dtype = initial_read.lazy_dtype()?;
+            let lazy_dtype = initial_read.lazy_dtype();
             let s = infer_schema(lazy_dtype.value()?)?;
             file_schemas.push(s);
         }
@@ -95,19 +95,16 @@ impl FileFormat for VortexFormat {
     ) -> DFResult<Statistics> {
         let os_read_at = ObjectStoreReadAt::new(store.clone(), object.location.clone());
         let initial_read = read_initial_bytes(&os_read_at, object.size as u64).await?;
-        let layout = initial_read.fb_layout()?;
-        let dtype = initial_read.lazy_dtype().map_err(|e| {
-            DataFusionError::External(Box::new(
-                e.with_context("Failed to fetch dtype from initial read"),
-            ))
-        })?;
+        let layout = initial_read.fb_layout();
         let row_count = layout.row_count();
 
         let layout_deserializer =
             LayoutDeserializer::new(self.context.clone(), LayoutContext::default().into());
         let layout_message_cache = Arc::new(RwLock::new(LayoutMessageCache::new()));
-        let relative_message_cache =
-            RelativeLayoutCache::new(layout_message_cache.clone(), dtype.into());
+        let relative_message_cache = RelativeLayoutCache::new(
+            layout_message_cache.clone(),
+            initial_read.lazy_dtype().into(),
+        );
 
         let root_layout = layout_deserializer.read_layout(
             initial_read.fb_layout()?,
@@ -120,8 +117,7 @@ impl FileFormat for VortexFormat {
         stats.num_rows = Precision::Exact(row_count as usize);
 
         let metadata_table =
-            MetadataFetcher::fetch(os_read_at, io.into(), root_layout, layout_message_cache)
-                .await?;
+            fetch_metadata(os_read_at, io.into(), root_layout, layout_message_cache).await?;
 
         if let Some(metadata) = metadata_table {
             let mut column_statistics = Vec::with_capacity(table_schema.fields().len());

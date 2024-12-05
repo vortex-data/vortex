@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use bytes::{Bytes, BytesMut};
 use vortex_buffer::Buffer;
-use vortex_error::vortex_err;
+use vortex_error::{vortex_err, VortexUnwrap};
 
 /// A trait for types that support asynchronous reads.
 ///
@@ -65,17 +65,19 @@ impl VortexReadAt for Buffer {
         pos: u64,
         len: u64,
     ) -> impl Future<Output = io::Result<Bytes>> + 'static {
-        if (len + pos) as usize > self.len() {
+        let read_start: usize = pos.try_into().vortex_unwrap();
+        let read_end: usize = (len + pos).try_into().vortex_unwrap();
+        if read_end > self.len() {
             future::ready(Err(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
                 vortex_err!("unexpected eof"),
             )))
         } else {
-            let mut buffer = BytesMut::with_capacity(len as usize);
+            let mut buffer = BytesMut::with_capacity(len.try_into().vortex_unwrap());
             unsafe {
-                buffer.set_len(len as usize);
+                buffer.set_len(len.try_into().vortex_unwrap());
             }
-            buffer.copy_from_slice(self.slice(pos as usize..(pos + len) as usize).as_slice());
+            buffer.copy_from_slice(self.slice(read_start..read_end).as_slice());
             future::ready(Ok(buffer.freeze()))
         }
     }
@@ -91,13 +93,16 @@ impl VortexReadAt for Bytes {
         pos: u64,
         len: u64,
     ) -> impl Future<Output = io::Result<Bytes>> + 'static {
-        if (pos + len) as usize > self.len() {
+        let read_start: usize = pos.try_into().vortex_unwrap();
+        let read_end: usize = (pos + len).try_into().vortex_unwrap();
+
+        if read_end > self.len() {
             future::ready(Err(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
                 vortex_err!("unexpected eof"),
             )))
         } else {
-            let sliced = self.slice(pos as usize..(pos + len) as usize);
+            let sliced = self.slice(read_start..read_end);
             future::ready(Ok(sliced))
         }
     }

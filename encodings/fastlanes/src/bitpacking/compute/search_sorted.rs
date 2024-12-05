@@ -147,7 +147,7 @@ impl<'a, T: BitPacking + NativePType> BitPackedSearch<'a, T> {
         let min_patch_offset = array
             .patches()
             .and_then(|p| {
-                SparseArray::try_from(p)
+                SparseArray::maybe_from(p)
                     .vortex_expect("Only sparse patches are supported")
                     .min_index()
             })

@@ -1,9 +1,11 @@
 use arrow_array::builder::make_view;
 use arrow_buffer::Buffer;
 use vortex_array::array::{PrimitiveArray, VarBinArray, VarBinViewArray};
+use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{
     ArrayDType, ArrayData, Canonical, IntoArrayData, IntoArrayVariant, IntoCanonical,
 };
+use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 
 use crate::FSSTArray;
@@ -33,24 +35,26 @@ impl IntoCanonical for FSSTArray {
                 .uncompressed_lengths()
                 .into_canonical()?
                 .into_primitive()?;
-            let uncompressed_lens_slice = uncompressed_lens_array.maybe_null_slice::<i32>();
 
             // Directly create the binary views.
-            let views: Vec<u128> = uncompressed_lens_slice
-                .iter()
-                .scan(0, |offset, len| {
-                    let str_start = *offset;
-                    let str_end = *offset + len;
+            let views: Vec<u128> = match_each_integer_ptype!(uncompressed_lens_array.ptype(), |$P| {
+                uncompressed_lens_array.maybe_null_slice::<$P>()
+                    .iter()
+                    .map(|&len| len as usize)
+                    .scan(0, |offset, len| {
+                        let str_start = *offset;
+                        let str_end = *offset + len;
 
-                    *offset += len;
+                        *offset += len;
 
-                    Some(make_view(
-                        &uncompressed_bytes[(str_start as usize)..(str_end as usize)],
-                        0u32,
-                        str_start as u32,
-                    ))
-                })
-                .collect();
+                        Some(make_view(
+                            &uncompressed_bytes[str_start..str_end],
+                            0u32,
+                            str_start as u32,
+                        ))
+                    })
+                    .collect()
+            });
 
             let views_array: ArrayData = Buffer::from(views).into();
             let uncompressed_bytes_array = PrimitiveArray::from(uncompressed_bytes).into_array();

@@ -1,3 +1,5 @@
+#![allow(clippy::cast_possible_truncation)]
+
 use std::{io, iter, mem};
 
 use bytes::Bytes;

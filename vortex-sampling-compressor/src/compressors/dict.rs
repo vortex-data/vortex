@@ -12,6 +12,7 @@ use vortex_dict::{
 use vortex_error::VortexResult;
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
+use crate::downscale::downscale_integer_array;
 use crate::{constants, SamplingCompressor};
 
 #[derive(Debug)]
@@ -53,16 +54,13 @@ impl EncodingCompressor for DictCompressor {
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
-        let (codes, values) = if array.is_encoding(PrimitiveEncoding::ID) {
-            let p = PrimitiveArray::try_from(array.clone())?;
+        let (codes, values) = if let Some(p) = PrimitiveArray::maybe_from(array.clone()) {
             let (codes, values) = dict_encode_primitive(&p);
             (codes.into_array(), values.into_array())
-        } else if array.is_encoding(VarBinEncoding::ID) {
-            let vb = VarBinArray::try_from(array.clone())?;
+        } else if let Some(vb) = VarBinArray::maybe_from(array.clone()) {
             let (codes, values) = dict_encode_varbin(&vb);
             (codes.into_array(), values.into_array())
-        } else if array.is_encoding(VarBinViewEncoding::ID) {
-            let vb = VarBinViewArray::try_from(array.clone())?;
+        } else if let Some(vb) = VarBinViewArray::maybe_from(array.clone()) {
             let (codes, values) = dict_encode_varbinview(&vb);
             (codes.into_array(), values.into_array())
         } else {
@@ -70,9 +68,10 @@ impl EncodingCompressor for DictCompressor {
         };
 
         let (codes, values) = (
-            ctx.auxiliary("codes")
-                .excluding(self)
-                .compress(&codes, like.as_ref().and_then(|l| l.child(0)))?,
+            ctx.auxiliary("codes").excluding(self).compress(
+                &downscale_integer_array(codes)?,
+                like.as_ref().and_then(|l| l.child(0)),
+            )?,
             ctx.named("values")
                 .excluding(self)
                 .compress(&values, like.as_ref().and_then(|l| l.child(1)))?,
@@ -81,7 +80,7 @@ impl EncodingCompressor for DictCompressor {
         Ok(CompressedArray::compressed(
             DictArray::try_new(codes.array, values.array)?.into_array(),
             Some(CompressionTree::new(self, vec![codes.path, values.path])),
-            Some(array.statistics()),
+            array,
         ))
     }
 

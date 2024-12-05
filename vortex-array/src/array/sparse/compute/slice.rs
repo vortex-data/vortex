@@ -75,4 +75,22 @@ mod tests {
 
         assert_eq!(primitive_doubly_sliced.maybe_null_slice::<u32>(), &[13531]);
     }
+
+    #[test]
+    fn slice_partially_invalid() {
+        let values = vec![0u64].into_array();
+        let indices = vec![0u8].into_array();
+
+        let sparse = SparseArray::try_new(indices, values, 1000, 999u64.into()).unwrap();
+        let sliced = slice(&sparse, 0, 1000).unwrap();
+        let mut expected = vec![999u64; 1000];
+        expected[0] = 0;
+
+        let actual = sliced
+            .into_primitive()
+            .unwrap()
+            .maybe_null_slice::<u64>()
+            .to_vec();
+        assert_eq!(expected, actual);
+    }
 }

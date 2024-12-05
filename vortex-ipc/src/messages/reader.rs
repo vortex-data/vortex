@@ -8,7 +8,7 @@ use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
 use vortex_array::{ArrayData, Context};
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult, VortexUnwrap};
 use vortex_flatbuffers::message as fb;
 use vortex_io::{VortexBufReader, VortexReadAt};
 
@@ -117,9 +117,9 @@ impl<R: VortexReadAt> MessageReader<R> {
         ctx: Arc<Context>,
         dtype: DType,
     ) -> VortexResult<Option<ArrayData>> {
-        let all_buffers_size = match self.peek().and_then(|m| m.header_as_batch()) {
+        let all_buffers_size: usize = match self.peek().and_then(|m| m.header_as_batch()) {
             None => return Ok(None),
-            Some(chunk) => chunk.buffer_size() as usize,
+            Some(chunk) => chunk.buffer_size().try_into().vortex_unwrap(),
         };
 
         let mut array_reader = ArrayMessageReader::from_fb_bytes(Buffer::from(
@@ -202,7 +202,9 @@ impl<R: VortexReadAt> MessageReader<R> {
         let total_len = buffer_len + (page_msg.padding() as u64);
 
         let buffer = self.read.read_bytes(total_len).await?;
-        let page_buffer = Ok(Some(Buffer::from(buffer.slice(..buffer_len as usize))));
+        let page_buffer = Ok(Some(Buffer::from(
+            buffer.slice(..usize::try_from(buffer_len)?),
+        )));
         let _ = self.next().await?;
         page_buffer
     }
@@ -267,7 +269,7 @@ impl ArrayMessageReader {
                         .header_as_batch()
                         .ok_or_else(|| vortex_err!("Message was not a batch"))?
                 };
-                let buffer_size = batch.buffer_size() as usize;
+                let buffer_size: usize = batch.buffer_size().try_into().vortex_unwrap();
                 self.fb_msg = Some(Buffer::from(bytes));
                 self.state = ReadState::ReadingBuffers;
                 Ok(Some(buffer_size))
@@ -292,7 +294,7 @@ impl ArrayMessageReader {
                         let len = next_offset - buffer.offset() - buffer.padding() as u64;
 
                         // Grab the buffer
-                        let data_buffer = bytes.split_to(len as usize);
+                        let data_buffer = bytes.split_to(len.try_into().vortex_unwrap());
                         // Strip off any padding from the previous buffer
                         bytes.advance(buffer.padding() as usize);
 
@@ -322,7 +324,7 @@ impl ArrayMessageReader {
 
     /// Produce the array buffered in the reader
     pub fn into_array(self, ctx: Arc<Context>, dtype: DType) -> VortexResult<ArrayData> {
-        let length = self.fb_bytes_as_batch()?.length() as usize;
+        let length: usize = self.fb_bytes_as_batch()?.length().try_into()?;
         let fb_msg = self
             .fb_msg
             .ok_or_else(|| vortex_err!("Populated in previous step"))?;

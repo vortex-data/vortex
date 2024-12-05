@@ -280,6 +280,7 @@ int_bit_width!(i64);
 macro_rules! float_bit_width {
     ($T:ty) => {
         impl BitWidth for $T {
+            #[allow(clippy::cast_possible_truncation)]
             fn bit_width(self) -> u32 {
                 (size_of::<Self>() * 8) as u32
             }

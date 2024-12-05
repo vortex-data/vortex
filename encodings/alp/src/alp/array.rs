@@ -77,7 +77,7 @@ impl ALPArray {
     }
 
     pub fn encode(array: ArrayData) -> VortexResult<ArrayData> {
-        if let Ok(parray) = PrimitiveArray::try_from(array) {
+        if let Some(parray) = PrimitiveArray::maybe_from(array) {
             Ok(alp_encode(&parray)?.into_array())
         } else {
             vortex_bail!("ALP can only encode primitive arrays");

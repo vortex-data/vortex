@@ -247,7 +247,7 @@ fn pack_views(
         // Each chunk's views have buffer IDs that are zero-referenced.
         // As part of the packing operation, we need to rewrite them to be referenced to the global
         // merged buffers list.
-        let buffers_offset = buffers.len();
+        let buffers_offset = u32::try_from(buffers.len())?;
         let canonical_chunk = chunk.clone().into_varbinview()?;
 
         for buffer in canonical_chunk.buffers() {
@@ -266,7 +266,7 @@ fn pack_views(
                     BinaryView::new_view(
                         view.len(),
                         *view_ref.prefix(),
-                        (buffers_offset as u32) + view_ref.buffer_index(),
+                        buffers_offset + view_ref.buffer_index(),
                         view_ref.offset(),
                     )
                     .as_u128(),

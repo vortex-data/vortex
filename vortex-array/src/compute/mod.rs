@@ -7,7 +7,9 @@
 //! implementations of these operators, else we will decode, and perform the equivalent operator
 //! from Arrow.
 
-pub use boolean::{and, and_kleene, or, or_kleene, BinaryBooleanFn, BinaryOperator};
+pub use boolean::{
+    and, and_kleene, binary_boolean, or, or_kleene, BinaryBooleanFn, BinaryOperator,
+};
 pub use cast::{try_cast, CastFn};
 pub use compare::{compare, scalar_cmp, CompareFn, Operator};
 pub use fill_forward::{fill_forward, FillForwardFn};

@@ -1,17 +1,17 @@
 mod filter;
 mod take;
 
-use itertools::Itertools as _;
 use vortex_array::array::{PrimitiveArray, TemporalArray};
 use vortex_array::compute::{
-    scalar_at, slice, ComputeVTable, FilterFn, ScalarAtFn, SliceFn, TakeFn,
+    scalar_at, slice, try_cast, ComputeVTable, FilterFn, ScalarAtFn, SliceFn, TakeFn,
 };
 use vortex_array::validity::ArrayValidity;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_datetime_dtype::{TemporalMetadata, TimeUnit};
-use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexResult};
-use vortex_scalar::Scalar;
+use vortex_dtype::Nullability::NonNullable;
+use vortex_dtype::{DType, PType};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_scalar::{PrimitiveScalar, Scalar};
 
 use crate::{DateTimePartsArray, DateTimePartsEncoding};
 
@@ -106,17 +106,55 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalAr
         TimeUnit::D => vortex_bail!(InvalidArgument: "cannot decode into TimeUnit::D"),
     };
 
-    let days_buf = array.days().into_primitive()?;
-    let seconds_buf = array.seconds().into_primitive()?;
-    let subsecond_buf = array.subsecond().into_primitive()?;
+    let days_buf = try_cast(
+        array.days(),
+        &DType::Primitive(PType::I64, array.dtype().nullability()),
+    )?
+    .into_primitive()?;
+    let mut values: Vec<i64> = days_buf
+        .into_maybe_null_slice::<i64>()
+        .into_iter()
+        .map(|d| d * 86_400 * divisor)
+        .collect();
 
-    let values = days_buf
-        .maybe_null_slice::<i64>()
-        .iter()
-        .zip_eq(seconds_buf.maybe_null_slice::<i64>().iter())
-        .zip_eq(subsecond_buf.maybe_null_slice::<i64>().iter())
-        .map(|((d, s), ss)| d * 86_400 * divisor + s * divisor + ss)
-        .collect::<Vec<_>>();
+    if let Some(seconds) = array.seconds().as_constant() {
+        let seconds =
+            PrimitiveScalar::try_from(&seconds.cast(&DType::Primitive(PType::I64, NonNullable))?)?
+                .typed_value::<i64>()
+                .vortex_expect("non-nullable");
+        for v in values.iter_mut() {
+            *v += seconds * divisor;
+        }
+    } else {
+        let seconds_buf = try_cast(array.seconds(), &DType::Primitive(PType::U32, NonNullable))?
+            .into_primitive()?;
+        for (v, second) in values.iter_mut().zip(seconds_buf.maybe_null_slice::<u32>()) {
+            *v += (*second as i64) * divisor;
+        }
+    }
+
+    if let Some(subseconds) = array.subsecond().as_constant() {
+        let subseconds = PrimitiveScalar::try_from(
+            &subseconds.cast(&DType::Primitive(PType::I64, NonNullable))?,
+        )?
+        .typed_value::<i64>()
+        .vortex_expect("non-nullable");
+        for v in values.iter_mut() {
+            *v += subseconds;
+        }
+    } else {
+        let subsecond_buf = try_cast(
+            array.subsecond(),
+            &DType::Primitive(PType::I64, NonNullable),
+        )?
+        .into_primitive()?;
+        for (v, subsecond) in values
+            .iter_mut()
+            .zip(subsecond_buf.maybe_null_slice::<i64>())
+        {
+            *v += *subsecond;
+        }
+    }
 
     Ok(TemporalArray::new_timestamp(
         PrimitiveArray::from_vec(values, array.validity()).into_array(),

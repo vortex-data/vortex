@@ -125,6 +125,7 @@ tokio = "1.37.0"
 tracing = "0.1"
 url = "2"
 uuid = "1.8.0"
+wasm-bindgen-futures = "0.4"
 
 # BEGIN crates published by this project
 vortex = { version = "0.21.0", path = "./vortex" }
@@ -171,6 +172,7 @@ all = { level = "deny", priority = -1 }
 as_ptr_cast_mut = "deny"
 borrow_as_ptr = "deny"
 cargo = { level = "deny", priority = -1 }
+cast_possible_truncation = "deny"
 collection_is_never_read = "deny"
 cognitive_complexity = "deny"
 debug_assert_with_mut_call = "deny"

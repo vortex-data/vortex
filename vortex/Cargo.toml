@@ -39,14 +39,17 @@ vortex-fsst = { workspace = true }
 vortex-io = { workspace = true }
 vortex-ipc = { workspace = true }
 vortex-proto = { workspace = true }
-vortex-roaring = { workspace = true }
 vortex-runend = { workspace = true }
 vortex-runend-bool = { workspace = true }
 vortex-sampling-compressor = { workspace = true }
 vortex-scalar = { workspace = true, default-features = true }
 vortex-zigzag = { workspace = true }
 
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+vortex-roaring = { workspace = true }
+
 [features]
+tokio = ["vortex-io/tokio"]
 object_store = ["vortex-file/object_store"]
 parquet = ["vortex-error/parquet"]
 python = ["vortex-error/python"]

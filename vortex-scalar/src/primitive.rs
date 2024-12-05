@@ -71,7 +71,7 @@ impl<'a> PrimitiveScalar<'a> {
             match_each_native_ptype!(self.ptype(), |$T| {
                 Ok(Scalar::primitive::<$Q>(
                     <$Q as NumCast>::from(self.typed_value::<$T>().expect("Invalid value"))
-                        .ok_or_else(|| vortex_err!("Can't cast {} scalar to {}", self.ptype, dtype))?,
+                        .ok_or_else(|| vortex_err!("Can't cast {} scalar {} to {}", self.ptype, self.typed_value::<$T>().expect("Invalid value"), dtype))?,
                     dtype.nullability(),
                 ))
             })
@@ -263,10 +263,10 @@ impl TryFrom<&Scalar> for usize {
     type Error = VortexError;
 
     fn try_from(value: &Scalar) -> Result<Self, Self::Error> {
-        PrimitiveScalar::try_from(value)?
+        let prim = PrimitiveScalar::try_from(value)?
             .as_::<u64>()?
-            .map(|v| v as Self)
-            .ok_or_else(|| vortex_err!("cannot convert Null to usize"))
+            .ok_or_else(|| vortex_err!("cannot convert Null to usize"))?;
+        Ok(usize::try_from(prim)?)
     }
 }
 
