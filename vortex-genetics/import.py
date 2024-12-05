@@ -25,6 +25,7 @@ import orjson
 
 def get_ht():
     import hail as hl
+    hl.init(master='local[*]', idempotent=True)
     hl.default_reference('GRCh38')
 
     mt = hl.read_matrix_table('gs://gcp-public-data--gnomad/release/3.1.2/mt/genomes/gnomad.genomes.v3.1.2.hgdp_1kg_subset_dense.mt')
@@ -47,6 +48,7 @@ def get_ht():
         # PL=ht.entries.PL,
         # AD=ht.entries.AD,
     )
+    ht = ht.select_globals()
     return ht
 
 
