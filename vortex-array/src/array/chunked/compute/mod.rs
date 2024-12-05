@@ -11,6 +11,7 @@ use crate::{ArrayData, IntoArrayData};
 
 mod boolean;
 mod compare;
+mod fill_null;
 mod filter;
 mod invert;
 mod scalar_at;
