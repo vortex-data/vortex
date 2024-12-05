@@ -156,6 +156,7 @@ fn repartition_by_size(
     desired_partitions: usize,
 ) -> Vec<Vec<PartitionedFile>> {
     let all_files = file_groups.into_iter().concat();
+    let total_file_count = all_files.len();
     let total_size = all_files.iter().map(|f| f.object_meta.size).sum::<usize>();
     let target_partition_size = total_size / (desired_partitions + 1);
 
@@ -179,6 +180,12 @@ fn repartition_by_size(
         let part_idx = idx % partitions.len();
         partitions[part_idx].push(file);
     }
+
+    assert_eq!(
+        partitions.len(),
+        usize::min(total_file_count, desired_partitions),
+        "The final number of partitions should be smallest between the total number of files and the desired partition count."
+    );
 
     partitions
 }
