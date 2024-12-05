@@ -75,4 +75,23 @@ mod tests {
 
         assert_eq!(primitive_doubly_sliced.maybe_null_slice::<u32>(), &[13531]);
     }
+
+    #[test]
+    fn slice_partially_invalid() {
+        let values = vec![0u64, 1, 2].into_array();
+        let indices = vec![0u8, 1, 2].into_array();
+
+        // 512 means that you can slice past the valid end of the u8 indices.
+        let sparse = SparseArray::try_new(indices, values, 512, 0u64.into()).unwrap();
+        let sliced = slice(&sparse, 2, 512).unwrap();
+        let mut expected = vec![0u64; 510];
+        expected[0] = 2;
+
+        let actual = sliced
+            .into_primitive()
+            .unwrap()
+            .maybe_null_slice::<u64>()
+            .to_vec();
+        assert_eq!(expected, actual);
+    }
 }
