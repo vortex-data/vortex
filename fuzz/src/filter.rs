@@ -3,19 +3,31 @@ use vortex_array::array::{BoolArray, BooleanBuffer, PrimitiveArray, StructArray,
 use vortex_array::validity::{ArrayValidity, Validity};
 use vortex_array::variants::StructArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
-use vortex_dtype::{match_each_native_ptype, DType, Nullability};
+use vortex_dtype::{match_each_native_ptype, DType};
 use vortex_error::VortexExpect;
 
 pub fn filter_canonical_array(array: &ArrayData, filter: &[bool]) -> ArrayData {
+    let validity = if array.dtype().is_nullable() {
+        let validity_buff = array
+            .logical_validity()
+            .into_array()
+            .into_bool()
+            .unwrap()
+            .boolean_buffer();
+        Validity::from_iter(
+            filter
+                .iter()
+                .zip(validity_buff.iter())
+                .filter(|(f, _)| **f)
+                .map(|(_, v)| v),
+        )
+    } else {
+        Validity::NonNullable
+    };
+
     match array.dtype() {
         DType::Bool(_) => {
             let bool_array = array.clone().into_bool().unwrap();
-            let vec_validity = bool_array
-                .logical_validity()
-                .into_array()
-                .into_bool()
-                .unwrap()
-                .boolean_buffer();
             BoolArray::try_new(
                 BooleanBuffer::from_iter(
                     filter
@@ -24,25 +36,13 @@ pub fn filter_canonical_array(array: &ArrayData, filter: &[bool]) -> ArrayData {
                         .filter(|(f, _)| **f)
                         .map(|(_, v)| v),
                 ),
-                Validity::from_iter(
-                    filter
-                        .iter()
-                        .zip(vec_validity.iter())
-                        .filter(|(f, _)| **f)
-                        .map(|(_, v)| v),
-                ),
+                validity,
             )
             .vortex_expect("Validity length cannot mismatch")
             .into_array()
         }
         DType::Primitive(p, _) => match_each_native_ptype!(p, |$P| {
             let primitive_array = array.clone().into_primitive().unwrap();
-            let vec_validity = primitive_array
-                .logical_validity()
-                .into_array()
-                .into_bool()
-                .unwrap()
-                .boolean_buffer();
             PrimitiveArray::from_vec(
                 filter
                     .iter()
@@ -50,13 +50,7 @@ pub fn filter_canonical_array(array: &ArrayData, filter: &[bool]) -> ArrayData {
                     .filter(|(f, _)| **f)
                     .map(|(_, v)| v)
                     .collect::<Vec<_>>(),
-                Validity::from_iter(
-                    filter
-                        .iter()
-                        .zip(vec_validity.iter())
-                        .filter(|(f, _)| **f)
-                        .map(|(_, v)| v)
-                ),
+                validity,
             )
             .into_array()
         }),
@@ -72,29 +66,12 @@ pub fn filter_canonical_array(array: &ArrayData, filter: &[bool]) -> ArrayData {
                 .unwrap();
             VarBinViewArray::from_iter(values, array.dtype().clone()).into_array()
         }
-        DType::Struct(_, n) => {
+        DType::Struct(..) => {
             let struct_array = array.clone().into_struct().unwrap();
             let filtered_children = struct_array
                 .children()
                 .map(|c| filter_canonical_array(&c, filter))
                 .collect::<Vec<_>>();
-            let validity = if *n == Nullability::NonNullable {
-                Validity::NonNullable
-            } else {
-                let vec_validity = struct_array
-                    .logical_validity()
-                    .into_array()
-                    .into_bool()
-                    .unwrap()
-                    .boolean_buffer();
-                Validity::from_iter(
-                    filter
-                        .iter()
-                        .zip(vec_validity.iter())
-                        .filter(|(f, _)| **f)
-                        .map(|(_, v)| v),
-                )
-            };
 
             StructArray::try_new(
                 struct_array.names().clone(),
