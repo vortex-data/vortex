@@ -1,7 +1,6 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{BoolEncoding, PrimitiveArray};
 use vortex_array::encoding::{Encoding, EncodingRef};
-use vortex_array::stats::ArrayStatistics as _;
 use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_error::VortexResult;
 use vortex_runend_bool::compress::runend_bool_encode_slice;
@@ -50,7 +49,7 @@ impl EncodingCompressor for RunEndBoolCompressor {
             RunEndBoolArray::try_new(compressed_ends.array, start, bool_array.validity())?
                 .into_array(),
             Some(CompressionTree::new(self, vec![compressed_ends.path])),
-            Some(array.statistics()),
+            array,
         ))
     }
 

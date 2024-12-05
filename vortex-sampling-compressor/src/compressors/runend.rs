@@ -51,12 +51,12 @@ impl EncodingCompressor for RunEndCompressor {
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
         let primitive_array = array.clone().into_primitive()?;
-
         let (ends, values) = runend_encode(&primitive_array);
-        let compressed_ends = ctx.auxiliary("ends").compress(
-            &downscale_integer_array(ends.into_array())?,
-            like.as_ref().and_then(|l| l.child(0)),
-        )?;
+        let ends = downscale_integer_array(ends.into_array())?.into_primitive()?;
+
+        let compressed_ends = ctx
+            .auxiliary("ends")
+            .compress(&ends.into_array(), like.as_ref().and_then(|l| l.child(0)))?;
         let compressed_values = ctx
             .named("values")
             .excluding(self)
@@ -73,7 +73,7 @@ impl EncodingCompressor for RunEndCompressor {
                 self,
                 vec![compressed_ends.path, compressed_values.path],
             )),
-            Some(array.statistics()),
+            array,
         ))
     }
 

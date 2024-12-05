@@ -213,7 +213,12 @@ pub fn search_sorted<T: Into<Scalar>>(
     target: T,
     side: SearchSortedSide,
 ) -> VortexResult<SearchResult> {
-    let scalar = target.into().cast(array.dtype())?;
+    let Ok(scalar) = target.into().cast(array.dtype()) else {
+        // If the cast fails, then the search value must be higher than the highest value in
+        // the array.
+        return Ok(SearchResult::NotFound(array.len()));
+    };
+
     if scalar.is_null() {
         vortex_bail!("Search sorted with null value is not supported");
     }
@@ -473,7 +478,11 @@ impl<T> Len for [T] {
 
 #[cfg(test)]
 mod test {
+    use crate::array::PrimitiveArray;
+    use crate::compute::search_sorted;
     use crate::compute::search_sorted::{SearchResult, SearchSorted, SearchSortedSide};
+    use crate::validity::Validity;
+    use crate::IntoArrayData;
 
     #[test]
     fn left_side_equal() {
@@ -521,5 +530,16 @@ mod test {
         let res = arr.search_sorted(&9, SearchSortedSide::Right);
         assert_eq!(arr[res.to_index() - 1], 9);
         assert_eq!(res, SearchResult::Found(13));
+    }
+
+    #[test]
+    fn failed_cast() {
+        let arr = PrimitiveArray::from_vec(
+            vec![0u8, 1, 2, 3, 4, 5, 6, 7, 8, 9, 9, 9, 9],
+            Validity::NonNullable,
+        )
+        .into_array();
+        let res = search_sorted(&arr, 256, SearchSortedSide::Left).unwrap();
+        assert_eq!(res, SearchResult::NotFound(arr.len()));
     }
 }

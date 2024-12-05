@@ -20,7 +20,7 @@ use object_store::{ObjectMeta, ObjectStore};
 use vortex_array::array::StructArray;
 use vortex_array::arrow::infer_schema;
 use vortex_array::Context;
-use vortex_file::metadata::MetadataFetcher;
+use vortex_file::metadata::fetch_metadata;
 use vortex_file::{
     read_initial_bytes, read_layout_from_initial, LayoutContext, LayoutDeserializer,
     LayoutMessageCache, RelativeLayoutCache, Scan, VORTEX_FILE_EXTENSION,
@@ -118,8 +118,7 @@ impl FileFormat for VortexFormat {
         stats.num_rows = Precision::Exact(row_count as usize);
 
         let metadata_table =
-            MetadataFetcher::fetch(os_read_at, io.into(), root_layout, layout_message_cache)
-                .await?;
+            fetch_metadata(os_read_at, io.into(), root_layout, layout_message_cache).await?;
 
         if let Some(metadata) = metadata_table {
             let mut column_statistics = Vec::with_capacity(table_schema.fields().len());
