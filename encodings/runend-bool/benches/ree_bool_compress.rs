@@ -1,4 +1,4 @@
-// fn bench_patched_take(c: &mut Criterion) {
+#![allow(clippy::cast_possible_truncation)]
 
 use std::hint::black_box;
 

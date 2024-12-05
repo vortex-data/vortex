@@ -2,6 +2,9 @@
 mod compio;
 #[cfg(feature = "tokio")]
 mod tokio;
+#[cfg(target_arch = "wasm32")]
+mod wasm;
+
 use std::future::Future;
 
 use futures::channel::oneshot;
@@ -13,6 +16,8 @@ use vortex_error::VortexResult;
 use self::compio::*;
 #[cfg(feature = "tokio")]
 use self::tokio::*;
+#[cfg(target_arch = "wasm32")]
+use self::wasm::*;
 
 mod sealed {
     pub trait Sealed {}
@@ -24,6 +29,9 @@ mod sealed {
 
     #[cfg(feature = "tokio")]
     impl Sealed for super::TokioDispatcher {}
+
+    #[cfg(target_arch = "wasm32")]
+    impl Sealed for super::WasmDispatcher {}
 }
 
 /// A trait for types that may be dispatched.
@@ -66,9 +74,17 @@ enum Inner {
     Tokio(TokioDispatcher),
     #[cfg(feature = "compio")]
     Compio(CompioDispatcher),
+    #[cfg(target_arch = "wasm32")]
+    Wasm(WasmDispatcher),
 }
 
 impl Default for IoDispatcher {
+    #[cfg(target_arch = "wasm32")]
+    fn default() -> Self {
+        return Self(Inner::Wasm(WasmDispatcher::new()));
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     fn default() -> Self {
         #[cfg(feature = "tokio")]
         return Self(Inner::Tokio(TokioDispatcher::new(1)));
@@ -92,6 +108,8 @@ impl Dispatch for IoDispatcher {
             Inner::Tokio(ref tokio_dispatch) => tokio_dispatch.dispatch(task),
             #[cfg(feature = "compio")]
             Inner::Compio(ref compio_dispatch) => compio_dispatch.dispatch(task),
+            #[cfg(target_arch = "wasm32")]
+            Inner::Wasm(ref wasm_dispatch) => wasm_dispatch.dispatch(task),
         }
     }
 
@@ -101,6 +119,8 @@ impl Dispatch for IoDispatcher {
             Inner::Tokio(tokio_dispatch) => tokio_dispatch.shutdown(),
             #[cfg(feature = "compio")]
             Inner::Compio(compio_dispatch) => compio_dispatch.shutdown(),
+            #[cfg(target_arch = "wasm32")]
+            Inner::Wasm(wasm_dispatch) => wasm_dispatch.shutdown(),
         }
     }
 }
@@ -119,5 +139,10 @@ impl IoDispatcher {
     #[cfg(feature = "compio")]
     pub fn new_compio(num_threads: usize) -> Self {
         Self(Inner::Compio(CompioDispatcher::new(num_threads)))
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn new_wasm() -> Self {
+        Self(Inner::Wasm(WasmDispatcher))
     }
 }

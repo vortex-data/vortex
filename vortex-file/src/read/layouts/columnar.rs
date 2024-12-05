@@ -454,7 +454,7 @@ mod tests {
             .unwrap();
         let layout_serde = LayoutDeserializer::default();
 
-        let dtype = Arc::new(initial_read.lazy_dtype().unwrap());
+        let dtype = Arc::new(initial_read.lazy_dtype());
         (
             read_layout_from_initial(
                 &initial_read,

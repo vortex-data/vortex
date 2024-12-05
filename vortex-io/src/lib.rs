@@ -9,7 +9,6 @@
 
 pub use buf::*;
 pub use dispatcher::*;
-#[cfg(feature = "tokio")]
 pub use limit::*;
 #[cfg(feature = "object_store")]
 pub use object_store::*;
@@ -24,7 +23,6 @@ mod buf;
 #[cfg(feature = "compio")]
 mod compio;
 mod dispatcher;
-#[cfg(feature = "tokio")]
 mod limit;
 #[cfg(feature = "object_store")]
 mod object_store;

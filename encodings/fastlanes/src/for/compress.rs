@@ -78,6 +78,7 @@ fn encoded_zero<T: NativePType>(
     })
 }
 
+#[allow(clippy::cast_possible_truncation)]
 fn compress_primitive<T: NativePType + WrappingSub + PrimInt>(
     parray: &PrimitiveArray,
     shift: u8,

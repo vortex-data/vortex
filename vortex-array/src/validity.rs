@@ -281,8 +281,14 @@ impl Validity {
             }
         }
 
-        if matches!(self, Validity::NonNullable | Validity::AllValid)
-            && matches!(patches, Validity::NonNullable | Validity::AllValid)
+        if matches!(self, Validity::NonNullable) {
+            if patches.null_count(positions.len())? > 0 {
+                vortex_bail!("Can't patch a non-nullable validity with null values")
+            }
+            return Ok(self);
+        }
+
+        if matches!(self, Validity::AllValid) && matches!(patches, Validity::AllValid)
             || self == patches
         {
             return Ok(self);
@@ -516,10 +522,6 @@ mod tests {
     #[rstest]
     #[case(Validity::NonNullable, 5, &[2, 4], Validity::NonNullable, Validity::NonNullable)]
     #[case(Validity::NonNullable, 5, &[2, 4], Validity::AllValid, Validity::NonNullable)]
-    #[case(Validity::NonNullable, 5, &[2, 4], Validity::AllInvalid, Validity::Array(BoolArray::from_iter([true, true, false, true, false]).into_array())
-    )]
-    #[case(Validity::NonNullable, 5, &[2, 4], Validity::Array(BoolArray::from_iter([true, false]).into_array()), Validity::Array(BoolArray::from_iter([true, true, true, true, false]).into_array())
-    )]
     #[case(Validity::AllValid, 5, &[2, 4], Validity::NonNullable, Validity::AllValid)]
     #[case(Validity::AllValid, 5, &[2, 4], Validity::AllValid, Validity::AllValid)]
     #[case(Validity::AllValid, 5, &[2, 4], Validity::AllInvalid, Validity::Array(BoolArray::from_iter([true, true, false, true, false]).into_array())

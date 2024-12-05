@@ -5,7 +5,9 @@ use compressors::chunked::DEFAULT_CHUNKED_COMPRESSOR;
 use compressors::constant::ConstantCompressor;
 use compressors::delta::DeltaCompressor;
 use compressors::fsst::FSSTCompressor;
+#[cfg(not(target_arch = "wasm32"))]
 use compressors::roaring_bool::RoaringBoolCompressor;
+#[cfg(not(target_arch = "wasm32"))]
 use compressors::roaring_int::RoaringIntCompressor;
 use compressors::struct_::StructCompressor;
 use compressors::varbin::VarBinCompressor;
@@ -21,6 +23,7 @@ use vortex_datetime_parts::DateTimePartsEncoding;
 use vortex_dict::DictEncoding;
 use vortex_fastlanes::{BitPackedEncoding, DeltaEncoding, FoREncoding};
 use vortex_fsst::FSSTEncoding;
+#[cfg(not(target_arch = "wasm32"))]
 use vortex_roaring::{RoaringBoolEncoding, RoaringIntEncoding};
 use vortex_runend::RunEndEncoding;
 use vortex_runend_bool::RunEndBoolEncoding;
@@ -68,6 +71,7 @@ pub const DEFAULT_COMPRESSORS: [CompressorRef; 15] = [
     &ZigZagCompressor,
 ];
 
+#[cfg(not(target_arch = "wasm32"))]
 pub const ALL_COMPRESSORS: [CompressorRef; 17] = [
     &ALPCompressor as CompressorRef,
     &BITPACK_WITH_PATCHES,
@@ -88,6 +92,28 @@ pub const ALL_COMPRESSORS: [CompressorRef; 17] = [
     &ZigZagCompressor,
 ];
 
+#[cfg(target_arch = "wasm32")]
+pub const ALL_COMPRESSORS: [CompressorRef; 15] = [
+    &ALPCompressor as CompressorRef,
+    &BITPACK_WITH_PATCHES,
+    &DEFAULT_CHUNKED_COMPRESSOR,
+    &ConstantCompressor,
+    &DateTimePartsCompressor,
+    &DeltaCompressor,
+    &DictCompressor,
+    &FoRCompressor,
+    &FSSTCompressor,
+    // vortex-roaring depends on croaring which does not build for wasm32
+    // &RoaringBoolCompressor,
+    // &RoaringIntCompressor,
+    &RunEndBoolCompressor,
+    &DEFAULT_RUN_END_COMPRESSOR,
+    &SparseCompressor,
+    &StructCompressor,
+    &VarBinCompressor,
+    &ZigZagCompressor,
+];
+
 pub static ALL_ENCODINGS_CONTEXT: LazyLock<Arc<Context>> = LazyLock::new(|| {
     Arc::new(Context::default().with_encodings([
         &ALPEncoding as EncodingRef,
@@ -100,7 +126,10 @@ pub static ALL_ENCODINGS_CONTEXT: LazyLock<Arc<Context>> = LazyLock::new(|| {
         &FoREncoding,
         &FSSTEncoding,
         &PrimitiveEncoding,
+        // vortex-roaring depends on croaring which does not build for wasm32
+        #[cfg(not(target_arch = "wasm32"))]
         &RoaringBoolEncoding,
+        #[cfg(not(target_arch = "wasm32"))]
         &RoaringIntEncoding,
         &RunEndEncoding,
         &RunEndBoolEncoding,

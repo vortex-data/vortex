@@ -1,3 +1,4 @@
+#![allow(clippy::cast_possible_truncation)]
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::PrimitiveArray;
 use vortex_array::encoding::EncodingRef;

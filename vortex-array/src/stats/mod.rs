@@ -8,11 +8,12 @@ use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, Buffer, MutableBuffer};
 use enum_iterator::{cardinality, Sequence};
 use enum_map::Enum;
 use itertools::Itertools;
+use log::debug;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 pub use statsset::*;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, NativePType, PType};
-use vortex_error::{vortex_err, vortex_panic, VortexError, VortexResult};
+use vortex_error::{vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::encoding::Encoding;
@@ -120,7 +121,14 @@ pub fn stats_from_bitset_bytes(bytes: &[u8]) -> Vec<Stat> {
     BooleanBuffer::new(Buffer::from(bytes), 0, bytes.len() * 8)
         .set_indices()
         // Filter out indices failing conversion, these are stats written by newer version of library
-        .filter_map(|i| Stat::try_from(i as u8).ok())
+        .filter_map(|i| {
+            let Ok(stat) = u8::try_from(i) else {
+                debug!("invalid stat encountered: {i}");
+                return None;
+            };
+
+            Stat::try_from(stat).ok()
+        })
         .collect::<Vec<_>>()
 }
 
@@ -321,7 +329,9 @@ pub fn trailing_zeros(array: &ArrayData) -> u8 {
         .enumerate()
         .find_or_first(|(_, &v)| v > 0)
         .map(|(i, _)| i)
-        .unwrap_or(0) as u8
+        .unwrap_or(0)
+        .try_into()
+        .vortex_expect("tz_freq must fit in u8")
 }
 
 #[cfg(test)]

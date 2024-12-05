@@ -7,7 +7,7 @@ use vortex_array::array::{PrimitiveArray, VarBinArray, VarBinViewArray};
 use vortex_array::validity::Validity;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult, VortexUnwrap};
 
 use crate::FSSTArray;
 
@@ -100,7 +100,7 @@ where
                 uncompressed_lengths.push(0);
             }
             Some(s) => {
-                uncompressed_lengths.push(s.len() as i32);
+                uncompressed_lengths.push(s.len().try_into().vortex_unwrap());
 
                 // SAFETY: buffer is large enough
                 unsafe { compressor.compress_into(s, &mut buffer) };

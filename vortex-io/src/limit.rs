@@ -6,6 +6,7 @@ use futures::Stream;
 use futures_util::stream::FuturesUnordered;
 use pin_project::pin_project;
 use tokio::sync::{Semaphore, TryAcquireError};
+use vortex_error::VortexUnwrap;
 
 /// [`Future`] that carries the amount of memory it will require to hold the completed value.
 #[pin_project]
@@ -69,7 +70,7 @@ where
         // `bytes` amount of memory when it completes.
         // Acquiring the permits is what creates backpressure for the producer.
         self.bytes_available
-            .acquire_many(bytes as u32)
+            .acquire_many(bytes.try_into().vortex_unwrap())
             .await
             .unwrap_or_else(|_| unreachable!("pushing to closed semaphore"))
             .forget();
@@ -88,7 +89,10 @@ where
     ///
     /// If there is not enough capacity, the original future is returned to the caller.
     pub fn try_push(&self, fut: Fut, bytes: usize) -> Result<(), Fut> {
-        match self.bytes_available.try_acquire_many(bytes as u32) {
+        match self
+            .bytes_available
+            .try_acquire_many(bytes.try_into().vortex_unwrap())
+        {
             Ok(permits) => {
                 permits.forget();
                 let sized_fut = SizedFut {

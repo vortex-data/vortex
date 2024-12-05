@@ -1,5 +1,5 @@
 use arrow_buffer::BooleanBufferBuilder;
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
 
 use crate::array::{ChunkedArray, ChunkedEncoding, PrimitiveArray};
 use crate::compute::{
@@ -95,8 +95,9 @@ fn filter_slices(array: &ChunkedArray, mask: FilterMask) -> VortexResult<Vec<Arr
             // start chunk: append a slice from (start_idx, start_chunk_end), i.e. whole chunk.
             // end chunk: append a slice from (0, end_idx).
             // chunks between start and end: append ChunkFilter::All.
-            let start_chunk_len = chunk_ends[start_chunk + 1] - chunk_ends[start_chunk];
-            let start_slice = (start_idx, start_chunk_len as _);
+            let start_chunk_len: usize =
+                (chunk_ends[start_chunk + 1] - chunk_ends[start_chunk]).try_into()?;
+            let start_slice = (start_idx, start_chunk_len);
             match &mut chunk_filters[start_chunk] {
                 f @ (ChunkFilter::All | ChunkFilter::None) => {
                     *f = ChunkFilter::Slices(vec![start_slice])
@@ -193,7 +194,8 @@ fn find_chunk_idx(idx: usize, chunk_ends: &[u64]) -> (usize, usize) {
         .search_sorted(&(idx as u64), SearchSortedSide::Right)
         .to_ends_index(chunk_ends.len())
         .saturating_sub(1);
-    let chunk_offset = idx - (chunk_ends[chunk_id] as usize);
+    let chunk_begin: usize = chunk_ends[chunk_id].try_into().vortex_unwrap();
+    let chunk_offset = idx - chunk_begin;
 
     (chunk_id, chunk_offset)
 }

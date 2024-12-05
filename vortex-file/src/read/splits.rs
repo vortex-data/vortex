@@ -6,7 +6,7 @@ use std::task::{Context, Poll};
 use futures::Stream;
 use itertools::Itertools;
 use vortex_array::stats::ArrayStatistics;
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult, VortexUnwrap};
 
 use crate::read::buffered::ReadMasked;
 use crate::{BatchRead, LayoutReader, MessageRead, PruningRead, RowMask, SplitRead};
@@ -75,7 +75,7 @@ pub struct FixedSplitIterator {
 impl FixedSplitIterator {
     pub fn new(row_count: u64, row_mask: Option<RowMask>) -> Self {
         let mut splits = BTreeSet::new();
-        splits.insert(row_count as usize);
+        splits.insert(row_count.try_into().vortex_unwrap());
         Self {
             splits: FixedSplitState::Splits(splits),
             row_mask,

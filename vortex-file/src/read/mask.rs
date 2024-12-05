@@ -113,7 +113,8 @@ impl RowMask {
             indices
                 .maybe_null_slice::<u64>()
                 .iter()
-                .map(|&i| i as usize),
+                .copied()
+                .map(|i| usize::try_from(i).vortex_unwrap()),
         );
         RowMask::try_new(bools.into_array(), begin, end)
     }

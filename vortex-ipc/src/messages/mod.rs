@@ -4,7 +4,7 @@ use vortex_array::stats::ArrayStatistics;
 use vortex_array::{flatbuffers as fba, ArrayData};
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
-use vortex_error::VortexExpect as _;
+use vortex_error::{VortexExpect as _, VortexUnwrap};
 use vortex_flatbuffers::message::Compression;
 use vortex_flatbuffers::{message as fb, FlatBufferRoot, WriteFlatBuffer};
 
@@ -84,7 +84,7 @@ impl WriteFlatBuffer for IPCBatch<'_> {
                 let aligned_size = (buffer.len() + (ALIGNMENT - 1)) & !(ALIGNMENT - 1);
                 buffers.push(fb::Buffer::new(
                     offset as u64,
-                    (aligned_size - buffer.len()) as u16,
+                    (aligned_size - buffer.len()).try_into().vortex_unwrap(),
                     Compression::None,
                 ));
                 offset += aligned_size;
@@ -167,8 +167,8 @@ impl WriteFlatBuffer for IPCPage<'_> {
         fb::Page::create(
             fbb,
             &fb::PageArgs {
-                buffer_size: buffer_size as u32,
-                padding: padding_size as u16,
+                buffer_size: buffer_size.try_into().vortex_unwrap(),
+                padding: padding_size.try_into().vortex_unwrap(),
             },
         )
     }

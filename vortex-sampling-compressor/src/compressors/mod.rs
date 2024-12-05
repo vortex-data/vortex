@@ -24,7 +24,9 @@ pub mod dict;
 pub mod r#for;
 pub mod fsst;
 pub mod list;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod roaring_bool;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod roaring_int;
 pub mod runend;
 pub mod runend_bool;

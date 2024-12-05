@@ -7,7 +7,7 @@ use vortex_array::stream::ArrayStream;
 use vortex_array::ArrayData;
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
+use vortex_error::{VortexResult, VortexUnwrap};
 use vortex_io::VortexWrite;
 
 use crate::messages::writer::MessageWriter;
@@ -125,7 +125,10 @@ impl ByteRange {
     }
 
     pub fn to_range(&self) -> Range<usize> {
-        self.begin as usize..self.end as usize
+        Range {
+            start: self.begin.try_into().vortex_unwrap(),
+            end: self.end.try_into().vortex_unwrap(),
+        }
     }
 }
 
