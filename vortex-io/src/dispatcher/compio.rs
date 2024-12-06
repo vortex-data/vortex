@@ -6,7 +6,7 @@ use compio::runtime::{JoinHandle as CompioJoinHandle, Runtime, RuntimeBuilder};
 use futures::channel::oneshot;
 use vortex_error::{vortex_bail, vortex_panic, VortexResult};
 
-use super::Dispatch;
+use super::{Dispatch, JoinHandle as VortexJoinHandle};
 
 trait CompioSpawn {
     fn spawn(self: Box<Self>) -> CompioJoinHandle<()>;
@@ -71,7 +71,7 @@ impl CompioDispatcher {
 }
 
 impl Dispatch for CompioDispatcher {
-    fn dispatch<F, Fut, R>(&self, task: F) -> VortexResult<oneshot::Receiver<R>>
+    fn dispatch<F, Fut, R>(&self, task: F) -> VortexResult<VortexJoinHandle<R>>
     where
         F: (FnOnce() -> Fut) + Send + 'static,
         Fut: Future<Output = R> + 'static,
@@ -80,7 +80,7 @@ impl Dispatch for CompioDispatcher {
         let (tx, rx) = oneshot::channel();
         let compio_task = Box::new(CompioTask { task, result: tx });
         match self.submitter.send(compio_task) {
-            Ok(()) => Ok(rx),
+            Ok(()) => Ok(VortexJoinHandle(rx)),
             Err(err) => vortex_bail!("Dispatcher error spawning task: {err}"),
         }
     }

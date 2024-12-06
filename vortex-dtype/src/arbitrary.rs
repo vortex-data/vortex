@@ -1,6 +1,8 @@
+use std::sync::Arc;
+
 use arbitrary::{Arbitrary, Result, Unstructured};
 
-use crate::{DType, FieldNames, Nullability, PType, StructDType};
+use crate::{DType, FieldName, FieldNames, Nullability, PType, StructDType};
 
 impl<'a> Arbitrary<'a> for DType {
     fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
@@ -59,7 +61,10 @@ impl<'a> Arbitrary<'a> for StructDType {
 }
 
 fn random_struct_dtype(u: &mut Unstructured<'_>, depth: u8) -> Result<StructDType> {
-    let names: FieldNames = u.arbitrary()?;
+    let field_count = u.choose_index(3)?;
+    let names: FieldNames = (0..field_count)
+        .map(|_| FieldName::arbitrary(u))
+        .collect::<Result<Arc<_>>>()?;
     let dtypes = (0..names.len())
         .map(|_| random_dtype(u, depth))
         .collect::<Result<Vec<_>>>()?;

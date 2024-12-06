@@ -7,7 +7,7 @@ use futures::channel::oneshot::Receiver;
 use vortex_error::{vortex_panic, VortexResult};
 use wasm_bindgen_futures::wasm_bindgen::__rt::Start;
 
-use crate::Dispatch;
+use crate::{Dispatch, JoinHandle as VortexJoinHandle};
 
 /// `Dispatch`able type that is available when running Vortex in the browser or other WASM env.
 #[derive(Debug, Clone)]
@@ -20,7 +20,7 @@ impl WasmDispatcher {
 }
 
 impl Dispatch for WasmDispatcher {
-    fn dispatch<F, Fut, R>(&self, task: F) -> VortexResult<Receiver<R>>
+    fn dispatch<F, Fut, R>(&self, task: F) -> VortexResult<VortexJoinHandle<R>>
     where
         F: FnOnce() -> Fut + Send + 'static,
         Fut: Future<Output = R> + 'static,
@@ -35,7 +35,7 @@ impl Dispatch for WasmDispatcher {
         })
         .start();
 
-        Ok(rx)
+        Ok(VortexJoinHandle(rx))
     }
 
     fn shutdown(self) -> VortexResult<()> {

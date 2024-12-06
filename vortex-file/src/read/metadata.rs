@@ -60,8 +60,8 @@ mod test {
 
     use crate::metadata::fetch_metadata;
     use crate::{
-        read_initial_bytes, read_layout_from_initial, LayoutDeserializer, LayoutMessageCache,
-        RelativeLayoutCache, Scan, VortexFileWriter,
+        read_initial_bytes, LayoutDeserializer, LayoutMessageCache, RelativeLayoutCache, Scan,
+        VortexFileWriter,
     };
 
     #[tokio::test]
@@ -110,13 +110,13 @@ mod test {
         let lazy_dtype = Arc::new(initial_read.lazy_dtype());
         let layout_deserializer = LayoutDeserializer::default();
         let layout_message_cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
-        let layout_reader = read_layout_from_initial(
-            &initial_read,
-            &layout_deserializer,
-            Scan::empty(),
-            RelativeLayoutCache::new(layout_message_cache.clone(), lazy_dtype.clone()),
-        )
-        .unwrap();
+        let layout_reader = layout_deserializer
+            .read_layout(
+                initial_read.fb_layout(),
+                Scan::empty(),
+                RelativeLayoutCache::new(layout_message_cache.clone(), lazy_dtype.clone()),
+            )
+            .unwrap();
         let io = IoDispatcher::default();
         let metadata_table = fetch_metadata(
             written_bytes,

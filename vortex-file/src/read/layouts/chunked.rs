@@ -1,7 +1,6 @@
 use std::collections::BTreeSet;
 use std::sync::{Arc, OnceLock, RwLock};
 
-use bytes::Bytes;
 use itertools::Itertools;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::array::ChunkedArray;
@@ -11,7 +10,7 @@ use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_dtype::{DType, Nullability, StructDType};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_expr::Select;
-use vortex_flatbuffers::footer;
+use vortex_flatbuffers::footer as fb;
 
 use crate::layouts::RangedLayoutReader;
 use crate::pruning::PruningPredicate;
@@ -36,16 +35,14 @@ impl Layout for ChunkedLayout {
 
     fn reader(
         &self,
-        fb_bytes: Bytes,
-        fb_loc: usize,
+        layout: fb::Layout,
         scan: Scan,
         layout_builder: LayoutDeserializer,
         message_cache: RelativeLayoutCache,
     ) -> VortexResult<Box<dyn LayoutReader>> {
         Ok(Box::new(
             ChunkedLayoutBuilder {
-                fb_bytes,
-                fb_loc,
+                layout,
                 scan,
                 layout_builder,
                 message_cache,
@@ -61,35 +58,26 @@ const METADATA_LAYOUT_PART_ID: LayoutPartId = 0;
 ///
 /// First child in the list is the metadata table
 /// Subsequent children are consecutive chunks of this layout
-struct ChunkedLayoutBuilder {
-    fb_bytes: Bytes,
-    fb_loc: usize,
+struct ChunkedLayoutBuilder<'a> {
+    layout: fb::Layout<'a>,
     scan: Scan,
     layout_builder: LayoutDeserializer,
     message_cache: RelativeLayoutCache,
 }
 
-impl ChunkedLayoutBuilder {
-    fn flatbuffer(&self) -> footer::Layout {
-        unsafe {
-            let tab = flatbuffers::Table::new(&self.fb_bytes, self.fb_loc);
-            footer::Layout::init_from_table(tab)
-        }
-    }
-
+impl ChunkedLayoutBuilder<'_> {
     fn metadata_layout(&self) -> VortexResult<Option<Box<dyn LayoutReader>>> {
-        self.flatbuffer()
+        self.layout
             .metadata()
             .map(|m| {
                 let set_stats = stats_from_bitset_bytes(m.bytes());
                 let metadata_fb = self
-                    .flatbuffer()
+                    .layout
                     .children()
                     .ok_or_else(|| vortex_err!("Must have children if layout has metadata"))?
                     .get(0);
                 self.layout_builder.read_layout(
-                    self.fb_bytes.clone(),
-                    metadata_fb._tab.loc(),
+                    metadata_fb,
                     Scan::new(Some(Arc::new(Select::include(
                         set_stats.iter().map(|s| s.to_string().into()).collect(),
                     )))),
@@ -105,13 +93,13 @@ impl ChunkedLayoutBuilder {
             .transpose()
     }
 
-    fn children(&self) -> impl Iterator<Item = (usize, footer::Layout)> {
-        self.flatbuffer()
+    fn children(&self) -> impl Iterator<Item = (usize, fb::Layout)> {
+        self.layout
             .children()
             .unwrap_or_default()
             .iter()
             .enumerate()
-            .skip(if self.flatbuffer().metadata().is_some() {
+            .skip(if self.layout.metadata().is_some() {
                 1
             } else {
                 0
@@ -134,8 +122,7 @@ impl ChunkedLayoutBuilder {
             .zip_eq(self.children_ranges())
             .map(|((i, c), (begin, end))| {
                 let layout = self.layout_builder.read_layout(
-                    self.fb_bytes.clone(),
-                    c._tab.loc(),
+                    c,
                     self.scan.clone(),
                     self.message_cache
                         .relative(i as u16, self.message_cache.dtype().clone()),
@@ -420,7 +407,7 @@ mod tests {
 
     use arrow_buffer::BooleanBufferBuilder;
     use bytes::Bytes;
-    use flatbuffers::{root_unchecked, FlatBufferBuilder};
+    use flatbuffers::{root, FlatBufferBuilder};
     use futures_util::TryStreamExt;
     use vortex_array::array::{BoolArray, ChunkedArray, PrimitiveArray};
     use vortex_array::{ArrayDType, ArrayLen, IntoArrayData, IntoArrayVariant};
@@ -474,21 +461,18 @@ mod tests {
         let written = writer.into_inner();
 
         let mut fb = FlatBufferBuilder::new();
+        // FIXME(ngates): impl From<LayoutSpec> for fb::Layout
         let chunked_layout = write::LayoutSpec::chunked(flat_layouts.into(), len as u64, None);
         let flat_buf = chunked_layout.write_flatbuffer(&mut fb);
         fb.finish_minimal(flat_buf);
         let fb_bytes = Bytes::copy_from_slice(fb.finished_data());
-
-        let fb_loc = (unsafe { root_unchecked::<footer::Layout>(&fb_bytes) })
-            ._tab
-            .loc();
+        let layout = root::<footer::Layout>(&fb_bytes).unwrap();
 
         let dtype = Arc::new(LazyDType::from_dtype(PType::I32.into()));
         let layout_builder = LayoutDeserializer::default();
         (
             ChunkedLayoutBuilder {
-                fb_bytes: fb_bytes.clone(),
-                fb_loc,
+                layout,
                 scan,
                 layout_builder: layout_builder.clone(),
                 message_cache: RelativeLayoutCache::new(cache.clone(), dtype.clone()),
@@ -496,8 +480,7 @@ mod tests {
             .build()
             .unwrap(),
             ChunkedLayoutBuilder {
-                fb_bytes,
-                fb_loc,
+                layout,
                 scan: Scan::new(None),
                 layout_builder,
                 message_cache: RelativeLayoutCache::new(cache, dtype),

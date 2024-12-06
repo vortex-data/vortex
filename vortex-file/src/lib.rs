@@ -128,8 +128,8 @@
 //! example, the VortexFileArrayStream reads an array, evaluates the row filter, and then reads the
 //! array again with the filter mask.
 //!
-//! [`read_layout_from_initial`] produces a [LayoutReader] which assembles one or more Vortex arrays
-//! by reading the serialized data and metadata.
+//! A [LayoutReader] then assembles one or more Vortex arrays by reading the serialized data
+//! and metadata.
 //!
 //! # Apache Arrow
 //!

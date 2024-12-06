@@ -6,7 +6,7 @@ use futures::channel::oneshot;
 use tokio::task::{JoinHandle as TokioJoinHandle, LocalSet};
 use vortex_error::{vortex_bail, vortex_panic, VortexResult};
 
-use super::Dispatch;
+use super::{Dispatch, JoinHandle as VortexJoinHandle};
 
 trait TokioSpawn {
     fn spawn(self: Box<Self>) -> TokioJoinHandle<()>;
@@ -84,7 +84,7 @@ where
 }
 
 impl Dispatch for TokioDispatcher {
-    fn dispatch<F, Fut, R>(&self, task: F) -> VortexResult<oneshot::Receiver<R>>
+    fn dispatch<F, Fut, R>(&self, task: F) -> VortexResult<VortexJoinHandle<R>>
     where
         F: (FnOnce() -> Fut) + Send + 'static,
         Fut: Future<Output = R> + 'static,
@@ -95,7 +95,7 @@ impl Dispatch for TokioDispatcher {
         let task = TokioTask { result: tx, task };
 
         match self.submitter.send(Box::new(task)) {
-            Ok(()) => Ok(rx),
+            Ok(()) => Ok(VortexJoinHandle(rx)),
             Err(err) => vortex_bail!("Dispatcher error spawning task: {err}"),
         }
     }

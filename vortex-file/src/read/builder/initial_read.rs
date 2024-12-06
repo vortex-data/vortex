@@ -6,10 +6,7 @@ use vortex_error::{vortex_bail, vortex_err, VortexResult};
 use vortex_flatbuffers::{footer, message};
 use vortex_io::VortexReadAt;
 
-use crate::{
-    LayoutDeserializer, LayoutReader, LazyDType, RelativeLayoutCache, Scan, EOF_SIZE,
-    INITIAL_READ_SIZE, MAGIC_BYTES, VERSION,
-};
+use crate::{LazyDType, EOF_SIZE, INITIAL_READ_SIZE, MAGIC_BYTES, VERSION};
 
 #[derive(Debug)]
 pub struct InitialRead {
@@ -54,17 +51,6 @@ impl InitialRead {
         // we validated the schema bytes at construction time
         unsafe { LazyDType::from_schema_bytes(self.buf.slice(self.fb_schema_byte_range())) }
     }
-}
-
-pub fn read_layout_from_initial(
-    initial_read: &InitialRead,
-    layout_serde: &LayoutDeserializer,
-    scan: Scan,
-    message_cache: RelativeLayoutCache,
-) -> VortexResult<Box<dyn LayoutReader>> {
-    let layout_bytes = initial_read.buf.slice(initial_read.fb_layout_byte_range());
-    let fb_loc = initial_read.fb_layout()._tab.loc();
-    layout_serde.read_layout(layout_bytes, fb_loc, scan, message_cache)
 }
 
 pub async fn read_initial_bytes<R: VortexReadAt>(
