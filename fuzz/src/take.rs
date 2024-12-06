@@ -7,24 +7,28 @@ use vortex_dtype::{match_each_native_ptype, DType};
 use vortex_error::VortexExpect;
 
 pub fn take_canonical_array(array: &ArrayData, indices: &[usize]) -> ArrayData {
+    let validity = if array.dtype().is_nullable() {
+        let validity_idx = array
+            .logical_validity()
+            .into_array()
+            .into_bool()
+            .unwrap()
+            .boolean_buffer()
+            .iter()
+            .collect::<Vec<_>>();
+
+        Validity::from_iter(indices.iter().map(|i| validity_idx[*i]))
+    } else {
+        Validity::NonNullable
+    };
+
     match array.dtype() {
         DType::Bool(_) => {
             let bool_array = array.clone().into_bool().unwrap();
             let vec_values = bool_array.boolean_buffer().iter().collect::<Vec<_>>();
-            let vec_validity = bool_array
-                .logical_validity()
+            BoolArray::try_new(indices.iter().map(|i| vec_values[*i]).collect(), validity)
+                .vortex_expect("Validity length cannot mismatch")
                 .into_array()
-                .into_bool()
-                .unwrap()
-                .boolean_buffer()
-                .iter()
-                .collect::<Vec<_>>();
-            BoolArray::try_new(
-                indices.iter().map(|i| vec_values[*i]).collect(),
-                Validity::from_iter(indices.iter().map(|i| vec_validity[*i])),
-            )
-            .vortex_expect("Validity length cannot mismatch")
-            .into_array()
         }
         DType::Primitive(p, _) => match_each_native_ptype!(p, |$P| {
             let primitive_array = array.clone().into_primitive().unwrap();
@@ -33,19 +37,8 @@ pub fn take_canonical_array(array: &ArrayData, indices: &[usize]) -> ArrayData {
                 .iter()
                 .copied()
                 .collect::<Vec<_>>();
-            let vec_validity = primitive_array
-                .logical_validity()
+            PrimitiveArray::from_vec(indices.iter().map(|i| vec_values[*i]).collect(),validity)
                 .into_array()
-                .into_bool()
-                .unwrap()
-                .boolean_buffer()
-                .iter()
-                .collect::<Vec<_>>();
-            PrimitiveArray::from_vec(
-                indices.iter().map(|i| vec_values[*i]).collect(),
-                Validity::from_iter(indices.iter().map(|i| vec_validity[*i]))
-            )
-            .into_array()
         }),
         DType::Utf8(_) | DType::Binary(_) => {
             let utf8 = array.clone().into_varbinview().unwrap();
@@ -64,20 +57,12 @@ pub fn take_canonical_array(array: &ArrayData, indices: &[usize]) -> ArrayData {
                 .children()
                 .map(|c| take_canonical_array(&c, indices))
                 .collect::<Vec<_>>();
-            let vec_validity = struct_array
-                .logical_validity()
-                .into_array()
-                .into_bool()
-                .unwrap()
-                .boolean_buffer()
-                .iter()
-                .collect::<Vec<_>>();
 
             StructArray::try_new(
                 struct_array.names().clone(),
                 taken_children,
                 indices.len(),
-                Validity::from_iter(indices.iter().map(|i| vec_validity[*i])),
+                validity,
             )
             .unwrap()
             .into_array()
