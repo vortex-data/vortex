@@ -298,7 +298,9 @@ mod tests {
         assert_eq!(values.as_slice(), &[254, 15]);
 
         // patch the underlying array
-        let arr = arr.patch(&[4], BoolArray::from(BooleanBuffer::new_unset(1))).unwrap();
+        let arr = arr
+            .patch(&[4], BoolArray::from(BooleanBuffer::new_unset(1)))
+            .unwrap();
         let (values, offset) = arr.into_bool().unwrap().into_boolean_builder();
         assert_eq!(offset, 0);
         assert_eq!(values.as_slice(), &[238, 15]);
@@ -314,14 +316,13 @@ mod tests {
         let arr = BoolArray::from(BooleanBuffer::new_set(15));
         let buf_ptr = arr.buffer().as_ptr();
 
-        let arr = arr.patch(&[0], BoolArray::from(BooleanBuffer::new_unset(1))).unwrap();
+        let arr = arr
+            .patch(&[0], BoolArray::from(BooleanBuffer::new_unset(1)))
+            .unwrap();
         assert_eq!(arr.buffer().as_ptr(), buf_ptr);
 
         let (values, offset) = arr.into_bool().unwrap().into_boolean_builder();
         assert_eq!(offset, 0);
-        assert_eq!(
-            values.as_slice(),
-            &[254, 127]
-        );
+        assert_eq!(values.as_slice(), &[254, 127]);
     }
 }
