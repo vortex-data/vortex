@@ -13,6 +13,7 @@ use vortex_dtype::{
     match_each_integer_ptype, match_each_unsigned_integer_ptype, NativePType, PType,
 };
 use vortex_error::{VortexExpect as _, VortexResult};
+use vortex_scalar::Scalar;
 
 use crate::{unpack_single_primitive, BitPackedArray, BitPackedEncoding};
 
@@ -155,8 +156,14 @@ fn patch_for_take_primitive<T: NativePType, I: NativePType>(
         output: &mut [T],
         options: TakeOptions,
     ) -> VortexResult<()> {
-        let taken_patches = take(patches.as_ref(), indices.as_ref(), options)?;
-        let taken_patches = SparseArray::try_from(taken_patches)?;
+        // TODO(ngates): implement this without using SparseArray take
+        let taken_patches = SparseArray::try_new(
+            patches.indices().clone(),
+            patches.values().clone(),
+            patches.array_len(),
+            Scalar::null(patches.values().dtype().clone()),
+        )?;
+        let taken_patches = SparseArray::try_from(take(taken_patches.as_ref(), indices, options)?)?;
 
         let base_index = output.len() - indices.len();
         let output_patches = taken_patches
@@ -164,9 +171,9 @@ fn patch_for_take_primitive<T: NativePType, I: NativePType>(
             .into_primitive()?
             .reinterpret_cast(T::PTYPE);
         taken_patches
-            .resolved_indices()
-            .iter()
-            .map(|idx| base_index + *idx)
+            .resolved_indices_usize()
+            .into_iter()
+            .map(|idx| base_index + idx)
             .zip_eq(output_patches.maybe_null_slice::<T>())
             .for_each(|(idx, val)| {
                 output[idx] = *val;
@@ -207,7 +214,7 @@ fn patch_for_take_primitive<T: NativePType, I: NativePType>(
         } else {
             (chunk * 1024) - offset
         };
-        let patches_end = min((chunk + 1) * 1024 - offset, patches.len());
+        let patches_end = min((chunk + 1) * 1024 - offset, patches.array_len());
         let Some(patches_slice) = patches.slice(patches_start, patches_end)? else {
             continue;
         };
@@ -239,7 +246,7 @@ mod test {
     use itertools::Itertools;
     use rand::distributions::Uniform;
     use rand::{thread_rng, Rng};
-    use vortex_array::array::{PrimitiveArray, SparseArray};
+    use vortex_array::array::PrimitiveArray;
     use vortex_array::compute::{scalar_at, slice, take, TakeOptions};
     use vortex_array::{IntoArrayData, IntoArrayVariant};
 
@@ -287,12 +294,6 @@ mod test {
         let packed = BitPackedArray::encode(uncompressed.as_ref(), 16).unwrap();
         assert!(packed.patches().is_some());
 
-        let patches = SparseArray::try_from(packed.patches().unwrap()).unwrap();
-        assert_eq!(
-            patches.resolved_indices(),
-            ((values.len() + 1 - num_patches)..values.len()).collect_vec()
-        );
-
         let rng = thread_rng();
         let range = Uniform::new(0, values.len());
         let random_indices: PrimitiveArray = rng
@@ -333,8 +334,11 @@ mod test {
         let packed = BitPackedArray::encode(&uncompressed, 8).unwrap();
         assert!(packed.patches().is_some());
 
-        let patches = SparseArray::try_from(packed.patches().unwrap()).unwrap();
-        assert_eq!(patches.resolved_indices(), vec![256]);
+        let patches = packed.patches().unwrap().indices().clone();
+        assert_eq!(
+            usize::try_from(&scalar_at(patches, 0).unwrap()).unwrap(),
+            256
+        );
 
         values.iter().enumerate().for_each(|(i, v)| {
             assert_eq!(
