@@ -9,9 +9,10 @@
     "test": "tests"
   },
   "scripts": {
-    "build": "wasm-pack build --target web && tsc"
+    "build": "wasm-pack build --target web && tsc",
+    "build-dev": "wasm-pack build --dev --target web && tsc"
   },
-  "author": "",
+  "author": "Vortex Developers <vortex@spiraldb.com>",
   "license": "ISC",
   "files": [
     "vortex.ts",
