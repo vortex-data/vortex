@@ -11,8 +11,8 @@ use vortex_ipc::stream_writer::ByteRange;
 use crate::read::cache::RelativeLayoutCache;
 use crate::read::mask::RowMask;
 use crate::{
-    BatchRead, Layout, LayoutDeserializer, LayoutId, LayoutReader, MessageLocator, MetadataRead,
-    PruningRead, Scan, FLAT_LAYOUT_ID,
+    Layout, LayoutDeserializer, LayoutId, LayoutReader, MessageLocator, PollRead, Scan,
+    FLAT_LAYOUT_ID,
 };
 
 #[derive(Debug)]
@@ -91,13 +91,13 @@ impl LayoutReader for FlatLayoutReader {
         Ok(())
     }
 
-    fn read_selection(&self, selection: &RowMask) -> VortexResult<Option<BatchRead>> {
+    fn poll_read(&self, selection: &RowMask) -> VortexResult<Option<PollRead<ArrayData>>> {
         if let Some(buf) = self.message_cache.get(&[]) {
             let array = self.array_from_bytes(buf)?;
             selection
                 .filter_array(array)?
                 .map(|s| {
-                    Ok(BatchRead::Value(
+                    Ok(PollRead::Value(
                         self.scan
                             .expr
                             .as_ref()
@@ -108,16 +108,8 @@ impl LayoutReader for FlatLayoutReader {
                 })
                 .transpose()
         } else {
-            Ok(Some(BatchRead::ReadMore(vec![self.own_message()])))
+            Ok(Some(PollRead::ReadMore(vec![self.own_message()])))
         }
-    }
-
-    fn read_metadata(&self) -> VortexResult<Option<MetadataRead>> {
-        Ok(None)
-    }
-
-    fn can_prune(&self, _begin: usize, _end: usize) -> VortexResult<PruningRead> {
-        Ok(PruningRead::Value(false))
     }
 }
 
