@@ -8,7 +8,7 @@ use num_traits::AsPrimitive;
 use vortex_array::array::SparseArray;
 use vortex_array::compute::{
     search_sorted_usize, IndexOrd, Len, SearchResult, SearchSorted, SearchSortedFn,
-    SearchSortedSide,
+    SearchSortedSide, SearchSortedUsizeFn,
 };
 use vortex_array::stats::ArrayStatistics;
 use vortex_array::validity::Validity;
@@ -32,24 +32,6 @@ impl SearchSortedFn<BitPackedArray> for BitPackedEncoding {
         })
     }
 
-    fn search_sorted_usize(
-        &self,
-        array: &BitPackedArray,
-        value: usize,
-        side: SearchSortedSide,
-    ) -> VortexResult<SearchResult> {
-        match_each_unsigned_integer_ptype!(array.ptype(), |$P| {
-            // NOTE: conversion may truncate silently.
-            if let Some(pvalue) = num_traits::cast::<usize, $P>(value) {
-                search_sorted_native(array, pvalue, side)
-            } else {
-                // provided u64 is too large to fit in the provided PType, value must be off
-                // the right end of the array.
-                Ok(SearchResult::NotFound(array.len()))
-            }
-        })
-    }
-
     fn search_sorted_many(
         &self,
         array: &BitPackedArray,
@@ -67,6 +49,26 @@ impl SearchSortedFn<BitPackedArray> for BitPackedEncoding {
                     Ok(searcher.search_sorted(&unwrapped_value, side))
                 })
                 .try_collect()
+        })
+    }
+}
+
+impl SearchSortedUsizeFn<BitPackedArray> for BitPackedEncoding {
+    fn search_sorted_usize(
+        &self,
+        array: &BitPackedArray,
+        value: usize,
+        side: SearchSortedSide,
+    ) -> VortexResult<SearchResult> {
+        match_each_unsigned_integer_ptype!(array.ptype(), |$P| {
+            // NOTE: conversion may truncate silently.
+            if let Some(pvalue) = num_traits::cast::<usize, $P>(value) {
+                search_sorted_native(array, pvalue, side)
+            } else {
+                // provided u64 is too large to fit in the provided PType, value must be off
+                // the right end of the array.
+                Ok(SearchResult::NotFound(array.len()))
+            }
         })
     }
 
@@ -121,7 +123,9 @@ where
         // max packed value just search the patches
         let usize_value: usize = value.as_();
         if usize_value > array.max_packed_value() {
-            search_sorted_usize(&patches_array, value.as_(), side)
+            // FIXME(ngates): this is broken. Patches _aren't_ sorted because they're sparse and
+            //  interspersed with nulls...
+            search_sorted_usize(&patches_array, usize_value, side)
         } else {
             Ok(BitPackedSearch::<'_, T>::new(array).search_sorted(&value, side))
         }

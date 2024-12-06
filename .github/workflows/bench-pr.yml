@@ -130,7 +130,7 @@ jobs:
           BENCH_VORTEX_RATIOS: '.*'
           RUSTFLAGS: '-C target-cpu=native'
         run: |
-          cargo run --bin tpch_benchmark --release -- -d gh-json -t 1 | tee tpch.json
+          cargo run --bin tpch_benchmark --release -- --only-vortex -d gh-json -t 1 | tee tpch.json
       - name: Store benchmark result
         if: '!cancelled()'
         uses: benchmark-action/github-action-benchmark@v1
@@ -179,7 +179,7 @@ jobs:
           RUSTFLAGS: '-C target-cpu=native'
           HOME: /home/ci-runner
         run: |
-          cargo run --bin clickbench --release -- -d gh-json | tee clickbench.json
+          cargo run --bin clickbench --release -- --only-vortex -d gh-json | tee clickbench.json
       - name: Store benchmark result
         if: '!cancelled()'
         uses: benchmark-action/github-action-benchmark@v1

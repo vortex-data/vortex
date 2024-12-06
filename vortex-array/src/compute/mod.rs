@@ -102,6 +102,13 @@ pub trait ComputeVTable {
         None
     }
 
+    /// Perform a search over an ordered array.
+    ///
+    /// See: [SearchSortedUsizeFn].
+    fn search_sorted_usize_fn(&self) -> Option<&dyn SearchSortedUsizeFn<ArrayData>> {
+        None
+    }
+
     /// Perform zero-copy slicing of an array.
     ///
     /// See: [SliceFn].
