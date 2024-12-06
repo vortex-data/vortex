@@ -235,7 +235,7 @@ impl VisitorVTable<BoolArray> for BoolEncoding {
 
 #[cfg(test)]
 mod tests {
-    use arrow_buffer::BooleanBuffer;
+    use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder};
 
     use crate::array::BoolArray;
     use crate::compute::{scalar_at, slice};
@@ -286,28 +286,42 @@ mod tests {
 
     #[test]
     fn patch_sliced_bools() {
-        let arr = BoolArray::from(BooleanBuffer::new_set(12));
-        let sliced = slice(arr, 4, 12).unwrap();
-        let (values, offset) = sliced.into_bool().unwrap().into_boolean_builder();
+        let arr = {
+            let mut builder = BooleanBufferBuilder::new(12);
+            builder.append(false);
+            builder.append_n(11, true);
+            BoolArray::from(builder.finish())
+        };
+        let sliced = slice(arr.clone(), 4, 12).unwrap();
+        let (values, offset) = sliced.clone().into_bool().unwrap().into_boolean_builder();
         assert_eq!(offset, 4);
-        assert_eq!(values.as_slice(), &[255, 15]);
-    }
+        assert_eq!(values.as_slice(), &[254, 15]);
 
-    #[test]
-    fn patch_sliced_bools_offset() {
-        let arr = BoolArray::from(BooleanBuffer::new_set(15));
-        let sliced = slice(arr, 4, 15).unwrap();
-        let (values, offset) = sliced.into_bool().unwrap().into_boolean_builder();
-        assert_eq!(offset, 4);
-        assert_eq!(values.as_slice(), &[255, 127]);
-    }
-
-    #[test]
-    fn patch_sliced_bools_even() {
-        let arr = BoolArray::from(BooleanBuffer::new_set(31));
-        let sliced = slice(arr, 8, 24).unwrap();
-        let (values, offset) = sliced.into_bool().unwrap().into_boolean_builder();
+        // patch the underlying array
+        let arr = arr.patch(&[4], BoolArray::from(BooleanBuffer::new_unset(1))).unwrap();
+        let (values, offset) = arr.into_bool().unwrap().into_boolean_builder();
         assert_eq!(offset, 0);
-        assert_eq!(values.as_slice(), &[255, 255]);
+        assert_eq!(values.as_slice(), &[238, 15]);
+
+        // the slice should be unchanged
+        let (values, offset) = sliced.into_bool().unwrap().into_boolean_builder();
+        assert_eq!(offset, 4);
+        assert_eq!(values.as_slice(), &[254, 15]); // unchanged
+    }
+
+    #[test]
+    fn patch_bools_owned() {
+        let arr = BoolArray::from(BooleanBuffer::new_set(15));
+        let buf_ptr = arr.buffer().as_ptr();
+
+        let arr = arr.patch(&[0], BoolArray::from(BooleanBuffer::new_unset(1))).unwrap();
+        assert_eq!(arr.buffer().as_ptr(), buf_ptr);
+
+        let (values, offset) = arr.into_bool().unwrap().into_boolean_builder();
+        assert_eq!(offset, 0);
+        assert_eq!(
+            values.as_slice(),
+            &[254, 127]
+        );
     }
 }
