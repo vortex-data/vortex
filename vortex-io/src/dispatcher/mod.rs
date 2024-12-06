@@ -6,11 +6,13 @@ mod tokio;
 mod wasm;
 
 use std::future::Future;
+use std::task::Poll;
 
 use futures::channel::oneshot;
+use futures::FutureExt;
 #[cfg(not(any(feature = "compio", feature = "tokio")))]
 use vortex_error::vortex_panic;
-use vortex_error::VortexResult;
+use vortex_error::{vortex_err, VortexResult};
 
 #[cfg(feature = "compio")]
 use self::compio::*;
@@ -43,7 +45,7 @@ pub trait Dispatch: sealed::Sealed {
     ///
     /// The returned `Future` will be executed to completion on a single thread,
     /// thus it may be `!Send`.
-    fn dispatch<F, Fut, R>(&self, task: F) -> VortexResult<oneshot::Receiver<R>>
+    fn dispatch<F, Fut, R>(&self, task: F) -> VortexResult<JoinHandle<R>>
     where
         F: (FnOnce() -> Fut) + Send + 'static,
         Fut: Future<Output = R> + 'static,
@@ -67,6 +69,23 @@ pub trait Dispatch: sealed::Sealed {
 ///
 #[derive(Debug)]
 pub struct IoDispatcher(Inner);
+
+pub struct JoinHandle<R>(oneshot::Receiver<R>);
+
+impl<R> Future for JoinHandle<R> {
+    type Output = VortexResult<R>;
+
+    fn poll(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Self::Output> {
+        match self.0.poll_unpin(cx) {
+            Poll::Ready(Ok(v)) => Poll::Ready(Ok(v)),
+            Poll::Ready(Err(_)) => Poll::Ready(Err(vortex_err!("Task was canceled"))),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
 
 #[derive(Debug)]
 enum Inner {
@@ -97,7 +116,7 @@ impl Default for IoDispatcher {
 
 impl Dispatch for IoDispatcher {
     #[allow(unused_variables)] // If no features are enabled `task` ends up being unused
-    fn dispatch<F, Fut, R>(&self, task: F) -> VortexResult<oneshot::Receiver<R>>
+    fn dispatch<F, Fut, R>(&self, task: F) -> VortexResult<JoinHandle<R>>
     where
         F: (FnOnce() -> Fut) + Send + 'static,
         Fut: Future<Output = R> + 'static,
