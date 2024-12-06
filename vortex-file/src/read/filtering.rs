@@ -83,7 +83,7 @@ impl VortexExpr for RowFilter {
 
             let new_mask = expr.evaluate(batch)?;
             // Either `and` or `and_kleene` is fine. They only differ on `false AND null`, but
-            // null_as_false only cares which values are true.
+            // fill_null only cares which values are true.
             mask = and_kleene(new_mask, mask)?;
         }
 
