@@ -157,7 +157,7 @@ fn repartition_by_size(
     let all_files = file_groups.into_iter().concat();
     let total_file_count = all_files.len();
     let total_size = all_files.iter().map(|f| f.object_meta.size).sum::<usize>();
-    let target_partition_size = total_size / total_file_count + 1;
+    let target_partition_size = total_size / (desired_partitions + 1);
 
     let mut partitions = Vec::with_capacity(desired_partitions);
 
@@ -168,19 +168,9 @@ fn repartition_by_size(
         curr_partition_size += file.object_meta.size;
         curr_partition.push(file);
 
-        if curr_partition_size > target_partition_size {
+        if curr_partition_size >= target_partition_size {
             curr_partition_size = 0;
-
-            // If we we're still missing the last partition
-            if !curr_partition.is_empty() && partitions.len() != desired_partitions {
-                partitions.push(std::mem::take(&mut curr_partition));
-            // If we already have enough partitions
-            } else if !curr_partition.is_empty() {
-                for (idx, file) in std::mem::take(&mut curr_partition).into_iter().enumerate() {
-                    let new_part_idx = idx % partitions.len();
-                    partitions[new_part_idx].push(file);
-                }
-            }
+            partitions.push(std::mem::take(&mut curr_partition));
         }
     }
 
@@ -194,8 +184,6 @@ fn repartition_by_size(
             partitions[new_part_idx].push(file);
         }
     }
-
-    dbg!(&partitions);
 
     // Assert that we have the correct number of partitions and that the total number of files is right
     assert_eq!(
