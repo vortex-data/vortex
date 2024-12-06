@@ -157,7 +157,7 @@ fn repartition_by_size(
     let all_files = file_groups.into_iter().concat();
     let total_file_count = all_files.len();
     let total_size = all_files.iter().map(|f| f.object_meta.size).sum::<usize>();
-    let target_partition_size = total_size / (desired_partitions + 1);
+    let target_partition_size = total_size / total_file_count + 1;
 
     let mut partitions = Vec::with_capacity(desired_partitions);
 
@@ -170,22 +170,39 @@ fn repartition_by_size(
 
         if curr_partition_size > target_partition_size {
             curr_partition_size = 0;
-            partitions.push(std::mem::take(&mut curr_partition));
+
+            // If we we're still missing the last partition
+            if !curr_partition.is_empty() && partitions.len() != desired_partitions {
+                partitions.push(std::mem::take(&mut curr_partition));
+            // If we already have enough partitions
+            } else if !curr_partition.is_empty() {
+                for (idx, file) in std::mem::take(&mut curr_partition).into_iter().enumerate() {
+                    let new_part_idx = idx % partitions.len();
+                    partitions[new_part_idx].push(file);
+                }
+            }
         }
     }
 
-    // if there's anything left, we shove it into existing partitions
-    for (idx, file) in curr_partition.into_iter().enumerate() {
-        let part_idx = idx % partitions.len();
-        partitions[part_idx].push(file);
+    // If we we're still missing the last partition
+    if !curr_partition.is_empty() && partitions.len() != desired_partitions {
+        partitions.push(std::mem::take(&mut curr_partition));
+    // If we already have enough partitions
+    } else if !curr_partition.is_empty() {
+        for (idx, file) in curr_partition.into_iter().enumerate() {
+            let new_part_idx = idx % partitions.len();
+            partitions[new_part_idx].push(file);
+        }
     }
 
-    let partitions_limit = usize::min(total_file_count, desired_partitions);
+    dbg!(&partitions);
 
-    assert!(
-        partitions.len() - 1 >= partitions_limit,
-        "The final number of partitions should be smallest between the total number of files and the desired partition count - 1"
+    // Assert that we have the correct number of partitions and that the total number of files is right
+    assert_eq!(
+        partitions.len(),
+        usize::min(desired_partitions, total_file_count)
     );
+    assert_eq!(total_file_count, partitions.iter().flatten().count());
 
     partitions
 }
@@ -204,19 +221,12 @@ mod tests {
             PartitionedFile::new("e", 50),
         ]];
 
-        let output = repartition_by_size(file_groups, 2);
+        repartition_by_size(file_groups, 2);
 
-        assert_eq!(output.len(), 2);
-    }
-
-    #[test]
-    fn repartition_with_leftovers() {
         let file_groups = vec![(0..100)
             .map(|idx| PartitionedFile::new(format!("{idx}"), idx))
             .collect()];
 
-        let output = repartition_by_size(file_groups, 16);
-
-        assert_eq!(output.len(), 15);
+        repartition_by_size(file_groups, 16);
     }
 }
