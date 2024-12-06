@@ -64,12 +64,8 @@ impl EncodingCompressor for ALPCompressor {
             .transpose()?;
 
         Ok(CompressedArray::compressed(
-            ALPArray::try_new(
-                compressed_encoded.array,
-                exponents,
-                compressed_patches,
-            )?
-            .into_array(),
+            ALPArray::try_new(compressed_encoded.array, exponents, compressed_patches)?
+                .into_array(),
             Some(CompressionTree::new(self, vec![compressed_encoded.path])),
             array,
         ))
