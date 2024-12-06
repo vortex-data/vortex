@@ -39,12 +39,11 @@ impl EncodingCompressor for ListCompressor {
             &downscale_integer_array(list_array.offsets())?,
             like.as_ref().and_then(|l| l.child(1)),
         )?;
-
         Ok(CompressedArray::compressed(
             ListArray::try_new(
                 compressed_elements.array,
                 compressed_offsets.array,
-                ctx.compress_validity(list_array.validity())?,
+                list_array.validity(),
             )?
             .into_array(),
             Some(CompressionTree::new(
