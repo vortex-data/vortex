@@ -250,9 +250,11 @@ impl LayoutReader for ColumnarLayoutReader {
                     }
                     BatchRead::Value(arr) => {
                         if self.shortcircuit_siblings
-                            && arr.statistics().compute_true_count().vortex_expect(
-                                "must be a bool array if shortcircuit_siblings is set to true",
-                            ) == 0
+                            && arr
+                                .statistics()
+                                .compute_true_count()
+                                .map(|true_count| true_count == 0)
+                                .unwrap_or(false)
                         {
                             in_progress_guard.remove(&selection_range);
                             return Ok(None);

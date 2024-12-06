@@ -32,43 +32,34 @@ impl FillNullFn<BoolArray> for BoolEncoding {
 #[cfg(test)]
 mod tests {
     use arrow_buffer::BooleanBuffer;
+    use rstest::rstest;
+    use vortex_dtype::{DType, Nullability};
 
     use crate::array::BoolArray;
     use crate::compute::fill_null;
     use crate::validity::Validity;
-    use crate::IntoArrayVariant;
+    use crate::{ArrayDType, IntoArrayVariant};
 
-    #[test]
-    fn bool_fill_null_false() {
+    #[rstest]
+    #[case(true, vec![true, true, false, true])]
+    #[case(false, vec![true, false, false, false])]
+    fn bool_fill_null(#[case] fill_value: bool, #[case] expected: Vec<bool>) {
         let bool_array = BoolArray::try_new(
             BooleanBuffer::from_iter([true, true, false, false]),
             Validity::from_iter([true, false, true, false]),
         )
         .unwrap();
-        let non_null_array = fill_null(bool_array, false.into())
+        let non_null_array = fill_null(bool_array, fill_value.into())
             .unwrap()
             .into_bool()
             .unwrap();
         assert_eq!(
             non_null_array.boolean_buffer().iter().collect::<Vec<_>>(),
-            vec![true, false, false, false]
+            expected
         );
-    }
-
-    #[test]
-    fn bool_fill_null_true() {
-        let bool_array = BoolArray::try_new(
-            BooleanBuffer::from_iter([true, true, false, false]),
-            Validity::from_iter([true, false, true, false]),
-        )
-        .unwrap();
-        let non_null_array = fill_null(bool_array, true.into())
-            .unwrap()
-            .into_bool()
-            .unwrap();
         assert_eq!(
-            non_null_array.boolean_buffer().iter().collect::<Vec<_>>(),
-            vec![true, true, false, true]
+            non_null_array.dtype(),
+            &DType::Bool(Nullability::NonNullable)
         );
     }
 }

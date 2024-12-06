@@ -6,7 +6,7 @@ use std::task::{Context, Poll};
 use futures::Stream;
 use itertools::Itertools;
 use vortex_array::stats::ArrayStatistics;
-use vortex_error::{vortex_bail, VortexExpect, VortexResult, VortexUnwrap};
+use vortex_error::{vortex_bail, VortexResult, VortexUnwrap};
 
 use crate::read::buffered::ReadMasked;
 use crate::{BatchRead, LayoutReader, MessageRead, PruningRead, RowMask, SplitRead};
@@ -48,8 +48,8 @@ impl ReadMasked for ReadRowMask {
                     if batch
                         .statistics()
                         .compute_true_count()
-                        .vortex_expect("must be a bool array if it's a result of a filter")
-                        == 0
+                        .map(|true_count| true_count == 0)
+                        .unwrap_or(false)
                     {
                         return Ok(None);
                     }
