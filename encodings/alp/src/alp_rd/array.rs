@@ -193,7 +193,7 @@ impl IntoCanonical for ALPRDArray {
             let left_parts_exceptions = SparseArray::try_from(left_parts_exceptions)
                 .vortex_expect("ALPRDArray: exceptions must be SparseArray encoded");
             exc_pos = left_parts_exceptions
-                .resolved_indices()
+                .resolved_indices_usize()
                 .into_iter()
                 .map(|v| v as _)
                 .collect();

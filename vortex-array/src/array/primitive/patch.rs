@@ -32,6 +32,7 @@ impl PrimitiveArray {
 mod tests {
     use super::*;
     use crate::compute::slice;
+    use crate::validity::Validity;
     use crate::IntoArrayVariant;
 
     #[test]

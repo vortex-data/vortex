@@ -207,12 +207,10 @@ impl VisitorVTable<BoolArray> for BoolEncoding {
 
 #[cfg(test)]
 mod tests {
-    use arrow_buffer::BooleanBuffer;
-
     use crate::array::BoolArray;
-    use crate::compute::{scalar_at, slice};
+    use crate::compute::scalar_at;
     use crate::validity::Validity;
-    use crate::{IntoArrayData, IntoArrayVariant};
+    use crate::IntoArrayData;
 
     #[test]
     fn bool_array() {
