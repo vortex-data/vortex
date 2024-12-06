@@ -19,7 +19,7 @@ impl FillNullFn<BoolArray> for BoolEncoding {
             Validity::AllInvalid => ConstantArray::new(fill, array.len()).into_array(),
             Validity::Array(v) => {
                 let bool_buffer = if fill {
-                    &array.boolean_buffer() & &!&v.into_bool()?.boolean_buffer()
+                    &array.boolean_buffer() | &!&v.into_bool()?.boolean_buffer()
                 } else {
                     &array.boolean_buffer() & &v.into_bool()?.boolean_buffer()
                 };
@@ -39,7 +39,7 @@ mod tests {
     use crate::IntoArrayVariant;
 
     #[test]
-    fn coerces_nulls() {
+    fn bool_fill_null_false() {
         let bool_array = BoolArray::try_new(
             BooleanBuffer::from_iter([true, true, false, false]),
             Validity::from_iter([true, false, true, false]),
@@ -52,6 +52,23 @@ mod tests {
         assert_eq!(
             non_null_array.boolean_buffer().iter().collect::<Vec<_>>(),
             vec![true, false, false, false]
+        );
+    }
+
+    #[test]
+    fn bool_fill_null_true() {
+        let bool_array = BoolArray::try_new(
+            BooleanBuffer::from_iter([true, true, false, false]),
+            Validity::from_iter([true, false, true, false]),
+        )
+        .unwrap();
+        let non_null_array = fill_null(bool_array, true.into())
+            .unwrap()
+            .into_bool()
+            .unwrap();
+        assert_eq!(
+            non_null_array.boolean_buffer().iter().collect::<Vec<_>>(),
+            vec![true, true, false, true]
         );
     }
 }
