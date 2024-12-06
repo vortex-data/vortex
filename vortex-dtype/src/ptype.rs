@@ -71,6 +71,18 @@ pub trait NativePType:
     /// Compare another instance of this type to `self`, providing a total ordering
     fn total_compare(self, other: Self) -> Ordering;
 
+    /// Addition, safe on uninitialized data.
+    fn maybe_null_add(self, other: Self) -> Self;
+
+    /// Subtraction, safe on uninitialized data.
+    fn maybe_null_sub(self, other: Self) -> Self;
+
+    /// Multiplication, safe on uninitialized data.
+    fn maybe_null_mul(self, other: Self) -> Self;
+
+    /// Division, safe on uninitialized data.
+    fn maybe_null_div(self, other: Self) -> Self;
+
     /// Whether another instance of this type (`other`) is bitwise equal to `self`
     fn is_eq(self, other: Self) -> bool;
 }
@@ -86,6 +98,22 @@ macro_rules! native_ptype {
 
             fn total_compare(self, other: Self) -> Ordering {
                 self.cmp(&other)
+            }
+
+            fn maybe_null_add(self, other: Self) -> Self {
+                self.wrapping_add(other)
+            }
+
+            fn maybe_null_sub(self, other: Self) -> Self {
+                self.wrapping_sub(other)
+            }
+
+            fn maybe_null_mul(self, other: Self) -> Self {
+                self.wrapping_mul(other)
+            }
+
+            fn maybe_null_div(self, other: Self) -> Self {
+                self.wrapping_div(other)
             }
 
             fn is_eq(self, other: Self) -> bool {
@@ -106,6 +134,22 @@ macro_rules! native_float_ptype {
 
             fn total_compare(self, other: Self) -> Ordering {
                 self.total_cmp(&other)
+            }
+
+            fn maybe_null_add(self, other: Self) -> Self {
+                self + other
+            }
+
+            fn maybe_null_sub(self, other: Self) -> Self {
+                self - other
+            }
+
+            fn maybe_null_mul(self, other: Self) -> Self {
+                self * other
+            }
+
+            fn maybe_null_div(self, other: Self) -> Self {
+                self / other
             }
 
             fn is_eq(self, other: Self) -> bool {

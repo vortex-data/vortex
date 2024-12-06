@@ -3,7 +3,9 @@ use std::any::type_name;
 use num_traits::{FromPrimitive, NumCast};
 use vortex_dtype::half::f16;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
-use vortex_error::{vortex_err, vortex_panic, VortexError, VortexResult, VortexUnwrap};
+use vortex_error::{
+    vortex_bail, vortex_err, vortex_panic, VortexError, VortexResult, VortexUnwrap,
+};
 
 use crate::pvalue::PValue;
 use crate::value::ScalarValue;
@@ -268,5 +270,49 @@ impl TryFrom<&Scalar> for usize {
 impl From<usize> for Scalar {
     fn from(value: usize) -> Self {
         Scalar::primitive(value as u64, Nullability::NonNullable)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NumericOperator {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    // Missing from arrow-rs:
+    // Min,
+    // Max,
+    // Sqrt,
+    // Pow,
+    // In IEEE-754 operations involving NaN are non-commutative wrt NaN payload/quietness
+    // RAdd,
+    // RSub,
+    // RMul,
+    // RDiv,
+}
+
+impl PrimitiveScalar<'_> {
+    pub fn numeric_operator(
+        self,
+        other: PrimitiveScalar<'_>,
+        op: NumericOperator,
+    ) -> VortexResult<Scalar> {
+        if !self.dtype().eq_ignore_nullability(other.dtype()) {
+            vortex_bail!("types must match: {} {}", self.dtype(), other.dtype());
+        }
+
+        Ok(match_each_native_ptype!(self.ptype(), |$P| {
+            let lhs = self.typed_value::<$P>();
+            let rhs = other.typed_value::<$P>();
+            let nullability = self.dtype().nullability();
+            lhs.zip(rhs).map(|(lhs, rhs)| {
+                match op {
+                    NumericOperator::Add => Scalar::primitive(lhs + rhs, nullability),
+                    NumericOperator::Sub => Scalar::primitive(lhs - rhs, nullability),
+                    NumericOperator::Mul => Scalar::primitive(lhs * rhs, nullability),
+                    NumericOperator::Div => Scalar::primitive(lhs / rhs, nullability),
+                }
+            }).unwrap_or_else(|| Scalar::null(self.dtype().clone()))
+        }))
     }
 }
