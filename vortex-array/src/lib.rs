@@ -38,6 +38,7 @@ pub mod iter;
 mod macros;
 mod metadata;
 pub mod nbytes;
+pub mod patches;
 pub mod stats;
 pub mod stream;
 pub mod tree;

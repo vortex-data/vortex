@@ -6,6 +6,7 @@ pub use compress::*;
 use fastlanes::BitPacking;
 use vortex_array::array::{PrimitiveArray, SparseArray};
 use vortex_array::encoding::ids;
+use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::stats::{StatisticsVTable, StatsSet};
 use vortex_array::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use vortex_array::variants::{PrimitiveArrayTrait, VariantsVTable};
@@ -27,7 +28,7 @@ pub struct BitPackedMetadata {
     validity: ValidityMetadata,
     bit_width: u8,
     offset: u16, // must be <1024
-    has_patches: bool,
+    patches: Option<PatchesMetadata>,
 }
 
 impl Display for BitPackedMetadata {
@@ -45,7 +46,7 @@ impl BitPackedArray {
         packed: Buffer,
         ptype: PType,
         validity: Validity,
-        patches: Option<ArrayData>,
+        patches: Option<Patches>,
         bit_width: u8,
         len: usize,
     ) -> VortexResult<Self> {
@@ -56,7 +57,7 @@ impl BitPackedArray {
         packed: Buffer,
         ptype: PType,
         validity: Validity,
-        patches: Option<ArrayData>,
+        patches: Option<Patches>,
         bit_width: u8,
         length: usize,
         offset: u16,
@@ -161,15 +162,16 @@ impl BitPackedArray {
     /// If present, patches MUST be a `SparseArray` with equal-length to this array, and whose
     /// indices indicate the locations of patches. The indices must have non-zero length.
     #[inline]
-    pub fn patches(&self) -> Option<ArrayData> {
-        self.metadata().has_patches.then(|| {
-            self.as_ref()
-                .child(
-                    0,
-                    &self.dtype().with_nullability(Nullability::Nullable),
-                    self.len(),
-                )
-                .vortex_expect("BitPackedArray: patches child")
+    pub fn patches(&self) -> Option<Patches> {
+        self.metadata().patches.as_ref().map(|patches| {
+            Patches::new(
+                self.as_ref()
+                    .child(0, &patches.indices_dtype(), patches.len())
+                    .vortex_expect("BitPackedArray: patch indices"),
+                self.as_ref()
+                    .child(1, self.dtype(), patches.len())
+                    .vortex_expect("BitPackedArray: patch values"),
+            )
         })
     }
 
@@ -179,8 +181,7 @@ impl BitPackedArray {
     }
 
     pub fn validity(&self) -> Validity {
-        let validity_child_idx = if self.metadata().has_patches { 1 } else { 0 };
-
+        let validity_child_idx = if self.metadata().has_patches { 2 } else { 0 };
         self.metadata().validity.to_validity(|| {
             self.as_ref()
                 .child(validity_child_idx, &Validity::DTYPE, self.len())
@@ -222,7 +223,7 @@ impl VisitorVTable<BitPackedArray> for BitPackedEncoding {
     fn accept(&self, array: &BitPackedArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
         visitor.visit_buffer(array.packed())?;
         if let Some(patches) = array.patches().as_ref() {
-            visitor.visit_child("patches", patches)?;
+            visitor.visit_patches(patches)?;
         }
         visitor.visit_validity(&array.validity())
     }
