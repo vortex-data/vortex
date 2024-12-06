@@ -3,6 +3,7 @@ use std::sync::OnceLock;
 
 use arrow_array::BooleanArray;
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, MutableBuffer};
+use num_traits::AsPrimitive;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
 
@@ -197,11 +198,14 @@ pub enum FilterIter<'a> {
 
 impl FilterMask {
     /// Create a new FilterMask where the given indices are set.
-    pub fn from_indices<I: IntoIterator<Item = usize>>(length: usize, indices: I) -> Self {
+    pub fn from_indices<V: AsPrimitive<usize>, I: IntoIterator<Item = V>>(
+        length: usize,
+        indices: I,
+    ) -> Self {
         let mut buffer = MutableBuffer::new_null(length);
         indices
             .into_iter()
-            .for_each(|idx| arrow_buffer::bit_util::set_bit(&mut buffer, idx));
+            .for_each(|idx| arrow_buffer::bit_util::set_bit(&mut buffer, idx.as_()));
         Self::from(BooleanBufferBuilder::new_from_buffer(buffer, length).finish())
     }
 

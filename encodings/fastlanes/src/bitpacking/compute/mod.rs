@@ -27,7 +27,6 @@ impl ComputeVTable for BitPackedEncoding {
     }
 
     fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
-        None
-        //Some(self)
+        Some(self)
     }
 }

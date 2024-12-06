@@ -1,16 +1,17 @@
 use serde::{Deserialize, Serialize};
 use vortex_dtype::Nullability::NonNullable;
-use vortex_dtype::{DType, PType};
+use vortex_dtype::{match_each_integer_ptype, DType, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::array::PrimitiveArray;
 use crate::compute::{
-    filter, scalar_at, search_sorted, search_sorted_usize, search_sorted_usize_many, slice,
+    filter, scalar_at, search_sorted, search_sorted_many, search_sorted_usize, slice,
     subtract_scalar, take, try_cast, FilterMask, SearchResult, SearchSortedSide, TakeOptions,
 };
 use crate::stats::{ArrayStatistics, Stat};
 use crate::validity::Validity;
+use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -156,25 +157,25 @@ impl Patches {
     }
 
     /// Filter the patches by a mask.
-    /// FIXME(ngates): fix this cast
-    #[allow(clippy::cast_possible_truncation)]
     pub fn filter(&self, mask: FilterMask) -> VortexResult<Option<Self>> {
         let mask = mask.to_boolean_buffer()?;
 
         let indices = self.indices().clone().into_primitive()?;
-
-        let (patches_mask, new_indices): (Vec<usize>, Vec<u64>) = indices
-            .maybe_null_slice::<u64>()
-            .iter()
-            .enumerate()
-            .filter(|(_rank, idx)| mask.value(**idx as usize))
-            .unzip();
+        let (patches_mask, new_indices) = match_each_integer_ptype!(indices.ptype(), |$I| {
+            let (patches_mask, new_indices): (Vec<usize>, Vec<$I>) = indices
+                .maybe_null_slice::<$I>()
+                .iter()
+                .enumerate()
+                .filter(|(_rank, idx)| mask.value(**idx as usize))
+                .unzip();
+            let new_indices = PrimitiveArray::from_vec(new_indices, Validity::NonNullable).into_array();
+            (patches_mask, new_indices)
+        });
 
         if new_indices.is_empty() {
             return Ok(None);
         }
 
-        let new_indices = PrimitiveArray::from_vec(new_indices, Validity::NonNullable).into_array();
         let new_values = filter(
             self.values(),
             FilterMask::from_indices(self.array_len(), patches_mask),
@@ -205,8 +206,6 @@ impl Patches {
     }
 
     /// Take the indices from the patches.
-    /// FIXME(ngates): fix this cast
-    #[allow(clippy::cast_possible_truncation)]
     pub fn take(&self, indices: &ArrayData) -> VortexResult<Option<Self>> {
         if indices.is_empty() {
             return Ok(None);
@@ -215,22 +214,20 @@ impl Patches {
         // TODO(ngates): plenty of optimisations to be made here
         let take_indices =
             try_cast(indices, &DType::Primitive(PType::U64, NonNullable))?.into_primitive()?;
-        let take_indices: Vec<usize> = take_indices
-            .into_maybe_null_slice::<u64>()
-            .into_iter()
-            .map(|idx| idx as usize)
-            .collect();
 
-        let (values_indices, new_indices): (Vec<u64>, Vec<u64>) =
-            search_sorted_usize_many(self.indices(), &take_indices, SearchSortedSide::Left)?
-                .iter()
-                .zip(take_indices)
-                .filter_map(|(search_result, take_idx)| {
-                    search_result
-                        .to_found()
-                        .map(|patch_idx| (patch_idx as u64, take_idx as u64))
-                })
-                .unzip();
+        let (values_indices, new_indices): (Vec<u64>, Vec<u64>) = search_sorted_many(
+            self.indices(),
+            take_indices.maybe_null_slice::<u64>(),
+            SearchSortedSide::Left,
+        )?
+        .iter()
+        .enumerate()
+        .filter_map(|(idx_in_take, search_result)| {
+            search_result
+                .to_found()
+                .map(|patch_idx| (patch_idx as u64, idx_in_take as u64))
+        })
+        .unzip();
 
         let new_indices = PrimitiveArray::from_vec(new_indices, Validity::NonNullable).into_array();
 

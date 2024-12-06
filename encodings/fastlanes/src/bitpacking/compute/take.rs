@@ -132,7 +132,15 @@ fn take_primitive<T: NativePType + BitPacking, I: NativePType>(
             &DType::Primitive(PType::U64, Nullability::NonNullable),
         )?
         .into_primitive()?;
-        println!("INDICES {:?}", indices.maybe_null_slice::<u64>());
+
+        // TODO(ngates): can patch values themselves have nulls, or do we ensure they're in our
+        //  validity bitmap?
+        let values = patches.values().clone().into_primitive()?;
+        let values_slice = values.maybe_null_slice::<T>();
+
+        for (idx, v) in indices.maybe_null_slice::<u64>().iter().zip(values_slice) {
+            output[*idx as usize] = *v;
+        }
     }
 
     Ok(output)
@@ -168,17 +176,17 @@ mod test {
 
     #[test]
     fn take_with_patches() {
-        let unpacked = PrimitiveArray::from(vec![0u32, 1, 2, 3, 4, 5]).into_array();
+        let unpacked = PrimitiveArray::from((0u32..100_000).collect_vec()).into_array();
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 2).unwrap();
 
-        let indices = PrimitiveArray::from(vec![0, 2, 4]);
+        let indices = PrimitiveArray::from(vec![0, 2, 4, 6]);
 
         let primitive_result = take(bitpacked.as_ref(), &indices, TakeOptions::default())
             .unwrap()
             .into_primitive()
             .unwrap();
         let res_bytes = primitive_result.maybe_null_slice::<u32>();
-        assert_eq!(res_bytes, &[0, 2, 4]);
+        assert_eq!(res_bytes, &[0, 2, 4, 6]);
     }
 
     #[test]
