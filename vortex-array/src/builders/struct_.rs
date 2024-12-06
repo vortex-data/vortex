@@ -6,7 +6,7 @@ use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::StructScalar;
 
 use crate::array::StructArray;
-use crate::builders::{builder_with_capacity, ArrayBuilder, BoolBuilder};
+use crate::builders::{builder_with_capacity, ArrayBuilder, ArrayBuilderExt, BoolBuilder};
 use crate::validity::Validity;
 use crate::{ArrayData, IntoArrayData};
 
@@ -15,6 +15,7 @@ pub struct StructBuilder {
     validity: BoolBuilder,
     struct_dtype: StructDType,
     nullability: Nullability,
+    dtype: DType,
 }
 
 impl StructBuilder {
@@ -32,8 +33,9 @@ impl StructBuilder {
         Self {
             builders,
             validity: BoolBuilder::with_capacity(Nullability::NonNullable, capacity),
-            struct_dtype,
+            struct_dtype: struct_dtype.clone(),
             nullability,
+            dtype: DType::Struct(struct_dtype, nullability),
         }
     }
 
@@ -65,6 +67,10 @@ impl ArrayBuilder for StructBuilder {
 
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
+    }
+
+    fn dtype(&self) -> &DType {
+        &self.dtype
     }
 
     fn len(&self) -> usize {

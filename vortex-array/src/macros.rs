@@ -11,8 +11,8 @@ impl<A: AsRef<ArrayData>> ToArrayData for A {
 
 /// Macro to generate all the necessary code for a new type of array encoding. Including:
 /// 1. New Array type that implements `AsRef<ArrayData>`, `GetArrayMetadata`, `ToArray`, `IntoArray`, and multiple useful `From`/`TryFrom` implementations.
-/// 1. New Encoding type that implements `ArrayEncoding`.
-/// 1. New metadata type that implements `ArrayMetadata`.
+/// 2. New Encoding type that implements `ArrayEncoding`.
+/// 3. New metadata type that implements `ArrayMetadata`.
 #[macro_export]
 macro_rules! impl_encoding {
     ($id:literal, $code:expr, $Name:ident) => {
@@ -26,6 +26,7 @@ macro_rules! impl_encoding {
                     self.0
                 }
             }
+
             impl AsRef<$crate::ArrayData> for [<$Name Array>] {
                 fn as_ref(&self) -> &$crate::ArrayData {
                     &self.0
@@ -57,6 +58,14 @@ macro_rules! impl_encoding {
                             children,
                             stats
                     )?)
+                }
+
+                /// Optionally downcast an [`ArrayData`](crate::ArrayData) instance to a specific encoding.
+                ///
+                /// Preferred in cases where a backtrace isn't needed, like when trying multiple encoding to go
+                /// down different code paths.
+                pub fn maybe_from(data: $crate::ArrayData) -> Option<Self> {
+                    (data.encoding().id() == <[<$Name Encoding>] as $crate::encoding::Encoding>::ID).then_some(Self(data))
                 }
             }
 

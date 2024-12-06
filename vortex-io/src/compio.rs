@@ -6,6 +6,7 @@ use compio::buf::{IoBuf, IoBufMut, SetBufInit};
 use compio::fs::File;
 use compio::io::AsyncReadAtExt;
 use compio::BufResult;
+use vortex_error::VortexUnwrap;
 
 use crate::aligned::{AlignedBytesMut, PowerOfTwo};
 use crate::{VortexReadAt, ALIGNMENT};
@@ -58,7 +59,7 @@ impl VortexReadAt for File {
         len: u64,
     ) -> impl Future<Output = io::Result<Bytes>> + 'static {
         let this = self.clone();
-        let buffer = AlignedBytesMut::<ALIGNMENT>::with_capacity(len as usize);
+        let buffer = AlignedBytesMut::<ALIGNMENT>::with_capacity(len.try_into().vortex_unwrap());
         async move {
             // Turn the buffer into a static slice.
             let BufResult(res, buffer) = this.read_exact_at(buffer, pos).await;

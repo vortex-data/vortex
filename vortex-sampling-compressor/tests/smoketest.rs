@@ -125,7 +125,7 @@ mod tests {
             assert_eq!(chunk.encoding().id(), FoREncoding::ID);
             assert_eq!(
                 chunk.statistics().get(Stat::UncompressedSizeInBytes),
-                Some(Scalar::from((chunk.len() * 8) as u64))
+                Some(Scalar::from((chunk.len() * 8) as u64 + 1))
             );
         }
 
@@ -138,7 +138,7 @@ mod tests {
             assert_eq!(chunk.encoding().id(), BoolEncoding::ID);
             assert_eq!(
                 chunk.statistics().get(Stat::UncompressedSizeInBytes),
-                Some(Scalar::from(chunk.len().div_ceil(8) as u64))
+                Some(Scalar::from(chunk.len().div_ceil(8) as u64 + 2))
             );
         }
 
@@ -154,7 +154,7 @@ mod tests {
             );
             assert_eq!(
                 chunk.statistics().get(Stat::UncompressedSizeInBytes),
-                Some(Scalar::from(1392640u64))
+                Some(Scalar::from(1392677u64))
             );
         }
 
@@ -167,7 +167,7 @@ mod tests {
             assert_eq!(chunk.encoding().id(), VarBinEncoding::ID);
             assert_eq!(
                 chunk.statistics().get(Stat::UncompressedSizeInBytes),
-                Some(Scalar::from(134357000u64))
+                Some(Scalar::from(134357018u64))
             );
         }
 
@@ -180,7 +180,7 @@ mod tests {
             assert_eq!(chunk.encoding().id(), DateTimePartsEncoding::ID);
             assert_eq!(
                 chunk.statistics().get(Stat::UncompressedSizeInBytes),
-                Some((chunk.len() * 8).into())
+                Some((chunk.len() * 8 + 4).into())
             )
         }
     }

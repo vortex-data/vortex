@@ -2,7 +2,6 @@ use vortex_alp::{alp_encode_components, match_each_alp_float_ptype, ALPArray, AL
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::PrimitiveArray;
 use vortex_array::encoding::{Encoding, EncodingRef};
-use vortex_array::stats::ArrayStatistics;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::PType;
@@ -26,7 +25,7 @@ impl EncodingCompressor for ALPCompressor {
 
     fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {
         // Only support primitive arrays
-        let parray = PrimitiveArray::try_from(array.clone()).ok()?;
+        let parray = PrimitiveArray::maybe_from(array.clone())?;
 
         // Only supports f32 and f64
         if !matches!(parray.ptype(), PType::F32 | PType::F64) {
@@ -78,7 +77,7 @@ impl EncodingCompressor for ALPCompressor {
                     compressed_patches.and_then(|p| p.path),
                 ],
             )),
-            Some(array.statistics()),
+            array,
         ))
     }
 

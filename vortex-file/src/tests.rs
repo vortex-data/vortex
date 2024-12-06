@@ -1,3 +1,4 @@
+#![allow(clippy::cast_possible_truncation)]
 use std::collections::BTreeSet;
 use std::iter;
 use std::sync::{Arc, RwLock};
@@ -17,7 +18,7 @@ use vortex_dtype::{DType, Nullability, PType, StructDType};
 use vortex_error::vortex_panic;
 use vortex_expr::{BinaryExpr, Column, Literal, Operator};
 
-use crate::builder::initial_read::{read_initial_bytes, read_layout_from_initial};
+use crate::builder::initial_read::read_initial_bytes;
 use crate::write::VortexFileWriter;
 use crate::{
     LayoutDeserializer, LayoutMessageCache, Projection, RelativeLayoutCache, RowFilter, Scan,
@@ -128,16 +129,16 @@ async fn test_splits() {
         .unwrap();
     let layout_serde = LayoutDeserializer::default();
 
-    let dtype = Arc::new(initial_read.lazy_dtype().unwrap());
+    let dtype = Arc::new(initial_read.lazy_dtype());
     let cache = Arc::new(RwLock::new(LayoutMessageCache::new()));
 
-    let layout_reader = read_layout_from_initial(
-        &initial_read,
-        &layout_serde,
-        Scan::new(None),
-        RelativeLayoutCache::new(cache, dtype),
-    )
-    .unwrap();
+    let layout_reader = layout_serde
+        .read_layout(
+            initial_read.fb_layout(),
+            Scan::new(None),
+            RelativeLayoutCache::new(cache, dtype),
+        )
+        .unwrap();
 
     let mut splits = BTreeSet::new();
     layout_reader.add_splits(0, &mut splits).unwrap();

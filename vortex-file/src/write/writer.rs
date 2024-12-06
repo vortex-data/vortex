@@ -1,12 +1,15 @@
-use std::{io, mem};
+#![allow(clippy::cast_possible_truncation)]
 
+use std::{io, iter, mem};
+
+use bytes::Bytes;
 use flatbuffers::FlatBufferBuilder;
 use futures::TryStreamExt;
 use itertools::Itertools;
 use vortex_array::array::{ChunkedArray, StructArray};
-use vortex_array::stats::{ArrayStatistics, Stat};
+use vortex_array::stats::{as_stat_bitset_bytes, ArrayStatistics, Stat};
 use vortex_array::stream::ArrayStream;
-use vortex_array::{ArrayDType as _, ArrayData, ArrayLen};
+use vortex_array::{ArrayData, ArrayLen};
 use vortex_buffer::io_buf::IoBuf;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
@@ -16,8 +19,8 @@ use vortex_ipc::messages::writer::MessageWriter;
 use vortex_ipc::messages::IPCSchema;
 use vortex_ipc::stream_writer::ByteRange;
 
-use crate::write::metadata_accumulators::{new_metadata_accumulator, MetadataAccumulator};
 use crate::write::postscript::Postscript;
+use crate::write::stats_accumulator::{StatArray, StatsAccumulator};
 use crate::{LayoutSpec, EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
 
 const STATS_TO_WRITE: &[Stat] = &[
@@ -196,7 +199,7 @@ async fn write_fb_raw<W: VortexWrite, F: WriteFlatBuffer>(
 }
 
 struct ColumnWriter {
-    metadata: Box<dyn MetadataAccumulator>,
+    metadata: StatsAccumulator,
     batch_byte_offsets: Vec<Vec<u64>>,
     batch_row_offsets: Vec<Vec<u64>>,
 }
@@ -204,7 +207,7 @@ struct ColumnWriter {
 impl ColumnWriter {
     fn new(dtype: &DType) -> Self {
         Self {
-            metadata: new_metadata_accumulator(dtype),
+            metadata: StatsAccumulator::new(dtype, STATS_TO_WRITE.to_vec()),
             batch_byte_offsets: Vec::new(),
             batch_row_offsets: Vec::new(),
         }
@@ -232,7 +235,7 @@ impl ColumnWriter {
             rows_written += chunk.len() as u64;
 
             // accumulate the stats for the stats table
-            self.metadata.push_chunk(&chunk);
+            self.metadata.push_chunk(&chunk)?;
 
             // clear the stats that we don't want to serialize into the file
             chunk.statistics().retain_only(STATS_TO_WRITE);
@@ -271,24 +274,19 @@ impl ColumnWriter {
                     .map(|(range, len)| LayoutSpec::flat(range, len))
             });
 
-        if let Some(metadata_array) = self.metadata.into_array()? {
+        if let Some(StatArray(metadata_array, present_stats)) = self.metadata.into_array()? {
             let expected_n_data_chunks = metadata_array.len();
 
-            let dtype_begin = msgs.tell();
-            msgs.write_dtype_raw(metadata_array.dtype()).await?;
-            let dtype_end = msgs.tell();
+            let stat_bitset = as_stat_bitset_bytes(&present_stats);
+
+            let metadata_array_begin = msgs.tell();
             msgs.write_batch(metadata_array).await?;
             let metadata_array_end = msgs.tell();
 
-            let layouts = [LayoutSpec::inlined_schema(
-                vec![LayoutSpec::flat(
-                    ByteRange::new(dtype_end, metadata_array_end),
-                    expected_n_data_chunks as u64,
-                )],
+            let layouts = iter::once(LayoutSpec::flat(
+                ByteRange::new(metadata_array_begin, metadata_array_end),
                 expected_n_data_chunks as u64,
-                ByteRange::new(dtype_begin, dtype_end),
-            )]
-            .into_iter()
+            ))
             .chain(data_chunks)
             .collect::<Vec<_>>();
 
@@ -299,9 +297,14 @@ impl ColumnWriter {
                     layouts.len()
                 );
             }
-            Ok(LayoutSpec::chunked(layouts, row_count, true))
+
+            Ok(LayoutSpec::chunked(
+                layouts,
+                row_count,
+                Some(Bytes::from(stat_bitset)),
+            ))
         } else {
-            Ok(LayoutSpec::chunked(data_chunks.collect(), row_count, false))
+            Ok(LayoutSpec::chunked(data_chunks.collect(), row_count, None))
         }
     }
 }

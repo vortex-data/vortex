@@ -2,7 +2,7 @@ use std::any::Any;
 
 use arrow_array::builder::{ArrayBuilder as _, BinaryViewBuilder};
 use arrow_array::Array;
-use vortex_dtype::Nullability;
+use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, VortexResult};
 
 use crate::arrow::FromArrowArray;
@@ -12,6 +12,7 @@ use crate::ArrayData;
 pub struct BinaryBuilder {
     inner: BinaryViewBuilder,
     nullability: Nullability,
+    dtype: DType,
 }
 
 impl BinaryBuilder {
@@ -19,6 +20,7 @@ impl BinaryBuilder {
         Self {
             inner: BinaryViewBuilder::with_capacity(capacity),
             nullability,
+            dtype: DType::Binary(nullability),
         }
     }
 
@@ -40,6 +42,10 @@ impl ArrayBuilder for BinaryBuilder {
         self
     }
 
+    fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
     fn len(&self) -> usize {
         self.inner.len()
     }
@@ -59,7 +65,7 @@ impl ArrayBuilder for BinaryBuilder {
     fn finish(&mut self) -> VortexResult<ArrayData> {
         let arrow = self.inner.finish();
 
-        if self.nullability == Nullability::NonNullable && arrow.null_count() > 0 {
+        if !self.dtype().is_nullable() && arrow.null_count() > 0 {
             vortex_bail!("Non-nullable builder has null values");
         }
 

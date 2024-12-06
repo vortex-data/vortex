@@ -15,6 +15,7 @@ pub mod layouts;
 mod mask;
 pub mod metadata;
 pub mod projection;
+mod reader;
 mod recordbatchreader;
 mod splits;
 mod stream;
@@ -33,6 +34,7 @@ use vortex_ipc::stream_writer::ByteRange;
 pub use crate::read::mask::RowMask;
 
 // Recommended read-size according to the AWS performance guide
+// FIXME(ngates): this is dumb
 pub const INITIAL_READ_SIZE: usize = 8 * 1024 * 1024;
 
 /// Operation to apply to data returned by the layout

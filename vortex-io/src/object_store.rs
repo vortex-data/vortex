@@ -10,7 +10,7 @@ use object_store::path::Path;
 use object_store::{GetOptions, GetRange, GetResultPayload, ObjectStore, WriteMultipart};
 use vortex_buffer::io_buf::IoBuf;
 use vortex_buffer::Buffer;
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
 
 use crate::aligned::AlignedBytesMut;
 use crate::{VortexBufReader, VortexReadAt, VortexWrite, ALIGNMENT};
@@ -78,16 +78,17 @@ impl VortexReadAt for ObjectStoreReadAt {
         let location = self.location.clone();
 
         Box::pin(async move {
-            let start_range = pos as usize;
+            let read_start: usize = pos.try_into().vortex_expect("pos");
+            let read_end: usize = (pos + len).try_into().vortex_expect("pos + len");
 
-            let mut buf = AlignedBytesMut::<ALIGNMENT>::with_capacity(len as _);
+            let mut buf =
+                AlignedBytesMut::<ALIGNMENT>::with_capacity(len.try_into().vortex_unwrap());
 
-            let get_range = start_range..(start_range + len as usize);
             let response = object_store
                 .get_opts(
                     &location,
                     GetOptions {
-                        range: Some(GetRange::Bounded(get_range)),
+                        range: Some(GetRange::Bounded(read_start..read_end)),
                         ..Default::default()
                     },
                 )
@@ -100,7 +101,7 @@ impl VortexReadAt for ObjectStoreReadAt {
             match response.payload {
                 GetResultPayload::File(file, _) => {
                     unsafe {
-                        buf.set_len(len as _);
+                        buf.set_len(len.try_into().vortex_unwrap());
                     }
                     file.read_exact_at(&mut buf, pos)?;
                 }

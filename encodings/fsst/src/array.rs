@@ -70,7 +70,7 @@ impl FSSTArray {
         }
 
         if !uncompressed_lengths.dtype().is_int() || uncompressed_lengths.dtype().is_nullable() {
-            vortex_bail!(InvalidArgument: "uncompressed_lengths must have integer type and cannot be nullable");
+            vortex_bail!(InvalidArgument: "uncompressed_lengths must have integer type and cannot be nullable, found {}", uncompressed_lengths.dtype());
         }
 
         if codes.encoding().id() != VarBinEncoding::ID {

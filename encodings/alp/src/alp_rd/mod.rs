@@ -1,3 +1,5 @@
+#![allow(clippy::cast_possible_truncation)]
+
 pub use array::*;
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;

@@ -70,7 +70,25 @@ pub fn filter(array: &ArrayData, mask: FilterMask) -> VortexResult<ArrayData> {
     }
 
     if let Some(filter_fn) = array.encoding().filter_fn() {
-        filter_fn.filter(array, mask)
+        let true_count = mask.true_count();
+        let result = filter_fn.filter(array, mask)?;
+        if array.dtype() != result.dtype() {
+            vortex_bail!(
+                "FilterFn {} changed array dtype from {} to {}",
+                array.encoding().id(),
+                array.dtype(),
+                result.dtype()
+            );
+        }
+        if true_count != result.len() {
+            vortex_bail!(
+                "FilterFn {} returned incorrect length: expected {}, got {}",
+                array.encoding().id(),
+                true_count,
+                result.len()
+            );
+        }
+        Ok(result)
     } else {
         // We can use scalar_at if the mask has length 1.
         if mask.true_count() == 1 && array.encoding().scalar_at_fn().is_some() {

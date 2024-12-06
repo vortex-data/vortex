@@ -25,17 +25,12 @@ impl Layout for FlatLayout {
 
     fn reader(
         &self,
-        fb_bytes: Bytes,
-        fb_loc: usize,
+        layout: footer::Layout,
         scan: Scan,
         layout_serde: LayoutDeserializer,
         message_cache: RelativeLayoutCache,
     ) -> VortexResult<Box<dyn LayoutReader>> {
-        let fb_layout = unsafe {
-            let tab = flatbuffers::Table::new(&fb_bytes, fb_loc);
-            footer::Layout::init_from_table(tab)
-        };
-        let buffers = fb_layout.buffers().unwrap_or_default();
+        let buffers = layout.buffers().unwrap_or_default();
         if buffers.len() != 1 {
             vortex_bail!("Flat layout can have exactly 1 buffer")
         }

@@ -3,10 +3,10 @@ use std::sync::Arc;
 
 use vortex_dtype::{DType, ExtDType};
 use vortex_error::VortexResult;
-use vortex_scalar::{ExtScalar, Scalar};
+use vortex_scalar::ExtScalar;
 
 use crate::array::ExtensionArray;
-use crate::builders::{builder_with_capacity, ArrayBuilder};
+use crate::builders::{builder_with_capacity, ArrayBuilder, ArrayBuilderExt};
 use crate::{ArrayData, IntoArrayData};
 
 pub struct ExtensionBuilder {
@@ -27,8 +27,7 @@ impl ExtensionBuilder {
     }
 
     pub fn append_value(&mut self, value: ExtScalar) -> VortexResult<()> {
-        self.storage
-            .append_scalar(&Scalar::extension(self.ext_dtype(), value.storage()))
+        self.storage.append_scalar(&value.storage())
     }
 
     pub fn append_option(&mut self, value: Option<ExtScalar>) -> VortexResult<()> {
@@ -57,6 +56,10 @@ impl ArrayBuilder for ExtensionBuilder {
 
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
+    }
+
+    fn dtype(&self) -> &DType {
+        &self.dtype
     }
 
     fn len(&self) -> usize {

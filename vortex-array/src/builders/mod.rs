@@ -15,7 +15,7 @@ pub use null::*;
 pub use primitive::*;
 pub use utf8::*;
 use vortex_dtype::{match_each_native_ptype, DType};
-use vortex_error::{vortex_err, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexResult};
 use vortex_scalar::{
     BinaryScalar, BoolScalar, ExtScalar, PrimitiveScalar, Scalar, StructScalar, Utf8Scalar,
 };
@@ -23,10 +23,12 @@ use vortex_scalar::{
 use crate::builders::struct_::StructBuilder;
 use crate::ArrayData;
 
-pub trait ArrayBuilder {
+pub trait ArrayBuilder: Send {
     fn as_any(&self) -> &dyn Any;
 
     fn as_any_mut(&mut self) -> &mut dyn Any;
+
+    fn dtype(&self) -> &DType;
 
     fn len(&self) -> usize;
 
@@ -78,9 +80,16 @@ pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBui
     }
 }
 
-impl dyn ArrayBuilder + '_ {
+pub trait ArrayBuilderExt: ArrayBuilder {
     /// A generic function to append a scalar to the builder.
-    pub fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
+    fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
+        if !scalar.dtype().eq_ignore_nullability(self.dtype()) {
+            vortex_bail!(
+                "Builder has dtype {:?}, scalar has {:?}",
+                self.dtype(),
+                scalar.dtype()
+            )
+        }
         match scalar.dtype() {
             DType::Null => self
                 .as_any_mut()
@@ -130,3 +139,5 @@ impl dyn ArrayBuilder + '_ {
         Ok(())
     }
 }
+
+impl<T: ?Sized + ArrayBuilder> ArrayBuilderExt for T {}

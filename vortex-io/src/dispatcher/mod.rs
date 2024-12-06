@@ -2,17 +2,24 @@
 mod compio;
 #[cfg(feature = "tokio")]
 mod tokio;
+#[cfg(target_arch = "wasm32")]
+mod wasm;
+
 use std::future::Future;
+use std::task::Poll;
 
 use futures::channel::oneshot;
+use futures::FutureExt;
 #[cfg(not(any(feature = "compio", feature = "tokio")))]
 use vortex_error::vortex_panic;
-use vortex_error::VortexResult;
+use vortex_error::{vortex_err, VortexResult};
 
 #[cfg(feature = "compio")]
 use self::compio::*;
 #[cfg(feature = "tokio")]
 use self::tokio::*;
+#[cfg(target_arch = "wasm32")]
+use self::wasm::*;
 
 mod sealed {
     pub trait Sealed {}
@@ -24,6 +31,9 @@ mod sealed {
 
     #[cfg(feature = "tokio")]
     impl Sealed for super::TokioDispatcher {}
+
+    #[cfg(target_arch = "wasm32")]
+    impl Sealed for super::WasmDispatcher {}
 }
 
 /// A trait for types that may be dispatched.
@@ -35,7 +45,7 @@ pub trait Dispatch: sealed::Sealed {
     ///
     /// The returned `Future` will be executed to completion on a single thread,
     /// thus it may be `!Send`.
-    fn dispatch<F, Fut, R>(&self, task: F) -> VortexResult<oneshot::Receiver<R>>
+    fn dispatch<F, Fut, R>(&self, task: F) -> VortexResult<JoinHandle<R>>
     where
         F: (FnOnce() -> Fut) + Send + 'static,
         Fut: Future<Output = R> + 'static,
@@ -60,15 +70,40 @@ pub trait Dispatch: sealed::Sealed {
 #[derive(Debug)]
 pub struct IoDispatcher(Inner);
 
+pub struct JoinHandle<R>(oneshot::Receiver<R>);
+
+impl<R> Future for JoinHandle<R> {
+    type Output = VortexResult<R>;
+
+    fn poll(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Self::Output> {
+        match self.0.poll_unpin(cx) {
+            Poll::Ready(Ok(v)) => Poll::Ready(Ok(v)),
+            Poll::Ready(Err(_)) => Poll::Ready(Err(vortex_err!("Task was canceled"))),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
 #[derive(Debug)]
 enum Inner {
     #[cfg(feature = "tokio")]
     Tokio(TokioDispatcher),
     #[cfg(feature = "compio")]
     Compio(CompioDispatcher),
+    #[cfg(target_arch = "wasm32")]
+    Wasm(WasmDispatcher),
 }
 
 impl Default for IoDispatcher {
+    #[cfg(target_arch = "wasm32")]
+    fn default() -> Self {
+        return Self(Inner::Wasm(WasmDispatcher::new()));
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     fn default() -> Self {
         #[cfg(feature = "tokio")]
         return Self(Inner::Tokio(TokioDispatcher::new(1)));
@@ -81,7 +116,7 @@ impl Default for IoDispatcher {
 
 impl Dispatch for IoDispatcher {
     #[allow(unused_variables)] // If no features are enabled `task` ends up being unused
-    fn dispatch<F, Fut, R>(&self, task: F) -> VortexResult<oneshot::Receiver<R>>
+    fn dispatch<F, Fut, R>(&self, task: F) -> VortexResult<JoinHandle<R>>
     where
         F: (FnOnce() -> Fut) + Send + 'static,
         Fut: Future<Output = R> + 'static,
@@ -92,6 +127,8 @@ impl Dispatch for IoDispatcher {
             Inner::Tokio(ref tokio_dispatch) => tokio_dispatch.dispatch(task),
             #[cfg(feature = "compio")]
             Inner::Compio(ref compio_dispatch) => compio_dispatch.dispatch(task),
+            #[cfg(target_arch = "wasm32")]
+            Inner::Wasm(ref wasm_dispatch) => wasm_dispatch.dispatch(task),
         }
     }
 
@@ -101,6 +138,8 @@ impl Dispatch for IoDispatcher {
             Inner::Tokio(tokio_dispatch) => tokio_dispatch.shutdown(),
             #[cfg(feature = "compio")]
             Inner::Compio(compio_dispatch) => compio_dispatch.shutdown(),
+            #[cfg(target_arch = "wasm32")]
+            Inner::Wasm(wasm_dispatch) => wasm_dispatch.shutdown(),
         }
     }
 }
@@ -119,5 +158,10 @@ impl IoDispatcher {
     #[cfg(feature = "compio")]
     pub fn new_compio(num_threads: usize) -> Self {
         Self(Inner::Compio(CompioDispatcher::new(num_threads)))
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn new_wasm() -> Self {
+        Self(Inner::Wasm(WasmDispatcher))
     }
 }

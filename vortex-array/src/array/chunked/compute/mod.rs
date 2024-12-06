@@ -41,6 +41,7 @@ impl ComputeVTable for ChunkedEncoding {
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
         Some(self)
     }
+
     fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
         Some(self)
     }

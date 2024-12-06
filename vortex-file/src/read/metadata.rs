@@ -1,9 +1,5 @@
-use std::future::Future;
 use std::iter;
-use std::iter::Once;
-use std::pin::Pin;
 use std::sync::{Arc, RwLock};
-use std::task::{ready, Context, Poll};
 
 use futures_util::{stream, StreamExt};
 use vortex_array::ArrayData;
@@ -13,17 +9,6 @@ use vortex_io::{IoDispatcher, VortexReadAt};
 use super::{LayoutMessageCache, LayoutReader};
 use crate::read::buffered::{BufferedLayoutReader, ReadMasked};
 use crate::{MessageRead, RowMask};
-
-type MetadataBufferedReader<R> = BufferedLayoutReader<
-    R,
-    stream::Iter<Once<VortexResult<RowMask>>>,
-    Vec<Option<ArrayData>>,
-    MetadataMaskReader,
->;
-
-pub struct MetadataFetcher<R: VortexReadAt> {
-    metadata_reader: MetadataBufferedReader<R>,
-}
 
 struct MetadataMaskReader {
     layout: Box<dyn LayoutReader>,
@@ -46,30 +31,21 @@ impl ReadMasked for MetadataMaskReader {
     }
 }
 
-impl<R: VortexReadAt + Unpin> MetadataFetcher<R> {
-    pub fn fetch(
-        input: R,
-        dispatcher: Arc<IoDispatcher>,
-        root_layout: Box<dyn LayoutReader>,
-        layout_cache: Arc<RwLock<LayoutMessageCache>>,
-    ) -> Self {
-        let metadata_reader = BufferedLayoutReader::new(
-            input,
-            dispatcher,
-            stream::iter(iter::once(Ok(RowMask::new_valid_between(0, 1)))),
-            MetadataMaskReader::new(root_layout),
-            layout_cache,
-        );
-        Self { metadata_reader }
-    }
-}
+pub async fn fetch_metadata<R: VortexReadAt + Unpin>(
+    input: R,
+    dispatcher: Arc<IoDispatcher>,
+    root_layout: Box<dyn LayoutReader>,
+    layout_cache: Arc<RwLock<LayoutMessageCache>>,
+) -> VortexResult<Option<Vec<Option<ArrayData>>>> {
+    let mut metadata_reader = BufferedLayoutReader::new(
+        input,
+        dispatcher,
+        stream::iter(iter::once(Ok(RowMask::new_valid_between(0, 1)))),
+        MetadataMaskReader::new(root_layout),
+        layout_cache,
+    );
 
-impl<R: VortexReadAt + Unpin> Future for MetadataFetcher<R> {
-    type Output = VortexResult<Option<Vec<Option<ArrayData>>>>;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        Poll::Ready(ready!(self.metadata_reader.poll_next_unpin(cx)).transpose())
-    }
+    metadata_reader.next().await.transpose()
 }
 
 #[cfg(test)]
@@ -82,10 +58,10 @@ mod test {
     use vortex_buffer::{Buffer, BufferString};
     use vortex_io::IoDispatcher;
 
-    use crate::metadata::MetadataFetcher;
+    use crate::metadata::fetch_metadata;
     use crate::{
-        read_initial_bytes, read_layout_from_initial, LayoutDeserializer, LayoutMessageCache,
-        RelativeLayoutCache, Scan, VortexFileWriter,
+        read_initial_bytes, LayoutDeserializer, LayoutMessageCache, RelativeLayoutCache, Scan,
+        VortexFileWriter,
     };
 
     #[tokio::test]
@@ -131,18 +107,18 @@ mod test {
         let initial_read = read_initial_bytes(&written_bytes, n_bytes as u64)
             .await
             .unwrap();
-        let lazy_dtype = Arc::new(initial_read.lazy_dtype().unwrap());
+        let lazy_dtype = Arc::new(initial_read.lazy_dtype());
         let layout_deserializer = LayoutDeserializer::default();
         let layout_message_cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
-        let layout_reader = read_layout_from_initial(
-            &initial_read,
-            &layout_deserializer,
-            Scan::empty(),
-            RelativeLayoutCache::new(layout_message_cache.clone(), lazy_dtype.clone()),
-        )
-        .unwrap();
+        let layout_reader = layout_deserializer
+            .read_layout(
+                initial_read.fb_layout(),
+                Scan::empty(),
+                RelativeLayoutCache::new(layout_message_cache.clone(), lazy_dtype.clone()),
+            )
+            .unwrap();
         let io = IoDispatcher::default();
-        let metadata_table = MetadataFetcher::fetch(
+        let metadata_table = fetch_metadata(
             written_bytes,
             io.into(),
             layout_reader,
@@ -153,7 +129,7 @@ mod test {
 
         assert!(metadata_table.is_some());
         let metadata_table = metadata_table.unwrap();
-        assert!(metadata_table.len() == 2);
+        assert_eq!(metadata_table.len(), 2);
         assert!(metadata_table.iter().all(Option::is_some));
 
         let name_metadata_table = metadata_table[0]

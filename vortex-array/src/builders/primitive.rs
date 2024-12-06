@@ -14,7 +14,6 @@ use crate::ArrayData;
 pub struct PrimitiveBuilder<T: NativePType> {
     inner: ArrowPrimitiveBuilder<T::ArrowPrimitiveType>,
     dtype: DType,
-    // TODO(ngates): track stats?
 }
 
 impl<T: NativePType> PrimitiveBuilder<T>
@@ -64,6 +63,10 @@ where
         self
     }
 
+    fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
     fn len(&self) -> usize {
         self.inner.len()
     }
@@ -82,8 +85,8 @@ where
     fn finish(&mut self) -> VortexResult<ArrayData> {
         let arrow = self.inner.finish();
 
-        if self.dtype.is_nullable() && arrow.null_count() > 0 {
-            vortex_bail!("Non-nullable builder has null values");
+        if !self.dtype().is_nullable() && arrow.null_count() > 0 {
+            vortex_bail!("Non-nullable builder {} has null values", self.dtype());
         }
 
         Ok(ArrayData::from_arrow(&arrow, self.dtype.is_nullable()))

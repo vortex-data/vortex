@@ -236,6 +236,7 @@ fn patch_for_take_primitive<T: NativePType, I: NativePType>(
 }
 
 #[cfg(test)]
+#[allow(clippy::cast_possible_truncation)]
 mod test {
     use itertools::Itertools;
     use rand::distributions::Uniform;

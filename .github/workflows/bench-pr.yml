@@ -1,5 +1,9 @@
 name: PR Benchmarks
 
+concurrency:
+  group: ${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/develop' }}
+
 on:
   pull_request:
     types: [ labeled, synchronize ]
@@ -30,8 +34,9 @@ jobs:
             name: DataFusion
           - id: random_access
             name: Random Access
-          - id: compress_noci
+          - id: compress
             name: Vortex Compression
+
     runs-on: self-hosted
     if: ${{ contains(github.event.head_commit.message, '[benchmark]') || github.event.label.name == 'benchmark' && github.event_name == 'pull_request' }}
     steps:
@@ -125,7 +130,7 @@ jobs:
           BENCH_VORTEX_RATIOS: '.*'
           RUSTFLAGS: '-C target-cpu=native'
         run: |
-          cargo run --bin tpch_benchmark --release -- -d gh-json -t 1 | tee tpch.json
+          cargo run --bin tpch_benchmark --release -- --only-vortex -d gh-json -t 1 | tee tpch.json
       - name: Store benchmark result
         if: '!cancelled()'
         uses: benchmark-action/github-action-benchmark@v1
@@ -174,7 +179,7 @@ jobs:
           RUSTFLAGS: '-C target-cpu=native'
           HOME: /home/ci-runner
         run: |
-          cargo run --bin clickbench --release -- -d gh-json | tee clickbench.json
+          cargo run --bin clickbench --release -- --only-vortex -d gh-json | tee clickbench.json
       - name: Store benchmark result
         if: '!cancelled()'
         uses: benchmark-action/github-action-benchmark@v1

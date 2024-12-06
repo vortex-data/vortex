@@ -2,7 +2,6 @@ use vortex_error::VortexResult;
 
 use crate::array::{ConstantArray, ExtensionArray, ExtensionEncoding};
 use crate::compute::{compare, CompareFn, Operator};
-use crate::encoding::EncodingVTable;
 use crate::{ArrayData, ArrayLen};
 
 impl CompareFn<ExtensionArray> for ExtensionEncoding {
@@ -24,8 +23,7 @@ impl CompareFn<ExtensionArray> for ExtensionEncoding {
         }
 
         // If the RHS is an extension array matching ours, we can extract the storage.
-        if rhs.is_encoding(ExtensionEncoding.id()) {
-            let rhs_ext = ExtensionArray::try_from(rhs.clone())?;
+        if let Some(rhs_ext) = ExtensionArray::maybe_from(rhs.clone()) {
             return compare(lhs.storage(), rhs_ext.storage(), operator).map(Some);
         }
 

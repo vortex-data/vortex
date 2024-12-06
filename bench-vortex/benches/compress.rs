@@ -104,7 +104,7 @@ fn parquet_decompress_read(buf: bytes::Bytes) -> usize {
 }
 
 fn parquet_compressed_written_size(array: &ArrayData, compression: Compression) -> usize {
-    let chunked = ChunkedArray::try_from(array.clone()).unwrap();
+    let chunked = ChunkedArray::maybe_from(array.clone()).unwrap();
     let (batches, schema) = chunked_to_vec_record_batch(chunked);
     parquet_compress_write(batches, schema, compression, &mut Vec::new())
 }

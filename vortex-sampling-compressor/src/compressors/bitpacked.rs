@@ -1,3 +1,4 @@
+#![allow(clippy::cast_possible_truncation)]
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::PrimitiveArray;
 use vortex_array::encoding::EncodingRef;
@@ -54,7 +55,7 @@ impl EncodingCompressor for BitPackedCompressor {
 
     fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {
         // Only support primitive arrays
-        let parray = PrimitiveArray::try_from(array.clone()).ok()?;
+        let parray = PrimitiveArray::maybe_from(array.clone())?;
 
         // Only supports unsigned ints
         if !parray.ptype().is_unsigned_int() {
@@ -126,7 +127,7 @@ impl EncodingCompressor for BitPackedCompressor {
                 self,
                 vec![patches.and_then(|p| p.path)],
             )),
-            Some(array.statistics()),
+            array,
         ))
     }
 
