@@ -6,8 +6,8 @@ use vortex_scalar::Scalar;
 
 use crate::array::PrimitiveArray;
 use crate::compute::{
-    filter, scalar_at, search_sorted, search_sorted_usize, slice, FilterMask, SearchResult,
-    SearchSortedSide,
+    filter, scalar_at, search_sorted, search_sorted_usize, search_sorted_usize_many, slice, take,
+    try_cast, FilterMask, SearchResult, SearchSortedSide, TakeOptions,
 };
 use crate::stats::{ArrayStatistics, Stat};
 use crate::validity::Validity;
@@ -37,6 +37,7 @@ impl PatchesMetadata {
 }
 
 /// A helper for working with patched arrays.
+#[derive(Debug, Clone)]
 pub struct Patches {
     array_len: usize,
     indices: ArrayData,
@@ -72,6 +73,10 @@ impl Patches {
 
     pub fn array_len(&self) -> usize {
         self.array_len
+    }
+
+    pub fn num_patches(&self) -> usize {
+        self.indices.len()
     }
 
     pub fn dtype(&self) -> &DType {
@@ -190,5 +195,40 @@ impl Patches {
             slice(self.indices(), patch_start, patch_stop)?,
             slice(self.values(), patch_start, patch_stop)?,
         )))
+    }
+
+    /// Take the indices from the patches.
+    pub fn take(&self, indices: &ArrayData, _options: TakeOptions) -> VortexResult<Option<Self>> {
+        if indices.is_empty() {
+            return Ok(None);
+        }
+
+        // TODO(ngates): plenty of optimisations to be made here
+        let take_indices =
+            try_cast(indices, &DType::Primitive(PType::U64, NonNullable))?.into_primitive()?;
+        let take_indices: Vec<usize> = take_indices
+            .into_maybe_null_slice::<u64>()
+            .into_iter()
+            .map(|idx| idx as usize)
+            .collect();
+
+        let (values_indices, new_indices): (Vec<u64>, Vec<u64>) =
+            search_sorted_usize_many(self.indices(), &take_indices, SearchSortedSide::Left)?
+                .iter()
+                .zip(take_indices)
+                .filter_map(|(search_result, take_idx)| {
+                    search_result
+                        .to_found()
+                        .map(|patch_idx| (patch_idx as u64, take_idx as u64))
+                })
+                .unzip();
+
+        let new_indices = PrimitiveArray::from_vec(new_indices, Validity::NonNullable).into_array();
+
+        let values_indices =
+            PrimitiveArray::from_vec(values_indices, Validity::NonNullable).into_array();
+        let new_values = take(self.values(), values_indices, TakeOptions::default())?;
+
+        Ok(Some(Self::new(indices.len(), new_indices, new_values)))
     }
 }

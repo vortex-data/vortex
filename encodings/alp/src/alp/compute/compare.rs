@@ -46,9 +46,10 @@ where
             compare(alp.encoded(), s.as_ref(), operator)
         }
         Err(exception) => {
-            if let Some(patches) = alp.patches().as_ref() {
-                let s = ConstantArray::new(exception, alp.len());
-                compare(patches, s.as_ref(), operator)
+            if let Some(_patches) = alp.patches().as_ref() {
+                let _s = ConstantArray::new(exception, alp.len());
+                todo!("This is just wrong? It will be full of nulls")
+                // compare(patches, s.as_ref(), operator)
             } else {
                 Ok(
                     ConstantArray::new(Scalar::bool(false, Nullability::Nullable), alp.len())

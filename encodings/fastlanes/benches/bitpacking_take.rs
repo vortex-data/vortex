@@ -5,7 +5,7 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use itertools::Itertools;
 use rand::distributions::Uniform;
 use rand::{thread_rng, Rng};
-use vortex_array::array::{PrimitiveArray, SparseArray};
+use vortex_array::array::PrimitiveArray;
 use vortex_array::compute::{take, TakeOptions};
 use vortex_fastlanes::{find_best_bit_width, BitPackedArray};
 
@@ -136,10 +136,7 @@ fn bench_patched_take(c: &mut Criterion) {
     .unwrap();
     assert!(packed.patches().is_some());
     assert_eq!(
-        SparseArray::try_from(packed.patches().unwrap())
-            .unwrap()
-            .values()
-            .len(),
+        packed.patches().unwrap().num_patches(),
         num_exceptions as usize
     );
 

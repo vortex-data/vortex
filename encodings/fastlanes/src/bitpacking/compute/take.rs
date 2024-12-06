@@ -1,10 +1,7 @@
-use std::cmp::min;
-
 use fastlanes::BitPacking;
 use itertools::Itertools;
-use vortex_array::array::{PrimitiveArray, SparseArray};
+use vortex_array::array::PrimitiveArray;
 use vortex_array::compute::{take, TakeFn, TakeOptions};
-use vortex_array::patches::Patches;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{
     ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, IntoCanonical,
@@ -13,7 +10,6 @@ use vortex_dtype::{
     match_each_integer_ptype, match_each_unsigned_integer_ptype, NativePType, PType,
 };
 use vortex_error::{VortexExpect as _, VortexResult};
-use vortex_scalar::Scalar;
 
 use crate::{unpack_single_primitive, BitPackedArray, BitPackedEncoding};
 
@@ -21,7 +17,6 @@ use crate::{unpack_single_primitive, BitPackedArray, BitPackedEncoding};
 // all 1024 elements takes ~8.8x as long as unpacking a single element on an M2 Macbook Air.
 // see https://github.com/spiraldb/vortex/pull/190#issue-2223752833
 pub(super) const UNPACK_CHUNK_THRESHOLD: usize = 8;
-const BULK_PATCH_THRESHOLD: usize = 64;
 
 impl TakeFn<BitPackedArray> for BitPackedEncoding {
     fn take(
@@ -56,7 +51,7 @@ impl TakeFn<BitPackedArray> for BitPackedEncoding {
 fn take_primitive<T: NativePType + BitPacking, I: NativePType>(
     array: &BitPackedArray,
     indices: &PrimitiveArray,
-    options: TakeOptions,
+    _options: TakeOptions,
 ) -> VortexResult<Vec<T>> {
     if indices.is_empty() {
         return Ok(vec![]);
@@ -81,9 +76,7 @@ fn take_primitive<T: NativePType + BitPacking, I: NativePType>(
     let mut output = Vec::with_capacity(indices.len());
     let mut unpacked = [T::zero(); 1024];
 
-    let mut batch_count = 0_usize;
     for (chunk, offsets) in chunked_indices {
-        batch_count += 1;
         let chunk_size = 128 * bit_width / size_of::<T>();
         let packed_chunk = &packed[chunk * chunk_size..][..chunk_size];
 
@@ -127,117 +120,11 @@ fn take_primitive<T: NativePType + BitPacking, I: NativePType>(
         }
     }
 
-    if let Some(patches) = array.patches() {
-        patch_for_take_primitive::<T, I>(
-            patches,
-            indices,
-            offset,
-            batch_count,
-            &mut output,
-            options,
-        )?;
+    if let Some(_patches) = array.patches() {
+        todo!("Not implemented")
     }
 
     Ok(output)
-}
-
-fn patch_for_take_primitive<T: NativePType, I: NativePType>(
-    patches: Patches,
-    indices: &PrimitiveArray,
-    offset: usize,
-    batch_count: usize,
-    output: &mut [T],
-    options: TakeOptions,
-) -> VortexResult<()> {
-    #[inline]
-    fn inner_patch<T: NativePType>(
-        patches: Patches,
-        indices: &PrimitiveArray,
-        output: &mut [T],
-        options: TakeOptions,
-    ) -> VortexResult<()> {
-        // TODO(ngates): implement this without using SparseArray take
-        let taken_patches = SparseArray::try_new(
-            patches.indices().clone(),
-            patches.values().clone(),
-            patches.array_len(),
-            Scalar::null(patches.values().dtype().clone()),
-        )?;
-        let taken_patches = SparseArray::try_from(take(taken_patches.as_ref(), indices, options)?)?;
-
-        let base_index = output.len() - indices.len();
-        let output_patches = taken_patches
-            .values()
-            .into_primitive()?
-            .reinterpret_cast(T::PTYPE);
-        taken_patches
-            .resolved_indices_usize()
-            .into_iter()
-            .map(|idx| base_index + idx)
-            .zip_eq(output_patches.maybe_null_slice::<T>())
-            .for_each(|(idx, val)| {
-                output[idx] = *val;
-            });
-
-        Ok(())
-    }
-
-    // if we have a small number of relatively large batches, we gain by slicing and then patching inside the loop
-    // if we have a large number of relatively small batches, the overhead isn't worth it, and we're better off with a bulk patch
-    // roughly, if we have an average of less than 64 elements per batch, we prefer bulk patching
-    let prefer_bulk_patch = batch_count * BULK_PATCH_THRESHOLD > indices.len();
-    if prefer_bulk_patch {
-        return inner_patch(patches, indices, output, options);
-    }
-
-    let min_index = patches.min_index()?;
-    let max_index = patches.max_index()?;
-
-    // Group indices into 1024-element chunks and relativise them to the beginning of each chunk
-    let chunked_indices = &indices
-        .maybe_null_slice::<I>()
-        .iter()
-        .map(|i| {
-            i.to_usize()
-                .vortex_expect("index must be expressible as usize")
-                + offset
-        })
-        .filter(|i| *i >= min_index && *i <= max_index) // short-circuit
-        .chunk_by(|idx| idx / 1024);
-
-    for (chunk, offsets) in chunked_indices {
-        // NOTE: we need to subtract the array offset before slicing into the patches.
-        // This is because BitPackedArray is rounded to block boundaries, but patches
-        // is sliced exactly.
-        let patches_start = if chunk == 0 {
-            0
-        } else {
-            (chunk * 1024) - offset
-        };
-        let patches_end = min((chunk + 1) * 1024 - offset, patches.array_len());
-        let Some(patches_slice) = patches.slice(patches_start, patches_end)? else {
-            continue;
-        };
-
-        let min_index = patches_slice.min_index().unwrap_or_default();
-        let max_index = patches_slice.max_index().unwrap_or_default();
-        let offsets = offsets
-            .map(|i| (i % 1024) as u16)
-            .filter(|i| *i as usize >= min_index && *i as usize <= max_index)
-            .collect_vec();
-        if offsets.is_empty() {
-            continue;
-        }
-
-        inner_patch(
-            patches_slice,
-            &PrimitiveArray::from(offsets),
-            output,
-            options,
-        )?;
-    }
-
-    Ok(())
 }
 
 #[cfg(test)]

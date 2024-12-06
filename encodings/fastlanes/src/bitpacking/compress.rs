@@ -143,6 +143,10 @@ pub fn gather_patches(
     bit_width: u8,
     num_exceptions_hint: usize,
 ) -> Option<Patches> {
+    let patch_validity = match parray.validity() {
+        Validity::NonNullable => Validity::NonNullable,
+        _ => Validity::AllValid,
+    };
     match_each_integer_ptype!(parray.ptype(), |$T| {
         let mut indices: Vec<u64> = Vec::with_capacity(num_exceptions_hint);
         let mut values: Vec<$T> = Vec::with_capacity(num_exceptions_hint);
@@ -155,7 +159,7 @@ pub fn gather_patches(
         (!indices.is_empty()).then(|| Patches::new(
             parray.len(),
             indices.into_array(),
-            PrimitiveArray::from_vec(values, Validity::AllValid).into_array(),
+            PrimitiveArray::from_vec(values, patch_validity).into_array(),
         ))
     })
 }

@@ -5,6 +5,7 @@ use std::ops::BitAnd;
 
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, NullBuffer};
 use serde::{Deserialize, Serialize};
+use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{
     vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect as _, VortexResult,
@@ -99,7 +100,7 @@ pub enum Validity {
 
 impl Validity {
     /// The [`DType`] of the underlying validity array (if it exists).
-    pub const DTYPE: DType = DType::Bool(Nullability::NonNullable);
+    pub const DTYPE: DType = DType::Bool(NonNullable);
 
     pub fn to_metadata(&self, length: usize) -> VortexResult<ValidityMetadata> {
         match self {
@@ -160,7 +161,7 @@ impl Validity {
 
     pub fn nullability(&self) -> Nullability {
         match self {
-            Self::NonNullable => Nullability::NonNullable,
+            Self::NonNullable => NonNullable,
             _ => Nullability::Nullable,
         }
     }
@@ -270,15 +271,18 @@ impl Validity {
     }
 
     pub fn patch(self, len: usize, indices: &ArrayData, patches: Validity) -> VortexResult<Self> {
-        if matches!(self, Validity::NonNullable) && !matches!(patches, Validity::NonNullable) {
-            vortex_bail!("Can't patch a non-nullable validity with nullable validity")
-        }
-        if matches!(self, Validity::AllValid) && matches!(patches, Validity::AllValid) {
-            return Ok(self);
-        }
-        if matches!(self, Validity::AllInvalid) && matches!(patches, Validity::AllInvalid) {
-            return Ok(self);
-        }
+        match (&self, &patches) {
+            (Validity::NonNullable, Validity::NonNullable) => return Ok(Validity::NonNullable),
+            (Validity::NonNullable, _) => {
+                vortex_bail!("Can't patch a non-nullable validity with nullable validity")
+            }
+            (_, Validity::NonNullable) => {
+                vortex_bail!("Can't patch a nullable validity with non-nullable validity")
+            }
+            (Validity::AllValid, Validity::AllValid) => return Ok(Validity::AllValid),
+            (Validity::AllInvalid, Validity::AllInvalid) => return Ok(Validity::AllInvalid),
+            _ => {}
+        };
 
         let source = match self {
             Validity::NonNullable => BoolArray::from(BooleanBuffer::new_set(len)),
@@ -503,7 +507,7 @@ impl IntoArrayData for LogicalValidity {
 mod tests {
     use rstest::rstest;
 
-    use crate::array::BoolArray;
+    use crate::array::{BoolArray, PrimitiveArray};
     use crate::validity::Validity;
     use crate::IntoArrayData;
 
@@ -534,18 +538,24 @@ mod tests {
     fn patch_validity(
         #[case] validity: Validity,
         #[case] len: usize,
-        #[case] positions: &[usize],
+        #[case] positions: &[u64],
         #[case] patches: Validity,
         #[case] expected: Validity,
     ) {
-        assert_eq!(validity.patch(len, positions, patches).unwrap(), expected);
+        let indices =
+            PrimitiveArray::from_vec(positions.to_vec(), Validity::NonNullable).into_array();
+        assert_eq!(validity.patch(len, &indices, patches).unwrap(), expected);
     }
 
     #[test]
     #[should_panic]
     fn out_of_bounds_patch() {
         Validity::NonNullable
-            .patch(2, &[4], Validity::AllInvalid)
+            .patch(
+                2,
+                &PrimitiveArray::from_vec(vec![4], Validity::NonNullable).into_array(),
+                Validity::AllInvalid,
+            )
             .unwrap();
     }
 }

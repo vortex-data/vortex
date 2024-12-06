@@ -11,6 +11,7 @@ use vortex_array::compress::{
 };
 use vortex_array::compute::slice;
 use vortex_array::encoding::{Encoding, EncodingRef};
+use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::{ArrayDType, ArrayData, IntoCanonical};
 use vortex_error::{VortexExpect as _, VortexResult};
@@ -164,6 +165,14 @@ impl<'a> SamplingCompressor<'a> {
             Validity::Array(a) => Ok(Validity::Array(self.compress(&a, None)?.into_array())),
             a => Ok(a),
         }
+    }
+
+    pub fn compress_patches(&self, patches: Patches) -> VortexResult<Patches> {
+        Ok(Patches::new(
+            patches.array_len(),
+            self.compress(patches.indices(), None)?.into_array(),
+            self.compress(patches.values(), None)?.into_array(),
+        ))
     }
 
     pub(crate) fn compress_array(&self, array: &ArrayData) -> VortexResult<CompressedArray<'a>> {
