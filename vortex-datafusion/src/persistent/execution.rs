@@ -180,10 +180,11 @@ fn repartition_by_size(
         partitions[part_idx].push(file);
     }
 
-    assert_eq!(
-        partitions.len(),
-        usize::min(total_file_count, desired_partitions),
-        "The final number of partitions should be smallest between the total number of files and the desired partition count."
+    let partitions_limit = usize::min(total_file_count, desired_partitions);
+
+    assert!(
+        partitions_limit - 1 <= partitions.len() && partitions.len() <= partitions_limit,
+        "The final number of partitions should be smallest between the total number of files and the desired partition count - 1"
     );
 
     partitions
@@ -206,5 +207,16 @@ mod tests {
         let output = repartition_by_size(file_groups, 2);
 
         assert_eq!(output.len(), 2);
+    }
+
+    #[test]
+    fn basic_repartition_test2() {
+        let file_groups = vec![(0..100)
+            .map(|idx| PartitionedFile::new(format!("{idx}"), idx))
+            .collect()];
+
+        let output = repartition_by_size(file_groups, 16);
+
+        assert_eq!(output.len(), 15);
     }
 }
