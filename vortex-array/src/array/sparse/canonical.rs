@@ -5,15 +5,18 @@ use vortex_scalar::Scalar;
 
 use crate::array::primitive::PrimitiveArray;
 use crate::array::sparse::SparseArray;
-use crate::array::BoolArray;
+use crate::array::{BoolArray, ConstantArray};
 use crate::patches::Patches;
 use crate::validity::Validity;
 use crate::{ArrayDType, ArrayLen, Canonical, IntoCanonical};
 
 impl IntoCanonical for SparseArray {
     fn into_canonical(self) -> VortexResult<Canonical> {
-        let patches = Patches::new(self.len(), self.resolved_indices()?, self.values());
+        if self.indices().is_empty() {
+            return ConstantArray::new(self.fill_scalar(), self.len()).into_canonical();
+        }
 
+        let patches = Patches::new(self.len(), self.resolved_indices()?, self.values());
         if matches!(self.dtype(), DType::Bool(_)) {
             canonicalize_sparse_bools(patches, &self.fill_scalar())
         } else {

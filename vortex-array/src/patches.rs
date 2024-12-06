@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use serde::{Deserialize, Serialize};
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{match_each_integer_ptype, DType, PType};
@@ -57,6 +59,7 @@ impl Patches {
             indices.len() <= array_len,
             "Patch indices must be shorter than the array length"
         );
+        assert!(!indices.is_empty(), "Patch indices must not be empty");
         if let Some(max) = indices.statistics().get_as_cast::<u64>(Stat::Max) {
             assert!(
                 max < array_len as u64,
@@ -135,9 +138,11 @@ impl Patches {
         side: SearchSortedSide,
     ) -> VortexResult<SearchResult> {
         Ok(match search_sorted(self.values(), target.into(), side)? {
-            SearchResult::Found(idx) => {
-                SearchResult::Found(usize::try_from(&scalar_at(self.indices(), idx)?)?)
-            }
+            SearchResult::Found(idx) => SearchResult::Found(if idx == self.indices().len() {
+                self.array_len()
+            } else {
+                usize::try_from(&scalar_at(self.indices(), idx)?)?
+            }),
             SearchResult::NotFound(idx) => SearchResult::NotFound(if idx == self.indices().len() {
                 self.array_len()
             } else {
@@ -179,6 +184,10 @@ impl Patches {
                 }
             }
         });
+
+        if coordinate_indices.is_empty() {
+            return Ok(None);
+        }
 
         let indices = PrimitiveArray::from(coordinate_indices).into_array();
         let values = take(
@@ -234,6 +243,10 @@ impl Patches {
                 .map(|patch_idx| (patch_idx as u64, idx_in_take as u64))
         })
         .unzip();
+
+        if new_indices.is_empty() {
+            return Ok(None);
+        }
 
         let new_indices = PrimitiveArray::from_vec(new_indices, Validity::NonNullable).into_array();
 
