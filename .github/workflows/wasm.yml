@@ -33,6 +33,6 @@ jobs:
         working-directory: ./vortex-wasm
         run: |
           echo 'building Rust + TS, making sure it completes with success'
-          npm run build
+          npm run build-dev
 
 
