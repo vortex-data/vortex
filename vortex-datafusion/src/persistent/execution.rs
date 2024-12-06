@@ -210,7 +210,7 @@ mod tests {
     }
 
     #[test]
-    fn basic_repartition_test2() {
+    fn repartition_with_leftovers() {
         let file_groups = vec![(0..100)
             .map(|idx| PartitionedFile::new(format!("{idx}"), idx))
             .collect()];
