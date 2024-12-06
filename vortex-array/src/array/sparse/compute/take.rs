@@ -52,7 +52,7 @@ fn take_map(
         .maybe_null_slice::<u64>()
         .iter()
         .enumerate()
-        .map(|(i, r)| (*r as u64, i as u64))
+        .map(|(i, r)| ({ *r }, i as u64))
         .collect();
     let min_index = array.min_index().unwrap_or_default() as u64;
     let max_index = array.max_index().unwrap_or_default() as u64;

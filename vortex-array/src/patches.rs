@@ -154,6 +154,8 @@ impl Patches {
     }
 
     /// Filter the patches by a mask.
+    /// FIXME(ngates): fix this cast
+    #[allow(clippy::cast_possible_truncation)]
     pub fn filter(&self, mask: FilterMask) -> VortexResult<Option<Self>> {
         let mask = mask.to_boolean_buffer()?;
 
@@ -198,6 +200,8 @@ impl Patches {
     }
 
     /// Take the indices from the patches.
+    /// FIXME(ngates): fix this cast
+    #[allow(clippy::cast_possible_truncation)]
     pub fn take(&self, indices: &ArrayData, _options: TakeOptions) -> VortexResult<Option<Self>> {
         if indices.is_empty() {
             return Ok(None);
