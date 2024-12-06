@@ -266,7 +266,7 @@ pub fn search_sorted_usize(
     if array.encoding().scalar_at_fn().is_some() {
         // Try to downcast the usize to the array type, if the downcast fails, then we know the
         // usize is too large and the value is greater than the highest value in the array.
-        let Ok(target) = Scalar::from(target).cast(array.dtype()) else {
+        let Ok(target) = target.cast(array.dtype()) else {
             return Ok(SearchResult::NotFound(array.len()));
         };
         return Ok(SearchSorted::search_sorted(array, &target, side));
