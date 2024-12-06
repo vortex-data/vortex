@@ -319,7 +319,7 @@ pub fn search_sorted_usize_many(
 
 pub trait IndexOrd<V> {
     /// PartialOrd of the value at index `idx` with `elem`.
-    /// For example, if self[idx] > elem, return Some(Greater).
+    /// For example, if self\[idx\] > elem, return Some(Greater).
     fn index_cmp(&self, idx: usize, elem: &V) -> Option<Ordering>;
 
     fn index_lt(&self, idx: usize, elem: &V) -> bool {
