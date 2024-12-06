@@ -1,5 +1,9 @@
 name: PR Benchmarks
 
+concurrency:
+  group: ${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/develop' }}
+
 on:
   pull_request:
     types: [ labeled, synchronize ]
@@ -32,7 +36,7 @@ jobs:
             name: Random Access
           - id: compress
             name: Vortex Compression
-            
+
     runs-on: self-hosted
     if: ${{ contains(github.event.head_commit.message, '[benchmark]') || github.event.label.name == 'benchmark' && github.event_name == 'pull_request' }}
     steps:
