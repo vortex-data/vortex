@@ -122,10 +122,7 @@ impl PyArray {
         if let Ok(chunked_array) = ChunkedArray::try_from(vortex.clone()) {
             let chunks: Vec<ArrayRef> = chunked_array
                 .chunks()
-                .map(|chunk| -> PyResult<ArrayRef> {
-                    let canonical = chunk.into_canonical()?;
-                    Ok(canonical.into_arrow()?)
-                })
+                .map(|chunk| -> PyResult<ArrayRef> { Ok(chunk.into_arrow()?) })
                 .collect::<PyResult<Vec<ArrayRef>>>()?;
             if chunks.is_empty() {
                 return Err(PyValueError::new_err("No chunks in array"));
@@ -145,8 +142,7 @@ impl PyArray {
         } else {
             Ok(vortex
                 .clone()
-                .into_canonical()
-                .and_then(|arr| arr.into_arrow())?
+                .into_arrow()?
                 .into_data()
                 .to_pyarrow(py)?
                 .into_bound(py))

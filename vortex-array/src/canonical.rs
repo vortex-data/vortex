@@ -84,7 +84,7 @@ impl Canonical {
                     // Convert storage array directly into arrow, losing type information
                     // that will let us round-trip.
                     // TODO(aduffy): https://github.com/spiraldb/vortex/issues/1167
-                    a.storage().into_canonical()?.into_arrow()?
+                    a.storage().into_arrow()?
                 }
             }
         })
@@ -234,7 +234,7 @@ fn list_to_arrow(list: ListArray) -> VortexResult<ArrayRef> {
         list.validity().nullability().into(),
     ));
 
-    let values = list.elements().into_canonical()?.into_arrow()?;
+    let values = list.elements().into_arrow()?;
     let nulls = list.logical_validity().to_null_buffer()?;
 
     Ok(match offsets.ptype() {
@@ -330,7 +330,7 @@ fn temporal_to_arrow(temporal_array: TemporalArray) -> VortexResult<ArrayRef> {
     })
 }
 
-/// Support trait for transmuting an array into its [vortex_dtype::DType]'s canonical encoding.
+/// Support trait for transmuting an array into the canonical encoding for its [vortex_dtype::DType].
 ///
 /// This conversion ensures that the array's encoding matches one of the builtin canonical
 /// encodings, each of which has a corresponding [Canonical] variant.
@@ -340,12 +340,21 @@ fn temporal_to_arrow(temporal_array: TemporalArray) -> VortexResult<ArrayRef> {
 /// The DType of the array will be unchanged by canonicalization.
 pub trait IntoCanonical {
     fn into_canonical(self) -> VortexResult<Canonical>;
+
+    fn into_arrow(self) -> VortexResult<ArrayRef>
+    where
+        Self: Sized,
+    {
+        self.into_canonical()?.into_arrow()
+    }
 }
 
 /// Encoding VTable for canonicalizing an array.
 #[allow(clippy::wrong_self_convention)]
 pub trait IntoCanonicalVTable {
     fn into_canonical(&self, array: ArrayData) -> VortexResult<Canonical>;
+
+    fn into_arrow(&self, array: ArrayData) -> VortexResult<ArrayRef>;
 }
 
 /// Implement the [IntoCanonicalVTable] for all encodings with arrays implementing [IntoCanonical].
@@ -358,6 +367,10 @@ where
         let canonical = E::Array::try_from(data.clone())?.into_canonical()?;
         canonical.inherit_statistics(data.statistics());
         Ok(canonical)
+    }
+
+    fn into_arrow(&self, array: ArrayData) -> VortexResult<ArrayRef> {
+        E::Array::try_from(array)?.into_arrow()
     }
 }
 
@@ -525,8 +538,6 @@ mod test {
         .unwrap();
 
         let arrow_struct = nested_struct_array
-            .into_canonical()
-            .unwrap()
             .into_arrow()
             .unwrap()
             .as_any()
@@ -597,12 +608,7 @@ mod test {
 
         assert_eq!(
             &arrow_struct,
-            vortex_struct
-                .into_canonical()
-                .unwrap()
-                .into_arrow()
-                .unwrap()
-                .as_struct()
+            vortex_struct.into_arrow().unwrap().as_struct()
         );
     }
 }

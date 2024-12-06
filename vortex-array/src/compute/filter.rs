@@ -102,7 +102,7 @@ pub fn filter(array: &ArrayData, mask: FilterMask) -> VortexResult<ArrayData> {
             array.encoding().id(),
         );
 
-        let array_ref = array.clone().into_canonical()?.into_arrow()?;
+        let array_ref = array.clone().into_arrow()?;
         let mask_array = BooleanArray::new(mask.to_boolean_buffer()?, None);
         let filtered = arrow_select::filter::filter(array_ref.as_ref(), &mask_array)?;
 
