@@ -4,7 +4,6 @@ use std::fmt::{Debug, Display};
 use std::ops::BitAnd;
 
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, NullBuffer};
-use num_traits::AsPrimitive;
 use serde::{Deserialize, Serialize};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{
@@ -14,6 +13,7 @@ use vortex_error::{
 use crate::array::{BoolArray, ConstantArray};
 use crate::compute::{filter, scalar_at, slice, take, FilterMask, TakeOptions};
 use crate::encoding::Encoding;
+use crate::patches::Patches;
 use crate::stats::ArrayStatistics;
 use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 
@@ -269,28 +269,14 @@ impl Validity {
         Ok(validity)
     }
 
-    pub fn patch<P: AsPrimitive<usize>>(
-        self,
-        len: usize,
-        positions: &[P],
-        patches: Validity,
-    ) -> VortexResult<Self> {
-        if let Some(last_pos) = positions.last() {
-            if last_pos.as_() >= len {
-                vortex_bail!(OutOfBounds: last_pos.as_(), 0, len)
-            }
+    pub fn patch(self, len: usize, indices: &ArrayData, patches: Validity) -> VortexResult<Self> {
+        if matches!(self, Validity::NonNullable) && !matches!(patches, Validity::NonNullable) {
+            vortex_bail!("Can't patch a non-nullable validity with nullable validity")
         }
-
-        if matches!(self, Validity::NonNullable) {
-            if patches.null_count(positions.len())? > 0 {
-                vortex_bail!("Can't patch a non-nullable validity with null values")
-            }
+        if matches!(self, Validity::AllValid) && matches!(patches, Validity::AllValid) {
             return Ok(self);
         }
-
-        if matches!(self, Validity::AllValid) && matches!(patches, Validity::AllValid)
-            || self == patches
-        {
+        if matches!(self, Validity::AllInvalid) && matches!(patches, Validity::AllInvalid) {
             return Ok(self);
         }
 
@@ -302,13 +288,15 @@ impl Validity {
         };
 
         let patch_values = match patches {
-            Validity::NonNullable => BoolArray::from(BooleanBuffer::new_set(positions.len())),
-            Validity::AllValid => BoolArray::from(BooleanBuffer::new_set(positions.len())),
-            Validity::AllInvalid => BoolArray::from(BooleanBuffer::new_unset(positions.len())),
+            Validity::NonNullable => BoolArray::from(BooleanBuffer::new_set(indices.len())),
+            Validity::AllValid => BoolArray::from(BooleanBuffer::new_set(indices.len())),
+            Validity::AllInvalid => BoolArray::from(BooleanBuffer::new_unset(indices.len())),
             Validity::Array(a) => a.into_bool()?,
         };
 
-        Validity::try_from(source.patch(positions, patch_values)?.into_array())
+        let patches = Patches::new(len, indices.clone(), patch_values.into_array());
+
+        Validity::try_from(source.patch(patches)?.into_array())
     }
 
     /// Convert into a nullable variant

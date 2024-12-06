@@ -2,20 +2,19 @@ use std::fmt::{Debug, Display};
 
 use ::serde::{Deserialize, Serialize};
 use vortex_dtype::Nullability::NonNullable;
-use vortex_dtype::{match_each_integer_ptype, DType, PType};
+use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::array::constant::ConstantArray;
-use crate::compute::{scalar_at, search_sorted_usize, SearchResult, SearchSortedSide};
+use crate::compute::{
+    scalar_at, search_sorted_usize, subtract_scalar, SearchResult, SearchSortedSide,
+};
 use crate::encoding::ids;
 use crate::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
-use crate::variants::PrimitiveArrayTrait;
 use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, IntoArrayData, IntoArrayVariant,
-};
+use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, IntoArrayData};
 
 mod canonical;
 mod compute;
@@ -131,19 +130,9 @@ impl SparseArray {
         )
     }
 
-    /// Return indices as a vector of usize with the indices_offset applied.
-    pub fn resolved_indices(&self) -> Vec<usize> {
-        let flat_indices = self
-            .indices()
-            .into_primitive()
-            .vortex_expect("Failed to convert SparseArray indices to primitive array");
-        match_each_integer_ptype!(flat_indices.ptype(), |$P| {
-            flat_indices
-                .maybe_null_slice::<$P>()
-                .iter()
-                .map(|v| (*v as usize) - self.indices_offset())
-                .collect::<Vec<_>>()
-        })
+    /// Return indices with the indices_offset applied.
+    pub fn resolved_indices(&self) -> VortexResult<ArrayData> {
+        subtract_scalar(self.indices(), &Scalar::from(self.indices_offset()))
     }
 
     /// Return the minimum index if indices are present.

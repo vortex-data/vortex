@@ -3,7 +3,8 @@ use std::cmp::min;
 use fastlanes::BitPacking;
 use itertools::Itertools;
 use vortex_array::array::{PrimitiveArray, SparseArray};
-use vortex_array::compute::{slice, take, TakeFn, TakeOptions};
+use vortex_array::compute::{take, TakeFn, TakeOptions};
+use vortex_array::patches::Patches;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{
     ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, IntoCanonical,
@@ -64,7 +65,6 @@ fn take_primitive<T: NativePType + BitPacking, I: NativePType>(
     let bit_width = array.bit_width() as usize;
 
     let packed = array.packed_slice::<T>();
-    let patches = array.patches().map(SparseArray::try_from).transpose()?;
 
     // Group indices by 1024-element chunk, *without* allocating on the heap
     let chunked_indices = &indices
@@ -126,7 +126,7 @@ fn take_primitive<T: NativePType + BitPacking, I: NativePType>(
         }
     }
 
-    if let Some(ref patches) = patches {
+    if let Some(patches) = array.patches() {
         patch_for_take_primitive::<T, I>(
             patches,
             indices,
@@ -141,7 +141,7 @@ fn take_primitive<T: NativePType + BitPacking, I: NativePType>(
 }
 
 fn patch_for_take_primitive<T: NativePType, I: NativePType>(
-    patches: &SparseArray,
+    patches: Patches,
     indices: &PrimitiveArray,
     offset: usize,
     batch_count: usize,
@@ -150,7 +150,7 @@ fn patch_for_take_primitive<T: NativePType, I: NativePType>(
 ) -> VortexResult<()> {
     #[inline]
     fn inner_patch<T: NativePType>(
-        patches: &SparseArray,
+        patches: Patches,
         indices: &PrimitiveArray,
         output: &mut [T],
         options: TakeOptions,
@@ -183,8 +183,8 @@ fn patch_for_take_primitive<T: NativePType, I: NativePType>(
         return inner_patch(patches, indices, output, options);
     }
 
-    let min_index = patches.min_index().unwrap_or_default();
-    let max_index = patches.max_index().unwrap_or_default();
+    let min_index = patches.min_index()?;
+    let max_index = patches.max_index()?;
 
     // Group indices into 1024-element chunks and relativise them to the beginning of each chunk
     let chunked_indices = &indices
@@ -208,11 +208,9 @@ fn patch_for_take_primitive<T: NativePType, I: NativePType>(
             (chunk * 1024) - offset
         };
         let patches_end = min((chunk + 1) * 1024 - offset, patches.len());
-        let patches_slice = slice(patches.as_ref(), patches_start, patches_end)?;
-        let patches_slice = SparseArray::try_from(patches_slice)?;
-        if patches_slice.is_empty() {
+        let Some(patches_slice) = patches.slice(patches_start, patches_end)? else {
             continue;
-        }
+        };
 
         let min_index = patches_slice.min_index().unwrap_or_default();
         let max_index = patches_slice.max_index().unwrap_or_default();
@@ -225,7 +223,7 @@ fn patch_for_take_primitive<T: NativePType, I: NativePType>(
         }
 
         inner_patch(
-            &patches_slice,
+            patches_slice,
             &PrimitiveArray::from(offsets),
             output,
             options,

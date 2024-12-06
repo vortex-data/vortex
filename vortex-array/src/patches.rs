@@ -1,9 +1,17 @@
 use serde::{Deserialize, Serialize};
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, PType};
-use vortex_error::VortexExpect;
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_scalar::Scalar;
 
-use crate::{ArrayDType, ArrayData};
+use crate::array::PrimitiveArray;
+use crate::compute::{
+    filter, scalar_at, search_sorted, search_sorted_usize, slice, FilterMask, SearchResult,
+    SearchSortedSide,
+};
+use crate::stats::{ArrayStatistics, Stat};
+use crate::validity::Validity;
+use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PatchesMetadata {
@@ -30,19 +38,44 @@ impl PatchesMetadata {
 
 /// A helper for working with patched arrays.
 pub struct Patches {
+    array_len: usize,
     indices: ArrayData,
     values: ArrayData,
 }
 
 impl Patches {
-    pub fn new(indices: ArrayData, values: ArrayData) -> Self {
+    pub fn new(array_len: usize, indices: ArrayData, values: ArrayData) -> Self {
         assert_eq!(
             indices.len(),
             values.len(),
             "Patch indices and values must have the same length"
         );
         assert!(indices.dtype().is_int(), "Patch indices must be integers");
-        Self { indices, values }
+        assert!(
+            indices.len() <= array_len,
+            "Patch indices must be shorter than the array length"
+        );
+        if let Some(max) = indices.statistics().get_as_cast::<u64>(Stat::Max) {
+            assert!(
+                max < array_len as u64,
+                "Patch indices {} are longer than the array length {}",
+                max,
+                array_len
+            );
+        }
+        Self {
+            array_len,
+            indices,
+            values,
+        }
+    }
+
+    pub fn array_len(&self) -> usize {
+        self.array_len
+    }
+
+    pub fn dtype(&self) -> &DType {
+        self.values.dtype()
     }
 
     pub fn indices(&self) -> &ArrayData {
@@ -53,10 +86,109 @@ impl Patches {
         &self.values
     }
 
-    pub fn metadata(&self) -> PatchesMetadata {
-        PatchesMetadata {
+    pub fn indices_ptype(&self) -> PType {
+        PType::try_from(self.indices.dtype()).vortex_expect("primitive indices")
+    }
+
+    pub fn to_metadata(&self, len: usize, dtype: &DType) -> VortexResult<PatchesMetadata> {
+        if self.indices.len() > len {
+            vortex_bail!(
+                "Patch indices {} are longer than the array length {}",
+                self.indices.len(),
+                len
+            );
+        }
+        if self.values.dtype() != dtype {
+            vortex_bail!(
+                "Patch values dtype {} does not match array dtype {}",
+                self.values.dtype(),
+                dtype
+            );
+        }
+        Ok(PatchesMetadata {
             len: self.indices.len(),
             indices_ptype: PType::try_from(self.indices.dtype()).vortex_expect("primitive indices"),
+        })
+    }
+
+    /// Get the patched value at a given index if it exists.
+    pub fn get_patched(&self, index: usize) -> VortexResult<Option<Scalar>> {
+        if let Some(patch_idx) =
+            search_sorted_usize(self.indices(), index, SearchSortedSide::Left)?.to_found()
+        {
+            scalar_at(self.values(), patch_idx).map(Some)
+        } else {
+            Ok(None)
         }
+    }
+
+    /// Return the search_sorted result for the given target re-mapped into the original indices.
+    pub fn search_sorted<T: Into<Scalar>>(
+        &self,
+        target: T,
+        side: SearchSortedSide,
+    ) -> VortexResult<SearchResult> {
+        Ok(match search_sorted(self.values(), target.into(), side)? {
+            SearchResult::Found(idx) => {
+                SearchResult::Found(usize::try_from(&scalar_at(self.indices(), idx)?)?)
+            }
+            SearchResult::NotFound(idx) => {
+                SearchResult::NotFound(usize::try_from(&scalar_at(self.indices(), idx)?)?)
+            }
+        })
+    }
+
+    /// Returns the minimum patch index
+    pub fn min_index(&self) -> VortexResult<usize> {
+        usize::try_from(&scalar_at(self.indices(), 0)?)
+    }
+
+    /// Returns the maximum patch index
+    pub fn max_index(&self) -> VortexResult<usize> {
+        usize::try_from(&scalar_at(self.indices(), self.indices().len() - 1)?)
+    }
+
+    /// Filter the patches by a mask.
+    pub fn filter(&self, mask: FilterMask) -> VortexResult<Option<Self>> {
+        let mask = mask.to_boolean_buffer()?;
+
+        let indices = self.indices().clone().into_primitive()?;
+
+        let (patches_mask, new_indices): (Vec<usize>, Vec<u64>) = indices
+            .maybe_null_slice::<u64>()
+            .iter()
+            .enumerate()
+            .filter(|(_rank, idx)| mask.value(**idx as usize))
+            .unzip();
+
+        if new_indices.is_empty() {
+            return Ok(None);
+        }
+
+        let new_indices = PrimitiveArray::from_vec(new_indices, Validity::NonNullable).into_array();
+        let new_values = filter(
+            self.values(),
+            FilterMask::from_indices(self.array_len(), patches_mask),
+        )?;
+
+        Ok(Some(Self::new(mask.len(), new_indices, new_values)))
+    }
+
+    /// Slice the patches by a range of the patched array.
+    pub fn slice(&self, start: usize, stop: usize) -> VortexResult<Option<Self>> {
+        let patch_start =
+            search_sorted_usize(self.indices(), start, SearchSortedSide::Left)?.to_index();
+        let patch_stop =
+            search_sorted_usize(self.indices(), stop, SearchSortedSide::Left)?.to_index();
+
+        if patch_start == patch_stop {
+            return Ok(None);
+        }
+
+        Ok(Some(Self::new(
+            stop - start,
+            slice(self.indices(), patch_start, patch_stop)?,
+            slice(self.values(), patch_start, patch_stop)?,
+        )))
     }
 }
