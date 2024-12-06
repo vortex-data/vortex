@@ -60,7 +60,7 @@ impl TakeFn<ALPArray> for ALPEncoding {
             array.exponents(),
             array
                 .patches()
-                .map(|p| p.take(indices, options))
+                .map(|p| p.take(indices))
                 .transpose()?
                 .flatten(),
         )?
