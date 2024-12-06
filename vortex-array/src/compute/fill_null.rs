@@ -2,7 +2,7 @@ use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::encoding::Encoding;
-use crate::{ArrayDType, ArrayData};
+use crate::{ArrayDType, ArrayData, IntoArrayData, IntoCanonical};
 
 /// Implementation of fill_null for an encoding.
 ///
@@ -41,9 +41,9 @@ pub fn fill_null(array: impl AsRef<ArrayData>, fill_value: Scalar) -> VortexResu
         vortex_bail!(MismatchedTypes: array.dtype(), fill_value.dtype())
     }
 
-    array
-        .encoding()
-        .fill_null_fn()
-        .map(|f| f.fill_null(array, fill_value))
-        .unwrap_or_else(|| Err(vortex_err!(NotImplemented: "fill_null", array.encoding().id())))
+    if let Some(fill_null_fn) = array.encoding().fill_null_fn() {
+        return fill_null_fn.fill_null(array, fill_value);
+    }
+
+    fill_null(array.clone().into_canonical()?.into_array(), fill_value)
 }
