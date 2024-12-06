@@ -123,7 +123,9 @@ where
         // max packed value just search the patches
         let usize_value: usize = value.as_();
         if usize_value > array.max_packed_value() {
-            search_sorted_usize(&patches_array, value.as_(), side)
+            // FIXME(ngates): this is broken. Patches _aren't_ sorted because they're sparse and
+            //  interspersed with nulls...
+            search_sorted_usize(&patches_array, usize_value, side)
         } else {
             Ok(BitPackedSearch::<'_, T>::new(array).search_sorted(&value, side))
         }

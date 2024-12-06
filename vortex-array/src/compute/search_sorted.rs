@@ -252,14 +252,24 @@ pub fn search_sorted_usize(
         return f.search_sorted_usize(array, target, side);
     }
 
-    // Fallback to a generic search_sorted using scalar_at
+    // Otherwise, convert the target into a scalar to try the search_sorted_fn
+    let Ok(target) = Scalar::from(target).cast(array.dtype()) else {
+        return Ok(SearchResult::NotFound(array.len()));
+    };
+
+    // Try the non-usize search sorted
+    if let Some(f) = array.encoding().search_sorted_fn() {
+        return f.search_sorted(array, &target, side);
+    }
+
+    // Or fallback all the way to a generic search_sorted using scalar_at
     if array.encoding().scalar_at_fn().is_some() {
-        // Try to downcast the usize ot the array type, if the downcast fails, then we know the
+        // Try to downcast the usize to the array type, if the downcast fails, then we know the
         // usize is too large and the value is greater than the highest value in the array.
-        let Ok(usize_scalar) = Scalar::from(target).cast(array.dtype()) else {
+        let Ok(target) = Scalar::from(target).cast(array.dtype()) else {
             return Ok(SearchResult::NotFound(array.len()));
         };
-        return Ok(SearchSorted::search_sorted(array, &usize_scalar, side));
+        return Ok(SearchSorted::search_sorted(array, &target, side));
     }
 
     vortex_bail!(
@@ -308,6 +318,8 @@ pub fn search_sorted_usize_many(
 }
 
 pub trait IndexOrd<V> {
+    /// PartialOrd of the value at index `idx` with `elem`.
+    /// For example, if self[idx] > elem, return Some(Greater).
     fn index_cmp(&self, idx: usize, elem: &V) -> Option<Ordering>;
 
     fn index_lt(&self, idx: usize, elem: &V) -> bool {
