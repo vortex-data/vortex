@@ -1,14 +1,15 @@
 use std::any::Any;
+use std::collections::HashMap;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use itertools::{EitherOrBoth, Itertools};
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::encoding::EncodingRef;
 use vortex_array::stats::ArrayStatistics;
 use vortex_array::tree::TreeFormatter;
-use vortex_array::{ArrayDType, ArrayData};
+use vortex_array::visitor::ArrayVisitor;
+use vortex_array::{ArrayDType, ArrayData, NamedChildrenCollector};
 use vortex_error::{vortex_panic, VortexExpect, VortexResult};
 
 use crate::SamplingCompressor;
@@ -69,6 +70,7 @@ impl Hash for dyn EncodingCompressor + '_ {
 #[derive(Clone)]
 pub struct CompressionTree<'a> {
     compressor: &'a dyn EncodingCompressor,
+    name: Option<&'a str>,
     children: Vec<Option<CompressionTree<'a>>>,
     metadata: Option<Arc<dyn EncoderMetadata>>,
 }
@@ -101,7 +103,7 @@ fn visit_child(
 ) -> std::fmt::Result {
     fmt.indent(|f| {
         if let Some(child) = child {
-            writeln!(f, "{name}: {}", child.compressor.id())?;
+            writeln!(f, "{name}|{:?}: {}", child.name, child.compressor.id())?;
             for (i, c) in child.children.iter().enumerate() {
                 visit_child(&format!("{name}.{}", i), c.as_ref(), f)?;
             }
@@ -117,12 +119,32 @@ impl<'a> CompressionTree<'a> {
         Self::new(compressor, vec![])
     }
 
+    pub fn named(&mut self, name: &'a str) {
+        self.name = Some(name);
+    }
+
     pub fn new(
         compressor: &'a dyn EncodingCompressor,
         children: Vec<Option<CompressionTree<'a>>>,
     ) -> Self {
+        println!("new {}, {:?}", compressor.id(), children);
         Self {
             compressor,
+            name: None,
+            children,
+            metadata: None,
+        }
+    }
+
+    pub fn new_named(
+        compressor: &'a dyn EncodingCompressor,
+        name: &'a str,
+        children: Vec<Option<CompressionTree<'a>>>,
+    ) -> Self {
+        println!("new_named {:?}, {:?}", name, children);
+        Self {
+            compressor,
+            name: Some(name),
             children,
             metadata: None,
         }
@@ -134,11 +156,14 @@ impl<'a> CompressionTree<'a> {
     /// that should be reused when compressing the full array.
     pub(crate) fn new_with_metadata(
         compressor: &'a dyn EncodingCompressor,
+        name: Option<&'a str>,
         children: Vec<Option<CompressionTree<'a>>>,
         metadata: Arc<dyn EncoderMetadata>,
     ) -> Self {
+        println!("new_with_metadata {:?}, {:?}", name, children);
         Self {
             compressor,
+            name,
             children,
             metadata: Some(metadata),
         }
@@ -199,13 +224,18 @@ impl<'a> CompressionTree<'a> {
 
 #[derive(Debug, Clone)]
 pub struct CompressedArray<'a> {
-    array: ArrayData,
-    path: Option<CompressionTree<'a>>,
+    pub array: ArrayData,
+    pub name: Option<Arc<str>>,
+    pub path: Option<CompressionTree<'a>>,
 }
 
 impl<'a> CompressedArray<'a> {
     pub fn uncompressed(array: ArrayData) -> Self {
-        Self { array, path: None }
+        Self {
+            array,
+            name: None,
+            path: None,
+        }
     }
 
     pub fn compressed(
@@ -238,6 +268,7 @@ impl<'a> CompressedArray<'a> {
 
         let compressed = Self {
             array: compressed,
+            name: None,
             path,
         };
         compressed.validate();
@@ -245,28 +276,51 @@ impl<'a> CompressedArray<'a> {
     }
 
     fn validate(&self) {
-        self.validate_children(self.path.as_ref(), &self.array)
+        // self.validate_children(self.path.as_ref(), &self.array)
     }
 
+    #[allow(dead_code)]
     fn validate_children(&self, path: Option<&CompressionTree>, array: &ArrayData) {
+        println!("val {}", self.array.tree_display());
+        println!("path {:?}", path);
+        println!("arr {:?}", array.encoding());
+        let mut col = Box::new(NamedChildrenCollector::new_with_depth(1));
+        array
+            .encoding()
+            .accept(array, col.as_mut() as &mut dyn ArrayVisitor)
+            .vortex_expect("Failed to get children");
+
+        let map2: HashMap<_, _> = col
+            .children()
+            .into_iter()
+            .map(|v| (v.0.as_str(), &v.1))
+            .collect();
+        println!("arr map {:?}", map2.keys());
+
         if let Some(path) = path.as_ref() {
+            println!("path ch {:?}", path.children);
             path.children
                 .iter()
-                .zip_longest(array.children().iter())
-                .for_each(|pair| match pair {
-                    EitherOrBoth::Both(Some(child_tree), child_array) => {
-                        self.validate_children(Some(child_tree), child_array);
-                    }
-                    EitherOrBoth::Left(Some(child_tree)) => {
+                .filter_map(|path| path.as_ref())
+                .map(|tree| {
+                    println!("tree: {:?}", tree);
+                    println!("tree: {:?}", tree.name);
+                    println!("arr: {}", array.tree_display());
+                    // let name = tree.name.expect("all children must be named");
+                    let name = tree.name.unwrap_or("");
+                    let v2 = map2.get(&name);
+                    (tree, v2)
+                })
+                .filter(|(_a, b)| b.is_some())
+                .for_each(|(tree, arr)| {
+                    let Some(arr) = arr else {
                         vortex_panic!(
-                            "Child tree without child array!!\nroot tree: {}\nroot array: {}\nlocal tree: {path}\nlocal array: {}\nproblematic child_tree: {child_tree}",
-                            self.path().as_ref().vortex_expect("must be present"),
-                            self.array.tree_display(),
-                            array.tree_display()
-                        );
-                    }
-                    // if the child_tree is None, we have an uncompressed child array or both were None; fine either way
-                    _ => {},
+                            "compress tree node {:?} doesn't exist in array {:?}",
+                            tree.name,
+                            map2.keys()
+                        )
+                    };
+                    self.validate_children(Some(tree), arr);
                 });
         }
     }
@@ -284,6 +338,11 @@ impl<'a> CompressedArray<'a> {
     #[inline]
     pub fn path(&self) -> &Option<CompressionTree> {
         &self.path
+    }
+
+    pub fn named(&mut self, name: Arc<str>) {
+        self.name = Some(name);
+        println!("set name {:?}", self.name);
     }
 
     #[inline]

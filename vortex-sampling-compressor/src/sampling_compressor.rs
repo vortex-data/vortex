@@ -1,5 +1,6 @@
 use core::fmt::Formatter;
 use std::fmt::Display;
+use std::sync::Arc;
 
 use rand::rngs::StdRng;
 use rand::SeedableRng as _;
@@ -26,6 +27,8 @@ use crate::sampling::stratified_slices;
 pub struct SamplingCompressor<'a> {
     compressors: HashSet<CompressorRef<'a>>,
     options: CompressConfig,
+
+    name: Option<Arc<str>>,
 
     path: Vec<String>,
     depth: u8,
@@ -71,6 +74,7 @@ impl<'a> SamplingCompressor<'a> {
         Self {
             compressors,
             options,
+            name: None,
             path: Vec::new(),
             depth: 0,
             disabled_compressors: HashSet::new(),
@@ -80,6 +84,9 @@ impl<'a> SamplingCompressor<'a> {
     pub fn named(&self, name: &str) -> Self {
         let mut cloned = self.clone();
         cloned.path.push(name.into());
+        cloned.name = Some(name.into());
+        println!("set name {name}");
+        println!("set names {:?}", cloned.path);
         cloned
     }
 
@@ -88,6 +95,7 @@ impl<'a> SamplingCompressor<'a> {
     pub fn auxiliary(&self, name: &str) -> Self {
         let mut cloned = self.clone();
         cloned.path.push(name.into());
+        cloned.name = Some(name.into());
         cloned.disabled_compressors = HashSet::new();
         cloned
     }
@@ -136,10 +144,17 @@ impl<'a> SamplingCompressor<'a> {
             return Ok(CompressedArray::uncompressed(arr.clone()));
         }
 
+        let name = self.name.clone().expect("name");
+
         // Attempt to compress using the "like" array, otherwise fall back to sampled compression
         if let Some(l) = like {
             if let Some(compressed) = l.compress(arr, self) {
-                let compressed = compressed?;
+                let mut compressed = compressed?;
+
+                compressed.named(name.clone());
+                if let Some(path) = compressed.path.as_mut() {
+                    path.named(name.clone().as_ref());
+                }
 
                 check_validity_unchanged(arr, compressed.as_ref());
                 check_dtype_unchanged(arr, compressed.as_ref());
@@ -151,7 +166,15 @@ impl<'a> SamplingCompressor<'a> {
         }
 
         // Otherwise, attempt to compress the array
-        let compressed = self.compress_array(arr)?;
+        let mut compressed = self.compress_array(arr)?;
+
+        compressed.named(name.clone());
+        if let Some(path) = compressed.path.as_mut() {
+            path.named(name.as_ref());
+        }
+
+        println!("compressed name {:?}", compressed.name);
+        println!("compressed name {:?}", compressed.path);
 
         check_validity_unchanged(arr, compressed.as_ref());
         check_dtype_unchanged(arr, compressed.as_ref());

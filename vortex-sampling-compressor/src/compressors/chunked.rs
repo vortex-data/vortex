@@ -126,6 +126,7 @@ impl ChunkedCompressor {
             ChunkedArray::try_new(compressed_chunks, array.dtype().clone())?.into_array(),
             Some(CompressionTree::new_with_metadata(
                 self,
+                None,
                 compressed_trees,
                 Arc::new(ChunkedCompressorMetadata(ratio)),
             )),

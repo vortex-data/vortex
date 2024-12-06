@@ -66,7 +66,12 @@ impl EncodingCompressor for ALPRDCompressor {
         let encoded = alp_rd_encoder.encode(&primitive).into_array();
         Ok(CompressedArray::compressed(
             encoded,
-            Some(CompressionTree::new_with_metadata(self, vec![], encoder)),
+            Some(CompressionTree::new_with_metadata(
+                self,
+                None,
+                vec![],
+                encoder,
+            )),
             array,
         ))
     }

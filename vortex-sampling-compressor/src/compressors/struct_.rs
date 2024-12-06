@@ -50,13 +50,15 @@ impl EncodingCompressor for StructCompressor {
         let (arrays, mut trees): (Vec<_>, Vec<_>) = array
             .children()
             .zip_eq(children_trees)
-            .map(|(array, like)| {
+            .enumerate()
+            .map(|(idx, (array, like))| {
                 // these are extremely valuable when reading/writing, but are potentially much more expensive
                 // to compute post-compression. That's because not all encodings implement stats, so we would
                 // potentially have to canonicalize during writes just to get stats, which would be silly.
                 // Also, we only really require them for column chunks, not for every array.
                 compute_precompression_stats(&array)?;
-                ctx.compress(&array, like.as_ref())
+                ctx.named(format!("[{idx}]").as_str())
+                    .compress(&array, like.as_ref())
             })
             .process_results(|iter| iter.map(|x| (x.array, x.path)).unzip())?;
 

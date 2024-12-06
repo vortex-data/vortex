@@ -124,6 +124,7 @@ impl EncodingCompressor for FSSTCompressor {
             .into_array(),
             Some(CompressionTree::new_with_metadata(
                 self,
+                None,
                 vec![None, None, compressed_codes.path, uncompressed_lengths.path],
                 compressor,
             )),
