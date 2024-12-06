@@ -183,7 +183,7 @@ fn repartition_by_size(
     let partitions_limit = usize::min(total_file_count, desired_partitions);
 
     assert!(
-        partitions_limit - 1 <= partitions.len() && partitions.len() <= partitions_limit,
+        partitions.len() - 1 >= partitions_limit,
         "The final number of partitions should be smallest between the total number of files and the desired partition count - 1"
     );
 
