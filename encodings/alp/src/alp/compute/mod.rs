@@ -1,6 +1,6 @@
 use vortex_array::compute::{
-    filter, scalar_at, slice, take, CompareFn, ComputeVTable, FilterFn, FilterMask, ScalarAtFn,
-    SliceFn, TakeFn, TakeOptions,
+    filter, scalar_at, slice, take, ComputeVTable, FilterFn, FilterMask, ScalarAtFn, SliceFn,
+    TakeFn, TakeOptions,
 };
 use vortex_array::validity::ArrayValidity;
 use vortex_array::variants::PrimitiveArrayTrait;
