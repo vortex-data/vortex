@@ -8,7 +8,7 @@ use crate::{ArrayDType, ArrayData};
 ///
 /// SAFETY: the fill value is guaranteed to be non-null.
 pub trait FillNullFn<Array> {
-    fn fill_null(&self, array: &Array, fill_value: &Scalar) -> VortexResult<ArrayData>;
+    fn fill_null(&self, array: &Array, fill_value: Scalar) -> VortexResult<ArrayData>;
 }
 
 impl<E: Encoding> FillNullFn<ArrayData> for E
@@ -16,7 +16,7 @@ where
     E: FillNullFn<E::Array>,
     for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
 {
-    fn fill_null(&self, array: &ArrayData, fill_value: &Scalar) -> VortexResult<ArrayData> {
+    fn fill_null(&self, array: &ArrayData, fill_value: Scalar) -> VortexResult<ArrayData> {
         let array_ref = <&E::Array>::try_from(array)?;
         let encoding = array
             .encoding()
@@ -27,7 +27,7 @@ where
     }
 }
 
-pub fn fill_null(array: impl AsRef<ArrayData>, fill_value: &Scalar) -> VortexResult<ArrayData> {
+pub fn fill_null(array: impl AsRef<ArrayData>, fill_value: Scalar) -> VortexResult<ArrayData> {
     let array = array.as_ref();
     if !array.dtype().is_nullable() {
         return Ok(array.clone());

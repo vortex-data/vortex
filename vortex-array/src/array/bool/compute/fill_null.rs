@@ -7,7 +7,7 @@ use crate::validity::Validity;
 use crate::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
 
 impl FillNullFn<BoolArray> for BoolEncoding {
-    fn fill_null(&self, array: &BoolArray, fill_value: &Scalar) -> VortexResult<ArrayData> {
+    fn fill_null(&self, array: &BoolArray, fill_value: Scalar) -> VortexResult<ArrayData> {
         let fill = fill_value
             .as_bool()
             .value()
@@ -45,7 +45,7 @@ mod tests {
             Validity::from_iter([true, false, true, false]),
         )
         .unwrap();
-        let non_null_array = fill_null(bool_array, &(false.into()))
+        let non_null_array = fill_null(bool_array, false.into())
             .unwrap()
             .into_bool()
             .unwrap();
