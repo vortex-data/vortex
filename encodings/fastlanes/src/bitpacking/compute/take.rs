@@ -1,13 +1,14 @@
 use fastlanes::BitPacking;
 use itertools::Itertools;
 use vortex_array::array::PrimitiveArray;
-use vortex_array::compute::{take, TakeFn, TakeOptions};
+use vortex_array::compute::{take, try_cast, TakeFn, TakeOptions};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{
-    ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, IntoCanonical,
+    ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, IntoCanonical, ToArrayData,
 };
 use vortex_dtype::{
-    match_each_integer_ptype, match_each_unsigned_integer_ptype, NativePType, PType,
+    match_each_integer_ptype, match_each_unsigned_integer_ptype, DType, NativePType, Nullability,
+    PType,
 };
 use vortex_error::{VortexExpect as _, VortexResult};
 
@@ -120,8 +121,18 @@ fn take_primitive<T: NativePType + BitPacking, I: NativePType>(
         }
     }
 
-    if let Some(_patches) = array.patches() {
-        todo!("Not implemented")
+    if let Some(patches) = array
+        .patches()
+        .map(|p| p.take(&indices.to_array()))
+        .transpose()?
+        .flatten()
+    {
+        let indices = try_cast(
+            patches.indices(),
+            &DType::Primitive(PType::U64, Nullability::NonNullable),
+        )?
+        .into_primitive()?;
+        println!("INDICES {:?}", indices.maybe_null_slice::<u64>());
     }
 
     Ok(output)
@@ -153,6 +164,21 @@ mod test {
             .unwrap();
         let res_bytes = primitive_result.maybe_null_slice::<u8>();
         assert_eq!(res_bytes, &[0, 62, 31, 33, 9, 18]);
+    }
+
+    #[test]
+    fn take_with_patches() {
+        let unpacked = PrimitiveArray::from(vec![0u32, 1, 2, 3, 4, 5]).into_array();
+        let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 2).unwrap();
+
+        let indices = PrimitiveArray::from(vec![0, 2, 4]);
+
+        let primitive_result = take(bitpacked.as_ref(), &indices, TakeOptions::default())
+            .unwrap()
+            .into_primitive()
+            .unwrap();
+        let res_bytes = primitive_result.maybe_null_slice::<u32>();
+        assert_eq!(res_bytes, &[0, 2, 4]);
     }
 
     #[test]
@@ -212,26 +238,5 @@ mod test {
                     values[*i as usize]
                 );
             });
-    }
-
-    #[test]
-    fn test_scalar_at() {
-        let values = (0u32..257).collect_vec();
-        let uncompressed = PrimitiveArray::from(values.clone()).into_array();
-        let packed = BitPackedArray::encode(&uncompressed, 8).unwrap();
-        assert!(packed.patches().is_some());
-
-        let patches = packed.patches().unwrap().indices().clone();
-        assert_eq!(
-            usize::try_from(&scalar_at(patches, 0).unwrap()).unwrap(),
-            256
-        );
-
-        values.iter().enumerate().for_each(|(i, v)| {
-            assert_eq!(
-                u32::try_from(scalar_at(packed.as_ref(), i).unwrap().as_ref()).unwrap(),
-                *v
-            );
-        });
     }
 }

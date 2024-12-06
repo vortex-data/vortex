@@ -6,8 +6,8 @@ use vortex_scalar::Scalar;
 
 use crate::array::PrimitiveArray;
 use crate::compute::{
-    filter, scalar_at, search_sorted, search_sorted_usize, search_sorted_usize_many, slice, take,
-    try_cast, FilterMask, SearchResult, SearchSortedSide, TakeOptions,
+    filter, scalar_at, search_sorted, search_sorted_usize, search_sorted_usize_many, slice,
+    subtract_scalar, take, try_cast, FilterMask, SearchResult, SearchSortedSide, TakeOptions,
 };
 use crate::stats::{ArrayStatistics, Stat};
 use crate::validity::Validity;
@@ -137,9 +137,11 @@ impl Patches {
             SearchResult::Found(idx) => {
                 SearchResult::Found(usize::try_from(&scalar_at(self.indices(), idx)?)?)
             }
-            SearchResult::NotFound(idx) => {
-                SearchResult::NotFound(usize::try_from(&scalar_at(self.indices(), idx)?)?)
-            }
+            SearchResult::NotFound(idx) => SearchResult::NotFound(if idx == self.indices().len() {
+                self.array_len()
+            } else {
+                usize::try_from(&scalar_at(self.indices(), idx)?)?
+            }),
         })
     }
 
@@ -192,17 +194,20 @@ impl Patches {
             return Ok(None);
         }
 
-        Ok(Some(Self::new(
-            stop - start,
-            slice(self.indices(), patch_start, patch_stop)?,
-            slice(self.values(), patch_start, patch_stop)?,
-        )))
+        // Slice out the values
+        let values = slice(self.values(), patch_start, patch_stop)?;
+
+        // Subtract the start value from the indices
+        let indices = slice(self.indices(), patch_start, patch_stop)?;
+        let indices = subtract_scalar(&indices, &Scalar::from(start).cast(indices.dtype())?)?;
+
+        Ok(Some(Self::new(stop - start, indices, values)))
     }
 
     /// Take the indices from the patches.
     /// FIXME(ngates): fix this cast
     #[allow(clippy::cast_possible_truncation)]
-    pub fn take(&self, indices: &ArrayData, _options: TakeOptions) -> VortexResult<Option<Self>> {
+    pub fn take(&self, indices: &ArrayData) -> VortexResult<Option<Self>> {
         if indices.is_empty() {
             return Ok(None);
         }

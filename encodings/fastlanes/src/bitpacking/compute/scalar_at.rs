@@ -18,6 +18,7 @@ impl ScalarAtFn<BitPackedArray> for BitPackedEncoding {
 
 #[cfg(test)]
 mod test {
+    use itertools::Itertools;
     use vortex_array::array::PrimitiveArray;
     use vortex_array::compute::scalar_at;
     use vortex_array::patches::Patches;
@@ -50,5 +51,26 @@ mod test {
             scalar_at(&packed_array, 1).unwrap(),
             Scalar::null(DType::Primitive(PType::U32, Nullability::Nullable))
         );
+    }
+
+    #[test]
+    fn test_scalar_at() {
+        let values = (0u32..257).collect_vec();
+        let uncompressed = PrimitiveArray::from(values.clone()).into_array();
+        let packed = BitPackedArray::encode(&uncompressed, 8).unwrap();
+        assert!(packed.patches().is_some());
+
+        let patches = packed.patches().unwrap().indices().clone();
+        assert_eq!(
+            usize::try_from(&scalar_at(patches, 0).unwrap()).unwrap(),
+            256
+        );
+
+        values.iter().enumerate().for_each(|(i, v)| {
+            assert_eq!(
+                u32::try_from(scalar_at(packed.as_ref(), i).unwrap().as_ref()).unwrap(),
+                *v
+            );
+        });
     }
 }
