@@ -153,8 +153,6 @@ impl ListArray {
     }
 }
 
-impl ListArrayTrait for ListArray {}
-
 impl VariantsVTable<ListArray> for ListEncoding {
     fn as_list_array<'a>(&self, array: &'a ListArray) -> Option<&'a dyn ListArrayTrait> {
         Some(array)
@@ -182,6 +180,8 @@ impl StatisticsVTable<ListArray> for ListEncoding {
         Ok(StatsSet::default())
     }
 }
+
+impl ListArrayTrait for ListArray {}
 
 impl ValidityVTable<ListArray> for ListEncoding {
     fn is_valid(&self, array: &ListArray, index: usize) -> bool {
