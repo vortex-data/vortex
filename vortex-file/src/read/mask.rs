@@ -122,12 +122,12 @@ impl RowMask {
     /// Combine the RowMask with bitmask values resulting in new RowMask containing only values true in the bitmask
     pub fn and_bitmask(&self, bitmask: ArrayData) -> VortexResult<Self> {
         // If we are a dense all true bitmap just take the bitmask array
-        if self.len()
-            == self
-                .bitmask
-                .statistics()
-                .compute_true_count()
-                .vortex_expect("Must have a true count")
+        if self
+            .bitmask
+            .statistics()
+            .compute_true_count()
+            .map(|true_count| true_count == self.len())
+            .unwrap_or(false)
         {
             if bitmask.len() != self.len() {
                 vortex_bail!(
@@ -191,12 +191,8 @@ impl RowMask {
     /// This function assumes that Array is no longer than the mask length and that the mask starts on same offset as the array,
     /// i.e. the beginning of the array corresponds to the beginning of the mask with begin = 0
     pub fn filter_array(&self, array: impl AsRef<ArrayData>) -> VortexResult<Option<ArrayData>> {
-        let true_count = self
-            .bitmask
-            .statistics()
-            .compute_true_count()
-            .vortex_expect("Must have a true count");
-        if true_count == 0 {
+        let true_count = self.bitmask.statistics().compute_true_count();
+        if true_count.map(|tc| tc == 0).unwrap_or(false) {
             return Ok(None);
         }
 
@@ -208,7 +204,7 @@ impl RowMask {
             &slice(array, self.begin, self.end)?
         };
 
-        if true_count == sliced.len() {
+        if true_count.map(|tc| tc == sliced.len()).unwrap_or(false) {
             return Ok(Some(sliced.clone()));
         }
 

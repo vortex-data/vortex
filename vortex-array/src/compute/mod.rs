@@ -13,14 +13,15 @@ pub use boolean::{
 pub use cast::{try_cast, CastFn};
 pub use compare::{compare, scalar_cmp, CompareFn, Operator};
 pub use fill_forward::{fill_forward, FillForwardFn};
-pub use filter::*;
+pub use fill_null::{fill_null, FillNullFn};
+pub use filter::{filter, FilterFn, FilterIter, FilterMask};
 pub use invert::{invert, InvertFn};
-pub use like::*;
+pub use like::{like, LikeFn, LikeOptions};
 pub use scalar_at::{scalar_at, ScalarAtFn};
 pub use scalar_subtract::{subtract_scalar, SubtractScalarFn};
 pub use search_sorted::*;
 pub use slice::{slice, SliceFn};
-pub use take::*;
+pub use take::{take, TakeFn, TakeOptions};
 
 use crate::ArrayData;
 
@@ -28,6 +29,7 @@ mod boolean;
 mod cast;
 mod compare;
 mod fill_forward;
+mod fill_null;
 mod filter;
 mod invert;
 mod like;
@@ -128,6 +130,13 @@ pub trait ComputeVTable {
     ///
     /// See: [TakeFn].
     fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
+        None
+    }
+
+    /// Fill null values with given desired value. Resulting array is NonNullable
+    ///
+    /// See: [FillNullFn]
+    fn fill_null_fn(&self) -> Option<&dyn FillNullFn<ArrayData>> {
         None
     }
 }
