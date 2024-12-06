@@ -138,7 +138,7 @@ impl SparseArray {
         subtract_scalar(self.indices(), &Scalar::from(self.indices_offset()))
     }
 
-    /// Return the resolved indices as a Vec<usize>.
+    /// Return the resolved indices as a `Vec<usize>`.
     pub fn resolved_indices_usize(&self) -> Vec<usize> {
         let flat_indices = self
             .indices()
