@@ -21,6 +21,7 @@ use super::compressors::struct_::StructCompressor;
 use super::{CompressConfig, Objective, DEFAULT_COMPRESSORS};
 use crate::compressors::constant::ConstantCompressor;
 use crate::compressors::{CompressedArray, CompressionTree, CompressorRef, EncodingCompressor};
+use crate::downscale::downscale_integer_array;
 use crate::sampling::stratified_slices;
 
 #[derive(Debug, Clone)]
@@ -147,7 +148,7 @@ impl<'a> SamplingCompressor<'a> {
                 check_statistics_unchanged(arr, compressed.as_ref());
                 return Ok(compressed);
             } else {
-                log::warn!("{} cannot compress {} like {}", self, arr, l);
+                log::info!("{} cannot compress {} like {}", self, arr, l);
             }
         }
 
@@ -170,7 +171,8 @@ impl<'a> SamplingCompressor<'a> {
     pub fn compress_patches(&self, patches: Patches) -> VortexResult<Patches> {
         Ok(Patches::new(
             patches.array_len(),
-            self.compress(patches.indices(), None)?.into_array(),
+            self.compress(&downscale_integer_array(patches.indices().clone())?, None)?
+                .into_array(),
             self.compress(patches.values(), None)?.into_array(),
         ))
     }

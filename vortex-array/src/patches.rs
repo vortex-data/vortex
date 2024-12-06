@@ -6,8 +6,8 @@ use vortex_scalar::Scalar;
 
 use crate::array::PrimitiveArray;
 use crate::compute::{
-    filter, scalar_at, search_sorted, search_sorted_many, search_sorted_usize, slice,
-    subtract_scalar, take, try_cast, FilterMask, SearchResult, SearchSortedSide, TakeOptions,
+    scalar_at, search_sorted, search_sorted_many, search_sorted_usize, slice, subtract_scalar,
+    take, try_cast, FilterMask, SearchResult, SearchSortedSide, TakeOptions,
 };
 use crate::stats::{ArrayStatistics, Stat};
 use crate::validity::Validity;
@@ -156,32 +156,38 @@ impl Patches {
         usize::try_from(&scalar_at(self.indices(), self.indices().len() - 1)?)
     }
 
-    /// Filter the patches by a mask.
+    /// Filter the patches by a mask, resulting in new patches for the filtered array.
     pub fn filter(&self, mask: FilterMask) -> VortexResult<Option<Self>> {
-        let mask = mask.to_boolean_buffer()?;
-
-        let indices = self.indices().clone().into_primitive()?;
-        let (patches_mask, new_indices) = match_each_integer_ptype!(indices.ptype(), |$I| {
-            let (patches_mask, new_indices): (Vec<usize>, Vec<$I>) = indices
-                .maybe_null_slice::<$I>()
-                .iter()
-                .enumerate()
-                .filter(|(_rank, idx)| mask.value(**idx as usize))
-                .unzip();
-            let new_indices = PrimitiveArray::from_vec(new_indices, Validity::NonNullable).into_array();
-            (patches_mask, new_indices)
-        });
-
-        if new_indices.is_empty() {
+        if mask.is_empty() {
             return Ok(None);
         }
 
-        let new_values = filter(
+        let buffer = mask.to_boolean_buffer()?;
+        let mut coordinate_indices: Vec<u64> = Vec::new();
+        let mut value_indices = Vec::new();
+        let mut last_inserted_index: usize = 0;
+
+        let flat_indices = self.indices().clone().into_primitive()?;
+        match_each_integer_ptype!(flat_indices.ptype(), |$I| {
+            for (value_idx, coordinate) in flat_indices.into_maybe_null_slice::<$I>().into_iter().enumerate() {
+                if buffer.value(coordinate as usize) {
+                    // We count the number of truthy values between this coordinate and the previous truthy one
+                    let adjusted_coordinate = buffer.slice(last_inserted_index, (coordinate as usize) - last_inserted_index).count_set_bits() as u64;
+                    coordinate_indices.push(adjusted_coordinate + coordinate_indices.last().copied().unwrap_or_default());
+                    last_inserted_index = coordinate as usize;
+                    value_indices.push(value_idx as u64);
+                }
+            }
+        });
+
+        let indices = PrimitiveArray::from(coordinate_indices).into_array();
+        let values = take(
             self.values(),
-            FilterMask::from_indices(self.array_len(), patches_mask),
+            PrimitiveArray::from(value_indices),
+            TakeOptions::default(),
         )?;
 
-        Ok(Some(Self::new(mask.len(), new_indices, new_values)))
+        Ok(Some(Self::new(mask.len(), indices, values)))
     }
 
     /// Slice the patches by a range of the patched array.
@@ -236,5 +242,32 @@ impl Patches {
         let new_values = take(self.values(), values_indices, TakeOptions::default())?;
 
         Ok(Some(Self::new(indices.len(), new_indices, new_values)))
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::array::PrimitiveArray;
+    use crate::compute::FilterMask;
+    use crate::patches::Patches;
+    use crate::{IntoArrayData, IntoArrayVariant};
+
+    #[test]
+    fn test_filter() {
+        let patches = Patches::new(
+            100,
+            PrimitiveArray::from(vec![10u32, 11, 20]).into_array(),
+            PrimitiveArray::from(vec![100, 110, 200]).into_array(),
+        );
+
+        let filtered = patches
+            .filter(FilterMask::from_indices(100, [10u32, 20, 30]))
+            .unwrap()
+            .unwrap();
+
+        let indices = filtered.indices().clone().into_primitive().unwrap();
+        let values = filtered.values().clone().into_primitive().unwrap();
+        assert_eq!(indices.maybe_null_slice::<u64>(), &[0, 1]);
+        assert_eq!(values.maybe_null_slice::<i32>(), &[100, 200]);
     }
 }
