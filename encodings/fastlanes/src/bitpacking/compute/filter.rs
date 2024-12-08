@@ -13,10 +13,10 @@ use crate::{BitPackedArray, BitPackedEncoding};
 
 impl FilterFn<BitPackedArray> for BitPackedEncoding {
     fn filter(&self, array: &BitPackedArray, mask: FilterMask) -> VortexResult<ArrayData> {
-        let primitive = match_each_unsigned_integer_ptype!(array.ptype(), |$I| {
+        let primitive = match_each_unsigned_integer_ptype!(array.unsigned_ptype(), |$I| {
             filter_primitive::<$I>(array, mask)
         });
-        Ok(primitive?.into_array())
+        Ok(primitive?.reinterpret_cast(array.ptype()).into_array())
     }
 }
 

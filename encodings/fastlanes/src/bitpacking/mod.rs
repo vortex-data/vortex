@@ -63,10 +63,6 @@ impl BitPackedArray {
     ) -> VortexResult<Self> {
         let dtype = DType::Primitive(ptype, validity.nullability());
 
-        if !dtype.is_unsigned_int() {
-            vortex_bail!(MismatchedTypes: "uint", &dtype);
-        }
-
         if bit_width > u64::BITS as u8 {
             vortex_bail!("Unsupported bit width {}", bit_width);
         }
@@ -199,6 +195,11 @@ impl BitPackedArray {
     #[inline]
     pub fn max_packed_value(&self) -> usize {
         (1 << self.bit_width()) - 1
+    }
+
+    /// Returns the unsigned PType of this array
+    pub fn unsigned_ptype(&self) -> PType {
+        self.ptype().to_unsigned()
     }
 }
 

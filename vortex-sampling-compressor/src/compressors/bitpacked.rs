@@ -5,6 +5,7 @@ use vortex_array::encoding::EncodingRef;
 use vortex_array::stats::ArrayStatistics;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
+use vortex_dtype::match_each_integer_ptype;
 use vortex_error::{vortex_err, vortex_panic, VortexResult};
 use vortex_fastlanes::{
     bitpack, count_exceptions, find_best_bit_width, find_min_patchless_bit_width, gather_patches,
@@ -57,8 +58,13 @@ impl EncodingCompressor for BitPackedCompressor {
         // Only support primitive arrays
         let parray = PrimitiveArray::maybe_from(array.clone())?;
 
-        // Only supports unsigned ints
-        if !parray.ptype().is_unsigned_int() {
+        // Only supports unsigned ints, or positive signed ints.
+        if !(parray.ptype().is_unsigned_int()
+            || (parray.ptype().is_signed_int()
+                && match_each_integer_ptype!(parray.ptype(), |$T| {
+                    parray.statistics().compute_min::<$T>().map(|min| min >= 0).unwrap_or(false)
+                })))
+        {
             return None;
         }
 
@@ -79,6 +85,8 @@ impl EncodingCompressor for BitPackedCompressor {
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
         let parray = array.clone().into_primitive()?;
+        let ptype = parray.ptype();
+
         let bit_width_freq = parray
             .statistics()
             .compute_bit_width_freq()
@@ -116,7 +124,7 @@ impl EncodingCompressor for BitPackedCompressor {
         Ok(CompressedArray::compressed(
             BitPackedArray::try_new(
                 packed_buffer,
-                parray.ptype(),
+                ptype,
                 validity,
                 patches.as_ref().map(|p| p.array.clone()),
                 bit_width,
