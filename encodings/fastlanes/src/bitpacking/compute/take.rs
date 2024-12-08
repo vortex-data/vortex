@@ -5,8 +5,12 @@ use itertools::Itertools;
 use vortex_array::array::{PrimitiveArray, SparseArray};
 use vortex_array::compute::{slice, take, TakeFn, TakeOptions};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, IntoCanonical};
-use vortex_dtype::{match_each_integer_ptype, match_each_unsigned_integer_ptype, NativePType};
+use vortex_array::{
+    ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, IntoCanonical,
+};
+use vortex_dtype::{
+    match_each_integer_ptype, match_each_unsigned_integer_ptype, NativePType, PType,
+};
 use vortex_error::{VortexExpect as _, VortexResult};
 
 use crate::{unpack_single_primitive, BitPackedArray, BitPackedEncoding};
@@ -33,16 +37,17 @@ impl TakeFn<BitPackedArray> for BitPackedEncoding {
             );
         }
 
+        let ptype: PType = array.dtype().try_into()?;
         let validity = array.validity();
         let taken_validity = validity.take(indices, options)?;
 
         let indices = indices.clone().into_primitive()?;
-        let taken = match_each_unsigned_integer_ptype!(array.unsigned_ptype(), |$T| {
+        let taken = match_each_unsigned_integer_ptype!(ptype, |$T| {
             match_each_integer_ptype!(indices.ptype(), |$I| {
                 PrimitiveArray::from_vec(take_primitive::<$T, $I>(array, &indices, options)?, taken_validity)
             })
         });
-        Ok(taken.reinterpret_cast(array.ptype()).into_array())
+        Ok(taken.reinterpret_cast(ptype).into_array())
     }
 }
 

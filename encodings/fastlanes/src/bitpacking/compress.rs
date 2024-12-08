@@ -170,7 +170,7 @@ pub fn unpack(array: BitPackedArray) -> VortexResult<PrimitiveArray> {
     let length = array.len();
     let offset = array.offset() as usize;
     let ptype = array.ptype();
-    let mut unpacked = match_each_unsigned_integer_ptype!(array.unsigned_ptype(), |$P| {
+    let mut unpacked = match_each_unsigned_integer_ptype!(array.ptype().to_unsigned(), |$P| {
         PrimitiveArray::from_vec(
             unpack_primitive::<$P>(array.packed_slice::<$P>(), bit_width, offset, length),
             array.validity(),
@@ -441,5 +441,15 @@ mod test {
                 let scalar: u16 = unpack_single(&compressed, i).unwrap().try_into().unwrap();
                 assert_eq!(scalar, *v);
             });
+    }
+
+    #[test]
+    #[should_panic(expected = "expected type: uint but instead got i64")]
+    fn gh_issue_929() {
+        let values: Vec<i64> = (-500..500).collect();
+        let array = PrimitiveArray::from_vec(values, Validity::AllValid);
+        assert!(array.ptype().is_signed_int());
+
+        BitPackedArray::encode(array.as_ref(), 1024u32.ilog2() as u8).unwrap();
     }
 }
