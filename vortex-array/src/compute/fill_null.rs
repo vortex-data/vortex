@@ -52,7 +52,7 @@ pub fn fill_null(array: impl AsRef<ArrayData>, fill_value: Scalar) -> VortexResu
 
     vortex_bail!(
         "fill null not implemented for canonical encoding {}, fallback from {}",
-        canonical_arr.encoding(),
-        array.encoding()
+        canonical_arr.encoding().id(),
+        array.encoding().id()
     )
 }
