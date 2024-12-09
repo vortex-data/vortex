@@ -4698,6 +4698,7 @@ dependencies = [
  "arrow-schema",
  "arrow-select",
  "arrow-string",
+ "backtrace",
  "bytes",
  "criterion",
  "enum-iterator",

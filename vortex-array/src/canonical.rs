@@ -364,6 +364,8 @@ where
     E::Array: TryFrom<ArrayData, Error = VortexError>,
 {
     fn into_canonical(&self, data: ArrayData) -> VortexResult<Canonical> {
+        #[cfg(feature = "canonical_counter")]
+        data.inc_canonical_counter();
         let canonical = E::Array::try_from(data.clone())?.into_canonical()?;
         canonical.inherit_statistics(data.statistics());
         Ok(canonical)
