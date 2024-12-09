@@ -1,3 +1,4 @@
+use arrow_array::ArrayRef;
 use arrow_schema::DataType;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
@@ -20,6 +21,12 @@ impl IntoCanonical for VarBinArray {
         };
 
         VarBinViewArray::try_from(ArrayData::from_arrow(array, nullable)).map(Canonical::VarBinView)
+    }
+
+    fn into_arrow(self) -> VortexResult<ArrayRef> {
+        // Specialized implementation of `into_arrow` for VarBin since it has a direct
+        // Arrow representation.
+        varbin_to_arrow(&self)
     }
 }
 

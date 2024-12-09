@@ -45,5 +45,15 @@ pub fn fill_null(array: impl AsRef<ArrayData>, fill_value: Scalar) -> VortexResu
         return fill_null_fn.fill_null(array, fill_value);
     }
 
-    fill_null(array.clone().into_canonical()?.into_array(), fill_value)
+    log::debug!("FillNullFn not implemented for {}", array.encoding().id());
+    let canonical_arr = array.clone().into_canonical()?.into_array();
+    if let Some(fill_null_fn) = canonical_arr.encoding().fill_null_fn() {
+        return fill_null_fn.fill_null(&canonical_arr, fill_value);
+    }
+
+    vortex_bail!(
+        "fill null not implemented for canonical encoding {}, fallback from {}",
+        canonical_arr.encoding().id(),
+        array.encoding().id()
+    )
 }

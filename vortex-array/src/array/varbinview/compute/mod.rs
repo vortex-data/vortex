@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use arrow_buffer::ScalarBuffer;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
@@ -100,17 +102,21 @@ fn take_views<I: AsPrimitive<usize>>(
     views: ScalarBuffer<u128>,
     indices: &[I],
 ) -> ScalarBuffer<u128> {
-    ScalarBuffer::<u128>::from_iter(indices.iter().map(|i| views[i.as_()]))
+    // NOTE(ngates): this deref is not actually trivial, so we run it once.
+    let views_ref = views.deref();
+    ScalarBuffer::<u128>::from_iter(indices.iter().map(|i| views_ref[i.as_()]))
 }
 
 fn take_views_unchecked<I: AsPrimitive<usize>>(
     views: ScalarBuffer<u128>,
     indices: &[I],
 ) -> ScalarBuffer<u128> {
+    // NOTE(ngates): this deref is not actually trivial, so we run it once.
+    let views_ref = views.deref();
     ScalarBuffer::<u128>::from_iter(
         indices
             .iter()
-            .map(|i| unsafe { *views.get_unchecked(i.as_()) }),
+            .map(|i| unsafe { *views_ref.get_unchecked(i.as_()) }),
     )
 }
 

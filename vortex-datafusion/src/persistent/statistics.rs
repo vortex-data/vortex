@@ -14,7 +14,7 @@ pub fn array_to_col_statistics(array: &StructArray) -> VortexResult<ColumnStatis
     let mut stats = ColumnStatistics::new_unknown();
 
     if let Some(null_count_array) = array.field_by_name(Stat::NullCount.name()) {
-        let array = null_count_array.into_canonical()?.into_arrow()?;
+        let array = null_count_array.into_arrow()?;
         let array = array.as_primitive::<UInt64Type>();
 
         let null_count = array.iter().map(|v| v.unwrap_or_default()).sum::<u64>();
@@ -22,7 +22,7 @@ pub fn array_to_col_statistics(array: &StructArray) -> VortexResult<ColumnStatis
     }
 
     if let Some(max_value_array) = array.field_by_name(Stat::Max.name()) {
-        let array = max_value_array.into_canonical()?.into_arrow()?;
+        let array = max_value_array.into_arrow()?;
         let mut acc = MaxAccumulator::try_new(array.data_type())?;
         acc.update_batch(&[array])?;
 
@@ -31,7 +31,7 @@ pub fn array_to_col_statistics(array: &StructArray) -> VortexResult<ColumnStatis
     }
 
     if let Some(min_value_array) = array.field_by_name(Stat::Min.name()) {
-        let array = min_value_array.into_canonical()?.into_arrow()?;
+        let array = min_value_array.into_arrow()?;
         let mut acc = MinAccumulator::try_new(array.data_type())?;
         acc.update_batch(&[array])?;
 
@@ -46,7 +46,7 @@ pub fn uncompressed_col_size(array: &StructArray) -> VortexResult<Option<u64>> {
     match array.field_by_name(Stat::UncompressedSizeInBytes.name()) {
         None => Ok(None),
         Some(array) => {
-            let array = array.into_canonical()?.into_arrow()?;
+            let array = array.into_arrow()?;
             let array = array.as_primitive::<UInt64Type>();
 
             let uncompressed_size = array.iter().map(|v| v.unwrap_or_default()).sum::<u64>();

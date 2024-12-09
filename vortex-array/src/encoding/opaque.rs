@@ -2,6 +2,7 @@ use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
 use std::sync::Arc;
 
+use arrow_array::ArrayRef;
 use vortex_error::{vortex_bail, vortex_panic, VortexResult};
 
 use crate::compute::ComputeVTable;
@@ -44,6 +45,13 @@ impl IntoCanonicalVTable for OpaqueEncoding {
     fn into_canonical(&self, _array: ArrayData) -> VortexResult<Canonical> {
         vortex_bail!(
             "OpaqueEncoding: into_canonical cannot be called for opaque array ({})",
+            self.0
+        )
+    }
+
+    fn into_arrow(&self, _array: ArrayData) -> VortexResult<ArrayRef> {
+        vortex_bail!(
+            "OpaqueEncoding: into_arrow cannot be called for opaque array ({})",
             self.0
         )
     }

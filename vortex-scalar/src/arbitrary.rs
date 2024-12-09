@@ -27,7 +27,7 @@ fn random_scalar_value(u: &mut Unstructured, dtype: &DType) -> Result<ScalarValu
         DType::Struct(sdt, _) => Ok(ScalarValue(InnerScalarValue::List(
             sdt.dtypes()
                 .iter()
-                .map(|d| random_scalar_value(u, d).map(|x| x.0))
+                .map(|d| random_scalar_value(u, d))
                 .collect::<Result<Vec<_>>>()?
                 .into(),
         ))),
@@ -35,7 +35,7 @@ fn random_scalar_value(u: &mut Unstructured, dtype: &DType) -> Result<ScalarValu
             iter::from_fn(|| {
                 u.arbitrary()
                     .unwrap_or(false)
-                    .then(|| random_scalar_value(u, edt).map(|x| x.0))
+                    .then(|| random_scalar_value(u, edt))
             })
             .collect::<Result<Vec<_>>>()?
             .into(),
