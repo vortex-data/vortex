@@ -147,6 +147,7 @@ impl Patches {
                 } else {
                     index
                 }),
+                // If the result is NotFound we should return index that's one after the nearest not found index for the corresponding value
                 SearchResult::NotFound(i) => {
                     SearchResult::NotFound(if i == 0 { index } else { index + 1 })
                 }
