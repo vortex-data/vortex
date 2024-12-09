@@ -24,7 +24,6 @@ pub struct RowMask {
 #[cfg(test)]
 impl PartialEq for RowMask {
     fn eq(&self, other: &Self) -> bool {
-        use vortex_error::VortexUnwrap;
         self.begin == other.begin
             && self.end == other.end
             && self.mask.to_boolean_buffer().unwrap() == other.mask.to_boolean_buffer().unwrap()
@@ -213,10 +212,9 @@ impl RowMask {
 mod tests {
     use arrow_buffer::BooleanBuffer;
     use rstest::rstest;
-    use vortex_array::array::{BoolArray, PrimitiveArray};
+    use vortex_array::array::PrimitiveArray;
     use vortex_array::compute::FilterMask;
     use vortex_array::{IntoArrayData, IntoArrayVariant};
-    use vortex_dtype::Nullability;
     use vortex_error::VortexUnwrap;
 
     use crate::read::mask::RowMask;

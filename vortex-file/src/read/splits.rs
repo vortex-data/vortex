@@ -141,8 +141,7 @@ impl Stream for FixedSplitIterator {
 mod tests {
     use std::collections::BTreeSet;
 
-    use vortex_array::array::BoolArray;
-    use vortex_array::IntoArrayData;
+    use vortex_array::compute::FilterMask;
     use vortex_error::VortexResult;
 
     use crate::read::splits::FixedSplitIterator;
@@ -170,10 +169,9 @@ mod tests {
             10,
             Some(
                 RowMask::try_new(
-                    BoolArray::from_iter([
+                    FilterMask::from_iter([
                         false, false, false, false, true, true, false, false, false, false,
-                    ])
-                    .into_array(),
+                    ]),
                     0,
                     10,
                 )
