@@ -148,7 +148,7 @@ impl<'a> SamplingCompressor<'a> {
                 check_statistics_unchanged(arr, compressed.as_ref());
                 return Ok(compressed);
             } else {
-                log::info!("{} cannot compress {} like {}", self, arr, l);
+                log::debug!("{} cannot compress {} like {}", self, arr, l);
             }
         }
 
