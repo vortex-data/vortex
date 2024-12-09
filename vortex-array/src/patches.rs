@@ -8,8 +8,8 @@ use vortex_scalar::Scalar;
 
 use crate::array::PrimitiveArray;
 use crate::compute::{
-    scalar_at, search_sorted, search_sorted_many, search_sorted_usize, slice, subtract_scalar,
-    take, try_cast, FilterMask, SearchResult, SearchSortedSide,
+    scalar_at, search_sorted, search_sorted_usize, search_sorted_usize_many, slice,
+    subtract_scalar, take, try_cast, FilterMask, SearchResult, SearchSortedSide,
 };
 use crate::stats::{ArrayStatistics, Stat};
 use crate::validity::Validity;
@@ -226,9 +226,13 @@ impl Patches {
         let take_indices =
             try_cast(indices, &DType::Primitive(PType::U64, NonNullable))?.into_primitive()?;
 
-        let (values_indices, new_indices): (Vec<u64>, Vec<u64>) = search_sorted_many(
+        let (values_indices, new_indices): (Vec<u64>, Vec<u64>) = search_sorted_usize_many(
             self.indices(),
-            take_indices.maybe_null_slice::<u64>(),
+            &take_indices
+                .into_maybe_null_slice::<u64>()
+                .into_iter()
+                .map(|i| i as usize)
+                .collect::<Vec<_>>(),
             SearchSortedSide::Left,
         )?
         .iter()

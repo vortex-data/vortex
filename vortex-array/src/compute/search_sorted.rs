@@ -285,12 +285,25 @@ pub fn search_sorted_many<T: Into<Scalar> + Clone>(
     side: SearchSortedSide,
 ) -> VortexResult<Vec<SearchResult>> {
     if let Some(f) = array.encoding().search_sorted_fn() {
-        let values: Vec<Scalar> = targets
+        let mut too_big_cast_idxs = Vec::new();
+        let values = targets
             .iter()
-            .map(|t| t.clone().into().cast(array.dtype()))
-            .try_collect()?;
+            .cloned()
+            .enumerate()
+            .filter_map(|(i, t)| {
+                let Ok(c) = t.into().cast(array.dtype()) else {
+                    too_big_cast_idxs.push(i);
+                    return None;
+                };
+                Some(c)
+            })
+            .collect::<Vec<_>>();
 
-        return f.search_sorted_many(array, &values, side);
+        let mut results = f.search_sorted_many(array, &values, side)?;
+        for too_big_idx in too_big_cast_idxs {
+            results.insert(too_big_idx, SearchResult::NotFound(array.len()));
+        }
+        return Ok(results);
     }
 
     // Call in loop and collect
@@ -500,8 +513,8 @@ impl<T> Len for [T] {
 #[cfg(test)]
 mod test {
     use crate::array::PrimitiveArray;
-    use crate::compute::search_sorted;
     use crate::compute::search_sorted::{SearchResult, SearchSorted, SearchSortedSide};
+    use crate::compute::{search_sorted, search_sorted_many};
     use crate::validity::Validity;
     use crate::IntoArrayData;
 
@@ -562,5 +575,16 @@ mod test {
         .into_array();
         let res = search_sorted(&arr, 256, SearchSortedSide::Left).unwrap();
         assert_eq!(res, SearchResult::NotFound(arr.len()));
+    }
+
+    #[test]
+    fn search_sorted_many_failed_cast() {
+        let arr = PrimitiveArray::from_vec(
+            vec![0u8, 1, 2, 3, 4, 5, 6, 7, 8, 9, 9, 9, 9],
+            Validity::NonNullable,
+        )
+        .into_array();
+        let res = search_sorted_many(&arr, &[256], SearchSortedSide::Left).unwrap();
+        assert_eq!(res, vec![SearchResult::NotFound(arr.len())]);
     }
 }
