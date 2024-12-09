@@ -94,7 +94,7 @@ impl RowMask {
 
         // TODO(ngates): should from_indices take u64?
         let mask = FilterMask::from_indices(
-            array.len(),
+            end - begin,
             indices
                 .maybe_null_slice::<u64>()
                 .iter()
@@ -126,8 +126,8 @@ impl RowMask {
         }
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.mask.is_empty()
+    pub fn is_all_false(&self) -> bool {
+        self.mask.true_count() == 0
     }
 
     pub fn begin(&self) -> usize {
@@ -140,6 +140,10 @@ impl RowMask {
 
     pub fn len(&self) -> usize {
         self.mask.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.mask.is_empty()
     }
 
     /// Limit mask to [begin..end) range

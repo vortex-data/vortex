@@ -109,7 +109,7 @@ impl Iterator for FixedSplitIterator {
                             Err(e) => return Some(Err(e)),
                         };
 
-                        if sliced.is_empty() {
+                        if sliced.is_all_false() {
                             continue;
                         }
                         Some(Ok(sliced))
@@ -181,9 +181,10 @@ mod tests {
         mask_iter
             .additional_splits(&mut BTreeSet::from([0, 2, 4, 6, 8, 10]))
             .unwrap();
-        assert_eq!(
-            mask_iter.collect::<VortexResult<Vec<_>>>().unwrap(),
-            vec![RowMask::new_valid_between(4, 6)]
-        );
+
+        let actual = mask_iter.collect::<VortexResult<Vec<_>>>().unwrap();
+        let expected = vec![RowMask::new_valid_between(4, 6)];
+
+        assert_eq!(actual, expected);
     }
 }
