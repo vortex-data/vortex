@@ -141,6 +141,7 @@ impl Patches {
             let sidx = sr.to_offsets_index(self.indices().len());
             let index = usize::try_from(&scalar_at(self.indices(), sidx)?)?;
             Ok(match sr {
+                // If we reached the end of patched values when searching then the result is one after the last patch index
                 SearchResult::Found(i) => SearchResult::Found(if i == self.indices().len() {
                     index + 1
                 } else {
