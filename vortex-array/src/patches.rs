@@ -231,8 +231,8 @@ impl Patches {
             &take_indices
                 .into_maybe_null_slice::<u64>()
                 .into_iter()
-                .map(|i| i as usize)
-                .collect::<Vec<_>>(),
+                .map(usize::try_from)
+                .collect::<Result<Vec<_>, _>>()?,
             SearchSortedSide::Left,
         )?
         .iter()
