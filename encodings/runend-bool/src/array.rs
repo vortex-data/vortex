@@ -255,7 +255,7 @@ mod test {
     use itertools::Itertools as _;
     use rstest::rstest;
     use vortex_array::array::{BoolArray, PrimitiveArray};
-    use vortex_array::compute::{scalar_at, slice, take, TakeOptions};
+    use vortex_array::compute::{scalar_at, slice, take};
     use vortex_array::stats::ArrayStatistics;
     use vortex_array::validity::Validity;
     use vortex_array::{
@@ -345,7 +345,6 @@ mod test {
             )
             .unwrap(),
             vec![0, 0, 6, 4].into_array(),
-            TakeOptions::default(),
         )
         .unwrap();
 

@@ -7,7 +7,6 @@ use crate::array::extension::ExtensionArray;
 use crate::array::ExtensionEncoding;
 use crate::compute::{
     scalar_at, slice, take, CastFn, CompareFn, ComputeVTable, ScalarAtFn, SliceFn, TakeFn,
-    TakeOptions,
 };
 use crate::variants::ExtensionArrayTrait;
 use crate::{ArrayData, IntoArrayData};
@@ -57,16 +56,10 @@ impl SliceFn<ExtensionArray> for ExtensionEncoding {
 }
 
 impl TakeFn<ExtensionArray> for ExtensionEncoding {
-    fn take(
-        &self,
-        array: &ExtensionArray,
-        indices: &ArrayData,
-        options: TakeOptions,
-    ) -> VortexResult<ArrayData> {
-        Ok(ExtensionArray::new(
-            array.ext_dtype().clone(),
-            take(array.storage(), indices, options)?,
+    fn take(&self, array: &ExtensionArray, indices: &ArrayData) -> VortexResult<ArrayData> {
+        Ok(
+            ExtensionArray::new(array.ext_dtype().clone(), take(array.storage(), indices)?)
+                .into_array(),
         )
-        .into_array())
     }
 }

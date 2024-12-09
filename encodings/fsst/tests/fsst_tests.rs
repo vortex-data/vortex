@@ -2,7 +2,7 @@
 
 use vortex_array::array::builder::VarBinBuilder;
 use vortex_array::array::PrimitiveArray;
-use vortex_array::compute::{filter, scalar_at, slice, take, FilterMask, TakeOptions};
+use vortex_array::compute::{filter, scalar_at, slice, take, FilterMask};
 use vortex_array::encoding::Encoding;
 use vortex_array::validity::Validity;
 use vortex_array::{ArrayData, IntoArrayData, IntoCanonical};
@@ -71,7 +71,7 @@ fn test_fsst_array_ops() {
 
     // test take
     let indices = PrimitiveArray::from_vec(vec![0, 2], Validity::NonNullable).into_array();
-    let fsst_taken = take(&fsst_array, &indices, TakeOptions::default()).unwrap();
+    let fsst_taken = take(&fsst_array, &indices).unwrap();
     assert_eq!(fsst_taken.len(), 2);
     assert_nth_scalar!(
         fsst_taken,

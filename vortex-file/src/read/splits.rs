@@ -6,7 +6,7 @@ use std::task::{Context, Poll};
 use futures::Stream;
 use itertools::Itertools;
 use vortex_array::stats::ArrayStatistics;
-use vortex_error::{vortex_bail, VortexExpect, VortexResult, VortexUnwrap};
+use vortex_error::{vortex_bail, VortexResult, VortexUnwrap};
 
 use crate::read::buffered::ReadMasked;
 use crate::{BatchRead, LayoutReader, MessageRead, PruningRead, RowMask, SplitRead};
@@ -48,8 +48,8 @@ impl ReadMasked for ReadRowMask {
                     if batch
                         .statistics()
                         .compute_true_count()
-                        .vortex_expect("must be a bool array if it's a result of a filter")
-                        == 0
+                        .map(|true_count| true_count == 0)
+                        .unwrap_or(false)
                     {
                         return Ok(None);
                     }
@@ -109,7 +109,7 @@ impl Iterator for FixedSplitIterator {
                             Err(e) => return Some(Err(e)),
                         };
 
-                        if sliced.is_empty() {
+                        if sliced.is_all_false() {
                             continue;
                         }
                         Some(Ok(sliced))
@@ -141,8 +141,7 @@ impl Stream for FixedSplitIterator {
 mod tests {
     use std::collections::BTreeSet;
 
-    use vortex_array::array::BoolArray;
-    use vortex_array::IntoArrayData;
+    use vortex_array::compute::FilterMask;
     use vortex_error::VortexResult;
 
     use crate::read::splits::FixedSplitIterator;
@@ -170,10 +169,9 @@ mod tests {
             10,
             Some(
                 RowMask::try_new(
-                    BoolArray::from_iter([
+                    FilterMask::from_iter([
                         false, false, false, false, true, true, false, false, false, false,
-                    ])
-                    .into_array(),
+                    ]),
                     0,
                     10,
                 )
@@ -183,9 +181,10 @@ mod tests {
         mask_iter
             .additional_splits(&mut BTreeSet::from([0, 2, 4, 6, 8, 10]))
             .unwrap();
-        assert_eq!(
-            mask_iter.collect::<VortexResult<Vec<_>>>().unwrap(),
-            vec![RowMask::new_valid_between(4, 6)]
-        );
+
+        let actual = mask_iter.collect::<VortexResult<Vec<_>>>().unwrap();
+        let expected = vec![RowMask::new_valid_between(4, 6)];
+
+        assert_eq!(actual, expected);
     }
 }

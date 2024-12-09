@@ -75,7 +75,7 @@ impl EncodingCompressor for BitPackedCompressor {
     fn compress<'a>(
         &'a self,
         array: &ArrayData,
-        like: Option<CompressionTree<'a>>,
+        _like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
         let parray = array.clone().into_primitive()?;
@@ -107,7 +107,7 @@ impl EncodingCompressor for BitPackedCompressor {
                     ctx.auxiliary("patches")
                         .excluding(&BITPACK_WITH_PATCHES)
                         .including(&BITPACK_NO_PATCHES)
-                        .compress(&p, like.as_ref().and_then(|l| l.child(0)))
+                        .compress_patches(p)
                 })
             })
             .flatten()
@@ -118,15 +118,12 @@ impl EncodingCompressor for BitPackedCompressor {
                 packed_buffer,
                 parray.ptype(),
                 validity,
-                patches.as_ref().map(|p| p.array.clone()),
+                patches,
                 bit_width,
                 parray.len(),
             )?
             .into_array(),
-            Some(CompressionTree::new(
-                self,
-                vec![patches.and_then(|p| p.path)],
-            )),
+            Some(CompressionTree::new(self, vec![])),
             array,
         ))
     }

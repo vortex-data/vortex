@@ -1,10 +1,9 @@
 use std::cmp::max;
 
-use vortex_array::array::SparseArray;
-use vortex_array::compute::{slice, SliceFn};
+use vortex_array::compute::SliceFn;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayData, IntoArrayData};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::VortexResult;
 
 use crate::{BitPackedArray, BitPackedEncoding};
 
@@ -25,16 +24,9 @@ impl SliceFn<BitPackedArray> for BitPackedEncoding {
             array.validity().slice(start, stop)?,
             array
                 .patches()
-                .map(|p| slice(&p, start, stop))
+                .map(|p| p.slice(start, stop))
                 .transpose()?
-                .filter(|a| {
-                    // If the sliced patch_indices is empty, we should not propagate the patches.
-                    // There may be other logic that depends on Some(patches) indicating non-empty.
-                    !SparseArray::maybe_from(a.clone())
-                        .vortex_expect("BitPackedArray must encode patches as SparseArray")
-                        .indices()
-                        .is_empty()
-                }),
+                .flatten(),
             array.bit_width(),
             stop - start,
             offset as u16,
@@ -46,8 +38,8 @@ impl SliceFn<BitPackedArray> for BitPackedEncoding {
 #[cfg(test)]
 mod test {
     use itertools::Itertools;
-    use vortex_array::array::{PrimitiveArray, SparseArray};
-    use vortex_array::compute::{scalar_at, slice, take, TakeOptions};
+    use vortex_array::array::PrimitiveArray;
+    use vortex_array::compute::{scalar_at, slice, take};
     use vortex_array::{ArrayLen, IntoArrayData};
 
     use crate::BitPackedArray;
@@ -168,9 +160,7 @@ mod test {
 
         assert!(array.patches().is_some());
 
-        let patch_indices = SparseArray::try_from(array.patches().unwrap())
-            .unwrap()
-            .indices();
+        let patch_indices = array.patches().unwrap().indices().clone();
         assert_eq!(patch_indices.len(), 1);
 
         // Slicing drops the empty patches array.
@@ -201,7 +191,6 @@ mod test {
         let taken = take(
             &sliced,
             PrimitiveArray::from(vec![101i64, 1125i64, 1138i64]).as_ref(),
-            TakeOptions::default(),
         )
         .unwrap();
         assert_eq!(taken.len(), 3);

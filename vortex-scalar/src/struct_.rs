@@ -1,6 +1,7 @@
 use std::ops::Deref;
 use std::sync::Arc;
 
+use itertools::Itertools;
 use vortex_dtype::field::Field;
 use vortex_dtype::{DType, StructDType};
 use vortex_error::{
@@ -12,7 +13,7 @@ use crate::{InnerScalarValue, Scalar};
 
 pub struct StructScalar<'a> {
     dtype: &'a DType,
-    fields: Option<&'a Arc<[InnerScalarValue]>>,
+    fields: Option<&'a Arc<[ScalarValue]>>,
 }
 
 impl<'a> StructScalar<'a> {
@@ -53,7 +54,7 @@ impl<'a> StructScalar<'a> {
             .and_then(|fields| fields.get(idx))
             .map(|field| Scalar {
                 dtype: st.dtypes()[idx].clone(),
-                value: ScalarValue(field.clone()),
+                value: field.clone(),
             })
     }
 
@@ -74,7 +75,7 @@ impl<'a> StructScalar<'a> {
         )
     }
 
-    pub(crate) fn field_values(&self) -> Option<&[InnerScalarValue]> {
+    pub(crate) fn field_values(&self) -> Option<&[ScalarValue]> {
         self.fields.map(Arc::deref)
     }
 
@@ -101,7 +102,7 @@ impl<'a> StructScalar<'a> {
                 .map(|(i, f)| {
                     Scalar {
                         dtype: own_st.dtypes()[i].clone(),
-                        value: ScalarValue(f.clone()),
+                        value: f.clone(),
                     }
                     .cast(&st.dtypes()[i])
                     .map(|s| s.value)
@@ -109,9 +110,7 @@ impl<'a> StructScalar<'a> {
                 .collect::<VortexResult<Vec<_>>>()?;
             Ok(Scalar {
                 dtype: dtype.clone(),
-                value: ScalarValue(InnerScalarValue::List(
-                    fields.iter().cloned().map(|x| x.0).collect(),
-                )),
+                value: ScalarValue(InnerScalarValue::List(fields.into())),
             })
         } else {
             Ok(Scalar::null(dtype.clone()))
@@ -152,7 +151,11 @@ impl Scalar {
         Self {
             dtype,
             value: ScalarValue(InnerScalarValue::List(
-                children.into_iter().map(|x| x.into_value().0).collect(),
+                children
+                    .into_iter()
+                    .map(|x| x.into_value())
+                    .collect_vec()
+                    .into(),
             )),
         }
     }

@@ -7,7 +7,9 @@ use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::array::constant::ConstantArray;
-use crate::compute::{scalar_at, search_sorted_usize, SearchResult, SearchSortedSide};
+use crate::compute::{
+    scalar_at, search_sorted_usize, subtract_scalar, SearchResult, SearchSortedSide,
+};
 use crate::encoding::ids;
 use crate::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
@@ -131,8 +133,13 @@ impl SparseArray {
         )
     }
 
-    /// Return indices as a vector of usize with the indices_offset applied.
-    pub fn resolved_indices(&self) -> Vec<usize> {
+    /// Return indices with the indices_offset applied.
+    pub fn resolved_indices(&self) -> VortexResult<ArrayData> {
+        subtract_scalar(self.indices(), &Scalar::from(self.indices_offset()))
+    }
+
+    /// Return the resolved indices as a `Vec<usize>`.
+    pub fn resolved_indices_usize(&self) -> Vec<usize> {
         let flat_indices = self
             .indices()
             .into_primitive()

@@ -1,8 +1,9 @@
 use std::iter::TrustedLen;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use arrow_array::BooleanArray;
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, MutableBuffer};
+use num_traits::AsPrimitive;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
 
@@ -102,7 +103,7 @@ pub fn filter(array: &ArrayData, mask: FilterMask) -> VortexResult<ArrayData> {
             array.encoding().id(),
         );
 
-        let array_ref = array.clone().into_canonical()?.into_arrow()?;
+        let array_ref = array.clone().into_arrow()?;
         let mask_array = BooleanArray::new(mask.to_boolean_buffer()?, None);
         let filtered = arrow_select::filter::filter(array_ref.as_ref(), &mask_array)?;
 
@@ -117,9 +118,9 @@ pub struct FilterMask {
     array: ArrayData,
     true_count: usize,
     range_selectivity: f64,
-    indices: OnceLock<Vec<usize>>,
-    slices: OnceLock<Vec<(usize, usize)>>,
-    buffer: OnceLock<BooleanBuffer>,
+    indices: Arc<OnceLock<Vec<usize>>>,
+    slices: Arc<OnceLock<Vec<(usize, usize)>>>,
+    buffer: Arc<OnceLock<BooleanBuffer>>,
 }
 
 /// We implement Clone manually to trigger population of our cached indices or slices.
@@ -197,11 +198,14 @@ pub enum FilterIter<'a> {
 
 impl FilterMask {
     /// Create a new FilterMask where the given indices are set.
-    pub fn from_indices<I: IntoIterator<Item = usize>>(length: usize, indices: I) -> Self {
+    pub fn from_indices<V: AsPrimitive<usize>, I: IntoIterator<Item = V>>(
+        length: usize,
+        indices: I,
+    ) -> Self {
         let mut buffer = MutableBuffer::new_null(length);
         indices
             .into_iter()
-            .for_each(|idx| arrow_buffer::bit_util::set_bit(&mut buffer, idx));
+            .for_each(|idx| arrow_buffer::bit_util::set_bit(&mut buffer, idx.as_()));
         Self::from(BooleanBufferBuilder::new_from_buffer(buffer, length).finish())
     }
 
@@ -324,9 +328,9 @@ impl TryFrom<ArrayData> for FilterMask {
             array,
             true_count,
             range_selectivity: selectivity,
-            indices: OnceLock::new(),
-            slices: OnceLock::new(),
-            buffer: OnceLock::new(),
+            indices: Arc::new(OnceLock::new()),
+            slices: Arc::new(OnceLock::new()),
+            buffer: Arc::new(OnceLock::new()),
         })
     }
 }

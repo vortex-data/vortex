@@ -3,7 +3,7 @@ mod compare;
 use vortex_array::array::varbin_scalar;
 use vortex_array::compute::{
     filter, scalar_at, slice, take, CompareFn, ComputeVTable, FilterFn, FilterMask, ScalarAtFn,
-    SliceFn, TakeFn, TakeOptions,
+    SliceFn, TakeFn,
 };
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_buffer::Buffer;
@@ -51,18 +51,13 @@ impl SliceFn<FSSTArray> for FSSTEncoding {
 
 impl TakeFn<FSSTArray> for FSSTEncoding {
     // Take on an FSSTArray is a simple take on the codes array.
-    fn take(
-        &self,
-        array: &FSSTArray,
-        indices: &ArrayData,
-        options: TakeOptions,
-    ) -> VortexResult<ArrayData> {
+    fn take(&self, array: &FSSTArray, indices: &ArrayData) -> VortexResult<ArrayData> {
         Ok(FSSTArray::try_new(
             array.dtype().clone(),
             array.symbols(),
             array.symbol_lengths(),
-            take(array.codes(), indices, options)?,
-            take(array.uncompressed_lengths(), indices, options)?,
+            take(array.codes(), indices)?,
+            take(array.uncompressed_lengths(), indices)?,
         )?
         .into_array())
     }

@@ -5,18 +5,13 @@ use vortex_error::{vortex_err, vortex_panic, VortexResult};
 use crate::array::varbin::builder::VarBinBuilder;
 use crate::array::varbin::VarBinArray;
 use crate::array::VarBinEncoding;
-use crate::compute::{TakeFn, TakeOptions};
+use crate::compute::TakeFn;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 
 impl TakeFn<VarBinArray> for VarBinEncoding {
-    fn take(
-        &self,
-        array: &VarBinArray,
-        indices: &ArrayData,
-        _options: TakeOptions,
-    ) -> VortexResult<ArrayData> {
+    fn take(&self, array: &VarBinArray, indices: &ArrayData) -> VortexResult<ArrayData> {
         let offsets = array.offsets().into_primitive()?;
         let data = array.bytes().into_primitive()?;
         let indices = indices.clone().into_primitive()?;

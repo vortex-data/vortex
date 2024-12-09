@@ -34,6 +34,6 @@ async fn broken_data() {
         .collect_chunked()
         .await
         .unwrap();
-    let round_tripped = arr.into_canonical().unwrap().into_arrow().unwrap();
+    let round_tripped = arr.into_arrow().unwrap();
     assert_eq!(&arrow_arr, round_tripped.as_primitive::<Int32Type>());
 }

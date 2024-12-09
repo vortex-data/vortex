@@ -157,6 +157,13 @@ pub trait ALPFloat: private::Sealed + Float + Display + 'static {
         values
     }
 
+    fn decode_vec(encoded: Vec<Self::ALPInt>, exponents: Exponents) -> Vec<Self> {
+        encoded
+            .into_iter()
+            .map(move |encoded| Self::decode_single(encoded, exponents))
+            .collect_vec()
+    }
+
     #[inline]
     fn decode_single(encoded: Self::ALPInt, exponents: Exponents) -> Self {
         Self::from_int(encoded) * Self::F10[exponents.f as usize] * Self::IF10[exponents.e as usize]

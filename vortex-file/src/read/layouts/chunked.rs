@@ -4,7 +4,7 @@ use std::sync::{Arc, OnceLock, RwLock};
 use itertools::Itertools;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::array::ChunkedArray;
-use vortex_array::compute::{scalar_at, take, TakeOptions};
+use vortex_array::compute::{scalar_at, take};
 use vortex_array::stats::{stats_from_bitset_bytes, ArrayStatistics as _, Stat};
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_dtype::{DType, Nullability, StructDType};
@@ -266,13 +266,7 @@ impl ChunkedLayoutReader {
             .iter()
             .map(|x| *x as u64)
             .collect::<Vec<_>>();
-        let chunks_prunable = take(
-            chunk_prunability,
-            ArrayData::from(layouts),
-            TakeOptions {
-                skip_bounds_check: false,
-            },
-        )?;
+        let chunks_prunable = take(chunk_prunability, ArrayData::from(layouts))?;
 
         if !chunks_prunable
             .statistics()
@@ -409,9 +403,10 @@ mod tests {
     use bytes::Bytes;
     use flatbuffers::{root, FlatBufferBuilder};
     use futures_util::TryStreamExt;
-    use vortex_array::array::{BoolArray, ChunkedArray, PrimitiveArray};
+    use vortex_array::array::{ChunkedArray, PrimitiveArray};
+    use vortex_array::compute::FilterMask;
     use vortex_array::{ArrayDType, ArrayLen, IntoArrayData, IntoArrayVariant};
-    use vortex_dtype::{Nullability, PType};
+    use vortex_dtype::PType;
     use vortex_expr::{BinaryExpr, Identity, Literal, Operator};
     use vortex_flatbuffers::{footer, WriteFlatBuffer};
     use vortex_ipc::messages::writer::MessageWriter;
@@ -582,18 +577,8 @@ mod tests {
         snd_range.append_n(100, true);
         snd_range.append_n(50, false);
         let mut arr = [
-            RowMask::try_new(
-                BoolArray::new(first_range.finish(), Nullability::NonNullable).into_array(),
-                0,
-                200,
-            )
-            .unwrap(),
-            RowMask::try_new(
-                BoolArray::new(snd_range.finish(), Nullability::NonNullable).into_array(),
-                200,
-                400,
-            )
-            .unwrap(),
+            RowMask::try_new(FilterMask::from(first_range.finish()), 0, 200).unwrap(),
+            RowMask::try_new(FilterMask::from(snd_range.finish()), 200, 400).unwrap(),
             RowMask::new_valid_between(400, 500),
         ]
         .into_iter()

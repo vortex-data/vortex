@@ -59,24 +59,14 @@ impl EncodingCompressor for ALPCompressor {
                 ctx.auxiliary("patches")
                     .excluding(self)
                     .including(&ALPRDCompressor)
-                    .compress(&p, like.as_ref().and_then(|l| l.child(1)))
+                    .compress_patches(p)
             })
             .transpose()?;
 
         Ok(CompressedArray::compressed(
-            ALPArray::try_new(
-                compressed_encoded.array,
-                exponents,
-                compressed_patches.as_ref().map(|p| p.array.clone()),
-            )?
-            .into_array(),
-            Some(CompressionTree::new(
-                self,
-                vec![
-                    compressed_encoded.path,
-                    compressed_patches.and_then(|p| p.path),
-                ],
-            )),
+            ALPArray::try_new(compressed_encoded.array, exponents, compressed_patches)?
+                .into_array(),
+            Some(CompressionTree::new(self, vec![compressed_encoded.path])),
             array,
         ))
     }

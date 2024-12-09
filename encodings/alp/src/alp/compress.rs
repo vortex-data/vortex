@@ -1,10 +1,11 @@
-use vortex_array::array::{PrimitiveArray, SparseArray};
+use vortex_array::array::PrimitiveArray;
+use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::{NativePType, PType};
-use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
-use vortex_scalar::{Scalar, ScalarType};
+use vortex_error::{vortex_bail, VortexResult};
+use vortex_scalar::ScalarType;
 
 use crate::alp::{ALPArray, ALPFloat};
 use crate::Exponents;
@@ -27,26 +28,27 @@ macro_rules! match_each_alp_float_ptype {
 pub fn alp_encode_components<T>(
     values: &PrimitiveArray,
     exponents: Option<Exponents>,
-) -> (Exponents, ArrayData, Option<ArrayData>)
+) -> (Exponents, ArrayData, Option<Patches>)
 where
     T: ALPFloat + NativePType,
     T::ALPInt: NativePType,
     T: ScalarType,
 {
+    let patch_validity = match values.validity() {
+        Validity::NonNullable => Validity::NonNullable,
+        _ => Validity::AllValid,
+    };
     let (exponents, encoded, exc_pos, exc) = T::encode(values.maybe_null_slice::<T>(), exponents);
     let len = encoded.len();
     (
         exponents,
         PrimitiveArray::from_vec(encoded, values.validity()).into_array(),
         (!exc.is_empty()).then(|| {
-            SparseArray::try_new(
-                PrimitiveArray::from(exc_pos).into_array(),
-                PrimitiveArray::from_vec(exc, Validity::AllValid).into_array(),
+            Patches::new(
                 len,
-                Scalar::null_typed::<T>(),
+                PrimitiveArray::from(exc_pos).into_array(),
+                PrimitiveArray::from_vec(exc, patch_validity).into_array(),
             )
-            .vortex_expect("Failed to create SparseArray for ALP patches")
-            .into_array()
         }),
     )
 }
@@ -67,40 +69,16 @@ pub fn decompress(array: ALPArray) -> VortexResult<PrimitiveArray> {
     let ptype = array.dtype().try_into()?;
     let decoded = match_each_alp_float_ptype!(ptype, |$T| {
         PrimitiveArray::from_vec(
-            decompress_primitive::<$T>(encoded.into_maybe_null_slice(), array.exponents()),
+            <$T>::decode_vec(encoded.into_maybe_null_slice(), array.exponents()),
             validity,
         )
     });
 
     if let Some(patches) = array.patches() {
-        patch_decoded(decoded, &patches)
+        decoded.patch(patches)
     } else {
         Ok(decoded)
     }
-}
-
-fn patch_decoded(array: PrimitiveArray, patches: &ArrayData) -> VortexResult<PrimitiveArray> {
-    let typed_patches = SparseArray::try_from(patches.clone())?;
-
-    match_each_alp_float_ptype!(array.ptype(), |$T| {
-        let primitive_values = typed_patches.values().into_primitive()?;
-        array.patch(
-            &typed_patches.resolved_indices(),
-            primitive_values.maybe_null_slice::<$T>(),
-            primitive_values.validity())
-    })
-}
-
-fn decompress_primitive<T: NativePType + ALPFloat>(
-    values: Vec<T::ALPInt>,
-    exponents: Exponents,
-) -> Vec<T> {
-    values
-        // NOTE(ngates): Rust should optimise this into_iter.map to re-use the memory
-        //  of the Vec rather than allocating a new one.
-        .into_iter()
-        .map(|v| T::decode_single(v, exponents))
-        .collect()
 }
 
 #[cfg(test)]
