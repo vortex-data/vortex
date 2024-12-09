@@ -8,6 +8,7 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
+use vortex_fastlanes::BitPackedEncoding;
 
 use super::alp_rd::ALPRDCompressor;
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
@@ -73,6 +74,10 @@ impl EncodingCompressor for ALPCompressor {
     }
 
     fn used_encodings(&self) -> HashSet<EncodingRef> {
-        HashSet::from([&ALPEncoding as EncodingRef, &ALPRDEncoding])
+        HashSet::from([
+            &ALPEncoding as EncodingRef,
+            &ALPRDEncoding,
+            &BitPackedEncoding,
+        ])
     }
 }
