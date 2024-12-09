@@ -137,17 +137,19 @@ impl Patches {
         target: T,
         side: SearchSortedSide,
     ) -> VortexResult<SearchResult> {
-        Ok(match search_sorted(self.values(), target.into(), side)? {
-            SearchResult::Found(idx) => SearchResult::Found(if idx == self.indices().len() {
-                self.array_len()
-            } else {
-                usize::try_from(&scalar_at(self.indices(), idx)?)?
-            }),
-            SearchResult::NotFound(idx) => SearchResult::NotFound(if idx == self.indices().len() {
-                self.array_len()
-            } else {
-                usize::try_from(&scalar_at(self.indices(), idx)?)?
-            }),
+        search_sorted(self.values(), target.into(), side).and_then(|sr| {
+            let sidx = sr.to_offsets_index(self.indices().len());
+            let index = usize::try_from(&scalar_at(self.indices(), sidx)?)?;
+            Ok(match sr {
+                SearchResult::Found(i) => SearchResult::Found(if i == self.indices().len() {
+                    index + 1
+                } else {
+                    index
+                }),
+                SearchResult::NotFound(i) => {
+                    SearchResult::NotFound(if i == 0 { index } else { index + 1 })
+                }
+            })
         })
     }
 
@@ -260,9 +262,12 @@ impl Patches {
 
 #[cfg(test)]
 mod test {
+    use rstest::{fixture, rstest};
+
     use crate::array::PrimitiveArray;
-    use crate::compute::FilterMask;
+    use crate::compute::{FilterMask, SearchResult, SearchSortedSide};
     use crate::patches::Patches;
+    use crate::validity::Validity;
     use crate::{IntoArrayData, IntoArrayVariant};
 
     #[test]
@@ -282,5 +287,65 @@ mod test {
         let values = filtered.values().clone().into_primitive().unwrap();
         assert_eq!(indices.maybe_null_slice::<u64>(), &[0, 1]);
         assert_eq!(values.maybe_null_slice::<i32>(), &[100, 200]);
+    }
+
+    #[fixture]
+    fn patches() -> Patches {
+        Patches::new(
+            20,
+            PrimitiveArray::from(vec![2u64, 9, 15]).into_array(),
+            PrimitiveArray::from_vec(vec![33_i32, 44, 55], Validity::AllValid).into_array(),
+        )
+    }
+
+    #[rstest]
+    fn search_larger_than(patches: Patches) {
+        let res = patches.search_sorted(66, SearchSortedSide::Left).unwrap();
+        assert_eq!(res, SearchResult::NotFound(16));
+    }
+
+    #[rstest]
+    fn search_less_than(patches: Patches) {
+        let res = patches.search_sorted(22, SearchSortedSide::Left).unwrap();
+        assert_eq!(res, SearchResult::NotFound(2));
+    }
+
+    #[rstest]
+    fn search_found(patches: Patches) {
+        let res = patches.search_sorted(44, SearchSortedSide::Left).unwrap();
+        assert_eq!(res, SearchResult::Found(9));
+    }
+
+    #[rstest]
+    fn search_not_found_right(patches: Patches) {
+        let res = patches.search_sorted(56, SearchSortedSide::Right).unwrap();
+        assert_eq!(res, SearchResult::NotFound(16));
+    }
+
+    #[rstest]
+    fn search_sliced(patches: Patches) {
+        let sliced = patches.slice(7, 20).unwrap().unwrap();
+        assert_eq!(
+            sliced.search_sorted(22, SearchSortedSide::Left).unwrap(),
+            SearchResult::NotFound(2)
+        );
+    }
+
+    #[test]
+    fn search_right() {
+        let patches = Patches::new(
+            2,
+            PrimitiveArray::from(vec![0u64]).into_array(),
+            PrimitiveArray::from_vec(vec![0u8], Validity::AllValid).into_array(),
+        );
+
+        assert_eq!(
+            patches.search_sorted(0, SearchSortedSide::Right).unwrap(),
+            SearchResult::Found(1)
+        );
+        assert_eq!(
+            patches.search_sorted(1, SearchSortedSide::Right).unwrap(),
+            SearchResult::NotFound(1)
+        );
     }
 }
