@@ -1,7 +1,7 @@
 use arrow_buffer::ArrowNativeType;
 use fastlanes::BitPacking;
 use itertools::Itertools;
-use vortex_array::array::{PrimitiveArray, SparseArray};
+use vortex_array::array::PrimitiveArray;
 use vortex_array::compute::{filter, FilterFn, FilterIter, FilterMask};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
@@ -28,10 +28,9 @@ fn filter_primitive<T: NativePType + BitPacking + ArrowNativeType>(
 
     let patches = array
         .patches()
-        .map(|patches| filter(&patches, mask.clone()))
+        .map(|patches| patches.filter(mask.clone()))
         .transpose()?
-        .map(SparseArray::try_from)
-        .transpose()?;
+        .flatten();
 
     // Short-circuit if the selectivity is high enough.
     if mask.selectivity() > 0.8 {
@@ -51,16 +50,9 @@ fn filter_primitive<T: NativePType + BitPacking + ArrowNativeType>(
     };
 
     let mut values = PrimitiveArray::from_vec(values, validity);
-
     if let Some(patches) = patches {
-        let patch_values = patches.values().into_primitive()?;
-        values = values.patch(
-            &patches.resolved_indices(),
-            patch_values.maybe_null_slice::<T>(),
-            patch_values.validity(),
-        )?;
+        values = values.patch(patches)?;
     }
-
     Ok(values)
 }
 

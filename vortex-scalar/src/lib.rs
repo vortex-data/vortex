@@ -251,7 +251,7 @@ macro_rules! from_vec_for_scalar {
                         value
                             .into_iter()
                             .map(Scalar::from)
-                            .map(|x| x.value.0)
+                            .map(|s| s.into_value())
                             .collect::<Arc<[_]>>(),
                     )),
                 }

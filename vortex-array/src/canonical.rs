@@ -364,6 +364,8 @@ where
     E::Array: TryFrom<ArrayData, Error = VortexError>,
 {
     fn into_canonical(&self, data: ArrayData) -> VortexResult<Canonical> {
+        #[cfg(feature = "canonical_counter")]
+        data.inc_canonical_counter();
         let canonical = E::Array::try_from(data.clone())?.into_canonical()?;
         canonical.inherit_statistics(data.statistics());
         Ok(canonical)
@@ -436,7 +438,7 @@ impl IntoCanonical for ArrayData {
     fn into_canonical(self) -> VortexResult<Canonical> {
         // We only care to know when we canonicalize something non-trivial.
         if !self.is_canonical() && self.len() > 1 {
-            log::debug!("Canonicalizing array with encoding {:?}", self.encoding());
+            log::trace!("Canonicalizing array with encoding {:?}", self.encoding());
         }
         self.encoding().into_canonical(self)
     }

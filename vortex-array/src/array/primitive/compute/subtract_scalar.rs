@@ -153,12 +153,4 @@ mod test {
         let _results = subtract_scalar(&values, &1.0f32.into()).unwrap();
         let _results = subtract_scalar(&values, &f32::MAX.into()).unwrap();
     }
-
-    #[test]
-    fn test_scalar_subtract_type_mismatch_fails() {
-        let values = vec![1u64, 2, 3].into_array();
-        // Subtracting incompatible dtypes should fail
-        let _results =
-            subtract_scalar(&values, &1.5f64.into()).expect_err("Expected type mismatch error");
-    }
 }

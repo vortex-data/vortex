@@ -11,6 +11,7 @@ use vortex_array::compress::{
 };
 use vortex_array::compute::slice;
 use vortex_array::encoding::{Encoding, EncodingRef};
+use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::{ArrayDType, ArrayData, IntoCanonical};
 use vortex_error::{VortexExpect as _, VortexResult};
@@ -20,6 +21,7 @@ use super::compressors::struct_::StructCompressor;
 use super::{CompressConfig, Objective, DEFAULT_COMPRESSORS};
 use crate::compressors::constant::ConstantCompressor;
 use crate::compressors::{CompressedArray, CompressionTree, CompressorRef, EncodingCompressor};
+use crate::downscale::downscale_integer_array;
 use crate::sampling::stratified_slices;
 
 #[derive(Debug, Clone)]
@@ -146,7 +148,7 @@ impl<'a> SamplingCompressor<'a> {
                 check_statistics_unchanged(arr, compressed.as_ref());
                 return Ok(compressed);
             } else {
-                log::warn!("{} cannot compress {} like {}", self, arr, l);
+                log::info!("{} cannot compress {} like {}", self, arr, l);
             }
         }
 
@@ -164,6 +166,15 @@ impl<'a> SamplingCompressor<'a> {
             Validity::Array(a) => Ok(Validity::Array(self.compress(&a, None)?.into_array())),
             a => Ok(a),
         }
+    }
+
+    pub fn compress_patches(&self, patches: Patches) -> VortexResult<Patches> {
+        Ok(Patches::new(
+            patches.array_len(),
+            self.compress(&downscale_integer_array(patches.indices().clone())?, None)?
+                .into_array(),
+            self.compress(patches.values(), None)?.into_array(),
+        ))
     }
 
     pub(crate) fn compress_array(&self, array: &ArrayData) -> VortexResult<CompressedArray<'a>> {

@@ -190,9 +190,8 @@ impl RowMask {
         filter(sliced, self.mask.clone()).map(Some)
     }
 
-    // FIXME(ngates): is it correct that this doesn't respect the offset?
     #[allow(deprecated)]
-    pub fn to_indices_array(&self) -> VortexResult<ArrayData> {
+    fn to_indices_array(&self) -> VortexResult<ArrayData> {
         Ok(PrimitiveArray::from_vec(
             self.mask.iter_indices()?.map(|i| i as u64).collect_vec(),
             Validity::NonNullable,
