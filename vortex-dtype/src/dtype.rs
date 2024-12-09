@@ -140,6 +140,14 @@ impl DType {
             _ => None,
         }
     }
+
+    /// Get the `PType` if `self` is a `PType`, otherwise `None`
+    pub fn as_ptype(&self) -> Option<&PType> {
+        match self {
+            Primitive(p, _) => Some(p),
+            _ => None,
+        }
+    }
 }
 
 impl Display for DType {

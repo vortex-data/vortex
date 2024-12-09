@@ -1,6 +1,7 @@
 #![allow(clippy::cast_possible_truncation)]
 
 pub use array::*;
+use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 
@@ -13,12 +14,11 @@ use std::ops::{Shl, Shr};
 use itertools::Itertools;
 use num_traits::{Float, One, PrimInt};
 use vortex_array::aliases::hash_map::HashMap;
-use vortex_array::array::{PrimitiveArray, SparseArray};
+use vortex_array::array::PrimitiveArray;
 use vortex_array::{ArrayDType, IntoArrayData};
 use vortex_dtype::{DType, NativePType};
-use vortex_error::{VortexExpect, VortexUnwrap};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult, VortexUnwrap};
 use vortex_fastlanes::bitpack_encode_unchecked;
-use vortex_scalar::Scalar;
 
 use crate::match_each_alp_float_ptype;
 
@@ -222,7 +222,7 @@ impl RDEncoder {
 
         // Bit-pack the dict-encoded left-parts
         // Bit-pack the right-parts
-        // SparseArray for exceptions.
+        // Patches for exceptions.
         let exceptions = (!exceptions_pos.is_empty()).then(|| {
             let max_exc_pos = exceptions_pos.last().copied().unwrap_or_default();
             let bw = bit_width!(max_exc_pos) as u8;
@@ -235,16 +235,14 @@ impl RDEncoder {
                     .into_array()
             };
 
-            let exc_array = PrimitiveArray::from_vec(exceptions, Validity::AllValid).into_array();
-            let nullable_dtype = exc_array.dtype().as_nullable();
-            SparseArray::try_new(
-                packed_pos,
-                exc_array,
-                doubles.len(),
-                Scalar::null(nullable_dtype),
-            )
-            .vortex_expect("ALP-RD: construction of exceptions SparseArray")
-            .into_array()
+            let exception_validity = Validity::NonNullable;
+            // if array.dtype().is_nullable() {
+            //     Validity::AllValid
+            // } else {
+            //     Validity::NonNullable
+            // };
+            let exc_array = PrimitiveArray::from_vec(exceptions, exception_validity).into_array();
+            Patches::new(doubles.len(), packed_pos, exc_array)
         });
 
         ALPRDArray::try_new(
@@ -271,42 +269,38 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
     left_parts_dict: &[u16],
     right_bit_width: u8,
     right_parts: &[T::UINT],
-    exc_pos: &[u64],
-    exceptions: &[u16],
-) -> Vec<T> {
-    assert_eq!(
-        left_parts.len(),
-        right_parts.len(),
-        "alp_rd_decode: left_parts.len != right_parts.len"
-    );
-
-    assert_eq!(
-        exc_pos.len(),
-        exceptions.len(),
-        "alp_rd_decode: exc_pos.len != exceptions.len"
-    );
+    left_parts_patches: Option<Patches>,
+) -> VortexResult<Vec<T>> {
+    if left_parts.len() != right_parts.len() {
+        vortex_bail!("alp_rd_decode: left_parts.len != right_parts.len");
+    }
 
     let mut dict = Vec::with_capacity(left_parts_dict.len());
     dict.extend_from_slice(left_parts_dict);
 
-    let mut left_parts_decoded: Vec<T::UINT> = Vec::with_capacity(left_parts.len());
+    let mut left_parts_decoded: Vec<u16> = Vec::with_capacity(left_parts.len());
 
     // Decode with bit-packing and dict unpacking.
     for code in left_parts {
-        left_parts_decoded.push(<T as ALPRDFloat>::from_u16(dict[*code as usize]));
+        left_parts_decoded.push(dict[*code as usize]);
     }
 
-    // Apply the exception patches to left_parts
-    for (pos, val) in exc_pos.iter().zip(exceptions.iter()) {
-        left_parts_decoded[*pos as usize] = <T as ALPRDFloat>::from_u16(*val);
-    }
+    let patched_left_parts = match left_parts_patches {
+        Some(patches) => PrimitiveArray::from(left_parts_decoded)
+            .patch(patches)?
+            .into_maybe_null_slice::<u16>(),
+        None => left_parts_decoded,
+    };
 
     // recombine the left-and-right parts, adjusting by the right_bit_width.
-    left_parts_decoded
+    Ok(patched_left_parts
         .into_iter()
         .zip(right_parts.iter().copied())
-        .map(|(left, right)| T::from_bits((left << (right_bit_width as usize)) | right))
-        .collect()
+        .map(|(left, right)| {
+            let left = <T as ALPRDFloat>::from_u16(left);
+            T::from_bits((left << (right_bit_width as usize)) | right)
+        })
+        .collect())
 }
 
 /// Find the best "cut point" for a set of floating point values such that we can

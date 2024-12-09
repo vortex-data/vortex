@@ -7,9 +7,10 @@ use crate::{ALPRDArray, ALPRDEncoding};
 impl FilterFn<ALPRDArray> for ALPRDEncoding {
     fn filter(&self, array: &ALPRDArray, mask: FilterMask) -> VortexResult<ArrayData> {
         let left_parts_exceptions = array
-            .left_parts_exceptions()
-            .map(|array| filter(&array, mask.clone()))
-            .transpose()?;
+            .left_parts_patches()
+            .map(|patches| patches.filter(mask.clone()))
+            .transpose()?
+            .flatten();
 
         Ok(ALPRDArray::try_new(
             array.dtype().clone(),
@@ -40,7 +41,7 @@ mod test {
         let encoded = RDEncoder::new(&[a, b]).encode(&array);
 
         // Make sure that we're testing the exception pathway.
-        assert!(encoded.left_parts_exceptions().is_some());
+        assert!(encoded.left_parts_patches().is_some());
 
         // The first two values need no patching
         let filtered = filter(encoded.as_ref(), FilterMask::from_iter([true, false, true]))

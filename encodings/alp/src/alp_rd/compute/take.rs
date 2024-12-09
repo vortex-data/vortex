@@ -7,9 +7,10 @@ use crate::{ALPRDArray, ALPRDEncoding};
 impl TakeFn<ALPRDArray> for ALPRDEncoding {
     fn take(&self, array: &ALPRDArray, indices: &ArrayData) -> VortexResult<ArrayData> {
         let left_parts_exceptions = array
-            .left_parts_exceptions()
-            .map(|array| take(&array, indices))
-            .transpose()?;
+            .left_parts_patches()
+            .map(|patches| patches.take(indices))
+            .transpose()?
+            .flatten();
 
         Ok(ALPRDArray::try_new(
             array.dtype().clone(),
@@ -39,7 +40,12 @@ mod test {
         let array = PrimitiveArray::from(vec![a, b, outlier]);
         let encoded = RDEncoder::new(&[a, b]).encode(&array);
 
-        assert!(encoded.left_parts_exceptions().is_some());
+        assert!(encoded.left_parts_patches().is_some());
+        assert!(encoded
+            .left_parts_patches()
+            .unwrap()
+            .dtype()
+            .is_unsigned_int());
 
         let taken = take(encoded.as_ref(), PrimitiveArray::from(vec![0, 2]).as_ref())
             .unwrap()

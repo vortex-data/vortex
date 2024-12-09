@@ -1,5 +1,4 @@
 use vortex_array::compute::{scalar_at, ScalarAtFn};
-use vortex_array::validity::ArrayValidity;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
@@ -10,10 +9,13 @@ impl ScalarAtFn<ALPRDArray> for ALPRDEncoding {
     fn scalar_at(&self, array: &ALPRDArray, index: usize) -> VortexResult<Scalar> {
         // The left value can either be a direct value, or an exception.
         // The exceptions array represents exception positions with non-null values.
-        let left: u16 = match array.left_parts_exceptions() {
-            Some(exceptions) if exceptions.is_valid(index) => {
-                scalar_at(&exceptions, index)?.try_into()?
-            }
+        let maybe_patched_value = array
+            .left_parts_patches()
+            .map(|patches| patches.get_patched(index))
+            .transpose()?
+            .flatten();
+        let left = match maybe_patched_value {
+            Some(patched_value) => u16::try_from(patched_value)?,
             _ => {
                 let left_code: u16 = scalar_at(array.left_parts(), index)?.try_into()?;
                 array.left_parts_dict()[left_code as usize]
@@ -54,7 +56,7 @@ mod test {
         let encoded = RDEncoder::new(&[a, b]).encode(&array);
 
         // Make sure that we're testing the exception pathway.
-        assert!(encoded.left_parts_exceptions().is_some());
+        assert!(encoded.left_parts_patches().is_some());
 
         // The first two values need no patching
         assert_eq!(scalar_at(encoded.as_ref(), 0).unwrap(), a.into());

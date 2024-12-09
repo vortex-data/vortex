@@ -84,6 +84,18 @@ impl SearchResult {
             idx
         }
     }
+
+    /// Apply a transformation to the Found or NotFound index.
+    #[inline]
+    pub fn map<F>(self, f: F) -> SearchResult
+    where
+        F: FnOnce(usize) -> usize,
+    {
+        match self {
+            SearchResult::Found(i) => SearchResult::Found(f(i)),
+            SearchResult::NotFound(i) => SearchResult::NotFound(f(i)),
+        }
+    }
 }
 
 impl Display for SearchResult {

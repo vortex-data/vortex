@@ -1,8 +1,9 @@
 use std::fmt::{Debug, Display};
 
 use serde::{Deserialize, Serialize};
-use vortex_array::array::{PrimitiveArray, SparseArray};
+use vortex_array::array::PrimitiveArray;
 use vortex_array::encoding::ids;
+use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::stats::{StatisticsVTable, StatsSet};
 use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
@@ -22,7 +23,7 @@ pub struct ALPRDMetadata {
     dict_len: u8,
     dict: [u16; 8],
     left_parts_ptype: PType,
-    has_exceptions: bool,
+    patches: Option<PatchesMetadata>,
 }
 
 impl Display for ALPRDMetadata {
@@ -38,7 +39,7 @@ impl ALPRDArray {
         left_parts_dict: impl AsRef<[u16]>,
         right_parts: ArrayData,
         right_bit_width: u8,
-        left_parts_exceptions: Option<ArrayData>,
+        left_parts_patches: Option<Patches>,
     ) -> VortexResult<Self> {
         if !dtype.is_float() {
             vortex_bail!("ALPRDArray given invalid DType ({dtype})");
@@ -75,16 +76,24 @@ impl ALPRDArray {
             vortex_bail!(MismatchedTypes: "non-nullable uint", right_parts.dtype());
         }
 
-        let mut children = vec![left_parts, right_parts];
-        let has_exceptions = left_parts_exceptions.is_some();
+        let mut children = vec![left_parts.clone(), right_parts];
 
-        if let Some(exceptions) = left_parts_exceptions {
-            // Enforce that the exceptions are SparseArray so that we have access to indices and values.
-            if exceptions.encoding().id().code() != ids::SPARSE {
-                vortex_bail!("left_parts_exceptions must be SparseArray encoded");
+        if let Some(patches) = left_parts_patches.as_ref() {
+            if patches.values().dtype().is_nullable() {
+                vortex_bail!("bad: {}", patches.values());
             }
-            children.push(exceptions);
         }
+
+        let patches = left_parts_patches
+            .map(|patches| -> VortexResult<_> {
+                let metadata =
+                    patches.to_metadata(left_parts.len(), &left_parts.dtype().as_nonnullable());
+                let (_, indices, values) = patches.into_parts();
+                children.push(indices);
+                children.push(values);
+                metadata
+            })
+            .transpose()?;
 
         let mut dict = [0u16; 8];
         for (idx, v) in left_parts_dict.as_ref().iter().enumerate() {
@@ -99,7 +108,7 @@ impl ALPRDArray {
                 dict_len: left_parts_dict.as_ref().len() as u8,
                 dict,
                 left_parts_ptype,
-                has_exceptions,
+                patches,
             },
             children.into(),
             StatsSet::default(),
@@ -121,6 +130,12 @@ impl ALPRDArray {
         DType::Primitive(self.metadata().left_parts_ptype, self.dtype().nullability())
     }
 
+    /// The dtype of the exceptions of the left parts of the array.
+    #[inline]
+    fn left_parts_exceptions_dtype(&self) -> DType {
+        DType::Primitive(self.metadata().left_parts_ptype, Nullability::NonNullable)
+    }
+
     /// The dtype of the right parts of the array.
     #[inline]
     fn right_parts_dtype(&self) -> DType {
@@ -132,12 +147,6 @@ impl ALPRDArray {
             },
             Nullability::NonNullable,
         )
-    }
-
-    /// The dtype of the exceptions of the left parts of the array.
-    #[inline]
-    fn left_parts_exceptions_dtype(&self) -> DType {
-        DType::Primitive(self.metadata().left_parts_ptype, Nullability::Nullable)
     }
 
     /// The leftmost (most significant) bits of the floating point values stored in the array.
@@ -158,11 +167,17 @@ impl ALPRDArray {
     }
 
     /// Patches of left-most bits.
-    pub fn left_parts_exceptions(&self) -> Option<ArrayData> {
-        self.metadata().has_exceptions.then(|| {
-            self.as_ref()
-                .child(2, &self.left_parts_exceptions_dtype(), self.len())
-                .vortex_expect("ALPRDArray: left_parts_exceptions child")
+    pub fn left_parts_patches(&self) -> Option<Patches> {
+        self.metadata().patches.as_ref().map(|metadata| {
+            Patches::new(
+                self.len(),
+                self.as_ref()
+                    .child(2, &metadata.indices_dtype(), metadata.len())
+                    .vortex_expect("ALPRDArray: patch indices"),
+                self.as_ref()
+                    .child(3, &self.left_parts_exceptions_dtype(), metadata.len())
+                    .vortex_expect("ALPRDArray: patch values"),
+            )
         })
     }
 
@@ -186,26 +201,6 @@ impl IntoCanonical for ALPRDArray {
         // Decode the left_parts using our builtin dictionary.
         let left_parts_dict = &self.metadata().dict[0..self.metadata().dict_len as usize];
 
-        let exc_pos: Vec<u64>;
-        let exc_u16: PrimitiveArray;
-
-        if let Some(left_parts_exceptions) = self.left_parts_exceptions() {
-            let left_parts_exceptions = SparseArray::try_from(left_parts_exceptions)
-                .vortex_expect("ALPRDArray: exceptions must be SparseArray encoded");
-            exc_pos = left_parts_exceptions
-                .resolved_indices_usize()
-                .into_iter()
-                .map(|v| v as _)
-                .collect();
-            exc_u16 = left_parts_exceptions
-                .values()
-                .into_canonical()?
-                .into_primitive()?;
-        } else {
-            exc_pos = Vec::new();
-            exc_u16 = PrimitiveArray::from(Vec::<u16>::new());
-        }
-
         let decoded_array = if self.is_f32() {
             PrimitiveArray::from_vec(
                 alp_rd_decode::<f32>(
@@ -213,9 +208,8 @@ impl IntoCanonical for ALPRDArray {
                     left_parts_dict,
                     self.metadata().right_bit_width,
                     right_parts.maybe_null_slice::<u32>(),
-                    &exc_pos,
-                    exc_u16.maybe_null_slice::<u16>(),
-                ),
+                    self.left_parts_patches(),
+                )?,
                 self.logical_validity().into_validity(),
             )
         } else {
@@ -225,9 +219,8 @@ impl IntoCanonical for ALPRDArray {
                     left_parts_dict,
                     self.metadata().right_bit_width,
                     right_parts.maybe_null_slice::<u64>(),
-                    &exc_pos,
-                    exc_u16.maybe_null_slice::<u16>(),
-                ),
+                    self.left_parts_patches(),
+                )?,
                 self.logical_validity().into_validity(),
             )
         };
@@ -252,8 +245,8 @@ impl VisitorVTable<ALPRDArray> for ALPRDEncoding {
     fn accept(&self, array: &ALPRDArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
         visitor.visit_child("left_parts", &array.left_parts())?;
         visitor.visit_child("right_parts", &array.right_parts())?;
-        if let Some(left_parts_exceptions) = array.left_parts_exceptions() {
-            visitor.visit_child("left_parts_exceptions", &left_parts_exceptions)
+        if let Some(patches) = array.left_parts_patches() {
+            visitor.visit_patches(&patches)
         } else {
             Ok(())
         }
@@ -275,7 +268,7 @@ mod test {
     #[rstest]
     #[case(vec![0.1f32.next_up(); 1024], 1.123_848_f32)]
     #[case(vec![0.1f64.next_up(); 1024], 1.123_848_591_110_992_f64)]
-    fn test_array_encode_with_nulls_and_exceptions<T: ALPRDFloat>(
+    fn test_array_encode_with_nulls_and_patches<T: ALPRDFloat>(
         #[case] reals: Vec<T>,
         #[case] seed: T,
     ) {
@@ -289,7 +282,7 @@ mod test {
         // Create a new array from this.
         let real_array = PrimitiveArray::from_nullable_vec(reals.clone());
 
-        // Pick a seed that we know will trigger lots of exceptions.
+        // Pick a seed that we know will trigger lots of patches.
         let encoder: alp_rd::RDEncoder = alp_rd::RDEncoder::new(&[seed.powi(-2)]);
 
         let rd_array = encoder.encode(&real_array);

@@ -1,11 +1,15 @@
 use std::fmt::Debug;
+use std::hash::Hash;
 
 use serde::{Deserialize, Serialize};
 use vortex_dtype::Nullability::NonNullable;
-use vortex_dtype::{match_each_integer_ptype, DType, PType};
+use vortex_dtype::{
+    match_each_integer_ptype, match_each_unsigned_integer_ptype, DType, NativeIndexPType, PType,
+};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
+use crate::aliases::hash_map::HashMap;
 use crate::array::PrimitiveArray;
 use crate::compute::{
     scalar_at, search_sorted, search_sorted_usize, search_sorted_usize_many, slice,
@@ -35,6 +39,10 @@ impl PatchesMetadata {
 
     #[inline]
     pub fn indices_dtype(&self) -> DType {
+        assert!(
+            self.indices_ptype.is_unsigned_int(),
+            "Patch indices must be unsigned integers"
+        );
         DType::Primitive(self.indices_ptype, NonNullable)
     }
 }
@@ -54,7 +62,10 @@ impl Patches {
             values.len(),
             "Patch indices and values must have the same length"
         );
-        assert!(indices.dtype().is_int(), "Patch indices must be integers");
+        assert!(
+            indices.dtype().is_unsigned_int(),
+            "Patch indices must be unsigned integers"
+        );
         assert!(
             indices.len() <= array_len,
             "Patch indices must be shorter than the array length"
@@ -75,6 +86,10 @@ impl Patches {
         }
     }
 
+    pub fn into_parts(self) -> (usize, ArrayData, ArrayData) {
+        (self.array_len, self.indices, self.values)
+    }
+
     pub fn array_len(&self) -> usize {
         self.array_len
     }
@@ -91,8 +106,16 @@ impl Patches {
         &self.indices
     }
 
+    pub fn into_indices(self) -> ArrayData {
+        self.indices
+    }
+
     pub fn values(&self) -> &ArrayData {
         &self.values
+    }
+
+    pub fn into_values(self) -> ArrayData {
+        self.values
     }
 
     pub fn indices_ptype(&self) -> PType {
@@ -122,13 +145,16 @@ impl Patches {
 
     /// Get the patched value at a given index if it exists.
     pub fn get_patched(&self, index: usize) -> VortexResult<Option<Scalar>> {
-        if let Some(patch_idx) =
-            search_sorted_usize(self.indices(), index, SearchSortedSide::Left)?.to_found()
-        {
+        if let Some(patch_idx) = self.search_index(index)?.to_found() {
             scalar_at(self.values(), patch_idx).map(Some)
         } else {
             Ok(None)
         }
+    }
+
+    /// Return the insertion point of [index] in the [Self::indices].
+    fn search_index(&self, index: usize) -> VortexResult<SearchResult> {
+        search_sorted_usize(&self.indices, index, SearchSortedSide::Left)
     }
 
     /// Return the search_sorted result for the given target re-mapped into the original indices.
@@ -201,10 +227,8 @@ impl Patches {
 
     /// Slice the patches by a range of the patched array.
     pub fn slice(&self, start: usize, stop: usize) -> VortexResult<Option<Self>> {
-        let patch_start =
-            search_sorted_usize(self.indices(), start, SearchSortedSide::Left)?.to_index();
-        let patch_stop =
-            search_sorted_usize(self.indices(), stop, SearchSortedSide::Left)?.to_index();
+        let patch_start = self.search_index(start)?.to_index();
+        let patch_stop = self.search_index(stop)?.to_index();
 
         if patch_start == patch_stop {
             return Ok(None);
@@ -220,15 +244,33 @@ impl Patches {
         Ok(Some(Self::new(stop - start, indices, values)))
     }
 
+    // https://docs.google.com/spreadsheets/d/1D9vBZ1QJ6mwcIvV5wIL0hjGgVchcEnAyhvitqWu2ugU
+    const PREFER_MAP_WHEN_PATCHES_OVER_INDICES_LESS_THAN: f64 = 5.0;
+
+    fn is_map_faster_than_search(&self, take_indices: &ArrayData) -> bool {
+        (self.num_patches() as f64 / take_indices.len() as f64)
+            < Self::PREFER_MAP_WHEN_PATCHES_OVER_INDICES_LESS_THAN
+    }
+
     /// Take the indices from the patches.
-    pub fn take(&self, indices: &ArrayData) -> VortexResult<Option<Self>> {
-        if indices.is_empty() {
+    pub fn take(&self, take_indices: &ArrayData) -> VortexResult<Option<Self>> {
+        if self.is_map_faster_than_search(take_indices) {
+            self.take_map(take_indices)
+        } else {
+            self.take_search(take_indices)
+        }
+    }
+
+    pub fn take_search(&self, take_indices: &ArrayData) -> VortexResult<Option<Self>> {
+        let new_length = take_indices.len();
+
+        if take_indices.is_empty() {
             return Ok(None);
         }
 
         // TODO(ngates): plenty of optimisations to be made here
         let take_indices =
-            try_cast(indices, &DType::Primitive(PType::U64, NonNullable))?.into_primitive()?;
+            try_cast(take_indices, &DType::Primitive(PType::U64, NonNullable))?.into_primitive()?;
 
         let (values_indices, new_indices): (Vec<u64>, Vec<u64>) = search_sorted_usize_many(
             self.indices(),
@@ -258,7 +300,104 @@ impl Patches {
             PrimitiveArray::from_vec(values_indices, Validity::NonNullable).into_array();
         let new_values = take(self.values(), values_indices)?;
 
-        Ok(Some(Self::new(indices.len(), new_indices, new_values)))
+        Ok(Some(Self::new(new_length, new_indices, new_values)))
+    }
+
+    pub fn take_map(&self, take_indices: &ArrayData) -> VortexResult<Option<Self>> {
+        let take_indices = try_cast(
+            take_indices,
+            &DType::Primitive(
+                take_indices
+                    .dtype()
+                    .as_ptype()
+                    .vortex_expect("indices must be primitive")
+                    .to_unsigned(),
+                NonNullable,
+            ),
+        )?
+        .into_primitive()?;
+        match_each_unsigned_integer_ptype!(self.indices_ptype(), |$INDICES| {
+            let indices = self.indices
+                .clone()
+                .into_primitive()?;
+            let indices = indices
+                .maybe_null_slice::<$INDICES>();
+            match_each_unsigned_integer_ptype!(take_indices.ptype(), |$TAKE_INDICES| {
+                let take_indices = take_indices
+                    .into_primitive()?;
+                let take_indices = take_indices
+                    .maybe_null_slice::<$TAKE_INDICES>();
+                return self.take_map_helper(indices, take_indices);
+            });
+        });
+    }
+
+    fn take_map_helper<I: NativeIndexPType + Hash + Eq, TI: NativeIndexPType>(
+        &self,
+        indices: &[I],
+        take_indices: &[TI],
+    ) -> VortexResult<Option<Self>> {
+        let new_length = take_indices.len();
+        let sparse_index_to_value_index: HashMap<I, usize> = indices
+            .iter()
+            .enumerate()
+            .map(|(value_index, sparse_index)| (*sparse_index, value_index))
+            .collect();
+        let min_index = self.min_index()?;
+        let max_index = self.max_index()?;
+        let (new_sparse_indices, value_indices): (Vec<u64>, Vec<u64>) = take_indices
+            .iter()
+            .enumerate()
+            .filter(|(_, ti)| ti.as_usize() >= min_index && ti.as_usize() <= max_index)
+            .filter_map(|(new_sparse_index, take_sparse_index)| {
+                sparse_index_to_value_index
+                    .get(&I::usize_as(take_sparse_index.as_usize()))
+                    // FIXME(DK): should we choose a small index width or should the compressor do that?
+                    .map(|value_index| (new_sparse_index as u64, *value_index as u64))
+            })
+            .unzip();
+
+        if new_sparse_indices.is_empty() {
+            return Ok(None);
+        }
+
+        Ok(Some(Patches::new(
+            new_length,
+            ArrayData::from(new_sparse_indices),
+            take(self.values(), ArrayData::from(value_indices))?,
+        )))
+    }
+
+    pub fn map_values<F>(self, f: F) -> VortexResult<Self>
+    where
+        F: FnOnce(ArrayData) -> VortexResult<ArrayData>,
+    {
+        let values = f(self.values)?;
+        if self.indices.len() != values.len() {
+            vortex_bail!(
+                "map_values must preserve length: expected {} received {}",
+                self.indices.len(),
+                values.len()
+            )
+        }
+        Ok(Self::new(self.array_len, self.indices, values))
+    }
+
+    pub fn map_values_opt<F>(self, f: F) -> VortexResult<Option<Self>>
+    where
+        F: FnOnce(ArrayData) -> Option<ArrayData>,
+    {
+        let Some(values) = f(self.values) else {
+            return Ok(None);
+        };
+        if self.indices.len() == values.len() {
+            vortex_bail!(
+                "map_values must preserve length: expected {} received {}",
+                self.indices.len(),
+                values.len()
+            )
+        }
+        Ok(Some(Self::new(self.array_len, self.indices, values)))
     }
 }
 

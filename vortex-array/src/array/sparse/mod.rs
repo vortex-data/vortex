@@ -1,23 +1,17 @@
 use std::fmt::{Debug, Display};
 
 use ::serde::{Deserialize, Serialize};
-use vortex_dtype::Nullability::NonNullable;
-use vortex_dtype::{match_each_integer_ptype, DType, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::array::constant::ConstantArray;
-use crate::compute::{
-    scalar_at, search_sorted_usize, subtract_scalar, SearchResult, SearchSortedSide,
-};
+use crate::compute::{scalar_at, subtract_scalar};
 use crate::encoding::ids;
+use crate::patches::{Patches, PatchesMetadata};
 use crate::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
-use crate::variants::PrimitiveArrayTrait;
 use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, IntoArrayData, IntoArrayVariant,
-};
+use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, IntoArrayData};
 
 mod canonical;
 mod compute;
@@ -29,8 +23,7 @@ impl_encoding!("vortex.sparse", ids::SPARSE, Sparse);
 pub struct SparseMetadata {
     // Offset value for patch indices as a result of slicing
     indices_offset: usize,
-    indices_len: usize,
-    indices_ptype: PType,
+    patches: PatchesMetadata,
     fill_value: ScalarValue,
 }
 
@@ -57,13 +50,6 @@ impl SparseArray {
         indices_offset: usize,
         fill_value: Scalar,
     ) -> VortexResult<Self> {
-        if fill_value.dtype() != values.dtype() {
-            vortex_bail!(
-                "fill value, {:?}, should be instance of values dtype, {}",
-                fill_value,
-                values.dtype(),
-            );
-        }
         if indices.len() != values.len() {
             vortex_bail!(
                 "Mismatched indices {} and values {} length",
@@ -80,18 +66,36 @@ impl SparseArray {
             }
         }
 
-        let indices_ptype = PType::try_from(indices.dtype())?;
+        let patches = Patches::new(len, indices, values);
+
+        Self::try_new_from_patches(patches, len, indices_offset, fill_value)
+    }
+
+    pub fn try_new_from_patches(
+        patches: Patches,
+        len: usize,
+        indices_offset: usize,
+        fill_value: Scalar,
+    ) -> VortexResult<Self> {
+        if fill_value.dtype() != patches.values().dtype() {
+            vortex_bail!(
+                "fill value, {:?}, should be instance of values dtype, {}",
+                fill_value,
+                patches.values().dtype(),
+            );
+        }
+
+        let patches_metadata = patches.to_metadata(len, patches.dtype())?;
 
         Self::try_from_parts(
-            values.dtype().clone(),
+            patches.dtype().clone(),
             len,
             SparseMetadata {
                 indices_offset,
-                indices_len: indices.len(),
-                indices_ptype,
+                patches: patches_metadata,
                 fill_value: fill_value.into_value(),
             },
-            [indices, values].into(),
+            [patches.indices().clone(), patches.values().clone()].into(),
             StatsSet::default(),
         )
     }
@@ -102,108 +106,132 @@ impl SparseArray {
     }
 
     #[inline]
-    pub fn values(&self) -> ArrayData {
-        self.as_ref()
-            .child(1, self.dtype(), self.metadata().indices_len)
-            .vortex_expect("Missing child array in SparseArray")
+    pub fn patches(&self) -> Patches {
+        let indices = self
+            .as_ref()
+            .child(
+                0,
+                &self.metadata().patches.indices_dtype(),
+                self.metadata().patches.len(),
+            )
+            .vortex_expect("Missing indices array in SparseArray");
+        let values = self
+            .as_ref()
+            .child(1, self.dtype(), self.metadata().patches.len())
+            .vortex_expect("Missing values array in SparseArray");
+        Patches::new(self.len(), indices, values)
     }
 
     #[inline]
-    pub fn indices(&self) -> ArrayData {
-        self.as_ref()
-            .child(
-                0,
-                &DType::Primitive(self.metadata().indices_ptype, NonNullable),
-                self.metadata().indices_len,
-            )
-            .vortex_expect("Missing indices array in SparseArray")
+    pub fn resolved_patches(&self) -> VortexResult<Patches> {
+        let (len, indices, values) = self.patches().into_parts();
+        let indices = subtract_scalar(indices, &Scalar::from(self.indices_offset()))?;
+        Ok(Patches::new(len, indices, values))
     }
+
+    // #[inline]
+    // pub fn values(&self) -> ArrayData {
+    //     self.as_ref()
+    //         .child(1, self.dtype(), self.metadata().patches.len())
+    //         .vortex_expect("Missing child array in SparseArray")
+    // }
+
+    // #[inline]
+    // pub fn indices(&self) -> ArrayData {
+    //     self.as_ref()
+    //         .child(
+    //             0,
+    //             &self.metadata().patches.indices_dtype(),
+    //             self.metadata().patches.len(),
+    //         )
+    //         .vortex_expect("Missing indices array in SparseArray")
+    // }
 
     #[inline]
     pub fn fill_scalar(&self) -> Scalar {
         Scalar::new(self.dtype().clone(), self.metadata().fill_value.clone())
     }
 
-    /// Returns the position or the insertion point of a given index in the indices array.
-    fn search_index(&self, index: usize) -> VortexResult<SearchResult> {
-        search_sorted_usize(
-            &self.indices(),
-            self.indices_offset() + index,
-            SearchSortedSide::Left,
-        )
-    }
+    // /// Returns the position or the insertion point of a given index in the indices array.
+    // fn search_index(&self, index: usize) -> VortexResult<SearchResult> {
+    //     search_sorted_usize(
+    //         &self.indices(),
+    //         self.indices_offset() + index,
+    //         SearchSortedSide::Left,
+    //     )
+    // }
 
-    /// Return indices with the indices_offset applied.
-    pub fn resolved_indices(&self) -> VortexResult<ArrayData> {
-        subtract_scalar(self.indices(), &Scalar::from(self.indices_offset()))
-    }
+    // /// Return indices with the indices_offset applied.
+    // pub fn resolved_indices(&self) -> VortexResult<ArrayData> {
+    //     subtract_scalar(self.indices(), &Scalar::from(self.indices_offset()))
+    // }
 
-    /// Return the resolved indices as a `Vec<usize>`.
-    pub fn resolved_indices_usize(&self) -> Vec<usize> {
-        let flat_indices = self
-            .indices()
-            .into_primitive()
-            .vortex_expect("Failed to convert SparseArray indices to primitive array");
-        match_each_integer_ptype!(flat_indices.ptype(), |$P| {
-            flat_indices
-                .maybe_null_slice::<$P>()
-                .iter()
-                .map(|v| (*v as usize) - self.indices_offset())
-                .collect::<Vec<_>>()
-        })
-    }
+    // /// Return the resolved indices as a `Vec<usize>`.
+    // pub fn resolved_indices_usize(&self) -> Vec<usize> {
+    //     let flat_indices = self
+    //         .indices()
+    //         .into_primitive()
+    //         .vortex_expect("Failed to convert SparseArray indices to primitive array");
+    //     match_each_integer_ptype!(flat_indices.ptype(), |$P| {
+    //         flat_indices
+    //             .maybe_null_slice::<$P>()
+    //             .iter()
+    //             .map(|v| (*v as usize) - self.indices_offset())
+    //             .collect::<Vec<_>>()
+    //     })
+    // }
 
-    /// Return the minimum index if indices are present.
-    ///
-    /// If this sparse array has no indices (i.e. all elements are equal to fill_value)
-    /// then it returns None.
-    pub fn min_index(&self) -> Option<usize> {
-        (!self.indices().is_empty()).then(|| {
-            let min_index: usize = scalar_at(self.indices(), 0)
-                .and_then(|s| s.as_ref().try_into())
-                .vortex_expect("SparseArray indices is non-empty");
-            min_index - self.indices_offset()
-        })
-    }
+    // /// Return the minimum index if indices are present.
+    // ///
+    // /// If this sparse array has no indices (i.e. all elements are equal to fill_value)
+    // /// then it returns None.
+    // pub fn min_index(&self) -> Option<usize> {
+    //     (!self.indices().is_empty()).then(|| {
+    //         let min_index: usize = scalar_at(self.indices(), 0)
+    //             .and_then(|s| s.as_ref().try_into())
+    //             .vortex_expect("SparseArray indices is non-empty");
+    //         min_index - self.indices_offset()
+    //     }))
+    // }
 
-    /// Return the maximum index if indices are present.
-    ///
-    /// If this sparse array has no indices (i.e. all elements are equal to fill_value)
-    /// then it returns None.
-    pub fn max_index(&self) -> Option<usize> {
-        (!self.indices().is_empty()).then(|| {
-            let max_index: usize = scalar_at(self.indices(), self.indices().len() - 1)
-                .and_then(|s| s.as_ref().try_into())
-                .vortex_expect("SparseArray indices is non-empty");
-            max_index - self.indices_offset()
-        })
-    }
+    // /// Return the maximum index if indices are present.
+    // ///
+    // /// If this sparse array has no indices (i.e. all elements are equal to fill_value)
+    // /// then it returns None.
+    // pub fn max_index(&self) -> Option<usize> {
+    //     (!self.indices().is_empty()).then(|| {
+    //         let max_index: usize = scalar_at(self.indices(), self.indices().len() - 1)
+    //             .and_then(|s| s.as_ref().try_into())
+    //             .vortex_expect("SparseArray indices is non-empty");
+    //         max_index - self.indices_offset()
+    //     })
+    // }
 }
 
 impl ArrayTrait for SparseArray {}
 
 impl VisitorVTable<SparseArray> for SparseEncoding {
     fn accept(&self, array: &SparseArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_child("indices", &array.indices())?;
-        visitor.visit_child("values", &array.values())
+        visitor.visit_patches(&array.patches())
     }
 }
 
 impl StatisticsVTable<SparseArray> for SparseEncoding {
     fn compute_statistics(&self, array: &SparseArray, stat: Stat) -> VortexResult<StatsSet> {
-        let mut stats = array.values().statistics().compute_all(&[stat])?;
-        if array.len() == array.values().len() {
+        let (_, _, values) = array.patches().into_parts();
+        let mut stats = values.statistics().compute_all(&[stat])?;
+        if array.len() == values.len() {
             return Ok(stats);
         }
 
-        let fill_len = array.len() - array.values().len();
+        let fill_len = array.len() - values.len();
         let fill_stats = if array.fill_scalar().is_null() {
             StatsSet::nulls(fill_len, array.dtype())
         } else {
             StatsSet::constant(&array.fill_scalar(), fill_len)
         };
 
-        if array.values().is_empty() {
+        if values.is_empty() {
             return Ok(fill_stats);
         }
 
@@ -214,9 +242,9 @@ impl StatisticsVTable<SparseArray> for SparseEncoding {
 
 impl ValidityVTable<SparseArray> for SparseEncoding {
     fn is_valid(&self, array: &SparseArray, index: usize) -> bool {
-        match array.search_index(index).map(SearchResult::to_found) {
-            Ok(None) => !array.fill_scalar().is_null(),
-            Ok(Some(idx)) => array.values().is_valid(idx),
+        match array.patches().get_patched(index) {
+            Ok(None) => array.fill_scalar().is_valid(),
+            Ok(Some(patch_value)) => patch_value.is_valid(),
             Err(e) => vortex_panic!(e, "Error while finding index {} in sparse array", index),
         }
     }
@@ -225,9 +253,11 @@ impl ValidityVTable<SparseArray> for SparseEncoding {
         let validity = if array.fill_scalar().is_null() {
             // If we have a null fill value, then the result is a Sparse array with a fill_value
             // of true, and patch values of false.
-            SparseArray::try_new_with_offset(
-                array.indices(),
-                ConstantArray::new(true, array.indices().len()).into_array(),
+            SparseArray::try_new_from_patches(
+                array
+                    .patches()
+                    .map_values(|values| Ok(ConstantArray::new(true, values.len()).into_array()))
+                    .vortex_expect("constant array has same length as values array"),
                 array.len(),
                 array.indices_offset(),
                 false.into(),
@@ -235,9 +265,11 @@ impl ValidityVTable<SparseArray> for SparseEncoding {
         } else {
             // If the fill_value is non-null, then the validity is based on the validity of the
             // existing values.
-            SparseArray::try_new_with_offset(
-                array.indices(),
-                array.values().logical_validity().into_array(),
+            SparseArray::try_new_from_patches(
+                array
+                    .patches()
+                    .map_values(|values| Ok(values.logical_validity().into_array()))
+                    .vortex_expect("logical validity preserves length"),
                 array.len(),
                 array.indices_offset(),
                 true.into(),
@@ -281,20 +313,14 @@ mod test {
     }
 
     #[test]
-    pub fn test_find_index() {
-        let sparse = SparseArray::try_from(sparse_array(nullable_fill())).unwrap();
-        assert_eq!(sparse.search_index(0).unwrap().to_found(), None);
-        assert_eq!(sparse.search_index(2).unwrap().to_found(), Some(0));
-        assert_eq!(sparse.search_index(5).unwrap().to_found(), Some(1));
-    }
-
-    #[test]
     pub fn test_scalar_at() {
-        assert_eq!(
-            usize::try_from(&scalar_at(sparse_array(nullable_fill()), 2).unwrap()).unwrap(),
-            100
-        );
-        let error = scalar_at(sparse_array(nullable_fill()), 10).err().unwrap();
+        let array = sparse_array(nullable_fill());
+
+        assert_eq!(scalar_at(&array, 0).unwrap(), nullable_fill());
+        assert_eq!(scalar_at(&array, 2).unwrap(), Scalar::from(Some(100_i32)));
+        assert_eq!(scalar_at(&array, 5).unwrap(), Scalar::from(Some(200_i32)));
+
+        let error = scalar_at(&array, 10).err().unwrap();
         let VortexError::OutOfBounds(i, start, stop, _) = error else {
             unreachable!()
         };

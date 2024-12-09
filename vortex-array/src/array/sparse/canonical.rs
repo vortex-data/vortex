@@ -12,18 +12,18 @@ use crate::{ArrayDType, ArrayLen, Canonical, IntoCanonical};
 
 impl IntoCanonical for SparseArray {
     fn into_canonical(self) -> VortexResult<Canonical> {
-        if self.indices().is_empty() {
+        let resolved_patches = self.resolved_patches()?;
+        if resolved_patches.num_patches() == 0 {
             return ConstantArray::new(self.fill_scalar(), self.len()).into_canonical();
         }
 
-        let patches = Patches::new(self.len(), self.resolved_indices()?, self.values());
         if matches!(self.dtype(), DType::Bool(_)) {
-            canonicalize_sparse_bools(patches, &self.fill_scalar())
+            canonicalize_sparse_bools(resolved_patches, &self.fill_scalar())
         } else {
-            let ptype = PType::try_from(self.values().dtype())?;
+            let ptype = PType::try_from(resolved_patches.values().dtype())?;
             match_each_native_ptype!(ptype, |$P| {
                 canonicalize_sparse_primitives::<$P>(
-                    patches,
+                    resolved_patches,
                     &self.fill_scalar(),
                 )
             })
