@@ -7,9 +7,7 @@ use vortex_dtype::match_each_integer_ptype;
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::compute::{
-    search_sorted_usize, slice, subtract_scalar, take, SearchSortedSide, TakeOptions,
-};
+use crate::compute::{search_sorted_usize, slice, subtract_scalar, take, SearchSortedSide};
 use crate::stats::{ArrayStatistics, Stat};
 use crate::stream::ArrayStream;
 use crate::variants::PrimitiveArrayTrait;
@@ -95,11 +93,7 @@ impl<R: ArrayStream> Stream for TakeRows<R> {
             let shifted_arr = match_each_integer_ptype!(indices_for_batch.ptype(), |$T| {
                 subtract_scalar(&indices_for_batch.into_array(), &Scalar::from(curr_offset as $T))?
             });
-            return Poll::Ready(
-                take(&batch, &shifted_arr, TakeOptions::default())
-                    .map(Some)
-                    .transpose(),
-            );
+            return Poll::Ready(take(&batch, &shifted_arr).map(Some).transpose());
         }
 
         Poll::Ready(None)

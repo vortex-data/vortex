@@ -1,6 +1,6 @@
 use vortex_array::compute::{
     filter, scalar_at, slice, take, ComputeVTable, FilterFn, FilterMask, ScalarAtFn, SliceFn,
-    TakeFn, TakeOptions,
+    TakeFn,
 };
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
@@ -48,15 +48,10 @@ impl ScalarAtFn<ALPArray> for ALPEncoding {
 }
 
 impl TakeFn<ALPArray> for ALPEncoding {
-    fn take(
-        &self,
-        array: &ALPArray,
-        indices: &ArrayData,
-        options: TakeOptions,
-    ) -> VortexResult<ArrayData> {
+    fn take(&self, array: &ALPArray, indices: &ArrayData) -> VortexResult<ArrayData> {
         // TODO(ngates): wrap up indices in an array that caches decompression?
         Ok(ALPArray::try_new(
-            take(array.encoded(), indices, options)?,
+            take(array.encoded(), indices)?,
             array.exponents(),
             array
                 .patches()

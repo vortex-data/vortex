@@ -21,7 +21,7 @@ pub use scalar_at::{scalar_at, ScalarAtFn};
 pub use scalar_subtract::{subtract_scalar, SubtractScalarFn};
 pub use search_sorted::*;
 pub use slice::{slice, SliceFn};
-pub use take::{take, TakeFn, TakeOptions};
+pub use take::{take, TakeFn};
 
 use crate::ArrayData;
 

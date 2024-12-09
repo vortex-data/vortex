@@ -12,7 +12,7 @@ use vortex_error::{
 };
 
 use crate::array::{BoolArray, ConstantArray};
-use crate::compute::{filter, scalar_at, slice, take, FilterMask, TakeOptions};
+use crate::compute::{filter, scalar_at, slice, take, FilterMask};
 use crate::encoding::Encoding;
 use crate::patches::Patches;
 use crate::stats::ArrayStatistics;
@@ -196,12 +196,37 @@ impl Validity {
         }
     }
 
-    pub fn take(&self, indices: &ArrayData, options: TakeOptions) -> VortexResult<Self> {
+    pub fn take(&self, indices: &ArrayData) -> VortexResult<Self> {
         match self {
             Self::NonNullable => Ok(Self::NonNullable),
             Self::AllValid => Ok(Self::AllValid),
             Self::AllInvalid => Ok(Self::AllInvalid),
-            Self::Array(a) => Ok(Self::Array(take(a, indices, options)?)),
+            Self::Array(a) => Ok(Self::Array(take(a, indices)?)),
+        }
+    }
+
+    /// Take the validity buffer at the provided indices.
+    ///
+    /// # Safety
+    ///
+    /// It is assumed the caller has checked that all indices are <= the length of this validity
+    /// buffer.
+    ///
+    /// Failure to do so may result in UB.
+    pub unsafe fn take_unchecked(&self, indices: &ArrayData) -> VortexResult<Self> {
+        match self {
+            Self::NonNullable => Ok(Self::NonNullable),
+            Self::AllValid => Ok(Self::AllValid),
+            Self::AllInvalid => Ok(Self::AllInvalid),
+            Self::Array(a) => {
+                let taken = if let Some(take_fn) = a.encoding().take_fn() {
+                    unsafe { take_fn.take_unchecked(a, indices) }
+                } else {
+                    take(a, indices)
+                };
+
+                taken.map(Self::Array)
+            }
         }
     }
 

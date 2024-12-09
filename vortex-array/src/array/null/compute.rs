@@ -4,7 +4,7 @@ use vortex_scalar::Scalar;
 
 use crate::array::null::NullArray;
 use crate::array::NullEncoding;
-use crate::compute::{ComputeVTable, ScalarAtFn, SliceFn, TakeFn, TakeOptions};
+use crate::compute::{ComputeVTable, ScalarAtFn, SliceFn, TakeFn};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
 
@@ -35,25 +35,26 @@ impl ScalarAtFn<NullArray> for NullEncoding {
 }
 
 impl TakeFn<NullArray> for NullEncoding {
-    fn take(
-        &self,
-        array: &NullArray,
-        indices: &ArrayData,
-        options: TakeOptions,
-    ) -> VortexResult<ArrayData> {
+    fn take(&self, array: &NullArray, indices: &ArrayData) -> VortexResult<ArrayData> {
         let indices = indices.clone().into_primitive()?;
 
         // Enforce all indices are valid
-        if !options.skip_bounds_check {
-            match_each_integer_ptype!(indices.ptype(), |$T| {
-                for index in indices.maybe_null_slice::<$T>() {
-                    if !((*index as usize) < array.len()) {
-                        vortex_bail!(OutOfBounds: *index as usize, 0, array.len());
-                    }
+        match_each_integer_ptype!(indices.ptype(), |$T| {
+            for index in indices.maybe_null_slice::<$T>() {
+                if !((*index as usize) < array.len()) {
+                    vortex_bail!(OutOfBounds: *index as usize, 0, array.len());
                 }
-            });
-        }
+            }
+        });
 
+        Ok(NullArray::new(indices.len()).into_array())
+    }
+
+    unsafe fn take_unchecked(
+        &self,
+        _array: &NullArray,
+        indices: &ArrayData,
+    ) -> VortexResult<ArrayData> {
         Ok(NullArray::new(indices.len()).into_array())
     }
 }
@@ -63,7 +64,7 @@ mod test {
     use vortex_dtype::DType;
 
     use crate::array::null::NullArray;
-    use crate::compute::{scalar_at, slice, take, TakeOptions};
+    use crate::compute::{scalar_at, slice, take};
     use crate::validity::{ArrayValidity, LogicalValidity};
     use crate::{ArrayLen, IntoArrayData};
 
@@ -83,15 +84,8 @@ mod test {
     #[test]
     fn test_take_nulls() {
         let nulls = NullArray::new(10);
-        let taken = NullArray::try_from(
-            take(
-                nulls,
-                vec![0u64, 2, 4, 6, 8].into_array(),
-                TakeOptions::default(),
-            )
-            .unwrap(),
-        )
-        .unwrap();
+        let taken =
+            NullArray::try_from(take(nulls, vec![0u64, 2, 4, 6, 8].into_array()).unwrap()).unwrap();
 
         assert_eq!(taken.len(), 5);
         assert!(matches!(

@@ -9,7 +9,7 @@ use vortex_scalar::Scalar;
 use crate::array::PrimitiveArray;
 use crate::compute::{
     scalar_at, search_sorted, search_sorted_many, search_sorted_usize, slice, subtract_scalar,
-    take, try_cast, FilterMask, SearchResult, SearchSortedSide, TakeOptions,
+    take, try_cast, FilterMask, SearchResult, SearchSortedSide,
 };
 use crate::stats::{ArrayStatistics, Stat};
 use crate::validity::Validity;
@@ -190,11 +190,7 @@ impl Patches {
         }
 
         let indices = PrimitiveArray::from(coordinate_indices).into_array();
-        let values = take(
-            self.values(),
-            PrimitiveArray::from(value_indices),
-            TakeOptions::default(),
-        )?;
+        let values = take(self.values(), PrimitiveArray::from(value_indices))?;
 
         Ok(Some(Self::new(mask.len(), indices, values)))
     }
@@ -252,7 +248,7 @@ impl Patches {
 
         let values_indices =
             PrimitiveArray::from_vec(values_indices, Validity::NonNullable).into_array();
-        let new_values = take(self.values(), values_indices, TakeOptions::default())?;
+        let new_values = take(self.values(), values_indices)?;
 
         Ok(Some(Self::new(indices.len(), new_indices, new_values)))
     }

@@ -2,9 +2,7 @@ use arrow_buffer::BooleanBufferBuilder;
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
 
 use crate::array::{ChunkedArray, ChunkedEncoding, PrimitiveArray};
-use crate::compute::{
-    filter, take, FilterFn, FilterMask, SearchSorted, SearchSortedSide, TakeOptions,
-};
+use crate::compute::{filter, take, FilterFn, FilterMask, SearchSorted, SearchSortedSide};
 use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoCanonical};
 
 // This is modeled after the constant with the equivalent name in arrow-rs.
@@ -159,7 +157,6 @@ fn filter_indices(array: &ChunkedArray, mask: FilterMask) -> VortexResult<Vec<Ar
                 let filtered_chunk = take(
                     chunk,
                     PrimitiveArray::from(chunk_indices.clone()).into_array(),
-                    TakeOptions::default(),
                 )?;
                 result.push(filtered_chunk);
             }
@@ -179,7 +176,6 @@ fn filter_indices(array: &ChunkedArray, mask: FilterMask) -> VortexResult<Vec<Ar
         let filtered_chunk = take(
             &chunk,
             PrimitiveArray::from(chunk_indices.clone()).into_array(),
-            TakeOptions::default(),
         )?;
         result.push(filtered_chunk);
     }

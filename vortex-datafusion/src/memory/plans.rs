@@ -20,7 +20,7 @@ use futures::{ready, Stream};
 use pin_project::pin_project;
 use vortex_array::array::ChunkedArray;
 use vortex_array::arrow::FromArrowArray;
-use vortex_array::compute::{take, TakeOptions};
+use vortex_array::compute::take;
 use vortex_array::{ArrayData, IntoArrayVariant, IntoCanonical};
 use vortex_dtype::field::Field;
 use vortex_error::{vortex_err, vortex_panic, VortexError};
@@ -348,8 +348,7 @@ where
         //  We should find a way to avoid decoding the filter columns and only decode the other
         //  columns, then stitch the StructArray back together from those.
         let projected_for_output = chunk.project(this.output_projection)?;
-        let decoded =
-            take(projected_for_output, &row_indices, TakeOptions::default())?.into_arrow()?;
+        let decoded = take(projected_for_output, &row_indices)?.into_arrow()?;
 
         // Send back a single record batch of the decoded data.
         let output_batch = RecordBatch::from(decoded.as_struct());

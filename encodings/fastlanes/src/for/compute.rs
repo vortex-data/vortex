@@ -3,7 +3,7 @@ use std::ops::AddAssign;
 use num_traits::{CheckedShl, CheckedShr, WrappingAdd, WrappingSub};
 use vortex_array::compute::{
     filter, scalar_at, search_sorted, slice, take, ComputeVTable, FilterFn, FilterMask, ScalarAtFn,
-    SearchResult, SearchSortedFn, SearchSortedSide, SliceFn, TakeFn, TakeOptions,
+    SearchResult, SearchSortedFn, SearchSortedSide, SliceFn, TakeFn,
 };
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
@@ -36,14 +36,9 @@ impl ComputeVTable for FoREncoding {
 }
 
 impl TakeFn<FoRArray> for FoREncoding {
-    fn take(
-        &self,
-        array: &FoRArray,
-        indices: &ArrayData,
-        options: TakeOptions,
-    ) -> VortexResult<ArrayData> {
+    fn take(&self, array: &FoRArray, indices: &ArrayData) -> VortexResult<ArrayData> {
         FoRArray::try_new(
-            take(array.encoded(), indices, options)?,
+            take(array.encoded(), indices)?,
             array.reference_scalar(),
             array.shift(),
         )

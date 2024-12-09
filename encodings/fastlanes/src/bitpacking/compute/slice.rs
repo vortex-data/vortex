@@ -39,7 +39,7 @@ impl SliceFn<BitPackedArray> for BitPackedEncoding {
 mod test {
     use itertools::Itertools;
     use vortex_array::array::PrimitiveArray;
-    use vortex_array::compute::{scalar_at, slice, take, TakeOptions};
+    use vortex_array::compute::{scalar_at, slice, take};
     use vortex_array::{ArrayLen, IntoArrayData};
 
     use crate::BitPackedArray;
@@ -191,7 +191,6 @@ mod test {
         let taken = take(
             &sliced,
             PrimitiveArray::from(vec![101i64, 1125i64, 1138i64]).as_ref(),
-            TakeOptions::default(),
         )
         .unwrap();
         assert_eq!(taken.len(), 3);

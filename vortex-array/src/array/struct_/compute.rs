@@ -6,7 +6,7 @@ use crate::array::struct_::StructArray;
 use crate::array::StructEncoding;
 use crate::compute::{
     filter, scalar_at, slice, take, ComputeVTable, FilterFn, FilterMask, ScalarAtFn, SliceFn,
-    TakeFn, TakeOptions,
+    TakeFn,
 };
 use crate::variants::StructArrayTrait;
 use crate::{ArrayDType, ArrayData, IntoArrayData};
@@ -42,20 +42,15 @@ impl ScalarAtFn<StructArray> for StructEncoding {
 }
 
 impl TakeFn<StructArray> for StructEncoding {
-    fn take(
-        &self,
-        array: &StructArray,
-        indices: &ArrayData,
-        options: TakeOptions,
-    ) -> VortexResult<ArrayData> {
+    fn take(&self, array: &StructArray, indices: &ArrayData) -> VortexResult<ArrayData> {
         StructArray::try_new(
             array.names().clone(),
             array
                 .children()
-                .map(|field| take(&field, indices, options))
+                .map(|field| take(&field, indices))
                 .try_collect()?,
             indices.len(),
-            array.validity().take(indices, options)?,
+            array.validity().take(indices)?,
         )
         .map(|a| a.into_array())
     }

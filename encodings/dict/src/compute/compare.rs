@@ -1,5 +1,5 @@
 use vortex_array::array::ConstantArray;
-use vortex_array::compute::{compare, take, CompareFn, Operator, TakeOptions};
+use vortex_array::compute::{compare, take, CompareFn, Operator};
 use vortex_array::ArrayData;
 use vortex_error::VortexResult;
 
@@ -20,7 +20,7 @@ impl CompareFn<DictArray> for DictEncoding {
                 ConstantArray::new(const_scalar, lhs.values().len()),
                 operator,
             )?;
-            return take(compare_result, lhs.codes(), TakeOptions::default()).map(Some);
+            return take(compare_result, lhs.codes()).map(Some);
         }
 
         // It's a little more complex, but we could perform a comparison against the dictionary

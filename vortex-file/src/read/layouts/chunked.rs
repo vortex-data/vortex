@@ -4,7 +4,7 @@ use std::sync::{Arc, OnceLock, RwLock};
 use itertools::Itertools;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::array::ChunkedArray;
-use vortex_array::compute::{scalar_at, take, TakeOptions};
+use vortex_array::compute::{scalar_at, take};
 use vortex_array::stats::{stats_from_bitset_bytes, ArrayStatistics as _, Stat};
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_dtype::{DType, Nullability, StructDType};
@@ -266,13 +266,7 @@ impl ChunkedLayoutReader {
             .iter()
             .map(|x| *x as u64)
             .collect::<Vec<_>>();
-        let chunks_prunable = take(
-            chunk_prunability,
-            ArrayData::from(layouts),
-            TakeOptions {
-                skip_bounds_check: false,
-            },
-        )?;
+        let chunks_prunable = take(chunk_prunability, ArrayData::from(layouts))?;
 
         if !chunks_prunable
             .statistics()

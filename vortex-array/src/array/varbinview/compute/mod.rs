@@ -11,7 +11,7 @@ use vortex_scalar::Scalar;
 use crate::array::varbin::varbin_scalar;
 use crate::array::varbinview::{VarBinViewArray, VIEW_SIZE_BYTES};
 use crate::array::{PrimitiveArray, VarBinViewEncoding};
-use crate::compute::{slice, ComputeVTable, ScalarAtFn, SliceFn, TakeFn, TakeOptions};
+use crate::compute::{slice, ComputeVTable, ScalarAtFn, SliceFn, TakeFn};
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
@@ -58,14 +58,9 @@ impl SliceFn<VarBinViewArray> for VarBinViewEncoding {
 
 /// Take involves creating a new array that references the old array, just with the given set of views.
 impl TakeFn<VarBinViewArray> for VarBinViewEncoding {
-    fn take(
-        &self,
-        array: &VarBinViewArray,
-        indices: &ArrayData,
-        options: TakeOptions,
-    ) -> VortexResult<ArrayData> {
+    fn take(&self, array: &VarBinViewArray, indices: &ArrayData) -> VortexResult<ArrayData> {
         // Compute the new validity
-        let validity = array.validity().take(indices, options)?;
+        let validity = array.validity().take(indices)?;
 
         // Convert our views array into an Arrow u128 ScalarBuffer (16 bytes per view)
         let views_buffer =
@@ -74,11 +69,41 @@ impl TakeFn<VarBinViewArray> for VarBinViewEncoding {
         let indices = indices.clone().into_primitive()?;
 
         let views_buffer = match_each_integer_ptype!(indices.ptype(), |$I| {
-            if options.skip_bounds_check {
-                take_views_unchecked(views_buffer, indices.maybe_null_slice::<$I>())
-            } else {
-                take_views(views_buffer, indices.maybe_null_slice::<$I>())
-            }
+            take_views(views_buffer, indices.maybe_null_slice::<$I>())
+        });
+
+        // Cast views back to u8
+        let views_array = PrimitiveArray::new(
+            views_buffer.into_inner().into(),
+            PType::U8,
+            Validity::NonNullable,
+        );
+
+        Ok(VarBinViewArray::try_new(
+            views_array.into_array(),
+            array.buffers().collect_vec(),
+            array.dtype().clone(),
+            validity,
+        )?
+        .into_array())
+    }
+
+    unsafe fn take_unchecked(
+        &self,
+        array: &VarBinViewArray,
+        indices: &ArrayData,
+    ) -> VortexResult<ArrayData> {
+        // Compute the new validity
+        let validity = array.validity().take(indices)?;
+
+        // Convert our views array into an Arrow u128 ScalarBuffer (16 bytes per view)
+        let views_buffer =
+            ScalarBuffer::<u128>::from(array.views().into_primitive()?.into_buffer().into_arrow());
+
+        let indices = indices.clone().into_primitive()?;
+
+        let views_buffer = match_each_integer_ptype!(indices.ptype(), |$I| {
+            take_views_unchecked(views_buffer, indices.maybe_null_slice::<$I>())
         });
 
         // Cast views back to u8
@@ -124,7 +149,7 @@ fn take_views_unchecked<I: AsPrimitive<usize>>(
 mod tests {
     use crate::accessor::ArrayAccessor;
     use crate::array::{PrimitiveArray, VarBinViewArray};
-    use crate::compute::{take, TakeOptions};
+    use crate::compute::take;
     use crate::{ArrayDType, IntoArrayData, IntoArrayVariant};
 
     #[test]
@@ -138,12 +163,7 @@ mod tests {
             Some("six"),
         ]);
 
-        let taken = take(
-            arr,
-            PrimitiveArray::from(vec![0, 3]).into_array(),
-            TakeOptions::default(),
-        )
-        .unwrap();
+        let taken = take(arr, PrimitiveArray::from(vec![0, 3]).into_array()).unwrap();
 
         assert!(taken.dtype().is_nullable());
         assert_eq!(
