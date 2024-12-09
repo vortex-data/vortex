@@ -67,7 +67,7 @@ pub fn decompress(array: ALPArray) -> VortexResult<PrimitiveArray> {
     let ptype = array.dtype().try_into()?;
     let decoded = match_each_alp_float_ptype!(ptype, |$T| {
         PrimitiveArray::from_vec(
-            decompress_primitive::<$T>(encoded.into_maybe_null_slice(), array.exponents()),
+            <$T>::decode_vec(encoded.into_maybe_null_slice(), array.exponents()),
             validity,
         )
     });
@@ -89,18 +89,6 @@ fn patch_decoded(array: PrimitiveArray, patches: &ArrayData) -> VortexResult<Pri
             primitive_values.maybe_null_slice::<$T>(),
             primitive_values.validity())
     })
-}
-
-fn decompress_primitive<T: NativePType + ALPFloat>(
-    values: Vec<T::ALPInt>,
-    exponents: Exponents,
-) -> Vec<T> {
-    values
-        // NOTE(ngates): Rust should optimise this into_iter.map to re-use the memory
-        //  of the Vec rather than allocating a new one.
-        .into_iter()
-        .map(|v| T::decode_single(v, exponents))
-        .collect()
 }
 
 #[cfg(test)]
