@@ -1,6 +1,9 @@
+pub mod downscale;
+
 use std::fmt::Debug;
 use std::hash::Hash;
 
+use downscale::downscale_integer_array;
 use serde::{Deserialize, Serialize};
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{
@@ -52,31 +55,33 @@ pub struct Patches {
 }
 
 impl Patches {
-    pub fn new(array_len: usize, indices: ArrayData, values: ArrayData) -> Self {
-        assert_eq!(
-            indices.len(),
-            values.len(),
-            "Patch indices and values must have the same length"
-        );
-        assert!(indices.dtype().is_int(), "Patch indices must be integers");
-        assert!(
-            indices.len() <= array_len,
-            "Patch indices must be shorter than the array length"
-        );
-        assert!(!indices.is_empty(), "Patch indices must not be empty");
+    pub fn try_new(array_len: usize, indices: ArrayData, values: ArrayData) -> VortexResult<Self> {
+        if indices.len() != values.len() {
+            vortex_bail!("Patch indices and values must have the same length")
+        }
+        if !indices.dtype().is_int() {
+            vortex_bail!("Patch indices must be integers");
+        }
+        if indices.len() > array_len {
+            vortex_bail!("Patch indices must be shorter than the array length");
+        }
+        if indices.is_empty() {
+            vortex_bail!("Patch indices must not be empty");
+        }
         if let Some(max) = indices.statistics().get_as_cast::<u64>(Stat::Max) {
-            assert!(
-                max < array_len as u64,
-                "Patch indices {} are longer than the array length {}",
-                max,
-                array_len
-            );
+            if max >= array_len as u64 {
+                vortex_bail!(
+                    "Patch indices {} are longer than the array length {}",
+                    max,
+                    array_len
+                );
+            }
         }
-        Self {
+        Ok(Self {
             array_len,
-            indices,
+            indices: downscale_integer_array(indices)?,
             values,
-        }
+        })
     }
 
     pub fn array_len(&self) -> usize {
@@ -200,7 +205,7 @@ impl Patches {
         let indices = PrimitiveArray::from(coordinate_indices).into_array();
         let values = take(self.values(), PrimitiveArray::from(value_indices))?;
 
-        Ok(Some(Self::new(mask.len(), indices, values)))
+        Self::try_new(mask.len(), indices, values).map(Some)
     }
 
     /// Slice the patches by a range of the patched array.
@@ -221,7 +226,7 @@ impl Patches {
         let indices = slice(self.indices(), patch_start, patch_stop)?;
         let indices = subtract_scalar(&indices, &Scalar::from(start).cast(indices.dtype())?)?;
 
-        Ok(Some(Self::new(stop - start, indices, values)))
+        Self::try_new(stop - start, indices, values).map(Some)
     }
 
     // https://docs.google.com/spreadsheets/d/1D9vBZ1QJ6mwcIvV5wIL0hjGgVchcEnAyhvitqWu2ugU
@@ -280,7 +285,7 @@ impl Patches {
             PrimitiveArray::from_vec(values_indices, Validity::NonNullable).into_array();
         let new_values = take(self.values(), values_indices)?;
 
-        Ok(Some(Self::new(new_length, new_indices, new_values)))
+        Self::try_new(new_length, new_indices, new_values).map(Some)
     }
 
     pub fn take_map(&self, take_indices: &ArrayData) -> VortexResult<Option<Self>> {
@@ -330,11 +335,12 @@ impl Patches {
             return Ok(None);
         }
 
-        Ok(Some(Patches::new(
+        Patches::try_new(
             new_length,
             ArrayData::from(new_sparse_indices),
             take(self.values(), ArrayData::from(value_indices))?,
-        )))
+        )
+        .map(Some)
     }
 }
 
@@ -350,11 +356,12 @@ mod test {
 
     #[test]
     fn test_filter() {
-        let patches = Patches::new(
+        let patches = Patches::try_new(
             100,
             PrimitiveArray::from(vec![10u32, 11, 20]).into_array(),
             PrimitiveArray::from(vec![100, 110, 200]).into_array(),
-        );
+        )
+        .unwrap();
 
         let filtered = patches
             .filter(FilterMask::from_indices(100, [10u32, 20, 30]))
@@ -363,7 +370,7 @@ mod test {
 
         let indices = filtered.indices().clone().into_primitive().unwrap();
         let values = filtered.values().clone().into_primitive().unwrap();
-        assert_eq!(indices.maybe_null_slice::<u64>(), &[0, 1]);
+        assert_eq!(indices.maybe_null_slice::<u8>(), &[0, 1]);
         assert_eq!(values.maybe_null_slice::<i32>(), &[100, 200]);
     }
 

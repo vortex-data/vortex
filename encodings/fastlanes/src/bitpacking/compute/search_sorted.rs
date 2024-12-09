@@ -117,7 +117,7 @@ fn search_sorted_native<T>(
 where
     T: NativePType + BitPacking + AsPrimitive<usize> + AsPrimitive<u64>,
 {
-    if let Some(patches) = array.patches() {
+    if let Some(patches) = array.patches()? {
         // If patches exist they must be the last elements in the array, if the value we're looking for is greater than
         // max packed value just search the patches
         let usize_value: usize = value.as_();
@@ -147,6 +147,7 @@ impl<'a, T: BitPacking + NativePType> BitPackedSearch<'a, T> {
     pub fn new(array: &'a BitPackedArray) -> Self {
         let min_patch_offset = array
             .patches()
+            .vortex_expect("Patches metadata should be valid")
             .map(|p| p.min_index())
             .transpose()
             .vortex_expect("Failed to get min patch index")

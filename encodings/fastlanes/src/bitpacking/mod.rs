@@ -151,18 +151,22 @@ impl BitPackedArray {
     /// If present, patches MUST be a `SparseArray` with equal-length to this array, and whose
     /// indices indicate the locations of patches. The indices must have non-zero length.
     #[inline]
-    pub fn patches(&self) -> Option<Patches> {
-        self.metadata().patches.as_ref().map(|patches| {
-            Patches::new(
-                self.len(),
-                self.as_ref()
-                    .child(0, &patches.indices_dtype(), patches.len())
-                    .vortex_expect("BitPackedArray: patch indices"),
-                self.as_ref()
-                    .child(1, self.dtype(), patches.len())
-                    .vortex_expect("BitPackedArray: patch values"),
-            )
-        })
+    pub fn patches(&self) -> VortexResult<Option<Patches>> {
+        self.metadata()
+            .patches
+            .as_ref()
+            .map(|patches| {
+                Patches::try_new(
+                    self.len(),
+                    self.as_ref()
+                        .child(0, &patches.indices_dtype(), patches.len())
+                        .vortex_expect("BitPackedArray: patch indices"),
+                    self.as_ref()
+                        .child(1, self.dtype(), patches.len())
+                        .vortex_expect("BitPackedArray: patch values"),
+                )
+            })
+            .transpose()
     }
 
     #[inline]
@@ -216,7 +220,7 @@ impl ValidityVTable<BitPackedArray> for BitPackedEncoding {
 impl VisitorVTable<BitPackedArray> for BitPackedEncoding {
     fn accept(&self, array: &BitPackedArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
         visitor.visit_buffer(array.packed())?;
-        if let Some(patches) = array.patches().as_ref() {
+        if let Some(patches) = array.patches()?.as_ref() {
             visitor.visit_patches(patches)?;
         }
         visitor.visit_validity(&array.validity())

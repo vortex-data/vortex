@@ -1,6 +1,7 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::TemporalArray;
 use vortex_array::encoding::{Encoding, EncodingRef};
+use vortex_array::patches::downscale::downscale_integer_array;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_datetime_dtype::TemporalMetadata;
 use vortex_datetime_parts::{
@@ -9,7 +10,6 @@ use vortex_datetime_parts::{
 use vortex_error::VortexResult;
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
-use crate::downscale::downscale_integer_array;
 use crate::{constants, SamplingCompressor};
 
 #[derive(Debug)]

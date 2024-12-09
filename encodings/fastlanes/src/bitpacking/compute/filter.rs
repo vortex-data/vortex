@@ -27,7 +27,7 @@ fn filter_primitive<T: NativePType + BitPacking + ArrowNativeType>(
     let validity = array.validity().filter(&mask)?;
 
     let patches = array
-        .patches()
+        .patches()?
         .map(|patches| patches.filter(mask.clone()))
         .transpose()?
         .flatten();

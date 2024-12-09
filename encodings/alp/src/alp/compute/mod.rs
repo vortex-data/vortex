@@ -29,7 +29,7 @@ impl ComputeVTable for ALPEncoding {
 
 impl ScalarAtFn<ALPArray> for ALPEncoding {
     fn scalar_at(&self, array: &ALPArray, index: usize) -> VortexResult<Scalar> {
-        if let Some(patches) = array.patches() {
+        if let Some(patches) = array.patches()? {
             if let Some(patch) = patches.get_patched(index)? {
                 return Ok(patch);
             }
@@ -54,7 +54,7 @@ impl TakeFn<ALPArray> for ALPEncoding {
             take(array.encoded(), indices)?,
             array.exponents(),
             array
-                .patches()
+                .patches()?
                 .map(|p| p.take(indices))
                 .transpose()?
                 .flatten(),
@@ -69,7 +69,7 @@ impl SliceFn<ALPArray> for ALPEncoding {
             slice(array.encoded(), start, end)?,
             array.exponents(),
             array
-                .patches()
+                .patches()?
                 .map(|p| p.slice(start, end))
                 .transpose()?
                 .flatten(),
@@ -81,7 +81,7 @@ impl SliceFn<ALPArray> for ALPEncoding {
 impl FilterFn<ALPArray> for ALPEncoding {
     fn filter(&self, array: &ALPArray, mask: FilterMask) -> VortexResult<ArrayData> {
         let patches = array
-            .patches()
+            .patches()?
             .map(|p| p.filter(mask.clone()))
             .transpose()?
             .flatten();

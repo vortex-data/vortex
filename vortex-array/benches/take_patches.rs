@@ -14,7 +14,7 @@ fn fixture(len: usize, sparsity: f64, rng: &mut StdRng) -> Patches {
         .collect::<Vec<u64>>();
     let sparse_len = indices.len();
     let values = ArrayData::from((0..sparse_len).map(|x| x as u64).collect::<Vec<_>>());
-    Patches::new(len, ArrayData::from(indices), values)
+    Patches::try_new(len, ArrayData::from(indices), values).unwrap()
 }
 
 fn indices(array_len: usize, n_indices: usize, rng: &mut StdRng) -> ArrayData {

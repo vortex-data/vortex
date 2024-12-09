@@ -1,6 +1,7 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::PrimitiveEncoding;
 use vortex_array::encoding::{Encoding, EncodingRef};
+use vortex_array::patches::downscale::downscale_integer_array;
 use vortex_array::stats::ArrayStatistics;
 use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_error::VortexResult;
@@ -8,7 +9,6 @@ use vortex_runend::compress::runend_encode;
 use vortex_runend::{RunEndArray, RunEndEncoding};
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
-use crate::downscale::downscale_integer_array;
 use crate::{constants, SamplingCompressor};
 
 pub const DEFAULT_RUN_END_COMPRESSOR: RunEndCompressor = RunEndCompressor { ree_threshold: 2.0 };

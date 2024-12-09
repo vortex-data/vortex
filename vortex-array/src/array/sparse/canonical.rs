@@ -16,7 +16,7 @@ impl IntoCanonical for SparseArray {
             return ConstantArray::new(self.fill_scalar(), self.len()).into_canonical();
         }
 
-        let patches = Patches::new(self.len(), self.resolved_indices()?, self.values());
+        let patches = Patches::try_new(self.len(), self.resolved_indices()?, self.values())?;
         if matches!(self.dtype(), DType::Bool(_)) {
             canonicalize_sparse_bools(patches, &self.fill_scalar())
         } else {

@@ -112,7 +112,7 @@ fn take_primitive<T: NativePType + BitPacking, I: NativePType>(
     }
 
     if let Some(patches) = array
-        .patches()
+        .patches()?
         .map(|p| p.take(&indices.to_array()))
         .transpose()?
         .flatten()
@@ -200,7 +200,7 @@ mod test {
         let values = (0..u16::MAX as u32 + num_patches as u32).collect::<Vec<_>>();
         let uncompressed = PrimitiveArray::from(values.clone());
         let packed = BitPackedArray::encode(uncompressed.as_ref(), 16).unwrap();
-        assert!(packed.patches().is_some());
+        assert!(packed.patches().unwrap().is_some());
 
         let rng = thread_rng();
         let range = Uniform::new(0, values.len());

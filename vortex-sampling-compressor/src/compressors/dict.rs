@@ -4,6 +4,7 @@ use vortex_array::array::{
     VarBinViewEncoding,
 };
 use vortex_array::encoding::{Encoding, EncodingRef};
+use vortex_array::patches::downscale::downscale_integer_array;
 use vortex_array::stats::ArrayStatistics;
 use vortex_array::{ArrayData, IntoArrayData};
 use vortex_dict::{
@@ -12,7 +13,6 @@ use vortex_dict::{
 use vortex_error::VortexResult;
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
-use crate::downscale::downscale_integer_array;
 use crate::{constants, SamplingCompressor};
 
 #[derive(Debug)]

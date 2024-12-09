@@ -23,7 +23,7 @@ impl SliceFn<BitPackedArray> for BitPackedEncoding {
             array.ptype(),
             array.validity().slice(start, stop)?,
             array
-                .patches()
+                .patches()?
                 .map(|p| p.slice(start, stop))
                 .transpose()?
                 .flatten(),
@@ -158,15 +158,15 @@ mod test {
             BitPackedArray::encode(PrimitiveArray::from((0u32..=64).collect_vec()).as_ref(), 6)
                 .unwrap();
 
-        assert!(array.patches().is_some());
+        assert!(array.patches().unwrap().is_some());
 
-        let patch_indices = array.patches().unwrap().indices().clone();
+        let patch_indices = array.patches().unwrap().unwrap().indices().clone();
         assert_eq!(patch_indices.len(), 1);
 
         // Slicing drops the empty patches array.
         let sliced = slice(array, 0, 64).unwrap();
         let sliced_bp = BitPackedArray::try_from(sliced).unwrap();
-        assert!(sliced_bp.patches().is_none());
+        assert!(sliced_bp.patches().unwrap().is_none());
     }
 
     #[test]

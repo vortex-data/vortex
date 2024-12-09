@@ -1,13 +1,13 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{BoolEncoding, PrimitiveArray};
 use vortex_array::encoding::{Encoding, EncodingRef};
+use vortex_array::patches::downscale::downscale_integer_array;
 use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_error::VortexResult;
 use vortex_runend_bool::compress::runend_bool_encode_slice;
 use vortex_runend_bool::{RunEndBoolArray, RunEndBoolEncoding};
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
-use crate::downscale::downscale_integer_array;
 use crate::{constants, SamplingCompressor};
 
 #[derive(Debug)]

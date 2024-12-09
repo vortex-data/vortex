@@ -28,7 +28,7 @@ macro_rules! match_each_alp_float_ptype {
 pub fn alp_encode_components<T>(
     values: &PrimitiveArray,
     exponents: Option<Exponents>,
-) -> (Exponents, ArrayData, Option<Patches>)
+) -> VortexResult<(Exponents, ArrayData, Option<Patches>)>
 where
     T: ALPFloat + NativePType,
     T::ALPInt: NativePType,
@@ -40,23 +40,25 @@ where
     };
     let (exponents, encoded, exc_pos, exc) = T::encode(values.maybe_null_slice::<T>(), exponents);
     let len = encoded.len();
-    (
-        exponents,
-        PrimitiveArray::from_vec(encoded, values.validity()).into_array(),
-        (!exc.is_empty()).then(|| {
-            Patches::new(
-                len,
-                PrimitiveArray::from(exc_pos).into_array(),
-                PrimitiveArray::from_vec(exc, patch_validity).into_array(),
-            )
-        }),
-    )
+    let values = PrimitiveArray::from_vec(encoded, values.validity()).into_array();
+
+    if exc.is_empty() {
+        return Ok((exponents, values, None));
+    }
+
+    let patches = Patches::try_new(
+        len,
+        PrimitiveArray::from(exc_pos).into_array(),
+        PrimitiveArray::from_vec(exc, patch_validity).into_array(),
+    )?;
+
+    Ok((exponents, values, Some(patches)))
 }
 
 pub fn alp_encode(parray: &PrimitiveArray) -> VortexResult<ALPArray> {
     let (exponents, encoded, patches) = match parray.ptype() {
-        PType::F32 => alp_encode_components::<f32>(parray, None),
-        PType::F64 => alp_encode_components::<f64>(parray, None),
+        PType::F32 => alp_encode_components::<f32>(parray, None)?,
+        PType::F64 => alp_encode_components::<f64>(parray, None)?,
         _ => vortex_bail!("ALP can only encode f32 and f64"),
     };
     ALPArray::try_new(encoded, exponents, patches)
@@ -74,7 +76,7 @@ pub fn decompress(array: ALPArray) -> VortexResult<PrimitiveArray> {
         )
     });
 
-    if let Some(patches) = array.patches() {
+    if let Some(patches) = array.patches()? {
         decoded.patch(patches)
     } else {
         Ok(decoded)
@@ -93,7 +95,7 @@ mod tests {
     fn test_compress() {
         let array = PrimitiveArray::from(vec![1.234f32; 1025]);
         let encoded = alp_encode(&array).unwrap();
-        assert!(encoded.patches().is_none());
+        assert!(encoded.patches().unwrap().is_none());
         assert_eq!(
             encoded
                 .encoded()
@@ -115,7 +117,7 @@ mod tests {
     fn test_nullable_compress() {
         let array = PrimitiveArray::from_nullable_vec(vec![None, Some(1.234f32), None]);
         let encoded = alp_encode(&array).unwrap();
-        assert!(encoded.patches().is_none());
+        assert!(encoded.patches().unwrap().is_none());
         assert_eq!(
             encoded
                 .encoded()
@@ -137,7 +139,7 @@ mod tests {
         let values = vec![1.234f64, 2.718, std::f64::consts::PI, 4.0];
         let array = PrimitiveArray::from(values.clone());
         let encoded = alp_encode(&array).unwrap();
-        assert!(encoded.patches().is_some());
+        assert!(encoded.patches().unwrap().is_some());
         assert_eq!(
             encoded
                 .encoded()
@@ -164,7 +166,7 @@ mod tests {
         ];
         let array = PrimitiveArray::from_nullable_vec(values);
         let encoded = alp_encode(&array).unwrap();
-        assert!(encoded.patches().is_some());
+        assert!(encoded.patches().unwrap().is_some());
 
         assert_eq!(encoded.exponents(), Exponents { e: 16, f: 13 });
 

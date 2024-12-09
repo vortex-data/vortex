@@ -85,18 +85,22 @@ impl ALPArray {
         self.metadata().exponents
     }
 
-    pub fn patches(&self) -> Option<Patches> {
-        self.metadata().patches.as_ref().map(|p| {
-            Patches::new(
-                self.len(),
-                self.as_ref()
-                    .child(1, &p.indices_dtype(), p.len())
-                    .vortex_expect("ALPArray: patch indices"),
-                self.as_ref()
-                    .child(2, self.dtype(), p.len())
-                    .vortex_expect("ALPArray: patch values"),
-            )
-        })
+    pub fn patches(&self) -> VortexResult<Option<Patches>> {
+        self.metadata()
+            .patches
+            .as_ref()
+            .map(|p| {
+                Patches::try_new(
+                    self.len(),
+                    self.as_ref()
+                        .child(1, &p.indices_dtype(), p.len())
+                        .vortex_expect("ALPArray: patch indices"),
+                    self.as_ref()
+                        .child(2, self.dtype(), p.len())
+                        .vortex_expect("ALPArray: patch values"),
+                )
+            })
+            .transpose()
     }
 
     #[inline]
@@ -142,7 +146,7 @@ impl IntoCanonical for ALPArray {
 impl VisitorVTable<ALPArray> for ALPEncoding {
     fn accept(&self, array: &ALPArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
         visitor.visit_child("encoded", &array.encoded())?;
-        if let Some(patches) = array.patches().as_ref() {
+        if let Some(patches) = array.patches()?.as_ref() {
             visitor.visit_patches(patches)?;
         }
         Ok(())

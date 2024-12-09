@@ -30,6 +30,7 @@ pub fn bitpack_encode(array: PrimitiveArray, bit_width: u8) -> VortexResult<BitP
     let packed = bitpack(&array, bit_width)?;
     let patches = (num_exceptions > 0)
         .then(|| gather_patches(&array, bit_width, num_exceptions))
+        .transpose()?
         .flatten();
 
     BitPackedArray::try_new(
@@ -142,7 +143,7 @@ pub fn gather_patches(
     parray: &PrimitiveArray,
     bit_width: u8,
     num_exceptions_hint: usize,
-) -> Option<Patches> {
+) -> VortexResult<Option<Patches>> {
     let patch_validity = match parray.validity() {
         Validity::NonNullable => Validity::NonNullable,
         _ => Validity::AllValid,
@@ -156,11 +157,14 @@ pub fn gather_patches(
                 values.push(*v);
             }
         }
-        (!indices.is_empty()).then(|| Patches::new(
+        if indices.is_empty() {
+            return Ok(None)
+        }
+        Patches::try_new(
             parray.len(),
             indices.into_array(),
             PrimitiveArray::from_vec(values, patch_validity).into_array(),
-        ))
+        ).map(Some)
     })
 }
 
@@ -181,7 +185,7 @@ pub fn unpack(array: BitPackedArray) -> VortexResult<PrimitiveArray> {
         unpacked = unpacked.reinterpret_cast(ptype);
     }
 
-    if let Some(patches) = array.patches() {
+    if let Some(patches) = array.patches()? {
         unpacked.patch(patches)
     } else {
         Ok(unpacked)
@@ -384,7 +388,7 @@ mod test {
         );
         assert!(values.ptype().is_unsigned_int());
         let compressed = BitPackedArray::encode(values.as_ref(), 4).unwrap();
-        assert!(compressed.patches().is_none());
+        assert!(compressed.patches().unwrap().is_none());
         assert_eq!(
             (0..(1 << 4)).collect::<Vec<_>>(),
             compressed

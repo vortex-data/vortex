@@ -101,17 +101,21 @@ impl EncodingCompressor for BitPackedCompressor {
 
         let validity = ctx.compress_validity(parray.validity())?;
         let packed_buffer = bitpack(&parray, bit_width)?;
-        let patches = (num_exceptions > 0)
-            .then(|| {
-                gather_patches(&parray, bit_width, num_exceptions).map(|p| {
+        let patches = if num_exceptions > 0 {
+            let patches = gather_patches(&parray, bit_width, num_exceptions)?;
+            if let Some(patches) = patches {
+                Some(
                     ctx.auxiliary("patches")
                         .excluding(&BITPACK_WITH_PATCHES)
                         .including(&BITPACK_NO_PATCHES)
-                        .compress_patches(p)
-                })
-            })
-            .flatten()
-            .transpose()?;
+                        .compress_patches(patches)?,
+                )
+            } else {
+                None
+            }
+        } else {
+            None
+        };
 
         Ok(CompressedArray::compressed(
             BitPackedArray::try_new(

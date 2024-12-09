@@ -1,11 +1,11 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{SparseArray, SparseEncoding};
 use vortex_array::encoding::{Encoding, EncodingRef};
+use vortex_array::patches::downscale::downscale_integer_array;
 use vortex_array::{ArrayData, ArrayLen, IntoArrayData};
 use vortex_error::VortexResult;
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
-use crate::downscale::downscale_integer_array;
 use crate::{constants, SamplingCompressor};
 
 #[derive(Debug)]

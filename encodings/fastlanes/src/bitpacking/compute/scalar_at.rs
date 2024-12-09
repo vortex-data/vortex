@@ -7,7 +7,7 @@ use crate::{unpack_single, BitPackedArray, BitPackedEncoding};
 
 impl ScalarAtFn<BitPackedArray> for BitPackedEncoding {
     fn scalar_at(&self, array: &BitPackedArray, index: usize) -> VortexResult<Scalar> {
-        if let Some(patches) = array.patches() {
+        if let Some(patches) = array.patches()? {
             if let Some(patch) = patches.get_patched(index)? {
                 return Ok(patch);
             }
@@ -37,11 +37,14 @@ mod test {
             Buffer::from(vec![0u8; 128]),
             PType::U32,
             Validity::AllInvalid,
-            Some(Patches::new(
-                8,
-                PrimitiveArray::from_vec(vec![1u32], NonNullable).into_array(),
-                PrimitiveArray::from_vec(vec![999u32], Validity::AllValid).into_array(),
-            )),
+            Some(
+                Patches::try_new(
+                    8,
+                    PrimitiveArray::from_vec(vec![1u32], NonNullable).into_array(),
+                    PrimitiveArray::from_vec(vec![999u32], Validity::AllValid).into_array(),
+                )
+                .unwrap(),
+            ),
             1,
             8,
         )
@@ -58,9 +61,9 @@ mod test {
         let values = (0u32..257).collect_vec();
         let uncompressed = PrimitiveArray::from(values.clone()).into_array();
         let packed = BitPackedArray::encode(&uncompressed, 8).unwrap();
-        assert!(packed.patches().is_some());
+        assert!(packed.patches().unwrap().is_some());
 
-        let patches = packed.patches().unwrap().indices().clone();
+        let patches = packed.patches().unwrap().unwrap().indices().clone();
         assert_eq!(
             usize::try_from(&scalar_at(patches, 0).unwrap()).unwrap(),
             256

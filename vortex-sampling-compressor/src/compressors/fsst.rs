@@ -6,6 +6,7 @@ use fsst::Compressor;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{VarBinEncoding, VarBinViewEncoding};
 use vortex_array::encoding::{Encoding, EncodingRef};
+use vortex_array::patches::downscale::downscale_integer_array;
 use vortex_array::{ArrayDType, IntoArrayData};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexResult};
@@ -16,7 +17,6 @@ use super::delta::DeltaCompressor;
 use super::r#for::FoRCompressor;
 use super::varbin::VarBinCompressor;
 use super::{CompressedArray, CompressionTree, EncoderMetadata, EncodingCompressor};
-use crate::downscale::downscale_integer_array;
 use crate::{constants, SamplingCompressor};
 
 #[derive(Debug)]
