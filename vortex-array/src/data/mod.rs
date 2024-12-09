@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 use std::fmt::{Display, Formatter};
 use std::future::ready;
+use std::mem;
 use std::sync::{Arc, RwLock};
 
 use itertools::Itertools;
@@ -8,7 +9,7 @@ use owned::OwnedArrayData;
 use viewed::ViewedArrayData;
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::array::{
@@ -16,6 +17,7 @@ use crate::array::{
     VarBinEncoding, VarBinViewEncoding,
 };
 use crate::compute::scalar_at;
+use crate::data::viewed::deserialize_stats;
 use crate::encoding::{EncodingId, EncodingRef, EncodingVTable};
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
 use crate::stats::{ArrayStatistics, Stat, Statistics, StatsSet};
@@ -72,7 +74,7 @@ impl ArrayData {
             metadata,
             buffer,
             children,
-            stats_set: Arc::new(RwLock::new(statistics)),
+            stats_set: Arc::new(RwLock::new(Box::new(statistics))),
             #[cfg(feature = "canonical_counter")]
             canonical_counter: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         }))
@@ -419,12 +421,27 @@ impl<T: AsRef<ArrayData>> ArrayStatistics for T {
         }
     }
 
-    // FIXME(ngates): this is really slow...
-    fn inherit_statistics(&self, parent: &dyn Statistics) {
-        let stats = self.statistics();
-        // The to_set call performs a slow clone of the stats
-        for (stat, scalar) in parent.to_set() {
-            stats.set(stat, scalar);
+    fn take_stats(&self) -> Box<StatsSet> {
+        match &self.as_ref().0 {
+            InnerArrayData::Owned(o) => mem::take(
+                &mut o
+                    .stats_set
+                    .write()
+                    .unwrap_or_else(|e| vortex_panic!("Poisoned lock when settings stats, {e}")),
+            ),
+            InnerArrayData::Viewed(v) => Box::new(deserialize_stats(v.flatbuffer(), &v.dtype)),
+        }
+    }
+
+    fn inherit_statistics(&self, parent: Box<StatsSet>) {
+        match &self.as_ref().0 {
+            InnerArrayData::Owned(o) => {
+                *o.stats_set
+                    .write()
+                    .unwrap_or_else(|e| vortex_panic!("Poisoned lock when settings stats, {e}")) =
+                    parent
+            }
+            InnerArrayData::Viewed(_) => {}
         }
     }
 }

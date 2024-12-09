@@ -18,7 +18,7 @@ pub(super) struct OwnedArrayData {
     pub(super) metadata: Arc<dyn ArrayMetadata>,
     pub(super) buffer: Option<Buffer>,
     pub(super) children: Arc<[ArrayData]>,
-    pub(super) stats_set: Arc<RwLock<StatsSet>>,
+    pub(super) stats_set: Arc<RwLock<Box<StatsSet>>>,
     #[cfg(feature = "canonical_counter")]
     pub(super) canonical_counter: Arc<std::sync::atomic::AtomicUsize>,
 }
@@ -86,7 +86,8 @@ impl Statistics for OwnedArrayData {
     }
 
     fn to_set(&self) -> StatsSet {
-        self.stats_set
+        *self
+            .stats_set
             .read()
             .unwrap_or_else(|_| vortex_panic!("Failed to acquire read lock on stats map"))
             .clone()

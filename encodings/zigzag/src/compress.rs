@@ -21,8 +21,9 @@ pub fn zigzag_encode(parray: PrimitiveArray) -> VortexResult<ZigZagArray> {
             parray.ptype()
         ),
     };
+    let stats = encoded.take_stats();
     let zz = ZigZagArray::try_new(encoded.into_array())?;
-    zz.inherit_statistics(parray.statistics());
+    zz.inherit_statistics(stats);
     Ok(zz)
 }
 

@@ -4,7 +4,7 @@ use std::sync::Arc;
 use enum_iterator::all;
 use itertools::Itertools;
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, Nullability, PType};
+use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexExpect as _, VortexResult, VortexUnwrap};
 use vortex_scalar::{Scalar, ScalarValue};
 
@@ -122,6 +122,47 @@ impl ArrayVisitor for ChildrenCollector {
     }
 }
 
+pub(crate) fn deserialize_stats(array_fb: fb::Array, dtype: &DType) -> StatsSet {
+    let Some(array_stats) = array_fb.stats() else {
+        return StatsSet::default();
+    };
+
+    all::<Stat>()
+        .filter_map(|s| {
+            match s {
+                Stat::Max => {
+                    let max = array_stats.max();
+                    max.and_then(|v| ScalarValue::try_from(v).ok())
+                        .map(|v| Scalar::new(dtype.clone(), v))
+                }
+                Stat::Min => {
+                    let min = array_stats.min();
+                    min.and_then(|v| ScalarValue::try_from(v).ok())
+                        .map(|v| Scalar::new(dtype.clone(), v))
+                }
+                Stat::IsConstant => array_stats.is_constant().map(bool::into),
+                Stat::IsSorted => array_stats.is_sorted().map(bool::into),
+                Stat::IsStrictSorted => array_stats.is_strict_sorted().map(bool::into),
+                Stat::RunCount => array_stats.run_count().map(u64::into),
+                Stat::TrueCount => array_stats.true_count().map(u64::into),
+                Stat::NullCount => array_stats.null_count().map(u64::into),
+                Stat::BitWidthFreq => array_stats
+                    .bit_width_freq()
+                    .map(|v| v.iter().collect_vec())
+                    .map(|v| v.into()),
+                Stat::TrailingZeroFreq => array_stats
+                    .trailing_zero_freq()
+                    .map(|v| v.iter().collect_vec())
+                    .map(|v| v.into()),
+                Stat::UncompressedSizeInBytes => {
+                    array_stats.uncompressed_size_in_bytes().map(u64::into)
+                }
+            }
+            .map(|st| (s, st))
+        })
+        .collect()
+}
+
 impl Statistics for ViewedArrayData {
     fn get(&self, stat: Stat) -> Option<Scalar> {
         match stat {
@@ -145,15 +186,12 @@ impl Statistics for ViewedArrayData {
             Stat::RunCount => self.flatbuffer().stats()?.run_count().map(u64::into),
             Stat::TrueCount => self.flatbuffer().stats()?.true_count().map(u64::into),
             Stat::NullCount => self.flatbuffer().stats()?.null_count().map(u64::into),
-            Stat::BitWidthFreq => {
-                let element_dtype =
-                    Arc::new(DType::Primitive(PType::U64, Nullability::NonNullable));
-                self.flatbuffer()
-                    .stats()?
-                    .bit_width_freq()
-                    .map(|v| v.iter().map(Scalar::from).collect_vec())
-                    .map(|v| Scalar::list(element_dtype, v))
-            }
+            Stat::BitWidthFreq => self
+                .flatbuffer()
+                .stats()?
+                .bit_width_freq()
+                .map(|v| v.iter().collect_vec())
+                .map(|v| v.into()),
             Stat::TrailingZeroFreq => self
                 .flatbuffer()
                 .stats()?

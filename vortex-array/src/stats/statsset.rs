@@ -11,7 +11,7 @@ use crate::stats::Stat;
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct StatsSet {
-    values: EnumMap<Stat, Option<Scalar>>,
+    values: Box<EnumMap<Stat, Option<Scalar>>>,
 }
 
 impl StatsSet {
@@ -322,17 +322,17 @@ impl StatsSet {
 
 impl From<EnumMap<Stat, Option<Scalar>>> for StatsSet {
     fn from(values: EnumMap<Stat, Option<Scalar>>) -> Self {
-        Self { values }
+        Self {
+            values: Box::new(values),
+        }
     }
 }
 
 impl FromIterator<(Stat, Scalar)> for StatsSet {
     fn from_iter<T: IntoIterator<Item = (Stat, Scalar)>>(iter: T) -> Self {
-        let mut values = EnumMap::<Stat, Option<Scalar>>::default();
-        iter.into_iter().for_each(|(stat, scalar)| {
-            values[stat] = Some(scalar);
-        });
-        Self { values }
+        Self {
+            values: Box::new(iter.into_iter().map(|(st, s)| (st, Some(s))).collect()),
+        }
     }
 }
 

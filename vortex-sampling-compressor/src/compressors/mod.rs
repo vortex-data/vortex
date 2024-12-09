@@ -234,7 +234,7 @@ impl<'a> CompressedArray<'a> {
         let _ = uncompressed
             .statistics()
             .compute_uncompressed_size_in_bytes();
-        compressed.inherit_statistics(uncompressed.statistics());
+        compressed.inherit_statistics(uncompressed.take_stats());
 
         let compressed = Self {
             array: compressed,

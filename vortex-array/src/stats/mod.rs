@@ -188,7 +188,9 @@ pub trait Statistics {
 pub trait ArrayStatistics {
     fn statistics(&self) -> &dyn Statistics;
 
-    fn inherit_statistics(&self, parent: &dyn Statistics);
+    fn take_stats(&self) -> Box<StatsSet>;
+
+    fn inherit_statistics(&self, parent: Box<StatsSet>);
 }
 
 /// Encoding VTable for computing array statistics.
