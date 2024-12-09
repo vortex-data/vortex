@@ -322,7 +322,7 @@ impl Patches {
             })
             .unzip();
 
-        if new_sparse_indices.len() == 0 {
+        if new_sparse_indices.is_empty() {
             return Ok(None);
         }
 
