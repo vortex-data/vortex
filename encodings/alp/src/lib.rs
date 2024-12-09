@@ -1,4 +1,5 @@
 #![feature(float_next_up_down)]
+
 //! This crate contains an implementation of the floating point compression algorithm from the
 //! paper ["ALP: Adaptive Lossless floating-Point Compression"][paper] by Afroozeh et al.
 //!
