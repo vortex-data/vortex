@@ -223,10 +223,18 @@ mod test {
         let tnull = DType::Null;
 
         let bool_null = ScalarValue(InnerScalarValue::List(
-            vec![InnerScalarValue::Bool(true), InnerScalarValue::Null].into(),
+            vec![
+                ScalarValue(InnerScalarValue::Bool(true)),
+                ScalarValue(InnerScalarValue::Null),
+            ]
+            .into(),
         ));
         let bool_bool = ScalarValue(InnerScalarValue::List(
-            vec![InnerScalarValue::Bool(true), InnerScalarValue::Bool(false)].into(),
+            vec![
+                ScalarValue(InnerScalarValue::Bool(true)),
+                ScalarValue(InnerScalarValue::Bool(false)),
+            ]
+            .into(),
         ));
 
         fn tlist(element: &DType) -> DType {
