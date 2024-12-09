@@ -106,15 +106,14 @@ pub trait NativeIndexPType: NativePType {
     ///
     /// # Safety
     ///
-    /// 1. Assumes that the value is a valid index into an array on this machine.
+    /// 1. Assumes that the value is small enough to fit in this type.
     fn usize_as(value: usize) -> Self;
 
     /// Convert a u64 to this type.
     ///
     /// # Safety
     ///
-    /// 1. Assumes that the value is a valid index into an array on this machine.
-    /// 2. Assumes this machine's pointers are not larger than u64.
+    /// 1. Assumes that the value is small enough to fit in this type.
     fn u64_as(value: u64) -> Self;
 }
 
@@ -158,6 +157,7 @@ macro_rules! native_index_ptype {
             }
         }
 
+        #[allow(clippy::cast_possible_truncation)]
         impl NativeIndexPType for $T {
             fn as_usize(self) -> usize {
                 self as usize
