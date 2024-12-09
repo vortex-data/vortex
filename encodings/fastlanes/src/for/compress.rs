@@ -134,11 +134,15 @@ fn decompress_primitive<T: NativePType + WrappingAdd + PrimInt>(
     shift: usize,
 ) -> Vec<T> {
     if shift > 0 {
-        values
-            .into_iter()
-            .map(|v| v << shift)
-            .map(|v| v.wrapping_add(&min))
-            .collect_vec()
+        if min == T::zero() {
+            values.into_iter().map(|v| v << shift).collect_vec()
+        } else {
+            values
+                .into_iter()
+                .map(|v| v << shift)
+                .map(|v| v.wrapping_add(&min))
+                .collect_vec()
+        }
     } else {
         values
             .into_iter()
