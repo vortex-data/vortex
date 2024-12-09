@@ -25,6 +25,7 @@ fn indices(array_len: usize, n_indices: usize, rng: &mut StdRng) -> ArrayData {
     )
 }
 
+#[allow(clippy::cast_possible_truncation)]
 fn bench_take(c: &mut Criterion) {
     let mut group = c.benchmark_group("bench_take");
     let mut rng = StdRng::seed_from_u64(0);
@@ -47,7 +48,7 @@ fn bench_take(c: &mut Criterion) {
                     index_multiple * 100.0
                 )),
                 &(&patches, &indices),
-                |b, (patches, indices)| b.iter(|| patches.take_search(&indices)),
+                |b, (patches, indices)| b.iter(|| patches.take_search(indices)),
             );
             group.bench_with_input(
                 BenchmarkId::from_parameter(format!(
@@ -59,7 +60,7 @@ fn bench_take(c: &mut Criterion) {
                     index_multiple * 100.0
                 )),
                 &(&patches, &indices),
-                |b, (patches, indices)| b.iter(|| patches.take_map(&indices)),
+                |b, (patches, indices)| b.iter(|| patches.take_map(indices)),
             );
         }
     }
