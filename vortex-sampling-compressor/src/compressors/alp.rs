@@ -1,4 +1,6 @@
-use vortex_alp::{alp_encode_components, match_each_alp_float_ptype, ALPArray, ALPEncoding};
+use vortex_alp::{
+    alp_encode_components, match_each_alp_float_ptype, ALPArray, ALPEncoding, ALPRDEncoding,
+};
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::PrimitiveArray;
 use vortex_array::encoding::{Encoding, EncodingRef};
@@ -41,7 +43,6 @@ impl EncodingCompressor for ALPCompressor {
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
-        // TODO(robert): Fill forward nulls?
         let parray = array.clone().into_primitive()?;
 
         let (exponents, encoded, patches) = match_each_alp_float_ptype!(
@@ -72,6 +73,6 @@ impl EncodingCompressor for ALPCompressor {
     }
 
     fn used_encodings(&self) -> HashSet<EncodingRef> {
-        HashSet::from([&ALPEncoding as EncodingRef])
+        HashSet::from([&ALPEncoding as EncodingRef, &ALPRDEncoding])
     }
 }
