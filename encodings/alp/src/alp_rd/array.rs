@@ -78,14 +78,11 @@ impl ALPRDArray {
 
         let mut children = vec![left_parts.clone(), right_parts];
 
-        if let Some(patches) = left_parts_patches.as_ref() {
-            if patches.values().dtype().is_nullable() {
-                vortex_bail!("patches must be non-nullable: {}", patches.values());
-            }
-        }
-
         let patches = left_parts_patches
             .map(|patches| -> VortexResult<_> {
+                if patches.values().dtype().is_nullable() {
+                    vortex_bail!("patches must be non-nullable: {}", patches.values());
+                }
                 let metadata =
                     patches.to_metadata(left_parts.len(), &left_parts.dtype().as_nonnullable());
                 let (_, indices, values) = patches.into_parts();
