@@ -307,11 +307,7 @@ impl Patches {
         let take_indices = try_cast(
             take_indices,
             &DType::Primitive(
-                take_indices
-                    .dtype()
-                    .as_ptype()
-                    .vortex_expect("indices must be primitive")
-                    .to_unsigned(),
+                PType::try_from(take_indices.dtype())?.to_unsigned(),
                 NonNullable,
             ),
         )?
