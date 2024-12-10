@@ -234,7 +234,7 @@ pub fn runend_decode_typed_bool(
             for (end, value) in run_ends.zip_eq(values.iter()) {
                 decoded.append_n(end - decoded.len(), value);
             }
-            BoolArray::new(decoded.finish(), values_nullability.into())
+            BoolArray::new(decoded.finish(), values_nullability)
         }
         LogicalValidity::AllInvalid(_) => BoolArray::try_new(
             BooleanBuffer::new_unset(length),
