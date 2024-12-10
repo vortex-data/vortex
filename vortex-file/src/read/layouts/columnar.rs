@@ -370,7 +370,7 @@ impl LayoutReader for ColumnarLayoutReader {
                         return Ok(PollRead::Value(Prune::CanPrune));
                     } else {
                         // Update the state.
-                        *child_prune_state = Some(Prune::CannotPrune)
+                        *child_prune_state = Some(is_pruned)
                     }
                 }
             }
@@ -380,12 +380,15 @@ impl LayoutReader for ColumnarLayoutReader {
             // Read more
             Ok(PollRead::ReadMore(messages))
         } else {
+            // If any children were pruned, we can short-circuit pruning of the child arrays.
             let any_can_prune = column_prunes.iter().any(|col_prune| {
                 col_prune.vortex_expect("prune state must be initialized") == Prune::CanPrune
             });
-            // We might reach a point where all are evaluated, but none of them can be dealt with in
-            // this way.
-            Ok(PollRead::Value(if any_can_prune {}))
+            Ok(PollRead::Value(if any_can_prune {
+                Prune::CanPrune
+            } else {
+                Prune::CannotPrune
+            }))
         }
     }
 }
