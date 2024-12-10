@@ -24,6 +24,7 @@ arrow-array = { workspace = true }
 flatbuffers = { workspace = true, optional = true }
 half = { workspace = true, features = ["num-traits"] }
 itertools = { workspace = true }
+inline-str = { workspace = true, features = ["serde"] }
 num-traits = { workspace = true }
 prost = { workspace = true, optional = true }
 serde = { workspace = true, optional = true, features = ["rc", "derive"] }

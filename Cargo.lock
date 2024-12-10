@@ -2368,6 +2368,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b248f5224d1d606005e02c97f5aa4e88eeb230488bcc03bc9ca4d7991399f2b5"
 
 [[package]]
+name = "inline-array"
+version = "0.1.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b663811b69874e8b05e9257d21b3cf18ca8380684cad0be4339270d00fbd643b"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "inline-str"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7c4bdffe182ba907c0d9908eff54b0cdd1c752a8f0e5b44b80347a26bc9a3aa3"
+dependencies = [
+ "inline-array",
+ "serde",
+]
+
+[[package]]
 name = "instant"
 version = "0.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4831,6 +4850,7 @@ dependencies = [
  "arrow-array",
  "flatbuffers",
  "half",
+ "inline-str",
  "itertools 0.13.0",
  "num-traits",
  "prost",

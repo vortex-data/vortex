@@ -5,16 +5,17 @@
 
 use core::fmt;
 use std::fmt::{Display, Formatter};
-use std::sync::Arc;
 
 use itertools::Itertools;
+
+use crate::FieldName;
 
 /// A selector for a field in a struct
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Field {
     /// A field selector by name
-    Name(Arc<str>),
+    Name(FieldName),
     /// A field selector by index (position)
     Index(usize),
 }

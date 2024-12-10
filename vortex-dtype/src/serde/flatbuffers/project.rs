@@ -1,9 +1,7 @@
-use std::sync::Arc;
-
 use vortex_error::{vortex_err, VortexResult};
 
 use crate::field::Field;
-use crate::{flatbuffers as fb, DType, StructDType};
+use crate::{flatbuffers as fb, DType, FieldName, StructDType};
 
 /// Convert name references in projection list into index references.
 ///
@@ -42,7 +40,7 @@ pub fn project_and_deserialize(
         .ok_or_else(|| vortex_err!("The top-level type should be a struct"))?;
     let nullability = fb_struct.nullable().into();
 
-    let (names, dtypes): (Vec<Arc<str>>, Vec<DType>) = projection
+    let (names, dtypes): (Vec<FieldName>, Vec<DType>) = projection
         .iter()
         .map(|f| resolve_field(fb_struct, f))
         .map(|idx| idx.and_then(|i| read_field(fb_struct, i)))
@@ -56,7 +54,7 @@ pub fn project_and_deserialize(
     ))
 }
 
-fn read_field(fb_struct: fb::Struct_, idx: usize) -> VortexResult<(Arc<str>, DType)> {
+fn read_field(fb_struct: fb::Struct_, idx: usize) -> VortexResult<(FieldName, DType)> {
     let name = fb_struct
         .names()
         .ok_or_else(|| vortex_err!("Missing field names"))?

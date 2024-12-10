@@ -1,17 +1,19 @@
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 
+use inline_str::InlineStr;
+
 use crate::{DType, Nullability};
 
 /// A unique identifier for an extension type
 #[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
-pub struct ExtID(Arc<str>);
+pub struct ExtID(InlineStr);
 
 impl ExtID {
     /// Constructs a new `ExtID` from a string
-    pub fn new(value: Arc<str>) -> Self {
-        Self(value)
+    pub fn new(value: impl AsRef<str>) -> Self {
+        Self(InlineStr::from(value.as_ref()))
     }
 }
 

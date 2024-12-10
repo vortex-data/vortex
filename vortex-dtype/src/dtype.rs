@@ -2,6 +2,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::sync::Arc;
 
+use inline_str::InlineStr;
 use itertools::Itertools;
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexResult};
 use DType::*;
@@ -11,7 +12,7 @@ use crate::nullability::Nullability;
 use crate::{ExtDType, PType};
 
 /// A name for a field in a struct
-pub type FieldName = Arc<str>;
+pub type FieldName = InlineStr;
 /// An ordered list of field names in a struct
 pub type FieldNames = Arc<[FieldName]>;
 
@@ -189,7 +190,7 @@ pub struct FieldInfo<'a> {
     /// The position index of the field within the enclosing struct
     pub index: usize,
     /// The name of the field
-    pub name: Arc<str>,
+    pub name: FieldName,
     /// The dtype of the field
     pub dtype: &'a DType,
 }
@@ -218,7 +219,7 @@ impl StructDType {
     /// Find the index of a field by name
     /// Returns `None` if the field is not found
     pub fn find_name(&self, name: &str) -> Option<usize> {
-        self.names.iter().position(|n| n.as_ref() == name)
+        self.names.iter().position(|n| n == &name)
     }
 
     /// Get information about the referenced field, either by name or index
@@ -308,27 +309,27 @@ mod test {
         let sdt = dtype.as_struct().unwrap();
         assert_eq!(sdt.names().len(), 2);
         assert_eq!(sdt.dtypes().len(), 2);
-        assert_eq!(sdt.names()[0], "A".into());
-        assert_eq!(sdt.names()[1], "B".into());
+        assert_eq!(sdt.names()[0], "A");
+        assert_eq!(sdt.names()[1], "B");
         assert_eq!(sdt.dtypes()[0], a_type);
         assert_eq!(sdt.dtypes()[1], b_type);
 
         let proj = sdt
             .project(&[Field::Index(1), Field::Name("A".into())])
             .unwrap();
-        assert_eq!(proj.names()[0], "B".into());
+        assert_eq!(proj.names()[0], "B");
         assert_eq!(proj.dtypes()[0], b_type);
-        assert_eq!(proj.names()[1], "A".into());
+        assert_eq!(proj.names()[1], "A");
         assert_eq!(proj.dtypes()[1], a_type);
 
         let field_info = sdt.field_info(&Field::Name("B".into())).unwrap();
         assert_eq!(field_info.index, 1);
-        assert_eq!(field_info.name, "B".into());
+        assert_eq!(field_info.name, "B");
         assert_eq!(field_info.dtype, &b_type);
 
         let field_info = sdt.field_info(&Field::Index(0)).unwrap();
         assert_eq!(field_info.index, 0);
-        assert_eq!(field_info.name, "A".into());
+        assert_eq!(field_info.name, "A");
         assert_eq!(field_info.dtype, &a_type);
 
         assert!(sdt.field_info(&Field::Index(2)).is_err());

@@ -79,7 +79,7 @@ impl From<&DType> for pb::DType {
                     nullable: (*n).into(),
                 }),
                 DType::Struct(s, n) => DtypeType::Struct(pb::Struct {
-                    names: s.names().iter().map(|s| s.as_ref().to_string()).collect(),
+                    names: s.names().iter().map(|s| s.to_string()).collect(),
                     dtypes: s.dtypes().iter().map(Into::into).collect(),
                     nullable: (*n).into(),
                 }),
