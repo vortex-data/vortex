@@ -4828,7 +4828,6 @@ name = "vortex-dtype"
 version = "0.21.0"
 dependencies = [
  "arbitrary",
- "arrow-array",
  "flatbuffers",
  "half",
  "itertools 0.13.0",

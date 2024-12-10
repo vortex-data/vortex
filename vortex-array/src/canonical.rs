@@ -2,8 +2,9 @@
 
 use std::sync::Arc;
 
+use arrow_array::types::*;
 use arrow_array::{
-    ArrayRef, BooleanArray as ArrowBoolArray, Date32Array, Date64Array,
+    ArrayRef, ArrowPrimitiveType, BooleanArray as ArrowBoolArray, Date32Array, Date64Array,
     NullArray as ArrowNullArray, PrimitiveArray as ArrowPrimitiveArray,
     StructArray as ArrowStructArray, Time32MillisecondArray, Time32SecondArray,
     Time64MicrosecondArray, Time64NanosecondArray, TimestampMicrosecondArray,
@@ -12,7 +13,7 @@ use arrow_array::{
 use arrow_buffer::ScalarBuffer;
 use arrow_schema::{Field, FieldRef, Fields};
 use vortex_datetime_dtype::{is_temporal_ext_type, TemporalMetadata, TimeUnit};
-use vortex_dtype::{match_each_native_ptype, DType, NativePType, PType};
+use vortex_dtype::{DType, NativePType, PType};
 use vortex_error::{vortex_bail, VortexError, VortexResult};
 
 use crate::array::{
@@ -166,12 +167,28 @@ fn bool_to_arrow(bool_array: BoolArray) -> VortexResult<ArrayRef> {
     )))
 }
 
-fn primitive_to_arrow(array: PrimitiveArray) -> VortexResult<ArrayRef> {
-    match_each_native_ptype!(array.ptype(), |$P| {
-        Ok(Arc::new(ArrowPrimitiveArray::<<$P as NativePType>::ArrowPrimitiveType>::new(
-            ScalarBuffer::<$P>::new(array.buffer().clone().into_arrow(), 0, array.len()),
+fn primitive_to_arrow(primitive_array: PrimitiveArray) -> VortexResult<ArrayRef> {
+    fn as_arrow_array_primitive<T: ArrowPrimitiveType>(
+        array: &PrimitiveArray,
+    ) -> VortexResult<Arc<ArrowPrimitiveArray<T>>> {
+        Ok(Arc::new(ArrowPrimitiveArray::new(
+            ScalarBuffer::<T::Native>::new(array.buffer().clone().into_arrow(), 0, array.len()),
             array.logical_validity().to_null_buffer()?,
         )))
+    }
+
+    Ok(match primitive_array.ptype() {
+        PType::U8 => as_arrow_array_primitive::<UInt8Type>(&primitive_array)?,
+        PType::U16 => as_arrow_array_primitive::<UInt16Type>(&primitive_array)?,
+        PType::U32 => as_arrow_array_primitive::<UInt32Type>(&primitive_array)?,
+        PType::U64 => as_arrow_array_primitive::<UInt64Type>(&primitive_array)?,
+        PType::I8 => as_arrow_array_primitive::<Int8Type>(&primitive_array)?,
+        PType::I16 => as_arrow_array_primitive::<Int16Type>(&primitive_array)?,
+        PType::I32 => as_arrow_array_primitive::<Int32Type>(&primitive_array)?,
+        PType::I64 => as_arrow_array_primitive::<Int64Type>(&primitive_array)?,
+        PType::F16 => as_arrow_array_primitive::<Float16Type>(&primitive_array)?,
+        PType::F32 => as_arrow_array_primitive::<Float32Type>(&primitive_array)?,
+        PType::F64 => as_arrow_array_primitive::<Float64Type>(&primitive_array)?,
     })
 }
 
