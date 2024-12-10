@@ -212,7 +212,7 @@ impl Validity {
     /// It is assumed the caller has checked that all indices are <= the length of this validity
     /// buffer.
     ///
-    /// Failure to do so may result win UB.
+    /// Failure to do so may result in UB.
     pub unsafe fn take_unchecked(&self, indices: &ArrayData) -> VortexResult<Self> {
         match self {
             Self::NonNullable => Ok(Self::NonNullable),
