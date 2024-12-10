@@ -198,6 +198,7 @@ impl FileFormat for VortexFormat {
             metrics,
             filters.cloned(),
             self.context.clone(),
+            self.initial_read_cache.clone(),
         )?
         .into_arc();
 

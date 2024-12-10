@@ -35,6 +35,7 @@ log = { workspace = true }
 moka = { workspace = true, features = ["future"] }
 object_store = { workspace = true }
 pin-project = { workspace = true }
+tokio = { workspace = true }
 vortex-array = { workspace = true }
 vortex-datetime-dtype = { workspace = true }
 vortex-dtype = { workspace = true }

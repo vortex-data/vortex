@@ -6,10 +6,15 @@ use datafusion::datasource::physical_plan::{FileMeta, FileOpenFuture, FileOpener
 use datafusion_common::Result as DFResult;
 use datafusion_physical_expr::{split_conjunction, PhysicalExpr};
 use futures::{FutureExt as _, StreamExt, TryStreamExt};
+use moka::future::Cache;
+use object_store::path::Path;
 use object_store::ObjectStore;
+use tokio::runtime::Handle;
 use vortex_array::Context;
 use vortex_expr::datafusion::convert_expr_to_vortex;
-use vortex_file::{LayoutContext, LayoutDeserializer, Projection, RowFilter, VortexReadBuilder};
+use vortex_file::{
+    InitialRead, LayoutContext, LayoutDeserializer, Projection, RowFilter, VortexReadBuilder,
+};
 use vortex_io::{IoDispatcher, ObjectStoreReadAt};
 
 /// Share an IO dispatcher across all DataFusion instances.
@@ -22,18 +27,26 @@ pub struct VortexFileOpener {
     pub projection: Option<Vec<usize>>,
     pub predicate: Option<Arc<dyn PhysicalExpr>>,
     pub arrow_schema: SchemaRef,
+    pub(crate) initial_read_cache: Cache<Path, InitialRead>,
 }
 
 impl FileOpener for VortexFileOpener {
     fn open(&self, file_meta: FileMeta) -> DFResult<FileOpenFuture> {
         let read_at =
             ObjectStoreReadAt::new(self.object_store.clone(), file_meta.location().clone());
+        let initial_read = tokio::task::block_in_place(|| {
+            Handle::current().block_on(self.initial_read_cache.get(file_meta.location()))
+        });
 
         let mut builder = VortexReadBuilder::new(
             read_at,
             LayoutDeserializer::new(self.ctx.clone(), Arc::new(LayoutContext::default())),
         )
         .with_io_dispatcher(IO_DISPATCHER.clone());
+
+        if let Some(initial_read) = initial_read {
+            builder = builder.with_initial_read(initial_read);
+        }
 
         // We split the predicate and filter out the conjunction members that we can't push down
         let row_filter = self

@@ -6,6 +6,7 @@ use vortex_error::VortexResult;
 use vortex_expr::Select;
 use vortex_io::{IoDispatcher, VortexReadAt};
 
+use super::InitialRead;
 use crate::read::cache::{LayoutMessageCache, RelativeLayoutCache};
 use crate::read::context::LayoutDeserializer;
 use crate::read::filtering::RowFilter;
@@ -69,6 +70,7 @@ pub struct VortexReadBuilder<R> {
     row_mask: Option<ArrayData>,
     row_filter: Option<RowFilter>,
     io_dispatcher: Option<Arc<IoDispatcher>>,
+    initial_read: Option<InitialRead>,
 }
 
 impl<R: VortexReadAt + Unpin> VortexReadBuilder<R> {
@@ -81,6 +83,7 @@ impl<R: VortexReadAt + Unpin> VortexReadBuilder<R> {
             row_mask: None,
             row_filter: None,
             io_dispatcher: None,
+            initial_read: None,
         }
     }
 
@@ -114,9 +117,17 @@ impl<R: VortexReadAt + Unpin> VortexReadBuilder<R> {
         self
     }
 
+    pub fn with_initial_read(mut self, initial_read: InitialRead) -> Self {
+        self.initial_read = Some(initial_read);
+        self
+    }
+
     pub async fn build(self) -> VortexResult<VortexFileArrayStream<R>> {
         // we do a large enough initial read to get footer, layout, and schema
-        let initial_read = read_initial_bytes(&self.read_at, self.file_size().await?).await?;
+        let initial_read = match self.initial_read {
+            Some(r) => r,
+            None => read_initial_bytes(&self.read_at, self.file_size().await?).await?,
+        };
 
         let layout = initial_read.fb_layout();
 
