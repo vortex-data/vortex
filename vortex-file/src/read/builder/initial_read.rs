@@ -2,7 +2,7 @@ use core::ops::Range;
 
 use bytes::Bytes;
 use flatbuffers::{root, root_unchecked};
-use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexResult, VortexUnwrap};
 use vortex_flatbuffers::{footer, message};
 use vortex_io::VortexReadAt;
 
@@ -68,7 +68,7 @@ pub async fn read_initial_bytes<R: VortexReadAt>(
     let read_size = INITIAL_READ_SIZE.min(file_size as usize);
 
     let initial_read_offset = file_size - read_size as u64;
-    let buf = read
+    let buf: Bytes = read
         .read_byte_range(initial_read_offset, read_size as u64)
         .await?;
 
@@ -89,11 +89,8 @@ pub async fn read_initial_bytes<R: VortexReadAt>(
     }
 
     // The footer MUST fit in the initial read.
-    let ps_size = u16::from_le_bytes(
-        buf[eof_loc + 2..eof_loc + 4]
-            .try_into()
-            .map_err(|e| vortex_err!("Footer size was not a u16 {e}"))?,
-    ) as usize;
+    let ps_size =
+        u16::from_le_bytes(buf[eof_loc + 2..eof_loc + 4].try_into().vortex_unwrap()) as usize;
     if ps_size > eof_loc {
         vortex_bail!(
             "Malformed file, postscript of size {} is too large to fit in initial read of size {} (file size {})",
