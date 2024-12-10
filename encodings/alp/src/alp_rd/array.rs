@@ -127,12 +127,6 @@ impl ALPRDArray {
         DType::Primitive(self.metadata().left_parts_ptype, self.dtype().nullability())
     }
 
-    /// The dtype of the exceptions of the left parts of the array.
-    #[inline]
-    fn left_parts_exceptions_dtype(&self) -> DType {
-        DType::Primitive(self.metadata().left_parts_ptype, Nullability::NonNullable)
-    }
-
     /// The dtype of the right parts of the array.
     #[inline]
     fn right_parts_dtype(&self) -> DType {
@@ -144,6 +138,12 @@ impl ALPRDArray {
             },
             Nullability::NonNullable,
         )
+    }
+
+    /// The dtype of the patches of the left parts of the array.
+    #[inline]
+    fn left_parts_patches_dtype(&self) -> DType {
+        DType::Primitive(self.metadata().left_parts_ptype, Nullability::NonNullable)
     }
 
     /// The leftmost (most significant) bits of the floating point values stored in the array.
@@ -172,7 +172,7 @@ impl ALPRDArray {
                     .child(2, &metadata.indices_dtype(), metadata.len())
                     .vortex_expect("ALPRDArray: patch indices"),
                 self.as_ref()
-                    .child(3, &self.left_parts_exceptions_dtype(), metadata.len())
+                    .child(3, &self.left_parts_patches_dtype(), metadata.len())
                     .vortex_expect("ALPRDArray: patch values"),
             )
         })

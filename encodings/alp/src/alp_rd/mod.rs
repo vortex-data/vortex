@@ -262,8 +262,6 @@ impl RDEncoder {
 /// # Panics
 ///
 /// The function panics if the provided `left_parts` and `right_parts` differ in length.
-///
-/// The function panics if the provided `exc_pos` and `exceptions` differ in length.
 pub fn alp_rd_decode<T: ALPRDFloat>(
     left_parts: &[u16],
     left_parts_dict: &[u16],
