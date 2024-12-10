@@ -4,8 +4,8 @@ use vortex_scalar::Scalar;
 use crate::array::sparse::SparseArray;
 use crate::array::{ConstantArray, SparseEncoding};
 use crate::compute::{
-    ComputeVTable, FilterFn, FilterMask, InvertFn, ScalarAtFn,
-    SearchResult, SearchSortedFn, SearchSortedSide, SearchSortedUsizeFn, SliceFn, TakeFn,
+    ComputeVTable, FilterFn, FilterMask, InvertFn, ScalarAtFn, SearchResult, SearchSortedFn,
+    SearchSortedSide, SearchSortedUsizeFn, SliceFn, TakeFn,
 };
 use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData};
 
