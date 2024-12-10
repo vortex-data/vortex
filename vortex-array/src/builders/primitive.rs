@@ -16,9 +16,9 @@ pub struct PrimitiveBuilder<T: NativePType> {
     dtype: DType,
 }
 
-impl<T: NativePType> PrimitiveBuilder<T>
+impl<T: NativePType + 'static> PrimitiveBuilder<T>
 where
-    T: NativePType + 'static,
+    T: NativePType,
     <T::ArrowPrimitiveType as ArrowPrimitiveType>::Native: NativePType,
 {
     pub fn new(nullability: Nullability) -> Self {

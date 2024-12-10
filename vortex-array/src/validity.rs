@@ -5,7 +5,6 @@ use std::ops::BitAnd;
 
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, NullBuffer};
 use serde::{Deserialize, Serialize};
-use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{
     vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect as _, VortexResult,
@@ -100,7 +99,7 @@ pub enum Validity {
 
 impl Validity {
     /// The [`DType`] of the underlying validity array (if it exists).
-    pub const DTYPE: DType = DType::Bool(NonNullable);
+    pub const DTYPE: DType = DType::Bool(Nullability::NonNullable);
 
     pub fn to_metadata(&self, length: usize) -> VortexResult<ValidityMetadata> {
         match self {
@@ -161,7 +160,7 @@ impl Validity {
 
     pub fn nullability(&self) -> Nullability {
         match self {
-            Self::NonNullable => NonNullable,
+            Self::NonNullable => Nullability::NonNullable,
             _ => Nullability::Nullable,
         }
     }
@@ -423,6 +422,15 @@ impl FromIterator<LogicalValidity> for Validity {
 impl FromIterator<bool> for Validity {
     fn from_iter<T: IntoIterator<Item = bool>>(iter: T) -> Self {
         Validity::from(BooleanBuffer::from_iter(iter))
+    }
+}
+
+impl From<Nullability> for Validity {
+    fn from(value: Nullability) -> Self {
+        match value {
+            Nullability::NonNullable => Validity::NonNullable,
+            Nullability::Nullable => Validity::AllValid,
+        }
     }
 }
 

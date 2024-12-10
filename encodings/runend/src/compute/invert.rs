@@ -9,7 +9,6 @@ impl InvertFn<RunEndArray> for RunEndEncoding {
         RunEndArray::with_offset_and_length(
             array.ends(),
             invert(&array.values())?,
-            array.validity(),
             array.len(),
             array.offset(),
         )

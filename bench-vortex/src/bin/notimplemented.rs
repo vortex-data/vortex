@@ -122,7 +122,6 @@ fn enc_impls() -> Vec<ArrayData> {
         RunEndArray::try_new(
             PrimitiveArray::from(vec![5u32, 8]).into_array(),
             PrimitiveArray::from(vec![0, 1]).into_array(),
-            Validity::NonNullable,
         )
         .unwrap()
         .into_array(),

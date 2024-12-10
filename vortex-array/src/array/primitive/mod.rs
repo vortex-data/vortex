@@ -3,7 +3,7 @@ use std::ptr;
 use std::sync::Arc;
 mod accessor;
 
-use arrow_buffer::{ArrowNativeType, Buffer as ArrowBuffer, MutableBuffer};
+use arrow_buffer::{ArrowNativeType, BooleanBufferBuilder, Buffer as ArrowBuffer, MutableBuffer};
 use bytes::Bytes;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
@@ -11,6 +11,7 @@ use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, PType};
 use vortex_error::{VortexExpect as _, VortexResult};
 
+use crate::array::BoolArray;
 use crate::encoding::ids;
 use crate::iter::Accessor;
 use crate::stats::StatsSet;
@@ -212,6 +213,31 @@ impl<T: NativePType> Accessor<T> for PrimitiveArray {
 }
 
 impl PrimitiveArrayTrait for PrimitiveArray {}
+
+impl<T: NativePType> FromIterator<Option<T>> for PrimitiveArray {
+    fn from_iter<I: IntoIterator<Item = Option<T>>>(iter: I) -> Self {
+        let iter = iter.into_iter();
+        let mut values = Vec::with_capacity(iter.size_hint().0);
+        let mut validity = BooleanBufferBuilder::new(values.capacity());
+
+        for i in iter {
+            match i {
+                None => {
+                    validity.append(false);
+                    values.push(T::default());
+                }
+                Some(e) => {
+                    validity.append(true);
+                    values.push(e);
+                }
+            }
+        }
+        Self::from_vec(
+            values,
+            Validity::Array(BoolArray::from(validity.finish()).into_array()),
+        )
+    }
+}
 
 impl<T: NativePType> From<Vec<T>> for PrimitiveArray {
     fn from(values: Vec<T>) -> Self {
