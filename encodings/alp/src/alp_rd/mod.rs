@@ -235,13 +235,8 @@ impl RDEncoder {
                     .into_array()
             };
 
-            let exception_validity = Validity::NonNullable;
-            // if array.dtype().is_nullable() {
-            //     Validity::AllValid
-            // } else {
-            //     Validity::NonNullable
-            // };
-            let exc_array = PrimitiveArray::from_vec(exceptions, exception_validity).into_array();
+            let exc_array =
+                PrimitiveArray::from_vec(exceptions, Validity::NonNullable).into_array();
             Patches::new(doubles.len(), packed_pos, exc_array)
         });
 
