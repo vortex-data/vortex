@@ -394,7 +394,7 @@ pub enum FieldOrIdentity {
 }
 
 pub(crate) fn stat_column_field(field: &Field, stat: Stat) -> Field {
-    Field::Name(stat_column_name_string(field, stat))
+    Field::from(stat_column_name_string(field, stat))
 }
 
 pub(crate) fn stat_column_name_string(field: &Field, stat: Stat) -> String {
@@ -406,7 +406,7 @@ pub(crate) fn stat_column_name_string(field: &Field, stat: Stat) -> String {
 
 impl FieldOrIdentity {
     pub(crate) fn stat_column_field(&self, stat: Stat) -> Field {
-        Field::Name(self.stat_column_name_string(stat))
+        Field::from(self.stat_column_name_string(stat))
     }
 
     pub(crate) fn stat_column_name_string(&self, stat: Stat) -> String {
@@ -768,13 +768,13 @@ mod tests {
 
         let expected_expr = BinaryExpr::new_expr(
             BinaryExpr::new_expr(
-                Column::new_expr(Field::Name("min".to_string())),
+                Column::new_expr(Field::from("min")),
                 Operator::Gte,
                 Literal::new_expr(10.into()),
             ),
             Operator::Or,
             BinaryExpr::new_expr(
-                Column::new_expr(Field::Name("max".to_string())),
+                Column::new_expr(Field::from("max")),
                 Operator::Lte,
                 Literal::new_expr(50.into()),
             ),

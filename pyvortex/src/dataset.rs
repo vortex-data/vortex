@@ -68,9 +68,7 @@ pub async fn read_dtype_from_reader<T: VortexReadAt + Unpin>(reader: T) -> Vorte
 fn projection_from_python(columns: Option<Vec<Bound<PyAny>>>) -> PyResult<Projection> {
     fn field_from_pyany(field: &Bound<PyAny>) -> PyResult<Field> {
         if field.clone().is_instance_of::<PyString>() {
-            Ok(Field::Name(
-                field.downcast::<PyString>()?.to_str()?.to_string(),
-            ))
+            Ok(Field::from(field.downcast::<PyString>()?.to_str()?))
         } else if field.is_instance_of::<PyLong>() {
             Ok(Field::Index(field.extract()?))
         } else {

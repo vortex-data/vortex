@@ -91,7 +91,7 @@ mod tests {
 
     #[test]
     fn basic_expr_split_test() {
-        let lhs = Column::new_expr(Field::Name("a".to_string()));
+        let lhs = Column::new_expr(Field::from("a"));
         let rhs = Literal::new_expr(1.into());
         let expr = BinaryExpr::new_expr(lhs, Operator::Eq, rhs);
         let conjunction = split_conjunction(&expr);
@@ -100,7 +100,7 @@ mod tests {
 
     #[test]
     fn basic_conjunction_split_test() {
-        let lhs = Column::new_expr(Field::Name("a".to_string()));
+        let lhs = Column::new_expr(Field::from("a"));
         let rhs = Literal::new_expr(1.into());
         let expr = BinaryExpr::new_expr(lhs, Operator::And, rhs);
         let conjunction = split_conjunction(&expr);
@@ -109,16 +109,13 @@ mod tests {
 
     #[test]
     fn expr_display() {
-        assert_eq!(
-            Column::new_expr(Field::Name("a".to_string())).to_string(),
-            "$a"
-        );
+        assert_eq!(Column::new_expr(Field::from("a")).to_string(), "$a");
         assert_eq!(Column::new_expr(Field::Index(1)).to_string(), "[1]");
         assert_eq!(Identity.to_string(), "[]");
         assert_eq!(Identity.to_string(), "[]");
 
-        let col1: Arc<dyn VortexExpr> = Column::new_expr(Field::Name("col1".to_string()));
-        let col2: Arc<dyn VortexExpr> = Column::new_expr(Field::Name("col2".to_string()));
+        let col1: Arc<dyn VortexExpr> = Column::new_expr(Field::from("col1"));
+        let col2: Arc<dyn VortexExpr> = Column::new_expr(Field::from("col2"));
         assert_eq!(
             BinaryExpr::new_expr(col1.clone(), Operator::And, col2.clone()).to_string(),
             "($col1 and $col2)"
@@ -165,21 +162,17 @@ mod tests {
         assert_eq!(Not::new_expr(col1.clone()).to_string(), "!$col1");
 
         assert_eq!(
-            Select::include(vec![Field::Name("col1".to_string())]).to_string(),
+            Select::include(vec![Field::from("col1")]).to_string(),
             "Include($col1)"
         );
         assert_eq!(
-            Select::include(vec![
-                Field::Name("col1".to_string()),
-                Field::Name("col2".to_string())
-            ])
-            .to_string(),
+            Select::include(vec![Field::from("col1"), Field::from("col2")]).to_string(),
             "Include($col1,$col2)"
         );
         assert_eq!(
             Select::exclude(vec![
-                Field::Name("col1".to_string()),
-                Field::Name("col2".to_string()),
+                Field::from("col1"),
+                Field::from("col2"),
                 Field::Index(1),
             ])
             .to_string(),

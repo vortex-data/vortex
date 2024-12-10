@@ -206,7 +206,7 @@ impl LazyDType {
                     Field::Name(n) => sdt
                         .names()
                         .iter()
-                        .position(|name| name.as_ref() == n.as_str())
+                        .position(|name| name == n)
                         .ok_or_else(|| vortex_err!("Can't find {n} in the type")),
                     Field::Index(i) => Ok(*i),
                 }
@@ -279,7 +279,8 @@ impl RelativeLayoutCache {
     }
 
     pub fn relative(&self, id: LayoutPartId, dtype: Arc<LazyDType>) -> Self {
-        let mut new_path = self.path.clone();
+        let mut new_path = Vec::with_capacity(self.path.len() + 1);
+        new_path.clone_from(&self.path);
         new_path.push(id);
         Self {
             root: self.root.clone(),

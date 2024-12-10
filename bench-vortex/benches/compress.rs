@@ -384,7 +384,7 @@ fn tpc_h_l_comment(c: &mut Criterion) {
         .map(|chunk| {
             StructArray::try_from(chunk)
                 .unwrap()
-                .project(&[Field::Name("l_comment".to_string())])
+                .project(&[Field::from("l_comment")])
                 .unwrap()
                 .into_array()
         })

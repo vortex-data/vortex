@@ -203,7 +203,7 @@ async fn test_read_projection() {
     assert_eq!(actual, strings_expected);
 
     let array = VortexReadBuilder::new(written.clone(), LayoutDeserializer::default())
-        .with_projection(Projection::Flat(vec![Field::Name("strings".to_string())]))
+        .with_projection(Projection::Flat(vec![Field::from("strings")]))
         .build()
         .await
         .unwrap()
@@ -261,7 +261,7 @@ async fn test_read_projection() {
     assert_eq!(actual, numbers_expected);
 
     let array = VortexReadBuilder::new(written.clone(), LayoutDeserializer::default())
-        .with_projection(Projection::Flat(vec![Field::Name("numbers".to_string())]))
+        .with_projection(Projection::Flat(vec![Field::from("numbers")]))
         .build()
         .await
         .unwrap()

@@ -7,6 +7,7 @@ use vortex_array::array::ChunkedArray;
 use vortex_array::compute::{scalar_at, take};
 use vortex_array::stats::{stats_from_bitset_bytes, ArrayStatistics as _, Stat};
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
+use vortex_dtype::field::Field;
 use vortex_dtype::{DType, Nullability, StructDType};
 use vortex_error::{
     vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult, VortexUnwrap,
@@ -79,17 +80,18 @@ impl ChunkedLayoutBuilder<'_> {
                 .children()
                 .ok_or_else(|| vortex_err!("Must have children if layout has metadata"))?
                 .get(0);
+            let stats_dtype = stats_table_dtype(&set_stats, self.message_cache.dtype().value()?);
+            let DType::Struct(ref s, _) = stats_dtype else {
+                vortex_bail!("Chunked layout stats must be a Struct, got {stats_dtype}")
+            };
             Some(self.layout_builder.read_layout(
                 metadata_fb,
                 Scan::new(Some(Arc::new(Select::include(
-                    set_stats.iter().map(|s| s.to_string().into()).collect(),
+                    s.names().iter().map(|s| Field::Name(s.clone())).collect(),
                 )))),
                 self.message_cache.relative(
                     METADATA_LAYOUT_PART_ID,
-                    Arc::new(LazyDType::from_dtype(stats_table_dtype(
-                        &set_stats,
-                        self.message_cache.dtype().value()?,
-                    ))),
+                    Arc::new(LazyDType::from_dtype(stats_dtype)),
                 ),
             )?)
         } else {
@@ -138,7 +140,7 @@ fn stats_table_dtype(stats: &[Stat], dtype: &DType) -> DType {
     let dtypes = stats.iter().map(|s| s.dtype(dtype).as_nullable()).collect();
 
     DType::Struct(
-        StructDType::new(stats.iter().map(|s| s.to_string().into()).collect(), dtypes),
+        StructDType::new(stats.iter().map(|s| s.name().into()).collect(), dtypes),
         Nullability::NonNullable,
     )
 }
