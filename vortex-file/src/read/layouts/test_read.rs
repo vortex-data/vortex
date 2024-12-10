@@ -7,7 +7,7 @@ use vortex_error::VortexUnwrap;
 
 use crate::read::mask::RowMask;
 use crate::read::splits::FixedSplitIterator;
-use crate::{BatchRead, LayoutMessageCache, LayoutReader, MessageLocator};
+use crate::{LayoutMessageCache, LayoutReader, MessageLocator, PollRead};
 
 fn layout_splits(
     layouts: &[&mut dyn LayoutReader],
@@ -28,15 +28,15 @@ pub fn read_layout_data(
     buf: &Bytes,
     selector: &RowMask,
 ) -> Option<ArrayData> {
-    while let Some(rr) = layout.read_selection(selector).unwrap() {
+    while let Some(rr) = layout.poll_read(selector).unwrap() {
         match rr {
-            BatchRead::ReadMore(m) => {
+            PollRead::ReadMore(m) => {
                 let mut write_cache_guard = cache.write().unwrap();
                 for MessageLocator(id, range) in m {
                     write_cache_guard.set(id, buf.slice(range.to_range()));
                 }
             }
-            BatchRead::Value(a) => return Some(a),
+            PollRead::Value(a) => return Some(a),
         }
     }
     None
@@ -48,15 +48,15 @@ pub fn read_filters(
     buf: &Bytes,
     selector: &RowMask,
 ) -> Option<RowMask> {
-    while let Some(rr) = layout.read_selection(selector).unwrap() {
+    while let Some(rr) = layout.poll_read(selector).unwrap() {
         match rr {
-            BatchRead::ReadMore(m) => {
+            PollRead::ReadMore(m) => {
                 let mut write_cache_guard = cache.write().unwrap();
                 for MessageLocator(id, range) in m {
                     write_cache_guard.set(id, buf.slice(range.to_range()));
                 }
             }
-            BatchRead::Value(a) => {
+            PollRead::Value(a) => {
                 return Some(
                     RowMask::from_mask_array(&a, selector.begin(), selector.end()).unwrap(),
                 );

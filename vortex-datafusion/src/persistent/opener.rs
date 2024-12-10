@@ -42,7 +42,8 @@ impl FileOpener for VortexFileOpener {
                 read_at,
                 LayoutDeserializer::new(this.ctx.clone(), Arc::new(LayoutContext::default())),
             )
-            .with_io_dispatcher(IO_DISPATCHER.clone());
+            .with_io_dispatcher(IO_DISPATCHER.clone())
+            .with_file_size(file_meta.object_meta.size as u64);
 
             if let Some(initial_read) = initial_read {
                 builder = builder.with_initial_read(initial_read);

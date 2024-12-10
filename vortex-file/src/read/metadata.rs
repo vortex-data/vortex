@@ -8,7 +8,7 @@ use vortex_io::{IoDispatcher, VortexReadAt};
 
 use super::{LayoutMessageCache, LayoutReader};
 use crate::read::buffered::{BufferedLayoutReader, ReadMasked};
-use crate::{MessageRead, RowMask};
+use crate::{PollRead, RowMask};
 
 struct MetadataMaskReader {
     layout: Box<dyn LayoutReader>,
@@ -26,8 +26,8 @@ impl ReadMasked for MetadataMaskReader {
     fn read_masked(
         &self,
         _mask: &RowMask,
-    ) -> VortexResult<Option<MessageRead<Vec<Option<ArrayData>>>>> {
-        self.layout.read_metadata()
+    ) -> VortexResult<Option<PollRead<Vec<Option<ArrayData>>>>> {
+        self.layout.poll_metadata()
     }
 }
 
