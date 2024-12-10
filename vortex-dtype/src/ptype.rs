@@ -83,40 +83,6 @@ pub trait NativePType:
     fn is_eq(self, other: Self) -> bool;
 }
 
-/// A trait for native Rust types that correspond 1:1 to a PType used for indexing.
-///
-/// Vortex assumes that every value used as an index is representable as both a usize and a u64.
-pub trait NativeIndexPType: NativePType {
-    /// Convert this value to a usize.
-    ///
-    /// # Safety
-    ///
-    /// 1. Assumes that the value is a valid index into an array on this machine.
-    fn as_usize(self) -> usize;
-
-    /// Convert this value to a u64.
-    ///
-    /// # Safety
-    ///
-    /// 1. Assumes that the value is a valid index into an array on this machine.
-    /// 2. Assumes this machine's pointers are not larger than u64.
-    fn as_u64(self) -> u64;
-
-    /// Convert a usize to this type.
-    ///
-    /// # Safety
-    ///
-    /// 1. Assumes that the value is small enough to fit in this type.
-    fn usize_as(value: usize) -> Self;
-
-    /// Convert a u64 to this type.
-    ///
-    /// # Safety
-    ///
-    /// 1. Assumes that the value is small enough to fit in this type.
-    fn u64_as(value: u64) -> Self;
-}
-
 macro_rules! native_ptype {
     ($T:ty, $ptype:tt, $arrow:tt) => {
         impl NativePType for $T {
@@ -133,46 +99,6 @@ macro_rules! native_ptype {
 
             fn is_eq(self, other: Self) -> bool {
                 self == other
-            }
-        }
-    };
-}
-
-macro_rules! native_index_ptype {
-    ($T:ty, $ptype:tt, $arrow:tt) => {
-        impl NativePType for $T {
-            const PTYPE: PType = PType::$ptype;
-            type ArrowPrimitiveType = $arrow;
-
-            fn is_nan(self) -> bool {
-                false
-            }
-
-            fn total_compare(self, other: Self) -> Ordering {
-                self.cmp(&other)
-            }
-
-            fn is_eq(self, other: Self) -> bool {
-                self == other
-            }
-        }
-
-        #[allow(clippy::cast_possible_truncation)]
-        impl NativeIndexPType for $T {
-            fn as_usize(self) -> usize {
-                self as usize
-            }
-
-            fn as_u64(self) -> u64 {
-                self as u64
-            }
-
-            fn usize_as(value: usize) -> Self {
-                value as Self
-            }
-
-            fn u64_as(value: u64) -> Self {
-                value as Self
             }
         }
     };
@@ -199,10 +125,10 @@ macro_rules! native_float_ptype {
     };
 }
 
-native_index_ptype!(u8, U8, UInt8Type);
-native_index_ptype!(u16, U16, UInt16Type);
-native_index_ptype!(u32, U32, UInt32Type);
-native_index_ptype!(u64, U64, UInt64Type);
+native_ptype!(u8, U8, UInt8Type);
+native_ptype!(u16, U16, UInt16Type);
+native_ptype!(u32, U32, UInt32Type);
+native_ptype!(u64, U64, UInt64Type);
 native_ptype!(i8, I8, Int8Type);
 native_ptype!(i16, I16, Int16Type);
 native_ptype!(i32, I32, Int32Type);

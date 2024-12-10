@@ -83,7 +83,3 @@ harness = false
 [[bench]]
 name = "take_strings"
 harness = false
-
-[[bench]]
-name = "take_patches"
-harness = false

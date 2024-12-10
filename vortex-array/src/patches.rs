@@ -1,15 +1,11 @@
 use std::fmt::Debug;
-use std::hash::Hash;
 
 use serde::{Deserialize, Serialize};
 use vortex_dtype::Nullability::NonNullable;
-use vortex_dtype::{
-    match_each_integer_ptype, match_each_unsigned_integer_ptype, DType, NativeIndexPType, PType,
-};
+use vortex_dtype::{match_each_integer_ptype, DType, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::aliases::hash_map::HashMap;
 use crate::array::PrimitiveArray;
 use crate::compute::{
     scalar_at, search_sorted, search_sorted_usize, search_sorted_usize_many, slice,
@@ -224,33 +220,15 @@ impl Patches {
         Ok(Some(Self::new(stop - start, indices, values)))
     }
 
-    // https://docs.google.com/spreadsheets/d/1D9vBZ1QJ6mwcIvV5wIL0hjGgVchcEnAyhvitqWu2ugU
-    const PREFER_MAP_WHEN_PATCHES_OVER_INDICES_LESS_THAN: f64 = 5.0;
-
-    fn is_map_faster_than_search(&self, take_indices: &ArrayData) -> bool {
-        (self.num_patches() as f64 / take_indices.len() as f64)
-            < Self::PREFER_MAP_WHEN_PATCHES_OVER_INDICES_LESS_THAN
-    }
-
     /// Take the indices from the patches.
-    pub fn take(&self, take_indices: &ArrayData) -> VortexResult<Option<Self>> {
-        if self.is_map_faster_than_search(take_indices) {
-            self.take_map(take_indices)
-        } else {
-            self.take_search(take_indices)
-        }
-    }
-
-    pub fn take_search(&self, take_indices: &ArrayData) -> VortexResult<Option<Self>> {
-        let new_length = take_indices.len();
-
-        if take_indices.is_empty() {
+    pub fn take(&self, indices: &ArrayData) -> VortexResult<Option<Self>> {
+        if indices.is_empty() {
             return Ok(None);
         }
 
         // TODO(ngates): plenty of optimisations to be made here
         let take_indices =
-            try_cast(take_indices, &DType::Primitive(PType::U64, NonNullable))?.into_primitive()?;
+            try_cast(indices, &DType::Primitive(PType::U64, NonNullable))?.into_primitive()?;
 
         let (values_indices, new_indices): (Vec<u64>, Vec<u64>) = search_sorted_usize_many(
             self.indices(),
@@ -280,61 +258,7 @@ impl Patches {
             PrimitiveArray::from_vec(values_indices, Validity::NonNullable).into_array();
         let new_values = take(self.values(), values_indices)?;
 
-        Ok(Some(Self::new(new_length, new_indices, new_values)))
-    }
-
-    pub fn take_map(&self, take_indices: &ArrayData) -> VortexResult<Option<Self>> {
-        let take_indices = take_indices.clone().into_primitive()?;
-        match_each_unsigned_integer_ptype!(self.indices_ptype(), |$INDICES| {
-            let indices = self.indices
-                .clone()
-                .into_primitive()?;
-            let indices = indices
-                .maybe_null_slice::<$INDICES>();
-            match_each_unsigned_integer_ptype!(take_indices.ptype(), |$TAKE_INDICES| {
-                let take_indices = take_indices
-                    .into_primitive()?;
-                let take_indices = take_indices
-                    .maybe_null_slice::<$TAKE_INDICES>();
-                return self.take_map_helper(indices, take_indices);
-            });
-        });
-    }
-
-    fn take_map_helper<I: NativeIndexPType + Hash + Eq, TI: NativeIndexPType>(
-        &self,
-        indices: &[I],
-        take_indices: &[TI],
-    ) -> VortexResult<Option<Self>> {
-        let new_length = take_indices.len();
-        let sparse_index_to_value_index: HashMap<I, usize> = indices
-            .iter()
-            .enumerate()
-            .map(|(value_index, sparse_index)| (*sparse_index, value_index))
-            .collect();
-        let min_index = self.min_index()?;
-        let max_index = self.max_index()?;
-        let (new_sparse_indices, value_indices): (Vec<u64>, Vec<u64>) = take_indices
-            .iter()
-            .enumerate()
-            .filter(|(_, ti)| ti.as_usize() < min_index || ti.as_usize() > max_index)
-            .filter_map(|(new_sparse_index, take_sparse_index)| {
-                sparse_index_to_value_index
-                    .get(&I::usize_as(take_sparse_index.as_usize()))
-                    // FIXME(DK): should we choose a small index width or should the compressor do that?
-                    .map(|value_index| (new_sparse_index as u64, *value_index as u64))
-            })
-            .unzip();
-
-        if new_sparse_indices.is_empty() {
-            return Ok(None);
-        }
-
-        Ok(Some(Patches::new(
-            new_length,
-            ArrayData::from(new_sparse_indices),
-            take(self.values(), ArrayData::from(value_indices))?,
-        )))
+        Ok(Some(Self::new(indices.len(), new_indices, new_values)))
     }
 }
 

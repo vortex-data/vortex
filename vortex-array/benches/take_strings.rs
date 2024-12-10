@@ -45,5 +45,5 @@ fn bench_varbinview(c: &mut Criterion) {
     });
 }
 
-criterion_group!(bench_take_strings, bench_varbin, bench_varbinview);
-criterion_main!(bench_take_strings);
+criterion_group!(bench_take, bench_varbin, bench_varbinview);
+criterion_main!(bench_take);
