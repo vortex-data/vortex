@@ -348,7 +348,6 @@ impl Patches {
             .filter_map(|(new_sparse_index, take_sparse_index)| {
                 sparse_index_to_value_index
                     .get(&I::usize_as(take_sparse_index.as_usize()))
-                    // FIXME(DK): should we choose a small index width or should the compressor do that?
                     .map(|value_index| (new_sparse_index as u64, *value_index as u64))
             })
             .unzip();
