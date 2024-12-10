@@ -96,8 +96,9 @@ impl ChunkedArray {
             vortex_bail!("chunk index {} > num chunks ({})", idx, self.nchunks());
         }
 
-        let chunk_start = usize::try_from(&scalar_at(self.chunk_offsets(), idx)?)?;
-        let chunk_end = usize::try_from(&scalar_at(self.chunk_offsets(), idx + 1)?)?;
+        let chunk_offsets = self.chunk_offsets();
+        let chunk_start = usize::try_from(&scalar_at(&chunk_offsets, idx)?)?;
+        let chunk_end = usize::try_from(&scalar_at(&chunk_offsets, idx + 1)?)?;
 
         // Offset the index since chunk_ends is child 0.
         self.as_ref()
