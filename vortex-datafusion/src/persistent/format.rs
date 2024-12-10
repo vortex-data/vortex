@@ -16,53 +16,33 @@ use datafusion_expr::Expr;
 use datafusion_physical_expr::{LexRequirement, PhysicalExpr};
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use datafusion_physical_plan::ExecutionPlan;
-use moka::future::Cache;
-use object_store::path::Path;
 use object_store::{ObjectMeta, ObjectStore};
 use vortex_array::array::StructArray;
 use vortex_array::arrow::infer_schema;
 use vortex_array::Context;
-use vortex_error::VortexResult;
 use vortex_file::metadata::fetch_metadata;
 use vortex_file::{
-    read_initial_bytes, InitialRead, LayoutContext, LayoutDeserializer, LayoutMessageCache,
-    RelativeLayoutCache, Scan, VORTEX_FILE_EXTENSION,
+    LayoutContext, LayoutDeserializer, LayoutMessageCache, RelativeLayoutCache, Scan,
+    VORTEX_FILE_EXTENSION,
 };
 use vortex_io::{IoDispatcher, ObjectStoreReadAt};
 
+use super::cache::InitialReadCache;
 use super::execution::VortexExec;
 use super::statistics::{array_to_col_statistics, uncompressed_col_size};
 use crate::can_be_pushed_down;
 
-const DEFAULT_CACHE_SIZE: u64 = 256 * (2 << 20);
-
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct VortexFormat {
     context: Arc<Context>,
-    initial_read_cache: Cache<Path, InitialRead>,
-}
-
-fn default_cache() -> Cache<Path, InitialRead> {
-    Cache::builder()
-        .weigher(|k: &Path, v: &InitialRead| (k.as_ref().as_bytes().len() + v.buf.len()) as u32)
-        .max_capacity(DEFAULT_CACHE_SIZE)
-        .build()
-}
-
-impl Default for VortexFormat {
-    fn default() -> Self {
-        Self {
-            context: Default::default(),
-            initial_read_cache: default_cache(),
-        }
-    }
+    initial_read_cache: InitialReadCache,
 }
 
 impl VortexFormat {
     pub fn new(context: &Context) -> Self {
         Self {
             context: Arc::new(context.clone()),
-            initial_read_cache: default_cache(),
+            initial_read_cache: InitialReadCache::default(),
         }
     }
 }
@@ -97,15 +77,7 @@ impl FileFormat for VortexFormat {
     ) -> DFResult<SchemaRef> {
         let mut file_schemas = Vec::default();
         for o in objects {
-            let initial_read = self
-                .initial_read_cache
-                .try_get_with_by_ref(&o.location, async move {
-                    let os_read_at = ObjectStoreReadAt::new(store.clone(), o.location.clone());
-                    let initial_read = read_initial_bytes(&os_read_at, o.size as u64).await?;
-                    VortexResult::Ok(initial_read)
-                })
-                .await
-                .map_err(|e| DataFusionError::External(e.into()))?;
+            let initial_read = self.initial_read_cache.try_get(o, store.clone()).await?;
 
             let lazy_dtype = initial_read.lazy_dtype();
             let s = infer_schema(lazy_dtype.value()?)?;
@@ -126,13 +98,8 @@ impl FileFormat for VortexFormat {
     ) -> DFResult<Statistics> {
         let initial_read = self
             .initial_read_cache
-            .try_get_with_by_ref(&object.location, async move {
-                let os_read_at = ObjectStoreReadAt::new(store.clone(), object.location.clone());
-                let initial_read = read_initial_bytes(&os_read_at, object.size as u64).await?;
-                VortexResult::Ok(initial_read)
-            })
-            .await
-            .map_err(|e| DataFusionError::External(e.into()))?;
+            .try_get(object, store.clone())
+            .await?;
 
         let layout = initial_read.fb_layout();
         let row_count = layout.row_count();

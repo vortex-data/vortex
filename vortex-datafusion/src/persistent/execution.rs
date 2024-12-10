@@ -12,11 +12,9 @@ use datafusion_physical_plan::{
     DisplayAs, DisplayFormatType, ExecutionMode, ExecutionPlan, PlanProperties,
 };
 use itertools::Itertools;
-use moka::future::Cache;
-use object_store::path::Path;
 use vortex_array::Context;
-use vortex_file::InitialRead;
 
+use super::cache::InitialReadCache;
 use crate::persistent::opener::VortexFileOpener;
 
 #[derive(Debug, Clone)]
@@ -27,7 +25,7 @@ pub struct VortexExec {
     plan_properties: PlanProperties,
     projected_statistics: Statistics,
     ctx: Arc<Context>,
-    initial_read_cache: Cache<Path, InitialRead>,
+    initial_read_cache: InitialReadCache,
 }
 
 impl VortexExec {
@@ -36,7 +34,7 @@ impl VortexExec {
         metrics: ExecutionPlanMetricsSet,
         predicate: Option<Arc<dyn PhysicalExpr>>,
         ctx: Arc<Context>,
-        initial_read_cache: Cache<Path, InitialRead>,
+        initial_read_cache: InitialReadCache,
     ) -> DFResult<Self> {
         let projected_schema = project_schema(
             &file_scan_config.file_schema,

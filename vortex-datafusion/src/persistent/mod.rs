@@ -1,3 +1,4 @@
+mod cache;
 pub mod config;
 pub mod execution;
 pub mod format;
