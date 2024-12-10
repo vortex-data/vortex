@@ -2378,9 +2378,9 @@ dependencies = [
 
 [[package]]
 name = "inline-str"
-version = "0.3.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c4bdffe182ba907c0d9908eff54b0cdd1c752a8f0e5b44b80347a26bc9a3aa3"
+checksum = "820bac9c34967d698aff083835f1de980b3e7e95d513d6ff7d780dfd97953a8b"
 dependencies = [
  "inline-array",
  "serde",

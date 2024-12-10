@@ -63,7 +63,10 @@ impl<'a> Arbitrary<'a> for StructDType {
 fn random_struct_dtype(u: &mut Unstructured<'_>, depth: u8) -> Result<StructDType> {
     let field_count = u.choose_index(3)?;
     let names: FieldNames = (0..field_count)
-        .map(|_| FieldName::arbitrary(u))
+        .map(|_| {
+            let s = String::arbitrary(u)?;
+            Ok(FieldName::from(s))
+        })
         .collect::<Result<Arc<_>>>()?;
     let dtypes = (0..names.len())
         .map(|_| random_dtype(u, depth))

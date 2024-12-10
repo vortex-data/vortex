@@ -10,7 +10,7 @@ use datafusion::prelude::{ParquetReadOptions, SessionContext};
 use tokio::fs::{create_dir_all, OpenOptions};
 use vortex::aliases::hash_map::HashMap;
 use vortex::array::{ChunkedArray, StructArray};
-use vortex::dtype::DType;
+use vortex::dtype::{DType, FieldName};
 use vortex::error::vortex_err;
 use vortex::file::{VortexFileWriter, VORTEX_FILE_EXTENSION};
 use vortex::sampling_compressor::SamplingCompressor;
@@ -169,8 +169,8 @@ pub async fn register_vortex_files(
                 .map(|a| a.unwrap().into_struct().unwrap())
                 .collect::<Vec<_>>();
 
-            let mut arrays_map: HashMap<Arc<str>, Vec<ArrayData>> = HashMap::default();
-            let mut types_map: HashMap<Arc<str>, DType> = HashMap::default();
+            let mut arrays_map: HashMap<FieldName, Vec<ArrayData>> = HashMap::default();
+            let mut types_map: HashMap<FieldName, DType> = HashMap::default();
 
             for st in sts.into_iter() {
                 let struct_dtype = st.dtype().as_struct().unwrap();
@@ -189,12 +189,12 @@ pub async fn register_vortex_files(
                 .fields()
                 .iter()
                 .map(|field| {
-                    let name: Arc<str> = field.name().as_str().into();
+                    let name: FieldName = field.name().as_str().into();
                     let dtype = types_map[&name].clone();
                     let chunks = arrays_map.remove(&name).unwrap();
                     let chunked_child = ChunkedArray::try_new(chunks, dtype).unwrap();
 
-                    (name, chunked_child.into_array())
+                    (name.to_string(), chunked_child.into_array())
                 })
                 .collect::<Vec<_>>();
 

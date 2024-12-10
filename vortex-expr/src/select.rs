@@ -108,7 +108,7 @@ mod tests {
         let select = Select::include(vec![Field::from("a")]);
         let selected = select.evaluate(st.as_ref()).unwrap();
         let selected_names = selected.as_struct_array().unwrap().names().clone();
-        assert_eq!(selected_names.as_ref(), &["a".into()]);
+        assert_eq!(selected_names.as_ref(), &["a"]);
     }
 
     #[test]
@@ -117,6 +117,6 @@ mod tests {
         let select = Select::exclude(vec![Field::from("a")]);
         let selected = select.evaluate(st.as_ref()).unwrap();
         let selected_names = selected.as_struct_array().unwrap().names().clone();
-        assert_eq!(selected_names.as_ref(), &["b".into()]);
+        assert_eq!(selected_names.as_ref(), &["b"]);
     }
 }

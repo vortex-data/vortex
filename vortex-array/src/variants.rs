@@ -237,7 +237,7 @@ pub trait StructArrayTrait: ArrayTrait {
         let field_idx = self
             .names()
             .iter()
-            .position(|field_name| field_name.as_ref() == name);
+            .position(|field_name| *field_name == name);
 
         field_idx.and_then(|field_idx| self.field(field_idx))
     }

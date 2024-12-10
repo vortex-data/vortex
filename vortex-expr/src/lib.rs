@@ -198,7 +198,7 @@ mod tests {
             Literal::new_expr(Scalar::struct_(
                 DType::Struct(
                     StructDType::new(
-                        Arc::from([Arc::from("dog"), Arc::from("cat")]),
+                        Arc::from(["dog".into(), "cat".into()]),
                         vec![
                             DType::Primitive(PType::U32, Nullability::NonNullable),
                             DType::Utf8(Nullability::NonNullable)

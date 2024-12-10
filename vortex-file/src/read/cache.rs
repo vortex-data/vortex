@@ -224,16 +224,16 @@ fn field_names(bytes: &[u8], dtype_field: &SerializedDTypeField) -> VortexResult
         .ok_or_else(|| vortex_err!("Not a struct dtype"))?;
     match dtype_field {
         SerializedDTypeField::Projection(projection) => match projection {
-            Projection::All => Ok(names.iter().map(Arc::from).collect()),
+            Projection::All => Ok(names.iter().map(Into::into).collect()),
             Projection::Flat(fields) => fields
                 .iter()
                 .map(|f| resolve_field(struct_field, f))
-                .map(|idx| idx.map(|i| Arc::from(names.get(i))))
+                .map(|idx| idx.map(|i| names.get(i).into()))
                 .collect(),
         },
-        SerializedDTypeField::Field(f) => Ok(Arc::new([Arc::from(
-            names.get(resolve_field(struct_field, f)?),
-        )])),
+        SerializedDTypeField::Field(f) => Ok(Arc::new([names
+            .get(resolve_field(struct_field, f)?)
+            .into()])),
     }
 }
 

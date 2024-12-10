@@ -125,7 +125,7 @@ mod tests {
     #[test]
     fn compute_statistics() {
         let ext_dtype = Arc::new(ExtDType::new(
-            ExtID::new("timestamp".into()),
+            ExtID::new("timestamp"),
             DType::from(PType::I64).into(),
             None,
         ));

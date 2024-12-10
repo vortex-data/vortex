@@ -179,7 +179,7 @@ mod tests {
         fn dtype() -> DType {
             DType::Struct(
                 StructDType::new(
-                    Arc::new([Arc::from("foo")]),
+                    Arc::new(["foo".into()]),
                     vec![DType::Primitive(PType::U32, Nullable)],
                 ),
                 Nullable,
@@ -207,7 +207,7 @@ mod tests {
         fn dtype() -> DType {
             DType::Struct(
                 StructDType::new(
-                    Arc::new([Arc::from("foo"), Arc::from("bar")]),
+                    Arc::new(["foo".into(), "bar".into()]),
                     vec![
                         DType::Bool(Nullable),
                         DType::Primitive(PType::U32, Nullable),
