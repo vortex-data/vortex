@@ -145,7 +145,7 @@ impl VisitorVTable<SparseArray> for SparseEncoding {
 
 impl StatisticsVTable<SparseArray> for SparseEncoding {
     fn compute_statistics(&self, array: &SparseArray, stat: Stat) -> VortexResult<StatsSet> {
-        let (_, _, values) = array.patches().into_parts();
+        let values = array.patches().into_values();
         let mut stats = values.statistics().compute_all(&[stat])?;
         if array.len() == values.len() {
             return Ok(stats);
