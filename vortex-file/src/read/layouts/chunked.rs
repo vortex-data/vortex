@@ -103,8 +103,8 @@ impl ChunkedLayoutBuilder<'_> {
             .children()
             .unwrap_or_default()
             .into_iter()
-            .skip(if stats_layout.is_some() { 1 } else { 0 })
             .enumerate()
+            .skip(if stats_layout.is_some() { 1 } else { 0 })
             .scan(0usize, |total_rows, (child_idx, next_chunk)| {
                 // Calculate the start/end range of the chunk in the global row offset range.
                 let chunk_start = *total_rows;
