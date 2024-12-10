@@ -8,7 +8,7 @@ use vortex_io::VortexReadAt;
 
 use crate::{LazyDType, EOF_SIZE, INITIAL_READ_SIZE, MAGIC_BYTES, VERSION};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct InitialRead {
     /// The bytes from the initial read of the file, which is assumed (for now) to be sufficiently
     /// large to contain the schema and layout.

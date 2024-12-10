@@ -16,14 +16,17 @@ use datafusion_expr::Expr;
 use datafusion_physical_expr::{LexRequirement, PhysicalExpr};
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use datafusion_physical_plan::ExecutionPlan;
+use moka::future::Cache;
+use object_store::path::Path as StorePath;
 use object_store::{ObjectMeta, ObjectStore};
 use vortex_array::array::StructArray;
 use vortex_array::arrow::infer_schema;
 use vortex_array::Context;
+use vortex_error::VortexResult;
 use vortex_file::metadata::fetch_metadata;
 use vortex_file::{
-    read_initial_bytes, LayoutContext, LayoutDeserializer, LayoutMessageCache, RelativeLayoutCache,
-    Scan, VORTEX_FILE_EXTENSION,
+    read_initial_bytes, InitialRead, LayoutContext, LayoutDeserializer, LayoutMessageCache,
+    RelativeLayoutCache, Scan, VORTEX_FILE_EXTENSION,
 };
 use vortex_io::{IoDispatcher, ObjectStoreReadAt};
 
@@ -31,15 +34,37 @@ use super::execution::VortexExec;
 use super::statistics::{array_to_col_statistics, uncompressed_col_size};
 use crate::can_be_pushed_down;
 
-#[derive(Debug, Default)]
+const DEFAULT_CACHE_SIZE: u64 = 256 * (2 << 20);
+
+#[derive(Debug)]
 pub struct VortexFormat {
     context: Arc<Context>,
+    initial_read_cache: Cache<StorePath, InitialRead>,
+}
+
+fn default_cache() -> Cache<StorePath, InitialRead> {
+    Cache::builder()
+        .weigher(|k: &StorePath, v: &InitialRead| {
+            (k.as_ref().as_bytes().len() + v.buf.len()) as u32
+        })
+        .max_capacity(DEFAULT_CACHE_SIZE)
+        .build()
+}
+
+impl Default for VortexFormat {
+    fn default() -> Self {
+        Self {
+            context: Default::default(),
+            initial_read_cache: default_cache(),
+        }
+    }
 }
 
 impl VortexFormat {
     pub fn new(context: &Context) -> Self {
         Self {
             context: Arc::new(context.clone()),
+            initial_read_cache: default_cache(),
         }
     }
 }
@@ -74,8 +99,16 @@ impl FileFormat for VortexFormat {
     ) -> DFResult<SchemaRef> {
         let mut file_schemas = Vec::default();
         for o in objects {
-            let os_read_at = ObjectStoreReadAt::new(store.clone(), o.location.clone());
-            let initial_read = read_initial_bytes(&os_read_at, o.size as u64).await?;
+            let initial_read = self
+                .initial_read_cache
+                .try_get_with_by_ref(&o.location, async move {
+                    let os_read_at = ObjectStoreReadAt::new(store.clone(), o.location.clone());
+                    let initial_read = read_initial_bytes(&os_read_at, o.size as u64).await?;
+                    VortexResult::Ok(initial_read)
+                })
+                .await
+                .map_err(|e| DataFusionError::External(e.into()))?;
+
             let lazy_dtype = initial_read.lazy_dtype();
             let s = infer_schema(lazy_dtype.value()?)?;
             file_schemas.push(s);
@@ -93,8 +126,16 @@ impl FileFormat for VortexFormat {
         table_schema: SchemaRef,
         object: &ObjectMeta,
     ) -> DFResult<Statistics> {
-        let os_read_at = ObjectStoreReadAt::new(store.clone(), object.location.clone());
-        let initial_read = read_initial_bytes(&os_read_at, object.size as u64).await?;
+        let initial_read = self
+            .initial_read_cache
+            .try_get_with_by_ref(&object.location, async move {
+                let os_read_at = ObjectStoreReadAt::new(store.clone(), object.location.clone());
+                let initial_read = read_initial_bytes(&os_read_at, object.size as u64).await?;
+                VortexResult::Ok(initial_read)
+            })
+            .await
+            .map_err(|e| DataFusionError::External(e.into()))?;
+
         let layout = initial_read.fb_layout();
         let row_count = layout.row_count();
 
@@ -112,18 +153,18 @@ impl FileFormat for VortexFormat {
             relative_message_cache,
         )?;
 
+        let os_read_at = ObjectStoreReadAt::new(store.clone(), object.location.clone());
         let io = IoDispatcher::default();
         let mut stats = Statistics::new_unknown(&table_schema);
         stats.num_rows = Precision::Exact(row_count as usize);
 
-        let metadata_table =
-            fetch_metadata(os_read_at, io.into(), root_layout, layout_message_cache).await?;
-
-        if let Some(metadata) = metadata_table {
+        if let Some(metadata_table) =
+            fetch_metadata(os_read_at, io.into(), root_layout, layout_message_cache).await?
+        {
             let mut column_statistics = Vec::with_capacity(table_schema.fields().len());
             let mut total_size = 0_u64;
 
-            for col_stats in metadata.into_iter() {
+            for col_stats in metadata_table.into_iter() {
                 let col_stats = match col_stats {
                     Some(array) => {
                         let col_metadata_array = StructArray::try_from(array)?;

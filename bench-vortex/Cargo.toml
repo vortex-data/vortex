@@ -46,7 +46,6 @@ mimalloc = { workspace = true }
 object_store = { workspace = true, features = ["aws"] }
 parquet = { workspace = true, features = ["async"] }
 prettytable-rs = { workspace = true }
-tabled = { workspace = true, features = ["std"] }
 rand = { workspace = true }
 rayon = { workspace = true }
 regex = { workspace = true }
@@ -54,6 +53,7 @@ reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 simplelog = { workspace = true }
+tabled = { workspace = true, features = ["std"] }
 tar = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 uuid = { workspace = true, features = ["v4"] }
