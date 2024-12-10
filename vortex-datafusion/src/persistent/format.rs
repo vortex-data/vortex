@@ -17,7 +17,7 @@ use datafusion_physical_expr::{LexRequirement, PhysicalExpr};
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use datafusion_physical_plan::ExecutionPlan;
 use moka::future::Cache;
-use object_store::path::Path as StorePath;
+use object_store::path::Path;
 use object_store::{ObjectMeta, ObjectStore};
 use vortex_array::array::StructArray;
 use vortex_array::arrow::infer_schema;
@@ -39,14 +39,12 @@ const DEFAULT_CACHE_SIZE: u64 = 256 * (2 << 20);
 #[derive(Debug)]
 pub struct VortexFormat {
     context: Arc<Context>,
-    initial_read_cache: Cache<StorePath, InitialRead>,
+    initial_read_cache: Cache<Path, InitialRead>,
 }
 
-fn default_cache() -> Cache<StorePath, InitialRead> {
+fn default_cache() -> Cache<Path, InitialRead> {
     Cache::builder()
-        .weigher(|k: &StorePath, v: &InitialRead| {
-            (k.as_ref().as_bytes().len() + v.buf.len()) as u32
-        })
+        .weigher(|k: &Path, v: &InitialRead| (k.as_ref().as_bytes().len() + v.buf.len()) as u32)
         .max_capacity(DEFAULT_CACHE_SIZE)
         .build()
 }
