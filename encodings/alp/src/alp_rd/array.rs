@@ -80,7 +80,7 @@ impl ALPRDArray {
 
         if let Some(patches) = left_parts_patches.as_ref() {
             if patches.values().dtype().is_nullable() {
-                vortex_bail!("bad: {}", patches.values());
+                vortex_bail!("patches must be non-nullable: {}", patches.values());
             }
         }
 
