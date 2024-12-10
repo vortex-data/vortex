@@ -1,8 +1,6 @@
 use std::any::Any;
 use std::iter;
 
-use arrow_array::builder::ArrayBuilder as ArrowArrayBuilder;
-use arrow_array::{Array, ArrowPrimitiveType};
 use arrow_buffer::NullBufferBuilder;
 use vortex_dtype::{DType, NativePType, Nullability};
 use vortex_error::{vortex_bail, VortexResult};
@@ -18,7 +16,7 @@ pub struct PrimitiveBuilder<T: NativePType> {
     dtype: DType,
 }
 
-impl<T: NativePType> PrimitiveBuilder<T> {
+impl<T: NativePType + 'static> PrimitiveBuilder<T> {
     pub fn new(nullability: Nullability) -> Self {
         Self::with_capacity(nullability, 1024) // Same as Arrow builders
     }
@@ -47,11 +45,7 @@ impl<T: NativePType> PrimitiveBuilder<T> {
     }
 }
 
-impl<T> ArrayBuilder for PrimitiveBuilder<T>
-where
-    T: NativePType + 'static,
-    <T::ArrowPrimitiveType as ArrowPrimitiveType>::Native: NativePType,
-{
+impl<T: NativePType + 'static> ArrayBuilder for PrimitiveBuilder<T> {
     fn as_any(&self) -> &dyn Any {
         self
     }
