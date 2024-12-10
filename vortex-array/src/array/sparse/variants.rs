@@ -93,7 +93,7 @@ impl StructArrayTrait for SparseArray {
         let scalar = StructScalar::try_from(&self.fill_scalar())?.project(projection)?;
 
         SparseArray::try_new_from_patches(new_patches, self.len(), self.indices_offset(), scalar)
-            .map(|a| a.into_array())
+            .map(IntoArrayData::into_array)
     }
 }
 
