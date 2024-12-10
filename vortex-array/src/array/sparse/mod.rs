@@ -129,83 +129,10 @@ impl SparseArray {
         Ok(Patches::new(len, indices, values))
     }
 
-    // #[inline]
-    // pub fn values(&self) -> ArrayData {
-    //     self.as_ref()
-    //         .child(1, self.dtype(), self.metadata().patches.len())
-    //         .vortex_expect("Missing child array in SparseArray")
-    // }
-
-    // #[inline]
-    // pub fn indices(&self) -> ArrayData {
-    //     self.as_ref()
-    //         .child(
-    //             0,
-    //             &self.metadata().patches.indices_dtype(),
-    //             self.metadata().patches.len(),
-    //         )
-    //         .vortex_expect("Missing indices array in SparseArray")
-    // }
-
     #[inline]
     pub fn fill_scalar(&self) -> Scalar {
         Scalar::new(self.dtype().clone(), self.metadata().fill_value.clone())
     }
-
-    // /// Returns the position or the insertion point of a given index in the indices array.
-    // fn search_index(&self, index: usize) -> VortexResult<SearchResult> {
-    //     search_sorted_usize(
-    //         &self.indices(),
-    //         self.indices_offset() + index,
-    //         SearchSortedSide::Left,
-    //     )
-    // }
-
-    // /// Return indices with the indices_offset applied.
-    // pub fn resolved_indices(&self) -> VortexResult<ArrayData> {
-    //     subtract_scalar(self.indices(), &Scalar::from(self.indices_offset()))
-    // }
-
-    // /// Return the resolved indices as a `Vec<usize>`.
-    // pub fn resolved_indices_usize(&self) -> Vec<usize> {
-    //     let flat_indices = self
-    //         .indices()
-    //         .into_primitive()
-    //         .vortex_expect("Failed to convert SparseArray indices to primitive array");
-    //     match_each_integer_ptype!(flat_indices.ptype(), |$P| {
-    //         flat_indices
-    //             .maybe_null_slice::<$P>()
-    //             .iter()
-    //             .map(|v| (*v as usize) - self.indices_offset())
-    //             .collect::<Vec<_>>()
-    //     })
-    // }
-
-    // /// Return the minimum index if indices are present.
-    // ///
-    // /// If this sparse array has no indices (i.e. all elements are equal to fill_value)
-    // /// then it returns None.
-    // pub fn min_index(&self) -> Option<usize> {
-    //     (!self.indices().is_empty()).then(|| {
-    //         let min_index: usize = scalar_at(self.indices(), 0)
-    //             .and_then(|s| s.as_ref().try_into())
-    //             .vortex_expect("SparseArray indices is non-empty");
-    //         min_index - self.indices_offset()
-    //     }))
-    // }
-
-    // /// Return the maximum index if indices are present.
-    // ///
-    // /// If this sparse array has no indices (i.e. all elements are equal to fill_value)
-    // /// then it returns None.
-    // pub fn max_index(&self) -> Option<usize> {
-    //     (!self.indices().is_empty()).then(|| {
-    //         let max_index: usize = scalar_at(self.indices(), self.indices().len() - 1)
-    //             .and_then(|s| s.as_ref().try_into())
-    //             .vortex_expect("SparseArray indices is non-empty");
-    //         max_index - self.indices_offset()
-    //     })
-    // }
 }
 
 impl ArrayTrait for SparseArray {}
