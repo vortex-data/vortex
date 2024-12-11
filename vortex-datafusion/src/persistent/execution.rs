@@ -14,6 +14,7 @@ use datafusion_physical_plan::{
 use itertools::Itertools;
 use vortex_array::Context;
 
+use super::cache::InitialReadCache;
 use crate::persistent::opener::VortexFileOpener;
 
 #[derive(Debug, Clone)]
@@ -24,6 +25,7 @@ pub struct VortexExec {
     plan_properties: PlanProperties,
     projected_statistics: Statistics,
     ctx: Arc<Context>,
+    initial_read_cache: InitialReadCache,
 }
 
 impl VortexExec {
@@ -32,6 +34,7 @@ impl VortexExec {
         metrics: ExecutionPlanMetricsSet,
         predicate: Option<Arc<dyn PhysicalExpr>>,
         ctx: Arc<Context>,
+        initial_read_cache: InitialReadCache,
     ) -> DFResult<Self> {
         let projected_schema = project_schema(
             &file_scan_config.file_schema,
@@ -60,6 +63,7 @@ impl VortexExec {
             plan_properties,
             projected_statistics,
             ctx,
+            initial_read_cache,
         })
     }
 
@@ -118,6 +122,7 @@ impl ExecutionPlan for VortexExec {
             object_store,
             projection: self.file_scan_config.projection.clone(),
             predicate: self.predicate.clone(),
+            initial_read_cache: self.initial_read_cache.clone(),
             arrow_schema,
         };
         let stream = FileStream::new(&self.file_scan_config, partition, opener, &self.metrics)?;
@@ -136,35 +141,63 @@ impl ExecutionPlan for VortexExec {
     ) -> DFResult<Option<Arc<dyn ExecutionPlan>>> {
         let file_groups = self.file_scan_config.file_groups.clone();
 
-        let repartitioned_file_groups = repartition_by_count(file_groups, target_partitions);
+        let repartitioned_file_groups = repartition_by_size(file_groups, target_partitions);
 
         let mut new_plan = self.clone();
-        let mut config = new_plan.file_scan_config;
+
         let num_partitions = repartitioned_file_groups.len();
 
         log::debug!("VortexExec repartitioned to {num_partitions} partitions");
-        config = config.with_file_groups(repartitioned_file_groups);
-        new_plan.file_scan_config = config;
+        new_plan.file_scan_config.file_groups = repartitioned_file_groups;
         new_plan.plan_properties.partitioning = Partitioning::UnknownPartitioning(num_partitions);
 
         Ok(Some(Arc::new(new_plan)))
     }
 }
 
-fn repartition_by_count(
+fn repartition_by_size(
     file_groups: Vec<Vec<PartitionedFile>>,
     desired_partitions: usize,
 ) -> Vec<Vec<PartitionedFile>> {
     let all_files = file_groups.into_iter().concat();
+    let total_file_count = all_files.len();
+    let total_size = all_files.iter().map(|f| f.object_meta.size).sum::<usize>();
+    let target_partition_size = total_size / (desired_partitions + 1);
 
-    let approx_files_per_partition = all_files.len().div_ceil(desired_partitions);
-    let mut repartitioned_file_groups = Vec::default();
+    let mut partitions = Vec::with_capacity(desired_partitions);
 
-    for chunk in &all_files.into_iter().chunks(approx_files_per_partition) {
-        repartitioned_file_groups.push(chunk.collect::<Vec<_>>());
+    let mut curr_partition_size = 0;
+    let mut curr_partition = Vec::default();
+
+    for file in all_files.into_iter() {
+        curr_partition_size += file.object_meta.size;
+        curr_partition.push(file);
+
+        if curr_partition_size >= target_partition_size {
+            curr_partition_size = 0;
+            partitions.push(std::mem::take(&mut curr_partition));
+        }
     }
 
-    repartitioned_file_groups
+    // If we we're still missing the last partition
+    if !curr_partition.is_empty() && partitions.len() != desired_partitions {
+        partitions.push(std::mem::take(&mut curr_partition));
+    // If we already have enough partitions
+    } else if !curr_partition.is_empty() {
+        for (idx, file) in curr_partition.into_iter().enumerate() {
+            let new_part_idx = idx % partitions.len();
+            partitions[new_part_idx].push(file);
+        }
+    }
+
+    // Assert that we have the correct number of partitions and that the total number of files is right
+    assert_eq!(
+        partitions.len(),
+        usize::min(desired_partitions, total_file_count)
+    );
+    assert_eq!(total_file_count, partitions.iter().flatten().count());
+
+    partitions
 }
 
 #[cfg(test)]
@@ -173,16 +206,20 @@ mod tests {
 
     #[test]
     fn basic_repartition_test() {
-        let input_file_groups = vec![vec![
-            PartitionedFile::new("a", 0),
-            PartitionedFile::new("b", 0),
-            PartitionedFile::new("c", 0),
-            PartitionedFile::new("d", 0),
-            PartitionedFile::new("e", 0),
+        let file_groups = vec![vec![
+            PartitionedFile::new("a", 100),
+            PartitionedFile::new("b", 25),
+            PartitionedFile::new("c", 25),
+            PartitionedFile::new("d", 25),
+            PartitionedFile::new("e", 50),
         ]];
 
-        let file_groups = repartition_by_count(input_file_groups, 2);
+        repartition_by_size(file_groups, 2);
 
-        assert_eq!(file_groups.len(), 2);
+        let file_groups = vec![(0..100)
+            .map(|idx| PartitionedFile::new(format!("{idx}"), idx))
+            .collect()];
+
+        repartition_by_size(file_groups, 16);
     }
 }

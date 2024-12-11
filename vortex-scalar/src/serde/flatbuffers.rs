@@ -1,5 +1,4 @@
 use flatbuffers::{FlatBufferBuilder, WIPOffset};
-use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexExpect as _};
@@ -25,9 +24,7 @@ impl TryFrom<fb::ScalarValue<'_>> for ScalarValue {
     type Error = VortexError;
 
     fn try_from(value: fb::ScalarValue<'_>) -> Result<Self, Self::Error> {
-        // TODO(ngates): what's the point of all this if I have to copy the data into a Vec?
-        let flex_value = value.flex().iter().collect_vec();
-        let reader = flexbuffers::Reader::get_root(flex_value.as_slice())?;
+        let reader = flexbuffers::Reader::get_root(value.flex().bytes())?;
         Ok(Self::deserialize(reader)?)
     }
 }

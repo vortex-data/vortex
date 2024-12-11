@@ -246,7 +246,7 @@ pub fn column<'py>(name: &Bound<'py, PyString>) -> PyResult<Bound<'py, PyExpr>> 
     Bound::new(
         py,
         PyExpr {
-            inner: Column::new_expr(Field::Name(name)),
+            inner: Column::new_expr(Field::from(name)),
         },
     )
 }

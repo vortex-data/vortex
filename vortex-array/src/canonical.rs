@@ -2,8 +2,9 @@
 
 use std::sync::Arc;
 
+use arrow_array::types::*;
 use arrow_array::{
-    ArrayRef, BooleanArray as ArrowBoolArray, Date32Array, Date64Array,
+    ArrayRef, ArrowPrimitiveType, BooleanArray as ArrowBoolArray, Date32Array, Date64Array,
     NullArray as ArrowNullArray, PrimitiveArray as ArrowPrimitiveArray,
     StructArray as ArrowStructArray, Time32MillisecondArray, Time32SecondArray,
     Time64MicrosecondArray, Time64NanosecondArray, TimestampMicrosecondArray,
@@ -12,7 +13,7 @@ use arrow_array::{
 use arrow_buffer::ScalarBuffer;
 use arrow_schema::{Field, FieldRef, Fields};
 use vortex_datetime_dtype::{is_temporal_ext_type, TemporalMetadata, TimeUnit};
-use vortex_dtype::{match_each_native_ptype, DType, NativePType, PType};
+use vortex_dtype::{DType, NativePType, PType};
 use vortex_error::{vortex_bail, VortexError, VortexResult};
 
 use crate::array::{
@@ -84,7 +85,7 @@ impl Canonical {
                     // Convert storage array directly into arrow, losing type information
                     // that will let us round-trip.
                     // TODO(aduffy): https://github.com/spiraldb/vortex/issues/1167
-                    a.storage().into_canonical()?.into_arrow()?
+                    a.storage().into_arrow()?
                 }
             }
         })
@@ -166,12 +167,28 @@ fn bool_to_arrow(bool_array: BoolArray) -> VortexResult<ArrayRef> {
     )))
 }
 
-fn primitive_to_arrow(array: PrimitiveArray) -> VortexResult<ArrayRef> {
-    match_each_native_ptype!(array.ptype(), |$P| {
-        Ok(Arc::new(ArrowPrimitiveArray::<<$P as NativePType>::ArrowPrimitiveType>::new(
-            ScalarBuffer::<$P>::new(array.buffer().clone().into_arrow(), 0, array.len()),
+fn primitive_to_arrow(primitive_array: PrimitiveArray) -> VortexResult<ArrayRef> {
+    fn as_arrow_array_primitive<T: ArrowPrimitiveType>(
+        array: &PrimitiveArray,
+    ) -> VortexResult<Arc<ArrowPrimitiveArray<T>>> {
+        Ok(Arc::new(ArrowPrimitiveArray::new(
+            ScalarBuffer::<T::Native>::new(array.buffer().clone().into_arrow(), 0, array.len()),
             array.logical_validity().to_null_buffer()?,
         )))
+    }
+
+    Ok(match primitive_array.ptype() {
+        PType::U8 => as_arrow_array_primitive::<UInt8Type>(&primitive_array)?,
+        PType::U16 => as_arrow_array_primitive::<UInt16Type>(&primitive_array)?,
+        PType::U32 => as_arrow_array_primitive::<UInt32Type>(&primitive_array)?,
+        PType::U64 => as_arrow_array_primitive::<UInt64Type>(&primitive_array)?,
+        PType::I8 => as_arrow_array_primitive::<Int8Type>(&primitive_array)?,
+        PType::I16 => as_arrow_array_primitive::<Int16Type>(&primitive_array)?,
+        PType::I32 => as_arrow_array_primitive::<Int32Type>(&primitive_array)?,
+        PType::I64 => as_arrow_array_primitive::<Int64Type>(&primitive_array)?,
+        PType::F16 => as_arrow_array_primitive::<Float16Type>(&primitive_array)?,
+        PType::F32 => as_arrow_array_primitive::<Float32Type>(&primitive_array)?,
+        PType::F64 => as_arrow_array_primitive::<Float64Type>(&primitive_array)?,
     })
 }
 
@@ -234,7 +251,7 @@ fn list_to_arrow(list: ListArray) -> VortexResult<ArrayRef> {
         list.validity().nullability().into(),
     ));
 
-    let values = list.elements().into_canonical()?.into_arrow()?;
+    let values = list.elements().into_arrow()?;
     let nulls = list.logical_validity().to_null_buffer()?;
 
     Ok(match offsets.ptype() {
@@ -330,7 +347,7 @@ fn temporal_to_arrow(temporal_array: TemporalArray) -> VortexResult<ArrayRef> {
     })
 }
 
-/// Support trait for transmuting an array into its [vortex_dtype::DType]'s canonical encoding.
+/// Support trait for transmuting an array into the canonical encoding for its [vortex_dtype::DType].
 ///
 /// This conversion ensures that the array's encoding matches one of the builtin canonical
 /// encodings, each of which has a corresponding [Canonical] variant.
@@ -340,12 +357,21 @@ fn temporal_to_arrow(temporal_array: TemporalArray) -> VortexResult<ArrayRef> {
 /// The DType of the array will be unchanged by canonicalization.
 pub trait IntoCanonical {
     fn into_canonical(self) -> VortexResult<Canonical>;
+
+    fn into_arrow(self) -> VortexResult<ArrayRef>
+    where
+        Self: Sized,
+    {
+        self.into_canonical()?.into_arrow()
+    }
 }
 
 /// Encoding VTable for canonicalizing an array.
 #[allow(clippy::wrong_self_convention)]
 pub trait IntoCanonicalVTable {
     fn into_canonical(&self, array: ArrayData) -> VortexResult<Canonical>;
+
+    fn into_arrow(&self, array: ArrayData) -> VortexResult<ArrayRef>;
 }
 
 /// Implement the [IntoCanonicalVTable] for all encodings with arrays implementing [IntoCanonical].
@@ -355,9 +381,15 @@ where
     E::Array: TryFrom<ArrayData, Error = VortexError>,
 {
     fn into_canonical(&self, data: ArrayData) -> VortexResult<Canonical> {
+        #[cfg(feature = "canonical_counter")]
+        data.inc_canonical_counter();
         let canonical = E::Array::try_from(data.clone())?.into_canonical()?;
         canonical.inherit_statistics(data.statistics());
         Ok(canonical)
+    }
+
+    fn into_arrow(&self, array: ArrayData) -> VortexResult<ArrayRef> {
+        E::Array::try_from(array)?.into_arrow()
     }
 }
 
@@ -423,7 +455,7 @@ impl IntoCanonical for ArrayData {
     fn into_canonical(self) -> VortexResult<Canonical> {
         // We only care to know when we canonicalize something non-trivial.
         if !self.is_canonical() && self.len() > 1 {
-            log::debug!("Canonicalizing array with encoding {:?}", self.encoding());
+            log::trace!("Canonicalizing array with encoding {:?}", self.encoding());
         }
         self.encoding().into_canonical(self)
     }
@@ -525,8 +557,6 @@ mod test {
         .unwrap();
 
         let arrow_struct = nested_struct_array
-            .into_canonical()
-            .unwrap()
             .into_arrow()
             .unwrap()
             .as_any()
@@ -597,12 +627,7 @@ mod test {
 
         assert_eq!(
             &arrow_struct,
-            vortex_struct
-                .into_canonical()
-                .unwrap()
-                .into_arrow()
-                .unwrap()
-                .as_struct()
+            vortex_struct.into_arrow().unwrap().as_struct()
         );
     }
 }

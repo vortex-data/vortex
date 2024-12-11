@@ -1,11 +1,12 @@
 use std::sync::{Arc, RwLock};
 
-use initial_read::{read_initial_bytes, read_layout_from_initial};
+use initial_read::read_initial_bytes;
 use vortex_array::{ArrayDType, ArrayData};
 use vortex_error::VortexResult;
 use vortex_expr::Select;
 use vortex_io::{IoDispatcher, VortexReadAt};
 
+use super::InitialRead;
 use crate::read::cache::{LayoutMessageCache, RelativeLayoutCache};
 use crate::read::context::LayoutDeserializer;
 use crate::read::filtering::RowFilter;
@@ -69,6 +70,7 @@ pub struct VortexReadBuilder<R> {
     row_mask: Option<ArrayData>,
     row_filter: Option<RowFilter>,
     io_dispatcher: Option<Arc<IoDispatcher>>,
+    initial_read: Option<InitialRead>,
 }
 
 impl<R: VortexReadAt + Unpin> VortexReadBuilder<R> {
@@ -81,6 +83,7 @@ impl<R: VortexReadAt + Unpin> VortexReadBuilder<R> {
             row_mask: None,
             row_filter: None,
             io_dispatcher: None,
+            initial_read: None,
         }
     }
 
@@ -114,9 +117,17 @@ impl<R: VortexReadAt + Unpin> VortexReadBuilder<R> {
         self
     }
 
+    pub fn with_initial_read(mut self, initial_read: InitialRead) -> Self {
+        self.initial_read = Some(initial_read);
+        self
+    }
+
     pub async fn build(self) -> VortexResult<VortexFileArrayStream<R>> {
         // we do a large enough initial read to get footer, layout, and schema
-        let initial_read = read_initial_bytes(&self.read_at, self.file_size().await?).await?;
+        let initial_read = match self.initial_read {
+            Some(r) => r,
+            None => read_initial_bytes(&self.read_at, self.file_size().await?).await?,
+        };
 
         let layout = initial_read.fb_layout();
 
@@ -129,9 +140,8 @@ impl<R: VortexReadAt + Unpin> VortexReadBuilder<R> {
         };
 
         let message_cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
-        let layout_reader = read_layout_from_initial(
-            &initial_read,
-            &self.layout_serde,
+        let layout_reader = self.layout_serde.read_layout(
+            initial_read.fb_layout(),
             Scan::new(match self.projection {
                 Projection::All => None,
                 Projection::Flat(p) => Some(Arc::new(Select::include(p))),
@@ -142,9 +152,8 @@ impl<R: VortexReadAt + Unpin> VortexReadBuilder<R> {
         let filter_reader = self
             .row_filter
             .map(|row_filter| {
-                read_layout_from_initial(
-                    &initial_read,
-                    &self.layout_serde,
+                self.layout_serde.read_layout(
+                    initial_read.fb_layout(),
                     Scan::new(Some(Arc::new(row_filter))),
                     RelativeLayoutCache::new(message_cache.clone(), lazy_dtype),
                 )

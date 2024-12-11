@@ -1,60 +1,51 @@
 use std::any::Any;
+use std::iter;
 
-use arrow_array::builder::{
-    ArrayBuilder as ArrowArrayBuilder, PrimitiveBuilder as ArrowPrimitiveBuilder,
-};
-use arrow_array::{Array, ArrowPrimitiveType};
+use arrow_buffer::NullBufferBuilder;
 use vortex_dtype::{DType, NativePType, Nullability};
 use vortex_error::{vortex_bail, VortexResult};
 
-use crate::arrow::FromArrowArray;
+use crate::array::{BoolArray, PrimitiveArray};
 use crate::builders::ArrayBuilder;
-use crate::ArrayData;
+use crate::validity::Validity;
+use crate::{ArrayData, IntoArrayData};
 
 pub struct PrimitiveBuilder<T: NativePType> {
-    inner: ArrowPrimitiveBuilder<T::ArrowPrimitiveType>,
+    values: Vec<T>,
+    validity: NullBufferBuilder,
     dtype: DType,
 }
 
-impl<T: NativePType> PrimitiveBuilder<T>
-where
-    T: NativePType + 'static,
-    <T::ArrowPrimitiveType as ArrowPrimitiveType>::Native: NativePType,
-{
+impl<T: NativePType + 'static> PrimitiveBuilder<T> {
     pub fn new(nullability: Nullability) -> Self {
         Self::with_capacity(nullability, 1024) // Same as Arrow builders
     }
 
     pub fn with_capacity(nullability: Nullability, capacity: usize) -> Self {
         Self {
-            inner: ArrowPrimitiveBuilder::<T::ArrowPrimitiveType>::with_capacity(capacity),
+            values: Vec::with_capacity(capacity),
+            validity: NullBufferBuilder::new(capacity),
             dtype: DType::Primitive(T::PTYPE, nullability),
         }
     }
 
-    pub fn append_value(
-        &mut self,
-        value: <<T as NativePType>::ArrowPrimitiveType as ArrowPrimitiveType>::Native,
-    ) {
-        self.inner.append_value(value);
+    pub fn append_value(&mut self, value: T) {
+        self.values.push(value);
+        self.validity.append(true);
     }
 
-    pub fn append_option(
-        &mut self,
-        value: Option<<<T as NativePType>::ArrowPrimitiveType as ArrowPrimitiveType>::Native>,
-    ) {
+    pub fn append_option(&mut self, value: Option<T>) {
         match value {
-            Some(value) => self.append_value(value),
+            Some(value) => {
+                self.values.push(value);
+                self.validity.append(true);
+            }
             None => self.append_null(),
         }
     }
 }
 
-impl<T> ArrayBuilder for PrimitiveBuilder<T>
-where
-    T: NativePType + 'static,
-    <T::ArrowPrimitiveType as ArrowPrimitiveType>::Native: NativePType,
-{
+impl<T: NativePType + 'static> ArrayBuilder for PrimitiveBuilder<T> {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -68,27 +59,35 @@ where
     }
 
     fn len(&self) -> usize {
-        self.inner.len()
+        self.values.len()
     }
 
     fn append_zeros(&mut self, n: usize) {
-        self.inner.append_value_n(
-            <<T::ArrowPrimitiveType as ArrowPrimitiveType>::Native>::default(),
-            n,
-        );
+        self.values.extend(iter::repeat(T::default()).take(n));
+        self.validity.append_n_non_nulls(n);
     }
 
     fn append_nulls(&mut self, n: usize) {
-        self.inner.append_nulls(n);
+        self.values.extend(iter::repeat(T::default()).take(n));
+        self.validity.append_n_nulls(n);
     }
 
     fn finish(&mut self) -> VortexResult<ArrayData> {
-        let arrow = self.inner.finish();
+        let validity = match (self.validity.finish(), self.dtype().nullability()) {
+            (None, Nullability::NonNullable) => Validity::NonNullable,
+            (Some(_), Nullability::NonNullable) => {
+                vortex_bail!("Non-nullable builder has null values")
+            }
+            (None, Nullability::Nullable) => Validity::AllValid,
+            (Some(nulls), Nullability::Nullable) => {
+                if nulls.null_count() == nulls.len() {
+                    Validity::AllInvalid
+                } else {
+                    Validity::Array(BoolArray::from(nulls.into_inner()).into_array())
+                }
+            }
+        };
 
-        if !self.dtype().is_nullable() && arrow.null_count() > 0 {
-            vortex_bail!("Non-nullable builder {} has null values", self.dtype());
-        }
-
-        Ok(ArrayData::from_arrow(&arrow, self.dtype.is_nullable()))
+        Ok(PrimitiveArray::from_vec(std::mem::take(&mut self.values), validity).into_array())
     }
 }

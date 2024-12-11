@@ -1,9 +1,7 @@
 mod invert;
 
 use vortex_array::array::BoolArray;
-use vortex_array::compute::{
-    slice, ComputeVTable, InvertFn, ScalarAtFn, SliceFn, TakeFn, TakeOptions,
-};
+use vortex_array::compute::{slice, ComputeVTable, InvertFn, ScalarAtFn, SliceFn, TakeFn};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
 use vortex_dtype::match_each_integer_ptype;
@@ -39,12 +37,7 @@ impl ScalarAtFn<RunEndBoolArray> for RunEndBoolEncoding {
 }
 
 impl TakeFn<RunEndBoolArray> for RunEndBoolEncoding {
-    fn take(
-        &self,
-        array: &RunEndBoolArray,
-        indices: &ArrayData,
-        _options: TakeOptions,
-    ) -> VortexResult<ArrayData> {
+    fn take(&self, array: &RunEndBoolArray, indices: &ArrayData) -> VortexResult<ArrayData> {
         let primitive_indices = indices.clone().into_primitive()?;
         let physical_indices = match_each_integer_ptype!(primitive_indices.ptype(), |$P| {
             primitive_indices

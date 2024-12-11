@@ -3,7 +3,7 @@ mod like;
 
 use vortex_array::compute::{
     filter, scalar_at, slice, take, CompareFn, ComputeVTable, FilterFn, FilterMask, LikeFn,
-    ScalarAtFn, SliceFn, TakeFn, TakeOptions,
+    ScalarAtFn, SliceFn, TakeFn,
 };
 use vortex_array::{ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
@@ -45,16 +45,11 @@ impl ScalarAtFn<DictArray> for DictEncoding {
 }
 
 impl TakeFn<DictArray> for DictEncoding {
-    fn take(
-        &self,
-        array: &DictArray,
-        indices: &ArrayData,
-        options: TakeOptions,
-    ) -> VortexResult<ArrayData> {
+    fn take(&self, array: &DictArray, indices: &ArrayData) -> VortexResult<ArrayData> {
         // Dict
         //   codes: 0 0 1
         //   dict: a b c d e f g h
-        let codes = take(array.codes(), indices, options)?;
+        let codes = take(array.codes(), indices)?;
         DictArray::try_new(codes, array.values()).map(|a| a.into_array())
     }
 }

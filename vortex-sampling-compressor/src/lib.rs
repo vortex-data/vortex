@@ -14,7 +14,8 @@ use compressors::varbin::VarBinCompressor;
 use compressors::{CompressedArray, CompressorRef};
 use vortex_alp::{ALPEncoding, ALPRDEncoding};
 use vortex_array::array::{
-    PrimitiveEncoding, SparseEncoding, StructEncoding, VarBinEncoding, VarBinViewEncoding,
+    ListEncoding, PrimitiveEncoding, SparseEncoding, StructEncoding, VarBinEncoding,
+    VarBinViewEncoding,
 };
 use vortex_array::encoding::EncodingRef;
 use vortex_array::Context;
@@ -32,6 +33,7 @@ use vortex_zigzag::ZigZagEncoding;
 use crate::compressors::alp::ALPCompressor;
 use crate::compressors::date_time_parts::DateTimePartsCompressor;
 use crate::compressors::dict::DictCompressor;
+use crate::compressors::list::ListCompressor;
 use crate::compressors::r#for::FoRCompressor;
 use crate::compressors::runend::DEFAULT_RUN_END_COMPRESSOR;
 use crate::compressors::runend_bool::RunEndBoolCompressor;
@@ -47,8 +49,6 @@ mod sampling;
 mod sampling_compressor;
 
 pub use sampling_compressor::*;
-
-use crate::compressors::list::ListCompressor;
 
 pub const DEFAULT_COMPRESSORS: [CompressorRef; 15] = [
     &ALPCompressor as CompressorRef,
@@ -72,7 +72,7 @@ pub const DEFAULT_COMPRESSORS: [CompressorRef; 15] = [
 ];
 
 #[cfg(not(target_arch = "wasm32"))]
-pub const ALL_COMPRESSORS: [CompressorRef; 17] = [
+pub const ALL_COMPRESSORS: [CompressorRef; 18] = [
     &ALPCompressor as CompressorRef,
     &BITPACK_WITH_PATCHES,
     &DEFAULT_CHUNKED_COMPRESSOR,
@@ -88,12 +88,13 @@ pub const ALL_COMPRESSORS: [CompressorRef; 17] = [
     &DEFAULT_RUN_END_COMPRESSOR,
     &SparseCompressor,
     &StructCompressor,
+    &ListCompressor,
     &VarBinCompressor,
     &ZigZagCompressor,
 ];
 
 #[cfg(target_arch = "wasm32")]
-pub const ALL_COMPRESSORS: [CompressorRef; 15] = [
+pub const ALL_COMPRESSORS: [CompressorRef; 16] = [
     &ALPCompressor as CompressorRef,
     &BITPACK_WITH_PATCHES,
     &DEFAULT_CHUNKED_COMPRESSOR,
@@ -110,6 +111,7 @@ pub const ALL_COMPRESSORS: [CompressorRef; 15] = [
     &DEFAULT_RUN_END_COMPRESSOR,
     &SparseCompressor,
     &StructCompressor,
+    &ListCompressor,
     &VarBinCompressor,
     &ZigZagCompressor,
 ];
@@ -135,6 +137,7 @@ pub static ALL_ENCODINGS_CONTEXT: LazyLock<Arc<Context>> = LazyLock::new(|| {
         &RunEndBoolEncoding,
         &SparseEncoding,
         &StructEncoding,
+        &ListEncoding,
         &VarBinEncoding,
         &VarBinViewEncoding,
         &ZigZagEncoding,

@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::mem::discriminant;
 use std::sync::Arc;
 
 pub use scalar_type::ScalarType;
@@ -208,7 +209,9 @@ impl PartialEq for Scalar {
 
 impl PartialOrd for Scalar {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        if self.dtype().eq_ignore_nullability(other.dtype()) {
+        // We check for DType equality, ignoring nullability, and allowing us to compare all
+        // primitive types to all other primitive types.
+        if discriminant(self.dtype()) == discriminant(other.dtype()) {
             self.value.0.partial_cmp(&other.value.0)
         } else {
             None
@@ -248,7 +251,7 @@ macro_rules! from_vec_for_scalar {
                         value
                             .into_iter()
                             .map(Scalar::from)
-                            .map(|x| x.value.0)
+                            .map(|s| s.into_value())
                             .collect::<Arc<[_]>>(),
                     )),
                 }

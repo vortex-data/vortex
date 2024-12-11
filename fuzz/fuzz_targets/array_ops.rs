@@ -6,7 +6,7 @@ use vortex_array::array::{
     BoolEncoding, PrimitiveEncoding, StructEncoding, VarBinEncoding, VarBinViewEncoding,
 };
 use vortex_array::compute::{
-    filter, scalar_at, search_sorted, slice, take, SearchResult, SearchSortedSide, TakeOptions,
+    filter, scalar_at, search_sorted, slice, take, SearchResult, SearchSortedSide,
 };
 use vortex_array::encoding::EncodingRef;
 use vortex_array::{ArrayData, IntoCanonical};
@@ -36,7 +36,7 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
                 if indices.is_empty() {
                     return Corpus::Reject;
                 }
-                current_array = take(&current_array, &indices, TakeOptions::default()).unwrap();
+                current_array = take(&current_array, &indices).unwrap();
                 assert_array_eq(&expected.array(), &current_array, i);
             }
             Action::SearchSorted(s, side) => {

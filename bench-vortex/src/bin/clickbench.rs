@@ -22,7 +22,7 @@ use vortex::error::vortex_panic;
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
-    #[arg(short, long, default_value = "8")]
+    #[arg(short, long, default_value = "5")]
     iterations: usize,
     #[arg(short, long)]
     threads: Option<usize>,

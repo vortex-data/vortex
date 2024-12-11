@@ -24,11 +24,12 @@ use vortex_array::Context;
 use vortex_error::vortex_panic;
 use vortex_file::metadata::fetch_metadata;
 use vortex_file::{
-    read_initial_bytes, read_layout_from_initial, LayoutContext, LayoutDeserializer,
-    LayoutMessageCache, RelativeLayoutCache, Scan, VORTEX_FILE_EXTENSION,
+    LayoutContext, LayoutDeserializer, LayoutMessageCache, RelativeLayoutCache, Scan,
+    VORTEX_FILE_EXTENSION,
 };
 use vortex_io::{IoDispatcher, ObjectStoreReadAt};
 
+use super::cache::InitialReadCache;
 use super::execution::VortexExec;
 use super::statistics::{array_to_col_statistics, uncompressed_col_size};
 use crate::can_be_pushed_down;
@@ -36,12 +37,14 @@ use crate::can_be_pushed_down;
 #[derive(Debug, Default)]
 pub struct VortexFormat {
     context: Arc<Context>,
+    initial_read_cache: InitialReadCache,
 }
 
 impl VortexFormat {
     pub fn new(context: &Context) -> Self {
         Self {
             context: Arc::new(context.clone()),
+            initial_read_cache: InitialReadCache::default(),
         }
     }
 }
@@ -81,8 +84,7 @@ impl FileFormat for VortexFormat {
                 let store = store.clone();
                 let o = o.clone();
                 async move {
-                    let os_read_at = ObjectStoreReadAt::new(store, o.location.clone());
-                    let initial_read = read_initial_bytes(&os_read_at, o.size as u64).await?;
+                    let initial_read = self.initial_read_cache.try_get(o, store.clone()).await?;
                     let lazy_dtype = initial_read.lazy_dtype();
                     let s = infer_schema(lazy_dtype.value()?)?;
 
@@ -98,6 +100,7 @@ impl FileFormat for VortexFormat {
                 }
                 Err(e) => vortex_panic!("Tokio Join Error: {e}"),
             }
+
         }
 
         let schema = Arc::new(Schema::try_merge(file_schemas)?);
@@ -112,8 +115,11 @@ impl FileFormat for VortexFormat {
         table_schema: SchemaRef,
         object: &ObjectMeta,
     ) -> DFResult<Statistics> {
-        let os_read_at = ObjectStoreReadAt::new(store.clone(), object.location.clone());
-        let initial_read = read_initial_bytes(&os_read_at, object.size as u64).await?;
+        let initial_read = self
+            .initial_read_cache
+            .try_get(object, store.clone())
+            .await?;
+
         let layout = initial_read.fb_layout();
         let row_count = layout.row_count();
 
@@ -125,25 +131,24 @@ impl FileFormat for VortexFormat {
             initial_read.lazy_dtype().into(),
         );
 
-        let root_layout = read_layout_from_initial(
-            &initial_read,
-            &layout_deserializer,
+        let root_layout = layout_deserializer.read_layout(
+            initial_read.fb_layout(),
             Scan::empty(),
             relative_message_cache,
         )?;
 
+        let os_read_at = ObjectStoreReadAt::new(store.clone(), object.location.clone());
         let io = IoDispatcher::default();
         let mut stats = Statistics::new_unknown(&table_schema);
         stats.num_rows = Precision::Exact(row_count as usize);
 
-        let metadata_table =
-            fetch_metadata(os_read_at, io.into(), root_layout, layout_message_cache).await?;
-
-        if let Some(metadata) = metadata_table {
+        if let Some(metadata_table) =
+            fetch_metadata(os_read_at, io.into(), root_layout, layout_message_cache).await?
+        {
             let mut column_statistics = Vec::with_capacity(table_schema.fields().len());
             let mut total_size = 0_u64;
 
-            for col_stats in metadata.into_iter() {
+            for col_stats in metadata_table.into_iter() {
                 let col_stats = match col_stats {
                     Some(array) => {
                         let col_metadata_array = StructArray::try_from(array)?;
@@ -177,6 +182,7 @@ impl FileFormat for VortexFormat {
             metrics,
             filters.cloned(),
             self.context.clone(),
+            self.initial_read_cache.clone(),
         )?
         .into_arc();
 

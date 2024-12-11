@@ -205,3 +205,6 @@ benchmarks/.out
 .zed/
 
 *.plan
+
+# Default samply profile
+profile.json.gz

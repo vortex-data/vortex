@@ -252,8 +252,7 @@ pub struct CompressionRunResults {
 pub async fn execute_query(ctx: &SessionContext, query: &str) -> anyhow::Result<Vec<RecordBatch>> {
     let plan = ctx.sql(query).await?;
     let (state, plan) = plan.into_parts();
-    let optimized = state.optimize(&plan)?;
-    let physical_plan = state.create_physical_plan(&optimized).await?;
+    let physical_plan = state.create_physical_plan(&plan).await?;
     let result = collect(physical_plan.clone(), state.task_ctx()).await?;
     Ok(result)
 }
@@ -264,8 +263,7 @@ pub async fn physical_plan(
 ) -> anyhow::Result<Arc<dyn ExecutionPlan>> {
     let plan = ctx.sql(query).await?;
     let (state, plan) = plan.into_parts();
-    let optimized = state.optimize(&plan)?;
-    Ok(state.create_physical_plan(&optimized).await?)
+    Ok(state.create_physical_plan(&plan).await?)
 }
 
 #[derive(Clone, Debug)]
@@ -352,7 +350,7 @@ mod test {
             let struct_arrow: ArrowStructArray = record_batch.into();
             let arrow_array: ArrowArrayRef = Arc::new(struct_arrow);
             let vortex_array = ArrayData::from_arrow(arrow_array.clone(), false);
-            let vortex_as_arrow = vortex_array.into_canonical().unwrap().into_arrow().unwrap();
+            let vortex_as_arrow = vortex_array.into_arrow().unwrap();
             assert_eq!(vortex_as_arrow.deref(), arrow_array.deref());
         }
     }
@@ -373,7 +371,7 @@ mod test {
             let vortex_array = ArrayData::from_arrow(arrow_array.clone(), false);
 
             let compressed = compressor.compress(&vortex_array).unwrap();
-            let compressed_as_arrow = compressed.into_canonical().unwrap().into_arrow().unwrap();
+            let compressed_as_arrow = compressed.into_arrow().unwrap();
             assert_eq!(compressed_as_arrow.deref(), arrow_array.deref());
         }
     }

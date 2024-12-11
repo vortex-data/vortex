@@ -238,7 +238,7 @@ impl ColumnWriter {
             self.metadata.push_chunk(&chunk)?;
 
             // clear the stats that we don't want to serialize into the file
-            chunk.statistics().retain_only(STATS_TO_WRITE);
+            retain_only_stats(&chunk, STATS_TO_WRITE);
 
             msgs.write_batch(chunk).await?;
             offsets.push(msgs.tell());
@@ -306,6 +306,14 @@ impl ColumnWriter {
         } else {
             Ok(LayoutSpec::chunked(data_chunks.collect(), row_count, None))
         }
+    }
+}
+
+/// Recursively retain only a specific set of statistics
+fn retain_only_stats(array: &ArrayData, stats: &[Stat]) {
+    array.statistics().retain_only(stats);
+    for child in array.children() {
+        retain_only_stats(&child, stats)
     }
 }
 

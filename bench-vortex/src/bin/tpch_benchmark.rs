@@ -25,7 +25,7 @@ struct Args {
     threads: Option<usize>,
     #[arg(short, long, default_value_t = true, default_missing_value = "true", action = ArgAction::Set)]
     warmup: bool,
-    #[arg(short, long, default_value = "8")]
+    #[arg(short, long, default_value = "5")]
     iterations: usize,
     #[arg(long)]
     only_vortex: bool,

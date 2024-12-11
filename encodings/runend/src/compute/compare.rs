@@ -20,13 +20,7 @@ impl CompareFn<RunEndArray> for RunEndEncoding {
                 operator,
             )
             .and_then(|values| {
-                RunEndArray::with_offset_and_length(
-                    lhs.ends(),
-                    values,
-                    lhs.validity().into_nullable(),
-                    lhs.offset(),
-                    lhs.len(),
-                )
+                RunEndArray::with_offset_and_length(lhs.ends(), values, lhs.offset(), lhs.len())
             })
             .map(|a| a.into_array())
             .map(Some);

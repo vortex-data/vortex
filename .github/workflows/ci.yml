@@ -1,5 +1,9 @@
 name: CI
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/develop' }}
+
 on:
   push:
     branches: [ "develop" ]
@@ -93,6 +97,20 @@ jobs:
       - uses: ./.github/actions/setup-rust
       - name: Rust Build (Default features)
         run: cargo build --all-targets
+
+  build-wasm32:
+    name: "Build (wasm32-unknown-unknown)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/cleanup
+      - uses: rui314/setup-mold@v1
+      - uses: ./.github/actions/setup-rust
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Rust Build vortex
+        run: cargo build -p vortex
+
 
   build-all:
     name: "Build (all-features)"

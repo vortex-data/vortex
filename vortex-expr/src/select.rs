@@ -49,7 +49,7 @@ impl VortexExpr for Select {
                 let normalized_exclusion = e
                     .iter()
                     .map(|ef| match ef {
-                        Field::Name(n) => Ok(n.as_str()),
+                        Field::Name(n) => Ok(&**n),
                         Field::Index(i) => st
                             .names()
                             .get(*i)

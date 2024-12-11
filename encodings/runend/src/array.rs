@@ -7,9 +7,7 @@ use vortex_array::compute::{
 };
 use vortex_array::encoding::ids;
 use vortex_array::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
-use vortex_array::validity::{
-    ArrayValidity, LogicalValidity, Validity, ValidityMetadata, ValidityVTable,
-};
+use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use vortex_array::variants::{BoolArrayTrait, PrimitiveArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
@@ -26,7 +24,6 @@ impl_encoding!("vortex.runend", ids::RUN_END, RunEnd);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RunEndMetadata {
-    validity: ValidityMetadata,
     ends_ptype: PType,
     num_runs: usize,
     offset: usize,
@@ -39,33 +36,24 @@ impl Display for RunEndMetadata {
 }
 
 impl RunEndArray {
-    pub fn try_new(ends: ArrayData, values: ArrayData, validity: Validity) -> VortexResult<Self> {
+    pub fn try_new(ends: ArrayData, values: ArrayData) -> VortexResult<Self> {
         let length = if ends.is_empty() {
             0
         } else {
             scalar_at(&ends, ends.len() - 1)?.as_ref().try_into()?
         };
-        Self::with_offset_and_length(ends, values, validity, 0, length)
+        Self::with_offset_and_length(ends, values, 0, length)
     }
 
     pub(crate) fn with_offset_and_length(
         ends: ArrayData,
         values: ArrayData,
-        validity: Validity,
         offset: usize,
         length: usize,
     ) -> VortexResult<Self> {
         if !matches!(values.dtype(), &DType::Bool(_) | &DType::Primitive(_, _)) {
             vortex_bail!(
                 "RunEnd array can only have Bool or Primitive values, {} given",
-                values.dtype()
-            );
-        }
-
-        if values.dtype().nullability() != validity.nullability() {
-            vortex_bail!(
-                "invalid validity {:?} for dtype {}",
-                validity,
                 values.dtype()
             );
         }
@@ -86,33 +74,18 @@ impl RunEndArray {
 
         let dtype = values.dtype().clone();
         let metadata = RunEndMetadata {
-            validity: validity.to_metadata(length)?,
             ends_ptype: PType::try_from(ends.dtype())?,
             num_runs: ends.len(),
             offset,
         };
 
-        let stats = if matches!(validity, Validity::AllValid | Validity::NonNullable) {
-            let ends_len = ends.len();
-            let is_constant = ends_len <= 1;
-            StatsSet::from_iter([
-                (Stat::IsConstant, is_constant.into()),
-                (Stat::RunCount, (ends_len as u64).into()),
-            ])
-        } else if matches!(validity, Validity::AllInvalid) {
-            StatsSet::nulls(length, &dtype)
-        } else {
-            StatsSet::default()
-        };
-
-        let mut children = Vec::with_capacity(3);
-        children.push(ends);
-        children.push(values);
-        if let Some(a) = validity.into_array() {
-            children.push(a)
-        }
-
-        Self::try_from_parts(dtype, length, metadata, children.into(), stats)
+        Self::try_from_parts(
+            dtype,
+            length,
+            metadata,
+            vec![ends, values].into(),
+            StatsSet::default(),
+        )
     }
 
     /// Convert the given logical index to an index into the `values` array
@@ -137,19 +110,11 @@ impl RunEndArray {
     /// Run the array through run-end encoding.
     pub fn encode(array: ArrayData) -> VortexResult<Self> {
         if let Ok(parray) = PrimitiveArray::try_from(array) {
-            let (ends, values) = runend_encode(&parray);
-            Self::try_new(ends.into_array(), values.into_array(), parray.validity())
+            let (ends, values) = runend_encode(&parray)?;
+            Self::try_new(ends.into_array(), values)
         } else {
             vortex_bail!("REE can only encode primitive arrays")
         }
-    }
-
-    pub fn validity(&self) -> Validity {
-        self.metadata().validity.to_validity(|| {
-            self.as_ref()
-                .child(2, &Validity::DTYPE, self.len())
-                .vortex_expect("RunEndArray: validity child")
-        })
     }
 
     /// The offset that the `ends` is relative to.
@@ -208,11 +173,27 @@ impl BoolArrayTrait for RunEndArray {}
 
 impl ValidityVTable<RunEndArray> for RunEndEncoding {
     fn is_valid(&self, array: &RunEndArray, index: usize) -> bool {
-        array.validity().is_valid(index)
+        let physical_idx = array
+            .find_physical_index(index)
+            .vortex_expect("Invalid index");
+        array.values().is_valid(physical_idx)
     }
 
     fn logical_validity(&self, array: &RunEndArray) -> LogicalValidity {
-        array.validity().to_logical(array.len())
+        match array.values().logical_validity() {
+            LogicalValidity::AllValid(_) => LogicalValidity::AllValid(array.len()),
+            LogicalValidity::AllInvalid(_) => LogicalValidity::AllInvalid(array.len()),
+            LogicalValidity::Array(validity) => LogicalValidity::Array(
+                RunEndArray::with_offset_and_length(
+                    array.ends(),
+                    validity,
+                    array.offset(),
+                    array.len(),
+                )
+                .vortex_expect("invalid array")
+                .into_array(),
+            ),
+        }
     }
 }
 
@@ -222,12 +203,11 @@ impl IntoCanonical for RunEndArray {
         match self.dtype() {
             DType::Bool(_) => {
                 let bools = self.values().into_bool()?;
-                runend_decode_bools(pends, bools, self.validity(), self.offset(), self.len())
-                    .map(Canonical::Bool)
+                runend_decode_bools(pends, bools, self.offset(), self.len()).map(Canonical::Bool)
             }
             DType::Primitive(..) => {
                 let pvalues = self.values().into_primitive()?;
-                runend_decode_primitive(pends, pvalues, self.validity(), self.offset(), self.len())
+                runend_decode_primitive(pends, pvalues, self.offset(), self.len())
                     .map(Canonical::Primitive)
             }
             _ => vortex_bail!("Only Primitive and Bool values are supported"),
@@ -238,8 +218,7 @@ impl IntoCanonical for RunEndArray {
 impl VisitorVTable<RunEndArray> for RunEndEncoding {
     fn accept(&self, array: &RunEndArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
         visitor.visit_child("ends", &array.ends())?;
-        visitor.visit_child("values", &array.values())?;
-        visitor.visit_validity(&array.validity())
+        visitor.visit_child("values", &array.values())
     }
 }
 
@@ -247,7 +226,6 @@ impl StatisticsVTable<RunEndArray> for RunEndEncoding {
     fn compute_statistics(&self, array: &RunEndArray, stat: Stat) -> VortexResult<StatsSet> {
         let maybe_stat = match stat {
             Stat::Min | Stat::Max => array.values().statistics().compute(stat),
-            Stat::NullCount => Some(Scalar::from(array.validity().null_count(array.len())?)),
             Stat::IsSorted => Some(Scalar::from(
                 array
                     .values()
@@ -270,7 +248,6 @@ impl StatisticsVTable<RunEndArray> for RunEndEncoding {
 #[cfg(test)]
 mod tests {
     use vortex_array::compute::scalar_at;
-    use vortex_array::validity::Validity;
     use vortex_array::{ArrayDType, ArrayLen, IntoArrayData};
     use vortex_dtype::{DType, Nullability, PType};
 
@@ -281,7 +258,6 @@ mod tests {
         let arr = RunEndArray::try_new(
             vec![2u32, 5, 10].into_array(),
             vec![1i32, 2, 3].into_array(),
-            Validity::NonNullable,
         )
         .unwrap();
         assert_eq!(arr.len(), 10);

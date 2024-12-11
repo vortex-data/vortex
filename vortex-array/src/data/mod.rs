@@ -73,6 +73,8 @@ impl ArrayData {
             buffer,
             children,
             stats_set: Arc::new(RwLock::new(statistics)),
+            #[cfg(feature = "canonical_counter")]
+            canonical_counter: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         }))
     }
 
@@ -110,6 +112,8 @@ impl ArrayData {
             flatbuffer_loc,
             buffers: buffers.into(),
             ctx,
+            #[cfg(feature = "canonical_counter")]
+            canonical_counter: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         };
 
         Self::try_new(InnerArrayData::Viewed(view))
@@ -334,6 +338,28 @@ impl ArrayData {
     /// Checks whether array is of a given encoding.
     pub fn is_encoding(&self, id: EncodingId) -> bool {
         self.encoding().id() == id
+    }
+
+    #[cfg(feature = "canonical_counter")]
+    pub(crate) fn inc_canonical_counter(&self) {
+        let prev = match &self.0 {
+            InnerArrayData::Owned(o) => o
+                .canonical_counter
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            InnerArrayData::Viewed(v) => v
+                .canonical_counter
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+        };
+        if prev >= 1 {
+            log::warn!(
+                "ArrayData::into_canonical called {} times on array",
+                prev + 1,
+            );
+        }
+        if prev >= 2 {
+            let bt = backtrace::Backtrace::new();
+            log::warn!("{:?}", bt);
+        }
     }
 }
 

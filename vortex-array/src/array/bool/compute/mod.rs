@@ -1,10 +1,12 @@
 use crate::array::BoolEncoding;
 use crate::compute::{
-    BinaryBooleanFn, ComputeVTable, FillForwardFn, FilterFn, InvertFn, ScalarAtFn, SliceFn, TakeFn,
+    BinaryBooleanFn, ComputeVTable, FillForwardFn, FillNullFn, FilterFn, InvertFn, ScalarAtFn,
+    SliceFn, TakeFn,
 };
 use crate::ArrayData;
 
-mod fill;
+mod fill_forward;
+mod fill_null;
 pub mod filter;
 mod flatten;
 mod invert;
@@ -42,6 +44,10 @@ impl ComputeVTable for BoolEncoding {
     }
 
     fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn fill_null_fn(&self) -> Option<&dyn FillNullFn<ArrayData>> {
         Some(self)
     }
 }

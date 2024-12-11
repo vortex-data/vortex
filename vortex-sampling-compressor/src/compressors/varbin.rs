@@ -1,7 +1,6 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{VarBinArray, VarBinEncoding};
 use vortex_array::encoding::{Encoding, EncodingRef};
-use vortex_array::stats::ArrayStatistics;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
 
@@ -45,7 +44,7 @@ impl EncodingCompressor for VarBinCompressor {
             )?
             .into_array(),
             Some(CompressionTree::new(self, vec![offsets.path, None, None])),
-            Some(array.statistics()),
+            array,
         ))
     }
 

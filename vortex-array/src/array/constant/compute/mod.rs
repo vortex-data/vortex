@@ -10,7 +10,7 @@ use crate::array::constant::ConstantArray;
 use crate::array::ConstantEncoding;
 use crate::compute::{
     BinaryBooleanFn, CompareFn, ComputeVTable, FilterFn, FilterMask, InvertFn, ScalarAtFn,
-    SearchSortedFn, SliceFn, TakeFn, TakeOptions,
+    SearchSortedFn, SliceFn, TakeFn,
 };
 use crate::{ArrayData, IntoArrayData};
 
@@ -55,12 +55,7 @@ impl ScalarAtFn<ConstantArray> for ConstantEncoding {
 }
 
 impl TakeFn<ConstantArray> for ConstantEncoding {
-    fn take(
-        &self,
-        array: &ConstantArray,
-        indices: &ArrayData,
-        _options: TakeOptions,
-    ) -> VortexResult<ArrayData> {
+    fn take(&self, array: &ConstantArray, indices: &ArrayData) -> VortexResult<ArrayData> {
         Ok(ConstantArray::new(array.scalar(), indices.len()).into_array())
     }
 }

@@ -6,10 +6,10 @@ use std::task::{Context, Poll};
 use futures::Stream;
 use itertools::Itertools;
 use vortex_array::stats::ArrayStatistics;
-use vortex_error::{vortex_bail, VortexExpect, VortexResult, VortexUnwrap};
+use vortex_error::{vortex_bail, VortexResult, VortexUnwrap};
 
 use crate::read::buffered::ReadMasked;
-use crate::{BatchRead, LayoutReader, MessageRead, PruningRead, RowMask, SplitRead};
+use crate::{LayoutReader, PollRead, Prune, RowMask};
 
 /// Reads an array out of a [`LayoutReader`] as a [`RowMask`].
 ///
@@ -29,32 +29,32 @@ impl ReadMasked for ReadRowMask {
     type Value = RowMask;
 
     /// Read given mask out of the reader
-    fn read_masked(&self, mask: &RowMask) -> VortexResult<Option<MessageRead<RowMask>>> {
-        let can_prune = self.layout.can_prune(mask.begin(), mask.end())?;
+    fn read_masked(&self, mask: &RowMask) -> VortexResult<Option<PollRead<RowMask>>> {
+        let can_prune = self.layout.poll_prune(mask.begin(), mask.end())?;
 
         match can_prune {
-            PruningRead::ReadMore(messages) => {
-                return Ok(Some(SplitRead::ReadMore(messages)));
+            PollRead::ReadMore(messages) => {
+                return Ok(Some(PollRead::ReadMore(messages)));
             }
-            PruningRead::Value(true) => return Ok(None),
-            PruningRead::Value(false) => {}
+            PollRead::Value(Prune::CanPrune) => return Ok(None),
+            PollRead::Value(Prune::CannotPrune) => {}
         };
 
-        if let Some(rs) = self.layout.read_selection(mask)? {
+        if let Some(rs) = self.layout.poll_read(mask)? {
             return match rs {
-                BatchRead::ReadMore(messages) => Ok(Some(SplitRead::ReadMore(messages))),
-                BatchRead::Value(batch) => {
+                PollRead::ReadMore(messages) => Ok(Some(PollRead::ReadMore(messages))),
+                PollRead::Value(batch) => {
                     // If the mask is all FALSE we can safely discard it
                     if batch
                         .statistics()
                         .compute_true_count()
-                        .vortex_expect("must be a bool array if it's a result of a filter")
-                        == 0
+                        .map(|true_count| true_count == 0)
+                        .unwrap_or(false)
                     {
                         return Ok(None);
                     }
                     // Combine requested mask with the result of filter read
-                    Ok(Some(SplitRead::Value(mask.and_bitmask(batch)?)))
+                    Ok(Some(PollRead::Value(mask.and_bitmask(batch)?)))
                 }
             };
         }
@@ -109,7 +109,7 @@ impl Iterator for FixedSplitIterator {
                             Err(e) => return Some(Err(e)),
                         };
 
-                        if sliced.is_empty() {
+                        if sliced.is_all_false() {
                             continue;
                         }
                         Some(Ok(sliced))
@@ -141,8 +141,7 @@ impl Stream for FixedSplitIterator {
 mod tests {
     use std::collections::BTreeSet;
 
-    use vortex_array::array::BoolArray;
-    use vortex_array::IntoArrayData;
+    use vortex_array::compute::FilterMask;
     use vortex_error::VortexResult;
 
     use crate::read::splits::FixedSplitIterator;
@@ -170,10 +169,9 @@ mod tests {
             10,
             Some(
                 RowMask::try_new(
-                    BoolArray::from_iter([
+                    FilterMask::from_iter([
                         false, false, false, false, true, true, false, false, false, false,
-                    ])
-                    .into_array(),
+                    ]),
                     0,
                     10,
                 )
@@ -183,9 +181,10 @@ mod tests {
         mask_iter
             .additional_splits(&mut BTreeSet::from([0, 2, 4, 6, 8, 10]))
             .unwrap();
-        assert_eq!(
-            mask_iter.collect::<VortexResult<Vec<_>>>().unwrap(),
-            vec![RowMask::new_valid_between(4, 6)]
-        );
+
+        let actual = mask_iter.collect::<VortexResult<Vec<_>>>().unwrap();
+        let expected = vec![RowMask::new_valid_between(4, 6)];
+
+        assert_eq!(actual, expected);
     }
 }

@@ -79,7 +79,11 @@ pub fn or_kleene(
     binary_boolean(lhs.as_ref(), rhs.as_ref(), BinaryOperator::OrKleene)
 }
 
-fn binary_boolean(lhs: &ArrayData, rhs: &ArrayData, op: BinaryOperator) -> VortexResult<ArrayData> {
+pub fn binary_boolean(
+    lhs: &ArrayData,
+    rhs: &ArrayData,
+    op: BinaryOperator,
+) -> VortexResult<ArrayData> {
     if lhs.len() != rhs.len() {
         vortex_bail!("Boolean operations aren't supported on arrays of different lengths")
     }

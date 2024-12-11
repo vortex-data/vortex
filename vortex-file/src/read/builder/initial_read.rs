@@ -2,16 +2,13 @@ use core::ops::Range;
 
 use bytes::Bytes;
 use flatbuffers::{root, root_unchecked};
-use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexResult, VortexUnwrap};
 use vortex_flatbuffers::{footer, message};
 use vortex_io::VortexReadAt;
 
-use crate::{
-    LayoutDeserializer, LayoutReader, LazyDType, RelativeLayoutCache, Scan, EOF_SIZE,
-    INITIAL_READ_SIZE, MAGIC_BYTES, VERSION,
-};
+use crate::{LazyDType, EOF_SIZE, INITIAL_READ_SIZE, MAGIC_BYTES, VERSION};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct InitialRead {
     /// The bytes from the initial read of the file, which is assumed (for now) to be sufficiently
     /// large to contain the schema and layout.
@@ -56,17 +53,6 @@ impl InitialRead {
     }
 }
 
-pub fn read_layout_from_initial(
-    initial_read: &InitialRead,
-    layout_serde: &LayoutDeserializer,
-    scan: Scan,
-    message_cache: RelativeLayoutCache,
-) -> VortexResult<Box<dyn LayoutReader>> {
-    let layout_bytes = initial_read.buf.slice(initial_read.fb_layout_byte_range());
-    let fb_loc = initial_read.fb_layout()._tab.loc();
-    layout_serde.read_layout(layout_bytes, fb_loc, scan, message_cache)
-}
-
 pub async fn read_initial_bytes<R: VortexReadAt>(
     read: &R,
     file_size: u64,
@@ -82,7 +68,7 @@ pub async fn read_initial_bytes<R: VortexReadAt>(
     let read_size = INITIAL_READ_SIZE.min(file_size as usize);
 
     let initial_read_offset = file_size - read_size as u64;
-    let buf = read
+    let buf: Bytes = read
         .read_byte_range(initial_read_offset, read_size as u64)
         .await?;
 
@@ -103,11 +89,8 @@ pub async fn read_initial_bytes<R: VortexReadAt>(
     }
 
     // The footer MUST fit in the initial read.
-    let ps_size = u16::from_le_bytes(
-        buf[eof_loc + 2..eof_loc + 4]
-            .try_into()
-            .map_err(|e| vortex_err!("Footer size was not a u16 {e}"))?,
-    ) as usize;
+    let ps_size =
+        u16::from_le_bytes(buf[eof_loc + 2..eof_loc + 4].try_into().vortex_unwrap()) as usize;
     if ps_size > eof_loc {
         vortex_bail!(
             "Malformed file, postscript of size {} is too large to fit in initial read of size {} (file size {})",

@@ -120,7 +120,7 @@ impl StructArray {
                 Field::Name(n) => self
                     .names()
                     .iter()
-                    .position(|name| name.as_ref() == n)
+                    .position(|name| name == n)
                     .ok_or_else(|| vortex_err!("Unknown field {n}"))?,
                 Field::Index(i) => *i,
             };

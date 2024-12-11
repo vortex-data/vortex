@@ -30,15 +30,16 @@ pub fn subtract_scalar(
     to_subtract: &Scalar,
 ) -> VortexResult<ArrayData> {
     let array = array.as_ref();
+    let to_subtract = to_subtract.cast(array.dtype())?;
 
     if let Some(f) = array.encoding().subtract_scalar_fn() {
-        return f.subtract_scalar(array, to_subtract);
+        return f.subtract_scalar(array, &to_subtract);
     }
 
     // if subtraction is not implemented for the given array type, but the array has a numeric
     // DType, we can flatten the array and apply subtraction to the flattened primitive array
     match array.dtype() {
-        DType::Primitive(..) => subtract_scalar(array.clone().into_primitive()?, to_subtract),
+        DType::Primitive(..) => subtract_scalar(array.clone().into_primitive()?, &to_subtract),
         _ => Err(vortex_err!(
             NotImplemented: "scalar_subtract",
             array.encoding().id()

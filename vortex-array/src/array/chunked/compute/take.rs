@@ -7,18 +7,13 @@ use crate::array::chunked::ChunkedArray;
 use crate::array::ChunkedEncoding;
 use crate::compute::{
     scalar_at, search_sorted_usize, slice, subtract_scalar, take, try_cast, SearchSortedSide,
-    TakeFn, TakeOptions,
+    TakeFn,
 };
 use crate::stats::ArrayStatistics;
 use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
 
 impl TakeFn<ChunkedArray> for ChunkedEncoding {
-    fn take(
-        &self,
-        array: &ChunkedArray,
-        indices: &ArrayData,
-        options: TakeOptions,
-    ) -> VortexResult<ArrayData> {
+    fn take(&self, array: &ChunkedArray, indices: &ArrayData) -> VortexResult<ArrayData> {
         // Fast path for strict sorted indices.
         if indices
             .statistics()
@@ -29,7 +24,7 @@ impl TakeFn<ChunkedArray> for ChunkedEncoding {
                 return Ok(array.to_array());
             }
 
-            return take_strict_sorted(array, indices, options);
+            return take_strict_sorted(array, indices);
         }
 
         let indices = try_cast(indices, PType::U64.into())?.into_primitive()?;
@@ -50,7 +45,6 @@ impl TakeFn<ChunkedArray> for ChunkedEncoding {
                 chunks.push(take(
                     &array.chunk(prev_chunk_idx)?,
                     &indices_in_chunk_array,
-                    options,
                 )?);
                 indices_in_chunk = Vec::new();
             }
@@ -64,7 +58,6 @@ impl TakeFn<ChunkedArray> for ChunkedEncoding {
             chunks.push(take(
                 &array.chunk(prev_chunk_idx)?,
                 &indices_in_chunk_array,
-                options,
             )?);
         }
 
@@ -73,11 +66,7 @@ impl TakeFn<ChunkedArray> for ChunkedEncoding {
 }
 
 /// When the indices are non-null and strict-sorted, we can do better
-fn take_strict_sorted(
-    chunked: &ChunkedArray,
-    indices: &ArrayData,
-    options: TakeOptions,
-) -> VortexResult<ArrayData> {
+fn take_strict_sorted(chunked: &ChunkedArray, indices: &ArrayData) -> VortexResult<ArrayData> {
     let mut indices_by_chunk = vec![None; chunked.nchunks()];
 
     // Track our position in the indices array
@@ -125,7 +114,7 @@ fn take_strict_sorted(
         .into_iter()
         .enumerate()
         .filter_map(|(chunk_idx, indices)| indices.map(|i| (chunk_idx, i)))
-        .map(|(chunk_idx, chunk_indices)| take(&chunked.chunk(chunk_idx)?, &chunk_indices, options))
+        .map(|(chunk_idx, chunk_indices)| take(&chunked.chunk(chunk_idx)?, &chunk_indices))
         .try_collect()?;
 
     Ok(ChunkedArray::try_new(chunks, chunked.dtype().clone())?.into_array())
@@ -134,7 +123,7 @@ fn take_strict_sorted(
 #[cfg(test)]
 mod test {
     use crate::array::chunked::ChunkedArray;
-    use crate::compute::{take, TakeOptions};
+    use crate::compute::take;
     use crate::{ArrayDType, ArrayLen, IntoArrayData, IntoArrayVariant};
 
     #[test]
@@ -146,12 +135,11 @@ mod test {
         assert_eq!(arr.len(), 9);
         let indices = vec![0u64, 0, 6, 4].into_array();
 
-        let result =
-            &ChunkedArray::try_from(take(arr.as_ref(), &indices, TakeOptions::default()).unwrap())
-                .unwrap()
-                .into_array()
-                .into_primitive()
-                .unwrap();
+        let result = &ChunkedArray::try_from(take(arr.as_ref(), &indices).unwrap())
+            .unwrap()
+            .into_array()
+            .into_primitive()
+            .unwrap();
         assert_eq!(result.maybe_null_slice::<i32>(), &[1, 1, 1, 2]);
     }
 }

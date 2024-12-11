@@ -19,6 +19,8 @@ pub(super) struct OwnedArrayData {
     pub(super) buffer: Option<Buffer>,
     pub(super) children: Arc<[ArrayData]>,
     pub(super) stats_set: Arc<RwLock<StatsSet>>,
+    #[cfg(feature = "canonical_counter")]
+    pub(super) canonical_counter: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl OwnedArrayData {

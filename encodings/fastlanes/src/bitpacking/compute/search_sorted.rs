@@ -5,10 +5,9 @@ use std::cmp::Ordering::Greater;
 use fastlanes::BitPacking;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
-use vortex_array::array::SparseArray;
 use vortex_array::compute::{
-    search_sorted_usize, IndexOrd, Len, SearchResult, SearchSorted, SearchSortedFn,
-    SearchSortedSide,
+    IndexOrd, Len, SearchResult, SearchSorted, SearchSortedFn, SearchSortedSide,
+    SearchSortedUsizeFn,
 };
 use vortex_array::stats::ArrayStatistics;
 use vortex_array::validity::Validity;
@@ -32,24 +31,6 @@ impl SearchSortedFn<BitPackedArray> for BitPackedEncoding {
         })
     }
 
-    fn search_sorted_usize(
-        &self,
-        array: &BitPackedArray,
-        value: usize,
-        side: SearchSortedSide,
-    ) -> VortexResult<SearchResult> {
-        match_each_unsigned_integer_ptype!(array.ptype(), |$P| {
-            // NOTE: conversion may truncate silently.
-            if let Some(pvalue) = num_traits::cast::<usize, $P>(value) {
-                search_sorted_native(array, pvalue, side)
-            } else {
-                // provided u64 is too large to fit in the provided PType, value must be off
-                // the right end of the array.
-                Ok(SearchResult::NotFound(array.len()))
-            }
-        })
-    }
-
     fn search_sorted_many(
         &self,
         array: &BitPackedArray,
@@ -67,6 +48,26 @@ impl SearchSortedFn<BitPackedArray> for BitPackedEncoding {
                     Ok(searcher.search_sorted(&unwrapped_value, side))
                 })
                 .try_collect()
+        })
+    }
+}
+
+impl SearchSortedUsizeFn<BitPackedArray> for BitPackedEncoding {
+    fn search_sorted_usize(
+        &self,
+        array: &BitPackedArray,
+        value: usize,
+        side: SearchSortedSide,
+    ) -> VortexResult<SearchResult> {
+        match_each_unsigned_integer_ptype!(array.ptype(), |$P| {
+            // NOTE: conversion may truncate silently.
+            if let Some(pvalue) = num_traits::cast::<usize, $P>(value) {
+                search_sorted_native(array, pvalue, side)
+            } else {
+                // provided u64 is too large to fit in the provided PType, value must be off
+                // the right end of the array.
+                Ok(SearchResult::NotFound(array.len()))
+            }
         })
     }
 
@@ -116,12 +117,12 @@ fn search_sorted_native<T>(
 where
     T: NativePType + BitPacking + AsPrimitive<usize> + AsPrimitive<u64>,
 {
-    if let Some(patches_array) = array.patches() {
+    if let Some(patches) = array.patches() {
         // If patches exist they must be the last elements in the array, if the value we're looking for is greater than
         // max packed value just search the patches
         let usize_value: usize = value.as_();
         if usize_value > array.max_packed_value() {
-            search_sorted_usize(&patches_array, value.as_(), side)
+            patches.search_sorted(usize_value, side)
         } else {
             Ok(BitPackedSearch::<'_, T>::new(array).search_sorted(&value, side))
         }
@@ -146,11 +147,9 @@ impl<'a, T: BitPacking + NativePType> BitPackedSearch<'a, T> {
     pub fn new(array: &'a BitPackedArray) -> Self {
         let min_patch_offset = array
             .patches()
-            .and_then(|p| {
-                SparseArray::maybe_from(p)
-                    .vortex_expect("Only sparse patches are supported")
-                    .min_index()
-            })
+            .map(|p| p.min_index())
+            .transpose()
+            .vortex_expect("Failed to get min patch index")
             .unwrap_or_else(|| array.len());
         let first_null_idx = match array.validity() {
             Validity::NonNullable | Validity::AllValid => array.len(),
@@ -272,6 +271,23 @@ mod test {
         )
         .unwrap();
         assert_eq!(found, SearchResult::Found(0));
+    }
+
+    #[test]
+    fn test_search_sorted_nulls_not_found() {
+        let bitpacked = BitPackedArray::encode(
+            PrimitiveArray::from_nullable_vec(vec![Some(0u8), Some(107u8), None, None]).as_ref(),
+            0,
+        )
+        .unwrap();
+
+        let found = search_sorted(
+            bitpacked.as_ref(),
+            Scalar::primitive(127u8, Nullability::Nullable),
+            SearchSortedSide::Left,
+        )
+        .unwrap();
+        assert_eq!(found, SearchResult::NotFound(2));
     }
 
     #[test]

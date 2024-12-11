@@ -146,7 +146,7 @@ fn vortex_decompress_read(runtime: &Runtime, buf: Buffer) -> VortexResult<Vec<Ar
         let mut batches = vec![];
         let mut stream = builder.build().await?;
         while let Some(batch) = stream.next().await {
-            batches.push(batch?.into_canonical()?.into_arrow()?);
+            batches.push(batch?.into_arrow()?);
         }
         Ok(batches)
     }
@@ -384,7 +384,7 @@ fn tpc_h_l_comment(c: &mut Criterion) {
         .map(|chunk| {
             StructArray::try_from(chunk)
                 .unwrap()
-                .project(&[Field::Name("l_comment".to_string())])
+                .project(&[Field::from("l_comment")])
                 .unwrap()
                 .into_array()
         })

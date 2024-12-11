@@ -116,10 +116,14 @@ pub fn decompress(array: FoRArray) -> VortexResult<PrimitiveArray> {
                 .as_primitive()
                 .typed_value::<$T>()
                 .ok_or_else(|| vortex_err!("expected reference to be non-null"))?;
-            PrimitiveArray::from_vec(
-                decompress_primitive(encoded.into_maybe_null_slice::<$T>(), min, shift),
-                validity,
-            )
+            if min == 0 && shift == 0 {
+                encoded
+            } else {
+                PrimitiveArray::from_vec(
+                    decompress_primitive(encoded.into_maybe_null_slice::<$T>(), min, shift),
+                    validity,
+                )
+            }
         }
     }))
 }
@@ -130,15 +134,19 @@ fn decompress_primitive<T: NativePType + WrappingAdd + PrimInt>(
     shift: usize,
 ) -> Vec<T> {
     if shift > 0 {
-        values
-            .into_iter()
-            .map(|v| v << shift)
-            .map(|v| v.wrapping_add(&min))
-            .collect_vec()
+        if min == T::zero() {
+            values.into_iter().map(move |v| v << shift).collect_vec()
+        } else {
+            values
+                .into_iter()
+                .map(move |v| v << shift)
+                .map(move |v| v.wrapping_add(&min))
+                .collect_vec()
+        }
     } else {
         values
             .into_iter()
-            .map(|v| v.wrapping_add(&min))
+            .map(move |v| v.wrapping_add(&min))
             .collect_vec()
     }
 }

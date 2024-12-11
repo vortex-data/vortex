@@ -40,6 +40,7 @@ vortex-scalar = { workspace = true, features = ["flatbuffers"] }
 arrow-schema = { workspace = true }
 rstest = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
+vortex-io = { path = "../vortex-io", features = ["tokio"] }
 
 [lints]
 workspace = true

@@ -5,7 +5,6 @@ use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{ChunkedArray, ChunkedEncoding};
 use vortex_array::compress::compute_precompression_stats;
 use vortex_array::encoding::{Encoding, EncodingRef};
-use vortex_array::stats::ArrayStatistics;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
@@ -108,7 +107,7 @@ impl ChunkedCompressor {
                 .unwrap_or(false);
 
             if ratio > 1.0 || exceeded_target_ratio {
-                log::info!("unsatisfactory ratio {}, previous: {:?}", ratio, previous);
+                log::debug!("unsatisfactory ratio {}, previous: {:?}", ratio, previous);
                 let (compressed_chunk, tree) = ctx.compress_array(&chunk)?.into_parts();
                 let new_ratio = (compressed_chunk.nbytes() as f32) / (chunk.nbytes() as f32);
 
@@ -130,7 +129,7 @@ impl ChunkedCompressor {
                 compressed_trees,
                 Arc::new(ChunkedCompressorMetadata(ratio)),
             )),
-            Some(array.statistics()),
+            array,
         ))
     }
 }

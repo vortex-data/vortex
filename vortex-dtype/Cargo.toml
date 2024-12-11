@@ -20,7 +20,6 @@ bench = false
 
 [dependencies]
 arbitrary = { workspace = true, optional = true }
-arrow-array = { workspace = true }
 flatbuffers = { workspace = true, optional = true }
 half = { workspace = true, features = ["num-traits"] }
 itertools = { workspace = true }

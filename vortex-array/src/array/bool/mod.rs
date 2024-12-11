@@ -4,11 +4,10 @@ use std::sync::Arc;
 use arrow_array::BooleanArray;
 use arrow_buffer::{BooleanBufferBuilder, MutableBuffer};
 use itertools::Itertools;
-use num_traits::AsPrimitive;
 use serde::{Deserialize, Serialize};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
+use vortex_error::{VortexExpect as _, VortexResult};
 
 use crate::encoding::ids;
 use crate::stats::StatsSet;
@@ -20,6 +19,7 @@ use crate::{
 };
 
 pub mod compute;
+mod patch;
 mod stats;
 
 // Re-export the BooleanBuffer type on our API surface.
@@ -135,34 +135,6 @@ impl BoolArray {
         .try_into()
     }
 
-    pub fn patch<P: AsPrimitive<usize>>(
-        self,
-        positions: &[P],
-        values: BoolArray,
-    ) -> VortexResult<Self> {
-        if positions.len() != values.len() {
-            vortex_bail!(
-                "Positions and values passed to patch had different lengths {} and {}",
-                positions.len(),
-                values.len()
-            );
-        }
-        if let Some(last_pos) = positions.last() {
-            if last_pos.as_() >= self.len() {
-                vortex_bail!(OutOfBounds: last_pos.as_(), 0, self.len())
-            }
-        }
-
-        let len = self.len();
-        let result_validity = self.validity().patch(len, positions, values.validity())?;
-        let (mut own_values, bit_offset) = self.into_boolean_builder();
-        for (idx, value) in positions.iter().zip_eq(values.boolean_buffer().iter()) {
-            own_values.set_bit(idx.as_() + bit_offset, value);
-        }
-
-        Self::try_new(own_values.finish().slice(bit_offset, len), result_validity)
-    }
-
     /// Create a new BoolArray from a set of indices and a length.
     /// All indices must be less than the length.
     pub fn from_indices<I: IntoIterator<Item = usize>>(length: usize, indices: I) -> Self {
@@ -235,12 +207,10 @@ impl VisitorVTable<BoolArray> for BoolEncoding {
 
 #[cfg(test)]
 mod tests {
-    use arrow_buffer::BooleanBuffer;
-
     use crate::array::BoolArray;
-    use crate::compute::{scalar_at, slice};
+    use crate::compute::scalar_at;
     use crate::validity::Validity;
-    use crate::{IntoArrayData, IntoArrayVariant};
+    use crate::IntoArrayData;
 
     #[test]
     fn bool_array() {
@@ -282,32 +252,5 @@ mod tests {
 
         let scalar = scalar_at(&arr, 4).unwrap();
         assert!(scalar.is_null());
-    }
-
-    #[test]
-    fn patch_sliced_bools() {
-        let arr = BoolArray::from(BooleanBuffer::new_set(12));
-        let sliced = slice(arr, 4, 12).unwrap();
-        let (values, offset) = sliced.into_bool().unwrap().into_boolean_builder();
-        assert_eq!(offset, 4);
-        assert_eq!(values.as_slice(), &[255, 15]);
-    }
-
-    #[test]
-    fn patch_sliced_bools_offset() {
-        let arr = BoolArray::from(BooleanBuffer::new_set(15));
-        let sliced = slice(arr, 4, 15).unwrap();
-        let (values, offset) = sliced.into_bool().unwrap().into_boolean_builder();
-        assert_eq!(offset, 4);
-        assert_eq!(values.as_slice(), &[255, 127]);
-    }
-
-    #[test]
-    fn patch_sliced_bools_even() {
-        let arr = BoolArray::from(BooleanBuffer::new_set(31));
-        let sliced = slice(arr, 8, 24).unwrap();
-        let (values, offset) = sliced.into_bool().unwrap().into_boolean_builder();
-        assert_eq!(offset, 0);
-        assert_eq!(values.as_slice(), &[255, 255]);
     }
 }

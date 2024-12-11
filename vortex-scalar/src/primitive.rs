@@ -3,9 +3,7 @@ use std::any::type_name;
 use num_traits::{FromPrimitive, NumCast};
 use vortex_dtype::half::f16;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
-use vortex_error::{
-    vortex_bail, vortex_err, vortex_panic, VortexError, VortexResult, VortexUnwrap,
-};
+use vortex_error::{vortex_err, vortex_panic, VortexError, VortexResult, VortexUnwrap};
 
 use crate::pvalue::PValue;
 use crate::value::ScalarValue;
@@ -20,10 +18,6 @@ pub struct PrimitiveScalar<'a> {
 
 impl<'a> PrimitiveScalar<'a> {
     pub fn try_new(dtype: &'a DType, value: &ScalarValue) -> VortexResult<Self> {
-        if !matches!(dtype, DType::Primitive(..)) {
-            vortex_bail!("Expected primitive scalar, found {}", dtype)
-        }
-
         let ptype = PType::try_from(dtype)?;
 
         // Read the serialized value into the correct PValue.

@@ -10,4 +10,6 @@ pub use flat::FlatLayout;
 
 use crate::LayoutReader;
 
-type RangedLayoutReader = ((usize, usize), Box<dyn LayoutReader>);
+// TODO(aduffy): make this container more useful
+#[derive(Debug)]
+pub struct RangedLayoutReader((usize, usize), Box<dyn LayoutReader>);

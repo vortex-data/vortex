@@ -6,10 +6,10 @@ use crate::array::sparse::SparseArray;
 use crate::array::{PrimitiveArray, SparseEncoding};
 use crate::compute::{
     scalar_at, search_sorted, take, ComputeVTable, FilterFn, FilterMask, InvertFn, ScalarAtFn,
-    SearchResult, SearchSortedFn, SearchSortedSide, SliceFn, TakeFn, TakeOptions,
+    SearchResult, SearchSortedFn, SearchSortedSide, SearchSortedUsizeFn, SliceFn, TakeFn,
 };
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
+use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
 
 mod invert;
 mod slice;
@@ -32,6 +32,10 @@ impl ComputeVTable for SparseEncoding {
         Some(self)
     }
 
+    fn search_sorted_usize_fn(&self) -> Option<&dyn SearchSortedUsizeFn<ArrayData>> {
+        Some(self)
+    }
+
     fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
         Some(self)
     }
@@ -50,6 +54,7 @@ impl ScalarAtFn<SparseArray> for SparseEncoding {
     }
 }
 
+// FIXME(ngates): these are broken in a way that works for array patches, this will be fixed soon.
 impl SearchSortedFn<SparseArray> for SparseEncoding {
     fn search_sorted(
         &self,
@@ -73,6 +78,22 @@ impl SearchSortedFn<SparseArray> for SparseEncoding {
                 ),
             })
         })
+    }
+}
+
+// FIXME(ngates): these are broken in a way that works for array patches, this will be fixed soon.
+impl SearchSortedUsizeFn<SparseArray> for SparseEncoding {
+    fn search_sorted_usize(
+        &self,
+        array: &SparseArray,
+        value: usize,
+        side: SearchSortedSide,
+    ) -> VortexResult<SearchResult> {
+        let Ok(target) = Scalar::from(value).cast(array.dtype()) else {
+            // If the downcast fails, then the target is too large for the dtype.
+            return Ok(SearchResult::NotFound(array.len()));
+        };
+        SearchSortedFn::search_sorted(self, array, &target, side)
     }
 }
 
@@ -105,11 +126,7 @@ impl FilterFn<SparseArray> for SparseEncoding {
 
         Ok(SparseArray::try_new(
             PrimitiveArray::from(coordinate_indices).into_array(),
-            take(
-                array.values(),
-                PrimitiveArray::from(value_indices),
-                TakeOptions::default(),
-            )?,
+            take(array.values(), PrimitiveArray::from(value_indices))?,
             buffer.count_set_bits(),
             array.fill_scalar(),
         )?

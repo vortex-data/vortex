@@ -3,15 +3,15 @@ use std::ptr;
 use std::sync::Arc;
 mod accessor;
 
-use arrow_buffer::{ArrowNativeType, Buffer as ArrowBuffer, MutableBuffer};
+use arrow_buffer::{ArrowNativeType, BooleanBufferBuilder, Buffer as ArrowBuffer, MutableBuffer};
 use bytes::Bytes;
 use itertools::Itertools;
-use num_traits::AsPrimitive;
 use serde::{Deserialize, Serialize};
 use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, PType};
-use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
+use vortex_error::{VortexExpect as _, VortexResult};
 
+use crate::array::BoolArray;
 use crate::encoding::ids;
 use crate::iter::Accessor;
 use crate::stats::StatsSet;
@@ -19,11 +19,11 @@ use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata
 use crate::variants::{PrimitiveArrayTrait, VariantsVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
-    IntoCanonical,
+    impl_encoding, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData, IntoCanonical,
 };
 
 mod compute;
+mod patch;
 mod stats;
 
 impl_encoding!("vortex.primitive", ids::PRIMITIVE, Primitive);
@@ -157,40 +157,6 @@ impl PrimitiveArray {
         PrimitiveArray::new(self.buffer().clone(), ptype, self.validity())
     }
 
-    pub fn patch<P: AsPrimitive<usize>, T: NativePType + ArrowNativeType>(
-        self,
-        positions: &[P],
-        values: &[T],
-        values_validity: Validity,
-    ) -> VortexResult<Self> {
-        if positions.len() != values.len() {
-            vortex_bail!(
-                "Positions and values passed to patch had different lengths {} and {}",
-                positions.len(),
-                values.len()
-            );
-        }
-        if let Some(last_pos) = positions.last() {
-            if last_pos.as_() >= self.len() {
-                vortex_bail!(OutOfBounds: last_pos.as_(), 0, self.len())
-            }
-        }
-
-        if self.ptype() != T::PTYPE {
-            vortex_bail!(MismatchedTypes: self.dtype(), T::PTYPE)
-        }
-
-        let result_validity = self
-            .validity()
-            .patch(self.len(), positions, values_validity)?;
-        let mut own_values = self.into_maybe_null_slice::<T>();
-        for (idx, value) in positions.iter().zip_eq(values) {
-            own_values[idx.as_()] = *value;
-        }
-
-        Ok(Self::from_vec(own_values, result_validity))
-    }
-
     pub fn into_buffer(self) -> Buffer {
         self.into_array()
             .into_buffer()
@@ -248,6 +214,31 @@ impl<T: NativePType> Accessor<T> for PrimitiveArray {
 
 impl PrimitiveArrayTrait for PrimitiveArray {}
 
+impl<T: NativePType> FromIterator<Option<T>> for PrimitiveArray {
+    fn from_iter<I: IntoIterator<Item = Option<T>>>(iter: I) -> Self {
+        let iter = iter.into_iter();
+        let mut values = Vec::with_capacity(iter.size_hint().0);
+        let mut validity = BooleanBufferBuilder::new(values.capacity());
+
+        for i in iter {
+            match i {
+                None => {
+                    validity.append(false);
+                    values.push(T::default());
+                }
+                Some(e) => {
+                    validity.append(true);
+                    values.push(e);
+                }
+            }
+        }
+        Self::from_vec(
+            values,
+            Validity::Array(BoolArray::from(validity.finish()).into_array()),
+        )
+    }
+}
+
 impl<T: NativePType> From<Vec<T>> for PrimitiveArray {
     fn from(values: Vec<T>) -> Self {
         Self::from_vec(values, Validity::NonNullable)
@@ -280,25 +271,5 @@ impl VisitorVTable<PrimitiveArray> for PrimitiveEncoding {
     fn accept(&self, array: &PrimitiveArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
         visitor.visit_buffer(array.buffer())?;
         visitor.visit_validity(&array.validity())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::compute::slice;
-    use crate::IntoArrayVariant;
-
-    #[test]
-    fn patch_sliced() {
-        let input = PrimitiveArray::from_vec(vec![2u32; 10], Validity::AllValid);
-        let sliced = slice(input, 2, 8).unwrap();
-        assert_eq!(
-            sliced
-                .into_primitive()
-                .unwrap()
-                .into_maybe_null_slice::<u32>(),
-            vec![2u32; 6]
-        );
     }
 }

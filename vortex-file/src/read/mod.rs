@@ -65,25 +65,40 @@ pub struct MessageLocator(pub MessageId, pub ByteRange);
 #[derive(Debug, Clone)]
 pub struct Message(pub MessageId, pub Bytes);
 
-pub type BatchRead = MessageRead<ArrayData>;
-pub type SplitRead = MessageRead<RowMask>;
-pub type MetadataRead = MessageRead<Vec<Option<ArrayData>>>;
-pub type PruningRead = MessageRead<bool>;
-
+/// A polling interface for reading a value from a [`LayoutReader`].
 #[derive(Debug)]
-pub enum MessageRead<T> {
+pub enum PollRead<T> {
     ReadMore(Vec<MessageLocator>),
     Value(T),
 }
 
+/// Result type for an attempt to prune rows from a [`LayoutReader`].
+///
+/// The default value is `CannotPrune` so that layouts which do not implement pruning can default
+/// to performing full scans of their data.
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Prune {
+    /// It is unsafe for the layout to prune the requested row range.
+    #[default]
+    CannotPrune,
+    /// It is safe for the layout to prune the requested row range.
+    CanPrune,
+}
+
 /// A reader for a layout, a serialized sequence of Vortex arrays.
 ///
-/// Some layouts are _horizontally divisble_: they can read a sub-sequence of rows independently of
-/// other sub-sequences. A layout advertises its sub-divisions in its [add_splits][Self::add_splits]
-/// method. Any layout which is or contains a chunked layout is horizontally divisble.
+/// Some layouts are _horizontally divisible_: they can read a sub-sequence of rows independently of
+/// other sub-sequences. A layout advertises its subdivisions in its [add_splits][Self::add_splits]
+/// method. Any layout which is or contains a chunked layout is horizontally divisible.
 ///
-/// The [read_selection][Self::read_selection] method accepts and applies a [RowMask], reading only
-/// the sub-divisions which contain the selected (i.e. masked) rows.
+/// The [poll_read][Self::poll_read] method accepts and applies a [RowMask], reading only
+/// the subdivisions which contain the selected rows.
+///
+/// # State management
+///
+/// Layout readers are **synchronous** and **stateful**. A request to read a given row range may
+/// trigger a request for more messages, which will be handled by the caller, placing the messages
+/// back into the message cache for this layout as a result.
 pub trait LayoutReader: Debug + Send {
     /// Register all horizontal row boundaries of this layout.
     ///
@@ -99,11 +114,19 @@ pub trait LayoutReader: Debug + Send {
     /// creating the invoked instance of this trait and then call back into this function.
     ///
     /// The layout is finished producing data for selection when it returns None
-    fn read_selection(&self, selector: &RowMask) -> VortexResult<Option<BatchRead>>;
+    fn poll_read(&self, selector: &RowMask) -> VortexResult<Option<PollRead<ArrayData>>>;
 
     /// Reads the metadata of the layout, if it exists.
-    fn read_metadata(&self) -> VortexResult<Option<MetadataRead>>;
+    ///
+    /// `LayoutReader`s can override the default behavior, which is to return no metadata.
+    fn poll_metadata(&self) -> VortexResult<Option<PollRead<Vec<Option<ArrayData>>>>> {
+        Ok(None)
+    }
 
-    /// Returns true if this range contains no rows passing the filter condition.
-    fn can_prune(&self, begin: usize, end: usize) -> VortexResult<PruningRead>;
+    /// Introspect to determine if we can prune the given [begin, end) row range.
+    ///
+    /// `LayoutReader`s can opt out of the default implementation, which is to not prune.
+    fn poll_prune(&self, _begin: usize, _end: usize) -> VortexResult<PollRead<Prune>> {
+        Ok(PollRead::Value(Prune::CannotPrune))
+    }
 }

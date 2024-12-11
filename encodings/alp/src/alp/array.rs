@@ -3,6 +3,7 @@ use std::fmt::{Debug, Display};
 use serde::{Deserialize, Serialize};
 use vortex_array::array::PrimitiveArray;
 use vortex_array::encoding::ids;
+use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::stats::StatisticsVTable;
 use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use vortex_array::variants::{PrimitiveArrayTrait, VariantsVTable};
@@ -21,6 +22,7 @@ impl_encoding!("vortex.alp", ids::ALP, ALP);
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ALPMetadata {
     exponents: Exponents,
+    patches: Option<PatchesMetadata>,
 }
 
 impl Display for ALPMetadata {
@@ -33,7 +35,7 @@ impl ALPArray {
     pub fn try_new(
         encoded: ArrayData,
         exponents: Exponents,
-        patches: Option<ArrayData>,
+        patches: Option<Patches>,
     ) -> VortexResult<Self> {
         let dtype = match encoded.dtype() {
             DType::Primitive(PType::I32, nullability) => DType::Primitive(PType::F32, *nullability),
@@ -42,35 +44,23 @@ impl ALPArray {
         };
 
         let length = encoded.len();
-        if let Some(parray) = patches.as_ref() {
-            if parray.len() != length {
-                vortex_bail!(
-                    "Mismatched length in ALPArray between encoded({}) {} and it's patches({}) {}",
-                    encoded.encoding().id(),
-                    encoded.len(),
-                    parray.encoding().id(),
-                    parray.len()
-                )
-            }
-        }
 
         let mut children = Vec::with_capacity(2);
         children.push(encoded);
-        if let Some(patch) = patches {
-            if !patch.dtype().eq_ignore_nullability(&dtype) || !patch.dtype().is_nullable() {
-                vortex_bail!(
-                    "ALP patches dtype, {}, must be nullable version of array dtype, {}",
-                    patch.dtype(),
-                    dtype,
-                );
-            }
-            children.push(patch);
+        if let Some(patches) = &patches {
+            children.push(patches.indices().clone());
+            children.push(patches.values().clone());
         }
+
+        let patches = patches
+            .as_ref()
+            .map(|p| p.to_metadata(length, &dtype))
+            .transpose()?;
 
         Self::try_from_parts(
             dtype,
             length,
-            ALPMetadata { exponents },
+            ALPMetadata { exponents, patches },
             children.into(),
             Default::default(),
         )
@@ -95,11 +85,17 @@ impl ALPArray {
         self.metadata().exponents
     }
 
-    pub fn patches(&self) -> Option<ArrayData> {
-        (self.as_ref().nchildren() > 1).then(|| {
-            self.as_ref()
-                .child(1, &self.patches_dtype(), self.len())
-                .vortex_expect("Missing patches child in ALPArray")
+    pub fn patches(&self) -> Option<Patches> {
+        self.metadata().patches.as_ref().map(|p| {
+            Patches::new(
+                self.len(),
+                self.as_ref()
+                    .child(1, &p.indices_dtype(), p.len())
+                    .vortex_expect("ALPArray: patch indices"),
+                self.as_ref()
+                    .child(2, self.dtype(), p.len())
+                    .vortex_expect("ALPArray: patch values"),
+            )
         })
     }
 
@@ -114,11 +110,6 @@ impl ALPArray {
             }
             d => vortex_panic!(MismatchedTypes: "f32 or f64", d),
         }
-    }
-
-    #[inline]
-    fn patches_dtype(&self) -> DType {
-        self.dtype().as_nullable()
     }
 }
 
@@ -152,7 +143,7 @@ impl VisitorVTable<ALPArray> for ALPEncoding {
     fn accept(&self, array: &ALPArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
         visitor.visit_child("encoded", &array.encoded())?;
         if let Some(patches) = array.patches().as_ref() {
-            visitor.visit_child("patches", patches)?;
+            visitor.visit_patches(patches)?;
         }
         Ok(())
     }
