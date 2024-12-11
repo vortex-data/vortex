@@ -25,7 +25,7 @@ jobs:
           # - id: compress
           #   name: Vortex Compression
     # runs-on: self-hosted
-    runs-on: ubuntu
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/cleanup
