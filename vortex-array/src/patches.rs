@@ -298,15 +298,11 @@ impl Patches {
     }
 
     pub fn take_map(&self, take_indices: PrimitiveArray) -> VortexResult<Option<Self>> {
+        let indices = self.indices.clone().into_primitive()?;
         match_each_integer_ptype!(self.indices_ptype(), |$INDICES| {
-            let indices = self.indices
-                .clone()
-                .into_primitive()?;
             let indices = indices
                 .maybe_null_slice::<$INDICES>();
             match_each_integer_ptype!(take_indices.ptype(), |$TAKE_INDICES| {
-                let take_indices = take_indices
-                    .into_primitive()?;
                 let take_indices = take_indices
                     .maybe_null_slice::<$TAKE_INDICES>();
 
