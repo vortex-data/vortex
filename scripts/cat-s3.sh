@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -Eeu -o pipefail
+set -Eeu -o pipefail -x
 
 bucket="$1"
 key="$2"
