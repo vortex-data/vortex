@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   commit-metadata:
-    runs-on: ubuntu
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Setup AWS CLI
