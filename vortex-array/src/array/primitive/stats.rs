@@ -2,11 +2,12 @@ use core::marker::PhantomData;
 use std::cmp::Ordering;
 use std::mem::size_of;
 
+use arrow_array::ArrowNativeTypeOp;
 use arrow_buffer::buffer::BooleanBuffer;
 use itertools::{Itertools as _, MinMaxResult};
 use num_traits::PrimInt;
 use vortex_dtype::half::f16;
-use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability};
+use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
 use vortex_error::{vortex_panic, VortexResult};
 use vortex_scalar::Scalar;
 
@@ -71,6 +72,9 @@ impl<T: PStatsType> StatisticsVTable<[T]> for PrimitiveEncoding {
                 );
                 stats
             }
+            Stat::Sum => sum_of::<T>(array)
+                .map(|s| StatsSet::of(stat, s))
+                .unwrap_or_else(StatsSet::default),
             Stat::IsConstant => {
                 let first = array[0];
                 let is_constant = array.iter().all(|x| first.is_eq(*x));
@@ -87,6 +91,32 @@ impl<T: PStatsType> StatisticsVTable<[T]> for PrimitiveEncoding {
             }
             Stat::TrueCount | Stat::UncompressedSizeInBytes => StatsSet::default(),
         })
+    }
+}
+
+fn sum_of<T: NativePType>(values: &[T]) -> Option<Scalar> {
+    match T::PTYPE {
+        PType::I8 | PType::I16 | PType::I32 | PType::I64 => {
+            let mut sum: i64 = 0;
+            for v in values {
+                sum = sum.checked_add(v.to_i64()?)?;
+            }
+            Some(Scalar::from(sum))
+        }
+        PType::U8 | PType::U16 | PType::U32 | PType::U64 => {
+            let mut sum: u64 = 0;
+            for v in values {
+                sum = sum.checked_add(v.to_u64()?)?;
+            }
+            Some(Scalar::from(sum))
+        }
+        PType::F16 | PType::F32 | PType::F64 => {
+            let mut sum: f64 = 0.0;
+            for v in values {
+                sum = sum.add_checked(v.to_f64()?).ok()?;
+            }
+            Some(Scalar::from(sum))
+        }
     }
 }
 

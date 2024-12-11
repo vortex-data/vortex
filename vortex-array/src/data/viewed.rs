@@ -135,6 +135,18 @@ impl Statistics for ViewedArrayData {
                 min.and_then(|v| ScalarValue::try_from(v).ok())
                     .map(|v| Scalar::new(self.dtype.clone(), v))
             }
+            Stat::Sum => {
+                let sum = self.flatbuffer().stats()?.sum();
+                sum.and_then(|v| ScalarValue::try_from(v).ok()).map(|v| {
+                    Scalar::new(
+                        DType::Primitive(
+                            PType::try_from(&self.dtype).unwrap().to_widest(),
+                            self.dtype.nullability(),
+                        ),
+                        v,
+                    )
+                })
+            }
             Stat::IsConstant => self.flatbuffer().stats()?.is_constant().map(bool::into),
             Stat::IsSorted => self.flatbuffer().stats()?.is_sorted().map(bool::into),
             Stat::IsStrictSorted => self

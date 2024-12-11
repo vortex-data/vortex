@@ -5,7 +5,7 @@ use datafusion_common::stats::Precision;
 use datafusion_common::ColumnStatistics;
 use datafusion_expr::Accumulator;
 use vortex_array::array::StructArray;
-use vortex_array::stats::Stat;
+use vortex_array::stats::{ArrayStatistics, Stat};
 use vortex_array::variants::StructArrayTrait as _;
 use vortex_array::IntoCanonical;
 use vortex_error::VortexResult;
@@ -37,6 +37,12 @@ pub fn array_to_col_statistics(array: &StructArray) -> VortexResult<ColumnStatis
 
         let max_val = acc.evaluate()?;
         stats.min_value = Precision::Exact(max_val)
+    }
+
+    if let Some(sum_value_array) = array.field_by_name(Stat::Sum.name()) {
+        if let Some(sum_scalar) = sum_value_array.statistics().compute(Stat::Sum) {
+            stats.sum_value = Precision::Exact(sum_scalar.try_into()?);
+        }
     }
 
     Ok(stats)

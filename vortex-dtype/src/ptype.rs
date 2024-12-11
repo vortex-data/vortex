@@ -264,6 +264,16 @@ impl PType {
             _ => self,
         }
     }
+
+    /// Returns the widest PType that can represent all values of this PType
+    /// Floats are potentially lossy.
+    pub const fn to_widest(self) -> Self {
+        match self {
+            Self::I8 | Self::I16 | Self::I32 | Self::I64 => Self::I64,
+            Self::U8 | Self::U16 | Self::U32 | Self::U64 => Self::U64,
+            Self::F16 | Self::F32 | Self::F64 => Self::F64,
+        }
+    }
 }
 
 impl Display for PType {

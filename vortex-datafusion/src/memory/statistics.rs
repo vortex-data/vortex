@@ -41,6 +41,14 @@ pub fn chunked_array_df_stats(array: &ChunkedArray, projection: &[usize]) -> DFR
                     })
                     .map(Precision::Exact)
                     .unwrap_or(Precision::Absent),
+                sum_value: arr
+                    .statistics()
+                    .get(Stat::Sum)
+                    .map(|n| {
+                        ScalarValue::try_from(n).vortex_expect("cannot convert scalar to df scalar")
+                    })
+                    .map(Precision::Exact)
+                    .unwrap_or(Precision::Absent),
                 distinct_count: Precision::Absent,
             }
         })

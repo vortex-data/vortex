@@ -1,11 +1,13 @@
 use core::fmt::Display;
 use std::cmp::Ordering;
 use std::mem;
+use std::ops::Add;
 
-use num_traits::NumCast;
+use arrow_array::ArrowNativeTypeOp;
+use num_traits::{CheckedAdd, NumCast};
 use paste::paste;
 use vortex_dtype::half::f16;
-use vortex_dtype::{NativePType, PType};
+use vortex_dtype::{match_each_native_ptype, NativePType, PType};
 use vortex_error::{vortex_err, VortexError, VortexExpect};
 
 #[derive(Debug, Clone, Copy)]
@@ -34,9 +36,9 @@ impl PartialEq for PValue {
             (Self::I16(s), o) => o.as_i64().vortex_expect("upcast") == *s as i64,
             (Self::I32(s), o) => o.as_i64().vortex_expect("upcast") == *s as i64,
             (Self::I64(s), o) => o.as_i64().vortex_expect("upcast") == *s,
-            (Self::F16(s), Self::F16(o)) => s.is_eq(*o),
-            (Self::F32(s), Self::F32(o)) => s.is_eq(*o),
-            (Self::F64(s), Self::F64(o)) => s.is_eq(*o),
+            (Self::F16(s), Self::F16(o)) => NativePType::is_eq(*s, *o),
+            (Self::F32(s), Self::F32(o)) => NativePType::is_eq(*s, *o),
+            (Self::F64(s), Self::F64(o)) => NativePType::is_eq(*s, *o),
             (..) => false,
         }
     }
@@ -61,6 +63,35 @@ impl PartialOrd for PValue {
     }
 }
 
+impl Add<Self> for PValue {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        self.checked_add(&rhs).expect("Addition overflow")
+    }
+}
+
+impl CheckedAdd for PValue {
+    fn checked_add(&self, v: &Self) -> Option<Self> {
+        match self.ptype().to_widest() {
+            PType::I64 => self
+                .cast_as::<i64>()?
+                .checked_add(v.cast_as::<i64>()?)
+                .map(Self::from),
+            PType::U64 => self
+                .cast_as::<u64>()?
+                .checked_add(v.cast_as::<u64>()?)
+                .map(Self::from),
+            PType::F64 => self
+                .cast_as::<f64>()?
+                .add_checked(v.cast_as::<f64>()?)
+                .ok()
+                .map(Self::from),
+            _ => unreachable!(),
+        }
+    }
+}
+
 macro_rules! as_primitive {
     ($T:ty, $PT:tt) => {
         paste! {
@@ -80,6 +111,7 @@ macro_rules! as_primitive {
                     PValue::F64(v) => <$T as NumCast>::from(v),
                 }
             }
+
         }
     };
 }
@@ -110,6 +142,29 @@ impl PValue {
         &self,
     ) -> Result<T, VortexError> {
         T::try_from(*self)
+    }
+
+    /// Convert the PValue to the specified type, returning `None` if conversion is unsuccessful
+    pub fn cast_as<T: NumCast>(self) -> Option<T> {
+        match self {
+            PValue::U8(v) => <T as NumCast>::from(v),
+            PValue::U16(v) => <T as NumCast>::from(v),
+            PValue::U32(v) => <T as NumCast>::from(v),
+            PValue::U64(v) => <T as NumCast>::from(v),
+            PValue::I8(v) => <T as NumCast>::from(v),
+            PValue::I16(v) => <T as NumCast>::from(v),
+            PValue::I32(v) => <T as NumCast>::from(v),
+            PValue::I64(v) => <T as NumCast>::from(v),
+            PValue::F16(v) => <T as NumCast>::from(v),
+            PValue::F32(v) => <T as NumCast>::from(v),
+            PValue::F64(v) => <T as NumCast>::from(v),
+        }
+    }
+
+    pub fn cast(&self, ptype: PType) -> Option<Self> {
+        match_each_native_ptype!(ptype, |$T| {
+            self.cast_as::<$T>().map(Self::from)
+        })
     }
 
     #[allow(clippy::transmute_int_to_float, clippy::transmute_float_to_int)]

@@ -156,6 +156,7 @@ impl StatsSet {
                 Stat::IsStrictSorted => self.merge_is_strict_sorted(other),
                 Stat::Max => self.merge_max(other),
                 Stat::Min => self.merge_min(other),
+                Stat::Sum => self.merge_sum(other),
                 Stat::RunCount => self.merge_run_count(other),
                 Stat::TrueCount => self.merge_true_count(other),
                 Stat::NullCount => self.merge_null_count(other),
@@ -211,6 +212,11 @@ impl StatsSet {
             }
             _ => self.clear(Stat::Max),
         }
+    }
+
+    fn merge_sum(&mut self, _other: &Self) {
+        // TODO(ngates): implement this by summing ScalarValue
+        self.clear(Stat::Sum)
     }
 
     fn merge_is_constant(&mut self, other: &Self) {

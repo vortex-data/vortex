@@ -26,6 +26,7 @@ use crate::{LayoutSpec, EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
 const STATS_TO_WRITE: &[Stat] = &[
     Stat::Min,
     Stat::Max,
+    Stat::Sum,
     Stat::TrueCount,
     Stat::NullCount,
     Stat::RunCount,

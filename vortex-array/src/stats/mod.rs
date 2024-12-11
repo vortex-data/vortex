@@ -23,7 +23,13 @@ pub mod flatbuffers;
 mod statsset;
 
 /// Statistics that are used for pruning files (i.e., we want to ensure they are computed when compressing/writing).
-pub const PRUNING_STATS: &[Stat] = &[Stat::Min, Stat::Max, Stat::TrueCount, Stat::NullCount];
+pub const PRUNING_STATS: &[Stat] = &[
+    Stat::Min,
+    Stat::Max,
+    Stat::Sum,
+    Stat::TrueCount,
+    Stat::NullCount,
+];
 
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, Sequence, Enum, IntoPrimitive, TryFromPrimitive,
@@ -45,6 +51,8 @@ pub enum Stat {
     Max,
     /// The minimum value in the array (ignoring nulls, unless all values are null)
     Min,
+    /// The sum of the values in the array (ignoring nulls)
+    Sum,
     /// The number of runs in the array (ignoring nulls)
     RunCount,
     /// The number of true values in the array (nulls are treated as false)
@@ -92,6 +100,9 @@ impl Stat {
             Stat::IsStrictSorted => DType::Bool(NonNullable),
             Stat::Max => data_type.clone(),
             Stat::Min => data_type.clone(),
+            Stat::Sum => PType::try_from(data_type)
+                .map(|ptype| DType::Primitive(ptype.to_widest(), data_type.nullability()))
+                .unwrap_or_else(|_| DType::Null),
             Stat::RunCount => DType::Primitive(PType::U64, NonNullable),
             Stat::TrueCount => DType::Primitive(PType::U64, NonNullable),
             Stat::NullCount => DType::Primitive(PType::U64, NonNullable),
@@ -108,6 +119,7 @@ impl Stat {
             Self::IsStrictSorted => "is_strict_sorted",
             Self::Max => "max",
             Self::Min => "min",
+            Self::Sum => "sum",
             Self::RunCount => "run_count",
             Self::TrueCount => "true_count",
             Self::NullCount => "null_count",

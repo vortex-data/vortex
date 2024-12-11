@@ -129,7 +129,7 @@ impl FileFormat for VortexFormat {
             let mut column_statistics = Vec::with_capacity(table_schema.fields().len());
             let mut total_size = 0_u64;
 
-            for col_stats in metadata_table.into_iter() {
+            for (col_stats, field) in metadata_table.into_iter().zip(table_schema.fields().iter()) {
                 let col_stats = match col_stats {
                     Some(array) => {
                         let col_metadata_array = StructArray::try_from(array)?;
@@ -137,6 +137,9 @@ impl FileFormat for VortexFormat {
 
                         total_size +=
                             uncompressed_col_size(&col_metadata_array)?.unwrap_or_default();
+
+                        log::info!("Column stats for {}: {:?}", field.name(), col_stats);
+
                         col_stats
                     }
                     None => ColumnStatistics::new_unknown(),
@@ -158,16 +161,14 @@ impl FileFormat for VortexFormat {
     ) -> DFResult<Arc<dyn ExecutionPlan>> {
         let metrics = ExecutionPlanMetricsSet::new();
 
-        let exec = VortexExec::try_new(
+        Ok(VortexExec::try_new(
             file_scan_config,
             metrics,
             filters.cloned(),
             self.context.clone(),
             self.initial_read_cache.clone(),
         )?
-        .into_arc();
-
-        Ok(exec)
+        .into_arc())
     }
 
     async fn create_writer_physical_plan(

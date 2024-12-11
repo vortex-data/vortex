@@ -29,9 +29,14 @@ impl WriteFlatBuffer for &dyn Statistics {
             .get(Stat::Max)
             .map(|max| max.into_value().write_flatbuffer(fbb));
 
+        let sum = self
+            .get(Stat::Sum)
+            .map(|sum| sum.into_value().write_flatbuffer(fbb));
+
         let stat_args = &crate::flatbuffers::ArrayStatsArgs {
             min,
             max,
+            sum,
             is_sorted: self.get_as::<bool>(Stat::IsSorted),
             is_strict_sorted: self.get_as::<bool>(Stat::IsStrictSorted),
             is_constant: self.get_as::<bool>(Stat::IsConstant),

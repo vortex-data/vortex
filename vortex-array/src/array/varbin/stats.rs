@@ -59,6 +59,7 @@ pub fn compute_varbin_statistics<T: ArrayTrait + ArrayAccessor<[u8]>>(
             }
         }
         Stat::Min | Stat::Max => compute_min_max(array)?,
+        Stat::Sum => StatsSet::default(),
         Stat::IsSorted => {
             let is_sorted = array.with_iterator(|iter| iter.flatten().is_sorted())?;
             let mut stats = StatsSet::of(Stat::IsSorted, is_sorted);

@@ -1,4 +1,5 @@
 use core::ops::Range;
+use std::fmt::{Debug, Formatter};
 
 use bytes::Bytes;
 use flatbuffers::{root, root_unchecked};
@@ -8,7 +9,7 @@ use vortex_io::VortexReadAt;
 
 use crate::{LazyDType, EOF_SIZE, INITIAL_READ_SIZE, MAGIC_BYTES, VERSION};
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct InitialRead {
     /// The bytes from the initial read of the file, which is assumed (for now) to be sufficiently
     /// large to contain the schema and layout.
@@ -17,6 +18,15 @@ pub struct InitialRead {
     pub initial_read_offset: u64,
     /// The byte range within `buf` representing the Postscript flatbuffer.
     pub fb_postscript_byte_range: Range<usize>,
+}
+
+impl Debug for InitialRead {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("InitialRead")
+            .field("initial_read_offset", &self.initial_read_offset)
+            .field("fb_postscript_byte_range", &self.fb_postscript_byte_range)
+            .finish()
+    }
 }
 
 impl InitialRead {
