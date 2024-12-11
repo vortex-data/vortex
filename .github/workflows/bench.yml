@@ -59,26 +59,29 @@ jobs:
           BENCH_VORTEX_RATIOS: '.*'
           RUSTFLAGS: '-C target-cpu=native'
         run: |
-          cargo install cargo-criterion
+          # cargo install cargo-criterion
 
-          cargo criterion --bench ${{ matrix.benchmark.id }} --message-format=json 2>&1 | tee out.json
+          # cargo criterion --bench ${{ matrix.benchmark.id }} --message-format=json 2>&1 | tee out.json
 
-          cat out.json
+          # cat out.json
 
-          sudo apt-get update && sudo apt-get install -y jq
+          # sudo apt-get update && sudo apt-get install -y jq
 
-          jq --raw-input --compact-output '
-                 fromjson?
-                 | [ (if .mean != null then {name: .id, value: .mean.estimate, unit: .unit, range: ((.mean.upper_bound - .mean.lower_bound) / 2) } else {} end),
-                     (if .throughput != null then {name: (.id + " throughput"), value: .throughput[].per_iteration, unit: .throughput[].unit, range: 0} else {} end),
-                     {name, value, unit, range} ]
-                 | .[]
-                 | select(.value != null)
-              ' \
-              out.json \
-              | jq --slurp --compact-output '.' >${{ matrix.benchmark.id }}.json
+          # jq --raw-input --compact-output '
+          #        fromjson?
+          #        | [ (if .mean != null then {name: .id, value: .mean.estimate, unit: .unit, range: ((.mean.upper_bound - .mean.lower_bound) / 2) } else {} end),
+          #            (if .throughput != null then {name: (.id + " throughput"), value: .throughput[].per_iteration, unit: .throughput[].unit, range: 0} else {} end),
+          #            {name, value, unit, range} ]
+          #        | .[]
+          #        | select(.value != null)
+          #     ' \
+          #     out.json \
+          #     | jq --slurp --compact-output '.' >${{ matrix.benchmark.id }}.json
 
-          bash scripts/cat-s3.sh vortex-bench-dev data.json ${{ matrix.benchmark.id }}.json
+          # bash scripts/cat-s3.sh vortex-bench-dev data.json ${{ matrix.benchmark.id }}.json
+
+          echo "{}" > foo.json
+          bash scripts/cat-s3.sh vortex-bench-dev data.json foo.json
 
   # tpch:
   #   runs-on: self-hosted
