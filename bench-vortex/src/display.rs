@@ -70,7 +70,7 @@ pub fn render_table(all_measurements: Vec<Measurement>, formats: &[Format]) -> a
 
 pub fn print_measurements_json(all_measurements: Vec<Measurement>) -> anyhow::Result<()> {
     for measurement in all_measurements {
-        println!("{}", serde_json::to_string(&mesaurement.to_json()))
+        println!("{}", serde_json::to_string(&measurement.to_json())?)
     }
 
     Ok(())

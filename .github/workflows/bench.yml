@@ -67,7 +67,10 @@ jobs:
           cargo criterion \
                 --bench ${{ matrix.benchmark.id }} \
                 --message-format=json \
-            | bash scripts/coerce-criterion-json.sh |
+            > ${{ matrix.benchmark.id }}-raw.json
+
+          cat ${{ matrix.benchmark.id }}-raw.json \
+            | bash scripts/coerce-criterion-json.sh \
             > ${{ matrix.benchmark.id }}.json
 
       - name: Setup AWS CLI
