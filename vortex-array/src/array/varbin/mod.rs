@@ -24,8 +24,8 @@ mod accessor;
 mod array;
 mod arrow;
 pub mod builder;
+mod canonical;
 mod compute;
-mod flatten;
 mod stats;
 mod variants;
 

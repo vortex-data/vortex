@@ -459,6 +459,10 @@ impl IntoCanonical for ArrayData {
         }
         self.encoding().into_canonical(self)
     }
+
+    fn into_arrow(self) -> VortexResult<ArrayRef> {
+        self.encoding().into_arrow(self)
+    }
 }
 
 /// This conversion is always "free" and should not touch underlying data. All it does is create an
