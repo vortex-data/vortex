@@ -16,12 +16,12 @@ use datafusion_expr::Expr;
 use datafusion_physical_expr::{LexRequirement, PhysicalExpr};
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use datafusion_physical_plan::ExecutionPlan;
+use futures::{stream, StreamExt as _, TryStreamExt as _};
 use object_store::{ObjectMeta, ObjectStore};
-use tokio::task::JoinSet;
 use vortex_array::array::StructArray;
 use vortex_array::arrow::infer_schema;
 use vortex_array::Context;
-use vortex_error::vortex_panic;
+use vortex_error::VortexResult;
 use vortex_file::metadata::fetch_metadata;
 use vortex_file::{
     LayoutContext, LayoutDeserializer, LayoutMessageCache, RelativeLayoutCache, Scan,
@@ -77,31 +77,21 @@ impl FileFormat for VortexFormat {
         store: &Arc<dyn ObjectStore>,
         objects: &[ObjectMeta],
     ) -> DFResult<SchemaRef> {
-        let mut file_schemas = Vec::default();
-        let mut tasks: JoinSet<DFResult<Schema>> = objects
-            .iter()
+        let file_schemas = stream::iter(objects.iter().cloned())
             .map(|o| {
                 let store = store.clone();
-                let o = o.clone();
+                let cache = self.initial_read_cache.clone();
                 async move {
-                    let initial_read = self.initial_read_cache.try_get(o, store.clone()).await?;
+                    let initial_read = cache.try_get(&o, store).await?;
                     let lazy_dtype = initial_read.lazy_dtype();
                     let s = infer_schema(lazy_dtype.value()?)?;
 
-                    DFResult::Ok(s)
+                    VortexResult::Ok(s)
                 }
             })
-            .collect::<JoinSet<_>>();
-
-        while let Some(s) = tasks.join_next().await {
-            match s {
-                Ok(s) => {
-                    file_schemas.push(s?);
-                }
-                Err(e) => vortex_panic!("Tokio Join Error: {e}"),
-            }
-
-        }
+            .buffered(16)
+            .try_collect::<Vec<_>>()
+            .await?;
 
         let schema = Arc::new(Schema::try_merge(file_schemas)?);
 
