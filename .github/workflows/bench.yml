@@ -47,7 +47,7 @@ jobs:
       - name: Setup AWS CLI
         uses: aws-actions/configure-aws-credentials@v1
         with:
-          role-to-assume: BenchmarkingS3BucketReadOnly_Role
+          role-to-assume: arn:aws:iam::375504701696:role/BenchmarkingS3BucketReadOnly_Role
           aws-region: us-east-1
 
       - name: Run benchmark
