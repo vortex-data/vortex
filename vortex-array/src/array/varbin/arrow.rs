@@ -19,8 +19,8 @@ pub(crate) fn varbin_to_arrow(varbin_array: &VarBinArray) -> VortexResult<ArrayR
         .map_err(|err| err.with_context("Failed to canonicalize offsets"))?;
     let offsets = match offsets.ptype() {
         PType::I32 | PType::I64 => offsets,
-        PType::U64 => try_cast(offsets, PType::I64.into())?.into_primitive()?,
-        PType::U32 => try_cast(offsets, PType::I32.into())?.into_primitive()?,
+        PType::U64 => offsets.reinterpret_cast(PType::I64),
+        PType::U32 => offsets.reinterpret_cast(PType::I32),
 
         // Unless it's u64, everything else can be converted into an i32.
         _ => try_cast(offsets.to_array(), PType::I32.into())
