@@ -4,7 +4,7 @@ use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng as _};
 use vortex_array::patches::Patches;
-use vortex_array::ArrayData;
+use vortex_array::{ArrayData, IntoCanonical as _};
 
 fn fixture(len: usize, sparsity: f64, rng: &mut StdRng) -> Patches {
     // NB: indices are always ordered
@@ -48,7 +48,18 @@ fn bench_take(c: &mut Criterion) {
                     index_multiple * 100.0
                 )),
                 &(&patches, &indices),
-                |b, (patches, indices)| b.iter(|| patches.take_search(indices)),
+                |b, (patches, indices)| {
+                    b.iter(|| {
+                        patches.take_search(
+                            <&ArrayData>::clone(indices)
+                                .clone()
+                                .into_canonical()
+                                .unwrap()
+                                .into_primitive()
+                                .unwrap(),
+                        )
+                    })
+                },
             );
             group.bench_with_input(
                 BenchmarkId::from_parameter(format!(
@@ -60,7 +71,18 @@ fn bench_take(c: &mut Criterion) {
                     index_multiple * 100.0
                 )),
                 &(&patches, &indices),
-                |b, (patches, indices)| b.iter(|| patches.take_map(indices)),
+                |b, (patches, indices)| {
+                    b.iter(|| {
+                        patches.take_map(
+                            <&ArrayData>::clone(indices)
+                                .clone()
+                                .into_canonical()
+                                .unwrap()
+                                .into_primitive()
+                                .unwrap(),
+                        )
+                    })
+                },
             );
         }
     }

@@ -79,7 +79,7 @@ impl ALPRDArray {
         let mut children = vec![left_parts.clone(), right_parts];
 
         let patches = left_parts_patches
-            .map(|patches| -> VortexResult<_> {
+            .map(|patches| {
                 if patches.values().dtype().is_nullable() {
                     vortex_bail!("patches must be non-nullable: {}", patches.values());
                 }
