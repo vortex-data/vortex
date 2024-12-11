@@ -41,20 +41,9 @@ jobs:
         run: |
           echo "TMPDIR=/work" >> $GITHUB_ENV
 
-      - name: Setup AWS CLI
-        uses: aws-actions/configure-aws-credentials@v1
-        with:
-          role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
-          aws-region: us-east-1
-
       - name: Run benchmark
         shell: bash
         env:
-          # AWS Credentials for R2 storage tests
-          AWS_BUCKET: vortex-test
-          AWS_ENDPOINT: ${{ secrets.AWS_ENDPOINT }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           BENCH_VORTEX_RATIOS: '.*'
           RUSTFLAGS: '-C target-cpu=native'
         run: |
@@ -76,12 +65,14 @@ jobs:
               ' \
               out.json \
               | jq --slurp --compact-output '.' >${{ matrix.benchmark.id }}.json
-
-          unset AWS_BUCKET
-          unset AWS_ENDPOINT
-          unset AWS_ACCESS_KEY_ID
-          unset AWS_SECRET_ACCESS_KEY
-
+      - name: Setup AWS CLI
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
+          aws-region: us-east-1
+      - name: Upload Benchmark Results
+        shell: bash
+        run: |
           bash scripts/cat-s3.sh vortex-bench-dev data.json ${{ matrix.benchmark.id }}.json
   tpch:
     runs-on: self-hosted
@@ -103,12 +94,6 @@ jobs:
         run: |
           echo "TMPDIR=/work" >> $GITHUB_ENV
 
-      - name: Setup AWS CLI
-        uses: aws-actions/configure-aws-credentials@v1
-        with:
-          role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
-          aws-region: us-east-1
-
       - name: Run TPC-H benchmark
         shell: bash
         env:
@@ -116,6 +101,14 @@ jobs:
           RUSTFLAGS: '-C target-cpu=native'
         run: |
           cargo run --bin tpch_benchmark --release -- -d gh-json -t 1 | tee tpch.json
+      - name: Setup AWS CLI
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
+          aws-region: us-east-1
+      - name: Upload Benchmark Results
+        shell: bash
+        run: |
           bash scripts/cat-s3.sh vortex-bench-dev data.json tpch.json
   clickbench:
     runs-on: self-hosted
@@ -137,12 +130,6 @@ jobs:
         run: |
           echo "TMPDIR=/work" >> $GITHUB_ENV
 
-      - name: Setup AWS CLI
-        uses: aws-actions/configure-aws-credentials@v1
-        with:
-          role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
-          aws-region: us-east-1
-
       - name: Run Clickbench benchmark
         shell: bash
         env:
@@ -151,4 +138,12 @@ jobs:
           HOME: /home/ci-runner
         run: |
           cargo run --bin clickbench --release -- -d gh-json | tee clickbench.json
+      - name: Setup AWS CLI
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
+          aws-region: us-east-1
+      - name: Upload Benchmark Results
+        shell: bash
+        run: |
           bash scripts/cat-s3.sh vortex-bench-dev data.json clickbench.json
