@@ -93,7 +93,7 @@ impl ExtDType {
     /// // Make a new extension type that encodes the unit for a set of nullable `f64`.
     /// pub fn create_temperature_type(unit: TemperatureUnit) -> ExtDType {
     ///     ExtDType::new(
-    ///         ExtID::new("vortex.temperature".into()),
+    ///         ExtID::new("vortex.temperature"),
     ///         Arc::new(DType::Primitive(PType::F64, Nullability::Nullable)),
     ///         Some(ExtMetadata::new([unit as u8].into()))
     ///     )
