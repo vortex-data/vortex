@@ -26,21 +26,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/cleanup
-      - uses: ./.github/actions/setup-rust
-      - uses: spiraldb/actions/.github/actions/setup-uv@0.2.0
+      # - uses: ./.github/actions/cleanup
+      # - uses: ./.github/actions/setup-rust
+      # - uses: spiraldb/actions/.github/actions/setup-uv@0.2.0
 
-      # The compression benchmarks rely on DuckDB being installed to convert CSV to Parquet
-      - name: Install DuckDB
-        uses: opt-nc/setup-duckdb-action@v1.0.9
-        if: runner.environment != 'self-hosted'
-        with:
-          version: v1.0.0
+      # # The compression benchmarks rely on DuckDB being installed to convert CSV to Parquet
+      # - name: Install DuckDB
+      #   uses: opt-nc/setup-duckdb-action@v1.0.9
+      #   if: runner.environment != 'self-hosted'
+      #   with:
+      #     version: v1.0.0
 
-      - name: Set tempdir
-        if: runner.environment == 'self-hosted'
-        run: |
-          echo "TMPDIR=/work" >> $GITHUB_ENV
+      # - name: Set tempdir
+      #   if: runner.environment == 'self-hosted'
+      #   run: |
+      #     echo "TMPDIR=/work" >> $GITHUB_ENV
 
       - name: Setup AWS CLI
         uses: aws-actions/configure-aws-credentials@v1
