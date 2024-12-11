@@ -8,6 +8,7 @@ on:
     branches: [ "develop" ]
 
 permissions:
+  id-token: write # enables AWS-GitHub OIDC
   actions: read
   contents: write
   deployments: write
@@ -17,13 +18,14 @@ jobs:
     strategy:
       matrix:
         benchmark:
-          - id: datafusion
-            name: DataFusion
+          # - id: datafusion
+          #   name: DataFusion
           - id: random_access
             name: Random Access
-          - id: compress
-            name: Vortex Compression
-    runs-on: self-hosted
+          # - id: compress
+          #   name: Vortex Compression
+    # runs-on: self-hosted
+    runs-on: ubuntu
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/cleanup
@@ -45,8 +47,7 @@ jobs:
       - name: Setup AWS CLI
         uses: aws-actions/configure-aws-credentials@v1
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: BenchmarkingS3BucketReadOnly_Role
           aws-region: us-east-1
 
       - name: Run benchmark
@@ -75,76 +76,74 @@ jobs:
               | jq --slurp --compact-output '.' >${{ matrix.benchmark.id }}.json
 
           bash scripts/cat-s3.sh vortex-bench-dev data.json ${{ matrix.benchmark.id }}.json
-  tpch:
-    runs-on: self-hosted
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/cleanup
-      - uses: ./.github/actions/setup-rust
-      - uses: spiraldb/actions/.github/actions/setup-uv@0.2.0
+  # tpch:
+  #   runs-on: self-hosted
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: ./.github/actions/cleanup
+  #     - uses: ./.github/actions/setup-rust
+  #     - uses: spiraldb/actions/.github/actions/setup-uv@0.2.0
 
-      # The compression benchmarks rely on DuckDB being installed to convert CSV to Parquet
-      - name: Install DuckDB
-        uses: opt-nc/setup-duckdb-action@v1.0.9
-        if: runner.environment != 'self-hosted'
-        with:
-          version: v1.0.0
+  #     # The compression benchmarks rely on DuckDB being installed to convert CSV to Parquet
+  #     - name: Install DuckDB
+  #       uses: opt-nc/setup-duckdb-action@v1.0.9
+  #       if: runner.environment != 'self-hosted'
+  #       with:
+  #         version: v1.0.0
 
-      - name: Set tempdir
-        if: runner.environment == 'self-hosted'
-        run: |
-          echo "TMPDIR=/work" >> $GITHUB_ENV
+  #     - name: Set tempdir
+  #       if: runner.environment == 'self-hosted'
+  #       run: |
+  #         echo "TMPDIR=/work" >> $GITHUB_ENV
 
-      - name: Setup AWS CLI
-        uses: aws-actions/configure-aws-credentials@v1
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
+  #     - name: Setup AWS CLI
+  #       uses: aws-actions/configure-aws-credentials@v1
+  #       with:
+  #         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  #         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  #         aws-region: us-east-1
 
-      - name: Run TPC-H benchmark
-        shell: bash
-        env:
-          BENCH_VORTEX_RATIOS: '.*'
-          RUSTFLAGS: '-C target-cpu=native'
-        run: |
-          cargo run --bin tpch_benchmark --release -- -d gh-json -t 1 | tee tpch.json
-          bash scripts/cat-s3.sh vortex-bench-dev data.json ${{ matrix.benchmark.id }}.json
-  clickbench:
-    runs-on: self-hosted
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/cleanup
-      - uses: ./.github/actions/setup-rust
-      - uses: spiraldb/actions/.github/actions/setup-uv@0.2.0
+  #     - name: Run TPC-H benchmark
+  #       shell: bash
+  #       env:
+  #         BENCH_VORTEX_RATIOS: '.*'
+  #         RUSTFLAGS: '-C target-cpu=native'
+  #       run: |
+  #         cargo run --bin tpch_benchmark --release -- -d gh-json -t 1 | tee tpch.json
+  #         bash scripts/cat-s3.sh vortex-bench-dev data.json ${{ matrix.benchmark.id }}.json
+  # clickbench:
+  #   runs-on: self-hosted
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: ./.github/actions/cleanup
+  #     - uses: ./.github/actions/setup-rust
+  #     - uses: spiraldb/actions/.github/actions/setup-uv@0.2.0
 
-      # The compression benchmarks rely on DuckDB being installed to convert CSV to Parquet
-      - name: Install DuckDB
-        uses: opt-nc/setup-duckdb-action@v1.0.9
-        if: runner.environment != 'self-hosted'
-        with:
-          version: v1.0.0
+  #     # The compression benchmarks rely on DuckDB being installed to convert CSV to Parquet
+  #     - name: Install DuckDB
+  #       uses: opt-nc/setup-duckdb-action@v1.0.9
+  #       if: runner.environment != 'self-hosted'
+  #       with:
+  #         version: v1.0.0
 
-      - name: Set tempdir
-        if: runner.environment == 'self-hosted'
-        run: |
-          echo "TMPDIR=/work" >> $GITHUB_ENV
+  #     - name: Set tempdir
+  #       if: runner.environment == 'self-hosted'
+  #       run: |
+  #         echo "TMPDIR=/work" >> $GITHUB_ENV
 
-      - name: Setup AWS CLI
-        uses: aws-actions/configure-aws-credentials@v1
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
+  #     - name: Setup AWS CLI
+  #       uses: aws-actions/configure-aws-credentials@v1
+  #       with:
+  #         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  #         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  #         aws-region: us-east-1
 
-      - name: Run Clickbench benchmark
-        shell: bash
-        env:
-          BENCH_VORTEX_RATIOS: '.*'
-          RUSTFLAGS: '-C target-cpu=native'
-          HOME: /home/ci-runner
-        run: |
-          cargo run --bin clickbench --release -- -d gh-json | tee clickbench.json
-          bash scripts/cat-s3.sh vortex-bench-dev data.json ${{ matrix.benchmark.id }}.json
-
-
+  #     - name: Run Clickbench benchmark
+  #       shell: bash
+  #       env:
+  #         BENCH_VORTEX_RATIOS: '.*'
+  #         RUSTFLAGS: '-C target-cpu=native'
+  #         HOME: /home/ci-runner
+  #       run: |
+  #         cargo run --bin clickbench --release -- -d gh-json | tee clickbench.json
+  #         bash scripts/cat-s3.sh vortex-bench-dev data.json ${{ matrix.benchmark.id }}.json
