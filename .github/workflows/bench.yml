@@ -12,6 +12,15 @@ permissions:
   deployments: write
 
 jobs:
+  commit-metadata:
+    runs-on: ubuntu
+    steps:
+      - uses: actions/checkout@v4
+      - name: Upload Commit Metadata
+        shell: bash
+        run: |
+          sudo apt-get update && sudo apt-get install -y jq
+          bash scripts/cat-s3.sh vortex-bench-dev commits.json <(bash scripts/commit-json.sh)
   bench:
     strategy:
       matrix:

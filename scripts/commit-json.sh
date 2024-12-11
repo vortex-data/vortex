@@ -12,7 +12,7 @@ commit_timestamp=$(git log -1 --format=%cd --date=iso-strict)
 tree_id=$(git rev-parse --verify HEAD^{tree})
 repo_url=$(git config --get remote.origin.url | sed 's/git@github.com:/https:\/\/github.com\//' | sed 's/.git$//')  # Convert to HTTPS format
 
-jq -c '.' > commit.json <<EOF
+jq --compact-output '.' <<EOF
 {
     "author": {
         "email": "$author_email",
