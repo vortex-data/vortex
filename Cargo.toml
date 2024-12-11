@@ -157,7 +157,7 @@ vortex-sampling-compressor = { version = "0.21.0", path = "./vortex-sampling-com
 vortex-zigzag = { version = "0.21.0", path = "./encodings/zigzag" }
 # END crates published by this project
 
-worker = "0.4.0"
+worker = "0.5.0"
 xshell = "0.2.6"
 zigzag = "0.1.0"
 
