@@ -4,9 +4,6 @@ on:
   push:
     branches: [ develop ]
   pull_request: { }
-  # pull_request:
-  #   types: [ labeled, synchronize ]
-  #   branches: [ "develop" ]
 
 permissions:
   id-token: write # enables AWS-GitHub OIDC
@@ -54,6 +51,11 @@ jobs:
       - name: Run benchmark
         shell: bash
         env:
+          # AWS Credentials for R2 storage tests
+          AWS_BUCKET: vortex-test
+          AWS_ENDPOINT: ${{ secrets.AWS_ENDPOINT }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           BENCH_VORTEX_RATIOS: '.*'
           RUSTFLAGS: '-C target-cpu=native'
         run: |
@@ -77,12 +79,6 @@ jobs:
               | jq --slurp --compact-output '.' >${{ matrix.benchmark.id }}.json
 
           bash scripts/cat-s3.sh vortex-bench-dev data.json ${{ matrix.benchmark.id }}.json
-        env:
-          # AWS Credentials for R2 storage tests
-          AWS_BUCKET: vortex-test
-          AWS_ENDPOINT: ${{ secrets.AWS_ENDPOINT }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
   # tpch:
   #   runs-on: self-hosted
