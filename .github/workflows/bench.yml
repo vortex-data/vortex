@@ -16,10 +16,10 @@ jobs:
     strategy:
       matrix:
         benchmark:
-          # - id: datafusion
-          #   name: DataFusion
-          - id: random_access
-            name: Random Access
+          - id: datafusion
+            name: DataFusion
+          # - id: random_access
+          #   name: Random Access
           # - id: compress
           #   name: Vortex Compression
     # runs-on: self-hosted
@@ -51,11 +51,11 @@ jobs:
       - name: Run benchmark
         shell: bash
         env:
-          # AWS Credentials for R2 storage tests
-          AWS_BUCKET: vortex-test
-          AWS_ENDPOINT: ${{ secrets.AWS_ENDPOINT }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          # # AWS Credentials for R2 storage tests
+          # AWS_BUCKET: vortex-test
+          # AWS_ENDPOINT: ${{ secrets.AWS_ENDPOINT }}
+          # AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          # AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           BENCH_VORTEX_RATIOS: '.*'
           RUSTFLAGS: '-C target-cpu=native'
         run: |
