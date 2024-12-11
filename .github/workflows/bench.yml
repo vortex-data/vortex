@@ -3,6 +3,9 @@ name: Benchmarks
 on:
   push:
     branches: [ develop ]
+  pull_request:
+    types: [ labeled, synchronize ]
+    branches: [ "develop" ]
 
 permissions:
   actions: read
@@ -39,6 +42,13 @@ jobs:
         run: |
           echo "TMPDIR=/work" >> $GITHUB_ENV
 
+      - name: Setup AWS CLI
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
       - name: Run benchmark
         shell: bash
         env:
@@ -64,25 +74,7 @@ jobs:
               out.json \
               | jq --slurp --compact-output '.' >${{ matrix.benchmark.id }}.json
 
-          cat ${{ matrix.benchmark.id }}.json
-      - name: Store benchmark result
-        if: '!cancelled()'
-        uses: benchmark-action/github-action-benchmark@v1
-        with:
-          name: ${{ matrix.benchmark.name }}
-          tool: 'customSmallerIsBetter'
-          gh-pages-branch: gh-pages-bench
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          output-file-path: ${{ matrix.benchmark.id }}.json
-          summary-always: true
-          auto-push: true
-          fail-on-alert: false
-        env:
-          # AWS Credentials for R2 storage tests
-          AWS_BUCKET: vortex-test
-          AWS_ENDPOINT: ${{ secrets.AWS_ENDPOINT }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          bash scripts/cat-s3.sh vortex-bench-dev data.json ${{ matrix.benchmark.id }}.json
   tpch:
     runs-on: self-hosted
     steps:
@@ -103,6 +95,13 @@ jobs:
         run: |
           echo "TMPDIR=/work" >> $GITHUB_ENV
 
+      - name: Setup AWS CLI
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
       - name: Run TPC-H benchmark
         shell: bash
         env:
@@ -110,24 +109,7 @@ jobs:
           RUSTFLAGS: '-C target-cpu=native'
         run: |
           cargo run --bin tpch_benchmark --release -- -d gh-json -t 1 | tee tpch.json
-      - name: Store benchmark result
-        if: '!cancelled()'
-        uses: benchmark-action/github-action-benchmark@v1
-        with:
-          name: 'TPC-H'
-          tool: 'customSmallerIsBetter'
-          gh-pages-branch: gh-pages-bench
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          output-file-path: tpch.json
-          summary-always: true
-          auto-push: true
-          fail-on-alert: false
-        env:
-          # AWS Credentials for R2 storage tests
-          AWS_BUCKET: vortex-test
-          AWS_ENDPOINT: ${{ secrets.AWS_ENDPOINT }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          bash scripts/cat-s3.sh vortex-bench-dev data.json ${{ matrix.benchmark.id }}.json
   clickbench:
     runs-on: self-hosted
     steps:
@@ -148,6 +130,13 @@ jobs:
         run: |
           echo "TMPDIR=/work" >> $GITHUB_ENV
 
+      - name: Setup AWS CLI
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
       - name: Run Clickbench benchmark
         shell: bash
         env:
@@ -156,23 +145,6 @@ jobs:
           HOME: /home/ci-runner
         run: |
           cargo run --bin clickbench --release -- -d gh-json | tee clickbench.json
-      - name: Store benchmark result
-        if: '!cancelled()'
-        uses: benchmark-action/github-action-benchmark@v1
-        with:
-          name: 'Clickbench'
-          tool: 'customSmallerIsBetter'
-          gh-pages-branch: gh-pages-bench
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          output-file-path: clickbench.json
-          summary-always: true
-          auto-push: true
-          fail-on-alert: false
-        env:
-          # AWS Credentials for R2 storage tests
-          AWS_BUCKET: vortex-test
-          AWS_ENDPOINT: ${{ secrets.AWS_ENDPOINT }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          bash scripts/cat-s3.sh vortex-bench-dev data.json ${{ matrix.benchmark.id }}.json
 
 
