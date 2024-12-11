@@ -34,17 +34,47 @@ use super::execution::VortexExec;
 use super::statistics::{array_to_col_statistics, uncompressed_col_size};
 use crate::can_be_pushed_down;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct VortexFormat {
     context: Arc<Context>,
     initial_read_cache: InitialReadCache,
+    opts: VortexFormatOptions,
+}
+
+#[derive(Debug)]
+pub struct VortexFormatOptions {
+    pub concurrent_infer_schema_ops: usize,
+    pub cache_size_mb: usize,
+}
+
+impl Default for VortexFormatOptions {
+    fn default() -> Self {
+        Self {
+            concurrent_infer_schema_ops: 64,
+            cache_size_mb: 256,
+        }
+    }
+}
+
+impl Default for VortexFormat {
+    fn default() -> Self {
+        let opts = VortexFormatOptions::default();
+
+        Self {
+            context: Default::default(),
+            initial_read_cache: InitialReadCache::new(opts.cache_size_mb),
+            opts,
+        }
+    }
 }
 
 impl VortexFormat {
     pub fn new(context: &Context) -> Self {
+        let opts = VortexFormatOptions::default();
         Self {
             context: Arc::new(context.clone()),
-            initial_read_cache: InitialReadCache::default(),
+            initial_read_cache: InitialReadCache::new(opts.cache_size_mb),
+            opts,
         }
     }
 }
@@ -89,7 +119,7 @@ impl FileFormat for VortexFormat {
                     VortexResult::Ok(s)
                 }
             })
-            .buffered(16)
+            .buffered(self.opts.concurrent_infer_schema_ops)
             .try_collect::<Vec<_>>()
             .await?;
 

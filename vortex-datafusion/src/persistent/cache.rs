@@ -13,22 +13,6 @@ pub struct InitialReadCache {
     inner: Cache<Key, InitialRead>,
 }
 
-impl Default for InitialReadCache {
-    fn default() -> Self {
-        let inner = Cache::builder()
-            .weigher(|k: &Key, v: &InitialRead| {
-                (k.location.as_ref().as_bytes().len() + v.buf.len()) as u32
-            })
-            .max_capacity(256 * (2 << 20))
-            .eviction_listener(|k, _v, cause| {
-                log::trace!("Removed {} due to {:?}", k.location, cause);
-            })
-            .build();
-
-        Self { inner }
-    }
-}
-
 #[derive(Hash, Eq, PartialEq, Debug)]
 pub struct Key {
     location: Path,
@@ -45,6 +29,19 @@ impl From<&ObjectMeta> for Key {
 }
 
 impl InitialReadCache {
+    pub fn new(size_mb: usize) -> Self {
+        let inner = Cache::builder()
+            .weigher(|k: &Key, v: &InitialRead| {
+                (k.location.as_ref().as_bytes().len() + v.buf.len()) as u32
+            })
+            .max_capacity(size_mb as u64 * (2 << 20))
+            .eviction_listener(|k, _v, cause| {
+                log::trace!("Removed {} due to {:?}", k.location, cause);
+            })
+            .build();
+
+        Self { inner }
+    }
     pub async fn try_get(
         &self,
         object: &ObjectMeta,
