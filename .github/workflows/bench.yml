@@ -27,6 +27,12 @@ jobs:
     # runs-on: self-hosted
     runs-on: ubuntu-latest
     steps:
+      - name: Setup AWS CLI
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          role-to-assume: arn:aws:iam::375504701696:role/BenchmarkingS3BucketReadOnly_Role
+          aws-region: us-east-1
+
       - uses: actions/checkout@v4
       - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
@@ -43,12 +49,6 @@ jobs:
         if: runner.environment == 'self-hosted'
         run: |
           echo "TMPDIR=/work" >> $GITHUB_ENV
-
-      - name: Setup AWS CLI
-        uses: aws-actions/configure-aws-credentials@v1
-        with:
-          role-to-assume: arn:aws:iam::375504701696:role/BenchmarkingS3BucketReadOnly_Role
-          aws-region: us-east-1
 
       - name: Run benchmark
         shell: bash
