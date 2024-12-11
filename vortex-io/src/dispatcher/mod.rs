@@ -10,7 +10,7 @@ use std::task::Poll;
 
 use futures::channel::oneshot;
 use futures::FutureExt;
-#[cfg(not(any(feature = "compio", feature = "tokio")))]
+#[cfg(not(any(feature = "compio", feature = "tokio", target_arch = "wasm32")))]
 use vortex_error::vortex_panic;
 use vortex_error::{vortex_err, VortexResult};
 

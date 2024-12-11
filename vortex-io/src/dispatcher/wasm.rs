@@ -3,11 +3,10 @@
 use std::future::Future;
 
 use futures::channel::oneshot;
-use futures::channel::oneshot::Receiver;
 use vortex_error::{vortex_panic, VortexResult};
 use wasm_bindgen_futures::wasm_bindgen::__rt::Start;
 
-use crate::{Dispatch, JoinHandle as VortexJoinHandle};
+use super::{Dispatch, JoinHandle as VortexJoinHandle};
 
 /// `Dispatch`able type that is available when running Vortex in the browser or other WASM env.
 #[derive(Debug, Clone)]

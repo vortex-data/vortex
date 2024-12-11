@@ -109,7 +109,7 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
       - name: Rust Build vortex
-        run: cargo build -p vortex
+        run: cargo build -p vortex --target wasm32-unknown-unknown
 
 
   build-all:
