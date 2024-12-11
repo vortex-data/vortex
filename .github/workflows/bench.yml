@@ -3,9 +3,10 @@ name: Benchmarks
 on:
   push:
     branches: [ develop ]
-  pull_request:
-    types: [ labeled, synchronize ]
-    branches: [ "develop" ]
+  pull_request: { }
+  # pull_request:
+  #   types: [ labeled, synchronize ]
+  #   branches: [ "develop" ]
 
 permissions:
   id-token: write # enables AWS-GitHub OIDC
