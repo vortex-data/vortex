@@ -67,7 +67,7 @@ impl Add<Self> for PValue {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self::Output {
-        self.checked_add(&rhs).expect("Addition overflow")
+        self.checked_add(&rhs).vortex_expect("Addition overflow")
     }
 }
 
