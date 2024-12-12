@@ -96,19 +96,19 @@ jobs:
         config:
           - name: "all-features"
             command: "build"
-            args: "--all-features"
+            args: "--all-features --all-targets"
           - name: "default features"
             command: "build"
-            args: ""
+            args: "--all-targets"
           - name: "with tokio dispatcher"
             command: "build"
-            args: "--no-default-features --features tokio --ignore-unknown-features"
+            args: "--no-default-features --features tokio --all-targets --ignore-unknown-features"
           - name: "with compio dispatcher"
             command: "build"
-            args: "--no-default-features --features compio --ignore-unknown-features"
+            args: "--no-default-features --features compio --all-targets --ignore-unknown-features"
           - name: "with tokio+compio dispatcher"
             command: "build"
-            args: "--no-default-features --features tokio,compio --ignore-unknown-features"
+            args: "--no-default-features --features tokio,compio --all-targets --ignore-unknown-features"
           - name: "wasm32 with default features"
             command: "build"
             target: wasm32-unknown-unknown
@@ -123,7 +123,7 @@ jobs:
       - name: Install cargo-hack
         uses: taiki-e/install-action@cargo-hack
       - name: Rust Build (${{matrix.config.name}})
-        run: cargo hack ${{matrix.config.command}} ${{matrix.config.args}} --all-targets --ignore-private
+        run: cargo hack ${{matrix.config.command}} ${{matrix.config.args}} --ignore-private
 
 
   rust-test:
