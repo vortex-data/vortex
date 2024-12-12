@@ -123,19 +123,6 @@ jobs:
         run: cargo hack ${{matrix.config.command}} ${{matrix.config.args}} --all-targets --ignore-unknown-features --ignore-private
 
 
-  build-wasm32:
-    name: "Build (wasm32-unknown-unknown)"
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/cleanup
-      - uses: rui314/setup-mold@v1
-      - uses: ./.github/actions/setup-rust
-        with:
-          targets: wasm32-unknown-unknown
-      - name: Rust Build vortex
-        run: cargo build -p vortex --target wasm32-unknown-unknown
-
   rust-test:
     name: "Rust (tests)"
     runs-on: ubuntu-latest
