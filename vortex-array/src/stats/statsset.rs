@@ -8,23 +8,17 @@ use crate::stats::Stat;
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct StatsSet {
-    values: Vec<(Stat, Option<Scalar>)>,
+    values: Vec<(Stat, Scalar)>,
 }
 
 impl StatsSet {
     /// Create new StatSet without validating uniqueness of all the entries
+    ///
+    /// # Safety
+    ///
+    /// This method will not panic or trigger UB, but may lead to duplicate stats being stored.
     pub fn new_unchecked(values: Vec<(Stat, Scalar)>) -> Self {
-        Self {
-            values: values.into_iter().map(|(st, s)| (st, Some(s))).collect(),
-        }
-    }
-
-    pub fn len(&self) -> usize {
-        self.values.iter().filter(|(_, v)| v.is_some()).count()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.values.is_empty()
+        Self { values }
     }
 
     /// Specialized constructor for the case where the StatsSet represents
@@ -110,12 +104,22 @@ impl StatsSet {
     pub fn of<S: Into<Scalar>>(stat: Stat, value: S) -> Self {
         Self::new_unchecked(vec![(stat, value.into())])
     }
+}
+
+// Getters and setters for individual stats.
+impl StatsSet {
+    /// Count of stored stats with known values.
+    pub fn len(&self) -> usize {
+        self.values.len()
+    }
+
+    /// Predicate equivalent to a [len][Self:len] of zero.
+    pub fn is_empty(&self) -> bool {
+        self.values.is_empty()
+    }
 
     pub fn get(&self, stat: Stat) -> Option<&Scalar> {
-        self.values
-            .iter()
-            .find(|(s, _)| *s == stat)
-            .and_then(|(_, v)| v.as_ref())
+        self.values.iter().find(|(s, _)| *s == stat).map(|(_, v)| v)
     }
 
     pub fn get_as<T: for<'a> TryFrom<&'a Scalar, Error = VortexError>>(
@@ -136,11 +140,10 @@ impl StatsSet {
 
     /// Set the stat `stat` to `value`.
     pub fn set<S: Into<Scalar>>(&mut self, stat: Stat, value: S) {
-        let new_value = Some(value.into());
         if let Some(existing) = self.values.iter_mut().find(|(s, _)| *s == stat) {
-            *existing = (stat, new_value);
+            *existing = (stat, value.into());
         } else {
-            self.values.push((stat, new_value));
+            self.values.push((stat, value.into()));
         }
     }
 
@@ -153,6 +156,49 @@ impl StatsSet {
         self.values.retain(|(s, _)| stats.contains(s))
     }
 
+    /// Iterate over the statistic names and values in-place.
+    ///
+    /// See [Iterator].
+    pub fn iter(&self) -> impl Iterator<Item = &(Stat, Scalar)> {
+        self.values.iter()
+    }
+}
+
+// StatSetIntoIter just exists to protect current implementation from exposure on the public API.
+
+/// Owned iterator over the stats.
+///
+/// See [IntoIterator].
+pub struct StatsSetIntoIter(std::vec::IntoIter<(Stat, Scalar)>);
+
+impl Iterator for StatsSetIntoIter {
+    type Item = (Stat, Scalar);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next()
+    }
+}
+
+impl IntoIterator for StatsSet {
+    type Item = (Stat, Scalar);
+    type IntoIter = StatsSetIntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        StatsSetIntoIter(self.values.into_iter())
+    }
+}
+
+impl Extend<(Stat, Scalar)> for StatsSet {
+    #[inline]
+    fn extend<T: IntoIterator<Item = (Stat, Scalar)>>(&mut self, iter: T) {
+        iter.into_iter().for_each(|(stat, scalar)| {
+            self.set(stat, scalar);
+        });
+    }
+}
+
+// Merge helpers
+impl StatsSet {
     /// Merge stats set `other` into `self`, with the semantic assumption that `other`
     /// contains stats from an array that is *appended* to the array represented by `self`.
     pub fn merge_ordered(mut self, other: &Self) -> Self {
@@ -329,49 +375,6 @@ impl StatsSet {
     }
 }
 
-impl Extend<(Stat, Scalar)> for StatsSet {
-    #[inline]
-    fn extend<T: IntoIterator<Item = (Stat, Scalar)>>(&mut self, iter: T) {
-        iter.into_iter().for_each(|(stat, scalar)| {
-            self.set(stat, scalar);
-        });
-    }
-}
-
-pub struct StatsSetIntoIter {
-    inner: std::vec::IntoIter<(Stat, Option<Scalar>)>,
-}
-
-impl Iterator for StatsSetIntoIter {
-    type Item = (Stat, Scalar);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            match self.inner.next() {
-                Some((stat, Some(value))) => return Some((stat, value)),
-                Some(_) => continue,
-                None => return None,
-            }
-        }
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        // Our lower-bound is zero since we may filter all remaining values.
-        (0, self.inner.size_hint().1)
-    }
-}
-
-impl IntoIterator for StatsSet {
-    type Item = (Stat, Scalar);
-    type IntoIter = StatsSetIntoIter;
-
-    fn into_iter(self) -> Self::IntoIter {
-        StatsSetIntoIter {
-            inner: self.values.into_iter(),
-        }
-    }
-}
-
 #[cfg(test)]
 mod test {
     use enum_iterator::all;
@@ -380,6 +383,15 @@ mod test {
     use crate::array::PrimitiveArray;
     use crate::stats::{ArrayStatistics as _, Stat, StatsSet};
     use crate::IntoArrayData as _;
+
+    #[test]
+    fn test_iter() {
+        let set = StatsSet::new_unchecked(vec![(Stat::Max, 100.into()), (Stat::Min, 42.into())]);
+        assert_eq!(
+            set.iter().cloned().collect_vec(),
+            vec![(Stat::Max, 100.into()), (Stat::Min, 42.into())]
+        );
+    }
 
     #[test]
     fn into_iter() {
