@@ -87,16 +87,34 @@ jobs:
       - name: Docs
         run: cargo doc --no-deps
 
-  build-default:
-    name: "Build (default)"
-    runs-on: ubuntu-latest
+  build-rust:
+    strategy:
+      # Run through the valid non-WASM configurations of our feature flags in parallel
+      matrix:
+        config:
+          - name: "all-features"
+            command: "build"
+            features: "--all-features"
+          - name: "default"
+            command: "build"
+            features: ""
+          - name: "with tokio dispatcher"
+            command: "build"
+            features: "--no-default-features --features tokio"
+          - name: "with compio dispatcher"
+            command: "build"
+            features: "--no-default-features --features compio"
+          - name: "with tokio+compio dispatcher"
+            command: "build"
+            features: "--no-default-features --features tokio,compio"
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/cleanup
       - uses: rui314/setup-mold@v1
       - uses: ./.github/actions/setup-rust
-      - name: Rust Build (Default features)
-        run: cargo build --all-targets
+      - name: Rust Build (${{matrix.config.name}})
+        run: cargo ${{matrix.config.command}} ${{matrix.config.features}} --all-targets
+
 
   build-wasm32:
     name: "Build (wasm32-unknown-unknown)"
