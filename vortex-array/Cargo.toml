@@ -34,7 +34,6 @@ arrow-string = { workspace = true }
 backtrace = { workspace = true }
 bytes = { workspace = true }
 enum-iterator = { workspace = true }
-enum-map = { workspace = true }
 flatbuffers = { workspace = true }
 flexbuffers = { workspace = true }
 futures-util = { workspace = true }
