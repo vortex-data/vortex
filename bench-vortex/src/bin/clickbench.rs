@@ -62,7 +62,7 @@ fn main() {
     // The clickbench-provided file is missing some higher-level type info, so we reprocess it
     // to add that info, see https://github.com/ClickHouse/ClickBench/issues/7.
     (0_u32..100).into_par_iter().for_each(|idx| {
-        let output_path = basepath.join(format!("hits_{idx}.parquet"));
+        let output_path = basepath.join("parquet").join(format!("hits_{idx}.parquet"));
         idempotent(&output_path, |output_path| {
             eprintln!("Fixing parquet file {idx}");
 
@@ -137,7 +137,7 @@ fn main() {
             } => {
                 runtime.block_on(async {
                     clickbench::register_vortex_files(
-                        &context,
+                        context.clone(),
                         "hits",
                         basepath.as_path(),
                         &HITS_SCHEMA,
