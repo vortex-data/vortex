@@ -39,7 +39,7 @@ impl TakeFn<RunEndArray> for RunEndEncoding {
 mod test {
     use vortex_array::array::PrimitiveArray;
     use vortex_array::compute::{scalar_at, slice, take};
-    use vortex_array::{ArrayLen, IntoArrayVariant, ToArrayData};
+    use vortex_array::{IntoArrayVariant, ToArrayData};
 
     use crate::RunEndArray;
 
