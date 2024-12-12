@@ -11,7 +11,7 @@ use vortex_dtype::{
 };
 use vortex_error::{VortexExpect as _, VortexResult};
 
-use crate::bitpacking::compute::filter::chunked_indices;
+use super::chunked_indices;
 use crate::{unpack_single_primitive, BitPackedArray, BitPackedEncoding};
 
 // assuming the buffer is already allocated (which will happen at most once) then unpacking
