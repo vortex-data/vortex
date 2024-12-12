@@ -89,6 +89,7 @@ jobs:
 
   build-rust:
     name: "Rust build matrix"
+    runs-on: ubuntu-latest
     strategy:
       # Run through the valid non-WASM configurations of our feature flags in parallel
       matrix:
