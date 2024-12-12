@@ -18,11 +18,13 @@ impl StatisticsVTable<BoolArray> for BoolEncoding {
         }
 
         if array.is_empty() {
-            return Ok(StatsSet::from_iter([
-                (Stat::TrueCount, 0.into()),
-                (Stat::NullCount, 0.into()),
-                (Stat::RunCount, 0.into()),
-            ]));
+            return Ok(unsafe {
+                StatsSet::new_unchecked(vec![
+                    (Stat::TrueCount, 0.into()),
+                    (Stat::NullCount, 0.into()),
+                    (Stat::RunCount, 0.into()),
+                ])
+            });
         }
 
         match array.logical_validity() {
@@ -153,16 +155,18 @@ impl BoolStatsAccumulator {
     }
 
     pub fn finish(self) -> StatsSet {
-        StatsSet::from_iter([
-            (Stat::NullCount, self.null_count.into()),
-            (Stat::IsSorted, self.is_sorted.into()),
-            (
-                Stat::IsStrictSorted,
-                (self.is_sorted && (self.len < 2 || (self.len == 2 && self.true_count == 1)))
-                    .into(),
-            ),
-            (Stat::RunCount, self.run_count.into()),
-        ])
+        unsafe {
+            StatsSet::new_unchecked(vec![
+                (Stat::NullCount, self.null_count.into()),
+                (Stat::IsSorted, self.is_sorted.into()),
+                (
+                    Stat::IsStrictSorted,
+                    (self.is_sorted && (self.len < 2 || (self.len == 2 && self.true_count == 1)))
+                        .into(),
+                ),
+                (Stat::RunCount, self.run_count.into()),
+            ])
+        }
     }
 }
 

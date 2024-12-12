@@ -12,6 +12,15 @@ pub struct StatsSet {
 }
 
 impl StatsSet {
+    /// Create new StatSet without validating uniqueness of all the entries
+    /// # Safety
+    /// Each value of Stat can only appear once in the list
+    pub unsafe fn new_unchecked(values: Vec<(Stat, Scalar)>) -> Self {
+        Self {
+            values: values.into_iter().map(|(st, s)| (st, Some(s))).collect(),
+        }
+    }
+
     pub fn len(&self) -> usize {
         self.values.iter().filter(|(_, v)| v.is_some()).count()
     }
@@ -23,12 +32,14 @@ impl StatsSet {
     /// Specialized constructor for the case where the StatsSet represents
     /// an array consisting entirely of [null](vortex_dtype::DType::Null) values.
     pub fn nulls(len: usize, dtype: &DType) -> Self {
-        let mut stats = Self::from_iter([
-            (Stat::Min, Scalar::null(dtype.clone())),
-            (Stat::Max, Scalar::null(dtype.clone())),
-            (Stat::RunCount, 1.into()),
-            (Stat::NullCount, len.into()),
-        ]);
+        let mut stats = unsafe {
+            Self::new_unchecked(vec![
+                (Stat::Min, Scalar::null(dtype.clone())),
+                (Stat::Max, Scalar::null(dtype.clone())),
+                (Stat::RunCount, 1.into()),
+                (Stat::NullCount, len.into()),
+            ])
+        };
 
         if len > 0 {
             stats.set(Stat::IsConstant, true);
@@ -88,20 +99,22 @@ impl StatsSet {
         null_count: usize,
         len: usize,
     ) -> Self {
-        StatsSet::from_iter([
-            (Stat::TrueCount, true_count.into()),
-            (Stat::NullCount, null_count.into()),
-            (Stat::Min, (true_count == len).into()),
-            (Stat::Max, (true_count > 0).into()),
-            (
-                Stat::IsConstant,
-                ((true_count == 0 && null_count == 0) || true_count == len).into(),
-            ),
-        ])
+        unsafe {
+            StatsSet::new_unchecked(vec![
+                (Stat::TrueCount, true_count.into()),
+                (Stat::NullCount, null_count.into()),
+                (Stat::Min, (true_count == len).into()),
+                (Stat::Max, (true_count > 0).into()),
+                (
+                    Stat::IsConstant,
+                    ((true_count == 0 && null_count == 0) || true_count == len).into(),
+                ),
+            ])
+        }
     }
 
     pub fn of<S: Into<Scalar>>(stat: Stat, value: S) -> Self {
-        Self::from_iter([(stat, value.into())])
+        unsafe { Self::new_unchecked(vec![(stat, value.into())]) }
     }
 
     pub fn get(&self, stat: Stat) -> Option<&Scalar> {
@@ -322,13 +335,13 @@ impl StatsSet {
     }
 }
 
-impl FromIterator<(Stat, Scalar)> for StatsSet {
-    fn from_iter<T: IntoIterator<Item = (Stat, Scalar)>>(iter: T) -> Self {
-        Self {
-            values: iter.into_iter().map(|(s, v)| (s, Some(v))).collect(),
-        }
-    }
-}
+// impl FromIterator<(Stat, Scalar)> for StatsSet {
+//     fn from_iter<T: IntoIterator<Item = (Stat, Scalar)>>(iter: T) -> Self {
+//         Self {
+//             values: iter.into_iter().map(|(s, v)| (s, Some(v))).collect(),
+//         }
+//     }
+// }
 
 impl Extend<(Stat, Scalar)> for StatsSet {
     #[inline]
@@ -384,7 +397,9 @@ mod test {
 
     #[test]
     fn into_iter() {
-        let set = StatsSet::from_iter([(Stat::Max, 100.into()), (Stat::Min, 42.into())]);
+        let set = unsafe {
+            StatsSet::new_unchecked(vec![(Stat::Max, 100.into()), (Stat::Min, 42.into())])
+        };
         assert_eq!(
             set.into_iter().collect_vec(),
             vec![(Stat::Max, 100.into()), (Stat::Min, 42.into())]
