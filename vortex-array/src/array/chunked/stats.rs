@@ -12,13 +12,15 @@ impl StatisticsVTable<ChunkedArray> for ChunkedEncoding {
             .chunks()
             .map(|c| {
                 let s = c.statistics();
-                s.compute(stat);
-                s.to_set()
+                match stat {
+                    Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted => {
+                        s.compute_all(&[stat, Stat::Min, Stat::Max]).ok()
+                    }
+                    _ => s.compute(stat).map(|s| StatsSet::of(stat, s)),
+                }
+                .unwrap_or_default()
             })
-            .reduce(|mut acc, x| {
-                acc.merge_ordered(&x);
-                acc
-            })
+            .reduce(|acc, x| acc.merge_ordered(&x))
             .unwrap_or_default())
     }
 }

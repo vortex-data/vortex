@@ -17,7 +17,7 @@ use crate::compute::{
 };
 use crate::encoding::ids;
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
-use crate::stats::ArrayStatistics;
+use crate::stats::StatsSet;
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::validity::Validity::NonNullable;
 use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityVTable};
@@ -68,15 +68,6 @@ impl ChunkedArray {
             .last()
             .vortex_expect("Chunk ends is guaranteed to have at least one element");
 
-        let stats = chunks
-            .iter()
-            .map(|chunk| chunk.statistics().to_set())
-            .reduce(|mut acc, stats| {
-                acc.merge_ordered(&stats);
-                acc
-            })
-            .unwrap_or_default();
-
         let mut children = Vec::with_capacity(chunks.len() + 1);
         children.push(PrimitiveArray::from_vec(chunk_offsets, NonNullable).into_array());
         children.extend(chunks);
@@ -86,7 +77,7 @@ impl ChunkedArray {
             length.try_into().vortex_unwrap(),
             ChunkedMetadata { nchunks },
             children.into(),
-            stats,
+            StatsSet::default(),
         )
     }
 
