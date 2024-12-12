@@ -30,7 +30,7 @@ runs:
         shared-key: "rust-cache-${{ runner.os }}-${{ runner.environment }}" # To allow reuse across jobs
 
     - name: Rust Compile Cache
-      uses: mozilla-actions/sccache-action@v0.0.6
+      uses: mozilla-actions/sccache-action@v0.0.7
     - name: Rust Compile Cache Config
       shell: bash
       run: |
