@@ -292,6 +292,8 @@ pub static GIT_COMMIT_ID: LazyLock<String> = LazyLock::new(|| {
             .stdout,
     )
     .unwrap()
+    .trim()
+    .to_string()
 });
 
 impl Measurement {
