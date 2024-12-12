@@ -3,7 +3,7 @@ use std::pin::Pin;
 use std::sync::{Arc, RwLock};
 use std::task::{Context, Poll};
 
-use futures::Stream;
+use futures::{stream, Stream};
 use futures_util::{StreamExt, TryStreamExt};
 use vortex_array::array::ChunkedArray;
 use vortex_array::{ArrayData, IntoArrayData};
@@ -55,19 +55,20 @@ impl<R: VortexReadAt + Unpin> VortexFileArrayStream<R> {
         }
 
         let mut split_iterator = FixedSplitIterator::new(row_count, row_mask);
-        split_iterator.additional_splits(&mut reader_splits)?;
+        split_iterator.append_splits(&mut reader_splits)?;
+        let splits_stream = stream::iter(split_iterator);
 
         // Set up a stream of RowMask that result from applying a filter expression over the file.
         let mask_iterator = if let Some(fr) = filter_reader {
             Box::new(BufferedLayoutReader::new(
                 input.clone(),
                 dispatcher.clone(),
-                split_iterator,
+                splits_stream,
                 ReadRowMask::new(fr),
                 messages_cache.clone(),
             )) as _
         } else {
-            Box::new(split_iterator) as _
+            Box::new(splits_stream) as _
         };
 
         // Set up a stream of result ArrayData that result from applying the filter and projection

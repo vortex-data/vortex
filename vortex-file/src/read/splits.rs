@@ -1,9 +1,6 @@
 use std::collections::BTreeSet;
 use std::mem;
-use std::pin::Pin;
-use std::task::{Context, Poll};
 
-use futures::Stream;
 use itertools::Itertools;
 use vortex_array::stats::ArrayStatistics;
 use vortex_error::{vortex_bail, VortexResult, VortexUnwrap};
@@ -82,7 +79,7 @@ impl FixedSplitIterator {
         }
     }
 
-    pub fn additional_splits(&mut self, splits: &mut BTreeSet<usize>) -> VortexResult<()> {
+    pub fn append_splits(&mut self, splits: &mut BTreeSet<usize>) -> VortexResult<()> {
         match &mut self.splits {
             FixedSplitState::Ranges(_) => {
                 vortex_bail!("Can't insert additional splits if we started producing row ranges")
@@ -129,14 +126,6 @@ impl Iterator for FixedSplitIterator {
     }
 }
 
-impl Stream for FixedSplitIterator {
-    type Item = VortexResult<RowMask>;
-
-    fn poll_next(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        Poll::Ready(self.next())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
@@ -153,12 +142,10 @@ mod tests {
     fn register_after_start() {
         let mut mask_iter = FixedSplitIterator::new(10, None);
         mask_iter
-            .additional_splits(&mut BTreeSet::from([0, 1, 2]))
+            .append_splits(&mut BTreeSet::from([0, 1, 2]))
             .unwrap();
         assert!(mask_iter.next().is_some());
-        mask_iter
-            .additional_splits(&mut BTreeSet::from([5]))
-            .unwrap();
+        mask_iter.append_splits(&mut BTreeSet::from([5])).unwrap();
         mask_iter.next();
     }
 
@@ -179,7 +166,7 @@ mod tests {
             ),
         );
         mask_iter
-            .additional_splits(&mut BTreeSet::from([0, 2, 4, 6, 8, 10]))
+            .append_splits(&mut BTreeSet::from([0, 2, 4, 6, 8, 10]))
             .unwrap();
 
         let actual = mask_iter.collect::<VortexResult<Vec<_>>>().unwrap();

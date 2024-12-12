@@ -18,7 +18,7 @@ fn layout_splits(
     for layout in layouts {
         layout.add_splits(0, &mut splits).vortex_unwrap();
     }
-    iter.additional_splits(&mut splits).vortex_unwrap();
+    iter.append_splits(&mut splits).vortex_unwrap();
     iter.map(|m| m.unwrap())
 }
 
