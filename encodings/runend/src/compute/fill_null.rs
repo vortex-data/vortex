@@ -10,8 +10,8 @@ impl FillNullFn<RunEndArray> for RunEndEncoding {
         Ok(RunEndArray::with_offset_and_length(
             array.ends(),
             fill_null(array.values(), fill_value)?,
-            array.len(),
             array.offset(),
+            array.len(),
         )?
         .into_array())
     }
