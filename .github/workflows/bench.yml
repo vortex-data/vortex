@@ -3,7 +3,6 @@ name: Benchmarks
 on:
   push:
     branches: [ develop ]
-  pull_request: { }
 
 permissions:
   id-token: write # enables AWS-GitHub OIDC
