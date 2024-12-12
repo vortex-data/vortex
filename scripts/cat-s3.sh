@@ -35,3 +35,4 @@ while (( n_failures < 2 )); do
 done
 
 echo "Too many failures: $n_failures."
+exit 1
