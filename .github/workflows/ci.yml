@@ -91,7 +91,7 @@ jobs:
     name: "Rust build matrix"
     runs-on: ubuntu-latest
     strategy:
-      # Run through the valid non-WASM configurations of our feature flags in parallel
+      fail-fast: false
       matrix:
         config:
           - name: "all-features"
@@ -111,12 +111,16 @@ jobs:
             args: "--no-default-features --features tokio,compio --ignore-unknown-features"
           - name: "wasm32 with default features"
             command: "build"
+            target: wasm32-unknown-unknown
             args: "--target wasm32-unknown-unknown"
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/cleanup
       - uses: rui314/setup-mold@v1
       - uses: ./.github/actions/setup-rust
+      - uses: ./.github/actions/setup-rust
+        with:
+          targets: ${{matrix.target}}
       - name: Install cargo-hack
         uses: taiki-e/install-action@cargo-hack
       - name: Rust Build (${{matrix.config.name}})
