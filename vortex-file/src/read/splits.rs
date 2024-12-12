@@ -58,11 +58,6 @@ impl ReadMasked for ReadRowMask {
     }
 }
 
-// enum FixedSplitState {
-//     Ranges(Box<dyn Iterator<Item = (usize, usize)> + Send>),
-//     Splits(BTreeSet<usize>),
-// }
-
 pub struct SplitsAccumulator {
     splits: BTreeSet<usize>,
     row_mask: Option<RowMask>,
