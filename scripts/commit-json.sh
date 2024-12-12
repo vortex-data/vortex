@@ -1,16 +1,21 @@
 #!/bin/bash
 
-author_email=$(git log -1 --pretty=format:'%ae')
-author_name=$(git log -1 --pretty=format:'%an')
+commit_id=$GITHUB_SHA
+commit_title=$(git log -1 --pretty=%B $GITHUB_SHA | head -n 1)
+commit_timestamp=$(git log -1 --format=%cd --date=iso-strict $GITHUB_SHA)
 
-committer_email=$(git log -1 --pretty=format:'%ce')
-committer_name=$(git log -1 --pretty=format:'%cn')
+author_email=$(git log -1 --pretty=format:'%ae' $GITHUB_SHA)
+author_name=$(git log -1 --pretty=format:'%an' $GITHUB_SHA)
 
-commit_id=$(git rev-parse HEAD)
-commit_title=$(git log -1 --pretty=%B | head -n 1)
-commit_timestamp=$(git log -1 --format=%cd --date=iso-strict)
-tree_id=$(git rev-parse --verify HEAD^{tree})
-repo_url=$(git config --get remote.origin.url | sed 's/git@github.com:/https:\/\/github.com\//' | sed 's/.git$//')  # Convert to HTTPS format
+committer_email=$(git log -1 --pretty=format:'%ce' $GITHUB_SHA)
+committer_name=$(git log -1 --pretty=format:'%cn' $GITHUB_SHA)
+
+merge_commit_id=$(git rev-parse HEAD)
+merge_commit_title=$(git log -1 --pretty=%B | head -n 1)
+merge_commit_timestamp=$(git log -1 --format=%cd --date=iso-strict)
+
+tree_id=$(git rev-parse --verify ${GITHUB_SHA}^{tree})
+repo_url=$(git config --get remote.origin.url | sed 's/git@github.com:/https:\/\/github.com\//' | sed 's/.git$//')
 
 jq --compact-output '.' <<EOF
 {
@@ -26,7 +31,11 @@ jq --compact-output '.' <<EOF
     "message": "$commit_title",
     "timestamp": "$commit_timestamp",
     "tree_id": "$tree_id",
-    "url": "$repo_url/commit/$commit_id"
+    "url": "$repo_url/commit/$commit_id",
+    "merge_commit": {
+        "id": "$commit_id",
+        "message": "$commit_title",
+        "timestamp": "$commit_timestamp"
+    }
 }
 EOF
-
