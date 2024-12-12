@@ -100,11 +100,11 @@ impl Default for IoDispatcher {
     fn default() -> Self {
         cfg_if! {
             if #[cfg(target_arch = "wasm32")] {
-                return Self(Inner::Wasm(WasmDispatcher::new()));
+                Self(Inner::Wasm(WasmDispatcher::new()))
             } else if #[cfg(not(feature = "compio"))] {
-                return Self(Inner::Tokio(TokioDispatcher::new(1)));
+                Self(Inner::Tokio(TokioDispatcher::new(1)))
             } else {
-                return Self(Inner::Compio(CompioDispatcher::new(1)));
+                Self(Inner::Compio(CompioDispatcher::new(1)))
             }
         }
     }

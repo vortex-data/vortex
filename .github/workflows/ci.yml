@@ -118,7 +118,6 @@ jobs:
       - uses: ./.github/actions/cleanup
       - uses: rui314/setup-mold@v1
       - uses: ./.github/actions/setup-rust
-      - uses: ./.github/actions/setup-rust
         with:
           targets: ${{matrix.target}}
       - name: Install cargo-hack
