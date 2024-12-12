@@ -115,12 +115,10 @@ impl<T: PStatsType> StatisticsVTable<NullableValues<'_, T>> for PrimitiveEncodin
             ));
         }
 
-        let mut stats = unsafe {
-            StatsSet::new_unchecked(vec![
-                (Stat::NullCount, null_count.into()),
-                (Stat::IsConstant, false.into()),
-            ])
-        };
+        let mut stats = StatsSet::new_unchecked(vec![
+            (Stat::NullCount, null_count.into()),
+            (Stat::IsConstant, false.into()),
+        ]);
         // we know that there is at least one null, but not all nulls, so it's not constant
         if stat == Stat::IsConstant {
             return Ok(stats);
@@ -172,24 +170,20 @@ fn compute_min_max<T: PStatsType>(
         MinMaxResult::NoElements => StatsSet::default(),
         MinMaxResult::OneElement(x) => {
             let scalar: Scalar = x.into();
-            unsafe {
-                StatsSet::new_unchecked(vec![
-                    (Stat::Min, scalar.clone()),
-                    (Stat::Max, scalar),
-                    (Stat::IsConstant, could_be_constant.into()),
-                ])
-            }
-        }
-        MinMaxResult::MinMax(min, max) => unsafe {
             StatsSet::new_unchecked(vec![
-                (Stat::Min, min.into()),
-                (Stat::Max, max.into()),
-                (
-                    Stat::IsConstant,
-                    (could_be_constant && min.total_compare(max) == Ordering::Equal).into(),
-                ),
+                (Stat::Min, scalar.clone()),
+                (Stat::Max, scalar),
+                (Stat::IsConstant, could_be_constant.into()),
             ])
-        },
+        }
+        MinMaxResult::MinMax(min, max) => StatsSet::new_unchecked(vec![
+            (Stat::Min, min.into()),
+            (Stat::Max, max.into()),
+            (
+                Stat::IsConstant,
+                (could_be_constant && min.total_compare(max) == Ordering::Equal).into(),
+            ),
+        ]),
     }
 }
 
@@ -209,12 +203,10 @@ fn compute_is_sorted<T: PStatsType>(mut iter: impl Iterator<Item = T>) -> StatsS
     if sorted {
         StatsSet::of(Stat::IsSorted, true)
     } else {
-        unsafe {
-            StatsSet::new_unchecked(vec![
-                (Stat::IsSorted, false.into()),
-                (Stat::IsStrictSorted, false.into()),
-            ])
-        }
+        StatsSet::new_unchecked(vec![
+            (Stat::IsSorted, false.into()),
+            (Stat::IsStrictSorted, false.into()),
+        ])
     }
 }
 
@@ -233,12 +225,10 @@ fn compute_is_strict_sorted<T: PStatsType>(mut iter: impl Iterator<Item = T>) ->
     }
 
     if strict_sorted {
-        unsafe {
-            StatsSet::new_unchecked(vec![
-                (Stat::IsSorted, true.into()),
-                (Stat::IsStrictSorted, true.into()),
-            ])
-        }
+        StatsSet::new_unchecked(vec![
+            (Stat::IsSorted, true.into()),
+            (Stat::IsStrictSorted, true.into()),
+        ])
     } else {
         StatsSet::of(Stat::IsStrictSorted, false)
     }
@@ -335,12 +325,10 @@ impl<T: PStatsType> BitWidthAccumulator<T> {
     }
 
     pub fn finish(self) -> StatsSet {
-        unsafe {
-            StatsSet::new_unchecked(vec![
-                (Stat::BitWidthFreq, self.bit_widths.into()),
-                (Stat::TrailingZeroFreq, self.trailing_zeros.into()),
-            ])
-        }
+        StatsSet::new_unchecked(vec![
+            (Stat::BitWidthFreq, self.bit_widths.into()),
+            (Stat::TrailingZeroFreq, self.trailing_zeros.into()),
+        ])
     }
 }
 
