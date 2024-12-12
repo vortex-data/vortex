@@ -81,8 +81,6 @@ jobs:
           set -Eeu -o pipefail -x
 
           base_commit_sha=$(git merge-base $GITHUB_BASE_REF HEAD)
-          echo $base_commit_sha
-          base_commit_sha=b4c5846b5bf0f032c527f031620511edc62326e7
 
           aws s3 cp s3://vortex-benchmark-results-database/data.json - \
             | grep $base_commit_sha \
@@ -135,8 +133,6 @@ jobs:
           set -Eeu -o pipefail -x
 
           base_commit_sha=$(git merge-base $GITHUB_BASE_REF HEAD)
-          echo $base_commit_sha
-          base_commit_sha=b4c5846b5bf0f032c527f031620511edc62326e7
 
           aws s3 cp s3://vortex-benchmark-results-database/data.json - \
             | grep $base_commit_sha \
@@ -190,8 +186,6 @@ jobs:
           set -Eeu -o pipefail -x
 
           base_commit_sha=$(git merge-base $GITHUB_BASE_REF HEAD)
-          echo $base_commit_sha
-          base_commit_sha=b4c5846b5bf0f032c527f031620511edc62326e7
 
           aws s3 cp s3://vortex-benchmark-results-database/data.json - \
             | grep $base_commit_sha \
