@@ -25,7 +25,7 @@ jobs:
         shell: bash
         run: |
           sudo apt-get update && sudo apt-get install -y jq
-          bash scripts/cat-s3.sh vortex-bench-dev commits.json <(bash scripts/commit-json.sh)
+          bash scripts/cat-s3.sh vortex-benchmark-results-database commits.json <(bash scripts/commit-json.sh)
   bench:
     strategy:
       matrix:
@@ -81,7 +81,7 @@ jobs:
       - name: Upload Benchmark Results
         shell: bash
         run: |
-          bash scripts/cat-s3.sh vortex-bench-dev data.json ${{ matrix.benchmark.id }}.json
+          bash scripts/cat-s3.sh vortex-benchmark-results-database data.json ${{ matrix.benchmark.id }}.json
   tpch:
     runs-on: self-hosted
     steps:
@@ -117,7 +117,7 @@ jobs:
       - name: Upload Benchmark Results
         shell: bash
         run: |
-          bash scripts/cat-s3.sh vortex-bench-dev data.json tpch.json
+          bash scripts/cat-s3.sh vortex-benchmark-results-database data.json tpch.json
   clickbench:
     runs-on: self-hosted
     steps:
@@ -154,4 +154,4 @@ jobs:
       - name: Upload Benchmark Results
         shell: bash
         run: |
-          bash scripts/cat-s3.sh vortex-bench-dev data.json clickbench.json
+          bash scripts/cat-s3.sh vortex-benchmark-results-database data.json clickbench.json
