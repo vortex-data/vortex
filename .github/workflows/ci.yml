@@ -119,7 +119,7 @@ jobs:
       - uses: rui314/setup-mold@v1
       - uses: ./.github/actions/setup-rust
         with:
-          targets: ${{matrix.target}}
+          targets: ${{matrix.config.target || ''}}
       - name: Install cargo-hack
         uses: taiki-e/install-action@cargo-hack
       - name: Rust Build (${{matrix.config.name}})
