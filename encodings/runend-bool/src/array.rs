@@ -90,7 +90,7 @@ impl RunEndBoolArray {
             let run_count = ends_len;
             let min = start && is_constant; // i.e., true iff all are true
             let max = start || ends_len > 1; // i.e., true iff any are true
-            StatsSet::from_iter([
+            StatsSet::new_unchecked(vec![
                 (Stat::IsConstant, is_constant.into()),
                 (Stat::IsSorted, is_sorted.into()),
                 (Stat::IsStrictSorted, is_strict_sorted.into()),

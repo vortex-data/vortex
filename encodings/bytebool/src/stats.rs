@@ -12,13 +12,11 @@ impl StatisticsVTable<ByteBoolArray> for ByteBoolEncoding {
 
         // TODO(adamgs): This is slightly wasteful and could be optimized in the future
         let bools = array.as_ref().clone().into_bool()?;
-        Ok(StatsSet::from_iter(
-            bools
-                .statistics()
-                .compute(stat)
-                .into_iter()
-                .map(|value| (stat, value)),
-        ))
+        Ok(bools
+            .statistics()
+            .compute(stat)
+            .map(|value| StatsSet::of(stat, value))
+            .unwrap_or_default())
     }
 }
 
