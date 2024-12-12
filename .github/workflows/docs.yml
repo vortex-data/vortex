@@ -28,20 +28,6 @@ jobs:
           built_sha=$(git rev-parse HEAD)
 
           rm -rf docs/_build/html/rust/CACHETAG.DIR docs/_build/html/rust/debug
-          mv docs/_build/html /tmp/html
 
-          git fetch origin
-          git checkout origin/gh-pages-bench
-          rm -rf docs
-          mv /tmp/html docs
-          git add docs
-          git config --global user.email "nobody@example.com"
-          git config --global user.name "github-action-deploy-python-docs"
-
-          # Only try to commit if there exist changes
-          git diff --quiet HEAD || {
-              git commit -m 'Python docs for '$built_sha
-              git push origin HEAD:gh-pages-bench
-          }
-
-          git checkout $built_sha
+          mv docs/_build/html /tmp/docs
+          tar --auto-compress --strip-components 1 -cf docs.tgz /tmp/docs
