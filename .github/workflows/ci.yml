@@ -88,32 +88,38 @@ jobs:
         run: cargo doc --no-deps
 
   build-rust:
+    name: "Rust build matrix"
     strategy:
       # Run through the valid non-WASM configurations of our feature flags in parallel
       matrix:
         config:
           - name: "all-features"
             command: "build"
-            features: "--all-features"
+            args: "--all-features"
           - name: "default"
             command: "build"
-            features: ""
+            args: ""
           - name: "with tokio dispatcher"
             command: "build"
-            features: "--no-default-features --features tokio"
+            args: "--no-default-features --features tokio"
           - name: "with compio dispatcher"
             command: "build"
-            features: "--no-default-features --features compio"
+            args: "--no-default-features --features compio"
           - name: "with tokio+compio dispatcher"
             command: "build"
-            features: "--no-default-features --features tokio,compio"
+            args: "--no-default-features --features tokio,compio"
+          - name: "wasm32 with default features"
+            command: "build"
+            args: "--target wasm32-unknown-unknown"
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/cleanup
       - uses: rui314/setup-mold@v1
       - uses: ./.github/actions/setup-rust
+      - name: Install cargo-hack
+        uses: taiki-e/install-action@cargo-hack
       - name: Rust Build (${{matrix.config.name}})
-        run: cargo ${{matrix.config.command}} ${{matrix.config.features}} --all-targets
+        run: cargo hack ${{matrix.config.command}} ${{matrix.config.args}} --all-targets
 
 
   build-wasm32:
@@ -128,18 +134,6 @@ jobs:
           targets: wasm32-unknown-unknown
       - name: Rust Build vortex
         run: cargo build -p vortex --target wasm32-unknown-unknown
-
-
-  build-all:
-    name: "Build (all-features)"
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/cleanup
-      - uses: rui314/setup-mold@v1
-      - uses: ./.github/actions/setup-rust
-      - name: Rust Build (All Features)
-        run: cargo build --all-features --all-targets
 
   rust-test:
     name: "Rust (tests)"
