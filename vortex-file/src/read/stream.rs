@@ -108,15 +108,15 @@ impl<R: VortexReadAt + Unpin> Stream for VortexFileArrayStream<R> {
 impl<R: VortexReadAt + Unpin> VortexFileArrayStream<R> {
     pub async fn read_all(self) -> VortexResult<ArrayData> {
         let dtype = self.dtype().clone();
-        let vecs: Vec<ArrayData> = self.try_collect().await?;
-        if vecs.len() == 1 {
-            vecs.into_iter().next().ok_or_else(|| {
+        let arrays = self.try_collect::<Vec<_>>().await?;
+        if arrays.len() == 1 {
+            arrays.into_iter().next().ok_or_else(|| {
                 vortex_panic!(
                     "Should be impossible: vecs.len() == 1 but couldn't get first element"
                 )
             })
         } else {
-            ChunkedArray::try_new(vecs, dtype).map(|e| e.into_array())
+            ChunkedArray::try_new(arrays, dtype).map(|e| e.into_array())
         }
     }
 }

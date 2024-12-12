@@ -142,10 +142,10 @@ impl<R: VortexReadAt + Unpin> VortexReadBuilder<R> {
         let message_cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
         let layout_reader = self.layout_serde.read_layout(
             initial_read.fb_layout(),
-            Scan::new(match self.projection {
-                Projection::All => None,
-                Projection::Flat(p) => Some(Arc::new(Select::include(p))),
-            }),
+            match self.projection {
+                Projection::All => Scan::empty(),
+                Projection::Flat(p) => Scan::new(Arc::new(Select::include(p))),
+            },
             RelativeLayoutCache::new(message_cache.clone(), lazy_dtype.clone()),
         )?;
 
@@ -154,7 +154,7 @@ impl<R: VortexReadAt + Unpin> VortexReadBuilder<R> {
             .map(|row_filter| {
                 self.layout_serde.read_layout(
                     initial_read.fb_layout(),
-                    Scan::new(Some(Arc::new(row_filter))),
+                    Scan::new(Arc::new(row_filter)),
                     RelativeLayoutCache::new(message_cache.clone(), lazy_dtype),
                 )
             })

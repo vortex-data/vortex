@@ -48,7 +48,13 @@ impl Scan {
         Self { expr: None }
     }
 
-    pub fn new(expr: Option<ExprRef>) -> Self {
+    pub fn new(expr: ExprRef) -> Self {
+        Self { expr: Some(expr) }
+    }
+}
+
+impl From<Option<ExprRef>> for Scan {
+    fn from(expr: Option<ExprRef>) -> Self {
         Self { expr }
     }
 }

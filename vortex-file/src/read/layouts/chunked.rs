@@ -86,9 +86,9 @@ impl ChunkedLayoutBuilder<'_> {
             };
             Some(self.layout_builder.read_layout(
                 metadata_fb,
-                Scan::new(Some(Arc::new(Select::include(
+                Scan::new(Arc::new(Select::include(
                     s.names().iter().map(|s| Field::Name(s.clone())).collect(),
-                )))),
+                ))),
                 self.message_cache.relative(
                     METADATA_LAYOUT_PART_ID,
                     Arc::new(LazyDType::from_dtype(stats_dtype)),
@@ -289,7 +289,7 @@ impl ChunkedLayoutReader {
 impl LayoutReader for ChunkedLayoutReader {
     fn add_splits(&self, row_offset: usize, splits: &mut BTreeSet<usize>) -> VortexResult<()> {
         for RangedLayoutReader((begin, _), child) in &self.layouts {
-            child.add_splits(row_offset + begin, splits)?
+            child.add_splits(row_offset + begin, splits)?;
         }
         Ok(())
     }
@@ -474,7 +474,7 @@ mod tests {
             .unwrap(),
             ChunkedLayoutBuilder {
                 layout,
-                scan: Scan::new(None),
+                scan: Scan::empty(),
                 layout_builder,
                 message_cache: RelativeLayoutCache::new(cache, dtype),
             }
@@ -491,11 +491,11 @@ mod tests {
         let cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
         let (mut filter_layout, mut projection_layout, buf, length) = layout_and_bytes(
             cache.clone(),
-            Scan::new(Some(RowFilter::new_expr(BinaryExpr::new_expr(
+            Scan::new(RowFilter::new_expr(BinaryExpr::new_expr(
                 Arc::new(Identity),
                 Operator::Gt,
                 Literal::new_expr(10.into()),
-            )))),
+            ))),
         )
         .await;
 
@@ -527,7 +527,7 @@ mod tests {
     async fn read_range_no_filter() {
         let cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
         let (_, mut projection_layout, buf, length) =
-            layout_and_bytes(cache.clone(), Scan::new(None)).await;
+            layout_and_bytes(cache.clone(), Scan::empty()).await;
         let arr = read_layout(&mut projection_layout, cache, &buf, length).pop_front();
 
         assert!(arr.is_some());
@@ -543,7 +543,7 @@ mod tests {
     async fn read_no_range() {
         let cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
         let (_, mut projection_layout, buf, _) =
-            layout_and_bytes(cache.clone(), Scan::new(None)).await;
+            layout_and_bytes(cache.clone(), Scan::empty()).await;
         let arr = read_layout_data(
             &mut projection_layout,
             cache,
@@ -564,7 +564,7 @@ mod tests {
     async fn read_multiple_selectors() {
         let cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
         let (_, mut projection_layout, buf, _) =
-            layout_and_bytes(cache.clone(), Scan::new(None)).await;
+            layout_and_bytes(cache.clone(), Scan::empty()).await;
 
         let mut first_range = BooleanBufferBuilder::new(200);
         first_range.append_n(150, true);

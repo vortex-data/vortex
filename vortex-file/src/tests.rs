@@ -135,7 +135,7 @@ async fn test_splits() {
     let layout_reader = layout_serde
         .read_layout(
             initial_read.fb_layout(),
-            Scan::new(None),
+            Scan::empty(),
             RelativeLayoutCache::new(cache, dtype),
         )
         .unwrap();

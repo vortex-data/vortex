@@ -139,7 +139,7 @@ mod tests {
         writer.write_batch(array).await.unwrap();
         let written = writer.into_inner();
 
-        let projection_scan = Scan::new(None);
+        let projection_scan = Scan::empty();
         let dtype = Arc::new(LazyDType::from_dtype(PType::I32.into()));
 
         (
@@ -180,11 +180,11 @@ mod tests {
         let cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
         let (mut filter_layout, mut projection_layout, buf, length) = layout_and_bytes(
             cache.clone(),
-            Scan::new(Some(RowFilter::new_expr(BinaryExpr::new_expr(
+            Scan::new(RowFilter::new_expr(BinaryExpr::new_expr(
                 Arc::new(Identity),
                 Operator::Gt,
                 Literal::new_expr(10.into()),
-            )))),
+            ))),
         )
         .await;
         let arr = filter_read_layout(
@@ -225,11 +225,11 @@ mod tests {
         let cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
         let (mut filter_layout, mut projection_layout, buf, length) = layout_and_bytes(
             cache.clone(),
-            Scan::new(Some(RowFilter::new_expr(BinaryExpr::new_expr(
+            Scan::new(RowFilter::new_expr(BinaryExpr::new_expr(
                 Arc::new(Identity),
                 Operator::Gt,
                 Literal::new_expr(101.into()),
-            )))),
+            ))),
         )
         .await;
         let arr = filter_read_layout(

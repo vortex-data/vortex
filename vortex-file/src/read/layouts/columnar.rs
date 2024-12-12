@@ -80,7 +80,7 @@ impl ColumnarLayoutBuilder<'_> {
 
             let child = self.layout_serde.read_layout(
                 child_layout,
-                Scan::new(projected_expr),
+                Scan::from(projected_expr),
                 self.message_cache
                     .relative(resolved_child as u16, child_field),
             )?;
@@ -223,7 +223,7 @@ impl ColumnarLayoutReader {
 impl LayoutReader for ColumnarLayoutReader {
     fn add_splits(&self, row_offset: usize, splits: &mut BTreeSet<usize>) -> VortexResult<()> {
         for child in &self.children {
-            child.add_splits(row_offset, splits)?
+            child.add_splits(row_offset, splits)?;
         }
         Ok(())
     }
@@ -470,7 +470,7 @@ mod tests {
             layout_serde
                 .read_layout(
                     initial_read.fb_layout(),
-                    Scan::new(None),
+                    Scan::empty(),
                     RelativeLayoutCache::new(cache.clone(), dtype),
                 )
                 .unwrap(),
@@ -485,11 +485,11 @@ mod tests {
         let cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
         let (mut filter_layout, mut project_layout, buf, length) = layout_and_bytes(
             cache.clone(),
-            Scan::new(Some(RowFilter::new_expr(BinaryExpr::new_expr(
+            Scan::new(RowFilter::new_expr(BinaryExpr::new_expr(
                 Column::new_expr(Field::from("ints")),
                 Operator::Gt,
                 Literal::new_expr(10.into()),
-            )))),
+            ))),
         )
         .await;
         let arr = filter_read_layout(
@@ -540,7 +540,7 @@ mod tests {
     async fn read_range_no_filter() {
         let cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
         let (_, mut project_layout, buf, length) =
-            layout_and_bytes(cache.clone(), Scan::new(None)).await;
+            layout_and_bytes(cache.clone(), Scan::empty()).await;
         let arr = read_layout(project_layout.as_mut(), cache, &buf, length).pop_front();
 
         assert!(arr.is_some());
@@ -583,7 +583,7 @@ mod tests {
         let cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
         let (mut filter_layout, mut project_layout, buf, length) = layout_and_bytes(
             cache.clone(),
-            Scan::new(Some(RowFilter::new_expr(BinaryExpr::new_expr(
+            Scan::new(RowFilter::new_expr(BinaryExpr::new_expr(
                 BinaryExpr::new_expr(
                     Column::new_expr(Field::from("strs")),
                     Operator::Eq,
@@ -595,7 +595,7 @@ mod tests {
                     Operator::Lt,
                     Literal::new_expr(150.into()),
                 ),
-            )))),
+            ))),
         )
         .await;
         let arr = filter_read_layout(
