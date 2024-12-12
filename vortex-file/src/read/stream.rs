@@ -14,7 +14,7 @@ use vortex_io::{IoDispatcher, VortexReadAt};
 use crate::read::buffered::{BufferedLayoutReader, ReadArray};
 use crate::read::cache::LayoutMessageCache;
 use crate::read::mask::RowMask;
-use crate::read::splits::{FixedSplitIterator, ReadRowMask};
+use crate::read::splits::{ReadRowMask, SplitsAccumulator};
 use crate::read::LayoutReader;
 use crate::LazyDType;
 
@@ -54,9 +54,9 @@ impl<R: VortexReadAt + Unpin> VortexFileArrayStream<R> {
             fr.add_splits(0, &mut reader_splits)?;
         }
 
-        let mut split_iterator = FixedSplitIterator::new(row_count, row_mask);
-        split_iterator.append_splits(&mut reader_splits)?;
-        let splits_stream = stream::iter(split_iterator);
+        let mut split_accumulator = SplitsAccumulator::new(row_count, row_mask);
+        split_accumulator.append_splits(&mut reader_splits);
+        let splits_stream = stream::iter(split_accumulator);
 
         // Set up a stream of RowMask that result from applying a filter expression over the file.
         let mask_iterator = if let Some(fr) = filter_reader {

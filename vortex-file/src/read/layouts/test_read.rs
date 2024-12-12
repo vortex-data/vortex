@@ -6,20 +6,20 @@ use vortex_array::ArrayData;
 use vortex_error::VortexUnwrap;
 
 use crate::read::mask::RowMask;
-use crate::read::splits::FixedSplitIterator;
+use crate::read::splits::SplitsAccumulator;
 use crate::{LayoutMessageCache, LayoutReader, MessageLocator, PollRead};
 
 fn layout_splits(
     layouts: &[&mut dyn LayoutReader],
     length: usize,
 ) -> impl Iterator<Item = RowMask> {
-    let mut iter = FixedSplitIterator::new(length as u64, None);
+    let mut iter = SplitsAccumulator::new(length as u64, None);
     let mut splits = BTreeSet::new();
     for layout in layouts {
         layout.add_splits(0, &mut splits).vortex_unwrap();
     }
-    iter.append_splits(&mut splits).vortex_unwrap();
-    iter.map(|m| m.unwrap())
+    iter.append_splits(&mut splits);
+    iter.into_iter().map(|m| m.unwrap())
 }
 
 pub fn read_layout_data(
