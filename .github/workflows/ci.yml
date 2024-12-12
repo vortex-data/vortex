@@ -120,7 +120,7 @@ jobs:
       - name: Install cargo-hack
         uses: taiki-e/install-action@cargo-hack
       - name: Rust Build (${{matrix.config.name}})
-        run: cargo hack ${{matrix.config.command}} ${{matrix.config.args}} --all-targets
+        run: cargo hack ${{matrix.config.command}} ${{matrix.config.args}} --all-targets --ignore-unknown-features --ignore-private
 
 
   build-wasm32:
