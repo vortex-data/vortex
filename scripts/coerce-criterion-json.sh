@@ -18,7 +18,7 @@ jq --compact-output 'select(.reason == "benchmark-complete" or .reason == null)
                value: .mean.estimate,
                commit_id: "'$commit_id'"
            }, {
-               name: (.id + "throughput"),
+               name: (.id + " throughput"),
                unit: (.throughput[0].unit + "/" + .unit),
                value: (.throughput[0].per_iteration / .mean.estimate),
                time: .mean.estimate,
