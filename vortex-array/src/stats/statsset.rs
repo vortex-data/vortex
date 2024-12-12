@@ -113,7 +113,7 @@ impl StatsSet {
         self.values.len()
     }
 
-    /// Predicate equivalent to a [len][Self:len] of zero.
+    /// Predicate equivalent to a [len][Self::len] of zero.
     pub fn is_empty(&self) -> bool {
         self.values.is_empty()
     }
