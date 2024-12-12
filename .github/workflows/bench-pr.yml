@@ -44,7 +44,11 @@ jobs:
           git remote -v
           git branch -v
 
-          base_commit_sha=$(git merge-base origin/refs/heads/$GITHUB_BASE_REF origin/refs/heads/$GITHUB_HEAD_REF)
+          git show HEAD^1
+
+          git show HEAD^2
+
+          base_commit_sha=$(git rev-parse HEAD^2)
           echo $base_commit_sha
           aws s3 cp s3://vortex-benchmark-results-database/data.json - \
             | grep $base_commit_sha \
@@ -97,7 +101,7 @@ jobs:
         run: |
           set -Eeu -o pipefail -x
 
-          base_commit_sha=$(git merge-base origin/refs/heads/$GITHUB_BASE_REF origin/refs/heads/$GITHUB_HEAD_REF)
+          base_commit_sha=$(git rev-parse HEAD^2)
           echo $base_commit_sha
           base_commit_sha=b4c5846b5bf0f032c527f031620511edc62326e7
 
@@ -151,7 +155,7 @@ jobs:
         run: |
           set -Eeu -o pipefail -x
 
-          base_commit_sha=$(git merge-base origin/refs/heads/$GITHUB_BASE_REF origin/refs/heads/$GITHUB_HEAD_REF)
+          base_commit_sha=$(git rev-parse HEAD^2)
           echo $base_commit_sha
           base_commit_sha=b4c5846b5bf0f032c527f031620511edc62326e7
 
@@ -206,7 +210,7 @@ jobs:
         run: |
           set -Eeu -o pipefail -x
 
-          base_commit_sha=$(git merge-base origin/refs/heads/$GITHUB_BASE_REF origin/refs/heads/$GITHUB_HEAD_REF)
+          base_commit_sha=$(git rev-parse HEAD^2)
           echo $base_commit_sha
           base_commit_sha=b4c5846b5bf0f032c527f031620511edc62326e7
 
