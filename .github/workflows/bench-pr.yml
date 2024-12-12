@@ -36,19 +36,6 @@ jobs:
     if: ${{ contains(github.event.head_commit.message, '[benchmark]') || github.event.label.name == 'benchmark' && github.event_name == 'pull_request' }}
     steps:
       - uses: actions/checkout@v4
-      - name: Compare results
-        shell: bash
-        run: |
-          set -Eeu -o pipefail -x
-
-          base_commit_sha=$(git merge-base origin/$GITHUB_BASE_REF HEAD)
-          aws s3 cp s3://vortex-benchmark-results-database/data.json - \
-            | grep $base_commit_sha \
-            > base.json
-
-          echo '# ${{ matrix.benchmark.id }}' > comment.md
-          cat base.json
-          cast comment.md
       - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
       - uses: spiraldb/actions/.github/actions/setup-uv@0.2.0
@@ -94,8 +81,6 @@ jobs:
           set -Eeu -o pipefail -x
 
           base_commit_sha=$(git merge-base origin/$GITHUB_BASE_REF HEAD)
-          echo $base_commit_sha
-          base_commit_sha=b4c5846b5bf0f032c527f031620511edc62326e7
 
           aws s3 cp s3://vortex-benchmark-results-database/data.json - \
             | grep $base_commit_sha \
@@ -148,8 +133,6 @@ jobs:
           set -Eeu -o pipefail -x
 
           base_commit_sha=$(git merge-base origin/$GITHUB_BASE_REF HEAD)
-          echo $base_commit_sha
-          base_commit_sha=b4c5846b5bf0f032c527f031620511edc62326e7
 
           aws s3 cp s3://vortex-benchmark-results-database/data.json - \
             | grep $base_commit_sha \
@@ -203,8 +186,6 @@ jobs:
           set -Eeu -o pipefail -x
 
           base_commit_sha=$(git merge-base origin/$GITHUB_BASE_REF HEAD)
-          echo $base_commit_sha
-          base_commit_sha=b4c5846b5bf0f032c527f031620511edc62326e7
 
           aws s3 cp s3://vortex-benchmark-results-database/data.json - \
             | grep $base_commit_sha \
