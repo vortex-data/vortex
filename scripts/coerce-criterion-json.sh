@@ -1,6 +1,8 @@
 #!/bin/bash
 
-commit_id=$(git rev-parse HEAD)
+set -Eeu -o pipefail -x
+
+commit_id=$GITHUB_SHA
 
 jq --compact-output 'select(.reason == "benchmark-complete" or .reason == null)
     | if (.throughput | length) == 0

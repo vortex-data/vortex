@@ -46,7 +46,6 @@ impl ALPArray {
         let length = encoded.len();
 
         let mut children = Vec::with_capacity(2);
-        children.push(encoded);
         if let Some(patches) = &patches {
             children.push(patches.indices().clone());
             children.push(patches.values().clone());

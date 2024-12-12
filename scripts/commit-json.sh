@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -Eeu -o pipefail -x
+
 commit_id=$GITHUB_SHA
 commit_title=$(git log -1 --pretty=%B $GITHUB_SHA | head -n 1)
 commit_timestamp=$(git log -1 --format=%cd --date=iso-strict $GITHUB_SHA)
