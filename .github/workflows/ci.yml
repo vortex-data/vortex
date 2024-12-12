@@ -88,7 +88,7 @@ jobs:
         run: cargo doc --no-deps
 
   build-rust:
-    name: "Rust build matrix"
+    name: "Rust build (${{matrix.config.name}})"
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
