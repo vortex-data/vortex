@@ -67,12 +67,12 @@ clap = "4.5.13"
 compio = "0.13"
 criterion = { version = "0.5.1", features = ["html_reports"] }
 croaring = "2.1.0"
-datafusion = { version = "43.0.0", default-features = false, path = "../datafusion/datafusion/core" }
-datafusion-common = { version = "43.0.0", path = "../datafusion/datafusion/common" }
-datafusion-execution = { version = "43.0.0", path = "../datafusion/datafusion/execution" }
-datafusion-expr = { version = "43.0.0", path = "../datafusion/datafusion/expr" }
-datafusion-physical-expr = { version = "43.0.0", path = "../datafusion/datafusion/physical-expr" }
-datafusion-physical-plan = { version = "43.0.0", path = "../datafusion/datafusion/physical-plan" }
+datafusion = { version = "43.0.0", default-features = false, git = "https://github.com/apache/datafusion.git", rev = "refs/pull/13736/head" }
+datafusion-common = { version = "43.0.0", git = "https://github.com/apache/datafusion.git", rev = "refs/pull/13736/head" }
+datafusion-execution = { version = "43.0.0", git = "https://github.com/apache/datafusion.git", rev = "refs/pull/13736/head" }
+datafusion-expr = { version = "43.0.0", git = "https://github.com/apache/datafusion.git", rev = "refs/pull/13736/head" }
+datafusion-physical-expr = { version = "43.0.0", git = "https://github.com/apache/datafusion.git", rev = "refs/pull/13736/head" }
+datafusion-physical-plan = { version = "43.0.0", git = "https://github.com/apache/datafusion.git", rev = "refs/pull/13736/head" }
 divan = "0.1.14"
 enum-iterator = "2.0.0"
 enum-map = "2.7.3"
