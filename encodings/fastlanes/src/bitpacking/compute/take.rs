@@ -1,5 +1,4 @@
 use fastlanes::BitPacking;
-use itertools::Itertools;
 use vortex_array::array::PrimitiveArray;
 use vortex_array::compute::{take, try_cast, TakeFn};
 use vortex_array::variants::PrimitiveArrayTrait;
@@ -12,6 +11,7 @@ use vortex_dtype::{
 };
 use vortex_error::{VortexExpect as _, VortexResult};
 
+use crate::bitpacking::compute::filter::chunked_indices;
 use crate::{unpack_single_primitive, BitPackedArray, BitPackedEncoding};
 
 // assuming the buffer is already allocated (which will happen at most once) then unpacking
@@ -54,35 +54,30 @@ fn take_primitive<T: NativePType + BitPacking, I: NativePType>(
     let packed = array.packed_slice::<T>();
 
     // Group indices by 1024-element chunk, *without* allocating on the heap
-    let chunked_indices = &indices
-        .maybe_null_slice::<I>()
-        .iter()
-        .map(|i| {
-            i.to_usize()
-                .vortex_expect("index must be expressible as usize")
-                + offset
-        })
-        .chunk_by(|idx| idx / 1024);
+    let indices_iter = indices.maybe_null_slice::<I>().iter().map(|i| {
+        i.to_usize()
+            .vortex_expect("index must be expressible as usize")
+    });
 
     let mut output = Vec::with_capacity(indices.len());
     let mut unpacked = [T::zero(); 1024];
+    let chunk_len = 128 * bit_width / size_of::<T>();
 
-    for (chunk, offsets) in chunked_indices {
-        let chunk_size = 128 * bit_width / size_of::<T>();
-        let packed_chunk = &packed[chunk * chunk_size..][..chunk_size];
+    chunked_indices(indices_iter, offset, |chunk_idx, indices_within_chunk| {
+        let packed = &packed[chunk_idx * chunk_len..][..chunk_len];
 
         // array_chunks produced a fixed size array, doesn't heap allocate
         let mut have_unpacked = false;
-        let mut offset_chunk_iter = offsets
-            // relativize indices to the start of the chunk
-            .map(|i| i % 1024)
+        let mut offset_chunk_iter = indices_within_chunk
+            .iter()
+            .copied()
             .array_chunks::<UNPACK_CHUNK_THRESHOLD>();
 
         // this loop only runs if we have at least UNPACK_CHUNK_THRESHOLD offsets
         for offset_chunk in &mut offset_chunk_iter {
             if !have_unpacked {
                 unsafe {
-                    BitPacking::unchecked_unpack(bit_width, packed_chunk, &mut unpacked);
+                    BitPacking::unchecked_unpack(bit_width, packed, &mut unpacked);
                 }
                 have_unpacked = true;
             }
@@ -103,13 +98,11 @@ fn take_primitive<T: NativePType + BitPacking, I: NativePType>(
                 // we had fewer than UNPACK_CHUNK_THRESHOLD offsets in the first place,
                 // so we need to unpack each one individually
                 for index in remainder {
-                    output.push(unsafe {
-                        unpack_single_primitive::<T>(packed_chunk, bit_width, index)
-                    });
+                    output.push(unsafe { unpack_single_primitive::<T>(packed, bit_width, index) });
                 }
             }
         }
-    }
+    });
 
     if let Some(patches) = array
         .patches()
