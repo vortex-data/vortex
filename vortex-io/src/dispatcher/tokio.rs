@@ -116,7 +116,7 @@ impl Dispatch for TokioDispatcher {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "tokio"))]
 mod tests {
     use std::io::Write;
 
