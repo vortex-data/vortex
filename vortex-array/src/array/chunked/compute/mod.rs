@@ -31,6 +31,10 @@ impl ComputeVTable for ChunkedEncoding {
         Some(self)
     }
 
+    fn fill_null_fn(&self) -> Option<&dyn FillNullFn<ArrayData>> {
+        Some(self)
+    }
+
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
         Some(self)
     }
@@ -52,10 +56,6 @@ impl ComputeVTable for ChunkedEncoding {
     }
 
     fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
-        Some(self)
-    }
-
-    fn fill_null_fn(&self) -> Option<&dyn FillNullFn<ArrayData>> {
         Some(self)
     }
 }

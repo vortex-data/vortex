@@ -69,6 +69,13 @@ pub trait ComputeVTable {
         None
     }
 
+    /// Fill null values with given desired value. Resulting array is NonNullable
+    ///
+    /// See: [FillNullFn]
+    fn fill_null_fn(&self) -> Option<&dyn FillNullFn<ArrayData>> {
+        None
+    }
+
     /// Filter an array with a given mask.
     ///
     /// See: [FilterFn].
@@ -130,13 +137,6 @@ pub trait ComputeVTable {
     ///
     /// See: [TakeFn].
     fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
-        None
-    }
-
-    /// Fill null values with given desired value. Resulting array is NonNullable
-    ///
-    /// See: [FillNullFn]
-    fn fill_null_fn(&self) -> Option<&dyn FillNullFn<ArrayData>> {
         None
     }
 }
