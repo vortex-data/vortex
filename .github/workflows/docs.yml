@@ -29,5 +29,10 @@ jobs:
 
           rm -rf docs/_build/html/rust/CACHETAG.DIR docs/_build/html/rust/debug
 
-          mv docs/_build/html /tmp/docs
-          tar --auto-compress --strip-components 1 -cf docs.tgz /tmp/docs
+          mkdir /tmp/html
+          mv docs/_build/html /tmp/html/docs
+
+          mkdir -p /tmp/html/dev
+          mv benchmarks-website /tmp/html/dev/bench
+
+          tar -cf docs.tgz --auto-compress --strip-components 3 /tmp/html
