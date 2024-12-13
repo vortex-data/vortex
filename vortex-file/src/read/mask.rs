@@ -209,6 +209,11 @@ impl RowMask {
         }
         RowMask::try_new(self.mask, self.begin - offset, self.end - offset)
     }
+
+    // Get the true count of the underlying mask.
+    pub fn true_count(&self) -> usize {
+        self.mask.true_count()
+    }
 }
 
 #[cfg(test)]

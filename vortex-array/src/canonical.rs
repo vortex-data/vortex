@@ -193,39 +193,46 @@ fn primitive_to_arrow(primitive_array: PrimitiveArray) -> VortexResult<ArrayRef>
 }
 
 fn struct_to_arrow(struct_array: StructArray) -> VortexResult<ArrayRef> {
-    let field_arrays: Vec<ArrayRef> =
-        Iterator::zip(struct_array.names().iter(), struct_array.children())
-            .map(|(name, f)| {
-                f.into_canonical()
-                    .map_err(|err| {
-                        err.with_context(format!("Failed to canonicalize field {}", name))
-                    })
-                    .and_then(|c| c.into_arrow())
-            })
-            .collect::<VortexResult<Vec<_>>>()?;
-
-    let arrow_fields: Fields = struct_array
+    let field_arrays = struct_array
         .names()
         .iter()
-        .zip(field_arrays.iter())
-        .zip(struct_array.dtypes().iter())
-        .map(|((name, arrow_field), vortex_field)| {
-            Field::new(
-                &**name,
-                arrow_field.data_type().clone(),
-                vortex_field.is_nullable(),
-            )
+        .zip(struct_array.children())
+        .map(|(name, f)| {
+            f.into_canonical()
+                .map_err(|err| err.with_context(format!("Failed to canonicalize field {}", name)))
+                .and_then(|c| c.into_arrow())
         })
-        .map(Arc::new)
-        .collect();
+        .collect::<VortexResult<Vec<_>>>()?;
 
     let nulls = struct_array.logical_validity().to_null_buffer()?;
 
-    Ok(Arc::new(ArrowStructArray::try_new(
-        arrow_fields,
-        field_arrays,
-        nulls,
-    )?))
+    if field_arrays.is_empty() {
+        Ok(Arc::new(ArrowStructArray::new_empty_fields(
+            struct_array.len(),
+            nulls,
+        )))
+    } else {
+        let arrow_fields = struct_array
+            .names()
+            .iter()
+            .zip(field_arrays.iter())
+            .zip(struct_array.dtypes().iter())
+            .map(|((name, arrow_field), vortex_field)| {
+                Field::new(
+                    &**name,
+                    arrow_field.data_type().clone(),
+                    vortex_field.is_nullable(),
+                )
+            })
+            .map(Arc::new)
+            .collect::<Fields>();
+
+        Ok(Arc::new(ArrowStructArray::try_new(
+            arrow_fields,
+            field_arrays,
+            nulls,
+        )?))
+    }
 }
 
 // TODO(joe): unify with varbin

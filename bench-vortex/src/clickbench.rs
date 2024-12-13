@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, LazyLock};
 
 use arrow_schema::{DataType, Field, Schema, TimeUnit};
@@ -146,25 +146,10 @@ pub async fn register_vortex_files(
     input_path: &Path,
     schema: &Schema,
 ) -> anyhow::Result<()> {
-    let session2 = session.clone();
     let vortex_dir = input_path.join("vortex");
     create_dir_all(&vortex_dir).await?;
 
-    let format = Arc::new(VortexFormat::new(&CTX));
-    let table_path = vortex_dir
-        .to_str()
-        .ok_or_else(|| vortex_err!("Path is not valid UTF-8"))?;
-    let table_path = format!("file://{table_path}/");
-    let table_url = ListingTableUrl::parse(table_path)?;
-
-    let config = ListingTableConfig::new(table_url)
-        .with_listing_options(ListingOptions::new(format as _))
-        .with_schema(schema.clone().into());
-
-    let listing_table = Arc::new(ListingTable::try_new(config)?);
-    session2.register_table(table_name, listing_table as _)?;
-
-    let _paths: Vec<PathBuf> = stream::iter(0..100)
+    stream::iter(0..100)
         .map(|idx| {
             let parquet_file_path = input_path
                 .join("parquet")
@@ -247,6 +232,20 @@ pub async fn register_vortex_files(
         .buffered(16)
         .try_collect::<Vec<_>>()
         .await?;
+
+    let format = Arc::new(VortexFormat::new(&CTX));
+    let table_path = vortex_dir
+        .to_str()
+        .ok_or_else(|| vortex_err!("Path is not valid UTF-8"))?;
+    let table_path = format!("file://{table_path}/");
+    let table_url = ListingTableUrl::parse(table_path)?;
+
+    let config = ListingTableConfig::new(table_url)
+        .with_listing_options(ListingOptions::new(format as _))
+        .with_schema(schema.clone().into());
+
+    let listing_table = Arc::new(ListingTable::try_new(config)?);
+    session.register_table(table_name, listing_table as _)?;
 
     Ok(())
 }
