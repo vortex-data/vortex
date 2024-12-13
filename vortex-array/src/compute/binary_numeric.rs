@@ -45,7 +45,7 @@ pub fn add_scalar(lhs: impl AsRef<ArrayData>, rhs: Scalar) -> VortexResult<Array
     let lhs = lhs.as_ref();
     binary_numeric(
         lhs,
-        &ConstantArray::new(rhs.cast(lhs.dtype())?, lhs.len()).into_array(),
+        &ConstantArray::new(rhs, lhs.len()).into_array(),
         NumericOperator::Add,
     )
 }
@@ -60,7 +60,7 @@ pub fn sub_scalar(lhs: impl AsRef<ArrayData>, rhs: Scalar) -> VortexResult<Array
     let lhs = lhs.as_ref();
     binary_numeric(
         lhs,
-        &ConstantArray::new(rhs.cast(lhs.dtype())?, lhs.len()).into_array(),
+        &ConstantArray::new(rhs, lhs.len()).into_array(),
         NumericOperator::Sub,
     )
 }
@@ -75,7 +75,7 @@ pub fn mul_scalar(lhs: impl AsRef<ArrayData>, rhs: Scalar) -> VortexResult<Array
     let lhs = lhs.as_ref();
     binary_numeric(
         lhs,
-        &ConstantArray::new(rhs.cast(lhs.dtype())?, lhs.len()).into_array(),
+        &ConstantArray::new(rhs, lhs.len()).into_array(),
         NumericOperator::Mul,
     )
 }
@@ -90,7 +90,7 @@ pub fn div_scalar(lhs: impl AsRef<ArrayData>, rhs: Scalar) -> VortexResult<Array
     let lhs = lhs.as_ref();
     binary_numeric(
         lhs,
-        &ConstantArray::new(rhs.cast(lhs.dtype())?, lhs.len()).into_array(),
+        &ConstantArray::new(rhs, lhs.len()).into_array(),
         NumericOperator::Mul,
     )
 }
@@ -237,5 +237,13 @@ mod test {
         let values = vec![f32::MIN, 2.0, 3.0].into_array();
         let _results = sub_scalar(&values, 1.0f32.into()).unwrap();
         let _results = sub_scalar(&values, f32::MAX.into()).unwrap();
+    }
+
+    #[test]
+    fn test_scalar_subtract_type_mismatch_fails() {
+        let values = vec![1u64, 2, 3].into_array();
+        // Subtracting incompatible dtypes should fail
+        let _results =
+            sub_scalar(&values, 1.5f64.into()).expect_err("Expected type mismatch error");
     }
 }

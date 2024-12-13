@@ -125,7 +125,8 @@ impl SparseArray {
     #[inline]
     pub fn resolved_patches(&self) -> VortexResult<Patches> {
         let (len, indices, values) = self.patches().into_parts();
-        let indices = sub_scalar(indices, Scalar::from(self.indices_offset()))?;
+        let indices_offset = Scalar::from(self.indices_offset()).cast(indices.dtype())?;
+        let indices = sub_scalar(indices, indices_offset)?;
         Ok(Patches::new(len, indices, values))
     }
 
