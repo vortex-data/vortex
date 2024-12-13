@@ -29,6 +29,6 @@ jq --compact-output '.' <<EOF
     "message": "$commit_title",
     "timestamp": "$commit_timestamp",
     "tree_id": "$tree_id",
-    "url": "$repo_url/commit/$commit_id",
+    "url": "$repo_url/commit/$commit_id"
 }
 EOF

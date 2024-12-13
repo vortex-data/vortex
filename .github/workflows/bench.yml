@@ -23,8 +23,11 @@ jobs:
       - name: Upload Commit Metadata
         shell: bash
         run: |
+          set -Eeu -o pipefail -x
+
           sudo apt-get update && sudo apt-get install -y jq
-          bash scripts/cat-s3.sh vortex-benchmark-results-database commits.json <(bash scripts/commit-json.sh)
+          bash scripts/commit-json.sh > new-commit.json
+          bash scripts/cat-s3.sh vortex-benchmark-results-database commits.json new-commit.json
   bench:
     strategy:
       matrix:
