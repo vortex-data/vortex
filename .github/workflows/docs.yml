@@ -3,6 +3,7 @@ name: Python & Rust docs
 on:
   push:
     branches: [ develop ]
+    pull_request: {}
 
 permissions:
   actions: read
