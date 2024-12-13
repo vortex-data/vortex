@@ -160,7 +160,7 @@ fn arrow_numeric(
 mod test {
     use vortex_scalar::Scalar;
 
-    use crate::array::primitive::PrimitiveArray;
+    use crate::array::PrimitiveArray;
     use crate::compute::{scalar_at, sub_scalar};
     use crate::{ArrayLen as _, IntoArrayData, IntoCanonical};
 
