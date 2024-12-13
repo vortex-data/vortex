@@ -174,7 +174,6 @@ fn compute_funcs(encodings: &[ArrayData]) {
             "fill_forward",
             "filter",
             "scalar_at",
-            "scalar_numeric",
             "binary_numeric",
             "search_sorted",
             "slice",
