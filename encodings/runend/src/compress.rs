@@ -56,18 +56,18 @@ fn runend_encode_primitive<T: NativePType>(elements: &[T]) -> (Vec<u64>, Vec<T>)
     }
 
     // Run-end encode the values
-    let mut last = elements[0];
+    let mut prev = elements[0];
     let mut end = 1;
     for &e in elements.iter().skip(1) {
-        if e != last {
+        if e != prev {
             ends.push(end);
-            values.push(last);
+            values.push(prev);
         }
-        last = e;
+        prev = e;
         end += 1;
     }
     ends.push(end);
-    values.push(last);
+    values.push(prev);
 
     (ends, values)
 }
@@ -91,7 +91,7 @@ fn runend_encode_nullable_primitive<T: NativePType>(
     }
 
     // Run-end encode the values
-    let mut last = element_validity.value(0).then(|| elements[0]);
+    let mut prev = element_validity.value(0).then(|| elements[0]);
     let mut end = 1;
     for e in elements
         .iter()
@@ -99,32 +99,32 @@ fn runend_encode_nullable_primitive<T: NativePType>(
         .map(|(&e, is_valid)| is_valid.then_some(e))
         .skip(1)
     {
-        if e != last {
+        if e != prev {
             ends.push(end);
-            match last {
+            match prev {
                 None => {
                     validity.append(false);
                     values.push(T::default());
                 }
-                Some(l) => {
+                Some(p) => {
                     validity.append(true);
-                    values.push(l);
+                    values.push(p);
                 }
             }
         }
-        last = e;
+        prev = e;
         end += 1;
     }
     ends.push(end);
 
-    match last {
+    match prev {
         None => {
             validity.append(false);
             values.push(T::default());
         }
-        Some(l) => {
+        Some(p) => {
             validity.append(true);
-            values.push(l);
+            values.push(p);
         }
     }
 
