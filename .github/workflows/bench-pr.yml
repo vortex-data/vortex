@@ -87,7 +87,8 @@ jobs:
             > base.json
 
           echo '# Benchmarks: ${{ matrix.benchmark.id }}' > comment.md
-          python3 scripts/compare-benchmark-jsons.py base.json ${{ matrix.benchmark.id }}.json \
+          uv run pip install pandas
+          uv run python3 scripts/compare-benchmark-jsons.py base.json ${{ matrix.benchmark.id }}.json \
             >> comment.md
       - name: Comment PR
         uses: thollander/actions-comment-pull-request@v3
@@ -139,7 +140,8 @@ jobs:
             > base.json
 
           echo '# Benchmarks: TPC-H' > comment.md
-          python3 scripts/compare-benchmark-jsons.py base.json tpch.json \
+          uv run pip install pandas
+          uv run python3 scripts/compare-benchmark-jsons.py base.json tpch.json \
             >> comment.md
       - name: Comment PR
         uses: thollander/actions-comment-pull-request@v3
@@ -192,7 +194,8 @@ jobs:
             > base.json
 
           echo '# Benchmarks: Clickbench' > comment.md
-          python3 scripts/compare-benchmark-jsons.py base.json clickbench.json \
+          uv run pip install pandas
+          uv run python3 scripts/compare-benchmark-jsons.py base.json clickbench.json \
             >> comment.md
       - name: Comment PR
         uses: thollander/actions-comment-pull-request@v3
