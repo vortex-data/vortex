@@ -18,7 +18,7 @@ pub fn runend_encode(array: &PrimitiveArray) -> VortexResult<(PrimitiveArray, Ar
             // We can trivially return an all-null REE array
             return Ok((
                 PrimitiveArray::from(vec![array.len() as u64]),
-                ConstantArray::new(Scalar::null(array.dtype().clone()), array.len()).into_array(),
+                ConstantArray::new(Scalar::null(array.dtype().clone()), 1).into_array(),
             ));
         }
         Validity::Array(a) => Some(a.into_bool()?.boolean_buffer()),
@@ -302,6 +302,19 @@ mod test {
 
         assert_eq!(ends.maybe_null_slice::<u64>(), vec![2, 4, 5, 8, 10]);
         assert_eq!(values.maybe_null_slice::<i32>(), vec![1, 0, 2, 3, 0]);
+    }
+
+    #[test]
+    fn encode_all_null() {
+        let arr = PrimitiveArray::from_vec(
+            vec![0, 0, 0, 0, 0],
+            Validity::from(BooleanBuffer::new_unset(5)),
+        );
+        let (ends, values) = runend_encode(&arr).unwrap();
+        let values = values.into_primitive().unwrap();
+
+        assert_eq!(ends.maybe_null_slice::<u64>(), vec![5]);
+        assert_eq!(values.maybe_null_slice::<i32>(), vec![0]);
     }
 
     #[test]
