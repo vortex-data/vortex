@@ -9,7 +9,6 @@ mod cast;
 mod fill;
 mod filter;
 mod scalar_at;
-mod scalar_numeric;
 mod search_sorted;
 mod slice;
 mod take;
