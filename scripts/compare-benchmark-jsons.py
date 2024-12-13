@@ -1,5 +1,6 @@
-import pandas as pd
 import sys
+
+import pandas as pd
 
 base = pd.read_json(sys.argv[1], lines=True)
 pr = pd.read_json(sys.argv[2], lines=True)
