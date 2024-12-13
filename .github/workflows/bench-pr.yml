@@ -89,6 +89,7 @@ jobs:
           echo '# Benchmarks: ${{ matrix.benchmark.id }}' > comment.md
           echo '<details>' >> comment.md
           echo '<summary>Table of Results</summary>' >> comment.md
+          echo '' >> comment.md
           uv run python3 scripts/compare-benchmark-jsons.py base.json ${{ matrix.benchmark.id }}.json \
             >> comment.md
           echo '</details>' >> comment.md
@@ -144,6 +145,7 @@ jobs:
           echo '# Benchmarks: TPC-H' > comment.md
           echo '<details>' >> comment.md
           echo '<summary>Table of Results</summary>' >> comment.md
+          echo '' >> comment.md
           uv run python3 scripts/compare-benchmark-jsons.py base.json tpch.json \
             >> comment.md
           echo '</details>' >> comment.md
@@ -200,6 +202,7 @@ jobs:
           echo '# Benchmarks: Clickbench' > comment.md
           echo '<details>' >> comment.md
           echo '<summary>Table of Results</summary>' >> comment.md
+          echo '' >> comment.md
           uv run python3 scripts/compare-benchmark-jsons.py base.json clickbench.json \
             >> comment.md
           echo '</details>' >> comment.md
