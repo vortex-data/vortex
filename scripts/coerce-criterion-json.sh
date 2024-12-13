@@ -2,7 +2,7 @@
 
 set -Eeu -o pipefail -x
 
-commit_id=${GITHUB_HEAD_REF:-$GITHUB_SHA} # Prefer the PR tip SHA if this is a PR (not the merged SHA)
+commit_id=${GITHUB_SHA}
 
 jq --compact-output 'select(.reason == "benchmark-complete" or .reason == null)
     | if (.throughput | length) == 0
