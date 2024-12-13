@@ -23,7 +23,7 @@ impl CompareFn<ExtensionArray> for ExtensionEncoding {
         }
 
         // If the RHS is an extension array matching ours, we can extract the storage.
-        if let Some(rhs_ext) = ExtensionArray::maybe_from(rhs.clone()) {
+        if let Some(rhs_ext) = ExtensionArray::maybe_from(rhs) {
             return compare(lhs.storage(), rhs_ext.storage(), operator).map(Some);
         }
 

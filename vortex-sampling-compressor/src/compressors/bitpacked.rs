@@ -55,7 +55,7 @@ impl EncodingCompressor for BitPackedCompressor {
 
     fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {
         // Only support primitive arrays
-        let parray = PrimitiveArray::maybe_from(array.clone())?;
+        let parray = PrimitiveArray::maybe_from(array)?;
 
         // Only supports unsigned ints
         if !parray.ptype().is_unsigned_int() {

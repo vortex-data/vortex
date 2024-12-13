@@ -64,8 +64,9 @@ macro_rules! impl_encoding {
                 ///
                 /// Preferred in cases where a backtrace isn't needed, like when trying multiple encoding to go
                 /// down different code paths.
-                pub fn maybe_from(data: $crate::ArrayData) -> Option<Self> {
-                    (data.encoding().id() == <[<$Name Encoding>] as $crate::encoding::Encoding>::ID).then_some(Self(data))
+                pub fn maybe_from(data: impl AsRef<$crate::ArrayData>) -> Option<Self> {
+                    let data = data.as_ref();
+                    (data.encoding().id() == <[<$Name Encoding>] as $crate::encoding::Encoding>::ID).then_some(Self(data.clone()))
                 }
             }
 

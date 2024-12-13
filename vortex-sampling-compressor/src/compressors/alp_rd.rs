@@ -34,7 +34,7 @@ impl EncodingCompressor for ALPRDCompressor {
 
     fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {
         // Only support primitive arrays
-        let parray = PrimitiveArray::maybe_from(array.clone())?;
+        let parray = PrimitiveArray::maybe_from(array)?;
 
         // Only supports f32 and f64
         if !matches!(parray.ptype(), PType::F32 | PType::F64) {

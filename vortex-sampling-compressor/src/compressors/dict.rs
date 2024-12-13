@@ -54,13 +54,13 @@ impl EncodingCompressor for DictCompressor {
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
-        let (codes, values) = if let Some(p) = PrimitiveArray::maybe_from(array.clone()) {
+        let (codes, values) = if let Some(p) = PrimitiveArray::maybe_from(array) {
             let (codes, values) = dict_encode_primitive(&p);
             (codes.into_array(), values.into_array())
-        } else if let Some(vb) = VarBinArray::maybe_from(array.clone()) {
+        } else if let Some(vb) = VarBinArray::maybe_from(array) {
             let (codes, values) = dict_encode_varbin(&vb);
             (codes.into_array(), values.into_array())
-        } else if let Some(vb) = VarBinViewArray::maybe_from(array.clone()) {
+        } else if let Some(vb) = VarBinViewArray::maybe_from(array) {
             let (codes, values) = dict_encode_varbinview(&vb);
             (codes.into_array(), values.into_array())
         } else {

@@ -82,7 +82,7 @@ impl<W: VortexWrite> StreamArrayWriter<W> {
     }
 
     pub async fn write_array(self, array: ArrayData) -> VortexResult<Self> {
-        if let Some(chunked_array) = ChunkedArray::maybe_from(array.clone()) {
+        if let Some(chunked_array) = ChunkedArray::maybe_from(&array) {
             self.write_array_stream(chunked_array.array_stream()).await
         } else {
             self.write_array_stream(array.into_array_stream()).await
