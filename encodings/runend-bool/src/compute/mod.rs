@@ -3,7 +3,7 @@ mod invert;
 use vortex_array::array::BoolArray;
 use vortex_array::compute::{slice, ComputeVTable, InvertFn, ScalarAtFn, SliceFn, TakeFn};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
+use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::Scalar;
@@ -29,10 +29,10 @@ impl ComputeVTable for RunEndBoolEncoding {
 impl ScalarAtFn<RunEndBoolArray> for RunEndBoolEncoding {
     fn scalar_at(&self, array: &RunEndBoolArray, index: usize) -> VortexResult<Scalar> {
         let start = array.start();
-        Ok(Scalar::from(value_at_index(
-            array.find_physical_index(index)?,
-            start,
-        )))
+        Ok(Scalar::bool(
+            value_at_index(array.find_physical_index(index)?, start),
+            array.dtype().nullability(),
+        ))
     }
 }
 
@@ -90,9 +90,11 @@ impl SliceFn<RunEndBoolArray> for RunEndBoolEncoding {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::compute::slice;
+    use vortex_array::compute::{scalar_at, slice};
     use vortex_array::validity::Validity;
     use vortex_array::{ArrayLen, IntoArrayData};
+    use vortex_dtype::Nullability;
+    use vortex_scalar::Scalar;
 
     use crate::RunEndBoolArray;
 
@@ -109,5 +111,17 @@ mod tests {
 
         let re_slice = RunEndBoolArray::try_from(sliced_array).unwrap();
         assert!(re_slice.ends().is_empty());
+    }
+
+    #[test]
+    fn scalar_at_nullability() {
+        let re_array =
+            RunEndBoolArray::try_new(vec![7_u64, 10].into_array(), false, Validity::AllValid)
+                .unwrap();
+
+        assert_eq!(
+            scalar_at(&re_array, 0).unwrap(),
+            Scalar::bool(false, Nullability::Nullable)
+        );
     }
 }
