@@ -176,8 +176,8 @@ impl<'a> Layout<'a> {
     Layout { _tab: table }
   }
   #[allow(unused_mut)]
-  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
-    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
     args: &'args LayoutArgs<'args>
   ) -> flatbuffers::WIPOffset<Layout<'bldr>> {
     let mut builder = LayoutBuilder::new(_fbb);
@@ -263,11 +263,11 @@ impl<'a> Default for LayoutArgs<'a> {
   }
 }
 
-pub struct LayoutBuilder<'a: 'b, 'b> {
-  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+pub struct LayoutBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
   start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
 }
-impl<'a: 'b, 'b> LayoutBuilder<'a, 'b> {
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> LayoutBuilder<'a, 'b, A> {
   #[inline]
   pub fn add_encoding(&mut self, encoding: u16) {
     self.fbb_.push_slot::<u16>(Layout::VT_ENCODING, encoding, 0);
@@ -289,7 +289,7 @@ impl<'a: 'b, 'b> LayoutBuilder<'a, 'b> {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Layout::VT_METADATA, metadata);
   }
   #[inline]
-  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> LayoutBuilder<'a, 'b> {
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> LayoutBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     LayoutBuilder {
       fbb_: _fbb,
@@ -350,8 +350,8 @@ impl<'a> Postscript<'a> {
     Postscript { _tab: table }
   }
   #[allow(unused_mut)]
-  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
-    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
     args: &'args PostscriptArgs
   ) -> flatbuffers::WIPOffset<Postscript<'bldr>> {
     let mut builder = PostscriptBuilder::new(_fbb);
@@ -404,11 +404,11 @@ impl<'a> Default for PostscriptArgs {
   }
 }
 
-pub struct PostscriptBuilder<'a: 'b, 'b> {
-  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+pub struct PostscriptBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
   start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
 }
-impl<'a: 'b, 'b> PostscriptBuilder<'a, 'b> {
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> PostscriptBuilder<'a, 'b, A> {
   #[inline]
   pub fn add_schema_offset(&mut self, schema_offset: u64) {
     self.fbb_.push_slot::<u64>(Postscript::VT_SCHEMA_OFFSET, schema_offset, 0);
@@ -418,7 +418,7 @@ impl<'a: 'b, 'b> PostscriptBuilder<'a, 'b> {
     self.fbb_.push_slot::<u64>(Postscript::VT_LAYOUT_OFFSET, layout_offset, 0);
   }
   #[inline]
-  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> PostscriptBuilder<'a, 'b> {
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> PostscriptBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     PostscriptBuilder {
       fbb_: _fbb,
@@ -501,13 +501,13 @@ pub unsafe fn size_prefixed_root_as_postscript_unchecked(buf: &[u8]) -> Postscri
   flatbuffers::size_prefixed_root_unchecked::<Postscript>(buf)
 }
 #[inline]
-pub fn finish_postscript_buffer<'a, 'b>(
-    fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+pub fn finish_postscript_buffer<'a, 'b, A: flatbuffers::Allocator + 'a>(
+    fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
     root: flatbuffers::WIPOffset<Postscript<'a>>) {
   fbb.finish(root, None);
 }
 
 #[inline]
-pub fn finish_size_prefixed_postscript_buffer<'a, 'b>(fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>, root: flatbuffers::WIPOffset<Postscript<'a>>) {
+pub fn finish_size_prefixed_postscript_buffer<'a, 'b, A: flatbuffers::Allocator + 'a>(fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>, root: flatbuffers::WIPOffset<Postscript<'a>>) {
   fbb.finish_size_prefixed(root, None);
 }

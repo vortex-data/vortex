@@ -34,8 +34,8 @@ impl<'a> Scalar<'a> {
     Scalar { _tab: table }
   }
   #[allow(unused_mut)]
-  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
-    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
     args: &'args ScalarArgs<'args>
   ) -> flatbuffers::WIPOffset<Scalar<'bldr>> {
     let mut builder = ScalarBuilder::new(_fbb);
@@ -88,11 +88,11 @@ impl<'a> Default for ScalarArgs<'a> {
   }
 }
 
-pub struct ScalarBuilder<'a: 'b, 'b> {
-  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+pub struct ScalarBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
   start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
 }
-impl<'a: 'b, 'b> ScalarBuilder<'a, 'b> {
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> ScalarBuilder<'a, 'b, A> {
   #[inline]
   pub fn add_dtype(&mut self, dtype: flatbuffers::WIPOffset<DType<'b >>) {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<DType>>(Scalar::VT_DTYPE, dtype);
@@ -102,7 +102,7 @@ impl<'a: 'b, 'b> ScalarBuilder<'a, 'b> {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<ScalarValue>>(Scalar::VT_VALUE, value);
   }
   #[inline]
-  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> ScalarBuilder<'a, 'b> {
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> ScalarBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     ScalarBuilder {
       fbb_: _fbb,
@@ -149,8 +149,8 @@ impl<'a> ScalarValue<'a> {
     ScalarValue { _tab: table }
   }
   #[allow(unused_mut)]
-  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
-    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
     args: &'args ScalarValueArgs<'args>
   ) -> flatbuffers::WIPOffset<ScalarValue<'bldr>> {
     let mut builder = ScalarValueBuilder::new(_fbb);
@@ -192,17 +192,17 @@ impl<'a> Default for ScalarValueArgs<'a> {
   }
 }
 
-pub struct ScalarValueBuilder<'a: 'b, 'b> {
-  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+pub struct ScalarValueBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
   start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
 }
-impl<'a: 'b, 'b> ScalarValueBuilder<'a, 'b> {
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> ScalarValueBuilder<'a, 'b, A> {
   #[inline]
   pub fn add_flex(&mut self, flex: flatbuffers::WIPOffset<flatbuffers::Vector<'b , u8>>) {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(ScalarValue::VT_FLEX, flex);
   }
   #[inline]
-  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> ScalarValueBuilder<'a, 'b> {
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> ScalarValueBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     ScalarValueBuilder {
       fbb_: _fbb,
@@ -285,13 +285,13 @@ pub unsafe fn size_prefixed_root_as_scalar_unchecked(buf: &[u8]) -> Scalar {
   flatbuffers::size_prefixed_root_unchecked::<Scalar>(buf)
 }
 #[inline]
-pub fn finish_scalar_buffer<'a, 'b>(
-    fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+pub fn finish_scalar_buffer<'a, 'b, A: flatbuffers::Allocator + 'a>(
+    fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
     root: flatbuffers::WIPOffset<Scalar<'a>>) {
   fbb.finish(root, None);
 }
 
 #[inline]
-pub fn finish_size_prefixed_scalar_buffer<'a, 'b>(fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>, root: flatbuffers::WIPOffset<Scalar<'a>>) {
+pub fn finish_size_prefixed_scalar_buffer<'a, 'b, A: flatbuffers::Allocator + 'a>(fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>, root: flatbuffers::WIPOffset<Scalar<'a>>) {
   fbb.finish_size_prefixed(root, None);
 }
