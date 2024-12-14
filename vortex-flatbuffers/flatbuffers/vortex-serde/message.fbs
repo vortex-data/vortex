@@ -9,32 +9,10 @@ enum Compression: uint8 {
     None = 0,
 }
 
-table Schema {
-    dtype: DType;
-}
-
-struct Buffer {
-    offset: uint64;
-    padding: uint16;
-    compression: Compression;
-}
-
-table Batch {
-    array: Array;
-    length: uint64;
-    buffers: [Buffer];
-    buffer_size: uint64;
-}
-
-table Page {
-    buffer_size: uint32;
-    padding: uint16;
-}
-
 union MessageHeader {
-    Schema,
-    Batch,
-    Page,
+    ArrayData,
+    Buffer,
+    DType,
 }
 
 table Message {

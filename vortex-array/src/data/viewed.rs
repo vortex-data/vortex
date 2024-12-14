@@ -105,7 +105,11 @@ impl ViewedArrayData {
 
     pub fn buffer(&self) -> Option<&Buffer> {
         self.flatbuffer()
-            .buffer_index()
+            .buffers()
+            .and_then(|buffers| {
+                assert!(buffers.len() <= 1, "Array: expected at most one buffer");
+                (buffers.len() > 0).then(|| buffers.get(0) as usize)
+            })
             .map(|idx| &self.buffers[usize::try_from(idx).vortex_unwrap()])
     }
 }

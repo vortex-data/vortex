@@ -18,10 +18,12 @@ dtype = []
 scalar = ["dtype"]
 array = ["dtype", "scalar"]
 ipc = ["array"]
-file = ["ipc"]
+file = ["array", "layout"]
+layout = []
 
 [dependencies]
 flatbuffers = { workspace = true }
+vortex-buffer = { workspace = true }
 
 [lints]
 workspace = true
