@@ -63,7 +63,8 @@ impl<W: VortexWrite> MessageWriter<W> {
     }
 
     pub async fn write_array(&mut self, array: ArrayData) -> io::Result<()> {
-        self.write_message(IPCMessage::Array(array.clone())).await?;
+        self.write_message(IPCMessage::Array(array.clone().into()))
+            .await?;
 
         for array in array.depth_first_traversal() {
             if let Some(buffer) = array.buffer() {
