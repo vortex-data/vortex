@@ -114,13 +114,13 @@ impl<R: VortexReadAt> MessageReader<R> {
         ctx: Arc<Context>,
         dtype: DType,
     ) -> VortexResult<Option<ArrayData>> {
-        let all_buffers_size: usize = match self.peek().and_then(|m| m.header_as_array_data()) {
+        let all_buffers_size = match self.peek().and_then(|m| m.header_as_array_data()) {
             None => return Ok(None),
             Some(array_data) => array_data
                 .buffers()
                 .unwrap_or_default()
                 .iter()
-                .map(|b| b.length() as usize + (b.padding() as usize))
+                .map(|b| b.length() + (b.padding() as u64))
                 .sum(),
         };
 
@@ -129,7 +129,7 @@ impl<R: VortexReadAt> MessageReader<R> {
         ));
 
         // Issue a single read to grab all buffers
-        let all_buffers = self.read.read_bytes(all_buffers_size as u64).await?;
+        let all_buffers = self.read.read_bytes(all_buffers_size).await?;
 
         if array_reader.read(all_buffers)?.is_some() {
             unreachable!("This is an implementation bug")
@@ -285,7 +285,11 @@ impl ArrayMessageReader {
 
                 self.fb_msg = Some(Buffer::from(bytes));
                 self.state = ReadState::ReadingBuffers;
-                Ok(Some(buffers_size as usize))
+                Ok(Some(
+                    buffers_size
+                        .try_into()
+                        .vortex_expect("Cannot cast to usize"),
+                ))
             }
             ReadState::ReadingBuffers => {
                 // Split out into individual buffers
@@ -298,7 +302,12 @@ impl ArrayMessageReader {
                     .iter()
                     .map(|buffer| {
                         // Grab the buffer
-                        let data_buffer = bytes.split_to(buffer.length() as usize);
+                        let data_buffer = bytes.split_to(
+                            buffer
+                                .length()
+                                .try_into()
+                                .vortex_expect("Buffer size does not fit into usize"),
+                        );
                         // Strip off any padding from the previous buffer
                         bytes.advance(buffer.padding() as usize);
                         Buffer::from(data_buffer)

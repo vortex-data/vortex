@@ -5,7 +5,7 @@ use enum_iterator::all;
 use itertools::Itertools;
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{vortex_err, VortexExpect as _, VortexResult, VortexUnwrap};
+use vortex_error::{vortex_err, VortexExpect as _, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::encoding::opaque::OpaqueEncoding;
@@ -108,9 +108,9 @@ impl ViewedArrayData {
             .buffers()
             .and_then(|buffers| {
                 assert!(buffers.len() <= 1, "Array: expected at most one buffer");
-                (buffers.len() > 0).then(|| buffers.get(0) as usize)
+                (!buffers.is_empty()).then(|| buffers.get(0) as usize)
             })
-            .map(|idx| &self.buffers[usize::try_from(idx).vortex_unwrap()])
+            .map(|idx| &self.buffers[idx])
     }
 }
 

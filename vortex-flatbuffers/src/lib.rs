@@ -149,11 +149,6 @@ pub trait FlatBufferToBytes {
     /// Write the flatbuffer to a byte vector and return the vector along with the starting
     /// position of the flatbuffer in the vector.
     fn write_flatbuffer_bytes(&self) -> Buffer;
-
-    #[deprecated(
-        note = "Use `write_flatbuffer_bytes` instead. This method will be removed in a future release."
-    )]
-    fn with_flatbuffer_bytes<R, Fn: FnOnce(&[u8]) -> R>(&self, f: Fn) -> R;
 }
 
 impl<F: WriteFlatBuffer + FlatBufferRoot> FlatBufferToBytes for F {
@@ -165,12 +160,5 @@ impl<F: WriteFlatBuffer + FlatBufferRoot> FlatBufferToBytes for F {
         let (vec, start) = fbb.collapse();
         let end = vec.len();
         Buffer::from(vec).slice(start..end)
-    }
-
-    fn with_flatbuffer_bytes<R, Fn: FnOnce(&[u8]) -> R>(&self, f: Fn) -> R {
-        let mut fbb = FlatBufferBuilder::new();
-        let root_offset = self.write_flatbuffer(&mut fbb);
-        fbb.finish_minimal(root_offset);
-        f(fbb.finished_data())
     }
 }

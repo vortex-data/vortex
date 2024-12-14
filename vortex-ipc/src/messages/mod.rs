@@ -38,7 +38,7 @@ impl WriteFlatBuffer for IPCMessage {
                     fbb,
                     &fba::BufferArgs {
                         length: buffer.len() as u64,
-                        padding: padding as u16,
+                        padding: padding.try_into().vortex_expect("padding must fit in u16"),
                     },
                 )
                 .as_union_value()
@@ -82,12 +82,12 @@ impl WriteFlatBuffer for ArrayDataWriter<'_> {
         for array_data in self.array.depth_first_traversal() {
             if let Some(buffer) = array_data.buffer() {
                 let aligned_size = buffer.len().next_multiple_of(ALIGNMENT);
-                let padding = (aligned_size - buffer.len()) as u16;
+                let padding = aligned_size - buffer.len();
                 buffers.push(fba::Buffer::create(
                     fbb,
                     &fba::BufferArgs {
                         length: buffer.len() as u64,
-                        padding,
+                        padding: padding.try_into().vortex_expect("padding must fit in u16"),
                     },
                 ));
             }
@@ -154,7 +154,7 @@ impl WriteFlatBuffer for ArrayWriter<'_> {
             .array
             .buffer()
             .is_some()
-            .then(|| self.buffer_idx)
+            .then_some(self.buffer_idx)
             .map(|buffer_idx| fbb.create_vector_from_iter(std::iter::once(buffer_idx)));
 
         let stats = Some(self.array.statistics().write_flatbuffer(fbb));
