@@ -18,8 +18,7 @@ dtype = []
 scalar = ["dtype"]
 array = ["dtype", "scalar"]
 ipc = ["array"]
-file = ["array", "layout"]
-layout = []
+file = ["ipc"]
 
 [dependencies]
 flatbuffers = { workspace = true }
