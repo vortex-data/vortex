@@ -76,6 +76,7 @@ impl SplitsAccumulator {
         Self { splits, row_mask }
     }
 
+    /// Add more splits into the accumulator
     pub fn append_splits(&mut self, mut other: BTreeSet<usize>) {
         self.splits.append(&mut other);
     }
@@ -86,6 +87,7 @@ impl IntoIterator for SplitsAccumulator {
 
     type IntoIter = SplitsIntoIter;
 
+    /// Creates an iterator of row masks to be read from the underlying file.
     fn into_iter(self) -> Self::IntoIter {
         let ranges = Box::new(self.splits.into_iter().tuple_windows::<(usize, usize)>());
         SplitsIntoIter {
