@@ -70,7 +70,8 @@ impl MessageEncoder {
                     if let Some(buffer) = child.buffer() {
                         let end_excl_padding = self.pos + buffer.len();
                         let end_incl_padding = end_excl_padding.next_multiple_of(self.alignment);
-                        let padding = (end_incl_padding - end_excl_padding) as u16;
+                        let padding = u16::try_from(end_incl_padding - end_excl_padding)
+                            .vortex_expect("We know padding fits into u16");
                         fb_buffers.push(fba::Buffer::create(
                             &mut fbb,
                             &fba::BufferArgs {
@@ -98,7 +99,8 @@ impl MessageEncoder {
             }
             EncoderMessage::Buffer(buffer) => {
                 let end_incl_padding = buffer.len().next_multiple_of(self.alignment);
-                let padding = (end_incl_padding - buffer.len()) as u16;
+                let padding = u16::try_from(end_incl_padding - buffer.len())
+                    .vortex_expect("We know padding fits into u16");
                 buffers.push(buffer.clone());
                 if padding > 0 {
                     buffers.push(self.zeros.slice(0..usize::from(padding)));
@@ -137,7 +139,9 @@ impl MessageEncoder {
         let fbv_len = fbv.len();
         let fb_buffer = Buffer::from(fbv).slice(pos..fbv_len);
 
-        buffers[0] = Buffer::from((fb_buffer.len() as u32).to_le_bytes().to_vec());
+        let fb_buffer_len = u32::try_from(fb_buffer.len())
+            .vortex_expect("IPC flatbuffer headers must fit into u32 bytes");
+        buffers[0] = Buffer::from(fb_buffer_len.to_le_bytes().to_vec());
         buffers[1] = fb_buffer;
 
         // Update the write cursor.

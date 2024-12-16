@@ -60,10 +60,10 @@ impl ArrayParts {
 #[derive(Default)]
 enum State {
     #[default]
-    ReadingLength,
-    ReadingHeader(usize),
-    ReadingArray(ReadingArray),
-    ReadingBuffer(ReadingBuffer),
+    Length,
+    Header(usize),
+    Array(ReadingArray),
+    Buffer(ReadingBuffer),
 }
 
 struct ReadingArray {
@@ -93,15 +93,15 @@ impl MessageDecoder {
     /// of bytes needed. The next call to read_next _should_ provide at least this number of bytes.
     pub fn read_next(&mut self, bytes: &mut BytesMut) -> VortexResult<NextMessage> {
         match &self.state {
-            State::ReadingLength => {
+            State::Length => {
                 if bytes.len() < 4 {
                     return Ok(NextMessage::NeedMore(4));
                 }
                 let msg_length = bytes.get_u32_le();
-                self.state = State::ReadingHeader(msg_length as usize);
+                self.state = State::Header(msg_length as usize);
                 Ok(NextMessage::NeedMore(msg_length as usize))
             }
-            State::ReadingHeader(msg_length) => {
+            State::Header(msg_length) => {
                 if bytes.len() < *msg_length {
                     return Ok(NextMessage::NeedMore(*msg_length));
                 }
@@ -127,7 +127,7 @@ impl MessageDecoder {
                         let buffers_length = usize::try_from(buffers_length)
                             .map_err(|_| vortex_err!("buffers length is too large for usize"))?;
 
-                        self.state = State::ReadingArray(ReadingArray {
+                        self.state = State::Array(ReadingArray {
                             header: Buffer::from(msg_bytes.split().freeze()),
                             buffers_length,
                         });
@@ -135,10 +135,11 @@ impl MessageDecoder {
                     }
                     MessageHeader::Buffer => {
                         let buffer = msg.header_as_buffer().vortex_expect("buffer header");
-                        let length = buffer.length() as usize;
+                        let length = usize::try_from(buffer.length())
+                            .vortex_expect("Buffer length is too large for usize");
                         let length_with_padding = length + buffer.padding() as usize;
 
-                        self.state = State::ReadingBuffer(ReadingBuffer {
+                        self.state = State::Buffer(ReadingBuffer {
                             length,
                             length_with_padding,
                         });
@@ -147,7 +148,7 @@ impl MessageDecoder {
                     MessageHeader::DType => {
                         let dtype = msg.header_as_dtype().vortex_expect("dtype header");
 
-                        self.state = State::ReadingLength;
+                        self.state = State::Length;
                         Ok(NextMessage::Some(DecoderMessage::DType(DType::try_from(
                             dtype,
                         )?)))
@@ -157,7 +158,7 @@ impl MessageDecoder {
                     }
                 }
             }
-            State::ReadingBuffer(ReadingBuffer {
+            State::Buffer(ReadingBuffer {
                 length,
                 length_with_padding,
             }) => {
@@ -168,10 +169,10 @@ impl MessageDecoder {
                 let buffer = bytes.split_to(*length);
                 let msg = DecoderMessage::Buffer(Buffer::from(buffer.freeze()));
                 let _padding = bytes.split_to(length_with_padding - length);
-                self.state = State::ReadingLength;
+                self.state = State::Length;
                 Ok(NextMessage::Some(msg))
             }
-            State::ReadingArray(ReadingArray {
+            State::Array(ReadingArray {
                 header,
                 buffers_length,
             }) => {
@@ -194,7 +195,9 @@ impl MessageDecoder {
                     .unwrap_or_default()
                     .iter()
                     .map(|buffer_msg| {
-                        let buffer = all_buffers.split_to(buffer_msg.length() as usize);
+                        let buffer_len = usize::try_from(buffer_msg.length())
+                            .vortex_expect("buffer length is too large for usize");
+                        let buffer = all_buffers.split_to(buffer_len);
                         let _padding = all_buffers.split_to(buffer_msg.padding() as usize);
                         Buffer::from(buffer.freeze())
                     })
@@ -205,11 +208,11 @@ impl MessageDecoder {
 
                 let msg = DecoderMessage::Array(ArrayParts {
                     row_count,
-                    array_flatbuffer: Buffer::from(header.clone()),
+                    array_flatbuffer: header.clone(),
                     array_flatbuffer_loc: array_msg._tab.loc(),
                     buffers,
                 });
-                self.state = State::ReadingLength;
+                self.state = State::Length;
                 Ok(NextMessage::Some(msg))
             }
         }

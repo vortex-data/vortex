@@ -114,7 +114,7 @@ impl<R: AsyncRead + Unpin> Stream for IPCArrayStream<R> {
                         Err(e) => return Poll::Ready(Some(Err(e.into()))),
                     }
                 }
-                Err(e) => return Poll::Ready(Some(Err(e.into()))),
+                Err(e) => return Poll::Ready(Some(Err(e))),
             }
         }
     }
@@ -134,7 +134,7 @@ impl<S: ArrayStream + 'static> ArrayStreamIntoIPC for S {
     {
         ArrayStreamIntoIPCBytes {
             stream: Box::pin(self),
-            encoder: MessageEncoder::new(ALIGNMENT as u16),
+            encoder: MessageEncoder::new(ALIGNMENT),
             buffers: vec![],
             written_dtype: false,
         }

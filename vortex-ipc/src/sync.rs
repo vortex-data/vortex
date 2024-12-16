@@ -103,7 +103,7 @@ impl<R: Read> Iterator for IPCArrayIterator<R> {
                         Err(e) => return Some(Err(e.into())),
                     }
                 }
-                Err(e) => return Some(Err(e.into())),
+                Err(e) => return Some(Err(e)),
             }
         }
     }
@@ -123,7 +123,7 @@ impl<I: ArrayIterator + 'static> ArrayIteratorIntoIPC for I {
     {
         ArrayIteratorIntoIPCBytes {
             inner: Box::new(self),
-            encoder: MessageEncoder::new(ALIGNMENT as u16),
+            encoder: MessageEncoder::new(ALIGNMENT),
             buffers: vec![],
             written_dtype: false,
         }
