@@ -118,7 +118,7 @@ impl<S: ArrayStream + 'static> ArrayStreamIntoIPC for S {
     {
         let mut stream = self.into_ipc_bytes();
         while let Some(chunk) = stream.next().await {
-            write.write_all(&chunk?.as_slice()).await?;
+            write.write_all(chunk?.as_slice()).await?;
         }
         Ok(())
     }
@@ -221,7 +221,6 @@ mod test {
             .unwrap()
             .into_primitive()
             .unwrap();
-        println!("{:?}", result);
         assert_eq!(
             array.maybe_null_slice::<i32>(),
             result.maybe_null_slice::<i32>()

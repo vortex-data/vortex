@@ -17,9 +17,7 @@ impl Display for ByteRange {
 
 impl ByteRange {
     pub fn new(begin: u64, end: u64) -> Self {
-        if begin >= end {
-            panic!("Buffer begin must be before its end");
-        }
+        assert!(begin < end, "Buffer begin must be before its end");
         Self { begin, end }
     }
 
@@ -31,7 +29,7 @@ impl ByteRange {
         self.begin == self.end
     }
 
-    pub fn to_range(&self) -> Range<usize> {
+    pub fn as_range(&self) -> Range<usize> {
         Range {
             // TODO(ngates): this cast is unsafe and can panic
             start: self.begin.try_into().vortex_unwrap(),

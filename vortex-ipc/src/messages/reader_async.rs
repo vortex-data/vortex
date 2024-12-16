@@ -35,7 +35,7 @@ impl<R: AsyncRead + Unpin> Stream for AsyncMessageReader<R> {
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
         loop {
-            match this.decoder.read_next(&mut this.buffer)? {
+            match this.decoder.read_next(this.buffer)? {
                 NextMessage::Some(msg) => return Poll::Ready(Some(Ok(msg))),
                 NextMessage::NeedMore(nbytes) => {
                     this.buffer.resize(nbytes, 0x00);
