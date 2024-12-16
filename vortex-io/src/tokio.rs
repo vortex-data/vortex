@@ -11,8 +11,7 @@ use tokio::io::{AsyncWrite, AsyncWriteExt};
 use vortex_buffer::io_buf::IoBuf;
 use vortex_error::VortexUnwrap;
 
-use crate::aligned::AlignedBytesMut;
-use crate::{VortexReadAt, VortexWrite, ALIGNMENT};
+use crate::{VortexBytesMut, VortexReadAt, VortexWrite};
 
 pub struct TokioAdapter<IO>(pub IO);
 
@@ -70,8 +69,7 @@ impl VortexReadAt for TokioFile {
     ) -> impl Future<Output = io::Result<Bytes>> + 'static {
         let this = self.clone();
 
-        let mut buffer =
-            AlignedBytesMut::<ALIGNMENT>::with_capacity(len.try_into().vortex_unwrap());
+        let mut buffer = VortexBytesMut::with_capacity(len.try_into().vortex_unwrap());
         unsafe {
             buffer.set_len(len.try_into().vortex_unwrap());
         }

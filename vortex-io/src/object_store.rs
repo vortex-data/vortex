@@ -12,8 +12,7 @@ use vortex_buffer::io_buf::IoBuf;
 use vortex_buffer::Buffer;
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
 
-use crate::aligned::AlignedBytesMut;
-use crate::{VortexBufReader, VortexReadAt, VortexWrite, ALIGNMENT};
+use crate::{VortexBufReader, VortexBytesMut, VortexReadAt, VortexWrite};
 
 pub trait ObjectStoreExt {
     fn vortex_read(
@@ -81,8 +80,7 @@ impl VortexReadAt for ObjectStoreReadAt {
             let read_start: usize = pos.try_into().vortex_expect("pos");
             let read_end: usize = (pos + len).try_into().vortex_expect("pos + len");
 
-            let mut buf =
-                AlignedBytesMut::<ALIGNMENT>::with_capacity(len.try_into().vortex_unwrap());
+            let mut buf = VortexBytesMut::with_capacity(len.try_into().vortex_unwrap());
 
             let response = object_store
                 .get_opts(

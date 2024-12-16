@@ -35,3 +35,5 @@ mod write;
 
 /// Required alignment for all custom buffer allocations.
 pub const ALIGNMENT: usize = 64;
+
+pub type VortexBytesMut = aligned::AlignedBytesMut<ALIGNMENT>;

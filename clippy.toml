@@ -5,3 +5,8 @@ disallowed-types = [
     "std::collections::HashMap",
     "std::collections::HashSet",
 ]
+disallowed-methods = [
+    # Instead, use vortex-io::AlignedBytesMut
+    "bytes::BytesMut::new",
+    "bytes::BytesMut::with_capacity",
+]

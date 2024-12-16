@@ -9,7 +9,7 @@ use compio::BufResult;
 use vortex_error::VortexUnwrap;
 
 use crate::aligned::{AlignedBytesMut, PowerOfTwo};
-use crate::{VortexReadAt, ALIGNMENT};
+use crate::{VortexBytesMut, VortexReadAt};
 
 unsafe impl<const ALIGN: usize> IoBuf for AlignedBytesMut<ALIGN>
 where
@@ -59,7 +59,7 @@ impl VortexReadAt for File {
         len: u64,
     ) -> impl Future<Output = io::Result<Bytes>> + 'static {
         let this = self.clone();
-        let buffer = AlignedBytesMut::<ALIGNMENT>::with_capacity(len.try_into().vortex_unwrap());
+        let buffer = VortexBytesMut::with_capacity(len.try_into().vortex_unwrap());
         async move {
             // Turn the buffer into a static slice.
             let BufResult(res, buffer) = this.read_exact_at(buffer, pos).await;

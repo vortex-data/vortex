@@ -3,10 +3,27 @@ use std::io::{self, Cursor, Write};
 
 use vortex_buffer::io_buf::IoBuf;
 
+use crate::VortexBytesMut;
+
 pub trait VortexWrite {
     fn write_all<B: IoBuf>(&mut self, buffer: B) -> impl Future<Output = io::Result<B>>;
     fn flush(&mut self) -> impl Future<Output = io::Result<()>>;
     fn shutdown(&mut self) -> impl Future<Output = io::Result<()>>;
+}
+
+impl VortexWrite for VortexBytesMut {
+    fn write_all<B: IoBuf>(&mut self, buffer: B) -> impl Future<Output = io::Result<B>> {
+        VortexBytesMut::extend_from_slice(self, buffer.as_slice());
+        ready(Ok(buffer))
+    }
+
+    fn flush(&mut self) -> impl Future<Output = io::Result<()>> {
+        ready(Ok(()))
+    }
+
+    fn shutdown(&mut self) -> impl Future<Output = io::Result<()>> {
+        ready(Ok(()))
+    }
 }
 
 impl VortexWrite for Vec<u8> {

@@ -29,16 +29,30 @@ mod sealed {
 ///
 /// It is required for the alignment to be a valid power of 2 <= 512, any other value will be
 /// a compile-time failure.
-pub(crate) struct AlignedBytesMut<const ALIGN: usize> {
+pub struct AlignedBytesMut<const ALIGN: usize> {
     buf: Vec<u8>,
     padding: usize,
     capacity: usize,
+}
+
+impl<const ALIGN: usize> Default for AlignedBytesMut<ALIGN>
+where
+    usize: PowerOfTwo<ALIGN>,
+ {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<const ALIGN: usize> AlignedBytesMut<ALIGN>
 where
     usize: PowerOfTwo<ALIGN>,
 {
+    /// Allocate a new aligned mutable buffer.
+    pub fn new() -> Self {
+        Self::with_capacity(0)
+    }
+
     /// Allocate a new mutable buffer with capacity to hold at least `capacity` bytes.
     ///
     /// The mutable buffer may allocate more than  the requested amount to pad the memory for

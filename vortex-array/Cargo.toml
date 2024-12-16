@@ -53,6 +53,7 @@ vortex-datetime-dtype = { workspace = true }
 vortex-dtype = { workspace = true, features = ["flatbuffers", "serde"] }
 vortex-error = { workspace = true, features = ["flatbuffers", "flexbuffers"] }
 vortex-flatbuffers = { workspace = true, features = ["array"] }
+vortex-io = { workspace = true }
 vortex-scalar = { workspace = true, features = ["flatbuffers", "serde"] }
 
 [features]
