@@ -129,7 +129,7 @@ pub struct ArrayStreamIPCBytes {
 }
 
 impl ArrayStreamIPCBytes {
-    /// Collects the IPC bytes into a single Vec<u8> buffer.
+    /// Collects the IPC bytes into a single `Vec<u8>` buffer.
     pub async fn collect_to_buffer(mut self) -> VortexResult<Vec<u8>> {
         let mut buffer = vec![];
         while let Some(chunk) = self.next().await {

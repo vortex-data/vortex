@@ -110,7 +110,7 @@ pub struct ArrayIteratorIPCBytes {
 }
 
 impl ArrayIteratorIPCBytes {
-    /// Collects the IPC bytes into a single Vec<u8> buffer.
+    /// Collects the IPC bytes into a single `Vec<u8>` buffer.
     pub fn collect_to_buffer(self) -> VortexResult<Vec<u8>> {
         let mut buffer = vec![];
         for chunk in self {
