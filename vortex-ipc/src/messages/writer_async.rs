@@ -1,16 +1,15 @@
-use std::io::Write;
-
+use futures_util::{AsyncWrite, AsyncWriteExt};
 use vortex_error::VortexResult;
 
 use crate::messages::{EncoderMessage, MessageEncoder};
 use crate::ALIGNMENT;
 
-pub struct SyncMessageWriter<W> {
+pub struct AsyncMessageWriter<W> {
     write: W,
     encoder: MessageEncoder,
 }
 
-impl<W: Write> SyncMessageWriter<W> {
+impl<W: AsyncWrite + Unpin> AsyncMessageWriter<W> {
     pub fn new(write: W) -> Self {
         Self {
             write,
@@ -18,9 +17,9 @@ impl<W: Write> SyncMessageWriter<W> {
         }
     }
 
-    pub fn write_message(&mut self, message: EncoderMessage) -> VortexResult<()> {
+    pub async fn write_message(&mut self, message: EncoderMessage<'_>) -> VortexResult<()> {
         for buffer in self.encoder.encode(message) {
-            self.write.write_all(&buffer)?;
+            self.write.write_all(&buffer).await?;
         }
         Ok(())
     }
