@@ -145,14 +145,12 @@ pub trait WriteFlatBuffer {
     ) -> WIPOffset<Self::Target<'fb>>;
 }
 
-pub trait FlatBufferToBytes {
-    /// Write the flatbuffer to a byte vector and return the vector along with the starting
-    /// position of the flatbuffer in the vector.
+pub trait WriteFlatBufferExt: WriteFlatBuffer + FlatBufferRoot {
+    /// Write the flatbuffer into a [`Buffer`].
     fn write_flatbuffer_bytes(&self) -> Buffer;
 }
 
-impl<F: WriteFlatBuffer + FlatBufferRoot> FlatBufferToBytes for F {
-    /// Write the flatbuffer into a [`vortex_buffer::Buffer`].
+impl<F: WriteFlatBuffer + FlatBufferRoot> WriteFlatBufferExt for F {
     fn write_flatbuffer_bytes(&self) -> Buffer {
         let mut fbb = FlatBufferBuilder::new();
         let root_offset = self.write_flatbuffer(&mut fbb);

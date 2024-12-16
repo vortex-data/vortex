@@ -259,7 +259,7 @@ mod test {
     use std::sync::Arc;
 
     use flatbuffers::root;
-    use vortex_flatbuffers::FlatBufferToBytes;
+    use vortex_flatbuffers::WriteFlatBufferExt;
 
     use crate::nullability::Nullability;
     use crate::{flatbuffers as fb, DType, PType, StructDType};

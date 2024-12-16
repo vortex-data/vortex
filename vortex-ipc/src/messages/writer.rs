@@ -8,7 +8,7 @@ use vortex_buffer::io_buf::IoBuf;
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_error::VortexUnwrap;
-use vortex_flatbuffers::{FlatBufferToBytes, WriteFlatBuffer};
+use vortex_flatbuffers::{WriteFlatBuffer, WriteFlatBufferExt};
 use vortex_io::VortexWrite;
 
 use crate::messages::IPCMessage;
