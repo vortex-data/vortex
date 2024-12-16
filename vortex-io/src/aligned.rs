@@ -38,7 +38,7 @@ pub struct AlignedBytesMut<const ALIGN: usize> {
 impl<const ALIGN: usize> Default for AlignedBytesMut<ALIGN>
 where
     usize: PowerOfTwo<ALIGN>,
- {
+{
     fn default() -> Self {
         Self::new()
     }
