@@ -12,7 +12,7 @@ use vortex_array::stream::ArrayStream;
 use vortex_array::{ArrayData, ArrayLen};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
-use vortex_flatbuffers::{FlatBufferRoot, FlatBufferToBytes, WriteFlatBuffer};
+use vortex_flatbuffers::{FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
 use vortex_io::VortexWrite;
 use vortex_ipc::messages::{EncoderMessage, MessageEncoder};
 use vortex_ipc::ALIGNMENT;
