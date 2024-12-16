@@ -6,6 +6,389 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## `vortex-datafusion` - [0.21.0](https://github.com/spiraldb/vortex/compare/vortex-datafusion-v0.20.0...vortex-datafusion-v0.21.0) - 2024-12-16
+
+### Added
+- Concurrent schema discovery for DataFusion (#1568)
+- add into_arrow to IntoCanonicalVTable (#1604)
+- Add uncompressed size stat for Vortex/Datafusion (#1512)
+- add clickbench benchmark (#1304)
+- Layout metadata reader and column statistics (#1455)
+
+### Fixed
+- Consistent metadata table column names for DataFusion stats (#1577)
+- Fix repartitioning regression (#1564)
+- Correct DataFusion repartitioning (#1554)
+- support stats for ExtensionArray in vortex-file (#1547)
+
+### Other
+- Cache initial reads in `VortexFormat` ([#1633](https://github.com/spiraldb/vortex/pull/1633))
+- Propagate size from datafusion to VortexReadBuilder ([#1636](https://github.com/spiraldb/vortex/pull/1636))
+- add an unsafe take_unchecked to TakeFn for bounds check ellision (#1611)
+- Fix partition count assertion  ([#1597](https://github.com/spiraldb/vortex/pull/1597))
+- Pass typed flat buffers into layout builders ([#1563](https://github.com/spiraldb/vortex/pull/1563))
+- DF repartition by file sizes instead of number of files ([#1572](https://github.com/spiraldb/vortex/pull/1572))
+- simplify MetadataFetcher to function (#1569)
+- cleanup in vortex-ipc & vortex-file (#1553)
+- cleanups to support wasm32-wasip1 target (#1528)
+- Like expression supports negated and case_sensitive arguments ([#1537](https://github.com/spiraldb/vortex/pull/1537))
+- Add file grouping-based repartitioning for DataFusion ([#1531](https://github.com/spiraldb/vortex/pull/1531))
+- Add LIKE operator ([#1525](https://github.com/spiraldb/vortex/pull/1525))
+- Variants VTable ([#1501](https://github.com/spiraldb/vortex/pull/1501))
+- Report stats to DataFusion ([#1506](https://github.com/spiraldb/vortex/pull/1506))
+
+## `vortex-roaring` - [0.21.0](https://github.com/spiraldb/vortex/compare/vortex-roaring-v0.20.0...vortex-roaring-v0.21.0) - 2024-12-16
+
+### Other
+- Stats are stored as Vec of tuples instead of enummap ([#1658](https://github.com/spiraldb/vortex/pull/1658))
+- cleanups to support wasm32-wasip1 target (#1528)
+- Variants VTable ([#1501](https://github.com/spiraldb/vortex/pull/1501))
+- Move invert from BoolArrayTrait to InvertFn ([#1490](https://github.com/spiraldb/vortex/pull/1490))
+- Flatten unary compute mod ([#1489](https://github.com/spiraldb/vortex/pull/1489))
+
+## `vortex-zigzag` - [0.21.0](https://github.com/spiraldb/vortex/compare/vortex-zigzag-v0.20.0...vortex-zigzag-v0.21.0) - 2024-12-16
+
+### Other
+- impl take_fn and filter_fn for ZigZag ([#1665](https://github.com/spiraldb/vortex/pull/1665))
+- Zigzag encode/decode reuses the underlying data vec ([#1638](https://github.com/spiraldb/vortex/pull/1638))
+- Variants VTable ([#1501](https://github.com/spiraldb/vortex/pull/1501))
+- Flatten unary compute mod ([#1489](https://github.com/spiraldb/vortex/pull/1489))
+
+## `vortex-runend-bool` - [0.21.0](https://github.com/spiraldb/vortex/compare/vortex-runend-bool-v0.20.0...vortex-runend-bool-v0.21.0) - 2024-12-16
+
+### Fixed
+- RunEndBool array take respects validity (#1684)
+- RunEndBool scalar_at respects array's nullability (#1683)
+- use search_sorted_usize when searching for indices (#1566)
+- Support slicing RunEndBool arrays to 0 elements (#1511)
+
+### Other
+- Stats are stored as Vec of tuples instead of enummap ([#1658](https://github.com/spiraldb/vortex/pull/1658))
+- add an unsafe take_unchecked to TakeFn for bounds check ellision (#1611)
+- cleanups to support wasm32-wasip1 target (#1528)
+- Variants VTable ([#1501](https://github.com/spiraldb/vortex/pull/1501))
+- Move invert from BoolArrayTrait to InvertFn ([#1490](https://github.com/spiraldb/vortex/pull/1490))
+- Flatten unary compute mod ([#1489](https://github.com/spiraldb/vortex/pull/1489))
+
+## `vortex-runend` - [0.21.0](https://github.com/spiraldb/vortex/compare/vortex-runend-v0.20.0...vortex-runend-v0.21.0) - 2024-12-16
+
+### Fixed
+- RunEnd array correctly encodes all null arrays (#1675)
+- RunEnd encoding doesn't skip first value when encoding nullable arrays (#1674)
+- use search_sorted_usize when searching for indices (#1566)
+- Support slicing RunEndBool arrays to 0 elements (#1511)
+- Fix slicing bug in RunEndArray (#1497)
+
+### Other
+- RunEnd compare produces canonical array (#1668)
+- RunEnd fill_null correctly reconstructs itself (#1666)
+- Run end fill null ([#1660](https://github.com/spiraldb/vortex/pull/1660))
+- Remove validity from run-end array ([#1630](https://github.com/spiraldb/vortex/pull/1630))
+- add an unsafe take_unchecked to TakeFn for bounds check ellision (#1611)
+- cleanups to support wasm32-wasip1 target (#1528)
+- Variants VTable ([#1501](https://github.com/spiraldb/vortex/pull/1501))
+- Move invert from BoolArrayTrait to InvertFn ([#1490](https://github.com/spiraldb/vortex/pull/1490))
+- Flatten unary compute mod ([#1489](https://github.com/spiraldb/vortex/pull/1489))
+
+## `vortex-fsst` - [0.21.0](https://github.com/spiraldb/vortex/compare/vortex-fsst-v0.20.0...vortex-fsst-v0.21.0) - 2024-12-16
+
+### Other
+- add an unsafe take_unchecked to TakeFn for bounds check ellision (#1611)
+- Ensure patches don't turn arrays nullable ([#1565](https://github.com/spiraldb/vortex/pull/1565))
+- cleanups to support wasm32-wasip1 target (#1528)
+- Narrow indices types during compression  ([#1558](https://github.com/spiraldb/vortex/pull/1558))
+- Remove with_dyn and ArrayDef ([#1503](https://github.com/spiraldb/vortex/pull/1503))
+- Variants VTable ([#1501](https://github.com/spiraldb/vortex/pull/1501))
+- Flatten unary compute mod ([#1489](https://github.com/spiraldb/vortex/pull/1489))
+
+## `vortex-sampling-compressor` - [0.21.0](https://github.com/spiraldb/vortex/compare/vortex-sampling-compressor-v0.20.0...vortex-sampling-compressor-v0.21.0) - 2024-12-16
+
+### Added
+- faster Patches::take & use patches in alp-rd & sparse (#1628)
+- consistently compress validity (#1544)
+
+### Fixed
+- SparseArray scalar_at was broken due to strict PValue PartialOrd (#1575)
+
+### Other
+- Cheaper `maybe_from` ([#1677](https://github.com/spiraldb/vortex/pull/1677))
+- Remove validity from run-end array ([#1630](https://github.com/spiraldb/vortex/pull/1630))
+- Fix regression in search_sorted when Patches replaced SparseArray ([#1624](https://github.com/spiraldb/vortex/pull/1624))
+- Cannot compress like logs are debug level ([#1620](https://github.com/spiraldb/vortex/pull/1620))
+- Patches Utility ([#1601](https://github.com/spiraldb/vortex/pull/1601))
+- cleanups to support wasm32-wasip1 target (#1528)
+- Add `maybe_from` function to help downcast ArrayData into a specific encoded array without potentially capturing a backtrace ([#1560](https://github.com/spiraldb/vortex/pull/1560))
+- Narrow indices types during compression  ([#1558](https://github.com/spiraldb/vortex/pull/1558))
+- ArrayNBytes includes size of arrays metadata ([#1549](https://github.com/spiraldb/vortex/pull/1549))
+- Revert "feat: consistently compress validity" ([#1551](https://github.com/spiraldb/vortex/pull/1551))
+- Added a list compressor ([#1536](https://github.com/spiraldb/vortex/pull/1536))
+- Add more click bench things ([#1530](https://github.com/spiraldb/vortex/pull/1530))
+- Remove with_dyn and ArrayDef ([#1503](https://github.com/spiraldb/vortex/pull/1503))
+
+## `vortex-ipc` - [0.21.0](https://github.com/spiraldb/vortex/compare/vortex-ipc-v0.20.0...vortex-ipc-v0.21.0) - 2024-12-16
+
+### Added
+- add into_arrow to IntoCanonicalVTable (#1604)
+
+### Other
+- IPC Message clean up ([#1686](https://github.com/spiraldb/vortex/pull/1686))
+- Cheaper `maybe_from` ([#1677](https://github.com/spiraldb/vortex/pull/1677))
+- add an unsafe take_unchecked to TakeFn for bounds check ellision (#1611)
+- cleanup in vortex-ipc & vortex-file (#1553)
+- cleanups to support wasm32-wasip1 target (#1528)
+- Add `maybe_from` function to help downcast ArrayData into a specific encoded array without potentially capturing a backtrace ([#1560](https://github.com/spiraldb/vortex/pull/1560))
+
+## `vortex-io` - [0.21.0](https://github.com/spiraldb/vortex/compare/vortex-io-v0.20.0...vortex-io-v0.21.0) - 2024-12-16
+
+### Added
+- coalesce multiple reads together and don't block on io if there's values available (#1466)
+- Layout metadata reader and column statistics (#1455)
+
+### Fixed
+- properly gate things by features & test for that (#1494)
+- regression for ObjectStoreReadAt (#1483)
+
+### Other
+- use cargo-hack and build all valid feature combos (#1653)
+- actually run with wasm32-unknown-unknown (#1648)
+- Hide underlying channel in the Dispatcher (#1585)
+- cleanups to support wasm32-wasip1 target (#1528)
+
+## `vortex-file` - [0.21.0](https://github.com/spiraldb/vortex/compare/vortex-file-v0.20.0...vortex-file-v0.21.0) - 2024-12-16
+
+### Added
+- Add fill_null compute function (#1590)
+- coalesce multiple reads together and don't block on io if there's values available (#1466)
+- Add uncompressed size stat for Vortex/Datafusion (#1512)
+- prune layouts based on stats (#1485)
+- Layout metadata reader and column statistics (#1455)
+
+### Fixed
+- Fix length of empty struct arrays (#1673)
+- support stats for ExtensionArray in vortex-file (#1547)
+
+### Other
+- IPC Message clean up ([#1686](https://github.com/spiraldb/vortex/pull/1686))
+- random refactoring/renaming (#1669)
+- Cache initial reads in `VortexFormat` ([#1633](https://github.com/spiraldb/vortex/pull/1633))
+- Reading stats tables reuses schemas ([#1637](https://github.com/spiraldb/vortex/pull/1637))
+- some LayoutReader cleanups (#1623)
+- add an unsafe take_unchecked to TakeFn for bounds check ellision (#1611)
+- `vortex-file` crate-level docs adjustment ([#1610](https://github.com/spiraldb/vortex/pull/1610))
+- Use FilterMask in RowMask ([#1616](https://github.com/spiraldb/vortex/pull/1616))
+- Fix up InnerScalarValue ([#1613](https://github.com/spiraldb/vortex/pull/1613))
+- Pass typed flat buffers into layout builders ([#1563](https://github.com/spiraldb/vortex/pull/1563))
+- simplify MetadataFetcher to function (#1569)
+- cleanup in vortex-ipc & vortex-file (#1553)
+- cleanups to support wasm32-wasip1 target (#1528)
+- Store present stats as a bitset in metadata of chunked layout and remove inline dtype layout ([#1555](https://github.com/spiraldb/vortex/pull/1555))
+- Remove dead chunked reader ([#1552](https://github.com/spiraldb/vortex/pull/1552))
+- Like expression supports negated and case_sensitive arguments ([#1537](https://github.com/spiraldb/vortex/pull/1537))
+- Add LIKE operator ([#1525](https://github.com/spiraldb/vortex/pull/1525))
+- Use filter in RowMask::evaluate ([#1515](https://github.com/spiraldb/vortex/pull/1515))
+- Variants VTable ([#1501](https://github.com/spiraldb/vortex/pull/1501))
+- RowMask uses ConstantArray for all valid and all invalid selections and remove unsafe RowMask constructor ([#1495](https://github.com/spiraldb/vortex/pull/1495))
+- Remove uses of with_dyn for validity ([#1487](https://github.com/spiraldb/vortex/pull/1487))
+- Flatten unary compute mod ([#1489](https://github.com/spiraldb/vortex/pull/1489))
+
+## `vortex-expr` - [0.21.0](https://github.com/spiraldb/vortex/compare/vortex-expr-v0.20.0...vortex-expr-v0.21.0) - 2024-12-16
+
+### Other
+- Reading stats tables reuses schemas ([#1637](https://github.com/spiraldb/vortex/pull/1637))
+- Like expression supports negated and case_sensitive arguments ([#1537](https://github.com/spiraldb/vortex/pull/1537))
+- Add LIKE operator ([#1525](https://github.com/spiraldb/vortex/pull/1525))
+- Variants VTable ([#1501](https://github.com/spiraldb/vortex/pull/1501))
+- Move invert from BoolArrayTrait to InvertFn ([#1490](https://github.com/spiraldb/vortex/pull/1490))
+
+## `vortex-dict` - [0.21.0](https://github.com/spiraldb/vortex/compare/vortex-dict-v0.20.0...vortex-dict-v0.21.0) - 2024-12-16
+
+### Added
+- Add fill_null compute function (#1590)
+
+### Other
+- add an unsafe take_unchecked to TakeFn for bounds check ellision (#1611)
+- cleanups to support wasm32-wasip1 target (#1528)
+- Like expression supports negated and case_sensitive arguments ([#1537](https://github.com/spiraldb/vortex/pull/1537))
+- Add LIKE operator ([#1525](https://github.com/spiraldb/vortex/pull/1525))
+- Variants VTable ([#1501](https://github.com/spiraldb/vortex/pull/1501))
+- Move invert from BoolArrayTrait to InvertFn ([#1490](https://github.com/spiraldb/vortex/pull/1490))
+- Remove uses of with_dyn for validity ([#1487](https://github.com/spiraldb/vortex/pull/1487))
+- Flatten unary compute mod ([#1489](https://github.com/spiraldb/vortex/pull/1489))
+
+## `vortex-datetime-parts` - [0.21.0](https://github.com/spiraldb/vortex/compare/vortex-datetime-parts-v0.20.0...vortex-datetime-parts-v0.21.0) - 2024-12-16
+
+### Fixed
+- support stats for ExtensionArray in vortex-file (#1547)
+
+### Other
+- add an unsafe take_unchecked to TakeFn for bounds check ellision (#1611)
+- Fix date time parts scalar_at to cast ([#1584](https://github.com/spiraldb/vortex/pull/1584))
+- Narrow indices types during compression  ([#1558](https://github.com/spiraldb/vortex/pull/1558))
+- Use filter in RowMask::evaluate ([#1515](https://github.com/spiraldb/vortex/pull/1515))
+- Variants VTable ([#1501](https://github.com/spiraldb/vortex/pull/1501))
+- Remove uses of with_dyn for validity ([#1487](https://github.com/spiraldb/vortex/pull/1487))
+- Flatten unary compute mod ([#1489](https://github.com/spiraldb/vortex/pull/1489))
+
+## `vortex-bytebool` - [0.21.0](https://github.com/spiraldb/vortex/compare/vortex-bytebool-v0.20.0...vortex-bytebool-v0.21.0) - 2024-12-16
+
+### Other
+- Stats are stored as Vec of tuples instead of enummap ([#1658](https://github.com/spiraldb/vortex/pull/1658))
+- add an unsafe take_unchecked to TakeFn for bounds check ellision (#1611)
+- Variants VTable ([#1501](https://github.com/spiraldb/vortex/pull/1501))
+- Move invert from BoolArrayTrait to InvertFn ([#1490](https://github.com/spiraldb/vortex/pull/1490))
+- Flatten unary compute mod ([#1489](https://github.com/spiraldb/vortex/pull/1489))
+
+## `vortex-fastlanes` - [0.21.0](https://github.com/spiraldb/vortex/compare/vortex-fastlanes-v0.20.0...vortex-fastlanes-v0.21.0) - 2024-12-16
+
+### Added
+- Faster bitpacked filter & take (#1667)
+
+### Other
+- Fix regression in search_sorted when Patches replaced SparseArray ([#1624](https://github.com/spiraldb/vortex/pull/1624))
+- Skip FoR decompression if min and scalar are 0 ([#1618](https://github.com/spiraldb/vortex/pull/1618))
+- add an unsafe take_unchecked to TakeFn for bounds check ellision (#1611)
+- Patches Utility ([#1601](https://github.com/spiraldb/vortex/pull/1601))
+- Fix search sorted casting ([#1579](https://github.com/spiraldb/vortex/pull/1579))
+- cleanups to support wasm32-wasip1 target (#1528)
+- Add `maybe_from` function to help downcast ArrayData into a specific encoded array without potentially capturing a backtrace ([#1560](https://github.com/spiraldb/vortex/pull/1560))
+- Remove with_dyn and ArrayDef ([#1503](https://github.com/spiraldb/vortex/pull/1503))
+- Variants VTable ([#1501](https://github.com/spiraldb/vortex/pull/1501))
+- Remove uses of with_dyn for validity ([#1487](https://github.com/spiraldb/vortex/pull/1487))
+- Flatten unary compute mod ([#1489](https://github.com/spiraldb/vortex/pull/1489))
+
+## `vortex-scalar` - [0.21.0](https://github.com/spiraldb/vortex/compare/vortex-scalar-v0.20.0...vortex-scalar-v0.21.0) - 2024-12-16
+
+### Fixed
+- ScalarValue flatbuffer serde doesn't perform redundant copy (#1635)
+- SparseArray scalar_at was broken due to strict PValue PartialOrd (#1575)
+
+### Other
+- Some small fixes ([#1631](https://github.com/spiraldb/vortex/pull/1631))
+- Fix up InnerScalarValue ([#1613](https://github.com/spiraldb/vortex/pull/1613))
+- cleanups to support wasm32-wasip1 target (#1528)
+- Narrow indices types during compression  ([#1558](https://github.com/spiraldb/vortex/pull/1558))
+- Array Builders ([#1543](https://github.com/spiraldb/vortex/pull/1543))
+
+## `vortex-flatbuffers` - [0.21.0](https://github.com/spiraldb/vortex/compare/vortex-flatbuffers-v0.20.0...vortex-flatbuffers-v0.21.0) - 2024-12-16
+
+### Other
+- IPC Message clean up ([#1686](https://github.com/spiraldb/vortex/pull/1686))
+
+## `vortex-error` - [0.21.0](https://github.com/spiraldb/vortex/compare/vortex-error-v0.20.0...vortex-error-v0.21.0) - 2024-12-16
+
+### Added
+- faster Patches::take & use patches in alp-rd & sparse (#1628)
+
+### Other
+- cleanups to support wasm32-wasip1 target (#1528)
+
+## `vortex-dtype` - [0.21.0](https://github.com/spiraldb/vortex/compare/vortex-dtype-v0.20.0...vortex-dtype-v0.21.0) - 2024-12-16
+
+### Added
+- patches uses a map in some cases (#1626)
+
+### Other
+- IPC Message clean up ([#1686](https://github.com/spiraldb/vortex/pull/1686))
+- Move PrimitiveBuilder constraints to where clause ([#1634](https://github.com/spiraldb/vortex/pull/1634))
+- Reading stats tables reuses schemas ([#1637](https://github.com/spiraldb/vortex/pull/1637))
+- Revert "feat: patches uses a map in some cases" ([#1629](https://github.com/spiraldb/vortex/pull/1629))
+- fuzzer reference take implementation respects generated values nullability (#1586)
+- cleanups to support wasm32-wasip1 target (#1528)
+- Narrow indices types during compression  ([#1558](https://github.com/spiraldb/vortex/pull/1558))
+- Add ArrowPrimitiveType ([#1540](https://github.com/spiraldb/vortex/pull/1540))
+- Add lists to vortex ([#1524](https://github.com/spiraldb/vortex/pull/1524))
+
+## `vortex-buffer` - [0.21.0](https://github.com/spiraldb/vortex/compare/vortex-buffer-v0.20.0...vortex-buffer-v0.21.0) - 2024-12-16
+
+### Added
+- Layout metadata reader and column statistics (#1455)
+
+## `vortex-array` - [0.21.0](https://github.com/spiraldb/vortex/compare/vortex-array-v0.20.0...vortex-array-v0.21.0) - 2024-12-16
+
+### Added
+- faster Patches::take & use patches in alp-rd & sparse (#1628)
+- patches uses a map in some cases (#1626)
+- add into_arrow to IntoCanonicalVTable (#1604)
+- Add fill_null compute function (#1590)
+
+### Fixed
+- RunEndBool array take respects validity (#1684)
+- Fix length of empty struct arrays (#1673)
+- Consistent metadata table column names for DataFusion stats (#1577)
+- SparseArray scalar_at was broken due to strict PValue PartialOrd (#1575)
+- use search_sorted_usize when searching for indices (#1566)
+- support stats for ExtensionArray in vortex-file (#1547)
+- properly gate things by features & test for that (#1494)
+
+### Other
+- IPC Message clean up ([#1686](https://github.com/spiraldb/vortex/pull/1686))
+- Cheaper `maybe_from` ([#1677](https://github.com/spiraldb/vortex/pull/1677))
+- simplify StatsSet (#1672)
+- ChunkedArray stats compute handles ordered stats and doesn't eagerly merge chunk stats ([#1652](https://github.com/spiraldb/vortex/pull/1652))
+- Run end fill null ([#1660](https://github.com/spiraldb/vortex/pull/1660))
+- Stats are stored as Vec of tuples instead of enummap ([#1658](https://github.com/spiraldb/vortex/pull/1658))
+- VarBin to arrow conversion uses reinterpret cast to convert offsets to I32/64 ([#1644](https://github.com/spiraldb/vortex/pull/1644))
+- Add missing overrides for into_arrow delegation for VarBinArray ([#1642](https://github.com/spiraldb/vortex/pull/1642))
+- Move PrimitiveBuilder constraints to where clause ([#1634](https://github.com/spiraldb/vortex/pull/1634))
+- Reading stats tables reuses schemas ([#1637](https://github.com/spiraldb/vortex/pull/1637))
+- Remove validity from run-end array ([#1630](https://github.com/spiraldb/vortex/pull/1630))
+- Some small fixes ([#1631](https://github.com/spiraldb/vortex/pull/1631))
+- Revert "feat: patches uses a map in some cases" ([#1629](https://github.com/spiraldb/vortex/pull/1629))
+- Fix regression in search_sorted when Patches replaced SparseArray ([#1624](https://github.com/spiraldb/vortex/pull/1624))
+- search_sorted_many handles failed downcasts and use search_sorted_usize_many in Patches::take (#1621)
+- add an unsafe take_unchecked to TakeFn for bounds check ellision (#1611)
+- Use FilterMask in RowMask ([#1616](https://github.com/spiraldb/vortex/pull/1616))
+- Patches Utility ([#1601](https://github.com/spiraldb/vortex/pull/1601))
+- Fix up InnerScalarValue ([#1613](https://github.com/spiraldb/vortex/pull/1613))
+- Count into_canonical invocations ([#1615](https://github.com/spiraldb/vortex/pull/1615))
+- Deref scalar buffer once ([#1608](https://github.com/spiraldb/vortex/pull/1608))
+- fill_null fallback will not infinitely recurse (#1607)
+- Fallback fill_null to canonical array ([#1600](https://github.com/spiraldb/vortex/pull/1600))
+- Fix search sorted casting ([#1579](https://github.com/spiraldb/vortex/pull/1579))
+- implement binary_boolean for chunked encoding ([#1532](https://github.com/spiraldb/vortex/pull/1532))
+- Fuzz filter implementation respects data validity ([#1573](https://github.com/spiraldb/vortex/pull/1573))
+- Ensure patches don't turn arrays nullable ([#1565](https://github.com/spiraldb/vortex/pull/1565))
+- cleanups to support wasm32-wasip1 target (#1528)
+- Add `maybe_from` function to help downcast ArrayData into a specific encoded array without potentially capturing a backtrace ([#1560](https://github.com/spiraldb/vortex/pull/1560))
+- Narrow indices types during compression  ([#1558](https://github.com/spiraldb/vortex/pull/1558))
+- Store present stats as a bitset in metadata of chunked layout and remove inline dtype layout ([#1555](https://github.com/spiraldb/vortex/pull/1555))
+- ArrayNBytes includes size of arrays metadata ([#1549](https://github.com/spiraldb/vortex/pull/1549))
+- Array Builders ([#1543](https://github.com/spiraldb/vortex/pull/1543))
+- Like expression supports negated and case_sensitive arguments ([#1537](https://github.com/spiraldb/vortex/pull/1537))
+- Add ArrowPrimitiveType ([#1540](https://github.com/spiraldb/vortex/pull/1540))
+- Add lists to vortex ([#1524](https://github.com/spiraldb/vortex/pull/1524))
+- Add LIKE operator ([#1525](https://github.com/spiraldb/vortex/pull/1525))
+- Use filter in RowMask::evaluate ([#1515](https://github.com/spiraldb/vortex/pull/1515))
+- Remove with_dyn and ArrayDef ([#1503](https://github.com/spiraldb/vortex/pull/1503))
+- Variants VTable ([#1501](https://github.com/spiraldb/vortex/pull/1501))
+- Short-circuit BoolArray null count ([#1509](https://github.com/spiraldb/vortex/pull/1509))
+- Move invert from BoolArrayTrait to InvertFn ([#1490](https://github.com/spiraldb/vortex/pull/1490))
+- Remove uses of with_dyn for validity ([#1487](https://github.com/spiraldb/vortex/pull/1487))
+- Make BinaryBooleanFn consistent with CompareFn ([#1488](https://github.com/spiraldb/vortex/pull/1488))
+- Flatten unary compute mod ([#1489](https://github.com/spiraldb/vortex/pull/1489))
+
+## `vortex-alp` - [0.21.0](https://github.com/spiraldb/vortex/compare/vortex-alp-v0.20.0...vortex-alp-v0.21.0) - 2024-12-16
+
+### Added
+- faster Patches::take & use patches in alp-rd & sparse (#1628)
+
+### Other
+- add an unsafe take_unchecked to TakeFn for bounds check ellision (#1611)
+- Patches Utility ([#1601](https://github.com/spiraldb/vortex/pull/1601))
+- Speed up ALP decompress ([#1614](https://github.com/spiraldb/vortex/pull/1614))
+- Remove ALP compare ([#1603](https://github.com/spiraldb/vortex/pull/1603))
+- cleanups to support wasm32-wasip1 target (#1528)
+- Add `maybe_from` function to help downcast ArrayData into a specific encoded array without potentially capturing a backtrace ([#1560](https://github.com/spiraldb/vortex/pull/1560))
+- ALP Mask clone ([#1522](https://github.com/spiraldb/vortex/pull/1522))
+- Variants VTable ([#1501](https://github.com/spiraldb/vortex/pull/1501))
+- Remove uses of with_dyn for validity ([#1487](https://github.com/spiraldb/vortex/pull/1487))
+- Flatten unary compute mod ([#1489](https://github.com/spiraldb/vortex/pull/1489))
+
+## `vortex` - [0.21.0](https://github.com/spiraldb/vortex/compare/0.20.0...0.21.0) - 2024-12-16
+
+### Other
+- cleanups to support wasm32-wasip1 target (#1528)
+
 ## `vortex-datafusion` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-datafusion-v0.19.0...vortex-datafusion-v0.20.0) - 2024-11-26
 
 ### Fixed
