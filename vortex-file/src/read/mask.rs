@@ -6,7 +6,7 @@ use itertools::Itertools;
 use vortex_array::array::{PrimitiveArray, SparseArray};
 use vortex_array::compute::{and, filter, slice, try_cast, FilterMask};
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity};
-use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, VortexResult, VortexUnwrap};
@@ -67,6 +67,20 @@ impl RowMask {
             end,
         )
         .vortex_unwrap()
+    }
+
+    /// Creates a RowMask from an array, only supported boolean and integer types.
+    pub fn from_array(array: &ArrayData, begin: usize, end: usize) -> VortexResult<Self> {
+        if array.dtype().is_int() {
+            Self::from_index_array(array, begin, end)
+        } else if array.dtype().is_boolean() {
+            Self::from_mask_array(array, begin, end)
+        } else {
+            vortex_bail!(
+                "RowMask can only be created from integer or boolean arrays, got {} instead.",
+                array.dtype()
+            );
+        }
     }
 
     /// Construct a RowMask from a Boolean typed array.
