@@ -58,7 +58,7 @@ impl ReadMasked for ReadRowMask {
     }
 }
 
-/// Accumulates a list of unique row offset, and produces a set of row ranges that aren't filtered out by the mask.
+/// Accumulates a list of unique row offset, and produces a set of row ranges that aren't filtered out by the provided mask.
 pub struct SplitsAccumulator {
     splits: BTreeSet<usize>,
     row_mask: Option<RowMask>,
@@ -107,6 +107,7 @@ impl Iterator for SplitsIntoIter {
                     Err(e) => return Some(Err(e)),
                 };
 
+                // If the range is all false, we take the next one
                 if sliced.is_all_false() {
                     continue;
                 }
