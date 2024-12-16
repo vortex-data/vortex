@@ -78,11 +78,12 @@ impl<I: ArrayIterator + 'static> ArrayIteratorIntoIPC for I {
     where
         Self: Sized,
     {
+        let mut encoder = MessageEncoder::new(ALIGNMENT);
+        let buffers = encoder.encode(EncoderMessage::DType(self.dtype()));
         ArrayIteratorIntoIPCBytes {
             inner: Box::new(self),
-            encoder: MessageEncoder::new(ALIGNMENT),
-            buffers: vec![],
-            written_dtype: false,
+            encoder,
+            buffers,
         }
     }
 }
@@ -91,7 +92,6 @@ pub struct ArrayIteratorIntoIPCBytes {
     inner: Box<dyn ArrayIterator + 'static>,
     encoder: MessageEncoder,
     buffers: Vec<Buffer>,
-    written_dtype: bool,
 }
 
 impl ArrayIteratorIntoIPCBytes {
@@ -109,15 +109,6 @@ impl Iterator for ArrayIteratorIntoIPCBytes {
     type Item = VortexResult<Buffer>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        // If we haven't written the dtype yet, we write it
-        if !self.written_dtype {
-            self.buffers.extend(
-                self.encoder
-                    .encode(EncoderMessage::DType(self.inner.dtype())),
-            );
-            self.written_dtype = true;
-        }
-
         // Try to flush any buffers we have
         if !self.buffers.is_empty() {
             return Some(Ok(self.buffers.remove(0)));
