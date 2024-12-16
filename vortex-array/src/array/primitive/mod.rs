@@ -3,7 +3,7 @@ use std::ptr;
 use std::sync::Arc;
 mod accessor;
 
-use arrow_buffer::{ArrowNativeType, BooleanBufferBuilder, Buffer as ArrowBuffer, MutableBuffer};
+use arrow_buffer::{ArrowNativeType, BooleanBufferBuilder, Buffer as ArrowBuffer};
 use bytes::Bytes;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
@@ -71,7 +71,9 @@ impl PrimitiveArray {
     pub fn from_vec<T: NativePType>(values: Vec<T>, validity: Validity) -> Self {
         match_each_native_ptype!(T::PTYPE, |$P| {
             PrimitiveArray::new(
-                ArrowBuffer::from(MutableBuffer::from(unsafe { std::mem::transmute::<Vec<T>, Vec<$P>>(values) })).into(),
+                Buffer::from(
+                    ArrowBuffer::from(unsafe { std::mem::transmute::<Vec<T>, Vec<$P>>(values) })
+                ),
                 T::PTYPE,
                 validity,
             )
