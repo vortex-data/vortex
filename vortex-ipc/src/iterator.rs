@@ -112,6 +112,7 @@ pub struct ArrayIteratorIPCBytes {
 impl ArrayIteratorIPCBytes {
     /// Collects the IPC bytes into a single `Vec<u8>` buffer.
     pub fn collect_to_buffer(self) -> VortexResult<Vec<u8>> {
+        // TODO(ngates): this buffer needs 64-byte alignment...
         let mut buffer = vec![];
         for chunk in self {
             buffer.extend(chunk?.as_slice());
