@@ -144,7 +144,7 @@ fn vortex_decompress_read(runtime: &Runtime, buf: Buffer) -> VortexResult<Vec<Ar
         );
 
         let mut batches = vec![];
-        let mut stream = builder.build().await?;
+        let mut stream = builder.build().await?.into_stream()?;
         while let Some(batch) = stream.next().await {
             batches.push(batch?.into_arrow()?);
         }

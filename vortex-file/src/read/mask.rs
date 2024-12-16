@@ -86,7 +86,7 @@ impl RowMask {
     /// Construct a RowMask from a Boolean typed array.
     ///
     /// True-valued positions are kept by the returned mask.
-    pub fn from_mask_array(array: &ArrayData, begin: usize, end: usize) -> VortexResult<Self> {
+    fn from_mask_array(array: &ArrayData, begin: usize, end: usize) -> VortexResult<Self> {
         match array.logical_validity() {
             LogicalValidity::AllValid(_) => {
                 Self::try_new(FilterMask::try_from(array.clone())?, begin, end)
@@ -102,7 +102,7 @@ impl RowMask {
     /// Construct a RowMask from an integral array.
     ///
     /// The array values are interpreted as indices and those indices are kept by the returned mask.
-    pub fn from_index_array(array: &ArrayData, begin: usize, end: usize) -> VortexResult<Self> {
+    fn from_index_array(array: &ArrayData, begin: usize, end: usize) -> VortexResult<Self> {
         let indices =
             try_cast(array, &DType::Primitive(PType::U64, NonNullable))?.into_primitive()?;
 
@@ -236,6 +236,7 @@ mod tests {
     use rstest::rstest;
     use vortex_array::array::PrimitiveArray;
     use vortex_array::compute::FilterMask;
+    use vortex_array::validity::Validity;
     use vortex_array::{IntoArrayData, IntoArrayVariant};
     use vortex_error::VortexUnwrap;
 
@@ -313,5 +314,12 @@ mod tests {
             filtered.into_primitive().unwrap().maybe_null_slice::<i32>(),
             (5..10).collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_row_mask_type_validation() {
+        let array = PrimitiveArray::from_vec(vec![1.0, 2.0], Validity::AllInvalid).into_array();
+        RowMask::from_array(&array, 0, 2).unwrap();
     }
 }

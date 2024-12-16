@@ -9,7 +9,7 @@ use vortex_array::ArrayData;
 use vortex_error::{VortexError, VortexResult};
 use vortex_io::VortexReadAt;
 
-use super::VortexFileArrayStream;
+use super::VortexReadArrayStream;
 
 fn vortex_to_arrow_error(error: VortexError) -> ArrowError {
     ArrowError::ExternalError(Box::new(error))
@@ -32,7 +32,7 @@ impl AsyncRuntime for tokio::runtime::Runtime {
 }
 
 pub struct VortexRecordBatchReader<'a, R, AR> {
-    stream: VortexFileArrayStream<R>,
+    stream: VortexReadArrayStream<R>,
     arrow_schema: SchemaRef,
     runtime: &'a AR,
 }
@@ -43,7 +43,7 @@ where
     AR: AsyncRuntime,
 {
     pub fn try_new(
-        stream: VortexFileArrayStream<R>,
+        stream: VortexReadArrayStream<R>,
         runtime: &'a AR,
     ) -> VortexResult<VortexRecordBatchReader<'a, R, AR>> {
         let arrow_schema = Arc::new(infer_schema(stream.dtype())?);

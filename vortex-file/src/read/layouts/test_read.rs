@@ -18,7 +18,7 @@ fn layout_splits(
     for layout in layouts {
         layout.add_splits(0, &mut splits).vortex_unwrap();
     }
-    iter.append_splits(&mut splits);
+    iter.append_splits(splits);
     iter.into_iter().map(|m| m.unwrap())
 }
 
@@ -57,9 +57,7 @@ pub fn read_filters(
                 }
             }
             PollRead::Value(a) => {
-                return Some(
-                    RowMask::from_mask_array(&a, selector.begin(), selector.end()).unwrap(),
-                );
+                return Some(RowMask::from_array(&a, selector.begin(), selector.end()).unwrap());
             }
         }
     }

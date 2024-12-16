@@ -75,8 +75,8 @@ impl SplitsAccumulator {
         Self { splits, row_mask }
     }
 
-    pub fn append_splits(&mut self, other: &mut BTreeSet<usize>) {
-        self.splits.append(other);
+    pub fn append_splits(&mut self, mut other: BTreeSet<usize>) {
+        self.splits.append(&mut other);
     }
 }
 
@@ -145,7 +145,7 @@ mod tests {
                 .unwrap(),
             ),
         );
-        mask_iter.append_splits(&mut BTreeSet::from([0, 2, 4, 6, 8, 10]));
+        mask_iter.append_splits(BTreeSet::from([0, 2, 4, 6, 8, 10]));
 
         let actual = mask_iter
             .into_iter()

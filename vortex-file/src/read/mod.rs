@@ -11,6 +11,7 @@ mod cache;
 mod context;
 mod expr_project;
 mod filtering;
+pub mod handle;
 pub mod layouts;
 mod mask;
 pub mod metadata;
@@ -27,7 +28,7 @@ pub use context::*;
 pub use filtering::RowFilter;
 pub use projection::Projection;
 pub use recordbatchreader::{AsyncRuntime, VortexRecordBatchReader};
-pub use stream::VortexFileArrayStream;
+pub use stream::VortexReadArrayStream;
 use vortex_expr::ExprRef;
 use vortex_ipc::stream_writer::ByteRange;
 

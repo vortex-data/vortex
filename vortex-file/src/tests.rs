@@ -57,6 +57,8 @@ async fn test_read_simple() {
     let mut stream = VortexReadBuilder::new(written, LayoutDeserializer::default())
         .build()
         .await
+        .unwrap()
+        .into_stream()
         .unwrap();
     let mut batch_count = 0;
     let mut row_count = 0;
@@ -176,6 +178,8 @@ async fn test_read_projection() {
         .build()
         .await
         .unwrap()
+        .into_stream()
+        .unwrap()
         .read_all()
         .await
         .unwrap();
@@ -206,6 +210,8 @@ async fn test_read_projection() {
         .with_projection(Projection::Flat(vec![Field::from("strings")]))
         .build()
         .await
+        .unwrap()
+        .into_stream()
         .unwrap()
         .read_all()
         .await
@@ -238,6 +244,8 @@ async fn test_read_projection() {
         .build()
         .await
         .unwrap()
+        .into_stream()
+        .unwrap()
         .read_all()
         .await
         .unwrap();
@@ -264,6 +272,8 @@ async fn test_read_projection() {
         .with_projection(Projection::Flat(vec![Field::from("numbers")]))
         .build()
         .await
+        .unwrap()
+        .into_stream()
         .unwrap()
         .read_all()
         .await
@@ -312,6 +322,8 @@ async fn unequal_batches() {
     let mut stream = VortexReadBuilder::new(written, LayoutDeserializer::default())
         .build()
         .await
+        .unwrap()
+        .into_stream()
         .unwrap();
     let mut batch_count = 0;
     let mut item_count = 0;
@@ -370,6 +382,8 @@ async fn write_chunked() {
     let mut reader = VortexReadBuilder::new(written, LayoutDeserializer::default())
         .build()
         .await
+        .unwrap()
+        .into_stream()
         .unwrap();
     let mut array_len: usize = 0;
     while let Some(array) = reader.next().await {
@@ -401,7 +415,7 @@ async fn filter_string() {
     writer = writer.write_array_columns(st).await.unwrap();
 
     let written = Buffer::from(writer.finalize().await.unwrap());
-    let reader = VortexReadBuilder::new(written, LayoutDeserializer::default())
+    let stream = VortexReadBuilder::new(written, LayoutDeserializer::default())
         .with_row_filter(RowFilter::new(BinaryExpr::new_expr(
             Column::new_expr(Field::from("name")),
             Operator::Eq,
@@ -409,9 +423,11 @@ async fn filter_string() {
         )))
         .build()
         .await
+        .unwrap()
+        .into_stream()
         .unwrap();
 
-    let result = reader.try_collect::<Vec<_>>().await.unwrap();
+    let result = stream.try_collect::<Vec<_>>().await.unwrap();
     assert_eq!(result.len(), 1);
     let names = result[0].as_struct_array().unwrap().field(0).unwrap();
     assert_eq!(
@@ -475,6 +491,8 @@ async fn filter_or() {
         )))
         .build()
         .await
+        .unwrap()
+        .into_stream()
         .unwrap();
 
     let mut result = Vec::new();
@@ -539,6 +557,8 @@ async fn filter_and() {
         )))
         .build()
         .await
+        .unwrap()
+        .into_stream()
         .unwrap();
 
     let mut result = Vec::new();
@@ -589,6 +609,8 @@ async fn test_with_indices_simple() {
         .build()
         .await
         .unwrap()
+        .into_stream()
+        .unwrap()
         .read_all()
         .await
         .unwrap()
@@ -605,6 +627,8 @@ async fn test_with_indices_simple() {
         .with_indices(ArrayData::from(kept_indices_u16))
         .build()
         .await
+        .unwrap()
+        .into_stream()
         .unwrap()
         .read_all()
         .await
@@ -628,6 +652,8 @@ async fn test_with_indices_simple() {
         .with_indices(ArrayData::from((0u32..500).collect_vec()))
         .build()
         .await
+        .unwrap()
+        .into_stream()
         .unwrap()
         .read_all()
         .await
@@ -670,6 +696,8 @@ async fn test_with_indices_on_two_columns() {
         .with_indices(ArrayData::from(kept_indices_u8))
         .build()
         .await
+        .unwrap()
+        .into_stream()
         .unwrap()
         .read_all()
         .await
@@ -736,6 +764,8 @@ async fn test_with_indices_and_with_row_filter_simple() {
         .build()
         .await
         .unwrap()
+        .into_stream()
+        .unwrap()
         .read_all()
         .await
         .unwrap()
@@ -757,6 +787,8 @@ async fn test_with_indices_and_with_row_filter_simple() {
         )))
         .build()
         .await
+        .unwrap()
+        .into_stream()
         .unwrap()
         .read_all()
         .await
@@ -788,6 +820,8 @@ async fn test_with_indices_and_with_row_filter_simple() {
         )))
         .build()
         .await
+        .unwrap()
+        .into_stream()
         .unwrap()
         .read_all()
         .await
@@ -853,6 +887,8 @@ async fn filter_string_chunked() {
             )))
             .build()
             .await
+            .unwrap()
+            .into_stream()
             .unwrap()
             .read_all()
             .await
@@ -951,6 +987,8 @@ async fn test_pruning_with_or() {
             )))
             .build()
             .await
+            .unwrap()
+            .into_stream()
             .unwrap()
             .read_all()
             .await

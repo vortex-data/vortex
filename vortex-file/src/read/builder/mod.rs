@@ -6,12 +6,12 @@ use vortex_error::VortexResult;
 use vortex_expr::Select;
 use vortex_io::{IoDispatcher, VortexReadAt};
 
+use super::handle::VortexReadHandle;
 use super::InitialRead;
 use crate::read::cache::{LayoutMessageCache, RelativeLayoutCache};
 use crate::read::context::LayoutDeserializer;
 use crate::read::filtering::RowFilter;
 use crate::read::projection::Projection;
-use crate::read::stream::VortexFileArrayStream;
 use crate::read::{RowMask, Scan};
 
 pub(crate) mod initial_read;
@@ -133,7 +133,7 @@ impl<R: VortexReadAt + Unpin> VortexReadBuilder<R> {
         Ok(new_read)
     }
 
-    pub async fn build(mut self) -> VortexResult<VortexFileArrayStream<R>> {
+    pub async fn build(mut self) -> VortexResult<VortexReadHandle<R>> {
         // we do a large enough initial read to get footer, layout, and schema
         let initial_read = self.make_initial_read().await?;
 
@@ -177,7 +177,7 @@ impl<R: VortexReadAt + Unpin> VortexReadBuilder<R> {
         // Default: fallback to single-threaded tokio dispatcher.
         let io_dispatcher = self.io_dispatcher.unwrap_or_default();
 
-        VortexFileArrayStream::try_new(
+        VortexReadHandle::try_new(
             self.read_at,
             layout_reader,
             filter_reader,
