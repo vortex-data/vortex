@@ -108,7 +108,7 @@ tabled = { version = "0.17.0", default-features = false }
 prost = "0.13.0"
 prost-build = "0.13.0"
 prost-types = "0.13.0"
-pyo3 = { version = "0.22.2", features = ["extension-module", "abi3-py310"] }
+pyo3 = { version = "0.23.0", features = ["extension-module", "abi3-py310"] }
 pyo3-log = "0.11.0"
 rand = "0.8.5"
 rayon = "1.10.0"
