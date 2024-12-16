@@ -4,7 +4,7 @@ use std::ops::Range;
 use vortex_error::VortexUnwrap;
 
 #[derive(Copy, Clone, Debug)]
-pub(crate) struct ByteRange {
+pub struct ByteRange {
     pub begin: u64,
     pub end: u64,
 }
@@ -17,7 +17,9 @@ impl Display for ByteRange {
 
 impl ByteRange {
     pub fn new(begin: u64, end: u64) -> Self {
-        assert!(end > begin, "Buffer end must be after its beginning");
+        if begin >= end {
+            panic!("Buffer begin must be before its end");
+        }
         Self { begin, end }
     }
 

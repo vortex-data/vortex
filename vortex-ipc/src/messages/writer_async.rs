@@ -23,4 +23,18 @@ impl<W: AsyncWrite + Unpin> AsyncMessageWriter<W> {
         }
         Ok(())
     }
+
+    pub fn get_mut(&mut self) -> &mut W {
+        &mut self.write
+    }
+
+    pub fn into_inner(self) -> W {
+        self.write
+    }
+}
+
+impl<W> AsRef<W> for AsyncMessageWriter<W> {
+    fn as_ref(&self) -> &W {
+        &self.write
+    }
 }

@@ -1,10 +1,12 @@
 use std::collections::BTreeSet;
+use std::io::Cursor;
 use std::sync::Arc;
 
 use bytes::Bytes;
 use vortex_array::{ArrayData, Context};
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_flatbuffers::footer;
+use vortex_ipc::messages::{DecoderMessage, SyncMessageReader};
 
 use crate::byte_range::ByteRange;
 use crate::read::cache::RelativeLayoutCache;
@@ -71,16 +73,16 @@ impl FlatLayoutReader {
         MessageLocator(self.message_cache.absolute_id(&[]), self.range)
     }
 
-    fn array_from_bytes(&self, mut buf: Bytes) -> VortexResult<ArrayData> {
-        let mut array_reader = ArrayMessageReader::new();
-        let mut read_buf = Bytes::new();
-        while let Some(u) = array_reader.read(read_buf)? {
-            read_buf = buf.split_to(u);
+    fn array_from_bytes(&self, buf: Bytes) -> VortexResult<ArrayData> {
+        let mut reader = SyncMessageReader::new(Cursor::new(buf.as_ref()));
+        match reader.read_message()? {
+            Some(DecoderMessage::Array(array_parts)) => array_parts.into_array_data(
+                self.ctx.clone(),
+                self.message_cache.dtype().value()?.clone(),
+            ),
+            Some(msg) => vortex_bail!("Expected Array message, got {:?}", msg),
+            None => vortex_bail!("Expected Array message, got EOF"),
         }
-        array_reader.into_array(
-            self.ctx.clone(),
-            self.message_cache.dtype().value()?.clone(),
-        )
     }
 }
 
@@ -118,9 +120,10 @@ mod tests {
 
     use bytes::Bytes;
     use vortex_array::array::PrimitiveArray;
-    use vortex_array::{Context, IntoArrayData, IntoArrayVariant};
+    use vortex_array::{Context, IntoArrayData, IntoArrayVariant, ToArrayData};
     use vortex_dtype::PType;
     use vortex_expr::{BinaryExpr, Identity, Literal, Operator};
+    use vortex_ipc::messages::{EncoderMessage, SyncMessageWriter};
 
     use crate::byte_range::ByteRange;
     use crate::layouts::flat::FlatLayoutReader;
@@ -131,11 +134,12 @@ mod tests {
     async fn read_only_layout(
         cache: Arc<RwLock<LayoutMessageCache>>,
     ) -> (FlatLayoutReader, Bytes, usize, Arc<LazyDType>) {
-        let mut writer = MessageWriter::new(Vec::new());
         let array = PrimitiveArray::from((0..100).collect::<Vec<_>>()).into_array();
-        let len = array.len();
-        writer.write_array(array).await.unwrap();
-        let written = writer.into_inner();
+
+        let mut written = vec![];
+        SyncMessageWriter::new(&mut written)
+            .write_message(EncoderMessage::Array(&array.to_array()))
+            .unwrap();
 
         let projection_scan = Scan::empty();
         let dtype = Arc::new(LazyDType::from_dtype(PType::I32.into()));
@@ -148,7 +152,7 @@ mod tests {
                 RelativeLayoutCache::new(cache, dtype.clone()),
             ),
             Bytes::from(written),
-            len,
+            array.len(),
             dtype,
         )
     }

@@ -1,4 +1,4 @@
-use std::io::Read;
+use std::io::{Read, Write};
 use std::sync::Arc;
 
 use vortex_array::iter::ArrayIterator;
@@ -71,6 +71,10 @@ pub trait ArrayIteratorIntoIPC {
     fn into_ipc_bytes(self) -> ArrayIteratorIntoIPCBytes
     where
         Self: Sized;
+
+    fn write_to<W: Write>(self, write: &mut W) -> VortexResult<()>
+    where
+        Self: Sized;
 }
 
 impl<I: ArrayIterator + 'static> ArrayIteratorIntoIPC for I {
@@ -85,6 +89,17 @@ impl<I: ArrayIterator + 'static> ArrayIteratorIntoIPC for I {
             encoder,
             buffers,
         }
+    }
+
+    fn write_to<W: Write>(self, write: &mut W) -> VortexResult<()>
+    where
+        Self: Sized,
+    {
+        let mut stream = self.into_ipc_bytes();
+        for buffer in &mut stream {
+            write.write_all(buffer?.as_slice())?;
+        }
+        Ok(())
     }
 }
 

@@ -408,6 +408,7 @@ mod tests {
     use vortex_dtype::PType;
     use vortex_expr::{BinaryExpr, Identity, Literal, Operator};
     use vortex_flatbuffers::{footer, WriteFlatBuffer};
+    use vortex_ipc::messages::{AsyncMessageWriter, EncoderMessage};
 
     use crate::byte_range::ByteRange;
     use crate::layouts::chunked::{ChunkedLayoutBuilder, ChunkedLayoutReader};
@@ -431,11 +432,14 @@ mod tests {
         let mut row_offset = 0;
 
         let mut chunk_stream = chunked.array_stream();
+        let mut msgs = AsyncMessageWriter::new(&mut writer);
         while let Some(chunk) = chunk_stream.try_next().await.unwrap() {
             row_offset += chunk.len() as u64;
             row_offsets.push(row_offset);
-            writer.write_array(chunk).await.unwrap();
-            byte_offsets.push(writer.position());
+            msgs.write_message(EncoderMessage::Array(&chunk))
+                .await
+                .unwrap();
+            byte_offsets.push(msgs.as_ref().position());
         }
         let flat_layouts = byte_offsets
             .iter()

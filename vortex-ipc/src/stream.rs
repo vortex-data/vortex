@@ -1,8 +1,9 @@
+use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{ready, Poll};
 
-use futures_util::{AsyncRead, Stream, StreamExt};
+use futures_util::{AsyncRead, AsyncWrite, AsyncWriteExt, Stream, StreamExt};
 use pin_project_lite::pin_project;
 use vortex_array::stream::ArrayStream;
 use vortex_array::{ArrayDType, ArrayData, Context};
@@ -89,6 +90,13 @@ pub trait ArrayStreamIntoIPC {
     fn into_ipc_bytes(self) -> ArrayStreamIntoIPCBytes
     where
         Self: Sized;
+
+    fn write_to<W: AsyncWrite + Unpin>(
+        self,
+        write: &mut W,
+    ) -> impl Future<Output = VortexResult<()>>
+    where
+        Self: Sized;
 }
 
 impl<S: ArrayStream + 'static> ArrayStreamIntoIPC for S {
@@ -102,6 +110,17 @@ impl<S: ArrayStream + 'static> ArrayStreamIntoIPC for S {
             buffers: vec![],
             written_dtype: false,
         }
+    }
+
+    async fn write_to<W: AsyncWrite + Unpin>(self, write: &mut W) -> VortexResult<()>
+    where
+        Self: Sized,
+    {
+        let mut stream = self.into_ipc_bytes();
+        while let Some(chunk) = stream.next().await {
+            write.write_all(&chunk?.as_slice()).await?;
+        }
+        Ok(())
     }
 }
 
