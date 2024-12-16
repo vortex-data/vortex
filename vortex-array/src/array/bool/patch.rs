@@ -10,8 +10,9 @@ use crate::{ArrayLen, IntoArrayVariant, ToArrayData};
 impl BoolArray {
     pub fn patch(self, patches: Patches) -> VortexResult<Self> {
         let length = self.len();
-        let indices = patches.indices().clone().into_primitive()?;
-        let values = patches.values().clone().into_bool()?;
+        let (_, indices, values) = patches.into_parts();
+        let indices = indices.into_primitive()?;
+        let values = values.into_bool()?;
 
         let patched_validity =
             self.validity()
