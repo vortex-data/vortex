@@ -136,7 +136,7 @@ mod tests {
         let mut writer = MessageWriter::new(Vec::new());
         let array = PrimitiveArray::from((0..100).collect::<Vec<_>>()).into_array();
         let len = array.len();
-        writer.write_batch(array).await.unwrap();
+        writer.write_array(array).await.unwrap();
         let written = writer.into_inner();
 
         let projection_scan = Scan::empty();

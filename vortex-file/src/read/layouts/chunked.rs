@@ -434,7 +434,7 @@ mod tests {
         while let Some(chunk) = chunk_stream.try_next().await.unwrap() {
             row_offset += chunk.len() as u64;
             row_offsets.push(row_offset);
-            writer.write_batch(chunk).await.unwrap();
+            writer.write_array(chunk).await.unwrap();
             byte_offsets.push(writer.tell());
         }
         let flat_layouts = byte_offsets

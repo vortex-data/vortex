@@ -62,7 +62,7 @@ impl<R: VortexReadAt> StreamArrayReader<R> {
 
     /// Reads a single page from the stream.
     pub async fn next_page(&mut self) -> VortexResult<Option<Buffer>> {
-        self.msgs.maybe_read_page().await
+        self.msgs.maybe_read_buffer().await
     }
 
     /// Reads consecutive pages from the stream until the message type changes.

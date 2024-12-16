@@ -115,6 +115,7 @@ pub mod footer;
 pub mod message;
 
 use flatbuffers::{root, FlatBufferBuilder, Follow, InvalidFlatbuffer, Verifiable, WIPOffset};
+use vortex_buffer::Buffer;
 
 pub trait FlatBufferRoot {}
 
@@ -144,15 +145,18 @@ pub trait WriteFlatBuffer {
     ) -> WIPOffset<Self::Target<'fb>>;
 }
 
-pub trait FlatBufferToBytes {
-    fn with_flatbuffer_bytes<R, Fn: FnOnce(&[u8]) -> R>(&self, f: Fn) -> R;
+pub trait WriteFlatBufferExt: WriteFlatBuffer + FlatBufferRoot {
+    /// Write the flatbuffer into a [`Buffer`].
+    fn write_flatbuffer_bytes(&self) -> Buffer;
 }
 
-impl<F: WriteFlatBuffer + FlatBufferRoot> FlatBufferToBytes for F {
-    fn with_flatbuffer_bytes<R, Fn: FnOnce(&[u8]) -> R>(&self, f: Fn) -> R {
+impl<F: WriteFlatBuffer + FlatBufferRoot> WriteFlatBufferExt for F {
+    fn write_flatbuffer_bytes(&self) -> Buffer {
         let mut fbb = FlatBufferBuilder::new();
         let root_offset = self.write_flatbuffer(&mut fbb);
         fbb.finish_minimal(root_offset);
-        f(fbb.finished_data())
+        let (vec, start) = fbb.collapse();
+        let end = vec.len();
+        Buffer::from(vec).slice(start..end)
     }
 }

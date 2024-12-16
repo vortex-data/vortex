@@ -22,6 +22,7 @@ file = ["ipc"]
 
 [dependencies]
 flatbuffers = { workspace = true }
+vortex-buffer = { workspace = true }
 
 [lints]
 workspace = true

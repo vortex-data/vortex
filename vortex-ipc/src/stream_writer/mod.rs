@@ -43,7 +43,7 @@ impl<W: VortexWrite> StreamArrayWriter<W> {
         self.msgs.into_inner()
     }
 
-    async fn write_dtype(&mut self, dtype: &DType) -> VortexResult<ByteRange> {
+    async fn write_dtype(&mut self, dtype: DType) -> VortexResult<ByteRange> {
         let begin = self.msgs.tell();
         self.msgs.write_dtype(dtype).await?;
         let end = self.msgs.tell();
@@ -61,7 +61,7 @@ impl<W: VortexWrite> StreamArrayWriter<W> {
         while let Some(chunk) = stream.try_next().await? {
             row_offset += chunk.len() as u64;
             row_offsets.push(row_offset);
-            self.msgs.write_batch(chunk).await?;
+            self.msgs.write_array(chunk).await?;
             byte_offsets.push(self.msgs.tell());
         }
 
@@ -72,7 +72,7 @@ impl<W: VortexWrite> StreamArrayWriter<W> {
         mut self,
         mut array_stream: S,
     ) -> VortexResult<Self> {
-        let dtype_pos = self.write_dtype(array_stream.dtype()).await?;
+        let dtype_pos = self.write_dtype(array_stream.dtype().clone()).await?;
         let chunk_pos = self.write_array_chunks(&mut array_stream).await?;
         self.array_layouts.push(ArrayLayout {
             dtype: dtype_pos,

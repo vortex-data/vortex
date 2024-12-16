@@ -5006,6 +5006,7 @@ name = "vortex-flatbuffers"
 version = "0.21.0"
 dependencies = [
  "flatbuffers",
+ "vortex-buffer",
 ]
 
 [[package]]

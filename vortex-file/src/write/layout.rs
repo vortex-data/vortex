@@ -1,6 +1,6 @@
 use bytes::Bytes;
 use flatbuffers::{FlatBufferBuilder, WIPOffset};
-use vortex_flatbuffers::{footer as fb, WriteFlatBuffer};
+use vortex_flatbuffers::{footer as fb, FlatBufferRoot, WriteFlatBuffer};
 use vortex_ipc::stream_writer::ByteRange;
 
 use crate::{LayoutId, CHUNKED_LAYOUT_ID, COLUMNAR_LAYOUT_ID, FLAT_LAYOUT_ID};
@@ -48,6 +48,8 @@ impl LayoutSpec {
         }
     }
 }
+
+impl FlatBufferRoot for LayoutSpec {}
 
 impl WriteFlatBuffer for LayoutSpec {
     type Target<'a> = fb::Layout<'a>;
