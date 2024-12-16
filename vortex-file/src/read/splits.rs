@@ -58,6 +58,7 @@ impl ReadMasked for ReadRowMask {
     }
 }
 
+/// Accumulates a list of unique row offset, and produces a set of row ranges that aren't filtered out by the mask.
 pub struct SplitsAccumulator {
     splits: BTreeSet<usize>,
     row_mask: Option<RowMask>,
