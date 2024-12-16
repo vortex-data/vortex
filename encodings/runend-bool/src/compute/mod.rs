@@ -42,9 +42,9 @@ impl TakeFn<RunEndBoolArray> for RunEndBoolEncoding {
         let primitive_indices = indices.clone().into_primitive()?;
         let physical_indices = match_each_integer_ptype!(primitive_indices.ptype(), |$P| {
             primitive_indices
-                .into_maybe_null_slice::<$P>()
+                .maybe_null_slice::<$P>()
                 .into_iter()
-                .map(|idx| idx as usize)
+                .map(|idx| *idx as usize)
                 .map(|idx| {
                     if idx >= array.len() {
                         vortex_bail!(OutOfBounds: idx, 0, array.len())

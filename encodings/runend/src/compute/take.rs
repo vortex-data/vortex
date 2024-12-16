@@ -13,10 +13,10 @@ impl TakeFn<RunEndArray> for RunEndEncoding {
         let primitive_indices = indices.clone().into_primitive()?;
         let usize_indices = match_each_integer_ptype!(primitive_indices.ptype(), |$P| {
             primitive_indices
-                .into_maybe_null_slice::<$P>()
+                .maybe_null_slice::<$P>()
                 .into_iter()
                 .map(|idx| {
-                    let usize_idx = idx as usize;
+                    let usize_idx = *idx as usize;
                     if usize_idx >= array.len() {
                         vortex_error::vortex_bail!(OutOfBounds: usize_idx, 0, array.len());
                     }
