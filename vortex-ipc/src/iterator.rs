@@ -72,7 +72,7 @@ pub trait ArrayIteratorIPC {
     where
         Self: Sized;
 
-    fn write_ipc<W: Write>(self, write: &mut W) -> VortexResult<()>
+    fn write_ipc<W: Write>(self, write: W) -> VortexResult<W>
     where
         Self: Sized;
 }
@@ -91,7 +91,7 @@ impl<I: ArrayIterator + 'static> ArrayIteratorIPC for I {
         }
     }
 
-    fn write_ipc<W: Write>(self, write: &mut W) -> VortexResult<()>
+    fn write_ipc<W: Write>(self, mut write: W) -> VortexResult<W>
     where
         Self: Sized,
     {
@@ -99,7 +99,7 @@ impl<I: ArrayIterator + 'static> ArrayIteratorIPC for I {
         for buffer in &mut stream {
             write.write_all(buffer?.as_slice())?;
         }
-        Ok(())
+        Ok(write)
     }
 }
 

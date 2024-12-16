@@ -91,10 +91,7 @@ pub trait ArrayStreamIPC {
     where
         Self: Sized;
 
-    fn write_ipc<W: AsyncWrite + Unpin>(
-        self,
-        write: &mut W,
-    ) -> impl Future<Output = VortexResult<()>>
+    fn write_ipc<W: AsyncWrite + Unpin>(self, write: W) -> impl Future<Output = VortexResult<W>>
     where
         Self: Sized;
 }
@@ -112,7 +109,7 @@ impl<S: ArrayStream + 'static> ArrayStreamIPC for S {
         }
     }
 
-    async fn write_ipc<W: AsyncWrite + Unpin>(self, write: &mut W) -> VortexResult<()>
+    async fn write_ipc<W: AsyncWrite + Unpin>(self, mut write: W) -> VortexResult<W>
     where
         Self: Sized,
     {
@@ -120,7 +117,7 @@ impl<S: ArrayStream + 'static> ArrayStreamIPC for S {
         while let Some(chunk) = stream.next().await {
             write.write_all(chunk?.as_slice()).await?;
         }
-        Ok(())
+        Ok(write)
     }
 }
 

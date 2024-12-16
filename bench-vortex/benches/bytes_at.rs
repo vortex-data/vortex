@@ -24,11 +24,10 @@ fn array_data_fixture() -> VarBinArray {
 fn array_view_fixture() -> VarBinViewArray {
     let array_data = array_data_fixture();
 
-    let mut buffer = Vec::new();
-    array_data
+    let buffer = array_data
         .into_array()
         .into_array_iterator()
-        .write_ipc(&mut buffer)
+        .write_ipc(vec![])
         .unwrap();
 
     SyncIPCReader::try_new(buffer.as_slice(), Arc::new(Context::default()))
