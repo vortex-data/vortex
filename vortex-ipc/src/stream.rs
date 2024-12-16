@@ -2,59 +2,42 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{ready, Poll};
 
-use bytes::BytesMut;
-use futures_util::{AsyncRead, AsyncReadExt, FutureExt, Stream, StreamExt};
+use futures_util::{AsyncRead, Stream, StreamExt};
+use pin_project_lite::pin_project;
 use vortex_array::stream::ArrayStream;
 use vortex_array::{ArrayDType, ArrayData, Context};
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
-use crate::messages::{
-    DecoderMessage, EncoderMessage, MessageDecoder, MessageEncoder, NextMessage,
-};
+use crate::messages::{AsyncMessageReader, DecoderMessage, EncoderMessage, MessageEncoder};
 use crate::ALIGNMENT;
 
-/// An [`ArrayStream`] for reading messages off an async IPC stream.
-pub struct IPCArrayStream<R: AsyncRead> {
-    read: R,
-    ctx: Arc<Context>,
-    dtype: DType,
-    buffer: BytesMut,
-    decoder: MessageDecoder,
+pin_project! {
+    /// An [`ArrayStream`] for reading messages off an async IPC stream.
+    pub struct IPCArrayStream<R> {
+        #[pin]
+        reader: AsyncMessageReader<R>,
+        ctx: Arc<Context>,
+        dtype: DType,
+    }
 }
 
 impl<R: AsyncRead + Unpin> IPCArrayStream<R> {
-    pub async fn try_new(mut read: R, ctx: Arc<Context>) -> VortexResult<Self> {
-        let mut message_reader = MessageDecoder::default();
-        let mut buffer = BytesMut::new();
+    pub async fn try_new(read: R, ctx: Arc<Context>) -> VortexResult<Self> {
+        let mut reader = AsyncMessageReader::new(read);
 
-        loop {
-            match message_reader.read_next(&mut buffer)? {
-                NextMessage::Some(msg) => {
-                    if let DecoderMessage::DType(dtype) = msg {
-                        return Ok(IPCArrayStream {
-                            read,
-                            ctx,
-                            dtype,
-                            buffer,
-                            decoder: message_reader,
-                        });
-                    } else {
-                        vortex_bail!("Expected DType message, got {:?}", msg);
-                    }
+        let dtype = match reader.next().await.transpose()? {
+            Some(msg) => match msg {
+                DecoderMessage::DType(dtype) => dtype,
+                msg => {
+                    vortex_bail!("Expected DType message, got {:?}", msg);
                 }
-                NextMessage::NeedMore(nbytes) => {
-                    buffer.resize(nbytes, 0x00);
-                    read.read_exact(&mut buffer).await.map_err(|e| {
-                        VortexError::Context(
-                            "IO error reading initial DType from stream".into(),
-                            Box::new(e.into()),
-                        )
-                    })?;
-                }
-            }
-        }
+            },
+            None => vortex_bail!("Expected DType message, got EOF"),
+        };
+
+        Ok(IPCArrayStream { reader, ctx, dtype })
     }
 }
 
@@ -71,51 +54,32 @@ impl<R: AsyncRead + Unpin> Stream for IPCArrayStream<R> {
         self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<Self::Item>> {
-        let this = self.get_mut();
-        loop {
-            match this.decoder.read_next(&mut this.buffer) {
-                Ok(NextMessage::Some(DecoderMessage::Array(components))) => {
-                    return Poll::Ready(Some(
-                        components
-                            .into_array_data(this.ctx.clone(), this.dtype.clone())
-                            .and_then(|array| {
-                                if array.dtype() != this.dtype() {
-                                    Err(vortex_err!(
-                                        "Array data type mismatch: expected {:?}, got {:?}",
-                                        this.dtype(),
-                                        array.dtype()
-                                    ))
-                                } else {
-                                    Ok(array)
-                                }
-                            }),
-                    ));
-                }
-                Ok(NextMessage::Some(DecoderMessage::Buffer(_))) => {
-                    return Poll::Ready(Some(Err(vortex_err!(
-                        "Unexpected Buffer message in IPC stream"
-                    ))));
-                }
-                Ok(NextMessage::Some(DecoderMessage::DType(_))) => {
-                    return Poll::Ready(Some(Err(vortex_err!(
-                        "Unexpected DType message in IPC stream"
-                    ))));
-                }
-                Ok(NextMessage::NeedMore(nbytes)) => {
-                    this.buffer.resize(nbytes, 0x00);
-                    match ready!(this.read.read(&mut this.buffer).poll_unpin(cx)) {
-                        Ok(0) => {
-                            // Reached EOF
-                            return Poll::Ready(None);
-                        }
-                        Ok(_nbytes) => {
-                            // Continue the loop to try reading the next IPC message
-                        }
-                        Err(e) => return Poll::Ready(Some(Err(e.into()))),
-                    }
-                }
-                Err(e) => return Poll::Ready(Some(Err(e))),
-            }
+        let this = self.project();
+
+        match ready!(this.reader.poll_next(cx)) {
+            None => Poll::Ready(None),
+            Some(msg) => match msg {
+                Ok(DecoderMessage::Array(array_parts)) => Poll::Ready(Some(
+                    array_parts
+                        .into_array_data(this.ctx.clone(), this.dtype.clone())
+                        .and_then(|array| {
+                            if array.dtype() != this.dtype {
+                                Err(vortex_err!(
+                                    "Array data type mismatch: expected {:?}, got {:?}",
+                                    this.dtype,
+                                    array.dtype()
+                                ))
+                            } else {
+                                Ok(array)
+                            }
+                        }),
+                )),
+                Ok(msg) => Poll::Ready(Some(Err(vortex_err!(
+                    "Expected Array message, got {:?}",
+                    msg
+                )))),
+                Err(e) => Poll::Ready(Some(Err(e))),
+            },
         }
     }
 }

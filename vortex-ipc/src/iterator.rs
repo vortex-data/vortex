@@ -1,56 +1,33 @@
 use std::io::Read;
 use std::sync::Arc;
 
-use bytes::BytesMut;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::{ArrayDType, ArrayData, Context};
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
-use crate::messages::{
-    DecoderMessage, EncoderMessage, MessageDecoder, MessageEncoder, NextMessage,
-};
+use crate::messages::{DecoderMessage, EncoderMessage, MessageEncoder, SyncMessageReader};
 use crate::ALIGNMENT;
 
 /// An [`ArrayIterator`] for reading messages off an IPC stream.
 pub struct IPCArrayIterator<R: Read> {
-    read: R,
+    reader: SyncMessageReader<R>,
     ctx: Arc<Context>,
     dtype: DType,
-    buffer: BytesMut,
-    decoder: MessageDecoder,
 }
 
 impl<R: Read> IPCArrayIterator<R> {
-    pub fn try_new(mut read: R, ctx: Arc<Context>) -> VortexResult<Self> {
-        let mut message_reader = MessageDecoder::default();
-        let mut buffer = BytesMut::new();
-        loop {
-            match message_reader.read_next(&mut buffer)? {
-                NextMessage::Some(msg) => {
-                    if let DecoderMessage::DType(dtype) = msg {
-                        return Ok(IPCArrayIterator {
-                            read,
-                            ctx,
-                            dtype,
-                            buffer,
-                            decoder: message_reader,
-                        });
-                    } else {
-                        vortex_bail!("Expected DType message, got {:?}", msg);
-                    }
+    pub fn try_new(read: R, ctx: Arc<Context>) -> VortexResult<Self> {
+        let mut reader = SyncMessageReader::new(read);
+        match reader.read_message()? {
+            Some(msg) => match msg {
+                DecoderMessage::DType(dtype) => Ok(IPCArrayIterator { reader, ctx, dtype }),
+                msg => {
+                    vortex_bail!("Expected DType message, got {:?}", msg);
                 }
-                NextMessage::NeedMore(nbytes) => {
-                    buffer.resize(nbytes, 0x00);
-                    read.read_exact(&mut buffer).map_err(|e| {
-                        VortexError::Context(
-                            "IO error reading initial DType from stream".into(),
-                            Box::new(e.into()),
-                        )
-                    })?;
-                }
-            }
+            },
+            None => vortex_bail!("Expected DType message, got EOF"),
         }
     }
 }
@@ -65,46 +42,26 @@ impl<R: Read> Iterator for IPCArrayIterator<R> {
     type Item = VortexResult<ArrayData>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            match self.decoder.read_next(&mut self.buffer) {
-                Ok(NextMessage::Some(DecoderMessage::Array(components))) => {
-                    return Some(
-                        components
-                            .into_array_data(self.ctx.clone(), self.dtype.clone())
-                            .and_then(|array| {
-                                if array.dtype() != self.dtype() {
-                                    Err(vortex_err!(
-                                        "Array data type mismatch: expected {:?}, got {:?}",
-                                        self.dtype(),
-                                        array.dtype()
-                                    ))
-                                } else {
-                                    Ok(array)
-                                }
-                            }),
-                    );
-                }
-                Ok(NextMessage::Some(DecoderMessage::Buffer(_))) => {
-                    return Some(Err(vortex_err!("Unexpected Buffer message in IPC stream")));
-                }
-                Ok(NextMessage::Some(DecoderMessage::DType(_))) => {
-                    return Some(Err(vortex_err!("Unexpected DType message in IPC stream")));
-                }
-                Ok(NextMessage::NeedMore(nbytes)) => {
-                    self.buffer.resize(nbytes, 0x00);
-                    match self.read.read(&mut self.buffer) {
-                        Ok(0) => {
-                            // Reached EOF
-                            return None;
-                        }
-                        Ok(_nbytes) => {
-                            // Continue the loop to try reading the next IPC message
-                        }
-                        Err(e) => return Some(Err(e.into())),
-                    }
-                }
-                Err(e) => return Some(Err(e)),
-            }
+        match self.reader.read_message().transpose()? {
+            Ok(msg) => match msg {
+                DecoderMessage::Array(array_parts) => Some(
+                    array_parts
+                        .into_array_data(self.ctx.clone(), self.dtype.clone())
+                        .and_then(|array| {
+                            if array.dtype() != self.dtype() {
+                                Err(vortex_err!(
+                                    "Array data type mismatch: expected {:?}, got {:?}",
+                                    self.dtype(),
+                                    array.dtype()
+                                ))
+                            } else {
+                                Ok(array)
+                            }
+                        }),
+                ),
+                msg => Some(Err(vortex_err!("Expected Array message, got {:?}", msg))),
+            },
+            Err(e) => Some(Err(e)),
         }
     }
 }

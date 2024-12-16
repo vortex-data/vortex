@@ -7,9 +7,9 @@
 //! This crate provides both in-memory message representations for holding IPC messages
 //! before/after serialization, and streaming readers and writers that sit on top
 //! of any type implementing `VortexRead` or `VortexWrite` respectively.
-pub mod r#async;
+pub mod iterator;
 pub mod messages;
-pub mod sync;
+pub mod stream;
 
 /// All messages in Vortex are aligned to start at a multiple of 64 bytes.
 ///

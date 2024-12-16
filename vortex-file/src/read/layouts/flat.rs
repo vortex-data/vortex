@@ -5,9 +5,8 @@ use bytes::Bytes;
 use vortex_array::{ArrayData, Context};
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_flatbuffers::footer;
-use vortex_ipc::messages::reader::ArrayMessageReader;
-use vortex_ipc::stream_writer::ByteRange;
 
+use crate::byte_range::ByteRange;
 use crate::read::cache::RelativeLayoutCache;
 use crate::read::mask::RowMask;
 use crate::{
@@ -122,9 +121,8 @@ mod tests {
     use vortex_array::{Context, IntoArrayData, IntoArrayVariant};
     use vortex_dtype::PType;
     use vortex_expr::{BinaryExpr, Identity, Literal, Operator};
-    use vortex_ipc::messages::writer::MessageWriter;
-    use vortex_ipc::stream_writer::ByteRange;
 
+    use crate::byte_range::ByteRange;
     use crate::layouts::flat::FlatLayoutReader;
     use crate::read::cache::{LazyDType, RelativeLayoutCache};
     use crate::read::layouts::test_read::{filter_read_layout, read_layout};
