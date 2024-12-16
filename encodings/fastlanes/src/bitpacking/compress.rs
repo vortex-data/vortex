@@ -70,7 +70,6 @@ pub unsafe fn bitpack_encode_unchecked(
 ///
 /// On success, returns a [Buffer] containing the packed data.
 pub fn bitpack(parray: &PrimitiveArray, bit_width: u8) -> VortexResult<Buffer> {
-    // We know the min is > 0, so it's safe to re-interpret signed integers as unsigned.
     let parray = parray.reinterpret_cast(parray.ptype().to_unsigned());
     let packed = match_each_unsigned_integer_ptype!(parray.ptype(), |$P| {
         bitpack_primitive(parray.maybe_null_slice::<$P>(), bit_width)
@@ -359,7 +358,7 @@ pub fn count_exceptions(bit_width: u8, bit_width_freq: &[usize]) -> usize {
 #[cfg(test)]
 #[allow(clippy::cast_possible_truncation)]
 mod test {
-    use vortex_array::{IntoArrayVariant, ToArrayData};
+    use vortex_array::{IntoArrayVariant, IntoCanonical, ToArrayData};
 
     use super::*;
 
@@ -431,12 +430,25 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = "expected type: uint but instead got i64")]
-    fn gh_issue_929() {
+    fn compress_signed_roundtrip() {
         let values: Vec<i64> = (-500..500).collect();
-        let array = PrimitiveArray::from_vec(values, Validity::AllValid);
+        let array = PrimitiveArray::from_vec(values.clone(), Validity::AllValid);
         assert!(array.ptype().is_signed_int());
 
-        BitPackedArray::encode(array.as_ref(), 1024u32.ilog2() as u8).unwrap();
+        let bitpacked_array =
+            BitPackedArray::encode(array.as_ref(), 1024u32.ilog2() as u8).unwrap();
+        let num_patches = bitpacked_array
+            .patches()
+            .as_ref()
+            .map(Patches::num_patches)
+            .unwrap_or_default();
+        assert_eq!(num_patches, 500);
+
+        let unpacked = bitpacked_array
+            .into_canonical()
+            .unwrap()
+            .into_primitive()
+            .unwrap();
+        assert_eq!(unpacked.into_maybe_null_slice::<i64>(), values);
     }
 }
