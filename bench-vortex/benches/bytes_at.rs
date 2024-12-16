@@ -6,7 +6,7 @@ use std::sync::Arc;
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use vortex::array::{PrimitiveArray, VarBinArray, VarBinViewArray};
 use vortex::dtype::{DType, Nullability};
-use vortex::ipc::iterator::{ArrayIteratorIntoIPC, IPCArrayIterator};
+use vortex::ipc::iterator::{ArrayIteratorIPC, SyncIPCReader};
 use vortex::iter::ArrayIteratorExt;
 use vortex::validity::Validity;
 use vortex::{Context, IntoArrayData, IntoArrayVariant};
@@ -28,10 +28,10 @@ fn array_view_fixture() -> VarBinViewArray {
     array_data
         .into_array()
         .into_array_iterator()
-        .write_to(&mut buffer)
+        .write_ipc(&mut buffer)
         .unwrap();
 
-    IPCArrayIterator::try_new(buffer.as_slice(), Arc::new(Context::default()))
+    SyncIPCReader::try_new(buffer.as_slice(), Arc::new(Context::default()))
         .unwrap()
         .into_array_data()
         .unwrap()

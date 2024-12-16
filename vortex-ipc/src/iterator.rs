@@ -11,18 +11,18 @@ use crate::messages::{DecoderMessage, EncoderMessage, MessageEncoder, SyncMessag
 use crate::ALIGNMENT;
 
 /// An [`ArrayIterator`] for reading messages off an IPC stream.
-pub struct IPCArrayIterator<R: Read> {
+pub struct SyncIPCReader<R: Read> {
     reader: SyncMessageReader<R>,
     ctx: Arc<Context>,
     dtype: DType,
 }
 
-impl<R: Read> IPCArrayIterator<R> {
+impl<R: Read> SyncIPCReader<R> {
     pub fn try_new(read: R, ctx: Arc<Context>) -> VortexResult<Self> {
         let mut reader = SyncMessageReader::new(read);
         match reader.read_message()? {
             Some(msg) => match msg {
-                DecoderMessage::DType(dtype) => Ok(IPCArrayIterator { reader, ctx, dtype }),
+                DecoderMessage::DType(dtype) => Ok(SyncIPCReader { reader, ctx, dtype }),
                 msg => {
                     vortex_bail!("Expected DType message, got {:?}", msg);
                 }
@@ -32,13 +32,13 @@ impl<R: Read> IPCArrayIterator<R> {
     }
 }
 
-impl<R: Read> ArrayIterator for IPCArrayIterator<R> {
+impl<R: Read> ArrayIterator for SyncIPCReader<R> {
     fn dtype(&self) -> &DType {
         &self.dtype
     }
 }
 
-impl<R: Read> Iterator for IPCArrayIterator<R> {
+impl<R: Read> Iterator for SyncIPCReader<R> {
     type Item = VortexResult<ArrayData>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -67,35 +67,35 @@ impl<R: Read> Iterator for IPCArrayIterator<R> {
 }
 
 /// A trait for converting an [`ArrayIterator`] into an IPC stream.
-pub trait ArrayIteratorIntoIPC {
-    fn into_ipc_bytes(self) -> ArrayIteratorIntoIPCBytes
+pub trait ArrayIteratorIPC {
+    fn into_ipc(self) -> ArrayIteratorIPCBytes
     where
         Self: Sized;
 
-    fn write_to<W: Write>(self, write: &mut W) -> VortexResult<()>
+    fn write_ipc<W: Write>(self, write: &mut W) -> VortexResult<()>
     where
         Self: Sized;
 }
 
-impl<I: ArrayIterator + 'static> ArrayIteratorIntoIPC for I {
-    fn into_ipc_bytes(self) -> ArrayIteratorIntoIPCBytes
+impl<I: ArrayIterator + 'static> ArrayIteratorIPC for I {
+    fn into_ipc(self) -> ArrayIteratorIPCBytes
     where
         Self: Sized,
     {
         let mut encoder = MessageEncoder::new(ALIGNMENT);
         let buffers = encoder.encode(EncoderMessage::DType(self.dtype()));
-        ArrayIteratorIntoIPCBytes {
+        ArrayIteratorIPCBytes {
             inner: Box::new(self),
             encoder,
             buffers,
         }
     }
 
-    fn write_to<W: Write>(self, write: &mut W) -> VortexResult<()>
+    fn write_ipc<W: Write>(self, write: &mut W) -> VortexResult<()>
     where
         Self: Sized,
     {
-        let mut stream = self.into_ipc_bytes();
+        let mut stream = self.into_ipc();
         for buffer in &mut stream {
             write.write_all(buffer?.as_slice())?;
         }
@@ -103,13 +103,13 @@ impl<I: ArrayIterator + 'static> ArrayIteratorIntoIPC for I {
     }
 }
 
-pub struct ArrayIteratorIntoIPCBytes {
+pub struct ArrayIteratorIPCBytes {
     inner: Box<dyn ArrayIterator + 'static>,
     encoder: MessageEncoder,
     buffers: Vec<Buffer>,
 }
 
-impl ArrayIteratorIntoIPCBytes {
+impl ArrayIteratorIPCBytes {
     /// Collects the IPC bytes into a single Vec<u8> buffer.
     pub fn collect_to_buffer(self) -> VortexResult<Vec<u8>> {
         let mut buffer = vec![];
@@ -120,7 +120,7 @@ impl ArrayIteratorIntoIPCBytes {
     }
 }
 
-impl Iterator for ArrayIteratorIntoIPCBytes {
+impl Iterator for ArrayIteratorIPCBytes {
     type Item = VortexResult<Buffer>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -166,13 +166,12 @@ mod test {
         let ipc_buffer = array
             .to_array()
             .into_array_iterator()
-            .into_ipc_bytes()
+            .into_ipc()
             .collect_to_buffer()
             .unwrap();
 
         let reader =
-            IPCArrayIterator::try_new(Cursor::new(ipc_buffer), Arc::new(Context::default()))
-                .unwrap();
+            SyncIPCReader::try_new(Cursor::new(ipc_buffer), Arc::new(Context::default())).unwrap();
 
         assert_eq!(reader.dtype(), array.dtype());
         let result = reader.into_array_data().unwrap().into_primitive().unwrap();

@@ -16,7 +16,7 @@ use crate::ALIGNMENT;
 
 pin_project! {
     /// An [`ArrayStream`] for reading messages off an async IPC stream.
-    pub struct IPCArrayStream<R> {
+    pub struct AsyncIPCReader<R> {
         #[pin]
         reader: AsyncMessageReader<R>,
         ctx: Arc<Context>,
@@ -24,7 +24,7 @@ pin_project! {
     }
 }
 
-impl<R: AsyncRead + Unpin> IPCArrayStream<R> {
+impl<R: AsyncRead + Unpin> AsyncIPCReader<R> {
     pub async fn try_new(read: R, ctx: Arc<Context>) -> VortexResult<Self> {
         let mut reader = AsyncMessageReader::new(read);
 
@@ -38,17 +38,17 @@ impl<R: AsyncRead + Unpin> IPCArrayStream<R> {
             None => vortex_bail!("Expected DType message, got EOF"),
         };
 
-        Ok(IPCArrayStream { reader, ctx, dtype })
+        Ok(AsyncIPCReader { reader, ctx, dtype })
     }
 }
 
-impl<R: AsyncRead + Unpin> ArrayStream for IPCArrayStream<R> {
+impl<R: AsyncRead + Unpin> ArrayStream for AsyncIPCReader<R> {
     fn dtype(&self) -> &DType {
         &self.dtype
     }
 }
 
-impl<R: AsyncRead + Unpin> Stream for IPCArrayStream<R> {
+impl<R: AsyncRead + Unpin> Stream for AsyncIPCReader<R> {
     type Item = VortexResult<ArrayData>;
 
     fn poll_next(
@@ -86,12 +86,12 @@ impl<R: AsyncRead + Unpin> Stream for IPCArrayStream<R> {
 }
 
 /// A trait for convering an [`ArrayStream`] into IPC streams.
-pub trait ArrayStreamIntoIPC {
-    fn into_ipc_bytes(self) -> ArrayStreamIntoIPCBytes
+pub trait ArrayStreamIPC {
+    fn into_ipc(self) -> ArrayStreamIPCBytes
     where
         Self: Sized;
 
-    fn write_to<W: AsyncWrite + Unpin>(
+    fn write_ipc<W: AsyncWrite + Unpin>(
         self,
         write: &mut W,
     ) -> impl Future<Output = VortexResult<()>>
@@ -99,12 +99,12 @@ pub trait ArrayStreamIntoIPC {
         Self: Sized;
 }
 
-impl<S: ArrayStream + 'static> ArrayStreamIntoIPC for S {
-    fn into_ipc_bytes(self) -> ArrayStreamIntoIPCBytes
+impl<S: ArrayStream + 'static> ArrayStreamIPC for S {
+    fn into_ipc(self) -> ArrayStreamIPCBytes
     where
         Self: Sized,
     {
-        ArrayStreamIntoIPCBytes {
+        ArrayStreamIPCBytes {
             stream: Box::pin(self),
             encoder: MessageEncoder::new(ALIGNMENT),
             buffers: vec![],
@@ -112,11 +112,11 @@ impl<S: ArrayStream + 'static> ArrayStreamIntoIPC for S {
         }
     }
 
-    async fn write_to<W: AsyncWrite + Unpin>(self, write: &mut W) -> VortexResult<()>
+    async fn write_ipc<W: AsyncWrite + Unpin>(self, write: &mut W) -> VortexResult<()>
     where
         Self: Sized,
     {
-        let mut stream = self.into_ipc_bytes();
+        let mut stream = self.into_ipc();
         while let Some(chunk) = stream.next().await {
             write.write_all(chunk?.as_slice()).await?;
         }
@@ -124,14 +124,14 @@ impl<S: ArrayStream + 'static> ArrayStreamIntoIPC for S {
     }
 }
 
-pub struct ArrayStreamIntoIPCBytes {
+pub struct ArrayStreamIPCBytes {
     stream: Pin<Box<dyn ArrayStream + 'static>>,
     encoder: MessageEncoder,
     buffers: Vec<Buffer>,
     written_dtype: bool,
 }
 
-impl ArrayStreamIntoIPCBytes {
+impl ArrayStreamIPCBytes {
     /// Collects the IPC bytes into a single Vec<u8> buffer.
     pub async fn collect_to_buffer(mut self) -> VortexResult<Vec<u8>> {
         let mut buffer = vec![];
@@ -142,7 +142,7 @@ impl ArrayStreamIntoIPCBytes {
     }
 }
 
-impl Stream for ArrayStreamIntoIPCBytes {
+impl Stream for ArrayStreamIPCBytes {
     type Item = VortexResult<Buffer>;
 
     fn poll_next(
@@ -205,12 +205,12 @@ mod test {
         let ipc_buffer = array
             .to_array()
             .into_array_stream()
-            .into_ipc_bytes()
+            .into_ipc()
             .collect_to_buffer()
             .await
             .unwrap();
 
-        let reader = IPCArrayStream::try_new(Cursor::new(ipc_buffer), Arc::new(Context::default()))
+        let reader = AsyncIPCReader::try_new(Cursor::new(ipc_buffer), Arc::new(Context::default()))
             .await
             .unwrap();
 

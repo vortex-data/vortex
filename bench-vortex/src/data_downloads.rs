@@ -15,7 +15,7 @@ use vortex::arrow::FromArrowType;
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexResult};
 use vortex::io::{TokioAdapter, VortexWrite};
-use vortex::ipc::stream::ArrayStreamIntoIPC;
+use vortex::ipc::stream::ArrayStreamIPC;
 use vortex::{ArrayData, IntoArrayData};
 
 use crate::idempotent;
@@ -58,7 +58,7 @@ pub fn data_vortex_uncompressed(fname_out: &str, downloaded_data: PathBuf) -> Pa
             .unwrap()
             .block_on(async move {
                 let mut write = TokioAdapter(tokio::fs::File::create(path).await.unwrap());
-                let mut bytes = array.into_array_stream().into_ipc_bytes();
+                let mut bytes = array.into_array_stream().into_ipc();
                 while let Some(buffer) = bytes.next().await {
                     write.write_all(buffer.unwrap()).await.unwrap();
                 }
