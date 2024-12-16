@@ -15,6 +15,7 @@ use vortex_flatbuffers::{FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
 use vortex_io::VortexWrite;
 use vortex_ipc::messages::writer::MessageWriter;
 use vortex_ipc::stream_writer::ByteRange;
+use vortex_ipc::ALIGNMENT;
 
 use crate::write::postscript::Postscript;
 use crate::write::stats_accumulator::{StatArray, StatsAccumulator};
@@ -134,6 +135,12 @@ impl<W: VortexWrite> VortexFileWriter<W> {
     }
 
     pub async fn finalize(mut self) -> VortexResult<W> {
+        assert_eq!(
+            self.msgs.tell() % ALIGNMENT as u64,
+            0,
+            "MessageWriter is not aligned prior to finalization"
+        );
+
         let top_level_layout = self.write_metadata_arrays().await?;
         let dtype_offset = self.msgs.tell();
 

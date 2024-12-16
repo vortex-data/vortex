@@ -7,7 +7,7 @@ use itertools::Itertools;
 use owned::OwnedArrayData;
 use viewed::ViewedArrayData;
 use vortex_buffer::Buffer;
-use vortex_dtype::DType;
+use vortex_dtype::{match_each_native_ptype, DType};
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
@@ -21,8 +21,9 @@ use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
 use crate::stats::{ArrayStatistics, Stat, Statistics, StatsSet};
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
+use crate::variants::PrimitiveArrayTrait;
 use crate::{
-    ArrayChildrenIterator, ArrayDType, ArrayLen, ArrayMetadata, Context,
+    ArrayChildrenIterator, ArrayDType, ArrayLen, ArrayMetadata, Context, IntoArrayVariant,
     TryDeserializeArrayMetadata,
 };
 
@@ -116,7 +117,18 @@ impl ArrayData {
             canonical_counter: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         };
 
-        Self::try_new(InnerArrayData::Viewed(view))
+        let array_data = Self::try_new(InnerArrayData::Viewed(view))?;
+
+        // FIXME(ngates): just a sanity check for now
+        if encoding.id() == PrimitiveEncoding.id() {
+            let array = array_data.clone().into_primitive()?;
+            match_each_native_ptype!(array.ptype(), |$T| {
+                // Validate the alignment of the slice
+                let _ = array.maybe_null_slice::<$T>();
+            })
+        }
+
+        Ok(array_data)
     }
 
     /// Shared constructor that performs common array validation.

@@ -89,6 +89,8 @@ impl<W: VortexWrite> MessageWriter<W> {
     }
 
     pub async fn write_message<F: WriteFlatBuffer>(&mut self, flatbuffer: F) -> io::Result<()> {
+        assert_eq!(self.tell() % self.alignment as u64, 0, "unaligned write");
+
         // We reuse the scratch buffer each time and then replace it at the end.
         // The scratch buffer may be missing if a previous write failed. We could use scopeguard
         // or similar here if it becomes a problem in practice.
