@@ -5061,14 +5061,8 @@ dependencies = [
 name = "vortex-ipc"
 version = "0.21.0"
 dependencies = [
- "arrow-array",
- "arrow-ipc",
- "arrow-schema",
- "arrow-select",
  "bytes",
- "criterion",
  "flatbuffers",
- "futures-executor",
  "futures-util",
  "itertools 0.13.0",
  "tokio",
@@ -5077,8 +5071,6 @@ dependencies = [
  "vortex-dtype",
  "vortex-error",
  "vortex-flatbuffers",
- "vortex-io",
- "vortex-sampling-compressor",
 ]
 
 [[package]]

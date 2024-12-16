@@ -1,15 +1,65 @@
-use bytes::{Buf, Bytes};
-use flatbuffers::{root, root_unchecked};
+use std::fmt::{Debug, Formatter};
+use std::sync::Arc;
+
+use bytes::{Buf, BytesMut};
+use flatbuffers::{root, root_unchecked, Follow};
 use itertools::Itertools;
+use vortex_array::{flatbuffers as fba, ArrayData, Context};
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_flatbuffers::message as fb;
 use vortex_flatbuffers::message::{MessageHeader, MessageVersion};
 
-use crate::messages::IPCMessage;
+/// A message decoded from an IPC stream.
+///
+/// Note that the `Array` variant cannot fully decode into an [`ArrayData`] without a [`Context`]
+/// and a [`DType`]. As such, we partially decode into an [`ArrayParts`] and allow the caller to
+/// finish the decoding.
+#[derive(Debug)]
+pub enum DecoderMessage {
+    Array(ArrayParts),
+    Buffer(Buffer),
+    DType(DType),
+}
 
+/// ArrayParts represents a partially decoded Vortex array.
+/// It can be completely decoded calling `into_array_data` with a context and dtype.
+pub struct ArrayParts {
+    row_count: usize,
+    // Typed as fb::Array
+    array_flatbuffer: Buffer,
+    array_flatbuffer_loc: usize,
+    buffers: Vec<Buffer>,
+}
+
+impl Debug for ArrayParts {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ArrayComponents")
+            .field("row_count", &self.row_count)
+            .field("array_flatbuffer", &self.array_flatbuffer.len())
+            .field("buffers", &self.buffers.len())
+            .finish()
+    }
+}
+
+impl ArrayParts {
+    pub fn into_array_data(self, ctx: Arc<Context>, dtype: DType) -> VortexResult<ArrayData> {
+        ArrayData::try_new_viewed(
+            ctx,
+            dtype,
+            self.row_count,
+            self.array_flatbuffer,
+            // SAFETY: ArrayComponents guarantees the buffers are valid.
+            |buf| unsafe { Ok(fba::Array::follow(buf, self.array_flatbuffer_loc)) },
+            self.buffers,
+        )
+    }
+}
+
+#[derive(Default)]
 enum State {
+    #[default]
     ReadingLength,
     ReadingHeader(usize),
     ReadingArray(ReadingArray),
@@ -17,7 +67,7 @@ enum State {
 }
 
 struct ReadingArray {
-    header: Bytes,
+    header: Buffer,
     buffers_length: usize,
 }
 
@@ -27,19 +77,21 @@ struct ReadingBuffer {
 }
 
 pub enum NextMessage {
-    Some(IPCMessage),
+    Some(DecoderMessage),
     NeedMore(usize),
 }
 
-pub struct MessageReader {
+/// A stateful reader for decoding IPC messages from an arbitrary stream of bytes.
+#[derive(Default)]
+pub struct MessageDecoder {
     state: State,
 }
 
-impl MessageReader {
+impl MessageDecoder {
     /// Attempt to read the next message from the bytes object.
     /// If the message is incomplete, the function will return `NeedMore` with the _total_ number
     /// of bytes needed. The next call to read_next _should_ provide at least this number of bytes.
-    pub fn read_next(&mut self, mut bytes: Bytes) -> VortexResult<NextMessage> {
+    pub fn read_next(&mut self, bytes: &mut BytesMut) -> VortexResult<NextMessage> {
         match &self.state {
             State::ReadingLength => {
                 if bytes.len() < 4 {
@@ -53,7 +105,7 @@ impl MessageReader {
                 if bytes.len() < *msg_length {
                     return Ok(NextMessage::NeedMore(*msg_length));
                 }
-                let msg_bytes = bytes.split_to(*msg_length);
+                let mut msg_bytes = bytes.split_to(*msg_length);
 
                 let msg = root::<fb::Message>(msg_bytes.as_ref())?;
                 if msg.version() != MessageVersion::V0 {
@@ -76,7 +128,7 @@ impl MessageReader {
                             .map_err(|_| vortex_err!("buffers length is too large for usize"))?;
 
                         self.state = State::ReadingArray(ReadingArray {
-                            header: msg_bytes,
+                            header: Buffer::from(msg_bytes.split().freeze()),
                             buffers_length,
                         });
                         Ok(NextMessage::NeedMore(buffers_length))
@@ -96,7 +148,7 @@ impl MessageReader {
                         let dtype = msg.header_as_dtype().vortex_expect("dtype header");
 
                         self.state = State::ReadingLength;
-                        Ok(NextMessage::Some(IPCMessage::DType(DType::try_from(
+                        Ok(NextMessage::Some(DecoderMessage::DType(DType::try_from(
                             dtype,
                         )?)))
                     }
@@ -114,7 +166,7 @@ impl MessageReader {
                 }
 
                 let buffer = bytes.split_to(*length);
-                let msg = IPCMessage::Buffer(Buffer::from(buffer));
+                let msg = DecoderMessage::Buffer(Buffer::from(buffer.freeze()));
                 let _padding = bytes.split_to(length_with_padding - length);
                 self.state = State::ReadingLength;
                 Ok(NextMessage::Some(msg))
@@ -132,20 +184,33 @@ impl MessageReader {
                 let array_data_msg = msg
                     .header_as_array_data()
                     .vortex_expect("array data header");
+                let array_msg = array_data_msg
+                    .array()
+                    .ok_or_else(|| vortex_err!("array data message missing array"))?;
 
                 let mut all_buffers = bytes.split_to(*buffers_length);
-                let _buffers = array_data_msg
+                let buffers = array_data_msg
                     .buffers()
                     .unwrap_or_default()
                     .iter()
                     .map(|buffer_msg| {
                         let buffer = all_buffers.split_to(buffer_msg.length() as usize);
                         let _padding = all_buffers.split_to(buffer_msg.padding() as usize);
-                        buffer
+                        Buffer::from(buffer.freeze())
                     })
                     .collect_vec();
 
-                todo!()
+                let row_count = usize::try_from(array_data_msg.row_count())
+                    .map_err(|_| vortex_err!("row count is too large for usize"))?;
+
+                let msg = DecoderMessage::Array(ArrayParts {
+                    row_count,
+                    array_flatbuffer: Buffer::from(header.clone()),
+                    array_flatbuffer_loc: array_msg._tab.loc(),
+                    buffers,
+                });
+                self.state = State::ReadingLength;
+                Ok(NextMessage::Some(msg))
             }
         }
     }

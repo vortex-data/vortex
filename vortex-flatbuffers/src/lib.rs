@@ -114,11 +114,7 @@ pub mod footer;
 /// ```
 pub mod message;
 
-use std::marker::PhantomData;
-
-use flatbuffers::{
-    root, FlatBufferBuilder, Follow, InvalidFlatbuffer, Table, Verifiable, WIPOffset,
-};
+use flatbuffers::{root, FlatBufferBuilder, Follow, InvalidFlatbuffer, Verifiable, WIPOffset};
 use vortex_buffer::Buffer;
 
 pub trait FlatBufferRoot {}
@@ -164,45 +160,5 @@ impl<F: WriteFlatBuffer + FlatBufferRoot> FlatBufferToBytes for F {
         let (vec, start) = fbb.collapse();
         let end = vec.len();
         Buffer::from(vec).slice(start..end)
-    }
-}
-
-pub struct Flat<T> {
-    buffer: Buffer,
-    loc: usize,
-    _marker: PhantomData<T>,
-}
-
-impl<'buf, T> Flat<T>
-where
-    T: for<'a> Follow<'a>,
-{
-    pub fn new(buffer: Buffer) -> Result<Self, InvalidFlatbuffer>
-    where
-        T: Verifiable,
-    {
-        drop(root::<T>(buffer.as_slice())?);
-        Ok(Self {
-            buffer,
-            loc: 0,
-            _marker: PhantomData,
-        })
-    }
-
-    pub fn as_(&self) -> <T as Follow<'_>>::Inner {
-        // SAFETY: The validity of the buffer is checked during construction.
-        unsafe { <T as Follow<'_>>::follow(self.buffer.as_ref(), self.loc) }
-    }
-
-    pub fn map<R>(self, f: impl FnOnce(<T as Follow<'_>>::Inner) -> Table<'buf>) -> Flat<R>
-    where
-        R: Follow<'buf> + 'buf,
-    {
-        let result = f(self.as_());
-        Flat {
-            buffer: self.buffer,
-            loc: result.loc(),
-            _marker: Default::default(),
-        }
     }
 }
