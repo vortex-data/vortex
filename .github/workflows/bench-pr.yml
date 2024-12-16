@@ -32,7 +32,6 @@ jobs:
             name: Random Access
           - id: compress
             name: Vortex Compression
-
     runs-on: self-hosted
     if: ${{ contains(github.event.head_commit.message, '[benchmark]') || github.event.label.name == 'benchmark' && github.event_name == 'pull_request' }}
     steps:
@@ -60,45 +59,45 @@ jobs:
           RUSTFLAGS: '-C target-cpu=native'
         run: |
           cargo install cargo-criterion
-          
-          cargo criterion --bench ${{ matrix.benchmark.id }} --message-format=json 2>&1 | tee out.json
-          
-          cat out.json
-
           sudo apt-get update && sudo apt-get install -y jq
 
-          jq --raw-input --compact-output '
-                 fromjson?
-                 | [ (if .mean != null then {name: .id, value: .mean.estimate, unit: .unit, range: ((.mean.upper_bound - .mean.lower_bound) / 2) } else {} end),
-                     (if .throughput != null then {name: (.id + " throughput"), value: .throughput[].per_iteration, unit: .throughput[].unit, range: 0} else {} end),
-                     {name, value, unit, range} ]
-                 | .[]
-                 | select(.value != null)
-              ' \
-              out.json \
-              | jq --slurp --compact-output '.' >${{ matrix.benchmark.id }}.json
+          cargo criterion \
+                --bench ${{ matrix.benchmark.id }} \
+                --message-format=json \
+            > ${{ matrix.benchmark.id }}-raw.json
 
-          cat ${{ matrix.benchmark.id }}.json
-      - name: Store benchmark result
-        if: '!cancelled()'
-        uses: benchmark-action/github-action-benchmark@v1
+          cat ${{ matrix.benchmark.id }}-raw.json \
+            | bash scripts/coerce-criterion-json.sh \
+            > ${{ matrix.benchmark.id }}.json
+
+      - name: Setup AWS CLI
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          name: ${{ matrix.benchmark.name }}
-          tool: 'customSmallerIsBetter'
-          gh-pages-branch: gh-pages-bench
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          output-file-path: ${{ matrix.benchmark.id }}.json
-          summary-always: true
-          comment-always: true
-          auto-push: false
-          save-data-file: false
-          fail-on-alert: false
-        env:
-          # AWS Credentials for R2 storage tests
-          AWS_BUCKET: vortex-test
-          AWS_ENDPOINT: ${{ secrets.AWS_ENDPOINT }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
+          aws-region: us-east-1
+      - name: Compare results
+        shell: bash
+        run: |
+          set -Eeu -o pipefail -x
+
+          base_commit_sha=${{ github.event.pull_request.base.sha }}
+
+          aws s3 cp s3://vortex-benchmark-results-database/data.json - \
+            | grep $base_commit_sha \
+            > base.json
+
+          echo '# Benchmarks: ${{ matrix.benchmark.id }}' > comment.md
+          echo '<details>' >> comment.md
+          echo '<summary>Table of Results</summary>' >> comment.md
+          echo '' >> comment.md
+          uv run python3 scripts/compare-benchmark-jsons.py base.json ${{ matrix.benchmark.id }}.json \
+            >> comment.md
+          echo '</details>' >> comment.md
+      - name: Comment PR
+        uses: thollander/actions-comment-pull-request@v3
+        with:
+          file-path: comment.md
+          comment-tag: bench-pr-comment-${{ matrix.benchmark.id }}
   tpch:
     needs: label_trigger
     runs-on: self-hosted
@@ -126,27 +125,35 @@ jobs:
           BENCH_VORTEX_RATIOS: '.*'
           RUSTFLAGS: '-C target-cpu=native'
         run: |
-          cargo run --bin tpch_benchmark --release -- --only-vortex -d gh-json -t 1 | tee tpch.json
-      - name: Store benchmark result
-        if: '!cancelled()'
-        uses: benchmark-action/github-action-benchmark@v1
+          cargo run --bin tpch_benchmark --release -- -d gh-json -t 1 | tee tpch.json
+      - name: Setup AWS CLI
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          name: 'TPC-H'
-          tool: 'customSmallerIsBetter'
-          gh-pages-branch: gh-pages-bench
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          output-file-path: tpch.json
-          summary-always: true
-          comment-always: true
-          auto-push: false
-          save-data-file: false
-          fail-on-alert: false
-        env:
-          # AWS Credentials for R2 storage tests
-          AWS_BUCKET: vortex-test
-          AWS_ENDPOINT: ${{ secrets.AWS_ENDPOINT }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
+          aws-region: us-east-1
+      - name: Compare results
+        shell: bash
+        run: |
+          set -Eeu -o pipefail -x
+
+          base_commit_sha=${{ github.event.pull_request.base.sha }}
+
+          aws s3 cp s3://vortex-benchmark-results-database/data.json - \
+            | grep $base_commit_sha \
+            > base.json
+
+          echo '# Benchmarks: TPC-H' > comment.md
+          echo '<details>' >> comment.md
+          echo '<summary>Table of Results</summary>' >> comment.md
+          echo '' >> comment.md
+          uv run python3 scripts/compare-benchmark-jsons.py base.json tpch.json \
+            >> comment.md
+          echo '</details>' >> comment.md
+      - name: Comment PR
+        uses: thollander/actions-comment-pull-request@v3
+        with:
+          file-path: comment.md
+          comment-tag: bench-pr-comment-tpch
   clickbench:
     needs: label_trigger
     runs-on: self-hosted
@@ -168,31 +175,39 @@ jobs:
         run: |
           echo "TMPDIR=/work" >> $GITHUB_ENV
 
-      - name: Run ClickBench benchmark
+      - name: Run Clickbench benchmark
         shell: bash
         env:
           BENCH_VORTEX_RATIOS: '.*'
           RUSTFLAGS: '-C target-cpu=native'
           HOME: /home/ci-runner
         run: |
-          cargo run --bin clickbench --release -- --only-vortex -d gh-json | tee clickbench.json
-      - name: Store benchmark result
-        if: '!cancelled()'
-        uses: benchmark-action/github-action-benchmark@v1
+          cargo run --bin clickbench --release -- -d gh-json | tee clickbench.json
+      - name: Setup AWS CLI
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          name: 'Clickbench'
-          tool: 'customSmallerIsBetter'
-          gh-pages-branch: gh-pages-bench
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          output-file-path: clickbench.json
-          summary-always: true
-          comment-always: true
-          auto-push: false
-          save-data-file: false
-          fail-on-alert: false
-        env:
-          # AWS Credentials for R2 storage tests
-          AWS_BUCKET: vortex-test
-          AWS_ENDPOINT: ${{ secrets.AWS_ENDPOINT }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
+          aws-region: us-east-1
+      - name: Compare results
+        shell: bash
+        run: |
+          set -Eeu -o pipefail -x
+
+          base_commit_sha=${{ github.event.pull_request.base.sha }}
+
+          aws s3 cp s3://vortex-benchmark-results-database/data.json - \
+            | grep $base_commit_sha \
+            > base.json
+
+          echo '# Benchmarks: Clickbench' > comment.md
+          echo '<details>' >> comment.md
+          echo '<summary>Table of Results</summary>' >> comment.md
+          echo '' >> comment.md
+          uv run python3 scripts/compare-benchmark-jsons.py base.json clickbench.json \
+            >> comment.md
+          echo '</details>' >> comment.md
+      - name: Comment PR
+        uses: thollander/actions-comment-pull-request@v3
+        with:
+          file-path: comment.md
+          comment-tag: bench-pr-comment-clickbench

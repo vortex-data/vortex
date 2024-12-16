@@ -3,7 +3,6 @@ use std::sync::Arc;
 
 use arrow_array::BooleanArray;
 use arrow_buffer::{BooleanBufferBuilder, MutableBuffer};
-use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Nullability};
@@ -129,7 +128,7 @@ impl BoolArray {
                 first_byte_bit_offset,
             }),
             Some(Buffer::from(inner)),
-            validity.into_array().into_iter().collect_vec().into(),
+            validity.into_array().into_iter().collect(),
             StatsSet::default(),
         )?
         .try_into()

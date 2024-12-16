@@ -69,14 +69,9 @@ pub fn render_table(all_measurements: Vec<Measurement>, formats: &[Format]) -> a
 }
 
 pub fn print_measurements_json(all_measurements: Vec<Measurement>) -> anyhow::Result<()> {
-    let measurements = all_measurements
-        .into_iter()
-        .map(|v| v.to_json())
-        .collect::<Vec<_>>();
-
-    let output = serde_json::to_string(&measurements)?;
-
-    print!("{output}");
+    for measurement in all_measurements {
+        println!("{}", serde_json::to_string(&measurement.to_json())?)
+    }
 
     Ok(())
 }

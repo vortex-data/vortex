@@ -1,4 +1,3 @@
-use log::info;
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 
 use crate::encoding::Encoding;
@@ -72,17 +71,26 @@ pub fn take(
     // If TakeFn defined for the encoding, delegate to TakeFn.
     // If we know from stats that indices are all valid, we can avoid all bounds checks.
     if let Some(take_fn) = array.encoding().take_fn() {
-        return if checked_indices {
+        let result = if checked_indices {
             // SAFETY: indices are all inbounds per stats.
             // TODO(aduffy): this means stats must be trusted, can still trigger UB if stats are bad.
             unsafe { take_fn.take_unchecked(array, indices) }
         } else {
             take_fn.take(array, indices)
-        };
+        }?;
+        if array.dtype() != result.dtype() {
+            vortex_bail!(
+                "TakeFn {} changed array dtype from {} to {}",
+                array.encoding().id(),
+                array.dtype(),
+                result.dtype()
+            );
+        }
+        return Ok(result);
     }
 
     // Otherwise, flatten and try again.
-    info!("TakeFn not implemented for {}, flattening", array);
+    log::debug!("No take implementation found for {}", array.encoding().id());
     let canonical = array.clone().into_canonical()?.into_array();
     let canonical_take_fn = canonical
         .encoding()
