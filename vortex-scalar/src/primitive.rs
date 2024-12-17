@@ -302,7 +302,8 @@ impl PrimitiveScalar<'_> {
             vortex_bail!("types must match: {} {}", self.dtype(), other.dtype());
         }
 
-        let nullability = self.dtype().nullability();
+        let nullability =
+            Nullability::from(self.dtype().is_nullable() || other.dtype().is_nullable());
 
         Ok(match_each_native_ptype!(
             self.ptype(),
@@ -310,7 +311,7 @@ impl PrimitiveScalar<'_> {
                 let lhs = self.typed_value::<$P>();
                 let rhs = other.typed_value::<$P>();
                 match (lhs, rhs) {
-                    (_, None) | (None, _) => Some(Scalar::null(self.dtype().clone().as_nullable())),
+                    (_, None) | (None, _) => Some(Scalar::null(self.dtype().with_nullability(nullability))),
                     (Some(lhs), Some(rhs)) => match op {
                         BinaryNumericOperator::Add =>
                             lhs.checked_add(rhs).map(|result| Scalar::primitive(result, nullability)),
@@ -327,7 +328,7 @@ impl PrimitiveScalar<'_> {
                 let lhs = self.typed_value::<$P>();
                 let rhs = other.typed_value::<$P>();
                 Some(match (lhs, rhs) {
-                    (_, None) | (None, _) => Scalar::null(self.dtype().clone().as_nullable()),
+                    (_, None) | (None, _) => Scalar::null(self.dtype().with_nullability(nullability)),
                     (Some(lhs), Some(rhs)) =>  match op {
                         BinaryNumericOperator::Add => Scalar::primitive(lhs + rhs, nullability),
                         BinaryNumericOperator::Sub => Scalar::primitive(lhs - rhs, nullability),
