@@ -39,7 +39,7 @@ pub fn split_temporal(array: TemporalArray) -> VortexResult<TemporalParts> {
     let mut seconds = Vec::with_capacity(length);
     let mut subsecond = Vec::with_capacity(length);
 
-    for t in timestamps.into_maybe_null_vec::<i64>().into_iter() {
+    for &t in timestamps.maybe_null_slice::<i64>().iter() {
         days.push(t / (86_400 * divisor));
         seconds.push((t % (86_400 * divisor)) / divisor);
         subsecond.push((t % (86_400 * divisor)) % divisor);
