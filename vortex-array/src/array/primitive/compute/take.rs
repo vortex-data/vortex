@@ -67,7 +67,7 @@ mod test {
     #[test]
     fn test_take() {
         let a = vec![1i32, 2, 3, 4, 5];
-        let result = take_primitive(&a, &vec![0, 0, 4, 2]);
+        let result = take_primitive(&a, &[0, 0, 4, 2]);
         assert_eq!(result, vec![1i32, 1, 5, 3]);
     }
 }
