@@ -1,3 +1,4 @@
+use std::any::type_name;
 use std::io;
 use std::sync::Arc;
 
@@ -135,7 +136,7 @@ impl<R: VortexReadAt> MessageReader<R> {
 
         // Ensure that the buffers are aligned.
         if !all_buffers.as_ptr().is_aligned_to(ALIGNMENT) {
-            vortex_bail!("Buffers from {:?} are not aligned", self.read)
+            vortex_bail!("Buffers from {:?} are not aligned", type_name::<R>())
         }
 
         if array_reader.read(all_buffers)?.is_some() {

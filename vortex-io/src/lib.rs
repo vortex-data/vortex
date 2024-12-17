@@ -1,3 +1,4 @@
+#![feature(pointer_is_aligned_to)]
 //! Core traits and implementations for asynchronous IO.
 //!
 //! Vortex implements an IPC streaming format as well as a file format, both of which

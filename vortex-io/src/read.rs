@@ -6,7 +6,7 @@ use bytes::Bytes;
 use vortex_buffer::Buffer;
 use vortex_error::{vortex_err, VortexUnwrap};
 
-use crate::VortexBytesMut;
+use crate::{VortexBytesMut, ALIGNMENT};
 
 /// A trait for types that support asynchronous reads.
 ///
@@ -76,9 +76,7 @@ impl VortexReadAt for Buffer {
             )))
         } else {
             let mut buffer = VortexBytesMut::with_capacity(len.try_into().vortex_unwrap());
-            unsafe {
-                buffer.set_len(len.try_into().vortex_unwrap());
-            }
+            unsafe { buffer.set_len(len.try_into().vortex_unwrap()) };
             buffer.copy_from_slice(self.slice(read_start..read_end).as_slice());
             future::ready(Ok(buffer.freeze()))
         }
@@ -104,7 +102,16 @@ impl VortexReadAt for Bytes {
                 vortex_err!("unexpected eof"),
             )))
         } else {
-            let sliced = self.slice(read_start..read_end);
+            let mut sliced = self.slice(read_start..read_end);
+
+            // NOTE(ngates): this implementation of VortexReadAt is not necessarily performant
+            //  since it can copy bytes if they are not correct aligned.
+            if !sliced.as_ptr().is_aligned_to(ALIGNMENT) {
+                let mut aligned = VortexBytesMut::with_capacity(sliced.len());
+                aligned.copy_from_slice(sliced.as_ref());
+                sliced = aligned.freeze();
+            }
+
             future::ready(Ok(sliced))
         }
     }
