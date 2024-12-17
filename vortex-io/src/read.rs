@@ -107,7 +107,7 @@ impl VortexReadAt for Bytes {
             //  since it can copy bytes if they are not correct aligned.
             if !sliced.as_ptr().is_aligned_to(ALIGNMENT) {
                 let mut aligned = VortexBytesMut::with_capacity(sliced.len());
-                aligned.copy_from_slice(sliced.as_ref());
+                aligned.extend_from_slice(sliced.as_ref());
                 sliced = Bytes::from_owner(aligned)
             }
 
