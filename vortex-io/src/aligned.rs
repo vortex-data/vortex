@@ -99,6 +99,10 @@ where
     /// Extend this mutable buffer with the contents of the provided slice.
     pub fn extend_from_slice(&mut self, slice: &[u8]) {
         // The internal `buf` is padded, so appends will land after the padded region.
+        assert!(
+            self.buf.capacity() >= self.padding + self.len() + slice.len(),
+            "Not enough room in aligned buffer to extend without potential unaligned re-allocation"
+        );
         self.buf.extend_from_slice(slice)
     }
 
