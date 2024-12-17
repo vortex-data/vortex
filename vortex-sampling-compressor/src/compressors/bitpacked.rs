@@ -66,7 +66,7 @@ impl EncodingCompressor for BitPackedCompressor {
         // Only arrays with non-negative values can be bit-packed
         if !parray.ptype().is_unsigned_int() {
             let has_negative_elements = match_each_integer_ptype!(parray.ptype(), |$P| {
-                parray.statistics().compute_min::<$P>().unwrap_or_default() < 0
+                parray.statistics().compute_min::<Option<$P>>().unwrap_or_default().unwrap_or_default() < 0
             });
 
             if has_negative_elements {
@@ -94,7 +94,7 @@ impl EncodingCompressor for BitPackedCompressor {
         // Only arrays with non-negative values can be bit-packed
         if !parray.ptype().is_unsigned_int() {
             let has_negative_elements = match_each_integer_ptype!(parray.ptype(), |$P| {
-                parray.statistics().compute_min::<$P>().unwrap_or_default() < 0
+                parray.statistics().compute_min::<Option<$P>>().unwrap_or_default().unwrap_or_default() < 0
             });
 
             if has_negative_elements {
