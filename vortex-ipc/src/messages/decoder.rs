@@ -11,6 +11,8 @@ use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_flatbuffers::message as fb;
 use vortex_flatbuffers::message::{MessageHeader, MessageVersion};
 
+use crate::ALIGNMENT;
+
 /// A message decoded from an IPC stream.
 ///
 /// Note that the `Array` variant cannot fully decode into an [`ArrayData`] without a [`Context`]
@@ -84,9 +86,18 @@ pub enum PollRead {
 }
 
 /// A stateful reader for decoding IPC messages from an arbitrary stream of bytes.
-#[derive(Default)]
 pub struct MessageDecoder {
+    alignment: usize,
     state: State,
+}
+
+impl Default for MessageDecoder {
+    fn default() -> Self {
+        Self {
+            alignment: ALIGNMENT,
+            state: Default::default(),
+        }
+    }
 }
 
 impl MessageDecoder {
@@ -101,15 +112,20 @@ impl MessageDecoder {
                 if bytes.len() < 4 {
                     return Ok(PollRead::NeedMore(4));
                 }
+
                 let msg_length = bytes.get_u32_le();
                 self.state = State::Header(msg_length as usize);
+
+                bytes.reserve_aligned(msg_length as usize, self.alignment);
                 Ok(PollRead::NeedMore(msg_length as usize))
             }
             State::Header(msg_length) => {
                 if bytes.len() < *msg_length {
+                    bytes.reserve_aligned(*msg_length, self.alignment);
                     return Ok(PollRead::NeedMore(*msg_length));
                 }
-                let mut msg_bytes = bytes.split_to(*msg_length);
+                // NOTE(ngates): in theory, we only need 8-byte alignment for flatbuffers.
+                let mut msg_bytes = bytes.split_to_aligned(*msg_length, self.alignment);
 
                 let msg = root::<fb::Message>(msg_bytes.as_ref())?;
                 if msg.version() != MessageVersion::V0 {
@@ -135,6 +151,8 @@ impl MessageDecoder {
                             header: Buffer::from(msg_bytes.split().freeze()),
                             buffers_length,
                         });
+
+                        bytes.reserve_aligned(buffers_length, self.alignment);
                         Ok(PollRead::NeedMore(buffers_length))
                     }
                     MessageHeader::Buffer => {
@@ -147,6 +165,8 @@ impl MessageDecoder {
                             length,
                             length_with_padding,
                         });
+
+                        bytes.reserve_aligned(length_with_padding, self.alignment);
                         Ok(PollRead::NeedMore(length_with_padding))
                     }
                     MessageHeader::DType => {
@@ -167,10 +187,12 @@ impl MessageDecoder {
                 length_with_padding,
             }) => {
                 if bytes.len() < *length_with_padding {
+                    bytes.reserve_aligned(*length_with_padding, self.alignment);
                     return Ok(PollRead::NeedMore(*length_with_padding));
                 }
 
-                let buffer = bytes.split_to(*length);
+                let buffer = bytes.split_to_aligned(*length, self.alignment);
+
                 let msg = DecoderMessage::Buffer(Buffer::from(buffer.freeze()));
                 let _padding = bytes.split_to(length_with_padding - length);
                 self.state = State::Length;
@@ -181,6 +203,7 @@ impl MessageDecoder {
                 buffers_length,
             }) => {
                 if bytes.len() < *buffers_length {
+                    bytes.reserve_aligned(*buffers_length, self.alignment);
                     return Ok(PollRead::NeedMore(*buffers_length));
                 }
 
@@ -193,7 +216,6 @@ impl MessageDecoder {
                     .array()
                     .ok_or_else(|| vortex_err!("array data message missing array"))?;
 
-                let mut all_buffers = bytes.split_to(*buffers_length);
                 let buffers = array_data_msg
                     .buffers()
                     .unwrap_or_default()
@@ -201,8 +223,8 @@ impl MessageDecoder {
                     .map(|buffer_msg| {
                         let buffer_len = usize::try_from(buffer_msg.length())
                             .vortex_expect("buffer length is too large for usize");
-                        let buffer = all_buffers.split_to(buffer_len);
-                        let _padding = all_buffers.split_to(buffer_msg.padding() as usize);
+                        let buffer = bytes.split_to_aligned(buffer_len, self.alignment);
+                        let _padding = bytes.split_to(buffer_msg.padding() as usize);
                         Buffer::from(buffer.freeze())
                     })
                     .collect_vec();
@@ -220,5 +242,48 @@ impl MessageDecoder {
                 Ok(PollRead::Some(msg))
             }
         }
+    }
+}
+
+trait BytesMutAlignedSplit {
+    /// Advance the buffer until the start is aligned, and then reserve the requested capacity.
+    /// If the buffer is non-empty, this function does nothing.
+    fn reserve_aligned(&mut self, additional: usize, align: usize);
+
+    /// Splits the buffer at the given index, ensuring the returned BytesMut is aligned
+    /// as requested. This may involve a copy. Note that in practice, since we reserve_aligned
+    /// before calling this, the copy should be very are.
+    fn split_to_aligned(&mut self, at: usize, align: usize) -> BytesMut;
+}
+
+impl BytesMutAlignedSplit for BytesMut {
+    fn reserve_aligned(&mut self, additional: usize, align: usize) {
+        if !self.is_empty() {
+            // If the buffer isn't empty, we shouldn't try to copy it. It could be huge and this
+            // is just an optimization to avoid the copy in `split_to_aligned`.
+            return;
+        }
+
+        // Reserve up to the worst-cast alignment
+        self.reserve(additional + align);
+        let padding = self.as_ptr().align_offset(align);
+        unsafe { self.set_len(padding) };
+        self.advance(padding);
+    }
+
+    fn split_to_aligned(&mut self, at: usize, align: usize) -> BytesMut {
+        let buffer = self.split_to(at);
+
+        // If the buffer is already aligned, we can return it directly.
+        if buffer.as_ptr().align_offset(align) == 0 {
+            return buffer;
+        }
+
+        // Otherwise, we allocate a new buffer, align the start, and copy the data.
+        let mut aligned = BytesMut::with_capacity(buffer.len().next_multiple_of(align));
+        aligned.advance(aligned.as_ptr().align_offset(align));
+        aligned.extend_from_slice(&buffer);
+
+        aligned
     }
 }
