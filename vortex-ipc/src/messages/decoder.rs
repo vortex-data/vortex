@@ -87,7 +87,9 @@ pub enum PollRead {
 
 /// A stateful reader for decoding IPC messages from an arbitrary stream of bytes.
 pub struct MessageDecoder {
+    /// The minimum alignment to use when reading a data `Buffer`.
     alignment: usize,
+    /// The current state of the decoder.
     state: State,
 }
 
