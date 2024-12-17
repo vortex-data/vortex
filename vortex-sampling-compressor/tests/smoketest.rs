@@ -18,7 +18,7 @@ mod tests {
     use vortex_datetime_dtype::TimeUnit;
     use vortex_datetime_parts::DateTimePartsEncoding;
     use vortex_dict::DictEncoding;
-    use vortex_fastlanes::FoREncoding;
+    use vortex_fastlanes::BitPackedEncoding;
     use vortex_fsst::FSSTEncoding;
     use vortex_sampling_compressor::ALL_COMPRESSORS;
     use vortex_scalar::Scalar;
@@ -122,7 +122,7 @@ mod tests {
             .unwrap();
         println!("prim_col num chunks: {}", prim_col.nchunks());
         for chunk in prim_col.chunks() {
-            assert_eq!(chunk.encoding().id(), FoREncoding::ID);
+            assert_eq!(chunk.encoding().id(), BitPackedEncoding::ID);
             assert_eq!(
                 chunk.statistics().get(Stat::UncompressedSizeInBytes),
                 Some(Scalar::from((chunk.len() * 8) as u64 + 1))
