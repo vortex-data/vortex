@@ -8,11 +8,10 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
-use vortex_buffer::io_buf::IoBuf;
 use vortex_error::VortexUnwrap;
 
 use crate::aligned::AlignedBytesMut;
-use crate::{VortexReadAt, VortexWrite, ALIGNMENT};
+use crate::{IoBuf, VortexReadAt, VortexWrite, ALIGNMENT};
 
 pub struct TokioAdapter<IO>(pub IO);
 

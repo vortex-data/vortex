@@ -40,13 +40,13 @@ impl From<BufferString> for Buffer {
 
 impl From<String> for BufferString {
     fn from(value: String) -> Self {
-        Self(Buffer::from(value.into_bytes()))
+        Self(Buffer::from_owner(value.into_bytes()))
     }
 }
 
 impl From<&str> for BufferString {
     fn from(value: &str) -> Self {
-        Self(Buffer::from(String::from(value).into_bytes()))
+        Self(Buffer::from_owner(String::from(value).into_bytes()))
     }
 }
 

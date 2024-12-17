@@ -14,11 +14,15 @@ categories = { workspace = true }
 readme = "README.md"
 
 [features]
+default = ["arrow", "bytes"]
+arrow = ["dep:arrow-buffer"]
+bytes = ["dep:bytes"]
 flexbuffers = ["dep:flexbuffers"]
 
 [dependencies]
-arrow-buffer = { workspace = true }
-bytes = { workspace = true }
+aligned-buffer = { workspace = true }
+arrow-buffer = { workspace = true, optional = true }
+bytes = { workspace = true, optional = true }
 flexbuffers = { workspace = true, optional = true }
 
 [lints]

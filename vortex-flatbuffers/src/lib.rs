@@ -156,7 +156,6 @@ impl<F: WriteFlatBuffer + FlatBufferRoot> WriteFlatBufferExt for F {
         let root_offset = self.write_flatbuffer(&mut fbb);
         fbb.finish_minimal(root_offset);
         let (vec, start) = fbb.collapse();
-        let end = vec.len();
-        Buffer::from(vec).slice(start..end)
+        Buffer::from_owner(vec).slice(start)
     }
 }

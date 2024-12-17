@@ -1,10 +1,9 @@
 //! Provides types that can be used by I/O frameworks to work with byte buffer-shaped data.
 
-use std::ops::Range;
+use std::ops::{Deref, Range};
 
 use bytes::Bytes;
-
-use crate::Buffer;
+use vortex_buffer::Buffer;
 
 /// Trait for types that can provide a readonly byte buffer interface to I/O frameworks.
 ///
@@ -144,6 +143,6 @@ unsafe impl IoBuf for Buffer {
     #[inline]
     #[allow(clippy::same_name_method)]
     fn as_slice(&self) -> &[u8] {
-        Buffer::as_slice(self)
+        self.deref()
     }
 }

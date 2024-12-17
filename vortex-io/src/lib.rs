@@ -9,6 +9,7 @@
 
 pub use buf::*;
 pub use dispatcher::*;
+pub use io_buf::*;
 pub use limit::*;
 #[cfg(feature = "object_store")]
 pub use object_store::*;
@@ -23,6 +24,7 @@ mod buf;
 #[cfg(feature = "compio")]
 mod compio;
 mod dispatcher;
+mod io_buf;
 mod limit;
 #[cfg(feature = "object_store")]
 mod object_store;

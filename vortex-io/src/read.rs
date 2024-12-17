@@ -2,7 +2,7 @@ use std::future::{self, Future};
 use std::io;
 use std::sync::Arc;
 
-use bytes::{Bytes, BytesMut};
+use bytes::Bytes;
 use vortex_buffer::Buffer;
 use vortex_error::{vortex_err, VortexUnwrap};
 
@@ -65,21 +65,19 @@ impl VortexReadAt for Buffer {
         pos: u64,
         len: u64,
     ) -> impl Future<Output = io::Result<Bytes>> + 'static {
-        let read_start: usize = pos.try_into().vortex_unwrap();
-        let read_end: usize = (len + pos).try_into().vortex_unwrap();
-        if read_end > self.len() {
-            future::ready(Err(io::Error::new(
+        let offset: usize = pos.try_into().vortex_unwrap();
+        let length: usize = len.try_into().vortex_unwrap();
+
+        if offset + length > self.len() {
+            return future::ready(Err(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
                 vortex_err!("unexpected eof"),
-            )))
-        } else {
-            let mut buffer = BytesMut::with_capacity(len.try_into().vortex_unwrap());
-            unsafe {
-                buffer.set_len(len.try_into().vortex_unwrap());
-            }
-            buffer.copy_from_slice(self.slice(read_start..read_end).as_slice());
-            future::ready(Ok(buffer.freeze()))
+            )));
         }
+
+        future::ready(Ok(Bytes::from_owner(
+            self.slice_with_length(offset, length),
+        )))
     }
 
     fn size(&self) -> impl Future<Output = io::Result<u64>> + 'static {
