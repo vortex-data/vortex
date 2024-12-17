@@ -7,7 +7,7 @@ use vortex_array::compute::{
 };
 use vortex_array::{ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
-use vortex_scalar::{NumericOperator, Scalar};
+use vortex_scalar::{BinaryNumericOperator, Scalar};
 
 use crate::{DictArray, DictEncoding};
 
@@ -46,7 +46,7 @@ impl BinaryNumericFn<DictArray> for DictEncoding {
         &self,
         array: &DictArray,
         rhs: &ArrayData,
-        op: NumericOperator,
+        op: BinaryNumericOperator,
     ) -> VortexResult<Option<ArrayData>> {
         if !rhs.is_constant() {
             return Ok(None);

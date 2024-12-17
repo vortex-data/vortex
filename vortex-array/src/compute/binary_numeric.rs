@@ -3,19 +3,19 @@ use std::sync::Arc;
 use arrow_array::ArrayRef;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexError, VortexResult};
-use vortex_scalar::{NumericOperator, Scalar};
+use vortex_scalar::{BinaryNumericOperator, Scalar};
 
 use crate::array::ConstantArray;
-use crate::arrow::FromArrowArray;
-use crate::encoding::{downcast_array, Encoding};
-use crate::{ArrayDType, ArrayData, IntoArrayData as _, IntoCanonical};
+use crate::arrow::{Datum, FromArrowArray};
+use crate::encoding::{downcast_array_ref, Encoding};
+use crate::{ArrayDType, ArrayData, IntoArrayData as _};
 
 pub trait BinaryNumericFn<Array> {
     fn binary_numeric(
         &self,
         array: &Array,
         other: &ArrayData,
-        op: NumericOperator,
+        op: BinaryNumericOperator,
     ) -> VortexResult<Option<ArrayData>>;
 }
 
@@ -28,16 +28,16 @@ where
         &self,
         lhs: &ArrayData,
         rhs: &ArrayData,
-        op: NumericOperator,
+        op: BinaryNumericOperator,
     ) -> VortexResult<Option<ArrayData>> {
-        let (array_ref, encoding) = downcast_array::<E>(lhs)?;
+        let (array_ref, encoding) = downcast_array_ref::<E>(lhs)?;
         BinaryNumericFn::binary_numeric(encoding, array_ref, rhs, op)
     }
 }
 
 /// Point-wise add two numeric arrays.
 pub fn add(lhs: impl AsRef<ArrayData>, rhs: impl AsRef<ArrayData>) -> VortexResult<ArrayData> {
-    binary_numeric(lhs.as_ref(), rhs.as_ref(), NumericOperator::Add)
+    binary_numeric(lhs.as_ref(), rhs.as_ref(), BinaryNumericOperator::Add)
 }
 
 /// Point-wise add a scalar value to this array on the right-hand-side.
@@ -46,13 +46,13 @@ pub fn add_scalar(lhs: impl AsRef<ArrayData>, rhs: Scalar) -> VortexResult<Array
     binary_numeric(
         lhs,
         &ConstantArray::new(rhs, lhs.len()).into_array(),
-        NumericOperator::Add,
+        BinaryNumericOperator::Add,
     )
 }
 
 /// Point-wise subtract two numeric arrays.
 pub fn sub(lhs: impl AsRef<ArrayData>, rhs: impl AsRef<ArrayData>) -> VortexResult<ArrayData> {
-    binary_numeric(lhs.as_ref(), rhs.as_ref(), NumericOperator::Sub)
+    binary_numeric(lhs.as_ref(), rhs.as_ref(), BinaryNumericOperator::Sub)
 }
 
 /// Point-wise subtract a scalar value from this array on the right-hand-side.
@@ -61,13 +61,13 @@ pub fn sub_scalar(lhs: impl AsRef<ArrayData>, rhs: Scalar) -> VortexResult<Array
     binary_numeric(
         lhs,
         &ConstantArray::new(rhs, lhs.len()).into_array(),
-        NumericOperator::Sub,
+        BinaryNumericOperator::Sub,
     )
 }
 
 /// Point-wise multiply two numeric arrays.
 pub fn mul(lhs: impl AsRef<ArrayData>, rhs: impl AsRef<ArrayData>) -> VortexResult<ArrayData> {
-    binary_numeric(lhs.as_ref(), rhs.as_ref(), NumericOperator::Mul)
+    binary_numeric(lhs.as_ref(), rhs.as_ref(), BinaryNumericOperator::Mul)
 }
 
 /// Point-wise multiply a scalar value into this array on the right-hand-side.
@@ -76,13 +76,13 @@ pub fn mul_scalar(lhs: impl AsRef<ArrayData>, rhs: Scalar) -> VortexResult<Array
     binary_numeric(
         lhs,
         &ConstantArray::new(rhs, lhs.len()).into_array(),
-        NumericOperator::Mul,
+        BinaryNumericOperator::Mul,
     )
 }
 
 /// Point-wise divide two numeric arrays.
 pub fn div(lhs: impl AsRef<ArrayData>, rhs: impl AsRef<ArrayData>) -> VortexResult<ArrayData> {
-    binary_numeric(lhs.as_ref(), rhs.as_ref(), NumericOperator::Div)
+    binary_numeric(lhs.as_ref(), rhs.as_ref(), BinaryNumericOperator::Div)
 }
 
 /// Point-wise divide a scalar value into this array on the right-hand-side.
@@ -91,14 +91,14 @@ pub fn div_scalar(lhs: impl AsRef<ArrayData>, rhs: Scalar) -> VortexResult<Array
     binary_numeric(
         lhs,
         &ConstantArray::new(rhs, lhs.len()).into_array(),
-        NumericOperator::Mul,
+        BinaryNumericOperator::Mul,
     )
 }
 
 pub fn binary_numeric(
     lhs: &ArrayData,
     rhs: &ArrayData,
-    op: NumericOperator,
+    op: BinaryNumericOperator,
 ) -> VortexResult<ArrayData> {
     if lhs.len() != rhs.len() {
         vortex_bail!("Numeric operations aren't supported on arrays of different lengths")
@@ -139,18 +139,18 @@ pub fn binary_numeric(
 fn arrow_numeric(
     lhs: ArrayData,
     rhs: ArrayData,
-    operator: NumericOperator,
+    operator: BinaryNumericOperator,
 ) -> VortexResult<ArrayData> {
     let nullable = lhs.dtype().is_nullable() || rhs.dtype().is_nullable();
 
-    let lhs = lhs.into_canonical()?.into_arrow()?;
-    let rhs = rhs.into_canonical()?.into_arrow()?;
+    let lhs = Datum::try_from(lhs)?;
+    let rhs = Datum::try_from(rhs)?;
 
     let array = match operator {
-        NumericOperator::Add => arrow_arith::numeric::add(&lhs, &rhs)?,
-        NumericOperator::Sub => arrow_arith::numeric::sub(&lhs, &rhs)?,
-        NumericOperator::Div => arrow_arith::numeric::div(&lhs, &rhs)?,
-        NumericOperator::Mul => arrow_arith::numeric::mul(&lhs, &rhs)?,
+        BinaryNumericOperator::Add => arrow_arith::numeric::add(&lhs, &rhs)?,
+        BinaryNumericOperator::Sub => arrow_arith::numeric::sub(&lhs, &rhs)?,
+        BinaryNumericOperator::Div => arrow_arith::numeric::div(&lhs, &rhs)?,
+        BinaryNumericOperator::Mul => arrow_arith::numeric::mul(&lhs, &rhs)?,
     };
 
     Ok(ArrayData::from_arrow(Arc::new(array) as ArrayRef, nullable))

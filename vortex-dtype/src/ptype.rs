@@ -71,18 +71,6 @@ pub trait NativePType:
     /// Compare another instance of this type to `self`, providing a total ordering
     fn total_compare(self, other: Self) -> Ordering;
 
-    /// Addition, safe on uninitialized data.
-    fn maybe_null_add(self, other: Self) -> Self;
-
-    /// Subtraction, safe on uninitialized data.
-    fn maybe_null_sub(self, other: Self) -> Self;
-
-    /// Multiplication, safe on uninitialized data.
-    fn maybe_null_mul(self, other: Self) -> Self;
-
-    /// Division, safe on uninitialized data.
-    fn maybe_null_div(self, other: Self) -> Self;
-
     /// Whether another instance of this type (`other`) is bitwise equal to `self`
     fn is_eq(self, other: Self) -> bool;
 }
@@ -98,22 +86,6 @@ macro_rules! native_ptype {
 
             fn total_compare(self, other: Self) -> Ordering {
                 self.cmp(&other)
-            }
-
-            fn maybe_null_add(self, other: Self) -> Self {
-                self.wrapping_add(other)
-            }
-
-            fn maybe_null_sub(self, other: Self) -> Self {
-                self.wrapping_sub(other)
-            }
-
-            fn maybe_null_mul(self, other: Self) -> Self {
-                self.wrapping_mul(other)
-            }
-
-            fn maybe_null_div(self, other: Self) -> Self {
-                self.wrapping_div(other)
             }
 
             fn is_eq(self, other: Self) -> bool {
@@ -134,22 +106,6 @@ macro_rules! native_float_ptype {
 
             fn total_compare(self, other: Self) -> Ordering {
                 self.total_cmp(&other)
-            }
-
-            fn maybe_null_add(self, other: Self) -> Self {
-                self + other
-            }
-
-            fn maybe_null_sub(self, other: Self) -> Self {
-                self - other
-            }
-
-            fn maybe_null_mul(self, other: Self) -> Self {
-                self * other
-            }
-
-            fn maybe_null_div(self, other: Self) -> Self {
-                self / other
             }
 
             fn is_eq(self, other: Self) -> bool {
@@ -190,6 +146,28 @@ macro_rules! match_each_native_ptype {
             PType::F16 => __with__! { f16 },
             PType::F32 => __with__! { f32 },
             PType::F64 => __with__! { f64 },
+        }
+    });
+    ($self:expr,
+     integral: | $_:tt $integral_enc:ident | { $($integral_body:tt)* }
+     floating_point: | $_2:tt $floating_point_enc:ident | { $($floating_point_body:tt)* }
+    ) => ({
+        macro_rules! __with_integer__ {( $_ $integral_enc:ident ) => ( { $($integral_body)* } )}
+        macro_rules! __with_floating_point__ {( $_ $floating_point_enc:ident ) => ( { $($floating_point_body)* } )}
+        use $crate::PType;
+        use $crate::half::f16;
+        match $self {
+            PType::I8 => __with_integer__! { i8 },
+            PType::I16 => __with_integer__! { i16 },
+            PType::I32 => __with_integer__! { i32 },
+            PType::I64 => __with_integer__! { i64 },
+            PType::U8 => __with_integer__! { u8 },
+            PType::U16 => __with_integer__! { u16 },
+            PType::U32 => __with_integer__! { u32 },
+            PType::U64 => __with_integer__! { u64 },
+            PType::F16 => __with_floating_point__! { f16 },
+            PType::F32 => __with_floating_point__! { f32 },
+            PType::F64 => __with_floating_point__! { f64 },
         }
     })
 }

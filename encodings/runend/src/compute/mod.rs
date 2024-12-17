@@ -16,7 +16,7 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::{match_each_unsigned_integer_ptype, NativePType};
 use vortex_error::{VortexResult, VortexUnwrap};
-use vortex_scalar::{NumericOperator, Scalar};
+use vortex_scalar::{BinaryNumericOperator, Scalar};
 
 use crate::{RunEndArray, RunEndEncoding};
 
@@ -59,7 +59,7 @@ impl BinaryNumericFn<RunEndArray> for RunEndEncoding {
         &self,
         array: &RunEndArray,
         rhs: &ArrayData,
-        op: NumericOperator,
+        op: BinaryNumericOperator,
     ) -> VortexResult<Option<ArrayData>> {
         if !rhs.is_constant() {
             return Ok(None);

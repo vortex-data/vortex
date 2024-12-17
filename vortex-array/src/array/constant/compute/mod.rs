@@ -1,10 +1,11 @@
+mod binary_numeric;
 mod boolean;
 mod compare;
 mod invert;
 mod search_sorted;
 
 use vortex_error::VortexResult;
-use vortex_scalar::{NumericOperator, Scalar};
+use vortex_scalar::Scalar;
 
 use crate::array::constant::ConstantArray;
 use crate::array::ConstantEncoding;
@@ -12,7 +13,7 @@ use crate::compute::{
     BinaryBooleanFn, BinaryNumericFn, CompareFn, ComputeVTable, FilterFn, FilterMask, InvertFn,
     ScalarAtFn, SearchSortedFn, SliceFn, TakeFn,
 };
-use crate::{ArrayData, ArrayLen as _, IntoArrayData};
+use crate::{ArrayData, IntoArrayData};
 
 impl ComputeVTable for ConstantEncoding {
     fn binary_boolean_fn(&self) -> Option<&dyn BinaryBooleanFn<ArrayData>> {
@@ -49,30 +50,6 @@ impl ComputeVTable for ConstantEncoding {
 
     fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
         Some(self)
-    }
-}
-
-impl BinaryNumericFn<ConstantArray> for ConstantEncoding {
-    fn binary_numeric(
-        &self,
-        array: &ConstantArray,
-        rhs: &ArrayData,
-        op: NumericOperator,
-    ) -> VortexResult<Option<ArrayData>> {
-        let Some(rhs) = rhs.as_constant() else {
-            return Ok(None);
-        };
-
-        Ok(Some(
-            ConstantArray::new(
-                array
-                    .scalar()
-                    .as_primitive()
-                    .numeric_operator(rhs.as_primitive(), op)?,
-                array.len(),
-            )
-            .into_array(),
-        ))
     }
 }
 

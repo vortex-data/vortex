@@ -274,7 +274,7 @@ impl From<usize> for Scalar {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NumericOperator {
+pub enum BinaryNumericOperator {
     Add,
     Sub,
     Mul,
@@ -282,7 +282,6 @@ pub enum NumericOperator {
     // Missing from arrow-rs:
     // Min,
     // Max,
-    // Sqrt,
     // Pow,
     // In IEEE-754 operations involving NaN are non-commutative wrt NaN payload/quietness
     // RAdd,
@@ -292,27 +291,54 @@ pub enum NumericOperator {
 }
 
 impl PrimitiveScalar<'_> {
-    pub fn numeric_operator(
+    /// Apply the (checked) operator to self and other.
+    ///
+    /// If the operation overflows, Ok(None) is returned.
+    ///
+    /// If the types are incompatible (ignoring nullability), an error is returned.
+    pub fn checked_numeric_operator(
         self,
         other: PrimitiveScalar<'_>,
-        op: NumericOperator,
-    ) -> VortexResult<Scalar> {
+        op: BinaryNumericOperator,
+    ) -> VortexResult<Option<Scalar>> {
         if !self.dtype().eq_ignore_nullability(other.dtype()) {
             vortex_bail!("types must match: {} {}", self.dtype(), other.dtype());
         }
 
-        Ok(match_each_native_ptype!(self.ptype(), |$P| {
-            let lhs = self.typed_value::<$P>();
-            let rhs = other.typed_value::<$P>();
-            let nullability = self.dtype().nullability();
-            lhs.zip(rhs).map(|(lhs, rhs)| {
-                match op {
-                    NumericOperator::Add => Scalar::primitive(lhs + rhs, nullability),
-                    NumericOperator::Sub => Scalar::primitive(lhs - rhs, nullability),
-                    NumericOperator::Mul => Scalar::primitive(lhs * rhs, nullability),
-                    NumericOperator::Div => Scalar::primitive(lhs / rhs, nullability),
+        Ok(match_each_native_ptype!(
+            self.ptype(),
+            integral: |$P| {
+                let lhs = self.typed_value::<$P>();
+                let rhs = other.typed_value::<$P>();
+                let nullability = self.dtype().nullability();
+                match (lhs, rhs) {
+                    (_, None) | (None, _) => Some(Scalar::null(self.dtype().clone().as_nullable())),
+                    (Some(lhs), Some(rhs)) => match op {
+                        BinaryNumericOperator::Add =>
+                            lhs.checked_add(rhs).map(|result| Scalar::primitive(result, nullability)),
+                        BinaryNumericOperator::Sub =>
+                            lhs.checked_sub(rhs).map(|result| Scalar::primitive(result, nullability)),
+                        BinaryNumericOperator::Mul =>
+                            lhs.checked_mul(rhs).map(|result| Scalar::primitive(result, nullability)),
+                        BinaryNumericOperator::Div =>
+                            lhs.checked_div(rhs).map(|result| Scalar::primitive(result, nullability)),
+                    }
                 }
-            }).unwrap_or_else(|| Scalar::null(self.dtype().clone()))
-        }))
+            }
+            floating_point: |$P| {
+                let lhs = self.typed_value::<$P>();
+                let rhs = other.typed_value::<$P>();
+                let nullability = self.dtype().nullability();
+                Some(match (lhs, rhs) {
+                    (_, None) | (None, _) => Scalar::null(self.dtype().clone().as_nullable()),
+                    (Some(lhs), Some(rhs)) =>  match op {
+                        BinaryNumericOperator::Add => Scalar::primitive(lhs + rhs, nullability),
+                        BinaryNumericOperator::Sub => Scalar::primitive(lhs - rhs, nullability),
+                        BinaryNumericOperator::Mul => Scalar::primitive(lhs - rhs, nullability),
+                        BinaryNumericOperator::Div => Scalar::primitive(lhs - rhs, nullability),
+                    }
+                })
+            }
+        ))
     }
 }

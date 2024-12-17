@@ -69,7 +69,7 @@ pub trait Encoding: 'static {
     type Metadata: ArrayMetadata;
 }
 
-pub fn downcast_array<E: Encoding>(array: &ArrayData) -> VortexResult<(&E::Array, &E)>
+pub fn downcast_array_ref<E: Encoding>(array: &ArrayData) -> VortexResult<(&E::Array, &E)>
 where
     for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
 {

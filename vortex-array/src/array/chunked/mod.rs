@@ -9,7 +9,7 @@ use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult, VortexUnwrap};
-use vortex_scalar::NumericOperator;
+use vortex_scalar::BinaryNumericOperator;
 
 use crate::array::primitive::PrimitiveArray;
 use crate::compute::{
@@ -239,7 +239,7 @@ impl BinaryNumericFn<ChunkedArray> for ChunkedEncoding {
         &self,
         array: &ChunkedArray,
         rhs: &ArrayData,
-        op: NumericOperator,
+        op: BinaryNumericOperator,
     ) -> VortexResult<Option<ArrayData>> {
         let mut start = 0;
 

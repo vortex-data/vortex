@@ -1,6 +1,6 @@
 use vortex_dtype::{match_each_integer_ptype, DType};
 use vortex_error::{vortex_bail, VortexResult};
-use vortex_scalar::{NumericOperator, Scalar};
+use vortex_scalar::{BinaryNumericOperator, Scalar};
 
 use crate::array::null::NullArray;
 use crate::array::NullEncoding;
@@ -31,7 +31,7 @@ impl BinaryNumericFn<NullArray> for NullEncoding {
         &self,
         array: &NullArray,
         _rhs: &ArrayData,
-        _op: NumericOperator,
+        _op: BinaryNumericOperator,
     ) -> VortexResult<Option<ArrayData>> {
         // for any arithmetic operation, forall X. NULL op X = NULL
         Ok(Some(NullArray::new(array.len()).into_array()))

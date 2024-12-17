@@ -1,5 +1,5 @@
-use vortex_error::VortexResult;
-use vortex_scalar::NumericOperator;
+use vortex_error::{vortex_err, VortexResult};
+use vortex_scalar::BinaryNumericOperator;
 
 use crate::array::{SparseArray, SparseEncoding};
 use crate::compute::{binary_numeric, BinaryNumericFn};
@@ -10,7 +10,7 @@ impl BinaryNumericFn<SparseArray> for SparseEncoding {
         &self,
         array: &SparseArray,
         rhs: &ArrayData,
-        op: NumericOperator,
+        op: BinaryNumericOperator,
     ) -> VortexResult<Option<ArrayData>> {
         let Some(rhs_scalar) = rhs.as_constant() else {
             return Ok(None);
@@ -22,7 +22,8 @@ impl BinaryNumericFn<SparseArray> for SparseEncoding {
         let new_fill_value = array
             .fill_scalar()
             .as_primitive()
-            .numeric_operator(rhs_scalar.as_primitive(), op)?;
+            .checked_numeric_operator(rhs_scalar.as_primitive(), op)?
+            .ok_or_else(|| vortex_err!("numeric overflow"))?;
         SparseArray::try_new_from_patches(
             new_patches,
             array.len(),
