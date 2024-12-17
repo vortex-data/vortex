@@ -84,6 +84,12 @@ where
 
     /// Extend this mutable buffer with the contents of the provided slice.
     pub fn extend_from_slice(&mut self, slice: &[u8]) {
+        let bytes_remaining = self.capacity - self.len();
+        assert!(
+            slice.len() <= bytes_remaining,
+            "extend_from_slice cannot reallocate"
+        );
+
         // The internal `buf` is padded, so appends will land after the padded region.
         self.buf.extend_from_slice(slice)
     }
