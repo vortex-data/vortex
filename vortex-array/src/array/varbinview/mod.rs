@@ -477,7 +477,7 @@ impl VarBinViewArray {
                 (view.len() + view_ref.offset()) as usize,
             )?
             .into_primitive()?;
-            Ok(data_buf.maybe_null_slice::<u8>().to_vec())
+            Ok(data_buf.into_maybe_null_vec::<u8>())
         } else {
             // Return access to the range of bytes around it.
             Ok(view.as_inlined().value().to_vec())

@@ -153,8 +153,8 @@ fn pack_lists(chunks: &[ArrayData], validity: Validity, dtype: &DType) -> Vortex
             .ok_or_else(|| vortex_err!("List offsets must have at least one element"))?;
         offsets.extend(
             offsets_arr
-                .maybe_null_slice::<i64>()
-                .iter()
+                .into_maybe_null_vec::<i64>()
+                .into_iter()
                 .skip(1)
                 .map(|off| off + adjustment_from_previous - first_offset_value as i64),
         );

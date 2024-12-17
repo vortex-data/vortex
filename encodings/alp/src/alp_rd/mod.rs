@@ -261,7 +261,7 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
     left_parts: &[u16],
     left_parts_dict: &[u16],
     right_bit_width: u8,
-    right_parts: &[T::UINT],
+    right_parts: Vec<T::UINT>,
     left_parts_patches: Option<Patches>,
 ) -> VortexResult<Vec<T>> {
     if left_parts.len() != right_parts.len() {
@@ -290,7 +290,7 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
     // recombine the left-and-right parts, adjusting by the right_bit_width.
     Ok(patched_left_parts
         .into_iter()
-        .zip(right_parts.iter().copied())
+        .zip_eq(right_parts)
         .map(|(left, right)| {
             let left = <T as ALPRDFloat>::from_u16(left);
             T::from_bits((left << (right_bit_width as usize)) | right)
