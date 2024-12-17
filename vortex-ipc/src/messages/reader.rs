@@ -12,6 +12,8 @@ use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_flatbuffers::message as fb;
 use vortex_io::{VortexBufReader, VortexReadAt};
 
+use crate::ALIGNMENT;
+
 pub const MESSAGE_PREFIX_LENGTH: usize = 4;
 
 /// A stateful reader of [`Message`s][fb::Message] from a stream.
@@ -130,6 +132,11 @@ impl<R: VortexReadAt> MessageReader<R> {
 
         // Issue a single read to grab all buffers
         let all_buffers = self.read.read_bytes(all_buffers_size).await?;
+
+        // Ensure that the buffers are aligned.
+        if !all_buffers.as_ptr().is_aligned_to(ALIGNMENT) {
+            vortex_bail!("Buffers from {:?} are not aligned", self.read)
+        }
 
         if array_reader.read(all_buffers)?.is_some() {
             unreachable!("This is an implementation bug")

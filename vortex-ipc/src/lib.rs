@@ -1,3 +1,4 @@
+#![feature(pointer_is_aligned_to)]
 //! Vortex IPC messages and associated readers and writers.
 //!
 //! Vortex provides an IPC messaging format to exchange array data over a streaming
