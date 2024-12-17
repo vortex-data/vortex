@@ -6,7 +6,7 @@ use futures_util::{AsyncRead, Stream};
 use pin_project_lite::pin_project;
 use vortex_error::VortexResult;
 
-use crate::messages::{DecoderMessage, MessageDecoder, NextMessage};
+use crate::messages::{DecoderMessage, MessageDecoder, PollRead};
 
 pin_project! {
     pub struct AsyncMessageReader<R> {
@@ -36,8 +36,8 @@ impl<R: AsyncRead + Unpin> Stream for AsyncMessageReader<R> {
         let mut this = self.project();
         loop {
             match this.decoder.read_next(this.buffer)? {
-                NextMessage::Some(msg) => return Poll::Ready(Some(Ok(msg))),
-                NextMessage::NeedMore(nbytes) => {
+                PollRead::Some(msg) => return Poll::Ready(Some(Ok(msg))),
+                PollRead::NeedMore(nbytes) => {
                     this.buffer.resize(nbytes, 0x00);
 
                     match ready!(this

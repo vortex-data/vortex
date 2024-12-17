@@ -16,4 +16,4 @@ pub mod stream;
 /// This is a multiple of the native alignment for all PTypes,
 /// thus all buffers allocated with this alignment are naturally aligned
 /// for any data we may put inside of it.
-pub const ALIGNMENT: u16 = 64;
+pub const ALIGNMENT: usize = 64;

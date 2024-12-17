@@ -1,6 +1,9 @@
 use std::io::{Read, Write};
 use std::sync::Arc;
 
+use aligned_buffer::UniqueAlignedBuffer;
+use bytes::Bytes;
+use itertools::Itertools;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::{ArrayDType, ArrayData, Context};
 use vortex_buffer::Buffer;
@@ -20,7 +23,7 @@ pub struct SyncIPCReader<R: Read> {
 impl<R: Read> SyncIPCReader<R> {
     pub fn try_new(read: R, ctx: Arc<Context>) -> VortexResult<Self> {
         let mut reader = SyncMessageReader::new(read);
-        match reader.read_message()? {
+        match reader.next().transpose()? {
             Some(msg) => match msg {
                 DecoderMessage::DType(dtype) => Ok(SyncIPCReader { reader, ctx, dtype }),
                 msg => {
@@ -42,7 +45,7 @@ impl<R: Read> Iterator for SyncIPCReader<R> {
     type Item = VortexResult<ArrayData>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match self.reader.read_message().transpose()? {
+        match self.reader.next()? {
             Ok(msg) => match msg {
                 DecoderMessage::Array(array_parts) => Some(
                     array_parts
@@ -110,14 +113,16 @@ pub struct ArrayIteratorIPCBytes {
 }
 
 impl ArrayIteratorIPCBytes {
-    /// Collects the IPC bytes into a single `Vec<u8>` buffer.
-    pub fn collect_to_buffer(self) -> VortexResult<Vec<u8>> {
-        // TODO(ngates): this buffer needs 64-byte alignment...
-        let mut buffer = vec![];
-        for chunk in self {
-            buffer.extend(chunk?.as_slice());
+    /// Collects the IPC bytes into a single `Buffer`.
+    pub fn collect_to_buffer(self) -> VortexResult<Buffer> {
+        // We allocate a single aligned buffer to hold the combined IPC bytes
+        let buffers: Vec<Buffer> = self.try_collect()?;
+        let mut buffer =
+            UniqueAlignedBuffer::<ALIGNMENT>::with_capacity(buffers.iter().map(|b| b.len()).sum());
+        for buf in buffers {
+            buffer.extend_from_slice(buf.as_slice());
         }
-        Ok(buffer)
+        Ok(Buffer::from(Bytes::from_owner(buffer)))
     }
 }
 

@@ -75,7 +75,7 @@ impl FlatLayoutReader {
 
     fn array_from_bytes(&self, buf: Bytes) -> VortexResult<ArrayData> {
         let mut reader = SyncMessageReader::new(Cursor::new(buf.as_ref()));
-        match reader.read_message()? {
+        match reader.next().transpose()? {
             Some(DecoderMessage::Array(array_parts)) => array_parts.into_array_data(
                 self.ctx.clone(),
                 self.message_cache.dtype().value()?.clone(),

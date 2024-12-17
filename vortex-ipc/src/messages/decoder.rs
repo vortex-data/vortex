@@ -76,8 +76,10 @@ struct ReadingBuffer {
     length_with_padding: usize,
 }
 
-pub enum NextMessage {
+pub enum PollRead {
     Some(DecoderMessage),
+    /// Returns the _total_ number of bytes needed to make progress.
+    /// Note this is _not_ the incremental number of bytes needed to make progress.
     NeedMore(usize),
 }
 
@@ -89,21 +91,23 @@ pub struct MessageDecoder {
 
 impl MessageDecoder {
     /// Attempt to read the next message from the bytes object.
+    ///
     /// If the message is incomplete, the function will return `NeedMore` with the _total_ number
-    /// of bytes needed. The next call to read_next _should_ provide at least this number of bytes.
-    pub fn read_next(&mut self, bytes: &mut BytesMut) -> VortexResult<NextMessage> {
+    /// of bytes needed to make progress. The next call to read_next _should_ provide at least
+    /// this number of bytes otherwise it will be given the same `NeedMore` response.
+    pub fn read_next(&mut self, bytes: &mut BytesMut) -> VortexResult<PollRead> {
         match &self.state {
             State::Length => {
                 if bytes.len() < 4 {
-                    return Ok(NextMessage::NeedMore(4));
+                    return Ok(PollRead::NeedMore(4));
                 }
                 let msg_length = bytes.get_u32_le();
                 self.state = State::Header(msg_length as usize);
-                Ok(NextMessage::NeedMore(msg_length as usize))
+                Ok(PollRead::NeedMore(msg_length as usize))
             }
             State::Header(msg_length) => {
                 if bytes.len() < *msg_length {
-                    return Ok(NextMessage::NeedMore(*msg_length));
+                    return Ok(PollRead::NeedMore(*msg_length));
                 }
                 let mut msg_bytes = bytes.split_to(*msg_length);
 
@@ -131,7 +135,7 @@ impl MessageDecoder {
                             header: Buffer::from(msg_bytes.split().freeze()),
                             buffers_length,
                         });
-                        Ok(NextMessage::NeedMore(buffers_length))
+                        Ok(PollRead::NeedMore(buffers_length))
                     }
                     MessageHeader::Buffer => {
                         let buffer = msg.header_as_buffer().vortex_expect("buffer header");
@@ -143,13 +147,13 @@ impl MessageDecoder {
                             length,
                             length_with_padding,
                         });
-                        Ok(NextMessage::NeedMore(length_with_padding))
+                        Ok(PollRead::NeedMore(length_with_padding))
                     }
                     MessageHeader::DType => {
                         let dtype = msg.header_as_dtype().vortex_expect("dtype header");
 
                         self.state = State::Length;
-                        Ok(NextMessage::Some(DecoderMessage::DType(DType::try_from(
+                        Ok(PollRead::Some(DecoderMessage::DType(DType::try_from(
                             dtype,
                         )?)))
                     }
@@ -163,21 +167,21 @@ impl MessageDecoder {
                 length_with_padding,
             }) => {
                 if bytes.len() < *length_with_padding {
-                    return Ok(NextMessage::NeedMore(*length_with_padding));
+                    return Ok(PollRead::NeedMore(*length_with_padding));
                 }
 
                 let buffer = bytes.split_to(*length);
                 let msg = DecoderMessage::Buffer(Buffer::from(buffer.freeze()));
                 let _padding = bytes.split_to(length_with_padding - length);
                 self.state = State::Length;
-                Ok(NextMessage::Some(msg))
+                Ok(PollRead::Some(msg))
             }
             State::Array(ReadingArray {
                 header,
                 buffers_length,
             }) => {
                 if bytes.len() < *buffers_length {
-                    return Ok(NextMessage::NeedMore(*buffers_length));
+                    return Ok(PollRead::NeedMore(*buffers_length));
                 }
 
                 // SAFETY: we've already validated the header
@@ -213,7 +217,7 @@ impl MessageDecoder {
                     buffers,
                 });
                 self.state = State::Length;
-                Ok(NextMessage::Some(msg))
+                Ok(PollRead::Some(msg))
             }
         }
     }

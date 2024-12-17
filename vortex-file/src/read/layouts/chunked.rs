@@ -439,7 +439,7 @@ mod tests {
             msgs.write_message(EncoderMessage::Array(&chunk))
                 .await
                 .unwrap();
-            byte_offsets.push(msgs.as_ref().position());
+            byte_offsets.push(msgs.inner().position());
         }
         let flat_layouts = byte_offsets
             .iter()

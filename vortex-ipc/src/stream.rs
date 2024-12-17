@@ -3,7 +3,9 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{ready, Poll};
 
-use futures_util::{AsyncRead, AsyncWrite, AsyncWriteExt, Stream, StreamExt};
+use aligned_buffer::UniqueAlignedBuffer;
+use bytes::Bytes;
+use futures_util::{AsyncRead, AsyncWrite, AsyncWriteExt, Stream, StreamExt, TryStreamExt};
 use pin_project_lite::pin_project;
 use vortex_array::stream::ArrayStream;
 use vortex_array::{ArrayDType, ArrayData, Context};
@@ -129,13 +131,16 @@ pub struct ArrayStreamIPCBytes {
 }
 
 impl ArrayStreamIPCBytes {
-    /// Collects the IPC bytes into a single `Vec<u8>` buffer.
-    pub async fn collect_to_buffer(mut self) -> VortexResult<Vec<u8>> {
-        let mut buffer = vec![];
-        while let Some(chunk) = self.next().await {
-            buffer.extend(chunk?.as_slice());
+    /// Collects the IPC bytes into a single `Buffer`.
+    pub async fn collect_to_buffer(self) -> VortexResult<Buffer> {
+        // We allocate a single aligned buffer to hold the combined IPC bytes
+        let buffers: Vec<Buffer> = self.try_collect().await?;
+        let mut buffer =
+            UniqueAlignedBuffer::<ALIGNMENT>::with_capacity(buffers.iter().map(|b| b.len()).sum());
+        for buf in buffers {
+            buffer.extend_from_slice(buf.as_slice());
         }
-        Ok(buffer)
+        Ok(Buffer::from(Bytes::from_owner(buffer)))
     }
 }
 

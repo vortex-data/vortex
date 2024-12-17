@@ -25,12 +25,19 @@ pub struct MessageEncoder {
 }
 
 impl MessageEncoder {
-    pub fn new(alignment: u16) -> Self {
+    /// Create a new message encoder that pads each message and buffer with the given alignment.
+    ///
+    /// ## Panics
+    ///
+    /// Panics if `alignment` is greater than `u16::MAX`.
+    pub fn new(alignment: usize) -> Self {
         // We guarantee that alignment fits inside u16.
+        u16::try_from(alignment).vortex_expect("Alignment must fit into u16");
+
         Self {
-            alignment: alignment as usize,
+            alignment,
             pos: 0,
-            zeros: Buffer::from(vec![0; alignment as usize]),
+            zeros: Buffer::from(vec![0; alignment]),
         }
     }
 

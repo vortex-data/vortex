@@ -3,7 +3,7 @@ use std::io::Read;
 use bytes::BytesMut;
 use vortex_error::VortexResult;
 
-use crate::messages::{DecoderMessage, MessageDecoder, NextMessage};
+use crate::messages::{DecoderMessage, MessageDecoder, PollRead};
 
 pub struct SyncMessageReader<R> {
     read: R,
@@ -19,26 +19,31 @@ impl<R: Read> SyncMessageReader<R> {
             decoder: MessageDecoder::default(),
         }
     }
+}
 
-    pub fn read_message(&mut self) -> VortexResult<Option<DecoderMessage>> {
+impl<R: Read> Iterator for SyncMessageReader<R> {
+    type Item = VortexResult<DecoderMessage>;
+
+    fn next(&mut self) -> Option<Self::Item> {
         loop {
-            match self.decoder.read_next(&mut self.buffer)? {
-                NextMessage::Some(msg) => {
-                    return Ok(Some(msg));
+            match self.decoder.read_next(&mut self.buffer) {
+                Ok(PollRead::Some(msg)) => {
+                    return Some(Ok(msg));
                 }
-                NextMessage::NeedMore(nbytes) => {
+                Ok(PollRead::NeedMore(nbytes)) => {
                     self.buffer.resize(nbytes, 0x00);
                     match self.read.read(&mut self.buffer) {
                         Ok(0) => {
                             // EOF
-                            return Ok(None);
+                            return None;
                         }
                         Ok(_nbytes) => {
                             // Continue in the loop
                         }
-                        Err(e) => return Err(e.into()),
+                        Err(e) => return Some(Err(e.into())),
                     }
                 }
+                Err(e) => return Some(Err(e)),
             }
         }
     }
