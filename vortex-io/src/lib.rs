@@ -20,8 +20,8 @@ pub use tokio::*;
 pub use write::*;
 
 mod buf;
-#[cfg(feature = "compio")]
-mod compio;
+// #[cfg(feature = "compio")]
+// mod compio;
 mod dispatcher;
 mod limit;
 #[cfg(feature = "object_store")]

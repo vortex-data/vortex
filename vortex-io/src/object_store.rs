@@ -110,7 +110,7 @@ impl VortexReadAt for ObjectStoreReadAt {
                 }
             }
 
-            Ok(buf.freeze())
+            Ok(Bytes::from_owner(buf.into_shared()))
         })
     }
 

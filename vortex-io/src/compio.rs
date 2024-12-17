@@ -9,9 +9,9 @@ use compio::BufResult;
 use vortex_error::VortexUnwrap;
 
 use crate::aligned::{AlignedBytesMut, PowerOfTwo};
-use crate::{VortexBytesMut, VortexReadAt};
+use crate::{VortexBytes, VortexBytesMut, VortexReadAt};
 
-unsafe impl<const ALIGN: usize> IoBuf for AlignedBytesMut<ALIGN>
+unsafe impl<const ALIGN: usize> IoBuf for VortexBytes
 where
     usize: PowerOfTwo<ALIGN>,
 {
@@ -43,7 +43,7 @@ where
     }
 }
 
-unsafe impl<const ALIGN: usize> IoBufMut for AlignedBytesMut<ALIGN>
+unsafe impl<const ALIGN: usize> IoBufMut for VortexBytesMut
 where
     usize: PowerOfTwo<ALIGN>,
 {
