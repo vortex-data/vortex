@@ -74,7 +74,7 @@ impl VortexReadAt for TokioFile {
             buffer.set_len(len.try_into().vortex_unwrap());
         }
         match this.read_exact_at(&mut buffer, pos) {
-            Ok(()) => future::ready(Ok(buffer.freeze())),
+            Ok(()) => future::ready(Ok(Bytes::from_owner(buffer.into_shared()))),
             Err(e) => future::ready(Err(e)),
         }
     }

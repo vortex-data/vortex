@@ -1,6 +1,8 @@
 use arrow_buffer::NullBufferBuilder;
+use bytes::Bytes;
 use num_traits::AsPrimitive;
-use vortex_dtype::{DType, NativePType};
+use vortex_buffer::Buffer;
+use vortex_dtype::{DType, NativePType, PType};
 use vortex_error::{vortex_panic, VortexExpect as _};
 use vortex_io::VortexBytesMut;
 
@@ -80,7 +82,11 @@ impl<O: NativePType> VarBinBuilder<O> {
 
     pub fn finish(mut self, dtype: DType) -> VarBinArray {
         let offsets = PrimitiveArray::from(self.offsets);
-        let data = PrimitiveArray::from_bytes(self.data.freeze(), Validity::NonNullable);
+        let data = PrimitiveArray::new(
+            Buffer::from(Bytes::from_owner(self.data.into_shared())),
+            PType::U8,
+            Validity::NonNullable,
+        );
         let nulls = self.validity.finish();
 
         let validity = if dtype.is_nullable() {

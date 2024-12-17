@@ -19,7 +19,6 @@ pub use read_ranges::*;
 pub use tokio::*;
 pub use write::*;
 
-mod aligned;
 mod buf;
 #[cfg(feature = "compio")]
 mod compio;
@@ -37,4 +36,5 @@ mod write;
 /// Required alignment for all custom buffer allocations.
 pub const ALIGNMENT: usize = 64;
 
-pub type VortexBytesMut = aligned::AlignedBytesMut<ALIGNMENT>;
+pub type VortexBytes = aligned_buffer::SharedAlignedBuffer<ALIGNMENT>;
+pub type VortexBytesMut = aligned_buffer::UniqueAlignedBuffer<ALIGNMENT>;

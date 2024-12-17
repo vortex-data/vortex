@@ -76,9 +76,8 @@ impl VortexReadAt for Buffer {
             )))
         } else {
             let mut buffer = VortexBytesMut::with_capacity(len.try_into().vortex_unwrap());
-            unsafe { buffer.set_len(len.try_into().vortex_unwrap()) };
-            buffer.copy_from_slice(self.slice(read_start..read_end).as_slice());
-            future::ready(Ok(buffer.freeze()))
+            buffer.extend_from_slice(&self[read_start..read_end]);
+            future::ready(Ok(Bytes::from_owner(buffer.into_shared())))
         }
     }
 
@@ -109,7 +108,7 @@ impl VortexReadAt for Bytes {
             if !sliced.as_ptr().is_aligned_to(ALIGNMENT) {
                 let mut aligned = VortexBytesMut::with_capacity(sliced.len());
                 aligned.copy_from_slice(sliced.as_ref());
-                sliced = aligned.freeze();
+                sliced = Bytes::from_owner(aligned)
             }
 
             future::ready(Ok(sliced))
