@@ -36,12 +36,12 @@ impl PrimitiveArray {
         T: NativePType + ArrowNativeType,
         I: NativePType + ArrowNativeType,
     {
-        let mut own_values = self.into_maybe_null_slice::<T>();
+        let mut own_values = self.into_maybe_null_vec::<T>();
 
-        let patch_indices = patch_indices.into_maybe_null_slice::<I>();
-        let patch_values = patch_values.into_maybe_null_slice::<T>();
+        let patch_indices = patch_indices.maybe_null_slice::<I>();
+        let patch_values = patch_values.maybe_null_slice::<T>();
         for (idx, value) in itertools::zip_eq(patch_indices, patch_values) {
-            own_values[idx.as_usize()] = value;
+            own_values[idx.as_usize()] = *value;
         }
         Ok(Self::from_vec(own_values, patched_validity))
     }
@@ -62,7 +62,7 @@ mod tests {
             sliced
                 .into_primitive()
                 .unwrap()
-                .into_maybe_null_slice::<u32>(),
+                .into_maybe_null_vec::<u32>(),
             vec![2u32; 6]
         );
     }

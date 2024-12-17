@@ -109,7 +109,7 @@ mod test {
             .unwrap()
             .into_primitive()
             .unwrap()
-            .into_maybe_null_slice::<u64>(),
+            .into_maybe_null_vec::<u64>(),
             vec![0u64, 1, 2, 3],
         );
     }
