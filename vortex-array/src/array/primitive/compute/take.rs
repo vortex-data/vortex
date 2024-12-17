@@ -45,7 +45,7 @@ fn take_primitive<T: NativePType, I: NativePType + AsPrimitive<usize>>(
     array: &[T],
     indices: &[I],
 ) -> Vec<T> {
-    indices.into_iter().map(|idx| array[idx.as_()]).collect()
+    indices.iter().map(|idx| array[idx.as_()]).collect()
 }
 
 // We pass a Vec<I> in case we're T == u64.
@@ -55,7 +55,7 @@ unsafe fn take_primitive_unchecked<T: NativePType, I: NativePType + AsPrimitive<
     indices: &[I],
 ) -> Vec<T> {
     indices
-        .into_iter()
+        .iter()
         .map(|idx| unsafe { *array.get_unchecked(idx.as_()) })
         .collect()
 }
