@@ -6,10 +6,10 @@ use vortex_array::stats::ArrayStatistics;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::match_each_integer_ptype;
-use vortex_error::{vortex_err, vortex_panic, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexResult};
 use vortex_fastlanes::{
-    bitpack, count_exceptions, find_best_bit_width, find_min_patchless_bit_width, gather_patches,
-    BitPackedArray, BitPackedEncoding,
+    bitpack_unchecked, count_exceptions, find_best_bit_width, find_min_patchless_bit_width,
+    gather_patches, BitPackedArray, BitPackedEncoding,
 };
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
@@ -64,12 +64,14 @@ impl EncodingCompressor for BitPackedCompressor {
         }
 
         // Only arrays with non-negative values can be bit-packed
-        let has_negative_elements = match_each_integer_ptype!(parray.ptype(), |$P| {
-            parray.statistics().compute_min::<$P>().unwrap_or_default() < 0
-        });
+        if !parray.ptype().is_unsigned_int() {
+            let has_negative_elements = match_each_integer_ptype!(parray.ptype(), |$P| {
+                parray.statistics().compute_min::<$P>().unwrap_or_default() < 0
+            });
 
-        if has_negative_elements {
-            return None;
+            if has_negative_elements {
+                return None;
+            }
         }
 
         let bit_width = self.find_bit_width(&parray).ok()?;
@@ -89,19 +91,21 @@ impl EncodingCompressor for BitPackedCompressor {
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
         let parray = array.clone().into_primitive()?;
+        // Only arrays with non-negative values can be bit-packed
+        if !parray.ptype().is_unsigned_int() {
+            let has_negative_elements = match_each_integer_ptype!(parray.ptype(), |$P| {
+                parray.statistics().compute_min::<$P>().unwrap_or_default() < 0
+            });
+
+            if has_negative_elements {
+                vortex_bail!("Cannot BitPackCompressor::compress an array with negative values");
+            }
+        }
+
         let bit_width_freq = parray
             .statistics()
             .compute_bit_width_freq()
             .ok_or_else(|| vortex_err!(ComputeError: "missing bit width frequency"))?;
-
-        // Only arrays with non-negative values can be bit-packed. If asked to compress
-        // an array with negative values, return the original array without compressing.
-        let has_negative_elements = match_each_integer_ptype!(parray.ptype(), |$P| {
-            parray.statistics().compute_min::<$P>().unwrap_or_default() < 0
-        });
-        if has_negative_elements {
-            return Ok(CompressedArray::uncompressed(array.clone()));
-        }
 
         let bit_width = self.find_bit_width(&parray)?;
         let num_exceptions = count_exceptions(bit_width, &bit_width_freq);
@@ -119,7 +123,8 @@ impl EncodingCompressor for BitPackedCompressor {
         }
 
         let validity = ctx.compress_validity(parray.validity())?;
-        let packed_buffer = bitpack(&parray, bit_width)?;
+        // SAFETY: we check that the array only contains non-negative values.
+        let packed_buffer = unsafe { bitpack_unchecked(&parray, bit_width)? };
         let patches = (num_exceptions > 0)
             .then(|| {
                 gather_patches(&parray, bit_width, num_exceptions).map(|p| {

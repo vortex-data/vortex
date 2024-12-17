@@ -20,11 +20,15 @@ pub fn bitpack_encode(array: PrimitiveArray, bit_width: u8) -> VortexResult<BitP
         .statistics()
         .compute_bit_width_freq()
         .ok_or_else(|| vortex_err!(ComputeError: "missing bit width frequency"))?;
-    let has_negative_values = match_each_integer_ptype!(array.ptype(), |$P| {
-        array.statistics().compute_min::<$P>().unwrap_or_default() < 0
-    });
-    if has_negative_values {
-        vortex_bail!("cannot bitpack_encode array containing negative integers")
+
+    // Check array contains no negative values.
+    if array.ptype().is_signed_int() {
+        let has_negative_values = match_each_integer_ptype!(array.ptype(), |$P| {
+            array.statistics().compute_min::<$P>().unwrap_or_default() < 0
+        });
+        if has_negative_values {
+            vortex_bail!("cannot bitpack_encode array containing negative integers")
+        }
     }
 
     let num_exceptions = count_exceptions(bit_width, &bit_width_freq);
@@ -34,7 +38,8 @@ pub fn bitpack_encode(array: PrimitiveArray, bit_width: u8) -> VortexResult<BitP
         vortex_bail!("Cannot pack -- specified bit width is greater than or equal to raw bit width")
     }
 
-    let packed = bitpack(&array, bit_width)?;
+    // SAFETY: we check that array only contains non-negative values.
+    let packed = unsafe { bitpack_unchecked(&array, bit_width)? };
     let patches = (num_exceptions > 0)
         .then(|| gather_patches(&array, bit_width, num_exceptions))
         .flatten();
@@ -64,10 +69,10 @@ pub unsafe fn bitpack_encode_unchecked(
     array: PrimitiveArray,
     bit_width: u8,
 ) -> VortexResult<BitPackedArray> {
-    let packed = bitpack(&array, bit_width)?;
-
-    // SAFETY: non-negativity of values is enforced by the caller.
+    // SAFETY: non-negativity of input checked by caller.
     unsafe {
+        let packed = bitpack_unchecked(&array, bit_width)?;
+
         BitPackedArray::try_new(
             packed,
             array.ptype(),
@@ -81,9 +86,16 @@ pub unsafe fn bitpack_encode_unchecked(
 
 /// Bitpack a [PrimitiveArray] to the given width.
 ///
-/// On success, returns a [Buffer] containing the packed data. Before packing, values are
-/// reinterpreted to unsigned. It is the caller's responsibility to make sure this is fine.
-pub fn bitpack(parray: &PrimitiveArray, bit_width: u8) -> VortexResult<Buffer> {
+/// On success, returns a [Buffer] containing the packed data.
+///
+/// # Safety
+///
+/// Internally this function will promote the provided array to its unsigned equivalent. This will
+/// violate ordering guarantees if the array contains any negative values.
+///
+/// It is the caller's responsibility to ensure that `parray` is non-negative before calling
+/// this function.
+pub unsafe fn bitpack_unchecked(parray: &PrimitiveArray, bit_width: u8) -> VortexResult<Buffer> {
     let parray = parray.reinterpret_cast(parray.ptype().to_unsigned());
     let packed = match_each_unsigned_integer_ptype!(parray.ptype(), |$P| {
         bitpack_primitive(parray.maybe_null_slice::<$P>(), bit_width)
