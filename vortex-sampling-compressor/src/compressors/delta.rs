@@ -52,11 +52,6 @@ impl EncodingCompressor for DeltaCompressor {
             .compress(deltas.as_ref(), like.as_ref().and_then(|l| l.child(1)))?;
         let (validity, validity_path) =
             ctx.compress_validity(parray.validity(), like.as_ref().and_then(|l| l.child(2)))?;
-        println!("compress");
-        println!("bases: {:?}", bases.path);
-        println!("deltas: {:?}", deltas.path);
-        println!("deltas: {:?}", deltas.path.clone().map(|d| d.name));
-        println!("deltas: {:?}", deltas.path.clone().map(|d| d.children));
         Ok(CompressedArray::compressed(
             DeltaArray::try_from_delta_compress_parts(bases.array, deltas.array, validity)?
                 .into_array(),

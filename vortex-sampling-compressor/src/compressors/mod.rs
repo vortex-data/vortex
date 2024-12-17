@@ -70,7 +70,7 @@ impl Hash for dyn EncodingCompressor + '_ {
 #[derive(Clone)]
 pub struct CompressionTree<'a> {
     compressor: &'a dyn EncodingCompressor,
-    name: Option<&'a str>,
+    name: Option<Arc<str>>,
     children: Vec<Option<CompressionTree<'a>>>,
     metadata: Option<Arc<dyn EncoderMetadata>>,
 }
@@ -119,7 +119,7 @@ impl<'a> CompressionTree<'a> {
         Self::new(compressor, vec![])
     }
 
-    pub fn named(&mut self, name: &'a str) {
+    pub fn named(&mut self, name: Arc<str>) {
         self.name = Some(name);
     }
 
@@ -127,7 +127,6 @@ impl<'a> CompressionTree<'a> {
         compressor: &'a dyn EncodingCompressor,
         children: Vec<Option<CompressionTree<'a>>>,
     ) -> Self {
-        println!("new {}, {:?}", compressor.id(), children);
         Self {
             compressor,
             name: None,
@@ -141,10 +140,9 @@ impl<'a> CompressionTree<'a> {
         name: &'a str,
         children: Vec<Option<CompressionTree<'a>>>,
     ) -> Self {
-        println!("new_named {:?}, {:?}", name, children);
         Self {
             compressor,
-            name: Some(name),
+            name: Some(Arc::from(name)),
             children,
             metadata: None,
         }
@@ -160,10 +158,9 @@ impl<'a> CompressionTree<'a> {
         children: Vec<Option<CompressionTree<'a>>>,
         metadata: Arc<dyn EncoderMetadata>,
     ) -> Self {
-        println!("new_with_metadata {:?}, {:?}", name, children);
         Self {
             compressor,
-            name,
+            name: name.map(Arc::from),
             children,
             metadata: Some(metadata),
         }
@@ -281,9 +278,6 @@ impl<'a> CompressedArray<'a> {
 
     #[allow(dead_code)]
     fn validate_children(&self, path: Option<&CompressionTree>, array: &ArrayData) {
-        println!("val {}", self.array.tree_display());
-        println!("path {:?}", path);
-        println!("arr {:?}", array.encoding());
         let mut col = Box::new(NamedChildrenCollector::new_with_depth(1));
         array
             .encoding()
@@ -295,20 +289,14 @@ impl<'a> CompressedArray<'a> {
             .into_iter()
             .map(|v| (v.0.as_str(), &v.1))
             .collect();
-        println!("arr map {:?}", map2.keys());
 
         if let Some(path) = path.as_ref() {
-            println!("path ch {:?}", path.children);
             path.children
                 .iter()
                 .filter_map(|path| path.as_ref())
                 .map(|tree| {
-                    println!("tree: {:?}", tree);
-                    println!("tree: {:?}", tree.name);
-                    println!("arr: {}", array.tree_display());
-                    // let name = tree.name.expect("all children must be named");
-                    let name = tree.name.unwrap_or("");
-                    let v2 = map2.get(&name);
+                    let name = tree.name.clone().map(|n| n).unwrap_or(Arc::from(""));
+                    let v2 = map2.get(name.as_ref());
                     (tree, v2)
                 })
                 .filter(|(_a, b)| b.is_some())
@@ -342,7 +330,6 @@ impl<'a> CompressedArray<'a> {
 
     pub fn named(&mut self, name: Arc<str>) {
         self.name = Some(name);
-        println!("set name {:?}", self.name);
     }
 
     #[inline]

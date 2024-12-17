@@ -85,8 +85,6 @@ impl<'a> SamplingCompressor<'a> {
         let mut cloned = self.clone();
         cloned.path.push(name.into());
         cloned.name = Some(name.into());
-        println!("set name {name}");
-        println!("set names {:?}", cloned.path);
         cloned
     }
 
@@ -144,16 +142,18 @@ impl<'a> SamplingCompressor<'a> {
             return Ok(CompressedArray::uncompressed(arr.clone()));
         }
 
-        let name = self.name.clone().expect("name");
+        let name = self.name.clone(); //.expect("name");
 
         // Attempt to compress using the "like" array, otherwise fall back to sampled compression
         if let Some(l) = like {
             if let Some(compressed) = l.compress(arr, self) {
                 let mut compressed = compressed?;
 
-                compressed.named(name.clone());
-                if let Some(path) = compressed.path.as_mut() {
-                    path.named(name.clone().as_ref());
+                if let Some(name) = name {
+                    compressed.named(name.clone());
+                    if let Some(path) = compressed.path.as_mut() {
+                        path.named(name.clone());
+                    }
                 }
 
                 check_validity_unchanged(arr, compressed.as_ref());
@@ -168,13 +168,12 @@ impl<'a> SamplingCompressor<'a> {
         // Otherwise, attempt to compress the array
         let mut compressed = self.compress_array(arr)?;
 
-        compressed.named(name.clone());
-        if let Some(path) = compressed.path.as_mut() {
-            path.named(name.as_ref());
+        if let Some(name) = name {
+            compressed.named(name.clone());
+            if let Some(path) = compressed.path.as_mut() {
+                path.named(name);
+            }
         }
-
-        println!("compressed name {:?}", compressed.name);
-        println!("compressed name {:?}", compressed.path);
 
         check_validity_unchanged(arr, compressed.as_ref());
         check_dtype_unchanged(arr, compressed.as_ref());
