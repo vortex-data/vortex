@@ -153,10 +153,10 @@ fn pack_lists(chunks: &[ArrayData], validity: Validity, dtype: &DType) -> Vortex
             .ok_or_else(|| vortex_err!("List offsets must have at least one element"))?;
         offsets.extend(
             offsets_arr
-                .into_maybe_null_vec::<i64>()
-                .into_iter()
+                .maybe_null_slice::<i64>()
+                .iter()
                 .skip(1)
-                .map(|off| off + adjustment_from_previous - first_offset_value as i64),
+                .map(|off| *off + adjustment_from_previous - first_offset_value as i64),
         );
     }
     let chunked_elements = ChunkedArray::try_new(elements, elem_dtype.clone())?.into_array();
