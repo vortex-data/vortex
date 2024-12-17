@@ -119,7 +119,7 @@ impl PrimitiveArray {
     /// If there are no other references to the underlying buffer, no data is copied.
     pub fn into_maybe_null_vec<T: NativePType + ArrowNativeType>(self) -> Vec<T> {
         match self.try_into_maybe_null_vec::<T>() {
-            Ok(_) => todo!(),
+            O(vector) => vector,
             Err(array) => {
                 let buffer = array.into_buffer();
                 let (prefix, values, suffix) = unsafe { buffer.as_ref().align_to::<T>() };
