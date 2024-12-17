@@ -10,19 +10,23 @@ use crate::{ArrayLen, IntoArrayVariant};
 impl PrimitiveArray {
     #[allow(clippy::cognitive_complexity)]
     pub fn patch(self, patches: Patches) -> VortexResult<Self> {
-        let (_, indices, values) = patches.into_parts();
+        let (_, indices, patch_values) = patches.into_parts();
         let indices = indices.into_primitive()?;
-        let values = values.into_primitive()?;
+        let patch_values = patch_values.into_primitive()?;
 
         let patched_validity =
             self.validity()
-                .patch(self.len(), indices.as_ref(), values.validity())?;
+                .patch(self.len(), indices.as_ref(), patch_values.validity())?;
 
         match_each_integer_ptype!(indices.ptype(), |$I| {
             match_each_native_ptype!(self.ptype(), |$T| {
-                let mut own_values = self.into_maybe_null_slice::<$T>();
-                for (idx, value) in indices.into_maybe_null_slice::<$I>().into_iter().zip_eq(values.into_maybe_null_slice::<$T>().into_iter()) {
-                    own_values[idx as usize] = value;
+                let mut own_values = self.into_maybe_null_vec::<$T>();
+                let indices_slice = indices
+                    .maybe_null_slice::<$I>();
+                let patch_values_slice = patch_values
+                    .maybe_null_slice::<$T>();
+                for (idx, value) in indices_slice.iter().zip_eq(patch_values_slice.iter()) {
+                    own_values[*idx as usize] = *value;
                 }
                 Ok(Self::from_vec(own_values, patched_validity))
             })
@@ -45,7 +49,7 @@ mod tests {
             sliced
                 .into_primitive()
                 .unwrap()
-                .into_maybe_null_slice::<u32>(),
+                .into_maybe_null_vec::<u32>(),
             vec![2u32; 6]
         );
     }

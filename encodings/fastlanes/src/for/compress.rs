@@ -120,7 +120,7 @@ pub fn decompress(array: FoRArray) -> VortexResult<PrimitiveArray> {
                 encoded
             } else {
                 PrimitiveArray::from_vec(
-                    decompress_primitive(encoded.into_maybe_null_slice::<$T>(), min, shift),
+                    decompress_primitive(encoded.into_maybe_null_vec::<$T>(), min, shift),
                     validity,
                 )
             }

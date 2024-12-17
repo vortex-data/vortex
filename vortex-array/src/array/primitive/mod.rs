@@ -115,8 +115,26 @@ impl PrimitiveArray {
     }
 
     /// Convert the array into a mutable vec of the given type.
-    /// If possible, this will be zero-copy.
-    pub fn into_maybe_null_slice<T: NativePType + ArrowNativeType>(self) -> Vec<T> {
+    ///
+    /// If there are no other references to the underlying buffer, no data is copied.
+    pub fn into_maybe_null_vec<T: NativePType + ArrowNativeType>(self) -> Vec<T> {
+        match self.try_into_maybe_null_vec::<T>() {
+            Ok(_) => todo!(),
+            Err(array) => {
+                let buffer = array.into_buffer();
+                let (prefix, values, suffix) = unsafe { buffer.as_ref().align_to::<T>() };
+                assert!(prefix.is_empty() && suffix.is_empty());
+                Vec::from(values)
+            }
+        }
+    }
+
+    /// Try to convert the array into a mutable vec of the given type without copying.
+    ///
+    /// If the underlying buffer is not uniquely owned, which would necessitate a copy, then return
+    /// a primitive array with the same buffer and validity.
+    #[allow(clippy::panic_in_result_fn)]
+    pub fn try_into_maybe_null_vec<T: NativePType + ArrowNativeType>(self) -> Result<Vec<T>, Self> {
         assert_eq!(
             T::PTYPE,
             self.ptype(),
@@ -124,11 +142,11 @@ impl PrimitiveArray {
             T::PTYPE,
             self.ptype(),
         );
-        self.into_buffer().into_vec::<T>().unwrap_or_else(|b| {
-            let (prefix, values, suffix) = unsafe { b.as_ref().align_to::<T>() };
-            assert!(prefix.is_empty() && suffix.is_empty());
-            Vec::from(values)
-        })
+        let ptype = self.ptype();
+        let (buffer, validity) = self.into_parts();
+        buffer
+            .into_vec::<T>()
+            .map_err(|buffer| PrimitiveArray::new(buffer, ptype, validity))
     }
 
     pub fn get_as_cast<T: NativePType>(&self, idx: usize) -> T {
@@ -149,6 +167,12 @@ impl PrimitiveArray {
         );
 
         PrimitiveArray::new(self.buffer().clone(), ptype, self.validity())
+    }
+
+    pub fn into_parts(self) -> (Buffer, Validity) {
+        let validity = self.validity();
+        let buffer = self.into_buffer();
+        (buffer, validity)
     }
 
     pub fn into_buffer(self) -> Buffer {

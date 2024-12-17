@@ -17,7 +17,7 @@ use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::array::PrimitiveArray;
 use vortex_array::{ArrayDType, IntoArrayData};
 use vortex_dtype::{DType, NativePType};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult, VortexUnwrap};
+use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult, VortexUnwrap};
 use vortex_fastlanes::bitpack_encode_unchecked;
 
 use crate::match_each_alp_float_ptype;
@@ -281,7 +281,9 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
     let patched_left_parts = match left_parts_patches {
         Some(patches) => PrimitiveArray::from(left_parts_decoded)
             .patch(patches)?
-            .into_maybe_null_slice::<u16>(),
+            .try_into_maybe_null_vec::<u16>()
+            .map_err(|_| vortex_err!("could not zero copy patched left_parts_decoded"))
+            .vortex_expect("there are no aliases to this primitive array"),
         None => left_parts_decoded,
     };
 
