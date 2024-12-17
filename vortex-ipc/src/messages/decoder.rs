@@ -100,6 +100,11 @@ impl Default for MessageDecoder {
     }
 }
 
+/// The alignment required for a flatbuffer message.
+/// This is based on the assumption that the maximum primitive type is 8 bytes.
+/// See: https://groups.google.com/g/flatbuffers/c/PSgQeWeTx_g
+const FB_ALIGNMENT: usize = 8;
+
 impl MessageDecoder {
     /// Attempt to read the next message from the bytes object.
     ///
@@ -116,16 +121,15 @@ impl MessageDecoder {
                 let msg_length = bytes.get_u32_le();
                 self.state = State::Header(msg_length as usize);
 
-                bytes.reserve_aligned(msg_length as usize, self.alignment);
+                bytes.reserve_aligned(msg_length as usize, FB_ALIGNMENT);
                 Ok(PollRead::NeedMore(msg_length as usize))
             }
             State::Header(msg_length) => {
                 if bytes.len() < *msg_length {
-                    bytes.reserve_aligned(*msg_length, self.alignment);
+                    bytes.reserve_aligned(*msg_length, FB_ALIGNMENT);
                     return Ok(PollRead::NeedMore(*msg_length));
                 }
-                // NOTE(ngates): in theory, we only need 8-byte alignment for flatbuffers.
-                let mut msg_bytes = bytes.split_to_aligned(*msg_length, self.alignment);
+                let mut msg_bytes = bytes.split_to_aligned(*msg_length, FB_ALIGNMENT);
 
                 let msg = root::<fb::Message>(msg_bytes.as_ref())?;
                 if msg.version() != MessageVersion::V0 {
@@ -190,7 +194,6 @@ impl MessageDecoder {
                     bytes.reserve_aligned(*length_with_padding, self.alignment);
                     return Ok(PollRead::NeedMore(*length_with_padding));
                 }
-
                 let buffer = bytes.split_to_aligned(*length, self.alignment);
 
                 let msg = DecoderMessage::Buffer(Buffer::from(buffer.freeze()));
