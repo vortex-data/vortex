@@ -93,13 +93,23 @@ impl RowMask {
             try_cast(array, &DType::Primitive(PType::U64, NonNullable))?.into_primitive()?;
 
         // TODO(ngates): should from_indices take u64?
-        let mask = FilterMask::from_indices(
-            end - begin,
-            indices
-                .maybe_null_slice::<u64>()
-                .iter()
-                .map(|i| *i as usize),
-        );
+        let mask = if size_of::<u64>() == size_of::<usize>() {
+            FilterMask::from_indices(
+                end - begin,
+                indices
+                    .into_maybe_null_vec::<u64>()
+                    .into_iter()
+                    .map(|i| i as usize),
+            )
+        } else {
+            FilterMask::from_indices(
+                end - begin,
+                indices
+                    .maybe_null_slice::<u64>()
+                    .iter()
+                    .map(|i| *i as usize),
+            )
+        };
 
         RowMask::try_new(mask, begin, end)
     }
