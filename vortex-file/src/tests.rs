@@ -15,8 +15,9 @@ use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVari
 use vortex_buffer::Buffer;
 use vortex_dtype::field::Field;
 use vortex_dtype::{DType, Nullability, PType, StructDType};
-use vortex_error::vortex_panic;
+use vortex_error::{vortex_panic, VortexResult};
 use vortex_expr::{BinaryExpr, Column, Literal, Operator};
+use vortex_io::VortexReadAt;
 
 use crate::builder::initial_read::read_initial_bytes;
 use crate::write::VortexFileWriter;
@@ -1001,5 +1002,76 @@ async fn test_pruning_with_or() {
             Some(15),
             Some(22)
         ]
+    );
+}
+
+#[tokio::test]
+async fn test_repeated_projection() {
+    let strings = ChunkedArray::from_iter([
+        VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array(),
+        VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array(),
+    ])
+    .into_array();
+
+    let single_column_array = StructArray::from_fields(&[("strings", strings.clone())])
+        .unwrap()
+        .into_array();
+
+    let expected = StructArray::from_fields(&[("strings", strings.clone()), ("strings", strings)])
+        .unwrap()
+        .into_array();
+
+    let written = VortexFileWriter::new(Vec::new())
+        .write_array_columns(single_column_array)
+        .await
+        .unwrap()
+        .finalize()
+        .await
+        .unwrap();
+
+    async fn read_all<W: VortexReadAt + Unpin>(
+        w: W,
+        projection: Projection,
+    ) -> VortexResult<ArrayData> {
+        VortexReadBuilder::new(w, LayoutDeserializer::default())
+            .with_projection(projection)
+            .build()
+            .await?
+            .read_all()
+            .await
+    }
+
+    let actual = read_all(Buffer::from(written.clone()), Projection::new([0, 0]))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        (0..actual.len())
+            .map(|index| scalar_at(&actual, index).unwrap())
+            .collect_vec(),
+        (0..expected.len())
+            .map(|index| scalar_at(&expected, index).unwrap())
+            .collect_vec()
+    );
+
+    let actual = read_all(
+        Buffer::from(written.clone()),
+        Projection::Flat(
+            ["strings", "strings"]
+                .iter()
+                .map(|x| Field::from(x.to_string()))
+                .collect_vec(),
+        ),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        (0..actual.len())
+            .map(|index| scalar_at(&actual, index).unwrap())
+            .collect_vec(),
+        (0..expected.len())
+            .map(|index| scalar_at(&expected, index).unwrap())
+            .collect_vec()
     );
 }

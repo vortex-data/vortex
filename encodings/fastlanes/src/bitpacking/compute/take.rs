@@ -1,13 +1,13 @@
 use fastlanes::BitPacking;
 use vortex_array::array::PrimitiveArray;
-use vortex_array::compute::{take, try_cast, TakeFn};
+use vortex_array::compute::{take, TakeFn};
+use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{
     ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, IntoCanonical, ToArrayData,
 };
 use vortex_dtype::{
-    match_each_integer_ptype, match_each_unsigned_integer_ptype, DType, NativePType, Nullability,
-    PType,
+    match_each_integer_ptype, match_each_unsigned_integer_ptype, NativePType, PType,
 };
 use vortex_error::{VortexExpect as _, VortexResult};
 
@@ -33,7 +33,7 @@ impl TakeFn<BitPackedArray> for BitPackedEncoding {
         let indices = indices.clone().into_primitive()?;
         let taken = match_each_unsigned_integer_ptype!(ptype, |$T| {
             match_each_integer_ptype!(indices.ptype(), |$I| {
-                PrimitiveArray::from_vec(take_primitive::<$T, $I>(array, &indices)?, taken_validity)
+                take_primitive::<$T, $I>(array, &indices, taken_validity)?
             })
         });
         Ok(taken.reinterpret_cast(ptype).into_array())
@@ -43,9 +43,10 @@ impl TakeFn<BitPackedArray> for BitPackedEncoding {
 fn take_primitive<T: NativePType + BitPacking, I: NativePType>(
     array: &BitPackedArray,
     indices: &PrimitiveArray,
-) -> VortexResult<Vec<T>> {
+    taken_validity: Validity,
+) -> VortexResult<PrimitiveArray> {
     if indices.is_empty() {
-        return Ok(vec![]);
+        return Ok(PrimitiveArray::from_vec(Vec::<T>::new(), taken_validity));
     }
 
     let offset = array.offset() as usize;
@@ -104,29 +105,14 @@ fn take_primitive<T: NativePType + BitPacking, I: NativePType>(
         }
     });
 
-    if let Some(patches) = array
-        .patches()
-        .map(|p| p.take(&indices.to_array()))
-        .transpose()?
-        .flatten()
-    {
-        let indices = try_cast(
-            patches.indices(),
-            &DType::Primitive(PType::U64, Nullability::NonNullable),
-        )?
-        .into_primitive()?;
-
-        // TODO(ngates): can patch values themselves have nulls, or do we ensure they're in our
-        //  validity bitmap?
-        let values = patches.values().clone().into_primitive()?;
-        let values_slice = values.maybe_null_slice::<T>();
-
-        for (idx, v) in indices.maybe_null_slice::<u64>().iter().zip(values_slice) {
-            output[*idx as usize] = *v;
+    let unpatched_taken = PrimitiveArray::from_vec(output, taken_validity);
+    if let Some(patches) = array.patches() {
+        if let Some(patches) = patches.take(&indices.to_array())? {
+            return unpatched_taken.patch(patches);
         }
     }
 
-    Ok(output)
+    Ok(unpatched_taken)
 }
 
 #[cfg(test)]
