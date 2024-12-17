@@ -1,9 +1,9 @@
 use std::fmt::{Debug, Display};
 use std::sync::Arc;
 
-use ::serde::{Deserialize, Serialize};
 pub use compress::*;
 use fastlanes::BitPacking;
+use ::serde::{Deserialize, Serialize};
 use vortex_array::array::PrimitiveArray;
 use vortex_array::encoding::ids;
 use vortex_array::patches::{Patches, PatchesMetadata};
@@ -42,7 +42,12 @@ impl BitPackedArray {
     /// Create a new bitpacked array using a buffer of packed data.
     ///
     /// The packed data should be interpreted as a sequence of values with size `bit_width`.
-    pub fn try_new(
+    ///
+    /// # Safety
+    ///
+    /// If `ptype` is signed, `packed` may **not** contain any values that once unpacked would
+    /// be interpreted as negative.
+    pub unsafe fn try_new(
         packed: Buffer,
         ptype: PType,
         validity: Validity,
@@ -236,6 +241,20 @@ impl VariantsVTable<BitPackedArray> for BitPackedEncoding {
 }
 
 impl PrimitiveArrayTrait for BitPackedArray {}
+// impl PrimitiveArrayTrait for BitPackedArray {
+//     fn ptype(&self) -> PType {
+//         // NOTE: we use the fastlanes::BitPack provided kernels for compute with BitPackedArray,
+//         //  which is only implemented for unsigned integer types.
+//         //  As a precondition of building a new BitPackedArray, we ensure that it may only
+//         //  contain non-negative values. Thus, it is always safe to read the packed data
+//         //  reinterpreted as the unsigned variant of any integer type.
+//         if let DType::Primitive(ptype, _) = self.dtype() {
+//             ptype.to_unsigned()
+//         } else {
+//             unreachable!()
+//         }
+//     }
+// }
 
 #[cfg(test)]
 mod test {

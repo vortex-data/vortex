@@ -5,6 +5,7 @@ use vortex_array::encoding::EncodingRef;
 use vortex_array::stats::ArrayStatistics;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
+use vortex_dtype::match_each_integer_ptype;
 use vortex_error::{vortex_err, vortex_panic, VortexResult};
 use vortex_fastlanes::{
     bitpack, count_exceptions, find_best_bit_width, find_min_patchless_bit_width, gather_patches,
@@ -57,7 +58,17 @@ impl EncodingCompressor for BitPackedCompressor {
         // Only support primitive arrays
         let parray = PrimitiveArray::maybe_from(array)?;
 
+        // Only integer arrays can be bit-packed
         if !parray.ptype().is_int() {
+            return None;
+        }
+
+        // Only arrays with non-negative values can be bit-packed
+        let has_negative_elements = match_each_integer_ptype!(parray.ptype(), |$P| {
+            parray.statistics().compute_min::<$P>().unwrap_or_default() < 0
+        });
+
+        if has_negative_elements {
             return None;
         }
 
@@ -82,6 +93,15 @@ impl EncodingCompressor for BitPackedCompressor {
             .statistics()
             .compute_bit_width_freq()
             .ok_or_else(|| vortex_err!(ComputeError: "missing bit width frequency"))?;
+
+        // Only arrays with non-negative values can be bit-packed. If asked to compress
+        // an array with negative values, return the original array without compressing.
+        let has_negative_elements = match_each_integer_ptype!(parray.ptype(), |$P| {
+            parray.statistics().compute_min::<$P>().unwrap_or_default() < 0
+        });
+        if has_negative_elements {
+            return Ok(CompressedArray::uncompressed(array.clone()));
+        }
 
         let bit_width = self.find_bit_width(&parray)?;
         let num_exceptions = count_exceptions(bit_width, &bit_width_freq);
@@ -113,14 +133,17 @@ impl EncodingCompressor for BitPackedCompressor {
             .transpose()?;
 
         Ok(CompressedArray::compressed(
-            BitPackedArray::try_new(
-                packed_buffer,
-                parray.ptype(),
-                validity,
-                patches,
-                bit_width,
-                parray.len(),
-            )?
+            // SAFETY: we ensure the array contains no negative values.
+            unsafe {
+                BitPackedArray::try_new(
+                    packed_buffer,
+                    parray.ptype(),
+                    validity,
+                    patches,
+                    bit_width,
+                    parray.len(),
+                )?
+            }
             .into_array(),
             Some(CompressionTree::new(self, vec![])),
             array,
