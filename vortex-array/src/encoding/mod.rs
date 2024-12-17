@@ -4,13 +4,12 @@ use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 
-use vortex_error::{vortex_panic, VortexResult};
-
 use crate::compute::ComputeVTable;
 use crate::stats::StatisticsVTable;
 use crate::validity::ValidityVTable;
+use crate::variants::VariantsVTable;
 use crate::visitor::VisitorVTable;
-use crate::{ArrayData, ArrayDef, ArrayMetadata, ArrayTrait, IntoCanonicalVTable, MetadataVTable};
+use crate::{ArrayData, ArrayMetadata, IntoCanonicalVTable, MetadataVTable};
 
 pub mod opaque;
 
@@ -62,6 +61,8 @@ impl AsRef<str> for EncodingId {
 
 /// Marker trait for array encodings with their associated Array type.
 pub trait Encoding: 'static {
+    const ID: EncodingId;
+
     type Array;
     type Metadata: ArrayMetadata;
 }
@@ -79,18 +80,12 @@ pub trait EncodingVTable:
     + ComputeVTable
     + StatisticsVTable<ArrayData>
     + ValidityVTable<ArrayData>
+    + VariantsVTable<ArrayData>
     + VisitorVTable<ArrayData>
 {
     fn id(&self) -> EncodingId;
 
     fn as_any(&self) -> &dyn Any;
-
-    /// Unwrap the provided array into an implementation of ArrayTrait
-    fn with_dyn(
-        &self,
-        array: &ArrayData,
-        f: &mut dyn for<'b> FnMut(&'b (dyn ArrayTrait + 'b)) -> VortexResult<()>,
-    ) -> VortexResult<()>;
 }
 
 impl PartialEq for dyn EncodingVTable + '_ {
@@ -102,26 +97,6 @@ impl Eq for dyn EncodingVTable + '_ {}
 impl Hash for dyn EncodingVTable + '_ {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.id().hash(state)
-    }
-}
-
-/// Non-object-safe extensions to the ArrayEncoding trait.
-pub trait ArrayEncodingExt {
-    type D: ArrayDef;
-
-    fn with_dyn<R, F>(array: &ArrayData, mut f: F) -> R
-    where
-        F: for<'b> FnMut(&'b (dyn ArrayTrait + 'b)) -> R,
-    {
-        let typed = <<Self::D as ArrayDef>::Array as TryFrom<ArrayData>>::try_from(array.clone())
-            .unwrap_or_else(|err| {
-                vortex_panic!(
-                    err,
-                    "Failed to convert array to {}",
-                    std::any::type_name::<<Self::D as ArrayDef>::Array>()
-                )
-            });
-        f(&typed)
     }
 }
 
@@ -147,10 +122,10 @@ pub mod ids {
     pub const SPARSE: u16 = 8;
     pub const CONSTANT: u16 = 9;
     pub const CHUNKED: u16 = 10;
+    pub const LIST: u16 = 11;
 
     // currently unused, saved for future built-ins
-    // e.g., List, FixedList, Union, Tensor, etc.
-    pub(crate) const RESERVED_11: u16 = 11;
+    // e.g., FixedList, Union, Tensor, etc.
     pub(crate) const RESERVED_12: u16 = 12;
     pub(crate) const RESERVED_13: u16 = 13;
     pub(crate) const RESERVED_14: u16 = 14;
@@ -175,6 +150,7 @@ pub mod ids {
 }
 
 #[cfg(test)]
+#[allow(clippy::cast_possible_truncation)]
 mod tests {
     use super::{ids, EncodingId};
     use crate::aliases::hash_set::HashSet;
@@ -193,7 +169,7 @@ mod tests {
             ids::SPARSE,
             ids::CONSTANT,
             ids::CHUNKED,
-            ids::RESERVED_11,
+            ids::LIST,
             ids::RESERVED_12,
             ids::RESERVED_13,
             ids::RESERVED_14,

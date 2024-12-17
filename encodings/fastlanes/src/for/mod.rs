@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use vortex_array::encoding::ids;
 use vortex_array::stats::{StatisticsVTable, StatsSet};
 use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
-use vortex_array::variants::{ArrayVariants, PrimitiveArrayTrait};
+use vortex_array::variants::{PrimitiveArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoCanonical,
@@ -68,13 +68,8 @@ impl FoRArray {
     }
 
     #[inline]
-    pub fn reference(&self) -> &ScalarValue {
-        &self.metadata().reference
-    }
-
-    #[inline]
-    pub fn owned_reference_scalar(&self) -> Scalar {
-        Scalar::new(self.dtype().clone(), self.reference().clone())
+    pub fn reference_scalar(&self) -> Scalar {
+        Scalar::new(self.dtype().clone(), self.metadata().reference.clone())
     }
 
     #[inline]
@@ -109,9 +104,9 @@ impl StatisticsVTable<FoRArray> for FoREncoding {}
 
 impl ArrayTrait for FoRArray {}
 
-impl ArrayVariants for FoRArray {
-    fn as_primitive_array(&self) -> Option<&dyn PrimitiveArrayTrait> {
-        Some(self)
+impl VariantsVTable<FoRArray> for FoREncoding {
+    fn as_primitive_array<'a>(&self, array: &'a FoRArray) -> Option<&'a dyn PrimitiveArrayTrait> {
+        Some(array)
     }
 }
 

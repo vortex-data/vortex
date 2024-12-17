@@ -2,15 +2,17 @@ use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
 use std::sync::Arc;
 
+use arrow_array::ArrayRef;
 use vortex_error::{vortex_bail, vortex_panic, VortexResult};
 
 use crate::compute::ComputeVTable;
 use crate::encoding::{EncodingId, EncodingVTable};
 use crate::stats::StatisticsVTable;
 use crate::validity::{LogicalValidity, ValidityVTable};
+use crate::variants::VariantsVTable;
 use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{
-    ArrayData, ArrayMetadata, ArrayTrait, Canonical, IntoCanonicalVTable, MetadataVTable,
+    ArrayData, ArrayMetadata, Canonical, IntoCanonicalVTable, MetadataVTable,
     TrySerializeArrayMetadata,
 };
 
@@ -27,6 +29,8 @@ use crate::{
 #[derive(Debug, Clone, Copy)]
 pub struct OpaqueEncoding(pub u16);
 
+impl VariantsVTable<ArrayData> for OpaqueEncoding {}
+
 impl EncodingVTable for OpaqueEncoding {
     fn id(&self) -> EncodingId {
         EncodingId::new("vortex.opaque", self.0)
@@ -35,23 +39,19 @@ impl EncodingVTable for OpaqueEncoding {
     fn as_any(&self) -> &dyn Any {
         self
     }
-
-    fn with_dyn(
-        &self,
-        _array: &ArrayData,
-        _f: &mut dyn for<'b> FnMut(&'b (dyn ArrayTrait + 'b)) -> VortexResult<()>,
-    ) -> VortexResult<()> {
-        vortex_bail!(
-            "OpaqueEncoding: with_dyn cannot be called for opaque array ({})",
-            self.0
-        )
-    }
 }
 
 impl IntoCanonicalVTable for OpaqueEncoding {
     fn into_canonical(&self, _array: ArrayData) -> VortexResult<Canonical> {
         vortex_bail!(
             "OpaqueEncoding: into_canonical cannot be called for opaque array ({})",
+            self.0
+        )
+    }
+
+    fn into_arrow(&self, _array: ArrayData) -> VortexResult<ArrayRef> {
+        vortex_bail!(
+            "OpaqueEncoding: into_arrow cannot be called for opaque array ({})",
             self.0
         )
     }

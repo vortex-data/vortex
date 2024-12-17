@@ -1,5 +1,5 @@
 use vortex_array::accessor::ArrayAccessor;
-use vortex_array::array::{BoolArray, BooleanBuffer, PrimitiveArray, StructArray, VarBinViewArray};
+use vortex_array::array::{BoolArray, PrimitiveArray, StructArray, VarBinViewArray};
 use vortex_array::validity::{ArrayValidity, Validity};
 use vortex_array::variants::StructArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
@@ -7,52 +7,38 @@ use vortex_dtype::{match_each_native_ptype, DType};
 use vortex_error::VortexExpect;
 
 pub fn slice_canonical_array(array: &ArrayData, start: usize, stop: usize) -> ArrayData {
+    let validity = if array.dtype().is_nullable() {
+        let bool_buff = array
+            .logical_validity()
+            .into_array()
+            .into_bool()
+            .unwrap()
+            .boolean_buffer();
+
+        Validity::from(bool_buff.slice(start, stop - start))
+    } else {
+        Validity::NonNullable
+    };
+
     match array.dtype() {
         DType::Bool(_) => {
             let bool_array = array.clone().into_bool().unwrap();
-            let vec_values = bool_array.boolean_buffer().iter().collect::<Vec<_>>();
-            let vec_validity = bool_array
-                .logical_validity()
+            let sliced_bools = bool_array.boolean_buffer().slice(start, stop - start);
+            BoolArray::try_new(sliced_bools, validity)
+                .vortex_expect("Validity length cannot mismatch")
                 .into_array()
-                .into_bool()
-                .unwrap()
-                .boolean_buffer()
-                .iter()
-                .collect::<Vec<_>>();
-            BoolArray::try_new(
-                BooleanBuffer::from(&vec_values[start..stop]),
-                Validity::from_iter(vec_validity[start..stop].iter().copied()),
-            )
-            .vortex_expect("Validity length cannot mismatch")
-            .into_array()
         }
         DType::Primitive(p, _) => match_each_native_ptype!(p, |$P| {
             let primitive_array = array.clone().into_primitive().unwrap();
-            let vec_values = primitive_array
-                .maybe_null_slice::<$P>()
-                .iter()
-                .copied()
-                .collect::<Vec<_>>();
-            let vec_validity = primitive_array
-                .logical_validity()
-                .into_array()
-                .into_bool()
-                .unwrap()
-                .boolean_buffer()
-                .iter()
-                .collect::<Vec<_>>();
-            PrimitiveArray::from_vec(
-                Vec::from(&vec_values[start..stop]),
-                Validity::from_iter(vec_validity[start..stop].iter().cloned()),
-            )
-            .into_array()
+            let vec_values = primitive_array.into_maybe_null_slice::<$P>();
+            PrimitiveArray::from_vec(vec_values[start..stop].into(), validity).into_array()
         }),
         DType::Utf8(_) | DType::Binary(_) => {
             let utf8 = array.clone().into_varbinview().unwrap();
             let values = utf8
                 .with_iterator(|iter| iter.map(|v| v.map(|u| u.to_vec())).collect::<Vec<_>>())
                 .unwrap();
-            VarBinViewArray::from_iter(Vec::from(&values[start..stop]), array.dtype().clone())
+            VarBinViewArray::from_iter(values[start..stop].iter().cloned(), array.dtype().clone())
                 .into_array()
         }
         DType::Struct(..) => {
@@ -61,20 +47,11 @@ pub fn slice_canonical_array(array: &ArrayData, start: usize, stop: usize) -> Ar
                 .children()
                 .map(|c| slice_canonical_array(&c, start, stop))
                 .collect::<Vec<_>>();
-            let vec_validity = struct_array
-                .logical_validity()
-                .into_array()
-                .into_bool()
-                .unwrap()
-                .boolean_buffer()
-                .iter()
-                .collect::<Vec<_>>();
-
             StructArray::try_new(
                 struct_array.names().clone(),
                 sliced_children,
                 stop - start,
-                Validity::from_iter(vec_validity[start..stop].iter().cloned()),
+                validity,
             )
             .unwrap()
             .into_array()

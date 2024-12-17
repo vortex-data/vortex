@@ -8,7 +8,7 @@ use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, Vor
 use crate::encoding::ids;
 use crate::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
 use crate::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
-use crate::variants::{ArrayVariants, StructArrayTrait};
+use crate::variants::{StructArrayTrait, VariantsVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
@@ -120,7 +120,7 @@ impl StructArray {
                 Field::Name(n) => self
                     .names()
                     .iter()
-                    .position(|name| name.as_ref() == n)
+                    .position(|name| name == n)
                     .ok_or_else(|| vortex_err!("Unknown field {n}"))?,
                 Field::Index(i) => *i,
             };
@@ -143,9 +143,9 @@ impl StructArray {
 
 impl ArrayTrait for StructArray {}
 
-impl ArrayVariants for StructArray {
-    fn as_struct_array(&self) -> Option<&dyn StructArrayTrait> {
-        Some(self)
+impl VariantsVTable<StructArray> for StructEncoding {
+    fn as_struct_array<'a>(&self, array: &'a StructArray) -> Option<&'a dyn StructArrayTrait> {
+        Some(array)
     }
 }
 

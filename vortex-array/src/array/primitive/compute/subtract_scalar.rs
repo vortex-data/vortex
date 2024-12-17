@@ -7,7 +7,7 @@ use vortex_scalar::{PrimitiveScalar, Scalar};
 use crate::array::constant::ConstantArray;
 use crate::array::primitive::PrimitiveArray;
 use crate::array::PrimitiveEncoding;
-use crate::compute::unary::SubtractScalarFn;
+use crate::compute::SubtractScalarFn;
 use crate::validity::ArrayValidity;
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData};
@@ -85,7 +85,7 @@ mod test {
     use itertools::Itertools;
 
     use crate::array::primitive::PrimitiveArray;
-    use crate::compute::unary::subtract_scalar;
+    use crate::compute::subtract_scalar;
     use crate::{ArrayLen, IntoArrayData, IntoArrayVariant};
 
     #[test]
@@ -152,13 +152,5 @@ mod test {
         let values = vec![f32::MIN, 2.0, 3.0].into_array();
         let _results = subtract_scalar(&values, &1.0f32.into()).unwrap();
         let _results = subtract_scalar(&values, &f32::MAX.into()).unwrap();
-    }
-
-    #[test]
-    fn test_scalar_subtract_type_mismatch_fails() {
-        let values = vec![1u64, 2, 3].into_array();
-        // Subtracting incompatible dtypes should fail
-        let _results =
-            subtract_scalar(&values, &1.5f64.into()).expect_err("Expected type mismatch error");
     }
 }

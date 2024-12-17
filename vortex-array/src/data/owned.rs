@@ -19,25 +19,11 @@ pub(super) struct OwnedArrayData {
     pub(super) buffer: Option<Buffer>,
     pub(super) children: Arc<[ArrayData]>,
     pub(super) stats_set: Arc<RwLock<StatsSet>>,
+    #[cfg(feature = "canonical_counter")]
+    pub(super) canonical_counter: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl OwnedArrayData {
-    pub fn encoding(&self) -> EncodingRef {
-        self.encoding
-    }
-
-    pub fn dtype(&self) -> &DType {
-        &self.dtype
-    }
-
-    pub fn len(&self) -> usize {
-        self.len
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.len == 0
-    }
-
     pub fn metadata(&self) -> &Arc<dyn ArrayMetadata> {
         &self.metadata
     }
@@ -63,7 +49,7 @@ impl OwnedArrayData {
                     child.dtype(),
                     dtype,
                     "child {index} requested with incorrect dtype for encoding {}",
-                    self.encoding().id().as_ref(),
+                    self.encoding.id().as_ref(),
                 );
                 assert_eq!(
                     child.len(),
@@ -80,12 +66,8 @@ impl OwnedArrayData {
         self.children.len()
     }
 
-    pub fn children(&self) -> &[ArrayData] {
+    pub fn children(&self) -> &Arc<[ArrayData]> {
         &self.children
-    }
-
-    pub fn statistics(&self) -> &dyn Statistics {
-        self
     }
 }
 
@@ -136,7 +118,7 @@ impl Statistics for OwnedArrayData {
         }
 
         let computed = self
-            .encoding()
+            .encoding
             .compute_statistics(&ArrayData::from(self.clone()), stat)
             .ok()?;
 

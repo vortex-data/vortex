@@ -2,6 +2,7 @@ use vortex_buffer::Buffer;
 use vortex_error::{vortex_err, VortexError, VortexResult};
 
 use crate::encoding::Encoding;
+use crate::patches::Patches;
 use crate::validity::Validity;
 use crate::ArrayData;
 
@@ -38,6 +39,12 @@ pub trait ArrayVisitor {
         } else {
             Ok(())
         }
+    }
+
+    /// Utility for visiting Array patches.
+    fn visit_patches(&mut self, patches: &Patches) -> VortexResult<()> {
+        self.visit_child("patch_indices", patches.indices())?;
+        self.visit_child("patch_values", patches.values())
     }
 
     fn visit_buffer(&mut self, _buffer: &Buffer) -> VortexResult<()> {

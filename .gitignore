@@ -203,3 +203,8 @@ benchmarks/.out
 
 # Zed
 .zed/
+
+*.plan
+
+# Default samply profile
+profile.json.gz

@@ -16,7 +16,7 @@ pub fn resolve_field<'a, 'b: 'a>(fb: fb::Struct_<'b>, field: &'a Field) -> Vorte
                 .ok_or_else(|| vortex_err!("Missing field names"))?;
             names
                 .iter()
-                .position(|name| name == n)
+                .position(|name| name == &**n)
                 .ok_or_else(|| vortex_err!("Unknown field name {n}"))
         }
         Field::Index(i) => Ok(*i),

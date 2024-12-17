@@ -1,32 +1,30 @@
-use core::mem;
-
 use enum_iterator::all;
-use enum_map::EnumMap;
 use itertools::{EitherOrBoth, Itertools};
 use vortex_dtype::DType;
 use vortex_error::{vortex_panic, VortexError};
-use vortex_scalar::{Scalar, ScalarValue};
+use vortex_scalar::Scalar;
 
 use crate::stats::Stat;
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct StatsSet {
-    values: EnumMap<Stat, Option<Scalar>>,
+    values: Vec<(Stat, Scalar)>,
 }
 
 impl StatsSet {
-    pub fn len(&self) -> usize {
-        self.values.values().filter(|v| v.is_some()).count()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.values.values().all(|v| v.is_none())
+    /// Create new StatSet without validating uniqueness of all the entries
+    ///
+    /// # Safety
+    ///
+    /// This method will not panic or trigger UB, but may lead to duplicate stats being stored.
+    pub fn new_unchecked(values: Vec<(Stat, Scalar)>) -> Self {
+        Self { values }
     }
 
     /// Specialized constructor for the case where the StatsSet represents
     /// an array consisting entirely of [null](vortex_dtype::DType::Null) values.
     pub fn nulls(len: usize, dtype: &DType) -> Self {
-        let mut stats = Self::from_iter([
+        let mut stats = Self::new_unchecked(vec![
             (Stat::Min, Scalar::null(dtype.clone())),
             (Stat::Max, Scalar::null(dtype.clone())),
             (Stat::RunCount, 1.into()),
@@ -58,7 +56,7 @@ impl StatsSet {
         stats
     }
 
-    pub fn constant(scalar: Scalar, length: usize) -> Self {
+    pub fn constant(scalar: &Scalar, length: usize) -> Self {
         let mut stats = Self::default();
         if length > 0 {
             stats.set(Stat::IsConstant, true);
@@ -69,20 +67,19 @@ impl StatsSet {
         let run_count = if length == 0 { 0u64 } else { 1 };
         stats.set(Stat::RunCount, run_count);
 
-        let null_count = if scalar.value().is_null() {
-            length as u64
-        } else {
-            0
-        };
+        let null_count = if scalar.is_null() { length as u64 } else { 0 };
         stats.set(Stat::NullCount, null_count);
 
-        if let ScalarValue::Bool(b) = scalar.value() {
-            let true_count = if *b { length as u64 } else { 0 };
+        if let Some(bool_scalar) = scalar.as_bool_opt() {
+            let true_count = bool_scalar
+                .value()
+                .map(|b| if b { length as u64 } else { 0 })
+                .unwrap_or(0);
             stats.set(Stat::TrueCount, true_count);
         }
 
         stats.set(Stat::Min, scalar.clone());
-        stats.set(Stat::Max, scalar);
+        stats.set(Stat::Max, scalar.clone());
 
         stats
     }
@@ -91,9 +88,10 @@ impl StatsSet {
         true_count: usize,
         null_count: usize,
         len: usize,
-    ) -> StatsSet {
-        StatsSet::from_iter([
+    ) -> Self {
+        StatsSet::new_unchecked(vec![
             (Stat::TrueCount, true_count.into()),
+            (Stat::NullCount, null_count.into()),
             (Stat::Min, (true_count == len).into()),
             (Stat::Max, (true_count > 0).into()),
             (
@@ -104,11 +102,24 @@ impl StatsSet {
     }
 
     pub fn of<S: Into<Scalar>>(stat: Stat, value: S) -> Self {
-        Self::from_iter([(stat, value.into())])
+        Self::new_unchecked(vec![(stat, value.into())])
+    }
+}
+
+// Getters and setters for individual stats.
+impl StatsSet {
+    /// Count of stored stats with known values.
+    pub fn len(&self) -> usize {
+        self.values.len()
+    }
+
+    /// Predicate equivalent to a [len][Self::len] of zero.
+    pub fn is_empty(&self) -> bool {
+        self.values.is_empty()
     }
 
     pub fn get(&self, stat: Stat) -> Option<&Scalar> {
-        self.values[stat].as_ref()
+        self.values.iter().find(|(s, _)| *s == stat).map(|(_, v)| v)
     }
 
     pub fn get_as<T: for<'a> TryFrom<&'a Scalar, Error = VortexError>>(
@@ -129,24 +140,68 @@ impl StatsSet {
 
     /// Set the stat `stat` to `value`.
     pub fn set<S: Into<Scalar>>(&mut self, stat: Stat, value: S) {
-        self.values[stat] = Some(value.into());
+        if let Some(existing) = self.values.iter_mut().find(|(s, _)| *s == stat) {
+            *existing = (stat, value.into());
+        } else {
+            self.values.push((stat, value.into()));
+        }
     }
 
     /// Clear the stat `stat` from the set.
     pub fn clear(&mut self, stat: Stat) {
-        self.values[stat] = None;
+        self.values.retain(|(s, _)| *s != stat);
     }
 
     pub fn retain_only(&mut self, stats: &[Stat]) {
-        let mut old_map = mem::take(&mut self.values);
-        for stat in stats {
-            self.values[*stat] = old_map[*stat].take();
-        }
+        self.values.retain(|(s, _)| stats.contains(s))
     }
 
+    /// Iterate over the statistic names and values in-place.
+    ///
+    /// See [Iterator].
+    pub fn iter(&self) -> impl Iterator<Item = &(Stat, Scalar)> {
+        self.values.iter()
+    }
+}
+
+// StatSetIntoIter just exists to protect current implementation from exposure on the public API.
+
+/// Owned iterator over the stats.
+///
+/// See [IntoIterator].
+pub struct StatsSetIntoIter(std::vec::IntoIter<(Stat, Scalar)>);
+
+impl Iterator for StatsSetIntoIter {
+    type Item = (Stat, Scalar);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next()
+    }
+}
+
+impl IntoIterator for StatsSet {
+    type Item = (Stat, Scalar);
+    type IntoIter = StatsSetIntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        StatsSetIntoIter(self.values.into_iter())
+    }
+}
+
+impl Extend<(Stat, Scalar)> for StatsSet {
+    #[inline]
+    fn extend<T: IntoIterator<Item = (Stat, Scalar)>>(&mut self, iter: T) {
+        iter.into_iter().for_each(|(stat, scalar)| {
+            self.set(stat, scalar);
+        });
+    }
+}
+
+// Merge helpers
+impl StatsSet {
     /// Merge stats set `other` into `self`, with the semantic assumption that `other`
     /// contains stats from an array that is *appended* to the array represented by `self`.
-    pub fn merge_ordered(&mut self, other: &Self) -> &Self {
+    pub fn merge_ordered(mut self, other: &Self) -> Self {
         for s in all::<Stat>() {
             match s {
                 Stat::BitWidthFreq => self.merge_bit_width_freq(other),
@@ -168,7 +223,7 @@ impl StatsSet {
 
     /// Merge stats set `other` into `self`, with no assumption on ordering.
     /// Stats that are not commutative (e.g., is_sorted) are dropped from the result.
-    pub fn merge_unordered(&mut self, other: &Self) -> &Self {
+    pub fn merge_unordered(mut self, other: &Self) -> Self {
         for s in all::<Stat>() {
             if !s.is_commutative() {
                 self.clear(s);
@@ -320,65 +375,6 @@ impl StatsSet {
     }
 }
 
-impl From<EnumMap<Stat, Option<Scalar>>> for StatsSet {
-    fn from(values: EnumMap<Stat, Option<Scalar>>) -> Self {
-        Self { values }
-    }
-}
-
-impl FromIterator<(Stat, Scalar)> for StatsSet {
-    fn from_iter<T: IntoIterator<Item = (Stat, Scalar)>>(iter: T) -> Self {
-        let mut values = EnumMap::<Stat, Option<Scalar>>::default();
-        iter.into_iter().for_each(|(stat, scalar)| {
-            values[stat] = Some(scalar);
-        });
-        Self { values }
-    }
-}
-
-impl Extend<(Stat, Scalar)> for StatsSet {
-    #[inline]
-    fn extend<T: IntoIterator<Item = (Stat, Scalar)>>(&mut self, iter: T) {
-        iter.into_iter().for_each(|(stat, scalar)| {
-            self.set(stat, scalar);
-        });
-    }
-}
-
-pub struct StatsSetIntoIter {
-    inner: enum_map::IntoIter<Stat, Option<Scalar>>,
-}
-
-impl Iterator for StatsSetIntoIter {
-    type Item = (Stat, Scalar);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            match self.inner.next() {
-                Some((stat, Some(value))) => return Some((stat, value)),
-                Some(_) => continue,
-                None => return None,
-            }
-        }
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        // Our lower-bound is zero since we may filter all remaining values.
-        (0, self.inner.size_hint().1)
-    }
-}
-
-impl IntoIterator for StatsSet {
-    type Item = (Stat, Scalar);
-    type IntoIter = StatsSetIntoIter;
-
-    fn into_iter(self) -> Self::IntoIter {
-        StatsSetIntoIter {
-            inner: self.values.into_iter(),
-        }
-    }
-}
-
 #[cfg(test)]
 mod test {
     use enum_iterator::all;
@@ -389,8 +385,17 @@ mod test {
     use crate::IntoArrayData as _;
 
     #[test]
+    fn test_iter() {
+        let set = StatsSet::new_unchecked(vec![(Stat::Max, 100.into()), (Stat::Min, 42.into())]);
+        assert_eq!(
+            set.iter().cloned().collect_vec(),
+            vec![(Stat::Max, 100.into()), (Stat::Min, 42.into())]
+        );
+    }
+
+    #[test]
     fn into_iter() {
-        let set = StatsSet::from_iter([(Stat::Max, 100.into()), (Stat::Min, 42.into())]);
+        let set = StatsSet::new_unchecked(vec![(Stat::Max, 100.into()), (Stat::Min, 42.into())]);
         assert_eq!(
             set.into_iter().collect_vec(),
             vec![(Stat::Max, 100.into()), (Stat::Min, 42.into())]
@@ -399,80 +404,70 @@ mod test {
 
     #[test]
     fn merge_into_min() {
-        let mut first = StatsSet::of(Stat::Min, 42);
-        first.merge_ordered(&StatsSet::default());
+        let first = StatsSet::of(Stat::Min, 42).merge_ordered(&StatsSet::default());
         assert_eq!(first.get(Stat::Min), None);
     }
 
     #[test]
     fn merge_from_min() {
-        let mut first = StatsSet::default();
-        first.merge_ordered(&StatsSet::of(Stat::Min, 42));
+        let first = StatsSet::default().merge_ordered(&StatsSet::of(Stat::Min, 42));
         assert_eq!(first.get(Stat::Min), None);
     }
 
     #[test]
     fn merge_mins() {
-        let mut first = StatsSet::of(Stat::Min, 37);
-        first.merge_ordered(&StatsSet::of(Stat::Min, 42));
+        let first = StatsSet::of(Stat::Min, 37).merge_ordered(&StatsSet::of(Stat::Min, 42));
         assert_eq!(first.get(Stat::Min).cloned(), Some(37.into()));
     }
 
     #[test]
     fn merge_into_max() {
-        let mut first = StatsSet::of(Stat::Max, 42);
-        first.merge_ordered(&StatsSet::default());
+        let first = StatsSet::of(Stat::Max, 42).merge_ordered(&StatsSet::default());
         assert_eq!(first.get(Stat::Max), None);
     }
 
     #[test]
     fn merge_from_max() {
-        let mut first = StatsSet::default();
-        first.merge_ordered(&StatsSet::of(Stat::Max, 42));
+        let first = StatsSet::default().merge_ordered(&StatsSet::of(Stat::Max, 42));
         assert_eq!(first.get(Stat::Max), None);
     }
 
     #[test]
     fn merge_maxes() {
-        let mut first = StatsSet::of(Stat::Max, 37);
-        first.merge_ordered(&StatsSet::of(Stat::Max, 42));
+        let first = StatsSet::of(Stat::Max, 37).merge_ordered(&StatsSet::of(Stat::Max, 42));
         assert_eq!(first.get(Stat::Max).cloned(), Some(42.into()));
     }
 
     #[test]
     fn merge_into_scalar() {
-        let mut first = StatsSet::of(Stat::TrueCount, 42);
-        first.merge_ordered(&StatsSet::default());
+        let first = StatsSet::of(Stat::TrueCount, 42).merge_ordered(&StatsSet::default());
         assert_eq!(first.get(Stat::TrueCount), None);
     }
 
     #[test]
     fn merge_from_scalar() {
-        let mut first = StatsSet::default();
-        first.merge_ordered(&StatsSet::of(Stat::TrueCount, 42));
+        let first = StatsSet::default().merge_ordered(&StatsSet::of(Stat::TrueCount, 42));
         assert_eq!(first.get(Stat::TrueCount), None);
     }
 
     #[test]
     fn merge_scalars() {
-        let mut first = StatsSet::of(Stat::TrueCount, 37);
-        first.merge_ordered(&StatsSet::of(Stat::TrueCount, 42));
+        let first =
+            StatsSet::of(Stat::TrueCount, 37).merge_ordered(&StatsSet::of(Stat::TrueCount, 42));
         assert_eq!(first.get(Stat::TrueCount).cloned(), Some(79u64.into()));
     }
 
     #[test]
     fn merge_into_freq() {
         let vec = (0usize..255).collect_vec();
-        let mut first = StatsSet::of(Stat::BitWidthFreq, vec);
-        first.merge_ordered(&StatsSet::default());
+        let first = StatsSet::of(Stat::BitWidthFreq, vec).merge_ordered(&StatsSet::default());
         assert_eq!(first.get(Stat::BitWidthFreq), None);
     }
 
     #[test]
     fn merge_from_freq() {
         let vec = (0usize..255).collect_vec();
-        let mut first = StatsSet::default();
-        first.merge_ordered(&StatsSet::of(Stat::BitWidthFreq, vec));
+        let first = StatsSet::default().merge_ordered(&StatsSet::of(Stat::BitWidthFreq, vec));
         assert_eq!(first.get(Stat::BitWidthFreq), None);
     }
 
@@ -480,22 +475,20 @@ mod test {
     fn merge_freqs() {
         let vec_in = vec![5u64; 256];
         let vec_out = vec![10u64; 256];
-        let mut first = StatsSet::of(Stat::BitWidthFreq, vec_in.clone());
-        first.merge_ordered(&StatsSet::of(Stat::BitWidthFreq, vec_in));
+        let first = StatsSet::of(Stat::BitWidthFreq, vec_in.clone())
+            .merge_ordered(&StatsSet::of(Stat::BitWidthFreq, vec_in));
         assert_eq!(first.get(Stat::BitWidthFreq).cloned(), Some(vec_out.into()));
     }
 
     #[test]
     fn merge_into_sortedness() {
-        let mut first = StatsSet::of(Stat::IsStrictSorted, true);
-        first.merge_ordered(&StatsSet::default());
+        let first = StatsSet::of(Stat::IsStrictSorted, true).merge_ordered(&StatsSet::default());
         assert_eq!(first.get(Stat::IsStrictSorted), None);
     }
 
     #[test]
     fn merge_from_sortedness() {
-        let mut first = StatsSet::default();
-        first.merge_ordered(&StatsSet::of(Stat::IsStrictSorted, true));
+        let first = StatsSet::default().merge_ordered(&StatsSet::of(Stat::IsStrictSorted, true));
         assert_eq!(first.get(Stat::IsStrictSorted), None);
     }
 
@@ -505,7 +498,7 @@ mod test {
         first.set(Stat::Max, 1);
         let mut second = StatsSet::of(Stat::IsStrictSorted, true);
         second.set(Stat::Min, 2);
-        first.merge_ordered(&second);
+        first = first.merge_ordered(&second);
         assert_eq!(first.get(Stat::IsStrictSorted).cloned(), Some(true.into()));
     }
 
@@ -515,7 +508,7 @@ mod test {
         first.set(Stat::Min, 1);
         let mut second = StatsSet::of(Stat::IsStrictSorted, true);
         second.set(Stat::Max, 2);
-        second.merge_ordered(&first);
+        second = second.merge_ordered(&first);
         assert_eq!(
             second.get(Stat::IsStrictSorted).cloned(),
             Some(false.into())
@@ -540,7 +533,7 @@ mod test {
         let mut first = StatsSet::of(Stat::IsStrictSorted, true);
         first.set(Stat::Max, 1);
         let second = StatsSet::of(Stat::IsStrictSorted, true);
-        first.merge_ordered(&second);
+        first = first.merge_ordered(&second);
         assert_eq!(first.get(Stat::IsStrictSorted).cloned(), None);
     }
 
@@ -565,8 +558,7 @@ mod test {
             assert!(stats.get(*stat).is_some(), "Stat {} is missing", stat);
         }
 
-        let mut merged = stats.clone();
-        merged.merge_unordered(&stats);
+        let merged = stats.clone().merge_unordered(&stats);
         for stat in &all_stats {
             assert_eq!(
                 merged.get(*stat).is_some(),
@@ -582,20 +574,14 @@ mod test {
             merged
                 .get(Stat::NullCount)
                 .unwrap()
-                .value()
-                .as_pvalue()
-                .unwrap()
-                .unwrap()
-                .as_u64()
+                .as_primitive()
+                .typed_value::<u64>()
                 .unwrap(),
             2 * stats
                 .get(Stat::NullCount)
                 .unwrap()
-                .value()
-                .as_pvalue()
-                .unwrap()
-                .unwrap()
-                .as_u64()
+                .as_primitive()
+                .typed_value::<u64>()
                 .unwrap()
         );
     }

@@ -12,7 +12,7 @@ use arrow_array::types::{
     TimestampMillisecondType, TimestampNanosecondType, TimestampSecondType, UInt16Type, UInt32Type,
     UInt64Type, UInt8Type,
 };
-use arrow_array::{BinaryViewArray, GenericByteViewArray, StringViewArray};
+use arrow_array::{BinaryViewArray, GenericByteViewArray, GenericListArray, StringViewArray};
 use arrow_buffer::buffer::{NullBuffer, OffsetBuffer};
 use arrow_buffer::{ArrowNativeType, BooleanBuffer, Buffer, ScalarBuffer};
 use arrow_schema::{DataType, TimeUnit as ArrowTimeUnit};
@@ -22,7 +22,8 @@ use vortex_dtype::{DType, NativePType, Nullability, PType};
 use vortex_error::{vortex_panic, VortexExpect as _};
 
 use crate::array::{
-    BoolArray, NullArray, PrimitiveArray, StructArray, TemporalArray, VarBinArray, VarBinViewArray,
+    BoolArray, ListArray, NullArray, PrimitiveArray, StructArray, TemporalArray, VarBinArray,
+    VarBinViewArray,
 };
 use crate::arrow::FromArrowArray;
 use crate::stats::{ArrayStatistics, Stat};
@@ -177,6 +178,19 @@ impl FromArrowArray<&ArrowStructArray> for ArrayData {
     }
 }
 
+impl<O: OffsetSizeTrait + NativePType> FromArrowArray<&GenericListArray<O>> for ArrayData {
+    fn from_arrow(value: &GenericListArray<O>, nullable: bool) -> Self {
+        ListArray::try_new(
+            Self::from_arrow(value.values().clone(), value.values().is_nullable()),
+            // offsets are always non-nullable
+            ArrayData::from(value.offsets().clone()),
+            nulls(value.nulls(), nullable),
+        )
+        .vortex_expect("Failed to convert Arrow StructArray to Vortex StructArray")
+        .into_array()
+    }
+}
+
 impl FromArrowArray<&ArrowNullArray> for ArrayData {
     fn from_arrow(value: &ArrowNullArray, nullable: bool) -> Self {
         assert!(nullable);
@@ -235,6 +249,8 @@ impl FromArrowArray<ArrowArrayRef> for ArrayData {
                 nullable,
             ),
             DataType::Struct(_) => Self::from_arrow(array.as_struct(), nullable),
+            DataType::List(_) => Self::from_arrow(array.as_list::<i32>(), nullable),
+            DataType::LargeList(_) => Self::from_arrow(array.as_list::<i64>(), nullable),
             DataType::Null => Self::from_arrow(as_null_array(&array), nullable),
             DataType::Timestamp(u, _) => match u {
                 ArrowTimeUnit::Second => {
@@ -285,7 +301,7 @@ impl FromArrowArray<ArrowArrayRef> for ArrayData {
                 }
             },
             _ => vortex_panic!(
-                "Array encoding not implementedfor Arrow data type {}",
+                "Array encoding not implemented for Arrow data type {}",
                 array.data_type().clone()
             ),
         }

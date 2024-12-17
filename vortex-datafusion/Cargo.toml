@@ -21,6 +21,7 @@ path = "src/lib.rs"
 arrow-array = { workspace = true }
 arrow-schema = { workspace = true }
 async-trait = { workspace = true }
+bytes = { workspace = true }
 chrono = { workspace = true }
 datafusion = { workspace = true }
 datafusion-common = { workspace = true }
@@ -30,8 +31,11 @@ datafusion-physical-expr = { workspace = true }
 datafusion-physical-plan = { workspace = true }
 futures = { workspace = true }
 itertools = { workspace = true }
+log = { workspace = true }
+moka = { workspace = true, features = ["future", "sync"] }
 object_store = { workspace = true }
 pin-project = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "fs"] }
 vortex-array = { workspace = true }
 vortex-datetime-dtype = { workspace = true }
 vortex-dtype = { workspace = true }

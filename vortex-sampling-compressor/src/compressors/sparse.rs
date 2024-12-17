@@ -1,8 +1,7 @@
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::array::{Sparse, SparseArray, SparseEncoding};
-use vortex_array::encoding::EncodingRef;
-use vortex_array::stats::ArrayStatistics;
-use vortex_array::{ArrayData, ArrayDef, ArrayLen, IntoArrayData};
+use vortex_array::array::{SparseArray, SparseEncoding};
+use vortex_array::encoding::{Encoding, EncodingRef};
+use vortex_array::{ArrayData, ArrayLen, IntoArrayData};
 use vortex_error::VortexResult;
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
@@ -13,7 +12,7 @@ pub struct SparseCompressor;
 
 impl EncodingCompressor for SparseCompressor {
     fn id(&self) -> &str {
-        Sparse::ID.as_ref()
+        SparseEncoding::ID.as_ref()
     }
 
     fn cost(&self) -> u8 {
@@ -21,34 +20,29 @@ impl EncodingCompressor for SparseCompressor {
     }
 
     fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {
-        array.is_encoding(Sparse::ID).then_some(self)
+        array.is_encoding(SparseEncoding::ID).then_some(self)
     }
 
     fn compress<'a>(
         &'a self,
         array: &ArrayData,
-        like: Option<CompressionTree<'a>>,
+        _: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
         let sparse_array = SparseArray::try_from(array.clone())?;
-        let indices = ctx.auxiliary("indices").compress(
-            &sparse_array.indices(),
-            like.as_ref().and_then(|l| l.child(0)),
-        )?;
-        let values = ctx.named("values").compress(
-            &sparse_array.values(),
-            like.as_ref().and_then(|l| l.child(1)),
-        )?;
+        let compressed_patches = ctx
+            .auxiliary("patches")
+            .compress_patches(sparse_array.patches())?;
         Ok(CompressedArray::compressed(
-            SparseArray::try_new(
-                indices.array,
-                values.array,
+            SparseArray::try_new_from_patches(
+                compressed_patches,
                 sparse_array.len(),
-                sparse_array.fill_value().clone(),
+                sparse_array.indices_offset(),
+                sparse_array.fill_scalar(),
             )?
             .into_array(),
-            Some(CompressionTree::new(self, vec![indices.path, values.path])),
-            Some(array.statistics()),
+            Some(CompressionTree::new(self, vec![])),
+            array,
         ))
     }
 

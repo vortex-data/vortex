@@ -9,7 +9,7 @@ use vortex_error::{VortexExpect as _, VortexResult};
 use crate::encoding::ids;
 use crate::stats::{ArrayStatistics as _, Stat, StatisticsVTable, StatsSet};
 use crate::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
-use crate::variants::{ArrayVariants, ExtensionArrayTrait};
+use crate::variants::{ExtensionArrayTrait, VariantsVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoCanonical};
 
@@ -59,9 +59,12 @@ impl ExtensionArray {
 
 impl ArrayTrait for ExtensionArray {}
 
-impl ArrayVariants for ExtensionArray {
-    fn as_extension_array(&self) -> Option<&dyn ExtensionArrayTrait> {
-        Some(self)
+impl VariantsVTable<ExtensionArray> for ExtensionEncoding {
+    fn as_extension_array<'a>(
+        &self,
+        array: &'a ExtensionArray,
+    ) -> Option<&'a dyn ExtensionArrayTrait> {
+        Some(array)
     }
 }
 
@@ -112,7 +115,7 @@ impl StatisticsVTable<ExtensionArray> for ExtensionEncoding {
 #[cfg(test)]
 mod tests {
     use vortex_dtype::PType;
-    use vortex_scalar::{PValue, Scalar, ScalarValue};
+    use vortex_scalar::Scalar;
 
     use super::*;
     use crate::array::PrimitiveArray;
@@ -144,17 +147,11 @@ mod tests {
 
         assert_eq!(
             stats.get(Stat::Min),
-            Some(&Scalar::extension(
-                ext_dtype.clone(),
-                ScalarValue::Primitive(PValue::I64(1))
-            ))
+            Some(&Scalar::extension(ext_dtype.clone(), Scalar::from(1_i64)))
         );
         assert_eq!(
             stats.get(Stat::Max),
-            Some(&Scalar::extension(
-                ext_dtype,
-                ScalarValue::Primitive(PValue::I64(5))
-            ))
+            Some(&Scalar::extension(ext_dtype, Scalar::from(5_i64)))
         );
         assert_eq!(stats.get(Stat::NullCount), Some(&0u64.into()));
     }

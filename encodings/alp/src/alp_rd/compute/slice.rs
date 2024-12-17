@@ -7,9 +7,10 @@ use crate::{ALPRDArray, ALPRDEncoding};
 impl SliceFn<ALPRDArray> for ALPRDEncoding {
     fn slice(&self, array: &ALPRDArray, start: usize, stop: usize) -> VortexResult<ArrayData> {
         let left_parts_exceptions = array
-            .left_parts_exceptions()
-            .map(|array| slice(&array, start, stop))
-            .transpose()?;
+            .left_parts_patches()
+            .map(|patches| patches.slice(start, stop))
+            .transpose()?
+            .flatten();
 
         Ok(ALPRDArray::try_new(
             array.dtype().clone(),
@@ -39,7 +40,7 @@ mod test {
         let array = PrimitiveArray::from(vec![a, b, outlier]);
         let encoded = RDEncoder::new(&[a, b]).encode(&array);
 
-        assert!(encoded.left_parts_exceptions().is_some());
+        assert!(encoded.left_parts_patches().is_some());
 
         let decoded = slice(encoded.as_ref(), 1, 3)
             .unwrap()

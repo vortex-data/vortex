@@ -1,5 +1,5 @@
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::array::{ConstantArray, ConstantEncoding};
@@ -12,14 +12,23 @@ impl BinaryBooleanFn<ConstantArray> for ConstantEncoding {
         lhs: &ConstantArray,
         rhs: &ArrayData,
         op: BinaryOperator,
-    ) -> VortexResult<ArrayData> {
+    ) -> VortexResult<Option<ArrayData>> {
+        // We only implement this for constant <-> constant arrays, otherwise we allow fall back
+        // to the Arrow implementation.
+        if !rhs.is_constant() {
+            return Ok(None);
+        }
+
         let length = lhs.len();
         let nullable = lhs.dtype().is_nullable() || rhs.dtype().is_nullable();
-        let lhs = <Option<bool>>::try_from(lhs.scalar_value())?;
+        let lhs = lhs.scalar().as_bool().value();
         let Some(rhs) = rhs.as_constant() else {
             vortex_bail!("Binary boolean operation requires both sides to be constant");
         };
-        let rhs = <Option<bool>>::try_from(rhs.value())?;
+        let rhs = rhs
+            .as_bool_opt()
+            .ok_or_else(|| vortex_err!("expected rhs to be boolean"))?
+            .value();
 
         let result = match op {
             BinaryOperator::And => and(lhs, rhs),
@@ -32,7 +41,7 @@ impl BinaryBooleanFn<ConstantArray> for ConstantEncoding {
             .map(|b| Scalar::bool(b, nullable.into()))
             .unwrap_or_else(|| Scalar::null(DType::Bool(nullable.into())));
 
-        Ok(ConstantArray::new(scalar, length).into_array())
+        Ok(Some(ConstantArray::new(scalar, length).into_array()))
     }
 }
 
@@ -70,8 +79,7 @@ mod test {
 
     use crate::array::constant::ConstantArray;
     use crate::array::BoolArray;
-    use crate::compute::unary::scalar_at;
-    use crate::compute::{and, or};
+    use crate::compute::{and, or, scalar_at};
     use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
 
     #[rstest]
@@ -82,10 +90,10 @@ mod test {
     fn test_or(#[case] lhs: ArrayData, #[case] rhs: ArrayData) {
         let r = or(&lhs, &rhs).unwrap().into_bool().unwrap().into_array();
 
-        let v0 = scalar_at(&r, 0).unwrap().value().as_bool().unwrap();
-        let v1 = scalar_at(&r, 1).unwrap().value().as_bool().unwrap();
-        let v2 = scalar_at(&r, 2).unwrap().value().as_bool().unwrap();
-        let v3 = scalar_at(&r, 3).unwrap().value().as_bool().unwrap();
+        let v0 = scalar_at(&r, 0).unwrap().as_bool().value();
+        let v1 = scalar_at(&r, 1).unwrap().as_bool().value();
+        let v2 = scalar_at(&r, 2).unwrap().as_bool().value();
+        let v3 = scalar_at(&r, 3).unwrap().as_bool().value();
 
         assert!(v0.unwrap());
         assert!(v1.unwrap());
@@ -101,10 +109,10 @@ mod test {
     fn test_and(#[case] lhs: ArrayData, #[case] rhs: ArrayData) {
         let r = and(&lhs, &rhs).unwrap().into_bool().unwrap().into_array();
 
-        let v0 = scalar_at(&r, 0).unwrap().value().as_bool().unwrap();
-        let v1 = scalar_at(&r, 1).unwrap().value().as_bool().unwrap();
-        let v2 = scalar_at(&r, 2).unwrap().value().as_bool().unwrap();
-        let v3 = scalar_at(&r, 3).unwrap().value().as_bool().unwrap();
+        let v0 = scalar_at(&r, 0).unwrap().as_bool().value();
+        let v1 = scalar_at(&r, 1).unwrap().as_bool().value();
+        let v2 = scalar_at(&r, 2).unwrap().as_bool().value();
+        let v3 = scalar_at(&r, 3).unwrap().as_bool().value();
 
         assert!(v0.unwrap());
         assert!(!v1.unwrap());

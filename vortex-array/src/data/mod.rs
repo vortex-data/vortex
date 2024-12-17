@@ -8,21 +8,21 @@ use owned::OwnedArrayData;
 use viewed::ViewedArrayData;
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
-use vortex_error::{vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult};
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::array::{
     BoolEncoding, ExtensionEncoding, NullEncoding, PrimitiveEncoding, StructEncoding,
     VarBinEncoding, VarBinViewEncoding,
 };
-use crate::compute::unary::scalar_at;
+use crate::compute::scalar_at;
 use crate::encoding::{EncodingId, EncodingRef, EncodingVTable};
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
 use crate::stats::{ArrayStatistics, Stat, Statistics, StatsSet};
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
-use crate::validity::{ArrayValidity, LogicalValidity};
+use crate::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use crate::{
-    ArrayChildrenIterator, ArrayDType, ArrayLen, ArrayMetadata, ArrayTrait, Context,
+    ArrayChildrenIterator, ArrayDType, ArrayLen, ArrayMetadata, Context,
     TryDeserializeArrayMetadata,
 };
 
@@ -65,7 +65,7 @@ impl ArrayData {
         children: Arc<[ArrayData]>,
         statistics: StatsSet,
     ) -> VortexResult<Self> {
-        let data = OwnedArrayData {
+        Self::try_new(InnerArrayData::Owned(OwnedArrayData {
             encoding,
             dtype,
             len,
@@ -73,14 +73,9 @@ impl ArrayData {
             buffer,
             children,
             stats_set: Arc::new(RwLock::new(statistics)),
-        };
-
-        let array = ArrayData(InnerArrayData::Owned(data));
-        // Validate here that the metadata correctly parses, so that an encoding can infallibly
-        // FIXME(robert): Encoding::with_dyn no longer eagerly validates metadata, come up with a way to validate metadata
-        encoding.with_dyn(&array, &mut |_| Ok(()))?;
-
-        Ok(array)
+            #[cfg(feature = "canonical_counter")]
+            canonical_counter: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        }))
     }
 
     pub fn try_new_viewed<F>(
@@ -105,6 +100,7 @@ impl ArrayData {
             },
         )?;
 
+        // Parse the array metadata
         let metadata = encoding.load_metadata(array.metadata().map(|v| v.bytes()))?;
 
         let view = ViewedArrayData {
@@ -116,21 +112,45 @@ impl ArrayData {
             flatbuffer_loc,
             buffers: buffers.into(),
             ctx,
+            #[cfg(feature = "canonical_counter")]
+            canonical_counter: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         };
 
-        // Validate here that the metadata correctly parses, so that an encoding can infallibly
-        // implement Encoding::with_view().
-        // FIXME(ngates): validate the metadata
-        ArrayData::from(view.clone()).with_dyn(|_| Ok::<(), VortexError>(()))?;
+        Self::try_new(InnerArrayData::Viewed(view))
+    }
 
-        Ok(view.into())
+    /// Shared constructor that performs common array validation.
+    fn try_new(inner: InnerArrayData) -> VortexResult<Self> {
+        let array = ArrayData(inner);
+
+        // Sanity check that the encoding implements the correct array trait
+        debug_assert!(
+            match array.dtype() {
+                DType::Null => array.as_null_array().is_some(),
+                DType::Bool(_) => array.as_bool_array().is_some(),
+                DType::Primitive(..) => array.as_primitive_array().is_some(),
+                DType::Utf8(_) => array.as_utf8_array().is_some(),
+                DType::Binary(_) => array.as_binary_array().is_some(),
+                DType::Struct(..) => array.as_struct_array().is_some(),
+                DType::List(..) => array.as_list_array().is_some(),
+                DType::Extension(..) => array.as_extension_array().is_some(),
+            },
+            "Encoding {} does not implement the variant trait for {}",
+            array.encoding().id(),
+            array.dtype()
+        );
+
+        // TODO(ngates): we should run something like encoding.validate(array) so the encoding
+        //  can check the number of children, number of buffers, and metadata values etc.
+
+        Ok(array)
     }
 
     /// Return the array's encoding
     pub fn encoding(&self) -> EncodingRef {
         match &self.0 {
-            InnerArrayData::Owned(d) => d.encoding(),
-            InnerArrayData::Viewed(v) => v.encoding(),
+            InnerArrayData::Owned(d) => d.encoding,
+            InnerArrayData::Viewed(v) => v.encoding,
         }
     }
 
@@ -138,27 +158,14 @@ impl ArrayData {
     #[allow(clippy::same_name_method)]
     pub fn len(&self) -> usize {
         match &self.0 {
-            InnerArrayData::Owned(d) => d.len(),
-            InnerArrayData::Viewed(v) => v.len(),
+            InnerArrayData::Owned(d) => d.len,
+            InnerArrayData::Viewed(v) => v.len,
         }
     }
 
     /// Check whether the array has any data
     pub fn is_empty(&self) -> bool {
-        match &self.0 {
-            InnerArrayData::Owned(d) => d.is_empty(),
-            InnerArrayData::Viewed(v) => v.is_empty(),
-        }
-    }
-
-    /// Return whether the element at the given index is valid (true) or null (false).
-    fn is_valid(&self, index: usize) -> bool {
-        self.encoding().is_valid(self, index)
-    }
-
-    /// Return the logical validity of the array.
-    fn logical_validity(&self) -> LogicalValidity {
-        self.encoding().logical_validity(self)
+        self.len() == 0
     }
 
     /// Whether the array is of a canonical encoding.
@@ -207,7 +214,7 @@ impl ArrayData {
     /// Returns a Vec of Arrays with all the array's child arrays.
     pub fn children(&self) -> Vec<ArrayData> {
         match &self.0 {
-            InnerArrayData::Owned(d) => d.children().iter().cloned().collect_vec(),
+            InnerArrayData::Owned(d) => d.children().to_vec(),
             InnerArrayData::Viewed(v) => v.children(),
         }
     }
@@ -333,45 +340,26 @@ impl ArrayData {
         self.encoding().id() == id
     }
 
-    #[inline]
-    pub fn with_dyn<R, F>(&self, mut f: F) -> R
-    where
-        F: FnMut(&dyn ArrayTrait) -> R,
-    {
-        let mut result = None;
-
-        self.encoding()
-            .with_dyn(self, &mut |array| {
-                // Sanity check that the encoding implements the correct array trait
-                debug_assert!(
-                    match array.dtype() {
-                        DType::Null => array.as_null_array().is_some(),
-                        DType::Bool(_) => array.as_bool_array().is_some(),
-                        DType::Primitive(..) => array.as_primitive_array().is_some(),
-                        DType::Utf8(_) => array.as_utf8_array().is_some(),
-                        DType::Binary(_) => array.as_binary_array().is_some(),
-                        DType::Struct(..) => array.as_struct_array().is_some(),
-                        DType::List(..) => array.as_list_array().is_some(),
-                        DType::Extension(..) => array.as_extension_array().is_some(),
-                    },
-                    "Encoding {} does not implement the variant trait for {}",
-                    self.encoding().id(),
-                    array.dtype()
-                );
-
-                result = Some(f(array));
-                Ok(())
-            })
-            .unwrap_or_else(|err| {
-                vortex_panic!(
-                    err,
-                    "Failed to convert Array to {}",
-                    std::any::type_name::<dyn ArrayTrait>()
-                )
-            });
-
-        // Now we unwrap the optional, which we know to be populated by the closure.
-        result.vortex_expect("Failed to get result from Array::with_dyn")
+    #[cfg(feature = "canonical_counter")]
+    pub(crate) fn inc_canonical_counter(&self) {
+        let prev = match &self.0 {
+            InnerArrayData::Owned(o) => o
+                .canonical_counter
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            InnerArrayData::Viewed(v) => v
+                .canonical_counter
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+        };
+        if prev >= 1 {
+            log::warn!(
+                "ArrayData::into_canonical called {} times on array",
+                prev + 1,
+            );
+        }
+        if prev >= 2 {
+            let bt = backtrace::Backtrace::new();
+            log::warn!("{:?}", bt);
+        }
     }
 }
 
@@ -395,8 +383,8 @@ impl Display for ArrayData {
 impl<T: AsRef<ArrayData>> ArrayDType for T {
     fn dtype(&self) -> &DType {
         match &self.as_ref().0 {
-            InnerArrayData::Owned(d) => d.dtype(),
-            InnerArrayData::Viewed(v) => v.dtype(),
+            InnerArrayData::Owned(d) => &d.dtype,
+            InnerArrayData::Viewed(v) => &v.dtype,
         }
     }
 }
@@ -412,25 +400,29 @@ impl<T: AsRef<ArrayData>> ArrayLen for T {
 }
 
 impl<A: AsRef<ArrayData>> ArrayValidity for A {
+    /// Return whether the element at the given index is valid (true) or null (false).
     fn is_valid(&self, index: usize) -> bool {
-        self.as_ref().is_valid(index)
+        ValidityVTable::<ArrayData>::is_valid(self.as_ref().encoding(), self.as_ref(), index)
     }
 
+    /// Return the logical validity of the array.
     fn logical_validity(&self) -> LogicalValidity {
-        self.as_ref().logical_validity()
+        ValidityVTable::<ArrayData>::logical_validity(self.as_ref().encoding(), self.as_ref())
     }
 }
 
 impl<T: AsRef<ArrayData>> ArrayStatistics for T {
     fn statistics(&self) -> &(dyn Statistics + '_) {
         match &self.as_ref().0 {
-            InnerArrayData::Owned(d) => d.statistics(),
-            InnerArrayData::Viewed(v) => v.statistics(),
+            InnerArrayData::Owned(d) => d,
+            InnerArrayData::Viewed(v) => v,
         }
     }
 
+    // FIXME(ngates): this is really slow...
     fn inherit_statistics(&self, parent: &dyn Statistics) {
         let stats = self.statistics();
+        // The to_set call performs a slow clone of the stats
         for (stat, scalar) in parent.to_set() {
             stats.set(stat, scalar);
         }

@@ -74,9 +74,9 @@ impl<T: PStatsType> StatisticsVTable<[T]> for PrimitiveEncoding {
             Stat::IsConstant => {
                 let first = array[0];
                 let is_constant = array.iter().all(|x| first.is_eq(*x));
-                StatsSet::from_iter([(Stat::IsConstant, is_constant.into())])
+                StatsSet::of(Stat::IsConstant, is_constant)
             }
-            Stat::NullCount => StatsSet::from_iter([(Stat::NullCount, 0u64.into())]),
+            Stat::NullCount => StatsSet::of(Stat::NullCount, 0u64),
             Stat::IsSorted => compute_is_sorted(array.iter().copied()),
             Stat::IsStrictSorted => compute_is_strict_sorted(array.iter().copied()),
             Stat::RunCount => compute_run_count(array.iter().copied()),
@@ -115,7 +115,7 @@ impl<T: PStatsType> StatisticsVTable<NullableValues<'_, T>> for PrimitiveEncodin
             ));
         }
 
-        let mut stats = StatsSet::from_iter([
+        let mut stats = StatsSet::new_unchecked(vec![
             (Stat::NullCount, null_count.into()),
             (Stat::IsConstant, false.into()),
         ]);
@@ -170,13 +170,13 @@ fn compute_min_max<T: PStatsType>(
         MinMaxResult::NoElements => StatsSet::default(),
         MinMaxResult::OneElement(x) => {
             let scalar: Scalar = x.into();
-            StatsSet::from_iter([
+            StatsSet::new_unchecked(vec![
                 (Stat::Min, scalar.clone()),
                 (Stat::Max, scalar),
                 (Stat::IsConstant, could_be_constant.into()),
             ])
         }
-        MinMaxResult::MinMax(min, max) => StatsSet::from_iter([
+        MinMaxResult::MinMax(min, max) => StatsSet::new_unchecked(vec![
             (Stat::Min, min.into()),
             (Stat::Max, max.into()),
             (
@@ -201,9 +201,9 @@ fn compute_is_sorted<T: PStatsType>(mut iter: impl Iterator<Item = T>) -> StatsS
     }
 
     if sorted {
-        StatsSet::from_iter([(Stat::IsSorted, true.into())])
+        StatsSet::of(Stat::IsSorted, true)
     } else {
-        StatsSet::from_iter([
+        StatsSet::new_unchecked(vec![
             (Stat::IsSorted, false.into()),
             (Stat::IsStrictSorted, false.into()),
         ])
@@ -225,12 +225,12 @@ fn compute_is_strict_sorted<T: PStatsType>(mut iter: impl Iterator<Item = T>) ->
     }
 
     if strict_sorted {
-        StatsSet::from_iter([
+        StatsSet::new_unchecked(vec![
             (Stat::IsSorted, true.into()),
             (Stat::IsStrictSorted, true.into()),
         ])
     } else {
-        StatsSet::from_iter([(Stat::IsStrictSorted, false.into())])
+        StatsSet::of(Stat::IsStrictSorted, false)
     }
 }
 
@@ -245,7 +245,7 @@ fn compute_run_count<T: PStatsType>(mut iter: impl Iterator<Item = T>) -> StatsS
             prev = next;
         }
     }
-    StatsSet::from_iter([(Stat::RunCount, run_count.into())])
+    StatsSet::of(Stat::RunCount, run_count)
 }
 
 trait BitWidth {
@@ -280,6 +280,7 @@ int_bit_width!(i64);
 macro_rules! float_bit_width {
     ($T:ty) => {
         impl BitWidth for $T {
+            #[allow(clippy::cast_possible_truncation)]
             fn bit_width(self) -> u32 {
                 (size_of::<Self>() * 8) as u32
             }
@@ -324,7 +325,7 @@ impl<T: PStatsType> BitWidthAccumulator<T> {
     }
 
     pub fn finish(self) -> StatsSet {
-        StatsSet::from_iter([
+        StatsSet::new_unchecked(vec![
             (Stat::BitWidthFreq, self.bit_widths.into()),
             (Stat::TrailingZeroFreq, self.trailing_zeros.into()),
         ])

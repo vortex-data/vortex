@@ -50,14 +50,15 @@ fn compare_fsst_constant(
 
     let encoded_scalar = match left.dtype() {
         DType::Utf8(_) => right
-            .scalar_value()
-            .as_buffer_string()?
+            .scalar()
+            .as_utf8()
+            .value()
             .map(|scalar| Buffer::from(compressor.compress(scalar.as_bytes()))),
         DType::Binary(_) => right
-            .scalar_value()
-            .as_buffer()?
+            .scalar()
+            .as_binary()
+            .value()
             .map(|scalar| Buffer::from(compressor.compress(scalar.as_slice()))),
-
         _ => unreachable!("FSSTArray can only have string or binary data type"),
     };
 
@@ -81,8 +82,7 @@ fn compare_fsst_constant(
 #[cfg(test)]
 mod tests {
     use vortex_array::array::{ConstantArray, VarBinArray};
-    use vortex_array::compute::unary::scalar_at;
-    use vortex_array::compute::{compare, Operator};
+    use vortex_array::compute::{compare, scalar_at, Operator};
     use vortex_array::{ArrayLen, IntoArrayData, IntoArrayVariant};
     use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;

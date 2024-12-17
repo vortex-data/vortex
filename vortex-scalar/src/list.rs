@@ -3,9 +3,9 @@ use std::sync::Arc;
 
 use vortex_dtype::DType;
 use vortex_dtype::Nullability::NonNullable;
-use vortex_error::{vortex_bail, VortexError, VortexResult};
+use vortex_error::{vortex_bail, vortex_panic, VortexError, VortexResult};
 
-use crate::value::ScalarValue;
+use crate::value::{InnerScalarValue, ScalarValue};
 use crate::Scalar;
 
 pub struct ListScalar<'a> {
@@ -30,6 +30,11 @@ impl<'a> ListScalar<'a> {
             None => true,
             Some(l) => l.is_empty(),
         }
+    }
+
+    #[inline]
+    pub fn is_null(&self) -> bool {
+        self.elements.is_none()
     }
 
     pub fn element_dtype(&self) -> DType {
@@ -67,10 +72,21 @@ impl<'a> ListScalar<'a> {
 }
 
 impl Scalar {
-    pub fn list(element_dtype: DType, children: Vec<ScalarValue>) -> Self {
+    pub fn list(element_dtype: Arc<DType>, children: Vec<Scalar>) -> Self {
+        for child in &children {
+            if child.dtype() != &*element_dtype {
+                vortex_panic!(
+                    "tried to create list of {} with values of type {}",
+                    element_dtype,
+                    child.dtype()
+                );
+            }
+        }
         Self {
-            dtype: DType::List(Arc::new(element_dtype), NonNullable),
-            value: ScalarValue::List(children.into()),
+            dtype: DType::List(element_dtype, NonNullable),
+            value: ScalarValue(InnerScalarValue::List(
+                children.into_iter().map(|x| x.value).collect::<Arc<[_]>>(),
+            )),
         }
     }
 }

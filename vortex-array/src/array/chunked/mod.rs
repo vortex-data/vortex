@@ -8,18 +8,19 @@ use futures_util::stream;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
+use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult, VortexUnwrap};
 use vortex_scalar::Scalar;
 
 use crate::array::primitive::PrimitiveArray;
-use crate::compute::unary::{scalar_at, subtract_scalar, SubtractScalarFn};
-use crate::compute::{search_sorted, SearchSortedSide};
+use crate::compute::{
+    scalar_at, search_sorted_usize, subtract_scalar, SearchSortedSide, SubtractScalarFn,
+};
 use crate::encoding::ids;
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
-use crate::stats::ArrayStatistics;
+use crate::stats::StatsSet;
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::validity::Validity::NonNullable;
-use crate::validity::{LogicalValidity, Validity, ValidityVTable};
+use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, IntoArrayData, IntoCanonical,
@@ -65,17 +66,7 @@ impl ChunkedArray {
         let nchunks = chunk_offsets.len() - 1;
         let length = *chunk_offsets
             .last()
-            .vortex_expect("Chunk ends is guaranteed to have at least one element")
-            as usize;
-
-        let stats = chunks
-            .iter()
-            .map(|chunk| chunk.statistics().to_set())
-            .reduce(|mut acc, stats| {
-                acc.merge_ordered(&stats);
-                acc
-            })
-            .unwrap_or_default();
+            .vortex_expect("Chunk ends is guaranteed to have at least one element");
 
         let mut children = Vec::with_capacity(chunks.len() + 1);
         children.push(PrimitiveArray::from_vec(chunk_offsets, NonNullable).into_array());
@@ -83,10 +74,10 @@ impl ChunkedArray {
 
         Self::try_from_parts(
             dtype,
-            length,
+            length.try_into().vortex_unwrap(),
             ChunkedMetadata { nchunks },
             children.into(),
-            stats,
+            StatsSet::default(),
         )
     }
 
@@ -96,8 +87,9 @@ impl ChunkedArray {
             vortex_bail!("chunk index {} > num chunks ({})", idx, self.nchunks());
         }
 
-        let chunk_start = usize::try_from(&scalar_at(self.chunk_offsets(), idx)?)?;
-        let chunk_end = usize::try_from(&scalar_at(self.chunk_offsets(), idx + 1)?)?;
+        let chunk_offsets = self.chunk_offsets();
+        let chunk_start = usize::try_from(&scalar_at(&chunk_offsets, idx)?)?;
+        let chunk_end = usize::try_from(&scalar_at(&chunk_offsets, idx + 1)?)?;
 
         // Offset the index since chunk_ends is child 0.
         self.as_ref()
@@ -120,10 +112,11 @@ impl ChunkedArray {
 
         // Since there might be duplicate values in offsets because of empty chunks we want to search from right
         // and take the last chunk (we subtract 1 since there's a leading 0)
-        let index_chunk = search_sorted(&self.chunk_offsets(), index, SearchSortedSide::Right)
-            .vortex_expect("Search sorted failed in find_chunk_idx")
-            .to_ends_index(self.nchunks() + 1)
-            .saturating_sub(1);
+        let index_chunk =
+            search_sorted_usize(&self.chunk_offsets(), index, SearchSortedSide::Right)
+                .vortex_expect("Search sorted failed in find_chunk_idx")
+                .to_ends_index(self.nchunks() + 1)
+                .saturating_sub(1);
         let chunk_start = scalar_at(self.chunk_offsets(), index_chunk)
             .and_then(|s| usize::try_from(&s))
             .vortex_expect("Failed to find chunk start in find_chunk_idx");
@@ -229,13 +222,13 @@ impl ValidityVTable<ChunkedArray> for ChunkedEncoding {
             .unwrap_or_else(|e| {
                 vortex_panic!(e, "ChunkedArray: is_valid failed to find chunk {}", index)
             })
-            .with_dyn(|a| a.is_valid(offset_in_chunk))
+            .is_valid(offset_in_chunk)
     }
 
     fn logical_validity(&self, array: &ChunkedArray) -> LogicalValidity {
         let validity = array
             .chunks()
-            .map(|a| a.with_dyn(|arr| arr.logical_validity()))
+            .map(|a| a.logical_validity())
             .collect::<Validity>();
         validity.to_logical(array.len())
     }
@@ -261,7 +254,7 @@ mod test {
     use vortex_error::VortexResult;
 
     use crate::array::chunked::ChunkedArray;
-    use crate::compute::unary::{scalar_at, subtract_scalar};
+    use crate::compute::{scalar_at, subtract_scalar};
     use crate::{assert_arrays_eq, ArrayDType, IntoArrayData, IntoArrayVariant};
 
     fn chunked_array() -> ChunkedArray {

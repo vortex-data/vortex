@@ -4,9 +4,9 @@ use vortex_scalar::Scalar;
 
 use crate::array::struct_::StructArray;
 use crate::array::StructEncoding;
-use crate::compute::unary::{scalar_at, ScalarAtFn};
 use crate::compute::{
-    filter, slice, take, ComputeVTable, FilterFn, FilterMask, SliceFn, TakeFn, TakeOptions,
+    filter, scalar_at, slice, take, ComputeVTable, FilterFn, FilterMask, ScalarAtFn, SliceFn,
+    TakeFn,
 };
 use crate::variants::StructArrayTrait;
 use crate::{ArrayDType, ArrayData, IntoArrayData};
@@ -31,31 +31,26 @@ impl ComputeVTable for StructEncoding {
 
 impl ScalarAtFn<StructArray> for StructEncoding {
     fn scalar_at(&self, array: &StructArray, index: usize) -> VortexResult<Scalar> {
-        Ok(Scalar::r#struct(
+        Ok(Scalar::struct_(
             array.dtype().clone(),
             array
                 .children()
-                .map(|field| scalar_at(&field, index).map(|s| s.into_value()))
+                .map(|field| scalar_at(&field, index))
                 .try_collect()?,
         ))
     }
 }
 
 impl TakeFn<StructArray> for StructEncoding {
-    fn take(
-        &self,
-        array: &StructArray,
-        indices: &ArrayData,
-        options: TakeOptions,
-    ) -> VortexResult<ArrayData> {
+    fn take(&self, array: &StructArray, indices: &ArrayData) -> VortexResult<ArrayData> {
         StructArray::try_new(
             array.names().clone(),
             array
                 .children()
-                .map(|field| take(&field, indices, options))
+                .map(|field| take(&field, indices))
                 .try_collect()?,
             indices.len(),
-            array.validity().take(indices, options)?,
+            array.validity().take(indices)?,
         )
         .map(|a| a.into_array())
     }

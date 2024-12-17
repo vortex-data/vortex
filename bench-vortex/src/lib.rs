@@ -4,12 +4,20 @@ use std::env::temp_dir;
 use std::fs::{create_dir_all, File};
 use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::{Arc, LazyLock};
+use std::time::Duration;
 
-use arrow_array::RecordBatchReader;
+use arrow_array::{RecordBatch, RecordBatchReader};
+use datafusion::execution::cache::cache_manager::CacheManagerConfig;
+use datafusion::execution::cache::cache_unit::{DefaultFileStatisticsCache, DefaultListFilesCache};
+use datafusion::execution::runtime_env::RuntimeEnvBuilder;
+use datafusion::prelude::{SessionConfig, SessionContext};
+use datafusion_physical_plan::{collect, ExecutionPlan};
 use itertools::Itertools;
 use log::LevelFilter;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+use serde::Serialize;
 use simplelog::{ColorChoice, Config, TermLogger, TerminalMode};
 use vortex::array::ChunkedArray;
 use vortex::arrow::FromArrowType;
@@ -23,13 +31,19 @@ use crate::data_downloads::FileType;
 use crate::reader::BATCH_SIZE;
 use crate::taxi_data::taxi_data_parquet;
 
+pub mod clickbench;
 pub mod data_downloads;
+pub mod display;
 pub mod parquet_utils;
 pub mod public_bi_data;
 pub mod reader;
 pub mod taxi_data;
 pub mod tpch;
 pub mod vortex_utils;
+
+// Sizes match default compressor configuration
+const TARGET_BLOCK_BYTESIZE: usize = 16 * (1 << 20);
+const TARGET_BLOCK_SIZE: usize = 64 * (1 << 10);
 
 pub static CTX: LazyLock<Arc<Context>> = LazyLock::new(|| {
     Arc::new(
@@ -38,6 +52,53 @@ pub static CTX: LazyLock<Arc<Context>> = LazyLock::new(|| {
             .with_encoding(&DeltaEncoding),
     )
 });
+
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub enum Format {
+    Csv,
+    Arrow,
+    Parquet,
+    InMemoryVortex { enable_pushdown: bool },
+    OnDiskVortex { enable_compression: bool },
+}
+
+impl std::fmt::Display for Format {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Format::Csv => write!(f, "csv"),
+            Format::Arrow => write!(f, "arrow"),
+            Format::Parquet => write!(f, "parquet"),
+            Format::InMemoryVortex { enable_pushdown } => {
+                write!(f, "in_memory_vortex(pushdown={enable_pushdown})")
+            }
+            Format::OnDiskVortex { enable_compression } => {
+                write!(f, "on_disk_vortex(compressed={enable_compression})")
+            }
+        }
+    }
+}
+
+impl Format {
+    pub fn name(&self) -> String {
+        match self {
+            Format::Csv => "csv".to_string(),
+            Format::Arrow => "arrow".to_string(),
+            Format::Parquet => "parquet".to_string(),
+            Format::InMemoryVortex { enable_pushdown } => if *enable_pushdown {
+                "vortex-in-memory-pushdown"
+            } else {
+                "vortex-in-memory"
+            }
+            .to_string(),
+            Format::OnDiskVortex { enable_compression } => if *enable_compression {
+                "vortex-file-compressed"
+            } else {
+                "vortex-file-uncompressed"
+            }
+            .to_string(),
+        }
+    }
+}
 
 /// Creates a file if it doesn't already exist.
 /// NB: Does NOT modify the given path to ensure that it resides in the data directory.
@@ -189,6 +250,87 @@ pub struct CompressionRunResults {
     pub total_compressed_size: Option<u64>,
 }
 
+pub async fn execute_query(ctx: &SessionContext, query: &str) -> anyhow::Result<Vec<RecordBatch>> {
+    let plan = ctx.sql(query).await?;
+    let (state, plan) = plan.into_parts();
+    let physical_plan = state.create_physical_plan(&plan).await?;
+    let result = collect(physical_plan.clone(), state.task_ctx()).await?;
+    Ok(result)
+}
+
+pub async fn physical_plan(
+    ctx: &SessionContext,
+    query: &str,
+) -> anyhow::Result<Arc<dyn ExecutionPlan>> {
+    let plan = ctx.sql(query).await?;
+    let (state, plan) = plan.into_parts();
+    Ok(state.create_physical_plan(&plan).await?)
+}
+
+#[derive(Clone, Debug)]
+pub struct Measurement {
+    pub query_idx: usize,
+    pub time: Duration,
+    pub format: Format,
+    pub dataset: String,
+}
+
+#[derive(Serialize)]
+pub struct JsonValue {
+    pub name: String,
+    pub unit: String,
+    pub value: u128,
+    pub commit_id: String,
+}
+
+pub static GIT_COMMIT_ID: LazyLock<String> = LazyLock::new(|| {
+    String::from_utf8(
+        Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap()
+    .trim()
+    .to_string()
+});
+
+impl Measurement {
+    pub fn to_json(&self) -> JsonValue {
+        let name = format!(
+            "{dataset}_q{query_idx:02}/{format}",
+            dataset = self.dataset,
+            format = self.format.name(),
+            query_idx = self.query_idx
+        );
+
+        JsonValue {
+            name,
+            unit: "ns".to_string(),
+            value: self.time.as_nanos(),
+            commit_id: GIT_COMMIT_ID.to_string(),
+        }
+    }
+}
+
+pub fn get_session_with_cache() -> SessionContext {
+    let cache_config = CacheManagerConfig::default();
+    let file_static_cache = Arc::new(DefaultFileStatisticsCache::default());
+    let list_file_cache = Arc::new(DefaultListFilesCache::default());
+
+    let cache_config = cache_config
+        .with_files_statistics_cache(Some(file_static_cache))
+        .with_list_files_cache(Some(list_file_cache));
+
+    let rt = RuntimeEnvBuilder::new()
+        .with_cache_manager(cache_config)
+        .build_arc()
+        .expect("could not build runtime environment");
+
+    SessionContext::new_with_config_rt(SessionConfig::default(), rt)
+}
+
 #[cfg(test)]
 mod test {
     use std::fs::File;
@@ -224,7 +366,7 @@ mod test {
             let struct_arrow: ArrowStructArray = record_batch.into();
             let arrow_array: ArrowArrayRef = Arc::new(struct_arrow);
             let vortex_array = ArrayData::from_arrow(arrow_array.clone(), false);
-            let vortex_as_arrow = vortex_array.into_canonical().unwrap().into_arrow().unwrap();
+            let vortex_as_arrow = vortex_array.into_arrow().unwrap();
             assert_eq!(vortex_as_arrow.deref(), arrow_array.deref());
         }
     }
@@ -245,7 +387,7 @@ mod test {
             let vortex_array = ArrayData::from_arrow(arrow_array.clone(), false);
 
             let compressed = compressor.compress(&vortex_array).unwrap();
-            let compressed_as_arrow = compressed.into_canonical().unwrap().into_arrow().unwrap();
+            let compressed_as_arrow = compressed.into_arrow().unwrap();
             assert_eq!(compressed_as_arrow.deref(), arrow_array.deref());
         }
     }

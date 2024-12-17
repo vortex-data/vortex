@@ -1,5 +1,5 @@
 use vortex_array::array::{PrimitiveArray, TemporalArray};
-use vortex_array::compute::unary::try_cast;
+use vortex_array::compute::try_cast;
 use vortex_array::{ArrayDType as _, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
 use vortex_datetime_dtype::TimeUnit;
 use vortex_dtype::{DType, PType};

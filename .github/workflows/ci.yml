@@ -1,5 +1,9 @@
 name: CI
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/develop' }}
+
 on:
   push:
     branches: [ "develop" ]
@@ -18,7 +22,6 @@ env:
 
 jobs:
   python-lint:
-    if: false
     name: "Python (lint)"
     runs-on: ubuntu-latest
     steps:
@@ -31,7 +34,6 @@ jobs:
         run: uv run ruff check .
 
   python-test:
-    if: false
     name: "Python (test)"
     runs-on: ubuntu-latest
     steps:
@@ -77,7 +79,6 @@ jobs:
           uv run pytest
 
   rust-docs:
-    if: false
     name: "Rust (docs)"
     runs-on: ubuntu-latest
     steps:
@@ -86,29 +87,43 @@ jobs:
       - name: Docs
         run: cargo doc --no-deps
 
-  build-default:
-    if: false
-    name: "Build (default)"
+  build-rust:
+    name: "Rust build (${{matrix.config.name}})"
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - name: "all-features"
+            command: "build"
+            args: "--all-features --all-targets"
+          - name: "default features"
+            command: "build"
+            args: "--all-targets"
+          - name: "with tokio dispatcher"
+            command: "build"
+            args: "--no-default-features --features tokio --all-targets --ignore-unknown-features"
+          - name: "with compio dispatcher"
+            command: "build"
+            args: "--no-default-features --features compio --all-targets --ignore-unknown-features"
+          - name: "with tokio+compio dispatcher"
+            command: "build"
+            args: "--no-default-features --features tokio,compio --all-targets --ignore-unknown-features"
+          - name: "wasm32 with default features"
+            command: "build"
+            target: wasm32-unknown-unknown
+            args: "--target wasm32-unknown-unknown --exclude vortex-roaring --exclude vortex-datafusion "
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/cleanup
       - uses: rui314/setup-mold@v1
       - uses: ./.github/actions/setup-rust
-      - name: Rust Build (Default features)
-        run: cargo build --all-targets
-
-  build-all:
-    if: false
-    name: "Build (all-features)"
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/cleanup
-      - uses: rui314/setup-mold@v1
-      - uses: ./.github/actions/setup-rust
-      - name: Rust Build (All Features)
-        run: cargo build --all-features --all-targets
+        with:
+          targets: ${{matrix.config.target || ''}}
+      - name: Install cargo-hack
+        uses: taiki-e/install-action@cargo-hack
+      - name: Rust Build (${{matrix.config.name}})
+        run: cargo hack ${{matrix.config.command}} ${{matrix.config.args}} --ignore-private
 
   rust-test:
     name: "Rust (tests)"
@@ -120,9 +135,20 @@ jobs:
       - uses: ./.github/actions/setup-rust
       - name: Rust Lint - Format
         run: cargo fmt --all --check
-      - name: Rust Lint - Clippy
+      - name: Rust Lint - Clippy All Features
         run: cargo clippy --all-features --all-targets
-        if: false
+      - name: Rust Lint - Clippy Default Features
+        run: cargo clippy --all-targets
+      - name: Rust Lint - Clippy No Default Features
+        run: |
+          set -ex
+
+          # https://spiraldb.slack.com/archives/C07BV3GKAJ2/p1732736281946729
+          for package in $(cargo check -p  2>&1 | grep '^    ')
+          do
+              echo ---- $package ----
+              cargo clippy --package $package --no-default-features
+          done
       - name: Rust Test
         run: cargo test --workspace --all-features
         env:
@@ -139,7 +165,6 @@ jobs:
           file: "${{ steps.grcov.outputs.report }}"
   
   license-check-and-audit-check:
-    if: false
     name: License Check and Audit Check
     runs-on: ubuntu-latest
     steps:
@@ -156,7 +181,6 @@ jobs:
           ignore: "RUSTSEC-2023-0384"
 
   miri:
-    if: false
     name: "miri"
     runs-on: ubuntu-latest
     env:
@@ -169,7 +193,6 @@ jobs:
         run: cargo miri test
 
   bench-test:
-    if: false
     name: "bench test"
     runs-on: ubuntu-latest
     steps:
@@ -182,11 +205,10 @@ jobs:
         uses: opt-nc/setup-duckdb-action@v1.0.9
         with:
           version: v1.0.0
-      - name: Rust Bench as test
-        run: cargo bench --bench '*[!noci]' --profile benchtest -- --test
+      - name: Rust TPC-H and Random access Bench as test
+        run: cargo bench --bench tpch --bench random_access --profile benchtest -- --test
 
   generated-files:
-    if: false
     name: "Check generated proto/fbs files are up to date"
     runs-on: ubuntu-latest
     steps:

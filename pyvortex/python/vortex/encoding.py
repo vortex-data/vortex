@@ -336,7 +336,7 @@ def array(obj: pyarrow.Array | list | Any) -> Array:
 
     Initialize a Vortex array from an Arrow array:
 
-    >>> arrow = pyarrow.array(['Hello', 'it', 'is', 'me'])
+    >>> arrow = pyarrow.array(['Hello', 'it', 'is', 'me'], type=pyarrow.string_view())
     >>> vortex.array(arrow).to_arrow_array()
     <pyarrow.lib.StringViewArray object at ...>
     [

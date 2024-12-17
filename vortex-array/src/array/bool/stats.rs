@@ -18,7 +18,7 @@ impl StatisticsVTable<BoolArray> for BoolEncoding {
         }
 
         if array.is_empty() {
-            return Ok(StatsSet::from_iter([
+            return Ok(StatsSet::new_unchecked(vec![
                 (Stat::TrueCount, 0.into()),
                 (Stat::NullCount, 0.into()),
                 (Stat::RunCount, 0.into()),
@@ -43,11 +43,12 @@ impl StatisticsVTable<NullableBools<'_>> for BoolEncoding {
         // Fast-path if we just want the true-count
         if matches!(
             stat,
-            Stat::TrueCount | Stat::Min | Stat::Max | Stat::IsConstant
+            Stat::TrueCount | Stat::Min | Stat::Max | Stat::IsConstant | Stat::NullCount
         ) {
+            let _null_count = array.1.count_set_bits();
             return Ok(StatsSet::bools_with_true_and_null_count(
                 array.0.bitand(array.1).count_set_bits(),
-                array.1.count_set_bits(),
+                array.1.len() - array.1.count_set_bits(),
                 array.0.len(),
             ));
         }
@@ -85,7 +86,7 @@ impl StatisticsVTable<BooleanBuffer> for BoolEncoding {
         // Fast-path if we just want the true-count
         if matches!(
             stat,
-            Stat::TrueCount | Stat::Min | Stat::Max | Stat::IsConstant
+            Stat::TrueCount | Stat::Min | Stat::Max | Stat::IsConstant | Stat::NullCount
         ) {
             return Ok(StatsSet::bools_with_true_and_null_count(
                 buffer.count_set_bits(),
@@ -152,7 +153,7 @@ impl BoolStatsAccumulator {
     }
 
     pub fn finish(self) -> StatsSet {
-        StatsSet::from_iter([
+        StatsSet::new_unchecked(vec![
             (Stat::NullCount, self.null_count.into()),
             (Stat::IsSorted, self.is_sorted.into()),
             (

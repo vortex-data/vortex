@@ -5,8 +5,9 @@ use vortex_scalar::Scalar;
 
 use crate::array::extension::ExtensionArray;
 use crate::array::ExtensionEncoding;
-use crate::compute::unary::{scalar_at, CastFn, ScalarAtFn};
-use crate::compute::{slice, take, CompareFn, ComputeVTable, SliceFn, TakeFn, TakeOptions};
+use crate::compute::{
+    scalar_at, slice, take, CastFn, CompareFn, ComputeVTable, ScalarAtFn, SliceFn, TakeFn,
+};
 use crate::variants::ExtensionArrayTrait;
 use crate::{ArrayData, IntoArrayData};
 
@@ -39,7 +40,7 @@ impl ScalarAtFn<ExtensionArray> for ExtensionEncoding {
     fn scalar_at(&self, array: &ExtensionArray, index: usize) -> VortexResult<Scalar> {
         Ok(Scalar::extension(
             array.ext_dtype().clone(),
-            scalar_at(array.storage(), index)?.into_value(),
+            scalar_at(array.storage(), index)?,
         ))
     }
 }
@@ -55,16 +56,10 @@ impl SliceFn<ExtensionArray> for ExtensionEncoding {
 }
 
 impl TakeFn<ExtensionArray> for ExtensionEncoding {
-    fn take(
-        &self,
-        array: &ExtensionArray,
-        indices: &ArrayData,
-        options: TakeOptions,
-    ) -> VortexResult<ArrayData> {
-        Ok(ExtensionArray::new(
-            array.ext_dtype().clone(),
-            take(array.storage(), indices, options)?,
+    fn take(&self, array: &ExtensionArray, indices: &ArrayData) -> VortexResult<ArrayData> {
+        Ok(
+            ExtensionArray::new(array.ext_dtype().clone(), take(array.storage(), indices)?)
+                .into_array(),
         )
-        .into_array())
     }
 }

@@ -2,13 +2,12 @@ use std::fmt::{Display, Formatter};
 use std::ops::Range;
 
 use futures_util::{Stream, TryStreamExt};
-use vortex_array::array::{ChunkedArray, ChunkedEncoding};
-use vortex_array::encoding::EncodingVTable;
+use vortex_array::array::ChunkedArray;
 use vortex_array::stream::ArrayStream;
 use vortex_array::ArrayData;
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
+use vortex_error::{VortexResult, VortexUnwrap};
 use vortex_io::VortexWrite;
 
 use crate::messages::writer::MessageWriter;
@@ -44,7 +43,7 @@ impl<W: VortexWrite> StreamArrayWriter<W> {
         self.msgs.into_inner()
     }
 
-    async fn write_dtype(&mut self, dtype: &DType) -> VortexResult<ByteRange> {
+    async fn write_dtype(&mut self, dtype: DType) -> VortexResult<ByteRange> {
         let begin = self.msgs.tell();
         self.msgs.write_dtype(dtype).await?;
         let end = self.msgs.tell();
@@ -62,7 +61,7 @@ impl<W: VortexWrite> StreamArrayWriter<W> {
         while let Some(chunk) = stream.try_next().await? {
             row_offset += chunk.len() as u64;
             row_offsets.push(row_offset);
-            self.msgs.write_batch(chunk).await?;
+            self.msgs.write_array(chunk).await?;
             byte_offsets.push(self.msgs.tell());
         }
 
@@ -73,7 +72,7 @@ impl<W: VortexWrite> StreamArrayWriter<W> {
         mut self,
         mut array_stream: S,
     ) -> VortexResult<Self> {
-        let dtype_pos = self.write_dtype(array_stream.dtype()).await?;
+        let dtype_pos = self.write_dtype(array_stream.dtype().clone()).await?;
         let chunk_pos = self.write_array_chunks(&mut array_stream).await?;
         self.array_layouts.push(ArrayLayout {
             dtype: dtype_pos,
@@ -83,9 +82,8 @@ impl<W: VortexWrite> StreamArrayWriter<W> {
     }
 
     pub async fn write_array(self, array: ArrayData) -> VortexResult<Self> {
-        if array.is_encoding(ChunkedEncoding.id()) {
-            self.write_array_stream(ChunkedArray::try_from(array)?.array_stream())
-                .await
+        if let Some(chunked_array) = ChunkedArray::maybe_from(&array) {
+            self.write_array_stream(chunked_array.array_stream()).await
         } else {
             self.write_array_stream(array.into_array_stream()).await
         }
@@ -127,7 +125,10 @@ impl ByteRange {
     }
 
     pub fn to_range(&self) -> Range<usize> {
-        self.begin as usize..self.end as usize
+        Range {
+            start: self.begin.try_into().vortex_unwrap(),
+            end: self.end.try_into().vortex_unwrap(),
+        }
     }
 }
 

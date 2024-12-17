@@ -11,7 +11,7 @@ use vortex_ipc::stream_writer::ByteRange;
 use crate::read::cache::RelativeLayoutCache;
 use crate::read::mask::RowMask;
 use crate::{
-    BatchRead, Layout, LayoutDeserializer, LayoutId, LayoutReader, MessageLocator, Scan,
+    Layout, LayoutDeserializer, LayoutId, LayoutReader, MessageLocator, PollRead, Scan,
     FLAT_LAYOUT_ID,
 };
 
@@ -25,17 +25,12 @@ impl Layout for FlatLayout {
 
     fn reader(
         &self,
-        fb_bytes: Bytes,
-        fb_loc: usize,
+        layout: footer::Layout,
         scan: Scan,
         layout_serde: LayoutDeserializer,
         message_cache: RelativeLayoutCache,
     ) -> VortexResult<Box<dyn LayoutReader>> {
-        let fb_layout = unsafe {
-            let tab = flatbuffers::Table::new(&fb_bytes, fb_loc);
-            footer::Layout::init_from_table(tab)
-        };
-        let buffers = fb_layout.buffers().unwrap_or_default();
+        let buffers = layout.buffers().unwrap_or_default();
         if buffers.len() != 1 {
             vortex_bail!("Flat layout can have exactly 1 buffer")
         }
@@ -96,13 +91,13 @@ impl LayoutReader for FlatLayoutReader {
         Ok(())
     }
 
-    fn read_selection(&self, selection: &RowMask) -> VortexResult<Option<BatchRead>> {
+    fn poll_read(&self, selection: &RowMask) -> VortexResult<Option<PollRead<ArrayData>>> {
         if let Some(buf) = self.message_cache.get(&[]) {
             let array = self.array_from_bytes(buf)?;
             selection
                 .filter_array(array)?
                 .map(|s| {
-                    Ok(BatchRead::Batch(
+                    Ok(PollRead::Value(
                         self.scan
                             .expr
                             .as_ref()
@@ -113,7 +108,7 @@ impl LayoutReader for FlatLayoutReader {
                 })
                 .transpose()
         } else {
-            Ok(Some(BatchRead::ReadMore(vec![self.own_message()])))
+            Ok(Some(PollRead::ReadMore(vec![self.own_message()])))
         }
     }
 }
@@ -141,10 +136,10 @@ mod tests {
         let mut writer = MessageWriter::new(Vec::new());
         let array = PrimitiveArray::from((0..100).collect::<Vec<_>>()).into_array();
         let len = array.len();
-        writer.write_batch(array).await.unwrap();
+        writer.write_array(array).await.unwrap();
         let written = writer.into_inner();
 
-        let projection_scan = Scan::new(None);
+        let projection_scan = Scan::empty();
         let dtype = Arc::new(LazyDType::from_dtype(PType::I32.into()));
 
         (
@@ -185,11 +180,11 @@ mod tests {
         let cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
         let (mut filter_layout, mut projection_layout, buf, length) = layout_and_bytes(
             cache.clone(),
-            Scan::new(Some(RowFilter::new_expr(BinaryExpr::new_expr(
+            Scan::new(RowFilter::new_expr(BinaryExpr::new_expr(
                 Arc::new(Identity),
                 Operator::Gt,
                 Literal::new_expr(10.into()),
-            )))),
+            ))),
         )
         .await;
         let arr = filter_read_layout(
@@ -230,11 +225,11 @@ mod tests {
         let cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
         let (mut filter_layout, mut projection_layout, buf, length) = layout_and_bytes(
             cache.clone(),
-            Scan::new(Some(RowFilter::new_expr(BinaryExpr::new_expr(
+            Scan::new(RowFilter::new_expr(BinaryExpr::new_expr(
                 Arc::new(Identity),
                 Operator::Gt,
                 Literal::new_expr(101.into()),
-            )))),
+            ))),
         )
         .await;
         let arr = filter_read_layout(

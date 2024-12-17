@@ -25,7 +25,7 @@ pub trait BinaryBooleanFn<Array> {
         array: &Array,
         other: &ArrayData,
         op: BinaryOperator,
-    ) -> VortexResult<ArrayData>;
+    ) -> VortexResult<Option<ArrayData>>;
 }
 
 impl<E: Encoding> BinaryBooleanFn<ArrayData> for E
@@ -38,7 +38,7 @@ where
         lhs: &ArrayData,
         rhs: &ArrayData,
         op: BinaryOperator,
-    ) -> VortexResult<ArrayData> {
+    ) -> VortexResult<Option<ArrayData>> {
         let array_ref = <&E::Array>::try_from(lhs)?;
         let encoding = lhs
             .encoding()
@@ -79,7 +79,11 @@ pub fn or_kleene(
     binary_boolean(lhs.as_ref(), rhs.as_ref(), BinaryOperator::OrKleene)
 }
 
-fn binary_boolean(lhs: &ArrayData, rhs: &ArrayData, op: BinaryOperator) -> VortexResult<ArrayData> {
+pub fn binary_boolean(
+    lhs: &ArrayData,
+    rhs: &ArrayData,
+    op: BinaryOperator,
+) -> VortexResult<ArrayData> {
     if lhs.len() != rhs.len() {
         vortex_bail!("Boolean operations aren't supported on arrays of different lengths")
     }
@@ -92,27 +96,34 @@ fn binary_boolean(lhs: &ArrayData, rhs: &ArrayData, op: BinaryOperator) -> Vorte
         return binary_boolean(rhs, lhs, op);
     }
 
+    // If the RHS is constant and the LHS is Arrow, we can't do any better than arrow_compare.
+    if lhs.is_arrow() && (rhs.is_arrow() || rhs.is_constant()) {
+        return arrow_boolean(lhs.clone(), rhs.clone(), op);
+    }
+
     // Check if either LHS or RHS supports the operation directly.
-    if let Some(f) = lhs.encoding().binary_boolean_fn(lhs, rhs) {
-        return f.binary_boolean(lhs, rhs, op);
-    } else {
-        log::debug!(
-            "No boolean implementation found for LHS {}, RHS {}, and operator {:?}",
-            lhs.encoding().id(),
-            rhs.encoding().id(),
-            op,
-        );
+    if let Some(result) = lhs
+        .encoding()
+        .binary_boolean_fn()
+        .and_then(|f| f.binary_boolean(lhs, rhs, op).transpose())
+    {
+        return result;
     }
-    if let Some(f) = rhs.encoding().binary_boolean_fn(rhs, lhs) {
-        return f.binary_boolean(rhs, lhs, op);
-    } else {
-        log::debug!(
-            "No boolean implementation found for LHS {}, RHS {}, and operator {:?}",
-            rhs.encoding().id(),
-            lhs.encoding().id(),
-            op,
-        );
+
+    if let Some(result) = rhs
+        .encoding()
+        .binary_boolean_fn()
+        .and_then(|f| f.binary_boolean(rhs, lhs, op).transpose())
+    {
+        return result;
     }
+
+    log::debug!(
+        "No boolean implementation found for LHS {}, RHS {}, and operator {:?} (or inverse)",
+        rhs.encoding().id(),
+        lhs.encoding().id(),
+        op,
+    );
 
     // If neither side implements the trait, then we delegate to Arrow compute.
     arrow_boolean(lhs.clone(), rhs.clone(), op)
@@ -154,7 +165,7 @@ mod tests {
 
     use super::*;
     use crate::array::BoolArray;
-    use crate::compute::unary::scalar_at;
+    use crate::compute::scalar_at;
     use crate::IntoArrayData;
 
     #[rstest]
@@ -168,10 +179,10 @@ mod tests {
 
         let r = r.into_bool().unwrap().into_array();
 
-        let v0 = scalar_at(&r, 0).unwrap().value().as_bool().unwrap();
-        let v1 = scalar_at(&r, 1).unwrap().value().as_bool().unwrap();
-        let v2 = scalar_at(&r, 2).unwrap().value().as_bool().unwrap();
-        let v3 = scalar_at(&r, 3).unwrap().value().as_bool().unwrap();
+        let v0 = scalar_at(&r, 0).unwrap().as_bool().value();
+        let v1 = scalar_at(&r, 1).unwrap().as_bool().value();
+        let v2 = scalar_at(&r, 2).unwrap().as_bool().value();
+        let v3 = scalar_at(&r, 3).unwrap().as_bool().value();
 
         assert!(v0.unwrap());
         assert!(v1.unwrap());
@@ -188,10 +199,10 @@ mod tests {
     fn test_and(#[case] lhs: ArrayData, #[case] rhs: ArrayData) {
         let r = and(&lhs, &rhs).unwrap().into_bool().unwrap().into_array();
 
-        let v0 = scalar_at(&r, 0).unwrap().value().as_bool().unwrap();
-        let v1 = scalar_at(&r, 1).unwrap().value().as_bool().unwrap();
-        let v2 = scalar_at(&r, 2).unwrap().value().as_bool().unwrap();
-        let v3 = scalar_at(&r, 3).unwrap().value().as_bool().unwrap();
+        let v0 = scalar_at(&r, 0).unwrap().as_bool().value();
+        let v1 = scalar_at(&r, 1).unwrap().as_bool().value();
+        let v2 = scalar_at(&r, 2).unwrap().as_bool().value();
+        let v3 = scalar_at(&r, 3).unwrap().as_bool().value();
 
         assert!(v0.unwrap());
         assert!(!v1.unwrap());

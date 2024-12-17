@@ -20,7 +20,7 @@ use vortex::fsst::{fsst_compress, fsst_train_compressor};
 use vortex::roaring::{Bitmap, RoaringBoolArray, RoaringIntArray};
 use vortex::runend::RunEndArray;
 use vortex::runend_bool::RunEndBoolArray;
-use vortex::scalar::ScalarValue;
+use vortex::scalar::Scalar;
 use vortex::validity::Validity;
 use vortex::zigzag::ZigZagArray;
 use vortex::{ArrayData, IntoArrayData};
@@ -122,7 +122,6 @@ fn enc_impls() -> Vec<ArrayData> {
         RunEndArray::try_new(
             PrimitiveArray::from(vec![5u32, 8]).into_array(),
             PrimitiveArray::from(vec![0, 1]).into_array(),
-            Validity::NonNullable,
         )
         .unwrap()
         .into_array(),
@@ -137,7 +136,7 @@ fn enc_impls() -> Vec<ArrayData> {
             PrimitiveArray::from(vec![5u64, 8]).into_array(),
             PrimitiveArray::from_vec(vec![3u32, 6], Validity::AllValid).into_array(),
             10,
-            ScalarValue::Null,
+            Scalar::null_typed::<u32>(),
         )
         .unwrap()
         .into_array(),

@@ -1,13 +1,11 @@
 use std::any::Any;
 use std::sync::Arc;
 
-use log::info;
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::array::{Chunked, ChunkedArray};
+use vortex_array::array::{ChunkedArray, ChunkedEncoding};
 use vortex_array::compress::compute_precompression_stats;
-use vortex_array::encoding::EncodingRef;
-use vortex_array::stats::ArrayStatistics;
-use vortex_array::{ArrayDType, ArrayData, ArrayDef, IntoArrayData};
+use vortex_array::encoding::{Encoding, EncodingRef};
+use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 use super::EncoderMetadata;
@@ -33,7 +31,7 @@ impl EncoderMetadata for ChunkedCompressorMetadata {
 
 impl EncodingCompressor for ChunkedCompressor {
     fn id(&self) -> &str {
-        Chunked::ID.as_ref()
+        ChunkedEncoding::ID.as_ref()
     }
 
     fn cost(&self) -> u8 {
@@ -41,7 +39,7 @@ impl EncodingCompressor for ChunkedCompressor {
     }
 
     fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {
-        array.is_encoding(Chunked::ID).then_some(self)
+        array.is_encoding(ChunkedEncoding::ID).then_some(self)
     }
 
     fn compress<'a>(
@@ -109,7 +107,7 @@ impl ChunkedCompressor {
                 .unwrap_or(false);
 
             if ratio > 1.0 || exceeded_target_ratio {
-                info!("unsatisfactory ratio {}, previous: {:?}", ratio, previous);
+                log::debug!("unsatisfactory ratio {}, previous: {:?}", ratio, previous);
                 let (compressed_chunk, tree) = ctx.compress_array(&chunk)?.into_parts();
                 let new_ratio = (compressed_chunk.nbytes() as f32) / (chunk.nbytes() as f32);
 
@@ -131,7 +129,7 @@ impl ChunkedCompressor {
                 compressed_trees,
                 Arc::new(ChunkedCompressorMetadata(ratio)),
             )),
-            Some(array.statistics()),
+            array,
         ))
     }
 }

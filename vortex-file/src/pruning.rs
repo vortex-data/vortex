@@ -90,10 +90,8 @@ impl PruningPredicate {
             // Is the expression constant false, i.e. prune nothing
             if lexp
                 .value()
-                .value()
-                .as_bool()
-                .ok()
-                .flatten()
+                .as_bool_opt()
+                .and_then(|b| b.value())
                 .map(|b| !b)
                 .unwrap_or(false)
             {
@@ -122,17 +120,18 @@ impl PruningPredicate {
 
     /// Evaluate this predicate against a per-chunk statistics table.
     ///
-    /// Returns None if any of the requried statistics are not present in metadata.
+    /// Returns Ok(None) if any of the required statistics are not present in metadata.
+    /// If it returns Ok(Some(array)), the array is a boolean array with the same length as the
+    /// metadata, and the values indicate whether the corresponding chunk can be pruned.
     pub fn evaluate(&self, metadata: &ArrayData) -> VortexResult<Option<ArrayData>> {
-        let known_stats = metadata.with_dyn(|x| {
-            HashSet::from_iter(
-                x.as_struct_array()
-                    .vortex_expect("metadata must be struct array")
-                    .names()
-                    .iter()
-                    .map(|x| x.to_string()),
-            )
-        });
+        let known_stats = HashSet::from_iter(
+            metadata
+                .as_struct_array()
+                .vortex_expect("metadata must be struct array")
+                .names()
+                .iter()
+                .map(|x| x.to_string()),
+        );
         let required_stats = self
             .required_stats()
             .iter()
@@ -395,7 +394,7 @@ pub enum FieldOrIdentity {
 }
 
 pub(crate) fn stat_column_field(field: &Field, stat: Stat) -> Field {
-    Field::Name(stat_column_name_string(field, stat))
+    Field::from(stat_column_name_string(field, stat))
 }
 
 pub(crate) fn stat_column_name_string(field: &Field, stat: Stat) -> String {
@@ -407,7 +406,7 @@ pub(crate) fn stat_column_name_string(field: &Field, stat: Stat) -> String {
 
 impl FieldOrIdentity {
     pub(crate) fn stat_column_field(&self, stat: Stat) -> Field {
-        Field::Name(self.stat_column_name_string(stat))
+        Field::from(self.stat_column_name_string(stat))
     }
 
     pub(crate) fn stat_column_name_string(&self, stat: Stat) -> String {
@@ -769,13 +768,13 @@ mod tests {
 
         let expected_expr = BinaryExpr::new_expr(
             BinaryExpr::new_expr(
-                Column::new_expr(Field::Name("min".to_string())),
+                Column::new_expr(Field::from("min")),
                 Operator::Gte,
                 Literal::new_expr(10.into()),
             ),
             Operator::Or,
             BinaryExpr::new_expr(
-                Column::new_expr(Field::Name("max".to_string())),
+                Column::new_expr(Field::from("max")),
                 Operator::Lte,
                 Literal::new_expr(50.into()),
             ),

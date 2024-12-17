@@ -14,7 +14,6 @@
 pub use canonical::*;
 pub use context::*;
 pub use data::*;
-pub use macros::*;
 pub use metadata::*;
 pub use paste;
 use vortex_dtype::DType;
@@ -23,12 +22,12 @@ use crate::encoding::ArrayEncodingRef;
 use crate::nbytes::ArrayNBytes;
 use crate::stats::ArrayStatistics;
 use crate::validity::ArrayValidity;
-use crate::variants::ArrayVariants;
 
 pub mod accessor;
 pub mod aliases;
 pub mod array;
 pub mod arrow;
+pub mod builders;
 mod canonical;
 pub mod compress;
 pub mod compute;
@@ -39,6 +38,7 @@ pub mod iter;
 mod macros;
 mod metadata;
 pub mod nbytes;
+pub mod patches;
 pub mod stats;
 pub mod stream;
 pub mod tree;
@@ -92,7 +92,6 @@ pub trait ArrayTrait:
     + ArrayDType
     + ArrayLen
     + ArrayNBytes
-    + ArrayVariants
     + IntoCanonical
     + ArrayValidity
     + ArrayStatistics

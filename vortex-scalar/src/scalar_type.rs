@@ -1,11 +1,17 @@
 use std::sync::Arc;
 
-use half::f16;
 use vortex_buffer::{Buffer, BufferString};
+use vortex_dtype::half::f16;
 use vortex_dtype::{DType, NativePType, Nullability, PType};
 
 pub trait ScalarType {
     fn dtype() -> DType;
+}
+
+impl ScalarType for bool {
+    fn dtype() -> DType {
+        DType::Bool(Nullability::NonNullable)
+    }
 }
 
 macro_rules! scalar_type_for_vec {

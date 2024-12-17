@@ -17,8 +17,10 @@ pub fn check_validity_unchanged(arr: &ArrayData, compressed: &ArrayData) {
     let _ = compressed;
     #[cfg(debug_assertions)]
     {
-        let old_validity = arr.with_dyn(|a| a.logical_validity().len());
-        let new_validity = compressed.with_dyn(|a| a.logical_validity().len());
+        use crate::validity::ArrayValidity;
+
+        let old_validity = arr.logical_validity().len();
+        let new_validity = compressed.logical_validity().len();
 
         debug_assert!(
             old_validity == new_validity,

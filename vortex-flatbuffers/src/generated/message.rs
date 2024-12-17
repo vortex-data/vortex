@@ -182,9 +182,9 @@ pub const ENUM_MAX_MESSAGE_HEADER: u8 = 3;
 #[allow(non_camel_case_types)]
 pub const ENUM_VALUES_MESSAGE_HEADER: [MessageHeader; 4] = [
   MessageHeader::NONE,
-  MessageHeader::Schema,
-  MessageHeader::Batch,
-  MessageHeader::Page,
+  MessageHeader::ArrayData,
+  MessageHeader::Buffer,
+  MessageHeader::DType,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -193,25 +193,25 @@ pub struct MessageHeader(pub u8);
 #[allow(non_upper_case_globals)]
 impl MessageHeader {
   pub const NONE: Self = Self(0);
-  pub const Schema: Self = Self(1);
-  pub const Batch: Self = Self(2);
-  pub const Page: Self = Self(3);
+  pub const ArrayData: Self = Self(1);
+  pub const Buffer: Self = Self(2);
+  pub const DType: Self = Self(3);
 
   pub const ENUM_MIN: u8 = 0;
   pub const ENUM_MAX: u8 = 3;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::NONE,
-    Self::Schema,
-    Self::Batch,
-    Self::Page,
+    Self::ArrayData,
+    Self::Buffer,
+    Self::DType,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
     match self {
       Self::NONE => Some("NONE"),
-      Self::Schema => Some("Schema"),
-      Self::Batch => Some("Batch"),
-      Self::Page => Some("Page"),
+      Self::ArrayData => Some("ArrayData"),
+      Self::Buffer => Some("Buffer"),
+      Self::DType => Some("DType"),
       _ => None,
     }
   }
@@ -269,521 +269,6 @@ impl<'a> flatbuffers::Verifiable for MessageHeader {
 impl flatbuffers::SimpleToVerifyInSlice for MessageHeader {}
 pub struct MessageHeaderUnionTableOffset {}
 
-// struct Buffer, aligned to 8
-#[repr(transparent)]
-#[derive(Clone, Copy, PartialEq)]
-pub struct Buffer(pub [u8; 16]);
-impl Default for Buffer { 
-  fn default() -> Self { 
-    Self([0; 16])
-  }
-}
-impl core::fmt::Debug for Buffer {
-  fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-    f.debug_struct("Buffer")
-      .field("offset", &self.offset())
-      .field("padding", &self.padding())
-      .field("compression", &self.compression())
-      .finish()
-  }
-}
-
-impl flatbuffers::SimpleToVerifyInSlice for Buffer {}
-impl<'a> flatbuffers::Follow<'a> for Buffer {
-  type Inner = &'a Buffer;
-  #[inline]
-  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-    <&'a Buffer>::follow(buf, loc)
-  }
-}
-impl<'a> flatbuffers::Follow<'a> for &'a Buffer {
-  type Inner = &'a Buffer;
-  #[inline]
-  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-    flatbuffers::follow_cast_ref::<Buffer>(buf, loc)
-  }
-}
-impl<'b> flatbuffers::Push for Buffer {
-    type Output = Buffer;
-    #[inline]
-    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
-        let src = ::core::slice::from_raw_parts(self as *const Buffer as *const u8, Self::size());
-        dst.copy_from_slice(src);
-    }
-}
-
-impl<'a> flatbuffers::Verifiable for Buffer {
-  #[inline]
-  fn run_verifier(
-    v: &mut flatbuffers::Verifier, pos: usize
-  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
-    use self::flatbuffers::Verifiable;
-    v.in_buffer::<Self>(pos)
-  }
-}
-
-impl<'a> Buffer {
-  #[allow(clippy::too_many_arguments)]
-  pub fn new(
-    offset: u64,
-    padding: u16,
-    compression: Compression,
-  ) -> Self {
-    let mut s = Self([0; 16]);
-    s.set_offset(offset);
-    s.set_padding(padding);
-    s.set_compression(compression);
-    s
-  }
-
-  pub fn offset(&self) -> u64 {
-    let mut mem = core::mem::MaybeUninit::<<u64 as EndianScalar>::Scalar>::uninit();
-    // Safety:
-    // Created from a valid Table for this object
-    // Which contains a valid value in this slot
-    EndianScalar::from_little_endian(unsafe {
-      core::ptr::copy_nonoverlapping(
-        self.0[0..].as_ptr(),
-        mem.as_mut_ptr() as *mut u8,
-        core::mem::size_of::<<u64 as EndianScalar>::Scalar>(),
-      );
-      mem.assume_init()
-    })
-  }
-
-  pub fn set_offset(&mut self, x: u64) {
-    let x_le = x.to_little_endian();
-    // Safety:
-    // Created from a valid Table for this object
-    // Which contains a valid value in this slot
-    unsafe {
-      core::ptr::copy_nonoverlapping(
-        &x_le as *const _ as *const u8,
-        self.0[0..].as_mut_ptr(),
-        core::mem::size_of::<<u64 as EndianScalar>::Scalar>(),
-      );
-    }
-  }
-
-  pub fn padding(&self) -> u16 {
-    let mut mem = core::mem::MaybeUninit::<<u16 as EndianScalar>::Scalar>::uninit();
-    // Safety:
-    // Created from a valid Table for this object
-    // Which contains a valid value in this slot
-    EndianScalar::from_little_endian(unsafe {
-      core::ptr::copy_nonoverlapping(
-        self.0[8..].as_ptr(),
-        mem.as_mut_ptr() as *mut u8,
-        core::mem::size_of::<<u16 as EndianScalar>::Scalar>(),
-      );
-      mem.assume_init()
-    })
-  }
-
-  pub fn set_padding(&mut self, x: u16) {
-    let x_le = x.to_little_endian();
-    // Safety:
-    // Created from a valid Table for this object
-    // Which contains a valid value in this slot
-    unsafe {
-      core::ptr::copy_nonoverlapping(
-        &x_le as *const _ as *const u8,
-        self.0[8..].as_mut_ptr(),
-        core::mem::size_of::<<u16 as EndianScalar>::Scalar>(),
-      );
-    }
-  }
-
-  pub fn compression(&self) -> Compression {
-    let mut mem = core::mem::MaybeUninit::<<Compression as EndianScalar>::Scalar>::uninit();
-    // Safety:
-    // Created from a valid Table for this object
-    // Which contains a valid value in this slot
-    EndianScalar::from_little_endian(unsafe {
-      core::ptr::copy_nonoverlapping(
-        self.0[10..].as_ptr(),
-        mem.as_mut_ptr() as *mut u8,
-        core::mem::size_of::<<Compression as EndianScalar>::Scalar>(),
-      );
-      mem.assume_init()
-    })
-  }
-
-  pub fn set_compression(&mut self, x: Compression) {
-    let x_le = x.to_little_endian();
-    // Safety:
-    // Created from a valid Table for this object
-    // Which contains a valid value in this slot
-    unsafe {
-      core::ptr::copy_nonoverlapping(
-        &x_le as *const _ as *const u8,
-        self.0[10..].as_mut_ptr(),
-        core::mem::size_of::<<Compression as EndianScalar>::Scalar>(),
-      );
-    }
-  }
-
-}
-
-pub enum SchemaOffset {}
-#[derive(Copy, Clone, PartialEq)]
-
-pub struct Schema<'a> {
-  pub _tab: flatbuffers::Table<'a>,
-}
-
-impl<'a> flatbuffers::Follow<'a> for Schema<'a> {
-  type Inner = Schema<'a>;
-  #[inline]
-  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-    Self { _tab: flatbuffers::Table::new(buf, loc) }
-  }
-}
-
-impl<'a> Schema<'a> {
-  pub const VT_DTYPE: flatbuffers::VOffsetT = 4;
-
-  #[inline]
-  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
-    Schema { _tab: table }
-  }
-  #[allow(unused_mut)]
-  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
-    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
-    args: &'args SchemaArgs<'args>
-  ) -> flatbuffers::WIPOffset<Schema<'bldr>> {
-    let mut builder = SchemaBuilder::new(_fbb);
-    if let Some(x) = args.dtype { builder.add_dtype(x); }
-    builder.finish()
-  }
-
-
-  #[inline]
-  pub fn dtype(&self) -> Option<DType<'a>> {
-    // Safety:
-    // Created from valid Table for this object
-    // which contains a valid value in this slot
-    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<DType>>(Schema::VT_DTYPE, None)}
-  }
-}
-
-impl flatbuffers::Verifiable for Schema<'_> {
-  #[inline]
-  fn run_verifier(
-    v: &mut flatbuffers::Verifier, pos: usize
-  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
-    use self::flatbuffers::Verifiable;
-    v.visit_table(pos)?
-     .visit_field::<flatbuffers::ForwardsUOffset<DType>>("dtype", Self::VT_DTYPE, false)?
-     .finish();
-    Ok(())
-  }
-}
-pub struct SchemaArgs<'a> {
-    pub dtype: Option<flatbuffers::WIPOffset<DType<'a>>>,
-}
-impl<'a> Default for SchemaArgs<'a> {
-  #[inline]
-  fn default() -> Self {
-    SchemaArgs {
-      dtype: None,
-    }
-  }
-}
-
-pub struct SchemaBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
-  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
-  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
-}
-impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> SchemaBuilder<'a, 'b, A> {
-  #[inline]
-  pub fn add_dtype(&mut self, dtype: flatbuffers::WIPOffset<DType<'b >>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<DType>>(Schema::VT_DTYPE, dtype);
-  }
-  #[inline]
-  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> SchemaBuilder<'a, 'b, A> {
-    let start = _fbb.start_table();
-    SchemaBuilder {
-      fbb_: _fbb,
-      start_: start,
-    }
-  }
-  #[inline]
-  pub fn finish(self) -> flatbuffers::WIPOffset<Schema<'a>> {
-    let o = self.fbb_.end_table(self.start_);
-    flatbuffers::WIPOffset::new(o.value())
-  }
-}
-
-impl core::fmt::Debug for Schema<'_> {
-  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-    let mut ds = f.debug_struct("Schema");
-      ds.field("dtype", &self.dtype());
-      ds.finish()
-  }
-}
-pub enum BatchOffset {}
-#[derive(Copy, Clone, PartialEq)]
-
-pub struct Batch<'a> {
-  pub _tab: flatbuffers::Table<'a>,
-}
-
-impl<'a> flatbuffers::Follow<'a> for Batch<'a> {
-  type Inner = Batch<'a>;
-  #[inline]
-  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-    Self { _tab: flatbuffers::Table::new(buf, loc) }
-  }
-}
-
-impl<'a> Batch<'a> {
-  pub const VT_ARRAY: flatbuffers::VOffsetT = 4;
-  pub const VT_LENGTH: flatbuffers::VOffsetT = 6;
-  pub const VT_BUFFERS: flatbuffers::VOffsetT = 8;
-  pub const VT_BUFFER_SIZE: flatbuffers::VOffsetT = 10;
-
-  #[inline]
-  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
-    Batch { _tab: table }
-  }
-  #[allow(unused_mut)]
-  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
-    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
-    args: &'args BatchArgs<'args>
-  ) -> flatbuffers::WIPOffset<Batch<'bldr>> {
-    let mut builder = BatchBuilder::new(_fbb);
-    builder.add_buffer_size(args.buffer_size);
-    builder.add_length(args.length);
-    if let Some(x) = args.buffers { builder.add_buffers(x); }
-    if let Some(x) = args.array { builder.add_array(x); }
-    builder.finish()
-  }
-
-
-  #[inline]
-  pub fn array(&self) -> Option<Array<'a>> {
-    // Safety:
-    // Created from valid Table for this object
-    // which contains a valid value in this slot
-    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<Array>>(Batch::VT_ARRAY, None)}
-  }
-  #[inline]
-  pub fn length(&self) -> u64 {
-    // Safety:
-    // Created from valid Table for this object
-    // which contains a valid value in this slot
-    unsafe { self._tab.get::<u64>(Batch::VT_LENGTH, Some(0)).unwrap()}
-  }
-  #[inline]
-  pub fn buffers(&self) -> Option<flatbuffers::Vector<'a, Buffer>> {
-    // Safety:
-    // Created from valid Table for this object
-    // which contains a valid value in this slot
-    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, Buffer>>>(Batch::VT_BUFFERS, None)}
-  }
-  #[inline]
-  pub fn buffer_size(&self) -> u64 {
-    // Safety:
-    // Created from valid Table for this object
-    // which contains a valid value in this slot
-    unsafe { self._tab.get::<u64>(Batch::VT_BUFFER_SIZE, Some(0)).unwrap()}
-  }
-}
-
-impl flatbuffers::Verifiable for Batch<'_> {
-  #[inline]
-  fn run_verifier(
-    v: &mut flatbuffers::Verifier, pos: usize
-  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
-    use self::flatbuffers::Verifiable;
-    v.visit_table(pos)?
-     .visit_field::<flatbuffers::ForwardsUOffset<Array>>("array", Self::VT_ARRAY, false)?
-     .visit_field::<u64>("length", Self::VT_LENGTH, false)?
-     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, Buffer>>>("buffers", Self::VT_BUFFERS, false)?
-     .visit_field::<u64>("buffer_size", Self::VT_BUFFER_SIZE, false)?
-     .finish();
-    Ok(())
-  }
-}
-pub struct BatchArgs<'a> {
-    pub array: Option<flatbuffers::WIPOffset<Array<'a>>>,
-    pub length: u64,
-    pub buffers: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, Buffer>>>,
-    pub buffer_size: u64,
-}
-impl<'a> Default for BatchArgs<'a> {
-  #[inline]
-  fn default() -> Self {
-    BatchArgs {
-      array: None,
-      length: 0,
-      buffers: None,
-      buffer_size: 0,
-    }
-  }
-}
-
-pub struct BatchBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
-  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
-  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
-}
-impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> BatchBuilder<'a, 'b, A> {
-  #[inline]
-  pub fn add_array(&mut self, array: flatbuffers::WIPOffset<Array<'b >>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Array>>(Batch::VT_ARRAY, array);
-  }
-  #[inline]
-  pub fn add_length(&mut self, length: u64) {
-    self.fbb_.push_slot::<u64>(Batch::VT_LENGTH, length, 0);
-  }
-  #[inline]
-  pub fn add_buffers(&mut self, buffers: flatbuffers::WIPOffset<flatbuffers::Vector<'b , Buffer>>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Batch::VT_BUFFERS, buffers);
-  }
-  #[inline]
-  pub fn add_buffer_size(&mut self, buffer_size: u64) {
-    self.fbb_.push_slot::<u64>(Batch::VT_BUFFER_SIZE, buffer_size, 0);
-  }
-  #[inline]
-  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> BatchBuilder<'a, 'b, A> {
-    let start = _fbb.start_table();
-    BatchBuilder {
-      fbb_: _fbb,
-      start_: start,
-    }
-  }
-  #[inline]
-  pub fn finish(self) -> flatbuffers::WIPOffset<Batch<'a>> {
-    let o = self.fbb_.end_table(self.start_);
-    flatbuffers::WIPOffset::new(o.value())
-  }
-}
-
-impl core::fmt::Debug for Batch<'_> {
-  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-    let mut ds = f.debug_struct("Batch");
-      ds.field("array", &self.array());
-      ds.field("length", &self.length());
-      ds.field("buffers", &self.buffers());
-      ds.field("buffer_size", &self.buffer_size());
-      ds.finish()
-  }
-}
-pub enum PageOffset {}
-#[derive(Copy, Clone, PartialEq)]
-
-pub struct Page<'a> {
-  pub _tab: flatbuffers::Table<'a>,
-}
-
-impl<'a> flatbuffers::Follow<'a> for Page<'a> {
-  type Inner = Page<'a>;
-  #[inline]
-  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-    Self { _tab: flatbuffers::Table::new(buf, loc) }
-  }
-}
-
-impl<'a> Page<'a> {
-  pub const VT_BUFFER_SIZE: flatbuffers::VOffsetT = 4;
-  pub const VT_PADDING: flatbuffers::VOffsetT = 6;
-
-  #[inline]
-  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
-    Page { _tab: table }
-  }
-  #[allow(unused_mut)]
-  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
-    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
-    args: &'args PageArgs
-  ) -> flatbuffers::WIPOffset<Page<'bldr>> {
-    let mut builder = PageBuilder::new(_fbb);
-    builder.add_buffer_size(args.buffer_size);
-    builder.add_padding(args.padding);
-    builder.finish()
-  }
-
-
-  #[inline]
-  pub fn buffer_size(&self) -> u32 {
-    // Safety:
-    // Created from valid Table for this object
-    // which contains a valid value in this slot
-    unsafe { self._tab.get::<u32>(Page::VT_BUFFER_SIZE, Some(0)).unwrap()}
-  }
-  #[inline]
-  pub fn padding(&self) -> u16 {
-    // Safety:
-    // Created from valid Table for this object
-    // which contains a valid value in this slot
-    unsafe { self._tab.get::<u16>(Page::VT_PADDING, Some(0)).unwrap()}
-  }
-}
-
-impl flatbuffers::Verifiable for Page<'_> {
-  #[inline]
-  fn run_verifier(
-    v: &mut flatbuffers::Verifier, pos: usize
-  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
-    use self::flatbuffers::Verifiable;
-    v.visit_table(pos)?
-     .visit_field::<u32>("buffer_size", Self::VT_BUFFER_SIZE, false)?
-     .visit_field::<u16>("padding", Self::VT_PADDING, false)?
-     .finish();
-    Ok(())
-  }
-}
-pub struct PageArgs {
-    pub buffer_size: u32,
-    pub padding: u16,
-}
-impl<'a> Default for PageArgs {
-  #[inline]
-  fn default() -> Self {
-    PageArgs {
-      buffer_size: 0,
-      padding: 0,
-    }
-  }
-}
-
-pub struct PageBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
-  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
-  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
-}
-impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> PageBuilder<'a, 'b, A> {
-  #[inline]
-  pub fn add_buffer_size(&mut self, buffer_size: u32) {
-    self.fbb_.push_slot::<u32>(Page::VT_BUFFER_SIZE, buffer_size, 0);
-  }
-  #[inline]
-  pub fn add_padding(&mut self, padding: u16) {
-    self.fbb_.push_slot::<u16>(Page::VT_PADDING, padding, 0);
-  }
-  #[inline]
-  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> PageBuilder<'a, 'b, A> {
-    let start = _fbb.start_table();
-    PageBuilder {
-      fbb_: _fbb,
-      start_: start,
-    }
-  }
-  #[inline]
-  pub fn finish(self) -> flatbuffers::WIPOffset<Page<'a>> {
-    let o = self.fbb_.end_table(self.start_);
-    flatbuffers::WIPOffset::new(o.value())
-  }
-}
-
-impl core::fmt::Debug for Page<'_> {
-  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-    let mut ds = f.debug_struct("Page");
-      ds.field("buffer_size", &self.buffer_size());
-      ds.field("padding", &self.padding());
-      ds.finish()
-  }
-}
 pub enum MessageOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -844,13 +329,13 @@ impl<'a> Message<'a> {
   }
   #[inline]
   #[allow(non_snake_case)]
-  pub fn header_as_schema(&self) -> Option<Schema<'a>> {
-    if self.header_type() == MessageHeader::Schema {
+  pub fn header_as_array_data(&self) -> Option<ArrayData<'a>> {
+    if self.header_type() == MessageHeader::ArrayData {
       self.header().map(|t| {
        // Safety:
        // Created from a valid Table for this object
        // Which contains a valid union in this slot
-       unsafe { Schema::init_from_table(t) }
+       unsafe { ArrayData::init_from_table(t) }
      })
     } else {
       None
@@ -859,13 +344,13 @@ impl<'a> Message<'a> {
 
   #[inline]
   #[allow(non_snake_case)]
-  pub fn header_as_batch(&self) -> Option<Batch<'a>> {
-    if self.header_type() == MessageHeader::Batch {
+  pub fn header_as_buffer(&self) -> Option<Buffer<'a>> {
+    if self.header_type() == MessageHeader::Buffer {
       self.header().map(|t| {
        // Safety:
        // Created from a valid Table for this object
        // Which contains a valid union in this slot
-       unsafe { Batch::init_from_table(t) }
+       unsafe { Buffer::init_from_table(t) }
      })
     } else {
       None
@@ -874,13 +359,13 @@ impl<'a> Message<'a> {
 
   #[inline]
   #[allow(non_snake_case)]
-  pub fn header_as_page(&self) -> Option<Page<'a>> {
-    if self.header_type() == MessageHeader::Page {
+  pub fn header_as_dtype(&self) -> Option<DType<'a>> {
+    if self.header_type() == MessageHeader::DType {
       self.header().map(|t| {
        // Safety:
        // Created from a valid Table for this object
        // Which contains a valid union in this slot
-       unsafe { Page::init_from_table(t) }
+       unsafe { DType::init_from_table(t) }
      })
     } else {
       None
@@ -899,9 +384,9 @@ impl flatbuffers::Verifiable for Message<'_> {
      .visit_field::<MessageVersion>("version", Self::VT_VERSION, false)?
      .visit_union::<MessageHeader, _>("header_type", Self::VT_HEADER_TYPE, "header", Self::VT_HEADER, false, |key, v, pos| {
         match key {
-          MessageHeader::Schema => v.verify_union_variant::<flatbuffers::ForwardsUOffset<Schema>>("MessageHeader::Schema", pos),
-          MessageHeader::Batch => v.verify_union_variant::<flatbuffers::ForwardsUOffset<Batch>>("MessageHeader::Batch", pos),
-          MessageHeader::Page => v.verify_union_variant::<flatbuffers::ForwardsUOffset<Page>>("MessageHeader::Page", pos),
+          MessageHeader::ArrayData => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ArrayData>>("MessageHeader::ArrayData", pos),
+          MessageHeader::Buffer => v.verify_union_variant::<flatbuffers::ForwardsUOffset<Buffer>>("MessageHeader::Buffer", pos),
+          MessageHeader::DType => v.verify_union_variant::<flatbuffers::ForwardsUOffset<DType>>("MessageHeader::DType", pos),
           _ => Ok(()),
         }
      })?
@@ -963,22 +448,22 @@ impl core::fmt::Debug for Message<'_> {
       ds.field("version", &self.version());
       ds.field("header_type", &self.header_type());
       match self.header_type() {
-        MessageHeader::Schema => {
-          if let Some(x) = self.header_as_schema() {
+        MessageHeader::ArrayData => {
+          if let Some(x) = self.header_as_array_data() {
             ds.field("header", &x)
           } else {
             ds.field("header", &"InvalidFlatbuffer: Union discriminant does not match value.")
           }
         },
-        MessageHeader::Batch => {
-          if let Some(x) = self.header_as_batch() {
+        MessageHeader::Buffer => {
+          if let Some(x) = self.header_as_buffer() {
             ds.field("header", &x)
           } else {
             ds.field("header", &"InvalidFlatbuffer: Union discriminant does not match value.")
           }
         },
-        MessageHeader::Page => {
-          if let Some(x) = self.header_as_page() {
+        MessageHeader::DType => {
+          if let Some(x) = self.header_as_dtype() {
             ds.field("header", &x)
           } else {
             ds.field("header", &"InvalidFlatbuffer: Union discriminant does not match value.")

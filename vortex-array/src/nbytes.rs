@@ -11,7 +11,7 @@ impl ArrayData {
         self.encoding()
             .accept(self.as_ref(), &mut visitor)
             .vortex_expect("Failed to get nbytes from Array");
-        visitor.0
+        visitor.0 + size_of_val(self.array_metadata())
     }
 }
 
@@ -32,7 +32,7 @@ struct NBytesVisitor(usize);
 
 impl ArrayVisitor for NBytesVisitor {
     fn visit_child(&mut self, _name: &str, array: &ArrayData) -> VortexResult<()> {
-        self.0 += array.with_dyn(|a| a.nbytes());
+        self.0 += array.nbytes();
         Ok(())
     }
 

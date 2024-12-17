@@ -1,16 +1,19 @@
 use std::future::Future;
 use std::ops::Range;
+use std::os::unix::fs::FileExt;
 use std::sync::Arc;
 use std::{io, mem};
 
 use bytes::Bytes;
+use futures_util::StreamExt;
 use object_store::path::Path;
-use object_store::{ObjectStore, WriteMultipart};
+use object_store::{GetOptions, GetRange, GetResultPayload, ObjectStore, WriteMultipart};
 use vortex_buffer::io_buf::IoBuf;
 use vortex_buffer::Buffer;
-use vortex_error::{vortex_panic, VortexError, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
 
-use crate::{VortexBufReader, VortexReadAt, VortexWrite};
+use crate::aligned::AlignedBytesMut;
+use crate::{VortexBufReader, VortexReadAt, VortexWrite, ALIGNMENT};
 
 pub trait ObjectStoreExt {
     fn vortex_read(
@@ -75,16 +78,46 @@ impl VortexReadAt for ObjectStoreReadAt {
         let location = self.location.clone();
 
         Box::pin(async move {
-            let start_range = pos as usize;
-            let bytes = object_store
-                .get_range(&location, start_range..(start_range + len as usize))
+            let read_start: usize = pos.try_into().vortex_expect("pos");
+            let read_end: usize = (pos + len).try_into().vortex_expect("pos + len");
+
+            let mut buf =
+                AlignedBytesMut::<ALIGNMENT>::with_capacity(len.try_into().vortex_unwrap());
+
+            let response = object_store
+                .get_opts(
+                    &location,
+                    GetOptions {
+                        range: Some(GetRange::Bounded(read_start..read_end)),
+                        ..Default::default()
+                    },
+                )
                 .await?;
-            Ok(bytes)
+
+            // NOTE: ObjectStore specializes the payload based on if it is backed by a File or if
+            //  it's coming from a network stream. Internally they optimize the File implementation
+            //  to only perform a single allocation when calling `.bytes().await`, which we
+            //  replicate here by emitting the contents directly into our aligned buffer.
+            match response.payload {
+                GetResultPayload::File(file, _) => {
+                    unsafe {
+                        buf.set_len(len.try_into().vortex_unwrap());
+                    }
+                    file.read_exact_at(&mut buf, pos)?;
+                }
+                GetResultPayload::Stream(mut byte_stream) => {
+                    while let Some(bytes) = byte_stream.next().await {
+                        buf.extend_from_slice(&bytes?);
+                    }
+                }
+            }
+
+            Ok(buf.freeze())
         })
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
-    fn size(&self) -> impl Future<Output = u64> + 'static {
+    fn size(&self) -> impl Future<Output = io::Result<u64>> + 'static {
         let object_store = self.object_store.clone();
         let location = self.location.clone();
 
@@ -92,11 +125,8 @@ impl VortexReadAt for ObjectStoreReadAt {
             object_store
                 .head(&location)
                 .await
-                .map_err(VortexError::ObjectStore)
-                .unwrap_or_else(|err| {
-                    vortex_panic!(err, "Failed to get size of object at location {}", location)
-                })
-                .size as u64
+                .map(|obj| obj.size as u64)
+                .map_err(io::Error::other)
         })
     }
 }

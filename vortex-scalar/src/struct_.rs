@@ -1,12 +1,15 @@
 use std::ops::Deref;
 use std::sync::Arc;
 
+use itertools::Itertools;
 use vortex_dtype::field::Field;
-use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
+use vortex_dtype::{DType, StructDType};
+use vortex_error::{
+    vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult,
+};
 
 use crate::value::ScalarValue;
-use crate::Scalar;
+use crate::{InnerScalarValue, Scalar};
 
 pub struct StructScalar<'a> {
     dtype: &'a DType,
@@ -14,7 +17,7 @@ pub struct StructScalar<'a> {
 }
 
 impl<'a> StructScalar<'a> {
-    pub fn try_new(dtype: &'a DType, value: &'a ScalarValue) -> VortexResult<Self> {
+    pub(crate) fn try_new(dtype: &'a DType, value: &'a ScalarValue) -> VortexResult<Self> {
         if !matches!(dtype, DType::Struct(..)) {
             vortex_bail!("Expected struct scalar, found {}", dtype)
         }
@@ -27,6 +30,14 @@ impl<'a> StructScalar<'a> {
     #[inline]
     pub fn dtype(&self) -> &'a DType {
         self.dtype
+    }
+
+    #[inline]
+    pub fn struct_dtype(&self) -> &'a StructDType {
+        let DType::Struct(sdtype, ..) = self.dtype else {
+            vortex_panic!("StructScalar always has struct dtype");
+        };
+        sdtype
     }
 
     pub fn is_null(&self) -> bool {
@@ -54,7 +65,17 @@ impl<'a> StructScalar<'a> {
         st.find_name(name).and_then(|idx| self.field_by_idx(idx))
     }
 
-    pub fn fields(&self) -> Option<&[ScalarValue]> {
+    pub fn fields(&self) -> Option<Vec<Scalar>> {
+        let fields = self.fields?;
+
+        Some(
+            (0..fields.len())
+                .map(|index| self.field_by_idx(index).vortex_expect("struct is non-null"))
+                .collect(),
+        )
+    }
+
+    pub(crate) fn field_values(&self) -> Option<&[ScalarValue]> {
         self.fields.map(Arc::deref)
     }
 
@@ -74,7 +95,7 @@ impl<'a> StructScalar<'a> {
             );
         }
 
-        if let Some(fs) = self.fields() {
+        if let Some(fs) = self.field_values() {
             let fields = fs
                 .iter()
                 .enumerate()
@@ -89,7 +110,7 @@ impl<'a> StructScalar<'a> {
                 .collect::<VortexResult<Vec<_>>>()?;
             Ok(Scalar {
                 dtype: dtype.clone(),
-                value: ScalarValue::List(fields.into()),
+                value: ScalarValue(InnerScalarValue::List(fields.into())),
             })
         } else {
             Ok(Scalar::null(dtype.clone()))
@@ -102,8 +123,8 @@ impl<'a> StructScalar<'a> {
             .as_struct()
             .ok_or_else(|| vortex_err!("Not a struct dtype"))?;
         let projected_dtype = struct_dtype.project(projection)?;
-        let new_fields = if let Some(fs) = self.fields() {
-            ScalarValue::List(
+        let new_fields = if let Some(fs) = self.field_values() {
+            ScalarValue(InnerScalarValue::List(
                 projection
                     .iter()
                     .map(|p| match p {
@@ -114,9 +135,9 @@ impl<'a> StructScalar<'a> {
                     })
                     .map(|i| fs[i].clone())
                     .collect(),
-            )
+            ))
         } else {
-            ScalarValue::Null
+            ScalarValue(InnerScalarValue::Null)
         };
         Ok(Scalar::new(
             DType::Struct(projected_dtype, self.dtype().nullability()),
@@ -126,10 +147,16 @@ impl<'a> StructScalar<'a> {
 }
 
 impl Scalar {
-    pub fn r#struct(dtype: DType, children: Vec<ScalarValue>) -> Self {
+    pub fn struct_(dtype: DType, children: Vec<Scalar>) -> Self {
         Self {
             dtype,
-            value: ScalarValue::List(children.into()),
+            value: ScalarValue(InnerScalarValue::List(
+                children
+                    .into_iter()
+                    .map(|x| x.into_value())
+                    .collect_vec()
+                    .into(),
+            )),
         }
     }
 }

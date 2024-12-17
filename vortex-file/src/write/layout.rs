@@ -1,11 +1,9 @@
 use bytes::Bytes;
 use flatbuffers::{FlatBufferBuilder, WIPOffset};
-use vortex_flatbuffers::{footer as fb, WriteFlatBuffer};
+use vortex_flatbuffers::{footer as fb, FlatBufferRoot, WriteFlatBuffer};
 use vortex_ipc::stream_writer::ByteRange;
 
-use crate::{
-    LayoutId, CHUNKED_LAYOUT_ID, COLUMNAR_LAYOUT_ID, FLAT_LAYOUT_ID, INLINE_SCHEMA_LAYOUT_ID,
-};
+use crate::{LayoutId, CHUNKED_LAYOUT_ID, COLUMNAR_LAYOUT_ID, FLAT_LAYOUT_ID};
 
 #[derive(Debug, Clone)]
 pub struct LayoutSpec {
@@ -30,13 +28,13 @@ impl LayoutSpec {
     /// Create a chunked layout with children.
     ///
     /// has_metadata indicates whether first child is a layout containing metadata about other children.
-    pub fn chunked(children: Vec<LayoutSpec>, row_count: u64, has_metadata: bool) -> Self {
+    pub fn chunked(children: Vec<LayoutSpec>, row_count: u64, metadata: Option<Bytes>) -> Self {
         Self {
             id: CHUNKED_LAYOUT_ID,
             buffers: None,
             children: Some(children),
             row_count,
-            metadata: Some(Bytes::copy_from_slice(&[has_metadata as u8])),
+            metadata,
         }
     }
 
@@ -49,21 +47,9 @@ impl LayoutSpec {
             metadata: None,
         }
     }
-
-    pub fn inlined_schema(
-        children: Vec<LayoutSpec>,
-        row_count: u64,
-        dtype_buffer: ByteRange,
-    ) -> Self {
-        Self {
-            id: INLINE_SCHEMA_LAYOUT_ID,
-            buffers: Some(vec![dtype_buffer]),
-            children: Some(children),
-            row_count,
-            metadata: None,
-        }
-    }
 }
+
+impl FlatBufferRoot for LayoutSpec {}
 
 impl WriteFlatBuffer for LayoutSpec {
     type Target<'a> = fb::Layout<'a>;

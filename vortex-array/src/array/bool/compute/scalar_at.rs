@@ -2,7 +2,7 @@ use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::array::{BoolArray, BoolEncoding};
-use crate::compute::unary::ScalarAtFn;
+use crate::compute::ScalarAtFn;
 use crate::ArrayDType;
 
 impl ScalarAtFn<BoolArray> for BoolEncoding {

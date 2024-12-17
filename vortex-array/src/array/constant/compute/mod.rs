@@ -1,5 +1,6 @@
 mod boolean;
 mod compare;
+mod invert;
 mod search_sorted;
 
 use vortex_error::VortexResult;
@@ -7,22 +8,15 @@ use vortex_scalar::Scalar;
 
 use crate::array::constant::ConstantArray;
 use crate::array::ConstantEncoding;
-use crate::compute::unary::ScalarAtFn;
 use crate::compute::{
-    BinaryBooleanFn, CompareFn, ComputeVTable, FilterFn, FilterMask, SearchSortedFn, SliceFn,
-    TakeFn, TakeOptions,
+    BinaryBooleanFn, CompareFn, ComputeVTable, FilterFn, FilterMask, InvertFn, ScalarAtFn,
+    SearchSortedFn, SliceFn, TakeFn,
 };
 use crate::{ArrayData, IntoArrayData};
 
 impl ComputeVTable for ConstantEncoding {
-    fn binary_boolean_fn(
-        &self,
-        lhs: &ArrayData,
-        rhs: &ArrayData,
-    ) -> Option<&dyn BinaryBooleanFn<ArrayData>> {
-        // We only need to deal with this if both sides are constant, otherwise other arrays
-        // will have handled the RHS being constant.
-        (lhs.is_constant() && rhs.is_constant()).then_some(self)
+    fn binary_boolean_fn(&self) -> Option<&dyn BinaryBooleanFn<ArrayData>> {
+        Some(self)
     }
 
     fn compare_fn(&self) -> Option<&dyn CompareFn<ArrayData>> {
@@ -30,6 +24,10 @@ impl ComputeVTable for ConstantEncoding {
     }
 
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn invert_fn(&self) -> Option<&dyn InvertFn<ArrayData>> {
         Some(self)
     }
 
@@ -52,29 +50,24 @@ impl ComputeVTable for ConstantEncoding {
 
 impl ScalarAtFn<ConstantArray> for ConstantEncoding {
     fn scalar_at(&self, array: &ConstantArray, _index: usize) -> VortexResult<Scalar> {
-        Ok(array.owned_scalar())
+        Ok(array.scalar())
     }
 }
 
 impl TakeFn<ConstantArray> for ConstantEncoding {
-    fn take(
-        &self,
-        array: &ConstantArray,
-        indices: &ArrayData,
-        _options: TakeOptions,
-    ) -> VortexResult<ArrayData> {
-        Ok(ConstantArray::new(array.owned_scalar(), indices.len()).into_array())
+    fn take(&self, array: &ConstantArray, indices: &ArrayData) -> VortexResult<ArrayData> {
+        Ok(ConstantArray::new(array.scalar(), indices.len()).into_array())
     }
 }
 
 impl SliceFn<ConstantArray> for ConstantEncoding {
     fn slice(&self, array: &ConstantArray, start: usize, stop: usize) -> VortexResult<ArrayData> {
-        Ok(ConstantArray::new(array.owned_scalar(), stop - start).into_array())
+        Ok(ConstantArray::new(array.scalar(), stop - start).into_array())
     }
 }
 
 impl FilterFn<ConstantArray> for ConstantEncoding {
     fn filter(&self, array: &ConstantArray, mask: FilterMask) -> VortexResult<ArrayData> {
-        Ok(ConstantArray::new(array.owned_scalar(), mask.true_count()).into_array())
+        Ok(ConstantArray::new(array.scalar(), mask.true_count()).into_array())
     }
 }

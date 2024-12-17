@@ -1,13 +1,13 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::PrimitiveArray;
-use vortex_array::encoding::EncodingRef;
+use vortex_array::encoding::{Encoding, EncodingRef};
 use vortex_array::stats::{trailing_zeros, ArrayStatistics};
 use vortex_array::validity::ArrayValidity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayData, ArrayDef, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
-use vortex_fastlanes::{for_compress, FoR, FoRArray, FoREncoding};
+use vortex_fastlanes::{for_compress, FoRArray, FoREncoding};
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
 use crate::{constants, SamplingCompressor};
@@ -17,7 +17,7 @@ pub struct FoRCompressor;
 
 impl EncodingCompressor for FoRCompressor {
     fn id(&self) -> &str {
-        FoR::ID.as_ref()
+        FoREncoding::ID.as_ref()
     }
 
     fn cost(&self) -> u8 {
@@ -26,7 +26,7 @@ impl EncodingCompressor for FoRCompressor {
 
     fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {
         // Only support primitive arrays
-        let parray = PrimitiveArray::try_from(array.clone()).ok()?;
+        let parray = PrimitiveArray::maybe_from(array)?;
 
         // Only supports integers
         if !parray.ptype().is_int() {
@@ -65,12 +65,12 @@ impl EncodingCompressor for FoRCompressor {
         Ok(CompressedArray::compressed(
             FoRArray::try_new(
                 compressed_child.array,
-                compressed.owned_reference_scalar(),
+                compressed.reference_scalar(),
                 compressed.shift(),
             )
             .map(|a| a.into_array())?,
             Some(CompressionTree::new(self, vec![compressed_child.path])),
-            Some(array.statistics()),
+            array,
         ))
     }
 

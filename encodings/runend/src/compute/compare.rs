@@ -1,8 +1,9 @@
 use vortex_array::array::ConstantArray;
 use vortex_array::compute::{compare, CompareFn, Operator};
-use vortex_array::{ArrayData, ArrayLen, IntoArrayData};
+use vortex_array::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
 use vortex_error::VortexResult;
 
+use crate::compress::runend_decode_bools;
 use crate::{RunEndArray, RunEndEncoding};
 
 impl CompareFn<RunEndArray> for RunEndEncoding {
@@ -20,10 +21,9 @@ impl CompareFn<RunEndArray> for RunEndEncoding {
                 operator,
             )
             .and_then(|values| {
-                RunEndArray::with_offset_and_length(
-                    lhs.ends(),
-                    values,
-                    lhs.validity().into_nullable(),
+                runend_decode_bools(
+                    lhs.ends().into_primitive()?,
+                    values.into_bool()?,
                     lhs.offset(),
                     lhs.len(),
                 )

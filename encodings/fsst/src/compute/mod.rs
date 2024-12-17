@@ -1,10 +1,9 @@
 mod compare;
 
 use vortex_array::array::varbin_scalar;
-use vortex_array::compute::unary::{scalar_at, ScalarAtFn};
 use vortex_array::compute::{
-    filter, slice, take, CompareFn, ComputeVTable, FilterFn, FilterMask, SliceFn, TakeFn,
-    TakeOptions,
+    filter, scalar_at, slice, take, CompareFn, ComputeVTable, FilterFn, FilterMask, ScalarAtFn,
+    SliceFn, TakeFn,
 };
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_buffer::Buffer;
@@ -52,18 +51,13 @@ impl SliceFn<FSSTArray> for FSSTEncoding {
 
 impl TakeFn<FSSTArray> for FSSTEncoding {
     // Take on an FSSTArray is a simple take on the codes array.
-    fn take(
-        &self,
-        array: &FSSTArray,
-        indices: &ArrayData,
-        options: TakeOptions,
-    ) -> VortexResult<ArrayData> {
+    fn take(&self, array: &FSSTArray, indices: &ArrayData) -> VortexResult<ArrayData> {
         Ok(FSSTArray::try_new(
             array.dtype().clone(),
             array.symbols(),
             array.symbol_lengths(),
-            take(array.codes(), indices, options)?,
-            take(array.uncompressed_lengths(), indices, options)?,
+            take(array.codes(), indices)?,
+            take(array.uncompressed_lengths(), indices)?,
         )?
         .into_array())
     }
@@ -73,9 +67,9 @@ impl ScalarAtFn<FSSTArray> for FSSTEncoding {
     fn scalar_at(&self, array: &FSSTArray, index: usize) -> VortexResult<Scalar> {
         let compressed = scalar_at(array.codes(), index)?;
         let binary_datum = compressed
+            .as_binary()
             .value()
-            .as_buffer()?
-            .ok_or_else(|| vortex_err!("Expected a binary scalar, found {}", compressed.dtype()))?;
+            .ok_or_else(|| vortex_err!("expected null to already be handled"))?;
 
         array.with_decompressor(|decompressor| {
             let decoded_buffer: Buffer = decompressor.decompress(binary_datum.as_slice()).into();

@@ -7,7 +7,10 @@ use vortex_scalar::Scalar;
 
 use crate::array::primitive::PrimitiveArray;
 use crate::array::PrimitiveEncoding;
-use crate::compute::{IndexOrd, Len, SearchResult, SearchSorted, SearchSortedFn, SearchSortedSide};
+use crate::compute::{
+    IndexOrd, Len, SearchResult, SearchSorted, SearchSortedFn, SearchSortedSide,
+    SearchSortedUsizeFn,
+};
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayDType, ArrayLen};
@@ -33,7 +36,9 @@ impl SearchSortedFn<PrimitiveArray> for PrimitiveEncoding {
             }
         })
     }
+}
 
+impl SearchSortedUsizeFn<PrimitiveArray> for PrimitiveEncoding {
     #[allow(clippy::cognitive_complexity)]
     fn search_sorted_usize(
         &self,

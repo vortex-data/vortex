@@ -1,11 +1,10 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::PrimitiveArray;
-use vortex_array::encoding::EncodingRef;
-use vortex_array::stats::ArrayStatistics;
+use vortex_array::encoding::{Encoding, EncodingRef};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayData, ArrayDef, IntoArrayData};
+use vortex_array::{ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
-use vortex_fastlanes::{delta_compress, Delta, DeltaArray, DeltaEncoding};
+use vortex_fastlanes::{delta_compress, DeltaArray, DeltaEncoding};
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
 use crate::{constants, SamplingCompressor};
@@ -15,7 +14,7 @@ pub struct DeltaCompressor;
 
 impl EncodingCompressor for DeltaCompressor {
     fn id(&self) -> &str {
-        Delta::ID.as_ref()
+        DeltaEncoding::ID.as_ref()
     }
 
     fn cost(&self) -> u8 {
@@ -24,7 +23,7 @@ impl EncodingCompressor for DeltaCompressor {
 
     fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {
         // Only support primitive arrays
-        let parray = PrimitiveArray::try_from(array.clone()).ok()?;
+        let parray = PrimitiveArray::maybe_from(array)?;
 
         // Only supports ints
         if !parray.ptype().is_unsigned_int() {
@@ -58,7 +57,7 @@ impl EncodingCompressor for DeltaCompressor {
             DeltaArray::try_from_delta_compress_parts(bases.array, deltas.array, validity)?
                 .into_array(),
             Some(CompressionTree::new(self, vec![bases.path, deltas.path])),
-            Some(array.statistics()),
+            array,
         ))
     }
 

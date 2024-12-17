@@ -3,26 +3,23 @@ use std::sync::{Arc, RwLock};
 
 use bytes::Bytes;
 use vortex_array::ArrayData;
-use vortex_error::{vortex_panic, VortexUnwrap};
+use vortex_error::VortexUnwrap;
 
 use crate::read::mask::RowMask;
-use crate::read::splits::{FixedSplitIterator, MaskIterator, SplitMask};
-use crate::{BatchRead, LayoutMessageCache, LayoutReader, MessageLocator};
+use crate::read::splits::SplitsAccumulator;
+use crate::{LayoutMessageCache, LayoutReader, MessageLocator, PollRead};
 
 fn layout_splits(
     layouts: &[&mut dyn LayoutReader],
     length: usize,
 ) -> impl Iterator<Item = RowMask> {
-    let mut iter = FixedSplitIterator::new(length as u64, None);
+    let mut iter = SplitsAccumulator::new(length as u64, None);
     let mut splits = BTreeSet::new();
     for layout in layouts {
         layout.add_splits(0, &mut splits).vortex_unwrap();
     }
-    iter.additional_splits(&mut splits).vortex_unwrap();
-    iter.map(|m| m.vortex_unwrap()).map(|m| match m {
-        SplitMask::ReadMore(_) => vortex_panic!("Will never read more"),
-        SplitMask::Mask(m) => m,
-    })
+    iter.append_splits(&mut splits);
+    iter.into_iter().map(|m| m.unwrap())
 }
 
 pub fn read_layout_data(
@@ -31,15 +28,15 @@ pub fn read_layout_data(
     buf: &Bytes,
     selector: &RowMask,
 ) -> Option<ArrayData> {
-    while let Some(rr) = layout.read_selection(selector).unwrap() {
+    while let Some(rr) = layout.poll_read(selector).unwrap() {
         match rr {
-            BatchRead::ReadMore(m) => {
+            PollRead::ReadMore(m) => {
                 let mut write_cache_guard = cache.write().unwrap();
                 for MessageLocator(id, range) in m {
                     write_cache_guard.set(id, buf.slice(range.to_range()));
                 }
             }
-            BatchRead::Batch(a) => return Some(a),
+            PollRead::Value(a) => return Some(a),
         }
     }
     None
@@ -51,15 +48,15 @@ pub fn read_filters(
     buf: &Bytes,
     selector: &RowMask,
 ) -> Option<RowMask> {
-    while let Some(rr) = layout.read_selection(selector).unwrap() {
+    while let Some(rr) = layout.poll_read(selector).unwrap() {
         match rr {
-            BatchRead::ReadMore(m) => {
+            PollRead::ReadMore(m) => {
                 let mut write_cache_guard = cache.write().unwrap();
                 for MessageLocator(id, range) in m {
                     write_cache_guard.set(id, buf.slice(range.to_range()));
                 }
             }
-            BatchRead::Batch(a) => {
+            PollRead::Value(a) => {
                 return Some(
                     RowMask::from_mask_array(&a, selector.begin(), selector.end()).unwrap(),
                 );

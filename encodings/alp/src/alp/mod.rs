@@ -157,6 +157,13 @@ pub trait ALPFloat: private::Sealed + Float + Display + 'static {
         values
     }
 
+    fn decode_vec(encoded: Vec<Self::ALPInt>, exponents: Exponents) -> Vec<Self> {
+        encoded
+            .into_iter()
+            .map(move |encoded| Self::decode_single(encoded, exponents))
+            .collect_vec()
+    }
+
     #[inline]
     fn decode_single(encoded: Self::ALPInt, exponents: Exponents) -> Self {
         Self::from_int(encoded) * Self::F10[exponents.f as usize] * Self::IF10[exponents.e as usize]
@@ -173,6 +180,7 @@ pub trait ALPFloat: private::Sealed + Float + Display + 'static {
     }
 }
 
+#[allow(clippy::cast_possible_truncation)]
 fn encode_chunk_unchecked<T: ALPFloat>(
     chunk: &[T],
     exp: Exponents,
@@ -280,6 +288,7 @@ impl ALPFloat for f32 {
     ];
 
     #[inline(always)]
+    #[allow(clippy::cast_possible_truncation)]
     fn as_int(self) -> Self::ALPInt {
         self as _
     }
@@ -351,6 +360,7 @@ impl ALPFloat for f64 {
     ];
 
     #[inline(always)]
+    #[allow(clippy::cast_possible_truncation)]
     fn as_int(self) -> Self::ALPInt {
         self as _
     }

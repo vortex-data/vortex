@@ -11,15 +11,15 @@ use vortex_sampling_compressor::{CompressConfig, SamplingCompressor};
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::array::{Bool, BooleanBuffer, ChunkedArray, VarBin};
+    use vortex_array::array::{BoolEncoding, BooleanBuffer, ChunkedArray, VarBinEncoding};
+    use vortex_array::encoding::Encoding;
     use vortex_array::stats::{ArrayStatistics, Stat};
-    use vortex_array::variants::{ArrayVariants, StructArrayTrait};
-    use vortex_array::ArrayDef;
+    use vortex_array::variants::StructArrayTrait;
     use vortex_datetime_dtype::TimeUnit;
-    use vortex_datetime_parts::DateTimeParts;
-    use vortex_dict::Dict;
-    use vortex_fastlanes::FoR;
-    use vortex_fsst::FSST;
+    use vortex_datetime_parts::DateTimePartsEncoding;
+    use vortex_dict::DictEncoding;
+    use vortex_fastlanes::FoREncoding;
+    use vortex_fsst::FSSTEncoding;
     use vortex_sampling_compressor::ALL_COMPRESSORS;
     use vortex_scalar::Scalar;
 
@@ -114,7 +114,6 @@ mod tests {
         assert_eq!(compressed.dtype(), to_compress.dtype());
 
         let struct_array: StructArray = compressed.try_into().unwrap();
-        let struct_array: &dyn StructArrayTrait = struct_array.as_struct_array().unwrap();
 
         let prim_col: ChunkedArray = struct_array
             .field_by_name("prim_col")
@@ -123,10 +122,10 @@ mod tests {
             .unwrap();
         println!("prim_col num chunks: {}", prim_col.nchunks());
         for chunk in prim_col.chunks() {
-            assert_eq!(chunk.encoding().id(), FoR::ID);
+            assert_eq!(chunk.encoding().id(), FoREncoding::ID);
             assert_eq!(
                 chunk.statistics().get(Stat::UncompressedSizeInBytes),
-                Some(Scalar::from((chunk.len() * 8) as u64))
+                Some(Scalar::from((chunk.len() * 8) as u64 + 1))
             );
         }
 
@@ -136,10 +135,10 @@ mod tests {
             .try_into()
             .unwrap();
         for chunk in bool_col.chunks() {
-            assert_eq!(chunk.encoding().id(), Bool::ID);
+            assert_eq!(chunk.encoding().id(), BoolEncoding::ID);
             assert_eq!(
                 chunk.statistics().get(Stat::UncompressedSizeInBytes),
-                Some(Scalar::from(chunk.len().div_ceil(8) as u64))
+                Some(Scalar::from(chunk.len().div_ceil(8) as u64 + 2))
             );
         }
 
@@ -149,10 +148,13 @@ mod tests {
             .try_into()
             .unwrap();
         for chunk in varbin_col.chunks() {
-            assert!(chunk.encoding().id() == Dict::ID || chunk.encoding().id() == FSST::ID);
+            assert!(
+                chunk.encoding().id() == DictEncoding::ID
+                    || chunk.encoding().id() == FSSTEncoding::ID
+            );
             assert_eq!(
                 chunk.statistics().get(Stat::UncompressedSizeInBytes),
-                Some(Scalar::from(1392640u64))
+                Some(Scalar::from(1392677u64))
             );
         }
 
@@ -162,10 +164,10 @@ mod tests {
             .try_into()
             .unwrap();
         for chunk in binary_col.chunks() {
-            assert_eq!(chunk.encoding().id(), VarBin::ID);
+            assert_eq!(chunk.encoding().id(), VarBinEncoding::ID);
             assert_eq!(
                 chunk.statistics().get(Stat::UncompressedSizeInBytes),
-                Some(Scalar::from(134357000u64))
+                Some(Scalar::from(134357018u64))
             );
         }
 
@@ -175,10 +177,10 @@ mod tests {
             .try_into()
             .unwrap();
         for chunk in timestamp_col.chunks() {
-            assert_eq!(chunk.encoding().id(), DateTimeParts::ID);
+            assert_eq!(chunk.encoding().id(), DateTimePartsEncoding::ID);
             assert_eq!(
                 chunk.statistics().get(Stat::UncompressedSizeInBytes),
-                Some((chunk.len() * 8).into())
+                Some((chunk.len() * 8 + 4).into())
             )
         }
     }

@@ -9,7 +9,9 @@ pub mod python;
 
 use std::backtrace::Backtrace;
 use std::borrow::Cow;
+use std::convert::Infallible;
 use std::fmt::{Debug, Display, Formatter};
+use std::num::TryFromIntError;
 use std::ops::Deref;
 use std::{env, fmt, io};
 
@@ -49,6 +51,12 @@ impl Deref for ErrString {
 impl Display for ErrString {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         Display::fmt(&self.0, f)
+    }
+}
+
+impl From<Infallible> for VortexError {
+    fn from(_: Infallible) -> Self {
+        unreachable!()
     }
 }
 
@@ -193,6 +201,13 @@ pub enum VortexError {
         #[backtrace]
         url::ParseError,
     ),
+    /// Wrap errors for fallible integer casting.
+    #[error(transparent)]
+    TryFromInt(
+        #[from]
+        #[backtrace]
+        TryFromIntError,
+    ),
 }
 
 impl VortexError {
@@ -221,12 +236,16 @@ pub trait VortexUnwrap {
     fn vortex_unwrap(self) -> Self::Output;
 }
 
-impl<T> VortexUnwrap for VortexResult<T> {
+impl<T, E> VortexUnwrap for Result<T, E>
+where
+    E: Into<VortexError>,
+{
     type Output = T;
 
     #[inline(always)]
     fn vortex_unwrap(self) -> Self::Output {
-        self.unwrap_or_else(|err| vortex_panic!(err))
+        self.map_err(|err| err.into())
+            .unwrap_or_else(|err| vortex_panic!(err))
     }
 }
 
@@ -240,12 +259,16 @@ pub trait VortexExpect {
     fn vortex_expect(self, msg: &str) -> Self::Output;
 }
 
-impl<T> VortexExpect for VortexResult<T> {
+impl<T, E> VortexExpect for Result<T, E>
+where
+    E: Into<VortexError>,
+{
     type Output = T;
 
     #[inline(always)]
     fn vortex_expect(self, msg: &str) -> Self::Output {
-        self.unwrap_or_else(|e| vortex_panic!(e.with_context(msg.to_string())))
+        self.map_err(|err| err.into())
+            .unwrap_or_else(|e| vortex_panic!(e.with_context(msg.to_string())))
     }
 }
 

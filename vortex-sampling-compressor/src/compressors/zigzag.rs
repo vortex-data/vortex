@@ -1,11 +1,11 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::PrimitiveArray;
-use vortex_array::encoding::EncodingRef;
+use vortex_array::encoding::{Encoding, EncodingRef};
 use vortex_array::stats::{ArrayStatistics, Stat};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayData, ArrayDef, IntoArrayData};
+use vortex_array::{ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
-use vortex_zigzag::{zigzag_encode, ZigZag, ZigZagArray, ZigZagEncoding};
+use vortex_zigzag::{zigzag_encode, ZigZagArray, ZigZagEncoding};
 
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
 use crate::{constants, SamplingCompressor};
@@ -15,7 +15,7 @@ pub struct ZigZagCompressor;
 
 impl EncodingCompressor for ZigZagCompressor {
     fn id(&self) -> &str {
-        ZigZag::ID.as_ref()
+        ZigZagEncoding::ID.as_ref()
     }
 
     fn cost(&self) -> u8 {
@@ -24,7 +24,7 @@ impl EncodingCompressor for ZigZagCompressor {
 
     fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {
         // Only support primitive arrays
-        let parray = PrimitiveArray::try_from(array.clone()).ok()?;
+        let parray = PrimitiveArray::maybe_from(array)?;
 
         // Only supports signed integers
         if !parray.ptype().is_signed_int() {
@@ -52,7 +52,7 @@ impl EncodingCompressor for ZigZagCompressor {
         Ok(CompressedArray::compressed(
             ZigZagArray::try_new(compressed.array)?.into_array(),
             Some(CompressionTree::new(self, vec![compressed.path])),
-            Some(array.statistics()),
+            array,
         ))
     }
 

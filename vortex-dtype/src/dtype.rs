@@ -33,6 +33,7 @@ pub enum DType {
     /// Binary data
     Binary(Nullability),
     /// A struct is composed of an ordered list of fields, each with a corresponding name and DType
+    /// TODO(ngates): we may want StructDType to be Arc<[Field]> instead so it's only a single Arc.
     Struct(StructDType, Nullability),
     /// A variable-length list type, parameterized by a single element DType
     List(Arc<DType>, Nullability),
@@ -43,12 +44,6 @@ pub enum DType {
 impl DType {
     /// The default DType for bytes
     pub const BYTES: Self = Primitive(PType::U8, Nullability::NonNullable);
-
-    /// The default DType for indices
-    pub const IDX: Self = Primitive(PType::U64, Nullability::NonNullable);
-
-    /// The DType for small indices (primarily created from bitmaps)
-    pub const IDX_32: Self = Primitive(PType::U32, Nullability::NonNullable);
 
     /// Get the nullability of the DType
     pub fn nullability(&self) -> Nullability {
@@ -134,6 +129,14 @@ impl DType {
     pub fn as_struct(&self) -> Option<&StructDType> {
         match self {
             Struct(s, _) => Some(s),
+            _ => None,
+        }
+    }
+
+    /// Get the inner dtype if `self` is a `ListDType`, otherwise `None`
+    pub fn as_list_element(&self) -> Option<&DType> {
+        match self {
+            List(s, _) => Some(s.as_ref()),
             _ => None,
         }
     }

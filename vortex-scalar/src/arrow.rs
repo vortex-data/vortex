@@ -3,9 +3,9 @@ use std::sync::Arc;
 use arrow_array::*;
 use vortex_datetime_dtype::{is_temporal_ext_type, TemporalMetadata, TimeUnit};
 use vortex_dtype::{DType, PType};
-use vortex_error::{vortex_bail, VortexError};
+use vortex_error::{vortex_bail, vortex_err, VortexError};
 
-use crate::{PValue, Scalar};
+use crate::Scalar;
 
 macro_rules! value_to_arrow_scalar {
     ($V:expr, $AR:ty) => {
@@ -22,43 +22,61 @@ impl TryFrom<&Scalar> for Arc<dyn Datum> {
     fn try_from(value: &Scalar) -> Result<Arc<dyn Datum>, Self::Error> {
         match value.dtype() {
             DType::Null => Ok(Arc::new(NullArray::new(1))),
-            DType::Bool(_) => value_to_arrow_scalar!(value.value.as_bool()?, BooleanArray),
-            DType::Primitive(ptype, _) => {
-                let pvalue = value.value.as_pvalue()?;
-                Ok(match pvalue {
-                    None => match ptype {
-                        PType::U8 => Arc::new(UInt8Array::new_null(1)),
-                        PType::U16 => Arc::new(UInt16Array::new_null(1)),
-                        PType::U32 => Arc::new(UInt32Array::new_null(1)),
-                        PType::U64 => Arc::new(UInt64Array::new_null(1)),
-                        PType::I8 => Arc::new(Int8Array::new_null(1)),
-                        PType::I16 => Arc::new(Int16Array::new_null(1)),
-                        PType::I32 => Arc::new(Int32Array::new_null(1)),
-                        PType::I64 => Arc::new(Int64Array::new_null(1)),
-                        PType::F16 => Arc::new(Float16Array::new_null(1)),
-                        PType::F32 => Arc::new(Float32Array::new_null(1)),
-                        PType::F64 => Arc::new(Float64Array::new_null(1)),
-                    },
-                    Some(pvalue) => match pvalue {
-                        PValue::U8(v) => Arc::new(UInt8Array::new_scalar(v)),
-                        PValue::U16(v) => Arc::new(UInt16Array::new_scalar(v)),
-                        PValue::U32(v) => Arc::new(UInt32Array::new_scalar(v)),
-                        PValue::U64(v) => Arc::new(UInt64Array::new_scalar(v)),
-                        PValue::I8(v) => Arc::new(Int8Array::new_scalar(v)),
-                        PValue::I16(v) => Arc::new(Int16Array::new_scalar(v)),
-                        PValue::I32(v) => Arc::new(Int32Array::new_scalar(v)),
-                        PValue::I64(v) => Arc::new(Int64Array::new_scalar(v)),
-                        PValue::F16(v) => Arc::new(Float16Array::new_scalar(v)),
-                        PValue::F32(v) => Arc::new(Float32Array::new_scalar(v)),
-                        PValue::F64(v) => Arc::new(Float64Array::new_scalar(v)),
-                    },
+            DType::Bool(_) => value_to_arrow_scalar!(value.as_bool().value(), BooleanArray),
+            DType::Primitive(ptype, ..) => {
+                let scalar = value.as_primitive();
+                Ok(match ptype {
+                    PType::U8 => scalar
+                        .typed_value()
+                        .map(|i| Arc::new(UInt8Array::new_scalar(i)) as Arc<dyn Datum>)
+                        .unwrap_or_else(|| Arc::new(UInt8Array::new_null(1))),
+                    PType::U16 => scalar
+                        .typed_value()
+                        .map(|i| Arc::new(UInt16Array::new_scalar(i)) as Arc<dyn Datum>)
+                        .unwrap_or_else(|| Arc::new(UInt16Array::new_null(1))),
+                    PType::U32 => scalar
+                        .typed_value()
+                        .map(|i| Arc::new(UInt32Array::new_scalar(i)) as Arc<dyn Datum>)
+                        .unwrap_or_else(|| Arc::new(UInt32Array::new_null(1))),
+                    PType::U64 => scalar
+                        .typed_value()
+                        .map(|i| Arc::new(UInt64Array::new_scalar(i)) as Arc<dyn Datum>)
+                        .unwrap_or_else(|| Arc::new(UInt64Array::new_null(1))),
+                    PType::I8 => scalar
+                        .typed_value()
+                        .map(|i| Arc::new(Int8Array::new_scalar(i)) as Arc<dyn Datum>)
+                        .unwrap_or_else(|| Arc::new(Int8Array::new_null(1))),
+                    PType::I16 => scalar
+                        .typed_value()
+                        .map(|i| Arc::new(Int16Array::new_scalar(i)) as Arc<dyn Datum>)
+                        .unwrap_or_else(|| Arc::new(Int16Array::new_null(1))),
+                    PType::I32 => scalar
+                        .typed_value()
+                        .map(|i| Arc::new(Int32Array::new_scalar(i)) as Arc<dyn Datum>)
+                        .unwrap_or_else(|| Arc::new(Int32Array::new_null(1))),
+                    PType::I64 => scalar
+                        .typed_value()
+                        .map(|i| Arc::new(Int64Array::new_scalar(i)) as Arc<dyn Datum>)
+                        .unwrap_or_else(|| Arc::new(Int64Array::new_null(1))),
+                    PType::F16 => scalar
+                        .typed_value()
+                        .map(|i| Arc::new(Float16Array::new_scalar(i)) as Arc<dyn Datum>)
+                        .unwrap_or_else(|| Arc::new(Float16Array::new_null(1))),
+                    PType::F32 => scalar
+                        .typed_value()
+                        .map(|i| Arc::new(Float32Array::new_scalar(i)) as Arc<dyn Datum>)
+                        .unwrap_or_else(|| Arc::new(Float32Array::new_null(1))),
+                    PType::F64 => scalar
+                        .typed_value()
+                        .map(|i| Arc::new(Float64Array::new_scalar(i)) as Arc<dyn Datum>)
+                        .unwrap_or_else(|| Arc::new(Float64Array::new_null(1))),
                 })
             }
             DType::Utf8(_) => {
-                value_to_arrow_scalar!(value.value.as_buffer_string()?, StringViewArray)
+                value_to_arrow_scalar!(value.as_utf8().value(), StringViewArray)
             }
             DType::Binary(_) => {
-                value_to_arrow_scalar!(value.value.as_buffer()?, BinaryViewArray)
+                value_to_arrow_scalar!(value.as_binary().value(), BinaryViewArray)
             }
             DType::Struct(..) => {
                 todo!("struct scalar conversion")
@@ -69,53 +87,56 @@ impl TryFrom<&Scalar> for Arc<dyn Datum> {
             DType::Extension(ext) => {
                 if is_temporal_ext_type(ext.id()) {
                     let metadata = TemporalMetadata::try_from(ext.as_ref())?;
-                    let pv = value.value.as_pvalue()?;
+                    let storage_scalar = value.as_extension().storage();
+                    let primitive = storage_scalar
+                        .as_primitive_opt()
+                        .ok_or_else(|| vortex_err!("Expected primitive scalar"))?;
+
                     return match metadata {
                         TemporalMetadata::Time(u) => match u {
                             TimeUnit::Ns => value_to_arrow_scalar!(
-                                pv.and_then(|p| p.as_i64()),
+                                primitive.as_::<i64>()?,
                                 Time64NanosecondArray
                             ),
                             TimeUnit::Us => value_to_arrow_scalar!(
-                                pv.and_then(|p| p.as_i64()),
+                                primitive.as_::<i64>()?,
                                 Time64MicrosecondArray
                             ),
                             TimeUnit::Ms => value_to_arrow_scalar!(
-                                pv.and_then(|p| p.as_i32()),
+                                primitive.as_::<i32>()?,
                                 Time32MillisecondArray
                             ),
-                            TimeUnit::S => value_to_arrow_scalar!(
-                                pv.and_then(|p| p.as_i32()),
-                                Time32SecondArray
-                            ),
+                            TimeUnit::S => {
+                                value_to_arrow_scalar!(primitive.as_::<i32>()?, Time32SecondArray)
+                            }
                             TimeUnit::D => {
                                 vortex_bail!("Unsupported TimeUnit {u} for {}", ext.id())
                             }
                         },
                         TemporalMetadata::Date(u) => match u {
                             TimeUnit::Ms => {
-                                value_to_arrow_scalar!(pv.and_then(|p| p.as_i64()), Date64Array)
+                                value_to_arrow_scalar!(primitive.as_::<i64>()?, Date64Array)
                             }
                             TimeUnit::D => {
-                                value_to_arrow_scalar!(pv.and_then(|p| p.as_i32()), Date32Array)
+                                value_to_arrow_scalar!(primitive.as_::<i32>()?, Date32Array)
                             }
                             _ => vortex_bail!("Unsupported TimeUnit {u} for {}", ext.id()),
                         },
                         TemporalMetadata::Timestamp(u, _) => match u {
                             TimeUnit::Ns => value_to_arrow_scalar!(
-                                pv.and_then(|p| p.as_i64()),
+                                primitive.as_::<i64>()?,
                                 TimestampNanosecondArray
                             ),
                             TimeUnit::Us => value_to_arrow_scalar!(
-                                pv.and_then(|p| p.as_i64()),
+                                primitive.as_::<i64>()?,
                                 TimestampMicrosecondArray
                             ),
                             TimeUnit::Ms => value_to_arrow_scalar!(
-                                pv.and_then(|p| p.as_i64()),
+                                primitive.as_::<i64>()?,
                                 TimestampMillisecondArray
                             ),
                             TimeUnit::S => value_to_arrow_scalar!(
-                                pv.and_then(|p| p.as_i64()),
+                                primitive.as_::<i64>()?,
                                 TimestampSecondArray
                             ),
                             TimeUnit::D => {
