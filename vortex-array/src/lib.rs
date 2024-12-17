@@ -43,6 +43,7 @@ pub mod nbytes;
 pub mod patches;
 pub mod stats;
 pub mod stream;
+mod take;
 pub mod tree;
 pub mod validity;
 pub mod variants;
