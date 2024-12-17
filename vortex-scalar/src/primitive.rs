@@ -283,19 +283,16 @@ pub enum BinaryNumericOperator {
     // Min,
     // Max,
     // Pow,
-    // In IEEE-754 operations involving NaN are non-commutative wrt NaN payload/quietness
-    // RAdd,
-    // RSub,
-    // RMul,
-    // RDiv,
 }
 
 impl PrimitiveScalar<'_> {
-    /// Apply the (checked) operator to self and other.
+    /// Apply the (checked) operator to self and other using SQL-style null semantics.
     ///
     /// If the operation overflows, Ok(None) is returned.
     ///
     /// If the types are incompatible (ignoring nullability), an error is returned.
+    ///
+    /// If either value is null, the result is null.
     pub fn checked_numeric_operator(
         self,
         other: PrimitiveScalar<'_>,
@@ -305,12 +302,13 @@ impl PrimitiveScalar<'_> {
             vortex_bail!("types must match: {} {}", self.dtype(), other.dtype());
         }
 
+        let nullability = self.dtype().nullability();
+
         Ok(match_each_native_ptype!(
             self.ptype(),
             integral: |$P| {
                 let lhs = self.typed_value::<$P>();
                 let rhs = other.typed_value::<$P>();
-                let nullability = self.dtype().nullability();
                 match (lhs, rhs) {
                     (_, None) | (None, _) => Some(Scalar::null(self.dtype().clone().as_nullable())),
                     (Some(lhs), Some(rhs)) => match op {
@@ -328,7 +326,6 @@ impl PrimitiveScalar<'_> {
             floating_point: |$P| {
                 let lhs = self.typed_value::<$P>();
                 let rhs = other.typed_value::<$P>();
-                let nullability = self.dtype().nullability();
                 Some(match (lhs, rhs) {
                     (_, None) | (None, _) => Scalar::null(self.dtype().clone().as_nullable()),
                     (Some(lhs), Some(rhs)) =>  match op {

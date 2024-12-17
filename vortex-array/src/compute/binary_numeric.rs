@@ -121,6 +121,13 @@ pub fn binary_numeric(
         }
     }
 
+    // Check if RHS supports the operation directly.
+    if let Some(fun) = rhs.encoding().binary_numeric_fn() {
+        if let Some(result) = fun.binary_numeric(rhs, lhs, op)? {
+            return Ok(result);
+        }
+    }
+
     log::debug!(
         "No numeric implementation found for LHS {}, RHS {}, and operator {:?}",
         lhs.encoding().id(),
