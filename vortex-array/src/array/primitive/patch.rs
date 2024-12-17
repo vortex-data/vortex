@@ -1,6 +1,6 @@
 use itertools::Itertools;
 use vortex_dtype::{match_each_integer_ptype, match_each_native_ptype};
-use vortex_error::VortexResult;
+use vortex_error::{vortex_err, VortexExpect as _, VortexResult};
 
 use crate::array::PrimitiveArray;
 use crate::patches::Patches;
@@ -22,11 +22,15 @@ impl PrimitiveArray {
             match_each_native_ptype!(self.ptype(), |$T| {
                 let mut own_values = self.into_maybe_null_vec::<$T>();
                 let indices_slice = indices
-                    .maybe_null_slice::<$I>();
+                    .try_into_maybe_null_vec::<$I>()
+                    .map_err(|_| vortex_err!("could not zero copy patched left_parts_decoded"))
+                    .vortex_expect("there are no aliases to this primitive array");
                 let patch_values_slice = patch_values
-                    .maybe_null_slice::<$T>();
-                for (idx, value) in indices_slice.iter().zip_eq(patch_values_slice.iter()) {
-                    own_values[*idx as usize] = *value;
+                    .try_into_maybe_null_vec::<$T>()
+                    .map_err(|_| vortex_err!("could not zero copy patched left_parts_decoded"))
+                    .vortex_expect("there are no aliases to this primitive array");
+                for (idx, value) in indices_slice.into_iter().zip_eq(patch_values_slice.into_iter()) {
+                    own_values[idx as usize] = value;
                 }
                 Ok(Self::from_vec(own_values, patched_validity))
             })
