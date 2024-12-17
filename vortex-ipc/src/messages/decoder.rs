@@ -265,7 +265,7 @@ trait BytesMutAlignedSplit {
 impl BytesMutAlignedSplit for BytesMut {
     fn reserve_aligned(&mut self, capacity: usize, align: usize) {
         // Reserve up to the worst-cast alignment
-        self.reserve(capacity - self.len() + align);
+        self.reserve(capacity + align - self.len());
 
         let padding = self.as_ptr().align_offset(align);
         if self.is_empty() {
@@ -274,7 +274,9 @@ impl BytesMutAlignedSplit for BytesMut {
             self.advance(padding);
         } else {
             // Otherwise, we need to copy the data into a new aligned buffer.
-            let mut aligned = BytesMut::with_capacity(self.len() + padding);
+            // NOTE(ngates): this case will rarely be hit. Only if the caller passes more bytes
+            //  than requested into the decoder.
+            let mut aligned = BytesMut::with_capacity(capacity + align - self.len());
             unsafe { aligned.set_len(padding) };
             aligned.advance(padding);
             aligned.extend_from_slice(self);
@@ -291,6 +293,8 @@ impl BytesMutAlignedSplit for BytesMut {
         }
 
         // Otherwise, we allocate a new buffer, align the start, and copy the data.
+        // NOTE(ngates): this case will rarely be hit. Only if the caller mutates the bytes after
+        //  they have been aligned by the decoder using `reserve_aligned`.
         let mut aligned = BytesMut::with_capacity(buffer.len().next_multiple_of(align));
         aligned.advance(aligned.as_ptr().align_offset(align));
         aligned.extend_from_slice(&buffer);
