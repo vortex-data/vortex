@@ -277,7 +277,7 @@ impl BytesMutAlignedSplit for BytesMut {
             let mut aligned = BytesMut::with_capacity(self.len() + padding);
             unsafe { aligned.set_len(padding) };
             aligned.advance(padding);
-            aligned.extend_from_slice(&self);
+            aligned.extend_from_slice(self);
             *self = aligned;
         }
     }
