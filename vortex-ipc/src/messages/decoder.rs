@@ -251,9 +251,10 @@ impl MessageDecoder {
 }
 
 trait BytesMutAlignedSplit {
-    /// Advance the buffer until the start is aligned, and then reserve the requested capacity.
-    /// If the buffer is non-empty, this function does nothing.
-    fn reserve_aligned(&mut self, additional: usize, align: usize);
+    /// Aligns any existing data in the buffer, copying if necessary, and reserves enough
+    /// additional capacity to meet the total requested capacity. This capacity includes the
+    /// current length of the buffer.
+    fn reserve_aligned(&mut self, capacity: usize, align: usize);
 
     /// Splits the buffer at the given index, ensuring the returned BytesMut is aligned
     /// as requested. This may involve a copy. Note that in practice, since we reserve_aligned
@@ -262,18 +263,23 @@ trait BytesMutAlignedSplit {
 }
 
 impl BytesMutAlignedSplit for BytesMut {
-    fn reserve_aligned(&mut self, additional: usize, align: usize) {
-        if !self.is_empty() {
-            // If the buffer isn't empty, we shouldn't try to copy it. It could be huge and this
-            // is just an optimization to avoid the copy in `split_to_aligned`.
-            return;
-        }
-
+    fn reserve_aligned(&mut self, capacity: usize, align: usize) {
         // Reserve up to the worst-cast alignment
-        self.reserve(additional + align);
+        self.reserve(capacity - self.len() + align);
+
         let padding = self.as_ptr().align_offset(align);
-        unsafe { self.set_len(padding) };
-        self.advance(padding);
+        if self.is_empty() {
+            // If the buffer is empty, we can just set_len and advance the cursor.
+            unsafe { self.set_len(padding) };
+            self.advance(padding);
+        } else {
+            // Otherwise, we need to copy the data into a new aligned buffer.
+            let mut aligned = BytesMut::with_capacity(self.len() + padding);
+            unsafe { aligned.set_len(padding) };
+            aligned.advance(padding);
+            aligned.extend_from_slice(&self);
+            *self = aligned;
+        }
     }
 
     fn split_to_aligned(&mut self, at: usize, align: usize) -> BytesMut {
