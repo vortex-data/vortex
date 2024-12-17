@@ -118,7 +118,6 @@ where
         let bytes_unaligned = Bytes::from(self.buf);
         assert_eq!(bytes_unaligned.as_ptr(), ptr, "bytes must not reallocate");
         let bytes_aligned = bytes_unaligned.slice(self.padding..);
-        assert_eq!(bytes_aligned.as_ptr(), ptr, "bytes must not reallocate");
 
         assert_eq!(
             bytes_aligned.as_ptr().align_offset(ALIGN),
