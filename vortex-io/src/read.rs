@@ -2,9 +2,12 @@ use std::future::{self, Future};
 use std::io;
 use std::sync::Arc;
 
-use bytes::{Bytes, BytesMut};
+use bytes::Bytes;
 use vortex_buffer::Buffer;
 use vortex_error::{vortex_err, VortexUnwrap};
+
+use crate::aligned::AlignedBytesMut;
+use crate::ALIGNMENT;
 
 /// A trait for types that support asynchronous reads.
 ///
@@ -73,7 +76,8 @@ impl VortexReadAt for Buffer {
                 vortex_err!("unexpected eof"),
             )))
         } else {
-            let mut buffer = BytesMut::with_capacity(len.try_into().vortex_unwrap());
+            let mut buffer =
+                AlignedBytesMut::<ALIGNMENT>::with_capacity(len.try_into().vortex_unwrap());
             unsafe {
                 buffer.set_len(len.try_into().vortex_unwrap());
             }

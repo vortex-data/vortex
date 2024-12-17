@@ -13,13 +13,21 @@ use crate::{BitPackedArray, BitPackedEncoding};
 
 impl FilterFn<BitPackedArray> for BitPackedEncoding {
     fn filter(&self, array: &BitPackedArray, mask: FilterMask) -> VortexResult<ArrayData> {
-        let primitive = match_each_unsigned_integer_ptype!(array.ptype(), |$I| {
+        let primitive = match_each_unsigned_integer_ptype!(array.ptype().to_unsigned(), |$I| {
             filter_primitive::<$I>(array, mask)
         });
         Ok(primitive?.into_array())
     }
 }
 
+/// Specialized filter kernel for primitive bit-packed arrays.
+///
+/// Because the FastLanes bit-packing kernels are only implemented for unsigned types, the provided
+/// `T` should be promoted to the unsigned variant for any target bit width.
+/// For example, if the array is bit-packed `i16`, this function called be called with `T = u16`.
+///
+/// All bit-packing operations will use the unsigned kernels, but the logical type of `array`
+/// dictates the final `PType` of the result.
 fn filter_primitive<T: NativePType + BitPacking + ArrowNativeType>(
     array: &BitPackedArray,
     mask: FilterMask,
@@ -49,7 +57,7 @@ fn filter_primitive<T: NativePType + BitPacking + ArrowNativeType>(
         FilterIter::SlicesIter(iter) => filter_slices(array, mask.true_count(), iter),
     };
 
-    let mut values = PrimitiveArray::from_vec(values, validity);
+    let mut values = PrimitiveArray::from_vec(values, validity).reinterpret_cast(array.ptype());
     if let Some(patches) = patches {
         values = values.patch(patches)?;
     }
@@ -120,6 +128,7 @@ fn filter_slices<T: NativePType + BitPacking + ArrowNativeType>(
 
 #[cfg(test)]
 mod test {
+    use itertools::Itertools;
     use vortex_array::array::PrimitiveArray;
     use vortex_array::compute::{filter, slice, FilterMask};
     use vortex_array::{ArrayLen, IntoArrayVariant};
@@ -165,5 +174,25 @@ mod test {
             filtered.into_primitive().unwrap().maybe_null_slice::<u8>(),
             (0..1024).map(|i| (i % 63) as u8).collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn filter_bitpacked_signed() {
+        // Elements 0..=499 are negative integers (patches)
+        // Element 500 = 0 (packed)
+        // Elements 501..999 are positive integers (packed)
+        let values: Vec<i64> = (-500..500).collect_vec();
+        let unpacked = PrimitiveArray::from(values.clone());
+        let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 9).unwrap();
+        let filtered = filter(
+            bitpacked.as_ref(),
+            FilterMask::from_indices(values.len(), 250..750),
+        )
+        .unwrap()
+        .into_primitive()
+        .unwrap()
+        .into_maybe_null_slice::<i64>();
+
+        assert_eq!(filtered.as_slice(), &values[250..750]);
     }
 }
