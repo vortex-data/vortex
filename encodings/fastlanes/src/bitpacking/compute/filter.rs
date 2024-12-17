@@ -191,7 +191,7 @@ mod test {
         .unwrap()
         .into_primitive()
         .unwrap()
-        .into_maybe_null_slice::<i64>();
+        .into_maybe_null_vec::<i64>();
 
         assert_eq!(filtered, values);
     }
