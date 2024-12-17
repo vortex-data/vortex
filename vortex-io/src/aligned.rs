@@ -73,6 +73,7 @@ where
     ///
     /// Failure to do so could cause uninitialized memory to be readable.
     pub unsafe fn set_len(&mut self, len: usize) {
+        let ptr = self.buf.as_ptr();
         assert!(
             len <= self.capacity,
             "set_len call out of bounds: {} > {}",
@@ -80,12 +81,19 @@ where
             self.capacity
         );
         unsafe { self.buf.set_len(len + self.padding) }
+        assert_eq!(self.buf.as_ptr(), ptr, "set_len must not reallocate");
     }
 
     /// Extend this mutable buffer with the contents of the provided slice.
     pub fn extend_from_slice(&mut self, slice: &[u8]) {
         // The internal `buf` is padded, so appends will land after the padded region.
-        self.buf.extend_from_slice(slice)
+        let ptr = self.buf.as_ptr();
+        self.buf.extend_from_slice(slice);
+        assert_eq!(
+            self.buf.as_ptr(),
+            ptr,
+            "extend_from_slice must not reallocate"
+        );
     }
 
     /// Freeze the existing allocation into a readonly [`Bytes`], guaranteed to be aligned to
@@ -106,8 +114,11 @@ where
         //     +------------+------------------+----------------+
         //     | padding    |   content        | spare capacity |
         //     +------------+------------------+----------------+
+        let ptr = self.buf.as_ptr();
         let bytes_unaligned = Bytes::from(self.buf);
+        assert_eq!(bytes_unaligned.as_ptr(), ptr, "bytes must not reallocate");
         let bytes_aligned = bytes_unaligned.slice(self.padding..);
+        assert_eq!(bytes_aligned.as_ptr(), ptr, "bytes must not reallocate");
 
         assert_eq!(
             bytes_aligned.as_ptr().align_offset(ALIGN),
