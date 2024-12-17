@@ -4,8 +4,7 @@ use vortex_array::stats::ArrayStatistics;
 use vortex_array::{flatbuffers as fba, ArrayData};
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect as _, VortexUnwrap};
-use vortex_flatbuffers::message::Compression;
+use vortex_error::VortexExpect;
 use vortex_flatbuffers::{message as fb, FlatBufferRoot, WriteFlatBuffer};
 
 use crate::ALIGNMENT;
@@ -13,20 +12,15 @@ use crate::ALIGNMENT;
 pub mod reader;
 pub mod writer;
 
-pub enum IPCMessage<'a> {
-    Schema(IPCSchema<'a>),
-    Batch(IPCBatch<'a>),
-    Page(IPCPage<'a>),
+pub enum IPCMessage {
+    Array(ArrayData),
+    Buffer(Buffer),
+    DType(DType),
 }
 
-pub struct IPCSchema<'a>(pub &'a DType);
-pub struct IPCBatch<'a>(pub &'a ArrayData);
-pub struct IPCArray<'a>(pub &'a ArrayData, usize);
-pub struct IPCPage<'a>(pub &'a Buffer);
+impl FlatBufferRoot for IPCMessage {}
 
-impl FlatBufferRoot for IPCMessage<'_> {}
-
-impl WriteFlatBuffer for IPCMessage<'_> {
+impl WriteFlatBuffer for IPCMessage {
     type Target<'a> = fb::Message<'a>;
 
     fn write_flatbuffer<'fb>(
@@ -34,87 +28,98 @@ impl WriteFlatBuffer for IPCMessage<'_> {
         fbb: &mut FlatBufferBuilder<'fb>,
     ) -> WIPOffset<Self::Target<'fb>> {
         let header = match self {
-            Self::Schema(f) => f.write_flatbuffer(fbb).as_union_value(),
-            Self::Batch(f) => f.write_flatbuffer(fbb).as_union_value(),
-            Self::Page(f) => f.write_flatbuffer(fbb).as_union_value(),
+            Self::Array(array) => ArrayDataWriter { array }
+                .write_flatbuffer(fbb)
+                .as_union_value(),
+            Self::Buffer(buffer) => {
+                let aligned_len = buffer.len().next_multiple_of(ALIGNMENT);
+                let padding = aligned_len - buffer.len();
+                fba::Buffer::create(
+                    fbb,
+                    &fba::BufferArgs {
+                        length: buffer.len() as u64,
+                        padding: padding.try_into().vortex_expect("padding must fit in u16"),
+                    },
+                )
+                .as_union_value()
+            }
+            Self::DType(dtype) => dtype.write_flatbuffer(fbb).as_union_value(),
         };
 
         let mut msg = fb::MessageBuilder::new(fbb);
         msg.add_version(Default::default());
         msg.add_header_type(match self {
-            Self::Schema(_) => fb::MessageHeader::Schema,
-            Self::Batch(_) => fb::MessageHeader::Batch,
-            Self::Page(_) => fb::MessageHeader::Page,
+            Self::Array(_) => fb::MessageHeader::ArrayData,
+            Self::Buffer(_) => fb::MessageHeader::Buffer,
+            Self::DType(_) => fb::MessageHeader::DType,
         });
         msg.add_header(header);
         msg.finish()
     }
 }
 
-impl WriteFlatBuffer for IPCSchema<'_> {
-    type Target<'t> = fb::Schema<'t>;
-
-    fn write_flatbuffer<'fb>(
-        &self,
-        fbb: &mut FlatBufferBuilder<'fb>,
-    ) -> WIPOffset<Self::Target<'fb>> {
-        let dtype = Some(self.0.write_flatbuffer(fbb));
-        fb::Schema::create(fbb, &fb::SchemaArgs { dtype })
-    }
+struct ArrayDataWriter<'a> {
+    array: &'a ArrayData,
 }
 
-impl WriteFlatBuffer for IPCBatch<'_> {
-    type Target<'t> = fb::Batch<'t>;
+impl WriteFlatBuffer for ArrayDataWriter<'_> {
+    type Target<'t> = fba::ArrayData<'t>;
 
     fn write_flatbuffer<'fb>(
         &self,
         fbb: &mut FlatBufferBuilder<'fb>,
     ) -> WIPOffset<Self::Target<'fb>> {
-        let array_data = self.0;
-        let array = Some(IPCArray(array_data, 0).write_flatbuffer(fbb));
+        let array = Some(
+            ArrayWriter {
+                array: self.array,
+                buffer_idx: 0,
+            }
+            .write_flatbuffer(fbb),
+        );
 
-        let length = array_data.len() as u64;
-
-        // Walk the ColumnData depth-first to compute the buffer offsets.
+        // Walk the ColumnData depth-first to compute the buffer lengths.
         let mut buffers = vec![];
-        let mut offset = 0;
-
-        for array_data in array_data.depth_first_traversal() {
+        for array_data in self.array.depth_first_traversal() {
             if let Some(buffer) = array_data.buffer() {
-                let aligned_size = (buffer.len() + (ALIGNMENT - 1)) & !(ALIGNMENT - 1);
-                buffers.push(fb::Buffer::new(
-                    offset as u64,
-                    (aligned_size - buffer.len()).try_into().vortex_unwrap(),
-                    Compression::None,
+                let aligned_size = buffer.len().next_multiple_of(ALIGNMENT);
+                let padding = aligned_size - buffer.len();
+                buffers.push(fba::Buffer::create(
+                    fbb,
+                    &fba::BufferArgs {
+                        length: buffer.len() as u64,
+                        padding: padding.try_into().vortex_expect("padding must fit in u16"),
+                    },
                 ));
-                offset += aligned_size;
             }
         }
         let buffers = Some(fbb.create_vector(&buffers));
 
-        fb::Batch::create(
+        fba::ArrayData::create(
             fbb,
-            &fb::BatchArgs {
+            &fba::ArrayDataArgs {
                 array,
-                length,
+                row_count: self.array.len() as u64,
                 buffers,
-                buffer_size: offset as u64,
             },
         )
     }
 }
 
-impl WriteFlatBuffer for IPCArray<'_> {
+struct ArrayWriter<'a> {
+    array: &'a ArrayData,
+    buffer_idx: u16,
+}
+
+impl WriteFlatBuffer for ArrayWriter<'_> {
     type Target<'t> = fba::Array<'t>;
 
     fn write_flatbuffer<'fb>(
         &self,
         fbb: &mut FlatBufferBuilder<'fb>,
     ) -> WIPOffset<Self::Target<'fb>> {
-        let column_data = self.0;
-
-        let encoding = column_data.encoding().id().code();
-        let metadata = column_data
+        let encoding = self.array.encoding().id().code();
+        let metadata = self
+            .array
             .metadata_bytes()
             .vortex_expect("IPCArray is missing metadata during serialization");
         let metadata = Some(fbb.create_vector(metadata.as_ref()));
@@ -123,52 +128,45 @@ impl WriteFlatBuffer for IPCArray<'_> {
         // The second tuple element holds the buffer_index for this Array subtree. If this array
         // has a buffer, that is its buffer index. If it does not, that buffer index belongs
         // to one of the children.
-        let child_buffer_offset = self.1 + if self.0.buffer().is_some() { 1 } else { 0 };
+        let child_buffer_idx = self.buffer_idx + if self.array.buffer().is_some() { 1 } else { 0 };
 
-        let children = column_data
+        let children = self
+            .array
             .children()
             .iter()
-            .scan(child_buffer_offset, |buffer_offset, child| {
+            .scan(child_buffer_idx, |buffer_idx, child| {
                 // Update the number of buffers required.
-                let msg = IPCArray(child, *buffer_offset).write_flatbuffer(fbb);
-                *buffer_offset += child.cumulative_nbuffers();
+                let msg = ArrayWriter {
+                    array: child,
+                    buffer_idx: *buffer_idx,
+                }
+                .write_flatbuffer(fbb);
+                *buffer_idx = u16::try_from(child.cumulative_nbuffers())
+                    .ok()
+                    .and_then(|nbuffers| nbuffers.checked_add(*buffer_idx))
+                    .vortex_expect("Too many buffers (u16) for ArrayData");
                 Some(msg)
             })
             .collect_vec();
         let children = Some(fbb.create_vector(&children));
 
-        let stats = Some(column_data.statistics().write_flatbuffer(fbb));
+        let buffers = self
+            .array
+            .buffer()
+            .is_some()
+            .then_some(self.buffer_idx)
+            .map(|buffer_idx| fbb.create_vector_from_iter(std::iter::once(buffer_idx)));
+
+        let stats = Some(self.array.statistics().write_flatbuffer(fbb));
 
         fba::Array::create(
             fbb,
             &fba::ArrayArgs {
-                version: Default::default(),
-                buffer_index: self.0.buffer().is_some().then_some(self.1 as u64),
                 encoding,
                 metadata,
-                stats,
                 children,
-            },
-        )
-    }
-}
-
-impl WriteFlatBuffer for IPCPage<'_> {
-    type Target<'t> = fb::Page<'t>;
-
-    fn write_flatbuffer<'fb>(
-        &self,
-        fbb: &mut FlatBufferBuilder<'fb>,
-    ) -> WIPOffset<Self::Target<'fb>> {
-        let buffer_size = self.0.len();
-        let aligned_size = (buffer_size + (ALIGNMENT - 1)) & !(ALIGNMENT - 1);
-        let padding_size = aligned_size - buffer_size;
-
-        fb::Page::create(
-            fbb,
-            &fb::PageArgs {
-                buffer_size: buffer_size.try_into().vortex_unwrap(),
-                padding: padding_size.try_into().vortex_unwrap(),
+                buffers,
+                stats,
             },
         )
     }

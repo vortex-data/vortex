@@ -3,7 +3,7 @@ use core::ops::Range;
 use bytes::Bytes;
 use flatbuffers::{root, root_unchecked};
 use vortex_error::{vortex_bail, vortex_err, VortexResult, VortexUnwrap};
-use vortex_flatbuffers::{footer, message};
+use vortex_flatbuffers::{dtype as fbd, footer};
 use vortex_io::VortexReadAt;
 
 use crate::{LazyDType, EOF_SIZE, INITIAL_READ_SIZE, MAGIC_BYTES, VERSION};
@@ -136,7 +136,7 @@ pub async fn read_initial_bytes<R: VortexReadAt>(
     // validate the schema and layout
     let schema_loc = (schema_offset - initial_read_offset) as usize;
     let layout_loc = (layout_offset - initial_read_offset) as usize;
-    root::<message::Schema>(&buf[schema_loc..layout_loc])?;
+    root::<fbd::DType>(&buf[schema_loc..layout_loc])?;
     root::<footer::Layout>(&buf[layout_loc..ps_loc])?;
 
     Ok(InitialRead {

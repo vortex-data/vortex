@@ -5,10 +5,10 @@ use bytes::{Buf, Bytes};
 use flatbuffers::{root, root_unchecked};
 use futures_util::stream::try_unfold;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
-use vortex_array::{ArrayData, Context};
+use vortex_array::{flatbuffers as fba, ArrayData, Context};
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult, VortexUnwrap};
+use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_flatbuffers::message as fb;
 use vortex_io::{VortexBufReader, VortexReadAt};
 
@@ -95,21 +95,18 @@ impl<R: VortexReadAt> MessageReader<R> {
     }
 
     pub async fn read_dtype(&mut self) -> VortexResult<DType> {
-        if self.peek().and_then(|m| m.header_as_schema()).is_none() {
-            vortex_bail!("Expected schema message")
+        if self.peek().and_then(|m| m.header_as_dtype()).is_none() {
+            vortex_bail!("Expected DType message")
         }
 
         let buf = self.next().await?;
         let msg = unsafe { root_unchecked::<fb::Message>(&buf) }
-            .header_as_schema()
+            .header_as_dtype()
             .ok_or_else(|| {
                 vortex_err!("Expected schema message; this was checked earlier in the function")
             })?;
 
-        DType::try_from(
-            msg.dtype()
-                .ok_or_else(|| vortex_err!(InvalidSerde: "Schema missing DType"))?,
-        )
+        DType::try_from(msg)
     }
 
     pub async fn maybe_read_chunk(
@@ -117,9 +114,14 @@ impl<R: VortexReadAt> MessageReader<R> {
         ctx: Arc<Context>,
         dtype: DType,
     ) -> VortexResult<Option<ArrayData>> {
-        let all_buffers_size: usize = match self.peek().and_then(|m| m.header_as_batch()) {
+        let all_buffers_size = match self.peek().and_then(|m| m.header_as_array_data()) {
             None => return Ok(None),
-            Some(chunk) => chunk.buffer_size().try_into().vortex_unwrap(),
+            Some(array_data) => array_data
+                .buffers()
+                .unwrap_or_default()
+                .iter()
+                .map(|b| b.length() + (b.padding() as u64))
+                .sum(),
         };
 
         let mut array_reader = ArrayMessageReader::from_fb_bytes(Buffer::from(
@@ -127,7 +129,7 @@ impl<R: VortexReadAt> MessageReader<R> {
         ));
 
         // Issue a single read to grab all buffers
-        let all_buffers = self.read.read_bytes(all_buffers_size as u64).await?;
+        let all_buffers = self.read.read_bytes(all_buffers_size).await?;
 
         if array_reader.read(all_buffers)?.is_some() {
             unreachable!("This is an implementation bug")
@@ -193,13 +195,13 @@ impl<R: VortexReadAt> MessageReader<R> {
         )
     }
 
-    pub async fn maybe_read_page(&mut self) -> VortexResult<Option<Buffer>> {
-        let Some(page_msg) = self.peek().and_then(|m| m.header_as_page()) else {
+    pub async fn maybe_read_buffer(&mut self) -> VortexResult<Option<Buffer>> {
+        let Some(buffer_msg) = self.peek().and_then(|m| m.header_as_buffer()) else {
             return Ok(None);
         };
 
-        let buffer_len = page_msg.buffer_size() as u64;
-        let total_len = buffer_len + (page_msg.padding() as u64);
+        let buffer_len = buffer_msg.length();
+        let total_len = buffer_len + (buffer_msg.padding() as u64);
 
         let buffer = self.read.read_bytes(total_len).await?;
         let page_buffer = Ok(Some(Buffer::from(
@@ -251,6 +253,7 @@ impl ArrayMessageReader {
         }
     }
 
+    /// Parse the given bytes and optionally request more from the input.
     pub fn read(&mut self, mut bytes: Bytes) -> VortexResult<Option<usize>> {
         match self.state {
             ReadState::Init => {
@@ -264,40 +267,49 @@ impl ArrayMessageReader {
             ReadState::ReadingFb => {
                 // SAFETY: Assumes that any flatbuffer bytes passed have been validated.
                 //     This is currently the case in stream and file implementations.
-                let batch = unsafe {
+                let array_data = unsafe {
                     root_unchecked::<fb::Message>(&bytes)
-                        .header_as_batch()
+                        .header_as_array_data()
                         .ok_or_else(|| vortex_err!("Message was not a batch"))?
                 };
-                let buffer_size: usize = batch.buffer_size().try_into().vortex_unwrap();
+
+                let buffers_size = array_data
+                    .buffers()
+                    .map(|buffers| {
+                        buffers
+                            .iter()
+                            .map(|buffer| buffer.length() + buffer.padding() as u64)
+                            .sum::<u64>()
+                    })
+                    .unwrap_or_default();
+
                 self.fb_msg = Some(Buffer::from(bytes));
                 self.state = ReadState::ReadingBuffers;
-                Ok(Some(buffer_size))
+                Ok(Some(
+                    buffers_size
+                        .try_into()
+                        .vortex_expect("Cannot cast to usize"),
+                ))
             }
             ReadState::ReadingBuffers => {
                 // Split out into individual buffers
                 // Initialize the column's buffers for a vectored read.
                 // To start with, we include the padding and then truncate the buffers after.
-                let batch_msg = self.fb_bytes_as_batch()?;
-                let all_buffers_size = batch_msg.buffer_size();
+                let batch_msg = self.fb_bytes_as_array_data()?;
+
                 let ipc_buffers = batch_msg.buffers().unwrap_or_default();
                 let buffers = ipc_buffers
                     .iter()
-                    .zip(
-                        ipc_buffers
-                            .iter()
-                            .map(vortex_flatbuffers::message::Buffer::offset)
-                            .skip(1)
-                            .chain([all_buffers_size]),
-                    )
-                    .map(|(buffer, next_offset)| {
-                        let len = next_offset - buffer.offset() - buffer.padding() as u64;
-
+                    .map(|buffer| {
                         // Grab the buffer
-                        let data_buffer = bytes.split_to(len.try_into().vortex_unwrap());
+                        let data_buffer = bytes.split_to(
+                            buffer
+                                .length()
+                                .try_into()
+                                .vortex_expect("Buffer size does not fit into usize"),
+                        );
                         // Strip off any padding from the previous buffer
                         bytes.advance(buffer.padding() as usize);
-
                         Buffer::from(data_buffer)
                     })
                     .collect::<Vec<_>>();
@@ -310,7 +322,7 @@ impl ArrayMessageReader {
         }
     }
 
-    fn fb_bytes_as_batch(&self) -> VortexResult<fb::Batch> {
+    fn fb_bytes_as_array_data(&self) -> VortexResult<fba::ArrayData> {
         unsafe {
             root_unchecked::<fb::Message>(
                 self.fb_msg
@@ -318,24 +330,24 @@ impl ArrayMessageReader {
                     .ok_or_else(|| vortex_err!("Populated in previous step"))?,
             )
         }
-        .header_as_batch()
+        .header_as_array_data()
         .ok_or_else(|| vortex_err!("Checked in previous step"))
     }
 
     /// Produce the array buffered in the reader
     pub fn into_array(self, ctx: Arc<Context>, dtype: DType) -> VortexResult<ArrayData> {
-        let length: usize = self.fb_bytes_as_batch()?.length().try_into()?;
+        let row_count: usize = self.fb_bytes_as_array_data()?.row_count().try_into()?;
         let fb_msg = self
             .fb_msg
             .ok_or_else(|| vortex_err!("Populated in previous step"))?;
         ArrayData::try_new_viewed(
             ctx,
             dtype,
-            length,
+            row_count,
             fb_msg,
             |flatbuffer| {
                 unsafe { root_unchecked::<fb::Message>(flatbuffer) }
-                    .header_as_batch()
+                    .header_as_array_data()
                     .ok_or_else(|| vortex_err!("Failed to get root header as batch"))?
                     .array()
                     .ok_or_else(|| vortex_err!("Chunk missing Array"))
@@ -369,7 +381,7 @@ mod test {
         let mut reader =
             block_on(async { MessageReader::try_new(VortexBufReader::new(written)).await })
                 .unwrap();
-        let read_page = block_on(async { reader.maybe_read_page().await })
+        let read_page = block_on(async { reader.maybe_read_buffer().await })
             .unwrap()
             .unwrap();
         assert_eq!(read_page, Buffer::from(Bytes::from("somevalue")));

@@ -3,20 +3,17 @@
 use std::{io, iter, mem};
 
 use bytes::Bytes;
-use flatbuffers::FlatBufferBuilder;
 use futures::TryStreamExt;
 use itertools::Itertools;
 use vortex_array::array::{ChunkedArray, StructArray};
 use vortex_array::stats::{as_stat_bitset_bytes, ArrayStatistics, Stat};
 use vortex_array::stream::ArrayStream;
 use vortex_array::{ArrayData, ArrayLen};
-use vortex_buffer::io_buf::IoBuf;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
-use vortex_flatbuffers::WriteFlatBuffer;
+use vortex_flatbuffers::{FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
 use vortex_io::VortexWrite;
 use vortex_ipc::messages::writer::MessageWriter;
-use vortex_ipc::messages::IPCSchema;
 use vortex_ipc::stream_writer::ByteRange;
 
 use crate::write::postscript::Postscript;
@@ -138,7 +135,7 @@ impl<W: VortexWrite> VortexFileWriter<W> {
 
     pub async fn finalize(mut self) -> VortexResult<W> {
         let top_level_layout = self.write_metadata_arrays().await?;
-        let schema_offset = self.msgs.tell();
+        let dtype_offset = self.msgs.tell();
 
         // we want to write raw flatbuffers from here on out, not messages
         let mut writer = self.msgs.into_inner();
@@ -152,15 +149,14 @@ impl<W: VortexWrite> VortexFileWriter<W> {
             // we write an IPCSchema instead of a DType, which allows us to evolve / add to the schema later
             // these bytes get deserialized as message::Schema
             // NB: we don't wrap the IPCSchema in an IPCMessage, because we record the lengths/offsets in the footer
-            let schema = IPCSchema(&dtype);
-            let schema_len = write_fb_raw(&mut writer, schema).await?;
-            schema_offset + schema_len
+            let dtype_len = write_fb_raw(&mut writer, dtype).await?;
+            dtype_offset + dtype_len
         };
 
         // write the layout
         write_fb_raw(&mut writer, top_level_layout).await?;
 
-        let footer = Postscript::try_new(schema_offset, layout_offset)?;
+        let footer = Postscript::try_new(dtype_offset, layout_offset)?;
         let footer_len = write_fb_raw(&mut writer, footer).await?;
         if footer_len > MAX_FOOTER_SIZE as u64 {
             vortex_bail!(
@@ -182,20 +178,14 @@ impl<W: VortexWrite> VortexFileWriter<W> {
 }
 
 /// Write a flatbuffer to a writer and return the number of bytes written.
-async fn write_fb_raw<W: VortexWrite, F: WriteFlatBuffer>(
+async fn write_fb_raw<W: VortexWrite, F: WriteFlatBuffer + FlatBufferRoot>(
     writer: &mut W,
     fb: F,
 ) -> io::Result<u64> {
-    let mut fbb = FlatBufferBuilder::new();
-    let ps_fb = fb.write_flatbuffer(&mut fbb);
-    fbb.finish_minimal(ps_fb);
-
-    let (buffer, buffer_begin) = fbb.collapse();
-    let buffer_end = buffer.len();
-
-    let bytes = buffer.slice_owned(buffer_begin..buffer_end);
-    writer.write_all(bytes).await?;
-    Ok((buffer_end - buffer_begin) as u64)
+    let buffer = fb.write_flatbuffer_bytes();
+    let buffer_len = buffer.len();
+    writer.write_all(buffer).await?;
+    Ok(buffer_len as u64)
 }
 
 struct ColumnWriter {
@@ -240,7 +230,7 @@ impl ColumnWriter {
             // clear the stats that we don't want to serialize into the file
             retain_only_stats(&chunk, STATS_TO_WRITE);
 
-            msgs.write_batch(chunk).await?;
+            msgs.write_array(chunk).await?;
             offsets.push(msgs.tell());
             row_offsets.push(rows_written);
         }
@@ -280,7 +270,7 @@ impl ColumnWriter {
             let stat_bitset = as_stat_bitset_bytes(&present_stats);
 
             let metadata_array_begin = msgs.tell();
-            msgs.write_batch(metadata_array).await?;
+            msgs.write_array(metadata_array).await?;
             let metadata_array_end = msgs.tell();
 
             let layouts = iter::once(LayoutSpec::flat(
