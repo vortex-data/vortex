@@ -48,9 +48,14 @@ where
         let allocation_size = (capacity + ALIGN - 1).next_multiple_of(ALIGN);
         let mut buf = Vec::<u8>::with_capacity(allocation_size);
         let padding = buf.as_ptr().align_offset(ALIGN);
-        unsafe {
-            buf.set_len(padding);
-        }
+        unsafe { buf.set_len(padding) };
+
+        assert_eq!(
+            buf[padding..].as_ptr().align_offset(ALIGN),
+            0,
+            "bytes must be aligned to {}",
+            ALIGN
+        );
 
         Self {
             buf,
