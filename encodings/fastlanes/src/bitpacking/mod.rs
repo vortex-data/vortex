@@ -19,8 +19,6 @@ use vortex_buffer::Buffer;
 use vortex_dtype::{DType, NativePType, PType};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
 
-use crate::FASTLANES_ALIGNMENT;
-
 mod compress;
 mod compute;
 
@@ -90,7 +88,11 @@ impl BitPackedArray {
                 packed.len()
             ));
         }
-        let packed = ArrayBuffer::new_with_alignment(packed, FASTLANES_ALIGNMENT);
+
+        // TODO(ngates): enforce 128 byte alignment once we have a ScalarBufferBuilder that can
+        //  enforce custom alignments.
+        // let packed = ArrayBuffer::new_with_alignment(packed, FASTLANES_ALIGNMENT);
+        let packed = ArrayBuffer::new_with_alignment(packed, ptype.byte_width());
 
         let metadata = BitPackedMetadata {
             validity: validity.to_metadata(length)?,
