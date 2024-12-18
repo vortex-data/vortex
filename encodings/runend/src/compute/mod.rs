@@ -9,18 +9,22 @@ use std::ops::AddAssign;
 use num_traits::AsPrimitive;
 use vortex_array::array::{BooleanBuffer, PrimitiveArray};
 use vortex_array::compute::{
-    filter, scalar_at, slice, CompareFn, ComputeVTable, FillNullFn, FilterFn, FilterMask, InvertFn,
-    ScalarAtFn, SliceFn, TakeFn,
+    binary_numeric, filter, scalar_at, slice, BinaryNumericFn, CompareFn, ComputeVTable,
+    FillNullFn, FilterFn, FilterMask, InvertFn, ScalarAtFn, SliceFn, TakeFn,
 };
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::{match_each_unsigned_integer_ptype, NativePType};
 use vortex_error::{VortexResult, VortexUnwrap};
-use vortex_scalar::Scalar;
+use vortex_scalar::{BinaryNumericOperator, Scalar};
 
 use crate::{RunEndArray, RunEndEncoding};
 
 impl ComputeVTable for RunEndEncoding {
+    fn binary_numeric_fn(&self) -> Option<&dyn BinaryNumericFn<ArrayData>> {
+        Some(self)
+    }
+
     fn compare_fn(&self) -> Option<&dyn CompareFn<ArrayData>> {
         Some(self)
     }
@@ -47,6 +51,28 @@ impl ComputeVTable for RunEndEncoding {
 
     fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
         Some(self)
+    }
+}
+
+impl BinaryNumericFn<RunEndArray> for RunEndEncoding {
+    fn binary_numeric(
+        &self,
+        array: &RunEndArray,
+        rhs: &ArrayData,
+        op: BinaryNumericOperator,
+    ) -> VortexResult<Option<ArrayData>> {
+        if !rhs.is_constant() {
+            return Ok(None);
+        }
+
+        RunEndArray::with_offset_and_length(
+            array.ends(),
+            binary_numeric(&array.values(), rhs, op)?,
+            array.offset(),
+            array.len(),
+        )
+        .map(IntoArrayData::into_array)
+        .map(Some)
     }
 }
 

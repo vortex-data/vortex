@@ -1,3 +1,4 @@
+mod binary_numeric;
 mod boolean;
 mod compare;
 mod invert;
@@ -9,13 +10,17 @@ use vortex_scalar::Scalar;
 use crate::array::constant::ConstantArray;
 use crate::array::ConstantEncoding;
 use crate::compute::{
-    BinaryBooleanFn, CompareFn, ComputeVTable, FilterFn, FilterMask, InvertFn, ScalarAtFn,
-    SearchSortedFn, SliceFn, TakeFn,
+    BinaryBooleanFn, BinaryNumericFn, CompareFn, ComputeVTable, FilterFn, FilterMask, InvertFn,
+    ScalarAtFn, SearchSortedFn, SliceFn, TakeFn,
 };
 use crate::{ArrayData, IntoArrayData};
 
 impl ComputeVTable for ConstantEncoding {
     fn binary_boolean_fn(&self) -> Option<&dyn BinaryBooleanFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn binary_numeric_fn(&self) -> Option<&dyn BinaryNumericFn<ArrayData>> {
         Some(self)
     }
 

@@ -5,7 +5,7 @@ use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::array::constant::ConstantArray;
-use crate::compute::{scalar_at, subtract_scalar};
+use crate::compute::{scalar_at, sub_scalar};
 use crate::encoding::ids;
 use crate::patches::{Patches, PatchesMetadata};
 use crate::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
@@ -125,7 +125,8 @@ impl SparseArray {
     #[inline]
     pub fn resolved_patches(&self) -> VortexResult<Patches> {
         let (len, indices, values) = self.patches().into_parts();
-        let indices = subtract_scalar(indices, &Scalar::from(self.indices_offset()))?;
+        let indices_offset = Scalar::from(self.indices_offset()).cast(indices.dtype())?;
+        let indices = sub_scalar(indices, indices_offset)?;
         Ok(Patches::new(len, indices, values))
     }
 
