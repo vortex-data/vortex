@@ -104,6 +104,7 @@ impl ViewedArrayData {
         collector.children()
     }
 
+    #[allow(dead_code)]
     pub fn named_children(&self) -> Vec<(String, ArrayData)> {
         let mut collector = NamedChildrenCollector::default();
         self.encoding
