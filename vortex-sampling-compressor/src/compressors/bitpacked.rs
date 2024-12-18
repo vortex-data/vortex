@@ -140,7 +140,7 @@ impl EncodingCompressor for BitPackedCompressor {
         Ok(CompressedArray::compressed(
             // SAFETY: we ensure the array contains no negative values.
             unsafe {
-                BitPackedArray::try_new(
+                BitPackedArray::new_unchecked(
                     packed_buffer,
                     parray.ptype(),
                     validity,

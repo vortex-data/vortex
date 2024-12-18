@@ -35,7 +35,7 @@ mod test {
     fn invalid_patches() {
         // SAFETY: using unsigned PType
         let packed_array = unsafe {
-            BitPackedArray::try_new(
+            BitPackedArray::new_unchecked(
                 Buffer::from(vec![0u8; 128]),
                 PType::U32,
                 Validity::AllInvalid,

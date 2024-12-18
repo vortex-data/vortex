@@ -46,7 +46,7 @@ pub fn bitpack_encode(array: PrimitiveArray, bit_width: u8) -> VortexResult<BitP
 
     // SAFETY: values already checked to be non-negative.
     unsafe {
-        BitPackedArray::try_new(
+        BitPackedArray::new_unchecked(
             packed,
             array.ptype(),
             array.validity(),
@@ -73,7 +73,7 @@ pub unsafe fn bitpack_encode_unchecked(
     unsafe {
         let packed = bitpack_unchecked(&array, bit_width)?;
 
-        BitPackedArray::try_new(
+        BitPackedArray::new_unchecked(
             packed,
             array.ptype(),
             array.validity(),
