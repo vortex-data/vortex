@@ -8,7 +8,7 @@ use vortex_error::{VortexExpect, VortexUnwrap};
 use vortex_scalar::arbitrary::random_scalar;
 use vortex_scalar::Scalar;
 
-use super::{BoolArray, ChunkedArray, ListArray, NullArray, PrimitiveArray, StructArray};
+use super::{BoolArray, ChunkedArray, NullArray, PrimitiveArray, StructArray};
 use crate::array::{VarBinArray, VarBinViewArray};
 use crate::builders::ArrayBuilder;
 use crate::validity::Validity;
@@ -89,12 +89,14 @@ fn random_array(u: &mut Unstructured, dtype: &DType, len: Option<usize>) -> Resu
                     let list_len = u.int_in_range(0..=20)?;
                     let mut builder = ListBuilder::with_capacity(ldt.clone(), *n, 1);
                     for _ in 0..list_len {
-                        if u.arbitrary::<bool>() {
+                        if u.arbitrary::<bool>()? {
                             let elem_len = u.int_in_range(0..=20)?;
                             let elem = (0..elem_len)
                                 .map(|_| random_scalar(u, ldt))
                                 .collect::<Result<Vec<_>>>()?;
-                            builder.append_value(Scalar::list(ldt.clone(), elem).as_list())?;
+                            builder
+                                .append_value(Scalar::list(ldt.clone(), elem).as_list())
+                                .vortex_expect("can append value");
                         } else {
                             builder.append_null();
                         }
