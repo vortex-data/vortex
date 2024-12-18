@@ -157,12 +157,15 @@ jobs:
           RUSTDOCFLAGS: '-Zprofile'
       - uses: rraval/actions-rs-grcov@e96292badb0d33512d16654efb0ee3032a9a3cff
         id: grcov
+        with:
+          config: ".github/coverage.yml"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Coveralls
         uses: coverallsapp/github-action@v2
         with:
           file: "${{ steps.grcov.outputs.report }}"
+          
   
   license-check-and-audit-check:
     name: License Check and Audit Check

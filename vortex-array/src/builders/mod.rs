@@ -23,6 +23,7 @@ use vortex_scalar::{
     Utf8Scalar,
 };
 
+use crate::builders::list::ListBuilder;
 use crate::builders::struct_::StructBuilder;
 use crate::ArrayData;
 

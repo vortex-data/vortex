@@ -165,7 +165,7 @@ where
         self.dispatcher
             .dispatch(move || async move {
                 let read_messages = reader
-                    .read_byte_ranges(messages.iter().map(|msg| msg.1.to_range()).collect())
+                    .read_byte_ranges(messages.iter().map(|msg| msg.1.as_range()).collect())
                     .map(move |read_res| {
                         Ok(messages
                             .into_iter()

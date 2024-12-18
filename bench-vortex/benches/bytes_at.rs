@@ -4,16 +4,12 @@
 use std::sync::Arc;
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use futures::executor::block_on;
-use futures::StreamExt;
 use vortex::array::{PrimitiveArray, VarBinArray, VarBinViewArray};
-use vortex::buffer::Buffer;
 use vortex::dtype::{DType, Nullability};
-use vortex::io::VortexBufReader;
-use vortex::ipc::stream_reader::StreamArrayReader;
-use vortex::ipc::stream_writer::StreamArrayWriter;
+use vortex::ipc::iterator::{ArrayIteratorIPC, SyncIPCReader};
+use vortex::iter::ArrayIteratorExt;
 use vortex::validity::Validity;
-use vortex::{Context, IntoArrayData, IntoCanonical};
+use vortex::{Context, IntoArrayData, IntoArrayVariant};
 
 fn array_data_fixture() -> VarBinArray {
     VarBinArray::try_new(
@@ -27,27 +23,16 @@ fn array_data_fixture() -> VarBinArray {
 
 fn array_view_fixture() -> VarBinViewArray {
     let array_data = array_data_fixture();
-    let mut buffer = Vec::new();
 
-    let writer = StreamArrayWriter::new(&mut buffer);
-    block_on(writer.write_array(array_data.into_array())).unwrap();
+    let buffer = array_data
+        .into_array()
+        .into_array_iterator()
+        .write_ipc(vec![])
+        .unwrap();
 
-    let buffer = Buffer::from(buffer);
-
-    let ctx = Arc::new(Context::default());
-    let reader = block_on(StreamArrayReader::try_new(
-        VortexBufReader::new(buffer),
-        ctx.clone(),
-    ))
-    .unwrap();
-    let reader = block_on(reader.load_dtype()).unwrap();
-
-    let mut stream = Box::pin(reader.into_array_stream());
-
-    block_on(stream.next())
+    SyncIPCReader::try_new(buffer.as_slice(), Arc::new(Context::default()))
         .unwrap()
-        .unwrap()
-        .into_canonical()
+        .into_array_data()
         .unwrap()
         .into_varbinview()
         .unwrap()
