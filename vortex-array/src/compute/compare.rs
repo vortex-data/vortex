@@ -185,6 +185,7 @@ pub(crate) fn arrow_compare(
     rhs: &ArrayData,
     operator: Operator,
 ) -> VortexResult<ArrayData> {
+    let nullable = lhs.dtype().is_nullable() || rhs.dtype().is_nullable();
     let lhs = Datum::try_from(lhs.clone())?;
     let rhs = Datum::try_from(rhs.clone())?;
 
@@ -197,7 +198,7 @@ pub(crate) fn arrow_compare(
         Operator::Lte => cmp::lt_eq(&lhs, &rhs)?,
     };
 
-    Ok(ArrayData::from_arrow(&array, true))
+    Ok(ArrayData::from_arrow(&array, nullable))
 }
 
 pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: Operator) -> Scalar {

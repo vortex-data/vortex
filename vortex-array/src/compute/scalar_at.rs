@@ -45,8 +45,8 @@ pub fn scalar_at(array: impl AsRef<ArrayData>, index: usize) -> VortexResult<Sca
         .unwrap_or_else(|| Err(vortex_err!(NotImplemented: "scalar_at", array.encoding().id())))?;
 
     debug_assert_eq!(
-        array.dtype(),
         scalar.dtype(),
+        array.dtype(),
         "ScalarAt dtype mismatch {}",
         array.encoding().id()
     );
