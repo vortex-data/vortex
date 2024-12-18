@@ -78,8 +78,9 @@ impl<'a, 'b: 'a> ArrayVisitor for TreeFormatter<'a, 'b> {
     fn visit_buffer(&mut self, buffer: &ArrayBuffer) -> VortexResult<()> {
         Ok(writeln!(
             self.fmt,
-            "{}buffer: {}",
+            "{}buffer (align={}): {}",
             self.indent,
+            buffer.alignment(),
             format_size(buffer.len(), DECIMAL)
         )?)
     }
