@@ -241,20 +241,6 @@ impl VariantsVTable<BitPackedArray> for BitPackedEncoding {
 }
 
 impl PrimitiveArrayTrait for BitPackedArray {}
-// impl PrimitiveArrayTrait for BitPackedArray {
-//     fn ptype(&self) -> PType {
-//         // NOTE: we use the fastlanes::BitPack provided kernels for compute with BitPackedArray,
-//         //  which is only implemented for unsigned integer types.
-//         //  As a precondition of building a new BitPackedArray, we ensure that it may only
-//         //  contain non-negative values. Thus, it is always safe to read the packed data
-//         //  reinterpreted as the unsigned variant of any integer type.
-//         if let DType::Primitive(ptype, _) = self.dtype() {
-//             ptype.to_unsigned()
-//         } else {
-//             unreachable!()
-//         }
-//     }
-// }
 
 #[cfg(test)]
 mod test {
