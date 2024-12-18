@@ -6,8 +6,7 @@ use vortex_scalar::Scalar;
 use crate::array::chunked::ChunkedArray;
 use crate::array::ChunkedEncoding;
 use crate::compute::{
-    scalar_at, search_sorted_usize, slice, subtract_scalar, take, try_cast, SearchSortedSide,
-    TakeFn,
+    scalar_at, search_sorted_usize, slice, sub_scalar, take, try_cast, SearchSortedSide, TakeFn,
 };
 use crate::stats::ArrayStatistics;
 use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
@@ -93,15 +92,15 @@ fn take_strict_sorted(chunked: &ChunkedArray, indices: &ArrayData) -> VortexResu
                 .max_value_as_u64()
                 .try_into()?
         {
-            subtract_scalar(
+            sub_scalar(
                 &chunk_indices,
-                &Scalar::from(chunk_begin).cast(chunk_indices.dtype())?,
+                Scalar::from(chunk_begin).cast(chunk_indices.dtype())?,
             )?
         } else {
             // Note. this try_cast (memory copy) is unnecessary, could instead upcast in the subtract fn.
             //  and avoid an extra
             let u64_chunk_indices = try_cast(&chunk_indices, PType::U64.into())?;
-            subtract_scalar(&u64_chunk_indices, &chunk_begin.into())?
+            sub_scalar(&u64_chunk_indices, chunk_begin.into())?
         };
 
         indices_by_chunk[chunk_idx] = Some(chunk_indices);

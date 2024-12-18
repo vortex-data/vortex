@@ -42,7 +42,7 @@ impl EncodingCompressor for FoRCompressor {
         let shift = trailing_zeros(array);
         match_each_integer_ptype!(parray.ptype(), |$P| {
             let min: $P = parray.statistics().compute_min()?;
-            if min == 0 && shift == 0 && parray.ptype().is_unsigned_int() {
+            if min == 0 && shift == 0 {
                 return None;
             }
         });

@@ -147,6 +147,28 @@ macro_rules! match_each_native_ptype {
             PType::F32 => __with__! { f32 },
             PType::F64 => __with__! { f64 },
         }
+    });
+    ($self:expr,
+     integral: | $_:tt $integral_enc:ident | { $($integral_body:tt)* }
+     floating_point: | $_2:tt $floating_point_enc:ident | { $($floating_point_body:tt)* }
+    ) => ({
+        macro_rules! __with_integer__ {( $_ $integral_enc:ident ) => ( { $($integral_body)* } )}
+        macro_rules! __with_floating_point__ {( $_ $floating_point_enc:ident ) => ( { $($floating_point_body)* } )}
+        use $crate::PType;
+        use $crate::half::f16;
+        match $self {
+            PType::I8 => __with_integer__! { i8 },
+            PType::I16 => __with_integer__! { i16 },
+            PType::I32 => __with_integer__! { i32 },
+            PType::I64 => __with_integer__! { i64 },
+            PType::U8 => __with_integer__! { u8 },
+            PType::U16 => __with_integer__! { u16 },
+            PType::U32 => __with_integer__! { u32 },
+            PType::U64 => __with_integer__! { u64 },
+            PType::F16 => __with_floating_point__! { f16 },
+            PType::F32 => __with_floating_point__! { f32 },
+            PType::F64 => __with_floating_point__! { f64 },
+        }
     })
 }
 

@@ -57,8 +57,7 @@ impl EncodingCompressor for BitPackedCompressor {
         // Only support primitive arrays
         let parray = PrimitiveArray::maybe_from(array)?;
 
-        // Only supports unsigned ints
-        if !parray.ptype().is_unsigned_int() {
+        if !parray.ptype().is_int() {
             return None;
         }
 

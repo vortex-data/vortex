@@ -10,8 +10,9 @@ use crate::{ArrayLen, IntoArrayVariant};
 impl PrimitiveArray {
     #[allow(clippy::cognitive_complexity)]
     pub fn patch(self, patches: Patches) -> VortexResult<Self> {
-        let indices = patches.indices().clone().into_primitive()?;
-        let values = patches.values().clone().into_primitive()?;
+        let (_, indices, values) = patches.into_parts();
+        let indices = indices.into_primitive()?;
+        let values = values.into_primitive()?;
 
         let patched_validity =
             self.validity()

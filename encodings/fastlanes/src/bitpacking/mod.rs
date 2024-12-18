@@ -63,9 +63,8 @@ impl BitPackedArray {
         offset: u16,
     ) -> VortexResult<Self> {
         let dtype = DType::Primitive(ptype, validity.nullability());
-
-        if !dtype.is_unsigned_int() {
-            vortex_bail!(MismatchedTypes: "uint", &dtype);
+        if !dtype.is_int() {
+            vortex_bail!(MismatchedTypes: "integer", dtype);
         }
 
         if bit_width > u64::BITS as u8 {
