@@ -124,7 +124,7 @@ fn random_list_offset<O: PrimInt + NativePType>(
     n: &Nullability,
 ) -> Result<ArrayData> {
     let list_len = u.int_in_range(0..=20)?;
-    let mut builder = ListBuilder::<u64>::with_capacity(ldt.clone(), *n, 1);
+    let mut builder = ListBuilder::<O>::with_capacity(ldt.clone(), *n, 1);
     for _ in 0..list_len {
         if matches!(n, Nullable) || u.arbitrary::<bool>()? {
             let elem_len = u.int_in_range(0..=20)?;
