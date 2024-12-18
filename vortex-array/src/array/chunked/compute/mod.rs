@@ -73,6 +73,7 @@ impl CastFn<ChunkedArray> for ChunkedEncoding {
 
 #[cfg(test)]
 mod test {
+    use vortex_buffer::ScalarBufferMut;
     use vortex_dtype::{DType, Nullability, PType};
 
     use crate::array::chunked::ChunkedArray;
@@ -110,7 +111,7 @@ mod test {
             .into_primitive()
             .unwrap()
             .into_maybe_null_slice::<u64>(),
-            vec![0u64, 1, 2, 3],
+            ScalarBufferMut::<u64>::from_iter([0u64, 1, 2, 3]),
         );
     }
 }

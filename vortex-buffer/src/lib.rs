@@ -10,6 +10,8 @@
 //!
 //! We do not currently enforce any alignment guarantees on the buffer.
 
+extern crate core;
+
 use core::cmp::Ordering;
 use core::ops::{Deref, Range};
 

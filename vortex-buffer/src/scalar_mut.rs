@@ -1,3 +1,5 @@
+use std::ops::{Deref, DerefMut};
+
 use vortex_dtype::NativePType;
 use vortex_error::vortex_panic;
 
@@ -64,6 +66,22 @@ impl<T: NativePType> ScalarBufferMut<T> {
         self.buffer.capacity() / size_of::<T>()
     }
 
+    /// Returns a slice over the buffer of elements of type T.
+    #[inline]
+    pub fn as_slice(&self) -> &[T] {
+        let raw_slice = self.buffer.as_slice();
+        // SAFETY: alignment of Buffer is checked on construction
+        unsafe { std::slice::from_raw_parts(raw_slice.as_ptr().cast(), self.length) }
+    }
+
+    /// Returns a slice over the buffer of elements of type T.
+    #[inline]
+    pub fn as_mut_slice(&mut self) -> &mut [T] {
+        let raw_slice = self.buffer.as_mut_slice();
+        // SAFETY: alignment of Buffer is checked on construction
+        unsafe { std::slice::from_raw_parts_mut(raw_slice.as_mut_ptr().cast(), self.length) }
+    }
+
     /// Reserves capacity for at least `additional` more elements to be inserted in the buffer.
     #[inline]
     pub fn reserve(&mut self, additional: usize) {
@@ -72,7 +90,7 @@ impl<T: NativePType> ScalarBufferMut<T> {
 
     /// Appends a scalar to the buffer.
     pub fn push(&mut self, value: T) {
-        self.reserve(1);
+        // The extend_from_slice function will reserve additional space if required.
         self.buffer.extend_from_slice(value.to_le_bytes());
         self.length += 1;
     }
@@ -91,7 +109,6 @@ impl<T: NativePType> ScalarBufferMut<T> {
     /// ```
     #[inline]
     pub fn extend_from_slice(&mut self, slice: &[T]) {
-        self.buffer.reserve(slice.len() * size_of::<T>());
         self.buffer
             .extend_from_slice(unsafe { std::mem::transmute(slice) });
         self.length += slice.len();
@@ -100,5 +117,32 @@ impl<T: NativePType> ScalarBufferMut<T> {
     /// Freeze the `ScalarBufferMut` into a `ScalarBuffer`.
     pub fn freeze(self) -> ScalarBuffer<T> {
         ScalarBuffer::from(self.buffer.freeze())
+    }
+}
+
+impl<T: NativePType> Deref for ScalarBufferMut<T> {
+    type Target = [T];
+
+    fn deref(&self) -> &Self::Target {
+        self.as_slice()
+    }
+}
+
+impl<T: NativePType> DerefMut for ScalarBufferMut<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.as_mut_slice()
+    }
+}
+
+impl<T: NativePType> FromIterator<T> for ScalarBufferMut<T> {
+    fn from_iter<T: IntoIterator<Item = T>>(iter: T) -> Self {
+        // TODO(ngates): check out the Arrow extend_from_slice optimizations
+        let iter = iter.into_iter();
+        let (lower, _) = iter.size_hint();
+        let mut buffer = Self::new(lower);
+        for value in iter {
+            buffer.push(value);
+        }
+        buffer
     }
 }
