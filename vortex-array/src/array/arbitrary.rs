@@ -4,10 +4,12 @@ use std::sync::Arc;
 use arbitrary::{Arbitrary, Result, Unstructured};
 use arrow_buffer::BooleanBuffer;
 use builders::ListBuilder;
+use num_traits::PrimInt;
 use vortex_dtype::{DType, NativePType, Nullability, PType};
 use vortex_error::{VortexExpect, VortexUnwrap};
 use vortex_scalar::arbitrary::random_scalar;
 use vortex_scalar::Scalar;
+use Nullability::Nullable;
 
 use super::{BoolArray, ChunkedArray, NullArray, PrimitiveArray, StructArray};
 use crate::array::{VarBinArray, VarBinViewArray};
@@ -105,10 +107,26 @@ fn random_array(u: &mut Unstructured, dtype: &DType, len: Option<usize>) -> Resu
 }
 
 fn random_list(u: &mut Unstructured, ldt: &Arc<DType>, n: &Nullability) -> Result<ArrayData> {
+    match u.int_in_range(0..=5)? {
+        0 => random_list_offset::<i16>(u, ldt, n),
+        1 => random_list_offset::<i32>(u, ldt, n),
+        2 => random_list_offset::<i64>(u, ldt, n),
+        3 => random_list_offset::<u16>(u, ldt, n),
+        4 => random_list_offset::<u32>(u, ldt, n),
+        5 => random_list_offset::<u64>(u, ldt, n),
+        _ => unreachable!("int_in_range returns a value in the above range"),
+    }
+}
+
+fn random_list_offset<O: PrimInt + NativePType>(
+    u: &mut Unstructured,
+    ldt: &Arc<DType>,
+    n: &Nullability,
+) -> Result<ArrayData> {
     let list_len = u.int_in_range(0..=20)?;
-    let mut builder = ListBuilder::with_capacity(ldt.clone(), *n, 1);
+    let mut builder = ListBuilder::<u64>::with_capacity(ldt.clone(), *n, 1);
     for _ in 0..list_len {
-        if u.arbitrary::<bool>()? {
+        if matches!(n, Nullable) || u.arbitrary::<bool>()? {
             let elem_len = u.int_in_range(0..=20)?;
             let elem = (0..elem_len)
                 .map(|_| random_scalar(u, ldt))
@@ -146,10 +164,10 @@ fn random_string(
                 _ => unreachable!(),
             })
         }
-        Nullability::Nullable => {
+        Nullable => {
             let v = arbitrary_vec_of_len::<Option<String>>(u, len)?;
             Ok(match u.int_in_range(0..=1)? {
-                0 => VarBinArray::from_iter(v, DType::Utf8(Nullability::Nullable)).into_array(),
+                0 => VarBinArray::from_iter(v, DType::Utf8(Nullable)).into_array(),
                 1 => VarBinViewArray::from_iter_nullable_str(v).into_array(),
                 _ => unreachable!(),
             })
@@ -171,10 +189,10 @@ fn random_bytes(
                 _ => unreachable!(),
             })
         }
-        Nullability::Nullable => {
+        Nullable => {
             let v = arbitrary_vec_of_len::<Option<Vec<u8>>>(u, len)?;
             Ok(match u.int_in_range(0..=1)? {
-                0 => VarBinArray::from_iter(v, DType::Binary(Nullability::Nullable)).into_array(),
+                0 => VarBinArray::from_iter(v, DType::Binary(Nullable)).into_array(),
                 1 => VarBinViewArray::from_iter_nullable_bin(v).into_array(),
                 _ => unreachable!(),
             })
@@ -207,7 +225,7 @@ fn random_bool(
 fn random_validity(u: &mut Unstructured, nullability: Nullability, len: usize) -> Result<Validity> {
     match nullability {
         Nullability::NonNullable => Ok(Validity::NonNullable),
-        Nullability::Nullable => Ok(match u.int_in_range(0..=2)? {
+        Nullable => Ok(match u.int_in_range(0..=2)? {
             0 => Validity::AllValid,
             1 => Validity::AllInvalid,
             2 => Validity::from_iter(arbitrary_vec_of_len::<bool>(u, Some(len))?),
