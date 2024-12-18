@@ -1,7 +1,7 @@
 use arrow_buffer::NullBufferBuilder;
-use bytes::BytesMut;
 use num_traits::AsPrimitive;
-use vortex_dtype::{DType, NativePType};
+use vortex_buffer::Buffer;
+use vortex_dtype::{DType, NativePType, PType};
 use vortex_error::{vortex_panic, VortexExpect as _};
 
 use crate::array::primitive::PrimitiveArray;
@@ -11,7 +11,7 @@ use crate::IntoArrayData;
 
 pub struct VarBinBuilder<O: NativePType> {
     offsets: Vec<O>,
-    data: BytesMut,
+    data: Vec<u8>,
     validity: NullBufferBuilder,
 }
 
@@ -31,7 +31,7 @@ impl<O: NativePType> VarBinBuilder<O> {
         offsets.push(O::zero());
         Self {
             offsets,
-            data: BytesMut::new(),
+            data: Vec::new(),
             validity: NullBufferBuilder::new(len),
         }
     }
@@ -80,7 +80,7 @@ impl<O: NativePType> VarBinBuilder<O> {
 
     pub fn finish(mut self, dtype: DType) -> VarBinArray {
         let offsets = PrimitiveArray::from(self.offsets);
-        let data = PrimitiveArray::from_bytes(self.data.freeze(), Validity::NonNullable);
+        let data = PrimitiveArray::new(Buffer::from(self.data), PType::I8, Validity::NonNullable);
         let nulls = self.validity.finish();
 
         let validity = if dtype.is_nullable() {

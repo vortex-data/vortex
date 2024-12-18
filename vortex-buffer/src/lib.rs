@@ -121,6 +121,20 @@ impl Buffer {
     }
 }
 
+impl PartialEq for Buffer {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_ref().eq(other.as_ref())
+    }
+}
+
+impl Eq for Buffer {}
+
+impl PartialOrd for Buffer {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.as_ref().partial_cmp(other.as_ref())
+    }
+}
+
 impl Deref for Buffer {
     type Target = [u8];
 
@@ -135,10 +149,15 @@ impl AsRef<[u8]> for Buffer {
     }
 }
 
-impl From<&[u8]> for Buffer {
-    fn from(value: &[u8]) -> Self {
-        // We prefer Arrow since it retains mutability
+impl From<&'static [u8]> for Buffer {
+    fn from(value: &'static [u8]) -> Self {
         Buffer(Inner::Arrow(ArrowBuffer::from(value)))
+    }
+}
+
+impl From<&'static str> for Buffer {
+    fn from(slice: &'static str) -> Buffer {
+        Buffer(Inner::Arrow(ArrowBuffer::from(slice.as_bytes())))
     }
 }
 
@@ -167,16 +186,8 @@ impl From<ArrowMutableBuffer> for Buffer {
     }
 }
 
-impl PartialEq for Buffer {
-    fn eq(&self, other: &Self) -> bool {
-        self.as_ref().eq(other.as_ref())
-    }
-}
-
-impl Eq for Buffer {}
-
-impl PartialOrd for Buffer {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.as_ref().partial_cmp(other.as_ref())
+impl FromIterator<u8> for Buffer {
+    fn from_iter<T: IntoIterator<Item = u8>>(iter: T) -> Self {
+        Buffer(Inner::Arrow(ArrowBuffer::from_iter(iter)))
     }
 }

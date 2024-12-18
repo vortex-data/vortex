@@ -1,5 +1,5 @@
-use bytes::Bytes;
 use flatbuffers::{FlatBufferBuilder, WIPOffset};
+use vortex_buffer::Buffer;
 use vortex_flatbuffers::{footer as fb, FlatBufferRoot, WriteFlatBuffer};
 
 use crate::byte_range::ByteRange;
@@ -11,7 +11,7 @@ pub struct LayoutSpec {
     buffers: Option<Vec<ByteRange>>,
     children: Option<Vec<LayoutSpec>>,
     row_count: u64,
-    metadata: Option<Bytes>,
+    metadata: Option<Buffer>,
 }
 
 impl LayoutSpec {
@@ -28,7 +28,7 @@ impl LayoutSpec {
     /// Create a chunked layout with children.
     ///
     /// has_metadata indicates whether first child is a layout containing metadata about other children.
-    pub fn chunked(children: Vec<LayoutSpec>, row_count: u64, metadata: Option<Bytes>) -> Self {
+    pub fn chunked(children: Vec<LayoutSpec>, row_count: u64, metadata: Option<Buffer>) -> Self {
         Self {
             id: CHUNKED_LAYOUT_ID,
             buffers: None,
