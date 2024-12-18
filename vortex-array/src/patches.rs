@@ -202,7 +202,7 @@ impl Patches {
 
         let flat_indices = self.indices().clone().into_primitive()?;
         match_each_integer_ptype!(flat_indices.ptype(), |$I| {
-            for (value_idx, coordinate) in flat_indices.maybe_null_slice::<$I>().into_iter().enumerate() {
+            for (value_idx, coordinate) in flat_indices.maybe_null_slice::<$I>().iter().enumerate() {
                 let coordinate = *coordinate as usize;
                 if buffer.value(coordinate) {
                     // We count the number of truthy values between this coordinate and the previous truthy one
@@ -267,11 +267,17 @@ impl Patches {
     pub fn take_search(&self, take_indices: PrimitiveArray) -> VortexResult<Option<Self>> {
         let new_length = take_indices.len();
         let take_indices = match_each_integer_ptype!(take_indices.ptype(), |$P| {
-            take_indices
-                .maybe_null_slice::<$P>()
-                .into_iter()
-                .map(|x| usize::try_from(*x))
-                .collect::<Result<Vec<_>, _>>()?
+            match take_indices.try_into_maybe_null_vec::<$P>() {
+                Ok(vec) => vec
+                    .into_iter()
+                    .map(usize::try_from)
+                    .collect::<Result<Vec<_>, _>>()?,
+                Err(take_indices) => take_indices
+                    .maybe_null_slice::<$P>()
+                    .iter()
+                    .map(|x| usize::try_from(*x))
+                    .collect::<Result<Vec<_>, _>>()?,
+            }
         });
 
         let (values_indices, new_indices): (Vec<u64>, Vec<u64>) =
