@@ -223,7 +223,7 @@ fn pack_primitives<T: NativePType>(
     let mut buffer = ScalarBufferMut::<T>::new(len);
     for chunk in chunks {
         let chunk = chunk.clone().into_primitive()?;
-        buffer.append_slice(chunk.scalar_buffer::<T>().as_slice());
+        buffer.extend_from_slice(chunk.scalar_buffer::<T>().as_slice());
     }
 
     Ok(PrimitiveArray::new(buffer.freeze(), validity))

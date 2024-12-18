@@ -5,9 +5,9 @@ use crate::{AlignedBufferMut, Alignment, ScalarBuffer};
 
 /// A mutable buffer of Vortex primitive scalars.
 pub struct ScalarBufferMut<T: NativePType> {
-    buffer: AlignedBufferMut,
-    length: usize,
-    _marker: std::marker::PhantomData<T>,
+    pub(crate) buffer: AlignedBufferMut,
+    pub(crate) length: usize,
+    pub(crate) _marker: std::marker::PhantomData<T>,
 }
 
 impl<T: NativePType> ScalarBufferMut<T> {
@@ -30,6 +30,13 @@ impl<T: NativePType> ScalarBufferMut<T> {
             length: 0,
             _marker: Default::default(),
         }
+    }
+
+    /// Create a mutable scalar buffer by copying the contents of an immutable `ScalarBuffer`.
+    pub fn copy_from(other: &ScalarBuffer<T>) -> Self {
+        let mut buffer = Self::new_aligned(other.len(), other.alignment());
+        buffer.extend_from_slice(other.as_slice());
+        buffer
     }
 
     /// Get the alignment of the buffer.
@@ -78,12 +85,12 @@ impl<T: NativePType> ScalarBufferMut<T> {
     /// # use vortex_buffer::ScalarBufferMut;
     ///
     /// let mut builder = ScalarBufferMut::<u16>::new(10);
-    /// builder.append_slice(&[42, 44, 46]);
+    /// builder.extend_from_slice(&[42, 44, 46]);
     ///
     /// assert_eq!(builder.len(), 3);
     /// ```
     #[inline]
-    pub fn append_slice(&mut self, slice: &[T]) {
+    pub fn extend_from_slice(&mut self, slice: &[T]) {
         self.buffer.reserve(slice.len() * size_of::<T>());
         self.buffer
             .extend_from_slice(unsafe { std::mem::transmute(slice) });

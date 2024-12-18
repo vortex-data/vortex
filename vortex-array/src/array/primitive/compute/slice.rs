@@ -11,8 +11,12 @@ impl SliceFn<PrimitiveArray> for PrimitiveEncoding {
         let byte_width = array.ptype().byte_width();
         let buffer = array.buffer().slice(start * byte_width..stop * byte_width);
         Ok(
-            PrimitiveArray::new(buffer, array.ptype(), array.validity().slice(start, stop)?)
-                .into_array(),
+            PrimitiveArray::from_buffer(
+                buffer,
+                array.ptype(),
+                array.validity().slice(start, stop)?,
+            )
+            .into_array(),
         )
     }
 }

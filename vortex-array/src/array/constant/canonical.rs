@@ -1,7 +1,7 @@
 use arrow_array::builder::make_view;
-use arrow_buffer::{BooleanBuffer, BufferBuilder};
-use vortex_buffer::Buffer;
-use vortex_dtype::{match_each_native_ptype, DType, Nullability, PType};
+use arrow_buffer::BooleanBuffer;
+use vortex_buffer::{AlignedBufferMut, ScalarBuffer};
+use vortex_dtype::{match_each_native_ptype, DType, Nullability};
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::{BinaryScalar, BoolScalar, ExtScalar, Utf8Scalar};
 
@@ -89,9 +89,8 @@ fn canonical_byte_view(
             let mut buffers = Vec::new();
             if scalar_bytes.len() >= BinaryView::MAX_INLINED_SIZE {
                 buffers.push(
-                    sPrimitiveArray::new(
-                        Buffer::from(scalar_bytes.to_vec()),
-                        PType::U8,
+                    PrimitiveArray::new(
+                        ScalarBuffer::copy_from_vec(scalar_bytes.to_vec()),
                         Validity::NonNullable,
                     )
                     .into_array(),
@@ -101,11 +100,16 @@ fn canonical_byte_view(
             // Clone our constant view `len` times.
             // TODO(aduffy): switch this out for a ConstantArray once we
             //   add u128 PType, see https://github.com/spiraldb/vortex/issues/1110
-            let mut views = BufferBuilder::<u128>::new(len);
-            views.append_n(len, view);
-            let views =
-                PrimitiveArray::new(views.finish().into(), PType::U8, Validity::NonNullable)
-                    .into_array();
+            let mut views =
+                AlignedBufferMut::with_capacity(len * VIEW_SIZE_BYTES, align_of::<u128>().into());
+            for _ in 0..len {
+                views.extend_from_slice(&view.to_le_bytes());
+            }
+            let views = PrimitiveArray::new(
+                ScalarBuffer::<u8>::from(views.freeze()),
+                Validity::NonNullable,
+            )
+            .into_array();
 
             let validity = if dtype.nullability() == Nullability::NonNullable {
                 Validity::NonNullable

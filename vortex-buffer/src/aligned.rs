@@ -1,9 +1,10 @@
-use std::ops::Deref;
+use std::ops::{Bound, RangeBounds};
 
 use bytes::Bytes;
 use vortex_error::vortex_panic;
 
 use crate::alignment::Alignment;
+use crate::AlignedBufferMut;
 
 /// A buffer with runtime-validated alignment.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -39,6 +40,18 @@ impl AlignedBuffer {
         self.alignment
     }
 
+    /// The length of the buffer in bytes.
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.bytes.len()
+    }
+
+    /// Whether the buffer is empty.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.bytes.is_empty()
+    }
+
     /// Return the buffer as a slice of bytes.
     #[inline]
     pub fn as_slice(&self) -> &[u8] {
@@ -49,12 +62,66 @@ impl AlignedBuffer {
     pub fn into_inner(self) -> Bytes {
         self.bytes
     }
-}
 
-impl Deref for AlignedBuffer {
-    type Target = Bytes;
+    /// Try to convert self into `AlignedBufferMut` if there is only a single strong reference.
+    pub fn try_into_mut(self) -> Result<AlignedBufferMut, Self> {
+        self.bytes
+            .try_into_mut()
+            .map(|bytes| AlignedBufferMut {
+                bytes,
+                alignment: self.alignment,
+            })
+            .map_err(|bytes| Self {
+                bytes,
+                alignment: self.alignment,
+            })
+    }
 
-    fn deref(&self) -> &Self::Target {
-        &self.bytes
+    /// Returns a slice of self for the provided range.
+    ///
+    /// FIXME(ngates): what should this do to the alignment? The underlying buffer is still
+    ///  aligned... But the new sliced one might not be? Should we panic if the caller tries to
+    ///  slice using unaligned indices?
+    ///
+    /// # Panics
+    ///
+    /// Requires that `begin <= end` and `end <= self.len()`, otherwise slicing
+    /// will panic.
+    pub fn slice(&self, range: impl RangeBounds<usize>) -> Self {
+        let len = self.len();
+        let begin = match range.start_bound() {
+            Bound::Included(&n) => n,
+            Bound::Excluded(&n) => n.checked_add(1).expect("out of range"),
+            Bound::Unbounded => 0,
+        };
+        let end = match range.end_bound() {
+            Bound::Included(&n) => n.checked_add(1).expect("out of range"),
+            Bound::Excluded(&n) => n,
+            Bound::Unbounded => len,
+        };
+
+        assert!(
+            begin <= end,
+            "range start must not be greater than end: {:?} <= {:?}",
+            begin,
+            end,
+        );
+        assert!(
+            end <= len,
+            "range end out of bounds: {:?} <= {:?}",
+            end,
+            len,
+        );
+
+        if end == begin {
+            // We prefer to return a new empty buffer instead of sharing this one and creating a
+            // strong reference just to hold an empty slice.
+            return AlignedBuffer::new_with_alignment(Bytes::new(), self.alignment);
+        }
+
+        // Currently this panics if the begin/end are not aligned to the buffer's alignment...
+        // For unaligned access, the caller should go via `as_slice`.
+        // Alternatively, we could add a slice_with_alignment call that relaxes the alignment.
+        Self::new_with_alignment(self.bytes.slice(begin..end), self.alignment)
     }
 }

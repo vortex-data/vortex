@@ -8,9 +8,9 @@ use crate::AlignedBuffer;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AlignedBufferMut {
     /// The underlying bytes holding the data.
-    bytes: BytesMut,
+    pub(crate) bytes: BytesMut,
     /// The minimum alignment required for this buffer when (de)serialized.
-    alignment: Alignment,
+    pub(crate) alignment: Alignment,
 }
 
 impl AlignedBufferMut {
