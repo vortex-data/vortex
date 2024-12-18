@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use arrow_array::ArrayRef;
-use vortex_dtype::DType;
+use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, VortexError, VortexResult};
 use vortex_scalar::{BinaryNumericOperator, Scalar};
 
@@ -114,6 +114,26 @@ pub fn binary_numeric(
         )
     }
 
+    let result = binary_numeric_impl(lhs, rhs, op)?;
+
+    debug_assert_eq!(result.len(), lhs.len(), "Numeric operation length mismatch");
+    debug_assert_eq!(
+        result.dtype(),
+        &DType::Primitive(
+            PType::try_from(lhs.dtype())?,
+            (lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into()
+        ),
+        "Numeric operation should return a primitive array"
+    );
+
+    Ok(result)
+}
+
+fn binary_numeric_impl(
+    lhs: &ArrayData,
+    rhs: &ArrayData,
+    op: BinaryNumericOperator,
+) -> VortexResult<ArrayData> {
     // Check if LHS supports the operation directly.
     if let Some(fun) = lhs.encoding().binary_numeric_fn() {
         if let Some(result) = fun.binary_numeric(lhs, rhs, op)? {

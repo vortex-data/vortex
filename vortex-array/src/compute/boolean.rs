@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use arrow_array::cast::AsArray;
 use arrow_array::ArrayRef;
+use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 
 use crate::arrow::FromArrowArray;
@@ -96,6 +97,23 @@ pub fn binary_boolean(
         return binary_boolean(rhs, lhs, op);
     }
 
+    let result = binary_boolean_impl(lhs, rhs, op)?;
+
+    debug_assert_eq!(result.len(), lhs.len(), "Boolean operation length mismatch");
+    debug_assert_eq!(
+        result.dtype(),
+        &DType::Bool((lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into()),
+        "Boolean operation should return a boolean array"
+    );
+
+    Ok(result)
+}
+
+fn binary_boolean_impl(
+    lhs: &ArrayData,
+    rhs: &ArrayData,
+    op: BinaryOperator,
+) -> VortexResult<ArrayData> {
     // If the RHS is constant and the LHS is Arrow, we can't do any better than arrow_compare.
     if lhs.is_arrow() && (rhs.is_arrow() || rhs.is_constant()) {
         return arrow_boolean(lhs.clone(), rhs.clone(), op);

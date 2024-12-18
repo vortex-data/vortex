@@ -32,7 +32,12 @@ pub fn invert(array: &ArrayData) -> VortexResult<ArrayData> {
     }
 
     if let Some(f) = array.encoding().invert_fn() {
-        return f.invert(array);
+        let inverted = f.invert(array)?;
+
+        debug_assert_eq!(inverted.len(), array.len(), "Invert length mismatch");
+        debug_assert_eq!(inverted.dtype(), array.dtype(), "Invert dtype mismatch");
+
+        return Ok(inverted);
     }
 
     // Otherwise, we canonicalize into a boolean array and invert.
