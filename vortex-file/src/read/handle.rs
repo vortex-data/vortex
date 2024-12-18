@@ -34,12 +34,12 @@ impl<R: VortexReadAt + Unpin> VortexReadHandle<R> {
         dtype: Arc<LazyDType>,
         row_count: u64,
         row_mask: Option<RowMask>,
-        dispatcher: Arc<IoDispatcher>,
+        io_dispatcher: Arc<IoDispatcher>,
     ) -> VortexResult<Self> {
-        let mut reader_splits = BTreeSet::new();
-        layout_reader.add_splits(0, &mut reader_splits)?;
+        let mut splits = BTreeSet::new();
+        layout_reader.add_splits(0, &mut splits)?;
         if let Some(ref fr) = filter_reader {
-            fr.add_splits(0, &mut reader_splits)?;
+            fr.add_splits(0, &mut splits)?;
         }
 
         Ok(Self {
@@ -50,8 +50,8 @@ impl<R: VortexReadAt + Unpin> VortexReadHandle<R> {
             row_mask,
             layout_reader,
             filter_reader,
-            splits: reader_splits,
-            io_dispatcher: dispatcher,
+            splits,
+            io_dispatcher,
         })
     }
 

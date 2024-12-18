@@ -145,7 +145,7 @@ impl RowMask {
             return Ok(self.clone());
         }
 
-        // If both masks align
+        // If both masks align perfectly
         if self.begin == other.begin && self.end == other.end {
             let this_buffer = self.mask.to_boolean_buffer()?;
             let other_buffer = other.mask.to_boolean_buffer()?;
@@ -156,6 +156,14 @@ impl RowMask {
                 self.begin,
                 self.end,
             );
+        }
+
+        // Disjoint row ranges
+        if self.end <= other.begin || self.begin >= other.end {
+            return Ok(RowMask::new_invalid_between(
+                min(self.begin, other.begin),
+                max(self.end, other.end),
+            ));
         }
 
         // let min_part = {
