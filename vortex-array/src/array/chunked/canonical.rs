@@ -1,5 +1,6 @@
-use arrow_buffer::{BooleanBufferBuilder, Buffer, MutableBuffer, ScalarBuffer};
-use vortex_dtype::{DType, Nullability, PType, StructDType};
+use arrow_buffer::{BooleanBufferBuilder, Buffer, ScalarBuffer as ArrowScalarBuffer};
+use vortex_buffer::ScalarBufferMut;
+use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType, StructDType};
 use vortex_error::{vortex_bail, vortex_err, ErrString, VortexExpect, VortexResult};
 
 use crate::array::chunked::ChunkedArray;
@@ -102,8 +103,10 @@ pub(crate) fn try_canonicalize_chunks(
             Ok(Canonical::Bool(bool_array))
         }
         DType::Primitive(ptype, _) => {
-            let prim_array = pack_primitives(chunks.as_slice(), *ptype, validity)?;
-            Ok(Canonical::Primitive(prim_array))
+            match_each_native_ptype!(ptype, |$P| {
+                let prim_array = pack_primitives::<$P>(chunks.as_slice(), validity)?;
+                Ok(Canonical::Primitive(prim_array))
+            })
         }
         DType::Utf8(_) => {
             let varbin_array = pack_views(chunks.as_slice(), dtype, validity)?;
@@ -211,23 +214,19 @@ fn pack_bools(chunks: &[ArrayData], validity: Validity) -> VortexResult<BoolArra
 ///
 /// It is expected this function is only called from [try_canonicalize_chunks], and thus all chunks have
 /// been checked to have the same DType already.
-fn pack_primitives(
+fn pack_primitives<T: NativePType>(
     chunks: &[ArrayData],
-    ptype: PType,
     validity: Validity,
 ) -> VortexResult<PrimitiveArray> {
     let len: usize = chunks.iter().map(|chunk| chunk.len()).sum();
-    let mut buffer = MutableBuffer::with_capacity(len * ptype.byte_width());
+
+    let mut buffer = ScalarBufferMut::<T>::new(len);
     for chunk in chunks {
         let chunk = chunk.clone().into_primitive()?;
-        buffer.extend_from_slice(chunk.buffer());
+        buffer.append_slice(chunk.scalar_buffer::<T>().as_slice());
     }
 
-    Ok(PrimitiveArray::new(
-        Buffer::from(buffer).into(),
-        ptype,
-        validity,
-    ))
+    Ok(PrimitiveArray::new(buffer.freeze(), validity))
 }
 
 /// Builds a new [VarBinViewArray] by repacking the values from the chunks into a single
@@ -275,7 +274,7 @@ fn pack_views(
         }
     }
 
-    let views_buffer: Buffer = ScalarBuffer::<u128>::from(views).into_inner();
+    let views_buffer: Buffer = ArrowScalarBuffer::<u128>::from(views).into_inner();
     VarBinViewArray::try_new(
         ArrayData::from(views_buffer),
         buffers,

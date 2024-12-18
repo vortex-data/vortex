@@ -39,6 +39,12 @@ impl AlignedBuffer {
         self.alignment
     }
 
+    /// Return the buffer as a slice of bytes.
+    #[inline]
+    pub fn as_slice(&self) -> &[u8] {
+        self.bytes.as_ref()
+    }
+
     /// Extracts the underlying `Bytes` from the buffer.
     pub fn into_inner(self) -> Bytes {
         self.bytes

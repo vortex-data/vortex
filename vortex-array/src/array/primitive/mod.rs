@@ -3,10 +3,10 @@ use std::ptr;
 use std::sync::Arc;
 mod accessor;
 
-use arrow_buffer::{ArrowNativeType, BooleanBufferBuilder, Buffer as ArrowBuffer};
+use arrow_buffer::{ArrowNativeType, BooleanBufferBuilder};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use vortex_buffer::{AlignedBuffer, Buffer};
+use vortex_buffer::{AlignedBuffer, ScalarBuffer};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, PType};
 use vortex_error::{VortexExpect as _, VortexResult};
 
@@ -39,30 +39,16 @@ impl Display for PrimitiveMetadata {
 }
 
 impl PrimitiveArray {
-    pub fn new(buffer: Buffer, ptype: PType, validity: Validity) -> Self {
-        let length = match_each_native_ptype!(ptype, |$P| {
-            let (prefix, values, suffix) = unsafe { buffer.align_to::<$P>() };
-            assert!(
-                prefix.is_empty() && suffix.is_empty() && (buffer.as_ptr() as usize) % std::mem::size_of::<$P>() == 0,
-                "buffer is not aligned: {:?}",
-                buffer.as_ptr()
-            );
-            values.len()
-        });
-
+    pub fn new<T: NativePType>(buffer: ScalarBuffer<T>, validity: Validity) -> Self {
+        let len = buffer.len();
         ArrayData::try_new_owned(
             &PrimitiveEncoding,
-            DType::from(ptype).with_nullability(validity.nullability()),
-            length,
+            DType::from(T::PTYPE).with_nullability(validity.nullability()),
+            len,
             Arc::new(PrimitiveMetadata {
-                validity: validity
-                    .to_metadata(length)
-                    .vortex_expect("Invalid validity"),
+                validity: validity.to_metadata(len).vortex_expect("Invalid validity"),
             }),
-            Some(AlignedBuffer::new_with_alignment(
-                buffer,
-                ptype.byte_width(),
-            )),
+            Some(buffer.into_inner()),
             validity.into_array().into_iter().collect_vec().into(),
             StatsSet::default(),
         )
@@ -70,18 +56,12 @@ impl PrimitiveArray {
         .vortex_expect("Should not fail to create PrimitiveArray")
     }
 
+    // FIXME(ngates): deprecate this method since it now has to perform a copy.
     pub fn from_vec<T: NativePType>(values: Vec<T>, validity: Validity) -> Self {
-        match_each_native_ptype!(T::PTYPE, |$P| {
-            PrimitiveArray::new(
-                Buffer::from(
-                    ArrowBuffer::from(unsafe { std::mem::transmute::<Vec<T>, Vec<$P>>(values) })
-                ),
-                T::PTYPE,
-                validity,
-            )
-        })
+        Self::new(ScalarBuffer::copy_from_vec(values), validity)
     }
 
+    // FIXME(ngates): use ScalarBufferMut<T>.
     pub fn from_nullable_vec<T: NativePType>(values: Vec<Option<T>>) -> Self {
         let elems: Vec<T> = values.iter().map(|v| v.unwrap_or_default()).collect();
         let validity = Validity::from_iter(values.iter().map(|v| v.is_some()));
@@ -100,6 +80,17 @@ impl PrimitiveArray {
         self.as_ref()
             .buffer()
             .vortex_expect("Missing buffer in PrimitiveArray")
+    }
+
+    pub fn scalar_buffer<T: NativePType>(&self) -> ScalarBuffer<T> {
+        assert_eq!(
+            T::PTYPE,
+            self.ptype(),
+            "Attempted to get slice of type {} from array of type {}",
+            T::PTYPE,
+            self.ptype(),
+        );
+        ScalarBuffer::from(self.buffer().clone())
     }
 
     pub fn maybe_null_slice<T: NativePType>(&self) -> &[T] {

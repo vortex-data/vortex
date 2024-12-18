@@ -31,6 +31,6 @@ impl AlignedBuffer {
 impl<T: NativePType + ArrowNativeType> ScalarBuffer<T> {
     /// Converts the buffer zero-copy into a `arrow_buffer::ScalarBuffer`.
     pub fn into_arrow(self) -> arrow_buffer::ScalarBuffer<T> {
-        arrow_buffer::ScalarBuffer::from(self.into_buffer().into_arrow())
+        arrow_buffer::ScalarBuffer::from(self.into_inner().into_arrow())
     }
 }
