@@ -2,13 +2,16 @@ use std::iter;
 
 use arbitrary::{Arbitrary, Result, Unstructured};
 use arrow_buffer::BooleanBuffer;
+use builders::ListBuilder;
 use vortex_dtype::{DType, NativePType, Nullability, PType};
 use vortex_error::{VortexExpect, VortexUnwrap};
+use vortex_scalar::ListScalar;
 
 use super::{BoolArray, ChunkedArray, ListArray, NullArray, PrimitiveArray, StructArray};
 use crate::array::{VarBinArray, VarBinViewArray};
+use crate::builders::ArrayBuilder;
 use crate::validity::Validity;
-use crate::{ArrayDType, ArrayData, IntoArrayData as _, IntoArrayVariant};
+use crate::{builders, ArrayDType, ArrayData, IntoArrayData as _, IntoArrayVariant};
 
 impl<'a> Arbitrary<'a> for ArrayData {
     fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
@@ -82,14 +85,14 @@ fn random_array(u: &mut Unstructured, dtype: &DType, len: Option<usize>) -> Resu
                     .into_array())
                 }
                 DType::List(ldt, n) => {
-                    let list_len = u.int_in_range(0..20)?;
-                    let builder = ListBuilder::new(ldt.clone(), list_len);
+                    let list_len = u.int_in_range(0..=20)?;
                     for _ in 0..list_len {
-                        let null_value = u.arbitrary::<bool>()?;
-                        if null_value {}
-                        let values = random_array(u, ldt, chunk_len)?;
+                        let value = random_array(u, ldt, None)?;
+                        let mut builder = ListBuilder::with_capacity(ldt.clone(), *n, 1);
+                        ListScalar::builder.append_elements(value)?;
+                        builder.finish()?;
                     }
-                    let values = random_array(u, ldt, chunk_len)?;
+                    Ok(builder.finish()?)
                 }
                 DType::Extension(..) => {
                     todo!("Extension arrays are not implemented")
