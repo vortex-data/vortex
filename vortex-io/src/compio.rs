@@ -1,7 +1,6 @@
 use std::future::Future;
 use std::io;
 
-use compio::buf::{IoBuf, IoBufMut, SetBufInit};
 use compio::fs::File;
 use compio::io::AsyncReadAtExt;
 use compio::BufResult;
@@ -51,6 +50,6 @@ mod tests {
 
         // Use the file as a VortexReadAt instance.
         let read = file.read_byte_range(2, 4).await.unwrap();
-        assert_eq!(&read, "2345".as_bytes());
+        assert_eq!(read.as_ref(), "2345".as_bytes());
     }
 }

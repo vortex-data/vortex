@@ -77,6 +77,7 @@ impl VortexReadAt for ObjectStoreReadAt {
         Box::pin(async move {
             let read_start: usize = pos.try_into().vortex_expect("pos");
             let read_end: usize = (pos + len).try_into().vortex_expect("pos + len");
+            let len: usize = len.try_into().vortex_expect("len does not fit into usize");
 
             let response = object_store
                 .get_opts(
@@ -92,10 +93,10 @@ impl VortexReadAt for ObjectStoreReadAt {
             //  it's coming from a network stream. Internally they optimize the File implementation
             //  to only perform a single allocation when calling `.bytes().await`, which we
             //  replicate here by emitting the contents directly into our aligned buffer.
-            let mut buffer = Vec::with_capacity(len as usize);
+            let mut buffer = Vec::with_capacity(len);
             match response.payload {
                 GetResultPayload::File(file, _) => {
-                    unsafe { buffer.set_len(len as usize) };
+                    unsafe { buffer.set_len(len) };
                     file.read_exact_at(&mut buffer, pos)?;
                 }
                 GetResultPayload::Stream(mut byte_stream) => {

@@ -474,7 +474,7 @@ mod tests {
                     RelativeLayoutCache::new(cache.clone(), dtype),
                 )
                 .unwrap(),
-            Buffer::from(written),
+            written,
             len,
         )
     }
