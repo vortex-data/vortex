@@ -1,6 +1,6 @@
 use itertools::Itertools;
 use vortex_dtype::match_each_integer_ptype;
-use vortex_error::{vortex_err, VortexExpect as _, VortexResult};
+use vortex_error::VortexResult;
 
 use crate::array::BoolArray;
 use crate::patches::Patches;
@@ -21,12 +21,10 @@ impl BoolArray {
         let (mut own_values, bit_offset) = self.into_boolean_builder();
         match_each_integer_ptype!(indices.ptype(), |$I| {
             let indices_vec = indices
-                .try_into_maybe_null_vec::<$I>()
-                .map_err(|_| vortex_err!("could not zero copy patched left_parts_decoded"))
-                .vortex_expect("there are no aliases to this primitive array");
-            for (idx, value) in indices_vec.into_iter().zip_eq(values.boolean_buffer().iter())
+                .maybe_null_slice::<$I>();
+            for (idx, value) in indices_vec.iter().zip_eq(values.boolean_buffer().iter())
             {
-                own_values.set_bit(idx as usize + bit_offset, value);
+                own_values.set_bit(*idx as usize + bit_offset, value);
             }
         });
 
