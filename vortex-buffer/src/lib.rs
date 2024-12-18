@@ -151,13 +151,13 @@ impl AsRef<[u8]> for Buffer {
 
 impl From<&'static [u8]> for Buffer {
     fn from(value: &'static [u8]) -> Self {
-        Buffer(Inner::Arrow(ArrowBuffer::from(value)))
+        Buffer(Inner::Bytes(bytes::Bytes::from_static(value)))
     }
 }
 
 impl From<&'static str> for Buffer {
     fn from(slice: &'static str) -> Buffer {
-        Buffer(Inner::Arrow(ArrowBuffer::from(slice.as_bytes())))
+        Buffer(Inner::Bytes(bytes::Bytes::from_static(slice.as_bytes())))
     }
 }
 
