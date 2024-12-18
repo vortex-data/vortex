@@ -1,4 +1,5 @@
 use std::iter;
+use std::sync::Arc;
 
 use arbitrary::{Arbitrary, Result, Unstructured};
 use arrow_buffer::BooleanBuffer;
@@ -85,24 +86,7 @@ fn random_array(u: &mut Unstructured, dtype: &DType, len: Option<usize>) -> Resu
                     .vortex_unwrap()
                     .into_array())
                 }
-                DType::List(ldt, n) => {
-                    let list_len = u.int_in_range(0..=20)?;
-                    let mut builder = ListBuilder::with_capacity(ldt.clone(), *n, 1);
-                    for _ in 0..list_len {
-                        if u.arbitrary::<bool>()? {
-                            let elem_len = u.int_in_range(0..=20)?;
-                            let elem = (0..elem_len)
-                                .map(|_| random_scalar(u, ldt))
-                                .collect::<Result<Vec<_>>>()?;
-                            builder
-                                .append_value(Scalar::list(ldt.clone(), elem).as_list())
-                                .vortex_expect("can append value");
-                        } else {
-                            builder.append_null();
-                        }
-                    }
-                    Ok(builder.finish()?)
-                }
+                DType::List(ldt, n) => random_list(u, ldt, n),
                 DType::Extension(..) => {
                     todo!("Extension arrays are not implemented")
                 }
@@ -118,6 +102,25 @@ fn random_array(u: &mut Unstructured, dtype: &DType, len: Option<usize>) -> Resu
             .vortex_unwrap()
             .into_array())
     }
+}
+
+fn random_list(u: &mut Unstructured, ldt: &Arc<DType>, n: &Nullability) -> Result<ArrayData> {
+    let list_len = u.int_in_range(0..=20)?;
+    let mut builder = ListBuilder::with_capacity(ldt.clone(), *n, 1);
+    for _ in 0..list_len {
+        if u.arbitrary::<bool>()? {
+            let elem_len = u.int_in_range(0..=20)?;
+            let elem = (0..elem_len)
+                .map(|_| random_scalar(u, ldt))
+                .collect::<Result<Vec<_>>>()?;
+            builder
+                .append_value(Scalar::list(ldt.clone(), elem).as_list())
+                .vortex_expect("can append value");
+        } else {
+            builder.append_null();
+        }
+    }
+    Ok(builder.finish().vortex_expect("builder cannot error"))
 }
 
 fn split_number_into_parts(n: usize, parts: usize) -> Vec<usize> {
