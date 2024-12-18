@@ -50,7 +50,6 @@ impl ListBuilder {
     }
 
     pub fn append_value(&mut self, value: ListScalar) -> VortexResult<()> {
-        let count = self.value_builder.len();
         if value.is_null() {
             self.append_null();
             Ok(())
@@ -60,9 +59,13 @@ impl ListBuilder {
                 // or the list scalar should hold an ArrayData
                 self.value_builder.append_scalar(&scalar)?;
             }
-            self.index_builder
-                .append_scalar(&Scalar::from(count + self.value_builder.len()))
+            self.append_index(self.value_builder.len() as u64)
         }
+    }
+
+    fn append_index(&mut self, index: u64) -> VortexResult<()> {
+        self.index_builder
+            .append_scalar(&Scalar::from(index).cast(self.index_builder.dtype())?)
     }
 }
 
@@ -84,11 +87,10 @@ impl ArrayBuilder for ListBuilder {
     }
 
     fn append_zeros(&mut self, n: usize) {
-        self.value_builder.append_zeros(n);
         let count = self.value_builder.len();
+        self.value_builder.append_zeros(n);
         for i in 0..n {
-            self.index_builder
-                .append_scalar(&Scalar::from(count + i + 1))
+            self.append_index((count + i + 1) as u64)
                 .vortex_expect("Failed to append index");
         }
         self.validity.append_values(true, n);
@@ -99,11 +101,10 @@ impl ArrayBuilder for ListBuilder {
         for _ in 0..n {
             // A list with a null element is can be a list with a zero-span offset and a validity
             // bit set
-            self.index_builder
-                .append_scalar(&Scalar::from(count))
-                .vortex_expect("Failed to append null");
-            self.validity.append_null();
+            self.append_index(count as u64)
+                .vortex_expect("Failed to append index");
         }
+        self.validity.append_values(false, n);
     }
 
     fn finish(&mut self) -> VortexResult<ArrayData> {
@@ -118,5 +119,58 @@ impl ArrayBuilder for ListBuilder {
             validity,
         )
         .map(ListArray::into_array)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_scalar::Scalar;
+
+    use crate::builders::list::ListBuilder;
+    use crate::builders::ArrayBuilder;
+    use crate::IntoArrayVariant;
+
+    #[test]
+    fn test_empty() {
+        let mut builder =
+            ListBuilder::with_capacity(Arc::new(PType::I32.into()), Nullability::NonNullable, 0);
+
+        let list = builder.finish().unwrap();
+        assert_eq!(list.len(), 0);
+    }
+
+    #[test]
+    fn test_values() {
+        let dtype: Arc<DType> = Arc::new(PType::I32.into());
+        let mut builder = ListBuilder::with_capacity(dtype.clone(), Nullability::NonNullable, 0);
+
+        builder
+            .append_value(
+                Scalar::list(dtype.clone(), vec![1i32.into(), 2i32.into(), 3i32.into()]).as_list(),
+            )
+            .unwrap();
+
+        builder
+            .append_value(Scalar::empty(dtype.clone()).as_list())
+            .unwrap();
+
+        builder
+            .append_value(
+                Scalar::list(dtype.clone(), vec![4i32.into(), 5i32.into(), 6i32.into()]).as_list(),
+            )
+            .unwrap();
+
+        let list = builder.finish().unwrap();
+        assert_eq!(list.len(), 3);
+
+        let list_array = list.into_list().unwrap();
+        println!("{:?}", list_array);
+
+        assert_eq!(list_array.elements_at(0).unwrap().len(), 3);
+        assert!(list_array.elements_at(1).unwrap().is_empty());
+        assert_eq!(list_array.elements_at(2).unwrap().len(), 3);
     }
 }

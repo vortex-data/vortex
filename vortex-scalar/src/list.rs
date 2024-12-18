@@ -2,7 +2,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use vortex_dtype::DType;
-use vortex_dtype::Nullability::NonNullable;
+use vortex_dtype::Nullability::{NonNullable, Nullable};
 use vortex_error::{vortex_bail, vortex_panic, VortexError, VortexResult};
 
 use crate::value::{InnerScalarValue, ScalarValue};
@@ -87,6 +87,13 @@ impl Scalar {
             value: ScalarValue(InnerScalarValue::List(
                 children.into_iter().map(|x| x.value).collect::<Arc<[_]>>(),
             )),
+        }
+    }
+
+    pub fn empty(element_dtype: Arc<DType>) -> Self {
+        Self {
+            dtype: DType::List(element_dtype, Nullable),
+            value: ScalarValue(InnerScalarValue::Null),
         }
     }
 }
