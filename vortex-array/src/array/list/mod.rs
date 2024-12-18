@@ -88,8 +88,6 @@ impl ListArray {
         )
     }
 
-    pub fn from_vec()
-
     pub fn validity(&self) -> Validity {
         self.metadata().validity.to_validity(|| {
             self.as_ref()
