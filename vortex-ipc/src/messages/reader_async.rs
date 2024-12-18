@@ -9,6 +9,7 @@ use vortex_error::VortexResult;
 use crate::messages::{DecoderMessage, MessageDecoder, PollRead};
 
 pin_project! {
+    /// An IPC message reader backed by an `AsyncRead` stream.
     pub struct AsyncMessageReader<R> {
         #[pin]
         read: R,

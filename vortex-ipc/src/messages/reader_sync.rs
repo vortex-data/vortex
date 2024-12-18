@@ -5,6 +5,7 @@ use vortex_error::VortexResult;
 
 use crate::messages::{DecoderMessage, MessageDecoder, PollRead};
 
+/// An IPC message reader backed by an `AsyncRead` stream.
 pub struct SyncMessageReader<R> {
     read: R,
     buffer: BytesMut,

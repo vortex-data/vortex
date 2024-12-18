@@ -87,6 +87,11 @@ pub enum PollRead {
 }
 
 /// A stateful reader for decoding IPC messages from an arbitrary stream of bytes.
+///
+/// NOTE(ngates): we should design some trait that the Decoder can take that doesn't require unique
+///  ownership of the underlying bytes. The decoder needs to split out bytes, and advance a cursor,
+///  but it doesn't need to mutate any bytes. So in theory, we should be able to do this zero-copy
+///  over a shared buffer of bytes, instead of requiring a `BytesMut`.
 pub struct MessageDecoder {
     /// The minimum alignment to use when reading a data `Buffer`.
     alignment: usize,
@@ -306,6 +311,7 @@ impl BytesMutAlignedSplit for BytesMut {
 mod test {
     use vortex_array::array::{ConstantArray, PrimitiveArray};
     use vortex_array::{ArrayDType, IntoArrayData};
+    use vortex_error::vortex_panic;
 
     use super::*;
     use crate::messages::{EncoderMessage, MessageEncoder};
@@ -323,7 +329,7 @@ mod test {
         let mut buffer = BytesMut::from(ipc_bytes.as_ref());
         let array_parts = match decoder.read_next(&mut buffer).unwrap() {
             PollRead::Some(DecoderMessage::Array(array_parts)) => array_parts,
-            otherwise => panic!("Expected an array, got {:?}", otherwise),
+            otherwise => vortex_panic!("Expected an array, got {:?}", otherwise),
         };
 
         // Decode the array parts with the context

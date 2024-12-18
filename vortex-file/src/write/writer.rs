@@ -15,7 +15,6 @@ use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
 use vortex_flatbuffers::{FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
 use vortex_io::VortexWrite;
 use vortex_ipc::messages::{EncoderMessage, MessageEncoder};
-use vortex_ipc::ALIGNMENT;
 
 use crate::byte_range::ByteRange;
 use crate::write::postscript::Postscript;
