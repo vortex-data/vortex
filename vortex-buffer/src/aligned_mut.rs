@@ -1,6 +1,4 @@
-use std::ptr;
-
-use bytes::{Buf, BufMut, BytesMut};
+use bytes::{Buf, BytesMut};
 use vortex_error::{vortex_panic, VortexExpect};
 
 use crate::alignment::Alignment;
