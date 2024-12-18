@@ -11,7 +11,7 @@
 //! arrays can be [canonicalized](Canonical) into for ease of access in compute functions.
 //!
 
-pub use buffer::*;
+pub use aligned::*;
 pub use canonical::*;
 pub use children::*;
 pub use context::*;

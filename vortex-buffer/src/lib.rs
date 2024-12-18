@@ -12,10 +12,13 @@
 use core::cmp::Ordering;
 use core::ops::{Deref, Range};
 
+pub use aligned::*;
 use arrow_buffer::{ArrowNativeType, Buffer as ArrowBuffer, MutableBuffer as ArrowMutableBuffer};
 pub use string::*;
 
+mod aligned;
 mod flexbuffers;
+mod scalar;
 mod string;
 
 /// Buffer is an owned, cheaply cloneable byte array.

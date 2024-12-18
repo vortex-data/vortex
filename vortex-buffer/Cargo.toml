@@ -20,6 +20,8 @@ flexbuffers = ["dep:flexbuffers"]
 arrow-buffer = { workspace = true }
 bytes = { workspace = true }
 flexbuffers = { workspace = true, optional = true }
+vortex-dtype = { workspace = true }
+vortex-error = { workspace = true }
 
 [lints]
 workspace = true

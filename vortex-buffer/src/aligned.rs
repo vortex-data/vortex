@@ -1,17 +1,20 @@
 use std::ops::Deref;
 
-use vortex_buffer::Buffer;
+use bytes::Bytes;
 use vortex_error::{vortex_panic, VortexExpect};
 
+use crate::Buffer;
+
+/// A buffer with runtime-validated alignment.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ArrayBuffer {
-    /// The underlying buffer holding the data.
-    buffer: Buffer,
+pub struct AlignedBuffer {
+    /// The underlying bytes holding the data.
+    bytes: Bytes,
     /// The minimum alignment required for this buffer when (de)serialized.
     alignment: usize,
 }
 
-impl ArrayBuffer {
+impl AlignedBuffer {
     /// Create a new `ArrayBuffer` from the provided buffer and alignment.
     ///
     /// ## Panics
@@ -49,7 +52,7 @@ impl ArrayBuffer {
     }
 }
 
-impl Deref for ArrayBuffer {
+impl Deref for AlignedBuffer {
     type Target = Buffer;
 
     fn deref(&self) -> &Self::Target {
