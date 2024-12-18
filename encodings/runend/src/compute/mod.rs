@@ -1,3 +1,4 @@
+mod binary_numeric;
 mod compare;
 mod fill_null;
 mod invert;
@@ -9,14 +10,14 @@ use std::ops::AddAssign;
 use num_traits::AsPrimitive;
 use vortex_array::array::{BooleanBuffer, PrimitiveArray};
 use vortex_array::compute::{
-    binary_numeric, filter, scalar_at, slice, BinaryNumericFn, CompareFn, ComputeVTable,
-    FillNullFn, FilterFn, FilterMask, InvertFn, ScalarAtFn, SliceFn, TakeFn,
+    filter, scalar_at, slice, BinaryNumericFn, CompareFn, ComputeVTable, FillNullFn, FilterFn,
+    FilterMask, InvertFn, ScalarAtFn, SliceFn, TakeFn,
 };
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::{match_each_unsigned_integer_ptype, NativePType};
 use vortex_error::{VortexResult, VortexUnwrap};
-use vortex_scalar::{BinaryNumericOperator, Scalar};
+use vortex_scalar::Scalar;
 
 use crate::{RunEndArray, RunEndEncoding};
 
@@ -51,28 +52,6 @@ impl ComputeVTable for RunEndEncoding {
 
     fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
         Some(self)
-    }
-}
-
-impl BinaryNumericFn<RunEndArray> for RunEndEncoding {
-    fn binary_numeric(
-        &self,
-        array: &RunEndArray,
-        rhs: &ArrayData,
-        op: BinaryNumericOperator,
-    ) -> VortexResult<Option<ArrayData>> {
-        if !rhs.is_constant() {
-            return Ok(None);
-        }
-
-        RunEndArray::with_offset_and_length(
-            array.ends(),
-            binary_numeric(&array.values(), rhs, op)?,
-            array.offset(),
-            array.len(),
-        )
-        .map(IntoArrayData::into_array)
-        .map(Some)
     }
 }
 
@@ -163,6 +142,7 @@ fn filter_run_ends<R: NativePType + AddAssign + From<bool> + AsPrimitive<u64>>(
 #[cfg(test)]
 mod test {
     use vortex_array::array::PrimitiveArray;
+    use vortex_array::compute::binary_numeric::test_harness::test_binary_numeric;
     use vortex_array::compute::{filter, scalar_at, slice, FilterMask};
     use vortex_array::{ArrayDType, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
     use vortex_dtype::{DType, Nullability, PType};
@@ -344,5 +324,11 @@ mod test {
                 .maybe_null_slice::<i32>(),
             [1, 4, 2]
         );
+    }
+
+    #[test]
+    fn test_runend_binary_numeric() {
+        let array = ree_array().into_array();
+        test_binary_numeric::<i32>(array)
     }
 }

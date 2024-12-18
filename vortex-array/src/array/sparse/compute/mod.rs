@@ -108,6 +108,7 @@ mod test {
 
     use crate::array::primitive::PrimitiveArray;
     use crate::array::sparse::SparseArray;
+    use crate::compute::binary_numeric::test_harness::test_binary_numeric;
     use crate::compute::{
         filter, search_sorted, slice, FilterMask, SearchResult, SearchSortedSide,
     };
@@ -217,5 +218,10 @@ mod test {
             .unwrap();
 
         assert_eq!(primitive.maybe_null_slice::<u64>(), &[1, 3]);
+    }
+
+    #[rstest]
+    fn test_sparse_binary_numeric(array: ArrayData) {
+        test_binary_numeric::<i32>(array)
     }
 }

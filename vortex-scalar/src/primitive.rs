@@ -274,15 +274,49 @@ impl From<usize> for Scalar {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Binary element-wise operations on two arrays or two scalars.
 pub enum BinaryNumericOperator {
+    /// Binary element-wise addition of two arrays or of two scalars.
     Add,
+    /// Binary element-wise subtraction of two arrays or of two scalars.
     Sub,
+    /// Same as [BinaryNumericOperator::Sub] but with the parameters flipped: `right - left`.
+    FlippedSub,
+    /// Binary element-wise multiplication of two arrays or of two scalars.
     Mul,
+    /// Binary element-wise division of two arrays or of two scalars.
     Div,
+    /// Same as [BinaryNumericOperator::Div] but with the parameters flipped: `right - left`.
+    FlippedDiv,
     // Missing from arrow-rs:
     // Min,
     // Max,
     // Pow,
+}
+
+impl BinaryNumericOperator {
+    pub fn flip_parameters(self) -> Self {
+        match self {
+            BinaryNumericOperator::Add => BinaryNumericOperator::Add,
+            BinaryNumericOperator::Sub => BinaryNumericOperator::FlippedSub,
+            BinaryNumericOperator::FlippedSub => BinaryNumericOperator::Sub,
+            BinaryNumericOperator::Mul => BinaryNumericOperator::Mul,
+            BinaryNumericOperator::Div => BinaryNumericOperator::FlippedDiv,
+            BinaryNumericOperator::FlippedDiv => BinaryNumericOperator::Div,
+        }
+    }
+
+    pub fn math_symbol(&self) -> String {
+        match self {
+            BinaryNumericOperator::Add => "+",
+            BinaryNumericOperator::Sub => "-",
+            BinaryNumericOperator::FlippedSub => "+",
+            BinaryNumericOperator::Mul => "*",
+            BinaryNumericOperator::Div => "/",
+            BinaryNumericOperator::FlippedDiv => "/",
+        }
+        .to_string()
+    }
 }
 
 impl PrimitiveScalar<'_> {
@@ -293,7 +327,7 @@ impl PrimitiveScalar<'_> {
     /// If the types are incompatible (ignoring nullability), an error is returned.
     ///
     /// If either value is null, the result is null.
-    pub fn checked_numeric_operator(
+    pub fn checked_binary_numeric(
         self,
         other: PrimitiveScalar<'_>,
         op: BinaryNumericOperator,
@@ -317,10 +351,14 @@ impl PrimitiveScalar<'_> {
                             lhs.checked_add(rhs).map(|result| Scalar::primitive(result, nullability)),
                         BinaryNumericOperator::Sub =>
                             lhs.checked_sub(rhs).map(|result| Scalar::primitive(result, nullability)),
+                        BinaryNumericOperator::FlippedSub =>
+                            rhs.checked_sub(lhs).map(|result| Scalar::primitive(result, nullability)),
                         BinaryNumericOperator::Mul =>
                             lhs.checked_mul(rhs).map(|result| Scalar::primitive(result, nullability)),
                         BinaryNumericOperator::Div =>
                             lhs.checked_div(rhs).map(|result| Scalar::primitive(result, nullability)),
+                        BinaryNumericOperator::FlippedDiv =>
+                            rhs.checked_div(lhs).map(|result| Scalar::primitive(result, nullability)),
                     }
                 }
             }
@@ -332,8 +370,10 @@ impl PrimitiveScalar<'_> {
                     (Some(lhs), Some(rhs)) =>  match op {
                         BinaryNumericOperator::Add => Scalar::primitive(lhs + rhs, nullability),
                         BinaryNumericOperator::Sub => Scalar::primitive(lhs - rhs, nullability),
+                        BinaryNumericOperator::FlippedSub => Scalar::primitive(rhs - lhs, nullability),
                         BinaryNumericOperator::Mul => Scalar::primitive(lhs - rhs, nullability),
                         BinaryNumericOperator::Div => Scalar::primitive(lhs - rhs, nullability),
+                        BinaryNumericOperator::FlippedDiv => Scalar::primitive(rhs - lhs, nullability),
                     }
                 })
             }

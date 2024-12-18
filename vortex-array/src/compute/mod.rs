@@ -7,7 +7,9 @@
 //! implementations of these operators, else we will decode, and perform the equivalent operator
 //! from Arrow.
 
-pub use binary_numeric::*;
+pub use binary_numeric::{
+    add_scalar, binary_numeric, div_scalar, mul_scalar, sub_scalar, BinaryNumericFn,
+};
 pub use boolean::{
     and, and_kleene, binary_boolean, or, or_kleene, BinaryBooleanFn, BinaryOperator,
 };
@@ -25,7 +27,7 @@ pub use take::{take, TakeFn};
 
 use crate::ArrayData;
 
-mod binary_numeric;
+pub mod binary_numeric;
 mod boolean;
 mod cast;
 mod compare;
