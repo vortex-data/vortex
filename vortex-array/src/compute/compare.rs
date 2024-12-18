@@ -213,7 +213,10 @@ pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: Operator) -> Scalar {
             Operator::Lte => lhs <= rhs,
         };
 
-        Scalar::bool(b, Nullability::Nullable)
+        Scalar::bool(
+            b,
+            (lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into(),
+        )
     }
 }
 
