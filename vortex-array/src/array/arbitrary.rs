@@ -124,7 +124,7 @@ fn random_list_offset<O>(
     n: &Nullability,
 ) -> Result<ArrayData>
 where
-    O: PrimInt + NativePType + 'static,
+    O: PrimInt + NativePType,
     Scalar: From<O>,
     usize: AsPrimitive<O>,
 {
