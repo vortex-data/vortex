@@ -4,7 +4,7 @@ use std::sync::Arc;
 use arbitrary::{Arbitrary, Result, Unstructured};
 use arrow_buffer::BooleanBuffer;
 use builders::ListBuilder;
-use num_traits::PrimInt;
+use num_traits::{AsPrimitive, PrimInt};
 use vortex_dtype::{DType, NativePType, Nullability, PType};
 use vortex_error::{VortexExpect, VortexUnwrap};
 use vortex_scalar::arbitrary::random_scalar;
@@ -118,11 +118,16 @@ fn random_list(u: &mut Unstructured, ldt: &Arc<DType>, n: &Nullability) -> Resul
     }
 }
 
-fn random_list_offset<O: PrimInt + NativePType>(
+fn random_list_offset<O>(
     u: &mut Unstructured,
     ldt: &Arc<DType>,
     n: &Nullability,
-) -> Result<ArrayData> {
+) -> Result<ArrayData>
+where
+    O: PrimInt + NativePType + 'static,
+    Scalar: From<O>,
+    usize: AsPrimitive<O>,
+{
     let list_len = u.int_in_range(0..=20)?;
     let mut builder = ListBuilder::<O>::with_capacity(ldt.clone(), *n, 1);
     for _ in 0..list_len {
