@@ -40,4 +40,5 @@ table Buffer {
     padding: uint16;
 }
 
+root_type Array;
 root_type ArrayData;

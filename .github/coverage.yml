@@ -1,0 +1,9 @@
+ignore-non-existing: true
+
+excl-line: "unreachable!"
+ignore:
+  - "bench-vortex/*"
+  - "fuzz/*"
+  - "home/*"
+  - "/*"
+  - "../*"
