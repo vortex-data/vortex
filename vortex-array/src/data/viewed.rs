@@ -12,7 +12,7 @@ use crate::encoding::opaque::OpaqueEncoding;
 use crate::encoding::EncodingRef;
 use crate::stats::{Stat, Statistics, StatsSet};
 use crate::{
-    flatbuffers as fb, ArrayData, ArrayMetadata, ChildrenCollector, Context, NamedChildrenCollector,
+    flatbuffers as fb, ArrayData, ArrayMetadata, ChildrenCollector, Context,
 };
 
 /// Zero-copy view over flatbuffer-encoded array data, created without eager serialization.
