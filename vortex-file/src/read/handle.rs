@@ -66,6 +66,7 @@ impl<R: VortexReadAt + Unpin> VortexReadHandle<R> {
         self.row_count
     }
 
+    /// Returns a set of row splits in the file, that can be used to inform on how to split it horizontally.
     pub fn splits(&self) -> &BTreeSet<usize> {
         &self.splits
     }
