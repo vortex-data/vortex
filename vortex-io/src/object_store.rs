@@ -10,7 +10,7 @@ use object_store::{GetOptions, GetRange, GetResultPayload, ObjectStore, WriteMul
 use vortex_buffer::Buffer;
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::{IoBuf, VortexBufReader, VortexReadAt, VortexWrite, ALIGNMENT};
+use crate::{IoBuf, VortexBufReader, VortexReadAt, VortexWrite};
 
 pub trait ObjectStoreExt {
     fn vortex_read(
