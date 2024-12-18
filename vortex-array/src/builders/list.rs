@@ -25,14 +25,14 @@ impl ListBuilder {
         capacity: usize,
     ) -> Self {
         let value_builder = builder_with_capacity(value_dtype.as_ref(), capacity);
-        let mut index_builder = if capacity < 2usize.pow(31) - 1 {
+        let mut index_builder = if capacity < 2usize.pow(32) - 1 {
             builder_with_capacity(
-                &DType::Primitive(PType::I32, Nullability::NonNullable),
+                &DType::Primitive(PType::U32, Nullability::NonNullable),
                 capacity,
             )
         } else {
             builder_with_capacity(
-                &DType::Primitive(PType::I64, Nullability::NonNullable),
+                &DType::Primitive(PType::U64, Nullability::NonNullable),
                 capacity,
             )
         };
