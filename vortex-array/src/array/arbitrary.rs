@@ -5,7 +5,7 @@ use arrow_buffer::BooleanBuffer;
 use vortex_dtype::{DType, NativePType, Nullability, PType};
 use vortex_error::{VortexExpect, VortexUnwrap};
 
-use super::{BoolArray, ChunkedArray, NullArray, PrimitiveArray, StructArray};
+use super::{BoolArray, ChunkedArray, ListArray, NullArray, PrimitiveArray, StructArray};
 use crate::array::{VarBinArray, VarBinViewArray};
 use crate::validity::Validity;
 use crate::{ArrayDType, ArrayData, IntoArrayData as _, IntoArrayVariant};
@@ -81,9 +81,15 @@ fn random_array(u: &mut Unstructured, dtype: &DType, len: Option<usize>) -> Resu
                     .vortex_unwrap()
                     .into_array())
                 }
-                // TOOD(joe): add arbitrary list
-                DType::List(..) => {
-                    todo!("List arrays are not implemented")
+                DType::List(ldt, n) => {
+                    let list_len = u.int_in_range(0..20)?;
+                    let builder = ListBuilder::new(ldt.clone(), list_len);
+                    for _ in 0..list_len {
+                        let null_value = u.arbitrary::<bool>()?;
+                        if null_value {}
+                        let values = random_array(u, ldt, chunk_len)?;
+                    }
+                    let values = random_array(u, ldt, chunk_len)?;
                 }
                 DType::Extension(..) => {
                     todo!("Extension arrays are not implemented")
@@ -130,6 +136,31 @@ fn random_string(
             Ok(match u.int_in_range(0..=1)? {
                 0 => VarBinArray::from_iter(v, DType::Utf8(Nullability::Nullable)).into_array(),
                 1 => VarBinViewArray::from_iter_nullable_str(v).into_array(),
+                _ => unreachable!(),
+            })
+        }
+    }
+}
+
+fn random_list(
+    u: &mut Unstructured,
+    nullability: Nullability,
+    len: Option<usize>,
+) -> Result<ArrayData> {
+    match nullability {
+        Nullability::NonNullable => {
+            let v = arbitrary_vec_of_len::<Vec<u8>>(u, len)?;
+            Ok(match u.int_in_range(0..=1)? {
+                0 => ListArray::from_vec(v, DType::Binary(Nullability::NonNullable)).into_array(),
+                1 => VarBinViewArray::from_iter_bin(v).into_array(),
+                _ => unreachable!(),
+            })
+        }
+        Nullability::Nullable => {
+            let v = arbitrary_vec_of_len::<Option<Vec<u8>>>(u, len)?;
+            Ok(match u.int_in_range(0..=1)? {
+                0 => VarBinArray::from_iter(v, DType::Binary(Nullability::Nullable)).into_array(),
+                1 => VarBinViewArray::from_iter_nullable_bin(v).into_array(),
                 _ => unreachable!(),
             })
         }
