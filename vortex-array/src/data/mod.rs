@@ -215,7 +215,7 @@ impl ArrayData {
     pub fn children(&self) -> Vec<ArrayData> {
         match &self.0 {
             InnerArrayData::Owned(d) => d.children().to_vec(),
-            InnerArrayData::Viewed(v) => v.children(),
+            InnerArrayData::Viewed(v) => v.children().to_vec(),
         }
     }
 
