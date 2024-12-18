@@ -46,11 +46,11 @@ impl<R: VortexReadAt + Unpin> VortexReadHandle<R> {
             input,
             dtype,
             row_count,
-            messages_cache,
-            row_mask,
+            splits,
             layout_reader,
             filter_reader,
-            splits,
+            messages_cache,
+            row_mask,
             io_dispatcher,
         })
     }

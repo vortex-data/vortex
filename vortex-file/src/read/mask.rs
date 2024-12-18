@@ -149,8 +149,8 @@ impl RowMask {
         if self.begin == other.begin && self.end == other.end {
             let this_buffer = self.mask.to_boolean_buffer()?;
             let other_buffer = other.mask.to_boolean_buffer()?;
-            use std::ops::BitAnd;
-            let unified = this_buffer.bitand(&other_buffer);
+
+            let unified = &this_buffer & (&other_buffer);
             return RowMask::from_mask_array(
                 BoolArray::from(unified).as_ref(),
                 self.begin,
@@ -166,12 +166,22 @@ impl RowMask {
             ));
         }
 
-        // let min_part = {
-        //     let slice_begin =
+        let output_begin = min(self.begin, other.begin);
+        let output_end = max(self.end, other.end);
 
-        // };
+        let this_buffer = self.mask.to_boolean_buffer()?;
+        let other_buffer = other.mask.to_boolean_buffer()?;
+        let self_indices = this_buffer
+            .set_indices()
+            .map(|v| v + self.begin - output_begin);
+        let other_indices = other_buffer
+            .set_indices()
+            .map(|v| v + other.begin - output_begin);
 
-        todo!("fill out this implementation")
+        let output_mask =
+            FilterMask::from_indices(output_end - output_begin, self_indices.chain(other_indices));
+
+        Self::try_new(output_mask, output_begin, output_end)
     }
 
     pub fn is_all_false(&self) -> bool {
