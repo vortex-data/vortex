@@ -11,13 +11,14 @@ use super::{LayoutMessageCache, LayoutReader, LazyDType, RowMask, VortexReadArra
 use crate::read::buffered::{BufferedLayoutReader, ReadArray};
 use crate::read::splits::ReadRowMask;
 
+#[derive(Clone)]
 pub struct VortexReadHandle<R> {
     input: R,
     dtype: Arc<LazyDType>,
     row_count: u64,
     splits: BTreeSet<usize>,
-    layout_reader: Box<dyn LayoutReader>,
-    filter_reader: Option<Box<dyn LayoutReader>>,
+    layout_reader: Arc<dyn LayoutReader>,
+    filter_reader: Option<Arc<dyn LayoutReader>>,
     messages_cache: Arc<RwLock<LayoutMessageCache>>,
     row_mask: Option<RowMask>,
     io_dispatcher: Arc<IoDispatcher>,
@@ -27,8 +28,8 @@ impl<R: VortexReadAt + Unpin> VortexReadHandle<R> {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn try_new(
         input: R,
-        layout_reader: Box<dyn LayoutReader>,
-        filter_reader: Option<Box<dyn LayoutReader>>,
+        layout_reader: Arc<dyn LayoutReader>,
+        filter_reader: Option<Arc<dyn LayoutReader>>,
         messages_cache: Arc<RwLock<LayoutMessageCache>>,
         dtype: Arc<LazyDType>,
         row_count: u64,
@@ -102,5 +103,18 @@ impl<R: VortexReadAt + Unpin> VortexReadHandle<R> {
             self.row_count,
             array_reader,
         ))
+    }
+
+    pub fn ranged_stream(
+        mut self,
+        begin: usize,
+        end: usize,
+    ) -> VortexResult<VortexReadArrayStream<R>> {
+        self.row_mask = match self.row_mask {
+            Some(mask) => Some(mask.and_rowmask(RowMask::new_valid_between(begin, end))?),
+            None => Some(RowMask::new_valid_between(begin, end)),
+        };
+
+        self.into_stream()
     }
 }

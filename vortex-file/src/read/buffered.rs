@@ -26,11 +26,11 @@ pub(crate) trait ReadMasked {
 
 /// Read an array with a [`RowMask`].
 pub(crate) struct ReadArray {
-    layout: Box<dyn LayoutReader>,
+    layout: Arc<dyn LayoutReader>,
 }
 
 impl ReadArray {
-    pub(crate) fn new(layout: Box<dyn LayoutReader>) -> Self {
+    pub(crate) fn new(layout: Arc<dyn LayoutReader>) -> Self {
         Self { layout }
     }
 }

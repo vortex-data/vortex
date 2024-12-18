@@ -3,7 +3,7 @@ use std::fmt::{Display, Formatter};
 
 use arrow_buffer::BooleanBuffer;
 use itertools::Itertools;
-use vortex_array::array::{PrimitiveArray, SparseArray};
+use vortex_array::array::{BoolArray, PrimitiveArray, SparseArray};
 use vortex_array::compute::{and, filter, slice, try_cast, FilterMask};
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity};
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
@@ -138,6 +138,32 @@ impl RowMask {
                     .into_bool()?;
             Self::from_mask_array(sparse_mask.as_ref(), self.begin(), self.end())
         }
+    }
+
+    pub fn and_rowmask(&self, other: RowMask) -> VortexResult<Self> {
+        if other.true_count() == other.len() {
+            return Ok(self.clone());
+        }
+
+        // If both masks align
+        if self.begin == other.begin && self.end == other.end {
+            let this_buffer = self.mask.to_boolean_buffer()?;
+            let other_buffer = other.mask.to_boolean_buffer()?;
+            use std::ops::BitAnd;
+            let unified = this_buffer.bitand(&other_buffer);
+            return RowMask::from_mask_array(
+                BoolArray::from(unified).as_ref(),
+                self.begin,
+                self.end,
+            );
+        }
+
+        // let min_part = {
+        //     let slice_begin =
+
+        // };
+
+        todo!("fill out this implementation")
     }
 
     pub fn is_all_false(&self) -> bool {

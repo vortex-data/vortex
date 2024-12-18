@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_array::stats::ArrayStatistics;
@@ -12,11 +13,11 @@ use crate::{LayoutReader, PollRead, Prune, RowMask};
 /// Similar to `ReadArray`, this wraps a layout to read an array, but `ReadRowMask` will interpret
 /// that array as a `RowMask`, and performs some optimizations to apply pruning first.
 pub(crate) struct ReadRowMask {
-    layout: Box<dyn LayoutReader>,
+    layout: Arc<dyn LayoutReader>,
 }
 
 impl ReadRowMask {
-    pub(crate) fn new(layout: Box<dyn LayoutReader>) -> Self {
+    pub(crate) fn new(layout: Arc<dyn LayoutReader>) -> Self {
         Self { layout }
     }
 }

@@ -11,11 +11,11 @@ use crate::read::buffered::{BufferedLayoutReader, ReadMasked};
 use crate::{PollRead, RowMask};
 
 struct MetadataMaskReader {
-    layout: Box<dyn LayoutReader>,
+    layout: Arc<dyn LayoutReader>,
 }
 
 impl MetadataMaskReader {
-    pub fn new(layout: Box<dyn LayoutReader>) -> Self {
+    pub fn new(layout: Arc<dyn LayoutReader>) -> Self {
         Self { layout }
     }
 }
@@ -34,7 +34,7 @@ impl ReadMasked for MetadataMaskReader {
 pub async fn fetch_metadata<R: VortexReadAt + Unpin>(
     input: R,
     dispatcher: Arc<IoDispatcher>,
-    root_layout: Box<dyn LayoutReader>,
+    root_layout: Arc<dyn LayoutReader>,
     layout_cache: Arc<RwLock<LayoutMessageCache>>,
 ) -> VortexResult<Option<Vec<Option<ArrayData>>>> {
     let mut metadata_reader = BufferedLayoutReader::new(

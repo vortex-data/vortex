@@ -9,10 +9,7 @@ use crate::read::mask::RowMask;
 use crate::read::splits::SplitsAccumulator;
 use crate::{LayoutMessageCache, LayoutReader, MessageLocator, PollRead};
 
-fn layout_splits(
-    layouts: &[&mut dyn LayoutReader],
-    length: usize,
-) -> impl Iterator<Item = RowMask> {
+fn layout_splits(layouts: &[&dyn LayoutReader], length: usize) -> impl Iterator<Item = RowMask> {
     let mut iter = SplitsAccumulator::new(length as u64, None);
     let mut splits = BTreeSet::new();
     for layout in layouts {
@@ -23,7 +20,7 @@ fn layout_splits(
 }
 
 pub fn read_layout_data(
-    layout: &mut dyn LayoutReader,
+    layout: &dyn LayoutReader,
     cache: Arc<RwLock<LayoutMessageCache>>,
     buf: &Bytes,
     selector: &RowMask,
@@ -43,7 +40,7 @@ pub fn read_layout_data(
 }
 
 pub fn read_filters(
-    layout: &mut dyn LayoutReader,
+    layout: &dyn LayoutReader,
     cache: Arc<RwLock<LayoutMessageCache>>,
     buf: &Bytes,
     selector: &RowMask,
@@ -66,8 +63,8 @@ pub fn read_filters(
 }
 
 pub fn filter_read_layout(
-    filter_layout: &mut dyn LayoutReader,
-    layout: &mut dyn LayoutReader,
+    filter_layout: &dyn LayoutReader,
+    layout: &dyn LayoutReader,
     cache: Arc<RwLock<LayoutMessageCache>>,
     buf: &Bytes,
     length: usize,
@@ -79,7 +76,7 @@ pub fn filter_read_layout(
 }
 
 pub fn read_layout(
-    layout: &mut dyn LayoutReader,
+    layout: &dyn LayoutReader,
     cache: Arc<RwLock<LayoutMessageCache>>,
     buf: &Bytes,
     length: usize,

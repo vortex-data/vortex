@@ -106,7 +106,7 @@ pub enum Prune {
 /// Layout readers are **synchronous** and **stateful**. A request to read a given row range may
 /// trigger a request for more messages, which will be handled by the caller, placing the messages
 /// back into the message cache for this layout as a result.
-pub trait LayoutReader: Debug + Send {
+pub trait LayoutReader: Debug + Send + Sync {
     /// Register all horizontal row boundaries of this layout.
     ///
     /// Layout should register all indivisible absolute row boundaries of the data stored in itself and its children.
