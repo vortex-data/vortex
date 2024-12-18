@@ -23,7 +23,11 @@ impl ScalarAtFn<ListArray> for ListEncoding {
         let elem = array.elements_at(index)?;
         let scalars: Vec<Scalar> = (0..elem.len()).map(|i| scalar_at(&elem, i)).try_collect()?;
 
-        Ok(Scalar::list(Arc::new(elem.dtype().clone()), scalars))
+        Ok(Scalar::list(
+            Arc::new(elem.dtype().clone()),
+            scalars,
+            array.dtype().nullability(),
+        ))
     }
 }
 

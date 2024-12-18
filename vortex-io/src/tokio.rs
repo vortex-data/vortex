@@ -7,11 +7,10 @@ use std::path::Path;
 use std::sync::Arc;
 
 use tokio::io::{AsyncWrite, AsyncWriteExt};
-use vortex_buffer::io_buf::IoBuf;
 use vortex_buffer::Buffer;
 use vortex_error::VortexUnwrap;
 
-use crate::{VortexReadAt, VortexWrite};
+use crate::{IoBuf, VortexReadAt, VortexWrite};
 
 pub struct TokioAdapter<IO>(pub IO);
 

@@ -6,7 +6,7 @@ use vortex_error::{vortex_bail, VortexResult};
 use crate::array::{VarBinArray, VarBinEncoding};
 use crate::arrow::{Datum, FromArrowArray};
 use crate::compute::{CompareFn, Operator};
-use crate::{ArrayData, IntoArrayData};
+use crate::{ArrayDType, ArrayData, IntoArrayData};
 
 // This implementation exists so we can have custom translation of RHS to arrow that's not the same as IntoCanonical
 impl CompareFn<VarBinArray> for VarBinEncoding {
@@ -17,6 +17,8 @@ impl CompareFn<VarBinArray> for VarBinEncoding {
         operator: Operator,
     ) -> VortexResult<Option<ArrayData>> {
         if let Some(rhs_const) = rhs.as_constant() {
+            let nullable = lhs.dtype().is_nullable() || rhs_const.dtype().is_nullable();
+
             let lhs = Datum::try_from(lhs.clone().into_array())?;
 
             // TODO(robert): Handle LargeString/Binary arrays
@@ -46,7 +48,7 @@ impl CompareFn<VarBinArray> for VarBinEncoding {
                 Operator::Lte => cmp::lt_eq(&lhs, arrow_rhs)?,
             };
 
-            Ok(Some(ArrayData::from_arrow(&array, true)))
+            Ok(Some(ArrayData::from_arrow(&array, nullable)))
         } else {
             Ok(None)
         }

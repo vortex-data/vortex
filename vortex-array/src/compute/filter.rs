@@ -60,55 +60,58 @@ pub fn filter(array: &ArrayData, mask: FilterMask) -> VortexResult<ArrayData> {
         );
     }
 
+    let true_count = mask.true_count();
+
     // Fast-path for empty mask.
-    if mask.true_count() == 0 {
+    if true_count == 0 {
         return Ok(Canonical::empty(array.dtype())?.into());
     }
 
     // Fast-path for full mask
-    if mask.true_count() == mask.len() {
+    if true_count == mask.len() {
         return Ok(array.clone());
     }
 
+    let filtered = filter_impl(array, mask)?;
+
+    debug_assert_eq!(
+        filtered.len(),
+        true_count,
+        "Filter length mismatch {}",
+        array.encoding().id()
+    );
+    debug_assert_eq!(
+        filtered.dtype(),
+        array.dtype(),
+        "Filter dtype mismatch {}",
+        array.encoding().id()
+    );
+
+    Ok(filtered)
+}
+
+fn filter_impl(array: &ArrayData, mask: FilterMask) -> VortexResult<ArrayData> {
     if let Some(filter_fn) = array.encoding().filter_fn() {
-        let true_count = mask.true_count();
-        let result = filter_fn.filter(array, mask)?;
-        if array.dtype() != result.dtype() {
-            vortex_bail!(
-                "FilterFn {} changed array dtype from {} to {}",
-                array.encoding().id(),
-                array.dtype(),
-                result.dtype()
-            );
-        }
-        if true_count != result.len() {
-            vortex_bail!(
-                "FilterFn {} returned incorrect length: expected {}, got {}",
-                array.encoding().id(),
-                true_count,
-                result.len()
-            );
-        }
-        Ok(result)
-    } else {
-        // We can use scalar_at if the mask has length 1.
-        if mask.true_count() == 1 && array.encoding().scalar_at_fn().is_some() {
-            let idx = mask.indices()?[0];
-            return Ok(ConstantArray::new(scalar_at(array, idx)?, 1).into_array());
-        }
-
-        // Fallback: implement using Arrow kernels.
-        log::debug!(
-            "No filter implementation found for {}",
-            array.encoding().id(),
-        );
-
-        let array_ref = array.clone().into_arrow()?;
-        let mask_array = BooleanArray::new(mask.to_boolean_buffer()?, None);
-        let filtered = arrow_select::filter::filter(array_ref.as_ref(), &mask_array)?;
-
-        Ok(ArrayData::from_arrow(filtered, array.dtype().is_nullable()))
+        return filter_fn.filter(array, mask);
     }
+
+    // We can use scalar_at if the mask has length 1.
+    if mask.true_count() == 1 && array.encoding().scalar_at_fn().is_some() {
+        let idx = mask.indices()?[0];
+        return Ok(ConstantArray::new(scalar_at(array, idx)?, 1).into_array());
+    }
+
+    // Fallback: implement using Arrow kernels.
+    log::debug!(
+        "No filter implementation found for {}",
+        array.encoding().id(),
+    );
+
+    let array_ref = array.clone().into_arrow()?;
+    let mask_array = BooleanArray::new(mask.to_boolean_buffer()?, None);
+    let filtered = arrow_select::filter::filter(array_ref.as_ref(), &mask_array)?;
+
+    Ok(ArrayData::from_arrow(filtered, array.dtype().is_nullable()))
 }
 
 /// Represents the mask argument to a filter function.

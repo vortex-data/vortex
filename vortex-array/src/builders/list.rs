@@ -156,17 +156,27 @@ mod tests {
 
         builder
             .append_value(
-                Scalar::list(dtype.clone(), vec![1i32.into(), 2i32.into(), 3i32.into()]).as_list(),
+                Scalar::list(
+                    dtype.clone(),
+                    vec![1i32.into(), 2i32.into(), 3i32.into()],
+                    Nullability::NonNullable,
+                )
+                .as_list(),
             )
             .unwrap();
 
         builder
-            .append_value(Scalar::empty(dtype.clone()).as_list())
+            .append_value(Scalar::list_empty(dtype.clone(), Nullability::NonNullable).as_list())
             .unwrap();
 
         builder
             .append_value(
-                Scalar::list(dtype, vec![4i32.into(), 5i32.into(), 6i32.into()]).as_list(),
+                Scalar::list(
+                    dtype,
+                    vec![4i32.into(), 5i32.into(), 6i32.into()],
+                    Nullability::NonNullable,
+                )
+                .as_list(),
             )
             .unwrap();
 

@@ -197,7 +197,7 @@ impl ValidityVTable<ListArray> for ListEncoding {
 mod test {
     use std::sync::Arc;
 
-    use vortex_dtype::PType;
+    use vortex_dtype::{Nullability, PType};
     use vortex_scalar::Scalar;
 
     use crate::array::list::ListArray;
@@ -228,15 +228,27 @@ mod test {
             ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
 
         assert_eq!(
-            Scalar::list(Arc::new(PType::I32.into()), vec![1.into(), 2.into()]),
+            Scalar::list(
+                Arc::new(PType::I32.into()),
+                vec![1.into(), 2.into()],
+                Nullability::Nullable
+            ),
             scalar_at(&list, 0).unwrap()
         );
         assert_eq!(
-            Scalar::list(Arc::new(PType::I32.into()), vec![3.into(), 4.into()]),
+            Scalar::list(
+                Arc::new(PType::I32.into()),
+                vec![3.into(), 4.into()],
+                Nullability::Nullable
+            ),
             scalar_at(&list, 1).unwrap()
         );
         assert_eq!(
-            Scalar::list(Arc::new(PType::I32.into()), vec![5.into()]),
+            Scalar::list(
+                Arc::new(PType::I32.into()),
+                vec![5.into()],
+                Nullability::Nullable
+            ),
             scalar_at(&list, 2).unwrap()
         );
     }
