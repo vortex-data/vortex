@@ -12,6 +12,7 @@ use std::any::Any;
 pub use binary::*;
 pub use bool::*;
 pub use extension::*;
+pub use list::*;
 pub use null::*;
 pub use primitive::*;
 pub use utf8::*;
