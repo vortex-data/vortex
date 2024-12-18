@@ -34,7 +34,7 @@ where
     ) -> Self {
         // I would expect the list to have more than one value per index
         let value_builder = builder_with_capacity(value_dtype.as_ref(), 2 * capacity);
-        let mut index_builder = PrimitiveBuilder::with_capacity(nullability, capacity);
+        let mut index_builder = PrimitiveBuilder::with_capacity(Nullability::NonNullable, capacity);
 
         // The first index of the list, which is always 0 and represents an empty list.
         index_builder.append_zero();

@@ -49,9 +49,10 @@ impl StructBuilder {
         }
 
         if let Some(fields) = struct_scalar.fields() {
-            for (builder, field) in self.builders.iter_mut().zip(fields) {
+            for (builder, field) in self.builders.iter_mut().zip_eq(fields) {
                 builder.append_scalar(&field)?;
             }
+            self.validity.append_value(true);
         } else {
             self.append_null()
         }
@@ -94,6 +95,7 @@ impl ArrayBuilder for StructBuilder {
     }
 
     fn finish(&mut self) -> VortexResult<ArrayData> {
+        let len = self.len();
         let fields: Vec<ArrayData> = self
             .builders
             .iter_mut()
@@ -105,12 +107,9 @@ impl ArrayBuilder for StructBuilder {
             Nullability::Nullable => Validity::Array(self.validity.finish()?),
         };
 
-        Ok(StructArray::try_new(
-            self.struct_dtype.names().clone(),
-            fields,
-            self.len(),
-            validity,
-        )?
-        .into_array())
+        Ok(
+            StructArray::try_new(self.struct_dtype.names().clone(), fields, len, validity)?
+                .into_array(),
+        )
     }
 }
