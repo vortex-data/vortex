@@ -70,12 +70,12 @@ where
     pub fn new(
         read: R,
         dispatcher: Arc<IoDispatcher>,
-        values: S,
+        read_masks: S,
         row_mask_reader: RM,
         cache: Arc<RwLock<LayoutMessageCache>>,
     ) -> Self {
         Self {
-            read_masks: values,
+            read_masks,
             row_mask_reader,
             in_flight: None,
             queued: VecDeque::new(),

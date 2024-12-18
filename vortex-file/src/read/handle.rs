@@ -70,6 +70,7 @@ impl<R: VortexReadAt + Unpin> VortexReadHandle<R> {
         &self.splits
     }
 
+    /// Create a stream over all data from the handle
     pub fn into_stream(self) -> VortexResult<VortexReadArrayStream<R>> {
         let mut split_accumulator = SplitsAccumulator::new(self.row_count, self.row_mask);
         split_accumulator.append_splits(self.splits);
@@ -105,7 +106,8 @@ impl<R: VortexReadAt + Unpin> VortexReadHandle<R> {
         ))
     }
 
-    pub fn ranged_stream(
+    /// Create a stream over a specific row range from the handle
+    pub fn stream_range(
         mut self,
         begin: usize,
         end: usize,
