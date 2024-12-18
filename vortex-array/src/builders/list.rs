@@ -23,7 +23,7 @@ pub struct ListBuilder<O: PrimInt + NativePType> {
 
 impl<O> ListBuilder<O>
 where
-    O: PrimInt + NativePType + 'static,
+    O: PrimInt + NativePType,
     Scalar: From<O>,
     usize: AsPrimitive<O>,
 {
@@ -69,7 +69,7 @@ where
 
 impl<O> ArrayBuilder for ListBuilder<O>
 where
-    O: PrimInt + NativePType + 'static,
+    O: PrimInt + NativePType,
     Scalar: From<O>,
     usize: AsPrimitive<O>,
 {
