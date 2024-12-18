@@ -1075,6 +1075,7 @@ async fn test_repeated_projection() {
             .with_projection(projection)
             .build()
             .await?
+            .into_stream()?
             .read_all()
             .await
     }
