@@ -23,7 +23,7 @@ use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use crate::{
     ArrayBuffer, ArrayChildrenIterator, ArrayDType, ArrayLen, ArrayMetadata, Context,
-    TryDeserializeArrayMetadata,
+    NamedChildrenCollector, TryDeserializeArrayMetadata,
 };
 
 mod owned;
@@ -217,6 +217,15 @@ impl ArrayData {
             InnerArrayData::Owned(d) => d.children().to_vec(),
             InnerArrayData::Viewed(v) => v.children(),
         }
+    }
+
+    /// Returns a Vec of Arrays with all the array's child arrays.
+    pub fn named_children(&self) -> Vec<(String, ArrayData)> {
+        let mut collector = NamedChildrenCollector::default();
+        self.encoding()
+            .accept(&self.clone(), &mut collector)
+            .vortex_expect("Failed to get children");
+        collector.children()
     }
 
     /// Returns the number of child arrays

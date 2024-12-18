@@ -13,6 +13,7 @@
 
 pub use buffer::*;
 pub use canonical::*;
+pub use children::*;
 pub use context::*;
 pub use data::*;
 pub use metadata::*;
@@ -31,6 +32,7 @@ pub mod arrow;
 mod buffer;
 pub mod builders;
 mod canonical;
+mod children;
 pub mod compress;
 pub mod compute;
 mod context;
