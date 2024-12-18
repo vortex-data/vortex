@@ -928,7 +928,7 @@ async fn test_pruning_with_or() {
         .into_array();
 
     let buffer = Vec::new();
-    let written_bytes = VortexFileWriter::new(buffer)
+    let written_bytes: Vec<u8> = VortexFileWriter::new(buffer)
         .write_array_columns(array)
         .await
         .unwrap()

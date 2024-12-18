@@ -33,7 +33,7 @@ pub fn read_layout_data(
             PollRead::ReadMore(m) => {
                 let mut write_cache_guard = cache.write().unwrap();
                 for MessageLocator(id, range) in m {
-                    write_cache_guard.set(id, buf.slice(range.to_range()));
+                    write_cache_guard.set(id, buf.slice(range.as_range()));
                 }
             }
             PollRead::Value(a) => return Some(a),
@@ -53,7 +53,7 @@ pub fn read_filters(
             PollRead::ReadMore(m) => {
                 let mut write_cache_guard = cache.write().unwrap();
                 for MessageLocator(id, range) in m {
-                    write_cache_guard.set(id, buf.slice(range.to_range()));
+                    write_cache_guard.set(id, buf.slice(range.as_range()));
                 }
             }
             PollRead::Value(a) => {

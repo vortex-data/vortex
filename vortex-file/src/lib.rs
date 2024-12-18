@@ -66,13 +66,10 @@
 //! If you ultimately seek Arrow arrays, [`VortexRecordBatchReader`] converts a
 //! [`VortexFileArrayStream`] into a [`RecordBatchReader`](arrow_array::RecordBatchReader).
 
-mod dtype_reader;
-
-pub use dtype_reader::*;
-
 mod read;
 mod write;
 
+mod byte_range;
 mod pruning;
 #[cfg(test)]
 mod tests;
