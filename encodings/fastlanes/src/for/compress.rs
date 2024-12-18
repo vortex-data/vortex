@@ -28,9 +28,8 @@ pub fn for_compress(array: &PrimitiveArray) -> VortexResult<FoRArray> {
             encoded_zero::<$T>(array.validity().to_logical(array.len()), nullability)
                 .vortex_expect("Failed to encode all zeroes")
         } else {
-            let unsigned_ptype = array.ptype().to_unsigned();
             compress_primitive::<$T>(array, shift, $T::try_from(&min)?)
-                .reinterpret_cast(unsigned_ptype)
+                .reinterpret_cast(array.ptype().to_unsigned())
                 .into_array()
         }
     });
@@ -178,7 +177,7 @@ mod test {
         let array = PrimitiveArray::from(vec![0i32; 10_000]);
         assert!(array.statistics().to_set().into_iter().next().is_none());
 
-        let compressed = for_compress(&array.clone()).unwrap();
+        let compressed = for_compress(&array).unwrap();
         assert_eq!(compressed.dtype(), array.dtype());
         assert!(compressed.dtype().is_signed_int());
         assert!(compressed.encoded().dtype().is_unsigned_int());
@@ -198,7 +197,7 @@ mod test {
         );
         assert!(array.statistics().to_set().into_iter().next().is_none());
 
-        let compressed = for_compress(&array.clone()).unwrap();
+        let compressed = for_compress(&array).unwrap();
         assert_eq!(compressed.dtype(), array.dtype());
         assert!(compressed.dtype().is_signed_int());
         assert_eq!(
@@ -233,7 +232,7 @@ mod test {
                 .map(|v| v + 1_000_000)
                 .collect_vec(),
         );
-        let compressed = for_compress(&array.clone()).unwrap();
+        let compressed = for_compress(&array).unwrap();
         assert!(compressed.shift() > 0);
         let decompressed = compressed.into_primitive().unwrap();
         assert_eq!(
@@ -245,7 +244,7 @@ mod test {
     #[test]
     fn test_overflow() {
         let array = PrimitiveArray::from((i8::MIN..=i8::MAX).collect_vec());
-        let compressed = for_compress(&array.clone()).unwrap();
+        let compressed = for_compress(&array).unwrap();
         assert_eq!(
             i8::MIN,
             compressed
