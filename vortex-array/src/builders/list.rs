@@ -159,7 +159,7 @@ mod tests {
 
         builder
             .append_value(
-                Scalar::list(dtype.clone(), vec![4i32.into(), 5i32.into(), 6i32.into()]).as_list(),
+                Scalar::list(dtype, vec![4i32.into(), 5i32.into(), 6i32.into()]).as_list(),
             )
             .unwrap();
 
@@ -167,7 +167,6 @@ mod tests {
         assert_eq!(list.len(), 3);
 
         let list_array = list.into_list().unwrap();
-        println!("{:?}", list_array);
 
         assert_eq!(list_array.elements_at(0).unwrap().len(), 3);
         assert!(list_array.elements_at(1).unwrap().is_empty());
