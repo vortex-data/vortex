@@ -85,7 +85,7 @@ impl<I: ArrayIterator + 'static> ArrayIteratorIPC for I {
     where
         Self: Sized,
     {
-        let mut encoder = MessageEncoder::new(ALIGNMENT);
+        let mut encoder = MessageEncoder::default();
         let buffers = encoder.encode(EncoderMessage::DType(self.dtype()));
         ArrayIteratorIPCBytes {
             inner: Box::new(self),

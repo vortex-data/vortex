@@ -105,7 +105,7 @@ impl<S: ArrayStream + 'static> ArrayStreamIPC for S {
     {
         ArrayStreamIPCBytes {
             stream: Box::pin(self),
-            encoder: MessageEncoder::new(ALIGNMENT),
+            encoder: MessageEncoder::default(),
             buffers: vec![],
             written_dtype: false,
         }

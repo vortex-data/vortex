@@ -7,6 +7,8 @@ use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_flatbuffers::{message as fb, FlatBufferRoot, WriteFlatBuffer};
 
+use crate::ALIGNMENT;
+
 /// An IPC message ready to be passed to the encoder.
 pub enum EncoderMessage<'a> {
     Array(&'a ArrayData),
@@ -22,6 +24,12 @@ pub struct MessageEncoder {
     pos: usize,
     /// A reusable buffer of zeros used for padding.
     zeros: Buffer,
+}
+
+impl Default for MessageEncoder {
+    fn default() -> Self {
+        Self::new(ALIGNMENT)
+    }
 }
 
 impl MessageEncoder {

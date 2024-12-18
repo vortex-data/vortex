@@ -228,7 +228,7 @@ impl ColumnWriter {
             // clear the stats that we don't want to serialize into the file
             retain_only_stats(&chunk, STATS_TO_WRITE);
 
-            let mut encoder = MessageEncoder::new(ALIGNMENT);
+            let mut encoder = MessageEncoder::default();
             for buffer in encoder.encode(EncoderMessage::Array(&chunk)) {
                 write.write_all(buffer).await?;
             }
@@ -272,7 +272,7 @@ impl ColumnWriter {
             let stat_bitset = as_stat_bitset_bytes(&present_stats);
 
             let metadata_array_begin = write.position();
-            let mut encoder = MessageEncoder::new(ALIGNMENT);
+            let mut encoder = MessageEncoder::default();
             for buffer in encoder.encode(EncoderMessage::Array(&metadata_array)) {
                 write.write_all(buffer).await?;
             }

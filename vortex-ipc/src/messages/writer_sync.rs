@@ -3,7 +3,6 @@ use std::io::Write;
 use vortex_error::VortexResult;
 
 use crate::messages::{EncoderMessage, MessageEncoder};
-use crate::ALIGNMENT;
 
 pub struct SyncMessageWriter<W> {
     write: W,
@@ -14,7 +13,7 @@ impl<W: Write> SyncMessageWriter<W> {
     pub fn new(write: W) -> Self {
         Self {
             write,
-            encoder: MessageEncoder::new(ALIGNMENT),
+            encoder: MessageEncoder::default(),
         }
     }
 
