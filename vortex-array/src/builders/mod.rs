@@ -1,6 +1,7 @@
 mod binary;
 mod bool;
 mod extension;
+mod list;
 mod null;
 mod primitive;
 mod struct_;
@@ -17,9 +18,11 @@ pub use utf8::*;
 use vortex_dtype::{match_each_native_ptype, DType};
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 use vortex_scalar::{
-    BinaryScalar, BoolScalar, ExtScalar, PrimitiveScalar, Scalar, StructScalar, Utf8Scalar,
+    BinaryScalar, BoolScalar, ExtScalar, ListScalar, PrimitiveScalar, Scalar, StructScalar,
+    Utf8Scalar,
 };
 
+use crate::builders::list::ListBuilder;
 use crate::builders::struct_::StructBuilder;
 use crate::ArrayData;
 
@@ -71,9 +74,11 @@ pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBui
             *n,
             capacity,
         )),
-        DType::List(..) => {
-            todo!()
-        }
+        DType::List(dtype, n) => Box::new(ListBuilder::<u64>::with_capacity(
+            dtype.clone(),
+            *n,
+            capacity,
+        )),
         DType::Extension(ext_dtype) => {
             Box::new(ExtensionBuilder::with_capacity(ext_dtype.clone(), capacity))
         }
@@ -127,7 +132,11 @@ pub trait ArrayBuilderExt: ArrayBuilder {
                 .downcast_mut::<StructBuilder>()
                 .ok_or_else(|| vortex_err!("Cannot append struct scalar to non-struct builder"))?
                 .append_value(StructScalar::try_from(scalar)?)?,
-            DType::List(..) => {}
+            DType::List(..) => self
+                .as_any_mut()
+                .downcast_mut::<ListBuilder<u64>>()
+                .ok_or_else(|| vortex_err!("Cannot append list scalar to non-list builder"))?
+                .append_value(ListScalar::try_from(scalar)?)?,
             DType::Extension(..) => self
                 .as_any_mut()
                 .downcast_mut::<ExtensionBuilder>()

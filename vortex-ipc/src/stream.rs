@@ -44,13 +44,13 @@ impl<R: AsyncRead + Unpin> AsyncIPCReader<R> {
     }
 }
 
-impl<R: AsyncRead + Unpin> ArrayStream for AsyncIPCReader<R> {
+impl<R: AsyncRead> ArrayStream for AsyncIPCReader<R> {
     fn dtype(&self) -> &DType {
         &self.dtype
     }
 }
 
-impl<R: AsyncRead + Unpin> Stream for AsyncIPCReader<R> {
+impl<R: AsyncRead> Stream for AsyncIPCReader<R> {
     type Item = VortexResult<ArrayData>;
 
     fn poll_next(

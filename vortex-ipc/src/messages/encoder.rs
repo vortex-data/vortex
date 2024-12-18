@@ -4,7 +4,7 @@ use vortex_array::stats::ArrayStatistics;
 use vortex_array::{flatbuffers as fba, ArrayData};
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
+use vortex_error::{vortex_panic, VortexExpect};
 use vortex_flatbuffers::{message as fb, FlatBufferRoot, WriteFlatBuffer};
 
 use crate::ALIGNMENT;
@@ -37,10 +37,13 @@ impl MessageEncoder {
     ///
     /// ## Panics
     ///
-    /// Panics if `alignment` is greater than `u16::MAX`.
+    /// Panics if `alignment` is greater than `u16::MAX` or is not a power of 2.
     pub fn new(alignment: usize) -> Self {
         // We guarantee that alignment fits inside u16.
         u16::try_from(alignment).vortex_expect("Alignment must fit into u16");
+        if !alignment.is_power_of_two() {
+            vortex_panic!("Alignment must be a power of 2");
+        }
 
         Self {
             alignment,

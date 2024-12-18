@@ -4,16 +4,21 @@ use vortex_scalar::Scalar;
 use crate::array::sparse::SparseArray;
 use crate::array::{ConstantArray, SparseEncoding};
 use crate::compute::{
-    ComputeVTable, FilterFn, FilterMask, InvertFn, ScalarAtFn, SearchResult, SearchSortedFn,
-    SearchSortedSide, SearchSortedUsizeFn, SliceFn, TakeFn,
+    BinaryNumericFn, ComputeVTable, FilterFn, FilterMask, InvertFn, ScalarAtFn, SearchResult,
+    SearchSortedFn, SearchSortedSide, SearchSortedUsizeFn, SliceFn, TakeFn,
 };
 use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData};
 
+mod binary_numeric;
 mod invert;
 mod slice;
 mod take;
 
 impl ComputeVTable for SparseEncoding {
+    fn binary_numeric_fn(&self) -> Option<&dyn BinaryNumericFn<ArrayData>> {
+        Some(self)
+    }
+
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
         Some(self)
     }

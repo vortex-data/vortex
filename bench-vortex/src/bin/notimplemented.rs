@@ -174,7 +174,7 @@ fn compute_funcs(encodings: &[ArrayData]) {
             "fill_forward",
             "filter",
             "scalar_at",
-            "subtract_scalar",
+            "binary_numeric",
             "search_sorted",
             "slice",
             "take",
@@ -190,7 +190,7 @@ fn compute_funcs(encodings: &[ArrayData]) {
         impls.push(bool_to_cell(arr.encoding().fill_forward_fn().is_some()));
         impls.push(bool_to_cell(arr.encoding().filter_fn().is_some()));
         impls.push(bool_to_cell(arr.encoding().scalar_at_fn().is_some()));
-        impls.push(bool_to_cell(arr.encoding().subtract_scalar_fn().is_some()));
+        impls.push(bool_to_cell(arr.encoding().binary_numeric_fn().is_some()));
         impls.push(bool_to_cell(arr.encoding().search_sorted_fn().is_some()));
         impls.push(bool_to_cell(arr.encoding().slice_fn().is_some()));
         impls.push(bool_to_cell(arr.encoding().take_fn().is_some()));

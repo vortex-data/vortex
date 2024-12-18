@@ -10,8 +10,8 @@ use vortex_scalar::Scalar;
 use crate::aliases::hash_map::HashMap;
 use crate::array::PrimitiveArray;
 use crate::compute::{
-    scalar_at, search_sorted, search_sorted_usize, search_sorted_usize_many, slice,
-    subtract_scalar, take, FilterMask, SearchResult, SearchSortedSide,
+    scalar_at, search_sorted, search_sorted_usize, search_sorted_usize_many, slice, sub_scalar,
+    take, FilterMask, SearchResult, SearchSortedSide,
 };
 use crate::stats::{ArrayStatistics, Stat};
 use crate::validity::Validity;
@@ -237,7 +237,7 @@ impl Patches {
 
         // Subtract the start value from the indices
         let indices = slice(self.indices(), patch_start, patch_stop)?;
-        let indices = subtract_scalar(&indices, &Scalar::from(start).cast(indices.dtype())?)?;
+        let indices = sub_scalar(&indices, Scalar::from(start).cast(indices.dtype())?)?;
 
         Ok(Some(Self::new(stop - start, indices, values)))
     }
