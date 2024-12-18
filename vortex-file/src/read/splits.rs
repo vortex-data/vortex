@@ -57,7 +57,7 @@ impl ReadMasked for ReadRowMask {
     }
 }
 
-/// Accumulates a list of unique row offset, and produces a set of row ranges that aren't filtered out by the provided mask.
+/// Takes all row sub-ranges, and produces a set of row ranges that aren't filtered out by the provided mask.
 pub struct SplitsAccumulator {
     ranges: Box<dyn Iterator<Item = (usize, usize)> + Send>,
     row_mask: Option<RowMask>,
