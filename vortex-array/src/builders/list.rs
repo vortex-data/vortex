@@ -186,7 +186,7 @@ mod tests {
             ListBuilder::<u32>::with_capacity(dtype.clone(), Nullability::NonNullable, 0);
 
         assert!(builder
-            .append_value(Scalar::empty(dtype.clone()).as_list())
+            .append_value(Scalar::empty(dtype).as_list())
             .is_err())
     }
 
