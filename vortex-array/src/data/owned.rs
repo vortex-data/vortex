@@ -2,12 +2,12 @@ use std::sync::{Arc, RwLock};
 
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_panic, VortexResult};
+use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::encoding::EncodingRef;
 use crate::stats::{Stat, Statistics, StatsSet};
-use crate::{ArrayDType, ArrayData, ArrayMetadata};
+use crate::{ArrayDType, ArrayData, ArrayMetadata, NamedChildrenCollector};
 
 /// Owned [`ArrayData`] with serialized metadata, backed by heap-allocated memory.
 #[derive(Clone, Debug)]

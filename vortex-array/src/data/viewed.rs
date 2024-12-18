@@ -104,15 +104,6 @@ impl ViewedArrayData {
         collector.children()
     }
 
-    #[allow(dead_code)]
-    pub fn named_children(&self) -> Vec<(String, ArrayData)> {
-        let mut collector = NamedChildrenCollector::default();
-        self.encoding
-            .accept(&ArrayData::from(self.clone()), &mut collector)
-            .vortex_expect("Failed to get children");
-        collector.children()
-    }
-
     pub fn buffer(&self) -> Option<&Buffer> {
         self.flatbuffer()
             .buffers()
