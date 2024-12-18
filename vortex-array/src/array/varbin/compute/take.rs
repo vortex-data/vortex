@@ -1,4 +1,5 @@
 use arrow_buffer::NullBuffer;
+use num_traits::PrimInt;
 use vortex_dtype::{match_each_integer_ptype, DType, NativePType};
 use vortex_error::{vortex_err, vortex_panic, VortexResult};
 
@@ -29,7 +30,7 @@ impl TakeFn<VarBinArray> for VarBinEncoding {
     }
 }
 
-fn take<I: NativePType, O: NativePType>(
+fn take<I: NativePType, O: NativePType + PrimInt>(
     dtype: DType,
     offsets: &[O],
     data: &[u8],
@@ -57,7 +58,7 @@ fn take<I: NativePType, O: NativePType>(
     Ok(builder.finish(dtype))
 }
 
-fn take_nullable<I: NativePType, O: NativePType>(
+fn take_nullable<I: NativePType, O: NativePType + PrimInt>(
     dtype: DType,
     offsets: &[O],
     data: &[u8],

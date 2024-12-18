@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use num_traits::{AsPrimitive, Zero};
+use num_traits::{AsPrimitive, PrimInt, Zero};
 use vortex_dtype::{match_each_integer_ptype, DType, NativePType};
 use vortex_error::{vortex_err, vortex_panic, VortexResult};
 
@@ -54,7 +54,7 @@ fn filter_select_var_bin_by_slice_primitive_offset<O>(
     selection_count: usize,
 ) -> VortexResult<VarBinArray>
 where
-    O: NativePType + 'static + Zero,
+    O: NativePType + PrimInt + 'static + Zero,
     usize: AsPrimitive<O>,
 {
     let logical_validity = validity.to_logical(offsets.len() - 1);
@@ -107,7 +107,7 @@ fn update_non_nullable_slice<O>(
     start: usize,
     end: usize,
 ) where
-    O: NativePType + 'static + Zero + Copy,
+    O: NativePType + PrimInt + 'static + Zero + Copy,
     usize: AsPrimitive<O>,
 {
     let new_data = {
@@ -145,7 +145,7 @@ fn filter_select_var_bin_by_index(
 }
 
 #[allow(deprecated)]
-fn filter_select_var_bin_by_index_primitive_offset<O: NativePType>(
+fn filter_select_var_bin_by_index_primitive_offset<O: NativePType + PrimInt>(
     dtype: DType,
     offsets: &[O],
     data: &[u8],
