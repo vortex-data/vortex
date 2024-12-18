@@ -400,6 +400,7 @@ mod tests {
     use arrow_buffer::BooleanBufferBuilder;
     use bytes::Bytes;
     use flatbuffers::{root, FlatBufferBuilder};
+    use futures_util::io::Cursor;
     use futures_util::TryStreamExt;
     use vortex_array::array::{ChunkedArray, PrimitiveArray};
     use vortex_array::compute::FilterMask;
@@ -407,9 +408,9 @@ mod tests {
     use vortex_dtype::PType;
     use vortex_expr::{BinaryExpr, Identity, Literal, Operator};
     use vortex_flatbuffers::{footer, WriteFlatBuffer};
-    use vortex_ipc::messages::writer::MessageWriter;
-    use vortex_ipc::stream_writer::ByteRange;
+    use vortex_ipc::messages::{AsyncMessageWriter, EncoderMessage};
 
+    use crate::byte_range::ByteRange;
     use crate::layouts::chunked::{ChunkedLayoutBuilder, ChunkedLayoutReader};
     use crate::read::cache::{LazyDType, RelativeLayoutCache};
     use crate::read::layouts::test_read::{filter_read_layout, read_layout, read_layout_data};
@@ -420,22 +421,25 @@ mod tests {
         cache: Arc<RwLock<LayoutMessageCache>>,
         scan: Scan,
     ) -> (ChunkedLayoutReader, ChunkedLayoutReader, Bytes, usize) {
-        let mut writer = MessageWriter::new(Vec::new());
+        let mut writer = Cursor::new(Vec::new());
         let array = PrimitiveArray::from((0..100).collect::<Vec<_>>()).into_array();
         let array_dtype = array.dtype().clone();
         let chunked =
             ChunkedArray::try_new(iter::repeat(array).take(5).collect(), array_dtype).unwrap();
         let len = chunked.len();
-        let mut byte_offsets = vec![writer.tell()];
+        let mut byte_offsets = vec![writer.position()];
         let mut row_offsets = vec![0];
         let mut row_offset = 0;
 
         let mut chunk_stream = chunked.array_stream();
+        let mut msgs = AsyncMessageWriter::new(&mut writer);
         while let Some(chunk) = chunk_stream.try_next().await.unwrap() {
             row_offset += chunk.len() as u64;
             row_offsets.push(row_offset);
-            writer.write_array(chunk).await.unwrap();
-            byte_offsets.push(writer.tell());
+            msgs.write_message(EncoderMessage::Array(&chunk))
+                .await
+                .unwrap();
+            byte_offsets.push(msgs.inner().position());
         }
         let flat_layouts = byte_offsets
             .iter()

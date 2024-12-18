@@ -1,10 +1,11 @@
 use fsst::Symbol;
 use vortex_array::array::ConstantArray;
 use vortex_array::compute::{compare, CompareFn, Operator};
-use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayVariant, ToArrayData};
+use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
 use vortex_buffer::Buffer;
-use vortex_dtype::DType;
-use vortex_error::VortexResult;
+use vortex_dtype::{DType, Nullability};
+use vortex_error::{VortexExpect, VortexResult};
+use vortex_scalar::Scalar;
 
 use crate::{FSSTArray, FSSTEncoding};
 
@@ -16,10 +17,16 @@ impl CompareFn<FSSTArray> for FSSTEncoding {
         operator: Operator,
     ) -> VortexResult<Option<ArrayData>> {
         match (rhs.as_constant(), operator) {
-            // TODO(ngates): implement short-circuit comparisons for other operators.
-            (Some(constant_array), Operator::Eq | Operator::NotEq) => compare_fsst_constant(
+            (Some(constant), _) if constant.is_null() => {
+                // All comparisons to null must return null
+                Ok(Some(
+                    ConstantArray::new(Scalar::null(DType::Bool(Nullability::Nullable)), lhs.len())
+                        .into_array(),
+                ))
+            }
+            (Some(constant), Operator::Eq | Operator::NotEq) => compare_fsst_constant(
                 lhs,
-                &ConstantArray::new(constant_array, lhs.len()),
+                &ConstantArray::new(constant, lhs.len()),
                 operator == Operator::Eq,
             )
             .map(Some),
@@ -49,34 +56,31 @@ fn compare_fsst_constant(
     let compressor = compressor.build();
 
     let encoded_scalar = match left.dtype() {
-        DType::Utf8(_) => right
-            .scalar()
-            .as_utf8()
-            .value()
-            .map(|scalar| Buffer::from(compressor.compress(scalar.as_bytes()))),
-        DType::Binary(_) => right
-            .scalar()
-            .as_binary()
-            .value()
-            .map(|scalar| Buffer::from(compressor.compress(scalar.as_slice()))),
+        DType::Utf8(_) => {
+            let value = right
+                .scalar()
+                .as_utf8()
+                .value()
+                .vortex_expect("Expected non-null scalar");
+            Buffer::from(compressor.compress(value.as_bytes()))
+        }
+        DType::Binary(_) => {
+            let value = right
+                .scalar()
+                .as_binary()
+                .value()
+                .vortex_expect("Expected non-null scalar");
+            Buffer::from(compressor.compress(value.as_slice()))
+        }
         _ => unreachable!("FSSTArray can only have string or binary data type"),
     };
 
-    match encoded_scalar {
-        None => {
-            // Eq and NotEq on null values yield nulls, per the Arrow behavior.
-            Ok(right.to_array())
-        }
-        Some(encoded_scalar) => {
-            let rhs = ConstantArray::new(encoded_scalar, left.len());
-
-            compare(
-                left.codes(),
-                rhs,
-                if equal { Operator::Eq } else { Operator::NotEq },
-            )
-        }
-    }
+    let rhs = ConstantArray::new(encoded_scalar, left.len());
+    compare(
+        left.codes(),
+        rhs,
+        if equal { Operator::Eq } else { Operator::NotEq },
+    )
 }
 
 #[cfg(test)]

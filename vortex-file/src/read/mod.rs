@@ -30,8 +30,8 @@ pub use projection::Projection;
 pub use recordbatchreader::{AsyncRuntime, VortexRecordBatchReader};
 pub use stream::VortexReadArrayStream;
 use vortex_expr::ExprRef;
-use vortex_ipc::stream_writer::ByteRange;
 
+use crate::byte_range::ByteRange;
 pub use crate::read::mask::RowMask;
 
 // Recommended read-size according to the AWS performance guide

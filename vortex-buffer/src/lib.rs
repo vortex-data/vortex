@@ -63,6 +63,7 @@ impl Buffer {
 
     #[allow(clippy::same_name_method)]
     /// Return a new view on the buffer, but limited to the given index range.
+    /// TODO(ngates): implement std::ops::Index
     pub fn slice(&self, range: Range<usize>) -> Self {
         match &self.0 {
             Inner::Arrow(b) => Buffer(Inner::Arrow(

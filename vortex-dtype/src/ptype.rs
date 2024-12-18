@@ -60,6 +60,7 @@ pub trait NativePType:
     + FromPrimitive
     + ToBytes
     + TryFromBytes
+    + 'static
 {
     /// The PType that corresponds to this native type
     const PTYPE: PType;

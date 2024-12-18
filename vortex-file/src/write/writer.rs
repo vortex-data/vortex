@@ -4,6 +4,7 @@ use std::{io, iter, mem};
 
 use bytes::Bytes;
 use futures::TryStreamExt;
+use futures_util::io::Cursor;
 use itertools::Itertools;
 use vortex_array::array::{ChunkedArray, StructArray};
 use vortex_array::stats::{as_stat_bitset_bytes, ArrayStatistics, Stat};
@@ -13,9 +14,9 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
 use vortex_flatbuffers::{FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
 use vortex_io::VortexWrite;
-use vortex_ipc::messages::writer::MessageWriter;
-use vortex_ipc::stream_writer::ByteRange;
+use vortex_ipc::messages::{EncoderMessage, MessageEncoder};
 
+use crate::byte_range::ByteRange;
 use crate::write::postscript::Postscript;
 use crate::write::stats_accumulator::{StatArray, StatsAccumulator};
 use crate::{LayoutSpec, EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
@@ -33,8 +34,7 @@ const STATS_TO_WRITE: &[Stat] = &[
 ];
 
 pub struct VortexFileWriter<W> {
-    msgs: MessageWriter<W>,
-
+    write: Cursor<W>,
     row_count: u64,
     dtype: Option<DType>,
     column_writers: Vec<ColumnWriter>,
@@ -43,7 +43,7 @@ pub struct VortexFileWriter<W> {
 impl<W: VortexWrite> VortexFileWriter<W> {
     pub fn new(write: W) -> Self {
         VortexFileWriter {
-            msgs: MessageWriter::new(write),
+            write: Cursor::new(write),
             dtype: None,
             column_writers: Vec::new(),
             row_count: 0,
@@ -117,7 +117,7 @@ impl<W: VortexWrite> VortexFileWriter<W> {
             Some(x) => x,
         };
 
-        column_writer.write_chunks(stream, &mut self.msgs).await
+        column_writer.write_chunks(stream, &mut self.write).await
     }
 
     async fn write_metadata_arrays(&mut self) -> VortexResult<LayoutSpec> {
@@ -125,7 +125,7 @@ impl<W: VortexWrite> VortexFileWriter<W> {
         for column_writer in mem::take(&mut self.column_writers) {
             column_layouts.push(
                 column_writer
-                    .write_metadata(self.row_count, &mut self.msgs)
+                    .write_metadata(self.row_count, &mut self.write)
                     .await?,
             );
         }
@@ -135,10 +135,7 @@ impl<W: VortexWrite> VortexFileWriter<W> {
 
     pub async fn finalize(mut self) -> VortexResult<W> {
         let top_level_layout = self.write_metadata_arrays().await?;
-        let dtype_offset = self.msgs.tell();
-
-        // we want to write raw flatbuffers from here on out, not messages
-        let mut writer = self.msgs.into_inner();
+        let dtype_offset = self.write.position();
 
         // write the schema, and get the start offset of the next section (layout)
         let layout_offset = {
@@ -149,15 +146,15 @@ impl<W: VortexWrite> VortexFileWriter<W> {
             // we write an IPCSchema instead of a DType, which allows us to evolve / add to the schema later
             // these bytes get deserialized as message::Schema
             // NB: we don't wrap the IPCSchema in an IPCMessage, because we record the lengths/offsets in the footer
-            let dtype_len = write_fb_raw(&mut writer, dtype).await?;
+            let dtype_len = write_fb_raw(&mut self.write, dtype).await?;
             dtype_offset + dtype_len
         };
 
         // write the layout
-        write_fb_raw(&mut writer, top_level_layout).await?;
+        write_fb_raw(&mut self.write, top_level_layout).await?;
 
         let footer = Postscript::try_new(dtype_offset, layout_offset)?;
-        let footer_len = write_fb_raw(&mut writer, footer).await?;
+        let footer_len = write_fb_raw(&mut self.write, footer).await?;
         if footer_len > MAX_FOOTER_SIZE as u64 {
             vortex_bail!(
                 "Footer is too large ({} bytes); max footer size is {}",
@@ -172,8 +169,8 @@ impl<W: VortexWrite> VortexFileWriter<W> {
         eof[2..4].copy_from_slice(&footer_len.to_le_bytes());
         eof[4..8].copy_from_slice(&MAGIC_BYTES);
 
-        writer.write_all(eof).await?;
-        Ok(writer)
+        self.write.write_all(eof).await?;
+        Ok(self.write.into_inner())
     }
 }
 
@@ -206,10 +203,10 @@ impl ColumnWriter {
     async fn write_chunks<W: VortexWrite, S: ArrayStream + Unpin>(
         &mut self,
         mut stream: S,
-        msgs: &mut MessageWriter<W>,
+        write: &mut Cursor<W>,
     ) -> VortexResult<()> {
         let mut offsets = Vec::with_capacity(stream.size_hint().0 + 1);
-        offsets.push(msgs.tell());
+        offsets.push(write.position());
         let mut row_offsets = Vec::with_capacity(stream.size_hint().0 + 1);
         row_offsets.push(
             self.batch_row_offsets
@@ -230,8 +227,12 @@ impl ColumnWriter {
             // clear the stats that we don't want to serialize into the file
             retain_only_stats(&chunk, STATS_TO_WRITE);
 
-            msgs.write_array(chunk).await?;
-            offsets.push(msgs.tell());
+            let mut encoder = MessageEncoder::default();
+            for buffer in encoder.encode(EncoderMessage::Array(&chunk)) {
+                write.write_all(buffer).await?;
+            }
+
+            offsets.push(write.position());
             row_offsets.push(rows_written);
         }
 
@@ -244,7 +245,7 @@ impl ColumnWriter {
     async fn write_metadata<W: VortexWrite>(
         self,
         row_count: u64,
-        msgs: &mut MessageWriter<W>,
+        write: &mut Cursor<W>,
     ) -> VortexResult<LayoutSpec> {
         let data_chunks = self
             .batch_byte_offsets
@@ -269,9 +270,12 @@ impl ColumnWriter {
 
             let stat_bitset = as_stat_bitset_bytes(&present_stats);
 
-            let metadata_array_begin = msgs.tell();
-            msgs.write_array(metadata_array).await?;
-            let metadata_array_end = msgs.tell();
+            let metadata_array_begin = write.position();
+            let mut encoder = MessageEncoder::default();
+            for buffer in encoder.encode(EncoderMessage::Array(&metadata_array)) {
+                write.write_all(buffer).await?;
+            }
+            let metadata_array_end = write.position();
 
             let layouts = iter::once(LayoutSpec::flat(
                 ByteRange::new(metadata_array_begin, metadata_array_end),
