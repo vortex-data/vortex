@@ -8,12 +8,11 @@ use bytes::Bytes;
 use futures_util::StreamExt;
 use object_store::path::Path;
 use object_store::{GetOptions, GetRange, GetResultPayload, ObjectStore, WriteMultipart};
-use vortex_buffer::io_buf::IoBuf;
 use vortex_buffer::Buffer;
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
 
 use crate::aligned::AlignedBytesMut;
-use crate::{VortexBufReader, VortexReadAt, VortexWrite, ALIGNMENT};
+use crate::{IoBuf, VortexBufReader, VortexReadAt, VortexWrite, ALIGNMENT};
 
 pub trait ObjectStoreExt {
     fn vortex_read(

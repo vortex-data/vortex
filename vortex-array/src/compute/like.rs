@@ -60,7 +60,22 @@ pub fn like(
     }
 
     if let Some(f) = array.encoding().like_fn() {
-        return f.like(array, pattern, options);
+        let result = f.like(array, pattern, options)?;
+
+        debug_assert_eq!(
+            result.len(),
+            array.len(),
+            "Like length mismatch {}",
+            array.encoding().id()
+        );
+        debug_assert_eq!(
+            result.dtype(),
+            &DType::Bool((array.dtype().is_nullable() || pattern.dtype().is_nullable()).into()),
+            "Like dtype mismatch {}",
+            array.encoding().id()
+        );
+
+        return Ok(result);
     }
 
     // Otherwise, we canonicalize into a UTF8 array.

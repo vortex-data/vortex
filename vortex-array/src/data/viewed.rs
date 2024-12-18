@@ -156,7 +156,7 @@ impl Statistics for ViewedArrayData {
                     .stats()?
                     .bit_width_freq()
                     .map(|v| v.iter().map(Scalar::from).collect_vec())
-                    .map(|v| Scalar::list(element_dtype, v))
+                    .map(|v| Scalar::list(element_dtype, v, Nullability::NonNullable))
             }
             Stat::TrailingZeroFreq => self
                 .flatbuffer()
