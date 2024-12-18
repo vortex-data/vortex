@@ -2,6 +2,7 @@ use std::collections::{BTreeSet, VecDeque};
 use std::sync::{Arc, RwLock};
 
 use bytes::Bytes;
+use itertools::Itertools;
 use vortex_array::ArrayData;
 use vortex_error::VortexUnwrap;
 
@@ -10,12 +11,14 @@ use crate::read::splits::SplitsAccumulator;
 use crate::{LayoutMessageCache, LayoutReader, MessageLocator, PollRead};
 
 fn layout_splits(layouts: &[&dyn LayoutReader], length: usize) -> impl Iterator<Item = RowMask> {
-    let mut iter = SplitsAccumulator::new(length as u64, None);
     let mut splits = BTreeSet::new();
     for layout in layouts {
         layout.add_splits(0, &mut splits).vortex_unwrap();
     }
-    iter.append_splits(splits);
+    splits.insert(length);
+
+    let iter = SplitsAccumulator::new(splits.into_iter().tuple_windows::<(usize, usize)>(), None);
+
     iter.into_iter().map(|m| m.unwrap())
 }
 

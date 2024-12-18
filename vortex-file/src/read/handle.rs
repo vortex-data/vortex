@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 use std::sync::{Arc, RwLock};
 
 use futures::stream;
+use itertools::Itertools;
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, VortexUnwrap as _};
 use vortex_io::{IoDispatcher, VortexReadAt};
@@ -16,7 +17,7 @@ pub struct VortexReadHandle<R> {
     input: R,
     dtype: Arc<LazyDType>,
     row_count: u64,
-    splits: BTreeSet<usize>,
+    splits: Vec<(usize, usize)>,
     layout_reader: Arc<dyn LayoutReader>,
     filter_reader: Option<Arc<dyn LayoutReader>>,
     messages_cache: Arc<RwLock<LayoutMessageCache>>,
@@ -36,11 +37,15 @@ impl<R: VortexReadAt + Unpin> VortexReadHandle<R> {
         row_mask: Option<RowMask>,
         io_dispatcher: Arc<IoDispatcher>,
     ) -> VortexResult<Self> {
-        let mut splits = BTreeSet::new();
-        layout_reader.add_splits(0, &mut splits)?;
+        let mut reader_splits = BTreeSet::new();
+        layout_reader.add_splits(0, &mut reader_splits)?;
         if let Some(ref fr) = filter_reader {
-            fr.add_splits(0, &mut splits)?;
+            fr.add_splits(0, &mut reader_splits)?;
         }
+
+        reader_splits.insert(row_count as usize);
+
+        let splits = reader_splits.into_iter().tuple_windows().collect();
 
         Ok(Self {
             input,
@@ -67,23 +72,24 @@ impl<R: VortexReadAt + Unpin> VortexReadHandle<R> {
     }
 
     /// Returns a set of row splits in the file, that can be used to inform on how to split it horizontally.
-    pub fn splits(&self) -> &BTreeSet<usize> {
+    pub fn splits(&self) -> &[(usize, usize)] {
         &self.splits
     }
 
     /// Create a stream over all data from the handle
     pub fn into_stream(self) -> VortexResult<VortexReadArrayStream<R>> {
-        let mut split_accumulator = SplitsAccumulator::new(self.row_count, self.row_mask);
-        split_accumulator.append_splits(self.splits);
+        let splits_vec = Vec::from_iter(self.splits().iter().copied());
+        let split_accumulator = SplitsAccumulator::new(splits_vec.into_iter(), self.row_mask);
+
         let splits_stream = stream::iter(split_accumulator);
 
         // Set up a stream of RowMask that result from applying a filter expression over the file.
-        let mask_iterator = if let Some(fr) = self.filter_reader {
+        let mask_iterator = if let Some(fr) = &self.filter_reader {
             Box::new(BufferedLayoutReader::new(
                 self.input.clone(),
                 self.io_dispatcher.clone(),
                 splits_stream,
-                ReadRowMask::new(fr),
+                ReadRowMask::new(fr.clone()),
                 self.messages_cache.clone(),
             )) as _
         } else {
