@@ -76,8 +76,8 @@ pub fn take(
         array.encoding().id()
     );
     debug_assert_eq!(
+        array.dtype(),
         taken.dtype(),
-        indices.dtype(),
         "Take dtype mismatch {}",
         array.encoding().id()
     );
