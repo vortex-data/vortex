@@ -24,7 +24,7 @@ impl ArrayBuffer {
             vortex_panic!("Alignment must be a power of 2");
         }
         if buffer.as_ptr().align_offset(alignment) != 0 {
-            vortex_panic!("Buffer must be aligned to alignment");
+            vortex_panic!("Buffer must be aligned to {}", alignment);
         }
         Self { buffer, alignment }
     }

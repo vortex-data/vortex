@@ -34,7 +34,7 @@ mod test {
     #[test]
     fn invalid_patches() {
         let packed_array = BitPackedArray::try_new(
-            Buffer::from(vec![0u8; 128]),
+            Buffer::from(vec![0u32; 32]),
             PType::U32,
             Validity::AllInvalid,
             Some(Patches::new(
