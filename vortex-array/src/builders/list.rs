@@ -1,41 +1,40 @@
 use std::any::Any;
 use std::sync::Arc;
 
-use vortex_dtype::{DType, Nullability, PType};
+use num_traits::{AsPrimitive, PrimInt, Unsigned};
+use vortex_dtype::{DType, NativePType, Nullability};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::{ListScalar, Scalar};
 
 use crate::array::ListArray;
-use crate::builders::{builder_with_capacity, ArrayBuilder, ArrayBuilderExt, BoolBuilder};
+use crate::builders::{
+    builder_with_capacity, ArrayBuilder, ArrayBuilderExt, BoolBuilder, PrimitiveBuilder,
+};
 use crate::validity::Validity;
 use crate::{ArrayData, IntoArrayData};
 
-pub struct ListBuilder {
+pub struct ListBuilder<O: PrimInt + Unsigned + NativePType> {
     value_builder: Box<dyn ArrayBuilder>,
-    index_builder: Box<dyn ArrayBuilder>,
+    index_builder: PrimitiveBuilder<O>,
     validity: BoolBuilder,
     nullability: Nullability,
     dtype: DType,
 }
 
-impl ListBuilder {
+impl<O> ListBuilder<O>
+where
+    O: PrimInt + Unsigned + NativePType + 'static,
+    Scalar: From<O>,
+    usize: AsPrimitive<O>,
+{
     pub fn with_capacity(
         value_dtype: Arc<DType>,
         nullability: Nullability,
         capacity: usize,
     ) -> Self {
-        let value_builder = builder_with_capacity(value_dtype.as_ref(), capacity);
-        let mut index_builder = if capacity < 2usize.pow(32) - 1 {
-            builder_with_capacity(
-                &DType::Primitive(PType::U32, Nullability::NonNullable),
-                capacity,
-            )
-        } else {
-            builder_with_capacity(
-                &DType::Primitive(PType::U64, Nullability::NonNullable),
-                capacity,
-            )
-        };
+        // I would expect the list to have more than one value per index
+        let value_builder = builder_with_capacity(value_dtype.as_ref(), 2 * capacity);
+        let mut index_builder = PrimitiveBuilder::with_capacity(nullability, capacity);
 
         // The first index of the list, which is always 0 and represents an empty list.
         index_builder.append_zero();
@@ -59,17 +58,21 @@ impl ListBuilder {
                 // or the list scalar should hold an ArrayData
                 self.value_builder.append_scalar(&scalar)?;
             }
-            self.append_index(self.value_builder.len() as u64)
+            self.append_index(self.value_builder.len().as_())
         }
     }
 
-    fn append_index(&mut self, index: u64) -> VortexResult<()> {
-        self.index_builder
-            .append_scalar(&Scalar::from(index).cast(self.index_builder.dtype())?)
+    fn append_index(&mut self, index: O) -> VortexResult<()> {
+        self.index_builder.append_scalar(&Scalar::from(index))
     }
 }
 
-impl ArrayBuilder for ListBuilder {
+impl<O> ArrayBuilder for ListBuilder<O>
+where
+    O: PrimInt + Unsigned + NativePType + 'static,
+    Scalar: From<O>,
+    usize: AsPrimitive<O>,
+{
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -90,7 +93,7 @@ impl ArrayBuilder for ListBuilder {
         let count = self.value_builder.len();
         self.value_builder.append_zeros(n);
         for i in 0..n {
-            self.append_index((count + i + 1) as u64)
+            self.append_index((count + i + 1).as_())
                 .vortex_expect("Failed to append index");
         }
         self.validity.append_values(true, n);
@@ -101,7 +104,7 @@ impl ArrayBuilder for ListBuilder {
         for _ in 0..n {
             // A list with a null element is can be a list with a zero-span offset and a validity
             // bit set
-            self.append_index(count as u64)
+            self.append_index(count.as_())
                 .vortex_expect("Failed to append index");
         }
         self.validity.append_values(false, n);
@@ -135,8 +138,11 @@ mod tests {
 
     #[test]
     fn test_empty() {
-        let mut builder =
-            ListBuilder::with_capacity(Arc::new(PType::I32.into()), Nullability::NonNullable, 0);
+        let mut builder = ListBuilder::<u32>::with_capacity(
+            Arc::new(PType::I32.into()),
+            Nullability::NonNullable,
+            0,
+        );
 
         let list = builder.finish().unwrap();
         assert_eq!(list.len(), 0);
@@ -145,7 +151,8 @@ mod tests {
     #[test]
     fn test_values() {
         let dtype: Arc<DType> = Arc::new(PType::I32.into());
-        let mut builder = ListBuilder::with_capacity(dtype.clone(), Nullability::NonNullable, 0);
+        let mut builder =
+            ListBuilder::<u32>::with_capacity(dtype.clone(), Nullability::NonNullable, 0);
 
         builder
             .append_value(

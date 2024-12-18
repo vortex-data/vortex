@@ -74,7 +74,11 @@ pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBui
             *n,
             capacity,
         )),
-        DType::List(dtype, n) => Box::new(ListBuilder::with_capacity(dtype.clone(), *n, capacity)),
+        DType::List(dtype, n) => Box::new(ListBuilder::<u64>::with_capacity(
+            dtype.clone(),
+            *n,
+            capacity,
+        )),
         DType::Extension(ext_dtype) => {
             Box::new(ExtensionBuilder::with_capacity(ext_dtype.clone(), capacity))
         }
@@ -130,7 +134,7 @@ pub trait ArrayBuilderExt: ArrayBuilder {
                 .append_value(StructScalar::try_from(scalar)?)?,
             DType::List(..) => self
                 .as_any_mut()
-                .downcast_mut::<ListBuilder>()
+                .downcast_mut::<ListBuilder<u64>>()
                 .ok_or_else(|| vortex_err!("Cannot append list scalar to non-list builder"))?
                 .append_value(ListScalar::try_from(scalar)?)?,
             DType::Extension(..) => self
