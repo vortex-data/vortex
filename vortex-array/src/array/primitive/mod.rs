@@ -19,7 +19,8 @@ use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata
 use crate::variants::{PrimitiveArrayTrait, VariantsVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{
-    impl_encoding, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData, IntoCanonical,
+    impl_encoding, ArrayBuffer, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
+    IntoCanonical,
 };
 
 mod compute;
@@ -60,7 +61,7 @@ impl PrimitiveArray {
                     .to_metadata(length)
                     .vortex_expect("Invalid validity"),
             }),
-            Some(buffer),
+            Some(ArrayBuffer::new_with_alignment(buffer, ptype.byte_width())),
             validity.into_array().into_iter().collect_vec().into(),
             StatsSet::default(),
         )
@@ -101,7 +102,7 @@ impl PrimitiveArray {
         })
     }
 
-    pub fn buffer(&self) -> &Buffer {
+    pub fn buffer(&self) -> &ArrayBuffer {
         self.as_ref()
             .buffer()
             .vortex_expect("Missing buffer in PrimitiveArray")
@@ -132,11 +133,14 @@ impl PrimitiveArray {
             T::PTYPE,
             self.ptype(),
         );
-        self.into_buffer().into_vec::<T>().unwrap_or_else(|b| {
-            let (prefix, values, suffix) = unsafe { b.as_ref().align_to::<T>() };
-            assert!(prefix.is_empty() && suffix.is_empty());
-            Vec::from(values)
-        })
+        self.into_buffer()
+            .into_inner()
+            .into_vec::<T>()
+            .unwrap_or_else(|b| {
+                let (prefix, values, suffix) = unsafe { b.as_ref().align_to::<T>() };
+                assert!(prefix.is_empty() && suffix.is_empty());
+                Vec::from(values)
+            })
     }
 
     pub fn get_as_cast<T: NativePType>(&self, idx: usize) -> T {
@@ -156,10 +160,10 @@ impl PrimitiveArray {
             "can't reinterpret cast between integers of two different widths"
         );
 
-        PrimitiveArray::new(self.buffer().clone(), ptype, self.validity())
+        PrimitiveArray::new(self.buffer().clone().into_inner(), ptype, self.validity())
     }
 
-    pub fn into_buffer(self) -> Buffer {
+    pub fn into_buffer(self) -> ArrayBuffer {
         self.into_array()
             .into_buffer()
             .vortex_expect("PrimitiveArray must have a buffer")

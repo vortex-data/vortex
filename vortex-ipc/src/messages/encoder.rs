@@ -95,9 +95,10 @@ impl MessageEncoder {
                             &fba::BufferArgs {
                                 length: buffer.len() as u64,
                                 padding,
+                                alignment_: buffer.alignment_u16(),
                             },
                         ));
-                        buffers.push(buffer.clone());
+                        buffers.push(buffer.clone().into_inner());
                         if padding > 0 {
                             buffers.push(self.zeros.slice(0..usize::from(padding)));
                         }
@@ -128,6 +129,8 @@ impl MessageEncoder {
                     &fba::BufferArgs {
                         length: buffer.len() as u64,
                         padding,
+                        // Buffer messages have no minimum alignment, the reader decides.
+                        alignment_: 0,
                     },
                 )
                 .as_union_value()

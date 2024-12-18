@@ -210,7 +210,7 @@ impl VarBinArray {
         let start = self.offset_at(index);
         let end = self.offset_at(index + 1);
         let sliced = slice(self.bytes(), start, end)?;
-        Ok(sliced.into_primitive()?.buffer().clone())
+        Ok(sliced.into_primitive()?.buffer().clone().into_inner())
     }
 
     /// Consumes self, returning a tuple containing the `DType`, the `bytes` array,

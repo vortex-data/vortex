@@ -32,10 +32,12 @@ impl CastFn<PrimitiveArray> for PrimitiveEncoding {
 
         // If the bit width is the same, we can short-circuit and simply update the validity
         if array.ptype() == new_ptype {
-            return Ok(
-                PrimitiveArray::new(array.buffer().clone(), array.ptype(), new_validity)
-                    .into_array(),
-            );
+            return Ok(PrimitiveArray::new(
+                array.buffer().clone().into_inner(),
+                array.ptype(),
+                new_validity,
+            )
+            .into_array());
         }
 
         // Otherwise, we need to cast the values one-by-one

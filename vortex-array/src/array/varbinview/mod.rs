@@ -297,7 +297,7 @@ impl VarBinViewArray {
     /// only require hitting the prefixes or inline strings.
     pub fn binary_views(&self) -> VortexResult<Views> {
         Ok(Views {
-            inner: self.views().into_primitive()?.into_buffer(),
+            inner: self.views().into_primitive()?.into_buffer().into_inner(),
             idx: 0,
             len: self.len(),
         })
@@ -567,21 +567,21 @@ pub(crate) fn varbinview_as_arrow(var_bin_view: &VarBinViewArray) -> ArrayRef {
 
     let data = data
         .iter()
-        .map(|p| p.buffer().clone().into_arrow())
+        .map(|p| p.buffer().clone().into_inner().into_arrow())
         .collect::<Vec<_>>();
 
     // Switch on Arrow DType.
     match var_bin_view.dtype() {
         DType::Binary(_) => Arc::new(unsafe {
             BinaryViewArray::new_unchecked(
-                ScalarBuffer::<u128>::from(views.buffer().clone().into_arrow()),
+                ScalarBuffer::<u128>::from(views.buffer().clone().into_inner().into_arrow()),
                 data,
                 nulls,
             )
         }),
         DType::Utf8(_) => Arc::new(unsafe {
             StringViewArray::new_unchecked(
-                ScalarBuffer::<u128>::from(views.buffer().clone().into_arrow()),
+                ScalarBuffer::<u128>::from(views.buffer().clone().into_inner().into_arrow()),
                 data,
                 nulls,
             )

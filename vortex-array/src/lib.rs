@@ -11,6 +11,7 @@
 //! arrays can be [canonicalized](Canonical) into for ease of access in compute functions.
 //!
 
+pub use buffer::*;
 pub use canonical::*;
 pub use context::*;
 pub use data::*;
@@ -27,6 +28,7 @@ pub mod accessor;
 pub mod aliases;
 pub mod array;
 pub mod arrow;
+mod buffer;
 pub mod builders;
 mod canonical;
 pub mod compress;

@@ -99,9 +99,11 @@ impl FillForwardFn<ByteBoolArray> for ByteBoolEncoding {
         }
         // all valid, but we need to convert to non-nullable
         if validity.all_valid() {
-            return Ok(
-                ByteBoolArray::try_new(array.buffer().clone(), Validity::AllValid)?.into_array(),
-            );
+            return Ok(ByteBoolArray::try_new(
+                array.buffer().clone().into_inner(),
+                Validity::AllValid,
+            )?
+            .into_array());
         }
         // all invalid => fill with default value (false)
         if validity.all_invalid() {

@@ -10,7 +10,9 @@ use vortex_array::stats::StatsSet;
 use vortex_array::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use vortex_array::variants::{BoolArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
-use vortex_array::{impl_encoding, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoCanonical};
+use vortex_array::{
+    impl_encoding, ArrayBuffer, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoCanonical,
+};
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult};
@@ -47,7 +49,7 @@ impl ByteBoolArray {
             Arc::new(ByteBoolMetadata {
                 validity: validity.to_metadata(length)?,
             }),
-            Some(buffer),
+            Some(ArrayBuffer::new::<u8>(buffer)),
             validity.into_array().into_iter().collect::<Vec<_>>().into(),
             StatsSet::default(),
         )?
@@ -70,7 +72,7 @@ impl ByteBoolArray {
         Self::try_new(buffer, validity)
     }
 
-    pub fn buffer(&self) -> &Buffer {
+    pub fn buffer(&self) -> &ArrayBuffer {
         self.as_ref()
             .buffer()
             .vortex_expect("ByteBoolArray is missing the underlying buffer")

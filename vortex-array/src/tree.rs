@@ -2,13 +2,12 @@ use std::fmt;
 
 use humansize::{format_size, DECIMAL};
 use serde::ser::Error;
-use vortex_buffer::Buffer;
 use vortex_error::{VortexError, VortexResult};
 
 use crate::array::ChunkedEncoding;
 use crate::encoding::EncodingVTable;
 use crate::visitor::ArrayVisitor;
-use crate::ArrayData;
+use crate::{ArrayBuffer, ArrayData};
 
 impl ArrayData {
     pub fn tree_display(&self) -> TreeDisplayWrapper {
@@ -76,7 +75,7 @@ impl<'a, 'b: 'a> ArrayVisitor for TreeFormatter<'a, 'b> {
         Ok(())
     }
 
-    fn visit_buffer(&mut self, buffer: &Buffer) -> VortexResult<()> {
+    fn visit_buffer(&mut self, buffer: &ArrayBuffer) -> VortexResult<()> {
         Ok(writeln!(
             self.fmt,
             "{}buffer: {}",

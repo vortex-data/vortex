@@ -12,11 +12,14 @@ use vortex_array::validity::{LogicalValidity, Validity, ValidityMetadata, Validi
 use vortex_array::variants::{PrimitiveArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoCanonical,
+    impl_encoding, ArrayBuffer, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical,
+    IntoCanonical,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, NativePType, PType};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
+
+use crate::FASTLANES_ALIGNMENT;
 
 mod compress;
 mod compute;
@@ -87,6 +90,7 @@ impl BitPackedArray {
                 packed.len()
             ));
         }
+        let packed = ArrayBuffer::new_with_alignment(packed, FASTLANES_ALIGNMENT);
 
         let metadata = BitPackedMetadata {
             validity: validity.to_metadata(length)?,
@@ -120,7 +124,7 @@ impl BitPackedArray {
     }
 
     #[inline]
-    pub fn packed(&self) -> &Buffer {
+    pub fn packed(&self) -> &ArrayBuffer {
         self.as_ref()
             .buffer()
             .vortex_expect("BitPackedArray must contain packed buffer")

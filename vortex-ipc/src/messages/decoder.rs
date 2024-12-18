@@ -4,7 +4,7 @@ use std::sync::Arc;
 use bytes::{Buf, BytesMut};
 use flatbuffers::{root, root_unchecked, Follow};
 use itertools::Itertools;
-use vortex_array::{flatbuffers as fba, ArrayData, Context};
+use vortex_array::{flatbuffers as fba, ArrayBuffer, ArrayData, Context};
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
@@ -32,7 +32,7 @@ pub struct ArrayParts {
     // Typed as fb::Array
     array_flatbuffer: Buffer,
     array_flatbuffer_loc: usize,
-    buffers: Vec<Buffer>,
+    buffers: Vec<ArrayBuffer>,
 }
 
 impl Debug for ArrayParts {
@@ -229,9 +229,16 @@ impl MessageDecoder {
                         .map(|buffer_msg| {
                             let buffer_len = usize::try_from(buffer_msg.length())
                                 .vortex_expect("buffer length is too large for usize");
-                            let buffer = bytes.split_to_aligned(buffer_len, self.alignment);
+                            let alignment = match buffer_msg.alignment_() {
+                                0 => self.alignment,
+                                align => (align as usize).min(self.alignment),
+                            };
+                            let buffer = bytes.split_to_aligned(buffer_len, alignment);
                             let _padding = bytes.split_to(buffer_msg.padding() as usize);
-                            Buffer::from(buffer.freeze())
+                            ArrayBuffer::new_with_alignment(
+                                Buffer::from(buffer.freeze()),
+                                alignment,
+                            )
                         })
                         .collect_vec();
 

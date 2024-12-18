@@ -63,8 +63,14 @@ impl TakeFn<VarBinViewArray> for VarBinViewEncoding {
         let validity = array.validity().take(indices)?;
 
         // Convert our views array into an Arrow u128 ScalarBuffer (16 bytes per view)
-        let views_buffer =
-            ScalarBuffer::<u128>::from(array.views().into_primitive()?.into_buffer().into_arrow());
+        let views_buffer = ScalarBuffer::<u128>::from(
+            array
+                .views()
+                .into_primitive()?
+                .into_buffer()
+                .into_inner()
+                .into_arrow(),
+        );
 
         let indices = indices.clone().into_primitive()?;
 
@@ -97,8 +103,14 @@ impl TakeFn<VarBinViewArray> for VarBinViewEncoding {
         let validity = array.validity().take(indices)?;
 
         // Convert our views array into an Arrow u128 ScalarBuffer (16 bytes per view)
-        let views_buffer =
-            ScalarBuffer::<u128>::from(array.views().into_primitive()?.into_buffer().into_arrow());
+        let views_buffer = ScalarBuffer::<u128>::from(
+            array
+                .views()
+                .into_primitive()?
+                .into_buffer()
+                .into_inner()
+                .into_arrow(),
+        );
 
         let indices = indices.clone().into_primitive()?;
 

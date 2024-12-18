@@ -8,7 +8,7 @@ pub fn as_scalar_buffer<T: NativePType + ArrowNativeType>(
     array: PrimitiveArray,
 ) -> ScalarBuffer<T> {
     assert_eq!(array.ptype(), T::PTYPE);
-    ScalarBuffer::from(array.buffer().clone().into_arrow())
+    ScalarBuffer::from(array.buffer().clone().into_inner().into_arrow())
 }
 
 pub fn as_offset_buffer<T: NativePType + ArrowNativeType>(

@@ -12,7 +12,7 @@ use crate::encoding::opaque::OpaqueEncoding;
 use crate::encoding::EncodingRef;
 use crate::stats::{Stat, Statistics, StatsSet};
 use crate::visitor::ArrayVisitor;
-use crate::{flatbuffers as fb, ArrayData, ArrayMetadata, Context};
+use crate::{flatbuffers as fb, ArrayBuffer, ArrayData, ArrayMetadata, Context};
 
 /// Zero-copy view over flatbuffer-encoded array data, created without eager serialization.
 #[derive(Clone)]
@@ -23,7 +23,7 @@ pub(super) struct ViewedArrayData {
     pub(super) metadata: Arc<dyn ArrayMetadata>,
     pub(super) flatbuffer: Buffer,
     pub(super) flatbuffer_loc: usize,
-    pub(super) buffers: Arc<[Buffer]>,
+    pub(super) buffers: Arc<[ArrayBuffer]>,
     pub(super) ctx: Arc<Context>,
     #[cfg(feature = "canonical_counter")]
     pub(super) canonical_counter: Arc<std::sync::atomic::AtomicUsize>,
@@ -103,7 +103,7 @@ impl ViewedArrayData {
         collector.children
     }
 
-    pub fn buffer(&self) -> Option<&Buffer> {
+    pub fn buffer(&self) -> Option<&ArrayBuffer> {
         self.flatbuffer()
             .buffers()
             .and_then(|buffers| {

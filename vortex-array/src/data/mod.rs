@@ -22,7 +22,7 @@ use crate::stats::{ArrayStatistics, Stat, Statistics, StatsSet};
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use crate::{
-    ArrayChildrenIterator, ArrayDType, ArrayLen, ArrayMetadata, Context,
+    ArrayBuffer, ArrayChildrenIterator, ArrayDType, ArrayLen, ArrayMetadata, Context,
     TryDeserializeArrayMetadata,
 };
 
@@ -61,7 +61,7 @@ impl ArrayData {
         dtype: DType,
         len: usize,
         metadata: Arc<dyn ArrayMetadata>,
-        buffer: Option<Buffer>,
+        buffer: Option<ArrayBuffer>,
         children: Arc<[ArrayData]>,
         statistics: StatsSet,
     ) -> VortexResult<Self> {
@@ -84,7 +84,7 @@ impl ArrayData {
         len: usize,
         flatbuffer: Buffer,
         flatbuffer_init: F,
-        buffers: Vec<Buffer>,
+        buffers: Vec<ArrayBuffer>,
     ) -> VortexResult<Self>
     where
         F: FnOnce(&[u8]) -> VortexResult<crate::flatbuffers::Array>,
@@ -310,14 +310,14 @@ impl ArrayData {
         }
     }
 
-    pub fn buffer(&self) -> Option<&Buffer> {
+    pub fn buffer(&self) -> Option<&ArrayBuffer> {
         match &self.0 {
             InnerArrayData::Owned(d) => d.buffer(),
             InnerArrayData::Viewed(v) => v.buffer(),
         }
     }
 
-    pub fn into_buffer(self) -> Option<Buffer> {
+    pub fn into_buffer(self) -> Option<ArrayBuffer> {
         match self.0 {
             InnerArrayData::Owned(d) => d.into_buffer(),
             InnerArrayData::Viewed(v) => v.buffer().cloned(),

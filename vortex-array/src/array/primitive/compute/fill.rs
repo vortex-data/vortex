@@ -17,7 +17,7 @@ impl FillForwardFn<PrimitiveArray> for PrimitiveEncoding {
         let validity = array.logical_validity();
         if validity.all_valid() {
             return Ok(PrimitiveArray::new(
-                array.buffer().clone(),
+                array.buffer().clone().into_inner(),
                 array.ptype(),
                 Validity::AllValid,
             )
