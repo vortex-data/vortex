@@ -62,11 +62,17 @@ pub fn like(
     if let Some(f) = array.encoding().like_fn() {
         let result = f.like(array, pattern, options)?;
 
-        debug_assert_eq!(result.len(), array.len(), "Like length mismatch");
+        debug_assert_eq!(
+            result.len(),
+            array.len(),
+            "Like length mismatch {}",
+            array.encoding().id()
+        );
         debug_assert_eq!(
             result.dtype(),
             &DType::Bool((array.dtype().is_nullable() || pattern.dtype().is_nullable()).into()),
-            "Like should return a boolean array with the same nullability as the input arrays"
+            "Like dtype mismatch {}",
+            array.encoding().id()
         );
 
         return Ok(result);

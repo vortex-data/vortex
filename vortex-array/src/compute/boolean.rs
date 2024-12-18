@@ -97,23 +97,6 @@ pub fn binary_boolean(
         return binary_boolean(rhs, lhs, op);
     }
 
-    let result = binary_boolean_impl(lhs, rhs, op)?;
-
-    debug_assert_eq!(result.len(), lhs.len(), "Boolean operation length mismatch");
-    debug_assert_eq!(
-        result.dtype(),
-        &DType::Bool((lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into()),
-        "Boolean operation should return a boolean array"
-    );
-
-    Ok(result)
-}
-
-fn binary_boolean_impl(
-    lhs: &ArrayData,
-    rhs: &ArrayData,
-    op: BinaryOperator,
-) -> VortexResult<ArrayData> {
     // If the RHS is constant and the LHS is Arrow, we can't do any better than arrow_compare.
     if lhs.is_arrow() && (rhs.is_arrow() || rhs.is_constant()) {
         return arrow_boolean(lhs.clone(), rhs.clone(), op);
@@ -124,16 +107,42 @@ fn binary_boolean_impl(
         .encoding()
         .binary_boolean_fn()
         .and_then(|f| f.binary_boolean(lhs, rhs, op).transpose())
+        .transpose()?
     {
-        return result;
+        debug_assert_eq!(
+            result.len(),
+            lhs.len(),
+            "Boolean operation length mismatch {}",
+            lhs.encoding().id()
+        );
+        debug_assert_eq!(
+            result.dtype(),
+            &DType::Bool((lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into()),
+            "Boolean operation dtype mismatch {}",
+            lhs.encoding().id()
+        );
+        return Ok(result);
     }
 
     if let Some(result) = rhs
         .encoding()
         .binary_boolean_fn()
         .and_then(|f| f.binary_boolean(rhs, lhs, op).transpose())
+        .transpose()?
     {
-        return result;
+        debug_assert_eq!(
+            result.len(),
+            lhs.len(),
+            "Boolean operation length mismatch {}",
+            rhs.encoding().id()
+        );
+        debug_assert_eq!(
+            result.dtype(),
+            &DType::Bool((lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into()),
+            "Boolean operation dtype mismatch {}",
+            rhs.encoding().id()
+        );
+        return Ok(result);
     }
 
     log::debug!(

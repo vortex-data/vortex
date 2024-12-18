@@ -45,8 +45,18 @@ pub fn fill_forward(array: impl AsRef<ArrayData>) -> VortexResult<ArrayData> {
             ))
         })?;
 
-    debug_assert_eq!(filled.len(), array.len(), "FillForward length mismatch");
-    debug_assert_eq!(filled.dtype(), array.dtype(), "FillForward dtype mismatch");
+    debug_assert_eq!(
+        filled.len(),
+        array.len(),
+        "FillForward length mismatch {}",
+        array.encoding().id()
+    );
+    debug_assert_eq!(
+        filled.dtype(),
+        array.dtype(),
+        "FillForward dtype mismatch {}",
+        array.encoding().id()
+    );
 
-    Ok(filled);
+    Ok(filled)
 }

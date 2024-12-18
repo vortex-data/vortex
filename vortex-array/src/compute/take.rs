@@ -69,8 +69,18 @@ pub fn take(
 
     let taken = take_impl(array, indices, checked_indices)?;
 
-    debug_assert_eq!(taken.len(), indices.len(), "Take length mismatch");
-    debug_assert_eq!(taken.dtype(), indices.dtype(), "Take dtype mismatch");
+    debug_assert_eq!(
+        taken.len(),
+        indices.len(),
+        "Take length mismatch {}",
+        array.encoding().id()
+    );
+    debug_assert_eq!(
+        taken.dtype(),
+        indices.dtype(),
+        "Take dtype mismatch {}",
+        array.encoding().id()
+    );
 
     Ok(taken)
 }

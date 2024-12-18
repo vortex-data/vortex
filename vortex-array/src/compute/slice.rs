@@ -51,8 +51,18 @@ pub fn slice(array: impl AsRef<ArrayData>, start: usize, stop: usize) -> VortexR
             ))
         })?;
 
-    debug_assert_eq!(sliced.len(), stop - start, "Slice length mismatch");
-    debug_assert_eq!(sliced.dtype(), array.dtype(), "Slice dtype mismatch");
+    debug_assert_eq!(
+        sliced.len(),
+        stop - start,
+        "Slice length mismatch {}",
+        array.encoding().id()
+    );
+    debug_assert_eq!(
+        sliced.dtype(),
+        array.dtype(),
+        "Slice dtype mismatch {}",
+        array.encoding().id()
+    );
 
     Ok(sliced)
 }

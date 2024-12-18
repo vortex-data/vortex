@@ -34,8 +34,18 @@ pub fn invert(array: &ArrayData) -> VortexResult<ArrayData> {
     if let Some(f) = array.encoding().invert_fn() {
         let inverted = f.invert(array)?;
 
-        debug_assert_eq!(inverted.len(), array.len(), "Invert length mismatch");
-        debug_assert_eq!(inverted.dtype(), array.dtype(), "Invert dtype mismatch");
+        debug_assert_eq!(
+            inverted.len(),
+            array.len(),
+            "Invert length mismatch {}",
+            array.encoding().id()
+        );
+        debug_assert_eq!(
+            inverted.dtype(),
+            array.dtype(),
+            "Invert dtype mismatch {}",
+            array.encoding().id()
+        );
 
         return Ok(inverted);
     }

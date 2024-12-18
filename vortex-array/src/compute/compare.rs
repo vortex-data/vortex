@@ -117,23 +117,6 @@ pub fn compare(
         vortex_bail!("Compare operations only support arrays of the same type");
     }
 
-    let result = compare_impl(left, right, operator)?;
-
-    debug_assert_eq!(result.len(), left.len(), "Compare length mismatch");
-    debug_assert_eq!(
-        result.dtype(),
-        &DType::Bool((left.dtype().is_nullable() || right.dtype().is_nullable()).into()),
-        "Compare should return a boolean array"
-    );
-
-    Ok(result)
-}
-
-fn compare_impl(
-    left: &ArrayData,
-    right: &ArrayData,
-    operator: Operator,
-) -> VortexResult<ArrayData> {
     // Always try to put constants on the right-hand side so encodings can optimise themselves.
     if left.is_constant() && !right.is_constant() {
         return compare(right, left, operator.swap());
@@ -143,16 +126,42 @@ fn compare_impl(
         .encoding()
         .compare_fn()
         .and_then(|f| f.compare(left, right, operator).transpose())
+        .transpose()?
     {
-        return result;
+        debug_assert_eq!(
+            result.len(),
+            left.len(),
+            "Compare length mismatch {}",
+            left.encoding().id()
+        );
+        debug_assert_eq!(
+            result.dtype(),
+            &DType::Bool((left.dtype().is_nullable() || right.dtype().is_nullable()).into()),
+            "Compare dtype mismatch {}",
+            left.encoding().id()
+        );
+        return Ok(result);
     }
 
     if let Some(result) = right
         .encoding()
         .compare_fn()
         .and_then(|f| f.compare(right, left, operator.swap()).transpose())
+        .transpose()?
     {
-        return result;
+        debug_assert_eq!(
+            result.len(),
+            left.len(),
+            "Compare length mismatch {}",
+            right.encoding().id()
+        );
+        debug_assert_eq!(
+            result.dtype(),
+            &DType::Bool((left.dtype().is_nullable() || right.dtype().is_nullable()).into()),
+            "Compare dtype mismatch {}",
+            right.encoding().id()
+        );
+        return Ok(result);
     }
 
     // Only log missing compare implementation if there's possibly better one than arrow,

@@ -114,29 +114,24 @@ pub fn binary_numeric(
         )
     }
 
-    let result = binary_numeric_impl(lhs, rhs, op)?;
-
-    debug_assert_eq!(result.len(), lhs.len(), "Numeric operation length mismatch");
-    debug_assert_eq!(
-        result.dtype(),
-        &DType::Primitive(
-            PType::try_from(lhs.dtype())?,
-            (lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into()
-        ),
-        "Numeric operation should return a primitive array"
-    );
-
-    Ok(result)
-}
-
-fn binary_numeric_impl(
-    lhs: &ArrayData,
-    rhs: &ArrayData,
-    op: BinaryNumericOperator,
-) -> VortexResult<ArrayData> {
     // Check if LHS supports the operation directly.
     if let Some(fun) = lhs.encoding().binary_numeric_fn() {
         if let Some(result) = fun.binary_numeric(lhs, rhs, op)? {
+            debug_assert_eq!(
+                result.len(),
+                lhs.len(),
+                "Numeric operation length mismatch {}",
+                lhs.encoding().id()
+            );
+            debug_assert_eq!(
+                result.dtype(),
+                &DType::Primitive(
+                    PType::try_from(lhs.dtype())?,
+                    (lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into()
+                ),
+                "Numeric operation dtype mismatch {}",
+                lhs.encoding().id()
+            );
             return Ok(result);
         }
     }
@@ -144,6 +139,21 @@ fn binary_numeric_impl(
     // Check if RHS supports the operation directly.
     if let Some(fun) = rhs.encoding().binary_numeric_fn() {
         if let Some(result) = fun.binary_numeric(rhs, lhs, op)? {
+            debug_assert_eq!(
+                result.len(),
+                lhs.len(),
+                "Numeric operation length mismatch {}",
+                rhs.encoding().id()
+            );
+            debug_assert_eq!(
+                result.dtype(),
+                &DType::Primitive(
+                    PType::try_from(lhs.dtype())?,
+                    (lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into()
+                ),
+                "Numeric operation dtype mismatch {}",
+                rhs.encoding().id()
+            );
             return Ok(result);
         }
     }
