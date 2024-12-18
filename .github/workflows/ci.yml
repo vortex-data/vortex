@@ -158,8 +158,7 @@ jobs:
       - uses: rraval/actions-rs-grcov@e96292badb0d33512d16654efb0ee3032a9a3cff
         id: grcov
         with:
-          ignore:
-            - "bench-vortex/*"
+          config: ".github/coverage.yml"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Coveralls
