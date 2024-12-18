@@ -1,7 +1,7 @@
 use std::any::Any;
 use std::sync::Arc;
 
-use num_traits::{AsPrimitive, PrimInt, Unsigned};
+use num_traits::{AsPrimitive, PrimInt};
 use vortex_dtype::{DType, NativePType, Nullability};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::{ListScalar, Scalar};
@@ -13,7 +13,7 @@ use crate::builders::{
 use crate::validity::Validity;
 use crate::{ArrayData, IntoArrayData};
 
-pub struct ListBuilder<O: PrimInt + Unsigned + NativePType> {
+pub struct ListBuilder<O: PrimInt + NativePType> {
     value_builder: Box<dyn ArrayBuilder>,
     index_builder: PrimitiveBuilder<O>,
     validity: BoolBuilder,
@@ -23,7 +23,7 @@ pub struct ListBuilder<O: PrimInt + Unsigned + NativePType> {
 
 impl<O> ListBuilder<O>
 where
-    O: PrimInt + Unsigned + NativePType + 'static,
+    O: PrimInt + NativePType + 'static,
     Scalar: From<O>,
     usize: AsPrimitive<O>,
 {
@@ -69,7 +69,7 @@ where
 
 impl<O> ArrayBuilder for ListBuilder<O>
 where
-    O: PrimInt + Unsigned + NativePType + 'static,
+    O: PrimInt + NativePType + 'static,
     Scalar: From<O>,
     usize: AsPrimitive<O>,
 {
