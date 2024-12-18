@@ -4,7 +4,6 @@ use std::sync::Arc;
 mod accessor;
 
 use arrow_buffer::{ArrowNativeType, BooleanBufferBuilder, Buffer as ArrowBuffer};
-use bytes::Bytes;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use vortex_buffer::Buffer;
@@ -84,13 +83,6 @@ impl PrimitiveArray {
         let elems: Vec<T> = values.iter().map(|v| v.unwrap_or_default()).collect();
         let validity = Validity::from_iter(values.iter().map(|v| v.is_some()));
         Self::from_vec(elems, validity)
-    }
-
-    /// Creates a new array of type U8
-    pub fn from_bytes(bytes: Bytes, validity: Validity) -> Self {
-        let buffer = Buffer::from(bytes);
-
-        PrimitiveArray::new(buffer, PType::U8, validity)
     }
 
     pub fn validity(&self) -> Validity {

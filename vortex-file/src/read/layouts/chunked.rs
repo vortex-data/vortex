@@ -398,13 +398,13 @@ mod tests {
     use std::sync::{Arc, RwLock};
 
     use arrow_buffer::BooleanBufferBuilder;
-    use bytes::Bytes;
     use flatbuffers::{root, FlatBufferBuilder};
     use futures_util::io::Cursor;
     use futures_util::TryStreamExt;
     use vortex_array::array::{ChunkedArray, PrimitiveArray};
     use vortex_array::compute::FilterMask;
     use vortex_array::{ArrayDType, ArrayLen, IntoArrayData, IntoArrayVariant};
+    use vortex_buffer::Buffer;
     use vortex_dtype::PType;
     use vortex_expr::{BinaryExpr, Identity, Literal, Operator};
     use vortex_flatbuffers::{footer, WriteFlatBuffer};
@@ -420,7 +420,7 @@ mod tests {
     async fn layout_and_bytes(
         cache: Arc<RwLock<LayoutMessageCache>>,
         scan: Scan,
-    ) -> (ChunkedLayoutReader, ChunkedLayoutReader, Bytes, usize) {
+    ) -> (ChunkedLayoutReader, ChunkedLayoutReader, Buffer, usize) {
         let mut writer = Cursor::new(Vec::new());
         let array = PrimitiveArray::from((0..100).collect::<Vec<_>>()).into_array();
         let array_dtype = array.dtype().clone();
@@ -462,7 +462,7 @@ mod tests {
         let chunked_layout = write::LayoutSpec::chunked(flat_layouts.into(), len as u64, None);
         let flat_buf = chunked_layout.write_flatbuffer(&mut fb);
         fb.finish_minimal(flat_buf);
-        let fb_bytes = Bytes::copy_from_slice(fb.finished_data());
+        let fb_bytes = Buffer::from(fb.finished_data().to_vec());
         let layout = root::<footer::Layout>(&fb_bytes).unwrap();
 
         let dtype = Arc::new(LazyDType::from_dtype(PType::I32.into()));
@@ -484,7 +484,7 @@ mod tests {
             }
             .build()
             .unwrap(),
-            Bytes::from(written),
+            Buffer::from(written),
             len,
         )
     }

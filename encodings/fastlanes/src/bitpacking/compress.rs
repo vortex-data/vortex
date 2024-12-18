@@ -20,6 +20,17 @@ pub fn bitpack_encode(array: PrimitiveArray, bit_width: u8) -> VortexResult<BitP
         .statistics()
         .compute_bit_width_freq()
         .ok_or_else(|| vortex_err!(ComputeError: "missing bit width frequency"))?;
+
+    // Check array contains no negative values.
+    if array.ptype().is_signed_int() {
+        let has_negative_values = match_each_integer_ptype!(array.ptype(), |$P| {
+            array.statistics().compute_min::<Option<$P>>().unwrap_or_default().unwrap_or_default() < 0
+        });
+        if has_negative_values {
+            vortex_bail!("cannot bitpack_encode array containing negative integers")
+        }
+    }
+
     let num_exceptions = count_exceptions(bit_width, &bit_width_freq);
 
     if bit_width >= array.ptype().bit_width() as u8 {
@@ -27,19 +38,23 @@ pub fn bitpack_encode(array: PrimitiveArray, bit_width: u8) -> VortexResult<BitP
         vortex_bail!("Cannot pack -- specified bit width is greater than or equal to raw bit width")
     }
 
-    let packed = bitpack(&array, bit_width)?;
+    // SAFETY: we check that array only contains non-negative values.
+    let packed = unsafe { bitpack_unchecked(&array, bit_width)? };
     let patches = (num_exceptions > 0)
         .then(|| gather_patches(&array, bit_width, num_exceptions))
         .flatten();
 
-    BitPackedArray::try_new(
-        packed,
-        array.ptype(),
-        array.validity(),
-        patches,
-        bit_width,
-        array.len(),
-    )
+    // SAFETY: values already checked to be non-negative.
+    unsafe {
+        BitPackedArray::new_unchecked(
+            packed,
+            array.ptype(),
+            array.validity(),
+            patches,
+            bit_width,
+            array.len(),
+        )
+    }
 }
 
 /// Bitpack an array into the specified bit-width without checking statistics.
@@ -54,22 +69,33 @@ pub unsafe fn bitpack_encode_unchecked(
     array: PrimitiveArray,
     bit_width: u8,
 ) -> VortexResult<BitPackedArray> {
-    let packed = bitpack(&array, bit_width)?;
+    // SAFETY: non-negativity of input checked by caller.
+    unsafe {
+        let packed = bitpack_unchecked(&array, bit_width)?;
 
-    BitPackedArray::try_new(
-        packed,
-        array.ptype(),
-        array.validity(),
-        None,
-        bit_width,
-        array.len(),
-    )
+        BitPackedArray::new_unchecked(
+            packed,
+            array.ptype(),
+            array.validity(),
+            None,
+            bit_width,
+            array.len(),
+        )
+    }
 }
 
 /// Bitpack a [PrimitiveArray] to the given width.
 ///
 /// On success, returns a [Buffer] containing the packed data.
-pub fn bitpack(parray: &PrimitiveArray, bit_width: u8) -> VortexResult<Buffer> {
+///
+/// # Safety
+///
+/// Internally this function will promote the provided array to its unsigned equivalent. This will
+/// violate ordering guarantees if the array contains any negative values.
+///
+/// It is the caller's responsibility to ensure that `parray` is non-negative before calling
+/// this function.
+pub unsafe fn bitpack_unchecked(parray: &PrimitiveArray, bit_width: u8) -> VortexResult<Buffer> {
     let parray = parray.reinterpret_cast(parray.ptype().to_unsigned());
     let packed = match_each_unsigned_integer_ptype!(parray.ptype(), |$P| {
         bitpack_primitive(parray.maybe_null_slice::<$P>(), bit_width)
@@ -358,7 +384,8 @@ pub fn count_exceptions(bit_width: u8, bit_width_freq: &[usize]) -> usize {
 #[cfg(test)]
 #[allow(clippy::cast_possible_truncation)]
 mod test {
-    use vortex_array::{IntoArrayVariant, IntoCanonical, ToArrayData};
+    use vortex_array::{IntoArrayVariant, ToArrayData};
+    use vortex_error::VortexError;
 
     use super::*;
 
@@ -430,25 +457,12 @@ mod test {
     }
 
     #[test]
-    fn compress_signed_roundtrip() {
+    fn compress_signed_fails() {
         let values: Vec<i64> = (-500..500).collect();
-        let array = PrimitiveArray::from_vec(values.clone(), Validity::AllValid);
+        let array = PrimitiveArray::from_vec(values, Validity::AllValid);
         assert!(array.ptype().is_signed_int());
 
-        let bitpacked_array =
-            BitPackedArray::encode(array.as_ref(), 1024u32.ilog2() as u8).unwrap();
-        let num_patches = bitpacked_array
-            .patches()
-            .as_ref()
-            .map(Patches::num_patches)
-            .unwrap_or_default();
-        assert_eq!(num_patches, 500);
-
-        let unpacked = bitpacked_array
-            .into_canonical()
-            .unwrap()
-            .into_primitive()
-            .unwrap();
-        assert_eq!(unpacked.into_maybe_null_slice::<i64>(), values);
+        let err = BitPackedArray::encode(array.as_ref(), 1024u32.ilog2() as u8).unwrap_err();
+        assert!(matches!(err, VortexError::InvalidArgument(_, _)));
     }
 }

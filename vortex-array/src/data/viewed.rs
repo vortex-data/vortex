@@ -11,8 +11,7 @@ use vortex_scalar::{Scalar, ScalarValue};
 use crate::encoding::opaque::OpaqueEncoding;
 use crate::encoding::EncodingRef;
 use crate::stats::{Stat, Statistics, StatsSet};
-use crate::visitor::ArrayVisitor;
-use crate::{flatbuffers as fb, ArrayData, ArrayMetadata, Context};
+use crate::{flatbuffers as fb, ArrayData, ArrayMetadata, ChildrenCollector, Context};
 
 /// Zero-copy view over flatbuffer-encoded array data, created without eager serialization.
 #[derive(Clone)]
@@ -100,7 +99,7 @@ impl ViewedArrayData {
         self.encoding
             .accept(&ArrayData::from(self.clone()), &mut collector)
             .vortex_expect("Failed to get children");
-        collector.children
+        collector.children()
     }
 
     pub fn buffer(&self) -> Option<&Buffer> {
@@ -111,18 +110,6 @@ impl ViewedArrayData {
                 (!buffers.is_empty()).then(|| buffers.get(0) as usize)
             })
             .map(|idx| &self.buffers[idx])
-    }
-}
-
-#[derive(Default, Debug)]
-struct ChildrenCollector {
-    children: Vec<ArrayData>,
-}
-
-impl ArrayVisitor for ChildrenCollector {
-    fn visit_child(&mut self, _name: &str, array: &ArrayData) -> VortexResult<()> {
-        self.children.push(array.clone());
-        Ok(())
     }
 }
 

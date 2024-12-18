@@ -4909,7 +4909,6 @@ dependencies = [
  "arrow-select",
  "arrow-string",
  "backtrace",
- "bytes",
  "criterion",
  "enum-iterator",
  "flatbuffers",
@@ -4967,7 +4966,6 @@ dependencies = [
  "arrow-array",
  "arrow-schema",
  "async-trait",
- "bytes",
  "chrono",
  "datafusion",
  "datafusion-common",
@@ -4985,7 +4983,6 @@ dependencies = [
  "tokio",
  "url",
  "vortex-array",
- "vortex-datetime-dtype",
  "vortex-dtype",
  "vortex-error",
  "vortex-expr",
@@ -5111,7 +5108,6 @@ dependencies = [
  "arrow-array",
  "arrow-buffer",
  "arrow-schema",
- "bytes",
  "flatbuffers",
  "futures",
  "futures-executor",
@@ -5172,7 +5168,6 @@ dependencies = [
 name = "vortex-io"
 version = "0.21.1"
 dependencies = [
- "bytes",
  "cfg-if",
  "compio",
  "flume",
@@ -5294,7 +5289,6 @@ version = "0.21.1"
 dependencies = [
  "arbitrary",
  "arrow-array",
- "bytes",
  "datafusion-common",
  "flatbuffers",
  "flexbuffers",

@@ -274,5 +274,4 @@ from_vec_for_scalar!(f32);
 from_vec_for_scalar!(f64);
 from_vec_for_scalar!(String);
 from_vec_for_scalar!(BufferString);
-from_vec_for_scalar!(bytes::Bytes);
 from_vec_for_scalar!(Buffer);

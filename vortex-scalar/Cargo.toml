@@ -16,7 +16,6 @@ readme = { workspace = true }
 [dependencies]
 arbitrary = { workspace = true, optional = true }
 arrow-array = { workspace = true }
-bytes = { workspace = true }
 datafusion-common = { workspace = true, optional = true }
 flatbuffers = { workspace = true, optional = true }
 flexbuffers = { workspace = true, optional = true }

@@ -1,7 +1,6 @@
 use std::collections::BTreeSet;
 use std::fmt::Debug;
 
-use bytes::Bytes;
 use vortex_array::ArrayData;
 use vortex_error::VortexResult;
 
@@ -29,6 +28,7 @@ pub use filtering::RowFilter;
 pub use projection::Projection;
 pub use recordbatchreader::{AsyncRuntime, VortexRecordBatchReader};
 pub use stream::VortexReadArrayStream;
+use vortex_buffer::Buffer;
 use vortex_expr::ExprRef;
 
 use crate::byte_range::ByteRange;
@@ -70,7 +70,7 @@ pub type MessageId = Vec<LayoutPartId>;
 pub struct MessageLocator(pub MessageId, pub ByteRange);
 /// A message that has had its bytes materialized onto the heap.
 #[derive(Debug, Clone)]
-pub struct Message(pub MessageId, pub Bytes);
+pub struct Message(pub MessageId, pub Buffer);
 
 /// A polling interface for reading a value from a [`LayoutReader`].
 #[derive(Debug)]

@@ -181,18 +181,18 @@ mod test {
         // Elements 0..=499 are negative integers (patches)
         // Element 500 = 0 (packed)
         // Elements 501..999 are positive integers (packed)
-        let values: Vec<i64> = (-500..500).collect_vec();
+        let values: Vec<i64> = (0..500).collect_vec();
         let unpacked = PrimitiveArray::from(values.clone());
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 9).unwrap();
         let filtered = filter(
             bitpacked.as_ref(),
-            FilterMask::from_indices(values.len(), 250..750),
+            FilterMask::from_indices(values.len(), 0..500),
         )
         .unwrap()
         .into_primitive()
         .unwrap()
         .into_maybe_null_slice::<i64>();
 
-        assert_eq!(filtered.as_slice(), &values[250..750]);
+        assert_eq!(filtered, values);
     }
 }

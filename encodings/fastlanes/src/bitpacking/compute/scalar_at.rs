@@ -33,18 +33,21 @@ mod test {
 
     #[test]
     fn invalid_patches() {
-        let packed_array = BitPackedArray::try_new(
-            Buffer::from(vec![0u8; 128]),
-            PType::U32,
-            Validity::AllInvalid,
-            Some(Patches::new(
+        // SAFETY: using unsigned PType
+        let packed_array = unsafe {
+            BitPackedArray::new_unchecked(
+                Buffer::from(vec![0u8; 128]),
+                PType::U32,
+                Validity::AllInvalid,
+                Some(Patches::new(
+                    8,
+                    PrimitiveArray::from_vec(vec![1u32], NonNullable).into_array(),
+                    PrimitiveArray::from_vec(vec![999u32], Validity::AllValid).into_array(),
+                )),
+                1,
                 8,
-                PrimitiveArray::from_vec(vec![1u32], NonNullable).into_array(),
-                PrimitiveArray::from_vec(vec![999u32], Validity::AllValid).into_array(),
-            )),
-            1,
-            8,
-        )
+            )
+        }
         .unwrap()
         .into_array();
         assert_eq!(
