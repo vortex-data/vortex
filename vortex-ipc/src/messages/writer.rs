@@ -4,12 +4,11 @@ use std::io;
 use bytes::Bytes;
 use flatbuffers::FlatBufferBuilder;
 use vortex_array::ArrayData;
-use vortex_buffer::io_buf::IoBuf;
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_error::VortexUnwrap;
 use vortex_flatbuffers::{WriteFlatBuffer, WriteFlatBufferExt};
-use vortex_io::VortexWrite;
+use vortex_io::{IoBuf, VortexWrite};
 
 use crate::messages::IPCMessage;
 use crate::ALIGNMENT;

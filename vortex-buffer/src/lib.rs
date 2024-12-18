@@ -16,7 +16,6 @@ use arrow_buffer::{ArrowNativeType, Buffer as ArrowBuffer, MutableBuffer as Arro
 pub use string::*;
 
 mod flexbuffers;
-pub mod io_buf;
 mod string;
 
 /// Buffer is an owned, cheaply cloneable byte array.

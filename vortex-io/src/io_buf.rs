@@ -3,8 +3,7 @@
 use std::ops::Range;
 
 use bytes::Bytes;
-
-use crate::Buffer;
+use vortex_buffer::Buffer;
 
 /// Trait for types that can provide a readonly byte buffer interface to I/O frameworks.
 ///
