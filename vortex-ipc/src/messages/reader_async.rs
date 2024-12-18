@@ -19,7 +19,7 @@ pin_project! {
     }
 }
 
-impl<R: AsyncRead + Unpin> AsyncMessageReader<R> {
+impl<R> AsyncMessageReader<R> {
     pub fn new(read: R) -> Self {
         AsyncMessageReader {
             read,
@@ -30,7 +30,7 @@ impl<R: AsyncRead + Unpin> AsyncMessageReader<R> {
     }
 }
 
-impl<R: AsyncRead + Unpin> Stream for AsyncMessageReader<R> {
+impl<R: AsyncRead> Stream for AsyncMessageReader<R> {
     type Item = VortexResult<DecoderMessage>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
