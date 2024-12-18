@@ -1,4 +1,3 @@
-use arrow_buffer::ArrowNativeType;
 use itertools::Itertools;
 use num_traits::{PrimInt, WrappingAdd, WrappingSub};
 use vortex_array::array::{ConstantArray, PrimitiveArray, SparseArray};
@@ -80,13 +79,12 @@ fn encoded_zero<T: NativePType>(
 }
 
 #[allow(clippy::cast_possible_truncation)]
-fn compress_primitive<T: NativePType + ArrowNativeType + WrappingSub + PrimInt>(
+fn compress_primitive<T: NativePType + WrappingSub + PrimInt>(
     parray: &PrimitiveArray,
     shift: u8,
     min: T,
 ) -> PrimitiveArray {
     assert!(shift < T::PTYPE.bit_width() as u8);
-    let validity = parray.validity();
     let values = if shift > 0 {
         parray
             .maybe_null_slice::<T>()
@@ -102,7 +100,7 @@ fn compress_primitive<T: NativePType + ArrowNativeType + WrappingSub + PrimInt>(
             .collect_vec()
     };
 
-    PrimitiveArray::from_vec(values, validity)
+    PrimitiveArray::from_vec(values, parray.validity())
 }
 
 pub fn decompress(array: FoRArray) -> VortexResult<PrimitiveArray> {

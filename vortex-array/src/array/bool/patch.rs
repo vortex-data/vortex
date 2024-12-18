@@ -20,9 +20,10 @@ impl BoolArray {
 
         let (mut own_values, bit_offset) = self.into_boolean_builder();
         match_each_integer_ptype!(indices.ptype(), |$I| {
-            let indices_vec = indices
-                .maybe_null_slice::<$I>();
-            for (idx, value) in indices_vec.iter().zip_eq(values.boolean_buffer().iter())
+            for (idx, value) in indices
+                .maybe_null_slice::<$I>()
+                .iter()
+                .zip_eq(values.boolean_buffer().iter())
             {
                 own_values.set_bit(*idx as usize + bit_offset, value);
             }
