@@ -3,6 +3,7 @@ use std::fmt::{Display, Formatter};
 
 use arrow_buffer::BooleanBuffer;
 use itertools::Itertools;
+use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{BoolArray, PrimitiveArray, SparseArray};
 use vortex_array::compute::{and, filter, slice, try_cast, FilterMask};
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity};
@@ -166,22 +167,25 @@ impl RowMask {
             ));
         }
 
-        let output_begin = min(self.begin, other.begin);
         let output_end = max(self.end, other.end);
 
         let this_buffer = self.mask.to_boolean_buffer()?;
         let other_buffer = other.mask.to_boolean_buffer()?;
         let self_indices = this_buffer
             .set_indices()
-            .map(|v| v + self.begin - output_begin);
+            .map(|v| v + self.begin)
+            .collect::<HashSet<_>>();
         let other_indices = other_buffer
             .set_indices()
-            .map(|v| v + other.begin - output_begin);
+            .map(|v| v + other.begin)
+            .collect::<HashSet<_>>();
 
-        let output_mask =
-            FilterMask::from_indices(output_end - output_begin, self_indices.chain(other_indices));
+        let output_mask = FilterMask::from_indices(
+            output_end,
+            self_indices.intersection(&other_indices).copied(),
+        );
 
-        Self::try_new(output_mask, output_begin, output_end)
+        Self::try_new(output_mask, 0, output_end)
     }
 
     pub fn is_all_false(&self) -> bool {
@@ -365,5 +369,71 @@ mod tests {
     fn test_row_mask_type_validation() {
         let array = PrimitiveArray::from_vec(vec![1.0, 2.0], Validity::AllInvalid).into_array();
         RowMask::from_array(&array, 0, 2).unwrap();
+    }
+
+    #[test]
+    fn test_and_rowmap_disjoint() {
+        let a = RowMask::from_array(
+            PrimitiveArray::from_vec(vec![1, 2, 3], Validity::AllValid).as_ref(),
+            0,
+            10,
+        )
+        .unwrap();
+        let b = RowMask::from_array(
+            PrimitiveArray::from_vec(vec![1, 2, 3], Validity::AllValid).as_ref(),
+            15,
+            20,
+        )
+        .unwrap();
+
+        let output = a.and_rowmask(b).unwrap();
+
+        assert_eq!(output.begin, 0);
+        assert_eq!(output.end, 20);
+        assert!(output.is_all_false());
+    }
+
+    #[test]
+    fn test_and_rowmap_aligned() {
+        let a = RowMask::from_array(
+            PrimitiveArray::from_vec(vec![1, 2, 3], Validity::AllValid).as_ref(),
+            0,
+            10,
+        )
+        .unwrap();
+        let b = RowMask::from_array(
+            PrimitiveArray::from_vec(vec![1, 2, 7], Validity::AllValid).as_ref(),
+            0,
+            10,
+        )
+        .unwrap();
+
+        let output = a.and_rowmask(b).unwrap();
+
+        assert_eq!(output.begin, 0);
+        assert_eq!(output.end, 10);
+        assert_eq!(output.true_count(), 2);
+    }
+
+    #[test]
+    fn test_and_rowmap_intersect() {
+        let a = RowMask::from_array(
+            PrimitiveArray::from_vec(vec![1, 2, 3], Validity::AllValid).as_ref(),
+            0,
+            10,
+        )
+        .unwrap();
+        let b = RowMask::from_array(
+            PrimitiveArray::from_vec(vec![1, 2, 7], Validity::AllValid).as_ref(),
+            5,
+            15,
+        )
+        .unwrap();
+
+        let output = a.and_rowmask(b).unwrap();
+
+        assert_eq!(output.begin, 0);
+        assert_eq!(output.end, 15);
+        assert_eq!(output.true_count(), 0);
     }
 }
