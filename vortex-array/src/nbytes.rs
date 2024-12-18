@@ -1,7 +1,8 @@
+use vortex_buffer::AlignedBuffer;
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::visitor::ArrayVisitor;
-use crate::{ArrayBuffer, ArrayData};
+use crate::ArrayData;
 
 impl ArrayData {
     /// Total size of the array in bytes, including all children and buffers.
@@ -35,7 +36,7 @@ impl ArrayVisitor for NBytesVisitor {
         Ok(())
     }
 
-    fn visit_buffer(&mut self, buffer: &ArrayBuffer) -> VortexResult<()> {
+    fn visit_buffer(&mut self, buffer: &AlignedBuffer) -> VortexResult<()> {
         self.0 += buffer.len();
         Ok(())
     }

@@ -11,7 +11,6 @@
 //! arrays can be [canonicalized](Canonical) into for ease of access in compute functions.
 //!
 
-pub use aligned::*;
 pub use canonical::*;
 pub use children::*;
 pub use context::*;
@@ -29,7 +28,6 @@ pub mod accessor;
 pub mod aliases;
 pub mod array;
 pub mod arrow;
-mod buffer;
 pub mod builders;
 mod canonical;
 mod children;

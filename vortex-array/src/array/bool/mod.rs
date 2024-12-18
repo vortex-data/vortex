@@ -4,7 +4,7 @@ use std::sync::Arc;
 use arrow_array::BooleanArray;
 use arrow_buffer::{BooleanBufferBuilder, MutableBuffer};
 use serde::{Deserialize, Serialize};
-use vortex_buffer::Buffer;
+use vortex_buffer::{AlignedBuffer, Alignment};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexExpect as _, VortexResult};
 
@@ -14,8 +14,7 @@ use crate::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTabl
 use crate::variants::{BoolArrayTrait, VariantsVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{
-    impl_encoding, ArrayBuffer, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
-    IntoCanonical,
+    impl_encoding, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData, IntoCanonical,
 };
 
 pub mod compute;
@@ -41,14 +40,14 @@ impl Display for BoolMetadata {
 
 impl BoolArray {
     /// Access internal array buffer
-    pub fn buffer(&self) -> &ArrayBuffer {
+    pub fn buffer(&self) -> &AlignedBuffer {
         self.as_ref()
             .buffer()
             .vortex_expect("Missing buffer in BoolArray")
     }
 
     /// Convert array into its internal buffer
-    pub fn into_buffer(self) -> ArrayBuffer {
+    pub fn into_buffer(self) -> AlignedBuffer {
         self.into_array()
             .into_buffer()
             .vortex_expect("BoolArray must have a buffer")
@@ -57,7 +56,7 @@ impl BoolArray {
     /// Get array values as an arrow [BooleanBuffer]
     pub fn boolean_buffer(&self) -> BooleanBuffer {
         BooleanBuffer::new(
-            self.buffer().clone().into_inner().into_arrow(),
+            self.buffer().clone().into_arrow(),
             self.metadata().first_byte_bit_offset as usize,
             self.len(),
         )
@@ -72,7 +71,7 @@ impl BoolArray {
     pub fn into_boolean_builder(self) -> (BooleanBufferBuilder, usize) {
         let first_byte_bit_offset = self.metadata().first_byte_bit_offset as usize;
         let len = self.len();
-        let arrow_buffer = self.into_buffer().into_inner().into_arrow();
+        let arrow_buffer = self.into_buffer().into_arrow();
         let mutable_buf = if arrow_buffer.ptr_offset() == 0 {
             arrow_buffer.into_mutable().unwrap_or_else(|b| {
                 let mut buf = MutableBuffer::with_capacity(b.len());
@@ -128,7 +127,7 @@ impl BoolArray {
                 validity: validity.to_metadata(buffer_len)?,
                 first_byte_bit_offset,
             }),
-            Some(ArrayBuffer::new::<u8>(Buffer::from(inner))),
+            Some(AlignedBuffer::from_arrow(inner, Alignment::of::<u8>())),
             validity.into_array().into_iter().collect(),
             StatsSet::default(),
         )?

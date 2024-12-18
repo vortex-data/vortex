@@ -6,7 +6,7 @@ use std::sync::{Arc, RwLock};
 use itertools::Itertools;
 use owned::OwnedArrayData;
 use viewed::ViewedArrayData;
-use vortex_buffer::Buffer;
+use vortex_buffer::{AlignedBuffer, Buffer};
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
@@ -22,8 +22,8 @@ use crate::stats::{ArrayStatistics, Stat, Statistics, StatsSet};
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use crate::{
-    ArrayBuffer, ArrayChildrenIterator, ArrayDType, ArrayLen, ArrayMetadata, Context,
-    NamedChildrenCollector, TryDeserializeArrayMetadata,
+    ArrayChildrenIterator, ArrayDType, ArrayLen, ArrayMetadata, Context, NamedChildrenCollector,
+    TryDeserializeArrayMetadata,
 };
 
 mod owned;
@@ -61,7 +61,7 @@ impl ArrayData {
         dtype: DType,
         len: usize,
         metadata: Arc<dyn ArrayMetadata>,
-        buffer: Option<ArrayBuffer>,
+        buffer: Option<AlignedBuffer>,
         children: Arc<[ArrayData]>,
         statistics: StatsSet,
     ) -> VortexResult<Self> {
@@ -84,7 +84,7 @@ impl ArrayData {
         len: usize,
         flatbuffer: Buffer,
         flatbuffer_init: F,
-        buffers: Vec<ArrayBuffer>,
+        buffers: Vec<AlignedBuffer>,
     ) -> VortexResult<Self>
     where
         F: FnOnce(&[u8]) -> VortexResult<crate::flatbuffers::Array>,
@@ -319,14 +319,14 @@ impl ArrayData {
         }
     }
 
-    pub fn buffer(&self) -> Option<&ArrayBuffer> {
+    pub fn buffer(&self) -> Option<&AlignedBuffer> {
         match &self.0 {
             InnerArrayData::Owned(d) => d.buffer(),
             InnerArrayData::Viewed(v) => v.buffer(),
         }
     }
 
-    pub fn into_buffer(self) -> Option<ArrayBuffer> {
+    pub fn into_buffer(self) -> Option<AlignedBuffer> {
         match self.0 {
             InnerArrayData::Owned(d) => d.into_buffer(),
             InnerArrayData::Viewed(v) => v.buffer().cloned(),

@@ -13,7 +13,7 @@ use vortex_array::validity::{LogicalValidity, ValidityVTable};
 use vortex_array::variants::{BoolArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
-    impl_encoding, ArrayBuffer, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
+    impl_encoding, AlignedBuffer, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
     IntoCanonical,
 };
 use vortex_buffer::Buffer;
@@ -56,7 +56,7 @@ impl RoaringBoolArray {
             DType::Bool(Nullability::NonNullable),
             length,
             Arc::new(RoaringBoolMetadata),
-            Some(ArrayBuffer::new::<u8>(Buffer::from(
+            Some(AlignedBuffer::new::<u8>(Buffer::from(
                 bitmap.serialize::<Native>(),
             ))),
             vec![].into(),
@@ -78,7 +78,7 @@ impl RoaringBoolArray {
         }
     }
 
-    pub fn buffer(&self) -> &ArrayBuffer {
+    pub fn buffer(&self) -> &AlignedBuffer {
         self.as_ref()
             .buffer()
             .vortex_expect("Missing buffer in PrimitiveArray")

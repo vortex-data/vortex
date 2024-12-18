@@ -1,12 +1,13 @@
 use std::sync::{Arc, RwLock};
 
+use vortex_buffer::AlignedBuffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_panic, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::encoding::EncodingRef;
 use crate::stats::{Stat, Statistics, StatsSet};
-use crate::{ArrayBuffer, ArrayDType, ArrayData, ArrayMetadata};
+use crate::{ArrayDType, ArrayData, ArrayMetadata};
 
 /// Owned [`ArrayData`] with serialized metadata, backed by heap-allocated memory.
 #[derive(Clone, Debug)]
@@ -15,7 +16,7 @@ pub(super) struct OwnedArrayData {
     pub(super) dtype: DType, // FIXME(ngates): Arc?
     pub(super) len: usize,
     pub(super) metadata: Arc<dyn ArrayMetadata>,
-    pub(super) buffer: Option<ArrayBuffer>,
+    pub(super) buffer: Option<AlignedBuffer>,
     pub(super) children: Arc<[ArrayData]>,
     pub(super) stats_set: Arc<RwLock<StatsSet>>,
     #[cfg(feature = "canonical_counter")]
@@ -27,11 +28,11 @@ impl OwnedArrayData {
         &self.metadata
     }
 
-    pub fn buffer(&self) -> Option<&ArrayBuffer> {
+    pub fn buffer(&self) -> Option<&AlignedBuffer> {
         self.buffer.as_ref()
     }
 
-    pub fn into_buffer(self) -> Option<ArrayBuffer> {
+    pub fn into_buffer(self) -> Option<AlignedBuffer> {
         self.buffer
     }
 

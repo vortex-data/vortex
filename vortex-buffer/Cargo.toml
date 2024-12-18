@@ -14,9 +14,11 @@ categories = { workspace = true }
 readme = "README.md"
 
 [features]
+arrow = []
 flexbuffers = ["dep:flexbuffers"]
 
 [dependencies]
+# TODO(ngates): make this optional
 arrow-buffer = { workspace = true }
 bytes = { workspace = true }
 flexbuffers = { workspace = true, optional = true }

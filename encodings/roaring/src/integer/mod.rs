@@ -12,7 +12,7 @@ use vortex_array::validity::{LogicalValidity, Validity, ValidityVTable};
 use vortex_array::variants::{PrimitiveArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
-    impl_encoding, ArrayBuffer, ArrayDType as _, ArrayData, ArrayLen, ArrayTrait, Canonical,
+    impl_encoding, AlignedBuffer, ArrayDType as _, ArrayData, ArrayLen, ArrayTrait, Canonical,
     IntoArrayData, IntoCanonical,
 };
 use vortex_buffer::Buffer;
@@ -68,7 +68,7 @@ impl RoaringIntArray {
             DType::Primitive(ptype, NonNullable),
             length,
             Arc::new(RoaringIntMetadata { ptype }),
-            Some(ArrayBuffer::new::<u8>(Buffer::from(
+            Some(AlignedBuffer::new::<u8>(Buffer::from(
                 bitmap.serialize::<Portable>(),
             ))),
             vec![].into(),

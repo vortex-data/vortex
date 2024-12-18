@@ -12,7 +12,7 @@ use vortex_array::validity::{LogicalValidity, Validity, ValidityMetadata, Validi
 use vortex_array::variants::{PrimitiveArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
-    impl_encoding, ArrayBuffer, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical,
+    impl_encoding, AlignedBuffer, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical,
     IntoCanonical,
 };
 use vortex_buffer::Buffer;
@@ -91,8 +91,8 @@ impl BitPackedArray {
 
         // TODO(ngates): enforce 128 byte alignment once we have a ScalarBufferBuilder that can
         //  enforce custom alignments.
-        // let packed = ArrayBuffer::new_with_alignment(packed, FASTLANES_ALIGNMENT);
-        let packed = ArrayBuffer::new_with_alignment(packed, ptype.byte_width());
+        // let packed = AlignedBuffer::new_with_alignment(packed, FASTLANES_ALIGNMENT);
+        let packed = AlignedBuffer::new_with_alignment(packed, ptype.byte_width());
 
         let metadata = BitPackedMetadata {
             validity: validity.to_metadata(length)?,
@@ -126,7 +126,7 @@ impl BitPackedArray {
     }
 
     #[inline]
-    pub fn packed(&self) -> &ArrayBuffer {
+    pub fn packed(&self) -> &AlignedBuffer {
         self.as_ref()
             .buffer()
             .vortex_expect("BitPackedArray must contain packed buffer")

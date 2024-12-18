@@ -15,7 +15,7 @@ pub struct AlignedBuffer {
 }
 
 impl AlignedBuffer {
-    /// Create a new `ArrayBuffer` from the provided buffer and alignment.
+    /// Create a new `AlignedBuffer` from the provided buffer and alignment.
     ///
     /// ## Panics
     ///
@@ -28,21 +28,18 @@ impl AlignedBuffer {
         Self { bytes, alignment }
     }
 
-    /// Create a new `ArrayBuffer` from the provided buffer with alignment derived from `T`.
+    /// Create a new `AlignedBuffer` from the provided buffer with alignment derived from `T`.
     pub fn new<T>(bytes: Bytes) -> Self {
         Self::new_with_alignment(bytes, align_of::<T>().into())
     }
 
+    /// The alignment of the buffer.
     #[inline]
     pub fn alignment(&self) -> Alignment {
         self.alignment
     }
 
-    #[inline]
-    pub fn alignment_u16(&self) -> u16 {
-        self.alignment.into()
-    }
-
+    /// Extracts the underlying `Bytes` from the buffer.
     pub fn into_inner(self) -> Bytes {
         self.bytes
     }

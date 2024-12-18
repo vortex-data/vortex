@@ -1,7 +1,7 @@
 use vortex_dtype::NativePType;
 use vortex_error::vortex_panic;
 
-use crate::{AlignedBufferMut, Alignment};
+use crate::{AlignedBufferMut, Alignment, ScalarBuffer};
 
 /// A mutable buffer of Vortex primitive scalars.
 pub struct ScalarBufferMut<T: NativePType> {
@@ -66,7 +66,7 @@ impl<T: NativePType> ScalarBufferMut<T> {
     /// Appends a scalar to the buffer.
     pub fn push(&mut self, value: T) {
         self.reserve(1);
-        self.buffer.extend_from_slice(value.as_bytes());
+        self.buffer.extend_from_slice(value.to_le_bytes());
         self.length += 1;
     }
 
@@ -85,15 +85,13 @@ impl<T: NativePType> ScalarBufferMut<T> {
     #[inline]
     pub fn append_slice(&mut self, slice: &[T]) {
         self.buffer.reserve(slice.len() * size_of::<T>());
-        self.buffer.extend_from_slice(unsafe { std::mem::transmute(slice) };
+        self.buffer
+            .extend_from_slice(unsafe { std::mem::transmute(slice) });
         self.length += slice.len();
     }
-}
 
-impl<T: NativePType> Extend<T> for ScalarBufferMut<T> {
-    fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
-        self.buffer.extend(iter.into_iter().inspect(|_| {
-            self.length += 1;
-        }))
+    /// Freeze the `ScalarBufferMut` into a `ScalarBuffer`.
+    pub fn freeze(self) -> ScalarBuffer<T> {
+        ScalarBuffer::from(self.buffer.freeze())
     }
 }

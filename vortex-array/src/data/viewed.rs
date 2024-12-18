@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use enum_iterator::all;
 use itertools::Itertools;
-use vortex_buffer::Buffer;
+use vortex_buffer::{AlignedBuffer, Buffer};
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_err, VortexExpect as _, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
@@ -11,7 +11,7 @@ use vortex_scalar::{Scalar, ScalarValue};
 use crate::encoding::opaque::OpaqueEncoding;
 use crate::encoding::EncodingRef;
 use crate::stats::{Stat, Statistics, StatsSet};
-use crate::{flatbuffers as fb, ArrayBuffer, ArrayData, ArrayMetadata, ChildrenCollector, Context};
+use crate::{flatbuffers as fb, ArrayData, ArrayMetadata, ChildrenCollector, Context};
 
 /// Zero-copy view over flatbuffer-encoded array data, created without eager serialization.
 #[derive(Clone)]
@@ -22,7 +22,7 @@ pub(super) struct ViewedArrayData {
     pub(super) metadata: Arc<dyn ArrayMetadata>,
     pub(super) flatbuffer: Buffer,
     pub(super) flatbuffer_loc: usize,
-    pub(super) buffers: Arc<[ArrayBuffer]>,
+    pub(super) buffers: Arc<[AlignedBuffer]>,
     pub(super) ctx: Arc<Context>,
     #[cfg(feature = "canonical_counter")]
     pub(super) canonical_counter: Arc<std::sync::atomic::AtomicUsize>,
@@ -102,7 +102,7 @@ impl ViewedArrayData {
         collector.children()
     }
 
-    pub fn buffer(&self) -> Option<&ArrayBuffer> {
+    pub fn buffer(&self) -> Option<&AlignedBuffer> {
         self.flatbuffer()
             .buffers()
             .and_then(|buffers| {

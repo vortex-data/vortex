@@ -4,7 +4,7 @@ use std::sync::Arc;
 use bytes::{Buf, BytesMut};
 use flatbuffers::{root, root_unchecked, Follow};
 use itertools::Itertools;
-use vortex_array::{flatbuffers as fba, ArrayBuffer, ArrayData, Context};
+use vortex_array::{flatbuffers as fba, AlignedBuffer, ArrayData, Context};
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
@@ -32,7 +32,7 @@ pub struct ArrayParts {
     // Typed as fb::Array
     array_flatbuffer: Buffer,
     array_flatbuffer_loc: usize,
-    buffers: Vec<ArrayBuffer>,
+    buffers: Vec<AlignedBuffer>,
 }
 
 impl Debug for ArrayParts {
@@ -235,7 +235,7 @@ impl MessageDecoder {
                             };
                             let buffer = bytes.split_to_aligned(buffer_len, alignment);
                             let _padding = bytes.split_to(buffer_msg.padding() as usize);
-                            ArrayBuffer::new_with_alignment(
+                            AlignedBuffer::new_with_alignment(
                                 Buffer::from(buffer.freeze()),
                                 alignment,
                             )

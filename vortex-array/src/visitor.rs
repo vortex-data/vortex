@@ -1,9 +1,10 @@
+use vortex_buffer::AlignedBuffer;
 use vortex_error::{vortex_err, VortexError, VortexResult};
 
 use crate::encoding::Encoding;
 use crate::patches::Patches;
 use crate::validity::Validity;
-use crate::{ArrayBuffer, ArrayData};
+use crate::ArrayData;
 
 pub trait VisitorVTable<Array> {
     fn accept(&self, array: &Array, visitor: &mut dyn ArrayVisitor) -> VortexResult<()>;
@@ -46,7 +47,7 @@ pub trait ArrayVisitor {
         self.visit_child("patch_values", patches.values())
     }
 
-    fn visit_buffer(&mut self, _buffer: &ArrayBuffer) -> VortexResult<()> {
+    fn visit_buffer(&mut self, _buffer: &AlignedBuffer) -> VortexResult<()> {
         Ok(())
     }
 }

@@ -6,7 +6,7 @@ mod accessor;
 use arrow_buffer::{ArrowNativeType, BooleanBufferBuilder, Buffer as ArrowBuffer};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use vortex_buffer::Buffer;
+use vortex_buffer::{AlignedBuffer, Buffer};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, PType};
 use vortex_error::{VortexExpect as _, VortexResult};
 
@@ -18,8 +18,7 @@ use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityMetadata
 use crate::variants::{PrimitiveArrayTrait, VariantsVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{
-    impl_encoding, ArrayBuffer, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
-    IntoCanonical,
+    impl_encoding, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData, IntoCanonical,
 };
 
 mod compute;
@@ -60,7 +59,10 @@ impl PrimitiveArray {
                     .to_metadata(length)
                     .vortex_expect("Invalid validity"),
             }),
-            Some(ArrayBuffer::new_with_alignment(buffer, ptype.byte_width())),
+            Some(AlignedBuffer::new_with_alignment(
+                buffer,
+                ptype.byte_width(),
+            )),
             validity.into_array().into_iter().collect_vec().into(),
             StatsSet::default(),
         )
@@ -94,7 +96,7 @@ impl PrimitiveArray {
         })
     }
 
-    pub fn buffer(&self) -> &ArrayBuffer {
+    pub fn buffer(&self) -> &AlignedBuffer {
         self.as_ref()
             .buffer()
             .vortex_expect("Missing buffer in PrimitiveArray")
@@ -155,7 +157,7 @@ impl PrimitiveArray {
         PrimitiveArray::new(self.buffer().clone().into_inner(), ptype, self.validity())
     }
 
-    pub fn into_buffer(self) -> ArrayBuffer {
+    pub fn into_buffer(self) -> AlignedBuffer {
         self.into_array()
             .into_buffer()
             .vortex_expect("PrimitiveArray must have a buffer")
