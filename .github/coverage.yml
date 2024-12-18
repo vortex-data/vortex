@@ -3,4 +3,5 @@ ignore:
   - "bench-vortex/*"
   - "fuzz/*"
   - "home/*"
-  -
+  - "/*"
+  - "../*"
