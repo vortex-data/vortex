@@ -123,7 +123,7 @@ impl Buffer {
 
 impl PartialEq for Buffer {
     fn eq(&self, other: &Self) -> bool {
-        self.as_ref().eq(other.as_ref())
+        self.as_slice().eq(other.as_slice())
     }
 }
 
@@ -131,7 +131,7 @@ impl Eq for Buffer {}
 
 impl PartialOrd for Buffer {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.as_ref().partial_cmp(other.as_ref())
+        self.as_slice().partial_cmp(other.as_slice())
     }
 }
 
