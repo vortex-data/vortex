@@ -1,0 +1,78 @@
+use std::fmt::Display;
+use std::ops::Deref;
+
+use vortex_error::{vortex_panic, VortexExpect};
+
+/// The alignment of a buffer.
+///
+/// This type is a wrapper around `usize` that ensures the alignment is a power of 2 and fits into
+/// a `u16`.
+#[derive(Clone, Debug, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Alignment(usize);
+
+impl Alignment {
+    /// Create a new alignment.
+    ///
+    /// ## Panics
+    ///
+    /// Panics if `align` is not a power of 2, or is greater than `u16::MAX`.
+    pub fn new(align: usize) -> Self {
+        if align > u16::MAX as usize {
+            vortex_panic!("Alignment must fit into u16");
+        }
+        if !align.is_power_of_two() {
+            vortex_panic!("Alignment must be a power of 2");
+        }
+        Self(align)
+    }
+
+    /// Create an alignment from the alignment of a type `T`.
+    pub fn of<T>() -> Self {
+        Self::new(align_of::<T>())
+    }
+
+    /// Check if this alignment is a "larger" than another alignment.
+    pub fn is_aligned_to(&self, other: Alignment) -> bool {
+        // Since we know alignments are powers of 2, we can compare them by checking if the number
+        // of trailing zeros in the binary representation of the alignment is greater or equal.
+        self.0.trailing_zeros() >= other.0.trailing_zeros()
+    }
+}
+
+impl Display for Alignment {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl Deref for Alignment {
+    type Target = usize;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<usize> for Alignment {
+    fn from(value: usize) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<u16> for Alignment {
+    fn from(value: u16) -> Self {
+        Self::new(usize::from(value))
+    }
+}
+
+impl From<Alignment> for usize {
+    fn from(value: Alignment) -> Self {
+        value.0
+    }
+}
+
+impl From<Alignment> for u16 {
+    fn from(value: Alignment) -> Self {
+        u16::try_from(value.0).vortex_expect("Alignment must fit into u16")
+    }
+}

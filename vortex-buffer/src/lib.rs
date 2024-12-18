@@ -1,3 +1,4 @@
+#![feature(unsigned_is_multiple_of)]
 #![deny(missing_docs)]
 
 //! A byte buffer implementation for Vortex.
@@ -13,12 +14,19 @@ use core::cmp::Ordering;
 use core::ops::{Deref, Range};
 
 pub use aligned::*;
+pub use aligned_mut::*;
+pub use alignment::*;
 use arrow_buffer::{ArrowNativeType, Buffer as ArrowBuffer, MutableBuffer as ArrowMutableBuffer};
+pub use scalar::*;
+pub use scalar_mut::*;
 pub use string::*;
 
 mod aligned;
+mod aligned_mut;
+mod alignment;
 mod flexbuffers;
 mod scalar;
+mod scalar_mut;
 mod string;
 
 /// Buffer is an owned, cheaply cloneable byte array.

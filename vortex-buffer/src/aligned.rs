@@ -1,9 +1,9 @@
 use std::ops::Deref;
 
 use bytes::Bytes;
-use vortex_error::{vortex_panic, VortexExpect};
+use vortex_error::vortex_panic;
 
-use crate::Buffer;
+use crate::alignment::Alignment;
 
 /// A buffer with runtime-validated alignment.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -11,7 +11,7 @@ pub struct AlignedBuffer {
     /// The underlying bytes holding the data.
     bytes: Bytes,
     /// The minimum alignment required for this buffer when (de)serialized.
-    alignment: usize,
+    alignment: Alignment,
 }
 
 impl AlignedBuffer {
@@ -21,41 +21,37 @@ impl AlignedBuffer {
     ///
     /// Panics if `alignment` is greater than `u16::MAX`, is not a power of 2, or the buffer
     /// is not aligned to `alignment`.
-    pub fn new_with_alignment(buffer: Buffer, alignment: usize) -> Self {
-        u16::try_from(alignment).vortex_expect("Alignment must fit into u16");
-        if !alignment.is_power_of_two() {
-            vortex_panic!("Alignment must be a power of 2");
-        }
-        if buffer.as_ptr().align_offset(alignment) != 0 {
+    pub fn new_with_alignment(bytes: Bytes, alignment: Alignment) -> Self {
+        if bytes.as_ptr().align_offset(*alignment) != 0 {
             vortex_panic!("Buffer must be aligned to {}", alignment);
         }
-        Self { buffer, alignment }
+        Self { bytes, alignment }
     }
 
     /// Create a new `ArrayBuffer` from the provided buffer with alignment derived from `T`.
-    pub fn new<T>(buffer: Buffer) -> Self {
-        Self::new_with_alignment(buffer, align_of::<T>())
+    pub fn new<T>(bytes: Bytes) -> Self {
+        Self::new_with_alignment(bytes, align_of::<T>().into())
     }
 
     #[inline]
-    pub fn alignment(&self) -> usize {
+    pub fn alignment(&self) -> Alignment {
         self.alignment
     }
 
     #[inline]
     pub fn alignment_u16(&self) -> u16 {
-        u16::try_from(self.alignment).vortex_expect("Alignment must fit into u16")
+        self.alignment.into()
     }
 
-    pub fn into_inner(self) -> Buffer {
-        self.buffer
+    pub fn into_inner(self) -> Bytes {
+        self.bytes
     }
 }
 
 impl Deref for AlignedBuffer {
-    type Target = Buffer;
+    type Target = Bytes;
 
     fn deref(&self) -> &Self::Target {
-        &self.buffer
+        &self.bytes
     }
 }
