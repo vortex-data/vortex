@@ -21,7 +21,6 @@ path = "src/lib.rs"
 arrow-array = { workspace = true }
 arrow-schema = { workspace = true }
 async-trait = { workspace = true }
-bytes = { workspace = true }
 chrono = { workspace = true }
 datafusion = { workspace = true }
 datafusion-common = { workspace = true }
@@ -37,7 +36,6 @@ object_store = { workspace = true }
 pin-project = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "fs"] }
 vortex-array = { workspace = true }
-vortex-datetime-dtype = { workspace = true }
 vortex-dtype = { workspace = true }
 vortex-error = { workspace = true, features = ["datafusion"] }
 vortex-expr = { workspace = true, features = ["datafusion"] }

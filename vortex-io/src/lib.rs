@@ -19,7 +19,6 @@ pub use read_ranges::*;
 pub use tokio::*;
 pub use write::*;
 
-mod aligned;
 mod buf;
 #[cfg(feature = "compio")]
 mod compio;

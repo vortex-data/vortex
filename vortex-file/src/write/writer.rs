@@ -2,7 +2,6 @@
 
 use std::{io, iter, mem};
 
-use bytes::Bytes;
 use futures::TryStreamExt;
 use futures_util::io::Cursor;
 use itertools::Itertools;
@@ -10,6 +9,7 @@ use vortex_array::array::{ChunkedArray, StructArray};
 use vortex_array::stats::{as_stat_bitset_bytes, ArrayStatistics, Stat};
 use vortex_array::stream::ArrayStream;
 use vortex_array::{ArrayData, ArrayLen};
+use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
 use vortex_flatbuffers::{FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
@@ -295,7 +295,7 @@ impl ColumnWriter {
             Ok(LayoutSpec::chunked(
                 layouts,
                 row_count,
-                Some(Bytes::from(stat_bitset)),
+                Some(Buffer::from(stat_bitset)),
             ))
         } else {
             Ok(LayoutSpec::chunked(data_chunks.collect(), row_count, None))

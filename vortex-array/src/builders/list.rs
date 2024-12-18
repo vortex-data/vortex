@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use num_traits::{AsPrimitive, PrimInt};
 use vortex_dtype::{DType, NativePType, Nullability};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_scalar::{ListScalar, Scalar};
 
 use crate::array::ListArray;
@@ -34,7 +34,7 @@ where
     ) -> Self {
         // I would expect the list to have more than one value per index
         let value_builder = builder_with_capacity(value_dtype.as_ref(), 2 * capacity);
-        let mut index_builder = PrimitiveBuilder::with_capacity(nullability, capacity);
+        let mut index_builder = PrimitiveBuilder::with_capacity(Nullability::NonNullable, capacity);
 
         // The first index of the list, which is always 0 and represents an empty list.
         index_builder.append_zero();
@@ -50,6 +50,9 @@ where
 
     pub fn append_value(&mut self, value: ListScalar) -> VortexResult<()> {
         if value.is_null() {
+            if self.nullability == Nullability::NonNullable {
+                vortex_bail!("Cannot append null value to non-nullable list");
+            }
             self.append_null();
             Ok(())
         } else {
@@ -58,6 +61,7 @@ where
                 // or the list scalar should hold an ArrayData
                 self.value_builder.append_scalar(&scalar)?;
             }
+            self.validity.append_value(true);
             self.append_index(self.value_builder.len().as_())
         }
     }
@@ -131,6 +135,7 @@ mod tests {
 
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_scalar::Scalar;
+    use Nullability::{NonNullable, Nullable};
 
     use crate::builders::list::ListBuilder;
     use crate::builders::ArrayBuilder;
@@ -138,11 +143,8 @@ mod tests {
 
     #[test]
     fn test_empty() {
-        let mut builder = ListBuilder::<u32>::with_capacity(
-            Arc::new(PType::I32.into()),
-            Nullability::NonNullable,
-            0,
-        );
+        let mut builder =
+            ListBuilder::<u32>::with_capacity(Arc::new(PType::I32.into()), NonNullable, 0);
 
         let list = builder.finish().unwrap();
         assert_eq!(list.len(), 0);
@@ -151,22 +153,17 @@ mod tests {
     #[test]
     fn test_values() {
         let dtype: Arc<DType> = Arc::new(PType::I32.into());
-        let mut builder =
-            ListBuilder::<u32>::with_capacity(dtype.clone(), Nullability::NonNullable, 0);
+        let mut builder = ListBuilder::<u32>::with_capacity(dtype.clone(), NonNullable, 0);
 
         builder
             .append_value(
                 Scalar::list(
                     dtype.clone(),
                     vec![1i32.into(), 2i32.into(), 3i32.into()],
-                    Nullability::NonNullable,
+                    NonNullable,
                 )
                 .as_list(),
             )
-            .unwrap();
-
-        builder
-            .append_value(Scalar::list_empty(dtype.clone(), Nullability::NonNullable).as_list())
             .unwrap();
 
         builder
@@ -174,7 +171,57 @@ mod tests {
                 Scalar::list(
                     dtype,
                     vec![4i32.into(), 5i32.into(), 6i32.into()],
-                    Nullability::NonNullable,
+                    NonNullable,
+                )
+                .as_list(),
+            )
+            .unwrap();
+
+        let list = builder.finish().unwrap();
+        assert_eq!(list.len(), 2);
+
+        let list_array = list.into_list().unwrap();
+
+        assert_eq!(list_array.elements_at(0).unwrap().len(), 3);
+        assert_eq!(list_array.elements_at(1).unwrap().len(), 3);
+    }
+
+    #[test]
+    fn test_non_null_fails() {
+        let dtype: Arc<DType> = Arc::new(PType::I32.into());
+        let mut builder = ListBuilder::<u32>::with_capacity(dtype.clone(), NonNullable, 0);
+
+        assert!(builder
+            .append_value(Scalar::list_empty(dtype, NonNullable).as_list())
+            .is_err())
+    }
+
+    #[test]
+    fn test_nullable_values() {
+        let dtype: Arc<DType> = Arc::new(PType::I32.into());
+        let mut builder = ListBuilder::<u32>::with_capacity(dtype.clone(), Nullable, 0);
+
+        builder
+            .append_value(
+                Scalar::list(
+                    dtype.clone(),
+                    vec![1i32.into(), 2i32.into(), 3i32.into()],
+                    NonNullable,
+                )
+                .as_list(),
+            )
+            .unwrap();
+
+        builder
+            .append_value(Scalar::list_empty(dtype.clone(), NonNullable).as_list())
+            .unwrap();
+
+        builder
+            .append_value(
+                Scalar::list(
+                    dtype,
+                    vec![4i32.into(), 5i32.into(), 6i32.into()],
+                    NonNullable,
                 )
                 .as_list(),
             )
@@ -186,7 +233,8 @@ mod tests {
         let list_array = list.into_list().unwrap();
 
         assert_eq!(list_array.elements_at(0).unwrap().len(), 3);
-        assert!(list_array.elements_at(1).unwrap().is_empty());
+        assert!(list_array.elements_at(1).unwrap().as_null_array().is_some());
+        assert_eq!(list_array.elements_at(1).unwrap().len(), 1);
         assert_eq!(list_array.elements_at(2).unwrap().len(), 3);
     }
 }

@@ -4,15 +4,13 @@ use std::os::unix::fs::FileExt;
 use std::sync::Arc;
 use std::{io, mem};
 
-use bytes::Bytes;
 use futures_util::StreamExt;
 use object_store::path::Path;
 use object_store::{GetOptions, GetRange, GetResultPayload, ObjectStore, WriteMultipart};
 use vortex_buffer::Buffer;
-use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
+use vortex_error::{VortexExpect, VortexResult};
 
-use crate::aligned::AlignedBytesMut;
-use crate::{IoBuf, VortexBufReader, VortexReadAt, VortexWrite, ALIGNMENT};
+use crate::{IoBuf, VortexBufReader, VortexReadAt, VortexWrite};
 
 pub trait ObjectStoreExt {
     fn vortex_read(
@@ -72,16 +70,13 @@ impl VortexReadAt for ObjectStoreReadAt {
         &self,
         pos: u64,
         len: u64,
-    ) -> impl Future<Output = io::Result<Bytes>> + 'static {
+    ) -> impl Future<Output = io::Result<Buffer>> + 'static {
         let object_store = self.object_store.clone();
         let location = self.location.clone();
-
         Box::pin(async move {
             let read_start: usize = pos.try_into().vortex_expect("pos");
             let read_end: usize = (pos + len).try_into().vortex_expect("pos + len");
-
-            let mut buf =
-                AlignedBytesMut::<ALIGNMENT>::with_capacity(len.try_into().vortex_unwrap());
+            let len: usize = len.try_into().vortex_expect("len does not fit into usize");
 
             let response = object_store
                 .get_opts(
@@ -97,21 +92,19 @@ impl VortexReadAt for ObjectStoreReadAt {
             //  it's coming from a network stream. Internally they optimize the File implementation
             //  to only perform a single allocation when calling `.bytes().await`, which we
             //  replicate here by emitting the contents directly into our aligned buffer.
+            let mut buffer = Vec::with_capacity(len);
             match response.payload {
                 GetResultPayload::File(file, _) => {
-                    unsafe {
-                        buf.set_len(len.try_into().vortex_unwrap());
-                    }
-                    file.read_exact_at(&mut buf, pos)?;
+                    unsafe { buffer.set_len(len) };
+                    file.read_exact_at(&mut buffer, pos)?;
                 }
                 GetResultPayload::Stream(mut byte_stream) => {
                     while let Some(bytes) = byte_stream.next().await {
-                        buf.extend_from_slice(&bytes?);
+                        buffer.extend_from_slice(&bytes?);
                     }
                 }
             }
-
-            Ok(buf.freeze())
+            Ok(Buffer::from(buffer))
         })
     }
 

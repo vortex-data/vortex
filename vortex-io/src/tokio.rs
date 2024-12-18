@@ -6,12 +6,11 @@ use std::os::unix::fs::FileExt;
 use std::path::Path;
 use std::sync::Arc;
 
-use bytes::Bytes;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
+use vortex_buffer::Buffer;
 use vortex_error::VortexUnwrap;
 
-use crate::aligned::AlignedBytesMut;
-use crate::{IoBuf, VortexReadAt, VortexWrite, ALIGNMENT};
+use crate::{IoBuf, VortexReadAt, VortexWrite};
 
 pub struct TokioAdapter<IO>(pub IO);
 
@@ -66,16 +65,12 @@ impl VortexReadAt for TokioFile {
         &self,
         pos: u64,
         len: u64,
-    ) -> impl Future<Output = io::Result<Bytes>> + 'static {
+    ) -> impl Future<Output = io::Result<Buffer>> + 'static {
         let this = self.clone();
 
-        let mut buffer =
-            AlignedBytesMut::<ALIGNMENT>::with_capacity(len.try_into().vortex_unwrap());
-        unsafe {
-            buffer.set_len(len.try_into().vortex_unwrap());
-        }
+        let mut buffer = vec![0u8; len.try_into().vortex_unwrap()];
         match this.read_exact_at(&mut buffer, pos) {
-            Ok(()) => future::ready(Ok(buffer.freeze())),
+            Ok(()) => future::ready(Ok(Buffer::from(buffer))),
             Err(e) => future::ready(Err(e)),
         }
     }
@@ -125,8 +120,8 @@ mod tests {
 
         let second_half = shared_file.read_byte_range(5, 5).await.unwrap();
 
-        assert_eq!(&first_half, "01234".as_bytes());
-        assert_eq!(&second_half, "56789".as_bytes());
+        assert_eq!(first_half.as_ref(), "01234".as_bytes());
+        assert_eq!(second_half.as_ref(), "56789".as_bytes());
     }
 
     #[test]

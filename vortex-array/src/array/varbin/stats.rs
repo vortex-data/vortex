@@ -112,12 +112,12 @@ fn compute_min_max<T: ArrayTrait + ArrayAccessor<[u8]>>(array: &T) -> VortexResu
     let minmax = array.with_iterator(|iter| match iter.flatten().minmax() {
         MinMaxResult::NoElements => None,
         MinMaxResult::OneElement(value) => {
-            let scalar = varbin_scalar(Buffer::from(value), array.dtype());
+            let scalar = varbin_scalar(Buffer::from(value.to_vec()), array.dtype());
             Some((scalar.clone(), scalar))
         }
         MinMaxResult::MinMax(min, max) => Some((
-            varbin_scalar(Buffer::from(min), array.dtype()),
-            varbin_scalar(Buffer::from(max), array.dtype()),
+            varbin_scalar(Buffer::from(min.to_vec()), array.dtype()),
+            varbin_scalar(Buffer::from(max.to_vec()), array.dtype()),
         )),
     })?;
     let Some((min, max)) = minmax else {

@@ -81,14 +81,6 @@ impl ScalarType for BufferString {
 
 scalar_type_for_vec!(BufferString);
 
-impl ScalarType for bytes::Bytes {
-    fn dtype() -> DType {
-        DType::Binary(Nullability::NonNullable)
-    }
-}
-
-scalar_type_for_vec!(bytes::Bytes);
-
 impl ScalarType for Buffer {
     fn dtype() -> DType {
         DType::Binary(Nullability::NonNullable)
