@@ -131,7 +131,6 @@ mod tests {
         let sdt = StructDType::new(
             vec![Arc::from("a"), Arc::from("b")].into(),
             vec![I32.into(), I32.into()],
-            // Nullability::Nullable,
         );
         let dtype = DType::Struct(sdt.clone(), Nullability::NonNullable);
         let mut builder = StructBuilder::with_capacity(sdt, Nullability::NonNullable, 0);
