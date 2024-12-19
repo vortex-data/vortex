@@ -199,7 +199,7 @@ mod test {
 
     use crate::array::PrimitiveArray;
     use crate::compute::{scalar_at, sub_scalar};
-    use crate::{ArrayLen as _, IntoArrayData, IntoArrayVariant, IntoCanonical};
+    use crate::{ArrayLen as _, IntoArrayData, IntoArrayVariant};
 
     #[test]
     fn test_scalar_subtract_unsigned() {
