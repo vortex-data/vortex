@@ -37,7 +37,9 @@ impl AlignedBuffer {
 
     /// Create a new empty `AlignedBuffer` with the provided alignment.
     pub fn empty(alignment: Alignment) -> Self {
-        Self::new_with_alignment(Bytes::new(), alignment)
+        // We delegate to `AlignedBufferMut` to handle the alignment. Note that the underlying
+        // buffer may therefore not actually be empty, but we don't expose that to the caller.
+        AlignedBufferMut::with_capacity(0, alignment).freeze()
     }
 
     /// Create a new `AlignedBuffer` by copying the provided slice.
@@ -98,8 +100,8 @@ impl AlignedBuffer {
     ///
     /// # Panics
     ///
-    /// Requires that `begin <= end` and `end <= self.len()`, otherwise slicing
-    /// will panic.
+    /// Requires that `begin <= end` and `end <= self.len()`.
+    /// Also requires that both `begin` and `end` are aligned to the buffer's required alignment.
     pub fn slice(&self, range: impl RangeBounds<usize>) -> Self {
         let len = self.len();
         let begin = match range.start_bound() {
@@ -113,23 +115,27 @@ impl AlignedBuffer {
             Bound::Unbounded => len,
         };
 
-        assert!(
-            begin <= end,
-            "range start must not be greater than end: {:?} <= {:?}",
-            begin,
-            end,
-        );
-        assert!(
-            end <= len,
-            "range end out of bounds: {:?} <= {:?}",
-            end,
-            len,
-        );
+        if begin > end {
+            vortex_panic!(
+                "range start must not be greater than end: {:?} <= {:?}",
+                begin,
+                end
+            );
+        }
+        if end > len {
+            vortex_panic!("range end out of bounds: {:?} <= {:?}", end, len);
+        }
+        if !begin.is_multiple_of(*self.alignment) {
+            vortex_panic!("range start must be aligned to {:?}", self.alignment);
+        }
+        if !end.is_multiple_of(*self.alignment) {
+            vortex_panic!("range end must be aligned to {:?}", self.alignment);
+        }
 
         if end == begin {
             // We prefer to return a new empty buffer instead of sharing this one and creating a
             // strong reference just to hold an empty slice.
-            return AlignedBuffer::new_with_alignment(Bytes::new(), self.alignment);
+            return AlignedBuffer::empty(self.alignment);
         }
 
         // Currently this panics if the begin/end are not aligned to the buffer's alignment...
