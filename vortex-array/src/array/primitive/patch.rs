@@ -21,11 +21,10 @@ impl PrimitiveArray {
         match_each_integer_ptype!(indices.ptype(), |$I| {
             match_each_native_ptype!(self.ptype(), |$T| {
                 let mut own_values = self.into_maybe_null_vec::<$T>();
-                let indices_slice = indices
-                    .maybe_null_slice::<$I>();
-                let patch_values_slice = patch_values
-                    .maybe_null_slice::<$T>();
-                for (idx, value) in indices_slice.iter().zip_eq(patch_values_slice.iter()) {
+                for (idx, value) in indices
+                    .maybe_null_slice::<$I>()
+                    .iter()
+                    .zip_eq(patch_values.maybe_null_slice::<$T>().iter()) {
                     own_values[*idx as usize] = *value;
                 }
                 Ok(Self::from_vec(own_values, patched_validity))
