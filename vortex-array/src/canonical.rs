@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use arrow_array::types::*;
 use arrow_array::{
-    ArrayRef, ArrowPrimitiveType, BooleanArray as ArrowBoolArray, Date32Array, Date64Array,
+    Array, ArrayRef, ArrowPrimitiveType, BooleanArray as ArrowBoolArray, Date32Array, Date64Array,
     NullArray as ArrowNullArray, PrimitiveArray as ArrowPrimitiveArray,
     StructArray as ArrowStructArray, Time32MillisecondArray, Time32SecondArray,
     Time64MicrosecondArray, Time64NanosecondArray, TimestampMicrosecondArray,
@@ -253,12 +253,13 @@ fn list_to_arrow(list: ListArray) -> VortexResult<ArrayRef> {
             .map_err(|err| err.with_context("Failed to cast offsets to PrimitiveArray of i32"))?,
     };
 
+    let values = list.elements().into_arrow()?;
+
     let field_ref = FieldRef::new(Field::new_list_field(
-        infer_data_type(list.elements().dtype())?,
+        values.data_type().clone(),
         list.validity().nullability().into(),
     ));
 
-    let values = list.elements().into_arrow()?;
     let nulls = list.logical_validity().to_null_buffer()?;
 
     Ok(match offsets.ptype() {
@@ -526,9 +527,10 @@ mod test {
     use arrow_array::cast::AsArray;
     use arrow_array::types::{Int32Type, Int64Type, UInt64Type};
     use arrow_array::{
-        PrimitiveArray as ArrowPrimitiveArray, StringViewArray, StructArray as ArrowStructArray,
+        ListArray as ArrowListArray, PrimitiveArray as ArrowPrimitiveArray, StringArray,
+        StringViewArray, StructArray as ArrowStructArray,
     };
-    use arrow_buffer::NullBufferBuilder;
+    use arrow_buffer::{NullBufferBuilder, OffsetBuffer};
     use arrow_schema::{DataType, Field};
 
     use crate::array::{PrimitiveArray, SparseArray, StructArray};
@@ -640,5 +642,25 @@ mod test {
             &arrow_struct,
             vortex_struct.into_arrow().unwrap().as_struct()
         );
+    }
+
+    #[test]
+    fn roundtrip_list() {
+        let names = Arc::new(StringArray::from_iter(vec![
+            Some("Joseph"),
+            Some("Angela"),
+            Some("Mikhail"),
+        ]));
+
+        let arrow_list = ArrowListArray::new(
+            Arc::new(Field::new_list_field(DataType::Utf8, true)),
+            OffsetBuffer::from_lengths(vec![0, 2, 1]),
+            names,
+            None,
+        );
+
+        let vortex_list = ArrayData::from_arrow(&arrow_list, true);
+
+        assert_eq!(&arrow_list, vortex_list.into_arrow().unwrap().as_list());
     }
 }

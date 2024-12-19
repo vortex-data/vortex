@@ -146,7 +146,7 @@ fn deserialize_scalar_value(dtype: &DType, value: &pb::ScalarValue) -> VortexRes
             BufferString::from(v.clone()),
         ))),
         Kind::BytesValue(v) => Ok(ScalarValue(InnerScalarValue::Buffer(Buffer::from(
-            v.as_slice(),
+            v.clone(),
         )))),
         Kind::ListValue(v) => {
             let mut values = Vec::with_capacity(v.values.len());

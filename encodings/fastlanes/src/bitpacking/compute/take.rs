@@ -26,7 +26,9 @@ impl TakeFn<BitPackedArray> for BitPackedEncoding {
             return take(array.clone().into_canonical()?.into_primitive()?, indices);
         }
 
-        let ptype: PType = array.dtype().try_into()?;
+        // NOTE: we use the unsigned PType because all values in the BitPackedArray must
+        //  be non-negative (pre-condition of creating the BitPackedArray).
+        let ptype: PType = PType::try_from(array.dtype())?.to_unsigned();
         let validity = array.validity();
         let taken_validity = validity.take(indices)?;
 

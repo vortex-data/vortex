@@ -368,3 +368,28 @@ pub(crate) fn find_best_compression<'a>(
 
     Ok(best)
 }
+
+#[cfg(test)]
+mod tests {
+    use itertools::Itertools;
+    use vortex_alp::ALPRDEncoding;
+    use vortex_array::array::PrimitiveArray;
+    use vortex_array::encoding::Encoding;
+    use vortex_array::IntoArrayData;
+
+    use crate::SamplingCompressor;
+
+    #[test]
+    fn test_default() {
+        let values = (0..4096)
+            .map(|x| (x as f64) / 1234567890.0f64)
+            .collect_vec();
+        let array = PrimitiveArray::from(values).into_array();
+
+        let compressed = SamplingCompressor::default()
+            .compress(&array, None)
+            .unwrap()
+            .into_array();
+        assert_eq!(compressed.encoding().id(), ALPRDEncoding::ID);
+    }
+}

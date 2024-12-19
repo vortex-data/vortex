@@ -1,8 +1,7 @@
 use std::ops::Deref;
 use std::sync::Arc;
 
-use vortex_dtype::DType;
-use vortex_dtype::Nullability::{NonNullable, Nullable};
+use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, vortex_panic, VortexError, VortexResult};
 
 use crate::value::{InnerScalarValue, ScalarValue};
@@ -72,7 +71,11 @@ impl<'a> ListScalar<'a> {
 }
 
 impl Scalar {
-    pub fn list(element_dtype: Arc<DType>, children: Vec<Scalar>) -> Self {
+    pub fn list(
+        element_dtype: Arc<DType>,
+        children: Vec<Scalar>,
+        nullability: Nullability,
+    ) -> Self {
         for child in &children {
             if child.dtype() != &*element_dtype {
                 vortex_panic!(
@@ -83,16 +86,16 @@ impl Scalar {
             }
         }
         Self {
-            dtype: DType::List(element_dtype, NonNullable),
+            dtype: DType::List(element_dtype, nullability),
             value: ScalarValue(InnerScalarValue::List(
                 children.into_iter().map(|x| x.value).collect::<Arc<[_]>>(),
             )),
         }
     }
 
-    pub fn empty(element_dtype: Arc<DType>) -> Self {
+    pub fn list_empty(element_dtype: Arc<DType>, nullability: Nullability) -> Self {
         Self {
-            dtype: DType::List(element_dtype, Nullable),
+            dtype: DType::List(element_dtype, nullability),
             value: ScalarValue(InnerScalarValue::Null),
         }
     }

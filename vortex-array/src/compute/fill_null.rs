@@ -41,6 +41,26 @@ pub fn fill_null(array: impl AsRef<ArrayData>, fill_value: Scalar) -> VortexResu
         vortex_bail!(MismatchedTypes: array.dtype(), fill_value.dtype())
     }
 
+    let fill_value_nullability = fill_value.dtype().nullability();
+    let filled = fill_null_impl(array, fill_value)?;
+
+    debug_assert_eq!(
+        filled.len(),
+        array.len(),
+        "FillNull length mismatch {}",
+        array.encoding().id()
+    );
+    debug_assert_eq!(
+        filled.dtype(),
+        &array.dtype().with_nullability(fill_value_nullability),
+        "FillNull dtype mismatch {}",
+        array.encoding().id()
+    );
+
+    Ok(filled)
+}
+
+fn fill_null_impl(array: &ArrayData, fill_value: Scalar) -> VortexResult<ArrayData> {
     if let Some(fill_null_fn) = array.encoding().fill_null_fn() {
         return fill_null_fn.fill_null(array, fill_value);
     }

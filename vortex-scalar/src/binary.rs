@@ -91,13 +91,7 @@ impl TryFrom<Scalar> for Option<Buffer> {
 
 impl From<&[u8]> for Scalar {
     fn from(value: &[u8]) -> Self {
-        Scalar::from(Buffer::from(value))
-    }
-}
-
-impl From<bytes::Bytes> for Scalar {
-    fn from(value: bytes::Bytes) -> Self {
-        Scalar::from(Buffer::from(value))
+        Scalar::from(Buffer::from(value.to_vec()))
     }
 }
 

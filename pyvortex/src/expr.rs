@@ -304,7 +304,7 @@ pub fn scalar_helper(dtype: DType, value: &Bound<'_, PyAny>) -> PyResult<Scalar>
                 .iter()
                 .map(|element| scalar_helper(element_type.as_ref().clone(), element))
                 .collect::<PyResult<Vec<_>>>()?;
-            Ok(Scalar::list(element_type, values))
+            Ok(Scalar::list(element_type, values, Nullability::Nullable))
         }
         DType::Extension(..) => todo!(),
     }

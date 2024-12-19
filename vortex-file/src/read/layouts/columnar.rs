@@ -399,7 +399,6 @@ mod tests {
     use std::iter;
     use std::sync::{Arc, RwLock};
 
-    use bytes::Bytes;
     use vortex_array::accessor::ArrayAccessor;
     use vortex_array::array::{ChunkedArray, PrimitiveArray, StructArray, VarBinArray};
     use vortex_array::validity::Validity;
@@ -419,7 +418,7 @@ mod tests {
     async fn layout_and_bytes(
         cache: Arc<RwLock<LayoutMessageCache>>,
         scan: Scan,
-    ) -> (Box<dyn LayoutReader>, Box<dyn LayoutReader>, Bytes, usize) {
+    ) -> (Box<dyn LayoutReader>, Box<dyn LayoutReader>, Buffer, usize) {
         let int_array = PrimitiveArray::from((0..100).collect::<Vec<_>>()).into_array();
         let int2_array = PrimitiveArray::from((100..200).collect::<Vec<_>>()).into_array();
         let int_dtype = int_array.dtype().clone();
@@ -475,7 +474,7 @@ mod tests {
                     RelativeLayoutCache::new(cache.clone(), dtype),
                 )
                 .unwrap(),
-            Bytes::copy_from_slice(&written),
+            written,
             len,
         )
     }

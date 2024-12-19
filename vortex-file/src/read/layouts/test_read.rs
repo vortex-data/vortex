@@ -1,8 +1,8 @@
 use std::collections::{BTreeSet, VecDeque};
 use std::sync::{Arc, RwLock};
 
-use bytes::Bytes;
 use vortex_array::ArrayData;
+use vortex_buffer::Buffer;
 use vortex_error::VortexUnwrap;
 
 use crate::read::mask::RowMask;
@@ -25,7 +25,7 @@ fn layout_splits(
 pub fn read_layout_data(
     layout: &mut dyn LayoutReader,
     cache: Arc<RwLock<LayoutMessageCache>>,
-    buf: &Bytes,
+    buf: &Buffer,
     selector: &RowMask,
 ) -> Option<ArrayData> {
     while let Some(rr) = layout.poll_read(selector).unwrap() {
@@ -45,7 +45,7 @@ pub fn read_layout_data(
 pub fn read_filters(
     layout: &mut dyn LayoutReader,
     cache: Arc<RwLock<LayoutMessageCache>>,
-    buf: &Bytes,
+    buf: &Buffer,
     selector: &RowMask,
 ) -> Option<RowMask> {
     while let Some(rr) = layout.poll_read(selector).unwrap() {
@@ -71,7 +71,7 @@ pub fn filter_read_layout(
     filter_layout: &mut dyn LayoutReader,
     layout: &mut dyn LayoutReader,
     cache: Arc<RwLock<LayoutMessageCache>>,
-    buf: &Bytes,
+    buf: &Buffer,
     length: usize,
 ) -> VecDeque<ArrayData> {
     layout_splits(&[filter_layout, layout], length)
@@ -83,7 +83,7 @@ pub fn filter_read_layout(
 pub fn read_layout(
     layout: &mut dyn LayoutReader,
     cache: Arc<RwLock<LayoutMessageCache>>,
-    buf: &Bytes,
+    buf: &Buffer,
     length: usize,
 ) -> VecDeque<ArrayData> {
     layout_splits(&[layout], length)

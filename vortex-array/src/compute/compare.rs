@@ -126,16 +126,42 @@ pub fn compare(
         .encoding()
         .compare_fn()
         .and_then(|f| f.compare(left, right, operator).transpose())
+        .transpose()?
     {
-        return result;
+        debug_assert_eq!(
+            result.len(),
+            left.len(),
+            "Compare length mismatch {}",
+            left.encoding().id()
+        );
+        debug_assert_eq!(
+            result.dtype(),
+            &DType::Bool((left.dtype().is_nullable() || right.dtype().is_nullable()).into()),
+            "Compare dtype mismatch {}",
+            left.encoding().id()
+        );
+        return Ok(result);
     }
 
     if let Some(result) = right
         .encoding()
         .compare_fn()
         .and_then(|f| f.compare(right, left, operator.swap()).transpose())
+        .transpose()?
     {
-        return result;
+        debug_assert_eq!(
+            result.len(),
+            left.len(),
+            "Compare length mismatch {}",
+            right.encoding().id()
+        );
+        debug_assert_eq!(
+            result.dtype(),
+            &DType::Bool((left.dtype().is_nullable() || right.dtype().is_nullable()).into()),
+            "Compare dtype mismatch {}",
+            right.encoding().id()
+        );
+        return Ok(result);
     }
 
     // Only log missing compare implementation if there's possibly better one than arrow,
@@ -159,6 +185,7 @@ pub(crate) fn arrow_compare(
     rhs: &ArrayData,
     operator: Operator,
 ) -> VortexResult<ArrayData> {
+    let nullable = lhs.dtype().is_nullable() || rhs.dtype().is_nullable();
     let lhs = Datum::try_from(lhs.clone())?;
     let rhs = Datum::try_from(rhs.clone())?;
 
@@ -171,7 +198,7 @@ pub(crate) fn arrow_compare(
         Operator::Lte => cmp::lt_eq(&lhs, &rhs)?,
     };
 
-    Ok(ArrayData::from_arrow(&array, true))
+    Ok(ArrayData::from_arrow(&array, nullable))
 }
 
 pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: Operator) -> Scalar {
@@ -187,7 +214,10 @@ pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: Operator) -> Scalar {
             Operator::Lte => lhs <= rhs,
         };
 
-        Scalar::bool(b, Nullability::Nullable)
+        Scalar::bool(
+            b,
+            (lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into(),
+        )
     }
 }
 

@@ -33,6 +33,25 @@ pub fn try_cast(array: impl AsRef<ArrayData>, dtype: &DType) -> VortexResult<Arr
         return Ok(array.clone());
     }
 
+    let casted = try_cast_impl(array, dtype)?;
+
+    debug_assert_eq!(
+        casted.len(),
+        array.len(),
+        "Cast length mismatch {}",
+        array.encoding().id()
+    );
+    debug_assert_eq!(
+        casted.dtype(),
+        dtype,
+        "Cast dtype mismatch {}",
+        array.encoding().id()
+    );
+
+    Ok(casted)
+}
+
+fn try_cast_impl(array: &ArrayData, dtype: &DType) -> VortexResult<ArrayData> {
     // TODO(ngates): check for null_count if dtype is non-nullable
     if let Some(f) = array.encoding().cast_fn() {
         return f.cast(array, dtype);

@@ -1,7 +1,7 @@
 use std::future::{ready, Future};
 use std::io::{self, Cursor, Write};
 
-use vortex_buffer::io_buf::IoBuf;
+use crate::IoBuf;
 
 pub trait VortexWrite {
     fn write_all<B: IoBuf>(&mut self, buffer: B) -> impl Future<Output = io::Result<B>>;

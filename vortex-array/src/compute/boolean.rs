@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use arrow_array::cast::AsArray;
 use arrow_array::ArrayRef;
+use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 
 use crate::arrow::FromArrowArray;
@@ -106,16 +107,42 @@ pub fn binary_boolean(
         .encoding()
         .binary_boolean_fn()
         .and_then(|f| f.binary_boolean(lhs, rhs, op).transpose())
+        .transpose()?
     {
-        return result;
+        debug_assert_eq!(
+            result.len(),
+            lhs.len(),
+            "Boolean operation length mismatch {}",
+            lhs.encoding().id()
+        );
+        debug_assert_eq!(
+            result.dtype(),
+            &DType::Bool((lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into()),
+            "Boolean operation dtype mismatch {}",
+            lhs.encoding().id()
+        );
+        return Ok(result);
     }
 
     if let Some(result) = rhs
         .encoding()
         .binary_boolean_fn()
         .and_then(|f| f.binary_boolean(rhs, lhs, op).transpose())
+        .transpose()?
     {
-        return result;
+        debug_assert_eq!(
+            result.len(),
+            lhs.len(),
+            "Boolean operation length mismatch {}",
+            rhs.encoding().id()
+        );
+        debug_assert_eq!(
+            result.dtype(),
+            &DType::Bool((lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into()),
+            "Boolean operation dtype mismatch {}",
+            rhs.encoding().id()
+        );
+        return Ok(result);
     }
 
     log::debug!(
