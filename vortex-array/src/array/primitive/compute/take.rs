@@ -14,12 +14,9 @@ impl TakeFn<PrimitiveArray> for PrimitiveEncoding {
         let indices = indices.clone().into_primitive()?;
         let validity = array.validity().take(indices.as_ref())?;
 
-        // FIXME(DK): we could save an allocation and re-use memory if one of these were true:
-        //
-        // 1. We take the array as owned and there are no other references to the underyling buffer.
-        //
-        // 2. We take the indices as owned, there are no other references to the underlying indices
-        //    buffer, and the indices bit-width matches the array's bit-width.
+        // FIXME(DK): we could save an allocation and re-use memory if: we take the indices as
+        // owned, there are no other references to the underlying indices buffer, and the indices
+        // bit-width matches the array's bit-width.
         match_each_native_ptype!(array.ptype(), |$T| {
             match_each_integer_ptype!(indices.ptype(), |$I| {
                 let values = take_primitive(array.maybe_null_slice::<$T>(), indices.maybe_null_slice::<$I>());
@@ -36,12 +33,9 @@ impl TakeFn<PrimitiveArray> for PrimitiveEncoding {
         let indices = indices.clone().into_primitive()?;
         let validity = unsafe { array.validity().take_unchecked(indices.as_ref())? };
 
-        // FIXME(DK): we could save an allocation and re-use memory if one of these were true:
-        //
-        // 1. We take the array as owned and there are no other references to the underyling buffer.
-        //
-        // 2. We take the indices as owned, there are no other references to the underlying indices
-        //    buffer, and the indices bit-width matches the array's bit-width.
+        // FIXME(DK): we could save an allocation and re-use memory if: We take the indices as
+        // owned, there are no other references to the underlying indices buffer, and the indices
+        // bit-width matches the array's bit-width.
         match_each_native_ptype!(array.ptype(), |$T| {
             match_each_integer_ptype!(indices.ptype(), |$I| {
                 let values = take_primitive_unchecked(array.maybe_null_slice::<$T>(), indices.maybe_null_slice::<$I>());
