@@ -45,7 +45,7 @@ pub async fn layout_stream_from_reader<T: VortexReadAt + Unpin>(
         builder = builder.with_indices(indices);
     }
 
-    builder.build().await?.into_stream()
+    Ok(builder.build().await?.into_stream())
 }
 
 pub async fn read_array_from_reader<T: VortexReadAt + Unpin + 'static>(

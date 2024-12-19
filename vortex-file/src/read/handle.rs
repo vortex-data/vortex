@@ -77,7 +77,7 @@ impl<R: VortexReadAt + Unpin> VortexReadHandle<R> {
     }
 
     /// Create a stream over all data from the handle
-    pub fn into_stream(self) -> VortexResult<VortexReadArrayStream<R>> {
+    pub fn into_stream(self) -> VortexReadArrayStream<R> {
         let splits_vec = Vec::from_iter(self.splits().iter().copied());
         let split_accumulator = SplitsAccumulator::new(splits_vec.into_iter(), self.row_mask);
 
@@ -106,11 +106,7 @@ impl<R: VortexReadAt + Unpin> VortexReadHandle<R> {
             self.messages_cache,
         );
 
-        Ok(VortexReadArrayStream::new(
-            self.dtype,
-            self.row_count,
-            array_reader,
-        ))
+        VortexReadArrayStream::new(self.dtype, self.row_count, array_reader)
     }
 
     /// Create a stream over a specific row range from the handle
@@ -124,6 +120,6 @@ impl<R: VortexReadAt + Unpin> VortexReadHandle<R> {
             None => Some(RowMask::new_valid_between(begin, end)),
         };
 
-        self.into_stream()
+        Ok(self.into_stream())
     }
 }

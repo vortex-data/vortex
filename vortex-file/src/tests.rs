@@ -59,8 +59,7 @@ async fn test_read_simple() {
         .build()
         .await
         .unwrap()
-        .into_stream()
-        .unwrap();
+        .into_stream();
     let mut batch_count = 0;
     let mut row_count = 0;
 
@@ -180,7 +179,6 @@ async fn test_read_projection() {
         .await
         .unwrap()
         .into_stream()
-        .unwrap()
         .read_all()
         .await
         .unwrap();
@@ -213,7 +211,6 @@ async fn test_read_projection() {
         .await
         .unwrap()
         .into_stream()
-        .unwrap()
         .read_all()
         .await
         .unwrap();
@@ -246,7 +243,6 @@ async fn test_read_projection() {
         .await
         .unwrap()
         .into_stream()
-        .unwrap()
         .read_all()
         .await
         .unwrap();
@@ -275,7 +271,6 @@ async fn test_read_projection() {
         .await
         .unwrap()
         .into_stream()
-        .unwrap()
         .read_all()
         .await
         .unwrap();
@@ -324,8 +319,7 @@ async fn unequal_batches() {
         .build()
         .await
         .unwrap()
-        .into_stream()
-        .unwrap();
+        .into_stream();
     let mut batch_count = 0;
     let mut item_count = 0;
 
@@ -384,8 +378,7 @@ async fn write_chunked() {
         .build()
         .await
         .unwrap()
-        .into_stream()
-        .unwrap();
+        .into_stream();
     let mut array_len: usize = 0;
     while let Some(array) = reader.next().await {
         array_len += array.unwrap().len();
@@ -425,8 +418,7 @@ async fn filter_string() {
         .build()
         .await
         .unwrap()
-        .into_stream()
-        .unwrap();
+        .into_stream();
 
     let result = stream.try_collect::<Vec<_>>().await.unwrap();
     assert_eq!(result.len(), 1);
@@ -493,8 +485,7 @@ async fn filter_or() {
         .build()
         .await
         .unwrap()
-        .into_stream()
-        .unwrap();
+        .into_stream();
 
     let mut result = Vec::new();
     while let Some(array) = reader.next().await {
@@ -559,8 +550,7 @@ async fn filter_and() {
         .build()
         .await
         .unwrap()
-        .into_stream()
-        .unwrap();
+        .into_stream();
 
     let mut result = Vec::new();
     while let Some(array) = reader.next().await {
@@ -611,7 +601,6 @@ async fn test_with_indices_simple() {
         .await
         .unwrap()
         .into_stream()
-        .unwrap()
         .read_all()
         .await
         .unwrap()
@@ -630,7 +619,6 @@ async fn test_with_indices_simple() {
         .await
         .unwrap()
         .into_stream()
-        .unwrap()
         .read_all()
         .await
         .unwrap()
@@ -655,7 +643,6 @@ async fn test_with_indices_simple() {
         .await
         .unwrap()
         .into_stream()
-        .unwrap()
         .read_all()
         .await
         .unwrap()
@@ -699,7 +686,6 @@ async fn test_with_indices_on_two_columns() {
         .await
         .unwrap()
         .into_stream()
-        .unwrap()
         .read_all()
         .await
         .unwrap()
@@ -766,7 +752,6 @@ async fn test_with_indices_and_with_row_filter_simple() {
         .await
         .unwrap()
         .into_stream()
-        .unwrap()
         .read_all()
         .await
         .unwrap()
@@ -790,7 +775,6 @@ async fn test_with_indices_and_with_row_filter_simple() {
         .await
         .unwrap()
         .into_stream()
-        .unwrap()
         .read_all()
         .await
         .unwrap()
@@ -823,7 +807,6 @@ async fn test_with_indices_and_with_row_filter_simple() {
         .await
         .unwrap()
         .into_stream()
-        .unwrap()
         .read_all()
         .await
         .unwrap()
@@ -890,7 +873,6 @@ async fn filter_string_chunked() {
             .await
             .unwrap()
             .into_stream()
-            .unwrap()
             .read_all()
             .await
             .unwrap();
@@ -990,7 +972,6 @@ async fn test_pruning_with_or() {
             .await
             .unwrap()
             .into_stream()
-            .unwrap()
             .read_all()
             .await
             .unwrap();
@@ -1075,7 +1056,7 @@ async fn test_repeated_projection() {
             .with_projection(projection)
             .build()
             .await?
-            .into_stream()?
+            .into_stream()
             .read_all()
             .await
     }
