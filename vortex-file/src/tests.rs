@@ -1160,3 +1160,50 @@ async fn test_simple_ranged_read() {
     assert_eq!(batch_count, 1);
     assert_eq!(row_count, 4);
 }
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_simple_range_twice() {
+    let strings = ChunkedArray::from_iter([
+        VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array(),
+        VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array(),
+    ])
+    .into_array();
+
+    let numbers = ChunkedArray::from_iter([
+        PrimitiveArray::from(vec![1u32, 2, 3, 4]).into_array(),
+        PrimitiveArray::from(vec![5u32, 6, 7, 8]).into_array(),
+    ])
+    .into_array();
+
+    let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
+    let buf = Vec::new();
+    let mut writer = VortexFileWriter::new(buf);
+    writer = writer.write_array_columns(st.into_array()).await.unwrap();
+    let written = Buffer::from(writer.finalize().await.unwrap());
+
+    let handle = VortexReadBuilder::new(written, LayoutDeserializer::default())
+        .build()
+        .await
+        .unwrap();
+
+    for v in [(0, 4), (4, 8)] {
+        assert!(handle.splits().contains(&v));
+    }
+
+    for _ in 0..2 {
+        let mut stream = handle.clone().stream_range(0, 7).unwrap();
+
+        let mut batch_count = 0;
+        let mut row_count = 0;
+
+        while let Some(array) = stream.next().await {
+            let array = array.unwrap();
+            batch_count += 1;
+            row_count += array.len();
+        }
+
+        assert_eq!(batch_count, 2);
+        assert_eq!(row_count, 7);
+    }
+}
