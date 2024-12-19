@@ -12,10 +12,9 @@ use vortex_array::validity::{LogicalValidity, Validity, ValidityMetadata, Validi
 use vortex_array::variants::{PrimitiveArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
-    impl_encoding, AlignedBuffer, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical,
-    IntoCanonical,
+    impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoCanonical,
 };
-use vortex_buffer::Buffer;
+use vortex_buffer::{AlignedBuffer, Buffer};
 use vortex_dtype::{DType, NativePType, PType};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
 

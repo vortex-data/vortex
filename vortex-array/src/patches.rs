@@ -265,10 +265,12 @@ impl Patches {
 
     pub fn take_search(&self, take_indices: PrimitiveArray) -> VortexResult<Option<Self>> {
         let new_length = take_indices.len();
+
         let take_indices = match_each_integer_ptype!(take_indices.ptype(), |$P| {
             take_indices
-                .into_maybe_null_slice::<$P>()
-                .into_iter()
+                .maybe_null_slice::<$P>()
+                .iter()
+                .copied()
                 .map(usize::try_from)
                 .collect::<Result<Vec<_>, _>>()?
         });

@@ -375,8 +375,8 @@ mod test {
                 .unwrap()
                 .into_primitive()
                 .unwrap()
-                .into_maybe_null_slice::<i32>(),
-            vec![0i32, 1i32, 2i32]
+                .maybe_null_slice::<i32>(),
+            &[0i32, 1i32, 2i32]
         );
     }
 }
