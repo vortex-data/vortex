@@ -131,7 +131,7 @@ mod test {
     use itertools::Itertools;
     use vortex_array::array::PrimitiveArray;
     use vortex_array::compute::{filter, slice, FilterMask};
-    use vortex_array::{ArrayLen, IntoArrayVariant};
+    use vortex_array::{ArrayDType, ArrayLen, IntoArrayVariant};
 
     use crate::BitPackedArray;
 
@@ -188,11 +188,15 @@ mod test {
             bitpacked.as_ref(),
             FilterMask::from_indices(values.len(), 0..500),
         )
-        .unwrap()
-        .into_primitive()
-        .unwrap()
-        .into_maybe_null_slice::<i64>();
+        .unwrap();
 
-        assert_eq!(filtered, values);
+        assert_eq!(filtered.dtype(), bitpacked.dtype());
+
+        let filtered_values = filtered
+            .into_primitive()
+            .unwrap()
+            .into_maybe_null_slice::<i64>();
+
+        assert_eq!(filtered_values, values);
     }
 }

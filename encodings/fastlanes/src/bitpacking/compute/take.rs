@@ -28,12 +28,12 @@ impl TakeFn<BitPackedArray> for BitPackedEncoding {
 
         // NOTE: we use the unsigned PType because all values in the BitPackedArray must
         //  be non-negative (pre-condition of creating the BitPackedArray).
-        let ptype: PType = PType::try_from(array.dtype())?.to_unsigned();
+        let ptype: PType = PType::try_from(array.dtype())?;
         let validity = array.validity();
         let taken_validity = validity.take(indices)?;
 
         let indices = indices.clone().into_primitive()?;
-        let taken = match_each_unsigned_integer_ptype!(ptype, |$T| {
+        let taken = match_each_unsigned_integer_ptype!(ptype.to_unsigned(), |$T| {
             match_each_integer_ptype!(indices.ptype(), |$I| {
                 take_primitive::<$T, $I>(array, &indices, taken_validity)?
             })
@@ -125,7 +125,7 @@ mod test {
     use rand::{thread_rng, Rng};
     use vortex_array::array::PrimitiveArray;
     use vortex_array::compute::{scalar_at, slice, take};
-    use vortex_array::{IntoArrayData, IntoArrayVariant};
+    use vortex_array::{ArrayDType, IntoArrayData, IntoArrayVariant};
 
     use crate::BitPackedArray;
 
@@ -209,5 +209,25 @@ mod test {
                     values[*i as usize]
                 );
             });
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn take_signed() {
+        let start = BitPackedArray::encode(
+            &PrimitiveArray::from(vec![1i32, 2i32, 3i32]).into_array(),
+            2,
+        )
+        .unwrap();
+
+        let taken = take(&start, PrimitiveArray::from(vec![0u64, 1, 2])).unwrap();
+        assert_eq!(taken.dtype(), start.dtype());
+
+        let actual = taken
+            .into_primitive()
+            .unwrap()
+            .into_maybe_null_slice::<i32>();
+        let expected = vec![1i32, 2, 3];
+        assert_eq!(actual, expected);
     }
 }
