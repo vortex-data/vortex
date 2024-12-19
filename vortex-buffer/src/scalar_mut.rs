@@ -1,25 +1,26 @@
 use std::ops::{Deref, DerefMut};
 
-use vortex_dtype::NativePType;
+use vortex_dtype::ToBytes;
 use vortex_error::vortex_panic;
 
 use crate::{AlignedBufferMut, Alignment, ScalarBuffer};
 
 /// A mutable buffer of Vortex primitive scalars.
-pub struct ScalarBufferMut<T: NativePType> {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ScalarBufferMut<T> {
     pub(crate) buffer: AlignedBufferMut,
     pub(crate) length: usize,
     pub(crate) _marker: std::marker::PhantomData<T>,
 }
 
-impl<T: NativePType> ScalarBufferMut<T> {
+impl<T> ScalarBufferMut<T> {
     /// Create a new `ScalarBufferMut` with the requested alignment and capacity.
-    pub fn new(capacity: usize) -> Self {
-        Self::new_aligned(capacity, Alignment::of::<T>())
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self::with_capacity_aligned(capacity, Alignment::of::<T>())
     }
 
     /// Create a new `ScalarBufferMut` with the requested alignment and capacity.
-    pub fn new_aligned(capacity: usize, alignment: Alignment) -> Self {
+    pub fn with_capacity_aligned(capacity: usize, alignment: Alignment) -> Self {
         if !alignment.is_aligned_to(Alignment::of::<T>()) {
             vortex_panic!(
                 "Alignment {} must align to the scalar type's alignment {}",
@@ -36,7 +37,7 @@ impl<T: NativePType> ScalarBufferMut<T> {
 
     /// Create a mutable scalar buffer by copying the contents of an immutable `ScalarBuffer`.
     pub fn copy_from(other: &ScalarBuffer<T>) -> Self {
-        let mut buffer = Self::new_aligned(other.len(), other.alignment());
+        let mut buffer = Self::with_capacity_aligned(other.len(), other.alignment());
         buffer.extend_from_slice(other.as_slice());
         buffer
     }
@@ -89,9 +90,12 @@ impl<T: NativePType> ScalarBufferMut<T> {
     }
 
     /// Appends a scalar to the buffer.
-    pub fn push(&mut self, value: T) {
+    pub fn push(&mut self, value: T)
+    where
+        T: ToBytes,
+    {
         // The extend_from_slice function will reserve additional space if required.
-        self.buffer.extend_from_slice(value.to_le_bytes());
+        self.buffer.extend_from_slice(&value.to_le_bytes());
         self.length += 1;
     }
 
@@ -102,7 +106,7 @@ impl<T: NativePType> ScalarBufferMut<T> {
     /// ```
     /// # use vortex_buffer::ScalarBufferMut;
     ///
-    /// let mut builder = ScalarBufferMut::<u16>::new(10);
+    /// let mut builder = ScalarBufferMut::<u16>::with_capacity(10);
     /// builder.extend_from_slice(&[42, 44, 46]);
     ///
     /// assert_eq!(builder.len(), 3);
@@ -120,7 +124,7 @@ impl<T: NativePType> ScalarBufferMut<T> {
     }
 }
 
-impl<T: NativePType> Deref for ScalarBufferMut<T> {
+impl<T> Deref for ScalarBufferMut<T> {
     type Target = [T];
 
     fn deref(&self) -> &Self::Target {
@@ -128,21 +132,28 @@ impl<T: NativePType> Deref for ScalarBufferMut<T> {
     }
 }
 
-impl<T: NativePType> DerefMut for ScalarBufferMut<T> {
+impl<T> DerefMut for ScalarBufferMut<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.as_mut_slice()
     }
 }
 
-impl<T: NativePType> FromIterator<T> for ScalarBufferMut<T> {
-    fn from_iter<T: IntoIterator<Item = T>>(iter: T) -> Self {
+impl<T: ToBytes> Extend<T> for ScalarBufferMut<T> {
+    fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
         // TODO(ngates): check out the Arrow extend_from_slice optimizations
         let iter = iter.into_iter();
         let (lower, _) = iter.size_hint();
-        let mut buffer = Self::new(lower);
+        self.reserve(lower);
         for value in iter {
-            buffer.push(value);
+            self.push(value);
         }
+    }
+}
+
+impl<T: ToBytes> FromIterator<T> for ScalarBufferMut<T> {
+    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
+        let mut buffer = Self::with_capacity(0);
+        buffer.extend(iter);
         buffer
     }
 }

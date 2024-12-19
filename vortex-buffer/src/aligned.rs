@@ -1,4 +1,5 @@
-use std::ops::{Bound, RangeBounds};
+use std::fmt::Debug;
+use std::ops::{Bound, Deref, RangeBounds};
 
 use bytes::Bytes;
 use vortex_error::vortex_panic;
@@ -7,7 +8,7 @@ use crate::alignment::Alignment;
 use crate::AlignedBufferMut;
 
 /// A buffer with runtime-validated alignment.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd)]
 pub struct AlignedBuffer {
     /// The underlying bytes holding the data.
     bytes: Bytes,
@@ -32,6 +33,13 @@ impl AlignedBuffer {
     /// Create a new `AlignedBuffer` from the provided buffer with alignment derived from `T`.
     pub fn new<T>(bytes: Bytes) -> Self {
         Self::new_with_alignment(bytes, align_of::<T>().into())
+    }
+
+    /// Create a new `AlignedBuffer` by copying the provided slice.
+    pub fn copy_from_slice(slice: &[u8], alignment: Alignment) -> Self {
+        let mut buffer = AlignedBufferMut::with_capacity(slice.len(), alignment);
+        buffer.extend_from_slice(slice);
+        buffer.freeze()
     }
 
     /// The alignment of the buffer.
@@ -123,5 +131,28 @@ impl AlignedBuffer {
         // For unaligned access, the caller should go via `as_slice`.
         // Alternatively, we could add a slice_with_alignment call that relaxes the alignment.
         Self::new_with_alignment(self.bytes.slice(begin..end), self.alignment)
+    }
+}
+
+impl Deref for AlignedBuffer {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        self.as_slice()
+    }
+}
+
+impl AsRef<[u8]> for AlignedBuffer {
+    fn as_ref(&self) -> &[u8] {
+        self.as_slice()
+    }
+}
+
+impl From<Vec<u8>> for AlignedBuffer {
+    fn from(value: Vec<u8>) -> Self {
+        Self {
+            bytes: Bytes::from(value),
+            alignment: Alignment::of::<u8>(),
+        }
     }
 }

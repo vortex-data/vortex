@@ -33,4 +33,14 @@ impl<T: NativePType + ArrowNativeType> ScalarBuffer<T> {
     pub fn into_arrow(self) -> arrow_buffer::ScalarBuffer<T> {
         arrow_buffer::ScalarBuffer::from(self.into_inner().into_arrow())
     }
+
+    /// Converts an `arrow_buffer::ScalarBuffer` into a `ScalarBuffer`.
+    pub fn from_arrow(buffer: arrow_buffer::ScalarBuffer<T>) -> Self {
+        let length = buffer.len();
+        Self {
+            buffer: AlignedBuffer::from_arrow(buffer.into_inner(), Alignment::of::<T>()),
+            length,
+            _marker: Default::default(),
+        }
+    }
 }

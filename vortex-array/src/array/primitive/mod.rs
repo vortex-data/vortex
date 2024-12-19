@@ -152,7 +152,7 @@ impl PrimitiveArray {
             "can't reinterpret cast between integers of two different widths"
         );
 
-        PrimitiveArray::new(self.buffer().clone().into_inner(), ptype, self.validity())
+        PrimitiveArray::from_buffer(self.buffer().clone(), ptype, self.validity())
     }
 
     pub fn into_buffer(self) -> AlignedBuffer {

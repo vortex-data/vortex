@@ -2,18 +2,18 @@ use std::fmt::{Debug, Formatter};
 use std::ops::Deref;
 use std::str::Utf8Error;
 
-use crate::Buffer;
+use crate::{AlignedBuffer, Buffer};
 
-/// A wrapper around a [`Buffer`] that guarantees that the buffer contains valid UTF-8.
+/// A wrapper around a [`AlignedBuffer`] that guarantees that the buffer contains valid UTF-8.
 #[derive(Clone, PartialEq, Eq, PartialOrd)]
-pub struct BufferString(Buffer);
+pub struct BufferString(AlignedBuffer);
 
 impl BufferString {
     /// Creates a new `BufferString` from a [`Buffer`].
     ///
     /// # Safety
     /// Assumes that the buffer contains valid UTF-8.
-    pub const unsafe fn new_unchecked(buffer: Buffer) -> Self {
+    pub const unsafe fn new_unchecked(buffer: AlignedBuffer) -> Self {
         Self(buffer)
     }
 
@@ -32,7 +32,7 @@ impl Debug for BufferString {
     }
 }
 
-impl From<BufferString> for Buffer {
+impl From<BufferString> for AlignedBuffer {
     fn from(value: BufferString) -> Self {
         value.0
     }
@@ -40,13 +40,13 @@ impl From<BufferString> for Buffer {
 
 impl From<String> for BufferString {
     fn from(value: String) -> Self {
-        Self(Buffer::from(value.into_bytes()))
+        Self(AlignedBuffer::from(value.into_bytes()))
     }
 }
 
 impl From<&str> for BufferString {
     fn from(value: &str) -> Self {
-        Self(Buffer::from(String::from(value).into_bytes()))
+        Self(AlignedBuffer::from(String::from(value).into_bytes()))
     }
 }
 
@@ -54,6 +54,16 @@ impl TryFrom<Buffer> for BufferString {
     type Error = Utf8Error;
 
     fn try_from(value: Buffer) -> Result<Self, Self::Error> {
+        let _ = std::str::from_utf8(value.as_ref())?;
+        // FIXME(ngates): for now this copies
+        Ok(Self(AlignedBuffer::from(value.as_ref().to_vec())))
+    }
+}
+
+impl TryFrom<AlignedBuffer> for BufferString {
+    type Error = Utf8Error;
+
+    fn try_from(value: AlignedBuffer) -> Result<Self, Self::Error> {
         let _ = std::str::from_utf8(value.as_ref())?;
         Ok(Self(value))
     }

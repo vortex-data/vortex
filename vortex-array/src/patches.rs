@@ -202,12 +202,12 @@ impl Patches {
 
         let flat_indices = self.indices().clone().into_primitive()?;
         match_each_integer_ptype!(flat_indices.ptype(), |$I| {
-            for (value_idx, coordinate) in flat_indices.into_maybe_null_slice::<$I>().into_iter().enumerate() {
-                if buffer.value(coordinate as usize) {
+            for (value_idx, coordinate) in flat_indices.maybe_null_slice::<$I>().iter().enumerate() {
+                if buffer.value(*coordinate as usize) {
                     // We count the number of truthy values between this coordinate and the previous truthy one
-                    let adjusted_coordinate = buffer.slice(last_inserted_index, (coordinate as usize) - last_inserted_index).count_set_bits() as u64;
+                    let adjusted_coordinate = buffer.slice(last_inserted_index, (*coordinate as usize) - last_inserted_index).count_set_bits() as u64;
                     coordinate_indices.push(adjusted_coordinate + coordinate_indices.last().copied().unwrap_or_default());
-                    last_inserted_index = coordinate as usize;
+                    last_inserted_index = *coordinate as usize;
                     value_indices.push(value_idx as u64);
                 }
             }

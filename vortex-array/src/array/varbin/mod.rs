@@ -3,7 +3,7 @@ use std::fmt::{Debug, Display};
 use num_traits::{AsPrimitive, PrimInt};
 use serde::{Deserialize, Serialize};
 pub use stats::compute_varbin_statistics;
-use vortex_buffer::Buffer;
+use vortex_buffer::AlignedBuffer;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
 use vortex_error::{
     vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect as _, VortexResult,
@@ -206,11 +206,11 @@ impl VarBinArray {
             })
     }
 
-    pub fn bytes_at(&self, index: usize) -> VortexResult<Buffer> {
+    pub fn bytes_at(&self, index: usize) -> VortexResult<AlignedBuffer> {
         let start = self.offset_at(index);
         let end = self.offset_at(index + 1);
         let sliced = slice(self.bytes(), start, end)?;
-        Ok(sliced.into_primitive()?.buffer().clone().into_inner())
+        Ok(sliced.into_primitive()?.into_buffer())
     }
 
     /// Consumes self, returning a tuple containing the `DType`, the `bytes` array,
@@ -275,7 +275,7 @@ impl<'a> FromIterator<Option<&'a str>> for VarBinArray {
     }
 }
 
-pub fn varbin_scalar(value: Buffer, dtype: &DType) -> Scalar {
+pub fn varbin_scalar(value: AlignedBuffer, dtype: &DType) -> Scalar {
     if matches!(dtype, DType::Utf8(_)) {
         Scalar::try_utf8(value, dtype.nullability())
             .map_err(|err| vortex_err!("Failed to create scalar from utf8 buffer: {}", err))

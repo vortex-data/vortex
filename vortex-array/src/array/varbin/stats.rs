@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 
 use itertools::{Itertools, MinMaxResult};
-use vortex_buffer::Buffer;
+use vortex_buffer::AlignedBuffer;
 use vortex_error::{vortex_panic, VortexResult};
 
 use super::varbin_scalar;
@@ -112,12 +112,12 @@ fn compute_min_max<T: ArrayTrait + ArrayAccessor<[u8]>>(array: &T) -> VortexResu
     let minmax = array.with_iterator(|iter| match iter.flatten().minmax() {
         MinMaxResult::NoElements => None,
         MinMaxResult::OneElement(value) => {
-            let scalar = varbin_scalar(Buffer::from(value.to_vec()), array.dtype());
+            let scalar = varbin_scalar(AlignedBuffer::from(value.to_vec()), array.dtype());
             Some((scalar.clone(), scalar))
         }
         MinMaxResult::MinMax(min, max) => Some((
-            varbin_scalar(Buffer::from(min.to_vec()), array.dtype()),
-            varbin_scalar(Buffer::from(max.to_vec()), array.dtype()),
+            varbin_scalar(AlignedBuffer::from(min.to_vec()), array.dtype()),
+            varbin_scalar(AlignedBuffer::from(max.to_vec()), array.dtype()),
         )),
     })?;
     let Some((min, max)) = minmax else {
@@ -149,7 +149,7 @@ fn compute_min_max<T: ArrayTrait + ArrayAccessor<[u8]>>(array: &T) -> VortexResu
 mod test {
     use std::ops::Deref;
 
-    use vortex_buffer::{Buffer, BufferString};
+    use vortex_buffer::{AlignedBuffer, BufferString};
     use vortex_dtype::{DType, Nullability};
 
     use crate::array::varbin::VarBinArray;
@@ -181,11 +181,17 @@ mod test {
     fn binary_stats() {
         let arr = array(DType::Binary(Nullability::NonNullable));
         assert_eq!(
-            arr.statistics().compute_min::<Buffer>().unwrap().deref(),
+            arr.statistics()
+                .compute_min::<AlignedBuffer>()
+                .unwrap()
+                .deref(),
             b"hello world"
         );
         assert_eq!(
-            arr.statistics().compute_max::<Buffer>().unwrap().deref(),
+            arr.statistics()
+                .compute_max::<AlignedBuffer>()
+                .unwrap()
+                .deref(),
             "hello world this is a long string".as_bytes()
         );
         assert!(!arr.statistics().compute_is_constant().unwrap());

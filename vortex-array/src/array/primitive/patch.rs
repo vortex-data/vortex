@@ -21,10 +21,10 @@ impl PrimitiveArray {
         match_each_integer_ptype!(indices.ptype(), |$I| {
             match_each_native_ptype!(self.ptype(), |$T| {
                 let mut own_values = self.into_maybe_null_slice::<$T>();
-                for (idx, value) in indices.into_maybe_null_slice::<$I>().into_iter().zip_eq(values.maybe_null_slice::<$T>().iter()) {
-                    own_values[idx as usize] = *value;
+                for (idx, value) in indices.maybe_null_slice::<$I>().iter().zip_eq(values.maybe_null_slice::<$T>().iter()) {
+                    own_values[*idx as usize] = *value;
                 }
-                Ok(Self::new(own_values, patched_validity))
+                Ok(Self::new(own_values.freeze(), patched_validity))
             })
         })
     }
@@ -42,11 +42,8 @@ mod tests {
         let input = PrimitiveArray::from_vec(vec![2u32; 10], Validity::AllValid);
         let sliced = slice(input, 2, 8).unwrap();
         assert_eq!(
-            sliced
-                .into_primitive()
-                .unwrap()
-                .into_maybe_null_slice::<u32>(),
-            vec![2u32; 6]
+            sliced.into_primitive().unwrap().maybe_null_slice::<u32>(),
+            &[2u32; 6]
         );
     }
 }

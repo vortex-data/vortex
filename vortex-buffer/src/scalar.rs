@@ -1,19 +1,19 @@
-use vortex_dtype::NativePType;
 use vortex_error::vortex_panic;
 
 use crate::{AlignedBuffer, AlignedBufferMut, Alignment, ScalarBufferMut};
 
 /// A buffer of Vortex primitive scalars.
-pub struct ScalarBuffer<T: NativePType> {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ScalarBuffer<T> {
     /// The underlying aligned buffer.
     /// We hold an `AlignedBuffer` instead of a `Bytes` to allow defining a wider alignment than
     /// the scalar type's alignment.
-    buffer: AlignedBuffer,
-    length: usize,
-    _marker: std::marker::PhantomData<T>,
+    pub(crate) buffer: AlignedBuffer,
+    pub(crate) length: usize,
+    pub(crate) _marker: std::marker::PhantomData<T>,
 }
 
-impl<T: NativePType> ScalarBuffer<T> {
+impl<T> ScalarBuffer<T> {
     /// Returns a new `ScalarBuffer<T>` copied from the provided `Vec<T>`.
     ///
     /// Due to our underlying usage of `bytes::Bytes`, we are unable to take zero-copy ownership
@@ -79,7 +79,7 @@ impl<T: NativePType> ScalarBuffer<T> {
     }
 }
 
-impl<T: NativePType> From<AlignedBuffer> for ScalarBuffer<T> {
+impl<T> From<AlignedBuffer> for ScalarBuffer<T> {
     fn from(buffer: AlignedBuffer) -> Self {
         if !buffer.alignment().is_multiple_of(align_of::<T>()) {
             vortex_panic!("Alignment must be a multiple of the scalar type's alignment");

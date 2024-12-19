@@ -17,6 +17,7 @@ use arrow_buffer::buffer::{NullBuffer, OffsetBuffer};
 use arrow_buffer::{ArrowNativeType, BooleanBuffer, Buffer, ScalarBuffer};
 use arrow_schema::{DataType, TimeUnit as ArrowTimeUnit};
 use itertools::Itertools;
+use vortex_buffer::{AlignedBuffer, Alignment};
 use vortex_datetime_dtype::TimeUnit;
 use vortex_dtype::{DType, NativePType, Nullability, PType};
 use vortex_error::{vortex_panic, VortexExpect as _};
@@ -32,7 +33,12 @@ use crate::{ArrayData, IntoArrayData};
 
 impl From<Buffer> for ArrayData {
     fn from(value: Buffer) -> Self {
-        PrimitiveArray::new(value.into(), PType::U8, Validity::NonNullable).into_array()
+        PrimitiveArray::from_buffer(
+            AlignedBuffer::from_arrow(value, Alignment::of::<u8>()),
+            PType::U8,
+            Validity::NonNullable,
+        )
+        .into_array()
     }
 }
 
@@ -47,7 +53,11 @@ where
     T: ArrowNativeType + NativePType,
 {
     fn from(value: ScalarBuffer<T>) -> Self {
-        PrimitiveArray::new(value.into_inner().into(), T::PTYPE, Validity::NonNullable).into_array()
+        PrimitiveArray::new(
+            vortex_buffer::ScalarBuffer::<T>::from_arrow(value),
+            Validity::NonNullable,
+        )
+        .into_array()
     }
 }
 
@@ -57,8 +67,7 @@ where
 {
     fn from(value: OffsetBuffer<O>) -> Self {
         let primitive = PrimitiveArray::new(
-            value.into_inner().into_inner().into(),
-            O::PTYPE,
+            vortex_buffer::ScalarBuffer::from_arrow(value.into_inner()),
             Validity::NonNullable,
         );
         primitive.statistics().set(Stat::IsSorted, true.into());
@@ -75,8 +84,7 @@ where
 {
     fn from_arrow(value: &ArrowPrimitiveArray<T>, nullable: bool) -> Self {
         let arr = PrimitiveArray::new(
-            value.values().clone().into_inner().into(),
-            T::Native::PTYPE,
+            vortex_buffer::ScalarBuffer::from_arrow(value.values().clone()),
             nulls(value.nulls(), nullable),
         );
 

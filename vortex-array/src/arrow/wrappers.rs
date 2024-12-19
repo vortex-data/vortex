@@ -2,13 +2,11 @@ use arrow_buffer::{ArrowNativeType, OffsetBuffer, ScalarBuffer};
 use vortex_dtype::NativePType;
 
 use crate::array::PrimitiveArray;
-use crate::variants::PrimitiveArrayTrait;
 
 pub fn as_scalar_buffer<T: NativePType + ArrowNativeType>(
     array: PrimitiveArray,
 ) -> ScalarBuffer<T> {
-    assert_eq!(array.ptype(), T::PTYPE);
-    ScalarBuffer::from(array.buffer().clone().into_inner().into_arrow())
+    array.scalar_buffer::<T>().into_arrow()
 }
 
 pub fn as_offset_buffer<T: NativePType + ArrowNativeType>(

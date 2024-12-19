@@ -220,7 +220,7 @@ fn pack_primitives<T: NativePType>(
 ) -> VortexResult<PrimitiveArray> {
     let len: usize = chunks.iter().map(|chunk| chunk.len()).sum();
 
-    let mut buffer = ScalarBufferMut::<T>::new(len);
+    let mut buffer = ScalarBufferMut::<T>::with_capacity(len);
     for chunk in chunks {
         let chunk = chunk.clone().into_primitive()?;
         buffer.extend_from_slice(chunk.scalar_buffer::<T>().as_slice());
