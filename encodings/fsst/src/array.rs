@@ -9,9 +9,7 @@ use vortex_array::stats::{StatisticsVTable, StatsSet};
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityVTable};
 use vortex_array::variants::{BinaryArrayTrait, Utf8ArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
-use vortex_array::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, IntoArrayVariant, IntoCanonical,
-};
+use vortex_array::{impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, IntoArrayVariant};
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
