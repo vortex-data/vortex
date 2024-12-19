@@ -201,27 +201,29 @@ impl<T> Extend<T> for BufferMut<T> {
         let (lower, _) = iterator.size_hint();
         self.reserve(lower);
 
-        let capacity = self.capacity();
-        let mut len = self.len();
+        let item_size = size_of::<T>();
 
-        while len < capacity {
+        let remaining = self.capacity() - self.len();
+        let mut consumed = 0;
+        let mut dst = unsafe { self.bytes.as_mut_ptr().add(self.len() * item_size) };
+
+        while consumed < remaining {
             if let Some(item) = iterator.next() {
                 // SAFETY: We know we have enough capacity to write the item.
                 unsafe {
                     let raw_ptr = &item as *const T as *const u8;
                     let bytes = std::slice::from_raw_parts(raw_ptr, size_of::<T>());
-                    let dst = self.bytes.as_mut_ptr().add(len * size_of::<T>());
-                    let new_len = self.bytes.len() + bytes.len();
-                    std::ptr::copy_nonoverlapping(bytes.as_ptr(), dst.cast(), bytes.len());
-                    self.bytes.set_len(new_len)
+                    std::ptr::copy_nonoverlapping(bytes.as_ptr(), dst, item_size);
+                    dst = dst.add(item_size);
                 }
-                len += 1;
+                consumed += 1;
             } else {
                 break;
             }
         }
 
-        self.length = len;
+        self.length += consumed;
+        unsafe { self.bytes.set_len(self.length * item_size) };
 
         iterator.for_each(|item| self.push(item));
     }
