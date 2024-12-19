@@ -3,7 +3,7 @@ use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
-use vortex_buffer::ScalarBuffer;
+use vortex_buffer::Buffer;
 use vortex_dtype::{NativePType, PType};
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::ScalarType;
@@ -71,7 +71,7 @@ pub fn decompress(array: ALPArray) -> VortexResult<PrimitiveArray> {
     let decoded = match_each_alp_float_ptype!(ptype, |$T| {
         PrimitiveArray::new(
             // FIXME(ngates): mutate in place
-            ScalarBuffer::<$T>::from_iter(encoded.maybe_null_slice().iter()
+            Buffer::<$T>::from_iter(encoded.maybe_null_slice().iter()
                 .map(move |encoded| ALPFloat::decode_single(*encoded, exponents))),
             validity,
         )

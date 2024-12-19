@@ -1,5 +1,5 @@
-use arrow_buffer::{BooleanBufferBuilder, Buffer, ScalarBuffer as ArrowScalarBuffer};
-use vortex_buffer::ScalarBufferMut;
+use arrow_buffer::{BooleanBufferBuilder, Buffer, Buffer as ArrowBuffer};
+use vortex_buffer::BufferMut;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType, StructDType};
 use vortex_error::{vortex_bail, vortex_err, ErrString, VortexExpect, VortexResult};
 
@@ -220,7 +220,7 @@ fn pack_primitives<T: NativePType>(
 ) -> VortexResult<PrimitiveArray> {
     let len: usize = chunks.iter().map(|chunk| chunk.len()).sum();
 
-    let mut buffer = ScalarBufferMut::<T>::with_capacity(len);
+    let mut buffer = BufferMut::<T>::with_capacity(len);
     for chunk in chunks {
         let chunk = chunk.clone().into_primitive()?;
         buffer.extend_from_slice(chunk.maybe_null_scalar_buffer::<T>().as_slice());
@@ -274,7 +274,7 @@ fn pack_views(
         }
     }
 
-    let views_buffer: Buffer = ArrowScalarBuffer::<u128>::from(views).into_inner();
+    let views_buffer: Buffer = ArrowBuffer::<u128>::from(views).into_inner();
     VarBinViewArray::try_new(
         ArrayData::from(views_buffer),
         buffers,

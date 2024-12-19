@@ -4,41 +4,41 @@ use std::ops::{Deref, RangeBounds};
 use bytes::Bytes;
 use vortex_error::{vortex_panic, VortexExpect};
 
-use crate::{Alignment, ByteBuffer, ScalarBufferMut};
+use crate::{Alignment, BufferMut, ByteBuffer};
 
 /// A buffer of Vortex primitive scalars.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd)]
-pub struct ScalarBuffer<T> {
+pub struct Buffer<T> {
     pub(crate) bytes: Bytes,
     pub(crate) length: usize,
     pub(crate) alignment: Alignment,
     pub(crate) _marker: std::marker::PhantomData<T>,
 }
 
-impl<T> ScalarBuffer<T> {
-    /// Returns a new `ScalarBuffer<T>` copied from the provided `Vec<T>`.
+impl<T> Buffer<T> {
+    /// Returns a new `Buffer<T>` copied from the provided `Vec<T>`.
     ///
     /// Due to our underlying usage of `bytes::Bytes`, we are unable to take zero-copy ownership
     /// of the provided `Vec<T>` while maintaining the ability to convert it back into a mutable
     /// buffer. We could fix this by forking `Bytes`, or in many other complex ways, but for now
-    /// callers should prefer to construct `ScalarBuffer<T>` from a `ScalarBufferMut<T>`.
+    /// callers should prefer to construct `Buffer<T>` from a `BufferMut<T>`.
     pub fn copy_from_vec(vec: Vec<T>) -> Self {
         Self::copy_from_slice(&vec, Alignment::of::<T>())
     }
 
-    /// Create a new `ScalarBuffer<T>` by copying a slice of `T`.
+    /// Create a new `Buffer<T>` by copying a slice of `T`.
     pub fn copy_from_slice(slice: &[T], alignment: Alignment) -> Self {
-        let mut buffer = ScalarBufferMut::<T>::with_capacity_aligned(slice.len(), alignment);
+        let mut buffer = BufferMut::<T>::with_capacity_aligned(slice.len(), alignment);
         buffer.extend_from_slice(slice);
         buffer.freeze()
     }
 
     /// Create a new empty `ByteBuffer` with the provided alignment.
     pub fn empty(alignment: Alignment) -> Self {
-        ScalarBufferMut::with_capacity_aligned(0, alignment).freeze()
+        BufferMut::with_capacity_aligned(0, alignment).freeze()
     }
 
-    /// Create a `ScalarBuffer<T>` zero-copy from a `ByteBuffer`.
+    /// Create a `Buffer<T>` zero-copy from a `ByteBuffer`.
     ///
     /// ## Panics
     ///
@@ -48,7 +48,7 @@ impl<T> ScalarBuffer<T> {
         Self::from_byte_buffer_aligned(buffer, Alignment::of::<T>())
     }
 
-    /// Create a `ScalarBuffer<T>` zero-copy from a `ByteBuffer`.
+    /// Create a `Buffer<T>` zero-copy from a `ByteBuffer`.
     ///
     /// ## Panics
     ///
@@ -58,7 +58,7 @@ impl<T> ScalarBuffer<T> {
         Self::from_bytes_aligned(buffer.into_inner(), alignment)
     }
 
-    /// Create a `ScalarBuffer<T>` zero-copy from a `Bytes`.
+    /// Create a `Buffer<T>` zero-copy from a `Bytes`.
     ///
     /// ## Panics
     ///
@@ -211,7 +211,7 @@ impl<T> ScalarBuffer<T> {
         self.bytes
     }
 
-    /// Return the ByteBuffer for this ScalarBuffer<T>.
+    /// Return the ByteBuffer for this Buffer<T>.
     pub fn into_byte_buffer(self) -> ByteBuffer {
         ByteBuffer {
             bytes: self.bytes,
@@ -221,11 +221,11 @@ impl<T> ScalarBuffer<T> {
         }
     }
 
-    /// Try to convert self into `ScalarBufferMut<T>` if there is only a single strong reference.
-    pub fn try_into_mut(self) -> Result<ScalarBufferMut<T>, Self> {
+    /// Try to convert self into `BufferMut<T>` if there is only a single strong reference.
+    pub fn try_into_mut(self) -> Result<BufferMut<T>, Self> {
         self.bytes
             .try_into_mut()
-            .map(|bytes| ScalarBufferMut {
+            .map(|bytes| BufferMut {
                 bytes,
                 length: self.length,
                 alignment: self.alignment,
@@ -240,7 +240,7 @@ impl<T> ScalarBuffer<T> {
     }
 }
 
-impl<T> Deref for ScalarBuffer<T> {
+impl<T> Deref for Buffer<T> {
     type Target = [T];
 
     fn deref(&self) -> &Self::Target {
@@ -248,15 +248,15 @@ impl<T> Deref for ScalarBuffer<T> {
     }
 }
 
-impl<T> AsRef<[T]> for ScalarBuffer<T> {
+impl<T> AsRef<[T]> for Buffer<T> {
     fn as_ref(&self) -> &[T] {
         self.as_slice()
     }
 }
 
-impl<T> FromIterator<T> for ScalarBuffer<T> {
+impl<T> FromIterator<T> for Buffer<T> {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
-        ScalarBufferMut::from_iter(iter).freeze()
+        BufferMut::from_iter(iter).freeze()
     }
 }
 

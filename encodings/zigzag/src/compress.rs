@@ -2,7 +2,7 @@ use vortex_array::array::PrimitiveArray;
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::IntoArrayData;
-use vortex_buffer::ScalarBuffer;
+use vortex_buffer::Buffer;
 use vortex_dtype::{NativePType, PType};
 use vortex_error::{vortex_bail, VortexResult};
 use zigzag::ZigZag as ExternalZigZag;
@@ -25,7 +25,7 @@ pub fn zigzag_encode(parray: PrimitiveArray) -> VortexResult<ZigZagArray> {
 }
 
 fn zigzag_encode_primitive<T: ExternalZigZag + NativePType>(
-    values: ScalarBuffer<T>,
+    values: Buffer<T>,
     validity: Validity,
 ) -> PrimitiveArray
 where
@@ -33,7 +33,7 @@ where
 {
     // FIXME(ngates): we need a way to map the buffer into a T of the same size.
     PrimitiveArray::new(
-        ScalarBuffer::<T::UInt>::from_iter(values.iter().map(|v| T::encode(*v))),
+        Buffer::<T::UInt>::from_iter(values.iter().map(|v| T::encode(*v))),
         validity,
     )
 }
@@ -54,7 +54,7 @@ pub fn zigzag_decode(parray: PrimitiveArray) -> VortexResult<PrimitiveArray> {
 }
 
 fn zigzag_decode_primitive<T: ExternalZigZag + NativePType>(
-    values: ScalarBuffer<T::UInt>,
+    values: Buffer<T::UInt>,
     validity: Validity,
 ) -> PrimitiveArray
 where
@@ -62,7 +62,7 @@ where
 {
     PrimitiveArray::new(
         // FIXME(ngates): modify in-place
-        ScalarBuffer::<T>::from_iter(values.iter().copied().map(T::decode)),
+        Buffer::<T>::from_iter(values.iter().copied().map(T::decode)),
         validity,
     )
 }

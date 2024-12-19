@@ -88,7 +88,7 @@ impl BitPackedArray {
             ));
         }
 
-        // TODO(ngates): enforce 128 byte alignment once we have a ScalarBufferBuilder that can
+        // TODO(ngates): enforce 128 byte alignment once we have a BufferBuilder that can
         //  enforce custom alignments.
         // let packed = ByteBuffer::new_with_alignment(packed, FASTLANES_ALIGNMENT);
 

@@ -6,7 +6,7 @@ use vortex_array::stats::ArrayStatistics;
 use vortex_array::validity::{ArrayValidity, Validity};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayLen, IntoArrayData};
-use vortex_buffer::{Alignment, ByteBuffer, ScalarBufferMut};
+use vortex_buffer::{Alignment, BufferMut, ByteBuffer};
 use vortex_dtype::{
     match_each_integer_ptype, match_each_unsigned_integer_ptype, NativePType, PType,
 };
@@ -98,7 +98,7 @@ pub fn bitpack_primitive<T: NativePType + BitPacking + ArrowNativeType>(
     // then we divide by the size of T to get the number of elements.
 
     // Allocate a result byte array.
-    let mut output = ScalarBufferMut::<T>::with_capacity(num_chunks * packed_len);
+    let mut output = BufferMut::<T>::with_capacity(num_chunks * packed_len);
 
     // Loop over all but the last chunk.
     (0..num_full_chunks).for_each(|i| {

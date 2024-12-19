@@ -6,7 +6,7 @@ mod accessor;
 use arrow_buffer::{ArrowNativeType, BooleanBufferBuilder};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use vortex_buffer::{ByteBuffer, ScalarBuffer, ScalarBufferMut};
+use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, PType};
 use vortex_error::{VortexExpect as _, VortexResult};
 
@@ -39,7 +39,7 @@ impl Display for PrimitiveMetadata {
 }
 
 impl PrimitiveArray {
-    pub fn new<T: NativePType>(buffer: ScalarBuffer<T>, validity: Validity) -> Self {
+    pub fn new<T: NativePType>(buffer: Buffer<T>, validity: Validity) -> Self {
         let len = buffer.len();
         ArrayData::try_new_owned(
             &PrimitiveEncoding,
@@ -58,16 +58,16 @@ impl PrimitiveArray {
 
     pub fn from_buffer(buffer: ByteBuffer, ptype: PType, validity: Validity) -> Self {
         match_each_native_ptype!(ptype, |$T| {
-            Self::new::<$T>(ScalarBuffer::from_byte_buffer(buffer), validity)
+            Self::new::<$T>(Buffer::from_byte_buffer(buffer), validity)
         })
     }
 
     // FIXME(ngates): deprecate this method since it now has to perform a copy.
     pub fn from_vec<T: NativePType>(values: Vec<T>, validity: Validity) -> Self {
-        Self::new(ScalarBuffer::copy_from_vec(values), validity)
+        Self::new(Buffer::copy_from_vec(values), validity)
     }
 
-    // FIXME(ngates): use ScalarBufferMut<T>.
+    // FIXME(ngates): use BufferMut<T>.
     pub fn from_nullable_vec<T: NativePType>(values: Vec<Option<T>>) -> Self {
         let elems: Vec<T> = values.iter().map(|v| v.unwrap_or_default()).collect();
         let validity = Validity::from_iter(values.iter().map(|v| v.is_some()));
@@ -88,7 +88,7 @@ impl PrimitiveArray {
             .vortex_expect("Missing buffer in PrimitiveArray")
     }
 
-    pub fn maybe_null_scalar_buffer<T: NativePType>(&self) -> ScalarBuffer<T> {
+    pub fn maybe_null_scalar_buffer<T: NativePType>(&self) -> Buffer<T> {
         assert_eq!(
             T::PTYPE,
             self.ptype(),
@@ -96,7 +96,7 @@ impl PrimitiveArray {
             T::PTYPE,
             self.ptype(),
         );
-        ScalarBuffer::from_byte_buffer(self.buffer().clone())
+        Buffer::from_byte_buffer(self.buffer().clone())
     }
 
     pub fn maybe_null_slice<T: NativePType>(&self) -> &[T] {
@@ -117,7 +117,7 @@ impl PrimitiveArray {
 
     /// Convert the array into a mutable vec of the given type.
     /// If possible, this will be zero-copy.
-    pub fn into_maybe_null_slice<T: NativePType + ArrowNativeType>(self) -> ScalarBufferMut<T> {
+    pub fn into_maybe_null_slice<T: NativePType + ArrowNativeType>(self) -> BufferMut<T> {
         assert_eq!(
             T::PTYPE,
             self.ptype(),
@@ -127,7 +127,7 @@ impl PrimitiveArray {
         );
         self.into_scalar_buffer::<T>()
             .try_into_mut()
-            .unwrap_or_else(|b| ScalarBufferMut::<T>::copy_from(&b))
+            .unwrap_or_else(|b| BufferMut::<T>::copy_from(&b))
     }
 
     pub fn get_as_cast<T: NativePType>(&self, idx: usize) -> T {
@@ -156,8 +156,8 @@ impl PrimitiveArray {
             .vortex_expect("PrimitiveArray must have a buffer")
     }
 
-    pub fn into_scalar_buffer<T: NativePType>(self) -> ScalarBuffer<T> {
-        ScalarBuffer::<T>::from_byte_buffer(
+    pub fn into_scalar_buffer<T: NativePType>(self) -> Buffer<T> {
+        Buffer::<T>::from_byte_buffer(
             self.into_array()
                 .into_buffer()
                 .vortex_expect("PrimitiveArray must have a buffer"),

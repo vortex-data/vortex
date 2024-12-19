@@ -16,7 +16,7 @@ use num_traits::{Float, One, PrimInt};
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::array::PrimitiveArray;
 use vortex_array::{ArrayDType, IntoArrayData};
-use vortex_buffer::{ScalarBuffer, ScalarBufferMut};
+use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{DType, NativePType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult, VortexUnwrap};
 use vortex_fastlanes::bitpack_encode_unchecked;
@@ -264,7 +264,7 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
     right_bit_width: u8,
     right_parts: &[T::UINT],
     left_parts_patches: Option<Patches>,
-) -> VortexResult<ScalarBuffer<T>> {
+) -> VortexResult<Buffer<T>> {
     if left_parts.len() != right_parts.len() {
         vortex_bail!("alp_rd_decode: left_parts.len != right_parts.len");
     }
@@ -272,8 +272,7 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
     let mut dict = Vec::with_capacity(left_parts_dict.len());
     dict.extend_from_slice(left_parts_dict);
 
-    let mut left_parts_decoded: ScalarBufferMut<u16> =
-        ScalarBufferMut::with_capacity(left_parts.len());
+    let mut left_parts_decoded: BufferMut<u16> = BufferMut::with_capacity(left_parts.len());
 
     // Decode with bit-packing and dict unpacking.
     for code in left_parts {
@@ -288,7 +287,7 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
     };
 
     // recombine the left-and-right parts, adjusting by the right_bit_width.
-    Ok(ScalarBuffer::<T>::from_iter(
+    Ok(Buffer::<T>::from_iter(
         patched_left_parts
             .iter()
             .zip(right_parts.iter().copied())

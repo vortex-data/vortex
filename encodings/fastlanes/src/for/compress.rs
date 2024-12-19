@@ -5,7 +5,7 @@ use vortex_array::stats::{trailing_zeros, ArrayStatistics, Stat};
 use vortex_array::validity::LogicalValidity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
-use vortex_buffer::ScalarBuffer;
+use vortex_buffer::Buffer;
 use vortex_dtype::{
     match_each_integer_ptype, match_each_unsigned_integer_ptype, DType, NativePType, Nullability,
 };
@@ -134,12 +134,12 @@ fn decompress_primitive<T: NativePType + WrappingAdd + PrimInt>(
     values: &[T],
     min: T,
     shift: usize,
-) -> ScalarBuffer<T> {
+) -> Buffer<T> {
     if shift > 0 {
         if min == T::zero() {
-            ScalarBuffer::from_iter(values.iter().map(move |v| *v << shift))
+            Buffer::from_iter(values.iter().map(move |v| *v << shift))
         } else {
-            ScalarBuffer::from_iter(
+            Buffer::from_iter(
                 values
                     .iter()
                     .map(move |v| *v << shift)
@@ -148,7 +148,7 @@ fn decompress_primitive<T: NativePType + WrappingAdd + PrimInt>(
         }
     } else {
         // FIXME(ngates): mutate in place
-        ScalarBuffer::from_iter(values.iter().map(move |v| v.wrapping_add(&min)))
+        Buffer::from_iter(values.iter().map(move |v| v.wrapping_add(&min)))
     }
 }
 

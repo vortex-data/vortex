@@ -1,6 +1,6 @@
 use std::ops::Deref;
 
-use arrow_buffer::ScalarBuffer;
+use arrow_buffer::Buffer;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
 use vortex_buffer::{Alignment, ByteBuffer};
@@ -62,8 +62,8 @@ impl TakeFn<VarBinViewArray> for VarBinViewEncoding {
         // Compute the new validity
         let validity = array.validity().take(indices)?;
 
-        // Convert our views array into an Arrow u128 ScalarBuffer (16 bytes per view)
-        let views_buffer = ScalarBuffer::<u128>::from(
+        // Convert our views array into an Arrow u128 Buffer (16 bytes per view)
+        let views_buffer = Buffer::<u128>::from(
             array
                 .views()
                 .into_primitive()?
@@ -105,8 +105,8 @@ impl TakeFn<VarBinViewArray> for VarBinViewEncoding {
         // Compute the new validity
         let validity = array.validity().take(indices)?;
 
-        // Convert our views array into an Arrow u128 ScalarBuffer (16 bytes per view)
-        let views_buffer = ScalarBuffer::<u128>::from(
+        // Convert our views array into an Arrow u128 Buffer (16 bytes per view)
+        let views_buffer = Buffer::<u128>::from(
             array
                 .views()
                 .into_primitive()?
@@ -141,22 +141,16 @@ impl TakeFn<VarBinViewArray> for VarBinViewEncoding {
     }
 }
 
-fn take_views<I: AsPrimitive<usize>>(
-    views: ScalarBuffer<u128>,
-    indices: &[I],
-) -> ScalarBuffer<u128> {
+fn take_views<I: AsPrimitive<usize>>(views: Buffer<u128>, indices: &[I]) -> Buffer<u128> {
     // NOTE(ngates): this deref is not actually trivial, so we run it once.
     let views_ref = views.deref();
-    ScalarBuffer::<u128>::from_iter(indices.iter().map(|i| views_ref[i.as_()]))
+    Buffer::<u128>::from_iter(indices.iter().map(|i| views_ref[i.as_()]))
 }
 
-fn take_views_unchecked<I: AsPrimitive<usize>>(
-    views: ScalarBuffer<u128>,
-    indices: &[I],
-) -> ScalarBuffer<u128> {
+fn take_views_unchecked<I: AsPrimitive<usize>>(views: Buffer<u128>, indices: &[I]) -> Buffer<u128> {
     // NOTE(ngates): this deref is not actually trivial, so we run it once.
     let views_ref = views.deref();
-    ScalarBuffer::<u128>::from_iter(
+    Buffer::<u128>::from_iter(
         indices
             .iter()
             .map(|i| unsafe { *views_ref.get_unchecked(i.as_()) }),

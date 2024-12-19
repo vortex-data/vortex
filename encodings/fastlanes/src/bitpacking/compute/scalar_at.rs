@@ -25,7 +25,7 @@ mod test {
     use vortex_array::validity::Validity;
     use vortex_array::validity::Validity::NonNullable;
     use vortex_array::IntoArrayData;
-    use vortex_buffer::ScalarBuffer;
+    use vortex_buffer::Buffer;
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_scalar::Scalar;
 
@@ -34,7 +34,7 @@ mod test {
     #[test]
     fn invalid_patches() {
         let packed_array = BitPackedArray::try_new(
-            ScalarBuffer::copy_from_vec(vec![0u32; 32]).into_inner(),
+            Buffer::copy_from_vec(vec![0u32; 32]).into_inner(),
             PType::U32,
             Validity::AllInvalid,
             Some(Patches::new(

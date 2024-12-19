@@ -1041,7 +1041,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enable Clippy redundant clone check ([#1361](https://github.com/spiraldb/vortex/pull/1361))
 - Avoid unnecessary backtrace generation ([#1353](https://github.com/spiraldb/vortex/pull/1353))
 - Filter mask ([#1327](https://github.com/spiraldb/vortex/pull/1327))
-- Implement VarBinView take using ScalarBuffer selection ([#1344](https://github.com/spiraldb/vortex/pull/1344))
+- Implement VarBinView take using Buffer selection ([#1344](https://github.com/spiraldb/vortex/pull/1344))
 - Fix compression benchmarks ([#1345](https://github.com/spiraldb/vortex/pull/1345))
 - Add TakeOptions to skip bounds checking ([#1343](https://github.com/spiraldb/vortex/pull/1343))
 - Use enum map for stats instead of HashMap ([#1341](https://github.com/spiraldb/vortex/pull/1341))

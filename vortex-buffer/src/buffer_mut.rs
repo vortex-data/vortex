@@ -3,24 +3,24 @@ use std::ops::{Deref, DerefMut};
 use bytes::{Buf, BytesMut};
 use vortex_error::{vortex_panic, VortexExpect};
 
-use crate::{Alignment, ScalarBuffer};
+use crate::{Alignment, Buffer};
 
 /// A mutable buffer that maintains a runtime-defined alignment through resizing operations.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ScalarBufferMut<T> {
+pub struct BufferMut<T> {
     pub(crate) bytes: BytesMut,
     pub(crate) length: usize,
     pub(crate) alignment: Alignment,
     pub(crate) _marker: std::marker::PhantomData<T>,
 }
 
-impl<T> ScalarBufferMut<T> {
-    /// Create a new `ScalarBufferMut` with the requested alignment and capacity.
+impl<T> BufferMut<T> {
+    /// Create a new `BufferMut` with the requested alignment and capacity.
     pub fn with_capacity(capacity: usize) -> Self {
         Self::with_capacity_aligned(capacity, Alignment::of::<T>())
     }
 
-    /// Create a new `ScalarBufferMut` with the requested alignment and capacity.
+    /// Create a new `BufferMut` with the requested alignment and capacity.
     pub fn with_capacity_aligned(capacity: usize, alignment: Alignment) -> Self {
         if !alignment.is_aligned_to(Alignment::of::<T>()) {
             vortex_panic!(
@@ -41,8 +41,8 @@ impl<T> ScalarBufferMut<T> {
         }
     }
 
-    /// Create a mutable scalar buffer by copying the contents of an immutable `ScalarBuffer`.
-    pub fn copy_from(other: &ScalarBuffer<T>) -> Self {
+    /// Create a mutable scalar buffer by copying the contents of an immutable `Buffer`.
+    pub fn copy_from(other: &Buffer<T>) -> Self {
         let mut buffer = Self::with_capacity_aligned(other.len(), other.alignment());
         buffer.extend_from_slice(other.as_slice());
         buffer
@@ -140,9 +140,9 @@ impl<T> ScalarBufferMut<T> {
     /// # Example:
     ///
     /// ```
-    /// # use vortex_buffer::ScalarBufferMut;
+    /// # use vortex_buffer::BufferMut;
     ///
-    /// let mut builder = ScalarBufferMut::<u16>::with_capacity(10);
+    /// let mut builder = BufferMut::<u16>::with_capacity(10);
     /// builder.extend_from_slice(&[42, 44, 46]);
     ///
     /// assert_eq!(builder.len(), 3);
@@ -156,9 +156,9 @@ impl<T> ScalarBufferMut<T> {
         self.length += slice.len();
     }
 
-    /// Freeze the `ScalarBufferMut` into a `ScalarBuffer`.
-    pub fn freeze(self) -> ScalarBuffer<T> {
-        ScalarBuffer {
+    /// Freeze the `BufferMut` into a `Buffer`.
+    pub fn freeze(self) -> Buffer<T> {
+        Buffer {
             bytes: self.bytes.freeze(),
             length: self.length,
             alignment: self.alignment,
@@ -167,7 +167,7 @@ impl<T> ScalarBufferMut<T> {
     }
 }
 
-impl<T> Deref for ScalarBufferMut<T> {
+impl<T> Deref for BufferMut<T> {
     type Target = [T];
 
     fn deref(&self) -> &Self::Target {
@@ -175,25 +175,25 @@ impl<T> Deref for ScalarBufferMut<T> {
     }
 }
 
-impl<T> DerefMut for ScalarBufferMut<T> {
+impl<T> DerefMut for BufferMut<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.as_mut_slice()
     }
 }
 
-impl<T> AsRef<[T]> for ScalarBufferMut<T> {
+impl<T> AsRef<[T]> for BufferMut<T> {
     fn as_ref(&self) -> &[T] {
         self.as_slice()
     }
 }
 
-impl<T> AsMut<[T]> for ScalarBufferMut<T> {
+impl<T> AsMut<[T]> for BufferMut<T> {
     fn as_mut(&mut self) -> &mut [T] {
         self.as_mut_slice()
     }
 }
 
-impl<T> Extend<T> for ScalarBufferMut<T> {
+impl<T> Extend<T> for BufferMut<T> {
     fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
         let mut iterator = iter.into_iter();
 
@@ -227,7 +227,7 @@ impl<T> Extend<T> for ScalarBufferMut<T> {
     }
 }
 
-impl<T> FromIterator<T> for ScalarBufferMut<T> {
+impl<T> FromIterator<T> for BufferMut<T> {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         let mut buffer = Self::with_capacity(0);
         buffer.extend(iter);

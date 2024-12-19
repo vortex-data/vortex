@@ -1,6 +1,6 @@
 use arrow_buffer::NullBufferBuilder;
 use num_traits::{AsPrimitive, PrimInt};
-use vortex_buffer::ScalarBufferMut;
+use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, NativePType};
 use vortex_error::{vortex_panic, VortexExpect as _};
 
@@ -10,8 +10,8 @@ use crate::validity::Validity;
 use crate::IntoArrayData;
 
 pub struct VarBinBuilder<O: NativePType> {
-    offsets: ScalarBufferMut<O>,
-    data: ScalarBufferMut<u8>,
+    offsets: BufferMut<O>,
+    data: BufferMut<u8>,
     validity: NullBufferBuilder,
 }
 
@@ -27,11 +27,11 @@ impl<O: NativePType + PrimInt> VarBinBuilder<O> {
     }
 
     pub fn with_capacity(len: usize) -> Self {
-        let mut offsets = ScalarBufferMut::with_capacity(len + 1);
+        let mut offsets = BufferMut::with_capacity(len + 1);
         offsets.push(O::zero());
         Self {
             offsets,
-            data: ScalarBufferMut::with_capacity(0),
+            data: BufferMut::with_capacity(0),
             validity: NullBufferBuilder::new(len),
         }
     }
