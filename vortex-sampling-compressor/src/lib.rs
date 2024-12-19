@@ -75,8 +75,9 @@ pub const DEFAULT_COMPRESSORS: [CompressorRef; 16] = [
 ];
 
 #[cfg(not(target_arch = "wasm32"))]
-pub const ALL_COMPRESSORS: [CompressorRef; 18] = [
+pub const ALL_COMPRESSORS: [CompressorRef; 19] = [
     &ALPCompressor as CompressorRef,
+    &ALPRDCompressor,
     &BITPACK_WITH_PATCHES,
     &DEFAULT_CHUNKED_COMPRESSOR,
     &ConstantCompressor,
@@ -97,8 +98,9 @@ pub const ALL_COMPRESSORS: [CompressorRef; 18] = [
 ];
 
 #[cfg(target_arch = "wasm32")]
-pub const ALL_COMPRESSORS: [CompressorRef; 16] = [
+pub const ALL_COMPRESSORS: [CompressorRef; 17] = [
     &ALPCompressor as CompressorRef,
+    &ALPRDCompressor,
     &BITPACK_WITH_PATCHES,
     &DEFAULT_CHUNKED_COMPRESSOR,
     &ConstantCompressor,

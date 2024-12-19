@@ -381,7 +381,7 @@ mod tests {
 
     #[test]
     fn test_default() {
-        let values = (0..1024)
+        let values = (0..4096)
             .map(|x| (x as f64) / 1234567890.0f64)
             .collect_vec();
         let array = PrimitiveArray::from(values).into_array();
