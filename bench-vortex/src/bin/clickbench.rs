@@ -165,7 +165,7 @@ fn main() {
                     let start = Instant::now();
                     execute_query(&context, &query)
                         .await
-                        .expect(&format!("executing query {query_idx}"));
+                        .unwrap_or_else(|e| panic!("executing query {query_idx}: {e}"));
                     start.elapsed()
                 });
 

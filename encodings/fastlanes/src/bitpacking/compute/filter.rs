@@ -3,7 +3,7 @@ use fastlanes::BitPacking;
 use vortex_array::array::PrimitiveArray;
 use vortex_array::compute::{filter, FilterFn, FilterIter, FilterMask};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::{match_each_unsigned_integer_ptype, NativePType};
 use vortex_error::VortexResult;
 
@@ -12,11 +12,14 @@ use crate::bitpacking::compute::take::UNPACK_CHUNK_THRESHOLD;
 use crate::{BitPackedArray, BitPackedEncoding};
 
 impl FilterFn<BitPackedArray> for BitPackedEncoding {
+    #[allow(clippy::panic_in_result_fn)]
     fn filter(&self, array: &BitPackedArray, mask: FilterMask) -> VortexResult<ArrayData> {
         let primitive = match_each_unsigned_integer_ptype!(array.ptype().to_unsigned(), |$I| {
             filter_primitive::<$I>(array, mask)
         });
-        Ok(primitive?.into_array())
+        let prim = primitive?;
+        assert_eq!(prim.dtype(), array.dtype(), "BPA dtype changed in filter!");
+        Ok(prim.into_array())
     }
 }
 

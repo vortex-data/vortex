@@ -194,7 +194,7 @@ pub fn unpack(array: BitPackedArray) -> VortexResult<PrimitiveArray> {
     let length = array.len();
     let offset = array.offset() as usize;
     let ptype = array.ptype();
-    let mut unpacked = match_each_unsigned_integer_ptype!(array.ptype().to_unsigned(), |$P| {
+    let mut unpacked = match_each_unsigned_integer_ptype!(ptype.to_unsigned(), |$P| {
         PrimitiveArray::from_vec(
             unpack_primitive::<$P>(array.packed_slice::<$P>(), bit_width, offset, length),
             array.validity(),
