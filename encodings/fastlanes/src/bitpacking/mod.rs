@@ -102,7 +102,7 @@ impl BitPackedArray {
 
         if let Some(ref patches) = patches {
             // Ensure that array and patches have same PType
-            if patches.dtype() != &DType::from(ptype) {
+            if patches.dtype().as_nonnullable() != DType::from(ptype).as_nonnullable() {
                 vortex_bail!(
                     "Patches DType {} does not match BitPackedArray dtype {}",
                     patches.dtype().as_nonnullable(),
