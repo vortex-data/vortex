@@ -122,8 +122,10 @@ impl<T: Sized + Copy> ScalarBufferMut<T> {
     /// ```
     #[inline]
     pub fn extend_from_slice(&mut self, slice: &[T]) {
-        self.buffer
-            .extend_from_slice(unsafe { std::mem::transmute(slice) });
+        let raw_slice: &[u8] = unsafe {
+            std::slice::from_raw_parts(slice.as_ptr().cast(), slice.len() * size_of::<T>())
+        };
+        self.buffer.extend_from_slice(raw_slice);
         self.length += slice.len();
     }
 

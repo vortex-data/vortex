@@ -24,9 +24,12 @@ impl<T: Copy> ScalarBuffer<T> {
     /// buffer. We could fix this by forking `Bytes`, or in many other complex ways, but for now
     /// callers should prefer to construct `ScalarBuffer<T>` from a `ScalarBufferMut<T>`.
     pub fn copy_from_vec(vec: Vec<T>) -> Self {
-        let mut buffer =
-            AlignedBufferMut::with_capacity(vec.len() * size_of::<T>(), align_of::<T>().into());
-        buffer.extend_from_slice(unsafe { std::mem::transmute(vec.as_slice()) });
+        let byte_len = vec.len() * size_of::<T>();
+        let mut buffer = AlignedBufferMut::with_capacity(byte_len, align_of::<T>().into());
+
+        let raw_slice: &[u8] = unsafe { std::slice::from_raw_parts(vec.as_ptr().cast(), byte_len) };
+        buffer.extend_from_slice(raw_slice);
+
         Self {
             buffer: buffer.freeze(),
             length: vec.len(),

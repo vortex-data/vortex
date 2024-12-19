@@ -114,10 +114,11 @@ impl PrimitiveArray {
             self.ptype(),
         );
 
+        let length = self.len();
         let raw_slice = self.buffer().as_slice();
-        let typed_len = raw_slice.len() / size_of::<T>();
+        debug_assert_eq!(raw_slice.len() / size_of::<T>(), length);
         // SAFETY: alignment of Buffer is checked on construction
-        unsafe { std::slice::from_raw_parts(raw_slice.as_ptr().cast(), typed_len) }
+        unsafe { std::slice::from_raw_parts(raw_slice.as_ptr().cast(), length) }
     }
 
     /// Convert the array into a mutable vec of the given type.
