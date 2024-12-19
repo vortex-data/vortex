@@ -10,7 +10,7 @@ use vortex_array::array::{
 };
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayDType, IntoArrayData, IntoCanonical};
+use vortex_array::{ArrayDType, IntoArrayData, IntoArrayVariant, IntoCanonical};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, ToBytes};
 use vortex_error::{VortexExpect as _, VortexUnwrap};
 use vortex_scalar::Scalar;
@@ -98,10 +98,8 @@ pub fn dict_encode_varbinview(array: &VarBinViewArray) -> (PrimitiveArray, VarBi
     (
         codes,
         values
-            .into_canonical()
-            .vortex_expect("VarBin to canonical")
             .into_varbinview()
-            .vortex_expect("VarBinView"),
+            .vortex_expect("VarBin to canonical to VarBinView"),
     )
 }
 

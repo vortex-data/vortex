@@ -92,7 +92,7 @@ mod test {
     use crate::array::sparse::SparseArray;
     use crate::array::{BoolArray, PrimitiveArray};
     use crate::validity::Validity;
-    use crate::{ArrayDType, IntoArrayData, IntoCanonical};
+    use crate::{ArrayDType, IntoArrayData, IntoArrayVariant};
 
     #[rstest]
     #[case(Some(true))]
@@ -106,7 +106,7 @@ mod test {
             SparseArray::try_new(indices, values, 10, Scalar::from(fill_value)).unwrap();
         assert_eq!(*sparse_bools.dtype(), DType::Bool(Nullability::Nullable));
 
-        let flat_bools = sparse_bools.into_canonical().unwrap().into_bool().unwrap();
+        let flat_bools = sparse_bools.into_bool().unwrap();
         let expected = bool_array_from_nullable_vec(
             vec![
                 Some(true),
@@ -169,11 +169,7 @@ mod test {
             DType::Primitive(PType::I32, Nullability::Nullable)
         );
 
-        let flat_ints = sparse_ints
-            .into_canonical()
-            .unwrap()
-            .into_primitive()
-            .unwrap();
+        let flat_ints = sparse_ints.into_primitive().unwrap();
         let expected = PrimitiveArray::from_nullable_vec(vec![
             Some(0i32),
             None,

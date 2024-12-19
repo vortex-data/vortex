@@ -37,7 +37,7 @@ mod test {
 
     use crate::array::varbin::builder::VarBinBuilder;
     use crate::validity::ArrayValidity;
-    use crate::{ArrayDType, IntoCanonical};
+    use crate::{ArrayDType, IntoArrayVariant};
 
     #[rstest]
     #[case(DType::Utf8(Nullability::Nullable))]
@@ -52,7 +52,7 @@ mod test {
         varbin.push_value("1234567890123".as_bytes());
         let varbin = varbin.finish(dtype.clone());
 
-        let canonical = varbin.into_canonical().unwrap().into_varbinview().unwrap();
+        let canonical = varbin.into_varbinview().unwrap();
         assert_eq!(canonical.dtype(), &dtype);
 
         assert!(!canonical.is_valid(0));

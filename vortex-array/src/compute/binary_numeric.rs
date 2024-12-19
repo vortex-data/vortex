@@ -199,14 +199,12 @@ mod test {
 
     use crate::array::PrimitiveArray;
     use crate::compute::{scalar_at, sub_scalar};
-    use crate::{ArrayLen as _, IntoArrayData, IntoCanonical};
+    use crate::{ArrayLen as _, IntoArrayData, IntoArrayVariant, IntoCanonical};
 
     #[test]
     fn test_scalar_subtract_unsigned() {
         let values = vec![1u16, 2, 3].into_array();
         let results = sub_scalar(&values, 1u16.into())
-            .unwrap()
-            .into_canonical()
             .unwrap()
             .into_primitive()
             .unwrap()
@@ -220,8 +218,6 @@ mod test {
         let values = vec![1i64, 2, 3].into_array();
         let results = sub_scalar(&values, (-1i64).into())
             .unwrap()
-            .into_canonical()
-            .unwrap()
             .into_primitive()
             .unwrap()
             .maybe_null_slice::<i64>()
@@ -234,8 +230,6 @@ mod test {
         let values = PrimitiveArray::from_nullable_vec(vec![Some(1u16), Some(2), None, Some(3)])
             .into_array();
         let result = sub_scalar(&values, Some(1u16).into())
-            .unwrap()
-            .into_canonical()
             .unwrap()
             .into_primitive()
             .unwrap();
@@ -259,8 +253,6 @@ mod test {
         let values = vec![1.0f64, 2.0, 3.0].into_array();
         let to_subtract = -1f64;
         let results = sub_scalar(&values, to_subtract.into())
-            .unwrap()
-            .into_canonical()
             .unwrap()
             .into_primitive()
             .unwrap()

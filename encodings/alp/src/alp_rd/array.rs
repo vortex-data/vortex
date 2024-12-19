@@ -8,7 +8,8 @@ use vortex_array::stats::{StatisticsVTable, StatsSet};
 use vortex_array::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoCanonical,
+    impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayVariant,
+    IntoCanonical,
 };
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
@@ -192,8 +193,8 @@ impl ALPRDArray {
 
 impl IntoCanonical for ALPRDArray {
     fn into_canonical(self) -> VortexResult<Canonical> {
-        let left_parts = self.left_parts().into_canonical()?.into_primitive()?;
-        let right_parts = self.right_parts().into_canonical()?.into_primitive()?;
+        let left_parts = self.left_parts().into_primitive()?;
+        let right_parts = self.right_parts().into_primitive()?;
 
         // Decode the left_parts using our builtin dictionary.
         let left_parts_dict = &self.metadata().dict[0..self.metadata().dict_len as usize];
@@ -258,7 +259,7 @@ impl ArrayTrait for ALPRDArray {}
 mod test {
     use rstest::rstest;
     use vortex_array::array::PrimitiveArray;
-    use vortex_array::{IntoArrayData, IntoCanonical};
+    use vortex_array::{IntoArrayData, IntoArrayVariant, IntoCanonical};
 
     use crate::{alp_rd, ALPRDFloat};
 
@@ -284,12 +285,7 @@ mod test {
 
         let rd_array = encoder.encode(&real_array);
 
-        let decoded = rd_array
-            .into_array()
-            .into_canonical()
-            .unwrap()
-            .into_primitive()
-            .unwrap();
+        let decoded = rd_array.into_array().into_primitive().unwrap();
 
         let maybe_null_reals: Vec<T> = reals.into_iter().map(|v| v.unwrap_or_default()).collect();
         assert_eq!(decoded.maybe_null_slice::<T>(), &maybe_null_reals);

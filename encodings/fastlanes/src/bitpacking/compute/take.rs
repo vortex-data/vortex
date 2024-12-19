@@ -23,7 +23,7 @@ impl TakeFn<BitPackedArray> for BitPackedEncoding {
     fn take(&self, array: &BitPackedArray, indices: &ArrayData) -> VortexResult<ArrayData> {
         // If the indices are large enough, it's faster to flatten and take the primitive array.
         if indices.len() * UNPACK_CHUNK_THRESHOLD > array.len() {
-            return take(array.clone().into_canonical()?.into_primitive()?, indices);
+            return take(array.clone().into_primitive()?, indices);
         }
 
         // NOTE: we use the unsigned PType because all values in the BitPackedArray must

@@ -259,7 +259,8 @@ mod test {
     use vortex_array::stats::ArrayStatistics;
     use vortex_array::validity::Validity;
     use vortex_array::{
-        ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoCanonical, ToArrayData,
+        ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, IntoCanonical,
+        ToArrayData,
     };
     use vortex_dtype::{DType, Nullability};
 
@@ -353,8 +354,6 @@ mod test {
 
     fn to_bool_vec(arr: &ArrayData) -> Vec<bool> {
         arr.clone()
-            .into_canonical()
-            .unwrap()
             .into_bool()
             .unwrap()
             .boolean_buffer()
@@ -382,7 +381,7 @@ mod test {
 
         let arr =
             RunEndBoolArray::try_new(ends.into_array(), start, Validity::NonNullable).unwrap();
-        let bools = arr.clone().into_canonical().unwrap().into_bool().unwrap();
+        let bools = arr.clone().into_bool().unwrap();
         for stat in [
             Stat::IsConstant,
             Stat::NullCount,
