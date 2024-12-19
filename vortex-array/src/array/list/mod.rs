@@ -8,17 +8,14 @@ use serde::{Deserialize, Serialize};
 use vortex_dtype::{match_each_native_ptype, DType, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult};
 
-use crate::array::{NullArray, PrimitiveArray};
+use crate::array::PrimitiveArray;
 use crate::compute::{scalar_at, slice};
 use crate::encoding::ids;
 use crate::stats::{Stat, StatisticsVTable, StatsSet};
 use crate::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use crate::variants::{ListArrayTrait, PrimitiveArrayTrait, VariantsVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
-    IntoCanonical,
-};
+use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoCanonical};
 
 impl_encoding!("vortex.list", ids::LIST, List);
 
@@ -122,12 +119,6 @@ impl ListArray {
 
     // TODO: fetches the elements at index
     pub fn elements_at(&self, index: usize) -> VortexResult<ArrayData> {
-        if index >= self.len() {
-            vortex_bail!("Index out of bounds: index={} len={}", index, self.len());
-        }
-        if !self.is_valid(index) {
-            return Ok(NullArray::new(1).into_array());
-        }
         let start = self.offset_at(index);
         let end = self.offset_at(index + 1);
         slice(self.elements(), start, end)
