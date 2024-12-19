@@ -5,6 +5,7 @@ use vortex_array::stats::{trailing_zeros, ArrayStatistics, Stat};
 use vortex_array::validity::LogicalValidity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
+use vortex_buffer::ScalarBuffer;
 use vortex_dtype::{
     match_each_integer_ptype, match_each_unsigned_integer_ptype, DType, NativePType, Nullability,
 };
@@ -119,8 +120,8 @@ pub fn decompress(array: FoRArray) -> VortexResult<PrimitiveArray> {
             if min == 0 && shift == 0 {
                 encoded
             } else {
-                PrimitiveArray::from_vec(
-                    decompress_primitive(encoded.into_maybe_null_slice::<$T>(), min, shift),
+                PrimitiveArray::new(
+                    decompress_primitive(encoded.maybe_null_slice::<$T>(), min, shift),
                     validity,
                 )
             }
@@ -129,25 +130,24 @@ pub fn decompress(array: FoRArray) -> VortexResult<PrimitiveArray> {
 }
 
 fn decompress_primitive<T: NativePType + WrappingAdd + PrimInt>(
-    values: Vec<T>,
+    // FIXME(ngates): take mutable values and update in place
+    values: &[T],
     min: T,
     shift: usize,
-) -> Vec<T> {
+) -> ScalarBuffer<T> {
     if shift > 0 {
         if min == T::zero() {
-            values.into_iter().map(move |v| v << shift).collect_vec()
+            ScalarBuffer::from_iter(values.iter().map(move |v| *v << shift))
         } else {
-            values
-                .into_iter()
-                .map(move |v| v << shift)
-                .map(move |v| v.wrapping_add(&min))
-                .collect_vec()
+            ScalarBuffer::from_iter(
+                values
+                    .iter()
+                    .map(move |v| *v << shift)
+                    .map(move |v| v.wrapping_add(&min)),
+            )
         }
     } else {
-        values
-            .into_iter()
-            .map(move |v| v.wrapping_add(&min))
-            .collect_vec()
+        ScalarBuffer::from_iter(values.into_iter().map(move |v| v.wrapping_add(&min)))
     }
 }
 

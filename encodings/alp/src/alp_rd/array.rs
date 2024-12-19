@@ -199,7 +199,7 @@ impl IntoCanonical for ALPRDArray {
         let left_parts_dict = &self.metadata().dict[0..self.metadata().dict_len as usize];
 
         let decoded_array = if self.is_f32() {
-            PrimitiveArray::from_vec(
+            PrimitiveArray::new(
                 alp_rd_decode::<f32>(
                     left_parts.maybe_null_slice::<u16>(),
                     left_parts_dict,
@@ -210,7 +210,7 @@ impl IntoCanonical for ALPRDArray {
                 self.logical_validity().into_validity(),
             )
         } else {
-            PrimitiveArray::from_vec(
+            PrimitiveArray::new(
                 alp_rd_decode::<f64>(
                     left_parts.maybe_null_slice::<u16>(),
                     left_parts_dict,

@@ -35,6 +35,11 @@ impl AlignedBuffer {
         Self::new_with_alignment(bytes, align_of::<T>().into())
     }
 
+    /// Create a new empty `AlignedBuffer` with the provided alignment.
+    pub fn empty(alignment: Alignment) -> Self {
+        Self::new_with_alignment(Bytes::new(), alignment)
+    }
+
     /// Create a new `AlignedBuffer` by copying the provided slice.
     pub fn copy_from_slice(slice: &[u8], alignment: Alignment) -> Self {
         let mut buffer = AlignedBufferMut::with_capacity(slice.len(), alignment);

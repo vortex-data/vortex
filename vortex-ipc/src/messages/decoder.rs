@@ -235,10 +235,7 @@ impl MessageDecoder {
                             };
                             let buffer = bytes.split_to_aligned(buffer_len, alignment);
                             let _padding = bytes.split_to(buffer_msg.padding() as usize);
-                            AlignedBuffer::new_with_alignment(
-                                Buffer::from(buffer.freeze()),
-                                alignment,
-                            )
+                            AlignedBuffer::new_with_alignment(buffer.freeze(), alignment.into())
                         })
                         .collect_vec();
 

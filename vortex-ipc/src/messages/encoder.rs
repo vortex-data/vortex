@@ -1,8 +1,9 @@
+use bytes::Bytes;
 use flatbuffers::{FlatBufferBuilder, WIPOffset};
 use itertools::Itertools;
 use vortex_array::stats::ArrayStatistics;
 use vortex_array::{flatbuffers as fba, ArrayData};
-use vortex_buffer::Buffer;
+use vortex_buffer::AlignedBuffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_panic, VortexExpect};
 use vortex_flatbuffers::{message as fb, FlatBufferRoot, WriteFlatBuffer};
@@ -12,7 +13,7 @@ use crate::ALIGNMENT;
 /// An IPC message ready to be passed to the encoder.
 pub enum EncoderMessage<'a> {
     Array(&'a ArrayData),
-    Buffer(&'a Buffer),
+    Buffer(&'a AlignedBuffer),
     DType(&'a DType),
 }
 
@@ -23,7 +24,7 @@ pub struct MessageEncoder {
     /// The current position in the stream. Used to calculate leading padding.
     pos: usize,
     /// A reusable buffer of zeros used for padding.
-    zeros: Buffer,
+    zeros: Bytes,
 }
 
 impl Default for MessageEncoder {
@@ -48,14 +49,14 @@ impl MessageEncoder {
         Self {
             alignment,
             pos: 0,
-            zeros: Buffer::from(vec![0; alignment]),
+            zeros: Bytes::from(vec![0; alignment]),
         }
     }
 
     /// Encode an IPC message for writing to a byte stream.
     ///
     /// The returned buffers should be written contiguously to the stream.
-    pub fn encode(&mut self, message: EncoderMessage) -> Vec<Buffer> {
+    pub fn encode(&mut self, message: EncoderMessage) -> Vec<Bytes> {
         let mut buffers = vec![];
         assert_eq!(
             self.pos.next_multiple_of(self.alignment),
@@ -95,7 +96,7 @@ impl MessageEncoder {
                             &fba::BufferArgs {
                                 length: buffer.len() as u64,
                                 padding,
-                                alignment_: buffer.alignment_u16(),
+                                alignment_: buffer.alignment().into(),
                             },
                         ));
                         buffers.push(buffer.clone().into_inner());
@@ -120,7 +121,7 @@ impl MessageEncoder {
                 let end_incl_padding = buffer.len().next_multiple_of(self.alignment);
                 let padding = u16::try_from(end_incl_padding - buffer.len())
                     .vortex_expect("We know padding fits into u16");
-                buffers.push(buffer.clone());
+                buffers.push(buffer.clone().into_inner());
                 if padding > 0 {
                     buffers.push(self.zeros.slice(0..usize::from(padding)));
                 }
@@ -156,13 +157,13 @@ impl MessageEncoder {
         // Note that we have to include the 4-byte length prefix in the alignment calculation.
         let unaligned_len = fbv.len() - pos + 4;
         let padding = unaligned_len.next_multiple_of(self.alignment) - unaligned_len;
-        fbv.extend_from_slice(&self.zeros.as_slice()[0..padding]);
+        fbv.extend_from_slice(&self.zeros[0..padding]);
         let fbv_len = fbv.len();
-        let fb_buffer = Buffer::from(fbv).slice(pos..fbv_len);
+        let fb_buffer = Bytes::from(fbv).slice(pos..fbv_len);
 
         let fb_buffer_len = u32::try_from(fb_buffer.len())
             .vortex_expect("IPC flatbuffer headers must fit into u32 bytes");
-        buffers[0] = Buffer::from(fb_buffer_len.to_le_bytes().to_vec());
+        buffers[0] = Bytes::from(fb_buffer_len.to_le_bytes().to_vec());
         buffers[1] = fb_buffer;
 
         // Update the write cursor.

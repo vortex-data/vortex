@@ -1,17 +1,14 @@
 use std::io::{Read, Write};
 use std::sync::Arc;
 
-use aligned_buffer::UniqueAlignedBuffer;
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use itertools::Itertools;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::{ArrayDType, ArrayData, Context};
-use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
 use crate::messages::{DecoderMessage, EncoderMessage, MessageEncoder, SyncMessageReader};
-use crate::ALIGNMENT;
 
 /// An [`ArrayIterator`] for reading messages off an IPC stream.
 pub struct SyncIPCReader<R: Read> {
@@ -100,7 +97,7 @@ impl<I: ArrayIterator + 'static> ArrayIteratorIPC for I {
     {
         let mut stream = self.into_ipc();
         for buffer in &mut stream {
-            write.write_all(buffer?.as_slice())?;
+            write.write_all(buffer?.as_ref())?;
         }
         Ok(write)
     }
@@ -109,25 +106,23 @@ impl<I: ArrayIterator + 'static> ArrayIteratorIPC for I {
 pub struct ArrayIteratorIPCBytes {
     inner: Box<dyn ArrayIterator + 'static>,
     encoder: MessageEncoder,
-    buffers: Vec<Buffer>,
+    buffers: Vec<Bytes>,
 }
 
 impl ArrayIteratorIPCBytes {
-    /// Collects the IPC bytes into a single `Buffer`.
-    pub fn collect_to_buffer(self) -> VortexResult<Buffer> {
-        // We allocate a single aligned buffer to hold the combined IPC bytes
-        let buffers: Vec<Buffer> = self.try_collect()?;
-        let mut buffer =
-            UniqueAlignedBuffer::<ALIGNMENT>::with_capacity(buffers.iter().map(|b| b.len()).sum());
+    /// Collects the IPC bytes into a single `Bytes`.
+    pub fn collect_to_buffer(self) -> VortexResult<Bytes> {
+        let buffers: Vec<Bytes> = self.try_collect()?;
+        let mut buffer = BytesMut::with_capacity(buffers.iter().map(|b| b.len()).sum());
         for buf in buffers {
-            buffer.extend_from_slice(buf.as_slice());
+            buffer.extend_from_slice(buf.as_ref());
         }
-        Ok(Buffer::from(Bytes::from_owner(buffer)))
+        Ok(buffer.freeze())
     }
 }
 
 impl Iterator for ArrayIteratorIPCBytes {
-    type Item = VortexResult<Buffer>;
+    type Item = VortexResult<Bytes>;
 
     fn next(&mut self) -> Option<Self::Item> {
         // Try to flush any buffers we have

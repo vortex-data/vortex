@@ -6,7 +6,7 @@ use crate::array::PrimitiveArray;
 pub fn as_scalar_buffer<T: NativePType + ArrowNativeType>(
     array: PrimitiveArray,
 ) -> ScalarBuffer<T> {
-    array.scalar_buffer::<T>().into_arrow()
+    array.maybe_null_scalar_buffer::<T>().into_arrow()
 }
 
 pub fn as_offset_buffer<T: NativePType + ArrowNativeType>(

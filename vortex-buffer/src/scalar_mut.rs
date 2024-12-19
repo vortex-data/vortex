@@ -1,6 +1,5 @@
 use std::ops::{Deref, DerefMut};
 
-use vortex_dtype::ToBytes;
 use vortex_error::vortex_panic;
 
 use crate::{AlignedBufferMut, Alignment, ScalarBuffer};
@@ -13,7 +12,7 @@ pub struct ScalarBufferMut<T> {
     pub(crate) _marker: std::marker::PhantomData<T>,
 }
 
-impl<T> ScalarBufferMut<T> {
+impl<T: Sized + Copy> ScalarBufferMut<T> {
     /// Create a new `ScalarBufferMut` with the requested alignment and capacity.
     pub fn with_capacity(capacity: usize) -> Self {
         Self::with_capacity_aligned(capacity, Alignment::of::<T>())
@@ -89,13 +88,23 @@ impl<T> ScalarBufferMut<T> {
         self.buffer.reserve(additional * size_of::<T>());
     }
 
+    /// # Safety
+    /// The caller must ensure that the buffer was properly initialized up to `len`.
+    #[inline]
+    pub unsafe fn set_len(&mut self, len: usize) {
+        assert!(len <= self.capacity());
+        self.length = len;
+    }
+
     /// Appends a scalar to the buffer.
-    pub fn push(&mut self, value: T)
-    where
-        T: ToBytes,
-    {
+    pub fn push(&mut self, value: T) {
+        // NOTE(ngates): this assumes the platform is little-endian. Currently enforced
+        //  with a flag cfg(target_endian = "little")
+        let raw_ptr = &value as *const T as *const u8;
+        let bytes = unsafe { std::slice::from_raw_parts(raw_ptr, size_of::<T>()) };
+
         // The extend_from_slice function will reserve additional space if required.
-        self.buffer.extend_from_slice(&value.to_le_bytes());
+        self.buffer.extend_from_slice(bytes);
         self.length += 1;
     }
 
@@ -124,7 +133,7 @@ impl<T> ScalarBufferMut<T> {
     }
 }
 
-impl<T> Deref for ScalarBufferMut<T> {
+impl<T: Sized + Copy> Deref for ScalarBufferMut<T> {
     type Target = [T];
 
     fn deref(&self) -> &Self::Target {
@@ -132,13 +141,13 @@ impl<T> Deref for ScalarBufferMut<T> {
     }
 }
 
-impl<T> DerefMut for ScalarBufferMut<T> {
+impl<T: Sized + Copy> DerefMut for ScalarBufferMut<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.as_mut_slice()
     }
 }
 
-impl<T: ToBytes> Extend<T> for ScalarBufferMut<T> {
+impl<T: Sized + Copy> Extend<T> for ScalarBufferMut<T> {
     fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
         // TODO(ngates): check out the Arrow extend_from_slice optimizations
         let iter = iter.into_iter();
@@ -150,7 +159,7 @@ impl<T: ToBytes> Extend<T> for ScalarBufferMut<T> {
     }
 }
 
-impl<T: ToBytes> FromIterator<T> for ScalarBufferMut<T> {
+impl<T: Sized + Copy> FromIterator<T> for ScalarBufferMut<T> {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         let mut buffer = Self::with_capacity(0);
         buffer.extend(iter);

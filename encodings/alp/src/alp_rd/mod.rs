@@ -16,6 +16,7 @@ use num_traits::{Float, One, PrimInt};
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::array::PrimitiveArray;
 use vortex_array::{ArrayDType, IntoArrayData};
+use vortex_buffer::{ScalarBuffer, ScalarBufferMut};
 use vortex_dtype::{DType, NativePType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult, VortexUnwrap};
 use vortex_fastlanes::bitpack_encode_unchecked;
@@ -263,7 +264,7 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
     right_bit_width: u8,
     right_parts: &[T::UINT],
     left_parts_patches: Option<Patches>,
-) -> VortexResult<Vec<T>> {
+) -> VortexResult<ScalarBuffer<T>> {
     if left_parts.len() != right_parts.len() {
         vortex_bail!("alp_rd_decode: left_parts.len != right_parts.len");
     }
@@ -271,7 +272,8 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
     let mut dict = Vec::with_capacity(left_parts_dict.len());
     dict.extend_from_slice(left_parts_dict);
 
-    let mut left_parts_decoded: Vec<u16> = Vec::with_capacity(left_parts.len());
+    let mut left_parts_decoded: ScalarBufferMut<u16> =
+        ScalarBufferMut::with_capacity(left_parts.len());
 
     // Decode with bit-packing and dict unpacking.
     for code in left_parts {
@@ -279,21 +281,22 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
     }
 
     let patched_left_parts = match left_parts_patches {
-        Some(patches) => PrimitiveArray::from(left_parts_decoded)
+        Some(patches) => PrimitiveArray::new(left_parts_decoded.freeze(), Validity::NonNullable)
             .patch(patches)?
-            .into_maybe_null_slice::<u16>(),
-        None => left_parts_decoded,
+            .maybe_null_scalar_buffer::<u16>(),
+        None => left_parts_decoded.freeze(),
     };
 
     // recombine the left-and-right parts, adjusting by the right_bit_width.
-    Ok(patched_left_parts
-        .into_iter()
-        .zip(right_parts.iter().copied())
-        .map(|(left, right)| {
-            let left = <T as ALPRDFloat>::from_u16(left);
-            T::from_bits((left << (right_bit_width as usize)) | right)
-        })
-        .collect())
+    Ok(ScalarBuffer::<T>::from_iter(
+        patched_left_parts
+            .iter()
+            .zip(right_parts.iter().copied())
+            .map(|(left, right)| {
+                let left = <T as ALPRDFloat>::from_u16(left);
+                T::from_bits((left << (right_bit_width as usize)) | right)
+            }),
+    ))
 }
 
 /// Find the best "cut point" for a set of floating point values such that we can

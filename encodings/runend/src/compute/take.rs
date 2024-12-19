@@ -16,7 +16,7 @@ impl TakeFn<RunEndArray> for RunEndEncoding {
                 .into_maybe_null_slice::<$P>()
                 .into_iter()
                 .map(|idx| {
-                    let usize_idx = idx as usize;
+                    let usize_idx = *idx as usize;
                     if usize_idx >= array.len() {
                         vortex_error::vortex_bail!(OutOfBounds: usize_idx, 0, array.len());
                     }

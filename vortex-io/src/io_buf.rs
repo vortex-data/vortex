@@ -2,6 +2,7 @@
 
 use std::ops::Range;
 
+use bytes::Bytes;
 use vortex_buffer::Buffer;
 
 /// Trait for types that can provide a readonly byte buffer interface to I/O frameworks.
@@ -111,6 +112,20 @@ unsafe impl<T: IoBuf> IoBuf for Slice<T> {
     #[inline]
     fn as_slice(&self) -> &[u8] {
         unsafe { std::slice::from_raw_parts(self.read_ptr(), self.bytes_init()) }
+    }
+}
+
+unsafe impl IoBuf for Bytes {
+    fn read_ptr(&self) -> *const u8 {
+        self.as_ptr()
+    }
+
+    fn bytes_init(&self) -> usize {
+        self.len()
+    }
+
+    fn as_slice(&self) -> &[u8] {
+        self.as_ref()
     }
 }
 

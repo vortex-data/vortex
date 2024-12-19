@@ -4882,13 +4882,13 @@ name = "vortex-alp"
 version = "0.21.1"
 dependencies = [
  "arrow-array",
- "arrow-buffer",
  "divan",
  "itertools 0.13.0",
  "num-traits",
  "rstest",
  "serde",
  "vortex-array",
+ "vortex-buffer",
  "vortex-dtype",
  "vortex-error",
  "vortex-fastlanes",
@@ -5171,6 +5171,7 @@ dependencies = [
 name = "vortex-io"
 version = "0.21.1"
 dependencies = [
+ "bytes",
  "cfg-if",
  "compio",
  "flume",
@@ -5315,6 +5316,7 @@ version = "0.21.1"
 dependencies = [
  "serde",
  "vortex-array",
+ "vortex-buffer",
  "vortex-dtype",
  "vortex-error",
  "vortex-scalar",

@@ -6,7 +6,7 @@ use vortex_array::stats::ArrayStatistics;
 use vortex_array::validity::{ArrayValidity, Validity};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayLen, IntoArrayData};
-use vortex_buffer::Buffer;
+use vortex_buffer::{AlignedBuffer, Alignment, ScalarBufferMut};
 use vortex_dtype::{
     match_each_integer_ptype, match_each_unsigned_integer_ptype, NativePType, PType,
 };
@@ -68,8 +68,8 @@ pub unsafe fn bitpack_encode_unchecked(
 
 /// Bitpack a [PrimitiveArray] to the given width.
 ///
-/// On success, returns a [Buffer] containing the packed data.
-pub fn bitpack(parray: &PrimitiveArray, bit_width: u8) -> VortexResult<Buffer> {
+/// On success, returns a [AlignedBuffer] containing the packed data.
+pub fn bitpack(parray: &PrimitiveArray, bit_width: u8) -> VortexResult<AlignedBuffer> {
     let parray = parray.reinterpret_cast(parray.ptype().to_unsigned());
     let packed = match_each_unsigned_integer_ptype!(parray.ptype(), |$P| {
         bitpack_primitive(parray.maybe_null_slice::<$P>(), bit_width)
@@ -83,9 +83,9 @@ pub fn bitpack(parray: &PrimitiveArray, bit_width: u8) -> VortexResult<Buffer> {
 pub fn bitpack_primitive<T: NativePType + BitPacking + ArrowNativeType>(
     array: &[T],
     bit_width: u8,
-) -> Buffer {
+) -> AlignedBuffer {
     if bit_width == 0 {
-        return Buffer::from_len_zeroed(0);
+        return AlignedBuffer::empty(Alignment::of::<T>());
     }
     let bit_width = bit_width as usize;
 
@@ -98,12 +98,13 @@ pub fn bitpack_primitive<T: NativePType + BitPacking + ArrowNativeType>(
     // then we divide by the size of T to get the number of elements.
 
     // Allocate a result byte array.
-    let mut output = Vec::<T>::with_capacity(num_chunks * packed_len);
+    let mut output = ScalarBufferMut::<T>::with_capacity(num_chunks * packed_len);
 
     // Loop over all but the last chunk.
     (0..num_full_chunks).for_each(|i| {
         let start_elem = i * 1024;
 
+        // TODO(ngates): haven't we already sized the output buffer?
         output.reserve(packed_len);
         let output_len = output.len();
         unsafe {
@@ -122,6 +123,7 @@ pub fn bitpack_primitive<T: NativePType + BitPacking + ArrowNativeType>(
         let mut last_chunk: [T; 1024] = [T::zero(); 1024];
         last_chunk[..last_chunk_size].copy_from_slice(&array[array.len() - last_chunk_size..]);
 
+        // TODO(ngates): haven't we already sized the output buffer?
         output.reserve(packed_len);
         let output_len = output.len();
         unsafe {
@@ -134,7 +136,7 @@ pub fn bitpack_primitive<T: NativePType + BitPacking + ArrowNativeType>(
         };
     }
 
-    Buffer::from(output)
+    output.freeze().into_inner()
 }
 
 pub fn gather_patches(
@@ -449,6 +451,6 @@ mod test {
             .unwrap()
             .into_primitive()
             .unwrap();
-        assert_eq!(unpacked.into_maybe_null_slice::<i64>(), values);
+        assert_eq!(unpacked.maybe_null_slice::<i64>(), &values);
     }
 }

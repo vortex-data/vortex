@@ -1,4 +1,7 @@
-use vortex_error::vortex_panic;
+use std::collections::Bound;
+use std::ops::RangeBounds;
+
+use vortex_error::{vortex_panic, VortexExpect};
 
 use crate::{AlignedBuffer, AlignedBufferMut, Alignment, ScalarBufferMut};
 
@@ -13,7 +16,7 @@ pub struct ScalarBuffer<T> {
     pub(crate) _marker: std::marker::PhantomData<T>,
 }
 
-impl<T> ScalarBuffer<T> {
+impl<T: Copy> ScalarBuffer<T> {
     /// Returns a new `ScalarBuffer<T>` copied from the provided `Vec<T>`.
     ///
     /// Due to our underlying usage of `bytes::Bytes`, we are unable to take zero-copy ownership
@@ -57,6 +60,49 @@ impl<T> ScalarBuffer<T> {
         unsafe { std::slice::from_raw_parts(raw_slice.as_ptr().cast(), self.length) }
     }
 
+    /// Returns an iterator over the buffer of elements of type T.
+    pub fn iter(&self) -> impl Iterator<Item = T> + '_ {
+        self.as_slice().iter().copied()
+    }
+
+    /// Returns a slice of self for the provided range.
+    ///
+    /// FIXME(ngates): what should this do to the alignment? The underlying buffer is still
+    ///  aligned... But the new sliced one might not be? Should we panic if the caller tries to
+    ///  slice using unaligned indices?
+    ///
+    /// # Panics
+    ///
+    /// Requires that `begin <= end` and `end <= self.len()`, otherwise slicing
+    /// will panic.
+    pub fn slice(&self, range: impl RangeBounds<usize>) -> Self {
+        let len = self.len();
+        let begin = match range.start_bound() {
+            Bound::Included(&n) => n.checked_mul(size_of::<T>()).vortex_expect("out of range"),
+            Bound::Excluded(&n) => n
+                .checked_mul(size_of::<T>())
+                .and_then(|n| n.checked_add(size_of::<T>()))
+                .vortex_expect("out of range"),
+            Bound::Unbounded => 0,
+        };
+        let end = match range.end_bound() {
+            Bound::Included(&n) => n
+                .checked_mul(size_of::<T>())
+                .and_then(|n| n.checked_add(1))
+                .expect("out of range"),
+            Bound::Excluded(&n) => n.checked_mul(size_of::<T>()).vortex_expect("out of range"),
+            Bound::Unbounded => len
+                .checked_mul(size_of::<T>())
+                .vortex_expect("out of range"),
+        };
+
+        Self {
+            buffer: self.buffer.slice(begin..end),
+            length: end - begin,
+            _marker: Default::default(),
+        }
+    }
+
     /// Returns the underlying aligned buffer.
     pub fn into_inner(self) -> AlignedBuffer {
         self.buffer
@@ -79,7 +125,7 @@ impl<T> ScalarBuffer<T> {
     }
 }
 
-impl<T> From<AlignedBuffer> for ScalarBuffer<T> {
+impl<T: Copy> From<AlignedBuffer> for ScalarBuffer<T> {
     fn from(buffer: AlignedBuffer) -> Self {
         if !buffer.alignment().is_multiple_of(align_of::<T>()) {
             vortex_panic!("Alignment must be a multiple of the scalar type's alignment");
@@ -90,5 +136,11 @@ impl<T> From<AlignedBuffer> for ScalarBuffer<T> {
             length,
             _marker: Default::default(),
         }
+    }
+}
+
+impl<T: Sized + Copy> FromIterator<T> for ScalarBuffer<T> {
+    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
+        ScalarBufferMut::from_iter(iter).freeze()
     }
 }

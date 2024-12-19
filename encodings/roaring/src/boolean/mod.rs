@@ -15,7 +15,7 @@ use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
     impl_encoding, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData, IntoCanonical,
 };
-use vortex_buffer::{AlignedBuffer, Buffer};
+use vortex_buffer::AlignedBuffer;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
 
@@ -55,9 +55,7 @@ impl RoaringBoolArray {
             DType::Bool(Nullability::NonNullable),
             length,
             Arc::new(RoaringBoolMetadata),
-            Some(AlignedBuffer::new::<u8>(Buffer::from(
-                bitmap.serialize::<Native>(),
-            ))),
+            Some(AlignedBuffer::from(bitmap.serialize::<Native>())),
             vec![].into(),
             stats,
         )?

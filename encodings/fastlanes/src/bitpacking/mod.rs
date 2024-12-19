@@ -14,7 +14,7 @@ use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoCanonical,
 };
-use vortex_buffer::{AlignedBuffer, Buffer};
+use vortex_buffer::AlignedBuffer;
 use vortex_dtype::{DType, NativePType, PType};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
 
@@ -43,7 +43,7 @@ impl BitPackedArray {
     ///
     /// The packed data should be interpreted as a sequence of values with size `bit_width`.
     pub fn try_new(
-        packed: Buffer,
+        packed: AlignedBuffer,
         ptype: PType,
         validity: Validity,
         patches: Option<Patches>,
@@ -54,7 +54,7 @@ impl BitPackedArray {
     }
 
     pub(crate) fn try_new_from_offset(
-        packed: Buffer,
+        packed: AlignedBuffer,
         ptype: PType,
         validity: Validity,
         patches: Option<Patches>,
@@ -91,7 +91,6 @@ impl BitPackedArray {
         // TODO(ngates): enforce 128 byte alignment once we have a ScalarBufferBuilder that can
         //  enforce custom alignments.
         // let packed = AlignedBuffer::new_with_alignment(packed, FASTLANES_ALIGNMENT);
-        let packed = AlignedBuffer::new_with_alignment(packed, ptype.byte_width());
 
         let metadata = BitPackedMetadata {
             validity: validity.to_metadata(length)?,

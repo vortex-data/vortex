@@ -94,7 +94,7 @@ impl PrimitiveArray {
             .vortex_expect("Missing buffer in PrimitiveArray")
     }
 
-    pub fn scalar_buffer<T: NativePType>(&self) -> ScalarBuffer<T> {
+    pub fn maybe_null_scalar_buffer<T: NativePType>(&self) -> ScalarBuffer<T> {
         assert_eq!(
             T::PTYPE,
             self.ptype(),

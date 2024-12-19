@@ -1,5 +1,4 @@
 use std::fmt::{Debug, Display};
-use std::mem::ManuallyDrop;
 use std::sync::Arc;
 
 use arrow_buffer::BooleanBuffer;
@@ -11,7 +10,7 @@ use vortex_array::validity::{LogicalValidity, Validity, ValidityMetadata, Validi
 use vortex_array::variants::{BoolArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{impl_encoding, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoCanonical};
-use vortex_buffer::{AlignedBuffer, Buffer};
+use vortex_buffer::{AlignedBuffer, ScalarBuffer};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult};
 
@@ -37,7 +36,7 @@ impl ByteBoolArray {
         })
     }
 
-    pub fn try_new(buffer: Buffer, validity: Validity) -> VortexResult<Self> {
+    pub fn try_new(buffer: ScalarBuffer<u8>, validity: Validity) -> VortexResult<Self> {
         let length = buffer.len();
 
         ArrayData::try_new_owned(
@@ -47,7 +46,7 @@ impl ByteBoolArray {
             Arc::new(ByteBoolMetadata {
                 validity: validity.to_metadata(length)?,
             }),
-            Some(AlignedBuffer::new::<u8>(buffer)),
+            Some(buffer.into_inner()),
             validity.into_array().into_iter().collect::<Vec<_>>().into(),
             StatsSet::default(),
         )?
@@ -56,24 +55,19 @@ impl ByteBoolArray {
 
     pub fn try_from_vec<V: Into<Validity>>(data: Vec<bool>, validity: V) -> VortexResult<Self> {
         let validity = validity.into();
-        let mut vec = ManuallyDrop::new(data);
-        vec.shrink_to_fit();
-
-        let ptr = vec.as_mut_ptr() as *mut u8;
-        let length = vec.len();
-        let capacity = vec.capacity();
-
-        let bytes = unsafe { Vec::from_raw_parts(ptr, length, capacity) };
-
-        let buffer = Buffer::from(bytes);
-
-        Self::try_new(buffer, validity)
+        // SAFETY: we are transmuting a Vec<bool> into a Vec<u8>
+        let data: Vec<u8> = unsafe { std::mem::transmute(data) };
+        Self::try_new(AlignedBuffer::from(data).into(), validity)
     }
 
     pub fn buffer(&self) -> &AlignedBuffer {
         self.as_ref()
             .buffer()
             .vortex_expect("ByteBoolArray is missing the underlying buffer")
+    }
+
+    pub fn scalar_buffer(&self) -> ScalarBuffer<u8> {
+        ScalarBuffer::from(self.buffer().clone())
     }
 
     pub fn maybe_null_slice(&self) -> &[bool] {
