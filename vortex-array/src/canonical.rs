@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use arrow_array::types::*;
 use arrow_array::{
-    ArrayRef, ArrowPrimitiveType, BooleanArray as ArrowBoolArray, Date32Array, Date64Array,
+    Array, ArrayRef, ArrowPrimitiveType, BooleanArray as ArrowBoolArray, Date32Array, Date64Array,
     NullArray as ArrowNullArray, PrimitiveArray as ArrowPrimitiveArray,
     StructArray as ArrowStructArray, Time32MillisecondArray, Time32SecondArray,
     Time64MicrosecondArray, Time64NanosecondArray, TimestampMicrosecondArray,
@@ -253,12 +253,13 @@ fn list_to_arrow(list: ListArray) -> VortexResult<ArrayRef> {
             .map_err(|err| err.with_context("Failed to cast offsets to PrimitiveArray of i32"))?,
     };
 
+    let values = list.elements().into_arrow()?;
+
     let field_ref = FieldRef::new(Field::new_list_field(
-        infer_data_type(list.elements().dtype())?,
+        values.data_type().clone(),
         list.validity().nullability().into(),
     ));
 
-    let values = list.elements().into_arrow()?;
     let nulls = list.logical_validity().to_null_buffer()?;
 
     Ok(match offsets.ptype() {
