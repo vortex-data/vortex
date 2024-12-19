@@ -56,6 +56,7 @@ impl EncodingCompressor for ALPCompressor {
             .excluding(self)
             .compress(&encoded, like.as_ref().and_then(|l| l.child(0)))?;
 
+        // Attempt to compress patches with ALP-RD encoding
         let compressed_patches = patches
             .map(|p| {
                 ctx.auxiliary("patches")
@@ -76,6 +77,7 @@ impl EncodingCompressor for ALPCompressor {
     fn used_encodings(&self) -> HashSet<EncodingRef> {
         HashSet::from([
             &ALPEncoding as EncodingRef,
+            // ALP-RD + BitPacking possibly used for patches
             &ALPRDEncoding,
             &BitPackedEncoding,
         ])
