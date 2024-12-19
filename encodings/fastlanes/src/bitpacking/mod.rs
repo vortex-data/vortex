@@ -1,9 +1,9 @@
 use std::fmt::{Debug, Display};
 use std::sync::Arc;
 
+use ::serde::{Deserialize, Serialize};
 pub use compress::*;
 use fastlanes::BitPacking;
-use ::serde::{Deserialize, Serialize};
 use vortex_array::array::PrimitiveArray;
 use vortex_array::encoding::ids;
 use vortex_array::patches::{Patches, PatchesMetadata};
