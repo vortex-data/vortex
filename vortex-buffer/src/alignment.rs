@@ -18,6 +18,7 @@ impl Alignment {
     /// Panics if `align` is not a power of 2, or is greater than `u16::MAX`.
     #[inline]
     pub const fn new(align: usize) -> Self {
+        assert!(align > 0, "Alignment must be greater than 0");
         assert!(align <= u16::MAX as usize, "Alignment must fit into u16");
         assert!(align.is_power_of_two(), "Alignment must be a power of 2");
         Self(align)
@@ -90,6 +91,24 @@ impl From<Alignment> for u16 {
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    #[should_panic]
+    fn alignment_zero() {
+        Alignment::new(0);
+    }
+
+    #[test]
+    #[should_panic]
+    fn alignment_overflow() {
+        Alignment::new(u16::MAX as usize + 1);
+    }
+
+    #[test]
+    #[should_panic]
+    fn alignment_not_power_of_two() {
+        Alignment::new(3);
+    }
 
     #[test]
     fn is_aligned_to() {
