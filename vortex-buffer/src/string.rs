@@ -2,7 +2,7 @@ use std::fmt::{Debug, Formatter};
 use std::ops::Deref;
 use std::str::Utf8Error;
 
-use crate::{AlignedBuffer, Buffer};
+use crate::AlignedBuffer;
 
 /// A wrapper around a [`AlignedBuffer`] that guarantees that the buffer contains valid UTF-8.
 #[derive(Clone, PartialEq, Eq, PartialOrd)]
@@ -47,16 +47,6 @@ impl From<String> for BufferString {
 impl From<&str> for BufferString {
     fn from(value: &str) -> Self {
         Self(AlignedBuffer::from(String::from(value).into_bytes()))
-    }
-}
-
-impl TryFrom<Buffer> for BufferString {
-    type Error = Utf8Error;
-
-    fn try_from(value: Buffer) -> Result<Self, Self::Error> {
-        let _ = std::str::from_utf8(value.as_ref())?;
-        // FIXME(ngates): for now this copies
-        Ok(Self(AlignedBuffer::from(value.as_ref().to_vec())))
     }
 }
 

@@ -1,4 +1,4 @@
-use vortex_buffer::{AlignedBuffer, Buffer, BufferString};
+use vortex_buffer::{AlignedBuffer, BufferString};
 use vortex_dtype::half::f16;
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};

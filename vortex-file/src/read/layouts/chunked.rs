@@ -405,7 +405,6 @@ mod tests {
     use vortex_array::array::{ChunkedArray, PrimitiveArray};
     use vortex_array::compute::FilterMask;
     use vortex_array::{ArrayDType, ArrayLen, IntoArrayData, IntoArrayVariant};
-    use vortex_buffer::Buffer;
     use vortex_dtype::PType;
     use vortex_expr::{BinaryExpr, Identity, Literal, Operator};
     use vortex_flatbuffers::{footer, WriteFlatBuffer};
