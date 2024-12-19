@@ -5,7 +5,7 @@ use vortex_array::array::PrimitiveArray;
 use vortex_array::compute::{filter, scalar_at, slice, take, FilterMask};
 use vortex_array::encoding::Encoding;
 use vortex_array::validity::Validity;
-use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant, IntoCanonical};
+use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::{DType, Nullability};
 use vortex_fsst::{fsst_compress, fsst_train_compressor, FSSTEncoding};
 

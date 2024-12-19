@@ -259,7 +259,7 @@ impl ArrayTrait for ALPRDArray {}
 mod test {
     use rstest::rstest;
     use vortex_array::array::PrimitiveArray;
-    use vortex_array::{IntoArrayData, IntoArrayVariant, IntoCanonical};
+    use vortex_array::{IntoArrayData, IntoArrayVariant};
 
     use crate::{alp_rd, ALPRDFloat};
 

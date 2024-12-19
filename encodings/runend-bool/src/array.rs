@@ -259,7 +259,7 @@ mod test {
     use vortex_array::stats::ArrayStatistics;
     use vortex_array::validity::Validity;
     use vortex_array::{
-        ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, IntoCanonical,
+        ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant,
         ToArrayData,
     };
     use vortex_dtype::{DType, Nullability};
