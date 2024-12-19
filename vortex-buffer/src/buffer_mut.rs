@@ -165,6 +165,22 @@ impl<T> BufferMut<T> {
             _marker: Default::default(),
         }
     }
+
+    /// Map each element of the buffer with a closure.
+    pub fn map_each<R, F>(mut self, f: F) -> BufferMut<R>
+    where
+        F: Fn(&T) -> R,
+    {
+        {
+            let raw_src = self.as_ptr();
+            let src = unsafe { std::slice::from_raw_parts(raw_src, self.len()) };
+
+            let dst: &mut [R] = unsafe { std::mem::transmute(self.as_mut()) };
+            dst.iter_mut().zip(src.iter()).for_each(|(d, s)| *d = f(s));
+        }
+        // SAFETY: we didn't change the length of the buffer or its alignment.
+        unsafe { std::mem::transmute(self) }
+    }
 }
 
 impl<T> Deref for BufferMut<T> {
