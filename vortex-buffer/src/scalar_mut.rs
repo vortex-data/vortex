@@ -124,12 +124,13 @@ impl<T> ScalarBufferMut<T> {
 
     /// Appends a scalar to the buffer.
     pub fn push(&mut self, value: T) {
+        self.reserve(1);
+
         // NOTE(ngates): this assumes the platform is little-endian. Currently enforced
         //  with a flag cfg(target_endian = "little")
         let raw_ptr = &value as *const T as *const u8;
         let bytes = unsafe { std::slice::from_raw_parts(raw_ptr, size_of::<T>()) };
 
-        // The extend_from_slice function will reserve additional space if required.
         self.bytes.extend_from_slice(bytes);
         self.length += 1;
     }
@@ -148,6 +149,7 @@ impl<T> ScalarBufferMut<T> {
     /// ```
     #[inline]
     pub fn extend_from_slice(&mut self, slice: &[T]) {
+        self.reserve(slice.len());
         let raw_slice: &[u8] =
             unsafe { std::slice::from_raw_parts(slice.as_ptr().cast(), size_of_val(slice)) };
         self.bytes.extend_from_slice(raw_slice);
@@ -193,13 +195,35 @@ impl<T> AsMut<[T]> for ScalarBufferMut<T> {
 
 impl<T> Extend<T> for ScalarBufferMut<T> {
     fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
-        // TODO(ngates): check out the Arrow extend_from_slice optimizations
-        let iter = iter.into_iter();
-        let (lower, _) = iter.size_hint();
+        let mut iterator = iter.into_iter();
+
+        // Attempt to reserve enough memory up-front, although this is only a lower bound.
+        let (lower, _) = iterator.size_hint();
         self.reserve(lower);
-        for value in iter {
-            self.push(value);
+
+        let capacity = self.capacity();
+        let mut len = self.len();
+
+        while len + 1 <= capacity {
+            if let Some(item) = iterator.next() {
+                // SAFETY: We know we have enough capacity to write the item.
+                unsafe {
+                    let raw_ptr = &item as *const T as *const u8;
+                    let bytes = std::slice::from_raw_parts(raw_ptr, size_of::<T>());
+                    let dst = self.bytes.as_mut_ptr().add(len * size_of::<T>());
+                    let new_len = self.bytes.len() + bytes.len();
+                    std::ptr::copy_nonoverlapping(bytes.as_ptr(), dst.cast(), bytes.len());
+                    self.bytes.set_len(new_len)
+                }
+                len += 1;
+            } else {
+                break;
+            }
         }
+
+        self.length = len;
+
+        iterator.for_each(|item| self.push(item));
     }
 }
 
