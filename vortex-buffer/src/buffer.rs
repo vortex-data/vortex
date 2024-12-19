@@ -65,11 +65,11 @@ impl<T> Buffer<T> {
     /// Panics if the buffer is not aligned to the size of `T`, or the length is not a multiple of
     /// the size of `T`.
     pub fn from_bytes_aligned(bytes: Bytes, alignment: Alignment) -> Self {
-        if alignment.is_aligned_to(Alignment::of::<T>()) {
+        if !alignment.is_aligned_to(Alignment::of::<T>()) {
             vortex_panic!(
-                "Alignment {} must align to the scalar type's alignment {}",
+                "Alignment {} must be compatible with the scalar type's alignment {}",
                 alignment,
-                Alignment::of::<T>()
+                Alignment::of::<T>(),
             );
         }
         if bytes.as_ptr().align_offset(*alignment) != 0 {

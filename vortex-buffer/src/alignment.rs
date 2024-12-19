@@ -16,6 +16,7 @@ impl Alignment {
     /// ## Panics
     ///
     /// Panics if `align` is not a power of 2, or is greater than `u16::MAX`.
+    #[inline]
     pub const fn new(align: usize) -> Self {
         assert!(align <= u16::MAX as usize, "Alignment must fit into u16");
         assert!(align.is_power_of_two(), "Alignment must be a power of 2");
@@ -23,12 +24,25 @@ impl Alignment {
     }
 
     /// Create an alignment from the alignment of a type `T`.
+    #[inline]
     pub const fn of<T>() -> Self {
         Self::new(align_of::<T>())
     }
 
     /// Check if this alignment is a "larger" than another alignment.
-    pub const fn is_aligned_to(&self, other: Alignment) -> bool {
+    ///
+    /// ## Example
+    ///
+    /// ```
+    /// use vortex_buffer::Alignment;
+    ///
+    /// let a = Alignment::new(4);
+    /// let b = Alignment::new(2);
+    /// assert!(a.is_aligned_to(b));
+    /// assert!(!b.is_aligned_to(a));
+    /// ```
+    #[inline]
+    pub fn is_aligned_to(&self, other: Alignment) -> bool {
         // Since we know alignments are powers of 2, we can compare them by checking if the number
         // of trailing zeros in the binary representation of the alignment is greater or equal.
         self.0.trailing_zeros() >= other.0.trailing_zeros()
@@ -70,5 +84,18 @@ impl From<Alignment> for usize {
 impl From<Alignment> for u16 {
     fn from(value: Alignment) -> Self {
         u16::try_from(value.0).vortex_expect("Alignment must fit into u16")
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn is_aligned_to() {
+        assert!(Alignment::new(1).is_aligned_to(Alignment::new(1)));
+        assert!(Alignment::new(2).is_aligned_to(Alignment::new(1)));
+        assert!(Alignment::new(4).is_aligned_to(Alignment::new(1)));
+        assert!(!Alignment::new(1).is_aligned_to(Alignment::new(2)));
     }
 }
