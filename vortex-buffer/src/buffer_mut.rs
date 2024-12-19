@@ -204,7 +204,7 @@ impl<T> Extend<T> for BufferMut<T> {
         let capacity = self.capacity();
         let mut len = self.len();
 
-        while len + 1 <= capacity {
+        while len < capacity {
             if let Some(item) = iterator.next() {
                 // SAFETY: We know we have enough capacity to write the item.
                 unsafe {

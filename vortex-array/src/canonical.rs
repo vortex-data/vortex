@@ -10,7 +10,7 @@ use arrow_array::{
     Time64MicrosecondArray, Time64NanosecondArray, TimestampMicrosecondArray,
     TimestampMillisecondArray, TimestampNanosecondArray, TimestampSecondArray,
 };
-use arrow_buffer::Buffer;
+use arrow_buffer::ScalarBuffer;
 use arrow_schema::{Field, FieldRef, Fields};
 use vortex_datetime_dtype::{is_temporal_ext_type, TemporalMetadata, TimeUnit};
 use vortex_dtype::{DType, NativePType, PType};
@@ -172,7 +172,11 @@ fn primitive_to_arrow(primitive_array: PrimitiveArray) -> VortexResult<ArrayRef>
         array: &PrimitiveArray,
     ) -> VortexResult<Arc<ArrowPrimitiveArray<T>>> {
         Ok(Arc::new(ArrowPrimitiveArray::new(
-            Buffer::<T::Native>::new(array.buffer().clone().into_arrow_buffer(), 0, array.len()),
+            ScalarBuffer::<T::Native>::new(
+                array.buffer().clone().into_arrow_buffer(),
+                0,
+                array.len(),
+            ),
             array.logical_validity().to_null_buffer()?,
         )))
     }

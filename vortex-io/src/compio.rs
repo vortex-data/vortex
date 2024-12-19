@@ -5,7 +5,6 @@ use bytes::Bytes;
 use compio::fs::File;
 use compio::io::AsyncReadAtExt;
 use compio::BufResult;
-use vortex_buffer::Buffer;
 use vortex_error::VortexUnwrap;
 
 use crate::VortexReadAt;

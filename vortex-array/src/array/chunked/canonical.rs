@@ -1,4 +1,4 @@
-use arrow_buffer::{BooleanBufferBuilder, Buffer, Buffer as ArrowBuffer};
+use arrow_buffer::BooleanBufferBuilder;
 use vortex_buffer::BufferMut;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType, StructDType};
 use vortex_error::{vortex_bail, vortex_err, ErrString, VortexExpect, VortexResult};
@@ -11,6 +11,7 @@ use crate::array::struct_::StructArray;
 use crate::array::{BinaryView, BoolArray, ListArray, VarBinViewArray};
 use crate::compute::{scalar_at, slice, try_cast};
 use crate::validity::Validity;
+use crate::validity::Validity::NonNullable;
 use crate::{
     ArrayDType, ArrayData, ArrayLen, ArrayValidity, Canonical, IntoArrayData, IntoArrayVariant,
     IntoCanonical,
@@ -21,7 +22,7 @@ impl IntoCanonical for ChunkedArray {
         let validity = if self.dtype().is_nullable() {
             self.logical_validity().into_validity()
         } else {
-            Validity::NonNullable
+            NonNullable
         };
         try_canonicalize_chunks(self.chunks().collect(), validity, self.dtype())
     }
@@ -163,7 +164,7 @@ fn pack_lists(chunks: &[ArrayData], validity: Validity, dtype: &DType) -> Vortex
         );
     }
     let chunked_elements = ChunkedArray::try_new(elements, elem_dtype.clone())?.into_array();
-    let offsets = PrimitiveArray::from_vec(offsets, Validity::NonNullable);
+    let offsets = PrimitiveArray::from_vec(offsets, NonNullable);
 
     ListArray::try_new(chunked_elements, offsets.into_array(), validity)
 }
@@ -240,7 +241,7 @@ fn pack_views(
     validity: Validity,
 ) -> VortexResult<VarBinViewArray> {
     let total_len = chunks.iter().map(|a| a.len()).sum();
-    let mut views: Vec<u128> = Vec::with_capacity(total_len);
+    let mut views: BufferMut<u128> = BufferMut::with_capacity(total_len);
     let mut buffers = Vec::new();
     for chunk in chunks {
         // Each chunk's views have buffer IDs that are zero-referenced.
@@ -274,9 +275,9 @@ fn pack_views(
         }
     }
 
-    let views_buffer: Buffer = ArrowBuffer::<u128>::from(views).into_inner();
     VarBinViewArray::try_new(
-        ArrayData::from(views_buffer),
+        PrimitiveArray::from_buffer(views.freeze().into_byte_buffer(), PType::U8, NonNullable)
+            .into_array(),
         buffers,
         dtype.clone(),
         validity,

@@ -14,7 +14,7 @@ use arrow_array::types::{
 };
 use arrow_array::{BinaryViewArray, GenericByteViewArray, GenericListArray, StringViewArray};
 use arrow_buffer::buffer::{NullBuffer, OffsetBuffer};
-use arrow_buffer::{ArrowNativeType, BooleanBuffer, Buffer, Buffer};
+use arrow_buffer::{ArrowNativeType, BooleanBuffer, Buffer, ScalarBuffer};
 use arrow_schema::{DataType, TimeUnit as ArrowTimeUnit};
 use itertools::Itertools;
 use vortex_buffer::{Alignment, ByteBuffer};
@@ -48,11 +48,11 @@ impl From<BooleanBuffer> for ArrayData {
     }
 }
 
-impl<T> From<Buffer<T>> for ArrayData
+impl<T> From<ScalarBuffer<T>> for ArrayData
 where
     T: ArrowNativeType + NativePType,
 {
-    fn from(value: Buffer<T>) -> Self {
+    fn from(value: ScalarBuffer<T>) -> Self {
         PrimitiveArray::new(
             vortex_buffer::Buffer::<T>::from_arrow(value, Alignment::of::<T>()),
             Validity::NonNullable,
