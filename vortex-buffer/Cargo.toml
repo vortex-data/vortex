@@ -24,3 +24,12 @@ vortex-error = { workspace = true }
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+arrow-buffer = { workspace = true }
+num-traits = { workspace = true }
+divan = { workspace = true }
+
+[[bench]]
+name = "vortex_buffer"
+harness = false

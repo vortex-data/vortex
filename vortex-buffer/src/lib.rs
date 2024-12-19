@@ -12,16 +12,16 @@
 
 extern crate core;
 
-pub use aligned_const::*;
 pub use alignment::*;
+pub use r#const::*;
 pub use scalar::*;
 pub use scalar_mut::*;
 pub use string::*;
 
-mod aligned_const;
 mod alignment;
 #[cfg(feature = "arrow")]
 mod arrow;
+mod r#const;
 mod scalar;
 mod scalar_mut;
 mod string;
