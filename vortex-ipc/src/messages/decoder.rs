@@ -77,6 +77,7 @@ struct ReadingArray {
 struct ReadingBuffer {
     length: usize,
     length_with_padding: usize,
+    alignment: Alignment,
 }
 
 #[derive(Debug)]
@@ -95,15 +96,16 @@ pub enum PollRead {
 ///  over a shared buffer of bytes, instead of requiring a `BytesMut`.
 pub struct MessageDecoder {
     /// The minimum alignment to use when reading a data `Buffer`.
-    alignment: usize,
+    alignment: Alignment,
     /// The current state of the decoder.
     state: State,
+    // TODO(ngates):
 }
 
 impl Default for MessageDecoder {
     fn default() -> Self {
         Self {
-            alignment: ALIGNMENT,
+            alignment: ALIGNMENT.into(),
             state: Default::default(),
         }
     }
@@ -112,7 +114,7 @@ impl Default for MessageDecoder {
 /// The alignment required for a flatbuffer message.
 /// This is based on the assumption that the maximum primitive type is 8 bytes.
 /// See: https://groups.google.com/g/flatbuffers/c/PSgQeWeTx_g
-const FB_ALIGNMENT: usize = 8;
+const FB_ALIGNMENT: Alignment = Alignment::new(8);
 
 impl MessageDecoder {
     /// Attempt to read the next message from the bytes object.
@@ -162,7 +164,7 @@ impl MessageDecoder {
                             self.state = State::Array(ReadingArray {
                                 header: AlignedBuffer::new_with_alignment(
                                     msg_bytes.split().freeze(),
-                                    Alignment::new(FB_ALIGNMENT),
+                                    FB_ALIGNMENT,
                                 ),
                                 buffers_length,
                             });
@@ -176,6 +178,7 @@ impl MessageDecoder {
                             self.state = State::Buffer(ReadingBuffer {
                                 length,
                                 length_with_padding,
+                                alignment: buffer.alignment_().into(),
                             });
                         }
                         MessageHeader::DType => {
@@ -194,16 +197,20 @@ impl MessageDecoder {
                 State::Buffer(ReadingBuffer {
                     length,
                     length_with_padding,
+                    alignment,
                 }) => {
+                    // Ensure the buffer is read with maximum of reader and message alignment.
+                    let read_alignment = self.alignment.max(*alignment);
                     if bytes.len() < *length_with_padding {
-                        bytes.try_reserve_aligned(*length_with_padding, self.alignment);
+                        bytes.try_reserve_aligned(*length_with_padding, read_alignment);
                         return Ok(PollRead::NeedMore(*length_with_padding));
                     }
-                    let buffer = bytes.split_to_aligned(*length, self.alignment);
+                    let buffer = bytes.split_to_aligned(*length, read_alignment);
 
                     let msg = DecoderMessage::Buffer(AlignedBuffer::new_with_alignment(
                         buffer.freeze(),
-                        Alignment::new(self.alignment),
+                        // Then use the buffer-requested alignment for the result.
+                        *alignment,
                     ));
                     let _padding = bytes.split_to(length_with_padding - length);
 
@@ -236,13 +243,14 @@ impl MessageDecoder {
                         .map(|buffer_msg| {
                             let buffer_len = usize::try_from(buffer_msg.length())
                                 .vortex_expect("buffer length is too large for usize");
-                            let alignment = match buffer_msg.alignment_() {
-                                0 => self.alignment,
-                                align => (align as usize).min(self.alignment),
-                            };
-                            let buffer = bytes.split_to_aligned(buffer_len, alignment);
+                            let buffer_alignment = Alignment::from(buffer_msg.alignment_());
+
+                            // Ensure the buffer is read with maximum of reader and message alignment.
+                            let read_alignment = self.alignment.max(buffer_alignment);
+                            let buffer = bytes.split_to_aligned(buffer_len, read_alignment);
                             let _padding = bytes.split_to(buffer_msg.padding() as usize);
-                            AlignedBuffer::new_with_alignment(buffer.freeze(), alignment.into())
+                            // But use the buffer-requested alignment for the result.
+                            AlignedBuffer::new_with_alignment(buffer.freeze(), buffer_alignment)
                         })
                         .collect_vec();
 
@@ -264,6 +272,7 @@ impl MessageDecoder {
     }
 }
 
+// TODO(ngates): use AlignedBufferMut instead of BytesMut
 trait BytesMutAlignedSplit {
     /// If the buffer is empty, advances the cursor to the next aligned position and ensures there
     /// is sufficient capacity for the requested length.
@@ -274,42 +283,42 @@ trait BytesMutAlignedSplit {
     /// However, if the source of the decoder's BytesMut is a fully formed in-memory IPC buffer,
     /// then it would be wasteful to copy the whole thing, and we'd rather only copy the individual
     /// buffers that require alignment.
-    fn try_reserve_aligned(&mut self, capacity: usize, align: usize);
+    fn try_reserve_aligned(&mut self, capacity: usize, alignment: Alignment);
 
     /// Splits the buffer at the given index, ensuring the returned BytesMut is aligned
     /// as requested.
     ///
     /// If the buffer isn't already aligned, the split data will be copied into a new
     /// buffer that is aligned.
-    fn split_to_aligned(&mut self, at: usize, align: usize) -> BytesMut;
+    fn split_to_aligned(&mut self, at: usize, alignment: Alignment) -> BytesMut;
 }
 
 impl BytesMutAlignedSplit for BytesMut {
-    fn try_reserve_aligned(&mut self, capacity: usize, align: usize) {
+    fn try_reserve_aligned(&mut self, capacity: usize, alignment: Alignment) {
         if !self.is_empty() {
             return;
         }
 
         // Reserve up to the worst-cast alignment
-        self.reserve(capacity + align);
-        let padding = self.as_ptr().align_offset(align);
+        self.reserve(capacity + *alignment);
+        let padding = self.as_ptr().align_offset(*alignment);
         unsafe { self.set_len(padding) };
         self.advance(padding);
     }
 
-    fn split_to_aligned(&mut self, at: usize, align: usize) -> BytesMut {
+    fn split_to_aligned(&mut self, at: usize, alignment: Alignment) -> BytesMut {
         let buffer = self.split_to(at);
 
         // If the buffer is already aligned, we can return it directly.
-        if buffer.as_ptr().align_offset(align) == 0 {
+        if buffer.as_ptr().align_offset(*alignment) == 0 {
             return buffer;
         }
 
         // Otherwise, we allocate a new buffer, align the start, and copy the data.
         // NOTE(ngates): this case will rarely be hit. Only if the caller mutates the bytes after
         //  they have been aligned by the decoder using `reserve_aligned`.
-        let mut aligned = BytesMut::with_capacity(buffer.len() + align);
-        let padding = aligned.as_ptr().align_offset(align);
+        let mut aligned = BytesMut::with_capacity(buffer.len() + *alignment);
+        let padding = aligned.as_ptr().align_offset(*alignment);
         unsafe { aligned.set_len(padding) };
         aligned.advance(padding);
         aligned.extend_from_slice(&buffer);

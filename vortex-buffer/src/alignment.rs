@@ -1,7 +1,7 @@
 use std::fmt::Display;
 use std::ops::Deref;
 
-use vortex_error::{vortex_panic, VortexExpect};
+use vortex_error::VortexExpect;
 
 /// The alignment of a buffer.
 ///
@@ -16,23 +16,19 @@ impl Alignment {
     /// ## Panics
     ///
     /// Panics if `align` is not a power of 2, or is greater than `u16::MAX`.
-    pub fn new(align: usize) -> Self {
-        if align > u16::MAX as usize {
-            vortex_panic!("Alignment must fit into u16");
-        }
-        if !align.is_power_of_two() {
-            vortex_panic!("Alignment must be a power of 2");
-        }
+    pub const fn new(align: usize) -> Self {
+        assert!(align <= u16::MAX as usize, "Alignment must fit into u16");
+        assert!(align.is_power_of_two(), "Alignment must be a power of 2");
         Self(align)
     }
 
     /// Create an alignment from the alignment of a type `T`.
-    pub fn of<T>() -> Self {
+    pub const fn of<T>() -> Self {
         Self::new(align_of::<T>())
     }
 
     /// Check if this alignment is a "larger" than another alignment.
-    pub fn is_aligned_to(&self, other: Alignment) -> bool {
+    pub const fn is_aligned_to(&self, other: Alignment) -> bool {
         // Since we know alignments are powers of 2, we can compare them by checking if the number
         // of trailing zeros in the binary representation of the alignment is greater or equal.
         self.0.trailing_zeros() >= other.0.trailing_zeros()
@@ -55,7 +51,11 @@ impl Deref for Alignment {
 
 impl From<usize> for Alignment {
     fn from(value: usize) -> Self {
-        Self::new(value)
+        if value == 0 {
+            Self::new(1)
+        } else {
+            Self::new(value)
+        }
     }
 }
 
