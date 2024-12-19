@@ -208,7 +208,7 @@ impl VisitorVTable<ChunkedArray> for ChunkedEncoding {
     fn accept(&self, array: &ChunkedArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
         visitor.visit_child("chunk_ends", &array.chunk_offsets())?;
         for (idx, chunk) in array.chunks().enumerate() {
-            visitor.visit_child(format!("[{}]", idx).as_str(), &chunk)?;
+            visitor.visit_child(format!("chunks[{}]", idx).as_str(), &chunk)?;
         }
         Ok(())
     }
