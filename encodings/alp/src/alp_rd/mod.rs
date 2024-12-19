@@ -283,7 +283,7 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
             .patch(patches)?
             .try_into_maybe_null_vec::<u16>()
             .map_err(|_| vortex_err!("could not zero copy patched left_parts_decoded"))
-            .vortex_expect("there are no aliases to this primitive array"),
+            .vortex_expect("the buffer backing this PrimitiveArray is uniquely derived from a Vec<u16> uniquely owned by this method"),
         None => left_parts_decoded,
     };
 
