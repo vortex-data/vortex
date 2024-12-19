@@ -9,7 +9,6 @@ use vortex_dtype::{DType, NativePType, Nullability, PType};
 use vortex_error::{VortexExpect, VortexUnwrap};
 use vortex_scalar::arbitrary::random_scalar;
 use vortex_scalar::Scalar;
-use Nullability::Nullable;
 
 use super::{BoolArray, ChunkedArray, NullArray, PrimitiveArray, StructArray};
 use crate::array::{VarBinArray, VarBinViewArray};
@@ -131,7 +130,7 @@ where
     let list_len = u.int_in_range(0..=20)?;
     let mut builder = ListBuilder::<O>::with_capacity(ldt.clone(), *n, 1);
     for _ in 0..list_len {
-        if matches!(n, Nullable) || u.arbitrary::<bool>()? {
+        if matches!(n, Nullability::Nullable) || u.arbitrary::<bool>()? {
             let elem_len = u.int_in_range(0..=20)?;
             let elem = (0..elem_len)
                 .map(|_| random_scalar(u, ldt))
@@ -169,10 +168,10 @@ fn random_string(
                 _ => unreachable!(),
             })
         }
-        Nullable => {
+        Nullability::Nullable => {
             let v = arbitrary_vec_of_len::<Option<String>>(u, len)?;
             Ok(match u.int_in_range(0..=1)? {
-                0 => VarBinArray::from_iter(v, DType::Utf8(Nullable)).into_array(),
+                0 => VarBinArray::from_iter(v, DType::Utf8(Nullability::Nullable)).into_array(),
                 1 => VarBinViewArray::from_iter_nullable_str(v).into_array(),
                 _ => unreachable!(),
             })
@@ -194,10 +193,10 @@ fn random_bytes(
                 _ => unreachable!(),
             })
         }
-        Nullable => {
+        Nullability::Nullable => {
             let v = arbitrary_vec_of_len::<Option<Vec<u8>>>(u, len)?;
             Ok(match u.int_in_range(0..=1)? {
-                0 => VarBinArray::from_iter(v, DType::Binary(Nullable)).into_array(),
+                0 => VarBinArray::from_iter(v, DType::Binary(Nullability::Nullable)).into_array(),
                 1 => VarBinViewArray::from_iter_nullable_bin(v).into_array(),
                 _ => unreachable!(),
             })
@@ -230,7 +229,7 @@ fn random_bool(
 fn random_validity(u: &mut Unstructured, nullability: Nullability, len: usize) -> Result<Validity> {
     match nullability {
         Nullability::NonNullable => Ok(Validity::NonNullable),
-        Nullable => Ok(match u.int_in_range(0..=2)? {
+        Nullability::Nullable => Ok(match u.int_in_range(0..=2)? {
             0 => Validity::AllValid,
             1 => Validity::AllInvalid,
             2 => Validity::from_iter(arbitrary_vec_of_len::<bool>(u, Some(len))?),
