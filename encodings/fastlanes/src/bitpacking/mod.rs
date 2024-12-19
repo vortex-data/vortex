@@ -100,6 +100,16 @@ impl BitPackedArray {
             );
         }
 
+        if let Some(ref patches) = patches {
+            if patches.dtype() != &DType::from(ptype) {
+                vortex_bail!(
+                    "Patches DType {} does not match BitPackedArray dtype {}",
+                    patches.dtype(),
+                    ptype
+                )
+            }
+        }
+
         // expected packed size is in bytes
         let expected_packed_size =
             ((length + offset as usize + 1023) / 1024) * (128 * bit_width as usize);
@@ -276,8 +286,9 @@ impl PrimitiveArrayTrait for BitPackedArray {}
 
 #[cfg(test)]
 mod test {
+    use itertools::Itertools;
     use vortex_array::array::PrimitiveArray;
-    use vortex_array::{IntoArrayData, IntoArrayVariant};
+    use vortex_array::{IntoArrayData, IntoArrayVariant, IntoCanonical};
 
     use crate::BitPackedArray;
 
@@ -304,5 +315,23 @@ mod test {
             .expect_err("Cannot pack value into the same width");
         let _packed = BitPackedArray::encode(uncompressed.as_ref(), 9)
             .expect_err("Cannot pack value into larger width");
+    }
+
+    #[test]
+    fn signed_with_patches() {
+        let values = (0i32..=512).collect_vec();
+        let parray = PrimitiveArray::from(values.clone()).into_array();
+
+        let packed_with_patches = BitPackedArray::encode(&parray, 9).unwrap();
+        assert!(packed_with_patches.patches().is_some());
+        assert_eq!(
+            packed_with_patches
+                .into_canonical()
+                .unwrap()
+                .into_primitive()
+                .unwrap()
+                .into_maybe_null_slice::<i32>(),
+            values
+        );
     }
 }

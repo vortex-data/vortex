@@ -1,32 +1,49 @@
-use itertools::Itertools;
-use vortex_dtype::{match_each_integer_ptype, match_each_native_ptype};
+use arrow_buffer::ArrowNativeType;
+use vortex_dtype::{match_each_integer_ptype, match_each_native_ptype, NativePType};
 use vortex_error::VortexResult;
 
 use crate::array::PrimitiveArray;
 use crate::patches::Patches;
+use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayLen, IntoArrayVariant};
 
 impl PrimitiveArray {
     #[allow(clippy::cognitive_complexity)]
     pub fn patch(self, patches: Patches) -> VortexResult<Self> {
-        let (_, indices, values) = patches.into_parts();
-        let indices = indices.into_primitive()?;
-        let values = values.into_primitive()?;
+        let (_, patch_indices, patch_values) = patches.into_parts();
+        let patch_indices = patch_indices.into_primitive()?;
+        let patch_values = patch_values.into_primitive()?;
 
         let patched_validity =
             self.validity()
-                .patch(self.len(), indices.as_ref(), values.validity())?;
+                .patch(self.len(), patch_indices.as_ref(), patch_values.validity())?;
 
-        match_each_integer_ptype!(indices.ptype(), |$I| {
+        match_each_integer_ptype!(patch_indices.ptype(), |$I| {
             match_each_native_ptype!(self.ptype(), |$T| {
-                let mut own_values = self.into_maybe_null_slice::<$T>();
-                for (idx, value) in indices.into_maybe_null_slice::<$I>().into_iter().zip_eq(values.into_maybe_null_slice::<$T>().into_iter()) {
-                    own_values[idx as usize] = value;
-                }
-                Ok(Self::from_vec(own_values, patched_validity))
+                self.patch_typed::<$T, $I>(patch_indices, patch_values, patched_validity)
             })
         })
+    }
+
+    fn patch_typed<T, I>(
+        self,
+        patch_indices: PrimitiveArray,
+        patch_values: PrimitiveArray,
+        patched_validity: Validity,
+    ) -> VortexResult<Self>
+    where
+        T: NativePType + ArrowNativeType,
+        I: NativePType + ArrowNativeType,
+    {
+        let mut own_values = self.into_maybe_null_slice::<T>();
+
+        let patch_indices = patch_indices.into_maybe_null_slice::<I>();
+        let patch_values = patch_values.into_maybe_null_slice::<T>();
+        for (idx, value) in itertools::zip_eq(patch_indices, patch_values) {
+            own_values[idx.as_usize()] = value;
+        }
+        Ok(Self::from_vec(own_values, patched_validity))
     }
 }
 

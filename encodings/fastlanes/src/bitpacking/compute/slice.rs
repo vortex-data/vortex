@@ -2,7 +2,7 @@ use std::cmp::max;
 
 use vortex_array::compute::SliceFn;
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
+use vortex_array::{ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
 
 use crate::{BitPackedArray, BitPackedEncoding};
@@ -21,7 +21,7 @@ impl SliceFn<BitPackedArray> for BitPackedEncoding {
         // slice the buffer using the encoded start/stop values
 
         // SAFETY: the invariants of the original BitPackedArray are preserved when slicing.
-        let sliced = unsafe {
+        unsafe {
             BitPackedArray::new_unchecked_with_offset(
                 array.packed().slice(encoded_start..encoded_stop),
                 array.ptype(),
@@ -36,11 +36,7 @@ impl SliceFn<BitPackedArray> for BitPackedEncoding {
                 offset as u16,
             )
         }
-        .map(|a| a.into_array())?;
-
-        assert_eq!(sliced.dtype(), array.dtype(), "BPA slice changed type");
-
-        Ok(sliced)
+        .map(|a| a.into_array())
     }
 }
 

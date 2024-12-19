@@ -181,7 +181,6 @@ jobs:
           BENCH_VORTEX_RATIOS: '.*'
           RUSTFLAGS: '-C target-cpu=native'
           HOME: /home/ci-runner
-          RUST_BACKTRACE: full
         run: |
           cargo run --bin clickbench --release -- -d gh-json | tee clickbench.json
       - name: Setup AWS CLI
