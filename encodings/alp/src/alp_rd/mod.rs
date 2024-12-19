@@ -293,7 +293,7 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
             .iter()
             .zip(right_parts.iter().copied())
             .map(|(left, right)| {
-                let left = <T as ALPRDFloat>::from_u16(left);
+                let left = <T as ALPRDFloat>::from_u16(*left);
                 T::from_bits((left << (right_bit_width as usize)) | right)
             }),
     ))

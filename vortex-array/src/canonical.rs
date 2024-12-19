@@ -172,7 +172,11 @@ fn primitive_to_arrow(primitive_array: PrimitiveArray) -> VortexResult<ArrayRef>
         array: &PrimitiveArray,
     ) -> VortexResult<Arc<ArrowPrimitiveArray<T>>> {
         Ok(Arc::new(ArrowPrimitiveArray::new(
-            ScalarBuffer::<T::Native>::new(array.buffer().clone().into_arrow(), 0, array.len()),
+            ScalarBuffer::<T::Native>::new(
+                array.buffer().clone().into_arrow_buffer(),
+                0,
+                array.len(),
+            ),
             array.logical_validity().to_null_buffer()?,
         )))
     }
@@ -286,10 +290,8 @@ fn temporal_to_arrow(temporal_array: TemporalArray) -> VortexResult<ArrayRef> {
                 &DType::Primitive(<$prim as NativePType>::PTYPE, $values.dtype().nullability()),
             )?
             .into_primitive()?;
-            let len = temporal_values.len();
             let nulls = temporal_values.logical_validity().to_null_buffer()?;
-            let scalars =
-                ScalarBuffer::<$prim>::new(temporal_values.into_buffer().into_arrow(), 0, len);
+            let scalars = temporal_values.into_scalar_buffer().into_arrow();
 
             (scalars, nulls)
         }};

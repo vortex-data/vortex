@@ -15,7 +15,7 @@ use vortex_array::{
     impl_encoding, ArrayDType as _, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
     IntoCanonical,
 };
-use vortex_buffer::AlignedBuffer;
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
@@ -68,7 +68,7 @@ impl RoaringIntArray {
             DType::Primitive(ptype, NonNullable),
             length,
             Arc::new(RoaringIntMetadata { ptype }),
-            Some(AlignedBuffer::from(bitmap.serialize::<Portable>())),
+            Some(ByteBuffer::from(bitmap.serialize::<Portable>())),
             vec![].into(),
             stats,
         )?

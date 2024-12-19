@@ -1,7 +1,7 @@
 use std::future::{ready, Future};
 use std::io::{self, Cursor, Write};
 
-use vortex_buffer::AlignedBufferMut;
+use vortex_buffer::ByteBufferMut;
 
 use crate::IoBuf;
 
@@ -26,7 +26,7 @@ impl VortexWrite for Vec<u8> {
     }
 }
 
-impl VortexWrite for AlignedBufferMut {
+impl VortexWrite for ByteBufferMut {
     fn write_all<B: IoBuf>(&mut self, buffer: B) -> impl Future<Output = io::Result<B>> {
         self.extend_from_slice(buffer.as_slice());
         ready(Ok(buffer))

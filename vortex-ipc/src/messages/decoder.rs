@@ -5,7 +5,7 @@ use bytes::{Buf, BytesMut};
 use flatbuffers::{root, root_unchecked, Follow};
 use itertools::Itertools;
 use vortex_array::{flatbuffers as fba, ArrayData, Context};
-use vortex_buffer::{AlignedBuffer, Alignment};
+use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_flatbuffers::message as fb;
@@ -21,7 +21,7 @@ use crate::ALIGNMENT;
 #[derive(Debug)]
 pub enum DecoderMessage {
     Array(ArrayParts),
-    Buffer(AlignedBuffer),
+    Buffer(ByteBuffer),
     DType(DType),
 }
 
@@ -31,9 +31,9 @@ pub struct ArrayParts {
     row_count: usize,
     // Typed as fb::Array
     // FIXME(ngates): use ConstAlignedArray aliased to FlatBuffer
-    array_flatbuffer: AlignedBuffer,
+    array_flatbuffer: ByteBuffer,
     array_flatbuffer_loc: usize,
-    buffers: Vec<AlignedBuffer>,
+    buffers: Vec<ByteBuffer>,
 }
 
 impl Debug for ArrayParts {
@@ -70,7 +70,7 @@ enum State {
 }
 
 struct ReadingArray {
-    header: AlignedBuffer,
+    header: ByteBuffer,
     buffers_length: usize,
 }
 
@@ -162,7 +162,7 @@ impl MessageDecoder {
                             })?;
 
                             self.state = State::Array(ReadingArray {
-                                header: AlignedBuffer::new_with_alignment(
+                                header: ByteBuffer::from_bytes_aligned(
                                     msg_bytes.split().freeze(),
                                     FB_ALIGNMENT,
                                 ),
@@ -178,7 +178,7 @@ impl MessageDecoder {
                             self.state = State::Buffer(ReadingBuffer {
                                 length,
                                 length_with_padding,
-                                alignment: buffer.alignment_().into(),
+                                alignment: buffer.alignment_().max(1).into(),
                             });
                         }
                         MessageHeader::DType => {
@@ -207,7 +207,7 @@ impl MessageDecoder {
                     }
                     let buffer = bytes.split_to_aligned(*length, read_alignment);
 
-                    let msg = DecoderMessage::Buffer(AlignedBuffer::new_with_alignment(
+                    let msg = DecoderMessage::Buffer(ByteBuffer::from_bytes_aligned(
                         buffer.freeze(),
                         // Then use the buffer-requested alignment for the result.
                         *alignment,
@@ -243,14 +243,14 @@ impl MessageDecoder {
                         .map(|buffer_msg| {
                             let buffer_len = usize::try_from(buffer_msg.length())
                                 .vortex_expect("buffer length is too large for usize");
-                            let buffer_alignment = Alignment::from(buffer_msg.alignment_());
+                            let buffer_alignment = Alignment::from(buffer_msg.alignment_().max(1));
 
                             // Ensure the buffer is read with maximum of reader and message alignment.
                             let read_alignment = self.alignment.max(buffer_alignment);
                             let buffer = bytes.split_to_aligned(buffer_len, read_alignment);
                             let _padding = bytes.split_to(buffer_msg.padding() as usize);
                             // But use the buffer-requested alignment for the result.
-                            AlignedBuffer::new_with_alignment(buffer.freeze(), buffer_alignment)
+                            ByteBuffer::from_bytes_aligned(buffer.freeze(), buffer_alignment)
                         })
                         .collect_vec();
 
@@ -272,7 +272,7 @@ impl MessageDecoder {
     }
 }
 
-// TODO(ngates): use AlignedBufferMut instead of BytesMut
+// TODO(ngates): use ByteBufferMut instead of BytesMut
 trait BytesMutAlignedSplit {
     /// If the buffer is empty, advances the cursor to the next aligned position and ensures there
     /// is sufficient capacity for the requested length.

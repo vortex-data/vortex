@@ -12,20 +12,22 @@
 
 extern crate core;
 
-pub use aligned::*;
 pub use aligned_const::*;
-pub use aligned_mut::*;
 pub use alignment::*;
 pub use scalar::*;
 pub use scalar_mut::*;
 pub use string::*;
 
-mod aligned;
 mod aligned_const;
-mod aligned_mut;
 mod alignment;
 #[cfg(feature = "arrow")]
 mod arrow;
 mod scalar;
 mod scalar_mut;
 mod string;
+
+/// An immutable buffer of u8.
+pub type ByteBuffer = ScalarBuffer<u8>;
+
+/// A mutable buffer of u8.
+pub type ByteBufferMut = ScalarBufferMut<u8>;

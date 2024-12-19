@@ -1,6 +1,6 @@
 use arrow_array::builder::make_view;
 use arrow_buffer::BooleanBuffer;
-use vortex_buffer::{AlignedBufferMut, ScalarBuffer};
+use vortex_buffer::{ByteBufferMut, ScalarBuffer};
 use vortex_dtype::{match_each_native_ptype, DType, Nullability};
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::{BinaryScalar, BoolScalar, ExtScalar, Utf8Scalar};
@@ -100,8 +100,10 @@ fn canonical_byte_view(
             // Clone our constant view `len` times.
             // TODO(aduffy): switch this out for a ConstantArray once we
             //   add u128 PType, see https://github.com/spiraldb/vortex/issues/1110
-            let mut views =
-                AlignedBufferMut::with_capacity(len * VIEW_SIZE_BYTES, align_of::<u128>().into());
+            let mut views = ByteBufferMut::with_capacity_aligned(
+                len * VIEW_SIZE_BYTES,
+                align_of::<u128>().into(),
+            );
             for _ in 0..len {
                 views.extend_from_slice(&view.to_le_bytes());
             }

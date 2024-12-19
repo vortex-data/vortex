@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use enum_iterator::all;
 use itertools::Itertools;
-use vortex_buffer::AlignedBuffer;
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_err, VortexExpect as _, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
@@ -20,10 +20,10 @@ pub(super) struct ViewedArrayData {
     pub(super) dtype: DType,
     pub(super) len: usize,
     pub(super) metadata: Arc<dyn ArrayMetadata>,
-    // TODO(ngates): use ConstAlignedBuffer once it is stable
-    pub(super) flatbuffer: AlignedBuffer,
+    // TODO(ngates): use ConstByteBuffer once it is stable
+    pub(super) flatbuffer: ByteBuffer,
     pub(super) flatbuffer_loc: usize,
-    pub(super) buffers: Arc<[AlignedBuffer]>,
+    pub(super) buffers: Arc<[ByteBuffer]>,
     pub(super) ctx: Arc<Context>,
     #[cfg(feature = "canonical_counter")]
     pub(super) canonical_counter: Arc<std::sync::atomic::AtomicUsize>,
@@ -103,7 +103,7 @@ impl ViewedArrayData {
         collector.children()
     }
 
-    pub fn buffer(&self) -> Option<&AlignedBuffer> {
+    pub fn buffer(&self) -> Option<&ByteBuffer> {
         self.flatbuffer()
             .buffers()
             .and_then(|buffers| {

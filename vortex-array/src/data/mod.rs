@@ -6,7 +6,7 @@ use std::sync::{Arc, RwLock};
 use itertools::Itertools;
 use owned::OwnedArrayData;
 use viewed::ViewedArrayData;
-use vortex_buffer::AlignedBuffer;
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
@@ -61,7 +61,7 @@ impl ArrayData {
         dtype: DType,
         len: usize,
         metadata: Arc<dyn ArrayMetadata>,
-        buffer: Option<AlignedBuffer>,
+        buffer: Option<ByteBuffer>,
         children: Arc<[ArrayData]>,
         statistics: StatsSet,
     ) -> VortexResult<Self> {
@@ -82,10 +82,10 @@ impl ArrayData {
         ctx: Arc<Context>,
         dtype: DType,
         len: usize,
-        // TODO(ngates): use ConstAlignedBuffer
-        flatbuffer: AlignedBuffer,
+        // TODO(ngates): use ConstByteBuffer
+        flatbuffer: ByteBuffer,
         flatbuffer_init: F,
-        buffers: Vec<AlignedBuffer>,
+        buffers: Vec<ByteBuffer>,
     ) -> VortexResult<Self>
     where
         F: FnOnce(&[u8]) -> VortexResult<crate::flatbuffers::Array>,
@@ -320,14 +320,14 @@ impl ArrayData {
         }
     }
 
-    pub fn buffer(&self) -> Option<&AlignedBuffer> {
+    pub fn buffer(&self) -> Option<&ByteBuffer> {
         match &self.0 {
             InnerArrayData::Owned(d) => d.buffer(),
             InnerArrayData::Viewed(v) => v.buffer(),
         }
     }
 
-    pub fn into_buffer(self) -> Option<AlignedBuffer> {
+    pub fn into_buffer(self) -> Option<ByteBuffer> {
         match self.0 {
             InnerArrayData::Owned(d) => d.into_buffer(),
             InnerArrayData::Viewed(v) => v.buffer().cloned(),

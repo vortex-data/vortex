@@ -1,22 +1,21 @@
 use std::collections::Bound;
-use std::ops::RangeBounds;
+use std::ops::{Deref, RangeBounds};
 
+use bytes::Bytes;
 use vortex_error::{vortex_panic, VortexExpect};
 
-use crate::{AlignedBuffer, AlignedBufferMut, Alignment, ScalarBufferMut};
+use crate::{Alignment, ByteBuffer, ScalarBufferMut};
 
 /// A buffer of Vortex primitive scalars.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd)]
 pub struct ScalarBuffer<T> {
-    /// The underlying aligned buffer.
-    /// We hold an `AlignedBuffer` instead of a `Bytes` to allow defining a wider alignment than
-    /// the scalar type's alignment.
-    pub(crate) buffer: AlignedBuffer,
+    pub(crate) bytes: Bytes,
     pub(crate) length: usize,
+    pub(crate) alignment: Alignment,
     pub(crate) _marker: std::marker::PhantomData<T>,
 }
 
-impl<T: Copy> ScalarBuffer<T> {
+impl<T> ScalarBuffer<T> {
     /// Returns a new `ScalarBuffer<T>` copied from the provided `Vec<T>`.
     ///
     /// Due to our underlying usage of `bytes::Bytes`, we are unable to take zero-copy ownership
@@ -24,15 +23,73 @@ impl<T: Copy> ScalarBuffer<T> {
     /// buffer. We could fix this by forking `Bytes`, or in many other complex ways, but for now
     /// callers should prefer to construct `ScalarBuffer<T>` from a `ScalarBufferMut<T>`.
     pub fn copy_from_vec(vec: Vec<T>) -> Self {
-        let byte_len = vec.len() * size_of::<T>();
-        let mut buffer = AlignedBufferMut::with_capacity(byte_len, align_of::<T>().into());
+        Self::copy_from_slice(&vec, Alignment::of::<T>())
+    }
 
-        let raw_slice: &[u8] = unsafe { std::slice::from_raw_parts(vec.as_ptr().cast(), byte_len) };
-        buffer.extend_from_slice(raw_slice);
+    /// Create a new `ScalarBuffer<T>` by copying a slice of `T`.
+    pub fn copy_from_slice(slice: &[T], alignment: Alignment) -> Self {
+        let mut buffer = ScalarBufferMut::<T>::with_capacity_aligned(slice.len(), alignment);
+        buffer.extend_from_slice(slice);
+        buffer.freeze()
+    }
 
+    /// Create a new empty `ByteBuffer` with the provided alignment.
+    pub fn empty(alignment: Alignment) -> Self {
+        ScalarBufferMut::with_capacity_aligned(0, alignment).freeze()
+    }
+
+    /// Create a `ScalarBuffer<T>` zero-copy from a `ByteBuffer`.
+    ///
+    /// ## Panics
+    ///
+    /// Panics if the buffer is not aligned to the size of `T`, or the length is not a multiple of
+    /// the size of `T`.
+    pub fn from_byte_buffer(buffer: ByteBuffer) -> Self {
+        Self::from_byte_buffer_aligned(buffer, Alignment::of::<T>())
+    }
+
+    /// Create a `ScalarBuffer<T>` zero-copy from a `ByteBuffer`.
+    ///
+    /// ## Panics
+    ///
+    /// Panics if the buffer is not aligned to the given alignment, if the length is not a multiple
+    /// of the size of `T`, or if the given alignment is not aligned to that of `T`.
+    pub fn from_byte_buffer_aligned(buffer: ByteBuffer, alignment: Alignment) -> Self {
+        Self::from_bytes_aligned(buffer.into_inner(), alignment)
+    }
+
+    /// Create a `ScalarBuffer<T>` zero-copy from a `Bytes`.
+    ///
+    /// ## Panics
+    ///
+    /// Panics if the buffer is not aligned to the size of `T`, or the length is not a multiple of
+    /// the size of `T`.
+    pub fn from_bytes_aligned(bytes: Bytes, alignment: Alignment) -> Self {
+        if alignment.is_aligned_to(Alignment::of::<T>()) {
+            vortex_panic!(
+                "Alignment {} must align to the scalar type's alignment {}",
+                alignment,
+                Alignment::of::<T>()
+            );
+        }
+        if bytes.as_ptr().align_offset(*alignment) != 0 {
+            vortex_panic!(
+                "Bytes alignment must align to the scalar type's alignment {}",
+                Alignment::of::<T>()
+            );
+        }
+        if bytes.len() % size_of::<T>() != 0 {
+            vortex_panic!(
+                "Bytes length {} must be a multiple of the scalar type's size {}",
+                bytes.len(),
+                size_of::<T>()
+            );
+        }
+        let length = bytes.len() / size_of::<T>();
         Self {
-            buffer: buffer.freeze(),
-            length: vec.len(),
+            bytes,
+            length,
+            alignment,
             _marker: Default::default(),
         }
     }
@@ -52,98 +109,166 @@ impl<T: Copy> ScalarBuffer<T> {
     /// Returns the alignment of the buffer.
     #[inline(always)]
     pub fn alignment(&self) -> Alignment {
-        self.buffer.alignment()
+        self.alignment
     }
 
     /// Returns a slice over the buffer of elements of type T.
     #[inline(always)]
     pub fn as_slice(&self) -> &[T] {
-        let raw_slice = self.buffer.as_slice();
+        let raw_slice = self.bytes.as_ref();
         // SAFETY: alignment of Buffer is checked on construction
         unsafe { std::slice::from_raw_parts(raw_slice.as_ptr().cast(), self.length) }
     }
 
     /// Returns an iterator over the buffer of elements of type T.
-    pub fn iter(&self) -> impl Iterator<Item = T> + '_ {
-        self.as_slice().iter().copied()
+    pub fn iter(&self) -> impl Iterator<Item = &T> + '_ {
+        self.as_slice().iter()
     }
 
     /// Returns a slice of self for the provided range.
     ///
-    /// FIXME(ngates): what should this do to the alignment? The underlying buffer is still
-    ///  aligned... But the new sliced one might not be? Should we panic if the caller tries to
-    ///  slice using unaligned indices?
+    /// # Panics
+    ///
+    /// Requires that `begin <= end` and `end <= self.len()`.
+    /// Also requires that both `begin` and `end` are aligned to the buffer's required alignment.
+    #[inline(always)]
+    pub fn slice(&self, range: impl RangeBounds<usize>) -> Self {
+        self.slice_with_alignment(range, self.alignment)
+    }
+
+    /// Returns a slice of self for the provided range, with no guarantees about the resulting
+    /// alignment.
     ///
     /// # Panics
     ///
-    /// Requires that `begin <= end` and `end <= self.len()`, otherwise slicing
-    /// will panic.
-    pub fn slice(&self, range: impl RangeBounds<usize>) -> Self {
+    /// Requires that `begin <= end` and `end <= self.len()`.
+    #[inline(always)]
+    pub fn slice_unaligned(&self, range: impl RangeBounds<usize>) -> Self {
+        self.slice_with_alignment(range, Alignment::of::<u8>())
+    }
+
+    /// Returns a slice of self for the provided range, ensuring the resulting slice has the
+    /// given alignment.
+    ///
+    /// # Panics
+    ///
+    /// Requires that `begin <= end` and `end <= self.len()`.
+    /// Also requires that both `begin` and `end` are aligned to the given alignment.
+    pub fn slice_with_alignment(
+        &self,
+        range: impl RangeBounds<usize>,
+        alignment: Alignment,
+    ) -> Self {
         let len = self.len();
         let begin = match range.start_bound() {
-            Bound::Included(&n) => n.checked_mul(size_of::<T>()).vortex_expect("out of range"),
-            Bound::Excluded(&n) => n
-                .checked_mul(size_of::<T>())
-                .and_then(|n| n.checked_add(size_of::<T>()))
-                .vortex_expect("out of range"),
+            Bound::Included(&n) => n,
+            Bound::Excluded(&n) => n.checked_add(1).vortex_expect("out of range"),
             Bound::Unbounded => 0,
         };
         let end = match range.end_bound() {
-            Bound::Included(&n) => n
-                .checked_mul(size_of::<T>())
-                .and_then(|n| n.checked_add(1))
-                .vortex_expect("out of range"),
-            Bound::Excluded(&n) => n.checked_mul(size_of::<T>()).vortex_expect("out of range"),
-            Bound::Unbounded => len
-                .checked_mul(size_of::<T>())
-                .vortex_expect("out of range"),
+            Bound::Included(&n) => n.checked_add(1).vortex_expect("out of range"),
+            Bound::Excluded(&n) => n,
+            Bound::Unbounded => len,
         };
 
+        if begin > end {
+            vortex_panic!(
+                "range start must not be greater than end: {:?} <= {:?}",
+                begin,
+                end
+            );
+        }
+        if end > len {
+            vortex_panic!("range end out of bounds: {:?} <= {:?}", end, len);
+        }
+
+        if end == begin {
+            // We prefer to return a new empty buffer instead of sharing this one and creating a
+            // strong reference just to hold an empty slice.
+            return Self::empty(alignment);
+        }
+
+        let begin_byte = begin * size_of::<T>();
+        let end_byte = end * size_of::<T>();
+
+        if !begin_byte.is_multiple_of(*alignment) {
+            vortex_panic!("range start must be aligned to {:?}", alignment);
+        }
+        if !end_byte.is_multiple_of(*alignment) {
+            vortex_panic!("range end must be aligned to {:?}", alignment);
+        }
+
         Self {
-            buffer: self.buffer.slice(begin..end),
+            bytes: self.bytes.slice(begin_byte..end_byte),
             length: end - begin,
+            alignment,
             _marker: Default::default(),
         }
     }
 
     /// Returns the underlying aligned buffer.
-    pub fn into_inner(self) -> AlignedBuffer {
-        self.buffer
+    pub fn into_inner(self) -> Bytes {
+        self.bytes
+    }
+
+    /// Return the ByteBuffer for this ScalarBuffer<T>.
+    pub fn into_byte_buffer(self) -> ByteBuffer {
+        ByteBuffer {
+            bytes: self.bytes,
+            length: self.length * size_of::<T>(),
+            alignment: self.alignment,
+            _marker: Default::default(),
+        }
     }
 
     /// Try to convert self into `ScalarBufferMut<T>` if there is only a single strong reference.
     pub fn try_into_mut(self) -> Result<ScalarBufferMut<T>, Self> {
-        self.buffer
+        self.bytes
             .try_into_mut()
-            .map(|buffer| ScalarBufferMut {
-                buffer,
+            .map(|bytes| ScalarBufferMut {
+                bytes,
                 length: self.length,
+                alignment: self.alignment,
                 _marker: Default::default(),
             })
-            .map_err(|buffer| Self {
-                buffer,
+            .map_err(|bytes| Self {
+                bytes,
                 length: self.length,
+                alignment: self.alignment,
                 _marker: Default::default(),
             })
     }
 }
 
-impl<T: Copy> From<AlignedBuffer> for ScalarBuffer<T> {
-    fn from(buffer: AlignedBuffer) -> Self {
-        if !buffer.alignment().is_multiple_of(align_of::<T>()) {
-            vortex_panic!("Alignment must be a multiple of the scalar type's alignment");
-        }
-        let length = buffer.len() / size_of::<T>();
-        Self {
-            buffer,
-            length,
-            _marker: Default::default(),
-        }
+impl<T> Deref for ScalarBuffer<T> {
+    type Target = [T];
+
+    fn deref(&self) -> &Self::Target {
+        self.as_slice()
     }
 }
 
-impl<T: Sized + Copy> FromIterator<T> for ScalarBuffer<T> {
+impl<T> AsRef<[T]> for ScalarBuffer<T> {
+    fn as_ref(&self) -> &[T] {
+        self.as_slice()
+    }
+}
+
+impl<T> FromIterator<T> for ScalarBuffer<T> {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         ScalarBufferMut::from_iter(iter).freeze()
+    }
+}
+
+/// Only for Vec<u8> can we zero-copy into a `Bytes` since we can use a 1-byte alignment.
+impl From<Vec<u8>> for ByteBuffer {
+    fn from(value: Vec<u8>) -> Self {
+        let length = value.len();
+        Self {
+            bytes: Bytes::from(value),
+            length,
+            alignment: Alignment::of::<u8>(),
+            _marker: Default::default(),
+        }
     }
 }

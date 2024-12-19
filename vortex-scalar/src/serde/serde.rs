@@ -2,7 +2,7 @@ use std::fmt::Formatter;
 
 use serde::de::{Error, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use vortex_buffer::{AlignedBuffer, BufferString};
+use vortex_buffer::{BufferString, ByteBuffer};
 
 use crate::pvalue::PValue;
 use crate::value::{InnerScalarValue, ScalarValue};
@@ -135,7 +135,7 @@ impl<'de> Deserialize<'de> for ScalarValue {
             where
                 E: Error,
             {
-                Ok(ScalarValue(InnerScalarValue::Buffer(AlignedBuffer::from(
+                Ok(ScalarValue(InnerScalarValue::Buffer(ByteBuffer::from(
                     v.to_vec(),
                 ))))
             }

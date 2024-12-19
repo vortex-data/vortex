@@ -51,11 +51,7 @@ impl Deref for Alignment {
 
 impl From<usize> for Alignment {
     fn from(value: usize) -> Self {
-        if value == 0 {
-            Self::new(1)
-        } else {
-            Self::new(value)
-        }
+        Self::new(value)
     }
 }
 

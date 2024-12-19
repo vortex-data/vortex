@@ -3,7 +3,7 @@ use std::ops::Deref;
 use arrow_buffer::ScalarBuffer;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
-use vortex_buffer::{AlignedBuffer, Alignment};
+use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_dtype::{match_each_integer_ptype, PType};
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
@@ -34,7 +34,7 @@ impl ScalarAtFn<VarBinViewArray> for VarBinViewEncoding {
     fn scalar_at(&self, array: &VarBinViewArray, index: usize) -> VortexResult<Scalar> {
         array
             .bytes_at(index)
-            .map(|bytes| varbin_scalar(AlignedBuffer::from(bytes), array.dtype()))
+            .map(|bytes| varbin_scalar(ByteBuffer::from(bytes), array.dtype()))
     }
 }
 
@@ -63,8 +63,13 @@ impl TakeFn<VarBinViewArray> for VarBinViewEncoding {
         let validity = array.validity().take(indices)?;
 
         // Convert our views array into an Arrow u128 ScalarBuffer (16 bytes per view)
-        let views_buffer =
-            ScalarBuffer::<u128>::from(array.views().into_primitive()?.into_buffer().into_arrow());
+        let views_buffer = ScalarBuffer::<u128>::from(
+            array
+                .views()
+                .into_primitive()?
+                .into_buffer()
+                .into_arrow_buffer(),
+        );
 
         let indices = indices.clone().into_primitive()?;
 
@@ -75,7 +80,7 @@ impl TakeFn<VarBinViewArray> for VarBinViewEncoding {
         // Cast views back to u8
         let views_array = PrimitiveArray::from_buffer(
             // FIXME(ngates): this copies for now
-            AlignedBuffer::copy_from_slice(
+            ByteBuffer::copy_from_slice(
                 views_buffer.into_inner().as_slice(),
                 Alignment::of::<u128>(),
             ),
@@ -101,8 +106,13 @@ impl TakeFn<VarBinViewArray> for VarBinViewEncoding {
         let validity = array.validity().take(indices)?;
 
         // Convert our views array into an Arrow u128 ScalarBuffer (16 bytes per view)
-        let views_buffer =
-            ScalarBuffer::<u128>::from(array.views().into_primitive()?.into_buffer().into_arrow());
+        let views_buffer = ScalarBuffer::<u128>::from(
+            array
+                .views()
+                .into_primitive()?
+                .into_buffer()
+                .into_arrow_buffer(),
+        );
 
         let indices = indices.clone().into_primitive()?;
 
@@ -113,7 +123,7 @@ impl TakeFn<VarBinViewArray> for VarBinViewEncoding {
         // Cast views back to u8
         let views_array = PrimitiveArray::from_buffer(
             // FIXME(ngates): this copies for now
-            AlignedBuffer::copy_from_slice(
+            ByteBuffer::copy_from_slice(
                 views_buffer.into_inner().as_slice(),
                 Alignment::of::<u128>(),
             ),

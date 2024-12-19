@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use vortex_buffer::{AlignedBuffer, BufferString};
+use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::half::f16;
 use vortex_dtype::{DType, NativePType, Nullability, PType};
 
@@ -81,10 +81,10 @@ impl ScalarType for BufferString {
 
 scalar_type_for_vec!(BufferString);
 
-impl ScalarType for AlignedBuffer {
+impl ScalarType for ByteBuffer {
     fn dtype() -> DType {
         DType::Binary(Nullability::NonNullable)
     }
 }
 
-scalar_type_for_vec!(AlignedBuffer);
+scalar_type_for_vec!(ByteBuffer);

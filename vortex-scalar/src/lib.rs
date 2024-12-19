@@ -5,7 +5,7 @@ use std::mem::discriminant;
 use std::sync::Arc;
 
 pub use scalar_type::ScalarType;
-use vortex_buffer::{AlignedBuffer, BufferString};
+use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::half::f16;
 use vortex_dtype::{DType, Nullability};
 #[cfg(feature = "arbitrary")]
@@ -276,4 +276,4 @@ from_vec_for_scalar!(f32);
 from_vec_for_scalar!(f64);
 from_vec_for_scalar!(String);
 from_vec_for_scalar!(BufferString);
-from_vec_for_scalar!(AlignedBuffer);
+from_vec_for_scalar!(ByteBuffer);

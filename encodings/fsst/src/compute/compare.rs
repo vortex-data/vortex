@@ -2,7 +2,7 @@ use fsst::Symbol;
 use vortex_array::array::ConstantArray;
 use vortex_array::compute::{compare, CompareFn, Operator};
 use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
-use vortex_buffer::AlignedBuffer;
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
@@ -62,7 +62,7 @@ fn compare_fsst_constant(
                 .as_utf8()
                 .value()
                 .vortex_expect("Expected non-null scalar");
-            AlignedBuffer::from(compressor.compress(value.as_bytes()))
+            ByteBuffer::from(compressor.compress(value.as_bytes()))
         }
         DType::Binary(_) => {
             let value = right
@@ -70,7 +70,7 @@ fn compare_fsst_constant(
                 .as_binary()
                 .value()
                 .vortex_expect("Expected non-null scalar");
-            AlignedBuffer::from(compressor.compress(value.as_slice()))
+            ByteBuffer::from(compressor.compress(value.as_slice()))
         }
         _ => unreachable!("FSSTArray can only have string or binary data type"),
     };

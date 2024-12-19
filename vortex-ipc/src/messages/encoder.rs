@@ -3,7 +3,7 @@ use flatbuffers::{FlatBufferBuilder, WIPOffset};
 use itertools::Itertools;
 use vortex_array::stats::ArrayStatistics;
 use vortex_array::{flatbuffers as fba, ArrayData};
-use vortex_buffer::AlignedBuffer;
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_panic, VortexExpect};
 use vortex_flatbuffers::{message as fb, FlatBufferRoot, WriteFlatBuffer};
@@ -13,7 +13,7 @@ use crate::ALIGNMENT;
 /// An IPC message ready to be passed to the encoder.
 pub enum EncoderMessage<'a> {
     Array(&'a ArrayData),
-    Buffer(&'a AlignedBuffer),
+    Buffer(&'a ByteBuffer),
     DType(&'a DType),
 }
 

@@ -6,7 +6,7 @@ use vortex_array::stats::ArrayStatistics;
 use vortex_array::validity::{ArrayValidity, Validity};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayLen, IntoArrayData};
-use vortex_buffer::{AlignedBuffer, Alignment, ScalarBufferMut};
+use vortex_buffer::{Alignment, ByteBuffer, ScalarBufferMut};
 use vortex_dtype::{
     match_each_integer_ptype, match_each_unsigned_integer_ptype, NativePType, PType,
 };
@@ -68,8 +68,8 @@ pub unsafe fn bitpack_encode_unchecked(
 
 /// Bitpack a [PrimitiveArray] to the given width.
 ///
-/// On success, returns a [AlignedBuffer] containing the packed data.
-pub fn bitpack(parray: &PrimitiveArray, bit_width: u8) -> VortexResult<AlignedBuffer> {
+/// On success, returns a [ByteBuffer] containing the packed data.
+pub fn bitpack(parray: &PrimitiveArray, bit_width: u8) -> VortexResult<ByteBuffer> {
     let parray = parray.reinterpret_cast(parray.ptype().to_unsigned());
     let packed = match_each_unsigned_integer_ptype!(parray.ptype(), |$P| {
         bitpack_primitive(parray.maybe_null_slice::<$P>(), bit_width)
@@ -83,9 +83,9 @@ pub fn bitpack(parray: &PrimitiveArray, bit_width: u8) -> VortexResult<AlignedBu
 pub fn bitpack_primitive<T: NativePType + BitPacking + ArrowNativeType>(
     array: &[T],
     bit_width: u8,
-) -> AlignedBuffer {
+) -> ByteBuffer {
     if bit_width == 0 {
-        return AlignedBuffer::empty(Alignment::of::<T>());
+        return ByteBuffer::empty(Alignment::of::<T>());
     }
     let bit_width = bit_width as usize;
 
@@ -136,7 +136,7 @@ pub fn bitpack_primitive<T: NativePType + BitPacking + ArrowNativeType>(
         };
     }
 
-    output.freeze().into_inner()
+    output.freeze().into_byte_buffer()
 }
 
 pub fn gather_patches(

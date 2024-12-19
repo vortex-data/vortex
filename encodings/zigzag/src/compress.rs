@@ -33,7 +33,7 @@ where
 {
     // FIXME(ngates): we need a way to map the buffer into a T of the same size.
     PrimitiveArray::new(
-        ScalarBuffer::<T::UInt>::from_iter(values.iter().map(|v| T::encode(v))),
+        ScalarBuffer::<T::UInt>::from_iter(values.iter().map(|v| T::encode(*v))),
         validity,
     )
 }
@@ -61,7 +61,8 @@ where
     <T as ExternalZigZag>::UInt: NativePType,
 {
     PrimitiveArray::new(
-        ScalarBuffer::<T>::from_iter(values.iter().map(T::decode)),
+        // FIXME(ngates): modify in-place
+        ScalarBuffer::<T>::from_iter(values.iter().copied().map(T::decode)),
         validity,
     )
 }

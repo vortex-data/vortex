@@ -10,7 +10,7 @@ use vortex_array::validity::{LogicalValidity, Validity, ValidityMetadata, Validi
 use vortex_array::variants::{BoolArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{impl_encoding, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoCanonical};
-use vortex_buffer::{AlignedBuffer, ScalarBuffer};
+use vortex_buffer::{ByteBuffer, ScalarBuffer};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult};
 
@@ -46,7 +46,7 @@ impl ByteBoolArray {
             Arc::new(ByteBoolMetadata {
                 validity: validity.to_metadata(length)?,
             }),
-            Some(buffer.into_inner()),
+            Some(buffer.into_byte_buffer()),
             validity.into_array().into_iter().collect::<Vec<_>>().into(),
             StatsSet::default(),
         )?
@@ -57,10 +57,10 @@ impl ByteBoolArray {
         let validity = validity.into();
         // SAFETY: we are transmuting a Vec<bool> into a Vec<u8>
         let data: Vec<u8> = unsafe { std::mem::transmute(data) };
-        Self::try_new(AlignedBuffer::from(data).into(), validity)
+        Self::try_new(ByteBuffer::from(data).into(), validity)
     }
 
-    pub fn buffer(&self) -> &AlignedBuffer {
+    pub fn buffer(&self) -> &ByteBuffer {
         self.as_ref()
             .buffer()
             .vortex_expect("ByteBoolArray is missing the underlying buffer")

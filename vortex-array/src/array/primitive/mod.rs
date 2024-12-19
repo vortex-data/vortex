@@ -6,9 +6,9 @@ mod accessor;
 use arrow_buffer::{ArrowNativeType, BooleanBufferBuilder};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use vortex_buffer::{AlignedBuffer, ScalarBuffer, ScalarBufferMut};
+use vortex_buffer::{ByteBuffer, ScalarBuffer, ScalarBufferMut};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, PType};
-use vortex_error::{vortex_panic, VortexExpect as _, VortexResult};
+use vortex_error::{VortexExpect as _, VortexResult};
 
 use crate::array::BoolArray;
 use crate::encoding::ids;
@@ -48,7 +48,7 @@ impl PrimitiveArray {
             Arc::new(PrimitiveMetadata {
                 validity: validity.to_metadata(len).vortex_expect("Invalid validity"),
             }),
-            Some(buffer.into_inner()),
+            Some(buffer.into_byte_buffer()),
             validity.into_array().into_iter().collect_vec().into(),
             StatsSet::default(),
         )
@@ -56,15 +56,9 @@ impl PrimitiveArray {
         .vortex_expect("Should not fail to create PrimitiveArray")
     }
 
-    pub fn from_buffer(buffer: AlignedBuffer, ptype: PType, validity: Validity) -> Self {
-        if !buffer.alignment().is_aligned_to(ptype.byte_width().into()) {
-            vortex_panic!("Buffer is not aligned to the required byte width for the given PType");
-        }
-        if buffer.len() % ptype.byte_width() != 0 {
-            vortex_panic!("Buffer length is not a multiple of the byte width for the given PType");
-        }
+    pub fn from_buffer(buffer: ByteBuffer, ptype: PType, validity: Validity) -> Self {
         match_each_native_ptype!(ptype, |$T| {
-            Self::new::<$T>(ScalarBuffer::from(buffer), validity)
+            Self::new::<$T>(ScalarBuffer::from_byte_buffer(buffer), validity)
         })
     }
 
@@ -88,7 +82,7 @@ impl PrimitiveArray {
         })
     }
 
-    pub fn buffer(&self) -> &AlignedBuffer {
+    pub fn buffer(&self) -> &ByteBuffer {
         self.as_ref()
             .buffer()
             .vortex_expect("Missing buffer in PrimitiveArray")
@@ -102,7 +96,7 @@ impl PrimitiveArray {
             T::PTYPE,
             self.ptype(),
         );
-        ScalarBuffer::from(self.buffer().clone())
+        ScalarBuffer::from_byte_buffer(self.buffer().clone())
     }
 
     pub fn maybe_null_slice<T: NativePType>(&self) -> &[T] {
@@ -156,17 +150,18 @@ impl PrimitiveArray {
         PrimitiveArray::from_buffer(self.buffer().clone(), ptype, self.validity())
     }
 
-    pub fn into_buffer(self) -> AlignedBuffer {
+    pub fn into_buffer(self) -> ByteBuffer {
         self.into_array()
             .into_buffer()
             .vortex_expect("PrimitiveArray must have a buffer")
     }
 
     pub fn into_scalar_buffer<T: NativePType>(self) -> ScalarBuffer<T> {
-        self.into_array()
-            .into_buffer()
-            .vortex_expect("PrimitiveArray must have a buffer")
-            .into()
+        ScalarBuffer::<T>::from_byte_buffer(
+            self.into_array()
+                .into_buffer()
+                .vortex_expect("PrimitiveArray must have a buffer"),
+        )
     }
 }
 

@@ -104,7 +104,7 @@ impl Display for Scalar {
 mod tests {
     use std::sync::Arc;
 
-    use vortex_buffer::AlignedBuffer;
+    use vortex_buffer::ByteBuffer;
     use vortex_datetime_dtype::{TemporalMetadata, TimeUnit, DATE_ID, TIMESTAMP_ID, TIME_ID};
     use vortex_dtype::Nullability::{NonNullable, Nullable};
     use vortex_dtype::{DType, ExtDType, ExtMetadata, PType, StructDType};
@@ -157,7 +157,7 @@ mod tests {
             format!(
                 "{}",
                 Scalar::binary(
-                    AlignedBuffer::from("Hello World!".as_bytes().to_vec()),
+                    ByteBuffer::from("Hello World!".as_bytes().to_vec()),
                     NonNullable
                 )
             ),

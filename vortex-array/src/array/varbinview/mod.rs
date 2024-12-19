@@ -9,7 +9,7 @@ use arrow_array::{ArrayRef, BinaryViewArray, GenericByteViewArray, StringViewArr
 use arrow_buffer::ScalarBuffer;
 use itertools::Itertools;
 use static_assertions::{assert_eq_align, assert_eq_size};
-use vortex_buffer::AlignedBuffer;
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, PType};
 use vortex_error::{
     vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult, VortexUnwrap,
@@ -486,7 +486,7 @@ impl VarBinViewArray {
 }
 
 pub struct Views {
-    inner: AlignedBuffer,
+    inner: ByteBuffer,
     len: usize,
     idx: usize,
 }
@@ -567,21 +567,21 @@ pub(crate) fn varbinview_as_arrow(var_bin_view: &VarBinViewArray) -> ArrayRef {
 
     let data = data
         .iter()
-        .map(|p| p.buffer().clone().into_arrow())
+        .map(|p| p.buffer().clone().into_arrow_buffer())
         .collect::<Vec<_>>();
 
     // Switch on Arrow DType.
     match var_bin_view.dtype() {
         DType::Binary(_) => Arc::new(unsafe {
             BinaryViewArray::new_unchecked(
-                ScalarBuffer::<u128>::from(views.buffer().clone().into_arrow()),
+                ScalarBuffer::<u128>::from(views.buffer().clone().into_arrow_buffer()),
                 data,
                 nulls,
             )
         }),
         DType::Utf8(_) => Arc::new(unsafe {
             StringViewArray::new_unchecked(
-                ScalarBuffer::<u128>::from(views.buffer().clone().into_arrow()),
+                ScalarBuffer::<u128>::from(views.buffer().clone().into_arrow_buffer()),
                 data,
                 nulls,
             )

@@ -1,7 +1,7 @@
 use core::ops::Range;
 
 use flatbuffers::{root, root_unchecked};
-use vortex_buffer::{AlignedBufferMut, Alignment, ConstAlignedBuffer};
+use vortex_buffer::{ByteBufferMut, ConstBuffer};
 use vortex_error::{vortex_bail, vortex_err, VortexResult, VortexUnwrap};
 use vortex_flatbuffers::{dtype as fbd, footer};
 use vortex_io::VortexReadAt;
@@ -14,7 +14,7 @@ pub struct InitialRead {
     /// large to contain the schema and layout.
     /// TODO(ngates): we should ensure the initial read, and therefore the flatbuffers, are
     ///  8-byte aligned. But the writer doesn't guarantee this right now.
-    pub buf: ConstAlignedBuffer<1>,
+    pub buf: ConstBuffer<u8, 1>,
     /// The absolute byte offset representing the start of the initial read within the file.
     pub initial_read_offset: u64,
     /// The byte range within `buf` representing the Postscript flatbuffer.
@@ -72,7 +72,7 @@ pub async fn read_initial_bytes<R: VortexReadAt>(
     let read_size = INITIAL_READ_SIZE.min(file_size as usize);
 
     let initial_read_offset = file_size - read_size as u64;
-    let mut buf = AlignedBufferMut::with_capacity(read_size, Alignment::new(1));
+    let mut buf = ByteBufferMut::with_capacity(read_size);
     buf.extend_from_slice(
         read.read_byte_range(initial_read_offset, read_size as u64)
             .await?

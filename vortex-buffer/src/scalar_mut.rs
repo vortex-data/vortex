@@ -1,18 +1,20 @@
 use std::ops::{Deref, DerefMut};
 
-use vortex_error::vortex_panic;
+use bytes::{Buf, BytesMut};
+use vortex_error::{vortex_panic, VortexExpect};
 
-use crate::{AlignedBufferMut, Alignment, ScalarBuffer};
+use crate::{Alignment, ScalarBuffer};
 
-/// A mutable buffer of Vortex primitive scalars.
+/// A mutable buffer that maintains a runtime-defined alignment through resizing operations.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ScalarBufferMut<T> {
-    pub(crate) buffer: AlignedBufferMut,
+    pub(crate) bytes: BytesMut,
     pub(crate) length: usize,
+    pub(crate) alignment: Alignment,
     pub(crate) _marker: std::marker::PhantomData<T>,
 }
 
-impl<T: Sized + Copy> ScalarBufferMut<T> {
+impl<T> ScalarBufferMut<T> {
     /// Create a new `ScalarBufferMut` with the requested alignment and capacity.
     pub fn with_capacity(capacity: usize) -> Self {
         Self::with_capacity_aligned(capacity, Alignment::of::<T>())
@@ -27,9 +29,14 @@ impl<T: Sized + Copy> ScalarBufferMut<T> {
                 align_of::<T>()
             );
         }
+
+        let mut bytes = BytesMut::with_capacity((capacity * size_of::<T>()) + *alignment);
+        bytes.align_empty(alignment);
+
         Self {
-            buffer: AlignedBufferMut::with_capacity(capacity * size_of::<T>(), alignment),
+            bytes,
             length: 0,
+            alignment,
             _marker: Default::default(),
         }
     }
@@ -44,13 +51,13 @@ impl<T: Sized + Copy> ScalarBufferMut<T> {
     /// Get the alignment of the buffer.
     #[inline(always)]
     pub fn alignment(&self) -> Alignment {
-        self.buffer.alignment()
+        self.alignment
     }
 
     /// Returns the length of the buffer.
     #[inline(always)]
     pub fn len(&self) -> usize {
-        debug_assert_eq!(self.length, self.buffer.len() / size_of::<T>());
+        debug_assert_eq!(self.length, self.bytes.len() / size_of::<T>());
         self.length
     }
 
@@ -63,13 +70,15 @@ impl<T: Sized + Copy> ScalarBufferMut<T> {
     /// Returns the capacity of the buffer.
     #[inline]
     pub fn capacity(&self) -> usize {
-        self.buffer.capacity() / size_of::<T>()
+        // FIXME(ngates): test whether this is correct, since capacity is not always divisble
+        //  by the size of T due to over-allocating for alignment.
+        self.bytes.capacity() / size_of::<T>()
     }
 
     /// Returns a slice over the buffer of elements of type T.
     #[inline]
     pub fn as_slice(&self) -> &[T] {
-        let raw_slice = self.buffer.as_slice();
+        let raw_slice = self.bytes.as_ref();
         // SAFETY: alignment of Buffer is checked on construction
         unsafe { std::slice::from_raw_parts(raw_slice.as_ptr().cast(), self.length) }
     }
@@ -77,7 +86,7 @@ impl<T: Sized + Copy> ScalarBufferMut<T> {
     /// Returns a slice over the buffer of elements of type T.
     #[inline]
     pub fn as_mut_slice(&mut self) -> &mut [T] {
-        let raw_slice = self.buffer.as_mut_slice();
+        let raw_slice = self.bytes.as_mut();
         // SAFETY: alignment of Buffer is checked on construction
         unsafe { std::slice::from_raw_parts_mut(raw_slice.as_mut_ptr().cast(), self.length) }
     }
@@ -85,14 +94,31 @@ impl<T: Sized + Copy> ScalarBufferMut<T> {
     /// Reserves capacity for at least `additional` more elements to be inserted in the buffer.
     #[inline]
     pub fn reserve(&mut self, additional: usize) {
-        self.buffer.reserve(additional * size_of::<T>());
+        let additional_bytes = additional * size_of::<T>();
+        if additional_bytes <= self.bytes.capacity() - self.bytes.len() {
+            // We can fit the additional bytes in the remaining capacity. Nothing to do.
+            return;
+        }
+
+        // Otherwise, reserve additional + alignment bytes in case we need to realign the buffer.
+        self.reserve_allocate(additional);
+    }
+
+    /// A separate function so we can inline the reserve call's fast path. According to `BytesMut`
+    /// this has significant performance implications.
+    fn reserve_allocate(&mut self, additional: usize) {
+        let mut bytes =
+            BytesMut::with_capacity(((self.len() + additional) * size_of::<T>()) + *self.alignment);
+        bytes.align_empty(self.alignment);
+        bytes.extend_from_slice(&self.bytes);
+        self.bytes = bytes;
     }
 
     /// # Safety
     /// The caller must ensure that the buffer was properly initialized up to `len`.
     #[inline]
     pub unsafe fn set_len(&mut self, len: usize) {
-        unsafe { self.buffer.set_len(len * size_of::<T>()) };
+        unsafe { self.bytes.set_len(len * size_of::<T>()) };
         self.length = len;
     }
 
@@ -104,7 +130,7 @@ impl<T: Sized + Copy> ScalarBufferMut<T> {
         let bytes = unsafe { std::slice::from_raw_parts(raw_ptr, size_of::<T>()) };
 
         // The extend_from_slice function will reserve additional space if required.
-        self.buffer.extend_from_slice(bytes);
+        self.bytes.extend_from_slice(bytes);
         self.length += 1;
     }
 
@@ -124,17 +150,22 @@ impl<T: Sized + Copy> ScalarBufferMut<T> {
     pub fn extend_from_slice(&mut self, slice: &[T]) {
         let raw_slice: &[u8] =
             unsafe { std::slice::from_raw_parts(slice.as_ptr().cast(), size_of_val(slice)) };
-        self.buffer.extend_from_slice(raw_slice);
+        self.bytes.extend_from_slice(raw_slice);
         self.length += slice.len();
     }
 
     /// Freeze the `ScalarBufferMut` into a `ScalarBuffer`.
     pub fn freeze(self) -> ScalarBuffer<T> {
-        ScalarBuffer::from(self.buffer.freeze())
+        ScalarBuffer {
+            bytes: self.bytes.freeze(),
+            length: self.length,
+            alignment: self.alignment,
+            _marker: Default::default(),
+        }
     }
 }
 
-impl<T: Sized + Copy> Deref for ScalarBufferMut<T> {
+impl<T> Deref for ScalarBufferMut<T> {
     type Target = [T];
 
     fn deref(&self) -> &Self::Target {
@@ -142,13 +173,25 @@ impl<T: Sized + Copy> Deref for ScalarBufferMut<T> {
     }
 }
 
-impl<T: Sized + Copy> DerefMut for ScalarBufferMut<T> {
+impl<T> DerefMut for ScalarBufferMut<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.as_mut_slice()
     }
 }
 
-impl<T: Sized + Copy> Extend<T> for ScalarBufferMut<T> {
+impl<T> AsRef<[T]> for ScalarBufferMut<T> {
+    fn as_ref(&self) -> &[T] {
+        self.as_slice()
+    }
+}
+
+impl<T> AsMut<[T]> for ScalarBufferMut<T> {
+    fn as_mut(&mut self) -> &mut [T] {
+        self.as_mut_slice()
+    }
+}
+
+impl<T> Extend<T> for ScalarBufferMut<T> {
     fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
         // TODO(ngates): check out the Arrow extend_from_slice optimizations
         let iter = iter.into_iter();
@@ -160,10 +203,38 @@ impl<T: Sized + Copy> Extend<T> for ScalarBufferMut<T> {
     }
 }
 
-impl<T: Sized + Copy> FromIterator<T> for ScalarBufferMut<T> {
+impl<T> FromIterator<T> for ScalarBufferMut<T> {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         let mut buffer = Self::with_capacity(0);
         buffer.extend(iter);
         buffer
+    }
+}
+
+/// Extension trait for [`BytesMut`] that provides functions for aligning the buffer.
+trait AlignedBytesMut {
+    /// Align an empty `BytesMut` to the specified alignment.
+    ///
+    /// ## Panics
+    ///
+    /// Panics if the buffer is not empty, or if there is not enough capacity to align the buffer.
+    fn align_empty(&mut self, alignment: Alignment);
+}
+
+impl AlignedBytesMut for BytesMut {
+    fn align_empty(&mut self, alignment: Alignment) {
+        if !self.is_empty() {
+            vortex_panic!("ByteBufferMut must be empty");
+        }
+
+        let padding = self.as_ptr().align_offset(*alignment);
+        self.capacity()
+            .checked_sub(padding)
+            .vortex_expect("Not enough capacity to align buffer");
+
+        // SAFETY: We know the buffer is empty, and we know we have enough capacity, so we can
+        // safely set the length to the padding and advance the buffer to the aligned offset.
+        unsafe { self.set_len(padding) };
+        self.advance(padding);
     }
 }

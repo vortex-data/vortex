@@ -1,20 +1,49 @@
 use arrow_buffer::ArrowNativeType;
 use bytes::Bytes;
 use vortex_dtype::NativePType;
+use vortex_error::vortex_panic;
 
-use crate::{AlignedBuffer, Alignment, ScalarBuffer};
+use crate::{Alignment, ByteBuffer, ScalarBuffer};
 
-struct ArrowWrapper(arrow_buffer::Buffer);
+impl<T: NativePType + ArrowNativeType> ScalarBuffer<T> {
+    /// Converts the buffer zero-copy into a `arrow_buffer::ScalarBuffer`.
+    pub fn into_arrow(self) -> arrow_buffer::ScalarBuffer<T> {
+        let bytes = self.into_inner();
+        // This is cheeky. But it uses From<bytes::Bytes> for arrow_buffer::Bytes, even though
+        // arrow_buffer::Bytes is only pub(crate). Seems weird...
+        // See: https://github.com/apache/arrow-rs/issues/6033
+        let buffer = arrow_buffer::Buffer::from_bytes(bytes.into());
+        arrow_buffer::ScalarBuffer::from(buffer)
+    }
 
-impl AsRef<[u8]> for ArrowWrapper {
-    fn as_ref(&self) -> &[u8] {
-        self.0.as_slice()
+    /// Convert an Arrow scalar buffer into a Vortex scalar buffer.
+    ///
+    /// ## Panics
+    ///
+    /// Panics if the Arrow buffer is not sufficiently aligned.
+    pub fn from_arrow(arrow: arrow_buffer::ScalarBuffer<T>, alignment: Alignment) -> Self {
+        let length = arrow.len();
+
+        let bytes = Bytes::from_owner(ArrowWrapper(arrow.into_inner()));
+        if bytes.as_ptr().align_offset(*alignment) != 0 {
+            vortex_panic!(
+                "Arrow buffer is not aligned to the requested alignment: {}",
+                alignment
+            );
+        }
+
+        Self {
+            bytes,
+            length,
+            alignment,
+            _marker: Default::default(),
+        }
     }
 }
 
-impl AlignedBuffer {
+impl ByteBuffer {
     /// Converts the buffer zero-copy into a `arrow_buffer::Buffer`.
-    pub fn into_arrow(self) -> arrow_buffer::Buffer {
+    pub fn into_arrow_buffer(self) -> arrow_buffer::Buffer {
         let bytes = self.into_inner();
         // This is cheeky. But it uses From<bytes::Bytes> for arrow_buffer::Bytes, even though
         // arrow_buffer::Bytes is only pub(crate). Seems weird...
@@ -22,25 +51,37 @@ impl AlignedBuffer {
         arrow_buffer::Buffer::from_bytes(bytes.into())
     }
 
-    /// Creates a new `AlignedBuffer` from an `arrow_buffer::Buffer`.
-    pub fn from_arrow(buffer: arrow_buffer::Buffer, alignment: Alignment) -> Self {
-        Self::new_with_alignment(Bytes::from_owner(ArrowWrapper(buffer)), alignment)
+    /// Convert an Arrow scalar buffer into a Vortex scalar buffer.
+    ///
+    /// ## Panics
+    ///
+    /// Panics if the Arrow buffer is not sufficiently aligned.
+    pub fn from_arrow_buffer(arrow: arrow_buffer::Buffer, alignment: Alignment) -> Self {
+        let length = arrow.len();
+
+        let bytes = Bytes::from_owner(ArrowWrapper(arrow));
+        if bytes.as_ptr().align_offset(*alignment) != 0 {
+            vortex_panic!(
+                "Arrow buffer is not aligned to the requested alignment: {}",
+                alignment
+            );
+        }
+
+        Self {
+            bytes,
+            length,
+            alignment,
+            _marker: Default::default(),
+        }
     }
 }
 
-impl<T: NativePType + ArrowNativeType> ScalarBuffer<T> {
-    /// Converts the buffer zero-copy into a `arrow_buffer::ScalarBuffer`.
-    pub fn into_arrow(self) -> arrow_buffer::ScalarBuffer<T> {
-        arrow_buffer::ScalarBuffer::from(self.into_inner().into_arrow())
-    }
+/// A wrapper struct to allow `arrow_buffer::Buffer` to implement `AsRef<[u8]>` for
+/// `Bytes::from_owner`.
+struct ArrowWrapper(arrow_buffer::Buffer);
 
-    /// Converts an `arrow_buffer::ScalarBuffer` into a `ScalarBuffer`.
-    pub fn from_arrow(buffer: arrow_buffer::ScalarBuffer<T>) -> Self {
-        let length = buffer.len();
-        Self {
-            buffer: AlignedBuffer::from_arrow(buffer.into_inner(), Alignment::of::<T>()),
-            length,
-            _marker: Default::default(),
-        }
+impl AsRef<[u8]> for ArrowWrapper {
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_slice()
     }
 }

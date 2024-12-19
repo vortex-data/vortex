@@ -5,7 +5,7 @@ use bytes::Bytes;
 use flatbuffers::root_unchecked;
 use once_cell::sync::OnceCell;
 use vortex_array::aliases::hash_map::HashMap;
-use vortex_buffer::AlignedBuffer;
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::field::Field;
 use vortex_dtype::flatbuffers::{extract_field, project_and_deserialize, resolve_field};
 use vortex_dtype::{DType, FieldNames};
@@ -87,7 +87,7 @@ impl SerializedDTypeField {
 #[derive(Debug)]
 enum LazyDTypeState {
     DType(DType),
-    Serialized(AlignedBuffer, OnceCell<DType>, SerializedDTypeField),
+    Serialized(ByteBuffer, OnceCell<DType>, SerializedDTypeField),
     Unknown,
 }
 
@@ -103,8 +103,8 @@ impl LazyDType {
     /// # Safety
     /// This function is unsafe because it trusts the caller to pass in a valid flatbuffer
     /// representing a message::Schema.
-    /// FIXME(ngates): this should take a ConstAlignedBuffer<8> aliased as FlatBuffer
-    pub unsafe fn from_schema_bytes(dtype_bytes: AlignedBuffer) -> Self {
+    /// FIXME(ngates): this should take a ConstByteBuffer<8> aliased as FlatBuffer
+    pub unsafe fn from_schema_bytes(dtype_bytes: ByteBuffer) -> Self {
         Self {
             inner: LazyDTypeState::Serialized(
                 dtype_bytes,

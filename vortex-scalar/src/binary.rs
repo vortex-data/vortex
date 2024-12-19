@@ -1,4 +1,4 @@
-use vortex_buffer::AlignedBuffer;
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 
@@ -7,7 +7,7 @@ use crate::Scalar;
 
 pub struct BinaryScalar<'a> {
     dtype: &'a DType,
-    value: Option<AlignedBuffer>,
+    value: Option<ByteBuffer>,
 }
 
 impl<'a> BinaryScalar<'a> {
@@ -16,7 +16,7 @@ impl<'a> BinaryScalar<'a> {
         self.dtype
     }
 
-    pub fn value(&self) -> Option<AlignedBuffer> {
+    pub fn value(&self) -> Option<ByteBuffer> {
         self.value.as_ref().cloned()
     }
 
@@ -26,7 +26,7 @@ impl<'a> BinaryScalar<'a> {
 }
 
 impl Scalar {
-    pub fn binary(buffer: AlignedBuffer, nullability: Nullability) -> Self {
+    pub fn binary(buffer: ByteBuffer, nullability: Nullability) -> Self {
         Self {
             dtype: DType::Binary(nullability),
             value: ScalarValue(InnerScalarValue::Buffer(buffer)),
@@ -48,7 +48,7 @@ impl<'a> TryFrom<&'a Scalar> for BinaryScalar<'a> {
     }
 }
 
-impl<'a> TryFrom<&'a Scalar> for AlignedBuffer {
+impl<'a> TryFrom<&'a Scalar> for ByteBuffer {
     type Error = VortexError;
 
     fn try_from(scalar: &'a Scalar) -> VortexResult<Self> {
@@ -62,7 +62,7 @@ impl<'a> TryFrom<&'a Scalar> for AlignedBuffer {
     }
 }
 
-impl<'a> TryFrom<&'a Scalar> for Option<AlignedBuffer> {
+impl<'a> TryFrom<&'a Scalar> for Option<ByteBuffer> {
     type Error = VortexError;
 
     fn try_from(scalar: &'a Scalar) -> VortexResult<Self> {
@@ -73,7 +73,7 @@ impl<'a> TryFrom<&'a Scalar> for Option<AlignedBuffer> {
     }
 }
 
-impl TryFrom<Scalar> for AlignedBuffer {
+impl TryFrom<Scalar> for ByteBuffer {
     type Error = VortexError;
 
     fn try_from(scalar: Scalar) -> VortexResult<Self> {
@@ -81,7 +81,7 @@ impl TryFrom<Scalar> for AlignedBuffer {
     }
 }
 
-impl TryFrom<Scalar> for Option<AlignedBuffer> {
+impl TryFrom<Scalar> for Option<ByteBuffer> {
     type Error = VortexError;
 
     fn try_from(scalar: Scalar) -> VortexResult<Self> {
@@ -91,12 +91,12 @@ impl TryFrom<Scalar> for Option<AlignedBuffer> {
 
 impl From<&[u8]> for Scalar {
     fn from(value: &[u8]) -> Self {
-        Scalar::from(AlignedBuffer::from(value.to_vec()))
+        Scalar::from(ByteBuffer::from(value.to_vec()))
     }
 }
 
-impl From<AlignedBuffer> for Scalar {
-    fn from(value: AlignedBuffer) -> Self {
+impl From<ByteBuffer> for Scalar {
+    fn from(value: ByteBuffer) -> Self {
         Self {
             dtype: DType::Binary(Nullability::NonNullable),
             value: ScalarValue(InnerScalarValue::Buffer(value)),
