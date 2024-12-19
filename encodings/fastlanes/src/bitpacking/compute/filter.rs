@@ -131,7 +131,7 @@ mod test {
     use itertools::Itertools;
     use vortex_array::array::PrimitiveArray;
     use vortex_array::compute::{filter, slice, FilterMask};
-    use vortex_array::{ArrayDType, ArrayLen, IntoArrayVariant};
+    use vortex_array::{ArrayLen, IntoArrayVariant};
 
     use crate::BitPackedArray;
 
@@ -178,9 +178,6 @@ mod test {
 
     #[test]
     fn filter_bitpacked_signed() {
-        // Elements 0..=499 are negative integers (patches)
-        // Element 500 = 0 (packed)
-        // Elements 501..999 are positive integers (packed)
         let values: Vec<i64> = (0..500).collect_vec();
         let unpacked = PrimitiveArray::from(values.clone());
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 9).unwrap();
@@ -188,15 +185,11 @@ mod test {
             bitpacked.as_ref(),
             FilterMask::from_indices(values.len(), 0..500),
         )
-        .unwrap();
+        .unwrap()
+        .into_primitive()
+        .unwrap()
+        .into_maybe_null_slice::<i64>();
 
-        assert_eq!(filtered.dtype(), bitpacked.dtype());
-
-        let filtered_values = filtered
-            .into_primitive()
-            .unwrap()
-            .into_maybe_null_slice::<i64>();
-
-        assert_eq!(filtered_values, values);
+        assert_eq!(filtered, values);
     }
 }

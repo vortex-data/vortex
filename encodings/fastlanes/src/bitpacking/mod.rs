@@ -1,9 +1,9 @@
 use std::fmt::{Debug, Display};
 use std::sync::Arc;
 
-use ::serde::{Deserialize, Serialize};
 pub use compress::*;
 use fastlanes::BitPacking;
+use ::serde::{Deserialize, Serialize};
 use vortex_array::array::PrimitiveArray;
 use vortex_array::encoding::ids;
 use vortex_array::patches::{Patches, PatchesMetadata};
@@ -101,10 +101,11 @@ impl BitPackedArray {
         }
 
         if let Some(ref patches) = patches {
+            // Ensure that array and patches have same PType
             if patches.dtype() != &DType::from(ptype) {
                 vortex_bail!(
                     "Patches DType {} does not match BitPackedArray dtype {}",
-                    patches.dtype(),
+                    patches.dtype().as_nonnullable(),
                     ptype
                 )
             }
