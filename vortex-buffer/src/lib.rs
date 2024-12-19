@@ -16,6 +16,7 @@ use core::cmp::Ordering;
 use core::ops::{Deref, Range};
 
 pub use aligned::*;
+pub use aligned_const::*;
 pub use aligned_mut::*;
 pub use alignment::*;
 use arrow_buffer::{ArrowNativeType, Buffer as ArrowBuffer, MutableBuffer as ArrowMutableBuffer};
@@ -24,6 +25,7 @@ pub use scalar_mut::*;
 pub use string::*;
 
 mod aligned;
+mod aligned_const;
 mod aligned_mut;
 mod alignment;
 #[cfg(feature = "arrow")]

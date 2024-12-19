@@ -1,3 +1,5 @@
+use std::ops::{Deref, DerefMut};
+
 use bytes::{Buf, BytesMut};
 use vortex_error::{vortex_panic, VortexExpect};
 
@@ -117,6 +119,32 @@ impl AlignedBufferMut {
     /// Freezes this `AlignedBufferMut`, returning an immutable shareable `AlignedBuffer`.
     pub fn freeze(self) -> AlignedBuffer {
         AlignedBuffer::new_with_alignment(self.bytes.freeze(), self.alignment)
+    }
+}
+
+impl AsRef<[u8]> for AlignedBufferMut {
+    fn as_ref(&self) -> &[u8] {
+        self.as_slice()
+    }
+}
+
+impl AsMut<[u8]> for AlignedBufferMut {
+    fn as_mut(&mut self) -> &mut [u8] {
+        self.as_mut_slice()
+    }
+}
+
+impl Deref for AlignedBufferMut {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        self.as_slice()
+    }
+}
+
+impl DerefMut for AlignedBufferMut {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.as_mut_slice()
     }
 }
 

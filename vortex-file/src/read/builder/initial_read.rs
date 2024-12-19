@@ -1,7 +1,7 @@
 use core::ops::Range;
 
 use flatbuffers::{root, root_unchecked};
-use vortex_buffer::Buffer;
+use vortex_buffer::{AlignedBufferMut, Alignment, ConstAlignedBuffer};
 use vortex_error::{vortex_bail, vortex_err, VortexResult, VortexUnwrap};
 use vortex_flatbuffers::{dtype as fbd, footer};
 use vortex_io::VortexReadAt;
@@ -12,7 +12,7 @@ use crate::{LazyDType, EOF_SIZE, INITIAL_READ_SIZE, MAGIC_BYTES, VERSION};
 pub struct InitialRead {
     /// The bytes from the initial read of the file, which is assumed (for now) to be sufficiently
     /// large to contain the schema and layout.
-    pub buf: Buffer,
+    pub buf: ConstAlignedBuffer<64>,
     /// The absolute byte offset representing the start of the initial read within the file.
     pub initial_read_offset: u64,
     /// The byte range within `buf` representing the Postscript flatbuffer.
@@ -49,7 +49,9 @@ impl InitialRead {
 
     pub fn lazy_dtype(&self) -> LazyDType {
         // we validated the schema bytes at construction time
-        unsafe { LazyDType::from_schema_bytes(self.buf.slice(self.fb_schema_byte_range())) }
+        unsafe {
+            LazyDType::from_schema_bytes(self.buf.as_ref().slice(self.fb_schema_byte_range()))
+        }
     }
 }
 
@@ -68,9 +70,12 @@ pub async fn read_initial_bytes<R: VortexReadAt>(
     let read_size = INITIAL_READ_SIZE.min(file_size as usize);
 
     let initial_read_offset = file_size - read_size as u64;
-    let buf: Buffer = read
-        .read_byte_range(initial_read_offset, read_size as u64)
-        .await?;
+    let mut buf = AlignedBufferMut::with_capacity(read_size, Alignment::new(64));
+    buf.extend_from_slice(
+        read.read_byte_range(initial_read_offset, read_size as u64)
+            .await?
+            .as_ref(),
+    );
 
     let eof_loc = read_size - EOF_SIZE;
     let magic_bytes_loc = eof_loc + (EOF_SIZE - MAGIC_BYTES.len());
@@ -140,7 +145,7 @@ pub async fn read_initial_bytes<R: VortexReadAt>(
     root::<footer::Layout>(&buf[layout_loc..ps_loc])?;
 
     Ok(InitialRead {
-        buf,
+        buf: ConstAlignedBuffer::<64>::try_from(buf.freeze())?,
         initial_read_offset,
         fb_postscript_byte_range,
     })
