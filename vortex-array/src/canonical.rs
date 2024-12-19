@@ -527,9 +527,10 @@ mod test {
     use arrow_array::cast::AsArray;
     use arrow_array::types::{Int32Type, Int64Type, UInt64Type};
     use arrow_array::{
-        PrimitiveArray as ArrowPrimitiveArray, StringViewArray, StructArray as ArrowStructArray,
+        ListArray as ArrowListArray, PrimitiveArray as ArrowPrimitiveArray, StringArray,
+        StringViewArray, StructArray as ArrowStructArray,
     };
-    use arrow_buffer::NullBufferBuilder;
+    use arrow_buffer::{NullBufferBuilder, OffsetBuffer};
     use arrow_schema::{DataType, Field};
 
     use crate::array::{PrimitiveArray, SparseArray, StructArray};
@@ -641,5 +642,25 @@ mod test {
             &arrow_struct,
             vortex_struct.into_arrow().unwrap().as_struct()
         );
+    }
+
+    #[test]
+    fn roundtrip_list() {
+        let names = Arc::new(StringArray::from_iter(vec![
+            Some("Joseph"),
+            Some("Angela"),
+            Some("Mikhail"),
+        ]));
+
+        let arrow_list = ArrowListArray::new(
+            Arc::new(Field::new_list_field(DataType::Utf8, true)),
+            OffsetBuffer::from_lengths(vec![0, 2, 1]),
+            names,
+            None,
+        );
+
+        let vortex_list = ArrayData::from_arrow(&arrow_list, true);
+
+        assert_eq!(&arrow_list, vortex_list.into_arrow().unwrap().as_list());
     }
 }
