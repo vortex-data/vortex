@@ -3,6 +3,7 @@ use std::collections::BTreeSet;
 use std::iter;
 use std::sync::{Arc, RwLock};
 
+use bytes::Bytes;
 use futures::StreamExt;
 use futures_util::TryStreamExt;
 use itertools::Itertools;
@@ -12,7 +13,6 @@ use vortex_array::compute::scalar_at;
 use vortex_array::validity::Validity;
 use vortex_array::variants::{PrimitiveArrayTrait, StructArrayTrait};
 use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
-use vortex_buffer::Buffer;
 use vortex_dtype::field::Field;
 use vortex_dtype::{DType, Nullability, PType, StructDType};
 use vortex_error::{vortex_panic, VortexResult};
@@ -53,7 +53,7 @@ async fn test_read_simple() {
     let buf = Vec::new();
     let mut writer = VortexFileWriter::new(buf);
     writer = writer.write_array_columns(st.into_array()).await.unwrap();
-    let written = Buffer::from(writer.finalize().await.unwrap());
+    let written = Bytes::from(writer.finalize().await.unwrap());
 
     let mut stream = VortexReadBuilder::new(written, LayoutDeserializer::default())
         .build()
@@ -93,7 +93,7 @@ async fn test_read_simple_with_spawn() {
     let written = tokio::spawn(async move {
         let mut writer = VortexFileWriter::new(buf);
         writer = writer.write_array_columns(st.into_array()).await.unwrap();
-        Buffer::from(writer.finalize().await.unwrap())
+        Bytes::from(writer.finalize().await.unwrap())
     })
     .await
     .unwrap();
@@ -123,7 +123,7 @@ async fn test_splits() {
     let buf = Vec::new();
     let mut writer = VortexFileWriter::new(buf);
     writer = writer.write_array_columns(st.into_array()).await.unwrap();
-    let written = Buffer::from(writer.finalize().await.unwrap());
+    let written = Bytes::from(writer.finalize().await.unwrap());
 
     let initial_read = read_initial_bytes(&written, written.len() as u64)
         .await
@@ -170,7 +170,7 @@ async fn test_read_projection() {
     let buf = Vec::new();
     let mut writer = VortexFileWriter::new(buf);
     writer = writer.write_array_columns(st.into_array()).await.unwrap();
-    let written = Buffer::from(writer.finalize().await.unwrap());
+    let written = Bytes::from(writer.finalize().await.unwrap());
 
     let array = VortexReadBuilder::new(written.clone(), LayoutDeserializer::default())
         .with_projection(Projection::new([0]))
@@ -308,7 +308,7 @@ async fn unequal_batches() {
     let buf = Vec::new();
     let mut writer = VortexFileWriter::new(buf);
     writer = writer.write_array_columns(st.into_array()).await.unwrap();
-    let written = Buffer::from(writer.finalize().await.unwrap());
+    let written = Bytes::from(writer.finalize().await.unwrap());
 
     let mut stream = VortexReadBuilder::new(written, LayoutDeserializer::default())
         .build()
@@ -367,7 +367,7 @@ async fn write_chunked() {
     let mut writer = VortexFileWriter::new(buf);
     writer = writer.write_array_columns(chunked_st).await.unwrap();
 
-    let written = Buffer::from(writer.finalize().await.unwrap());
+    let written = Bytes::from(writer.finalize().await.unwrap());
     let mut reader = VortexReadBuilder::new(written, LayoutDeserializer::default())
         .build()
         .await
@@ -401,7 +401,7 @@ async fn filter_string() {
     let mut writer = VortexFileWriter::new(Vec::new());
     writer = writer.write_array_columns(st).await.unwrap();
 
-    let written = Buffer::from(writer.finalize().await.unwrap());
+    let written = Bytes::from(writer.finalize().await.unwrap());
     let reader = VortexReadBuilder::new(written, LayoutDeserializer::default())
         .with_row_filter(RowFilter::new(BinaryExpr::new_expr(
             Column::new_expr(Field::from("name")),
@@ -451,7 +451,7 @@ async fn filter_or() {
     .into_array();
     let mut writer = VortexFileWriter::new(Vec::new());
     writer = writer.write_array_columns(st).await.unwrap();
-    let written = Buffer::from(writer.finalize().await.unwrap());
+    let written = Bytes::from(writer.finalize().await.unwrap());
     let mut reader = VortexReadBuilder::new(written, LayoutDeserializer::default())
         .with_row_filter(RowFilter::new(BinaryExpr::new_expr(
             BinaryExpr::new_expr(
@@ -523,7 +523,7 @@ async fn filter_and() {
     .into_array();
     let mut writer = VortexFileWriter::new(Vec::new());
     writer = writer.write_array_columns(st).await.unwrap();
-    let written = Buffer::from(writer.finalize().await.unwrap());
+    let written = Bytes::from(writer.finalize().await.unwrap());
     let mut reader = VortexReadBuilder::new(written, LayoutDeserializer::default())
         .with_row_filter(RowFilter::new(BinaryExpr::new_expr(
             BinaryExpr::new_expr(
@@ -581,7 +581,7 @@ async fn test_with_indices_simple() {
         .write_array_columns(expected_array.into_array())
         .await
         .unwrap();
-    let written = Buffer::from(writer.finalize().await.unwrap());
+    let written = Bytes::from(writer.finalize().await.unwrap());
 
     // test no indices
     let empty_indices = Vec::<u32>::new();
@@ -662,7 +662,7 @@ async fn test_with_indices_on_two_columns() {
     let buf = Vec::new();
     let mut writer = VortexFileWriter::new(buf);
     writer = writer.write_array_columns(st.into_array()).await.unwrap();
-    let written = Buffer::from(writer.finalize().await.unwrap());
+    let written = Bytes::from(writer.finalize().await.unwrap());
 
     let kept_indices = [0_usize, 3, 7];
     let kept_indices_u8 = kept_indices.iter().map(|&x| x as u8).collect::<Vec<_>>();
@@ -723,7 +723,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
         .write_array_columns(expected_array.into_array())
         .await
         .unwrap();
-    let written = Buffer::from(writer.finalize().await.unwrap());
+    let written = Bytes::from(writer.finalize().await.unwrap());
 
     // test no indices
     let empty_indices = Vec::<u32>::new();
@@ -846,7 +846,7 @@ async fn filter_string_chunked() {
         .await
         .unwrap();
     let actual_array =
-        VortexReadBuilder::new(Buffer::from(written_bytes), LayoutDeserializer::default())
+        VortexReadBuilder::new(Bytes::from(written_bytes), LayoutDeserializer::default())
             .with_row_filter(RowFilter::new(BinaryExpr::new_expr(
                 Column::new_expr(Field::from("name")),
                 Operator::Eq,
@@ -936,7 +936,7 @@ async fn test_pruning_with_or() {
         .await
         .unwrap();
     let actual_array =
-        VortexReadBuilder::new(Buffer::from(written_bytes), LayoutDeserializer::default())
+        VortexReadBuilder::new(Bytes::from(written_bytes), LayoutDeserializer::default())
             .with_row_filter(RowFilter::new(BinaryExpr::new_expr(
                 BinaryExpr::new_expr(
                     Column::new_expr(Field::from("letter")),
@@ -1041,7 +1041,7 @@ async fn test_repeated_projection() {
             .await
     }
 
-    let actual = read_all(Buffer::from(written.clone()), Projection::new([0, 0]))
+    let actual = read_all(Bytes::from(written.clone()), Projection::new([0, 0]))
         .await
         .unwrap();
 
@@ -1055,7 +1055,7 @@ async fn test_repeated_projection() {
     );
 
     let actual = read_all(
-        Buffer::from(written.clone()),
+        Bytes::from(written.clone()),
         Projection::Flat(
             ["strings", "strings"]
                 .iter()

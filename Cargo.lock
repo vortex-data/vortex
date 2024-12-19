@@ -5111,6 +5111,7 @@ dependencies = [
  "arrow-array",
  "arrow-buffer",
  "arrow-schema",
+ "bytes",
  "flatbuffers",
  "futures",
  "futures-executor",

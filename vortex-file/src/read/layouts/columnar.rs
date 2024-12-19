@@ -399,11 +399,11 @@ mod tests {
     use std::iter;
     use std::sync::{Arc, RwLock};
 
+    use bytes::Bytes;
     use vortex_array::accessor::ArrayAccessor;
     use vortex_array::array::{ChunkedArray, PrimitiveArray, StructArray, VarBinArray};
     use vortex_array::validity::Validity;
     use vortex_array::{ArrayDType, IntoArrayData, IntoArrayVariant};
-    use vortex_buffer::Buffer;
     use vortex_dtype::field::Field;
     use vortex_dtype::{DType, Nullability};
     use vortex_expr::{BinaryExpr, Column, Literal, Operator};
@@ -418,7 +418,7 @@ mod tests {
     async fn layout_and_bytes(
         cache: Arc<RwLock<LayoutMessageCache>>,
         scan: Scan,
-    ) -> (Box<dyn LayoutReader>, Box<dyn LayoutReader>, Buffer, usize) {
+    ) -> (Box<dyn LayoutReader>, Box<dyn LayoutReader>, Bytes, usize) {
         let int_array = PrimitiveArray::from((0..100).collect::<Vec<_>>()).into_array();
         let int2_array = PrimitiveArray::from((100..200).collect::<Vec<_>>()).into_array();
         let int_dtype = int_array.dtype().clone();
@@ -451,7 +451,7 @@ mod tests {
 
         let mut writer = VortexFileWriter::new(Vec::new());
         writer = writer.write_array_columns(struct_arr).await.unwrap();
-        let written = Buffer::from(writer.finalize().await.unwrap());
+        let written = Bytes::from(writer.finalize().await.unwrap());
 
         let initial_read = read_initial_bytes(&written, written.len() as u64)
             .await

@@ -3,7 +3,6 @@
 use std::ops::Range;
 
 use bytes::Bytes;
-use vortex_buffer::Buffer;
 
 /// Trait for types that can provide a readonly byte buffer interface to I/O frameworks.
 ///
@@ -126,23 +125,5 @@ unsafe impl IoBuf for Bytes {
 
     fn as_slice(&self) -> &[u8] {
         self.as_ref()
-    }
-}
-
-unsafe impl IoBuf for Buffer {
-    #[inline]
-    fn read_ptr(&self) -> *const u8 {
-        self.as_ptr()
-    }
-
-    #[inline]
-    fn bytes_init(&self) -> usize {
-        self.len()
-    }
-
-    #[inline]
-    #[allow(clippy::same_name_method)]
-    fn as_slice(&self) -> &[u8] {
-        Buffer::as_slice(self)
     }
 }

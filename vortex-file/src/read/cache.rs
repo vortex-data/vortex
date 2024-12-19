@@ -1,10 +1,11 @@
 use std::fmt::Debug;
 use std::sync::{Arc, RwLock};
 
+use bytes::Bytes;
 use flatbuffers::root_unchecked;
 use once_cell::sync::OnceCell;
 use vortex_array::aliases::hash_map::HashMap;
-use vortex_buffer::{AlignedBuffer, Buffer};
+use vortex_buffer::AlignedBuffer;
 use vortex_dtype::field::Field;
 use vortex_dtype::flatbuffers::{extract_field, project_and_deserialize, resolve_field};
 use vortex_dtype::{DType, FieldNames};
@@ -16,7 +17,7 @@ use crate::read::{LayoutPartId, MessageId};
 
 #[derive(Default, Debug)]
 pub struct LayoutMessageCache {
-    cache: HashMap<MessageId, Buffer>,
+    cache: HashMap<MessageId, Bytes>,
 }
 
 impl LayoutMessageCache {
@@ -26,15 +27,15 @@ impl LayoutMessageCache {
         }
     }
 
-    pub fn get(&self, path: &[LayoutPartId]) -> Option<Buffer> {
+    pub fn get(&self, path: &[LayoutPartId]) -> Option<Bytes> {
         self.cache.get(path).cloned()
     }
 
-    pub fn remove(&mut self, path: &[LayoutPartId]) -> Option<Buffer> {
+    pub fn remove(&mut self, path: &[LayoutPartId]) -> Option<Bytes> {
         self.cache.remove(path)
     }
 
-    pub fn set(&mut self, path: MessageId, value: Buffer) {
+    pub fn set(&mut self, path: MessageId, value: Bytes) {
         self.cache.insert(path, value);
     }
 }
@@ -289,7 +290,7 @@ impl RelativeLayoutCache {
         self.relative(id, Arc::new(LazyDType::unknown()))
     }
 
-    pub fn get(&self, path: &[LayoutPartId]) -> Option<Buffer> {
+    pub fn get(&self, path: &[LayoutPartId]) -> Option<Bytes> {
         self.root
             .read()
             .unwrap_or_else(|poison| {
@@ -302,7 +303,7 @@ impl RelativeLayoutCache {
             .get(&self.absolute_id(path))
     }
 
-    pub fn remove(&mut self, path: &[LayoutPartId]) -> Option<Buffer> {
+    pub fn remove(&mut self, path: &[LayoutPartId]) -> Option<Bytes> {
         self.root
             .write()
             .unwrap_or_else(|poison| {

@@ -4,10 +4,10 @@ use std::os::unix::fs::FileExt;
 use std::sync::Arc;
 use std::{io, mem};
 
+use bytes::{Bytes, BytesMut};
 use futures_util::StreamExt;
 use object_store::path::Path;
 use object_store::{GetOptions, GetRange, GetResultPayload, ObjectStore, WriteMultipart};
-use vortex_buffer::Buffer;
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::{IoBuf, VortexBufReader, VortexReadAt, VortexWrite};
@@ -34,7 +34,7 @@ impl ObjectStoreExt for Arc<dyn ObjectStore> {
         range: Range<usize>,
     ) -> VortexResult<VortexBufReader<impl VortexReadAt>> {
         let bytes = self.get_range(location, range).await?;
-        Ok(VortexBufReader::new(Buffer::from(bytes)))
+        Ok(VortexBufReader::new(bytes))
     }
 
     fn vortex_reader(&self, location: &Path) -> impl VortexReadAt {
@@ -70,7 +70,7 @@ impl VortexReadAt for ObjectStoreReadAt {
         &self,
         pos: u64,
         len: u64,
-    ) -> impl Future<Output = io::Result<Buffer>> + 'static {
+    ) -> impl Future<Output = io::Result<Bytes>> + 'static {
         let object_store = self.object_store.clone();
         let location = self.location.clone();
         Box::pin(async move {
@@ -92,7 +92,7 @@ impl VortexReadAt for ObjectStoreReadAt {
             //  it's coming from a network stream. Internally they optimize the File implementation
             //  to only perform a single allocation when calling `.bytes().await`, which we
             //  replicate here by emitting the contents directly into our aligned buffer.
-            let mut buffer = Vec::with_capacity(len);
+            let mut buffer = BytesMut::with_capacity(len);
             match response.payload {
                 GetResultPayload::File(file, _) => {
                     unsafe { buffer.set_len(len) };
@@ -104,7 +104,7 @@ impl VortexReadAt for ObjectStoreReadAt {
                     }
                 }
             }
-            Ok(Buffer::from(buffer))
+            Ok(buffer.freeze())
         })
     }
 

@@ -398,6 +398,7 @@ mod tests {
     use std::sync::{Arc, RwLock};
 
     use arrow_buffer::BooleanBufferBuilder;
+    use bytes::Bytes;
     use flatbuffers::{root, FlatBufferBuilder};
     use futures_util::io::Cursor;
     use futures_util::TryStreamExt;
@@ -420,7 +421,7 @@ mod tests {
     async fn layout_and_bytes(
         cache: Arc<RwLock<LayoutMessageCache>>,
         scan: Scan,
-    ) -> (ChunkedLayoutReader, ChunkedLayoutReader, Buffer, usize) {
+    ) -> (ChunkedLayoutReader, ChunkedLayoutReader, Bytes, usize) {
         let mut writer = Cursor::new(Vec::new());
         let array = PrimitiveArray::from((0..100).collect::<Vec<_>>()).into_array();
         let array_dtype = array.dtype().clone();
@@ -484,7 +485,7 @@ mod tests {
             }
             .build()
             .unwrap(),
-            Buffer::from(written),
+            Bytes::from(written),
             len,
         )
     }
