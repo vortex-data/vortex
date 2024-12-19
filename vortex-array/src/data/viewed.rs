@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use enum_iterator::all;
 use itertools::Itertools;
-use vortex_buffer::{AlignedBuffer, Buffer};
+use vortex_buffer::AlignedBuffer;
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_err, VortexExpect as _, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
@@ -20,7 +20,8 @@ pub(super) struct ViewedArrayData {
     pub(super) dtype: DType,
     pub(super) len: usize,
     pub(super) metadata: Arc<dyn ArrayMetadata>,
-    pub(super) flatbuffer: Buffer,
+    // TODO(ngates): use ConstAlignedBuffer once it is stable
+    pub(super) flatbuffer: AlignedBuffer,
     pub(super) flatbuffer_loc: usize,
     pub(super) buffers: Arc<[AlignedBuffer]>,
     pub(super) ctx: Arc<Context>,

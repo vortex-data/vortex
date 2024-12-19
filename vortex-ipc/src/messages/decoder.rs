@@ -5,7 +5,7 @@ use bytes::{Buf, BytesMut};
 use flatbuffers::{root, root_unchecked, Follow};
 use itertools::Itertools;
 use vortex_array::{flatbuffers as fba, ArrayData, Context};
-use vortex_buffer::{AlignedBuffer, Buffer};
+use vortex_buffer::{AlignedBuffer, Alignment};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_flatbuffers::message as fb;
@@ -21,7 +21,7 @@ use crate::ALIGNMENT;
 #[derive(Debug)]
 pub enum DecoderMessage {
     Array(ArrayParts),
-    Buffer(Buffer),
+    Buffer(AlignedBuffer),
     DType(DType),
 }
 
@@ -30,7 +30,8 @@ pub enum DecoderMessage {
 pub struct ArrayParts {
     row_count: usize,
     // Typed as fb::Array
-    array_flatbuffer: Buffer,
+    // FIXME(ngates): use ConstAlignedArray aliased to FlatBuffer
+    array_flatbuffer: AlignedBuffer,
     array_flatbuffer_loc: usize,
     buffers: Vec<AlignedBuffer>,
 }
@@ -69,7 +70,7 @@ enum State {
 }
 
 struct ReadingArray {
-    header: Buffer,
+    header: AlignedBuffer,
     buffers_length: usize,
 }
 
@@ -159,7 +160,10 @@ impl MessageDecoder {
                             })?;
 
                             self.state = State::Array(ReadingArray {
-                                header: Buffer::from(msg_bytes.split().freeze()),
+                                header: AlignedBuffer::new_with_alignment(
+                                    msg_bytes.split().freeze(),
+                                    Alignment::new(FB_ALIGNMENT),
+                                ),
                                 buffers_length,
                             });
                         }
@@ -197,7 +201,10 @@ impl MessageDecoder {
                     }
                     let buffer = bytes.split_to_aligned(*length, self.alignment);
 
-                    let msg = DecoderMessage::Buffer(Buffer::from(buffer.freeze()));
+                    let msg = DecoderMessage::Buffer(AlignedBuffer::new_with_alignment(
+                        buffer.freeze(),
+                        Alignment::new(self.alignment),
+                    ));
                     let _padding = bytes.split_to(length_with_padding - length);
 
                     // Nothing else to read, so we reset the state to Length

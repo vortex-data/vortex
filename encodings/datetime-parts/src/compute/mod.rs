@@ -117,9 +117,10 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalAr
         &DType::Primitive(PType::I64, array.dtype().nullability()),
     )?
     .into_primitive()?;
+    // FIXME(ngates): mutate in place
     let mut values: Vec<i64> = days_buf
         .into_maybe_null_slice::<i64>()
-        .into_iter()
+        .iter()
         .map(|d| d * 86_400 * divisor)
         .collect();
 

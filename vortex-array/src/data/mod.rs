@@ -6,7 +6,7 @@ use std::sync::{Arc, RwLock};
 use itertools::Itertools;
 use owned::OwnedArrayData;
 use viewed::ViewedArrayData;
-use vortex_buffer::{AlignedBuffer, Buffer};
+use vortex_buffer::AlignedBuffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
@@ -82,7 +82,8 @@ impl ArrayData {
         ctx: Arc<Context>,
         dtype: DType,
         len: usize,
-        flatbuffer: Buffer,
+        // TODO(ngates): use ConstAlignedBuffer
+        flatbuffer: AlignedBuffer,
         flatbuffer_init: F,
         buffers: Vec<AlignedBuffer>,
     ) -> VortexResult<Self>

@@ -92,7 +92,7 @@ impl<T: Copy> ScalarBuffer<T> {
             Bound::Included(&n) => n
                 .checked_mul(size_of::<T>())
                 .and_then(|n| n.checked_add(1))
-                .expect("out of range"),
+                .vortex_expect("out of range"),
             Bound::Excluded(&n) => n.checked_mul(size_of::<T>()).vortex_expect("out of range"),
             Bound::Unbounded => len
                 .checked_mul(size_of::<T>())

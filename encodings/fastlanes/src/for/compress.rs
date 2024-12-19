@@ -147,7 +147,8 @@ fn decompress_primitive<T: NativePType + WrappingAdd + PrimInt>(
             )
         }
     } else {
-        ScalarBuffer::from_iter(values.into_iter().map(move |v| v.wrapping_add(&min)))
+        // FIXME(ngates): mutate in place
+        ScalarBuffer::from_iter(values.iter().map(move |v| v.wrapping_add(&min)))
     }
 }
 

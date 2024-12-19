@@ -2,7 +2,7 @@ use std::fmt::Debug;
 use std::ops::{Bound, Deref, RangeBounds};
 
 use bytes::Bytes;
-use vortex_error::vortex_panic;
+use vortex_error::{vortex_panic, VortexExpect};
 
 use crate::alignment::Alignment;
 use crate::AlignedBufferMut;
@@ -129,11 +129,11 @@ impl AlignedBuffer {
         let len = self.len();
         let begin = match range.start_bound() {
             Bound::Included(&n) => n,
-            Bound::Excluded(&n) => n.checked_add(1).expect("out of range"),
+            Bound::Excluded(&n) => n.checked_add(1).vortex_expect("out of range"),
             Bound::Unbounded => 0,
         };
         let end = match range.end_bound() {
-            Bound::Included(&n) => n.checked_add(1).expect("out of range"),
+            Bound::Included(&n) => n.checked_add(1).vortex_expect("out of range"),
             Bound::Excluded(&n) => n,
             Bound::Unbounded => len,
         };

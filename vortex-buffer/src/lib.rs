@@ -30,7 +30,6 @@ mod aligned_mut;
 mod alignment;
 #[cfg(feature = "arrow")]
 mod arrow;
-mod flexbuffers;
 mod scalar;
 mod scalar_mut;
 mod string;

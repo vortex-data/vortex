@@ -4941,8 +4941,6 @@ version = "0.21.1"
 dependencies = [
  "arrow-buffer",
  "bytes",
- "flexbuffers",
- "num-traits",
  "vortex-dtype",
  "vortex-error",
 ]

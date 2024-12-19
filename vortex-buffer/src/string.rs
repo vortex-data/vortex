@@ -9,7 +9,7 @@ use crate::{AlignedBuffer, Buffer};
 pub struct BufferString(AlignedBuffer);
 
 impl BufferString {
-    /// Creates a new `BufferString` from a [`Buffer`].
+    /// Creates a new `BufferString` from a [`AlignedBuffer`].
     ///
     /// # Safety
     /// Assumes that the buffer contains valid UTF-8.

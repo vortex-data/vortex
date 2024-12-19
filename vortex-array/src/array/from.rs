@@ -1,4 +1,4 @@
-use vortex_buffer::{Buffer, BufferString};
+use vortex_buffer::BufferString;
 use vortex_dtype::half::f16;
 use vortex_dtype::{DType, Nullability};
 
@@ -53,9 +53,9 @@ impl FromIterator<Option<BufferString>> for ArrayData {
         VarBinViewArray::from_iter(iter, DType::Utf8(Nullability::Nullable)).into_array()
     }
 }
-
-impl FromIterator<Option<Buffer>> for ArrayData {
-    fn from_iter<T: IntoIterator<Item = Option<Buffer>>>(iter: T) -> Self {
-        VarBinViewArray::from_iter(iter, DType::Binary(Nullability::Nullable)).into_array()
-    }
-}
+//
+// impl FromIterator<Option<Buffer>> for ArrayData {
+//     fn from_iter<T: IntoIterator<Item = Option<Buffer>>>(iter: T) -> Self {
+//         VarBinViewArray::from_iter(iter, DType::Binary(Nullability::Nullable)).into_array()
+//     }
+// }
