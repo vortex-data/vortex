@@ -83,6 +83,12 @@ impl AlignedBufferMut {
         self.bytes = bytes;
     }
 
+    /// # Safety
+    /// The caller must ensure that the buffer was properly initialized up to `len`.
+    pub unsafe fn set_len(&mut self, len: usize) {
+        unsafe { self.bytes.set_len(len) }
+    }
+
     /// Appends given bytes to this `AlignedBufferMut`.
     ///
     /// If there is insufficient capacity, it is resized first.

@@ -94,15 +94,38 @@ impl AlignedBuffer {
 
     /// Returns a slice of self for the provided range.
     ///
-    /// FIXME(ngates): what should this do to the alignment? The underlying buffer is still
-    ///  aligned... But the new sliced one might not be? Should we panic if the caller tries to
-    ///  slice using unaligned indices?
-    ///
     /// # Panics
     ///
     /// Requires that `begin <= end` and `end <= self.len()`.
     /// Also requires that both `begin` and `end` are aligned to the buffer's required alignment.
+    #[inline(always)]
     pub fn slice(&self, range: impl RangeBounds<usize>) -> Self {
+        self.slice_with_alignment(range, self.alignment)
+    }
+
+    /// Returns a slice of self for the provided range, with no guarantees about the resulting
+    /// alignment.
+    ///
+    /// # Panics
+    ///
+    /// Requires that `begin <= end` and `end <= self.len()`.
+    #[inline(always)]
+    pub fn slice_unaligned(&self, range: impl RangeBounds<usize>) -> Self {
+        self.slice_with_alignment(range, Alignment::of::<u8>())
+    }
+
+    /// Returns a slice of self for the provided range, ensuring the resulting slice has the
+    /// given alignment.
+    ///
+    /// # Panics
+    ///
+    /// Requires that `begin <= end` and `end <= self.len()`.
+    /// Also requires that both `begin` and `end` are aligned to the given alignment.
+    pub fn slice_with_alignment(
+        &self,
+        range: impl RangeBounds<usize>,
+        alignment: Alignment,
+    ) -> Self {
         let len = self.len();
         let begin = match range.start_bound() {
             Bound::Included(&n) => n,
@@ -125,23 +148,23 @@ impl AlignedBuffer {
         if end > len {
             vortex_panic!("range end out of bounds: {:?} <= {:?}", end, len);
         }
-        if !begin.is_multiple_of(*self.alignment) {
-            vortex_panic!("range start must be aligned to {:?}", self.alignment);
+        if !begin.is_multiple_of(*alignment) {
+            vortex_panic!("range start must be aligned to {:?}", alignment);
         }
-        if !end.is_multiple_of(*self.alignment) {
-            vortex_panic!("range end must be aligned to {:?}", self.alignment);
+        if !end.is_multiple_of(*alignment) {
+            vortex_panic!("range end must be aligned to {:?}", alignment);
         }
 
         if end == begin {
             // We prefer to return a new empty buffer instead of sharing this one and creating a
             // strong reference just to hold an empty slice.
-            return AlignedBuffer::empty(self.alignment);
+            return AlignedBuffer::empty(alignment);
         }
 
         // Currently this panics if the begin/end are not aligned to the buffer's alignment...
         // For unaligned access, the caller should go via `as_slice`.
         // Alternatively, we could add a slice_with_alignment call that relaxes the alignment.
-        Self::new_with_alignment(self.bytes.slice(begin..end), self.alignment)
+        Self::new_with_alignment(self.bytes.slice(begin..end), alignment)
     }
 }
 

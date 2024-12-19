@@ -92,7 +92,7 @@ impl<T: Sized + Copy> ScalarBufferMut<T> {
     /// The caller must ensure that the buffer was properly initialized up to `len`.
     #[inline]
     pub unsafe fn set_len(&mut self, len: usize) {
-        assert!(len <= self.capacity());
+        unsafe { self.buffer.set_len(len * size_of::<T>()) };
         self.length = len;
     }
 

@@ -12,7 +12,9 @@ use crate::{LazyDType, EOF_SIZE, INITIAL_READ_SIZE, MAGIC_BYTES, VERSION};
 pub struct InitialRead {
     /// The bytes from the initial read of the file, which is assumed (for now) to be sufficiently
     /// large to contain the schema and layout.
-    pub buf: ConstAlignedBuffer<64>,
+    /// TODO(ngates): we should ensure the initial read, and therefore the flatbuffers, are
+    ///  8-byte aligned. But the writer doesn't guarantee this right now.
+    pub buf: ConstAlignedBuffer<1>,
     /// The absolute byte offset representing the start of the initial read within the file.
     pub initial_read_offset: u64,
     /// The byte range within `buf` representing the Postscript flatbuffer.
@@ -70,7 +72,7 @@ pub async fn read_initial_bytes<R: VortexReadAt>(
     let read_size = INITIAL_READ_SIZE.min(file_size as usize);
 
     let initial_read_offset = file_size - read_size as u64;
-    let mut buf = AlignedBufferMut::with_capacity(read_size, Alignment::new(64));
+    let mut buf = AlignedBufferMut::with_capacity(read_size, Alignment::new(1));
     buf.extend_from_slice(
         read.read_byte_range(initial_read_offset, read_size as u64)
             .await?
@@ -145,7 +147,7 @@ pub async fn read_initial_bytes<R: VortexReadAt>(
     root::<footer::Layout>(&buf[layout_loc..ps_loc])?;
 
     Ok(InitialRead {
-        buf: ConstAlignedBuffer::<64>::try_from(buf.freeze())?,
+        buf: buf.freeze().try_into()?,
         initial_read_offset,
         fb_postscript_byte_range,
     })
