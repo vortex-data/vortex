@@ -92,9 +92,9 @@ impl RowMask {
         let indices =
             try_cast(array, &DType::Primitive(PType::U64, NonNullable))?.into_primitive()?;
 
+        // TODO(ngates): should from_indices take u64?
         let mask = FilterMask::from_indices(
             end - begin,
-            // TODO(ngates): should from_indices take u64?
             indices
                 .maybe_null_slice::<u64>()
                 .iter()
