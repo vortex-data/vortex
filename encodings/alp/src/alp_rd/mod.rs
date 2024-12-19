@@ -254,6 +254,10 @@ impl RDEncoder {
 
 /// Decode a vector of ALP-RD encoded values back into their original floating point format.
 ///
+/// `left_parts_patches` is taken as an owned vector because we always need an allocation of that
+/// size for the result and Rust will re-use the allocation (which has compatible length and
+/// bit-width).sr
+///
 /// # Panics
 ///
 /// The function panics if the provided `left_parts` and `right_parts` differ in length.

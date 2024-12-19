@@ -128,6 +128,9 @@ pub fn decompress(array: FoRArray) -> VortexResult<PrimitiveArray> {
     }))
 }
 
+/// Decompresses a frame-of-reference encoded vector given the shift and the bias (`min`).
+///
+/// `values` is taken as an owned vector because we always need an allocation of that size.
 fn decompress_primitive<T: NativePType + WrappingAdd + PrimInt>(
     values: Vec<T>,
     min: T,

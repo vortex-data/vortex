@@ -1,11 +1,12 @@
 mod invert;
 
-use arrow_buffer::BooleanBuffer;
-use vortex_array::array::BoolArray;
+use arrow_buffer::{ArrowNativeType, BooleanBuffer};
+use num_traits::AsPrimitive;
+use vortex_array::array::{BoolArray, PrimitiveArray};
 use vortex_array::compute::{slice, ComputeVTable, InvertFn, ScalarAtFn, SliceFn, TakeFn};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
-use vortex_dtype::match_each_integer_ptype;
+use vortex_dtype::{match_each_integer_ptype, NativePType};
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::Scalar;
 
@@ -41,17 +42,7 @@ impl TakeFn<RunEndBoolArray> for RunEndBoolEncoding {
     fn take(&self, array: &RunEndBoolArray, indices: &ArrayData) -> VortexResult<ArrayData> {
         let primitive_indices = indices.clone().into_primitive()?;
         let physical_indices = match_each_integer_ptype!(primitive_indices.ptype(), |$P| {
-            primitive_indices
-                .maybe_null_slice::<$P>()
-                .into_iter()
-                .map(|idx| *idx as usize)
-                .map(|idx| {
-                    if idx >= array.len() {
-                        vortex_bail!(OutOfBounds: idx, 0, array.len())
-                    }
-                    array.find_physical_index(idx)
-                })
-                .collect::<VortexResult<Vec<_>>>()?
+            valid_physical_indices::<$P>(array, primitive_indices)?
         });
         let start = array.start();
         BoolArray::try_new(
@@ -63,6 +54,36 @@ impl TakeFn<RunEndBoolArray> for RunEndBoolEncoding {
             array.validity().take(indices)?,
         )
         .map(|a| a.into_array())
+    }
+}
+
+fn valid_physical_indices<P: NativePType + ArrowNativeType + AsPrimitive<usize>>(
+    array: &RunEndBoolArray,
+    primitive_indices: PrimitiveArray,
+) -> VortexResult<Vec<usize>> {
+    match primitive_indices.try_into_maybe_null_vec::<P>() {
+        // This allocation can be re-used when P's width matches usize's.
+        Ok(vector) => vector
+            .into_iter()
+            .map(|idx| idx.as_())
+            .map(|idx| {
+                if idx >= array.len() {
+                    vortex_bail!(OutOfBounds: idx, 0, array.len())
+                }
+                array.find_physical_index(idx)
+            })
+            .collect::<VortexResult<Vec<_>>>(),
+        Err(primitive_indices) => primitive_indices
+            .maybe_null_slice::<P>()
+            .iter()
+            .map(|idx| (*idx).as_())
+            .map(|idx| {
+                if idx >= array.len() {
+                    vortex_bail!(OutOfBounds: idx, 0, array.len())
+                }
+                array.find_physical_index(idx)
+            })
+            .collect::<VortexResult<Vec<_>>>(),
     }
 }
 

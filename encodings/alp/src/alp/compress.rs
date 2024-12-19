@@ -69,6 +69,8 @@ pub fn decompress(array: ALPArray) -> VortexResult<PrimitiveArray> {
     let ptype = array.dtype().try_into()?;
     let decoded = match_each_alp_float_ptype!(ptype, |$T| {
         PrimitiveArray::from_vec(
+            // If encoded is uniquely owned (e.g. it was just decompressed by into_primitive), Rust
+            // will re-use the allocation
             <$T>::decode_vec(encoded.into_maybe_null_vec(), array.exponents()),
             validity,
         )

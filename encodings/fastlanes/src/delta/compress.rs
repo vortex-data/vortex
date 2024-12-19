@@ -110,6 +110,9 @@ pub fn delta_decompress(array: DeltaArray) -> VortexResult<PrimitiveArray> {
     slice(decoded, array.offset(), array.offset() + array.len())?.into_primitive()
 }
 
+// FIXME(DK): This method may benefit from taking deltas as an owned vector. Rust could re-use that
+// allocation for `output` but proving that is a bit complex compared to
+// `vector.into_iter().map().collect()`.
 fn decompress_primitive<T: NativePType + Delta + Transpose + WrappingAdd>(
     bases: &[T],
     deltas: &[T],
