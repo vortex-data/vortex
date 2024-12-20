@@ -136,7 +136,7 @@ where
                 .map(|_| random_scalar(u, ldt))
                 .collect::<Result<Vec<_>>>()?;
             builder
-                .append_value(Scalar::list(ldt.clone(), elem, n.clone()).as_list())
+                .append_value(Scalar::list(ldt.clone(), elem, *n).as_list())
                 .vortex_expect("can append value");
         } else {
             builder.append_null();
