@@ -5,8 +5,8 @@
 use std::fmt::{Debug, Display};
 
 use futures_util::stream;
-use itertools::Itertools;
 use serde::{Deserialize, Serialize};
+use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult, VortexUnwrap};
 use vortex_scalar::BinaryNumericOperator;
@@ -54,14 +54,15 @@ impl ChunkedArray {
             }
         }
 
-        let chunk_offsets = [0u64]
-            .into_iter()
-            .chain(chunks.iter().map(|c| c.len() as u64))
-            .scan(0, |acc, c| {
-                *acc += c;
-                Some(*acc)
-            })
-            .collect_vec();
+        let chunk_offsets = Buffer::from_iter(
+            [0u64]
+                .into_iter()
+                .chain(chunks.iter().map(|c| c.len() as u64))
+                .scan(0, |acc, c| {
+                    *acc += c;
+                    Some(*acc)
+                }),
+        );
 
         let nchunks = chunk_offsets.len() - 1;
         let length = *chunk_offsets
@@ -69,7 +70,7 @@ impl ChunkedArray {
             .vortex_expect("Chunk ends is guaranteed to have at least one element");
 
         let mut children = Vec::with_capacity(chunks.len() + 1);
-        children.push(PrimitiveArray::from_vec(chunk_offsets, NonNullable).into_array());
+        children.push(PrimitiveArray::new(chunk_offsets, NonNullable).into_array());
         children.extend(chunks);
 
         Self::try_from_parts(

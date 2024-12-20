@@ -135,9 +135,9 @@ impl<T> BufferMut<T> {
         let raw_ptr = &value as *const T as *const u8;
         let bytes = unsafe { std::slice::from_raw_parts(raw_ptr, size_of::<T>()) };
 
-        let dst = self.bytes.as_mut_ptr();
         // SAFETY: we checked the capacity in the reserve call
         unsafe {
+            let dst = self.bytes.as_mut_ptr().add(self.bytes.len());
             std::ptr::copy_nonoverlapping(bytes.as_ptr(), dst, size_of::<T>());
             self.bytes.set_len(self.bytes.len() + size_of::<T>())
         }
@@ -230,7 +230,7 @@ impl<T> Extend<T> for BufferMut<T> {
 
         let remaining = self.capacity() - self.len();
         let mut consumed = 0;
-        let mut dst = unsafe { self.bytes.as_mut_ptr().add(self.len() * item_size) };
+        let mut dst = unsafe { self.bytes.as_mut_ptr().add(self.bytes.len()) };
 
         while consumed < remaining {
             if let Some(item) = iterator.next() {

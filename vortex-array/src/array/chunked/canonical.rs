@@ -127,7 +127,7 @@ pub(crate) fn try_canonicalize_chunks(
 
 fn pack_lists(chunks: &[ArrayData], validity: Validity, dtype: &DType) -> VortexResult<ListArray> {
     let len: usize = chunks.iter().map(|c| c.len()).sum();
-    let mut offsets = Vec::with_capacity(len + 1);
+    let mut offsets = BufferMut::<i64>::with_capacity(len + 1);
     offsets.push(0);
     let mut elements = Vec::new();
     let elem_dtype = dtype
@@ -164,7 +164,7 @@ fn pack_lists(chunks: &[ArrayData], validity: Validity, dtype: &DType) -> Vortex
         );
     }
     let chunked_elements = ChunkedArray::try_new(elements, elem_dtype.clone())?.into_array();
-    let offsets = PrimitiveArray::from_vec(offsets, NonNullable);
+    let offsets = PrimitiveArray::new(offsets.freeze(), NonNullable);
 
     ListArray::try_new(chunked_elements, offsets.into_array(), validity)
 }
@@ -219,9 +219,9 @@ fn pack_primitives<T: NativePType>(
     chunks: &[ArrayData],
     validity: Validity,
 ) -> VortexResult<PrimitiveArray> {
-    // NOTE(ngates): Rust's FlatMap iterator should correctly propagate size_hint so that our
-    //  BufferMut is correctly sized the first time.
-    let buffer = BufferMut::<T>::from_iter(chunks.iter().flat_map(|chunk| {
+    let total_len = chunks.iter().map(|a| a.len()).sum();
+    let mut buffer = BufferMut::with_capacity(total_len);
+    buffer.extend(chunks.iter().flat_map(|chunk| {
         chunk
             .clone()
             .into_primitive()

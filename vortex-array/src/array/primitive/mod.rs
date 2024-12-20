@@ -63,6 +63,7 @@ impl PrimitiveArray {
     }
 
     // FIXME(ngates): deprecate this method since it now has to perform a copy.
+    #[deprecated]
     pub fn from_vec<T: NativePType>(values: Vec<T>, validity: Validity) -> Self {
         Self::new(Buffer::copy_from_vec(values), validity)
     }
@@ -145,7 +146,7 @@ impl PrimitiveArray {
     ///
     /// TODO(ngates): we could be smarter here if validity is sparse and only run the function
     ///   over the valid elements.
-    pub fn map_each<T, R, F>(self, f: F) -> PrimitiveArray
+    pub fn map_each<T, R, F>(self, mut f: F) -> PrimitiveArray
     where
         T: NativePType,
         R: NativePType,
