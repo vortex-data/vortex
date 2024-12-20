@@ -98,15 +98,6 @@ impl PrimitiveArray {
         )
     }
 
-    /// Create a PrimitiveArray by taking a copy of the data in a nullable vector.
-    /// FIXME(ngates): deprecate this
-    #[deprecated]
-    pub fn copy_from_nullable_vec<T: NativePType>(values: Vec<Option<T>>) -> Self {
-        let elems: Buffer<T> = values.iter().map(|v| v.unwrap_or_default()).collect();
-        let validity = Validity::from_iter(values.iter().map(|v| v.is_some()));
-        Self::new(elems, validity)
-    }
-
     pub fn validity(&self) -> Validity {
         self.metadata().validity.to_validity(|| {
             self.as_ref()
