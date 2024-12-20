@@ -382,7 +382,7 @@ async fn write_chunked() {
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
 async fn filter_string() {
-    let names_orig = VarBinArray::from_iter(
+    let names_orig = VarBinArray::from_option_iter(
         vec![Some("Joseph"), None, Some("Angela"), Some("Mikhail"), None],
         DType::Utf8(Nullability::Nullable),
     )
@@ -432,7 +432,7 @@ async fn filter_string() {
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
 async fn filter_or() {
-    let names = VarBinArray::from_iter(
+    let names = VarBinArray::from_option_iter(
         vec![Some("Joseph"), None, Some("Angela"), Some("Mikhail"), None],
         DType::Utf8(Nullability::Nullable),
     );
@@ -504,7 +504,7 @@ async fn filter_or() {
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
 async fn filter_and() {
-    let names = VarBinArray::from_iter(
+    let names = VarBinArray::from_option_iter(
         vec![Some("Joseph"), None, Some("Angela"), Some("Mikhail"), None],
         DType::Utf8(Nullability::Nullable),
     );

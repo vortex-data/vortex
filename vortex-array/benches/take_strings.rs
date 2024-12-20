@@ -12,7 +12,7 @@ fn fixture(len: usize) -> VarBinArray {
     let values: [Option<&'static str>; 3] =
         [Some("inlined"), None, Some("verylongstring--notinlined")];
 
-    VarBinArray::from_iter(
+    VarBinArray::from_option_iter(
         values.into_iter().cycle().take(len),
         DType::Utf8(Nullability::Nullable),
     )

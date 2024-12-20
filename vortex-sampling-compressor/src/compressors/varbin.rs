@@ -38,7 +38,7 @@ impl EncodingCompressor for VarBinCompressor {
         Ok(CompressedArray::compressed(
             VarBinArray::try_new(
                 offsets.array,
-                varbin_array.bytes(), // we don't compress the raw bytes
+                varbin_array.bytes().clone(), // we don't compress the raw bytes
                 array.dtype().clone(),
                 varbin_array.validity(),
             )?

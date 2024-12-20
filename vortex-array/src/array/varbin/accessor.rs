@@ -13,14 +13,12 @@ impl ArrayAccessor<[u8]> for VarBinArray {
         F: for<'a> FnOnce(&mut (dyn Iterator<Item = Option<&'a [u8]>>)) -> R,
     {
         // TODO(ngates): what happens if bytes is much larger than sliced_bytes?
-        let primitive = self.bytes().into_primitive()?;
+        let bytes = self.bytes();
         let offsets = self.offsets().into_primitive()?;
         let validity = self.logical_validity().to_null_buffer()?;
 
         match_each_integer_ptype!(offsets.ptype(), |$T| {
             let offsets = offsets.as_slice::<$T>();
-            let bytes = primitive.as_slice::<u8>();
-
             match validity {
                 None => {
                     let mut iter = offsets

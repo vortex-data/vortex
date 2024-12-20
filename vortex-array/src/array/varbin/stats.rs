@@ -200,7 +200,7 @@ mod test {
 
     #[test]
     fn some_nulls() {
-        let array = VarBinArray::from_iter(
+        let array = VarBinArray::from_option_iter(
             vec![
                 Some("hello world"),
                 None,
@@ -221,7 +221,7 @@ mod test {
 
     #[test]
     fn all_nulls() {
-        let array = VarBinArray::from_iter(
+        let array = VarBinArray::from_option_iter(
             vec![Option::<&str>::None, None, None],
             DType::Utf8(Nullability::Nullable),
         );

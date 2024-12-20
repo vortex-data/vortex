@@ -1,5 +1,6 @@
 use arrow_buffer::NullBuffer;
 use num_traits::PrimInt;
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::{match_each_integer_ptype, DType, NativePType};
 use vortex_error::{vortex_err, vortex_panic, VortexResult};
 
@@ -14,14 +15,14 @@ use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 impl TakeFn<VarBinArray> for VarBinEncoding {
     fn take(&self, array: &VarBinArray, indices: &ArrayData) -> VortexResult<ArrayData> {
         let offsets = array.offsets().into_primitive()?;
-        let data = array.bytes().into_primitive()?;
+        let data = array.bytes();
         let indices = indices.clone().into_primitive()?;
         match_each_integer_ptype!(offsets.ptype(), |$O| {
             match_each_integer_ptype!(indices.ptype(), |$I| {
                 Ok(take(
                     array.dtype().clone(),
                     offsets.as_slice::<$O>(),
-                    data.as_slice::<u8>(),
+                    data,
                     indices.as_slice::<$I>(),
                     array.validity(),
                 )?.into_array())
@@ -33,7 +34,7 @@ impl TakeFn<VarBinArray> for VarBinEncoding {
 fn take<I: NativePType, O: NativePType + PrimInt>(
     dtype: DType,
     offsets: &[O],
-    data: &[u8],
+    data: &ByteBuffer,
     indices: &[I],
     validity: Validity,
 ) -> VortexResult<VarBinArray> {
@@ -61,7 +62,7 @@ fn take<I: NativePType, O: NativePType + PrimInt>(
 fn take_nullable<I: NativePType, O: NativePType + PrimInt>(
     dtype: DType,
     offsets: &[O],
-    data: &[u8],
+    data: &ByteBuffer,
     indices: &[I],
     null_buffer: NullBuffer,
 ) -> VarBinArray {

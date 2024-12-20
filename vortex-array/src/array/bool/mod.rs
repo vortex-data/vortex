@@ -4,7 +4,7 @@ use std::sync::Arc;
 use arrow_array::BooleanArray;
 use arrow_buffer::{BooleanBufferBuilder, MutableBuffer};
 use serde::{Deserialize, Serialize};
-use vortex_buffer::{Alignment, ByteBuffer};
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexExpect as _, VortexResult};
 
@@ -127,7 +127,7 @@ impl BoolArray {
                 validity: validity.to_metadata(buffer_len)?,
                 first_byte_bit_offset,
             }),
-            Some(ByteBuffer::from_arrow_buffer(inner, Alignment::of::<u8>())),
+            Some(ByteBuffer::from_arrow_buffer(inner)),
             validity.into_array().into_iter().collect(),
             StatsSet::default(),
         )?

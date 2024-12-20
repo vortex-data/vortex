@@ -34,7 +34,7 @@ use crate::{ArrayData, IntoArrayData};
 impl From<Buffer> for ArrayData {
     fn from(value: Buffer) -> Self {
         PrimitiveArray::from_byte_buffer(
-            ByteBuffer::from_arrow_buffer(value, Alignment::of::<u8>()),
+            ByteBuffer::from_arrow_buffer(value),
             PType::U8,
             Validity::NonNullable,
         )
@@ -130,7 +130,7 @@ where
         };
         VarBinArray::try_new(
             value.offsets().clone().into(),
-            value.values().clone().into(),
+            ByteBuffer::from_arrow_buffer(value.values().clone()),
             dtype,
             nulls(value.nulls(), nullable),
         )

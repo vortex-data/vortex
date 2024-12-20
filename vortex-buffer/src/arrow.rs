@@ -64,26 +64,15 @@ impl ByteBuffer {
 
     /// Convert an Arrow scalar buffer into a Vortex scalar buffer.
     ///
+    /// NOTE(ngates): we have to be careful using Arrow compute functions since when we come back
+    ///  from Arrow into Vortex, this implementation doesn't allow us to turn the buffer into a
+    ///  mutable one.
+    ///
     /// ## Panics
     ///
     /// Panics if the Arrow buffer is not sufficiently aligned.
-    pub fn from_arrow_buffer(arrow: arrow_buffer::Buffer, alignment: Alignment) -> Self {
-        let length = arrow.len();
-
-        let bytes = Bytes::from_owner(ArrowWrapper(arrow));
-        if bytes.as_ptr().align_offset(*alignment) != 0 {
-            vortex_panic!(
-                "Arrow buffer is not aligned to the requested alignment: {}",
-                alignment
-            );
-        }
-
-        Self {
-            bytes,
-            length,
-            alignment,
-            _marker: Default::default(),
-        }
+    pub fn from_arrow_buffer(arrow: arrow_buffer::Buffer) -> Self {
+        Self::from(Bytes::from_owner(ArrowWrapper(arrow)))
     }
 }
 

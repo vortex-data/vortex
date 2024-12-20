@@ -1,9 +1,7 @@
 use arrow_array::builder::make_view;
 use vortex_array::array::{VarBinArray, VarBinViewArray};
 use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{
-    ArrayDType, ArrayData, Canonical, IntoArrayData, IntoArrayVariant, IntoCanonical,
-};
+use vortex_array::{ArrayDType, ArrayData, Canonical, IntoArrayData, IntoCanonical};
 use vortex_buffer::Buffer;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
@@ -24,13 +22,12 @@ impl IntoCanonical for FSSTArray {
             // necessary for a VarBinViewArray and construct the canonical array.
 
             let compressed_bytes = VarBinArray::try_from(self.codes())?
-                .sliced_bytes()?
-                .into_primitive()?;
+                .sliced_bytes()?;
 
             // Bulk-decompress the entire array.
             // TODO(ngates): this returns a Vec... Can we make it return an iterator perhaps?
             //  Or take some type that impls Default + Extend?
-            let uncompressed_bytes = decompressor.decompress(compressed_bytes.as_slice::<u8>());
+            let uncompressed_bytes = decompressor.decompress(compressed_bytes.as_slice());
 
             let uncompressed_lens_array = self
                 .uncompressed_lengths()

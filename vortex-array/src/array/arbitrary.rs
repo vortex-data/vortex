@@ -129,7 +129,8 @@ fn random_string(
         Nullability::Nullable => {
             let v = arbitrary_vec_of_len::<Option<String>>(u, len)?;
             Ok(match u.int_in_range(0..=1)? {
-                0 => VarBinArray::from_iter(v, DType::Utf8(Nullability::Nullable)).into_array(),
+                0 => VarBinArray::from_option_iter(v, DType::Utf8(Nullability::Nullable))
+                    .into_array(),
                 1 => VarBinViewArray::from_iter_nullable_str(v).into_array(),
                 _ => unreachable!(),
             })
@@ -154,7 +155,8 @@ fn random_bytes(
         Nullability::Nullable => {
             let v = arbitrary_vec_of_len::<Option<Vec<u8>>>(u, len)?;
             Ok(match u.int_in_range(0..=1)? {
-                0 => VarBinArray::from_iter(v, DType::Binary(Nullability::Nullable)).into_array(),
+                0 => VarBinArray::from_option_iter(v, DType::Binary(Nullability::Nullable))
+                    .into_array(),
                 1 => VarBinViewArray::from_iter_nullable_bin(v).into_array(),
                 _ => unreachable!(),
             })

@@ -153,13 +153,8 @@ fn dict_encode_varbin_bytes<'a, I: Iterator<Item = Option<&'a [u8]>>>(
     let values_validity = dict_values_validity(dtype.is_nullable(), offsets.len() - 1);
     (
         PrimitiveArray::new(codes, Validity::NonNullable),
-        VarBinArray::try_new(
-            offsets.into_array(),
-            bytes.into_array(),
-            dtype,
-            values_validity,
-        )
-        .vortex_expect("Failed to create VarBinArray dictionary during encoding"),
+        VarBinArray::try_new(offsets.into_array(), bytes.freeze(), dtype, values_validity)
+            .vortex_expect("Failed to create VarBinArray dictionary during encoding"),
     )
 }
 

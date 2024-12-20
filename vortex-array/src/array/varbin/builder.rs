@@ -80,7 +80,7 @@ impl<O: NativePType + PrimInt> VarBinBuilder<O> {
 
     pub fn finish(mut self, dtype: DType) -> VarBinArray {
         let offsets = PrimitiveArray::new(self.offsets.freeze(), Validity::NonNullable);
-        let data = PrimitiveArray::new(self.data.freeze(), Validity::NonNullable);
+        let data = self.data.freeze();
         let nulls = self.validity.finish();
 
         let validity = if dtype.is_nullable() {
@@ -90,7 +90,7 @@ impl<O: NativePType + PrimInt> VarBinBuilder<O> {
             Validity::NonNullable
         };
 
-        VarBinArray::try_new(offsets.into_array(), data.into_array(), dtype, validity)
+        VarBinArray::try_new(offsets.into_array(), data, dtype, validity)
             .vortex_expect("Unexpected error while building VarBinArray")
     }
 }
