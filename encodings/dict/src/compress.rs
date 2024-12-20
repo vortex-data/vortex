@@ -79,7 +79,7 @@ pub fn dict_encode_typed_primitive<T: NativePType>(
 
     (
         PrimitiveArray::from(codes),
-        PrimitiveArray::from_vec(values, values_validity),
+        PrimitiveArray::copy_from_vec(values, values_validity),
     )
 }
 
@@ -212,7 +212,7 @@ mod test {
 
     #[test]
     fn encode_primitive_nulls() {
-        let arr = PrimitiveArray::from_nullable_vec(vec![
+        let arr = PrimitiveArray::copy_from_nullable_vec(vec![
             Some(1),
             Some(1),
             None,

@@ -123,7 +123,7 @@ impl ValidityVTable<RoaringIntArray> for RoaringIntEncoding {
 impl IntoCanonical for RoaringIntArray {
     fn into_canonical(self) -> VortexResult<Canonical> {
         try_cast(
-            PrimitiveArray::from_vec(self.owned_bitmap().to_vec(), Validity::NonNullable),
+            PrimitiveArray::copy_from_vec(self.owned_bitmap().to_vec(), Validity::NonNullable),
             self.dtype(),
         )
         .and_then(ArrayData::into_canonical)
@@ -146,7 +146,7 @@ impl StatisticsVTable<RoaringIntArray> for RoaringIntEncoding {
         // possibly faster to write an accumulator over the iterator, though not necessarily
         if stat == Stat::TrailingZeroFreq || stat == Stat::BitWidthFreq || stat == Stat::RunCount {
             let primitive =
-                PrimitiveArray::from_vec(array.owned_bitmap().to_vec(), Validity::NonNullable);
+                PrimitiveArray::copy_from_vec(array.owned_bitmap().to_vec(), Validity::NonNullable);
             primitive.statistics().compute_all(&[
                 Stat::TrailingZeroFreq,
                 Stat::BitWidthFreq,

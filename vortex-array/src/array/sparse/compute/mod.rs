@@ -118,7 +118,7 @@ mod test {
     fn array() -> ArrayData {
         SparseArray::try_new(
             PrimitiveArray::from(vec![2u64, 9, 15]).into_array(),
-            PrimitiveArray::from_vec(vec![33_i32, 44, 55], Validity::AllValid).into_array(),
+            PrimitiveArray::copy_from_vec(vec![33_i32, 44, 55], Validity::AllValid).into_array(),
             20,
             Scalar::null_typed::<i32>(),
         )
@@ -163,7 +163,7 @@ mod test {
     fn search_right() {
         let array = SparseArray::try_new(
             PrimitiveArray::from(vec![0u64]).into_array(),
-            PrimitiveArray::from_vec(vec![0u8], Validity::AllValid).into_array(),
+            PrimitiveArray::copy_from_vec(vec![0u8], Validity::AllValid).into_array(),
             2,
             Scalar::null_typed::<u8>(),
         )
@@ -199,7 +199,7 @@ mod test {
         let mask = FilterMask::from_iter([false, true, false, true, false, true, true]);
         let array = SparseArray::try_new(
             PrimitiveArray::from(vec![0_u64, 3, 6]).into_array(),
-            PrimitiveArray::from_vec(vec![33_i32, 44, 55], Validity::AllValid).into_array(),
+            PrimitiveArray::copy_from_vec(vec![33_i32, 44, 55], Validity::AllValid).into_array(),
             7,
             Scalar::null_typed::<i32>(),
         )

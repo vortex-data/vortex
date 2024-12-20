@@ -2,6 +2,7 @@ use std::fmt::Debug;
 
 use itertools::Itertools as _;
 use serde::{Deserialize, Serialize};
+use vortex_buffer::BufferMut;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{match_each_integer_ptype, DType, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
@@ -14,7 +15,6 @@ use crate::compute::{
     take, FilterMask, SearchResult, SearchSortedSide,
 };
 use crate::stats::{ArrayStatistics, Stat};
-use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayDType, ArrayData, ArrayLen as _, IntoArrayData, IntoArrayVariant};
 
@@ -196,8 +196,8 @@ impl Patches {
         }
 
         let buffer = mask.to_boolean_buffer()?;
-        let mut coordinate_indices: Vec<u64> = Vec::new();
-        let mut value_indices = Vec::new();
+        let mut coordinate_indices = BufferMut::<u64>::empty();
+        let mut value_indices = BufferMut::<u64>::empty();
         let mut last_inserted_index: usize = 0;
 
         let flat_indices = self.indices().clone().into_primitive()?;
@@ -217,8 +217,8 @@ impl Patches {
             return Ok(None);
         }
 
-        let indices = PrimitiveArray::from(coordinate_indices).into_array();
-        let values = take(self.values(), PrimitiveArray::from(value_indices))?;
+        let indices = coordinate_indices.into_array();
+        let values = take(self.values(), value_indices.into_array())?;
 
         Ok(Some(Self::new(mask.len(), indices, values)))
     }
@@ -275,7 +275,7 @@ impl Patches {
                 .collect::<Result<Vec<_>, _>>()?
         });
 
-        let (values_indices, new_indices): (Vec<u64>, Vec<u64>) =
+        let (values_indices, new_indices): (BufferMut<u64>, BufferMut<u64>) =
             search_sorted_usize_many(self.indices(), &take_indices, SearchSortedSide::Left)?
                 .iter()
                 .enumerate()
@@ -290,10 +290,8 @@ impl Patches {
             return Ok(None);
         }
 
-        let new_indices = PrimitiveArray::from_vec(new_indices, Validity::NonNullable).into_array();
-
-        let values_indices =
-            PrimitiveArray::from_vec(values_indices, Validity::NonNullable).into_array();
+        let new_indices = new_indices.into_array();
+        let values_indices = values_indices.into_array();
         let new_values = take(self.values(), values_indices)?;
 
         Ok(Some(Self::new(new_length, new_indices, new_values)))
@@ -316,7 +314,7 @@ impl Patches {
                     .collect();
                 let min_index = self.min_index()?;
                 let max_index = self.max_index()?;
-                let (new_sparse_indices, value_indices): (Vec<u64>, Vec<u64>) =
+                let (new_sparse_indices, value_indices): (BufferMut<u64>, BufferMut<u64>) =
                     take_indices
                     .iter()
                     .map(|x| usize::try_from(*x))
@@ -340,8 +338,8 @@ impl Patches {
 
                 Ok(Some(Patches::new(
                     new_length,
-                    ArrayData::from(new_sparse_indices),
-                    take(self.values(), ArrayData::from(value_indices))?,
+                    new_sparse_indices.into_array(),
+                    take(self.values(), value_indices.into_array())?,
                 )))
             })
         })
@@ -414,7 +412,7 @@ mod test {
         Patches::new(
             20,
             PrimitiveArray::from(vec![2u64, 9, 15]).into_array(),
-            PrimitiveArray::from_vec(vec![33_i32, 44, 55], Validity::AllValid).into_array(),
+            PrimitiveArray::copy_from_vec(vec![33_i32, 44, 55], Validity::AllValid).into_array(),
         )
     }
 
@@ -456,7 +454,7 @@ mod test {
         let patches = Patches::new(
             2,
             PrimitiveArray::from(vec![0u64]).into_array(),
-            PrimitiveArray::from_vec(vec![0u8], Validity::AllValid).into_array(),
+            PrimitiveArray::copy_from_vec(vec![0u8], Validity::AllValid).into_array(),
         );
 
         assert_eq!(

@@ -196,7 +196,7 @@ mod test {
     }
 
     fn do_roundtrip_test(raw_values: &[i64], validity: Validity) {
-        let raw_millis = PrimitiveArray::from_vec(raw_values.to_vec(), validity.clone());
+        let raw_millis = PrimitiveArray::copy_from_vec(raw_values.to_vec(), validity.clone());
         assert_eq!(raw_millis.validity(), validity);
 
         let temporal_array = TemporalArray::new_timestamp(

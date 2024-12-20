@@ -62,17 +62,36 @@ impl PrimitiveArray {
         })
     }
 
-    // FIXME(ngates): deprecate this method since it now has to perform a copy.
-    #[deprecated]
-    pub fn from_vec<T: NativePType>(values: Vec<T>, validity: Validity) -> Self {
-        Self::new(Buffer::copy_from_vec(values), validity)
+    /// Create a PrimitiveArray from an iterator of `T`.
+    /// NOTE: we cannot impl FromIterator trait since it conflicts with `FromIterator<T>`.
+    pub fn from_option_iter<T: NativePType, I: IntoIterator<Item = Option<T>>>(iter: I) -> Self {
+        let iter = iter.into_iter();
+        let mut values = BufferMut::with_capacity(iter.size_hint().0);
+        let mut validity = BooleanBufferBuilder::new(values.capacity());
+
+        for i in iter {
+            match i {
+                None => {
+                    validity.append(false);
+                    values.push(T::default());
+                }
+                Some(e) => {
+                    validity.append(true);
+                    values.push(e);
+                }
+            }
+        }
+        Self::new(
+            values.freeze(),
+            Validity::Array(BoolArray::from(validity.finish()).into_array()),
+        )
     }
 
-    // FIXME(ngates): use BufferMut<T>.
-    pub fn from_nullable_vec<T: NativePType>(values: Vec<Option<T>>) -> Self {
-        let elems: Vec<T> = values.iter().map(|v| v.unwrap_or_default()).collect();
+    /// Create a PrimitiveArray by taking a copy of the data in a nullable vector.
+    pub fn copy_from_nullable_vec<T: NativePType>(values: Vec<Option<T>>) -> Self {
+        let elems: Buffer<T> = values.iter().map(|v| v.unwrap_or_default()).collect();
         let validity = Validity::from_iter(values.iter().map(|v| v.is_some()));
-        Self::from_vec(elems, validity)
+        Self::new(elems, validity)
     }
 
     pub fn validity(&self) -> Validity {
@@ -126,6 +145,7 @@ impl PrimitiveArray {
     }
 
     /// Try to extract a mutable buffer from the PrimitiveArray with zero copy.
+    #[allow(clippy::panic_in_result_fn)]
     pub fn try_into_buffer_mut<T: NativePType>(self) -> Result<BufferMut<T>, PrimitiveArray> {
         assert_eq!(
             T::PTYPE,
@@ -146,7 +166,7 @@ impl PrimitiveArray {
     ///
     /// TODO(ngates): we could be smarter here if validity is sparse and only run the function
     ///   over the valid elements.
-    pub fn map_each<T, R, F>(self, mut f: F) -> PrimitiveArray
+    pub fn map_each<T, R, F>(self, f: F) -> PrimitiveArray
     where
         T: NativePType,
         R: NativePType,
@@ -155,7 +175,7 @@ impl PrimitiveArray {
         let validity = self.validity();
         let buffer = match self.try_into_buffer_mut() {
             Ok(buffer_mut) => buffer_mut.map_each(f),
-            Err(parray) => BufferMut::<R>::from_iter(parray.buffer::<T>().iter().map(|v| f(v))),
+            Err(parray) => BufferMut::<R>::from_iter(parray.buffer::<T>().iter().map(f)),
         };
         PrimitiveArray::new(buffer.freeze(), validity)
     }
@@ -249,40 +269,22 @@ impl<T: NativePType> Accessor<T> for PrimitiveArray {
 
 impl PrimitiveArrayTrait for PrimitiveArray {}
 
-impl<T: NativePType> FromIterator<Option<T>> for PrimitiveArray {
-    fn from_iter<I: IntoIterator<Item = Option<T>>>(iter: I) -> Self {
-        let iter = iter.into_iter();
-        let mut values = Vec::with_capacity(iter.size_hint().0);
-        let mut validity = BooleanBufferBuilder::new(values.capacity());
-
-        for i in iter {
-            match i {
-                None => {
-                    validity.append(false);
-                    values.push(T::default());
-                }
-                Some(e) => {
-                    validity.append(true);
-                    values.push(e);
-                }
-            }
-        }
-        Self::from_vec(
-            values,
-            Validity::Array(BoolArray::from(validity.finish()).into_array()),
-        )
+impl<T: NativePType> FromIterator<T> for PrimitiveArray {
+    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
+        let values = BufferMut::from_iter(iter);
+        PrimitiveArray::new(values.freeze(), Validity::NonNullable)
     }
 }
 
-impl<T: NativePType> From<Vec<T>> for PrimitiveArray {
-    fn from(values: Vec<T>) -> Self {
-        Self::from_vec(values, Validity::NonNullable)
-    }
-}
-
-impl<T: NativePType> IntoArrayData for Vec<T> {
+impl<T: NativePType> IntoArrayData for Buffer<T> {
     fn into_array(self) -> ArrayData {
-        PrimitiveArray::from(self).into_array()
+        PrimitiveArray::new(self, Validity::NonNullable).into_array()
+    }
+}
+
+impl<T: NativePType> IntoArrayData for BufferMut<T> {
+    fn into_array(self) -> ArrayData {
+        self.freeze().into_array()
     }
 }
 

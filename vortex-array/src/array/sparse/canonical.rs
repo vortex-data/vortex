@@ -1,4 +1,5 @@
 use arrow_buffer::{ArrowNativeType, BooleanBuffer};
+use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
 use vortex_error::{VortexError, VortexResult};
 use vortex_scalar::Scalar;
@@ -76,7 +77,7 @@ fn canonicalize_sparse_primitives<
         )
     };
 
-    let parray = PrimitiveArray::from_vec(vec![primitive_fill; patches.array_len()], validity);
+    let parray = PrimitiveArray::new(Buffer::full(primitive_fill, patches.array_len()), validity);
 
     parray.patch(patches).map(Canonical::Primitive)
 }
@@ -161,7 +162,7 @@ mod test {
 
         let indices = vec![0u64, 1, 7].into_array();
         let values =
-            PrimitiveArray::from_nullable_vec(vec![Some(0i32), None, Some(1)]).into_array();
+            PrimitiveArray::copy_from_nullable_vec(vec![Some(0i32), None, Some(1)]).into_array();
         let sparse_ints =
             SparseArray::try_new(indices, values, 10, Scalar::from(fill_value)).unwrap();
         assert_eq!(
@@ -174,7 +175,7 @@ mod test {
             .unwrap()
             .into_primitive()
             .unwrap();
-        let expected = PrimitiveArray::from_nullable_vec(vec![
+        let expected = PrimitiveArray::copy_from_nullable_vec(vec![
             Some(0i32),
             None,
             fill_value,

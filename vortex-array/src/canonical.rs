@@ -549,7 +549,7 @@ mod test {
         let nested_struct_array = StructArray::from_fields(&[
             (
                 "a",
-                PrimitiveArray::from_vec(vec![1u64], Validity::NonNullable).into_array(),
+                PrimitiveArray::copy_from_vec(vec![1u64], Validity::NonNullable).into_array(),
             ),
             (
                 "b",
@@ -560,8 +560,10 @@ mod test {
                     // SparseArray is not a canonical type, so converting `into_arrow()` should map
                     // this to the nearest canonical type (PrimitiveArray).
                     SparseArray::try_new(
-                        PrimitiveArray::from_vec(vec![0u64; 1], Validity::NonNullable).into_array(),
-                        PrimitiveArray::from_vec(vec![100i64], Validity::NonNullable).into_array(),
+                        PrimitiveArray::copy_from_vec(vec![0u64; 1], Validity::NonNullable)
+                            .into_array(),
+                        PrimitiveArray::copy_from_vec(vec![100i64], Validity::NonNullable)
+                            .into_array(),
                         1,
                         0i64.into(),
                     )

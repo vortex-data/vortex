@@ -198,7 +198,7 @@ mod test {
 
     #[tokio::test]
     async fn test_async_stream() {
-        let array = PrimitiveArray::from_vec::<i32>(vec![1, 2, 3], Validity::NonNullable);
+        let array = PrimitiveArray::copy_from_vec::<i32>(vec![1, 2, 3], Validity::NonNullable);
         let ipc_buffer = array
             .to_array()
             .into_array_stream()

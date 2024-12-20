@@ -43,12 +43,12 @@ where
     let len = encoded.len();
     (
         exponents,
-        PrimitiveArray::from_vec(encoded, values.validity()).into_array(),
+        PrimitiveArray::copy_from_vec(encoded, values.validity()).into_array(),
         (!exc.is_empty()).then(|| {
             Patches::new(
                 len,
                 PrimitiveArray::from(exc_pos).into_array(),
-                PrimitiveArray::from_vec(exc, patch_validity).into_array(),
+                PrimitiveArray::copy_from_vec(exc, patch_validity).into_array(),
             )
         }),
     )
@@ -89,6 +89,7 @@ mod tests {
     use core::f64;
 
     use vortex_array::compute::scalar_at;
+    use vortex_buffer::buffer;
 
     use super::*;
 
@@ -113,7 +114,7 @@ mod tests {
 
     #[test]
     fn test_nullable_compress() {
-        let array = PrimitiveArray::from_nullable_vec(vec![None, Some(1.234f32), None]);
+        let array = PrimitiveArray::copy_from_nullable_vec(vec![None, Some(1.234f32), None]);
         let encoded = alp_encode(&array).unwrap();
         assert!(encoded.patches().is_none());
         assert_eq!(
@@ -155,14 +156,13 @@ mod tests {
     #[test]
     #[allow(clippy::approx_constant)] // ALP doesn't like E
     fn test_nullable_patched_scalar_at() {
-        let values = vec![
+        let array = PrimitiveArray::from_iter([
             Some(1.234f64),
             Some(2.718),
             Some(std::f64::consts::PI),
             Some(4.0),
             None,
-        ];
-        let array = PrimitiveArray::from_nullable_vec(values);
+        ]);
         let encoded = alp_encode(&array).unwrap();
         assert!(encoded.patches().is_some());
 
@@ -181,7 +181,7 @@ mod tests {
 
     #[test]
     fn roundtrips_close_fractional() {
-        let original = PrimitiveArray::from(vec![195.26274f32, 195.27837, -48.815685]);
+        let original = buffer![195.26274f32, 195.27837, -48.815685].into();
         let alp_arr = alp_encode(&original).unwrap();
         let decompressed = alp_arr.into_primitive().unwrap();
         assert_eq!(original.as_slice::<f32>(), decompressed.as_slice::<f32>());

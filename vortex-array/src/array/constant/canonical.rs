@@ -37,8 +37,8 @@ impl IntoCanonical for ConstantArray {
             )?),
             DType::Primitive(ptype, ..) => {
                 match_each_native_ptype!(ptype, |$P| {
-                    Canonical::Primitive(PrimitiveArray::from_vec::<$P>(
-                        vec![$P::try_from(scalar).unwrap_or_else(|_| $P::default()); self.len()],
+                    Canonical::Primitive(PrimitiveArray::new(
+                        Buffer::full($P::try_from(scalar).unwrap_or_else(|_| $P::default()), self.len()),
                         validity,
                     ))
                 })
@@ -107,9 +107,7 @@ fn canonical_byte_view(
             for _ in 0..len {
                 views.extend_from_slice(&view.to_le_bytes());
             }
-            let views =
-                PrimitiveArray::new(Buffer::<u8>::from(views.freeze()), Validity::NonNullable)
-                    .into_array();
+            let views = views.into_array();
 
             let validity = if dtype.nullability() == Nullability::NonNullable {
                 Validity::NonNullable

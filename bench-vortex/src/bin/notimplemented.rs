@@ -134,7 +134,7 @@ fn enc_impls() -> Vec<ArrayData> {
         .into_array(),
         SparseArray::try_new(
             PrimitiveArray::from(vec![5u64, 8]).into_array(),
-            PrimitiveArray::from_vec(vec![3u32, 6], Validity::AllValid).into_array(),
+            PrimitiveArray::copy_from_vec(vec![3u32, 6], Validity::AllValid).into_array(),
             10,
             Scalar::null_typed::<u32>(),
         )

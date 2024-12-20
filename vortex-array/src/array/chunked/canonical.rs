@@ -297,7 +297,7 @@ mod tests {
 
     use crate::accessor::ArrayAccessor;
     use crate::array::chunked::canonical::pack_views;
-    use crate::array::{ChunkedArray, ListArray, StructArray, VarBinViewArray};
+    use crate::array::{ChunkedArray, ListArray, PrimitiveArray, StructArray, VarBinViewArray};
     use crate::compute::{scalar_at, slice};
     use crate::validity::Validity;
     use crate::variants::StructArrayTrait;
@@ -367,15 +367,15 @@ mod tests {
     #[test]
     pub fn pack_nested_lists() {
         let l1 = ListArray::try_new(
-            vec![1, 2, 3, 4].into_array(),
-            vec![0, 3].into_array(),
+            PrimitiveArray::from_iter([1, 2, 3, 4]).into_array(),
+            PrimitiveArray::from_iter([0, 3]).into_array(),
             Validity::NonNullable,
         )
         .unwrap();
 
         let l2 = ListArray::try_new(
-            vec![5, 6].into_array(),
-            vec![0, 2].into_array(),
+            PrimitiveArray::from_iter([5, 6]).into_array(),
+            PrimitiveArray::from_iter([0, 2]).into_array(),
             Validity::NonNullable,
         )
         .unwrap();

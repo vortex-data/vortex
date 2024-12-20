@@ -344,7 +344,7 @@ mod test {
 
     #[test]
     fn min_of_nulls_is_not_panic() {
-        let min = PrimitiveArray::from_nullable_vec::<i32>(vec![None, None, None, None])
+        let min = PrimitiveArray::copy_from_nullable_vec::<i32>(vec![None, None, None, None])
             .statistics()
             .compute_as_cast::<i64>(Stat::Min);
 

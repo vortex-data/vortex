@@ -20,7 +20,7 @@ fn fixture(len: usize) -> VarBinArray {
 
 // What fraction of the indices to take.
 fn indices(len: usize) -> ArrayData {
-    PrimitiveArray::from_vec(
+    PrimitiveArray::copy_from_vec(
         (0..len)
             .filter_map(|x| (x % 2 == 0).then_some(x as u64))
             .collect(),

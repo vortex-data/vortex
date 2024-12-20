@@ -39,7 +39,7 @@ mod tests {
 
     #[test]
     fn patch_sliced() {
-        let input = PrimitiveArray::from_vec(vec![2u32; 10], Validity::AllValid);
+        let input = PrimitiveArray::copy_from_vec(vec![2u32; 10], Validity::AllValid);
         let sliced = slice(input, 2, 8).unwrap();
         assert_eq!(
             sliced.into_primitive().unwrap().as_slice::<u32>(),

@@ -231,8 +231,9 @@ mod test {
 
     #[test]
     fn test_scalar_subtract_nullable() {
-        let values = PrimitiveArray::from_nullable_vec(vec![Some(1u16), Some(2), None, Some(3)])
-            .into_array();
+        let values =
+            PrimitiveArray::copy_from_nullable_vec(vec![Some(1u16), Some(2), None, Some(3)])
+                .into_array();
         let result = sub_scalar(&values, Some(1u16).into())
             .unwrap()
             .into_canonical()

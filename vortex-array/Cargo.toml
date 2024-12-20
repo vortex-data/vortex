@@ -53,6 +53,7 @@ vortex-dtype = { workspace = true, features = ["flatbuffers", "serde"] }
 vortex-error = { workspace = true, features = ["flatbuffers", "flexbuffers"] }
 vortex-flatbuffers = { workspace = true, features = ["array"] }
 vortex-scalar = { workspace = true, features = ["flatbuffers", "serde"] }
+bytes = "1.9.0"
 
 [features]
 arbitrary = ["dep:arbitrary", "vortex-dtype/arbitrary"]

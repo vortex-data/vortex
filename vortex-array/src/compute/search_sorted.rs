@@ -580,7 +580,7 @@ mod test {
 
     #[test]
     fn failed_cast() {
-        let arr = PrimitiveArray::from_vec(
+        let arr = PrimitiveArray::copy_from_vec(
             vec![0u8, 1, 2, 3, 4, 5, 6, 7, 8, 9, 9, 9, 9],
             Validity::NonNullable,
         )
@@ -591,7 +591,7 @@ mod test {
 
     #[test]
     fn search_sorted_many_failed_cast() {
-        let arr = PrimitiveArray::from_vec(
+        let arr = PrimitiveArray::copy_from_vec(
             vec![0u8, 1, 2, 3, 4, 5, 6, 7, 8, 9, 9, 9, 9],
             Validity::NonNullable,
         )

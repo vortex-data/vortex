@@ -131,7 +131,8 @@ mod tests {
         ));
         let array = ExtensionArray::new(
             ext_dtype.clone(),
-            PrimitiveArray::from_vec(vec![1i64, 2, 3, 4, 5], Validity::NonNullable).into_array(),
+            PrimitiveArray::copy_from_vec(vec![1i64, 2, 3, 4, 5], Validity::NonNullable)
+                .into_array(),
         );
 
         let stats = array

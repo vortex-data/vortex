@@ -57,7 +57,8 @@ fn filter_primitive<T: NativePType + BitPacking + ArrowNativeType>(
         FilterIter::SlicesIter(iter) => filter_slices(array, mask.true_count(), iter),
     };
 
-    let mut values = PrimitiveArray::from_vec(values, validity).reinterpret_cast(array.ptype());
+    let mut values =
+        PrimitiveArray::copy_from_vec(values, validity).reinterpret_cast(array.ptype());
     if let Some(patches) = patches {
         values = values.patch(patches)?;
     }

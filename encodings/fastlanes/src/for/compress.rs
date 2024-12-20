@@ -177,7 +177,7 @@ mod test {
 
     #[test]
     fn test_nullable_zeros() {
-        let array = PrimitiveArray::from_nullable_vec(
+        let array = PrimitiveArray::copy_from_nullable_vec(
             vec![Some(0i32), None]
                 .into_iter()
                 .cycle()

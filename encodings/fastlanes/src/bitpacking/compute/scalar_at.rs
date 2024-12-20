@@ -39,8 +39,8 @@ mod test {
             Validity::AllInvalid,
             Some(Patches::new(
                 8,
-                PrimitiveArray::from_vec(vec![1u32], NonNullable).into_array(),
-                PrimitiveArray::from_vec(vec![999u32], Validity::AllValid).into_array(),
+                PrimitiveArray::copy_from_vec(vec![1u32], NonNullable).into_array(),
+                PrimitiveArray::copy_from_vec(vec![999u32], Validity::AllValid).into_array(),
             )),
             1,
             8,

@@ -46,7 +46,10 @@ fn take_primitive<T: NativePType + BitPacking, I: NativePType>(
     taken_validity: Validity,
 ) -> VortexResult<PrimitiveArray> {
     if indices.is_empty() {
-        return Ok(PrimitiveArray::from_vec(Vec::<T>::new(), taken_validity));
+        return Ok(PrimitiveArray::copy_from_vec(
+            Vec::<T>::new(),
+            taken_validity,
+        ));
     }
 
     let offset = array.offset() as usize;
@@ -105,7 +108,7 @@ fn take_primitive<T: NativePType + BitPacking, I: NativePType>(
         }
     });
 
-    let unpatched_taken = PrimitiveArray::from_vec(output, taken_validity);
+    let unpatched_taken = PrimitiveArray::copy_from_vec(output, taken_validity);
     if let Some(patches) = array.patches() {
         if let Some(patches) = patches.take(&indices.to_array())? {
             return unpatched_taken.patch(patches);

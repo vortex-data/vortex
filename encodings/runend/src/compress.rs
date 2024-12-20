@@ -83,7 +83,7 @@ fn runend_encode_nullable_primitive<T: NativePType>(
     if elements.is_empty() {
         return (
             ends,
-            PrimitiveArray::from_vec(
+            PrimitiveArray::copy_from_vec(
                 values,
                 Validity::Array(BoolArray::from(validity.finish()).into_array()),
             ),
@@ -130,7 +130,7 @@ fn runend_encode_nullable_primitive<T: NativePType>(
 
     (
         ends,
-        PrimitiveArray::from_vec(
+        PrimitiveArray::copy_from_vec(
             values,
             Validity::Array(BoolArray::from(validity.finish()).into_array()),
         ),
@@ -186,9 +186,9 @@ pub fn runend_decode_typed_primitive<T: NativePType>(
             for (end, value) in run_ends.zip_eq(values) {
                 decoded.extend(std::iter::repeat_n(value, end - decoded.len()));
             }
-            PrimitiveArray::from_vec(decoded, values_nullability.into())
+            PrimitiveArray::copy_from_vec(decoded, values_nullability.into())
         }
-        LogicalValidity::AllInvalid(_) => PrimitiveArray::from_vec(
+        LogicalValidity::AllInvalid(_) => PrimitiveArray::copy_from_vec(
             vec![T::default(); length],
             Validity::Array(BoolArray::from(BooleanBuffer::new_unset(length)).into_array()),
         ),
@@ -213,7 +213,7 @@ pub fn runend_decode_typed_primitive<T: NativePType>(
                     }
                 }
             }
-            PrimitiveArray::from_vec(
+            PrimitiveArray::copy_from_vec(
                 decoded,
                 Validity::Array(BoolArray::from(decoded_validity.finish()).into_array()),
             )
@@ -291,7 +291,7 @@ mod test {
 
     #[test]
     fn encode_nullable() {
-        let arr = PrimitiveArray::from_vec(
+        let arr = PrimitiveArray::copy_from_vec(
             vec![1i32, 1, 2, 2, 2, 3, 3, 3, 3, 3],
             Validity::from(BooleanBuffer::from(vec![
                 true, true, false, false, true, true, true, true, false, false,
@@ -306,7 +306,7 @@ mod test {
 
     #[test]
     fn encode_all_null() {
-        let arr = PrimitiveArray::from_vec(
+        let arr = PrimitiveArray::copy_from_vec(
             vec![0, 0, 0, 0, 0],
             Validity::from(BooleanBuffer::new_unset(5)),
         );

@@ -83,8 +83,8 @@ mod test {
 
     #[test]
     fn test_cast_chunked() {
-        let arr0 = PrimitiveArray::from_vec(vec![0u32, 1], Validity::NonNullable).into_array();
-        let arr1 = PrimitiveArray::from_vec(vec![2u32, 3], Validity::NonNullable).into_array();
+        let arr0 = PrimitiveArray::copy_from_vec(vec![0u32, 1], Validity::NonNullable).into_array();
+        let arr1 = PrimitiveArray::copy_from_vec(vec![2u32, 3], Validity::NonNullable).into_array();
 
         let chunked = ChunkedArray::try_new(
             vec![arr0, arr1],

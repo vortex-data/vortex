@@ -31,6 +31,7 @@ mod arrow;
 mod buffer;
 mod buffer_mut;
 mod r#const;
+mod macros;
 mod string;
 
 /// An immutable buffer of u8.

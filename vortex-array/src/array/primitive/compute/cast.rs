@@ -1,3 +1,4 @@
+use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability};
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
@@ -42,7 +43,7 @@ impl CastFn<PrimitiveArray> for PrimitiveEncoding {
 
         // Otherwise, we need to cast the values one-by-one
         match_each_native_ptype!(new_ptype, |$T| {
-            Ok(PrimitiveArray::from_vec(
+            Ok(PrimitiveArray::new(
                 cast::<$T>(array)?,
                 new_validity,
             ).into_array())
@@ -50,19 +51,16 @@ impl CastFn<PrimitiveArray> for PrimitiveEncoding {
     }
 }
 
-fn cast<T: NativePType>(array: &PrimitiveArray) -> VortexResult<Vec<T>> {
-    match_each_native_ptype!(array.ptype(), |$E| {
-        array
-            .as_slice::<$E>()
-            .iter()
-            // TODO(ngates): allow configurable checked/unchecked casting
-            .map(|&v| {
-                T::from(v).ok_or_else(|| {
-                    vortex_err!(ComputeError: "Failed to cast {} to {:?}", v, T::PTYPE)
-                })
-            })
-            .collect()
-    })
+fn cast<T: NativePType>(array: &PrimitiveArray) -> VortexResult<Buffer<T>> {
+    let mut buffer = BufferMut::with_capacity(array.len());
+    for item in array.as_slice::<u16>() {
+        let item = T::from(*item).ok_or_else(
+            || vortex_err!(ComputeError: "Failed to cast {} to {:?}", item, T::PTYPE),
+        )?;
+        // SAFETY: we've pre-allocated the required capacity
+        unsafe { buffer.push_unchecked(item) }
+    }
+    Ok(buffer.freeze())
 }
 
 #[cfg(test)]
@@ -142,7 +140,8 @@ mod test {
 
     #[test]
     fn cast_array_with_nulls_to_nonnullable() {
-        let arr = PrimitiveArray::from_nullable_vec(vec![Some(-1i32), None, Some(10)]).into_array();
+        let arr =
+            PrimitiveArray::copy_from_nullable_vec(vec![Some(-1i32), None, Some(10)]).into_array();
         let err = try_cast(&arr, PType::I32.into()).unwrap_err();
         let VortexError::InvalidArgument(s, _) = err else {
             unreachable!()

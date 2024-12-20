@@ -223,7 +223,7 @@ mod test {
 
     #[test]
     fn test_project() {
-        let xs = PrimitiveArray::from_vec(vec![0i64, 1, 2, 3, 4], Validity::NonNullable);
+        let xs = PrimitiveArray::copy_from_vec(vec![0i64, 1, 2, 3, 4], Validity::NonNullable);
         let ys = VarBinArray::from_vec(
             vec!["a", "b", "c", "d", "e"],
             DType::Utf8(Nullability::NonNullable),

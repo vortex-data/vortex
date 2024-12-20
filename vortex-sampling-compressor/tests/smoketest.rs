@@ -186,7 +186,7 @@ mod tests {
     }
 
     fn make_primitive_column(count: usize) -> ArrayData {
-        PrimitiveArray::from_vec(
+        PrimitiveArray::copy_from_vec(
             (0..count).map(|i| i as i64).collect::<Vec<i64>>(),
             Validity::NonNullable,
         )
@@ -234,7 +234,7 @@ mod tests {
             .collect();
 
         let storage_array =
-            PrimitiveArray::from_vec(timestamps, Validity::NonNullable).into_array();
+            PrimitiveArray::copy_from_vec(timestamps, Validity::NonNullable).into_array();
 
         ArrayData::from(TemporalArray::new_timestamp(
             storage_array,

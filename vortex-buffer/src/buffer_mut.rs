@@ -6,7 +6,7 @@ use vortex_error::{vortex_panic, VortexExpect};
 use crate::{Alignment, Buffer};
 
 /// A mutable buffer that maintains a runtime-defined alignment through resizing operations.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct BufferMut<T> {
     pub(crate) bytes: BytesMut,
     pub(crate) length: usize,
@@ -39,6 +39,26 @@ impl<T> BufferMut<T> {
             alignment,
             _marker: Default::default(),
         }
+    }
+
+    /// Create a new empty `ByteBuffer` with the provided alignment.
+    pub fn empty() -> Self {
+        Self::empty_aligned(Alignment::of::<T>())
+    }
+
+    /// Create a new empty `ByteBuffer` with the provided alignment.
+    pub fn empty_aligned(alignment: Alignment) -> Self {
+        BufferMut::with_capacity_aligned(0, alignment)
+    }
+
+    /// Create a new full `ByteBuffer` with the given value.
+    pub fn full(item: T, len: usize) -> Self
+    where
+        T: Clone,
+    {
+        let mut buffer = BufferMut::<T>::with_capacity(len);
+        buffer.extend(std::iter::repeat(item).take(len));
+        buffer
     }
 
     /// Create a mutable scalar buffer by copying the contents of an immutable `Buffer`.
@@ -91,6 +111,13 @@ impl<T> BufferMut<T> {
         unsafe { std::slice::from_raw_parts_mut(raw_slice.as_mut_ptr().cast(), self.length) }
     }
 
+    /// Clear the buffer, retaining any existing capacity.
+    #[inline]
+    pub fn clear(&mut self) {
+        unsafe { self.bytes.set_len(0) }
+        self.length = 0;
+    }
+
     /// Reserves capacity for at least `additional` more elements to be inserted in the buffer.
     #[inline]
     pub fn reserve(&mut self, additional: usize) {
@@ -129,7 +156,16 @@ impl<T> BufferMut<T> {
     #[inline]
     pub fn push(&mut self, value: T) {
         self.reserve(1);
+        unsafe { self.push_unchecked(value) }
+    }
 
+    /// Appends a scalar to the buffer without checking for sufficient capacity.
+    ///
+    /// ## Safety
+    ///
+    /// The caller must ensure there is sufficient capacity in the array.
+    #[inline]
+    pub unsafe fn push_unchecked(&mut self, value: T) {
         // NOTE(ngates): this assumes the platform is little-endian. Currently enforced
         //  with a flag cfg(target_endian = "little")
         let raw_ptr = &value as *const T as *const u8;
@@ -189,6 +225,22 @@ impl<T> BufferMut<T> {
         }
         // SAFETY: we didn't change the length of the buffer or its alignment.
         unsafe { std::mem::transmute(self) }
+    }
+}
+
+impl<T> Clone for BufferMut<T> {
+    fn clone(&self) -> Self {
+        // NOTE(ngates): we cannot derive Clone since BytesMut copies on clone and the alignment
+        //  might be messed up.
+        let mut buffer = BufferMut::<T>::with_capacity_aligned(self.capacity(), self.alignment);
+        buffer.extend_from_slice(self.as_slice());
+        buffer
+    }
+}
+
+impl<T> Default for BufferMut<T> {
+    fn default() -> Self {
+        Self::empty()
     }
 }
 

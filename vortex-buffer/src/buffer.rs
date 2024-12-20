@@ -34,8 +34,21 @@ impl<T> Buffer<T> {
     }
 
     /// Create a new empty `ByteBuffer` with the provided alignment.
-    pub fn empty(alignment: Alignment) -> Self {
-        BufferMut::with_capacity_aligned(0, alignment).freeze()
+    pub fn empty() -> Self {
+        BufferMut::empty().freeze()
+    }
+
+    /// Create a new empty `ByteBuffer` with the provided alignment.
+    pub fn empty_aligned(alignment: Alignment) -> Self {
+        BufferMut::empty_aligned(alignment).freeze()
+    }
+
+    /// Create a new full `ByteBuffer` with the given value.
+    pub fn full(item: T, len: usize) -> Self
+    where
+        T: Clone,
+    {
+        BufferMut::full(item, len).freeze()
     }
 
     /// Create a `Buffer<T>` zero-copy from a `ByteBuffer`.
@@ -185,7 +198,7 @@ impl<T> Buffer<T> {
         if end == begin {
             // We prefer to return a new empty buffer instead of sharing this one and creating a
             // strong reference just to hold an empty slice.
-            return Self::empty(alignment);
+            return Self::empty_aligned(alignment);
         }
 
         let begin_byte = begin * size_of::<T>();
@@ -289,13 +302,11 @@ impl<T: Copy> Iterator for BufferIterator<T> {
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.index < self.buffer.len() {
+        (self.index < self.buffer.len()).then(move || {
             let value = self.buffer.as_slice()[self.index];
             self.index += 1;
-            Some(value)
-        } else {
-            None
-        }
+            value
+        })
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {

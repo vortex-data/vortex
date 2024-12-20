@@ -119,7 +119,7 @@ mod tests {
     #[test]
     pub fn nullable_scalar_at() {
         let zigzag = ZigZagArray::encode(
-            &PrimitiveArray::from_vec(vec![-189, -160, 1], Validity::AllValid).into_array(),
+            &PrimitiveArray::copy_from_vec(vec![-189, -160, 1], Validity::AllValid).into_array(),
         )
         .unwrap();
         assert_eq!(

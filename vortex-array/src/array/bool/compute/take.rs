@@ -105,8 +105,9 @@ mod test {
             Some(false),
         ]);
 
-        let b = BoolArray::try_from(take(&reference, PrimitiveArray::from(vec![0, 3, 4])).unwrap())
-            .unwrap();
+        let b =
+            BoolArray::try_from(take(&reference, PrimitiveArray::from_iter([0, 3, 4])).unwrap())
+                .unwrap();
         assert_eq!(
             b.boolean_buffer(),
             BoolArray::from_iter(vec![Some(false), None, Some(false)]).boolean_buffer()

@@ -539,7 +539,7 @@ mod test {
 
     #[test]
     fn merge_unordered() {
-        let array = PrimitiveArray::from_nullable_vec(vec![
+        let array = PrimitiveArray::copy_from_nullable_vec(vec![
             Some(1),
             None,
             Some(2),

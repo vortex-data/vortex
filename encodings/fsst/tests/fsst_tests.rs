@@ -70,7 +70,7 @@ fn test_fsst_array_ops() {
     );
 
     // test take
-    let indices = PrimitiveArray::from_vec(vec![0, 2], Validity::NonNullable).into_array();
+    let indices = PrimitiveArray::copy_from_vec(vec![0, 2], Validity::NonNullable).into_array();
     let fsst_taken = take(&fsst_array, &indices).unwrap();
     assert_eq!(fsst_taken.len(), 2);
     assert_nth_scalar!(

@@ -231,7 +231,7 @@ mod test {
             "Monroe",
             "Adams",
         ]);
-        let term_start = PrimitiveArray::from_vec(
+        let term_start = PrimitiveArray::copy_from_vec(
             vec![1789u16, 1797, 1801, 1809, 1817, 1825],
             Validity::NonNullable,
         );

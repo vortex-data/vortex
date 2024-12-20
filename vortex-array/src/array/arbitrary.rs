@@ -2,6 +2,7 @@ use std::iter;
 
 use arbitrary::{Arbitrary, Result, Unstructured};
 use arrow_buffer::BooleanBuffer;
+use vortex_buffer::Buffer;
 use vortex_dtype::{DType, NativePType, Nullability, PType};
 use vortex_error::{VortexExpect, VortexUnwrap};
 
@@ -168,7 +169,7 @@ fn random_primitive<'a, T: Arbitrary<'a> + NativePType>(
 ) -> Result<ArrayData> {
     let v = arbitrary_vec_of_len::<T>(u, len)?;
     let validity = random_validity(u, nullability, v.len())?;
-    Ok(PrimitiveArray::from_vec(v, validity).into_array())
+    Ok(PrimitiveArray::new(Buffer::copy_from_vec(v), validity).into_array())
 }
 
 fn random_bool(

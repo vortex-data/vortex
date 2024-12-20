@@ -205,7 +205,7 @@ impl RDEncoder {
         }
 
         // Bit-pack down the encoded left-parts array that have been dictionary encoded.
-        let primitive_left = PrimitiveArray::from_vec(left_parts, array.validity());
+        let primitive_left = PrimitiveArray::copy_from_vec(left_parts, array.validity());
         // SAFETY: by construction, all values in left_parts can be packed to left_bit_width.
         let packed_left = unsafe {
             bitpack_encode_unchecked(primitive_left, left_bit_width as _)
@@ -237,7 +237,7 @@ impl RDEncoder {
             };
 
             let exc_array =
-                PrimitiveArray::from_vec(exceptions, Validity::NonNullable).into_array();
+                PrimitiveArray::copy_from_vec(exceptions, Validity::NonNullable).into_array();
             Patches::new(doubles.len(), packed_pos, exc_array)
         });
 

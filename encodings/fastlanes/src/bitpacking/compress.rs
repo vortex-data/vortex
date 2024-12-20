@@ -85,7 +85,7 @@ pub fn bitpack_primitive<T: NativePType + BitPacking + ArrowNativeType>(
     bit_width: u8,
 ) -> ByteBuffer {
     if bit_width == 0 {
-        return ByteBuffer::empty(Alignment::of::<T>());
+        return ByteBuffer::empty();
     }
     let bit_width = bit_width as usize;
 
@@ -379,7 +379,7 @@ mod test {
     #[test]
     fn null_patches() {
         let valid_values = (0..24).map(|v| v < 1 << 4).collect::<Vec<_>>();
-        let values = PrimitiveArray::from_vec(
+        let values = PrimitiveArray::copy_from_vec(
             (0u32..24).collect::<Vec<_>>(),
             Validity::from_iter(valid_values),
         );
@@ -431,7 +431,7 @@ mod test {
     #[test]
     fn compress_signed_roundtrip() {
         let values: Vec<i64> = (-500..500).collect();
-        let array = PrimitiveArray::from_vec(values.clone(), Validity::AllValid);
+        let array = PrimitiveArray::copy_from_vec(values.clone(), Validity::AllValid);
         assert!(array.ptype().is_signed_int());
 
         let bitpacked_array =

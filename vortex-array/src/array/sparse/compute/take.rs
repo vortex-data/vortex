@@ -37,7 +37,7 @@ mod test {
     fn sparse_array() -> ArrayData {
         SparseArray::try_new(
             PrimitiveArray::from(vec![0u64, 37, 47, 99]).into_array(),
-            PrimitiveArray::from_vec(vec![1.23f64, 0.47, 9.99, 3.5], Validity::AllValid)
+            PrimitiveArray::copy_from_vec(vec![1.23f64, 0.47, 9.99, 3.5], Validity::AllValid)
                 .into_array(),
             100,
             test_array_fill_value(),

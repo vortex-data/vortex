@@ -105,7 +105,7 @@ mod test {
 
     #[test]
     fn canonicalise_nullable_primitive() {
-        let reference = PrimitiveArray::from_nullable_vec(vec![
+        let reference = PrimitiveArray::copy_from_nullable_vec(vec![
             Some(42),
             Some(-9),
             None,
@@ -145,7 +145,7 @@ mod test {
 
     #[test]
     fn compare_sliced_dict() {
-        let reference = PrimitiveArray::from_nullable_vec(vec![
+        let reference = PrimitiveArray::copy_from_nullable_vec(vec![
             Some(42),
             Some(-9),
             None,
