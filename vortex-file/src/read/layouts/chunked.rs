@@ -403,9 +403,10 @@ mod tests {
     use flatbuffers::{root, FlatBufferBuilder};
     use futures_util::io::Cursor;
     use futures_util::TryStreamExt;
-    use vortex_array::array::{ChunkedArray, PrimitiveArray};
+    use vortex_array::array::ChunkedArray;
     use vortex_array::compute::FilterMask;
     use vortex_array::{ArrayDType, ArrayLen, IntoArrayData, IntoArrayVariant};
+    use vortex_buffer::Buffer;
     use vortex_dtype::PType;
     use vortex_expr::{BinaryExpr, Identity, Literal, Operator};
     use vortex_flatbuffers::{footer, WriteFlatBuffer};
@@ -423,7 +424,7 @@ mod tests {
         scan: Scan,
     ) -> (ChunkedLayoutReader, ChunkedLayoutReader, Bytes, usize) {
         let mut writer = Cursor::new(Vec::new());
-        let array = PrimitiveArray::from((0..100).collect::<Vec<_>>()).into_array();
+        let array = Buffer::from_iter(0..100).into_array();
         let array_dtype = array.dtype().clone();
         let chunked =
             ChunkedArray::try_new(iter::repeat_n(array, 5).collect(), array_dtype).unwrap();

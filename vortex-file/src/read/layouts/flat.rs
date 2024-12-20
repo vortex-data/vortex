@@ -119,8 +119,8 @@ mod tests {
     use std::sync::{Arc, RwLock};
 
     use bytes::Bytes;
-    use vortex_array::array::PrimitiveArray;
     use vortex_array::{Context, IntoArrayData, IntoArrayVariant, ToArrayData};
+    use vortex_buffer::Buffer;
     use vortex_dtype::PType;
     use vortex_expr::{BinaryExpr, Identity, Literal, Operator};
     use vortex_ipc::messages::{EncoderMessage, SyncMessageWriter};
@@ -134,7 +134,7 @@ mod tests {
     async fn read_only_layout(
         cache: Arc<RwLock<LayoutMessageCache>>,
     ) -> (FlatLayoutReader, Bytes, usize, Arc<LazyDType>) {
-        let array = PrimitiveArray::from((0..100).collect::<Vec<_>>()).into_array();
+        let array = Buffer::from_iter(0..100).into_array();
 
         let mut written = vec![];
         SyncMessageWriter::new(&mut written)

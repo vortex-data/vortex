@@ -88,8 +88,9 @@ impl PartialEq<dyn Any> for Select {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::array::{PrimitiveArray, StructArray};
+    use vortex_array::array::StructArray;
     use vortex_array::IntoArrayData;
+    use vortex_buffer::buffer;
     use vortex_dtype::field::Field;
 
     use crate::{Select, VortexExpr};

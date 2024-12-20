@@ -222,9 +222,9 @@ impl RowMask {
 mod tests {
     use arrow_buffer::BooleanBuffer;
     use rstest::rstest;
-    use vortex_array::array::PrimitiveArray;
     use vortex_array::compute::FilterMask;
     use vortex_array::{IntoArrayData, IntoArrayVariant};
+    use vortex_buffer::Buffer;
     use vortex_error::VortexUnwrap;
 
     use crate::read::mask::RowMask;
@@ -295,7 +295,7 @@ mod tests {
             10,
         )
         .unwrap();
-        let array = PrimitiveArray::from((0..20).collect::<Vec<_>>()).into_array();
+        let array = Buffer::from_iter(0..20).into_array();
         let filtered = mask.filter_array(array).unwrap().unwrap();
         assert_eq!(
             filtered.into_primitive().unwrap().as_slice::<i32>(),

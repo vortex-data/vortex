@@ -129,17 +129,18 @@ fn filter_slices<T: NativePType + BitPacking + ArrowNativeType>(
 
 #[cfg(test)]
 mod test {
-    use itertools::Itertools;
     use vortex_array::array::PrimitiveArray;
     use vortex_array::compute::{filter, slice, FilterMask};
+    use vortex_array::validity::Validity;
     use vortex_array::{ArrayLen, IntoArrayVariant};
+    use vortex_buffer::Buffer;
 
     use crate::BitPackedArray;
 
     #[test]
     fn take_indices() {
         // Create a u8 array modulo 63.
-        let unpacked = PrimitiveArray::from((0..4096).map(|i| (i % 63) as u8).collect::<Vec<_>>());
+        let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 6).unwrap();
 
         let mask = FilterMask::from_indices(bitpacked.len(), [0, 125, 2047, 2049, 2151, 2790]);
@@ -155,7 +156,7 @@ mod test {
     #[test]
     fn take_sliced_indices() {
         // Create a u8 array modulo 63.
-        let unpacked = PrimitiveArray::from((0..4096).map(|i| (i % 63) as u8).collect::<Vec<_>>());
+        let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 6).unwrap();
         let sliced = slice(bitpacked.as_ref(), 128, 2050).unwrap();
 
@@ -168,7 +169,7 @@ mod test {
 
     #[test]
     fn filter_bitpacked() {
-        let unpacked = PrimitiveArray::from((0..4096).map(|i| (i % 63) as u8).collect::<Vec<_>>());
+        let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 6).unwrap();
         let filtered = filter(bitpacked.as_ref(), FilterMask::from_indices(4096, 0..1024)).unwrap();
         assert_eq!(
@@ -182,8 +183,8 @@ mod test {
         // Elements 0..=499 are negative integers (patches)
         // Element 500 = 0 (packed)
         // Elements 501..999 are positive integers (packed)
-        let values: Vec<i64> = (-500..500).collect_vec();
-        let unpacked = PrimitiveArray::from(values.clone());
+        let values = (-500..500).collect::<Buffer<i64>>();
+        let unpacked = PrimitiveArray::new(values.clone(), Validity::NonNullable);
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 9).unwrap();
         let filtered = filter(
             bitpacked.as_ref(),

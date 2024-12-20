@@ -140,6 +140,7 @@ fn decompress_primitive<T: NativePType + WrappingAdd + PrimInt>(
 
 #[cfg(test)]
 mod test {
+    use itertools::Itertools;
     use vortex_array::compute::scalar_at;
     use vortex_array::validity::Validity;
     use vortex_array::IntoArrayVariant;
@@ -152,7 +153,7 @@ mod test {
     fn test_compress() {
         // Create a range offset by a million
         let array = PrimitiveArray::new(
-            (0u32..10_000).map(|v| v + 1_000_000).collect(),
+            (0u32..10_000).map(|v| v + 1_000_000).collect::<Buffer<_>>(),
             Validity::NonNullable,
         );
         let compressed = for_compress(array).unwrap();
@@ -178,13 +179,8 @@ mod test {
 
     #[test]
     fn test_nullable_zeros() {
-        let array = PrimitiveArray::copy_from_nullable_vec(
-            vec![Some(0i32), None]
-                .into_iter()
-                .cycle()
-                .take(10_000)
-                .collect_vec(),
-        );
+        let array =
+            PrimitiveArray::from_option_iter([Some(0i32), None].into_iter().cycle().take(10_000));
         assert!(array.statistics().to_set().into_iter().next().is_none());
 
         let compressed = for_compress(array.clone()).unwrap();
@@ -216,12 +212,7 @@ mod test {
     #[test]
     fn test_decompress() {
         // Create a range offset by a million
-        let array = PrimitiveArray::from(
-            (0u32..100_000)
-                .step_by(1024)
-                .map(|v| v + 1_000_000)
-                .collect_vec(),
-        );
+        let array = PrimitiveArray::from_iter((0u32..100_000).step_by(1024).map(|v| v + 1_000_000));
         let compressed = for_compress(array.clone()).unwrap();
         assert!(compressed.shift() > 0);
         let decompressed = compressed.into_primitive().unwrap();
@@ -230,7 +221,7 @@ mod test {
 
     #[test]
     fn test_overflow() {
-        let array = PrimitiveArray::from((i8::MIN..=i8::MAX).collect_vec());
+        let array = PrimitiveArray::from_iter(i8::MIN..=i8::MAX);
         let compressed = for_compress(array.clone()).unwrap();
         assert_eq!(
             i8::MIN,

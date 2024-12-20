@@ -74,9 +74,9 @@ mod test {
 
     #[test]
     fn test_compress() {
-        let compressed = zigzag_encode(PrimitiveArray::from(Vec::from_iter(
+        let compressed = zigzag_encode(PrimitiveArray::from_iter(
             (-10_000..10_000).map(|i| i as i64),
-        )))
+        ))
         .unwrap();
         assert_eq!(compressed.as_ref().encoding().id(), ZigZagEncoding.id());
     }

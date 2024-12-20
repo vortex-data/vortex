@@ -170,6 +170,7 @@ mod test {
     use vortex_array::array::PrimitiveArray;
     use vortex_array::compute::{filter, scalar_at, slice, FilterMask};
     use vortex_array::{ArrayDType, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
+    use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
     use crate::RunEndArray;
@@ -276,9 +277,11 @@ mod test {
 
     #[test]
     fn slice_at_end() {
-        let re_array =
-            RunEndArray::try_new(buffer![7_u64, 10].into_array(), vec![2_u64, 3].into_array())
-                .unwrap();
+        let re_array = RunEndArray::try_new(
+            buffer![7_u64, 10].into_array(),
+            buffer![2_u64, 3].into_array(),
+        )
+        .unwrap();
 
         assert_eq!(re_array.len(), 10);
 

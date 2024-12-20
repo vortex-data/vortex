@@ -401,9 +401,10 @@ mod tests {
 
     use bytes::Bytes;
     use vortex_array::accessor::ArrayAccessor;
-    use vortex_array::array::{ChunkedArray, PrimitiveArray, StructArray, VarBinArray};
+    use vortex_array::array::{ChunkedArray, StructArray, VarBinArray};
     use vortex_array::validity::Validity;
     use vortex_array::{ArrayDType, IntoArrayData, IntoArrayVariant};
+    use vortex_buffer::Buffer;
     use vortex_dtype::field::Field;
     use vortex_dtype::{DType, Nullability};
     use vortex_expr::{BinaryExpr, Column, Literal, Operator};
@@ -419,8 +420,8 @@ mod tests {
         cache: Arc<RwLock<LayoutMessageCache>>,
         scan: Scan,
     ) -> (Box<dyn LayoutReader>, Box<dyn LayoutReader>, Bytes, usize) {
-        let int_array = PrimitiveArray::from((0..100).collect::<Vec<_>>()).into_array();
-        let int2_array = PrimitiveArray::from((100..200).collect::<Vec<_>>()).into_array();
+        let int_array = Buffer::from_iter(0..100).into_array();
+        let int2_array = Buffer::from_iter(100..200).into_array();
         let int_dtype = int_array.dtype().clone();
         let chunked = ChunkedArray::try_new(
             iter::repeat_n(int_array.clone(), 2)

@@ -175,6 +175,7 @@ mod test {
     use vortex_array::array::{PrimitiveArray, TemporalArray};
     use vortex_array::validity::Validity;
     use vortex_array::{IntoArrayVariant, ToArrayData};
+    use vortex_buffer::Buffer;
     use vortex_datetime_dtype::TimeUnit;
     use vortex_dtype::DType;
 
@@ -196,7 +197,7 @@ mod test {
     }
 
     fn do_roundtrip_test(raw_values: &[i64], validity: Validity) {
-        let raw_millis = PrimitiveArray::copy_from_vec(raw_values.to_vec(), validity.clone());
+        let raw_millis = PrimitiveArray::new(Buffer::copy_from(raw_values), validity.clone());
         assert_eq!(raw_millis.validity(), validity);
 
         let temporal_array = TemporalArray::new_timestamp(

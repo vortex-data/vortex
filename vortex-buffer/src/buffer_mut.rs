@@ -61,10 +61,16 @@ impl<T> BufferMut<T> {
         buffer
     }
 
-    /// Create a mutable scalar buffer by copying the contents of an immutable `Buffer`.
-    pub fn copy_from(other: &Buffer<T>) -> Self {
-        let mut buffer = Self::with_capacity_aligned(other.len(), other.alignment());
-        buffer.extend_from_slice(other.as_slice());
+    /// Create a mutable scalar buffer by copying the contents of the slice.
+    pub fn copy_from(other: impl AsRef<[T]>) -> Self {
+        Self::copy_from_aligned(other, Alignment::of::<T>())
+    }
+
+    /// Create a mutable scalar buffer with the alignment by copying the contents of the slice.
+    pub fn copy_from_aligned(other: impl AsRef<[T]>, alignment: Alignment) -> Self {
+        let other = other.as_ref();
+        let mut buffer = Self::with_capacity_aligned(other.len(), alignment);
+        buffer.extend_from_slice(other);
         buffer
     }
 

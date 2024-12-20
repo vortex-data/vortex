@@ -278,6 +278,7 @@ mod test {
     use vortex_array::array::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_array::IntoArrayVariant;
+    use vortex_buffer::buffer;
 
     use crate::compress::{runend_decode_primitive, runend_encode};
 
@@ -293,8 +294,8 @@ mod test {
 
     #[test]
     fn encode_nullable() {
-        let arr = PrimitiveArray::copy_from_vec(
-            vec![1i32, 1, 2, 2, 2, 3, 3, 3, 3, 3],
+        let arr = PrimitiveArray::new(
+            buffer![1i32, 1, 2, 2, 2, 3, 3, 3, 3, 3],
             Validity::from(BooleanBuffer::from(vec![
                 true, true, false, false, true, true, true, true, false, false,
             ])),
@@ -308,8 +309,8 @@ mod test {
 
     #[test]
     fn encode_all_null() {
-        let arr = PrimitiveArray::copy_from_vec(
-            vec![0, 0, 0, 0, 0],
+        let arr = PrimitiveArray::new(
+            buffer![0, 0, 0, 0, 0],
             Validity::from(BooleanBuffer::new_unset(5)),
         );
         let (ends, values) = runend_encode(&arr).unwrap();

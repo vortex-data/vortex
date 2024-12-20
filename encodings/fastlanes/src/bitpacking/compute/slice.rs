@@ -37,7 +37,6 @@ impl SliceFn<BitPackedArray> for BitPackedEncoding {
 
 #[cfg(test)]
 mod test {
-    use itertools::Itertools;
     use vortex_array::array::PrimitiveArray;
     use vortex_array::compute::{scalar_at, slice, take};
     use vortex_array::{ArrayLen, IntoArrayData};
@@ -47,7 +46,7 @@ mod test {
     #[test]
     pub fn slice_block() {
         let arr = BitPackedArray::encode(
-            PrimitiveArray::from((0u32..2048).map(|v| v % 64).collect::<Vec<_>>()).as_ref(),
+            PrimitiveArray::from_iter((0u32..2048).map(|v| v % 64)).as_ref(),
             6,
         )
         .unwrap()
@@ -68,7 +67,7 @@ mod test {
     #[test]
     pub fn slice_within_block() {
         let arr = BitPackedArray::encode(
-            PrimitiveArray::from((0u32..2048).map(|v| v % 64).collect::<Vec<_>>()).as_ref(),
+            PrimitiveArray::from_iter((0u32..2048).map(|v| v % 64)).as_ref(),
             6,
         )
         .unwrap()
@@ -86,7 +85,7 @@ mod test {
     #[test]
     fn slice_within_block_u8s() {
         let packed = BitPackedArray::encode(
-            PrimitiveArray::from((0..10_000).map(|i| (i % 63) as u8).collect::<Vec<_>>()).as_ref(),
+            PrimitiveArray::from_iter((0..10_000).map(|i| (i % 63) as u8)).as_ref(),
             7,
         )
         .unwrap();
@@ -105,7 +104,7 @@ mod test {
     #[test]
     fn slice_block_boundary_u8s() {
         let packed = BitPackedArray::encode(
-            PrimitiveArray::from((0..10_000).map(|i| (i % 63) as u8).collect::<Vec<_>>()).as_ref(),
+            PrimitiveArray::from_iter((0..10_000).map(|i| (i % 63) as u8)).as_ref(),
             7,
         )
         .unwrap();
@@ -124,7 +123,7 @@ mod test {
     #[test]
     fn double_slice_within_block() {
         let arr = BitPackedArray::encode(
-            PrimitiveArray::from((0u32..2048).map(|v| v % 64).collect::<Vec<_>>()).as_ref(),
+            PrimitiveArray::from_iter((0u32..2048).map(|v| v % 64)).as_ref(),
             6,
         )
         .unwrap()
@@ -155,8 +154,7 @@ mod test {
     fn slice_empty_patches() {
         // We create an array that has 1 element that does not fit in the 6-bit range.
         let array =
-            BitPackedArray::encode(PrimitiveArray::from((0u32..=64).collect_vec()).as_ref(), 6)
-                .unwrap();
+            BitPackedArray::encode(PrimitiveArray::from_iter(0u32..=64).as_ref(), 6).unwrap();
 
         assert!(array.patches().is_some());
 
@@ -173,11 +171,9 @@ mod test {
     fn take_after_slice() {
         // Check that our take implementation respects the offsets applied after slicing.
 
-        let array = BitPackedArray::encode(
-            PrimitiveArray::from((63u32..).take(3072).collect_vec()).as_ref(),
-            6,
-        )
-        .unwrap();
+        let array =
+            BitPackedArray::encode(PrimitiveArray::from_iter((63u32..).take(3072)).as_ref(), 6)
+                .unwrap();
 
         // Slice the array.
         // The resulting array will still have 3 1024-element chunks.

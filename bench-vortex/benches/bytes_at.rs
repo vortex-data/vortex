@@ -4,7 +4,9 @@
 use std::sync::Arc;
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use vortex::array::{PrimitiveArray, VarBinArray, VarBinViewArray};
+use parquet::data_type::AsBytes;
+use vortex::array::{VarBinArray, VarBinViewArray};
+use vortex::buffer::{buffer, ByteBuffer};
 use vortex::dtype::{DType, Nullability};
 use vortex::ipc::iterator::{ArrayIteratorIPC, SyncIPCReader};
 use vortex::iter::ArrayIteratorExt;
@@ -14,7 +16,7 @@ use vortex::{Context, IntoArrayData, IntoArrayVariant};
 fn array_data_fixture() -> VarBinArray {
     VarBinArray::try_new(
         buffer![0i32, 5i32, 10i32, 15i32, 20i32].into_array(),
-        PrimitiveArray::from(b"helloworldhelloworld".to_vec()).into_array(),
+        ByteBuffer::copy_from(b"helloworldhelloworld".as_bytes()).into_array(),
         DType::Utf8(Nullability::NonNullable),
         Validity::NonNullable,
     )

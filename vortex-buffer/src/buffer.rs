@@ -23,10 +23,12 @@ impl<T> Buffer<T> {
     /// buffer. We could fix this by forking `Bytes`, or in many other complex ways, but for now
     /// callers should prefer to construct `Buffer<T>` from a `BufferMut<T>`.
     pub fn copy_from(values: impl AsRef<[T]>) -> Self {
-        let values = values.as_ref();
-        let mut buffer = BufferMut::<T>::with_capacity(values.len());
-        buffer.extend_from_slice(values);
-        buffer.freeze()
+        BufferMut::copy_from(values).freeze()
+    }
+
+    /// Returns a new `Buffer<T>` copied from the provided slice and with the requested alignment.
+    pub fn copy_from_aligned(values: impl AsRef<[T]>, alignment: Alignment) -> Self {
+        BufferMut::copy_from_aligned(values, alignment).freeze()
     }
 
     /// Create a new empty `ByteBuffer` with the provided alignment.

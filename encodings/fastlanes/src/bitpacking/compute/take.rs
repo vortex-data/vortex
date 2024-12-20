@@ -119,12 +119,13 @@ fn take_primitive<T: NativePType + BitPacking, I: NativePType>(
 #[cfg(test)]
 #[allow(clippy::cast_possible_truncation)]
 mod test {
-    use itertools::Itertools;
     use rand::distributions::Uniform;
     use rand::{thread_rng, Rng};
     use vortex_array::array::PrimitiveArray;
     use vortex_array::compute::{scalar_at, slice, take};
+    use vortex_array::validity::Validity;
     use vortex_array::{IntoArrayData, IntoArrayVariant};
+    use vortex_buffer::{buffer, Buffer};
 
     use crate::BitPackedArray;
 
@@ -133,7 +134,7 @@ mod test {
         let indices = buffer![0, 125, 2047, 2049, 2151, 2790].into_array();
 
         // Create a u8 array modulo 63.
-        let unpacked = PrimitiveArray::from((0..4096).map(|i| (i % 63) as u8).collect::<Vec<_>>());
+        let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 6).unwrap();
 
         let primitive_result = take(bitpacked.as_ref(), &indices)
@@ -146,7 +147,7 @@ mod test {
 
     #[test]
     fn take_with_patches() {
-        let unpacked = PrimitiveArray::from((0u32..100_000).collect_vec()).into_array();
+        let unpacked = Buffer::from_iter(0u32..100_000).into_array();
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 2).unwrap();
 
         let indices = PrimitiveArray::from_iter([0, 2, 4, 6]);
@@ -164,7 +165,7 @@ mod test {
         let indices = buffer![1919, 1921].into_array();
 
         // Create a u8 array modulo 63.
-        let unpacked = PrimitiveArray::from((0..4096).map(|i| (i % 63) as u8).collect::<Vec<_>>());
+        let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 6).unwrap();
         let sliced = slice(bitpacked.as_ref(), 128, 2050).unwrap();
 
@@ -177,19 +178,15 @@ mod test {
     #[cfg_attr(miri, ignore)] // This test is too slow on miri
     fn take_random_indices() {
         let num_patches: usize = 128;
-        let values = (0..u16::MAX as u32 + num_patches as u32).collect::<Vec<_>>();
-        let uncompressed = PrimitiveArray::from(values.clone());
+        let values = (0..u16::MAX as u32 + num_patches as u32).collect::<Buffer<_>>();
+        let uncompressed = PrimitiveArray::new(values.clone(), Validity::NonNullable);
         let packed = BitPackedArray::encode(uncompressed.as_ref(), 16).unwrap();
         assert!(packed.patches().is_some());
 
         let rng = thread_rng();
         let range = Uniform::new(0, values.len());
-        let random_indices: PrimitiveArray = rng
-            .sample_iter(range)
-            .take(10_000)
-            .map(|i| i as u32)
-            .collect_vec()
-            .into();
+        let random_indices =
+            PrimitiveArray::from_iter(rng.sample_iter(range).take(10_000).map(|i| i as u32));
         let taken = take(packed.as_ref(), random_indices.as_ref()).unwrap();
 
         // sanity check

@@ -230,7 +230,7 @@ mod test {
 
     #[test]
     fn search_with_shift_repeated() {
-        let arr = for_compress(&PrimitiveArray::from_iter([62, 62, 114, 114]))
+        let arr = for_compress(PrimitiveArray::from_iter([62, 62, 114, 114]))
             .unwrap()
             .into_array();
         let for_array = FoRArray::try_from(arr.clone()).unwrap();
