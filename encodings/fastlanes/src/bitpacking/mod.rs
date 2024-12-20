@@ -116,7 +116,7 @@ impl BitPackedArray {
             dtype,
             length,
             Arc::new(metadata),
-            Some(packed),
+            [packed].into(),
             children.into(),
             StatsSet::default(),
         )?
@@ -126,7 +126,7 @@ impl BitPackedArray {
     #[inline]
     pub fn packed(&self) -> &ByteBuffer {
         self.as_ref()
-            .byte_buffer()
+            .byte_buffer(0)
             .vortex_expect("BitPackedArray must contain packed buffer")
     }
 

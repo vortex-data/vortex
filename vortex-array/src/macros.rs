@@ -54,7 +54,7 @@ macro_rules! impl_encoding {
                             dtype,
                             len,
                             std::sync::Arc::new(metadata),
-                            None,
+                            vec![].into(),
                             children,
                             stats
                     )?)
