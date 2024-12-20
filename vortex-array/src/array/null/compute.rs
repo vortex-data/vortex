@@ -56,7 +56,7 @@ impl TakeFn<NullArray> for NullEncoding {
 
         // Enforce all indices are valid
         match_each_integer_ptype!(indices.ptype(), |$T| {
-            for index in indices.maybe_null_slice::<$T>() {
+            for index in indices.as_slice::<$T>() {
                 if !((*index as usize) < array.len()) {
                     vortex_bail!(OutOfBounds: *index as usize, 0, array.len());
                 }

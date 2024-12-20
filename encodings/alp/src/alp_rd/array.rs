@@ -201,10 +201,10 @@ impl IntoCanonical for ALPRDArray {
         let decoded_array = if self.is_f32() {
             PrimitiveArray::new(
                 alp_rd_decode::<f32>(
-                    left_parts.maybe_null_slice::<u16>(),
+                    left_parts.as_slice::<u16>(),
                     left_parts_dict,
                     self.metadata().right_bit_width,
-                    right_parts.maybe_null_slice::<u32>(),
+                    right_parts.as_slice::<u32>(),
                     self.left_parts_patches(),
                 )?,
                 self.logical_validity().into_validity(),
@@ -212,10 +212,10 @@ impl IntoCanonical for ALPRDArray {
         } else {
             PrimitiveArray::new(
                 alp_rd_decode::<f64>(
-                    left_parts.maybe_null_slice::<u16>(),
+                    left_parts.as_slice::<u16>(),
                     left_parts_dict,
                     self.metadata().right_bit_width,
-                    right_parts.maybe_null_slice::<u64>(),
+                    right_parts.as_slice::<u64>(),
                     self.left_parts_patches(),
                 )?,
                 self.logical_validity().into_validity(),
@@ -292,6 +292,6 @@ mod test {
             .unwrap();
 
         let maybe_null_reals: Vec<T> = reals.into_iter().map(|v| v.unwrap_or_default()).collect();
-        assert_eq!(decoded.maybe_null_slice::<T>(), &maybe_null_reals);
+        assert_eq!(decoded.as_slice::<T>(), &maybe_null_reals);
     }
 }

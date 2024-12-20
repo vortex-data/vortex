@@ -27,7 +27,7 @@ pub fn runend_encode(array: &PrimitiveArray) -> VortexResult<(PrimitiveArray, Ar
     Ok(match validity {
         None => {
             match_each_native_ptype!(array.ptype(), |$P| {
-                let (ends, values) = runend_encode_primitive(array.maybe_null_slice::<$P>());
+                let (ends, values) = runend_encode_primitive(array.as_slice::<$P>());
                 (
                     PrimitiveArray::from_vec(ends, Validity::NonNullable),
                     PrimitiveArray::from_vec(values, array.dtype().nullability().into()).into_array(),
@@ -37,7 +37,7 @@ pub fn runend_encode(array: &PrimitiveArray) -> VortexResult<(PrimitiveArray, Ar
         Some(validity) => {
             match_each_native_ptype!(array.ptype(), |$P| {
                 let (ends, values) =
-                    runend_encode_nullable_primitive(array.maybe_null_slice::<$P>(), validity);
+                    runend_encode_nullable_primitive(array.as_slice::<$P>(), validity);
                 (
                     PrimitiveArray::from_vec(ends, Validity::NonNullable),
                     values.into_array(),
@@ -146,8 +146,8 @@ pub fn runend_decode_primitive(
     match_each_native_ptype!(values.ptype(), |$P| {
         match_each_integer_ptype!(ends.ptype(), |$E| {
             runend_decode_typed_primitive(
-                trimmed_ends_iter(ends.maybe_null_slice::<$E>(), offset, length),
-                values.maybe_null_slice::<$P>(),
+                trimmed_ends_iter(ends.as_slice::<$E>(), offset, length),
+                values.as_slice::<$P>(),
                 values.logical_validity(),
                 values.dtype().nullability(),
                 length,
@@ -164,7 +164,7 @@ pub fn runend_decode_bools(
 ) -> VortexResult<BoolArray> {
     match_each_integer_ptype!(ends.ptype(), |$E| {
         runend_decode_typed_bool(
-            trimmed_ends_iter(ends.maybe_null_slice::<$E>(), offset, length),
+            trimmed_ends_iter(ends.as_slice::<$E>(), offset, length),
             values.boolean_buffer(),
             values.logical_validity(),
             values.dtype().nullability(),
@@ -285,8 +285,8 @@ mod test {
         let (ends, values) = runend_encode(&arr).unwrap();
         let values = values.into_primitive().unwrap();
 
-        assert_eq!(ends.maybe_null_slice::<u64>(), vec![2, 5, 10]);
-        assert_eq!(values.maybe_null_slice::<i32>(), vec![1, 2, 3]);
+        assert_eq!(ends.as_slice::<u64>(), vec![2, 5, 10]);
+        assert_eq!(values.as_slice::<i32>(), vec![1, 2, 3]);
     }
 
     #[test]
@@ -300,8 +300,8 @@ mod test {
         let (ends, values) = runend_encode(&arr).unwrap();
         let values = values.into_primitive().unwrap();
 
-        assert_eq!(ends.maybe_null_slice::<u64>(), vec![2, 4, 5, 8, 10]);
-        assert_eq!(values.maybe_null_slice::<i32>(), vec![1, 0, 2, 3, 0]);
+        assert_eq!(ends.as_slice::<u64>(), vec![2, 4, 5, 8, 10]);
+        assert_eq!(values.as_slice::<i32>(), vec![1, 0, 2, 3, 0]);
     }
 
     #[test]
@@ -313,8 +313,8 @@ mod test {
         let (ends, values) = runend_encode(&arr).unwrap();
         let values = values.into_primitive().unwrap();
 
-        assert_eq!(ends.maybe_null_slice::<u64>(), vec![5]);
-        assert_eq!(values.maybe_null_slice::<i32>(), vec![0]);
+        assert_eq!(ends.as_slice::<u64>(), vec![5]);
+        assert_eq!(values.as_slice::<i32>(), vec![0]);
     }
 
     #[test]
@@ -324,7 +324,7 @@ mod test {
         let decoded = runend_decode_primitive(ends, values, 0, 10).unwrap();
 
         assert_eq!(
-            decoded.maybe_null_slice::<i32>(),
+            decoded.as_slice::<i32>(),
             vec![1i32, 1, 2, 2, 2, 3, 3, 3, 3, 3]
         );
     }

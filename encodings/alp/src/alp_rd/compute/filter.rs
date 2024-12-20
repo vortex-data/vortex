@@ -48,6 +48,6 @@ mod test {
             .unwrap()
             .into_primitive()
             .unwrap();
-        assert_eq!(filtered.maybe_null_slice::<T>(), &[a, outlier]);
+        assert_eq!(filtered.as_slice::<T>(), &[a, outlier]);
     }
 }

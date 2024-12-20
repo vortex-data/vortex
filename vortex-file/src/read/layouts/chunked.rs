@@ -521,7 +521,7 @@ mod tests {
         assert!(arr.is_some());
         let arr = arr.unwrap();
         assert_eq!(
-            arr.into_primitive().unwrap().maybe_null_slice::<i32>(),
+            arr.into_primitive().unwrap().as_slice::<i32>(),
             &(11..100).collect::<Vec<_>>()
         );
     }
@@ -537,7 +537,7 @@ mod tests {
         assert!(arr.is_some());
         let arr = arr.unwrap();
         assert_eq!(
-            arr.into_primitive().unwrap().maybe_null_slice::<i32>(),
+            arr.into_primitive().unwrap().as_slice::<i32>(),
             (0..100).collect::<Vec<_>>()
         );
     }
@@ -558,7 +558,7 @@ mod tests {
         assert!(arr.is_some());
         let arr = arr.unwrap();
         assert_eq!(
-            arr.into_primitive().unwrap().maybe_null_slice::<i32>(),
+            arr.into_primitive().unwrap().as_slice::<i32>(),
             iter::repeat(0..100).take(5).flatten().collect::<Vec<_>>()
         );
     }
@@ -593,7 +593,7 @@ mod tests {
                 .unwrap()
                 .into_primitive()
                 .unwrap()
-                .maybe_null_slice::<i32>(),
+                .as_slice::<i32>(),
             &(0..100).chain(0..50).collect::<Vec<_>>()
         );
         assert_eq!(
@@ -601,7 +601,7 @@ mod tests {
                 .unwrap()
                 .into_primitive()
                 .unwrap()
-                .maybe_null_slice::<i32>(),
+                .as_slice::<i32>(),
             &(50..100).chain(0..50).collect::<Vec<_>>()
         );
         assert_eq!(
@@ -609,7 +609,7 @@ mod tests {
                 .unwrap()
                 .into_primitive()
                 .unwrap()
-                .maybe_null_slice::<i32>(),
+                .as_slice::<i32>(),
             &(0..100).collect::<Vec<_>>()
         );
     }

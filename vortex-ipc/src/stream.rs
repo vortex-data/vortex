@@ -218,9 +218,6 @@ mod test {
             .unwrap()
             .into_primitive()
             .unwrap();
-        assert_eq!(
-            array.maybe_null_slice::<i32>(),
-            result.maybe_null_slice::<i32>()
-        );
+        assert_eq!(array.as_slice::<i32>(), result.as_slice::<i32>());
     }
 }

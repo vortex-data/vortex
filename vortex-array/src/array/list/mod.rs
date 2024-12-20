@@ -106,7 +106,7 @@ impl ListArray {
             .ok()
             .map(|p| {
                 match_each_native_ptype!(p.ptype(), |$P| {
-                    p.maybe_null_slice::<$P>()[index].as_()
+                    p.as_slice::<$P>()[index].as_()
                 })
             })
             .unwrap_or_else(|| {

@@ -8,7 +8,6 @@ mod array;
 mod datum;
 mod dtype;
 mod recordbatch;
-pub mod wrappers;
 pub use datum::*;
 
 pub trait FromArrowArray<A> {

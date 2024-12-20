@@ -201,7 +201,7 @@ mod tests {
         assert!(arr.is_some());
         let arr = arr.unwrap();
         assert_eq!(
-            arr.into_primitive().unwrap().maybe_null_slice::<i32>(),
+            arr.into_primitive().unwrap().as_slice::<i32>(),
             &(11..100).collect::<Vec<_>>()
         );
     }
@@ -216,7 +216,7 @@ mod tests {
         assert!(arr.is_some());
         let arr = arr.unwrap();
         assert_eq!(
-            arr.into_primitive().unwrap().maybe_null_slice::<i32>(),
+            arr.into_primitive().unwrap().as_slice::<i32>(),
             &(0..100).collect::<Vec<_>>()
         );
     }

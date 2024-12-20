@@ -119,7 +119,7 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalAr
     .into_primitive()?;
     // FIXME(ngates): mutate in place
     let mut values: Vec<i64> = days_buf
-        .into_maybe_null_slice::<i64>()
+        .into_as_slice::<i64>()
         .iter()
         .map(|d| d * 86_400 * divisor)
         .collect();
@@ -135,7 +135,7 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalAr
     } else {
         let seconds_buf = try_cast(array.seconds(), &DType::Primitive(PType::U32, NonNullable))?
             .into_primitive()?;
-        for (v, second) in values.iter_mut().zip(seconds_buf.maybe_null_slice::<u32>()) {
+        for (v, second) in values.iter_mut().zip(seconds_buf.as_slice::<u32>()) {
             *v += (*second as i64) * divisor;
         }
     }
@@ -155,10 +155,7 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalAr
             &DType::Primitive(PType::I64, NonNullable),
         )?
         .into_primitive()?;
-        for (v, subsecond) in values
-            .iter_mut()
-            .zip(subsecond_buf.maybe_null_slice::<i64>())
-        {
+        for (v, subsecond) in values.iter_mut().zip(subsecond_buf.as_slice::<i64>()) {
             *v += *subsecond;
         }
     }
@@ -244,7 +241,7 @@ mod test {
             .into_primitive()
             .unwrap();
 
-        assert_eq!(primitive_values.maybe_null_slice::<i64>(), raw_values);
+        assert_eq!(primitive_values.as_slice::<i64>(), raw_values);
         assert_eq!(primitive_values.validity(), validity);
     }
 }

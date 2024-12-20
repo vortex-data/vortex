@@ -47,6 +47,6 @@ mod test {
             .into_primitive()
             .unwrap();
 
-        assert_eq!(decoded.maybe_null_slice::<T>(), &[b, outlier]);
+        assert_eq!(decoded.as_slice::<T>(), &[b, outlier]);
     }
 }

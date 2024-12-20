@@ -192,7 +192,7 @@ impl VarBinArray {
             .ok()
             .map(|p| {
                 match_each_native_ptype!(p.ptype(), |$P| {
-                    p.maybe_null_slice::<$P>()[index].as_()
+                    p.as_slice::<$P>()[index].as_()
                 })
             })
             .unwrap_or_else(|| {
@@ -210,7 +210,7 @@ impl VarBinArray {
         let start = self.offset_at(index);
         let end = self.offset_at(index + 1);
         let sliced = slice(self.bytes(), start, end)?;
-        Ok(sliced.into_primitive()?.into_buffer())
+        Ok(sliced.into_primitive()?.into_byte_buffer())
     }
 
     /// Consumes self, returning a tuple containing the `DType`, the `bytes` array,

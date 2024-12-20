@@ -16,7 +16,7 @@ impl TakeFn<PrimitiveArray> for PrimitiveEncoding {
 
         match_each_native_ptype!(array.ptype(), |$T| {
             match_each_integer_ptype!(indices.ptype(), |$I| {
-                let values = take_primitive(array.maybe_null_slice::<$T>(), indices.maybe_null_slice::<$I>());
+                let values = take_primitive(array.as_slice::<$T>(), indices.as_slice::<$I>());
                 Ok(PrimitiveArray::from_vec(values, validity).into_array())
             })
         })
@@ -32,7 +32,7 @@ impl TakeFn<PrimitiveArray> for PrimitiveEncoding {
 
         match_each_native_ptype!(array.ptype(), |$T| {
             match_each_integer_ptype!(indices.ptype(), |$I| {
-                let values = take_primitive_unchecked(array.maybe_null_slice::<$T>(), indices.maybe_null_slice::<$I>());
+                let values = take_primitive_unchecked(array.as_slice::<$T>(), indices.as_slice::<$I>());
                 Ok(PrimitiveArray::from_vec(values, validity).into_array())
             })
         })

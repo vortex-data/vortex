@@ -206,8 +206,8 @@ mod test {
     fn encode_primitive() {
         let arr = PrimitiveArray::from(vec![1, 1, 3, 3, 3]);
         let (codes, values) = dict_encode_typed_primitive::<i32>(&arr);
-        assert_eq!(codes.maybe_null_slice::<u64>(), &[0, 0, 1, 1, 1]);
-        assert_eq!(values.maybe_null_slice::<i32>(), &[1, 3]);
+        assert_eq!(codes.as_slice::<u64>(), &[0, 0, 1, 1, 1]);
+        assert_eq!(values.as_slice::<i32>(), &[1, 3]);
     }
 
     #[test]
@@ -223,7 +223,7 @@ mod test {
             None,
         ]);
         let (codes, values) = dict_encode_typed_primitive::<i32>(&arr);
-        assert_eq!(codes.maybe_null_slice::<u64>(), &[1, 1, 0, 2, 2, 0, 2, 0]);
+        assert_eq!(codes.as_slice::<u64>(), &[1, 1, 0, 2, 2, 0, 2, 0]);
         assert_eq!(
             scalar_at(&values, 0).unwrap(),
             Scalar::null(DType::Primitive(PType::I32, Nullable))
@@ -242,7 +242,7 @@ mod test {
     fn encode_varbin() {
         let arr = VarBinArray::from(vec!["hello", "world", "hello", "again", "world"]);
         let (codes, values) = dict_encode_varbin(&arr);
-        assert_eq!(codes.maybe_null_slice::<u64>(), &[0, 1, 0, 2, 1]);
+        assert_eq!(codes.as_slice::<u64>(), &[0, 1, 0, 2, 1]);
         values
             .with_iterator(|iter| {
                 assert_eq!(
@@ -270,7 +270,7 @@ mod test {
         .into_iter()
         .collect();
         let (codes, values) = dict_encode_varbin(&arr);
-        assert_eq!(codes.maybe_null_slice::<u64>(), &[1, 0, 2, 1, 0, 3, 2, 0]);
+        assert_eq!(codes.as_slice::<u64>(), &[1, 0, 2, 1, 0, 3, 2, 0]);
         assert_eq!(str::from_utf8(&values.bytes_at(0).unwrap()).unwrap(), "");
         values
             .with_iterator(|iter| {
@@ -297,9 +297,6 @@ mod test {
                 );
             })
             .unwrap();
-        assert_eq!(
-            codes.maybe_null_slice::<u64>(),
-            &[0u64, 0, 1, 1, 0, 1, 0, 1]
-        );
+        assert_eq!(codes.as_slice::<u64>(), &[0u64, 0, 1, 1, 0, 1, 0, 1]);
     }
 }

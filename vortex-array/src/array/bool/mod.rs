@@ -42,14 +42,14 @@ impl BoolArray {
     /// Access internal array buffer
     pub fn buffer(&self) -> &ByteBuffer {
         self.as_ref()
-            .buffer()
+            .byte_buffer()
             .vortex_expect("Missing buffer in BoolArray")
     }
 
     /// Convert array into its internal buffer
     pub fn into_buffer(self) -> ByteBuffer {
         self.into_array()
-            .into_buffer()
+            .into_byte_buffer()
             .vortex_expect("BoolArray must have a buffer")
     }
 

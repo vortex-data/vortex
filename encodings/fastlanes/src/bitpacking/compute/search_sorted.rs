@@ -134,9 +134,9 @@ where
 /// This wrapper exists, so that you can't invoke SearchSorted::search_sorted directly on BitPackedArray as it omits searching patches
 #[derive(Debug)]
 struct BitPackedSearch<'a, T> {
-    // NOTE: caching this here is important for performance, as each call to `maybe_null_slice`
+    // NOTE: caching this here is important for performance, as each call to `as_slice`
     //  invokes a call to DType <> PType conversion
-    packed_maybe_null_slice: &'a [T],
+    packed_as_slice: &'a [T],
     offset: u16,
     length: usize,
     bit_width: u8,
@@ -166,7 +166,7 @@ impl<'a, T: BitPacking + NativePType> BitPackedSearch<'a, T> {
         let first_invalid_idx = cmp::min(min_patch_offset, first_null_idx);
 
         Self {
-            packed_maybe_null_slice: array.packed_slice::<T>(),
+            packed_as_slice: array.packed_slice::<T>(),
             offset: array.offset(),
             length: array.len(),
             bit_width: array.bit_width(),
@@ -184,7 +184,7 @@ impl<T: BitPacking + NativePType> IndexOrd<T> for BitPackedSearch<'_, T> {
         // SAFETY: Used in search_sorted_by which ensures that idx is within bounds
         let val: T = unsafe {
             unpack_single_primitive(
-                self.packed_maybe_null_slice,
+                self.packed_as_slice,
                 self.bit_width as usize,
                 idx + self.offset as usize,
             )

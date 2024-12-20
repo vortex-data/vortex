@@ -75,7 +75,7 @@ struct SearchSortedPrimitive<'a, T> {
 impl<'a, T: NativePType> SearchSortedPrimitive<'a, T> {
     pub fn new(array: &'a PrimitiveArray) -> Self {
         Self {
-            values: array.maybe_null_slice(),
+            values: array.as_slice(),
         }
     }
 }

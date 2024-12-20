@@ -32,9 +32,9 @@ impl TakeFn<ChunkedArray> for ChunkedEncoding {
         let mut chunks = Vec::new();
         let mut indices_in_chunk = Vec::new();
         let mut prev_chunk_idx = array
-            .find_chunk_idx(indices.maybe_null_slice::<u64>()[0].try_into()?)
+            .find_chunk_idx(indices.as_slice::<u64>()[0].try_into()?)
             .0;
-        for idx in indices.maybe_null_slice::<u64>() {
+        for idx in indices.as_slice::<u64>() {
             let idx = usize::try_from(*idx)?;
             let (chunk_idx, idx_in_chunk) = array.find_chunk_idx(idx);
 
@@ -139,6 +139,6 @@ mod test {
             .into_array()
             .into_primitive()
             .unwrap();
-        assert_eq!(result.maybe_null_slice::<i32>(), &[1, 1, 1, 2]);
+        assert_eq!(result.as_slice::<i32>(), &[1, 1, 1, 2]);
     }
 }

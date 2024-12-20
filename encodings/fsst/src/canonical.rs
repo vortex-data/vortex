@@ -28,8 +28,7 @@ impl IntoCanonical for FSSTArray {
                 .into_primitive()?;
 
             // Bulk-decompress the entire array.
-            let uncompressed_bytes =
-                decompressor.decompress(compressed_bytes.maybe_null_slice::<u8>());
+            let uncompressed_bytes = decompressor.decompress(compressed_bytes.as_slice::<u8>());
 
             let uncompressed_lens_array = self
                 .uncompressed_lengths()
@@ -38,7 +37,7 @@ impl IntoCanonical for FSSTArray {
 
             // Directly create the binary views.
             let views: Vec<u128> = match_each_integer_ptype!(uncompressed_lens_array.ptype(), |$P| {
-                uncompressed_lens_array.maybe_null_slice::<$P>()
+                uncompressed_lens_array.as_slice::<$P>()
                     .iter()
                     .map(|&len| len as usize)
                     .scan(0, |offset, len| {

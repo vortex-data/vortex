@@ -272,3 +272,40 @@ impl From<Vec<u8>> for ByteBuffer {
         }
     }
 }
+
+/// Owned iterator over a Buffer<T>.
+pub struct BufferIterator<T> {
+    buffer: Buffer<T>,
+    index: usize,
+}
+
+impl<T: Copy> Iterator for BufferIterator<T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index < self.buffer.len() {
+            let value = self.buffer.as_slice()[self.index];
+            self.index += 1;
+            Some(value)
+        } else {
+            None
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.buffer.len() - self.index;
+        (remaining, Some(remaining))
+    }
+}
+
+impl<T: Copy> IntoIterator for Buffer<T> {
+    type Item = T;
+    type IntoIter = BufferIterator<T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        BufferIterator {
+            buffer: self,
+            index: 0,
+        }
+    }
+}

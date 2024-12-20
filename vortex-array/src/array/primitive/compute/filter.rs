@@ -12,10 +12,10 @@ impl FilterFn<PrimitiveArray> for PrimitiveEncoding {
         let validity = array.validity().filter(&mask)?;
         match_each_native_ptype!(array.ptype(), |$T| {
             let values = match mask.iter()? {
-                FilterIter::Indices(indices) => filter_primitive_indices(array.maybe_null_slice::<$T>(), indices.iter().copied()),
-                FilterIter::IndicesIter(iter) => filter_primitive_indices(array.maybe_null_slice::<$T>(), iter),
-                FilterIter::Slices(slices) => filter_primitive_slices(array.maybe_null_slice::<$T>(), mask.true_count(), slices.iter().copied()),
-                FilterIter::SlicesIter(iter) => filter_primitive_slices(array.maybe_null_slice::<$T>(), mask.true_count(), iter),
+                FilterIter::Indices(indices) => filter_primitive_indices(array.as_slice::<$T>(), indices.iter().copied()),
+                FilterIter::IndicesIter(iter) => filter_primitive_indices(array.as_slice::<$T>(), iter),
+                FilterIter::Slices(slices) => filter_primitive_slices(array.as_slice::<$T>(), mask.true_count(), slices.iter().copied()),
+                FilterIter::SlicesIter(iter) => filter_primitive_slices(array.as_slice::<$T>(), mask.true_count(), iter),
             };
             Ok(PrimitiveArray::from_vec(values, validity).into_array())
         })
@@ -62,9 +62,9 @@ mod test {
             mask.iter().filter(|x| **x).collect_vec().len()
         );
 
-        let rust_arr = arr.maybe_null_slice::<u32>();
+        let rust_arr = arr.as_slice::<u32>();
         assert_eq!(
-            filtered.maybe_null_slice::<u32>().to_vec(),
+            filtered.as_slice::<u32>().to_vec(),
             mask.iter()
                 .enumerate()
                 .filter(|(_idx, b)| **b)

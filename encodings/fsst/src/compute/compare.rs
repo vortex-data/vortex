@@ -44,10 +44,10 @@ fn compare_fsst_constant(
     equal: bool,
 ) -> VortexResult<ArrayData> {
     let symbols = left.symbols().into_primitive()?;
-    let symbols_u64 = symbols.maybe_null_slice::<u64>();
+    let symbols_u64 = symbols.as_slice::<u64>();
 
     let symbol_lens = left.symbol_lengths().into_primitive()?;
-    let symbol_lens_u8 = symbol_lens.maybe_null_slice::<u8>();
+    let symbol_lens_u8 = symbol_lens.as_slice::<u8>();
 
     let mut compressor = fsst::CompressorBuilder::new();
     for (symbol, symbol_len) in symbols_u64.iter().zip(symbol_lens_u8.iter()) {

@@ -33,7 +33,7 @@ pub fn take_canonical_array(array: &ArrayData, indices: &[usize]) -> ArrayData {
         DType::Primitive(p, _) => match_each_native_ptype!(p, |$P| {
             let primitive_array = array.clone().into_primitive().unwrap();
             let vec_values = primitive_array
-                .maybe_null_slice::<$P>()
+                .as_slice::<$P>()
                 .iter()
                 .copied()
                 .collect::<Vec<_>>();

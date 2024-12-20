@@ -89,7 +89,7 @@ pub fn search_sorted_canonical_array(
                 .boolean_buffer();
             match_each_native_ptype!(p, |$P| {
                 let opt_values = primitive_array
-                    .maybe_null_slice::<$P>()
+                    .as_slice::<$P>()
                     .iter()
                     .copied()
                     .zip(validity.iter())

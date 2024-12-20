@@ -258,7 +258,7 @@ async fn test_read_projection() {
         .unwrap()
         .into_primitive()
         .unwrap();
-    let actual = primitive_array.maybe_null_slice::<u32>();
+    let actual = primitive_array.as_slice::<u32>();
     assert_eq!(actual, numbers_expected);
 
     let array = VortexReadBuilder::new(written.clone(), LayoutDeserializer::default())
@@ -285,7 +285,7 @@ async fn test_read_projection() {
         .unwrap()
         .into_primitive()
         .unwrap();
-    let actual = primitive_array.maybe_null_slice::<u32>();
+    let actual = primitive_array.as_slice::<u32>();
     assert_eq!(actual, numbers_expected);
 }
 
@@ -427,10 +427,7 @@ async fn filter_string() {
         vec!["Joseph".to_string()]
     );
     let ages = result[0].as_struct_array().unwrap().field(1).unwrap();
-    assert_eq!(
-        ages.into_primitive().unwrap().maybe_null_slice::<i32>(),
-        vec![25]
-    );
+    assert_eq!(ages.into_primitive().unwrap().as_slice::<i32>(), vec![25]);
 }
 
 #[tokio::test]
@@ -560,7 +557,7 @@ async fn filter_and() {
     );
     let ages = result[0].as_struct_array().unwrap().field(1).unwrap();
     assert_eq!(
-        ages.into_primitive().unwrap().maybe_null_slice::<i32>(),
+        ages.into_primitive().unwrap().as_slice::<i32>(),
         vec![25, 31]
     );
 }
@@ -620,7 +617,7 @@ async fn test_with_indices_simple() {
 
     let expected_kept_numbers: Vec<i16> =
         kept_indices.iter().map(|&x| expected_numbers[x]).collect();
-    let actual_kept_numbers = actual_kept_numbers_array.maybe_null_slice::<i16>();
+    let actual_kept_numbers = actual_kept_numbers_array.as_slice::<i16>();
 
     assert_eq!(expected_kept_numbers, actual_kept_numbers);
 
@@ -636,7 +633,7 @@ async fn test_with_indices_simple() {
         .into_struct()
         .unwrap();
     let actual_numbers_array = actual_array.field(0).unwrap().into_primitive().unwrap();
-    let actual_numbers = actual_numbers_array.maybe_null_slice::<i16>();
+    let actual_numbers = actual_numbers_array.as_slice::<i16>();
 
     assert_eq!(expected_numbers, actual_numbers);
 }
@@ -697,7 +694,7 @@ async fn test_with_indices_on_two_columns() {
     );
 
     let numbers_actual_array = array.field(1).unwrap().into_primitive().unwrap();
-    let numbers_actual = numbers_actual_array.maybe_null_slice::<u32>();
+    let numbers_actual = numbers_actual_array.as_slice::<u32>();
     assert_eq!(
         numbers_actual,
         kept_indices
@@ -775,7 +772,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
         .map(|&x| expected_numbers[x])
         .filter(|&x| x > 50)
         .collect();
-    let actual_kept_numbers = actual_kept_numbers_array.maybe_null_slice::<i16>();
+    let actual_kept_numbers = actual_kept_numbers_array.as_slice::<i16>();
 
     assert_eq!(expected_kept_numbers, actual_kept_numbers);
 
@@ -796,7 +793,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
         .into_struct()
         .unwrap();
     let actual_numbers_array = actual_array.field(0).unwrap().into_primitive().unwrap();
-    let actual_numbers = actual_numbers_array.maybe_null_slice::<i16>();
+    let actual_numbers = actual_numbers_array.as_slice::<i16>();
 
     assert_eq!(
         expected_numbers
@@ -873,10 +870,7 @@ async fn filter_string_chunked() {
         vec!["Joseph".to_string()]
     );
     let ages = actual_array.as_struct_array().unwrap().field(1).unwrap();
-    assert_eq!(
-        ages.into_primitive().unwrap().maybe_null_slice::<i32>(),
-        vec![25]
-    );
+    assert_eq!(ages.into_primitive().unwrap().as_slice::<i32>(), vec![25]);
 }
 
 #[tokio::test]

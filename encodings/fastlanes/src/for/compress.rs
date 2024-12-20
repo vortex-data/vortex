@@ -88,14 +88,14 @@ fn compress_primitive<T: NativePType + WrappingSub + PrimInt>(
     assert!(shift < T::PTYPE.bit_width() as u8);
     let values = if shift > 0 {
         parray
-            .maybe_null_slice::<T>()
+            .as_slice::<T>()
             .iter()
             .map(|&v| v.wrapping_sub(&min))
             .map(|v| v >> shift as usize)
             .collect_vec()
     } else {
         parray
-            .maybe_null_slice::<T>()
+            .as_slice::<T>()
             .iter()
             .map(|&v| v.wrapping_sub(&min))
             .collect_vec()
@@ -121,7 +121,7 @@ pub fn decompress(array: FoRArray) -> VortexResult<PrimitiveArray> {
                 encoded
             } else {
                 PrimitiveArray::new(
-                    decompress_primitive(encoded.maybe_null_slice::<$T>(), min, shift),
+                    decompress_primitive(encoded.as_slice::<$T>(), min, shift),
                     validity,
                 )
             }
@@ -234,10 +234,7 @@ mod test {
         let compressed = for_compress(&array).unwrap();
         assert!(compressed.shift() > 0);
         let decompressed = compressed.into_primitive().unwrap();
-        assert_eq!(
-            decompressed.maybe_null_slice::<u32>(),
-            array.maybe_null_slice::<u32>()
-        );
+        assert_eq!(decompressed.as_slice::<u32>(), array.as_slice::<u32>());
     }
 
     #[test]
@@ -254,17 +251,14 @@ mod test {
         );
 
         let encoded = compressed.encoded().into_primitive().unwrap();
-        let encoded_bytes: &[u8] = encoded.maybe_null_slice::<u8>();
+        let encoded_bytes: &[u8] = encoded.as_slice::<u8>();
         let unsigned: Vec<u8> = (0..=u8::MAX).collect_vec();
         assert_eq!(encoded_bytes, unsigned.as_slice());
 
         let decompressed = compressed.as_ref().clone().into_primitive().unwrap();
-        assert_eq!(
-            decompressed.maybe_null_slice::<i8>(),
-            array.maybe_null_slice::<i8>()
-        );
+        assert_eq!(decompressed.as_slice::<i8>(), array.as_slice::<i8>());
         array
-            .maybe_null_slice::<i8>()
+            .as_slice::<i8>()
             .iter()
             .enumerate()
             .for_each(|(i, v)| {

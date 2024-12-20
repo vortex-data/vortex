@@ -114,7 +114,7 @@ impl FilterFn<RunEndArray> for RunEndEncoding {
     fn filter(&self, array: &RunEndArray, mask: FilterMask) -> VortexResult<ArrayData> {
         let primitive_run_ends = array.ends().into_primitive()?;
         let (run_ends, values_mask) = match_each_unsigned_integer_ptype!(primitive_run_ends.ptype(), |$P| {
-            filter_run_ends(primitive_run_ends.maybe_null_slice::<$P>(), array.offset() as u64, array.len() as u64, mask)?
+            filter_run_ends(primitive_run_ends.as_slice::<$P>(), array.offset() as u64, array.len() as u64, mask)?
         });
         let values = filter(&array.values(), values_mask)?;
 
@@ -202,7 +202,7 @@ mod test {
         assert_eq!(arr.len(), 5);
 
         assert_eq!(
-            arr.into_primitive().unwrap().maybe_null_slice::<i32>(),
+            arr.into_primitive().unwrap().as_slice::<i32>(),
             vec![2, 2, 3, 3, 3]
         );
     }
@@ -225,10 +225,7 @@ mod test {
         let doubly_sliced = slice(&arr, 0, 3).unwrap();
 
         assert_eq!(
-            doubly_sliced
-                .into_primitive()
-                .unwrap()
-                .maybe_null_slice::<i32>(),
+            doubly_sliced.into_primitive().unwrap().as_slice::<i32>(),
             vec![2, 2, 3]
         );
     }
@@ -253,7 +250,7 @@ mod test {
         assert_eq!(arr.len(), 6);
 
         assert_eq!(
-            arr.into_primitive().unwrap().maybe_null_slice::<i32>(),
+            arr.into_primitive().unwrap().as_slice::<i32>(),
             vec![2, 3, 3, 3, 3, 3]
         );
     }
@@ -267,7 +264,7 @@ mod test {
         .unwrap();
 
         assert_eq!(
-            arr.into_primitive().unwrap().maybe_null_slice::<i32>(),
+            arr.into_primitive().unwrap().as_slice::<i32>(),
             vec![1, 1, 2, 2, 2, 3, 3, 3, 3, 3]
         );
     }
@@ -305,7 +302,7 @@ mod test {
                 .ends()
                 .into_primitive()
                 .unwrap()
-                .maybe_null_slice::<u64>(),
+                .as_slice::<u64>(),
             [2, 4]
         );
         assert_eq!(
@@ -313,7 +310,7 @@ mod test {
                 .values()
                 .into_primitive()
                 .unwrap()
-                .maybe_null_slice::<i32>(),
+                .as_slice::<i32>(),
             [1, 5]
         );
     }
@@ -333,7 +330,7 @@ mod test {
                 .ends()
                 .into_primitive()
                 .unwrap()
-                .maybe_null_slice::<u64>(),
+                .as_slice::<u64>(),
             [1, 2, 3]
         );
         assert_eq!(
@@ -341,7 +338,7 @@ mod test {
                 .values()
                 .into_primitive()
                 .unwrap()
-                .maybe_null_slice::<i32>(),
+                .as_slice::<i32>(),
             [1, 4, 2]
         );
     }

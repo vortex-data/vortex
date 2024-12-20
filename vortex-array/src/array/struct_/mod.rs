@@ -255,6 +255,6 @@ mod test {
         );
 
         let prims = PrimitiveArray::try_from(struct_b.field(1).unwrap()).unwrap();
-        assert_eq!(prims.maybe_null_slice::<i64>(), [0i64, 1, 2, 3, 4]);
+        assert_eq!(prims.as_slice::<i64>(), [0i64, 1, 2, 3, 4]);
     }
 }

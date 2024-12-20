@@ -17,7 +17,7 @@ impl FillForwardFn<PrimitiveArray> for PrimitiveEncoding {
         let validity = array.logical_validity();
         if validity.all_valid() {
             return Ok(PrimitiveArray::from_buffer(
-                array.buffer().clone(),
+                array.byte_buffer().clone(),
                 array.ptype(),
                 Validity::AllValid,
             )
@@ -30,9 +30,9 @@ impl FillForwardFn<PrimitiveArray> for PrimitiveEncoding {
             }
 
             let nulls = validity.to_null_buffer()?.ok_or_else(|| vortex_err!("Failed to convert array validity to null buffer"))?;
-            let maybe_null_slice = array.maybe_null_slice::<$T>();
+            let as_slice = array.as_slice::<$T>();
             let mut last_value = $T::default();
-            let filled = maybe_null_slice
+            let filled = as_slice
                 .iter()
                 .zip(nulls.into_iter())
                 .map(|(v, valid)| {
@@ -60,7 +60,7 @@ mod test {
         let arr = PrimitiveArray::from_nullable_vec(vec![None, Some(8u8), None, Some(10), None])
             .into_array();
         let p = fill_forward(&arr).unwrap().into_primitive().unwrap();
-        assert_eq!(p.maybe_null_slice::<u8>(), vec![0, 8, 8, 10, 10]);
+        assert_eq!(p.as_slice::<u8>(), vec![0, 8, 8, 10, 10]);
         assert!(p.logical_validity().all_valid());
     }
 
@@ -71,7 +71,7 @@ mod test {
                 .into_array();
 
         let p = fill_forward(&arr).unwrap().into_primitive().unwrap();
-        assert_eq!(p.maybe_null_slice::<u8>(), vec![0, 0, 0, 0, 0]);
+        assert_eq!(p.as_slice::<u8>(), vec![0, 0, 0, 0, 0]);
         assert!(p.logical_validity().all_valid());
     }
 
@@ -83,7 +83,7 @@ mod test {
         )
         .into_array();
         let p = fill_forward(&arr).unwrap().into_primitive().unwrap();
-        assert_eq!(p.maybe_null_slice::<u8>(), vec![8, 10, 12, 14, 16]);
+        assert_eq!(p.as_slice::<u8>(), vec![8, 10, 12, 14, 16]);
         assert!(p.logical_validity().all_valid());
     }
 }

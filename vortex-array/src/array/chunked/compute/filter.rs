@@ -66,7 +66,7 @@ fn filter_slices(array: &ChunkedArray, mask: FilterMask) -> VortexResult<Vec<Arr
     // Pre-materialize the chunk ends for performance.
     // The chunk ends is nchunks+1, which is expected to be in the hundreds or at most thousands.
     let chunk_ends = array.chunk_offsets().into_canonical()?.into_primitive()?;
-    let chunk_ends = chunk_ends.maybe_null_slice::<u64>();
+    let chunk_ends = chunk_ends.as_slice::<u64>();
 
     let mut chunk_filters = vec![ChunkFilter::None; array.nchunks()];
 
@@ -144,7 +144,7 @@ fn filter_indices(array: &ChunkedArray, mask: FilterMask) -> VortexResult<Vec<Ar
     // Avoid find_chunk_idx and use our own to avoid the overhead.
     // The array should only be some thousands of values in the general case.
     let chunk_ends = array.chunk_offsets().into_canonical()?.into_primitive()?;
-    let chunk_ends = chunk_ends.maybe_null_slice::<u64>();
+    let chunk_ends = chunk_ends.as_slice::<u64>();
 
     for set_index in mask.iter_indices()? {
         let (chunk_id, index) = find_chunk_idx(set_index, chunk_ends);

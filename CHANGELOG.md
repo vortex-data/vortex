@@ -3785,7 +3785,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Split compression from encodings ([#422](https://github.com/spiraldb/vortex/pull/422))
 - Rename flatten -> canonicalize + bugfix + a secret third thing ([#402](https://github.com/spiraldb/vortex/pull/402))
 - ArrayData can contain child Arrays instead of just ArrayData ([#391](https://github.com/spiraldb/vortex/pull/391))
-- Rename typed_data to maybe_null_slice ([#386](https://github.com/spiraldb/vortex/pull/386))
+- Rename typed_data to as_slice ([#386](https://github.com/spiraldb/vortex/pull/386))
 - Move encodings into directory ([#379](https://github.com/spiraldb/vortex/pull/379))
 
 ## `vortex-datafusion` - [0.2.0](https://github.com/spiraldb/vortex/releases/tag/vortex-datafusion-v0.2.0) - 2024-08-05
@@ -3916,7 +3916,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Split compression from encodings ([#422](https://github.com/spiraldb/vortex/pull/422))
 - Rename flatten -> canonicalize + bugfix + a secret third thing ([#402](https://github.com/spiraldb/vortex/pull/402))
 - ArrayData can contain child Arrays instead of just ArrayData ([#391](https://github.com/spiraldb/vortex/pull/391))
-- Rename typed_data to maybe_null_slice ([#386](https://github.com/spiraldb/vortex/pull/386))
+- Rename typed_data to as_slice ([#386](https://github.com/spiraldb/vortex/pull/386))
 - Fastlanez -> Fastlanes ([#381](https://github.com/spiraldb/vortex/pull/381))
 - Move encodings into directory ([#379](https://github.com/spiraldb/vortex/pull/379))
 
@@ -3963,7 +3963,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Split compression from encodings ([#422](https://github.com/spiraldb/vortex/pull/422))
 - Rename flatten -> canonicalize + bugfix + a secret third thing ([#402](https://github.com/spiraldb/vortex/pull/402))
 - ArrayData can contain child Arrays instead of just ArrayData ([#391](https://github.com/spiraldb/vortex/pull/391))
-- Rename typed_data to maybe_null_slice ([#386](https://github.com/spiraldb/vortex/pull/386))
+- Rename typed_data to as_slice ([#386](https://github.com/spiraldb/vortex/pull/386))
 - Move encodings into directory ([#379](https://github.com/spiraldb/vortex/pull/379))
 
 ##
@@ -3987,7 +3987,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Remove ViewContext and assign stable ids to encodings ([#433](https://github.com/spiraldb/vortex/pull/433))
 - Split compression from encodings ([#422](https://github.com/spiraldb/vortex/pull/422))
 - Rename flatten -> canonicalize + bugfix + a secret third thing ([#402](https://github.com/spiraldb/vortex/pull/402))
-- Rename typed_data to maybe_null_slice ([#386](https://github.com/spiraldb/vortex/pull/386))
+- Rename typed_data to as_slice ([#386](https://github.com/spiraldb/vortex/pull/386))
 - Move encodings into directory ([#379](https://github.com/spiraldb/vortex/pull/379))
 
 ##
@@ -4020,7 +4020,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - FoR array holds encoded values as unsinged ([#401](https://github.com/spiraldb/vortex/pull/401))
 - Rename flatten -> canonicalize + bugfix + a secret third thing ([#402](https://github.com/spiraldb/vortex/pull/402))
 - ArrayData can contain child Arrays instead of just ArrayData ([#391](https://github.com/spiraldb/vortex/pull/391))
-- Rename typed_data to maybe_null_slice ([#386](https://github.com/spiraldb/vortex/pull/386))
+- Rename typed_data to as_slice ([#386](https://github.com/spiraldb/vortex/pull/386))
 - Fastlanez -> Fastlanes ([#381](https://github.com/spiraldb/vortex/pull/381))
 - Move encodings into directory ([#379](https://github.com/spiraldb/vortex/pull/379))
 
@@ -4045,7 +4045,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Split compression from encodings ([#422](https://github.com/spiraldb/vortex/pull/422))
 - Rename flatten -> canonicalize + bugfix + a secret third thing ([#402](https://github.com/spiraldb/vortex/pull/402))
 - ArrayData can contain child Arrays instead of just ArrayData ([#391](https://github.com/spiraldb/vortex/pull/391))
-- Rename typed_data to maybe_null_slice ([#386](https://github.com/spiraldb/vortex/pull/386))
+- Rename typed_data to as_slice ([#386](https://github.com/spiraldb/vortex/pull/386))
 - Move encodings into directory ([#379](https://github.com/spiraldb/vortex/pull/379))
 
 ##
@@ -4076,7 +4076,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Split compression from encodings ([#422](https://github.com/spiraldb/vortex/pull/422))
 - Rename flatten -> canonicalize + bugfix + a secret third thing ([#402](https://github.com/spiraldb/vortex/pull/402))
 - ArrayData can contain child Arrays instead of just ArrayData ([#391](https://github.com/spiraldb/vortex/pull/391))
-- Rename typed_data to maybe_null_slice ([#386](https://github.com/spiraldb/vortex/pull/386))
+- Rename typed_data to as_slice ([#386](https://github.com/spiraldb/vortex/pull/386))
 - Move encodings into directory ([#379](https://github.com/spiraldb/vortex/pull/379))
 
 ##
@@ -4330,7 +4330,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Use ChunkedArrayReader in random access benchmark ([#393](https://github.com/spiraldb/vortex/pull/393))
 - ArrayData can contain child Arrays instead of just ArrayData ([#391](https://github.com/spiraldb/vortex/pull/391))
 - Buffer into_vec respects value alignment ([#387](https://github.com/spiraldb/vortex/pull/387))
-- Rename typed_data to maybe_null_slice ([#386](https://github.com/spiraldb/vortex/pull/386))
+- Rename typed_data to as_slice ([#386](https://github.com/spiraldb/vortex/pull/386))
 - Fastlanez -> Fastlanes ([#381](https://github.com/spiraldb/vortex/pull/381))
 - Use IntoArrayData when we have owned arrays ([#376](https://github.com/spiraldb/vortex/pull/376))
 - Clean up fields / field paths ([#353](https://github.com/spiraldb/vortex/pull/353))
@@ -4477,6 +4477,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add search_sorted for FOR, Bitpacked and Sparse arrays ([#398](https://github.com/spiraldb/vortex/pull/398))
 - Rename flatten -> canonicalize + bugfix + a secret third thing ([#402](https://github.com/spiraldb/vortex/pull/402))
 - ArrayData can contain child Arrays instead of just ArrayData ([#391](https://github.com/spiraldb/vortex/pull/391))
-- Rename typed_data to maybe_null_slice ([#386](https://github.com/spiraldb/vortex/pull/386))
+- Rename typed_data to as_slice ([#386](https://github.com/spiraldb/vortex/pull/386))
 - Fastlanez -> Fastlanes ([#381](https://github.com/spiraldb/vortex/pull/381))
 - Move encodings into directory ([#379](https://github.com/spiraldb/vortex/pull/379))

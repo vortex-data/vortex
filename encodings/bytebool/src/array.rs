@@ -62,7 +62,7 @@ impl ByteBoolArray {
 
     pub fn buffer(&self) -> &ByteBuffer {
         self.as_ref()
-            .buffer()
+            .byte_buffer()
             .vortex_expect("ByteBoolArray is missing the underlying buffer")
     }
 
@@ -70,7 +70,7 @@ impl ByteBoolArray {
         Buffer::from(self.buffer().clone())
     }
 
-    pub fn maybe_null_slice(&self) -> &[bool] {
+    pub fn as_slice(&self) -> &[bool] {
         // Safety: The internal buffer contains byte-sized bools
         unsafe { std::mem::transmute(self.buffer().as_slice()) }
     }
@@ -107,7 +107,7 @@ impl From<Vec<Option<bool>>> for ByteBoolArray {
 
 impl IntoCanonical for ByteBoolArray {
     fn into_canonical(self) -> VortexResult<Canonical> {
-        let boolean_buffer = BooleanBuffer::from(self.maybe_null_slice());
+        let boolean_buffer = BooleanBuffer::from(self.as_slice());
         let validity = self.validity();
 
         Ok(Canonical::Bool(BoolArray::try_new(

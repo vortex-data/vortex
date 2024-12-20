@@ -138,7 +138,7 @@ mod tests {
             .unwrap()
             .into_primitive()
             .unwrap();
-        assert_eq!(actual.into_buffer(), expected.into_buffer());
+        assert_eq!(actual.into_byte_buffer(), expected.into_byte_buffer());
     }
 
     #[test]
@@ -154,6 +154,6 @@ mod tests {
             .unwrap()
             .into_primitive()
             .unwrap();
-        assert_eq!(actual.into_buffer(), expected.into_buffer());
+        assert_eq!(actual.into_byte_buffer(), expected.into_byte_buffer());
     }
 }

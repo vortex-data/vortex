@@ -20,7 +20,7 @@ impl BoolArray {
         let (mut own_values, bit_offset) = self.into_boolean_builder();
         match_each_integer_ptype!(indices.ptype(), |$I| {
             for (idx, value) in indices
-                .maybe_null_slice::<$I>()
+                .as_slice::<$I>()
                 .iter()
                 .zip_eq(values.boolean_buffer().iter())
             {

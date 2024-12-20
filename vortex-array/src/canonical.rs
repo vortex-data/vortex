@@ -20,7 +20,6 @@ use crate::array::{
     varbinview_as_arrow, BoolArray, ExtensionArray, ListArray, NullArray, PrimitiveArray,
     StructArray, TemporalArray, VarBinViewArray,
 };
-use crate::arrow::wrappers::as_offset_buffer;
 use crate::arrow::{infer_data_type, FromArrowArray};
 use crate::compute::try_cast;
 use crate::encoding::Encoding;
@@ -173,7 +172,7 @@ fn primitive_to_arrow(primitive_array: PrimitiveArray) -> VortexResult<ArrayRef>
     ) -> VortexResult<Arc<ArrowPrimitiveArray<T>>> {
         Ok(Arc::new(ArrowPrimitiveArray::new(
             ScalarBuffer::<T::Native>::new(
-                array.buffer().clone().into_arrow_buffer(),
+                array.byte_buffer().clone().into_arrow_buffer(),
                 0,
                 array.len(),
             ),
@@ -268,13 +267,19 @@ fn list_to_arrow(list: ListArray) -> VortexResult<ArrayRef> {
     Ok(match offsets.ptype() {
         PType::I32 => Arc::new(arrow_array::ListArray::try_new(
             field_ref,
-            as_offset_buffer::<i32>(list.offsets().into_primitive()?),
+            list.offsets()
+                .into_primitive()?
+                .buffer::<i32>()
+                .into_arrow_offset_buffer(),
             values,
             nulls,
         )?),
         PType::I64 => Arc::new(arrow_array::LargeListArray::try_new(
             field_ref,
-            as_offset_buffer::<i64>(list.offsets().into_primitive()?),
+            list.offsets()
+                .into_primitive()?
+                .buffer::<i64>()
+                .into_arrow_offset_buffer(),
             values,
             nulls,
         )?),
@@ -291,7 +296,7 @@ fn temporal_to_arrow(temporal_array: TemporalArray) -> VortexResult<ArrayRef> {
             )?
             .into_primitive()?;
             let nulls = temporal_values.logical_validity().to_null_buffer()?;
-            let scalars = temporal_values.into_scalar_buffer().into_arrow();
+            let scalars = temporal_values.into_buffer().into_arrow_scalar_buffer();
 
             (scalars, nulls)
         }};

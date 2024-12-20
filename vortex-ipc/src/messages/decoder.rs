@@ -370,7 +370,10 @@ mod test {
     fn array_no_buffers() {
         // Constant arrays have no buffers
         let array = ConstantArray::new(10i32, 20).into_array();
-        assert!(array.buffer().is_none(), "Array should have no buffers");
+        assert!(
+            array.byte_buffer().is_none(),
+            "Array should have no buffers"
+        );
         write_and_read(array);
     }
 }

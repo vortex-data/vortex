@@ -19,11 +19,11 @@ impl TakeFn<BoolArray> for BoolEncoding {
         let buffer = if array.len() <= 4096 {
             let bools = array.boolean_buffer().into_iter().collect_vec();
             match_each_integer_ptype!(indices.ptype(), |$I| {
-                take_byte_bool(bools, indices.maybe_null_slice::<$I>())
+                take_byte_bool(bools, indices.as_slice::<$I>())
             })
         } else {
             match_each_integer_ptype!(indices.ptype(), |$I| {
-                take_bool(&array.boolean_buffer(), indices.maybe_null_slice::<$I>())
+                take_bool(&array.boolean_buffer(), indices.as_slice::<$I>())
             })
         };
 
@@ -43,11 +43,11 @@ impl TakeFn<BoolArray> for BoolEncoding {
         let buffer = if array.len() <= 4096 {
             let bools = array.boolean_buffer().into_iter().collect_vec();
             match_each_integer_ptype!(indices.ptype(), |$I| {
-                take_byte_bool_unchecked(bools, indices.maybe_null_slice::<$I>())
+                take_byte_bool_unchecked(bools, indices.as_slice::<$I>())
             })
         } else {
             match_each_integer_ptype!(indices.ptype(), |$I| {
-                take_bool_unchecked(&array.boolean_buffer(), indices.maybe_null_slice::<$I>())
+                take_bool_unchecked(&array.boolean_buffer(), indices.as_slice::<$I>())
             })
         };
 

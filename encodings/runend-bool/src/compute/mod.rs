@@ -42,7 +42,7 @@ impl TakeFn<RunEndBoolArray> for RunEndBoolEncoding {
         let primitive_indices = indices.clone().into_primitive()?;
         let physical_indices = match_each_integer_ptype!(primitive_indices.ptype(), |$P| {
             primitive_indices
-                .maybe_null_slice::<$P>()
+                .as_slice::<$P>()
                 .iter()
                 .map(|idx| *idx as usize)
                 .map(|idx| {

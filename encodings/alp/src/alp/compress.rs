@@ -39,7 +39,7 @@ where
         Validity::NonNullable => Validity::NonNullable,
         _ => Validity::AllValid,
     };
-    let (exponents, encoded, exc_pos, exc) = T::encode(values.maybe_null_slice::<T>(), exponents);
+    let (exponents, encoded, exc_pos, exc) = T::encode(values.as_slice::<T>(), exponents);
     let len = encoded.len();
     (
         exponents,
@@ -71,7 +71,7 @@ pub fn decompress(array: ALPArray) -> VortexResult<PrimitiveArray> {
     let decoded = match_each_alp_float_ptype!(ptype, |$T| {
         PrimitiveArray::new(
             // FIXME(ngates): mutate in place
-            Buffer::<$T>::from_iter(encoded.maybe_null_slice().iter()
+            Buffer::<$T>::from_iter(encoded.as_slice().iter()
                 .map(move |encoded| ALPFloat::decode_single(*encoded, exponents))),
             validity,
         )
@@ -102,16 +102,13 @@ mod tests {
                 .encoded()
                 .into_primitive()
                 .unwrap()
-                .maybe_null_slice::<i32>(),
+                .as_slice::<i32>(),
             vec![1234; 1025]
         );
         assert_eq!(encoded.exponents(), Exponents { e: 9, f: 6 });
 
         let decoded = decompress(encoded).unwrap();
-        assert_eq!(
-            array.maybe_null_slice::<f32>(),
-            decoded.maybe_null_slice::<f32>()
-        );
+        assert_eq!(array.as_slice::<f32>(), decoded.as_slice::<f32>());
     }
 
     #[test]
@@ -124,14 +121,14 @@ mod tests {
                 .encoded()
                 .into_primitive()
                 .unwrap()
-                .maybe_null_slice::<i32>(),
+                .as_slice::<i32>(),
             vec![0, 1234, 0]
         );
         assert_eq!(encoded.exponents(), Exponents { e: 9, f: 6 });
 
         let decoded = decompress(encoded).unwrap();
         let expected = vec![0f32, 1.234f32, 0f32];
-        assert_eq!(decoded.maybe_null_slice::<f32>(), expected.as_slice());
+        assert_eq!(decoded.as_slice::<f32>(), expected.as_slice());
     }
 
     #[test]
@@ -146,13 +143,13 @@ mod tests {
                 .encoded()
                 .into_primitive()
                 .unwrap()
-                .maybe_null_slice::<i64>(),
+                .as_slice::<i64>(),
             vec![1234i64, 2718, 1234, 4000] // fill forward
         );
         assert_eq!(encoded.exponents(), Exponents { e: 16, f: 13 });
 
         let decoded = decompress(encoded).unwrap();
-        assert_eq!(values, decoded.maybe_null_slice::<f64>());
+        assert_eq!(values, decoded.as_slice::<f64>());
     }
 
     #[test]
@@ -187,9 +184,6 @@ mod tests {
         let original = PrimitiveArray::from(vec![195.26274f32, 195.27837, -48.815685]);
         let alp_arr = alp_encode(&original).unwrap();
         let decompressed = alp_arr.into_primitive().unwrap();
-        assert_eq!(
-            original.maybe_null_slice::<f32>(),
-            decompressed.maybe_null_slice::<f32>()
-        );
+        assert_eq!(original.as_slice::<f32>(), decompressed.as_slice::<f32>());
     }
 }

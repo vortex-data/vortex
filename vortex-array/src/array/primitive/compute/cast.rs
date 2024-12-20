@@ -33,7 +33,7 @@ impl CastFn<PrimitiveArray> for PrimitiveEncoding {
         // If the bit width is the same, we can short-circuit and simply update the validity
         if array.ptype() == new_ptype {
             return Ok(PrimitiveArray::from_buffer(
-                array.buffer().clone(),
+                array.byte_buffer().clone(),
                 array.ptype(),
                 new_validity,
             )
@@ -53,7 +53,7 @@ impl CastFn<PrimitiveArray> for PrimitiveEncoding {
 fn cast<T: NativePType>(array: &PrimitiveArray) -> VortexResult<Vec<T>> {
     match_each_native_ptype!(array.ptype(), |$E| {
         array
-            .maybe_null_slice::<$E>()
+            .as_slice::<$E>()
             .iter()
             // TODO(ngates): allow configurable checked/unchecked casting
             .map(|&v| {
@@ -84,7 +84,7 @@ mod test {
             .unwrap()
             .into_primitive()
             .unwrap();
-        assert_eq!(p.maybe_null_slice::<u8>(), vec![0u8, 10, 200]);
+        assert_eq!(p.as_slice::<u8>(), vec![0u8, 10, 200]);
         assert_eq!(p.validity(), Validity::NonNullable);
 
         // to nullable
@@ -92,7 +92,7 @@ mod test {
             .unwrap()
             .into_primitive()
             .unwrap();
-        assert_eq!(p.maybe_null_slice::<u8>(), vec![0u8, 10, 200]);
+        assert_eq!(p.as_slice::<u8>(), vec![0u8, 10, 200]);
         assert_eq!(p.validity(), Validity::AllValid);
 
         // back to non-nullable
@@ -100,7 +100,7 @@ mod test {
             .unwrap()
             .into_primitive()
             .unwrap();
-        assert_eq!(p.maybe_null_slice::<u8>(), vec![0u8, 10, 200]);
+        assert_eq!(p.as_slice::<u8>(), vec![0u8, 10, 200]);
         assert_eq!(p.validity(), Validity::NonNullable);
 
         // to nullable u32
@@ -108,7 +108,7 @@ mod test {
             .unwrap()
             .into_primitive()
             .unwrap();
-        assert_eq!(p.maybe_null_slice::<u32>(), vec![0u32, 10, 200]);
+        assert_eq!(p.as_slice::<u32>(), vec![0u32, 10, 200]);
         assert_eq!(p.validity(), Validity::AllValid);
 
         // to non-nullable u8
@@ -116,7 +116,7 @@ mod test {
             .unwrap()
             .into_primitive()
             .unwrap();
-        assert_eq!(p.maybe_null_slice::<u8>(), vec![0u8, 10, 200]);
+        assert_eq!(p.as_slice::<u8>(), vec![0u8, 10, 200]);
         assert_eq!(p.validity(), Validity::NonNullable);
     }
 
@@ -127,7 +127,7 @@ mod test {
             .unwrap()
             .into_primitive()
             .unwrap();
-        assert_eq!(u8arr.maybe_null_slice::<f32>(), vec![0.0f32, 10., 200.]);
+        assert_eq!(u8arr.as_slice::<f32>(), vec![0.0f32, 10., 200.]);
     }
 
     #[test]

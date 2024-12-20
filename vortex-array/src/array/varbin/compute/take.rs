@@ -20,9 +20,9 @@ impl TakeFn<VarBinArray> for VarBinEncoding {
             match_each_integer_ptype!(indices.ptype(), |$I| {
                 Ok(take(
                     array.dtype().clone(),
-                    offsets.maybe_null_slice::<$O>(),
-                    data.maybe_null_slice::<u8>(),
-                    indices.maybe_null_slice::<$I>(),
+                    offsets.as_slice::<$O>(),
+                    data.as_slice::<u8>(),
+                    indices.as_slice::<$I>(),
                     array.validity(),
                 )?.into_array())
             })

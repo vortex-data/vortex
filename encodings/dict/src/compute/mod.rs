@@ -116,7 +116,7 @@ mod test {
         let (codes, values) = dict_encode_typed_primitive::<i32>(&reference);
         let dict = DictArray::try_new(codes.into_array(), values.into_array()).unwrap();
         let flattened_dict = dict.to_array().into_primitive().unwrap();
-        assert_eq!(flattened_dict.buffer(), reference.buffer());
+        assert_eq!(flattened_dict.byte_buffer(), reference.byte_buffer());
     }
 
     #[test]

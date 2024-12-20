@@ -169,7 +169,7 @@ impl FSSTArray {
             .map_err(|err| err.with_context("Failed to canonicalize symbols array"))?
             .into_primitive()
             .map_err(|err| err.with_context("Symbols must be a Primitive Array"))?;
-        let symbols = symbols_array.maybe_null_slice::<u64>();
+        let symbols = symbols_array.as_slice::<u64>();
 
         let symbol_lengths_array = self
             .symbol_lengths()
@@ -177,7 +177,7 @@ impl FSSTArray {
             .map_err(|err| err.with_context("Failed to canonicalize symbol_lengths array"))?
             .into_primitive()
             .map_err(|err| err.with_context("Symbol lengths must be a Primitive Array"))?;
-        let symbol_lengths = symbol_lengths_array.maybe_null_slice::<u8>();
+        let symbol_lengths = symbol_lengths_array.as_slice::<u8>();
 
         // Transmute the 64-bit symbol values into fsst `Symbol`s.
         // SAFETY: Symbol is guaranteed to be 8 bytes, guaranteed by the compiler.

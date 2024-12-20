@@ -172,7 +172,7 @@ impl RDEncoder {
             "codes lookup table must be populated before RD encoding"
         );
 
-        let doubles = array.maybe_null_slice::<T>();
+        let doubles = array.as_slice::<T>();
 
         let mut left_parts: Vec<u16> = Vec::with_capacity(doubles.len());
         let mut right_parts: Vec<T::UINT> = Vec::with_capacity(doubles.len());

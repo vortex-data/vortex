@@ -68,7 +68,7 @@ mod test {
                 .into_indices()
                 .into_primitive()
                 .unwrap()
-                .maybe_null_slice::<u64>(),
+                .as_slice::<u64>(),
             [0, 1, 2, 3, 4]
         );
         assert_eq!(
@@ -77,7 +77,7 @@ mod test {
                 .into_values()
                 .into_primitive()
                 .unwrap()
-                .maybe_null_slice::<f64>(),
+                .as_slice::<f64>(),
             [1.23f64, 9.99, 9.99, 1.23, 3.5]
         );
     }
@@ -101,7 +101,7 @@ mod test {
                 .into_indices()
                 .into_primitive()
                 .unwrap()
-                .maybe_null_slice::<u64>(),
+                .as_slice::<u64>(),
             [1]
         );
         assert_eq!(
@@ -110,7 +110,7 @@ mod test {
                 .into_values()
                 .into_primitive()
                 .unwrap()
-                .maybe_null_slice::<f64>(),
+                .as_slice::<f64>(),
             [0.47f64]
         );
         assert_eq!(taken.len(), 2);

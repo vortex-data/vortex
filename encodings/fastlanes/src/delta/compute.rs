@@ -132,7 +132,7 @@ mod test {
                 .unwrap()
                 .into_primitive()
                 .unwrap()
-                .maybe_null_slice::<u32>(),
+                .as_slice::<u32>(),
             (10u32..250).collect::<Vec<_>>()
         );
     }
@@ -146,7 +146,7 @@ mod test {
                 .unwrap()
                 .into_primitive()
                 .unwrap()
-                .maybe_null_slice::<u32>(),
+                .as_slice::<u32>(),
             ((1024 + 10u32)..(1024 + 250)).collect::<Vec<_>>()
         );
     }
@@ -160,7 +160,7 @@ mod test {
                 .unwrap()
                 .into_primitive()
                 .unwrap()
-                .maybe_null_slice::<u32>(),
+                .as_slice::<u32>(),
             (1000u32..1048).collect::<Vec<_>>()
         );
     }
@@ -174,7 +174,7 @@ mod test {
                 .unwrap()
                 .into_primitive()
                 .unwrap()
-                .maybe_null_slice::<u32>(),
+                .as_slice::<u32>(),
             (2040u32..2050).collect::<Vec<_>>()
         );
     }
@@ -188,7 +188,7 @@ mod test {
                 .unwrap()
                 .into_primitive()
                 .unwrap()
-                .maybe_null_slice::<u32>(),
+                .as_slice::<u32>(),
             (0u32..4096).collect::<Vec<_>>()
         );
     }
@@ -202,7 +202,7 @@ mod test {
                 .unwrap()
                 .into_primitive()
                 .unwrap()
-                .maybe_null_slice::<u32>(),
+                .as_slice::<u32>(),
             Vec::<u32>::new(),
         );
 
@@ -211,7 +211,7 @@ mod test {
                 .unwrap()
                 .into_primitive()
                 .unwrap()
-                .maybe_null_slice::<u32>(),
+                .as_slice::<u32>(),
             Vec::<u32>::new(),
         );
 
@@ -220,7 +220,7 @@ mod test {
                 .unwrap()
                 .into_primitive()
                 .unwrap()
-                .maybe_null_slice::<u32>(),
+                .as_slice::<u32>(),
             Vec::<u32>::new(),
         );
     }
@@ -234,7 +234,7 @@ mod test {
                 .unwrap()
                 .into_primitive()
                 .unwrap()
-                .maybe_null_slice::<u32>(),
+                .as_slice::<u32>(),
             ((1024 + 10u32)..(1024 + 250)).collect::<Vec<_>>()
         );
     }
@@ -248,7 +248,7 @@ mod test {
                 .unwrap()
                 .into_primitive()
                 .unwrap()
-                .maybe_null_slice::<u32>(),
+                .as_slice::<u32>(),
             Vec::<u32>::new(),
         );
 
@@ -257,7 +257,7 @@ mod test {
                 .unwrap()
                 .into_primitive()
                 .unwrap()
-                .maybe_null_slice::<u32>(),
+                .as_slice::<u32>(),
             Vec::<u32>::new(),
         );
 
@@ -266,7 +266,7 @@ mod test {
                 .unwrap()
                 .into_primitive()
                 .unwrap()
-                .maybe_null_slice::<u32>(),
+                .as_slice::<u32>(),
             Vec::<u32>::new(),
         );
     }
@@ -279,10 +279,7 @@ mod test {
         let sliced_again = slice(sliced, 0, 2).unwrap();
 
         assert_eq!(
-            sliced_again
-                .into_primitive()
-                .unwrap()
-                .maybe_null_slice::<u32>(),
+            sliced_again.into_primitive().unwrap().as_slice::<u32>(),
             vec![10, 11]
         );
     }
@@ -295,10 +292,7 @@ mod test {
         let sliced_again = slice(sliced, 0, 2).unwrap();
 
         assert_eq!(
-            sliced_again
-                .into_primitive()
-                .unwrap()
-                .maybe_null_slice::<u32>(),
+            sliced_again.into_primitive().unwrap().as_slice::<u32>(),
             vec![10, 11]
         );
     }
@@ -311,10 +305,7 @@ mod test {
         let sliced_again = slice(sliced, 0, 2).unwrap();
 
         assert_eq!(
-            sliced_again
-                .into_primitive()
-                .unwrap()
-                .maybe_null_slice::<u32>(),
+            sliced_again.into_primitive().unwrap().as_slice::<u32>(),
             vec![1034, 1035]
         );
     }
@@ -327,10 +318,7 @@ mod test {
         let sliced_again = slice(sliced, 0, 2).unwrap();
 
         assert_eq!(
-            sliced_again
-                .into_primitive()
-                .unwrap()
-                .maybe_null_slice::<u32>(),
+            sliced_again.into_primitive().unwrap().as_slice::<u32>(),
             vec![1034, 1035]
         );
     }
@@ -343,10 +331,7 @@ mod test {
         let sliced_again = slice(sliced, 5, 20).unwrap();
 
         assert_eq!(
-            sliced_again
-                .into_primitive()
-                .unwrap()
-                .maybe_null_slice::<u32>(),
+            sliced_again.into_primitive().unwrap().as_slice::<u32>(),
             (1015..1030).collect::<Vec<_>>(),
         );
     }
@@ -359,10 +344,7 @@ mod test {
         let sliced_again = slice(sliced, 5, 20).unwrap();
 
         assert_eq!(
-            sliced_again
-                .into_primitive()
-                .unwrap()
-                .maybe_null_slice::<u32>(),
+            sliced_again.into_primitive().unwrap().as_slice::<u32>(),
             (1015..1030).collect::<Vec<_>>(),
         );
     }

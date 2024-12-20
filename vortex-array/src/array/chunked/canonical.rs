@@ -157,7 +157,7 @@ fn pack_lists(chunks: &[ArrayData], validity: Validity, dtype: &DType) -> Vortex
             .ok_or_else(|| vortex_err!("List offsets must have at least one element"))?;
         offsets.extend(
             offsets_arr
-                .maybe_null_slice::<i64>()
+                .as_slice::<i64>()
                 .iter()
                 .skip(1)
                 .map(|off| off + adjustment_from_previous - first_offset_value as i64),
@@ -219,14 +219,16 @@ fn pack_primitives<T: NativePType>(
     chunks: &[ArrayData],
     validity: Validity,
 ) -> VortexResult<PrimitiveArray> {
-    let len: usize = chunks.iter().map(|chunk| chunk.len()).sum();
-
-    let mut buffer = BufferMut::<T>::with_capacity(len);
-    for chunk in chunks {
-        let chunk = chunk.clone().into_primitive()?;
-        buffer.extend_from_slice(chunk.maybe_null_scalar_buffer::<T>().as_slice());
-    }
-
+    // NOTE(ngates): Rust's FlatMap iterator should correctly propagate size_hint so that our
+    //  BufferMut is correctly sized the first time.
+    let buffer = BufferMut::<T>::from_iter(chunks.iter().flat_map(|chunk| {
+        chunk
+            .clone()
+            .into_primitive()
+            .vortex_expect("Chunk was not a PrimitiveArray")
+            .into_buffer::<T>()
+            .into_iter()
+    }));
     Ok(PrimitiveArray::new(buffer.freeze(), validity))
 }
 

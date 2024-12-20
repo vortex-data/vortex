@@ -35,8 +35,8 @@ fn filter_select_var_bin_by_slice(
     match_each_integer_ptype!(offsets.ptype(), |$O| {
         filter_select_var_bin_by_slice_primitive_offset(
             values.dtype().clone(),
-            offsets.maybe_null_slice::<$O>(),
-            values.bytes().into_primitive()?.maybe_null_slice::<u8>(),
+            offsets.as_slice::<$O>(),
+            values.bytes().into_primitive()?.as_slice::<u8>(),
             mask,
             values.validity(),
             selection_count
@@ -135,8 +135,8 @@ fn filter_select_var_bin_by_index(
     match_each_integer_ptype!(offsets.ptype(), |$O| {
         filter_select_var_bin_by_index_primitive_offset(
             values.dtype().clone(),
-            offsets.maybe_null_slice::<$O>(),
-            values.bytes().into_primitive()?.maybe_null_slice::<u8>(),
+            offsets.as_slice::<$O>(),
+            values.bytes().into_primitive()?.as_slice::<u8>(),
             mask,
             values.validity(),
             selection_count

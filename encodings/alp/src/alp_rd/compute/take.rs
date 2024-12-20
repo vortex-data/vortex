@@ -52,6 +52,6 @@ mod test {
             .into_primitive()
             .unwrap();
 
-        assert_eq!(taken.maybe_null_slice::<T>(), &[a, outlier]);
+        assert_eq!(taken.as_slice::<T>(), &[a, outlier]);
     }
 }

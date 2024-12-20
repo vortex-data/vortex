@@ -147,7 +147,7 @@ mod test {
             .unwrap()
             .into_primitive()
             .unwrap();
-        let res_bytes = primitive_result.maybe_null_slice::<u8>();
+        let res_bytes = primitive_result.as_slice::<u8>();
         assert_eq!(res_bytes, &[0, 62, 31, 33, 9, 18]);
     }
 
@@ -161,7 +161,7 @@ mod test {
         let mask = FilterMask::from_indices(sliced.len(), [1919, 1921]);
 
         let primitive_result = filter(&sliced, mask).unwrap().into_primitive().unwrap();
-        let res_bytes = primitive_result.maybe_null_slice::<u8>();
+        let res_bytes = primitive_result.as_slice::<u8>();
         assert_eq!(res_bytes, &[31, 33]);
     }
 
@@ -171,7 +171,7 @@ mod test {
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 6).unwrap();
         let filtered = filter(bitpacked.as_ref(), FilterMask::from_indices(4096, 0..1024)).unwrap();
         assert_eq!(
-            filtered.into_primitive().unwrap().maybe_null_slice::<u8>(),
+            filtered.into_primitive().unwrap().as_slice::<u8>(),
             (0..1024).map(|i| (i % 63) as u8).collect::<Vec<_>>()
         );
     }
@@ -191,7 +191,7 @@ mod test {
         .unwrap()
         .into_primitive()
         .unwrap()
-        .into_maybe_null_slice::<i64>();
+        .into_as_slice::<i64>();
 
         assert_eq!(filtered.as_slice(), &values[250..750]);
     }

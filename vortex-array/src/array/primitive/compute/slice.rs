@@ -9,7 +9,9 @@ use crate::{ArrayData, IntoArrayData};
 impl SliceFn<PrimitiveArray> for PrimitiveEncoding {
     fn slice(&self, array: &PrimitiveArray, start: usize, stop: usize) -> VortexResult<ArrayData> {
         let byte_width = array.ptype().byte_width();
-        let buffer = array.buffer().slice(start * byte_width..stop * byte_width);
+        let buffer = array
+            .byte_buffer()
+            .slice(start * byte_width..stop * byte_width);
         Ok(
             PrimitiveArray::from_buffer(
                 buffer,

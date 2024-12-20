@@ -216,6 +216,6 @@ mod test {
             .into_primitive()
             .unwrap();
 
-        assert_eq!(primitive.maybe_null_slice::<u64>(), &[1, 3]);
+        assert_eq!(primitive.as_slice::<u64>(), &[1, 3]);
     }
 }

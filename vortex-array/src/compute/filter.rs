@@ -375,7 +375,7 @@ mod test {
                 .unwrap()
                 .into_primitive()
                 .unwrap()
-                .maybe_null_slice::<i32>(),
+                .as_slice::<i32>(),
             &[0i32, 1i32, 2i32]
         );
     }

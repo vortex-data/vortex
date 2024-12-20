@@ -63,12 +63,12 @@ impl TakeFn<VarBinViewArray> for VarBinViewEncoding {
 
         // Convert our views array into an Arrow u128 Buffer (16 bytes per view)
         let views_buffer =
-            Buffer::<u128>::from_byte_buffer(array.views().into_primitive()?.into_buffer());
+            Buffer::<u128>::from_byte_buffer(array.views().into_primitive()?.into_byte_buffer());
 
         let indices = indices.clone().into_primitive()?;
 
         let views_buffer = match_each_integer_ptype!(indices.ptype(), |$I| {
-            take_views(views_buffer, indices.maybe_null_slice::<$I>())
+            take_views(views_buffer, indices.as_slice::<$I>())
         });
 
         // Cast views back to u8
@@ -97,12 +97,12 @@ impl TakeFn<VarBinViewArray> for VarBinViewEncoding {
 
         // Convert our views array into an Arrow u128 Buffer (16 bytes per view)
         let views_buffer =
-            Buffer::<u128>::from_byte_buffer(array.views().into_primitive()?.into_buffer());
+            Buffer::<u128>::from_byte_buffer(array.views().into_primitive()?.into_byte_buffer());
 
         let indices = indices.clone().into_primitive()?;
 
         let views_buffer = match_each_integer_ptype!(indices.ptype(), |$I| {
-            take_views_unchecked(views_buffer, indices.maybe_null_slice::<$I>())
+            take_views_unchecked(views_buffer, indices.as_slice::<$I>())
         });
 
         // Cast views back to u8

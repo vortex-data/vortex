@@ -86,7 +86,7 @@ impl MessageEncoder {
 
                 let mut fb_buffers = vec![];
                 for child in array.depth_first_traversal() {
-                    if let Some(buffer) = child.buffer() {
+                    if let Some(buffer) = child.byte_buffer() {
                         let end_excl_padding = self.pos + buffer.len();
                         let end_incl_padding = end_excl_padding.next_multiple_of(self.alignment);
                         let padding = u16::try_from(end_incl_padding - end_excl_padding)
@@ -198,7 +198,12 @@ impl WriteFlatBuffer for ArrayWriter<'_> {
         // The second tuple element holds the buffer_index for this Array subtree. If this array
         // has a buffer, that is its buffer index. If it does not, that buffer index belongs
         // to one of the children.
-        let child_buffer_idx = self.buffer_idx + if self.array.buffer().is_some() { 1 } else { 0 };
+        let child_buffer_idx = self.buffer_idx
+            + if self.array.byte_buffer().is_some() {
+                1
+            } else {
+                0
+            };
 
         let children = self
             .array
@@ -222,7 +227,7 @@ impl WriteFlatBuffer for ArrayWriter<'_> {
 
         let buffers = self
             .array
-            .buffer()
+            .byte_buffer()
             .is_some()
             .then_some(self.buffer_idx)
             .map(|buffer_idx| fbb.create_vector_from_iter(std::iter::once(buffer_idx)));

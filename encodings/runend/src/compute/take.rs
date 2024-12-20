@@ -13,8 +13,8 @@ impl TakeFn<RunEndArray> for RunEndEncoding {
         let primitive_indices = indices.clone().into_primitive()?;
         let usize_indices = match_each_integer_ptype!(primitive_indices.ptype(), |$P| {
             primitive_indices
-                .into_maybe_null_slice::<$P>()
-                .into_iter()
+                .as_slice::<$P>()
+                .iter()
                 .map(|idx| {
                     let usize_idx = *idx as usize;
                     if usize_idx >= array.len() {
@@ -58,7 +58,7 @@ mod test {
         )
         .unwrap();
         assert_eq!(
-            taken.into_primitive().unwrap().maybe_null_slice::<i32>(),
+            taken.into_primitive().unwrap().as_slice::<i32>(),
             &[5, 5, 1, 4]
         );
     }
@@ -70,10 +70,7 @@ mod test {
             PrimitiveArray::from(vec![11]).as_ref(),
         )
         .unwrap();
-        assert_eq!(
-            taken.into_primitive().unwrap().maybe_null_slice::<i32>(),
-            &[5]
-        );
+        assert_eq!(taken.into_primitive().unwrap().as_slice::<i32>(), &[5]);
     }
 
     #[test]

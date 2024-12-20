@@ -72,7 +72,7 @@ pub unsafe fn bitpack_encode_unchecked(
 pub fn bitpack(parray: &PrimitiveArray, bit_width: u8) -> VortexResult<ByteBuffer> {
     let parray = parray.reinterpret_cast(parray.ptype().to_unsigned());
     let packed = match_each_unsigned_integer_ptype!(parray.ptype(), |$P| {
-        bitpack_primitive(parray.maybe_null_slice::<$P>(), bit_width)
+        bitpack_primitive(parray.as_slice::<$P>(), bit_width)
     });
     Ok(packed)
 }
@@ -151,7 +151,7 @@ pub fn gather_patches(
     match_each_integer_ptype!(parray.ptype(), |$T| {
         let mut indices: Vec<u64> = Vec::with_capacity(num_exceptions_hint);
         let mut values: Vec<$T> = Vec::with_capacity(num_exceptions_hint);
-        for (i, v) in parray.maybe_null_slice::<$T>().iter().enumerate() {
+        for (i, v) in parray.as_slice::<$T>().iter().enumerate() {
             if (v.leading_zeros() as usize) < parray.ptype().bit_width() - bit_width as usize && parray.is_valid(i) {
                 indices.push(i as u64);
                 values.push(*v);
@@ -416,13 +416,10 @@ mod test {
         let values = PrimitiveArray::from((0..n).map(|i| (i % 2047) as u16).collect::<Vec<_>>());
         let compressed = BitPackedArray::encode(values.as_ref(), 11).unwrap();
         let decompressed = compressed.to_array().into_primitive().unwrap();
-        assert_eq!(
-            decompressed.maybe_null_slice::<u16>(),
-            values.maybe_null_slice::<u16>()
-        );
+        assert_eq!(decompressed.as_slice::<u16>(), values.as_slice::<u16>());
 
         values
-            .maybe_null_slice::<u16>()
+            .as_slice::<u16>()
             .iter()
             .enumerate()
             .for_each(|(i, v)| {
@@ -451,6 +448,6 @@ mod test {
             .unwrap()
             .into_primitive()
             .unwrap();
-        assert_eq!(unpacked.maybe_null_slice::<i64>(), &values);
+        assert_eq!(unpacked.as_slice::<i64>(), &values);
     }
 }

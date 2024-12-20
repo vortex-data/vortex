@@ -520,10 +520,7 @@ mod tests {
             .unwrap()
             .into_varbinview()
             .unwrap();
-        assert_eq!(
-            prim_arr.maybe_null_slice::<i32>(),
-            &(11..100).collect::<Vec<_>>()
-        );
+        assert_eq!(prim_arr.as_slice::<i32>(), &(11..100).collect::<Vec<_>>());
         assert_eq!(
             str_arr
                 .with_iterator(|iter| iter
@@ -562,10 +559,7 @@ mod tests {
             .unwrap()
             .into_varbinview()
             .unwrap();
-        assert_eq!(
-            prim_arr.maybe_null_slice::<i32>(),
-            (0..100).collect::<Vec<_>>()
-        );
+        assert_eq!(prim_arr.as_slice::<i32>(), (0..100).collect::<Vec<_>>());
         assert_eq!(
             str_arr
                 .with_iterator(|iter| iter
@@ -622,7 +616,7 @@ mod tests {
             .into_varbinview()
             .unwrap();
         assert_eq!(
-            prim_arr_chunk0.maybe_null_slice::<i32>(),
+            prim_arr_chunk0.as_slice::<i32>(),
             (100..150).collect::<Vec<_>>()
         );
         assert_eq!(
@@ -649,7 +643,7 @@ mod tests {
             .into_varbinview()
             .unwrap();
         assert_eq!(
-            prim_arr_chunk1.maybe_null_slice::<i32>(),
+            prim_arr_chunk1.as_slice::<i32>(),
             (100..150).collect::<Vec<_>>()
         );
         assert_eq!(

@@ -163,7 +163,7 @@ pub(crate) fn decode_runend_bool(
     length: usize,
 ) -> VortexResult<BoolArray> {
     match_each_integer_ptype!(run_ends.ptype(), |$E| {
-        let bools = runend_bool_decode_slice(trimmed_ends_iter(run_ends.maybe_null_slice::<$E>(), offset, length), start, length);
+        let bools = runend_bool_decode_slice(trimmed_ends_iter(run_ends.as_slice::<$E>(), offset, length), start, length);
         Ok(BoolArray::try_new(bools, validity)?)
     })
 }
@@ -227,7 +227,7 @@ impl StatisticsVTable<RunEndBoolArray> for RunEndBoolEncoding {
                 let mut prev_end: usize = 0;
                 let mut include = array.start();
                 match_each_unsigned_integer_ptype!(pends.ptype(), |$P| {
-                    for end in trimmed_ends_iter(pends.maybe_null_slice::<$P>(), array.offset(), array.len()) {
+                    for end in trimmed_ends_iter(pends.as_slice::<$P>(), array.offset(), array.len()) {
                         if include {
                             true_count += end - prev_end;
                         }

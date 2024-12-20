@@ -34,7 +34,7 @@ pub fn sort_canonical_array(array: &ArrayData) -> ArrayData {
             let primitive_array = array.clone().into_primitive().unwrap();
             match_each_native_ptype!(p, |$P| {
                 let mut opt_values = primitive_array
-                    .maybe_null_slice::<$P>()
+                    .as_slice::<$P>()
                     .iter()
                     .copied()
                     .zip(

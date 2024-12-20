@@ -126,7 +126,7 @@ impl BitPackedArray {
     #[inline]
     pub fn packed(&self) -> &ByteBuffer {
         self.as_ref()
-            .buffer()
+            .byte_buffer()
             .vortex_expect("BitPackedArray must contain packed buffer")
     }
 
@@ -138,7 +138,7 @@ impl BitPackedArray {
         // Return number of elements of type `T` packed in the buffer
         let packed_len = packed_bytes.len() / size_of::<T>();
 
-        // SAFETY: maybe_null_slice points to buffer memory that outlives the lifetime of `self`.
+        // SAFETY: as_slice points to buffer memory that outlives the lifetime of `self`.
         //  Unfortunately Rust cannot understand this, so we reconstruct the slice from raw parts
         //  to get it to reinterpret the lifetime.
         unsafe { std::slice::from_raw_parts(packed_ptr, packed_len) }
@@ -258,7 +258,7 @@ mod test {
             .into_array()
             .into_primitive()
             .unwrap()
-            .maybe_null_slice::<u64>()
+            .as_slice::<u64>()
             .to_vec();
         assert_eq!(results, expected);
     }

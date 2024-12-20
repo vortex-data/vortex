@@ -55,7 +55,7 @@ fn take_primitive<T: NativePType + BitPacking, I: NativePType>(
     let packed = array.packed_slice::<T>();
 
     // Group indices by 1024-element chunk, *without* allocating on the heap
-    let indices_iter = indices.maybe_null_slice::<I>().iter().map(|i| {
+    let indices_iter = indices.as_slice::<I>().iter().map(|i| {
         i.to_usize()
             .vortex_expect("index must be expressible as usize")
     });
@@ -139,7 +139,7 @@ mod test {
             .unwrap()
             .into_primitive()
             .unwrap();
-        let res_bytes = primitive_result.maybe_null_slice::<u8>();
+        let res_bytes = primitive_result.as_slice::<u8>();
         assert_eq!(res_bytes, &[0, 62, 31, 33, 9, 18]);
     }
 
@@ -154,7 +154,7 @@ mod test {
             .unwrap()
             .into_primitive()
             .unwrap();
-        let res_bytes = primitive_result.maybe_null_slice::<u32>();
+        let res_bytes = primitive_result.as_slice::<u32>();
         assert_eq!(res_bytes, &[0, 2, 4, 6]);
     }
 
@@ -168,7 +168,7 @@ mod test {
         let sliced = slice(bitpacked.as_ref(), 128, 2050).unwrap();
 
         let primitive_result = take(&sliced, &indices).unwrap().into_primitive().unwrap();
-        let res_bytes = primitive_result.maybe_null_slice::<u8>();
+        let res_bytes = primitive_result.as_slice::<u8>();
         assert_eq!(res_bytes, &[31, 33]);
     }
 
@@ -193,7 +193,7 @@ mod test {
 
         // sanity check
         random_indices
-            .maybe_null_slice::<u32>()
+            .as_slice::<u32>()
             .iter()
             .enumerate()
             .for_each(|(ti, i)| {

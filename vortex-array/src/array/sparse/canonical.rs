@@ -187,19 +187,19 @@ mod test {
             fill_value,
         ]);
 
-        assert_eq!(flat_ints.buffer(), expected.buffer());
+        assert_eq!(flat_ints.byte_buffer(), expected.byte_buffer());
         assert_eq!(flat_ints.validity(), expected.validity());
 
-        assert_eq!(flat_ints.maybe_null_slice::<i32>()[0], 0);
+        assert_eq!(flat_ints.as_slice::<i32>()[0], 0);
         assert!(flat_ints.validity().is_valid(0));
-        assert_eq!(flat_ints.maybe_null_slice::<i32>()[1], 0);
+        assert_eq!(flat_ints.as_slice::<i32>()[1], 0);
         assert!(!flat_ints.validity().is_valid(1));
         assert_eq!(
-            flat_ints.maybe_null_slice::<i32>()[2],
+            flat_ints.as_slice::<i32>()[2],
             fill_value.unwrap_or_default()
         );
         assert_eq!(flat_ints.validity().is_valid(2), fill_value.is_some());
-        assert_eq!(flat_ints.maybe_null_slice::<i32>()[7], 1);
+        assert_eq!(flat_ints.as_slice::<i32>()[7], 1);
         assert!(flat_ints.validity().is_valid(7));
     }
 }

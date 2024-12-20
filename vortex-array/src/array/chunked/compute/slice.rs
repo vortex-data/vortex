@@ -62,7 +62,7 @@ mod tests {
             .unwrap()
             .chunks()
             .map(|a| a.into_primitive().unwrap())
-            .for_each(|a| values.extend_from_slice(a.maybe_null_slice::<T>()));
+            .for_each(|a| values.extend_from_slice(a.as_slice::<T>()));
         assert_eq!(values, slice);
     }
 

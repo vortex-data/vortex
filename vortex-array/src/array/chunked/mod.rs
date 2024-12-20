@@ -291,7 +291,7 @@ mod test {
             .unwrap()
             .into_primitive()
             .unwrap()
-            .maybe_null_slice::<u64>()
+            .as_slice::<u64>()
             .to_vec();
         assert_eq!(results, &[0u64, 1, 2]);
         let results = chunks_out
@@ -299,7 +299,7 @@ mod test {
             .unwrap()
             .into_primitive()
             .unwrap()
-            .maybe_null_slice::<u64>()
+            .as_slice::<u64>()
             .to_vec();
         assert_eq!(results, &[3u64, 4, 5]);
         let results = chunks_out
@@ -307,7 +307,7 @@ mod test {
             .unwrap()
             .into_primitive()
             .unwrap()
-            .maybe_null_slice::<u64>()
+            .as_slice::<u64>()
             .to_vec();
         assert_eq!(results, &[6u64, 7, 8]);
     }

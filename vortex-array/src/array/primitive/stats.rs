@@ -30,11 +30,11 @@ impl StatisticsVTable<PrimitiveArray> for PrimitiveEncoding {
 
         let mut stats = match_each_native_ptype!(array.ptype(), |$P| {
             match array.logical_validity() {
-                LogicalValidity::AllValid(_) => self.compute_statistics(array.maybe_null_slice::<$P>(), stat),
+                LogicalValidity::AllValid(_) => self.compute_statistics(array.as_slice::<$P>(), stat),
                 LogicalValidity::AllInvalid(v) => Ok(StatsSet::nulls(v, array.dtype())),
                 LogicalValidity::Array(a) => self.compute_statistics(
                     &NullableValues(
-                        array.maybe_null_slice::<$P>(),
+                        array.as_slice::<$P>(),
                         &a.clone().into_bool()?.boolean_buffer(),
                     ),
                     stat

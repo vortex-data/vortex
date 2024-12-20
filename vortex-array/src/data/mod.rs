@@ -247,7 +247,7 @@ impl ArrayData {
             .iter()
             .map(|child| child.cumulative_nbuffers())
             .sum::<usize>()
-            + if self.buffer().is_some() { 1 } else { 0 }
+            + if self.byte_buffer().is_some() { 1 } else { 0 }
     }
 
     /// Return the buffer offsets and the total length of all buffers, assuming the given alignment.
@@ -257,7 +257,7 @@ impl ArrayData {
         let mut offset = 0;
 
         for col_data in self.depth_first_traversal() {
-            if let Some(buffer) = col_data.buffer() {
+            if let Some(buffer) = col_data.byte_buffer() {
                 offsets.push(offset as u64);
 
                 let buffer_size = buffer.len();
@@ -320,16 +320,16 @@ impl ArrayData {
         }
     }
 
-    pub fn buffer(&self) -> Option<&ByteBuffer> {
+    pub fn byte_buffer(&self) -> Option<&ByteBuffer> {
         match &self.0 {
-            InnerArrayData::Owned(d) => d.buffer(),
+            InnerArrayData::Owned(d) => d.bytes_buffer(),
             InnerArrayData::Viewed(v) => v.buffer(),
         }
     }
 
-    pub fn into_buffer(self) -> Option<ByteBuffer> {
+    pub fn into_byte_buffer(self) -> Option<ByteBuffer> {
         match self.0 {
-            InnerArrayData::Owned(d) => d.into_buffer(),
+            InnerArrayData::Owned(d) => d.into_byte_buffer(),
             InnerArrayData::Viewed(v) => v.buffer().cloned(),
         }
     }

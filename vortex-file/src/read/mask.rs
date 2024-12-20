@@ -95,10 +95,7 @@ impl RowMask {
         // TODO(ngates): should from_indices take u64?
         let mask = FilterMask::from_indices(
             end - begin,
-            indices
-                .maybe_null_slice::<u64>()
-                .iter()
-                .map(|i| *i as usize),
+            indices.as_slice::<u64>().iter().map(|i| *i as usize),
         );
 
         RowMask::try_new(mask, begin, end)
@@ -296,7 +293,7 @@ mod tests {
         let array = PrimitiveArray::from((0..20).collect::<Vec<_>>()).into_array();
         let filtered = mask.filter_array(array).unwrap().unwrap();
         assert_eq!(
-            filtered.into_primitive().unwrap().maybe_null_slice::<i32>(),
+            filtered.into_primitive().unwrap().as_slice::<i32>(),
             (5..10).collect::<Vec<_>>()
         );
     }

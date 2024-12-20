@@ -46,7 +46,7 @@ pub fn filter_canonical_array(array: &ArrayData, filter: &[bool]) -> ArrayData {
             PrimitiveArray::from_vec(
                 filter
                     .iter()
-                    .zip(primitive_array.maybe_null_slice::<$P>().iter().copied())
+                    .zip(primitive_array.as_slice::<$P>().iter().copied())
                     .filter(|(f, _)| **f)
                     .map(|(_, v)| v)
                     .collect::<Vec<_>>(),

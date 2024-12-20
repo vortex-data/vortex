@@ -78,7 +78,7 @@ impl RoaringIntArray {
     pub fn owned_bitmap(&self) -> Bitmap {
         Bitmap::deserialize::<Portable>(
             self.as_ref()
-                .buffer()
+                .byte_buffer()
                 .vortex_expect("RoaringBoolArray buffer is missing")
                 .as_ref(),
         )
@@ -135,7 +135,7 @@ impl VisitorVTable<RoaringIntArray> for RoaringIntEncoding {
         visitor.visit_buffer(
             array
                 .as_ref()
-                .buffer()
+                .byte_buffer()
                 .vortex_expect("Missing buffer in RoaringIntArray"),
         )
     }
