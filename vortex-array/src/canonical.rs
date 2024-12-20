@@ -198,9 +198,8 @@ fn struct_to_arrow(struct_array: StructArray) -> VortexResult<ArrayRef> {
         .iter()
         .zip(struct_array.children())
         .map(|(name, f)| {
-            f.into_canonical()
+            f.into_arrow()
                 .map_err(|err| err.with_context(format!("Failed to canonicalize field {}", name)))
-                .and_then(|c| c.into_arrow())
         })
         .collect::<VortexResult<Vec<_>>>()?;
 
