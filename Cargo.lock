@@ -5012,6 +5012,7 @@ dependencies = [
  "itertools 0.13.0",
  "serde",
  "vortex-array",
+ "vortex-buffer",
  "vortex-datetime-dtype",
  "vortex-dtype",
  "vortex-error",

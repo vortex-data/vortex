@@ -7,6 +7,7 @@ use vortex_array::compute::{
 };
 use vortex_array::validity::ArrayValidity;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_buffer::BufferMut;
 use vortex_datetime_dtype::{TemporalMetadata, TimeUnit};
 use vortex_dtype::Nullability::{NonNullable, Nullable};
 use vortex_dtype::{DType, PType};
@@ -117,12 +118,14 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalAr
         &DType::Primitive(PType::I64, array.dtype().nullability()),
     )?
     .into_primitive()?;
-    // FIXME(ngates): mutate in place
-    let mut values: Vec<i64> = days_buf
-        .into_as_slice::<i64>()
-        .iter()
-        .map(|d| d * 86_400 * divisor)
-        .collect();
+
+    // We start with the days component, which is always present.
+    // And then add the seconds and subseconds components.
+    // We split this into separate passes because often the seconds and/org subsecond components
+    // are constant.
+    let mut values: BufferMut<i64> = days_buf
+        .into_buffer_mut()
+        .map_each(|d| d * 86_400 * divisor);
 
     if let Some(seconds) = array.seconds().as_constant() {
         let seconds =
@@ -161,7 +164,7 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalAr
     }
 
     Ok(TemporalArray::new_timestamp(
-        PrimitiveArray::from_vec(values, array.validity()).into_array(),
+        PrimitiveArray::new(values.freeze(), array.validity()).into_array(),
         temporal_metadata.time_unit(),
         temporal_metadata.time_zone().map(ToString::to_string),
     ))
