@@ -68,13 +68,15 @@ pub fn alp_encode(parray: &PrimitiveArray) -> VortexResult<ALPArray> {
 pub fn decompress(array: ALPArray) -> VortexResult<PrimitiveArray> {
     let encoded = array.encoded().into_primitive()?;
     let validity = encoded.validity();
-    let ptype = array.dtype().try_into()?;
     let exponents = array.exponents();
+    let ptype = array.dtype().try_into()?;
+
     let decoded = match_each_alp_float_ptype!(ptype, |$T| {
-        PrimitiveArray::new(
-            // FIXME(ngates): mutate in place
-            Buffer::<$T>::from_iter(encoded.as_slice().iter()
-                .map(move |encoded| ALPFloat::decode_single(*encoded, exponents))),
+        PrimitiveArray::new::<$T>(
+            encoded
+                .into_buffer::<<$T as ALPFloat>::ALPInt>()
+                .into_mut()
+                .map_each(move |encoded| ALPFloat::decode_single(*encoded, exponents)),
             validity,
         )
     });

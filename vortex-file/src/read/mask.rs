@@ -177,6 +177,8 @@ impl RowMask {
         let sliced = if self.len() == array.len() {
             array
         } else {
+            // TODO(ngates): I thought the point was the array only covers the valid row range of
+            //  the mask?
             &slice(array, self.begin, self.end)?
         };
 
