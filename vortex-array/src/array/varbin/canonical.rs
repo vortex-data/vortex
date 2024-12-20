@@ -1,7 +1,7 @@
-use arrow_array::ArrayRef;
+use arrow_array::{Array, ArrayRef};
 use arrow_schema::DataType;
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
+use vortex_error::{vortex_bail, VortexResult};
 
 use crate::array::varbin::arrow::varbin_to_arrow;
 use crate::array::varbin::VarBinArray;
@@ -23,10 +23,28 @@ impl IntoCanonical for VarBinArray {
         VarBinViewArray::try_from(ArrayData::from_arrow(array, nullable)).map(Canonical::VarBinView)
     }
 
-    fn into_arrow(self) -> VortexResult<ArrayRef> {
+    fn into_arrow(self) -> VortexResult<ArrayRef>
+    where
+        Self: Sized,
+    {
+        varbin_to_arrow(&self)
+    }
+
+    fn into_arrow_with_data_type(self, data_type: &DataType) -> VortexResult<ArrayRef> {
         // Specialized implementation of `into_arrow` for VarBin since it has a direct
         // Arrow representation.
-        varbin_to_arrow(&self)
+        let array_ref = varbin_to_arrow(&self)?;
+
+        // Note, arrow::cast clones the array, so don't use it if unnecessary.
+        Ok(match data_type {
+            DataType::Binary | DataType::LargeBinary | DataType::Utf8 | DataType::LargeUtf8 => {
+                array_ref
+            }
+            DataType::Utf8View | DataType::BinaryView => {
+                arrow_cast::cast(array_ref.as_ref(), data_type)?
+            }
+            _ => vortex_bail!("Unsupported data type: {:?}", data_type),
+        })
     }
 }
 
