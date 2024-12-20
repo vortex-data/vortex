@@ -4,7 +4,7 @@ use vortex_array::stats::{trailing_zeros, ArrayStatistics, Stat};
 use vortex_array::validity::LogicalValidity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
-use vortex_buffer::Buffer;
+use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{
     match_each_integer_ptype, match_each_unsigned_integer_ptype, DType, NativePType, Nullability,
 };
@@ -95,8 +95,11 @@ fn compress_primitive<T: NativePType + WrappingSub + PrimInt>(
 pub fn decompress(array: FoRArray) -> VortexResult<PrimitiveArray> {
     let shift = array.shift() as usize;
     let ptype = array.ptype();
+
+    // TODO(ngates): do we need this to be into_encoded() somehow?
     let encoded = array.encoded().into_primitive()?.reinterpret_cast(ptype);
     let validity = encoded.validity();
+
     Ok(match_each_integer_ptype!(ptype, |$T| {
         if shift == <$T>::PTYPE.bit_width() {
             encoded
@@ -109,7 +112,7 @@ pub fn decompress(array: FoRArray) -> VortexResult<PrimitiveArray> {
                 encoded
             } else {
                 PrimitiveArray::new(
-                    decompress_primitive(encoded.as_slice::<$T>(), min, shift),
+                    decompress_primitive(encoded.into_buffer_mut::<$T>(), min, shift),
                     validity,
                 )
             }
@@ -118,32 +121,29 @@ pub fn decompress(array: FoRArray) -> VortexResult<PrimitiveArray> {
 }
 
 fn decompress_primitive<T: NativePType + WrappingAdd + PrimInt>(
-    // FIXME(ngates): take mutable values and update in place
-    values: &[T],
+    values: BufferMut<T>,
     min: T,
     shift: usize,
 ) -> Buffer<T> {
     if shift > 0 {
         if min == T::zero() {
-            Buffer::from_iter(values.iter().map(move |v| *v << shift))
+            values.map_each(move |v| *v << shift).freeze()
         } else {
-            Buffer::from_iter(
-                values
-                    .iter()
-                    .map(move |v| *v << shift)
-                    .map(move |v| v.wrapping_add(&min)),
-            )
+            values
+                .map_each(move |v| (*v << shift).wrapping_add(&min))
+                .freeze()
         }
     } else {
-        // FIXME(ngates): mutate in place
-        Buffer::from_iter(values.iter().map(move |v| v.wrapping_add(&min)))
+        values.map_each(move |v| v.wrapping_add(&min)).freeze()
     }
 }
 
 #[cfg(test)]
 mod test {
     use vortex_array::compute::scalar_at;
+    use vortex_array::validity::Validity;
     use vortex_array::IntoArrayVariant;
+    use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
 
     use super::*;
@@ -164,7 +164,7 @@ mod test {
 
     #[test]
     fn test_zeros() {
-        let array = PrimitiveArray::from(vec![0i32; 10_000]);
+        let array = PrimitiveArray::new(buffer![0i32; 10_000], Validity::NonNullable);
         assert!(array.statistics().to_set().into_iter().next().is_none());
 
         let compressed = for_compress(array.clone()).unwrap();

@@ -87,7 +87,7 @@ mod test {
     use vortex_array::compute::slice;
     use vortex_array::validity::Validity;
     use vortex_array::IntoArrayVariant;
-    use vortex_buffer::buffer;
+    use vortex_buffer::{buffer, buffer_mut};
 
     use crate::compress::{runend_bool_decode_slice, runend_bool_encode_slice, trimmed_ends_iter};
     use crate::decode_runend_bool;
@@ -101,9 +101,9 @@ mod test {
 
     #[test]
     fn encode_bool_false_true_end() {
-        let mut input = buffer![false; 66];
+        let mut input = buffer_mut![false; 66];
         input.extend([true, true]);
-        let encoded = runend_bool_encode_slice(&BooleanBuffer::from(input));
+        let encoded = runend_bool_encode_slice(&BooleanBuffer::from(input.as_slice()));
         assert_eq!(encoded, (buffer![66, 68], false))
     }
 
@@ -136,8 +136,8 @@ mod test {
 
     #[test]
     fn encode_decode_bool_false_start_long() {
-        let mut input = buffer![true; 1024];
-        input.extend([false, true, false, true].as_slice());
+        let mut input = buffer_mut![true; 1024];
+        input.extend([false, true, false, true]);
         let (ends, start) = runend_bool_encode_slice(&BooleanBuffer::from(input.as_slice()));
         let ends_iter = trimmed_ends_iter(ends.as_slice(), 0, input.len());
 
@@ -163,7 +163,7 @@ mod test {
         let b = BoolArray::from_iter(input.clone());
         let b = slice(b, 3, 1024 * 8 - 66).unwrap().into_bool().unwrap();
         let (ends, start) = runend_bool_encode_slice(&b.boolean_buffer());
-        let ends = PrimitiveArray::from(ends);
+        let ends = PrimitiveArray::new(ends, Validity::NonNullable);
 
         let decoded = decode_runend_bool(&ends, start, Validity::NonNullable, 0, 1024 * 8 - 69)
             .unwrap()

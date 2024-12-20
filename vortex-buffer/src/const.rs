@@ -4,7 +4,7 @@ use vortex_error::{vortex_bail, VortexError};
 
 use crate::{Alignment, Buffer};
 
-/// An aligned buffer with compile-time alignment.
+/// A buffer of items of `T` with a compile-time alignment.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd)]
 pub struct ConstBuffer<T, const A: usize>(Buffer<T>);
 

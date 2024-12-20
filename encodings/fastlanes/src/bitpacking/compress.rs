@@ -373,8 +373,8 @@ mod test {
     #[test]
     fn null_patches() {
         let valid_values = (0..24).map(|v| v < 1 << 4).collect::<Vec<_>>();
-        let values = PrimitiveArray::copy_from_vec(
-            (0u32..24).collect::<Vec<_>>(),
+        let values = PrimitiveArray::new(
+            (0u32..24).collect::<Buffer<_>>(),
             Validity::from_iter(valid_values),
         );
         assert!(values.ptype().is_unsigned_int());
@@ -407,7 +407,7 @@ mod test {
     }
 
     fn compression_roundtrip(n: usize) {
-        let values = PrimitiveArray::from((0..n).map(|i| (i % 2047) as u16).collect::<Vec<_>>());
+        let values = PrimitiveArray::from_iter((0..n).map(|i| (i % 2047) as u16));
         let compressed = BitPackedArray::encode(values.as_ref(), 11).unwrap();
         let decompressed = compressed.to_array().into_primitive().unwrap();
         assert_eq!(decompressed.as_slice::<u16>(), values.as_slice::<u16>());
@@ -424,8 +424,8 @@ mod test {
 
     #[test]
     fn compress_signed_roundtrip() {
-        let values: Vec<i64> = (-500..500).collect();
-        let array = PrimitiveArray::copy_from_vec(values.clone(), Validity::AllValid);
+        let values: Buffer<i64> = (-500..500).collect();
+        let array = PrimitiveArray::new(values.clone(), Validity::AllValid);
         assert!(array.ptype().is_signed_int());
 
         let bitpacked_array =
@@ -442,6 +442,6 @@ mod test {
             .unwrap()
             .into_primitive()
             .unwrap();
-        assert_eq!(unpacked.as_slice::<i64>(), &values);
+        assert_eq!(unpacked.as_slice::<i64>(), values.as_slice());
     }
 }

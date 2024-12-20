@@ -328,7 +328,7 @@ mod tests {
     #[test]
     fn write_columns() {
         let strings = VarBinArray::from(vec!["ab", "foo", "bar", "baz"]);
-        let numbers = PrimitiveArray::from(vec![1u32, 2, 3, 4]);
+        let numbers = PrimitiveArray::from_iter([1u32, 2, 3, 4]);
         let st = StructArray::try_new(
             ["strings".into(), "numbers".into()].into(),
             vec![strings.into_array(), numbers.into_array()],

@@ -13,6 +13,7 @@ use vortex_array::compute::scalar_at;
 use vortex_array::validity::Validity;
 use vortex_array::variants::{PrimitiveArrayTrait, StructArrayTrait};
 use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
+use vortex_buffer::{buffer, Buffer};
 use vortex_dtype::field::Field;
 use vortex_dtype::{DType, Nullability, PType, StructDType};
 use vortex_error::{vortex_panic, VortexResult};
@@ -44,8 +45,8 @@ async fn test_read_simple() {
     .into_array();
 
     let numbers = ChunkedArray::from_iter([
-        PrimitiveArray::from(vec![1u32, 2, 3, 4]).into_array(),
-        PrimitiveArray::from(vec![5u32, 6, 7, 8]).into_array(),
+        buffer![1u32, 2, 3, 4].into_array(),
+        buffer![5u32, 6, 7, 8].into_array(),
     ])
     .into_array();
 
@@ -82,8 +83,8 @@ async fn test_read_simple_with_spawn() {
     .into_array();
 
     let numbers = ChunkedArray::from_iter([
-        PrimitiveArray::from(vec![1u32, 2, 3, 4]).into_array(),
-        PrimitiveArray::from(vec![5u32, 6, 7, 8]).into_array(),
+        buffer![1u32, 2, 3, 4].into_array(),
+        buffer![5u32, 6, 7, 8].into_array(),
     ])
     .into_array();
 
@@ -112,9 +113,9 @@ async fn test_splits() {
     .into_array();
 
     let numbers = ChunkedArray::from_iter([
-        PrimitiveArray::from(vec![1u32, 2, 3]).into_array(),
-        PrimitiveArray::from(vec![4u32, 5, 6]).into_array(),
-        PrimitiveArray::from(vec![7u32, 8]).into_array(),
+        buffer![1u32, 2, 3].into_array(),
+        buffer![4u32, 5, 6].into_array(),
+        buffer![7u32, 8].into_array(),
     ])
     .into_array();
 
@@ -160,8 +161,8 @@ async fn test_read_projection() {
 
     let numbers_expected = [1u32, 2, 3, 4, 5, 6, 7, 8];
     let numbers = ChunkedArray::from_iter([
-        PrimitiveArray::from(numbers_expected[..4].to_vec()).into_array(),
-        PrimitiveArray::from(numbers_expected[4..].to_vec()).into_array(),
+        Buffer::copy_from(numbers_expected[..4]).into_array(),
+        Buffer::copy_from(numbers_expected[4..]).into_array(),
     ])
     .into_array();
     let numbers_dtype = numbers.dtype().clone();
@@ -299,8 +300,8 @@ async fn unequal_batches() {
     .into_array();
 
     let numbers = ChunkedArray::from_iter([
-        PrimitiveArray::from(vec![1u32, 2, 3, 4, 5]).into_array(),
-        PrimitiveArray::from(vec![6u32, 7, 8, 9, 10]).into_array(),
+        buffer![1u32, 2, 3, 4, 5].into_array(),
+        buffer![6u32, 7, 8, 9, 10].into_array(),
     ])
     .into_array();
 
@@ -343,7 +344,7 @@ async fn write_chunked() {
     let strings_chunked = ChunkedArray::try_new(iter::repeat_n(strings, 4).collect(), string_dtype)
         .unwrap()
         .into_array();
-    let numbers = PrimitiveArray::from(vec![1u32, 2, 3, 4]).into_array();
+    let numbers = buffer![1u32, 2, 3, 4].into_array();
     let numbers_dtype = numbers.dtype().clone();
     let numbers_chunked =
         ChunkedArray::try_new(iter::repeat_n(numbers, 4).collect(), numbers_dtype)
@@ -651,8 +652,8 @@ async fn test_with_indices_on_two_columns() {
 
     let numbers_expected = [1u32, 2, 3, 4, 5, 6, 7, 8];
     let numbers = ChunkedArray::from_iter([
-        PrimitiveArray::from(numbers_expected[..4].to_vec()).into_array(),
-        PrimitiveArray::from(numbers_expected[4..].to_vec()).into_array(),
+        Buffer::copy_from(numbers_expected[..4]).into_array(),
+        Buffer::copy_from(numbers_expected[4..]).into_array(),
     ])
     .into_array();
 

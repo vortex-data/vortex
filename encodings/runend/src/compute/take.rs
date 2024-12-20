@@ -39,7 +39,7 @@ mod test {
 
     pub(crate) fn ree_array() -> RunEndArray {
         RunEndArray::encode(
-            PrimitiveArray::from(vec![1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5]).to_array(),
+            PrimitiveArray::from_iter([1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5]).to_array(),
         )
         .unwrap()
     }
@@ -48,7 +48,7 @@ mod test {
     fn ree_take() {
         let taken = take(
             ree_array().as_ref(),
-            PrimitiveArray::from(vec![9, 8, 1, 3]).as_ref(),
+            PrimitiveArray::from_iter([9, 8, 1, 3]).as_ref(),
         )
         .unwrap();
         assert_eq!(
@@ -61,7 +61,7 @@ mod test {
     fn ree_take_end() {
         let taken = take(
             ree_array().as_ref(),
-            PrimitiveArray::from(vec![11]).as_ref(),
+            PrimitiveArray::from_iter([11]).as_ref(),
         )
         .unwrap();
         assert_eq!(taken.into_primitive().unwrap().as_slice::<i32>(), &[5]);
@@ -72,7 +72,7 @@ mod test {
     fn ree_take_out_of_bounds() {
         take(
             ree_array().as_ref(),
-            PrimitiveArray::from(vec![12]).as_ref(),
+            PrimitiveArray::from_iter([12]).as_ref(),
         )
         .unwrap();
     }
@@ -82,7 +82,7 @@ mod test {
         let sliced = slice(ree_array().as_ref(), 4, 9).unwrap();
         let taken = take(
             sliced.as_ref(),
-            PrimitiveArray::from(vec![1, 3, 4]).as_ref(),
+            PrimitiveArray::from_iter([1, 3, 4]).as_ref(),
         )
         .unwrap();
 

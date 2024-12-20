@@ -65,6 +65,7 @@ fn cast<T: NativePType>(array: &PrimitiveArray) -> VortexResult<Buffer<T>> {
 
 #[cfg(test)]
 mod test {
+    use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_error::VortexError;
 
@@ -75,7 +76,7 @@ mod test {
 
     #[test]
     fn cast_u32_u8() {
-        let arr = vec![0u32, 10, 200].into_array();
+        let arr = buffer![0u32, 10, 200].into_array();
 
         // cast from u32 to u8
         let p = try_cast(&arr, PType::U8.into())
@@ -120,7 +121,7 @@ mod test {
 
     #[test]
     fn cast_u32_f32() {
-        let arr = vec![0u32, 10, 200].into_array();
+        let arr = buffer![0u32, 10, 200].into_array();
         let u8arr = try_cast(&arr, PType::F32.into())
             .unwrap()
             .into_primitive()
@@ -130,7 +131,7 @@ mod test {
 
     #[test]
     fn cast_i32_u32() {
-        let arr = vec![-1i32].into_array();
+        let arr = buffer![-1i32].into_array();
         let error = try_cast(&arr, PType::U32.into()).err().unwrap();
         let VortexError::ComputeError(s, _) = error else {
             unreachable!()

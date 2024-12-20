@@ -6,7 +6,7 @@ use vortex_error::{vortex_panic, VortexExpect};
 
 use crate::{Alignment, BufferMut, ByteBuffer};
 
-/// A buffer of Vortex primitive scalars.
+/// An immutable buffer of items of `T`.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd)]
 pub struct Buffer<T> {
     pub(crate) bytes: Bytes,

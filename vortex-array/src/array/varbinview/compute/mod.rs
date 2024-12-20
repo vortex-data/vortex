@@ -140,8 +140,10 @@ fn take_views_unchecked<I: AsPrimitive<usize>>(views: Buffer<u128>, indices: &[I
 
 #[cfg(test)]
 mod tests {
+    use vortex_buffer::buffer;
+
     use crate::accessor::ArrayAccessor;
-    use crate::array::{PrimitiveArray, VarBinViewArray};
+    use crate::array::VarBinViewArray;
     use crate::compute::take;
     use crate::{ArrayDType, IntoArrayData, IntoArrayVariant};
 
@@ -156,7 +158,7 @@ mod tests {
             Some("six"),
         ]);
 
-        let taken = take(arr, PrimitiveArray::from(vec![0, 3]).into_array()).unwrap();
+        let taken = take(arr, buffer![0, 3].into_array()).unwrap();
 
         assert!(taken.dtype().is_nullable());
         assert_eq!(

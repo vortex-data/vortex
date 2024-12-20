@@ -73,18 +73,17 @@ impl CastFn<ChunkedArray> for ChunkedEncoding {
 
 #[cfg(test)]
 mod test {
+    use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
     use crate::array::chunked::ChunkedArray;
-    use crate::array::primitive::PrimitiveArray;
     use crate::compute::try_cast;
-    use crate::validity::Validity;
     use crate::{IntoArrayData, IntoArrayVariant};
 
     #[test]
     fn test_cast_chunked() {
-        let arr0 = PrimitiveArray::copy_from_vec(vec![0u32, 1], Validity::NonNullable).into_array();
-        let arr1 = PrimitiveArray::copy_from_vec(vec![2u32, 3], Validity::NonNullable).into_array();
+        let arr0 = buffer![0u32, 1].into_array();
+        let arr1 = buffer![2u32, 3].into_array();
 
         let chunked = ChunkedArray::try_new(
             vec![arr0, arr1],

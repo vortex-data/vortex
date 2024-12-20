@@ -259,6 +259,7 @@ impl BinaryNumericFn<ChunkedArray> for ChunkedEncoding {
 
 #[cfg(test)]
 mod test {
+    use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_error::VortexResult;
 
@@ -269,9 +270,9 @@ mod test {
     fn chunked_array() -> ChunkedArray {
         ChunkedArray::try_new(
             vec![
-                vec![1u64, 2, 3].into_array(),
-                vec![4u64, 5, 6].into_array(),
-                vec![7u64, 8, 9].into_array(),
+                buffer![1u64, 2, 3].into_array(),
+                buffer![4u64, 5, 6].into_array(),
+                buffer![7u64, 8, 9].into_array(),
             ],
             DType::Primitive(PType::U64, Nullability::NonNullable),
         )
@@ -316,7 +317,7 @@ mod test {
     #[test]
     fn test_rechunk_one_chunk() {
         let chunked = ChunkedArray::try_new(
-            vec![vec![0u64].into_array()],
+            vec![buffer![0u64].into_array()],
             DType::Primitive(PType::U64, Nullability::NonNullable),
         )
         .unwrap();
@@ -329,7 +330,7 @@ mod test {
     #[test]
     fn test_rechunk_two_chunks() {
         let chunked = ChunkedArray::try_new(
-            vec![vec![0u64].into_array(), vec![5u64].into_array()],
+            vec![buffer![0u64].into_array(), buffer![5u64].into_array()],
             DType::Primitive(PType::U64, Nullability::NonNullable),
         )
         .unwrap();
@@ -343,7 +344,10 @@ mod test {
     #[test]
     fn test_rechunk_tiny_target_chunks() {
         let chunked = ChunkedArray::try_new(
-            vec![vec![0u64, 1, 2, 3].into_array(), vec![4u64, 5].into_array()],
+            vec![
+                buffer![0u64, 1, 2, 3].into_array(),
+                buffer![4u64, 5].into_array(),
+            ],
             DType::Primitive(PType::U64, Nullability::NonNullable),
         )
         .unwrap();
@@ -359,11 +363,11 @@ mod test {
     fn test_rechunk_with_too_big_chunk() {
         let chunked = ChunkedArray::try_new(
             vec![
-                vec![0u64, 1, 2].into_array(),
-                vec![42_u64; 6].into_array(),
-                vec![4u64, 5].into_array(),
-                vec![6u64, 7].into_array(),
-                vec![8u64, 9].into_array(),
+                buffer![0u64, 1, 2].into_array(),
+                buffer![42_u64; 6].into_array(),
+                buffer![4u64, 5].into_array(),
+                buffer![6u64, 7].into_array(),
+                buffer![8u64, 9].into_array(),
             ],
             DType::Primitive(PType::U64, Nullability::NonNullable),
         )

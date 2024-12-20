@@ -156,14 +156,13 @@ mod test {
 
     use vortex_array::array::PrimitiveArray;
     use vortex_array::iter::{ArrayIterator, ArrayIteratorExt};
-    use vortex_array::validity::Validity;
     use vortex_array::{ArrayDType, Context, IntoArrayVariant, ToArrayData};
 
     use super::*;
 
     #[test]
     fn test_sync_stream() {
-        let array = PrimitiveArray::copy_from_vec::<i32>(vec![1, 2, 3], Validity::NonNullable);
+        let array = PrimitiveArray::from_iter([1i32, 2, 3]);
         let ipc_buffer = array
             .to_array()
             .into_array_iterator()

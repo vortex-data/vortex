@@ -176,7 +176,7 @@ mod test {
 
     pub(crate) fn ree_array() -> RunEndArray {
         RunEndArray::encode(
-            PrimitiveArray::from(vec![1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5]).to_array(),
+            PrimitiveArray::from_iter([1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5]).to_array(),
         )
         .unwrap()
     }
@@ -191,8 +191,8 @@ mod test {
     fn slice_array() {
         let arr = slice(
             RunEndArray::try_new(
-                vec![2u32, 5, 10].into_array(),
-                vec![1i32, 2, 3].into_array(),
+                buffer![2u32, 5, 10].into_array(),
+                buffer![1i32, 2, 3].into_array(),
             )
             .unwrap()
             .as_ref(),
@@ -216,8 +216,8 @@ mod test {
     fn double_slice() {
         let arr = slice(
             RunEndArray::try_new(
-                vec![2u32, 5, 10].into_array(),
-                vec![1i32, 2, 3].into_array(),
+                buffer![2u32, 5, 10].into_array(),
+                buffer![1i32, 2, 3].into_array(),
             )
             .unwrap()
             .as_ref(),
@@ -239,8 +239,8 @@ mod test {
     fn slice_end_inclusive() {
         let arr = slice(
             RunEndArray::try_new(
-                vec![2u32, 5, 10].into_array(),
-                vec![1i32, 2, 3].into_array(),
+                buffer![2u32, 5, 10].into_array(),
+                buffer![1i32, 2, 3].into_array(),
             )
             .unwrap()
             .as_ref(),
@@ -263,8 +263,8 @@ mod test {
     #[test]
     fn decompress() {
         let arr = RunEndArray::try_new(
-            vec![2u32, 5, 10].into_array(),
-            vec![1i32, 2, 3].into_array(),
+            buffer![2u32, 5, 10].into_array(),
+            buffer![1i32, 2, 3].into_array(),
         )
         .unwrap();
 
@@ -277,7 +277,7 @@ mod test {
     #[test]
     fn slice_at_end() {
         let re_array =
-            RunEndArray::try_new(vec![7_u64, 10].into_array(), vec![2_u64, 3].into_array())
+            RunEndArray::try_new(buffer![7_u64, 10].into_array(), vec![2_u64, 3].into_array())
                 .unwrap();
 
         assert_eq!(re_array.len(), 10);

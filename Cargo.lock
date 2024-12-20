@@ -4987,6 +4987,7 @@ dependencies = [
  "tokio",
  "url",
  "vortex-array",
+ "vortex-buffer",
  "vortex-dtype",
  "vortex-error",
  "vortex-expr",

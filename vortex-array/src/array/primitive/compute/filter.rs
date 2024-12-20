@@ -55,7 +55,7 @@ mod test {
     #[test]
     fn filter_run_variant_mixed_test() {
         let mask = [true, true, false, true, true, true, false, true];
-        let arr = PrimitiveArray::from(vec![1u32, 24, 54, 2, 3, 2, 3, 2]);
+        let arr = PrimitiveArray::from_iter([1u32, 24, 54, 2, 3, 2, 3, 2]);
 
         let filtered = filter(&arr.to_array(), FilterMask::from_iter(mask))
             .unwrap()

@@ -197,6 +197,7 @@ impl ValidityVTable<ListArray> for ListEncoding {
 mod test {
     use std::sync::Arc;
 
+    use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{Nullability, PType};
     use vortex_scalar::Scalar;
 
@@ -208,8 +209,8 @@ mod test {
 
     #[test]
     fn test_empty_list_array() {
-        let elements = PrimitiveArray::from(vec![] as Vec<u32>);
-        let offsets = PrimitiveArray::from(vec![0]);
+        let elements = PrimitiveArray::empty::<u32>(NonNullable);
+        let offsets = PrimitiveArray::from_iter([0]);
         let validity = Validity::AllValid;
 
         let list =
@@ -220,8 +221,8 @@ mod test {
 
     #[test]
     fn test_simple_list_array() {
-        let elements = PrimitiveArray::from(vec![1i32, 2, 3, 4, 5]);
-        let offsets = PrimitiveArray::from(vec![0, 2, 4, 5]);
+        let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]);
+        let offsets = PrimitiveArray::from_iter([0, 2, 4, 5]);
         let validity = Validity::AllValid;
 
         let list =

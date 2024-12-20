@@ -125,7 +125,6 @@ mod test {
     use vortex_buffer::buffer;
 
     use crate::array::chunked::ChunkedArray;
-    use crate::array::PrimitiveArray;
     use crate::compute::take;
     use crate::{ArrayDType, ArrayLen, IntoArrayData, IntoArrayVariant};
 

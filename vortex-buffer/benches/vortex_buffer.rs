@@ -7,6 +7,7 @@ use std::iter::Iterator;
 use arrow_buffer::{ArrowNativeType, MutableBuffer, ScalarBuffer, ToByteSlice};
 use divan::Bencher;
 use vortex_buffer::{Buffer, BufferMut};
+use vortex_error::{vortex_err, VortexExpect};
 
 fn main() {
     divan::main();
@@ -48,7 +49,8 @@ impl<T: ArrowNativeType, R: ArrowNativeType> MapEach<T, R> for ArrowBuffer<T> {
             self.0
                 .into_inner()
                 .into_vec::<T>()
-                .expect("Failed to convert Arrow buffer into a mut vec")
+                .map_err(|_| vortex_err!("Failed to convert Arrow buffer into a mut vec"))
+                .vortex_expect("Failed to convert Arrow buffer into a mut vec")
                 .into_iter()
                 .map(|v| f(&v))
                 .collect::<Vec<R>>(),

@@ -283,7 +283,7 @@ mod test {
 
     #[test]
     fn encode() {
-        let arr = PrimitiveArray::from(vec![1i32, 1, 2, 2, 2, 3, 3, 3, 3, 3]);
+        let arr = PrimitiveArray::from_iter([1i32, 1, 2, 2, 2, 3, 3, 3, 3, 3]);
         let (ends, values) = runend_encode(&arr).unwrap();
         let values = values.into_primitive().unwrap();
 
@@ -321,8 +321,8 @@ mod test {
 
     #[test]
     fn decode() {
-        let ends = PrimitiveArray::from(vec![2, 5, 10]);
-        let values = PrimitiveArray::from(vec![1i32, 2, 3]);
+        let ends = PrimitiveArray::from_iter([2, 5, 10]);
+        let values = PrimitiveArray::from_iter([1i32, 2, 3]);
         let decoded = runend_decode_primitive(ends, values, 0, 10).unwrap();
 
         assert_eq!(

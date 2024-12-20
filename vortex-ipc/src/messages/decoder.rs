@@ -329,8 +329,9 @@ impl BytesMutAlignedSplit for BytesMut {
 
 #[cfg(test)]
 mod test {
-    use vortex_array::array::{ConstantArray, PrimitiveArray};
+    use vortex_array::array::ConstantArray;
     use vortex_array::{ArrayDType, IntoArrayData};
+    use vortex_buffer::buffer;
     use vortex_error::vortex_panic;
 
     use super::*;
@@ -363,7 +364,7 @@ mod test {
 
     #[test]
     fn array_ipc() {
-        write_and_read(PrimitiveArray::from(vec![0i32, 1, 2, 3]).into_array());
+        write_and_read(buffer![0i32, 1, 2, 3].into_array());
     }
 
     #[test]

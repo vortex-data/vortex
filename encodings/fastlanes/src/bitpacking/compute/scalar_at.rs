@@ -25,7 +25,7 @@ mod test {
     use vortex_array::validity::Validity;
     use vortex_array::validity::Validity::NonNullable;
     use vortex_array::IntoArrayData;
-    use vortex_buffer::{Alignment, ByteBuffer};
+    use vortex_buffer::{buffer, Alignment, ByteBuffer};
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_scalar::Scalar;
 
@@ -39,8 +39,8 @@ mod test {
             Validity::AllInvalid,
             Some(Patches::new(
                 8,
-                PrimitiveArray::copy_from_vec(vec![1u32], NonNullable).into_array(),
-                PrimitiveArray::copy_from_vec(vec![999u32], Validity::AllValid).into_array(),
+                buffer![1u32].into_array(),
+                PrimitiveArray::new(buffer![999u32], Validity::AllValid).into_array(),
             )),
             1,
             8,

@@ -392,7 +392,7 @@ mod test {
         let chunk = StructArray::try_new(
             Arc::new([FieldName::from("a"), FieldName::from("b")]),
             vec![
-                PrimitiveArray::from(vec![0u64, 1, 2]).into_array(),
+                buffer![0u64, 1, 2].into_array(),
                 BoolArray::from_iter([false, false, true]).into_array(),
             ],
             3,

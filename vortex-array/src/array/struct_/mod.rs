@@ -210,6 +210,7 @@ impl StatisticsVTable<StructArray> for StructEncoding {
 
 #[cfg(test)]
 mod test {
+    use vortex_buffer::buffer;
     use vortex_dtype::field::Field;
     use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
 
@@ -223,7 +224,7 @@ mod test {
 
     #[test]
     fn test_project() {
-        let xs = PrimitiveArray::copy_from_vec(vec![0i64, 1, 2, 3, 4], Validity::NonNullable);
+        let xs = PrimitiveArray::new(buffer![0i64, 1, 2, 3, 4], Validity::NonNullable);
         let ys = VarBinArray::from_vec(
             vec!["a", "b", "c", "d", "e"],
             DType::Utf8(Nullability::NonNullable),

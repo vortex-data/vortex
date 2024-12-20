@@ -381,6 +381,7 @@ impl Patches {
 #[cfg(test)]
 mod test {
     use rstest::{fixture, rstest};
+    use vortex_buffer::buffer;
 
     use crate::array::PrimitiveArray;
     use crate::compute::{FilterMask, SearchResult, SearchSortedSide};
@@ -392,8 +393,8 @@ mod test {
     fn test_filter() {
         let patches = Patches::new(
             100,
-            PrimitiveArray::from(vec![10u32, 11, 20]).into_array(),
-            PrimitiveArray::from(vec![100, 110, 200]).into_array(),
+            buffer![10u32, 11, 20].into_array(),
+            buffer![100, 110, 200].into_array(),
         );
 
         let filtered = patches
@@ -411,8 +412,8 @@ mod test {
     fn patches() -> Patches {
         Patches::new(
             20,
-            PrimitiveArray::from(vec![2u64, 9, 15]).into_array(),
-            PrimitiveArray::copy_from_vec(vec![33_i32, 44, 55], Validity::AllValid).into_array(),
+            buffer![2u64, 9, 15].into_array(),
+            PrimitiveArray::new(buffer![33_i32, 44, 55], Validity::AllValid).into_array(),
         )
     }
 
@@ -453,8 +454,8 @@ mod test {
     fn search_right() {
         let patches = Patches::new(
             2,
-            PrimitiveArray::from(vec![0u64]).into_array(),
-            PrimitiveArray::copy_from_vec(vec![0u8], Validity::AllValid).into_array(),
+            buffer![0u64].into_array(),
+            PrimitiveArray::new(buffer![0u8], Validity::AllValid).into_array(),
         );
 
         assert_eq!(

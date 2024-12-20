@@ -77,6 +77,7 @@ impl TakeFn<NullArray> for NullEncoding {
 
 #[cfg(test)]
 mod test {
+    use vortex_buffer::buffer;
     use vortex_dtype::DType;
 
     use crate::array::null::NullArray;
@@ -101,7 +102,8 @@ mod test {
     fn test_take_nulls() {
         let nulls = NullArray::new(10);
         let taken =
-            NullArray::try_from(take(nulls, vec![0u64, 2, 4, 6, 8].into_array()).unwrap()).unwrap();
+            NullArray::try_from(take(nulls, buffer![0u64, 2, 4, 6, 8].into_array()).unwrap())
+                .unwrap();
 
         assert_eq!(taken.len(), 5);
         assert!(matches!(

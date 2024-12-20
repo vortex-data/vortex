@@ -32,6 +32,8 @@ impl PrimitiveArray {
 
 #[cfg(test)]
 mod tests {
+    use vortex_buffer::buffer;
+
     use super::*;
     use crate::compute::slice;
     use crate::validity::Validity;
@@ -39,7 +41,7 @@ mod tests {
 
     #[test]
     fn patch_sliced() {
-        let input = PrimitiveArray::copy_from_vec(vec![2u32; 10], Validity::AllValid);
+        let input = PrimitiveArray::new(buffer![2u32; 10], Validity::AllValid);
         let sliced = slice(input, 2, 8).unwrap();
         assert_eq!(
             sliced.into_primitive().unwrap().as_slice::<u32>(),

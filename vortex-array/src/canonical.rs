@@ -537,20 +537,17 @@ mod test {
     };
     use arrow_buffer::NullBufferBuilder;
     use arrow_schema::{DataType, Field};
+    use vortex_buffer::buffer;
 
-    use crate::array::{PrimitiveArray, SparseArray, StructArray};
+    use crate::array::{SparseArray, StructArray};
     use crate::arrow::FromArrowArray;
-    use crate::validity::Validity;
     use crate::{ArrayData, IntoArrayData, IntoCanonical};
 
     #[test]
     fn test_canonicalize_nested_struct() {
         // Create a struct array with multiple internal components.
         let nested_struct_array = StructArray::from_fields(&[
-            (
-                "a",
-                PrimitiveArray::copy_from_vec(vec![1u64], Validity::NonNullable).into_array(),
-            ),
+            ("a", buffer![1u64].into_array()),
             (
                 "b",
                 StructArray::from_fields(&[(
@@ -560,10 +557,8 @@ mod test {
                     // SparseArray is not a canonical type, so converting `into_arrow()` should map
                     // this to the nearest canonical type (PrimitiveArray).
                     SparseArray::try_new(
-                        PrimitiveArray::copy_from_vec(vec![0u64; 1], Validity::NonNullable)
-                            .into_array(),
-                        PrimitiveArray::copy_from_vec(vec![100i64], Validity::NonNullable)
-                            .into_array(),
+                        buffer![0u64; 1].into_array(),
+                        buffer![100i64].into_array(),
                         1,
                         0i64.into(),
                     )
@@ -606,7 +601,7 @@ mod test {
 
         assert_eq!(
             inner_a.cloned().unwrap(),
-            ArrowPrimitiveArray::from(vec![100i64]),
+            ArrowPrimitiveArray::from_iter([100i64]),
         );
     }
 

@@ -13,7 +13,7 @@ use vortex::{Context, IntoArrayData, IntoArrayVariant};
 
 fn array_data_fixture() -> VarBinArray {
     VarBinArray::try_new(
-        PrimitiveArray::from(vec![0i32, 5i32, 10i32, 15i32, 20i32]).into_array(),
+        buffer![0i32, 5i32, 10i32, 15i32, 20i32].into_array(),
         PrimitiveArray::from(b"helloworldhelloworld".to_vec()).into_array(),
         DType::Utf8(Nullability::NonNullable),
         Validity::NonNullable,

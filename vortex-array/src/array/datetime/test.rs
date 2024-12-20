@@ -1,13 +1,12 @@
+use vortex_buffer::buffer;
 use vortex_datetime_dtype::{TemporalMetadata, TimeUnit};
 
 use crate::array::{PrimitiveArray, TemporalArray};
-use crate::validity::Validity;
 use crate::{IntoArrayData, IntoArrayVariant};
 
 macro_rules! test_temporal_roundtrip {
     ($prim:ty, $constructor:expr, $unit:expr) => {{
-        let array =
-            PrimitiveArray::copy_from_vec(vec![100 as $prim], Validity::NonNullable).into_array();
+        let array = buffer![100 as $prim].into_array();
         let temporal: TemporalArray = $constructor(array, $unit);
         let prims = temporal.temporal_values().into_primitive().unwrap();
 
@@ -114,7 +113,7 @@ test_fail_case!(test_fail_date64, i32, TemporalArray::new_date, TimeUnit::Ms);
 // We test Timestamp explicitly to avoid the macro getting too complex.
 #[test]
 fn test_timestamp() {
-    let ts = PrimitiveArray::copy_from_vec(vec![100i64], Validity::NonNullable);
+    let ts = PrimitiveArray::from_iter([100i64]);
     let ts_array = ts.into_array();
 
     for unit in [TimeUnit::S, TimeUnit::Ms, TimeUnit::Us, TimeUnit::Ns] {
@@ -134,7 +133,7 @@ fn test_timestamp() {
 #[test]
 #[should_panic]
 fn test_timestamp_fails_i32() {
-    let ts = PrimitiveArray::copy_from_vec(vec![100i32], Validity::NonNullable);
+    let ts = PrimitiveArray::from_iter([100i32]);
     let ts_array = ts.into_array();
 
     let _ = TemporalArray::new_timestamp(ts_array, TimeUnit::S, None);

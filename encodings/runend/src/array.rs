@@ -250,6 +250,7 @@ impl StatisticsVTable<RunEndArray> for RunEndEncoding {
 mod tests {
     use vortex_array::compute::scalar_at;
     use vortex_array::{ArrayDType, ArrayLen, IntoArrayData};
+    use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
     use crate::RunEndArray;
@@ -257,8 +258,8 @@ mod tests {
     #[test]
     fn new() {
         let arr = RunEndArray::try_new(
-            vec![2u32, 5, 10].into_array(),
-            vec![1i32, 2, 3].into_array(),
+            buffer![2u32, 5, 10].into_array(),
+            buffer![1i32, 2, 3].into_array(),
         )
         .unwrap();
         assert_eq!(arr.len(), 10);

@@ -125,13 +125,15 @@ impl<T> Len for SearchSortedNullsLast<'_, T> {
 
 #[cfg(test)]
 mod test {
+    use vortex_buffer::buffer;
+
     use super::*;
     use crate::compute::search_sorted;
     use crate::IntoArrayData;
 
     #[test]
     fn test_search_sorted_primitive() {
-        let values = vec![1u16, 2, 3].into_array();
+        let values = buffer![1u16, 2, 3].into_array();
 
         assert_eq!(
             search_sorted(&values, 0, SearchSortedSide::Left).unwrap(),

@@ -13,6 +13,7 @@ impl ScalarAtFn<ChunkedArray> for ChunkedEncoding {
 
 #[cfg(test)]
 mod tests {
+    use vortex_buffer::Buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
     use crate::array::{ChunkedArray, PrimitiveArray};
@@ -23,11 +24,11 @@ mod tests {
     fn empty_children_both_sides() {
         let array = ChunkedArray::try_new(
             vec![
-                PrimitiveArray::from_iter::<u64, _>([]).into_array(),
-                PrimitiveArray::from_iter::<u64, _>([]).into_array(),
+                Buffer::<u64>::empty().into_array(),
+                Buffer::<u64>::empty().into_array(),
                 PrimitiveArray::from_iter([1u64, 2]).into_array(),
-                PrimitiveArray::from_iter::<u64, _>([]).into_array(),
-                PrimitiveArray::from_iter::<u64, _>([]).into_array(),
+                Buffer::<u64>::empty().into_array(),
+                Buffer::<u64>::empty().into_array(),
             ],
             DType::Primitive(PType::U64, Nullability::NonNullable),
         )
@@ -41,8 +42,8 @@ mod tests {
         let array = ChunkedArray::try_new(
             vec![
                 PrimitiveArray::from_iter([1u64, 2]).into_array(),
-                PrimitiveArray::from_iter::<u64, _>([]).into_array(),
-                PrimitiveArray::from_iter::<u64, _>([]).into_array(),
+                Buffer::<u64>::empty().into_array(),
+                Buffer::<u64>::empty().into_array(),
                 PrimitiveArray::from_iter([3u64, 4]).into_array(),
             ],
             DType::Primitive(PType::U64, Nullability::NonNullable),
@@ -58,8 +59,8 @@ mod tests {
     fn empty_children_leading() {
         let array = ChunkedArray::try_new(
             vec![
-                PrimitiveArray::from_iter::<u64, _>([]).into_array(),
-                PrimitiveArray::from_iter::<u64, _>([]).into_array(),
+                Buffer::<u64>::empty().into_array(),
+                Buffer::<u64>::empty().into_array(),
                 PrimitiveArray::from_iter([1u64, 2]).into_array(),
                 PrimitiveArray::from_iter([3u64, 4]).into_array(),
             ],

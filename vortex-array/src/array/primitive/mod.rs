@@ -7,7 +7,7 @@ use arrow_buffer::BooleanBufferBuilder;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
-use vortex_dtype::{match_each_native_ptype, DType, NativePType, PType};
+use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
 use vortex_error::{VortexExpect as _, VortexResult};
 
 use crate::array::BoolArray;
@@ -55,6 +55,16 @@ impl PrimitiveArray {
         )
         .and_then(|data| data.try_into())
         .vortex_expect("Should not fail to create PrimitiveArray")
+    }
+
+    pub fn empty<T: NativePType>(nullability: Nullability) -> Self {
+        Self::new(
+            Buffer::<T>::empty(),
+            match nullability {
+                Nullability::NonNullable => Validity::NonNullable,
+                Nullability::Nullable => Validity::AllValid,
+            },
+        )
     }
 
     pub fn from_byte_buffer(buffer: ByteBuffer, ptype: PType, validity: Validity) -> Self {

@@ -99,7 +99,7 @@ mod tests {
 
     #[test]
     fn test_compress() {
-        let array = PrimitiveArray::from(vec![1.234f32; 1025]);
+        let array = PrimitiveArray::new(buffer![1.234f32; 1025], Validity::NonNullable);
         let encoded = alp_encode(&array).unwrap();
         assert!(encoded.patches().is_none());
         assert_eq!(
@@ -139,8 +139,8 @@ mod tests {
     #[test]
     #[allow(clippy::approx_constant)] // ALP doesn't like E
     fn test_patched_compress() {
-        let values = vec![1.234f64, 2.718, std::f64::consts::PI, 4.0];
-        let array = PrimitiveArray::from(values.clone());
+        let values = buffer![1.234f64, 2.718, f64::consts::PI, 4.0];
+        let array = PrimitiveArray::new(values.clone(), Validity::NonNullable);
         let encoded = alp_encode(&array).unwrap();
         assert!(encoded.patches().is_some());
         assert_eq!(
@@ -154,13 +154,13 @@ mod tests {
         assert_eq!(encoded.exponents(), Exponents { e: 16, f: 13 });
 
         let decoded = decompress(encoded).unwrap();
-        assert_eq!(values, decoded.as_slice::<f64>());
+        assert_eq!(values.as_slice(), decoded.as_slice::<f64>());
     }
 
     #[test]
     #[allow(clippy::approx_constant)] // ALP doesn't like E
     fn test_nullable_patched_scalar_at() {
-        let array = PrimitiveArray::from_iter([
+        let array = PrimitiveArray::from_option_iter([
             Some(1.234f64),
             Some(2.718),
             Some(std::f64::consts::PI),
@@ -185,7 +185,7 @@ mod tests {
 
     #[test]
     fn roundtrips_close_fractional() {
-        let original = buffer![195.26274f32, 195.27837, -48.815685].into();
+        let original = PrimitiveArray::from_iter([195.26274f32, 195.27837, -48.815685]);
         let alp_arr = alp_encode(&original).unwrap();
         let decompressed = alp_arr.into_primitive().unwrap();
         assert_eq!(original.as_slice::<f32>(), decompressed.as_slice::<f32>());

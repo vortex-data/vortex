@@ -213,12 +213,9 @@ mod test {
 
     #[test]
     fn search_with_patches() {
-        let bitpacked = BitPackedArray::encode(
-            &PrimitiveArray::from(vec![1u32, 2, 3, 4, 5]).into_array(),
-            2,
-        )
-        .unwrap()
-        .into_array();
+        let bitpacked = BitPackedArray::encode(&buffer![1u32, 2, 3, 4, 5].into_array(), 2)
+            .unwrap()
+            .into_array();
         assert_eq!(
             search_sorted(&bitpacked, 4, SearchSortedSide::Left).unwrap(),
             SearchResult::Found(3)
@@ -240,7 +237,7 @@ mod test {
     #[test]
     fn search_sliced() {
         let bitpacked = slice(
-            BitPackedArray::encode(PrimitiveArray::from(vec![1u32, 2, 3, 4, 5]).as_ref(), 2)
+            BitPackedArray::encode(PrimitiveArray::from_iter([1u32, 2, 3, 4, 5]).as_ref(), 2)
                 .unwrap(),
             2,
             4,

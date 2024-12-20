@@ -86,6 +86,7 @@ fn canonicalize_sparse_primitives<
 mod test {
     use arrow_buffer::BooleanBufferBuilder;
     use rstest::rstest;
+    use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_error::VortexExpect;
     use vortex_scalar::Scalar;
@@ -100,7 +101,7 @@ mod test {
     #[case(Some(false))]
     #[case(None)]
     fn test_sparse_bool(#[case] fill_value: Option<bool>) {
-        let indices = vec![0u64, 1, 7].into_array();
+        let indices = buffer![0u64, 1, 7].into_array();
         let values = bool_array_from_nullable_vec(vec![Some(true), None, Some(false)], fill_value)
             .into_array();
         let sparse_bools =
@@ -160,7 +161,7 @@ mod test {
     fn test_sparse_primitive(#[case] fill_value: Option<i32>) {
         use vortex_scalar::Scalar;
 
-        let indices = vec![0u64, 1, 7].into_array();
+        let indices = buffer![0u64, 1, 7].into_array();
         let values =
             PrimitiveArray::copy_from_nullable_vec(vec![Some(0i32), None, Some(1)]).into_array();
         let sparse_ints =
