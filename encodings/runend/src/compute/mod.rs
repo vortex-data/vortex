@@ -12,8 +12,10 @@ use vortex_array::compute::{
     binary_numeric, filter, scalar_at, slice, BinaryNumericFn, CompareFn, ComputeVTable,
     FillNullFn, FilterFn, FilterMask, InvertFn, ScalarAtFn, SliceFn, TakeFn,
 };
+use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
+use vortex_buffer::buffer_mut;
 use vortex_dtype::{match_each_unsigned_integer_ptype, NativePType};
 use vortex_error::{VortexResult, VortexUnwrap};
 use vortex_scalar::{BinaryNumericOperator, Scalar};
@@ -129,7 +131,7 @@ fn filter_run_ends<R: NativePType + AddAssign + From<bool> + AsPrimitive<u64>>(
     length: u64,
     mask: FilterMask,
 ) -> VortexResult<(PrimitiveArray, FilterMask)> {
-    let mut new_run_ends = vec![R::zero(); run_ends.len()];
+    let mut new_run_ends = buffer_mut![R::zero(); run_ends.len()];
 
     let mut start = 0u64;
     let mut j = 0;
@@ -157,7 +159,10 @@ fn filter_run_ends<R: NativePType + AddAssign + From<bool> + AsPrimitive<u64>>(
     .into();
 
     new_run_ends.truncate(j);
-    Ok((PrimitiveArray::from(new_run_ends), new_mask))
+    Ok((
+        PrimitiveArray::new(new_run_ends, Validity::NonNullable),
+        new_mask,
+    ))
 }
 
 #[cfg(test)]

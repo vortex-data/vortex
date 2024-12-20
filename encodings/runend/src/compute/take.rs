@@ -1,4 +1,3 @@
-use vortex_array::array::PrimitiveArray;
 use vortex_array::compute::{take, TakeFn};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
@@ -25,13 +24,8 @@ impl TakeFn<RunEndArray> for RunEndEncoding {
                 })
                 .collect::<VortexResult<Vec<usize>>>()?
         });
-        let physical_indices = array
-            .find_physical_indices(&usize_indices)?
-            .into_iter()
-            .map(|idx| idx as u64)
-            .collect::<Vec<_>>();
-        let physical_indices_array = PrimitiveArray::from(physical_indices).into_array();
-        take(array.values(), &physical_indices_array)
+        let physical_indices = array.find_physical_indices(&usize_indices)?.into_array();
+        take(array.values(), &physical_indices)
     }
 }
 

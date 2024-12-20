@@ -15,7 +15,7 @@ use vortex_array::{
     impl_encoding, ArrayDType as _, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
     IntoCanonical,
 };
-use vortex_buffer::ByteBuffer;
+use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
@@ -123,7 +123,11 @@ impl ValidityVTable<RoaringIntArray> for RoaringIntEncoding {
 impl IntoCanonical for RoaringIntArray {
     fn into_canonical(self) -> VortexResult<Canonical> {
         try_cast(
-            PrimitiveArray::copy_from_vec(self.owned_bitmap().to_vec(), Validity::NonNullable),
+            PrimitiveArray::new(
+                // TODO(ngates): we may well care about this copy.
+                Buffer::copy_from(self.owned_bitmap().to_vec()),
+                Validity::NonNullable,
+            ),
             self.dtype(),
         )
         .and_then(ArrayData::into_canonical)
@@ -145,8 +149,11 @@ impl StatisticsVTable<RoaringIntArray> for RoaringIntEncoding {
     fn compute_statistics(&self, array: &RoaringIntArray, stat: Stat) -> VortexResult<StatsSet> {
         // possibly faster to write an accumulator over the iterator, though not necessarily
         if stat == Stat::TrailingZeroFreq || stat == Stat::BitWidthFreq || stat == Stat::RunCount {
-            let primitive =
-                PrimitiveArray::copy_from_vec(array.owned_bitmap().to_vec(), Validity::NonNullable);
+            let primitive = PrimitiveArray::new(
+                // TODO(ngates): can we change owned_bitmap to avoid the copy?
+                Buffer::copy_from(array.owned_bitmap().to_vec()),
+                Validity::NonNullable,
+            );
             primitive.statistics().compute_all(&[
                 Stat::TrailingZeroFreq,
                 Stat::BitWidthFreq,

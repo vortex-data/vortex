@@ -39,16 +39,18 @@ where
         Validity::NonNullable => Validity::NonNullable,
         _ => Validity::AllValid,
     };
+
+    // FIXME(ngates): have ALP take a mutable result type of Default + Extend.
     let (exponents, encoded, exc_pos, exc) = T::encode(values.as_slice::<T>(), exponents);
     let len = encoded.len();
     (
         exponents,
-        PrimitiveArray::copy_from_vec(encoded, values.validity()).into_array(),
+        PrimitiveArray::new(Buffer::copy_from(encoded), values.validity()).into_array(),
         (!exc.is_empty()).then(|| {
             Patches::new(
                 len,
-                PrimitiveArray::from(exc_pos).into_array(),
-                PrimitiveArray::copy_from_vec(exc, patch_validity).into_array(),
+                Buffer::copy_from(exc_pos).into_array(),
+                PrimitiveArray::new(Buffer::copy_from(exc), patch_validity).into_array(),
             )
         }),
     )

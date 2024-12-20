@@ -39,7 +39,7 @@ impl ScalarAtFn<ByteBoolArray> for ByteBoolEncoding {
 impl SliceFn<ByteBoolArray> for ByteBoolEncoding {
     fn slice(&self, array: &ByteBoolArray, start: usize, stop: usize) -> VortexResult<ArrayData> {
         Ok(ByteBoolArray::try_new(
-            array.scalar_buffer().slice(start..stop),
+            array.buffer().slice(start..stop),
             array.validity().slice(start, stop)?,
         )?
         .into_array())
@@ -100,7 +100,7 @@ impl FillForwardFn<ByteBoolArray> for ByteBoolEncoding {
         // all valid, but we need to convert to non-nullable
         if validity.all_valid() {
             return Ok(
-                ByteBoolArray::try_new(array.scalar_buffer(), Validity::AllValid)?.into_array(),
+                ByteBoolArray::try_new(array.buffer().clone(), Validity::AllValid)?.into_array(),
             );
         }
         // all invalid => fill with default value (false)

@@ -14,6 +14,7 @@ use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
     IntoArrayVariant, IntoCanonical,
 };
+use vortex_buffer::Buffer;
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_scalar::Scalar;
@@ -98,11 +99,11 @@ impl RunEndArray {
     /// [Self::find_physical_index]
     ///
     /// See: [find_physical_index][Self::find_physical_index].
-    pub fn find_physical_indices(&self, indices: &[usize]) -> VortexResult<Vec<usize>> {
+    pub fn find_physical_indices(&self, indices: &[usize]) -> VortexResult<Buffer<u64>> {
         search_sorted_usize_many(&self.ends(), indices, SearchSortedSide::Right).map(|results| {
             results
                 .iter()
-                .map(|result| result.to_ends_index(self.ends().len()))
+                .map(|result| result.to_ends_index(self.ends().len()) as u64)
                 .collect()
         })
     }

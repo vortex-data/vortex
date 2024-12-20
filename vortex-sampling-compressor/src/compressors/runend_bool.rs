@@ -1,5 +1,5 @@
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::array::{BoolEncoding, PrimitiveArray};
+use vortex_array::array::BoolEncoding;
 use vortex_array::encoding::{Encoding, EncodingRef};
 use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_error::VortexResult;
@@ -39,7 +39,7 @@ impl EncodingCompressor for RunEndBoolCompressor {
     ) -> VortexResult<CompressedArray<'a>> {
         let bool_array = array.clone().into_bool()?;
         let (ends, start) = runend_bool_encode_slice(&bool_array.boolean_buffer());
-        let ends = downscale_integer_array(PrimitiveArray::from(ends).into_array())?;
+        let ends = downscale_integer_array(ends.into_array())?;
 
         let compressed_ends = ctx
             .auxiliary("ends")

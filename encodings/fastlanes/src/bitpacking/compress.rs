@@ -6,7 +6,7 @@ use vortex_array::stats::ArrayStatistics;
 use vortex_array::validity::{ArrayValidity, Validity};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayLen, IntoArrayData};
-use vortex_buffer::{Alignment, BufferMut, ByteBuffer};
+use vortex_buffer::{buffer, Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::{
     match_each_integer_ptype, match_each_unsigned_integer_ptype, NativePType, PType,
 };
@@ -149,8 +149,8 @@ pub fn gather_patches(
         _ => Validity::AllValid,
     };
     match_each_integer_ptype!(parray.ptype(), |$T| {
-        let mut indices: Vec<u64> = Vec::with_capacity(num_exceptions_hint);
-        let mut values: Vec<$T> = Vec::with_capacity(num_exceptions_hint);
+        let mut indices: BufferMut<u64> = BufferMut::with_capacity(num_exceptions_hint);
+        let mut values: BufferMut<$T> = BufferMut::with_capacity(num_exceptions_hint);
         for (i, v) in parray.as_slice::<$T>().iter().enumerate() {
             if (v.leading_zeros() as usize) < parray.ptype().bit_width() - bit_width as usize && parray.is_valid(i) {
                 indices.push(i as u64);
@@ -160,7 +160,7 @@ pub fn gather_patches(
         (!indices.is_empty()).then(|| Patches::new(
             parray.len(),
             indices.into_array(),
-            PrimitiveArray::from_vec(values, patch_validity).into_array(),
+            PrimitiveArray::new(values, patch_validity).into_array(),
         ))
     })
 }
@@ -171,7 +171,7 @@ pub fn unpack(array: BitPackedArray) -> VortexResult<PrimitiveArray> {
     let offset = array.offset() as usize;
     let ptype = array.ptype();
     let mut unpacked = match_each_unsigned_integer_ptype!(array.ptype().to_unsigned(), |$P| {
-        PrimitiveArray::from_vec(
+        PrimitiveArray::new(
             unpack_primitive::<$P>(array.packed_slice::<$P>(), bit_width, offset, length),
             array.validity(),
         )
@@ -194,9 +194,9 @@ pub fn unpack_primitive<T: NativePType + BitPacking>(
     bit_width: usize,
     offset: usize,
     length: usize,
-) -> Vec<T> {
+) -> Buffer<T> {
     if bit_width == 0 {
-        return vec![T::zero(); length];
+        return buffer![T::zero(); length];
     }
 
     // How many fastlanes vectors we will process.
@@ -212,7 +212,8 @@ pub fn unpack_primitive<T: NativePType + BitPacking>(
     );
 
     // Allocate a result vector.
-    let mut output = Vec::with_capacity(num_chunks * 1024 - offset);
+    // TODO(ngates): do we want to use fastlanes alignment for this buffer?
+    let mut output = BufferMut::with_capacity(num_chunks * 1024 - offset);
 
     // Handle first chunk if offset is non 0. We have to decode the chunk and skip first offset elements
     let first_full_chunk = if offset != 0 {
@@ -238,13 +239,6 @@ pub fn unpack_primitive<T: NativePType + BitPacking>(
     // The final chunk may have had padding
     output.truncate(length);
 
-    // For small vectors, the overhead of rounding up is more noticable.
-    // Shrink to fit may or may not reallocate depending on the implementation.
-    // But for very small vectors, the reallocation is cheap enough even if it does happen.
-    if output.len() < 1024 {
-        output.shrink_to_fit();
-    }
-
     assert_eq!(
         output.len(),
         length,
@@ -252,7 +246,7 @@ pub fn unpack_primitive<T: NativePType + BitPacking>(
         length,
         output.len()
     );
-    output
+    output.freeze()
 }
 
 pub fn unpack_single(array: &BitPackedArray, index: usize) -> VortexResult<Scalar> {

@@ -89,11 +89,8 @@ fn canonical_byte_view(
             let mut buffers = Vec::new();
             if scalar_bytes.len() >= BinaryView::MAX_INLINED_SIZE {
                 buffers.push(
-                    PrimitiveArray::new(
-                        Buffer::copy_from_vec(scalar_bytes.to_vec()),
-                        Validity::NonNullable,
-                    )
-                    .into_array(),
+                    PrimitiveArray::new(Buffer::copy_from(scalar_bytes), Validity::NonNullable)
+                        .into_array(),
                 );
             }
 

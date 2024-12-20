@@ -2,11 +2,11 @@ use std::cmp::{max, min};
 use std::fmt::{Display, Formatter};
 
 use arrow_buffer::BooleanBuffer;
-use itertools::Itertools;
 use vortex_array::array::{PrimitiveArray, SparseArray};
 use vortex_array::compute::{and, filter, slice, try_cast, FilterMask};
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity};
 use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_buffer::Buffer;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, VortexResult, VortexUnwrap};
@@ -189,8 +189,11 @@ impl RowMask {
 
     #[allow(deprecated)]
     fn to_indices_array(&self) -> VortexResult<ArrayData> {
-        Ok(PrimitiveArray::copy_from_vec(
-            self.mask.iter_indices()?.map(|i| i as u64).collect_vec(),
+        Ok(PrimitiveArray::new(
+            self.mask
+                .iter_indices()?
+                .map(|i| i as u64)
+                .collect::<Buffer<u64>>(),
             Validity::NonNullable,
         )
         .into_array())

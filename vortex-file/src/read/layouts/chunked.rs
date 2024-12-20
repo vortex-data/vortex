@@ -7,6 +7,7 @@ use vortex_array::array::ChunkedArray;
 use vortex_array::compute::{scalar_at, take};
 use vortex_array::stats::{stats_from_bitset_bytes, ArrayStatistics as _, Stat};
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
+use vortex_buffer::Buffer;
 use vortex_dtype::field::Field;
 use vortex_dtype::{DType, Nullability, StructDType};
 use vortex_error::{
@@ -262,8 +263,8 @@ impl ChunkedLayoutReader {
             .children_for_row_range(begin, end)
             .iter()
             .map(|x| *x as u64)
-            .collect::<Vec<_>>();
-        let chunks_prunable = take(chunk_prunability, ArrayData::from(layouts))?;
+            .collect::<Buffer<u64>>();
+        let chunks_prunable = take(chunk_prunability, layouts.into_array())?;
 
         if !chunks_prunable
             .statistics()

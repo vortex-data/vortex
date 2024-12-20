@@ -174,10 +174,10 @@ impl RDEncoder {
 
         let doubles = array.as_slice::<T>();
 
-        let mut left_parts: Vec<u16> = Vec::with_capacity(doubles.len());
-        let mut right_parts: Vec<T::UINT> = Vec::with_capacity(doubles.len());
-        let mut exceptions_pos: Vec<u64> = Vec::with_capacity(doubles.len() / 4);
-        let mut exceptions: Vec<u16> = Vec::with_capacity(doubles.len() / 4);
+        let mut left_parts: BufferMut<u16> = BufferMut::with_capacity(doubles.len());
+        let mut right_parts: BufferMut<T::UINT> = BufferMut::with_capacity(doubles.len());
+        let mut exceptions_pos: BufferMut<u64> = BufferMut::with_capacity(doubles.len() / 4);
+        let mut exceptions: BufferMut<u16> = BufferMut::with_capacity(doubles.len() / 4);
 
         // mask for right-parts
         let right_mask = T::UINT::one().shl(self.right_bit_width as _) - T::UINT::one();
@@ -205,7 +205,7 @@ impl RDEncoder {
         }
 
         // Bit-pack down the encoded left-parts array that have been dictionary encoded.
-        let primitive_left = PrimitiveArray::copy_from_vec(left_parts, array.validity());
+        let primitive_left = PrimitiveArray::new(left_parts, array.validity());
         // SAFETY: by construction, all values in left_parts can be packed to left_bit_width.
         let packed_left = unsafe {
             bitpack_encode_unchecked(primitive_left, left_bit_width as _)
@@ -213,7 +213,7 @@ impl RDEncoder {
                 .into_array()
         };
 
-        let primitive_right = PrimitiveArray::from(right_parts);
+        let primitive_right = PrimitiveArray::new(right_parts, Validity::NonNullable);
         // SAFETY: by construction, all values in right_parts are right_bit_width + leading zeros.
         let packed_right = unsafe {
             bitpack_encode_unchecked(primitive_right, self.right_bit_width as _)
@@ -228,7 +228,7 @@ impl RDEncoder {
             let max_exc_pos = exceptions_pos.last().copied().unwrap_or_default();
             let bw = bit_width!(max_exc_pos) as u8;
 
-            let exc_pos_array = PrimitiveArray::from(exceptions_pos);
+            let exc_pos_array = PrimitiveArray::new(exceptions_pos, Validity::NonNullable);
             // SAFETY: We calculate bw such that it is wide enough to hold the largest position index.
             let packed_pos = unsafe {
                 bitpack_encode_unchecked(exc_pos_array, bw)
@@ -236,9 +236,7 @@ impl RDEncoder {
                     .into_array()
             };
 
-            let exc_array =
-                PrimitiveArray::copy_from_vec(exceptions, Validity::NonNullable).into_array();
-            Patches::new(doubles.len(), packed_pos, exc_array)
+            Patches::new(doubles.len(), packed_pos, exceptions.into_array())
         });
 
         ALPRDArray::try_new(
@@ -291,12 +289,10 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
 
     // Shift the left-parts and add in the right-parts.
     Ok(
-        BufferMut::<T>::from_iter(values.into_iter().zip(right_parts.iter()).map(
-            |(left, right)| {
-                let left = <T as ALPRDFloat>::from_u16(*left);
-                T::from_bits((left << (right_bit_width as usize)) | *right)
-            },
-        ))
+        BufferMut::<T>::from_iter(values.iter().zip(right_parts.iter()).map(|(left, right)| {
+            let left = <T as ALPRDFloat>::from_u16(*left);
+            T::from_bits((left << (right_bit_width as usize)) | *right)
+        }))
         .freeze(),
     )
 }

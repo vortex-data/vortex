@@ -6,6 +6,7 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{
     ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, IntoCanonical, ToArrayData,
 };
+use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{
     match_each_integer_ptype, match_each_unsigned_integer_ptype, NativePType, PType,
 };
@@ -46,10 +47,7 @@ fn take_primitive<T: NativePType + BitPacking, I: NativePType>(
     taken_validity: Validity,
 ) -> VortexResult<PrimitiveArray> {
     if indices.is_empty() {
-        return Ok(PrimitiveArray::copy_from_vec(
-            Vec::<T>::new(),
-            taken_validity,
-        ));
+        return Ok(PrimitiveArray::new(Buffer::<T>::empty(), taken_validity));
     }
 
     let offset = array.offset() as usize;
@@ -63,7 +61,7 @@ fn take_primitive<T: NativePType + BitPacking, I: NativePType>(
             .vortex_expect("index must be expressible as usize")
     });
 
-    let mut output = Vec::with_capacity(indices.len());
+    let mut output = BufferMut::with_capacity(indices.len());
     let mut unpacked = [T::zero(); 1024];
     let chunk_len = 128 * bit_width / size_of::<T>();
 
@@ -108,7 +106,7 @@ fn take_primitive<T: NativePType + BitPacking, I: NativePType>(
         }
     });
 
-    let unpatched_taken = PrimitiveArray::copy_from_vec(output, taken_validity);
+    let unpatched_taken = PrimitiveArray::new(output, taken_validity);
     if let Some(patches) = array.patches() {
         if let Some(patches) = patches.take(&indices.to_array())? {
             return unpatched_taken.patch(patches);

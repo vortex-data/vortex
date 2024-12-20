@@ -33,7 +33,7 @@ use crate::{ArrayData, IntoArrayData};
 
 impl From<Buffer> for ArrayData {
     fn from(value: Buffer) -> Self {
-        PrimitiveArray::from_buffer(
+        PrimitiveArray::from_byte_buffer(
             ByteBuffer::from_arrow_buffer(value, Alignment::of::<u8>()),
             PType::U8,
             Validity::NonNullable,

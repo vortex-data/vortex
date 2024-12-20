@@ -49,7 +49,7 @@ pub fn sort_canonical_array(array: &ArrayData) -> ArrayData {
                     .map(|(p, v)| v.then_some(p))
                     .collect::<Vec<_>>();
                 sort_primitive_slice(&mut opt_values);
-                PrimitiveArray::from_nullable_vec(opt_values).into_array()
+                PrimitiveArray::copy_from_nullable_vec(opt_values).into_array()
             })
         }
         DType::Utf8(_) | DType::Binary(_) => {

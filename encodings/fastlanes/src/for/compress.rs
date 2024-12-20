@@ -1,4 +1,3 @@
-use itertools::Itertools;
 use num_traits::{PrimInt, WrappingAdd, WrappingSub};
 use vortex_array::array::{ConstantArray, PrimitiveArray, SparseArray};
 use vortex_array::stats::{trailing_zeros, ArrayStatistics, Stat};
@@ -28,7 +27,7 @@ pub fn for_compress(array: PrimitiveArray) -> VortexResult<FoRArray> {
             encoded_zero::<$T>(array.validity().to_logical(array.len()), nullability)
                 .vortex_expect("Failed to encode all zeroes")
         } else {
-            let unsigned_ptype = array.ptype().to_unsigned()
+            let unsigned_ptype = array.ptype().to_unsigned();
             compress_primitive::<$T>(array, shift, $T::try_from(&min)?)
                 .reinterpret_cast(unsigned_ptype)
                 .into_array()
@@ -60,14 +59,13 @@ fn encoded_zero<T: NativePType>(
         .into_array(),
         LogicalValidity::Array(a) => {
             let len = a.len();
-            let valid_indices = PrimitiveArray::from(
-                a.into_bool()?
-                    .boolean_buffer()
-                    .set_indices()
-                    .map(|i| i as u64)
-                    .collect::<Vec<_>>(),
-            )
-            .into_array();
+            let valid_indices = a
+                .into_bool()?
+                .boolean_buffer()
+                .set_indices()
+                .map(|i| i as u64)
+                .collect::<Buffer<u64>>()
+                .into_array();
             let valid_len = valid_indices.len();
             SparseArray::try_new(
                 valid_indices,
@@ -153,7 +151,10 @@ mod test {
     #[test]
     fn test_compress() {
         // Create a range offset by a million
-        let array = PrimitiveArray::from((0u32..10_000).map(|v| v + 1_000_000).collect_vec());
+        let array = PrimitiveArray::new(
+            (0u32..10_000).map(|v| v + 1_000_000).collect(),
+            Validity::NonNullable,
+        );
         let compressed = for_compress(array).unwrap();
         assert_eq!(
             u32::try_from(compressed.reference_scalar()).unwrap(),

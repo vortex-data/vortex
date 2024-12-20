@@ -8,7 +8,7 @@ macro_rules! buffer {
         $crate::Buffer::full($elem, $n)
     );
     ($($x:expr),+ $(,)?) => (
-        Buffer::from_iter([$($x),+])
+        $crate::Buffer::from_iter([$($x),+])
     );
 }
 
@@ -22,6 +22,6 @@ macro_rules! buffer_mut {
         $crate::BufferMut::full($elem, $n)
     );
     ($($x:expr),+ $(,)?) => (
-        BufferMut::from_iter([$($x),+])
+        $crate::BufferMut::from_iter([$($x),+])
     );
 }

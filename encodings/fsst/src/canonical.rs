@@ -1,10 +1,10 @@
 use arrow_array::builder::make_view;
-use arrow_buffer::Buffer;
-use vortex_array::array::{PrimitiveArray, VarBinArray, VarBinViewArray};
+use vortex_array::array::{VarBinArray, VarBinViewArray};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{
     ArrayDType, ArrayData, Canonical, IntoArrayData, IntoArrayVariant, IntoCanonical,
 };
+use vortex_buffer::Buffer;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 
@@ -28,6 +28,8 @@ impl IntoCanonical for FSSTArray {
                 .into_primitive()?;
 
             // Bulk-decompress the entire array.
+            // TODO(ngates): this returns a Vec... Can we make it return an iterator perhaps?
+            //  Or take some type that impls Default + Extend?
             let uncompressed_bytes = decompressor.decompress(compressed_bytes.as_slice::<u8>());
 
             let uncompressed_lens_array = self
@@ -36,7 +38,7 @@ impl IntoCanonical for FSSTArray {
                 .into_primitive()?;
 
             // Directly create the binary views.
-            let views: Vec<u128> = match_each_integer_ptype!(uncompressed_lens_array.ptype(), |$P| {
+            let views: Buffer<u128> = match_each_integer_ptype!(uncompressed_lens_array.ptype(), |$P| {
                 uncompressed_lens_array.as_slice::<$P>()
                     .iter()
                     .map(|&len| len as usize)
@@ -55,8 +57,9 @@ impl IntoCanonical for FSSTArray {
                     .collect()
             });
 
-            let views_array: ArrayData = Buffer::from(views).into();
-            let uncompressed_bytes_array = PrimitiveArray::from(uncompressed_bytes).into_array();
+            let views_array: ArrayData = Buffer::<u8>::from_byte_buffer(views.into_byte_buffer()).into_array();
+            // FIXME(ngates): have fsst crate return non-Vec type to avoid this copy!
+            let uncompressed_bytes_array = Buffer::copy_from(uncompressed_bytes).into_array();
 
             VarBinViewArray::try_new(
                 views_array,

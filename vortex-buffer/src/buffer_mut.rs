@@ -118,6 +118,21 @@ impl<T> BufferMut<T> {
         self.length = 0;
     }
 
+    /// Shortens the buffer, keeping the first `len` bytes and dropping the
+    /// rest.
+    ///
+    /// If `len` is greater than the buffer's current length, this has no
+    /// effect.
+    ///
+    /// Existing underlying capacity is preserved.
+    #[inline]
+    pub fn truncate(&mut self, len: usize) {
+        if len <= self.len() {
+            // SAFETY: Shrinking the buffer cannot expose uninitialized bytes.
+            unsafe { self.set_len(len) };
+        }
+    }
+
     /// Reserves capacity for at least `additional` more elements to be inserted in the buffer.
     #[inline]
     pub fn reserve(&mut self, additional: usize) {

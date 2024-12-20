@@ -72,7 +72,7 @@ impl TakeFn<VarBinViewArray> for VarBinViewEncoding {
         });
 
         // Cast views back to u8
-        let views_array = PrimitiveArray::from_buffer(
+        let views_array = PrimitiveArray::from_byte_buffer(
             ByteBuffer::from_bytes_aligned(views_buffer.into_inner(), Alignment::of::<u128>()),
             PType::U8,
             Validity::NonNullable,
@@ -106,7 +106,7 @@ impl TakeFn<VarBinViewArray> for VarBinViewEncoding {
         });
 
         // Cast views back to u8
-        let views_array = PrimitiveArray::from_buffer(
+        let views_array = PrimitiveArray::from_byte_buffer(
             views_buffer.into_byte_buffer(),
             PType::U8,
             Validity::NonNullable,

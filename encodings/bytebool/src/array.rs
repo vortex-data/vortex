@@ -53,21 +53,18 @@ impl ByteBoolArray {
         .try_into()
     }
 
+    // TODO(ngates): deprecate construction from vec
     pub fn try_from_vec<V: Into<Validity>>(data: Vec<bool>, validity: V) -> VortexResult<Self> {
         let validity = validity.into();
         // SAFETY: we are transmuting a Vec<bool> into a Vec<u8>
         let data: Vec<u8> = unsafe { std::mem::transmute(data) };
-        Self::try_new(ByteBuffer::from(data).into(), validity)
+        Self::try_new(ByteBuffer::from(data), validity)
     }
 
     pub fn buffer(&self) -> &ByteBuffer {
         self.as_ref()
             .byte_buffer()
             .vortex_expect("ByteBoolArray is missing the underlying buffer")
-    }
-
-    pub fn scalar_buffer(&self) -> Buffer<u8> {
-        Buffer::from(self.buffer().clone())
     }
 
     pub fn as_slice(&self) -> &[bool] {

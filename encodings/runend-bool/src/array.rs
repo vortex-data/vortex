@@ -148,11 +148,7 @@ impl RunEndBoolArray {
 
 pub fn encode_runend_bool(array: &BoolArray) -> VortexResult<RunEndBoolArray> {
     let (ends, start) = runend_bool_encode_slice(&array.boolean_buffer());
-    RunEndBoolArray::try_new(
-        PrimitiveArray::from(ends).into_array(),
-        start,
-        array.validity(),
-    )
+    RunEndBoolArray::try_new(ends.into_array(), start, array.validity())
 }
 
 pub(crate) fn decode_runend_bool(

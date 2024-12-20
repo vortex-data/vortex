@@ -39,7 +39,8 @@ impl Display for PrimitiveMetadata {
 }
 
 impl PrimitiveArray {
-    pub fn new<T: NativePType>(buffer: Buffer<T>, validity: Validity) -> Self {
+    pub fn new<T: NativePType>(buffer: impl Into<Buffer<T>>, validity: Validity) -> Self {
+        let buffer = buffer.into();
         let len = buffer.len();
         ArrayData::try_new_owned(
             &PrimitiveEncoding,
@@ -56,7 +57,7 @@ impl PrimitiveArray {
         .vortex_expect("Should not fail to create PrimitiveArray")
     }
 
-    pub fn from_buffer(buffer: ByteBuffer, ptype: PType, validity: Validity) -> Self {
+    pub fn from_byte_buffer(buffer: ByteBuffer, ptype: PType, validity: Validity) -> Self {
         match_each_native_ptype!(ptype, |$T| {
             Self::new::<$T>(Buffer::from_byte_buffer(buffer), validity)
         })
@@ -215,7 +216,7 @@ impl PrimitiveArray {
             "can't reinterpret cast between integers of two different widths"
         );
 
-        PrimitiveArray::from_buffer(self.byte_buffer().clone(), ptype, self.validity())
+        PrimitiveArray::from_byte_buffer(self.byte_buffer().clone(), ptype, self.validity())
     }
 }
 

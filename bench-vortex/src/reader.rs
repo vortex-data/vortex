@@ -24,6 +24,7 @@ use stream::StreamExt;
 use vortex::aliases::hash_map::HashMap;
 use vortex::array::ChunkedArray;
 use vortex::arrow::FromArrowType;
+use vortex::buffer::Buffer;
 use vortex::compress::CompressionStrategy;
 use vortex::dtype::DType;
 use vortex::error::VortexResult;
@@ -124,7 +125,7 @@ async fn take_vortex<T: VortexReadAt + Unpin + 'static>(
         ),
     )
     .with_io_dispatcher(DISPATCHER.clone())
-    .with_indices(ArrayData::from(indices.to_vec()))
+    .with_indices(Buffer::copy_from(indices).into_array())
     .build()
     .await?
     .read_all()

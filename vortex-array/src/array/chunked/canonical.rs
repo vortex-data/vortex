@@ -278,7 +278,7 @@ fn pack_views(
     }
 
     VarBinViewArray::try_new(
-        PrimitiveArray::from_buffer(views.freeze().into_byte_buffer(), PType::U8, NonNullable)
+        PrimitiveArray::from_byte_buffer(views.freeze().into_byte_buffer(), PType::U8, NonNullable)
             .into_array(),
         buffers,
         dtype.clone(),

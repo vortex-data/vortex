@@ -16,20 +16,16 @@ pub struct Buffer<T> {
 }
 
 impl<T> Buffer<T> {
-    /// Returns a new `Buffer<T>` copied from the provided `Vec<T>`.
+    /// Returns a new `Buffer<T>` copied from the provided `Vec<T>`, `&[T]`, etc.
     ///
     /// Due to our underlying usage of `bytes::Bytes`, we are unable to take zero-copy ownership
     /// of the provided `Vec<T>` while maintaining the ability to convert it back into a mutable
     /// buffer. We could fix this by forking `Bytes`, or in many other complex ways, but for now
     /// callers should prefer to construct `Buffer<T>` from a `BufferMut<T>`.
-    pub fn copy_from_vec(vec: Vec<T>) -> Self {
-        Self::copy_from_slice(&vec, Alignment::of::<T>())
-    }
-
-    /// Create a new `Buffer<T>` by copying a slice of `T`.
-    pub fn copy_from_slice(slice: &[T], alignment: Alignment) -> Self {
-        let mut buffer = BufferMut::<T>::with_capacity_aligned(slice.len(), alignment);
-        buffer.extend_from_slice(slice);
+    pub fn copy_from(values: impl AsRef<[T]>) -> Self {
+        let values = values.as_ref();
+        let mut buffer = BufferMut::<T>::with_capacity(values.len());
+        buffer.extend_from_slice(values);
         buffer.freeze()
     }
 
@@ -324,5 +320,11 @@ impl<T: Copy> IntoIterator for Buffer<T> {
             buffer: self,
             index: 0,
         }
+    }
+}
+
+impl<T> From<BufferMut<T>> for Buffer<T> {
+    fn from(value: BufferMut<T>) -> Self {
+        value.freeze()
     }
 }

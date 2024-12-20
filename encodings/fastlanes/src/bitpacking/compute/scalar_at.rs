@@ -34,7 +34,7 @@ mod test {
     #[test]
     fn invalid_patches() {
         let packed_array = BitPackedArray::try_new(
-            ByteBuffer::copy_from_slice(&[0u8; 128], Alignment::of::<u32>()),
+            ByteBuffer::copy_from(&[0u8; 128], Alignment::of::<u32>()),
             PType::U32,
             Validity::AllInvalid,
             Some(Patches::new(

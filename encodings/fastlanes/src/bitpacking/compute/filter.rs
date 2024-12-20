@@ -4,6 +4,7 @@ use vortex_array::array::PrimitiveArray;
 use vortex_array::compute::{filter, FilterFn, FilterIter, FilterMask};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{match_each_unsigned_integer_ptype, NativePType};
 use vortex_error::VortexResult;
 
@@ -46,7 +47,7 @@ fn filter_primitive<T: NativePType + BitPacking + ArrowNativeType>(
             .and_then(|a| a.into_primitive());
     }
 
-    let values: Vec<T> = match mask.iter()? {
+    let values: Buffer<T> = match mask.iter()? {
         FilterIter::Indices(indices) => {
             filter_indices(array, mask.true_count(), indices.iter().copied())
         }
@@ -57,8 +58,7 @@ fn filter_primitive<T: NativePType + BitPacking + ArrowNativeType>(
         FilterIter::SlicesIter(iter) => filter_slices(array, mask.true_count(), iter),
     };
 
-    let mut values =
-        PrimitiveArray::copy_from_vec(values, validity).reinterpret_cast(array.ptype());
+    let mut values = PrimitiveArray::new(values, validity).reinterpret_cast(array.ptype());
     if let Some(patches) = patches {
         values = values.patch(patches)?;
     }
@@ -69,10 +69,10 @@ fn filter_indices<T: NativePType + BitPacking + ArrowNativeType>(
     array: &BitPackedArray,
     indices_len: usize,
     indices: impl Iterator<Item = usize>,
-) -> Vec<T> {
+) -> Buffer<T> {
     let offset = array.offset() as usize;
     let bit_width = array.bit_width() as usize;
-    let mut values = Vec::with_capacity(indices_len);
+    let mut values = BufferMut::with_capacity(indices_len);
 
     // Some re-usable memory to store per-chunk indices.
     let mut unpacked = [T::zero(); 1024];
@@ -111,14 +111,14 @@ fn filter_indices<T: NativePType + BitPacking + ArrowNativeType>(
         }
     });
 
-    values
+    values.freeze()
 }
 
 fn filter_slices<T: NativePType + BitPacking + ArrowNativeType>(
     array: &BitPackedArray,
     indices_len: usize,
     slices: impl Iterator<Item = (usize, usize)>,
-) -> Vec<T> {
+) -> Buffer<T> {
     // TODO(ngates): do this more efficiently.
     filter_indices(
         array,
