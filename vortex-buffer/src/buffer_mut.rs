@@ -107,8 +107,11 @@ impl<T> BufferMut<T> {
     /// A separate function so we can inline the reserve call's fast path. According to `BytesMut`
     /// this has significant performance implications.
     fn reserve_allocate(&mut self, additional: usize) {
-        let mut bytes =
-            BytesMut::with_capacity(((self.len() + additional) * size_of::<T>()) + *self.alignment);
+        let new_capacity: usize = ((self.length + additional) * size_of::<T>()) + *self.alignment;
+        // Make sure we at least double in size each time we re-allocate to amortize the cost
+        let new_capacity = new_capacity.max(self.bytes.capacity() * 2);
+
+        let mut bytes = BytesMut::with_capacity(new_capacity);
         bytes.align_empty(self.alignment);
         bytes.extend_from_slice(&self.bytes);
         self.bytes = bytes;
@@ -123,6 +126,7 @@ impl<T> BufferMut<T> {
     }
 
     /// Appends a scalar to the buffer.
+    #[inline]
     pub fn push(&mut self, value: T) {
         self.reserve(1);
 
@@ -131,7 +135,12 @@ impl<T> BufferMut<T> {
         let raw_ptr = &value as *const T as *const u8;
         let bytes = unsafe { std::slice::from_raw_parts(raw_ptr, size_of::<T>()) };
 
-        self.bytes.extend_from_slice(bytes);
+        let dst = self.bytes.as_mut_ptr();
+        // SAFETY: we checked the capacity in the reserve call
+        unsafe {
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), dst, size_of::<T>());
+            self.bytes.set_len(self.bytes.len() + size_of::<T>())
+        }
         self.length += 1;
     }
 
