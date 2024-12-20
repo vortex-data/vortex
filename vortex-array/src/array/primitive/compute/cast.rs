@@ -53,13 +53,15 @@ impl CastFn<PrimitiveArray> for PrimitiveEncoding {
 
 fn cast<T: NativePType>(array: &PrimitiveArray) -> VortexResult<Buffer<T>> {
     let mut buffer = BufferMut::with_capacity(array.len());
-    for item in array.as_slice::<u16>() {
-        let item = T::from(*item).ok_or_else(
-            || vortex_err!(ComputeError: "Failed to cast {} to {:?}", item, T::PTYPE),
-        )?;
-        // SAFETY: we've pre-allocated the required capacity
-        unsafe { buffer.push_unchecked(item) }
-    }
+    match_each_native_ptype!(array.ptype(), |$P| {
+        for item in array.as_slice::<$P>() {
+            let item = T::from(*item).ok_or_else(
+                || vortex_err!(ComputeError: "Failed to cast {} to {:?}", item, T::PTYPE),
+            )?;
+            // SAFETY: we've pre-allocated the required capacity
+            unsafe { buffer.push_unchecked(item) }
+        }
+    });
     Ok(buffer.freeze())
 }
 

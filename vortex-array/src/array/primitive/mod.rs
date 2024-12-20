@@ -8,7 +8,7 @@ use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
-use vortex_error::{VortexExpect as _, VortexResult};
+use vortex_error::{vortex_panic, VortexExpect as _, VortexResult};
 
 use crate::array::BoolArray;
 use crate::encoding::ids;
@@ -123,26 +123,26 @@ impl PrimitiveArray {
     }
 
     pub fn into_buffer<T: NativePType>(self) -> Buffer<T> {
-        assert_eq!(
-            T::PTYPE,
-            self.ptype(),
-            "Attempted to get buffer of type {} from array of type {}",
-            T::PTYPE,
-            self.ptype(),
-        );
+        if T::PTYPE != self.ptype() {
+            vortex_panic!(
+                "Attempted to get buffer of type {} from array of type {}",
+                T::PTYPE,
+                self.ptype()
+            )
+        }
         Buffer::from_byte_buffer(self.into_byte_buffer())
     }
 
     /// Extract a mutable buffer from the PrimitiveArray. Attempts to do this with zero-copy
     /// if the buffer is uniquely owned, otherwise will make a copy.
     pub fn into_buffer_mut<T: NativePType>(self) -> BufferMut<T> {
-        assert_eq!(
-            T::PTYPE,
-            self.ptype(),
-            "Attempted to get buffer of type {} from array of type {}",
-            T::PTYPE,
-            self.ptype(),
-        );
+        if T::PTYPE != self.ptype() {
+            vortex_panic!(
+                "Attempted to get buffer_mut of type {} from array of type {}",
+                T::PTYPE,
+                self.ptype()
+            )
+        }
         Buffer::<T>::from_byte_buffer(self.into_byte_buffer())
             .try_into_mut()
             .unwrap_or_else(|buffer| BufferMut::<T>::copy_from(&buffer))
@@ -151,13 +151,13 @@ impl PrimitiveArray {
     /// Try to extract a mutable buffer from the PrimitiveArray with zero copy.
     #[allow(clippy::panic_in_result_fn)]
     pub fn try_into_buffer_mut<T: NativePType>(self) -> Result<BufferMut<T>, PrimitiveArray> {
-        assert_eq!(
-            T::PTYPE,
-            self.ptype(),
-            "Attempted to get buffer of type {} from array of type {}",
-            T::PTYPE,
-            self.ptype(),
-        );
+        if T::PTYPE != self.ptype() {
+            vortex_panic!(
+                "Attempted to get buffer_mut of type {} from array of type {}",
+                T::PTYPE,
+                self.ptype()
+            )
+        }
         let validity = self.validity();
         Buffer::<T>::from_byte_buffer(self.into_byte_buffer())
             .try_into_mut()
@@ -188,13 +188,13 @@ impl PrimitiveArray {
     ///
     /// NOTE: these values may be nonsense if the validity buffer indicates that the value is null.
     pub fn as_slice<T: NativePType>(&self) -> &[T] {
-        assert_eq!(
-            T::PTYPE,
-            self.ptype(),
-            "Attempted to get slice of type {} from array of type {}",
-            T::PTYPE,
-            self.ptype(),
-        );
+        if T::PTYPE != self.ptype() {
+            vortex_panic!(
+                "Attempted to get slice of type {} from array of type {}",
+                T::PTYPE,
+                self.ptype()
+            )
+        }
         let length = self.len();
         let raw_slice = self.byte_buffer().as_slice();
         debug_assert_eq!(raw_slice.len() / size_of::<T>(), length);
