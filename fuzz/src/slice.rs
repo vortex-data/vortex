@@ -94,11 +94,11 @@ fn shift_offsets<O: NativePType + ArrowNativeType>(offsets: PrimitiveArray) -> P
 }
 
 fn slice_primitive<T: NativePType + ArrowNativeType>(
-    prim: PrimitiveArray,
+    primitive_array: PrimitiveArray,
     validity: Validity,
     start: usize,
     stop: usize,
 ) -> ArrayData {
-    let vec_values = prim.into_maybe_null_slice::<T>();
+    let vec_values = primitive_array.into_maybe_null_slice::<T>();
     PrimitiveArray::from_vec(vec_values[start..stop].into(), validity).into_array()
 }

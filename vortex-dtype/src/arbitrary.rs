@@ -18,7 +18,7 @@ fn random_dtype(u: &mut Unstructured<'_>, depth: u8) -> Result<DType> {
         2 => DType::Utf8(u.arbitrary()?),
         3 => DType::Binary(u.arbitrary()?),
         4 => DType::Struct(random_struct_dtype(u, depth - 1)?, u.arbitrary()?),
-        5 => DType::List(Arc::new(u.arbitrary()?), u.arbitrary()?),
+        5 => DType::List(Arc::new(random_dtype(u, depth - 1)?), u.arbitrary()?),
         // Null,
         // Extension(ExtDType, Nullability),
         _ => unreachable!("Number out of range"),

@@ -1,9 +1,10 @@
+use arrow_buffer::ArrowNativeType;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::array::{BoolArray, PrimitiveArray, StructArray, VarBinViewArray};
 use vortex_array::validity::{ArrayValidity, Validity};
 use vortex_array::variants::StructArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
-use vortex_dtype::{match_each_native_ptype, DType};
+use vortex_dtype::{match_each_native_ptype, DType, NativePType};
 use vortex_error::VortexExpect;
 
 pub fn take_canonical_array(array: &ArrayData, indices: &[usize]) -> ArrayData {
@@ -30,16 +31,12 @@ pub fn take_canonical_array(array: &ArrayData, indices: &[usize]) -> ArrayData {
                 .vortex_expect("Validity length cannot mismatch")
                 .into_array()
         }
-        DType::Primitive(p, _) => match_each_native_ptype!(p, |$P| {
+        DType::Primitive(p, _) => {
             let primitive_array = array.clone().into_primitive().unwrap();
-            let vec_values = primitive_array
-                .maybe_null_slice::<$P>()
-                .iter()
-                .copied()
-                .collect::<Vec<_>>();
-            PrimitiveArray::from_vec(indices.iter().map(|i| vec_values[*i]).collect(),validity)
-                .into_array()
-        }),
+            match_each_native_ptype!(p, |$P| {
+                take_primitive::<$P>(primitive_array, validity, indices)
+            })
+        }
         DType::Utf8(_) | DType::Binary(_) => {
             let utf8 = array.clone().into_varbinview().unwrap();
             let values = utf8
@@ -69,4 +66,18 @@ pub fn take_canonical_array(array: &ArrayData, indices: &[usize]) -> ArrayData {
         }
         _ => unreachable!("Not a canonical array"),
     }
+}
+
+fn take_primitive<T: NativePType + ArrowNativeType>(
+    primitive_array: PrimitiveArray,
+    validity: Validity,
+    indices: &[usize],
+) -> ArrayData {
+    let vec_values = primitive_array
+        .maybe_null_slice::<T>()
+        .iter()
+        .copied()
+        .collect::<Vec<_>>();
+    PrimitiveArray::from_vec(indices.iter().map(|i| vec_values[*i]).collect(), validity)
+        .into_array()
 }
