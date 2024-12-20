@@ -57,7 +57,7 @@ impl<T> BufferMut<T> {
         T: Clone,
     {
         let mut buffer = BufferMut::<T>::with_capacity(len);
-        buffer.extend(std::iter::repeat(item).take(len));
+        buffer.push_n(item, len);
         buffer
     }
 
@@ -199,6 +199,30 @@ impl<T> BufferMut<T> {
             self.bytes.set_len(self.bytes.len() + size_of::<T>())
         }
         self.length += 1;
+    }
+
+    /// Appends n scalars to the buffer.
+    ///
+    /// This function is slightly more optimized than `extend(iter::repeat_n(item, b))`.
+    #[inline]
+    pub fn push_n(&mut self, item: T, n: usize) {
+        self.reserve(n);
+
+        // NOTE(ngates): this assumes the platform is little-endian. Currently enforced
+        //  with a flag cfg(target_endian = "little")
+        let raw_ptr = &item as *const T as *const u8;
+        let item_bytes = unsafe { std::slice::from_raw_parts(raw_ptr, size_of::<T>()) };
+
+        // SAFETY: we checked the capacity in the reserve call
+        unsafe {
+            let mut dst = self.bytes.as_mut_ptr().add(self.bytes.len());
+            for _ in 0..n {
+                std::ptr::copy_nonoverlapping(item_bytes.as_ptr(), dst, size_of::<T>());
+                dst = dst.add(size_of::<T>());
+            }
+            self.bytes.set_len(self.bytes.len() + (n * size_of::<T>()));
+        }
+        self.length += n;
     }
 
     /// Appends a slice of type `T`, growing the internal buffer as needed.

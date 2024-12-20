@@ -186,7 +186,7 @@ pub fn runend_decode_typed_primitive<T: NativePType>(
         LogicalValidity::AllValid(_) => {
             let mut decoded: BufferMut<T> = BufferMut::with_capacity(length);
             for (end, value) in run_ends.zip_eq(values) {
-                decoded.extend(std::iter::repeat_n(*value, end - decoded.len()));
+                decoded.push_n(*value, end - decoded.len());
             }
             PrimitiveArray::new(decoded, values_nullability.into())
         }
@@ -207,11 +207,11 @@ pub fn runend_decode_typed_primitive<T: NativePType>(
                 match value {
                     None => {
                         decoded_validity.append_n(end - decoded.len(), false);
-                        decoded.extend(std::iter::repeat_n(T::default(), end - decoded.len()));
+                        decoded.push_n(T::default(), end - decoded.len());
                     }
                     Some(value) => {
                         decoded_validity.append_n(end - decoded.len(), true);
-                        decoded.extend(std::iter::repeat_n(value, end - decoded.len()));
+                        decoded.push_n(value, end - decoded.len());
                     }
                 }
             }

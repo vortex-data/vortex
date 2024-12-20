@@ -1,5 +1,4 @@
 use std::any::Any;
-use std::iter;
 
 use arrow_buffer::NullBufferBuilder;
 use vortex_buffer::BufferMut;
@@ -64,12 +63,12 @@ impl<T: NativePType + 'static> ArrayBuilder for PrimitiveBuilder<T> {
     }
 
     fn append_zeros(&mut self, n: usize) {
-        self.values.extend(iter::repeat(T::default()).take(n));
+        self.values.push_n(T::default(), n);
         self.validity.append_n_non_nulls(n);
     }
 
     fn append_nulls(&mut self, n: usize) {
-        self.values.extend(iter::repeat(T::default()).take(n));
+        self.values.push_n(T::default(), n);
         self.validity.append_n_nulls(n);
     }
 
