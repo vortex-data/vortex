@@ -12,10 +12,10 @@ use crate::ZigZagArray;
 pub fn zigzag_encode(parray: PrimitiveArray) -> VortexResult<ZigZagArray> {
     let validity = parray.validity();
     let encoded = match parray.ptype() {
-        PType::I8 => zigzag_encode_primitive::<i8>(parray.maybe_null_scalar_buffer(), validity),
-        PType::I16 => zigzag_encode_primitive::<i16>(parray.maybe_null_scalar_buffer(), validity),
-        PType::I32 => zigzag_encode_primitive::<i32>(parray.maybe_null_scalar_buffer(), validity),
-        PType::I64 => zigzag_encode_primitive::<i64>(parray.maybe_null_scalar_buffer(), validity),
+        PType::I8 => zigzag_encode_primitive::<i8>(parray.into_buffer(), validity),
+        PType::I16 => zigzag_encode_primitive::<i16>(parray.into_buffer(), validity),
+        PType::I32 => zigzag_encode_primitive::<i32>(parray.into_buffer(), validity),
+        PType::I64 => zigzag_encode_primitive::<i64>(parray.into_buffer(), validity),
         _ => vortex_bail!(
             "ZigZag can only encode signed integers, got {}",
             parray.ptype()
@@ -31,9 +31,8 @@ fn zigzag_encode_primitive<T: ExternalZigZag + NativePType>(
 where
     <T as ExternalZigZag>::UInt: NativePType,
 {
-    // FIXME(ngates): we need a way to map the buffer into a T of the same size.
     PrimitiveArray::new(
-        Buffer::<T::UInt>::from_iter(values.iter().map(|v| T::encode(*v))),
+        values.into_mut().map_each(|v| T::encode(*v)).freeze(),
         validity,
     )
 }
@@ -41,10 +40,10 @@ where
 pub fn zigzag_decode(parray: PrimitiveArray) -> VortexResult<PrimitiveArray> {
     let validity = parray.validity();
     let decoded = match parray.ptype() {
-        PType::U8 => zigzag_decode_primitive::<i8>(parray.maybe_null_scalar_buffer(), validity),
-        PType::U16 => zigzag_decode_primitive::<i16>(parray.maybe_null_scalar_buffer(), validity),
-        PType::U32 => zigzag_decode_primitive::<i32>(parray.maybe_null_scalar_buffer(), validity),
-        PType::U64 => zigzag_decode_primitive::<i64>(parray.maybe_null_scalar_buffer(), validity),
+        PType::U8 => zigzag_decode_primitive::<i8>(parray.into_buffer(), validity),
+        PType::U16 => zigzag_decode_primitive::<i16>(parray.into_buffer(), validity),
+        PType::U32 => zigzag_decode_primitive::<i32>(parray.into_buffer(), validity),
+        PType::U64 => zigzag_decode_primitive::<i64>(parray.into_buffer(), validity),
         _ => vortex_bail!(
             "ZigZag can only decode unsigned integers, got {}",
             parray.ptype()
@@ -61,8 +60,7 @@ where
     <T as ExternalZigZag>::UInt: NativePType,
 {
     PrimitiveArray::new(
-        // FIXME(ngates): modify in-place
-        Buffer::<T>::from_iter(values.iter().copied().map(T::decode)),
+        values.into_mut().map_each(|v| T::decode(*v)).freeze(),
         validity,
     )
 }
