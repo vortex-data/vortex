@@ -30,6 +30,7 @@ mod alignment;
 mod arrow;
 mod buffer;
 mod buffer_mut;
+mod bytes;
 mod r#const;
 mod macros;
 mod string;

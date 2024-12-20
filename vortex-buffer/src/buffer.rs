@@ -277,12 +277,19 @@ impl<T> FromIterator<T> for Buffer<T> {
     }
 }
 
-/// Only for Vec<u8> can we zero-copy into a `Bytes` since we can use a 1-byte alignment.
+/// Only for `Buffer<u8>` can we zero-copy from a `Vec<u8>` since we can use a 1-byte alignment.
 impl From<Vec<u8>> for ByteBuffer {
     fn from(value: Vec<u8>) -> Self {
-        let length = value.len();
+        Self::from(Bytes::from(value))
+    }
+}
+
+/// Only for `Buffer<u8>` can we zero-copy from a `Bytes` since we can use a 1-byte alignment.
+impl From<Bytes> for ByteBuffer {
+    fn from(bytes: Bytes) -> Self {
+        let length = bytes.len();
         Self {
-            bytes: Bytes::from(value),
+            bytes,
             length,
             alignment: Alignment::of::<u8>(),
             _marker: Default::default(),
