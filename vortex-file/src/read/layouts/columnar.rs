@@ -528,7 +528,7 @@ mod tests {
                     .map(|s| unsafe { String::from_utf8_unchecked(s.to_vec()) })
                     .collect::<Vec<_>>())
                 .unwrap(),
-            iter::repeat("test text").take(89).collect::<Vec<_>>()
+            iter::repeat_n("test text", 89).collect::<Vec<_>>()
         );
     }
 
@@ -567,7 +567,7 @@ mod tests {
                     .map(|s| unsafe { String::from_utf8_unchecked(s.to_vec()) })
                     .collect::<Vec<_>>())
                 .unwrap(),
-            iter::repeat("test text").take(100).collect::<Vec<_>>()
+            iter::repeat_n("test text", 100).collect::<Vec<_>>()
         );
     }
 
@@ -626,7 +626,7 @@ mod tests {
                     .map(|s| unsafe { String::from_utf8_unchecked(s.to_vec()) })
                     .collect::<Vec<_>>())
                 .unwrap(),
-            iter::repeat("it").take(50).collect::<Vec<_>>()
+            iter::repeat_n("it", 50).collect::<Vec<_>>()
         );
         let prim_arr_chunk1 = arr[1]
             .as_struct_array()
@@ -653,7 +653,7 @@ mod tests {
                     .map(|s| unsafe { String::from_utf8_unchecked(s.to_vec()) })
                     .collect::<Vec<_>>())
                 .unwrap(),
-            iter::repeat("it").take(50).collect::<Vec<_>>()
+            iter::repeat_n("it", 50).collect::<Vec<_>>()
         );
     }
 }

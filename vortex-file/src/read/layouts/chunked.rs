@@ -426,7 +426,7 @@ mod tests {
         let array = PrimitiveArray::from((0..100).collect::<Vec<_>>()).into_array();
         let array_dtype = array.dtype().clone();
         let chunked =
-            ChunkedArray::try_new(iter::repeat(array).take(5).collect(), array_dtype).unwrap();
+            ChunkedArray::try_new(iter::repeat_n(array, 5).collect(), array_dtype).unwrap();
         let len = chunked.len();
         let mut byte_offsets = vec![writer.position()];
         let mut row_offsets = vec![0];
@@ -560,7 +560,7 @@ mod tests {
         let arr = arr.unwrap();
         assert_eq!(
             arr.into_primitive().unwrap().as_slice::<i32>(),
-            iter::repeat(0..100).take(5).flatten().collect::<Vec<_>>()
+            iter::repeat_n(0..100, 5).flatten().collect::<Vec<_>>()
         );
     }
 

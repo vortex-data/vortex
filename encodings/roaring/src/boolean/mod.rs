@@ -156,11 +156,8 @@ mod test {
     #[test]
     #[cfg_attr(miri, ignore)]
     pub fn trailing_false() {
-        let bool: BoolArray = BoolArray::from_iter(
-            [true, true]
-                .into_iter()
-                .chain(iter::repeat(false).take(100)),
-        );
+        let bool: BoolArray =
+            BoolArray::from_iter([true, true].into_iter().chain(iter::repeat_n(false, 100)));
         let array = RoaringBoolArray::encode(bool.into_array()).unwrap();
         let round_trip = RoaringBoolArray::try_from(array).unwrap();
         let bool_arr = round_trip.into_bool().unwrap();
