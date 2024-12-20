@@ -27,13 +27,13 @@ impl IntoCanonical for VarBinArray {
     where
         Self: Sized,
     {
+        // Specialized implementation of `into_arrow` for VarBin since it has a direct
+        // Arrow representation.
         varbin_to_arrow(&self)
     }
 
     fn into_arrow_with_data_type(self, data_type: &DataType) -> VortexResult<ArrayRef> {
-        // Specialized implementation of `into_arrow` for VarBin since it has a direct
-        // Arrow representation.
-        let array_ref = varbin_to_arrow(&self)?;
+        let array_ref = self.into_arrow()?;
 
         // Note, arrow::cast clones the array, so don't use it if unnecessary.
         Ok(match data_type {
