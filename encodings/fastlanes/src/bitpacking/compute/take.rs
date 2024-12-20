@@ -32,7 +32,7 @@ impl TakeFn<BitPackedArray> for BitPackedEncoding {
         let taken_validity = validity.take(indices)?;
 
         let indices = indices.clone().into_primitive()?;
-        let taken = match_each_unsigned_integer_ptype!(ptype, |$T| {
+        let taken = match_each_unsigned_integer_ptype!(ptype.to_unsigned(), |$T| {
             match_each_integer_ptype!(indices.ptype(), |$I| {
                 take_primitive::<$T, $I>(array, &indices, taken_validity)?
             })
@@ -106,7 +106,9 @@ fn take_primitive<T: NativePType + BitPacking, I: NativePType>(
         }
     });
 
-    let unpatched_taken = PrimitiveArray::new(output, taken_validity);
+    let unpatched_taken =
+        PrimitiveArray::new(output, taken_validity).reinterpret_cast(array.ptype());
+
     if let Some(patches) = array.patches() {
         if let Some(patches) = patches.take(&indices.to_array())? {
             return unpatched_taken.patch(patches);
