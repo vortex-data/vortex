@@ -201,10 +201,10 @@ impl IntoCanonical for ALPRDArray {
         let decoded_array = if self.is_f32() {
             PrimitiveArray::new(
                 alp_rd_decode::<f32>(
-                    left_parts.as_slice::<u16>(),
+                    left_parts.into_buffer::<u16>(),
                     left_parts_dict,
                     self.metadata().right_bit_width,
-                    right_parts.as_slice::<u32>(),
+                    right_parts.into_buffer::<u32>(),
                     self.left_parts_patches(),
                 )?,
                 self.logical_validity().into_validity(),
@@ -212,10 +212,10 @@ impl IntoCanonical for ALPRDArray {
         } else {
             PrimitiveArray::new(
                 alp_rd_decode::<f64>(
-                    left_parts.as_slice::<u16>(),
+                    left_parts.into_buffer::<u16>(),
                     left_parts_dict,
                     self.metadata().right_bit_width,
-                    right_parts.as_slice::<u64>(),
+                    right_parts.into_buffer::<u64>(),
                     self.left_parts_patches(),
                 )?,
                 self.logical_validity().into_validity(),

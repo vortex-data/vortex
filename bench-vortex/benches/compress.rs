@@ -29,7 +29,6 @@ use regex::Regex;
 use simplelog::*;
 use tokio::runtime::Runtime;
 use vortex::array::{ChunkedArray, StructArray};
-use vortex::buffer::Buffer;
 use vortex::dtype::field::Field;
 use vortex::error::VortexResult;
 use vortex::file::{LayoutContext, LayoutDeserializer, VortexFileWriter, VortexReadBuilder};

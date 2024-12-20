@@ -29,8 +29,9 @@ pub fn slice_canonical_array(array: &ArrayData, start: usize, stop: usize) -> Ar
                 .into_array()
         }
         DType::Primitive(p, _) => match_each_native_ptype!(p, |$P| {
+            // FIXME(ngates): avoid a copy?
             let primitive_array = array.clone().into_primitive().unwrap();
-            let vec_values = primitive_array.into_as_slice::<$P>();
+            let vec_values = primitive_array.as_slice::<$P>();
             PrimitiveArray::from_vec(vec_values[start..stop].into(), validity).into_array()
         }),
         DType::Utf8(_) | DType::Binary(_) => {

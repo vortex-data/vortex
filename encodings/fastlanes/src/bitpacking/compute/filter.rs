@@ -190,9 +190,8 @@ mod test {
         )
         .unwrap()
         .into_primitive()
-        .unwrap()
-        .into_as_slice::<i64>();
+        .unwrap();
 
-        assert_eq!(filtered.as_slice(), &values[250..750]);
+        assert_eq!(filtered.as_slice::<i64>(), &values[250..750]);
     }
 }
