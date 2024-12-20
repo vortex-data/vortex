@@ -3,7 +3,6 @@ use vortex_array::array::{BoolArray, PrimitiveArray, StructArray, VarBinViewArra
 use vortex_array::validity::{ArrayValidity, Validity};
 use vortex_array::variants::StructArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
-use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_native_ptype, DType};
 use vortex_error::VortexExpect;
 
@@ -30,10 +29,8 @@ pub fn slice_canonical_array(array: &ArrayData, start: usize, stop: usize) -> Ar
                 .into_array()
         }
         DType::Primitive(p, _) => match_each_native_ptype!(p, |$P| {
-            // FIXME(ngates): avoid a copy?
             let primitive_array = array.clone().into_primitive().unwrap();
-            let vec_values = primitive_array.as_slice::<$P>();
-            PrimitiveArray::new(Buffer::copy_from(&vec_values[start..stop]), validity).into_array()
+            PrimitiveArray::new(primitive_array.buffer::<$P>().slice(start..stop), validity).into_array()
         }),
         DType::Utf8(_) | DType::Binary(_) => {
             let utf8 = array.clone().into_varbinview().unwrap();
