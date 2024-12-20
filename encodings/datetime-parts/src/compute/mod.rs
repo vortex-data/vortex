@@ -124,7 +124,7 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalAr
     // We split this into separate passes because often the seconds and/org subsecond components
     // are constant.
     let mut values: BufferMut<i64> = days_buf
-        .into_buffer_mut()
+        .into_buffer_mut::<i64>()
         .map_each(|d| d * 86_400 * divisor);
 
     if let Some(seconds) = array.seconds().as_constant() {
