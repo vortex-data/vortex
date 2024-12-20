@@ -167,9 +167,9 @@ impl<T> BufferMut<T> {
     }
 
     /// Map each element of the buffer with a closure.
-    pub fn map_each<R, F>(mut self, f: F) -> BufferMut<R>
+    pub fn map_each<R, F>(mut self, mut f: F) -> BufferMut<R>
     where
-        F: Fn(&T) -> R,
+        F: FnMut(&T) -> R,
     {
         {
             let raw_src = self.as_ptr();

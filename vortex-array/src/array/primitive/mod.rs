@@ -149,7 +149,7 @@ impl PrimitiveArray {
     where
         T: NativePType,
         R: NativePType,
-        F: Fn(&T) -> R,
+        F: FnMut(&T) -> R,
     {
         let validity = self.validity();
         let buffer = match self.try_into_buffer_mut() {

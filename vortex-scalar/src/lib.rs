@@ -1,5 +1,3 @@
-extern crate core;
-
 use std::cmp::Ordering;
 use std::mem::discriminant;
 use std::sync::Arc;

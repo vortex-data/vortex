@@ -1,9 +1,10 @@
 #![allow(clippy::unwrap_used)]
 
 use std::hint::black_box;
+use std::iter;
 use std::iter::Iterator;
 
-use arrow_buffer::{ArrowNativeType, ScalarBuffer};
+use arrow_buffer::{ArrowNativeType, MutableBuffer, ScalarBuffer, ToByteSlice};
 use divan::Bencher;
 use vortex_buffer::{Buffer, BufferMut};
 
@@ -21,39 +22,87 @@ impl<T: ArrowNativeType> FromIterator<T> for ArrowBuffer<T> {
 }
 
 #[divan::bench(
-    types = [
-        ArrowBuffer<i32>,
-        Buffer<i32>,
-    ],
-    args = [1, 100, 10_00, 100_000, 10_000_000],
+    types = [ArrowBuffer<i32>,Buffer<i32>],
+    args = [1, 100, 1_000, 100_000, 10_000_000],
 )]
 fn from_iter<B: FromIterator<i32>>(n: i32) {
     B::from_iter((0..n).map(|i| i % i32::MAX));
 }
 
-#[divan::bench()]
-fn map_each_arrow(bencher: Bencher) {
-    bencher
-        .with_inputs(|| ScalarBuffer::<i32>::from_iter((0..1_000_000i32).map(|i| i % i32::MAX)))
-        .bench_local_values(|buffer| {
-            black_box(
-                buffer
-                    .into_inner()
-                    .into_vec::<i32>()
-                    .expect("Failed to convert Arrow buffer into a mut vec")
-                    .into_iter()
-                    .map(|i| (i as u32) + 1)
-                    .collect::<Vec<u32>>(),
-            );
-        });
+trait MapEach<T, R> {
+    type Output;
+
+    fn map_each<F>(self, f: F) -> Self::Output
+    where
+        F: FnMut(&T) -> R;
 }
 
-#[divan::bench()]
-fn map_each_vortex(bencher: Bencher) {
-    let buffer = BufferMut::<i32>::from_iter((0..1_000_000i32).map(|i| i % i32::MAX));
+impl<T: ArrowNativeType, R: ArrowNativeType> MapEach<T, R> for ArrowBuffer<T> {
+    type Output = ArrowBuffer<R>;
 
-    bencher.bench_local(move || {
-        let buffer = buffer.clone();
-        buffer.map_each(|i| (*i as u32) + 1)
-    });
+    fn map_each<F>(self, mut f: F) -> Self::Output
+    where
+        F: FnMut(&T) -> R,
+    {
+        ArrowBuffer(ScalarBuffer::from(
+            self.0
+                .into_inner()
+                .into_vec::<T>()
+                .expect("Failed to convert Arrow buffer into a mut vec")
+                .into_iter()
+                .map(|v| f(&v))
+                .collect::<Vec<R>>(),
+        ))
+    }
+}
+
+impl<T, R> MapEach<T, R> for BufferMut<T> {
+    type Output = BufferMut<R>;
+
+    fn map_each<F>(self, f: F) -> Self::Output
+    where
+        F: FnMut(&T) -> R,
+    {
+        BufferMut::<T>::map_each(self, f)
+    }
+}
+
+#[divan::bench(
+    types = [ArrowBuffer<i32>, BufferMut<i32>],
+    args = [1, 100, 1_000, 100_000, 10_000_000],
+)]
+fn map_each<B: MapEach<i32, u32> + FromIterator<i32>>(bencher: Bencher, n: i32) {
+    bencher
+        .with_inputs(|| B::from_iter((0..n).map(|i| i % i32::MAX)))
+        .bench_local_values(|buffer| black_box(B::map_each(buffer, |i| (*i as u32) + 1)));
+}
+
+trait Push<T> {
+    fn push(&mut self, elem: T);
+}
+
+impl<T: ToByteSlice> Push<T> for MutableBuffer {
+    fn push(&mut self, item: T) {
+        MutableBuffer::push(self, item)
+    }
+}
+
+impl<T> Push<T> for BufferMut<T> {
+    fn push(&mut self, item: T) {
+        BufferMut::push(self, item)
+    }
+}
+
+#[divan::bench(
+    types = [MutableBuffer, BufferMut<i32>],
+    args = [1, 100, 1_000, 10_000],
+)]
+fn push<B: Push<i32> + FromIterator<i32>>(bencher: Bencher, n: i32) {
+    bencher
+        .with_inputs(|| B::from_iter(iter::empty()))
+        .bench_local_values(|mut buffer| {
+            for _ in 0..n {
+                Push::push(&mut buffer, 0)
+            }
+        });
 }
