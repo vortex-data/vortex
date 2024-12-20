@@ -213,7 +213,7 @@ mod test {
 
     #[test]
     fn encode_primitive_nulls() {
-        let arr = PrimitiveArray::copy_from_nullable_vec(vec![
+        let arr = PrimitiveArray::from_option_iter([
             Some(1),
             Some(1),
             None,

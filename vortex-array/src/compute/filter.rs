@@ -360,14 +360,9 @@ mod test {
 
     #[test]
     fn test_filter() {
-        let items = PrimitiveArray::copy_from_nullable_vec(vec![
-            Some(0i32),
-            None,
-            Some(1i32),
-            None,
-            Some(2i32),
-        ])
-        .into_array();
+        let items =
+            PrimitiveArray::from_option_iter([Some(0i32), None, Some(1i32), None, Some(2i32)])
+                .into_array();
         let mask = FilterMask::try_from(
             BoolArray::from_iter([true, false, true, false, true]).into_array(),
         )

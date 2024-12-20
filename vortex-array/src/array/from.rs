@@ -28,7 +28,7 @@ macro_rules! impl_from_primitive_for_array {
 
         impl FromIterator<Option<$P>> for ArrayData {
             fn from_iter<T: IntoIterator<Item = Option<$P>>>(iter: T) -> Self {
-                PrimitiveArray::copy_from_nullable_vec(iter.into_iter().collect()).into_array()
+                PrimitiveArray::from_option_iter(iter).into_array()
             }
         }
     };

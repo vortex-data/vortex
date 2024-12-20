@@ -118,7 +118,7 @@ mod tests {
 
     #[test]
     fn test_nullable_compress() {
-        let array = PrimitiveArray::copy_from_nullable_vec(vec![None, Some(1.234f32), None]);
+        let array = PrimitiveArray::from_option_iter([None, Some(1.234f32), None]);
         let encoded = alp_encode(&array).unwrap();
         assert!(encoded.patches().is_none());
         assert_eq!(

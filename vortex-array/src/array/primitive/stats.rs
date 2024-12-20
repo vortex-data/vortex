@@ -386,8 +386,7 @@ mod test {
 
     #[test]
     fn nullable_stats_u8() {
-        let arr =
-            PrimitiveArray::copy_from_nullable_vec(vec![None, None, Some(1i32), Some(2), None]);
+        let arr = PrimitiveArray::from_option_iter([None, None, Some(1i32), Some(2), None]);
         let min: i32 = arr.statistics().compute_min().unwrap();
         let max: i32 = arr.statistics().compute_max().unwrap();
         let null_count: usize = arr.statistics().compute_null_count().unwrap();
@@ -400,7 +399,7 @@ mod test {
 
     #[test]
     fn all_null() {
-        let arr = PrimitiveArray::copy_from_nullable_vec(vec![Option::<i32>::None, None, None]);
+        let arr = PrimitiveArray::from_option_iter([Option::<i32>::None, None, None]);
         let min: Option<Scalar> = arr.statistics().compute(Stat::Min);
         let max: Option<Scalar> = arr.statistics().compute(Stat::Max);
         let null_i32 = Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable));

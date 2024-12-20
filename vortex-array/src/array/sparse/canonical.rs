@@ -162,8 +162,7 @@ mod test {
         use vortex_scalar::Scalar;
 
         let indices = buffer![0u64, 1, 7].into_array();
-        let values =
-            PrimitiveArray::copy_from_nullable_vec(vec![Some(0i32), None, Some(1)]).into_array();
+        let values = PrimitiveArray::from_option_iter([Some(0i32), None, Some(1)]).into_array();
         let sparse_ints =
             SparseArray::try_new(indices, values, 10, Scalar::from(fill_value)).unwrap();
         assert_eq!(
@@ -176,7 +175,7 @@ mod test {
             .unwrap()
             .into_primitive()
             .unwrap();
-        let expected = PrimitiveArray::copy_from_nullable_vec(vec![
+        let expected = PrimitiveArray::from_option_iter([
             Some(0i32),
             None,
             fill_value,

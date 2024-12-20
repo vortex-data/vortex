@@ -250,8 +250,8 @@ mod test {
 
     #[test]
     fn test_encode() {
-        let values = vec![Some(1), None, Some(1), None, Some(1), None, Some(u64::MAX)];
-        let uncompressed = PrimitiveArray::copy_from_nullable_vec(values);
+        let values = [Some(1), None, Some(1), None, Some(1), None, Some(u64::MAX)];
+        let uncompressed = PrimitiveArray::from_option_iter(values);
         let packed = BitPackedArray::encode(uncompressed.as_ref(), 1).unwrap();
         let expected = &[1, 0, 1, 0, 1, 0, u64::MAX];
         let results = packed
@@ -265,8 +265,8 @@ mod test {
 
     #[test]
     fn test_encode_too_wide() {
-        let values = vec![Some(1u8), None, Some(1), None, Some(1), None];
-        let uncompressed = PrimitiveArray::copy_from_nullable_vec(values);
+        let values = [Some(1u8), None, Some(1), None, Some(1), None];
+        let uncompressed = PrimitiveArray::from_option_iter(values);
         let _packed = BitPackedArray::encode(uncompressed.as_ref(), 8)
             .expect_err("Cannot pack value into the same width");
         let _packed = BitPackedArray::encode(uncompressed.as_ref(), 9)

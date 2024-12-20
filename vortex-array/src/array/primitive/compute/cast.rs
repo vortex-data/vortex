@@ -141,8 +141,7 @@ mod test {
 
     #[test]
     fn cast_array_with_nulls_to_nonnullable() {
-        let arr =
-            PrimitiveArray::copy_from_nullable_vec(vec![Some(-1i32), None, Some(10)]).into_array();
+        let arr = PrimitiveArray::from_option_iter([Some(-1i32), None, Some(10)]).into_array();
         let err = try_cast(&arr, PType::I32.into()).unwrap_err();
         let VortexError::InvalidArgument(s, _) = err else {
             unreachable!()

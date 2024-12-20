@@ -257,7 +257,7 @@ mod test {
     #[test]
     fn test_search_sorted_nulls() {
         let bitpacked = BitPackedArray::encode(
-            PrimitiveArray::copy_from_nullable_vec(vec![Some(1u64), None, None]).as_ref(),
+            PrimitiveArray::from_option_iter([Some(1u64), None, None]).as_ref(),
             2,
         )
         .unwrap();
@@ -274,8 +274,7 @@ mod test {
     #[test]
     fn test_search_sorted_nulls_not_found() {
         let bitpacked = BitPackedArray::encode(
-            PrimitiveArray::copy_from_nullable_vec(vec![Some(0u8), Some(107u8), None, None])
-                .as_ref(),
+            PrimitiveArray::from_option_iter([Some(0u8), Some(107u8), None, None]).as_ref(),
             0,
         )
         .unwrap();
@@ -293,7 +292,7 @@ mod test {
     fn test_search_sorted_many() {
         // Test search_sorted_many with an array that contains several null values.
         let bitpacked = BitPackedArray::encode(
-            PrimitiveArray::copy_from_nullable_vec(vec![
+            PrimitiveArray::from_option_iter([
                 Some(1u64),
                 Some(2u64),
                 Some(3u64),

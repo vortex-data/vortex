@@ -71,8 +71,7 @@ mod test {
     #[test]
     fn leading_none() {
         let arr =
-            PrimitiveArray::copy_from_nullable_vec(vec![None, Some(8u8), None, Some(10), None])
-                .into_array();
+            PrimitiveArray::from_option_iter([None, Some(8u8), None, Some(10), None]).into_array();
         let p = fill_forward(&arr).unwrap().into_primitive().unwrap();
         assert_eq!(p.as_slice::<u8>(), vec![0, 8, 8, 10, 10]);
         assert!(p.logical_validity().all_valid());
@@ -80,14 +79,8 @@ mod test {
 
     #[test]
     fn all_none() {
-        let arr = PrimitiveArray::copy_from_nullable_vec(vec![
-            Option::<u8>::None,
-            None,
-            None,
-            None,
-            None,
-        ])
-        .into_array();
+        let arr = PrimitiveArray::from_option_iter([Option::<u8>::None, None, None, None, None])
+            .into_array();
 
         let p = fill_forward(&arr).unwrap().into_primitive().unwrap();
         assert_eq!(p.as_slice::<u8>(), vec![0, 0, 0, 0, 0]);

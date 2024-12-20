@@ -388,8 +388,7 @@ async fn filter_string() {
     )
     .into_array();
     let ages_orig =
-        PrimitiveArray::copy_from_nullable_vec(vec![Some(25), Some(31), None, Some(57), None])
-            .into_array();
+        PrimitiveArray::from_option_iter([Some(25), Some(31), None, Some(57), None]).into_array();
     let st = StructArray::try_new(
         ["name".into(), "age".into()].into(),
         vec![names_orig, ages_orig],
@@ -437,8 +436,7 @@ async fn filter_or() {
         vec![Some("Joseph"), None, Some("Angela"), Some("Mikhail"), None],
         DType::Utf8(Nullability::Nullable),
     );
-    let ages =
-        PrimitiveArray::copy_from_nullable_vec(vec![Some(25), Some(31), None, Some(57), None]);
+    let ages = PrimitiveArray::from_option_iter([Some(25), Some(31), None, Some(57), None]);
     let st = StructArray::try_new(
         ["name".into(), "age".into()].into(),
         vec![names.to_array(), ages.to_array()],
@@ -510,8 +508,7 @@ async fn filter_and() {
         vec![Some("Joseph"), None, Some("Angela"), Some("Mikhail"), None],
         DType::Utf8(Nullability::Nullable),
     );
-    let ages =
-        PrimitiveArray::copy_from_nullable_vec(vec![Some(25), Some(31), None, Some(57), None]);
+    let ages = PrimitiveArray::from_option_iter([Some(25), Some(31), None, Some(57), None]);
     let st = StructArray::try_new(
         ["name".into(), "age".into()].into(),
         vec![names.to_array(), ages.to_array()],

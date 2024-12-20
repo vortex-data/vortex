@@ -277,7 +277,7 @@ mod test {
         reals[900] = None;
 
         // Create a new array from this.
-        let real_array = PrimitiveArray::copy_from_nullable_vec(reals.clone());
+        let real_array = PrimitiveArray::from_option_iter(reals.iter().cloned());
 
         // Pick a seed that we know will trigger lots of patches.
         let encoder: alp_rd::RDEncoder = alp_rd::RDEncoder::new(&[seed.powi(-2)]);
