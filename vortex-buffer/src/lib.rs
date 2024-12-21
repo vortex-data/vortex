@@ -43,12 +43,10 @@
 //! including `arrow_buffer::Buffer`, `arrow_buffer::ScalarBuffer<T>`, and
 //! `arrow_buffer::OffsetBuffer`.
 
-extern crate core;
-extern crate core;
-
 pub use alignment::*;
 pub use buffer::*;
 pub use buffer_mut::*;
+pub use bytes::*;
 pub use r#const::*;
 pub use string::*;
 

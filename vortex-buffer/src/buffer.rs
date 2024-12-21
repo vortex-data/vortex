@@ -2,9 +2,9 @@ use std::collections::Bound;
 use std::ops::{Deref, RangeBounds};
 
 use bytes::{Buf, Bytes};
-use vortex_error::{vortex_bail, vortex_panic, VortexExpect};
+use vortex_error::{vortex_panic, VortexExpect};
 
-use crate::{Alignment, BufferMut, ByteBuffer, ConstBuffer};
+use crate::{Alignment, BufferMut, ByteBuffer};
 
 /// An immutable buffer of items of `T`.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd)]

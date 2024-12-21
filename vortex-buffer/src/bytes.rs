@@ -2,6 +2,8 @@ use bytes::Buf;
 
 use crate::{Alignment, ByteBuffer};
 
+/// An extension to the [`Buf`] trait that provides a function `copy_to_aligned` similar to
+/// `copy_to_bytes` that allows for zero-copy aligned reads where possible.
 pub trait AlignedBuf: Buf {
     /// Copy the next `len` bytes from the buffer into a new buffer with the given alignment.
     /// This will be zero-copy wherever possible.

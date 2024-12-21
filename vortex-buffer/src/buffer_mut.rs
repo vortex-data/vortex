@@ -4,7 +4,7 @@ use bytes::buf::UninitSlice;
 use bytes::{Buf, BufMut, BytesMut};
 use vortex_error::{vortex_panic, VortexExpect};
 
-use crate::{Alignment, Buffer, ByteBuffer, ByteBufferMut};
+use crate::{Alignment, Buffer, ByteBufferMut};
 
 /// A mutable buffer that maintains a runtime-defined alignment through resizing operations.
 #[derive(Debug, PartialEq, Eq)]

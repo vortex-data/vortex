@@ -17,6 +17,7 @@ impl<T, const A: usize> ConstBuffer<T, A> {
         self.buffer
     }
 
+    /// Returns the alignment of the buffer.
     pub fn alignment(&self) -> Alignment {
         self.alignment
     }
