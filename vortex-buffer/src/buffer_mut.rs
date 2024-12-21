@@ -404,6 +404,8 @@ mod test {
             assert!(buf.capacity() >= n);
             n -= 1
         }
+
+        assert_eq!(buf.alignment(), Alignment::new(1024));
     }
 
     #[test]

@@ -337,3 +337,30 @@ impl<T> From<BufferMut<T>> for Buffer<T> {
         value.freeze()
     }
 }
+
+#[cfg(test)]
+mod test {
+    use crate::buffer;
+
+    #[test]
+    fn slice() {
+        let buf = buffer![0, 1, 2, 3, 4];
+        assert_eq!(buf.slice(1..3).as_slice(), &[1, 2]);
+        assert_eq!(buf.slice(1..=3).as_slice(), &[1, 2, 3]);
+    }
+
+    #[test]
+    fn slice_unaligned() {
+        let buf = buffer![0i32, 1, 2, 3, 4].into_byte_buffer();
+        // With a regular slice, this would panic. See [`slice_bad_alignment`].
+        buf.slice_unaligned(1..2);
+    }
+
+    #[test]
+    #[should_panic]
+    fn slice_bad_alignment() {
+        let buf = buffer![0i32, 1, 2, 3, 4].into_byte_buffer();
+        // We should only be able to slice this buffer on 4-byte (i32) boundaries.
+        buf.slice(1..2);
+    }
+}

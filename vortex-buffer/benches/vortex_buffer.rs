@@ -13,17 +13,23 @@ fn main() {
     divan::main();
 }
 
-// We wrap the Arrow Buffer so divan output distinguishes the type name.
-pub struct ArrowBuffer<T: ArrowNativeType>(pub ScalarBuffer<T>);
+// We wrap the Arrow Buffer so the Divan output has a nice name!!
+pub struct Arrow<T>(T);
 
-impl<T: ArrowNativeType> FromIterator<T> for ArrowBuffer<T> {
+impl<T: ArrowNativeType> FromIterator<T> for Arrow<ScalarBuffer<T>> {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         Self(ScalarBuffer::from_iter(iter))
     }
 }
 
+impl<T: ArrowNativeType> FromIterator<T> for Arrow<MutableBuffer> {
+    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
+        Self(MutableBuffer::from_iter(iter))
+    }
+}
+
 #[divan::bench(
-    types = [ArrowBuffer<i32>,Buffer<i32>],
+    types = [Arrow<ScalarBuffer<i32>>,Buffer<i32>],
     args = [1, 100, 1_000, 100_000, 10_000_000],
 )]
 fn from_iter<B: FromIterator<i32>>(n: i32) {
@@ -38,14 +44,14 @@ trait MapEach<T, R> {
         F: FnMut(&T) -> R;
 }
 
-impl<T: ArrowNativeType, R: ArrowNativeType> MapEach<T, R> for ArrowBuffer<T> {
-    type Output = ArrowBuffer<R>;
+impl<T: ArrowNativeType, R: ArrowNativeType> MapEach<T, R> for Arrow<ScalarBuffer<T>> {
+    type Output = Arrow<ScalarBuffer<R>>;
 
     fn map_each<F>(self, mut f: F) -> Self::Output
     where
         F: FnMut(&T) -> R,
     {
-        ArrowBuffer(ScalarBuffer::from(
+        Arrow(ScalarBuffer::from(
             self.0
                 .into_inner()
                 .into_vec::<T>()
@@ -70,7 +76,7 @@ impl<T, R> MapEach<T, R> for BufferMut<T> {
 }
 
 #[divan::bench(
-    types = [ArrowBuffer<i32>, BufferMut<i32>],
+    types = [Arrow<ScalarBuffer<i32>>, BufferMut<i32>],
     args = [1, 100, 1_000, 100_000, 10_000_000],
 )]
 fn map_each<B: MapEach<i32, u32> + FromIterator<i32>>(bencher: Bencher, n: i32) {
@@ -83,9 +89,9 @@ trait Push<T> {
     fn push(&mut self, elem: T);
 }
 
-impl<T: ToByteSlice> Push<T> for MutableBuffer {
+impl<T: ToByteSlice> Push<T> for Arrow<MutableBuffer> {
     fn push(&mut self, item: T) {
-        MutableBuffer::push(self, item)
+        MutableBuffer::push(&mut self.0, item)
     }
 }
 
@@ -96,7 +102,7 @@ impl<T> Push<T> for BufferMut<T> {
 }
 
 #[divan::bench(
-    types = [MutableBuffer, BufferMut<i32>],
+    types = [Arrow<MutableBuffer>, BufferMut<i32>],
     args = [1, 100, 1_000, 10_000],
 )]
 fn push<B: Push<i32> + FromIterator<i32>>(bencher: Bencher, n: i32) {
