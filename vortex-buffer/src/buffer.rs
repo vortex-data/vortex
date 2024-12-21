@@ -208,6 +208,9 @@ impl<T> Buffer<T> {
         if !end_byte.is_multiple_of(*alignment) {
             vortex_panic!("range end must be aligned to {:?}", alignment);
         }
+        if !alignment.is_aligned_to(Alignment::of::<T>()) {
+            vortex_panic!("Slice alignment must at least align to type T")
+        }
 
         Self {
             bytes: self.bytes.slice(begin_byte..end_byte),

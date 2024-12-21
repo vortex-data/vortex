@@ -67,10 +67,18 @@ impl<T> BufferMut<T> {
     }
 
     /// Create a mutable scalar buffer with the alignment by copying the contents of the slice.
+    ///
+    /// ## Panics
+    ///
+    /// Panics when the requested alignment isn't itself aligned to type T.
     pub fn copy_from_aligned(other: impl AsRef<[T]>, alignment: Alignment) -> Self {
+        if !alignment.is_aligned_to(Alignment::of::<T>()) {
+            vortex_panic!("Given alignment is not aligned to type T")
+        }
         let other = other.as_ref();
         let mut buffer = Self::with_capacity_aligned(other.len(), alignment);
         buffer.extend_from_slice(other);
+        debug_assert_eq!(buffer.alignment(), alignment);
         buffer
     }
 
@@ -96,8 +104,6 @@ impl<T> BufferMut<T> {
     /// Returns the capacity of the buffer.
     #[inline]
     pub fn capacity(&self) -> usize {
-        // FIXME(ngates): test whether this is correct, since capacity is not always divisble
-        //  by the size of T due to over-allocating for alignment.
         self.bytes.capacity() / size_of::<T>()
     }
 
@@ -357,6 +363,7 @@ impl<T> FromIterator<T> for BufferMut<T> {
         // We don't infer the capacity here and just let the first call to `extend` do it for us.
         let mut buffer = Self::with_capacity(0);
         buffer.extend(iter);
+        debug_assert_eq!(buffer.alignment(), Alignment::of::<T>());
         buffer
     }
 }

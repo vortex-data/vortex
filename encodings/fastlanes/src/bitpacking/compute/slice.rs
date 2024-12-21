@@ -190,7 +190,7 @@ mod test {
 
         let taken = take(
             &sliced,
-            PrimitiveArray::from_iter([101i64, 1125i64, 1138i64]).as_ref(),
+            PrimitiveArray::from_iter([101i64, 1125, 1138]).as_ref(),
         )
         .unwrap();
         assert_eq!(taken.len(), 3);
