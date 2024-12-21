@@ -1,4 +1,3 @@
-use std::mem::MaybeUninit;
 use std::ops::{Deref, DerefMut};
 
 use bytes::{Buf, BytesMut};
@@ -212,9 +211,9 @@ impl<T> BufferMut<T> {
 
         // SAFETY: we checked the capacity in the reserve call
         unsafe {
-            let mut dst = self.bytes.as_mut_ptr().add(self.bytes.len());
+            let mut dst = self.bytes.spare_capacity_mut().as_mut_ptr();
             for _ in 0..n {
-                std::ptr::copy_nonoverlapping(raw_ptr, dst, size_of::<T>());
+                std::ptr::copy_nonoverlapping(raw_ptr, dst as *mut u8, size_of::<T>());
                 dst = dst.add(size_of::<T>());
             }
             self.bytes.set_len(self.bytes.len() + (n * size_of::<T>()));
@@ -414,5 +413,21 @@ mod test {
         buf.extend([0i32, 10, 20, 30]);
         buf.extend([40, 50, 60]);
         assert_eq!(buf.as_slice(), &[0, 10, 20, 30, 40, 50, 60]);
+    }
+
+    #[test]
+    fn push() {
+        let mut buf = BufferMut::empty();
+        buf.push(1);
+        buf.push(2);
+        buf.push(3);
+        assert_eq!(buf.as_slice(), &[1, 2, 3]);
+    }
+
+    #[test]
+    fn push_n() {
+        let mut buf = BufferMut::empty();
+        buf.push_n(0, 100);
+        assert_eq!(buf.as_slice(), &[0; 100]);
     }
 }
