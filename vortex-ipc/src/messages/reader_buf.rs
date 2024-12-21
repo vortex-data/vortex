@@ -1,6 +1,4 @@
-use std::io::Read;
-
-use bytes::{Buf, BytesMut};
+use bytes::Buf;
 use vortex_error::{vortex_err, VortexResult};
 
 use crate::messages::{DecoderMessage, MessageDecoder, PollRead};
@@ -31,7 +29,7 @@ impl<B: Buf> Iterator for BufMessageReader<B> {
             }
             return match self.decoder.read_next(&mut self.buffer) {
                 Ok(PollRead::Some(msg)) => Some(Ok(msg)),
-                Ok(PollRead::NeedMore(nbytes)) => Some(Err(vortex_err!(
+                Ok(PollRead::NeedMore(_)) => Some(Err(vortex_err!(
                     "Buffer did not have sufficient bytes for an IPC message"
                 ))),
                 Err(e) => Some(Err(e)),
