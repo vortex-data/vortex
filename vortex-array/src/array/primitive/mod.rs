@@ -130,7 +130,11 @@ impl PrimitiveArray {
                 self.ptype()
             )
         }
-        Buffer::from_byte_buffer(self.into_byte_buffer())
+        Buffer::from_byte_buffer(
+            self.into_array()
+                .into_byte_buffer(0)
+                .vortex_expect("PrimitiveArray must have a buffer"),
+        )
     }
 
     /// Extract a mutable buffer from the PrimitiveArray. Attempts to do this with zero-copy
@@ -143,7 +147,7 @@ impl PrimitiveArray {
                 self.ptype()
             )
         }
-        Buffer::<T>::from_byte_buffer(self.into_byte_buffer())
+        self.into_buffer()
             .try_into_mut()
             .unwrap_or_else(|buffer| BufferMut::<T>::copy_from(&buffer))
     }

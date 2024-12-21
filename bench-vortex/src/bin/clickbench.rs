@@ -163,7 +163,9 @@ fn main() {
             for _ in 0..args.iterations {
                 let exec_duration = runtime.block_on(async {
                     let start = Instant::now();
-                    execute_query(&context, &query).await.unwrap();
+                    execute_query(&context, &query)
+                        .await
+                        .unwrap_or_else(|e| panic!("executing query {query_idx}: {e}"));
                     start.elapsed()
                 });
 

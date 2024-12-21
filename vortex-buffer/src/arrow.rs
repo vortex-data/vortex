@@ -20,14 +20,13 @@ impl<T: NativePType + ArrowNativeType> Buffer<T> {
     ///
     /// ## Panics
     ///
-    /// Panics if the Arrow buffer is not sufficiently aligned.
-    pub fn from_arrow_scalar_buffer(
-        arrow: arrow_buffer::ScalarBuffer<T>,
-        alignment: Alignment,
-    ) -> Self {
+    /// Panics if the Arrow buffer is not aligned to the requested alignment, or if the requested
+    /// alignment is not sufficient for type T.
+    pub fn from_arrow_scalar_buffer(arrow: arrow_buffer::ScalarBuffer<T>) -> Self {
         let length = arrow.len();
-
         let bytes = Bytes::from_owner(ArrowWrapper(arrow.into_inner()));
+
+        let alignment = Alignment::of::<T>();
         if bytes.as_ptr().align_offset(*alignment) != 0 {
             vortex_panic!(
                 "Arrow buffer is not aligned to the requested alignment: {}",
@@ -94,5 +93,36 @@ struct ArrowWrapper(arrow_buffer::Buffer);
 impl AsRef<[u8]> for ArrowWrapper {
     fn as_ref(&self) -> &[u8] {
         self.0.as_slice()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use arrow_buffer::{Buffer as ArrowBuffer, ScalarBuffer};
+
+    use crate::{buffer, Alignment, Buffer};
+
+    #[test]
+    fn into_arrow_buffer() {
+        let buf = buffer![0u8, 1, 2];
+        let arrow: ArrowBuffer = buf.clone().into_arrow_buffer();
+        assert_eq!(arrow.as_ref(), buf.as_slice(), "Buffer values differ");
+        assert_eq!(arrow.as_ptr(), buf.as_ptr(), "Conversion not zero-copy")
+    }
+
+    #[test]
+    fn into_arrow_scalar_buffer() {
+        let buf = buffer![0i32, 1, 2];
+        let scalar: ScalarBuffer<i32> = buf.clone().into_arrow_scalar_buffer();
+        assert_eq!(scalar.as_ref(), buf.as_slice(), "Buffer values differ");
+        assert_eq!(scalar.as_ptr(), buf.as_ptr(), "Conversion not zero-copy")
+    }
+
+    #[test]
+    fn from_arrow_buffer() {
+        let arrow = ArrowBuffer::from_vec(vec![0i32, 1, 2]);
+        let buf = Buffer::from_arrow_buffer(arrow.clone(), Alignment::of::<i32>());
+        assert_eq!(arrow.as_ref(), buf.as_slice(), "Buffer values differ");
+        assert_eq!(arrow.as_ptr(), buf.as_ptr(), "Conversion not zero-copy");
     }
 }

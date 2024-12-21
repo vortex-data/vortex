@@ -27,7 +27,9 @@ impl TakeFn<BitPackedArray> for BitPackedEncoding {
             return take(array.clone().into_canonical()?.into_primitive()?, indices);
         }
 
-        let ptype: PType = array.dtype().try_into()?;
+        // NOTE: we use the unsigned PType because all values in the BitPackedArray must
+        //  be non-negative (pre-condition of creating the BitPackedArray).
+        let ptype: PType = PType::try_from(array.dtype())?;
         let validity = array.validity();
         let taken_validity = validity.take(indices)?;
 
@@ -106,9 +108,11 @@ fn take_primitive<T: NativePType + BitPacking, I: NativePType>(
         }
     });
 
-    let unpatched_taken =
-        PrimitiveArray::new(output, taken_validity).reinterpret_cast(array.ptype());
-
+    let mut unpatched_taken = PrimitiveArray::new(output, taken_validity);
+    // Flip back to signed type before patching.
+    if array.ptype().is_signed_int() {
+        unpatched_taken = unpatched_taken.reinterpret_cast(array.ptype());
+    }
     if let Some(patches) = array.patches() {
         if let Some(patches) = patches.take(&indices.to_array())? {
             return unpatched_taken.patch(patches);
@@ -207,5 +211,20 @@ mod test {
                     values[*i as usize]
                 );
             });
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn take_signed_with_patches() {
+        let start =
+            BitPackedArray::encode(&buffer![1i32, 2i32, 3i32, 4i32].into_array(), 1).unwrap();
+
+        let taken_primitive = super::take_primitive::<u32, u64>(
+            &start,
+            &PrimitiveArray::from_iter([0u64, 1, 2, 3]),
+            Validity::NonNullable,
+        )
+        .unwrap();
+        assert_eq!(taken_primitive.as_slice::<i32>(), &[1i32, 2, 3, 4]);
     }
 }

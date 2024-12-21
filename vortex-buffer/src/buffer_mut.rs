@@ -67,10 +67,18 @@ impl<T> BufferMut<T> {
     }
 
     /// Create a mutable scalar buffer with the alignment by copying the contents of the slice.
+    ///
+    /// ## Panics
+    ///
+    /// Panics when the requested alignment isn't itself aligned to type T.
     pub fn copy_from_aligned(other: impl AsRef<[T]>, alignment: Alignment) -> Self {
+        if !alignment.is_aligned_to(Alignment::of::<T>()) {
+            vortex_panic!("Given alignment is not aligned to type T")
+        }
         let other = other.as_ref();
         let mut buffer = Self::with_capacity_aligned(other.len(), alignment);
         buffer.extend_from_slice(other);
+        debug_assert_eq!(buffer.alignment(), alignment);
         buffer
     }
 
@@ -96,8 +104,6 @@ impl<T> BufferMut<T> {
     /// Returns the capacity of the buffer.
     #[inline]
     pub fn capacity(&self) -> usize {
-        // FIXME(ngates): test whether this is correct, since capacity is not always divisble
-        //  by the size of T due to over-allocating for alignment.
         self.bytes.capacity() / size_of::<T>()
     }
 
@@ -186,16 +192,13 @@ impl<T> BufferMut<T> {
     ///
     /// The caller must ensure there is sufficient capacity in the array.
     #[inline]
-    pub unsafe fn push_unchecked(&mut self, value: T) {
-        // NOTE(ngates): this assumes the platform is little-endian. Currently enforced
-        //  with a flag cfg(target_endian = "little")
-        let raw_ptr = &value as *const T as *const u8;
-        let bytes = unsafe { std::slice::from_raw_parts(raw_ptr, size_of::<T>()) };
+    pub unsafe fn push_unchecked(&mut self, item: T) {
+        let raw_ptr = &item as *const T as *const u8;
 
         // SAFETY: we checked the capacity in the reserve call
         unsafe {
-            let dst = self.bytes.as_mut_ptr().add(self.bytes.len());
-            std::ptr::copy_nonoverlapping(bytes.as_ptr(), dst, size_of::<T>());
+            let dst = self.bytes.spare_capacity_mut().as_mut_ptr();
+            std::ptr::copy_nonoverlapping(raw_ptr, dst as *mut u8, size_of::<T>());
             self.bytes.set_len(self.bytes.len() + size_of::<T>())
         }
         self.length += 1;
@@ -211,13 +214,12 @@ impl<T> BufferMut<T> {
         // NOTE(ngates): this assumes the platform is little-endian. Currently enforced
         //  with a flag cfg(target_endian = "little")
         let raw_ptr = &item as *const T as *const u8;
-        let item_bytes = unsafe { std::slice::from_raw_parts(raw_ptr, size_of::<T>()) };
 
         // SAFETY: we checked the capacity in the reserve call
         unsafe {
-            let mut dst = self.bytes.as_mut_ptr().add(self.bytes.len());
+            let mut dst = self.bytes.spare_capacity_mut().as_mut_ptr();
             for _ in 0..n {
-                std::ptr::copy_nonoverlapping(item_bytes.as_ptr(), dst, size_of::<T>());
+                std::ptr::copy_nonoverlapping(raw_ptr, dst as *mut u8, size_of::<T>());
                 dst = dst.add(size_of::<T>());
             }
             self.bytes.set_len(self.bytes.len() + (n * size_of::<T>()));
@@ -257,19 +259,24 @@ impl<T> BufferMut<T> {
     }
 
     /// Map each element of the buffer with a closure.
-    pub fn map_each<R, F>(mut self, mut f: F) -> BufferMut<R>
+    pub fn map_each<R, F>(self, mut f: F) -> BufferMut<R>
     where
         F: FnMut(&T) -> R,
     {
-        {
-            let raw_src = self.as_ptr();
-            let src = unsafe { std::slice::from_raw_parts(raw_src, self.len()) };
-
-            let dst: &mut [R] = unsafe { std::mem::transmute(self.as_mut()) };
-            dst.iter_mut().zip(src.iter()).for_each(|(d, s)| *d = f(s));
+        assert_eq!(
+            size_of::<T>(),
+            size_of::<R>(),
+            "Size of T and R do not match"
+        );
+        let length = self.len();
+        // SAFETY: we have checked that `size_of::<T>` == `size_of::<R>`.
+        let mut buf: BufferMut<R> = unsafe { std::mem::transmute(self) };
+        for i in 0..length {
+            // We transmute _back_ the R value into the original T to invoke the closure.
+            let src: &T = unsafe { std::mem::transmute(&buf[i]) };
+            buf.as_mut_slice()[i] = f(src);
         }
-        // SAFETY: we didn't change the length of the buffer or its alignment.
-        unsafe { std::mem::transmute(self) }
+        buf
     }
 }
 
@@ -320,22 +327,22 @@ impl<T> Extend<T> for BufferMut<T> {
         let mut iterator = iter.into_iter();
 
         // Attempt to reserve enough memory up-front, although this is only a lower bound.
-        let (lower, _) = iterator.size_hint();
+        let (lower, _upper) = iterator.size_hint();
         self.reserve(lower);
 
         let item_size = size_of::<T>();
 
         let remaining = self.capacity() - self.len();
-        let mut consumed = 0;
-        let mut dst = unsafe { self.bytes.as_mut_ptr().add(self.bytes.len()) };
 
+        let mut dst = self.bytes.spare_capacity_mut().as_mut_ptr();
+
+        let mut consumed = 0;
         while consumed < remaining {
             if let Some(item) = iterator.next() {
                 // SAFETY: We know we have enough capacity to write the item.
                 unsafe {
                     let raw_ptr = &item as *const T as *const u8;
-                    let bytes = std::slice::from_raw_parts(raw_ptr, size_of::<T>());
-                    std::ptr::copy_nonoverlapping(bytes.as_ptr(), dst, item_size);
+                    std::ptr::copy_nonoverlapping(raw_ptr, dst as *mut u8, item_size);
                     dst = dst.add(item_size);
                 }
                 consumed += 1;
@@ -353,8 +360,10 @@ impl<T> Extend<T> for BufferMut<T> {
 
 impl<T> FromIterator<T> for BufferMut<T> {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
+        // We don't infer the capacity here and just let the first call to `extend` do it for us.
         let mut buffer = Self::with_capacity(0);
         buffer.extend(iter);
+        debug_assert_eq!(buffer.alignment(), Alignment::of::<T>());
         buffer
     }
 }
@@ -384,5 +393,73 @@ impl AlignedBytesMut for BytesMut {
         // safely set the length to the padding and advance the buffer to the aligned offset.
         unsafe { self.set_len(padding) };
         self.advance(padding);
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::{buffer_mut, Alignment, BufferMut};
+
+    #[test]
+    fn capacity() {
+        let mut n = 57;
+        let mut buf = BufferMut::<i32>::with_capacity_aligned(n, Alignment::new(1024));
+        assert!(buf.capacity() >= 57);
+
+        while n > 0 {
+            buf.push(0);
+            assert!(buf.capacity() >= n);
+            n -= 1
+        }
+
+        assert_eq!(buf.alignment(), Alignment::new(1024));
+    }
+
+    #[test]
+    fn from_iter() {
+        let buf = BufferMut::from_iter([0, 10, 20, 30]);
+        assert_eq!(buf.as_slice(), &[0, 10, 20, 30]);
+    }
+
+    #[test]
+    fn extend() {
+        let mut buf = BufferMut::empty();
+        buf.extend([0i32, 10, 20, 30]);
+        buf.extend([40, 50, 60]);
+        assert_eq!(buf.as_slice(), &[0, 10, 20, 30, 40, 50, 60]);
+    }
+
+    #[test]
+    fn push() {
+        let mut buf = BufferMut::empty();
+        buf.push(1);
+        buf.push(2);
+        buf.push(3);
+        assert_eq!(buf.as_slice(), &[1, 2, 3]);
+    }
+
+    #[test]
+    fn push_n() {
+        let mut buf = BufferMut::empty();
+        buf.push_n(0, 100);
+        assert_eq!(buf.as_slice(), &[0; 100]);
+    }
+
+    #[test]
+    fn as_mut() {
+        let mut buf = buffer_mut![0, 1, 2];
+        // Uses DerefMut
+        buf[1] = 0;
+        // Uses as_mut
+        buf.as_mut()[2] = 0;
+        assert_eq!(buf.as_slice(), &[0, 0, 0]);
+    }
+
+    #[test]
+    fn map_each() {
+        let buf = buffer_mut![0i32, 1, 2];
+        // Add one, and cast to an unsigned u32 in the same closure
+        let buf = buf.map_each(|i| (i + 1) as u32);
+        assert_eq!(buf.as_slice(), &[1u32, 2, 3]);
     }
 }

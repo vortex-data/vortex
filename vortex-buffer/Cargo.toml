@@ -14,6 +14,7 @@ categories = { workspace = true }
 readme = "README.md"
 
 [features]
+default = ["arrow"]
 arrow = ["dep:arrow-buffer"]
 
 [dependencies]

@@ -54,7 +54,7 @@ where
 {
     fn from(value: ScalarBuffer<T>) -> Self {
         PrimitiveArray::new(
-            vortex_buffer::Buffer::<T>::from_arrow_scalar_buffer(value, Alignment::of::<T>()),
+            vortex_buffer::Buffer::<T>::from_arrow_scalar_buffer(value),
             Validity::NonNullable,
         )
         .into_array()
@@ -67,10 +67,7 @@ where
 {
     fn from(value: OffsetBuffer<O>) -> Self {
         let primitive = PrimitiveArray::new(
-            vortex_buffer::Buffer::from_arrow_scalar_buffer(
-                value.into_inner(),
-                Alignment::of::<O>(),
-            ),
+            vortex_buffer::Buffer::from_arrow_scalar_buffer(value.into_inner()),
             Validity::NonNullable,
         );
         primitive.statistics().set(Stat::IsSorted, true.into());
@@ -87,10 +84,7 @@ where
 {
     fn from_arrow(value: &ArrowPrimitiveArray<T>, nullable: bool) -> Self {
         let arr = PrimitiveArray::new(
-            vortex_buffer::Buffer::from_arrow_scalar_buffer(
-                value.values().clone(),
-                Alignment::of::<T>(),
-            ),
+            vortex_buffer::Buffer::from_arrow_scalar_buffer(value.values().clone()),
             nulls(value.nulls(), nullable),
         );
 
