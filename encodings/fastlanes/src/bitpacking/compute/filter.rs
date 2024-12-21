@@ -183,12 +183,12 @@ mod test {
         // Elements 0..=499 are negative integers (patches)
         // Element 500 = 0 (packed)
         // Elements 501..999 are positive integers (packed)
-        let values = (-500..500).collect::<Buffer<i64>>();
+        let values: Buffer<i64> = (-500..500).collect();
         let unpacked = PrimitiveArray::new(values.clone(), Validity::NonNullable);
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 9).unwrap();
         let filtered = filter(
             bitpacked.as_ref(),
-            FilterMask::from_indices(values.len(), 250..750),
+            FilterMask::from_indices(values.len(), 0..500),
         )
         .unwrap()
         .into_primitive()

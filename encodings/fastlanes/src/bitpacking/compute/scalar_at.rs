@@ -31,18 +31,21 @@ mod test {
 
     #[test]
     fn invalid_patches() {
-        let packed_array = BitPackedArray::try_new(
-            ByteBuffer::copy_from_aligned([0u8; 128], Alignment::of::<u32>()),
-            PType::U32,
-            Validity::AllInvalid,
-            Some(Patches::new(
+        // SAFETY: using unsigned PType
+        let packed_array = unsafe {
+            BitPackedArray::new_unchecked(
+                ByteBuffer::copy_from_aligned([0u8; 128], Alignment::of::<u32>()),
+                PType::U32,
+                Validity::AllInvalid,
+                Some(Patches::new(
+                    8,
+                    buffer![1u32].into_array(),
+                    PrimitiveArray::new(buffer![999u32], Validity::AllValid).into_array(),
+                )),
+                1,
                 8,
-                buffer![1u32].into_array(),
-                PrimitiveArray::new(buffer![999u32], Validity::AllValid).into_array(),
-            )),
-            1,
-            8,
-        )
+            )
+        }
         .unwrap()
         .into_array();
         assert_eq!(

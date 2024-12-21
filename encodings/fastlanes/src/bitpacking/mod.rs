@@ -42,7 +42,24 @@ impl BitPackedArray {
     /// Create a new bitpacked array using a buffer of packed data.
     ///
     /// The packed data should be interpreted as a sequence of values with size `bit_width`.
-    pub fn try_new(
+    ///
+    /// # Errors
+    ///
+    /// This method returns errors if any of the metadata is inconsistent, for example the packed
+    /// buffer provided does not have the right size according to the supplied length and target
+    /// PType.
+    ///
+    /// # Safety
+    ///
+    /// For signed arrays, it is the caller's responsibility to ensure that there are no values
+    /// that can be interpreted once unpacked to the provided PType.
+    ///
+    /// This invariant is upheld by the compressor, but callers must ensure this if they wish to
+    /// construct a new `BitPackedArray` from parts.
+    ///
+    /// See also the [`encode`][Self::encode] method on this type for a safe path to create a new
+    /// bit-packed array.
+    pub unsafe fn new_unchecked(
         packed: ByteBuffer,
         ptype: PType,
         validity: Validity,
@@ -50,10 +67,16 @@ impl BitPackedArray {
         bit_width: u8,
         len: usize,
     ) -> VortexResult<Self> {
-        Self::try_new_from_offset(packed, ptype, validity, patches, bit_width, len, 0)
+        // SAFETY: checked by caller.
+        unsafe {
+            Self::new_unchecked_with_offset(packed, ptype, validity, patches, bit_width, len, 0)
+        }
     }
 
-    pub(crate) fn try_new_from_offset(
+    /// An unsafe constructor for a `BitPackedArray` that also specifies a slicing offset.
+    ///
+    /// See also [`new_unchecked`][Self::new_unchecked].
+    pub(crate) unsafe fn new_unchecked_with_offset(
         packed: ByteBuffer,
         ptype: PType,
         validity: Validity,
@@ -75,6 +98,17 @@ impl BitPackedArray {
                 "Offset must be less than full block, i.e. 1024, got {}",
                 offset
             );
+        }
+
+        if let Some(ref patches) = patches {
+            // Ensure that array and patches have same PType
+            if !patches.dtype().eq_ignore_nullability(ptype.into()) {
+                vortex_bail!(
+                    "Patches DType {} does not match BitPackedArray dtype {}",
+                    patches.dtype().as_nonnullable(),
+                    ptype
+                )
+            }
         }
 
         // expected packed size is in bytes
@@ -186,6 +220,17 @@ impl BitPackedArray {
         })
     }
 
+    /// Bit-pack an array of primitive integers down to the target bit-width using the FastLanes
+    /// SIMD-accelerated packing kernels.
+    ///
+    /// # Errors
+    ///
+    /// If the provided array is not an integer type, an error will be returned.
+    ///
+    /// If the provided array contains negative values, an error will be returned.
+    ///
+    /// If the requested bit-width for packing is larger than the array's native width, an
+    /// error will be returned.
     pub fn encode(array: &ArrayData, bit_width: u8) -> VortexResult<Self> {
         if let Ok(parray) = PrimitiveArray::try_from(array.clone()) {
             bitpack_encode(parray, bit_width)
@@ -194,8 +239,11 @@ impl BitPackedArray {
         }
     }
 
+    /// Calculate the maximum value that **can** be contained by this array, given its bit-width.
+    ///
+    /// Note that this value need not actually be present in the array.
     #[inline]
-    pub fn max_packed_value(&self) -> usize {
+    fn max_packed_value(&self) -> usize {
         (1 << self.bit_width()) - 1
     }
 }
@@ -243,8 +291,9 @@ impl PrimitiveArrayTrait for BitPackedArray {}
 
 #[cfg(test)]
 mod test {
+    use itertools::Itertools;
     use vortex_array::array::PrimitiveArray;
-    use vortex_array::{IntoArrayData, IntoArrayVariant};
+    use vortex_array::{IntoArrayData, IntoArrayVariant, IntoCanonical};
 
     use crate::BitPackedArray;
 
@@ -271,5 +320,23 @@ mod test {
             .expect_err("Cannot pack value into the same width");
         let _packed = BitPackedArray::encode(uncompressed.as_ref(), 9)
             .expect_err("Cannot pack value into larger width");
+    }
+
+    #[test]
+    fn signed_with_patches() {
+        let values = (0i32..=512).collect_vec();
+        let parray = PrimitiveArray::from(values.clone()).into_array();
+
+        let packed_with_patches = BitPackedArray::encode(&parray, 9).unwrap();
+        assert!(packed_with_patches.patches().is_some());
+        assert_eq!(
+            packed_with_patches
+                .into_canonical()
+                .unwrap()
+                .into_primitive()
+                .unwrap()
+                .into_maybe_null_slice::<i32>(),
+            values
+        );
     }
 }

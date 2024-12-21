@@ -54,7 +54,7 @@ fn filter_select_var_bin_by_slice_primitive_offset<O>(
     selection_count: usize,
 ) -> VortexResult<VarBinArray>
 where
-    O: NativePType + PrimInt + 'static + Zero,
+    O: NativePType + PrimInt + Zero,
     usize: AsPrimitive<O>,
 {
     let logical_validity = validity.to_logical(offsets.len() - 1);
@@ -107,7 +107,7 @@ fn update_non_nullable_slice<O>(
     start: usize,
     end: usize,
 ) where
-    O: NativePType + PrimInt + 'static + Zero + Copy,
+    O: NativePType + PrimInt + Zero + Copy,
     usize: AsPrimitive<O>,
 {
     let new_data = {

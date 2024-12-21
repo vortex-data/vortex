@@ -233,8 +233,7 @@ mod tests {
         let list_array = list.into_list().unwrap();
 
         assert_eq!(list_array.elements_at(0).unwrap().len(), 3);
-        assert!(list_array.elements_at(1).unwrap().as_null_array().is_some());
-        assert_eq!(list_array.elements_at(1).unwrap().len(), 1);
+        assert_eq!(list_array.elements_at(1).unwrap().len(), 0);
         assert_eq!(list_array.elements_at(2).unwrap().len(), 3);
     }
 }

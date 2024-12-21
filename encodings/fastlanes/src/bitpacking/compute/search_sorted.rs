@@ -13,7 +13,7 @@ use vortex_array::stats::ArrayStatistics;
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayLen};
-use vortex_dtype::{match_each_unsigned_integer_ptype, NativePType};
+use vortex_dtype::{match_each_unsigned_integer_ptype, DType, NativePType};
 use vortex_error::{VortexError, VortexExpect as _, VortexResult};
 use vortex_scalar::Scalar;
 
@@ -26,7 +26,9 @@ impl SearchSortedFn<BitPackedArray> for BitPackedEncoding {
         value: &Scalar,
         side: SearchSortedSide,
     ) -> VortexResult<SearchResult> {
-        match_each_unsigned_integer_ptype!(array.ptype(), |$P| {
+        // NOTE: it is a precondition of BitPackedArray that all values must be >= 0, thus it is
+        //  always safe to promote to unsigned type without loss of ordering of the values.
+        match_each_unsigned_integer_ptype!(array.ptype().to_unsigned(), |$P| {
             search_sorted_typed::<$P>(array, value, side)
         })
     }
@@ -59,7 +61,7 @@ impl SearchSortedUsizeFn<BitPackedArray> for BitPackedEncoding {
         value: usize,
         side: SearchSortedSide,
     ) -> VortexResult<SearchResult> {
-        match_each_unsigned_integer_ptype!(array.ptype(), |$P| {
+        match_each_unsigned_integer_ptype!(array.ptype().to_unsigned(), |$P| {
             // NOTE: conversion may truncate silently.
             if let Some(pvalue) = num_traits::cast::<usize, $P>(value) {
                 search_sorted_native(array, pvalue, side)
@@ -77,7 +79,7 @@ impl SearchSortedUsizeFn<BitPackedArray> for BitPackedEncoding {
         values: &[usize],
         side: SearchSortedSide,
     ) -> VortexResult<Vec<SearchResult>> {
-        match_each_unsigned_integer_ptype!(array.ptype(), |$P| {
+        match_each_unsigned_integer_ptype!(array.ptype().to_unsigned(), |$P| {
             let searcher = BitPackedSearch::<'_, $P>::new(array);
 
             values
@@ -104,7 +106,13 @@ where
         + AsPrimitive<usize>
         + AsPrimitive<u64>,
 {
-    let native_value: T = value.cast(array.dtype())?.try_into()?;
+    // NOTE: we use the unsigned variant of the BitPackedArray DType so that we can use it
+    //  in the BitPackedSearch. We need a type that impls fastlanes::BitPack, and it is a
+    //  precondition for BitPackedArray that all values must be non-negative, so promotion
+    //  is cheap and safe.
+    let native_value: T = value
+        .cast(&DType::from(array.ptype().to_unsigned()))?
+        .try_into()?;
     search_sorted_native(array, native_value, side)
 }
 

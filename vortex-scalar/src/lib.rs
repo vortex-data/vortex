@@ -241,6 +241,17 @@ where
     }
 }
 
+impl From<PrimitiveScalar<'_>> for Scalar {
+    fn from(pscalar: PrimitiveScalar) -> Self {
+        let dtype = pscalar.dtype().clone();
+        let value = pscalar
+            .pvalue()
+            .map(|pvalue| ScalarValue(InnerScalarValue::Primitive(pvalue)))
+            .unwrap_or_else(|| ScalarValue(InnerScalarValue::Null));
+        Self::new(dtype, value)
+    }
+}
+
 macro_rules! from_vec_for_scalar {
     ($T:ty) => {
         impl From<Vec<$T>> for Scalar {

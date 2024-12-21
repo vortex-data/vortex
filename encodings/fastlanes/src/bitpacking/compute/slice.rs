@@ -18,19 +18,23 @@ impl SliceFn<BitPackedArray> for BitPackedEncoding {
         let encoded_start = (block_start / 8) * array.bit_width() as usize;
         let encoded_stop = (block_stop / 8) * array.bit_width() as usize;
         // slice the buffer using the encoded start/stop values
-        BitPackedArray::try_new_from_offset(
-            array.packed().slice(encoded_start..encoded_stop),
-            array.ptype(),
-            array.validity().slice(start, stop)?,
-            array
-                .patches()
-                .map(|p| p.slice(start, stop))
-                .transpose()?
-                .flatten(),
-            array.bit_width(),
-            stop - start,
-            offset as u16,
-        )
+
+        // SAFETY: the invariants of the original BitPackedArray are preserved when slicing.
+        unsafe {
+            BitPackedArray::new_unchecked_with_offset(
+                array.packed().slice(encoded_start..encoded_stop),
+                array.ptype(),
+                array.validity().slice(start, stop)?,
+                array
+                    .patches()
+                    .map(|p| p.slice(start, stop))
+                    .transpose()?
+                    .flatten(),
+                array.bit_width(),
+                stop - start,
+                offset as u16,
+            )
+        }
         .map(|a| a.into_array())
     }
 }
