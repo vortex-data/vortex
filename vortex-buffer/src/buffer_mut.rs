@@ -253,19 +253,24 @@ impl<T> BufferMut<T> {
     }
 
     /// Map each element of the buffer with a closure.
-    pub fn map_each<R, F>(mut self, mut f: F) -> BufferMut<R>
+    pub fn map_each<R, F>(self, mut f: F) -> BufferMut<R>
     where
         F: FnMut(&T) -> R,
     {
-        {
-            let raw_src = self.as_ptr();
-            let src = unsafe { std::slice::from_raw_parts(raw_src, self.len()) };
-
-            let dst: &mut [R] = unsafe { std::mem::transmute(self.as_mut()) };
-            dst.iter_mut().zip(src.iter()).for_each(|(d, s)| *d = f(s));
+        assert_eq!(
+            size_of::<T>(),
+            size_of::<R>(),
+            "Size of T and R do not match"
+        );
+        let length = self.len();
+        // SAFETY: we have checked that `size_of::<T>` == `size_of::<R>`.
+        let mut buf: BufferMut<R> = unsafe { std::mem::transmute(self) };
+        for i in 0..length {
+            // We transmute _back_ the R value into the original T to invoke the closure.
+            let src: &T = unsafe { std::mem::transmute(&buf[i]) };
+            buf.as_mut_slice()[i] = f(src);
         }
-        // SAFETY: we didn't change the length of the buffer or its alignment.
-        unsafe { std::mem::transmute(self) }
+        buf
     }
 }
 
@@ -386,7 +391,7 @@ impl AlignedBytesMut for BytesMut {
 
 #[cfg(test)]
 mod test {
-    use crate::{Alignment, BufferMut};
+    use crate::{buffer_mut, Alignment, BufferMut};
 
     #[test]
     fn capacity() {
@@ -429,5 +434,23 @@ mod test {
         let mut buf = BufferMut::empty();
         buf.push_n(0, 100);
         assert_eq!(buf.as_slice(), &[0; 100]);
+    }
+
+    #[test]
+    fn as_mut() {
+        let mut buf = buffer_mut![0, 1, 2];
+        // Uses DerefMut
+        buf[1] = 0;
+        // Uses as_mut
+        buf.as_mut()[2] = 0;
+        assert_eq!(buf.as_slice(), &[0, 0, 0]);
+    }
+
+    #[test]
+    fn map_each() {
+        let buf = buffer_mut![0i32, 1, 2];
+        // Add one, and cast to an unsigned u32 in the same closure
+        let buf = buf.map_each(|i| (i + 1) as u32);
+        assert_eq!(buf.as_slice(), &[1u32, 2, 3]);
     }
 }

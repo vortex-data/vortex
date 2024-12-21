@@ -43,6 +43,8 @@
 //! including `arrow_buffer::Buffer`, `arrow_buffer::ScalarBuffer<T>`, and
 //! `arrow_buffer::OffsetBuffer`.
 
+extern crate core;
+
 pub use alignment::*;
 pub use buffer::*;
 pub use buffer_mut::*;
