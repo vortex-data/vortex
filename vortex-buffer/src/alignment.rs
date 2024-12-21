@@ -25,6 +25,16 @@ impl Alignment {
     }
 
     /// Create an alignment from the alignment of a type `T`.
+    ///
+    /// ## Example
+    ///
+    /// ```
+    /// use vortex_buffer::Alignment;
+    ///
+    /// assert_eq!(Alignment::new(4), Alignment::of::<i32>());
+    /// assert_eq!(Alignment::new(8), Alignment::of::<i64>());
+    /// assert_eq!(Alignment::new(16), Alignment::of::<u128>());
+    /// ```
     #[inline]
     pub const fn of<T>() -> Self {
         Self::new(align_of::<T>())

@@ -222,7 +222,7 @@ impl<T> Buffer<T> {
         self.bytes
     }
 
-    /// Return the ByteBuffer for this Buffer<T>.
+    /// Return the ByteBuffer for this `Buffer<T>`.
     pub fn into_byte_buffer(self) -> ByteBuffer {
         ByteBuffer {
             bytes: self.bytes,
@@ -297,7 +297,7 @@ impl From<Bytes> for ByteBuffer {
     }
 }
 
-/// Owned iterator over a Buffer<T>.
+/// Owned iterator over a `Buffer<T>`.
 pub struct BufferIterator<T> {
     buffer: Buffer<T>,
     index: usize,
