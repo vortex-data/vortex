@@ -190,12 +190,11 @@ impl<T> BufferMut<T> {
         // NOTE(ngates): this assumes the platform is little-endian. Currently enforced
         //  with a flag cfg(target_endian = "little")
         let raw_ptr = &value as *const T as *const u8;
-        let bytes = unsafe { std::slice::from_raw_parts(raw_ptr, size_of::<T>()) };
 
         // SAFETY: we checked the capacity in the reserve call
         unsafe {
             let dst = self.bytes.as_mut_ptr().add(self.bytes.len());
-            std::ptr::copy_nonoverlapping(bytes.as_ptr(), dst, size_of::<T>());
+            std::ptr::copy_nonoverlapping(raw_ptr, dst, size_of::<T>());
             self.bytes.set_len(self.bytes.len() + size_of::<T>())
         }
         self.length += 1;
@@ -211,13 +210,12 @@ impl<T> BufferMut<T> {
         // NOTE(ngates): this assumes the platform is little-endian. Currently enforced
         //  with a flag cfg(target_endian = "little")
         let raw_ptr = &item as *const T as *const u8;
-        let item_bytes = unsafe { std::slice::from_raw_parts(raw_ptr, size_of::<T>()) };
 
         // SAFETY: we checked the capacity in the reserve call
         unsafe {
             let mut dst = self.bytes.as_mut_ptr().add(self.bytes.len());
             for _ in 0..n {
-                std::ptr::copy_nonoverlapping(item_bytes.as_ptr(), dst, size_of::<T>());
+                std::ptr::copy_nonoverlapping(raw_ptr, dst, size_of::<T>());
                 dst = dst.add(size_of::<T>());
             }
             self.bytes.set_len(self.bytes.len() + (n * size_of::<T>()));
@@ -320,7 +318,7 @@ impl<T> Extend<T> for BufferMut<T> {
         let mut iterator = iter.into_iter();
 
         // Attempt to reserve enough memory up-front, although this is only a lower bound.
-        let (lower, _) = iterator.size_hint();
+        let (lower, _upper) = iterator.size_hint();
         self.reserve(lower);
 
         let item_size = size_of::<T>();
@@ -334,8 +332,7 @@ impl<T> Extend<T> for BufferMut<T> {
                 // SAFETY: We know we have enough capacity to write the item.
                 unsafe {
                     let raw_ptr = &item as *const T as *const u8;
-                    let bytes = std::slice::from_raw_parts(raw_ptr, size_of::<T>());
-                    std::ptr::copy_nonoverlapping(bytes.as_ptr(), dst, item_size);
+                    std::ptr::copy_nonoverlapping(raw_ptr, dst, item_size);
                     dst = dst.add(item_size);
                 }
                 consumed += 1;
@@ -353,6 +350,7 @@ impl<T> Extend<T> for BufferMut<T> {
 
 impl<T> FromIterator<T> for BufferMut<T> {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
+        // We don't infer the capacity here and just let the first call to `extend` do it for us.
         let mut buffer = Self::with_capacity(0);
         buffer.extend(iter);
         buffer
@@ -384,5 +382,29 @@ impl AlignedBytesMut for BytesMut {
         // safely set the length to the padding and advance the buffer to the aligned offset.
         unsafe { self.set_len(padding) };
         self.advance(padding);
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::{Alignment, BufferMut};
+
+    #[test]
+    fn capacity() {
+        let mut n = 57;
+        let mut buf = BufferMut::<i32>::with_capacity_aligned(n, Alignment::new(1024));
+        assert!(buf.capacity() >= 57);
+
+        while n > 0 {
+            buf.push(0);
+            assert!(buf.capacity() >= n);
+            n -= 1
+        }
+    }
+
+    #[test]
+    fn from_iter() {
+        let buf = BufferMut::from_iter([0, 10, 20, 30]);
+        assert_eq!(buf.as_slice(), &[0, 10, 20, 30]);
     }
 }
