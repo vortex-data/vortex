@@ -291,9 +291,9 @@ impl PrimitiveArrayTrait for BitPackedArray {}
 
 #[cfg(test)]
 mod test {
-    use itertools::Itertools;
     use vortex_array::array::PrimitiveArray;
     use vortex_array::{IntoArrayData, IntoArrayVariant, IntoCanonical};
+    use vortex_buffer::Buffer;
 
     use crate::BitPackedArray;
 
@@ -324,8 +324,8 @@ mod test {
 
     #[test]
     fn signed_with_patches() {
-        let values = (0i32..=512).collect_vec();
-        let parray = PrimitiveArray::from(values.clone()).into_array();
+        let values: Buffer<i32> = (0i32..=512).collect();
+        let parray = values.clone().into_array();
 
         let packed_with_patches = BitPackedArray::encode(&parray, 9).unwrap();
         assert!(packed_with_patches.patches().is_some());
@@ -335,8 +335,8 @@ mod test {
                 .unwrap()
                 .into_primitive()
                 .unwrap()
-                .into_maybe_null_slice::<i32>(),
-            values
+                .as_slice::<i32>(),
+            values.as_slice()
         );
     }
 }

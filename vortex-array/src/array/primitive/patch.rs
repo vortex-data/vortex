@@ -41,7 +41,7 @@ impl PrimitiveArray {
         let patch_indices = patch_indices.as_slice::<I>();
         let patch_values = patch_values.as_slice::<T>();
         for (idx, value) in itertools::zip_eq(patch_indices, patch_values) {
-            own_values[idx.as_usize()] = value;
+            own_values[idx.as_usize()] = *value;
         }
         Ok(Self::new(own_values, patched_validity))
     }
