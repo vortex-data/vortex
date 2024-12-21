@@ -1,3 +1,4 @@
+use std::mem::MaybeUninit;
 use std::ops::{Deref, DerefMut};
 
 use bytes::{Buf, BytesMut};
@@ -186,15 +187,13 @@ impl<T> BufferMut<T> {
     ///
     /// The caller must ensure there is sufficient capacity in the array.
     #[inline]
-    pub unsafe fn push_unchecked(&mut self, value: T) {
-        // NOTE(ngates): this assumes the platform is little-endian. Currently enforced
-        //  with a flag cfg(target_endian = "little")
-        let raw_ptr = &value as *const T as *const u8;
+    pub unsafe fn push_unchecked(&mut self, item: T) {
+        let raw_ptr = &item as *const T as *const u8;
 
         // SAFETY: we checked the capacity in the reserve call
         unsafe {
-            let dst = self.bytes.as_mut_ptr().add(self.bytes.len());
-            std::ptr::copy_nonoverlapping(raw_ptr, dst, size_of::<T>());
+            let dst = self.bytes.spare_capacity_mut().as_mut_ptr();
+            std::ptr::copy_nonoverlapping(raw_ptr, dst as *mut u8, size_of::<T>());
             self.bytes.set_len(self.bytes.len() + size_of::<T>())
         }
         self.length += 1;
@@ -324,15 +323,16 @@ impl<T> Extend<T> for BufferMut<T> {
         let item_size = size_of::<T>();
 
         let remaining = self.capacity() - self.len();
-        let mut consumed = 0;
-        let mut dst = unsafe { self.bytes.as_mut_ptr().add(self.bytes.len()) };
 
+        let mut dst = self.bytes.spare_capacity_mut().as_mut_ptr();
+
+        let mut consumed = 0;
         while consumed < remaining {
             if let Some(item) = iterator.next() {
                 // SAFETY: We know we have enough capacity to write the item.
                 unsafe {
                     let raw_ptr = &item as *const T as *const u8;
-                    std::ptr::copy_nonoverlapping(raw_ptr, dst, item_size);
+                    std::ptr::copy_nonoverlapping(raw_ptr, dst as *mut u8, item_size);
                     dst = dst.add(item_size);
                 }
                 consumed += 1;
@@ -406,5 +406,13 @@ mod test {
     fn from_iter() {
         let buf = BufferMut::from_iter([0, 10, 20, 30]);
         assert_eq!(buf.as_slice(), &[0, 10, 20, 30]);
+    }
+
+    #[test]
+    fn extend() {
+        let mut buf = BufferMut::empty();
+        buf.extend([0i32, 10, 20, 30]);
+        buf.extend([40, 50, 60]);
+        assert_eq!(buf.as_slice(), &[0, 10, 20, 30, 40, 50, 60]);
     }
 }
