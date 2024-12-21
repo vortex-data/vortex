@@ -1,11 +1,10 @@
 use arrow_buffer::{ArrowNativeType, OffsetBuffer};
 use bytes::Bytes;
-use vortex_dtype::NativePType;
 use vortex_error::vortex_panic;
 
 use crate::{Alignment, Buffer, ByteBuffer};
 
-impl<T: NativePType + ArrowNativeType> Buffer<T> {
+impl<T: ArrowNativeType> Buffer<T> {
     /// Converts the buffer zero-copy into a `arrow_buffer::Buffer`.
     pub fn into_arrow_scalar_buffer(self) -> arrow_buffer::ScalarBuffer<T> {
         let bytes = self.into_inner();

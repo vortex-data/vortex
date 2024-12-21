@@ -4942,8 +4942,6 @@ dependencies = [
  "arrow-buffer",
  "bytes",
  "divan",
- "num-traits",
- "vortex-dtype",
  "vortex-error",
 ]
 
