@@ -122,7 +122,7 @@ impl MessageDecoder {
     /// If the message is incomplete, the function will return `NeedMore` with the _total_ number
     /// of bytes needed to make progress. The next call to read_next _should_ provide at least
     /// this number of bytes otherwise it will be given the same `NeedMore` response.
-    pub fn read_next(&mut self, bytes: &mut BytesMut) -> VortexResult<PollRead> {
+    pub fn read_next<B: AlignedBuf>(&mut self, bytes: &mut BytesMut) -> VortexResult<PollRead> {
         loop {
             match &self.state {
                 State::Length => {

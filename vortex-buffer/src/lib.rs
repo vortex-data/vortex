@@ -44,6 +44,7 @@
 //! `arrow_buffer::OffsetBuffer`.
 
 extern crate core;
+extern crate core;
 
 pub use alignment::*;
 pub use buffer::*;
@@ -56,6 +57,7 @@ mod alignment;
 mod arrow;
 mod buffer;
 mod buffer_mut;
+mod bytes;
 mod r#const;
 mod macros;
 mod string;

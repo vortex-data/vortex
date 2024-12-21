@@ -1,9 +1,10 @@
 use std::ops::{Deref, DerefMut};
 
-use bytes::{Buf, BytesMut};
+use bytes::buf::UninitSlice;
+use bytes::{Buf, BufMut, BytesMut};
 use vortex_error::{vortex_panic, VortexExpect};
 
-use crate::{Alignment, Buffer};
+use crate::{Alignment, Buffer, ByteBuffer, ByteBufferMut};
 
 /// A mutable buffer that maintains a runtime-defined alignment through resizing operations.
 #[derive(Debug, PartialEq, Eq)]
@@ -278,6 +279,15 @@ impl<T> BufferMut<T> {
         }
         buf
     }
+
+    /// Return a `BufferMut<T>` with the given alignment. Where possible, this will be zero-copy.
+    pub fn aligned(self, alignment: Alignment) -> Self {
+        if self.as_ptr().align_offset(*alignment) == 0 {
+            self
+        } else {
+            Self::copy_from_aligned(self, alignment)
+        }
+    }
 }
 
 impl<T> Clone for BufferMut<T> {
@@ -365,6 +375,50 @@ impl<T> FromIterator<T> for BufferMut<T> {
         buffer.extend(iter);
         debug_assert_eq!(buffer.alignment(), Alignment::of::<T>());
         buffer
+    }
+}
+
+impl Buf for ByteBufferMut {
+    fn remaining(&self) -> usize {
+        self.len()
+    }
+
+    fn chunk(&self) -> &[u8] {
+        self.as_slice()
+    }
+
+    fn advance(&mut self, cnt: usize) {
+        if !cnt.is_multiple_of(*self.alignment) {
+            vortex_panic!(
+                "Cannot advance buffer by {} items, resulting alignment is not {}",
+                cnt,
+                self.alignment
+            );
+        }
+        self.bytes.advance(cnt);
+        self.length -= cnt;
+    }
+}
+
+unsafe impl BufMut for ByteBufferMut {
+    fn remaining_mut(&self) -> usize {
+        self.bytes.remaining_mut()
+    }
+
+    unsafe fn advance_mut(&mut self, cnt: usize) {
+        if !cnt.is_multiple_of(*self.alignment) {
+            vortex_panic!(
+                "Cannot advance buffer by {} items, resulting alignment is not {}",
+                cnt,
+                self.alignment
+            );
+        }
+        self.bytes.advance(cnt);
+        self.length -= cnt;
+    }
+
+    fn chunk_mut(&mut self) -> &mut UninitSlice {
+        self.bytes.chunk_mut()
     }
 }
 

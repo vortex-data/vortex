@@ -1,10 +1,10 @@
 use std::collections::Bound;
 use std::ops::{Deref, RangeBounds};
 
-use bytes::Bytes;
-use vortex_error::{vortex_panic, VortexExpect};
+use bytes::{Buf, Bytes};
+use vortex_error::{vortex_bail, vortex_panic, VortexExpect};
 
-use crate::{Alignment, BufferMut, ByteBuffer};
+use crate::{Alignment, BufferMut, ByteBuffer, ConstBuffer};
 
 /// An immutable buffer of items of `T`.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd)]
@@ -258,6 +258,15 @@ impl<T> Buffer<T> {
                 _marker: Default::default(),
             })
     }
+
+    /// Return a `Buffer<T>` with the given alignment. Where possible, this will be zero-copy.
+    pub fn aligned(self, alignment: Alignment) -> Self {
+        if self.as_ptr().align_offset(*alignment) == 0 {
+            self
+        } else {
+            Self::copy_from_aligned(self, alignment)
+        }
+    }
 }
 
 impl<T> Deref for Buffer<T> {
@@ -297,6 +306,28 @@ impl From<Bytes> for ByteBuffer {
             alignment: Alignment::of::<u8>(),
             _marker: Default::default(),
         }
+    }
+}
+
+impl Buf for ByteBuffer {
+    fn remaining(&self) -> usize {
+        self.len()
+    }
+
+    fn chunk(&self) -> &[u8] {
+        self.as_slice()
+    }
+
+    fn advance(&mut self, cnt: usize) {
+        if !cnt.is_multiple_of(*self.alignment) {
+            vortex_panic!(
+                "Cannot advance buffer by {} items, resulting alignment is not {}",
+                cnt,
+                self.alignment
+            );
+        }
+        self.bytes.advance(cnt);
+        self.length -= cnt;
     }
 }
 
