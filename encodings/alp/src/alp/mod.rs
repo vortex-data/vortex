@@ -11,6 +11,7 @@ mod compute;
 
 pub use array::*;
 pub use compress::*;
+use vortex_buffer::{Buffer, BufferMut};
 
 const SAMPLE_SIZE: usize = 32;
 
@@ -114,12 +115,12 @@ pub trait ALPFloat: private::Sealed + Float + Display + 'static {
     fn encode(
         values: &[Self],
         exponents: Option<Exponents>,
-    ) -> (Exponents, Vec<Self::ALPInt>, Vec<u64>, Vec<Self>) {
+    ) -> (Exponents, Buffer<Self::ALPInt>, Buffer<u64>, Buffer<Self>) {
         let exp = exponents.unwrap_or_else(|| Self::find_best_exponents(values));
 
-        let mut encoded_output = Vec::with_capacity(values.len());
-        let mut patch_indices = Vec::new();
-        let mut patch_values = Vec::new();
+        let mut encoded_output = BufferMut::<Self::ALPInt>::with_capacity(values.len());
+        let mut patch_indices = BufferMut::<u64>::with_capacity(values.len());
+        let mut patch_values = BufferMut::<Self>::with_capacity(values.len());
         let mut fill_value: Option<Self::ALPInt> = None;
 
         // this is intentionally branchless
@@ -136,7 +137,12 @@ pub trait ALPFloat: private::Sealed + Float + Display + 'static {
             );
         }
 
-        (exp, encoded_output, patch_indices, patch_values)
+        (
+            exp,
+            encoded_output.freeze(),
+            patch_indices.freeze(),
+            patch_values.freeze(),
+        )
     }
 
     #[inline]
@@ -177,9 +183,9 @@ pub trait ALPFloat: private::Sealed + Float + Display + 'static {
 fn encode_chunk_unchecked<T: ALPFloat>(
     chunk: &[T],
     exp: Exponents,
-    encoded_output: &mut Vec<T::ALPInt>,
-    patch_indices: &mut Vec<u64>,
-    patch_values: &mut Vec<T>,
+    encoded_output: &mut BufferMut<T::ALPInt>,
+    patch_indices: &mut BufferMut<u64>,
+    patch_values: &mut BufferMut<T>,
     fill_value: &mut Option<T::ALPInt>,
 ) {
     let num_prev_encoded = encoded_output.len();
