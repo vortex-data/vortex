@@ -11,7 +11,6 @@ use crate::array::struct_::StructArray;
 use crate::array::{BinaryView, BoolArray, ListArray, VarBinViewArray};
 use crate::compute::{scalar_at, slice, try_cast};
 use crate::validity::Validity;
-use crate::validity::Validity::NonNullable;
 use crate::{
     ArrayDType, ArrayData, ArrayLen, ArrayValidity, Canonical, IntoArrayData, IntoArrayVariant,
     IntoCanonical,
@@ -22,7 +21,7 @@ impl IntoCanonical for ChunkedArray {
         let validity = if self.dtype().is_nullable() {
             self.logical_validity().into_validity()
         } else {
-            NonNullable
+            Validity::NonNullable
         };
         try_canonicalize_chunks(self.chunks().collect(), validity, self.dtype())
     }
@@ -164,7 +163,7 @@ fn pack_lists(chunks: &[ArrayData], validity: Validity, dtype: &DType) -> Vortex
         );
     }
     let chunked_elements = ChunkedArray::try_new(elements, elem_dtype.clone())?.into_array();
-    let offsets = PrimitiveArray::new(offsets.freeze(), NonNullable);
+    let offsets = PrimitiveArray::new(offsets.freeze(), Validity::NonNullable);
 
     ListArray::try_new(chunked_elements, offsets.into_array(), validity)
 }
@@ -278,8 +277,12 @@ fn pack_views(
     }
 
     VarBinViewArray::try_new(
-        PrimitiveArray::from_byte_buffer(views.freeze().into_byte_buffer(), PType::U8, NonNullable)
-            .into_array(),
+        PrimitiveArray::from_byte_buffer(
+            views.freeze().into_byte_buffer(),
+            PType::U8,
+            Validity::NonNullable,
+        )
+        .into_array(),
         buffers,
         dtype.clone(),
         validity,
