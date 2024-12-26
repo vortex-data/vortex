@@ -10,7 +10,7 @@ use vortex_array::validity::{LogicalValidity, Validity, ValidityMetadata, Validi
 use vortex_array::variants::{BoolArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{impl_encoding, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoCanonical};
-use vortex_buffer::{Buffer, ByteBuffer};
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult};
 
@@ -36,7 +36,7 @@ impl ByteBoolArray {
         })
     }
 
-    pub fn try_new(buffer: Buffer<u8>, validity: Validity) -> VortexResult<Self> {
+    pub fn try_new(buffer: ByteBuffer, validity: Validity) -> VortexResult<Self> {
         let length = buffer.len();
 
         ArrayData::try_new_owned(

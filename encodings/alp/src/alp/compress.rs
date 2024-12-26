@@ -39,7 +39,6 @@ where
         _ => Validity::AllValid,
     };
 
-    // FIXME(ngates): have ALP take a mutable result type of Default + Extend.
     let (exponents, encoded, exc_pos, exc) = T::encode(values.as_slice::<T>(), exponents);
     let len = encoded.len();
     (

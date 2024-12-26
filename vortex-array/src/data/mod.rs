@@ -322,15 +322,15 @@ impl ArrayData {
 
     pub fn byte_buffer(&self) -> Option<&ByteBuffer> {
         match &self.0 {
-            InnerArrayData::Owned(d) => d.bytes_buffer(),
-            InnerArrayData::Viewed(v) => v.buffer(),
+            InnerArrayData::Owned(d) => d.byte_buffer(),
+            InnerArrayData::Viewed(v) => v.byte_buffer(),
         }
     }
 
     pub fn into_byte_buffer(self) -> Option<ByteBuffer> {
         match self.0 {
             InnerArrayData::Owned(d) => d.into_byte_buffer(),
-            InnerArrayData::Viewed(v) => v.buffer().cloned(),
+            InnerArrayData::Viewed(v) => v.byte_buffer().cloned(),
         }
     }
 

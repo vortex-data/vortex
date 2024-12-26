@@ -5,7 +5,7 @@ use vortex_array::accessor::ArrayAccessor;
 use vortex_array::array::builder::VarBinBuilder;
 use vortex_array::array::{VarBinArray, VarBinViewArray};
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
-use vortex_buffer::{Buffer, BufferMut};
+use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect, VortexResult, VortexUnwrap};
 
@@ -118,7 +118,7 @@ where
     let symbols_u64: Buffer<u64> = unsafe { std::mem::transmute(symbols_vec) };
     let symbols = symbols_u64.into_array();
 
-    let symbol_lengths_vec: Buffer<u8> = Buffer::copy_from(compressor.symbol_lengths());
+    let symbol_lengths_vec: ByteBuffer = ByteBuffer::copy_from(compressor.symbol_lengths());
     let symbol_lengths = symbol_lengths_vec.into_array();
     let uncompressed_lengths = uncompressed_lengths.into_array();
 

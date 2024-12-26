@@ -1,5 +1,5 @@
 use arrow_buffer::{ArrowNativeType, BooleanBuffer};
-use vortex_buffer::{buffer, Buffer};
+use vortex_buffer::buffer;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
 use vortex_error::{VortexError, VortexResult};
 use vortex_scalar::Scalar;

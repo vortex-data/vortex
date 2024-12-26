@@ -103,7 +103,7 @@ impl ViewedArrayData {
         collector.children()
     }
 
-    pub fn buffer(&self) -> Option<&ByteBuffer> {
+    pub fn byte_buffer(&self) -> Option<&ByteBuffer> {
         self.flatbuffer()
             .buffers()
             .and_then(|buffers| {
