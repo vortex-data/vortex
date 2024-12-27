@@ -118,7 +118,7 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalAr
     )?
     .into_primitive()?;
     let mut values: Vec<i64> = days_buf
-        .into_maybe_null_vec::<i64>()
+        .into_maybe_null_vec::<i64>() // attempt to reuse the i64 allocation for values
         .into_iter()
         .map(|d| d * 86_400 * divisor)
         .collect();

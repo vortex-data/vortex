@@ -35,15 +35,28 @@ pub fn split_temporal(array: TemporalArray) -> VortexResult<TemporalParts> {
     };
 
     let length = timestamps.len();
-    let mut days = Vec::with_capacity(length);
     let mut seconds = Vec::with_capacity(length);
     let mut subsecond = Vec::with_capacity(length);
 
-    for &t in timestamps.maybe_null_slice::<i64>().iter() {
-        days.push(t / (86_400 * divisor));
-        seconds.push((t % (86_400 * divisor)) / divisor);
-        subsecond.push((t % (86_400 * divisor)) % divisor);
-    }
+    let days = match timestamps.try_into_maybe_null_vec::<i64>() {
+        Ok(vector) => vector
+            .into_iter()
+            .map(|t| {
+                seconds.push((t % (86_400 * divisor)) / divisor);
+                subsecond.push((t % (86_400 * divisor)) % divisor);
+                t / (86_400 * divisor)
+            })
+            .collect::<Vec<_>>(),
+        Err(timestamps) => timestamps
+            .maybe_null_slice::<i64>()
+            .iter()
+            .map(|t| {
+                seconds.push((t % (86_400 * divisor)) / divisor);
+                subsecond.push((t % (86_400 * divisor)) % divisor);
+                t / (86_400 * divisor)
+            })
+            .collect::<Vec<_>>(),
+    };
 
     Ok(TemporalParts {
         days: PrimitiveArray::from_vec(days, validity).into_array(),
