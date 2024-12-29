@@ -1,7 +1,7 @@
 use core::ops::Range;
 
 use flatbuffers::{root, root_unchecked};
-use vortex_buffer::{ByteBuffer, ByteBufferMut, ConstBuffer};
+use vortex_buffer::{ByteBuffer, ConstBuffer};
 use vortex_error::{vortex_bail, vortex_err, VortexResult, VortexUnwrap};
 use vortex_flatbuffers::{dtype as fbd, footer};
 use vortex_io::VortexReadAt;
