@@ -28,7 +28,7 @@ impl OwnedArrayData {
         &self.metadata
     }
 
-    pub fn bytes_buffer(&self) -> Option<&ByteBuffer> {
+    pub fn byte_buffer(&self) -> Option<&ByteBuffer> {
         self.buffer.as_ref()
     }
 

@@ -174,7 +174,7 @@ fn filter_select_var_bin_by_index_primitive_offset<O: NativePType + PrimInt>(
 
 #[cfg(test)]
 mod test {
-    use vortex_buffer::Buffer;
+    use vortex_buffer::ByteBuffer;
     use vortex_dtype::DType;
     use vortex_dtype::Nullability::{NonNullable, Nullable};
     use vortex_scalar::Scalar;
@@ -250,7 +250,7 @@ mod test {
         ]
         .into_iter()
         .flat_map(|x| x.iter().cloned())
-        .collect::<Buffer<u8>>();
+        .collect::<ByteBuffer>();
 
         let bytes = x.into_array();
         let offsets = PrimitiveArray::from_iter([0, 3, 6, 11, 15, 19, 22]).to_array();

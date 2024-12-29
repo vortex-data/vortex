@@ -3,7 +3,6 @@ use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
-use vortex_buffer::Buffer;
 use vortex_dtype::{NativePType, PType};
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::ScalarType;
@@ -40,17 +39,16 @@ where
         _ => Validity::AllValid,
     };
 
-    // FIXME(ngates): have ALP take a mutable result type of Default + Extend.
     let (exponents, encoded, exc_pos, exc) = T::encode(values.as_slice::<T>(), exponents);
     let len = encoded.len();
     (
         exponents,
-        PrimitiveArray::new(Buffer::copy_from(encoded), values.validity()).into_array(),
+        PrimitiveArray::new(encoded, values.validity()).into_array(),
         (!exc.is_empty()).then(|| {
             Patches::new(
                 len,
-                Buffer::copy_from(exc_pos).into_array(),
-                PrimitiveArray::new(Buffer::copy_from(exc), patch_validity).into_array(),
+                exc_pos.into_array(),
+                PrimitiveArray::new(exc, patch_validity).into_array(),
             )
         }),
     )

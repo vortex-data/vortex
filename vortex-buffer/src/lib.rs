@@ -1,7 +1,7 @@
 #![feature(unsigned_is_multiple_of)]
 #![deny(missing_docs)]
 
-//! A library for working with custo aligned buffers of sized values.
+//! A library for working with custom aligned buffers of sized values.
 //!
 //! The `vortex-buffer` crate is built around `bytes::Bytes` and therefore supports zero-copy
 //! cloning and slicing, but differs in that it can define and maintain a custom alignment.

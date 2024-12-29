@@ -132,8 +132,9 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalAr
             PrimitiveScalar::try_from(&seconds.cast(&DType::Primitive(PType::I64, NonNullable))?)?
                 .typed_value::<i64>()
                 .vortex_expect("non-nullable");
+        let seconds = seconds * divisor;
         for v in values.iter_mut() {
-            *v += seconds * divisor;
+            *v += seconds;
         }
     } else {
         let seconds_buf = try_cast(array.seconds(), &DType::Primitive(PType::U32, NonNullable))?

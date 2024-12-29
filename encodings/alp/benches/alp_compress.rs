@@ -5,14 +5,14 @@ use vortex_alp::{ALPFloat, ALPRDFloat, Exponents, RDEncoder};
 use vortex_array::array::PrimitiveArray;
 use vortex_array::validity::Validity;
 use vortex_array::IntoCanonical;
-use vortex_buffer::buffer;
+use vortex_buffer::{buffer, Buffer};
 
 fn main() {
     divan::main();
 }
 
 #[divan::bench(types = [f32, f64], args = [100_000, 10_000_000])]
-fn compress_alp<T: ALPFloat>(n: usize) -> (Exponents, Vec<T::ALPInt>, Vec<u64>, Vec<T>) {
+fn compress_alp<T: ALPFloat>(n: usize) -> (Exponents, Buffer<T::ALPInt>, Buffer<u64>, Buffer<T>) {
     let values: Vec<T> = vec![T::from(1.234).unwrap(); n];
     T::encode(values.as_slice(), None)
 }
