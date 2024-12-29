@@ -75,8 +75,7 @@ pub async fn read_initial_bytes<R: VortexReadAt>(
 
     let buf = ByteBuffer::from(
         read.read_byte_range(initial_read_offset, read_size as u64)
-            .await?
-            .as_ref(),
+            .await?,
     );
 
     let eof_loc = read_size - EOF_SIZE;
