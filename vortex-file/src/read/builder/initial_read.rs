@@ -1,7 +1,7 @@
 use core::ops::Range;
 
 use flatbuffers::{root, root_unchecked};
-use vortex_buffer::{ByteBuffer, ByteBufferMut, ConstBuffer};
+use vortex_buffer::{ByteBuffer, ConstBuffer};
 use vortex_error::{vortex_bail, vortex_err, VortexResult, VortexUnwrap};
 use vortex_flatbuffers::{dtype as fbd, footer};
 use vortex_io::VortexReadAt;
@@ -75,8 +75,7 @@ pub async fn read_initial_bytes<R: VortexReadAt>(
 
     let buf = ByteBuffer::from(
         read.read_byte_range(initial_read_offset, read_size as u64)
-            .await?
-            .as_ref(),
+            .await?,
     );
 
     let eof_loc = read_size - EOF_SIZE;
