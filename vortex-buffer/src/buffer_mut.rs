@@ -201,7 +201,7 @@ impl<T> BufferMut<T> {
     ///     b.set_len(3);
     /// }
     ///
-    /// assert_eq!(&b, &[0u64, 1, 2]);
+    /// assert_eq!(b.as_slice(), &[0u64, 1, 2]);
     /// ```
     #[inline]
     pub fn spare_capacity_mut(&mut self) -> &mut [MaybeUninit<T>] {
