@@ -121,7 +121,14 @@ impl PrimitiveArray {
     }
 
     pub fn buffer<T: NativePType>(&self) -> Buffer<T> {
-        self.clone().into_buffer()
+        if T::PTYPE != self.ptype() {
+            vortex_panic!(
+                "Attempted to get buffer of type {} from array of type {}",
+                T::PTYPE,
+                self.ptype()
+            )
+        }
+        Buffer::from_byte_buffer(self.byte_buffer().clone())
     }
 
     pub fn into_buffer<T: NativePType>(self) -> Buffer<T> {

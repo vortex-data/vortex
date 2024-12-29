@@ -15,7 +15,6 @@ pub fn runend_bool_encode_slice(elements: &BooleanBuffer) -> (Buffer<u64>, bool)
         return (buffer![elements.len() as u64], false);
     };
 
-    // FIXME(ngates): surely we have an idea of capacity from the elements iter
     let mut ends = BufferMut::empty();
     let first_bool = start == 0;
     if !first_bool {
