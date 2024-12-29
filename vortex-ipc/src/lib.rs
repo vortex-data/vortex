@@ -8,8 +8,6 @@
 //! before/after serialization, and streaming readers and writers that sit on top
 //! of any type implementing `VortexRead` or `VortexWrite` respectively.
 
-use vortex_buffer::ConstBuffer;
-
 pub mod iterator;
 pub mod messages;
 pub mod stream;
