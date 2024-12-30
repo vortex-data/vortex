@@ -1,3 +1,4 @@
+use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
 
 use crate::array::primitive::PrimitiveArray;
@@ -8,15 +9,12 @@ use crate::{ArrayData, IntoArrayData};
 
 impl SliceFn<PrimitiveArray> for PrimitiveEncoding {
     fn slice(&self, array: &PrimitiveArray, start: usize, stop: usize) -> VortexResult<ArrayData> {
-        let byte_width = array.ptype().byte_width();
-        let buffer = array
-            .byte_buffer()
-            .slice(start * byte_width..stop * byte_width);
-        Ok(PrimitiveArray::from_byte_buffer(
-            buffer,
-            array.ptype(),
-            array.validity().slice(start, stop)?,
-        )
-        .into_array())
+        match_each_native_ptype!(array.ptype(), |$T| {
+            Ok(PrimitiveArray::new(
+                array.buffer::<$T>().slice(start..stop),
+                array.validity().slice(start, stop)?,
+            )
+            .into_array())
+        })
     }
 }
