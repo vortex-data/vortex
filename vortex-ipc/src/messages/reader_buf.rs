@@ -22,18 +22,16 @@ impl<B: Buf> Iterator for BufMessageReader<B> {
     type Item = VortexResult<DecoderMessage>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            if !self.buffer.has_remaining() {
-                // End-of-buffer reached
-                return None;
-            }
-            return match self.decoder.read_next(&mut self.buffer) {
-                Ok(PollRead::Some(msg)) => Some(Ok(msg)),
-                Ok(PollRead::NeedMore(_)) => Some(Err(vortex_err!(
-                    "Buffer did not have sufficient bytes for an IPC message"
-                ))),
-                Err(e) => Some(Err(e)),
-            };
+        if !self.buffer.has_remaining() {
+            // End-of-buffer reached
+            return None;
+        }
+        match self.decoder.read_next(&mut self.buffer) {
+            Ok(PollRead::Some(msg)) => Some(Ok(msg)),
+            Ok(PollRead::NeedMore(_)) => Some(Err(vortex_err!(
+                "Buffer did not have sufficient bytes for an IPC message"
+            ))),
+            Err(e) => Some(Err(e)),
         }
     }
 }
