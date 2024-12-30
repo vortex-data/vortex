@@ -167,6 +167,7 @@ jobs:
       - name: Install grcov
         uses: SierraSoftworks/setup-grcov@v1.0.2
         with:
+          use-cargo: true
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Rust Test
         run: cargo test --workspace --all-features
