@@ -375,7 +375,9 @@ impl<T> From<BufferMut<T>> for Buffer<T> {
 
 #[cfg(test)]
 mod test {
-    use crate::buffer;
+    use bytes::Buf;
+
+    use crate::{buffer, ByteBuffer};
 
     #[test]
     fn slice() {
@@ -397,5 +399,17 @@ mod test {
         let buf = buffer![0i32, 1, 2, 3, 4].into_byte_buffer();
         // We should only be able to slice this buffer on 4-byte (i32) boundaries.
         buf.slice(1..2);
+    }
+
+    #[test]
+    fn bytes_buf() {
+        let mut buf = ByteBuffer::copy_from("helloworld".as_bytes());
+        assert_eq!(buf.remaining(), 10);
+        assert_eq!(buf.chunk(), b"helloworld");
+
+        Buf::advance(&mut buf, 5);
+        assert_eq!(buf.remaining(), 5);
+        assert_eq!(buf.as_slice(), b"world");
+        assert_eq!(buf.chunk(), b"world");
     }
 }

@@ -523,7 +523,9 @@ impl AlignedBytesMut for BytesMut {
 
 #[cfg(test)]
 mod test {
-    use crate::{buffer_mut, Alignment, BufferMut};
+    use bytes::{Buf, BufMut};
+
+    use crate::{buffer_mut, Alignment, BufferMut, ByteBufferMut};
 
     #[test]
     fn capacity() {
@@ -586,5 +588,26 @@ mod test {
         // Add one, and cast to an unsigned u32 in the same closure
         let buf = buf.map_each(|i| (i + 1) as u32);
         assert_eq!(buf.as_slice(), &[1u32, 2, 3]);
+    }
+
+    #[test]
+    fn bytes_buf() {
+        let mut buf = ByteBufferMut::copy_from("helloworld".as_bytes());
+        assert_eq!(buf.remaining(), 10);
+        assert_eq!(buf.chunk(), b"helloworld");
+
+        Buf::advance(&mut buf, 5);
+        assert_eq!(buf.remaining(), 5);
+        assert_eq!(buf.as_slice(), b"world");
+        assert_eq!(buf.chunk(), b"world");
+    }
+
+    #[test]
+    fn bytes_buf_mut() {
+        let mut buf = ByteBufferMut::copy_from("hello".as_bytes());
+        assert_eq!(BufMut::remaining_mut(&buf), usize::MAX - 5);
+
+        BufMut::put_slice(&mut buf, b"world");
+        assert_eq!(buf.as_slice(), b"helloworld");
     }
 }
