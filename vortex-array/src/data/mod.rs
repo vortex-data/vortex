@@ -356,7 +356,7 @@ impl ArrayData {
 
     #[cfg(feature = "canonical_counter")]
     pub(crate) fn inc_canonical_counter(&self) {
-        let prev = match &self.0 {
+        let prev = match self.0.as_ref() {
             InnerArrayData::Owned(o) => o
                 .canonical_counter
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
