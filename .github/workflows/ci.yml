@@ -158,7 +158,7 @@ jobs:
       CARGO_INCREMENTAL: "0"
       RUSTFLAGS: "-Cinstrument-coverage"
       LLVM_PROFILE_FILE: "target/coverage/vortex-%p-%m.profraw"
-      GRCOV_OUTPUT_FILE: "target/coverage/coveralls.json"
+      GRCOV_OUTPUT_FILE: "target/coverage/vortex.lcov"
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/cleanup
@@ -168,15 +168,15 @@ jobs:
         run: cargo install grcov
       - name: Rust Test
         run: cargo test --workspace --all-features
-      - run: |
-          grcov target/coverage --binary-path target/debug/deps/ -s . -t 'coveralls+' --ignore-not-existing \
+      - name: Generate coverage report
+        run: |
+          grcov target/coverage --binary-path target/debug/deps/ -s . -t lcov --ignore-not-existing \
             --ignore '../*' --ignore '/*' --ignore 'bench-vortex/*' --ignore 'fuzz/*' --ignore 'home/*' \
             -o ${{ env.GRCOV_OUTPUT_FILE }}
       - name: Coveralls
         uses: coverallsapp/github-action@v2
         with:
           file: ${{ env.GRCOV_OUTPUT_FILE }}
-          format: "coveralls"
 
   license-check-and-audit-check:
     name: License Check and Audit Check
