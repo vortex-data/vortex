@@ -208,6 +208,9 @@ impl<T> Buffer<T> {
         if !end_byte.is_multiple_of(*alignment) {
             vortex_panic!("range end must be aligned to {:?}", alignment);
         }
+        if !alignment.is_aligned_to(Alignment::of::<T>()) {
+            vortex_panic!("Slice alignment must at least align to type T")
+        }
 
         Self {
             bytes: self.bytes.slice(begin_byte..end_byte),
@@ -222,7 +225,7 @@ impl<T> Buffer<T> {
         self.bytes
     }
 
-    /// Return the ByteBuffer for this Buffer<T>.
+    /// Return the ByteBuffer for this `Buffer<T>`.
     pub fn into_byte_buffer(self) -> ByteBuffer {
         ByteBuffer {
             bytes: self.bytes,
@@ -297,7 +300,7 @@ impl From<Bytes> for ByteBuffer {
     }
 }
 
-/// Owned iterator over a Buffer<T>.
+/// Owned iterator over a `Buffer<T>`.
 pub struct BufferIterator<T> {
     buffer: Buffer<T>,
     index: usize,
@@ -335,5 +338,32 @@ impl<T: Copy> IntoIterator for Buffer<T> {
 impl<T> From<BufferMut<T>> for Buffer<T> {
     fn from(value: BufferMut<T>) -> Self {
         value.freeze()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::buffer;
+
+    #[test]
+    fn slice() {
+        let buf = buffer![0, 1, 2, 3, 4];
+        assert_eq!(buf.slice(1..3).as_slice(), &[1, 2]);
+        assert_eq!(buf.slice(1..=3).as_slice(), &[1, 2, 3]);
+    }
+
+    #[test]
+    fn slice_unaligned() {
+        let buf = buffer![0i32, 1, 2, 3, 4].into_byte_buffer();
+        // With a regular slice, this would panic. See [`slice_bad_alignment`].
+        buf.slice_unaligned(1..2);
+    }
+
+    #[test]
+    #[should_panic]
+    fn slice_bad_alignment() {
+        let buf = buffer![0i32, 1, 2, 3, 4].into_byte_buffer();
+        // We should only be able to slice this buffer on 4-byte (i32) boundaries.
+        buf.slice(1..2);
     }
 }

@@ -22,6 +22,11 @@ impl BufferString {
         // SAFETY: We have already validated that the buffer is valid UTF-8
         unsafe { std::str::from_utf8_unchecked(self.0.as_ref()) }
     }
+
+    /// Returns the inner [`ByteBuffer`].
+    pub fn into_inner(self) -> ByteBuffer {
+        self.0
+    }
 }
 
 impl Debug for BufferString {
@@ -76,5 +81,22 @@ impl AsRef<str> for BufferString {
 impl AsRef<[u8]> for BufferString {
     fn as_ref(&self) -> &[u8] {
         self.as_str().as_bytes()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::{buffer, Alignment, BufferString};
+
+    #[test]
+    fn buffer_string() {
+        let buf = BufferString::from("hello");
+        assert_eq!(buf.len(), 5);
+        assert_eq!(buf.into_inner().alignment(), Alignment::of::<u8>());
+    }
+
+    #[test]
+    fn buffer_string_non_ut8() {
+        assert!(BufferString::try_from(buffer![0u8, 255]).is_err());
     }
 }

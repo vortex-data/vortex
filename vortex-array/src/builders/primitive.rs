@@ -16,7 +16,7 @@ pub struct PrimitiveBuilder<T: NativePType> {
     dtype: DType,
 }
 
-impl<T: NativePType + 'static> PrimitiveBuilder<T> {
+impl<T: NativePType> PrimitiveBuilder<T> {
     pub fn new(nullability: Nullability) -> Self {
         Self::with_capacity(nullability, 1024) // Same as Arrow builders
     }
@@ -45,7 +45,7 @@ impl<T: NativePType + 'static> PrimitiveBuilder<T> {
     }
 }
 
-impl<T: NativePType + 'static> ArrayBuilder for PrimitiveBuilder<T> {
+impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
     fn as_any(&self) -> &dyn Any {
         self
     }

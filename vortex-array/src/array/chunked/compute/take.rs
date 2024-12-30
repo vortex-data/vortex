@@ -31,7 +31,7 @@ impl TakeFn<ChunkedArray> for ChunkedEncoding {
 
         // While the chunk idx remains the same, accumulate a list of chunk indices.
         let mut chunks = Vec::new();
-        let mut indices_in_chunk = BufferMut::with_capacity(0);
+        let mut indices_in_chunk = BufferMut::<u64>::empty();
         let mut prev_chunk_idx = array
             .find_chunk_idx(indices.as_slice::<u64>()[0].try_into()?)
             .0;

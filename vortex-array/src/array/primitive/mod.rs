@@ -107,9 +107,11 @@ impl PrimitiveArray {
     }
 
     pub fn byte_buffer(&self) -> &ByteBuffer {
-        self.as_ref()
+        let buffer = self
+            .as_ref()
             .byte_buffer()
-            .vortex_expect("Missing buffer in PrimitiveArray")
+            .vortex_expect("Missing buffer in PrimitiveArray");
+        buffer
     }
 
     pub fn into_byte_buffer(self) -> ByteBuffer {
@@ -119,7 +121,14 @@ impl PrimitiveArray {
     }
 
     pub fn buffer<T: NativePType>(&self) -> Buffer<T> {
-        self.clone().into_buffer()
+        if T::PTYPE != self.ptype() {
+            vortex_panic!(
+                "Attempted to get buffer of type {} from array of type {}",
+                T::PTYPE,
+                self.ptype()
+            )
+        }
+        Buffer::from_byte_buffer(self.byte_buffer().clone())
     }
 
     pub fn into_buffer<T: NativePType>(self) -> Buffer<T> {
@@ -130,7 +139,11 @@ impl PrimitiveArray {
                 self.ptype()
             )
         }
-        Buffer::from_byte_buffer(self.into_byte_buffer())
+        Buffer::from_byte_buffer(
+            self.into_array()
+                .into_byte_buffer()
+                .vortex_expect("PrimitiveArray must have a buffer"),
+        )
     }
 
     /// Extract a mutable buffer from the PrimitiveArray. Attempts to do this with zero-copy
@@ -143,7 +156,7 @@ impl PrimitiveArray {
                 self.ptype()
             )
         }
-        Buffer::<T>::from_byte_buffer(self.into_byte_buffer())
+        self.into_buffer()
             .try_into_mut()
             .unwrap_or_else(|buffer| BufferMut::<T>::copy_from(&buffer))
     }

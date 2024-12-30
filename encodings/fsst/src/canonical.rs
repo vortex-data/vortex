@@ -25,8 +25,8 @@ impl IntoCanonical for FSSTArray {
                 .sliced_bytes()?;
 
             // Bulk-decompress the entire array.
-            // TODO(ngates): this returns a Vec... Can we make it return an iterator perhaps?
-            //  Or take some type that impls Default + Extend?
+            // TODO(ngates): return non-vec to avoid this copy
+            //   See: https://github.com/spiraldb/fsst/issues/61
             let uncompressed_bytes = decompressor.decompress(compressed_bytes.as_slice());
 
             let uncompressed_lens_array = self
@@ -55,7 +55,8 @@ impl IntoCanonical for FSSTArray {
             });
 
             let views_array: ArrayData = Buffer::<u8>::from_byte_buffer(views.into_byte_buffer()).into_array();
-            // FIXME(ngates): have fsst crate return non-Vec type to avoid this copy!
+            // TODO(ngates): return non-vec to avoid this copy
+            //   See: https://github.com/spiraldb/fsst/issues/61
             let uncompressed_bytes_array = Buffer::copy_from(uncompressed_bytes).into_array();
 
             VarBinViewArray::try_new(

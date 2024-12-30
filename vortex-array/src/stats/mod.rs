@@ -164,7 +164,10 @@ pub trait Statistics {
     /// Clear the value of the statistic
     fn clear(&self, stat: Stat);
 
-    /// Computes the value of the stat if it's not present
+    /// Computes the value of the stat if it's not present.
+    ///
+    /// Returns the scalar if compute succeeded, or `None` if the stat is not supported
+    /// for this array.
     fn compute(&self, stat: Stat) -> Option<Scalar>;
 
     /// Compute all the requested statistics (if not already present)
@@ -244,6 +247,9 @@ impl dyn Statistics + '_ {
             })
     }
 
+    /// Get or calculate the provided stat, converting the `Scalar` into a typed value.
+    ///
+    /// This function will panic if the conversion fails.
     pub fn compute_as<U: for<'a> TryFrom<&'a Scalar, Error = VortexError>>(
         &self,
         stat: Stat,
@@ -275,10 +281,16 @@ impl dyn Statistics + '_ {
             })
     }
 
+    /// Get or calculate the minimum value in the array, returning as a typed value.
+    ///
+    /// This function will panic if the conversion fails.
     pub fn compute_min<U: for<'a> TryFrom<&'a Scalar, Error = VortexError>>(&self) -> Option<U> {
         self.compute_as(Stat::Min)
     }
 
+    /// Get or calculate the maximum value in the array, returning as a typed value.
+    ///
+    /// This function will panic if the conversion fails.
     pub fn compute_max<U: for<'a> TryFrom<&'a Scalar, Error = VortexError>>(&self) -> Option<U> {
         self.compute_as(Stat::Max)
     }
