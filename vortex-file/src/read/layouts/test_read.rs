@@ -2,6 +2,7 @@ use std::collections::{BTreeSet, VecDeque};
 use std::sync::{Arc, RwLock};
 
 use bytes::Bytes;
+use itertools::Itertools;
 use vortex_array::ArrayData;
 use vortex_error::VortexUnwrap;
 
@@ -9,21 +10,20 @@ use crate::read::mask::RowMask;
 use crate::read::splits::SplitsAccumulator;
 use crate::{LayoutMessageCache, LayoutReader, MessageLocator, PollRead};
 
-fn layout_splits(
-    layouts: &[&mut dyn LayoutReader],
-    length: usize,
-) -> impl Iterator<Item = RowMask> {
-    let mut iter = SplitsAccumulator::new(length as u64, None);
+fn layout_splits(layouts: &[&dyn LayoutReader], length: usize) -> impl Iterator<Item = RowMask> {
     let mut splits = BTreeSet::new();
     for layout in layouts {
         layout.add_splits(0, &mut splits).vortex_unwrap();
     }
-    iter.append_splits(&mut splits);
+    splits.insert(length);
+
+    let iter = SplitsAccumulator::new(splits.into_iter().tuple_windows::<(usize, usize)>(), None);
+
     iter.into_iter().map(|m| m.unwrap())
 }
 
 pub fn read_layout_data(
-    layout: &mut dyn LayoutReader,
+    layout: &dyn LayoutReader,
     cache: Arc<RwLock<LayoutMessageCache>>,
     buf: &Bytes,
     selector: &RowMask,
@@ -43,7 +43,7 @@ pub fn read_layout_data(
 }
 
 pub fn read_filters(
-    layout: &mut dyn LayoutReader,
+    layout: &dyn LayoutReader,
     cache: Arc<RwLock<LayoutMessageCache>>,
     buf: &Bytes,
     selector: &RowMask,
@@ -57,9 +57,7 @@ pub fn read_filters(
                 }
             }
             PollRead::Value(a) => {
-                return Some(
-                    RowMask::from_mask_array(&a, selector.begin(), selector.end()).unwrap(),
-                );
+                return Some(RowMask::from_array(&a, selector.begin(), selector.end()).unwrap());
             }
         }
     }
@@ -68,8 +66,8 @@ pub fn read_filters(
 }
 
 pub fn filter_read_layout(
-    filter_layout: &mut dyn LayoutReader,
-    layout: &mut dyn LayoutReader,
+    filter_layout: &dyn LayoutReader,
+    layout: &dyn LayoutReader,
     cache: Arc<RwLock<LayoutMessageCache>>,
     buf: &Bytes,
     length: usize,
@@ -81,7 +79,7 @@ pub fn filter_read_layout(
 }
 
 pub fn read_layout(
-    layout: &mut dyn LayoutReader,
+    layout: &dyn LayoutReader,
     cache: Arc<RwLock<LayoutMessageCache>>,
     buf: &Bytes,
     length: usize,

@@ -26,11 +26,11 @@ pub(crate) trait ReadMasked {
 
 /// Read an array with a [`RowMask`].
 pub(crate) struct ReadArray {
-    layout: Box<dyn LayoutReader>,
+    layout: Arc<dyn LayoutReader>,
 }
 
 impl ReadArray {
-    pub(crate) fn new(layout: Box<dyn LayoutReader>) -> Self {
+    pub(crate) fn new(layout: Arc<dyn LayoutReader>) -> Self {
         Self { layout }
     }
 }
@@ -51,7 +51,8 @@ enum RowMaskState<V> {
 }
 
 pub struct BufferedLayoutReader<R, S, V, RM> {
-    values: S,
+    /// Stream of row masks to read
+    read_masks: S,
     row_mask_reader: RM,
     in_flight: Option<BoxFuture<'static, io::Result<Vec<Message>>>>,
     queued: VecDeque<RowMaskState<V>>,
@@ -69,12 +70,12 @@ where
     pub fn new(
         read: R,
         dispatcher: Arc<IoDispatcher>,
-        values: S,
+        read_masks: S,
         row_mask_reader: RM,
         cache: Arc<RwLock<LayoutMessageCache>>,
     ) -> Self {
         Self {
-            values,
+            read_masks,
             row_mask_reader,
             in_flight: None,
             queued: VecDeque::new(),
@@ -126,7 +127,7 @@ where
 
         let mut exhausted = false;
         while read_more_count < NUM_TO_COALESCE {
-            match self.values.poll_next_unpin(cx) {
+            match self.read_masks.poll_next_unpin(cx) {
                 Poll::Ready(Some(Ok(next_mask))) => {
                     if let Some(read_result) = self.row_mask_reader.read_masked(&next_mask)? {
                         match read_result {

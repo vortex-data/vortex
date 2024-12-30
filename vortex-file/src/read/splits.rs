@@ -1,8 +1,7 @@
-use std::collections::BTreeSet;
+use std::sync::Arc;
 
-use itertools::Itertools;
 use vortex_array::stats::ArrayStatistics;
-use vortex_error::{VortexResult, VortexUnwrap};
+use vortex_error::VortexResult;
 
 use crate::read::buffered::ReadMasked;
 use crate::{LayoutReader, PollRead, Prune, RowMask};
@@ -12,11 +11,11 @@ use crate::{LayoutReader, PollRead, Prune, RowMask};
 /// Similar to `ReadArray`, this wraps a layout to read an array, but `ReadRowMask` will interpret
 /// that array as a `RowMask`, and performs some optimizations to apply pruning first.
 pub(crate) struct ReadRowMask {
-    layout: Box<dyn LayoutReader>,
+    layout: Arc<dyn LayoutReader>,
 }
 
 impl ReadRowMask {
-    pub(crate) fn new(layout: Box<dyn LayoutReader>) -> Self {
+    pub(crate) fn new(layout: Arc<dyn LayoutReader>) -> Self {
         Self { layout }
     }
 }
@@ -58,8 +57,9 @@ impl ReadMasked for ReadRowMask {
     }
 }
 
+/// Takes all row sub-ranges, and produces a set of row ranges that aren't filtered out by the provided mask.
 pub struct SplitsAccumulator {
-    splits: BTreeSet<usize>,
+    ranges: Box<dyn Iterator<Item = (usize, usize)> + Send>,
     row_mask: Option<RowMask>,
 }
 
@@ -69,14 +69,12 @@ pub struct SplitsIntoIter {
 }
 
 impl SplitsAccumulator {
-    pub fn new(row_count: u64, row_mask: Option<RowMask>) -> Self {
-        let mut splits = BTreeSet::new();
-        splits.insert(row_count.try_into().vortex_unwrap());
-        Self { splits, row_mask }
-    }
-
-    pub fn append_splits(&mut self, other: &mut BTreeSet<usize>) {
-        self.splits.append(other);
+    pub fn new(
+        ranges: impl Iterator<Item = (usize, usize)> + Send + 'static,
+        row_mask: Option<RowMask>,
+    ) -> Self {
+        let ranges = Box::new(ranges);
+        Self { ranges, row_mask }
     }
 }
 
@@ -85,10 +83,10 @@ impl IntoIterator for SplitsAccumulator {
 
     type IntoIter = SplitsIntoIter;
 
+    /// Creates an iterator of row masks to be read from the underlying file.
     fn into_iter(self) -> Self::IntoIter {
-        let ranges = Box::new(self.splits.into_iter().tuple_windows::<(usize, usize)>());
         SplitsIntoIter {
-            ranges,
+            ranges: self.ranges,
             row_mask: self.row_mask,
         }
     }
@@ -106,6 +104,7 @@ impl Iterator for SplitsIntoIter {
                     Err(e) => return Some(Err(e)),
                 };
 
+                // If the range is all false, we take the next one
                 if sliced.is_all_false() {
                     continue;
                 }
@@ -121,8 +120,6 @@ impl Iterator for SplitsIntoIter {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
-
     use vortex_array::compute::FilterMask;
     use vortex_error::VortexResult;
 
@@ -132,8 +129,8 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn filters_empty() {
-        let mut mask_iter = SplitsAccumulator::new(
-            10,
+        let mask_iter = SplitsAccumulator::new(
+            [(0, 2), (2, 4), (4, 6), (6, 8), (8, 10)].into_iter(),
             Some(
                 RowMask::try_new(
                     FilterMask::from_iter([
@@ -145,7 +142,6 @@ mod tests {
                 .unwrap(),
             ),
         );
-        mask_iter.append_splits(&mut BTreeSet::from([0, 2, 4, 6, 8, 10]));
 
         let actual = mask_iter
             .into_iter()
