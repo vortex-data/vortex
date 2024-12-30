@@ -56,6 +56,7 @@ impl<T> Buffer<T> {
     /// Panics if the buffer is not aligned to the size of `T`, or the length is not a multiple of
     /// the size of `T`.
     pub fn from_byte_buffer(buffer: ByteBuffer) -> Self {
+        // TODO(ngates): should this preserve the current alignment of the buffer?
         Self::from_byte_buffer_aligned(buffer, Alignment::of::<T>())
     }
 
