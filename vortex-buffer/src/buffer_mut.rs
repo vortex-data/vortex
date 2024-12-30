@@ -206,12 +206,10 @@ impl<T> BufferMut<T> {
     /// ```
     #[inline]
     pub fn spare_capacity_mut(&mut self) -> &mut [MaybeUninit<T>] {
-        // Note:
-        // This method is not implemented in terms of `split_at_spare_mut`,
-        // to prevent invalidation of pointers to the buffer.
+        let dst = self.bytes.spare_capacity_mut().as_mut_ptr();
         unsafe {
             std::slice::from_raw_parts_mut(
-                self.as_mut_ptr().add(self.length) as *mut MaybeUninit<T>,
+                dst as *mut MaybeUninit<T>,
                 self.capacity() - self.length,
             )
         }
