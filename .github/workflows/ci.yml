@@ -171,7 +171,7 @@ jobs:
       - name: Rust Test
         run: cargo test --workspace --all-features
       - run: |
-          grcov . --binary-path target/debug/deps/ -s . -t 'coveralls+' --ignore-not-existing \
+          grcov target/coverage --binary-path target/debug/deps/ -s . -t 'coveralls+' --ignore-not-existing \
             --ignore '../*' --ignore '/*' --ignore 'bench-vortex/*' --ignore 'fuzz/*' --ignore 'home/*' \
             -o ${{ env.GRCOV_OUTPUT_FILE }}
       - name: Coveralls
