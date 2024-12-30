@@ -446,7 +446,6 @@ impl Buf for ByteBufferMut {
 /// As per the BufMut implementation, we must support internal resizing when
 /// asked to extend the buffer.
 /// See: <https://github.com/tokio-rs/bytes/issues/131>
-
 unsafe impl BufMut for ByteBufferMut {
     #[inline]
     fn remaining_mut(&self) -> usize {
