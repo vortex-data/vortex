@@ -1,7 +1,7 @@
 use std::collections::Bound;
 use std::ops::{Deref, RangeBounds};
 
-use bytes::Bytes;
+use bytes::{Buf, Bytes};
 use vortex_error::{vortex_panic, VortexExpect};
 
 use crate::{Alignment, BufferMut, ByteBuffer};
@@ -56,6 +56,7 @@ impl<T> Buffer<T> {
     /// Panics if the buffer is not aligned to the size of `T`, or the length is not a multiple of
     /// the size of `T`.
     pub fn from_byte_buffer(buffer: ByteBuffer) -> Self {
+        // TODO(ngates): should this preserve the current alignment of the buffer?
         Self::from_byte_buffer_aligned(buffer, Alignment::of::<T>())
     }
 
@@ -258,6 +259,15 @@ impl<T> Buffer<T> {
                 _marker: Default::default(),
             })
     }
+
+    /// Return a `Buffer<T>` with the given alignment. Where possible, this will be zero-copy.
+    pub fn aligned(self, alignment: Alignment) -> Self {
+        if self.as_ptr().align_offset(*alignment) == 0 {
+            self
+        } else {
+            Self::copy_from_aligned(self, alignment)
+        }
+    }
 }
 
 impl<T> Deref for Buffer<T> {
@@ -297,6 +307,28 @@ impl From<Bytes> for ByteBuffer {
             alignment: Alignment::of::<u8>(),
             _marker: Default::default(),
         }
+    }
+}
+
+impl Buf for ByteBuffer {
+    fn remaining(&self) -> usize {
+        self.len()
+    }
+
+    fn chunk(&self) -> &[u8] {
+        self.as_slice()
+    }
+
+    fn advance(&mut self, cnt: usize) {
+        if !cnt.is_multiple_of(*self.alignment) {
+            vortex_panic!(
+                "Cannot advance buffer by {} items, resulting alignment is not {}",
+                cnt,
+                self.alignment
+            );
+        }
+        self.bytes.advance(cnt);
+        self.length -= cnt;
     }
 }
 
@@ -343,7 +375,9 @@ impl<T> From<BufferMut<T>> for Buffer<T> {
 
 #[cfg(test)]
 mod test {
-    use crate::buffer;
+    use bytes::Buf;
+
+    use crate::{buffer, ByteBuffer};
 
     #[test]
     fn slice() {
@@ -365,5 +399,17 @@ mod test {
         let buf = buffer![0i32, 1, 2, 3, 4].into_byte_buffer();
         // We should only be able to slice this buffer on 4-byte (i32) boundaries.
         buf.slice(1..2);
+    }
+
+    #[test]
+    fn bytes_buf() {
+        let mut buf = ByteBuffer::copy_from("helloworld".as_bytes());
+        assert_eq!(buf.remaining(), 10);
+        assert_eq!(buf.chunk(), b"helloworld");
+
+        Buf::advance(&mut buf, 5);
+        assert_eq!(buf.remaining(), 5);
+        assert_eq!(buf.as_slice(), b"world");
+        assert_eq!(buf.chunk(), b"world");
     }
 }

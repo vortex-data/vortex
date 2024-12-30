@@ -4,7 +4,7 @@ use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{
     ArrayDType, ArrayData, Canonical, IntoArrayData, IntoArrayVariant, IntoCanonical,
 };
-use vortex_buffer::Buffer;
+use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 
@@ -28,8 +28,6 @@ impl IntoCanonical for FSSTArray {
                 .into_primitive()?;
 
             // Bulk-decompress the entire array.
-            // TODO(ngates): return non-vec to avoid this copy
-            //   See: https://github.com/spiraldb/fsst/issues/61
             let uncompressed_bytes = decompressor.decompress(compressed_bytes.as_slice::<u8>());
 
             let uncompressed_lens_array = self
@@ -58,9 +56,7 @@ impl IntoCanonical for FSSTArray {
             });
 
             let views_array: ArrayData = Buffer::<u8>::from_byte_buffer(views.into_byte_buffer()).into_array();
-            // TODO(ngates): return non-vec to avoid this copy
-            //   See: https://github.com/spiraldb/fsst/issues/61
-            let uncompressed_bytes_array = Buffer::copy_from(uncompressed_bytes).into_array();
+            let uncompressed_bytes_array = ByteBuffer::from(uncompressed_bytes).into_array();
 
             VarBinViewArray::try_new(
                 views_array,

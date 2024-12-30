@@ -1,12 +1,11 @@
 use std::collections::BTreeSet;
-use std::io::Cursor;
 use std::sync::Arc;
 
 use bytes::Bytes;
 use vortex_array::{ArrayData, Context};
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_flatbuffers::footer;
-use vortex_ipc::messages::{DecoderMessage, SyncMessageReader};
+use vortex_ipc::messages::{BufMessageReader, DecoderMessage};
 
 use crate::byte_range::ByteRange;
 use crate::read::cache::RelativeLayoutCache;
@@ -74,7 +73,7 @@ impl FlatLayoutReader {
     }
 
     fn array_from_bytes(&self, buf: Bytes) -> VortexResult<ArrayData> {
-        let mut reader = SyncMessageReader::new(Cursor::new(buf));
+        let mut reader = BufMessageReader::new(buf);
         match reader.next().transpose()? {
             Some(DecoderMessage::Array(array_parts)) => array_parts.into_array_data(
                 self.ctx.clone(),

@@ -1,10 +1,11 @@
 use core::mem::MaybeUninit;
 use std::ops::{Deref, DerefMut};
 
-use bytes::{Buf, BytesMut};
+use bytes::buf::UninitSlice;
+use bytes::{Buf, BufMut, BytesMut};
 use vortex_error::{vortex_panic, VortexExpect};
 
-use crate::{Alignment, Buffer};
+use crate::{Alignment, Buffer, ByteBufferMut};
 
 /// A mutable buffer that maintains a runtime-defined alignment through resizing operations.
 #[derive(Debug, PartialEq, Eq)]
@@ -321,6 +322,15 @@ impl<T> BufferMut<T> {
         }
         buf
     }
+
+    /// Return a `BufferMut<T>` with the given alignment. Where possible, this will be zero-copy.
+    pub fn aligned(self, alignment: Alignment) -> Self {
+        if self.as_ptr().align_offset(*alignment) == 0 {
+            self
+        } else {
+            Self::copy_from_aligned(self, alignment)
+        }
+    }
 }
 
 impl<T> Clone for BufferMut<T> {
@@ -411,6 +421,77 @@ impl<T> FromIterator<T> for BufferMut<T> {
     }
 }
 
+impl Buf for ByteBufferMut {
+    fn remaining(&self) -> usize {
+        self.len()
+    }
+
+    fn chunk(&self) -> &[u8] {
+        self.as_slice()
+    }
+
+    fn advance(&mut self, cnt: usize) {
+        if !cnt.is_multiple_of(*self.alignment) {
+            vortex_panic!(
+                "Cannot advance buffer by {} items, resulting alignment is not {}",
+                cnt,
+                self.alignment
+            );
+        }
+        self.bytes.advance(cnt);
+        self.length -= cnt;
+    }
+}
+
+/// As per the BufMut implementation, we must support internal resizing when
+/// asked to extend the buffer.
+/// See: <https://github.com/tokio-rs/bytes/issues/131>
+unsafe impl BufMut for ByteBufferMut {
+    #[inline]
+    fn remaining_mut(&self) -> usize {
+        usize::MAX - self.len()
+    }
+
+    #[inline]
+    unsafe fn advance_mut(&mut self, cnt: usize) {
+        if !cnt.is_multiple_of(*self.alignment) {
+            vortex_panic!(
+                "Cannot advance buffer by {} items, resulting alignment is not {}",
+                cnt,
+                self.alignment
+            );
+        }
+        unsafe { self.bytes.advance_mut(cnt) };
+        self.length -= cnt;
+    }
+
+    #[inline]
+    fn chunk_mut(&mut self) -> &mut UninitSlice {
+        self.bytes.chunk_mut()
+    }
+
+    fn put<T: Buf>(&mut self, mut src: T)
+    where
+        Self: Sized,
+    {
+        while src.has_remaining() {
+            let chunk = src.chunk();
+            self.extend_from_slice(chunk);
+            src.advance(chunk.len());
+        }
+    }
+
+    #[inline]
+    fn put_slice(&mut self, src: &[u8]) {
+        self.extend_from_slice(src);
+    }
+
+    #[inline]
+    fn put_bytes(&mut self, val: u8, cnt: usize) {
+        self.push_n(val, cnt)
+    }
+}
+
 /// Extension trait for [`BytesMut`] that provides functions for aligning the buffer.
 trait AlignedBytesMut {
     /// Align an empty `BytesMut` to the specified alignment.
@@ -441,7 +522,9 @@ impl AlignedBytesMut for BytesMut {
 
 #[cfg(test)]
 mod test {
-    use crate::{buffer_mut, Alignment, BufferMut};
+    use bytes::{Buf, BufMut};
+
+    use crate::{buffer_mut, Alignment, BufferMut, ByteBufferMut};
 
     #[test]
     fn capacity() {
@@ -504,5 +587,26 @@ mod test {
         // Add one, and cast to an unsigned u32 in the same closure
         let buf = buf.map_each(|i| (i + 1) as u32);
         assert_eq!(buf.as_slice(), &[1u32, 2, 3]);
+    }
+
+    #[test]
+    fn bytes_buf() {
+        let mut buf = ByteBufferMut::copy_from("helloworld".as_bytes());
+        assert_eq!(buf.remaining(), 10);
+        assert_eq!(buf.chunk(), b"helloworld");
+
+        Buf::advance(&mut buf, 5);
+        assert_eq!(buf.remaining(), 5);
+        assert_eq!(buf.as_slice(), b"world");
+        assert_eq!(buf.chunk(), b"world");
+    }
+
+    #[test]
+    fn bytes_buf_mut() {
+        let mut buf = ByteBufferMut::copy_from("hello".as_bytes());
+        assert_eq!(BufMut::remaining_mut(&buf), usize::MAX - 5);
+
+        BufMut::put_slice(&mut buf, b"world");
+        assert_eq!(buf.as_slice(), b"helloworld");
     }
 }
