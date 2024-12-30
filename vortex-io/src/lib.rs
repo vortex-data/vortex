@@ -9,6 +9,7 @@
 
 pub use buf::*;
 pub use dispatcher::*;
+pub use io_buf::*;
 pub use limit::*;
 #[cfg(feature = "object_store")]
 pub use object_store::*;
@@ -18,11 +19,11 @@ pub use read_ranges::*;
 pub use tokio::*;
 pub use write::*;
 
-mod aligned;
 mod buf;
 #[cfg(feature = "compio")]
 mod compio;
 mod dispatcher;
+mod io_buf;
 mod limit;
 #[cfg(feature = "object_store")]
 mod object_store;

@@ -1,20 +1,22 @@
 use std::fmt::Debug;
 
+use itertools::Itertools as _;
 use serde::{Deserialize, Serialize};
+use vortex_buffer::BufferMut;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{match_each_integer_ptype, DType, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
+use crate::aliases::hash_map::HashMap;
 use crate::array::PrimitiveArray;
 use crate::compute::{
-    scalar_at, search_sorted, search_sorted_usize, search_sorted_usize_many, slice,
-    subtract_scalar, take, try_cast, FilterMask, SearchResult, SearchSortedSide,
+    scalar_at, search_sorted, search_sorted_usize, search_sorted_usize_many, slice, sub_scalar,
+    take, FilterMask, SearchResult, SearchSortedSide,
 };
 use crate::stats::{ArrayStatistics, Stat};
-use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
-use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
+use crate::{ArrayDType, ArrayData, ArrayLen as _, IntoArrayData, IntoArrayVariant};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PatchesMetadata {
@@ -35,6 +37,10 @@ impl PatchesMetadata {
 
     #[inline]
     pub fn indices_dtype(&self) -> DType {
+        assert!(
+            self.indices_ptype.is_unsigned_int(),
+            "Patch indices must be unsigned integers"
+        );
         DType::Primitive(self.indices_ptype, NonNullable)
     }
 }
@@ -54,7 +60,10 @@ impl Patches {
             values.len(),
             "Patch indices and values must have the same length"
         );
-        assert!(indices.dtype().is_int(), "Patch indices must be integers");
+        assert!(
+            indices.dtype().is_unsigned_int(),
+            "Patch indices must be unsigned integers"
+        );
         assert!(
             indices.len() <= array_len,
             "Patch indices must be shorter than the array length"
@@ -75,6 +84,10 @@ impl Patches {
         }
     }
 
+    pub fn into_parts(self) -> (usize, ArrayData, ArrayData) {
+        (self.array_len, self.indices, self.values)
+    }
+
     pub fn array_len(&self) -> usize {
         self.array_len
     }
@@ -91,8 +104,16 @@ impl Patches {
         &self.indices
     }
 
+    pub fn into_indices(self) -> ArrayData {
+        self.indices
+    }
+
     pub fn values(&self) -> &ArrayData {
         &self.values
+    }
+
+    pub fn into_values(self) -> ArrayData {
+        self.values
     }
 
     pub fn indices_ptype(&self) -> PType {
@@ -122,13 +143,16 @@ impl Patches {
 
     /// Get the patched value at a given index if it exists.
     pub fn get_patched(&self, index: usize) -> VortexResult<Option<Scalar>> {
-        if let Some(patch_idx) =
-            search_sorted_usize(self.indices(), index, SearchSortedSide::Left)?.to_found()
-        {
+        if let Some(patch_idx) = self.search_index(index)?.to_found() {
             scalar_at(self.values(), patch_idx).map(Some)
         } else {
             Ok(None)
         }
+    }
+
+    /// Return the insertion point of [index] in the [Self::indices].
+    fn search_index(&self, index: usize) -> VortexResult<SearchResult> {
+        search_sorted_usize(&self.indices, index, SearchSortedSide::Left)
     }
 
     /// Return the search_sorted result for the given target re-mapped into the original indices.
@@ -172,18 +196,18 @@ impl Patches {
         }
 
         let buffer = mask.to_boolean_buffer()?;
-        let mut coordinate_indices: Vec<u64> = Vec::new();
-        let mut value_indices = Vec::new();
+        let mut coordinate_indices = BufferMut::<u64>::empty();
+        let mut value_indices = BufferMut::<u64>::empty();
         let mut last_inserted_index: usize = 0;
 
         let flat_indices = self.indices().clone().into_primitive()?;
         match_each_integer_ptype!(flat_indices.ptype(), |$I| {
-            for (value_idx, coordinate) in flat_indices.into_maybe_null_slice::<$I>().into_iter().enumerate() {
-                if buffer.value(coordinate as usize) {
+            for (value_idx, coordinate) in flat_indices.as_slice::<$I>().iter().enumerate() {
+                if buffer.value(*coordinate as usize) {
                     // We count the number of truthy values between this coordinate and the previous truthy one
-                    let adjusted_coordinate = buffer.slice(last_inserted_index, (coordinate as usize) - last_inserted_index).count_set_bits() as u64;
+                    let adjusted_coordinate = buffer.slice(last_inserted_index, (*coordinate as usize) - last_inserted_index).count_set_bits() as u64;
                     coordinate_indices.push(adjusted_coordinate + coordinate_indices.last().copied().unwrap_or_default());
-                    last_inserted_index = coordinate as usize;
+                    last_inserted_index = *coordinate as usize;
                     value_indices.push(value_idx as u64);
                 }
             }
@@ -193,18 +217,16 @@ impl Patches {
             return Ok(None);
         }
 
-        let indices = PrimitiveArray::from(coordinate_indices).into_array();
-        let values = take(self.values(), PrimitiveArray::from(value_indices))?;
+        let indices = coordinate_indices.into_array();
+        let values = take(self.values(), value_indices.into_array())?;
 
         Ok(Some(Self::new(mask.len(), indices, values)))
     }
 
     /// Slice the patches by a range of the patched array.
     pub fn slice(&self, start: usize, stop: usize) -> VortexResult<Option<Self>> {
-        let patch_start =
-            search_sorted_usize(self.indices(), start, SearchSortedSide::Left)?.to_index();
-        let patch_stop =
-            search_sorted_usize(self.indices(), stop, SearchSortedSide::Left)?.to_index();
+        let patch_start = self.search_index(start)?.to_index();
+        let patch_stop = self.search_index(stop)?.to_index();
 
         if patch_start == patch_stop {
             return Ok(None);
@@ -215,56 +237,151 @@ impl Patches {
 
         // Subtract the start value from the indices
         let indices = slice(self.indices(), patch_start, patch_stop)?;
-        let indices = subtract_scalar(&indices, &Scalar::from(start).cast(indices.dtype())?)?;
+        let indices = sub_scalar(&indices, Scalar::from(start).cast(indices.dtype())?)?;
 
         Ok(Some(Self::new(stop - start, indices, values)))
     }
 
+    // https://docs.google.com/spreadsheets/d/1D9vBZ1QJ6mwcIvV5wIL0hjGgVchcEnAyhvitqWu2ugU
+    const PREFER_MAP_WHEN_PATCHES_OVER_INDICES_LESS_THAN: f64 = 5.0;
+
+    fn is_map_faster_than_search(&self, take_indices: &PrimitiveArray) -> bool {
+        (self.num_patches() as f64 / take_indices.len() as f64)
+            < Self::PREFER_MAP_WHEN_PATCHES_OVER_INDICES_LESS_THAN
+    }
+
     /// Take the indices from the patches.
-    pub fn take(&self, indices: &ArrayData) -> VortexResult<Option<Self>> {
-        if indices.is_empty() {
+    pub fn take(&self, take_indices: &ArrayData) -> VortexResult<Option<Self>> {
+        if take_indices.is_empty() {
             return Ok(None);
         }
+        let take_indices = take_indices.clone().into_primitive()?;
+        if self.is_map_faster_than_search(&take_indices) {
+            self.take_map(take_indices)
+        } else {
+            self.take_search(take_indices)
+        }
+    }
 
-        // TODO(ngates): plenty of optimisations to be made here
-        let take_indices =
-            try_cast(indices, &DType::Primitive(PType::U64, NonNullable))?.into_primitive()?;
+    pub fn take_search(&self, take_indices: PrimitiveArray) -> VortexResult<Option<Self>> {
+        let new_length = take_indices.len();
 
-        let (values_indices, new_indices): (Vec<u64>, Vec<u64>) = search_sorted_usize_many(
-            self.indices(),
-            &take_indices
-                .into_maybe_null_slice::<u64>()
-                .into_iter()
+        let take_indices = match_each_integer_ptype!(take_indices.ptype(), |$P| {
+            take_indices
+                .as_slice::<$P>()
+                .iter()
+                .copied()
                 .map(usize::try_from)
-                .collect::<Result<Vec<_>, _>>()?,
-            SearchSortedSide::Left,
-        )?
-        .iter()
-        .enumerate()
-        .filter_map(|(idx_in_take, search_result)| {
-            search_result
-                .to_found()
-                .map(|patch_idx| (patch_idx as u64, idx_in_take as u64))
-        })
-        .unzip();
+                .collect::<Result<Vec<_>, _>>()?
+        });
+
+        let (values_indices, new_indices): (BufferMut<u64>, BufferMut<u64>) =
+            search_sorted_usize_many(self.indices(), &take_indices, SearchSortedSide::Left)?
+                .iter()
+                .enumerate()
+                .filter_map(|(idx_in_take, search_result)| {
+                    search_result
+                        .to_found()
+                        .map(|patch_idx| (patch_idx as u64, idx_in_take as u64))
+                })
+                .unzip();
 
         if new_indices.is_empty() {
             return Ok(None);
         }
 
-        let new_indices = PrimitiveArray::from_vec(new_indices, Validity::NonNullable).into_array();
-
-        let values_indices =
-            PrimitiveArray::from_vec(values_indices, Validity::NonNullable).into_array();
+        let new_indices = new_indices.into_array();
+        let values_indices = values_indices.into_array();
         let new_values = take(self.values(), values_indices)?;
 
-        Ok(Some(Self::new(indices.len(), new_indices, new_values)))
+        Ok(Some(Self::new(new_length, new_indices, new_values)))
+    }
+
+    pub fn take_map(&self, take_indices: PrimitiveArray) -> VortexResult<Option<Self>> {
+        let indices = self.indices.clone().into_primitive()?;
+        match_each_integer_ptype!(self.indices_ptype(), |$INDICES| {
+            let indices = indices
+                .as_slice::<$INDICES>();
+            match_each_integer_ptype!(take_indices.ptype(), |$TAKE_INDICES| {
+                let take_indices = take_indices
+                    .as_slice::<$TAKE_INDICES>();
+
+                let new_length = take_indices.len();
+                let sparse_index_to_value_index: HashMap<$INDICES, usize> = indices
+                    .iter()
+                    .enumerate()
+                    .map(|(value_index, sparse_index)| (*sparse_index, value_index))
+                    .collect();
+                let min_index = self.min_index()?;
+                let max_index = self.max_index()?;
+                let (new_sparse_indices, value_indices): (BufferMut<u64>, BufferMut<u64>) =
+                    take_indices
+                    .iter()
+                    .map(|x| usize::try_from(*x))
+                    .process_results(|iter| {
+                        iter
+                           .enumerate()
+                           .filter(|(_, ti)| *ti >= min_index && *ti <= max_index)
+                           .filter_map(|(new_sparse_index, take_sparse_index)| {
+                               sparse_index_to_value_index
+                                   .get(&<$INDICES>::try_from(take_sparse_index).ok().vortex_expect(
+                                       "take_sparse_index is between min and max index",
+                                   ))
+                                   .map(|value_index| (new_sparse_index as u64, *value_index as u64))
+                           })
+                           .unzip()
+                    })?;
+
+                if new_sparse_indices.is_empty() {
+                    return Ok(None);
+                }
+
+                Ok(Some(Patches::new(
+                    new_length,
+                    new_sparse_indices.into_array(),
+                    take(self.values(), value_indices.into_array())?,
+                )))
+            })
+        })
+    }
+
+    pub fn map_values<F>(self, f: F) -> VortexResult<Self>
+    where
+        F: FnOnce(ArrayData) -> VortexResult<ArrayData>,
+    {
+        let values = f(self.values)?;
+        if self.indices.len() != values.len() {
+            vortex_bail!(
+                "map_values must preserve length: expected {} received {}",
+                self.indices.len(),
+                values.len()
+            )
+        }
+        Ok(Self::new(self.array_len, self.indices, values))
+    }
+
+    pub fn map_values_opt<F>(self, f: F) -> VortexResult<Option<Self>>
+    where
+        F: FnOnce(ArrayData) -> Option<ArrayData>,
+    {
+        let Some(values) = f(self.values) else {
+            return Ok(None);
+        };
+        if self.indices.len() == values.len() {
+            vortex_bail!(
+                "map_values must preserve length: expected {} received {}",
+                self.indices.len(),
+                values.len()
+            )
+        }
+        Ok(Some(Self::new(self.array_len, self.indices, values)))
     }
 }
 
 #[cfg(test)]
 mod test {
     use rstest::{fixture, rstest};
+    use vortex_buffer::buffer;
 
     use crate::array::PrimitiveArray;
     use crate::compute::{FilterMask, SearchResult, SearchSortedSide};
@@ -276,8 +393,8 @@ mod test {
     fn test_filter() {
         let patches = Patches::new(
             100,
-            PrimitiveArray::from(vec![10u32, 11, 20]).into_array(),
-            PrimitiveArray::from(vec![100, 110, 200]).into_array(),
+            buffer![10u32, 11, 20].into_array(),
+            buffer![100, 110, 200].into_array(),
         );
 
         let filtered = patches
@@ -287,16 +404,16 @@ mod test {
 
         let indices = filtered.indices().clone().into_primitive().unwrap();
         let values = filtered.values().clone().into_primitive().unwrap();
-        assert_eq!(indices.maybe_null_slice::<u64>(), &[0, 1]);
-        assert_eq!(values.maybe_null_slice::<i32>(), &[100, 200]);
+        assert_eq!(indices.as_slice::<u64>(), &[0, 1]);
+        assert_eq!(values.as_slice::<i32>(), &[100, 200]);
     }
 
     #[fixture]
     fn patches() -> Patches {
         Patches::new(
             20,
-            PrimitiveArray::from(vec![2u64, 9, 15]).into_array(),
-            PrimitiveArray::from_vec(vec![33_i32, 44, 55], Validity::AllValid).into_array(),
+            buffer![2u64, 9, 15].into_array(),
+            PrimitiveArray::new(buffer![33_i32, 44, 55], Validity::AllValid).into_array(),
         )
     }
 
@@ -337,8 +454,8 @@ mod test {
     fn search_right() {
         let patches = Patches::new(
             2,
-            PrimitiveArray::from(vec![0u64]).into_array(),
-            PrimitiveArray::from_vec(vec![0u8], Validity::AllValid).into_array(),
+            buffer![0u64].into_array(),
+            PrimitiveArray::new(buffer![0u8], Validity::AllValid).into_array(),
         );
 
         assert_eq!(

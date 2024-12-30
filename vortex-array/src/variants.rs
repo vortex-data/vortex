@@ -197,6 +197,10 @@ pub trait NullArrayTrait: ArrayTrait {}
 pub trait BoolArrayTrait: ArrayTrait {}
 
 pub trait PrimitiveArrayTrait: ArrayTrait {
+    /// The logical primitive type of the array.
+    ///
+    /// This is a type that can safely be converted into a `NativePType` for use in
+    /// `maybe_null_slice` or `into_maybe_null_slice`.
     fn ptype(&self) -> PType {
         if let DType::Primitive(ptype, ..) = self.dtype() {
             *ptype

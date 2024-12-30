@@ -1,6 +1,7 @@
 use vortex_array::array::{PrimitiveArray, TemporalArray};
 use vortex_array::compute::try_cast;
 use vortex_array::{ArrayDType as _, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
+use vortex_buffer::BufferMut;
 use vortex_datetime_dtype::TimeUnit;
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, VortexResult};
@@ -35,19 +36,19 @@ pub fn split_temporal(array: TemporalArray) -> VortexResult<TemporalParts> {
     };
 
     let length = timestamps.len();
-    let mut days = Vec::with_capacity(length);
-    let mut seconds = Vec::with_capacity(length);
-    let mut subsecond = Vec::with_capacity(length);
+    let mut days = BufferMut::with_capacity(length);
+    let mut seconds = BufferMut::with_capacity(length);
+    let mut subsecond = BufferMut::with_capacity(length);
 
-    for &t in timestamps.maybe_null_slice::<i64>().iter() {
+    for &t in timestamps.as_slice::<i64>().iter() {
         days.push(t / (86_400 * divisor));
         seconds.push((t % (86_400 * divisor)) / divisor);
         subsecond.push((t % (86_400 * divisor)) % divisor);
     }
 
     Ok(TemporalParts {
-        days: PrimitiveArray::from_vec(days, validity).into_array(),
-        seconds: PrimitiveArray::from(seconds).into_array(),
-        subseconds: PrimitiveArray::from(subsecond).into_array(),
+        days: PrimitiveArray::new(days, validity).into_array(),
+        seconds: seconds.into_array(),
+        subseconds: subsecond.into_array(),
     })
 }

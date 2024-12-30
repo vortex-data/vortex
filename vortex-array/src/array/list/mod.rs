@@ -8,17 +8,14 @@ use serde::{Deserialize, Serialize};
 use vortex_dtype::{match_each_native_ptype, DType, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult};
 
-use crate::array::{NullArray, PrimitiveArray};
+use crate::array::PrimitiveArray;
 use crate::compute::{scalar_at, slice};
 use crate::encoding::ids;
 use crate::stats::{Stat, StatisticsVTable, StatsSet};
 use crate::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use crate::variants::{ListArrayTrait, PrimitiveArrayTrait, VariantsVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
-use crate::{
-    impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
-    IntoCanonical,
-};
+use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoCanonical};
 
 impl_encoding!("vortex.list", ids::LIST, List);
 
@@ -106,7 +103,7 @@ impl ListArray {
             .ok()
             .map(|p| {
                 match_each_native_ptype!(p.ptype(), |$P| {
-                    p.maybe_null_slice::<$P>()[index].as_()
+                    p.as_slice::<$P>()[index].as_()
                 })
             })
             .unwrap_or_else(|| {
@@ -122,12 +119,6 @@ impl ListArray {
 
     // TODO: fetches the elements at index
     pub fn elements_at(&self, index: usize) -> VortexResult<ArrayData> {
-        if index >= self.len() {
-            vortex_bail!("Index out of bounds: index={} len={}", index, self.len());
-        }
-        if !self.is_valid(index) {
-            return Ok(NullArray::new(1).into_array());
-        }
         let start = self.offset_at(index);
         let end = self.offset_at(index + 1);
         slice(self.elements(), start, end)
@@ -197,7 +188,8 @@ impl ValidityVTable<ListArray> for ListEncoding {
 mod test {
     use std::sync::Arc;
 
-    use vortex_dtype::PType;
+    use vortex_dtype::Nullability::NonNullable;
+    use vortex_dtype::{Nullability, PType};
     use vortex_scalar::Scalar;
 
     use crate::array::list::ListArray;
@@ -208,8 +200,8 @@ mod test {
 
     #[test]
     fn test_empty_list_array() {
-        let elements = PrimitiveArray::from(vec![] as Vec<u32>);
-        let offsets = PrimitiveArray::from(vec![0]);
+        let elements = PrimitiveArray::empty::<u32>(NonNullable);
+        let offsets = PrimitiveArray::from_iter([0]);
         let validity = Validity::AllValid;
 
         let list =
@@ -220,23 +212,35 @@ mod test {
 
     #[test]
     fn test_simple_list_array() {
-        let elements = PrimitiveArray::from(vec![1i32, 2, 3, 4, 5]);
-        let offsets = PrimitiveArray::from(vec![0, 2, 4, 5]);
+        let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]);
+        let offsets = PrimitiveArray::from_iter([0, 2, 4, 5]);
         let validity = Validity::AllValid;
 
         let list =
             ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
 
         assert_eq!(
-            Scalar::list(Arc::new(PType::I32.into()), vec![1.into(), 2.into()]),
+            Scalar::list(
+                Arc::new(PType::I32.into()),
+                vec![1.into(), 2.into()],
+                Nullability::Nullable
+            ),
             scalar_at(&list, 0).unwrap()
         );
         assert_eq!(
-            Scalar::list(Arc::new(PType::I32.into()), vec![3.into(), 4.into()]),
+            Scalar::list(
+                Arc::new(PType::I32.into()),
+                vec![3.into(), 4.into()],
+                Nullability::Nullable
+            ),
             scalar_at(&list, 1).unwrap()
         );
         assert_eq!(
-            Scalar::list(Arc::new(PType::I32.into()), vec![5.into()]),
+            Scalar::list(
+                Arc::new(PType::I32.into()),
+                vec![5.into()],
+                Nullability::Nullable
+            ),
             scalar_at(&list, 2).unwrap()
         );
     }

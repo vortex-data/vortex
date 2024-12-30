@@ -9,6 +9,7 @@ pub mod python;
 
 use std::backtrace::Backtrace;
 use std::borrow::Cow;
+use std::convert::Infallible;
 use std::fmt::{Debug, Display, Formatter};
 use std::num::TryFromIntError;
 use std::ops::Deref;
@@ -50,6 +51,12 @@ impl Deref for ErrString {
 impl Display for ErrString {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         Display::fmt(&self.0, f)
+    }
+}
+
+impl From<Infallible> for VortexError {
+    fn from(_: Infallible) -> Self {
+        unreachable!()
     }
 }
 

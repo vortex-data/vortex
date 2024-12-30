@@ -15,7 +15,7 @@ use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
     impl_encoding, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData, IntoCanonical,
 };
-use vortex_buffer::Buffer;
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
 
@@ -55,7 +55,7 @@ impl RoaringBoolArray {
             DType::Bool(Nullability::NonNullable),
             length,
             Arc::new(RoaringBoolMetadata),
-            Some(Buffer::from(bitmap.serialize::<Native>())),
+            Some(ByteBuffer::from(bitmap.serialize::<Native>())),
             vec![].into(),
             stats,
         )?
@@ -75,9 +75,9 @@ impl RoaringBoolArray {
         }
     }
 
-    pub fn buffer(&self) -> &Buffer {
+    pub fn buffer(&self) -> &ByteBuffer {
         self.as_ref()
-            .buffer()
+            .byte_buffer()
             .vortex_expect("Missing buffer in PrimitiveArray")
     }
 }
@@ -156,11 +156,8 @@ mod test {
     #[test]
     #[cfg_attr(miri, ignore)]
     pub fn trailing_false() {
-        let bool: BoolArray = BoolArray::from_iter(
-            [true, true]
-                .into_iter()
-                .chain(iter::repeat(false).take(100)),
-        );
+        let bool: BoolArray =
+            BoolArray::from_iter([true, true].into_iter().chain(iter::repeat_n(false, 100)));
         let array = RoaringBoolArray::encode(bool.into_array()).unwrap();
         let round_trip = RoaringBoolArray::try_from(array).unwrap();
         let bool_arr = round_trip.into_bool().unwrap();

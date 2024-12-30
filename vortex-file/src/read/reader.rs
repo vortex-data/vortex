@@ -7,7 +7,7 @@ use vortex_array::ArrayData;
 use vortex_error::VortexResult;
 use vortex_io::VortexReadAt;
 
-use crate::{InitialRead, LayoutMessageCache, VortexFileArrayStream};
+use crate::{InitialRead, LayoutMessageCache, VortexReadArrayStream};
 
 pub struct VortexFileArrayReader<R> {
     read: R,
@@ -27,7 +27,7 @@ impl<R: VortexReadAt> VortexFileArrayReader<R> {
     }
 
     /// Stream the chunks of the Vortex file.
-    pub fn into_stream(self) -> VortexFileArrayStream<R> {
+    pub fn into_stream(self) -> VortexReadArrayStream<R> {
         todo!()
     }
 }

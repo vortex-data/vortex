@@ -6,9 +6,9 @@ concurrency:
 
 on:
   push:
-    branches: [ "develop" ]
-  pull_request: { }
-  workflow_dispatch: { }
+    branches: ["develop"]
+  pull_request: {}
+  workflow_dispatch: {}
 
 permissions:
   actions: read
@@ -87,44 +87,46 @@ jobs:
       - name: Docs
         run: cargo doc --no-deps
 
-  build-default:
-    name: "Build (default)"
+  build-rust:
+    name: "Rust build (${{matrix.config.name}})"
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/cleanup
-      - uses: rui314/setup-mold@v1
-      - uses: ./.github/actions/setup-rust
-      - name: Rust Build (Default features)
-        run: cargo build --all-targets
-
-  build-wasm32:
-    name: "Build (wasm32-unknown-unknown)"
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - name: "all-features"
+            command: "build"
+            args: "--all-features --all-targets"
+          - name: "default features"
+            command: "build"
+            args: "--all-targets"
+          - name: "with tokio dispatcher"
+            command: "build"
+            args: "--no-default-features --features tokio --all-targets --ignore-unknown-features"
+          - name: "with compio dispatcher"
+            command: "build"
+            args: "--no-default-features --features compio --all-targets --ignore-unknown-features"
+          - name: "with tokio+compio dispatcher"
+            command: "build"
+            args: "--no-default-features --features tokio,compio --all-targets --ignore-unknown-features"
+          - name: "wasm32 with default features"
+            command: "build"
+            target: wasm32-unknown-unknown
+            args: "--target wasm32-unknown-unknown --exclude vortex-roaring --exclude vortex-datafusion "
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/cleanup
       - uses: rui314/setup-mold@v1
       - uses: ./.github/actions/setup-rust
         with:
-          targets: wasm32-unknown-unknown
-      - name: Rust Build vortex
-        run: cargo build -p vortex
+          targets: ${{matrix.config.target || ''}}
+      - name: Install cargo-hack
+        uses: taiki-e/install-action@cargo-hack
+      - name: Rust Build (${{matrix.config.name}})
+        run: cargo hack ${{matrix.config.command}} ${{matrix.config.args}} --ignore-private
 
-
-  build-all:
-    name: "Build (all-features)"
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/cleanup
-      - uses: rui314/setup-mold@v1
-      - uses: ./.github/actions/setup-rust
-      - name: Rust Build (All Features)
-        run: cargo build --all-features --all-targets
-
-  rust-test:
-    name: "Rust (tests)"
+  rust-lint:
+    name: "Rust (lint)"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -147,8 +149,35 @@ jobs:
               echo ---- $package ----
               cargo clippy --package $package --no-default-features
           done
+
+  rust-test:
+    name: "Rust (tests)"
+    runs-on: ubuntu-latest
+    env:
+      # Disable incremental compilation to get accurate coverage
+      CARGO_INCREMENTAL: "0"
+      RUSTFLAGS: "-Cinstrument-coverage"
+      LLVM_PROFILE_FILE: "target/coverage/vortex-%p-%m.profraw"
+      GRCOV_OUTPUT_FILE: "target/coverage/vortex.lcov"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/cleanup
+      - uses: rui314/setup-mold@v1
+      - uses: ./.github/actions/setup-rust
+      - name: Install grcov
+        run: cargo install grcov
       - name: Rust Test
         run: cargo test --workspace --all-features
+      - name: Generate coverage report
+        run: |
+          grcov . --binary-path target/debug/ -s . -t lcov --llvm --ignore-not-existing \
+            --ignore '../*' --ignore '/*' --ignore 'bench-vortex/*' --ignore 'fuzz/*' \
+            --ignore 'home/*' --ignore 'xtask/*' --ignore 'target/*'\
+            -o ${{ env.GRCOV_OUTPUT_FILE }}
+      - name: Coveralls
+        uses: coverallsapp/github-action@v2
+        with:
+          file: ${{ env.GRCOV_OUTPUT_FILE }}
 
   license-check-and-audit-check:
     name: License Check and Audit Check
@@ -188,7 +217,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
       # Required to run benchmarks
       - name: Install DuckDB
-        uses: opt-nc/setup-duckdb-action@v1.0.9
+        uses: opt-nc/setup-duckdb-action@v1.0.10
         with:
           version: v1.0.0
       - name: Rust TPC-H and Random access Bench as test

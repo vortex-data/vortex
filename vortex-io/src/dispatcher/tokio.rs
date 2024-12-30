@@ -118,28 +118,24 @@ impl Dispatch for TokioDispatcher {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Write;
-
-    use tempfile::NamedTempFile;
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::Arc;
 
     use super::TokioDispatcher;
     use crate::dispatcher::Dispatch;
-    use crate::{TokioFile, VortexReadAt};
 
     #[tokio::test]
     async fn test_tokio_dispatch_simple() {
         let dispatcher = TokioDispatcher::new(4);
-        let mut tmpfile = NamedTempFile::new().unwrap();
-        write!(tmpfile, "5678").unwrap();
-
+        let atomic_number = Arc::new(AtomicU32::new(0));
+        let atomic_number_clone = Arc::clone(&atomic_number);
         let rx = dispatcher
             .dispatch(|| async move {
-                let file = TokioFile::open(tmpfile.path()).unwrap();
-
-                file.read_byte_range(0, 4).await.unwrap()
+                atomic_number_clone.fetch_add(1, Ordering::SeqCst);
             })
             .unwrap();
 
-        assert_eq!(&rx.await.unwrap(), "5678".as_bytes());
+        rx.await.unwrap();
+        assert_eq!(atomic_number.load(Ordering::SeqCst), 1u32);
     }
 }

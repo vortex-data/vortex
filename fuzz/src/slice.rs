@@ -30,8 +30,7 @@ pub fn slice_canonical_array(array: &ArrayData, start: usize, stop: usize) -> Ar
         }
         DType::Primitive(p, _) => match_each_native_ptype!(p, |$P| {
             let primitive_array = array.clone().into_primitive().unwrap();
-            let vec_values = primitive_array.into_maybe_null_slice::<$P>();
-            PrimitiveArray::from_vec(vec_values[start..stop].into(), validity).into_array()
+            PrimitiveArray::new(primitive_array.buffer::<$P>().slice(start..stop), validity).into_array()
         }),
         DType::Utf8(_) | DType::Binary(_) => {
             let utf8 = array.clone().into_varbinview().unwrap();

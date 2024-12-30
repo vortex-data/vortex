@@ -16,10 +16,12 @@ use datafusion_expr::Expr;
 use datafusion_physical_expr::{LexRequirement, PhysicalExpr};
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use datafusion_physical_plan::ExecutionPlan;
+use futures::{stream, StreamExt as _, TryStreamExt as _};
 use object_store::{ObjectMeta, ObjectStore};
 use vortex_array::array::StructArray;
 use vortex_array::arrow::infer_schema;
 use vortex_array::Context;
+use vortex_error::VortexResult;
 use vortex_file::metadata::fetch_metadata;
 use vortex_file::{
     LayoutContext, LayoutDeserializer, LayoutMessageCache, RelativeLayoutCache, Scan,
@@ -32,17 +34,47 @@ use super::execution::VortexExec;
 use super::statistics::{array_to_col_statistics, uncompressed_col_size};
 use crate::can_be_pushed_down;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct VortexFormat {
     context: Arc<Context>,
     initial_read_cache: InitialReadCache,
+    opts: VortexFormatOptions,
+}
+
+#[derive(Debug)]
+pub struct VortexFormatOptions {
+    pub concurrent_infer_schema_ops: usize,
+    pub cache_size_mb: usize,
+}
+
+impl Default for VortexFormatOptions {
+    fn default() -> Self {
+        Self {
+            concurrent_infer_schema_ops: 64,
+            cache_size_mb: 256,
+        }
+    }
+}
+
+impl Default for VortexFormat {
+    fn default() -> Self {
+        let opts = VortexFormatOptions::default();
+
+        Self {
+            context: Default::default(),
+            initial_read_cache: InitialReadCache::new(opts.cache_size_mb),
+            opts,
+        }
+    }
 }
 
 impl VortexFormat {
     pub fn new(context: &Context) -> Self {
+        let opts = VortexFormatOptions::default();
         Self {
             context: Arc::new(context.clone()),
-            initial_read_cache: InitialReadCache::default(),
+            initial_read_cache: InitialReadCache::new(opts.cache_size_mb),
+            opts,
         }
     }
 }
@@ -75,14 +107,21 @@ impl FileFormat for VortexFormat {
         store: &Arc<dyn ObjectStore>,
         objects: &[ObjectMeta],
     ) -> DFResult<SchemaRef> {
-        let mut file_schemas = Vec::default();
-        for o in objects {
-            let initial_read = self.initial_read_cache.try_get(o, store.clone()).await?;
+        let file_schemas = stream::iter(objects.iter().cloned())
+            .map(|o| {
+                let store = store.clone();
+                let cache = self.initial_read_cache.clone();
+                async move {
+                    let initial_read = cache.try_get(&o, store).await?;
+                    let lazy_dtype = initial_read.lazy_dtype();
+                    let s = infer_schema(lazy_dtype.value()?)?;
 
-            let lazy_dtype = initial_read.lazy_dtype();
-            let s = infer_schema(lazy_dtype.value()?)?;
-            file_schemas.push(s);
-        }
+                    VortexResult::Ok(s)
+                }
+            })
+            .buffered(self.opts.concurrent_infer_schema_ops)
+            .try_collect::<Vec<_>>()
+            .await?;
 
         let schema = Arc::new(Schema::try_merge(file_schemas)?);
 

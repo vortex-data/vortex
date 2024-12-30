@@ -1,15 +1,19 @@
 use vortex_dtype::{match_each_integer_ptype, DType};
 use vortex_error::{vortex_bail, VortexResult};
-use vortex_scalar::Scalar;
+use vortex_scalar::{BinaryNumericOperator, Scalar};
 
 use crate::array::null::NullArray;
 use crate::array::NullEncoding;
-use crate::compute::{ComputeVTable, ScalarAtFn, SliceFn, TakeFn};
+use crate::compute::{BinaryNumericFn, ComputeVTable, ScalarAtFn, SliceFn, TakeFn};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
 
 impl ComputeVTable for NullEncoding {
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn binary_numeric_fn(&self) -> Option<&dyn BinaryNumericFn<ArrayData>> {
         Some(self)
     }
 
@@ -19,6 +23,18 @@ impl ComputeVTable for NullEncoding {
 
     fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
         Some(self)
+    }
+}
+
+impl BinaryNumericFn<NullArray> for NullEncoding {
+    fn binary_numeric(
+        &self,
+        array: &NullArray,
+        _rhs: &ArrayData,
+        _op: BinaryNumericOperator,
+    ) -> VortexResult<Option<ArrayData>> {
+        // for any arithmetic operation, forall X. NULL op X = NULL
+        Ok(Some(NullArray::new(array.len()).into_array()))
     }
 }
 
@@ -40,7 +56,7 @@ impl TakeFn<NullArray> for NullEncoding {
 
         // Enforce all indices are valid
         match_each_integer_ptype!(indices.ptype(), |$T| {
-            for index in indices.maybe_null_slice::<$T>() {
+            for index in indices.as_slice::<$T>() {
                 if !((*index as usize) < array.len()) {
                     vortex_bail!(OutOfBounds: *index as usize, 0, array.len());
                 }
@@ -61,6 +77,7 @@ impl TakeFn<NullArray> for NullEncoding {
 
 #[cfg(test)]
 mod test {
+    use vortex_buffer::buffer;
     use vortex_dtype::DType;
 
     use crate::array::null::NullArray;
@@ -85,7 +102,8 @@ mod test {
     fn test_take_nulls() {
         let nulls = NullArray::new(10);
         let taken =
-            NullArray::try_from(take(nulls, vec![0u64, 2, 4, 6, 8].into_array()).unwrap()).unwrap();
+            NullArray::try_from(take(nulls, buffer![0u64, 2, 4, 6, 8].into_array()).unwrap())
+                .unwrap();
 
         assert_eq!(taken.len(), 5);
         assert!(matches!(

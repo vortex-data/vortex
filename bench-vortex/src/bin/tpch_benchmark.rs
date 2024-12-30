@@ -118,14 +118,14 @@ async fn bench_main(
     for (query_idx, sql_queries) in tpch_queries() {
         if queries
             .as_ref()
-            .map_or(false, |included| !included.contains(&query_idx))
+            .is_some_and(|included| !included.contains(&query_idx))
         {
             continue;
         }
 
         if exclude_queries
             .as_ref()
-            .map_or(false, |e| e.contains(&query_idx))
+            .is_some_and(|excluded| excluded.contains(&query_idx))
         {
             continue;
         }

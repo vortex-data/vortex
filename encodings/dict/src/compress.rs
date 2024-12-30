@@ -11,6 +11,7 @@ use vortex_array::array::{
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, IntoArrayData, IntoCanonical};
+use vortex_buffer::{buffer_mut, BufferMut};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, ToBytes};
 use vortex_error::{VortexExpect as _, VortexUnwrap};
 use vortex_scalar::Scalar;
@@ -47,8 +48,8 @@ pub fn dict_encode_typed_primitive<T: NativePType>(
     array: &PrimitiveArray,
 ) -> (PrimitiveArray, PrimitiveArray) {
     let mut lookup: HashMap<Value<T>, u64> = HashMap::new();
-    let mut codes: Vec<u64> = Vec::new();
-    let mut values: Vec<T> = Vec::new();
+    let mut codes: BufferMut<u64> = BufferMut::empty();
+    let mut values: BufferMut<T> = BufferMut::empty();
 
     if array.dtype().is_nullable() {
         values.push(T::zero());
@@ -78,8 +79,8 @@ pub fn dict_encode_typed_primitive<T: NativePType>(
     let values_validity = dict_values_validity(array.dtype().is_nullable(), values.len());
 
     (
-        PrimitiveArray::from(codes),
-        PrimitiveArray::from_vec(values, values_validity),
+        PrimitiveArray::new(codes, Validity::NonNullable),
+        PrimitiveArray::new(values, values_validity),
     )
 }
 
@@ -112,9 +113,9 @@ fn dict_encode_varbin_bytes<'a, I: Iterator<Item = Option<&'a [u8]>>>(
     let (lower, _) = values.size_hint();
     let hasher = DefaultHashBuilder::default();
     let mut lookup_dict: HashTable<u64> = HashTable::new();
-    let mut codes: Vec<u64> = Vec::with_capacity(lower);
-    let mut bytes: Vec<u8> = Vec::new();
-    let mut offsets: Vec<u32> = vec![0];
+    let mut codes: BufferMut<u64> = BufferMut::with_capacity(lower);
+    let mut bytes: BufferMut<u8> = BufferMut::empty();
+    let mut offsets: BufferMut<u32> = buffer_mut![0];
 
     if dtype.is_nullable() {
         offsets.push(0);
@@ -151,10 +152,10 @@ fn dict_encode_varbin_bytes<'a, I: Iterator<Item = Option<&'a [u8]>>>(
 
     let values_validity = dict_values_validity(dtype.is_nullable(), offsets.len() - 1);
     (
-        PrimitiveArray::from(codes),
+        PrimitiveArray::new(codes, Validity::NonNullable),
         VarBinArray::try_new(
-            PrimitiveArray::from(offsets).into_array(),
-            PrimitiveArray::from(bytes).into_array(),
+            offsets.into_array(),
+            bytes.into_array(),
             dtype,
             values_validity,
         )
@@ -204,15 +205,15 @@ mod test {
 
     #[test]
     fn encode_primitive() {
-        let arr = PrimitiveArray::from(vec![1, 1, 3, 3, 3]);
+        let arr = PrimitiveArray::from_iter([1, 1, 3, 3, 3]);
         let (codes, values) = dict_encode_typed_primitive::<i32>(&arr);
-        assert_eq!(codes.maybe_null_slice::<u64>(), &[0, 0, 1, 1, 1]);
-        assert_eq!(values.maybe_null_slice::<i32>(), &[1, 3]);
+        assert_eq!(codes.as_slice::<u64>(), &[0, 0, 1, 1, 1]);
+        assert_eq!(values.as_slice::<i32>(), &[1, 3]);
     }
 
     #[test]
     fn encode_primitive_nulls() {
-        let arr = PrimitiveArray::from_nullable_vec(vec![
+        let arr = PrimitiveArray::from_option_iter([
             Some(1),
             Some(1),
             None,
@@ -223,7 +224,7 @@ mod test {
             None,
         ]);
         let (codes, values) = dict_encode_typed_primitive::<i32>(&arr);
-        assert_eq!(codes.maybe_null_slice::<u64>(), &[1, 1, 0, 2, 2, 0, 2, 0]);
+        assert_eq!(codes.as_slice::<u64>(), &[1, 1, 0, 2, 2, 0, 2, 0]);
         assert_eq!(
             scalar_at(&values, 0).unwrap(),
             Scalar::null(DType::Primitive(PType::I32, Nullable))
@@ -242,7 +243,7 @@ mod test {
     fn encode_varbin() {
         let arr = VarBinArray::from(vec!["hello", "world", "hello", "again", "world"]);
         let (codes, values) = dict_encode_varbin(&arr);
-        assert_eq!(codes.maybe_null_slice::<u64>(), &[0, 1, 0, 2, 1]);
+        assert_eq!(codes.as_slice::<u64>(), &[0, 1, 0, 2, 1]);
         values
             .with_iterator(|iter| {
                 assert_eq!(
@@ -270,7 +271,7 @@ mod test {
         .into_iter()
         .collect();
         let (codes, values) = dict_encode_varbin(&arr);
-        assert_eq!(codes.maybe_null_slice::<u64>(), &[1, 0, 2, 1, 0, 3, 2, 0]);
+        assert_eq!(codes.as_slice::<u64>(), &[1, 0, 2, 1, 0, 3, 2, 0]);
         assert_eq!(str::from_utf8(&values.bytes_at(0).unwrap()).unwrap(), "");
         values
             .with_iterator(|iter| {
@@ -297,9 +298,6 @@ mod test {
                 );
             })
             .unwrap();
-        assert_eq!(
-            codes.maybe_null_slice::<u64>(),
-            &[0u64, 0, 1, 1, 0, 1, 0, 1]
-        );
+        assert_eq!(codes.as_slice::<u64>(), &[0u64, 0, 1, 1, 0, 1, 0, 1]);
     }
 }

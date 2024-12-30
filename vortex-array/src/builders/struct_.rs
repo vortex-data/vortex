@@ -49,9 +49,10 @@ impl StructBuilder {
         }
 
         if let Some(fields) = struct_scalar.fields() {
-            for (builder, field) in self.builders.iter_mut().zip(fields) {
+            for (builder, field) in self.builders.iter_mut().zip_eq(fields) {
                 builder.append_scalar(&field)?;
             }
+            self.validity.append_value(true);
         } else {
             self.append_null()
         }
@@ -94,6 +95,7 @@ impl ArrayBuilder for StructBuilder {
     }
 
     fn finish(&mut self) -> VortexResult<ArrayData> {
+        let len = self.len();
         let fields: Vec<ArrayData> = self
             .builders
             .iter_mut()
@@ -105,12 +107,40 @@ impl ArrayBuilder for StructBuilder {
             Nullability::Nullable => Validity::Array(self.validity.finish()?),
         };
 
-        Ok(StructArray::try_new(
-            self.struct_dtype.names().clone(),
-            fields,
-            self.len(),
-            validity,
-        )?
-        .into_array())
+        Ok(
+            StructArray::try_new(self.struct_dtype.names().clone(), fields, len, validity)?
+                .into_array(),
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use vortex_dtype::PType::I32;
+    use vortex_dtype::{DType, Nullability, StructDType};
+    use vortex_scalar::Scalar;
+
+    use crate::builders::struct_::StructBuilder;
+    use crate::builders::ArrayBuilder;
+    use crate::ArrayDType;
+
+    #[test]
+    fn test_struct_builder() {
+        let sdt = StructDType::new(
+            vec![Arc::from("a"), Arc::from("b")].into(),
+            vec![I32.into(), I32.into()],
+        );
+        let dtype = DType::Struct(sdt.clone(), Nullability::NonNullable);
+        let mut builder = StructBuilder::with_capacity(sdt, Nullability::NonNullable, 0);
+
+        builder
+            .append_value(Scalar::struct_(dtype.clone(), vec![1.into(), 2.into()]).as_struct())
+            .unwrap();
+
+        let struct_ = builder.finish().unwrap();
+        assert_eq!(struct_.len(), 1);
+        assert_eq!(struct_.dtype(), &dtype);
     }
 }

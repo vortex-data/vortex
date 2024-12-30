@@ -18,7 +18,7 @@ impl StatisticsVTable<BoolArray> for BoolEncoding {
         }
 
         if array.is_empty() {
-            return Ok(StatsSet::from_iter([
+            return Ok(StatsSet::new_unchecked(vec![
                 (Stat::TrueCount, 0.into()),
                 (Stat::NullCount, 0.into()),
                 (Stat::RunCount, 0.into()),
@@ -153,7 +153,7 @@ impl BoolStatsAccumulator {
     }
 
     pub fn finish(self) -> StatsSet {
-        StatsSet::from_iter([
+        StatsSet::new_unchecked(vec![
             (Stat::NullCount, self.null_count.into()),
             (Stat::IsSorted, self.is_sorted.into()),
             (

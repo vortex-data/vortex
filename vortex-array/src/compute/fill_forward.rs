@@ -33,7 +33,8 @@ pub fn fill_forward(array: impl AsRef<ArrayData>) -> VortexResult<ArrayData> {
     if !array.dtype().is_nullable() {
         return Ok(array.clone());
     }
-    array
+
+    let filled = array
         .encoding()
         .fill_forward_fn()
         .map(|f| f.fill_forward(array))
@@ -42,5 +43,20 @@ pub fn fill_forward(array: impl AsRef<ArrayData>) -> VortexResult<ArrayData> {
                 NotImplemented: "fill_forward",
                 array.encoding().id()
             ))
-        })
+        })?;
+
+    debug_assert_eq!(
+        filled.len(),
+        array.len(),
+        "FillForward length mismatch {}",
+        array.encoding().id()
+    );
+    debug_assert_eq!(
+        filled.dtype(),
+        array.dtype(),
+        "FillForward dtype mismatch {}",
+        array.encoding().id()
+    );
+
+    Ok(filled)
 }

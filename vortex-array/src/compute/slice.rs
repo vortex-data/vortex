@@ -1,7 +1,7 @@
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 
 use crate::encoding::Encoding;
-use crate::ArrayData;
+use crate::{ArrayDType, ArrayData};
 
 /// Limit array to start...stop range
 pub trait SliceFn<Array> {
@@ -40,7 +40,7 @@ pub fn slice(array: impl AsRef<ArrayData>, start: usize, stop: usize) -> VortexR
     let array = array.as_ref();
     check_slice_bounds(array, start, stop)?;
 
-    array
+    let sliced = array
         .encoding()
         .slice_fn()
         .map(|f| f.slice(array, start, stop))
@@ -49,7 +49,22 @@ pub fn slice(array: impl AsRef<ArrayData>, start: usize, stop: usize) -> VortexR
                 NotImplemented: "slice",
                 array.encoding().id()
             ))
-        })
+        })?;
+
+    debug_assert_eq!(
+        sliced.len(),
+        stop - start,
+        "Slice length mismatch {}",
+        array.encoding().id()
+    );
+    debug_assert_eq!(
+        sliced.dtype(),
+        array.dtype(),
+        "Slice dtype mismatch {}",
+        array.encoding().id()
+    );
+
+    Ok(sliced)
 }
 
 fn check_slice_bounds(array: &ArrayData, start: usize, stop: usize) -> VortexResult<()> {

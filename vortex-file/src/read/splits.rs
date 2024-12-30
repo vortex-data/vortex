@@ -1,12 +1,7 @@
-use std::collections::BTreeSet;
-use std::mem;
-use std::pin::Pin;
-use std::task::{Context, Poll};
+use std::sync::Arc;
 
-use futures::Stream;
-use itertools::Itertools;
 use vortex_array::stats::ArrayStatistics;
-use vortex_error::{vortex_bail, VortexResult, VortexUnwrap};
+use vortex_error::VortexResult;
 
 use crate::read::buffered::ReadMasked;
 use crate::{LayoutReader, PollRead, Prune, RowMask};
@@ -16,11 +11,11 @@ use crate::{LayoutReader, PollRead, Prune, RowMask};
 /// Similar to `ReadArray`, this wraps a layout to read an array, but `ReadRowMask` will interpret
 /// that array as a `RowMask`, and performs some optimizations to apply pruning first.
 pub(crate) struct ReadRowMask {
-    layout: Box<dyn LayoutReader>,
+    layout: Arc<dyn LayoutReader>,
 }
 
 impl ReadRowMask {
-    pub(crate) fn new(layout: Box<dyn LayoutReader>) -> Self {
+    pub(crate) fn new(layout: Arc<dyn LayoutReader>) -> Self {
         Self { layout }
     }
 }
@@ -62,111 +57,80 @@ impl ReadMasked for ReadRowMask {
     }
 }
 
-enum FixedSplitState {
-    Ranges(Box<dyn Iterator<Item = (usize, usize)> + Send>),
-    Splits(BTreeSet<usize>),
-}
-
-pub struct FixedSplitIterator {
-    splits: FixedSplitState,
+/// Takes all row sub-ranges, and produces a set of row ranges that aren't filtered out by the provided mask.
+pub struct SplitsAccumulator {
+    ranges: Box<dyn Iterator<Item = (usize, usize)> + Send>,
     row_mask: Option<RowMask>,
 }
 
-impl FixedSplitIterator {
-    pub fn new(row_count: u64, row_mask: Option<RowMask>) -> Self {
-        let mut splits = BTreeSet::new();
-        splits.insert(row_count.try_into().vortex_unwrap());
-        Self {
-            splits: FixedSplitState::Splits(splits),
-            row_mask,
-        }
-    }
+pub struct SplitsIntoIter {
+    ranges: Box<dyn Iterator<Item = (usize, usize)> + Send>,
+    row_mask: Option<RowMask>,
+}
 
-    pub fn additional_splits(&mut self, splits: &mut BTreeSet<usize>) -> VortexResult<()> {
-        match &mut self.splits {
-            FixedSplitState::Ranges(_) => {
-                vortex_bail!("Can't insert additional splits if we started producing row ranges")
-            }
-            FixedSplitState::Splits(s) => {
-                s.append(splits);
-                Ok(())
-            }
+impl SplitsAccumulator {
+    pub fn new(
+        ranges: impl Iterator<Item = (usize, usize)> + Send + 'static,
+        row_mask: Option<RowMask>,
+    ) -> Self {
+        let ranges = Box::new(ranges);
+        Self { ranges, row_mask }
+    }
+}
+
+impl IntoIterator for SplitsAccumulator {
+    type Item = VortexResult<RowMask>;
+
+    type IntoIter = SplitsIntoIter;
+
+    /// Creates an iterator of row masks to be read from the underlying file.
+    fn into_iter(self) -> Self::IntoIter {
+        SplitsIntoIter {
+            ranges: self.ranges,
+            row_mask: self.row_mask,
         }
     }
 }
 
-impl Iterator for FixedSplitIterator {
+impl Iterator for SplitsIntoIter {
     type Item = VortexResult<RowMask>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match &mut self.splits {
-            FixedSplitState::Ranges(ranges) => {
-                // Find next range that's not filtered out by supplied row_mask
-                for (begin, end) in ranges {
-                    return if let Some(ref row_mask) = self.row_mask {
-                        let sliced = match row_mask.slice(begin, end) {
-                            Ok(s) => s,
-                            Err(e) => return Some(Err(e)),
-                        };
+        // Find next range that's not filtered out by supplied row_mask
+        for (begin, end) in self.ranges.as_mut() {
+            return if let Some(ref row_mask) = self.row_mask {
+                let sliced = match row_mask.slice(begin, end) {
+                    Ok(s) => s,
+                    Err(e) => return Some(Err(e)),
+                };
 
-                        if sliced.is_all_false() {
-                            continue;
-                        }
-                        Some(Ok(sliced))
-                    } else {
-                        Some(Ok(RowMask::new_valid_between(begin, end)))
-                    };
+                // If the range is all false, we take the next one
+                if sliced.is_all_false() {
+                    continue;
                 }
-                None
-            }
-            FixedSplitState::Splits(s) => {
-                self.splits = FixedSplitState::Ranges(Box::new(
-                    mem::take(s).into_iter().tuple_windows::<(usize, usize)>(),
-                ));
-                self.next()
-            }
+                Some(Ok(sliced))
+            } else {
+                Some(Ok(RowMask::new_valid_between(begin, end)))
+            };
         }
-    }
-}
 
-impl Stream for FixedSplitIterator {
-    type Item = VortexResult<RowMask>;
-
-    fn poll_next(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        Poll::Ready(self.next())
+        None
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
-
     use vortex_array::compute::FilterMask;
     use vortex_error::VortexResult;
 
-    use crate::read::splits::FixedSplitIterator;
+    use crate::read::splits::SplitsAccumulator;
     use crate::RowMask;
-
-    #[test]
-    #[should_panic]
-    #[cfg_attr(miri, ignore)]
-    fn register_after_start() {
-        let mut mask_iter = FixedSplitIterator::new(10, None);
-        mask_iter
-            .additional_splits(&mut BTreeSet::from([0, 1, 2]))
-            .unwrap();
-        assert!(mask_iter.next().is_some());
-        mask_iter
-            .additional_splits(&mut BTreeSet::from([5]))
-            .unwrap();
-        mask_iter.next();
-    }
 
     #[test]
     #[cfg_attr(miri, ignore)]
     fn filters_empty() {
-        let mut mask_iter = FixedSplitIterator::new(
-            10,
+        let mask_iter = SplitsAccumulator::new(
+            [(0, 2), (2, 4), (4, 6), (6, 8), (8, 10)].into_iter(),
             Some(
                 RowMask::try_new(
                     FilterMask::from_iter([
@@ -178,11 +142,11 @@ mod tests {
                 .unwrap(),
             ),
         );
-        mask_iter
-            .additional_splits(&mut BTreeSet::from([0, 2, 4, 6, 8, 10]))
-            .unwrap();
 
-        let actual = mask_iter.collect::<VortexResult<Vec<_>>>().unwrap();
+        let actual = mask_iter
+            .into_iter()
+            .collect::<VortexResult<Vec<_>>>()
+            .unwrap();
         let expected = vec![RowMask::new_valid_between(4, 6)];
 
         assert_eq!(actual, expected);

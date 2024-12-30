@@ -259,13 +259,13 @@ mod test {
     use std::sync::Arc;
 
     use flatbuffers::root;
-    use vortex_flatbuffers::FlatBufferToBytes;
+    use vortex_flatbuffers::WriteFlatBufferExt;
 
     use crate::nullability::Nullability;
     use crate::{flatbuffers as fb, DType, PType, StructDType};
 
     fn roundtrip_dtype(dtype: DType) {
-        let bytes = dtype.with_flatbuffer_bytes(|bytes| bytes.to_vec());
+        let bytes = dtype.write_flatbuffer_bytes();
         let deserialized = DType::try_from(root::<fb::DType>(&bytes).unwrap()).unwrap();
         assert_eq!(dtype, deserialized);
     }

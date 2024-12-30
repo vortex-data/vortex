@@ -6,11 +6,13 @@ on:
 
 permissions:
   actions: read
-  contents: write
   deployments: write
+  contents: write
+  pages: write
+  id-token: write
 
 jobs:
-  deploy-docs:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,20 +30,24 @@ jobs:
           built_sha=$(git rev-parse HEAD)
 
           rm -rf docs/_build/html/rust/CACHETAG.DIR docs/_build/html/rust/debug
-          mv docs/_build/html /tmp/html
 
-          git fetch origin
-          git checkout origin/gh-pages-bench
-          rm -rf docs
-          mv /tmp/html docs
-          git add docs
-          git config --global user.email "nobody@example.com"
-          git config --global user.name "github-action-deploy-python-docs"
+          mkdir /tmp/html
+          mv docs/_build/html /tmp/html/docs
 
-          # Only try to commit if there exist changes
-          git diff --quiet HEAD || {
-              git commit -m 'Python docs for '$built_sha
-              git push origin HEAD:gh-pages-bench
-          }
-
-          git checkout $built_sha
+          mkdir -p /tmp/html/dev
+          mv benchmarks-website /tmp/html/dev/bench
+      - name: Upload static files as artifact
+        id: deployment
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: /tmp/html/
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -7,6 +7,7 @@
 //! implementations of these operators, else we will decode, and perform the equivalent operator
 //! from Arrow.
 
+pub use binary_numeric::*;
 pub use boolean::{
     and, and_kleene, binary_boolean, or, or_kleene, BinaryBooleanFn, BinaryOperator,
 };
@@ -18,13 +19,13 @@ pub use filter::{filter, FilterFn, FilterIter, FilterMask};
 pub use invert::{invert, InvertFn};
 pub use like::{like, LikeFn, LikeOptions};
 pub use scalar_at::{scalar_at, ScalarAtFn};
-pub use scalar_subtract::{subtract_scalar, SubtractScalarFn};
 pub use search_sorted::*;
 pub use slice::{slice, SliceFn};
 pub use take::{take, TakeFn};
 
 use crate::ArrayData;
 
+mod binary_numeric;
 mod boolean;
 mod cast;
 mod compare;
@@ -34,7 +35,6 @@ mod filter;
 mod invert;
 mod like;
 mod scalar_at;
-mod scalar_subtract;
 mod search_sorted;
 mod slice;
 mod take;
@@ -48,6 +48,14 @@ pub trait ComputeVTable {
         None
     }
 
+    /// Implementation of binary numeric operations.
+    ///
+    /// See: [BinaryNumericFn].
+    fn binary_numeric_fn(&self) -> Option<&dyn BinaryNumericFn<ArrayData>> {
+        None
+    }
+
+    /// Implemented for arrays that can be casted to different types.
     /// Implemented for arrays that can be casted to different types.
     ///
     /// See: [CastFn].
@@ -66,6 +74,13 @@ pub trait ComputeVTable {
     ///
     /// See: [FillForwardFn].
     fn fill_forward_fn(&self) -> Option<&dyn FillForwardFn<ArrayData>> {
+        None
+    }
+
+    /// Fill null values with given desired value. Resulting array is NonNullable
+    ///
+    /// See: [FillNullFn]
+    fn fill_null_fn(&self) -> Option<&dyn FillNullFn<ArrayData>> {
         None
     }
 
@@ -118,25 +133,11 @@ pub trait ComputeVTable {
         None
     }
 
-    /// Broadcast subtraction of scalar from Vortex array.
-    ///
-    /// See: [SubtractScalarFn].
-    fn subtract_scalar_fn(&self) -> Option<&dyn SubtractScalarFn<ArrayData>> {
-        None
-    }
-
     /// Take a set of indices from an array. This often forces allocations and decoding of
     /// the receiver.
     ///
     /// See: [TakeFn].
     fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
-        None
-    }
-
-    /// Fill null values with given desired value. Resulting array is NonNullable
-    ///
-    /// See: [FillNullFn]
-    fn fill_null_fn(&self) -> Option<&dyn FillNullFn<ArrayData>> {
         None
     }
 }

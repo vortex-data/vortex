@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use arrow_array::types::*;
 use arrow_array::{
-    ArrayRef, ArrowPrimitiveType, BooleanArray as ArrowBoolArray, Date32Array, Date64Array,
+    Array, ArrayRef, ArrowPrimitiveType, BooleanArray as ArrowBoolArray, Date32Array, Date64Array,
     NullArray as ArrowNullArray, PrimitiveArray as ArrowPrimitiveArray,
     StructArray as ArrowStructArray, Time32MillisecondArray, Time32SecondArray,
     Time64MicrosecondArray, Time64NanosecondArray, TimestampMicrosecondArray,
@@ -20,7 +20,6 @@ use crate::array::{
     varbinview_as_arrow, BoolArray, ExtensionArray, ListArray, NullArray, PrimitiveArray,
     StructArray, TemporalArray, VarBinViewArray,
 };
-use crate::arrow::wrappers::as_offset_buffer;
 use crate::arrow::{infer_data_type, FromArrowArray};
 use crate::compute::try_cast;
 use crate::encoding::Encoding;
@@ -172,7 +171,11 @@ fn primitive_to_arrow(primitive_array: PrimitiveArray) -> VortexResult<ArrayRef>
         array: &PrimitiveArray,
     ) -> VortexResult<Arc<ArrowPrimitiveArray<T>>> {
         Ok(Arc::new(ArrowPrimitiveArray::new(
-            ScalarBuffer::<T::Native>::new(array.buffer().clone().into_arrow(), 0, array.len()),
+            ScalarBuffer::<T::Native>::new(
+                array.byte_buffer().clone().into_arrow_buffer(),
+                0,
+                array.len(),
+            ),
             array.logical_validity().to_null_buffer()?,
         )))
     }
@@ -193,39 +196,46 @@ fn primitive_to_arrow(primitive_array: PrimitiveArray) -> VortexResult<ArrayRef>
 }
 
 fn struct_to_arrow(struct_array: StructArray) -> VortexResult<ArrayRef> {
-    let field_arrays: Vec<ArrayRef> =
-        Iterator::zip(struct_array.names().iter(), struct_array.children())
-            .map(|(name, f)| {
-                f.into_canonical()
-                    .map_err(|err| {
-                        err.with_context(format!("Failed to canonicalize field {}", name))
-                    })
-                    .and_then(|c| c.into_arrow())
-            })
-            .collect::<VortexResult<Vec<_>>>()?;
-
-    let arrow_fields: Fields = struct_array
+    let field_arrays = struct_array
         .names()
         .iter()
-        .zip(field_arrays.iter())
-        .zip(struct_array.dtypes().iter())
-        .map(|((name, arrow_field), vortex_field)| {
-            Field::new(
-                &**name,
-                arrow_field.data_type().clone(),
-                vortex_field.is_nullable(),
-            )
+        .zip(struct_array.children())
+        .map(|(name, f)| {
+            f.into_canonical()
+                .map_err(|err| err.with_context(format!("Failed to canonicalize field {}", name)))
+                .and_then(|c| c.into_arrow())
         })
-        .map(Arc::new)
-        .collect();
+        .collect::<VortexResult<Vec<_>>>()?;
 
     let nulls = struct_array.logical_validity().to_null_buffer()?;
 
-    Ok(Arc::new(ArrowStructArray::try_new(
-        arrow_fields,
-        field_arrays,
-        nulls,
-    )?))
+    if field_arrays.is_empty() {
+        Ok(Arc::new(ArrowStructArray::new_empty_fields(
+            struct_array.len(),
+            nulls,
+        )))
+    } else {
+        let arrow_fields = struct_array
+            .names()
+            .iter()
+            .zip(field_arrays.iter())
+            .zip(struct_array.dtypes().iter())
+            .map(|((name, arrow_field), vortex_field)| {
+                Field::new(
+                    &**name,
+                    arrow_field.data_type().clone(),
+                    vortex_field.is_nullable(),
+                )
+            })
+            .map(Arc::new)
+            .collect::<Fields>();
+
+        Ok(Arc::new(ArrowStructArray::try_new(
+            arrow_fields,
+            field_arrays,
+            nulls,
+        )?))
+    }
 }
 
 // TODO(joe): unify with varbin
@@ -246,24 +256,31 @@ fn list_to_arrow(list: ListArray) -> VortexResult<ArrayRef> {
             .map_err(|err| err.with_context("Failed to cast offsets to PrimitiveArray of i32"))?,
     };
 
+    let values = list.elements().into_arrow()?;
+
     let field_ref = FieldRef::new(Field::new_list_field(
-        infer_data_type(list.elements().dtype())?,
+        values.data_type().clone(),
         list.validity().nullability().into(),
     ));
 
-    let values = list.elements().into_arrow()?;
     let nulls = list.logical_validity().to_null_buffer()?;
 
     Ok(match offsets.ptype() {
         PType::I32 => Arc::new(arrow_array::ListArray::try_new(
             field_ref,
-            as_offset_buffer::<i32>(list.offsets().into_primitive()?),
+            list.offsets()
+                .into_primitive()?
+                .buffer::<i32>()
+                .into_arrow_offset_buffer(),
             values,
             nulls,
         )?),
         PType::I64 => Arc::new(arrow_array::LargeListArray::try_new(
             field_ref,
-            as_offset_buffer::<i64>(list.offsets().into_primitive()?),
+            list.offsets()
+                .into_primitive()?
+                .buffer::<i64>()
+                .into_arrow_offset_buffer(),
             values,
             nulls,
         )?),
@@ -279,10 +296,8 @@ fn temporal_to_arrow(temporal_array: TemporalArray) -> VortexResult<ArrayRef> {
                 &DType::Primitive(<$prim as NativePType>::PTYPE, $values.dtype().nullability()),
             )?
             .into_primitive()?;
-            let len = temporal_values.len();
             let nulls = temporal_values.logical_validity().to_null_buffer()?;
-            let scalars =
-                ScalarBuffer::<$prim>::new(temporal_values.into_buffer().into_arrow(), 0, len);
+            let scalars = temporal_values.into_buffer().into_arrow_scalar_buffer();
 
             (scalars, nulls)
         }};
@@ -519,24 +534,22 @@ mod test {
     use arrow_array::cast::AsArray;
     use arrow_array::types::{Int32Type, Int64Type, UInt64Type};
     use arrow_array::{
-        PrimitiveArray as ArrowPrimitiveArray, StringViewArray, StructArray as ArrowStructArray,
+        ListArray as ArrowListArray, PrimitiveArray as ArrowPrimitiveArray, StringArray,
+        StringViewArray, StructArray as ArrowStructArray,
     };
-    use arrow_buffer::NullBufferBuilder;
+    use arrow_buffer::{NullBufferBuilder, OffsetBuffer};
     use arrow_schema::{DataType, Field};
+    use vortex_buffer::buffer;
 
-    use crate::array::{PrimitiveArray, SparseArray, StructArray};
+    use crate::array::{SparseArray, StructArray};
     use crate::arrow::FromArrowArray;
-    use crate::validity::Validity;
     use crate::{ArrayData, IntoArrayData, IntoCanonical};
 
     #[test]
     fn test_canonicalize_nested_struct() {
         // Create a struct array with multiple internal components.
         let nested_struct_array = StructArray::from_fields(&[
-            (
-                "a",
-                PrimitiveArray::from_vec(vec![1u64], Validity::NonNullable).into_array(),
-            ),
+            ("a", buffer![1u64].into_array()),
             (
                 "b",
                 StructArray::from_fields(&[(
@@ -546,8 +559,8 @@ mod test {
                     // SparseArray is not a canonical type, so converting `into_arrow()` should map
                     // this to the nearest canonical type (PrimitiveArray).
                     SparseArray::try_new(
-                        PrimitiveArray::from_vec(vec![0u64; 1], Validity::NonNullable).into_array(),
-                        PrimitiveArray::from_vec(vec![100i64], Validity::NonNullable).into_array(),
+                        buffer![0u64; 1].into_array(),
+                        buffer![100i64].into_array(),
                         1,
                         0i64.into(),
                     )
@@ -590,7 +603,7 @@ mod test {
 
         assert_eq!(
             inner_a.cloned().unwrap(),
-            ArrowPrimitiveArray::from(vec![100i64]),
+            ArrowPrimitiveArray::from_iter([100i64]),
         );
     }
 
@@ -633,5 +646,25 @@ mod test {
             &arrow_struct,
             vortex_struct.into_arrow().unwrap().as_struct()
         );
+    }
+
+    #[test]
+    fn roundtrip_list() {
+        let names = Arc::new(StringArray::from_iter(vec![
+            Some("Joseph"),
+            Some("Angela"),
+            Some("Mikhail"),
+        ]));
+
+        let arrow_list = ArrowListArray::new(
+            Arc::new(Field::new_list_field(DataType::Utf8, true)),
+            OffsetBuffer::from_lengths(vec![0, 2, 1]),
+            names,
+            None,
+        );
+
+        let vortex_list = ArrayData::from_arrow(&arrow_list, true);
+
+        assert_eq!(&arrow_list, vortex_list.into_arrow().unwrap().as_list());
     }
 }

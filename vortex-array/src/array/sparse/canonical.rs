@@ -1,4 +1,5 @@
 use arrow_buffer::{ArrowNativeType, BooleanBuffer};
+use vortex_buffer::buffer;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
 use vortex_error::{VortexError, VortexResult};
 use vortex_scalar::Scalar;
@@ -12,18 +13,18 @@ use crate::{ArrayDType, ArrayLen, Canonical, IntoCanonical};
 
 impl IntoCanonical for SparseArray {
     fn into_canonical(self) -> VortexResult<Canonical> {
-        if self.indices().is_empty() {
+        let resolved_patches = self.resolved_patches()?;
+        if resolved_patches.num_patches() == 0 {
             return ConstantArray::new(self.fill_scalar(), self.len()).into_canonical();
         }
 
-        let patches = Patches::new(self.len(), self.resolved_indices()?, self.values());
         if matches!(self.dtype(), DType::Bool(_)) {
-            canonicalize_sparse_bools(patches, &self.fill_scalar())
+            canonicalize_sparse_bools(resolved_patches, &self.fill_scalar())
         } else {
-            let ptype = PType::try_from(self.values().dtype())?;
+            let ptype = PType::try_from(resolved_patches.values().dtype())?;
             match_each_native_ptype!(ptype, |$P| {
                 canonicalize_sparse_primitives::<$P>(
-                    patches,
+                    resolved_patches,
                     &self.fill_scalar(),
                 )
             })
@@ -76,7 +77,7 @@ fn canonicalize_sparse_primitives<
         )
     };
 
-    let parray = PrimitiveArray::from_vec(vec![primitive_fill; patches.array_len()], validity);
+    let parray = PrimitiveArray::new(buffer![primitive_fill; patches.array_len()], validity);
 
     parray.patch(patches).map(Canonical::Primitive)
 }
@@ -85,6 +86,7 @@ fn canonicalize_sparse_primitives<
 mod test {
     use arrow_buffer::BooleanBufferBuilder;
     use rstest::rstest;
+    use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_error::VortexExpect;
     use vortex_scalar::Scalar;
@@ -99,7 +101,7 @@ mod test {
     #[case(Some(false))]
     #[case(None)]
     fn test_sparse_bool(#[case] fill_value: Option<bool>) {
-        let indices = vec![0u64, 1, 7].into_array();
+        let indices = buffer![0u64, 1, 7].into_array();
         let values = bool_array_from_nullable_vec(vec![Some(true), None, Some(false)], fill_value)
             .into_array();
         let sparse_bools =
@@ -159,9 +161,8 @@ mod test {
     fn test_sparse_primitive(#[case] fill_value: Option<i32>) {
         use vortex_scalar::Scalar;
 
-        let indices = vec![0u64, 1, 7].into_array();
-        let values =
-            PrimitiveArray::from_nullable_vec(vec![Some(0i32), None, Some(1)]).into_array();
+        let indices = buffer![0u64, 1, 7].into_array();
+        let values = PrimitiveArray::from_option_iter([Some(0i32), None, Some(1)]).into_array();
         let sparse_ints =
             SparseArray::try_new(indices, values, 10, Scalar::from(fill_value)).unwrap();
         assert_eq!(
@@ -174,7 +175,7 @@ mod test {
             .unwrap()
             .into_primitive()
             .unwrap();
-        let expected = PrimitiveArray::from_nullable_vec(vec![
+        let expected = PrimitiveArray::from_option_iter([
             Some(0i32),
             None,
             fill_value,
@@ -187,19 +188,19 @@ mod test {
             fill_value,
         ]);
 
-        assert_eq!(flat_ints.buffer(), expected.buffer());
+        assert_eq!(flat_ints.byte_buffer(), expected.byte_buffer());
         assert_eq!(flat_ints.validity(), expected.validity());
 
-        assert_eq!(flat_ints.maybe_null_slice::<i32>()[0], 0);
+        assert_eq!(flat_ints.as_slice::<i32>()[0], 0);
         assert!(flat_ints.validity().is_valid(0));
-        assert_eq!(flat_ints.maybe_null_slice::<i32>()[1], 0);
+        assert_eq!(flat_ints.as_slice::<i32>()[1], 0);
         assert!(!flat_ints.validity().is_valid(1));
         assert_eq!(
-            flat_ints.maybe_null_slice::<i32>()[2],
+            flat_ints.as_slice::<i32>()[2],
             fill_value.unwrap_or_default()
         );
         assert_eq!(flat_ints.validity().is_valid(2), fill_value.is_some());
-        assert_eq!(flat_ints.maybe_null_slice::<i32>()[7], 1);
+        assert_eq!(flat_ints.as_slice::<i32>()[7], 1);
         assert!(flat_ints.validity().is_valid(7));
     }
 }

@@ -11,11 +11,11 @@ use crate::read::buffered::{BufferedLayoutReader, ReadMasked};
 use crate::{PollRead, RowMask};
 
 struct MetadataMaskReader {
-    layout: Box<dyn LayoutReader>,
+    layout: Arc<dyn LayoutReader>,
 }
 
 impl MetadataMaskReader {
-    pub fn new(layout: Box<dyn LayoutReader>) -> Self {
+    pub fn new(layout: Arc<dyn LayoutReader>) -> Self {
         Self { layout }
     }
 }
@@ -34,7 +34,7 @@ impl ReadMasked for MetadataMaskReader {
 pub async fn fetch_metadata<R: VortexReadAt + Unpin>(
     input: R,
     dispatcher: Arc<IoDispatcher>,
-    root_layout: Box<dyn LayoutReader>,
+    root_layout: Arc<dyn LayoutReader>,
     layout_cache: Arc<RwLock<LayoutMessageCache>>,
 ) -> VortexResult<Option<Vec<Option<ArrayData>>>> {
     let mut metadata_reader = BufferedLayoutReader::new(
@@ -52,10 +52,11 @@ pub async fn fetch_metadata<R: VortexReadAt + Unpin>(
 mod test {
     use std::sync::{Arc, RwLock};
 
+    use bytes::Bytes;
     use vortex_array::array::{ChunkedArray, StructArray};
     use vortex_array::compute::scalar_at;
     use vortex_array::{ArrayDType as _, ArrayData, IntoArrayData as _};
-    use vortex_buffer::{Buffer, BufferString};
+    use vortex_buffer::BufferString;
     use vortex_io::IoDispatcher;
 
     use crate::metadata::fetch_metadata;
@@ -101,7 +102,7 @@ mod test {
             .finalize()
             .await
             .unwrap();
-        let written_bytes = Buffer::from(written_bytes);
+        let written_bytes = Bytes::from(written_bytes);
 
         let n_bytes = written_bytes.len();
         let initial_read = read_initial_bytes(&written_bytes, n_bytes as u64)

@@ -114,13 +114,12 @@ impl StatisticsVTable<ExtensionArray> for ExtensionEncoding {
 
 #[cfg(test)]
 mod tests {
+    use vortex_buffer::buffer;
     use vortex_dtype::PType;
     use vortex_scalar::Scalar;
 
     use super::*;
-    use crate::array::PrimitiveArray;
-    use crate::validity::Validity;
-    use crate::IntoArrayData as _;
+    use crate::IntoArrayData;
 
     #[test]
     fn compute_statistics() {
@@ -129,10 +128,7 @@ mod tests {
             DType::from(PType::I64).into(),
             None,
         ));
-        let array = ExtensionArray::new(
-            ext_dtype.clone(),
-            PrimitiveArray::from_vec(vec![1i64, 2, 3, 4, 5], Validity::NonNullable).into_array(),
-        );
+        let array = ExtensionArray::new(ext_dtype.clone(), buffer![1i64, 2, 3, 4, 5].into_array());
 
         let stats = array
             .statistics()

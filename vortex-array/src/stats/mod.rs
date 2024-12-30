@@ -6,7 +6,6 @@ use std::sync::Arc;
 
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, Buffer, MutableBuffer};
 use enum_iterator::{cardinality, Sequence};
-use enum_map::Enum;
 use itertools::Itertools;
 use log::debug;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
@@ -25,9 +24,7 @@ mod statsset;
 /// Statistics that are used for pruning files (i.e., we want to ensure they are computed when compressing/writing).
 pub const PRUNING_STATS: &[Stat] = &[Stat::Min, Stat::Max, Stat::TrueCount, Stat::NullCount];
 
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, Sequence, Enum, IntoPrimitive, TryFromPrimitive,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Sequence, IntoPrimitive, TryFromPrimitive)]
 #[repr(u8)]
 pub enum Stat {
     /// Frequency of each bit width (nulls are treated as 0)
@@ -167,13 +164,16 @@ pub trait Statistics {
     /// Clear the value of the statistic
     fn clear(&self, stat: Stat);
 
-    /// Computes the value of the stat if it's not present
+    /// Computes the value of the stat if it's not present.
+    ///
+    /// Returns the scalar if compute succeeded, or `None` if the stat is not supported
+    /// for this array.
     fn compute(&self, stat: Stat) -> Option<Scalar>;
 
     /// Compute all the requested statistics (if not already present)
     /// Returns a StatsSet with the requested stats and any additional available stats
     fn compute_all(&self, stats: &[Stat]) -> VortexResult<StatsSet> {
-        let mut stats_set = self.to_set();
+        let mut stats_set = StatsSet::default();
         for stat in stats {
             if let Some(s) = self.compute(*stat) {
                 stats_set.set(*stat, s)
@@ -247,6 +247,9 @@ impl dyn Statistics + '_ {
             })
     }
 
+    /// Get or calculate the provided stat, converting the `Scalar` into a typed value.
+    ///
+    /// This function will panic if the conversion fails.
     pub fn compute_as<U: for<'a> TryFrom<&'a Scalar, Error = VortexError>>(
         &self,
         stat: Stat,
@@ -278,10 +281,16 @@ impl dyn Statistics + '_ {
             })
     }
 
+    /// Get or calculate the minimum value in the array, returning as a typed value.
+    ///
+    /// This function will panic if the conversion fails.
     pub fn compute_min<U: for<'a> TryFrom<&'a Scalar, Error = VortexError>>(&self) -> Option<U> {
         self.compute_as(Stat::Min)
     }
 
+    /// Get or calculate the maximum value in the array, returning as a typed value.
+    ///
+    /// This function will panic if the conversion fails.
     pub fn compute_max<U: for<'a> TryFrom<&'a Scalar, Error = VortexError>>(&self) -> Option<U> {
         self.compute_as(Stat::Max)
     }
@@ -347,7 +356,7 @@ mod test {
 
     #[test]
     fn min_of_nulls_is_not_panic() {
-        let min = PrimitiveArray::from_nullable_vec::<i32>(vec![None, None, None, None])
+        let min = PrimitiveArray::from_option_iter::<i32, _>([None, None, None, None])
             .statistics()
             .compute_as_cast::<i64>(Stat::Min);
 

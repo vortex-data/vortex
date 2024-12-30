@@ -3,16 +3,15 @@ use std::sync::Arc;
 
 use enum_iterator::all;
 use itertools::Itertools;
-use vortex_buffer::Buffer;
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{vortex_err, VortexExpect as _, VortexResult, VortexUnwrap};
+use vortex_error::{vortex_err, VortexExpect as _, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::encoding::opaque::OpaqueEncoding;
 use crate::encoding::EncodingRef;
 use crate::stats::{Stat, Statistics, StatsSet};
-use crate::visitor::ArrayVisitor;
-use crate::{flatbuffers as fb, ArrayData, ArrayMetadata, Context};
+use crate::{flatbuffers as fb, ArrayData, ArrayMetadata, ChildrenCollector, Context};
 
 /// Zero-copy view over flatbuffer-encoded array data, created without eager serialization.
 #[derive(Clone)]
@@ -21,9 +20,10 @@ pub(super) struct ViewedArrayData {
     pub(super) dtype: DType,
     pub(super) len: usize,
     pub(super) metadata: Arc<dyn ArrayMetadata>,
-    pub(super) flatbuffer: Buffer,
+    // TODO(ngates): use ConstByteBuffer once it is stable
+    pub(super) flatbuffer: ByteBuffer,
     pub(super) flatbuffer_loc: usize,
-    pub(super) buffers: Arc<[Buffer]>,
+    pub(super) buffers: Arc<[ByteBuffer]>,
     pub(super) ctx: Arc<Context>,
     #[cfg(feature = "canonical_counter")]
     pub(super) canonical_counter: Arc<std::sync::atomic::AtomicUsize>,
@@ -100,25 +100,17 @@ impl ViewedArrayData {
         self.encoding
             .accept(&ArrayData::from(self.clone()), &mut collector)
             .vortex_expect("Failed to get children");
-        collector.children
+        collector.children()
     }
 
-    pub fn buffer(&self) -> Option<&Buffer> {
+    pub fn byte_buffer(&self) -> Option<&ByteBuffer> {
         self.flatbuffer()
-            .buffer_index()
-            .map(|idx| &self.buffers[usize::try_from(idx).vortex_unwrap()])
-    }
-}
-
-#[derive(Default, Debug)]
-struct ChildrenCollector {
-    children: Vec<ArrayData>,
-}
-
-impl ArrayVisitor for ChildrenCollector {
-    fn visit_child(&mut self, _name: &str, array: &ArrayData) -> VortexResult<()> {
-        self.children.push(array.clone());
-        Ok(())
+            .buffers()
+            .and_then(|buffers| {
+                assert!(buffers.len() <= 1, "Array: expected at most one buffer");
+                (!buffers.is_empty()).then(|| buffers.get(0) as usize)
+            })
+            .map(|idx| &self.buffers[idx])
     }
 }
 
@@ -152,7 +144,7 @@ impl Statistics for ViewedArrayData {
                     .stats()?
                     .bit_width_freq()
                     .map(|v| v.iter().map(Scalar::from).collect_vec())
-                    .map(|v| Scalar::list(element_dtype, v))
+                    .map(|v| Scalar::list(element_dtype, v, Nullability::NonNullable))
             }
             Stat::TrailingZeroFreq => self
                 .flatbuffer()

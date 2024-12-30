@@ -11,6 +11,7 @@ mod cache;
 mod context;
 mod expr_project;
 mod filtering;
+pub mod handle;
 pub mod layouts;
 mod mask;
 pub mod metadata;
@@ -27,10 +28,10 @@ pub use context::*;
 pub use filtering::RowFilter;
 pub use projection::Projection;
 pub use recordbatchreader::{AsyncRuntime, VortexRecordBatchReader};
-pub use stream::VortexFileArrayStream;
+pub use stream::VortexReadArrayStream;
 use vortex_expr::ExprRef;
-use vortex_ipc::stream_writer::ByteRange;
 
+use crate::byte_range::ByteRange;
 pub use crate::read::mask::RowMask;
 
 // Recommended read-size according to the AWS performance guide
@@ -48,7 +49,13 @@ impl Scan {
         Self { expr: None }
     }
 
-    pub fn new(expr: Option<ExprRef>) -> Self {
+    pub fn new(expr: ExprRef) -> Self {
+        Self { expr: Some(expr) }
+    }
+}
+
+impl From<Option<ExprRef>> for Scan {
+    fn from(expr: Option<ExprRef>) -> Self {
         Self { expr }
     }
 }
@@ -99,7 +106,7 @@ pub enum Prune {
 /// Layout readers are **synchronous** and **stateful**. A request to read a given row range may
 /// trigger a request for more messages, which will be handled by the caller, placing the messages
 /// back into the message cache for this layout as a result.
-pub trait LayoutReader: Debug + Send {
+pub trait LayoutReader: Debug + Send + Sync {
     /// Register all horizontal row boundaries of this layout.
     ///
     /// Layout should register all indivisible absolute row boundaries of the data stored in itself and its children.

@@ -6,7 +6,7 @@ use std::sync::{Arc, RwLock};
 use itertools::Itertools;
 use owned::OwnedArrayData;
 use viewed::ViewedArrayData;
-use vortex_buffer::Buffer;
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
@@ -22,7 +22,7 @@ use crate::stats::{ArrayStatistics, Stat, Statistics, StatsSet};
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use crate::{
-    ArrayChildrenIterator, ArrayDType, ArrayLen, ArrayMetadata, Context,
+    ArrayChildrenIterator, ArrayDType, ArrayLen, ArrayMetadata, Context, NamedChildrenCollector,
     TryDeserializeArrayMetadata,
 };
 
@@ -61,7 +61,7 @@ impl ArrayData {
         dtype: DType,
         len: usize,
         metadata: Arc<dyn ArrayMetadata>,
-        buffer: Option<Buffer>,
+        buffer: Option<ByteBuffer>,
         children: Arc<[ArrayData]>,
         statistics: StatsSet,
     ) -> VortexResult<Self> {
@@ -82,9 +82,10 @@ impl ArrayData {
         ctx: Arc<Context>,
         dtype: DType,
         len: usize,
-        flatbuffer: Buffer,
+        // TODO(ngates): use ConstByteBuffer
+        flatbuffer: ByteBuffer,
         flatbuffer_init: F,
-        buffers: Vec<Buffer>,
+        buffers: Vec<ByteBuffer>,
     ) -> VortexResult<Self>
     where
         F: FnOnce(&[u8]) -> VortexResult<crate::flatbuffers::Array>,
@@ -219,6 +220,15 @@ impl ArrayData {
         }
     }
 
+    /// Returns a Vec of Arrays with all the array's child arrays.
+    pub fn named_children(&self) -> Vec<(String, ArrayData)> {
+        let mut collector = NamedChildrenCollector::default();
+        self.encoding()
+            .accept(&self.clone(), &mut collector)
+            .vortex_expect("Failed to get children");
+        collector.children()
+    }
+
     /// Returns the number of child arrays
     pub fn nchildren(&self) -> usize {
         match &self.0 {
@@ -237,7 +247,7 @@ impl ArrayData {
             .iter()
             .map(|child| child.cumulative_nbuffers())
             .sum::<usize>()
-            + if self.buffer().is_some() { 1 } else { 0 }
+            + if self.byte_buffer().is_some() { 1 } else { 0 }
     }
 
     /// Return the buffer offsets and the total length of all buffers, assuming the given alignment.
@@ -247,7 +257,7 @@ impl ArrayData {
         let mut offset = 0;
 
         for col_data in self.depth_first_traversal() {
-            if let Some(buffer) = col_data.buffer() {
+            if let Some(buffer) = col_data.byte_buffer() {
                 offsets.push(offset as u64);
 
                 let buffer_size = buffer.len();
@@ -310,17 +320,17 @@ impl ArrayData {
         }
     }
 
-    pub fn buffer(&self) -> Option<&Buffer> {
+    pub fn byte_buffer(&self) -> Option<&ByteBuffer> {
         match &self.0 {
-            InnerArrayData::Owned(d) => d.buffer(),
-            InnerArrayData::Viewed(v) => v.buffer(),
+            InnerArrayData::Owned(d) => d.byte_buffer(),
+            InnerArrayData::Viewed(v) => v.byte_buffer(),
         }
     }
 
-    pub fn into_buffer(self) -> Option<Buffer> {
+    pub fn into_byte_buffer(self) -> Option<ByteBuffer> {
         match self.0 {
-            InnerArrayData::Owned(d) => d.into_buffer(),
-            InnerArrayData::Viewed(v) => v.buffer().cloned(),
+            InnerArrayData::Owned(d) => d.into_byte_buffer(),
+            InnerArrayData::Viewed(v) => v.byte_buffer().cloned(),
         }
     }
 

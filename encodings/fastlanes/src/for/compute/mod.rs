@@ -185,7 +185,7 @@ mod test {
 
     #[test]
     fn for_scalar_at() {
-        let for_arr = for_compress(&PrimitiveArray::from(vec![-100, 1100, 1500, 1900])).unwrap();
+        let for_arr = for_compress(PrimitiveArray::from_iter([-100, 1100, 1500, 1900])).unwrap();
         assert_eq!(scalar_at(&for_arr, 0).unwrap(), (-100).into());
         assert_eq!(scalar_at(&for_arr, 1).unwrap(), 1100.into());
         assert_eq!(scalar_at(&for_arr, 2).unwrap(), 1500.into());
@@ -194,7 +194,7 @@ mod test {
 
     #[test]
     fn for_search() {
-        let for_arr = for_compress(&PrimitiveArray::from(vec![1100, 1500, 1900]))
+        let for_arr = for_compress(PrimitiveArray::from_iter([1100, 1500, 1900]))
             .unwrap()
             .into_array();
         assert_eq!(
@@ -213,7 +213,7 @@ mod test {
 
     #[test]
     fn search_with_shift_notfound() {
-        let for_arr = for_compress(&PrimitiveArray::from(vec![62, 114]))
+        let for_arr = for_compress(PrimitiveArray::from_iter([62, 114]))
             .unwrap()
             .into_array();
         assert_eq!(
@@ -236,7 +236,7 @@ mod test {
 
     #[test]
     fn search_with_shift_repeated() {
-        let arr = for_compress(&PrimitiveArray::from(vec![62, 62, 114, 114]))
+        let arr = for_compress(PrimitiveArray::from_iter([62, 62, 114, 114]))
             .unwrap()
             .into_array();
         let for_array = FoRArray::try_from(arr.clone()).unwrap();

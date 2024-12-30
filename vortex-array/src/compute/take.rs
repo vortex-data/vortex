@@ -1,4 +1,3 @@
-use log::info;
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 
 use crate::encoding::Encoding;
@@ -47,6 +46,11 @@ pub fn take(
     array: impl AsRef<ArrayData>,
     indices: impl AsRef<ArrayData>,
 ) -> VortexResult<ArrayData> {
+    // TODO(ngates): if indices are sorted and unique (strict-sorted), then we should delegate to
+    //  the filter function since they're typically optimised for this case.
+    // TODO(ngates): if indices min is quite high, we could slice self and offset the indices
+    //  such that canonicalize does less work.
+
     let array = array.as_ref();
     let indices = indices.as_ref();
 
@@ -57,32 +61,58 @@ pub fn take(
         );
     }
 
-    // TODO(ngates): if indices are sorted and unique (strict-sorted), then we should delegate to
-    //  the filter function since they're typically optimised for this case.
-
     // If the indices are all within bounds, we can skip bounds checking.
     let checked_indices = indices
         .statistics()
         .get_as::<usize>(Stat::Max)
         .is_some_and(|max| max < array.len());
 
-    // TODO(ngates): if indices min is quite high, we could slice self and offset the indices
-    //  such that canonicalize does less work.
+    let taken = take_impl(array, indices, checked_indices)?;
 
+    debug_assert_eq!(
+        taken.len(),
+        indices.len(),
+        "Take length mismatch {}",
+        array.encoding().id()
+    );
+    debug_assert_eq!(
+        array.dtype(),
+        taken.dtype(),
+        "Take dtype mismatch {}",
+        array.encoding().id()
+    );
+
+    Ok(taken)
+}
+
+fn take_impl(
+    array: &ArrayData,
+    indices: &ArrayData,
+    checked_indices: bool,
+) -> VortexResult<ArrayData> {
     // If TakeFn defined for the encoding, delegate to TakeFn.
     // If we know from stats that indices are all valid, we can avoid all bounds checks.
     if let Some(take_fn) = array.encoding().take_fn() {
-        return if checked_indices {
+        let result = if checked_indices {
             // SAFETY: indices are all inbounds per stats.
             // TODO(aduffy): this means stats must be trusted, can still trigger UB if stats are bad.
             unsafe { take_fn.take_unchecked(array, indices) }
         } else {
             take_fn.take(array, indices)
-        };
+        }?;
+        if array.dtype() != result.dtype() {
+            vortex_bail!(
+                "TakeFn {} changed array dtype from {} to {}",
+                array.encoding().id(),
+                array.dtype(),
+                result.dtype()
+            );
+        }
+        return Ok(result);
     }
 
     // Otherwise, flatten and try again.
-    info!("TakeFn not implemented for {}, flattening", array);
+    log::debug!("No take implementation found for {}", array.encoding().id());
     let canonical = array.clone().into_canonical()?.into_array();
     let canonical_take_fn = canonical
         .encoding()

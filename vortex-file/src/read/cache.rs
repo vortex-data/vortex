@@ -5,12 +5,12 @@ use bytes::Bytes;
 use flatbuffers::root_unchecked;
 use once_cell::sync::OnceCell;
 use vortex_array::aliases::hash_map::HashMap;
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::field::Field;
 use vortex_dtype::flatbuffers::{extract_field, project_and_deserialize, resolve_field};
 use vortex_dtype::{DType, FieldNames};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexResult};
-use vortex_flatbuffers::dtype::Struct_;
-use vortex_flatbuffers::message;
+use vortex_flatbuffers::dtype as fbd;
 
 use crate::read::projection::Projection;
 use crate::read::{LayoutPartId, MessageId};
@@ -87,7 +87,7 @@ impl SerializedDTypeField {
 #[derive(Debug)]
 enum LazyDTypeState {
     DType(DType),
-    Serialized(Bytes, OnceCell<DType>, SerializedDTypeField),
+    Serialized(ByteBuffer, OnceCell<DType>, SerializedDTypeField),
     Unknown,
 }
 
@@ -103,7 +103,8 @@ impl LazyDType {
     /// # Safety
     /// This function is unsafe because it trusts the caller to pass in a valid flatbuffer
     /// representing a message::Schema.
-    pub unsafe fn from_schema_bytes(dtype_bytes: Bytes) -> Self {
+    /// FIXME(ngates): this should take a ConstByteBuffer<8> aliased as FlatBuffer
+    pub unsafe fn from_schema_bytes(dtype_bytes: ByteBuffer) -> Self {
         Self {
             inner: LazyDTypeState::Serialized(
                 dtype_bytes,
@@ -238,10 +239,7 @@ fn field_names(bytes: &[u8], dtype_field: &SerializedDTypeField) -> VortexResult
 }
 
 fn project_dtype_bytes(bytes: &[u8], dtype_field: &SerializedDTypeField) -> VortexResult<DType> {
-    let fb_dtype = fb_schema(bytes)
-        .dtype()
-        .ok_or_else(|| vortex_err!(InvalidSerde: "Schema missing DType"))?;
-
+    let fb_dtype = fb_dtype(bytes);
     match dtype_field {
         SerializedDTypeField::Projection(projection) => match projection {
             Projection::All => DType::try_from(fb_dtype),
@@ -251,15 +249,14 @@ fn project_dtype_bytes(bytes: &[u8], dtype_field: &SerializedDTypeField) -> Vort
     }
 }
 
-fn fb_struct(bytes: &[u8]) -> VortexResult<Struct_> {
-    fb_schema(bytes)
-        .dtype()
-        .and_then(|d| d.type__as_struct_())
+fn fb_struct(bytes: &[u8]) -> VortexResult<fbd::Struct_> {
+    fb_dtype(bytes)
+        .type__as_struct_()
         .ok_or_else(|| vortex_err!("The top-level type should be a struct"))
 }
 
-fn fb_schema(bytes: &[u8]) -> message::Schema {
-    unsafe { root_unchecked::<message::Schema>(bytes) }
+fn fb_dtype(bytes: &[u8]) -> fbd::DType {
+    unsafe { root_unchecked::<fbd::DType>(bytes) }
 }
 
 #[derive(Debug, Clone)]

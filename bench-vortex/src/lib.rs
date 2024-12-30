@@ -4,6 +4,7 @@ use std::env::temp_dir;
 use std::fs::{create_dir_all, File};
 use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
@@ -279,7 +280,21 @@ pub struct JsonValue {
     pub name: String,
     pub unit: String,
     pub value: u128,
+    pub commit_id: String,
 }
+
+pub static GIT_COMMIT_ID: LazyLock<String> = LazyLock::new(|| {
+    String::from_utf8(
+        Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap()
+    .trim()
+    .to_string()
+});
 
 impl Measurement {
     pub fn to_json(&self) -> JsonValue {
@@ -294,6 +309,7 @@ impl Measurement {
             name,
             unit: "ns".to_string(),
             value: self.time.as_nanos(),
+            commit_id: GIT_COMMIT_ID.to_string(),
         }
     }
 }
