@@ -443,11 +443,17 @@ impl Buf for ByteBufferMut {
     }
 }
 
+/// As per the BufMut implementation, we must support internal resizing when
+/// asked to extend the buffer.
+/// See: https://github.com/tokio-rs/bytes/issues/131
+
 unsafe impl BufMut for ByteBufferMut {
+    #[inline]
     fn remaining_mut(&self) -> usize {
-        self.bytes.remaining_mut()
+        usize::MAX - self.len()
     }
 
+    #[inline]
     unsafe fn advance_mut(&mut self, cnt: usize) {
         if !cnt.is_multiple_of(*self.alignment) {
             vortex_panic!(
@@ -456,12 +462,34 @@ unsafe impl BufMut for ByteBufferMut {
                 self.alignment
             );
         }
-        self.bytes.advance(cnt);
+        unsafe { self.bytes.advance_mut(cnt) };
         self.length -= cnt;
     }
 
+    #[inline]
     fn chunk_mut(&mut self) -> &mut UninitSlice {
         self.bytes.chunk_mut()
+    }
+
+    fn put<T: Buf>(&mut self, mut src: T)
+    where
+        Self: Sized,
+    {
+        while src.has_remaining() {
+            let chunk = src.chunk();
+            self.extend_from_slice(chunk);
+            src.advance(chunk.len());
+        }
+    }
+
+    #[inline]
+    fn put_slice(&mut self, src: &[u8]) {
+        self.extend_from_slice(src);
+    }
+
+    #[inline]
+    fn put_bytes(&mut self, val: u8, cnt: usize) {
+        self.push_n(val, cnt)
     }
 }
 
