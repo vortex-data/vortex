@@ -1,3 +1,4 @@
+use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
 
@@ -12,17 +13,20 @@ impl FilterFn<PrimitiveArray> for PrimitiveEncoding {
         let validity = array.validity().filter(&mask)?;
         match_each_native_ptype!(array.ptype(), |$T| {
             let values = match mask.iter()? {
-                FilterIter::Indices(indices) => filter_primitive_indices(array.maybe_null_slice::<$T>(), indices.iter().copied()),
-                FilterIter::IndicesIter(iter) => filter_primitive_indices(array.maybe_null_slice::<$T>(), iter),
-                FilterIter::Slices(slices) => filter_primitive_slices(array.maybe_null_slice::<$T>(), mask.true_count(), slices.iter().copied()),
-                FilterIter::SlicesIter(iter) => filter_primitive_slices(array.maybe_null_slice::<$T>(), mask.true_count(), iter),
+                FilterIter::Indices(indices) => filter_primitive_indices(array.as_slice::<$T>(), indices.iter().copied()),
+                FilterIter::IndicesIter(iter) => filter_primitive_indices(array.as_slice::<$T>(), iter),
+                FilterIter::Slices(slices) => filter_primitive_slices(array.as_slice::<$T>(), mask.true_count(), slices.iter().copied()),
+                FilterIter::SlicesIter(iter) => filter_primitive_slices(array.as_slice::<$T>(), mask.true_count(), iter),
             };
-            Ok(PrimitiveArray::from_vec(values, validity).into_array())
+            Ok(PrimitiveArray::new(values, validity).into_array())
         })
     }
 }
 
-fn filter_primitive_indices<T: Copy>(values: &[T], indices: impl Iterator<Item = usize>) -> Vec<T> {
+fn filter_primitive_indices<T: Copy>(
+    values: &[T],
+    indices: impl Iterator<Item = usize>,
+) -> Buffer<T> {
     indices
         .map(|idx| *unsafe { values.get_unchecked(idx) })
         .collect()
@@ -32,12 +36,12 @@ fn filter_primitive_slices<T: Clone>(
     values: &[T],
     indices_len: usize,
     indices: impl Iterator<Item = (usize, usize)>,
-) -> Vec<T> {
-    let mut output = Vec::with_capacity(indices_len);
+) -> Buffer<T> {
+    let mut output = BufferMut::with_capacity(indices_len);
     for (start, end) in indices {
         output.extend_from_slice(&values[start..end]);
     }
-    output
+    output.freeze()
 }
 
 #[cfg(test)]
@@ -51,7 +55,7 @@ mod test {
     #[test]
     fn filter_run_variant_mixed_test() {
         let mask = [true, true, false, true, true, true, false, true];
-        let arr = PrimitiveArray::from(vec![1u32, 24, 54, 2, 3, 2, 3, 2]);
+        let arr = PrimitiveArray::from_iter([1u32, 24, 54, 2, 3, 2, 3, 2]);
 
         let filtered = filter(&arr.to_array(), FilterMask::from_iter(mask))
             .unwrap()
@@ -62,9 +66,9 @@ mod test {
             mask.iter().filter(|x| **x).collect_vec().len()
         );
 
-        let rust_arr = arr.maybe_null_slice::<u32>();
+        let rust_arr = arr.as_slice::<u32>();
         assert_eq!(
-            filtered.maybe_null_slice::<u32>().to_vec(),
+            filtered.as_slice::<u32>().to_vec(),
             mask.iter()
                 .enumerate()
                 .filter(|(_idx, b)| **b)

@@ -4,7 +4,7 @@ use std::sync::Arc;
 use arrow_array::BooleanArray;
 use arrow_buffer::{BooleanBufferBuilder, MutableBuffer};
 use serde::{Deserialize, Serialize};
-use vortex_buffer::Buffer;
+use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexExpect as _, VortexResult};
 
@@ -40,23 +40,23 @@ impl Display for BoolMetadata {
 
 impl BoolArray {
     /// Access internal array buffer
-    pub fn buffer(&self) -> &Buffer {
+    pub fn buffer(&self) -> &ByteBuffer {
         self.as_ref()
-            .buffer()
+            .byte_buffer()
             .vortex_expect("Missing buffer in BoolArray")
     }
 
     /// Convert array into its internal buffer
-    pub fn into_buffer(self) -> Buffer {
+    pub fn into_buffer(self) -> ByteBuffer {
         self.into_array()
-            .into_buffer()
+            .into_byte_buffer()
             .vortex_expect("BoolArray must have a buffer")
     }
 
     /// Get array values as an arrow [BooleanBuffer]
     pub fn boolean_buffer(&self) -> BooleanBuffer {
         BooleanBuffer::new(
-            self.buffer().clone().into_arrow(),
+            self.buffer().clone().into_arrow_buffer(),
             self.metadata().first_byte_bit_offset as usize,
             self.len(),
         )
@@ -71,7 +71,7 @@ impl BoolArray {
     pub fn into_boolean_builder(self) -> (BooleanBufferBuilder, usize) {
         let first_byte_bit_offset = self.metadata().first_byte_bit_offset as usize;
         let len = self.len();
-        let arrow_buffer = self.into_buffer().into_arrow();
+        let arrow_buffer = self.into_buffer().into_arrow_buffer();
         let mutable_buf = if arrow_buffer.ptr_offset() == 0 {
             arrow_buffer.into_mutable().unwrap_or_else(|b| {
                 let mut buf = MutableBuffer::with_capacity(b.len());
@@ -127,7 +127,7 @@ impl BoolArray {
                 validity: validity.to_metadata(buffer_len)?,
                 first_byte_bit_offset,
             }),
-            Some(Buffer::from(inner)),
+            Some(ByteBuffer::from_arrow_buffer(inner, Alignment::of::<u8>())),
             validity.into_array().into_iter().collect(),
             StatsSet::default(),
         )?

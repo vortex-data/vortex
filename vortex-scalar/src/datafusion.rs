@@ -1,8 +1,9 @@
 #![cfg(feature = "datafusion")]
+
 use std::sync::Arc;
 
 use datafusion_common::ScalarValue;
-use vortex_buffer::Buffer;
+use vortex_buffer::ByteBuffer;
 use vortex_datetime_dtype::arrow::make_temporal_ext_dtype;
 use vortex_datetime_dtype::{is_temporal_ext_type, TemporalMetadata, TimeUnit};
 use vortex_dtype::half::f16;
@@ -37,12 +38,9 @@ impl TryFrom<Scalar> for ScalarValue {
             DType::Utf8(_) => {
                 ScalarValue::Utf8(scalar.as_utf8().value().map(|s| s.as_str().to_string()))
             }
-            DType::Binary(_) => ScalarValue::Binary(
-                scalar
-                    .as_binary()
-                    .value()
-                    .map(|b| b.into_vec().unwrap_or_else(|buf| buf.as_slice().to_vec())),
-            ),
+            DType::Binary(_) => {
+                ScalarValue::Binary(scalar.as_binary().value().map(|b| b.as_slice().to_vec()))
+            }
             DType::Struct(..) => {
                 todo!("struct scalar conversion")
             }
@@ -127,7 +125,7 @@ impl From<ScalarValue> for Scalar {
             | ScalarValue::LargeBinary(b)
             | ScalarValue::FixedSizeBinary(_, b) => b
                 .as_ref()
-                .map(|b| Scalar::binary(Buffer::from(b.clone()), Nullability::Nullable)),
+                .map(|b| Scalar::binary(ByteBuffer::from(b.clone()), Nullability::Nullable)),
             ScalarValue::Date32(v)
             | ScalarValue::Time32Second(v)
             | ScalarValue::Time32Millisecond(v) => v.map(|i| {

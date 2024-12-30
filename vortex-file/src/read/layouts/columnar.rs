@@ -399,8 +399,9 @@ mod tests {
     use std::iter;
     use std::sync::{Arc, RwLock};
 
+    use bytes::Bytes;
     use vortex_array::accessor::ArrayAccessor;
-    use vortex_array::array::{ChunkedArray, PrimitiveArray, StructArray, VarBinArray};
+    use vortex_array::array::{ChunkedArray, StructArray, VarBinArray};
     use vortex_array::validity::Validity;
     use vortex_array::{ArrayDType, IntoArrayData, IntoArrayVariant};
     use vortex_buffer::Buffer;
@@ -418,9 +419,9 @@ mod tests {
     async fn layout_and_bytes(
         cache: Arc<RwLock<LayoutMessageCache>>,
         scan: Scan,
-    ) -> (Arc<dyn LayoutReader>, Arc<dyn LayoutReader>, Buffer, usize) {
-        let int_array = PrimitiveArray::from((0..100).collect::<Vec<_>>()).into_array();
-        let int2_array = PrimitiveArray::from((100..200).collect::<Vec<_>>()).into_array();
+    ) -> (Arc<dyn LayoutReader>, Arc<dyn LayoutReader>, Bytes, usize) {
+        let int_array = Buffer::from_iter(0..100).into_array();
+        let int2_array = Buffer::from_iter(100..200).into_array();
         let int_dtype = int_array.dtype().clone();
         let chunked = ChunkedArray::try_new(
             iter::repeat_n(int_array.clone(), 2)
@@ -451,7 +452,7 @@ mod tests {
 
         let mut writer = VortexFileWriter::new(Vec::new());
         writer = writer.write_array_columns(struct_arr).await.unwrap();
-        let written = Buffer::from(writer.finalize().await.unwrap());
+        let written = Bytes::from(writer.finalize().await.unwrap());
 
         let initial_read = read_initial_bytes(&written, written.len() as u64)
             .await
@@ -520,10 +521,7 @@ mod tests {
             .unwrap()
             .into_varbinview()
             .unwrap();
-        assert_eq!(
-            prim_arr.maybe_null_slice::<i32>(),
-            &(11..100).collect::<Vec<_>>()
-        );
+        assert_eq!(prim_arr.as_slice::<i32>(), &(11..100).collect::<Vec<_>>());
         assert_eq!(
             str_arr
                 .with_iterator(|iter| iter
@@ -531,7 +529,7 @@ mod tests {
                     .map(|s| unsafe { String::from_utf8_unchecked(s.to_vec()) })
                     .collect::<Vec<_>>())
                 .unwrap(),
-            iter::repeat("test text").take(89).collect::<Vec<_>>()
+            iter::repeat_n("test text", 89).collect::<Vec<_>>()
         );
     }
 
@@ -561,10 +559,7 @@ mod tests {
             .unwrap()
             .into_varbinview()
             .unwrap();
-        assert_eq!(
-            prim_arr.maybe_null_slice::<i32>(),
-            (0..100).collect::<Vec<_>>()
-        );
+        assert_eq!(prim_arr.as_slice::<i32>(), (0..100).collect::<Vec<_>>());
         assert_eq!(
             str_arr
                 .with_iterator(|iter| iter
@@ -572,7 +567,7 @@ mod tests {
                     .map(|s| unsafe { String::from_utf8_unchecked(s.to_vec()) })
                     .collect::<Vec<_>>())
                 .unwrap(),
-            iter::repeat("test text").take(100).collect::<Vec<_>>()
+            iter::repeat_n("test text", 100).collect::<Vec<_>>()
         );
     }
 
@@ -621,7 +616,7 @@ mod tests {
             .into_varbinview()
             .unwrap();
         assert_eq!(
-            prim_arr_chunk0.maybe_null_slice::<i32>(),
+            prim_arr_chunk0.as_slice::<i32>(),
             (100..150).collect::<Vec<_>>()
         );
         assert_eq!(
@@ -631,7 +626,7 @@ mod tests {
                     .map(|s| unsafe { String::from_utf8_unchecked(s.to_vec()) })
                     .collect::<Vec<_>>())
                 .unwrap(),
-            iter::repeat("it").take(50).collect::<Vec<_>>()
+            iter::repeat_n("it", 50).collect::<Vec<_>>()
         );
         let prim_arr_chunk1 = arr[1]
             .as_struct_array()
@@ -648,7 +643,7 @@ mod tests {
             .into_varbinview()
             .unwrap();
         assert_eq!(
-            prim_arr_chunk1.maybe_null_slice::<i32>(),
+            prim_arr_chunk1.as_slice::<i32>(),
             (100..150).collect::<Vec<_>>()
         );
         assert_eq!(
@@ -658,7 +653,7 @@ mod tests {
                     .map(|s| unsafe { String::from_utf8_unchecked(s.to_vec()) })
                     .collect::<Vec<_>>())
                 .unwrap(),
-            iter::repeat("it").take(50).collect::<Vec<_>>()
+            iter::repeat_n("it", 50).collect::<Vec<_>>()
         );
     }
 }

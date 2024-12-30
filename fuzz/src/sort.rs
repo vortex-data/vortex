@@ -34,7 +34,7 @@ pub fn sort_canonical_array(array: &ArrayData) -> ArrayData {
             let primitive_array = array.clone().into_primitive().unwrap();
             match_each_native_ptype!(p, |$P| {
                 let mut opt_values = primitive_array
-                    .maybe_null_slice::<$P>()
+                    .as_slice::<$P>()
                     .iter()
                     .copied()
                     .zip(
@@ -49,7 +49,7 @@ pub fn sort_canonical_array(array: &ArrayData) -> ArrayData {
                     .map(|(p, v)| v.then_some(p))
                     .collect::<Vec<_>>();
                 sort_primitive_slice(&mut opt_values);
-                PrimitiveArray::from_nullable_vec(opt_values).into_array()
+                PrimitiveArray::from_option_iter(opt_values).into_array()
             })
         }
         DType::Utf8(_) | DType::Binary(_) => {

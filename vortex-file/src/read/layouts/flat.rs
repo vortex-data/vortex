@@ -2,8 +2,8 @@ use std::collections::BTreeSet;
 use std::io::Cursor;
 use std::sync::Arc;
 
+use bytes::Bytes;
 use vortex_array::{ArrayData, Context};
-use vortex_buffer::Buffer;
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_flatbuffers::footer;
 use vortex_ipc::messages::{DecoderMessage, SyncMessageReader};
@@ -73,7 +73,7 @@ impl FlatLayoutReader {
         MessageLocator(self.message_cache.absolute_id(&[]), self.range)
     }
 
-    fn array_from_bytes(&self, buf: Buffer) -> VortexResult<ArrayData> {
+    fn array_from_bytes(&self, buf: Bytes) -> VortexResult<ArrayData> {
         let mut reader = SyncMessageReader::new(Cursor::new(buf));
         match reader.next().transpose()? {
             Some(DecoderMessage::Array(array_parts)) => array_parts.into_array_data(
@@ -118,7 +118,7 @@ impl LayoutReader for FlatLayoutReader {
 mod tests {
     use std::sync::{Arc, RwLock};
 
-    use vortex_array::array::PrimitiveArray;
+    use bytes::Bytes;
     use vortex_array::{Context, IntoArrayData, IntoArrayVariant, ToArrayData};
     use vortex_buffer::Buffer;
     use vortex_dtype::PType;
@@ -133,8 +133,8 @@ mod tests {
 
     async fn read_only_layout(
         cache: Arc<RwLock<LayoutMessageCache>>,
-    ) -> (FlatLayoutReader, Buffer, usize, Arc<LazyDType>) {
-        let array = PrimitiveArray::from((0..100).collect::<Vec<_>>()).into_array();
+    ) -> (FlatLayoutReader, Bytes, usize, Arc<LazyDType>) {
+        let array = Buffer::from_iter(0..100).into_array();
 
         let mut written = vec![];
         SyncMessageWriter::new(&mut written)
@@ -151,7 +151,7 @@ mod tests {
                 Arc::new(Context::default()),
                 RelativeLayoutCache::new(cache, dtype.clone()),
             ),
-            Buffer::from(written),
+            Bytes::from(written),
             array.len(),
             dtype,
         )
@@ -160,7 +160,7 @@ mod tests {
     async fn layout_and_bytes(
         cache: Arc<RwLock<LayoutMessageCache>>,
         scan: Scan,
-    ) -> (FlatLayoutReader, FlatLayoutReader, Buffer, usize) {
+    ) -> (FlatLayoutReader, FlatLayoutReader, Bytes, usize) {
         let (read_layout, bytes, len, dtype) = read_only_layout(cache.clone()).await;
 
         (
@@ -195,7 +195,7 @@ mod tests {
         assert!(arr.is_some());
         let arr = arr.unwrap();
         assert_eq!(
-            arr.into_primitive().unwrap().maybe_null_slice::<i32>(),
+            arr.into_primitive().unwrap().as_slice::<i32>(),
             &(11..100).collect::<Vec<_>>()
         );
     }
@@ -210,7 +210,7 @@ mod tests {
         assert!(arr.is_some());
         let arr = arr.unwrap();
         assert_eq!(
-            arr.into_primitive().unwrap().maybe_null_slice::<i32>(),
+            arr.into_primitive().unwrap().as_slice::<i32>(),
             &(0..100).collect::<Vec<_>>()
         );
     }

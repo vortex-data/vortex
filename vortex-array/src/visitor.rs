@@ -1,4 +1,4 @@
-use vortex_buffer::Buffer;
+use vortex_buffer::ByteBuffer;
 use vortex_error::{vortex_err, VortexError, VortexResult};
 
 use crate::encoding::Encoding;
@@ -47,7 +47,7 @@ pub trait ArrayVisitor {
         self.visit_child("patch_values", patches.values())
     }
 
-    fn visit_buffer(&mut self, _buffer: &Buffer) -> VortexResult<()> {
+    fn visit_buffer(&mut self, _buffer: &ByteBuffer) -> VortexResult<()> {
         Ok(())
     }
 }

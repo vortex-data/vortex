@@ -190,6 +190,18 @@ pub struct CompressConfig {
     target_block_size: usize,
 }
 
+impl CompressConfig {
+    pub fn with_sample_size(mut self, sample_size: u16) -> Self {
+        self.sample_size = sample_size;
+        self
+    }
+
+    pub fn with_sample_count(mut self, sample_count: u16) -> Self {
+        self.sample_count = sample_count;
+        self
+    }
+}
+
 impl Default for CompressConfig {
     fn default() -> Self {
         let kib = 1 << 10;

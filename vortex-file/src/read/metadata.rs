@@ -52,10 +52,11 @@ pub async fn fetch_metadata<R: VortexReadAt + Unpin>(
 mod test {
     use std::sync::{Arc, RwLock};
 
+    use bytes::Bytes;
     use vortex_array::array::{ChunkedArray, StructArray};
     use vortex_array::compute::scalar_at;
     use vortex_array::{ArrayDType as _, ArrayData, IntoArrayData as _};
-    use vortex_buffer::{Buffer, BufferString};
+    use vortex_buffer::BufferString;
     use vortex_io::IoDispatcher;
 
     use crate::metadata::fetch_metadata;
@@ -101,7 +102,7 @@ mod test {
             .finalize()
             .await
             .unwrap();
-        let written_bytes = Buffer::from(written_bytes);
+        let written_bytes = Bytes::from(written_bytes);
 
         let n_bytes = written_bytes.len();
         let initial_read = read_initial_bytes(&written_bytes, n_bytes as u64)

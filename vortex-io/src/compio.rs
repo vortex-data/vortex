@@ -1,10 +1,10 @@
 use std::future::Future;
 use std::io;
 
+use bytes::Bytes;
 use compio::fs::File;
 use compio::io::AsyncReadAtExt;
 use compio::BufResult;
-use vortex_buffer::Buffer;
 use vortex_error::VortexUnwrap;
 
 use crate::VortexReadAt;
@@ -14,13 +14,13 @@ impl VortexReadAt for File {
         &self,
         pos: u64,
         len: u64,
-    ) -> impl Future<Output = io::Result<Buffer>> + 'static {
+    ) -> impl Future<Output = io::Result<Bytes>> + 'static {
         let this = self.clone();
         let buffer = Vec::with_capacity(len.try_into().vortex_unwrap());
         async move {
             // Turn the buffer into a static slice.
             let BufResult(res, buffer) = this.read_exact_at(buffer, pos).await;
-            res.map(|_| Buffer::from(buffer))
+            res.map(|_| Bytes::from(buffer))
         }
     }
 

@@ -7,6 +7,7 @@ use vortex_array::compute::{
 };
 use vortex_array::validity::ArrayValidity;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_buffer::BufferMut;
 use vortex_datetime_dtype::{TemporalMetadata, TimeUnit};
 use vortex_dtype::Nullability::{NonNullable, Nullable};
 use vortex_dtype::{DType, PType};
@@ -117,24 +118,28 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalAr
         &DType::Primitive(PType::I64, array.dtype().nullability()),
     )?
     .into_primitive()?;
-    let mut values: Vec<i64> = days_buf
-        .into_maybe_null_slice::<i64>()
-        .into_iter()
-        .map(|d| d * 86_400 * divisor)
-        .collect();
+
+    // We start with the days component, which is always present.
+    // And then add the seconds and subseconds components.
+    // We split this into separate passes because often the seconds and/org subsecond components
+    // are constant.
+    let mut values: BufferMut<i64> = days_buf
+        .into_buffer_mut::<i64>()
+        .map_each(|d| d * 86_400 * divisor);
 
     if let Some(seconds) = array.seconds().as_constant() {
         let seconds =
             PrimitiveScalar::try_from(&seconds.cast(&DType::Primitive(PType::I64, NonNullable))?)?
                 .typed_value::<i64>()
                 .vortex_expect("non-nullable");
+        let seconds = seconds * divisor;
         for v in values.iter_mut() {
-            *v += seconds * divisor;
+            *v += seconds;
         }
     } else {
         let seconds_buf = try_cast(array.seconds(), &DType::Primitive(PType::U32, NonNullable))?
             .into_primitive()?;
-        for (v, second) in values.iter_mut().zip(seconds_buf.maybe_null_slice::<u32>()) {
+        for (v, second) in values.iter_mut().zip(seconds_buf.as_slice::<u32>()) {
             *v += (*second as i64) * divisor;
         }
     }
@@ -154,16 +159,13 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalAr
             &DType::Primitive(PType::I64, NonNullable),
         )?
         .into_primitive()?;
-        for (v, subsecond) in values
-            .iter_mut()
-            .zip(subsecond_buf.maybe_null_slice::<i64>())
-        {
+        for (v, subsecond) in values.iter_mut().zip(subsecond_buf.as_slice::<i64>()) {
             *v += *subsecond;
         }
     }
 
     Ok(TemporalArray::new_timestamp(
-        PrimitiveArray::from_vec(values, array.validity()).into_array(),
+        PrimitiveArray::new(values.freeze(), array.validity()).into_array(),
         temporal_metadata.time_unit(),
         temporal_metadata.time_zone().map(ToString::to_string),
     ))
@@ -174,6 +176,7 @@ mod test {
     use vortex_array::array::{PrimitiveArray, TemporalArray};
     use vortex_array::validity::Validity;
     use vortex_array::{IntoArrayVariant, ToArrayData};
+    use vortex_buffer::Buffer;
     use vortex_datetime_dtype::TimeUnit;
     use vortex_dtype::DType;
 
@@ -195,7 +198,7 @@ mod test {
     }
 
     fn do_roundtrip_test(raw_values: &[i64], validity: Validity) {
-        let raw_millis = PrimitiveArray::from_vec(raw_values.to_vec(), validity.clone());
+        let raw_millis = PrimitiveArray::new(Buffer::copy_from(raw_values), validity.clone());
         assert_eq!(raw_millis.validity(), validity);
 
         let temporal_array = TemporalArray::new_timestamp(
@@ -243,7 +246,7 @@ mod test {
             .into_primitive()
             .unwrap();
 
-        assert_eq!(primitive_values.maybe_null_slice::<i64>(), raw_values);
+        assert_eq!(primitive_values.as_slice::<i64>(), raw_values);
         assert_eq!(primitive_values.validity(), validity);
     }
 }

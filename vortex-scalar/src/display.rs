@@ -104,7 +104,7 @@ impl Display for Scalar {
 mod tests {
     use std::sync::Arc;
 
-    use vortex_buffer::Buffer;
+    use vortex_buffer::ByteBuffer;
     use vortex_datetime_dtype::{TemporalMetadata, TimeUnit, DATE_ID, TIMESTAMP_ID, TIME_ID};
     use vortex_dtype::Nullability::{NonNullable, Nullable};
     use vortex_dtype::{DType, ExtDType, ExtMetadata, PType, StructDType};
@@ -156,7 +156,10 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                Scalar::binary(Buffer::from("Hello World!".as_bytes()), NonNullable)
+                Scalar::binary(
+                    ByteBuffer::from("Hello World!".as_bytes().to_vec()),
+                    NonNullable
+                )
             ),
             "48,65,6c,6c,6f,20,57,6f,72,6c,64,21"
         );

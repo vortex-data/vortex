@@ -47,7 +47,7 @@ jobs:
 
       # The compression benchmarks rely on DuckDB being installed to convert CSV to Parquet
       - name: Install DuckDB
-        uses: opt-nc/setup-duckdb-action@v1.0.9
+        uses: opt-nc/setup-duckdb-action@v1.0.10
         if: runner.environment != 'self-hosted'
         with:
           version: v1.0.0
@@ -94,7 +94,7 @@ jobs:
 
       # The compression benchmarks rely on DuckDB being installed to convert CSV to Parquet
       - name: Install DuckDB
-        uses: opt-nc/setup-duckdb-action@v1.0.9
+        uses: opt-nc/setup-duckdb-action@v1.0.10
         if: runner.environment != 'self-hosted'
         with:
           version: v1.0.0
@@ -130,7 +130,7 @@ jobs:
 
       # The compression benchmarks rely on DuckDB being installed to convert CSV to Parquet
       - name: Install DuckDB
-        uses: opt-nc/setup-duckdb-action@v1.0.9
+        uses: opt-nc/setup-duckdb-action@v1.0.10
         if: runner.environment != 'self-hosted'
         with:
           version: v1.0.0

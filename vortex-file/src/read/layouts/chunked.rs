@@ -7,6 +7,7 @@ use vortex_array::array::ChunkedArray;
 use vortex_array::compute::{scalar_at, take};
 use vortex_array::stats::{stats_from_bitset_bytes, ArrayStatistics as _, Stat};
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
+use vortex_buffer::Buffer;
 use vortex_dtype::field::Field;
 use vortex_dtype::{DType, Nullability, StructDType};
 use vortex_error::{
@@ -262,8 +263,8 @@ impl ChunkedLayoutReader {
             .children_for_row_range(begin, end)
             .iter()
             .map(|x| *x as u64)
-            .collect::<Vec<_>>();
-        let chunks_prunable = take(chunk_prunability, ArrayData::from(layouts))?;
+            .collect::<Buffer<u64>>();
+        let chunks_prunable = take(chunk_prunability, layouts.into_array())?;
 
         if !chunks_prunable
             .statistics()
@@ -398,10 +399,11 @@ mod tests {
     use std::sync::{Arc, RwLock};
 
     use arrow_buffer::BooleanBufferBuilder;
+    use bytes::Bytes;
     use flatbuffers::{root, FlatBufferBuilder};
     use futures_util::io::Cursor;
     use futures_util::TryStreamExt;
-    use vortex_array::array::{ChunkedArray, PrimitiveArray};
+    use vortex_array::array::ChunkedArray;
     use vortex_array::compute::FilterMask;
     use vortex_array::{ArrayDType, ArrayLen, IntoArrayData, IntoArrayVariant};
     use vortex_buffer::Buffer;
@@ -420,12 +422,12 @@ mod tests {
     async fn layout_and_bytes(
         cache: Arc<RwLock<LayoutMessageCache>>,
         scan: Scan,
-    ) -> (ChunkedLayoutReader, ChunkedLayoutReader, Buffer, usize) {
+    ) -> (ChunkedLayoutReader, ChunkedLayoutReader, Bytes, usize) {
         let mut writer = Cursor::new(Vec::new());
-        let array = PrimitiveArray::from((0..100).collect::<Vec<_>>()).into_array();
+        let array = Buffer::from_iter(0..100).into_array();
         let array_dtype = array.dtype().clone();
         let chunked =
-            ChunkedArray::try_new(iter::repeat(array).take(5).collect(), array_dtype).unwrap();
+            ChunkedArray::try_new(iter::repeat_n(array, 5).collect(), array_dtype).unwrap();
         let len = chunked.len();
         let mut byte_offsets = vec![writer.position()];
         let mut row_offsets = vec![0];
@@ -462,7 +464,7 @@ mod tests {
         let chunked_layout = write::LayoutSpec::chunked(flat_layouts.into(), len as u64, None);
         let flat_buf = chunked_layout.write_flatbuffer(&mut fb);
         fb.finish_minimal(flat_buf);
-        let fb_bytes = Buffer::from(fb.finished_data().to_vec());
+        let fb_bytes = Bytes::from(fb.finished_data().to_vec());
         let layout = root::<footer::Layout>(&fb_bytes).unwrap();
 
         let dtype = Arc::new(LazyDType::from_dtype(PType::I32.into()));
@@ -484,7 +486,7 @@ mod tests {
             }
             .build()
             .unwrap(),
-            Buffer::from(written),
+            Bytes::from(written),
             len,
         )
     }
@@ -515,7 +517,7 @@ mod tests {
         assert!(arr.is_some());
         let arr = arr.unwrap();
         assert_eq!(
-            arr.into_primitive().unwrap().maybe_null_slice::<i32>(),
+            arr.into_primitive().unwrap().as_slice::<i32>(),
             &(11..100).collect::<Vec<_>>()
         );
     }
@@ -531,7 +533,7 @@ mod tests {
         assert!(arr.is_some());
         let arr = arr.unwrap();
         assert_eq!(
-            arr.into_primitive().unwrap().maybe_null_slice::<i32>(),
+            arr.into_primitive().unwrap().as_slice::<i32>(),
             (0..100).collect::<Vec<_>>()
         );
     }
@@ -551,8 +553,8 @@ mod tests {
         assert!(arr.is_some());
         let arr = arr.unwrap();
         assert_eq!(
-            arr.into_primitive().unwrap().maybe_null_slice::<i32>(),
-            iter::repeat(0..100).take(5).flatten().collect::<Vec<_>>()
+            arr.into_primitive().unwrap().as_slice::<i32>(),
+            iter::repeat_n(0..100, 5).flatten().collect::<Vec<_>>()
         );
     }
 
@@ -585,7 +587,7 @@ mod tests {
                 .unwrap()
                 .into_primitive()
                 .unwrap()
-                .maybe_null_slice::<i32>(),
+                .as_slice::<i32>(),
             &(0..100).chain(0..50).collect::<Vec<_>>()
         );
         assert_eq!(
@@ -593,7 +595,7 @@ mod tests {
                 .unwrap()
                 .into_primitive()
                 .unwrap()
-                .maybe_null_slice::<i32>(),
+                .as_slice::<i32>(),
             &(50..100).chain(0..50).collect::<Vec<_>>()
         );
         assert_eq!(
@@ -601,7 +603,7 @@ mod tests {
                 .unwrap()
                 .into_primitive()
                 .unwrap()
-                .maybe_null_slice::<i32>(),
+                .as_slice::<i32>(),
             &(0..100).collect::<Vec<_>>()
         );
     }

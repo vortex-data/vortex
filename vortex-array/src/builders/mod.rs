@@ -12,6 +12,7 @@ use std::any::Any;
 pub use binary::*;
 pub use bool::*;
 pub use extension::*;
+pub use list::*;
 pub use null::*;
 pub use primitive::*;
 pub use utf8::*;
@@ -22,7 +23,6 @@ use vortex_scalar::{
     Utf8Scalar,
 };
 
-use crate::builders::list::ListBuilder;
 use crate::builders::struct_::StructBuilder;
 use crate::ArrayData;
 

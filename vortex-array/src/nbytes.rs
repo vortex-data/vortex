@@ -1,4 +1,4 @@
-use vortex_buffer::Buffer;
+use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::visitor::ArrayVisitor;
@@ -36,7 +36,7 @@ impl ArrayVisitor for NBytesVisitor {
         Ok(())
     }
 
-    fn visit_buffer(&mut self, buffer: &Buffer) -> VortexResult<()> {
+    fn visit_buffer(&mut self, buffer: &ByteBuffer) -> VortexResult<()> {
         self.0 += buffer.len();
         Ok(())
     }

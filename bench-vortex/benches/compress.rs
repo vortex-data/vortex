@@ -17,6 +17,7 @@ use bench_vortex::public_bi_data::PBIDataset::*;
 use bench_vortex::taxi_data::taxi_data_parquet;
 use bench_vortex::tpch::dbgen::{DBGen, DBGenOptions};
 use bench_vortex::{fetch_taxi_data, tpch};
+use bytes::Bytes;
 use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
 use futures::StreamExt;
 use log::LevelFilter;
@@ -28,7 +29,6 @@ use regex::Regex;
 use simplelog::*;
 use tokio::runtime::Runtime;
 use vortex::array::{ChunkedArray, StructArray};
-use vortex::buffer::Buffer;
 use vortex::dtype::field::Field;
 use vortex::error::VortexResult;
 use vortex::file::{LayoutContext, LayoutDeserializer, VortexFileWriter, VortexReadBuilder};
@@ -133,8 +133,8 @@ fn vortex_compress_write(
 }
 
 #[inline(never)]
-fn vortex_decompress_read(runtime: &Runtime, buf: Buffer) -> VortexResult<Vec<ArrayRef>> {
-    async fn async_read(buf: Buffer) -> VortexResult<Vec<ArrayRef>> {
+fn vortex_decompress_read(runtime: &Runtime, buf: Bytes) -> VortexResult<Vec<ArrayRef>> {
+    async fn async_read(buf: Bytes) -> VortexResult<Vec<ArrayRef>> {
         let builder: VortexReadBuilder<_> = VortexReadBuilder::new(
             buf,
             LayoutDeserializer::new(
@@ -240,7 +240,7 @@ fn benchmark_compress<F, U>(
         let buffer = LazyCell::new(|| {
             let mut buf = Vec::new();
             vortex_compress_write(runtime, compressor, uncompressed.as_ref(), &mut buf).unwrap();
-            Buffer::from(buf)
+            Bytes::from(buf)
         });
 
         group.bench_function(bench_name, |b| {

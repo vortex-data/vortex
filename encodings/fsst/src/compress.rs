@@ -3,9 +3,9 @@
 use fsst::{Compressor, Symbol};
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::array::builder::VarBinBuilder;
-use vortex_array::array::{PrimitiveArray, VarBinArray, VarBinViewArray};
-use vortex_array::validity::Validity;
+use vortex_array::array::{VarBinArray, VarBinViewArray};
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
+use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect, VortexResult, VortexUnwrap};
 
@@ -92,7 +92,7 @@ where
     // TODO(aduffy): this might be too small.
     let mut buffer = Vec::with_capacity(16 * 1024 * 1024);
     let mut builder = VarBinBuilder::<i32>::with_capacity(len);
-    let mut uncompressed_lengths: Vec<i32> = Vec::with_capacity(len);
+    let mut uncompressed_lengths: BufferMut<i32> = BufferMut::with_capacity(len);
     for string in iter {
         match string {
             None => {
@@ -113,16 +113,14 @@ where
     let codes = builder
         .finish(DType::Binary(dtype.nullability()))
         .into_array();
-    let symbols_vec: Vec<Symbol> = compressor.symbol_table().to_vec();
+    let symbols_vec: Buffer<Symbol> = Buffer::copy_from(compressor.symbol_table());
     // SAFETY: Symbol and u64 are same size
-    let symbols_u64: Vec<u64> = unsafe { std::mem::transmute(symbols_vec) };
-    let symbols = PrimitiveArray::from_vec(symbols_u64, Validity::NonNullable).into_array();
+    let symbols_u64: Buffer<u64> = unsafe { std::mem::transmute(symbols_vec) };
+    let symbols = symbols_u64.into_array();
 
-    let symbol_lengths_vec: Vec<u8> = compressor.symbol_lengths().to_vec();
-    let symbol_lengths =
-        PrimitiveArray::from_vec(symbol_lengths_vec, Validity::NonNullable).into_array();
-    let uncompressed_lengths =
-        PrimitiveArray::from_vec(uncompressed_lengths, Validity::NonNullable).into_array();
+    let symbol_lengths_vec: ByteBuffer = ByteBuffer::copy_from(compressor.symbol_lengths());
+    let symbol_lengths = symbol_lengths_vec.into_array();
+    let uncompressed_lengths = uncompressed_lengths.into_array();
 
     FSSTArray::try_new(dtype, symbols, symbol_lengths, codes, uncompressed_lengths)
         .vortex_expect("building FSSTArray from parts")

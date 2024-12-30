@@ -6,6 +6,7 @@ use vortex_array::compute::{fill_forward, slice};
 use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayLen, IntoArrayVariant};
+use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{match_each_unsigned_integer_ptype, NativePType, Nullability};
 use vortex_error::VortexResult;
 
@@ -17,7 +18,7 @@ pub fn delta_compress(array: &PrimitiveArray) -> VortexResult<(PrimitiveArray, P
 
     // Compress the filled array
     let (bases, deltas) = match_each_unsigned_integer_ptype!(array.ptype(), |$T| {
-        let (bases, deltas) = compress_primitive(filled.maybe_null_slice::<$T>());
+        let (bases, deltas) = compress_primitive(filled.as_slice::<$T>());
         let base_validity = (array.validity().nullability() != Nullability::NonNullable)
             .then(|| Validity::AllValid)
             .unwrap_or(Validity::NonNullable);
@@ -26,8 +27,8 @@ pub fn delta_compress(array: &PrimitiveArray) -> VortexResult<(PrimitiveArray, P
             .unwrap_or(Validity::NonNullable);
         (
             // To preserve nullability, we include Validity
-            PrimitiveArray::from_vec(bases, base_validity),
-            PrimitiveArray::from_vec(deltas, delta_validity),
+            PrimitiveArray::new(bases, base_validity),
+            PrimitiveArray::new(deltas, delta_validity),
         )
     });
 
@@ -36,7 +37,7 @@ pub fn delta_compress(array: &PrimitiveArray) -> VortexResult<(PrimitiveArray, P
 
 fn compress_primitive<T: NativePType + Delta + Transpose + WrappingSub>(
     array: &[T],
-) -> (Vec<T>, Vec<T>)
+) -> (Buffer<T>, Buffer<T>)
 where
     [(); T::LANES]:,
 {
@@ -44,8 +45,8 @@ where
     let num_chunks = array.len() / 1024;
 
     // Allocate result arrays.
-    let mut bases = Vec::with_capacity(num_chunks * T::LANES + 1);
-    let mut deltas = Vec::with_capacity(array.len());
+    let mut bases = BufferMut::with_capacity(num_chunks * T::LANES + 1);
+    let mut deltas = BufferMut::with_capacity(array.len());
 
     // Loop over all the 1024-element chunks.
     if num_chunks > 0 {
@@ -94,15 +95,15 @@ where
     );
     assert_eq!(deltas.len(), array.len());
 
-    (bases, deltas)
+    (bases.freeze(), deltas.freeze())
 }
 
 pub fn delta_decompress(array: DeltaArray) -> VortexResult<PrimitiveArray> {
     let bases = array.bases().into_primitive()?;
     let deltas = array.deltas().into_primitive()?;
     let decoded = match_each_unsigned_integer_ptype!(deltas.ptype(), |$T| {
-        PrimitiveArray::from_vec(
-            decompress_primitive::<$T>(bases.maybe_null_slice(), deltas.maybe_null_slice()),
+        PrimitiveArray::new(
+            decompress_primitive::<$T>(bases.as_slice(), deltas.as_slice()),
             array.validity()
         )
     });
@@ -110,10 +111,12 @@ pub fn delta_decompress(array: DeltaArray) -> VortexResult<PrimitiveArray> {
     slice(decoded, array.offset(), array.offset() + array.len())?.into_primitive()
 }
 
+// TODO(ngates): can we re-use the deltas buffer for the result? Might be tricky given the
+//  traversal ordering, but possibly doable.
 fn decompress_primitive<T: NativePType + Delta + Transpose + WrappingAdd>(
     bases: &[T],
     deltas: &[T],
-) -> Vec<T>
+) -> Buffer<T>
 where
     [(); T::LANES]:,
 {
@@ -124,7 +127,7 @@ where
     let lanes = T::LANES;
 
     // Allocate a result array.
-    let mut output = Vec::with_capacity(deltas.len());
+    let mut output = BufferMut::with_capacity(deltas.len());
 
     // Loop over all the chunks
     if num_chunks > 0 {
@@ -160,7 +163,7 @@ where
         }
     }
 
-    output
+    output.freeze()
 }
 
 #[cfg(test)]
@@ -187,7 +190,7 @@ mod test {
         let delta = DeltaArray::try_from_vec(input.clone()).unwrap();
         assert_eq!(delta.len(), input.len());
         let decompressed = delta_decompress(delta).unwrap();
-        let decompressed_slice = decompressed.maybe_null_slice::<T>();
+        let decompressed_slice = decompressed.as_slice::<T>();
         assert_eq!(decompressed_slice.len(), input.len());
         for (actual, expected) in decompressed_slice.iter().zip(input) {
             assert_eq!(actual, &expected);
