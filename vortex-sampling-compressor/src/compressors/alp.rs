@@ -1,12 +1,14 @@
-use vortex_alp::{alp_encode_components, match_each_alp_float_ptype, ALPArray, ALPEncoding};
+use vortex_alp::{
+    alp_encode_components, match_each_alp_float_ptype, ALPArray, ALPEncoding, ALPRDEncoding,
+};
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::PrimitiveArray;
 use vortex_array::encoding::{Encoding, EncodingRef};
-use vortex_array::stats::ArrayStatistics;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
+use vortex_fastlanes::BitPackedEncoding;
 
 use super::alp_rd::ALPRDCompressor;
 use crate::compressors::{CompressedArray, CompressionTree, EncodingCompressor};
@@ -26,7 +28,7 @@ impl EncodingCompressor for ALPCompressor {
 
     fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {
         // Only support primitive arrays
-        let parray = PrimitiveArray::try_from(array.clone()).ok()?;
+        let parray = PrimitiveArray::maybe_from(array)?;
 
         // Only supports f32 and f64
         if !matches!(parray.ptype(), PType::F32 | PType::F64) {
@@ -42,7 +44,6 @@ impl EncodingCompressor for ALPCompressor {
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
-        // TODO(robert): Fill forward nulls?
         let parray = array.clone().into_primitive()?;
 
         let (exponents, encoded, patches) = match_each_alp_float_ptype!(
@@ -55,34 +56,30 @@ impl EncodingCompressor for ALPCompressor {
             .excluding(self)
             .compress(&encoded, like.as_ref().and_then(|l| l.child(0)))?;
 
+        // Attempt to compress patches with ALP-RD encoding
         let compressed_patches = patches
             .map(|p| {
                 ctx.auxiliary("patches")
                     .excluding(self)
                     .including(&ALPRDCompressor)
-                    .compress(&p, like.as_ref().and_then(|l| l.child(1)))
+                    .compress_patches(p)
             })
             .transpose()?;
 
         Ok(CompressedArray::compressed(
-            ALPArray::try_new(
-                compressed_encoded.array,
-                exponents,
-                compressed_patches.as_ref().map(|p| p.array.clone()),
-            )?
-            .into_array(),
-            Some(CompressionTree::new(
-                self,
-                vec![
-                    compressed_encoded.path,
-                    compressed_patches.and_then(|p| p.path),
-                ],
-            )),
-            Some(array.statistics()),
+            ALPArray::try_new(compressed_encoded.array, exponents, compressed_patches)?
+                .into_array(),
+            Some(CompressionTree::new(self, vec![compressed_encoded.path])),
+            array,
         ))
     }
 
     fn used_encodings(&self) -> HashSet<EncodingRef> {
-        HashSet::from([&ALPEncoding as EncodingRef])
+        HashSet::from([
+            &ALPEncoding as EncodingRef,
+            // ALP-RD + BitPacking possibly used for patches
+            &ALPRDEncoding,
+            &BitPackedEncoding,
+        ])
     }
 }

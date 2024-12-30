@@ -4,3 +4,4 @@ pub use compress::*;
 mod array;
 mod compress;
 mod compute;
+mod stats;

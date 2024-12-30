@@ -1,22 +1,18 @@
 use arrow_buffer::NullBuffer;
+use num_traits::PrimInt;
 use vortex_dtype::{match_each_integer_ptype, DType, NativePType};
 use vortex_error::{vortex_err, vortex_panic, VortexResult};
 
 use crate::array::varbin::builder::VarBinBuilder;
 use crate::array::varbin::VarBinArray;
 use crate::array::VarBinEncoding;
-use crate::compute::{TakeFn, TakeOptions};
+use crate::compute::TakeFn;
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 
 impl TakeFn<VarBinArray> for VarBinEncoding {
-    fn take(
-        &self,
-        array: &VarBinArray,
-        indices: &ArrayData,
-        _options: TakeOptions,
-    ) -> VortexResult<ArrayData> {
+    fn take(&self, array: &VarBinArray, indices: &ArrayData) -> VortexResult<ArrayData> {
         let offsets = array.offsets().into_primitive()?;
         let data = array.bytes().into_primitive()?;
         let indices = indices.clone().into_primitive()?;
@@ -24,9 +20,9 @@ impl TakeFn<VarBinArray> for VarBinEncoding {
             match_each_integer_ptype!(indices.ptype(), |$I| {
                 Ok(take(
                     array.dtype().clone(),
-                    offsets.maybe_null_slice::<$O>(),
-                    data.maybe_null_slice::<u8>(),
-                    indices.maybe_null_slice::<$I>(),
+                    offsets.as_slice::<$O>(),
+                    data.as_slice::<u8>(),
+                    indices.as_slice::<$I>(),
                     array.validity(),
                 )?.into_array())
             })
@@ -34,7 +30,7 @@ impl TakeFn<VarBinArray> for VarBinEncoding {
     }
 }
 
-fn take<I: NativePType, O: NativePType>(
+fn take<I: NativePType, O: NativePType + PrimInt>(
     dtype: DType,
     offsets: &[O],
     data: &[u8],
@@ -62,7 +58,7 @@ fn take<I: NativePType, O: NativePType>(
     Ok(builder.finish(dtype))
 }
 
-fn take_nullable<I: NativePType, O: NativePType>(
+fn take_nullable<I: NativePType, O: NativePType + PrimInt>(
     dtype: DType,
     offsets: &[O],
     data: &[u8],

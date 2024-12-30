@@ -3,7 +3,7 @@ use std::ops::Add;
 use chrono::TimeDelta;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::builder::VarBinBuilder;
-use vortex_array::array::{BoolArray, PrimitiveArray, StructArray, TemporalArray};
+use vortex_array::array::{BoolArray, StructArray, TemporalArray};
 use vortex_array::validity::Validity;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
@@ -15,10 +15,11 @@ mod tests {
     use vortex_array::encoding::Encoding;
     use vortex_array::stats::{ArrayStatistics, Stat};
     use vortex_array::variants::StructArrayTrait;
+    use vortex_buffer::Buffer;
     use vortex_datetime_dtype::TimeUnit;
     use vortex_datetime_parts::DateTimePartsEncoding;
     use vortex_dict::DictEncoding;
-    use vortex_fastlanes::FoREncoding;
+    use vortex_fastlanes::BitPackedEncoding;
     use vortex_fsst::FSSTEncoding;
     use vortex_sampling_compressor::ALL_COMPRESSORS;
     use vortex_scalar::Scalar;
@@ -122,10 +123,10 @@ mod tests {
             .unwrap();
         println!("prim_col num chunks: {}", prim_col.nchunks());
         for chunk in prim_col.chunks() {
-            assert_eq!(chunk.encoding().id(), FoREncoding::ID);
+            assert_eq!(chunk.encoding().id(), BitPackedEncoding::ID);
             assert_eq!(
                 chunk.statistics().get(Stat::UncompressedSizeInBytes),
-                Some(Scalar::from((chunk.len() * 8) as u64))
+                Some(Scalar::from((chunk.len() * 8) as u64 + 1))
             );
         }
 
@@ -138,7 +139,7 @@ mod tests {
             assert_eq!(chunk.encoding().id(), BoolEncoding::ID);
             assert_eq!(
                 chunk.statistics().get(Stat::UncompressedSizeInBytes),
-                Some(Scalar::from(chunk.len().div_ceil(8) as u64))
+                Some(Scalar::from(chunk.len().div_ceil(8) as u64 + 2))
             );
         }
 
@@ -154,7 +155,7 @@ mod tests {
             );
             assert_eq!(
                 chunk.statistics().get(Stat::UncompressedSizeInBytes),
-                Some(Scalar::from(1392640u64))
+                Some(Scalar::from(1392677u64))
             );
         }
 
@@ -167,7 +168,7 @@ mod tests {
             assert_eq!(chunk.encoding().id(), VarBinEncoding::ID);
             assert_eq!(
                 chunk.statistics().get(Stat::UncompressedSizeInBytes),
-                Some(Scalar::from(134357000u64))
+                Some(Scalar::from(134357018u64))
             );
         }
 
@@ -180,17 +181,13 @@ mod tests {
             assert_eq!(chunk.encoding().id(), DateTimePartsEncoding::ID);
             assert_eq!(
                 chunk.statistics().get(Stat::UncompressedSizeInBytes),
-                Some((chunk.len() * 8).into())
+                Some((chunk.len() * 8 + 4).into())
             )
         }
     }
 
     fn make_primitive_column(count: usize) -> ArrayData {
-        PrimitiveArray::from_vec(
-            (0..count).map(|i| i as i64).collect::<Vec<i64>>(),
-            Validity::NonNullable,
-        )
-        .into_array()
+        Buffer::from_iter(0..count as i64).into_array()
     }
 
     fn make_bool_column(count: usize) -> ArrayData {
@@ -229,17 +226,11 @@ mod tests {
         // Make new timestamps in incrementing order from EPOCH.
         let t0 = chrono::NaiveDateTime::default().and_utc();
 
-        let timestamps: Vec<i64> = (0..count)
-            .map(|inc| t0.add(TimeDelta::seconds(inc as i64)).timestamp_millis())
-            .collect();
+        let timestamps = Buffer::from_iter(
+            (0..count).map(|inc| t0.add(TimeDelta::seconds(inc as i64)).timestamp_millis()),
+        )
+        .into_array();
 
-        let storage_array =
-            PrimitiveArray::from_vec(timestamps, Validity::NonNullable).into_array();
-
-        ArrayData::from(TemporalArray::new_timestamp(
-            storage_array,
-            TimeUnit::Ms,
-            None,
-        ))
+        ArrayData::from(TemporalArray::new_timestamp(timestamps, TimeUnit::Ms, None))
     }
 }

@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use num_traits::{AsPrimitive, Zero};
+use num_traits::{AsPrimitive, PrimInt, Zero};
 use vortex_dtype::{match_each_integer_ptype, DType, NativePType};
 use vortex_error::{vortex_err, vortex_panic, VortexResult};
 
@@ -35,8 +35,8 @@ fn filter_select_var_bin_by_slice(
     match_each_integer_ptype!(offsets.ptype(), |$O| {
         filter_select_var_bin_by_slice_primitive_offset(
             values.dtype().clone(),
-            offsets.maybe_null_slice::<$O>(),
-            values.bytes().into_primitive()?.maybe_null_slice::<u8>(),
+            offsets.as_slice::<$O>(),
+            values.bytes().into_primitive()?.as_slice::<u8>(),
             mask,
             values.validity(),
             selection_count
@@ -54,7 +54,7 @@ fn filter_select_var_bin_by_slice_primitive_offset<O>(
     selection_count: usize,
 ) -> VortexResult<VarBinArray>
 where
-    O: NativePType + 'static + Zero,
+    O: NativePType + PrimInt + Zero,
     usize: AsPrimitive<O>,
 {
     let logical_validity = validity.to_logical(offsets.len() - 1);
@@ -107,7 +107,7 @@ fn update_non_nullable_slice<O>(
     start: usize,
     end: usize,
 ) where
-    O: NativePType + 'static + Zero + Copy,
+    O: NativePType + PrimInt + Zero + Copy,
     usize: AsPrimitive<O>,
 {
     let new_data = {
@@ -135,8 +135,8 @@ fn filter_select_var_bin_by_index(
     match_each_integer_ptype!(offsets.ptype(), |$O| {
         filter_select_var_bin_by_index_primitive_offset(
             values.dtype().clone(),
-            offsets.maybe_null_slice::<$O>(),
-            values.bytes().into_primitive()?.maybe_null_slice::<u8>(),
+            offsets.as_slice::<$O>(),
+            values.bytes().into_primitive()?.as_slice::<u8>(),
             mask,
             values.validity(),
             selection_count
@@ -145,7 +145,7 @@ fn filter_select_var_bin_by_index(
 }
 
 #[allow(deprecated)]
-fn filter_select_var_bin_by_index_primitive_offset<O: NativePType>(
+fn filter_select_var_bin_by_index_primitive_offset<O: NativePType + PrimInt>(
     dtype: DType,
     offsets: &[O],
     data: &[u8],
@@ -174,7 +174,7 @@ fn filter_select_var_bin_by_index_primitive_offset<O: NativePType>(
 
 #[cfg(test)]
 mod test {
-    use itertools::Itertools;
+    use vortex_buffer::ByteBuffer;
     use vortex_dtype::DType;
     use vortex_dtype::Nullability::{NonNullable, Nullable};
     use vortex_scalar::Scalar;
@@ -187,7 +187,7 @@ mod test {
     use crate::array::BoolArray;
     use crate::compute::{scalar_at, FilterMask};
     use crate::validity::Validity;
-    use crate::ToArrayData;
+    use crate::{IntoArrayData, ToArrayData};
 
     fn nullable_scalar_str(s: &str) -> Scalar {
         Scalar::utf8(s.to_owned(), Nullable)
@@ -240,7 +240,7 @@ mod test {
 
     #[test]
     fn filter_var_bin_slice_null_test() {
-        let x = vec![
+        let x = [
             b"one".as_slice(),
             b"two".as_slice(),
             b"three".as_slice(),
@@ -250,11 +250,10 @@ mod test {
         ]
         .into_iter()
         .flat_map(|x| x.iter().cloned())
-        .collect_vec();
+        .collect::<ByteBuffer>();
 
-        let bytes = PrimitiveArray::from(x).to_array();
-
-        let offsets = PrimitiveArray::from(vec![0, 3, 6, 11, 15, 19, 22]).to_array();
+        let bytes = x.into_array();
+        let offsets = PrimitiveArray::from_iter([0, 3, 6, 11, 15, 19, 22]).to_array();
         let validity =
             Validity::Array(BoolArray::from_iter([true, false, true, true, true, true]).to_array());
         let arr = VarBinArray::try_new(offsets, bytes, DType::Utf8(Nullable), validity).unwrap();

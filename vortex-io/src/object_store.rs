@@ -4,16 +4,13 @@ use std::os::unix::fs::FileExt;
 use std::sync::Arc;
 use std::{io, mem};
 
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use futures_util::StreamExt;
 use object_store::path::Path;
 use object_store::{GetOptions, GetRange, GetResultPayload, ObjectStore, WriteMultipart};
-use vortex_buffer::io_buf::IoBuf;
-use vortex_buffer::Buffer;
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 
-use crate::aligned::AlignedBytesMut;
-use crate::{VortexBufReader, VortexReadAt, VortexWrite, ALIGNMENT};
+use crate::{IoBuf, VortexBufReader, VortexReadAt, VortexWrite};
 
 pub trait ObjectStoreExt {
     fn vortex_read(
@@ -37,7 +34,7 @@ impl ObjectStoreExt for Arc<dyn ObjectStore> {
         range: Range<usize>,
     ) -> VortexResult<VortexBufReader<impl VortexReadAt>> {
         let bytes = self.get_range(location, range).await?;
-        Ok(VortexBufReader::new(Buffer::from(bytes)))
+        Ok(VortexBufReader::new(bytes))
     }
 
     fn vortex_reader(&self, location: &Path) -> impl VortexReadAt {
@@ -76,18 +73,16 @@ impl VortexReadAt for ObjectStoreReadAt {
     ) -> impl Future<Output = io::Result<Bytes>> + 'static {
         let object_store = self.object_store.clone();
         let location = self.location.clone();
-
         Box::pin(async move {
-            let start_range = pos as usize;
+            let read_start: usize = pos.try_into().vortex_expect("pos");
+            let read_end: usize = (pos + len).try_into().vortex_expect("pos + len");
+            let len: usize = len.try_into().vortex_expect("len does not fit into usize");
 
-            let mut buf = AlignedBytesMut::<ALIGNMENT>::with_capacity(len as _);
-
-            let get_range = start_range..(start_range + len as usize);
             let response = object_store
                 .get_opts(
                     &location,
                     GetOptions {
-                        range: Some(GetRange::Bounded(get_range)),
+                        range: Some(GetRange::Bounded(read_start..read_end)),
                         ..Default::default()
                     },
                 )
@@ -97,21 +92,19 @@ impl VortexReadAt for ObjectStoreReadAt {
             //  it's coming from a network stream. Internally they optimize the File implementation
             //  to only perform a single allocation when calling `.bytes().await`, which we
             //  replicate here by emitting the contents directly into our aligned buffer.
+            let mut buffer = BytesMut::with_capacity(len);
             match response.payload {
                 GetResultPayload::File(file, _) => {
-                    unsafe {
-                        buf.set_len(len as _);
-                    }
-                    file.read_exact_at(&mut buf, pos)?;
+                    unsafe { buffer.set_len(len) };
+                    file.read_exact_at(&mut buffer, pos)?;
                 }
                 GetResultPayload::Stream(mut byte_stream) => {
                     while let Some(bytes) = byte_stream.next().await {
-                        buf.extend_from_slice(&bytes?);
+                        buffer.extend_from_slice(&bytes?);
                     }
                 }
             }
-
-            Ok(buf.freeze())
+            Ok(buffer.freeze())
         })
     }
 

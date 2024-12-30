@@ -1,7 +1,7 @@
 use crate::array::PrimitiveEncoding;
 use crate::compute::{
-    CastFn, ComputeVTable, FillForwardFn, FilterFn, ScalarAtFn, SearchSortedFn, SliceFn,
-    SubtractScalarFn, TakeFn,
+    CastFn, ComputeVTable, FillForwardFn, FilterFn, ScalarAtFn, SearchSortedFn,
+    SearchSortedUsizeFn, SliceFn, TakeFn,
 };
 use crate::ArrayData;
 
@@ -11,7 +11,6 @@ mod filter;
 mod scalar_at;
 mod search_sorted;
 mod slice;
-mod subtract_scalar;
 mod take;
 
 impl ComputeVTable for PrimitiveEncoding {
@@ -35,11 +34,11 @@ impl ComputeVTable for PrimitiveEncoding {
         Some(self)
     }
 
-    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+    fn search_sorted_usize_fn(&self) -> Option<&dyn SearchSortedUsizeFn<ArrayData>> {
         Some(self)
     }
 
-    fn subtract_scalar_fn(&self) -> Option<&dyn SubtractScalarFn<ArrayData>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
         Some(self)
     }
 

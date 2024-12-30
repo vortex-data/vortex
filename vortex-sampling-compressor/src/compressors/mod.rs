@@ -6,9 +6,9 @@ use std::sync::Arc;
 use itertools::{EitherOrBoth, Itertools};
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::encoding::EncodingRef;
-use vortex_array::stats::{ArrayStatistics, Statistics};
+use vortex_array::stats::ArrayStatistics;
 use vortex_array::tree::TreeFormatter;
-use vortex_array::ArrayData;
+use vortex_array::{ArrayDType, ArrayData};
 use vortex_error::{vortex_panic, VortexExpect, VortexResult};
 
 use crate::SamplingCompressor;
@@ -23,7 +23,10 @@ pub mod delta;
 pub mod dict;
 pub mod r#for;
 pub mod fsst;
+pub mod list;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod roaring_bool;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod roaring_int;
 pub mod runend;
 pub mod runend_bool;
@@ -182,13 +185,6 @@ impl<'a> CompressionTree<'a> {
         std::mem::take(&mut self.metadata)
     }
 
-    pub fn num_descendants(&self) -> usize {
-        self.children
-            .iter()
-            .filter_map(|child| child.as_ref().map(|c| c.num_descendants() + 1))
-            .sum::<usize>()
-    }
-
     #[allow(clippy::type_complexity)]
     pub fn into_parts(
         self,
@@ -213,17 +209,37 @@ impl<'a> CompressedArray<'a> {
     }
 
     pub fn compressed(
-        array: ArrayData,
+        compressed: ArrayData,
         path: Option<CompressionTree<'a>>,
-        stats_to_inherit: Option<&dyn Statistics>,
+        uncompressed: impl AsRef<ArrayData>,
     ) -> Self {
-        if let Some(stats) = stats_to_inherit {
-            // eagerly compute uncompressed size in bytes at compression time, since it's
-            // too expensive to compute after compression
-            let _ = stats.compute_uncompressed_size_in_bytes();
-            array.inherit_statistics(stats);
-        }
-        let compressed = Self { array, path };
+        let uncompressed = uncompressed.as_ref();
+
+        // Sanity check the compressed array
+        assert_eq!(
+            compressed.len(),
+            uncompressed.len(),
+            "Compressed array {} has different length to uncompressed",
+            compressed.encoding().id(),
+        );
+        assert_eq!(
+            compressed.dtype(),
+            uncompressed.dtype(),
+            "Compressed array {} has different dtype to uncompressed",
+            compressed.encoding().id(),
+        );
+
+        // eagerly compute uncompressed size in bytes at compression time, since it's
+        // too expensive to compute after compression
+        let _ = uncompressed
+            .statistics()
+            .compute_uncompressed_size_in_bytes();
+        compressed.inherit_statistics(uncompressed.statistics());
+
+        let compressed = Self {
+            array: compressed,
+            path,
+        };
         compressed.validate();
         compressed
     }

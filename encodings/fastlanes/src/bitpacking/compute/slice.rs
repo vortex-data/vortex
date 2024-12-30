@@ -1,10 +1,9 @@
 use std::cmp::max;
 
-use vortex_array::array::SparseArray;
-use vortex_array::compute::{slice, SliceFn};
+use vortex_array::compute::SliceFn;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayData, IntoArrayData};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::VortexResult;
 
 use crate::{BitPackedArray, BitPackedEncoding};
 
@@ -19,35 +18,31 @@ impl SliceFn<BitPackedArray> for BitPackedEncoding {
         let encoded_start = (block_start / 8) * array.bit_width() as usize;
         let encoded_stop = (block_stop / 8) * array.bit_width() as usize;
         // slice the buffer using the encoded start/stop values
-        BitPackedArray::try_new_from_offset(
-            array.packed().slice(encoded_start..encoded_stop),
-            array.ptype(),
-            array.validity().slice(start, stop)?,
-            array
-                .patches()
-                .map(|p| slice(&p, start, stop))
-                .transpose()?
-                .filter(|a| {
-                    // If the sliced patch_indices is empty, we should not propagate the patches.
-                    // There may be other logic that depends on Some(patches) indicating non-empty.
-                    !SparseArray::try_from(a.clone())
-                        .vortex_expect("BitPackedArray must encode patches as SparseArray")
-                        .indices()
-                        .is_empty()
-                }),
-            array.bit_width(),
-            stop - start,
-            offset as u16,
-        )
+
+        // SAFETY: the invariants of the original BitPackedArray are preserved when slicing.
+        unsafe {
+            BitPackedArray::new_unchecked_with_offset(
+                array.packed().slice(encoded_start..encoded_stop),
+                array.ptype(),
+                array.validity().slice(start, stop)?,
+                array
+                    .patches()
+                    .map(|p| p.slice(start, stop))
+                    .transpose()?
+                    .flatten(),
+                array.bit_width(),
+                stop - start,
+                offset as u16,
+            )
+        }
         .map(|a| a.into_array())
     }
 }
 
 #[cfg(test)]
 mod test {
-    use itertools::Itertools;
-    use vortex_array::array::{PrimitiveArray, SparseArray};
-    use vortex_array::compute::{scalar_at, slice, take, TakeOptions};
+    use vortex_array::array::PrimitiveArray;
+    use vortex_array::compute::{scalar_at, slice, take};
     use vortex_array::{ArrayLen, IntoArrayData};
 
     use crate::BitPackedArray;
@@ -55,7 +50,7 @@ mod test {
     #[test]
     pub fn slice_block() {
         let arr = BitPackedArray::encode(
-            PrimitiveArray::from((0u32..2048).map(|v| v % 64).collect::<Vec<_>>()).as_ref(),
+            PrimitiveArray::from_iter((0u32..2048).map(|v| v % 64)).as_ref(),
             6,
         )
         .unwrap()
@@ -76,7 +71,7 @@ mod test {
     #[test]
     pub fn slice_within_block() {
         let arr = BitPackedArray::encode(
-            PrimitiveArray::from((0u32..2048).map(|v| v % 64).collect::<Vec<_>>()).as_ref(),
+            PrimitiveArray::from_iter((0u32..2048).map(|v| v % 64)).as_ref(),
             6,
         )
         .unwrap()
@@ -94,7 +89,7 @@ mod test {
     #[test]
     fn slice_within_block_u8s() {
         let packed = BitPackedArray::encode(
-            PrimitiveArray::from((0..10_000).map(|i| (i % 63) as u8).collect::<Vec<_>>()).as_ref(),
+            PrimitiveArray::from_iter((0..10_000).map(|i| (i % 63) as u8)).as_ref(),
             7,
         )
         .unwrap();
@@ -113,7 +108,7 @@ mod test {
     #[test]
     fn slice_block_boundary_u8s() {
         let packed = BitPackedArray::encode(
-            PrimitiveArray::from((0..10_000).map(|i| (i % 63) as u8).collect::<Vec<_>>()).as_ref(),
+            PrimitiveArray::from_iter((0..10_000).map(|i| (i % 63) as u8)).as_ref(),
             7,
         )
         .unwrap();
@@ -132,7 +127,7 @@ mod test {
     #[test]
     fn double_slice_within_block() {
         let arr = BitPackedArray::encode(
-            PrimitiveArray::from((0u32..2048).map(|v| v % 64).collect::<Vec<_>>()).as_ref(),
+            PrimitiveArray::from_iter((0u32..2048).map(|v| v % 64)).as_ref(),
             6,
         )
         .unwrap()
@@ -163,14 +158,11 @@ mod test {
     fn slice_empty_patches() {
         // We create an array that has 1 element that does not fit in the 6-bit range.
         let array =
-            BitPackedArray::encode(PrimitiveArray::from((0u32..=64).collect_vec()).as_ref(), 6)
-                .unwrap();
+            BitPackedArray::encode(PrimitiveArray::from_iter(0u32..=64).as_ref(), 6).unwrap();
 
         assert!(array.patches().is_some());
 
-        let patch_indices = SparseArray::try_from(array.patches().unwrap())
-            .unwrap()
-            .indices();
+        let patch_indices = array.patches().unwrap().indices().clone();
         assert_eq!(patch_indices.len(), 1);
 
         // Slicing drops the empty patches array.
@@ -183,11 +175,9 @@ mod test {
     fn take_after_slice() {
         // Check that our take implementation respects the offsets applied after slicing.
 
-        let array = BitPackedArray::encode(
-            PrimitiveArray::from((63u32..).take(3072).collect_vec()).as_ref(),
-            6,
-        )
-        .unwrap();
+        let array =
+            BitPackedArray::encode(PrimitiveArray::from_iter((63u32..).take(3072)).as_ref(), 6)
+                .unwrap();
 
         // Slice the array.
         // The resulting array will still have 3 1024-element chunks.
@@ -200,8 +190,7 @@ mod test {
 
         let taken = take(
             &sliced,
-            PrimitiveArray::from(vec![101i64, 1125i64, 1138i64]).as_ref(),
-            TakeOptions::default(),
+            PrimitiveArray::from_iter([101i64, 1125, 1138]).as_ref(),
         )
         .unwrap();
         assert_eq!(taken.len(), 3);

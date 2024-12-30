@@ -1,21 +1,30 @@
 mod compare;
+mod like;
 
 use vortex_array::compute::{
-    filter, scalar_at, slice, take, CompareFn, ComputeVTable, FilterFn, FilterMask, ScalarAtFn,
-    SliceFn, TakeFn, TakeOptions,
+    binary_numeric, filter, scalar_at, slice, take, BinaryNumericFn, CompareFn, ComputeVTable,
+    FilterFn, FilterMask, LikeFn, ScalarAtFn, SliceFn, TakeFn,
 };
 use vortex_array::{ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
+use vortex_scalar::{BinaryNumericOperator, Scalar};
 
 use crate::{DictArray, DictEncoding};
 
 impl ComputeVTable for DictEncoding {
+    fn binary_numeric_fn(&self) -> Option<&dyn BinaryNumericFn<ArrayData>> {
+        Some(self)
+    }
+
     fn compare_fn(&self) -> Option<&dyn CompareFn<ArrayData>> {
         Some(self)
     }
 
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn like_fn(&self) -> Option<&dyn LikeFn<ArrayData>> {
         Some(self)
     }
 
@@ -32,6 +41,23 @@ impl ComputeVTable for DictEncoding {
     }
 }
 
+impl BinaryNumericFn<DictArray> for DictEncoding {
+    fn binary_numeric(
+        &self,
+        array: &DictArray,
+        rhs: &ArrayData,
+        op: BinaryNumericOperator,
+    ) -> VortexResult<Option<ArrayData>> {
+        if !rhs.is_constant() {
+            return Ok(None);
+        }
+
+        DictArray::try_new(array.codes(), binary_numeric(&array.values(), rhs, op)?)
+            .map(IntoArrayData::into_array)
+            .map(Some)
+    }
+}
+
 impl ScalarAtFn<DictArray> for DictEncoding {
     fn scalar_at(&self, array: &DictArray, index: usize) -> VortexResult<Scalar> {
         let dict_index: usize = scalar_at(array.codes(), index)?.as_ref().try_into()?;
@@ -40,16 +66,11 @@ impl ScalarAtFn<DictArray> for DictEncoding {
 }
 
 impl TakeFn<DictArray> for DictEncoding {
-    fn take(
-        &self,
-        array: &DictArray,
-        indices: &ArrayData,
-        options: TakeOptions,
-    ) -> VortexResult<ArrayData> {
+    fn take(&self, array: &DictArray, indices: &ArrayData) -> VortexResult<ArrayData> {
         // Dict
         //   codes: 0 0 1
         //   dict: a b c d e f g h
-        let codes = take(array.codes(), indices, options)?;
+        let codes = take(array.codes(), indices)?;
         DictArray::try_new(codes, array.values()).map(|a| a.into_array())
     }
 }
@@ -84,18 +105,12 @@ mod test {
 
     #[test]
     fn canonicalise_nullable_primitive() {
-        let reference = PrimitiveArray::from_nullable_vec(vec![
-            Some(42),
-            Some(-9),
-            None,
-            Some(42),
-            None,
-            Some(-9),
-        ]);
+        let reference =
+            PrimitiveArray::from_option_iter([Some(42), Some(-9), None, Some(42), None, Some(-9)]);
         let (codes, values) = dict_encode_typed_primitive::<i32>(&reference);
         let dict = DictArray::try_new(codes.into_array(), values.into_array()).unwrap();
         let flattened_dict = dict.to_array().into_primitive().unwrap();
-        assert_eq!(flattened_dict.buffer(), reference.buffer());
+        assert_eq!(flattened_dict.byte_buffer(), reference.byte_buffer());
     }
 
     #[test]
@@ -124,7 +139,7 @@ mod test {
 
     #[test]
     fn compare_sliced_dict() {
-        let reference = PrimitiveArray::from_nullable_vec(vec![
+        let reference = PrimitiveArray::from_option_iter([
             Some(42),
             Some(-9),
             None,

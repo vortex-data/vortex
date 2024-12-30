@@ -26,7 +26,7 @@ impl EncodingCompressor for FoRCompressor {
 
     fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {
         // Only support primitive arrays
-        let parray = PrimitiveArray::try_from(array.clone()).ok()?;
+        let parray = PrimitiveArray::maybe_from(array)?;
 
         // Only supports integers
         if !parray.ptype().is_int() {
@@ -42,7 +42,7 @@ impl EncodingCompressor for FoRCompressor {
         let shift = trailing_zeros(array);
         match_each_integer_ptype!(parray.ptype(), |$P| {
             let min: $P = parray.statistics().compute_min()?;
-            if min == 0 && shift == 0 && parray.ptype().is_unsigned_int() {
+            if min == 0 && shift == 0 {
                 return None;
             }
         });
@@ -56,7 +56,7 @@ impl EncodingCompressor for FoRCompressor {
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
-        let compressed = for_compress(&array.clone().into_primitive()?)?;
+        let compressed = for_compress(array.clone().into_primitive()?)?;
 
         let compressed_child = ctx.named("for_encoded").excluding(self).compress(
             &compressed.encoded(),
@@ -70,7 +70,7 @@ impl EncodingCompressor for FoRCompressor {
             )
             .map(|a| a.into_array())?,
             Some(CompressionTree::new(self, vec![compressed_child.path])),
-            Some(array.statistics()),
+            array,
         ))
     }
 

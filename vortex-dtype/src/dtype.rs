@@ -45,12 +45,6 @@ impl DType {
     /// The default DType for bytes
     pub const BYTES: Self = Primitive(PType::U8, Nullability::NonNullable);
 
-    /// The default DType for indices
-    pub const IDX: Self = Primitive(PType::U64, Nullability::NonNullable);
-
-    /// The DType for small indices (primarily created from bitmaps)
-    pub const IDX_32: Self = Primitive(PType::U32, Nullability::NonNullable);
-
     /// Get the nullability of the DType
     pub fn nullability(&self) -> Nullability {
         self.is_nullable().into()
@@ -135,6 +129,14 @@ impl DType {
     pub fn as_struct(&self) -> Option<&StructDType> {
         match self {
             Struct(s, _) => Some(s),
+            _ => None,
+        }
+    }
+
+    /// Get the inner dtype if `self` is a `ListDType`, otherwise `None`
+    pub fn as_list_element(&self) -> Option<&DType> {
+        match self {
+            List(s, _) => Some(s.as_ref()),
             _ => None,
         }
     }

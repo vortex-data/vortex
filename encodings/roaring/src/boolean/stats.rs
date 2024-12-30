@@ -36,7 +36,7 @@ impl StatisticsVTable<RoaringBoolArray> for RoaringBoolEncoding {
 
             let is_strict_sorted =
                 is_sorted && (array.len() <= 1 || (array.len() == 2 && true_count == 1));
-            return Ok(StatsSet::from_iter([
+            return Ok(StatsSet::new_unchecked(vec![
                 (Stat::IsSorted, is_sorted.into()),
                 (Stat::IsStrictSorted, is_strict_sorted.into()),
             ]));

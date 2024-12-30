@@ -1,15 +1,19 @@
 use vortex_dtype::{match_each_integer_ptype, DType};
 use vortex_error::{vortex_bail, VortexResult};
-use vortex_scalar::Scalar;
+use vortex_scalar::{BinaryNumericOperator, Scalar};
 
 use crate::array::null::NullArray;
 use crate::array::NullEncoding;
-use crate::compute::{ComputeVTable, ScalarAtFn, SliceFn, TakeFn, TakeOptions};
+use crate::compute::{BinaryNumericFn, ComputeVTable, ScalarAtFn, SliceFn, TakeFn};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
 
 impl ComputeVTable for NullEncoding {
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn binary_numeric_fn(&self) -> Option<&dyn BinaryNumericFn<ArrayData>> {
         Some(self)
     }
 
@@ -19,6 +23,18 @@ impl ComputeVTable for NullEncoding {
 
     fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
         Some(self)
+    }
+}
+
+impl BinaryNumericFn<NullArray> for NullEncoding {
+    fn binary_numeric(
+        &self,
+        array: &NullArray,
+        _rhs: &ArrayData,
+        _op: BinaryNumericOperator,
+    ) -> VortexResult<Option<ArrayData>> {
+        // for any arithmetic operation, forall X. NULL op X = NULL
+        Ok(Some(NullArray::new(array.len()).into_array()))
     }
 }
 
@@ -35,36 +51,37 @@ impl ScalarAtFn<NullArray> for NullEncoding {
 }
 
 impl TakeFn<NullArray> for NullEncoding {
-    fn take(
-        &self,
-        array: &NullArray,
-        indices: &ArrayData,
-        options: TakeOptions,
-    ) -> VortexResult<ArrayData> {
+    fn take(&self, array: &NullArray, indices: &ArrayData) -> VortexResult<ArrayData> {
         let indices = indices.clone().into_primitive()?;
 
         // Enforce all indices are valid
-        if !options.skip_bounds_check {
-            match_each_integer_ptype!(indices.ptype(), |$T| {
-                for index in indices.maybe_null_slice::<$T>() {
-                    if !((*index as usize) < array.len()) {
-                        vortex_bail!(OutOfBounds: *index as usize, 0, array.len());
-                    }
+        match_each_integer_ptype!(indices.ptype(), |$T| {
+            for index in indices.as_slice::<$T>() {
+                if !((*index as usize) < array.len()) {
+                    vortex_bail!(OutOfBounds: *index as usize, 0, array.len());
                 }
-            });
-        }
+            }
+        });
 
+        Ok(NullArray::new(indices.len()).into_array())
+    }
+
+    unsafe fn take_unchecked(
+        &self,
+        _array: &NullArray,
+        indices: &ArrayData,
+    ) -> VortexResult<ArrayData> {
         Ok(NullArray::new(indices.len()).into_array())
     }
 }
 
 #[cfg(test)]
 mod test {
+    use vortex_buffer::buffer;
     use vortex_dtype::DType;
 
     use crate::array::null::NullArray;
-    use crate::array::ConstantArray;
-    use crate::compute::{scalar_at, slice, take, TakeOptions};
+    use crate::compute::{scalar_at, slice, take};
     use crate::validity::{ArrayValidity, LogicalValidity};
     use crate::{ArrayLen, IntoArrayData};
 
@@ -72,9 +89,7 @@ mod test {
     fn test_slice_nulls() {
         let nulls = NullArray::new(10);
 
-        // Turns out, the slice function has a short-cut for constant arrays.
-        // Sooo... we get back a constant!
-        let sliced = ConstantArray::try_from(slice(nulls.into_array(), 0, 4).unwrap()).unwrap();
+        let sliced = NullArray::try_from(slice(nulls.into_array(), 0, 4).unwrap()).unwrap();
 
         assert_eq!(sliced.len(), 4);
         assert!(matches!(
@@ -86,15 +101,9 @@ mod test {
     #[test]
     fn test_take_nulls() {
         let nulls = NullArray::new(10);
-        let taken = NullArray::try_from(
-            take(
-                nulls,
-                vec![0u64, 2, 4, 6, 8].into_array(),
-                TakeOptions::default(),
-            )
-            .unwrap(),
-        )
-        .unwrap();
+        let taken =
+            NullArray::try_from(take(nulls, buffer![0u64, 2, 4, 6, 8].into_array()).unwrap())
+                .unwrap();
 
         assert_eq!(taken.len(), 5);
         assert!(matches!(

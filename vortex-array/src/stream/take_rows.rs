@@ -7,7 +7,7 @@ use vortex_dtype::match_each_integer_ptype;
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::compute::{search_sorted, slice, subtract_scalar, take, SearchSortedSide, TakeOptions};
+use crate::compute::{search_sorted_usize, slice, sub_scalar, take, SearchSortedSide};
 use crate::stats::{ArrayStatistics, Stat};
 use crate::stream::ArrayStream;
 use crate::variants::PrimitiveArrayTrait;
@@ -72,8 +72,9 @@ impl<R: ArrayStream> Stream for TakeRows<R> {
 
         while let Some(batch) = ready!(this.reader.as_mut().poll_next(cx)?) {
             let curr_offset = *this.row_offset;
-            let left = search_sorted(this.indices, curr_offset, SearchSortedSide::Left)?.to_index();
-            let right = search_sorted(
+            let left =
+                search_sorted_usize(this.indices, curr_offset, SearchSortedSide::Left)?.to_index();
+            let right = search_sorted_usize(
                 this.indices,
                 curr_offset + batch.len(),
                 SearchSortedSide::Left,
@@ -90,13 +91,9 @@ impl<R: ArrayStream> Stream for TakeRows<R> {
             //  onto a worker pool.
             let indices_for_batch = slice(this.indices, left, right)?.into_primitive()?;
             let shifted_arr = match_each_integer_ptype!(indices_for_batch.ptype(), |$T| {
-                subtract_scalar(&indices_for_batch.into_array(), &Scalar::from(curr_offset as $T))?
+                sub_scalar(&indices_for_batch.into_array(), Scalar::from(curr_offset as $T))?
             });
-            return Poll::Ready(
-                take(&batch, &shifted_arr, TakeOptions::default())
-                    .map(Some)
-                    .transpose(),
-            );
+            return Poll::Ready(take(&batch, &shifted_arr).map(Some).transpose());
         }
 
         Poll::Ready(None)

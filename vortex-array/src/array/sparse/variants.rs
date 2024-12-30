@@ -63,15 +63,17 @@ impl BinaryArrayTrait for SparseArray {}
 
 impl StructArrayTrait for SparseArray {
     fn field(&self, idx: usize) -> Option<ArrayData> {
-        let values = self.values().as_struct_array().and_then(|s| s.field(idx))?;
+        let new_patches = self
+            .patches()
+            .map_values_opt(|values| values.as_struct_array().and_then(|s| s.field(idx)))
+            .vortex_expect("field array length should equal struct array length")?;
         let scalar = StructScalar::try_from(&self.fill_scalar())
             .ok()?
             .field_by_idx(idx)?;
 
         Some(
-            SparseArray::try_new_with_offset(
-                self.indices(),
-                values,
+            SparseArray::try_new_from_patches(
+                new_patches,
                 self.len(),
                 self.indices_offset(),
                 scalar,
@@ -82,21 +84,16 @@ impl StructArrayTrait for SparseArray {
     }
 
     fn project(&self, projection: &[Field]) -> VortexResult<ArrayData> {
-        let values = self
-            .values()
-            .as_struct_array()
-            .ok_or_else(|| vortex_err!("Chunk was not a StructArray"))?
-            .project(projection)?;
+        let new_patches = self.patches().map_values(|values| {
+            values
+                .as_struct_array()
+                .ok_or_else(|| vortex_err!("Chunk was not a StructArray"))?
+                .project(projection)
+        })?;
         let scalar = StructScalar::try_from(&self.fill_scalar())?.project(projection)?;
 
-        SparseArray::try_new_with_offset(
-            self.indices(),
-            values,
-            self.len(),
-            self.indices_offset(),
-            scalar,
-        )
-        .map(|a| a.into_array())
+        SparseArray::try_new_from_patches(new_patches, self.len(), self.indices_offset(), scalar)
+            .map(IntoArrayData::into_array)
     }
 }
 
@@ -104,12 +101,15 @@ impl ListArrayTrait for SparseArray {}
 
 impl ExtensionArrayTrait for SparseArray {
     fn storage_data(&self) -> ArrayData {
-        SparseArray::try_new_with_offset(
-            self.indices(),
-            self.values()
-                .as_extension_array()
-                .vortex_expect("Expected extension array")
-                .storage_data(),
+        SparseArray::try_new_from_patches(
+            self.patches()
+                .map_values(|values| {
+                    Ok(values
+                        .as_extension_array()
+                        .vortex_expect("Expected extension array")
+                        .storage_data())
+                })
+                .vortex_expect("as_extension_array preserves the length"),
             self.len(),
             self.indices_offset(),
             self.fill_scalar(),
@@ -121,16 +121,17 @@ impl ExtensionArrayTrait for SparseArray {
 
 #[cfg(test)]
 mod tests {
+    use vortex_buffer::buffer;
     use vortex_scalar::Scalar;
 
-    use crate::array::{BoolArray, PrimitiveArray, SparseArray};
+    use crate::array::{BoolArray, SparseArray};
     use crate::compute::invert;
     use crate::{IntoArrayData, IntoArrayVariant};
 
     #[test]
     fn invert_bools_non_null_fill() {
         let sparse_bools = SparseArray::try_new(
-            PrimitiveArray::from(vec![0u64]).into_array(),
+            buffer![0u64].into_array(),
             BoolArray::from_iter([false]).into_array(),
             2,
             Scalar::from(true),

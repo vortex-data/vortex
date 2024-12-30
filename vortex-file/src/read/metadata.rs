@@ -1,123 +1,68 @@
-use std::future::Future;
-use std::pin::Pin;
+use std::iter;
 use std::sync::{Arc, RwLock};
-use std::task::{ready, Context, Poll};
 
-use futures::future::BoxFuture;
-use futures::FutureExt as _;
+use futures_util::{stream, StreamExt};
 use vortex_array::ArrayData;
-use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
-use vortex_io::{Dispatch as _, IoDispatcher, VortexReadAt};
+use vortex_error::VortexResult;
+use vortex_io::{IoDispatcher, VortexReadAt};
 
-use super::stream::{read_ranges, StreamMessages};
-use super::{LayoutMessageCache, LayoutReader, MessageLocator, MetadataRead};
-use crate::read::stream::Message;
+use super::{LayoutMessageCache, LayoutReader};
+use crate::read::buffered::{BufferedLayoutReader, ReadMasked};
+use crate::{PollRead, RowMask};
 
-pub struct MetadataFetcher<R: VortexReadAt> {
+struct MetadataMaskReader {
+    layout: Arc<dyn LayoutReader>,
+}
+
+impl MetadataMaskReader {
+    pub fn new(layout: Arc<dyn LayoutReader>) -> Self {
+        Self { layout }
+    }
+}
+
+impl ReadMasked for MetadataMaskReader {
+    type Value = Vec<Option<ArrayData>>;
+
+    fn read_masked(
+        &self,
+        _mask: &RowMask,
+    ) -> VortexResult<Option<PollRead<Vec<Option<ArrayData>>>>> {
+        self.layout.poll_metadata()
+    }
+}
+
+pub async fn fetch_metadata<R: VortexReadAt + Unpin>(
     input: R,
     dispatcher: Arc<IoDispatcher>,
-    root_layout: Box<dyn LayoutReader>,
+    root_layout: Arc<dyn LayoutReader>,
     layout_cache: Arc<RwLock<LayoutMessageCache>>,
-    state: State,
-}
+) -> VortexResult<Option<Vec<Option<ArrayData>>>> {
+    let mut metadata_reader = BufferedLayoutReader::new(
+        input,
+        dispatcher,
+        stream::iter(iter::once(Ok(RowMask::new_valid_between(0, 1)))),
+        MetadataMaskReader::new(root_layout),
+        layout_cache,
+    );
 
-enum State {
-    Initial,
-    Reading(BoxFuture<'static, VortexResult<StreamMessages>>),
-}
-
-impl<R: VortexReadAt + Unpin> MetadataFetcher<R> {
-    pub fn fetch(
-        input: R,
-        dispatcher: Arc<IoDispatcher>,
-        root_layout: Box<dyn LayoutReader>,
-        layout_cache: Arc<RwLock<LayoutMessageCache>>,
-    ) -> Self {
-        Self {
-            input,
-            dispatcher,
-            root_layout,
-            layout_cache,
-            state: State::Initial,
-        }
-    }
-
-    /// Schedule an asynchronous read of several byte ranges.
-    ///
-    /// IO is scheduled on the provided IO dispatcher.
-    fn read_ranges(
-        &self,
-        ranges: Vec<MessageLocator>,
-    ) -> BoxFuture<'static, VortexResult<StreamMessages>> {
-        let reader = self.input.clone();
-
-        let result_rx = self
-            .dispatcher
-            .dispatch(move || async move { read_ranges(reader, ranges).await })
-            .vortex_expect("dispatch async task");
-
-        result_rx
-            .map(|res| match res {
-                Ok(result) => result,
-                Err(e) => vortex_bail!("dispatcher channel canceled: {e}"),
-            })
-            .boxed()
-    }
-}
-
-impl<R: VortexReadAt + Unpin> Future for MetadataFetcher<R> {
-    type Output = VortexResult<Option<Vec<Option<ArrayData>>>>;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        loop {
-            match &mut self.state {
-                State::Initial => match self.root_layout.read_metadata()? {
-                    MetadataRead::ReadMore(messages) => {
-                        let read_future = self.read_ranges(messages);
-                        self.state = State::Reading(read_future);
-                    }
-                    MetadataRead::Batches(array_data) => {
-                        return Poll::Ready(Ok(Some(array_data)));
-                    }
-                    MetadataRead::None => {
-                        return Poll::Ready(Ok(None));
-                    }
-                },
-                State::Reading(ref mut f) => {
-                    let messages = ready!(f.poll_unpin(cx))?;
-
-                    match self.layout_cache.write() {
-                        Ok(mut cache) => {
-                            for Message(message_id, bytes) in messages.into_iter() {
-                                cache.set(message_id, bytes);
-                            }
-                        }
-                        Err(poison) => {
-                            vortex_panic!("Failed to write to message cache: {poison}")
-                        }
-                    }
-
-                    self.state = State::Initial;
-                }
-            }
-        }
-    }
+    metadata_reader.next().await.transpose()
 }
 
 #[cfg(test)]
 mod test {
     use std::sync::{Arc, RwLock};
 
+    use bytes::Bytes;
     use vortex_array::array::{ChunkedArray, StructArray};
     use vortex_array::compute::scalar_at;
     use vortex_array::{ArrayDType as _, ArrayData, IntoArrayData as _};
-    use vortex_buffer::{Buffer, BufferString};
+    use vortex_buffer::BufferString;
     use vortex_io::IoDispatcher;
 
-    use crate::metadata::MetadataFetcher;
+    use crate::metadata::fetch_metadata;
     use crate::{
-        read_initial_bytes, read_layout_from_initial, LayoutDeserializer, LayoutMessageCache,
-        RelativeLayoutCache, Scan, VortexFileWriter,
+        read_initial_bytes, LayoutDeserializer, LayoutMessageCache, RelativeLayoutCache, Scan,
+        VortexFileWriter,
     };
 
     #[tokio::test]
@@ -157,24 +102,24 @@ mod test {
             .finalize()
             .await
             .unwrap();
-        let written_bytes = Buffer::from(written_bytes);
+        let written_bytes = Bytes::from(written_bytes);
 
         let n_bytes = written_bytes.len();
         let initial_read = read_initial_bytes(&written_bytes, n_bytes as u64)
             .await
             .unwrap();
-        let lazy_dtype = Arc::new(initial_read.lazy_dtype().unwrap());
+        let lazy_dtype = Arc::new(initial_read.lazy_dtype());
         let layout_deserializer = LayoutDeserializer::default();
         let layout_message_cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
-        let layout_reader = read_layout_from_initial(
-            &initial_read,
-            &layout_deserializer,
-            Scan::empty(),
-            RelativeLayoutCache::new(layout_message_cache.clone(), lazy_dtype.clone()),
-        )
-        .unwrap();
+        let layout_reader = layout_deserializer
+            .read_layout(
+                initial_read.fb_layout(),
+                Scan::empty(),
+                RelativeLayoutCache::new(layout_message_cache.clone(), lazy_dtype.clone()),
+            )
+            .unwrap();
         let io = IoDispatcher::default();
-        let metadata_table = MetadataFetcher::fetch(
+        let metadata_table = fetch_metadata(
             written_bytes,
             io.into(),
             layout_reader,
@@ -185,7 +130,7 @@ mod test {
 
         assert!(metadata_table.is_some());
         let metadata_table = metadata_table.unwrap();
-        assert!(metadata_table.len() == 2);
+        assert_eq!(metadata_table.len(), 2);
         assert!(metadata_table.iter().all(Option::is_some));
 
         let name_metadata_table = metadata_table[0]

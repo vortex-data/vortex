@@ -1,8 +1,9 @@
 use std::cmp::Ordering;
+use std::mem::discriminant;
 use std::sync::Arc;
 
 pub use scalar_type::ScalarType;
-use vortex_buffer::{Buffer, BufferString};
+use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::half::f16;
 use vortex_dtype::{DType, Nullability};
 #[cfg(feature = "arbitrary")]
@@ -208,7 +209,9 @@ impl PartialEq for Scalar {
 
 impl PartialOrd for Scalar {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        if self.dtype().eq_ignore_nullability(other.dtype()) {
+        // We check for DType equality, ignoring nullability, and allowing us to compare all
+        // primitive types to all other primitive types.
+        if discriminant(self.dtype()) == discriminant(other.dtype()) {
             self.value.0.partial_cmp(&other.value.0)
         } else {
             None
@@ -238,6 +241,17 @@ where
     }
 }
 
+impl From<PrimitiveScalar<'_>> for Scalar {
+    fn from(pscalar: PrimitiveScalar) -> Self {
+        let dtype = pscalar.dtype().clone();
+        let value = pscalar
+            .pvalue()
+            .map(|pvalue| ScalarValue(InnerScalarValue::Primitive(pvalue)))
+            .unwrap_or_else(|| ScalarValue(InnerScalarValue::Null));
+        Self::new(dtype, value)
+    }
+}
+
 macro_rules! from_vec_for_scalar {
     ($T:ty) => {
         impl From<Vec<$T>> for Scalar {
@@ -248,7 +262,7 @@ macro_rules! from_vec_for_scalar {
                         value
                             .into_iter()
                             .map(Scalar::from)
-                            .map(|x| x.value.0)
+                            .map(|s| s.into_value())
                             .collect::<Arc<[_]>>(),
                     )),
                 }
@@ -271,5 +285,4 @@ from_vec_for_scalar!(f32);
 from_vec_for_scalar!(f64);
 from_vec_for_scalar!(String);
 from_vec_for_scalar!(BufferString);
-from_vec_for_scalar!(bytes::Bytes);
-from_vec_for_scalar!(Buffer);
+from_vec_for_scalar!(ByteBuffer);

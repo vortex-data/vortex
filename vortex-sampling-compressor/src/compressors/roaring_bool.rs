@@ -1,7 +1,6 @@
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::BoolEncoding;
 use vortex_array::encoding::{Encoding, EncodingRef};
-use vortex_array::stats::ArrayStatistics;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::DType;
 use vortex_dtype::Nullability::NonNullable;
@@ -50,7 +49,7 @@ impl EncodingCompressor for RoaringBoolCompressor {
         Ok(CompressedArray::compressed(
             roaring_bool_encode(array.clone().into_bool()?)?.into_array(),
             Some(CompressionTree::flat(self)),
-            Some(array.statistics()),
+            array,
         ))
     }
 

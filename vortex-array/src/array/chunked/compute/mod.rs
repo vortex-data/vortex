@@ -4,13 +4,14 @@ use vortex_error::VortexResult;
 use crate::array::chunked::ChunkedArray;
 use crate::array::ChunkedEncoding;
 use crate::compute::{
-    try_cast, BinaryBooleanFn, CastFn, CompareFn, ComputeVTable, FilterFn, InvertFn, ScalarAtFn,
-    SliceFn, SubtractScalarFn, TakeFn,
+    try_cast, BinaryBooleanFn, BinaryNumericFn, CastFn, CompareFn, ComputeVTable, FillNullFn,
+    FilterFn, InvertFn, ScalarAtFn, SliceFn, TakeFn,
 };
 use crate::{ArrayData, IntoArrayData};
 
 mod boolean;
 mod compare;
+mod fill_null;
 mod filter;
 mod invert;
 mod scalar_at;
@@ -22,11 +23,19 @@ impl ComputeVTable for ChunkedEncoding {
         Some(self)
     }
 
+    fn binary_numeric_fn(&self) -> Option<&dyn BinaryNumericFn<ArrayData>> {
+        Some(self)
+    }
+
     fn cast_fn(&self) -> Option<&dyn CastFn<ArrayData>> {
         Some(self)
     }
 
     fn compare_fn(&self) -> Option<&dyn CompareFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn fill_null_fn(&self) -> Option<&dyn FillNullFn<ArrayData>> {
         Some(self)
     }
 
@@ -41,11 +50,8 @@ impl ComputeVTable for ChunkedEncoding {
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
         Some(self)
     }
-    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
-        Some(self)
-    }
 
-    fn subtract_scalar_fn(&self) -> Option<&dyn SubtractScalarFn<ArrayData>> {
+    fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
         Some(self)
     }
 
@@ -67,18 +73,17 @@ impl CastFn<ChunkedArray> for ChunkedEncoding {
 
 #[cfg(test)]
 mod test {
+    use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
     use crate::array::chunked::ChunkedArray;
-    use crate::array::primitive::PrimitiveArray;
     use crate::compute::try_cast;
-    use crate::validity::Validity;
     use crate::{IntoArrayData, IntoArrayVariant};
 
     #[test]
     fn test_cast_chunked() {
-        let arr0 = PrimitiveArray::from_vec(vec![0u32, 1], Validity::NonNullable).into_array();
-        let arr1 = PrimitiveArray::from_vec(vec![2u32, 3], Validity::NonNullable).into_array();
+        let arr0 = buffer![0u32, 1].into_array();
+        let arr1 = buffer![2u32, 3].into_array();
 
         let chunked = ChunkedArray::try_new(
             vec![arr0, arr1],
@@ -103,8 +108,8 @@ mod test {
             .unwrap()
             .into_primitive()
             .unwrap()
-            .into_maybe_null_slice::<u64>(),
-            vec![0u64, 1, 2, 3],
+            .as_slice::<u64>(),
+            &[0u64, 1, 2, 3],
         );
     }
 }

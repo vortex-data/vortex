@@ -1,7 +1,7 @@
 use std::fmt::{Display, Write};
 use std::sync::Arc;
 
-use vortex_buffer::{Buffer, BufferString};
+use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexResult};
 
@@ -13,19 +13,16 @@ use crate::pvalue::PValue;
 /// Note that these values can be deserialized from JSON or other formats. So a PValue may not
 /// have the correct width for what the DType expects. Primitive values should therefore be
 /// read using [crate::PrimitiveScalar] which will handle the conversion.
-///
-/// For this reason, [`PartialEq`] and [`PartialOrd`] are only defined over [`crate::Scalar`] and not
-/// [`ScalarValue`].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct ScalarValue(pub(crate) InnerScalarValue);
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub(crate) enum InnerScalarValue {
     Bool(bool),
     Primitive(PValue),
-    Buffer(Buffer),
+    Buffer(ByteBuffer),
     BufferString(BufferString),
-    List(Arc<[InnerScalarValue]>),
+    List(Arc<[ScalarValue]>),
     // It's significant that Null is last in this list. As a result generated PartialOrd sorts Scalar
     // values such that Nulls are last (greatest)
     Null,
@@ -104,7 +101,7 @@ impl ScalarValue {
         self.0.as_pvalue()
     }
 
-    pub(crate) fn as_buffer(&self) -> VortexResult<Option<Buffer>> {
+    pub(crate) fn as_buffer(&self) -> VortexResult<Option<ByteBuffer>> {
         self.0.as_buffer()
     }
 
@@ -112,7 +109,7 @@ impl ScalarValue {
         self.0.as_buffer_string()
     }
 
-    pub(crate) fn as_list(&self) -> VortexResult<Option<&Arc<[InnerScalarValue]>>> {
+    pub(crate) fn as_list(&self) -> VortexResult<Option<&Arc<[ScalarValue]>>> {
         self.0.as_list()
     }
 }
@@ -169,7 +166,7 @@ impl InnerScalarValue {
         }
     }
 
-    pub(crate) fn as_buffer(&self) -> VortexResult<Option<Buffer>> {
+    pub(crate) fn as_buffer(&self) -> VortexResult<Option<ByteBuffer>> {
         match &self {
             InnerScalarValue::Null => Ok(None),
             InnerScalarValue::Buffer(b) => Ok(Some(b.clone())),
@@ -186,7 +183,7 @@ impl InnerScalarValue {
         }
     }
 
-    pub(crate) fn as_list(&self) -> VortexResult<Option<&Arc<[Self]>>> {
+    pub(crate) fn as_list(&self) -> VortexResult<Option<&Arc<[ScalarValue]>>> {
         match &self {
             InnerScalarValue::Null => Ok(None),
             InnerScalarValue::List(l) => Ok(Some(l)),
@@ -226,10 +223,18 @@ mod test {
         let tnull = DType::Null;
 
         let bool_null = ScalarValue(InnerScalarValue::List(
-            vec![InnerScalarValue::Bool(true), InnerScalarValue::Null].into(),
+            vec![
+                ScalarValue(InnerScalarValue::Bool(true)),
+                ScalarValue(InnerScalarValue::Null),
+            ]
+            .into(),
         ));
         let bool_bool = ScalarValue(InnerScalarValue::List(
-            vec![InnerScalarValue::Bool(true), InnerScalarValue::Bool(false)].into(),
+            vec![
+                ScalarValue(InnerScalarValue::Bool(true)),
+                ScalarValue(InnerScalarValue::Bool(false)),
+            ]
+            .into(),
         ));
 
         fn tlist(element: &DType) -> DType {

@@ -24,7 +24,7 @@ use crate::array::PyArray;
 ///
 /// >>> a = vortex.array(list(range(1000)))
 /// >>> str(vortex.compress(a))
-/// 'fastlanes.for(0x17)(i64, len=1000)'
+/// 'fastlanes.bitpacked(0x15)(i64, len=1000)'
 ///
 /// Compress an array of increasing floating-point numbers and a few nulls:
 ///

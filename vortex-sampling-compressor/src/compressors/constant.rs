@@ -42,7 +42,7 @@ impl EncodingCompressor for ConstantCompressor {
             )
             .into_array(),
             Some(CompressionTree::flat(self)),
-            Some(array.statistics()),
+            array,
         ))
     }
 

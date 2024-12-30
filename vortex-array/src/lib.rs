@@ -12,6 +12,7 @@
 //!
 
 pub use canonical::*;
+pub use children::*;
 pub use context::*;
 pub use data::*;
 pub use metadata::*;
@@ -27,7 +28,9 @@ pub mod accessor;
 pub mod aliases;
 pub mod array;
 pub mod arrow;
+pub mod builders;
 mod canonical;
+mod children;
 pub mod compress;
 pub mod compute;
 mod context;
@@ -37,6 +40,7 @@ pub mod iter;
 mod macros;
 mod metadata;
 pub mod nbytes;
+pub mod patches;
 pub mod stats;
 pub mod stream;
 pub mod tree;

@@ -1,11 +1,11 @@
 #![allow(clippy::unwrap_used)]
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use itertools::Itertools;
 use rand::distributions::Uniform;
 use rand::{thread_rng, Rng};
 use vortex_array::array::ChunkedArray;
 use vortex_array::IntoArrayData;
+use vortex_buffer::Buffer;
 use vortex_error::VortexError;
 
 fn scalar_subtract(c: &mut Criterion) {
@@ -15,11 +15,11 @@ fn scalar_subtract(c: &mut Criterion) {
     let range = Uniform::new(0i64, 100_000_000);
     let data1 = (0..10_000_000)
         .map(|_| rng.sample(range))
-        .collect_vec()
+        .collect::<Buffer<i64>>()
         .into_array();
     let data2 = (0..10_000_000)
         .map(|_| rng.sample(range))
-        .collect_vec()
+        .collect::<Buffer<i64>>()
         .into_array();
 
     let to_subtract = -1i64;
@@ -28,8 +28,7 @@ fn scalar_subtract(c: &mut Criterion) {
 
     group.bench_function("vortex", |b| {
         b.iter(|| {
-            let array =
-                vortex_array::compute::subtract_scalar(&chunked, &to_subtract.into()).unwrap();
+            let array = vortex_array::compute::sub_scalar(&chunked, to_subtract.into()).unwrap();
 
             let chunked = ChunkedArray::try_from(array).unwrap();
             black_box(chunked);

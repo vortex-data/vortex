@@ -6,7 +6,7 @@ use std::sync::{Arc, RwLock};
 use itertools::Itertools;
 use owned::OwnedArrayData;
 use viewed::ViewedArrayData;
-use vortex_buffer::Buffer;
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
@@ -22,7 +22,7 @@ use crate::stats::{ArrayStatistics, Stat, Statistics, StatsSet};
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use crate::{
-    ArrayChildrenIterator, ArrayDType, ArrayLen, ArrayMetadata, Context,
+    ArrayChildrenIterator, ArrayDType, ArrayLen, ArrayMetadata, Context, NamedChildrenCollector,
     TryDeserializeArrayMetadata,
 };
 
@@ -61,7 +61,7 @@ impl ArrayData {
         dtype: DType,
         len: usize,
         metadata: Arc<dyn ArrayMetadata>,
-        buffer: Option<Buffer>,
+        buffer: Option<ByteBuffer>,
         children: Arc<[ArrayData]>,
         statistics: StatsSet,
     ) -> VortexResult<Self> {
@@ -73,6 +73,8 @@ impl ArrayData {
             buffer,
             children,
             stats_set: Arc::new(RwLock::new(statistics)),
+            #[cfg(feature = "canonical_counter")]
+            canonical_counter: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         }))
     }
 
@@ -80,9 +82,10 @@ impl ArrayData {
         ctx: Arc<Context>,
         dtype: DType,
         len: usize,
-        flatbuffer: Buffer,
+        // TODO(ngates): use ConstByteBuffer
+        flatbuffer: ByteBuffer,
         flatbuffer_init: F,
-        buffers: Vec<Buffer>,
+        buffers: Vec<ByteBuffer>,
     ) -> VortexResult<Self>
     where
         F: FnOnce(&[u8]) -> VortexResult<crate::flatbuffers::Array>,
@@ -110,6 +113,8 @@ impl ArrayData {
             flatbuffer_loc,
             buffers: buffers.into(),
             ctx,
+            #[cfg(feature = "canonical_counter")]
+            canonical_counter: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         };
 
         Self::try_new(InnerArrayData::Viewed(view))
@@ -215,6 +220,15 @@ impl ArrayData {
         }
     }
 
+    /// Returns a Vec of Arrays with all the array's child arrays.
+    pub fn named_children(&self) -> Vec<(String, ArrayData)> {
+        let mut collector = NamedChildrenCollector::default();
+        self.encoding()
+            .accept(&self.clone(), &mut collector)
+            .vortex_expect("Failed to get children");
+        collector.children()
+    }
+
     /// Returns the number of child arrays
     pub fn nchildren(&self) -> usize {
         match self.0.as_ref() {
@@ -233,7 +247,7 @@ impl ArrayData {
             .iter()
             .map(|child| child.cumulative_nbuffers())
             .sum::<usize>()
-            + if self.buffer().is_some() { 1 } else { 0 }
+            + if self.byte_buffer().is_some() { 1 } else { 0 }
     }
 
     /// Return the buffer offsets and the total length of all buffers, assuming the given alignment.
@@ -243,7 +257,7 @@ impl ArrayData {
         let mut offset = 0;
 
         for col_data in self.depth_first_traversal() {
-            if let Some(buffer) = col_data.buffer() {
+            if let Some(buffer) = col_data.byte_buffer() {
                 offsets.push(offset as u64);
 
                 let buffer_size = buffer.len();
@@ -306,20 +320,20 @@ impl ArrayData {
         }
     }
 
-    pub fn buffer(&self) -> Option<&Buffer> {
+    pub fn byte_buffer(&self) -> Option<&ByteBuffer> {
         match self.0.as_ref() {
-            InnerArrayData::Owned(d) => d.buffer(),
-            InnerArrayData::Viewed(v) => v.buffer(),
+            InnerArrayData::Owned(d) => d.byte_buffer(),
+            InnerArrayData::Viewed(v) => v.byte_buffer(),
         }
     }
 
-    pub fn into_buffer(self) -> Option<Buffer> {
+    pub fn into_byte_buffer(self) -> Option<ByteBuffer> {
         match Arc::try_unwrap(self.0) {
-            Ok(InnerArrayData::Owned(d)) => d.into_buffer(),
-            Ok(InnerArrayData::Viewed(v)) => v.buffer().cloned(),
+            Ok(InnerArrayData::Owned(d)) => d.into_byte_buffer(),
+            Ok(InnerArrayData::Viewed(v)) => v.byte_buffer().cloned(),
             Err(slf) => match slf.as_ref() {
-                InnerArrayData::Owned(o) => o.buffer().cloned(),
-                InnerArrayData::Viewed(v) => v.buffer().cloned(),
+                InnerArrayData::Owned(o) => o.byte_buffer().cloned(),
+                InnerArrayData::Viewed(v) => v.byte_buffer().cloned(),
             },
         }
     }
@@ -338,6 +352,28 @@ impl ArrayData {
     /// Checks whether array is of a given encoding.
     pub fn is_encoding(&self, id: EncodingId) -> bool {
         self.encoding().id() == id
+    }
+
+    #[cfg(feature = "canonical_counter")]
+    pub(crate) fn inc_canonical_counter(&self) {
+        let prev = match &self.0 {
+            InnerArrayData::Owned(o) => o
+                .canonical_counter
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            InnerArrayData::Viewed(v) => v
+                .canonical_counter
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+        };
+        if prev >= 1 {
+            log::warn!(
+                "ArrayData::into_canonical called {} times on array",
+                prev + 1,
+            );
+        }
+        if prev >= 2 {
+            let bt = backtrace::Backtrace::new();
+            log::warn!("{:?}", bt);
+        }
     }
 }
 

@@ -1,5 +1,6 @@
-use arrow_buffer::{BooleanBufferBuilder, Buffer, MutableBuffer, ScalarBuffer};
-use vortex_dtype::{DType, PType, StructDType};
+use arrow_buffer::BooleanBufferBuilder;
+use vortex_buffer::BufferMut;
+use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType, StructDType};
 use vortex_error::{vortex_bail, vortex_err, ErrString, VortexExpect, VortexResult};
 
 use crate::array::chunked::ChunkedArray;
@@ -7,10 +8,12 @@ use crate::array::extension::ExtensionArray;
 use crate::array::null::NullArray;
 use crate::array::primitive::PrimitiveArray;
 use crate::array::struct_::StructArray;
-use crate::array::{BinaryView, BoolArray, VarBinViewArray};
+use crate::array::{BinaryView, BoolArray, ListArray, VarBinViewArray};
+use crate::compute::{scalar_at, slice, try_cast};
 use crate::validity::Validity;
 use crate::{
-    ArrayDType, ArrayData, ArrayValidity, Canonical, IntoArrayData, IntoArrayVariant, IntoCanonical,
+    ArrayDType, ArrayData, ArrayLen, ArrayValidity, Canonical, IntoArrayData, IntoArrayVariant,
+    IntoCanonical,
 };
 
 impl IntoCanonical for ChunkedArray {
@@ -88,9 +91,11 @@ pub(crate) fn try_canonicalize_chunks(
             )))
         }
 
-        // TODO(aduffy): better list support
         DType::List(..) => {
-            todo!()
+            // TODO(joe): improve performance, use a listview, once it exists
+
+            let list = pack_lists(chunks.as_slice(), validity, dtype)?;
+            Ok(Canonical::List(list))
         }
 
         DType::Bool(_) => {
@@ -98,8 +103,10 @@ pub(crate) fn try_canonicalize_chunks(
             Ok(Canonical::Bool(bool_array))
         }
         DType::Primitive(ptype, _) => {
-            let prim_array = pack_primitives(chunks.as_slice(), *ptype, validity)?;
-            Ok(Canonical::Primitive(prim_array))
+            match_each_native_ptype!(ptype, |$P| {
+                let prim_array = pack_primitives::<$P>(chunks.as_slice(), validity)?;
+                Ok(Canonical::Primitive(prim_array))
+            })
         }
         DType::Utf8(_) => {
             let varbin_array = pack_views(chunks.as_slice(), dtype, validity)?;
@@ -115,6 +122,50 @@ pub(crate) fn try_canonicalize_chunks(
             Ok(Canonical::Null(null_array))
         }
     }
+}
+
+fn pack_lists(chunks: &[ArrayData], validity: Validity, dtype: &DType) -> VortexResult<ListArray> {
+    let len: usize = chunks.iter().map(|c| c.len()).sum();
+    let mut offsets = BufferMut::<i64>::with_capacity(len + 1);
+    offsets.push(0);
+    let mut elements = Vec::new();
+    let elem_dtype = dtype
+        .as_list_element()
+        .vortex_expect("ListArray must have List dtype");
+
+    for chunk in chunks {
+        let chunk = chunk.clone().into_list()?;
+        // TODO: handle i32 offsets if they fit.
+        let offsets_arr = try_cast(
+            chunk.offsets(),
+            &DType::Primitive(PType::I64, Nullability::NonNullable),
+        )?
+        .into_primitive()?;
+
+        let first_offset_value: usize = usize::try_from(&scalar_at(offsets_arr.as_ref(), 0)?)?;
+        let last_offset_value: usize =
+            usize::try_from(&scalar_at(offsets_arr.as_ref(), offsets_arr.len() - 1)?)?;
+        elements.push(slice(
+            chunk.elements(),
+            first_offset_value,
+            last_offset_value,
+        )?);
+
+        let adjustment_from_previous = *offsets
+            .last()
+            .ok_or_else(|| vortex_err!("List offsets must have at least one element"))?;
+        offsets.extend(
+            offsets_arr
+                .as_slice::<i64>()
+                .iter()
+                .skip(1)
+                .map(|off| off + adjustment_from_previous - first_offset_value as i64),
+        );
+    }
+    let chunked_elements = ChunkedArray::try_new(elements, elem_dtype.clone())?.into_array();
+    let offsets = PrimitiveArray::new(offsets.freeze(), Validity::NonNullable);
+
+    ListArray::try_new(chunked_elements, offsets.into_array(), validity)
 }
 
 /// Swizzle the pointers within a ChunkedArray of StructArrays to instead be a single
@@ -163,23 +214,21 @@ fn pack_bools(chunks: &[ArrayData], validity: Validity) -> VortexResult<BoolArra
 ///
 /// It is expected this function is only called from [try_canonicalize_chunks], and thus all chunks have
 /// been checked to have the same DType already.
-fn pack_primitives(
+fn pack_primitives<T: NativePType>(
     chunks: &[ArrayData],
-    ptype: PType,
     validity: Validity,
 ) -> VortexResult<PrimitiveArray> {
-    let len: usize = chunks.iter().map(|chunk| chunk.len()).sum();
-    let mut buffer = MutableBuffer::with_capacity(len * ptype.byte_width());
-    for chunk in chunks {
-        let chunk = chunk.clone().into_primitive()?;
-        buffer.extend_from_slice(chunk.buffer());
-    }
-
-    Ok(PrimitiveArray::new(
-        Buffer::from(buffer).into(),
-        ptype,
-        validity,
-    ))
+    let total_len = chunks.iter().map(|a| a.len()).sum();
+    let mut buffer = BufferMut::with_capacity(total_len);
+    buffer.extend(chunks.iter().flat_map(|chunk| {
+        chunk
+            .clone()
+            .into_primitive()
+            .vortex_expect("Chunk was not a PrimitiveArray")
+            .into_buffer::<T>()
+            .into_iter()
+    }));
+    Ok(PrimitiveArray::new(buffer.freeze(), validity))
 }
 
 /// Builds a new [VarBinViewArray] by repacking the values from the chunks into a single
@@ -193,13 +242,13 @@ fn pack_views(
     validity: Validity,
 ) -> VortexResult<VarBinViewArray> {
     let total_len = chunks.iter().map(|a| a.len()).sum();
-    let mut views: Vec<u128> = Vec::with_capacity(total_len);
+    let mut views: BufferMut<u128> = BufferMut::with_capacity(total_len);
     let mut buffers = Vec::new();
     for chunk in chunks {
         // Each chunk's views have buffer IDs that are zero-referenced.
         // As part of the packing operation, we need to rewrite them to be referenced to the global
         // merged buffers list.
-        let buffers_offset = buffers.len();
+        let buffers_offset = u32::try_from(buffers.len())?;
         let canonical_chunk = chunk.clone().into_varbinview()?;
 
         for buffer in canonical_chunk.buffers() {
@@ -218,7 +267,7 @@ fn pack_views(
                     BinaryView::new_view(
                         view.len(),
                         *view_ref.prefix(),
-                        (buffers_offset as u32) + view_ref.buffer_index(),
+                        buffers_offset + view_ref.buffer_index(),
                         view_ref.offset(),
                     )
                     .as_u128(),
@@ -227,9 +276,13 @@ fn pack_views(
         }
     }
 
-    let views_buffer: Buffer = ScalarBuffer::<u128>::from(views).into_inner();
     VarBinViewArray::try_new(
-        ArrayData::from(views_buffer),
+        PrimitiveArray::from_byte_buffer(
+            views.freeze().into_byte_buffer(),
+            PType::U8,
+            Validity::NonNullable,
+        )
+        .into_array(),
         buffers,
         dtype.clone(),
         validity,
@@ -238,12 +291,17 @@ fn pack_views(
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::{DType, Nullability};
+    use std::sync::Arc;
+
+    use vortex_dtype::DType;
+    use vortex_dtype::DType::{List, Primitive};
+    use vortex_dtype::Nullability::NonNullable;
+    use vortex_dtype::PType::I32;
 
     use crate::accessor::ArrayAccessor;
     use crate::array::chunked::canonical::pack_views;
-    use crate::array::{ChunkedArray, StructArray, VarBinViewArray};
-    use crate::compute::slice;
+    use crate::array::{ChunkedArray, ListArray, PrimitiveArray, StructArray, VarBinViewArray};
+    use crate::compute::{scalar_at, slice};
     use crate::validity::Validity;
     use crate::variants::StructArrayTrait;
     use crate::{ArrayDType, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
@@ -258,7 +316,7 @@ mod tests {
         let array2 = slice(stringview_array().as_ref(), 2, 4).unwrap();
         let packed = pack_views(
             &[array1, array2],
-            &DType::Utf8(Nullability::NonNullable),
+            &DType::Utf8(NonNullable),
             Validity::NonNullable,
         )
         .unwrap();
@@ -307,5 +365,38 @@ mod tests {
             .with_iterator(|it| it.map(|a| a.map(|v| v.to_vec())).collect::<Vec<_>>())
             .unwrap();
         assert_eq!(orig_values, canon_values);
+    }
+
+    #[test]
+    pub fn pack_nested_lists() {
+        let l1 = ListArray::try_new(
+            PrimitiveArray::from_iter([1, 2, 3, 4]).into_array(),
+            PrimitiveArray::from_iter([0, 3]).into_array(),
+            Validity::NonNullable,
+        )
+        .unwrap();
+
+        let l2 = ListArray::try_new(
+            PrimitiveArray::from_iter([5, 6]).into_array(),
+            PrimitiveArray::from_iter([0, 2]).into_array(),
+            Validity::NonNullable,
+        )
+        .unwrap();
+
+        let chunked_list = ChunkedArray::try_new(
+            vec![l1.clone().into_array(), l2.clone().into_array()],
+            List(Arc::new(Primitive(I32, NonNullable)), NonNullable),
+        );
+
+        let canon_values = chunked_list.unwrap().into_list().unwrap();
+
+        assert_eq!(
+            scalar_at(l1, 0).unwrap(),
+            scalar_at(canon_values.clone(), 0).unwrap()
+        );
+        assert_eq!(
+            scalar_at(l2, 0).unwrap(),
+            scalar_at(canon_values, 1).unwrap()
+        );
     }
 }

@@ -4,6 +4,8 @@ use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 
+use vortex_error::{vortex_err, VortexError, VortexResult};
+
 use crate::compute::ComputeVTable;
 use crate::stats::StatisticsVTable;
 use crate::validity::ValidityVTable;
@@ -67,6 +69,19 @@ pub trait Encoding: 'static {
     type Metadata: ArrayMetadata;
 }
 
+pub fn downcast_array_ref<E: Encoding>(array: &ArrayData) -> VortexResult<(&E::Array, &E)>
+where
+    for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
+{
+    let array_ref = <&E::Array>::try_from(array)?;
+    let encoding = array
+        .encoding()
+        .as_any()
+        .downcast_ref::<E>()
+        .ok_or_else(|| vortex_err!("Mismatched encoding"))?;
+    Ok((array_ref, encoding))
+}
+
 pub type EncodingRef = &'static dyn EncodingVTable;
 
 /// Object-safe encoding trait for an array.
@@ -122,10 +137,10 @@ pub mod ids {
     pub const SPARSE: u16 = 8;
     pub const CONSTANT: u16 = 9;
     pub const CHUNKED: u16 = 10;
+    pub const LIST: u16 = 11;
 
     // currently unused, saved for future built-ins
-    // e.g., List, FixedList, Union, Tensor, etc.
-    pub(crate) const RESERVED_11: u16 = 11;
+    // e.g., FixedList, Union, Tensor, etc.
     pub(crate) const RESERVED_12: u16 = 12;
     pub(crate) const RESERVED_13: u16 = 13;
     pub(crate) const RESERVED_14: u16 = 14;
@@ -150,6 +165,7 @@ pub mod ids {
 }
 
 #[cfg(test)]
+#[allow(clippy::cast_possible_truncation)]
 mod tests {
     use super::{ids, EncodingId};
     use crate::aliases::hash_set::HashSet;
@@ -168,7 +184,7 @@ mod tests {
             ids::SPARSE,
             ids::CONSTANT,
             ids::CHUNKED,
-            ids::RESERVED_11,
+            ids::LIST,
             ids::RESERVED_12,
             ids::RESERVED_13,
             ids::RESERVED_14,

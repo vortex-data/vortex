@@ -7,7 +7,10 @@ use vortex_scalar::Scalar;
 
 use crate::array::primitive::PrimitiveArray;
 use crate::array::PrimitiveEncoding;
-use crate::compute::{IndexOrd, Len, SearchResult, SearchSorted, SearchSortedFn, SearchSortedSide};
+use crate::compute::{
+    IndexOrd, Len, SearchResult, SearchSorted, SearchSortedFn, SearchSortedSide,
+    SearchSortedUsizeFn,
+};
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayDType, ArrayLen};
@@ -33,7 +36,9 @@ impl SearchSortedFn<PrimitiveArray> for PrimitiveEncoding {
             }
         })
     }
+}
 
+impl SearchSortedUsizeFn<PrimitiveArray> for PrimitiveEncoding {
     #[allow(clippy::cognitive_complexity)]
     fn search_sorted_usize(
         &self,
@@ -70,7 +75,7 @@ struct SearchSortedPrimitive<'a, T> {
 impl<'a, T: NativePType> SearchSortedPrimitive<'a, T> {
     pub fn new(array: &'a PrimitiveArray) -> Self {
         Self {
-            values: array.maybe_null_slice(),
+            values: array.as_slice(),
         }
     }
 }
@@ -120,13 +125,15 @@ impl<T> Len for SearchSortedNullsLast<'_, T> {
 
 #[cfg(test)]
 mod test {
+    use vortex_buffer::buffer;
+
     use super::*;
     use crate::compute::search_sorted;
     use crate::IntoArrayData;
 
     #[test]
     fn test_search_sorted_primitive() {
-        let values = vec![1u16, 2, 3].into_array();
+        let values = buffer![1u16, 2, 3].into_array();
 
         assert_eq!(
             search_sorted(&values, 0, SearchSortedSide::Left).unwrap(),

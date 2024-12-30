@@ -120,7 +120,7 @@ impl StructArray {
                 Field::Name(n) => self
                     .names()
                     .iter()
-                    .position(|name| name.as_ref() == n)
+                    .position(|name| name == n)
                     .ok_or_else(|| vortex_err!("Unknown field {n}"))?,
                 Field::Index(i) => *i,
             };
@@ -186,7 +186,7 @@ impl VisitorVTable<StructArray> for StructEncoding {
             let child = array
                 .field(idx)
                 .ok_or_else(|| vortex_err!(OutOfBounds: idx, 0, array.nfields()))?;
-            visitor.visit_child(&format!("\"{}\"", name), &child)?;
+            visitor.visit_child(name.as_ref(), &child)?;
         }
         Ok(())
     }
@@ -210,6 +210,7 @@ impl StatisticsVTable<StructArray> for StructEncoding {
 
 #[cfg(test)]
 mod test {
+    use vortex_buffer::buffer;
     use vortex_dtype::field::Field;
     use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
 
@@ -223,7 +224,7 @@ mod test {
 
     #[test]
     fn test_project() {
-        let xs = PrimitiveArray::from_vec(vec![0i64, 1, 2, 3, 4], Validity::NonNullable);
+        let xs = PrimitiveArray::new(buffer![0i64, 1, 2, 3, 4], Validity::NonNullable);
         let ys = VarBinArray::from_vec(
             vec!["a", "b", "c", "d", "e"],
             DType::Utf8(Nullability::NonNullable),
@@ -255,6 +256,6 @@ mod test {
         );
 
         let prims = PrimitiveArray::try_from(struct_b.field(1).unwrap()).unwrap();
-        assert_eq!(prims.maybe_null_slice::<i64>(), [0i64, 1, 2, 3, 4]);
+        assert_eq!(prims.as_slice::<i64>(), [0i64, 1, 2, 3, 4]);
     }
 }

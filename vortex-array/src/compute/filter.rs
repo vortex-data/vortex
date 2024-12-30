@@ -1,13 +1,15 @@
 use std::iter::TrustedLen;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use arrow_array::BooleanArray;
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, MutableBuffer};
+use num_traits::AsPrimitive;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
 
-use crate::array::BoolArray;
+use crate::array::{BoolArray, ConstantArray};
 use crate::arrow::FromArrowArray;
+use crate::compute::scalar_at;
 use crate::encoding::Encoding;
 use crate::stats::ArrayStatistics;
 use crate::{ArrayDType, ArrayData, Canonical, IntoArrayData, IntoCanonical};
@@ -58,31 +60,58 @@ pub fn filter(array: &ArrayData, mask: FilterMask) -> VortexResult<ArrayData> {
         );
     }
 
+    let true_count = mask.true_count();
+
     // Fast-path for empty mask.
-    if mask.true_count() == 0 {
+    if true_count == 0 {
         return Ok(Canonical::empty(array.dtype())?.into());
     }
 
     // Fast-path for full mask
-    if mask.true_count() == mask.len() {
+    if true_count == mask.len() {
         return Ok(array.clone());
     }
 
+    let filtered = filter_impl(array, mask)?;
+
+    debug_assert_eq!(
+        filtered.len(),
+        true_count,
+        "Filter length mismatch {}",
+        array.encoding().id()
+    );
+    debug_assert_eq!(
+        filtered.dtype(),
+        array.dtype(),
+        "Filter dtype mismatch {}",
+        array.encoding().id()
+    );
+
+    Ok(filtered)
+}
+
+fn filter_impl(array: &ArrayData, mask: FilterMask) -> VortexResult<ArrayData> {
     if let Some(filter_fn) = array.encoding().filter_fn() {
-        filter_fn.filter(array, mask)
-    } else {
-        // Fallback: implement using Arrow kernels.
-        log::debug!(
-            "No filter implementation found for {}",
-            array.encoding().id(),
-        );
-
-        let array_ref = array.clone().into_canonical()?.into_arrow()?;
-        let mask_array = BooleanArray::new(mask.to_boolean_buffer()?, None);
-        let filtered = arrow_select::filter::filter(array_ref.as_ref(), &mask_array)?;
-
-        Ok(ArrayData::from_arrow(filtered, array.dtype().is_nullable()))
+        return filter_fn.filter(array, mask);
     }
+
+    // We can use scalar_at if the mask has length 1.
+    if mask.true_count() == 1 && array.encoding().scalar_at_fn().is_some() {
+        let idx = mask.indices()?[0];
+        return Ok(ConstantArray::new(scalar_at(array, idx)?, 1).into_array());
+    }
+
+    // Fallback: implement using Arrow kernels.
+    log::debug!(
+        "No filter implementation found for {}",
+        array.encoding().id(),
+    );
+
+    let array_ref = array.clone().into_arrow()?;
+    let mask_array = BooleanArray::new(mask.to_boolean_buffer()?, None);
+    let filtered = arrow_select::filter::filter(array_ref.as_ref(), &mask_array)?;
+
+    Ok(ArrayData::from_arrow(filtered, array.dtype().is_nullable()))
 }
 
 /// Represents the mask argument to a filter function.
@@ -92,9 +121,9 @@ pub struct FilterMask {
     array: ArrayData,
     true_count: usize,
     range_selectivity: f64,
-    indices: OnceLock<Vec<usize>>,
-    slices: OnceLock<Vec<(usize, usize)>>,
-    buffer: OnceLock<BooleanBuffer>,
+    indices: Arc<OnceLock<Vec<usize>>>,
+    slices: Arc<OnceLock<Vec<(usize, usize)>>>,
+    buffer: Arc<OnceLock<BooleanBuffer>>,
 }
 
 /// We implement Clone manually to trigger population of our cached indices or slices.
@@ -107,11 +136,7 @@ impl Clone for FilterMask {
                 .slices
                 .get_or_try_init(|| Ok(self.boolean_buffer()?.set_slices().collect()));
         } else {
-            let _: VortexResult<_> = self.indices.get_or_try_init(|| {
-                let mut indices = Vec::with_capacity(self.true_count());
-                indices.extend(self.boolean_buffer()?.set_indices());
-                Ok(indices)
-            });
+            let _: VortexResult<_> = self.indices();
         }
 
         Self {
@@ -145,7 +170,7 @@ impl<'a> BitIndexIterator<'a> {
     }
 }
 
-impl<'a> Iterator for BitIndexIterator<'a> {
+impl Iterator for BitIndexIterator<'_> {
     type Item = usize;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -160,8 +185,8 @@ impl<'a> Iterator for BitIndexIterator<'a> {
 }
 
 /// Safety: BitIndexIterator is TrustedLen because it knows its total length.
-unsafe impl<'a> TrustedLen for BitIndexIterator<'a> {}
-impl<'a> ExactSizeIterator for BitIndexIterator<'a> {}
+unsafe impl TrustedLen for BitIndexIterator<'_> {}
+impl ExactSizeIterator for BitIndexIterator<'_> {}
 
 pub enum FilterIter<'a> {
     // Slice of pre-cached indices of a filter mask.
@@ -176,11 +201,14 @@ pub enum FilterIter<'a> {
 
 impl FilterMask {
     /// Create a new FilterMask where the given indices are set.
-    pub fn from_indices<I: IntoIterator<Item = usize>>(length: usize, indices: I) -> Self {
+    pub fn from_indices<V: AsPrimitive<usize>, I: IntoIterator<Item = V>>(
+        length: usize,
+        indices: I,
+    ) -> Self {
         let mut buffer = MutableBuffer::new_null(length);
         indices
             .into_iter()
-            .for_each(|idx| arrow_buffer::bit_util::set_bit(&mut buffer, idx));
+            .for_each(|idx| arrow_buffer::bit_util::set_bit(&mut buffer, idx.as_()));
         Self::from(BooleanBufferBuilder::new_from_buffer(buffer, length).finish())
     }
 
@@ -232,6 +260,16 @@ impl FilterMask {
                 .into_bool()?
                 .boolean_buffer())
         })
+    }
+
+    fn indices(&self) -> VortexResult<&[usize]> {
+        self.indices
+            .get_or_try_init(|| {
+                let mut indices = Vec::with_capacity(self.true_count());
+                indices.extend(self.boolean_buffer()?.set_indices());
+                Ok(indices)
+            })
+            .map(|v| v.as_slice())
     }
 
     /// Returns the best iterator based on a selectivity threshold.
@@ -293,9 +331,9 @@ impl TryFrom<ArrayData> for FilterMask {
             array,
             true_count,
             range_selectivity: selectivity,
-            indices: OnceLock::new(),
-            slices: OnceLock::new(),
-            buffer: OnceLock::new(),
+            indices: Arc::new(OnceLock::new()),
+            slices: Arc::new(OnceLock::new()),
+            buffer: Arc::new(OnceLock::new()),
         })
     }
 }
@@ -323,7 +361,7 @@ mod test {
     #[test]
     fn test_filter() {
         let items =
-            PrimitiveArray::from_nullable_vec(vec![Some(0i32), None, Some(1i32), None, Some(2i32)])
+            PrimitiveArray::from_option_iter([Some(0i32), None, Some(1i32), None, Some(2i32)])
                 .into_array();
         let mask = FilterMask::try_from(
             BoolArray::from_iter([true, false, true, false, true]).into_array(),
@@ -337,8 +375,8 @@ mod test {
                 .unwrap()
                 .into_primitive()
                 .unwrap()
-                .into_maybe_null_slice::<i32>(),
-            vec![0i32, 1i32, 2i32]
+                .as_slice::<i32>(),
+            &[0i32, 1i32, 2i32]
         );
     }
 }

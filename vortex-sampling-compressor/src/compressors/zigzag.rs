@@ -24,7 +24,7 @@ impl EncodingCompressor for ZigZagCompressor {
 
     fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {
         // Only support primitive arrays
-        let parray = PrimitiveArray::try_from(array.clone()).ok()?;
+        let parray = PrimitiveArray::maybe_from(array)?;
 
         // Only supports signed integers
         if !parray.ptype().is_signed_int() {
@@ -52,7 +52,7 @@ impl EncodingCompressor for ZigZagCompressor {
         Ok(CompressedArray::compressed(
             ZigZagArray::try_new(compressed.array)?.into_array(),
             Some(CompressionTree::new(self, vec![compressed.path])),
-            Some(array.statistics()),
+            array,
         ))
     }
 

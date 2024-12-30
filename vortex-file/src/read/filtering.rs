@@ -2,14 +2,12 @@ use std::any::Any;
 use std::fmt::{Debug, Display};
 use std::sync::Arc;
 
-use arrow_buffer::BooleanBuffer;
 use itertools::Itertools;
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::array::{BoolArray, ConstantArray};
-use vortex_array::compute::and_kleene;
+use vortex_array::array::ConstantArray;
+use vortex_array::compute::{and_kleene, fill_null};
 use vortex_array::stats::ArrayStatistics;
-use vortex_array::validity::Validity;
-use vortex_array::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayData, IntoArrayData};
 use vortex_dtype::field::Field;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::{split_conjunction, unbox_any, ExprRef, VortexExpr};
@@ -85,11 +83,11 @@ impl VortexExpr for RowFilter {
 
             let new_mask = expr.evaluate(batch)?;
             // Either `and` or `and_kleene` is fine. They only differ on `false AND null`, but
-            // null_as_false only cares which values are true.
+            // fill_null only cares which values are true.
             mask = and_kleene(new_mask, mask)?;
         }
 
-        null_as_false(mask.into_bool()?)
+        fill_null(mask, false.into())
     }
 
     fn collect_references<'a>(&'a self, references: &mut HashSet<&'a Field>) {
@@ -117,40 +115,5 @@ impl PartialEq<dyn Any> for RowFilter {
             .downcast_ref::<Self>()
             .map(|x| x == self)
             .unwrap_or(false)
-    }
-}
-
-pub fn null_as_false(array: BoolArray) -> VortexResult<ArrayData> {
-    Ok(match array.validity() {
-        Validity::NonNullable => array.into_array(),
-        Validity::AllValid => BoolArray::from(array.boolean_buffer()).into_array(),
-        Validity::AllInvalid => BoolArray::from(BooleanBuffer::new_unset(array.len())).into_array(),
-        Validity::Array(v) => {
-            let bool_buffer = &array.boolean_buffer() & &v.into_bool()?.boolean_buffer();
-            BoolArray::from(bool_buffer).into_array()
-        }
-    })
-}
-
-#[cfg(test)]
-mod tests {
-    use vortex_array::array::BoolArray;
-    use vortex_array::validity::Validity;
-    use vortex_array::IntoArrayVariant;
-
-    use super::*;
-
-    #[test]
-    fn coerces_nulls() {
-        let bool_array = BoolArray::try_new(
-            BooleanBuffer::from_iter([true, true, false, false]),
-            Validity::from_iter([true, false, true, false]),
-        )
-        .unwrap();
-        let non_null_array = null_as_false(bool_array).unwrap().into_bool().unwrap();
-        assert_eq!(
-            non_null_array.boolean_buffer().iter().collect::<Vec<_>>(),
-            vec![true, false, false, false]
-        );
     }
 }

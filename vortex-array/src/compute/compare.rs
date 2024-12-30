@@ -122,33 +122,58 @@ pub fn compare(
         return compare(right, left, operator.swap());
     }
 
-    // If the RHS is constant and the LHS is Arrow, we can't do any better than arrow_compare.
-    if left.is_arrow() && (right.is_arrow() || right.is_constant()) {
-        return arrow_compare(left, right, operator);
-    }
-
     if let Some(result) = left
         .encoding()
         .compare_fn()
         .and_then(|f| f.compare(left, right, operator).transpose())
+        .transpose()?
     {
-        return result;
+        debug_assert_eq!(
+            result.len(),
+            left.len(),
+            "Compare length mismatch {}",
+            left.encoding().id()
+        );
+        debug_assert_eq!(
+            result.dtype(),
+            &DType::Bool((left.dtype().is_nullable() || right.dtype().is_nullable()).into()),
+            "Compare dtype mismatch {}",
+            left.encoding().id()
+        );
+        return Ok(result);
     }
 
     if let Some(result) = right
         .encoding()
         .compare_fn()
         .and_then(|f| f.compare(right, left, operator.swap()).transpose())
+        .transpose()?
     {
-        return result;
+        debug_assert_eq!(
+            result.len(),
+            left.len(),
+            "Compare length mismatch {}",
+            right.encoding().id()
+        );
+        debug_assert_eq!(
+            result.dtype(),
+            &DType::Bool((left.dtype().is_nullable() || right.dtype().is_nullable()).into()),
+            "Compare dtype mismatch {}",
+            right.encoding().id()
+        );
+        return Ok(result);
     }
 
-    log::debug!(
-        "No compare implementation found for LHS {}, RHS {}, and operator {} (or inverse)",
-        right.encoding().id(),
-        left.encoding().id(),
-        operator.swap(),
-    );
+    // Only log missing compare implementation if there's possibly better one than arrow,
+    // i.e. lhs isn't arrow or rhs isn't arrow or constant
+    if !(left.is_arrow() && (right.is_arrow() || right.is_constant())) {
+        log::debug!(
+            "No compare implementation found for LHS {}, RHS {}, and operator {} (or inverse)",
+            right.encoding().id(),
+            left.encoding().id(),
+            operator.swap(),
+        );
+    }
 
     // Fallback to arrow on canonical types
     arrow_compare(left, right, operator)
@@ -160,6 +185,7 @@ pub(crate) fn arrow_compare(
     rhs: &ArrayData,
     operator: Operator,
 ) -> VortexResult<ArrayData> {
+    let nullable = lhs.dtype().is_nullable() || rhs.dtype().is_nullable();
     let lhs = Datum::try_from(lhs.clone())?;
     let rhs = Datum::try_from(rhs.clone())?;
 
@@ -172,7 +198,7 @@ pub(crate) fn arrow_compare(
         Operator::Lte => cmp::lt_eq(&lhs, &rhs)?,
     };
 
-    Ok(ArrayData::from_arrow(&array, true))
+    Ok(ArrayData::from_arrow(&array, nullable))
 }
 
 pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: Operator) -> Scalar {
@@ -188,7 +214,10 @@ pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: Operator) -> Scalar {
             Operator::Lte => lhs <= rhs,
         };
 
-        Scalar::bool(b, Nullability::Nullable)
+        Scalar::bool(
+            b,
+            (lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into(),
+        )
     }
 }
 

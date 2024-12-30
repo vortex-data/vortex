@@ -5,6 +5,7 @@
 
 use core::fmt;
 use std::fmt::{Display, Formatter};
+use std::sync::Arc;
 
 use itertools::Itertools;
 
@@ -13,7 +14,7 @@ use itertools::Itertools;
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Field {
     /// A field selector by name
-    Name(String),
+    Name(Arc<str>),
     /// A field selector by index (position)
     Index(usize),
 }
@@ -26,7 +27,7 @@ impl From<&str> for Field {
 
 impl From<String> for Field {
     fn from(value: String) -> Self {
-        Field::Name(value)
+        Field::Name(value.into())
     }
 }
 

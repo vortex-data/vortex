@@ -20,7 +20,7 @@ use futures::{ready, Stream};
 use pin_project::pin_project;
 use vortex_array::array::ChunkedArray;
 use vortex_array::arrow::FromArrowArray;
-use vortex_array::compute::{take, TakeOptions};
+use vortex_array::compute::take;
 use vortex_array::{ArrayData, IntoArrayVariant, IntoCanonical};
 use vortex_dtype::field::Field;
 use vortex_error::{vortex_err, vortex_panic, VortexError};
@@ -160,7 +160,6 @@ impl Stream for RowIndicesStream {
             .conjunction_expr
             .evaluate(vortex_struct.as_ref())
             .map_err(|e| DataFusionError::External(e.into()))?
-            .into_canonical()?
             .into_arrow()?;
 
         // Convert the `selection` BooleanArray into a UInt64Array of indices.
@@ -349,9 +348,7 @@ where
         //  We should find a way to avoid decoding the filter columns and only decode the other
         //  columns, then stitch the StructArray back together from those.
         let projected_for_output = chunk.project(this.output_projection)?;
-        let decoded = take(projected_for_output, &row_indices, TakeOptions::default())?
-            .into_canonical()?
-            .into_arrow()?;
+        let decoded = take(projected_for_output, &row_indices)?.into_arrow()?;
 
         // Send back a single record batch of the decoded data.
         let output_batch = RecordBatch::from(decoded.as_struct());
@@ -379,10 +376,11 @@ mod test {
     use datafusion_expr::{and, col, lit};
     use datafusion_physical_expr::create_physical_expr;
     use itertools::Itertools;
-    use vortex_array::array::{BoolArray, ChunkedArray, PrimitiveArray, StructArray};
+    use vortex_array::array::{BoolArray, ChunkedArray, StructArray};
     use vortex_array::arrow::infer_schema;
     use vortex_array::validity::Validity;
     use vortex_array::{ArrayDType, IntoArrayData};
+    use vortex_buffer::buffer;
     use vortex_dtype::field::Field;
     use vortex_dtype::FieldName;
     use vortex_expr::datafusion::convert_expr_to_vortex;
@@ -395,7 +393,7 @@ mod test {
         let chunk = StructArray::try_new(
             Arc::new([FieldName::from("a"), FieldName::from("b")]),
             vec![
-                PrimitiveArray::from(vec![0u64, 1, 2]).into_array(),
+                buffer![0u64, 1, 2].into_array(),
                 BoolArray::from_iter([false, false, true]).into_array(),
             ],
             3,

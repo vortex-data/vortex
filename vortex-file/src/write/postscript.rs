@@ -1,6 +1,6 @@
 use flatbuffers::{FlatBufferBuilder, WIPOffset};
 use vortex_error::{vortex_bail, VortexResult};
-use vortex_flatbuffers::{footer as fb, WriteFlatBuffer};
+use vortex_flatbuffers::{footer as fb, FlatBufferRoot, WriteFlatBuffer};
 
 #[derive(Debug)]
 pub struct Postscript {
@@ -23,6 +23,8 @@ impl Postscript {
         })
     }
 }
+
+impl FlatBufferRoot for Postscript {}
 
 impl WriteFlatBuffer for Postscript {
     type Target<'a> = fb::Postscript<'a>;

@@ -6,21 +6,28 @@ use vortex_error::VortexResult;
 use crate::array::ChunkedArray;
 use crate::stream::take_rows::TakeRows;
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
-use crate::ArrayData;
+use crate::{ArrayData, IntoArrayData};
 
 pub trait ArrayStreamExt: ArrayStream {
-    fn collect_chunked(self) -> impl Future<Output = VortexResult<ChunkedArray>>
+    /// Collect the stream into a single `ArrayData`.
+    ///
+    /// If the stream yields multiple chunks, they will be returned as a [`ChunkedArray`].
+    fn into_array_data(self) -> impl Future<Output = VortexResult<ArrayData>>
     where
         Self: Sized,
     {
-        async {
+        async move {
             let dtype = self.dtype().clone();
-            self.try_collect()
-                .await
-                .and_then(|chunks| ChunkedArray::try_new(chunks, dtype))
+            let mut chunks: Vec<ArrayData> = self.try_collect().await?;
+            if chunks.len() == 1 {
+                Ok(chunks.remove(0))
+            } else {
+                Ok(ChunkedArray::try_new(chunks, dtype)?.into_array())
+            }
         }
     }
 
+    /// Perform a row-wise selection on the stream from an array of sorted indicessss.
     fn take_rows(self, indices: ArrayData) -> VortexResult<impl ArrayStream>
     where
         Self: Sized,
@@ -32,4 +39,4 @@ pub trait ArrayStreamExt: ArrayStream {
     }
 }
 
-impl<R: ArrayStream> ArrayStreamExt for R {}
+impl<S: ArrayStream> ArrayStreamExt for S {}

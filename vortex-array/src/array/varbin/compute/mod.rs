@@ -3,14 +3,19 @@ use vortex_scalar::Scalar;
 
 use crate::array::varbin::{varbin_scalar, VarBinArray};
 use crate::array::VarBinEncoding;
-use crate::compute::{ComputeVTable, FilterFn, ScalarAtFn, SliceFn, TakeFn};
+use crate::compute::{CompareFn, ComputeVTable, FilterFn, ScalarAtFn, SliceFn, TakeFn};
 use crate::{ArrayDType, ArrayData};
 
+mod compare;
 mod filter;
 mod slice;
 mod take;
 
 impl ComputeVTable for VarBinEncoding {
+    fn compare_fn(&self) -> Option<&dyn CompareFn<ArrayData>> {
+        Some(self)
+    }
+
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
         Some(self)
     }

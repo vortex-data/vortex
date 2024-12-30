@@ -3,12 +3,10 @@ use std::sync::Arc;
 
 use arrow_array::BooleanArray;
 use arrow_buffer::{BooleanBufferBuilder, MutableBuffer};
-use itertools::Itertools;
-use num_traits::AsPrimitive;
 use serde::{Deserialize, Serialize};
-use vortex_buffer::Buffer;
+use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
+use vortex_error::{VortexExpect as _, VortexResult};
 
 use crate::encoding::ids;
 use crate::stats::StatsSet;
@@ -20,6 +18,7 @@ use crate::{
 };
 
 pub mod compute;
+mod patch;
 mod stats;
 
 // Re-export the BooleanBuffer type on our API surface.
@@ -41,23 +40,23 @@ impl Display for BoolMetadata {
 
 impl BoolArray {
     /// Access internal array buffer
-    pub fn buffer(&self) -> &Buffer {
+    pub fn buffer(&self) -> &ByteBuffer {
         self.as_ref()
-            .buffer()
+            .byte_buffer()
             .vortex_expect("Missing buffer in BoolArray")
     }
 
     /// Convert array into its internal buffer
-    pub fn into_buffer(self) -> Buffer {
+    pub fn into_buffer(self) -> ByteBuffer {
         self.into_array()
-            .into_buffer()
+            .into_byte_buffer()
             .vortex_expect("BoolArray must have a buffer")
     }
 
     /// Get array values as an arrow [BooleanBuffer]
     pub fn boolean_buffer(&self) -> BooleanBuffer {
         BooleanBuffer::new(
-            self.buffer().clone().into_arrow(),
+            self.buffer().clone().into_arrow_buffer(),
             self.metadata().first_byte_bit_offset as usize,
             self.len(),
         )
@@ -72,7 +71,7 @@ impl BoolArray {
     pub fn into_boolean_builder(self) -> (BooleanBufferBuilder, usize) {
         let first_byte_bit_offset = self.metadata().first_byte_bit_offset as usize;
         let len = self.len();
-        let arrow_buffer = self.into_buffer().into_arrow();
+        let arrow_buffer = self.into_buffer().into_arrow_buffer();
         let mutable_buf = if arrow_buffer.ptr_offset() == 0 {
             arrow_buffer.into_mutable().unwrap_or_else(|b| {
                 let mut buf = MutableBuffer::with_capacity(b.len());
@@ -109,6 +108,7 @@ impl BoolArray {
 
     /// Create a new BoolArray from a buffer and validity metadata.
     /// Returns an error if the validity length does not match the buffer length.
+    #[allow(clippy::cast_possible_truncation)]
     pub fn try_new(buffer: BooleanBuffer, validity: Validity) -> VortexResult<Self> {
         let buffer_len = buffer.len();
         let buffer_offset = buffer.offset();
@@ -127,39 +127,11 @@ impl BoolArray {
                 validity: validity.to_metadata(buffer_len)?,
                 first_byte_bit_offset,
             }),
-            Some(Buffer::from(inner)),
-            validity.into_array().into_iter().collect_vec().into(),
+            Some(ByteBuffer::from_arrow_buffer(inner, Alignment::of::<u8>())),
+            validity.into_array().into_iter().collect(),
             StatsSet::default(),
         )?
         .try_into()
-    }
-
-    pub fn patch<P: AsPrimitive<usize>>(
-        self,
-        positions: &[P],
-        values: BoolArray,
-    ) -> VortexResult<Self> {
-        if positions.len() != values.len() {
-            vortex_bail!(
-                "Positions and values passed to patch had different lengths {} and {}",
-                positions.len(),
-                values.len()
-            );
-        }
-        if let Some(last_pos) = positions.last() {
-            if last_pos.as_() >= self.len() {
-                vortex_bail!(OutOfBounds: last_pos.as_(), 0, self.len())
-            }
-        }
-
-        let len = self.len();
-        let result_validity = self.validity().patch(len, positions, values.validity())?;
-        let (mut own_values, bit_offset) = self.into_boolean_builder();
-        for (idx, value) in positions.iter().zip_eq(values.boolean_buffer().iter()) {
-            own_values.set_bit(idx.as_() + bit_offset, value);
-        }
-
-        Self::try_new(own_values.finish().slice(bit_offset, len), result_validity)
     }
 
     /// Create a new BoolArray from a set of indices and a length.
@@ -234,12 +206,10 @@ impl VisitorVTable<BoolArray> for BoolEncoding {
 
 #[cfg(test)]
 mod tests {
-    use arrow_buffer::BooleanBuffer;
-
     use crate::array::BoolArray;
-    use crate::compute::{scalar_at, slice};
+    use crate::compute::scalar_at;
     use crate::validity::Validity;
-    use crate::{IntoArrayData, IntoArrayVariant};
+    use crate::IntoArrayData;
 
     #[test]
     fn bool_array() {
@@ -281,32 +251,5 @@ mod tests {
 
         let scalar = scalar_at(&arr, 4).unwrap();
         assert!(scalar.is_null());
-    }
-
-    #[test]
-    fn patch_sliced_bools() {
-        let arr = BoolArray::from(BooleanBuffer::new_set(12));
-        let sliced = slice(arr, 4, 12).unwrap();
-        let (values, offset) = sliced.into_bool().unwrap().into_boolean_builder();
-        assert_eq!(offset, 4);
-        assert_eq!(values.as_slice(), &[255, 15]);
-    }
-
-    #[test]
-    fn patch_sliced_bools_offset() {
-        let arr = BoolArray::from(BooleanBuffer::new_set(15));
-        let sliced = slice(arr, 4, 15).unwrap();
-        let (values, offset) = sliced.into_bool().unwrap().into_boolean_builder();
-        assert_eq!(offset, 4);
-        assert_eq!(values.as_slice(), &[255, 127]);
-    }
-
-    #[test]
-    fn patch_sliced_bools_even() {
-        let arr = BoolArray::from(BooleanBuffer::new_set(31));
-        let sliced = slice(arr, 8, 24).unwrap();
-        let (values, offset) = sliced.into_bool().unwrap().into_boolean_builder();
-        assert_eq!(offset, 0);
-        assert_eq!(values.as_slice(), &[255, 255]);
     }
 }

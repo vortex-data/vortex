@@ -1,16 +1,15 @@
 use std::ops::Deref;
 use std::sync::Arc;
 
-use vortex_dtype::DType;
-use vortex_dtype::Nullability::NonNullable;
+use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, vortex_panic, VortexError, VortexResult};
 
-use crate::value::ScalarValue;
-use crate::{InnerScalarValue, Scalar};
+use crate::value::{InnerScalarValue, ScalarValue};
+use crate::Scalar;
 
 pub struct ListScalar<'a> {
     dtype: &'a DType,
-    elements: Option<Arc<[InnerScalarValue]>>,
+    elements: Option<Arc<[ScalarValue]>>,
 }
 
 impl<'a> ListScalar<'a> {
@@ -50,7 +49,7 @@ impl<'a> ListScalar<'a> {
             .and_then(|l| l.get(idx))
             .map(|value| Scalar {
                 dtype: self.element_dtype(),
-                value: ScalarValue(value.clone()),
+                value: value.clone(),
             })
     }
 
@@ -58,11 +57,11 @@ impl<'a> ListScalar<'a> {
         self.elements
             .as_ref()
             .map(AsRef::as_ref)
-            .unwrap_or_else(|| &[] as &[InnerScalarValue])
+            .unwrap_or_else(|| &[] as &[ScalarValue])
             .iter()
             .map(|e| Scalar {
                 dtype: self.element_dtype(),
-                value: ScalarValue(e.clone()),
+                value: e.clone(),
             })
     }
 
@@ -72,7 +71,11 @@ impl<'a> ListScalar<'a> {
 }
 
 impl Scalar {
-    pub fn list(element_dtype: Arc<DType>, children: Vec<Scalar>) -> Self {
+    pub fn list(
+        element_dtype: Arc<DType>,
+        children: Vec<Scalar>,
+        nullability: Nullability,
+    ) -> Self {
         for child in &children {
             if child.dtype() != &*element_dtype {
                 vortex_panic!(
@@ -83,13 +86,17 @@ impl Scalar {
             }
         }
         Self {
-            dtype: DType::List(element_dtype, NonNullable),
+            dtype: DType::List(element_dtype, nullability),
             value: ScalarValue(InnerScalarValue::List(
-                children
-                    .into_iter()
-                    .map(|x| x.value.0)
-                    .collect::<Arc<[_]>>(),
+                children.into_iter().map(|x| x.value).collect::<Arc<[_]>>(),
             )),
+        }
+    }
+
+    pub fn list_empty(element_dtype: Arc<DType>, nullability: Nullability) -> Self {
+        Self {
+            dtype: DType::List(element_dtype, nullability),
+            value: ScalarValue(InnerScalarValue::Null),
         }
     }
 }

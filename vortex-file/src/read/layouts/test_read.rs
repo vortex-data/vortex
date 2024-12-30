@@ -2,67 +2,62 @@ use std::collections::{BTreeSet, VecDeque};
 use std::sync::{Arc, RwLock};
 
 use bytes::Bytes;
+use itertools::Itertools;
 use vortex_array::ArrayData;
-use vortex_error::{vortex_panic, VortexUnwrap};
+use vortex_error::VortexUnwrap;
 
 use crate::read::mask::RowMask;
-use crate::read::splits::{FixedSplitIterator, MaskIterator, SplitMask};
-use crate::{BatchRead, LayoutMessageCache, LayoutReader, MessageLocator};
+use crate::read::splits::SplitsAccumulator;
+use crate::{LayoutMessageCache, LayoutReader, MessageLocator, PollRead};
 
-fn layout_splits(
-    layouts: &[&mut dyn LayoutReader],
-    length: usize,
-) -> impl Iterator<Item = RowMask> {
-    let mut iter = FixedSplitIterator::new(length as u64, None);
+fn layout_splits(layouts: &[&dyn LayoutReader], length: usize) -> impl Iterator<Item = RowMask> {
     let mut splits = BTreeSet::new();
     for layout in layouts {
         layout.add_splits(0, &mut splits).vortex_unwrap();
     }
-    iter.additional_splits(&mut splits).vortex_unwrap();
-    iter.map(|m| m.vortex_unwrap()).map(|m| match m {
-        SplitMask::ReadMore(_) => vortex_panic!("Will never read more"),
-        SplitMask::Mask(m) => m,
-    })
+    splits.insert(length);
+
+    let iter = SplitsAccumulator::new(splits.into_iter().tuple_windows::<(usize, usize)>(), None);
+
+    iter.into_iter().map(|m| m.unwrap())
 }
 
 pub fn read_layout_data(
-    layout: &mut dyn LayoutReader,
+    layout: &dyn LayoutReader,
     cache: Arc<RwLock<LayoutMessageCache>>,
     buf: &Bytes,
     selector: &RowMask,
 ) -> Option<ArrayData> {
-    while let Some(rr) = layout.read_selection(selector).unwrap() {
+    while let Some(rr) = layout.poll_read(selector).unwrap() {
         match rr {
-            BatchRead::ReadMore(m) => {
+            PollRead::ReadMore(m) => {
                 let mut write_cache_guard = cache.write().unwrap();
                 for MessageLocator(id, range) in m {
-                    write_cache_guard.set(id, buf.slice(range.to_range()));
+                    write_cache_guard.set(id, buf.slice(range.as_range()));
                 }
             }
-            BatchRead::Batch(a) => return Some(a),
+            PollRead::Value(a) => return Some(a),
         }
     }
     None
 }
 
 pub fn read_filters(
-    layout: &mut dyn LayoutReader,
+    layout: &dyn LayoutReader,
     cache: Arc<RwLock<LayoutMessageCache>>,
     buf: &Bytes,
     selector: &RowMask,
 ) -> Option<RowMask> {
-    while let Some(rr) = layout.read_selection(selector).unwrap() {
+    while let Some(rr) = layout.poll_read(selector).unwrap() {
         match rr {
-            BatchRead::ReadMore(m) => {
+            PollRead::ReadMore(m) => {
                 let mut write_cache_guard = cache.write().unwrap();
                 for MessageLocator(id, range) in m {
-                    write_cache_guard.set(id, buf.slice(range.to_range()));
+                    write_cache_guard.set(id, buf.slice(range.as_range()));
                 }
             }
-            BatchRead::Batch(a) => {
-                return Some(
-                    RowMask::from_mask_array(&a, selector.begin(), selector.end()).unwrap(),
-                );
+            PollRead::Value(a) => {
+                return Some(RowMask::from_array(&a, selector.begin(), selector.end()).unwrap());
             }
         }
     }
@@ -71,8 +66,8 @@ pub fn read_filters(
 }
 
 pub fn filter_read_layout(
-    filter_layout: &mut dyn LayoutReader,
-    layout: &mut dyn LayoutReader,
+    filter_layout: &dyn LayoutReader,
+    layout: &dyn LayoutReader,
     cache: Arc<RwLock<LayoutMessageCache>>,
     buf: &Bytes,
     length: usize,
@@ -84,7 +79,7 @@ pub fn filter_read_layout(
 }
 
 pub fn read_layout(
-    layout: &mut dyn LayoutReader,
+    layout: &dyn LayoutReader,
     cache: Arc<RwLock<LayoutMessageCache>>,
     buf: &Bytes,
     length: usize,

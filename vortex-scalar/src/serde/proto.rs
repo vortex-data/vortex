@@ -1,4 +1,4 @@
-use vortex_buffer::{Buffer, BufferString};
+use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::half::f16;
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
@@ -37,8 +37,7 @@ impl From<&ScalarValue> for pb::ScalarValue {
             ScalarValue(InnerScalarValue::List(v)) => {
                 let mut values = Vec::with_capacity(v.len());
                 for elem in v.iter() {
-                    // FIXME(DK): protobufs should probably also have inner vs non-inner?
-                    values.push(pb::ScalarValue::from(&ScalarValue(elem.clone())));
+                    values.push(pb::ScalarValue::from(elem));
                 }
                 pb::ScalarValue {
                     kind: Some(Kind::ListValue(ListValue { values })),
@@ -146,8 +145,8 @@ fn deserialize_scalar_value(dtype: &DType, value: &pb::ScalarValue) -> VortexRes
         Kind::StringValue(v) => Ok(ScalarValue(InnerScalarValue::BufferString(
             BufferString::from(v.clone()),
         ))),
-        Kind::BytesValue(v) => Ok(ScalarValue(InnerScalarValue::Buffer(Buffer::from(
-            v.as_slice(),
+        Kind::BytesValue(v) => Ok(ScalarValue(InnerScalarValue::Buffer(ByteBuffer::from(
+            v.clone(),
         )))),
         Kind::ListValue(v) => {
             let mut values = Vec::with_capacity(v.values.len());
@@ -164,9 +163,7 @@ fn deserialize_scalar_value(dtype: &DType, value: &pb::ScalarValue) -> VortexRes
                 }
                 _ => vortex_bail!("invalid dtype for list value {}", dtype),
             }
-            Ok(ScalarValue(InnerScalarValue::List(
-                values.iter().map(|x| x.0.clone()).collect(),
-            )))
+            Ok(ScalarValue(InnerScalarValue::List(values.into())))
         }
     }
 }
@@ -238,8 +235,8 @@ mod test {
             ),
             ScalarValue(InnerScalarValue::List(
                 vec![
-                    InnerScalarValue::Primitive(42i32.into()),
-                    InnerScalarValue::Primitive(43i32.into()),
+                    ScalarValue(InnerScalarValue::Primitive(42i32.into())),
+                    ScalarValue(InnerScalarValue::Primitive(43i32.into())),
                 ]
                 .into(),
             )),

@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, minimum-scale=1.0, initial-scale=1, user-scalable=yes"/>
+    <link rel="preload" href="https://vortex-benchmark-results-database.s3.amazonaws.com/data.json" as="fetch" crossorigin>
+    <link rel="preload" href="https://vortex-benchmark-results-database.s3.amazonaws.com/commits.json" as="fetch" crossorigin>
+    <link rel="icon" type="image/x-icon" href="favicon.png">
+    <link rel="stylesheet" href="style.css">
+    <title>Benchmarks</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.rawgit.com/h2non/jsHashes/master/hashes.js"></script>
+    <!-- Chart.js Zoom Plugin -->
+    <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+    <!-- Chart.js Zoom Plugin -->
+
+    <!-- <script src="data.js"></script> -->
+    <script src="code.js"></script>
+    <script id="main-script">
+      initAndRender([
+          ["Random Access", undefined],
+          ["Compression", {
+              "keptCharts": [
+                  "COMPRESS THROUGHPUT",
+                  "PARQUET RS-ZSTD COMPRESS THROUGHPUT",
+                  "DECOMPRESS THROUGHPUT",
+                  "PARQUET RS-ZSTD DECOMPRESS THROUGHPUT",
+                  "VORTEX COMPRESSION RATIO",
+                  "VORTEX:PARQUET-ZSTD SIZE",
+              ],
+              "hiddenDatasets": new Set([
+                  "AirlineSentiment",
+              ]),
+              "removedDatasets": new Set([
+                  "TPC-H l_comment canonical",
+                  "TPC-H l_comment chunked without fsst",
+              ]),
+              "renamedDatasets": undefined,
+          }],
+          ["TPC-H", {
+              "keptCharts": undefined,
+              "hiddenDatasets": undefined,
+              "removedDatasets": new Set([
+                  "vortex-in-memory-no-pushdown",
+                  "vortex-in-memory-pushdown",
+                  "vortex-file-uncompressed",
+              ]),
+              "renamedDatasets": {
+                  "vortex-file-compressed": "vortex",
+              },
+          }],
+          ["Clickbench", undefined],
+      ]);
+    </script>
+  </head>
+
+  <body>
+    <div class="header-item">
+      <strong class="header-label">Repository:</strong>
+      <a id="repository-link" rel="noopener" href="https://github.com/spiraldb/vortex">https://github.com/spiraldb/vortex</a>
+    </div>
+    <div id="main">
+      <ul id="toc"></ul>
+      <a href="https://vortex-benchmark-results-database.s3.amazonaws.com/data.json" class="button">Download data as JSON</a>
+    </div>
+  </body>
+</html>

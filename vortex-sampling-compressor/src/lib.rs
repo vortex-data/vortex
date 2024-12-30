@@ -5,14 +5,17 @@ use compressors::chunked::DEFAULT_CHUNKED_COMPRESSOR;
 use compressors::constant::ConstantCompressor;
 use compressors::delta::DeltaCompressor;
 use compressors::fsst::FSSTCompressor;
+#[cfg(not(target_arch = "wasm32"))]
 use compressors::roaring_bool::RoaringBoolCompressor;
+#[cfg(not(target_arch = "wasm32"))]
 use compressors::roaring_int::RoaringIntCompressor;
 use compressors::struct_::StructCompressor;
 use compressors::varbin::VarBinCompressor;
-use compressors::{CompressedArray, CompressionTree, CompressorRef};
+use compressors::{CompressedArray, CompressorRef};
 use vortex_alp::{ALPEncoding, ALPRDEncoding};
 use vortex_array::array::{
-    PrimitiveEncoding, SparseEncoding, StructEncoding, VarBinEncoding, VarBinViewEncoding,
+    ListEncoding, PrimitiveEncoding, SparseEncoding, StructEncoding, VarBinEncoding,
+    VarBinViewEncoding,
 };
 use vortex_array::encoding::EncodingRef;
 use vortex_array::Context;
@@ -21,6 +24,7 @@ use vortex_datetime_parts::DateTimePartsEncoding;
 use vortex_dict::DictEncoding;
 use vortex_fastlanes::{BitPackedEncoding, DeltaEncoding, FoREncoding};
 use vortex_fsst::FSSTEncoding;
+#[cfg(not(target_arch = "wasm32"))]
 use vortex_roaring::{RoaringBoolEncoding, RoaringIntEncoding};
 use vortex_runend::RunEndEncoding;
 use vortex_runend_bool::RunEndBoolEncoding;
@@ -29,6 +33,7 @@ use vortex_zigzag::ZigZagEncoding;
 use crate::compressors::alp::ALPCompressor;
 use crate::compressors::date_time_parts::DateTimePartsCompressor;
 use crate::compressors::dict::DictCompressor;
+use crate::compressors::list::ListCompressor;
 use crate::compressors::r#for::FoRCompressor;
 use crate::compressors::runend::DEFAULT_RUN_END_COMPRESSOR;
 use crate::compressors::runend_bool::RunEndBoolCompressor;
@@ -39,13 +44,17 @@ use crate::compressors::zigzag::ZigZagCompressor;
 pub mod arbitrary;
 pub mod compressors;
 mod constants;
+mod downscale;
 mod sampling;
 mod sampling_compressor;
 
 pub use sampling_compressor::*;
 
-pub const DEFAULT_COMPRESSORS: [CompressorRef; 14] = [
+use crate::compressors::alp_rd::ALPRDCompressor;
+
+pub const DEFAULT_COMPRESSORS: [CompressorRef; 16] = [
     &ALPCompressor as CompressorRef,
+    &ALPRDCompressor,
     &BITPACK_WITH_PATCHES,
     &DEFAULT_CHUNKED_COMPRESSOR,
     &ConstantCompressor,
@@ -60,12 +69,15 @@ pub const DEFAULT_COMPRESSORS: [CompressorRef; 14] = [
     &DEFAULT_RUN_END_COMPRESSOR,
     &SparseCompressor,
     &StructCompressor,
+    &ListCompressor,
     &VarBinCompressor,
     &ZigZagCompressor,
 ];
 
-pub const ALL_COMPRESSORS: [CompressorRef; 17] = [
+#[cfg(not(target_arch = "wasm32"))]
+pub const ALL_COMPRESSORS: [CompressorRef; 19] = [
     &ALPCompressor as CompressorRef,
+    &ALPRDCompressor,
     &BITPACK_WITH_PATCHES,
     &DEFAULT_CHUNKED_COMPRESSOR,
     &ConstantCompressor,
@@ -80,6 +92,31 @@ pub const ALL_COMPRESSORS: [CompressorRef; 17] = [
     &DEFAULT_RUN_END_COMPRESSOR,
     &SparseCompressor,
     &StructCompressor,
+    &ListCompressor,
+    &VarBinCompressor,
+    &ZigZagCompressor,
+];
+
+#[cfg(target_arch = "wasm32")]
+pub const ALL_COMPRESSORS: [CompressorRef; 17] = [
+    &ALPCompressor as CompressorRef,
+    &ALPRDCompressor,
+    &BITPACK_WITH_PATCHES,
+    &DEFAULT_CHUNKED_COMPRESSOR,
+    &ConstantCompressor,
+    &DateTimePartsCompressor,
+    &DeltaCompressor,
+    &DictCompressor,
+    &FoRCompressor,
+    &FSSTCompressor,
+    // vortex-roaring depends on croaring which does not build for wasm32
+    // &RoaringBoolCompressor,
+    // &RoaringIntCompressor,
+    &RunEndBoolCompressor,
+    &DEFAULT_RUN_END_COMPRESSOR,
+    &SparseCompressor,
+    &StructCompressor,
+    &ListCompressor,
     &VarBinCompressor,
     &ZigZagCompressor,
 ];
@@ -96,12 +133,16 @@ pub static ALL_ENCODINGS_CONTEXT: LazyLock<Arc<Context>> = LazyLock::new(|| {
         &FoREncoding,
         &FSSTEncoding,
         &PrimitiveEncoding,
+        // vortex-roaring depends on croaring which does not build for wasm32
+        #[cfg(not(target_arch = "wasm32"))]
         &RoaringBoolEncoding,
+        #[cfg(not(target_arch = "wasm32"))]
         &RoaringIntEncoding,
         &RunEndEncoding,
         &RunEndBoolEncoding,
         &SparseEncoding,
         &StructEncoding,
+        &ListEncoding,
         &VarBinEncoding,
         &VarBinViewEncoding,
         &ZigZagEncoding,
@@ -123,16 +164,8 @@ impl Objective {
         base_size_bytes: usize,
         config: &CompressConfig,
     ) -> f64 {
-        let num_descendants = array
-            .path()
-            .as_ref()
-            .map(CompressionTree::num_descendants)
-            .unwrap_or(0) as u64;
-        let overhead_bytes = num_descendants * config.overhead_bytes_per_array;
-        let size_in_bytes = array.nbytes() as u64 + overhead_bytes;
-
         match &config.objective {
-            Objective::MinSize => (size_in_bytes as f64) / (base_size_bytes as f64),
+            Objective::MinSize => (array.nbytes() as f64) / (base_size_bytes as f64),
         }
     }
 }
@@ -150,13 +183,23 @@ pub struct CompressConfig {
     max_cost: u8,
     // Are we minimizing size or maximizing performance?
     objective: Objective,
-    /// Penalty in bytes per compression level
-    overhead_bytes_per_array: u64,
 
     // Target chunk size in bytes
     target_block_bytesize: usize,
     // Target chunk size in row count
     target_block_size: usize,
+}
+
+impl CompressConfig {
+    pub fn with_sample_size(mut self, sample_size: u16) -> Self {
+        self.sample_size = sample_size;
+        self
+    }
+
+    pub fn with_sample_count(mut self, sample_count: u16) -> Self {
+        self.sample_count = sample_count;
+        self
+    }
 }
 
 impl Default for CompressConfig {
@@ -169,7 +212,6 @@ impl Default for CompressConfig {
             sample_count: 16,
             max_cost: constants::DEFAULT_MAX_COST,
             objective: Objective::MinSize,
-            overhead_bytes_per_array: 64,
             target_block_bytesize: 16 * mib,
             target_block_size: 64 * kib,
             rng_seed: 0,

@@ -5,7 +5,6 @@ use vortex_alp::{match_each_alp_float_ptype, ALPRDEncoding, RDEncoder as ALPRDEn
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::PrimitiveArray;
 use vortex_array::encoding::{Encoding, EncodingRef};
-use vortex_array::stats::ArrayStatistics;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::PType;
@@ -35,7 +34,7 @@ impl EncodingCompressor for ALPRDCompressor {
 
     fn can_compress(&self, array: &ArrayData) -> Option<&dyn EncodingCompressor> {
         // Only support primitive arrays
-        let parray = PrimitiveArray::try_from(array.clone()).ok()?;
+        let parray = PrimitiveArray::maybe_from(array)?;
 
         // Only supports f32 and f64
         if !matches!(parray.ptype(), PType::F32 | PType::F64) {
@@ -68,7 +67,7 @@ impl EncodingCompressor for ALPRDCompressor {
         Ok(CompressedArray::compressed(
             encoded,
             Some(CompressionTree::new_with_metadata(self, vec![], encoder)),
-            Some(array.statistics()),
+            array,
         ))
     }
 
@@ -80,6 +79,6 @@ impl EncodingCompressor for ALPRDCompressor {
 /// Create a new `ALPRDEncoder` from the given array of samples.
 fn alp_rd_new_encoder(array: &PrimitiveArray) -> ALPRDEncoder {
     match_each_alp_float_ptype!(array.ptype(), |$P| {
-        ALPRDEncoder::new(array.maybe_null_slice::<$P>())
+        ALPRDEncoder::new(array.as_slice::<$P>())
     })
 }

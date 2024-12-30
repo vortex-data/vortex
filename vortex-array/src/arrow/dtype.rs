@@ -169,7 +169,10 @@ pub fn infer_data_type(dtype: &DType) -> VortexResult<DataType> {
         // There are four kinds of lists: List (32-bit offsets), Large List (64-bit), List View
         // (32-bit), Large List View (64-bit). We cannot both guarantee zero-copy and commit to an
         // Arrow dtype because we do not how large our offsets are.
-        DType::List(..) => vortex_bail!("Unsupported dtype: {}", dtype),
+        DType::List(l, null) => DataType::List(FieldRef::new(Field::new_list_field(
+            infer_data_type(l.as_ref())?,
+            (*null).into(),
+        ))),
         DType::Extension(ext_dtype) => {
             // Try and match against the known extension DTypes.
             if is_temporal_ext_type(ext_dtype.id()) {

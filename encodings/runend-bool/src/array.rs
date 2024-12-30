@@ -2,7 +2,7 @@ use std::fmt::{Debug, Display};
 
 use serde::{Deserialize, Serialize};
 use vortex_array::array::{BoolArray, PrimitiveArray};
-use vortex_array::compute::{scalar_at, search_sorted, SearchSortedSide};
+use vortex_array::compute::{scalar_at, search_sorted_usize, SearchSortedSide};
 use vortex_array::encoding::ids;
 use vortex_array::stats::{ArrayStatistics, Stat, StatisticsVTable, StatsSet};
 use vortex_array::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
@@ -90,7 +90,7 @@ impl RunEndBoolArray {
             let run_count = ends_len;
             let min = start && is_constant; // i.e., true iff all are true
             let max = start || ends_len > 1; // i.e., true iff any are true
-            StatsSet::from_iter([
+            StatsSet::new_unchecked(vec![
                 (Stat::IsConstant, is_constant.into()),
                 (Stat::IsSorted, is_sorted.into()),
                 (Stat::IsStrictSorted, is_strict_sorted.into()),
@@ -112,7 +112,7 @@ impl RunEndBoolArray {
     }
 
     pub(crate) fn find_physical_index(&self, index: usize) -> VortexResult<usize> {
-        search_sorted(&self.ends(), index + self.offset(), SearchSortedSide::Right)
+        search_sorted_usize(&self.ends(), index + self.offset(), SearchSortedSide::Right)
             .map(|s| s.to_ends_index(self.ends().len()))
     }
 
@@ -148,11 +148,7 @@ impl RunEndBoolArray {
 
 pub fn encode_runend_bool(array: &BoolArray) -> VortexResult<RunEndBoolArray> {
     let (ends, start) = runend_bool_encode_slice(&array.boolean_buffer());
-    RunEndBoolArray::try_new(
-        PrimitiveArray::from(ends).into_array(),
-        start,
-        array.validity(),
-    )
+    RunEndBoolArray::try_new(ends.into_array(), start, array.validity())
 }
 
 pub(crate) fn decode_runend_bool(
@@ -163,7 +159,7 @@ pub(crate) fn decode_runend_bool(
     length: usize,
 ) -> VortexResult<BoolArray> {
     match_each_integer_ptype!(run_ends.ptype(), |$E| {
-        let bools = runend_bool_decode_slice(trimmed_ends_iter(run_ends.maybe_null_slice::<$E>(), offset, length), start, length);
+        let bools = runend_bool_decode_slice(trimmed_ends_iter(run_ends.as_slice::<$E>(), offset, length), start, length);
         Ok(BoolArray::try_new(bools, validity)?)
     })
 }
@@ -227,7 +223,7 @@ impl StatisticsVTable<RunEndBoolArray> for RunEndBoolEncoding {
                 let mut prev_end: usize = 0;
                 let mut include = array.start();
                 match_each_unsigned_integer_ptype!(pends.ptype(), |$P| {
-                    for end in trimmed_ends_iter(pends.maybe_null_slice::<$P>(), array.offset(), array.len()) {
+                    for end in trimmed_ends_iter(pends.as_slice::<$P>(), array.offset(), array.len()) {
                         if include {
                             true_count += end - prev_end;
                         }
@@ -248,18 +244,19 @@ impl StatisticsVTable<RunEndBoolArray> for RunEndBoolEncoding {
 }
 
 #[cfg(test)]
+#[allow(clippy::cast_possible_truncation)]
 mod test {
     use core::iter;
 
-    use itertools::Itertools as _;
     use rstest::rstest;
-    use vortex_array::array::{BoolArray, PrimitiveArray};
-    use vortex_array::compute::{scalar_at, slice, take, TakeOptions};
+    use vortex_array::array::BoolArray;
+    use vortex_array::compute::{scalar_at, slice, take};
     use vortex_array::stats::ArrayStatistics;
     use vortex_array::validity::Validity;
     use vortex_array::{
         ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoCanonical, ToArrayData,
     };
+    use vortex_buffer::{buffer, Buffer};
     use vortex_dtype::{DType, Nullability};
 
     use crate::RunEndBoolArray;
@@ -267,9 +264,12 @@ mod test {
     #[test]
     fn new() {
         // [false, false, true, true, false]
-        let arr =
-            RunEndBoolArray::try_new(vec![2u32, 4, 5].into_array(), false, Validity::NonNullable)
-                .unwrap();
+        let arr = RunEndBoolArray::try_new(
+            buffer![2u32, 4, 5].into_array(),
+            false,
+            Validity::NonNullable,
+        )
+        .unwrap();
         assert_eq!(arr.len(), 5);
         assert_eq!(arr.dtype(), &DType::Bool(Nullability::NonNullable));
 
@@ -283,7 +283,7 @@ mod test {
         let arr = slice(
             // [t, t, f, f, f, t, f, t, t, t]
             RunEndBoolArray::try_new(
-                vec![2u32, 5, 6, 7, 10].into_array(),
+                buffer![2u32, 5, 6, 7, 10].into_array(),
                 true,
                 Validity::NonNullable,
             )
@@ -324,9 +324,12 @@ mod test {
 
     #[test]
     fn flatten() {
-        let arr =
-            RunEndBoolArray::try_new(vec![2u32, 4, 5].into_array(), true, Validity::NonNullable)
-                .unwrap();
+        let arr = RunEndBoolArray::try_new(
+            buffer![2u32, 4, 5].into_array(),
+            true,
+            Validity::NonNullable,
+        )
+        .unwrap();
 
         assert_eq!(
             to_bool_vec(&arr.to_array()),
@@ -338,13 +341,12 @@ mod test {
     fn take_bool() {
         let arr = take(
             RunEndBoolArray::try_new(
-                vec![2u32, 4, 5, 10].into_array(),
+                buffer![2u32, 4, 5, 10].into_array(),
                 true,
                 Validity::NonNullable,
             )
             .unwrap(),
-            vec![0, 0, 6, 4].into_array(),
-            TakeOptions::default(),
+            buffer![0, 0, 6, 4].into_array(),
         )
         .unwrap();
 
@@ -376,7 +378,7 @@ mod test {
 
         let ends = (1u32..(ends_len as u32))
             .chain(iter::once(len as u32))
-            .collect_vec();
+            .collect::<Buffer<u32>>();
         assert_eq!(ends.len(), ends_len);
         assert_eq!(*ends.last().unwrap(), len as u32);
 
@@ -404,7 +406,7 @@ mod test {
     #[test]
     fn sliced_true_count() {
         let arr = RunEndBoolArray::try_new(
-            PrimitiveArray::from(vec![5u32, 7, 10]).into_array(),
+            buffer![5u32, 7, 10].into_array(),
             true,
             Validity::NonNullable,
         )

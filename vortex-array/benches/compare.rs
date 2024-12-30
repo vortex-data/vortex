@@ -1,12 +1,12 @@
 #![allow(clippy::unwrap_used)]
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use itertools::Itertools;
 use rand::distributions::Uniform;
 use rand::{thread_rng, Rng};
 use vortex_array::array::BoolArray;
 use vortex_array::compute::Operator;
 use vortex_array::IntoArrayData;
+use vortex_buffer::Buffer;
 use vortex_error::VortexError;
 
 fn compare_bool(c: &mut Criterion) {
@@ -33,12 +33,12 @@ fn compare_primitive(c: &mut Criterion) {
     let range = Uniform::new(0i64, 100_000_000);
     let arr = (0..10_000_000)
         .map(|_| rng.sample(range))
-        .collect_vec()
+        .collect::<Buffer<_>>()
         .into_array();
 
     let arr2 = (0..10_000_000)
         .map(|_| rng.sample(range))
-        .collect_vec()
+        .collect::<Buffer<_>>()
         .into_array();
 
     group.bench_function("compare_int", |b| {

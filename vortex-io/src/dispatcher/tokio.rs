@@ -6,7 +6,7 @@ use futures::channel::oneshot;
 use tokio::task::{JoinHandle as TokioJoinHandle, LocalSet};
 use vortex_error::{vortex_bail, vortex_panic, VortexResult};
 
-use super::Dispatch;
+use super::{Dispatch, JoinHandle as VortexJoinHandle};
 
 trait TokioSpawn {
     fn spawn(self: Box<Self>) -> TokioJoinHandle<()>;
@@ -84,7 +84,7 @@ where
 }
 
 impl Dispatch for TokioDispatcher {
-    fn dispatch<F, Fut, R>(&self, task: F) -> VortexResult<oneshot::Receiver<R>>
+    fn dispatch<F, Fut, R>(&self, task: F) -> VortexResult<VortexJoinHandle<R>>
     where
         F: (FnOnce() -> Fut) + Send + 'static,
         Fut: Future<Output = R> + 'static,
@@ -95,7 +95,7 @@ impl Dispatch for TokioDispatcher {
         let task = TokioTask { result: tx, task };
 
         match self.submitter.send(Box::new(task)) {
-            Ok(()) => Ok(rx),
+            Ok(()) => Ok(VortexJoinHandle(rx)),
             Err(err) => vortex_bail!("Dispatcher error spawning task: {err}"),
         }
     }
@@ -118,28 +118,24 @@ impl Dispatch for TokioDispatcher {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Write;
-
-    use tempfile::NamedTempFile;
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::Arc;
 
     use super::TokioDispatcher;
     use crate::dispatcher::Dispatch;
-    use crate::{TokioFile, VortexReadAt};
 
     #[tokio::test]
     async fn test_tokio_dispatch_simple() {
         let dispatcher = TokioDispatcher::new(4);
-        let mut tmpfile = NamedTempFile::new().unwrap();
-        write!(tmpfile, "5678").unwrap();
-
+        let atomic_number = Arc::new(AtomicU32::new(0));
+        let atomic_number_clone = Arc::clone(&atomic_number);
         let rx = dispatcher
             .dispatch(|| async move {
-                let file = TokioFile::open(tmpfile.path()).unwrap();
-
-                file.read_byte_range(0, 4).await.unwrap()
+                atomic_number_clone.fetch_add(1, Ordering::SeqCst);
             })
             .unwrap();
 
-        assert_eq!(&rx.await.unwrap(), "5678".as_bytes());
+        rx.await.unwrap();
+        assert_eq!(atomic_number.load(Ordering::SeqCst), 1u32);
     }
 }

@@ -216,7 +216,6 @@ mod test {
     use datafusion_common::{Column, TableReference};
     use datafusion_expr::{and, col, lit, BinaryExpr, Expr, Operator};
     use vortex_array::array::{PrimitiveArray, StructArray, VarBinViewArray};
-    use vortex_array::validity::Validity;
     use vortex_array::{ArrayData, IntoArrayData};
 
     use crate::memory::VortexMemTableOptions;
@@ -231,10 +230,7 @@ mod test {
             "Monroe",
             "Adams",
         ]);
-        let term_start = PrimitiveArray::from_vec(
-            vec![1789u16, 1797, 1801, 1809, 1817, 1825],
-            Validity::NonNullable,
-        );
+        let term_start = PrimitiveArray::from_iter([1789u16, 1797, 1801, 1809, 1817, 1825]);
 
         StructArray::from_fields(&[
             ("president", names.into_array()),

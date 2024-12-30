@@ -1,7 +1,7 @@
 use std::iter;
 
 use arbitrary::{Result, Unstructured};
-use vortex_buffer::{Buffer, BufferString};
+use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::half::f16;
 use vortex_dtype::{DType, PType};
 
@@ -21,13 +21,13 @@ fn random_scalar_value(u: &mut Unstructured, dtype: &DType) -> Result<ScalarValu
         DType::Utf8(_) => Ok(ScalarValue(InnerScalarValue::BufferString(
             BufferString::from(u.arbitrary::<String>()?),
         ))),
-        DType::Binary(_) => Ok(ScalarValue(InnerScalarValue::Buffer(Buffer::from(
+        DType::Binary(_) => Ok(ScalarValue(InnerScalarValue::Buffer(ByteBuffer::from(
             u.arbitrary::<Vec<u8>>()?,
         )))),
         DType::Struct(sdt, _) => Ok(ScalarValue(InnerScalarValue::List(
             sdt.dtypes()
                 .iter()
-                .map(|d| random_scalar_value(u, d).map(|x| x.0))
+                .map(|d| random_scalar_value(u, d))
                 .collect::<Result<Vec<_>>>()?
                 .into(),
         ))),
@@ -35,7 +35,7 @@ fn random_scalar_value(u: &mut Unstructured, dtype: &DType) -> Result<ScalarValu
             iter::from_fn(|| {
                 u.arbitrary()
                     .unwrap_or(false)
-                    .then(|| random_scalar_value(u, edt).map(|x| x.0))
+                    .then(|| random_scalar_value(u, edt))
             })
             .collect::<Result<Vec<_>>>()?
             .into(),

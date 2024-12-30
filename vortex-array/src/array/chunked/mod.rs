@@ -5,19 +5,19 @@
 use std::fmt::{Debug, Display};
 
 use futures_util::stream;
-use itertools::Itertools;
 use serde::{Deserialize, Serialize};
+use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
-use vortex_scalar::Scalar;
+use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult, VortexUnwrap};
+use vortex_scalar::BinaryNumericOperator;
 
 use crate::array::primitive::PrimitiveArray;
 use crate::compute::{
-    scalar_at, search_sorted, subtract_scalar, SearchSortedSide, SubtractScalarFn,
+    binary_numeric, scalar_at, search_sorted_usize, slice, BinaryNumericFn, SearchSortedSide,
 };
 use crate::encoding::ids;
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
-use crate::stats::ArrayStatistics;
+use crate::stats::StatsSet;
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::validity::Validity::NonNullable;
 use crate::validity::{ArrayValidity, LogicalValidity, Validity, ValidityVTable};
@@ -54,40 +54,31 @@ impl ChunkedArray {
             }
         }
 
-        let chunk_offsets = [0u64]
-            .into_iter()
-            .chain(chunks.iter().map(|c| c.len() as u64))
-            .scan(0, |acc, c| {
-                *acc += c;
-                Some(*acc)
-            })
-            .collect_vec();
+        let chunk_offsets = Buffer::from_iter(
+            [0u64]
+                .into_iter()
+                .chain(chunks.iter().map(|c| c.len() as u64))
+                .scan(0, |acc, c| {
+                    *acc += c;
+                    Some(*acc)
+                }),
+        );
 
         let nchunks = chunk_offsets.len() - 1;
         let length = *chunk_offsets
             .last()
-            .vortex_expect("Chunk ends is guaranteed to have at least one element")
-            as usize;
-
-        let stats = chunks
-            .iter()
-            .map(|chunk| chunk.statistics().to_set())
-            .reduce(|mut acc, stats| {
-                acc.merge_ordered(&stats);
-                acc
-            })
-            .unwrap_or_default();
+            .vortex_expect("Chunk ends is guaranteed to have at least one element");
 
         let mut children = Vec::with_capacity(chunks.len() + 1);
-        children.push(PrimitiveArray::from_vec(chunk_offsets, NonNullable).into_array());
+        children.push(PrimitiveArray::new(chunk_offsets, NonNullable).into_array());
         children.extend(chunks);
 
         Self::try_from_parts(
             dtype,
-            length,
+            length.try_into().vortex_unwrap(),
             ChunkedMetadata { nchunks },
             children.into(),
-            stats,
+            StatsSet::default(),
         )
     }
 
@@ -97,8 +88,9 @@ impl ChunkedArray {
             vortex_bail!("chunk index {} > num chunks ({})", idx, self.nchunks());
         }
 
-        let chunk_start = usize::try_from(&scalar_at(self.chunk_offsets(), idx)?)?;
-        let chunk_end = usize::try_from(&scalar_at(self.chunk_offsets(), idx + 1)?)?;
+        let chunk_offsets = self.chunk_offsets();
+        let chunk_start = usize::try_from(&scalar_at(&chunk_offsets, idx)?)?;
+        let chunk_end = usize::try_from(&scalar_at(&chunk_offsets, idx + 1)?)?;
 
         // Offset the index since chunk_ends is child 0.
         self.as_ref()
@@ -121,10 +113,11 @@ impl ChunkedArray {
 
         // Since there might be duplicate values in offsets because of empty chunks we want to search from right
         // and take the last chunk (we subtract 1 since there's a leading 0)
-        let index_chunk = search_sorted(&self.chunk_offsets(), index, SearchSortedSide::Right)
-            .vortex_expect("Search sorted failed in find_chunk_idx")
-            .to_ends_index(self.nchunks() + 1)
-            .saturating_sub(1);
+        let index_chunk =
+            search_sorted_usize(&self.chunk_offsets(), index, SearchSortedSide::Right)
+                .vortex_expect("Search sorted failed in find_chunk_idx")
+                .to_ends_index(self.nchunks() + 1)
+                .saturating_sub(1);
         let chunk_start = scalar_at(self.chunk_offsets(), index_chunk)
             .and_then(|s| usize::try_from(&s))
             .vortex_expect("Failed to find chunk start in find_chunk_idx");
@@ -216,7 +209,7 @@ impl VisitorVTable<ChunkedArray> for ChunkedEncoding {
     fn accept(&self, array: &ChunkedArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
         visitor.visit_child("chunk_ends", &array.chunk_offsets())?;
         for (idx, chunk) in array.chunks().enumerate() {
-            visitor.visit_child(format!("[{}]", idx).as_str(), &chunk)?;
+            visitor.visit_child(format!("chunks[{}]", idx).as_str(), &chunk)?;
         }
         Ok(())
     }
@@ -242,35 +235,44 @@ impl ValidityVTable<ChunkedArray> for ChunkedEncoding {
     }
 }
 
-impl SubtractScalarFn<ChunkedArray> for ChunkedEncoding {
-    fn subtract_scalar(
+impl BinaryNumericFn<ChunkedArray> for ChunkedEncoding {
+    fn binary_numeric(
         &self,
         array: &ChunkedArray,
-        to_subtract: &Scalar,
-    ) -> VortexResult<ArrayData> {
-        let chunks = array
-            .chunks()
-            .map(|chunk| subtract_scalar(&chunk, to_subtract))
-            .collect::<VortexResult<Vec<_>>>()?;
-        Ok(ChunkedArray::try_new(chunks, array.dtype().clone())?.into_array())
+        rhs: &ArrayData,
+        op: BinaryNumericOperator,
+    ) -> VortexResult<Option<ArrayData>> {
+        let mut start = 0;
+
+        let mut new_chunks = Vec::with_capacity(array.nchunks());
+        for chunk in array.chunks() {
+            let end = start + chunk.len();
+            new_chunks.push(binary_numeric(&chunk, &slice(rhs, start, end)?, op)?);
+            start = end;
+        }
+
+        ChunkedArray::try_new(new_chunks, array.dtype().clone())
+            .map(IntoArrayData::into_array)
+            .map(Some)
     }
 }
 
 #[cfg(test)]
 mod test {
+    use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_error::VortexResult;
 
     use crate::array::chunked::ChunkedArray;
-    use crate::compute::{scalar_at, subtract_scalar};
+    use crate::compute::{scalar_at, sub_scalar};
     use crate::{assert_arrays_eq, ArrayDType, IntoArrayData, IntoArrayVariant};
 
     fn chunked_array() -> ChunkedArray {
         ChunkedArray::try_new(
             vec![
-                vec![1u64, 2, 3].into_array(),
-                vec![4u64, 5, 6].into_array(),
-                vec![7u64, 8, 9].into_array(),
+                buffer![1u64, 2, 3].into_array(),
+                buffer![4u64, 5, 6].into_array(),
+                buffer![7u64, 8, 9].into_array(),
             ],
             DType::Primitive(PType::U64, Nullability::NonNullable),
         )
@@ -279,9 +281,9 @@ mod test {
 
     #[test]
     fn test_scalar_subtract() {
-        let chunked = chunked_array();
+        let chunked = chunked_array().into_array();
         let to_subtract = 1u64;
-        let array = subtract_scalar(&chunked, &to_subtract.into()).unwrap();
+        let array = sub_scalar(&chunked, to_subtract.into()).unwrap();
 
         let chunked = ChunkedArray::try_from(array).unwrap();
         let mut chunks_out = chunked.chunks();
@@ -291,7 +293,7 @@ mod test {
             .unwrap()
             .into_primitive()
             .unwrap()
-            .maybe_null_slice::<u64>()
+            .as_slice::<u64>()
             .to_vec();
         assert_eq!(results, &[0u64, 1, 2]);
         let results = chunks_out
@@ -299,7 +301,7 @@ mod test {
             .unwrap()
             .into_primitive()
             .unwrap()
-            .maybe_null_slice::<u64>()
+            .as_slice::<u64>()
             .to_vec();
         assert_eq!(results, &[3u64, 4, 5]);
         let results = chunks_out
@@ -307,7 +309,7 @@ mod test {
             .unwrap()
             .into_primitive()
             .unwrap()
-            .maybe_null_slice::<u64>()
+            .as_slice::<u64>()
             .to_vec();
         assert_eq!(results, &[6u64, 7, 8]);
     }
@@ -315,7 +317,7 @@ mod test {
     #[test]
     fn test_rechunk_one_chunk() {
         let chunked = ChunkedArray::try_new(
-            vec![vec![0u64].into_array()],
+            vec![buffer![0u64].into_array()],
             DType::Primitive(PType::U64, Nullability::NonNullable),
         )
         .unwrap();
@@ -328,7 +330,7 @@ mod test {
     #[test]
     fn test_rechunk_two_chunks() {
         let chunked = ChunkedArray::try_new(
-            vec![vec![0u64].into_array(), vec![5u64].into_array()],
+            vec![buffer![0u64].into_array(), buffer![5u64].into_array()],
             DType::Primitive(PType::U64, Nullability::NonNullable),
         )
         .unwrap();
@@ -342,7 +344,10 @@ mod test {
     #[test]
     fn test_rechunk_tiny_target_chunks() {
         let chunked = ChunkedArray::try_new(
-            vec![vec![0u64, 1, 2, 3].into_array(), vec![4u64, 5].into_array()],
+            vec![
+                buffer![0u64, 1, 2, 3].into_array(),
+                buffer![4u64, 5].into_array(),
+            ],
             DType::Primitive(PType::U64, Nullability::NonNullable),
         )
         .unwrap();
@@ -358,11 +363,11 @@ mod test {
     fn test_rechunk_with_too_big_chunk() {
         let chunked = ChunkedArray::try_new(
             vec![
-                vec![0u64, 1, 2].into_array(),
-                vec![42_u64; 6].into_array(),
-                vec![4u64, 5].into_array(),
-                vec![6u64, 7].into_array(),
-                vec![8u64, 9].into_array(),
+                buffer![0u64, 1, 2].into_array(),
+                buffer![42_u64; 6].into_array(),
+                buffer![4u64, 5].into_array(),
+                buffer![6u64, 7].into_array(),
+                buffer![8u64, 9].into_array(),
             ],
             DType::Primitive(PType::U64, Nullability::NonNullable),
         )

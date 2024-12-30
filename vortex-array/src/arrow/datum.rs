@@ -21,12 +21,12 @@ impl TryFrom<ArrayData> for Datum {
             .unwrap_or_default()
         {
             Ok(Self {
-                array: slice(array, 0, 1)?.into_canonical()?.into_arrow()?,
+                array: slice(array, 0, 1)?.into_arrow()?,
                 is_scalar: true,
             })
         } else {
             Ok(Self {
-                array: array.into_canonical()?.into_arrow()?,
+                array: array.into_arrow()?,
                 is_scalar: false,
             })
         }

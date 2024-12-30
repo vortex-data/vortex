@@ -1,6 +1,6 @@
 use crate::aliases::hash_map::HashMap;
 use crate::array::{
-    BoolEncoding, ChunkedEncoding, ConstantEncoding, ExtensionEncoding, NullEncoding,
+    BoolEncoding, ChunkedEncoding, ConstantEncoding, ExtensionEncoding, ListEncoding, NullEncoding,
     PrimitiveEncoding, SparseEncoding, StructEncoding, VarBinEncoding, VarBinViewEncoding,
 };
 use crate::encoding::EncodingRef;
@@ -40,6 +40,7 @@ impl Default for Context {
                 &BoolEncoding,
                 &PrimitiveEncoding,
                 &StructEncoding,
+                &ListEncoding,
                 &VarBinEncoding,
                 &VarBinViewEncoding,
                 &ExtensionEncoding,

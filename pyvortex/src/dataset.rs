@@ -12,7 +12,7 @@ use vortex::dtype::DType;
 use vortex::error::VortexResult;
 use vortex::file::{
     read_initial_bytes, LayoutContext, LayoutDeserializer, Projection, RowFilter,
-    VortexFileArrayStream, VortexReadBuilder, VortexRecordBatchReader,
+    VortexReadArrayStream, VortexReadBuilder, VortexRecordBatchReader,
 };
 use vortex::io::{ObjectStoreReadAt, TokioFile, VortexReadAt};
 use vortex::sampling_compressor::ALL_ENCODINGS_CONTEXT;
@@ -27,7 +27,7 @@ pub async fn layout_stream_from_reader<T: VortexReadAt + Unpin>(
     projection: Projection,
     row_filter: Option<RowFilter>,
     indices: Option<ArrayData>,
-) -> VortexResult<VortexFileArrayStream<T>> {
+) -> VortexResult<VortexReadArrayStream<T>> {
     let mut builder = VortexReadBuilder::new(
         reader,
         LayoutDeserializer::new(
@@ -45,7 +45,7 @@ pub async fn layout_stream_from_reader<T: VortexReadAt + Unpin>(
         builder = builder.with_indices(indices);
     }
 
-    builder.build().await
+    Ok(builder.build().await?.into_stream())
 }
 
 pub async fn read_array_from_reader<T: VortexReadAt + Unpin + 'static>(
@@ -62,15 +62,13 @@ pub async fn read_array_from_reader<T: VortexReadAt + Unpin + 'static>(
 
 pub async fn read_dtype_from_reader<T: VortexReadAt + Unpin>(reader: T) -> VortexResult<DType> {
     let initial_read = read_initial_bytes(&reader, reader.size().await?).await?;
-    initial_read.lazy_dtype()?.value().cloned()
+    initial_read.lazy_dtype().value().cloned()
 }
 
 fn projection_from_python(columns: Option<Vec<Bound<PyAny>>>) -> PyResult<Projection> {
     fn field_from_pyany(field: &Bound<PyAny>) -> PyResult<Field> {
         if field.clone().is_instance_of::<PyString>() {
-            Ok(Field::Name(
-                field.downcast::<PyString>()?.to_str()?.to_string(),
-            ))
+            Ok(Field::from(field.downcast::<PyString>()?.to_str()?))
         } else if field.is_instance_of::<PyLong>() {
             Ok(Field::Index(field.extract()?))
         } else {

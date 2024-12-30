@@ -7,28 +7,34 @@
 //! implementations of these operators, else we will decode, and perform the equivalent operator
 //! from Arrow.
 
-pub use boolean::{and, and_kleene, or, or_kleene, BinaryBooleanFn, BinaryOperator};
+pub use binary_numeric::*;
+pub use boolean::{
+    and, and_kleene, binary_boolean, or, or_kleene, BinaryBooleanFn, BinaryOperator,
+};
 pub use cast::{try_cast, CastFn};
 pub use compare::{compare, scalar_cmp, CompareFn, Operator};
 pub use fill_forward::{fill_forward, FillForwardFn};
-pub use filter::*;
+pub use fill_null::{fill_null, FillNullFn};
+pub use filter::{filter, FilterFn, FilterIter, FilterMask};
 pub use invert::{invert, InvertFn};
+pub use like::{like, LikeFn, LikeOptions};
 pub use scalar_at::{scalar_at, ScalarAtFn};
-pub use scalar_subtract::{subtract_scalar, SubtractScalarFn};
 pub use search_sorted::*;
 pub use slice::{slice, SliceFn};
-pub use take::*;
+pub use take::{take, TakeFn};
 
 use crate::ArrayData;
 
+mod binary_numeric;
 mod boolean;
 mod cast;
 mod compare;
 mod fill_forward;
+mod fill_null;
 mod filter;
 mod invert;
+mod like;
 mod scalar_at;
-mod scalar_subtract;
 mod search_sorted;
 mod slice;
 mod take;
@@ -42,6 +48,14 @@ pub trait ComputeVTable {
         None
     }
 
+    /// Implementation of binary numeric operations.
+    ///
+    /// See: [BinaryNumericFn].
+    fn binary_numeric_fn(&self) -> Option<&dyn BinaryNumericFn<ArrayData>> {
+        None
+    }
+
+    /// Implemented for arrays that can be casted to different types.
     /// Implemented for arrays that can be casted to different types.
     ///
     /// See: [CastFn].
@@ -63,6 +77,13 @@ pub trait ComputeVTable {
         None
     }
 
+    /// Fill null values with given desired value. Resulting array is NonNullable
+    ///
+    /// See: [FillNullFn]
+    fn fill_null_fn(&self) -> Option<&dyn FillNullFn<ArrayData>> {
+        None
+    }
+
     /// Filter an array with a given mask.
     ///
     /// See: [FilterFn].
@@ -74,6 +95,13 @@ pub trait ComputeVTable {
     ///
     /// See [InvertFn]
     fn invert_fn(&self) -> Option<&dyn InvertFn<ArrayData>> {
+        None
+    }
+
+    /// Perform a SQL LIKE operation on two arrays.
+    ///
+    /// See: [LikeFn].
+    fn like_fn(&self) -> Option<&dyn LikeFn<ArrayData>> {
         None
     }
 
@@ -91,17 +119,17 @@ pub trait ComputeVTable {
         None
     }
 
+    /// Perform a search over an ordered array.
+    ///
+    /// See: [SearchSortedUsizeFn].
+    fn search_sorted_usize_fn(&self) -> Option<&dyn SearchSortedUsizeFn<ArrayData>> {
+        None
+    }
+
     /// Perform zero-copy slicing of an array.
     ///
     /// See: [SliceFn].
     fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
-        None
-    }
-
-    /// Broadcast subtraction of scalar from Vortex array.
-    ///
-    /// See: [SubtractScalarFn].
-    fn subtract_scalar_fn(&self) -> Option<&dyn SubtractScalarFn<ArrayData>> {
         None
     }
 

@@ -2,9 +2,8 @@ use std::future::{self, Future};
 use std::io;
 use std::sync::Arc;
 
-use bytes::{Bytes, BytesMut};
-use vortex_buffer::Buffer;
-use vortex_error::vortex_err;
+use bytes::Bytes;
+use vortex_error::{vortex_err, VortexUnwrap};
 
 /// A trait for types that support asynchronous reads.
 ///
@@ -13,7 +12,7 @@ use vortex_error::vortex_err;
 ///
 /// Readers must be cheaply cloneable to allow for easy sharing across tasks or threads.
 pub trait VortexReadAt: Send + Sync + Clone + 'static {
-    /// Request an asynchronous positional read. Results will be returned as an owned [`Bytes`].
+    /// Request an asynchronous positional read. Results will be returned as a [`Bytes`].
     ///
     /// If the reader does not have the requested number of bytes, the returned Future will complete
     /// with an [`UnexpectedEof`][std::io::ErrorKind::UnexpectedEof].
@@ -59,51 +58,24 @@ impl<T: VortexReadAt> VortexReadAt for Arc<T> {
     }
 }
 
-impl VortexReadAt for Buffer {
-    fn read_byte_range(
-        &self,
-        pos: u64,
-        len: u64,
-    ) -> impl Future<Output = io::Result<Bytes>> + 'static {
-        if (len + pos) as usize > self.len() {
-            future::ready(Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                vortex_err!("unexpected eof"),
-            )))
-        } else {
-            let mut buffer = BytesMut::with_capacity(len as usize);
-            unsafe {
-                buffer.set_len(len as usize);
-            }
-            buffer.copy_from_slice(self.slice(pos as usize..(pos + len) as usize).as_slice());
-            future::ready(Ok(buffer.freeze()))
-        }
-    }
-
-    fn size(&self) -> impl Future<Output = io::Result<u64>> + 'static {
-        future::ready(Ok(self.len() as u64))
-    }
-}
-
 impl VortexReadAt for Bytes {
     fn read_byte_range(
         &self,
         pos: u64,
         len: u64,
     ) -> impl Future<Output = io::Result<Bytes>> + 'static {
-        if (pos + len) as usize > self.len() {
-            future::ready(Err(io::Error::new(
+        let read_start: usize = pos.try_into().vortex_unwrap();
+        let read_end: usize = (len + pos).try_into().vortex_unwrap();
+        if read_end > self.len() {
+            return future::ready(Err(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
                 vortex_err!("unexpected eof"),
-            )))
-        } else {
-            let sliced = self.slice(pos as usize..(pos + len) as usize);
-            future::ready(Ok(sliced))
+            )));
         }
+        future::ready(Ok(self.slice(read_start..read_end)))
     }
 
     fn size(&self) -> impl Future<Output = io::Result<u64>> + 'static {
-        let len = Ok(self.len() as u64);
-        future::ready(len)
+        future::ready(Ok(self.len() as u64))
     }
 }
