@@ -50,12 +50,12 @@ impl TakeFn<ByteBoolArray> for ByteBoolEncoding {
     fn take(&self, array: &ByteBoolArray, indices: &ArrayData) -> VortexResult<ArrayData> {
         let validity = array.validity();
         let indices = indices.clone().into_primitive()?;
-        let bools = array.maybe_null_slice();
+        let bools = array.as_slice();
 
         let arr = match validity {
             Validity::AllValid | Validity::NonNullable => {
                 let bools = match_each_integer_ptype!(indices.ptype(), |$I| {
-                    indices.maybe_null_slice::<$I>()
+                    indices.as_slice::<$I>()
                     .iter()
                     .map(|&idx| {
                         let idx: usize = idx.as_();
@@ -70,7 +70,7 @@ impl TakeFn<ByteBoolArray> for ByteBoolEncoding {
 
             Validity::Array(_) => {
                 let bools = match_each_integer_ptype!(indices.ptype(), |$I| {
-                    indices.maybe_null_slice::<$I>()
+                    indices.as_slice::<$I>()
                     .iter()
                     .map(|&idx| {
                         let idx = idx.as_();
@@ -115,7 +115,7 @@ impl FillForwardFn<ByteBoolArray> for ByteBoolEncoding {
             .to_null_buffer()?
             .ok_or_else(|| vortex_err!("Failed to convert array validity to null buffer"))?;
 
-        let bools = array.maybe_null_slice();
+        let bools = array.as_slice();
         let mut last_value = bool::default();
 
         let filled = bools

@@ -18,8 +18,8 @@ impl ArrayAccessor<[u8]> for VarBinArray {
         let validity = self.logical_validity().to_null_buffer()?;
 
         match_each_integer_ptype!(offsets.ptype(), |$T| {
-            let offsets = offsets.maybe_null_slice::<$T>();
-            let bytes = primitive.maybe_null_slice::<u8>();
+            let offsets = offsets.as_slice::<$T>();
+            let bytes = primitive.as_slice::<u8>();
 
             match validity {
                 None => {

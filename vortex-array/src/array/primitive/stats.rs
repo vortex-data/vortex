@@ -30,11 +30,11 @@ impl StatisticsVTable<PrimitiveArray> for PrimitiveEncoding {
 
         let mut stats = match_each_native_ptype!(array.ptype(), |$P| {
             match array.logical_validity() {
-                LogicalValidity::AllValid(_) => self.compute_statistics(array.maybe_null_slice::<$P>(), stat),
+                LogicalValidity::AllValid(_) => self.compute_statistics(array.as_slice::<$P>(), stat),
                 LogicalValidity::AllInvalid(v) => Ok(StatsSet::nulls(v, array.dtype())),
                 LogicalValidity::Array(a) => self.compute_statistics(
                     &NullableValues(
-                        array.maybe_null_slice::<$P>(),
+                        array.as_slice::<$P>(),
                         &a.clone().into_bool()?.boolean_buffer(),
                     ),
                     stat
@@ -342,7 +342,7 @@ mod test {
 
     #[test]
     fn stats() {
-        let arr = PrimitiveArray::from(vec![1, 2, 3, 4, 5]);
+        let arr = PrimitiveArray::from_iter([1, 2, 3, 4, 5]);
         let min: i32 = arr.statistics().compute_min().unwrap();
         let max: i32 = arr.statistics().compute_max().unwrap();
         let is_sorted = arr.statistics().compute_is_sorted().unwrap();
@@ -377,7 +377,7 @@ mod test {
 
     #[test]
     fn stats_u8() {
-        let arr = PrimitiveArray::from(vec![1u8, 2, 3, 4, 5]);
+        let arr = PrimitiveArray::from_iter([1u8, 2, 3, 4, 5]);
         let min: u8 = arr.statistics().compute_min().unwrap();
         let max: u8 = arr.statistics().compute_max().unwrap();
         assert_eq!(min, 1);
@@ -386,7 +386,7 @@ mod test {
 
     #[test]
     fn nullable_stats_u8() {
-        let arr = PrimitiveArray::from_nullable_vec(vec![None, None, Some(1i32), Some(2), None]);
+        let arr = PrimitiveArray::from_option_iter([None, None, Some(1i32), Some(2), None]);
         let min: i32 = arr.statistics().compute_min().unwrap();
         let max: i32 = arr.statistics().compute_max().unwrap();
         let null_count: usize = arr.statistics().compute_null_count().unwrap();
@@ -399,7 +399,7 @@ mod test {
 
     #[test]
     fn all_null() {
-        let arr = PrimitiveArray::from_nullable_vec(vec![Option::<i32>::None, None, None]);
+        let arr = PrimitiveArray::from_option_iter([Option::<i32>::None, None, None]);
         let min: Option<Scalar> = arr.statistics().compute(Stat::Min);
         let max: Option<Scalar> = arr.statistics().compute(Stat::Max);
         let null_i32 = Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable));

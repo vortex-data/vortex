@@ -6,7 +6,7 @@ use vortex_array::compute::{
 };
 use vortex_array::validity::ArrayValidity;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
-use vortex_buffer::{Buffer, BufferString};
+use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType};
 use vortex_scalar::Scalar;
 
@@ -89,7 +89,7 @@ pub fn search_sorted_canonical_array(
                 .boolean_buffer();
             match_each_native_ptype!(p, |$P| {
                 let opt_values = primitive_array
-                    .maybe_null_slice::<$P>()
+                    .as_slice::<$P>()
                     .iter()
                     .copied()
                     .zip(validity.iter())
@@ -111,7 +111,7 @@ pub fn search_sorted_canonical_array(
                     .as_bytes()
                     .to_vec()
             } else {
-                Buffer::try_from(scalar).unwrap().to_vec()
+                ByteBuffer::try_from(scalar).unwrap().to_vec()
             };
             SearchNullableSlice(opt_values).search_sorted(&Some(to_find), side)
         }

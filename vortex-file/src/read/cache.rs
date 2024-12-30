@@ -1,10 +1,11 @@
 use std::fmt::Debug;
 use std::sync::{Arc, RwLock};
 
+use bytes::Bytes;
 use flatbuffers::root_unchecked;
 use once_cell::sync::OnceCell;
 use vortex_array::aliases::hash_map::HashMap;
-use vortex_buffer::Buffer;
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::field::Field;
 use vortex_dtype::flatbuffers::{extract_field, project_and_deserialize, resolve_field};
 use vortex_dtype::{DType, FieldNames};
@@ -16,7 +17,7 @@ use crate::read::{LayoutPartId, MessageId};
 
 #[derive(Default, Debug)]
 pub struct LayoutMessageCache {
-    cache: HashMap<MessageId, Buffer>,
+    cache: HashMap<MessageId, Bytes>,
 }
 
 impl LayoutMessageCache {
@@ -26,15 +27,15 @@ impl LayoutMessageCache {
         }
     }
 
-    pub fn get(&self, path: &[LayoutPartId]) -> Option<Buffer> {
+    pub fn get(&self, path: &[LayoutPartId]) -> Option<Bytes> {
         self.cache.get(path).cloned()
     }
 
-    pub fn remove(&mut self, path: &[LayoutPartId]) -> Option<Buffer> {
+    pub fn remove(&mut self, path: &[LayoutPartId]) -> Option<Bytes> {
         self.cache.remove(path)
     }
 
-    pub fn set(&mut self, path: MessageId, value: Buffer) {
+    pub fn set(&mut self, path: MessageId, value: Bytes) {
         self.cache.insert(path, value);
     }
 }
@@ -86,7 +87,7 @@ impl SerializedDTypeField {
 #[derive(Debug)]
 enum LazyDTypeState {
     DType(DType),
-    Serialized(Buffer, OnceCell<DType>, SerializedDTypeField),
+    Serialized(ByteBuffer, OnceCell<DType>, SerializedDTypeField),
     Unknown,
 }
 
@@ -102,7 +103,8 @@ impl LazyDType {
     /// # Safety
     /// This function is unsafe because it trusts the caller to pass in a valid flatbuffer
     /// representing a message::Schema.
-    pub unsafe fn from_schema_bytes(dtype_bytes: Buffer) -> Self {
+    /// FIXME(ngates): this should take a ConstByteBuffer<8> aliased as FlatBuffer
+    pub unsafe fn from_schema_bytes(dtype_bytes: ByteBuffer) -> Self {
         Self {
             inner: LazyDTypeState::Serialized(
                 dtype_bytes,
@@ -288,7 +290,7 @@ impl RelativeLayoutCache {
         self.relative(id, Arc::new(LazyDType::unknown()))
     }
 
-    pub fn get(&self, path: &[LayoutPartId]) -> Option<Buffer> {
+    pub fn get(&self, path: &[LayoutPartId]) -> Option<Bytes> {
         self.root
             .read()
             .unwrap_or_else(|poison| {
@@ -301,7 +303,7 @@ impl RelativeLayoutCache {
             .get(&self.absolute_id(path))
     }
 
-    pub fn remove(&mut self, path: &[LayoutPartId]) -> Option<Buffer> {
+    pub fn remove(&mut self, path: &[LayoutPartId]) -> Option<Bytes> {
         self.root
             .write()
             .unwrap_or_else(|poison| {

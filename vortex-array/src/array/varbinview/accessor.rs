@@ -16,7 +16,7 @@ impl ArrayAccessor<[u8]> for VarBinViewArray {
         let bytes: Vec<PrimitiveArray> = (0..self.metadata().buffer_lens.len())
             .map(|i| self.buffer(i).into_canonical()?.into_primitive())
             .try_collect()?;
-        let bytes_slices: Vec<&[u8]> = bytes.iter().map(|b| b.maybe_null_slice::<u8>()).collect();
+        let bytes_slices: Vec<&[u8]> = bytes.iter().map(|b| b.as_slice::<u8>()).collect();
         let views: Vec<BinaryView> = self.binary_views()?.collect();
         let validity = self.logical_validity().to_null_buffer()?;
 

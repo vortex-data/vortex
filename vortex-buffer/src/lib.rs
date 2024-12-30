@@ -1,192 +1,67 @@
+#![feature(unsigned_is_multiple_of)]
 #![deny(missing_docs)]
 
-//! A byte buffer implementation for Vortex.
+//! A library for working with custom aligned buffers of sized values.
 //!
-//! Vortex arrays hold data in a set of buffers.
+//! The `vortex-buffer` crate is built around `bytes::Bytes` and therefore supports zero-copy
+//! cloning and slicing, but differs in that it can define and maintain a custom alignment.
 //!
-//! # Alignment
-//! See: `<https://github.com/spiraldb/vortex/issues/115>`
+//! * `Buffer<T>` and `BufferMut<T>` provide immutable and mutable wrappers around `bytes::Bytes`
+//!    and `bytes::BytesMut` respectively.
+//! * `ByteBuffer` and `ByteBufferMut` are type aliases for `u8` buffers.
+//! * `BufferString` is a wrapper around a `ByteBuffer` that enforces utf-8 encoding.
+//! * `ConstBuffer<T, const A: usize>` provides similar functionality to `Buffer<T>` except with a
+//!    compile-time alignment of `A`.
+//! * `buffer!` and `buffer_mut!` macros with the same syntax as the builtin `vec!` macro for
+//!    inline construction of buffers.
 //!
-//! We do not currently enforce any alignment guarantees on the buffer.
+//! You can think of `BufferMut<T>` as similar to a `Vec<T>`, except that any operation that may
+//! cause a re-allocation, e.g. extend, will ensure the new allocation maintains the buffer's
+//! defined alignment.
+//!
+//! For example, it's possible to incrementally build a `Buffer<T>` with a 4KB alignment.
+//! ```
+//! use vortex_buffer::{Alignment, BufferMut};
+//!
+//! let mut buf = BufferMut::<i32>::empty_aligned(Alignment::new(4096));
+//! buf.extend(0i32..1_000);
+//! assert_eq!(buf.as_ptr().align_offset(4096), 0)
+//! ```
+//!
+//! ## Comparison
+//!
+//! | Implementation                   | Zero-copy | Custom Alignment | Typed    |
+//! | -------------------------------- | --------- | ---------------- | -------- |
+//! | `vortex_buffer::Buffer<T>`       | ✔️        | ✔️               | ✔️       |
+//! | `arrow_buffer::ScalarBuffer<T> ` | ✔️        | ❌️️️               | ✔️       |
+//! | `bytes::Bytes`                   | ✔️        | ❌️️️               | ❌️️️       |
+//! | `Vec<T>`                         | ❌️        | ❌️️               | ✔️       |
+//!
+//! ## Features
+//!
+//! The `arrow` feature can be enabled to provide conversion functions to/from Arrow Rust buffers,
+//! including `arrow_buffer::Buffer`, `arrow_buffer::ScalarBuffer<T>`, and
+//! `arrow_buffer::OffsetBuffer`.
 
-use core::cmp::Ordering;
-use core::ops::{Deref, Range};
+extern crate core;
 
-use arrow_buffer::{ArrowNativeType, Buffer as ArrowBuffer, MutableBuffer as ArrowMutableBuffer};
+pub use alignment::*;
+pub use buffer::*;
+pub use buffer_mut::*;
+pub use r#const::*;
 pub use string::*;
 
-mod flexbuffers;
+mod alignment;
+#[cfg(feature = "arrow")]
+mod arrow;
+mod buffer;
+mod buffer_mut;
+mod r#const;
+mod macros;
 mod string;
 
-/// Buffer is an owned, cheaply cloneable byte array.
-///
-/// Buffers form the building blocks of all in-memory storage in Vortex.
-#[derive(Debug, Clone)]
-pub struct Buffer(Inner);
+/// An immutable buffer of u8.
+pub type ByteBuffer = Buffer<u8>;
 
-#[derive(Debug, Clone)]
-enum Inner {
-    // TODO(ngates): we could add Aligned(Arc<AVec>) from aligned-vec package
-    /// A Buffer that wraps an Apache Arrow buffer
-    Arrow(ArrowBuffer),
-
-    /// A Buffer that wraps an owned [`bytes::Bytes`].
-    Bytes(bytes::Bytes),
-}
-
-unsafe impl Send for Buffer {}
-unsafe impl Sync for Buffer {}
-
-impl Buffer {
-    /// Create a new buffer of the provided length with all bytes set to `0u8`.
-    /// If len is 0, does not perform any allocations.
-    pub fn from_len_zeroed(len: usize) -> Self {
-        Self::from(ArrowMutableBuffer::from_len_zeroed(len))
-    }
-
-    /// Length of the buffer in bytes
-    pub fn len(&self) -> usize {
-        match &self.0 {
-            Inner::Arrow(b) => b.len(),
-            Inner::Bytes(b) => b.len(),
-        }
-    }
-
-    /// Predicate for empty buffers
-    pub fn is_empty(&self) -> bool {
-        match &self.0 {
-            Inner::Arrow(b) => b.is_empty(),
-            Inner::Bytes(b) => b.is_empty(),
-        }
-    }
-
-    #[allow(clippy::same_name_method)]
-    /// Return a new view on the buffer, but limited to the given index range.
-    /// TODO(ngates): implement std::ops::Index
-    pub fn slice(&self, range: Range<usize>) -> Self {
-        match &self.0 {
-            Inner::Arrow(b) => Buffer(Inner::Arrow(
-                b.slice_with_length(range.start, range.end - range.start),
-            )),
-            Inner::Bytes(b) => {
-                if range.is_empty() {
-                    // bytes::Bytes::slice does not preserve alignment if the range is empty
-                    let mut empty_b = b.clone();
-                    empty_b.truncate(0);
-                    Buffer(Inner::Bytes(empty_b))
-                } else {
-                    Buffer(Inner::Bytes(b.slice(range)))
-                }
-            }
-        }
-    }
-
-    #[allow(clippy::same_name_method)]
-    /// Access the buffer as an immutable byte slice.
-    pub fn as_slice(&self) -> &[u8] {
-        match &self.0 {
-            Inner::Arrow(b) => b.as_ref(),
-            Inner::Bytes(b) => b.as_ref(),
-        }
-    }
-
-    /// Convert the buffer into a `Vec` of the given native type `T`.
-    ///
-    /// # Ownership
-    /// The caller takes ownership of the underlying memory.
-    ///
-    /// # Errors
-    /// This method will fail if the underlying buffer is an owned [`bytes::Bytes`].
-    ///
-    /// This method will also fail if we attempt to pass a `T` that is not aligned to the `T` that
-    /// it was originally allocated with.
-    pub fn into_vec<T: ArrowNativeType>(self) -> Result<Vec<T>, Self> {
-        match self.0 {
-            Inner::Arrow(buffer) => buffer.into_vec::<T>().map_err(|b| Buffer(Inner::Arrow(b))),
-            // Cannot convert bytes into a mutable vec
-            Inner::Bytes(_) => Err(self),
-        }
-    }
-
-    /// Convert a Buffer into an ArrowBuffer with no copying.
-    pub fn into_arrow(self) -> ArrowBuffer {
-        match self.0 {
-            Inner::Arrow(a) => a,
-            // This is cheeky. But it uses From<bytes::Bytes> for arrow_buffer::Bytes, even though
-            // arrow_buffer::Bytes is only pub(crate). Seems weird...
-            // See: https://github.com/apache/arrow-rs/issues/6033
-            Inner::Bytes(b) => ArrowBuffer::from_bytes(b.into()),
-        }
-    }
-}
-
-impl PartialEq for Buffer {
-    fn eq(&self, other: &Self) -> bool {
-        self.as_slice().eq(other.as_slice())
-    }
-}
-
-impl Eq for Buffer {}
-
-impl PartialOrd for Buffer {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.as_slice().partial_cmp(other.as_slice())
-    }
-}
-
-impl Deref for Buffer {
-    type Target = [u8];
-
-    fn deref(&self) -> &Self::Target {
-        self.as_slice()
-    }
-}
-
-impl AsRef<[u8]> for Buffer {
-    fn as_ref(&self) -> &[u8] {
-        self.as_slice()
-    }
-}
-
-impl From<&'static [u8]> for Buffer {
-    fn from(value: &'static [u8]) -> Self {
-        Buffer(Inner::Bytes(bytes::Bytes::from_static(value)))
-    }
-}
-
-impl From<&'static str> for Buffer {
-    fn from(slice: &'static str) -> Buffer {
-        Buffer(Inner::Bytes(bytes::Bytes::from_static(slice.as_bytes())))
-    }
-}
-
-impl<T: ArrowNativeType> From<Vec<T>> for Buffer {
-    fn from(value: Vec<T>) -> Self {
-        // We prefer Arrow since it retains mutability
-        Buffer(Inner::Arrow(ArrowBuffer::from_vec(value)))
-    }
-}
-
-impl From<bytes::Bytes> for Buffer {
-    fn from(value: bytes::Bytes) -> Self {
-        Buffer(Inner::Bytes(value))
-    }
-}
-
-impl From<ArrowBuffer> for Buffer {
-    fn from(value: ArrowBuffer) -> Self {
-        Buffer(Inner::Arrow(value))
-    }
-}
-
-impl From<ArrowMutableBuffer> for Buffer {
-    fn from(value: ArrowMutableBuffer) -> Self {
-        Buffer(Inner::Arrow(ArrowBuffer::from(value)))
-    }
-}
-
-impl FromIterator<u8> for Buffer {
-    fn from_iter<T: IntoIterator<Item = u8>>(iter: T) -> Self {
-        Buffer(Inner::Arrow(ArrowBuffer::from_iter(iter)))
-    }
-}
+/// A mutable buffer of u8.
+pub type ByteBufferMut = BufferMut<u8>;

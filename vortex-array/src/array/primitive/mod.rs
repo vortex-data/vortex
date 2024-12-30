@@ -3,12 +3,12 @@ use std::ptr;
 use std::sync::Arc;
 mod accessor;
 
-use arrow_buffer::{ArrowNativeType, BooleanBufferBuilder, Buffer as ArrowBuffer};
+use arrow_buffer::BooleanBufferBuilder;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use vortex_buffer::Buffer;
-use vortex_dtype::{match_each_native_ptype, DType, NativePType, PType};
-use vortex_error::{VortexExpect as _, VortexResult};
+use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
+use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
+use vortex_error::{vortex_panic, VortexExpect as _, VortexResult};
 
 use crate::array::BoolArray;
 use crate::encoding::ids;
@@ -39,27 +39,17 @@ impl Display for PrimitiveMetadata {
 }
 
 impl PrimitiveArray {
-    pub fn new(buffer: Buffer, ptype: PType, validity: Validity) -> Self {
-        let length = match_each_native_ptype!(ptype, |$P| {
-            let (prefix, values, suffix) = unsafe { buffer.align_to::<$P>() };
-            assert!(
-                prefix.is_empty() && suffix.is_empty() && (buffer.as_ptr() as usize) % std::mem::size_of::<$P>() == 0,
-                "buffer is not aligned: {:?}",
-                buffer.as_ptr()
-            );
-            values.len()
-        });
-
+    pub fn new<T: NativePType>(buffer: impl Into<Buffer<T>>, validity: Validity) -> Self {
+        let buffer = buffer.into();
+        let len = buffer.len();
         ArrayData::try_new_owned(
             &PrimitiveEncoding,
-            DType::from(ptype).with_nullability(validity.nullability()),
-            length,
+            DType::from(T::PTYPE).with_nullability(validity.nullability()),
+            len,
             Arc::new(PrimitiveMetadata {
-                validity: validity
-                    .to_metadata(length)
-                    .vortex_expect("Invalid validity"),
+                validity: validity.to_metadata(len).vortex_expect("Invalid validity"),
             }),
-            Some(buffer),
+            Some(buffer.into_byte_buffer()),
             validity.into_array().into_iter().collect_vec().into(),
             StatsSet::default(),
         )
@@ -67,22 +57,45 @@ impl PrimitiveArray {
         .vortex_expect("Should not fail to create PrimitiveArray")
     }
 
-    pub fn from_vec<T: NativePType>(values: Vec<T>, validity: Validity) -> Self {
-        match_each_native_ptype!(T::PTYPE, |$P| {
-            PrimitiveArray::new(
-                Buffer::from(
-                    ArrowBuffer::from(unsafe { std::mem::transmute::<Vec<T>, Vec<$P>>(values) })
-                ),
-                T::PTYPE,
-                validity,
-            )
+    pub fn empty<T: NativePType>(nullability: Nullability) -> Self {
+        Self::new(
+            Buffer::<T>::empty(),
+            match nullability {
+                Nullability::NonNullable => Validity::NonNullable,
+                Nullability::Nullable => Validity::AllValid,
+            },
+        )
+    }
+
+    pub fn from_byte_buffer(buffer: ByteBuffer, ptype: PType, validity: Validity) -> Self {
+        match_each_native_ptype!(ptype, |$T| {
+            Self::new::<$T>(Buffer::from_byte_buffer(buffer), validity)
         })
     }
 
-    pub fn from_nullable_vec<T: NativePType>(values: Vec<Option<T>>) -> Self {
-        let elems: Vec<T> = values.iter().map(|v| v.unwrap_or_default()).collect();
-        let validity = Validity::from_iter(values.iter().map(|v| v.is_some()));
-        Self::from_vec(elems, validity)
+    /// Create a PrimitiveArray from an iterator of `T`.
+    /// NOTE: we cannot impl FromIterator trait since it conflicts with `FromIterator<T>`.
+    pub fn from_option_iter<T: NativePType, I: IntoIterator<Item = Option<T>>>(iter: I) -> Self {
+        let iter = iter.into_iter();
+        let mut values = BufferMut::with_capacity(iter.size_hint().0);
+        let mut validity = BooleanBufferBuilder::new(values.capacity());
+
+        for i in iter {
+            match i {
+                None => {
+                    validity.append(false);
+                    values.push(T::default());
+                }
+                Some(e) => {
+                    validity.append(true);
+                    values.push(e);
+                }
+            }
+        }
+        Self::new(
+            values.freeze(),
+            Validity::Array(BoolArray::from(validity.finish()).into_array()),
+        )
     }
 
     pub fn validity(&self) -> Validity {
@@ -93,47 +106,118 @@ impl PrimitiveArray {
         })
     }
 
-    pub fn buffer(&self) -> &Buffer {
-        self.as_ref()
-            .buffer()
-            .vortex_expect("Missing buffer in PrimitiveArray")
+    pub fn byte_buffer(&self) -> &ByteBuffer {
+        let buffer = self
+            .as_ref()
+            .byte_buffer()
+            .vortex_expect("Missing buffer in PrimitiveArray");
+        buffer
     }
 
-    pub fn maybe_null_slice<T: NativePType>(&self) -> &[T] {
-        assert_eq!(
-            T::PTYPE,
-            self.ptype(),
-            "Attempted to get slice of type {} from array of type {}",
-            T::PTYPE,
-            self.ptype(),
-        );
+    pub fn into_byte_buffer(self) -> ByteBuffer {
+        self.into_array()
+            .into_byte_buffer()
+            .vortex_expect("PrimitiveArray must have a buffer")
+    }
 
-        let raw_slice = self.buffer().as_slice();
-        let typed_len = raw_slice.len() / size_of::<T>();
+    pub fn buffer<T: NativePType>(&self) -> Buffer<T> {
+        if T::PTYPE != self.ptype() {
+            vortex_panic!(
+                "Attempted to get buffer of type {} from array of type {}",
+                T::PTYPE,
+                self.ptype()
+            )
+        }
+        Buffer::from_byte_buffer(self.byte_buffer().clone())
+    }
+
+    pub fn into_buffer<T: NativePType>(self) -> Buffer<T> {
+        if T::PTYPE != self.ptype() {
+            vortex_panic!(
+                "Attempted to get buffer of type {} from array of type {}",
+                T::PTYPE,
+                self.ptype()
+            )
+        }
+        Buffer::from_byte_buffer(
+            self.into_array()
+                .into_byte_buffer()
+                .vortex_expect("PrimitiveArray must have a buffer"),
+        )
+    }
+
+    /// Extract a mutable buffer from the PrimitiveArray. Attempts to do this with zero-copy
+    /// if the buffer is uniquely owned, otherwise will make a copy.
+    pub fn into_buffer_mut<T: NativePType>(self) -> BufferMut<T> {
+        if T::PTYPE != self.ptype() {
+            vortex_panic!(
+                "Attempted to get buffer_mut of type {} from array of type {}",
+                T::PTYPE,
+                self.ptype()
+            )
+        }
+        self.into_buffer()
+            .try_into_mut()
+            .unwrap_or_else(|buffer| BufferMut::<T>::copy_from(&buffer))
+    }
+
+    /// Try to extract a mutable buffer from the PrimitiveArray with zero copy.
+    #[allow(clippy::panic_in_result_fn)]
+    pub fn try_into_buffer_mut<T: NativePType>(self) -> Result<BufferMut<T>, PrimitiveArray> {
+        if T::PTYPE != self.ptype() {
+            vortex_panic!(
+                "Attempted to get buffer_mut of type {} from array of type {}",
+                T::PTYPE,
+                self.ptype()
+            )
+        }
+        let validity = self.validity();
+        Buffer::<T>::from_byte_buffer(self.into_byte_buffer())
+            .try_into_mut()
+            .map_err(|buffer| PrimitiveArray::new(buffer, validity))
+    }
+
+    /// Map each element in the array to a new value.
+    ///
+    /// This ignores validity and maps over all maybe-null elements.
+    ///
+    /// TODO(ngates): we could be smarter here if validity is sparse and only run the function
+    ///   over the valid elements.
+    pub fn map_each<T, R, F>(self, f: F) -> PrimitiveArray
+    where
+        T: NativePType,
+        R: NativePType,
+        F: FnMut(&T) -> R,
+    {
+        let validity = self.validity();
+        let buffer = match self.try_into_buffer_mut() {
+            Ok(buffer_mut) => buffer_mut.map_each(f),
+            Err(parray) => BufferMut::<R>::from_iter(parray.buffer::<T>().iter().map(f)),
+        };
+        PrimitiveArray::new(buffer.freeze(), validity)
+    }
+
+    /// Return a slice of the array's buffer.
+    ///
+    /// NOTE: these values may be nonsense if the validity buffer indicates that the value is null.
+    pub fn as_slice<T: NativePType>(&self) -> &[T] {
+        if T::PTYPE != self.ptype() {
+            vortex_panic!(
+                "Attempted to get slice of type {} from array of type {}",
+                T::PTYPE,
+                self.ptype()
+            )
+        }
+        let length = self.len();
+        let raw_slice = self.byte_buffer().as_slice();
+        debug_assert_eq!(raw_slice.len() / size_of::<T>(), length);
         // SAFETY: alignment of Buffer is checked on construction
-        unsafe { std::slice::from_raw_parts(raw_slice.as_ptr().cast(), typed_len) }
-    }
-
-    /// Convert the array into a mutable vec of the given type.
-    /// If possible, this will be zero-copy.
-    pub fn into_maybe_null_slice<T: NativePType + ArrowNativeType>(self) -> Vec<T> {
-        assert_eq!(
-            T::PTYPE,
-            self.ptype(),
-            "Attempted to get maybe_null_slice of type {} from array of type {}",
-            T::PTYPE,
-            self.ptype(),
-        );
-        self.into_buffer().into_vec::<T>().unwrap_or_else(|b| {
-            let (prefix, values, suffix) = unsafe { b.as_ref().align_to::<T>() };
-            assert!(prefix.is_empty() && suffix.is_empty());
-            Vec::from(values)
-        })
+        unsafe { std::slice::from_raw_parts(raw_slice.as_ptr().cast(), length) }
     }
 
     pub fn get_as_cast<T: NativePType>(&self, idx: usize) -> T {
         match_each_native_ptype!(self.ptype(), |$P| {
-            T::from(self.maybe_null_slice::<$P>()[idx]).expect("failed to cast")
+            T::from(self.as_slice::<$P>()[idx]).expect("failed to cast")
         })
     }
 
@@ -148,13 +232,7 @@ impl PrimitiveArray {
             "can't reinterpret cast between integers of two different widths"
         );
 
-        PrimitiveArray::new(self.buffer().clone(), ptype, self.validity())
-    }
-
-    pub fn into_buffer(self) -> Buffer {
-        self.into_array()
-            .into_buffer()
-            .vortex_expect("PrimitiveArray must have a buffer")
+        PrimitiveArray::from_byte_buffer(self.byte_buffer().clone(), ptype, self.validity())
     }
 }
 
@@ -180,7 +258,7 @@ impl<T: NativePType> Accessor<T> for PrimitiveArray {
 
     #[inline]
     fn value_unchecked(&self, index: usize) -> T {
-        self.maybe_null_slice::<T>()[index]
+        self.as_slice::<T>()[index]
     }
 
     fn array_validity(&self) -> Validity {
@@ -191,7 +269,7 @@ impl<T: NativePType> Accessor<T> for PrimitiveArray {
     fn decode_batch(&self, start_idx: usize) -> Vec<T> {
         let batch_size = <Self as Accessor<T>>::batch_size(self, start_idx);
         let mut v = Vec::<T>::with_capacity(batch_size);
-        let null_slice = self.maybe_null_slice::<T>();
+        let null_slice = self.as_slice::<T>();
 
         unsafe {
             v.set_len(batch_size);
@@ -208,40 +286,22 @@ impl<T: NativePType> Accessor<T> for PrimitiveArray {
 
 impl PrimitiveArrayTrait for PrimitiveArray {}
 
-impl<T: NativePType> FromIterator<Option<T>> for PrimitiveArray {
-    fn from_iter<I: IntoIterator<Item = Option<T>>>(iter: I) -> Self {
-        let iter = iter.into_iter();
-        let mut values = Vec::with_capacity(iter.size_hint().0);
-        let mut validity = BooleanBufferBuilder::new(values.capacity());
-
-        for i in iter {
-            match i {
-                None => {
-                    validity.append(false);
-                    values.push(T::default());
-                }
-                Some(e) => {
-                    validity.append(true);
-                    values.push(e);
-                }
-            }
-        }
-        Self::from_vec(
-            values,
-            Validity::Array(BoolArray::from(validity.finish()).into_array()),
-        )
+impl<T: NativePType> FromIterator<T> for PrimitiveArray {
+    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
+        let values = BufferMut::from_iter(iter);
+        PrimitiveArray::new(values.freeze(), Validity::NonNullable)
     }
 }
 
-impl<T: NativePType> From<Vec<T>> for PrimitiveArray {
-    fn from(values: Vec<T>) -> Self {
-        Self::from_vec(values, Validity::NonNullable)
-    }
-}
-
-impl<T: NativePType> IntoArrayData for Vec<T> {
+impl<T: NativePType> IntoArrayData for Buffer<T> {
     fn into_array(self) -> ArrayData {
-        PrimitiveArray::from(self).into_array()
+        PrimitiveArray::new(self, Validity::NonNullable).into_array()
+    }
+}
+
+impl<T: NativePType> IntoArrayData for BufferMut<T> {
+    fn into_array(self) -> ArrayData {
+        self.freeze().into_array()
     }
 }
 
@@ -263,7 +323,7 @@ impl ValidityVTable<PrimitiveArray> for PrimitiveEncoding {
 
 impl VisitorVTable<PrimitiveArray> for PrimitiveEncoding {
     fn accept(&self, array: &PrimitiveArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        visitor.visit_buffer(array.buffer())?;
+        visitor.visit_buffer(array.byte_buffer())?;
         visitor.visit_validity(&array.validity())
     }
 }

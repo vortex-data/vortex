@@ -3,18 +3,15 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{ready, Poll};
 
-use aligned_buffer::UniqueAlignedBuffer;
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use futures_util::{AsyncRead, AsyncWrite, AsyncWriteExt, Stream, StreamExt, TryStreamExt};
 use pin_project_lite::pin_project;
 use vortex_array::stream::ArrayStream;
 use vortex_array::{ArrayDType, ArrayData, Context};
-use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
 use crate::messages::{AsyncMessageReader, DecoderMessage, EncoderMessage, MessageEncoder};
-use crate::ALIGNMENT;
 
 pin_project! {
     /// An [`ArrayStream`] for reading messages off an async IPC stream.
@@ -117,7 +114,7 @@ impl<S: ArrayStream + 'static> ArrayStreamIPC for S {
     {
         let mut stream = self.into_ipc();
         while let Some(chunk) = stream.next().await {
-            write.write_all(chunk?.as_slice()).await?;
+            write.write_all(&chunk?).await?;
         }
         Ok(write)
     }
@@ -126,26 +123,24 @@ impl<S: ArrayStream + 'static> ArrayStreamIPC for S {
 pub struct ArrayStreamIPCBytes {
     stream: Pin<Box<dyn ArrayStream + 'static>>,
     encoder: MessageEncoder,
-    buffers: Vec<Buffer>,
+    buffers: Vec<Bytes>,
     written_dtype: bool,
 }
 
 impl ArrayStreamIPCBytes {
-    /// Collects the IPC bytes into a single `Buffer`.
-    pub async fn collect_to_buffer(self) -> VortexResult<Buffer> {
-        // We allocate a single aligned buffer to hold the combined IPC bytes
-        let buffers: Vec<Buffer> = self.try_collect().await?;
-        let mut buffer =
-            UniqueAlignedBuffer::<ALIGNMENT>::with_capacity(buffers.iter().map(|b| b.len()).sum());
+    /// Collects the IPC bytes into a single `Bytes`.
+    pub async fn collect_to_buffer(self) -> VortexResult<Bytes> {
+        let buffers: Vec<Bytes> = self.try_collect().await?;
+        let mut buffer = BytesMut::with_capacity(buffers.iter().map(|b| b.len()).sum());
         for buf in buffers {
-            buffer.extend_from_slice(buf.as_slice());
+            buffer.extend_from_slice(buf.as_ref());
         }
-        Ok(Buffer::from(Bytes::from_owner(buffer)))
+        Ok(buffer.freeze())
     }
 }
 
 impl Stream for ArrayStreamIPCBytes {
-    type Item = VortexResult<Buffer>;
+    type Item = VortexResult<Bytes>;
 
     fn poll_next(
         self: Pin<&mut Self>,
@@ -196,14 +191,13 @@ mod test {
     use futures_util::io::Cursor;
     use vortex_array::array::PrimitiveArray;
     use vortex_array::stream::{ArrayStream, ArrayStreamExt};
-    use vortex_array::validity::Validity;
     use vortex_array::{ArrayDType, Context, IntoArrayVariant, ToArrayData};
 
     use super::*;
 
     #[tokio::test]
     async fn test_async_stream() {
-        let array = PrimitiveArray::from_vec::<i32>(vec![1, 2, 3], Validity::NonNullable);
+        let array = PrimitiveArray::from_iter([1, 2, 3]);
         let ipc_buffer = array
             .to_array()
             .into_array_stream()
@@ -223,9 +217,6 @@ mod test {
             .unwrap()
             .into_primitive()
             .unwrap();
-        assert_eq!(
-            array.maybe_null_slice::<i32>(),
-            result.maybe_null_slice::<i32>()
-        );
+        assert_eq!(array.as_slice::<i32>(), result.as_slice::<i32>());
     }
 }

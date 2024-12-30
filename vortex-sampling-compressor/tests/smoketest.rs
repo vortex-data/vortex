@@ -3,7 +3,7 @@ use std::ops::Add;
 use chrono::TimeDelta;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::builder::VarBinBuilder;
-use vortex_array::array::{BoolArray, PrimitiveArray, StructArray, TemporalArray};
+use vortex_array::array::{BoolArray, StructArray, TemporalArray};
 use vortex_array::validity::Validity;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
@@ -15,6 +15,7 @@ mod tests {
     use vortex_array::encoding::Encoding;
     use vortex_array::stats::{ArrayStatistics, Stat};
     use vortex_array::variants::StructArrayTrait;
+    use vortex_buffer::Buffer;
     use vortex_datetime_dtype::TimeUnit;
     use vortex_datetime_parts::DateTimePartsEncoding;
     use vortex_dict::DictEncoding;
@@ -186,11 +187,7 @@ mod tests {
     }
 
     fn make_primitive_column(count: usize) -> ArrayData {
-        PrimitiveArray::from_vec(
-            (0..count).map(|i| i as i64).collect::<Vec<i64>>(),
-            Validity::NonNullable,
-        )
-        .into_array()
+        Buffer::from_iter(0..count as i64).into_array()
     }
 
     fn make_bool_column(count: usize) -> ArrayData {
@@ -229,17 +226,11 @@ mod tests {
         // Make new timestamps in incrementing order from EPOCH.
         let t0 = chrono::NaiveDateTime::default().and_utc();
 
-        let timestamps: Vec<i64> = (0..count)
-            .map(|inc| t0.add(TimeDelta::seconds(inc as i64)).timestamp_millis())
-            .collect();
+        let timestamps = Buffer::from_iter(
+            (0..count).map(|inc| t0.add(TimeDelta::seconds(inc as i64)).timestamp_millis()),
+        )
+        .into_array();
 
-        let storage_array =
-            PrimitiveArray::from_vec(timestamps, Validity::NonNullable).into_array();
-
-        ArrayData::from(TemporalArray::new_timestamp(
-            storage_array,
-            TimeUnit::Ms,
-            None,
-        ))
+        ArrayData::from(TemporalArray::new_timestamp(timestamps, TimeUnit::Ms, None))
     }
 }

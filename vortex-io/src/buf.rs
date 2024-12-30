@@ -1,6 +1,6 @@
 use std::io;
 
-use vortex_buffer::Buffer;
+use bytes::Bytes;
 
 use crate::VortexReadAt;
 
@@ -37,7 +37,7 @@ impl<R: VortexReadAt> VortexBufReader<R> {
     /// [`UnexpectedEof`][std::io::ErrorKind::UnexpectedEof] error is returned.
     ///
     /// See also [`VortexReadAt::read_byte_range`].
-    pub async fn read_bytes(&mut self, len: u64) -> io::Result<Buffer> {
+    pub async fn read_bytes(&mut self, len: u64) -> io::Result<Bytes> {
         let result = self.inner.read_byte_range(self.pos, len).await?;
         self.pos += len;
         Ok(result)
@@ -48,13 +48,13 @@ impl<R: VortexReadAt> VortexBufReader<R> {
 mod tests {
     use std::io;
 
-    use vortex_buffer::Buffer;
+    use bytes::Bytes;
 
     use crate::VortexBufReader;
 
     #[tokio::test]
     async fn test_buf_reader() {
-        let reader = Buffer::from("0123456789".as_bytes());
+        let reader = Bytes::from("0123456789".as_bytes());
         let mut buf_reader = VortexBufReader::new(reader);
 
         let first2 = buf_reader.read_bytes(2).await.unwrap();
@@ -67,7 +67,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_eof() {
-        let reader = Buffer::from("0123456789".as_bytes());
+        let reader = Bytes::from("0123456789".as_bytes());
         let mut buf_reader = VortexBufReader::new(reader);
 
         // Read past end of internal reader

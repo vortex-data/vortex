@@ -2436,9 +2436,9 @@ checksum = "8bb03732005da905c88227371639bf1ad885cc712789c011c31c5fb3ab3ccf02"
 
 [[package]]
 name = "io-uring"
-version = "0.7.2"
+version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c96e3f73fd5acaee84ecfabb4414875b688667b5276372cdeff64444fab81ee"
+checksum = "c5d5b4a5e02a58296749114728ea3644f9a4cd5669c243896e445b90bd299ad6"
 dependencies = [
  "bitflags 2.6.0",
  "cfg-if",
@@ -4906,13 +4906,13 @@ name = "vortex-alp"
 version = "0.21.1"
 dependencies = [
  "arrow-array",
- "arrow-buffer",
  "divan",
  "itertools 0.13.0",
  "num-traits",
  "rstest",
  "serde",
  "vortex-array",
+ "vortex-buffer",
  "vortex-dtype",
  "vortex-error",
  "vortex-fastlanes",
@@ -4965,7 +4965,8 @@ version = "0.21.1"
 dependencies = [
  "arrow-buffer",
  "bytes",
- "flexbuffers",
+ "divan",
+ "vortex-error",
 ]
 
 [[package]]
@@ -5007,6 +5008,7 @@ dependencies = [
  "tokio",
  "url",
  "vortex-array",
+ "vortex-buffer",
  "vortex-dtype",
  "vortex-error",
  "vortex-expr",
@@ -5033,6 +5035,7 @@ dependencies = [
  "itertools 0.13.0",
  "serde",
  "vortex-array",
+ "vortex-buffer",
  "vortex-datetime-dtype",
  "vortex-dtype",
  "vortex-error",
@@ -5050,6 +5053,7 @@ dependencies = [
  "rand",
  "serde",
  "vortex-array",
+ "vortex-buffer",
  "vortex-dtype",
  "vortex-error",
  "vortex-scalar",
@@ -5100,6 +5104,7 @@ dependencies = [
  "prost",
  "serde",
  "vortex-array",
+ "vortex-buffer",
  "vortex-dtype",
  "vortex-error",
  "vortex-proto",
@@ -5132,6 +5137,7 @@ dependencies = [
  "arrow-array",
  "arrow-buffer",
  "arrow-schema",
+ "bytes",
  "flatbuffers",
  "futures",
  "futures-executor",
@@ -5156,8 +5162,8 @@ dependencies = [
 name = "vortex-flatbuffers"
 version = "0.21.1"
 dependencies = [
+ "bytes",
  "flatbuffers",
- "vortex-buffer",
 ]
 
 [[package]]
@@ -5192,6 +5198,7 @@ dependencies = [
 name = "vortex-io"
 version = "0.21.1"
 dependencies = [
+ "bytes",
  "cfg-if",
  "compio",
  "flume",
@@ -5257,6 +5264,7 @@ dependencies = [
  "num-traits",
  "serde",
  "vortex-array",
+ "vortex-buffer",
  "vortex-dtype",
  "vortex-error",
  "vortex-scalar",
@@ -5274,6 +5282,7 @@ dependencies = [
  "rstest",
  "serde",
  "vortex-array",
+ "vortex-buffer",
  "vortex-dtype",
  "vortex-error",
  "vortex-scalar",
@@ -5292,6 +5301,7 @@ dependencies = [
  "rand",
  "vortex-alp",
  "vortex-array",
+ "vortex-buffer",
  "vortex-bytebool",
  "vortex-datetime-dtype",
  "vortex-datetime-parts",
@@ -5336,6 +5346,7 @@ version = "0.21.1"
 dependencies = [
  "serde",
  "vortex-array",
+ "vortex-buffer",
  "vortex-dtype",
  "vortex-error",
  "vortex-scalar",

@@ -29,14 +29,16 @@ impl SliceFn<SparseArray> for SparseEncoding {
 
 #[cfg(test)]
 mod tests {
+    use vortex_buffer::buffer;
+
     use super::*;
     use crate::compute::slice;
     use crate::IntoArrayVariant;
 
     #[test]
     fn test_slice() {
-        let values = vec![15_u32, 135, 13531, 42].into_array();
-        let indices = vec![10_u64, 11, 50, 100].into_array();
+        let values = buffer![15_u32, 135, 13531, 42].into_array();
+        let indices = buffer![10_u64, 11, 50, 100].into_array();
 
         let sparse = SparseArray::try_new(indices, values, 101, 0_u32.into())
             .unwrap()
@@ -51,13 +53,13 @@ mod tests {
             .into_primitive()
             .unwrap();
 
-        assert_eq!(primitive.maybe_null_slice::<u32>(), &[13531]);
+        assert_eq!(primitive.as_slice::<u32>(), &[13531]);
     }
 
     #[test]
     fn doubly_sliced() {
-        let values = vec![15_u32, 135, 13531, 42].into_array();
-        let indices = vec![10_u64, 11, 50, 100].into_array();
+        let values = buffer![15_u32, 135, 13531, 42].into_array();
+        let indices = buffer![10_u64, 11, 50, 100].into_array();
 
         let sparse = SparseArray::try_new(indices, values, 101, 0_u32.into())
             .unwrap()
@@ -72,7 +74,7 @@ mod tests {
             .into_primitive()
             .unwrap();
 
-        assert_eq!(primitive.maybe_null_slice::<u32>(), &[13531]);
+        assert_eq!(primitive.as_slice::<u32>(), &[13531]);
 
         let doubly_sliced = slice(&sliced, 35, 36).unwrap();
         let primitive_doubly_sliced = SparseArray::try_from(doubly_sliced)
@@ -82,24 +84,20 @@ mod tests {
             .into_primitive()
             .unwrap();
 
-        assert_eq!(primitive_doubly_sliced.maybe_null_slice::<u32>(), &[13531]);
+        assert_eq!(primitive_doubly_sliced.as_slice::<u32>(), &[13531]);
     }
 
     #[test]
     fn slice_partially_invalid() {
-        let values = vec![0u64].into_array();
-        let indices = vec![0u8].into_array();
+        let values = buffer![0u64].into_array();
+        let indices = buffer![0u8].into_array();
 
         let sparse = SparseArray::try_new(indices, values, 1000, 999u64.into()).unwrap();
         let sliced = slice(&sparse, 0, 1000).unwrap();
         let mut expected = vec![999u64; 1000];
         expected[0] = 0;
 
-        let actual = sliced
-            .into_primitive()
-            .unwrap()
-            .maybe_null_slice::<u64>()
-            .to_vec();
+        let actual = sliced.into_primitive().unwrap().as_slice::<u64>().to_vec();
         assert_eq!(expected, actual);
     }
 }

@@ -105,18 +105,12 @@ mod test {
 
     #[test]
     fn canonicalise_nullable_primitive() {
-        let reference = PrimitiveArray::from_nullable_vec(vec![
-            Some(42),
-            Some(-9),
-            None,
-            Some(42),
-            None,
-            Some(-9),
-        ]);
+        let reference =
+            PrimitiveArray::from_option_iter([Some(42), Some(-9), None, Some(42), None, Some(-9)]);
         let (codes, values) = dict_encode_typed_primitive::<i32>(&reference);
         let dict = DictArray::try_new(codes.into_array(), values.into_array()).unwrap();
         let flattened_dict = dict.to_array().into_primitive().unwrap();
-        assert_eq!(flattened_dict.buffer(), reference.buffer());
+        assert_eq!(flattened_dict.byte_buffer(), reference.byte_buffer());
     }
 
     #[test]
@@ -145,7 +139,7 @@ mod test {
 
     #[test]
     fn compare_sliced_dict() {
-        let reference = PrimitiveArray::from_nullable_vec(vec![
+        let reference = PrimitiveArray::from_option_iter([
             Some(42),
             Some(-9),
             None,

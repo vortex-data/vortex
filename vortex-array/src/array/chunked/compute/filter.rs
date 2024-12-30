@@ -1,8 +1,10 @@
 use arrow_buffer::BooleanBufferBuilder;
+use vortex_buffer::BufferMut;
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
 
 use crate::array::{ChunkedArray, ChunkedEncoding, PrimitiveArray};
 use crate::compute::{filter, take, FilterFn, FilterMask, SearchSorted, SearchSortedSide};
+use crate::validity::Validity;
 use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoCanonical};
 
 // This is modeled after the constant with the equivalent name in arrow-rs.
@@ -66,7 +68,7 @@ fn filter_slices(array: &ChunkedArray, mask: FilterMask) -> VortexResult<Vec<Arr
     // Pre-materialize the chunk ends for performance.
     // The chunk ends is nchunks+1, which is expected to be in the hundreds or at most thousands.
     let chunk_ends = array.chunk_offsets().into_canonical()?.into_primitive()?;
-    let chunk_ends = chunk_ends.maybe_null_slice::<u64>();
+    let chunk_ends = chunk_ends.as_slice::<u64>();
 
     let mut chunk_filters = vec![ChunkFilter::None; array.nchunks()];
 
@@ -137,14 +139,14 @@ fn filter_slices(array: &ChunkedArray, mask: FilterMask) -> VortexResult<Vec<Arr
 /// Filter the chunks using indices.
 #[allow(deprecated)]
 fn filter_indices(array: &ChunkedArray, mask: FilterMask) -> VortexResult<Vec<ArrayData>> {
-    let mut result = Vec::new();
+    let mut result = Vec::with_capacity(array.nchunks());
     let mut current_chunk_id = 0;
-    let mut chunk_indices = Vec::new();
+    let mut chunk_indices = BufferMut::with_capacity(array.nchunks());
 
     // Avoid find_chunk_idx and use our own to avoid the overhead.
     // The array should only be some thousands of values in the general case.
     let chunk_ends = array.chunk_offsets().into_canonical()?.into_primitive()?;
-    let chunk_ends = chunk_ends.maybe_null_slice::<u64>();
+    let chunk_ends = chunk_ends.as_slice::<u64>();
 
     for set_index in mask.iter_indices()? {
         let (chunk_id, index) = find_chunk_idx(set_index, chunk_ends);
@@ -156,7 +158,8 @@ fn filter_indices(array: &ChunkedArray, mask: FilterMask) -> VortexResult<Vec<Ar
                     .vortex_expect("find_chunk_idx must return valid chunk ID");
                 let filtered_chunk = take(
                     chunk,
-                    PrimitiveArray::from(chunk_indices.clone()).into_array(),
+                    PrimitiveArray::new(chunk_indices.clone().freeze(), Validity::NonNullable)
+                        .into_array(),
                 )?;
                 result.push(filtered_chunk);
             }
@@ -175,7 +178,7 @@ fn filter_indices(array: &ChunkedArray, mask: FilterMask) -> VortexResult<Vec<Ar
             .vortex_expect("find_chunk_idx must return valid chunk ID");
         let filtered_chunk = take(
             &chunk,
-            PrimitiveArray::from(chunk_indices.clone()).into_array(),
+            PrimitiveArray::new(chunk_indices.clone().freeze(), Validity::NonNullable).into_array(),
         )?;
         result.push(filtered_chunk);
     }
@@ -224,8 +227,8 @@ mod test {
     fn filter_chunked_floats() {
         let chunked = ChunkedArray::try_new(
             vec![
-                PrimitiveArray::from(vec![f16::from_f32(0.1463623)]).into_array(),
-                PrimitiveArray::from(vec![
+                PrimitiveArray::from_iter([f16::from_f32(0.1463623)]).into_array(),
+                PrimitiveArray::from_iter([
                     f16::NAN,
                     f16::from_f32(0.24987793),
                     f16::from_f32(0.22497559),
@@ -233,7 +236,7 @@ mod test {
                     f16::from_f32(-36160.0),
                 ])
                 .into_array(),
-                PrimitiveArray::from(vec![
+                PrimitiveArray::from_iter([
                     f16::NAN,
                     f16::NAN,
                     f16::from_f32(0.22497559),

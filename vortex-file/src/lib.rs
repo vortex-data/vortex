@@ -47,15 +47,15 @@
 //!
 //! # Reading
 //!
-//! Layout reading is implemented by [`VortexFileArrayStream`]. The [`VortexFileArrayStream`] should
+//! Layout reading is implemented by [`VortexReadArrayStream`]. The [`VortexReadArrayStream`] should
 //! be constructed by a [`VortexReadBuilder`], which first uses an [InitialRead] to read the footer
 //! (schema, layout, postscript, version, and magic bytes). In most cases, these entire footer can
 //! be read by a single read of the suffix of the file.
 //!
-//! A [`VortexFileArrayStream`] internally contains a [`LayoutMessageCache`] which is shared by its
+//! A [`VortexReadArrayStream`] internally contains a [`LayoutMessageCache`] which is shared by its
 //! layout reader and the layout reader's descendants. The cache permits the reading system to
 //! "read" the bytes of a layout multiple times without triggering reads to the underlying storage.
-//! For example, the [`VortexFileArrayStream`] reads an array, evaluates the row filter, and then
+//! For example, the [`VortexReadArrayStream`] reads an array, evaluates the row filter, and then
 //! reads the array again with the filter mask.
 //!
 //! A [`LayoutReader`] then assembles one or more Vortex arrays by reading the serialized data and
@@ -64,7 +64,7 @@
 //! # Apache Arrow
 //!
 //! If you ultimately seek Arrow arrays, [`VortexRecordBatchReader`] converts a
-//! [`VortexFileArrayStream`] into a [`RecordBatchReader`](arrow_array::RecordBatchReader).
+//! [`VortexReadArrayStream`] into a [`RecordBatchReader`](arrow_array::RecordBatchReader).
 
 mod read;
 mod write;

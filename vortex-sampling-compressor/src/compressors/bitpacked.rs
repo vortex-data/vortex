@@ -162,8 +162,9 @@ impl EncodingCompressor for BitPackedCompressor {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::array::{ConstantArray, PrimitiveArray};
+    use vortex_array::array::ConstantArray;
     use vortex_array::IntoArrayData;
+    use vortex_buffer::buffer;
 
     use crate::compressors::bitpacked::{BITPACK_NO_PATCHES, BITPACK_WITH_PATCHES};
     use crate::compressors::EncodingCompressor;
@@ -173,12 +174,12 @@ mod tests {
     fn cannot_compress() {
         // cannot compress when array contains negative values
         assert!(BITPACK_NO_PATCHES
-            .can_compress(&PrimitiveArray::from(vec![-1i32, 0i32, 1i32]).into_array())
+            .can_compress(&buffer![-1i32, 0i32, 1i32].into_array())
             .is_none());
 
         // Non-integer primitive array.
         assert!(BITPACK_NO_PATCHES
-            .can_compress(&PrimitiveArray::from(vec![0f32, 1f32]).into_array())
+            .can_compress(&buffer![0f32, 1f32].into_array())
             .is_none());
 
         // non-PrimitiveArray
@@ -191,12 +192,12 @@ mod tests {
     fn can_compress() {
         // Unsigned integers
         assert!(BITPACK_NO_PATCHES
-            .can_compress(&PrimitiveArray::from(vec![0u32, 1u32, 2u32]).into_array())
+            .can_compress(&buffer![0u32, 1u32, 2u32].into_array())
             .is_some());
 
         // Signed non-negative integers
         assert!(BITPACK_WITH_PATCHES
-            .can_compress(&PrimitiveArray::from(vec![0i32, 1i32, 2i32]).into_array())
+            .can_compress(&buffer![0i32, 1i32, 2i32].into_array())
             .is_some());
     }
 
@@ -204,7 +205,7 @@ mod tests {
     fn compress_negatives_fails() {
         assert!(BITPACK_NO_PATCHES
             .compress(
-                &PrimitiveArray::from(vec![-1i32, 0i32]).into_array(),
+                &buffer![-1i32, 0i32].into_array(),
                 None,
                 SamplingCompressor::default(),
             )
