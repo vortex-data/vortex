@@ -6,9 +6,9 @@ concurrency:
 
 on:
   push:
-    branches: [ "develop" ]
-  pull_request: { }
-  workflow_dispatch: { }
+    branches: ["develop"]
+  pull_request: {}
+  workflow_dispatch: {}
 
 permissions:
   actions: read
@@ -152,9 +152,10 @@ jobs:
       - name: Rust Test
         run: cargo test --workspace --all-features
         env:
-          # Enable coverage using -Zprofile flag
-          RUSTFLAGS: '-Zprofile'
-          RUSTDOCFLAGS: '-Zprofile'
+          # Disable incremental compilation to avoid coverage issues
+          CARGO_INCREMENTAL: "0"
+          RUSTFLAGS: "-Cinstrument-coverage"
+          LLVM_PROFILE_FILE: "vortex-%p-%m.profraw"
       - uses: rraval/actions-rs-grcov@e96292badb0d33512d16654efb0ee3032a9a3cff
         id: grcov
         with:
@@ -165,8 +166,7 @@ jobs:
         uses: coverallsapp/github-action@v2
         with:
           file: "${{ steps.grcov.outputs.report }}"
-          
-  
+
   license-check-and-audit-check:
     name: License Check and Audit Check
     runs-on: ubuntu-latest
