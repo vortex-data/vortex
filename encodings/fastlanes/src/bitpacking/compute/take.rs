@@ -153,7 +153,7 @@ mod test {
 
     #[test]
     fn take_with_patches() {
-        let unpacked = Buffer::from_iter(0u32..100_000).into_array();
+        let unpacked = Buffer::from_iter(0u32..1024).into_array();
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 2).unwrap();
 
         let indices = PrimitiveArray::from_iter([0, 2, 4, 6]);

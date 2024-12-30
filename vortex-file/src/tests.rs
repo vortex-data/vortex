@@ -59,7 +59,8 @@ async fn test_read_simple() {
     let mut stream = VortexReadBuilder::new(written, LayoutDeserializer::default())
         .build()
         .await
-        .unwrap();
+        .unwrap()
+        .into_stream();
     let mut batch_count = 0;
     let mut row_count = 0;
 
@@ -178,6 +179,7 @@ async fn test_read_projection() {
         .build()
         .await
         .unwrap()
+        .into_stream()
         .read_all()
         .await
         .unwrap();
@@ -209,6 +211,7 @@ async fn test_read_projection() {
         .build()
         .await
         .unwrap()
+        .into_stream()
         .read_all()
         .await
         .unwrap();
@@ -240,6 +243,7 @@ async fn test_read_projection() {
         .build()
         .await
         .unwrap()
+        .into_stream()
         .read_all()
         .await
         .unwrap();
@@ -267,6 +271,7 @@ async fn test_read_projection() {
         .build()
         .await
         .unwrap()
+        .into_stream()
         .read_all()
         .await
         .unwrap();
@@ -314,7 +319,8 @@ async fn unequal_batches() {
     let mut stream = VortexReadBuilder::new(written, LayoutDeserializer::default())
         .build()
         .await
-        .unwrap();
+        .unwrap()
+        .into_stream();
     let mut batch_count = 0;
     let mut item_count = 0;
 
@@ -371,7 +377,8 @@ async fn write_chunked() {
     let mut reader = VortexReadBuilder::new(written, LayoutDeserializer::default())
         .build()
         .await
-        .unwrap();
+        .unwrap()
+        .into_stream();
     let mut array_len: usize = 0;
     while let Some(array) = reader.next().await {
         array_len += array.unwrap().len();
@@ -401,7 +408,7 @@ async fn filter_string() {
     writer = writer.write_array_columns(st).await.unwrap();
 
     let written = Bytes::from(writer.finalize().await.unwrap());
-    let reader = VortexReadBuilder::new(written, LayoutDeserializer::default())
+    let stream = VortexReadBuilder::new(written, LayoutDeserializer::default())
         .with_row_filter(RowFilter::new(BinaryExpr::new_expr(
             Column::new_expr(Field::from("name")),
             Operator::Eq,
@@ -409,9 +416,10 @@ async fn filter_string() {
         )))
         .build()
         .await
-        .unwrap();
+        .unwrap()
+        .into_stream();
 
-    let result = reader.try_collect::<Vec<_>>().await.unwrap();
+    let result = stream.try_collect::<Vec<_>>().await.unwrap();
     assert_eq!(result.len(), 1);
     let names = result[0].as_struct_array().unwrap().field(0).unwrap();
     assert_eq!(
@@ -472,7 +480,8 @@ async fn filter_or() {
         )))
         .build()
         .await
-        .unwrap();
+        .unwrap()
+        .into_stream();
 
     let mut result = Vec::new();
     while let Some(array) = reader.next().await {
@@ -536,7 +545,8 @@ async fn filter_and() {
         )))
         .build()
         .await
-        .unwrap();
+        .unwrap()
+        .into_stream();
 
     let mut result = Vec::new();
     while let Some(array) = reader.next().await {
@@ -586,6 +596,7 @@ async fn test_with_indices_simple() {
         .build()
         .await
         .unwrap()
+        .into_stream()
         .read_all()
         .await
         .unwrap()
@@ -603,6 +614,7 @@ async fn test_with_indices_simple() {
         .build()
         .await
         .unwrap()
+        .into_stream()
         .read_all()
         .await
         .unwrap()
@@ -626,6 +638,7 @@ async fn test_with_indices_simple() {
         .build()
         .await
         .unwrap()
+        .into_stream()
         .read_all()
         .await
         .unwrap()
@@ -667,6 +680,7 @@ async fn test_with_indices_on_two_columns() {
         .build()
         .await
         .unwrap()
+        .into_stream()
         .read_all()
         .await
         .unwrap()
@@ -732,6 +746,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
         .build()
         .await
         .unwrap()
+        .into_stream()
         .read_all()
         .await
         .unwrap()
@@ -757,6 +772,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
         .build()
         .await
         .unwrap()
+        .into_stream()
         .read_all()
         .await
         .unwrap()
@@ -788,6 +804,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
         .build()
         .await
         .unwrap()
+        .into_stream()
         .read_all()
         .await
         .unwrap()
@@ -853,6 +870,7 @@ async fn filter_string_chunked() {
             .build()
             .await
             .unwrap()
+            .into_stream()
             .read_all()
             .await
             .unwrap();
@@ -948,6 +966,7 @@ async fn test_pruning_with_or() {
             .build()
             .await
             .unwrap()
+            .into_stream()
             .read_all()
             .await
             .unwrap();
@@ -1032,6 +1051,7 @@ async fn test_repeated_projection() {
             .with_projection(projection)
             .build()
             .await?
+            .into_stream()
             .read_all()
             .await
     }
@@ -1069,4 +1089,97 @@ async fn test_repeated_projection() {
             .map(|index| scalar_at(&expected, index).unwrap())
             .collect_vec()
     );
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_simple_ranged_read() {
+    let strings = ChunkedArray::from_iter([
+        VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array(),
+        VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array(),
+    ])
+    .into_array();
+
+    let numbers = ChunkedArray::from_iter([
+        buffer![1u32, 2, 3, 4].into_array(),
+        buffer![5u32, 6, 7, 8].into_array(),
+    ])
+    .into_array();
+
+    let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
+    let buf = Vec::new();
+    let mut writer = VortexFileWriter::new(buf);
+    writer = writer.write_array_columns(st.into_array()).await.unwrap();
+    let written = Bytes::from(writer.finalize().await.unwrap());
+
+    let handle = VortexReadBuilder::new(written, LayoutDeserializer::default())
+        .build()
+        .await
+        .unwrap();
+
+    dbg!(handle.splits());
+    for v in [(0, 4), (4, 8)] {
+        assert!(handle.splits().contains(&v));
+    }
+
+    let mut stream = handle.stream_range(0, 4).unwrap();
+
+    let mut batch_count = 0;
+    let mut row_count = 0;
+
+    while let Some(array) = stream.next().await {
+        let array = array.unwrap();
+        batch_count += 1;
+        row_count += array.len();
+    }
+
+    assert_eq!(batch_count, 1);
+    assert_eq!(row_count, 4);
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_simple_range_twice() {
+    let strings = ChunkedArray::from_iter([
+        VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array(),
+        VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array(),
+    ])
+    .into_array();
+
+    let numbers = ChunkedArray::from_iter([
+        buffer![1u32, 2, 3, 4].into_array(),
+        buffer![5u32, 6, 7, 8].into_array(),
+    ])
+    .into_array();
+
+    let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
+    let buf = Vec::new();
+    let mut writer = VortexFileWriter::new(buf);
+    writer = writer.write_array_columns(st.into_array()).await.unwrap();
+    let written = Bytes::from(writer.finalize().await.unwrap());
+
+    let handle = VortexReadBuilder::new(written, LayoutDeserializer::default())
+        .build()
+        .await
+        .unwrap();
+
+    for v in [(0, 4), (4, 8)] {
+        assert!(handle.splits().contains(&v));
+    }
+
+    for _ in 0..2 {
+        let mut stream = handle.clone().stream_range(0, 7).unwrap();
+
+        let mut batch_count = 0;
+        let mut row_count = 0;
+
+        while let Some(array) = stream.next().await {
+            let array = array.unwrap();
+            batch_count += 1;
+            row_count += array.len();
+        }
+
+        assert_eq!(batch_count, 2);
+        assert_eq!(row_count, 7);
+    }
 }

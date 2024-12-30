@@ -30,14 +30,14 @@ impl Layout for FlatLayout {
         scan: Scan,
         layout_serde: LayoutDeserializer,
         message_cache: RelativeLayoutCache,
-    ) -> VortexResult<Box<dyn LayoutReader>> {
+    ) -> VortexResult<Arc<dyn LayoutReader>> {
         let buffers = layout.buffers().unwrap_or_default();
         if buffers.len() != 1 {
             vortex_bail!("Flat layout can have exactly 1 buffer")
         }
         let buf = buffers.get(0);
 
-        Ok(Box::new(FlatLayoutReader::new(
+        Ok(Arc::new(FlatLayoutReader::new(
             ByteRange::new(buf.begin(), buf.end()),
             scan,
             layout_serde.ctx(),
@@ -180,7 +180,7 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     async fn read_range() {
         let cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
-        let (mut filter_layout, mut projection_layout, buf, length) = layout_and_bytes(
+        let (filter_layout, projection_layout, buf, length) = layout_and_bytes(
             cache.clone(),
             Scan::new(RowFilter::new_expr(BinaryExpr::new_expr(
                 Arc::new(Identity),
@@ -189,14 +189,8 @@ mod tests {
             ))),
         )
         .await;
-        let arr = filter_read_layout(
-            &mut filter_layout,
-            &mut projection_layout,
-            cache,
-            &buf,
-            length,
-        )
-        .pop_front();
+        let arr =
+            filter_read_layout(&filter_layout, &projection_layout, cache, &buf, length).pop_front();
 
         assert!(arr.is_some());
         let arr = arr.unwrap();
@@ -210,8 +204,8 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     async fn read_range_no_filter() {
         let cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
-        let (mut data_layout, buf, length, ..) = read_only_layout(cache.clone()).await;
-        let arr = read_layout(&mut data_layout, cache, &buf, length).pop_front();
+        let (data_layout, buf, length, ..) = read_only_layout(cache.clone()).await;
+        let arr = read_layout(&data_layout, cache, &buf, length).pop_front();
 
         assert!(arr.is_some());
         let arr = arr.unwrap();
@@ -225,7 +219,7 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     async fn read_empty() {
         let cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
-        let (mut filter_layout, mut projection_layout, buf, length) = layout_and_bytes(
+        let (filter_layout, projection_layout, buf, length) = layout_and_bytes(
             cache.clone(),
             Scan::new(RowFilter::new_expr(BinaryExpr::new_expr(
                 Arc::new(Identity),
@@ -234,14 +228,8 @@ mod tests {
             ))),
         )
         .await;
-        let arr = filter_read_layout(
-            &mut filter_layout,
-            &mut projection_layout,
-            cache,
-            &buf,
-            length,
-        )
-        .pop_front();
+        let arr =
+            filter_read_layout(&filter_layout, &projection_layout, cache, &buf, length).pop_front();
 
         assert!(arr.is_none());
     }

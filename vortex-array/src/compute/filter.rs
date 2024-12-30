@@ -170,7 +170,7 @@ impl<'a> BitIndexIterator<'a> {
     }
 }
 
-impl<'a> Iterator for BitIndexIterator<'a> {
+impl Iterator for BitIndexIterator<'_> {
     type Item = usize;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -185,8 +185,8 @@ impl<'a> Iterator for BitIndexIterator<'a> {
 }
 
 /// Safety: BitIndexIterator is TrustedLen because it knows its total length.
-unsafe impl<'a> TrustedLen for BitIndexIterator<'a> {}
-impl<'a> ExactSizeIterator for BitIndexIterator<'a> {}
+unsafe impl TrustedLen for BitIndexIterator<'_> {}
+impl ExactSizeIterator for BitIndexIterator<'_> {}
 
 pub enum FilterIter<'a> {
     // Slice of pre-cached indices of a filter mask.
