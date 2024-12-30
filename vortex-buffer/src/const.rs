@@ -6,42 +6,33 @@ use crate::{Alignment, Buffer};
 
 /// A buffer of items of `T` with a compile-time alignment.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd)]
-pub struct ConstBuffer<T, const A: usize> {
-    buffer: Buffer<T>,
-    alignment: Alignment,
-}
+pub struct ConstBuffer<T, const A: usize>(Buffer<T>);
 
 impl<T, const A: usize> ConstBuffer<T, A> {
     /// Unwrap the inner buffer.
     pub fn into_inner(self) -> Buffer<T> {
-        self.buffer
-    }
-
-    /// Returns the alignment of the buffer.
-    pub fn alignment(&self) -> Alignment {
-        self.alignment
+        self.0
     }
 }
 
 impl<T, const A: usize> TryFrom<Buffer<T>> for ConstBuffer<T, A> {
     type Error = VortexError;
 
-    fn try_from(buffer: Buffer<T>) -> Result<Self, Self::Error> {
-        let alignment = Alignment::new(A);
-        if !buffer.alignment().is_aligned_to(alignment) {
+    fn try_from(value: Buffer<T>) -> Result<Self, Self::Error> {
+        if !value.alignment().is_aligned_to(Alignment::new(A)) {
             vortex_bail!(
                 "Cannot convert buffer with alignment {} to buffer with alignment {}",
-                buffer.alignment(),
+                value.alignment(),
                 A
             );
         }
-        Ok(Self { buffer, alignment })
+        Ok(Self(value))
     }
 }
 
 impl<T, const A: usize> AsRef<Buffer<T>> for ConstBuffer<T, A> {
     fn as_ref(&self) -> &Buffer<T> {
-        &self.buffer
+        &self.0
     }
 }
 
@@ -49,6 +40,6 @@ impl<T, const A: usize> Deref for ConstBuffer<T, A> {
     type Target = [T];
 
     fn deref(&self) -> &Self::Target {
-        self.buffer.as_slice()
+        self.0.as_slice()
     }
 }

@@ -72,9 +72,6 @@ impl FlatLayoutReader {
         MessageLocator(self.message_cache.absolute_id(&[]), self.range)
     }
 
-    // TODO(ngates): this should be a ByteBuffer with whatever aligned the writer assumed.
-    //  That way, all messages read from this buffer will already be aligned and we everything
-    //  will be zero-copy.
     fn array_from_bytes(&self, buf: Bytes) -> VortexResult<ArrayData> {
         let mut reader = BufMessageReader::new(buf);
         match reader.next().transpose()? {

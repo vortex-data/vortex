@@ -7,7 +7,7 @@ pub fn stratified_slices(
     sample_count: u16,
     rng: &mut StdRng,
 ) -> Vec<(usize, usize)> {
-    let total_num_samples: usize = (sample_count * sample_size) as usize;
+    let total_num_samples: usize = (sample_count as usize) * (sample_size as usize);
     if total_num_samples >= length {
         return vec![(0usize, length)];
     }
