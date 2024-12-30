@@ -170,8 +170,9 @@ jobs:
         run: cargo test --workspace --all-features
       - name: Generate coverage report
         run: |
-          grcov . --binary-path target/debug/ -s . -t lcov --ignore-not-existing \
-            --ignore '../*' --ignore '/*' --ignore 'bench-vortex/*' --ignore 'fuzz/*' --ignore 'home/*' \
+          grcov . --binary-path target/debug/ -s . -t lcov --llvm --ignore-not-existing \
+            --ignore '../*' --ignore '/*' --ignore 'bench-vortex/*' --ignore 'fuzz/*' \
+            --ignore 'home/*' --ignore 'xtask/*' --ignore 'target/*'\
             -o ${{ env.GRCOV_OUTPUT_FILE }}
       - name: Coveralls
         uses: coverallsapp/github-action@v2
