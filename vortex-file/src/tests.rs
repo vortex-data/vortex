@@ -1110,7 +1110,7 @@ async fn test_simple_ranged_read() {
     let buf = Vec::new();
     let mut writer = VortexFileWriter::new(buf);
     writer = writer.write_array_columns(st.into_array()).await.unwrap();
-    let written = Buffer::from(writer.finalize().await.unwrap());
+    let written = Bytes::from(writer.finalize().await.unwrap());
 
     let handle = VortexReadBuilder::new(written, LayoutDeserializer::default())
         .build()
@@ -1156,7 +1156,7 @@ async fn test_simple_range_twice() {
     let buf = Vec::new();
     let mut writer = VortexFileWriter::new(buf);
     writer = writer.write_array_columns(st.into_array()).await.unwrap();
-    let written = Buffer::from(writer.finalize().await.unwrap());
+    let written = Bytes::from(writer.finalize().await.unwrap());
 
     let handle = VortexReadBuilder::new(written, LayoutDeserializer::default())
         .build()

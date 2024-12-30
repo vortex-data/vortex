@@ -1,8 +1,8 @@
 use std::cmp::{max, min};
-use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
 
 use arrow_buffer::BooleanBuffer;
+use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{BoolArray, PrimitiveArray, SparseArray};
 use vortex_array::compute::{and, filter, slice, try_cast, FilterMask};
 use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity};
