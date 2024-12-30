@@ -58,6 +58,7 @@ pub async fn open_vortex(path: &Path) -> VortexResult<ArrayData> {
     .with_io_dispatcher(DISPATCHER.clone())
     .build()
     .await?
+    .into_stream()
     .read_all()
     .await
 }
@@ -128,6 +129,7 @@ async fn take_vortex<T: VortexReadAt + Unpin + 'static>(
     .with_indices(Buffer::copy_from(indices).into_array())
     .build()
     .await?
+    .into_stream()
     .read_all()
     .await
     // For equivalence.... we decompress to make sure we're not cheating too much.

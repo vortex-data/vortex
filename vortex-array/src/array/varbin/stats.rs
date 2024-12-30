@@ -127,11 +127,7 @@ fn compute_min_max<T: ArrayTrait + ArrayAccessor<[u8]>>(array: &T) -> VortexResu
 
     if min == max {
         // get (don't compute) null count if `min == max` to determine if it's constant
-        if array
-            .statistics()
-            .get_as::<u64>(Stat::NullCount)
-            .map_or(false, |null_count| null_count == 0)
-        {
+        if array.statistics().get_as::<u64>(Stat::NullCount) == Some(0) {
             // if there are no nulls, then the array is constant
             return Ok(StatsSet::constant(&min, array.len()));
         }
