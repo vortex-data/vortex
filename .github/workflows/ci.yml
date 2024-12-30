@@ -125,8 +125,8 @@ jobs:
       - name: Rust Build (${{matrix.config.name}})
         run: cargo hack ${{matrix.config.command}} ${{matrix.config.args}} --ignore-private
 
-  rust-test:
-    name: "Rust (tests)"
+  rust-lint:
+    name: "Rust (lint)"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -149,23 +149,36 @@ jobs:
               echo ---- $package ----
               cargo clippy --package $package --no-default-features
           done
+
+  rust-test:
+    name: "Rust (tests)"
+    runs-on: ubuntu-latest
+    env:
+      # Disable incremental compilation to get accurate coverage
+      CARGO_INCREMENTAL: "0"
+      RUSTFLAGS: "-Cinstrument-coverage"
+      LLVM_PROFILE_FILE: "target/coverage/vortex-%p-%m.profraw"
+      GRCOV_OUTPUT_FILE: "target/coverage/coveralls.json"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/cleanup
+      - uses: rui314/setup-mold@v1
+      - uses: ./.github/actions/setup-rust
+      - name: Install grcov
+        uses: SierraSoftworks/setup-grcov@v1.0.2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Rust Test
         run: cargo test --workspace --all-features
-        env:
-          # Disable incremental compilation to avoid coverage issues
-          CARGO_INCREMENTAL: "0"
-          RUSTFLAGS: "-Cinstrument-coverage"
-          LLVM_PROFILE_FILE: "vortex-%p-%m.profraw"
-      - uses: rraval/actions-rs-grcov@e96292badb0d33512d16654efb0ee3032a9a3cff
-        id: grcov
-        with:
-          config: ".github/coverage.yml"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - run: |
+          grcov . --binary-path target/debug/deps/ -s . -t 'coveralls+' --ignore-not-existing \
+            --ignore '../*' --ignore '/*' --ignore 'bench-vortex/*' --ignore 'fuzz/*' --ignore 'home/*' \
+            -o ${{ env.GRCOV_OUTPUT_FILE }}
       - name: Coveralls
         uses: coverallsapp/github-action@v2
         with:
-          file: "${{ steps.grcov.outputs.report }}"
+          file: ${{ env.GRCOV_OUTPUT_FILE }}
+          format: "coveralls"
 
   license-check-and-audit-check:
     name: License Check and Audit Check
