@@ -170,7 +170,7 @@ jobs:
         run: cargo test --workspace --all-features
       - name: Generate coverage report
         run: |
-          grcov target/coverage --binary-path target/debug/deps/ -s . -t lcov --ignore-not-existing \
+          grcov . --binary-path target/debug/ -s . -t lcov --ignore-not-existing \
             --ignore '../*' --ignore '/*' --ignore 'bench-vortex/*' --ignore 'fuzz/*' --ignore 'home/*' \
             -o ${{ env.GRCOV_OUTPUT_FILE }}
       - name: Coveralls
