@@ -27,7 +27,7 @@ pub trait Layout: Debug + Send + Sync {
         scan: Scan,
         layout_serde: LayoutDeserializer,
         message_cache: RelativeLayoutCache,
-    ) -> VortexResult<Box<dyn LayoutReader>>;
+    ) -> VortexResult<Arc<dyn LayoutReader>>;
 }
 
 pub type LayoutRef = &'static dyn Layout;
@@ -74,7 +74,7 @@ impl LayoutDeserializer {
         layout: fb::Layout,
         scan: Scan,
         message_cache: RelativeLayoutCache,
-    ) -> VortexResult<Box<dyn LayoutReader>> {
+    ) -> VortexResult<Arc<dyn LayoutReader>> {
         let layout_id = LayoutId(layout.encoding());
         self.layout_ctx
             .lookup_layout(&layout_id)

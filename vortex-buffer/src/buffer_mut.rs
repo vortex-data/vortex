@@ -1,3 +1,4 @@
+use core::mem::MaybeUninit;
 use std::ops::{Deref, DerefMut};
 
 use bytes::{Buf, BytesMut};
@@ -169,6 +170,48 @@ impl<T> BufferMut<T> {
         bytes.align_empty(self.alignment);
         bytes.extend_from_slice(&self.bytes);
         self.bytes = bytes;
+    }
+
+    /// Returns the spare capacity of the buffer as a slice of `MaybeUninit<T>`.
+    /// Has identical semantics to [`Vec::spare_capacity_mut`].
+    ///
+    /// The returned slice can be used to fill the buffer with data (e.g. by
+    /// reading from a file) before marking the data as initialized using the
+    /// [`set_len`] method.
+    ///
+    /// [`set_len`]: BufferMut::set_len
+    /// [`Vec::spare_capacity_mut`]: Vec::spare_capacity_mut
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use vortex_buffer::BufferMut;
+    ///
+    /// // Allocate vector big enough for 10 elements.
+    /// let mut b = BufferMut::<u64>::with_capacity(10);
+    ///
+    /// // Fill in the first 3 elements.
+    /// let uninit = b.spare_capacity_mut();
+    /// uninit[0].write(0);
+    /// uninit[1].write(1);
+    /// uninit[2].write(2);
+    ///
+    /// // Mark the first 3 elements of the vector as being initialized.
+    /// unsafe {
+    ///     b.set_len(3);
+    /// }
+    ///
+    /// assert_eq!(b.as_slice(), &[0u64, 1, 2]);
+    /// ```
+    #[inline]
+    pub fn spare_capacity_mut(&mut self) -> &mut [MaybeUninit<T>] {
+        let dst = self.bytes.spare_capacity_mut().as_mut_ptr();
+        unsafe {
+            std::slice::from_raw_parts_mut(
+                dst as *mut MaybeUninit<T>,
+                self.capacity() - self.length,
+            )
+        }
     }
 
     /// # Safety

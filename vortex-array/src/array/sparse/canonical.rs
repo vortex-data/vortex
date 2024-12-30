@@ -1,5 +1,5 @@
 use arrow_buffer::{ArrowNativeType, BooleanBuffer};
-use vortex_buffer::Buffer;
+use vortex_buffer::buffer;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
 use vortex_error::{VortexError, VortexResult};
 use vortex_scalar::Scalar;
@@ -77,7 +77,7 @@ fn canonicalize_sparse_primitives<
         )
     };
 
-    let parray = PrimitiveArray::new(Buffer::full(primitive_fill, patches.array_len()), validity);
+    let parray = PrimitiveArray::new(buffer![primitive_fill; patches.array_len()], validity);
 
     parray.patch(patches).map(Canonical::Primitive)
 }

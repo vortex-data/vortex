@@ -35,8 +35,8 @@ impl Layout for ColumnarLayout {
         scan: Scan,
         layout_serde: LayoutDeserializer,
         message_cache: RelativeLayoutCache,
-    ) -> VortexResult<Box<dyn LayoutReader>> {
-        Ok(Box::new(
+    ) -> VortexResult<Arc<dyn LayoutReader>> {
+        Ok(Arc::new(
             ColumnarLayoutBuilder {
                 layout,
                 scan,
@@ -116,7 +116,7 @@ impl ColumnarLayoutBuilder<'_> {
                     )
                 })?;
 
-            handled_children.push(Box::new(ColumnarLayoutReader::new(
+            handled_children.push(Arc::new(ColumnarLayoutReader::new(
                 unhandled_names.into(),
                 unhandled_children,
                 Some(prf),
@@ -187,7 +187,7 @@ type InProgressPrunes = RwLock<HashMap<(usize, usize), Vec<Option<Prune>>>>;
 #[derive(Debug)]
 pub struct ColumnarLayoutReader {
     names: FieldNames,
-    children: Vec<Box<dyn LayoutReader>>,
+    children: Vec<Arc<dyn LayoutReader>>,
     expr: Option<Arc<dyn VortexExpr>>,
     // TODO(robert): This is a hack/optimization that tells us if we're reducing results with AND or not
     shortcircuit_siblings: bool,
@@ -199,7 +199,7 @@ pub struct ColumnarLayoutReader {
 impl ColumnarLayoutReader {
     pub fn new(
         names: FieldNames,
-        children: Vec<Box<dyn LayoutReader>>,
+        children: Vec<Arc<dyn LayoutReader>>,
         expr: Option<Arc<dyn VortexExpr>>,
         shortcircuit_siblings: bool,
     ) -> Self {
@@ -419,7 +419,7 @@ mod tests {
     async fn layout_and_bytes(
         cache: Arc<RwLock<LayoutMessageCache>>,
         scan: Scan,
-    ) -> (Box<dyn LayoutReader>, Box<dyn LayoutReader>, Bytes, usize) {
+    ) -> (Arc<dyn LayoutReader>, Arc<dyn LayoutReader>, Bytes, usize) {
         let int_array = Buffer::from_iter(0..100).into_array();
         let int2_array = Buffer::from_iter(100..200).into_array();
         let int_dtype = int_array.dtype().clone();
@@ -484,7 +484,7 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     async fn read_range() {
         let cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
-        let (mut filter_layout, mut project_layout, buf, length) = layout_and_bytes(
+        let (filter_layout, project_layout, buf, length) = layout_and_bytes(
             cache.clone(),
             Scan::new(RowFilter::new_expr(BinaryExpr::new_expr(
                 Column::new_expr(Field::from("ints")),
@@ -494,8 +494,8 @@ mod tests {
         )
         .await;
         let arr = filter_read_layout(
-            filter_layout.as_mut(),
-            project_layout.as_mut(),
+            filter_layout.as_ref(),
+            project_layout.as_ref(),
             cache,
             &buf,
             length,
@@ -537,9 +537,8 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     async fn read_range_no_filter() {
         let cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
-        let (_, mut project_layout, buf, length) =
-            layout_and_bytes(cache.clone(), Scan::empty()).await;
-        let arr = read_layout(project_layout.as_mut(), cache, &buf, length).pop_front();
+        let (_, project_layout, buf, length) = layout_and_bytes(cache.clone(), Scan::empty()).await;
+        let arr = read_layout(project_layout.as_ref(), cache, &buf, length).pop_front();
 
         assert!(arr.is_some());
         let prim_arr = arr
@@ -576,7 +575,7 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     async fn short_circuit() {
         let cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
-        let (mut filter_layout, mut project_layout, buf, length) = layout_and_bytes(
+        let (filter_layout, project_layout, buf, length) = layout_and_bytes(
             cache.clone(),
             Scan::new(RowFilter::new_expr(BinaryExpr::new_expr(
                 BinaryExpr::new_expr(
@@ -594,8 +593,8 @@ mod tests {
         )
         .await;
         let arr = filter_read_layout(
-            filter_layout.as_mut(),
-            project_layout.as_mut(),
+            filter_layout.as_ref(),
+            project_layout.as_ref(),
             cache,
             &buf,
             length,

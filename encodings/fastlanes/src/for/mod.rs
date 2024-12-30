@@ -55,6 +55,7 @@ impl FoRArray {
         )
     }
 
+    #[inline]
     pub fn encoded(&self) -> ArrayData {
         let dtype = if self.ptype().is_signed_int() {
             &DType::Primitive(self.ptype().to_unsigned(), self.dtype().nullability())

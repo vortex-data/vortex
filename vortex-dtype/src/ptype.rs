@@ -188,9 +188,7 @@ macro_rules! match_each_integer_ptype {
             PType::U16 => __with__! { u16 },
             PType::U32 => __with__! { u32 },
             PType::U64 => __with__! { u64 },
-            PType::F16 =>  panic!("Unsupported ptype f16"),
-            PType::F32 =>  panic!("Unsupported ptype f32"),
-            PType::F64 =>  panic!("Unsupported ptype f64"),
+            other => panic!("Unsupported ptype {other}")
         }
     })
 }
@@ -206,7 +204,7 @@ macro_rules! match_each_unsigned_integer_ptype {
             PType::U16 => __with__! { u16 },
             PType::U32 => __with__! { u32 },
             PType::U64 => __with__! { u64 },
-            _ => panic!("Unsupported ptype {}", $self),
+            other => panic!("Unsupported ptype {other}"),
         }
     })
 }
@@ -222,7 +220,7 @@ macro_rules! match_each_float_ptype {
             PType::F16 => __with__! { f16 },
             PType::F32 => __with__! { f32 },
             PType::F64 => __with__! { f64 },
-            _ => panic!("Unsupported ptype {}", $self),
+            other => panic!("Unsupported ptype {other}"),
         }
     })
 }

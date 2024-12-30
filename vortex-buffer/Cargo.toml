@@ -14,13 +14,11 @@ categories = { workspace = true }
 readme = "README.md"
 
 [features]
-default = ["arrow"]
 arrow = ["dep:arrow-buffer"]
 
 [dependencies]
 arrow-buffer = { workspace = true, optional = true }
 bytes = { workspace = true }
-vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 
 [lints]
@@ -28,7 +26,6 @@ workspace = true
 
 [dev-dependencies]
 arrow-buffer = { workspace = true }
-num-traits = { workspace = true }
 divan = { workspace = true }
 
 [[bench]]

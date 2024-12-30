@@ -99,7 +99,6 @@ pub struct MessageDecoder {
     alignment: Alignment,
     /// The current state of the decoder.
     state: State,
-    // TODO(ngates):
 }
 
 impl Default for MessageDecoder {

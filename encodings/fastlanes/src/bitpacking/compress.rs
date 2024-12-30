@@ -132,9 +132,6 @@ pub fn bitpack_primitive<T: NativePType + BitPacking + ArrowNativeType>(
     // Loop over all but the last chunk.
     (0..num_full_chunks).for_each(|i| {
         let start_elem = i * 1024;
-
-        // TODO(ngates): haven't we already sized the output buffer?
-        output.reserve(packed_len);
         let output_len = output.len();
         unsafe {
             output.set_len(output_len + packed_len);
@@ -152,8 +149,6 @@ pub fn bitpack_primitive<T: NativePType + BitPacking + ArrowNativeType>(
         let mut last_chunk: [T; 1024] = [T::zero(); 1024];
         last_chunk[..last_chunk_size].copy_from_slice(&array[array.len() - last_chunk_size..]);
 
-        // TODO(ngates): haven't we already sized the output buffer?
-        output.reserve(packed_len);
         let output_len = output.len();
         unsafe {
             output.set_len(output_len + packed_len);
