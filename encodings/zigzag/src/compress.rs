@@ -32,7 +32,7 @@ where
     <T as ExternalZigZag>::UInt: NativePType,
 {
     PrimitiveArray::new(
-        values.into_mut().map_each(|v| T::encode(*v)).freeze(),
+        values.into_mut().map_each(|v| T::encode(v)).freeze(),
         validity,
     )
 }
@@ -60,7 +60,7 @@ where
     <T as ExternalZigZag>::UInt: NativePType,
 {
     PrimitiveArray::new(
-        values.into_mut().map_each(|v| T::decode(*v)).freeze(),
+        values.into_mut().map_each(|v| T::decode(v)).freeze(),
         validity,
     )
 }

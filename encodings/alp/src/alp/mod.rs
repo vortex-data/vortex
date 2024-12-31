@@ -163,6 +163,11 @@ pub trait ALPFloat: private::Sealed + Float + Display + 'static {
         values
     }
 
+    #[inline(never)]
+    fn decode_buffer(encoded: BufferMut<Self::ALPInt>, exponents: Exponents) -> BufferMut<Self> {
+        encoded.map_each(move |encoded| Self::decode_single(encoded, exponents))
+    }
+
     #[inline(always)]
     fn decode_single(encoded: Self::ALPInt, exponents: Exponents) -> Self {
         Self::from_int(encoded) * Self::F10[exponents.f as usize] * Self::IF10[exponents.e as usize]

@@ -305,21 +305,18 @@ impl<T> BufferMut<T> {
     /// Map each element of the buffer with a closure.
     pub fn map_each<R, F>(self, mut f: F) -> BufferMut<R>
     where
-        F: FnMut(&T) -> R,
+        T: Copy,
+        F: FnMut(T) -> R,
     {
         assert_eq!(
             size_of::<T>(),
             size_of::<R>(),
             "Size of T and R do not match"
         );
-        let length = self.len();
         // SAFETY: we have checked that `size_of::<T>` == `size_of::<R>`.
         let mut buf: BufferMut<R> = unsafe { std::mem::transmute(self) };
-        for i in 0..length {
-            // We transmute _back_ the R value into the original T to invoke the closure.
-            let src: &T = unsafe { std::mem::transmute(&buf[i]) };
-            buf.as_mut_slice()[i] = f(src);
-        }
+        buf.iter_mut()
+            .for_each(|item| *item = f(unsafe { std::mem::transmute_copy(item) }));
         buf
     }
 
