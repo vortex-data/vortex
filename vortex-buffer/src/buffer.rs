@@ -44,7 +44,7 @@ impl<T> Buffer<T> {
     /// Create a new full `ByteBuffer` with the given value.
     pub fn full(item: T, len: usize) -> Self
     where
-        T: Clone,
+        T: Copy,
     {
         BufferMut::full(item, len).freeze()
     }
