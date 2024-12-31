@@ -41,15 +41,15 @@ trait MapEach<T, R> {
 
     fn map_each<F>(self, f: F) -> Self::Output
     where
-        F: FnMut(&T) -> R;
+        F: FnMut(T) -> R;
 }
 
 impl<T: ArrowNativeType, R: ArrowNativeType> MapEach<T, R> for Arrow<ScalarBuffer<T>> {
     type Output = Arrow<ScalarBuffer<R>>;
 
-    fn map_each<F>(self, mut f: F) -> Self::Output
+    fn map_each<F>(self, f: F) -> Self::Output
     where
-        F: FnMut(&T) -> R,
+        F: FnMut(T) -> R,
     {
         Arrow(ScalarBuffer::from(
             self.0
@@ -58,18 +58,18 @@ impl<T: ArrowNativeType, R: ArrowNativeType> MapEach<T, R> for Arrow<ScalarBuffe
                 .map_err(|_| vortex_err!("Failed to convert Arrow buffer into a mut vec"))
                 .vortex_expect("Failed to convert Arrow buffer into a mut vec")
                 .into_iter()
-                .map(|v| f(&v))
+                .map(f)
                 .collect::<Vec<R>>(),
         ))
     }
 }
 
-impl<T, R> MapEach<T, R> for BufferMut<T> {
+impl<T: Copy, R> MapEach<T, R> for BufferMut<T> {
     type Output = BufferMut<R>;
 
     fn map_each<F>(self, f: F) -> Self::Output
     where
-        F: FnMut(&T) -> R,
+        F: FnMut(T) -> R,
     {
         BufferMut::<T>::map_each(self, f)
     }
@@ -82,7 +82,7 @@ impl<T, R> MapEach<T, R> for BufferMut<T> {
 fn map_each<B: MapEach<i32, u32> + FromIterator<i32>>(bencher: Bencher, n: i32) {
     bencher
         .with_inputs(|| B::from_iter((0..n).map(|i| i % i32::MAX)))
-        .bench_local_values(|buffer| black_box(B::map_each(buffer, |i| (*i as u32) + 1)));
+        .bench_local_values(|buffer| black_box(B::map_each(buffer, |i| (i as u32) + 1)));
 }
 
 trait Push<T> {
