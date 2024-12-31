@@ -1,6 +1,7 @@
 # /// script
 # dependencies = [
 #   "pandas",
+#   "tabulate",
 # ]
 # ///
 import sys
