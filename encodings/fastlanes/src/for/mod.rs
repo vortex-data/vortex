@@ -12,7 +12,7 @@ use vortex_array::{
 };
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
-use vortex_scalar::{Scalar, ScalarValue};
+use vortex_scalar::{PValue, Scalar};
 
 mod compress;
 mod compute;
@@ -21,7 +21,7 @@ impl_encoding!("fastlanes.for", ids::FL_FOR, FoR);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FoRMetadata {
-    reference: ScalarValue,
+    reference: PValue,
     shift: u8,
 }
 
@@ -43,13 +43,18 @@ impl FoRArray {
                 .with_nullability(child.dtype().nullability()),
         )?;
 
+        let dtype = reference.dtype().clone();
+
+        // Convert the reference into a PValue which is smaller to store.
+        let reference = reference
+            .as_primitive()
+            .pvalue()
+            .vortex_expect("Reference value is non-null");
+
         Self::try_from_parts(
-            reference.dtype().clone(),
+            dtype,
             child.len(),
-            FoRMetadata {
-                reference: reference.into_value(),
-                shift,
-            },
+            FoRMetadata { reference, shift },
             [child].into(),
             StatsSet::default(),
         )
@@ -69,7 +74,11 @@ impl FoRArray {
 
     #[inline]
     pub fn reference_scalar(&self) -> Scalar {
-        Scalar::new(self.dtype().clone(), self.metadata().reference.clone())
+        Scalar::primitive_value(
+            self.metadata().reference,
+            self.ptype(),
+            self.dtype().nullability(),
+        )
     }
 
     #[inline]

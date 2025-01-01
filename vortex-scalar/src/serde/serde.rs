@@ -184,3 +184,16 @@ impl Serialize for PValue {
         }
     }
 }
+
+impl<'de> Deserialize<'de> for PValue {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        ScalarValue::deserialize(deserializer)
+            .and_then(|scalar| scalar.0.as_pvalue().map_err(Error::custom))
+            .and_then(|pvalue| {
+                pvalue.ok_or_else(|| Error::custom("Expected a non-null primitive scalar value"))
+            })
+    }
+}

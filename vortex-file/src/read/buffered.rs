@@ -2,17 +2,19 @@ use std::collections::VecDeque;
 use std::io;
 use std::io::ErrorKind;
 use std::pin::Pin;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::task::{Context, Poll, Waker};
 
 use futures::Stream;
 use futures_util::future::BoxFuture;
 use futures_util::{FutureExt, StreamExt};
 use vortex_array::ArrayData;
-use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_io::{Dispatch, IoDispatcher, VortexReadAt, VortexReadRanges};
 
-use crate::{LayoutMessageCache, LayoutReader, Message, MessageLocator, PollRead, RowMask};
+use crate::{
+    LayoutMessageCache, LayoutReader, Message, MessageCache, MessageLocator, PollRead, RowMask,
+};
 
 const NUM_TO_COALESCE: usize = 8;
 
@@ -21,7 +23,11 @@ pub(crate) trait ReadMasked {
 
     /// Read a Layout into a `V`, applying the given bitmask. Only entries corresponding to positions
     /// where mask is `true` will be included in the output.
-    fn read_masked(&self, mask: &RowMask) -> VortexResult<Option<PollRead<Self::Value>>>;
+    fn read_masked(
+        &self,
+        mask: &RowMask,
+        msgs: &dyn MessageCache,
+    ) -> VortexResult<Option<PollRead<Self::Value>>>;
 }
 
 /// Read an array with a [`RowMask`].
@@ -39,8 +45,12 @@ impl ReadMasked for ReadArray {
     type Value = ArrayData;
 
     /// Read given mask out of the reader
-    fn read_masked(&self, mask: &RowMask) -> VortexResult<Option<PollRead<ArrayData>>> {
-        self.layout.poll_read(mask)
+    fn read_masked(
+        &self,
+        mask: &RowMask,
+        msgs: &dyn MessageCache,
+    ) -> VortexResult<Option<PollRead<ArrayData>>> {
+        self.layout.poll_read(mask, msgs)
     }
 }
 
@@ -58,7 +68,7 @@ pub struct BufferedLayoutReader<R, S, V, RM> {
     queued: VecDeque<RowMaskState<V>>,
     io_read: VortexReadRanges<R>,
     dispatcher: Arc<IoDispatcher>,
-    cache: Arc<RwLock<LayoutMessageCache>>,
+    msgs: LayoutMessageCache,
 }
 
 impl<R, S, V, RM> BufferedLayoutReader<R, S, V, RM>
@@ -72,7 +82,7 @@ where
         dispatcher: Arc<IoDispatcher>,
         read_masks: S,
         row_mask_reader: RM,
-        cache: Arc<RwLock<LayoutMessageCache>>,
+        msgs: LayoutMessageCache,
     ) -> Self {
         Self {
             read_masks,
@@ -81,18 +91,13 @@ where
             queued: VecDeque::new(),
             io_read: VortexReadRanges::new(read, dispatcher.clone(), 1 << 20),
             dispatcher,
-            cache,
+            msgs,
         }
     }
 
-    fn store_messages(&self, messages: Vec<Message>) {
-        let mut write_cache_guard = self
-            .cache
-            .write()
-            .unwrap_or_else(|poison| vortex_panic!("Failed to write to message cache: {poison}"));
-        for Message(message_id, buf) in messages {
-            write_cache_guard.set(message_id, buf);
-        }
+    fn store_messages(&mut self, messages: Vec<Message>) {
+        self.msgs
+            .set_many(messages.into_iter().map(|msg| (msg.0, msg.1)))
     }
 
     fn gather_read_messages(
@@ -106,7 +111,9 @@ where
         for queued_res in self.queued.iter_mut() {
             match queued_res {
                 RowMaskState::Pending(pending_mask) => {
-                    if let Some(pending_read) = self.row_mask_reader.read_masked(pending_mask)? {
+                    if let Some(pending_read) =
+                        self.row_mask_reader.read_masked(pending_mask, &self.msgs)?
+                    {
                         match pending_read {
                             PollRead::ReadMore(m) => {
                                 to_read.extend(m);
@@ -129,7 +136,9 @@ where
         while read_more_count < NUM_TO_COALESCE {
             match self.read_masks.poll_next_unpin(cx) {
                 Poll::Ready(Some(Ok(next_mask))) => {
-                    if let Some(read_result) = self.row_mask_reader.read_masked(&next_mask)? {
+                    if let Some(read_result) =
+                        self.row_mask_reader.read_masked(&next_mask, &self.msgs)?
+                    {
                         match read_result {
                             PollRead::ReadMore(m) => {
                                 self.queued.push_back(RowMaskState::Pending(next_mask));
