@@ -207,6 +207,7 @@ impl VisitorVTable<BoolArray> for BoolEncoding {
 #[cfg(test)]
 mod tests {
     use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder};
+    use vortex_buffer::buffer;
 
     use crate::array::{BoolArray, PrimitiveArray};
     use crate::compute::{scalar_at, slice};
@@ -272,7 +273,7 @@ mod tests {
         // patch the underlying array
         let patches = Patches::new(
             arr.len(),
-            PrimitiveArray::from_vec(vec![4u32], Validity::AllValid).into_array(),
+            PrimitiveArray::new(buffer![4u32], Validity::AllValid).into_array(),
             BoolArray::from(BooleanBuffer::new_unset(1)).into_array(),
         );
         let arr = arr.patch(patches).unwrap();
@@ -288,16 +289,18 @@ mod tests {
 
     #[test]
     fn patch_bools_owned() {
-        let arr = BoolArray::from(BooleanBuffer::new_set(15));
-        let buf_ptr = arr.buffer().as_ptr();
+        let buffer = buffer![255u8; 2];
+        let buf = BooleanBuffer::new(buffer.into_arrow_buffer(), 0, 15);
+        let arr = BoolArray::from(buf);
+        let buf_ptr = arr.boolean_buffer().sliced().as_ptr();
 
         let patches = Patches::new(
             arr.len(),
-            PrimitiveArray::from_vec(vec![0u32], Validity::AllValid).into_array(),
+            PrimitiveArray::new(buffer![0u32], Validity::AllValid).into_array(),
             BoolArray::from(BooleanBuffer::new_unset(1)).into_array(),
         );
         let arr = arr.patch(patches).unwrap();
-        assert_eq!(arr.buffer().as_ptr(), buf_ptr);
+        assert_eq!(arr.boolean_buffer().sliced().as_ptr(), buf_ptr);
 
         let (values, offset) = arr.into_bool().unwrap().into_boolean_builder();
         assert_eq!(offset, 0);
