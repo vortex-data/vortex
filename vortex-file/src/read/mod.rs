@@ -118,8 +118,8 @@ pub trait LayoutReader: Debug + Send + Sync {
     ///
     /// Layout is required to return all data for given selection in one batch.  Layout can either
     /// return a batch of data (i.e., an Array) or ask for more layout messages to be read. When
-    /// requesting messages to be read the caller should populate the message cache used when
-    /// creating the invoked instance of this trait and then call back into this function.
+    /// requesting messages to be read the caller should populate the message cache before invoking
+    /// the poll function again.
     ///
     /// The layout is finished producing data for selection when it returns None
     fn poll_read(
