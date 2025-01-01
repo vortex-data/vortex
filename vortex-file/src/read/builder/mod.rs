@@ -1,4 +1,4 @@
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use initial_read::read_initial_bytes;
 use vortex_array::{ArrayDType, ArrayData};
@@ -8,11 +8,12 @@ use vortex_io::{IoDispatcher, VortexReadAt};
 
 use super::handle::VortexReadHandle;
 use super::InitialRead;
-use crate::read::cache::{LayoutMessageCache, RelativeLayoutCache};
+use crate::read::cache::LayoutMessageCache;
 use crate::read::context::LayoutDeserializer;
 use crate::read::filtering::RowFilter;
 use crate::read::projection::Projection;
 use crate::read::{RowMask, Scan};
+use crate::LayoutPath;
 
 pub(crate) mod initial_read;
 
@@ -147,25 +148,25 @@ impl<R: VortexReadAt + Unpin> VortexReadBuilder<R> {
             Projection::Flat(ref fields) => lazy_dtype.project(fields)?,
         };
 
-        let message_cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
+        let message_cache = LayoutMessageCache::default();
         let layout_reader = self.layout_serde.read_layout(
+            LayoutPath::default(),
             initial_read.fb_layout(),
             match self.projection {
                 Projection::All => Scan::empty(),
                 Projection::Flat(p) => Scan::new(Arc::new(Select::include(p))),
             },
             lazy_dtype.clone(),
-            RelativeLayoutCache::new(message_cache.clone()),
         )?;
 
         let filter_reader = self
             .row_filter
             .map(|row_filter| {
                 self.layout_serde.read_layout(
+                    LayoutPath::default(),
                     initial_read.fb_layout(),
                     Scan::new(Arc::new(row_filter)),
                     lazy_dtype,
-                    RelativeLayoutCache::new(message_cache.clone()),
                 )
             })
             .transpose()?;

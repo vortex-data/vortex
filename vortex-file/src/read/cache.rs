@@ -9,34 +9,59 @@ use vortex_buffer::ByteBuffer;
 use vortex_dtype::field::Field;
 use vortex_dtype::flatbuffers::{extract_field, project_and_deserialize, resolve_field};
 use vortex_dtype::{DType, FieldNames};
-use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_flatbuffers::dtype as fbd;
 
 use crate::read::projection::Projection;
 use crate::read::{LayoutPartId, MessageId};
 
-#[derive(Default, Debug)]
+/// A read-only cache of messages.
+pub trait MessageCache {
+    fn get(&self, path: &[LayoutPartId]) -> Option<Bytes>;
+}
+
+#[derive(Default, Debug, Clone)]
 pub struct LayoutMessageCache {
-    cache: HashMap<MessageId, Bytes>,
+    cache: Arc<RwLock<HashMap<MessageId, Bytes>>>,
 }
 
 impl LayoutMessageCache {
-    pub fn new() -> Self {
-        Self {
-            cache: HashMap::new(),
-        }
-    }
-
-    pub fn get(&self, path: &[LayoutPartId]) -> Option<Bytes> {
-        self.cache.get(path).cloned()
-    }
-
     pub fn remove(&mut self, path: &[LayoutPartId]) -> Option<Bytes> {
-        self.cache.remove(path)
+        self.cache
+            .write()
+            .map_err(|_| vortex_err!("Poisoned cache"))
+            .vortex_expect("poisoned")
+            .remove(path)
     }
 
     pub fn set(&mut self, path: MessageId, value: Bytes) {
-        self.cache.insert(path, value);
+        self.cache
+            .write()
+            .map_err(|_| vortex_err!("Poisoned cache"))
+            .vortex_expect("poisoned")
+            .insert(path, value);
+    }
+
+    pub fn set_many<I: IntoIterator<Item = (MessageId, Bytes)>>(&mut self, iter: I) {
+        let mut guard = self
+            .cache
+            .write()
+            .map_err(|_| vortex_err!("Poisoned cache"))
+            .vortex_expect("poisoned");
+        for (id, bytes) in iter.into_iter() {
+            guard.insert(id, bytes);
+        }
+    }
+}
+
+impl MessageCache for LayoutMessageCache {
+    fn get(&self, path: &[LayoutPartId]) -> Option<Bytes> {
+        self.cache
+            .read()
+            .map_err(|_| vortex_err!("Poisoned cache"))
+            .vortex_expect("poisoned")
+            .get(path)
+            .cloned()
     }
 }
 
@@ -257,62 +282,4 @@ fn fb_struct(bytes: &[u8]) -> VortexResult<fbd::Struct_> {
 
 fn fb_dtype(bytes: &[u8]) -> fbd::DType {
     unsafe { root_unchecked::<fbd::DType>(bytes) }
-}
-
-#[derive(Debug, Clone)]
-pub struct RelativeLayoutCache {
-    root: Arc<RwLock<LayoutMessageCache>>,
-    path: MessageId,
-}
-
-impl RelativeLayoutCache {
-    pub fn new(root: Arc<RwLock<LayoutMessageCache>>) -> Self {
-        Self {
-            root,
-            path: Vec::new(),
-        }
-    }
-
-    pub fn relative(&self, id: LayoutPartId) -> Self {
-        let mut new_path = Vec::with_capacity(self.path.len() + 1);
-        new_path.clone_from(&self.path);
-        new_path.push(id);
-        Self {
-            root: self.root.clone(),
-            path: new_path,
-        }
-    }
-
-    pub fn get(&self, path: &[LayoutPartId]) -> Option<Bytes> {
-        self.root
-            .read()
-            .unwrap_or_else(|poison| {
-                vortex_panic!(
-                    "Failed to read from layout cache at path {:?} with error {}",
-                    path,
-                    poison
-                );
-            })
-            .get(&self.absolute_id(path))
-    }
-
-    pub fn remove(&mut self, path: &[LayoutPartId]) -> Option<Bytes> {
-        self.root
-            .write()
-            .unwrap_or_else(|poison| {
-                vortex_panic!(
-                    "Failed to write to layout cache at path {:?} with error {}",
-                    path,
-                    poison
-                )
-            })
-            .remove(&self.absolute_id(path))
-    }
-
-    pub fn absolute_id(&self, path: &[LayoutPartId]) -> MessageId {
-        let mut lookup_key = Vec::with_capacity(self.path.len() + path.len());
-        lookup_key.clone_from(&self.path);
-        lookup_key.extend_from_slice(path);
-        lookup_key
-    }
 }

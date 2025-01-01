@@ -4,7 +4,7 @@ use vortex_array::stats::ArrayStatistics;
 use vortex_error::VortexResult;
 
 use crate::read::buffered::ReadMasked;
-use crate::{LayoutReader, PollRead, Prune, RowMask};
+use crate::{LayoutReader, MessageCache, PollRead, Prune, RowMask};
 
 /// Reads an array out of a [`LayoutReader`] as a [`RowMask`].
 ///
@@ -24,8 +24,12 @@ impl ReadMasked for ReadRowMask {
     type Value = RowMask;
 
     /// Read given mask out of the reader
-    fn read_masked(&self, mask: &RowMask) -> VortexResult<Option<PollRead<RowMask>>> {
-        let can_prune = self.layout.poll_prune(mask.begin(), mask.end())?;
+    fn read_masked(
+        &self,
+        mask: &RowMask,
+        msgs: &dyn MessageCache,
+    ) -> VortexResult<Option<PollRead<RowMask>>> {
+        let can_prune = self.layout.poll_prune(mask.begin(), mask.end(), msgs)?;
 
         match can_prune {
             PollRead::ReadMore(messages) => {
@@ -35,7 +39,7 @@ impl ReadMasked for ReadRowMask {
             PollRead::Value(Prune::CannotPrune) => {}
         };
 
-        if let Some(rs) = self.layout.poll_read(mask)? {
+        if let Some(rs) = self.layout.poll_read(mask, msgs)? {
             return match rs {
                 PollRead::ReadMore(messages) => Ok(Some(PollRead::ReadMore(messages))),
                 PollRead::Value(batch) => {

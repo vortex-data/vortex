@@ -1,5 +1,5 @@
 use std::iter;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use futures_util::{stream, StreamExt};
 use vortex_array::ArrayData;
@@ -8,7 +8,7 @@ use vortex_io::{IoDispatcher, VortexReadAt};
 
 use super::{LayoutMessageCache, LayoutReader};
 use crate::read::buffered::{BufferedLayoutReader, ReadMasked};
-use crate::{PollRead, RowMask};
+use crate::{MessageCache, PollRead, RowMask};
 
 struct MetadataMaskReader {
     layout: Arc<dyn LayoutReader>,
@@ -26,8 +26,9 @@ impl ReadMasked for MetadataMaskReader {
     fn read_masked(
         &self,
         _mask: &RowMask,
+        msgs: &dyn MessageCache,
     ) -> VortexResult<Option<PollRead<Vec<Option<ArrayData>>>>> {
-        self.layout.poll_metadata()
+        self.layout.poll_metadata(msgs)
     }
 }
 
@@ -35,14 +36,14 @@ pub async fn fetch_metadata<R: VortexReadAt + Unpin>(
     input: R,
     dispatcher: Arc<IoDispatcher>,
     root_layout: Arc<dyn LayoutReader>,
-    layout_cache: Arc<RwLock<LayoutMessageCache>>,
+    msgs: LayoutMessageCache,
 ) -> VortexResult<Option<Vec<Option<ArrayData>>>> {
     let mut metadata_reader = BufferedLayoutReader::new(
         input,
         dispatcher,
         stream::iter(iter::once(Ok(RowMask::new_valid_between(0, 1)))),
         MetadataMaskReader::new(root_layout),
-        layout_cache,
+        msgs,
     );
 
     metadata_reader.next().await.transpose()
@@ -50,7 +51,7 @@ pub async fn fetch_metadata<R: VortexReadAt + Unpin>(
 
 #[cfg(test)]
 mod test {
-    use std::sync::{Arc, RwLock};
+    use std::sync::Arc;
 
     use bytes::Bytes;
     use vortex_array::array::{ChunkedArray, StructArray};
@@ -61,7 +62,7 @@ mod test {
 
     use crate::metadata::fetch_metadata;
     use crate::{
-        read_initial_bytes, LayoutDeserializer, LayoutMessageCache, RelativeLayoutCache, Scan,
+        read_initial_bytes, LayoutDeserializer, LayoutMessageCache, LayoutPath, Scan,
         VortexFileWriter,
     };
 
@@ -110,24 +111,19 @@ mod test {
             .unwrap();
         let lazy_dtype = Arc::new(initial_read.lazy_dtype());
         let layout_deserializer = LayoutDeserializer::default();
-        let layout_message_cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
+        let msgs = LayoutMessageCache::default();
         let layout_reader = layout_deserializer
             .read_layout(
+                LayoutPath::default(),
                 initial_read.fb_layout(),
                 Scan::empty(),
                 lazy_dtype.clone(),
-                RelativeLayoutCache::new(layout_message_cache.clone()),
             )
             .unwrap();
         let io = IoDispatcher::default();
-        let metadata_table = fetch_metadata(
-            written_bytes,
-            io.into(),
-            layout_reader,
-            layout_message_cache,
-        )
-        .await
-        .unwrap();
+        let metadata_table = fetch_metadata(written_bytes, io.into(), layout_reader, msgs)
+            .await
+            .unwrap();
 
         assert!(metadata_table.is_some());
         let metadata_table = metadata_table.unwrap();

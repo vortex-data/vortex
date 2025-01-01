@@ -1,7 +1,7 @@
 #![allow(clippy::cast_possible_truncation)]
 use std::collections::BTreeSet;
 use std::iter;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use bytes::Bytes;
 use futures::StreamExt;
@@ -23,8 +23,8 @@ use vortex_io::VortexReadAt;
 use crate::builder::initial_read::read_initial_bytes;
 use crate::write::VortexFileWriter;
 use crate::{
-    LayoutDeserializer, LayoutMessageCache, Projection, RelativeLayoutCache, RowFilter, Scan,
-    VortexReadBuilder, V1_FOOTER_FBS_SIZE, VERSION,
+    LayoutDeserializer, LayoutPath, Projection, RowFilter, Scan, VortexReadBuilder,
+    V1_FOOTER_FBS_SIZE, VERSION,
 };
 
 #[test]
@@ -133,14 +133,13 @@ async fn test_splits() {
     let layout_serde = LayoutDeserializer::default();
 
     let dtype = Arc::new(initial_read.lazy_dtype());
-    let cache = Arc::new(RwLock::new(LayoutMessageCache::new()));
 
     let layout_reader = layout_serde
         .read_layout(
+            LayoutPath::default(),
             initial_read.fb_layout(),
             Scan::empty(),
             dtype,
-            RelativeLayoutCache::new(cache),
         )
         .unwrap();
 
