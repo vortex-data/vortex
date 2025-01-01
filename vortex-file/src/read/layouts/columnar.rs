@@ -32,6 +32,7 @@ impl Layout for ColumnarLayout {
     fn reader(
         &self,
         layout: footer::Layout,
+        dtype: Arc<LazyDType>,
         scan: Scan,
         layout_serde: LayoutDeserializer,
         message_cache: RelativeLayoutCache,
@@ -40,6 +41,7 @@ impl Layout for ColumnarLayout {
             ColumnarLayoutBuilder {
                 layout,
                 scan,
+                dtype,
                 layout_serde,
                 message_cache,
             }
@@ -51,6 +53,7 @@ impl Layout for ColumnarLayout {
 struct ColumnarLayoutBuilder<'a> {
     layout: footer::Layout<'a>,
     scan: Scan,
+    dtype: Arc<LazyDType>,
     layout_serde: LayoutDeserializer,
     message_cache: RelativeLayoutCache,
 }
@@ -67,7 +70,7 @@ impl ColumnarLayoutBuilder<'_> {
 
         for (field, name) in refs.into_iter().zip_eq(lazy_dtype.names()?.iter()) {
             let resolved_child = lazy_dtype.resolve_field(&field)?;
-            let child_field = lazy_dtype.field(&field)?;
+            let child_dtype = lazy_dtype.field(&field)?;
             let child_layout = fb_children.get(resolved_child);
             let projected_expr = self
                 .scan
@@ -81,8 +84,8 @@ impl ColumnarLayoutBuilder<'_> {
             let child = self.layout_serde.read_layout(
                 child_layout,
                 Scan::from(projected_expr),
-                self.message_cache
-                    .relative(resolved_child as u16, child_field),
+                child_dtype,
+                self.message_cache.relative(resolved_child as u16),
             )?;
 
             if handled {
@@ -154,8 +157,9 @@ impl ColumnarLayoutBuilder<'_> {
         let field_refs = self.scan_fields();
         let lazy_dtype = field_refs
             .as_ref()
-            .map(|e| self.message_cache.dtype().project(e))
-            .unwrap_or_else(|| Ok(self.message_cache.dtype().clone()))?;
+            .map(|e| self.dtype.project(e))
+            // TODO(ngates): what is this unwrap for? Why would we default to our own dtype?
+            .unwrap_or_else(|| Ok(self.dtype.clone()))?;
 
         Ok((
             field_refs.unwrap_or_else(|| (0..fb_children.len()).map(Field::from).collect()),
@@ -465,14 +469,16 @@ mod tests {
                 .read_layout(
                     initial_read.fb_layout(),
                     scan,
-                    RelativeLayoutCache::new(cache.clone(), dtype.clone()),
+                    dtype.clone(),
+                    RelativeLayoutCache::new(cache.clone()),
                 )
                 .unwrap(),
             layout_serde
                 .read_layout(
                     initial_read.fb_layout(),
                     Scan::empty(),
-                    RelativeLayoutCache::new(cache.clone(), dtype),
+                    dtype,
+                    RelativeLayoutCache::new(cache.clone()),
                 )
                 .unwrap(),
             written,

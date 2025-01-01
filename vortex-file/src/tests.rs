@@ -139,7 +139,8 @@ async fn test_splits() {
         .read_layout(
             initial_read.fb_layout(),
             Scan::empty(),
-            RelativeLayoutCache::new(cache, dtype),
+            dtype,
+            RelativeLayoutCache::new(cache),
         )
         .unwrap();
 

@@ -154,7 +154,8 @@ impl<R: VortexReadAt + Unpin> VortexReadBuilder<R> {
                 Projection::All => Scan::empty(),
                 Projection::Flat(p) => Scan::new(Arc::new(Select::include(p))),
             },
-            RelativeLayoutCache::new(message_cache.clone(), lazy_dtype.clone()),
+            lazy_dtype.clone(),
+            RelativeLayoutCache::new(message_cache.clone()),
         )?;
 
         let filter_reader = self
@@ -163,7 +164,8 @@ impl<R: VortexReadAt + Unpin> VortexReadBuilder<R> {
                 self.layout_serde.read_layout(
                     initial_read.fb_layout(),
                     Scan::new(Arc::new(row_filter)),
-                    RelativeLayoutCache::new(message_cache.clone(), lazy_dtype),
+                    lazy_dtype,
+                    RelativeLayoutCache::new(message_cache.clone()),
                 )
             })
             .transpose()?;

@@ -262,32 +262,25 @@ fn fb_dtype(bytes: &[u8]) -> fbd::DType {
 #[derive(Debug, Clone)]
 pub struct RelativeLayoutCache {
     root: Arc<RwLock<LayoutMessageCache>>,
-    dtype: Arc<LazyDType>,
     path: MessageId,
 }
 
 impl RelativeLayoutCache {
-    pub fn new(root: Arc<RwLock<LayoutMessageCache>>, dtype: Arc<LazyDType>) -> Self {
+    pub fn new(root: Arc<RwLock<LayoutMessageCache>>) -> Self {
         Self {
             root,
-            dtype,
             path: Vec::new(),
         }
     }
 
-    pub fn relative(&self, id: LayoutPartId, dtype: Arc<LazyDType>) -> Self {
+    pub fn relative(&self, id: LayoutPartId) -> Self {
         let mut new_path = Vec::with_capacity(self.path.len() + 1);
         new_path.clone_from(&self.path);
         new_path.push(id);
         Self {
             root: self.root.clone(),
             path: new_path,
-            dtype,
         }
-    }
-
-    pub fn unknown_dtype(&self, id: LayoutPartId) -> Self {
-        self.relative(id, Arc::new(LazyDType::unknown()))
     }
 
     pub fn get(&self, path: &[LayoutPartId]) -> Option<Bytes> {
@@ -314,10 +307,6 @@ impl RelativeLayoutCache {
                 )
             })
             .remove(&self.absolute_id(path))
-    }
-
-    pub fn dtype(&self) -> &Arc<LazyDType> {
-        &self.dtype
     }
 
     pub fn absolute_id(&self, path: &[LayoutPartId]) -> MessageId {

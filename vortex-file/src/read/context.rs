@@ -7,7 +7,7 @@ use vortex_error::{vortex_err, VortexResult};
 use vortex_flatbuffers::footer as fb;
 
 use crate::layouts::{ChunkedLayout, ColumnarLayout, FlatLayout};
-use crate::{LayoutReader, RelativeLayoutCache, Scan};
+use crate::{LayoutReader, LazyDType, RelativeLayoutCache, Scan};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub struct LayoutId(pub u16);
@@ -24,6 +24,7 @@ pub trait Layout: Debug + Send + Sync {
     fn reader(
         &self,
         layout: fb::Layout,
+        dtype: Arc<LazyDType>,
         scan: Scan,
         layout_serde: LayoutDeserializer,
         message_cache: RelativeLayoutCache,
@@ -73,13 +74,14 @@ impl LayoutDeserializer {
         &self,
         layout: fb::Layout,
         scan: Scan,
+        dtype: Arc<LazyDType>,
         message_cache: RelativeLayoutCache,
     ) -> VortexResult<Arc<dyn LayoutReader>> {
         let layout_id = LayoutId(layout.encoding());
         self.layout_ctx
             .lookup_layout(&layout_id)
             .ok_or_else(|| vortex_err!("Unknown layout definition {layout_id}"))?
-            .reader(layout, scan, self.clone(), message_cache)
+            .reader(layout, dtype, scan, self.clone(), message_cache)
     }
 
     pub(crate) fn ctx(&self) -> Arc<Context> {

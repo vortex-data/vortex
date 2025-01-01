@@ -146,14 +146,12 @@ impl FileFormat for VortexFormat {
         let layout_deserializer =
             LayoutDeserializer::new(self.context.clone(), LayoutContext::default().into());
         let layout_message_cache = Arc::new(RwLock::new(LayoutMessageCache::new()));
-        let relative_message_cache = RelativeLayoutCache::new(
-            layout_message_cache.clone(),
-            initial_read.lazy_dtype().into(),
-        );
+        let relative_message_cache = RelativeLayoutCache::new(layout_message_cache.clone());
 
         let root_layout = layout_deserializer.read_layout(
             initial_read.fb_layout(),
             Scan::empty(),
+            initial_read.lazy_dtype().into(),
             relative_message_cache,
         )?;
 

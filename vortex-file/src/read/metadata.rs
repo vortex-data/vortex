@@ -115,7 +115,8 @@ mod test {
             .read_layout(
                 initial_read.fb_layout(),
                 Scan::empty(),
-                RelativeLayoutCache::new(layout_message_cache.clone(), lazy_dtype.clone()),
+                lazy_dtype.clone(),
+                RelativeLayoutCache::new(layout_message_cache.clone()),
             )
             .unwrap();
         let io = IoDispatcher::default();

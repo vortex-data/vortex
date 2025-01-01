@@ -40,6 +40,7 @@ impl Layout for ChunkedLayout {
     fn reader(
         &self,
         layout: fb::Layout,
+        dtype: Arc<LazyDType>,
         scan: Scan,
         layout_builder: LayoutDeserializer,
         message_cache: RelativeLayoutCache,
@@ -48,6 +49,7 @@ impl Layout for ChunkedLayout {
             ChunkedLayoutBuilder {
                 layout,
                 scan,
+                dtype,
                 layout_builder,
                 message_cache,
             }
@@ -65,6 +67,7 @@ const METADATA_LAYOUT_PART_ID: LayoutPartId = 0;
 struct ChunkedLayoutBuilder<'a> {
     layout: fb::Layout<'a>,
     scan: Scan,
+    dtype: Arc<LazyDType>,
     layout_builder: LayoutDeserializer,
     message_cache: RelativeLayoutCache,
 }
@@ -81,7 +84,7 @@ impl ChunkedLayoutBuilder<'_> {
                 .children()
                 .ok_or_else(|| vortex_err!("Must have children if layout has metadata"))?
                 .get(0);
-            let stats_dtype = stats_table_dtype(&set_stats, self.message_cache.dtype().value()?);
+            let stats_dtype = stats_table_dtype(&set_stats, self.dtype.value()?);
             let DType::Struct(ref s, _) = stats_dtype else {
                 vortex_bail!("Chunked layout stats must be a Struct, got {stats_dtype}")
             };
@@ -90,10 +93,8 @@ impl ChunkedLayoutBuilder<'_> {
                 Scan::new(Arc::new(Select::include(
                     s.names().iter().map(|s| Field::Name(s.clone())).collect(),
                 ))),
-                self.message_cache.relative(
-                    METADATA_LAYOUT_PART_ID,
-                    Arc::new(LazyDType::from_dtype(stats_dtype)),
-                ),
+                Arc::new(LazyDType::from_dtype(stats_dtype)),
+                self.message_cache.relative(METADATA_LAYOUT_PART_ID),
             )?)
         } else {
             None
@@ -115,15 +116,19 @@ impl ChunkedLayoutBuilder<'_> {
                 let chunk_end = *total_rows;
 
                 // Relative layout cache for the `child_idx`-th child.
-                let child_cache = self.message_cache.relative(
-                    child_idx.try_into().vortex_unwrap(),
-                    self.message_cache.dtype().clone(),
-                );
+                let child_cache = self
+                    .message_cache
+                    .relative(child_idx.try_into().vortex_unwrap());
 
                 // Construct the ranged layout.
                 Some(
                     self.layout_builder
-                        .read_layout(next_chunk, self.scan.clone(), child_cache)
+                        .read_layout(
+                            next_chunk,
+                            self.scan.clone(),
+                            self.dtype.clone(),
+                            child_cache,
+                        )
                         .map(|layout| RangedLayoutReader((chunk_start, chunk_end), layout)),
                 )
             })
@@ -473,16 +478,18 @@ mod tests {
             ChunkedLayoutBuilder {
                 layout,
                 scan,
+                dtype: dtype.clone(),
                 layout_builder: layout_builder.clone(),
-                message_cache: RelativeLayoutCache::new(cache.clone(), dtype.clone()),
+                message_cache: RelativeLayoutCache::new(cache.clone()),
             }
             .build()
             .unwrap(),
             ChunkedLayoutBuilder {
                 layout,
                 scan: Scan::empty(),
+                dtype,
                 layout_builder,
-                message_cache: RelativeLayoutCache::new(cache, dtype),
+                message_cache: RelativeLayoutCache::new(cache),
             }
             .build()
             .unwrap(),
