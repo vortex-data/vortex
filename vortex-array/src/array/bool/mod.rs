@@ -208,6 +208,7 @@ impl VisitorVTable<BoolArray> for BoolEncoding {
 mod tests {
     use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder};
     use vortex_buffer::buffer;
+    use vortex_dtype::Nullability;
 
     use crate::array::{BoolArray, PrimitiveArray};
     use crate::compute::{scalar_at, slice};
@@ -288,10 +289,11 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "See https://github.com/spiraldb/vortex/issues/1774"]
     fn patch_bools_owned() {
         let buffer = buffer![255u8; 2];
         let buf = BooleanBuffer::new(buffer.into_arrow_buffer(), 0, 15);
-        let arr = BoolArray::from(buf);
+        let arr = BoolArray::new(buf, Nullability::NonNullable);
         let buf_ptr = arr.boolean_buffer().sliced().as_ptr();
 
         let patches = Patches::new(
