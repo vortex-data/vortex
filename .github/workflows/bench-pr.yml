@@ -38,7 +38,6 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
-      - uses: spiraldb/actions/.github/actions/setup-uv@0.2.0
 
       # The compression benchmarks rely on DuckDB being installed to convert CSV to Parquet
       - name: Install DuckDB
@@ -75,6 +74,8 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
           aws-region: us-east-1
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
       - name: Compare results
         shell: bash
         run: |
@@ -105,7 +106,6 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
-      - uses: spiraldb/actions/.github/actions/setup-uv@0.2.0
 
       # The compression benchmarks rely on DuckDB being installed to convert CSV to Parquet
       - name: Install DuckDB
@@ -161,7 +161,6 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
-      - uses: spiraldb/actions/.github/actions/setup-uv@0.2.0
 
       # The compression benchmarks rely on DuckDB being installed to convert CSV to Parquet
       - name: Install DuckDB
@@ -188,6 +187,8 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
           aws-region: us-east-1
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
       - name: Compare results
         shell: bash
         run: |
@@ -203,7 +204,7 @@ jobs:
           echo '<details>' >> comment.md
           echo '<summary>Table of Results</summary>' >> comment.md
           echo '' >> comment.md
-          uv run python3 scripts/compare-benchmark-jsons.py base.json clickbench.json \
+          uv run scripts/compare-benchmark-jsons.py base.json clickbench.json \
             >> comment.md
           echo '</details>' >> comment.md
       - name: Comment PR

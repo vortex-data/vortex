@@ -127,10 +127,10 @@ fn decompress_primitive<T: NativePType + WrappingAdd + PrimInt>(
 ) -> Buffer<T> {
     if shift > 0 {
         if min == T::zero() {
-            values.map_each(move |v| *v << shift).freeze()
+            values.map_each(move |v| v << shift).freeze()
         } else {
             values
-                .map_each(move |v| (*v << shift).wrapping_add(&min))
+                .map_each(move |v| (v << shift).wrapping_add(&min))
                 .freeze()
         }
     } else {

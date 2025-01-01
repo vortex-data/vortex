@@ -187,12 +187,12 @@ impl PrimitiveArray {
     where
         T: NativePType,
         R: NativePType,
-        F: FnMut(&T) -> R,
+        F: FnMut(T) -> R,
     {
         let validity = self.validity();
         let buffer = match self.try_into_buffer_mut() {
             Ok(buffer_mut) => buffer_mut.map_each(f),
-            Err(parray) => BufferMut::<R>::from_iter(parray.buffer::<T>().iter().map(f)),
+            Err(parray) => BufferMut::<R>::from_iter(parray.buffer::<T>().iter().copied().map(f)),
         };
         PrimitiveArray::new(buffer.freeze(), validity)
     }

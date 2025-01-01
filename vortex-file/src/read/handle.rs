@@ -1,5 +1,5 @@
 use std::collections::BTreeSet;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use futures::stream;
 use itertools::Itertools;
@@ -20,7 +20,7 @@ pub struct VortexReadHandle<R> {
     splits: Vec<(usize, usize)>,
     layout_reader: Arc<dyn LayoutReader>,
     filter_reader: Option<Arc<dyn LayoutReader>>,
-    messages_cache: Arc<RwLock<LayoutMessageCache>>,
+    messages_cache: LayoutMessageCache,
     row_mask: Option<RowMask>,
     io_dispatcher: Arc<IoDispatcher>,
 }
@@ -31,7 +31,7 @@ impl<R: VortexReadAt + Unpin> VortexReadHandle<R> {
         input: R,
         layout_reader: Arc<dyn LayoutReader>,
         filter_reader: Option<Arc<dyn LayoutReader>>,
-        messages_cache: Arc<RwLock<LayoutMessageCache>>,
+        messages_cache: LayoutMessageCache,
         dtype: Arc<LazyDType>,
         row_count: u64,
         row_mask: Option<RowMask>,

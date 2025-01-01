@@ -220,14 +220,10 @@ fn pack_primitives<T: NativePType>(
 ) -> VortexResult<PrimitiveArray> {
     let total_len = chunks.iter().map(|a| a.len()).sum();
     let mut buffer = BufferMut::with_capacity(total_len);
-    buffer.extend(chunks.iter().flat_map(|chunk| {
-        chunk
-            .clone()
-            .into_primitive()
-            .vortex_expect("Chunk was not a PrimitiveArray")
-            .into_buffer::<T>()
-            .into_iter()
-    }));
+    for chunk in chunks {
+        let chunk = chunk.clone().into_primitive()?;
+        buffer.extend_from_slice(chunk.as_slice::<T>());
+    }
     Ok(PrimitiveArray::new(buffer.freeze(), validity))
 }
 

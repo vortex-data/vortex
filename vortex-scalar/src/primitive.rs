@@ -176,9 +176,17 @@ impl std::ops::Sub for PrimitiveScalar<'_> {
 
 impl Scalar {
     pub fn primitive<T: NativePType + Into<PValue>>(value: T, nullability: Nullability) -> Self {
+        Self::primitive_value(value.into(), T::PTYPE, nullability)
+    }
+
+    /// Create a PrimitiveScalar from a PValue.
+    ///
+    /// Note that an explicit PType is passed since any compatible PValue may be used as the value
+    /// for a primitive type.
+    pub fn primitive_value(value: PValue, ptype: PType, nullability: Nullability) -> Self {
         Self {
-            dtype: DType::Primitive(T::PTYPE, nullability),
-            value: ScalarValue(InnerScalarValue::Primitive(value.into())),
+            dtype: DType::Primitive(ptype, nullability),
+            value: ScalarValue(InnerScalarValue::Primitive(value)),
         }
     }
 
