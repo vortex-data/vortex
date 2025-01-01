@@ -83,7 +83,7 @@ impl LayoutReader for FlatLayoutReader {
         selection: &RowMask,
         msgs: &dyn MessageCache,
     ) -> VortexResult<Option<PollRead<ArrayData>>> {
-        if let Some(buf) = msgs.get(&[]) {
+        if let Some(buf) = msgs.get(&self.path) {
             let array = self.array_from_bytes(buf)?;
             selection
                 .filter_array(array)?
