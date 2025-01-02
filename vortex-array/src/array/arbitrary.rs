@@ -135,7 +135,7 @@ where
     usize: AsPrimitive<O>,
 {
     let list_len = chunk_len.unwrap_or(u.int_in_range(0..=20)?);
-    let mut builder = ListBuilder::<O>::with_capacity(ldt.clone(), *n, 1);
+    let mut builder = ListBuilder::<O>::with_capacity(ldt.clone(), *n, 10);
     for _ in 0..list_len {
         if matches!(n, Nullability::Nullable) || u.arbitrary::<bool>()? {
             let elem_len = u.int_in_range(0..=20)?;

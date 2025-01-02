@@ -7,6 +7,8 @@ use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_native_ptype, DType};
 use vortex_error::VortexExpect;
 
+use crate::take::take_canonical_array;
+
 pub fn filter_canonical_array(array: &ArrayData, filter: &[bool]) -> ArrayData {
     let validity = if array.dtype().is_nullable() {
         let validity_buff = array
@@ -83,7 +85,17 @@ pub fn filter_canonical_array(array: &ArrayData, filter: &[bool]) -> ArrayData {
             .unwrap()
             .into_array()
         }
-        // TODO(joe): support lists
-        a => unreachable!("Not a canonical array {:?}", a),
+        DType::List(..) => {
+            let mut indices = Vec::new();
+            let mut idx = 0;
+            for bool in filter {
+                if *bool {
+                    indices.push(idx);
+                }
+                idx += 1;
+            }
+            take_canonical_array(array, &indices)
+        }
+        _ => unreachable!("Not a canonical array"),
     }
 }

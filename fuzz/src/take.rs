@@ -1,6 +1,8 @@
 use arrow_buffer::ArrowNativeType;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::array::{BoolArray, PrimitiveArray, StructArray, VarBinViewArray};
+use vortex_array::builders::{builder_with_capacity, ArrayBuilderExt};
+use vortex_array::compute::scalar_at;
 use vortex_array::validity::{ArrayValidity, Validity};
 use vortex_array::variants::StructArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
@@ -64,6 +66,15 @@ pub fn take_canonical_array(array: &ArrayData, indices: &[usize]) -> ArrayData {
             )
             .unwrap()
             .into_array()
+        }
+        DType::List(..) => {
+            let mut builder = builder_with_capacity(array.dtype(), indices.len());
+            for idx in indices {
+                builder
+                    .append_scalar(&scalar_at(array, *idx).unwrap())
+                    .unwrap();
+            }
+            builder.finish().unwrap()
         }
         _ => unreachable!("Not a canonical array"),
     }

@@ -121,6 +121,12 @@ pub fn search_sorted_canonical_array(
                 .collect::<Vec<_>>();
             scalar_vals.search_sorted(&scalar.cast(array.dtype()).unwrap(), side)
         }
+        DType::List(..) => {
+            let scalar_vals = (0..array.len())
+                .map(|i| scalar_at(array, i).unwrap())
+                .collect::<Vec<_>>();
+            scalar_vals.search_sorted(&scalar.cast(array.dtype()).unwrap(), side)
+        }
         _ => unreachable!("Not a canonical array"),
     }
 }

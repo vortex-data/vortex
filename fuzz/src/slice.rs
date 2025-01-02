@@ -60,14 +60,14 @@ pub fn slice_canonical_array(array: &ArrayData, start: usize, stop: usize) -> Ar
         }
         DType::List(..) => {
             let list_array = array.clone().into_list().unwrap();
-            let offsets = slice_canonical_array(&list_array.offsets(), start, stop)
+            let offsets = slice_canonical_array(&list_array.offsets(), start, stop + 1)
                 .into_primitive()
                 .unwrap();
 
             let elements = slice_canonical_array(
                 &list_array.elements(),
                 offsets.get_as_cast::<u64>(0) as usize,
-                offsets.get_as_cast::<u64>(offsets.len()) as usize,
+                offsets.get_as_cast::<u64>(offsets.len() - 1) as usize,
             );
             let offsets = match_each_native_ptype!(offsets.ptype(), |$P| {
                 shift_offsets::<$P>(offsets)
