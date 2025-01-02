@@ -146,6 +146,9 @@ impl ListArray {
             .vortex_expect("array contains elements")
     }
 
+    // This is a convenience method to create a list array from an iterator of iterators.
+    // This method is slow however since each element is first converted to a scalar and then
+    // appended to the array.
     pub fn slow_from_iter<I: IntoIterator>(iter: I, dtype: Arc<DType>) -> VortexResult<ArrayData>
     where
         I::Item: IntoIterator,
@@ -214,8 +217,9 @@ impl ValidityVTable<ListArray> for ListEncoding {
 mod test {
     use std::sync::Arc;
 
+    use vortex_dtype::Nullability;
     use vortex_dtype::Nullability::NonNullable;
-    use vortex_dtype::{Nullability, PType};
+    use vortex_dtype::PType::I32;
     use vortex_scalar::Scalar;
 
     use crate::array::list::ListArray;
@@ -247,7 +251,7 @@ mod test {
 
         assert_eq!(
             Scalar::list(
-                Arc::new(PType::I32.into()),
+                Arc::new(I32.into()),
                 vec![1.into(), 2.into()],
                 Nullability::Nullable
             ),
@@ -255,19 +259,38 @@ mod test {
         );
         assert_eq!(
             Scalar::list(
-                Arc::new(PType::I32.into()),
+                Arc::new(I32.into()),
                 vec![3.into(), 4.into()],
                 Nullability::Nullable
             ),
             scalar_at(&list, 1).unwrap()
         );
         assert_eq!(
-            Scalar::list(
-                Arc::new(PType::I32.into()),
-                vec![5.into()],
-                Nullability::Nullable
-            ),
+            Scalar::list(Arc::new(I32.into()), vec![5.into()], Nullability::Nullable),
             scalar_at(&list, 2).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_simple_list_array_from_iter() {
+        let elements = PrimitiveArray::from_iter([1i32, 2, 3]);
+        let offsets = PrimitiveArray::from_iter([0, 2, 3]);
+        let validity = Validity::NonNullable;
+
+        let list =
+            ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
+
+        let list_from_iter =
+            ListArray::slow_from_iter(vec![vec![1i32, 2], vec![3]], Arc::new(I32.into())).unwrap();
+
+        assert_eq!(list.len(), list_from_iter.len());
+        assert_eq!(
+            scalar_at(&list, 0).unwrap(),
+            scalar_at(&list_from_iter, 0).unwrap()
+        );
+        assert_eq!(
+            scalar_at(&list, 1).unwrap(),
+            scalar_at(&list_from_iter, 1).unwrap()
         );
     }
 }
