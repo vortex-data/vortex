@@ -1,6 +1,6 @@
 use std::sync::{Arc, RwLock};
 
-use vortex_buffer::Buffer;
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_panic, VortexResult};
 use vortex_scalar::Scalar;
@@ -16,7 +16,7 @@ pub(super) struct OwnedArrayData {
     pub(super) dtype: DType, // FIXME(ngates): Arc?
     pub(super) len: usize,
     pub(super) metadata: Arc<dyn ArrayMetadata>,
-    pub(super) buffer: Option<Buffer>,
+    pub(super) buffer: Option<ByteBuffer>,
     pub(super) children: Arc<[ArrayData]>,
     pub(super) stats_set: Arc<RwLock<StatsSet>>,
     #[cfg(feature = "canonical_counter")]
@@ -28,11 +28,11 @@ impl OwnedArrayData {
         &self.metadata
     }
 
-    pub fn buffer(&self) -> Option<&Buffer> {
+    pub fn byte_buffer(&self) -> Option<&ByteBuffer> {
         self.buffer.as_ref()
     }
 
-    pub fn into_buffer(self) -> Option<Buffer> {
+    pub fn into_byte_buffer(self) -> Option<ByteBuffer> {
         self.buffer
     }
 

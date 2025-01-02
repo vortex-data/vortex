@@ -5,7 +5,6 @@ use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, VortexResult};
 
 use crate::array::VarBinArray;
-use crate::arrow::wrappers::as_offset_buffer;
 use crate::compute::try_cast;
 use crate::validity::ArrayValidity;
 use crate::variants::PrimitiveArrayTrait;
@@ -39,22 +38,22 @@ pub(crate) fn varbin_to_arrow(varbin_array: &VarBinArray) -> VortexResult<ArrayR
     if data.dtype() != &DType::BYTES {
         vortex_bail!("Expected bytes to be of type U8, got {}", data.ptype());
     }
-    let data = data.buffer();
+    let data = data.byte_buffer();
 
     // Switch on Arrow DType.
     Ok(match varbin_array.dtype() {
         DType::Binary(_) => match offsets.ptype() {
             PType::I32 => Arc::new(unsafe {
                 BinaryArray::new_unchecked(
-                    as_offset_buffer::<i32>(offsets),
-                    data.clone().into_arrow(),
+                    offsets.buffer::<i32>().into_arrow_offset_buffer(),
+                    data.clone().into_arrow_buffer(),
                     nulls,
                 )
             }),
             PType::I64 => Arc::new(unsafe {
                 LargeBinaryArray::new_unchecked(
-                    as_offset_buffer::<i64>(offsets),
-                    data.clone().into_arrow(),
+                    offsets.buffer::<i64>().into_arrow_offset_buffer(),
+                    data.clone().into_arrow_buffer(),
                     nulls,
                 )
             }),
@@ -63,15 +62,15 @@ pub(crate) fn varbin_to_arrow(varbin_array: &VarBinArray) -> VortexResult<ArrayR
         DType::Utf8(_) => match offsets.ptype() {
             PType::I32 => Arc::new(unsafe {
                 StringArray::new_unchecked(
-                    as_offset_buffer::<i32>(offsets),
-                    data.clone().into_arrow(),
+                    offsets.buffer::<i32>().into_arrow_offset_buffer(),
+                    data.clone().into_arrow_buffer(),
                     nulls,
                 )
             }),
             PType::I64 => Arc::new(unsafe {
                 LargeStringArray::new_unchecked(
-                    as_offset_buffer::<i64>(offsets),
-                    data.clone().into_arrow(),
+                    offsets.buffer::<i64>().into_arrow_offset_buffer(),
+                    data.clone().into_arrow_buffer(),
                     nulls,
                 )
             }),

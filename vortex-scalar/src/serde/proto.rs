@@ -1,4 +1,4 @@
-use vortex_buffer::{Buffer, BufferString};
+use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::half::f16;
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
@@ -145,8 +145,8 @@ fn deserialize_scalar_value(dtype: &DType, value: &pb::ScalarValue) -> VortexRes
         Kind::StringValue(v) => Ok(ScalarValue(InnerScalarValue::BufferString(
             BufferString::from(v.clone()),
         ))),
-        Kind::BytesValue(v) => Ok(ScalarValue(InnerScalarValue::Buffer(Buffer::from(
-            v.as_slice(),
+        Kind::BytesValue(v) => Ok(ScalarValue(InnerScalarValue::Buffer(ByteBuffer::from(
+            v.clone(),
         )))),
         Kind::ListValue(v) => {
             let mut values = Vec::with_capacity(v.values.len());

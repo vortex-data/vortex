@@ -7,10 +7,9 @@ use datafusion::datasource::physical_plan::{FileScanConfig, FileStream};
 use datafusion_common::{project_schema, Result as DFResult, Statistics};
 use datafusion_execution::{SendableRecordBatchStream, TaskContext};
 use datafusion_physical_expr::{EquivalenceProperties, Partitioning, PhysicalExpr};
+use datafusion_physical_plan::execution_plan::{Boundedness, EmissionType};
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
-use datafusion_physical_plan::{
-    DisplayAs, DisplayFormatType, ExecutionMode, ExecutionPlan, PlanProperties,
-};
+use datafusion_physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
 use itertools::Itertools;
 use vortex_array::Context;
 
@@ -53,7 +52,8 @@ impl VortexExec {
         let plan_properties = PlanProperties::new(
             EquivalenceProperties::new_with_orderings(projected_schema, &orderings),
             Partitioning::UnknownPartitioning(file_scan_config.file_groups.len()),
-            ExecutionMode::Bounded,
+            EmissionType::Incremental,
+            Boundedness::Bounded,
         );
 
         Ok(Self {

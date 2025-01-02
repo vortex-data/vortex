@@ -13,12 +13,12 @@ use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexRe
 use vortex_expr::{Column, Select, VortexExpr};
 use vortex_flatbuffers::footer;
 
-use crate::read::cache::{LazyDType, RelativeLayoutCache};
+use crate::read::cache::LazyDType;
 use crate::read::expr_project::expr_project;
 use crate::read::mask::RowMask;
 use crate::{
-    Layout, LayoutDeserializer, LayoutId, LayoutReader, PollRead, Prune, RowFilter, Scan,
-    COLUMNAR_LAYOUT_ID,
+    Layout, LayoutDeserializer, LayoutId, LayoutPath, LayoutReader, MessageCache, PollRead, Prune,
+    RowFilter, Scan, COLUMNAR_LAYOUT_ID,
 };
 
 #[derive(Debug)]
@@ -31,17 +31,19 @@ impl Layout for ColumnarLayout {
 
     fn reader(
         &self,
+        path: LayoutPath,
         layout: footer::Layout,
+        dtype: Arc<LazyDType>,
         scan: Scan,
         layout_serde: LayoutDeserializer,
-        message_cache: RelativeLayoutCache,
-    ) -> VortexResult<Box<dyn LayoutReader>> {
-        Ok(Box::new(
+    ) -> VortexResult<Arc<dyn LayoutReader>> {
+        Ok(Arc::new(
             ColumnarLayoutBuilder {
+                path,
                 layout,
                 scan,
+                dtype,
                 layout_serde,
-                message_cache,
             }
             .build()?,
         ))
@@ -49,10 +51,11 @@ impl Layout for ColumnarLayout {
 }
 
 struct ColumnarLayoutBuilder<'a> {
+    path: LayoutPath,
     layout: footer::Layout<'a>,
     scan: Scan,
+    dtype: Arc<LazyDType>,
     layout_serde: LayoutDeserializer,
-    message_cache: RelativeLayoutCache,
 }
 
 impl ColumnarLayoutBuilder<'_> {
@@ -67,7 +70,7 @@ impl ColumnarLayoutBuilder<'_> {
 
         for (field, name) in refs.into_iter().zip_eq(lazy_dtype.names()?.iter()) {
             let resolved_child = lazy_dtype.resolve_field(&field)?;
-            let child_field = lazy_dtype.field(&field)?;
+            let child_dtype = lazy_dtype.field(&field)?;
             let child_layout = fb_children.get(resolved_child);
             let projected_expr = self
                 .scan
@@ -78,11 +81,14 @@ impl ColumnarLayoutBuilder<'_> {
             let handled =
                 self.scan.expr.is_none() || (self.scan.expr.is_some() && projected_expr.is_some());
 
+            let mut child_path = self.path.clone();
+            child_path.push(resolved_child as u16);
+
             let child = self.layout_serde.read_layout(
+                child_path,
                 child_layout,
                 Scan::from(projected_expr),
-                self.message_cache
-                    .relative(resolved_child as u16, child_field),
+                child_dtype,
             )?;
 
             if handled {
@@ -116,7 +122,7 @@ impl ColumnarLayoutBuilder<'_> {
                     )
                 })?;
 
-            handled_children.push(Box::new(ColumnarLayoutReader::new(
+            handled_children.push(Arc::new(ColumnarLayoutReader::new(
                 unhandled_names.into(),
                 unhandled_children,
                 Some(prf),
@@ -154,8 +160,9 @@ impl ColumnarLayoutBuilder<'_> {
         let field_refs = self.scan_fields();
         let lazy_dtype = field_refs
             .as_ref()
-            .map(|e| self.message_cache.dtype().project(e))
-            .unwrap_or_else(|| Ok(self.message_cache.dtype().clone()))?;
+            .map(|e| self.dtype.project(e))
+            // TODO(ngates): what is this unwrap for? Why would we default to our own dtype?
+            .unwrap_or_else(|| Ok(self.dtype.clone()))?;
 
         Ok((
             field_refs.unwrap_or_else(|| (0..fb_children.len()).map(Field::from).collect()),
@@ -187,7 +194,7 @@ type InProgressPrunes = RwLock<HashMap<(usize, usize), Vec<Option<Prune>>>>;
 #[derive(Debug)]
 pub struct ColumnarLayoutReader {
     names: FieldNames,
-    children: Vec<Box<dyn LayoutReader>>,
+    children: Vec<Arc<dyn LayoutReader>>,
     expr: Option<Arc<dyn VortexExpr>>,
     // TODO(robert): This is a hack/optimization that tells us if we're reducing results with AND or not
     shortcircuit_siblings: bool,
@@ -199,7 +206,7 @@ pub struct ColumnarLayoutReader {
 impl ColumnarLayoutReader {
     pub fn new(
         names: FieldNames,
-        children: Vec<Box<dyn LayoutReader>>,
+        children: Vec<Arc<dyn LayoutReader>>,
         expr: Option<Arc<dyn VortexExpr>>,
         shortcircuit_siblings: bool,
     ) -> Self {
@@ -228,7 +235,11 @@ impl LayoutReader for ColumnarLayoutReader {
         Ok(())
     }
 
-    fn poll_read(&self, selection: &RowMask) -> VortexResult<Option<PollRead<ArrayData>>> {
+    fn poll_read(
+        &self,
+        selection: &RowMask,
+        msgs: &dyn MessageCache,
+    ) -> VortexResult<Option<PollRead<ArrayData>>> {
         let mut in_progress_guard = self
             .in_progress_ranges
             .write()
@@ -243,7 +254,7 @@ impl LayoutReader for ColumnarLayoutReader {
             .enumerate()
             .filter(|(_, a)| a.is_none())
         {
-            match self.children[i].poll_read(selection)? {
+            match self.children[i].poll_read(selection, msgs)? {
                 Some(rr) => match rr {
                     PollRead::ReadMore(message) => {
                         messages.extend(message);
@@ -300,7 +311,10 @@ impl LayoutReader for ColumnarLayoutReader {
         }
     }
 
-    fn poll_metadata(&self) -> VortexResult<Option<PollRead<Vec<Option<ArrayData>>>>> {
+    fn poll_metadata(
+        &self,
+        msgs: &dyn MessageCache,
+    ) -> VortexResult<Option<PollRead<Vec<Option<ArrayData>>>>> {
         let mut in_progress_metadata = self
             .in_progress_metadata
             .write()
@@ -308,7 +322,7 @@ impl LayoutReader for ColumnarLayoutReader {
         let mut messages = Vec::default();
 
         for (name, child_reader) in self.names.iter().zip(self.children.iter()) {
-            if let Some(child_metadata) = child_reader.poll_metadata()? {
+            if let Some(child_metadata) = child_reader.poll_metadata(msgs)? {
                 match child_metadata {
                     PollRead::Value(data) => {
                         if data.len() != 1 {
@@ -339,7 +353,12 @@ impl LayoutReader for ColumnarLayoutReader {
         }
     }
 
-    fn poll_prune(&self, begin: usize, end: usize) -> VortexResult<PollRead<Prune>> {
+    fn poll_prune(
+        &self,
+        begin: usize,
+        end: usize,
+        msgs: &dyn MessageCache,
+    ) -> VortexResult<PollRead<Prune>> {
         let mut in_progress_guard = self
             .in_progress_prunes
             .write()
@@ -356,7 +375,7 @@ impl LayoutReader for ColumnarLayoutReader {
             .enumerate()
             .filter(|(_, a)| a.is_none())
         {
-            match self.children[i].poll_prune(begin, end)? {
+            match self.children[i].poll_prune(begin, end, msgs)? {
                 PollRead::ReadMore(message) => messages.extend(message),
                 PollRead::Value(is_pruned) => {
                     // If we are short-circuiting and one of the child prunes have been
@@ -397,11 +416,11 @@ impl LayoutReader for ColumnarLayoutReader {
 #[cfg(test)]
 mod tests {
     use std::iter;
-    use std::sync::{Arc, RwLock};
+    use std::sync::Arc;
 
     use bytes::Bytes;
     use vortex_array::accessor::ArrayAccessor;
-    use vortex_array::array::{ChunkedArray, PrimitiveArray, StructArray, VarBinArray};
+    use vortex_array::array::{ChunkedArray, StructArray, VarBinArray};
     use vortex_array::validity::Validity;
     use vortex_array::{ArrayDType, IntoArrayData, IntoArrayVariant};
     use vortex_buffer::Buffer;
@@ -410,18 +429,17 @@ mod tests {
     use vortex_expr::{BinaryExpr, Column, Literal, Operator};
 
     use crate::read::builder::initial_read::read_initial_bytes;
-    use crate::read::cache::RelativeLayoutCache;
     use crate::read::layouts::test_read::{filter_read_layout, read_layout};
     use crate::{
-        LayoutDeserializer, LayoutMessageCache, LayoutReader, RowFilter, Scan, VortexFileWriter,
+        LayoutDeserializer, LayoutMessageCache, LayoutPath, LayoutReader, RowFilter, Scan,
+        VortexFileWriter,
     };
 
     async fn layout_and_bytes(
-        cache: Arc<RwLock<LayoutMessageCache>>,
         scan: Scan,
-    ) -> (Box<dyn LayoutReader>, Box<dyn LayoutReader>, Bytes, usize) {
-        let int_array = PrimitiveArray::from((0..100).collect::<Vec<_>>()).into_array();
-        let int2_array = PrimitiveArray::from((100..200).collect::<Vec<_>>()).into_array();
+    ) -> (Arc<dyn LayoutReader>, Arc<dyn LayoutReader>, Bytes, usize) {
+        let int_array = Buffer::from_iter(0..100).into_array();
+        let int2_array = Buffer::from_iter(100..200).into_array();
         let int_dtype = int_array.dtype().clone();
         let chunked = ChunkedArray::try_new(
             iter::repeat_n(int_array.clone(), 2)
@@ -452,7 +470,7 @@ mod tests {
 
         let mut writer = VortexFileWriter::new(Vec::new());
         writer = writer.write_array_columns(struct_arr).await.unwrap();
-        let written = Buffer::from(writer.finalize().await.unwrap());
+        let written = Bytes::from(writer.finalize().await.unwrap());
 
         let initial_read = read_initial_bytes(&written, written.len() as u64)
             .await
@@ -463,19 +481,21 @@ mod tests {
         (
             layout_serde
                 .read_layout(
+                    LayoutPath::default(),
                     initial_read.fb_layout(),
                     scan,
-                    RelativeLayoutCache::new(cache.clone(), dtype.clone()),
+                    dtype.clone(),
                 )
                 .unwrap(),
             layout_serde
                 .read_layout(
+                    LayoutPath::default(),
                     initial_read.fb_layout(),
                     Scan::empty(),
-                    RelativeLayoutCache::new(cache.clone(), dtype),
+                    dtype,
                 )
                 .unwrap(),
-            Bytes::copy_from_slice(&written),
+            written,
             len,
         )
     }
@@ -483,22 +503,20 @@ mod tests {
     #[tokio::test]
     #[cfg_attr(miri, ignore)]
     async fn read_range() {
-        let cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
-        let (mut filter_layout, mut project_layout, buf, length) = layout_and_bytes(
-            cache.clone(),
-            Scan::new(RowFilter::new_expr(BinaryExpr::new_expr(
+        let msgs = LayoutMessageCache::default();
+        let (filter_layout, project_layout, buf, length) =
+            layout_and_bytes(Scan::new(RowFilter::new_expr(BinaryExpr::new_expr(
                 Column::new_expr(Field::from("ints")),
                 Operator::Gt,
                 Literal::new_expr(10.into()),
-            ))),
-        )
-        .await;
+            ))))
+            .await;
         let arr = filter_read_layout(
-            filter_layout.as_mut(),
-            project_layout.as_mut(),
-            cache,
+            filter_layout.as_ref(),
+            project_layout.as_ref(),
             &buf,
             length,
+            msgs,
         )
         .pop_front();
 
@@ -521,10 +539,7 @@ mod tests {
             .unwrap()
             .into_varbinview()
             .unwrap();
-        assert_eq!(
-            prim_arr.maybe_null_slice::<i32>(),
-            &(11..100).collect::<Vec<_>>()
-        );
+        assert_eq!(prim_arr.as_slice::<i32>(), &(11..100).collect::<Vec<_>>());
         assert_eq!(
             str_arr
                 .with_iterator(|iter| iter
@@ -532,17 +547,16 @@ mod tests {
                     .map(|s| unsafe { String::from_utf8_unchecked(s.to_vec()) })
                     .collect::<Vec<_>>())
                 .unwrap(),
-            iter::repeat("test text").take(89).collect::<Vec<_>>()
+            iter::repeat_n("test text", 89).collect::<Vec<_>>()
         );
     }
 
     #[tokio::test]
     #[cfg_attr(miri, ignore)]
     async fn read_range_no_filter() {
-        let cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
-        let (_, mut project_layout, buf, length) =
-            layout_and_bytes(cache.clone(), Scan::empty()).await;
-        let arr = read_layout(project_layout.as_mut(), cache, &buf, length).pop_front();
+        let msgs = LayoutMessageCache::default();
+        let (_, project_layout, buf, length) = layout_and_bytes(Scan::empty()).await;
+        let arr = read_layout(project_layout.as_ref(), &buf, length, msgs).pop_front();
 
         assert!(arr.is_some());
         let prim_arr = arr
@@ -563,10 +577,7 @@ mod tests {
             .unwrap()
             .into_varbinview()
             .unwrap();
-        assert_eq!(
-            prim_arr.maybe_null_slice::<i32>(),
-            (0..100).collect::<Vec<_>>()
-        );
+        assert_eq!(prim_arr.as_slice::<i32>(), (0..100).collect::<Vec<_>>());
         assert_eq!(
             str_arr
                 .with_iterator(|iter| iter
@@ -574,17 +585,16 @@ mod tests {
                     .map(|s| unsafe { String::from_utf8_unchecked(s.to_vec()) })
                     .collect::<Vec<_>>())
                 .unwrap(),
-            iter::repeat("test text").take(100).collect::<Vec<_>>()
+            iter::repeat_n("test text", 100).collect::<Vec<_>>()
         );
     }
 
     #[tokio::test]
     #[cfg_attr(miri, ignore)]
     async fn short_circuit() {
-        let cache = Arc::new(RwLock::new(LayoutMessageCache::default()));
-        let (mut filter_layout, mut project_layout, buf, length) = layout_and_bytes(
-            cache.clone(),
-            Scan::new(RowFilter::new_expr(BinaryExpr::new_expr(
+        let msgs = LayoutMessageCache::default();
+        let (filter_layout, project_layout, buf, length) =
+            layout_and_bytes(Scan::new(RowFilter::new_expr(BinaryExpr::new_expr(
                 BinaryExpr::new_expr(
                     Column::new_expr(Field::from("strs")),
                     Operator::Eq,
@@ -596,15 +606,14 @@ mod tests {
                     Operator::Lt,
                     Literal::new_expr(150.into()),
                 ),
-            ))),
-        )
-        .await;
+            ))))
+            .await;
         let arr = filter_read_layout(
-            filter_layout.as_mut(),
-            project_layout.as_mut(),
-            cache,
+            filter_layout.as_ref(),
+            project_layout.as_ref(),
             &buf,
             length,
+            msgs,
         );
 
         assert_eq!(arr.len(), 2);
@@ -623,7 +632,7 @@ mod tests {
             .into_varbinview()
             .unwrap();
         assert_eq!(
-            prim_arr_chunk0.maybe_null_slice::<i32>(),
+            prim_arr_chunk0.as_slice::<i32>(),
             (100..150).collect::<Vec<_>>()
         );
         assert_eq!(
@@ -633,7 +642,7 @@ mod tests {
                     .map(|s| unsafe { String::from_utf8_unchecked(s.to_vec()) })
                     .collect::<Vec<_>>())
                 .unwrap(),
-            iter::repeat("it").take(50).collect::<Vec<_>>()
+            iter::repeat_n("it", 50).collect::<Vec<_>>()
         );
         let prim_arr_chunk1 = arr[1]
             .as_struct_array()
@@ -650,7 +659,7 @@ mod tests {
             .into_varbinview()
             .unwrap();
         assert_eq!(
-            prim_arr_chunk1.maybe_null_slice::<i32>(),
+            prim_arr_chunk1.as_slice::<i32>(),
             (100..150).collect::<Vec<_>>()
         );
         assert_eq!(
@@ -660,7 +669,7 @@ mod tests {
                     .map(|s| unsafe { String::from_utf8_unchecked(s.to_vec()) })
                     .collect::<Vec<_>>())
                 .unwrap(),
-            iter::repeat("it").take(50).collect::<Vec<_>>()
+            iter::repeat_n("it", 50).collect::<Vec<_>>()
         );
     }
 }

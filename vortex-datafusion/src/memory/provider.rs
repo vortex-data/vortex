@@ -10,7 +10,8 @@ use datafusion_common::{Result as DFResult, ToDFSchema};
 use datafusion_expr::utils::conjunction;
 use datafusion_expr::{TableProviderFilterPushDown, TableType};
 use datafusion_physical_expr::{create_physical_expr, EquivalenceProperties};
-use datafusion_physical_plan::{ExecutionMode, ExecutionPlan, Partitioning, PlanProperties};
+use datafusion_physical_plan::execution_plan::{Boundedness, EmissionType};
+use datafusion_physical_plan::{ExecutionPlan, Partitioning, PlanProperties};
 use itertools::Itertools;
 use vortex_array::array::ChunkedArray;
 use vortex_array::arrow::infer_schema;
@@ -123,7 +124,8 @@ impl TableProvider for VortexMemTable {
                     // non-pushdown scans execute in single partition, where the partition
                     // yields one RecordBatch per chunk in the input ChunkedArray
                     Partitioning::UnknownPartitioning(1),
-                    ExecutionMode::Bounded,
+                    EmissionType::Incremental,
+                    Boundedness::Bounded,
                 );
 
                 Ok(Arc::new(VortexScanExec::try_new(
@@ -216,7 +218,6 @@ mod test {
     use datafusion_common::{Column, TableReference};
     use datafusion_expr::{and, col, lit, BinaryExpr, Expr, Operator};
     use vortex_array::array::{PrimitiveArray, StructArray, VarBinViewArray};
-    use vortex_array::validity::Validity;
     use vortex_array::{ArrayData, IntoArrayData};
 
     use crate::memory::VortexMemTableOptions;
@@ -231,10 +232,7 @@ mod test {
             "Monroe",
             "Adams",
         ]);
-        let term_start = PrimitiveArray::from_vec(
-            vec![1789u16, 1797, 1801, 1809, 1817, 1825],
-            Validity::NonNullable,
-        );
+        let term_start = PrimitiveArray::from_iter([1789u16, 1797, 1801, 1809, 1817, 1825]);
 
         StructArray::from_fields(&[
             ("president", names.into_array()),

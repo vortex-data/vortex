@@ -6,9 +6,9 @@ concurrency:
 
 on:
   push:
-    branches: [ "develop" ]
-  pull_request: { }
-  workflow_dispatch: { }
+    branches: ["develop"]
+  pull_request: {}
+  workflow_dispatch: {}
 
 permissions:
   actions: read
@@ -125,8 +125,8 @@ jobs:
       - name: Rust Build (${{matrix.config.name}})
         run: cargo hack ${{matrix.config.command}} ${{matrix.config.args}} --ignore-private
 
-  rust-test:
-    name: "Rust (tests)"
+  rust-lint:
+    name: "Rust (lint)"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -149,24 +149,36 @@ jobs:
               echo ---- $package ----
               cargo clippy --package $package --no-default-features
           done
+
+  rust-test:
+    name: "Rust (tests)"
+    runs-on: ubuntu-latest
+    env:
+      # Disable incremental compilation to get accurate coverage
+      CARGO_INCREMENTAL: "0"
+      RUSTFLAGS: "-Cinstrument-coverage"
+      LLVM_PROFILE_FILE: "target/coverage/vortex-%p-%m.profraw"
+      GRCOV_OUTPUT_FILE: "target/coverage/vortex.lcov"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/cleanup
+      - uses: rui314/setup-mold@v1
+      - uses: ./.github/actions/setup-rust
+      - name: Install grcov
+        run: cargo install grcov
       - name: Rust Test
         run: cargo test --workspace --all-features
-        env:
-          # Enable coverage using -Zprofile flag
-          RUSTFLAGS: '-Zprofile'
-          RUSTDOCFLAGS: '-Zprofile'
-      - uses: rraval/actions-rs-grcov@e96292badb0d33512d16654efb0ee3032a9a3cff
-        id: grcov
-        with:
-          config: ".github/coverage.yml"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Generate coverage report
+        run: |
+          grcov . --binary-path target/debug/ -s . -t lcov --llvm --ignore-not-existing \
+            --ignore '../*' --ignore '/*' --ignore 'bench-vortex/*' --ignore 'fuzz/*' \
+            --ignore 'home/*' --ignore 'xtask/*' --ignore 'target/*'\
+            -o ${{ env.GRCOV_OUTPUT_FILE }}
       - name: Coveralls
         uses: coverallsapp/github-action@v2
         with:
-          file: "${{ steps.grcov.outputs.report }}"
-          
-  
+          file: ${{ env.GRCOV_OUTPUT_FILE }}
+
   license-check-and-audit-check:
     name: License Check and Audit Check
     runs-on: ubuntu-latest
@@ -205,7 +217,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
       # Required to run benchmarks
       - name: Install DuckDB
-        uses: opt-nc/setup-duckdb-action@v1.0.9
+        uses: opt-nc/setup-duckdb-action@v1.0.10
         with:
           version: v1.0.0
       - name: Rust TPC-H and Random access Bench as test

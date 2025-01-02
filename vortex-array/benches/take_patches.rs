@@ -4,25 +4,22 @@ use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng as _};
 use vortex_array::patches::Patches;
-use vortex_array::{ArrayData, IntoCanonical as _};
+use vortex_array::{ArrayData, IntoArrayData, IntoCanonical as _};
+use vortex_buffer::Buffer;
 
 fn fixture(len: usize, sparsity: f64, rng: &mut StdRng) -> Patches {
     // NB: indices are always ordered
     let indices = (0..len)
         .filter(|_| rng.gen_bool(sparsity))
         .map(|x| x as u64)
-        .collect::<Vec<u64>>();
+        .collect::<Buffer<u64>>();
     let sparse_len = indices.len();
-    let values = ArrayData::from((0..sparse_len).map(|x| x as u64).collect::<Vec<_>>());
-    Patches::new(len, ArrayData::from(indices), values)
+    let values = Buffer::from_iter((0..sparse_len).map(|x| x as u64)).into_array();
+    Patches::new(len, indices.into_array(), values)
 }
 
 fn indices(array_len: usize, n_indices: usize, rng: &mut StdRng) -> ArrayData {
-    ArrayData::from(
-        (0..n_indices)
-            .map(|_| rng.gen_range(0..(array_len as u64)))
-            .collect::<Vec<u64>>(),
-    )
+    Buffer::from_iter((0..n_indices).map(|_| rng.gen_range(0..(array_len as u64)))).into_array()
 }
 
 #[allow(clippy::cast_possible_truncation)]

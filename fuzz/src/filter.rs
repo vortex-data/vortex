@@ -3,6 +3,7 @@ use vortex_array::array::{BoolArray, BooleanBuffer, PrimitiveArray, StructArray,
 use vortex_array::validity::{ArrayValidity, Validity};
 use vortex_array::variants::StructArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_native_ptype, DType};
 use vortex_error::VortexExpect;
 
@@ -43,13 +44,13 @@ pub fn filter_canonical_array(array: &ArrayData, filter: &[bool]) -> ArrayData {
         }
         DType::Primitive(p, _) => match_each_native_ptype!(p, |$P| {
             let primitive_array = array.clone().into_primitive().unwrap();
-            PrimitiveArray::from_vec(
+            PrimitiveArray::new(
                 filter
                     .iter()
-                    .zip(primitive_array.maybe_null_slice::<$P>().iter().copied())
+                    .zip(primitive_array.as_slice::<$P>().iter().copied())
                     .filter(|(f, _)| **f)
                     .map(|(_, v)| v)
-                    .collect::<Vec<_>>(),
+                    .collect::<Buffer<_>>(),
                 validity,
             )
             .into_array()

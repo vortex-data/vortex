@@ -9,9 +9,10 @@ use object_store::ObjectStore;
 use tempfile::tempdir;
 use tokio::fs::OpenOptions;
 use url::Url;
-use vortex_array::array::{ChunkedArray, PrimitiveArray, StructArray, VarBinArray};
+use vortex_array::array::{ChunkedArray, StructArray, VarBinArray};
 use vortex_array::validity::Validity;
 use vortex_array::IntoArrayData;
+use vortex_buffer::buffer;
 use vortex_datafusion::persistent::format::VortexFormat;
 use vortex_error::vortex_err;
 use vortex_file::VortexFileWriter;
@@ -26,8 +27,8 @@ async fn main() -> anyhow::Result<()> {
     .into_array();
 
     let numbers = ChunkedArray::from_iter([
-        PrimitiveArray::from(vec![1u32, 2, 3, 4]).into_array(),
-        PrimitiveArray::from(vec![5u32, 6, 7, 8]).into_array(),
+        buffer![1u32, 2, 3, 4].into_array(),
+        buffer![5u32, 6, 7, 8].into_array(),
     ])
     .into_array();
 

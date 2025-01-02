@@ -199,12 +199,12 @@ fn arrow_numeric(
     Ok(ArrayData::from_arrow(Arc::new(array) as ArrayRef, nullable))
 }
 
-#[cfg(feature = "test-harness")]
-pub mod test_harness {
+#[cfg(feature = "test_util")]
+pub mod test_util {
     use num_traits::Num;
     use vortex_dtype::NativePType;
     use vortex_error::{vortex_err, VortexResult};
-    use vortex_scalar::{BinaryNumericOperator, Scalar};
+    use vortex_scalar::{BinaryNumericOperator, PrimitiveScalar, Scalar};
 
     use crate::array::ConstantArray;
     use crate::compute::{binary_numeric, scalar_at};
@@ -263,7 +263,8 @@ pub mod test_harness {
                         .checked_binary_numeric(scalar_one.as_primitive(), operator)
                         .unwrap()
                         .unwrap())
-                    .collect::<Vec<_>>(),
+                    .map(<Scalar as From<PrimitiveScalar<'_>>>::from)
+                    .collect::<Vec<Scalar>>(),
                 "(Constant array of {}) {} ({}) did not produce expected results",
                 scalar_one,
                 operator.math_symbol(),
@@ -286,6 +287,7 @@ pub mod test_harness {
                         .checked_binary_numeric(x.as_primitive(), operator)
                         .unwrap()
                         .unwrap())
+                    .map(<Scalar as From<PrimitiveScalar<'_>>>::from)
                     .collect::<Vec<_>>(),
                 "(Constant array of {}) {} ({}) did not produce expected results",
                 scalar_one,
@@ -298,7 +300,7 @@ pub mod test_harness {
 
 #[cfg(test)]
 mod test {
-
+    use vortex_buffer::buffer;
     use vortex_scalar::Scalar;
 
     use crate::array::PrimitiveArray;
@@ -307,36 +309,36 @@ mod test {
 
     #[test]
     fn test_scalar_subtract_unsigned() {
-        let values = vec![1u16, 2, 3].into_array();
+        let values = buffer![1u16, 2, 3].into_array();
         let results = sub_scalar(&values, 1u16.into())
             .unwrap()
             .into_canonical()
             .unwrap()
             .into_primitive()
             .unwrap()
-            .maybe_null_slice::<u16>()
+            .as_slice::<u16>()
             .to_vec();
         assert_eq!(results, &[0u16, 1, 2]);
     }
 
     #[test]
     fn test_scalar_subtract_signed() {
-        let values = vec![1i64, 2, 3].into_array();
+        let values = buffer![1i64, 2, 3].into_array();
         let results = sub_scalar(&values, (-1i64).into())
             .unwrap()
             .into_canonical()
             .unwrap()
             .into_primitive()
             .unwrap()
-            .maybe_null_slice::<i64>()
+            .as_slice::<i64>()
             .to_vec();
         assert_eq!(results, &[2i64, 3, 4]);
     }
 
     #[test]
     fn test_scalar_subtract_nullable() {
-        let values = PrimitiveArray::from_nullable_vec(vec![Some(1u16), Some(2), None, Some(3)])
-            .into_array();
+        let values =
+            PrimitiveArray::from_option_iter([Some(1u16), Some(2), None, Some(3)]).into_array();
         let result = sub_scalar(&values, Some(1u16).into())
             .unwrap()
             .into_canonical()
@@ -360,7 +362,7 @@ mod test {
 
     #[test]
     fn test_scalar_subtract_float() {
-        let values = vec![1.0f64, 2.0, 3.0].into_array();
+        let values = buffer![1.0f64, 2.0, 3.0].into_array();
         let to_subtract = -1f64;
         let results = sub_scalar(&values, to_subtract.into())
             .unwrap()
@@ -368,21 +370,21 @@ mod test {
             .unwrap()
             .into_primitive()
             .unwrap()
-            .maybe_null_slice::<f64>()
+            .as_slice::<f64>()
             .to_vec();
         assert_eq!(results, &[2.0f64, 3.0, 4.0]);
     }
 
     #[test]
     fn test_scalar_subtract_float_underflow_is_ok() {
-        let values = vec![f32::MIN, 2.0, 3.0].into_array();
+        let values = buffer![f32::MIN, 2.0, 3.0].into_array();
         let _results = sub_scalar(&values, 1.0f32.into()).unwrap();
         let _results = sub_scalar(&values, f32::MAX.into()).unwrap();
     }
 
     #[test]
     fn test_scalar_subtract_type_mismatch_fails() {
-        let values = vec![1u64, 2, 3].into_array();
+        let values = buffer![1u64, 2, 3].into_array();
         // Subtracting incompatible dtypes should fail
         let _results =
             sub_scalar(&values, 1.5f64.into()).expect_err("Expected type mismatch error");

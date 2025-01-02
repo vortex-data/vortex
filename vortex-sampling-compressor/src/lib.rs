@@ -50,8 +50,11 @@ mod sampling_compressor;
 
 pub use sampling_compressor::*;
 
-pub const DEFAULT_COMPRESSORS: [CompressorRef; 15] = [
+use crate::compressors::alp_rd::ALPRDCompressor;
+
+pub const DEFAULT_COMPRESSORS: [CompressorRef; 16] = [
     &ALPCompressor as CompressorRef,
+    &ALPRDCompressor,
     &BITPACK_WITH_PATCHES,
     &DEFAULT_CHUNKED_COMPRESSOR,
     &ConstantCompressor,
@@ -72,8 +75,9 @@ pub const DEFAULT_COMPRESSORS: [CompressorRef; 15] = [
 ];
 
 #[cfg(not(target_arch = "wasm32"))]
-pub const ALL_COMPRESSORS: [CompressorRef; 18] = [
+pub const ALL_COMPRESSORS: [CompressorRef; 19] = [
     &ALPCompressor as CompressorRef,
+    &ALPRDCompressor,
     &BITPACK_WITH_PATCHES,
     &DEFAULT_CHUNKED_COMPRESSOR,
     &ConstantCompressor,
@@ -94,8 +98,9 @@ pub const ALL_COMPRESSORS: [CompressorRef; 18] = [
 ];
 
 #[cfg(target_arch = "wasm32")]
-pub const ALL_COMPRESSORS: [CompressorRef; 16] = [
+pub const ALL_COMPRESSORS: [CompressorRef; 17] = [
     &ALPCompressor as CompressorRef,
+    &ALPRDCompressor,
     &BITPACK_WITH_PATCHES,
     &DEFAULT_CHUNKED_COMPRESSOR,
     &ConstantCompressor,
@@ -183,6 +188,18 @@ pub struct CompressConfig {
     target_block_bytesize: usize,
     // Target chunk size in row count
     target_block_size: usize,
+}
+
+impl CompressConfig {
+    pub fn with_sample_size(mut self, sample_size: u16) -> Self {
+        self.sample_size = sample_size;
+        self
+    }
+
+    pub fn with_sample_count(mut self, sample_count: u16) -> Self {
+        self.sample_count = sample_count;
+        self
+    }
 }
 
 impl Default for CompressConfig {

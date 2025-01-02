@@ -1,3 +1,9 @@
+# /// script
+# dependencies = [
+#   "pandas",
+#   "tabulate",
+# ]
+# ///
 import sys
 
 import pandas as pd

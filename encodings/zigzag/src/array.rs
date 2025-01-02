@@ -134,13 +134,13 @@ impl IntoCanonical for ZigZagArray {
 mod test {
     use vortex_array::compute::{scalar_at, slice};
     use vortex_array::IntoArrayData;
+    use vortex_buffer::buffer;
 
     use super::*;
 
     #[test]
     fn test_compute_statistics() {
-        let array =
-            PrimitiveArray::from(vec![1i32, -5i32, 2, 3, 4, 5, 6, 7, 8, 9, 10]).into_array();
+        let array = buffer![1i32, -5i32, 2, 3, 4, 5, 6, 7, 8, 9, 10].into_array();
         let zigzag = ZigZagArray::encode(&array).unwrap();
 
         for stat in [Stat::Max, Stat::NullCount, Stat::IsConstant] {

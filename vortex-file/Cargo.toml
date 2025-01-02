@@ -41,6 +41,7 @@ arrow-schema = { workspace = true }
 rstest = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 vortex-io = { path = "../vortex-io", features = ["tokio"] }
+vortex-array = { workspace = true, features = ["test_util"] }
 
 [lints]
 workspace = true

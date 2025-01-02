@@ -169,7 +169,7 @@ mod tests {
             future::ready(Err(io::Error::new(io::ErrorKind::Other, "badness"))).boxed();
 
         let good_fut: BoxFuture<'static, io::Result<Bytes>> =
-            future::ready(Ok(Bytes::from_static("aaaaa".as_bytes()))).boxed();
+            future::ready(Ok(Bytes::from("aaaaa"))).boxed();
 
         let mut size_limited = SizeLimitedStream::new(10);
         size_limited.push(bad_fut, 10).await;
