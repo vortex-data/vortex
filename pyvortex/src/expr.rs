@@ -38,7 +38,7 @@ use crate::dtype::PyDType;
 ///   [
 ///     57
 ///   ]
-/// -- child 1 type: string_view
+/// -- child 1 type: string
 ///   [
 ///     "Mikhail"
 ///   ]
@@ -56,7 +56,7 @@ use crate::dtype::PyDType;
 ///     25,
 ///     31
 ///   ]
-/// -- child 1 type: string_view
+/// -- child 1 type: string
 ///   [
 ///     "Joseph",
 ///     null
@@ -73,7 +73,7 @@ use crate::dtype::PyDType;
 ///   [
 ///     25
 ///   ]
-/// -- child 1 type: string_view
+/// -- child 1 type: string
 ///   [
 ///     "Joseph"
 ///   ]
@@ -90,7 +90,7 @@ use crate::dtype::PyDType;
 ///     null,
 ///     57
 ///   ]
-/// -- child 1 type: string_view
+/// -- child 1 type: string
 ///   [
 ///     "Angela",
 ///     "Mikhail"
@@ -110,7 +110,7 @@ use crate::dtype::PyDType;
 ///     25,
 ///     null
 ///   ]
-/// -- child 1 type: string_view
+/// -- child 1 type: string
 ///   [
 ///     "Joseph",
 ///     "Angela"
