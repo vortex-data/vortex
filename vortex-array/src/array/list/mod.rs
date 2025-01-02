@@ -146,9 +146,9 @@ impl ListArray {
             .vortex_expect("array contains elements")
     }
 
-    // This is a convenience method to create a list array from an iterator of iterators.
-    // This method is slow however since each element is first converted to a scalar and then
-    // appended to the array.
+    /// This is a convenience method to create a list array from an iterator of iterators.
+    /// This method is slow however since each element is first converted to a scalar and then
+    /// appended to the array.
     pub fn from_iter_slow<I: IntoIterator>(iter: I, dtype: Arc<DType>) -> VortexResult<ArrayData>
     where
         I::Item: IntoIterator,
