@@ -84,6 +84,6 @@ pub fn filter_canonical_array(array: &ArrayData, filter: &[bool]) -> ArrayData {
             .into_array()
         }
         // TODO(joe): support lists
-        _ => unreachable!("Not a canonical array"),
+        a => unreachable!("Not a canonical array {:?}", a),
     }
 }

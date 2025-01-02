@@ -70,7 +70,7 @@ pub fn sort_canonical_array(array: &ArrayData) -> ArrayData {
             });
             take_canonical_array(array, &sort_indices)
         }
-        _ => unreachable!("Not a canonical array"),
+        a => unreachable!("Not a canonical array {:?}", a),
     }
 }
 

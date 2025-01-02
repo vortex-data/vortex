@@ -64,6 +64,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
     fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
         let array = ArrayData::arbitrary(u)?;
         let mut current_array = array.clone();
+
         let mut actions = Vec::new();
         let action_count = u.int_in_range(1..=4)?;
         for _ in 0..action_count {
