@@ -121,16 +121,17 @@ impl ExtensionArrayTrait for SparseArray {
 
 #[cfg(test)]
 mod tests {
+    use vortex_buffer::buffer;
     use vortex_scalar::Scalar;
 
-    use crate::array::{BoolArray, PrimitiveArray, SparseArray};
+    use crate::array::{BoolArray, SparseArray};
     use crate::compute::invert;
     use crate::{IntoArrayData, IntoArrayVariant};
 
     #[test]
     fn invert_bools_non_null_fill() {
         let sparse_bools = SparseArray::try_new(
-            PrimitiveArray::from(vec![0u64]).into_array(),
+            buffer![0u64].into_array(),
             BoolArray::from_iter([false]).into_array(),
             2,
             Scalar::from(true),

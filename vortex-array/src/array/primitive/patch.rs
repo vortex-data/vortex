@@ -36,19 +36,21 @@ impl PrimitiveArray {
         T: NativePType + ArrowNativeType,
         I: NativePType + ArrowNativeType,
     {
-        let mut own_values = self.into_maybe_null_slice::<T>();
+        let mut own_values = self.into_buffer_mut::<T>();
 
-        let patch_indices = patch_indices.into_maybe_null_slice::<I>();
-        let patch_values = patch_values.into_maybe_null_slice::<T>();
+        let patch_indices = patch_indices.as_slice::<I>();
+        let patch_values = patch_values.as_slice::<T>();
         for (idx, value) in itertools::zip_eq(patch_indices, patch_values) {
-            own_values[idx.as_usize()] = value;
+            own_values[idx.as_usize()] = *value;
         }
-        Ok(Self::from_vec(own_values, patched_validity))
+        Ok(Self::new(own_values, patched_validity))
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use vortex_buffer::buffer;
+
     use super::*;
     use crate::compute::slice;
     use crate::validity::Validity;
@@ -56,14 +58,11 @@ mod tests {
 
     #[test]
     fn patch_sliced() {
-        let input = PrimitiveArray::from_vec(vec![2u32; 10], Validity::AllValid);
+        let input = PrimitiveArray::new(buffer![2u32; 10], Validity::AllValid);
         let sliced = slice(input, 2, 8).unwrap();
         assert_eq!(
-            sliced
-                .into_primitive()
-                .unwrap()
-                .into_maybe_null_slice::<u32>(),
-            vec![2u32; 6]
+            sliced.into_primitive().unwrap().as_slice::<u32>(),
+            &[2u32; 6]
         );
     }
 }

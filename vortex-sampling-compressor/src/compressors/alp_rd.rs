@@ -79,6 +79,6 @@ impl EncodingCompressor for ALPRDCompressor {
 /// Create a new `ALPRDEncoder` from the given array of samples.
 fn alp_rd_new_encoder(array: &PrimitiveArray) -> ALPRDEncoder {
     match_each_alp_float_ptype!(array.ptype(), |$P| {
-        ALPRDEncoder::new(array.maybe_null_slice::<$P>())
+        ALPRDEncoder::new(array.as_slice::<$P>())
     })
 }

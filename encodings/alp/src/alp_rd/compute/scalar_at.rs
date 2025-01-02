@@ -52,7 +52,7 @@ mod test {
         #[case] b: T,
         #[case] outlier: T,
     ) {
-        let array = PrimitiveArray::from(vec![a, b, outlier]);
+        let array = PrimitiveArray::from_iter([a, b, outlier]);
         let encoded = RDEncoder::new(&[a, b]).encode(&array);
 
         // Make sure that we're testing the exception pathway.

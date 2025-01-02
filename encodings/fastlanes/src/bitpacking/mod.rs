@@ -14,7 +14,7 @@ use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoCanonical,
 };
-use vortex_buffer::Buffer;
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, NativePType, PType};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
 
@@ -60,7 +60,7 @@ impl BitPackedArray {
     /// See also the [`encode`][Self::encode] method on this type for a safe path to create a new
     /// bit-packed array.
     pub unsafe fn new_unchecked(
-        packed: Buffer,
+        packed: ByteBuffer,
         ptype: PType,
         validity: Validity,
         patches: Option<Patches>,
@@ -77,7 +77,7 @@ impl BitPackedArray {
     ///
     /// See also [`new_unchecked`][Self::new_unchecked].
     pub(crate) unsafe fn new_unchecked_with_offset(
-        packed: Buffer,
+        packed: ByteBuffer,
         ptype: PType,
         validity: Validity,
         patches: Option<Patches>,
@@ -122,6 +122,10 @@ impl BitPackedArray {
             ));
         }
 
+        // TODO(ngates): enforce 128 byte alignment once we have a BufferBuilder that can
+        //  enforce custom alignments.
+        // let packed = ByteBuffer::new_with_alignment(packed, FASTLANES_ALIGNMENT);
+
         let metadata = BitPackedMetadata {
             validity: validity.to_metadata(length)?,
             offset,
@@ -154,9 +158,9 @@ impl BitPackedArray {
     }
 
     #[inline]
-    pub fn packed(&self) -> &Buffer {
+    pub fn packed(&self) -> &ByteBuffer {
         self.as_ref()
-            .buffer()
+            .byte_buffer()
             .vortex_expect("BitPackedArray must contain packed buffer")
     }
 
@@ -168,7 +172,7 @@ impl BitPackedArray {
         // Return number of elements of type `T` packed in the buffer
         let packed_len = packed_bytes.len() / size_of::<T>();
 
-        // SAFETY: maybe_null_slice points to buffer memory that outlives the lifetime of `self`.
+        // SAFETY: as_slice points to buffer memory that outlives the lifetime of `self`.
         //  Unfortunately Rust cannot understand this, so we reconstruct the slice from raw parts
         //  to get it to reinterpret the lifetime.
         unsafe { std::slice::from_raw_parts(packed_ptr, packed_len) }
@@ -287,31 +291,31 @@ impl PrimitiveArrayTrait for BitPackedArray {}
 
 #[cfg(test)]
 mod test {
-    use itertools::Itertools;
     use vortex_array::array::PrimitiveArray;
     use vortex_array::{IntoArrayData, IntoArrayVariant, IntoCanonical};
+    use vortex_buffer::Buffer;
 
     use crate::BitPackedArray;
 
     #[test]
     fn test_encode() {
-        let values = vec![Some(1), None, Some(1), None, Some(1), None, Some(u64::MAX)];
-        let uncompressed = PrimitiveArray::from_nullable_vec(values);
+        let values = [Some(1), None, Some(1), None, Some(1), None, Some(u64::MAX)];
+        let uncompressed = PrimitiveArray::from_option_iter(values);
         let packed = BitPackedArray::encode(uncompressed.as_ref(), 1).unwrap();
         let expected = &[1, 0, 1, 0, 1, 0, u64::MAX];
         let results = packed
             .into_array()
             .into_primitive()
             .unwrap()
-            .maybe_null_slice::<u64>()
+            .as_slice::<u64>()
             .to_vec();
         assert_eq!(results, expected);
     }
 
     #[test]
     fn test_encode_too_wide() {
-        let values = vec![Some(1u8), None, Some(1), None, Some(1), None];
-        let uncompressed = PrimitiveArray::from_nullable_vec(values);
+        let values = [Some(1u8), None, Some(1), None, Some(1), None];
+        let uncompressed = PrimitiveArray::from_option_iter(values);
         let _packed = BitPackedArray::encode(uncompressed.as_ref(), 8)
             .expect_err("Cannot pack value into the same width");
         let _packed = BitPackedArray::encode(uncompressed.as_ref(), 9)
@@ -320,8 +324,8 @@ mod test {
 
     #[test]
     fn signed_with_patches() {
-        let values = (0i32..=512).collect_vec();
-        let parray = PrimitiveArray::from(values.clone()).into_array();
+        let values: Buffer<i32> = (0i32..=512).collect();
+        let parray = values.clone().into_array();
 
         let packed_with_patches = BitPackedArray::encode(&parray, 9).unwrap();
         assert!(packed_with_patches.patches().is_some());
@@ -331,8 +335,8 @@ mod test {
                 .unwrap()
                 .into_primitive()
                 .unwrap()
-                .into_maybe_null_slice::<i32>(),
-            values
+                .as_slice::<i32>(),
+            values.as_slice()
         );
     }
 }

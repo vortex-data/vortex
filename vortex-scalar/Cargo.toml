@@ -45,7 +45,6 @@ flatbuffers = [
     "dep:flexbuffers",
     "dep:serde",
     "vortex-flatbuffers/scalar",
-    "vortex-buffer/flexbuffers",
     "vortex-error/flatbuffers",
     "vortex-error/flexbuffers",
     "vortex-dtype/flatbuffers",

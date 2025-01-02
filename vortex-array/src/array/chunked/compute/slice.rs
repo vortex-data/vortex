@@ -40,16 +40,16 @@ impl SliceFn<ChunkedArray> for ChunkedEncoding {
 mod tests {
     use vortex_dtype::{DType, NativePType, Nullability, PType};
 
-    use crate::array::ChunkedArray;
+    use crate::array::{ChunkedArray, PrimitiveArray};
     use crate::compute::slice;
     use crate::{ArrayData, IntoArrayData, IntoArrayVariant};
 
     fn chunked_array() -> ChunkedArray {
         ChunkedArray::try_new(
             vec![
-                vec![1u64, 2, 3].into_array(),
-                vec![4u64, 5, 6].into_array(),
-                vec![7u64, 8, 9].into_array(),
+                PrimitiveArray::from_iter([1u64, 2, 3]).into_array(),
+                PrimitiveArray::from_iter([4u64, 5, 6]).into_array(),
+                PrimitiveArray::from_iter([7u64, 8, 9]).into_array(),
             ],
             DType::Primitive(PType::U64, Nullability::NonNullable),
         )
@@ -62,7 +62,7 @@ mod tests {
             .unwrap()
             .chunks()
             .map(|a| a.into_primitive().unwrap())
-            .for_each(|a| values.extend_from_slice(a.maybe_null_slice::<T>()));
+            .for_each(|a| values.extend_from_slice(a.as_slice::<T>()));
         assert_eq!(values, slice);
     }
 

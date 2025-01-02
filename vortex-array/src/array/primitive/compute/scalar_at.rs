@@ -11,7 +11,7 @@ use crate::ArrayDType;
 impl ScalarAtFn<PrimitiveArray> for PrimitiveEncoding {
     fn scalar_at(&self, array: &PrimitiveArray, index: usize) -> VortexResult<Scalar> {
         Ok(match_each_native_ptype!(array.ptype(), |$T| {
-            Scalar::primitive(array.maybe_null_slice::<$T>()[index], array.dtype().nullability())
+            Scalar::primitive(array.as_slice::<$T>()[index], array.dtype().nullability())
         }))
     }
 }

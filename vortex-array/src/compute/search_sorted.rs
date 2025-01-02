@@ -524,10 +524,10 @@ impl<T> Len for [T] {
 
 #[cfg(test)]
 mod test {
-    use crate::array::PrimitiveArray;
+    use vortex_buffer::buffer;
+
     use crate::compute::search_sorted::{SearchResult, SearchSorted, SearchSortedSide};
     use crate::compute::{search_sorted, search_sorted_many};
-    use crate::validity::Validity;
     use crate::IntoArrayData;
 
     #[test]
@@ -580,22 +580,14 @@ mod test {
 
     #[test]
     fn failed_cast() {
-        let arr = PrimitiveArray::from_vec(
-            vec![0u8, 1, 2, 3, 4, 5, 6, 7, 8, 9, 9, 9, 9],
-            Validity::NonNullable,
-        )
-        .into_array();
+        let arr = buffer![0u8, 1, 2, 3, 4, 5, 6, 7, 8, 9, 9, 9, 9].into_array();
         let res = search_sorted(&arr, 256, SearchSortedSide::Left).unwrap();
         assert_eq!(res, SearchResult::NotFound(arr.len()));
     }
 
     #[test]
     fn search_sorted_many_failed_cast() {
-        let arr = PrimitiveArray::from_vec(
-            vec![0u8, 1, 2, 3, 4, 5, 6, 7, 8, 9, 9, 9, 9],
-            Validity::NonNullable,
-        )
-        .into_array();
+        let arr = buffer![0u8, 1, 2, 3, 4, 5, 6, 7, 8, 9, 9, 9, 9].into_array();
         let res = search_sorted_many(&arr, &[256], SearchSortedSide::Left).unwrap();
         assert_eq!(res, vec![SearchResult::NotFound(arr.len())]);
     }

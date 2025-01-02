@@ -17,6 +17,7 @@ readme = "README.md"
 arrow-array = { workspace = true }
 arrow-buffer = { workspace = true }
 arrow-schema = { workspace = true }
+bytes = { workspace = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["std"] }
 futures-executor = { workspace = true }

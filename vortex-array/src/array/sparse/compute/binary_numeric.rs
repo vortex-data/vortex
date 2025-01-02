@@ -23,7 +23,8 @@ impl BinaryNumericFn<SparseArray> for SparseEncoding {
             .fill_scalar()
             .as_primitive()
             .checked_numeric_operator(rhs_scalar.as_primitive(), op)?
-            .ok_or_else(|| vortex_err!("numeric overflow"))?;
+            .ok_or_else(|| vortex_err!("numeric overflow"))?
+            .into();
         SparseArray::try_new_from_patches(
             new_patches,
             array.len(),

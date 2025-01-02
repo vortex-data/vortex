@@ -1,3 +1,8 @@
+/// Download TPC-H data via Docker.
+///
+/// This is a simple wrapper around the `dbgen` tool.
+///
+/// For more information, see the [dbgen](https://github.com/spiraldb/tpch-dbgen) project.
 use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::copy;
@@ -7,8 +12,6 @@ use std::process::Command;
 use itertools::Itertools;
 use tar::Archive;
 use xshell::Shell;
-
-/// Download TPC-H data via Docker.
 
 pub struct DBGen {
     options: DBGenOptions,

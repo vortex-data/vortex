@@ -2,18 +2,18 @@ use std::fmt::{Debug, Formatter};
 use std::ops::Deref;
 use std::str::Utf8Error;
 
-use crate::Buffer;
+use crate::ByteBuffer;
 
-/// A wrapper around a [`Buffer`] that guarantees that the buffer contains valid UTF-8.
+/// A wrapper around a [`ByteBuffer`] that guarantees that the buffer contains valid UTF-8.
 #[derive(Clone, PartialEq, Eq, PartialOrd)]
-pub struct BufferString(Buffer);
+pub struct BufferString(ByteBuffer);
 
 impl BufferString {
-    /// Creates a new `BufferString` from a [`Buffer`].
+    /// Creates a new `BufferString` from a [`ByteBuffer`].
     ///
     /// # Safety
     /// Assumes that the buffer contains valid UTF-8.
-    pub const unsafe fn new_unchecked(buffer: Buffer) -> Self {
+    pub const unsafe fn new_unchecked(buffer: ByteBuffer) -> Self {
         Self(buffer)
     }
 
@@ -21,6 +21,11 @@ impl BufferString {
     pub fn as_str(&self) -> &str {
         // SAFETY: We have already validated that the buffer is valid UTF-8
         unsafe { std::str::from_utf8_unchecked(self.0.as_ref()) }
+    }
+
+    /// Returns the inner [`ByteBuffer`].
+    pub fn into_inner(self) -> ByteBuffer {
+        self.0
     }
 }
 
@@ -32,7 +37,7 @@ impl Debug for BufferString {
     }
 }
 
-impl From<BufferString> for Buffer {
+impl From<BufferString> for ByteBuffer {
     fn from(value: BufferString) -> Self {
         value.0
     }
@@ -40,20 +45,20 @@ impl From<BufferString> for Buffer {
 
 impl From<String> for BufferString {
     fn from(value: String) -> Self {
-        Self(Buffer::from(value.into_bytes()))
+        Self(ByteBuffer::from(value.into_bytes()))
     }
 }
 
 impl From<&str> for BufferString {
     fn from(value: &str) -> Self {
-        Self(Buffer::from(String::from(value).into_bytes()))
+        Self(ByteBuffer::from(String::from(value).into_bytes()))
     }
 }
 
-impl TryFrom<Buffer> for BufferString {
+impl TryFrom<ByteBuffer> for BufferString {
     type Error = Utf8Error;
 
-    fn try_from(value: Buffer) -> Result<Self, Self::Error> {
+    fn try_from(value: ByteBuffer) -> Result<Self, Self::Error> {
         let _ = std::str::from_utf8(value.as_ref())?;
         Ok(Self(value))
     }
@@ -76,5 +81,22 @@ impl AsRef<str> for BufferString {
 impl AsRef<[u8]> for BufferString {
     fn as_ref(&self) -> &[u8] {
         self.as_str().as_bytes()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::{buffer, Alignment, BufferString};
+
+    #[test]
+    fn buffer_string() {
+        let buf = BufferString::from("hello");
+        assert_eq!(buf.len(), 5);
+        assert_eq!(buf.into_inner().alignment(), Alignment::of::<u8>());
+    }
+
+    #[test]
+    fn buffer_string_non_ut8() {
+        assert!(BufferString::try_from(buffer![0u8, 255]).is_err());
     }
 }

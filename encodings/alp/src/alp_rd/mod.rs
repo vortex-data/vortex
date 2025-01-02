@@ -15,8 +15,9 @@ use itertools::Itertools;
 use num_traits::{Float, One, PrimInt};
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::array::PrimitiveArray;
-use vortex_array::{ArrayDType, IntoArrayData};
-use vortex_dtype::{DType, NativePType};
+use vortex_array::{ArrayDType, IntoArrayData, IntoArrayVariant};
+use vortex_buffer::{Buffer, BufferMut};
+use vortex_dtype::{match_each_integer_ptype, DType, NativePType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult, VortexUnwrap};
 use vortex_fastlanes::bitpack_encode_unchecked;
 
@@ -171,12 +172,12 @@ impl RDEncoder {
             "codes lookup table must be populated before RD encoding"
         );
 
-        let doubles = array.maybe_null_slice::<T>();
+        let doubles = array.as_slice::<T>();
 
-        let mut left_parts: Vec<u16> = Vec::with_capacity(doubles.len());
-        let mut right_parts: Vec<T::UINT> = Vec::with_capacity(doubles.len());
-        let mut exceptions_pos: Vec<u64> = Vec::with_capacity(doubles.len() / 4);
-        let mut exceptions: Vec<u16> = Vec::with_capacity(doubles.len() / 4);
+        let mut left_parts: BufferMut<u16> = BufferMut::with_capacity(doubles.len());
+        let mut right_parts: BufferMut<T::UINT> = BufferMut::with_capacity(doubles.len());
+        let mut exceptions_pos: BufferMut<u64> = BufferMut::with_capacity(doubles.len() / 4);
+        let mut exceptions: BufferMut<u16> = BufferMut::with_capacity(doubles.len() / 4);
 
         // mask for right-parts
         let right_mask = T::UINT::one().shl(self.right_bit_width as _) - T::UINT::one();
@@ -204,7 +205,7 @@ impl RDEncoder {
         }
 
         // Bit-pack down the encoded left-parts array that have been dictionary encoded.
-        let primitive_left = PrimitiveArray::from_vec(left_parts, array.validity());
+        let primitive_left = PrimitiveArray::new(left_parts, array.validity());
         // SAFETY: by construction, all values in left_parts can be packed to left_bit_width.
         let packed_left = unsafe {
             bitpack_encode_unchecked(primitive_left, left_bit_width as _)
@@ -212,7 +213,7 @@ impl RDEncoder {
                 .into_array()
         };
 
-        let primitive_right = PrimitiveArray::from(right_parts);
+        let primitive_right = PrimitiveArray::new(right_parts, Validity::NonNullable);
         // SAFETY: by construction, all values in right_parts are right_bit_width + leading zeros.
         let packed_right = unsafe {
             bitpack_encode_unchecked(primitive_right, self.right_bit_width as _)
@@ -227,7 +228,7 @@ impl RDEncoder {
             let max_exc_pos = exceptions_pos.last().copied().unwrap_or_default();
             let bw = bit_width!(max_exc_pos) as u8;
 
-            let exc_pos_array = PrimitiveArray::from(exceptions_pos);
+            let exc_pos_array = PrimitiveArray::new(exceptions_pos, Validity::NonNullable);
             // SAFETY: We calculate bw such that it is wide enough to hold the largest position index.
             let packed_pos = unsafe {
                 bitpack_encode_unchecked(exc_pos_array, bw)
@@ -235,9 +236,7 @@ impl RDEncoder {
                     .into_array()
             };
 
-            let exc_array =
-                PrimitiveArray::from_vec(exceptions, Validity::NonNullable).into_array();
-            Patches::new(doubles.len(), packed_pos, exc_array)
+            Patches::new(doubles.len(), packed_pos, exceptions.into_array())
         });
 
         ALPRDArray::try_new(
@@ -258,42 +257,44 @@ impl RDEncoder {
 ///
 /// The function panics if the provided `left_parts` and `right_parts` differ in length.
 pub fn alp_rd_decode<T: ALPRDFloat>(
-    left_parts: &[u16],
+    left_parts: Buffer<u16>,
     left_parts_dict: &[u16],
     right_bit_width: u8,
-    right_parts: &[T::UINT],
+    right_parts: Buffer<T::UINT>,
     left_parts_patches: Option<Patches>,
-) -> VortexResult<Vec<T>> {
+) -> VortexResult<Buffer<T>> {
     if left_parts.len() != right_parts.len() {
         vortex_bail!("alp_rd_decode: left_parts.len != right_parts.len");
     }
 
-    let mut dict = Vec::with_capacity(left_parts_dict.len());
-    dict.extend_from_slice(left_parts_dict);
+    // Decode the left-parts dictionary
+    let mut values = BufferMut::<u16>::from_iter(
+        left_parts
+            .iter()
+            .map(|code| left_parts_dict[*code as usize]),
+    );
 
-    let mut left_parts_decoded: Vec<u16> = Vec::with_capacity(left_parts.len());
-
-    // Decode with bit-packing and dict unpacking.
-    for code in left_parts {
-        left_parts_decoded.push(dict[*code as usize]);
+    // Apply any patches
+    if let Some(patches) = left_parts_patches {
+        let indices = patches.indices().clone().into_primitive()?;
+        let patch_values = patches.values().clone().into_primitive()?;
+        match_each_integer_ptype!(indices.ptype(), |$T| {
+            indices
+                .as_slice::<$T>()
+                .iter()
+                .zip(patch_values.as_slice::<u16>().iter())
+                .for_each(|(idx, v)| values[*idx as usize] = *v);
+        })
     }
 
-    let patched_left_parts = match left_parts_patches {
-        Some(patches) => PrimitiveArray::from(left_parts_decoded)
-            .patch(patches)?
-            .into_maybe_null_slice::<u16>(),
-        None => left_parts_decoded,
-    };
-
-    // recombine the left-and-right parts, adjusting by the right_bit_width.
-    Ok(patched_left_parts
-        .into_iter()
-        .zip(right_parts.iter().copied())
-        .map(|(left, right)| {
-            let left = <T as ALPRDFloat>::from_u16(left);
-            T::from_bits((left << (right_bit_width as usize)) | right)
-        })
-        .collect())
+    // Shift the left-parts and add in the right-parts.
+    Ok(
+        BufferMut::<T>::from_iter(values.iter().zip(right_parts.iter()).map(|(left, right)| {
+            let left = <T as ALPRDFloat>::from_u16(*left);
+            T::from_bits((left << (right_bit_width as usize)) | *right)
+        }))
+        .freeze(),
+    )
 }
 
 /// Find the best "cut point" for a set of floating point values such that we can

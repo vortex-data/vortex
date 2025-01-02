@@ -7,7 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## `vortex-datafusion` - [0.21.1](https://github.com/spiraldb/vortex/compare/vortex-datafusion-v0.20.0...vortex-datafusion-v0.21.1) - 2024-12-16
+##
+
+`vortex-datafusion` - [0.21.1](https://github.com/spiraldb/vortex/compare/vortex-datafusion-v0.20.0...vortex-datafusion-v0.21.1) -
+2024-12-16
 
 ### Added
 
@@ -41,7 +44,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Variants VTable ([#1501](https://github.com/spiraldb/vortex/pull/1501))
 - Report stats to DataFusion ([#1506](https://github.com/spiraldb/vortex/pull/1506))
 
-## `vortex-roaring` - [0.21.1](https://github.com/spiraldb/vortex/compare/vortex-roaring-v0.20.0...vortex-roaring-v0.21.1) - 2024-12-16
+##
+
+`vortex-roaring` - [0.21.1](https://github.com/spiraldb/vortex/compare/vortex-roaring-v0.20.0...vortex-roaring-v0.21.1) -
+2024-12-16
 
 ### Other
 
@@ -51,7 +57,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Move invert from BoolArrayTrait to InvertFn ([#1490](https://github.com/spiraldb/vortex/pull/1490))
 - Flatten unary compute mod ([#1489](https://github.com/spiraldb/vortex/pull/1489))
 
-## `vortex-zigzag` - [0.21.1](https://github.com/spiraldb/vortex/compare/vortex-zigzag-v0.20.0...vortex-zigzag-v0.21.1) - 2024-12-16
+##
+
+`vortex-zigzag` - [0.21.1](https://github.com/spiraldb/vortex/compare/vortex-zigzag-v0.20.0...vortex-zigzag-v0.21.1) -
+2024-12-16
 
 ### Other
 
@@ -60,7 +69,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Variants VTable ([#1501](https://github.com/spiraldb/vortex/pull/1501))
 - Flatten unary compute mod ([#1489](https://github.com/spiraldb/vortex/pull/1489))
 
-## `vortex-runend-bool` - [0.21.1](https://github.com/spiraldb/vortex/compare/vortex-runend-bool-v0.20.0...vortex-runend-bool-v0.21.1) - 2024-12-16
+##
+
+`vortex-runend-bool` - [0.21.1](https://github.com/spiraldb/vortex/compare/vortex-runend-bool-v0.20.0...vortex-runend-bool-v0.21.1) -
+2024-12-16
 
 ### Fixed
 
@@ -78,7 +90,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Move invert from BoolArrayTrait to InvertFn ([#1490](https://github.com/spiraldb/vortex/pull/1490))
 - Flatten unary compute mod ([#1489](https://github.com/spiraldb/vortex/pull/1489))
 
-## `vortex-runend` - [0.21.1](https://github.com/spiraldb/vortex/compare/vortex-runend-v0.20.0...vortex-runend-v0.21.1) - 2024-12-16
+##
+
+`vortex-runend` - [0.21.1](https://github.com/spiraldb/vortex/compare/vortex-runend-v0.20.0...vortex-runend-v0.21.1) -
+2024-12-16
 
 ### Fixed
 
@@ -100,7 +115,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Move invert from BoolArrayTrait to InvertFn ([#1490](https://github.com/spiraldb/vortex/pull/1490))
 - Flatten unary compute mod ([#1489](https://github.com/spiraldb/vortex/pull/1489))
 
-## `vortex-fsst` - [0.21.1](https://github.com/spiraldb/vortex/compare/vortex-fsst-v0.20.0...vortex-fsst-v0.21.1) - 2024-12-16
+##
+
+`vortex-fsst` - [0.21.1](https://github.com/spiraldb/vortex/compare/vortex-fsst-v0.20.0...vortex-fsst-v0.21.1) -
+2024-12-16
 
 ### Other
 
@@ -112,7 +130,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Variants VTable ([#1501](https://github.com/spiraldb/vortex/pull/1501))
 - Flatten unary compute mod ([#1489](https://github.com/spiraldb/vortex/pull/1489))
 
-## `vortex-sampling-compressor` - [0.21.1](https://github.com/spiraldb/vortex/compare/vortex-sampling-compressor-v0.20.0...vortex-sampling-compressor-v0.21.1) - 2024-12-16
+##
+
+`vortex-sampling-compressor` - [0.21.1](https://github.com/spiraldb/vortex/compare/vortex-sampling-compressor-v0.20.0...vortex-sampling-compressor-v0.21.1) -
+2024-12-16
 
 ### Added
 
@@ -127,11 +148,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Cheaper `maybe_from` ([#1677](https://github.com/spiraldb/vortex/pull/1677))
 - Remove validity from run-end array ([#1630](https://github.com/spiraldb/vortex/pull/1630))
-- Fix regression in search_sorted when Patches replaced SparseArray ([#1624](https://github.com/spiraldb/vortex/pull/1624))
+- Fix regression in search_sorted when Patches replaced
+  SparseArray ([#1624](https://github.com/spiraldb/vortex/pull/1624))
 - Cannot compress like logs are debug level ([#1620](https://github.com/spiraldb/vortex/pull/1620))
 - Patches Utility ([#1601](https://github.com/spiraldb/vortex/pull/1601))
 - cleanups to support wasm32-wasip1 target (#1528)
-- Add `maybe_from` function to help downcast ArrayData into a specific encoded array without potentially capturing a backtrace ([#1560](https://github.com/spiraldb/vortex/pull/1560))
+- Add `maybe_from` function to help downcast ArrayData into a specific encoded array without potentially capturing a
+  backtrace ([#1560](https://github.com/spiraldb/vortex/pull/1560))
 - Narrow indices types during compression  ([#1558](https://github.com/spiraldb/vortex/pull/1558))
 - ArrayNBytes includes size of arrays metadata ([#1549](https://github.com/spiraldb/vortex/pull/1549))
 - Revert "feat: consistently compress validity" ([#1551](https://github.com/spiraldb/vortex/pull/1551))
@@ -139,7 +162,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add more click bench things ([#1530](https://github.com/spiraldb/vortex/pull/1530))
 - Remove with_dyn and ArrayDef ([#1503](https://github.com/spiraldb/vortex/pull/1503))
 
-## `vortex-ipc` - [0.21.1](https://github.com/spiraldb/vortex/compare/vortex-ipc-v0.20.0...vortex-ipc-v0.21.1) - 2024-12-16
+##
+
+`vortex-ipc` - [0.21.1](https://github.com/spiraldb/vortex/compare/vortex-ipc-v0.20.0...vortex-ipc-v0.21.1) - 2024-12-16
 
 ### Added
 
@@ -152,7 +177,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - add an unsafe take_unchecked to TakeFn for bounds check ellision (#1611)
 - cleanup in vortex-ipc & vortex-file (#1553)
 - cleanups to support wasm32-wasip1 target (#1528)
-- Add `maybe_from` function to help downcast ArrayData into a specific encoded array without potentially capturing a backtrace ([#1560](https://github.com/spiraldb/vortex/pull/1560))
+- Add `maybe_from` function to help downcast ArrayData into a specific encoded array without potentially capturing a
+  backtrace ([#1560](https://github.com/spiraldb/vortex/pull/1560))
 
 ## `vortex-io` - [0.21.1](https://github.com/spiraldb/vortex/compare/vortex-io-v0.20.0...vortex-io-v0.21.1) - 2024-12-16
 
@@ -173,7 +199,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Hide underlying channel in the Dispatcher (#1585)
 - cleanups to support wasm32-wasip1 target (#1528)
 
-## `vortex-file` - [0.21.1](https://github.com/spiraldb/vortex/compare/vortex-file-v0.20.0...vortex-file-v0.21.1) - 2024-12-16
+##
+
+`vortex-file` - [0.21.1](https://github.com/spiraldb/vortex/compare/vortex-file-v0.20.0...vortex-file-v0.21.1) -
+2024-12-16
 
 ### Added
 
@@ -203,17 +232,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - simplify MetadataFetcher to function (#1569)
 - cleanup in vortex-ipc & vortex-file (#1553)
 - cleanups to support wasm32-wasip1 target (#1528)
-- Store present stats as a bitset in metadata of chunked layout and remove inline dtype layout ([#1555](https://github.com/spiraldb/vortex/pull/1555))
+- Store present stats as a bitset in metadata of chunked layout and remove inline dtype
+  layout ([#1555](https://github.com/spiraldb/vortex/pull/1555))
 - Remove dead chunked reader ([#1552](https://github.com/spiraldb/vortex/pull/1552))
 - Like expression supports negated and case_sensitive arguments ([#1537](https://github.com/spiraldb/vortex/pull/1537))
 - Add LIKE operator ([#1525](https://github.com/spiraldb/vortex/pull/1525))
 - Use filter in RowMask::evaluate ([#1515](https://github.com/spiraldb/vortex/pull/1515))
 - Variants VTable ([#1501](https://github.com/spiraldb/vortex/pull/1501))
-- RowMask uses ConstantArray for all valid and all invalid selections and remove unsafe RowMask constructor ([#1495](https://github.com/spiraldb/vortex/pull/1495))
+- RowMask uses ConstantArray for all valid and all invalid selections and remove unsafe RowMask
+  constructor ([#1495](https://github.com/spiraldb/vortex/pull/1495))
 - Remove uses of with_dyn for validity ([#1487](https://github.com/spiraldb/vortex/pull/1487))
 - Flatten unary compute mod ([#1489](https://github.com/spiraldb/vortex/pull/1489))
 
-## `vortex-expr` - [0.21.1](https://github.com/spiraldb/vortex/compare/vortex-expr-v0.20.0...vortex-expr-v0.21.1) - 2024-12-16
+##
+
+`vortex-expr` - [0.21.1](https://github.com/spiraldb/vortex/compare/vortex-expr-v0.20.0...vortex-expr-v0.21.1) -
+2024-12-16
 
 ### Other
 
@@ -223,7 +257,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Variants VTable ([#1501](https://github.com/spiraldb/vortex/pull/1501))
 - Move invert from BoolArrayTrait to InvertFn ([#1490](https://github.com/spiraldb/vortex/pull/1490))
 
-## `vortex-dict` - [0.21.1](https://github.com/spiraldb/vortex/compare/vortex-dict-v0.20.0...vortex-dict-v0.21.1) - 2024-12-16
+##
+
+`vortex-dict` - [0.21.1](https://github.com/spiraldb/vortex/compare/vortex-dict-v0.20.0...vortex-dict-v0.21.1) -
+2024-12-16
 
 ### Added
 
@@ -240,7 +277,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Remove uses of with_dyn for validity ([#1487](https://github.com/spiraldb/vortex/pull/1487))
 - Flatten unary compute mod ([#1489](https://github.com/spiraldb/vortex/pull/1489))
 
-## `vortex-datetime-parts` - [0.21.1](https://github.com/spiraldb/vortex/compare/vortex-datetime-parts-v0.20.0...vortex-datetime-parts-v0.21.1) - 2024-12-16
+##
+
+`vortex-datetime-parts` - [0.21.1](https://github.com/spiraldb/vortex/compare/vortex-datetime-parts-v0.20.0...vortex-datetime-parts-v0.21.1) -
+2024-12-16
 
 ### Fixed
 
@@ -256,7 +296,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Remove uses of with_dyn for validity ([#1487](https://github.com/spiraldb/vortex/pull/1487))
 - Flatten unary compute mod ([#1489](https://github.com/spiraldb/vortex/pull/1489))
 
-## `vortex-bytebool` - [0.21.1](https://github.com/spiraldb/vortex/compare/vortex-bytebool-v0.20.0...vortex-bytebool-v0.21.1) - 2024-12-16
+##
+
+`vortex-bytebool` - [0.21.1](https://github.com/spiraldb/vortex/compare/vortex-bytebool-v0.20.0...vortex-bytebool-v0.21.1) -
+2024-12-16
 
 ### Other
 
@@ -266,7 +309,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Move invert from BoolArrayTrait to InvertFn ([#1490](https://github.com/spiraldb/vortex/pull/1490))
 - Flatten unary compute mod ([#1489](https://github.com/spiraldb/vortex/pull/1489))
 
-## `vortex-fastlanes` - [0.21.1](https://github.com/spiraldb/vortex/compare/vortex-fastlanes-v0.20.0...vortex-fastlanes-v0.21.1) - 2024-12-16
+##
+
+`vortex-fastlanes` - [0.21.1](https://github.com/spiraldb/vortex/compare/vortex-fastlanes-v0.20.0...vortex-fastlanes-v0.21.1) -
+2024-12-16
 
 ### Added
 
@@ -274,19 +320,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Other
 
-- Fix regression in search_sorted when Patches replaced SparseArray ([#1624](https://github.com/spiraldb/vortex/pull/1624))
+- Fix regression in search_sorted when Patches replaced
+  SparseArray ([#1624](https://github.com/spiraldb/vortex/pull/1624))
 - Skip FoR decompression if min and scalar are 0 ([#1618](https://github.com/spiraldb/vortex/pull/1618))
 - add an unsafe take_unchecked to TakeFn for bounds check ellision (#1611)
 - Patches Utility ([#1601](https://github.com/spiraldb/vortex/pull/1601))
 - Fix search sorted casting ([#1579](https://github.com/spiraldb/vortex/pull/1579))
 - cleanups to support wasm32-wasip1 target (#1528)
-- Add `maybe_from` function to help downcast ArrayData into a specific encoded array without potentially capturing a backtrace ([#1560](https://github.com/spiraldb/vortex/pull/1560))
+- Add `maybe_from` function to help downcast ArrayData into a specific encoded array without potentially capturing a
+  backtrace ([#1560](https://github.com/spiraldb/vortex/pull/1560))
 - Remove with_dyn and ArrayDef ([#1503](https://github.com/spiraldb/vortex/pull/1503))
 - Variants VTable ([#1501](https://github.com/spiraldb/vortex/pull/1501))
 - Remove uses of with_dyn for validity ([#1487](https://github.com/spiraldb/vortex/pull/1487))
 - Flatten unary compute mod ([#1489](https://github.com/spiraldb/vortex/pull/1489))
 
-## `vortex-scalar` - [0.21.1](https://github.com/spiraldb/vortex/compare/vortex-scalar-v0.20.0...vortex-scalar-v0.21.1) - 2024-12-16
+##
+
+`vortex-scalar` - [0.21.1](https://github.com/spiraldb/vortex/compare/vortex-scalar-v0.20.0...vortex-scalar-v0.21.1) -
+2024-12-16
 
 ### Fixed
 
@@ -301,13 +352,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Narrow indices types during compression  ([#1558](https://github.com/spiraldb/vortex/pull/1558))
 - Array Builders ([#1543](https://github.com/spiraldb/vortex/pull/1543))
 
-## `vortex-flatbuffers` - [0.21.1](https://github.com/spiraldb/vortex/compare/vortex-flatbuffers-v0.20.0...vortex-flatbuffers-v0.21.1) - 2024-12-16
+##
+
+`vortex-flatbuffers` - [0.21.1](https://github.com/spiraldb/vortex/compare/vortex-flatbuffers-v0.20.0...vortex-flatbuffers-v0.21.1) -
+2024-12-16
 
 ### Other
 
 - IPC Message clean up ([#1686](https://github.com/spiraldb/vortex/pull/1686))
 
-## `vortex-error` - [0.21.1](https://github.com/spiraldb/vortex/compare/vortex-error-v0.20.0...vortex-error-v0.21.1) - 2024-12-16
+##
+
+`vortex-error` - [0.21.1](https://github.com/spiraldb/vortex/compare/vortex-error-v0.20.0...vortex-error-v0.21.1) -
+2024-12-16
 
 ### Added
 
@@ -317,7 +374,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - cleanups to support wasm32-wasip1 target (#1528)
 
-## `vortex-dtype` - [0.21.1](https://github.com/spiraldb/vortex/compare/vortex-dtype-v0.20.0...vortex-dtype-v0.21.1) - 2024-12-16
+##
+
+`vortex-dtype` - [0.21.1](https://github.com/spiraldb/vortex/compare/vortex-dtype-v0.20.0...vortex-dtype-v0.21.1) -
+2024-12-16
 
 ### Added
 
@@ -335,13 +395,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add ArrowPrimitiveType ([#1540](https://github.com/spiraldb/vortex/pull/1540))
 - Add lists to vortex ([#1524](https://github.com/spiraldb/vortex/pull/1524))
 
-## `vortex-buffer` - [0.21.1](https://github.com/spiraldb/vortex/compare/vortex-buffer-v0.20.0...vortex-buffer-v0.21.1) - 2024-12-16
+##
+
+`vortex-buffer` - [0.21.1](https://github.com/spiraldb/vortex/compare/vortex-buffer-v0.20.0...vortex-buffer-v0.21.1) -
+2024-12-16
 
 ### Added
 
 - Layout metadata reader and column statistics (#1455)
 
-## `vortex-array` - [0.21.1](https://github.com/spiraldb/vortex/compare/vortex-array-v0.20.0...vortex-array-v0.21.1) - 2024-12-16
+##
+
+`vortex-array` - [0.21.1](https://github.com/spiraldb/vortex/compare/vortex-array-v0.20.0...vortex-array-v0.21.1) -
+2024-12-16
 
 ### Added
 
@@ -365,17 +431,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - IPC Message clean up ([#1686](https://github.com/spiraldb/vortex/pull/1686))
 - Cheaper `maybe_from` ([#1677](https://github.com/spiraldb/vortex/pull/1677))
 - simplify StatsSet (#1672)
-- ChunkedArray stats compute handles ordered stats and doesn't eagerly merge chunk stats ([#1652](https://github.com/spiraldb/vortex/pull/1652))
+- ChunkedArray stats compute handles ordered stats and doesn't eagerly merge chunk
+  stats ([#1652](https://github.com/spiraldb/vortex/pull/1652))
 - Run end fill null ([#1660](https://github.com/spiraldb/vortex/pull/1660))
 - Stats are stored as Vec of tuples instead of enummap ([#1658](https://github.com/spiraldb/vortex/pull/1658))
-- VarBin to arrow conversion uses reinterpret cast to convert offsets to I32/64 ([#1644](https://github.com/spiraldb/vortex/pull/1644))
-- Add missing overrides for into_arrow delegation for VarBinArray ([#1642](https://github.com/spiraldb/vortex/pull/1642))
+- VarBin to arrow conversion uses reinterpret cast to convert offsets to
+  I32/64 ([#1644](https://github.com/spiraldb/vortex/pull/1644))
+- Add missing overrides for into_arrow delegation for
+  VarBinArray ([#1642](https://github.com/spiraldb/vortex/pull/1642))
 - Move PrimitiveBuilder constraints to where clause ([#1634](https://github.com/spiraldb/vortex/pull/1634))
 - Reading stats tables reuses schemas ([#1637](https://github.com/spiraldb/vortex/pull/1637))
 - Remove validity from run-end array ([#1630](https://github.com/spiraldb/vortex/pull/1630))
 - Some small fixes ([#1631](https://github.com/spiraldb/vortex/pull/1631))
 - Revert "feat: patches uses a map in some cases" ([#1629](https://github.com/spiraldb/vortex/pull/1629))
-- Fix regression in search_sorted when Patches replaced SparseArray ([#1624](https://github.com/spiraldb/vortex/pull/1624))
+- Fix regression in search_sorted when Patches replaced
+  SparseArray ([#1624](https://github.com/spiraldb/vortex/pull/1624))
 - search_sorted_many handles failed downcasts and use search_sorted_usize_many in Patches::take (#1621)
 - add an unsafe take_unchecked to TakeFn for bounds check ellision (#1611)
 - Use FilterMask in RowMask ([#1616](https://github.com/spiraldb/vortex/pull/1616))
@@ -390,9 +460,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fuzz filter implementation respects data validity ([#1573](https://github.com/spiraldb/vortex/pull/1573))
 - Ensure patches don't turn arrays nullable ([#1565](https://github.com/spiraldb/vortex/pull/1565))
 - cleanups to support wasm32-wasip1 target (#1528)
-- Add `maybe_from` function to help downcast ArrayData into a specific encoded array without potentially capturing a backtrace ([#1560](https://github.com/spiraldb/vortex/pull/1560))
+- Add `maybe_from` function to help downcast ArrayData into a specific encoded array without potentially capturing a
+  backtrace ([#1560](https://github.com/spiraldb/vortex/pull/1560))
 - Narrow indices types during compression  ([#1558](https://github.com/spiraldb/vortex/pull/1558))
-- Store present stats as a bitset in metadata of chunked layout and remove inline dtype layout ([#1555](https://github.com/spiraldb/vortex/pull/1555))
+- Store present stats as a bitset in metadata of chunked layout and remove inline dtype
+  layout ([#1555](https://github.com/spiraldb/vortex/pull/1555))
 - ArrayNBytes includes size of arrays metadata ([#1549](https://github.com/spiraldb/vortex/pull/1549))
 - Array Builders ([#1543](https://github.com/spiraldb/vortex/pull/1543))
 - Like expression supports negated and case_sensitive arguments ([#1537](https://github.com/spiraldb/vortex/pull/1537))
@@ -408,7 +480,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Make BinaryBooleanFn consistent with CompareFn ([#1488](https://github.com/spiraldb/vortex/pull/1488))
 - Flatten unary compute mod ([#1489](https://github.com/spiraldb/vortex/pull/1489))
 
-## `vortex-alp` - [0.21.1](https://github.com/spiraldb/vortex/compare/vortex-alp-v0.20.0...vortex-alp-v0.21.1) - 2024-12-16
+##
+
+`vortex-alp` - [0.21.1](https://github.com/spiraldb/vortex/compare/vortex-alp-v0.20.0...vortex-alp-v0.21.1) - 2024-12-16
 
 ### Added
 
@@ -421,7 +495,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Speed up ALP decompress ([#1614](https://github.com/spiraldb/vortex/pull/1614))
 - Remove ALP compare ([#1603](https://github.com/spiraldb/vortex/pull/1603))
 - cleanups to support wasm32-wasip1 target (#1528)
-- Add `maybe_from` function to help downcast ArrayData into a specific encoded array without potentially capturing a backtrace ([#1560](https://github.com/spiraldb/vortex/pull/1560))
+- Add `maybe_from` function to help downcast ArrayData into a specific encoded array without potentially capturing a
+  backtrace ([#1560](https://github.com/spiraldb/vortex/pull/1560))
 - ALP Mask clone ([#1522](https://github.com/spiraldb/vortex/pull/1522))
 - Variants VTable ([#1501](https://github.com/spiraldb/vortex/pull/1501))
 - Remove uses of with_dyn for validity ([#1487](https://github.com/spiraldb/vortex/pull/1487))
@@ -433,27 +508,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - cleanups to support wasm32-wasip1 target (#1528)
 
-## `vortex-datafusion` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-datafusion-v0.19.0...vortex-datafusion-v0.20.0) - 2024-11-26
+##
+
+`vortex-datafusion` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-datafusion-v0.19.0...vortex-datafusion-v0.20.0) -
+2024-11-26
 
 ### Fixed
 
-- Remove redundant len/is_empty implementations on typed array structs ([#1384](https://github.com/spiraldb/vortex/pull/1384))
+- Remove redundant len/is_empty implementations on typed array
+  structs ([#1384](https://github.com/spiraldb/vortex/pull/1384))
 
 ### Other
 
 - :read_selection uses immutable reference ([#1295](https://github.com/spiraldb/vortex/pull/1295))
 - Move dispatcher into vortex io from vortex file ([#1385](https://github.com/spiraldb/vortex/pull/1385))
 - Remove TypedArray, make InnerArrayData non-pub ([#1378](https://github.com/spiraldb/vortex/pull/1378))
-- Change Datafusion integration to FileFormat instead of a TableProvider ([#1364](https://github.com/spiraldb/vortex/pull/1364))
+- Change Datafusion integration to FileFormat instead of a
+  TableProvider ([#1364](https://github.com/spiraldb/vortex/pull/1364))
 - Enable Clippy redundant clone check ([#1361](https://github.com/spiraldb/vortex/pull/1361))
 - Add TakeOptions to skip bounds checking ([#1343](https://github.com/spiraldb/vortex/pull/1343))
 - Remove BoolArray::from_vec ([#1332](https://github.com/spiraldb/vortex/pull/1332))
 
-## `vortex-zigzag` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-zigzag-v0.19.0...vortex-zigzag-v0.20.0) - 2024-11-26
+##
+
+`vortex-zigzag` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-zigzag-v0.19.0...vortex-zigzag-v0.20.0) -
+2024-11-26
 
 ### Fixed
 
-- Remove redundant len/is_empty implementations on typed array structs ([#1384](https://github.com/spiraldb/vortex/pull/1384))
+- Remove redundant len/is_empty implementations on typed array
+  structs ([#1384](https://github.com/spiraldb/vortex/pull/1384))
 
 ### Other
 
@@ -468,7 +552,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enable Clippy redundant clone check ([#1361](https://github.com/spiraldb/vortex/pull/1361))
 - Use enum map for stats instead of HashMap ([#1341](https://github.com/spiraldb/vortex/pull/1341))
 
-## `vortex-runend-bool` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-runend-bool-v0.19.0...vortex-runend-bool-v0.20.0) - 2024-11-26
+##
+
+`vortex-runend-bool` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-runend-bool-v0.19.0...vortex-runend-bool-v0.20.0) -
+2024-11-26
 
 ### Added
 
@@ -477,7 +564,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - RunEndBool stats and slice accounts for offsets ([#1428](https://github.com/spiraldb/vortex/pull/1428))
-- Remove redundant len/is_empty implementations on typed array structs ([#1384](https://github.com/spiraldb/vortex/pull/1384))
+- Remove redundant len/is_empty implementations on typed array
+  structs ([#1384](https://github.com/spiraldb/vortex/pull/1384))
 
 ### Other
 
@@ -494,7 +582,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Use enum map for stats instead of HashMap ([#1341](https://github.com/spiraldb/vortex/pull/1341))
 - Remove BoolArray::from_vec ([#1332](https://github.com/spiraldb/vortex/pull/1332))
 
-## `vortex-runend` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-runend-v0.19.0...vortex-runend-v0.20.0) - 2024-11-26
+##
+
+`vortex-runend` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-runend-v0.19.0...vortex-runend-v0.20.0) -
+2024-11-26
 
 ### Added
 
@@ -502,7 +593,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Remove redundant len/is_empty implementations on typed array structs ([#1384](https://github.com/spiraldb/vortex/pull/1384))
+- Remove redundant len/is_empty implementations on typed array
+  structs ([#1384](https://github.com/spiraldb/vortex/pull/1384))
 
 ### Other
 
@@ -532,12 +624,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Push-down compare function for Dictionary and RunEnd ([#1339](https://github.com/spiraldb/vortex/pull/1339))
 - Remove BoolArray::from_vec ([#1332](https://github.com/spiraldb/vortex/pull/1332))
 
-## `vortex-roaring` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-roaring-v0.19.0...vortex-roaring-v0.20.0) - 2024-11-26
+##
+
+`vortex-roaring` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-roaring-v0.19.0...vortex-roaring-v0.20.0) -
+2024-11-26
 
 ### Fixed
 
-- Remove redundant len/is_empty implementations on typed array structs ([#1384](https://github.com/spiraldb/vortex/pull/1384))
-- Bool arrays with one value and rest being nulls are not constant ([#1360](https://github.com/spiraldb/vortex/pull/1360))
+- Remove redundant len/is_empty implementations on typed array
+  structs ([#1384](https://github.com/spiraldb/vortex/pull/1384))
+- Bool arrays with one value and rest being nulls are not
+  constant ([#1360](https://github.com/spiraldb/vortex/pull/1360))
 
 ### Other
 
@@ -553,7 +650,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Use enum map for stats instead of HashMap ([#1341](https://github.com/spiraldb/vortex/pull/1341))
 - Remove BoolArray::from_vec ([#1332](https://github.com/spiraldb/vortex/pull/1332))
 
-## `vortex-fsst` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-fsst-v0.19.0...vortex-fsst-v0.20.0) - 2024-11-26
+##
+
+`vortex-fsst` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-fsst-v0.19.0...vortex-fsst-v0.20.0) -
+2024-11-26
 
 ### Added
 
@@ -561,7 +661,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Remove redundant len/is_empty implementations on typed array structs ([#1384](https://github.com/spiraldb/vortex/pull/1384))
+- Remove redundant len/is_empty implementations on typed array
+  structs ([#1384](https://github.com/spiraldb/vortex/pull/1384))
 
 ### Other
 
@@ -582,7 +683,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add TakeOptions to skip bounds checking ([#1343](https://github.com/spiraldb/vortex/pull/1343))
 - Use enum map for stats instead of HashMap ([#1341](https://github.com/spiraldb/vortex/pull/1341))
 
-## `vortex-sampling-compressor` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-sampling-compressor-v0.19.0...vortex-sampling-compressor-v0.20.0) - 2024-11-26
+##
+
+`vortex-sampling-compressor` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-sampling-compressor-v0.19.0...vortex-sampling-compressor-v0.20.0) -
+2024-11-26
 
 ### Added
 
@@ -595,7 +699,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - FSST compress-like child indices ([#1480](https://github.com/spiraldb/vortex/pull/1480))
 - compress_noci benchmark broken on develop ([#1450](https://github.com/spiraldb/vortex/pull/1450))
 - CompressionTrees diverge from the actual array children  ([#1430](https://github.com/spiraldb/vortex/pull/1430))
-- Remove redundant len/is_empty implementations on typed array structs ([#1384](https://github.com/spiraldb/vortex/pull/1384))
+- Remove redundant len/is_empty implementations on typed array
+  structs ([#1384](https://github.com/spiraldb/vortex/pull/1384))
 
 ### Other
 
@@ -605,7 +710,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Remove as_primitive ([#1376](https://github.com/spiraldb/vortex/pull/1376))
 - Support RunEnd array with bool values ([#1365](https://github.com/spiraldb/vortex/pull/1365))
 
-## `vortex-ipc` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-ipc-v0.19.0...vortex-ipc-v0.20.0) - 2024-11-26
+##
+
+`vortex-ipc` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-ipc-v0.19.0...vortex-ipc-v0.20.0) - 2024-11-26
 
 ### Added
 
@@ -642,14 +749,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Update name of thread and set max blocking threads to once ([#1419](https://github.com/spiraldb/vortex/pull/1419))
 - Move dispatcher into vortex io from vortex file ([#1385](https://github.com/spiraldb/vortex/pull/1385))
 
-## `vortex-file` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-file-v0.19.0...vortex-file-v0.20.0) - 2024-11-26
+##
+
+`vortex-file` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-file-v0.19.0...vortex-file-v0.20.0) -
+2024-11-26
 
 ### Added
 
 - VortexFileWriter is Send ([#1479](https://github.com/spiraldb/vortex/pull/1479))
 - support Identity in pruner ([#1441](https://github.com/spiraldb/vortex/pull/1441))
 - RowFilter is a valid pruning predicate ([#1438](https://github.com/spiraldb/vortex/pull/1438))
-- teach PruningPredicate to evaluate itself against a stats table ([#1436](https://github.com/spiraldb/vortex/pull/1436))
+- teach PruningPredicate to evaluate itself against a stats
+  table ([#1436](https://github.com/spiraldb/vortex/pull/1436))
 - add optional instrumentation to readers ([#1431](https://github.com/spiraldb/vortex/pull/1431))
 - teach ChunkedLayout how to read metadata ([#1399](https://github.com/spiraldb/vortex/pull/1399))
 - don't write leading/trailing zero histograms into file ([#1372](https://github.com/spiraldb/vortex/pull/1372))
@@ -662,7 +773,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - restore reading of inline dtype layout ([#1442](https://github.com/spiraldb/vortex/pull/1442))
 - required stats are relations not maps ([#1432](https://github.com/spiraldb/vortex/pull/1432))
 - Stop producing empty row masks in chunked reader ([#1429](https://github.com/spiraldb/vortex/pull/1429))
-- Remove redundant len/is_empty implementations on typed array structs ([#1384](https://github.com/spiraldb/vortex/pull/1384))
+- Remove redundant len/is_empty implementations on typed array
+  structs ([#1384](https://github.com/spiraldb/vortex/pull/1384))
 
 ### Other
 
@@ -676,7 +788,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Move dispatcher into vortex io from vortex file ([#1385](https://github.com/spiraldb/vortex/pull/1385))
 - Remove TypedArray, make InnerArrayData non-pub ([#1378](https://github.com/spiraldb/vortex/pull/1378))
 - Remove as_primitive ([#1376](https://github.com/spiraldb/vortex/pull/1376))
-- Change Datafusion integration to FileFormat instead of a TableProvider ([#1364](https://github.com/spiraldb/vortex/pull/1364))
+- Change Datafusion integration to FileFormat instead of a
+  TableProvider ([#1364](https://github.com/spiraldb/vortex/pull/1364))
 - Use SplitIterator in layout tests ([#1363](https://github.com/spiraldb/vortex/pull/1363))
 - Enable Clippy redundant clone check ([#1361](https://github.com/spiraldb/vortex/pull/1361))
 - RowMasks use bitmasks instead of bitmaps ([#1346](https://github.com/spiraldb/vortex/pull/1346))
@@ -684,7 +797,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add TakeOptions to skip bounds checking ([#1343](https://github.com/spiraldb/vortex/pull/1343))
 - Remove BoolArray::from_vec ([#1332](https://github.com/spiraldb/vortex/pull/1332))
 
-## `vortex-expr` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-expr-v0.19.0...vortex-expr-v0.20.0) - 2024-11-26
+##
+
+`vortex-expr` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-expr-v0.19.0...vortex-expr-v0.20.0) -
+2024-11-26
 
 ### Added
 
@@ -693,10 +809,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Other
 
 - Remove TypedArray, make InnerArrayData non-pub ([#1378](https://github.com/spiraldb/vortex/pull/1378))
-- Change Datafusion integration to FileFormat instead of a TableProvider ([#1364](https://github.com/spiraldb/vortex/pull/1364))
+- Change Datafusion integration to FileFormat instead of a
+  TableProvider ([#1364](https://github.com/spiraldb/vortex/pull/1364))
 - Remove BoolArray::from_vec ([#1332](https://github.com/spiraldb/vortex/pull/1332))
 
-## `vortex-dict` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-dict-v0.19.0...vortex-dict-v0.20.0) - 2024-11-26
+##
+
+`vortex-dict` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-dict-v0.19.0...vortex-dict-v0.20.0) -
+2024-11-26
 
 ### Added
 
@@ -705,7 +825,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - CompressionTrees diverge from the actual array children  ([#1430](https://github.com/spiraldb/vortex/pull/1430))
-- Remove redundant len/is_empty implementations on typed array structs ([#1384](https://github.com/spiraldb/vortex/pull/1384))
+- Remove redundant len/is_empty implementations on typed array
+  structs ([#1384](https://github.com/spiraldb/vortex/pull/1384))
 
 ### Other
 
@@ -728,11 +849,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Use enum map for stats instead of HashMap ([#1341](https://github.com/spiraldb/vortex/pull/1341))
 - Push-down compare function for Dictionary and RunEnd ([#1339](https://github.com/spiraldb/vortex/pull/1339))
 
-## `vortex-datetime-parts` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-datetime-parts-v0.19.0...vortex-datetime-parts-v0.20.0) - 2024-11-26
+##
+
+`vortex-datetime-parts` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-datetime-parts-v0.19.0...vortex-datetime-parts-v0.20.0) -
+2024-11-26
 
 ### Fixed
 
-- Remove redundant len/is_empty implementations on typed array structs ([#1384](https://github.com/spiraldb/vortex/pull/1384))
+- Remove redundant len/is_empty implementations on typed array
+  structs ([#1384](https://github.com/spiraldb/vortex/pull/1384))
 
 ### Other
 
@@ -751,11 +876,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Use enum map for stats instead of HashMap ([#1341](https://github.com/spiraldb/vortex/pull/1341))
 - Remove BoolArray::from_vec ([#1332](https://github.com/spiraldb/vortex/pull/1332))
 
-## `vortex-bytebool` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-bytebool-v0.19.0...vortex-bytebool-v0.20.0) - 2024-11-26
+##
+
+`vortex-bytebool` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-bytebool-v0.19.0...vortex-bytebool-v0.20.0) -
+2024-11-26
 
 ### Fixed
 
-- Remove redundant len/is_empty implementations on typed array structs ([#1384](https://github.com/spiraldb/vortex/pull/1384))
+- Remove redundant len/is_empty implementations on typed array
+  structs ([#1384](https://github.com/spiraldb/vortex/pull/1384))
 
 ### Other
 
@@ -776,7 +905,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Use enum map for stats instead of HashMap ([#1341](https://github.com/spiraldb/vortex/pull/1341))
 - Remove BoolArray::from_vec ([#1332](https://github.com/spiraldb/vortex/pull/1332))
 
-## `vortex-fastlanes` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-fastlanes-v0.19.0...vortex-fastlanes-v0.20.0) - 2024-11-26
+##
+
+`vortex-fastlanes` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-fastlanes-v0.19.0...vortex-fastlanes-v0.20.0) -
+2024-11-26
 
 ### Added
 
@@ -786,7 +918,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - CompressionTrees diverge from the actual array children  ([#1430](https://github.com/spiraldb/vortex/pull/1430))
 - BitPackedArray filter correctly stores fully unpacked chunks ([#1393](https://github.com/spiraldb/vortex/pull/1393))
-- Remove redundant len/is_empty implementations on typed array structs ([#1384](https://github.com/spiraldb/vortex/pull/1384))
+- Remove redundant len/is_empty implementations on typed array
+  structs ([#1384](https://github.com/spiraldb/vortex/pull/1384))
 
 ### Other
 
@@ -811,25 +944,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Use enum map for stats instead of HashMap ([#1341](https://github.com/spiraldb/vortex/pull/1341))
 - Remove BoolArray::from_vec ([#1332](https://github.com/spiraldb/vortex/pull/1332))
 
-## `vortex-scalar` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-scalar-v0.19.0...vortex-scalar-v0.20.0) - 2024-11-26
+##
+
+`vortex-scalar` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-scalar-v0.19.0...vortex-scalar-v0.20.0) -
+2024-11-26
 
 ### Other
 
 - PValue PartialEq uses NativePType aware equality ([#1374](https://github.com/spiraldb/vortex/pull/1374))
 
-## `vortex-flatbuffers` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-flatbuffers-v0.19.0...vortex-flatbuffers-v0.20.0) - 2024-11-26
+##
+
+`vortex-flatbuffers` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-flatbuffers-v0.19.0...vortex-flatbuffers-v0.20.0) -
+2024-11-26
 
 ### Added
 
 - add stat for uncompressed size in bytes ([#1315](https://github.com/spiraldb/vortex/pull/1315))
 
-## `vortex-dtype` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-dtype-v0.19.0...vortex-dtype-v0.20.0) - 2024-11-26
+##
+
+`vortex-dtype` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-dtype-v0.19.0...vortex-dtype-v0.20.0) -
+2024-11-26
 
 ### Other
 
 - :read_selection uses immutable reference ([#1295](https://github.com/spiraldb/vortex/pull/1295))
 
-## `vortex-buffer` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-buffer-v0.19.0...vortex-buffer-v0.20.0) - 2024-11-26
+##
+
+`vortex-buffer` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-buffer-v0.19.0...vortex-buffer-v0.20.0) -
+2024-11-26
 
 ### Added
 
@@ -839,7 +984,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Always zero-copy from VortexBuffer to ArrowBuffer ([#1348](https://github.com/spiraldb/vortex/pull/1348))
 
-## `vortex-array` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-array-v0.19.0...vortex-array-v0.20.0) - 2024-11-26
+##
+
+`vortex-array` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-array-v0.19.0...vortex-array-v0.20.0) -
+2024-11-26
 
 ### Added
 
@@ -851,8 +999,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - CompressionTrees diverge from the actual array children  ([#1430](https://github.com/spiraldb/vortex/pull/1430))
-- Remove redundant len/is_empty implementations on typed array structs ([#1384](https://github.com/spiraldb/vortex/pull/1384))
-- Bool arrays with one value and rest being nulls are not constant ([#1360](https://github.com/spiraldb/vortex/pull/1360))
+- Remove redundant len/is_empty implementations on typed array
+  structs ([#1384](https://github.com/spiraldb/vortex/pull/1384))
+- Bool arrays with one value and rest being nulls are not
+  constant ([#1360](https://github.com/spiraldb/vortex/pull/1360))
 
 ### Other
 
@@ -884,13 +1034,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add helper function to unpack constant scalar out of array ([#1373](https://github.com/spiraldb/vortex/pull/1373))
 - Remove as_primitive ([#1376](https://github.com/spiraldb/vortex/pull/1376))
 - Move ArrayData into a module ([#1370](https://github.com/spiraldb/vortex/pull/1370))
-- Change Datafusion integration to FileFormat instead of a TableProvider ([#1364](https://github.com/spiraldb/vortex/pull/1364))
+- Change Datafusion integration to FileFormat instead of a
+  TableProvider ([#1364](https://github.com/spiraldb/vortex/pull/1364))
 - Support RunEnd array with bool values ([#1365](https://github.com/spiraldb/vortex/pull/1365))
 - Implement FilterFn for BitPackedArray ([#1356](https://github.com/spiraldb/vortex/pull/1356))
 - Enable Clippy redundant clone check ([#1361](https://github.com/spiraldb/vortex/pull/1361))
 - Avoid unnecessary backtrace generation ([#1353](https://github.com/spiraldb/vortex/pull/1353))
 - Filter mask ([#1327](https://github.com/spiraldb/vortex/pull/1327))
-- Implement VarBinView take using ScalarBuffer selection ([#1344](https://github.com/spiraldb/vortex/pull/1344))
+- Implement VarBinView take using Buffer selection ([#1344](https://github.com/spiraldb/vortex/pull/1344))
 - Fix compression benchmarks ([#1345](https://github.com/spiraldb/vortex/pull/1345))
 - Add TakeOptions to skip bounds checking ([#1343](https://github.com/spiraldb/vortex/pull/1343))
 - Use enum map for stats instead of HashMap ([#1341](https://github.com/spiraldb/vortex/pull/1341))
@@ -899,7 +1050,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Use arrow scalars for cmp where possible ([#1334](https://github.com/spiraldb/vortex/pull/1334))
 - Remove BoolArray::from_vec ([#1332](https://github.com/spiraldb/vortex/pull/1332))
 
-## `vortex-alp` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-alp-v0.19.0...vortex-alp-v0.20.0) - 2024-11-26
+##
+
+`vortex-alp` - [0.20.0](https://github.com/spiraldb/vortex/compare/vortex-alp-v0.19.0...vortex-alp-v0.20.0) - 2024-11-26
 
 ### Added
 
@@ -907,7 +1060,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Remove redundant len/is_empty implementations on typed array structs ([#1384](https://github.com/spiraldb/vortex/pull/1384))
+- Remove redundant len/is_empty implementations on typed array
+  structs ([#1384](https://github.com/spiraldb/vortex/pull/1384))
 
 ### Other
 
@@ -938,7 +1092,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - :read_selection uses immutable reference ([#1295](https://github.com/spiraldb/vortex/pull/1295))
 - Move dispatcher into vortex io from vortex file ([#1385](https://github.com/spiraldb/vortex/pull/1385))
 
-## `vortex-ipc` - [0.19.0](https://github.com/spiraldb/vortex/compare/vortex-ipc-v0.18.1...vortex-ipc-v0.19.0) - 2024-11-15
+##
+
+`vortex-ipc` - [0.19.0](https://github.com/spiraldb/vortex/compare/vortex-ipc-v0.18.1...vortex-ipc-v0.19.0) - 2024-11-15
 
 ### Added
 
@@ -950,7 +1106,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - return Bytes from readers ([#1330](https://github.com/spiraldb/vortex/pull/1330))
 
-## `vortex-file` - [0.19.0](https://github.com/spiraldb/vortex/compare/vortex-file-v0.18.1...vortex-file-v0.19.0) - 2024-11-15
+##
+
+`vortex-file` - [0.19.0](https://github.com/spiraldb/vortex/compare/vortex-file-v0.18.1...vortex-file-v0.19.0) -
+2024-11-15
 
 ### Added
 
@@ -959,41 +1118,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Other
 
 - Rename Array -> ArrayData ([#1316](https://github.com/spiraldb/vortex/pull/1316))
-- Restore perfoamnce of filter bitmask to bitmap conversion for dense rowmasks ([#1302](https://github.com/spiraldb/vortex/pull/1302))
+- Restore perfoamnce of filter bitmask to bitmap conversion for dense
+  rowmasks ([#1302](https://github.com/spiraldb/vortex/pull/1302))
 - Reuse the IoDispatcher across DataFusion instances ([#1299](https://github.com/spiraldb/vortex/pull/1299))
 - replace vortex-serde with 3 crates ([#1296](https://github.com/spiraldb/vortex/pull/1296))
 
-## `vortex-file` - [0.18.1](https://github.com/spiraldb/vortex/compare/vortex-file-v0.18.0...vortex-file-v0.18.1) - 2024-11-15
+##
+
+`vortex-file` - [0.18.1](https://github.com/spiraldb/vortex/compare/vortex-file-v0.18.0...vortex-file-v0.18.1) -
+2024-11-15
 
 ### Other
 
 - Rename Array -> ArrayData ([#1316](https://github.com/spiraldb/vortex/pull/1316))
-- Restore perfoamnce of filter bitmask to bitmap conversion for dense rowmasks ([#1302](https://github.com/spiraldb/vortex/pull/1302))
+- Restore perfoamnce of filter bitmask to bitmap conversion for dense
+  rowmasks ([#1302](https://github.com/spiraldb/vortex/pull/1302))
 - Reuse the IoDispatcher across DataFusion instances ([#1299](https://github.com/spiraldb/vortex/pull/1299))
 - replace vortex-serde with 3 crates ([#1296](https://github.com/spiraldb/vortex/pull/1296))
 
-## `vortex-flatbuffers` - [0.18.1](https://github.com/spiraldb/vortex/compare/vortex-flatbuffers-v0.18.0...vortex-flatbuffers-v0.18.1) - 2024-11-15
+##
+
+`vortex-flatbuffers` - [0.18.1](https://github.com/spiraldb/vortex/compare/vortex-flatbuffers-v0.18.0...vortex-flatbuffers-v0.18.1) -
+2024-11-15
 
 ### Fixed
 
 - use correct feature flags for vortex-ipc -> vortex-fbs dep ([#1328](https://github.com/spiraldb/vortex/pull/1328))
 
-## `vortex-file` - [0.18.0](https://github.com/spiraldb/vortex/compare/vortex-file-v0.17.0...vortex-file-v0.18.0) - 2024-11-15
+##
+
+`vortex-file` - [0.18.0](https://github.com/spiraldb/vortex/compare/vortex-file-v0.17.0...vortex-file-v0.18.0) -
+2024-11-15
 
 ### Other
 
 - Rename Array -> ArrayData ([#1316](https://github.com/spiraldb/vortex/pull/1316))
-- Restore perfoamnce of filter bitmask to bitmap conversion for dense rowmasks ([#1302](https://github.com/spiraldb/vortex/pull/1302))
+- Restore perfoamnce of filter bitmask to bitmap conversion for dense
+  rowmasks ([#1302](https://github.com/spiraldb/vortex/pull/1302))
 - Reuse the IoDispatcher across DataFusion instances ([#1299](https://github.com/spiraldb/vortex/pull/1299))
 - replace vortex-serde with 3 crates ([#1296](https://github.com/spiraldb/vortex/pull/1296))
 
-## `vortex-datetime-parts` - [0.18.0](https://github.com/spiraldb/vortex/compare/vortex-datetime-parts-v0.17.0...vortex-datetime-parts-v0.18.0) - 2024-11-15
+##
+
+`vortex-datetime-parts` - [0.18.0](https://github.com/spiraldb/vortex/compare/vortex-datetime-parts-v0.17.0...vortex-datetime-parts-v0.18.0) -
+2024-11-15
 
 ### Other
 
 - Canonicalize constant array with extension dtype ([#1322](https://github.com/spiraldb/vortex/pull/1322))
 
-## `vortex-array` - [0.18.0](https://github.com/spiraldb/vortex/compare/vortex-array-v0.17.0...vortex-array-v0.18.0) - 2024-11-15
+##
+
+`vortex-array` - [0.18.0](https://github.com/spiraldb/vortex/compare/vortex-array-v0.17.0...vortex-array-v0.18.0) -
+2024-11-15
 
 ### Other
 
@@ -1004,11 +1181,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Other
 
 - Rename Array -> ArrayData ([#1316](https://github.com/spiraldb/vortex/pull/1316))
-- Restore perfoamnce of filter bitmask to bitmap conversion for dense rowmasks ([#1302](https://github.com/spiraldb/vortex/pull/1302))
+- Restore perfoamnce of filter bitmask to bitmap conversion for dense
+  rowmasks ([#1302](https://github.com/spiraldb/vortex/pull/1302))
 - Reuse the IoDispatcher across DataFusion instances ([#1299](https://github.com/spiraldb/vortex/pull/1299))
 - replace vortex-serde with 3 crates ([#1296](https://github.com/spiraldb/vortex/pull/1296))
 
-## `vortex-datafusion` - [0.17.0](https://github.com/spiraldb/vortex/compare/vortex-datafusion-v0.16.0...vortex-datafusion-v0.17.0) - 2024-11-15
+##
+
+`vortex-datafusion` - [0.17.0](https://github.com/spiraldb/vortex/compare/vortex-datafusion-v0.16.0...vortex-datafusion-v0.17.0) -
+2024-11-15
 
 ### Other
 
@@ -1017,33 +1198,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - replace vortex-serde with 3 crates ([#1296](https://github.com/spiraldb/vortex/pull/1296))
 - introduce ExprRef, teach expressions new_ref ([#1258](https://github.com/spiraldb/vortex/pull/1258))
 
-## `vortex-zigzag` - [0.17.0](https://github.com/spiraldb/vortex/compare/vortex-zigzag-v0.16.0...vortex-zigzag-v0.17.0) - 2024-11-15
+##
+
+`vortex-zigzag` - [0.17.0](https://github.com/spiraldb/vortex/compare/vortex-zigzag-v0.16.0...vortex-zigzag-v0.17.0) -
+2024-11-15
 
 ### Added
 
 - split computation of primitive statistics ([#1306](https://github.com/spiraldb/vortex/pull/1306))
 - stats implementations for more array types ([#1305](https://github.com/spiraldb/vortex/pull/1305))
 
-## `vortex-runend-bool` - [0.17.0](https://github.com/spiraldb/vortex/compare/vortex-runend-bool-v0.16.0...vortex-runend-bool-v0.17.0) - 2024-11-15
+##
+
+`vortex-runend-bool` - [0.17.0](https://github.com/spiraldb/vortex/compare/vortex-runend-bool-v0.16.0...vortex-runend-bool-v0.17.0) -
+2024-11-15
 
 ### Added
 
 - stats implementations for more array types ([#1305](https://github.com/spiraldb/vortex/pull/1305))
 
-## `vortex-runend` - [0.17.0](https://github.com/spiraldb/vortex/compare/vortex-runend-v0.16.0...vortex-runend-v0.17.0) - 2024-11-15
+##
+
+`vortex-runend` - [0.17.0](https://github.com/spiraldb/vortex/compare/vortex-runend-v0.16.0...vortex-runend-v0.17.0) -
+2024-11-15
 
 ### Added
 
 - split computation of primitive statistics ([#1306](https://github.com/spiraldb/vortex/pull/1306))
 - stats implementations for more array types ([#1305](https://github.com/spiraldb/vortex/pull/1305))
 
-## `vortex-roaring` - [0.17.0](https://github.com/spiraldb/vortex/compare/vortex-roaring-v0.16.0...vortex-roaring-v0.17.0) - 2024-11-15
+##
+
+`vortex-roaring` - [0.17.0](https://github.com/spiraldb/vortex/compare/vortex-roaring-v0.16.0...vortex-roaring-v0.17.0) -
+2024-11-15
 
 ### Added
 
 - stats implementations for more array types ([#1305](https://github.com/spiraldb/vortex/pull/1305))
 
-## `vortex-sampling-compressor` - [0.17.0](https://github.com/spiraldb/vortex/compare/vortex-sampling-compressor-v0.16.0...vortex-sampling-compressor-v0.17.0) - 2024-11-15
+##
+
+`vortex-sampling-compressor` - [0.17.0](https://github.com/spiraldb/vortex/compare/vortex-sampling-compressor-v0.16.0...vortex-sampling-compressor-v0.17.0) -
+2024-11-15
 
 ### Added
 
@@ -1066,7 +1262,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - minor addition to README ([#1030](https://github.com/spiraldb/vortex/pull/1030))
 - updated README ([#876](https://github.com/spiraldb/vortex/pull/876))
 - release to Test PyPI on each push to version tags ([#760](https://github.com/spiraldb/vortex/pull/760))
-- Run ETE benchmarks with MiMalloc and leave a note encouraging its usage ([#399](https://github.com/spiraldb/vortex/pull/399))
+- Run ETE benchmarks with MiMalloc and leave a note encouraging its
+  usage ([#399](https://github.com/spiraldb/vortex/pull/399))
 - README updates ([#394](https://github.com/spiraldb/vortex/pull/394))
 - Download flatc instead of building it from source ([#374](https://github.com/spiraldb/vortex/pull/374))
 - Update README.md ([#337](https://github.com/spiraldb/vortex/pull/337))
@@ -1082,15 +1279,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add minimal description to readme and fixup cargo metadata ([#30](https://github.com/spiraldb/vortex/pull/30))
 - Add Readme
 
-## `vortex-file` - [0.17.0](https://github.com/spiraldb/vortex/compare/vortex-file-v0.16.0...vortex-file-v0.17.0) - 2024-11-15
+##
+
+`vortex-file` - [0.17.0](https://github.com/spiraldb/vortex/compare/vortex-file-v0.16.0...vortex-file-v0.17.0) -
+2024-11-15
 
 ### Other
 
-- Restore perfoamnce of filter bitmask to bitmap conversion for dense rowmasks ([#1302](https://github.com/spiraldb/vortex/pull/1302))
+- Restore perfoamnce of filter bitmask to bitmap conversion for dense
+  rowmasks ([#1302](https://github.com/spiraldb/vortex/pull/1302))
 - Reuse the IoDispatcher across DataFusion instances ([#1299](https://github.com/spiraldb/vortex/pull/1299))
 - replace vortex-serde with 3 crates ([#1296](https://github.com/spiraldb/vortex/pull/1296))
 
-## `vortex-expr` - [0.17.0](https://github.com/spiraldb/vortex/compare/vortex-expr-v0.16.0...vortex-expr-v0.17.0) - 2024-11-15
+##
+
+`vortex-expr` - [0.17.0](https://github.com/spiraldb/vortex/compare/vortex-expr-v0.16.0...vortex-expr-v0.17.0) -
+2024-11-15
 
 ### Added
 
@@ -1101,38 +1305,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - introduce ExprRef, teach expressions new_ref ([#1258](https://github.com/spiraldb/vortex/pull/1258))
 - Use itertools format for VortexExpr Display ([#1294](https://github.com/spiraldb/vortex/pull/1294))
 
-## `vortex-dict` - [0.17.0](https://github.com/spiraldb/vortex/compare/vortex-dict-v0.16.0...vortex-dict-v0.17.0) - 2024-11-15
+##
+
+`vortex-dict` - [0.17.0](https://github.com/spiraldb/vortex/compare/vortex-dict-v0.16.0...vortex-dict-v0.17.0) -
+2024-11-15
 
 ### Added
 
 - stats implementations for more array types ([#1305](https://github.com/spiraldb/vortex/pull/1305))
 
-## `vortex-datetime-parts` - [0.17.0](https://github.com/spiraldb/vortex/compare/vortex-datetime-parts-v0.16.0...vortex-datetime-parts-v0.17.0) - 2024-11-15
+##
+
+`vortex-datetime-parts` - [0.17.0](https://github.com/spiraldb/vortex/compare/vortex-datetime-parts-v0.16.0...vortex-datetime-parts-v0.17.0) -
+2024-11-15
 
 ### Added
 
 - stats implementations for more array types ([#1305](https://github.com/spiraldb/vortex/pull/1305))
 
-## `vortex-fastlanes` - [0.17.0](https://github.com/spiraldb/vortex/compare/vortex-fastlanes-v0.16.0...vortex-fastlanes-v0.17.0) - 2024-11-15
+##
+
+`vortex-fastlanes` - [0.17.0](https://github.com/spiraldb/vortex/compare/vortex-fastlanes-v0.16.0...vortex-fastlanes-v0.17.0) -
+2024-11-15
 
 ### Added
 
 - split computation of primitive statistics ([#1306](https://github.com/spiraldb/vortex/pull/1306))
 - stats implementations for more array types ([#1305](https://github.com/spiraldb/vortex/pull/1305))
 
-## `vortex-scalar` - [0.17.0](https://github.com/spiraldb/vortex/compare/vortex-scalar-v0.16.0...vortex-scalar-v0.17.0) - 2024-11-15
+##
+
+`vortex-scalar` - [0.17.0](https://github.com/spiraldb/vortex/compare/vortex-scalar-v0.16.0...vortex-scalar-v0.17.0) -
+2024-11-15
 
 ### Added
 
 - split computation of primitive statistics ([#1306](https://github.com/spiraldb/vortex/pull/1306))
 
-## `vortex-flatbuffers` - [0.17.0](https://github.com/spiraldb/vortex/compare/vortex-flatbuffers-v0.16.0...vortex-flatbuffers-v0.17.0) - 2024-11-15
+##
+
+`vortex-flatbuffers` - [0.17.0](https://github.com/spiraldb/vortex/compare/vortex-flatbuffers-v0.16.0...vortex-flatbuffers-v0.17.0) -
+2024-11-15
 
 ### Other
 
 - replace vortex-serde with 3 crates ([#1296](https://github.com/spiraldb/vortex/pull/1296))
 
-## `vortex-dtype` - [0.17.0](https://github.com/spiraldb/vortex/compare/vortex-dtype-v0.16.0...vortex-dtype-v0.17.0) - 2024-11-15
+##
+
+`vortex-dtype` - [0.17.0](https://github.com/spiraldb/vortex/compare/vortex-dtype-v0.16.0...vortex-dtype-v0.17.0) -
+2024-11-15
 
 ### Added
 
@@ -1142,7 +1364,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Extract RowMask creation and filtering to separate struct ([#1272](https://github.com/spiraldb/vortex/pull/1272))
 
-## `vortex-array` - [0.17.0](https://github.com/spiraldb/vortex/compare/vortex-array-v0.16.0...vortex-array-v0.17.0) - 2024-11-15
+##
+
+`vortex-array` - [0.17.0](https://github.com/spiraldb/vortex/compare/vortex-array-v0.16.0...vortex-array-v0.17.0) -
+2024-11-15
 
 ### Added
 
@@ -1161,7 +1386,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - replace vortex-serde with 3 crates ([#1296](https://github.com/spiraldb/vortex/pull/1296))
 
-## `vortex-serde` - [0.16.0](https://github.com/spiraldb/vortex/compare/vortex-serde-v0.15.2...vortex-serde-v0.16.0) - 2024-11-13
+##
+
+`vortex-serde` - [0.16.0](https://github.com/spiraldb/vortex/compare/vortex-serde-v0.15.2...vortex-serde-v0.16.0) -
+2024-11-13
 
 ### Added
 
@@ -1171,23 +1399,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - clarify and vs and_kleene in stream.rs and filtering.rs ([#1289](https://github.com/spiraldb/vortex/pull/1289))
 
-## `vortex-expr` - [0.16.0](https://github.com/spiraldb/vortex/compare/vortex-expr-v0.15.2...vortex-expr-v0.16.0) - 2024-11-13
+##
+
+`vortex-expr` - [0.16.0](https://github.com/spiraldb/vortex/compare/vortex-expr-v0.15.2...vortex-expr-v0.16.0) -
+2024-11-13
 
 ### Added
 
 - kleene_or, kleene_and, and restore SQL semantics ([#1284](https://github.com/spiraldb/vortex/pull/1284))
 
-## `vortex-array` - [0.16.0](https://github.com/spiraldb/vortex/compare/vortex-array-v0.15.2...vortex-array-v0.16.0) - 2024-11-13
+##
+
+`vortex-array` - [0.16.0](https://github.com/spiraldb/vortex/compare/vortex-array-v0.15.2...vortex-array-v0.16.0) -
+2024-11-13
 
 ### Added
 
 - kleene_or, kleene_and, and restore SQL semantics ([#1284](https://github.com/spiraldb/vortex/pull/1284))
 
-## `vortex-datafusion` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-datafusion-v0.14.0...vortex-datafusion-v0.15.2) - 2024-11-13
+##
+
+`vortex-datafusion` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-datafusion-v0.14.0...vortex-datafusion-v0.15.2) -
+2024-11-13
 
 ### Added
 
-- [**breaking**] standardize file format names & stop wrapping Footer contents in messages ([#1275](https://github.com/spiraldb/vortex/pull/1275))
+- [**breaking**] standardize file format names & stop wrapping Footer contents in
+  messages ([#1275](https://github.com/spiraldb/vortex/pull/1275))
 
 ### Other
 
@@ -1196,15 +1434,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - some documentation of the layout reading system ([#1225](https://github.com/spiraldb/vortex/pull/1225))
 - Replace usages of lazy_static with LazyLock ([#1214](https://github.com/spiraldb/vortex/pull/1214))
 
-## `vortex-serde` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-serde-v0.14.0...vortex-serde-v0.15.2) - 2024-11-13
+##
+
+`vortex-serde` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-serde-v0.14.0...vortex-serde-v0.15.2) -
+2024-11-13
 
 ### Added
 
-- [**breaking**] standardize file format names & stop wrapping Footer contents in messages ([#1275](https://github.com/spiraldb/vortex/pull/1275))
+- [**breaking**] standardize file format names & stop wrapping Footer contents in
+  messages ([#1275](https://github.com/spiraldb/vortex/pull/1275))
 - do not read fully masked-out layouts ([#1251](https://github.com/spiraldb/vortex/pull/1251))
 - prefer take to filter for very sparse masks ([#1249](https://github.com/spiraldb/vortex/pull/1249))
 - teach LayoutBatchStream to filter by indices ([#1242](https://github.com/spiraldb/vortex/pull/1242))
-- teach PrimitiveArrayTrait iterate_primitive_array! and RowMask from_index_array ([#1241](https://github.com/spiraldb/vortex/pull/1241))
+- teach PrimitiveArrayTrait iterate_primitive_array! and RowMask
+  from_index_array ([#1241](https://github.com/spiraldb/vortex/pull/1241))
 
 ### Fixed
 
@@ -1214,117 +1457,169 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Trim dev arrow dependencies to individual packages ([#1259](https://github.com/spiraldb/vortex/pull/1259))
 - rework LayoutBatchStream for legibility ([#1245](https://github.com/spiraldb/vortex/pull/1245))
-- rename ArrayBufferReader to ArrayMessageReader and move messages around ([#1254](https://github.com/spiraldb/vortex/pull/1254))
+- rename ByteBufferReader to ArrayMessageReader and move messages
+  around ([#1254](https://github.com/spiraldb/vortex/pull/1254))
 - Remove unused dependencies ([#1256](https://github.com/spiraldb/vortex/pull/1256))
-- Add Not vortex expr and use it in pruning expression conversion ([#1213](https://github.com/spiraldb/vortex/pull/1213))
-- Enable more lints about unused lifetimes and unnecessary prefixes ([#1233](https://github.com/spiraldb/vortex/pull/1233))
+- Add Not vortex expr and use it in pruning expression
+  conversion ([#1213](https://github.com/spiraldb/vortex/pull/1213))
+- Enable more lints about unused lifetimes and unnecessary
+  prefixes ([#1233](https://github.com/spiraldb/vortex/pull/1233))
 - some documentation of the layout reading system ([#1225](https://github.com/spiraldb/vortex/pull/1225))
 - move Buffer enum to private inner struct ([#1216](https://github.com/spiraldb/vortex/pull/1216))
 - move Array enum out of public interface ([#1212](https://github.com/spiraldb/vortex/pull/1212))
 - Replace usages of lazy_static with LazyLock ([#1214](https://github.com/spiraldb/vortex/pull/1214))
 
-## `vortex-zigzag` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-zigzag-v0.14.0...vortex-zigzag-v0.15.2) - 2024-11-13
+##
+
+`vortex-zigzag` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-zigzag-v0.14.0...vortex-zigzag-v0.15.2) -
+2024-11-13
 
 ### Added
 
-- teach PrimitiveArrayTrait iterate_primitive_array! and RowMask from_index_array ([#1241](https://github.com/spiraldb/vortex/pull/1241))
+- teach PrimitiveArrayTrait iterate_primitive_array! and RowMask
+  from_index_array ([#1241](https://github.com/spiraldb/vortex/pull/1241))
 
 ### Other
 
 - Remove unused dependencies ([#1256](https://github.com/spiraldb/vortex/pull/1256))
 
-## `vortex-sampling-compressor` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-sampling-compressor-v0.14.0...vortex-sampling-compressor-v0.15.2) - 2024-11-13
+##
+
+`vortex-sampling-compressor` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-sampling-compressor-v0.14.0...vortex-sampling-compressor-v0.15.2) -
+2024-11-13
 
 ### Added
 
 - eagerly compute pruning stats during compression ([#1252](https://github.com/spiraldb/vortex/pull/1252))
 - propagate statistics through compression ([#1236](https://github.com/spiraldb/vortex/pull/1236))
-- teach PrimitiveArrayTrait iterate_primitive_array! and RowMask from_index_array ([#1241](https://github.com/spiraldb/vortex/pull/1241))
+- teach PrimitiveArrayTrait iterate_primitive_array! and RowMask
+  from_index_array ([#1241](https://github.com/spiraldb/vortex/pull/1241))
 
 ### Other
 
 - split out sampling compressor ([#1262](https://github.com/spiraldb/vortex/pull/1262))
 - port random access benchmark to layouts ([#1246](https://github.com/spiraldb/vortex/pull/1246))
-- Enable more lints about unused lifetimes and unnecessary prefixes ([#1233](https://github.com/spiraldb/vortex/pull/1233))
+- Enable more lints about unused lifetimes and unnecessary
+  prefixes ([#1233](https://github.com/spiraldb/vortex/pull/1233))
 - Replace usages of lazy_static with LazyLock ([#1214](https://github.com/spiraldb/vortex/pull/1214))
 
-## `vortex-runend-bool` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-runend-bool-v0.14.0...vortex-runend-bool-v0.15.2) - 2024-11-13
+##
+
+`vortex-runend-bool` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-runend-bool-v0.14.0...vortex-runend-bool-v0.15.2) -
+2024-11-13
 
 ### Added
 
-- teach PrimitiveArrayTrait iterate_primitive_array! and RowMask from_index_array ([#1241](https://github.com/spiraldb/vortex/pull/1241))
+- teach PrimitiveArrayTrait iterate_primitive_array! and RowMask
+  from_index_array ([#1241](https://github.com/spiraldb/vortex/pull/1241))
 
 ### Other
 
-- Add Not vortex expr and use it in pruning expression conversion ([#1213](https://github.com/spiraldb/vortex/pull/1213))
+- Add Not vortex expr and use it in pruning expression
+  conversion ([#1213](https://github.com/spiraldb/vortex/pull/1213))
 
-## `vortex-runend` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-runend-v0.14.0...vortex-runend-v0.15.2) - 2024-11-13
+##
 
-### Added
-
-- teach PrimitiveArrayTrait iterate_primitive_array! and RowMask from_index_array ([#1241](https://github.com/spiraldb/vortex/pull/1241))
-
-## `vortex-roaring` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-roaring-v0.14.0...vortex-roaring-v0.15.2) - 2024-11-13
+`vortex-runend` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-runend-v0.14.0...vortex-runend-v0.15.2) -
+2024-11-13
 
 ### Added
 
-- teach PrimitiveArrayTrait iterate_primitive_array! and RowMask from_index_array ([#1241](https://github.com/spiraldb/vortex/pull/1241))
+- teach PrimitiveArrayTrait iterate_primitive_array! and RowMask
+  from_index_array ([#1241](https://github.com/spiraldb/vortex/pull/1241))
+
+##
+
+`vortex-roaring` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-roaring-v0.14.0...vortex-roaring-v0.15.2) -
+2024-11-13
+
+### Added
+
+- teach PrimitiveArrayTrait iterate_primitive_array! and RowMask
+  from_index_array ([#1241](https://github.com/spiraldb/vortex/pull/1241))
 
 ### Other
 
 - Remove unused dependencies ([#1256](https://github.com/spiraldb/vortex/pull/1256))
-- Add Not vortex expr and use it in pruning expression conversion ([#1213](https://github.com/spiraldb/vortex/pull/1213))
+- Add Not vortex expr and use it in pruning expression
+  conversion ([#1213](https://github.com/spiraldb/vortex/pull/1213))
 
-## `vortex-expr` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-expr-v0.14.0...vortex-expr-v0.15.2) - 2024-11-13
+##
+
+`vortex-expr` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-expr-v0.14.0...vortex-expr-v0.15.2) -
+2024-11-13
 
 ### Other
 
 - Remove unused dependencies ([#1256](https://github.com/spiraldb/vortex/pull/1256))
-- Add Not vortex expr and use it in pruning expression conversion ([#1213](https://github.com/spiraldb/vortex/pull/1213))
+- Add Not vortex expr and use it in pruning expression
+  conversion ([#1213](https://github.com/spiraldb/vortex/pull/1213))
 
-## `vortex-dict` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-dict-v0.14.0...vortex-dict-v0.15.2) - 2024-11-13
+##
+
+`vortex-dict` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-dict-v0.14.0...vortex-dict-v0.15.2) -
+2024-11-13
 
 ### Added
 
-- teach PrimitiveArrayTrait iterate_primitive_array! and RowMask from_index_array ([#1241](https://github.com/spiraldb/vortex/pull/1241))
+- teach PrimitiveArrayTrait iterate_primitive_array! and RowMask
+  from_index_array ([#1241](https://github.com/spiraldb/vortex/pull/1241))
 
 ### Other
 
 - Remove unused dependencies ([#1256](https://github.com/spiraldb/vortex/pull/1256))
 - cleanup dict encoding logic ([#1231](https://github.com/spiraldb/vortex/pull/1231))
-- Enable more lints about unused lifetimes and unnecessary prefixes ([#1233](https://github.com/spiraldb/vortex/pull/1233))
+- Enable more lints about unused lifetimes and unnecessary
+  prefixes ([#1233](https://github.com/spiraldb/vortex/pull/1233))
 
-## `vortex-datetime-parts` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-datetime-parts-v0.14.0...vortex-datetime-parts-v0.15.2) - 2024-11-13
+##
+
+`vortex-datetime-parts` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-datetime-parts-v0.14.0...vortex-datetime-parts-v0.15.2) -
+2024-11-13
 
 ### Other
 
 - Remove unused dependencies ([#1256](https://github.com/spiraldb/vortex/pull/1256))
 
-## `vortex-bytebool` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-bytebool-v0.14.0...vortex-bytebool-v0.15.2) - 2024-11-13
+##
+
+`vortex-bytebool` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-bytebool-v0.14.0...vortex-bytebool-v0.15.2) -
+2024-11-13
 
 ### Added
 
-- teach PrimitiveArrayTrait iterate_primitive_array! and RowMask from_index_array ([#1241](https://github.com/spiraldb/vortex/pull/1241))
+- teach PrimitiveArrayTrait iterate_primitive_array! and RowMask
+  from_index_array ([#1241](https://github.com/spiraldb/vortex/pull/1241))
 
 ### Other
 
 - Remove unused dependencies ([#1256](https://github.com/spiraldb/vortex/pull/1256))
-- Add Not vortex expr and use it in pruning expression conversion ([#1213](https://github.com/spiraldb/vortex/pull/1213))
-- Enable more lints about unused lifetimes and unnecessary prefixes ([#1233](https://github.com/spiraldb/vortex/pull/1233))
+- Add Not vortex expr and use it in pruning expression
+  conversion ([#1213](https://github.com/spiraldb/vortex/pull/1213))
+- Enable more lints about unused lifetimes and unnecessary
+  prefixes ([#1233](https://github.com/spiraldb/vortex/pull/1233))
 
-## `vortex-fastlanes` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-fastlanes-v0.14.0...vortex-fastlanes-v0.15.2) - 2024-11-13
+##
+
+`vortex-fastlanes` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-fastlanes-v0.14.0...vortex-fastlanes-v0.15.2) -
+2024-11-13
 
 ### Added
 
 - propagate statistics through compression ([#1236](https://github.com/spiraldb/vortex/pull/1236))
-- Support patching bool arrays, patch primitive array validity and use patching when canonicalizing sparse arrays ([#1218](https://github.com/spiraldb/vortex/pull/1218))
-- teach PrimitiveArrayTrait iterate_primitive_array! and RowMask from_index_array ([#1241](https://github.com/spiraldb/vortex/pull/1241))
+- Support patching bool arrays, patch primitive array validity and use patching when canonicalizing sparse
+  arrays ([#1218](https://github.com/spiraldb/vortex/pull/1218))
+- teach PrimitiveArrayTrait iterate_primitive_array! and RowMask
+  from_index_array ([#1241](https://github.com/spiraldb/vortex/pull/1241))
 
 ### Other
 
 - Remove unused dependencies ([#1256](https://github.com/spiraldb/vortex/pull/1256))
 
-## `vortex-scalar` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-scalar-v0.14.0...vortex-scalar-v0.15.2) - 2024-11-13
+##
+
+`vortex-scalar` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-scalar-v0.14.0...vortex-scalar-v0.15.2) -
+2024-11-13
 
 ### Added
 
@@ -1334,31 +1629,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Remove unused dependencies ([#1256](https://github.com/spiraldb/vortex/pull/1256))
 
-## `vortex-flatbuffers` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-flatbuffers-v0.14.0...vortex-flatbuffers-v0.15.2) - 2024-11-13
+##
+
+`vortex-flatbuffers` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-flatbuffers-v0.14.0...vortex-flatbuffers-v0.15.2) -
+2024-11-13
 
 ### Added
 
-- [**breaking**] standardize file format names & stop wrapping Footer contents in messages ([#1275](https://github.com/spiraldb/vortex/pull/1275))
+- [**breaking**] standardize file format names & stop wrapping Footer contents in
+  messages ([#1275](https://github.com/spiraldb/vortex/pull/1275))
 
 ### Other
 
-- Enable more lints about unused lifetimes and unnecessary prefixes ([#1233](https://github.com/spiraldb/vortex/pull/1233))
+- Enable more lints about unused lifetimes and unnecessary
+  prefixes ([#1233](https://github.com/spiraldb/vortex/pull/1233))
 - some documentation of the layout reading system ([#1225](https://github.com/spiraldb/vortex/pull/1225))
 
-## `vortex-error` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-error-v0.14.0...vortex-error-v0.15.2) - 2024-11-13
+##
+
+`vortex-error` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-error-v0.14.0...vortex-error-v0.15.2) -
+2024-11-13
 
 ### Other
 
 - Annotate wrapped error in Context error type as #[source] ([#1265](https://github.com/spiraldb/vortex/pull/1265))
-- Enable more lints about unused lifetimes and unnecessary prefixes ([#1233](https://github.com/spiraldb/vortex/pull/1233))
+- Enable more lints about unused lifetimes and unnecessary
+  prefixes ([#1233](https://github.com/spiraldb/vortex/pull/1233))
 
-## `vortex-datetime-dtype` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-datetime-dtype-v0.14.0...vortex-datetime-dtype-v0.15.2) - 2024-11-13
+##
+
+`vortex-datetime-dtype` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-datetime-dtype-v0.14.0...vortex-datetime-dtype-v0.15.2) -
+2024-11-13
 
 ### Other
 
 - Replace usages of lazy_static with LazyLock ([#1214](https://github.com/spiraldb/vortex/pull/1214))
 
-## `vortex-buffer` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-buffer-v0.14.0...vortex-buffer-v0.15.2) - 2024-11-13
+##
+
+`vortex-buffer` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-buffer-v0.14.0...vortex-buffer-v0.15.2) -
+2024-11-13
 
 ### Other
 
@@ -1369,8 +1679,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - propagate statistics through compression ([#1236](https://github.com/spiraldb/vortex/pull/1236))
-- Support patching bool arrays, patch primitive array validity and use patching when canonicalizing sparse arrays ([#1218](https://github.com/spiraldb/vortex/pull/1218))
-- teach PrimitiveArrayTrait iterate_primitive_array! and RowMask from_index_array ([#1241](https://github.com/spiraldb/vortex/pull/1241))
+- Support patching bool arrays, patch primitive array validity and use patching when canonicalizing sparse
+  arrays ([#1218](https://github.com/spiraldb/vortex/pull/1218))
+- teach PrimitiveArrayTrait iterate_primitive_array! and RowMask
+  from_index_array ([#1241](https://github.com/spiraldb/vortex/pull/1241))
 
 ### Fixed
 
@@ -1379,25 +1691,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Other
 
 - Remove unused dependencies ([#1256](https://github.com/spiraldb/vortex/pull/1256))
-- Add Not vortex expr and use it in pruning expression conversion ([#1213](https://github.com/spiraldb/vortex/pull/1213))
+- Add Not vortex expr and use it in pruning expression
+  conversion ([#1213](https://github.com/spiraldb/vortex/pull/1213))
 - cleanup dict encoding logic ([#1231](https://github.com/spiraldb/vortex/pull/1231))
-- Enable more lints about unused lifetimes and unnecessary prefixes ([#1233](https://github.com/spiraldb/vortex/pull/1233))
+- Enable more lints about unused lifetimes and unnecessary
+  prefixes ([#1233](https://github.com/spiraldb/vortex/pull/1233))
 - Correctly define validity of sparse arrays with non null fill ([#1217](https://github.com/spiraldb/vortex/pull/1217))
 - move Array enum out of public interface ([#1212](https://github.com/spiraldb/vortex/pull/1212))
 - Replace usages of lazy_static with LazyLock ([#1214](https://github.com/spiraldb/vortex/pull/1214))
 
-## `vortex-alp` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-alp-v0.14.0...vortex-alp-v0.15.2) - 2024-11-13
+##
+
+`vortex-alp` - [0.15.2](https://github.com/spiraldb/vortex/compare/vortex-alp-v0.14.0...vortex-alp-v0.15.2) - 2024-11-13
 
 ### Added
 
-- Support patching bool arrays, patch primitive array validity and use patching when canonicalizing sparse arrays ([#1218](https://github.com/spiraldb/vortex/pull/1218))
-- teach PrimitiveArrayTrait iterate_primitive_array! and RowMask from_index_array ([#1241](https://github.com/spiraldb/vortex/pull/1241))
+- Support patching bool arrays, patch primitive array validity and use patching when canonicalizing sparse
+  arrays ([#1218](https://github.com/spiraldb/vortex/pull/1218))
+- teach PrimitiveArrayTrait iterate_primitive_array! and RowMask
+  from_index_array ([#1241](https://github.com/spiraldb/vortex/pull/1241))
 
 ### Other
 
 - Trim dev arrow dependencies to individual packages ([#1259](https://github.com/spiraldb/vortex/pull/1259))
 
-## `vortex-datafusion` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-datafusion-v0.13.1...vortex-datafusion-v0.14.0) - 2024-11-04
+##
+
+`vortex-datafusion` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-datafusion-v0.13.1...vortex-datafusion-v0.14.0) -
+2024-11-04
 
 ### Added
 
@@ -1408,7 +1729,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Filter pushdown over layouts ([#1124](https://github.com/spiraldb/vortex/pull/1124))
 
-## `vortex-serde` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-serde-v0.13.1...vortex-serde-v0.14.0) - 2024-11-04
+##
+
+`vortex-serde` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-serde-v0.13.1...vortex-serde-v0.14.0) -
+2024-11-04
 
 ### Added
 
@@ -1419,31 +1743,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Filter pushdown over layouts ([#1124](https://github.com/spiraldb/vortex/pull/1124))
 
-## `vortex-zigzag` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-zigzag-v0.13.1...vortex-zigzag-v0.14.0) - 2024-11-04
+##
+
+`vortex-zigzag` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-zigzag-v0.13.1...vortex-zigzag-v0.14.0) -
+2024-11-04
 
 ### Added
 
 - it's a bird, it's a plane, it's vortex-all! ([#1140](https://github.com/spiraldb/vortex/pull/1140))
 
-## `vortex-sampling-compressor` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-sampling-compressor-v0.13.1...vortex-sampling-compressor-v0.14.0) - 2024-11-04
+##
+
+`vortex-sampling-compressor` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-sampling-compressor-v0.13.1...vortex-sampling-compressor-v0.14.0) -
+2024-11-04
 
 ### Added
 
 - it's a bird, it's a plane, it's vortex-all! ([#1140](https://github.com/spiraldb/vortex/pull/1140))
 
-## `vortex-runend-bool` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-runend-bool-v0.13.1...vortex-runend-bool-v0.14.0) - 2024-11-04
+##
+
+`vortex-runend-bool` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-runend-bool-v0.13.1...vortex-runend-bool-v0.14.0) -
+2024-11-04
 
 ### Added
 
 - it's a bird, it's a plane, it's vortex-all! ([#1140](https://github.com/spiraldb/vortex/pull/1140))
 
-## `vortex-runend` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-runend-v0.13.1...vortex-runend-v0.14.0) - 2024-11-04
+##
+
+`vortex-runend` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-runend-v0.13.1...vortex-runend-v0.14.0) -
+2024-11-04
 
 ### Added
 
 - it's a bird, it's a plane, it's vortex-all! ([#1140](https://github.com/spiraldb/vortex/pull/1140))
 
-## `vortex-roaring` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-roaring-v0.13.1...vortex-roaring-v0.14.0) - 2024-11-04
+##
+
+`vortex-roaring` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-roaring-v0.13.1...vortex-roaring-v0.14.0) -
+2024-11-04
 
 ### Added
 
@@ -1453,7 +1792,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - deny missing_docs on vortex-dtype ([#1182](https://github.com/spiraldb/vortex/pull/1182))
 
-## `vortex-fsst` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-fsst-v0.13.1...vortex-fsst-v0.14.0) - 2024-11-04
+##
+
+`vortex-fsst` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-fsst-v0.13.1...vortex-fsst-v0.14.0) -
+2024-11-04
 
 ### Added
 
@@ -1463,7 +1805,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - split CI into separate moldy jobs ([#1192](https://github.com/spiraldb/vortex/pull/1192))
 
-## `vortex-expr` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-expr-v0.13.1...vortex-expr-v0.14.0) - 2024-11-04
+##
+
+`vortex-expr` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-expr-v0.13.1...vortex-expr-v0.14.0) -
+2024-11-04
 
 ### Added
 
@@ -1473,45 +1818,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Filter pushdown over layouts ([#1124](https://github.com/spiraldb/vortex/pull/1124))
 
-## `vortex-dict` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-dict-v0.13.1...vortex-dict-v0.14.0) - 2024-11-04
+##
+
+`vortex-dict` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-dict-v0.13.1...vortex-dict-v0.14.0) -
+2024-11-04
 
 ### Added
 
 - it's a bird, it's a plane, it's vortex-all! ([#1140](https://github.com/spiraldb/vortex/pull/1140))
 
-## `vortex-datetime-parts` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-datetime-parts-v0.13.1...vortex-datetime-parts-v0.14.0) - 2024-11-04
+##
+
+`vortex-datetime-parts` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-datetime-parts-v0.13.1...vortex-datetime-parts-v0.14.0) -
+2024-11-04
 
 ### Added
 
 - it's a bird, it's a plane, it's vortex-all! ([#1140](https://github.com/spiraldb/vortex/pull/1140))
 - specify the storage_dtype in ExtDType ([#1007](https://github.com/spiraldb/vortex/pull/1007))
 
-## `vortex-bytebool` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-bytebool-v0.13.1...vortex-bytebool-v0.14.0) - 2024-11-04
+##
+
+`vortex-bytebool` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-bytebool-v0.13.1...vortex-bytebool-v0.14.0) -
+2024-11-04
 
 ### Added
 
 - it's a bird, it's a plane, it's vortex-all! ([#1140](https://github.com/spiraldb/vortex/pull/1140))
 
-## `vortex-fastlanes` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-fastlanes-v0.13.1...vortex-fastlanes-v0.14.0) - 2024-11-04
+##
+
+`vortex-fastlanes` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-fastlanes-v0.13.1...vortex-fastlanes-v0.14.0) -
+2024-11-04
 
 ### Added
 
 - it's a bird, it's a plane, it's vortex-all! ([#1140](https://github.com/spiraldb/vortex/pull/1140))
 
-## `vortex-scalar` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-scalar-v0.13.1...vortex-scalar-v0.14.0) - 2024-11-04
+##
+
+`vortex-scalar` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-scalar-v0.13.1...vortex-scalar-v0.14.0) -
+2024-11-04
 
 ### Added
 
 - specify the storage_dtype in ExtDType ([#1007](https://github.com/spiraldb/vortex/pull/1007))
 - store min, max, null count, and true count in column metadata ([#1164](https://github.com/spiraldb/vortex/pull/1164))
 
-## `vortex-proto` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-proto-v0.13.1...vortex-proto-v0.14.0) - 2024-11-04
+##
+
+`vortex-proto` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-proto-v0.13.1...vortex-proto-v0.14.0) -
+2024-11-04
 
 ### Added
 
 - specify the storage_dtype in ExtDType ([#1007](https://github.com/spiraldb/vortex/pull/1007))
 
-## `vortex-flatbuffers` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-flatbuffers-v0.13.1...vortex-flatbuffers-v0.14.0) - 2024-11-04
+##
+
+`vortex-flatbuffers` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-flatbuffers-v0.13.1...vortex-flatbuffers-v0.14.0) -
+2024-11-04
 
 ### Added
 
@@ -1521,13 +1887,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Filter pushdown over layouts ([#1124](https://github.com/spiraldb/vortex/pull/1124))
 
-## `vortex-error` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-error-v0.13.1...vortex-error-v0.14.0) - 2024-11-04
+##
+
+`vortex-error` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-error-v0.13.1...vortex-error-v0.14.0) -
+2024-11-04
 
 ### Added
 
 - docs for `vortex-error` crate ([#1184](https://github.com/spiraldb/vortex/pull/1184))
 
-## `vortex-dtype` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-dtype-v0.13.1...vortex-dtype-v0.14.0) - 2024-11-04
+##
+
+`vortex-dtype` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-dtype-v0.13.1...vortex-dtype-v0.14.0) -
+2024-11-04
 
 ### Added
 
@@ -1537,7 +1909,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - deny missing_docs on vortex-dtype ([#1182](https://github.com/spiraldb/vortex/pull/1182))
 
-## `vortex-datetime-dtype` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-datetime-dtype-v0.13.1...vortex-datetime-dtype-v0.14.0) - 2024-11-04
+##
+
+`vortex-datetime-dtype` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-datetime-dtype-v0.13.1...vortex-datetime-dtype-v0.14.0) -
+2024-11-04
 
 ### Added
 
@@ -1547,7 +1922,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - improve datetime-dtype unit tests ([#1183](https://github.com/spiraldb/vortex/pull/1183))
 
-## `vortex-buffer` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-buffer-v0.13.1...vortex-buffer-v0.14.0) - 2024-11-04
+##
+
+`vortex-buffer` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-buffer-v0.13.1...vortex-buffer-v0.14.0) -
+2024-11-04
 
 ### Added
 
@@ -1565,13 +1943,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - deny missing_docs on vortex-dtype ([#1182](https://github.com/spiraldb/vortex/pull/1182))
 
-## `vortex-alp` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-alp-v0.13.1...vortex-alp-v0.14.0) - 2024-11-04
+##
+
+`vortex-alp` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-alp-v0.13.1...vortex-alp-v0.14.0) - 2024-11-04
 
 ### Added
 
 - it's a bird, it's a plane, it's vortex-all! ([#1140](https://github.com/spiraldb/vortex/pull/1140))
 
-## `vortex-all` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-all-v0.13.1...vortex-all-v0.14.0) - 2024-11-04
+##
+
+`vortex-all` - [0.14.0](https://github.com/spiraldb/vortex/compare/vortex-all-v0.13.1...vortex-all-v0.14.0) - 2024-11-04
 
 ### Added
 
@@ -1591,7 +1973,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - minor addition to README ([#1030](https://github.com/spiraldb/vortex/pull/1030))
 - updated README ([#876](https://github.com/spiraldb/vortex/pull/876))
 - release to Test PyPI on each push to version tags ([#760](https://github.com/spiraldb/vortex/pull/760))
-- Run ETE benchmarks with MiMalloc and leave a note encouraging its usage ([#399](https://github.com/spiraldb/vortex/pull/399))
+- Run ETE benchmarks with MiMalloc and leave a note encouraging its
+  usage ([#399](https://github.com/spiraldb/vortex/pull/399))
 - README updates ([#394](https://github.com/spiraldb/vortex/pull/394))
 - Download flatc instead of building it from source ([#374](https://github.com/spiraldb/vortex/pull/374))
 - Update README.md ([#337](https://github.com/spiraldb/vortex/pull/337))
@@ -1607,13 +1990,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add minimal description to readme and fixup cargo metadata ([#30](https://github.com/spiraldb/vortex/pull/30))
 - Add Readme
 
-## `vortex-serde` - [0.13.1](https://github.com/spiraldb/vortex/compare/vortex-serde-v0.13.0...vortex-serde-v0.13.1) - 2024-10-31
+##
+
+`vortex-serde` - [0.13.1](https://github.com/spiraldb/vortex/compare/vortex-serde-v0.13.0...vortex-serde-v0.13.1) -
+2024-10-31
 
 ### Fixed
 
 - specify features in vortex-serde & test default features ([#1168](https://github.com/spiraldb/vortex/pull/1168))
 
-## `vortex-zigzag` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-zigzag-v0.12.0...vortex-zigzag-v0.13.0) - 2024-10-29
+##
+
+`vortex-zigzag` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-zigzag-v0.12.0...vortex-zigzag-v0.13.0) -
+2024-10-29
 
 ### Added
 
@@ -1624,7 +2013,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Even more docs ([#1105](https://github.com/spiraldb/vortex/pull/1105))
 
-## `vortex-runend-bool` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-runend-bool-v0.12.0...vortex-runend-bool-v0.13.0) - 2024-10-29
+##
+
+`vortex-runend-bool` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-runend-bool-v0.12.0...vortex-runend-bool-v0.13.0) -
+2024-10-29
 
 ### Added
 
@@ -1635,7 +2027,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Even more docs ([#1105](https://github.com/spiraldb/vortex/pull/1105))
 - Faster RunEndBool decompression, plus metadata cleanup ([#981](https://github.com/spiraldb/vortex/pull/981))
 
-## `vortex-runend` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-runend-v0.12.0...vortex-runend-v0.13.0) - 2024-10-29
+##
+
+`vortex-runend` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-runend-v0.12.0...vortex-runend-v0.13.0) -
+2024-10-29
 
 ### Added
 
@@ -1648,7 +2043,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - RunEnd ends array max is length of the array ([#1017](https://github.com/spiraldb/vortex/pull/1017))
 - Clean up runend metadata & stats ([#1011](https://github.com/spiraldb/vortex/pull/1011))
 
-## `vortex-roaring` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-roaring-v0.12.0...vortex-roaring-v0.13.0) - 2024-10-29
+##
+
+`vortex-roaring` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-roaring-v0.12.0...vortex-roaring-v0.13.0) -
+2024-10-29
 
 ### Added
 
@@ -1662,9 +2060,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Other
 
 - Even more docs ([#1105](https://github.com/spiraldb/vortex/pull/1105))
-- RoaringBool bitmaps needs to manually append trailing false values when canonicalizing ([#988](https://github.com/spiraldb/vortex/pull/988))
+- RoaringBool bitmaps needs to manually append trailing false values when
+  canonicalizing ([#988](https://github.com/spiraldb/vortex/pull/988))
 
-## `vortex-fsst` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-fsst-v0.12.0...vortex-fsst-v0.13.0) - 2024-10-29
+##
+
+`vortex-fsst` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-fsst-v0.12.0...vortex-fsst-v0.13.0) -
+2024-10-29
 
 ### Added
 
@@ -1677,7 +2079,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Even more docs ([#1105](https://github.com/spiraldb/vortex/pull/1105))
 
-## `vortex-dict` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-dict-v0.12.0...vortex-dict-v0.13.0) - 2024-10-29
+##
+
+`vortex-dict` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-dict-v0.12.0...vortex-dict-v0.13.0) -
+2024-10-29
 
 ### Added
 
@@ -1696,7 +2101,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Implement filter for dict ([#1099](https://github.com/spiraldb/vortex/pull/1099))
 - Use foldhash in dict encoding ([#980](https://github.com/spiraldb/vortex/pull/980))
 
-## `vortex-datetime-parts` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-datetime-parts-v0.12.0...vortex-datetime-parts-v0.13.0) - 2024-10-29
+##
+
+`vortex-datetime-parts` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-datetime-parts-v0.12.0...vortex-datetime-parts-v0.13.0) -
+2024-10-29
 
 ### Added
 
@@ -1706,7 +2114,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Even more docs ([#1105](https://github.com/spiraldb/vortex/pull/1105))
 
-## `vortex-sampling-compressor` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-sampling-compressor-v0.12.0...vortex-sampling-compressor-v0.13.0) - 2024-10-29
+##
+
+`vortex-sampling-compressor` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-sampling-compressor-v0.12.0...vortex-sampling-compressor-v0.13.0) -
+2024-10-29
 
 ### Added
 
@@ -1729,7 +2140,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - More docs ([#1104](https://github.com/spiraldb/vortex/pull/1104))
 - Trim BitPackedMetadata to only required values ([#1046](https://github.com/spiraldb/vortex/pull/1046))
 
-## `vortex-serde` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-serde-v0.12.0...vortex-serde-v0.13.0) - 2024-10-29
+##
+
+`vortex-serde` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-serde-v0.12.0...vortex-serde-v0.13.0) -
+2024-10-29
 
 ### Added
 
@@ -1738,7 +2152,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - faster `take` for `BitPackedArray` and `SparseArray` ([#1133](https://github.com/spiraldb/vortex/pull/1133))
 - German strings, attempt 3 ([#1082](https://github.com/spiraldb/vortex/pull/1082))
 - vortex.dataset.Dataset: deep integration with Polars & DuckDB ([#1089](https://github.com/spiraldb/vortex/pull/1089))
-- Unify FlatLayout with other layouts and add metadata to their flatbuffer representation ([#1077](https://github.com/spiraldb/vortex/pull/1077))
+- Unify FlatLayout with other layouts and add metadata to their flatbuffer
+  representation ([#1077](https://github.com/spiraldb/vortex/pull/1077))
 - improved objective function in sampling compressor ([#1000](https://github.com/spiraldb/vortex/pull/1000))
 
 ### Fixed
@@ -1753,12 +2168,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - limit number of single char variables to 2 ([#1066](https://github.com/spiraldb/vortex/pull/1066))
 - Error when projecting projected dtype ([#1063](https://github.com/spiraldb/vortex/pull/1063))
 - Delegate dtype deserialization and projection to layouts ([#1060](https://github.com/spiraldb/vortex/pull/1060))
-- Correctly resolve filter column references when reading column layouts ([#1058](https://github.com/spiraldb/vortex/pull/1058))
+- Correctly resolve filter column references when reading column
+  layouts ([#1058](https://github.com/spiraldb/vortex/pull/1058))
 - Add Select expression and reorganize vortex-expr crate ([#1049](https://github.com/spiraldb/vortex/pull/1049))
 - make write logic slightly more simple ([#1026](https://github.com/spiraldb/vortex/pull/1026))
 - Fix writing of Chunked Struct arrays ([#1020](https://github.com/spiraldb/vortex/pull/1020))
 
-## `vortex-expr` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-expr-v0.12.0...vortex-expr-v0.13.0) - 2024-10-29
+##
+
+`vortex-expr` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-expr-v0.12.0...vortex-expr-v0.13.0) -
+2024-10-29
 
 ### Added
 
@@ -1768,7 +2187,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Add Select expression and reorganize vortex-expr crate ([#1049](https://github.com/spiraldb/vortex/pull/1049))
 
-## `vortex-datafusion` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-datafusion-v0.12.0...vortex-datafusion-v0.13.0) - 2024-10-29
+##
+
+`vortex-datafusion` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-datafusion-v0.12.0...vortex-datafusion-v0.13.0) -
+2024-10-29
 
 ### Added
 
@@ -1784,7 +2206,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - move infer_schema and infer_data_type into vortex-dtype ([#1081](https://github.com/spiraldb/vortex/pull/1081))
 - Add Select expression and reorganize vortex-expr crate ([#1049](https://github.com/spiraldb/vortex/pull/1049))
 
-## `vortex-bytebool` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-bytebool-v0.12.0...vortex-bytebool-v0.13.0) - 2024-10-29
+##
+
+`vortex-bytebool` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-bytebool-v0.12.0...vortex-bytebool-v0.13.0) -
+2024-10-29
 
 ### Added
 
@@ -1795,7 +2220,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Even more docs ([#1105](https://github.com/spiraldb/vortex/pull/1105))
 
-## `vortex-fastlanes` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-fastlanes-v0.12.0...vortex-fastlanes-v0.13.0) - 2024-10-29
+##
+
+`vortex-fastlanes` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-fastlanes-v0.12.0...vortex-fastlanes-v0.13.0) -
+2024-10-29
 
 ### Added
 
@@ -1813,7 +2241,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - limit number of single char variables to 2 ([#1066](https://github.com/spiraldb/vortex/pull/1066))
 - Trim BitPackedMetadata to only required values ([#1046](https://github.com/spiraldb/vortex/pull/1046))
 
-## `vortex-scalar` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-scalar-v0.12.0...vortex-scalar-v0.13.0) - 2024-10-29
+##
+
+`vortex-scalar` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-scalar-v0.12.0...vortex-scalar-v0.13.0) -
+2024-10-29
 
 ### Added
 
@@ -1835,24 +2266,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - StructScalar stores borrowed arcs ([#1073](https://github.com/spiraldb/vortex/pull/1073))
 - limit number of single char variables to 2 ([#1066](https://github.com/spiraldb/vortex/pull/1066))
 
-## `vortex-flatbuffers` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-flatbuffers-v0.12.0...vortex-flatbuffers-v0.13.0) - 2024-10-29
+##
+
+`vortex-flatbuffers` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-flatbuffers-v0.12.0...vortex-flatbuffers-v0.13.0) -
+2024-10-29
 
 ### Added
 
-- Unify FlatLayout with other layouts and add metadata to their flatbuffer representation ([#1077](https://github.com/spiraldb/vortex/pull/1077))
+- Unify FlatLayout with other layouts and add metadata to their flatbuffer
+  representation ([#1077](https://github.com/spiraldb/vortex/pull/1077))
 
 ### Other
 
 - Layouts have buffers and there's self describing schema layout ([#1098](https://github.com/spiraldb/vortex/pull/1098))
 - limit number of single char variables to 2 ([#1066](https://github.com/spiraldb/vortex/pull/1066))
 
-## `vortex-error` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-error-v0.12.0...vortex-error-v0.13.0) - 2024-10-29
+##
+
+`vortex-error` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-error-v0.12.0...vortex-error-v0.13.0) -
+2024-10-29
 
 ### Added
 
 - teach PyVortex to read from object storage (attempt two) ([#1151](https://github.com/spiraldb/vortex/pull/1151))
 
-## `vortex-dtype` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-dtype-v0.12.0...vortex-dtype-v0.13.0) - 2024-10-29
+##
+
+`vortex-dtype` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-dtype-v0.12.0...vortex-dtype-v0.13.0) -
+2024-10-29
 
 ### Fixed
 
@@ -1865,13 +2306,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - limit number of single char variables to 2 ([#1066](https://github.com/spiraldb/vortex/pull/1066))
 - Delegate dtype deserialization and projection to layouts ([#1060](https://github.com/spiraldb/vortex/pull/1060))
 
-## `vortex-datetime-dtype` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-datetime-dtype-v0.12.0...vortex-datetime-dtype-v0.13.0) - 2024-10-29
+##
+
+`vortex-datetime-dtype` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-datetime-dtype-v0.12.0...vortex-datetime-dtype-v0.13.0) -
+2024-10-29
 
 ### Other
 
 - limit number of single char variables to 2 ([#1066](https://github.com/spiraldb/vortex/pull/1066))
 
-## `vortex-buffer` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-buffer-v0.12.0...vortex-buffer-v0.13.0) - 2024-10-29
+##
+
+`vortex-buffer` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-buffer-v0.12.0...vortex-buffer-v0.13.0) -
+2024-10-29
 
 ### Added
 
@@ -1899,7 +2346,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- VarBinArray into_canonical dtype erasure ([#1143](https://github.com/spiraldb/vortex/pull/1143)) ([#1145](https://github.com/spiraldb/vortex/pull/1145))
+- VarBinArray into_canonical dtype
+  erasure ([#1143](https://github.com/spiraldb/vortex/pull/1143)) ([#1145](https://github.com/spiraldb/vortex/pull/1145))
 - support non-Primitive encodings for views ([#1123](https://github.com/spiraldb/vortex/pull/1123))
 - canonicalize null ConstantArray to VarBinViewArray ([#1122](https://github.com/spiraldb/vortex/pull/1122))
 - even empty slices must be aligned properly ([#1112](https://github.com/spiraldb/vortex/pull/1112))
@@ -1924,7 +2372,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Slightly nicer unknown encodings error ([#1002](https://github.com/spiraldb/vortex/pull/1002))
 - Don't clone dtype on PrimitiveArray::cast ([#972](https://github.com/spiraldb/vortex/pull/972))
 
-## `vortex-alp` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-alp-v0.12.0...vortex-alp-v0.13.0) - 2024-10-29
+##
+
+`vortex-alp` - [0.13.0](https://github.com/spiraldb/vortex/compare/vortex-alp-v0.12.0...vortex-alp-v0.13.0) - 2024-10-29
 
 ### Added
 
@@ -1938,7 +2388,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Even more docs ([#1105](https://github.com/spiraldb/vortex/pull/1105))
 - Trim BitPackedMetadata to only required values ([#1046](https://github.com/spiraldb/vortex/pull/1046))
 
-## `vortex-runend-bool` - [0.12.0](https://github.com/spiraldb/vortex/compare/vortex-runend-bool-v0.11.0...vortex-runend-bool-v0.12.0) - 2024-10-03
+##
+
+`vortex-runend-bool` - [0.12.0](https://github.com/spiraldb/vortex/compare/vortex-runend-bool-v0.11.0...vortex-runend-bool-v0.12.0) -
+2024-10-03
 
 ### Added
 
@@ -1952,7 +2405,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Include README in Cargo.toml ([#936](https://github.com/spiraldb/vortex/pull/936))
 
-## `vortex-bytebool` - [0.12.0](https://github.com/spiraldb/vortex/compare/vortex-bytebool-v0.11.0...vortex-bytebool-v0.12.0) - 2024-10-03
+##
+
+`vortex-bytebool` - [0.12.0](https://github.com/spiraldb/vortex/compare/vortex-bytebool-v0.11.0...vortex-bytebool-v0.12.0) -
+2024-10-03
 
 ### Added
 
@@ -1966,7 +2422,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Include README in Cargo.toml ([#936](https://github.com/spiraldb/vortex/pull/936))
 
-## `vortex-zigzag` - [0.12.0](https://github.com/spiraldb/vortex/compare/vortex-zigzag-v0.11.0...vortex-zigzag-v0.12.0) - 2024-10-03
+##
+
+`vortex-zigzag` - [0.12.0](https://github.com/spiraldb/vortex/compare/vortex-zigzag-v0.11.0...vortex-zigzag-v0.12.0) -
+2024-10-03
 
 ### Added
 
@@ -1981,7 +2440,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Include README in Cargo.toml ([#936](https://github.com/spiraldb/vortex/pull/936))
 
-## `vortex-runend` - [0.12.0](https://github.com/spiraldb/vortex/compare/vortex-runend-v0.11.0...vortex-runend-v0.12.0) - 2024-10-03
+##
+
+`vortex-runend` - [0.12.0](https://github.com/spiraldb/vortex/compare/vortex-runend-v0.11.0...vortex-runend-v0.12.0) -
+2024-10-03
 
 ### Added
 
@@ -1997,7 +2459,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Include README in Cargo.toml ([#936](https://github.com/spiraldb/vortex/pull/936))
 
-## `vortex-roaring` - [0.12.0](https://github.com/spiraldb/vortex/compare/vortex-roaring-v0.11.0...vortex-roaring-v0.12.0) - 2024-10-03
+##
+
+`vortex-roaring` - [0.12.0](https://github.com/spiraldb/vortex/compare/vortex-roaring-v0.11.0...vortex-roaring-v0.12.0) -
+2024-10-03
 
 ### Added
 
@@ -2011,7 +2476,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Include README in Cargo.toml ([#936](https://github.com/spiraldb/vortex/pull/936))
 
-## `vortex-fsst` - [0.12.0](https://github.com/spiraldb/vortex/compare/vortex-fsst-v0.11.0...vortex-fsst-v0.12.0) - 2024-10-03
+##
+
+`vortex-fsst` - [0.12.0](https://github.com/spiraldb/vortex/compare/vortex-fsst-v0.11.0...vortex-fsst-v0.12.0) -
+2024-10-03
 
 ### Added
 
@@ -2027,7 +2495,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Include README in Cargo.toml ([#936](https://github.com/spiraldb/vortex/pull/936))
 
-## `vortex-dict` - [0.12.0](https://github.com/spiraldb/vortex/compare/vortex-dict-v0.11.0...vortex-dict-v0.12.0) - 2024-10-03
+##
+
+`vortex-dict` - [0.12.0](https://github.com/spiraldb/vortex/compare/vortex-dict-v0.11.0...vortex-dict-v0.12.0) -
+2024-10-03
 
 ### Added
 
@@ -2042,7 +2513,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Include README in Cargo.toml ([#936](https://github.com/spiraldb/vortex/pull/936))
 
-## `vortex-datetime-parts` - [0.12.0](https://github.com/spiraldb/vortex/compare/vortex-datetime-parts-v0.11.0...vortex-datetime-parts-v0.12.0) - 2024-10-03
+##
+
+`vortex-datetime-parts` - [0.12.0](https://github.com/spiraldb/vortex/compare/vortex-datetime-parts-v0.11.0...vortex-datetime-parts-v0.12.0) -
+2024-10-03
 
 ### Added
 
@@ -2058,7 +2532,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Include README in Cargo.toml ([#936](https://github.com/spiraldb/vortex/pull/936))
 
-## `vortex-sampling-compressor` - [0.12.0](https://github.com/spiraldb/vortex/compare/vortex-sampling-compressor-v0.11.0...vortex-sampling-compressor-v0.12.0) - 2024-10-03
+##
+
+`vortex-sampling-compressor` - [0.12.0](https://github.com/spiraldb/vortex/compare/vortex-sampling-compressor-v0.11.0...vortex-sampling-compressor-v0.12.0) -
+2024-10-03
 
 ### Added
 
@@ -2076,7 +2553,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Include README in Cargo.toml ([#936](https://github.com/spiraldb/vortex/pull/936))
 
-## `vortex-serde` - [0.12.0](https://github.com/spiraldb/vortex/compare/vortex-serde-v0.11.0...vortex-serde-v0.12.0) - 2024-10-03
+##
+
+`vortex-serde` - [0.12.0](https://github.com/spiraldb/vortex/compare/vortex-serde-v0.11.0...vortex-serde-v0.12.0) -
+2024-10-03
 
 ### Added
 
@@ -2087,7 +2567,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - increase the measurement_time of benches of serde ([#941](https://github.com/spiraldb/vortex/pull/941))
 - Include README in Cargo.toml ([#936](https://github.com/spiraldb/vortex/pull/936))
 
-## `vortex-schema` - [0.12.0](https://github.com/spiraldb/vortex/compare/vortex-schema-v0.11.0...vortex-schema-v0.12.0) - 2024-10-03
+##
+
+`vortex-schema` - [0.12.0](https://github.com/spiraldb/vortex/compare/vortex-schema-v0.11.0...vortex-schema-v0.12.0) -
+2024-10-03
 
 ### Added
 
@@ -2097,7 +2580,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Include README in Cargo.toml ([#936](https://github.com/spiraldb/vortex/pull/936))
 
-## `vortex-expr` - [0.12.0](https://github.com/spiraldb/vortex/compare/vortex-expr-v0.11.0...vortex-expr-v0.12.0) - 2024-10-03
+##
+
+`vortex-expr` - [0.12.0](https://github.com/spiraldb/vortex/compare/vortex-expr-v0.11.0...vortex-expr-v0.12.0) -
+2024-10-03
 
 ### Added
 
@@ -2107,7 +2593,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Include README in Cargo.toml ([#936](https://github.com/spiraldb/vortex/pull/936))
 
-## `vortex-datafusion` - [0.12.0](https://github.com/spiraldb/vortex/compare/vortex-datafusion-v0.11.0...vortex-datafusion-v0.12.0) - 2024-10-03
+##
+
+`vortex-datafusion` - [0.12.0](https://github.com/spiraldb/vortex/compare/vortex-datafusion-v0.11.0...vortex-datafusion-v0.12.0) -
+2024-10-03
 
 ### Added
 
@@ -2117,7 +2606,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Include README in Cargo.toml ([#936](https://github.com/spiraldb/vortex/pull/936))
 
-## `vortex-fastlanes` - [0.12.0](https://github.com/spiraldb/vortex/compare/vortex-fastlanes-v0.11.0...vortex-fastlanes-v0.12.0) - 2024-10-03
+##
+
+`vortex-fastlanes` - [0.12.0](https://github.com/spiraldb/vortex/compare/vortex-fastlanes-v0.11.0...vortex-fastlanes-v0.12.0) -
+2024-10-03
 
 ### Added
 
@@ -2135,7 +2627,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Include README in Cargo.toml ([#936](https://github.com/spiraldb/vortex/pull/936))
 
-## `vortex-scalar` - [0.12.0](https://github.com/spiraldb/vortex/compare/vortex-scalar-v0.11.0...vortex-scalar-v0.12.0) - 2024-10-03
+##
+
+`vortex-scalar` - [0.12.0](https://github.com/spiraldb/vortex/compare/vortex-scalar-v0.11.0...vortex-scalar-v0.12.0) -
+2024-10-03
 
 ### Added
 
@@ -2148,7 +2643,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Include README in Cargo.toml ([#936](https://github.com/spiraldb/vortex/pull/936))
 
-## `vortex-proto` - [0.12.0](https://github.com/spiraldb/vortex/compare/vortex-proto-v0.11.0...vortex-proto-v0.12.0) - 2024-10-03
+##
+
+`vortex-proto` - [0.12.0](https://github.com/spiraldb/vortex/compare/vortex-proto-v0.11.0...vortex-proto-v0.12.0) -
+2024-10-03
 
 ### Added
 
@@ -2158,7 +2656,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Include README in Cargo.toml ([#936](https://github.com/spiraldb/vortex/pull/936))
 
-## `vortex-flatbuffers` - [0.12.0](https://github.com/spiraldb/vortex/compare/vortex-flatbuffers-v0.11.0...vortex-flatbuffers-v0.12.0) - 2024-10-03
+##
+
+`vortex-flatbuffers` - [0.12.0](https://github.com/spiraldb/vortex/compare/vortex-flatbuffers-v0.11.0...vortex-flatbuffers-v0.12.0) -
+2024-10-03
 
 ### Added
 
@@ -2168,7 +2669,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Include README in Cargo.toml ([#936](https://github.com/spiraldb/vortex/pull/936))
 
-## `vortex-error` - [0.12.0](https://github.com/spiraldb/vortex/compare/vortex-error-v0.11.0...vortex-error-v0.12.0) - 2024-10-03
+##
+
+`vortex-error` - [0.12.0](https://github.com/spiraldb/vortex/compare/vortex-error-v0.11.0...vortex-error-v0.12.0) -
+2024-10-03
 
 ### Added
 
@@ -2178,7 +2682,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Include README in Cargo.toml ([#936](https://github.com/spiraldb/vortex/pull/936))
 
-## `vortex-dtype` - [0.12.0](https://github.com/spiraldb/vortex/compare/vortex-dtype-v0.11.0...vortex-dtype-v0.12.0) - 2024-10-03
+##
+
+`vortex-dtype` - [0.12.0](https://github.com/spiraldb/vortex/compare/vortex-dtype-v0.11.0...vortex-dtype-v0.12.0) -
+2024-10-03
 
 ### Added
 
@@ -2188,7 +2695,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Include README in Cargo.toml ([#936](https://github.com/spiraldb/vortex/pull/936))
 
-## `vortex-datetime-dtype` - [0.12.0](https://github.com/spiraldb/vortex/compare/vortex-datetime-dtype-v0.11.0...vortex-datetime-dtype-v0.12.0) - 2024-10-03
+##
+
+`vortex-datetime-dtype` - [0.12.0](https://github.com/spiraldb/vortex/compare/vortex-datetime-dtype-v0.11.0...vortex-datetime-dtype-v0.12.0) -
+2024-10-03
 
 ### Added
 
@@ -2198,7 +2708,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Include README in Cargo.toml ([#936](https://github.com/spiraldb/vortex/pull/936))
 
-## `vortex-buffer` - [0.12.0](https://github.com/spiraldb/vortex/compare/vortex-buffer-v0.11.0...vortex-buffer-v0.12.0) - 2024-10-03
+##
+
+`vortex-buffer` - [0.12.0](https://github.com/spiraldb/vortex/compare/vortex-buffer-v0.11.0...vortex-buffer-v0.12.0) -
+2024-10-03
 
 ### Added
 
@@ -2229,10 +2742,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Include README in Cargo.toml ([#936](https://github.com/spiraldb/vortex/pull/936))
 - Update README.md in vortex-array
-- Include README.md files in crates and link top level readme into vortex-array crate ([#934](https://github.com/spiraldb/vortex/pull/934))
+- Include README.md files in crates and link top level readme into vortex-array
+  crate ([#934](https://github.com/spiraldb/vortex/pull/934))
 - Converting Arrow to Vortex should create Array and not ArrayData ([#931](https://github.com/spiraldb/vortex/pull/931))
 
-## `vortex-alp` - [0.12.0](https://github.com/spiraldb/vortex/compare/vortex-alp-v0.11.0...vortex-alp-v0.12.0) - 2024-10-03
+##
+
+`vortex-alp` - [0.12.0](https://github.com/spiraldb/vortex/compare/vortex-alp-v0.11.0...vortex-alp-v0.12.0) - 2024-10-03
 
 ### Added
 
@@ -2250,37 +2766,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Include README in Cargo.toml ([#936](https://github.com/spiraldb/vortex/pull/936))
 
-## `vortex-runend-bool` - [0.11.0](https://github.com/spiraldb/vortex/compare/vortex-runend-bool-v0.10.1...vortex-runend-bool-v0.11.0) - 2024-09-26
+##
+
+`vortex-runend-bool` - [0.11.0](https://github.com/spiraldb/vortex/compare/vortex-runend-bool-v0.10.1...vortex-runend-bool-v0.11.0) -
+2024-09-26
 
 ### Added
 
 - ArrayView::child will throw if encoding not found ([#886](https://github.com/spiraldb/vortex/pull/886))
 
-## `vortex-bytebool` - [0.11.0](https://github.com/spiraldb/vortex/compare/vortex-bytebool-v0.10.1...vortex-bytebool-v0.11.0) - 2024-09-26
+##
+
+`vortex-bytebool` - [0.11.0](https://github.com/spiraldb/vortex/compare/vortex-bytebool-v0.10.1...vortex-bytebool-v0.11.0) -
+2024-09-26
 
 ### Added
 
 - ArrayView::child will throw if encoding not found ([#886](https://github.com/spiraldb/vortex/pull/886))
 
-## `vortex-runend` - [0.11.0](https://github.com/spiraldb/vortex/compare/vortex-runend-v0.10.1...vortex-runend-v0.11.0) - 2024-09-26
+##
+
+`vortex-runend` - [0.11.0](https://github.com/spiraldb/vortex/compare/vortex-runend-v0.10.1...vortex-runend-v0.11.0) -
+2024-09-26
 
 ### Added
 
 - ArrayView::child will throw if encoding not found ([#886](https://github.com/spiraldb/vortex/pull/886))
 
-## `vortex-roaring` - [0.11.0](https://github.com/spiraldb/vortex/compare/vortex-roaring-v0.10.1...vortex-roaring-v0.11.0) - 2024-09-26
+##
+
+`vortex-roaring` - [0.11.0](https://github.com/spiraldb/vortex/compare/vortex-roaring-v0.10.1...vortex-roaring-v0.11.0) -
+2024-09-26
 
 ### Other
 
-- Update croaring-sys to 4.1.4 and remove workarounds for croaring/660 ([#898](https://github.com/spiraldb/vortex/pull/898))
+- Update croaring-sys to 4.1.4 and remove workarounds for
+  croaring/660 ([#898](https://github.com/spiraldb/vortex/pull/898))
 
-## `vortex-sampling-compressor` - [0.11.0](https://github.com/spiraldb/vortex/compare/vortex-sampling-compressor-v0.10.1...vortex-sampling-compressor-v0.11.0) - 2024-09-26
+##
+
+`vortex-sampling-compressor` - [0.11.0](https://github.com/spiraldb/vortex/compare/vortex-sampling-compressor-v0.10.1...vortex-sampling-compressor-v0.11.0) -
+2024-09-26
 
 ### Added
 
 - sampling compressor is now seeded ([#917](https://github.com/spiraldb/vortex/pull/917))
 
-## `vortex-fastlanes` - [0.11.0](https://github.com/spiraldb/vortex/compare/vortex-fastlanes-v0.10.1...vortex-fastlanes-v0.11.0) - 2024-09-26
+##
+
+`vortex-fastlanes` - [0.11.0](https://github.com/spiraldb/vortex/compare/vortex-fastlanes-v0.10.1...vortex-fastlanes-v0.11.0) -
+2024-09-26
 
 ### Added
 
@@ -2294,7 +2829,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Refactoring some IO-related code ([#846](https://github.com/spiraldb/vortex/pull/846))
 
-## `vortex-serde` - [0.11.0](https://github.com/spiraldb/vortex/compare/vortex-serde-v0.10.1...vortex-serde-v0.11.0) - 2024-09-26
+##
+
+`vortex-serde` - [0.11.0](https://github.com/spiraldb/vortex/compare/vortex-serde-v0.10.1...vortex-serde-v0.11.0) -
+2024-09-26
 
 ### Added
 
@@ -2305,19 +2843,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Naive interleaved filtering and data reading ([#918](https://github.com/spiraldb/vortex/pull/918))
 - Refactoring some IO-related code ([#846](https://github.com/spiraldb/vortex/pull/846))
 
-## `vortex-schema` - [0.11.0](https://github.com/spiraldb/vortex/compare/vortex-schema-v0.10.1...vortex-schema-v0.11.0) - 2024-09-26
+##
+
+`vortex-schema` - [0.11.0](https://github.com/spiraldb/vortex/compare/vortex-schema-v0.10.1...vortex-schema-v0.11.0) -
+2024-09-26
 
 ### Other
 
 - Refactoring some IO-related code ([#846](https://github.com/spiraldb/vortex/pull/846))
 
-## `vortex-expr` - [0.11.0](https://github.com/spiraldb/vortex/compare/vortex-expr-v0.10.1...vortex-expr-v0.11.0) - 2024-09-26
+##
+
+`vortex-expr` - [0.11.0](https://github.com/spiraldb/vortex/compare/vortex-expr-v0.10.1...vortex-expr-v0.11.0) -
+2024-09-26
 
 ### Other
 
 - Refactoring some IO-related code ([#846](https://github.com/spiraldb/vortex/pull/846))
 
-## `vortex-datafusion` - [0.11.0](https://github.com/spiraldb/vortex/compare/vortex-datafusion-v0.10.1...vortex-datafusion-v0.11.0) - 2024-09-26
+##
+
+`vortex-datafusion` - [0.11.0](https://github.com/spiraldb/vortex/compare/vortex-datafusion-v0.10.1...vortex-datafusion-v0.11.0) -
+2024-09-26
 
 ### Added
 
@@ -2329,19 +2876,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Refactoring some IO-related code ([#846](https://github.com/spiraldb/vortex/pull/846))
 - VortexScanExec reports statistics to datafusion ([#909](https://github.com/spiraldb/vortex/pull/909))
 
-## `vortex-scalar` - [0.11.0](https://github.com/spiraldb/vortex/compare/vortex-scalar-v0.10.1...vortex-scalar-v0.11.0) - 2024-09-26
+##
+
+`vortex-scalar` - [0.11.0](https://github.com/spiraldb/vortex/compare/vortex-scalar-v0.10.1...vortex-scalar-v0.11.0) -
+2024-09-26
 
 ### Other
 
 - Teach StructTrait how to project fields ([#910](https://github.com/spiraldb/vortex/pull/910))
 
-## `vortex-flatbuffers` - [0.11.0](https://github.com/spiraldb/vortex/compare/vortex-flatbuffers-v0.10.1...vortex-flatbuffers-v0.11.0) - 2024-09-26
+##
+
+`vortex-flatbuffers` - [0.11.0](https://github.com/spiraldb/vortex/compare/vortex-flatbuffers-v0.10.1...vortex-flatbuffers-v0.11.0) -
+2024-09-26
 
 ### Added
 
 - update IPC format to hold buffer_index ([#903](https://github.com/spiraldb/vortex/pull/903))
 
-## `vortex-dtype` - [0.11.0](https://github.com/spiraldb/vortex/compare/vortex-dtype-v0.10.1...vortex-dtype-v0.11.0) - 2024-09-26
+##
+
+`vortex-dtype` - [0.11.0](https://github.com/spiraldb/vortex/compare/vortex-dtype-v0.10.1...vortex-dtype-v0.11.0) -
+2024-09-26
 
 ### Other
 
@@ -2360,7 +2916,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Refactoring some IO-related code ([#846](https://github.com/spiraldb/vortex/pull/846))
 - Teach StructTrait how to project fields ([#910](https://github.com/spiraldb/vortex/pull/910))
 
-## `vortex-alp` - [0.11.0](https://github.com/spiraldb/vortex/compare/vortex-alp-v0.10.1...vortex-alp-v0.11.0) - 2024-09-26
+##
+
+`vortex-alp` - [0.11.0](https://github.com/spiraldb/vortex/compare/vortex-alp-v0.10.1...vortex-alp-v0.11.0) - 2024-09-26
 
 ### Added
 
@@ -2371,13 +2929,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - faster ALP encode ([#924](https://github.com/spiraldb/vortex/pull/924))
 
-## `vortex-serde` - [0.10.1](https://github.com/spiraldb/vortex/compare/vortex-serde-v0.10.0...vortex-serde-v0.10.1) - 2024-09-20
+##
+
+`vortex-serde` - [0.10.1](https://github.com/spiraldb/vortex/compare/vortex-serde-v0.10.0...vortex-serde-v0.10.1) -
+2024-09-20
 
 ### Added
 
 - track compressed size & compare to parquet(zstd)? & canonical ([#882](https://github.com/spiraldb/vortex/pull/882))
 
-## `vortex-runend-bool` - [0.10.0](https://github.com/spiraldb/vortex/compare/vortex-runend-bool-v0.9.0...vortex-runend-bool-v0.10.0) - 2024-09-20
+##
+
+`vortex-runend-bool` - [0.10.0](https://github.com/spiraldb/vortex/compare/vortex-runend-bool-v0.9.0...vortex-runend-bool-v0.10.0) -
+2024-09-20
 
 ### Fixed
 
@@ -2387,13 +2951,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Make entry point compute functions accept generic arguments ([#861](https://github.com/spiraldb/vortex/pull/861))
 
-## `vortex-bytebool` - [0.10.0](https://github.com/spiraldb/vortex/compare/vortex-bytebool-v0.9.0...vortex-bytebool-v0.10.0) - 2024-09-20
+##
+
+`vortex-bytebool` - [0.10.0](https://github.com/spiraldb/vortex/compare/vortex-bytebool-v0.9.0...vortex-bytebool-v0.10.0) -
+2024-09-20
 
 ### Fixed
 
 - ID collision between vortex.ext and fastlanes.delta ([#878](https://github.com/spiraldb/vortex/pull/878))
 
-## `vortex-zigzag` - [0.10.0](https://github.com/spiraldb/vortex/compare/vortex-zigzag-v0.9.0...vortex-zigzag-v0.10.0) - 2024-09-20
+##
+
+`vortex-zigzag` - [0.10.0](https://github.com/spiraldb/vortex/compare/vortex-zigzag-v0.9.0...vortex-zigzag-v0.10.0) -
+2024-09-20
 
 ### Fixed
 
@@ -2403,7 +2973,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Make entry point compute functions accept generic arguments ([#861](https://github.com/spiraldb/vortex/pull/861))
 
-## `vortex-runend` - [0.10.0](https://github.com/spiraldb/vortex/compare/vortex-runend-v0.9.0...vortex-runend-v0.10.0) - 2024-09-20
+##
+
+`vortex-runend` - [0.10.0](https://github.com/spiraldb/vortex/compare/vortex-runend-v0.9.0...vortex-runend-v0.10.0) -
+2024-09-20
 
 ### Fixed
 
@@ -2414,7 +2987,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Make entry point compute functions accept generic arguments ([#861](https://github.com/spiraldb/vortex/pull/861))
 - Fix take on sliced RunEnd array ([#859](https://github.com/spiraldb/vortex/pull/859))
 
-## `vortex-roaring` - [0.10.0](https://github.com/spiraldb/vortex/compare/vortex-roaring-v0.9.0...vortex-roaring-v0.10.0) - 2024-09-20
+##
+
+`vortex-roaring` - [0.10.0](https://github.com/spiraldb/vortex/compare/vortex-roaring-v0.9.0...vortex-roaring-v0.10.0) -
+2024-09-20
 
 ### Fixed
 
@@ -2424,7 +3000,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Compute stats for RoaringBoolArray ([#874](https://github.com/spiraldb/vortex/pull/874))
 
-## `vortex-fsst` - [0.10.0](https://github.com/spiraldb/vortex/compare/vortex-fsst-v0.9.0...vortex-fsst-v0.10.0) - 2024-09-20
+##
+
+`vortex-fsst` - [0.10.0](https://github.com/spiraldb/vortex/compare/vortex-fsst-v0.9.0...vortex-fsst-v0.10.0) -
+2024-09-20
 
 ### Fixed
 
@@ -2437,7 +3016,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Use sliced_bytes of VarBinArray when iterating over bytes() ([#867](https://github.com/spiraldb/vortex/pull/867))
 - Make entry point compute functions accept generic arguments ([#861](https://github.com/spiraldb/vortex/pull/861))
 
-## `vortex-dict` - [0.10.0](https://github.com/spiraldb/vortex/compare/vortex-dict-v0.9.0...vortex-dict-v0.10.0) - 2024-09-20
+##
+
+`vortex-dict` - [0.10.0](https://github.com/spiraldb/vortex/compare/vortex-dict-v0.9.0...vortex-dict-v0.10.0) -
+2024-09-20
 
 ### Fixed
 
@@ -2447,7 +3029,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Make entry point compute functions accept generic arguments ([#861](https://github.com/spiraldb/vortex/pull/861))
 
-## `vortex-datetime-parts` - [0.10.0](https://github.com/spiraldb/vortex/compare/vortex-datetime-parts-v0.9.0...vortex-datetime-parts-v0.10.0) - 2024-09-20
+##
+
+`vortex-datetime-parts` - [0.10.0](https://github.com/spiraldb/vortex/compare/vortex-datetime-parts-v0.9.0...vortex-datetime-parts-v0.10.0) -
+2024-09-20
 
 ### Fixed
 
@@ -2457,13 +3042,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Make entry point compute functions accept generic arguments ([#861](https://github.com/spiraldb/vortex/pull/861))
 
-## `vortex-sampling-compressor` - [0.10.0](https://github.com/spiraldb/vortex/compare/vortex-sampling-compressor-v0.9.0...vortex-sampling-compressor-v0.10.0) - 2024-09-20
+##
+
+`vortex-sampling-compressor` - [0.10.0](https://github.com/spiraldb/vortex/compare/vortex-sampling-compressor-v0.9.0...vortex-sampling-compressor-v0.10.0) -
+2024-09-20
 
 ### Added
 
 - use Buffer for BitPackedArray ([#862](https://github.com/spiraldb/vortex/pull/862))
 
-## `vortex-fastlanes` - [0.10.0](https://github.com/spiraldb/vortex/compare/vortex-fastlanes-v0.9.0...vortex-fastlanes-v0.10.0) - 2024-09-20
+##
+
+`vortex-fastlanes` - [0.10.0](https://github.com/spiraldb/vortex/compare/vortex-fastlanes-v0.9.0...vortex-fastlanes-v0.10.0) -
+2024-09-20
 
 ### Added
 
@@ -2478,13 +3069,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Make entry point compute functions accept generic arguments ([#861](https://github.com/spiraldb/vortex/pull/861))
 
-## `vortex-datafusion` - [0.10.0](https://github.com/spiraldb/vortex/compare/vortex-datafusion-v0.9.0...vortex-datafusion-v0.10.0) - 2024-09-20
+##
+
+`vortex-datafusion` - [0.10.0](https://github.com/spiraldb/vortex/compare/vortex-datafusion-v0.9.0...vortex-datafusion-v0.10.0) -
+2024-09-20
 
 ### Other
 
 - Make entry point compute functions accept generic arguments ([#861](https://github.com/spiraldb/vortex/pull/861))
 
-## `vortex-buffer` - [0.10.0](https://github.com/spiraldb/vortex/compare/vortex-buffer-v0.9.0...vortex-buffer-v0.10.0) - 2024-09-20
+##
+
+`vortex-buffer` - [0.10.0](https://github.com/spiraldb/vortex/compare/vortex-buffer-v0.9.0...vortex-buffer-v0.10.0) -
+2024-09-20
 
 ### Added
 
@@ -2505,7 +3102,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Use sliced_bytes of VarBinArray when iterating over bytes() ([#867](https://github.com/spiraldb/vortex/pull/867))
 - Make entry point compute functions accept generic arguments ([#861](https://github.com/spiraldb/vortex/pull/861))
 
-## `vortex-alp` - [0.10.0](https://github.com/spiraldb/vortex/compare/vortex-alp-v0.9.0...vortex-alp-v0.10.0) - 2024-09-20
+##
+
+`vortex-alp` - [0.10.0](https://github.com/spiraldb/vortex/compare/vortex-alp-v0.9.0...vortex-alp-v0.10.0) - 2024-09-20
 
 ### Fixed
 
@@ -2515,7 +3114,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Make entry point compute functions accept generic arguments ([#861](https://github.com/spiraldb/vortex/pull/861))
 
-## `vortex-serde` - [0.9.0](https://github.com/spiraldb/vortex/compare/vortex-serde-v0.8.0...vortex-serde-v0.9.0) - 2024-09-17
+##
+
+`vortex-serde` - [0.9.0](https://github.com/spiraldb/vortex/compare/vortex-serde-v0.8.0...vortex-serde-v0.9.0) -
+2024-09-17
 
 ### Added
 
@@ -2530,12 +3132,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Simplify/idiomize the way arrays return `&Array` ([#826](https://github.com/spiraldb/vortex/pull/826))
 - Reorder row filters ([#825](https://github.com/spiraldb/vortex/pull/825))
 - Introduce a new `vortex-schema` crate ([#819](https://github.com/spiraldb/vortex/pull/819))
-- Convert pruning filters to express whether the block should be pruned and not whether it should stay ([#800](https://github.com/spiraldb/vortex/pull/800))
+- Convert pruning filters to express whether the block should be pruned and not whether it should
+  stay ([#800](https://github.com/spiraldb/vortex/pull/800))
 - Fix ChunkedArray find_chunk_idx for empty chunks ([#802](https://github.com/spiraldb/vortex/pull/802))
-- More explicit API for converting search sorted results into indices ([#777](https://github.com/spiraldb/vortex/pull/777))
+- More explicit API for converting search sorted results into
+  indices ([#777](https://github.com/spiraldb/vortex/pull/777))
 - overload the name 'Footer' a bit less ([#773](https://github.com/spiraldb/vortex/pull/773))
 
-## `vortex-expr` - [0.9.0](https://github.com/spiraldb/vortex/compare/vortex-expr-v0.8.0...vortex-expr-v0.9.0) - 2024-09-17
+##
+
+`vortex-expr` - [0.9.0](https://github.com/spiraldb/vortex/compare/vortex-expr-v0.8.0...vortex-expr-v0.9.0) - 2024-09-17
 
 ### Added
 
@@ -2545,7 +3151,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Reorder row filters ([#825](https://github.com/spiraldb/vortex/pull/825))
 
-## `vortex-scalar` - [0.9.0](https://github.com/spiraldb/vortex/compare/vortex-scalar-v0.8.0...vortex-scalar-v0.9.0) - 2024-09-17
+##
+
+`vortex-scalar` - [0.9.0](https://github.com/spiraldb/vortex/compare/vortex-scalar-v0.8.0...vortex-scalar-v0.9.0) -
+2024-09-17
 
 ### Added
 
@@ -2556,21 +3165,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Define consistent float ordering ([#808](https://github.com/spiraldb/vortex/pull/808))
 - Actually fuzz Struct and Chunked Arrays ([#805](https://github.com/spiraldb/vortex/pull/805))
 - Fuzz Chunked and Struct arrays ([#801](https://github.com/spiraldb/vortex/pull/801))
-- Fuzzer performs multiple operations on the underlying array instead of just one ([#766](https://github.com/spiraldb/vortex/pull/766))
+- Fuzzer performs multiple operations on the underlying array instead of just
+  one ([#766](https://github.com/spiraldb/vortex/pull/766))
 
-## `vortex-flatbuffers` - [0.9.0](https://github.com/spiraldb/vortex/compare/vortex-flatbuffers-v0.8.0...vortex-flatbuffers-v0.9.0) - 2024-09-17
+##
 
-### Added
-
-- more Results, fewer panics, always have backtraces ([#761](https://github.com/spiraldb/vortex/pull/761))
-
-## `vortex-error` - [0.9.0](https://github.com/spiraldb/vortex/compare/vortex-error-v0.8.0...vortex-error-v0.9.0) - 2024-09-17
+`vortex-flatbuffers` - [0.9.0](https://github.com/spiraldb/vortex/compare/vortex-flatbuffers-v0.8.0...vortex-flatbuffers-v0.9.0) -
+2024-09-17
 
 ### Added
 
 - more Results, fewer panics, always have backtraces ([#761](https://github.com/spiraldb/vortex/pull/761))
 
-## `vortex-dtype` - [0.9.0](https://github.com/spiraldb/vortex/compare/vortex-dtype-v0.8.0...vortex-dtype-v0.9.0) - 2024-09-17
+##
+
+`vortex-error` - [0.9.0](https://github.com/spiraldb/vortex/compare/vortex-error-v0.8.0...vortex-error-v0.9.0) -
+2024-09-17
+
+### Added
+
+- more Results, fewer panics, always have backtraces ([#761](https://github.com/spiraldb/vortex/pull/761))
+
+##
+
+`vortex-dtype` - [0.9.0](https://github.com/spiraldb/vortex/compare/vortex-dtype-v0.8.0...vortex-dtype-v0.9.0) -
+2024-09-17
 
 ### Added
 
@@ -2582,7 +3201,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Define consistent float ordering ([#808](https://github.com/spiraldb/vortex/pull/808))
 - Actually fuzz Struct and Chunked Arrays ([#805](https://github.com/spiraldb/vortex/pull/805))
 
-## `vortex-datetime-dtype` - [0.9.0](https://github.com/spiraldb/vortex/compare/vortex-datetime-dtype-v0.8.0...vortex-datetime-dtype-v0.9.0) - 2024-09-17
+##
+
+`vortex-datetime-dtype` - [0.9.0](https://github.com/spiraldb/vortex/compare/vortex-datetime-dtype-v0.8.0...vortex-datetime-dtype-v0.9.0) -
+2024-09-17
 
 ### Added
 
@@ -2602,25 +3224,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Other
 
 - Update to rust 1.81 binary_search algorithm ([#851](https://github.com/spiraldb/vortex/pull/851))
-- Fix chunked filter handling of set slices spanning multiple chunks ([#842](https://github.com/spiraldb/vortex/pull/842))
+- Fix chunked filter handling of set slices spanning multiple
+  chunks ([#842](https://github.com/spiraldb/vortex/pull/842))
 - Handle empty filters when filtering empty structs ([#834](https://github.com/spiraldb/vortex/pull/834))
 - Handle filtering empty struct arrays ([#827](https://github.com/spiraldb/vortex/pull/827))
 - Simplify/idiomize the way arrays return `&Array` ([#826](https://github.com/spiraldb/vortex/pull/826))
 - Define consistent float ordering ([#808](https://github.com/spiraldb/vortex/pull/808))
 - Actually fuzz Struct and Chunked Arrays ([#805](https://github.com/spiraldb/vortex/pull/805))
-- Add is_encoding to array and fix cases of redundant encoding id checks ([#796](https://github.com/spiraldb/vortex/pull/796))
+- Add is_encoding to array and fix cases of redundant encoding id
+  checks ([#796](https://github.com/spiraldb/vortex/pull/796))
 - implement FilterFn for ChunkedArray ([#794](https://github.com/spiraldb/vortex/pull/794))
 - Fix ChunkedArray find_chunk_idx for empty chunks ([#802](https://github.com/spiraldb/vortex/pull/802))
 - Fuzz Chunked and Struct arrays ([#801](https://github.com/spiraldb/vortex/pull/801))
 - implement FilterFn for SparseArray ([#799](https://github.com/spiraldb/vortex/pull/799))
 - Better scalar compare using collect_bool ([#792](https://github.com/spiraldb/vortex/pull/792))
 - greedily combine chunks before compressing ([#783](https://github.com/spiraldb/vortex/pull/783))
-- Introduce MaybeCompareFn trait to allow for partial compare specializations ([#768](https://github.com/spiraldb/vortex/pull/768))
-- More explicit API for converting search sorted results into indices ([#777](https://github.com/spiraldb/vortex/pull/777))
+- Introduce MaybeCompareFn trait to allow for partial compare
+  specializations ([#768](https://github.com/spiraldb/vortex/pull/768))
+- More explicit API for converting search sorted results into
+  indices ([#777](https://github.com/spiraldb/vortex/pull/777))
 - Fix slicing already sliced SparseArray ([#780](https://github.com/spiraldb/vortex/pull/780))
 - Fix SearchSorted for SparseArray when searching from Right ([#770](https://github.com/spiraldb/vortex/pull/770))
 - Fix StructArray::filter length calculation ([#769](https://github.com/spiraldb/vortex/pull/769))
-- Fuzzer performs multiple operations on the underlying array instead of just one ([#766](https://github.com/spiraldb/vortex/pull/766))
+- Fuzzer performs multiple operations on the underlying array instead of just
+  one ([#766](https://github.com/spiraldb/vortex/pull/766))
 - Filter struct arrays ([#767](https://github.com/spiraldb/vortex/pull/767))
 - Fix unary/binary fn on `PrimitiveArray` ([#764](https://github.com/spiraldb/vortex/pull/764))
 - Fix benchmarks ([#762](https://github.com/spiraldb/vortex/pull/762))
@@ -2635,16 +3262,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Other
 
 - Simplify/idiomize the way arrays return `&Array` ([#826](https://github.com/spiraldb/vortex/pull/826))
-- Introduce MaybeCompareFn trait to allow for partial compare specializations ([#768](https://github.com/spiraldb/vortex/pull/768))
+- Introduce MaybeCompareFn trait to allow for partial compare
+  specializations ([#768](https://github.com/spiraldb/vortex/pull/768))
 
-## `vortex-runend-bool` - [0.8.0](https://github.com/spiraldb/vortex/compare/vortex-runend-bool-v0.7.0...vortex-runend-bool-v0.8.0) - 2024-09-05
+##
+
+`vortex-runend-bool` - [0.8.0](https://github.com/spiraldb/vortex/compare/vortex-runend-bool-v0.7.0...vortex-runend-bool-v0.8.0) -
+2024-09-05
 
 ### Other
 
 - Add `scalar_at_unchecked` ([#666](https://github.com/spiraldb/vortex/pull/666))
 - Fix RunEnd take and scalar_at compute functions ([#588](https://github.com/spiraldb/vortex/pull/588))
 
-## `vortex-bytebool` - [0.8.0](https://github.com/spiraldb/vortex/compare/vortex-bytebool-v0.7.0...vortex-bytebool-v0.8.0) - 2024-09-05
+##
+
+`vortex-bytebool` - [0.8.0](https://github.com/spiraldb/vortex/compare/vortex-bytebool-v0.7.0...vortex-bytebool-v0.8.0) -
+2024-09-05
 
 ### Other
 
@@ -2653,14 +3287,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Move expression filters out of datafusion ([#638](https://github.com/spiraldb/vortex/pull/638))
 - Clippy deny `unwrap` & `panic` in functions that return `Result` ([#578](https://github.com/spiraldb/vortex/pull/578))
 
-## `vortex-zigzag` - [0.8.0](https://github.com/spiraldb/vortex/compare/vortex-zigzag-v0.7.0...vortex-zigzag-v0.8.0) - 2024-09-05
+##
+
+`vortex-zigzag` - [0.8.0](https://github.com/spiraldb/vortex/compare/vortex-zigzag-v0.7.0...vortex-zigzag-v0.8.0) -
+2024-09-05
 
 ### Other
 
 - Add `scalar_at_unchecked` ([#666](https://github.com/spiraldb/vortex/pull/666))
 - Clippy deny `unwrap` & `panic` in functions that return `Result` ([#578](https://github.com/spiraldb/vortex/pull/578))
 
-## `vortex-runend` - [0.8.0](https://github.com/spiraldb/vortex/compare/vortex-runend-v0.7.0...vortex-runend-v0.8.0) - 2024-09-05
+##
+
+`vortex-runend` - [0.8.0](https://github.com/spiraldb/vortex/compare/vortex-runend-v0.7.0...vortex-runend-v0.8.0) -
+2024-09-05
 
 ### Other
 
@@ -2670,14 +3310,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - RunEnd array scalar_at respects validity ([#608](https://github.com/spiraldb/vortex/pull/608))
 - Fix RunEnd take and scalar_at compute functions ([#588](https://github.com/spiraldb/vortex/pull/588))
 
-## `vortex-roaring` - [0.8.0](https://github.com/spiraldb/vortex/compare/vortex-roaring-v0.7.0...vortex-roaring-v0.8.0) - 2024-09-05
+##
+
+`vortex-roaring` - [0.8.0](https://github.com/spiraldb/vortex/compare/vortex-roaring-v0.7.0...vortex-roaring-v0.8.0) -
+2024-09-05
 
 ### Other
 
 - Add `scalar_at_unchecked` ([#666](https://github.com/spiraldb/vortex/pull/666))
 - Clippy deny `unwrap` & `panic` in functions that return `Result` ([#578](https://github.com/spiraldb/vortex/pull/578))
 
-## `vortex-fsst` - [0.8.0](https://github.com/spiraldb/vortex/compare/vortex-fsst-v0.7.0...vortex-fsst-v0.8.0) - 2024-09-05
+##
+
+`vortex-fsst` - [0.8.0](https://github.com/spiraldb/vortex/compare/vortex-fsst-v0.7.0...vortex-fsst-v0.8.0) - 2024-09-05
 
 ### Other
 
@@ -2685,14 +3330,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fix issues discovered by fuzzer ([#707](https://github.com/spiraldb/vortex/pull/707))
 - Add `scalar_at_unchecked` ([#666](https://github.com/spiraldb/vortex/pull/666))
 
-## `vortex-dict` - [0.8.0](https://github.com/spiraldb/vortex/compare/vortex-dict-v0.7.0...vortex-dict-v0.8.0) - 2024-09-05
+##
+
+`vortex-dict` - [0.8.0](https://github.com/spiraldb/vortex/compare/vortex-dict-v0.7.0...vortex-dict-v0.8.0) - 2024-09-05
 
 ### Other
 
 - Add `scalar_at_unchecked` ([#666](https://github.com/spiraldb/vortex/pull/666))
 - Clippy deny `unwrap` & `panic` in functions that return `Result` ([#578](https://github.com/spiraldb/vortex/pull/578))
 
-## `vortex-datetime-parts` - [0.8.0](https://github.com/spiraldb/vortex/compare/vortex-datetime-parts-v0.7.0...vortex-datetime-parts-v0.8.0) - 2024-09-05
+##
+
+`vortex-datetime-parts` - [0.8.0](https://github.com/spiraldb/vortex/compare/vortex-datetime-parts-v0.7.0...vortex-datetime-parts-v0.8.0) -
+2024-09-05
 
 ### Other
 
@@ -2700,7 +3350,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Move expression filters out of datafusion ([#638](https://github.com/spiraldb/vortex/pull/638))
 - Clippy deny `unwrap` & `panic` in functions that return `Result` ([#578](https://github.com/spiraldb/vortex/pull/578))
 
-## `vortex-sampling-compressor` - [0.8.0](https://github.com/spiraldb/vortex/compare/vortex-sampling-compressor-v0.7.0...vortex-sampling-compressor-v0.8.0) - 2024-09-05
+##
+
+`vortex-sampling-compressor` - [0.8.0](https://github.com/spiraldb/vortex/compare/vortex-sampling-compressor-v0.7.0...vortex-sampling-compressor-v0.8.0) -
+2024-09-05
 
 ### Other
 
@@ -2711,7 +3364,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Use then vs then_some for values that have to be lazy ([#599](https://github.com/spiraldb/vortex/pull/599))
 - Clippy deny `unwrap` & `panic` in functions that return `Result` ([#578](https://github.com/spiraldb/vortex/pull/578))
 
-## `vortex-fastlanes` - [0.8.0](https://github.com/spiraldb/vortex/compare/vortex-fastlanes-v0.7.0...vortex-fastlanes-v0.8.0) - 2024-09-05
+##
+
+`vortex-fastlanes` - [0.8.0](https://github.com/spiraldb/vortex/compare/vortex-fastlanes-v0.7.0...vortex-fastlanes-v0.8.0) -
+2024-09-05
 
 ### Other
 
@@ -2727,46 +3383,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Use then vs then_some for values that have to be lazy ([#599](https://github.com/spiraldb/vortex/pull/599))
 - Clippy deny `unwrap` & `panic` in functions that return `Result` ([#578](https://github.com/spiraldb/vortex/pull/578))
 
-## `vortex-serde` - [0.8.0](https://github.com/spiraldb/vortex/compare/vortex-serde-v0.7.0...vortex-serde-v0.8.0) - 2024-09-05
+##
+
+`vortex-serde` - [0.8.0](https://github.com/spiraldb/vortex/compare/vortex-serde-v0.7.0...vortex-serde-v0.8.0) -
+2024-09-05
 
 ### Other
 
 - Upgrade rust nightly toolchain & MSRV ([#745](https://github.com/spiraldb/vortex/pull/745))
 - directly implement VortexReadAt on File ([#738](https://github.com/spiraldb/vortex/pull/738))
 - Teach schema dtype() and into_dtype() ([#714](https://github.com/spiraldb/vortex/pull/714))
-- Add method for converting VortexExpr into equivalent pruning expression ([#701](https://github.com/spiraldb/vortex/pull/701))
+- Add method for converting VortexExpr into equivalent pruning
+  expression ([#701](https://github.com/spiraldb/vortex/pull/701))
 - Primitive and Bool array roundtrip serialization ([#704](https://github.com/spiraldb/vortex/pull/704))
 - Move flatbuffer schema project functions around ([#680](https://github.com/spiraldb/vortex/pull/680))
 - Deduplicate filter projection with result projection ([#668](https://github.com/spiraldb/vortex/pull/668))
-- Push filter schema manipulation into layout reader and reuse ipc message writer in file writer ([#651](https://github.com/spiraldb/vortex/pull/651))
+- Push filter schema manipulation into layout reader and reuse ipc message writer in file
+  writer ([#651](https://github.com/spiraldb/vortex/pull/651))
 - Bring back ability to convert ArrayView to ArrayData ([#626](https://github.com/spiraldb/vortex/pull/626))
 - Move expression filters out of datafusion ([#638](https://github.com/spiraldb/vortex/pull/638))
 - Assert expected row count in tpch_benchmark binary ([#620](https://github.com/spiraldb/vortex/pull/620))
-- ArrayBufferReader assumes flatbuffers are validated ([#610](https://github.com/spiraldb/vortex/pull/610))
+- ByteBufferReader assumes flatbuffers are validated ([#610](https://github.com/spiraldb/vortex/pull/610))
 - Clippy deny `unwrap` & `panic` in functions that return `Result` ([#578](https://github.com/spiraldb/vortex/pull/578))
 
-## `vortex-expr` - [0.8.0](https://github.com/spiraldb/vortex/compare/vortex-expr-v0.7.0...vortex-expr-v0.8.0) - 2024-09-05
+##
+
+`vortex-expr` - [0.8.0](https://github.com/spiraldb/vortex/compare/vortex-expr-v0.7.0...vortex-expr-v0.8.0) - 2024-09-05
 
 ### Other
 
-- Add method for converting VortexExpr into equivalent pruning expression ([#701](https://github.com/spiraldb/vortex/pull/701))
+- Add method for converting VortexExpr into equivalent pruning
+  expression ([#701](https://github.com/spiraldb/vortex/pull/701))
 - Fix Operator::swap ([#672](https://github.com/spiraldb/vortex/pull/672))
-- Push filter schema manipulation into layout reader and reuse ipc message writer in file writer ([#651](https://github.com/spiraldb/vortex/pull/651))
+- Push filter schema manipulation into layout reader and reuse ipc message writer in file
+  writer ([#651](https://github.com/spiraldb/vortex/pull/651))
 - Support Temporal scalar conversion between datafusion and arrow ([#657](https://github.com/spiraldb/vortex/pull/657))
 - cargo-sort related maintenance  ([#650](https://github.com/spiraldb/vortex/pull/650))
 - Move expression filters out of datafusion ([#638](https://github.com/spiraldb/vortex/pull/638))
 - Generate more structured inputs for fuzzing ([#635](https://github.com/spiraldb/vortex/pull/635))
-- Fix bug where operations were negated instead of swapped when lhs/rhs were flipped ([#619](https://github.com/spiraldb/vortex/pull/619))
+- Fix bug where operations were negated instead of swapped when lhs/rhs were
+  flipped ([#619](https://github.com/spiraldb/vortex/pull/619))
 - Clippy deny `unwrap` & `panic` in functions that return `Result` ([#578](https://github.com/spiraldb/vortex/pull/578))
 
-## `vortex-datafusion` - [0.8.0](https://github.com/spiraldb/vortex/compare/vortex-datafusion-v0.7.0...vortex-datafusion-v0.8.0) - 2024-09-05
+##
+
+`vortex-datafusion` - [0.8.0](https://github.com/spiraldb/vortex/compare/vortex-datafusion-v0.7.0...vortex-datafusion-v0.8.0) -
+2024-09-05
 
 ### Other
 
-- Push filter schema manipulation into layout reader and reuse ipc message writer in file writer ([#651](https://github.com/spiraldb/vortex/pull/651))
+- Push filter schema manipulation into layout reader and reuse ipc message writer in file
+  writer ([#651](https://github.com/spiraldb/vortex/pull/651))
 - Support Temporal scalar conversion between datafusion and arrow ([#657](https://github.com/spiraldb/vortex/pull/657))
 - Move expression filters out of datafusion ([#638](https://github.com/spiraldb/vortex/pull/638))
-- Remove dead code after disk and in memory table provider unification ([#633](https://github.com/spiraldb/vortex/pull/633))
+- Remove dead code after disk and in memory table provider
+  unification ([#633](https://github.com/spiraldb/vortex/pull/633))
 - Unify expression evaluation for both Table Providers ([#632](https://github.com/spiraldb/vortex/pull/632))
 - `Exact` support for more expressions  ([#628](https://github.com/spiraldb/vortex/pull/628))
 - Assert expected row count in tpch_benchmark binary ([#620](https://github.com/spiraldb/vortex/pull/620))
@@ -2777,7 +3448,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - *(deps)* update datafusion to v41 (major) ([#595](https://github.com/spiraldb/vortex/pull/595))
 - Clippy deny `unwrap` & `panic` in functions that return `Result` ([#578](https://github.com/spiraldb/vortex/pull/578))
 
-## `vortex-scalar` - [0.8.0](https://github.com/spiraldb/vortex/compare/vortex-scalar-v0.7.0...vortex-scalar-v0.8.0) - 2024-09-05
+##
+
+`vortex-scalar` - [0.8.0](https://github.com/spiraldb/vortex/compare/vortex-scalar-v0.7.0...vortex-scalar-v0.8.0) -
+2024-09-05
 
 ### Other
 
@@ -2791,38 +3465,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Move expression filters out of datafusion ([#638](https://github.com/spiraldb/vortex/pull/638))
 - Clippy deny `unwrap` & `panic` in functions that return `Result` ([#578](https://github.com/spiraldb/vortex/pull/578))
 
-## `vortex-proto` - [0.8.0](https://github.com/spiraldb/vortex/compare/vortex-proto-v0.7.0...vortex-proto-v0.8.0) - 2024-09-05
+##
+
+`vortex-proto` - [0.8.0](https://github.com/spiraldb/vortex/compare/vortex-proto-v0.7.0...vortex-proto-v0.8.0) -
+2024-09-05
 
 ### Other
 
-- Push filter schema manipulation into layout reader and reuse ipc message writer in file writer ([#651](https://github.com/spiraldb/vortex/pull/651))
+- Push filter schema manipulation into layout reader and reuse ipc message writer in file
+  writer ([#651](https://github.com/spiraldb/vortex/pull/651))
 - cargo-sort related maintenance  ([#650](https://github.com/spiraldb/vortex/pull/650))
 
-## `vortex-flatbuffers` - [0.8.0](https://github.com/spiraldb/vortex/compare/vortex-flatbuffers-v0.7.0...vortex-flatbuffers-v0.8.0) - 2024-09-05
+##
+
+`vortex-flatbuffers` - [0.8.0](https://github.com/spiraldb/vortex/compare/vortex-flatbuffers-v0.7.0...vortex-flatbuffers-v0.8.0) -
+2024-09-05
 
 ### Other
 
-- Push filter schema manipulation into layout reader and reuse ipc message writer in file writer ([#651](https://github.com/spiraldb/vortex/pull/651))
+- Push filter schema manipulation into layout reader and reuse ipc message writer in file
+  writer ([#651](https://github.com/spiraldb/vortex/pull/651))
 - Clippy deny `unwrap` & `panic` in functions that return `Result` ([#578](https://github.com/spiraldb/vortex/pull/578))
 
-## `vortex-error` - [0.8.0](https://github.com/spiraldb/vortex/compare/vortex-error-v0.7.0...vortex-error-v0.8.0) - 2024-09-05
+##
+
+`vortex-error` - [0.8.0](https://github.com/spiraldb/vortex/compare/vortex-error-v0.7.0...vortex-error-v0.8.0) -
+2024-09-05
 
 ### Other
 
 - impl Display for Time, Date, and Timestamp ([#683](https://github.com/spiraldb/vortex/pull/683))
 
-## `vortex-dtype` - [0.8.0](https://github.com/spiraldb/vortex/compare/vortex-dtype-v0.7.0...vortex-dtype-v0.8.0) - 2024-09-05
+##
+
+`vortex-dtype` - [0.8.0](https://github.com/spiraldb/vortex/compare/vortex-dtype-v0.7.0...vortex-dtype-v0.8.0) -
+2024-09-05
 
 ### Other
 
 - Move flatbuffer schema project functions around ([#680](https://github.com/spiraldb/vortex/pull/680))
 - DType serde project requires flatbuffers feature ([#679](https://github.com/spiraldb/vortex/pull/679))
-- Push filter schema manipulation into layout reader and reuse ipc message writer in file writer ([#651](https://github.com/spiraldb/vortex/pull/651))
+- Push filter schema manipulation into layout reader and reuse ipc message writer in file
+  writer ([#651](https://github.com/spiraldb/vortex/pull/651))
 - Support Temporal scalar conversion between datafusion and arrow ([#657](https://github.com/spiraldb/vortex/pull/657))
 - Get beyond the immediate fuzzing failures ([#611](https://github.com/spiraldb/vortex/pull/611))
 - Clippy deny `unwrap` & `panic` in functions that return `Result` ([#578](https://github.com/spiraldb/vortex/pull/578))
 
-## `vortex-datetime-dtype` - [0.8.0](https://github.com/spiraldb/vortex/compare/vortex-datetime-dtype-v0.7.0...vortex-datetime-dtype-v0.8.0) - 2024-09-05
+##
+
+`vortex-datetime-dtype` - [0.8.0](https://github.com/spiraldb/vortex/compare/vortex-datetime-dtype-v0.7.0...vortex-datetime-dtype-v0.8.0) -
+2024-09-05
 
 ### Other
 
@@ -2830,7 +3522,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Support Temporal scalar conversion between datafusion and arrow ([#657](https://github.com/spiraldb/vortex/pull/657))
 - cargo-sort related maintenance  ([#650](https://github.com/spiraldb/vortex/pull/650))
 
-## `vortex-buffer` - [0.8.0](https://github.com/spiraldb/vortex/compare/vortex-buffer-v0.7.0...vortex-buffer-v0.8.0) - 2024-09-05
+##
+
+`vortex-buffer` - [0.8.0](https://github.com/spiraldb/vortex/compare/vortex-buffer-v0.7.0...vortex-buffer-v0.8.0) -
+2024-09-05
 
 ### Other
 
@@ -2838,7 +3533,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Support Temporal scalar conversion between datafusion and arrow ([#657](https://github.com/spiraldb/vortex/pull/657))
 - Clippy deny `unwrap` & `panic` in functions that return `Result` ([#578](https://github.com/spiraldb/vortex/pull/578))
 
-## `vortex-array` - [0.8.0](https://github.com/spiraldb/vortex/compare/vortex-array-v0.7.0...vortex-array-v0.8.0) - 2024-09-05
+##
+
+`vortex-array` - [0.8.0](https://github.com/spiraldb/vortex/compare/vortex-array-v0.7.0...vortex-array-v0.8.0) -
+2024-09-05
 
 ### Other
 
@@ -2855,7 +3553,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Slightly faster iter of `LogicalValidity` to `Validity` ([#673](https://github.com/spiraldb/vortex/pull/673))
 - Fix Operator::swap ([#672](https://github.com/spiraldb/vortex/pull/672))
 - Add `scalar_at_unchecked` ([#666](https://github.com/spiraldb/vortex/pull/666))
-- Push filter schema manipulation into layout reader and reuse ipc message writer in file writer ([#651](https://github.com/spiraldb/vortex/pull/651))
+- Push filter schema manipulation into layout reader and reuse ipc message writer in file
+  writer ([#651](https://github.com/spiraldb/vortex/pull/651))
 - Faster canonicalization ([#663](https://github.com/spiraldb/vortex/pull/663))
 - Fix slicing of ChunkedArray if end index == array length ([#660](https://github.com/spiraldb/vortex/pull/660))
 - Implement LogicalValidity for ChunkedArray ([#661](https://github.com/spiraldb/vortex/pull/661))
@@ -2866,7 +3565,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Expand fuzzing space ([#639](https://github.com/spiraldb/vortex/pull/639))
 - Move expression filters out of datafusion ([#638](https://github.com/spiraldb/vortex/pull/638))
 - `Exact` support for more expressions  ([#628](https://github.com/spiraldb/vortex/pull/628))
-- Fix bug where operations were negated instead of swapped when lhs/rhs were flipped ([#619](https://github.com/spiraldb/vortex/pull/619))
+- Fix bug where operations were negated instead of swapped when lhs/rhs were
+  flipped ([#619](https://github.com/spiraldb/vortex/pull/619))
 - Get beyond the immediate fuzzing failures ([#611](https://github.com/spiraldb/vortex/pull/611))
 - Basic fuzzing for compression and slicing functions ([#600](https://github.com/spiraldb/vortex/pull/600))
 - Vortex physical expressions support for on-disk data ([#581](https://github.com/spiraldb/vortex/pull/581))
@@ -2888,45 +3588,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fix alp null handling ([#623](https://github.com/spiraldb/vortex/pull/623))
 - Clippy deny `unwrap` & `panic` in functions that return `Result` ([#578](https://github.com/spiraldb/vortex/pull/578))
 
-## `vortex-array` - [0.7.0](https://github.com/spiraldb/vortex/compare/vortex-array-v0.6.0...vortex-array-v0.7.0) - 2024-08-09
+##
+
+`vortex-array` - [0.7.0](https://github.com/spiraldb/vortex/compare/vortex-array-v0.6.0...vortex-array-v0.7.0) -
+2024-08-09
 
 ### Other
 
 - Fix REE slicing with end being equal to array len ([#586](https://github.com/spiraldb/vortex/pull/586))
 - Fix vortex compressed benchmarks ([#577](https://github.com/spiraldb/vortex/pull/577))
 
-## `vortex-serde` - [0.6.0](https://github.com/spiraldb/vortex/compare/vortex-serde-v0.5.0...vortex-serde-v0.6.0) - 2024-08-09
+##
+
+`vortex-serde` - [0.6.0](https://github.com/spiraldb/vortex/compare/vortex-serde-v0.5.0...vortex-serde-v0.6.0) -
+2024-08-09
 
 ### Other
 
-- Only deserialize the required dtypes by projection from the footer ([#569](https://github.com/spiraldb/vortex/pull/569))
+- Only deserialize the required dtypes by projection from the
+  footer ([#569](https://github.com/spiraldb/vortex/pull/569))
 
-## `vortex-buffer` - [0.6.0](https://github.com/spiraldb/vortex/compare/vortex-buffer-v0.5.0...vortex-buffer-v0.6.0) - 2024-08-09
+##
+
+`vortex-buffer` - [0.6.0](https://github.com/spiraldb/vortex/compare/vortex-buffer-v0.5.0...vortex-buffer-v0.6.0) -
+2024-08-09
 
 ### Other
 
 - enforce docstrings in vortex-buffer ([#575](https://github.com/spiraldb/vortex/pull/575))
 
-## `vortex-array` - [0.6.0](https://github.com/spiraldb/vortex/compare/vortex-array-v0.5.0...vortex-array-v0.6.0) - 2024-08-09
+##
+
+`vortex-array` - [0.6.0](https://github.com/spiraldb/vortex/compare/vortex-array-v0.5.0...vortex-array-v0.6.0) -
+2024-08-09
 
 ### Other
 
 - Remove to_present_null_buffer from LogicalValidity ([#579](https://github.com/spiraldb/vortex/pull/579))
 
-## `vortex-runend-bool` - [0.5.0](https://github.com/spiraldb/vortex/compare/vortex-runend-bool-v0.4.12...vortex-runend-bool-v0.5.0) - 2024-08-08
+##
+
+`vortex-runend-bool` - [0.5.0](https://github.com/spiraldb/vortex/compare/vortex-runend-bool-v0.4.12...vortex-runend-bool-v0.5.0) -
+2024-08-08
 
 ### Other
 
 - Re-import array types ([#559](https://github.com/spiraldb/vortex/pull/559))
 - Use versioned workspace deps ([#551](https://github.com/spiraldb/vortex/pull/551))
 - Run cargo-sort on the whole workspace ([#550](https://github.com/spiraldb/vortex/pull/550))
-- Added bool iterators index and slice and filtering across some array types ([#505](https://github.com/spiraldb/vortex/pull/505))
+- Added bool iterators index and slice and filtering across some array
+  types ([#505](https://github.com/spiraldb/vortex/pull/505))
 - Fix out ouf bounds when taking from run end arrays ([#501](https://github.com/spiraldb/vortex/pull/501))
-- Change codes for runendbool so it doesn't conflict with datetimeparts ([#498](https://github.com/spiraldb/vortex/pull/498))
+- Change codes for runendbool so it doesn't conflict with
+  datetimeparts ([#498](https://github.com/spiraldb/vortex/pull/498))
 - Make unary functions nicer to `use` ([#493](https://github.com/spiraldb/vortex/pull/493))
 - use FQDNs in impl_encoding macro ([#490](https://github.com/spiraldb/vortex/pull/490))
 
-## `vortex-bytebool` - [0.5.0](https://github.com/spiraldb/vortex/compare/vortex-bytebool-v0.4.12...vortex-bytebool-v0.5.0) - 2024-08-08
+##
+
+`vortex-bytebool` - [0.5.0](https://github.com/spiraldb/vortex/compare/vortex-bytebool-v0.4.12...vortex-bytebool-v0.5.0) -
+2024-08-08
 
 ### Other
 
@@ -2935,11 +3656,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Use versioned workspace deps ([#551](https://github.com/spiraldb/vortex/pull/551))
 - Run cargo-sort on the whole workspace ([#550](https://github.com/spiraldb/vortex/pull/550))
 - Simpler ByteBool slice ([#527](https://github.com/spiraldb/vortex/pull/527))
-- Added bool iterators index and slice and filtering across some array types ([#505](https://github.com/spiraldb/vortex/pull/505))
+- Added bool iterators index and slice and filtering across some array
+  types ([#505](https://github.com/spiraldb/vortex/pull/505))
 - Make unary functions nicer to `use` ([#493](https://github.com/spiraldb/vortex/pull/493))
 - use FQDNs in impl_encoding macro ([#490](https://github.com/spiraldb/vortex/pull/490))
 
-## `vortex-serde` - [0.5.0](https://github.com/spiraldb/vortex/compare/vortex-serde-v0.4.12...vortex-serde-v0.5.0) - 2024-08-08
+##
+
+`vortex-serde` - [0.5.0](https://github.com/spiraldb/vortex/compare/vortex-serde-v0.4.12...vortex-serde-v0.5.0) -
+2024-08-08
 
 ### Other
 
@@ -2954,34 +3679,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Support reading unaligned chunks across columns ([#531](https://github.com/spiraldb/vortex/pull/531))
 - Initial version of simple FileReader/Writer ([#516](https://github.com/spiraldb/vortex/pull/516))
 
-## `vortex-datafusion` - [0.5.0](https://github.com/spiraldb/vortex/compare/vortex-datafusion-v0.4.12...vortex-datafusion-v0.5.0) - 2024-08-08
+##
+
+`vortex-datafusion` - [0.5.0](https://github.com/spiraldb/vortex/compare/vortex-datafusion-v0.4.12...vortex-datafusion-v0.5.0) -
+2024-08-08
 
 ### Other
 
 - Hook on-disk vortex files into benchmarking ([#565](https://github.com/spiraldb/vortex/pull/565))
 
-## `vortex-error` - [0.5.0](https://github.com/spiraldb/vortex/compare/vortex-error-v0.4.12...vortex-error-v0.5.0) - 2024-08-08
+##
+
+`vortex-error` - [0.5.0](https://github.com/spiraldb/vortex/compare/vortex-error-v0.4.12...vortex-error-v0.5.0) -
+2024-08-08
 
 ### Other
 
 - Lots of things to try and get publishing working ([#557](https://github.com/spiraldb/vortex/pull/557))
 
-## `vortex-array` - [0.5.0](https://github.com/spiraldb/vortex/compare/vortex-array-v0.4.12...vortex-array-v0.5.0) - 2024-08-08
+##
+
+`vortex-array` - [0.5.0](https://github.com/spiraldb/vortex/compare/vortex-array-v0.4.12...vortex-array-v0.5.0) -
+2024-08-08
 
 ### Other
 
 - Lots of things to try and get publishing working ([#557](https://github.com/spiraldb/vortex/pull/557))
 - Hook on-disk vortex files into benchmarking ([#565](https://github.com/spiraldb/vortex/pull/565))
 
-## `vortex-runend-bool` - [0.2.0](https://github.com/spiraldb/vortex/releases/tag/vortex-runend-bool-v0.2.0) - 2024-08-05
+##
+
+`vortex-runend-bool` - [0.2.0](https://github.com/spiraldb/vortex/releases/tag/vortex-runend-bool-v0.2.0) - 2024-08-05
 
 ### Other
 
 - Use versioned workspace deps ([#551](https://github.com/spiraldb/vortex/pull/551))
 - Run cargo-sort on the whole workspace ([#550](https://github.com/spiraldb/vortex/pull/550))
-- Added bool iterators index and slice and filtering across some array types ([#505](https://github.com/spiraldb/vortex/pull/505))
+- Added bool iterators index and slice and filtering across some array
+  types ([#505](https://github.com/spiraldb/vortex/pull/505))
 - Fix out ouf bounds when taking from run end arrays ([#501](https://github.com/spiraldb/vortex/pull/501))
-- Change codes for runendbool so it doesn't conflict with datetimeparts ([#498](https://github.com/spiraldb/vortex/pull/498))
+- Change codes for runendbool so it doesn't conflict with
+  datetimeparts ([#498](https://github.com/spiraldb/vortex/pull/498))
 - Make unary functions nicer to `use` ([#493](https://github.com/spiraldb/vortex/pull/493))
 - use FQDNs in impl_encoding macro ([#490](https://github.com/spiraldb/vortex/pull/490))
 
@@ -2992,7 +3730,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Use versioned workspace deps ([#551](https://github.com/spiraldb/vortex/pull/551))
 - Run cargo-sort on the whole workspace ([#550](https://github.com/spiraldb/vortex/pull/550))
 - Simpler ByteBool slice ([#527](https://github.com/spiraldb/vortex/pull/527))
-- Added bool iterators index and slice and filtering across some array types ([#505](https://github.com/spiraldb/vortex/pull/505))
+- Added bool iterators index and slice and filtering across some array
+  types ([#505](https://github.com/spiraldb/vortex/pull/505))
 - Make unary functions nicer to `use` ([#493](https://github.com/spiraldb/vortex/pull/493))
 - use FQDNs in impl_encoding macro ([#490](https://github.com/spiraldb/vortex/pull/490))
 
@@ -3006,7 +3745,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Support reading unaligned chunks across columns ([#531](https://github.com/spiraldb/vortex/pull/531))
 - Initial version of simple FileReader/Writer ([#516](https://github.com/spiraldb/vortex/pull/516))
 
-## `vortex-sampling-compressor` - [0.2.0](https://github.com/spiraldb/vortex/releases/tag/vortex-sampling-compressor-v0.2.0) - 2024-08-05
+##
+
+`vortex-sampling-compressor` - [0.2.0](https://github.com/spiraldb/vortex/releases/tag/vortex-sampling-compressor-v0.2.0) -
+2024-08-05
 
 ### Fixed
 
@@ -3043,7 +3785,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Split compression from encodings ([#422](https://github.com/spiraldb/vortex/pull/422))
 - Rename flatten -> canonicalize + bugfix + a secret third thing ([#402](https://github.com/spiraldb/vortex/pull/402))
 - ArrayData can contain child Arrays instead of just ArrayData ([#391](https://github.com/spiraldb/vortex/pull/391))
-- Rename typed_data to maybe_null_slice ([#386](https://github.com/spiraldb/vortex/pull/386))
+- Rename typed_data to as_slice ([#386](https://github.com/spiraldb/vortex/pull/386))
 - Move encodings into directory ([#379](https://github.com/spiraldb/vortex/pull/379))
 
 ## `vortex-datafusion` - [0.2.0](https://github.com/spiraldb/vortex/releases/tag/vortex-datafusion-v0.2.0) - 2024-08-05
@@ -3062,7 +3804,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add and/or compute functions ([#481](https://github.com/spiraldb/vortex/pull/481))
 - demo module level imports granularity ([#485](https://github.com/spiraldb/vortex/pull/485))
 - Remove LocalDateTimeArray, introduce TemporalArray ([#480](https://github.com/spiraldb/vortex/pull/480))
-- Expand pushdown support with more comparison and logical operations ([#478](https://github.com/spiraldb/vortex/pull/478))
+- Expand pushdown support with more comparison and logical
+  operations ([#478](https://github.com/spiraldb/vortex/pull/478))
 - Debug compilation caching ([#475](https://github.com/spiraldb/vortex/pull/475))
 - Basic predicate pushdown support for Datafusion ([#472](https://github.com/spiraldb/vortex/pull/472))
 - Slightly nicer use statements for compute functions ([#466](https://github.com/spiraldb/vortex/pull/466))
@@ -3103,36 +3846,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add validity to Struct arrays ([#289](https://github.com/spiraldb/vortex/pull/289))
 - Extension Array ([#287](https://github.com/spiraldb/vortex/pull/287))
 - Remove composite and decimal ([#285](https://github.com/spiraldb/vortex/pull/285))
-- Add convenience stats retrieval functions and avoid needless copy when unwrapping stat value ([#279](https://github.com/spiraldb/vortex/pull/279))
+- Add convenience stats retrieval functions and avoid needless copy when unwrapping stat
+  value ([#279](https://github.com/spiraldb/vortex/pull/279))
 - Scalar subtraction ([#270](https://github.com/spiraldb/vortex/pull/270))
 - Add ExtDType ([#281](https://github.com/spiraldb/vortex/pull/281))
 - Refactor for DType::Primitive ([#276](https://github.com/spiraldb/vortex/pull/276))
 - Extract a vortex-scalar crate ([#275](https://github.com/spiraldb/vortex/pull/275))
 
-## `vortex-runend-bool` - [0.2.0](https://github.com/spiraldb/vortex/compare/vortex-runend-bool-v0.1.0...vortex-runend-bool-v0.2.0) - 2024-08-05
+##
+
+`vortex-runend-bool` - [0.2.0](https://github.com/spiraldb/vortex/compare/vortex-runend-bool-v0.1.0...vortex-runend-bool-v0.2.0) -
+2024-08-05
 
 ### Other
 
 - Use versioned workspace deps ([#551](https://github.com/spiraldb/vortex/pull/551))
 - Run cargo-sort on the whole workspace ([#550](https://github.com/spiraldb/vortex/pull/550))
-- Added bool iterators index and slice and filtering across some array types ([#505](https://github.com/spiraldb/vortex/pull/505))
+- Added bool iterators index and slice and filtering across some array
+  types ([#505](https://github.com/spiraldb/vortex/pull/505))
 - Fix out ouf bounds when taking from run end arrays ([#501](https://github.com/spiraldb/vortex/pull/501))
-- Change codes for runendbool so it doesn't conflict with datetimeparts ([#498](https://github.com/spiraldb/vortex/pull/498))
+- Change codes for runendbool so it doesn't conflict with
+  datetimeparts ([#498](https://github.com/spiraldb/vortex/pull/498))
 - Make unary functions nicer to `use` ([#493](https://github.com/spiraldb/vortex/pull/493))
 - use FQDNs in impl_encoding macro ([#490](https://github.com/spiraldb/vortex/pull/490))
 
-## `vortex-bytebool` - [0.2.0](https://github.com/spiraldb/vortex/compare/vortex-bytebool-v0.1.0...vortex-bytebool-v0.2.0) - 2024-08-05
+##
+
+`vortex-bytebool` - [0.2.0](https://github.com/spiraldb/vortex/compare/vortex-bytebool-v0.1.0...vortex-bytebool-v0.2.0) -
+2024-08-05
 
 ### Other
 
 - Use versioned workspace deps ([#551](https://github.com/spiraldb/vortex/pull/551))
 - Run cargo-sort on the whole workspace ([#550](https://github.com/spiraldb/vortex/pull/550))
 - Simpler ByteBool slice ([#527](https://github.com/spiraldb/vortex/pull/527))
-- Added bool iterators index and slice and filtering across some array types ([#505](https://github.com/spiraldb/vortex/pull/505))
+- Added bool iterators index and slice and filtering across some array
+  types ([#505](https://github.com/spiraldb/vortex/pull/505))
 - Make unary functions nicer to `use` ([#493](https://github.com/spiraldb/vortex/pull/493))
 - use FQDNs in impl_encoding macro ([#490](https://github.com/spiraldb/vortex/pull/490))
 
-## `vortex-serde` - [0.2.0](https://github.com/spiraldb/vortex/compare/vortex-serde-v0.1.0...vortex-serde-v0.2.0) - 2024-08-05
+##
+
+`vortex-serde` - [0.2.0](https://github.com/spiraldb/vortex/compare/vortex-serde-v0.1.0...vortex-serde-v0.2.0) -
+2024-08-05
 
 ### Other
 
@@ -3142,7 +3898,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Support reading unaligned chunks across columns ([#531](https://github.com/spiraldb/vortex/pull/531))
 - Initial version of simple FileReader/Writer ([#516](https://github.com/spiraldb/vortex/pull/516))
 
-## `vortex-zigzag` - [0.2.0](https://github.com/spiraldb/vortex/compare/vortex-zigzag-v0.1.0...vortex-zigzag-v0.2.0) - 2024-08-05
+##
+
+`vortex-zigzag` - [0.2.0](https://github.com/spiraldb/vortex/compare/vortex-zigzag-v0.1.0...vortex-zigzag-v0.2.0) -
+2024-08-05
 
 ### Other
 
@@ -3157,11 +3916,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Split compression from encodings ([#422](https://github.com/spiraldb/vortex/pull/422))
 - Rename flatten -> canonicalize + bugfix + a secret third thing ([#402](https://github.com/spiraldb/vortex/pull/402))
 - ArrayData can contain child Arrays instead of just ArrayData ([#391](https://github.com/spiraldb/vortex/pull/391))
-- Rename typed_data to maybe_null_slice ([#386](https://github.com/spiraldb/vortex/pull/386))
+- Rename typed_data to as_slice ([#386](https://github.com/spiraldb/vortex/pull/386))
 - Fastlanez -> Fastlanes ([#381](https://github.com/spiraldb/vortex/pull/381))
 - Move encodings into directory ([#379](https://github.com/spiraldb/vortex/pull/379))
 
-## `vortex-sampling-compressor` - [0.2.0](https://github.com/spiraldb/vortex/compare/vortex-sampling-compressor-v0.1.0...vortex-sampling-compressor-v0.2.0) - 2024-08-05
+##
+
+`vortex-sampling-compressor` - [0.2.0](https://github.com/spiraldb/vortex/compare/vortex-sampling-compressor-v0.1.0...vortex-sampling-compressor-v0.2.0) -
+2024-08-05
 
 ### Fixed
 
@@ -3180,7 +3942,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Array Length ([#445](https://github.com/spiraldb/vortex/pull/445))
 - Split compression from encodings ([#422](https://github.com/spiraldb/vortex/pull/422))
 
-## `vortex-runend` - [0.2.0](https://github.com/spiraldb/vortex/compare/vortex-runend-v0.1.0...vortex-runend-v0.2.0) - 2024-08-05
+##
+
+`vortex-runend` - [0.2.0](https://github.com/spiraldb/vortex/compare/vortex-runend-v0.1.0...vortex-runend-v0.2.0) -
+2024-08-05
 
 ### Other
 
@@ -3198,17 +3963,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Split compression from encodings ([#422](https://github.com/spiraldb/vortex/pull/422))
 - Rename flatten -> canonicalize + bugfix + a secret third thing ([#402](https://github.com/spiraldb/vortex/pull/402))
 - ArrayData can contain child Arrays instead of just ArrayData ([#391](https://github.com/spiraldb/vortex/pull/391))
-- Rename typed_data to maybe_null_slice ([#386](https://github.com/spiraldb/vortex/pull/386))
+- Rename typed_data to as_slice ([#386](https://github.com/spiraldb/vortex/pull/386))
 - Move encodings into directory ([#379](https://github.com/spiraldb/vortex/pull/379))
 
-## `vortex-roaring` - [0.2.0](https://github.com/spiraldb/vortex/compare/vortex-roaring-v0.1.0...vortex-roaring-v0.2.0) - 2024-08-05
+##
+
+`vortex-roaring` - [0.2.0](https://github.com/spiraldb/vortex/compare/vortex-roaring-v0.1.0...vortex-roaring-v0.2.0) -
+2024-08-05
 
 ### Other
 
 - Use versioned workspace deps ([#551](https://github.com/spiraldb/vortex/pull/551))
 - Run cargo-sort on the whole workspace ([#550](https://github.com/spiraldb/vortex/pull/550))
 - Ignore tests that miri can't run ([#514](https://github.com/spiraldb/vortex/pull/514))
-- Added bool iterators index and slice and filtering across some array types ([#505](https://github.com/spiraldb/vortex/pull/505))
+- Added bool iterators index and slice and filtering across some array
+  types ([#505](https://github.com/spiraldb/vortex/pull/505))
 - Make unary functions nicer to `use` ([#493](https://github.com/spiraldb/vortex/pull/493))
 - use FQDNs in impl_encoding macro ([#490](https://github.com/spiraldb/vortex/pull/490))
 - demo module level imports granularity ([#485](https://github.com/spiraldb/vortex/pull/485))
@@ -3218,10 +3987,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Remove ViewContext and assign stable ids to encodings ([#433](https://github.com/spiraldb/vortex/pull/433))
 - Split compression from encodings ([#422](https://github.com/spiraldb/vortex/pull/422))
 - Rename flatten -> canonicalize + bugfix + a secret third thing ([#402](https://github.com/spiraldb/vortex/pull/402))
-- Rename typed_data to maybe_null_slice ([#386](https://github.com/spiraldb/vortex/pull/386))
+- Rename typed_data to as_slice ([#386](https://github.com/spiraldb/vortex/pull/386))
 - Move encodings into directory ([#379](https://github.com/spiraldb/vortex/pull/379))
 
-## `vortex-fastlanes` - [0.2.0](https://github.com/spiraldb/vortex/compare/vortex-fastlanes-v0.1.0...vortex-fastlanes-v0.2.0) - 2024-08-05
+##
+
+`vortex-fastlanes` - [0.2.0](https://github.com/spiraldb/vortex/compare/vortex-fastlanes-v0.1.0...vortex-fastlanes-v0.2.0) -
+2024-08-05
 
 ### Fixed
 
@@ -3240,18 +4012,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Array Length ([#445](https://github.com/spiraldb/vortex/pull/445))
 - Remove ViewContext and assign stable ids to encodings ([#433](https://github.com/spiraldb/vortex/pull/433))
 - Split compression from encodings ([#422](https://github.com/spiraldb/vortex/pull/422))
-- Fix semantic conflict between searching and slicing sparse and bitpacked arrays ([#412](https://github.com/spiraldb/vortex/pull/412))
+- Fix semantic conflict between searching and slicing sparse and bitpacked
+  arrays ([#412](https://github.com/spiraldb/vortex/pull/412))
 - Fix Slice and SearchSorted for BitPackedArray ([#410](https://github.com/spiraldb/vortex/pull/410))
 - FoR encoding doesn't panic if array min > i64::MAX ([#406](https://github.com/spiraldb/vortex/pull/406))
 - Add search_sorted for FOR, Bitpacked and Sparse arrays ([#398](https://github.com/spiraldb/vortex/pull/398))
 - FoR array holds encoded values as unsinged ([#401](https://github.com/spiraldb/vortex/pull/401))
 - Rename flatten -> canonicalize + bugfix + a secret third thing ([#402](https://github.com/spiraldb/vortex/pull/402))
 - ArrayData can contain child Arrays instead of just ArrayData ([#391](https://github.com/spiraldb/vortex/pull/391))
-- Rename typed_data to maybe_null_slice ([#386](https://github.com/spiraldb/vortex/pull/386))
+- Rename typed_data to as_slice ([#386](https://github.com/spiraldb/vortex/pull/386))
 - Fastlanez -> Fastlanes ([#381](https://github.com/spiraldb/vortex/pull/381))
 - Move encodings into directory ([#379](https://github.com/spiraldb/vortex/pull/379))
 
-## `vortex-dict` - [0.2.0](https://github.com/spiraldb/vortex/compare/vortex-dict-v0.1.0...vortex-dict-v0.2.0) - 2024-08-05
+##
+
+`vortex-dict` - [0.2.0](https://github.com/spiraldb/vortex/compare/vortex-dict-v0.1.0...vortex-dict-v0.2.0) - 2024-08-05
 
 ### Other
 
@@ -3270,10 +4045,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Split compression from encodings ([#422](https://github.com/spiraldb/vortex/pull/422))
 - Rename flatten -> canonicalize + bugfix + a secret third thing ([#402](https://github.com/spiraldb/vortex/pull/402))
 - ArrayData can contain child Arrays instead of just ArrayData ([#391](https://github.com/spiraldb/vortex/pull/391))
-- Rename typed_data to maybe_null_slice ([#386](https://github.com/spiraldb/vortex/pull/386))
+- Rename typed_data to as_slice ([#386](https://github.com/spiraldb/vortex/pull/386))
 - Move encodings into directory ([#379](https://github.com/spiraldb/vortex/pull/379))
 
-## `vortex-datetime-parts` - [0.2.0](https://github.com/spiraldb/vortex/compare/vortex-datetime-parts-v0.1.0...vortex-datetime-parts-v0.2.0) - 2024-08-05
+##
+
+`vortex-datetime-parts` - [0.2.0](https://github.com/spiraldb/vortex/compare/vortex-datetime-parts-v0.1.0...vortex-datetime-parts-v0.2.0) -
+2024-08-05
 
 ### Fixed
 
@@ -3284,7 +4062,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Use versioned workspace deps ([#551](https://github.com/spiraldb/vortex/pull/551))
 - Run cargo-sort on the whole workspace ([#550](https://github.com/spiraldb/vortex/pull/550))
 - Add license check to CI ([#518](https://github.com/spiraldb/vortex/pull/518))
-- Fix SparseArray validity logic and give DateTimeParts unique code ([#495](https://github.com/spiraldb/vortex/pull/495))
+- Fix SparseArray validity logic and give DateTimeParts unique
+  code ([#495](https://github.com/spiraldb/vortex/pull/495))
 - Make unary functions nicer to `use` ([#493](https://github.com/spiraldb/vortex/pull/493))
 - use FQDNs in impl_encoding macro ([#490](https://github.com/spiraldb/vortex/pull/490))
 - demo module level imports granularity ([#485](https://github.com/spiraldb/vortex/pull/485))
@@ -3297,10 +4076,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Split compression from encodings ([#422](https://github.com/spiraldb/vortex/pull/422))
 - Rename flatten -> canonicalize + bugfix + a secret third thing ([#402](https://github.com/spiraldb/vortex/pull/402))
 - ArrayData can contain child Arrays instead of just ArrayData ([#391](https://github.com/spiraldb/vortex/pull/391))
-- Rename typed_data to maybe_null_slice ([#386](https://github.com/spiraldb/vortex/pull/386))
+- Rename typed_data to as_slice ([#386](https://github.com/spiraldb/vortex/pull/386))
 - Move encodings into directory ([#379](https://github.com/spiraldb/vortex/pull/379))
 
-## `vortex-datafusion` - [0.2.0](https://github.com/spiraldb/vortex/compare/vortex-datafusion-v0.1.0...vortex-datafusion-v0.2.0) - 2024-08-05
+##
+
+`vortex-datafusion` - [0.2.0](https://github.com/spiraldb/vortex/compare/vortex-datafusion-v0.1.0...vortex-datafusion-v0.2.0) -
+2024-08-05
 
 ### Fixed
 
@@ -3316,7 +4098,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add and/or compute functions ([#481](https://github.com/spiraldb/vortex/pull/481))
 - demo module level imports granularity ([#485](https://github.com/spiraldb/vortex/pull/485))
 - Remove LocalDateTimeArray, introduce TemporalArray ([#480](https://github.com/spiraldb/vortex/pull/480))
-- Expand pushdown support with more comparison and logical operations ([#478](https://github.com/spiraldb/vortex/pull/478))
+- Expand pushdown support with more comparison and logical
+  operations ([#478](https://github.com/spiraldb/vortex/pull/478))
 - Debug compilation caching ([#475](https://github.com/spiraldb/vortex/pull/475))
 - Basic predicate pushdown support for Datafusion ([#472](https://github.com/spiraldb/vortex/pull/472))
 - Slightly nicer use statements for compute functions ([#466](https://github.com/spiraldb/vortex/pull/466))
@@ -3328,7 +4111,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Rename flatten -> canonicalize + bugfix + a secret third thing ([#402](https://github.com/spiraldb/vortex/pull/402))
 - DataFusion TableProvider for memory arrays ([#384](https://github.com/spiraldb/vortex/pull/384))
 
-## `vortex-scalar` - [0.2.0](https://github.com/spiraldb/vortex/compare/vortex-scalar-v0.1.0...vortex-scalar-v0.2.0) - 2024-08-05
+##
+
+`vortex-scalar` - [0.2.0](https://github.com/spiraldb/vortex/compare/vortex-scalar-v0.1.0...vortex-scalar-v0.2.0) -
+2024-08-05
 
 ### Other
 
@@ -3357,13 +4143,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add validity to Struct arrays ([#289](https://github.com/spiraldb/vortex/pull/289))
 - Extension Array ([#287](https://github.com/spiraldb/vortex/pull/287))
 - Remove composite and decimal ([#285](https://github.com/spiraldb/vortex/pull/285))
-- Add convenience stats retrieval functions and avoid needless copy when unwrapping stat value ([#279](https://github.com/spiraldb/vortex/pull/279))
+- Add convenience stats retrieval functions and avoid needless copy when unwrapping stat
+  value ([#279](https://github.com/spiraldb/vortex/pull/279))
 - Scalar subtraction ([#270](https://github.com/spiraldb/vortex/pull/270))
 - Add ExtDType ([#281](https://github.com/spiraldb/vortex/pull/281))
 - Refactor for DType::Primitive ([#276](https://github.com/spiraldb/vortex/pull/276))
 - Extract a vortex-scalar crate ([#275](https://github.com/spiraldb/vortex/pull/275))
 
-## `vortex-expr` - [0.2.0](https://github.com/spiraldb/vortex/compare/vortex-expr-v0.1.0...vortex-expr-v0.2.0) - 2024-08-05
+##
+
+`vortex-expr` - [0.2.0](https://github.com/spiraldb/vortex/compare/vortex-expr-v0.1.0...vortex-expr-v0.2.0) - 2024-08-05
 
 ### Other
 
@@ -3374,10 +4163,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Expression proto serde ([#351](https://github.com/spiraldb/vortex/pull/351))
 - DataFusion expr conversion ([#349](https://github.com/spiraldb/vortex/pull/349))
 - FilterIndices compute function ([#326](https://github.com/spiraldb/vortex/pull/326))
-- Introduce FieldPath abstraction, restrict predicates to Field, Op, (Field|Scalar) ([#324](https://github.com/spiraldb/vortex/pull/324))
+- Introduce FieldPath abstraction, restrict predicates to Field, Op, (
+  Field|Scalar) ([#324](https://github.com/spiraldb/vortex/pull/324))
 - Minimal expressions API for vortex ([#318](https://github.com/spiraldb/vortex/pull/318))
 
-## `vortex-flatbuffers` - [0.2.0](https://github.com/spiraldb/vortex/compare/vortex-flatbuffers-v0.1.0...vortex-flatbuffers-v0.2.0) - 2024-08-05
+##
+
+`vortex-flatbuffers` - [0.2.0](https://github.com/spiraldb/vortex/compare/vortex-flatbuffers-v0.1.0...vortex-flatbuffers-v0.2.0) -
+2024-08-05
 
 ### Other
 
@@ -3391,7 +4184,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Format imports ([#184](https://github.com/spiraldb/vortex/pull/184))
 - IPC Prototype ([#181](https://github.com/spiraldb/vortex/pull/181))
 
-## `vortex-error` - [0.2.0](https://github.com/spiraldb/vortex/compare/vortex-error-v0.1.0...vortex-error-v0.2.0) - 2024-08-05
+##
+
+`vortex-error` - [0.2.0](https://github.com/spiraldb/vortex/compare/vortex-error-v0.1.0...vortex-error-v0.2.0) -
+2024-08-05
 
 ### Other
 
@@ -3408,7 +4204,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Random Access Benchmark ([#149](https://github.com/spiraldb/vortex/pull/149))
 - Vortex Error ([#133](https://github.com/spiraldb/vortex/pull/133))
 
-## `vortex-dtype` - [0.2.0](https://github.com/spiraldb/vortex/compare/vortex-dtype-v0.1.0...vortex-dtype-v0.2.0) - 2024-08-05
+##
+
+`vortex-dtype` - [0.2.0](https://github.com/spiraldb/vortex/compare/vortex-dtype-v0.1.0...vortex-dtype-v0.2.0) -
+2024-08-05
 
 ### Other
 
@@ -3418,7 +4217,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Initial version of simple FileReader/Writer ([#516](https://github.com/spiraldb/vortex/pull/516))
 - Add and/or compute functions ([#481](https://github.com/spiraldb/vortex/pull/481))
 - demo module level imports granularity ([#485](https://github.com/spiraldb/vortex/pull/485))
-- Avoid dtype comparison failure in `take` -- upcast indices in `take_strict_sorted`  ([#464](https://github.com/spiraldb/vortex/pull/464))
+- Avoid dtype comparison failure in `take` -- upcast indices in
+  `take_strict_sorted`  ([#464](https://github.com/spiraldb/vortex/pull/464))
 - Rename flatten -> canonicalize + bugfix + a secret third thing ([#402](https://github.com/spiraldb/vortex/pull/402))
 - DataFusion TableProvider for memory arrays ([#384](https://github.com/spiraldb/vortex/pull/384))
 - Clean up fields / field paths ([#353](https://github.com/spiraldb/vortex/pull/353))
@@ -3426,7 +4226,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - DataFusion expr conversion ([#349](https://github.com/spiraldb/vortex/pull/349))
 - FilterIndices compute function ([#326](https://github.com/spiraldb/vortex/pull/326))
 - Proto Refactor ([#325](https://github.com/spiraldb/vortex/pull/325))
-- Introduce FieldPath abstraction, restrict predicates to Field, Op, (Field|Scalar) ([#324](https://github.com/spiraldb/vortex/pull/324))
+- Introduce FieldPath abstraction, restrict predicates to Field, Op, (
+  Field|Scalar) ([#324](https://github.com/spiraldb/vortex/pull/324))
 - Minimal expressions API for vortex ([#318](https://github.com/spiraldb/vortex/pull/318))
 - IPC Bench ([#319](https://github.com/spiraldb/vortex/pull/319))
 - Remove buffer -> dtype dependency ([#309](https://github.com/spiraldb/vortex/pull/309))
@@ -3436,14 +4237,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Remove unused dependencies (and bump lance) ([#286](https://github.com/spiraldb/vortex/pull/286))
 - Remove composite and decimal ([#285](https://github.com/spiraldb/vortex/pull/285))
 - Extension Array ([#283](https://github.com/spiraldb/vortex/pull/283))
-- Add convenience stats retrieval functions and avoid needless copy when unwrapping stat value ([#279](https://github.com/spiraldb/vortex/pull/279))
+- Add convenience stats retrieval functions and avoid needless copy when unwrapping stat
+  value ([#279](https://github.com/spiraldb/vortex/pull/279))
 - Scalar subtraction ([#270](https://github.com/spiraldb/vortex/pull/270))
 - Add ExtDType ([#281](https://github.com/spiraldb/vortex/pull/281))
 - Refactor for DType::Primitive ([#276](https://github.com/spiraldb/vortex/pull/276))
 - Move PType into vortex-dtype ([#274](https://github.com/spiraldb/vortex/pull/274))
 - Vortex Schema -> Vortex DType ([#273](https://github.com/spiraldb/vortex/pull/273))
 
-## `vortex-buffer` - [0.2.0](https://github.com/spiraldb/vortex/compare/vortex-buffer-v0.1.0...vortex-buffer-v0.2.0) - 2024-08-05
+##
+
+`vortex-buffer` - [0.2.0](https://github.com/spiraldb/vortex/compare/vortex-buffer-v0.1.0...vortex-buffer-v0.2.0) -
+2024-08-05
 
 ### Other
 
@@ -3462,7 +4267,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - OwnedBuffer ([#300](https://github.com/spiraldb/vortex/pull/300))
 - Vortex Buffer Crate ([#299](https://github.com/spiraldb/vortex/pull/299))
 
-## `vortex-array` - [0.2.0](https://github.com/spiraldb/vortex/compare/vortex-array-v0.1.0...vortex-array-v0.2.0) - 2024-08-05
+##
+
+`vortex-array` - [0.2.0](https://github.com/spiraldb/vortex/compare/vortex-array-v0.1.0...vortex-array-v0.2.0) -
+2024-08-05
 
 ### Fixed
 
@@ -3479,13 +4287,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Initial version of simple FileReader/Writer ([#516](https://github.com/spiraldb/vortex/pull/516))
 - Use Arrow's varbin builder ([#519](https://github.com/spiraldb/vortex/pull/519))
 - Smoketest for SamplingCompressor, fix bug in varbin stats ([#510](https://github.com/spiraldb/vortex/pull/510))
-- Added bool iterators index and slice and filtering across some array types ([#505](https://github.com/spiraldb/vortex/pull/505))
+- Added bool iterators index and slice and filtering across some array
+  types ([#505](https://github.com/spiraldb/vortex/pull/505))
 - Fix remaining copies ([#504](https://github.com/spiraldb/vortex/pull/504))
-- Remove some vortex mem allocations in "zero-copy" memory transformations ([#503](https://github.com/spiraldb/vortex/pull/503))
+- Remove some vortex mem allocations in "zero-copy" memory
+  transformations ([#503](https://github.com/spiraldb/vortex/pull/503))
 - Lazy deserialize metadata from ArrayData and ArrayView ([#502](https://github.com/spiraldb/vortex/pull/502))
 - Fix out ouf bounds when taking from run end arrays ([#501](https://github.com/spiraldb/vortex/pull/501))
 - More specialized compare functions ([#488](https://github.com/spiraldb/vortex/pull/488))
-- Fix SparseArray validity logic and give DateTimeParts unique code ([#495](https://github.com/spiraldb/vortex/pull/495))
+- Fix SparseArray validity logic and give DateTimeParts unique
+  code ([#495](https://github.com/spiraldb/vortex/pull/495))
 - Add and/or compute functions ([#481](https://github.com/spiraldb/vortex/pull/481))
 - Implement CastFn for chunkedarray ([#497](https://github.com/spiraldb/vortex/pull/497))
 - Make unary functions nicer to `use` ([#493](https://github.com/spiraldb/vortex/pull/493))
@@ -3496,7 +4307,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Basic predicate pushdown support for Datafusion ([#472](https://github.com/spiraldb/vortex/pull/472))
 - DType variant traits ([#473](https://github.com/spiraldb/vortex/pull/473))
 - Slightly nicer use statements for compute functions ([#466](https://github.com/spiraldb/vortex/pull/466))
-- Avoid dtype comparison failure in `take` -- upcast indices in `take_strict_sorted`  ([#464](https://github.com/spiraldb/vortex/pull/464))
+- Avoid dtype comparison failure in `take` -- upcast indices in
+  `take_strict_sorted`  ([#464](https://github.com/spiraldb/vortex/pull/464))
 - Use shorthand canonicalize methods ([#460](https://github.com/spiraldb/vortex/pull/460))
 - Add FilterFn trait + default implementation ([#458](https://github.com/spiraldb/vortex/pull/458))
 - Make into_arrow truly zero-copy, rewrite DataFusion operators ([#451](https://github.com/spiraldb/vortex/pull/451))
@@ -3518,7 +4330,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Use ChunkedArrayReader in random access benchmark ([#393](https://github.com/spiraldb/vortex/pull/393))
 - ArrayData can contain child Arrays instead of just ArrayData ([#391](https://github.com/spiraldb/vortex/pull/391))
 - Buffer into_vec respects value alignment ([#387](https://github.com/spiraldb/vortex/pull/387))
-- Rename typed_data to maybe_null_slice ([#386](https://github.com/spiraldb/vortex/pull/386))
+- Rename typed_data to as_slice ([#386](https://github.com/spiraldb/vortex/pull/386))
 - Fastlanez -> Fastlanes ([#381](https://github.com/spiraldb/vortex/pull/381))
 - Use IntoArrayData when we have owned arrays ([#376](https://github.com/spiraldb/vortex/pull/376))
 - Clean up fields / field paths ([#353](https://github.com/spiraldb/vortex/pull/353))
@@ -3558,7 +4370,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Remove composite and decimal ([#285](https://github.com/spiraldb/vortex/pull/285))
 - DateTimeParts ([#284](https://github.com/spiraldb/vortex/pull/284))
 - Extension Array ([#283](https://github.com/spiraldb/vortex/pull/283))
-- Add convenience stats retrieval functions and avoid needless copy when unwrapping stat value ([#279](https://github.com/spiraldb/vortex/pull/279))
+- Add convenience stats retrieval functions and avoid needless copy when unwrapping stat
+  value ([#279](https://github.com/spiraldb/vortex/pull/279))
 - Scalar subtraction ([#270](https://github.com/spiraldb/vortex/pull/270))
 - Add ExtDType ([#281](https://github.com/spiraldb/vortex/pull/281))
 - Bring back slice for ChunkedArray ([#280](https://github.com/spiraldb/vortex/pull/280))
@@ -3572,7 +4385,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Logical validity from stats ([#264](https://github.com/spiraldb/vortex/pull/264))
 - Refactor ([#237](https://github.com/spiraldb/vortex/pull/237))
 - Comparison artifacts & analysis ([#247](https://github.com/spiraldb/vortex/pull/247))
-- Fix binary stats for arrays containing null bytes and match stats behaviour between varbin and primitive arrays ([#233](https://github.com/spiraldb/vortex/pull/233))
+- Fix binary stats for arrays containing null bytes and match stats behaviour between varbin and primitive
+  arrays ([#233](https://github.com/spiraldb/vortex/pull/233))
 - Address comments from varbin enhancement pr ([#231](https://github.com/spiraldb/vortex/pull/231))
 - SearchSorted can return whether search resulted in exact match ([#226](https://github.com/spiraldb/vortex/pull/226))
 - Convert slice to compute function ([#227](https://github.com/spiraldb/vortex/pull/227))
@@ -3587,8 +4401,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Slightly simplified SparseArray FlattenFn ([#205](https://github.com/spiraldb/vortex/pull/205))
 - Don't zero memory when reading a buffer ([#208](https://github.com/spiraldb/vortex/pull/208))
 - Move validity into a trait ([#198](https://github.com/spiraldb/vortex/pull/198))
-- Patching Bitpacked and ALP arrays doesn't require multiple copies ([#189](https://github.com/spiraldb/vortex/pull/189))
-- Implement Validity for SparseArray, make scalar_at for bitpacked array respect patches ([#194](https://github.com/spiraldb/vortex/pull/194))
+- Patching Bitpacked and ALP arrays doesn't require multiple
+  copies ([#189](https://github.com/spiraldb/vortex/pull/189))
+- Implement Validity for SparseArray, make scalar_at for bitpacked array respect
+  patches ([#194](https://github.com/spiraldb/vortex/pull/194))
 - Simplify chunk end searching in ChunkedArray ([#199](https://github.com/spiraldb/vortex/pull/199))
 - Compute with a primitive trait ([#191](https://github.com/spiraldb/vortex/pull/191))
 - Skip codecs where can_compress on sample is null ([#188](https://github.com/spiraldb/vortex/pull/188))
@@ -3612,7 +4428,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Vortex Error ([#133](https://github.com/spiraldb/vortex/pull/133))
 - Fastlanes delta ([#57](https://github.com/spiraldb/vortex/pull/57))
 - Fix encoding discovery ([#132](https://github.com/spiraldb/vortex/pull/132))
-- Upgrade arrow-rs to 51.0.0 and extract common dependencies to top level ([#127](https://github.com/spiraldb/vortex/pull/127))
+- Upgrade arrow-rs to 51.0.0 and extract common dependencies to top
+  level ([#127](https://github.com/spiraldb/vortex/pull/127))
 - Make EncodingID Copy ([#131](https://github.com/spiraldb/vortex/pull/131))
 - Noah's Arc ([#130](https://github.com/spiraldb/vortex/pull/130))
 - Use flatbuffers to serialize dtypes  ([#126](https://github.com/spiraldb/vortex/pull/126))
@@ -3623,7 +4440,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Rename Typed to Composite ([#120](https://github.com/spiraldb/vortex/pull/120))
 - Replace iter arrow with flatten ([#109](https://github.com/spiraldb/vortex/pull/109))
 - Decompress to Arrow ([#106](https://github.com/spiraldb/vortex/pull/106))
-- Add ability to define composite dtypes, i.e. dtypes redefining meaning ([#103](https://github.com/spiraldb/vortex/pull/103))
+- Add ability to define composite dtypes, i.e. dtypes redefining
+  meaning ([#103](https://github.com/spiraldb/vortex/pull/103))
 - Serde errors ([#105](https://github.com/spiraldb/vortex/pull/105))
 - Trim down arrow dependency ([#98](https://github.com/spiraldb/vortex/pull/98))
 - Add bit shifting to FOR ([#89](https://github.com/spiraldb/vortex/pull/89))
@@ -3659,6 +4477,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add search_sorted for FOR, Bitpacked and Sparse arrays ([#398](https://github.com/spiraldb/vortex/pull/398))
 - Rename flatten -> canonicalize + bugfix + a secret third thing ([#402](https://github.com/spiraldb/vortex/pull/402))
 - ArrayData can contain child Arrays instead of just ArrayData ([#391](https://github.com/spiraldb/vortex/pull/391))
-- Rename typed_data to maybe_null_slice ([#386](https://github.com/spiraldb/vortex/pull/386))
+- Rename typed_data to as_slice ([#386](https://github.com/spiraldb/vortex/pull/386))
 - Fastlanez -> Fastlanes ([#381](https://github.com/spiraldb/vortex/pull/381))
 - Move encodings into directory ([#379](https://github.com/spiraldb/vortex/pull/379))

@@ -3,18 +3,19 @@ use std::cmp::min;
 use arrow_buffer::buffer::BooleanBuffer;
 use arrow_buffer::BooleanBufferBuilder;
 use num_traits::AsPrimitive;
+use vortex_buffer::{buffer, Buffer, BufferMut};
 use vortex_dtype::NativePType;
 use vortex_error::{vortex_panic, VortexExpect as _};
 
 use crate::value_at_index;
 
-pub fn runend_bool_encode_slice(elements: &BooleanBuffer) -> (Vec<u64>, bool) {
+pub fn runend_bool_encode_slice(elements: &BooleanBuffer) -> (Buffer<u64>, bool) {
     let mut iter = elements.set_slices();
     let Some((start, end)) = iter.next() else {
-        return (vec![elements.len() as u64], false);
+        return (buffer![elements.len() as u64], false);
     };
 
-    let mut ends = Vec::new();
+    let mut ends = BufferMut::empty();
     let first_bool = start == 0;
     if !first_bool {
         ends.push(start as u64)
@@ -32,7 +33,7 @@ pub fn runend_bool_encode_slice(elements: &BooleanBuffer) -> (Vec<u64>, bool) {
         ends.push(elements.len() as u64)
     }
 
-    (ends, first_bool)
+    (ends.freeze(), first_bool)
 }
 
 #[inline]
@@ -85,6 +86,7 @@ mod test {
     use vortex_array::compute::slice;
     use vortex_array::validity::Validity;
     use vortex_array::IntoArrayVariant;
+    use vortex_buffer::{buffer, buffer_mut};
 
     use crate::compress::{runend_bool_decode_slice, runend_bool_encode_slice, trimmed_ends_iter};
     use crate::decode_runend_bool;
@@ -93,22 +95,22 @@ mod test {
     fn encode_bool() {
         let encoded =
             runend_bool_encode_slice(&BooleanBuffer::from([true, true, false, true].as_slice()));
-        assert_eq!(encoded, (vec![2, 3, 4], true))
+        assert_eq!(encoded, (buffer![2, 3, 4], true))
     }
 
     #[test]
     fn encode_bool_false_true_end() {
-        let mut input = vec![false; 66];
+        let mut input = buffer_mut![false; 66];
         input.extend([true, true]);
-        let encoded = runend_bool_encode_slice(&BooleanBuffer::from(input));
-        assert_eq!(encoded, (vec![66, 68], false))
+        let encoded = runend_bool_encode_slice(&BooleanBuffer::from(input.as_slice()));
+        assert_eq!(encoded, (buffer![66, 68], false))
     }
 
     #[test]
     fn encode_bool_false() {
         let encoded =
             runend_bool_encode_slice(&BooleanBuffer::from([false, false, true, false].as_slice()));
-        assert_eq!(encoded, (vec![2, 3, 4], false))
+        assert_eq!(encoded, (buffer![2, 3, 4], false))
     }
 
     #[test]
@@ -133,8 +135,8 @@ mod test {
 
     #[test]
     fn encode_decode_bool_false_start_long() {
-        let mut input = vec![true; 1024];
-        input.extend([false, true, false, true].as_slice());
+        let mut input = buffer_mut![true; 1024];
+        input.extend([false, true, false, true]);
         let (ends, start) = runend_bool_encode_slice(&BooleanBuffer::from(input.as_slice()));
         let ends_iter = trimmed_ends_iter(ends.as_slice(), 0, input.len());
 
@@ -160,7 +162,7 @@ mod test {
         let b = BoolArray::from_iter(input.clone());
         let b = slice(b, 3, 1024 * 8 - 66).unwrap().into_bool().unwrap();
         let (ends, start) = runend_bool_encode_slice(&b.boolean_buffer());
-        let ends = PrimitiveArray::from(ends);
+        let ends = PrimitiveArray::new(ends, Validity::NonNullable);
 
         let decoded = decode_runend_bool(&ends, start, Validity::NonNullable, 0, 1024 * 8 - 69)
             .unwrap()

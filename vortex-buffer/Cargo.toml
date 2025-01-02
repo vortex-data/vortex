@@ -14,12 +14,20 @@ categories = { workspace = true }
 readme = "README.md"
 
 [features]
-flexbuffers = ["dep:flexbuffers"]
+arrow = ["dep:arrow-buffer"]
 
 [dependencies]
-arrow-buffer = { workspace = true }
+arrow-buffer = { workspace = true, optional = true }
 bytes = { workspace = true }
-flexbuffers = { workspace = true, optional = true }
+vortex-error = { workspace = true }
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+arrow-buffer = { workspace = true }
+divan = { workspace = true }
+
+[[bench]]
+name = "vortex_buffer"
+harness = false

@@ -47,7 +47,7 @@ pin-project = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 static_assertions = { workspace = true }
-vortex-buffer = { workspace = true }
+vortex-buffer = { workspace = true, features = ["arrow"] }
 vortex-datetime-dtype = { workspace = true }
 vortex-dtype = { workspace = true, features = ["flatbuffers", "serde"] }
 vortex-error = { workspace = true, features = ["flatbuffers", "flexbuffers"] }

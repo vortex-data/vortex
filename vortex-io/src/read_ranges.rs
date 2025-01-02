@@ -5,8 +5,8 @@ use std::io::ErrorKind;
 use std::ops::Range;
 use std::sync::Arc;
 
+use bytes::Bytes;
 use futures_util::{stream, FutureExt, StreamExt, TryStreamExt};
-use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 
 use crate::{Dispatch, IoDispatcher, VortexReadAt};
@@ -34,7 +34,7 @@ impl<R: VortexReadAt> VortexReadRanges<R> {
     pub fn read_byte_ranges(
         &self,
         ranges: Vec<Range<usize>>,
-    ) -> impl Future<Output = io::Result<Vec<Buffer>>> + Send + 'static {
+    ) -> impl Future<Output = io::Result<Vec<Bytes>>> + Send + 'static {
         let dispatcher = self.dispatcher.clone();
         let reader = self.read.clone();
         let max_gap = self.max_gap;
@@ -115,7 +115,7 @@ fn merge_ranges(mut ranges: Vec<Range<usize>>, max_gap: usize) -> Vec<Range<usiz
 mod tests {
     use std::sync::Arc;
 
-    use vortex_buffer::Buffer;
+    use bytes::Bytes;
 
     use crate::read_ranges::merge_ranges;
     use crate::{IoDispatcher, VortexReadRanges};
@@ -136,7 +136,7 @@ mod tests {
 
     #[tokio::test]
     async fn read_ranges() {
-        let bytes = Buffer::from("trytoreadthisinmultiplechunks");
+        let bytes = Bytes::from("trytoreadthisinmultiplechunks");
         let range_read = VortexReadRanges::new(bytes, Arc::new(IoDispatcher::new_tokio(1)), 15);
         let ranges = vec![5..9, 23..29];
         let merged_ranges = merge_ranges(ranges.clone(), 15);
@@ -144,7 +144,7 @@ mod tests {
         let read_ranges = range_read.read_byte_ranges(ranges).await.unwrap();
         assert_eq!(
             read_ranges,
-            vec![Buffer::from("read"), Buffer::from("chunks")]
+            vec![Bytes::from("read"), Bytes::from("chunks")]
         );
     }
 }

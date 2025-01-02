@@ -14,6 +14,7 @@ rust-version.workspace = true
 categories.workspace = true
 
 [dependencies]
+bytes = { workspace = true }
 cfg-if = { workspace = true }
 compio = { workspace = true, features = ["bytes", "macros"], optional = true }
 pin-project = { workspace = true }

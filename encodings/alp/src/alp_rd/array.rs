@@ -199,23 +199,23 @@ impl IntoCanonical for ALPRDArray {
         let left_parts_dict = &self.metadata().dict[0..self.metadata().dict_len as usize];
 
         let decoded_array = if self.is_f32() {
-            PrimitiveArray::from_vec(
+            PrimitiveArray::new(
                 alp_rd_decode::<f32>(
-                    left_parts.maybe_null_slice::<u16>(),
+                    left_parts.into_buffer::<u16>(),
                     left_parts_dict,
                     self.metadata().right_bit_width,
-                    right_parts.maybe_null_slice::<u32>(),
+                    right_parts.into_buffer::<u32>(),
                     self.left_parts_patches(),
                 )?,
                 self.logical_validity().into_validity(),
             )
         } else {
-            PrimitiveArray::from_vec(
+            PrimitiveArray::new(
                 alp_rd_decode::<f64>(
-                    left_parts.maybe_null_slice::<u16>(),
+                    left_parts.into_buffer::<u16>(),
                     left_parts_dict,
                     self.metadata().right_bit_width,
-                    right_parts.maybe_null_slice::<u64>(),
+                    right_parts.into_buffer::<u64>(),
                     self.left_parts_patches(),
                 )?,
                 self.logical_validity().into_validity(),
@@ -277,7 +277,7 @@ mod test {
         reals[900] = None;
 
         // Create a new array from this.
-        let real_array = PrimitiveArray::from_nullable_vec(reals.clone());
+        let real_array = PrimitiveArray::from_option_iter(reals.iter().cloned());
 
         // Pick a seed that we know will trigger lots of patches.
         let encoder: alp_rd::RDEncoder = alp_rd::RDEncoder::new(&[seed.powi(-2)]);
@@ -292,6 +292,6 @@ mod test {
             .unwrap();
 
         let maybe_null_reals: Vec<T> = reals.into_iter().map(|v| v.unwrap_or_default()).collect();
-        assert_eq!(decoded.maybe_null_slice::<T>(), &maybe_null_reals);
+        assert_eq!(decoded.as_slice::<T>(), &maybe_null_reals);
     }
 }

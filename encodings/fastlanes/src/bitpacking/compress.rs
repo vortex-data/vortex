@@ -6,7 +6,7 @@ use vortex_array::stats::ArrayStatistics;
 use vortex_array::validity::{ArrayValidity, Validity};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayLen, IntoArrayData};
-use vortex_buffer::Buffer;
+use vortex_buffer::{buffer, Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::{
     match_each_integer_ptype, match_each_unsigned_integer_ptype, NativePType, PType,
 };
@@ -95,10 +95,13 @@ pub unsafe fn bitpack_encode_unchecked(
 ///
 /// It is the caller's responsibility to ensure that `parray` is non-negative before calling
 /// this function.
-pub unsafe fn bitpack_unchecked(parray: &PrimitiveArray, bit_width: u8) -> VortexResult<Buffer> {
+pub unsafe fn bitpack_unchecked(
+    parray: &PrimitiveArray,
+    bit_width: u8,
+) -> VortexResult<ByteBuffer> {
     let parray = parray.reinterpret_cast(parray.ptype().to_unsigned());
     let packed = match_each_unsigned_integer_ptype!(parray.ptype(), |$P| {
-        bitpack_primitive(parray.maybe_null_slice::<$P>(), bit_width)
+        bitpack_primitive(parray.as_slice::<$P>(), bit_width)
     });
     Ok(packed)
 }
@@ -109,9 +112,9 @@ pub unsafe fn bitpack_unchecked(parray: &PrimitiveArray, bit_width: u8) -> Vorte
 pub fn bitpack_primitive<T: NativePType + BitPacking + ArrowNativeType>(
     array: &[T],
     bit_width: u8,
-) -> Buffer {
+) -> ByteBuffer {
     if bit_width == 0 {
-        return Buffer::from_len_zeroed(0);
+        return ByteBuffer::empty();
     }
     let bit_width = bit_width as usize;
 
@@ -124,13 +127,11 @@ pub fn bitpack_primitive<T: NativePType + BitPacking + ArrowNativeType>(
     // then we divide by the size of T to get the number of elements.
 
     // Allocate a result byte array.
-    let mut output = Vec::<T>::with_capacity(num_chunks * packed_len);
+    let mut output = BufferMut::<T>::with_capacity(num_chunks * packed_len);
 
     // Loop over all but the last chunk.
     (0..num_full_chunks).for_each(|i| {
         let start_elem = i * 1024;
-
-        output.reserve(packed_len);
         let output_len = output.len();
         unsafe {
             output.set_len(output_len + packed_len);
@@ -148,7 +149,6 @@ pub fn bitpack_primitive<T: NativePType + BitPacking + ArrowNativeType>(
         let mut last_chunk: [T; 1024] = [T::zero(); 1024];
         last_chunk[..last_chunk_size].copy_from_slice(&array[array.len() - last_chunk_size..]);
 
-        output.reserve(packed_len);
         let output_len = output.len();
         unsafe {
             output.set_len(output_len + packed_len);
@@ -160,7 +160,7 @@ pub fn bitpack_primitive<T: NativePType + BitPacking + ArrowNativeType>(
         };
     }
 
-    Buffer::from(output)
+    output.freeze().into_byte_buffer()
 }
 
 pub fn gather_patches(
@@ -173,9 +173,9 @@ pub fn gather_patches(
         _ => Validity::AllValid,
     };
     match_each_integer_ptype!(parray.ptype(), |$T| {
-        let mut indices: Vec<u64> = Vec::with_capacity(num_exceptions_hint);
-        let mut values: Vec<$T> = Vec::with_capacity(num_exceptions_hint);
-        for (i, v) in parray.maybe_null_slice::<$T>().iter().enumerate() {
+        let mut indices: BufferMut<u64> = BufferMut::with_capacity(num_exceptions_hint);
+        let mut values: BufferMut<$T> = BufferMut::with_capacity(num_exceptions_hint);
+        for (i, v) in parray.as_slice::<$T>().iter().enumerate() {
             if (v.leading_zeros() as usize) < parray.ptype().bit_width() - bit_width as usize && parray.is_valid(i) {
                 indices.push(i as u64);
                 values.push(*v);
@@ -184,7 +184,7 @@ pub fn gather_patches(
         (!indices.is_empty()).then(|| Patches::new(
             parray.len(),
             indices.into_array(),
-            PrimitiveArray::from_vec(values, patch_validity).into_array(),
+            PrimitiveArray::new(values, patch_validity).into_array(),
         ))
     })
 }
@@ -195,7 +195,7 @@ pub fn unpack(array: BitPackedArray) -> VortexResult<PrimitiveArray> {
     let offset = array.offset() as usize;
     let ptype = array.ptype();
     let mut unpacked = match_each_unsigned_integer_ptype!(ptype.to_unsigned(), |$P| {
-        PrimitiveArray::from_vec(
+        PrimitiveArray::new(
             unpack_primitive::<$P>(array.packed_slice::<$P>(), bit_width, offset, length),
             array.validity(),
         )
@@ -218,9 +218,9 @@ pub fn unpack_primitive<T: NativePType + BitPacking>(
     bit_width: usize,
     offset: usize,
     length: usize,
-) -> Vec<T> {
+) -> Buffer<T> {
     if bit_width == 0 {
-        return vec![T::zero(); length];
+        return buffer![T::zero(); length];
     }
 
     // How many fastlanes vectors we will process.
@@ -236,7 +236,8 @@ pub fn unpack_primitive<T: NativePType + BitPacking>(
     );
 
     // Allocate a result vector.
-    let mut output = Vec::with_capacity(num_chunks * 1024 - offset);
+    // TODO(ngates): do we want to use fastlanes alignment for this buffer?
+    let mut output = BufferMut::with_capacity(num_chunks * 1024 - offset);
 
     // Handle first chunk if offset is non 0. We have to decode the chunk and skip first offset elements
     let first_full_chunk = if offset != 0 {
@@ -262,13 +263,6 @@ pub fn unpack_primitive<T: NativePType + BitPacking>(
     // The final chunk may have had padding
     output.truncate(length);
 
-    // For small vectors, the overhead of rounding up is more noticable.
-    // Shrink to fit may or may not reallocate depending on the implementation.
-    // But for very small vectors, the reallocation is cheap enough even if it does happen.
-    if output.len() < 1024 {
-        output.shrink_to_fit();
-    }
-
     assert_eq!(
         output.len(),
         length,
@@ -276,7 +270,7 @@ pub fn unpack_primitive<T: NativePType + BitPacking>(
         length,
         output.len()
     );
-    output
+    output.freeze()
 }
 
 pub fn unpack_single(array: &BitPackedArray, index: usize) -> VortexResult<Scalar> {
@@ -404,8 +398,8 @@ mod test {
     #[test]
     fn null_patches() {
         let valid_values = (0..24).map(|v| v < 1 << 4).collect::<Vec<_>>();
-        let values = PrimitiveArray::from_vec(
-            (0u32..24).collect::<Vec<_>>(),
+        let values = PrimitiveArray::new(
+            (0u32..24).collect::<Buffer<_>>(),
             Validity::from_iter(valid_values),
         );
         assert!(values.ptype().is_unsigned_int());
@@ -438,16 +432,13 @@ mod test {
     }
 
     fn compression_roundtrip(n: usize) {
-        let values = PrimitiveArray::from((0..n).map(|i| (i % 2047) as u16).collect::<Vec<_>>());
+        let values = PrimitiveArray::from_iter((0..n).map(|i| (i % 2047) as u16));
         let compressed = BitPackedArray::encode(values.as_ref(), 11).unwrap();
         let decompressed = compressed.to_array().into_primitive().unwrap();
-        assert_eq!(
-            decompressed.maybe_null_slice::<u16>(),
-            values.maybe_null_slice::<u16>()
-        );
+        assert_eq!(decompressed.as_slice::<u16>(), values.as_slice::<u16>());
 
         values
-            .maybe_null_slice::<u16>()
+            .as_slice::<u16>()
             .iter()
             .enumerate()
             .for_each(|(i, v)| {
@@ -458,8 +449,8 @@ mod test {
 
     #[test]
     fn compress_signed_fails() {
-        let values: Vec<i64> = (-500..500).collect();
-        let array = PrimitiveArray::from_vec(values, Validity::AllValid);
+        let values: Buffer<i64> = (-500..500).collect();
+        let array = PrimitiveArray::new(values, Validity::AllValid);
         assert!(array.ptype().is_signed_int());
 
         let err = BitPackedArray::encode(array.as_ref(), 1024u32.ilog2() as u8).unwrap_err();

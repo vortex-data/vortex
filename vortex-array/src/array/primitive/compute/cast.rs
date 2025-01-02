@@ -1,3 +1,4 @@
+use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability};
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
@@ -32,15 +33,17 @@ impl CastFn<PrimitiveArray> for PrimitiveEncoding {
 
         // If the bit width is the same, we can short-circuit and simply update the validity
         if array.ptype() == new_ptype {
-            return Ok(
-                PrimitiveArray::new(array.buffer().clone(), array.ptype(), new_validity)
-                    .into_array(),
-            );
+            return Ok(PrimitiveArray::from_byte_buffer(
+                array.byte_buffer().clone(),
+                array.ptype(),
+                new_validity,
+            )
+            .into_array());
         }
 
         // Otherwise, we need to cast the values one-by-one
         match_each_native_ptype!(new_ptype, |$T| {
-            Ok(PrimitiveArray::from_vec(
+            Ok(PrimitiveArray::new(
                 cast::<$T>(array)?,
                 new_validity,
             ).into_array())
@@ -48,23 +51,23 @@ impl CastFn<PrimitiveArray> for PrimitiveEncoding {
     }
 }
 
-fn cast<T: NativePType>(array: &PrimitiveArray) -> VortexResult<Vec<T>> {
-    match_each_native_ptype!(array.ptype(), |$E| {
-        array
-            .maybe_null_slice::<$E>()
-            .iter()
-            // TODO(ngates): allow configurable checked/unchecked casting
-            .map(|&v| {
-                T::from(v).ok_or_else(|| {
-                    vortex_err!(ComputeError: "Failed to cast {} to {:?}", v, T::PTYPE)
-                })
-            })
-            .collect()
-    })
+fn cast<T: NativePType>(array: &PrimitiveArray) -> VortexResult<Buffer<T>> {
+    let mut buffer = BufferMut::with_capacity(array.len());
+    match_each_native_ptype!(array.ptype(), |$P| {
+        for item in array.as_slice::<$P>() {
+            let item = T::from(*item).ok_or_else(
+                || vortex_err!(ComputeError: "Failed to cast {} to {:?}", item, T::PTYPE),
+            )?;
+            // SAFETY: we've pre-allocated the required capacity
+            unsafe { buffer.push_unchecked(item) }
+        }
+    });
+    Ok(buffer.freeze())
 }
 
 #[cfg(test)]
 mod test {
+    use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_error::VortexError;
 
@@ -75,14 +78,14 @@ mod test {
 
     #[test]
     fn cast_u32_u8() {
-        let arr = vec![0u32, 10, 200].into_array();
+        let arr = buffer![0u32, 10, 200].into_array();
 
         // cast from u32 to u8
         let p = try_cast(&arr, PType::U8.into())
             .unwrap()
             .into_primitive()
             .unwrap();
-        assert_eq!(p.maybe_null_slice::<u8>(), vec![0u8, 10, 200]);
+        assert_eq!(p.as_slice::<u8>(), vec![0u8, 10, 200]);
         assert_eq!(p.validity(), Validity::NonNullable);
 
         // to nullable
@@ -90,7 +93,7 @@ mod test {
             .unwrap()
             .into_primitive()
             .unwrap();
-        assert_eq!(p.maybe_null_slice::<u8>(), vec![0u8, 10, 200]);
+        assert_eq!(p.as_slice::<u8>(), vec![0u8, 10, 200]);
         assert_eq!(p.validity(), Validity::AllValid);
 
         // back to non-nullable
@@ -98,7 +101,7 @@ mod test {
             .unwrap()
             .into_primitive()
             .unwrap();
-        assert_eq!(p.maybe_null_slice::<u8>(), vec![0u8, 10, 200]);
+        assert_eq!(p.as_slice::<u8>(), vec![0u8, 10, 200]);
         assert_eq!(p.validity(), Validity::NonNullable);
 
         // to nullable u32
@@ -106,7 +109,7 @@ mod test {
             .unwrap()
             .into_primitive()
             .unwrap();
-        assert_eq!(p.maybe_null_slice::<u32>(), vec![0u32, 10, 200]);
+        assert_eq!(p.as_slice::<u32>(), vec![0u32, 10, 200]);
         assert_eq!(p.validity(), Validity::AllValid);
 
         // to non-nullable u8
@@ -114,23 +117,23 @@ mod test {
             .unwrap()
             .into_primitive()
             .unwrap();
-        assert_eq!(p.maybe_null_slice::<u8>(), vec![0u8, 10, 200]);
+        assert_eq!(p.as_slice::<u8>(), vec![0u8, 10, 200]);
         assert_eq!(p.validity(), Validity::NonNullable);
     }
 
     #[test]
     fn cast_u32_f32() {
-        let arr = vec![0u32, 10, 200].into_array();
+        let arr = buffer![0u32, 10, 200].into_array();
         let u8arr = try_cast(&arr, PType::F32.into())
             .unwrap()
             .into_primitive()
             .unwrap();
-        assert_eq!(u8arr.maybe_null_slice::<f32>(), vec![0.0f32, 10., 200.]);
+        assert_eq!(u8arr.as_slice::<f32>(), vec![0.0f32, 10., 200.]);
     }
 
     #[test]
     fn cast_i32_u32() {
-        let arr = vec![-1i32].into_array();
+        let arr = buffer![-1i32].into_array();
         let error = try_cast(&arr, PType::U32.into()).err().unwrap();
         let VortexError::ComputeError(s, _) = error else {
             unreachable!()
@@ -140,7 +143,7 @@ mod test {
 
     #[test]
     fn cast_array_with_nulls_to_nonnullable() {
-        let arr = PrimitiveArray::from_nullable_vec(vec![Some(-1i32), None, Some(10)]).into_array();
+        let arr = PrimitiveArray::from_option_iter([Some(-1i32), None, Some(10)]).into_array();
         let err = try_cast(&arr, PType::I32.into()).unwrap_err();
         let VortexError::InvalidArgument(s, _) = err else {
             unreachable!()

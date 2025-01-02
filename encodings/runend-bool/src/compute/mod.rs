@@ -42,9 +42,9 @@ impl TakeFn<RunEndBoolArray> for RunEndBoolEncoding {
         let primitive_indices = indices.clone().into_primitive()?;
         let physical_indices = match_each_integer_ptype!(primitive_indices.ptype(), |$P| {
             primitive_indices
-                .into_maybe_null_slice::<$P>()
-                .into_iter()
-                .map(|idx| idx as usize)
+                .as_slice::<$P>()
+                .iter()
+                .map(|idx| *idx as usize)
                 .map(|idx| {
                     if idx >= array.len() {
                         vortex_bail!(OutOfBounds: idx, 0, array.len())
@@ -101,6 +101,7 @@ mod tests {
     use vortex_array::compute::{scalar_at, slice, take};
     use vortex_array::validity::Validity;
     use vortex_array::{ArrayDType, ArrayLen, IntoArrayData, IntoArrayVariant};
+    use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
     use vortex_scalar::Scalar;
 
@@ -108,9 +109,12 @@ mod tests {
 
     #[test]
     fn slice_at_end() {
-        let re_array =
-            RunEndBoolArray::try_new(vec![7_u64, 10].into_array(), false, Validity::NonNullable)
-                .unwrap();
+        let re_array = RunEndBoolArray::try_new(
+            buffer![7_u64, 10].into_array(),
+            false,
+            Validity::NonNullable,
+        )
+        .unwrap();
 
         assert_eq!(re_array.len(), 10);
 
@@ -124,7 +128,7 @@ mod tests {
     #[test]
     fn scalar_at_nullability() {
         let re_array =
-            RunEndBoolArray::try_new(vec![7_u64, 10].into_array(), false, Validity::AllValid)
+            RunEndBoolArray::try_new(buffer![7_u64, 10].into_array(), false, Validity::AllValid)
                 .unwrap();
 
         assert_eq!(
@@ -136,7 +140,7 @@ mod tests {
     #[test]
     fn take_nullable() {
         let re_array = RunEndBoolArray::try_new(
-            vec![7_u64, 10].into_array(),
+            buffer![7_u64, 10].into_array(),
             false,
             Validity::from(BooleanBuffer::from(vec![
                 false, false, true, true, true, true, true, true, false, false,
@@ -144,7 +148,7 @@ mod tests {
         )
         .unwrap();
 
-        let taken = take(&re_array, PrimitiveArray::from(vec![6, 9])).unwrap();
+        let taken = take(&re_array, PrimitiveArray::from_iter([6, 9])).unwrap();
         let taken_bool = taken.into_bool().unwrap();
         assert_eq!(taken_bool.dtype(), re_array.dtype());
         assert_eq!(
