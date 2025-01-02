@@ -91,12 +91,12 @@ async fn test_read_simple_with_spawn() {
     .into_array();
 
     let lists = ChunkedArray::from_iter([
-        ListArray::slow_from_iter(
+        ListArray::from_iter_slow(
             vec![vec![11, 12], vec![21, 22], vec![31, 32], vec![41, 42]],
             Arc::new(I32.into()),
         )
         .unwrap(),
-        ListArray::slow_from_iter(
+        ListArray::from_iter_slow(
             vec![vec![51, 52], vec![61, 62], vec![71, 72], vec![81, 82]],
             Arc::new(I32.into()),
         )

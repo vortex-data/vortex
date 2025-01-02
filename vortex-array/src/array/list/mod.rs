@@ -149,7 +149,7 @@ impl ListArray {
     // This is a convenience method to create a list array from an iterator of iterators.
     // This method is slow however since each element is first converted to a scalar and then
     // appended to the array.
-    pub fn slow_from_iter<I: IntoIterator>(iter: I, dtype: Arc<DType>) -> VortexResult<ArrayData>
+    pub fn from_iter_slow<I: IntoIterator>(iter: I, dtype: Arc<DType>) -> VortexResult<ArrayData>
     where
         I::Item: IntoIterator,
         <I::Item as IntoIterator>::Item: Into<Scalar>,
@@ -281,7 +281,7 @@ mod test {
             ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
 
         let list_from_iter =
-            ListArray::slow_from_iter(vec![vec![1i32, 2], vec![3]], Arc::new(I32.into())).unwrap();
+            ListArray::from_iter_slow(vec![vec![1i32, 2], vec![3]], Arc::new(I32.into())).unwrap();
 
         assert_eq!(list.len(), list_from_iter.len());
         assert_eq!(
