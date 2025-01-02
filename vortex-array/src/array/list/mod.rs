@@ -3,7 +3,6 @@ mod compute;
 use std::fmt::Display;
 use std::sync::Arc;
 
-use arrow_array::builder::make_builder;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
 use serde::{Deserialize, Serialize};
@@ -147,7 +146,6 @@ impl ListArray {
             .vortex_expect("array contains elements")
     }
 
-    #[allow(clippy::same_name_method)]
     pub fn slow_from_iter<I: IntoIterator>(iter: I, dtype: Arc<DType>) -> VortexResult<ArrayData>
     where
         I::Item: IntoIterator,
