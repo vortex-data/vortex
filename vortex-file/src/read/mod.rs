@@ -33,10 +33,18 @@ use vortex_expr::ExprRef;
 
 use crate::byte_range::ByteRange;
 pub use crate::read::mask::RowMask;
+use crate::MAX_FOOTER_SIZE;
 
 // Recommended read-size according to the AWS performance guide
 // FIXME(ngates): this is dumb
 pub const INITIAL_READ_SIZE: usize = 8 * 1024 * 1024;
+
+// There are assumptions in the initial read implementation that the postscript must fit
+// in the initial read.
+const _: () = assert!(
+    INITIAL_READ_SIZE >= MAX_FOOTER_SIZE as usize,
+    "INITIAL_READ_SIZE must be larger than MAX_FOOTER_SIZE"
+);
 
 /// Operation to apply to data returned by the layout
 #[derive(Debug, Clone)]
