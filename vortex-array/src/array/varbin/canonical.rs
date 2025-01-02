@@ -1,7 +1,7 @@
 use arrow_array::ArrayRef;
 use arrow_schema::DataType;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::VortexResult;
 
 use crate::array::varbin::arrow::varbin_to_arrow;
 use crate::array::varbin::VarBinArray;
