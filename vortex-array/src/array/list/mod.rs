@@ -15,9 +15,8 @@ use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::array::PrimitiveArray;
-use crate::builders::ArrayBuilder;
 #[cfg(feature = "test_util")]
-use crate::builders::ListBuilder;
+use crate::builders::{ArrayBuilder, ListBuilder};
 use crate::compute::{scalar_at, slice};
 use crate::encoding::ids;
 use crate::stats::{Stat, StatisticsVTable, StatsSet};
