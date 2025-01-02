@@ -317,25 +317,6 @@ impl<T> BufferMut<T> {
         buf
     }
 
-    /// Map each element of the buffer and its index with a closure.
-    pub fn map_each_with_index<R, F>(self, mut f: F) -> BufferMut<R>
-    where
-        T: Copy,
-        F: FnMut(usize, T) -> R,
-    {
-        assert_eq!(
-            size_of::<T>(),
-            size_of::<R>(),
-            "Size of T and R do not match"
-        );
-        // SAFETY: we have checked that `size_of::<T>` == `size_of::<R>`.
-        let mut buf: BufferMut<R> = unsafe { std::mem::transmute(self) };
-        buf.iter_mut()
-            .enumerate()
-            .for_each(|(index, item)| *item = f(index, unsafe { std::mem::transmute_copy(item) }));
-        buf
-    }
-
     /// Return a `BufferMut<T>` with the given alignment. Where possible, this will be zero-copy.
     pub fn aligned(self, alignment: Alignment) -> Self {
         if self.as_ptr().align_offset(*alignment) == 0 {

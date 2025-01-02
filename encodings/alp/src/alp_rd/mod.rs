@@ -288,9 +288,11 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
     }
 
     // Shift the left-parts and add in the right-parts.
+    let mut index = 0;
     Ok(right_parts
-        .map_each_with_index(|index, right| {
+        .map_each(|right| {
             let left = values[index];
+            index += 1;
             let left = <T as ALPRDFloat>::from_u16(left);
             T::from_bits((left << (right_bit_width as usize)) | right)
         })
