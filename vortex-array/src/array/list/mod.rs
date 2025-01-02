@@ -3,12 +3,16 @@ mod compute;
 use std::fmt::Display;
 use std::sync::Arc;
 
+use arrow_array::builder::make_builder;
+use itertools::Itertools;
 use num_traits::AsPrimitive;
 use serde::{Deserialize, Serialize};
-use vortex_dtype::{match_each_native_ptype, DType, PType};
+use vortex_dtype::{match_each_native_ptype, DType, Nullability, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult};
+use vortex_scalar::Scalar;
 
 use crate::array::PrimitiveArray;
+use crate::builders::{ArrayBuilder, ListBuilder};
 use crate::compute::{scalar_at, slice};
 use crate::encoding::ids;
 use crate::stats::{Stat, StatisticsVTable, StatsSet};
@@ -141,6 +145,30 @@ impl ListArray {
         self.as_ref()
             .child(0, dtype, self.metadata().elements_len)
             .vortex_expect("array contains elements")
+    }
+
+    #[allow(clippy::same_name_method)]
+    pub fn slow_from_iter<I: IntoIterator>(iter: I, dtype: Arc<DType>) -> VortexResult<ArrayData>
+    where
+        I::Item: IntoIterator,
+        <I::Item as IntoIterator>::Item: Into<Scalar>,
+    {
+        let iter = iter.into_iter();
+        let mut builder = ListBuilder::<u32>::with_capacity(
+            dtype.clone(),
+            Nullability::NonNullable,
+            iter.size_hint().0,
+        );
+
+        for v in iter {
+            let elem = Scalar::list(
+                dtype.clone(),
+                v.into_iter().map(|x| x.into()).collect_vec(),
+                Nullability::Nullable,
+            );
+            builder.append_value(elem.as_list())?
+        }
+        builder.finish()
     }
 }
 
