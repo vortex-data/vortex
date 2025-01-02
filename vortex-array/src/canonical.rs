@@ -604,13 +604,13 @@ mod test {
     use arrow_schema::{DataType, Field};
     use vortex_buffer::buffer;
 
-    use crate::array::{SparseArray, StructArray};
-    use crate::arrow::FromArrowArray;
-    use crate::{ArrayData, IntoArrayData, IntoCanonical};
-    use crate::array::{PrimitiveArray, SparseArray, StructArray};
-    use crate::arrow::{infer_data_type, FromArrowArray};
+    use crate::array::{PrimitiveArray, SparseArray, SparseArray, StructArray, StructArray};
+    use crate::arrow::{infer_data_type, FromArrowArray, FromArrowArray};
     use crate::validity::Validity;
-    use crate::{ArrayDType, ArrayData, IntoArrayData, IntoCanonical};
+    use crate::{
+        ArrayDType, ArrayData, ArrayData, IntoArrayData, IntoArrayData, IntoCanonical,
+        IntoCanonical,
+    };
 
     #[test]
     fn test_canonicalize_nested_struct() {
