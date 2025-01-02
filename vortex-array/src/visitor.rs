@@ -1,5 +1,5 @@
 use vortex_buffer::ByteBuffer;
-use vortex_error::{vortex_err, VortexError, VortexResult};
+use vortex_error::{VortexError, VortexResult};
 
 use crate::encoding::{downcast_array_ref, Encoding};
 use crate::patches::Patches;

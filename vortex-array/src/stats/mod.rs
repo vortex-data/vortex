@@ -12,7 +12,7 @@ use num_enum::{IntoPrimitive, TryFromPrimitive};
 pub use statsset::*;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, NativePType, PType};
-use vortex_error::{vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult};
+use vortex_error::{vortex_panic, VortexError, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::encoding::{downcast_array_ref, Encoding};

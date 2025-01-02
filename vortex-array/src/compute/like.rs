@@ -1,8 +1,8 @@
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
+use vortex_error::{vortex_bail, VortexError, VortexResult};
 
 use crate::arrow::{Datum, FromArrowArray};
-use crate::encoding::Encoding;
+use crate::encoding::{downcast_array_ref, Encoding};
 use crate::{ArrayDType, ArrayData};
 
 pub trait LikeFn<Array> {

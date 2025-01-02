@@ -3,7 +3,7 @@ use std::fmt::{Display, Formatter};
 
 use arrow_ord::cmp;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
+use vortex_error::{vortex_bail, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::arrow::{Datum, FromArrowArray};

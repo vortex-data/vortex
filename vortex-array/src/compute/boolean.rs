@@ -3,10 +3,10 @@ use std::sync::Arc;
 use arrow_array::cast::AsArray;
 use arrow_array::ArrayRef;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
+use vortex_error::{vortex_bail, VortexError, VortexResult};
 
 use crate::arrow::FromArrowArray;
-use crate::encoding::Encoding;
+use crate::encoding::{downcast_array_ref, Encoding};
 use crate::{ArrayDType, ArrayData, Canonical, IntoArrayVariant};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,7 +40,7 @@ where
         rhs: &ArrayData,
         op: BinaryOperator,
     ) -> VortexResult<Option<ArrayData>> {
-        let (array_ref, encoding) = downcast_array_ref::<E>(array)?;
+        let (array_ref, encoding) = downcast_array_ref::<E>(lhs)?;
         BinaryBooleanFn::binary_boolean(encoding, array_ref, rhs, op)
     }
 }

@@ -1,7 +1,7 @@
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
+use vortex_error::{vortex_bail, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::encoding::Encoding;
+use crate::encoding::{downcast_array_ref, Encoding};
 use crate::{ArrayDType, ArrayData, IntoArrayData, IntoCanonical};
 
 /// Implementation of fill_null for an encoding.
