@@ -12,8 +12,10 @@ use vortex_array::compute::{
     binary_numeric, filter, scalar_at, slice, BinaryNumericFn, CompareFn, ComputeVTable,
     FillNullFn, FilterFn, FilterMask, InvertFn, ScalarAtFn, SliceFn, TakeFn,
 };
+use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
+use vortex_buffer::buffer_mut;
 use vortex_dtype::{match_each_unsigned_integer_ptype, NativePType};
 use vortex_error::{VortexResult, VortexUnwrap};
 use vortex_scalar::{BinaryNumericOperator, Scalar};
@@ -114,7 +116,7 @@ impl FilterFn<RunEndArray> for RunEndEncoding {
     fn filter(&self, array: &RunEndArray, mask: FilterMask) -> VortexResult<ArrayData> {
         let primitive_run_ends = array.ends().into_primitive()?;
         let (run_ends, values_mask) = match_each_unsigned_integer_ptype!(primitive_run_ends.ptype(), |$P| {
-            filter_run_ends(primitive_run_ends.maybe_null_slice::<$P>(), array.offset() as u64, array.len() as u64, mask)?
+            filter_run_ends(primitive_run_ends.as_slice::<$P>(), array.offset() as u64, array.len() as u64, mask)?
         });
         let values = filter(&array.values(), values_mask)?;
 
@@ -129,7 +131,7 @@ fn filter_run_ends<R: NativePType + AddAssign + From<bool> + AsPrimitive<u64>>(
     length: u64,
     mask: FilterMask,
 ) -> VortexResult<(PrimitiveArray, FilterMask)> {
-    let mut new_run_ends = vec![R::zero(); run_ends.len()];
+    let mut new_run_ends = buffer_mut![R::zero(); run_ends.len()];
 
     let mut start = 0u64;
     let mut j = 0;
@@ -157,7 +159,10 @@ fn filter_run_ends<R: NativePType + AddAssign + From<bool> + AsPrimitive<u64>>(
     .into();
 
     new_run_ends.truncate(j);
-    Ok((PrimitiveArray::from(new_run_ends), new_mask))
+    Ok((
+        PrimitiveArray::new(new_run_ends, Validity::NonNullable),
+        new_mask,
+    ))
 }
 
 #[cfg(test)]
@@ -165,13 +170,14 @@ mod test {
     use vortex_array::array::PrimitiveArray;
     use vortex_array::compute::{filter, scalar_at, slice, FilterMask};
     use vortex_array::{ArrayDType, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
+    use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
     use crate::RunEndArray;
 
     pub(crate) fn ree_array() -> RunEndArray {
         RunEndArray::encode(
-            PrimitiveArray::from(vec![1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5]).to_array(),
+            PrimitiveArray::from_iter([1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5]).to_array(),
         )
         .unwrap()
     }
@@ -186,8 +192,8 @@ mod test {
     fn slice_array() {
         let arr = slice(
             RunEndArray::try_new(
-                vec![2u32, 5, 10].into_array(),
-                vec![1i32, 2, 3].into_array(),
+                buffer![2u32, 5, 10].into_array(),
+                buffer![1i32, 2, 3].into_array(),
             )
             .unwrap()
             .as_ref(),
@@ -202,7 +208,7 @@ mod test {
         assert_eq!(arr.len(), 5);
 
         assert_eq!(
-            arr.into_primitive().unwrap().maybe_null_slice::<i32>(),
+            arr.into_primitive().unwrap().as_slice::<i32>(),
             vec![2, 2, 3, 3, 3]
         );
     }
@@ -211,8 +217,8 @@ mod test {
     fn double_slice() {
         let arr = slice(
             RunEndArray::try_new(
-                vec![2u32, 5, 10].into_array(),
-                vec![1i32, 2, 3].into_array(),
+                buffer![2u32, 5, 10].into_array(),
+                buffer![1i32, 2, 3].into_array(),
             )
             .unwrap()
             .as_ref(),
@@ -225,10 +231,7 @@ mod test {
         let doubly_sliced = slice(&arr, 0, 3).unwrap();
 
         assert_eq!(
-            doubly_sliced
-                .into_primitive()
-                .unwrap()
-                .maybe_null_slice::<i32>(),
+            doubly_sliced.into_primitive().unwrap().as_slice::<i32>(),
             vec![2, 2, 3]
         );
     }
@@ -237,8 +240,8 @@ mod test {
     fn slice_end_inclusive() {
         let arr = slice(
             RunEndArray::try_new(
-                vec![2u32, 5, 10].into_array(),
-                vec![1i32, 2, 3].into_array(),
+                buffer![2u32, 5, 10].into_array(),
+                buffer![1i32, 2, 3].into_array(),
             )
             .unwrap()
             .as_ref(),
@@ -253,7 +256,7 @@ mod test {
         assert_eq!(arr.len(), 6);
 
         assert_eq!(
-            arr.into_primitive().unwrap().maybe_null_slice::<i32>(),
+            arr.into_primitive().unwrap().as_slice::<i32>(),
             vec![2, 3, 3, 3, 3, 3]
         );
     }
@@ -261,22 +264,24 @@ mod test {
     #[test]
     fn decompress() {
         let arr = RunEndArray::try_new(
-            vec![2u32, 5, 10].into_array(),
-            vec![1i32, 2, 3].into_array(),
+            buffer![2u32, 5, 10].into_array(),
+            buffer![1i32, 2, 3].into_array(),
         )
         .unwrap();
 
         assert_eq!(
-            arr.into_primitive().unwrap().maybe_null_slice::<i32>(),
+            arr.into_primitive().unwrap().as_slice::<i32>(),
             vec![1, 1, 2, 2, 2, 3, 3, 3, 3, 3]
         );
     }
 
     #[test]
     fn slice_at_end() {
-        let re_array =
-            RunEndArray::try_new(vec![7_u64, 10].into_array(), vec![2_u64, 3].into_array())
-                .unwrap();
+        let re_array = RunEndArray::try_new(
+            buffer![7_u64, 10].into_array(),
+            buffer![2_u64, 3].into_array(),
+        )
+        .unwrap();
 
         assert_eq!(re_array.len(), 10);
 
@@ -305,7 +310,7 @@ mod test {
                 .ends()
                 .into_primitive()
                 .unwrap()
-                .maybe_null_slice::<u64>(),
+                .as_slice::<u64>(),
             [2, 4]
         );
         assert_eq!(
@@ -313,7 +318,7 @@ mod test {
                 .values()
                 .into_primitive()
                 .unwrap()
-                .maybe_null_slice::<i32>(),
+                .as_slice::<i32>(),
             [1, 5]
         );
     }
@@ -333,7 +338,7 @@ mod test {
                 .ends()
                 .into_primitive()
                 .unwrap()
-                .maybe_null_slice::<u64>(),
+                .as_slice::<u64>(),
             [1, 2, 3]
         );
         assert_eq!(
@@ -341,7 +346,7 @@ mod test {
                 .values()
                 .into_primitive()
                 .unwrap()
-                .maybe_null_slice::<i32>(),
+                .as_slice::<i32>(),
             [1, 4, 2]
         );
     }

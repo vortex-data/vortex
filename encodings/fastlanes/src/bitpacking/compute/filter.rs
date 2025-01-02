@@ -4,6 +4,7 @@ use vortex_array::array::PrimitiveArray;
 use vortex_array::compute::{filter, FilterFn, FilterIter, FilterMask};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{match_each_unsigned_integer_ptype, NativePType};
 use vortex_error::VortexResult;
 
@@ -46,7 +47,7 @@ fn filter_primitive<T: NativePType + BitPacking + ArrowNativeType>(
             .and_then(|a| a.into_primitive());
     }
 
-    let values: Vec<T> = match mask.iter()? {
+    let values: Buffer<T> = match mask.iter()? {
         FilterIter::Indices(indices) => {
             filter_indices(array, mask.true_count(), indices.iter().copied())
         }
@@ -57,7 +58,7 @@ fn filter_primitive<T: NativePType + BitPacking + ArrowNativeType>(
         FilterIter::SlicesIter(iter) => filter_slices(array, mask.true_count(), iter),
     };
 
-    let mut values = PrimitiveArray::from_vec(values, validity).reinterpret_cast(array.ptype());
+    let mut values = PrimitiveArray::new(values, validity).reinterpret_cast(array.ptype());
     if let Some(patches) = patches {
         values = values.patch(patches)?;
     }
@@ -68,10 +69,10 @@ fn filter_indices<T: NativePType + BitPacking + ArrowNativeType>(
     array: &BitPackedArray,
     indices_len: usize,
     indices: impl Iterator<Item = usize>,
-) -> Vec<T> {
+) -> Buffer<T> {
     let offset = array.offset() as usize;
     let bit_width = array.bit_width() as usize;
-    let mut values = Vec::with_capacity(indices_len);
+    let mut values = BufferMut::with_capacity(indices_len);
 
     // Some re-usable memory to store per-chunk indices.
     let mut unpacked = [T::zero(); 1024];
@@ -110,14 +111,14 @@ fn filter_indices<T: NativePType + BitPacking + ArrowNativeType>(
         }
     });
 
-    values
+    values.freeze()
 }
 
 fn filter_slices<T: NativePType + BitPacking + ArrowNativeType>(
     array: &BitPackedArray,
     indices_len: usize,
     slices: impl Iterator<Item = (usize, usize)>,
-) -> Vec<T> {
+) -> Buffer<T> {
     // TODO(ngates): do this more efficiently.
     filter_indices(
         array,
@@ -128,17 +129,18 @@ fn filter_slices<T: NativePType + BitPacking + ArrowNativeType>(
 
 #[cfg(test)]
 mod test {
-    use itertools::Itertools;
     use vortex_array::array::PrimitiveArray;
     use vortex_array::compute::{filter, slice, FilterMask};
+    use vortex_array::validity::Validity;
     use vortex_array::{ArrayLen, IntoArrayVariant};
+    use vortex_buffer::Buffer;
 
     use crate::BitPackedArray;
 
     #[test]
     fn take_indices() {
         // Create a u8 array modulo 63.
-        let unpacked = PrimitiveArray::from((0..4096).map(|i| (i % 63) as u8).collect::<Vec<_>>());
+        let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 6).unwrap();
 
         let mask = FilterMask::from_indices(bitpacked.len(), [0, 125, 2047, 2049, 2151, 2790]);
@@ -147,49 +149,48 @@ mod test {
             .unwrap()
             .into_primitive()
             .unwrap();
-        let res_bytes = primitive_result.maybe_null_slice::<u8>();
+        let res_bytes = primitive_result.as_slice::<u8>();
         assert_eq!(res_bytes, &[0, 62, 31, 33, 9, 18]);
     }
 
     #[test]
     fn take_sliced_indices() {
         // Create a u8 array modulo 63.
-        let unpacked = PrimitiveArray::from((0..4096).map(|i| (i % 63) as u8).collect::<Vec<_>>());
+        let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 6).unwrap();
         let sliced = slice(bitpacked.as_ref(), 128, 2050).unwrap();
 
         let mask = FilterMask::from_indices(sliced.len(), [1919, 1921]);
 
         let primitive_result = filter(&sliced, mask).unwrap().into_primitive().unwrap();
-        let res_bytes = primitive_result.maybe_null_slice::<u8>();
+        let res_bytes = primitive_result.as_slice::<u8>();
         assert_eq!(res_bytes, &[31, 33]);
     }
 
     #[test]
     fn filter_bitpacked() {
-        let unpacked = PrimitiveArray::from((0..4096).map(|i| (i % 63) as u8).collect::<Vec<_>>());
+        let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 6).unwrap();
         let filtered = filter(bitpacked.as_ref(), FilterMask::from_indices(4096, 0..1024)).unwrap();
         assert_eq!(
-            filtered.into_primitive().unwrap().maybe_null_slice::<u8>(),
+            filtered.into_primitive().unwrap().as_slice::<u8>(),
             (0..1024).map(|i| (i % 63) as u8).collect::<Vec<_>>()
         );
     }
 
     #[test]
     fn filter_bitpacked_signed() {
-        let values: Vec<i64> = (0..500).collect_vec();
-        let unpacked = PrimitiveArray::from(values.clone());
+        let values: Buffer<i64> = (0..500).collect();
+        let unpacked = PrimitiveArray::new(values.clone(), Validity::NonNullable);
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 9).unwrap();
         let filtered = filter(
             bitpacked.as_ref(),
-            FilterMask::from_indices(values.len(), 0..500),
+            FilterMask::from_indices(values.len(), 0..250),
         )
         .unwrap()
         .into_primitive()
-        .unwrap()
-        .into_maybe_null_slice::<i64>();
+        .unwrap();
 
-        assert_eq!(filtered, values);
+        assert_eq!(filtered.as_slice::<i64>(), &values[0..250]);
     }
 }

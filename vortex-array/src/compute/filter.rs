@@ -170,7 +170,7 @@ impl<'a> BitIndexIterator<'a> {
     }
 }
 
-impl<'a> Iterator for BitIndexIterator<'a> {
+impl Iterator for BitIndexIterator<'_> {
     type Item = usize;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -185,8 +185,8 @@ impl<'a> Iterator for BitIndexIterator<'a> {
 }
 
 /// Safety: BitIndexIterator is TrustedLen because it knows its total length.
-unsafe impl<'a> TrustedLen for BitIndexIterator<'a> {}
-impl<'a> ExactSizeIterator for BitIndexIterator<'a> {}
+unsafe impl TrustedLen for BitIndexIterator<'_> {}
+impl ExactSizeIterator for BitIndexIterator<'_> {}
 
 pub enum FilterIter<'a> {
     // Slice of pre-cached indices of a filter mask.
@@ -361,7 +361,7 @@ mod test {
     #[test]
     fn test_filter() {
         let items =
-            PrimitiveArray::from_nullable_vec(vec![Some(0i32), None, Some(1i32), None, Some(2i32)])
+            PrimitiveArray::from_option_iter([Some(0i32), None, Some(1i32), None, Some(2i32)])
                 .into_array();
         let mask = FilterMask::try_from(
             BoolArray::from_iter([true, false, true, false, true]).into_array(),
@@ -375,8 +375,8 @@ mod test {
                 .unwrap()
                 .into_primitive()
                 .unwrap()
-                .into_maybe_null_slice::<i32>(),
-            vec![0i32, 1i32, 2i32]
+                .as_slice::<i32>(),
+            &[0i32, 1i32, 2i32]
         );
     }
 }

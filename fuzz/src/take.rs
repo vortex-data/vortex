@@ -4,7 +4,8 @@ use vortex_array::array::{BoolArray, PrimitiveArray, StructArray, VarBinViewArra
 use vortex_array::validity::{ArrayValidity, Validity};
 use vortex_array::variants::StructArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
-use vortex_dtype::{match_each_native_ptype, DType, NativePType};
+use vortex_buffer::Buffer;
+use vortex_dtype::{match_each_native_ptype, DType};
 use vortex_error::VortexExpect;
 
 pub fn take_canonical_array(array: &ArrayData, indices: &[usize]) -> ArrayData {
@@ -74,10 +75,10 @@ fn take_primitive<T: NativePType + ArrowNativeType>(
     indices: &[usize],
 ) -> ArrayData {
     let vec_values = primitive_array
-        .maybe_null_slice::<T>()
+        .as_slice::<T>()
         .iter()
         .copied()
         .collect::<Vec<_>>();
-    PrimitiveArray::from_vec(indices.iter().map(|i| vec_values[*i]).collect(), validity)
+    PrimitiveArray::new(indices.iter().map(|i| vec_values[*i]).collect::<Buffer<T>>(), validity)
         .into_array()
 }

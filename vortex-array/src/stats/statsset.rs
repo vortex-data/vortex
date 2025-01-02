@@ -539,15 +539,9 @@ mod test {
 
     #[test]
     fn merge_unordered() {
-        let array = PrimitiveArray::from_nullable_vec(vec![
-            Some(1),
-            None,
-            Some(2),
-            Some(42),
-            Some(10000),
-            None,
-        ])
-        .into_array();
+        let array =
+            PrimitiveArray::from_option_iter([Some(1), None, Some(2), Some(42), Some(10000), None])
+                .into_array();
         let all_stats = all::<Stat>()
             .filter(|s| !matches!(s, Stat::TrueCount))
             .collect_vec();

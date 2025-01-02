@@ -539,6 +539,7 @@ impl IntoArrayData for LogicalValidity {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_buffer::{buffer, Buffer};
 
     use crate::array::{BoolArray, PrimitiveArray};
     use crate::validity::Validity;
@@ -569,7 +570,7 @@ mod tests {
         #[case] expected: Validity,
     ) {
         let indices =
-            PrimitiveArray::from_vec(positions.to_vec(), Validity::NonNullable).into_array();
+            PrimitiveArray::new(Buffer::copy_from(positions), Validity::NonNullable).into_array();
         assert_eq!(validity.patch(len, &indices, patches).unwrap(), expected);
     }
 
@@ -577,11 +578,7 @@ mod tests {
     #[should_panic]
     fn out_of_bounds_patch() {
         Validity::NonNullable
-            .patch(
-                2,
-                &PrimitiveArray::from_vec(vec![4], Validity::NonNullable).into_array(),
-                Validity::AllInvalid,
-            )
+            .patch(2, &buffer![4].into_array(), Validity::AllInvalid)
             .unwrap();
     }
 }

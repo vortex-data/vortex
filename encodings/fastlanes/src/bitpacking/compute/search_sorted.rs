@@ -142,9 +142,9 @@ where
 /// This wrapper exists, so that you can't invoke SearchSorted::search_sorted directly on BitPackedArray as it omits searching patches
 #[derive(Debug)]
 struct BitPackedSearch<'a, T> {
-    // NOTE: caching this here is important for performance, as each call to `maybe_null_slice`
+    // NOTE: caching this here is important for performance, as each call to `as_slice`
     //  invokes a call to DType <> PType conversion
-    packed_maybe_null_slice: &'a [T],
+    packed_as_slice: &'a [T],
     offset: u16,
     length: usize,
     bit_width: u8,
@@ -174,7 +174,7 @@ impl<'a, T: BitPacking + NativePType> BitPackedSearch<'a, T> {
         let first_invalid_idx = cmp::min(min_patch_offset, first_null_idx);
 
         Self {
-            packed_maybe_null_slice: array.packed_slice::<T>(),
+            packed_as_slice: array.packed_slice::<T>(),
             offset: array.offset(),
             length: array.len(),
             bit_width: array.bit_width(),
@@ -192,7 +192,7 @@ impl<T: BitPacking + NativePType> IndexOrd<T> for BitPackedSearch<'_, T> {
         // SAFETY: Used in search_sorted_by which ensures that idx is within bounds
         let val: T = unsafe {
             unpack_single_primitive(
-                self.packed_maybe_null_slice,
+                self.packed_as_slice,
                 self.bit_width as usize,
                 idx + self.offset as usize,
             )
@@ -214,6 +214,7 @@ mod test {
         search_sorted, search_sorted_many, slice, SearchResult, SearchSortedSide,
     };
     use vortex_array::IntoArrayData;
+    use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
     use vortex_scalar::Scalar;
 
@@ -221,12 +222,9 @@ mod test {
 
     #[test]
     fn search_with_patches() {
-        let bitpacked = BitPackedArray::encode(
-            &PrimitiveArray::from(vec![1u32, 2, 3, 4, 5]).into_array(),
-            2,
-        )
-        .unwrap()
-        .into_array();
+        let bitpacked = BitPackedArray::encode(&buffer![1u32, 2, 3, 4, 5].into_array(), 2)
+            .unwrap()
+            .into_array();
         assert_eq!(
             search_sorted(&bitpacked, 4, SearchSortedSide::Left).unwrap(),
             SearchResult::Found(3)
@@ -248,7 +246,7 @@ mod test {
     #[test]
     fn search_sliced() {
         let bitpacked = slice(
-            BitPackedArray::encode(PrimitiveArray::from(vec![1u32, 2, 3, 4, 5]).as_ref(), 2)
+            BitPackedArray::encode(PrimitiveArray::from_iter([1u32, 2, 3, 4, 5]).as_ref(), 2)
                 .unwrap(),
             2,
             4,
@@ -267,7 +265,7 @@ mod test {
     #[test]
     fn test_search_sorted_nulls() {
         let bitpacked = BitPackedArray::encode(
-            PrimitiveArray::from_nullable_vec(vec![Some(1u64), None, None]).as_ref(),
+            PrimitiveArray::from_option_iter([Some(1u64), None, None]).as_ref(),
             2,
         )
         .unwrap();
@@ -284,7 +282,7 @@ mod test {
     #[test]
     fn test_search_sorted_nulls_not_found() {
         let bitpacked = BitPackedArray::encode(
-            PrimitiveArray::from_nullable_vec(vec![Some(0u8), Some(107u8), None, None]).as_ref(),
+            PrimitiveArray::from_option_iter([Some(0u8), Some(107u8), None, None]).as_ref(),
             0,
         )
         .unwrap();
@@ -302,7 +300,7 @@ mod test {
     fn test_search_sorted_many() {
         // Test search_sorted_many with an array that contains several null values.
         let bitpacked = BitPackedArray::encode(
-            PrimitiveArray::from_nullable_vec(vec![
+            PrimitiveArray::from_option_iter([
                 Some(1u64),
                 Some(2u64),
                 Some(3u64),

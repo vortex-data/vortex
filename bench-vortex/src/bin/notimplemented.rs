@@ -10,6 +10,7 @@ use vortex::array::{
     BoolArray, ChunkedArray, ConstantArray, NullArray, PrimitiveArray, SparseArray, StructArray,
     VarBinViewArray,
 };
+use vortex::buffer::buffer;
 use vortex::bytebool::ByteBoolArray;
 use vortex::datetime_dtype::{TemporalMetadata, TimeUnit, TIME_ID};
 use vortex::datetime_parts::DateTimePartsArray;
@@ -57,17 +58,16 @@ fn varbinview_array() -> ArrayData {
 
 fn enc_impls() -> Vec<ArrayData> {
     vec![
-        ALPArray::try_new(
-            PrimitiveArray::from(vec![1]).into_array(),
-            Exponents { e: 1, f: 1 },
-            None,
-        )
-        .unwrap()
-        .into_array(),
-        RDEncoder::new(&[1.123_848_f32.powi(-2)])
-            .encode(&PrimitiveArray::from(vec![0.1f64.next_up()]))
+        ALPArray::try_new(buffer![1].into_array(), Exponents { e: 1, f: 1 }, None)
+            .unwrap()
             .into_array(),
-        BitPackedArray::encode(&PrimitiveArray::from(vec![100u32]).into_array(), 8)
+        RDEncoder::new(&[1.123_848_f32.powi(-2)])
+            .encode(&PrimitiveArray::new(
+                buffer![0.1f64.next_up()],
+                Validity::NonNullable,
+            ))
+            .into_array(),
+        BitPackedArray::encode(&buffer![100u32].into_array(), 8)
             .unwrap()
             .into_array(),
         BoolArray::from_iter([false]).into_array(),
@@ -88,53 +88,42 @@ fn enc_impls() -> Vec<ArrayData> {
                 Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
                 Some(TemporalMetadata::Time(TimeUnit::S).into()),
             ))),
-            PrimitiveArray::from(vec![1]).into_array(),
-            PrimitiveArray::from(vec![0]).into_array(),
-            PrimitiveArray::from(vec![0]).into_array(),
+            buffer![1].into_array(),
+            buffer![0].into_array(),
+            buffer![0].into_array(),
         )
         .unwrap()
         .into_array(),
-        DeltaArray::try_from_primitive_array(&PrimitiveArray::from(vec![0u32, 1]))
+        DeltaArray::try_from_primitive_array(&PrimitiveArray::new(
+            buffer![0u32, 1],
+            Validity::NonNullable,
+        ))
+        .unwrap()
+        .into_array(),
+        DictArray::try_new(buffer![0u32, 1, 0].into_array(), buffer![1, 2].into_array())
             .unwrap()
             .into_array(),
-        DictArray::try_new(
-            PrimitiveArray::from(vec![0u32, 1, 0]).into_array(),
-            PrimitiveArray::from(vec![1, 2]).into_array(),
-        )
-        .unwrap()
-        .into_array(),
         fsst_array(),
-        FoRArray::try_new(
-            PrimitiveArray::from(vec![0u32, 1, 2]).into_array(),
-            10.into(),
-            5,
-        )
-        .unwrap()
-        .into_array(),
+        FoRArray::try_new(buffer![0u32, 1, 2].into_array(), 10.into(), 5)
+            .unwrap()
+            .into_array(),
         NullArray::new(10).into_array(),
-        PrimitiveArray::from(vec![0, 1]).into_array(),
+        buffer![0, 1].into_array(),
         RoaringBoolArray::try_new(Bitmap::from([0u32, 10, 20]), 30)
             .unwrap()
             .into_array(),
         RoaringIntArray::try_new(Bitmap::from([5u32, 6, 8]), PType::U32)
             .unwrap()
             .into_array(),
-        RunEndArray::try_new(
-            PrimitiveArray::from(vec![5u32, 8]).into_array(),
-            PrimitiveArray::from(vec![0, 1]).into_array(),
-        )
-        .unwrap()
-        .into_array(),
-        RunEndBoolArray::try_new(
-            PrimitiveArray::from(vec![5u32, 8]).into_array(),
-            true,
-            Validity::NonNullable,
-        )
-        .unwrap()
-        .into_array(),
+        RunEndArray::try_new(buffer![5u32, 8].into_array(), buffer![0, 1].into_array())
+            .unwrap()
+            .into_array(),
+        RunEndBoolArray::try_new(buffer![5u32, 8].into_array(), true, Validity::NonNullable)
+            .unwrap()
+            .into_array(),
         SparseArray::try_new(
-            PrimitiveArray::from(vec![5u64, 8]).into_array(),
-            PrimitiveArray::from_vec(vec![3u32, 6], Validity::AllValid).into_array(),
+            buffer![5u64, 8].into_array(),
+            PrimitiveArray::new(buffer![3u32, 6], Validity::AllValid).into_array(),
             10,
             Scalar::null_typed::<u32>(),
         )
@@ -143,8 +132,8 @@ fn enc_impls() -> Vec<ArrayData> {
         StructArray::try_new(
             ["a".into(), "b".into()].into(),
             vec![
-                PrimitiveArray::from(vec![0, 1, 2]).into_array(),
-                PrimitiveArray::from(vec![0.1f64, 1.1f64, 2.1f64]).into_array(),
+                buffer![0, 1, 2].into_array(),
+                buffer![0.1f64, 1.1f64, 2.1f64].into_array(),
             ],
             3,
             Validity::NonNullable,
@@ -153,7 +142,7 @@ fn enc_impls() -> Vec<ArrayData> {
         .into_array(),
         varbin_array(),
         varbinview_array(),
-        ZigZagArray::encode(&PrimitiveArray::from(vec![-1, 1, -9, 9]).into_array())
+        ZigZagArray::encode(&buffer![-1, 1, -9, 9].into_array())
             .unwrap()
             .into_array(),
     ]

@@ -210,6 +210,7 @@ impl ValidityVTable<SparseArray> for SparseEncoding {
 #[cfg(test)]
 mod test {
     use itertools::Itertools;
+    use vortex_buffer::buffer;
     use vortex_dtype::Nullability::Nullable;
     use vortex_dtype::{DType, PType};
     use vortex_error::VortexError;
@@ -231,10 +232,10 @@ mod test {
 
     fn sparse_array(fill_value: Scalar) -> ArrayData {
         // merged array: [null, null, 100, null, null, 200, null, null, 300, null]
-        let mut values = vec![100i32, 200, 300].into_array();
+        let mut values = buffer![100i32, 200, 300].into_array();
         values = try_cast(&values, fill_value.dtype()).unwrap();
 
-        SparseArray::try_new(vec![2u64, 5, 8].into_array(), values, 10, fill_value)
+        SparseArray::try_new(buffer![2u64, 5, 8].into_array(), values, 10, fill_value)
             .unwrap()
             .into_array()
     }
@@ -351,16 +352,16 @@ mod test {
     #[test]
     #[should_panic]
     fn test_invalid_length() {
-        let values = vec![15_u32, 135, 13531, 42].into_array();
-        let indices = vec![10_u64, 11, 50, 100].into_array();
+        let values = buffer![15_u32, 135, 13531, 42].into_array();
+        let indices = buffer![10_u64, 11, 50, 100].into_array();
 
         SparseArray::try_new(indices, values, 100, 0_u32.into()).unwrap();
     }
 
     #[test]
     fn test_valid_length() {
-        let values = vec![15_u32, 135, 13531, 42].into_array();
-        let indices = vec![10_u64, 11, 50, 100].into_array();
+        let values = buffer![15_u32, 135, 13531, 42].into_array();
+        let indices = buffer![10_u64, 11, 50, 100].into_array();
 
         SparseArray::try_new(indices, values, 101, 0_u32.into()).unwrap();
     }

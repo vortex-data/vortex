@@ -5,8 +5,8 @@
 use std::fmt::{Debug, Display};
 
 use futures_util::stream;
-use itertools::Itertools;
 use serde::{Deserialize, Serialize};
+use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult, VortexUnwrap};
 use vortex_scalar::BinaryNumericOperator;
@@ -54,14 +54,15 @@ impl ChunkedArray {
             }
         }
 
-        let chunk_offsets = [0u64]
-            .into_iter()
-            .chain(chunks.iter().map(|c| c.len() as u64))
-            .scan(0, |acc, c| {
-                *acc += c;
-                Some(*acc)
-            })
-            .collect_vec();
+        let chunk_offsets = Buffer::from_iter(
+            [0u64]
+                .into_iter()
+                .chain(chunks.iter().map(|c| c.len() as u64))
+                .scan(0, |acc, c| {
+                    *acc += c;
+                    Some(*acc)
+                }),
+        );
 
         let nchunks = chunk_offsets.len() - 1;
         let length = *chunk_offsets
@@ -69,7 +70,7 @@ impl ChunkedArray {
             .vortex_expect("Chunk ends is guaranteed to have at least one element");
 
         let mut children = Vec::with_capacity(chunks.len() + 1);
-        children.push(PrimitiveArray::from_vec(chunk_offsets, NonNullable).into_array());
+        children.push(PrimitiveArray::new(chunk_offsets, NonNullable).into_array());
         children.extend(chunks);
 
         Self::try_from_parts(
@@ -258,6 +259,7 @@ impl BinaryNumericFn<ChunkedArray> for ChunkedEncoding {
 
 #[cfg(test)]
 mod test {
+    use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_error::VortexResult;
 
@@ -268,9 +270,9 @@ mod test {
     fn chunked_array() -> ChunkedArray {
         ChunkedArray::try_new(
             vec![
-                vec![1u64, 2, 3].into_array(),
-                vec![4u64, 5, 6].into_array(),
-                vec![7u64, 8, 9].into_array(),
+                buffer![1u64, 2, 3].into_array(),
+                buffer![4u64, 5, 6].into_array(),
+                buffer![7u64, 8, 9].into_array(),
             ],
             DType::Primitive(PType::U64, Nullability::NonNullable),
         )
@@ -291,7 +293,7 @@ mod test {
             .unwrap()
             .into_primitive()
             .unwrap()
-            .maybe_null_slice::<u64>()
+            .as_slice::<u64>()
             .to_vec();
         assert_eq!(results, &[0u64, 1, 2]);
         let results = chunks_out
@@ -299,7 +301,7 @@ mod test {
             .unwrap()
             .into_primitive()
             .unwrap()
-            .maybe_null_slice::<u64>()
+            .as_slice::<u64>()
             .to_vec();
         assert_eq!(results, &[3u64, 4, 5]);
         let results = chunks_out
@@ -307,7 +309,7 @@ mod test {
             .unwrap()
             .into_primitive()
             .unwrap()
-            .maybe_null_slice::<u64>()
+            .as_slice::<u64>()
             .to_vec();
         assert_eq!(results, &[6u64, 7, 8]);
     }
@@ -315,7 +317,7 @@ mod test {
     #[test]
     fn test_rechunk_one_chunk() {
         let chunked = ChunkedArray::try_new(
-            vec![vec![0u64].into_array()],
+            vec![buffer![0u64].into_array()],
             DType::Primitive(PType::U64, Nullability::NonNullable),
         )
         .unwrap();
@@ -328,7 +330,7 @@ mod test {
     #[test]
     fn test_rechunk_two_chunks() {
         let chunked = ChunkedArray::try_new(
-            vec![vec![0u64].into_array(), vec![5u64].into_array()],
+            vec![buffer![0u64].into_array(), buffer![5u64].into_array()],
             DType::Primitive(PType::U64, Nullability::NonNullable),
         )
         .unwrap();
@@ -342,7 +344,10 @@ mod test {
     #[test]
     fn test_rechunk_tiny_target_chunks() {
         let chunked = ChunkedArray::try_new(
-            vec![vec![0u64, 1, 2, 3].into_array(), vec![4u64, 5].into_array()],
+            vec![
+                buffer![0u64, 1, 2, 3].into_array(),
+                buffer![4u64, 5].into_array(),
+            ],
             DType::Primitive(PType::U64, Nullability::NonNullable),
         )
         .unwrap();
@@ -358,11 +363,11 @@ mod test {
     fn test_rechunk_with_too_big_chunk() {
         let chunked = ChunkedArray::try_new(
             vec![
-                vec![0u64, 1, 2].into_array(),
-                vec![42_u64; 6].into_array(),
-                vec![4u64, 5].into_array(),
-                vec![6u64, 7].into_array(),
-                vec![8u64, 9].into_array(),
+                buffer![0u64, 1, 2].into_array(),
+                buffer![42_u64; 6].into_array(),
+                buffer![4u64, 5].into_array(),
+                buffer![6u64, 7].into_array(),
+                buffer![8u64, 9].into_array(),
             ],
             DType::Primitive(PType::U64, Nullability::NonNullable),
         )

@@ -2,7 +2,7 @@ use std::fmt::Formatter;
 
 use serde::de::{Error, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use vortex_buffer::BufferString;
+use vortex_buffer::{BufferString, ByteBuffer};
 
 use crate::pvalue::PValue;
 use crate::value::{InnerScalarValue, ScalarValue};
@@ -25,7 +25,7 @@ impl Serialize for InnerScalarValue {
             Self::Null => ().serialize(serializer),
             Self::Bool(b) => b.serialize(serializer),
             Self::Primitive(p) => p.serialize(serializer),
-            Self::Buffer(buffer) => buffer.as_ref().serialize(serializer),
+            Self::Buffer(buffer) => buffer.as_slice().serialize(serializer),
             Self::BufferString(buffer) => buffer.as_str().serialize(serializer),
             Self::List(l) => l.serialize(serializer),
         }
@@ -135,7 +135,9 @@ impl<'de> Deserialize<'de> for ScalarValue {
             where
                 E: Error,
             {
-                Ok(ScalarValue(InnerScalarValue::Buffer(v.to_vec().into())))
+                Ok(ScalarValue(InnerScalarValue::Buffer(ByteBuffer::from(
+                    v.to_vec(),
+                ))))
             }
 
             fn visit_unit<E>(self) -> Result<Self::Value, E>
@@ -180,5 +182,18 @@ impl Serialize for PValue {
             Self::F32(v) => serializer.serialize_f32(*v),
             Self::F64(v) => serializer.serialize_f64(*v),
         }
+    }
+}
+
+impl<'de> Deserialize<'de> for PValue {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        ScalarValue::deserialize(deserializer)
+            .and_then(|scalar| scalar.0.as_pvalue().map_err(Error::custom))
+            .and_then(|pvalue| {
+                pvalue.ok_or_else(|| Error::custom("Expected a non-null primitive scalar value"))
+            })
     }
 }

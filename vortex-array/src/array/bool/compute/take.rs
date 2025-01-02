@@ -19,11 +19,11 @@ impl TakeFn<BoolArray> for BoolEncoding {
         let buffer = if array.len() <= 4096 {
             let bools = array.boolean_buffer().into_iter().collect_vec();
             match_each_integer_ptype!(indices.ptype(), |$I| {
-                take_byte_bool(bools, indices.maybe_null_slice::<$I>())
+                take_byte_bool(bools, indices.as_slice::<$I>())
             })
         } else {
             match_each_integer_ptype!(indices.ptype(), |$I| {
-                take_bool(&array.boolean_buffer(), indices.maybe_null_slice::<$I>())
+                take_bool(&array.boolean_buffer(), indices.as_slice::<$I>())
             })
         };
 
@@ -43,11 +43,11 @@ impl TakeFn<BoolArray> for BoolEncoding {
         let buffer = if array.len() <= 4096 {
             let bools = array.boolean_buffer().into_iter().collect_vec();
             match_each_integer_ptype!(indices.ptype(), |$I| {
-                take_byte_bool_unchecked(bools, indices.maybe_null_slice::<$I>())
+                take_byte_bool_unchecked(bools, indices.as_slice::<$I>())
             })
         } else {
             match_each_integer_ptype!(indices.ptype(), |$I| {
-                take_bool_unchecked(&array.boolean_buffer(), indices.maybe_null_slice::<$I>())
+                take_bool_unchecked(&array.boolean_buffer(), indices.as_slice::<$I>())
             })
         };
 
@@ -105,8 +105,9 @@ mod test {
             Some(false),
         ]);
 
-        let b = BoolArray::try_from(take(&reference, PrimitiveArray::from(vec![0, 3, 4])).unwrap())
-            .unwrap();
+        let b =
+            BoolArray::try_from(take(&reference, PrimitiveArray::from_iter([0, 3, 4])).unwrap())
+                .unwrap();
         assert_eq!(
             b.boolean_buffer(),
             BoolArray::from_iter(vec![Some(false), None, Some(false)]).boolean_buffer()

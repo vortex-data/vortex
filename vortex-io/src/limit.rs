@@ -139,13 +139,13 @@ where
 mod tests {
     use std::{future, io};
 
+    use bytes::Bytes;
     use futures_util::future::BoxFuture;
     use futures_util::{FutureExt, StreamExt};
-    use vortex_buffer::Buffer;
 
     use crate::limit::SizeLimitedStream;
 
-    async fn make_future(len: usize) -> Buffer {
+    async fn make_future(len: usize) -> Bytes {
         "a".as_bytes().iter().copied().cycle().take(len).collect()
     }
 
@@ -165,11 +165,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_does_not_leak_permits() {
-        let bad_fut: BoxFuture<'static, io::Result<Buffer>> =
+        let bad_fut: BoxFuture<'static, io::Result<Bytes>> =
             future::ready(Err(io::Error::new(io::ErrorKind::Other, "badness"))).boxed();
 
-        let good_fut: BoxFuture<'static, io::Result<Buffer>> =
-            future::ready(Ok(Buffer::from("aaaaa".as_bytes()))).boxed();
+        let good_fut: BoxFuture<'static, io::Result<Bytes>> =
+            future::ready(Ok(Bytes::from("aaaaa"))).boxed();
 
         let mut size_limited = SizeLimitedStream::new(10);
         size_limited.push(bad_fut, 10).await;

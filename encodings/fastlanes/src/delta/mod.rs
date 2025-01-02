@@ -12,6 +12,7 @@ use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
     IntoCanonical,
 };
+use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_unsigned_integer_ptype, NativePType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
 
@@ -66,8 +67,12 @@ impl Display for DeltaMetadata {
 /// If the chunk physically has fewer than 1,024 values, then it is stored as a traditional,
 /// non-SIMD-amenable, delta-encoded vector.
 impl DeltaArray {
+    // TODO(ngates): remove constructing from vec
     pub fn try_from_vec<T: NativePType>(vec: Vec<T>) -> VortexResult<Self> {
-        Self::try_from_primitive_array(&PrimitiveArray::from(vec))
+        Self::try_from_primitive_array(&PrimitiveArray::new(
+            Buffer::copy_from(vec),
+            Validity::NonNullable,
+        ))
     }
 
     pub fn try_from_primitive_array(array: &PrimitiveArray) -> VortexResult<Self> {

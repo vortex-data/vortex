@@ -56,7 +56,7 @@ impl EncodingCompressor for FoRCompressor {
         like: Option<CompressionTree<'a>>,
         ctx: SamplingCompressor<'a>,
     ) -> VortexResult<CompressedArray<'a>> {
-        let compressed = for_compress(&array.clone().into_primitive()?)?;
+        let compressed = for_compress(array.clone().into_primitive()?)?;
 
         let compressed_child = ctx.named("for_encoded").excluding(self).compress(
             &compressed.encoded(),

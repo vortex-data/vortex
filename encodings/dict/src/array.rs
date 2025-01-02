@@ -102,7 +102,7 @@ impl ValidityVTable<DictArray> for DictEncoding {
                 .vortex_expect("Failed to convert DictArray codes to primitive array");
             match_each_integer_ptype!(primitive_codes.ptype(), |$P| {
                 let is_valid = primitive_codes
-                    .maybe_null_slice::<$P>();
+                    .as_slice::<$P>();
                 let is_valid_buffer = BooleanBuffer::collect_bool(is_valid.len(), |idx| {
                     is_valid[idx] != 0
                 });

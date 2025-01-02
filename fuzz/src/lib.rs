@@ -11,9 +11,9 @@ use std::ops::Range;
 use libfuzzer_sys::arbitrary::Error::EmptyChoose;
 use libfuzzer_sys::arbitrary::{Arbitrary, Result, Unstructured};
 pub use sort::sort_canonical_array;
-use vortex_array::array::PrimitiveArray;
 use vortex_array::compute::{scalar_at, FilterMask, SearchResult, SearchSortedSide};
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
+use vortex_buffer::Buffer;
 use vortex_sampling_compressor::SamplingCompressor;
 use vortex_scalar::arbitrary::random_scalar;
 use vortex_scalar::Scalar;
@@ -98,9 +98,11 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
 
                     let indices = random_vec_in_range(u, 0, current_array.len() - 1)?;
                     current_array = take_canonical_array(&current_array, &indices);
-                    let indices_array =
-                        PrimitiveArray::from(indices.iter().map(|i| *i as u64).collect::<Vec<_>>())
-                            .into_array();
+                    let indices_array = indices
+                        .iter()
+                        .map(|i| *i as u64)
+                        .collect::<Buffer<u64>>()
+                        .into_array();
                     let compressed = SamplingCompressor::default()
                         .compress(&indices_array, None)
                         .unwrap();

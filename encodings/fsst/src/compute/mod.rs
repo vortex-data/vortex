@@ -6,7 +6,7 @@ use vortex_array::compute::{
     SliceFn, TakeFn,
 };
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
-use vortex_buffer::Buffer;
+use vortex_buffer::ByteBuffer;
 use vortex_error::{vortex_err, VortexResult};
 use vortex_scalar::Scalar;
 
@@ -72,7 +72,7 @@ impl ScalarAtFn<FSSTArray> for FSSTEncoding {
             .ok_or_else(|| vortex_err!("expected null to already be handled"))?;
 
         array.with_decompressor(|decompressor| {
-            let decoded_buffer: Buffer = decompressor.decompress(binary_datum.as_slice()).into();
+            let decoded_buffer = ByteBuffer::from(decompressor.decompress(binary_datum.as_slice()));
             Ok(varbin_scalar(decoded_buffer, array.dtype()))
         })
     }

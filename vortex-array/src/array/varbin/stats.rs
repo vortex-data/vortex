@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 
 use itertools::{Itertools, MinMaxResult};
-use vortex_buffer::Buffer;
+use vortex_buffer::ByteBuffer;
 use vortex_error::{vortex_panic, VortexResult};
 
 use super::varbin_scalar;
@@ -112,12 +112,12 @@ fn compute_min_max<T: ArrayTrait + ArrayAccessor<[u8]>>(array: &T) -> VortexResu
     let minmax = array.with_iterator(|iter| match iter.flatten().minmax() {
         MinMaxResult::NoElements => None,
         MinMaxResult::OneElement(value) => {
-            let scalar = varbin_scalar(Buffer::from(value.to_vec()), array.dtype());
+            let scalar = varbin_scalar(ByteBuffer::from(value.to_vec()), array.dtype());
             Some((scalar.clone(), scalar))
         }
         MinMaxResult::MinMax(min, max) => Some((
-            varbin_scalar(Buffer::from(min.to_vec()), array.dtype()),
-            varbin_scalar(Buffer::from(max.to_vec()), array.dtype()),
+            varbin_scalar(ByteBuffer::from(min.to_vec()), array.dtype()),
+            varbin_scalar(ByteBuffer::from(max.to_vec()), array.dtype()),
         )),
     })?;
     let Some((min, max)) = minmax else {
@@ -127,11 +127,7 @@ fn compute_min_max<T: ArrayTrait + ArrayAccessor<[u8]>>(array: &T) -> VortexResu
 
     if min == max {
         // get (don't compute) null count if `min == max` to determine if it's constant
-        if array
-            .statistics()
-            .get_as::<u64>(Stat::NullCount)
-            .map_or(false, |null_count| null_count == 0)
-        {
+        if array.statistics().get_as::<u64>(Stat::NullCount) == Some(0) {
             // if there are no nulls, then the array is constant
             return Ok(StatsSet::constant(&min, array.len()));
         }
@@ -149,7 +145,7 @@ fn compute_min_max<T: ArrayTrait + ArrayAccessor<[u8]>>(array: &T) -> VortexResu
 mod test {
     use std::ops::Deref;
 
-    use vortex_buffer::{Buffer, BufferString};
+    use vortex_buffer::{BufferString, ByteBuffer};
     use vortex_dtype::{DType, Nullability};
 
     use crate::array::varbin::VarBinArray;
@@ -181,11 +177,17 @@ mod test {
     fn binary_stats() {
         let arr = array(DType::Binary(Nullability::NonNullable));
         assert_eq!(
-            arr.statistics().compute_min::<Buffer>().unwrap().deref(),
+            arr.statistics()
+                .compute_min::<ByteBuffer>()
+                .unwrap()
+                .deref(),
             b"hello world"
         );
         assert_eq!(
-            arr.statistics().compute_max::<Buffer>().unwrap().deref(),
+            arr.statistics()
+                .compute_max::<ByteBuffer>()
+                .unwrap()
+                .deref(),
             "hello world this is a long string".as_bytes()
         );
         assert!(!arr.statistics().compute_is_constant().unwrap());

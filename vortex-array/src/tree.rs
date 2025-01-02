@@ -2,7 +2,7 @@ use std::fmt;
 
 use humansize::{format_size, DECIMAL};
 use serde::ser::Error;
-use vortex_buffer::Buffer;
+use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexError, VortexResult};
 
 use crate::array::ChunkedEncoding;
@@ -76,11 +76,12 @@ impl<'a, 'b: 'a> ArrayVisitor for TreeFormatter<'a, 'b> {
         Ok(())
     }
 
-    fn visit_buffer(&mut self, buffer: &Buffer) -> VortexResult<()> {
+    fn visit_buffer(&mut self, buffer: &ByteBuffer) -> VortexResult<()> {
         Ok(writeln!(
             self.fmt,
-            "{}buffer: {}",
+            "{}buffer (align={}): {}",
             self.indent,
+            buffer.alignment(),
             format_size(buffer.len(), DECIMAL)
         )?)
     }

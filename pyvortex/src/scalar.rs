@@ -6,7 +6,7 @@
 
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
-use vortex::buffer::{Buffer, BufferString};
+use vortex::buffer::{BufferString, ByteBuffer};
 use vortex::dtype::half::f16;
 use vortex::dtype::{DType, PType};
 use vortex::scalar::{ListScalar, Scalar, StructScalar};
@@ -86,24 +86,24 @@ pub fn scalar_into_py(py: Python, x: Scalar, copy_into_python: bool) -> PyResult
 #[pyclass(name = "Buffer", module = "vortex", sequence, subclass)]
 /// A view of binary data from a Vortex array.
 pub struct PyBuffer {
-    inner: Buffer,
+    inner: ByteBuffer,
 }
 
 impl PyBuffer {
-    pub fn new(inner: Buffer) -> PyBuffer {
+    pub fn new(inner: ByteBuffer) -> PyBuffer {
         PyBuffer { inner }
     }
 
-    pub fn new_bound(py: Python, inner: Buffer) -> PyResult<Bound<PyBuffer>> {
+    pub fn new_bound(py: Python, inner: ByteBuffer) -> PyResult<Bound<PyBuffer>> {
         Bound::new(py, Self::new(inner))
     }
 
-    pub fn new_pyobject(py: Python, inner: Buffer) -> PyResult<PyObject> {
+    pub fn new_pyobject(py: Python, inner: ByteBuffer) -> PyResult<PyObject> {
         let bound = Bound::new(py, Self::new(inner))?;
         Ok(bound.into_py(py))
     }
 
-    pub fn unwrap(&self) -> &Buffer {
+    pub fn unwrap(&self) -> &ByteBuffer {
         &self.inner
     }
 }

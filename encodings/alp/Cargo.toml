@@ -20,8 +20,8 @@ workspace = true
 itertools = { workspace = true }
 num-traits = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
-arrow-buffer = { workspace = true }
 vortex-array = { workspace = true }
+vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }

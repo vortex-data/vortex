@@ -1,41 +1,67 @@
 use std::fmt::Debug;
 use std::sync::{Arc, RwLock};
 
+use bytes::Bytes;
 use flatbuffers::root_unchecked;
 use once_cell::sync::OnceCell;
 use vortex_array::aliases::hash_map::HashMap;
-use vortex_buffer::Buffer;
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::field::Field;
 use vortex_dtype::flatbuffers::{extract_field, project_and_deserialize, resolve_field};
 use vortex_dtype::{DType, FieldNames};
-use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_flatbuffers::dtype as fbd;
 
 use crate::read::projection::Projection;
 use crate::read::{LayoutPartId, MessageId};
 
-#[derive(Default, Debug)]
+/// A read-only cache of messages.
+pub trait MessageCache {
+    fn get(&self, path: &[LayoutPartId]) -> Option<Bytes>;
+}
+
+#[derive(Default, Debug, Clone)]
 pub struct LayoutMessageCache {
-    cache: HashMap<MessageId, Buffer>,
+    cache: Arc<RwLock<HashMap<MessageId, Bytes>>>,
 }
 
 impl LayoutMessageCache {
-    pub fn new() -> Self {
-        Self {
-            cache: HashMap::new(),
+    pub fn remove(&mut self, path: &[LayoutPartId]) -> Option<Bytes> {
+        self.cache
+            .write()
+            .map_err(|_| vortex_err!("Poisoned cache"))
+            .vortex_expect("poisoned")
+            .remove(path)
+    }
+
+    pub fn set(&mut self, path: MessageId, value: Bytes) {
+        self.cache
+            .write()
+            .map_err(|_| vortex_err!("Poisoned cache"))
+            .vortex_expect("poisoned")
+            .insert(path, value);
+    }
+
+    pub fn set_many<I: IntoIterator<Item = (MessageId, Bytes)>>(&mut self, iter: I) {
+        let mut guard = self
+            .cache
+            .write()
+            .map_err(|_| vortex_err!("Poisoned cache"))
+            .vortex_expect("poisoned");
+        for (id, bytes) in iter.into_iter() {
+            guard.insert(id, bytes);
         }
     }
+}
 
-    pub fn get(&self, path: &[LayoutPartId]) -> Option<Buffer> {
-        self.cache.get(path).cloned()
-    }
-
-    pub fn remove(&mut self, path: &[LayoutPartId]) -> Option<Buffer> {
-        self.cache.remove(path)
-    }
-
-    pub fn set(&mut self, path: MessageId, value: Buffer) {
-        self.cache.insert(path, value);
+impl MessageCache for LayoutMessageCache {
+    fn get(&self, path: &[LayoutPartId]) -> Option<Bytes> {
+        self.cache
+            .read()
+            .map_err(|_| vortex_err!("Poisoned cache"))
+            .vortex_expect("poisoned")
+            .get(path)
+            .cloned()
     }
 }
 
@@ -86,7 +112,7 @@ impl SerializedDTypeField {
 #[derive(Debug)]
 enum LazyDTypeState {
     DType(DType),
-    Serialized(Buffer, OnceCell<DType>, SerializedDTypeField),
+    Serialized(ByteBuffer, OnceCell<DType>, SerializedDTypeField),
     Unknown,
 }
 
@@ -102,7 +128,8 @@ impl LazyDType {
     /// # Safety
     /// This function is unsafe because it trusts the caller to pass in a valid flatbuffer
     /// representing a message::Schema.
-    pub unsafe fn from_schema_bytes(dtype_bytes: Buffer) -> Self {
+    /// FIXME(ngates): this should take a ConstByteBuffer<8> aliased as FlatBuffer
+    pub unsafe fn from_schema_bytes(dtype_bytes: ByteBuffer) -> Self {
         Self {
             inner: LazyDTypeState::Serialized(
                 dtype_bytes,
@@ -255,73 +282,4 @@ fn fb_struct(bytes: &[u8]) -> VortexResult<fbd::Struct_> {
 
 fn fb_dtype(bytes: &[u8]) -> fbd::DType {
     unsafe { root_unchecked::<fbd::DType>(bytes) }
-}
-
-#[derive(Debug, Clone)]
-pub struct RelativeLayoutCache {
-    root: Arc<RwLock<LayoutMessageCache>>,
-    dtype: Arc<LazyDType>,
-    path: MessageId,
-}
-
-impl RelativeLayoutCache {
-    pub fn new(root: Arc<RwLock<LayoutMessageCache>>, dtype: Arc<LazyDType>) -> Self {
-        Self {
-            root,
-            dtype,
-            path: Vec::new(),
-        }
-    }
-
-    pub fn relative(&self, id: LayoutPartId, dtype: Arc<LazyDType>) -> Self {
-        let mut new_path = Vec::with_capacity(self.path.len() + 1);
-        new_path.clone_from(&self.path);
-        new_path.push(id);
-        Self {
-            root: self.root.clone(),
-            path: new_path,
-            dtype,
-        }
-    }
-
-    pub fn unknown_dtype(&self, id: LayoutPartId) -> Self {
-        self.relative(id, Arc::new(LazyDType::unknown()))
-    }
-
-    pub fn get(&self, path: &[LayoutPartId]) -> Option<Buffer> {
-        self.root
-            .read()
-            .unwrap_or_else(|poison| {
-                vortex_panic!(
-                    "Failed to read from layout cache at path {:?} with error {}",
-                    path,
-                    poison
-                );
-            })
-            .get(&self.absolute_id(path))
-    }
-
-    pub fn remove(&mut self, path: &[LayoutPartId]) -> Option<Buffer> {
-        self.root
-            .write()
-            .unwrap_or_else(|poison| {
-                vortex_panic!(
-                    "Failed to write to layout cache at path {:?} with error {}",
-                    path,
-                    poison
-                )
-            })
-            .remove(&self.absolute_id(path))
-    }
-
-    pub fn dtype(&self) -> &Arc<LazyDType> {
-        &self.dtype
-    }
-
-    pub fn absolute_id(&self, path: &[LayoutPartId]) -> MessageId {
-        let mut lookup_key = Vec::with_capacity(self.path.len() + path.len());
-        lookup_key.clone_from(&self.path);
-        lookup_key.extend_from_slice(path);
-        lookup_key
-    }
 }

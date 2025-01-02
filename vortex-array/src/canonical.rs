@@ -20,7 +20,6 @@ use crate::array::{
     varbinview_as_arrow, BoolArray, ExtensionArray, ListArray, NullArray, PrimitiveArray,
     StructArray, TemporalArray, VarBinViewArray,
 };
-use crate::arrow::wrappers::as_offset_buffer;
 use crate::arrow::{infer_data_type, FromArrowArray};
 use crate::compute::try_cast;
 use crate::encoding::Encoding;
@@ -172,7 +171,11 @@ fn primitive_to_arrow(primitive_array: PrimitiveArray) -> VortexResult<ArrayRef>
         array: &PrimitiveArray,
     ) -> VortexResult<Arc<ArrowPrimitiveArray<T>>> {
         Ok(Arc::new(ArrowPrimitiveArray::new(
-            ScalarBuffer::<T::Native>::new(array.buffer().clone().into_arrow(), 0, array.len()),
+            ScalarBuffer::<T::Native>::new(
+                array.byte_buffer().clone().into_arrow_buffer(),
+                0,
+                array.len(),
+            ),
             array.logical_validity().to_null_buffer()?,
         )))
     }
@@ -242,7 +245,10 @@ fn list_to_arrow(list: ListArray) -> VortexResult<ArrayRef> {
         .into_primitive()
         .map_err(|err| err.with_context("Failed to canonicalize offsets"))?;
 
-    let offsets = match offsets.ptype() {
+    // NOTE: Arrow ListArray only allows for i32 offsets, and LargeListArray only allows for i64 offsets.
+    // Because of Vortex logical types, we cannot statically determine the offset type, so we must
+    // cast to i32 or i64 depending on the runtime offsets type.
+    let arrow_offsets = match offsets.ptype() {
         PType::I32 | PType::I64 => offsets,
         PType::U64 => try_cast(offsets, PType::I64.into())?.into_primitive()?,
         PType::U32 => try_cast(offsets, PType::I32.into())?.into_primitive()?,
@@ -262,20 +268,20 @@ fn list_to_arrow(list: ListArray) -> VortexResult<ArrayRef> {
 
     let nulls = list.logical_validity().to_null_buffer()?;
 
-    Ok(match offsets.ptype() {
+    Ok(match arrow_offsets.ptype() {
         PType::I32 => Arc::new(arrow_array::ListArray::try_new(
             field_ref,
-            as_offset_buffer::<i32>(list.offsets().into_primitive()?),
+            arrow_offsets.buffer::<i32>().into_arrow_offset_buffer(),
             values,
             nulls,
         )?),
         PType::I64 => Arc::new(arrow_array::LargeListArray::try_new(
             field_ref,
-            as_offset_buffer::<i64>(list.offsets().into_primitive()?),
+            arrow_offsets.buffer::<i64>().into_arrow_offset_buffer(),
             values,
             nulls,
         )?),
-        _ => vortex_bail!("Invalid offsets type {}", offsets.ptype()),
+        _ => vortex_bail!("Invalid offsets type {}", arrow_offsets.ptype()),
     })
 }
 
@@ -287,10 +293,8 @@ fn temporal_to_arrow(temporal_array: TemporalArray) -> VortexResult<ArrayRef> {
                 &DType::Primitive(<$prim as NativePType>::PTYPE, $values.dtype().nullability()),
             )?
             .into_primitive()?;
-            let len = temporal_values.len();
             let nulls = temporal_values.logical_validity().to_null_buffer()?;
-            let scalars =
-                ScalarBuffer::<$prim>::new(temporal_values.into_buffer().into_arrow(), 0, len);
+            let scalars = temporal_values.into_buffer().into_arrow_scalar_buffer();
 
             (scalars, nulls)
         }};
@@ -532,20 +536,17 @@ mod test {
     };
     use arrow_buffer::{NullBufferBuilder, OffsetBuffer};
     use arrow_schema::{DataType, Field};
+    use vortex_buffer::buffer;
 
-    use crate::array::{PrimitiveArray, SparseArray, StructArray};
+    use crate::array::{SparseArray, StructArray};
     use crate::arrow::FromArrowArray;
-    use crate::validity::Validity;
     use crate::{ArrayData, IntoArrayData, IntoCanonical};
 
     #[test]
     fn test_canonicalize_nested_struct() {
         // Create a struct array with multiple internal components.
         let nested_struct_array = StructArray::from_fields(&[
-            (
-                "a",
-                PrimitiveArray::from_vec(vec![1u64], Validity::NonNullable).into_array(),
-            ),
+            ("a", buffer![1u64].into_array()),
             (
                 "b",
                 StructArray::from_fields(&[(
@@ -555,8 +556,8 @@ mod test {
                     // SparseArray is not a canonical type, so converting `into_arrow()` should map
                     // this to the nearest canonical type (PrimitiveArray).
                     SparseArray::try_new(
-                        PrimitiveArray::from_vec(vec![0u64; 1], Validity::NonNullable).into_array(),
-                        PrimitiveArray::from_vec(vec![100i64], Validity::NonNullable).into_array(),
+                        buffer![0u64; 1].into_array(),
+                        buffer![100i64].into_array(),
                         1,
                         0i64.into(),
                     )
@@ -599,7 +600,7 @@ mod test {
 
         assert_eq!(
             inner_a.cloned().unwrap(),
-            ArrowPrimitiveArray::from(vec![100i64]),
+            ArrowPrimitiveArray::from_iter([100i64]),
         );
     }
 

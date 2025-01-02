@@ -1,4 +1,5 @@
 use itertools::Itertools;
+use vortex_buffer::BufferMut;
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
@@ -30,11 +31,11 @@ impl TakeFn<ChunkedArray> for ChunkedEncoding {
 
         // While the chunk idx remains the same, accumulate a list of chunk indices.
         let mut chunks = Vec::new();
-        let mut indices_in_chunk = Vec::new();
+        let mut indices_in_chunk = BufferMut::<u64>::empty();
         let mut prev_chunk_idx = array
-            .find_chunk_idx(indices.maybe_null_slice::<u64>()[0].try_into()?)
+            .find_chunk_idx(indices.as_slice::<u64>()[0].try_into()?)
             .0;
-        for idx in indices.maybe_null_slice::<u64>() {
+        for idx in indices.as_slice::<u64>() {
             let idx = usize::try_from(*idx)?;
             let (chunk_idx, idx_in_chunk) = array.find_chunk_idx(idx);
 
@@ -45,7 +46,7 @@ impl TakeFn<ChunkedArray> for ChunkedEncoding {
                     &array.chunk(prev_chunk_idx)?,
                     &indices_in_chunk_array,
                 )?);
-                indices_in_chunk = Vec::new();
+                indices_in_chunk.clear();
             }
 
             indices_in_chunk.push(idx_in_chunk as u64);
@@ -121,24 +122,26 @@ fn take_strict_sorted(chunked: &ChunkedArray, indices: &ArrayData) -> VortexResu
 
 #[cfg(test)]
 mod test {
+    use vortex_buffer::buffer;
+
     use crate::array::chunked::ChunkedArray;
     use crate::compute::take;
     use crate::{ArrayDType, ArrayLen, IntoArrayData, IntoArrayVariant};
 
     #[test]
     fn test_take() {
-        let a = vec![1i32, 2, 3].into_array();
+        let a = buffer![1i32, 2, 3].into_array();
         let arr = ChunkedArray::try_new(vec![a.clone(), a.clone(), a.clone()], a.dtype().clone())
             .unwrap();
         assert_eq!(arr.nchunks(), 3);
         assert_eq!(arr.len(), 9);
-        let indices = vec![0u64, 0, 6, 4].into_array();
+        let indices = buffer![0u64, 0, 6, 4].into_array();
 
         let result = &ChunkedArray::try_from(take(arr.as_ref(), &indices).unwrap())
             .unwrap()
             .into_array()
             .into_primitive()
             .unwrap();
-        assert_eq!(result.maybe_null_slice::<i32>(), &[1, 1, 1, 2]);
+        assert_eq!(result.as_slice::<i32>(), &[1, 1, 1, 2]);
     }
 }
