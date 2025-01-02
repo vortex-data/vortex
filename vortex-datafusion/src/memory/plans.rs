@@ -13,9 +13,8 @@ use arrow_schema::{DataType, Schema, SchemaRef};
 use datafusion_common::{DataFusionError, Result as DFResult};
 use datafusion_execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext};
 use datafusion_physical_expr::{EquivalenceProperties, Partitioning};
-use datafusion_physical_plan::{
-    DisplayAs, DisplayFormatType, ExecutionMode, ExecutionPlan, PlanProperties,
-};
+use datafusion_physical_plan::execution_plan::{Boundedness, EmissionType};
+use datafusion_physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
 use futures::{ready, Stream};
 use pin_project::pin_project;
 use vortex_array::array::ChunkedArray;
@@ -50,7 +49,8 @@ impl RowSelectorExec {
         let cached_plan_props = PlanProperties::new(
             EquivalenceProperties::new(ROW_SELECTOR_SCHEMA_REF.clone()),
             Partitioning::UnknownPartitioning(1),
-            ExecutionMode::Bounded,
+            EmissionType::Incremental,
+            Boundedness::Bounded,
         );
 
         Ok(Self {
@@ -212,7 +212,8 @@ impl TakeRowsExec {
         let plan_properties = PlanProperties::new(
             EquivalenceProperties::new(output_schema.clone()),
             Partitioning::UnknownPartitioning(1),
-            ExecutionMode::Bounded,
+            EmissionType::Incremental,
+            Boundedness::Bounded,
         );
 
         Self {
@@ -376,10 +377,11 @@ mod test {
     use datafusion_expr::{and, col, lit};
     use datafusion_physical_expr::create_physical_expr;
     use itertools::Itertools;
-    use vortex_array::array::{BoolArray, ChunkedArray, PrimitiveArray, StructArray};
+    use vortex_array::array::{BoolArray, ChunkedArray, StructArray};
     use vortex_array::arrow::infer_schema;
     use vortex_array::validity::Validity;
     use vortex_array::{ArrayDType, IntoArrayData};
+    use vortex_buffer::buffer;
     use vortex_dtype::field::Field;
     use vortex_dtype::FieldName;
     use vortex_expr::datafusion::convert_expr_to_vortex;
@@ -392,7 +394,7 @@ mod test {
         let chunk = StructArray::try_new(
             Arc::new([FieldName::from("a"), FieldName::from("b")]),
             vec![
-                PrimitiveArray::from(vec![0u64, 1, 2]).into_array(),
+                buffer![0u64, 1, 2].into_array(),
                 BoolArray::from_iter([false, false, true]).into_array(),
             ],
             3,

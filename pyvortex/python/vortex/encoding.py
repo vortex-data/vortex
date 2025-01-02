@@ -71,7 +71,7 @@ def _Array_to_arrow_table(self: _encoding.Array) -> pyarrow.Table:
     >>> array.to_arrow_table()
     pyarrow.Table
     age: int64
-    name: string_view
+    name: string
     ----
     age: [[25,31,33,57]]
     name: [["Joseph","Narendra","Angela","Mikhail"]]
@@ -357,7 +357,7 @@ def array(obj: pyarrow.Array | list | Any) -> Array:
     <pyarrow.lib.ChunkedArray object at ...>
     [
       -- is_valid: all not null
-      -- child 0 type: string_view
+      -- child 0 type: string
         [
           "Braund",
           "Allen",

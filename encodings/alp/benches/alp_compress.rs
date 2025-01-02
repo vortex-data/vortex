@@ -3,14 +3,16 @@
 use divan::Bencher;
 use vortex_alp::{ALPFloat, ALPRDFloat, Exponents, RDEncoder};
 use vortex_array::array::PrimitiveArray;
+use vortex_array::validity::Validity;
 use vortex_array::IntoCanonical;
+use vortex_buffer::{buffer, Buffer};
 
 fn main() {
     divan::main();
 }
 
 #[divan::bench(types = [f32, f64], args = [100_000, 10_000_000])]
-fn compress_alp<T: ALPFloat>(n: usize) -> (Exponents, Vec<T::ALPInt>, Vec<u64>, Vec<T>) {
+fn compress_alp<T: ALPFloat>(n: usize) -> (Exponents, Buffer<T::ALPInt>, Buffer<u64>, Buffer<T>) {
     let values: Vec<T> = vec![T::from(1.234).unwrap(); n];
     T::encode(values.as_slice(), None)
 }
@@ -24,8 +26,7 @@ fn decompress_alp<T: ALPFloat>(bencher: Bencher, n: usize) {
 
 #[divan::bench(types = [f32, f64], args = [100_000, 10_000_000])]
 fn compress_rd<T: ALPRDFloat>(bencher: Bencher, n: usize) {
-    let values: Vec<T> = vec![T::from(1.23).unwrap(); n];
-    let primitive = PrimitiveArray::from(values);
+    let primitive = PrimitiveArray::new(buffer![T::from(1.23).unwrap(); n], Validity::NonNullable);
     let encoder = RDEncoder::new(&[T::from(1.23).unwrap()]);
 
     bencher.bench_local(|| encoder.encode(&primitive));
@@ -33,8 +34,7 @@ fn compress_rd<T: ALPRDFloat>(bencher: Bencher, n: usize) {
 
 #[divan::bench(types = [f32, f64], args = [100_000, 1_000_000, 10_000_000])]
 fn decompress_rd<T: ALPRDFloat>(bencher: Bencher, n: usize) {
-    let values: Vec<T> = vec![T::from(1.23).unwrap(); n];
-    let primitive = PrimitiveArray::from(values);
+    let primitive = PrimitiveArray::new(buffer![T::from(1.23).unwrap(); n], Validity::NonNullable);
     let encoder = RDEncoder::new(&[T::from(1.23).unwrap()]);
     let encoded = encoder.encode(&primitive);
 

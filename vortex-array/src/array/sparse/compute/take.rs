@@ -21,6 +21,7 @@ impl TakeFn<SparseArray> for SparseEncoding {
 
 #[cfg(test)]
 mod test {
+    use vortex_buffer::buffer;
     use vortex_scalar::Scalar;
 
     use crate::array::primitive::PrimitiveArray;
@@ -36,9 +37,8 @@ mod test {
 
     fn sparse_array() -> ArrayData {
         SparseArray::try_new(
-            PrimitiveArray::from(vec![0u64, 37, 47, 99]).into_array(),
-            PrimitiveArray::from_vec(vec![1.23f64, 0.47, 9.99, 3.5], Validity::AllValid)
-                .into_array(),
+            buffer![0u64, 37, 47, 99].into_array(),
+            PrimitiveArray::new(buffer![1.23f64, 0.47, 9.99, 3.5], Validity::AllValid).into_array(),
             100,
             test_array_fill_value(),
         )
@@ -50,7 +50,7 @@ mod test {
     fn take_with_non_zero_offset() {
         let sparse = sparse_array();
         let sparse = slice(sparse, 30, 40).unwrap();
-        let sparse = take(sparse, ArrayData::from(vec![6, 7, 8])).unwrap();
+        let sparse = take(sparse, buffer![6, 7, 8].into_array()).unwrap();
         assert_eq!(scalar_at(&sparse, 0).unwrap(), test_array_fill_value());
         assert_eq!(scalar_at(&sparse, 1).unwrap(), Scalar::from(Some(0.47)));
         assert_eq!(scalar_at(&sparse, 2).unwrap(), test_array_fill_value());
@@ -60,7 +60,7 @@ mod test {
     fn sparse_take() {
         let sparse = sparse_array();
         let taken =
-            SparseArray::try_from(take(sparse, vec![0, 47, 47, 0, 99].into_array()).unwrap())
+            SparseArray::try_from(take(sparse, buffer![0, 47, 47, 0, 99].into_array()).unwrap())
                 .unwrap();
         assert_eq!(
             taken
@@ -68,7 +68,7 @@ mod test {
                 .into_indices()
                 .into_primitive()
                 .unwrap()
-                .maybe_null_slice::<u64>(),
+                .as_slice::<u64>(),
             [0, 1, 2, 3, 4]
         );
         assert_eq!(
@@ -77,7 +77,7 @@ mod test {
                 .into_values()
                 .into_primitive()
                 .unwrap()
-                .maybe_null_slice::<f64>(),
+                .as_slice::<f64>(),
             [1.23f64, 9.99, 9.99, 1.23, 3.5]
         );
     }
@@ -85,7 +85,7 @@ mod test {
     #[test]
     fn nonexistent_take() {
         let sparse = sparse_array();
-        let taken = take(sparse, vec![69].into_array()).unwrap();
+        let taken = take(sparse, buffer![69].into_array()).unwrap();
         assert!(taken.len() == 1);
         assert_eq!(scalar_at(taken, 0).unwrap(), test_array_fill_value());
     }
@@ -94,14 +94,14 @@ mod test {
     fn ordered_take() {
         let sparse = sparse_array();
         let taken =
-            SparseArray::try_from(take(&sparse, vec![69, 37].into_array()).unwrap()).unwrap();
+            SparseArray::try_from(take(&sparse, buffer![69, 37].into_array()).unwrap()).unwrap();
         assert_eq!(
             taken
                 .patches()
                 .into_indices()
                 .into_primitive()
                 .unwrap()
-                .maybe_null_slice::<u64>(),
+                .as_slice::<u64>(),
             [1]
         );
         assert_eq!(
@@ -110,7 +110,7 @@ mod test {
                 .into_values()
                 .into_primitive()
                 .unwrap()
-                .maybe_null_slice::<f64>(),
+                .as_slice::<f64>(),
             [0.47f64]
         );
         assert_eq!(taken.len(), 2);

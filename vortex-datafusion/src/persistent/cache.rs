@@ -31,9 +31,7 @@ impl From<&ObjectMeta> for Key {
 impl InitialReadCache {
     pub fn new(size_mb: usize) -> Self {
         let inner = Cache::builder()
-            .weigher(|k: &Key, v: &InitialRead| {
-                (k.location.as_ref().as_bytes().len() + v.buf.len()) as u32
-            })
+            .weigher(|k: &Key, v: &InitialRead| (k.location.as_ref().len() + v.buf.len()) as u32)
             .max_capacity(size_mb as u64 * (2 << 20))
             .eviction_listener(|k, _v, cause| {
                 log::trace!("Removed {} due to {:?}", k.location, cause);

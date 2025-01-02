@@ -1,7 +1,7 @@
 use std::fmt::{Display, Write};
 use std::sync::Arc;
 
-use vortex_buffer::{Buffer, BufferString};
+use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexResult};
 
@@ -20,7 +20,7 @@ pub struct ScalarValue(pub(crate) InnerScalarValue);
 pub(crate) enum InnerScalarValue {
     Bool(bool),
     Primitive(PValue),
-    Buffer(Buffer),
+    Buffer(ByteBuffer),
     BufferString(BufferString),
     List(Arc<[ScalarValue]>),
     // It's significant that Null is last in this list. As a result generated PartialOrd sorts Scalar
@@ -101,7 +101,7 @@ impl ScalarValue {
         self.0.as_pvalue()
     }
 
-    pub(crate) fn as_buffer(&self) -> VortexResult<Option<Buffer>> {
+    pub(crate) fn as_buffer(&self) -> VortexResult<Option<ByteBuffer>> {
         self.0.as_buffer()
     }
 
@@ -166,7 +166,7 @@ impl InnerScalarValue {
         }
     }
 
-    pub(crate) fn as_buffer(&self) -> VortexResult<Option<Buffer>> {
+    pub(crate) fn as_buffer(&self) -> VortexResult<Option<ByteBuffer>> {
         match &self {
             InnerScalarValue::Null => Ok(None),
             InnerScalarValue::Buffer(b) => Ok(Some(b.clone())),

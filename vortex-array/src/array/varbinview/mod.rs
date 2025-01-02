@@ -9,7 +9,7 @@ use arrow_array::{ArrayRef, BinaryViewArray, GenericByteViewArray, StringViewArr
 use arrow_buffer::ScalarBuffer;
 use itertools::Itertools;
 use static_assertions::{assert_eq_align, assert_eq_size};
-use vortex_buffer::Buffer;
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, PType};
 use vortex_error::{
     vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult, VortexUnwrap,
@@ -297,7 +297,7 @@ impl VarBinViewArray {
     /// only require hitting the prefixes or inline strings.
     pub fn binary_views(&self) -> VortexResult<Views> {
         Ok(Views {
-            inner: self.views().into_primitive()?.into_buffer(),
+            inner: self.views().into_primitive()?.into_byte_buffer(),
             idx: 0,
             len: self.len(),
         })
@@ -312,7 +312,7 @@ impl VarBinViewArray {
         let stop = (index + 1) * VIEW_SIZE_BYTES;
         let view_bytes = slice(self.views(), start, stop)?
             .into_primitive()?
-            .into_buffer();
+            .into_byte_buffer();
 
         let mut le_bytes: [u8; 16] = [0u8; 16];
         le_bytes.copy_from_slice(view_bytes.as_slice());
@@ -477,7 +477,7 @@ impl VarBinViewArray {
                 (view.len() + view_ref.offset()) as usize,
             )?
             .into_primitive()?;
-            Ok(data_buf.maybe_null_slice::<u8>().to_vec())
+            Ok(data_buf.as_slice::<u8>().to_vec())
         } else {
             // Return access to the range of bytes around it.
             Ok(view.as_inlined().value().to_vec())
@@ -486,7 +486,7 @@ impl VarBinViewArray {
 }
 
 pub struct Views {
-    inner: Buffer,
+    inner: ByteBuffer,
     len: usize,
     idx: usize,
 }
@@ -567,21 +567,21 @@ pub(crate) fn varbinview_as_arrow(var_bin_view: &VarBinViewArray) -> ArrayRef {
 
     let data = data
         .iter()
-        .map(|p| p.buffer().clone().into_arrow())
+        .map(|p| p.byte_buffer().clone().into_arrow_buffer())
         .collect::<Vec<_>>();
 
     // Switch on Arrow DType.
     match var_bin_view.dtype() {
         DType::Binary(_) => Arc::new(unsafe {
             BinaryViewArray::new_unchecked(
-                ScalarBuffer::<u128>::from(views.buffer().clone().into_arrow()),
+                ScalarBuffer::<u128>::from(views.byte_buffer().clone().into_arrow_buffer()),
                 data,
                 nulls,
             )
         }),
         DType::Utf8(_) => Arc::new(unsafe {
             StringViewArray::new_unchecked(
-                ScalarBuffer::<u128>::from(views.buffer().clone().into_arrow()),
+                ScalarBuffer::<u128>::from(views.byte_buffer().clone().into_arrow_buffer()),
                 data,
                 nulls,
             )

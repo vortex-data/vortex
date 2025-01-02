@@ -3,7 +3,7 @@ use std::fmt::{Debug, Display};
 use num_traits::{AsPrimitive, PrimInt};
 use serde::{Deserialize, Serialize};
 pub use stats::compute_varbin_statistics;
-use vortex_buffer::Buffer;
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
 use vortex_error::{
     vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect as _, VortexResult,
@@ -192,7 +192,7 @@ impl VarBinArray {
             .ok()
             .map(|p| {
                 match_each_native_ptype!(p.ptype(), |$P| {
-                    p.maybe_null_slice::<$P>()[index].as_()
+                    p.as_slice::<$P>()[index].as_()
                 })
             })
             .unwrap_or_else(|| {
@@ -206,11 +206,11 @@ impl VarBinArray {
             })
     }
 
-    pub fn bytes_at(&self, index: usize) -> VortexResult<Buffer> {
+    pub fn bytes_at(&self, index: usize) -> VortexResult<ByteBuffer> {
         let start = self.offset_at(index);
         let end = self.offset_at(index + 1);
         let sliced = slice(self.bytes(), start, end)?;
-        Ok(sliced.into_primitive()?.buffer().clone())
+        Ok(sliced.into_primitive()?.into_byte_buffer())
     }
 
     /// Consumes self, returning a tuple containing the `DType`, the `bytes` array,
@@ -275,7 +275,7 @@ impl<'a> FromIterator<Option<&'a str>> for VarBinArray {
     }
 }
 
-pub fn varbin_scalar(value: Buffer, dtype: &DType) -> Scalar {
+pub fn varbin_scalar(value: ByteBuffer, dtype: &DType) -> Scalar {
     if matches!(dtype, DType::Utf8(_)) {
         Scalar::try_utf8(value, dtype.nullability())
             .map_err(|err| vortex_err!("Failed to create scalar from utf8 buffer: {}", err))
@@ -288,6 +288,7 @@ pub fn varbin_scalar(value: Buffer, dtype: &DType) -> Scalar {
 #[cfg(test)]
 mod test {
     use rstest::{fixture, rstest};
+    use vortex_buffer::Buffer;
     use vortex_dtype::{DType, Nullability};
 
     use crate::array::primitive::PrimitiveArray;
@@ -298,12 +299,11 @@ mod test {
 
     #[fixture]
     fn binary_array() -> ArrayData {
-        let values = PrimitiveArray::from(
-            "hello worldhello world this is a long string"
-                .as_bytes()
-                .to_vec(),
+        let values = PrimitiveArray::new(
+            Buffer::copy_from("hello worldhello world this is a long string".as_bytes()),
+            Validity::NonNullable,
         );
-        let offsets = PrimitiveArray::from(vec![0, 11, 44]);
+        let offsets = PrimitiveArray::from_iter([0, 11, 44]);
 
         VarBinArray::try_new(
             offsets.into_array(),

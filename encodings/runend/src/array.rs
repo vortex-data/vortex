@@ -14,6 +14,7 @@ use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
     IntoArrayVariant, IntoCanonical,
 };
+use vortex_buffer::Buffer;
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_scalar::Scalar;
@@ -98,11 +99,11 @@ impl RunEndArray {
     /// [Self::find_physical_index]
     ///
     /// See: [find_physical_index][Self::find_physical_index].
-    pub fn find_physical_indices(&self, indices: &[usize]) -> VortexResult<Vec<usize>> {
+    pub fn find_physical_indices(&self, indices: &[usize]) -> VortexResult<Buffer<u64>> {
         search_sorted_usize_many(&self.ends(), indices, SearchSortedSide::Right).map(|results| {
             results
                 .iter()
-                .map(|result| result.to_ends_index(self.ends().len()))
+                .map(|result| result.to_ends_index(self.ends().len()) as u64)
                 .collect()
         })
     }
@@ -249,6 +250,7 @@ impl StatisticsVTable<RunEndArray> for RunEndEncoding {
 mod tests {
     use vortex_array::compute::scalar_at;
     use vortex_array::{ArrayDType, ArrayLen, IntoArrayData};
+    use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
     use crate::RunEndArray;
@@ -256,8 +258,8 @@ mod tests {
     #[test]
     fn new() {
         let arr = RunEndArray::try_new(
-            vec![2u32, 5, 10].into_array(),
-            vec![1i32, 2, 3].into_array(),
+            buffer![2u32, 5, 10].into_array(),
+            buffer![1i32, 2, 3].into_array(),
         )
         .unwrap();
         assert_eq!(arr.len(), 10);

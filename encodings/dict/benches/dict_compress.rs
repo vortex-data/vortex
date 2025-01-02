@@ -7,16 +7,17 @@ use rand::prelude::SliceRandom;
 use rand::{thread_rng, Rng};
 use vortex_array::array::{PrimitiveArray, VarBinArray, VarBinViewArray};
 use vortex_array::nbytes::ArrayNBytes;
+use vortex_array::validity::Validity;
 use vortex_array::{IntoCanonical as _, ToArrayData};
+use vortex_buffer::Buffer;
 use vortex_dict::{dict_encode_primitive, dict_encode_varbin, dict_encode_varbinview, DictArray};
 
 fn gen_primitive_dict(len: usize, uniqueness: f64) -> PrimitiveArray {
     let mut rng = thread_rng();
     let value_range = len as f64 * uniqueness;
     let range = Uniform::new(-(value_range / 2.0) as i32, (value_range / 2.0) as i32);
-    let data: Vec<i32> = (0..len).map(|_| rng.sample(range)).collect();
-
-    PrimitiveArray::from(data)
+    let data: Buffer<i32> = (0..len).map(|_| rng.sample(range)).collect();
+    PrimitiveArray::new(data, Validity::NonNullable)
 }
 
 fn gen_varbin_words(len: usize, uniqueness: f64) -> Vec<String> {

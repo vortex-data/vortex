@@ -55,15 +55,15 @@ impl SliceFn<RoaringIntArray> for RoaringIntEncoding {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::array::PrimitiveArray;
     use vortex_array::compute::{scalar_at, slice};
+    use vortex_buffer::buffer;
 
     use super::*;
 
     #[test]
     #[cfg_attr(miri, ignore)]
     pub fn test_scalar_at() {
-        let ints = PrimitiveArray::from(vec![2u32, 12, 22, 32]).into_array();
+        let ints = buffer![2u32, 12, 22, 32].into_array();
         let array = RoaringIntArray::encode(ints).unwrap();
 
         assert_eq!(scalar_at(&array, 0).unwrap(), 2u32.into());

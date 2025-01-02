@@ -2,7 +2,7 @@ use std::future::{self, Future};
 use std::io;
 use std::sync::Arc;
 
-use vortex_buffer::Buffer;
+use bytes::Bytes;
 use vortex_error::{vortex_err, VortexUnwrap};
 
 /// A trait for types that support asynchronous reads.
@@ -12,7 +12,7 @@ use vortex_error::{vortex_err, VortexUnwrap};
 ///
 /// Readers must be cheaply cloneable to allow for easy sharing across tasks or threads.
 pub trait VortexReadAt: Send + Sync + Clone + 'static {
-    /// Request an asynchronous positional read. Results will be returned as a [`Buffer`].
+    /// Request an asynchronous positional read. Results will be returned as a [`Bytes`].
     ///
     /// If the reader does not have the requested number of bytes, the returned Future will complete
     /// with an [`UnexpectedEof`][std::io::ErrorKind::UnexpectedEof].
@@ -25,7 +25,7 @@ pub trait VortexReadAt: Send + Sync + Clone + 'static {
         &self,
         pos: u64,
         len: u64,
-    ) -> impl Future<Output = io::Result<Buffer>> + 'static;
+    ) -> impl Future<Output = io::Result<Bytes>> + 'static;
 
     // TODO(ngates): the read implementation should be able to hint at its latency/throughput
     //  allowing the caller to make better decisions about how to coalesce reads.
@@ -45,7 +45,7 @@ impl<T: VortexReadAt> VortexReadAt for Arc<T> {
         &self,
         pos: u64,
         len: u64,
-    ) -> impl Future<Output = io::Result<Buffer>> + 'static {
+    ) -> impl Future<Output = io::Result<Bytes>> + 'static {
         T::read_byte_range(self, pos, len)
     }
 
@@ -58,12 +58,12 @@ impl<T: VortexReadAt> VortexReadAt for Arc<T> {
     }
 }
 
-impl VortexReadAt for Buffer {
+impl VortexReadAt for Bytes {
     fn read_byte_range(
         &self,
         pos: u64,
         len: u64,
-    ) -> impl Future<Output = io::Result<Buffer>> + 'static {
+    ) -> impl Future<Output = io::Result<Bytes>> + 'static {
         let read_start: usize = pos.try_into().vortex_unwrap();
         let read_end: usize = (len + pos).try_into().vortex_unwrap();
         if read_end > self.len() {

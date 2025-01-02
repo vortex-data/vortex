@@ -62,9 +62,8 @@ impl EncodingCompressor for RoaringIntCompressor {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::array::PrimitiveArray;
-    use vortex_array::validity::Validity;
     use vortex_array::IntoArrayData;
+    use vortex_buffer::buffer;
     use vortex_roaring::RoaringIntArray;
 
     use crate::compressors::roaring_int::RoaringIntCompressor;
@@ -74,8 +73,7 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn test_roaring_int_compressor() {
-        let array =
-            PrimitiveArray::from_vec(vec![1u32, 2, 3, 4, 5], Validity::NonNullable).into_array();
+        let array = buffer![1u32, 2, 3, 4, 5].into_array();
         assert!(RoaringIntCompressor.can_compress(&array).is_some());
         let compressed = RoaringIntCompressor
             .compress(&array, None, SamplingCompressor::default())

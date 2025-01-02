@@ -1,7 +1,7 @@
 use std::any::Any;
-use std::iter;
 
 use arrow_buffer::NullBufferBuilder;
+use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, NativePType, Nullability};
 use vortex_error::{vortex_bail, VortexResult};
 
@@ -11,19 +11,19 @@ use crate::validity::Validity;
 use crate::{ArrayData, IntoArrayData};
 
 pub struct PrimitiveBuilder<T: NativePType> {
-    values: Vec<T>,
+    values: BufferMut<T>,
     validity: NullBufferBuilder,
     dtype: DType,
 }
 
-impl<T: NativePType + 'static> PrimitiveBuilder<T> {
+impl<T: NativePType> PrimitiveBuilder<T> {
     pub fn new(nullability: Nullability) -> Self {
         Self::with_capacity(nullability, 1024) // Same as Arrow builders
     }
 
     pub fn with_capacity(nullability: Nullability, capacity: usize) -> Self {
         Self {
-            values: Vec::with_capacity(capacity),
+            values: BufferMut::with_capacity(capacity),
             validity: NullBufferBuilder::new(capacity),
             dtype: DType::Primitive(T::PTYPE, nullability),
         }
@@ -45,7 +45,7 @@ impl<T: NativePType + 'static> PrimitiveBuilder<T> {
     }
 }
 
-impl<T: NativePType + 'static> ArrayBuilder for PrimitiveBuilder<T> {
+impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -63,12 +63,12 @@ impl<T: NativePType + 'static> ArrayBuilder for PrimitiveBuilder<T> {
     }
 
     fn append_zeros(&mut self, n: usize) {
-        self.values.extend(iter::repeat(T::default()).take(n));
+        self.values.push_n(T::default(), n);
         self.validity.append_n_non_nulls(n);
     }
 
     fn append_nulls(&mut self, n: usize) {
-        self.values.extend(iter::repeat(T::default()).take(n));
+        self.values.push_n(T::default(), n);
         self.validity.append_n_nulls(n);
     }
 
@@ -88,6 +88,6 @@ impl<T: NativePType + 'static> ArrayBuilder for PrimitiveBuilder<T> {
             }
         };
 
-        Ok(PrimitiveArray::from_vec(std::mem::take(&mut self.values), validity).into_array())
+        Ok(PrimitiveArray::new(std::mem::take(&mut self.values).freeze(), validity).into_array())
     }
 }

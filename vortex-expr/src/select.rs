@@ -88,16 +88,17 @@ impl PartialEq<dyn Any> for Select {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::array::{PrimitiveArray, StructArray};
+    use vortex_array::array::StructArray;
     use vortex_array::IntoArrayData;
+    use vortex_buffer::buffer;
     use vortex_dtype::field::Field;
 
     use crate::{Select, VortexExpr};
 
     fn test_array() -> StructArray {
         StructArray::from_fields(&[
-            ("a", PrimitiveArray::from(vec![0, 1, 2]).into_array()),
-            ("b", PrimitiveArray::from(vec![4, 5, 6]).into_array()),
+            ("a", buffer![0, 1, 2].into_array()),
+            ("b", buffer![4, 5, 6].into_array()),
         ])
         .unwrap()
     }

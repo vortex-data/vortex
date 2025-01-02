@@ -38,6 +38,8 @@ table Buffer {
     length: uint64;
     /// The length of any padding bytes written immediately following the buffer.
     padding: uint16;
+    /// The minimum alignment of the buffer.
+    alignment: uint16;
 }
 
 root_type Array;

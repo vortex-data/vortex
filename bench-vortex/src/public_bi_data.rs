@@ -481,7 +481,7 @@ impl PBIUrl {
         }
     }
     fn to_url_string(&self) -> Url {
-        Url::parse("https://homepages.cwi.nl/~boncz/PublicBIbenchmark/")
+        Url::parse("https://event.cwi.nl/da/PublicBIbenchmark/")
             .unwrap()
             .join(format!("{}/", self.dataset_name).as_str())
             .unwrap()

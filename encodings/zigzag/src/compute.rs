@@ -100,6 +100,7 @@ mod tests {
     };
     use vortex_array::validity::Validity;
     use vortex_array::{IntoArrayData, IntoArrayVariant};
+    use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
     use vortex_scalar::Scalar;
 
@@ -107,7 +108,7 @@ mod tests {
 
     #[test]
     pub fn search_sorted_uncompressed() {
-        let zigzag = ZigZagArray::encode(&PrimitiveArray::from(vec![-189, -160, 1]).into_array())
+        let zigzag = ZigZagArray::encode(&buffer![-189, -160, 1].into_array())
             .unwrap()
             .into_array();
         assert_eq!(
@@ -119,7 +120,7 @@ mod tests {
     #[test]
     pub fn nullable_scalar_at() {
         let zigzag = ZigZagArray::encode(
-            &PrimitiveArray::from_vec(vec![-189, -160, 1], Validity::AllValid).into_array(),
+            &PrimitiveArray::new(buffer![-189, -160, 1], Validity::AllValid).into_array(),
         )
         .unwrap();
         assert_eq!(
@@ -130,30 +131,28 @@ mod tests {
 
     #[test]
     fn take_zigzag() {
-        let zigzag =
-            ZigZagArray::encode(&PrimitiveArray::from(vec![-189, -160, 1]).into_array()).unwrap();
-        let indices = PrimitiveArray::from(vec![0, 2]).into_array();
+        let zigzag = ZigZagArray::encode(&buffer![-189, -160, 1].into_array()).unwrap();
+        let indices = buffer![0, 2].into_array();
         let actual = take(zigzag, indices).unwrap().into_primitive().unwrap();
-        let expected = ZigZagArray::encode(&PrimitiveArray::from(vec![-189, 1]).into_array())
+        let expected = ZigZagArray::encode(&buffer![-189, 1].into_array())
             .unwrap()
             .into_primitive()
             .unwrap();
-        assert_eq!(actual.into_buffer(), expected.into_buffer());
+        assert_eq!(actual.into_byte_buffer(), expected.into_byte_buffer());
     }
 
     #[test]
     fn filter_zigzag() {
-        let zigzag =
-            ZigZagArray::encode(&PrimitiveArray::from(vec![-189, -160, 1]).into_array()).unwrap();
+        let zigzag = ZigZagArray::encode(&buffer![-189, -160, 1].into_array()).unwrap();
         let filter_mask = BooleanBuffer::from(vec![true, false, true]).into();
         let actual = filter(&zigzag.into_array(), filter_mask)
             .unwrap()
             .into_primitive()
             .unwrap();
-        let expected = ZigZagArray::encode(&PrimitiveArray::from(vec![-189, 1]).into_array())
+        let expected = ZigZagArray::encode(&buffer![-189, 1].into_array())
             .unwrap()
             .into_primitive()
             .unwrap();
-        assert_eq!(actual.into_buffer(), expected.into_buffer());
+        assert_eq!(actual.into_byte_buffer(), expected.into_byte_buffer());
     }
 }

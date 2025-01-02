@@ -9,10 +9,10 @@ use crate::RoaringIntArray;
 
 pub fn roaring_int_encode(parray: PrimitiveArray) -> VortexResult<RoaringIntArray> {
     match parray.ptype() {
-        PType::U8 => roaring_encode_primitive::<u8>(parray.maybe_null_slice()),
-        PType::U16 => roaring_encode_primitive::<u16>(parray.maybe_null_slice()),
-        PType::U32 => roaring_encode_primitive::<u32>(parray.maybe_null_slice()),
-        PType::U64 => roaring_encode_primitive::<u64>(parray.maybe_null_slice()),
+        PType::U8 => roaring_encode_primitive::<u8>(parray.as_slice()),
+        PType::U16 => roaring_encode_primitive::<u16>(parray.as_slice()),
+        PType::U32 => roaring_encode_primitive::<u32>(parray.as_slice()),
+        PType::U64 => roaring_encode_primitive::<u64>(parray.as_slice()),
         _ => vortex_bail!("Unsupported PType {}", parray.ptype()),
     }
 }

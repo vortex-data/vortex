@@ -6,8 +6,8 @@ use std::os::unix::fs::FileExt;
 use std::path::Path;
 use std::sync::Arc;
 
+use bytes::{Bytes, BytesMut};
 use tokio::io::{AsyncWrite, AsyncWriteExt};
-use vortex_buffer::Buffer;
 use vortex_error::VortexUnwrap;
 
 use crate::{IoBuf, VortexReadAt, VortexWrite};
@@ -65,12 +65,10 @@ impl VortexReadAt for TokioFile {
         &self,
         pos: u64,
         len: u64,
-    ) -> impl Future<Output = io::Result<Buffer>> + 'static {
-        let this = self.clone();
-
-        let mut buffer = vec![0u8; len.try_into().vortex_unwrap()];
-        match this.read_exact_at(&mut buffer, pos) {
-            Ok(()) => future::ready(Ok(Buffer::from(buffer))),
+    ) -> impl Future<Output = io::Result<Bytes>> + 'static {
+        let mut buffer = BytesMut::zeroed(len.try_into().vortex_unwrap());
+        match self.read_exact_at(&mut buffer, pos) {
+            Ok(()) => future::ready(Ok(buffer.freeze())),
             Err(e) => future::ready(Err(e)),
         }
     }

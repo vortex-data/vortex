@@ -104,6 +104,7 @@ impl FilterFn<SparseArray> for SparseEncoding {
 #[cfg(test)]
 mod test {
     use rstest::{fixture, rstest};
+    use vortex_buffer::buffer;
     use vortex_scalar::Scalar;
 
     use crate::array::primitive::PrimitiveArray;
@@ -117,8 +118,8 @@ mod test {
     #[fixture]
     fn array() -> ArrayData {
         SparseArray::try_new(
-            PrimitiveArray::from(vec![2u64, 9, 15]).into_array(),
-            PrimitiveArray::from_vec(vec![33_i32, 44, 55], Validity::AllValid).into_array(),
+            buffer![2u64, 9, 15].into_array(),
+            PrimitiveArray::new(buffer![33_i32, 44, 55], Validity::AllValid).into_array(),
             20,
             Scalar::null_typed::<i32>(),
         )
@@ -162,8 +163,8 @@ mod test {
     #[test]
     fn search_right() {
         let array = SparseArray::try_new(
-            PrimitiveArray::from(vec![0u64]).into_array(),
-            PrimitiveArray::from_vec(vec![0u8], Validity::AllValid).into_array(),
+            buffer![0u64].into_array(),
+            PrimitiveArray::new(buffer![0u8], Validity::AllValid).into_array(),
             2,
             Scalar::null_typed::<u8>(),
         )
@@ -198,8 +199,8 @@ mod test {
     fn true_fill_value() {
         let mask = FilterMask::from_iter([false, true, false, true, false, true, true]);
         let array = SparseArray::try_new(
-            PrimitiveArray::from(vec![0_u64, 3, 6]).into_array(),
-            PrimitiveArray::from_vec(vec![33_i32, 44, 55], Validity::AllValid).into_array(),
+            buffer![0_u64, 3, 6].into_array(),
+            PrimitiveArray::new(buffer![33_i32, 44, 55], Validity::AllValid).into_array(),
             7,
             Scalar::null_typed::<i32>(),
         )
@@ -216,6 +217,6 @@ mod test {
             .into_primitive()
             .unwrap();
 
-        assert_eq!(primitive.maybe_null_slice::<u64>(), &[1, 3]);
+        assert_eq!(primitive.as_slice::<u64>(), &[1, 3]);
     }
 }
