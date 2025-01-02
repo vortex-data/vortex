@@ -8,6 +8,7 @@ use num_traits::AsPrimitive;
 use serde::{Deserialize, Serialize};
 use vortex_dtype::{match_each_native_ptype, DType, Nullability, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult};
+// use vortex_scalar::Scalar;
 
 use crate::array::PrimitiveArray;
 use crate::builders::{ArrayBuilder, ListBuilder};
@@ -186,9 +187,10 @@ impl ValidityVTable<ListArray> for ListEncoding {
     }
 }
 
-#[cfg(test_util)]
+// #[cfg(test_util)]
+{
+use vortex_scalar::Scalar;
 impl ListArray {
-    use vortex_scalar::Scalar;
     /// This is a convenience method to create a list array from an iterator of iterators.
     /// This method is slow however since each element is first converted to a scalar and then
     /// appended to the array.
@@ -214,6 +216,7 @@ impl ListArray {
         }
         builder.finish()
     }
+}
 }
 
 #[cfg(test)]
