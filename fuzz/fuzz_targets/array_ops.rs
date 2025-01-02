@@ -87,7 +87,7 @@ fn assert_search_sorted(
         expected,
         "Expected to find {s}({}) at {expected} in {} from {side} but instead found it at {search_result} in step {step}",
         s.dtype(),
-        array.encoding().id()
+        array.tree_display()
     );
 }
 
@@ -99,8 +99,8 @@ fn assert_array_eq(lhs: &ArrayData, rhs: &ArrayData, step: usize) {
         "LHS len {} != RHS len {}, lhs is {} rhs is {} in step {step}",
         lhs.len(),
         rhs.len(),
-        lhs.encoding().id(),
-        rhs.encoding().id()
+        lhs.tree_display(),
+        rhs.tree_display()
     );
     for idx in 0..lhs.len() {
         let l = scalar_at(lhs, idx).unwrap();
@@ -110,8 +110,8 @@ fn assert_array_eq(lhs: &ArrayData, rhs: &ArrayData, step: usize) {
             l,
             r,
             "{l} != {r} at index {idx}, lhs is {} rhs is {} in step {step}",
-            lhs.encoding().id(),
-            rhs.encoding().id()
+            lhs.tree_display(),
+            rhs.tree_display()
         );
     }
 }
