@@ -8,7 +8,6 @@ use num_traits::AsPrimitive;
 use serde::{Deserialize, Serialize};
 use vortex_dtype::{match_each_native_ptype, DType, Nullability, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult};
-use vortex_scalar::Scalar;
 
 use crate::array::PrimitiveArray;
 use crate::builders::{ArrayBuilder, ListBuilder};
@@ -145,32 +144,6 @@ impl ListArray {
             .child(0, dtype, self.metadata().elements_len)
             .vortex_expect("array contains elements")
     }
-
-    /// This is a convenience method to create a list array from an iterator of iterators.
-    /// This method is slow however since each element is first converted to a scalar and then
-    /// appended to the array.
-    pub fn from_iter_slow<I: IntoIterator>(iter: I, dtype: Arc<DType>) -> VortexResult<ArrayData>
-    where
-        I::Item: IntoIterator,
-        <I::Item as IntoIterator>::Item: Into<Scalar>,
-    {
-        let iter = iter.into_iter();
-        let mut builder = ListBuilder::<u32>::with_capacity(
-            dtype.clone(),
-            Nullability::NonNullable,
-            iter.size_hint().0,
-        );
-
-        for v in iter {
-            let elem = Scalar::list(
-                dtype.clone(),
-                v.into_iter().map(|x| x.into()).collect_vec(),
-                Nullability::Nullable,
-            );
-            builder.append_value(elem.as_list())?
-        }
-        builder.finish()
-    }
 }
 
 impl VariantsVTable<ListArray> for ListEncoding {
@@ -210,6 +183,36 @@ impl ValidityVTable<ListArray> for ListEncoding {
 
     fn logical_validity(&self, array: &ListArray) -> LogicalValidity {
         array.validity().to_logical(array.len())
+    }
+}
+
+#[cfg(test_util)]
+impl ListArray {
+    use vortex_scalar::Scalar;
+    /// This is a convenience method to create a list array from an iterator of iterators.
+    /// This method is slow however since each element is first converted to a scalar and then
+    /// appended to the array.
+    pub fn from_iter_slow<I: IntoIterator>(iter: I, dtype: Arc<DType>) -> VortexResult<ArrayData>
+    where
+        I::Item: IntoIterator,
+        <I::Item as IntoIterator>::Item: Into<Scalar>,
+    {
+        let iter = iter.into_iter();
+        let mut builder = ListBuilder::<u32>::with_capacity(
+            dtype.clone(),
+            Nullability::NonNullable,
+            iter.size_hint().0,
+        );
+
+        for v in iter {
+            let elem = Scalar::list(
+                dtype.clone(),
+                v.into_iter().map(|x| x.into()).collect_vec(),
+                Nullability::Nullable,
+            );
+            builder.append_value(elem.as_list())?
+        }
+        builder.finish()
     }
 }
 
