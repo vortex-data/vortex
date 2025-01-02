@@ -12,8 +12,8 @@ use crate::{LazyDType, EOF_SIZE, INITIAL_READ_SIZE, MAGIC_BYTES, VERSION};
 pub struct InitialRead {
     /// The bytes from the initial read of the file, which is assumed (for now) to be sufficiently
     /// large to contain the schema and layout.
-    /// TODO(ngates): we should ensure the initial read, and therefore the flatbuffers, are
-    ///  8-byte aligned. But the writer doesn't guarantee this right now.
+    // TODO(ngates): we should ensure the initial read, and therefore the flatbuffers, are
+    //  8-byte aligned. But the writer doesn't guarantee this right now.
     pub buf: ConstBuffer<u8, 1>,
     /// The absolute byte offset representing the start of the initial read within the file.
     pub initial_read_offset: u64,
