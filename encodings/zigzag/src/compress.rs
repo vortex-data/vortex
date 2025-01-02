@@ -62,16 +62,45 @@ where
 #[cfg(test)]
 mod test {
     use vortex_array::encoding::EncodingVTable;
+    use vortex_array::IntoArrayVariant as _;
 
     use super::*;
     use crate::ZigZagEncoding;
 
     #[test]
-    fn test_compress() {
-        let compressed = zigzag_encode(PrimitiveArray::from_iter(
-            (-10_000..10_000).map(|i| i as i64),
-        ))
-        .unwrap();
+    fn test_compress_i8() {
+        let compressed = zigzag_encode(PrimitiveArray::from_iter(-100_i8..100)).unwrap();
         assert_eq!(compressed.as_ref().encoding().id(), ZigZagEncoding.id());
+        assert_eq!(
+            compressed.into_primitive().unwrap().as_slice::<i8>(),
+            (-100_i8..100).collect::<Vec<_>>()
+        );
+    }
+    #[test]
+    fn test_compress_i16() {
+        let compressed = zigzag_encode(PrimitiveArray::from_iter(-10_000_i16..10_000)).unwrap();
+        assert_eq!(compressed.as_ref().encoding().id(), ZigZagEncoding.id());
+        assert_eq!(
+            compressed.into_primitive().unwrap().as_slice::<i16>(),
+            (-10_000_i16..10_000).collect::<Vec<_>>()
+        );
+    }
+    #[test]
+    fn test_compress_i32() {
+        let compressed = zigzag_encode(PrimitiveArray::from_iter(-10_000_i32..10_000)).unwrap();
+        assert_eq!(compressed.as_ref().encoding().id(), ZigZagEncoding.id());
+        assert_eq!(
+            compressed.into_primitive().unwrap().as_slice::<i32>(),
+            (-10_000_i32..10_000).collect::<Vec<_>>()
+        );
+    }
+    #[test]
+    fn test_compress_i64() {
+        let compressed = zigzag_encode(PrimitiveArray::from_iter(-10_000_i64..10_000)).unwrap();
+        assert_eq!(compressed.as_ref().encoding().id(), ZigZagEncoding.id());
+        assert_eq!(
+            compressed.into_primitive().unwrap().as_slice::<i64>(),
+            (-10_000_i64..10_000).collect::<Vec<_>>()
+        );
     }
 }
