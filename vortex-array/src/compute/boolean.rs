@@ -40,12 +40,7 @@ where
         rhs: &ArrayData,
         op: BinaryOperator,
     ) -> VortexResult<Option<ArrayData>> {
-        let array_ref = <&E::Array>::try_from(lhs)?;
-        let encoding = lhs
-            .encoding()
-            .as_any()
-            .downcast_ref::<E>()
-            .ok_or_else(|| vortex_err!("Mismatched encoding"))?;
+        let (array_ref, encoding) = downcast_array_ref::<E>(array)?;
         BinaryBooleanFn::binary_boolean(encoding, array_ref, rhs, op)
     }
 }

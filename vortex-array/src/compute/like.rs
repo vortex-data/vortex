@@ -25,12 +25,7 @@ where
         pattern: &ArrayData,
         options: LikeOptions,
     ) -> VortexResult<ArrayData> {
-        let array_ref = <&E::Array>::try_from(array)?;
-        let encoding = array
-            .encoding()
-            .as_any()
-            .downcast_ref::<E>()
-            .ok_or_else(|| vortex_err!("Mismatched encoding"))?;
+        let (array_ref, encoding) = downcast_array_ref::<E>(array)?;
         LikeFn::like(encoding, array_ref, pattern, options)
     }
 }
