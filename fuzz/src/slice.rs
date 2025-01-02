@@ -34,7 +34,7 @@ pub fn slice_canonical_array(array: &ArrayData, start: usize, stop: usize) -> Ar
             match_each_native_ptype!(p, |$P| {
                 PrimitiveArray::new(primitive_array.buffer::<$P>().slice(start..stop), validity).into_array()
             })
-        },
+        }
         DType::Utf8(_) | DType::Binary(_) => {
             let utf8 = array.clone().into_varbinview().unwrap();
             let values = utf8
@@ -85,10 +85,7 @@ fn shift_offsets<O: NativePType + ArrowNativeType>(offsets: PrimitiveArray) -> P
     if offsets.is_empty() {
         return offsets;
     }
-    let offsets = offsets.into_maybe_null_slice::<O>();
+    let offsets: Vec<O> = offsets.as_slice().to_vec();
     let start = offsets[0];
-    PrimitiveArray::from_vec(
-        offsets.into_iter().map(|o| o - start).collect::<Vec<_>>(),
-        Validity::NonNullable,
-    )
+    PrimitiveArray::from_iter(offsets.into_iter().map(|o| o - start).collect::<Vec<_>>())
 }

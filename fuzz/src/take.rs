@@ -5,7 +5,7 @@ use vortex_array::validity::{ArrayValidity, Validity};
 use vortex_array::variants::StructArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_buffer::Buffer;
-use vortex_dtype::{match_each_native_ptype, DType};
+use vortex_dtype::{match_each_native_ptype, DType, NativePType};
 use vortex_error::VortexExpect;
 
 pub fn take_canonical_array(array: &ArrayData, indices: &[usize]) -> ArrayData {
@@ -79,6 +79,12 @@ fn take_primitive<T: NativePType + ArrowNativeType>(
         .iter()
         .copied()
         .collect::<Vec<_>>();
-    PrimitiveArray::new(indices.iter().map(|i| vec_values[*i]).collect::<Buffer<T>>(), validity)
-        .into_array()
+    PrimitiveArray::new(
+        indices
+            .iter()
+            .map(|i| vec_values[*i])
+            .collect::<Buffer<T>>(),
+        validity,
+    )
+    .into_array()
 }
