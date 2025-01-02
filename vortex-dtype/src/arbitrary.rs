@@ -11,14 +11,14 @@ impl<'a> Arbitrary<'a> for DType {
 }
 
 fn random_dtype(u: &mut Unstructured<'_>, depth: u8) -> Result<DType> {
-    if depth > 0 {
-        return Ok(DType::List(
-            Arc::new(random_dtype(u, depth - 1)?),
-            u.arbitrary()?,
-        ));
-    }
-    let max_dtype_kind = if depth == 0 { 3 } else { 5 };
-    Ok(match u.int_in_range(0..=max_dtype_kind)? {
+    const BASE_TYPE_COUNT: i32 = 4;
+    const CONTAINER_TYPE_COUNT: i32 = 2;
+    let max_dtype_kind = if depth == 0 {
+        BASE_TYPE_COUNT
+    } else {
+        CONTAINER_TYPE_COUNT + BASE_TYPE_COUNT
+    };
+    Ok(match u.int_in_range(0..=(max_dtype_kind - 1))? {
         0 => DType::Bool(u.arbitrary()?),
         1 => DType::Primitive(u.arbitrary()?, u.arbitrary()?),
         2 => DType::Utf8(u.arbitrary()?),

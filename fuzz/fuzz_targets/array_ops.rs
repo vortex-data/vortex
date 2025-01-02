@@ -41,6 +41,10 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
                 assert_array_eq(&expected.array(), &current_array, i);
             }
             Action::SearchSorted(s, side) => {
+                // TODO(joe): support list sort sorted baseline
+                if current_array.encoding() == &ListEncoding as EncodingRef {
+                    return Corpus::Reject;
+                }
                 // TODO(robert): Ideally we'd preserve the encoding perfectly but this is close enough
                 let mut sorted = sort_canonical_array(&current_array);
                 if !HashSet::from([
@@ -59,6 +63,10 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
                 assert_search_sorted(sorted, s, side, expected.search(), i)
             }
             Action::Filter(mask) => {
+                // TODO(joe): support list sort sorted baseline
+                if current_array.encoding() == &ListEncoding as EncodingRef {
+                    return Corpus::Reject;
+                }
                 current_array = filter(&current_array, mask).unwrap();
                 assert_array_eq(&expected.array(), &current_array, i);
             }
