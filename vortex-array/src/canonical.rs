@@ -245,7 +245,10 @@ fn list_to_arrow(list: ListArray) -> VortexResult<ArrayRef> {
         .into_primitive()
         .map_err(|err| err.with_context("Failed to canonicalize offsets"))?;
 
-    let offsets = match offsets.ptype() {
+    // NOTE: Arrow ListArray only allows for i32 offsets, and LargeListArray only allows for i64 offsets.
+    // Because of Vortex logical types, we cannot statically determine the offset type, so we must
+    // cast to i32 or i64 depending on the runtime offsets type.
+    let arrow_offsets = match offsets.ptype() {
         PType::I32 | PType::I64 => offsets,
         PType::U64 => try_cast(offsets, PType::I64.into())?.into_primitive()?,
         PType::U32 => try_cast(offsets, PType::I32.into())?.into_primitive()?,
@@ -265,26 +268,20 @@ fn list_to_arrow(list: ListArray) -> VortexResult<ArrayRef> {
 
     let nulls = list.logical_validity().to_null_buffer()?;
 
-    Ok(match offsets.ptype() {
+    Ok(match arrow_offsets.ptype() {
         PType::I32 => Arc::new(arrow_array::ListArray::try_new(
             field_ref,
-            list.offsets()
-                .into_primitive()?
-                .buffer::<i32>()
-                .into_arrow_offset_buffer(),
+            arrow_offsets.buffer::<i32>().into_arrow_offset_buffer(),
             values,
             nulls,
         )?),
         PType::I64 => Arc::new(arrow_array::LargeListArray::try_new(
             field_ref,
-            list.offsets()
-                .into_primitive()?
-                .buffer::<i64>()
-                .into_arrow_offset_buffer(),
+            arrow_offsets.buffer::<i64>().into_arrow_offset_buffer(),
             values,
             nulls,
         )?),
-        _ => vortex_bail!("Invalid offsets type {}", offsets.ptype()),
+        _ => vortex_bail!("Invalid offsets type {}", arrow_offsets.ptype()),
     })
 }
 
