@@ -83,6 +83,10 @@ pub fn filter_canonical_array(array: &ArrayData, filter: &[bool]) -> ArrayData {
             .unwrap()
             .into_array()
         }
+        DType::List(..) => {
+            // let
+            array.clone()
+        }
         _ => unreachable!("Not a canonical array"),
     }
 }
