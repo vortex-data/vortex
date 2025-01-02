@@ -13,9 +13,8 @@ use arrow_schema::{DataType, Schema, SchemaRef};
 use datafusion_common::{DataFusionError, Result as DFResult};
 use datafusion_execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext};
 use datafusion_physical_expr::{EquivalenceProperties, Partitioning};
-use datafusion_physical_plan::{
-    DisplayAs, DisplayFormatType, ExecutionMode, ExecutionPlan, PlanProperties,
-};
+use datafusion_physical_plan::execution_plan::{Boundedness, EmissionType};
+use datafusion_physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
 use futures::{ready, Stream};
 use pin_project::pin_project;
 use vortex_array::array::ChunkedArray;
@@ -50,7 +49,8 @@ impl RowSelectorExec {
         let cached_plan_props = PlanProperties::new(
             EquivalenceProperties::new(ROW_SELECTOR_SCHEMA_REF.clone()),
             Partitioning::UnknownPartitioning(1),
-            ExecutionMode::Bounded,
+            EmissionType::Incremental,
+            Boundedness::Bounded,
         );
 
         Ok(Self {
@@ -212,7 +212,8 @@ impl TakeRowsExec {
         let plan_properties = PlanProperties::new(
             EquivalenceProperties::new(output_schema.clone()),
             Partitioning::UnknownPartitioning(1),
-            ExecutionMode::Bounded,
+            EmissionType::Incremental,
+            Boundedness::Bounded,
         );
 
         Self {
