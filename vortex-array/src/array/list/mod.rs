@@ -3,6 +3,7 @@ mod compute;
 use std::fmt::Display;
 use std::sync::Arc;
 
+#[cfg(feature = "test_util")]
 use itertools::Itertools;
 use num_traits::AsPrimitive;
 use serde::{Deserialize, Serialize};
