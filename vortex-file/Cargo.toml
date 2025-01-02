@@ -26,7 +26,7 @@ itertools = { workspace = true }
 once_cell = { workspace = true }
 tokio = { workspace = true, features = ["rt"] }
 tracing = { workspace = true, optional = true }
-vortex-array = { workspace = true, features = ["test_util"] }
+vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true, features = ["flatbuffers"] }
 vortex-error = { workspace = true }
@@ -41,6 +41,7 @@ arrow-schema = { workspace = true }
 rstest = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 vortex-io = { path = "../vortex-io", features = ["tokio"] }
+vortex-array = { workspace = true, features = ["test_util"] }
 
 [lints]
 workspace = true
