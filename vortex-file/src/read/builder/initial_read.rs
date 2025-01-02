@@ -80,6 +80,7 @@ pub async fn read_initial_bytes<R: VortexReadAt>(
 
     let eof_loc = read_size - EOF_SIZE;
     let magic_bytes_loc = eof_loc + (EOF_SIZE - MAGIC_BYTES.len());
+
     let magic_number = &buf[magic_bytes_loc..];
     if magic_number != MAGIC_BYTES {
         vortex_bail!("Malformed file, invalid magic bytes, got {magic_number:?}")
@@ -96,6 +97,7 @@ pub async fn read_initial_bytes<R: VortexReadAt>(
 
     let ps_size =
         u16::from_le_bytes(buf[eof_loc + 2..eof_loc + 4].try_into().vortex_unwrap()) as usize;
+
     if ps_size > eof_loc {
         vortex_bail!(
             "Malformed file, postscript of size {} is too large to fit in initial read of size {} (file size {})",
@@ -138,8 +140,8 @@ pub async fn read_initial_bytes<R: VortexReadAt>(
 
         let prefix_bytes: usize = prefix_bytes.try_into()?;
 
-        buf_builder.extend(leftover.into_iter());
-        buf_builder.extend(buf.into_iter());
+        buf_builder.extend_from_slice(&leftover);
+        buf_builder.extend_from_slice(&buf);
 
         buf = buf_builder.freeze();
         // Reset the absolute offsets to account for the new data that was fetched and
@@ -247,7 +249,7 @@ mod tests {
             initial_read.fb_postscript_byte_range,
             postscript_start..(postscript_start + postscript.len())
         );
-        assert_eq!(initial_read.fb_schema_byte_range(), 0..1024,);
+        assert_eq!(initial_read.fb_schema_byte_range(), 0..1024);
         assert_eq!(initial_read.fb_layout_byte_range(), 1024..postscript_start);
     }
 
