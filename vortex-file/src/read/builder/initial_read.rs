@@ -179,14 +179,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_read_initial_bytes() {
-        let mut fbb = FlatBufferBuilder::new();
-        let mut postscript_builder = PostscriptBuilder::new(&mut fbb);
-        postscript_builder.add_schema_offset(0);
-        postscript_builder.add_layout_offset(1024);
-        let root_offset = postscript_builder.finish();
-        fbb.finish(root_offset, None);
-
-        let postscript = fbb.finished_data();
+        let postscript = make_postscript(0, 1024);
         let mut buf = ByteBufferMut::with_capacity(INITIAL_READ_SIZE);
         // write the "schema"
         buf.extend_from_slice(&[0; 1024]);
@@ -195,7 +188,7 @@ mod tests {
 
         let postscript_start = buf.len();
         // Write the postscript flatbuffer
-        buf.extend_from_slice(postscript);
+        buf.extend_from_slice(&postscript);
 
         // Write the EOF.
         buf.extend_from_slice(&VERSION.to_le_bytes());
@@ -223,14 +216,7 @@ mod tests {
         // refetch as necessary.
 
         // Write the Postscript at the very end of the buffer.
-        let mut fbb = FlatBufferBuilder::new();
-        let mut postscript_builder = PostscriptBuilder::new(&mut fbb);
-        postscript_builder.add_schema_offset(0);
-        postscript_builder.add_layout_offset(1024);
-        let root_offset = postscript_builder.finish();
-        fbb.finish(root_offset, None);
-
-        let postscript = fbb.finished_data();
+        let postscript = make_postscript(0, 1024);
 
         // We create a virtual footer that includes a schema offset, followed by a layout offset,
         // both before INITIAL_READ_SIZE.
@@ -242,7 +228,7 @@ mod tests {
         assert_eq!(buf.len(), postscript_start);
 
         // Write the footer flatbuffer message.
-        buf.extend_from_slice(postscript);
+        buf.extend_from_slice(&postscript);
 
         // Write the 8-byte EOF structure which contains the version,
         // the postscript, and the magic bytes.
@@ -263,5 +249,15 @@ mod tests {
         );
         assert_eq!(initial_read.fb_schema_byte_range(), 0..1024,);
         assert_eq!(initial_read.fb_layout_byte_range(), 1024..postscript_start);
+    }
+
+    fn make_postscript(schema_offset: u64, layout_offset: u64) -> Vec<u8> {
+        let mut fbb = FlatBufferBuilder::new();
+        let mut postscript_builder = PostscriptBuilder::new(&mut fbb);
+        postscript_builder.add_schema_offset(schema_offset);
+        postscript_builder.add_layout_offset(layout_offset);
+        let root_offset = postscript_builder.finish();
+        fbb.finish(root_offset, None);
+        fbb.finished_data().to_vec()
     }
 }
