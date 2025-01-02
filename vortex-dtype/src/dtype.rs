@@ -142,6 +142,8 @@ impl DType {
     }
 }
 
+const DISPLAY_MAX_COLUMNS: usize = 50;
+
 impl Display for DType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -150,16 +152,26 @@ impl Display for DType {
             Primitive(pt, n) => write!(f, "{}{}", pt, n),
             Utf8(n) => write!(f, "utf8{}", n),
             Binary(n) => write!(f, "binary{}", n),
-            Struct(sdt, n) => write!(
-                f,
-                "{{{}}}{}",
-                sdt.names()
-                    .iter()
-                    .zip(sdt.dtypes().iter())
-                    .map(|(n, dt)| format!("{}={}", n, dt))
-                    .join(", "),
-                n
-            ),
+            Struct(sdt, n) => {
+                let truncate_message = if sdt.names().len() > DISPLAY_MAX_COLUMNS {
+                    format!("...({} not shown)", sdt.names().len() - DISPLAY_MAX_COLUMNS)
+                } else {
+                    "".to_string()
+                };
+
+                write!(
+                    f,
+                    "{{{}}}{}",
+                    sdt.names()
+                        .iter()
+                        .take(DISPLAY_MAX_COLUMNS)
+                        .zip(sdt.dtypes().iter().take(DISPLAY_MAX_COLUMNS))
+                        .map(|(n, dt)| format!("{}={}", n, dt))
+                        .join(", "),
+                    truncate_message,
+                    n
+                )
+            }
             List(edt, n) => write!(f, "list({}){}", edt, n),
             Extension(ext) => write!(
                 f,
