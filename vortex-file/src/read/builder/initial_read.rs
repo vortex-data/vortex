@@ -107,7 +107,7 @@ pub async fn read_initial_bytes<R: VortexReadAt>(
         )
     }
 
-    let ps_loc = eof_loc - ps_size;
+    let mut ps_loc = eof_loc - ps_size;
     let mut fb_postscript_byte_range = ps_loc..eof_loc;
 
     // we validate the footer here
@@ -149,6 +149,7 @@ pub async fn read_initial_bytes<R: VortexReadAt>(
         initial_read_offset = schema_offset;
         fb_postscript_byte_range.start += prefix_bytes;
         fb_postscript_byte_range.end += prefix_bytes;
+        ps_loc += prefix_bytes;
     }
 
     // validate the schema and layout
