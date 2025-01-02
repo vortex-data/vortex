@@ -194,7 +194,7 @@ fn primitive_to_arrow(
     }
 
     Ok(match primitive_array.ptype() {
-        // TODO: verfiy that data_type is ignored not in debug
+        // TODO(joe): verify that data_type is ignored not in debug
         PType::U8 => as_arrow_array_primitive::<UInt8Type>(&primitive_array, data_type)?,
         PType::U16 => as_arrow_array_primitive::<UInt16Type>(&primitive_array, data_type)?,
         PType::U32 => as_arrow_array_primitive::<UInt32Type>(&primitive_array, data_type)?,
@@ -209,8 +209,6 @@ fn primitive_to_arrow(
     })
 }
 
-// TODO: think about top level struct array nullability, can you specify the nullability of the
-// struct arrow array
 fn struct_to_arrow(struct_array: StructArray, data_type: &DataType) -> VortexResult<ArrayRef> {
     let target_fields = match data_type {
         DataType::Struct(fields) => fields,
@@ -262,13 +260,10 @@ pub(crate) fn varbinview_to_arrow(
     data_type: &DataType,
 ) -> VortexResult<ArrayRef> {
     let arrow_arr = varbinview_as_arrow(var_bin_view);
-    // Note, arrow cast clones the array
-    Ok(match data_type {
-        DataType::Binary | DataType::LargeBinary | DataType::Utf8 | DataType::LargeUtf8 => {
-            cast(arrow_arr.as_ref(), data_type)?
-        }
-        DataType::Utf8View | DataType::BinaryView => arrow_arr,
-        _ => vortex_bail!("Unsupported data type: {:?}", data_type),
+    Ok(if arrow_arr.data_type() != data_type {
+        cast(arrow_arr.as_ref(), data_type)?
+    } else {
+        arrow_arr
     })
 }
 
@@ -282,7 +277,7 @@ fn list_to_arrow(list: ListArray, data_type: &DataType) -> VortexResult<ArrayRef
     let (cast_ptype, element_dtype) = match data_type {
         DataType::List(field) => (PType::I32, field.data_type()),
         DataType::LargeList(field) => (PType::I64, field.data_type()),
-        _ => vortex_bail!("list_to_arrow: unsupported data type: {:?}", data_type),
+        dt => vortex_bail!("list_to_arrow: unsupported data type: {:?}", dt),
     };
 
     let arrow_offsets = try_cast(offsets, cast_ptype.into())

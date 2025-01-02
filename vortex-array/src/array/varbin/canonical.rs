@@ -35,15 +35,10 @@ impl IntoCanonical for VarBinArray {
     fn into_arrow_with_data_type(self, data_type: &DataType) -> VortexResult<ArrayRef> {
         let array_ref = self.into_arrow()?;
 
-        // Note, arrow::cast clones the array, so don't use it if unnecessary.
-        Ok(match data_type {
-            DataType::Binary | DataType::LargeBinary | DataType::Utf8 | DataType::LargeUtf8 => {
-                array_ref
-            }
-            DataType::Utf8View | DataType::BinaryView => {
-                arrow_cast::cast(array_ref.as_ref(), data_type)?
-            }
-            _ => vortex_bail!("Unsupported data type: {:?}", data_type),
+        Ok(if array_ref.data_type() != data_type {
+            arrow_cast::cast(array_ref.as_ref(), data_type)?
+        } else {
+            array_ref
         })
     }
 }
