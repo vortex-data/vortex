@@ -49,7 +49,7 @@ impl TryFrom<StructArray> for RecordBatch {
     type Error = VortexError;
 
     fn try_from(value: StructArray) -> VortexResult<Self> {
-        let array_ref = value.into_array().into_arrow()?;
+        let array_ref = value.into_canonical()?.into_arrow()?;
         let struct_array = as_struct_array(array_ref.as_ref());
         Ok(Self::from(struct_array))
     }
