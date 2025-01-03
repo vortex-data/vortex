@@ -109,7 +109,7 @@ mod test {
 
     use crate::array::primitive::PrimitiveArray;
     use crate::array::sparse::SparseArray;
-    use crate::compute::binary_numeric::test_harness::test_binary_numeric;
+    use crate::compute::test_harness::test_binary_numeric;
     use crate::compute::{
         filter, search_sorted, slice, FilterMask, SearchResult, SearchSortedSide,
     };

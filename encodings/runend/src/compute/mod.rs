@@ -147,7 +147,7 @@ fn filter_run_ends<R: NativePType + AddAssign + From<bool> + AsPrimitive<u64>>(
 #[cfg(test)]
 mod test {
     use vortex_array::array::PrimitiveArray;
-    use vortex_array::compute::binary_numeric::test_harness::test_binary_numeric;
+    use vortex_array::compute::test_harness::test_binary_numeric;
     use vortex_array::compute::{filter, scalar_at, slice, FilterMask};
     use vortex_array::{ArrayDType, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
     use vortex_buffer::buffer;

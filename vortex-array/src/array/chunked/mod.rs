@@ -239,7 +239,7 @@ mod test {
     use vortex_error::VortexResult;
 
     use crate::array::chunked::ChunkedArray;
-    use crate::compute::binary_numeric::test_harness::test_binary_numeric;
+    use crate::compute::test_harness::test_binary_numeric;
     use crate::compute::{scalar_at, sub_scalar, try_cast};
     use crate::{assert_arrays_eq, ArrayDType, IntoArrayData, IntoArrayVariant};
 
