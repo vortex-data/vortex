@@ -4,13 +4,11 @@ use std::sync::Arc;
 mod accessor;
 
 use arrow_buffer::BooleanBufferBuilder;
-use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
 use vortex_error::{vortex_panic, VortexExpect as _, VortexResult};
 
-use crate::array::BoolArray;
 use crate::encoding::ids;
 use crate::iter::Accessor;
 use crate::stats::StatsSet;
