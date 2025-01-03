@@ -11,7 +11,7 @@ use datafusion_physical_plan::execution_plan::{Boundedness, EmissionType};
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use datafusion_physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
 use itertools::Itertools;
-use vortex_array::Context;
+use vortex_array::ContextRef;
 
 use super::cache::InitialReadCache;
 use crate::persistent::opener::VortexFileOpener;

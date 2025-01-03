@@ -1,10 +1,9 @@
 use std::fmt::{Debug, Formatter};
-use std::sync::Arc;
 
 use bytes::Buf;
 use flatbuffers::{root, root_unchecked, Follow};
 use itertools::Itertools;
-use vortex_array::{flatbuffers as fba, ArrayData, Context};
+use vortex_array::{flatbuffers as fba, ArrayData, ContextRef};
 use vortex_buffer::{AlignedBuf, Alignment, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
@@ -290,7 +289,7 @@ mod test {
 
         // Decode the array parts with the context
         let actual = array_parts
-            .into_array_data(Arc::new(Context::default()), expected.dtype().clone())
+            .into_array_data(Default::default(), expected.dtype().clone())
             .unwrap();
 
         assert_eq!(expected.len(), actual.len());

@@ -25,7 +25,7 @@ use vortex::compress::CompressionStrategy;
 use vortex::dtype::DType;
 use vortex::fastlanes::DeltaEncoding;
 use vortex::sampling_compressor::SamplingCompressor;
-use vortex::{ArrayData, Context, IntoArrayData};
+use vortex::{ArrayData, Context, ContextRef, IntoArrayData};
 
 use crate::data_downloads::FileType;
 use crate::reader::BATCH_SIZE;

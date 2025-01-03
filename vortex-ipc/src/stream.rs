@@ -1,13 +1,12 @@
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
 use std::task::{ready, Poll};
 
 use bytes::{Bytes, BytesMut};
 use futures_util::{AsyncRead, AsyncWrite, AsyncWriteExt, Stream, StreamExt, TryStreamExt};
 use pin_project_lite::pin_project;
 use vortex_array::stream::ArrayStream;
-use vortex_array::{ArrayDType, ArrayData, Context};
+use vortex_array::{ArrayDType, ArrayData, ContextRef};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
@@ -186,12 +185,10 @@ impl Stream for ArrayStreamIPCBytes {
 
 #[cfg(test)]
 mod test {
-    use std::sync::Arc;
-
     use futures_util::io::Cursor;
     use vortex_array::array::PrimitiveArray;
     use vortex_array::stream::{ArrayStream, ArrayStreamExt};
-    use vortex_array::{ArrayDType, Context, IntoArrayVariant, ToArrayData};
+    use vortex_array::{ArrayDType, IntoArrayVariant, ToArrayData};
 
     use super::*;
 
@@ -206,7 +203,7 @@ mod test {
             .await
             .unwrap();
 
-        let reader = AsyncIPCReader::try_new(Cursor::new(ipc_buffer), Arc::new(Context::default()))
+        let reader = AsyncIPCReader::try_new(Cursor::new(ipc_buffer), Default::default())
             .await
             .unwrap();
 

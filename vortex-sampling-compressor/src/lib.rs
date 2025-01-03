@@ -18,7 +18,7 @@ use vortex_array::array::{
     VarBinViewEncoding,
 };
 use vortex_array::encoding::EncodingRef;
-use vortex_array::Context;
+use vortex_array::{Context, ContextRef};
 use vortex_bytebool::ByteBoolEncoding;
 use vortex_datetime_parts::DateTimePartsEncoding;
 use vortex_dict::DictEncoding;
