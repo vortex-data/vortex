@@ -187,8 +187,8 @@ fn actions_for_encoding(encoding: EncodingRef) -> HashSet<usize> {
 }
 
 fn actions_for_array(array: &ArrayData) -> Vec<usize> {
-    ArrayChildrenIterator::new(array.to_array())
-        .into_iter()
+    array
+        .depth_first_traversal()
         .map(|child| actions_for_encoding(child.encoding()))
         .fold(ALL_ACTIONS.collect::<Vec<_>>(), |mut acc, actions| {
             acc.retain(|a| actions.contains(a));
