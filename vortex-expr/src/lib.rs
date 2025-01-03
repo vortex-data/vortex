@@ -51,9 +51,7 @@ pub trait VortexExpr: Debug + Send + Sync + DynEq + Display {
     /// Compute result of expression on given batch producing a new batch
     fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData>;
 
-    fn children(&self) -> Vec<&ExprRef>;
-
-    /// Compute the type of the array returned by [evaluate].
+    /// Compute the type of the array returned by [VortexExpr::evaluate].
     fn dtype(&self, input_dtype: DType) -> VortexResult<DType> {
         self.evaluate(&ConstantArray::new(Scalar::default_of_type(input_dtype)?, 0).into_array())
             .map(|array| array.into_dtype())
