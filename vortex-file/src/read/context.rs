@@ -2,7 +2,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::sync::Arc;
 
 use vortex_array::aliases::hash_map::HashMap;
-use vortex_array::Context;
+use vortex_array::ContextRef;
 use vortex_error::{vortex_err, VortexResult};
 use vortex_flatbuffers::footer as fb;
 
@@ -61,12 +61,12 @@ impl Default for LayoutContext {
 
 #[derive(Default, Debug, Clone)]
 pub struct LayoutDeserializer {
-    ctx: Arc<Context>,
+    ctx: ContextRef,
     layout_ctx: Arc<LayoutContext>,
 }
 
 impl LayoutDeserializer {
-    pub fn new(ctx: Arc<Context>, layout_ctx: Arc<LayoutContext>) -> Self {
+    pub fn new(ctx: ContextRef, layout_ctx: Arc<LayoutContext>) -> Self {
         Self { ctx, layout_ctx }
     }
 
@@ -84,7 +84,7 @@ impl LayoutDeserializer {
             .reader(path, layout, dtype, scan, self.clone())
     }
 
-    pub(crate) fn ctx(&self) -> Arc<Context> {
+    pub(crate) fn ctx(&self) -> ContextRef {
         self.ctx.clone()
     }
 }

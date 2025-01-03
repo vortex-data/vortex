@@ -17,7 +17,7 @@ mod mask;
 pub mod metadata;
 pub mod projection;
 mod reader;
-mod recordbatchreader;
+mod record_batch_reader;
 mod splits;
 mod stream;
 
@@ -27,7 +27,7 @@ pub use cache::*;
 pub use context::*;
 pub use filtering::RowFilter;
 pub use projection::Projection;
-pub use recordbatchreader::{AsyncRuntime, VortexRecordBatchReader};
+pub use record_batch_reader::{AsyncRuntime, VortexRecordBatchReader};
 pub use stream::VortexReadArrayStream;
 use vortex_expr::ExprRef;
 

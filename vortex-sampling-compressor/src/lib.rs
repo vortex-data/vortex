@@ -18,7 +18,7 @@ use vortex_array::array::{
     VarBinViewEncoding,
 };
 use vortex_array::encoding::EncodingRef;
-use vortex_array::Context;
+use vortex_array::{Context, ContextRef};
 use vortex_bytebool::ByteBoolEncoding;
 use vortex_datetime_parts::DateTimePartsEncoding;
 use vortex_dict::DictEncoding;
@@ -121,7 +121,7 @@ pub const ALL_COMPRESSORS: [CompressorRef; 17] = [
     &ZigZagCompressor,
 ];
 
-pub static ALL_ENCODINGS_CONTEXT: LazyLock<Arc<Context>> = LazyLock::new(|| {
+pub static ALL_ENCODINGS_CONTEXT: LazyLock<ContextRef> = LazyLock::new(|| {
     Arc::new(Context::default().with_encodings([
         &ALPEncoding as EncodingRef,
         &ALPRDEncoding,

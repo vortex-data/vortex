@@ -13,6 +13,7 @@ pub struct Context {
     encodings: HashMap<u16, EncodingRef>,
 }
 
+/// An atomic shared reference to a [`Context`].
 pub type ContextRef = Arc<Context>;
 
 impl Context {

@@ -20,7 +20,7 @@ use futures::{stream, StreamExt as _, TryStreamExt as _};
 use object_store::{ObjectMeta, ObjectStore};
 use vortex_array::array::StructArray;
 use vortex_array::arrow::infer_schema;
-use vortex_array::Context;
+use vortex_array::ContextRef;
 use vortex_error::VortexResult;
 use vortex_file::metadata::fetch_metadata;
 use vortex_file::{
@@ -35,7 +35,7 @@ use crate::can_be_pushed_down;
 
 #[derive(Debug)]
 pub struct VortexFormat {
-    context: Arc<Context>,
+    context: ContextRef,
     initial_read_cache: InitialReadCache,
     opts: VortexFormatOptions,
 }
@@ -68,10 +68,10 @@ impl Default for VortexFormat {
 }
 
 impl VortexFormat {
-    pub fn new(context: &Context) -> Self {
+    pub fn new(context: ContextRef) -> Self {
         let opts = VortexFormatOptions::default();
         Self {
-            context: Arc::new(context.clone()),
+            context,
             initial_read_cache: InitialReadCache::new(opts.cache_size_mb),
             opts,
         }

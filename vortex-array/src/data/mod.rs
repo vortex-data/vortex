@@ -22,7 +22,7 @@ use crate::stats::{ArrayStatistics, Stat, Statistics, StatsSet};
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use crate::{
-    ArrayChildrenIterator, ArrayDType, ArrayLen, ArrayMetadata, Context, NamedChildrenCollector,
+    ArrayChildrenIterator, ArrayDType, ArrayLen, ArrayMetadata, ContextRef, NamedChildrenCollector,
     TryDeserializeArrayMetadata,
 };
 
@@ -79,7 +79,7 @@ impl ArrayData {
     }
 
     pub fn try_new_viewed<F>(
-        ctx: Arc<Context>,
+        ctx: ContextRef,
         dtype: DType,
         len: usize,
         // TODO(ngates): use ConstByteBuffer

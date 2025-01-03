@@ -1,10 +1,9 @@
 use std::fmt::{Debug, Formatter};
-use std::sync::Arc;
 
 use bytes::Buf;
 use flatbuffers::{root, root_unchecked, Follow};
 use itertools::Itertools;
-use vortex_array::{flatbuffers as fba, ArrayData, Context};
+use vortex_array::{flatbuffers as fba, ArrayData, ContextRef};
 use vortex_buffer::{AlignedBuf, Alignment, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
@@ -15,7 +14,7 @@ use crate::ALIGNMENT;
 
 /// A message decoded from an IPC stream.
 ///
-/// Note that the `Array` variant cannot fully decode into an [`ArrayData`] without a [`Context`]
+/// Note that the `Array` variant cannot fully decode into an [`ArrayData`] without a [`ContextRef`]
 /// and a [`DType`]. As such, we partially decode into an [`ArrayParts`] and allow the caller to
 /// finish the decoding.
 #[derive(Debug)]
@@ -47,7 +46,7 @@ impl Debug for ArrayParts {
 }
 
 impl ArrayParts {
-    pub fn into_array_data(self, ctx: Arc<Context>, dtype: DType) -> VortexResult<ArrayData> {
+    pub fn into_array_data(self, ctx: ContextRef, dtype: DType) -> VortexResult<ArrayData> {
         ArrayData::try_new_viewed(
             ctx,
             dtype,
@@ -290,7 +289,7 @@ mod test {
 
         // Decode the array parts with the context
         let actual = array_parts
-            .into_array_data(Arc::new(Context::default()), expected.dtype().clone())
+            .into_array_data(Default::default(), expected.dtype().clone())
             .unwrap();
 
         assert_eq!(expected.len(), actual.len());

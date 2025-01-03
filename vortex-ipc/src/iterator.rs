@@ -1,10 +1,9 @@
 use std::io::{Read, Write};
-use std::sync::Arc;
 
 use bytes::{Bytes, BytesMut};
 use itertools::Itertools;
 use vortex_array::iter::ArrayIterator;
-use vortex_array::{ArrayDType, ArrayData, Context};
+use vortex_array::{ArrayDType, ArrayData, ContextRef};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
@@ -13,12 +12,12 @@ use crate::messages::{DecoderMessage, EncoderMessage, MessageEncoder, SyncMessag
 /// An [`ArrayIterator`] for reading messages off an IPC stream.
 pub struct SyncIPCReader<R: Read> {
     reader: SyncMessageReader<R>,
-    ctx: Arc<Context>,
+    ctx: ContextRef,
     dtype: DType,
 }
 
 impl<R: Read> SyncIPCReader<R> {
-    pub fn try_new(read: R, ctx: Arc<Context>) -> VortexResult<Self> {
+    pub fn try_new(read: R, ctx: ContextRef) -> VortexResult<Self> {
         let mut reader = SyncMessageReader::new(read);
         match reader.next().transpose()? {
             Some(msg) => match msg {
@@ -152,11 +151,10 @@ impl Iterator for ArrayIteratorIPCBytes {
 #[cfg(test)]
 mod test {
     use std::io::Cursor;
-    use std::sync::Arc;
 
     use vortex_array::array::PrimitiveArray;
     use vortex_array::iter::{ArrayIterator, ArrayIteratorExt};
-    use vortex_array::{ArrayDType, Context, IntoArrayVariant, ToArrayData};
+    use vortex_array::{ArrayDType, IntoArrayVariant, ToArrayData};
 
     use super::*;
 
@@ -170,8 +168,7 @@ mod test {
             .collect_to_buffer()
             .unwrap();
 
-        let reader =
-            SyncIPCReader::try_new(Cursor::new(ipc_buffer), Arc::new(Context::default())).unwrap();
+        let reader = SyncIPCReader::try_new(Cursor::new(ipc_buffer), Default::default()).unwrap();
 
         assert_eq!(reader.dtype(), array.dtype());
         let result = reader.into_array_data().unwrap().into_primitive().unwrap();

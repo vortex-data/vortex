@@ -7,7 +7,7 @@ use datafusion_common::Result as DFResult;
 use datafusion_physical_expr::{split_conjunction, PhysicalExpr};
 use futures::{FutureExt as _, StreamExt, TryStreamExt};
 use object_store::ObjectStore;
-use vortex_array::Context;
+use vortex_array::ContextRef;
 use vortex_expr::datafusion::convert_expr_to_vortex;
 use vortex_file::{LayoutContext, LayoutDeserializer, Projection, RowFilter, VortexReadBuilder};
 use vortex_io::{IoDispatcher, ObjectStoreReadAt};
@@ -20,7 +20,7 @@ static IO_DISPATCHER: LazyLock<Arc<IoDispatcher>> =
 
 #[derive(Clone)]
 pub struct VortexFileOpener {
-    pub ctx: Arc<Context>,
+    pub ctx: ContextRef,
     pub object_store: Arc<dyn ObjectStore>,
     pub projection: Option<Vec<usize>>,
     pub predicate: Option<Arc<dyn PhysicalExpr>>,

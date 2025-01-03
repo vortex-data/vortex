@@ -25,7 +25,7 @@ use vortex::compress::CompressionStrategy;
 use vortex::dtype::DType;
 use vortex::fastlanes::DeltaEncoding;
 use vortex::sampling_compressor::SamplingCompressor;
-use vortex::{ArrayData, Context, IntoArrayData};
+use vortex::{ArrayData, Context, ContextRef, IntoArrayData};
 
 use crate::data_downloads::FileType;
 use crate::reader::BATCH_SIZE;
@@ -45,7 +45,7 @@ pub mod vortex_utils;
 const TARGET_BLOCK_BYTESIZE: usize = 16 * (1 << 20);
 const TARGET_BLOCK_SIZE: usize = 64 * (1 << 10);
 
-pub static CTX: LazyLock<Arc<Context>> = LazyLock::new(|| {
+pub static CTX: LazyLock<ContextRef> = LazyLock::new(|| {
     Arc::new(
         Context::default()
             .with_encodings(SamplingCompressor::default().used_encodings())

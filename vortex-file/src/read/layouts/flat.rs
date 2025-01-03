@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use vortex_array::{ArrayData, Context};
+use vortex_array::{ArrayData, ContextRef};
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_flatbuffers::footer;
 use vortex_ipc::messages::{BufMessageReader, DecoderMessage};
@@ -52,7 +52,7 @@ pub struct FlatLayoutReader {
     range: ByteRange,
     scan: Scan,
     dtype: Arc<LazyDType>,
-    ctx: Arc<Context>,
+    ctx: ContextRef,
 }
 
 impl FlatLayoutReader {
