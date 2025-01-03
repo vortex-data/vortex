@@ -225,8 +225,8 @@ impl ListArray {
 mod test {
     use std::sync::Arc;
 
-    use vortex_dtype::Nullability;
     use arrow_buffer::BooleanBuffer;
+    use vortex_dtype::Nullability;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::PType::I32;
     use vortex_scalar::Scalar;
