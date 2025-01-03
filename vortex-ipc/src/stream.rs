@@ -18,13 +18,13 @@ pin_project! {
     pub struct AsyncIPCReader<R> {
         #[pin]
         reader: AsyncMessageReader<R>,
-        ctx: Arc<Context>,
+        ctx: ContextRef,
         dtype: DType,
     }
 }
 
 impl<R: AsyncRead + Unpin> AsyncIPCReader<R> {
-    pub async fn try_new(read: R, ctx: Arc<Context>) -> VortexResult<Self> {
+    pub async fn try_new(read: R, ctx: ContextRef) -> VortexResult<Self> {
         let mut reader = AsyncMessageReader::new(read);
 
         let dtype = match reader.next().await.transpose()? {

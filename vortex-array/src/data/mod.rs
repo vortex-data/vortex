@@ -79,7 +79,7 @@ impl ArrayData {
     }
 
     pub fn try_new_viewed<F>(
-        ctx: Arc<Context>,
+        ctx: ContextRef,
         dtype: DType,
         len: usize,
         // TODO(ngates): use ConstByteBuffer

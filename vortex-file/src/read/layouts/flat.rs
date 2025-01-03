@@ -52,7 +52,7 @@ pub struct FlatLayoutReader {
     range: ByteRange,
     scan: Scan,
     dtype: Arc<LazyDType>,
-    ctx: Arc<Context>,
+    ctx: ContextRef,
 }
 
 impl FlatLayoutReader {

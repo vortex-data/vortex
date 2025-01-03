@@ -35,7 +35,7 @@ use crate::can_be_pushed_down;
 
 #[derive(Debug)]
 pub struct VortexFormat {
-    context: Arc<Context>,
+    context: ContextRef,
     initial_read_cache: InitialReadCache,
     opts: VortexFormatOptions,
 }

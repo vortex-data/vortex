@@ -23,7 +23,7 @@ pub struct VortexExec {
     predicate: Option<Arc<dyn PhysicalExpr>>,
     plan_properties: PlanProperties,
     projected_statistics: Statistics,
-    ctx: Arc<Context>,
+    ctx: ContextRef,
     initial_read_cache: InitialReadCache,
 }
 
@@ -32,7 +32,7 @@ impl VortexExec {
         file_scan_config: FileScanConfig,
         metrics: ExecutionPlanMetricsSet,
         predicate: Option<Arc<dyn PhysicalExpr>>,
-        ctx: Arc<Context>,
+        ctx: ContextRef,
         initial_read_cache: InitialReadCache,
     ) -> DFResult<Self> {
         let projected_schema = project_schema(

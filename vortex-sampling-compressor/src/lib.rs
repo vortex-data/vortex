@@ -121,7 +121,7 @@ pub const ALL_COMPRESSORS: [CompressorRef; 17] = [
     &ZigZagCompressor,
 ];
 
-pub static ALL_ENCODINGS_CONTEXT: LazyLock<Arc<Context>> = LazyLock::new(|| {
+pub static ALL_ENCODINGS_CONTEXT: LazyLock<ContextRef> = LazyLock::new(|| {
     Arc::new(Context::default().with_encodings([
         &ALPEncoding as EncodingRef,
         &ALPRDEncoding,

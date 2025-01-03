@@ -47,7 +47,7 @@ impl Debug for ArrayParts {
 }
 
 impl ArrayParts {
-    pub fn into_array_data(self, ctx: Arc<Context>, dtype: DType) -> VortexResult<ArrayData> {
+    pub fn into_array_data(self, ctx: ContextRef, dtype: DType) -> VortexResult<ArrayData> {
         ArrayData::try_new_viewed(
             ctx,
             dtype,

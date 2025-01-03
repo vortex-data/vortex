@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::aliases::hash_map::HashMap;
 use crate::array::{
     BoolEncoding, ChunkedEncoding, ConstantEncoding, ExtensionEncoding, ListEncoding, NullEncoding,
@@ -10,6 +12,9 @@ use crate::encoding::EncodingRef;
 pub struct Context {
     encodings: HashMap<u16, EncodingRef>,
 }
+
+/// An atomic shared reference to a [`Context`].
+pub type ContextRef = Arc<Context>;
 
 impl Context {
     pub fn with_encoding(mut self, encoding: EncodingRef) -> Self {

@@ -61,12 +61,12 @@ impl Default for LayoutContext {
 
 #[derive(Default, Debug, Clone)]
 pub struct LayoutDeserializer {
-    ctx: Arc<Context>,
+    ctx: ContextRef,
     layout_ctx: Arc<LayoutContext>,
 }
 
 impl LayoutDeserializer {
-    pub fn new(ctx: Arc<Context>, layout_ctx: Arc<LayoutContext>) -> Self {
+    pub fn new(ctx: ContextRef, layout_ctx: Arc<LayoutContext>) -> Self {
         Self { ctx, layout_ctx }
     }
 
@@ -84,7 +84,7 @@ impl LayoutDeserializer {
             .reader(path, layout, dtype, scan, self.clone())
     }
 
-    pub(crate) fn ctx(&self) -> Arc<Context> {
+    pub(crate) fn ctx(&self) -> ContextRef {
         self.ctx.clone()
     }
 }

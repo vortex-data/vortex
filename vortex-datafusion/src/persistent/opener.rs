@@ -20,7 +20,7 @@ static IO_DISPATCHER: LazyLock<Arc<IoDispatcher>> =
 
 #[derive(Clone)]
 pub struct VortexFileOpener {
-    pub ctx: Arc<Context>,
+    pub ctx: ContextRef,
     pub object_store: Arc<dyn ObjectStore>,
     pub projection: Option<Vec<usize>>,
     pub predicate: Option<Arc<dyn PhysicalExpr>>,

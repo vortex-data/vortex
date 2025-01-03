@@ -24,7 +24,7 @@ pub(super) struct ViewedArrayData {
     pub(super) flatbuffer: ByteBuffer,
     pub(super) flatbuffer_loc: usize,
     pub(super) buffers: Arc<[ByteBuffer]>,
-    pub(super) ctx: Arc<Context>,
+    pub(super) ctx: ContextRef,
     #[cfg(feature = "canonical_counter")]
     pub(super) canonical_counter: Arc<std::sync::atomic::AtomicUsize>,
 }
