@@ -1,7 +1,7 @@
 use std::iter::TrustedLen;
 use std::sync::{Arc, OnceLock};
 
-use arrow_array::BooleanArray;
+use arrow_array::{Array, BooleanArray};
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, MutableBuffer};
 use num_traits::AsPrimitive;
 use vortex_dtype::{DType, Nullability};
@@ -9,7 +9,7 @@ use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexRes
 
 use crate::array::{BoolArray, ConstantArray};
 use crate::arrow::FromArrowArray;
-use crate::compute::scalar_at;
+use crate::compute::{scalar_at, try_cast};
 use crate::encoding::Encoding;
 use crate::stats::ArrayStatistics;
 use crate::{ArrayDType, ArrayData, Canonical, IntoArrayData, IntoCanonical};
@@ -111,7 +111,13 @@ fn filter_impl(array: &ArrayData, mask: FilterMask) -> VortexResult<ArrayData> {
     let mask_array = BooleanArray::new(mask.to_boolean_buffer()?, None);
     let filtered = arrow_select::filter::filter(array_ref.as_ref(), &mask_array)?;
 
-    Ok(ArrayData::from_arrow(filtered, array.dtype().is_nullable()))
+    println!("array_ref: {:?}", array_ref.data_type());
+    println!("filtered: {:?}", filtered.data_type());
+
+    try_cast(
+        ArrayData::from_arrow(filtered, array.dtype().is_nullable()),
+        array.dtype(),
+    )
 }
 
 /// Represents the mask argument to a filter function.

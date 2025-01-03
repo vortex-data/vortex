@@ -188,13 +188,14 @@ impl ValidityVTable<ListArray> for ListEncoding {
 mod test {
     use std::sync::Arc;
 
+    use arrow_buffer::BooleanBuffer;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{Nullability, PType};
     use vortex_scalar::Scalar;
 
     use crate::array::list::ListArray;
     use crate::array::PrimitiveArray;
-    use crate::compute::scalar_at;
+    use crate::compute::{filter, scalar_at, FilterMask};
     use crate::validity::Validity;
     use crate::{ArrayLen, IntoArrayData};
 
@@ -243,5 +244,23 @@ mod test {
             ),
             scalar_at(&list, 2).unwrap()
         );
+    }
+
+    #[test]
+    fn test_simple_list_filter() {
+        let elements = PrimitiveArray::from_option_iter([None, Some(2), Some(3), Some(4), Some(5)]);
+        let offsets = PrimitiveArray::from_iter([0, 2, 4, 5]);
+        let validity = Validity::AllValid;
+
+        let list = ListArray::try_new(elements.into_array(), offsets.into_array(), validity)
+            .unwrap()
+            .into_array();
+
+        let filtered = filter(
+            &list,
+            FilterMask::from(BooleanBuffer::from(vec![false, true, true])),
+        );
+
+        assert!(filtered.is_ok())
     }
 }

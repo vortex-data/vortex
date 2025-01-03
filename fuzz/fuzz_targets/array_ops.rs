@@ -10,8 +10,7 @@ use vortex_array::compute::{
     filter, scalar_at, search_sorted, slice, take, SearchResult, SearchSortedSide,
 };
 use vortex_array::encoding::EncodingRef;
-use vortex_array::{ArrayData, IntoCanonical, NamedTreeCollector};
-use vortex_error::VortexResult;
+use vortex_array::{ArrayData, IntoCanonical};
 use vortex_fuzz::{sort_canonical_array, Action, FuzzArrayAction};
 use vortex_sampling_compressor::SamplingCompressor;
 use vortex_scalar::Scalar;
@@ -117,11 +116,4 @@ fn assert_array_eq(lhs: &ArrayData, rhs: &ArrayData, step: usize) {
             rhs.encoding().id()
         );
     }
-}
-
-fn extract_encodings(array: &ArrayData) -> VortexResult<Vec<EncodingRef>> {
-    Ok(NamedTreeCollector::visit_all_children(array)?
-        .into_iter()
-        .map(|(_, arr)| arr.encoding())
-        .collect())
 }

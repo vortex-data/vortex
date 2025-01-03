@@ -188,8 +188,14 @@ impl FromArrowArray<&ArrowStructArray> for ArrayData {
 
 impl<O: OffsetSizeTrait + NativePType> FromArrowArray<&GenericListArray<O>> for ArrayData {
     fn from_arrow(value: &GenericListArray<O>, nullable: bool) -> Self {
+        // Extract the validity of the underlying element array
+        let elem_nullable = match value.data_type() {
+            DataType::List(field) => field.is_nullable(),
+            DataType::LargeList(field) => field.is_nullable(),
+            dt => vortex_panic!("Invalid data type for ListArray: {dt}"),
+        };
         ListArray::try_new(
-            Self::from_arrow(value.values().clone(), value.values().is_nullable()),
+            Self::from_arrow(value.values().clone(), elem_nullable),
             // offsets are always non-nullable
             ArrayData::from(value.offsets().clone()),
             nulls(value.nulls(), nullable),
