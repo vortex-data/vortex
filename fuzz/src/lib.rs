@@ -15,7 +15,9 @@ use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::ListEncoding;
 use vortex_array::compute::{scalar_at, FilterMask, SearchResult, SearchSortedSide};
 use vortex_array::encoding::{Encoding, EncodingRef};
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData, NamedTreeCollector};
+use vortex_array::{
+    ArrayChildrenIterator, ArrayDType, ArrayData, IntoArrayData, NamedTreeCollector, ToArrayData,
+};
 use vortex_buffer::Buffer;
 use vortex_sampling_compressor::SamplingCompressor;
 use vortex_scalar::arbitrary::random_scalar;
@@ -187,10 +189,9 @@ fn actions_for_encoding(encoding: EncodingRef) -> HashSet<usize> {
 }
 
 fn actions_for_array(array: &ArrayData) -> Vec<usize> {
-    NamedTreeCollector::visit_all_children(array)
-        .unwrap()
-        .iter()
-        .map(|(_, child)| actions_for_encoding(child.encoding()))
+    ArrayChildrenIterator::new(array.to_array())
+        .into_iter()
+        .map(|child| actions_for_encoding(child.encoding()))
         .fold(ALL_ACTIONS.collect::<Vec<_>>(), |mut acc, actions| {
             acc.retain(|a| actions.contains(a));
             acc
