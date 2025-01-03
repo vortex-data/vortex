@@ -1,10 +1,9 @@
 use vortex_array::array::PrimitiveArray;
 use vortex_array::patches::Patches;
-use vortex_array::validity::Validity;
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::{NativePType, PType};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{vortex_bail, VortexResult, VortexUnwrap};
 use vortex_scalar::ScalarType;
 
 use crate::alp::{ALPArray, ALPFloat};
@@ -34,20 +33,17 @@ where
     T::ALPInt: NativePType,
     T: ScalarType,
 {
-    let patch_validity = match values.validity() {
-        Validity::NonNullable => Validity::NonNullable,
-        _ => Validity::AllValid,
-    };
-
     let (exponents, encoded, exc_pos, exc) = T::encode(values.as_slice::<T>(), exponents);
     let len = encoded.len();
     (
         exponents,
         PrimitiveArray::new(encoded, values.validity()).into_array(),
         (!exc.is_empty()).then(|| {
+            let position_arr = exc_pos.into_array();
+            let patch_validity = values.validity().take(&position_arr).vortex_unwrap();
             Patches::new(
                 len,
-                exc_pos.into_array(),
+                position_arr,
                 PrimitiveArray::new(exc, patch_validity).into_array(),
             )
         }),
@@ -70,7 +66,7 @@ pub fn decompress(array: ALPArray) -> VortexResult<PrimitiveArray> {
 
     let decoded = match_each_alp_float_ptype!(ptype, |$T| {
         PrimitiveArray::new::<$T>(
-            <$T>::decode_buffer(encoded.into_buffer().into_mut(), array.exponents()),
+            <$T>::decode_buffer(encoded.into_buffer_mut(), array.exponents()),
             validity,
         )
     });
@@ -87,7 +83,8 @@ mod tests {
     use core::f64;
 
     use vortex_array::compute::scalar_at;
-    use vortex_buffer::buffer;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::{buffer, Buffer};
 
     use super::*;
 
@@ -157,7 +154,7 @@ mod tests {
         let array = PrimitiveArray::from_option_iter([
             Some(1.234f64),
             Some(2.718),
-            Some(std::f64::consts::PI),
+            Some(f64::consts::PI),
             Some(4.0),
             None,
         ]);
@@ -183,5 +180,17 @@ mod tests {
         let alp_arr = alp_encode(&original).unwrap();
         let decompressed = alp_arr.into_primitive().unwrap();
         assert_eq!(original.as_slice::<f32>(), decompressed.as_slice::<f32>());
+    }
+
+    #[test]
+    fn roundtrips_all_null() {
+        let original = PrimitiveArray::new(
+            Buffer::from_iter([195.26274f64, f64::consts::PI, -48.815685]),
+            Validity::AllInvalid,
+        );
+        let alp_arr = alp_encode(&original).unwrap();
+        let decompressed = alp_arr.into_primitive().unwrap();
+        assert_eq!(original.as_slice::<f64>(), decompressed.as_slice::<f64>());
+        assert_eq!(original.validity(), decompressed.validity());
     }
 }

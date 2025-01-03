@@ -25,7 +25,7 @@ pub fn read_layout_data(
     layout: &dyn LayoutReader,
     buf: &Bytes,
     selector: &RowMask,
-    mut msgs: LayoutMessageCache,
+    msgs: LayoutMessageCache,
 ) -> Option<ArrayData> {
     while let Some(rr) = layout.poll_read(selector, &msgs).unwrap() {
         match rr {
@@ -45,7 +45,7 @@ pub fn read_filters(
     layout: &dyn LayoutReader,
     buf: &Bytes,
     selector: &RowMask,
-    mut msgs: LayoutMessageCache,
+    msgs: LayoutMessageCache,
 ) -> Option<RowMask> {
     while let Some(rr) = layout.poll_read(selector, &msgs).unwrap() {
         match rr {

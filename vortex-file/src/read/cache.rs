@@ -26,7 +26,7 @@ pub struct LayoutMessageCache {
 }
 
 impl LayoutMessageCache {
-    pub fn remove(&mut self, path: &[LayoutPartId]) -> Option<Bytes> {
+    pub fn remove(&self, path: &[LayoutPartId]) -> Option<Bytes> {
         self.cache
             .write()
             .map_err(|_| vortex_err!("Poisoned cache"))
@@ -34,7 +34,7 @@ impl LayoutMessageCache {
             .remove(path)
     }
 
-    pub fn set(&mut self, path: MessageId, value: Bytes) {
+    pub fn set(&self, path: MessageId, value: Bytes) {
         self.cache
             .write()
             .map_err(|_| vortex_err!("Poisoned cache"))
@@ -42,7 +42,7 @@ impl LayoutMessageCache {
             .insert(path, value);
     }
 
-    pub fn set_many<I: IntoIterator<Item = (MessageId, Bytes)>>(&mut self, iter: I) {
+    pub fn set_many<I: IntoIterator<Item = (MessageId, Bytes)>>(&self, iter: I) {
         let mut guard = self
             .cache
             .write()

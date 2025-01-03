@@ -8,13 +8,14 @@ use futures::StreamExt;
 use futures_util::TryStreamExt;
 use itertools::Itertools;
 use vortex_array::accessor::ArrayAccessor;
-use vortex_array::array::{ChunkedArray, PrimitiveArray, StructArray, VarBinArray};
+use vortex_array::array::{ChunkedArray, ListArray, PrimitiveArray, StructArray, VarBinArray};
 use vortex_array::compute::scalar_at;
 use vortex_array::validity::Validity;
 use vortex_array::variants::{PrimitiveArrayTrait, StructArrayTrait};
 use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
 use vortex_buffer::{buffer, Buffer};
 use vortex_dtype::field::Field;
+use vortex_dtype::PType::I32;
 use vortex_dtype::{DType, Nullability, PType, StructDType};
 use vortex_error::{vortex_panic, VortexResult};
 use vortex_expr::{BinaryExpr, Column, Literal, Operator};
@@ -89,7 +90,23 @@ async fn test_read_simple_with_spawn() {
     ])
     .into_array();
 
-    let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
+    let lists = ChunkedArray::from_iter([
+        ListArray::from_iter_slow(
+            vec![vec![11, 12], vec![21, 22], vec![31, 32], vec![41, 42]],
+            Arc::new(I32.into()),
+        )
+        .unwrap(),
+        ListArray::from_iter_slow(
+            vec![vec![51, 52], vec![61, 62], vec![71, 72], vec![81, 82]],
+            Arc::new(I32.into()),
+        )
+        .unwrap(),
+    ])
+    .into_array();
+
+    let st =
+        StructArray::from_fields(&[("strings", strings), ("numbers", numbers), ("lists", lists)])
+            .unwrap();
     let buf = Vec::new();
 
     let written = tokio::spawn(async move {
