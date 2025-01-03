@@ -1,4 +1,5 @@
 use std::collections::Bound;
+use std::fmt::{Debug, Formatter};
 use std::ops::{Deref, RangeBounds};
 
 use bytes::{Buf, Bytes};
@@ -7,7 +8,7 @@ use vortex_error::{vortex_panic, VortexExpect};
 use crate::{Alignment, BufferMut, ByteBuffer};
 
 /// An immutable buffer of items of `T`.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd)]
+#[derive(Clone, PartialEq, Eq, PartialOrd)]
 pub struct Buffer<T> {
     pub(crate) bytes: Bytes,
     pub(crate) length: usize,
@@ -267,6 +268,16 @@ impl<T> Buffer<T> {
         } else {
             Self::copy_from_aligned(self, alignment)
         }
+    }
+}
+
+impl<T> Debug for Buffer<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Buffer")
+            .field("bytes", &self.bytes.clone().truncate(512))
+            .field("length", &self.length)
+            .field("alignment", &self.alignment)
+            .finish()
     }
 }
 
