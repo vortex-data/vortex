@@ -2,13 +2,13 @@ use std::ops::Deref;
 
 use bytes::Bytes;
 use flatbuffers::{root, FlatBufferBuilder, WIPOffset};
-use vortex_array::ContextRef;
+use vortex_array::{ArrayData, ContextRef};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_flatbuffers::{layout as fb, layout, FlatBufferRoot, WriteFlatBuffer};
 
-use crate::encoding::{LayoutEncodingRef, LayoutId};
+use crate::encoding::{LayoutEncoding, LayoutEncodingRef, LayoutId};
 use crate::scanner::{LayoutScan, Scan};
 use crate::segments::SegmentId;
 
