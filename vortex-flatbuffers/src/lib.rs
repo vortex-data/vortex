@@ -110,7 +110,7 @@ pub mod footer;
 ///
 /// `layout.fbs`:
 /// ```flatbuffers
-#[doc = include_str!("../flatbuffers/vortex-serde/layout.fbs")]
+#[doc = include_str!("../flatbuffers/vortex-layout/layout.fbs")]
 /// ```
 pub mod layout;
 
