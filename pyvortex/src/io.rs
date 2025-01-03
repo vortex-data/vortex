@@ -48,7 +48,7 @@ use crate::{PyArray, TOKIO_RUNTIME};
 ///     57,
 ///     null
 ///   ]
-/// -- child 1 type: string
+/// -- child 1 type: string_view
 ///   [
 ///     "Joseph",
 ///     null,
@@ -78,7 +78,7 @@ use crate::{PyArray, TOKIO_RUNTIME};
 /// >>> d.to_arrow_array()
 /// <pyarrow.lib.StructArray object at ...>
 /// -- is_valid: all not null
-/// -- child 0 type: string
+/// -- child 0 type: string_view
 ///   [
 ///     "Joseph",
 ///     null,
@@ -98,7 +98,7 @@ use crate::{PyArray, TOKIO_RUNTIME};
 ///   [
 ///     57
 ///   ]
-/// -- child 1 type: string
+/// -- child 1 type: string_view
 ///   [
 ///     "Mikhail"
 ///   ]

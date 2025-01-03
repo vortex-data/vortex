@@ -4,13 +4,11 @@ use std::sync::Arc;
 mod accessor;
 
 use arrow_buffer::BooleanBufferBuilder;
-use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
 use vortex_error::{vortex_panic, VortexExpect as _, VortexResult};
 
-use crate::array::BoolArray;
 use crate::encoding::ids;
 use crate::iter::Accessor;
 use crate::stats::StatsSet;
@@ -50,7 +48,7 @@ impl PrimitiveArray {
                 validity: validity.to_metadata(len).vortex_expect("Invalid validity"),
             }),
             Some(buffer.into_byte_buffer()),
-            validity.into_array().into_iter().collect_vec().into(),
+            validity.into_array().into_iter().collect(),
             StatsSet::default(),
         )
         .and_then(|data| data.try_into())
@@ -92,10 +90,7 @@ impl PrimitiveArray {
                 }
             }
         }
-        Self::new(
-            values.freeze(),
-            Validity::Array(BoolArray::from(validity.finish()).into_array()),
-        )
+        Self::new(values.freeze(), Validity::from(validity.finish()))
     }
 
     pub fn validity(&self) -> Validity {

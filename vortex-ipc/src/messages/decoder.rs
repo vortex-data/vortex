@@ -88,12 +88,11 @@ pub enum PollRead {
     NeedMore(usize),
 }
 
+// NOTE(ngates): we should design some trait that the Decoder can take that doesn't require unique
+//  ownership of the underlying bytes. The decoder needs to split out bytes, and advance a cursor,
+//  but it doesn't need to mutate any bytes. So in theory, we should be able to do this zero-copy
+//  over a shared buffer of bytes, instead of requiring a `BytesMut`.
 /// A stateful reader for decoding IPC messages from an arbitrary stream of bytes.
-///
-/// NOTE(ngates): we should design some trait that the Decoder can take that doesn't require unique
-///  ownership of the underlying bytes. The decoder needs to split out bytes, and advance a cursor,
-///  but it doesn't need to mutate any bytes. So in theory, we should be able to do this zero-copy
-///  over a shared buffer of bytes, instead of requiring a `BytesMut`.
 pub struct MessageDecoder {
     /// The minimum alignment to use when reading a data `Buffer`.
     alignment: Alignment,

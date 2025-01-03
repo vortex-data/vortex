@@ -3,12 +3,20 @@ mod compute;
 use std::fmt::Display;
 use std::sync::Arc;
 
+#[cfg(feature = "test_util")]
+use itertools::Itertools;
 use num_traits::AsPrimitive;
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "test_util")]
+use vortex_dtype::Nullability;
 use vortex_dtype::{match_each_native_ptype, DType, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult};
+#[cfg(feature = "test_util")]
+use vortex_scalar::Scalar;
 
 use crate::array::PrimitiveArray;
+#[cfg(feature = "test_util")]
+use crate::builders::{ArrayBuilder, ListBuilder};
 use crate::compute::{scalar_at, slice};
 use crate::encoding::ids;
 use crate::stats::{Stat, StatisticsVTable, StatsSet};
@@ -184,12 +192,42 @@ impl ValidityVTable<ListArray> for ListEncoding {
     }
 }
 
+#[cfg(feature = "test_util")]
+impl ListArray {
+    /// This is a convenience method to create a list array from an iterator of iterators.
+    /// This method is slow however since each element is first converted to a scalar and then
+    /// appended to the array.
+    pub fn from_iter_slow<I: IntoIterator>(iter: I, dtype: Arc<DType>) -> VortexResult<ArrayData>
+    where
+        I::Item: IntoIterator,
+        <I::Item as IntoIterator>::Item: Into<Scalar>,
+    {
+        let iter = iter.into_iter();
+        let mut builder = ListBuilder::<u32>::with_capacity(
+            dtype.clone(),
+            Nullability::NonNullable,
+            iter.size_hint().0,
+        );
+
+        for v in iter {
+            let elem = Scalar::list(
+                dtype.clone(),
+                v.into_iter().map(|x| x.into()).collect_vec(),
+                Nullability::Nullable,
+            );
+            builder.append_value(elem.as_list())?
+        }
+        builder.finish()
+    }
+}
+
 #[cfg(test)]
 mod test {
     use std::sync::Arc;
 
+    use vortex_dtype::Nullability;
     use vortex_dtype::Nullability::NonNullable;
-    use vortex_dtype::{Nullability, PType};
+    use vortex_dtype::PType::I32;
     use vortex_scalar::Scalar;
 
     use crate::array::list::ListArray;
@@ -221,7 +259,7 @@ mod test {
 
         assert_eq!(
             Scalar::list(
-                Arc::new(PType::I32.into()),
+                Arc::new(I32.into()),
                 vec![1.into(), 2.into()],
                 Nullability::Nullable
             ),
@@ -229,19 +267,38 @@ mod test {
         );
         assert_eq!(
             Scalar::list(
-                Arc::new(PType::I32.into()),
+                Arc::new(I32.into()),
                 vec![3.into(), 4.into()],
                 Nullability::Nullable
             ),
             scalar_at(&list, 1).unwrap()
         );
         assert_eq!(
-            Scalar::list(
-                Arc::new(PType::I32.into()),
-                vec![5.into()],
-                Nullability::Nullable
-            ),
+            Scalar::list(Arc::new(I32.into()), vec![5.into()], Nullability::Nullable),
             scalar_at(&list, 2).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_simple_list_array_from_iter() {
+        let elements = PrimitiveArray::from_iter([1i32, 2, 3]);
+        let offsets = PrimitiveArray::from_iter([0, 2, 3]);
+        let validity = Validity::NonNullable;
+
+        let list =
+            ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
+
+        let list_from_iter =
+            ListArray::from_iter_slow(vec![vec![1i32, 2], vec![3]], Arc::new(I32.into())).unwrap();
+
+        assert_eq!(list.len(), list_from_iter.len());
+        assert_eq!(
+            scalar_at(&list, 0).unwrap(),
+            scalar_at(&list_from_iter, 0).unwrap()
+        );
+        assert_eq!(
+            scalar_at(&list, 1).unwrap(),
+            scalar_at(&list_from_iter, 1).unwrap()
         );
     }
 }
