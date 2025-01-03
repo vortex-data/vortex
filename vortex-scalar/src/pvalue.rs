@@ -175,6 +175,22 @@ impl PValue {
         }
     }
 
+    pub fn default_of_type(ptype: PType) -> Self {
+        match ptype {
+            PType::U8 => PValue::U8(0),
+            PType::U16 => PValue::U16(0),
+            PType::U32 => PValue::U32(0),
+            PType::U64 => PValue::U64(0),
+            PType::I8 => PValue::I8(0),
+            PType::I16 => PValue::I16(0),
+            PType::I32 => PValue::I32(0),
+            PType::I64 => PValue::I64(0),
+            PType::F16 => PValue::F16(f16::from_f32(0.0)),
+            PType::F32 => PValue::F32(0.0),
+            PType::F64 => PValue::F64(0.0),
+        }
+    }
+
     as_primitive!(i8, I8);
     as_primitive!(i16, I16);
     as_primitive!(i32, I32);

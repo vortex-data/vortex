@@ -2,6 +2,7 @@ use std::cmp::Ordering;
 use std::mem::discriminant;
 use std::sync::Arc;
 
+use itertools::Itertools as _;
 pub use scalar_type::ScalarType;
 use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::half::f16;
@@ -140,6 +141,39 @@ impl Scalar {
             dtype: self.dtype.as_nullable(),
             value: self.value,
         }
+    }
+
+    pub fn default_of_type(dtype: DType) -> VortexResult<Self> {
+        if dtype.is_nullable() {
+            return Ok(Scalar::new(dtype, ScalarValue(InnerScalarValue::Null)));
+        }
+        Ok(match dtype {
+            DType::Null => unreachable!(),
+            DType::Bool(_) => Scalar::new(dtype, ScalarValue(InnerScalarValue::Bool(false))),
+            DType::Primitive(ptype, _) => Scalar::new(
+                dtype,
+                ScalarValue(InnerScalarValue::Primitive(PValue::default_of_type(ptype))),
+            ),
+            DType::Utf8(_) => Scalar::new(
+                dtype,
+                ScalarValue(InnerScalarValue::BufferString(BufferString::from(""))),
+            ),
+            DType::Binary(_) => Scalar::new(
+                dtype,
+                ScalarValue(InnerScalarValue::Buffer(ByteBuffer::empty())),
+            ),
+            DType::Struct(ref sdtype, _) => {
+                let values = sdtype
+                    .dtypes()
+                    .map(Scalar::default_of_type)
+                    .process_results(|it| it.map(Scalar::into_value).collect::<Vec<_>>())?;
+                Scalar::new(dtype, ScalarValue(InnerScalarValue::List(values.into())))
+            }
+            DType::List(..) => {
+                Scalar::new(dtype, ScalarValue(InnerScalarValue::List(Arc::from([]))))
+            }
+            DType::Extension(_) => vortex_bail!("Default for Extension types not implemented"),
+        })
     }
 }
 
