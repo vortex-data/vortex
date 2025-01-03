@@ -17,21 +17,24 @@ enum State {
 pub struct FlatScan {
     layout: LayoutData,
     scan: Scan,
+    dtype: DType,
     ctx: ContextRef,
     state: State,
 }
 
 impl FlatScan {
-    pub(super) fn new(layout: LayoutData, scan: Scan, ctx: ContextRef) -> Self {
+    pub(super) fn try_new(layout: LayoutData, scan: Scan, ctx: ContextRef) -> VortexResult<Self> {
         if layout.encoding().id() != FlatLayout.id() {
             vortex_panic!("Mismatched layout ID")
         }
-        Self {
+        let dtype = scan.result_dtype(layout.dtype())?;
+        Ok(Self {
             layout,
             scan,
+            dtype,
             ctx,
             state: State::Initial,
-        }
+        })
     }
 }
 
@@ -40,7 +43,11 @@ impl LayoutScan for FlatScan {
         &self.layout
     }
 
-    fn masked_scanner(&self, mask: RowMask) -> VortexResult<Box<dyn Scanner>> {
+    fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    fn create_scanner(&self, mask: RowMask) -> VortexResult<Box<dyn Scanner>> {
         let segment_id = self
             .layout
             .segment_id(0)
@@ -95,8 +102,10 @@ impl Scanner for FlatScanner {
                 // expression, projection and filter mask. We should experiment.
                 let mut array = filter(&array, self.mask.clone())?;
                 if let Some(expr) = &self.scan.filter {
-                    array = expr.evaluate(&array)?;
-                    array = fill_null(array, false.into())?;
+                    let mask = expr.evaluate(&array)?;
+                    let mask = fill_null(&mask, false.into())?;
+                    let mask = FilterMask::try_from(mask)?;
+                    array = filter(&array, mask)?;
                 }
                 array = self.scan.projection.evaluate(&array)?;
 
@@ -108,10 +117,14 @@ impl Scanner for FlatScanner {
 
 #[cfg(test)]
 mod test {
+    use std::sync::Arc;
+
     use vortex_array::array::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_array::{ArrayDType, IntoArrayVariant, ToArrayData};
     use vortex_buffer::buffer;
+    use vortex_dtype::{DType, Nullability};
+    use vortex_expr::{BinaryExpr, Identity, Literal, Operator};
 
     use crate::layouts::flat::writer::FlatLayoutWriter;
     use crate::scanner::Scan;
@@ -132,5 +145,60 @@ mod test {
             .unwrap();
 
         assert_eq!(array.as_slice::<i32>(), result.as_slice::<i32>());
+    }
+
+    #[test]
+    fn flat_scan_filter() {
+        let mut segments = TestSegments::default();
+        let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
+        let layout = FlatLayoutWriter::new(array.dtype().clone())
+            .push_one(&mut segments, array.to_array())
+            .unwrap();
+
+        let scan = Scan {
+            projection: Identity::new_expr(),
+            filter: Some(BinaryExpr::new_expr(
+                Arc::new(Identity),
+                Operator::Gt,
+                Literal::new_expr(3.into()),
+            )),
+        };
+
+        let result = segments
+            .do_scan(layout.new_scan(scan, Default::default()).as_ref())
+            .into_primitive()
+            .unwrap();
+
+        assert_eq!(&[4, 5], result.as_slice::<i32>());
+    }
+
+    #[test]
+    fn flat_scan_filter_project() {
+        let mut segments = TestSegments::default();
+        let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
+        let layout = FlatLayoutWriter::new(array.dtype().clone())
+            .push_one(&mut segments, array.to_array())
+            .unwrap();
+
+        let scan = Scan {
+            // The projection function here changes the scan's DType to boolean
+            projection: BinaryExpr::new_expr(
+                Arc::new(Identity),
+                Operator::Lt,
+                Literal::new_expr(5.into()),
+            ),
+            filter: Some(BinaryExpr::new_expr(
+                Arc::new(Identity),
+                Operator::Gt,
+                Literal::new_expr(3.into()),
+            )),
+        };
+
+        let scan = layout.new_scan(scan, Default::default());
+        assert_eq!(scan.dtype(), &DType::Bool(Nullability::Nullable));
+
+        let result = segments.do_scan(&scan).into_bool().unwrap();
+        assert!(result.boolean_buffer().value(0));
+        assert!(!result.boolean_buffer().value(1));
     }
 }

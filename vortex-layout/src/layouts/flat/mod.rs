@@ -2,6 +2,7 @@ mod scan;
 pub mod writer;
 
 use vortex_array::ContextRef;
+use vortex_error::VortexResult;
 
 use crate::encoding::{LayoutEncoding, LayoutId};
 use crate::layouts::flat::scan::FlatScan;
@@ -16,7 +17,12 @@ impl LayoutEncoding for FlatLayout {
         FLAT_LAYOUT_ID
     }
 
-    fn scan(&self, layout: LayoutData, scan: Scan, ctx: ContextRef) -> Box<dyn LayoutScan> {
-        Box::new(FlatScan::new(layout, scan, ctx)) as _
+    fn scan(
+        &self,
+        layout: LayoutData,
+        scan: Scan,
+        ctx: ContextRef,
+    ) -> VortexResult<Box<dyn LayoutScan>> {
+        Ok(FlatScan::try_new(layout, scan, ctx)?.boxed())
     }
 }

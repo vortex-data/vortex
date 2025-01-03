@@ -1,4 +1,5 @@
 use vortex_array::{ArrayData, ContextRef};
+use vortex_dtype::DType;
 use vortex_error::{vortex_err, vortex_panic, VortexResult};
 
 use crate::layouts::chunked::ChunkedLayout;
@@ -36,7 +37,11 @@ impl LayoutScan for ChunkedScan {
         &self.layout
     }
 
-    fn masked_scanner(&self, mask: RowMask) -> VortexResult<Box<dyn Scanner>> {
+    fn dtype(&self) -> &DType {
+        self.scan.result_dtype(self.layout.dtype())
+    }
+
+    fn create_scanner(&self, mask: RowMask) -> VortexResult<Box<dyn Scanner>> {
         Ok(Box::new(ChunkedScanner {
             layout: self.layout.clone(),
             mask,

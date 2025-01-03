@@ -61,7 +61,7 @@ pub mod test {
     impl TestSegments {
         pub fn do_scan(&self, scan: &dyn LayoutScan) -> ArrayData {
             let mut scanner = scan
-                .masked_scanner(RowMask::new_valid_between(0, scan.layout().row_count()))
+                .create_scanner(RowMask::new_valid_between(0, scan.layout().row_count()))
                 .vortex_expect("Failed to create scanner");
             match scanner.poll(self).vortex_expect("Failed to poll scanner") {
                 Poll::Some(array) => array,
