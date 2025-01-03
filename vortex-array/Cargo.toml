@@ -36,6 +36,7 @@ enum-iterator = { workspace = true }
 flatbuffers = { workspace = true }
 flexbuffers = { workspace = true }
 futures-util = { workspace = true }
+goldenfile = { workspace = true, optional = true }
 hashbrown = { workspace = true }
 humansize = { workspace = true }
 itertools = { workspace = true }
@@ -56,7 +57,7 @@ vortex-scalar = { workspace = true, features = ["flatbuffers", "serde", "arbitra
 
 [features]
 arbitrary = ["dep:arbitrary", "vortex-dtype/arbitrary"]
-test_util = []
+test_util = ["dep:goldenfile"]
 canonical_counter = []
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

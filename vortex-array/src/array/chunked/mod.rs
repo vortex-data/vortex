@@ -35,7 +35,7 @@ impl_encoding!("vortex.chunked", ids::CHUNKED, Chunked);
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ChunkedMetadata {
-    nchunks: usize,
+    pub(crate) nchunks: usize,
 }
 
 impl Display for ChunkedMetadata {

@@ -18,7 +18,6 @@ workspace = true
 
 [dependencies]
 arrow-array = { workspace = true }
-arrow-buffer = { workspace = true }
 fsst-rs = { workspace = true }
 serde = { workspace = true }
 
@@ -27,3 +26,6 @@ vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-scalar = { workspace = true }
+
+[dev-dependencies]
+vortex-array = { path = "../../vortex-array", features = ["test_util"] }

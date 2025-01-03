@@ -43,6 +43,8 @@ pub mod nbytes;
 pub mod patches;
 pub mod stats;
 pub mod stream;
+#[cfg(feature = "test_util")]
+pub mod test_utils;
 pub mod tree;
 pub mod validity;
 pub mod variants;

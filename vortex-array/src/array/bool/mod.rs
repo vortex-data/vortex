@@ -28,8 +28,8 @@ impl_encoding!("vortex.bool", ids::BOOL, Bool);
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BoolMetadata {
-    validity: ValidityMetadata,
-    first_byte_bit_offset: u8,
+    pub(crate) validity: ValidityMetadata,
+    pub(crate) first_byte_bit_offset: u8,
 }
 
 impl Display for BoolMetadata {

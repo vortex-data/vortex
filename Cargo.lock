@@ -559,6 +559,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "bstr"
+version = "1.11.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "531a9155a481e2ee699d4f98f43c0ca4ff8ee1bfd55c31e9e98fb29d2b176fe0"
+dependencies = [
+ "memchr",
+ "regex-automata 0.4.9",
+ "serde",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2008,6 +2019,18 @@ name = "glob"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a8d1add55171497b4705a648c6b583acafb01d58050a51727785f0b2c8e0a2b2"
+
+[[package]]
+name = "goldenfile"
+version = "1.7.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "672ff1c2f0537cf3f92065ce8aa77e2fc3f2abae2c805eb67f40ceecfbdee428"
+dependencies = [
+ "scopeguard",
+ "similar-asserts",
+ "tempfile",
+ "yansi",
+]
 
 [[package]]
 name = "h2"
@@ -4148,6 +4171,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "similar"
+version = "2.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1de1d4f81173b03af4c0cbed3c898f6bff5b870e4a7f5d6f4057d62a7a4b686e"
+dependencies = [
+ "bstr",
+ "unicode-segmentation",
+]
+
+[[package]]
+name = "similar-asserts"
+version = "1.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cfe85670573cd6f0fa97940f26e7e6601213c3b0555246c24234131f88c5709e"
+dependencies = [
+ "console",
+ "similar",
+]
+
+[[package]]
 name = "simplelog"
 version = "0.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4892,7 +4935,6 @@ dependencies = [
 name = "vortex-alp"
 version = "0.21.1"
 dependencies = [
- "arrow-array",
  "divan",
  "itertools 0.13.0",
  "num-traits",
@@ -4926,6 +4968,7 @@ dependencies = [
  "flexbuffers",
  "futures-util",
  "getrandom",
+ "goldenfile",
  "hashbrown 0.15.2",
  "humansize",
  "itertools 0.13.0",
@@ -5020,7 +5063,6 @@ dependencies = [
 name = "vortex-datetime-parts"
 version = "0.21.1"
 dependencies = [
- "itertools 0.13.0",
  "serde",
  "vortex-array",
  "vortex-buffer",
@@ -5159,7 +5201,6 @@ name = "vortex-fsst"
 version = "0.21.1"
 dependencies = [
  "arrow-array",
- "arrow-buffer",
  "fsst-rs",
  "serde",
  "vortex-array",
@@ -5861,6 +5902,12 @@ dependencies = [
  "prost-build",
  "xshell",
 ]
+
+[[package]]
+name = "yansi"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cfe53a6657fd280eaa890a3bc59152892ffa3e30101319d168b781ed6529b049"
 
 [[package]]
 name = "yoke"

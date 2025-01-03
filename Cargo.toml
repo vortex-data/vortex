@@ -84,6 +84,7 @@ futures = { version = "0.3", default-features = false }
 futures-executor = "0.3"
 futures-util = "0.3"
 getrandom = "0.2.14"
+goldenfile = "1"
 half = { version = "^2", features = ["std", "num-traits"] }
 hashbrown = "0.15.0"
 homedir = "0.3.3"

@@ -164,3 +164,19 @@ impl StatisticsVTable<RoaringIntArray> for RoaringIntEncoding {
         }
     }
 }
+
+#[cfg(test)]
+mod test {
+    use vortex_array::test_utils::check_metadata;
+    use vortex_dtype::PType;
+
+    use crate::RoaringIntMetadata;
+
+    #[test]
+    fn test_roaring_int_metadata() {
+        check_metadata(
+            "roaring_int.metadata",
+            RoaringIntMetadata { ptype: PType::U64 },
+        );
+    }
+}

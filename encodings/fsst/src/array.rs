@@ -225,3 +225,23 @@ impl Utf8ArrayTrait for FSSTArray {}
 impl BinaryArrayTrait for FSSTArray {}
 
 impl ArrayTrait for FSSTArray {}
+
+#[cfg(test)]
+mod test {
+    use vortex_array::test_utils::check_metadata;
+    use vortex_dtype::{Nullability, PType};
+
+    use crate::FSSTMetadata;
+
+    #[test]
+    fn test_fsst_metadata() {
+        check_metadata(
+            "fsst.metadata",
+            FSSTMetadata {
+                symbols_len: usize::MAX,
+                codes_nullability: Nullability::Nullable,
+                uncompressed_lengths_ptype: PType::U64,
+            },
+        );
+    }
+}

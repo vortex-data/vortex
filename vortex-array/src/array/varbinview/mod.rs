@@ -2,12 +2,12 @@ use std::fmt::{Debug, Display, Formatter};
 use std::ops::Range;
 use std::sync::Arc;
 
-use ::serde::{Deserialize, Serialize};
 use arrow_array::builder::{BinaryViewBuilder, GenericByteViewBuilder, StringViewBuilder};
 use arrow_array::types::{BinaryViewType, ByteViewType, StringViewType};
 use arrow_array::{ArrayRef, BinaryViewArray, GenericByteViewArray, StringViewArray};
 use arrow_buffer::ScalarBuffer;
 use itertools::Itertools;
+use ::serde::{Deserialize, Serialize};
 use static_assertions::{assert_eq_align, assert_eq_size};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, PType};
@@ -197,11 +197,11 @@ pub(crate) const VIEW_SIZE_BYTES: usize = size_of::<BinaryView>();
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VarBinViewMetadata {
     // Validity metadata
-    validity: ValidityMetadata,
+    pub(crate) validity: ValidityMetadata,
 
     // Length of each buffer. The buffers are primitive byte arrays containing the raw string/binary
     // data referenced by views.
-    buffer_lens: Vec<u32>,
+    pub(crate) buffer_lens: Vec<u32>,
 }
 
 impl Display for VarBinViewMetadata {

@@ -24,5 +24,8 @@ vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-scalar = { workspace = true }
 
+[dev-dependencies]
+vortex-array = { path = "../../vortex-array", features = ["test_util"] }
+
 [lints]
 workspace = true

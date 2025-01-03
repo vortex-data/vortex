@@ -29,9 +29,9 @@ impl_encoding!("vortex.list", ids::LIST, List);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ListMetadata {
-    validity: ValidityMetadata,
-    elements_len: usize,
-    offset_ptype: PType,
+    pub(crate) validity: ValidityMetadata,
+    pub(crate) elements_len: usize,
+    pub(crate) offset_ptype: PType,
 }
 
 impl Display for ListMetadata {

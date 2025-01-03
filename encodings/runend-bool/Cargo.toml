@@ -28,6 +28,7 @@ vortex-scalar = { workspace = true }
 criterion = { workspace = true }
 rand = { workspace = true }
 rstest = { workspace = true }
+vortex-array = { path = "../../vortex-array", features = ["test_util"] }
 
 [lints]
 workspace = true

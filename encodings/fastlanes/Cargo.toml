@@ -32,6 +32,7 @@ vortex-scalar = { workspace = true }
 [dev-dependencies]
 criterion = { workspace = true }
 rand = { workspace = true }
+vortex-array = { path = "../../vortex-array", features = ["test_util"] }
 
 [[bench]]
 name = "bitpacking_take"

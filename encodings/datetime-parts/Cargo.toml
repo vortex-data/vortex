@@ -17,7 +17,6 @@ readme = { workspace = true }
 workspace = true
 
 [dependencies]
-itertools = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
@@ -25,3 +24,6 @@ vortex-datetime-dtype = { workspace = true }
 vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-scalar = { workspace = true }
+
+[dev-dependencies]
+vortex-array = { path = "../../vortex-array", features = ["test_util"] }

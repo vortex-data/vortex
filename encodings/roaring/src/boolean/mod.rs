@@ -139,9 +139,15 @@ mod test {
     use std::iter;
 
     use vortex_array::array::BoolArray;
+    use vortex_array::test_utils::check_metadata;
     use vortex_array::{ArrayLen, IntoArrayData, IntoArrayVariant};
 
-    use crate::RoaringBoolArray;
+    use crate::{RoaringBoolArray, RoaringBoolMetadata};
+
+    #[test]
+    fn test_roaring_bool_metadata() {
+        check_metadata("roaring_bool.metadata", RoaringBoolMetadata);
+    }
 
     #[test]
     #[cfg_attr(miri, ignore)]

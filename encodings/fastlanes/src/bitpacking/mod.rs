@@ -1,9 +1,9 @@
 use std::fmt::{Debug, Display};
 use std::sync::Arc;
 
-use ::serde::{Deserialize, Serialize};
 pub use compress::*;
 use fastlanes::BitPacking;
+use ::serde::{Deserialize, Serialize};
 use vortex_array::array::PrimitiveArray;
 use vortex_array::encoding::ids;
 use vortex_array::patches::{Patches, PatchesMetadata};
@@ -292,10 +292,27 @@ impl PrimitiveArrayTrait for BitPackedArray {}
 #[cfg(test)]
 mod test {
     use vortex_array::array::PrimitiveArray;
+    use vortex_array::patches::PatchesMetadata;
+    use vortex_array::test_utils::check_metadata;
+    use vortex_array::validity::ValidityMetadata;
     use vortex_array::{IntoArrayData, IntoArrayVariant, IntoCanonical};
     use vortex_buffer::Buffer;
+    use vortex_dtype::PType;
 
-    use crate::BitPackedArray;
+    use crate::{BitPackedArray, BitPackedMetadata};
+
+    #[test]
+    fn test_bitpacked_metadata() {
+        check_metadata(
+            "bitpacked.metadata",
+            BitPackedMetadata {
+                patches: Some(PatchesMetadata::new(usize::MAX, PType::U64)),
+                validity: ValidityMetadata::AllValid,
+                offset: u16::MAX,
+                bit_width: u8::MAX,
+            },
+        );
+    }
 
     #[test]
     fn test_encode() {

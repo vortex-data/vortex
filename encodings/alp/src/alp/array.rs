@@ -21,8 +21,8 @@ impl_encoding!("vortex.alp", ids::ALP, ALP);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ALPMetadata {
-    exponents: Exponents,
-    patches: Option<PatchesMetadata>,
+    pub(crate) exponents: Exponents,
+    pub(crate) patches: Option<PatchesMetadata>,
 }
 
 impl Display for ALPMetadata {
@@ -150,3 +150,26 @@ impl VisitorVTable<ALPArray> for ALPEncoding {
 }
 
 impl StatisticsVTable<ALPArray> for ALPEncoding {}
+
+#[cfg(test)]
+mod tests {
+    use vortex_array::patches::PatchesMetadata;
+    use vortex_array::test_utils::check_metadata;
+    use vortex_dtype::PType;
+
+    use crate::{ALPMetadata, Exponents};
+
+    #[test]
+    fn test_alp_metadata() {
+        check_metadata(
+            "alp.metadata",
+            ALPMetadata {
+                patches: Some(PatchesMetadata::new(usize::MAX, PType::U64)),
+                exponents: Exponents {
+                    e: u8::MAX,
+                    f: u8::MAX,
+                },
+            },
+        );
+    }
+}

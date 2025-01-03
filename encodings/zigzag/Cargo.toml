@@ -22,5 +22,8 @@ vortex-error = { workspace = true }
 vortex-scalar = { workspace = true }
 zigzag = { workspace = true }
 
+[dev-dependencies]
+vortex-array = { path = "../../vortex-array", features = ["test_util"] }
+
 [lints]
 workspace = true

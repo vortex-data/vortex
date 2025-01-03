@@ -252,14 +252,29 @@ mod test {
     use vortex_array::array::BoolArray;
     use vortex_array::compute::{scalar_at, slice, take};
     use vortex_array::stats::ArrayStatistics;
-    use vortex_array::validity::Validity;
+    use vortex_array::test_utils::check_metadata;
+    use vortex_array::validity::{Validity, ValidityMetadata};
     use vortex_array::{
         ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoCanonical, ToArrayData,
     };
     use vortex_buffer::{buffer, Buffer};
-    use vortex_dtype::{DType, Nullability};
+    use vortex_dtype::{DType, Nullability, PType};
 
-    use crate::RunEndBoolArray;
+    use crate::{RunEndBoolArray, RunEndBoolMetadata};
+
+    #[test]
+    fn test_runend_bool_metadata() {
+        check_metadata(
+            "runend_bool.metadata",
+            RunEndBoolMetadata {
+                num_runs: usize::MAX,
+                ends_ptype: PType::U64,
+                offset: usize::MAX,
+                validity: ValidityMetadata::AllValid,
+                start: true,
+            },
+        );
+    }
 
     #[test]
     fn new() {

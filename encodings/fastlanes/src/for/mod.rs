@@ -120,3 +120,22 @@ impl VariantsVTable<FoRArray> for FoREncoding {
 }
 
 impl PrimitiveArrayTrait for FoRArray {}
+
+#[cfg(test)]
+mod test {
+    use vortex_array::test_utils::check_metadata;
+    use vortex_scalar::PValue;
+
+    use crate::FoRMetadata;
+
+    #[test]
+    fn test_for_metadata() {
+        check_metadata(
+            "for.metadata",
+            FoRMetadata {
+                reference: PValue::I64(i64::MAX),
+                shift: u8::MAX,
+            },
+        );
+    }
+}

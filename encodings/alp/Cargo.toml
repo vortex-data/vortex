@@ -28,9 +28,9 @@ vortex-fastlanes = { workspace = true }
 vortex-scalar = { workspace = true }
 
 [dev-dependencies]
-arrow-array = { workspace = true }
 divan = { workspace = true }
 rstest = { workspace = true }
+vortex-array = { path = "../../vortex-array", features = ["test_util"] }
 
 [[bench]]
 name = "alp_compress"

@@ -27,7 +27,7 @@ impl_encoding!("vortex.primitive", ids::PRIMITIVE, Primitive);
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PrimitiveMetadata {
-    validity: ValidityMetadata,
+    pub(crate) validity: ValidityMetadata,
 }
 
 impl Display for PrimitiveMetadata {
