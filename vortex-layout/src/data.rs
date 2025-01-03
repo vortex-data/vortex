@@ -190,10 +190,10 @@ impl WriteFlatBuffer for LayoutData {
     ) -> WIPOffset<Self::Target<'fb>> {
         match &self.0 {
             Inner::Owned(layout) => {
-                let metadata = layout.metadata.as_ref().map(|b| fbb.create_vector(&b));
+                let metadata = layout.metadata.as_ref().map(|b| fbb.create_vector(b));
                 let children = layout.children.as_ref().map(|children| {
                     children
-                        .into_iter()
+                        .iter()
                         .map(|c| c.write_flatbuffer(fbb))
                         .collect::<Vec<_>>()
                 });
@@ -222,7 +222,7 @@ impl WriteFlatBuffer for LayoutData {
 
 struct LayoutFlatBuffer<'l>(layout::Layout<'l>);
 
-impl<'l> WriteFlatBuffer for LayoutFlatBuffer<'l> {
+impl WriteFlatBuffer for LayoutFlatBuffer<'_> {
     type Target<'a> = layout::Layout<'a>;
 
     fn write_flatbuffer<'fb>(

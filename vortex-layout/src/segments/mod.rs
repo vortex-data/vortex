@@ -80,7 +80,8 @@ pub mod test {
 
     impl SegmentWriter for TestSegments {
         fn put(&mut self, data: Vec<Bytes>) -> SegmentId {
-            let id = self.segments.len() as u32;
+            let id = u32::try_from(self.segments.len())
+                .vortex_expect("Cannot store more than u32::MAX segments");
             let mut buffer = BytesMut::with_capacity(data.iter().map(Bytes::len).sum());
             for bytes in data {
                 buffer.extend_from_slice(&bytes);

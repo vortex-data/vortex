@@ -107,6 +107,7 @@ impl RowMask {
     /// Construct a RowMask from an integral array.
     ///
     /// The array values are interpreted as indices and those indices are kept by the returned mask.
+    #[allow(clippy::cast_possible_truncation)]
     fn from_index_array(array: &ArrayData, begin: u64, end: u64) -> VortexResult<Self> {
         let length = usize::try_from(end - begin)
             .map_err(|_| vortex_err!("Range length does not fit into a usize"))?;
