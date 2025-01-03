@@ -5221,6 +5221,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-layout"
+version = "0.21.1"
+dependencies = [
+ "arrow-buffer",
+ "bytes",
+ "flatbuffers",
+ "itertools 0.13.0",
+ "rstest",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-dtype",
+ "vortex-error",
+ "vortex-expr",
+ "vortex-flatbuffers",
+ "vortex-ipc",
+]
+
+[[package]]
 name = "vortex-proto"
 version = "0.21.1"
 dependencies = [
