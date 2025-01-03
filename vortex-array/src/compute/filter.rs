@@ -111,10 +111,7 @@ fn filter_impl(array: &ArrayData, mask: FilterMask) -> VortexResult<ArrayData> {
     let mask_array = BooleanArray::new(mask.to_boolean_buffer()?, None);
     let filtered = arrow_select::filter::filter(array_ref.as_ref(), &mask_array)?;
 
-    try_cast(
-        ArrayData::from_arrow(filtered, array.dtype().is_nullable()),
-        array.dtype(),
-    )
+    Ok(ArrayData::from_arrow(filtered, array.dtype().is_nullable()))
 }
 
 /// Represents the mask argument to a filter function.
