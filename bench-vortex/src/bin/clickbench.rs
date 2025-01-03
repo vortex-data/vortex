@@ -12,6 +12,7 @@ use bench_vortex::{
     IdempotentPath as _, Measurement,
 };
 use clap::Parser;
+use datafusion_physical_plan::display::DisplayableExecutionPlan;
 use indicatif::ProgressBar;
 use itertools::Itertools;
 use log::LevelFilter;
@@ -155,6 +156,18 @@ fn main() {
                 fs::write(
                     format!("clickbench_{format}_q{query_idx:02}.plan",),
                     format!("{:#?}", plan),
+                )
+                .expect("Unable to write file");
+
+                fs::write(
+                    format!("clickbench_{format}_q{query_idx:02}.short.plan",),
+                    format!(
+                        "{}",
+                        DisplayableExecutionPlan::with_full_metrics(plan.as_ref())
+                            .set_show_schema(true)
+                            .set_show_statistics(true)
+                            .indent(true)
+                    ),
                 )
                 .expect("Unable to write file");
             }
