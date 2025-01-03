@@ -44,15 +44,32 @@ pub trait SegmentWriter {
 }
 
 #[cfg(test)]
-mod test {
+pub mod test {
     use bytes::{Bytes, BytesMut};
+    use vortex_error::{vortex_panic, VortexExpect};
 
     use super::*;
+    use crate::scanner::{LayoutScan, Poll};
     use crate::segments::SegmentReader;
+    use crate::RowMask;
 
     #[derive(Default)]
     pub struct TestSegments {
         segments: Vec<Bytes>,
+    }
+
+    impl TestSegments {
+        pub fn do_scan(&self, scan: &dyn LayoutScan) -> ArrayData {
+            let mut scanner = scan
+                .masked_scanner(RowMask::new_valid_between(0, scan.layout().row_count()))
+                .vortex_expect("Failed to create scanner");
+            match scanner.poll(self).vortex_expect("Failed to poll scanner") {
+                Poll::Some(array) => array,
+                Poll::NeedMore(_segments) => {
+                    vortex_panic!("Layout requested more segments from TestSegments.")
+                }
+            }
+        }
     }
 
     impl SegmentReader for TestSegments {
@@ -68,7 +85,7 @@ mod test {
             for bytes in data {
                 buffer.extend_from_slice(&bytes);
             }
-            self.segments.extend(buffer.freeze());
+            self.segments.push(buffer.freeze());
             id.into()
         }
     }

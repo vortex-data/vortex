@@ -22,7 +22,11 @@ impl StructScan {
     }
 }
 impl LayoutScan for StructScan {
-    fn scanner(&self, mask: RowMask) -> VortexResult<Box<dyn Scanner>> {
+    fn layout(&self) -> &LayoutData {
+        &self.layout
+    }
+
+    fn masked_scanner(&self, mask: RowMask) -> VortexResult<Box<dyn Scanner>> {
         Ok(Box::new(StructScanner {
             layout: self.layout.clone(),
             scan: self.scan.clone(),

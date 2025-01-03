@@ -2,12 +2,14 @@ use std::ops::Deref;
 
 use bytes::Bytes;
 use flatbuffers::{root, FlatBufferBuilder, WIPOffset};
+use vortex_array::ContextRef;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_flatbuffers::{layout as fb, layout, FlatBufferRoot, WriteFlatBuffer};
 
 use crate::encoding::{LayoutEncodingRef, LayoutId};
+use crate::scanner::{LayoutScan, Scan};
 use crate::segments::SegmentId;
 
 /// [`LayoutData`] is the lazy equivalent to [`ArrayData`], providing a hierarchical structure.
@@ -168,6 +170,11 @@ impl LayoutData {
                 bytes.slice_ref(m.bytes())
             }),
         }
+    }
+
+    /// Create a scan of this layout.
+    pub fn new_scan(self, scan: Scan, ctx: ContextRef) -> Box<dyn LayoutScan> {
+        self.encoding().scan(self, scan, ctx)
     }
 }
 

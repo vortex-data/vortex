@@ -36,7 +36,11 @@ impl FlatScan {
 }
 
 impl LayoutScan for FlatScan {
-    fn scanner(&self, mask: RowMask) -> VortexResult<Box<dyn Scanner>> {
+    fn layout(&self) -> &LayoutData {
+        &self.layout
+    }
+
+    fn masked_scanner(&self, mask: RowMask) -> VortexResult<Box<dyn Scanner>> {
         let segment_id = self
             .layout
             .segment_id(0)
@@ -81,7 +85,7 @@ impl Scanner for FlatScanner {
                     vortex_bail!("Flat message is not ArrayParts")
                 }?;
 
-                // FIXME(ngates): I think we can pull out a "Scanner" object that encapsulates
+                // TODO(ngates): I think we can pull out a "Scanner" object that encapsulates
                 //  clever logic for figuring out the best order to apply the filter, projection,
                 //  and filter mask. This can then be re-used across chunks so the selectivity
                 //  stats are preserved.
@@ -99,5 +103,34 @@ impl Scanner for FlatScanner {
                 Ok(Poll::Some(array))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use vortex_array::array::PrimitiveArray;
+    use vortex_array::validity::Validity;
+    use vortex_array::{ArrayDType, IntoArrayVariant, ToArrayData};
+    use vortex_buffer::buffer;
+
+    use crate::layouts::flat::writer::FlatLayoutWriter;
+    use crate::scanner::Scan;
+    use crate::segments::test::TestSegments;
+    use crate::strategies::LayoutWriterExt;
+
+    #[test]
+    fn flat_scan() {
+        let mut segments = TestSegments::default();
+        let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
+        let layout = FlatLayoutWriter::new(array.dtype().clone())
+            .push_one(&mut segments, array.to_array())
+            .unwrap();
+
+        let result = segments
+            .do_scan(layout.new_scan(Scan::all(), Default::default()).as_ref())
+            .into_primitive()
+            .unwrap();
+
+        assert_eq!(array.as_slice::<i32>(), result.as_slice::<i32>());
     }
 }
