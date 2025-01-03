@@ -50,7 +50,7 @@ impl PrimitiveArray {
                 validity: validity.to_metadata(len).vortex_expect("Invalid validity"),
             }),
             Some(buffer.into_byte_buffer()),
-            validity.into_array().into_iter().collect_vec().into(),
+            validity.into_array().into_iter().collect(),
             StatsSet::default(),
         )
         .and_then(|data| data.try_into())
@@ -92,10 +92,7 @@ impl PrimitiveArray {
                 }
             }
         }
-        Self::new(
-            values.freeze(),
-            Validity::Array(BoolArray::from(validity.finish()).into_array()),
-        )
+        Self::new(values.freeze(), Validity::from(validity.finish()))
     }
 
     pub fn validity(&self) -> Validity {
