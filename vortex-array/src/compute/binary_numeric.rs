@@ -190,10 +190,10 @@ fn arrow_numeric(
     let array = match operator {
         BinaryNumericOperator::Add => arrow_arith::numeric::add(&lhs, &rhs)?,
         BinaryNumericOperator::Sub => arrow_arith::numeric::sub(&lhs, &rhs)?,
-        BinaryNumericOperator::FlippedSub => arrow_arith::numeric::sub(&rhs, &lhs)?,
+        BinaryNumericOperator::RSub => arrow_arith::numeric::sub(&rhs, &lhs)?,
         BinaryNumericOperator::Mul => arrow_arith::numeric::mul(&lhs, &rhs)?,
         BinaryNumericOperator::Div => arrow_arith::numeric::div(&lhs, &rhs)?,
-        BinaryNumericOperator::FlippedDiv => arrow_arith::numeric::div(&rhs, &lhs)?,
+        BinaryNumericOperator::RDiv => arrow_arith::numeric::div(&rhs, &lhs)?,
     };
 
     Ok(ArrayData::from_arrow(Arc::new(array) as ArrayRef, nullable))
@@ -240,10 +240,10 @@ pub mod test_harness {
         let operators: [BinaryNumericOperator; 6] = [
             BinaryNumericOperator::Add,
             BinaryNumericOperator::Sub,
-            BinaryNumericOperator::FlippedSub,
+            BinaryNumericOperator::RSub,
             BinaryNumericOperator::Mul,
             BinaryNumericOperator::Div,
-            BinaryNumericOperator::FlippedDiv,
+            BinaryNumericOperator::RDiv,
         ];
 
         for operator in operators {
@@ -265,10 +265,10 @@ pub mod test_harness {
                         .unwrap())
                     .map(<Scalar as From<PrimitiveScalar<'_>>>::from)
                     .collect::<Vec<Scalar>>(),
-                "(Constant array of {}) {} ({}) did not produce expected results",
-                scalar_one,
-                operator.math_symbol(),
+                "({}) {} (Constant array of {}) did not produce expected results",
                 array,
+                operator.math_symbol(),
+                scalar_one,
             );
 
             assert_eq!(

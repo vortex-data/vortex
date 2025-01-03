@@ -307,13 +307,13 @@ pub enum BinaryNumericOperator {
     /// Binary element-wise subtraction of two arrays or of two scalars.
     Sub,
     /// Same as [BinaryNumericOperator::Sub] but with the parameters flipped: `right - left`.
-    FlippedSub,
+    RSub,
     /// Binary element-wise multiplication of two arrays or of two scalars.
     Mul,
     /// Binary element-wise division of two arrays or of two scalars.
     Div,
     /// Same as [BinaryNumericOperator::Div] but with the parameters flipped: `right - left`.
-    FlippedDiv,
+    RDiv,
     // Missing from arrow-rs:
     // Min,
     // Max,
@@ -324,11 +324,11 @@ impl BinaryNumericOperator {
     pub fn swap(self) -> Self {
         match self {
             BinaryNumericOperator::Add => BinaryNumericOperator::Add,
-            BinaryNumericOperator::Sub => BinaryNumericOperator::FlippedSub,
-            BinaryNumericOperator::FlippedSub => BinaryNumericOperator::Sub,
+            BinaryNumericOperator::Sub => BinaryNumericOperator::RSub,
+            BinaryNumericOperator::RSub => BinaryNumericOperator::Sub,
             BinaryNumericOperator::Mul => BinaryNumericOperator::Mul,
-            BinaryNumericOperator::Div => BinaryNumericOperator::FlippedDiv,
-            BinaryNumericOperator::FlippedDiv => BinaryNumericOperator::Div,
+            BinaryNumericOperator::Div => BinaryNumericOperator::RDiv,
+            BinaryNumericOperator::RDiv => BinaryNumericOperator::Div,
         }
     }
 
@@ -336,10 +336,10 @@ impl BinaryNumericOperator {
         match self {
             BinaryNumericOperator::Add => "+",
             BinaryNumericOperator::Sub => "-",
-            BinaryNumericOperator::FlippedSub => "+",
+            BinaryNumericOperator::RSub => "+",
             BinaryNumericOperator::Mul => "*",
             BinaryNumericOperator::Div => "/",
-            BinaryNumericOperator::FlippedDiv => "/",
+            BinaryNumericOperator::RDiv => "/",
         }
         .to_string()
     }
@@ -381,10 +381,10 @@ impl<'a> PrimitiveScalar<'a> {
                     (Some(lhs), Some(rhs)) => match op {
                         BinaryNumericOperator::Add => Some(lhs + rhs),
                         BinaryNumericOperator::Sub => Some(lhs - rhs),
-                        BinaryNumericOperator::FlippedSub => Some(rhs - lhs),
+                        BinaryNumericOperator::RSub => Some(rhs - lhs),
                         BinaryNumericOperator::Mul => Some(lhs * rhs),
                         BinaryNumericOperator::Div => Some(lhs / rhs),
-                        BinaryNumericOperator::FlippedDiv => Some(rhs / lhs),
+                        BinaryNumericOperator::RDiv => Some(rhs / lhs),
                     }
                 };
                 Some(Self { dtype: result_dtype, ptype: ptype, pvalue: value_or_null.map(PValue::from) })
@@ -416,10 +416,10 @@ impl<'a> PrimitiveScalar<'a> {
             (Some(lhs), Some(rhs)) => match op {
                 BinaryNumericOperator::Add => lhs.checked_add(&rhs).map(Some),
                 BinaryNumericOperator::Sub => lhs.checked_sub(&rhs).map(Some),
-                BinaryNumericOperator::FlippedSub => rhs.checked_sub(&lhs).map(Some),
+                BinaryNumericOperator::RSub => rhs.checked_sub(&lhs).map(Some),
                 BinaryNumericOperator::Mul => lhs.checked_mul(&rhs).map(Some),
                 BinaryNumericOperator::Div => lhs.checked_div(&rhs).map(Some),
-                BinaryNumericOperator::FlippedDiv => rhs.checked_div(&lhs).map(Some),
+                BinaryNumericOperator::RDiv => rhs.checked_div(&lhs).map(Some),
             },
         };
 

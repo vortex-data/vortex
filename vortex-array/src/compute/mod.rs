@@ -27,7 +27,7 @@ pub use take::{take, TakeFn};
 
 use crate::ArrayData;
 
-pub mod binary_numeric;
+mod binary_numeric;
 mod boolean;
 mod cast;
 mod compare;
