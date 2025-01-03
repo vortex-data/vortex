@@ -1,6 +1,6 @@
 use vortex_error::{vortex_err, VortexError, VortexResult};
 
-use crate::encoding::{downcast_array_ref, Encoding};
+use crate::encoding::Encoding;
 use crate::{ArrayDType, ArrayData};
 
 /// Trait for filling forward on an array, i.e., replacing nulls with the last non-null value.
@@ -18,7 +18,7 @@ where
     for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
 {
     fn fill_forward(&self, array: &ArrayData) -> VortexResult<ArrayData> {
-        let (array_ref, encoding) = downcast_array_ref::<E>(array)?;
+        let (array_ref, encoding) = array.downcast_array_ref::<E>()?;
         FillForwardFn::fill_forward(encoding, array_ref)
     }
 }

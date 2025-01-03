@@ -12,7 +12,7 @@ use vortex_error::{
 
 use crate::array::{BoolArray, ConstantArray};
 use crate::compute::{filter, scalar_at, slice, take, FilterMask};
-use crate::encoding::{downcast_array_ref, Encoding};
+use crate::encoding::Encoding;
 use crate::patches::Patches;
 use crate::stats::ArrayStatistics;
 use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
@@ -29,15 +29,17 @@ where
     for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
 {
     fn is_valid(&self, array: &ArrayData, index: usize) -> bool {
-        let (array_ref, encoding) =
-            downcast_array_ref::<E>(array).vortex_expect("Failed to downcast encoding");
+        let (array_ref, encoding) = array
+            .downcast_array_ref::<E>()
+            .vortex_expect("Failed to downcast encoding");
 
         ValidityVTable::is_valid(encoding, array_ref, index)
     }
 
     fn logical_validity(&self, array: &ArrayData) -> LogicalValidity {
-        let (array_ref, encoding) =
-            downcast_array_ref::<E>(array).vortex_expect("Failed to downcast encoding");
+        let (array_ref, encoding) = array
+            .downcast_array_ref::<E>()
+            .vortex_expect("Failed to downcast encoding");
         ValidityVTable::logical_validity(encoding, array_ref)
     }
 }

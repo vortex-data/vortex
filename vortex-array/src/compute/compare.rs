@@ -7,7 +7,7 @@ use vortex_error::{vortex_bail, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::arrow::{Datum, FromArrowArray};
-use crate::encoding::{downcast_array_ref, Encoding};
+use crate::encoding::Encoding;
 use crate::{ArrayDType, ArrayData};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd)]
@@ -92,7 +92,7 @@ where
         rhs: &ArrayData,
         operator: Operator,
     ) -> VortexResult<Option<ArrayData>> {
-        let (lhs_ref, encoding) = downcast_array_ref::<E>(lhs)?;
+        let (lhs_ref, encoding) = lhs.downcast_array_ref::<E>()?;
         CompareFn::compare(encoding, lhs_ref, rhs, operator)
     }
 }

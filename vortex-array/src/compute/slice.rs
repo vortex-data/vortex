@@ -1,6 +1,6 @@
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 
-use crate::encoding::{downcast_array_ref, Encoding};
+use crate::encoding::Encoding;
 use crate::{ArrayDType, ArrayData};
 
 /// Limit array to start...stop range
@@ -17,7 +17,7 @@ where
     for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
 {
     fn slice(&self, array: &ArrayData, start: usize, stop: usize) -> VortexResult<ArrayData> {
-        let (array_ref, encoding) = downcast_array_ref::<E>(array)?;
+        let (array_ref, encoding) = array.downcast_array_ref::<E>()?;
         SliceFn::slice(encoding, array_ref, start, stop)
     }
 }

@@ -1,7 +1,7 @@
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexError, VortexResult};
 
-use crate::encoding::{downcast_array_ref, Encoding};
+use crate::encoding::Encoding;
 use crate::{ArrayDType, ArrayData, IntoArrayData, IntoCanonical};
 
 pub trait CastFn<Array> {
@@ -14,7 +14,7 @@ where
     for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
 {
     fn cast(&self, array: &ArrayData, dtype: &DType) -> VortexResult<ArrayData> {
-        let (array_ref, encoding) = downcast_array_ref::<E>(array)?;
+        let (array_ref, encoding) = array.downcast_array_ref::<E>()?;
         CastFn::cast(encoding, array_ref, dtype)
     }
 }

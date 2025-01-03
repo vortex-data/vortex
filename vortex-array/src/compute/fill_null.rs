@@ -1,7 +1,7 @@
 use vortex_error::{vortex_bail, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::encoding::{downcast_array_ref, Encoding};
+use crate::encoding::Encoding;
 use crate::{ArrayDType, ArrayData, IntoArrayData, IntoCanonical};
 
 /// Implementation of fill_null for an encoding.
@@ -17,7 +17,7 @@ where
     for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
 {
     fn fill_null(&self, array: &ArrayData, fill_value: Scalar) -> VortexResult<ArrayData> {
-        let (array_ref, encoding) = downcast_array_ref::<E>(array)?;
+        let (array_ref, encoding) = array.downcast_array_ref::<E>()?;
         FillNullFn::fill_null(encoding, array_ref, fill_value)
     }
 }

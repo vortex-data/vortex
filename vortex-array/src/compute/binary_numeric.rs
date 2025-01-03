@@ -7,7 +7,7 @@ use vortex_scalar::{BinaryNumericOperator, Scalar};
 
 use crate::array::ConstantArray;
 use crate::arrow::{Datum, FromArrowArray};
-use crate::encoding::{downcast_array_ref, Encoding};
+use crate::encoding::Encoding;
 use crate::{ArrayDType, ArrayData, IntoArrayData as _};
 
 pub trait BinaryNumericFn<Array> {
@@ -30,7 +30,7 @@ where
         rhs: &ArrayData,
         op: BinaryNumericOperator,
     ) -> VortexResult<Option<ArrayData>> {
-        let (array_ref, encoding) = downcast_array_ref::<E>(lhs)?;
+        let (array_ref, encoding) = lhs.downcast_array_ref::<E>()?;
         BinaryNumericFn::binary_numeric(encoding, array_ref, rhs, op)
     }
 }

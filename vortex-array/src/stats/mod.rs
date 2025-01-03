@@ -15,7 +15,7 @@ use vortex_dtype::{DType, NativePType, PType};
 use vortex_error::{vortex_panic, VortexError, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::encoding::{downcast_array_ref, Encoding};
+use crate::encoding::Encoding;
 use crate::ArrayData;
 
 pub mod flatbuffers;
@@ -205,7 +205,7 @@ where
     for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
 {
     fn compute_statistics(&self, array: &ArrayData, stat: Stat) -> VortexResult<StatsSet> {
-        let (array_ref, encoding) = downcast_array_ref::<E>(array)?;
+        let (array_ref, encoding) = array.downcast_array_ref::<E>()?;
         StatisticsVTable::compute_statistics(encoding, array_ref, stat)
     }
 }

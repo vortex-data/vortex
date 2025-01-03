@@ -1,7 +1,7 @@
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::encoding::{downcast_array_ref, Encoding};
+use crate::encoding::Encoding;
 use crate::validity::ArrayValidity;
 use crate::{ArrayDType, ArrayData};
 
@@ -18,7 +18,7 @@ where
     for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
 {
     fn scalar_at(&self, array: &ArrayData, index: usize) -> VortexResult<Scalar> {
-        let (array_ref, encoding) = downcast_array_ref::<E>(array)?;
+        let (array_ref, encoding) = array.downcast_array_ref::<E>()?;
         ScalarAtFn::scalar_at(encoding, array_ref, index)
     }
 }

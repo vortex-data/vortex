@@ -8,7 +8,7 @@ use owned::OwnedArrayData;
 use viewed::ViewedArrayData;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_error::{vortex_err, VortexError, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::array::{
@@ -16,7 +16,7 @@ use crate::array::{
     VarBinEncoding, VarBinViewEncoding,
 };
 use crate::compute::scalar_at;
-use crate::encoding::{EncodingId, EncodingRef, EncodingVTable};
+use crate::encoding::{Encoding, EncodingId, EncodingRef, EncodingVTable};
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
 use crate::stats::{ArrayStatistics, Stat, Statistics, StatsSet};
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
@@ -370,6 +370,19 @@ impl ArrayData {
             let bt = backtrace::Backtrace::new();
             log::warn!("{:?}", bt);
         }
+    }
+
+    pub fn downcast_array_ref<E: Encoding>(self: &ArrayData) -> VortexResult<(&E::Array, &E)>
+    where
+        for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
+    {
+        let array_ref = <&E::Array>::try_from(self)?;
+        let encoding = self
+            .encoding()
+            .as_any()
+            .downcast_ref::<E>()
+            .ok_or_else(|| vortex_err!("Mismatched encoding"))?;
+        Ok((array_ref, encoding))
     }
 }
 

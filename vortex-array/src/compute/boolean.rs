@@ -6,7 +6,7 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexError, VortexResult};
 
 use crate::arrow::FromArrowArray;
-use crate::encoding::{downcast_array_ref, Encoding};
+use crate::encoding::Encoding;
 use crate::{ArrayDType, ArrayData, Canonical, IntoArrayVariant};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,7 +40,7 @@ where
         rhs: &ArrayData,
         op: BinaryOperator,
     ) -> VortexResult<Option<ArrayData>> {
-        let (array_ref, encoding) = downcast_array_ref::<E>(lhs)?;
+        let (array_ref, encoding) = lhs.downcast_array_ref::<E>()?;
         BinaryBooleanFn::binary_boolean(encoding, array_ref, rhs, op)
     }
 }

@@ -10,7 +10,7 @@ use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexRes
 use crate::array::{BoolArray, ConstantArray};
 use crate::arrow::FromArrowArray;
 use crate::compute::scalar_at;
-use crate::encoding::{downcast_array_ref, Encoding};
+use crate::encoding::Encoding;
 use crate::stats::ArrayStatistics;
 use crate::{ArrayDType, ArrayData, Canonical, IntoArrayData, IntoCanonical};
 
@@ -31,7 +31,7 @@ where
     for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
 {
     fn filter(&self, array: &ArrayData, mask: FilterMask) -> VortexResult<ArrayData> {
-        let (array_ref, encoding) = downcast_array_ref::<E>(array)?;
+        let (array_ref, encoding) = array.downcast_array_ref::<E>()?;
         FilterFn::filter(encoding, array_ref, mask)
     }
 }
