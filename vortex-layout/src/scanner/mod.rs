@@ -10,13 +10,6 @@ use crate::{LayoutData, RowMask};
 
 /// A [`LayoutScan`] provides an encapsulation of an invocation of a scan operation.
 pub trait LayoutScan: Send {
-    fn boxed(&self) -> Box<dyn LayoutScan>
-    where
-        Self: 'static,
-    {
-        Box::new(self.clone())
-    }
-
     /// Returns the [`LayoutData`] that this scan is operating on.
     fn layout(&self) -> &LayoutData;
 
@@ -31,19 +24,17 @@ pub trait LayoutScan: Send {
     fn create_scanner(&self, mask: RowMask) -> VortexResult<Box<dyn Scanner>>;
 }
 
-impl<L: LayoutScan> LayoutScan for Box<L> {
-    fn layout(&self) -> &LayoutData {
-        self.as_ref().layout()
-    }
-
-    fn dtype(&self) -> &DType {
-        self.as_ref().dtype()
-    }
-
-    fn create_scanner(&self, mask: RowMask) -> VortexResult<Box<dyn Scanner>> {
-        self.as_ref().create_scanner(mask)
+pub trait LayoutScanExt: LayoutScan {
+    /// Box the layout scan.
+    fn boxed(self) -> Box<dyn LayoutScan + 'static>
+    where
+        Self: Sized + 'static,
+    {
+        Box::new(self)
     }
 }
+
+impl<L: LayoutScan> LayoutScanExt for L {}
 
 /// The response to polling a scanner.
 pub enum Poll {

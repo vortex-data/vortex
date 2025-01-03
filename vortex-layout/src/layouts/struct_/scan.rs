@@ -1,4 +1,5 @@
 use vortex_array::ContextRef;
+use vortex_dtype::DType;
 use vortex_error::{vortex_panic, VortexResult};
 
 use crate::layouts::struct_::StructLayout;
@@ -9,21 +10,33 @@ use crate::{LayoutData, LayoutEncoding, RowMask};
 pub struct StructScan {
     layout: LayoutData,
     scan: Scan,
+    dtype: DType,
 }
 
 impl StructScan {
-    pub(super) fn new(layout: LayoutData, scan: Scan, _ctx: ContextRef) -> Self {
+    pub(super) fn try_new(layout: LayoutData, scan: Scan, _ctx: ContextRef) -> VortexResult<Self> {
         if layout.encoding().id() != StructLayout.id() {
             vortex_panic!("Mismatched layout ID")
         }
+
+        let dtype = scan.result_dtype(layout.dtype())?;
+
         // This is where we need to do some complex things with the scan in order to split it into
         // different scans for different fields.
-        Self { layout, scan }
+        Ok(Self {
+            layout,
+            scan,
+            dtype,
+        })
     }
 }
 impl LayoutScan for StructScan {
     fn layout(&self) -> &LayoutData {
         &self.layout
+    }
+
+    fn dtype(&self) -> &DType {
+        &self.dtype
     }
 
     fn create_scanner(&self, mask: RowMask) -> VortexResult<Box<dyn Scanner>> {

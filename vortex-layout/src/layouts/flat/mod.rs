@@ -6,7 +6,7 @@ use vortex_error::VortexResult;
 
 use crate::encoding::{LayoutEncoding, LayoutId};
 use crate::layouts::flat::scan::FlatScan;
-use crate::scanner::{LayoutScan, Scan};
+use crate::scanner::{LayoutScan, LayoutScanExt, Scan};
 use crate::{LayoutData, FLAT_LAYOUT_ID};
 
 #[derive(Debug)]

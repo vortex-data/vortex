@@ -1,6 +1,7 @@
 use std::fmt::{Debug, Display, Formatter};
 
 use vortex_array::ContextRef;
+use vortex_error::VortexResult;
 
 use crate::scanner::{LayoutScan, Scan};
 use crate::LayoutData;
@@ -21,7 +22,12 @@ pub trait LayoutEncoding: Debug + Send + Sync {
     /// Construct a [`LayoutScan`] for the provided [`LayoutData`].
     ///
     /// May panic if the provided `LayoutData` is not the same encoding as this `LayoutEncoding`.
-    fn scan(&self, layout: LayoutData, scan: Scan, ctx: ContextRef) -> Box<dyn LayoutScan>;
+    fn scan(
+        &self,
+        layout: LayoutData,
+        scan: Scan,
+        ctx: ContextRef,
+    ) -> VortexResult<Box<dyn LayoutScan>>;
 }
 
 pub type LayoutEncodingRef = &'static dyn LayoutEncoding;

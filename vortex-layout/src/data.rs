@@ -38,6 +38,7 @@ pub struct OwnedLayoutData {
 struct ViewedLayoutData {
     encoding: LayoutEncodingRef,
     dtype: DType,
+    // FIXME(ngates): i think this is in the flatbuffer?
     row_count: u64,
     flatbuffer: ByteBuffer,
     flatbuffer_loc: usize,
@@ -173,7 +174,7 @@ impl LayoutData {
     }
 
     /// Create a scan of this layout.
-    pub fn new_scan(self, scan: Scan, ctx: ContextRef) -> Box<dyn LayoutScan> {
+    pub fn new_scan(self, scan: Scan, ctx: ContextRef) -> VortexResult<Box<dyn LayoutScan>> {
         self.encoding().scan(self, scan, ctx)
     }
 }

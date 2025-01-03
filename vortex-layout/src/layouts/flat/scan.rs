@@ -140,7 +140,12 @@ mod test {
             .unwrap();
 
         let result = segments
-            .do_scan(layout.new_scan(Scan::all(), Default::default()).as_ref())
+            .do_scan(
+                layout
+                    .new_scan(Scan::all(), Default::default())
+                    .unwrap()
+                    .as_ref(),
+            )
             .into_primitive()
             .unwrap();
 
@@ -165,7 +170,7 @@ mod test {
         };
 
         let result = segments
-            .do_scan(layout.new_scan(scan, Default::default()).as_ref())
+            .do_scan(layout.new_scan(scan, Default::default()).unwrap().as_ref())
             .into_primitive()
             .unwrap();
 
@@ -194,10 +199,10 @@ mod test {
             )),
         };
 
-        let scan = layout.new_scan(scan, Default::default());
+        let scan = layout.new_scan(scan, Default::default()).unwrap();
         assert_eq!(scan.dtype(), &DType::Bool(Nullability::Nullable));
 
-        let result = segments.do_scan(&scan).into_bool().unwrap();
+        let result = segments.do_scan(scan.as_ref()).into_bool().unwrap();
         assert!(result.boolean_buffer().value(0));
         assert!(!result.boolean_buffer().value(1));
     }

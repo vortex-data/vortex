@@ -19,6 +19,7 @@ use crate::segments::SegmentWriter;
 use crate::LayoutData;
 
 /// A strategy for writing chunks of an array into a layout.
+/// FIXME(ngates): move this into writer.rs
 pub trait LayoutWriter: Send {
     fn push_chunk(
         &mut self,

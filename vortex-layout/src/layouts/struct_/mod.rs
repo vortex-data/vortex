@@ -2,11 +2,12 @@ mod scan;
 pub mod writer;
 
 use vortex_array::ContextRef;
+use vortex_error::VortexResult;
 
 use crate::data::LayoutData;
 use crate::encoding::{LayoutEncoding, LayoutId};
 use crate::layouts::struct_::scan::StructScan;
-use crate::scanner::{LayoutScan, Scan};
+use crate::scanner::{LayoutScan, LayoutScanExt, Scan};
 use crate::COLUMNAR_LAYOUT_ID;
 
 #[derive(Debug)]
@@ -17,7 +18,12 @@ impl LayoutEncoding for StructLayout {
         COLUMNAR_LAYOUT_ID
     }
 
-    fn scan(&self, layout: LayoutData, scan: Scan, ctx: ContextRef) -> Box<dyn LayoutScan> {
-        Box::new(StructScan::new(layout, scan, ctx)) as _
+    fn scan(
+        &self,
+        layout: LayoutData,
+        scan: Scan,
+        ctx: ContextRef,
+    ) -> VortexResult<Box<dyn LayoutScan>> {
+        Ok(StructScan::try_new(layout, scan, ctx)?.boxed())
     }
 }

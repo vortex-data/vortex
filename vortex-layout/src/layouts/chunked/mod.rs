@@ -3,11 +3,12 @@ pub mod stats;
 pub mod writer;
 
 use vortex_array::ContextRef;
+use vortex_error::VortexResult;
 
 use crate::data::LayoutData;
 use crate::encoding::{LayoutEncoding, LayoutId};
 use crate::layouts::chunked::scan::ChunkedScan;
-use crate::scanner::{LayoutScan, Scan};
+use crate::scanner::{LayoutScan, LayoutScanExt, Scan};
 use crate::CHUNKED_LAYOUT_ID;
 
 #[derive(Default, Debug)]
@@ -24,7 +25,12 @@ impl LayoutEncoding for ChunkedLayout {
 
     // TODO(ngates): we probably need some reader options that we can downcast here? But how does
     //  the user configure the tree of readers? e.g. batch size
-    fn scan(&self, layout: LayoutData, scan: Scan, ctx: ContextRef) -> Box<dyn LayoutScan> {
-        Box::new(ChunkedScan::new(layout, scan, ctx)) as _
+    fn scan(
+        &self,
+        layout: LayoutData,
+        scan: Scan,
+        ctx: ContextRef,
+    ) -> VortexResult<Box<dyn LayoutScan>> {
+        Ok(ChunkedScan::try_new(layout, scan, ctx)?.boxed())
     }
 }

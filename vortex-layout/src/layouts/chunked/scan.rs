@@ -20,15 +20,22 @@ struct Reading {
 pub struct ChunkedScan {
     layout: LayoutData,
     scan: Scan,
+    dtype: DType,
     ctx: ContextRef,
 }
 
 impl ChunkedScan {
-    pub(super) fn new(layout: LayoutData, scan: Scan, ctx: ContextRef) -> Self {
+    pub(super) fn try_new(layout: LayoutData, scan: Scan, ctx: ContextRef) -> VortexResult<Self> {
         if layout.encoding().id() != ChunkedLayout.id() {
             vortex_panic!("Mismatched layout ID")
         }
-        Self { layout, scan, ctx }
+        let dtype = scan.result_dtype(layout.dtype())?;
+        Ok(Self {
+            layout,
+            scan,
+            dtype,
+            ctx,
+        })
     }
 }
 
@@ -38,7 +45,7 @@ impl LayoutScan for ChunkedScan {
     }
 
     fn dtype(&self) -> &DType {
-        self.scan.result_dtype(self.layout.dtype())
+        &self.dtype
     }
 
     fn create_scanner(&self, mask: RowMask) -> VortexResult<Box<dyn Scanner>> {
