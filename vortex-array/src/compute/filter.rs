@@ -9,7 +9,7 @@ use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexRes
 
 use crate::array::{BoolArray, ConstantArray};
 use crate::arrow::FromArrowArray;
-use crate::compute::{scalar_at, try_cast};
+use crate::compute::scalar_at;
 use crate::encoding::Encoding;
 use crate::stats::ArrayStatistics;
 use crate::{ArrayDType, ArrayData, Canonical, IntoArrayData, IntoCanonical};
