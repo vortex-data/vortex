@@ -80,7 +80,7 @@ mod tests {
         )
         .unwrap()
         .into_array();
-        let chunk = ChunkedArray::from_iter(vec![list.clone()]).into_array();
+        let chunk = ChunkedArray::from_iter(vec![list]).into_array();
 
         let children = NamedTreeCollector::visit_all_children(&chunk).unwrap();
         assert_eq!(children.len(), 4)

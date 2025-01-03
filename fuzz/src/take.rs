@@ -85,11 +85,7 @@ fn take_primitive<T: NativePType + ArrowNativeType>(
     validity: Validity,
     indices: &[usize],
 ) -> ArrayData {
-    let vec_values = primitive_array
-        .as_slice::<T>()
-        .iter()
-        .copied()
-        .collect::<Vec<_>>();
+    let vec_values = primitive_array.as_slice::<T>().to_vec();
     PrimitiveArray::new(
         indices
             .iter()

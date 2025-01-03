@@ -1,7 +1,7 @@
 use std::iter::TrustedLen;
 use std::sync::{Arc, OnceLock};
 
-use arrow_array::{Array, BooleanArray};
+use arrow_array::BooleanArray;
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, MutableBuffer};
 use num_traits::AsPrimitive;
 use vortex_dtype::{DType, Nullability};
@@ -110,9 +110,6 @@ fn filter_impl(array: &ArrayData, mask: FilterMask) -> VortexResult<ArrayData> {
     let array_ref = array.clone().into_arrow()?;
     let mask_array = BooleanArray::new(mask.to_boolean_buffer()?, None);
     let filtered = arrow_select::filter::filter(array_ref.as_ref(), &mask_array)?;
-
-    println!("array_ref: {:?}", array_ref.data_type());
-    println!("filtered: {:?}", filtered.data_type());
 
     try_cast(
         ArrayData::from_arrow(filtered, array.dtype().is_nullable()),

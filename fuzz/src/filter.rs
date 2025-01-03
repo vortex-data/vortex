@@ -87,12 +87,10 @@ pub fn filter_canonical_array(array: &ArrayData, filter: &[bool]) -> ArrayData {
         }
         DType::List(..) => {
             let mut indices = Vec::new();
-            let mut idx = 0;
-            for bool in filter {
+            for (idx, bool) in filter.iter().enumerate() {
                 if *bool {
                     indices.push(idx);
                 }
-                idx += 1;
             }
             take_canonical_array(array, &indices)
         }

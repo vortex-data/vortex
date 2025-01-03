@@ -182,7 +182,7 @@ fn actions_for_encoding(encoding: EncodingRef) -> HashSet<usize> {
         // compress, slice and filter
         vec![0, 1, 4].into_iter().collect()
     } else {
-        ALL_ACTIONS.into_iter().collect()
+        ALL_ACTIONS.collect()
     }
 }
 
@@ -191,11 +191,8 @@ fn actions_for_array(array: &ArrayData) -> Vec<usize> {
         .unwrap()
         .iter()
         .map(|(_, child)| actions_for_encoding(child.encoding()))
-        .fold(
-            ALL_ACTIONS.into_iter().collect::<Vec<_>>(),
-            |mut acc, actions| {
-                acc.retain(|a| actions.contains(a));
-                acc
-            },
-        )
+        .fold(ALL_ACTIONS.collect::<Vec<_>>(), |mut acc, actions| {
+            acc.retain(|a| actions.contains(a));
+            acc
+        })
 }
