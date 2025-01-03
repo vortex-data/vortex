@@ -321,7 +321,7 @@ pub enum BinaryNumericOperator {
 }
 
 impl BinaryNumericOperator {
-    pub fn flip_parameters(self) -> Self {
+    pub fn swap(self) -> Self {
         match self {
             BinaryNumericOperator::Add => BinaryNumericOperator::Add,
             BinaryNumericOperator::Sub => BinaryNumericOperator::FlippedSub,

@@ -142,7 +142,7 @@ pub fn binary_numeric(
 
     // Check if RHS supports the operation directly.
     if let Some(fun) = rhs.encoding().binary_numeric_fn() {
-        if let Some(result) = fun.binary_numeric(rhs, lhs, op.flip_parameters())? {
+        if let Some(result) = fun.binary_numeric(rhs, lhs, op.swap())? {
             debug_assert_eq!(
                 result.len(),
                 lhs.len(),
