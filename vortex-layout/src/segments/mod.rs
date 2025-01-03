@@ -42,3 +42,34 @@ pub trait SegmentWriter {
         self.put(MessageEncoder::default().encode(EncoderMessage::Array(&array)))
     }
 }
+
+#[cfg(test)]
+mod test {
+    use bytes::{Bytes, BytesMut};
+
+    use super::*;
+    use crate::segments::SegmentReader;
+
+    #[derive(Default)]
+    pub struct TestSegments {
+        segments: Vec<Bytes>,
+    }
+
+    impl SegmentReader for TestSegments {
+        fn get(&self, id: SegmentId) -> Option<Bytes> {
+            self.segments.get(*id as usize).cloned()
+        }
+    }
+
+    impl SegmentWriter for TestSegments {
+        fn put(&mut self, data: Vec<Bytes>) -> SegmentId {
+            let id = self.segments.len() as u32;
+            let mut buffer = BytesMut::with_capacity(data.iter().map(Bytes::len).sum());
+            for bytes in data {
+                buffer.extend_from_slice(&bytes);
+            }
+            self.segments.extend(buffer.freeze());
+            id.into()
+        }
+    }
+}
