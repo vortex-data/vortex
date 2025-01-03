@@ -4,26 +4,26 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 use prettytable::{Cell, Row, Table};
-use vortex::alp::{ALPArray, Exponents, RDEncoder};
 use vortex::array::builder::VarBinBuilder;
 use vortex::array::{
     BoolArray, ChunkedArray, ConstantArray, NullArray, PrimitiveArray, SparseArray, StructArray,
     VarBinViewArray,
 };
 use vortex::buffer::buffer;
-use vortex::bytebool::ByteBoolArray;
 use vortex::datetime_dtype::{TemporalMetadata, TimeUnit, TIME_ID};
-use vortex::datetime_parts::DateTimePartsArray;
-use vortex::dict::DictArray;
 use vortex::dtype::{DType, ExtDType, Nullability, PType};
-use vortex::fastlanes::{BitPackedArray, DeltaArray, FoRArray};
-use vortex::fsst::{fsst_compress, fsst_train_compressor};
-use vortex::roaring::{Bitmap, RoaringBoolArray, RoaringIntArray};
-use vortex::runend::RunEndArray;
-use vortex::runend_bool::RunEndBoolArray;
+use vortex::encodings::alp::{ALPArray, Exponents, RDEncoder};
+use vortex::encodings::bytebool::ByteBoolArray;
+use vortex::encodings::datetime_parts::DateTimePartsArray;
+use vortex::encodings::dict::DictArray;
+use vortex::encodings::fastlanes::{BitPackedArray, DeltaArray, FoRArray};
+use vortex::encodings::fsst::{fsst_compress, fsst_train_compressor};
+use vortex::encodings::roaring::{Bitmap, RoaringBoolArray, RoaringIntArray};
+use vortex::encodings::runend::RunEndArray;
+use vortex::encodings::runend_bool::RunEndBoolArray;
+use vortex::encodings::zigzag::ZigZagArray;
 use vortex::scalar::Scalar;
 use vortex::validity::Validity;
-use vortex::zigzag::ZigZagArray;
 use vortex::{ArrayData, IntoArrayData};
 
 fn fsst_array() -> ArrayData {

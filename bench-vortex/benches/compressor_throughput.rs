@@ -7,9 +7,9 @@ use vortex::aliases::hash_set::HashSet;
 use vortex::array::{ConstantArray, VarBinViewArray};
 use vortex::buffer::Buffer;
 use vortex::compute::{compare, try_cast, Operator};
-use vortex::dict::{dict_encode_varbinview, DictArray};
 use vortex::dtype::PType;
-use vortex::fsst::{fsst_compress, fsst_train_compressor};
+use vortex::encodings::dict::{dict_encode_varbinview, DictArray};
+use vortex::encodings::fsst::{fsst_compress, fsst_train_compressor};
 use vortex::sampling_compressor::compressors::alp::ALPCompressor;
 use vortex::sampling_compressor::compressors::alp_rd::ALPRDCompressor;
 use vortex::sampling_compressor::compressors::bitpacked::{

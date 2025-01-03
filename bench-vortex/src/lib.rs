@@ -23,7 +23,7 @@ use vortex::array::ChunkedArray;
 use vortex::arrow::FromArrowType;
 use vortex::compress::CompressionStrategy;
 use vortex::dtype::DType;
-use vortex::fastlanes::DeltaEncoding;
+use vortex::encodings::fastlanes::DeltaEncoding;
 use vortex::sampling_compressor::SamplingCompressor;
 use vortex::{ArrayData, Context, IntoArrayData};
 
