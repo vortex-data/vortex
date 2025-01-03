@@ -1,9 +1,8 @@
 mod scan;
 pub mod stats;
+pub mod writer;
 
-use bytes::Bytes;
 use vortex_array::ContextRef;
-use vortex_dtype::DType;
 
 use crate::data::LayoutData;
 use crate::encoding::{LayoutEncoding, LayoutId};
@@ -27,24 +26,5 @@ impl LayoutEncoding for ChunkedLayout {
     //  the user configure the tree of readers? e.g. batch size
     fn scan(&self, layout: LayoutData, scan: Scan, ctx: ContextRef) -> Box<dyn LayoutScan> {
         Box::new(ChunkedScan::new(layout, scan, ctx)) as _
-    }
-}
-
-impl ChunkedLayout {
-    /// Create a new chunked layout with the given row count and children.
-    pub fn new(
-        dtype: DType,
-        row_count: u64,
-        children: Vec<LayoutData>,
-        metadata: Option<Bytes>,
-    ) -> LayoutData {
-        LayoutData::new_owned(
-            &ChunkedLayout,
-            dtype,
-            row_count,
-            None,
-            Some(children),
-            metadata,
-        )
     }
 }

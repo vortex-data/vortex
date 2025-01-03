@@ -6,15 +6,15 @@
 //! otherwise manipulate the chunks of data enabling experimentation with different strategies
 //! all while remaining independent of the read code.
 
-mod chunked;
-mod flat;
-mod struct_;
 mod struct_of_chunks;
+
 pub use struct_of_chunks::*;
 use vortex_array::ArrayData;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
+use crate::layouts::flat::writer::FlatLayoutWriter;
+use crate::layouts::flat::FlatLayout;
 use crate::segments::SegmentWriter;
 use crate::LayoutData;
 
@@ -30,6 +30,24 @@ pub trait LayoutWriter: Send {
 }
 
 pub trait LayoutWriterExt: LayoutWriter {
+    /// Box the layout writer.
+    fn boxed(self) -> Box<dyn LayoutWriter>
+    where
+        Self: Sized + 'static,
+    {
+        Box::new(self)
+    }
+
+    /// Push a single chunk into the layout writer and return the finished [`LayoutData`].
+    fn push_one(
+        &mut self,
+        segments: &mut dyn SegmentWriter,
+        chunk: ArrayData,
+    ) -> VortexResult<LayoutData> {
+        self.push_chunk(segments, chunk)?;
+        self.finish(segments)
+    }
+
     /// Push all chunks of the iterator into the layout writer and return the finished
     /// [`LayoutData`].
     fn push_all<I: IntoIterator<Item = VortexResult<ArrayData>>>(
@@ -49,4 +67,11 @@ impl<L: LayoutWriter> LayoutWriterExt for L {}
 /// A trait for creating new layout writers given a DType.
 pub trait LayoutStrategy: Send {
     fn new_writer(&self, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>>;
+}
+
+/// Implement the [`LayoutStrategy`] trait for the [`FlatLayout`] for easy use.
+impl LayoutStrategy for FlatLayout {
+    fn new_writer(&self, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
+        Ok(FlatLayoutWriter::new(dtype.clone()).boxed())
+    }
 }

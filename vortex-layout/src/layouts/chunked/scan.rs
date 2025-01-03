@@ -56,14 +56,8 @@ struct ChunkedScanner {
 impl ChunkedScanner {
     /// Returns the [`LayoutData`] for the given chunk.
     fn chunk_layout(&self, chunk_idx: usize) -> VortexResult<LayoutData> {
-        // FIXME(ngates): can we just put stats as the final child!
-        let idx = if self.layout.metadata().is_some() {
-            chunk_idx + 1
-        } else {
-            chunk_idx
-        };
         self.layout
-            .child(idx, self.layout.dtype().clone())
+            .child(chunk_idx, self.layout.dtype().clone())
             .ok_or_else(|| vortex_err!("Chunk index out of bounds"))
     }
 }

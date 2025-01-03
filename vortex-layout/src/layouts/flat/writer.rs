@@ -4,24 +4,25 @@ use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
 use crate::layouts::flat::FlatLayout;
 use crate::segments::SegmentWriter;
-use crate::strategies::{LayoutStrategy, LayoutWriter};
+use crate::strategies::LayoutWriter;
 use crate::LayoutData;
 
-pub struct FlatLayoutStrategy {
+/// Writer for the flat layout.
+pub struct FlatLayoutWriter {
     dtype: DType,
     layout: Option<LayoutData>,
 }
 
-impl LayoutStrategy for FlatLayout {
-    fn new_writer(&self, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
-        Ok(Box::new(FlatLayoutStrategy {
-            dtype: dtype.clone(),
+impl FlatLayoutWriter {
+    pub fn new(dtype: DType) -> Self {
+        Self {
+            dtype,
             layout: None,
-        }) as Box<dyn LayoutWriter>)
+        }
     }
 }
 
-impl LayoutWriter for FlatLayoutStrategy {
+impl LayoutWriter for FlatLayoutWriter {
     fn push_chunk(
         &mut self,
         segments: &mut dyn SegmentWriter,
@@ -32,7 +33,14 @@ impl LayoutWriter for FlatLayoutStrategy {
         }
         let row_count = chunk.len() as u64;
         let segment_id = segments.put_chunk(chunk);
-        self.layout = Some(FlatLayout::new(self.dtype.clone(), row_count, segment_id));
+        self.layout = Some(LayoutData::new_owned(
+            &FlatLayout,
+            self.dtype.clone(),
+            row_count,
+            Some(vec![segment_id]),
+            None,
+            None,
+        ));
         Ok(())
     }
 

@@ -1,8 +1,8 @@
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, VortexResult};
 
-use crate::strategies::chunked::{ChunkedLayoutOptions, ChunkedLayoutWriter};
-use crate::strategies::struct_::StructLayoutWriter;
+use crate::layouts::chunked::writer::{ChunkedLayoutOptions, ChunkedLayoutWriter};
+use crate::layouts::struct_::writer::StructLayoutWriter;
 use crate::strategies::{LayoutStrategy, LayoutWriter};
 
 /// Struct-of-chunks is the default Vortex layout strategy.

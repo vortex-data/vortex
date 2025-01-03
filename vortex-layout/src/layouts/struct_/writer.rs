@@ -80,10 +80,13 @@ impl LayoutWriter for StructLayoutWriter {
         for writer in self.column_strategies.iter_mut() {
             column_layouts.push(writer.finish(segments)?);
         }
-        Ok(StructLayout::new(
-            self.row_count,
+        Ok(LayoutData::new_owned(
+            &StructLayout,
             self.dtype.clone(),
-            column_layouts,
+            self.row_count,
+            None,
+            Some(column_layouts),
+            None,
         ))
     }
 }

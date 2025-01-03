@@ -88,10 +88,12 @@ impl LayoutWriter for ChunkedLayoutWriter {
             None => None,
         };
 
-        Ok(ChunkedLayout::new(
+        Ok(LayoutData::new_owned(
+            &ChunkedLayout,
             self.dtype.clone(),
             self.row_count,
-            chunk_layouts,
+            None,
+            Some(chunk_layouts),
             metadata,
         ))
     }
