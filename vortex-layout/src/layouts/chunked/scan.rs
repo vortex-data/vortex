@@ -71,7 +71,11 @@ impl LayoutScan for ChunkedScan {
                 .child(chunk_idx, self.layout.dtype().clone())
                 .vortex_expect("Child index out of bound");
             let chunk_scan = chunk_layout.new_scan(self.scan.clone(), self.ctx.clone())?;
-            let chunk_mask = mask.clone().shift(chunk_range.start)?;
+            let chunk_mask = mask
+                .clone()
+                // TODO(ngates): I would have thought slice would also shift?
+                .slice(chunk_range.start, chunk_range.end)?
+                .shift(chunk_range.start)?;
             let chunk_scanner = chunk_scan.create_scanner(chunk_mask)?;
             chunk_scanners.push(chunk_scanner);
         }
