@@ -23,6 +23,7 @@ pub struct ChunkedScan {
 struct ChunkedStats {
     present_stats: Vec<Stat>,
     scanner: Box<dyn Scanner>,
+    // Cached stats table once it's been read from the scanner.
     table: Option<StatsTable>,
 }
 
@@ -135,6 +136,7 @@ impl LayoutScan for ChunkedScan {
             chunk_scanners,
             chunk_state: vec![ChunkState::Initial; self.nchunks()],
             stats: self.stats.clone(),
+            stats_table: None,
         }) as _)
     }
 }
@@ -146,6 +148,7 @@ struct ChunkedScanner {
     chunk_scanners: Vec<Box<dyn Scanner>>,
     chunk_state: Vec<ChunkState>,
     stats: Option<Arc<RwLock<ChunkedStats>>>,
+    stats_table: Option<StatsTable>,
 }
 
 #[derive(Clone)]
@@ -161,8 +164,12 @@ enum ChunkState {
 impl Scanner for ChunkedScanner {
     fn poll(&mut self, segments: &dyn SegmentReader) -> VortexResult<Poll> {
         // First, we try to fetch the stats table.
-        if let Some(needed) = self.update_stats_table(segments)? {
-            return Ok(Poll::NeedMore(needed));
+        match self.update_stats_table(segments)? {
+            PollStats::None => {}
+            PollStats::Some(stats_table) => {
+                self.stats_table = Some(stats_table);
+            }
+            PollStats::NeedMore(segments) => return Ok(Poll::NeedMore(segments)),
         }
 
         // Now we try to read the chunks.
@@ -218,27 +225,29 @@ impl Scanner for ChunkedScanner {
     }
 }
 
+enum PollStats {
+    None,
+    Some(StatsTable),
+    NeedMore(Vec<SegmentId>),
+}
+
 impl ChunkedScanner {
     /// Attempt to populate the stats table if not already set.
     /// Returns segments if required, otherwise the table should be considered up-to-date.
-    fn update_stats_table(
-        &self,
-        segments: &dyn SegmentReader,
-    ) -> VortexResult<Option<Vec<SegmentId>>> {
+    fn update_stats_table(&mut self, segments: &dyn SegmentReader) -> VortexResult<PollStats> {
         let Some(stats) = &self.stats else {
+            // If there is no stats layout to poll from, then we know we have no stats.
+            self.stats_table.replace(StatsTable::no_stats(
+                self.layout_dtype.clone(),
+            ))
             // No stats to update.
-            return Ok(None);
+            return Ok(PollStats::None);
         };
 
         // Grab a cheap read lock to check if the table is already set
-        if stats
-            .read()
-            .map_err(|_| vortex_err!("poisoned"))?
-            .table
-            .is_some()
-        {
+        if let Some(stats_table) = &stats.read().map_err(|_| vortex_err!("poisoned"))?.table {
             // The table is already set, so we're done.
-            return Ok(None);
+            return Ok(PollStats::Some(stats_table.clone()));
         }
 
         // Otherwise, grab a write lock and poll the stats table scanner.
@@ -248,15 +257,17 @@ impl ChunkedScanner {
             // from trying to update the OnceCell.
             Poll::Some(stats_array) => {
                 let present_stats = stats.present_stats.clone();
-                stats.table.replace(StatsTable::try_new(
-                    self.layout_dtype.clone(),
-                    stats_array,
-                    present_stats,
-                )?);
-                Ok(None)
+                let stats_table =
+                    StatsTable::try_new(self.layout_dtype.clone(), stats_array, present_stats)?;
+
+                // Update the shared stats
+                stats.table.replace(stats_table.clone());
+
+                // And return it
+                Ok(PollStats::Some(stats_table))
             }
             // Otherwise, we return the segments needed to read the stats table.
-            Poll::NeedMore(needed) => Ok(Some(needed)),
+            Poll::NeedMore(needed) => Ok(PollStats::NeedMore(needed)),
         }
     }
 }

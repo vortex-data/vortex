@@ -4,11 +4,14 @@ use vortex_array::builders::{builder_with_capacity, ArrayBuilder, ArrayBuilderEx
 use vortex_array::stats::{ArrayStatistics as _, Stat};
 use vortex_array::validity::{ArrayValidity, Validity};
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
-use vortex_dtype::{DType, Nullability, StructDType};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_dtype::{DType, FieldNames, Nullability, StructDType};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 /// A table of statistics for a column.
 /// Each row of the stats table corresponds to a chunk of the column.
+///
+/// Note that it's possible for the stats table to have no statistics.
+#[derive(Clone)]
 pub struct StatsTable {
     // The DType of the column for which these stats are computed.
     column_dtype: DType,
@@ -19,6 +22,18 @@ pub struct StatsTable {
 }
 
 impl StatsTable {
+    // Create a [`StatsTable`] with no statistics.
+    pub fn no_stats(column_dtype: DType, length: usize) -> Self {
+        let array = StructArray::try_new(vec![].into(), vec![], length, Validity::NonNullable)
+            .vortex_expect("cannot fail")
+            .into_array();
+        Self {
+            column_dtype,
+            array,
+            stats: vec![],
+        }
+    }
+
     pub fn try_new(column_dtype: DType, array: ArrayData, stats: Vec<Stat>) -> VortexResult<Self> {
         if &Self::dtype_for_stats_table(&column_dtype, &stats) != array.dtype() {
             vortex_bail!("Array dtype does not match expected stats table dtype");
