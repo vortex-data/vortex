@@ -97,35 +97,33 @@ struct ChunkedScanner {
 
 impl Scanner for ChunkedScanner {
     fn poll(&mut self, segments: &dyn SegmentReader) -> VortexResult<Poll> {
-        loop {
-            // Otherwise, we need to read more data.
-            let mut needed = vec![];
-            for (chunk_idx, chunk) in self.chunk_scanners.iter_mut().enumerate() {
-                if self.chunk_arrays[chunk_idx].is_some() {
-                    // We've already read this chunk, so skip it.
-                    continue;
-                }
-
-                match chunk.poll(segments)? {
-                    Poll::Some(array) => self.chunk_arrays[chunk_idx] = Some(array),
-                    Poll::NeedMore(segment_ids) => needed.extend(segment_ids),
-                }
+        // Otherwise, we need to read more data.
+        let mut needed = vec![];
+        for (chunk_idx, chunk) in self.chunk_scanners.iter_mut().enumerate() {
+            if self.chunk_arrays[chunk_idx].is_some() {
+                // We've already read this chunk, so skip it.
+                continue;
             }
 
-            // If we need more segments, then request them.
-            if !needed.is_empty() {
-                return Ok(Poll::NeedMore(needed));
+            match chunk.poll(segments)? {
+                Poll::Some(array) => self.chunk_arrays[chunk_idx] = Some(array),
+                Poll::NeedMore(segment_ids) => needed.extend(segment_ids),
             }
+        }
 
-            // Otherwise, we've read all the chunks, so we're done.
-            return Ok(Poll::Some(ChunkedArray::try_new(
+        // If we need more segments, then request them.
+        if !needed.is_empty() {
+            return Ok(Poll::NeedMore(needed));
+        }
+
+        // Otherwise, we've read all the chunks, so we're done.
+        Ok(Poll::Some(ChunkedArray::try_new(
                     self.chunk_arrays.iter_mut()
                         .map(|array| array.take()
                             .ok_or_else(|| vortex_err!("This is a bug. Missing a chunk array with no more segments to read")))
                         .try_collect()?,
                     self.dtype.clone(),
-                )?.into_array()));
-        }
+                )?.into_array()))
     }
 }
 
@@ -135,10 +133,10 @@ mod test {
     use vortex_buffer::buffer;
 
     use crate::layouts::chunked::writer::ChunkedLayoutWriter;
-    use crate::scanner::Scan;
+    use crate::scanner::{Poll, Scan};
     use crate::segments::test::TestSegments;
     use crate::strategies::LayoutWriterExt;
-    use crate::LayoutData;
+    use crate::{LayoutData, RowMask};
 
     /// Create a chunked layout with three chunks of `1..=3` primitive arrays.
     fn chunked_layout() -> (TestSegments, LayoutData) {
@@ -162,5 +160,38 @@ mod test {
 
         assert_eq!(result.len(), 9);
         assert_eq!(result.as_slice::<i32>(), &[1, 2, 3, 1, 2, 3, 1, 2, 3]);
+    }
+
+    #[test]
+    fn test_chunked_scan_pruned() {
+        let (_segments, layout) = chunked_layout();
+
+        let scan = layout.new_scan(Scan::all(), Default::default()).unwrap();
+        let full_mask = RowMask::new_valid_between(0, scan.layout().row_count());
+
+        // We poll scanners with empty segments to count how many segments they would need.
+        let mut full_scanner = scan.create_scanner(full_mask.clone()).unwrap();
+        let Poll::NeedMore(full_segments) = full_scanner.poll(&TestSegments::default()).unwrap()
+        else {
+            unreachable!()
+        };
+
+        // Using a row-mask that only covers one chunk should have 3x fewer segments.
+        let mut one_chunk_scanner = scan.create_scanner(full_mask.slice(0, 3).unwrap()).unwrap();
+        let Poll::NeedMore(one_segments) =
+            one_chunk_scanner.poll(&TestSegments::default()).unwrap()
+        else {
+            unreachable!()
+        };
+        assert_eq!(one_segments.len() * 3, full_segments.len());
+
+        // Using a row-mask that covers two chunks should have 2/3 the full_segments.
+        let mut two_chunk_scanner = scan.create_scanner(full_mask.slice(2, 5).unwrap()).unwrap();
+        let Poll::NeedMore(two_segments) =
+            two_chunk_scanner.poll(&TestSegments::default()).unwrap()
+        else {
+            unreachable!()
+        };
+        assert_eq!(two_segments.len(), one_segments.len() * 2);
     }
 }
