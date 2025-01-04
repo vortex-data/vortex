@@ -1,21 +1,13 @@
-use vortex_array::{ArrayData, ContextRef};
+use itertools::Itertools;
+use vortex_array::array::ChunkedArray;
+use vortex_array::{ArrayData, ContextRef, IntoArrayData};
 use vortex_dtype::DType;
-use vortex_error::{vortex_err, vortex_panic, VortexResult};
+use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
 
 use crate::layouts::chunked::ChunkedLayout;
 use crate::scanner::{LayoutScan, Poll, Scan, Scanner};
 use crate::segments::SegmentReader;
 use crate::{LayoutData, LayoutEncoding, RowMask};
-
-#[derive(Clone)]
-struct Reading {
-    // The index of the chunk currently being read.
-    chunk_idx: usize,
-    // The layout of the chunk currently being read.
-    chunk_layout: LayoutData,
-    // The statistics table, if required
-    statistics: Option<ArrayData>,
-}
 
 pub struct ChunkedScan {
     layout: LayoutData,
@@ -37,6 +29,16 @@ impl ChunkedScan {
             ctx,
         })
     }
+
+    /// Returns the number of chunks in the layout.
+    fn nchunks(&self) -> usize {
+        let mut nchildren = self.layout.nchildren();
+        if self.layout.metadata().is_some() {
+            // The final child is the statistics table.
+            nchildren -= 1;
+        }
+        nchildren
+    }
 }
 
 impl LayoutScan for ChunkedScan {
@@ -48,65 +50,112 @@ impl LayoutScan for ChunkedScan {
         &self.dtype
     }
 
+    /// Note that a [`Scanner`] is intended to return a single batch of data, therefore instead
+    /// of reading chunks one by one, we attempt to make progress on reading all chunks at the same
+    /// time. We therefore do as much pruning as we can now and then read all chunks in parallel.
     fn create_scanner(&self, mask: RowMask) -> VortexResult<Box<dyn Scanner>> {
+        let mut chunk_scanners = Vec::with_capacity(self.layout.nchildren());
+
+        let mut row_start = 0;
+        for chunk_idx in 0..self.nchunks() {
+            let chunk_range = row_start..row_start + self.layout().child_row_count(chunk_idx);
+            row_start = chunk_range.end;
+
+            if mask.is_disjoint(chunk_range.clone()) {
+                // Skip this chunk if it's not in the mask.
+                continue;
+            }
+
+            let chunk_layout = self
+                .layout
+                .child(chunk_idx, self.layout.dtype().clone())
+                .vortex_expect("Child index out of bound");
+            let chunk_scan = chunk_layout.new_scan(self.scan.clone(), self.ctx.clone())?;
+            let chunk_mask = mask.clone().shift(chunk_range.start)?;
+            let chunk_scanner = chunk_scan.create_scanner(chunk_mask)?;
+            chunk_scanners.push(chunk_scanner);
+        }
+
         Ok(Box::new(ChunkedScanner {
-            layout: self.layout.clone(),
-            mask,
-            state: State::Initial,
+            chunk_scanners,
+            chunk_arrays: vec![None; self.nchunks()],
+            dtype: self.dtype.clone(),
         }) as _)
     }
 }
 
-#[derive(Clone)]
-enum State {
-    Initial,
-    Reading(Reading),
-}
-
+/// A scanner for a chunked layout.
 struct ChunkedScanner {
-    layout: LayoutData,
-    mask: RowMask,
-    state: State,
-}
-
-impl ChunkedScanner {
-    /// Returns the [`LayoutData`] for the given chunk.
-    fn chunk_layout(&self, chunk_idx: usize) -> VortexResult<LayoutData> {
-        self.layout
-            .child(chunk_idx, self.layout.dtype().clone())
-            .ok_or_else(|| vortex_err!("Chunk index out of bounds"))
-    }
+    chunk_scanners: Vec<Box<dyn Scanner>>,
+    chunk_arrays: Vec<Option<ArrayData>>,
+    dtype: DType,
 }
 
 impl Scanner for ChunkedScanner {
-    fn poll(&mut self, _segments: &dyn SegmentReader) -> VortexResult<Poll> {
+    fn poll(&mut self, segments: &dyn SegmentReader) -> VortexResult<Poll> {
         loop {
-            match self.state {
-                State::Initial => {
-                    // TODO(ngates): decide whether to read the stats table. We should read it if:
-                    //  * The scan's filter expression exists and is prune-able,
-                    //  * The scan's mask spans more than a single chunk
-
-                    // We always start at chunk zero. The reading state will skip if there's
-                    // no work based on the mask.
-                    let chunk_idx = 0;
-                    let chunk_layout = self.chunk_layout(chunk_idx)?;
-                    self.state = State::Reading(Reading {
-                        chunk_idx,
-                        chunk_layout,
-                        statistics: None,
-                    });
+            // Otherwise, we need to read more data.
+            let mut needed = vec![];
+            for (chunk_idx, chunk) in self.chunk_scanners.iter_mut().enumerate() {
+                if self.chunk_arrays[chunk_idx].is_some() {
+                    // We've already read this chunk, so skip it.
+                    continue;
                 }
-                State::Reading(Reading { .. }) => {
-                    // self.mask.is_disjoint(self.chunk_ranges)
-                    //     self.state = State::Reading(Reading {
-                    //         chunk_idx: chunk_idx + 1,
-                    //         chunk_layout: self.chunk_layout(chunk_idx + 1)?,
-                    //         statistics: None,
-                    //     });s
-                    todo!()
+
+                match chunk.poll(segments)? {
+                    Poll::Some(array) => self.chunk_arrays[chunk_idx] = Some(array),
+                    Poll::NeedMore(segment_ids) => needed.extend(segment_ids),
                 }
             }
+
+            // If we need more segments, then request them.
+            if !needed.is_empty() {
+                return Ok(Poll::NeedMore(needed));
+            }
+
+            // Otherwise, we've read all the chunks, so we're done.
+            return Ok(Poll::Some(ChunkedArray::try_new(
+                    self.chunk_arrays.iter_mut()
+                        .map(|array| array.take()
+                            .ok_or_else(|| vortex_err!("This is a bug. Missing a chunk array with no more segments to read")))
+                        .try_collect()?,
+                    self.dtype.clone(),
+                )?.into_array()));
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use vortex_array::{ArrayDType, IntoArrayData};
+    use vortex_buffer::buffer;
+
+    use crate::layouts::chunked::writer::ChunkedLayoutWriter;
+    use crate::scanner::Scan;
+    use crate::segments::test::TestSegments;
+    use crate::strategies::LayoutWriterExt;
+    use crate::LayoutData;
+
+    /// Create a chunked layout with three chunks of 1, 2, 3 primitive arrays.
+    fn chunked_layout() -> (TestSegments, LayoutData) {
+        let arr = buffer![1, 2, 3].into_array();
+        let mut segments = TestSegments::default();
+        let layout = ChunkedLayoutWriter::new(arr.dtype(), Default::default())
+            .push_all(
+                &mut segments,
+                [Ok(arr.clone()), Ok(arr.clone()), Ok(arr.clone())],
+            )
+            .unwrap();
+        (segments, layout)
+    }
+
+    #[test]
+    fn test_chunked_scan() {
+        let (segments, layout) = chunked_layout();
+
+        let scan = layout.new_scan(Scan::all(), Default::default()).unwrap();
+        let result = segments.do_scan(scan.as_ref());
+
+        assert_eq!(result.len(), 9);
     }
 }

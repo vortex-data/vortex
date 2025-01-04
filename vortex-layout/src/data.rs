@@ -5,9 +5,10 @@ use flatbuffers::{root, FlatBufferBuilder, WIPOffset};
 use vortex_array::ContextRef;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult};
 use vortex_flatbuffers::{layout as fb, layout, FlatBufferRoot, WriteFlatBuffer};
 
+use crate::context::LayoutContextRef;
 use crate::encoding::{LayoutEncodingRef, LayoutId};
 use crate::scanner::{LayoutScan, Scan};
 use crate::segments::SegmentId;
@@ -43,6 +44,7 @@ struct ViewedLayoutData {
     row_count: u64,
     flatbuffer: ByteBuffer,
     flatbuffer_loc: usize,
+    ctx: LayoutContextRef,
 }
 
 impl ViewedLayoutData {
@@ -81,6 +83,7 @@ impl LayoutData {
         dtype: DType,
         row_count: u64,
         flatbuffer: ByteBuffer,
+        ctx: LayoutContextRef,
     ) -> VortexResult<Self> {
         // Validate the buffer contains a layout message.
         let layout_fb = root::<fb::Layout>(flatbuffer.as_ref())?;
@@ -96,6 +99,7 @@ impl LayoutData {
             row_count,
             flatbuffer,
             flatbuffer_loc: 0,
+            ctx,
         })))
     }
 
@@ -143,8 +147,72 @@ impl LayoutData {
     }
 
     /// Fetch the i'th child layout.
-    pub fn child(&self, _i: usize, _dtype: DType) -> Option<LayoutData> {
-        todo!()
+    ///
+    /// ## Panics
+    ///
+    /// Panics if the child index is out of bounds.
+    pub fn child(&self, i: usize, dtype: DType) -> VortexResult<LayoutData> {
+        if i >= self.nchildren() {
+            vortex_panic!("child index out of bounds");
+        }
+        match &self.0 {
+            Inner::Owned(o) => {
+                let child = o
+                    .children
+                    .as_ref()
+                    .vortex_expect("child bounds already checked")[i]
+                    .clone();
+                if child.dtype() != &dtype {
+                    vortex_bail!("child dtype mismatch");
+                }
+                Ok(child)
+            }
+            Inner::Viewed(v) => {
+                let fb = v
+                    .flatbuffer()
+                    .children()
+                    .vortex_expect("child bounds already checked")
+                    .get(i);
+                let encoding = v
+                    .ctx
+                    .lookup_layout(LayoutId(fb.encoding()))
+                    .ok_or_else(|| {
+                        vortex_err!("Child layout encoding {} not found", fb.encoding())
+                    })?;
+                Ok(Self(Inner::Viewed(ViewedLayoutData {
+                    encoding,
+                    dtype,
+                    row_count: fb.row_count(),
+                    flatbuffer: v.flatbuffer.clone(),
+                    flatbuffer_loc: fb._tab.loc(),
+                    ctx: v.ctx.clone(),
+                })))
+            }
+        }
+    }
+
+    /// Fetch the row count of the i'th child layout.
+    ///
+    /// ## Panics
+    ///
+    /// Panics if the child index is out of bounds.
+    pub fn child_row_count(&self, i: usize) -> u64 {
+        if i >= self.nchildren() {
+            vortex_panic!("child index out of bounds");
+        }
+        match &self.0 {
+            Inner::Owned(o) => o
+                .children
+                .as_ref()
+                .vortex_expect("child bounds already checked")[i]
+                .row_count(),
+            Inner::Viewed(v) => v
+                .flatbuffer()
+                .children()
+                .vortex_expect("child bounds already checked")
+                .get(i)
+                .row_count(),
+        }
     }
 
     /// Fetch the i'th segment id of the layout.

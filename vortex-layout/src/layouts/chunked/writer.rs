@@ -7,9 +7,10 @@ use vortex_error::VortexResult;
 use crate::data::LayoutData;
 use crate::layouts::chunked::stats::StatsAccumulator;
 use crate::layouts::chunked::ChunkedLayout;
+use crate::layouts::flat::writer::FlatLayoutWriter;
 use crate::layouts::flat::FlatLayout;
 use crate::segments::SegmentWriter;
-use crate::strategies::{LayoutStrategy, LayoutWriter};
+use crate::strategies::{LayoutStrategy, LayoutWriter, LayoutWriterExt};
 
 pub struct ChunkedLayoutOptions {
     /// The statistics to collect for each chunk.
@@ -71,16 +72,20 @@ impl LayoutWriter for ChunkedLayoutWriter {
 
     fn finish(&mut self, segments: &mut dyn SegmentWriter) -> VortexResult<LayoutData> {
         // Call finish on each chunk's writer
-        let mut chunk_layouts = vec![];
+        let mut children = vec![];
         for writer in self.chunks.iter_mut() {
-            chunk_layouts.push(writer.finish(segments)?);
+            children.push(writer.finish(segments)?);
         }
 
         // Collect together the statistics
         let stats_array = self.stats_accumulator.as_array()?;
         let metadata: Option<Bytes> = match stats_array {
             Some(stats_array) => {
-                let _stats_segment_id = segments.put_chunk(stats_array.0);
+                // Write the stats array as the final layout.
+                let stats_layout = FlatLayoutWriter::new(stats_array.0.dtype().clone())
+                    .push_one(segments, stats_array.0)?;
+                children.push(stats_layout);
+
                 // We store a bit-set of the statistics in the layout metadata so we can infer the
                 // statistics array schema when reading the layout.
                 Some(as_stat_bitset_bytes(&stats_array.1).into())
@@ -93,7 +98,7 @@ impl LayoutWriter for ChunkedLayoutWriter {
             self.dtype.clone(),
             self.row_count,
             None,
-            Some(chunk_layouts),
+            Some(children),
             metadata,
         ))
     }

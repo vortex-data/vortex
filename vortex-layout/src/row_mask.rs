@@ -1,5 +1,6 @@
 use std::cmp::{max, min};
 use std::fmt::{Display, Formatter};
+use std::ops::RangeBounds;
 
 use arrow_buffer::BooleanBuffer;
 use vortex_array::aliases::hash_set::HashSet;
@@ -121,6 +122,30 @@ impl RowMask {
         );
 
         RowMask::try_new(mask, begin, end)
+    }
+
+    /// Whether the mask is disjoint with the given range.
+    ///
+    /// This function may return false negatives, but never false positives.
+    pub fn is_disjoint(&self, range: impl RangeBounds<u64>) -> bool {
+        use std::ops::Bound;
+
+        // Get the start bound of the input range
+        let start = match range.start_bound() {
+            Bound::Included(&n) => n,
+            Bound::Excluded(&n) => n + 1,
+            Bound::Unbounded => 0,
+        };
+
+        // Get the end bound of the input range
+        let end = match range.end_bound() {
+            Bound::Included(&n) => n + 1,
+            Bound::Excluded(&n) => n,
+            Bound::Unbounded => u64::MAX,
+        };
+
+        // Two ranges are disjoint if one ends before the other begins
+        self.end <= start || end <= self.begin
     }
 
     /// Combine the RowMask with bitmask values resulting in new RowMask containing only values true in the bitmask

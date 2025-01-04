@@ -10,13 +10,15 @@ pub struct LayoutContext {
     layout_refs: HashMap<LayoutId, LayoutEncodingRef>,
 }
 
+pub type LayoutContextRef = std::sync::Arc<LayoutContext>;
+
 impl LayoutContext {
     pub fn new(layout_refs: HashMap<LayoutId, LayoutEncodingRef>) -> Self {
         Self { layout_refs }
     }
 
-    pub fn lookup_layout(&self, id: &LayoutId) -> Option<LayoutEncodingRef> {
-        self.layout_refs.get(id).cloned()
+    pub fn lookup_layout(&self, id: LayoutId) -> Option<LayoutEncodingRef> {
+        self.layout_refs.get(&id).cloned()
     }
 }
 
