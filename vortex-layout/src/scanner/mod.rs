@@ -13,7 +13,7 @@ pub trait LayoutScan: Send {
     /// Returns the [`LayoutData`] that this scan is operating on.
     fn layout(&self) -> &LayoutData;
 
-    /// The result [`DType`] of the scan.
+    /// The result [`DType`] of the scan after any projections have been applied.
     fn dtype(&self) -> &DType;
 
     /// Return a [`Scanner`] for the given row mask.
