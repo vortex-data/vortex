@@ -131,7 +131,7 @@ impl Scanner for ChunkedScanner {
 
 #[cfg(test)]
 mod test {
-    use vortex_array::{ArrayDType, IntoArrayData};
+    use vortex_array::{ArrayDType, ArrayLen, IntoArrayData, IntoArrayVariant};
     use vortex_buffer::buffer;
 
     use crate::layouts::chunked::writer::ChunkedLayoutWriter;
@@ -140,7 +140,7 @@ mod test {
     use crate::strategies::LayoutWriterExt;
     use crate::LayoutData;
 
-    /// Create a chunked layout with three chunks of 1, 2, 3 primitive arrays.
+    /// Create a chunked layout with three chunks of `1..=3` primitive arrays.
     fn chunked_layout() -> (TestSegments, LayoutData) {
         let arr = buffer![1, 2, 3].into_array();
         let mut segments = TestSegments::default();
@@ -158,8 +158,9 @@ mod test {
         let (segments, layout) = chunked_layout();
 
         let scan = layout.new_scan(Scan::all(), Default::default()).unwrap();
-        let result = segments.do_scan(scan.as_ref());
+        let result = segments.do_scan(scan.as_ref()).into_primitive().unwrap();
 
         assert_eq!(result.len(), 9);
+        assert_eq!(result.as_slice::<i32>(), &[1, 2, 3, 1, 2, 3, 1, 2, 3]);
     }
 }
