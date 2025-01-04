@@ -1,12 +1,16 @@
+use std::sync::{Arc, RwLock};
+
 use itertools::Itertools;
 use vortex_array::array::ChunkedArray;
+use vortex_array::stats::{stats_from_bitset_bytes, Stat};
 use vortex_array::{ArrayData, ContextRef, IntoArrayData};
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
 
+use crate::layouts::chunked::stats::StatsTable;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::scanner::{LayoutScan, Poll, Scan, Scanner};
-use crate::segments::SegmentReader;
+use crate::segments::{SegmentId, SegmentReader};
 use crate::{LayoutData, LayoutEncoding, RowMask};
 
 pub struct ChunkedScan {
@@ -14,6 +18,13 @@ pub struct ChunkedScan {
     scan: Scan,
     dtype: DType,
     ctx: ContextRef,
+    stats: Option<Arc<RwLock<ChunkedStats>>>,
+}
+
+struct ChunkedStats {
+    present_stats: Vec<Stat>,
+    scanner: Box<dyn Scanner>,
+    table: Option<StatsTable>,
 }
 
 impl ChunkedScan {
@@ -21,12 +32,46 @@ impl ChunkedScan {
         if layout.encoding().id() != ChunkedLayout.id() {
             vortex_panic!("Mismatched layout ID")
         }
+
+        // If we have a filter expression and a stats table, then create a scanner for it.
+        let stats = match (layout.metadata(), &scan.filter) {
+            (Some(metadata), Some(_expr)) => {
+                let present_stats = stats_from_bitset_bytes(metadata.as_ref());
+                let stats_dtype = StatsTable::dtype_for_stats_table(layout.dtype(), &present_stats);
+                let stats_layout = layout.child(layout.nchildren() - 1, stats_dtype)?;
+
+                let stats_count = stats_layout.row_count();
+                debug_assert_eq!(
+                    stats_count,
+                    layout.nchildren() as u64 - 1,
+                    "Stats count should match chunk count"
+                );
+
+                // TODO(ngates): scan only the columns of the stats table that are referenced by the
+                //  filter expression. This doesn't matter at the moment since we always store the stats
+                //  with a FlatLayout.
+                let scanner = stats_layout
+                    .new_scan(Scan::all(), ctx.clone())?
+                    .create_scanner(RowMask::new_valid_between(0, stats_count))?;
+
+                Some(Arc::new(RwLock::new(ChunkedStats {
+                    present_stats,
+                    scanner,
+                    table: None,
+                })))
+            }
+            _ => None,
+        };
+
+        // Compute the dtype of the scan.
         let dtype = scan.result_dtype(layout.dtype())?;
+
         Ok(Self {
             layout,
             scan,
             dtype,
             ctx,
+            stats,
         })
     }
 
@@ -81,23 +126,32 @@ impl LayoutScan for ChunkedScan {
         }
 
         Ok(Box::new(ChunkedScanner {
+            layout_dtype: self.layout.dtype().clone(),
+            scan_dtype: self.dtype.clone(),
             chunk_scanners,
             chunk_arrays: vec![None; self.nchunks()],
-            dtype: self.dtype.clone(),
+            stats: self.stats.clone(),
         }) as _)
     }
 }
 
 /// A scanner for a chunked layout.
 struct ChunkedScanner {
+    layout_dtype: DType,
+    scan_dtype: DType,
     chunk_scanners: Vec<Box<dyn Scanner>>,
     chunk_arrays: Vec<Option<ArrayData>>,
-    dtype: DType,
+    stats: Option<Arc<RwLock<ChunkedStats>>>,
 }
 
 impl Scanner for ChunkedScanner {
     fn poll(&mut self, segments: &dyn SegmentReader) -> VortexResult<Poll> {
-        // Otherwise, we need to read more data.
+        // First, we try to update the stats table if it's not already set.
+        if let Some(needed) = self.update_stats_table(segments)? {
+            return Ok(Poll::NeedMore(needed));
+        }
+
+        // Now we try to read the chunks.
         let mut needed = vec![];
         for (chunk_idx, chunk) in self.chunk_scanners.iter_mut().enumerate() {
             if self.chunk_arrays[chunk_idx].is_some() {
@@ -122,8 +176,51 @@ impl Scanner for ChunkedScanner {
                         .map(|array| array.take()
                             .ok_or_else(|| vortex_err!("This is a bug. Missing a chunk array with no more segments to read")))
                         .try_collect()?,
-                    self.dtype.clone(),
+                    self.scan_dtype.clone(),
                 )?.into_array()))
+    }
+}
+
+impl ChunkedScanner {
+    /// Attempt to populate the stats table if not already set.
+    /// Returns segments if required, otherwise the table should be considered up-to-date.
+    fn update_stats_table(
+        &self,
+        segments: &dyn SegmentReader,
+    ) -> VortexResult<Option<Vec<SegmentId>>> {
+        let Some(stats) = &self.stats else {
+            // No stats to update.
+            return Ok(None);
+        };
+
+        // Grab a cheap read lock to check if the table is already set
+        if stats
+            .read()
+            .map_err(|_| vortex_err!("poisoned"))?
+            .table
+            .is_some()
+        {
+            // The table is already set, so we're done.
+            return Ok(None);
+        }
+
+        // Otherwise, grab a write lock and poll the stats table scanner.
+        let mut stats = stats.write().map_err(|_| vortex_err!("poisoned"))?;
+        match stats.scanner.poll(segments)? {
+            // While we hold the lock, we update the stats table to avoid other threads
+            // from trying to update the OnceCell.
+            Poll::Some(stats_array) => {
+                let present_stats = stats.present_stats.clone();
+                stats.table.replace(StatsTable::try_new(
+                    self.layout_dtype.clone(),
+                    stats_array,
+                    present_stats,
+                )?);
+                Ok(None)
+            }
+            // Otherwise, we return the segments needed to read the stats table.
+            Poll::NeedMore(needed) => Ok(Some(needed)),
+        }
     }
 }
 

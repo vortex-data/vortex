@@ -9,7 +9,7 @@ use crate::segments::{SegmentId, SegmentReader};
 use crate::{LayoutData, RowMask};
 
 /// A [`LayoutScan`] provides an encapsulation of an invocation of a scan operation.
-pub trait LayoutScan: Send {
+pub trait LayoutScan: 'static + Send + Sync {
     /// Returns the [`LayoutData`] that this scan is operating on.
     fn layout(&self) -> &LayoutData;
 
@@ -21,7 +21,7 @@ pub trait LayoutScan: Send {
     /// Note that since a [`Scanner`] returns a single ArrayData, the caller is responsible for
     /// ensuring the working set and result of the scan fit into memory. The [`LayoutData`] can
     /// be asked for "splits" if the caller needs a hint for how to partition the scan.
-    fn create_scanner(&self, mask: RowMask) -> VortexResult<Box<dyn Scanner>>;
+    fn create_scanner(&self, mask: RowMask) -> VortexResult<Box<dyn Scanner + 'static>>;
 }
 
 pub trait LayoutScanExt: LayoutScan {
@@ -45,7 +45,7 @@ pub enum Poll {
 }
 
 /// A trait for scanning a single row range of a layout.
-pub trait Scanner: Send {
+pub trait Scanner: 'static + Send + Sync {
     /// Attempts to return the [`ArrayData`] result of this ranged scan. If the scanner cannot
     /// make progress, it can return a vec of additional data segments using [`Poll::NeedMore`].
     ///
