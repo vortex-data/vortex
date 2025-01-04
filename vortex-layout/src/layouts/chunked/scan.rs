@@ -1,6 +1,5 @@
 use std::sync::{Arc, RwLock};
 
-use itertools::Itertools;
 use vortex_array::array::ChunkedArray;
 use vortex_array::stats::{stats_from_bitset_bytes, Stat};
 use vortex_array::{ArrayData, ContextRef, IntoArrayData};
@@ -111,6 +110,11 @@ impl LayoutScan for ChunkedScan {
                 continue;
             }
 
+            // We defer creating the chunk layout until here. If we only ever read a few rows,
+            // this is good thing. However, this layout therefore isn't shared across scanners in
+            // case a single chunk overlaps multiple row masks. We could I suppose store OnceCell
+            // for each chunk layout in the ChunkedScan, but let's wait to see if it becomes
+            // necessary.
             let chunk_layout = self
                 .layout
                 .child(chunk_idx, self.layout.dtype().clone())
@@ -129,7 +133,7 @@ impl LayoutScan for ChunkedScan {
             layout_dtype: self.layout.dtype().clone(),
             scan_dtype: self.dtype.clone(),
             chunk_scanners,
-            chunk_arrays: vec![None; self.nchunks()],
+            chunk_state: vec![ChunkState::Initial; self.nchunks()],
             stats: self.stats.clone(),
         }) as _)
     }
@@ -140,13 +144,23 @@ struct ChunkedScanner {
     layout_dtype: DType,
     scan_dtype: DType,
     chunk_scanners: Vec<Box<dyn Scanner>>,
-    chunk_arrays: Vec<Option<ArrayData>>,
+    chunk_state: Vec<ChunkState>,
     stats: Option<Arc<RwLock<ChunkedStats>>>,
+}
+
+#[derive(Clone)]
+enum ChunkState {
+    // In the initial state, we check whether the chunk can be skipped using the stats table.
+    Initial,
+    // While we poll the chunk, we mark it as pending.
+    Pending,
+    // If the chunk was skipped with stats, we mark it as None. Otherwise, we include the chunk.
+    Resolved(Option<ArrayData>),
 }
 
 impl Scanner for ChunkedScanner {
     fn poll(&mut self, segments: &dyn SegmentReader) -> VortexResult<Poll> {
-        // First, we try to update the stats table if it's not already set.
+        // First, we try to fetch the stats table.
         if let Some(needed) = self.update_stats_table(segments)? {
             return Ok(Poll::NeedMore(needed));
         }
@@ -154,14 +168,30 @@ impl Scanner for ChunkedScanner {
         // Now we try to read the chunks.
         let mut needed = vec![];
         for (chunk_idx, chunk) in self.chunk_scanners.iter_mut().enumerate() {
-            if self.chunk_arrays[chunk_idx].is_some() {
-                // We've already read this chunk, so skip it.
-                continue;
+            if matches!(self.chunk_state[chunk_idx], ChunkState::Initial) {
+                // If the chunk can be skipped using the stats_table, then mark it as empty.
+                // TODO
+                // Otherwise, we proceed to pending
+                self.chunk_state[chunk_idx] = ChunkState::Pending;
             }
 
-            match chunk.poll(segments)? {
-                Poll::Some(array) => self.chunk_arrays[chunk_idx] = Some(array),
-                Poll::NeedMore(segment_ids) => needed.extend(segment_ids),
+            match self.chunk_state[chunk_idx] {
+                ChunkState::Initial => unreachable!(),
+                ChunkState::Pending => {
+                    // Otherwise, poll the chunk.
+                    match chunk.poll(segments)? {
+                        Poll::Some(array) => {
+                            // Resolve the chunk
+                            self.chunk_state[chunk_idx] = ChunkState::Resolved(Some(array));
+                        }
+                        Poll::NeedMore(segment_ids) => {
+                            needed.extend(segment_ids);
+                        }
+                    }
+                }
+                ChunkState::Resolved(_) => {
+                    // The chunk is already resolved
+                }
             }
         }
 
@@ -171,13 +201,20 @@ impl Scanner for ChunkedScanner {
         }
 
         // Otherwise, we've read all the chunks, so we're done.
-        Ok(Poll::Some(ChunkedArray::try_new(
-                    self.chunk_arrays.iter_mut()
-                        .map(|array| array.take()
-                            .ok_or_else(|| vortex_err!("This is a bug. Missing a chunk array with no more segments to read")))
-                        .try_collect()?,
-                    self.scan_dtype.clone(),
-                )?.into_array()))
+        let chunks = self
+            .chunk_state
+            .iter_mut()
+            .filter_map(|state| match state {
+                ChunkState::Resolved(array) => array.take(),
+                _ => vortex_panic!(
+                    "This is a bug. Missing a chunk array with no more segments to read"
+                ),
+            })
+            .collect::<Vec<_>>();
+
+        Ok(Poll::Some(
+            ChunkedArray::try_new(chunks, self.scan_dtype.clone())?.into_array(),
+        ))
     }
 }
 
