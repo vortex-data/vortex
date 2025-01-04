@@ -263,6 +263,7 @@ mod test {
 
     use crate::DeltaMetadata;
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_delta_metadata() {
         check_metadata(

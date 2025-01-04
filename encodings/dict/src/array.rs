@@ -128,6 +128,7 @@ mod test {
 
     use crate::DictMetadata;
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_dict_metadata() {
         check_metadata(

@@ -138,6 +138,7 @@ mod tests {
 
     use super::*;
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_bytebool_metadata() {
         check_metadata(

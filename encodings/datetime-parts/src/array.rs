@@ -173,6 +173,7 @@ mod test {
 
     use crate::DateTimePartsMetadata;
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_datetimeparts_metadata() {
         check_metadata(

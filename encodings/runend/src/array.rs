@@ -256,6 +256,7 @@ mod tests {
 
     use crate::{RunEndArray, RunEndMetadata};
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_runend_metadata() {
         check_metadata(

@@ -233,6 +233,7 @@ mod test {
 
     use crate::FSSTMetadata;
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_fsst_metadata() {
         check_metadata(

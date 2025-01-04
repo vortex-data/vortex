@@ -159,6 +159,7 @@ mod tests {
 
     use crate::{ALPMetadata, Exponents};
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_alp_metadata() {
         check_metadata(

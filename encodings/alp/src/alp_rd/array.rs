@@ -265,6 +265,7 @@ mod test {
 
     use crate::{alp_rd, ALPRDFloat, ALPRDMetadata};
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_alprd_metadata() {
         check_metadata(

@@ -301,6 +301,7 @@ mod test {
 
     use crate::{BitPackedArray, BitPackedMetadata};
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_bitpacked_metadata() {
         check_metadata(

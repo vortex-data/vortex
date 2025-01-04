@@ -128,6 +128,7 @@ mod test {
 
     use crate::FoRMetadata;
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_for_metadata() {
         check_metadata(

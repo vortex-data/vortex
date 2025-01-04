@@ -24,6 +24,7 @@ use crate::patches::PatchesMetadata;
 use crate::test_utils::check_metadata;
 use crate::validity::ValidityMetadata;
 
+#[cfg_attr(miri, ignore)]
 #[test]
 fn test_bool_metadata() {
     check_metadata(
@@ -35,11 +36,13 @@ fn test_bool_metadata() {
     );
 }
 
+#[cfg_attr(miri, ignore)]
 #[test]
 fn test_chunked_metadata() {
     check_metadata("chunked.metadata", ChunkedMetadata { nchunks: 1 });
 }
 
+#[cfg_attr(miri, ignore)]
 #[test]
 fn test_constant_metadata() {
     check_metadata(
@@ -50,6 +53,7 @@ fn test_constant_metadata() {
     );
 }
 
+#[cfg_attr(miri, ignore)]
 #[test]
 fn test_list_metadata() {
     check_metadata(
@@ -62,11 +66,13 @@ fn test_list_metadata() {
     );
 }
 
+#[cfg_attr(miri, ignore)]
 #[test]
 fn test_null_metadata() {
     check_metadata("null.metadata", NullMetadata);
 }
 
+#[cfg_attr(miri, ignore)]
 #[test]
 fn test_primitive_metadata() {
     check_metadata(
@@ -77,6 +83,7 @@ fn test_primitive_metadata() {
     );
 }
 
+#[cfg_attr(miri, ignore)]
 #[test]
 fn test_sparse_metadata() {
     check_metadata(
@@ -89,6 +96,7 @@ fn test_sparse_metadata() {
     );
 }
 
+#[cfg_attr(miri, ignore)]
 #[test]
 fn test_struct_metadata() {
     check_metadata(
@@ -99,6 +107,7 @@ fn test_struct_metadata() {
     );
 }
 
+#[cfg_attr(miri, ignore)]
 #[test]
 fn test_varbin_metadata() {
     check_metadata(
@@ -111,6 +120,7 @@ fn test_varbin_metadata() {
     );
 }
 
+#[cfg_attr(miri, ignore)]
 #[test]
 fn test_varbinview_metadata() {
     check_metadata(
