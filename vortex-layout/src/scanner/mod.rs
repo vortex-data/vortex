@@ -50,7 +50,7 @@ pub trait Scanner: 'static + Send + Sync {
     /// make progress, it can return a vec of additional data segments using [`Poll::NeedMore`].
     ///
     /// Note that after returning `Poll::Some` the [`Scanner`] should efficiently continue to
-    /// return the same [`ArrayData`] on subsequent calls to [`poll`].
+    /// return the same [`ArrayData`] on subsequent calls to `poll`.
     fn poll(&mut self, segments: &dyn SegmentReader) -> VortexResult<Poll>;
 }
 
