@@ -1,3 +1,4 @@
+#![feature(once_cell_try)]
 #![allow(dead_code)]
 mod data;
 pub mod scanner;

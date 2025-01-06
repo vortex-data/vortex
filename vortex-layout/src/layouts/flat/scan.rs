@@ -1,5 +1,5 @@
 use vortex_array::compute::{fill_null, filter, FilterMask};
-use vortex_array::ContextRef;
+use vortex_array::{ArrayData, ContextRef};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexResult};
 use vortex_ipc::messages::{BufMessageReader, DecoderMessage};
@@ -62,6 +62,7 @@ impl LayoutScan for FlatScan {
             scan: self.scan.clone(),
             ctx: self.ctx.clone(),
             mask: filter_mask,
+            chunk: None,
         }) as _)
     }
 }
@@ -72,10 +73,17 @@ struct FlatScanner {
     scan: Scan,
     ctx: ContextRef,
     mask: FilterMask,
+    /// Cache of the resolved chunk that we can continue to return.
+    chunk: Option<ArrayData>,
 }
 
 impl Scanner for FlatScanner {
     fn poll(&mut self, segments: &dyn SegmentReader) -> VortexResult<Poll> {
+        // If we have a cached chunk, return it.
+        if let Some(chunk) = &self.chunk {
+            return Ok(Poll::Some(chunk.clone()));
+        }
+
         match segments.get(self.segment_id) {
             None => Ok(Poll::NeedMore(vec![self.segment_id])),
             Some(bytes) => {
@@ -109,6 +117,8 @@ impl Scanner for FlatScanner {
                 }
                 array = self.scan.projection.evaluate(&array)?;
 
+                // Cache the chunk and return it.
+                self.chunk.replace(array.clone());
                 Ok(Poll::Some(array))
             }
         }

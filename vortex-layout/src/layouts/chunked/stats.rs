@@ -1,11 +1,13 @@
+use std::sync::Arc;
+
 use itertools::Itertools;
 use vortex_array::array::StructArray;
 use vortex_array::builders::{builder_with_capacity, ArrayBuilder, ArrayBuilderExt};
 use vortex_array::stats::{ArrayStatistics as _, Stat};
 use vortex_array::validity::{ArrayValidity, Validity};
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
-use vortex_dtype::{DType, FieldNames, Nullability, StructDType};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_dtype::{DType, Nullability, StructDType};
+use vortex_error::{vortex_bail, VortexResult};
 
 /// A table of statistics for a column.
 /// Each row of the stats table corresponds to a chunk of the column.
@@ -18,23 +20,15 @@ pub struct StatsTable {
     // The struct array backing the stats table
     array: ArrayData,
     // The statistics that are included in the table.
-    stats: Vec<Stat>,
+    stats: Arc<[Stat]>,
 }
 
 impl StatsTable {
-    // Create a [`StatsTable`] with no statistics.
-    pub fn no_stats(column_dtype: DType, length: usize) -> Self {
-        let array = StructArray::try_new(vec![].into(), vec![], length, Validity::NonNullable)
-            .vortex_expect("cannot fail")
-            .into_array();
-        Self {
-            column_dtype,
-            array,
-            stats: vec![],
-        }
-    }
-
-    pub fn try_new(column_dtype: DType, array: ArrayData, stats: Vec<Stat>) -> VortexResult<Self> {
+    pub fn try_new(
+        column_dtype: DType,
+        array: ArrayData,
+        stats: Arc<[Stat]>,
+    ) -> VortexResult<Self> {
         if &Self::dtype_for_stats_table(&column_dtype, &stats) != array.dtype() {
             vortex_bail!("Array dtype does not match expected stats table dtype");
         }
@@ -144,7 +138,7 @@ impl StatsAccumulator {
             column_dtype: self.column_dtype.clone(),
             array: StructArray::try_new(names.into(), fields, self.length, Validity::NonNullable)?
                 .into_array(),
-            stats,
+            stats: stats.into(),
         }))
     }
 }

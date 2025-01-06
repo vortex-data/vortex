@@ -243,7 +243,11 @@ impl LayoutData {
     }
 
     /// Create a scan of this layout.
-    pub fn new_scan(self, scan: Scan, ctx: ContextRef) -> VortexResult<Box<dyn LayoutScan>> {
+    pub fn new_scan(
+        self,
+        scan: Scan,
+        ctx: ContextRef,
+    ) -> VortexResult<Box<dyn LayoutScan + 'static>> {
         self.encoding().scan(self, scan, ctx)
     }
 }
