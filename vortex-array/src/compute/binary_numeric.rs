@@ -199,7 +199,7 @@ fn arrow_numeric(
     Ok(ArrayData::from_arrow(Arc::new(array) as ArrayRef, nullable))
 }
 
-#[cfg(feature = "test_harness")]
+#[cfg(feature = "test-harness")]
 pub mod test_harness {
     use num_traits::Num;
     use vortex_dtype::NativePType;

@@ -145,7 +145,7 @@ pub trait ComputeVTable {
     }
 }
 
-#[cfg(feature = "test_harness")]
+#[cfg(feature = "test-harness")]
 pub mod test_harness {
     pub use crate::compute::binary_numeric::test_harness::test_binary_numeric;
 }

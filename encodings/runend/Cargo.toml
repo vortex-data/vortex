@@ -25,7 +25,7 @@ vortex-error = { workspace = true }
 vortex-scalar = { workspace = true }
 
 [dev-dependencies]
-vortex-array = { workspace = true, features = ["test_harness"] }
+vortex-array = { workspace = true, features = ["test-harness"] }
 
 [lints]
 workspace = true

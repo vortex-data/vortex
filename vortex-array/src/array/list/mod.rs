@@ -3,19 +3,19 @@ mod compute;
 use std::fmt::Display;
 use std::sync::Arc;
 
-#[cfg(feature = "test_harness")]
+#[cfg(feature = "test-harness")]
 use itertools::Itertools;
 use num_traits::AsPrimitive;
 use serde::{Deserialize, Serialize};
-#[cfg(feature = "test_harness")]
+#[cfg(feature = "test-harness")]
 use vortex_dtype::Nullability;
 use vortex_dtype::{match_each_native_ptype, DType, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult};
-#[cfg(feature = "test_harness")]
+#[cfg(feature = "test-harness")]
 use vortex_scalar::Scalar;
 
 use crate::array::PrimitiveArray;
-#[cfg(feature = "test_harness")]
+#[cfg(feature = "test-harness")]
 use crate::builders::{ArrayBuilder, ListBuilder};
 use crate::compute::{scalar_at, slice};
 use crate::encoding::ids;
@@ -192,7 +192,7 @@ impl ValidityVTable<ListArray> for ListEncoding {
     }
 }
 
-#[cfg(feature = "test_harness")]
+#[cfg(feature = "test-harness")]
 impl ListArray {
     /// This is a convenience method to create a list array from an iterator of iterators.
     /// This method is slow however since each element is first converted to a scalar and then

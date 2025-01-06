@@ -56,7 +56,7 @@ vortex-scalar = { workspace = true, features = ["flatbuffers", "serde", "arbitra
 
 [features]
 arbitrary = ["dep:arbitrary", "vortex-dtype/arbitrary"]
-test_harness = []
+test-harness = []
 canonical_counter = []
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -66,7 +66,7 @@ getrandom = { workspace = true, features = ["js"] }
 [dev-dependencies]
 criterion = { workspace = true }
 rstest = { workspace = true }
-vortex-array = { path = ".", features = ["test_harness"] }
+vortex-array = { path = ".", features = ["test-harness"] }
 
 [[bench]]
 name = "search_sorted"
