@@ -66,8 +66,9 @@ pub fn not(operand: ExprRef) -> ExprRef {
 mod tests {
     use vortex_array::array::BoolArray;
     use vortex_array::IntoArrayVariant;
+    use vortex_dtype::{DType, Nullability};
 
-    use crate::{ident, not};
+    use crate::{col, ident, not, test_harness};
 
     #[test]
     fn invert_booleans() {
@@ -83,6 +84,23 @@ mod tests {
                 .iter()
                 .collect::<Vec<_>>(),
             vec![true, false, true, true, false, false]
+        );
+    }
+
+    #[test]
+    fn dtype() {
+        let not_expr = not(ident());
+        assert_eq!(
+            not_expr
+                .dtype(DType::Bool(Nullability::NonNullable))
+                .unwrap(),
+            DType::Bool(Nullability::NonNullable)
+        );
+
+        let dtype = test_harness::struct_dtype();
+        assert_eq!(
+            not(col("bool1")).dtype(dtype).unwrap(),
+            DType::Bool(Nullability::NonNullable)
         );
     }
 }

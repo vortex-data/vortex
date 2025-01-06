@@ -257,3 +257,82 @@ pub fn or(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 pub fn and(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
     BinaryExpr::new_expr(lhs, Operator::And, rhs)
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use vortex_dtype::{DType, Nullability};
+
+    use crate::{col, test_harness, BinaryExpr, Operator, VortexExpr};
+
+    #[test]
+    fn dtype() {
+        let dtype = test_harness::struct_dtype();
+        let bool1: Arc<dyn VortexExpr> = col("bool1");
+        let bool2: Arc<dyn VortexExpr> = col("bool2");
+        assert_eq!(
+            BinaryExpr::new_expr(bool1.clone(), Operator::And, bool2.clone())
+                .dtype(dtype.clone())
+                .unwrap(),
+            DType::Bool(Nullability::NonNullable)
+        );
+        assert_eq!(
+            BinaryExpr::new_expr(bool1.clone(), Operator::Or, bool2.clone())
+                .dtype(dtype.clone())
+                .unwrap(),
+            DType::Bool(Nullability::NonNullable)
+        );
+
+        let col1: Arc<dyn VortexExpr> = col("col1");
+        let col2: Arc<dyn VortexExpr> = col("col2");
+
+        assert_eq!(
+            BinaryExpr::new_expr(col1.clone(), Operator::Eq, col2.clone())
+                .dtype(dtype.clone())
+                .unwrap(),
+            DType::Bool(Nullability::Nullable)
+        );
+        assert_eq!(
+            BinaryExpr::new_expr(col1.clone(), Operator::NotEq, col2.clone())
+                .dtype(dtype.clone())
+                .unwrap(),
+            DType::Bool(Nullability::Nullable)
+        );
+        assert_eq!(
+            BinaryExpr::new_expr(col1.clone(), Operator::Gt, col2.clone())
+                .dtype(dtype.clone())
+                .unwrap(),
+            DType::Bool(Nullability::Nullable)
+        );
+        assert_eq!(
+            BinaryExpr::new_expr(col1.clone(), Operator::Gte, col2.clone())
+                .dtype(dtype.clone())
+                .unwrap(),
+            DType::Bool(Nullability::Nullable)
+        );
+        assert_eq!(
+            BinaryExpr::new_expr(col1.clone(), Operator::Lt, col2.clone())
+                .dtype(dtype.clone())
+                .unwrap(),
+            DType::Bool(Nullability::Nullable)
+        );
+        assert_eq!(
+            BinaryExpr::new_expr(col1.clone(), Operator::Lte, col2.clone())
+                .dtype(dtype.clone())
+                .unwrap(),
+            DType::Bool(Nullability::Nullable)
+        );
+
+        assert_eq!(
+            BinaryExpr::new_expr(
+                BinaryExpr::new_expr(col1.clone(), Operator::Lt, col2.clone()),
+                Operator::Or,
+                BinaryExpr::new_expr(col1.clone(), Operator::NotEq, col2.clone())
+            )
+            .dtype(dtype)
+            .unwrap(),
+            DType::Bool(Nullability::Nullable)
+        );
+    }
+}

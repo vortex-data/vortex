@@ -132,9 +132,9 @@ mod tests {
     use vortex_array::array::StructArray;
     use vortex_array::IntoArrayData;
     use vortex_buffer::buffer;
-    use vortex_dtype::Field;
+    use vortex_dtype::{DType, Field, Nullability};
 
-    use crate::{ident, Select};
+    use crate::{ident, test_harness, Select};
 
     fn test_array() -> StructArray {
         StructArray::from_fields(&[
@@ -160,5 +160,51 @@ mod tests {
         let selected = select.evaluate(st.as_ref()).unwrap();
         let selected_names = selected.as_struct_array().unwrap().names().clone();
         assert_eq!(selected_names.as_ref(), &["b".into()]);
+    }
+
+    #[test]
+    fn dtype() {
+        let dtype = test_harness::struct_dtype();
+
+        let select_expr = Select::include_expr(vec![Field::from("a")], ident());
+        let expected_dtype = DType::Struct(
+            dtype
+                .as_struct()
+                .unwrap()
+                .project(&[Field::from("a")])
+                .unwrap(),
+            Nullability::NonNullable,
+        );
+        assert_eq!(select_expr.dtype(dtype.clone()).unwrap(), expected_dtype);
+
+        let select_expr_exclude = Select::exclude_expr(
+            vec![
+                Field::from("col1"),
+                Field::from("col2"),
+                Field::from("bool1"),
+                Field::from("bool2"),
+            ],
+            ident(),
+        );
+        assert_eq!(
+            select_expr_exclude.dtype(dtype.clone()).unwrap(),
+            expected_dtype
+        );
+
+        let select_expr_exclude = Select::exclude_expr(
+            vec![Field::from("col1"), Field::from("col2"), Field::Index(1)],
+            ident(),
+        );
+        assert_eq!(
+            select_expr_exclude.dtype(dtype.clone()).unwrap(),
+            DType::Struct(
+                dtype
+                    .as_struct()
+                    .unwrap()
+                    .project(&[Field::from("a"), Field::from("bool1"), Field::from("bool2")])
+                    .unwrap(),
+                Nullability::NonNullable
+            )
+        );
     }
 }

@@ -97,3 +97,20 @@ impl VortexExpr for RowFilter {
         Self::from_conjunction_expr(children)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use vortex_dtype::{DType, Nullability};
+
+    use crate::{col, not, test_harness, RowFilter};
+
+    #[test]
+    fn dtype() {
+        let dtype = test_harness::struct_dtype();
+        let row_filter = RowFilter::from_conjunction_expr(vec![col("bool1"), not(col("bool2"))]);
+        assert_eq!(
+            row_filter.dtype(dtype.clone()).unwrap(),
+            DType::Bool(Nullability::NonNullable)
+        );
+    }
+}

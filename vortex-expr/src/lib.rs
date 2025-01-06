@@ -114,6 +114,34 @@ impl PartialEq for dyn VortexExpr {
 
 impl Eq for dyn VortexExpr {}
 
+#[cfg(feature = "test-harness")]
+pub mod test_harness {
+    use vortex_dtype::{DType, Nullability, PType, StructDType};
+
+    pub fn struct_dtype() -> DType {
+        DType::Struct(
+            StructDType::new(
+                [
+                    "a".into(),
+                    "col1".into(),
+                    "col2".into(),
+                    "bool1".into(),
+                    "bool2".into(),
+                ]
+                .into(),
+                vec![
+                    DType::Primitive(PType::I32, Nullability::NonNullable),
+                    DType::Primitive(PType::U16, Nullability::Nullable),
+                    DType::Primitive(PType::U16, Nullability::Nullable),
+                    DType::Bool(Nullability::NonNullable),
+                    DType::Bool(Nullability::NonNullable),
+                ],
+            ),
+            Nullability::NonNullable,
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use vortex_dtype::{DType, Field, Nullability, PType, StructDType};
@@ -238,215 +266,6 @@ mod tests {
             ))
             .to_string(),
             "{dog:32_u32,cat:rufus}"
-        );
-    }
-
-    #[test]
-    fn expr_dtype() {
-        let dtype = DType::Struct(
-            StructDType::new(
-                [
-                    "a".into(),
-                    "col1".into(),
-                    "col2".into(),
-                    "bool1".into(),
-                    "bool2".into(),
-                ]
-                .into(),
-                vec![
-                    DType::Primitive(PType::I32, Nullability::NonNullable),
-                    DType::Primitive(PType::U16, Nullability::Nullable),
-                    DType::Primitive(PType::U16, Nullability::Nullable),
-                    DType::Bool(Nullability::NonNullable),
-                    DType::Bool(Nullability::NonNullable),
-                ],
-            ),
-            Nullability::NonNullable,
-        );
-
-        assert_eq!(
-            Column::new_expr(Field::from("a"))
-                .dtype(dtype.clone())
-                .unwrap(),
-            DType::Primitive(PType::I32, Nullability::NonNullable)
-        );
-        assert_eq!(
-            Column::new_expr(Field::Index(1))
-                .dtype(dtype.clone())
-                .unwrap(),
-            DType::Primitive(PType::U16, Nullability::Nullable)
-        );
-        assert_eq!(Identity.dtype(dtype.clone()).unwrap(), dtype);
-        assert_eq!(Identity.dtype(dtype.clone()).unwrap(), dtype);
-
-        let bool1: Arc<dyn VortexExpr> = Column::new_expr(Field::from("bool1"));
-        let bool2: Arc<dyn VortexExpr> = Column::new_expr(Field::from("bool2"));
-        assert_eq!(
-            BinaryExpr::new_expr(bool1.clone(), Operator::And, bool2.clone())
-                .dtype(dtype.clone())
-                .unwrap(),
-            DType::Bool(Nullability::NonNullable)
-        );
-        assert_eq!(
-            BinaryExpr::new_expr(bool1.clone(), Operator::Or, bool2.clone())
-                .dtype(dtype.clone())
-                .unwrap(),
-            DType::Bool(Nullability::NonNullable)
-        );
-
-        let col1: Arc<dyn VortexExpr> = Column::new_expr(Field::from("col1"));
-        let col2: Arc<dyn VortexExpr> = Column::new_expr(Field::from("col2"));
-
-        assert_eq!(
-            BinaryExpr::new_expr(col1.clone(), Operator::Eq, col2.clone())
-                .dtype(dtype.clone())
-                .unwrap(),
-            DType::Bool(Nullability::Nullable)
-        );
-        assert_eq!(
-            BinaryExpr::new_expr(col1.clone(), Operator::NotEq, col2.clone())
-                .dtype(dtype.clone())
-                .unwrap(),
-            DType::Bool(Nullability::Nullable)
-        );
-        assert_eq!(
-            BinaryExpr::new_expr(col1.clone(), Operator::Gt, col2.clone())
-                .dtype(dtype.clone())
-                .unwrap(),
-            DType::Bool(Nullability::Nullable)
-        );
-        assert_eq!(
-            BinaryExpr::new_expr(col1.clone(), Operator::Gte, col2.clone())
-                .dtype(dtype.clone())
-                .unwrap(),
-            DType::Bool(Nullability::Nullable)
-        );
-        assert_eq!(
-            BinaryExpr::new_expr(col1.clone(), Operator::Lt, col2.clone())
-                .dtype(dtype.clone())
-                .unwrap(),
-            DType::Bool(Nullability::Nullable)
-        );
-        assert_eq!(
-            BinaryExpr::new_expr(col1.clone(), Operator::Lte, col2.clone())
-                .dtype(dtype.clone())
-                .unwrap(),
-            DType::Bool(Nullability::Nullable)
-        );
-
-        assert_eq!(
-            BinaryExpr::new_expr(
-                BinaryExpr::new_expr(col1.clone(), Operator::Lt, col2.clone()),
-                Operator::Or,
-                BinaryExpr::new_expr(col1.clone(), Operator::NotEq, col2.clone())
-            )
-            .dtype(dtype.clone())
-            .unwrap(),
-            DType::Bool(Nullability::Nullable)
-        );
-
-        assert_eq!(
-            Not::new_expr(bool1.clone()).dtype(dtype.clone()).unwrap(),
-            DType::Bool(Nullability::NonNullable)
-        );
-
-        assert_eq!(
-            Select::include(vec![Field::from("col1")])
-                .dtype(dtype.clone())
-                .unwrap(),
-            DType::Struct(
-                StructDType::new(
-                    ["col1".into()].into(),
-                    vec![DType::Primitive(PType::U16, Nullability::Nullable)]
-                ),
-                Nullability::NonNullable
-            )
-        );
-        assert_eq!(
-            Select::include(vec![Field::from("col1"), Field::from("col2")])
-                .dtype(dtype.clone())
-                .unwrap(),
-            DType::Struct(
-                StructDType::new(
-                    ["col1".into(), "col2".into()].into(),
-                    vec![
-                        DType::Primitive(PType::U16, Nullability::Nullable),
-                        DType::Primitive(PType::U16, Nullability::Nullable)
-                    ]
-                ),
-                Nullability::NonNullable
-            )
-        );
-        assert_eq!(
-            Select::exclude(vec![
-                Field::from("col1"),
-                Field::from("col2"),
-                Field::Index(1),
-            ])
-            .dtype(dtype.clone())
-            .unwrap(),
-            DType::Struct(
-                StructDType::new(
-                    ["a".into(), "bool1".into(), "bool2".into()].into(),
-                    vec![
-                        DType::Primitive(PType::I32, Nullability::NonNullable),
-                        DType::Bool(Nullability::NonNullable),
-                        DType::Bool(Nullability::NonNullable)
-                    ]
-                ),
-                Nullability::NonNullable
-            )
-        );
-
-        assert_eq!(
-            Literal::new_expr(Scalar::from(0_u8))
-                .dtype(dtype.clone())
-                .unwrap(),
-            DType::Primitive(PType::U8, Nullability::NonNullable)
-        );
-        assert_eq!(
-            Literal::new_expr(Scalar::from(0.0_f32))
-                .dtype(dtype.clone())
-                .unwrap(),
-            DType::Primitive(PType::F32, Nullability::NonNullable)
-        );
-        assert_eq!(
-            Literal::new_expr(Scalar::from(i64::MAX))
-                .dtype(dtype.clone())
-                .unwrap(),
-            DType::Primitive(PType::I64, Nullability::NonNullable)
-        );
-        assert_eq!(
-            Literal::new_expr(Scalar::from(true))
-                .dtype(dtype.clone())
-                .unwrap(),
-            DType::Bool(Nullability::NonNullable)
-        );
-        assert_eq!(
-            Literal::new_expr(Scalar::null(DType::Bool(Nullability::Nullable)))
-                .dtype(dtype.clone())
-                .unwrap(),
-            DType::Bool(Nullability::Nullable)
-        );
-
-        let sdtype = DType::Struct(
-            StructDType::new(
-                Arc::from([Arc::from("dog"), Arc::from("cat")]),
-                vec![
-                    DType::Primitive(PType::U32, Nullability::NonNullable),
-                    DType::Utf8(Nullability::NonNullable),
-                ],
-            ),
-            Nullability::NonNullable,
-        );
-        assert_eq!(
-            Literal::new_expr(Scalar::struct_(
-                sdtype.clone(),
-                vec![Scalar::from(32_u32), Scalar::from("rufus".to_string())]
-            ))
-            .dtype(dtype)
-            .unwrap(),
-            sdtype
         );
     }
 }

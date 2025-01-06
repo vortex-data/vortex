@@ -102,8 +102,9 @@ impl Eq for Like {}
 mod tests {
     use vortex_array::array::BoolArray;
     use vortex_array::IntoArrayVariant;
+    use vortex_dtype::{DType, Nullability};
 
-    use crate::{ident, not};
+    use crate::{ident, lit, not, Like};
 
     #[test]
     fn invert_booleans() {
@@ -119,6 +120,16 @@ mod tests {
                 .iter()
                 .collect::<Vec<_>>(),
             vec![true, false, true, true, false, false]
+        );
+    }
+
+    #[test]
+    fn dtype() {
+        let dtype = DType::Utf8(Nullability::NonNullable);
+        let like_expr = Like::new_expr(ident(), lit("%test%"), false, false);
+        assert_eq!(
+            like_expr.dtype(dtype).unwrap(),
+            DType::Bool(Nullability::NonNullable)
         );
     }
 }

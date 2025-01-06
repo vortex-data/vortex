@@ -72,3 +72,75 @@ impl VortexExpr for Literal {
 pub fn lit(value: impl Into<Scalar>) -> ExprRef {
     Literal::new_expr(value.into())
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use vortex_dtype::{DType, Nullability, PType, StructDType};
+    use vortex_scalar::Scalar;
+
+    use crate::{test_harness, Literal};
+
+    #[test]
+    fn dtype() {
+        let dtype = test_harness::struct_dtype();
+
+        assert_eq!(
+            Literal::new_expr(Scalar::from(10))
+                .dtype(dtype.clone())
+                .unwrap(),
+            DType::Primitive(PType::I32, Nullability::NonNullable)
+        );
+        assert_eq!(
+            Literal::new_expr(Scalar::from(0_u8))
+                .dtype(dtype.clone())
+                .unwrap(),
+            DType::Primitive(PType::U8, Nullability::NonNullable)
+        );
+        assert_eq!(
+            Literal::new_expr(Scalar::from(0.0_f32))
+                .dtype(dtype.clone())
+                .unwrap(),
+            DType::Primitive(PType::F32, Nullability::NonNullable)
+        );
+        assert_eq!(
+            Literal::new_expr(Scalar::from(i64::MAX))
+                .dtype(dtype.clone())
+                .unwrap(),
+            DType::Primitive(PType::I64, Nullability::NonNullable)
+        );
+        assert_eq!(
+            Literal::new_expr(Scalar::from(true))
+                .dtype(dtype.clone())
+                .unwrap(),
+            DType::Bool(Nullability::NonNullable)
+        );
+        assert_eq!(
+            Literal::new_expr(Scalar::null(DType::Bool(Nullability::Nullable)))
+                .dtype(dtype.clone())
+                .unwrap(),
+            DType::Bool(Nullability::Nullable)
+        );
+
+        let sdtype = DType::Struct(
+            StructDType::new(
+                Arc::from([Arc::from("dog"), Arc::from("cat")]),
+                vec![
+                    DType::Primitive(PType::U32, Nullability::NonNullable),
+                    DType::Utf8(Nullability::NonNullable),
+                ],
+            ),
+            Nullability::NonNullable,
+        );
+        assert_eq!(
+            Literal::new_expr(Scalar::struct_(
+                sdtype.clone(),
+                vec![Scalar::from(32_u32), Scalar::from("rufus".to_string())]
+            ))
+            .dtype(dtype)
+            .unwrap(),
+            sdtype
+        );
+    }
+}

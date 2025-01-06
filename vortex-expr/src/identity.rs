@@ -45,3 +45,15 @@ impl VortexExpr for Identity {
 pub fn ident() -> ExprRef {
     Identity::new_expr()
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::{ident, test_harness};
+
+    #[test]
+    fn dtype() {
+        let dtype = test_harness::struct_dtype();
+        assert_eq!(ident().dtype(dtype.clone()).unwrap(), dtype);
+        assert_eq!(ident().dtype(dtype.clone()).unwrap(), dtype);
+    }
+}
