@@ -1,4 +1,6 @@
-use vortex_flatbuffers::{footer2 as fb, FlatBufferRoot, WriteFlatBuffer};
+use flatbuffers::Follow;
+use vortex_error::{vortex_err, VortexError};
+use vortex_flatbuffers::{footer2 as fb, FlatBufferRoot, ReadFlatBuffer, WriteFlatBuffer};
 
 use crate::v2::footer::segment::Segment;
 
@@ -26,5 +28,25 @@ impl WriteFlatBuffer for Postscript {
                 file_layout: Some(file_layout),
             },
         )
+    }
+}
+
+impl ReadFlatBuffer for Postscript {
+    type Source<'a> = fb::Postscript<'a>;
+    type Error = VortexError;
+
+    fn read_flatbuffer<'buf>(
+        fb: &<Self::Source<'buf> as Follow<'buf>>::Inner,
+    ) -> Result<Self, Self::Error> {
+        Ok(Self {
+            dtype: Segment::read_flatbuffer(
+                &fb.dtype()
+                    .ok_or_else(|| vortex_err!("Postscript missing dtype segment"))?,
+            )?,
+            file_layout: Segment::read_flatbuffer(
+                &fb.file_layout()
+                    .ok_or_else(|| vortex_err!("Postscript missing file_layout segment"))?,
+            )?,
+        })
     }
 }

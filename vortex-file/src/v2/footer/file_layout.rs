@@ -4,6 +4,7 @@ use vortex_layout::LayoutData;
 use crate::v2::footer::segment::Segment;
 
 /// Captures the layout information of a Vortex file.
+#[derive(Clone)]
 pub(crate) struct FileLayout {
     pub(crate) root_layout: LayoutData,
     pub(crate) segments: Vec<Segment>,

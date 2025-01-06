@@ -5,6 +5,7 @@ mod data;
 pub mod scanner;
 pub use data::*;
 mod context;
+pub use context::*;
 mod encoding;
 pub mod layouts;
 pub use encoding::*;

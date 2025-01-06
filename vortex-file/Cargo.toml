@@ -23,6 +23,7 @@ futures = { workspace = true, features = ["std"] }
 futures-executor = { workspace = true }
 futures-util = { workspace = true }
 itertools = { workspace = true }
+moka = { workspace = true }
 once_cell = { workspace = true }
 tokio = { workspace = true, features = ["rt"] }
 tracing = { workspace = true, optional = true }

@@ -4,7 +4,7 @@ use futures_util::StreamExt;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::stream::ArrayStream;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
-use vortex_flatbuffers::WriteFlatBufferExt;
+use vortex_flatbuffers::{FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
 use vortex_io::VortexWrite;
 use vortex_layout::strategies::LayoutStrategy;
 
@@ -66,40 +66,25 @@ impl WriteOptions {
                 .await?;
         }
 
-        // Write the final messages into the file
+        // Flush the final layout messages into the file
         let root_layout = layout_writer.finish(&mut segment_writer)?;
         segment_writer
             .flush_async(&mut write, &mut segments)
             .await?;
 
-        // TODO(ngates): we may want to just write the FileLayout and DType via segment writer?
-        let dtype_offset = write.position();
-        write
-            .write_all(root_layout.write_flatbuffer_bytes())
-            .await?;
-        let dtype_segment = Segment {
-            offset: dtype_offset,
-            length: usize::try_from(write.position() - dtype_offset)
-                .map_err(|_| vortex_err!("dtype segment length exceeds maximum usize"))?,
-        };
-
-        let layout_offset = write.position();
-        write
-            .write_all(
-                FileLayout {
+        // Write the DType + FileLayout segments
+        let dtype_segment = self.write_flatbuffer(&mut write, stream.dtype()).await?;
+        let file_layout_segment = self
+            .write_flatbuffer(
+                &mut write,
+                &FileLayout {
                     root_layout,
                     segments,
-                }
-                .write_flatbuffer_bytes(),
+                },
             )
             .await?;
-        let file_layout_segment = Segment {
-            offset: layout_offset,
-            length: usize::try_from(write.position() - layout_offset)
-                .map_err(|_| vortex_err!("layout segment length exceeds maximum usize"))?,
-        };
 
-        // Then the postscript, that we write manually to avoid any framing.
+        // Assemble the postscript, and write it manually to avoid any framing.
         let postscript = Postscript {
             dtype: dtype_segment,
             file_layout: file_layout_segment,
@@ -124,5 +109,19 @@ impl WriteOptions {
         write.write_all(eof).await?;
 
         Ok(write.into_inner())
+    }
+
+    async fn write_flatbuffer<W: VortexWrite, F: FlatBufferRoot + WriteFlatBuffer>(
+        &self,
+        write: &mut futures_util::io::Cursor<W>,
+        flatbuffer: &F,
+    ) -> VortexResult<Segment> {
+        let layout_offset = write.position();
+        write.write_all(flatbuffer.write_flatbuffer_bytes()).await?;
+        Ok(Segment {
+            offset: layout_offset,
+            length: usize::try_from(write.position() - layout_offset)
+                .map_err(|_| vortex_err!("segment length exceeds maximum usize"))?,
+        })
     }
 }
