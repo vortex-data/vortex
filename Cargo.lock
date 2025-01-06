@@ -481,7 +481,7 @@ dependencies = [
  "homedir",
  "humansize",
  "indicatif",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "log",
  "mimalloc",
  "object_store",
@@ -2491,6 +2491,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "itertools"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2b192c782037fadd9cfa75548310488aabdbf3d2da73885b31bd0abd03351285"
+dependencies = [
+ "either",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3564,7 +3573,7 @@ dependencies = [
  "arrow",
  "flume",
  "futures",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "log",
  "object_store",
  "pyo3",
@@ -4912,7 +4921,7 @@ name = "vortex-alp"
 version = "0.21.1"
 dependencies = [
  "divan",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "num-traits",
  "rstest",
  "serde",
@@ -4947,7 +4956,7 @@ dependencies = [
  "goldenfile",
  "hashbrown 0.15.2",
  "humansize",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "log",
  "num-traits",
  "num_enum 0.7.3",
@@ -5006,7 +5015,7 @@ dependencies = [
  "datafusion-physical-expr",
  "datafusion-physical-plan",
  "futures",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "log",
  "moka",
  "object_store",
@@ -5072,7 +5081,7 @@ dependencies = [
  "arbitrary",
  "flatbuffers",
  "half",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "num-traits",
  "prost",
  "serde",
@@ -5106,7 +5115,7 @@ version = "0.21.1"
 dependencies = [
  "datafusion-expr",
  "datafusion-physical-expr",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "prost",
  "serde",
  "vortex-array",
@@ -5125,7 +5134,7 @@ dependencies = [
  "arrow-buffer",
  "criterion",
  "fastlanes",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "num-traits",
  "rand",
  "serde",
@@ -5148,7 +5157,7 @@ dependencies = [
  "futures",
  "futures-executor",
  "futures-util",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "once_cell",
  "rstest",
  "tokio",
@@ -5227,7 +5236,7 @@ dependencies = [
  "bytes",
  "flatbuffers",
  "futures-util",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "pin-project-lite",
  "tokio",
  "vortex-array",
@@ -5244,7 +5253,7 @@ dependencies = [
  "arrow-buffer",
  "bytes",
  "flatbuffers",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "rstest",
  "vortex-array",
  "vortex-buffer",
@@ -5283,7 +5292,7 @@ name = "vortex-runend"
 version = "0.21.1"
 dependencies = [
  "arrow-buffer",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "num-traits",
  "serde",
  "vortex-array",
@@ -5299,7 +5308,7 @@ version = "0.21.1"
 dependencies = [
  "arrow-buffer",
  "criterion",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "num-traits",
  "rand",
  "rstest",
@@ -5318,7 +5327,7 @@ dependencies = [
  "arbitrary",
  "chrono",
  "fsst-rs",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "log",
  "num-traits",
  "rand",
@@ -5349,7 +5358,7 @@ dependencies = [
  "datafusion-common",
  "flatbuffers",
  "flexbuffers",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "num-traits",
  "paste",
  "prost",
