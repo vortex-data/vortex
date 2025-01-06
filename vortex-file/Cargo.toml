@@ -34,6 +34,7 @@ vortex-expr = { workspace = true }
 vortex-flatbuffers = { workspace = true, features = ["file"] }
 vortex-io = { workspace = true }
 vortex-ipc = { workspace = true }
+vortex-layout = { workspace = true }
 vortex-scalar = { workspace = true, features = ["flatbuffers"] }
 
 [dev-dependencies]

@@ -10,7 +10,7 @@ pub mod layouts;
 pub use encoding::*;
 mod row_mask;
 pub use row_mask::*;
-mod segments;
+pub mod segments;
 pub mod strategies;
 
 /// The layout ID for a flat layout

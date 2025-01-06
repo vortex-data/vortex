@@ -72,6 +72,7 @@ mod write;
 mod byte_range;
 #[cfg(test)]
 mod tests;
+pub mod v2;
 
 /// The current version of the Vortex file format
 pub const VERSION: u16 = 1;

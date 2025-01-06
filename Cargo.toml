@@ -149,6 +149,7 @@ vortex-flatbuffers = { version = "0.21.1", path = "./vortex-flatbuffers" }
 vortex-fsst = { version = "0.21.1", path = "./encodings/fsst" }
 vortex-io = { version = "0.21.1", path = "./vortex-io" }
 vortex-ipc = { version = "0.21.1", path = "./vortex-ipc" }
+vortex-layout = { version = "0.21.1", path = "./vortex-layout" }
 vortex-proto = { version = "0.21.1", path = "./vortex-proto" }
 vortex-roaring = { version = "0.21.1", path = "./encodings/roaring" }
 vortex-runend = { version = "0.21.1", path = "./encodings/runend" }
