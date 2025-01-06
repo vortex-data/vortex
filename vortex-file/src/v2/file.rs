@@ -35,6 +35,7 @@ impl<R: VortexReadAt> VortexFile<R> {
     /// Performs a scan operation over the file.
     pub fn scan(&self, scan: Scan) -> VortexResult<impl ArrayStream + '_> {
         let layout_scan = self.layout.new_scan(scan, self.ctx.clone())?;
+        let scan_dtype = layout_scan.dtype().clone();
 
         // TODO(ngates): we could query the layout for splits and then process them in parallel.
         //  For now, we just scan the entire layout with one mask.
@@ -60,7 +61,7 @@ impl<R: VortexReadAt> VortexFile<R> {
             }
         });
 
-        Ok(ArrayStreamAdapter::new(layout_scan.dtype().clone(), stream))
+        Ok(ArrayStreamAdapter::new(scan_dtype, stream))
     }
 }
 
