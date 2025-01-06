@@ -17,26 +17,14 @@ use crate::{ExprRef, VortexExpr};
 pub struct Pack {
     names: FieldNames,
     values: Vec<ExprRef>,
-    validity: Option<ExprRef>,
 }
 
 impl Pack {
-    pub fn try_new_expr(
-        names: FieldNames,
-        values: Vec<ExprRef>,
-        validity: Option<ExprRef>,
-    ) -> VortexResult<Arc<Self>> {
+    pub fn try_new_expr(names: FieldNames, values: Vec<ExprRef>) -> VortexResult<Arc<Self>> {
         if names.len() != values.len() {
             vortex_bail!("length mismatch {} {}", names.len(), values.len());
         }
-        if names.len() < 1 {
-            vortex_bail!("must provide at least one field");
-        }
-        Ok(Arc::new(Pack {
-            names,
-            values,
-            validity,
-        }))
+        Ok(Arc::new(Pack { names, values }))
     }
 }
 
@@ -69,24 +57,18 @@ impl VortexExpr for Pack {
     }
 
     fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
+        let len = batch.len();
         let value_arrays = self
             .values
             .iter()
             .map(|value_expr| value_expr.evaluate(batch))
             .process_results(|it| it.collect::<Vec<_>>())?;
-        let validity = self
-            .validity
-            .as_ref()
-            .map(|validity_expr| validity_expr.evaluate(batch))
-            .transpose()?
-            .map_or_else(|| Validity::NonNullable, Validity::Array);
-        let length = value_arrays[0].len();
-        StructArray::try_new(self.names.clone(), value_arrays, length, validity)
+        StructArray::try_new(self.names.clone(), value_arrays, len, Validity::NonNullable)
             .map(IntoArrayData::into_array)
     }
 
     fn collect_references<'a>(&'a self, references: &mut HashSet<&'a Field>) {
-        for expr in self.values.iter().chain(self.validity.iter()) {
+        for expr in self.values.iter() {
             expr.collect_references(references);
         }
     }
@@ -94,6 +76,8 @@ impl VortexExpr for Pack {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use vortex_array::array::{PrimitiveArray, StructArray};
     use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant as _};
     use vortex_buffer::buffer;
@@ -135,6 +119,16 @@ mod tests {
     }
 
     #[test]
+    pub fn test_empty_pack() {
+        let expr = Pack::try_new_expr(Arc::new([]), Vec::new()).unwrap();
+
+        let test_array = test_array().into_array();
+        let actual_array = expr.evaluate(&test_array).unwrap();
+        assert_eq!(actual_array.len(), test_array.len());
+        assert!(actual_array.as_struct_array().unwrap().nfields() == 0);
+    }
+
+    #[test]
     pub fn test_simple_pack() {
         let expr = Pack::try_new_expr(
             ["one".into(), "two".into(), "three".into()].into(),
@@ -143,7 +137,6 @@ mod tests {
                 Column::new_expr(Field::from("b")),
                 Column::new_expr(Field::from("a")),
             ],
-            None,
         )
         .unwrap();
 
@@ -186,12 +179,10 @@ mod tests {
                         Column::new_expr(Field::from("b")),
                         Column::new_expr(Field::from("b")),
                     ],
-                    None,
                 )
                 .unwrap(),
                 Column::new_expr(Field::from("a")),
             ],
-            None,
         )
         .unwrap();
 
