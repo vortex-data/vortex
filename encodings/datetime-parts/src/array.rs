@@ -165,3 +165,24 @@ impl VisitorVTable<DateTimePartsArray> for DateTimePartsEncoding {
         visitor.visit_child("subsecond", &array.subsecond())
     }
 }
+
+#[cfg(test)]
+mod test {
+    use vortex_array::test_harness::check_metadata;
+    use vortex_dtype::PType;
+
+    use crate::DateTimePartsMetadata;
+
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_datetimeparts_metadata() {
+        check_metadata(
+            "datetimeparts.metadata",
+            DateTimePartsMetadata {
+                days_ptype: PType::I64,
+                seconds_ptype: PType::I64,
+                subseconds_ptype: PType::I64,
+            },
+        );
+    }
+}

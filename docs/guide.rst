@@ -91,7 +91,7 @@ If you have a struct array, use :meth:`.Array.to_arrow_table` to construct an Ar
    >>> struct_vtx.to_arrow_table()
    pyarrow.Table
    age: int64
-   name: string
+   name: string_view
    ----
    age: [[25,31,33,57]]
    name: [["Joseph","Narendra","Angela","Mikhail"]]
@@ -116,7 +116,7 @@ Pandas
    >>> vortex.array(df).to_arrow_table()
    pyarrow.Table
    age: int64
-   name: string
+   name: string_view
    ----
    age: [[25,31,33,57]]
    name: [["Joseph","Narendra","Angela","Mikhail"]]

@@ -120,3 +120,23 @@ impl VisitorVTable<DictArray> for DictEncoding {
         visitor.visit_child("codes", &array.codes())
     }
 }
+
+#[cfg(test)]
+mod test {
+    use vortex_array::test_harness::check_metadata;
+    use vortex_dtype::PType;
+
+    use crate::DictMetadata;
+
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_dict_metadata() {
+        check_metadata(
+            "dict.metadata",
+            DictMetadata {
+                codes_ptype: PType::U64,
+                values_len: usize::MAX,
+            },
+        );
+    }
+}

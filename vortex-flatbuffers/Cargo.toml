@@ -18,6 +18,7 @@ dtype = []
 scalar = ["dtype"]
 array = ["dtype", "scalar"]
 ipc = ["array"]
+layout = ["array"]
 file = ["ipc"]
 
 [dependencies]

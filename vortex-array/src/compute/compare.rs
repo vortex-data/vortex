@@ -3,7 +3,7 @@ use std::fmt::{Display, Formatter};
 
 use arrow_ord::cmp;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
+use vortex_error::{vortex_bail, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::arrow::{Datum, FromArrowArray};
@@ -92,12 +92,7 @@ where
         rhs: &ArrayData,
         operator: Operator,
     ) -> VortexResult<Option<ArrayData>> {
-        let lhs_ref = <&E::Array>::try_from(lhs)?;
-        let encoding = lhs
-            .encoding()
-            .as_any()
-            .downcast_ref::<E>()
-            .ok_or_else(|| vortex_err!("Mismatched encoding"))?;
+        let (lhs_ref, encoding) = lhs.downcast_array_ref::<E>()?;
         CompareFn::compare(encoding, lhs_ref, rhs, operator)
     }
 }

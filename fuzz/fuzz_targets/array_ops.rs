@@ -3,7 +3,8 @@
 use libfuzzer_sys::{fuzz_target, Corpus};
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::{
-    BoolEncoding, PrimitiveEncoding, StructEncoding, VarBinEncoding, VarBinViewEncoding,
+    BoolEncoding, ListEncoding, PrimitiveEncoding, StructEncoding, VarBinEncoding,
+    VarBinViewEncoding,
 };
 use vortex_array::compute::{
     filter, scalar_at, search_sorted, slice, take, SearchResult, SearchSortedSide,
@@ -48,6 +49,7 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
                     &VarBinViewEncoding,
                     &BoolEncoding,
                     &StructEncoding,
+                    &ListEncoding,
                 ])
                 .contains(&current_array.encoding())
                 {
@@ -87,7 +89,7 @@ fn assert_search_sorted(
         expected,
         "Expected to find {s}({}) at {expected} in {} from {side} but instead found it at {search_result} in step {step}",
         s.dtype(),
-        array.encoding().id()
+        array.tree_display()
     );
 }
 
@@ -99,8 +101,8 @@ fn assert_array_eq(lhs: &ArrayData, rhs: &ArrayData, step: usize) {
         "LHS len {} != RHS len {}, lhs is {} rhs is {} in step {step}",
         lhs.len(),
         rhs.len(),
-        lhs.encoding().id(),
-        rhs.encoding().id()
+        lhs.tree_display(),
+        rhs.tree_display()
     );
     for idx in 0..lhs.len() {
         let l = scalar_at(lhs, idx).unwrap();
@@ -110,8 +112,8 @@ fn assert_array_eq(lhs: &ArrayData, rhs: &ArrayData, step: usize) {
             l,
             r,
             "{l} != {r} at index {idx}, lhs is {} rhs is {} in step {step}",
-            lhs.encoding().id(),
-            rhs.encoding().id()
+            lhs.tree_display(),
+            rhs.tree_display()
         );
     }
 }

@@ -4,8 +4,6 @@ use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 
-use vortex_error::{vortex_err, VortexError, VortexResult};
-
 use crate::compute::ComputeVTable;
 use crate::stats::StatisticsVTable;
 use crate::validity::ValidityVTable;
@@ -67,19 +65,6 @@ pub trait Encoding: 'static {
 
     type Array;
     type Metadata: ArrayMetadata;
-}
-
-pub fn downcast_array_ref<E: Encoding>(array: &ArrayData) -> VortexResult<(&E::Array, &E)>
-where
-    for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
-{
-    let array_ref = <&E::Array>::try_from(array)?;
-    let encoding = array
-        .encoding()
-        .as_any()
-        .downcast_ref::<E>()
-        .ok_or_else(|| vortex_err!("Mismatched encoding"))?;
-    Ok((array_ref, encoding))
 }
 
 pub type EncodingRef = &'static dyn EncodingVTable;

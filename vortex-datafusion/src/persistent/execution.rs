@@ -11,7 +11,7 @@ use datafusion_physical_plan::execution_plan::{Boundedness, EmissionType};
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use datafusion_physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
 use itertools::Itertools;
-use vortex_array::Context;
+use vortex_array::ContextRef;
 
 use super::cache::InitialReadCache;
 use crate::persistent::opener::VortexFileOpener;
@@ -23,7 +23,7 @@ pub struct VortexExec {
     predicate: Option<Arc<dyn PhysicalExpr>>,
     plan_properties: PlanProperties,
     projected_statistics: Statistics,
-    ctx: Arc<Context>,
+    ctx: ContextRef,
     initial_read_cache: InitialReadCache,
 }
 
@@ -32,7 +32,7 @@ impl VortexExec {
         file_scan_config: FileScanConfig,
         metrics: ExecutionPlanMetricsSet,
         predicate: Option<Arc<dyn PhysicalExpr>>,
-        ctx: Arc<Context>,
+        ctx: ContextRef,
         initial_read_cache: InitialReadCache,
     ) -> DFResult<Self> {
         let projected_schema = project_schema(

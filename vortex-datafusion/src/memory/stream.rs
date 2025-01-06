@@ -43,7 +43,7 @@ impl Stream for VortexRecordBatchStream {
                 exec_datafusion_err!("projection pushdown to Vortex failed: {vortex_err}")
             })?;
 
-        Poll::Ready(Some(Ok(projected_struct.try_into()?)))
+        Poll::Ready(Some(Ok(projected_struct.into_record_batch()?)))
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {

@@ -29,9 +29,9 @@ impl_encoding!("vortex.list", ids::LIST, List);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ListMetadata {
-    validity: ValidityMetadata,
-    elements_len: usize,
-    offset_ptype: PType,
+    pub(crate) validity: ValidityMetadata,
+    pub(crate) elements_len: usize,
+    pub(crate) offset_ptype: PType,
 }
 
 impl Display for ListMetadata {
@@ -225,6 +225,7 @@ impl ListArray {
 mod test {
     use std::sync::Arc;
 
+    use arrow_buffer::BooleanBuffer;
     use vortex_dtype::Nullability;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::PType::I32;
@@ -232,7 +233,7 @@ mod test {
 
     use crate::array::list::ListArray;
     use crate::array::PrimitiveArray;
-    use crate::compute::scalar_at;
+    use crate::compute::{filter, scalar_at, FilterMask};
     use crate::validity::Validity;
     use crate::{ArrayLen, IntoArrayData};
 
@@ -300,5 +301,23 @@ mod test {
             scalar_at(&list, 1).unwrap(),
             scalar_at(&list_from_iter, 1).unwrap()
         );
+    }
+
+    #[test]
+    fn test_simple_list_filter() {
+        let elements = PrimitiveArray::from_option_iter([None, Some(2), Some(3), Some(4), Some(5)]);
+        let offsets = PrimitiveArray::from_iter([0, 2, 4, 5]);
+        let validity = Validity::AllValid;
+
+        let list = ListArray::try_new(elements.into_array(), offsets.into_array(), validity)
+            .unwrap()
+            .into_array();
+
+        let filtered = filter(
+            &list,
+            FilterMask::from(BooleanBuffer::from(vec![false, true, true])),
+        );
+
+        assert!(filtered.is_ok())
     }
 }

@@ -10,15 +10,14 @@ use vortex_array::{ArrayData, IntoArrayData};
 use vortex_dtype::field::Field;
 use vortex_dtype::{FieldName, FieldNames};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult};
-use vortex_expr::{Column, Select, VortexExpr};
+use vortex_expr::{expr_project, Column, RowFilter, Select, VortexExpr};
 use vortex_flatbuffers::footer;
 
 use crate::read::cache::LazyDType;
-use crate::read::expr_project::expr_project;
 use crate::read::mask::RowMask;
 use crate::{
     Layout, LayoutDeserializer, LayoutId, LayoutPath, LayoutReader, MessageCache, PollRead, Prune,
-    RowFilter, Scan, COLUMNAR_LAYOUT_ID,
+    Scan, COLUMNAR_LAYOUT_ID,
 };
 
 #[derive(Debug)]
@@ -426,13 +425,12 @@ mod tests {
     use vortex_buffer::Buffer;
     use vortex_dtype::field::Field;
     use vortex_dtype::{DType, Nullability};
-    use vortex_expr::{BinaryExpr, Column, Literal, Operator};
+    use vortex_expr::{BinaryExpr, Column, Literal, Operator, RowFilter};
 
     use crate::read::builder::initial_read::read_initial_bytes;
     use crate::read::layouts::test_read::{filter_read_layout, read_layout};
     use crate::{
-        LayoutDeserializer, LayoutMessageCache, LayoutPath, LayoutReader, RowFilter, Scan,
-        VortexFileWriter,
+        LayoutDeserializer, LayoutMessageCache, LayoutPath, LayoutReader, Scan, VortexFileWriter,
     };
 
     async fn layout_and_bytes(

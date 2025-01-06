@@ -92,6 +92,28 @@ pub mod scalar;
 /// ```
 pub mod footer;
 
+#[cfg(feature = "layout")]
+#[allow(clippy::all)]
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[allow(clippy::many_single_char_names)]
+#[allow(clippy::unwrap_used)]
+#[allow(dead_code)]
+#[allow(non_snake_case)]
+#[allow(non_camel_case_types)]
+#[allow(unsafe_op_in_unsafe_fn)]
+#[allow(unused_imports)]
+#[allow(unused_lifetimes)]
+#[allow(unused_qualifications)]
+#[rustfmt::skip]
+#[path = "./generated/layout.rs"]
+/// A serialized sequence of arrays, each with its buffers.
+///
+/// `layout.fbs`:
+/// ```flatbuffers
+#[doc = include_str!("../flatbuffers/vortex-layout/layout.fbs")]
+/// ```
+pub mod layout;
+
 #[cfg(feature = "ipc")]
 #[allow(clippy::all)]
 #[allow(clippy::derive_partial_eq_without_eq)]

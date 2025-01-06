@@ -29,23 +29,16 @@ where
     for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
 {
     fn is_valid(&self, array: &ArrayData, index: usize) -> bool {
-        let array_ref =
-            <&E::Array>::try_from(array).vortex_expect("Failed to get array as reference");
-        let encoding = array
-            .encoding()
-            .as_any()
-            .downcast_ref::<E>()
+        let (array_ref, encoding) = array
+            .downcast_array_ref::<E>()
             .vortex_expect("Failed to downcast encoding");
+
         ValidityVTable::is_valid(encoding, array_ref, index)
     }
 
     fn logical_validity(&self, array: &ArrayData) -> LogicalValidity {
-        let array_ref =
-            <&E::Array>::try_from(array).vortex_expect("Failed to get array as reference");
-        let encoding = array
-            .encoding()
-            .as_any()
-            .downcast_ref::<E>()
+        let (array_ref, encoding) = array
+            .downcast_array_ref::<E>()
             .vortex_expect("Failed to downcast encoding");
         ValidityVTable::logical_validity(encoding, array_ref)
     }
