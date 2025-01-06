@@ -41,6 +41,12 @@ impl Display for BinaryExpr {
     }
 }
 
+// impl Tree for BinaryExpr {
+//     fn children(&self) -> &[&dyn Tree] {
+//         &[&self.lhs, &self.rhs]
+//     }
+// }
+
 impl VortexExpr for BinaryExpr {
     fn as_any(&self) -> &dyn Any {
         self
@@ -60,6 +66,10 @@ impl VortexExpr for BinaryExpr {
             Operator::And => and_kleene(lhs, rhs),
             Operator::Or => or_kleene(lhs, rhs),
         }
+    }
+
+    fn children(&self) -> Vec<&ExprRef> {
+        vec![&self.lhs, &self.rhs]
     }
 
     fn collect_references<'a>(&'a self, references: &mut HashSet<&'a Field>) {

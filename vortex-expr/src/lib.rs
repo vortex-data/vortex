@@ -16,6 +16,8 @@ mod project;
 pub mod pruning;
 mod row_filter;
 mod select;
+#[allow(dead_code)]
+mod traversal;
 
 pub use binary::*;
 pub use column::*;
@@ -40,6 +42,8 @@ pub trait VortexExpr: Debug + Send + Sync + PartialEq<dyn Any> + Display {
 
     /// Compute result of expression on given batch producing a new batch
     fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData>;
+
+    fn children(&self) -> Vec<&ExprRef>;
 
     /// Accumulate all field references from this expression and its children in the provided set
     fn collect_references<'a>(&'a self, _references: &mut HashSet<&'a Field>) {}
@@ -93,6 +97,7 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use super::*;
+    use crate::traversal::{ExprPrinter, Node};
 
     #[test]
     fn basic_expr_split_test() {
@@ -110,6 +115,10 @@ mod tests {
         let expr = BinaryExpr::new_expr(lhs, Operator::And, rhs);
         let conjunction = split_conjunction(&expr);
         assert_eq!(conjunction.len(), 2, "Conjunction is {conjunction:?}");
+
+        let mut p = ExprPrinter();
+
+        expr.accept(&mut p).unwrap();
     }
 
     #[test]

@@ -30,6 +30,12 @@ impl Display for Literal {
     }
 }
 
+// impl Tree for Literal {
+//     fn children(&self) -> &[&dyn Tree] {
+//         &[]
+//     }
+// }
+
 impl VortexExpr for Literal {
     fn as_any(&self) -> &dyn Any {
         self
@@ -37,6 +43,10 @@ impl VortexExpr for Literal {
 
     fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
         Ok(ConstantArray::new(self.value.clone(), batch.len()).into_array())
+    }
+
+    fn children(&self) -> Vec<&ExprRef> {
+        vec![]
     }
 }
 

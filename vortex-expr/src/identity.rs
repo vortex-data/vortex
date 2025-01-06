@@ -22,6 +22,12 @@ impl Display for Identity {
     }
 }
 
+// impl Tree for Identity {
+//     fn children(&self) -> &[&dyn Tree] {
+//         &[]
+//     }
+// }
+
 impl VortexExpr for Identity {
     fn as_any(&self) -> &dyn Any {
         self
@@ -29,6 +35,10 @@ impl VortexExpr for Identity {
 
     fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
         Ok(batch.clone())
+    }
+
+    fn children(&self) -> Vec<&ExprRef> {
+        vec![]
     }
 }
 

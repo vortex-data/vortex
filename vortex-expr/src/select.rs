@@ -7,7 +7,7 @@ use vortex_array::ArrayData;
 use vortex_dtype::field::Field;
 use vortex_error::{vortex_err, VortexResult};
 
-use crate::{unbox_any, VortexExpr};
+use crate::{unbox_any, ExprRef, VortexExpr};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Select {
@@ -33,6 +33,12 @@ impl Display for Select {
         }
     }
 }
+
+// impl Tree for Select {
+//     fn children(&self) -> &[&dyn Tree] {
+//         &[]
+//     }
+// }
 
 impl VortexExpr for Select {
     fn as_any(&self) -> &dyn Any {
@@ -66,6 +72,10 @@ impl VortexExpr for Select {
                 st.project(&included_names)
             }
         }
+    }
+
+    fn children(&self) -> Vec<&ExprRef> {
+        vec![]
     }
 
     fn collect_references<'a>(&'a self, references: &mut HashSet<&'a Field>) {

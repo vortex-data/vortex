@@ -48,6 +48,12 @@ impl Display for Column {
     }
 }
 
+// impl Tree for Column {
+//     fn children(&self) -> &[&dyn Tree] {
+//         &[]
+//     }
+// }
+
 impl VortexExpr for Column {
     fn as_any(&self) -> &dyn Any {
         self
@@ -61,6 +67,10 @@ impl VortexExpr for Column {
             Field::Index(i) => s.field(*i),
         }
         .ok_or_else(|| vortex_err!("Array doesn't contain child array {}", self.field))
+    }
+
+    fn children(&self) -> Vec<&ExprRef> {
+        vec![]
     }
 
     fn collect_references<'a>(&'a self, references: &mut HashSet<&'a Field>) {

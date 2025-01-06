@@ -56,6 +56,12 @@ impl Display for Like {
     }
 }
 
+// impl Tree for Like {
+//     fn children(&self) -> &[&dyn Tree] {
+//         &[self.child.as_ref(), self.pattern.as_ref()]
+//     }
+// }
+
 impl VortexExpr for Like {
     fn as_any(&self) -> &dyn Any {
         self
@@ -72,6 +78,10 @@ impl VortexExpr for Like {
                 case_insensitive: self.case_insensitive,
             },
         )
+    }
+
+    fn children(&self) -> Vec<&ExprRef> {
+        vec![]
     }
 
     fn collect_references<'a>(&'a self, references: &mut HashSet<&'a Field>) {

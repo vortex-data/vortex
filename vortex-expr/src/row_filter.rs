@@ -60,6 +60,17 @@ impl Display for RowFilter {
     }
 }
 
+// impl Tree for RowFilter {
+//     fn children(&self) -> &[&dyn Tree] {
+//         // self.conjunction
+//         //     .iter()
+//         //     .map(|c| c.as_ref() as _)
+//         //     .collect::<Vec<_>>()
+//         //     .as_slice()
+//         self.conjunction.as_slice()
+//     }
+// }
+
 impl VortexExpr for RowFilter {
     fn as_any(&self) -> &dyn Any {
         self
@@ -87,6 +98,10 @@ impl VortexExpr for RowFilter {
         }
 
         fill_null(mask, false.into())
+    }
+
+    fn children(&self) -> Vec<&ExprRef> {
+        self.conjunction.iter().collect()
     }
 
     fn collect_references<'a>(&'a self, references: &mut HashSet<&'a Field>) {
