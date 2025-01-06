@@ -33,6 +33,12 @@ impl<K: Display, V: Display> Display for Relation<K, V> {
     }
 }
 
+impl<K: Hash + Eq, V: Hash + Eq> Default for Relation<K, V> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<K: Hash + Eq, V: Hash + Eq> Relation<K, V> {
     pub fn new() -> Self {
         Relation {
