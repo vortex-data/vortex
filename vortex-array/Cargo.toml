@@ -67,7 +67,7 @@ getrandom = { workspace = true, features = ["js"] }
 [dev-dependencies]
 criterion = { workspace = true }
 rstest = { workspace = true }
-vortex-array = { path = ".", features = ["test-harness"] }
+vortex-array = { workspace = true, features = ["test-harness"] }
 
 [[bench]]
 name = "search_sorted"
