@@ -7,6 +7,6 @@ runs:
       id: download-flatc
       shell: bash
       run: |
-        wget -O /tmp/flatc.zip https://github.com/google/flatbuffers/releases/download/v24.3.25/Linux.flatc.binary.clang++-15.zip
+        wget -O /tmp/flatc.zip https://github.com/google/flatbuffers/releases/download/v24.12.23/Linux.flatc.binary.clang++-18.zip
         unzip /tmp/flatc.zip flatc
         mv flatc /usr/local/bin/
