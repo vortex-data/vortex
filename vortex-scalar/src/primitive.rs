@@ -1,4 +1,5 @@
 use std::any::type_name;
+use std::fmt::{Debug, Display};
 
 use num_traits::{CheckedAdd, CheckedDiv, CheckedMul, CheckedSub, FromPrimitive, NumCast};
 use vortex_dtype::half::f16;
@@ -320,6 +321,12 @@ pub enum BinaryNumericOperator {
     // Pow,
 }
 
+impl Display for BinaryNumericOperator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Debug::fmt(self, f)
+    }
+}
+
 impl BinaryNumericOperator {
     pub fn swap(self) -> Self {
         match self {
@@ -330,18 +337,6 @@ impl BinaryNumericOperator {
             BinaryNumericOperator::Div => BinaryNumericOperator::RDiv,
             BinaryNumericOperator::RDiv => BinaryNumericOperator::Div,
         }
-    }
-
-    pub fn math_symbol(&self) -> String {
-        match self {
-            BinaryNumericOperator::Add => "+",
-            BinaryNumericOperator::Sub => "-",
-            BinaryNumericOperator::RSub => "+",
-            BinaryNumericOperator::Mul => "*",
-            BinaryNumericOperator::Div => "/",
-            BinaryNumericOperator::RDiv => "/",
-        }
-        .to_string()
     }
 }
 

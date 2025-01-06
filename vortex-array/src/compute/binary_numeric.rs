@@ -267,7 +267,7 @@ pub mod test_harness {
                     .collect::<Vec<Scalar>>(),
                 "({}) {} (Constant array of {}) did not produce expected results",
                 array,
-                operator.math_symbol(),
+                operator,
                 scalar_one,
             );
 
@@ -291,7 +291,7 @@ pub mod test_harness {
                     .collect::<Vec<_>>(),
                 "(Constant array of {}) {} ({}) did not produce expected results",
                 scalar_one,
-                operator.math_symbol(),
+                operator,
                 array,
             );
         }
