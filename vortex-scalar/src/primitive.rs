@@ -1,4 +1,5 @@
 use std::any::type_name;
+use std::fmt::{Debug, Display};
 
 use num_traits::{CheckedAdd, CheckedDiv, CheckedMul, CheckedSub, FromPrimitive, NumCast};
 use vortex_dtype::half::f16;
@@ -112,7 +113,7 @@ impl<'a> PrimitiveScalar<'a> {
     }
 
     pub fn checked_sub(self, other: PrimitiveScalar<'a>) -> VortexResult<Option<Self>> {
-        self.checked_numeric_operator(other, BinaryNumericOperator::Sub)
+        self.checked_binary_numeric(other, BinaryNumericOperator::Sub)
     }
 }
 
@@ -300,15 +301,43 @@ impl From<usize> for Scalar {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Binary element-wise operations on two arrays or two scalars.
 pub enum BinaryNumericOperator {
+    /// Binary element-wise addition of two arrays or of two scalars.
     Add,
+    /// Binary element-wise subtraction of two arrays or of two scalars.
     Sub,
+    /// Same as [BinaryNumericOperator::Sub] but with the parameters flipped: `right - left`.
+    RSub,
+    /// Binary element-wise multiplication of two arrays or of two scalars.
     Mul,
+    /// Binary element-wise division of two arrays or of two scalars.
     Div,
+    /// Same as [BinaryNumericOperator::Div] but with the parameters flipped: `right - left`.
+    RDiv,
     // Missing from arrow-rs:
     // Min,
     // Max,
     // Pow,
+}
+
+impl Display for BinaryNumericOperator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Debug::fmt(self, f)
+    }
+}
+
+impl BinaryNumericOperator {
+    pub fn swap(self) -> Self {
+        match self {
+            BinaryNumericOperator::Add => BinaryNumericOperator::Add,
+            BinaryNumericOperator::Sub => BinaryNumericOperator::RSub,
+            BinaryNumericOperator::RSub => BinaryNumericOperator::Sub,
+            BinaryNumericOperator::Mul => BinaryNumericOperator::Mul,
+            BinaryNumericOperator::Div => BinaryNumericOperator::RDiv,
+            BinaryNumericOperator::RDiv => BinaryNumericOperator::Div,
+        }
+    }
 }
 
 impl<'a> PrimitiveScalar<'a> {
@@ -319,7 +348,7 @@ impl<'a> PrimitiveScalar<'a> {
     /// If the types are incompatible (ignoring nullability), an error is returned.
     ///
     /// If either value is null, the result is null.
-    pub fn checked_numeric_operator(
+    pub fn checked_binary_numeric(
         self,
         other: PrimitiveScalar<'a>,
         op: BinaryNumericOperator,
@@ -347,8 +376,10 @@ impl<'a> PrimitiveScalar<'a> {
                     (Some(lhs), Some(rhs)) => match op {
                         BinaryNumericOperator::Add => Some(lhs + rhs),
                         BinaryNumericOperator::Sub => Some(lhs - rhs),
+                        BinaryNumericOperator::RSub => Some(rhs - lhs),
                         BinaryNumericOperator::Mul => Some(lhs * rhs),
                         BinaryNumericOperator::Div => Some(lhs / rhs),
+                        BinaryNumericOperator::RDiv => Some(rhs / lhs),
                     }
                 };
                 Some(Self { dtype: result_dtype, ptype: ptype, pvalue: value_or_null.map(PValue::from) })
@@ -380,8 +411,10 @@ impl<'a> PrimitiveScalar<'a> {
             (Some(lhs), Some(rhs)) => match op {
                 BinaryNumericOperator::Add => lhs.checked_add(&rhs).map(Some),
                 BinaryNumericOperator::Sub => lhs.checked_sub(&rhs).map(Some),
+                BinaryNumericOperator::RSub => rhs.checked_sub(&lhs).map(Some),
                 BinaryNumericOperator::Mul => lhs.checked_mul(&rhs).map(Some),
                 BinaryNumericOperator::Div => lhs.checked_div(&rhs).map(Some),
+                BinaryNumericOperator::RDiv => rhs.checked_div(&lhs).map(Some),
             },
         };
 

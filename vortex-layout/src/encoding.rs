@@ -1,4 +1,5 @@
 use std::fmt::{Debug, Display, Formatter};
+use std::sync::Arc;
 
 use vortex_array::ContextRef;
 use vortex_error::VortexResult;
@@ -27,7 +28,7 @@ pub trait LayoutEncoding: Debug + Send + Sync {
         layout: LayoutData,
         scan: Scan,
         ctx: ContextRef,
-    ) -> VortexResult<Box<dyn LayoutScan>>;
+    ) -> VortexResult<Arc<dyn LayoutScan>>;
 }
 
 pub type LayoutEncodingRef = &'static dyn LayoutEncoding;

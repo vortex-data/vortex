@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use vortex_array::compute::{fill_null, filter, FilterMask};
 use vortex_array::{ArrayData, ContextRef};
 use vortex_dtype::DType;
@@ -41,7 +43,7 @@ impl LayoutScan for FlatScan {
         &self.dtype
     }
 
-    fn create_scanner(&self, mask: RowMask) -> VortexResult<Box<dyn Scanner>> {
+    fn create_scanner(self: Arc<Self>, mask: RowMask) -> VortexResult<Box<dyn Scanner>> {
         let segment_id = self
             .layout
             .segment_id(0)
@@ -147,12 +149,7 @@ mod test {
             .unwrap();
 
         let result = segments
-            .do_scan(
-                layout
-                    .new_scan(Scan::all(), Default::default())
-                    .unwrap()
-                    .as_ref(),
-            )
+            .do_scan(layout.new_scan(Scan::all(), Default::default()).unwrap())
             .into_primitive()
             .unwrap();
 
@@ -177,7 +174,7 @@ mod test {
         };
 
         let result = segments
-            .do_scan(layout.new_scan(scan, Default::default()).unwrap().as_ref())
+            .do_scan(layout.new_scan(scan, Default::default()).unwrap())
             .into_primitive()
             .unwrap();
 
@@ -209,7 +206,7 @@ mod test {
         let scan = layout.new_scan(scan, Default::default()).unwrap();
         assert_eq!(scan.dtype(), &DType::Bool(Nullability::Nullable));
 
-        let result = segments.do_scan(scan.as_ref()).into_bool().unwrap();
+        let result = segments.do_scan(scan).into_bool().unwrap();
         assert!(result.boolean_buffer().value(0));
         assert!(!result.boolean_buffer().value(1));
     }

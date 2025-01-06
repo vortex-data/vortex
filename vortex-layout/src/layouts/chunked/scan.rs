@@ -31,18 +31,18 @@ use crate::{LayoutData, LayoutEncoding, RowMask};
 /// boundary we will read the chunk twice). However, if we have overlapping row ranges, as can
 /// happen if the parent is performing multiple scans (filter + projection), then we may read the
 /// same chunk many times.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct ChunkedScan {
     layout: LayoutData,
     scan: Scan,
     dtype: DType,
     ctx: ContextRef,
     // Shared stats table scanner
-    stats_scanner: Arc<RwLock<Box<dyn Scanner>>>,
+    stats_scanner: RwLock<Box<dyn Scanner>>,
     // Cached pruning mask for the scan
-    pruning_mask: Arc<OnceLock<Option<BooleanBuffer>>>,
+    pruning_mask: OnceLock<Option<BooleanBuffer>>,
     // Shared lazy chunk scanners
-    chunk_scans: Arc<[OnceLock<Box<dyn LayoutScan>>]>,
+    chunk_scans: Vec<OnceLock<Arc<dyn LayoutScan>>>,
     // The stats that are present in the layout
     present_stats: Arc<[Stat]>,
 }
@@ -106,8 +106,8 @@ impl ChunkedScan {
             scan,
             dtype,
             ctx,
-            stats_scanner: Arc::new(RwLock::new(stats_scanner)),
-            pruning_mask: Arc::new(OnceLock::new()),
+            stats_scanner: RwLock::new(stats_scanner),
+            pruning_mask: OnceLock::new(),
             chunk_scans,
             present_stats,
         })
@@ -123,9 +123,9 @@ impl LayoutScan for ChunkedScan {
         &self.dtype
     }
 
-    fn create_scanner(&self, mask: RowMask) -> VortexResult<Box<dyn Scanner>> {
+    fn create_scanner(self: Arc<Self>, mask: RowMask) -> VortexResult<Box<dyn Scanner>> {
         Ok(Box::new(ChunkedScanner {
-            chunked_scan: self.clone(),
+            chunked_scan: self,
             mask,
             chunk_states: None,
         }) as _)
@@ -135,7 +135,7 @@ impl LayoutScan for ChunkedScan {
 /// A scanner for a chunked layout.
 #[derive(Debug)]
 struct ChunkedScanner {
-    chunked_scan: ChunkedScan,
+    chunked_scan: Arc<ChunkedScan>,
     mask: RowMask,
     // State for each chunk in the layout
     chunk_states: Option<Vec<ChunkState>>,
@@ -226,7 +226,9 @@ impl Scanner for ChunkedScanner {
                     .mask
                     .slice(chunk_range.start, chunk_range.end)?
                     .shift(chunk_range.start)?;
-                chunks.push(ChunkState::Pending(chunk_scan.create_scanner(chunk_mask)?));
+                chunks.push(ChunkState::Pending(
+                    chunk_scan.clone().create_scanner(chunk_mask)?,
+                ));
             }
 
             self.chunk_states = Some(chunks);
@@ -288,6 +290,7 @@ enum PollStats {
 #[cfg(test)]
 mod test {
     use std::assert_matches::assert_matches;
+    use std::sync::Arc;
 
     use vortex_array::{ArrayLen, IntoArrayData, IntoArrayVariant};
     use vortex_buffer::buffer;
@@ -326,7 +329,7 @@ mod test {
         let (segments, layout) = chunked_layout();
 
         let scan = layout.new_scan(Scan::all(), Default::default()).unwrap();
-        let result = segments.do_scan(scan.as_ref()).into_primitive().unwrap();
+        let result = segments.do_scan(scan).into_primitive().unwrap();
 
         assert_eq!(result.len(), 9);
         assert_eq!(result.as_slice::<i32>(), &[1, 2, 3, 4, 5, 6, 7, 8, 9]);
@@ -354,7 +357,7 @@ mod test {
         _ = scan.stats_scanner.write().unwrap().poll(&segments).unwrap();
 
         let mut scanner = ChunkedScanner {
-            chunked_scan: scan,
+            chunked_scan: Arc::new(scan),
             mask: RowMask::new_valid_between(0, 9),
             chunk_states: None,
         };

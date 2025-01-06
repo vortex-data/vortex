@@ -258,9 +258,27 @@ impl ArrayTrait for ALPRDArray {}
 mod test {
     use rstest::rstest;
     use vortex_array::array::PrimitiveArray;
+    use vortex_array::patches::PatchesMetadata;
+    use vortex_array::test_harness::check_metadata;
     use vortex_array::{IntoArrayData, IntoCanonical};
+    use vortex_dtype::PType;
 
-    use crate::{alp_rd, ALPRDFloat};
+    use crate::{alp_rd, ALPRDFloat, ALPRDMetadata};
+
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_alprd_metadata() {
+        check_metadata(
+            "alprd.metadata",
+            ALPRDMetadata {
+                right_bit_width: u8::MAX,
+                patches: Some(PatchesMetadata::new(usize::MAX, PType::U64)),
+                dict: [0u16; 8],
+                left_parts_ptype: PType::U64,
+                dict_len: 8,
+            },
+        );
+    }
 
     #[rstest]
     #[case(vec![0.1f32.next_up(); 1024], 1.123_848_f32)]

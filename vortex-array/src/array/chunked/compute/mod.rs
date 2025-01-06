@@ -9,6 +9,7 @@ use crate::compute::{
 };
 use crate::{ArrayData, IntoArrayData};
 
+mod binary_numeric;
 mod boolean;
 mod compare;
 mod fill_null;

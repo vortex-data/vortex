@@ -1,6 +1,7 @@
 mod scan;
 
 use std::fmt::Debug;
+use std::sync::Arc;
 
 pub use scan::*;
 use vortex_array::ArrayData;
@@ -23,16 +24,16 @@ pub trait LayoutScan: 'static + Send + Sync + Debug {
     /// Note that since a [`Scanner`] returns a single ArrayData, the caller is responsible for
     /// ensuring the working set and result of the scan fit into memory. The [`LayoutData`] can
     /// be asked for "splits" if the caller needs a hint for how to partition the scan.
-    fn create_scanner(&self, mask: RowMask) -> VortexResult<Box<dyn Scanner>>;
+    fn create_scanner(self: Arc<Self>, mask: RowMask) -> VortexResult<Box<dyn Scanner>>;
 }
 
 pub trait LayoutScanExt: LayoutScan {
     /// Box the layout scan.
-    fn boxed(self) -> Box<dyn LayoutScan + 'static>
+    fn into_arc(self) -> Arc<dyn LayoutScan>
     where
-        Self: Sized + 'static,
+        Self: Sized,
     {
-        Box::new(self)
+        Arc::new(self) as _
     }
 }
 

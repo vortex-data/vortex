@@ -21,7 +21,7 @@ impl_encoding!("vortex.struct", ids::STRUCT, Struct);
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct StructMetadata {
-    validity: ValidityMetadata,
+    pub(crate) validity: ValidityMetadata,
 }
 
 impl Display for StructMetadata {

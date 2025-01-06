@@ -171,7 +171,7 @@ impl MessageDecoder {
                             self.state = State::Buffer(ReadingBuffer {
                                 length,
                                 length_with_padding,
-                                alignment: buffer.alignment_().max(1).into(),
+                                alignment: buffer.alignment().max(1).into(),
                             });
                         }
                         MessageHeader::DType => {
@@ -231,7 +231,7 @@ impl MessageDecoder {
                         .map(|buffer_msg| {
                             let buffer_len = usize::try_from(buffer_msg.length())
                                 .vortex_expect("buffer length is too large for usize");
-                            let buffer_alignment = Alignment::from(buffer_msg.alignment_().max(1));
+                            let buffer_alignment = Alignment::from(buffer_msg.alignment().max(1));
 
                             // Ensure the buffer is read with maximum of reader and message alignment.
                             let read_alignment = self.alignment.max(buffer_alignment);
