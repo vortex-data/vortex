@@ -289,7 +289,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "See https://github.com/spiraldb/vortex/issues/1774"]
+    #[should_panic]
     fn patch_bools_owned() {
         let buffer = buffer![255u8; 2];
         let buf = BooleanBuffer::new(buffer.into_arrow_buffer(), 0, 15);
