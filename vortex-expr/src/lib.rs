@@ -33,11 +33,9 @@ pub use project::*;
 pub use row_filter::*;
 pub use select::*;
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::array::ConstantArray;
-use vortex_array::{ArrayData, IntoArrayData as _};
+use vortex_array::{ArrayData, Canonical, IntoArrayData as _};
 use vortex_dtype::{DType, Field};
 use vortex_error::{VortexResult, VortexUnwrap};
-use vortex_scalar::Scalar;
 
 use crate::traversal::{Node, ReferenceCollector};
 
@@ -51,13 +49,15 @@ pub trait VortexExpr: Debug + Send + Sync + DynEq + Display {
     /// Compute result of expression on given batch producing a new batch
     fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData>;
 
-    /// Compute the type of the array returned by [VortexExpr::evaluate].
-    fn dtype(&self, input_dtype: DType) -> VortexResult<DType> {
-        self.evaluate(&ConstantArray::new(Scalar::default_of_type(input_dtype)?, 0).into_array())
-            .map(|array| array.into_dtype())
-    }
+    fn children(&self) -> Vec<&ExprRef>;
 
     fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef;
+
+    /// Compute the type of the array returned by [VortexExpr::evaluate].
+    fn dtype(&self, input_dtype: DType) -> VortexResult<DType> {
+        let empty = Canonical::empty(&input_dtype)?.into_array();
+        self.evaluate(&empty).map(|array| array.into_dtype())
+    }
 }
 
 pub trait VortexExprExt {
