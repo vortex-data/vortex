@@ -96,69 +96,68 @@ mod tests {
 
     #[test]
     fn basic_expr_split_test() {
-        let lhs = Column::new_expr(Field::from("a"));
-        let rhs = Literal::new_expr(1.into());
-        let expr = BinaryExpr::new_expr(lhs, Operator::Eq, rhs);
+        let lhs = col("a");
+        let rhs = lit(1);
+        let expr = eq(lhs, rhs);
         let conjunction = split_conjunction(&expr);
         assert_eq!(conjunction.len(), 1);
     }
 
     #[test]
     fn basic_conjunction_split_test() {
-        let lhs = Column::new_expr(Field::from("a"));
-        let rhs = Literal::new_expr(1.into());
-        let expr = BinaryExpr::new_expr(lhs, Operator::And, rhs);
+        let lhs = col("a");
+        let rhs = lit(1);
+        let expr = and(lhs, rhs);
         let conjunction = split_conjunction(&expr);
         assert_eq!(conjunction.len(), 2, "Conjunction is {conjunction:?}");
     }
 
     #[test]
     fn expr_display() {
-        assert_eq!(Column::new_expr(Field::from("a")).to_string(), "$a");
-        assert_eq!(Column::new_expr(Field::Index(1)).to_string(), "[1]");
+        assert_eq!(col("a").to_string(), "$a");
+        assert_eq!(col(1).to_string(), "[1]");
         assert_eq!(Identity.to_string(), "[]");
         assert_eq!(Identity.to_string(), "[]");
 
-        let col1: Arc<dyn VortexExpr> = Column::new_expr(Field::from("col1"));
-        let col2: Arc<dyn VortexExpr> = Column::new_expr(Field::from("col2"));
+        let col1: Arc<dyn VortexExpr> = col("col1");
+        let col2: Arc<dyn VortexExpr> = col("col2");
         assert_eq!(
-            BinaryExpr::new_expr(col1.clone(), Operator::And, col2.clone()).to_string(),
+            and(col1.clone(), col2.clone()).to_string(),
             "($col1 and $col2)"
         );
         assert_eq!(
-            BinaryExpr::new_expr(col1.clone(), Operator::Or, col2.clone()).to_string(),
+            or(col1.clone(), col2.clone()).to_string(),
             "($col1 or $col2)"
         );
         assert_eq!(
-            BinaryExpr::new_expr(col1.clone(), Operator::Eq, col2.clone()).to_string(),
+            eq(col1.clone(), col2.clone()).to_string(),
             "($col1 = $col2)"
         );
         assert_eq!(
-            BinaryExpr::new_expr(col1.clone(), Operator::NotEq, col2.clone()).to_string(),
+            not_eq(col1.clone(), col2.clone()).to_string(),
             "($col1 != $col2)"
         );
         assert_eq!(
-            BinaryExpr::new_expr(col1.clone(), Operator::Gt, col2.clone()).to_string(),
+            gt(col1.clone(), col2.clone()).to_string(),
             "($col1 > $col2)"
         );
         assert_eq!(
-            BinaryExpr::new_expr(col1.clone(), Operator::Gte, col2.clone()).to_string(),
+            gt_eq(col1.clone(), col2.clone()).to_string(),
             "($col1 >= $col2)"
         );
         assert_eq!(
-            BinaryExpr::new_expr(col1.clone(), Operator::Lt, col2.clone()).to_string(),
+            lt(col1.clone(), col2.clone()).to_string(),
             "($col1 < $col2)"
         );
         assert_eq!(
-            BinaryExpr::new_expr(col1.clone(), Operator::Lte, col2.clone()).to_string(),
+            lt_eq(col1.clone(), col2.clone()).to_string(),
             "($col1 <= $col2)"
         );
 
         assert_eq!(
-            BinaryExpr::new_expr(
-                BinaryExpr::new_expr(col1.clone(), Operator::Lt, col2.clone()),
-                Operator::Or,
-                BinaryExpr::new_expr(col1.clone(), Operator::NotEq, col2.clone())
+            or(
+                lt(col1.clone(), col2.clone()),
+                not_eq(col1.clone(), col2.clone()),
             )
             .to_string(),
             "(($col1 < $col2) or ($col1 != $col2))"
@@ -184,23 +183,20 @@ mod tests {
             "Exclude($col1,$col2,[1])"
         );
 
-        assert_eq!(Literal::new_expr(Scalar::from(0_u8)).to_string(), "0_u8");
+        assert_eq!(lit(Scalar::from(0_u8)).to_string(), "0_u8");
+        assert_eq!(lit(Scalar::from(0.0_f32)).to_string(), "0_f32");
         assert_eq!(
-            Literal::new_expr(Scalar::from(0.0_f32)).to_string(),
-            "0_f32"
-        );
-        assert_eq!(
-            Literal::new_expr(Scalar::from(i64::MAX)).to_string(),
+            lit(Scalar::from(i64::MAX)).to_string(),
             "9223372036854775807_i64"
         );
-        assert_eq!(Literal::new_expr(Scalar::from(true)).to_string(), "true");
+        assert_eq!(lit(Scalar::from(true)).to_string(), "true");
         assert_eq!(
-            Literal::new_expr(Scalar::null(DType::Bool(Nullability::Nullable))).to_string(),
+            lit(Scalar::null(DType::Bool(Nullability::Nullable))).to_string(),
             "null"
         );
 
         assert_eq!(
-            Literal::new_expr(Scalar::struct_(
+            lit(Scalar::struct_(
                 DType::Struct(
                     StructDType::new(
                         Arc::from([Arc::from("dog"), Arc::from("cat")]),

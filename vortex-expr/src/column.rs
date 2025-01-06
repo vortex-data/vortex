@@ -26,6 +26,12 @@ impl Column {
     }
 }
 
+pub fn col(field: impl Into<Field>) -> ExprRef {
+    Arc::new(Column {
+        field: field.into(),
+    })
+}
+
 impl From<String> for Column {
     fn from(value: String) -> Self {
         Column {

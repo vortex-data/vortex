@@ -1,10 +1,11 @@
+#![allow(unused_imports)]
 use std::sync::Arc;
 
 use vortex_dtype::field::Field;
 
 use crate::{
-    BinaryExpr, Column, ExprRef, Identity, Like, Literal, Not, Operator, RowFilter, Select,
-    VortexExpr,
+    col, lit, BinaryExpr, Column, ExprRef, Identity, Like, Literal, Not, Operator, RowFilter,
+    Select, VortexExpr,
 };
 
 /// Restrict expression to only the fields that appear in projection
@@ -102,15 +103,11 @@ mod tests {
     use vortex_dtype::field::Field;
 
     use super::*;
-    use crate::{BinaryExpr, Column, Identity, Literal, Not, Operator, Select, VortexExpr};
+    use crate::{and, lt, or, Identity, Not, Select, VortexExpr};
 
     #[test]
     fn project_and() {
-        let band = BinaryExpr::new_expr(
-            Column::new_expr(Field::from("a")),
-            Operator::And,
-            Column::new_expr(Field::from("b")),
-        );
+        let band = and(col("a"), col("b"));
         let projection = vec![Field::from("b")];
         assert_eq!(
             *expr_project(&band, &projection).unwrap(),
@@ -120,50 +117,25 @@ mod tests {
 
     #[test]
     fn project_or() {
-        let bor = BinaryExpr::new_expr(
-            Column::new_expr(Field::from("a")),
-            Operator::Or,
-            Column::new_expr(Field::from("b")),
-        );
+        let bor = or(col("a"), col("b"));
         let projection = vec![Field::from("b")];
         assert!(expr_project(&bor, &projection).is_none());
     }
 
     #[test]
     fn project_nested() {
-        let band = BinaryExpr::new_expr(
-            BinaryExpr::new_expr(
-                Column::new_expr(Field::from("a")),
-                Operator::Lt,
-                Column::new_expr(Field::from("b")),
-            ),
-            Operator::And,
-            BinaryExpr::new_expr(
-                Literal::new_expr(5.into()),
-                Operator::Lt,
-                Column::new_expr(Field::from("b")),
-            ),
-        );
+        let band = and(lt(col("a"), col("b")), lt(lit(5), col("b")));
         let projection = vec![Field::from("b")];
         assert!(expr_project(&band, &projection).is_none());
     }
 
     #[test]
     fn project_multicolumn() {
-        let blt = BinaryExpr::new_expr(
-            Column::new_expr(Field::from("a")),
-            Operator::Lt,
-            Column::new_expr(Field::from("b")),
-        );
+        let blt = lt(col("a"), col("b"));
         let projection = vec![Field::from("a"), Field::from("b")];
         assert_eq!(
             *expr_project(&blt, &projection).unwrap(),
-            *BinaryExpr::new_expr(
-                Column::new_expr(Field::from("a")),
-                Operator::Lt,
-                Column::new_expr(Field::from("b")),
-            )
-            .as_any()
+            *lt(col("a"), col("b")).as_any()
         );
     }
 
@@ -197,7 +169,7 @@ mod tests {
 
     #[test]
     fn project_not() {
-        let not_e = Not::new_expr(Column::new_expr(Field::from("a")));
+        let not_e = Not::new_expr(col(Field::from("a")));
         let projection = vec![Field::from("a"), Field::from("b")];
         assert_eq!(*expr_project(&not_e, &projection).unwrap(), *not_e.as_any());
     }

@@ -293,7 +293,7 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, PType};
-    use vortex_expr::{BinaryExpr, Identity, Literal, Operator};
+    use vortex_expr::{gt, lit, Identity};
 
     use crate::layouts::chunked::scan::{ChunkState, ChunkedScan, ChunkedScanner};
     use crate::layouts::chunked::writer::ChunkedLayoutWriter;
@@ -340,11 +340,7 @@ mod test {
             layout,
             Scan {
                 projection: Identity::new_expr(),
-                filter: Some(BinaryExpr::new_expr(
-                    Identity::new_expr(),
-                    Operator::Gt,
-                    Literal::new_expr(6.into()),
-                )),
+                filter: Some(gt(Identity::new_expr(), lit(6))),
             },
             Default::default(),
         )

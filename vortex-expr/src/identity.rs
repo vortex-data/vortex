@@ -40,3 +40,8 @@ impl PartialEq<dyn Any> for Identity {
             .unwrap_or(false)
     }
 }
+
+// Return a global pointer to the identity token.
+pub fn ident() -> ExprRef {
+    Identity::new_expr()
+}

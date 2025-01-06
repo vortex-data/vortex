@@ -10,7 +10,7 @@ use vortex_array::{ArrayData, IntoArrayData};
 use vortex_dtype::field::Field;
 use vortex_dtype::{FieldName, FieldNames};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult};
-use vortex_expr::{expr_project, Column, RowFilter, Select, VortexExpr};
+use vortex_expr::{col, expr_project, RowFilter, Select, VortexExpr};
 use vortex_flatbuffers::footer;
 
 use crate::read::cache::LazyDType;
@@ -140,7 +140,7 @@ impl ColumnarLayoutBuilder<'_> {
                 RowFilter::from_conjunction_expr(
                     handled_names
                         .iter()
-                        .map(|f| Column::new_expr(Field::from(&**f)))
+                        .map(|f| col(Field::from(&**f)))
                         .collect(),
                 )
             });
@@ -425,7 +425,7 @@ mod tests {
     use vortex_buffer::Buffer;
     use vortex_dtype::field::Field;
     use vortex_dtype::{DType, Nullability};
-    use vortex_expr::{BinaryExpr, Column, Literal, Operator, RowFilter};
+    use vortex_expr::{col, lit, BinaryExpr, Operator, RowFilter};
 
     use crate::read::builder::initial_read::read_initial_bytes;
     use crate::read::layouts::test_read::{filter_read_layout, read_layout};
@@ -504,9 +504,9 @@ mod tests {
         let msgs = LayoutMessageCache::default();
         let (filter_layout, project_layout, buf, length) =
             layout_and_bytes(Scan::new(RowFilter::new_expr(BinaryExpr::new_expr(
-                Column::new_expr(Field::from("ints")),
+                col(Field::from("ints")),
                 Operator::Gt,
-                Literal::new_expr(10.into()),
+                lit(10),
             ))))
             .await;
         let arr = filter_read_layout(
@@ -593,17 +593,9 @@ mod tests {
         let msgs = LayoutMessageCache::default();
         let (filter_layout, project_layout, buf, length) =
             layout_and_bytes(Scan::new(RowFilter::new_expr(BinaryExpr::new_expr(
-                BinaryExpr::new_expr(
-                    Column::new_expr(Field::from("strs")),
-                    Operator::Eq,
-                    Literal::new_expr("it".into()),
-                ),
+                BinaryExpr::new_expr(col(Field::from("strs")), Operator::Eq, lit("it")),
                 Operator::And,
-                BinaryExpr::new_expr(
-                    Column::new_expr(Field::from("ints")),
-                    Operator::Lt,
-                    Literal::new_expr(150.into()),
-                ),
+                BinaryExpr::new_expr(col(Field::from("ints")), Operator::Lt, lit(150)),
             ))))
             .await;
         let arr = filter_read_layout(

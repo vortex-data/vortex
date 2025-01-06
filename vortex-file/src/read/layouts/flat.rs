@@ -112,7 +112,7 @@ mod tests {
     use vortex_array::{Context, IntoArrayData, IntoArrayVariant, ToArrayData};
     use vortex_buffer::Buffer;
     use vortex_dtype::PType;
-    use vortex_expr::{BinaryExpr, Identity, Literal, Operator, RowFilter};
+    use vortex_expr::{gt, lit, BinaryExpr, Identity, Operator, RowFilter};
     use vortex_ipc::messages::{EncoderMessage, SyncMessageWriter};
 
     use crate::byte_range::ByteRange;
@@ -167,13 +167,10 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     async fn read_range() {
         let msgs = LayoutMessageCache::default();
-        let (filter_layout, projection_layout, buf, length) =
-            layout_and_bytes(Scan::new(RowFilter::new_expr(BinaryExpr::new_expr(
-                Arc::new(Identity),
-                Operator::Gt,
-                Literal::new_expr(10.into()),
-            ))))
-            .await;
+        let (filter_layout, projection_layout, buf, length) = layout_and_bytes(Scan::new(
+            RowFilter::new_expr(gt(Arc::new(Identity), lit(10))),
+        ))
+        .await;
         let arr =
             filter_read_layout(&filter_layout, &projection_layout, &buf, length, msgs).pop_front();
 
@@ -208,7 +205,7 @@ mod tests {
             layout_and_bytes(Scan::new(RowFilter::new_expr(BinaryExpr::new_expr(
                 Arc::new(Identity),
                 Operator::Gt,
-                Literal::new_expr(101.into()),
+                lit(101),
             ))))
             .await;
         let arr =
