@@ -1,4 +1,5 @@
 use std::ops::Deref;
+use std::sync::Arc;
 
 use bytes::Bytes;
 use flatbuffers::{root, FlatBufferBuilder, WIPOffset};
@@ -243,11 +244,7 @@ impl LayoutData {
     }
 
     /// Create a scan of this layout.
-    pub fn new_scan(
-        self,
-        scan: Scan,
-        ctx: ContextRef,
-    ) -> VortexResult<Box<dyn LayoutScan + 'static>> {
+    pub fn new_scan(self, scan: Scan, ctx: ContextRef) -> VortexResult<Arc<dyn LayoutScan>> {
         self.encoding().scan(self, scan, ctx)
     }
 }
