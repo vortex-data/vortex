@@ -115,10 +115,17 @@ mod tests {
         let expr = BinaryExpr::new_expr(lhs, Operator::And, rhs);
         let conjunction = split_conjunction(&expr);
         assert_eq!(conjunction.len(), 2, "Conjunction is {conjunction:?}");
+    }
 
-        let mut p = ExprPrinter();
-
-        expr.accept(&mut p).unwrap();
+    #[test]
+    fn expr_deep_visitor_test() {
+        let col1: Arc<dyn VortexExpr> = Column::new_expr(Field::from("col1"));
+        let lit1 = Literal::new_expr(1.into());
+        let expr = BinaryExpr::new_expr(col1.clone(), Operator::Eq, lit1.clone());
+        let lit2 = Literal::new_expr(2.into());
+        let expr = BinaryExpr::new_expr(expr, Operator::And, lit2);
+        let mut printer = ExprPrinter();
+        expr.accept(&mut printer).unwrap();
     }
 
     #[test]

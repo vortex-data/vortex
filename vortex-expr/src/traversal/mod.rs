@@ -1,6 +1,6 @@
 use vortex_error::VortexResult;
 
-use crate::{Column, ExprRef};
+use crate::{BinaryExpr, ExprRef, Operator};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VisitationOrder {
@@ -64,7 +64,13 @@ impl NodeVisitor for ExprPrinter {
 
     fn visit_down(&self, node: &ExprRef) -> VortexResult<VisitationOrder> {
         println!("Visiting down: {:?}", node);
-        if node.as_any().downcast_ref::<Column>().is_some() {
+        if node
+            .as_any()
+            .downcast_ref::<BinaryExpr>()
+            .map(|b| b.op() == Operator::Eq)
+            .unwrap_or(false)
+        {
+            println!("Skipping Eq");
             Ok(VisitationOrder::Skip)
         } else {
             Ok(VisitationOrder::Continue)
