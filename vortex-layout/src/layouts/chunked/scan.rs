@@ -125,7 +125,7 @@ impl LayoutScan for ChunkedScan {
 
     fn create_scanner(self: Arc<Self>, mask: RowMask) -> VortexResult<Box<dyn Scanner>> {
         Ok(Box::new(ChunkedScanner {
-            chunked_scan: self.clone(),
+            chunked_scan: self,
             mask,
             chunk_states: None,
         }) as _)
