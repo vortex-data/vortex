@@ -8,8 +8,8 @@ use tabled::settings::themes::Colorization;
 use tabled::settings::{Color, Style};
 use vortex::array::builder::VarBinBuilder;
 use vortex::array::{
-    BoolArray, ChunkedArray, ConstantArray, NullArray, PrimitiveArray, SparseArray, StructArray,
-    VarBinViewArray,
+    BoolArray, ChunkedArray, ConstantArray, ListArray, NullArray, PrimitiveArray, SparseArray,
+    StructArray, VarBinViewArray,
 };
 use vortex::buffer::buffer;
 use vortex::datetime_dtype::{TemporalMetadata, TimeUnit, TIME_ID};
@@ -109,6 +109,13 @@ fn enc_impls() -> Vec<ArrayData> {
         FoRArray::try_new(buffer![0u32, 1, 2].into_array(), 10.into(), 5)
             .unwrap()
             .into_array(),
+        ListArray::try_new(
+            buffer![0, 1].into_array(),
+            buffer![0, 1, 2].into_array(),
+            Validity::NonNullable,
+        )
+        .unwrap()
+        .into_array(),
         NullArray::new(10).into_array(),
         buffer![0, 1].into_array(),
         RoaringBoolArray::try_new(Bitmap::from([0u32, 10, 20]), 30)
