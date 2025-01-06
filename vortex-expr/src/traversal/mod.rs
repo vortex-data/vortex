@@ -42,17 +42,14 @@ impl Node for ExprRef {
         if ord == VisitationOrder::Skip {
             return Ok(VisitationOrder::Continue);
         }
-        let ord = self
-            .children()
-            .iter()
-            .try_fold(VisitationOrder::Continue, |acc, child| {
-                let ord = child.accept(visitor)?;
-                if ord != VisitationOrder::Continue {
-                    VortexResult::Ok(ord)
-                } else {
-                    Ok(acc)
-                }
-            })?;
+
+        let ord = VisitationOrder::Continue;
+        for child in self.children() {
+            let ord = child.accept(visitor)?;
+            if ord != VisitationOrder::Continue {
+                return Ok(ord);
+            }
+        }
         if ord == VisitationOrder::Stop {
             return Ok(VisitationOrder::Stop);
         }
