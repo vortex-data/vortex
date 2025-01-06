@@ -9,7 +9,8 @@ use futures::{FutureExt as _, StreamExt, TryStreamExt};
 use object_store::ObjectStore;
 use vortex_array::ContextRef;
 use vortex_expr::datafusion::convert_expr_to_vortex;
-use vortex_file::{LayoutContext, LayoutDeserializer, Projection, RowFilter, VortexReadBuilder};
+use vortex_expr::RowFilter;
+use vortex_file::{LayoutContext, LayoutDeserializer, Projection, VortexReadBuilder};
 use vortex_io::{IoDispatcher, ObjectStoreReadAt};
 
 use super::cache::InitialReadCache;

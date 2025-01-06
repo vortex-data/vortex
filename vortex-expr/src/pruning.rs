@@ -12,10 +12,9 @@ use vortex_array::ArrayData;
 use vortex_dtype::field::Field;
 use vortex_dtype::Nullability;
 use vortex_error::{VortexExpect as _, VortexResult};
-use vortex_expr::{BinaryExpr, Column, ExprRef, Identity, Literal, Not, Operator};
 use vortex_scalar::Scalar;
 
-use crate::RowFilter;
+use crate::{BinaryExpr, Column, ExprRef, Identity, Literal, Not, Operator, RowFilter};
 
 #[derive(Debug, Clone)]
 pub struct Relation<K, V> {
@@ -441,11 +440,11 @@ mod tests {
     use vortex_array::aliases::hash_set::HashSet;
     use vortex_array::stats::Stat;
     use vortex_dtype::field::Field;
-    use vortex_expr::{BinaryExpr, Column, Identity, Literal, Not, Operator};
 
     use crate::pruning::{
         convert_to_pruning_expression, stat_column_field, FieldOrIdentity, PruningPredicate,
     };
+    use crate::{BinaryExpr, Column, Identity, Literal, Not, Operator};
 
     #[test]
     pub fn pruning_equals() {

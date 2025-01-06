@@ -112,14 +112,14 @@ mod tests {
     use vortex_array::{Context, IntoArrayData, IntoArrayVariant, ToArrayData};
     use vortex_buffer::Buffer;
     use vortex_dtype::PType;
-    use vortex_expr::{BinaryExpr, Identity, Literal, Operator};
+    use vortex_expr::{BinaryExpr, Identity, Literal, Operator, RowFilter};
     use vortex_ipc::messages::{EncoderMessage, SyncMessageWriter};
 
     use crate::byte_range::ByteRange;
     use crate::layouts::flat::FlatLayoutReader;
     use crate::read::cache::LazyDType;
     use crate::read::layouts::test_read::{filter_read_layout, read_layout};
-    use crate::{LayoutMessageCache, LayoutPath, RowFilter, Scan};
+    use crate::{LayoutMessageCache, LayoutPath, Scan};
 
     async fn read_only_layout() -> (FlatLayoutReader, Bytes, usize, Arc<LazyDType>) {
         let array = Buffer::from_iter(0..100).into_array();

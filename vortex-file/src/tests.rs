@@ -18,14 +18,14 @@ use vortex_dtype::field::Field;
 use vortex_dtype::PType::I32;
 use vortex_dtype::{DType, Nullability, PType, StructDType};
 use vortex_error::{vortex_panic, VortexResult};
-use vortex_expr::{BinaryExpr, Column, Literal, Operator};
+use vortex_expr::{BinaryExpr, Column, Literal, Operator, RowFilter};
 use vortex_io::VortexReadAt;
 
 use crate::builder::initial_read::read_initial_bytes;
 use crate::write::VortexFileWriter;
 use crate::{
-    LayoutDeserializer, LayoutPath, Projection, RowFilter, Scan, VortexReadBuilder,
-    V1_FOOTER_FBS_SIZE, VERSION,
+    LayoutDeserializer, LayoutPath, Projection, Scan, VortexReadBuilder, V1_FOOTER_FBS_SIZE,
+    VERSION,
 };
 
 #[test]

@@ -12,6 +12,9 @@ mod like;
 mod literal;
 mod not;
 mod operators;
+mod project;
+pub mod pruning;
+mod row_filter;
 mod select;
 
 pub use binary::*;
@@ -21,6 +24,8 @@ pub use like::*;
 pub use literal::*;
 pub use not::*;
 pub use operators::*;
+pub use project::*;
+pub use row_filter::*;
 pub use select::*;
 use vortex_array::ArrayData;
 use vortex_dtype::field::Field;

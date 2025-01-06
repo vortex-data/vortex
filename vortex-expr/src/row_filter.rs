@@ -10,9 +10,8 @@ use vortex_array::stats::ArrayStatistics;
 use vortex_array::{ArrayData, IntoArrayData};
 use vortex_dtype::field::Field;
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_expr::{split_conjunction, unbox_any, ExprRef, VortexExpr};
 
-use crate::read::expr_project::expr_project;
+use crate::{expr_project, split_conjunction, unbox_any, ExprRef, VortexExpr};
 
 #[derive(Debug, Clone)]
 pub struct RowFilter {

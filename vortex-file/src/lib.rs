@@ -70,7 +70,6 @@ mod read;
 mod write;
 
 mod byte_range;
-mod pruning;
 #[cfg(test)]
 mod tests;
 
