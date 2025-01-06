@@ -5,7 +5,6 @@ use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
 use vortex_array::ContextRef;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
-use vortex_expr::ExprRef;
 use vortex_io::VortexReadAt;
 use vortex_layout::scanner::{Poll, Scan};
 use vortex_layout::{LayoutData, RowMask};
@@ -34,14 +33,8 @@ impl<R: VortexReadAt> VortexFile<R> {
     }
 
     /// Performs a scan operation over the file.
-    pub fn scan(
-        &self,
-        projection: ExprRef,
-        filter: Option<ExprRef>,
-    ) -> VortexResult<impl ArrayStream + '_> {
-        let layout_scan = self
-            .layout
-            .new_scan(Scan { projection, filter }, self.ctx.clone())?;
+    pub fn scan(&self, scan: Scan) -> VortexResult<impl ArrayStream + '_> {
+        let layout_scan = self.layout.new_scan(scan, self.ctx.clone())?;
 
         // TODO(ngates): we could query the layout for splits and then process them in parallel.
         //  For now, we just scan the entire layout with one mask.

@@ -65,9 +65,10 @@ impl OpenOptions {
     pub async fn open<R: VortexReadAt>(self, read: R) -> VortexResult<VortexFile<R>> {
         // Fetch the file size and perform the initial read.
         let file_size = read.size().await?;
-        let initial_offset = file_size - self.initial_read_size;
+        let initial_read_size = self.initial_read_size.min(file_size);
+        let initial_offset = file_size - initial_read_size;
         let initial_read: ByteBuffer = read
-            .read_byte_range(initial_offset, self.initial_read_size)
+            .read_byte_range(initial_offset, initial_read_size)
             .await?
             .into();
 
@@ -119,7 +120,7 @@ impl OpenOptions {
             &mut segment_cache,
         )?;
 
-        // Now we can create the VortexFile.
+        // Finally, create the VortexFile.
         Ok(VortexFile {
             read,
             ctx: self.ctx.clone(),
@@ -194,10 +195,11 @@ impl OpenOptions {
                     fb_root_layout.encoding()
                 )
             })?;
+        let _fb_encoding_id = fb_root_layout.encoding();
         let root_layout = LayoutData::try_new_viewed(
             root_encoding,
             dtype,
-            initial_read.clone(),
+            bytes.clone(),
             fb_root_layout._tab.loc(),
             self.layout_ctx.clone(),
         )?;

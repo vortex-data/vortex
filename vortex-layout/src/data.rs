@@ -93,8 +93,9 @@ impl LayoutData {
             unsafe { fb::Layout::init_from_table(Table::new(flatbuffer.as_ref(), flatbuffer_loc)) };
         if fb_layout.encoding() != encoding.id().0 {
             vortex_bail!(
-                "Mismatched encoding, flatbuffer contains {}",
-                fb_layout.encoding()
+                "Mismatched encoding, flatbuffer contains {}, given {}",
+                fb_layout.encoding(),
+                encoding.id(),
             );
         }
 
