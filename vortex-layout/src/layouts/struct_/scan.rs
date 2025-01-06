@@ -7,6 +7,7 @@ use crate::scanner::{LayoutScan, Poll, Scan, Scanner};
 use crate::segments::SegmentReader;
 use crate::{LayoutData, LayoutEncoding, RowMask};
 
+#[derive(Debug)]
 pub struct StructScan {
     layout: LayoutData,
     scan: Scan,
@@ -49,11 +50,12 @@ impl LayoutScan for StructScan {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 enum State {
     Initial,
 }
 
+#[derive(Debug)]
 struct StructScanner {
     layout: LayoutData,
     scan: Scan,

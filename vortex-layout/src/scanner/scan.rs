@@ -1,5 +1,3 @@
-use std::ops::RangeBounds;
-
 use vortex_array::{ArrayDType, Canonical, IntoArrayData};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
@@ -19,12 +17,6 @@ impl Scan {
             projection: Identity::new_expr(),
             filter: None,
         }
-    }
-
-    /// Slice the scan to the given row range. The mask of the returned scan is relative to the
-    /// start of the range.
-    pub fn slice(&self, _range: impl RangeBounds<u64>) -> Scan {
-        todo!()
     }
 
     /// Compute the result dtype of the scan given the input dtype.

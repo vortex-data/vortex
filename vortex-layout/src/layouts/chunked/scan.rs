@@ -1,11 +1,13 @@
 use std::sync::{Arc, OnceLock, RwLock};
 
+use arrow_buffer::BooleanBuffer;
 use vortex_array::array::{ChunkedArray, StructArray};
 use vortex_array::stats::{stats_from_bitset_bytes, Stat};
 use vortex_array::validity::Validity;
-use vortex_array::{ArrayData, ContextRef, IntoArrayData};
+use vortex_array::{ArrayData, ContextRef, IntoArrayData, IntoArrayVariant};
 use vortex_dtype::DType;
-use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
+use vortex_error::{vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult};
+use vortex_expr::pruning::PruningPredicate;
 
 use crate::layouts::chunked::stats::StatsTable;
 use crate::layouts::chunked::ChunkedLayout;
@@ -29,13 +31,19 @@ use crate::{LayoutData, LayoutEncoding, RowMask};
 /// boundary we will read the chunk twice). However, if we have overlapping row ranges, as can
 /// happen if the parent is performing multiple scans (filter + projection), then we may read the
 /// same chunk many times.
+#[derive(Clone, Debug)]
 pub struct ChunkedScan {
     layout: LayoutData,
     scan: Scan,
     dtype: DType,
     ctx: ContextRef,
+    // Shared stats table scanner
     stats_scanner: Arc<RwLock<Box<dyn Scanner>>>,
+    // Cached pruning mask for the scan
+    pruning_mask: Arc<OnceLock<Option<BooleanBuffer>>>,
+    // Shared lazy chunk scanners
     chunk_scans: Arc<[OnceLock<Box<dyn LayoutScan>>]>,
+    // The stats that are present in the layout
     present_stats: Arc<[Stat]>,
 }
 
@@ -66,7 +74,6 @@ impl ChunkedScan {
             .unwrap_or_default()
             .into();
 
-        // Construct a scanner for the stats array
         let stats_scanner = layout
             .metadata()
             .is_some()
@@ -100,6 +107,7 @@ impl ChunkedScan {
             dtype,
             ctx,
             stats_scanner: Arc::new(RwLock::new(stats_scanner)),
+            pruning_mask: Arc::new(OnceLock::new()),
             chunk_scans,
             present_stats,
         })
@@ -117,13 +125,7 @@ impl LayoutScan for ChunkedScan {
 
     fn create_scanner(&self, mask: RowMask) -> VortexResult<Box<dyn Scanner>> {
         Ok(Box::new(ChunkedScanner {
-            scan: self.scan.clone(),
-            layout: self.layout.clone(),
-            ctx: self.ctx.clone(),
-            scan_dtype: self.dtype.clone(),
-            present_stats: self.present_stats.clone(),
-            stats_scanner: self.stats_scanner.clone(),
-            chunk_scans: self.chunk_scans.clone(),
+            chunked_scan: self.clone(),
             mask,
             chunk_states: None,
         }) as _)
@@ -131,20 +133,15 @@ impl LayoutScan for ChunkedScan {
 }
 
 /// A scanner for a chunked layout.
+#[derive(Debug)]
 struct ChunkedScanner {
-    scan: Scan,
-    layout: LayoutData,
-    ctx: ContextRef,
-    scan_dtype: DType,
-    present_stats: Arc<[Stat]>,
-    stats_scanner: Arc<RwLock<Box<dyn Scanner>>>,
-    chunk_scans: Arc<[OnceLock<Box<dyn LayoutScan>>]>,
+    chunked_scan: ChunkedScan,
     mask: RowMask,
-
     // State for each chunk in the layout
     chunk_states: Option<Vec<ChunkState>>,
 }
 
+#[derive(Debug)]
 enum ChunkState {
     Pending(Box<dyn Scanner>),
     Resolved(Option<ArrayData>),
@@ -155,16 +152,17 @@ impl Scanner for ChunkedScanner {
         // If we haven't set up our chunk state yet, then fetch the stats table and do so.
         if self.chunk_states.is_none() {
             // First, we grab the stats table
-            let _stats_table = match self
+            let stats_table = match self
+                .chunked_scan
                 .stats_scanner
                 .write()
                 .map_err(|_| vortex_err!("poisoned"))?
                 .poll(segments)?
             {
                 Poll::Some(stats_array) => StatsTable::try_new(
-                    self.layout.dtype().clone(),
+                    self.chunked_scan.layout.dtype().clone(),
                     stats_array,
-                    self.present_stats.clone(),
+                    self.chunked_scan.present_stats.clone(),
                 )?,
                 Poll::NeedMore(segments) => {
                     // Otherwise, we need more segments to read the stats table.
@@ -172,16 +170,37 @@ impl Scanner for ChunkedScanner {
                 }
             };
 
+            // And compute the pruning predicate
+            let pruning_mask = self.chunked_scan.pruning_mask.get_or_try_init(|| {
+                Ok::<_, VortexError>(
+                    self.chunked_scan
+                        .scan
+                        .filter
+                        .as_ref()
+                        .and_then(PruningPredicate::try_new)
+                        .and_then(|predicate| predicate.evaluate(stats_table.array()).transpose())
+                        .transpose()?
+                        .map(|mask| mask.into_bool())
+                        .transpose()?
+                        .map(|mask| mask.boolean_buffer()),
+                )
+            })?;
+
             // Now we can set up the chunk state.
-            let mut chunks = Vec::with_capacity(self.chunk_scans.len());
+            let mut chunks = Vec::with_capacity(self.chunked_scan.chunk_scans.len());
             let mut row_offset = 0;
-            for chunk_idx in 0..self.chunk_scans.len() {
-                let chunk_scan = self.chunk_scans[chunk_idx].get_or_try_init(|| {
-                    self.layout
-                        .child(chunk_idx, self.layout.dtype().clone())
-                        .vortex_expect("Child index out of bounds")
-                        .new_scan(self.scan.clone(), self.ctx.clone())
-                })?;
+            for chunk_idx in 0..self.chunked_scan.chunk_scans.len() {
+                let chunk_scan =
+                    self.chunked_scan.chunk_scans[chunk_idx].get_or_try_init(|| {
+                        self.chunked_scan
+                            .layout
+                            .child(chunk_idx, self.chunked_scan.layout.dtype().clone())
+                            .vortex_expect("Child index out of bounds")
+                            .new_scan(
+                                self.chunked_scan.scan.clone(),
+                                self.chunked_scan.ctx.clone(),
+                            )
+                    })?;
 
                 // Figure out the row range of the chunk
                 let chunk_len = chunk_scan.layout().row_count();
@@ -194,8 +213,13 @@ impl Scanner for ChunkedScanner {
                     continue;
                 }
 
-                // Try to skip the chunk based on the stats table
-                // TODO
+                // Try to skip the chunk based on the pruning predicate
+                if let Some(pruning_mask) = pruning_mask {
+                    if pruning_mask.value(chunk_idx) {
+                        chunks.push(ChunkState::Resolved(None));
+                        continue;
+                    }
+                }
 
                 // Otherwise, we need to read it. So we set up a mask for the chunk range.
                 let chunk_mask = self
@@ -250,7 +274,7 @@ impl Scanner for ChunkedScanner {
             .collect::<Vec<_>>();
 
         Ok(Poll::Some(
-            ChunkedArray::try_new(chunks, self.scan_dtype.clone())?.into_array(),
+            ChunkedArray::try_new(chunks, self.chunked_scan.dtype.clone())?.into_array(),
         ))
     }
 }
@@ -263,25 +287,37 @@ enum PollStats {
 
 #[cfg(test)]
 mod test {
-    use vortex_array::{ArrayDType, ArrayLen, IntoArrayData, IntoArrayVariant};
-    use vortex_buffer::buffer;
+    use std::assert_matches::assert_matches;
 
+    use vortex_array::{ArrayLen, IntoArrayData, IntoArrayVariant};
+    use vortex_buffer::buffer;
+    use vortex_dtype::Nullability::NonNullable;
+    use vortex_dtype::{DType, PType};
+    use vortex_expr::{BinaryExpr, Identity, Literal, Operator};
+
+    use crate::layouts::chunked::scan::{ChunkState, ChunkedScan, ChunkedScanner};
     use crate::layouts::chunked::writer::ChunkedLayoutWriter;
-    use crate::scanner::Scan;
+    use crate::scanner::{Poll, Scan, Scanner};
     use crate::segments::test::TestSegments;
     use crate::strategies::LayoutWriterExt;
-    use crate::LayoutData;
+    use crate::{LayoutData, RowMask};
 
-    /// Create a chunked layout with three chunks of `1..=3` primitive arrays.
+    /// Create a chunked layout with three chunks of primitive arrays.
     fn chunked_layout() -> (TestSegments, LayoutData) {
-        let arr = buffer![1, 2, 3].into_array();
         let mut segments = TestSegments::default();
-        let layout = ChunkedLayoutWriter::new(arr.dtype(), Default::default())
-            .push_all(
-                &mut segments,
-                [Ok(arr.clone()), Ok(arr.clone()), Ok(arr.clone())],
-            )
-            .unwrap();
+        let layout = ChunkedLayoutWriter::new(
+            &DType::Primitive(PType::I32, NonNullable),
+            Default::default(),
+        )
+        .push_all(
+            &mut segments,
+            [
+                Ok(buffer![1, 2, 3].into_array()),
+                Ok(buffer![4, 5, 6].into_array()),
+                Ok(buffer![7, 8, 9].into_array()),
+            ],
+        )
+        .unwrap();
         (segments, layout)
     }
 
@@ -293,6 +329,46 @@ mod test {
         let result = segments.do_scan(scan.as_ref()).into_primitive().unwrap();
 
         assert_eq!(result.len(), 9);
-        assert_eq!(result.as_slice::<i32>(), &[1, 2, 3, 1, 2, 3, 1, 2, 3]);
+        assert_eq!(result.as_slice::<i32>(), &[1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    }
+
+    #[test]
+    fn test_chunked_pruning_mask() {
+        let (segments, layout) = chunked_layout();
+
+        let scan = ChunkedScan::try_new(
+            layout,
+            Scan {
+                projection: Identity::new_expr(),
+                filter: Some(BinaryExpr::new_expr(
+                    Identity::new_expr(),
+                    Operator::Gt,
+                    Literal::new_expr(6.into()),
+                )),
+            },
+            Default::default(),
+        )
+        .unwrap();
+
+        // Populate the stats scanner so that we can compute the pruning mask
+        _ = scan.stats_scanner.write().unwrap().poll(&segments).unwrap();
+
+        let mut scanner = ChunkedScanner {
+            chunked_scan: scan,
+            mask: RowMask::new_valid_between(0, 9),
+            chunk_states: None,
+        };
+
+        // Then we poll the chunked scanner without any segments so _only_ the stats were
+        // available.
+        let Poll::NeedMore(_segments) = scanner.poll(&TestSegments::default()).unwrap() else {
+            unreachable!()
+        };
+
+        // Now we validate that based on the pruning mask, we have excluded the first two chunks
+        let chunk_states = scanner.chunk_states.as_ref().unwrap().as_slice();
+        assert_matches!(chunk_states[0], ChunkState::Resolved(None));
+        assert_matches!(chunk_states[1], ChunkState::Resolved(None));
+        assert_matches!(chunk_states[2], ChunkState::Pending(_));
     }
 }

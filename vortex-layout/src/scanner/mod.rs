@@ -1,5 +1,7 @@
 mod scan;
 
+use std::fmt::Debug;
+
 pub use scan::*;
 use vortex_array::ArrayData;
 use vortex_dtype::DType;
@@ -9,7 +11,7 @@ use crate::segments::{SegmentId, SegmentReader};
 use crate::{LayoutData, RowMask};
 
 /// A [`LayoutScan`] provides an encapsulation of an invocation of a scan operation.
-pub trait LayoutScan: 'static + Send + Sync {
+pub trait LayoutScan: 'static + Send + Sync + Debug {
     /// Returns the [`LayoutData`] that this scan is operating on.
     fn layout(&self) -> &LayoutData;
 
@@ -45,7 +47,7 @@ pub enum Poll {
 }
 
 /// A trait for scanning a single row range of a layout.
-pub trait Scanner: 'static + Send + Sync {
+pub trait Scanner: 'static + Send + Sync + Debug {
     /// Attempts to return the [`ArrayData`] result of this ranged scan. If the scanner cannot
     /// make progress, it can return a vec of additional data segments using [`Poll::NeedMore`].
     ///
@@ -67,6 +69,7 @@ pub trait ScannerExt: Scanner {
 impl<S: Scanner> ScannerExt for S {}
 
 /// A scanner with an [`ArrayData`] that is always returned.
+#[derive(Debug)]
 pub struct ResolvedScanner(pub ArrayData);
 
 impl Scanner for ResolvedScanner {

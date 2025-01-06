@@ -127,7 +127,7 @@ impl PruningPredicate {
     ///
     /// Returns Ok(None) if any of the required statistics are not present in metadata.
     /// If it returns Ok(Some(array)), the array is a boolean array with the same length as the
-    /// metadata, and the values indicate whether the corresponding chunk can be pruned.
+    /// metadata, and a true value means the chunk _can_ be pruned.
     pub fn evaluate(&self, metadata: &ArrayData) -> VortexResult<Option<ArrayData>> {
         let known_stats = HashSet::from_iter(
             metadata

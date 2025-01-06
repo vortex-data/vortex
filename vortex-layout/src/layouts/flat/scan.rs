@@ -9,17 +9,12 @@ use crate::scanner::{LayoutScan, Poll, Scan, Scanner};
 use crate::segments::{SegmentId, SegmentReader};
 use crate::{LayoutData, LayoutEncoding, RowMask};
 
-#[derive(Clone, Eq, PartialEq)]
-enum State {
-    Initial,
-}
-
+#[derive(Debug)]
 pub struct FlatScan {
     layout: LayoutData,
     scan: Scan,
     dtype: DType,
     ctx: ContextRef,
-    state: State,
 }
 
 impl FlatScan {
@@ -33,7 +28,6 @@ impl FlatScan {
             scan,
             dtype,
             ctx,
-            state: State::Initial,
         })
     }
 }
@@ -67,6 +61,9 @@ impl LayoutScan for FlatScan {
     }
 }
 
+// TODO(ngates): this needs to move into a shared Scanner inside the Scan. Then each scanner can
+//  share work.
+#[derive(Debug)]
 struct FlatScanner {
     segment_id: SegmentId,
     dtype: DType,
@@ -175,7 +172,7 @@ mod test {
             filter: Some(BinaryExpr::new_expr(
                 Arc::new(Identity),
                 Operator::Gt,
-                Literal::new_expr(3.into()),
+                Literal::new_expr(3i32.into()),
             )),
         };
 

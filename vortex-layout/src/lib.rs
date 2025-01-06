@@ -1,4 +1,5 @@
 #![feature(once_cell_try)]
+#![feature(assert_matches)]
 #![allow(dead_code)]
 mod data;
 pub mod scanner;
