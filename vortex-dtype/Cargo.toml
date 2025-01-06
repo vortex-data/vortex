@@ -26,6 +26,7 @@ itertools = { workspace = true }
 num-traits = { workspace = true }
 prost = { workspace = true, optional = true }
 serde = { workspace = true, optional = true, features = ["rc", "derive"] }
+vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
 vortex-flatbuffers = { workspace = true, optional = true }
 vortex-proto = { workspace = true, optional = true }
@@ -35,9 +36,10 @@ serde_json = { workspace = true }
 serde_test = { workspace = true }
 
 [lints]
-workspace = true
+# workspace = true
 
 [features]
+default = ["flatbuffers"]
 flatbuffers = [
     "dep:flatbuffers",
     "dep:vortex-flatbuffers",

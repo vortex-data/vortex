@@ -3,7 +3,9 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexResult};
+use vortex_buffer::ByteBuffer;
+use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult};
+use vortex_flatbuffers::dtype as fbd;
 use DType::*;
 
 use crate::field::Field;
@@ -155,7 +157,7 @@ impl Display for DType {
                 "{{{}}}{}",
                 sdt.names()
                     .iter()
-                    .zip(sdt.dtypes().iter())
+                    .zip(sdt.dtypes())
                     .map(|(n, dt)| format!("{}={}", n, dt))
                     .join(", "),
                 n
@@ -176,26 +178,112 @@ impl Display for DType {
     }
 }
 
+#[derive(Debug, Clone, PartialOrd, PartialEq, Eq)]
+pub struct ViewedFieldDType {
+    /// Underlying flatbuffer
+    pub buffer: ByteBuffer,
+    /// Location of the dtype data inside the underlying buffer
+    pub flatbuffer_loc: usize,
+}
+
+impl ViewedFieldDType {
+    pub fn flatbuffer(&self) -> fbd::DType<'_> {
+        unsafe {
+            fbd::DType::init_from_table(flatbuffers::Table::new(
+                self.buffer.as_ref(),
+                self.flatbuffer_loc,
+            ))
+        }
+    }
+}
+
+/// DType of a struct's field, either owned or a pointer to an underlying flatbuffer.
+#[derive(Debug, Clone, PartialOrd, Eq)]
+pub enum FieldDType {
+    Owned(DType),
+    View(ViewedFieldDType),
+}
+
+impl PartialEq for FieldDType {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Owned(lhs), Self::Owned(rhs)) => lhs == rhs,
+            (Self::View(lhs), Self::View(rhs)) => lhs.flatbuffer() == rhs.flatbuffer(),
+            (Self::View(view), Self::Owned(owned)) | (Self::Owned(owned), Self::View(view)) => {
+                let view = DType::try_from(view.clone()).vortex_expect("");
+                owned.eq(&view)
+            }
+        }
+    }
+}
+
+impl Hash for FieldDType {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            FieldDType::Owned(owned) => {
+                owned.hash(state);
+            }
+            FieldDType::View(view) => {
+                let owned = DType::try_from(view.clone()).vortex_expect("");
+                owned.hash(state);
+            }
+        }
+    }
+}
+
+impl FieldDType {
+    fn value(&self) -> VortexResult<DType> {
+        match self {
+            FieldDType::Owned(owned) => Ok(owned.clone()),
+            FieldDType::View(view) => DType::try_from(view.clone()),
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for FieldDType {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::Error;
+
+        let value = self.value().map_err(|e| S::Error::custom(e))?;
+        serializer.serialize_newtype_variant("FieldDType", 0, "Owned", &value)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for FieldDType {
+    fn deserialize<D>(_deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        unimplemented!()
+        // deserializer.deserialize_enum("", variants, visitor)
+    }
+}
+
 /// A struct dtype is a list of names and corresponding dtypes
 #[derive(Debug, Clone, PartialOrd, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct StructDType {
     names: FieldNames,
-    dtypes: Arc<[DType]>,
+    dtypes: Arc<[FieldDType]>,
 }
 
 /// Information about a field in a struct dtype
-pub struct FieldInfo<'a> {
+pub struct FieldInfo {
     /// The position index of the field within the enclosing struct
     pub index: usize,
     /// The name of the field
     pub name: Arc<str>,
     /// The dtype of the field
-    pub dtype: &'a DType,
+    pub dtype: FieldDType,
 }
 
 impl StructDType {
-    /// Create a new `StructDType` from a list of names and dtypes
+    /// Create a new [`StructDType`] from a list of names and dtypes
     pub fn new(names: FieldNames, dtypes: Vec<DType>) -> Self {
         if names.len() != dtypes.len() {
             vortex_panic!(
@@ -204,6 +292,26 @@ impl StructDType {
                 dtypes.len()
             );
         }
+
+        let dtypes = dtypes
+            .into_iter()
+            .map(|d| FieldDType::Owned(d))
+            .collect::<Vec<_>>()
+            .into();
+
+        Self { names, dtypes }
+    }
+
+    /// Create a new [`StructDType`] from a  list of names and [`FieldDType`] which can be either lazily or eagerly serialized.
+    pub fn from_fields(names: FieldNames, dtypes: Vec<FieldDType>) -> Self {
+        if names.len() != dtypes.len() {
+            vortex_panic!(
+                "length mismatch between names ({}) and dtypes ({})",
+                names.len(),
+                dtypes.len()
+            );
+        }
+
         Self {
             names,
             dtypes: dtypes.into(),
@@ -236,13 +344,20 @@ impl StructDType {
         Ok(FieldInfo {
             index,
             name: self.names[index].clone(),
-            dtype: &self.dtypes[index],
+            dtype: self.dtypes[index].clone(),
         })
     }
 
-    /// Get the dtypes of the fields in the struct
-    pub fn dtypes(&self) -> &Arc<[DType]> {
-        &self.dtypes
+    /// Get the type of specific field by index
+    pub fn field_dtype(&self, index: usize) -> DType {
+        self.dtypes[index]
+            .value()
+            .vortex_expect("Inner dtype buffer should be valid DType.")
+    }
+
+    /// Returns an ordered iterator over the members of Self.
+    pub fn dtypes<'a>(&'a self) -> impl ExactSizeIterator<Item = DType> + 'a {
+        self.dtypes.iter().map(|dt| dt.value().unwrap())
     }
 
     /// Project a subset of fields from the struct
@@ -258,7 +373,7 @@ impl StructDType {
             dtypes.push(dtype.clone());
         }
 
-        Ok(StructDType::new(names.into(), dtypes))
+        Ok(StructDType::from_fields(names.into(), dtypes))
     }
 }
 
@@ -310,26 +425,26 @@ mod test {
         assert_eq!(sdt.dtypes().len(), 2);
         assert_eq!(sdt.names()[0], "A".into());
         assert_eq!(sdt.names()[1], "B".into());
-        assert_eq!(sdt.dtypes()[0], a_type);
-        assert_eq!(sdt.dtypes()[1], b_type);
+        assert_eq!(sdt.field_dtype(0), a_type);
+        assert_eq!(sdt.field_dtype(1), b_type);
 
         let proj = sdt
             .project(&[Field::Index(1), Field::Name("A".into())])
             .unwrap();
         assert_eq!(proj.names()[0], "B".into());
-        assert_eq!(proj.dtypes()[0], b_type);
+        assert_eq!(proj.field_dtype(0), b_type);
         assert_eq!(proj.names()[1], "A".into());
-        assert_eq!(proj.dtypes()[1], a_type);
+        assert_eq!(proj.field_dtype(1), a_type);
 
         let field_info = sdt.field_info(&Field::Name("B".into())).unwrap();
         assert_eq!(field_info.index, 1);
         assert_eq!(field_info.name, "B".into());
-        assert_eq!(field_info.dtype, &b_type);
+        assert_eq!(field_info.dtype.value().unwrap(), b_type);
 
         let field_info = sdt.field_info(&Field::Index(0)).unwrap();
         assert_eq!(field_info.index, 0);
         assert_eq!(field_info.name, "A".into());
-        assert_eq!(field_info.dtype, &a_type);
+        assert_eq!(field_info.dtype.value().unwrap(), a_type);
 
         assert!(sdt.field_info(&Field::Index(2)).is_err());
 

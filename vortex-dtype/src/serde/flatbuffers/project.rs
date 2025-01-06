@@ -57,15 +57,15 @@ pub fn project_and_deserialize(
 }
 
 fn read_field(fb_struct: fb::Struct_, idx: usize) -> VortexResult<(Arc<str>, DType)> {
-    let name = fb_struct
+    let _name = fb_struct
         .names()
         .ok_or_else(|| vortex_err!("Missing field names"))?
         .get(idx);
-    let fb_dtype = fb_struct
+    let _fb_dtype = fb_struct
         .dtypes()
         .ok_or_else(|| vortex_err!("Missing field dtypes"))?
         .get(idx);
-    let dtype = DType::try_from(fb_dtype)?;
-
-    Ok((name.into(), dtype))
+    // let dtype = DType::try_from(fb_dtype)?;
+    // Ok((name.into(), dtype))
+    todo!()
 }
