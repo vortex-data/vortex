@@ -4,11 +4,15 @@ use vortex_scalar::Scalar;
 
 use crate::array::null::NullArray;
 use crate::array::NullEncoding;
-use crate::compute::{ComputeVTable, ScalarAtFn, SliceFn, TakeFn};
+use crate::compute::{ComputeVTable, FilterMask, MaskFn, ScalarAtFn, SliceFn, TakeFn};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
 
 impl ComputeVTable for NullEncoding {
+    fn mask_fn(&self) -> Option<&dyn MaskFn<ArrayData>> {
+        Some(self)
+    }
+
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
         Some(self)
     }
@@ -19,6 +23,12 @@ impl ComputeVTable for NullEncoding {
 
     fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
         Some(self)
+    }
+}
+
+impl MaskFn<NullArray> for NullEncoding {
+    fn mask(&self, array: &NullArray, _mask: FilterMask) -> VortexResult<ArrayData> {
+        Ok(array.clone().into_array())
     }
 }
 

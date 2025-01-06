@@ -49,6 +49,11 @@ impl DictArray {
     }
 
     #[inline]
+    pub fn codes_ptype(&self) -> PType {
+        self.metadata().codes_ptype
+    }
+
+    #[inline]
     pub fn codes(&self) -> ArrayData {
         self.as_ref()
             .child(0, &DType::from(self.metadata().codes_ptype), self.len())

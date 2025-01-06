@@ -1,18 +1,27 @@
 use itertools::Itertools;
-use vortex_error::VortexResult;
+use vortex_dtype::DType;
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::array::struct_::StructArray;
 use crate::array::StructEncoding;
 use crate::compute::{
-    filter, scalar_at, slice, take, ComputeVTable, FilterFn, FilterMask, ScalarAtFn, SliceFn,
-    TakeFn,
+    filter, scalar_at, slice, take, try_cast, CastFn, ComputeVTable, FilterFn, FilterMask, MaskFn,
+    ScalarAtFn, SliceFn, TakeFn,
 };
 use crate::variants::StructArrayTrait;
-use crate::{ArrayDType, ArrayData, IntoArrayData};
+use crate::{ArrayDType, ArrayData, ArrayLen as _, IntoArrayData};
 
 impl ComputeVTable for StructEncoding {
+    fn cast_fn(&self) -> Option<&dyn CastFn<ArrayData>> {
+        Some(self)
+    }
+
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn mask_fn(&self) -> Option<&dyn MaskFn<ArrayData>> {
         Some(self)
     }
 
@@ -26,6 +35,28 @@ impl ComputeVTable for StructEncoding {
 
     fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
         Some(self)
+    }
+}
+
+impl CastFn<StructArray> for StructEncoding {
+    fn cast(&self, array: &StructArray, dtype: &DType) -> VortexResult<ArrayData> {
+        let Some(sdtype) = dtype.as_struct() else {
+            vortex_bail!("cannot cast {} to {}", array.dtype(), dtype);
+        };
+
+        let validity = array.validity().with_nullability(dtype.nullability())?;
+
+        StructArray::try_new(
+            array.names().clone(),
+            array
+                .children()
+                .zip_eq(sdtype.dtypes())
+                .map(|(field, dtype)| try_cast(&field, &dtype))
+                .try_collect()?,
+            array.len(),
+            validity,
+        )
+        .map(|a| a.into_array())
     }
 }
 
@@ -90,11 +121,31 @@ impl FilterFn<StructArray> for StructEncoding {
     }
 }
 
+impl MaskFn<StructArray> for StructEncoding {
+    fn mask(&self, array: &StructArray, filter_mask: FilterMask) -> VortexResult<ArrayData> {
+        let validity = array.validity().mask(&filter_mask)?;
+
+        StructArray::try_new(
+            array.names().clone(),
+            array.children().collect(),
+            array.len(),
+            validity,
+        )
+        .map(|a| a.into_array())
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::array::StructArray;
-    use crate::compute::{filter, FilterMask};
+    use arrow_buffer::BooleanBuffer;
+    use vortex_buffer::buffer;
+    use vortex_dtype::{DType, Nullability, PType, StructDType};
+
+    use crate::array::{BoolArray, PrimitiveArray, StructArray, VarBinArray};
+    use crate::compute::test_harness::test_mask;
+    use crate::compute::{filter, try_cast, FilterMask};
     use crate::validity::Validity;
+    use crate::{ArrayDType as _, IntoArrayData as _};
 
     #[test]
     fn filter_empty_struct() {
@@ -113,5 +164,151 @@ mod tests {
             StructArray::try_new(vec![].into(), vec![], 0, Validity::NonNullable).unwrap();
         let filtered = filter(struct_arr.as_ref(), FilterMask::from_iter::<[bool; 0]>([])).unwrap();
         assert_eq!(filtered.len(), 0);
+    }
+
+    #[test]
+    fn test_mask_empty_struct() {
+        test_mask(
+            StructArray::try_new(vec![].into(), vec![], 5, Validity::NonNullable)
+                .unwrap()
+                .into_array(),
+        );
+    }
+
+    #[test]
+    fn test_mask_complex_struct() {
+        let xs = buffer![0i64, 1, 2, 3, 4].into_array();
+        let ys = VarBinArray::from_iter(
+            [Some("a"), Some("b"), None, Some("d"), None],
+            DType::Utf8(Nullability::Nullable),
+        )
+        .into_array();
+        let zs =
+            BoolArray::from_iter([Some(true), Some(true), None, None, Some(false)]).into_array();
+
+        test_mask(
+            StructArray::try_new(
+                ["xs".into(), "ys".into(), "zs".into()].into(),
+                vec![
+                    StructArray::try_new(
+                        ["left".into(), "right".into()].into(),
+                        vec![xs.clone(), xs],
+                        5,
+                        Validity::NonNullable,
+                    )
+                    .unwrap()
+                    .into_array(),
+                    ys,
+                    zs,
+                ],
+                5,
+                Validity::NonNullable,
+            )
+            .unwrap()
+            .into_array(),
+        );
+    }
+
+    #[test]
+    fn test_cast_empty_struct() {
+        let array = StructArray::try_new(vec![].into(), vec![], 5, Validity::NonNullable)
+            .unwrap()
+            .into_array();
+        let non_nullable_dtype = DType::Struct(
+            StructDType::new([].into(), vec![]),
+            Nullability::NonNullable,
+        );
+        let casted = try_cast(&array, &non_nullable_dtype).unwrap();
+        assert_eq!(casted.dtype(), &non_nullable_dtype);
+
+        let nullable_dtype =
+            DType::Struct(StructDType::new([].into(), vec![]), Nullability::Nullable);
+        let casted = try_cast(&array, &nullable_dtype).unwrap();
+        assert_eq!(casted.dtype(), &nullable_dtype);
+    }
+
+    #[test]
+    fn test_cast_complex_struct() {
+        let xs = PrimitiveArray::from_option_iter([Some(0i64), Some(1), Some(2), Some(3), Some(4)])
+            .into_array();
+        let ys = VarBinArray::from_vec(
+            vec!["a", "b", "c", "d", "e"],
+            DType::Utf8(Nullability::Nullable),
+        )
+        .into_array();
+        let zs = BoolArray::new(
+            BooleanBuffer::from_iter([true, true, false, false, true]),
+            Nullability::Nullable,
+        )
+        .into_array();
+        let fully_nullable_array = StructArray::try_new(
+            ["xs".into(), "ys".into(), "zs".into()].into(),
+            vec![
+                StructArray::try_new(
+                    ["left".into(), "right".into()].into(),
+                    vec![xs.clone(), xs],
+                    5,
+                    Validity::AllValid,
+                )
+                .unwrap()
+                .into_array(),
+                ys,
+                zs,
+            ],
+            5,
+            Validity::AllValid,
+        )
+        .unwrap()
+        .into_array();
+
+        let top_level_non_nullable = fully_nullable_array.dtype().as_nonnullable();
+        let casted = try_cast(&fully_nullable_array, &top_level_non_nullable).unwrap();
+        assert_eq!(casted.dtype(), &top_level_non_nullable);
+
+        let non_null_xs_right = DType::Struct(
+            StructDType::new(
+                ["xs".into(), "ys".into(), "zs".into()].into(),
+                vec![
+                    DType::Struct(
+                        StructDType::new(
+                            ["left".into(), "right".into()].into(),
+                            vec![
+                                DType::Primitive(PType::I64, Nullability::NonNullable),
+                                DType::Primitive(PType::I64, Nullability::Nullable),
+                            ],
+                        ),
+                        Nullability::Nullable,
+                    ),
+                    DType::Utf8(Nullability::Nullable),
+                    DType::Bool(Nullability::Nullable),
+                ],
+            ),
+            Nullability::Nullable,
+        );
+        let casted = try_cast(&fully_nullable_array, &non_null_xs_right).unwrap();
+        assert_eq!(casted.dtype(), &non_null_xs_right);
+
+        let non_null_xs = DType::Struct(
+            StructDType::new(
+                ["xs".into(), "ys".into(), "zs".into()].into(),
+                vec![
+                    DType::Struct(
+                        StructDType::new(
+                            ["left".into(), "right".into()].into(),
+                            vec![
+                                DType::Primitive(PType::I64, Nullability::Nullable),
+                                DType::Primitive(PType::I64, Nullability::Nullable),
+                            ],
+                        ),
+                        Nullability::NonNullable,
+                    ),
+                    DType::Utf8(Nullability::Nullable),
+                    DType::Bool(Nullability::Nullable),
+                ],
+            ),
+            Nullability::Nullable,
+        );
+        let casted = try_cast(&fully_nullable_array, &non_null_xs).unwrap();
+        assert_eq!(casted.dtype(), &non_null_xs);
     }
 }

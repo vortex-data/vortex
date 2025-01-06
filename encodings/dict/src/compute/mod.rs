@@ -1,10 +1,11 @@
 mod binary_numeric;
 mod compare;
 mod like;
+mod mask;
 
 use vortex_array::compute::{
     filter, scalar_at, slice, take, BinaryNumericFn, CompareFn, ComputeVTable, FilterFn,
-    FilterMask, LikeFn, ScalarAtFn, SliceFn, TakeFn,
+    FilterMask, LikeFn, MaskFn, ScalarAtFn, SliceFn, TakeFn,
 };
 use vortex_array::{ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
@@ -26,6 +27,10 @@ impl ComputeVTable for DictEncoding {
     }
 
     fn like_fn(&self) -> Option<&dyn LikeFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn mask_fn(&self) -> Option<&dyn MaskFn<ArrayData>> {
         Some(self)
     }
 
@@ -78,7 +83,7 @@ impl SliceFn<DictArray> for DictEncoding {
 mod test {
     use vortex_array::accessor::ArrayAccessor;
     use vortex_array::array::{ConstantArray, PrimitiveArray, VarBinViewArray};
-    use vortex_array::compute::test_harness::test_binary_numeric;
+    use vortex_array::compute::test_harness::{test_binary_numeric, test_mask};
     use vortex_array::compute::{compare, scalar_at, slice, Operator};
     use vortex_array::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
     use vortex_dtype::{DType, Nullability};
@@ -159,5 +164,17 @@ mod test {
     fn test_dict_binary_numeric() {
         let array = sliced_dict_array();
         test_binary_numeric::<i32>(array)
+    }
+
+    #[test]
+    fn test_mask_dict_array() {
+        let reference =
+            PrimitiveArray::from_option_iter([None, Some(42), Some(-9), Some(42), Some(5)]);
+        let (codes, values) = dict_encode_primitive(&reference);
+        test_mask(
+            DictArray::try_new(codes.into_array(), values.into_array())
+                .unwrap()
+                .into_array(),
+        )
     }
 }

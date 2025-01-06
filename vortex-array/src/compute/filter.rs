@@ -36,7 +36,31 @@ where
     }
 }
 
-/// Return a new array by applying a boolean predicate to select items from a base Array.
+/// Keep only the elements for which the corresponding mask value is true.
+///
+/// # Examples
+///
+/// ```
+/// use vortex_array::IntoArrayData;
+/// use vortex_array::array::{BoolArray, PrimitiveArray};
+/// use vortex_array::compute::{FilterMask, scalar_at};
+/// use vortex_array::compute::filter;
+/// use vortex_array::validity::ArrayValidity;
+/// use vortex_scalar::Scalar;
+///
+/// let array =
+///     PrimitiveArray::from_option_iter([Some(0i32), None, Some(1i32), None, Some(2i32)])
+///         .into_array();
+/// let mask = FilterMask::try_from(
+///     BoolArray::from_iter([true, false, false, false, true]).into_array(),
+/// )
+/// .unwrap();
+///
+/// let filtered = filter(&array, mask).unwrap();
+/// assert_eq!(filtered.len(), 2);
+/// assert_eq!(scalar_at(&filtered, 0).unwrap(), Scalar::from(Some(0_i32)));
+/// assert_eq!(scalar_at(&filtered, 1).unwrap(), Scalar::from(Some(2_i32)));
+/// ```
 ///
 /// # Performance
 ///
@@ -251,7 +275,7 @@ impl FilterMask {
         self.boolean_buffer().cloned()
     }
 
-    fn boolean_buffer(&self) -> VortexResult<&BooleanBuffer> {
+    pub fn boolean_buffer(&self) -> VortexResult<&BooleanBuffer> {
         self.buffer.get_or_try_init(|| {
             Ok(self
                 .array
@@ -348,6 +372,21 @@ impl From<BooleanBuffer> for FilterMask {
 impl FromIterator<bool> for FilterMask {
     fn from_iter<T: IntoIterator<Item = bool>>(iter: T) -> Self {
         Self::from(BooleanBuffer::from_iter(iter))
+    }
+}
+
+impl FilterMask {
+    pub fn from_slices<T: IntoIterator<Item = (usize, usize)>>(length: usize, slices: T) -> Self {
+        let mut builder = BooleanBufferBuilder::new(length);
+        let mut cursor = 0;
+        for (start, end) in slices.into_iter() {
+            assert!(start <= cursor);
+            builder.append_n(start - cursor, false);
+            builder.append_n(end - start, true);
+            cursor = end;
+        }
+
+        Self::from(builder.finish())
     }
 }
 

@@ -21,6 +21,7 @@ pub use fill_null::{fill_null, FillNullFn};
 pub use filter::{filter, FilterFn, FilterIter, FilterMask};
 pub use invert::{invert, InvertFn};
 pub use like::{like, LikeFn, LikeOptions};
+pub use mask::{mask, MaskFn};
 pub use scalar_at::{scalar_at, ScalarAtFn};
 pub use search_sorted::*;
 pub use slice::{slice, SliceFn};
@@ -37,6 +38,7 @@ mod fill_null;
 mod filter;
 mod invert;
 mod like;
+mod mask;
 mod scalar_at;
 mod search_sorted;
 mod slice;
@@ -87,10 +89,21 @@ pub trait ComputeVTable {
         None
     }
 
-    /// Filter an array with a given mask.
+    /// Remove masked values from the array.
+    ///
+    /// The length of the returned array equals the number of true mask values.
     ///
     /// See: [FilterFn].
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
+        None
+    }
+
+    /// Replace masked values with null.
+    ///
+    /// This operation does not change the length of the array.
+    ///
+    /// See: [MaskFn].
+    fn mask_fn(&self) -> Option<&dyn MaskFn<ArrayData>> {
         None
     }
 
@@ -148,4 +161,5 @@ pub trait ComputeVTable {
 #[cfg(feature = "test-harness")]
 pub mod test_harness {
     pub use crate::compute::binary_numeric::test_harness::test_binary_numeric;
+    pub use crate::compute::mask::test_harness::test_mask;
 }

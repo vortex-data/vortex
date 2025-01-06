@@ -1,5 +1,7 @@
 use num_traits::AsPrimitive;
-use vortex_array::compute::{ComputeVTable, FillForwardFn, ScalarAtFn, SliceFn, TakeFn};
+use vortex_array::compute::{
+    ComputeVTable, FillForwardFn, FilterMask, MaskFn, ScalarAtFn, SliceFn, TakeFn,
+};
 use vortex_array::validity::{ArrayValidity, Validity};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
@@ -14,6 +16,10 @@ impl ComputeVTable for ByteBoolEncoding {
         None
     }
 
+    fn mask_fn(&self) -> Option<&dyn MaskFn<ArrayData>> {
+        Some(self)
+    }
+
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
         Some(self)
     }
@@ -24,6 +30,13 @@ impl ComputeVTable for ByteBoolEncoding {
 
     fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
         Some(self)
+    }
+}
+
+impl MaskFn<ByteBoolArray> for ByteBoolEncoding {
+    fn mask(&self, array: &ByteBoolArray, mask: FilterMask) -> VortexResult<ArrayData> {
+        ByteBoolArray::try_new(array.buffer().clone(), array.validity().mask(&mask)?)
+            .map(IntoArrayData::into_array)
     }
 }
 
@@ -136,6 +149,7 @@ impl FillForwardFn<ByteBoolArray> for ByteBoolEncoding {
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::compute::test_harness::test_mask;
     use vortex_array::compute::{compare, scalar_at, slice, Operator};
 
     use super::*;
@@ -207,5 +221,13 @@ mod tests {
 
         let s = scalar_at(&arr, 4).unwrap();
         assert!(s.is_null());
+    }
+
+    #[test]
+    fn test_mask_byte_bool() {
+        test_mask(ByteBoolArray::from(vec![true, false, true, true, false]).into_array());
+        test_mask(
+            ByteBoolArray::from(vec![Some(true), Some(true), None, Some(false), None]).into_array(),
+        );
     }
 }

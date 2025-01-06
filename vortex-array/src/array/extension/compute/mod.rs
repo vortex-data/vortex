@@ -1,4 +1,6 @@
+mod cast;
 mod compare;
+mod mask;
 
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
@@ -6,20 +8,26 @@ use vortex_scalar::Scalar;
 use crate::array::extension::ExtensionArray;
 use crate::array::ExtensionEncoding;
 use crate::compute::{
-    scalar_at, slice, take, CastFn, CompareFn, ComputeVTable, ScalarAtFn, SliceFn, TakeFn,
+    scalar_at, slice, take, CastFn, CompareFn, ComputeVTable, MaskFn, ScalarAtFn, SliceFn, TakeFn,
 };
 use crate::variants::ExtensionArrayTrait;
 use crate::{ArrayData, IntoArrayData};
 
 impl ComputeVTable for ExtensionEncoding {
     fn cast_fn(&self) -> Option<&dyn CastFn<ArrayData>> {
-        // It's not possible to cast an extension array to another type.
-        // TODO(ngates): we should allow some extension arrays to implement a callback
-        //  to support this
-        None
+        // It's not possible to cast an extension array to another type, but we can make it
+        // nullable.
+        //
+        // TODO(ngates): we should allow some extension arrays to implement a callback to support
+        // this
+        Some(self)
     }
 
     fn compare_fn(&self) -> Option<&dyn CompareFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn mask_fn(&self) -> Option<&dyn MaskFn<ArrayData>> {
         Some(self)
     }
 

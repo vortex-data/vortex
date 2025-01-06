@@ -105,13 +105,14 @@ impl FilterFn<SparseArray> for SparseEncoding {
 mod test {
     use rstest::{fixture, rstest};
     use vortex_buffer::buffer;
+    use vortex_dtype::{DType, Nullability, PType};
     use vortex_scalar::Scalar;
 
     use crate::array::primitive::PrimitiveArray;
     use crate::array::sparse::SparseArray;
-    use crate::compute::test_harness::test_binary_numeric;
+    use crate::compute::test_harness::{test_binary_numeric, test_mask};
     use crate::compute::{
-        filter, search_sorted, slice, FilterMask, SearchResult, SearchSortedSide,
+        filter, search_sorted, slice, try_cast, FilterMask, SearchResult, SearchSortedSide,
     };
     use crate::validity::Validity;
     use crate::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
@@ -224,5 +225,36 @@ mod test {
     #[rstest]
     fn test_sparse_binary_numeric(array: ArrayData) {
         test_binary_numeric::<i32>(array)
+    }
+
+    #[test]
+    fn test_mask_sparse_array() {
+        let null_fill_value = Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable));
+        test_mask(
+            SparseArray::try_new(
+                buffer![1u64, 2, 4].into_array(),
+                try_cast(
+                    buffer![100i32, 200, 300].into_array(),
+                    null_fill_value.dtype(),
+                )
+                .unwrap(),
+                5,
+                null_fill_value,
+            )
+            .unwrap()
+            .into_array(),
+        );
+
+        let ten_fill_value = Scalar::from(10i32);
+        test_mask(
+            SparseArray::try_new(
+                buffer![1u64, 2, 4].into_array(),
+                buffer![100i32, 200, 300].into_array(),
+                5,
+                ten_fill_value,
+            )
+            .unwrap()
+            .into_array(),
+        )
     }
 }

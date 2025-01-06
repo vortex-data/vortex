@@ -35,3 +35,7 @@ vortex-array = { workspace = true, features = ["test-harness"] }
 [[bench]]
 name = "dict_compress"
 harness = false
+
+[[bench]]
+name = "dict_mask"
+harness = false

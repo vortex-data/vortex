@@ -3,19 +3,29 @@ use std::ops::Deref;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
 use vortex_buffer::{Alignment, Buffer, ByteBuffer};
-use vortex_dtype::{match_each_integer_ptype, PType};
-use vortex_error::VortexResult;
+use vortex_dtype::{match_each_integer_ptype, DType, PType};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::array::varbin::varbin_scalar;
 use crate::array::varbinview::{VarBinViewArray, VIEW_SIZE_BYTES};
 use crate::array::{PrimitiveArray, VarBinViewEncoding};
-use crate::compute::{slice, ComputeVTable, ScalarAtFn, SliceFn, TakeFn};
+use crate::compute::{
+    slice, CastFn, ComputeVTable, FilterMask, MaskFn, ScalarAtFn, SliceFn, TakeFn,
+};
 use crate::validity::Validity;
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 
 impl ComputeVTable for VarBinViewEncoding {
+    fn cast_fn(&self) -> Option<&dyn CastFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn mask_fn(&self) -> Option<&dyn MaskFn<ArrayData>> {
+        Some(self)
+    }
+
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
         Some(self)
     }
@@ -138,6 +148,36 @@ fn take_views_unchecked<I: AsPrimitive<usize>>(views: Buffer<u128>, indices: &[I
     )
 }
 
+impl CastFn<VarBinViewArray> for VarBinViewEncoding {
+    fn cast(&self, array: &VarBinViewArray, dtype: &DType) -> VortexResult<ArrayData> {
+        match dtype {
+            DType::Utf8(nullability) => {
+                let validity = array.validity().with_nullability(*nullability)?;
+                VarBinViewArray::try_new(
+                    array.views(),
+                    array.buffers().collect(),
+                    array.dtype().with_nullability(*nullability),
+                    validity,
+                )
+                .map(IntoArrayData::into_array)
+            }
+            _ => vortex_bail!("cannot cast {} to {}", array.dtype(), dtype),
+        }
+    }
+}
+
+impl MaskFn<VarBinViewArray> for VarBinViewEncoding {
+    fn mask(&self, array: &VarBinViewArray, mask: FilterMask) -> VortexResult<ArrayData> {
+        VarBinViewArray::try_new(
+            array.views(),
+            array.buffers().collect(),
+            array.dtype().as_nullable(),
+            array.validity().mask(&mask)?,
+        )
+        .map(IntoArrayData::into_array)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
@@ -145,6 +185,7 @@ mod tests {
     use crate::accessor::ArrayAccessor;
     use crate::array::VarBinViewArray;
     use crate::compute::take;
+    use crate::compute::test_harness::test_mask;
     use crate::{ArrayDType, IntoArrayData, IntoArrayVariant};
 
     #[test]
@@ -170,6 +211,24 @@ mod tests {
                     .collect::<Vec<_>>())
                 .unwrap(),
             [Some("one".to_string()), Some("four".to_string())]
+        );
+    }
+
+    #[test]
+    fn take_mask_var_bin_view_array() {
+        test_mask(
+            VarBinViewArray::from_iter_str(["one", "two", "three", "four", "five"]).into_array(),
+        );
+
+        test_mask(
+            VarBinViewArray::from_iter_nullable_str([
+                Some("one"),
+                None,
+                Some("three"),
+                Some("four"),
+                Some("five"),
+            ])
+            .into_array(),
         );
     }
 }

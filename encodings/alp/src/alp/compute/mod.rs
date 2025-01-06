@@ -1,6 +1,8 @@
+mod mask;
+
 use vortex_array::compute::{
-    filter, scalar_at, slice, take, ComputeVTable, FilterFn, FilterMask, ScalarAtFn, SliceFn,
-    TakeFn,
+    filter, scalar_at, slice, take, ComputeVTable, FilterFn, FilterMask, MaskFn, ScalarAtFn,
+    SliceFn, TakeFn,
 };
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
@@ -11,6 +13,10 @@ use crate::{match_each_alp_float_ptype, ALPArray, ALPEncoding, ALPFloat};
 
 impl ComputeVTable for ALPEncoding {
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn mask_fn(&self) -> Option<&dyn MaskFn<ArrayData>> {
         Some(self)
     }
 

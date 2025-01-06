@@ -320,3 +320,29 @@ impl VisitorVTable<PrimitiveArray> for PrimitiveEncoding {
         visitor.visit_validity(&array.validity())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use vortex_buffer::buffer;
+
+    use crate::array::{BoolArray, PrimitiveArray};
+    use crate::compute::test_harness::test_mask;
+    use crate::validity::Validity;
+    use crate::IntoArrayData as _;
+
+    #[test]
+    fn test_mask_primitive_array() {
+        test_mask(PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::NonNullable).into_array());
+        test_mask(PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::AllValid).into_array());
+        test_mask(PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::AllInvalid).into_array());
+        test_mask(
+            PrimitiveArray::new(
+                buffer![0, 1, 2, 3, 4],
+                Validity::Array(
+                    BoolArray::from_iter([true, false, true, false, true]).into_array(),
+                ),
+            )
+            .into_array(),
+        );
+    }
+}

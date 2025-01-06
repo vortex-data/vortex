@@ -211,6 +211,7 @@ mod tests {
     use vortex_dtype::Nullability;
 
     use crate::array::{BoolArray, PrimitiveArray};
+    use crate::compute::test_harness::test_mask;
     use crate::compute::{scalar_at, slice};
     use crate::patches::Patches;
     use crate::validity::Validity;
@@ -307,5 +308,10 @@ mod tests {
         let (values, offset) = arr.into_bool().unwrap().into_boolean_builder();
         assert_eq!(offset, 0);
         assert_eq!(values.as_slice(), &[254, 127]);
+    }
+
+    #[test]
+    fn test_mask_primitive_array() {
+        test_mask(BoolArray::from_iter([true, false, true, true, false]).into_array());
     }
 }

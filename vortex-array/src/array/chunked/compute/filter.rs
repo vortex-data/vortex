@@ -32,7 +32,7 @@ impl FilterFn<ChunkedArray> for ChunkedEncoding {
 /// When we rewrite a set of slices in a filter predicate into chunk addresses, we want to account
 /// for the fact that some chunks will be wholly skipped.
 #[derive(Clone)]
-enum ChunkFilter {
+pub(crate) enum ChunkFilter {
     All,
     None,
     Slices(Vec<(usize, usize)>),
@@ -61,66 +61,12 @@ fn slices_to_mask(slices: &[(usize, usize)], len: usize) -> FilterMask {
 }
 
 /// Filter the chunks using slice ranges.
-#[allow(deprecated)]
 fn filter_slices(array: &ChunkedArray, mask: FilterMask) -> VortexResult<Vec<ArrayData>> {
-    let mut result = Vec::with_capacity(array.nchunks());
-
-    // Pre-materialize the chunk ends for performance.
-    // The chunk ends is nchunks+1, which is expected to be in the hundreds or at most thousands.
-    let chunk_ends = array.chunk_offsets().into_canonical()?.into_primitive()?;
-    let chunk_ends = chunk_ends.as_slice::<u64>();
-
-    let mut chunk_filters = vec![ChunkFilter::None; array.nchunks()];
-
-    for (slice_start, slice_end) in mask.iter_slices()? {
-        let (start_chunk, start_idx) = find_chunk_idx(slice_start, chunk_ends);
-        // NOTE: we adjust slice end back by one, in case it ends on a chunk boundary, we do not
-        // want to index into the unused chunk.
-        let (end_chunk, end_idx) = find_chunk_idx(slice_end - 1, chunk_ends);
-        // Adjust back to an exclusive range
-        let end_idx = end_idx + 1;
-
-        if start_chunk == end_chunk {
-            // start == end means that the slice lies within a single chunk.
-            match &mut chunk_filters[start_chunk] {
-                f @ (ChunkFilter::All | ChunkFilter::None) => {
-                    *f = ChunkFilter::Slices(vec![(start_idx, end_idx)]);
-                }
-                ChunkFilter::Slices(slices) => {
-                    slices.push((start_idx, end_idx));
-                }
-            }
-        } else {
-            // start != end means that the range is split over at least two chunks:
-            // start chunk: append a slice from (start_idx, start_chunk_end), i.e. whole chunk.
-            // end chunk: append a slice from (0, end_idx).
-            // chunks between start and end: append ChunkFilter::All.
-            let start_chunk_len: usize =
-                (chunk_ends[start_chunk + 1] - chunk_ends[start_chunk]).try_into()?;
-            let start_slice = (start_idx, start_chunk_len);
-            match &mut chunk_filters[start_chunk] {
-                f @ (ChunkFilter::All | ChunkFilter::None) => {
-                    *f = ChunkFilter::Slices(vec![start_slice])
-                }
-                ChunkFilter::Slices(slices) => slices.push(start_slice),
-            }
-
-            let end_slice = (0, end_idx);
-            match &mut chunk_filters[end_chunk] {
-                f @ (ChunkFilter::All | ChunkFilter::None) => {
-                    *f = ChunkFilter::Slices(vec![end_slice]);
-                }
-                ChunkFilter::Slices(slices) => slices.push(end_slice),
-            }
-
-            for chunk in &mut chunk_filters[start_chunk + 1..end_chunk] {
-                *chunk = ChunkFilter::All;
-            }
-        }
-    }
+    let chunked_filters = chunk_filters(array, mask)?;
 
     // Now, apply the chunk filter to every slice.
-    for (chunk, chunk_filter) in array.chunks().zip(chunk_filters.iter()) {
+    let mut result = Vec::with_capacity(array.nchunks());
+    for (chunk, chunk_filter) in array.chunks().zip(chunked_filters.iter()) {
         match chunk_filter {
             // All => preserve the entire chunk unfiltered.
             ChunkFilter::All => result.push(chunk),
@@ -186,9 +132,71 @@ fn filter_indices(array: &ChunkedArray, mask: FilterMask) -> VortexResult<Vec<Ar
     Ok(result)
 }
 
+#[allow(deprecated)]
+pub(crate) fn chunk_filters(
+    array: &ChunkedArray,
+    mask: FilterMask,
+) -> VortexResult<Vec<ChunkFilter>> {
+    // Pre-materialize the chunk ends for performance.
+    // The chunk ends is nchunks+1, which is expected to be in the hundreds or at most thousands.
+    let chunk_ends = array.chunk_offsets().into_canonical()?.into_primitive()?;
+    let chunk_ends = chunk_ends.as_slice::<u64>();
+
+    let mut chunk_filters = vec![ChunkFilter::None; array.nchunks()];
+
+    for (slice_start, slice_end) in mask.iter_slices()? {
+        let (start_chunk, start_idx) = find_chunk_idx(slice_start, chunk_ends);
+        // NOTE: we adjust slice end back by one, in case it ends on a chunk boundary, we do not
+        // want to index into the unused chunk.
+        let (end_chunk, end_idx) = find_chunk_idx(slice_end - 1, chunk_ends);
+        // Adjust back to an exclusive range
+        let end_idx = end_idx + 1;
+
+        if start_chunk == end_chunk {
+            // start == end means that the slice lies within a single chunk.
+            match &mut chunk_filters[start_chunk] {
+                f @ (ChunkFilter::All | ChunkFilter::None) => {
+                    *f = ChunkFilter::Slices(vec![(start_idx, end_idx)]);
+                }
+                ChunkFilter::Slices(slices) => {
+                    slices.push((start_idx, end_idx));
+                }
+            }
+        } else {
+            // start != end means that the range is split over at least two chunks:
+            // start chunk: append a slice from (start_idx, start_chunk_end), i.e. whole chunk.
+            // end chunk: append a slice from (0, end_idx).
+            // chunks between start and end: append ChunkFilter::All.
+            let start_chunk_len: usize =
+                (chunk_ends[start_chunk + 1] - chunk_ends[start_chunk]).try_into()?;
+            let start_slice = (start_idx, start_chunk_len);
+            match &mut chunk_filters[start_chunk] {
+                f @ (ChunkFilter::All | ChunkFilter::None) => {
+                    *f = ChunkFilter::Slices(vec![start_slice])
+                }
+                ChunkFilter::Slices(slices) => slices.push(start_slice),
+            }
+
+            let end_slice = (0, end_idx);
+            match &mut chunk_filters[end_chunk] {
+                f @ (ChunkFilter::All | ChunkFilter::None) => {
+                    *f = ChunkFilter::Slices(vec![end_slice]);
+                }
+                ChunkFilter::Slices(slices) => slices.push(end_slice),
+            }
+
+            for chunk in &mut chunk_filters[start_chunk + 1..end_chunk] {
+                *chunk = ChunkFilter::All;
+            }
+        }
+    }
+
+    Ok(chunk_filters)
+}
+
 // Mirrors the find_chunk_idx method on ChunkedArray, but avoids all of the overhead
 // from scalars, dtypes, and metadata cloning.
-fn find_chunk_idx(idx: usize, chunk_ends: &[u64]) -> (usize, usize) {
+pub(crate) fn find_chunk_idx(idx: usize, chunk_ends: &[u64]) -> (usize, usize) {
     let chunk_id = chunk_ends
         .search_sorted(&(idx as u64), SearchSortedSide::Right)
         .to_ends_index(chunk_ends.len())

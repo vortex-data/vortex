@@ -5,7 +5,7 @@ use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::array::{ListArray, ListEncoding};
-use crate::compute::{scalar_at, slice, ComputeVTable, ScalarAtFn, SliceFn};
+use crate::compute::{scalar_at, slice, ComputeVTable, FilterMask, MaskFn, ScalarAtFn, SliceFn};
 use crate::{ArrayDType, ArrayData, IntoArrayData};
 
 impl ComputeVTable for ListEncoding {
@@ -14,6 +14,10 @@ impl ComputeVTable for ListEncoding {
     }
 
     fn slice_fn(&self) -> Option<&dyn SliceFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn mask_fn(&self) -> Option<&dyn MaskFn<ArrayData>> {
         Some(self)
     }
 }
@@ -39,5 +43,36 @@ impl SliceFn<ListArray> for ListEncoding {
             array.validity().slice(start, stop)?,
         )?
         .into_array())
+    }
+}
+
+impl MaskFn<ListArray> for ListEncoding {
+    fn mask(&self, array: &ListArray, mask: FilterMask) -> VortexResult<ArrayData> {
+        ListArray::try_new(
+            array.elements(),
+            array.offsets(),
+            array.validity().mask(&mask)?,
+        )
+        .map(IntoArrayData::into_array)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::array::{ListArray, PrimitiveArray};
+    use crate::compute::test_harness::test_mask;
+    use crate::validity::Validity;
+    use crate::IntoArrayData as _;
+
+    #[test]
+    fn test_mask_list() {
+        let elements = PrimitiveArray::from_iter(0..35);
+        let offsets = PrimitiveArray::from_iter([0, 5, 11, 18, 26, 35]);
+        let validity = Validity::AllValid;
+        let array = ListArray::try_new(elements.into_array(), offsets.into_array(), validity)
+            .unwrap()
+            .into_array();
+
+        test_mask(array);
     }
 }
