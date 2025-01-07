@@ -71,21 +71,6 @@ fn split_inner(expr: &ExprRef, exprs: &mut Vec<ExprRef>) {
     }
 }
 
-// Taken from apache-datafusion, necessary since you can't require VortexExpr implement PartialEq<dyn VortexExpr>
-pub fn unbox_any(any: &dyn Any) -> &dyn Any {
-    if any.is::<ExprRef>() {
-        any.downcast_ref::<ExprRef>()
-            .vortex_expect("any.is::<ExprRef> returned true but downcast_ref failed")
-            .as_any()
-    } else if any.is::<Box<dyn VortexExpr>>() {
-        any.downcast_ref::<Box<dyn VortexExpr>>()
-            .vortex_expect("any.is::<Box<dyn VortexExpr>> returned true but downcast_ref failed")
-            .as_any()
-    } else {
-        any
-    }
-}
-
 // Adapted from apache/datafusion https://github.com/apache/datafusion/blob/f31ca5b927c040ce03f6a3c8c8dc3d7f4ef5be34/datafusion/physical-expr-common/src/physical_expr.rs#L156
 /// [`VortexExpr`] can't be constrained by [`Eq`] directly because it must remain object
 /// safe. To ease implementation blanket implementation is provided for [`Eq`] types.
