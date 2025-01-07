@@ -8,8 +8,8 @@ use vortex_error::{vortex_err, VortexResult};
 
 use crate::{ExprRef, VortexExpr};
 
-#[derive(Debug, Clone)]
-struct GetItem {
+#[derive(Debug, Clone, Eq)]
+pub struct GetItem {
     field: Field,
     child: ExprRef,
 }
@@ -31,7 +31,7 @@ impl GetItem {
     }
 }
 
-fn get_item(field: impl Into<Field>, child: ExprRef) -> ExprRef {
+pub fn get_item(field: impl Into<Field>, child: ExprRef) -> ExprRef {
     GetItem::new_expr(field, child)
 }
 
@@ -75,6 +75,12 @@ impl VortexExpr for GetItem {
     fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
         assert_eq!(children.len(), 1);
         Self::new_expr(self.field().clone(), children[0].clone())
+    }
+}
+
+impl PartialEq for GetItem {
+    fn eq(&self, other: &GetItem) -> bool {
+        self.field == other.field && self.child.eq(&other.child)
     }
 }
 

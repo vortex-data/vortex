@@ -91,7 +91,7 @@ impl ChunkedLayoutBuilder<'_> {
             Some(self.layout_builder.read_layout(
                 metadata_path,
                 metadata_fb,
-                Scan::new(Select::include(
+                Scan::new(Select::include_expr(
                     s.names().iter().map(|s| Field::Name(s.clone())).collect(),
                     Identity::new_expr(),
                 )),

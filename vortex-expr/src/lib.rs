@@ -184,11 +184,11 @@ mod tests {
         assert_eq!(Not::new_expr(col1.clone()).to_string(), "!$col1");
 
         assert_eq!(
-            Select::include(vec![Field::from("col1")], Identity::new_expr()).to_string(),
+            Select::include_expr(vec![Field::from("col1")], Identity::new_expr()).to_string(),
             "select +($col1) []"
         );
         assert_eq!(
-            Select::include(
+            Select::include_expr(
                 vec![Field::from("col1"), Field::from("col2")],
                 Identity::new_expr()
             )
@@ -196,7 +196,7 @@ mod tests {
             "select +($col1,$col2) []"
         );
         assert_eq!(
-            Select::exclude(
+            Select::exclude_expr(
                 vec![Field::from("col1"), Field::from("col2"), Field::Index(1),],
                 Identity::new_expr()
             )

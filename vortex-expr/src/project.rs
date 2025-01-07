@@ -27,7 +27,7 @@ pub fn expr_project(expr: &ExprRef, projection: &[Field]) -> Option<ExprRef> {
                 if projection.len() == 1 {
                     Some(Arc::new(Identity))
                 } else {
-                    (!fields.is_empty()).then(|| Select::include(fields, s.child().clone()))
+                    (!fields.is_empty()).then(|| Select::include_expr(fields, s.child().clone()))
                 }
             }
             SelectField::Exclude(e) => {
@@ -39,7 +39,7 @@ pub fn expr_project(expr: &ExprRef, projection: &[Field]) -> Option<ExprRef> {
                 if projection.len() == 1 {
                     Some(Arc::new(Identity))
                 } else {
-                    (!fields.is_empty()).then(|| Select::include(fields, s.child().clone()))
+                    (!fields.is_empty()).then(|| Select::include_expr(fields, s.child().clone()))
                 }
             }
         }
@@ -141,27 +141,27 @@ mod tests {
 
     #[test]
     fn project_select() {
-        let include = Select::include(
+        let include = Select::include_expr(
             vec![Field::from("a"), Field::from("b"), Field::from("c")],
             Identity::new_expr(),
         );
         let projection = vec![Field::from("a"), Field::from("b")];
         assert_eq!(
             *expr_project(&include, &projection).unwrap(),
-            *Select::include_expr(projection, Identity::new_expr()).as_any()
+            *Select::include_expr(projection, Identity::new_expr())
         );
     }
 
     #[test]
     fn project_select_extra_columns() {
-        let include = Select::include(
+        let include = Select::include_expr(
             vec![Field::from("a"), Field::from("b"), Field::from("c")],
             Identity::new_expr(),
         );
         let projection = vec![Field::from("c"), Field::from("d")];
         assert_eq!(
             *expr_project(&include, &projection).unwrap(),
-            *Select::include_expr(vec![Field::from("c")], Identity::new_expr()).as_any()
+            *Select::include_expr(vec![Field::from("c")], Identity::new_expr())
         );
     }
 

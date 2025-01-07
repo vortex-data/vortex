@@ -16,7 +16,7 @@ pub enum SelectField {
     Exclude(Vec<Field>),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Eq)]
 pub struct Select {
     fields: SelectField,
     child: ExprRef,
@@ -27,11 +27,11 @@ impl Select {
         Arc::new(Self { fields, child })
     }
 
-    pub fn include(columns: Vec<Field>, child: ExprRef) -> ExprRef {
+    pub fn include_expr(columns: Vec<Field>, child: ExprRef) -> ExprRef {
         Self::new_expr(SelectField::Include(columns), child)
     }
 
-    pub fn exclude(columns: Vec<Field>, child: ExprRef) -> ExprRef {
+    pub fn exclude_expr(columns: Vec<Field>, child: ExprRef) -> ExprRef {
         Self::new_expr(SelectField::Exclude(columns), child)
     }
 
@@ -49,16 +49,8 @@ impl SelectField {
         Self::Include(columns)
     }
 
-    pub fn include_expr(columns: Vec<Field>) -> Arc<Self> {
-        Arc::new(Self::include(columns))
-    }
-
     pub fn exclude(columns: Vec<Field>) -> Self {
         Self::Exclude(columns)
-    }
-
-    pub fn exclude_expr(columns: Vec<Field>) -> Arc<Self> {
-        Arc::new(Self::exclude(columns))
     }
 
     pub fn fields(&self) -> &[Field] {
@@ -129,6 +121,12 @@ impl VortexExpr for Select {
     }
 }
 
+impl PartialEq for Select {
+    fn eq(&self, other: &Select) -> bool {
+        self.fields == other.fields && self.child.eq(&other.child)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use vortex_array::array::StructArray;
@@ -149,7 +147,7 @@ mod tests {
     #[test]
     pub fn include_columns() {
         let st = test_array();
-        let select = Select::include(vec![Field::from("a")], Identity::new_expr());
+        let select = Select::include_expr(vec![Field::from("a")], Identity::new_expr());
         let selected = select.evaluate(st.as_ref()).unwrap();
         let selected_names = selected.as_struct_array().unwrap().names().clone();
         assert_eq!(selected_names.as_ref(), &["a".into()]);
@@ -158,7 +156,7 @@ mod tests {
     #[test]
     pub fn exclude_columns() {
         let st = test_array();
-        let select = Select::exclude(vec![Field::from("a")], Identity::new_expr());
+        let select = Select::exclude_expr(vec![Field::from("a")], Identity::new_expr());
         let selected = select.evaluate(st.as_ref()).unwrap();
         let selected_names = selected.as_struct_array().unwrap().names().clone();
         assert_eq!(selected_names.as_ref(), &["b".into()]);

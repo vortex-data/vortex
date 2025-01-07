@@ -1,10 +1,11 @@
+use std::sync::Arc;
+
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::*;
 use vortex::dtype::half::f16;
 use vortex::dtype::{DType, Field, Nullability, PType};
-use vortex::expr::{col, lit, BinaryExpr, ExprRef, Operator};
-use vortex::expr::pruning::FieldOrIdentity::Field;
+use vortex::expr::{col, lit, BinaryExpr, ExprRef, GetItem, Operator};
 use vortex::scalar::Scalar;
 
 use crate::dtype::PyDType;
@@ -116,6 +117,7 @@ use crate::dtype::PyDType;
 ///     "Angela"
 ///   ]
 #[pyclass(name = "Expr", module = "vortex")]
+#[derive(Clone)]
 pub struct PyExpr {
     inner: ExprRef,
 }
@@ -305,30 +307,20 @@ pub fn scalar_helper(dtype: DType, value: &Bound<'_, PyAny>) -> PyResult<Scalar>
     }
 }
 
-fn get_item<'py>(field: &Bound<'py, PyAny>, child: &Bound<'py, PyExpr>) -> PyResult<Bound<'py, PyExpr>> {
-    let py = field.py();
-
-    if let Ok(value) = field.downcast::<PyLong>() {
+#[pyfunction]
+pub fn get_item(py: Python, field: PyObject, child: PyExpr) -> PyResult<PyExpr> {
+    let field = if let Ok(value) = field.downcast_bound::<PyLong>(py) {
         Field::Index(value.extract()?)
-        // Field::Name(Arc::new(value.))
-    } else if let Ok(value) = field.downcast::<PyString>() {
-        Field::Name(value.extract()?)
+    } else if let Ok(value) = field.downcast_bound::<PyString>(py) {
+        Field::Name(Arc::from(value.extract::<String>()?.as_str()))
     } else {
-        Err(PyValueError::new_err(format!(
-            "expected None, int, float, str, or bytes but found: {}",
-            value
-        )))
-    }
+        return Err(PyValueError::new_err(format!(
+            "expected int, or str but found: {}",
+            field
+        )));
+    };
 
-} else if let Ok(value) = value.downcast::<PyLong>() {
-} else if let Ok(value) = value.downcast::<PyString>() {
-scalar(DType::Utf8(nonnull), value)
-
-    let field = field.is_instance(PyInt);
-    Bound::new(
-        py,
-        PyExpr {
-            inner: GetItem::new_expr(field, child.inner.clone()),
-        },
-    )
+    Ok(PyExpr {
+        inner: GetItem::new_expr(field, child.inner),
+    })
 }
