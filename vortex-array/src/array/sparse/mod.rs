@@ -22,9 +22,9 @@ impl_encoding!("vortex.sparse", ids::SPARSE, Sparse);
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SparseMetadata {
     // Offset value for patch indices as a result of slicing
-    indices_offset: usize,
-    patches: PatchesMetadata,
-    fill_value: ScalarValue,
+    pub(crate) indices_offset: usize,
+    pub(crate) patches: PatchesMetadata,
+    pub(crate) fill_value: ScalarValue,
 }
 
 impl Display for SparseMetadata {

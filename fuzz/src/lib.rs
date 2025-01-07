@@ -179,8 +179,8 @@ const ALL_ACTIONS: RangeInclusive<usize> = 0..=4;
 
 fn actions_for_encoding(encoding: EncodingRef) -> HashSet<usize> {
     if ListEncoding::ID == encoding.id() {
-        // compress, slice and filter
-        vec![0, 1, 4].into_iter().collect()
+        // compress, slice
+        vec![0, 1].into_iter().collect()
     } else {
         ALL_ACTIONS.collect()
     }

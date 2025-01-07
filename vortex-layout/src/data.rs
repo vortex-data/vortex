@@ -1,7 +1,8 @@
 use std::ops::Deref;
+use std::sync::Arc;
 
 use bytes::Bytes;
-use flatbuffers::{root, FlatBufferBuilder, WIPOffset};
+use flatbuffers::{FlatBufferBuilder, Table, Verifiable, Verifier, VerifierOptions, WIPOffset};
 use vortex_array::ContextRef;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
@@ -40,8 +41,6 @@ pub struct OwnedLayoutData {
 struct ViewedLayoutData {
     encoding: LayoutEncodingRef,
     dtype: DType,
-    // FIXME(ngates): i think this is in the flatbuffer?
-    row_count: u64,
     flatbuffer: ByteBuffer,
     flatbuffer_loc: usize,
     ctx: LayoutContextRef,
@@ -51,7 +50,7 @@ impl ViewedLayoutData {
     /// Return the flatbuffer layout message.
     fn flatbuffer(&self) -> layout::Layout<'_> {
         unsafe {
-            let tab = flatbuffers::Table::new(self.flatbuffer.as_ref(), self.flatbuffer_loc);
+            let tab = Table::new(self.flatbuffer.as_ref(), self.flatbuffer_loc);
             layout::Layout::init_from_table(tab)
         }
     }
@@ -81,24 +80,31 @@ impl LayoutData {
     pub fn try_new_viewed(
         encoding: LayoutEncodingRef,
         dtype: DType,
-        row_count: u64,
         flatbuffer: ByteBuffer,
+        flatbuffer_loc: usize,
         ctx: LayoutContextRef,
     ) -> VortexResult<Self> {
-        // Validate the buffer contains a layout message.
-        let layout_fb = root::<fb::Layout>(flatbuffer.as_ref())?;
-        if layout_fb.encoding() != encoding.id().0 {
+        // Validate the buffer contains a layout message at the given location.
+        let opts = VerifierOptions::default();
+        let mut v = Verifier::new(&opts, flatbuffer.as_ref());
+        fb::Layout::run_verifier(&mut v, flatbuffer_loc)?;
+
+        // SAFETY: we just verified the buffer contains a valid layout message.
+        let fb_layout =
+            unsafe { fb::Layout::init_from_table(Table::new(flatbuffer.as_ref(), flatbuffer_loc)) };
+        if fb_layout.encoding() != encoding.id().0 {
             vortex_bail!(
-                "Mismatched encoding, flatbuffer contains {}",
-                layout_fb.encoding()
+                "Mismatched encoding, flatbuffer contains {}, given {}",
+                fb_layout.encoding(),
+                encoding.id(),
             );
         }
+
         Ok(Self(Inner::Viewed(ViewedLayoutData {
             encoding,
             dtype,
-            row_count,
             flatbuffer,
-            flatbuffer_loc: 0,
+            flatbuffer_loc,
             ctx,
         })))
     }
@@ -123,7 +129,7 @@ impl LayoutData {
     pub fn row_count(&self) -> u64 {
         match &self.0 {
             Inner::Owned(owned) => owned.row_count,
-            Inner::Viewed(viewed) => viewed.row_count,
+            Inner::Viewed(viewed) => viewed.flatbuffer().row_count(),
         }
     }
 
@@ -182,7 +188,6 @@ impl LayoutData {
                 Ok(Self(Inner::Viewed(ViewedLayoutData {
                     encoding,
                     dtype,
-                    row_count: fb.row_count(),
                     flatbuffer: v.flatbuffer.clone(),
                     flatbuffer_loc: fb._tab.loc(),
                     ctx: v.ctx.clone(),
@@ -243,8 +248,12 @@ impl LayoutData {
     }
 
     /// Create a scan of this layout.
-    pub fn new_scan(self, scan: Scan, ctx: ContextRef) -> VortexResult<Box<dyn LayoutScan>> {
-        self.encoding().scan(self, scan, ctx)
+    pub fn new_scan(
+        &self,
+        scan: Scan,
+        ctx: ContextRef,
+    ) -> VortexResult<Arc<dyn LayoutScan + 'static>> {
+        self.encoding().scan(self.clone(), scan, ctx)
     }
 }
 

@@ -41,7 +41,7 @@ pub struct ChunkedLayoutWriter {
 
 impl ChunkedLayoutWriter {
     pub fn new(dtype: &DType, options: ChunkedLayoutOptions) -> Self {
-        let stats_accumulator = StatsAccumulator::new(dtype, options.chunk_stats.clone());
+        let stats_accumulator = StatsAccumulator::new(dtype.clone(), options.chunk_stats.clone());
         Self {
             options,
             chunks: Vec::new(),
@@ -78,17 +78,17 @@ impl LayoutWriter for ChunkedLayoutWriter {
         }
 
         // Collect together the statistics
-        let stats_array = self.stats_accumulator.as_array()?;
-        let metadata: Option<Bytes> = match stats_array {
-            Some(stats_array) => {
+        let stats_table = self.stats_accumulator.as_stats_table()?;
+        let metadata: Option<Bytes> = match stats_table {
+            Some(stats_table) => {
                 // Write the stats array as the final layout.
-                let stats_layout = FlatLayoutWriter::new(stats_array.0.dtype().clone())
-                    .push_one(segments, stats_array.0)?;
+                let stats_layout = FlatLayoutWriter::new(stats_table.array().dtype().clone())
+                    .push_one(segments, stats_table.array().clone())?;
                 children.push(stats_layout);
 
                 // We store a bit-set of the statistics in the layout metadata so we can infer the
                 // statistics array schema when reading the layout.
-                Some(as_stat_bitset_bytes(&stats_array.1).into())
+                Some(as_stat_bitset_bytes(stats_table.present_stats()).into())
             }
             None => None,
         };

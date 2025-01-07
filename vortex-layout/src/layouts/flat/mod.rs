@@ -1,6 +1,8 @@
 mod scan;
 pub mod writer;
 
+use std::sync::Arc;
+
 use vortex_array::ContextRef;
 use vortex_error::VortexResult;
 
@@ -22,7 +24,7 @@ impl LayoutEncoding for FlatLayout {
         layout: LayoutData,
         scan: Scan,
         ctx: ContextRef,
-    ) -> VortexResult<Box<dyn LayoutScan>> {
-        Ok(FlatScan::try_new(layout, scan, ctx)?.boxed())
+    ) -> VortexResult<Arc<dyn LayoutScan>> {
+        Ok(FlatScan::try_new(layout, scan, ctx)?.into_arc())
     }
 }

@@ -2,6 +2,8 @@ mod scan;
 pub mod stats;
 pub mod writer;
 
+use std::sync::Arc;
+
 use vortex_array::ContextRef;
 use vortex_error::VortexResult;
 
@@ -30,7 +32,7 @@ impl LayoutEncoding for ChunkedLayout {
         layout: LayoutData,
         scan: Scan,
         ctx: ContextRef,
-    ) -> VortexResult<Box<dyn LayoutScan>> {
-        Ok(ChunkedScan::try_new(layout, scan, ctx)?.boxed())
+    ) -> VortexResult<Arc<dyn LayoutScan>> {
+        Ok(ChunkedScan::try_new(layout, scan, ctx)?.into_arc())
     }
 }

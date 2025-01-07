@@ -597,7 +597,7 @@ impl<'a> flatbuffers::Follow<'a> for Buffer<'a> {
 impl<'a> Buffer<'a> {
   pub const VT_LENGTH: flatbuffers::VOffsetT = 4;
   pub const VT_PADDING: flatbuffers::VOffsetT = 6;
-  pub const VT_ALIGNMENT_: flatbuffers::VOffsetT = 8;
+  pub const VT_ALIGNMENT: flatbuffers::VOffsetT = 8;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -610,7 +610,7 @@ impl<'a> Buffer<'a> {
   ) -> flatbuffers::WIPOffset<Buffer<'bldr>> {
     let mut builder = BufferBuilder::new(_fbb);
     builder.add_length(args.length);
-    builder.add_alignment_(args.alignment_);
+    builder.add_alignment(args.alignment);
     builder.add_padding(args.padding);
     builder.finish()
   }
@@ -634,11 +634,11 @@ impl<'a> Buffer<'a> {
   }
   /// The minimum alignment of the buffer.
   #[inline]
-  pub fn alignment_(&self) -> u16 {
+  pub fn alignment(&self) -> u16 {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<u16>(Buffer::VT_ALIGNMENT_, Some(0)).unwrap()}
+    unsafe { self._tab.get::<u16>(Buffer::VT_ALIGNMENT, Some(0)).unwrap()}
   }
 }
 
@@ -651,7 +651,7 @@ impl flatbuffers::Verifiable for Buffer<'_> {
     v.visit_table(pos)?
      .visit_field::<u64>("length", Self::VT_LENGTH, false)?
      .visit_field::<u16>("padding", Self::VT_PADDING, false)?
-     .visit_field::<u16>("alignment_", Self::VT_ALIGNMENT_, false)?
+     .visit_field::<u16>("alignment", Self::VT_ALIGNMENT, false)?
      .finish();
     Ok(())
   }
@@ -659,7 +659,7 @@ impl flatbuffers::Verifiable for Buffer<'_> {
 pub struct BufferArgs {
     pub length: u64,
     pub padding: u16,
-    pub alignment_: u16,
+    pub alignment: u16,
 }
 impl<'a> Default for BufferArgs {
   #[inline]
@@ -667,7 +667,7 @@ impl<'a> Default for BufferArgs {
     BufferArgs {
       length: 0,
       padding: 0,
-      alignment_: 0,
+      alignment: 0,
     }
   }
 }
@@ -686,8 +686,8 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> BufferBuilder<'a, 'b, A> {
     self.fbb_.push_slot::<u16>(Buffer::VT_PADDING, padding, 0);
   }
   #[inline]
-  pub fn add_alignment_(&mut self, alignment_: u16) {
-    self.fbb_.push_slot::<u16>(Buffer::VT_ALIGNMENT_, alignment_, 0);
+  pub fn add_alignment(&mut self, alignment: u16) {
+    self.fbb_.push_slot::<u16>(Buffer::VT_ALIGNMENT, alignment, 0);
   }
   #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> BufferBuilder<'a, 'b, A> {
@@ -709,7 +709,7 @@ impl core::fmt::Debug for Buffer<'_> {
     let mut ds = f.debug_struct("Buffer");
       ds.field("length", &self.length());
       ds.field("padding", &self.padding());
-      ds.field("alignment_", &self.alignment_());
+      ds.field("alignment", &self.alignment());
       ds.finish()
   }
 }

@@ -46,7 +46,7 @@ impl ByteBoolArray {
             Arc::new(ByteBoolMetadata {
                 validity: validity.to_metadata(length)?,
             }),
-            Some(buffer.into_byte_buffer()),
+            [buffer.into_byte_buffer()].into(),
             validity.into_array().into_iter().collect::<Vec<_>>().into(),
             StatsSet::default(),
         )?
@@ -63,7 +63,7 @@ impl ByteBoolArray {
 
     pub fn buffer(&self) -> &ByteBuffer {
         self.as_ref()
-            .byte_buffer()
+            .byte_buffer(0)
             .vortex_expect("ByteBoolArray is missing the underlying buffer")
     }
 
@@ -133,9 +133,21 @@ impl VisitorVTable<ByteBoolArray> for ByteBoolEncoding {
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::test_harness::check_metadata;
     use vortex_array::validity::ArrayValidity;
 
     use super::*;
+
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_bytebool_metadata() {
+        check_metadata(
+            "bytebool.metadata",
+            ByteBoolMetadata {
+                validity: ValidityMetadata::AllValid,
+            },
+        );
+    }
 
     #[test]
     fn test_validity_construction() {

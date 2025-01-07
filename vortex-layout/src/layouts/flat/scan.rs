@@ -1,5 +1,7 @@
+use std::sync::Arc;
+
 use vortex_array::compute::{fill_null, filter, FilterMask};
-use vortex_array::ContextRef;
+use vortex_array::{ArrayData, ContextRef};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexResult};
 use vortex_ipc::messages::{BufMessageReader, DecoderMessage};
@@ -9,17 +11,12 @@ use crate::scanner::{LayoutScan, Poll, Scan, Scanner};
 use crate::segments::{SegmentId, SegmentReader};
 use crate::{LayoutData, LayoutEncoding, RowMask};
 
-#[derive(Clone, Eq, PartialEq)]
-enum State {
-    Initial,
-}
-
+#[derive(Debug)]
 pub struct FlatScan {
     layout: LayoutData,
     scan: Scan,
     dtype: DType,
     ctx: ContextRef,
-    state: State,
 }
 
 impl FlatScan {
@@ -33,7 +30,6 @@ impl FlatScan {
             scan,
             dtype,
             ctx,
-            state: State::Initial,
         })
     }
 }
@@ -47,7 +43,7 @@ impl LayoutScan for FlatScan {
         &self.dtype
     }
 
-    fn create_scanner(&self, mask: RowMask) -> VortexResult<Box<dyn Scanner>> {
+    fn create_scanner(self: Arc<Self>, mask: RowMask) -> VortexResult<Box<dyn Scanner>> {
         let segment_id = self
             .layout
             .segment_id(0)
@@ -62,20 +58,31 @@ impl LayoutScan for FlatScan {
             scan: self.scan.clone(),
             ctx: self.ctx.clone(),
             mask: filter_mask,
+            chunk: None,
         }) as _)
     }
 }
 
+// TODO(ngates): this needs to move into a shared Scanner inside the Scan. Then each scanner can
+//  share work.
+#[derive(Debug)]
 struct FlatScanner {
     segment_id: SegmentId,
     dtype: DType,
     scan: Scan,
     ctx: ContextRef,
     mask: FilterMask,
+    /// Cache of the resolved chunk that we can continue to return.
+    chunk: Option<ArrayData>,
 }
 
 impl Scanner for FlatScanner {
     fn poll(&mut self, segments: &dyn SegmentReader) -> VortexResult<Poll> {
+        // If we have a cached chunk, return it.
+        if let Some(chunk) = &self.chunk {
+            return Ok(Poll::Some(chunk.clone()));
+        }
+
         match segments.get(self.segment_id) {
             None => Ok(Poll::NeedMore(vec![self.segment_id])),
             Some(bytes) => {
@@ -109,6 +116,8 @@ impl Scanner for FlatScanner {
                 }
                 array = self.scan.projection.evaluate(&array)?;
 
+                // Cache the chunk and return it.
+                self.chunk.replace(array.clone());
                 Ok(Poll::Some(array))
             }
         }
@@ -124,7 +133,7 @@ mod test {
     use vortex_array::{ArrayDType, IntoArrayVariant, ToArrayData};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability};
-    use vortex_expr::{BinaryExpr, Identity, Literal, Operator};
+    use vortex_expr::{lit, BinaryExpr, Identity, Operator};
 
     use crate::layouts::flat::writer::FlatLayoutWriter;
     use crate::scanner::Scan;
@@ -140,12 +149,7 @@ mod test {
             .unwrap();
 
         let result = segments
-            .do_scan(
-                layout
-                    .new_scan(Scan::all(), Default::default())
-                    .unwrap()
-                    .as_ref(),
-            )
+            .do_scan(layout.new_scan(Scan::all(), Default::default()).unwrap())
             .into_primitive()
             .unwrap();
 
@@ -165,12 +169,12 @@ mod test {
             filter: Some(BinaryExpr::new_expr(
                 Arc::new(Identity),
                 Operator::Gt,
-                Literal::new_expr(3.into()),
+                lit(3i32),
             )),
         };
 
         let result = segments
-            .do_scan(layout.new_scan(scan, Default::default()).unwrap().as_ref())
+            .do_scan(layout.new_scan(scan, Default::default()).unwrap())
             .into_primitive()
             .unwrap();
 
@@ -187,22 +191,18 @@ mod test {
 
         let scan = Scan {
             // The projection function here changes the scan's DType to boolean
-            projection: BinaryExpr::new_expr(
-                Arc::new(Identity),
-                Operator::Lt,
-                Literal::new_expr(5.into()),
-            ),
+            projection: BinaryExpr::new_expr(Arc::new(Identity), Operator::Lt, lit(5)),
             filter: Some(BinaryExpr::new_expr(
                 Arc::new(Identity),
                 Operator::Gt,
-                Literal::new_expr(3.into()),
+                lit(3),
             )),
         };
 
         let scan = layout.new_scan(scan, Default::default()).unwrap();
         assert_eq!(scan.dtype(), &DType::Bool(Nullability::Nullable));
 
-        let result = segments.do_scan(scan.as_ref()).into_bool().unwrap();
+        let result = segments.do_scan(scan).into_bool().unwrap();
         assert!(result.boolean_buffer().value(0));
         assert!(!result.boolean_buffer().value(1));
     }

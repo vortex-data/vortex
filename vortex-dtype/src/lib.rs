@@ -8,6 +8,7 @@
 
 pub use dtype::*;
 pub use extension::*;
+pub use field::*;
 pub use half;
 pub use nullability::*;
 pub use ptype::*;
@@ -16,7 +17,7 @@ pub use ptype::*;
 mod arbitrary;
 mod dtype;
 mod extension;
-pub mod field;
+mod field;
 mod nullability;
 mod ptype;
 mod serde;

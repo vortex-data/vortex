@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use vortex_array::ContextRef;
 use vortex_dtype::DType;
 use vortex_error::{vortex_panic, VortexResult};
@@ -7,6 +9,7 @@ use crate::scanner::{LayoutScan, Poll, Scan, Scanner};
 use crate::segments::SegmentReader;
 use crate::{LayoutData, LayoutEncoding, RowMask};
 
+#[derive(Debug)]
 pub struct StructScan {
     layout: LayoutData,
     scan: Scan,
@@ -39,7 +42,7 @@ impl LayoutScan for StructScan {
         &self.dtype
     }
 
-    fn create_scanner(&self, mask: RowMask) -> VortexResult<Box<dyn Scanner>> {
+    fn create_scanner(self: Arc<Self>, mask: RowMask) -> VortexResult<Box<dyn Scanner>> {
         Ok(Box::new(StructScanner {
             layout: self.layout.clone(),
             scan: self.scan.clone(),
@@ -49,11 +52,12 @@ impl LayoutScan for StructScan {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 enum State {
     Initial,
 }
 
+#[derive(Debug)]
 struct StructScanner {
     layout: LayoutData,
     scan: Scan,

@@ -103,12 +103,22 @@ impl ViewedArrayData {
         collector.children()
     }
 
-    pub fn byte_buffer(&self) -> Option<&ByteBuffer> {
+    pub fn nbuffers(&self) -> usize {
         self.flatbuffer()
             .buffers()
-            .and_then(|buffers| {
-                assert!(buffers.len() <= 1, "Array: expected at most one buffer");
-                (!buffers.is_empty()).then(|| buffers.get(0) as usize)
+            .map(|b| b.len())
+            .unwrap_or_default()
+    }
+
+    pub fn buffer(&self, index: usize) -> Option<&ByteBuffer> {
+        self.flatbuffer()
+            .buffers()
+            .map(|buffers| {
+                assert!(
+                    index < buffers.len(),
+                    "ArrayView buffer index out of bounds"
+                );
+                buffers.get(index) as usize
             })
             .map(|idx| &self.buffers[idx])
     }

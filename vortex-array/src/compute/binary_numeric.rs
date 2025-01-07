@@ -101,7 +101,11 @@ pub fn binary_numeric(
     op: BinaryNumericOperator,
 ) -> VortexResult<ArrayData> {
     if lhs.len() != rhs.len() {
-        vortex_bail!("Numeric operations aren't supported on arrays of different lengths")
+        vortex_bail!(
+            "Numeric operations aren't supported on arrays of different lengths {} {}",
+            lhs.len(),
+            rhs.len()
+        )
     }
     if !matches!(lhs.dtype(), DType::Primitive(_, _))
         || !matches!(rhs.dtype(), DType::Primitive(_, _))
@@ -138,7 +142,7 @@ pub fn binary_numeric(
 
     // Check if RHS supports the operation directly.
     if let Some(fun) = rhs.encoding().binary_numeric_fn() {
-        if let Some(result) = fun.binary_numeric(rhs, lhs, op)? {
+        if let Some(result) = fun.binary_numeric(rhs, lhs, op.swap())? {
             debug_assert_eq!(
                 result.len(),
                 lhs.len(),
@@ -186,11 +190,112 @@ fn arrow_numeric(
     let array = match operator {
         BinaryNumericOperator::Add => arrow_arith::numeric::add(&lhs, &rhs)?,
         BinaryNumericOperator::Sub => arrow_arith::numeric::sub(&lhs, &rhs)?,
-        BinaryNumericOperator::Div => arrow_arith::numeric::div(&lhs, &rhs)?,
+        BinaryNumericOperator::RSub => arrow_arith::numeric::sub(&rhs, &lhs)?,
         BinaryNumericOperator::Mul => arrow_arith::numeric::mul(&lhs, &rhs)?,
+        BinaryNumericOperator::Div => arrow_arith::numeric::div(&lhs, &rhs)?,
+        BinaryNumericOperator::RDiv => arrow_arith::numeric::div(&rhs, &lhs)?,
     };
 
     Ok(ArrayData::from_arrow(Arc::new(array) as ArrayRef, nullable))
+}
+
+#[cfg(feature = "test-harness")]
+pub mod test_harness {
+    use num_traits::Num;
+    use vortex_dtype::NativePType;
+    use vortex_error::{vortex_err, VortexResult};
+    use vortex_scalar::{BinaryNumericOperator, PrimitiveScalar, Scalar};
+
+    use crate::array::ConstantArray;
+    use crate::compute::{binary_numeric, scalar_at};
+    use crate::{ArrayDType as _, ArrayData, IntoArrayData as _, IntoCanonical as _};
+
+    #[allow(clippy::unwrap_used)]
+    fn to_vec_of_scalar(array: &ArrayData) -> Vec<Scalar> {
+        // Not fast, but obviously correct
+        (0..array.len())
+            .map(|index| scalar_at(array, index))
+            .collect::<VortexResult<Vec<_>>>()
+            .unwrap()
+    }
+
+    #[allow(clippy::unwrap_used)]
+    pub fn test_binary_numeric<T: NativePType + Num + Copy>(array: ArrayData)
+    where
+        Scalar: From<T>,
+    {
+        let canonicalized_array = array
+            .clone()
+            .into_canonical()
+            .unwrap()
+            .into_primitive()
+            .unwrap();
+        let original_values = to_vec_of_scalar(&canonicalized_array.into_array());
+
+        let one = T::from(1)
+            .ok_or_else(|| vortex_err!("could not convert 1 into array native type"))
+            .unwrap();
+        let scalar_one = Scalar::from(one).cast(array.dtype()).unwrap();
+
+        let operators: [BinaryNumericOperator; 6] = [
+            BinaryNumericOperator::Add,
+            BinaryNumericOperator::Sub,
+            BinaryNumericOperator::RSub,
+            BinaryNumericOperator::Mul,
+            BinaryNumericOperator::Div,
+            BinaryNumericOperator::RDiv,
+        ];
+
+        for operator in operators {
+            assert_eq!(
+                to_vec_of_scalar(
+                    &binary_numeric(
+                        &array,
+                        &ConstantArray::new(scalar_one.clone(), array.len()).into_array(),
+                        operator
+                    )
+                    .unwrap()
+                ),
+                original_values
+                    .iter()
+                    .map(|x| x
+                        .as_primitive()
+                        .checked_binary_numeric(scalar_one.as_primitive(), operator)
+                        .unwrap()
+                        .unwrap())
+                    .map(<Scalar as From<PrimitiveScalar<'_>>>::from)
+                    .collect::<Vec<Scalar>>(),
+                "({}) {} (Constant array of {}) did not produce expected results",
+                array,
+                operator,
+                scalar_one,
+            );
+
+            assert_eq!(
+                to_vec_of_scalar(
+                    &binary_numeric(
+                        &ConstantArray::new(scalar_one.clone(), array.len()).into_array(),
+                        &array,
+                        operator
+                    )
+                    .unwrap()
+                ),
+                original_values
+                    .iter()
+                    .map(|x| scalar_one
+                        .as_primitive()
+                        .checked_binary_numeric(x.as_primitive(), operator)
+                        .unwrap()
+                        .unwrap())
+                    .map(<Scalar as From<PrimitiveScalar<'_>>>::from)
+                    .collect::<Vec<_>>(),
+                "(Constant array of {}) {} ({}) did not produce expected results",
+                scalar_one,
+                operator,
+                array,
+            );
+        }
+    }
 }
 
 #[cfg(test)]

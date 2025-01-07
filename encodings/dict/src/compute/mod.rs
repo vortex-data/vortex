@@ -1,13 +1,14 @@
+mod binary_numeric;
 mod compare;
 mod like;
 
 use vortex_array::compute::{
-    binary_numeric, filter, scalar_at, slice, take, BinaryNumericFn, CompareFn, ComputeVTable,
-    FilterFn, FilterMask, LikeFn, ScalarAtFn, SliceFn, TakeFn,
+    filter, scalar_at, slice, take, BinaryNumericFn, CompareFn, ComputeVTable, FilterFn,
+    FilterMask, LikeFn, ScalarAtFn, SliceFn, TakeFn,
 };
 use vortex_array::{ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
-use vortex_scalar::{BinaryNumericOperator, Scalar};
+use vortex_scalar::Scalar;
 
 use crate::{DictArray, DictEncoding};
 
@@ -38,23 +39,6 @@ impl ComputeVTable for DictEncoding {
 
     fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
         Some(self)
-    }
-}
-
-impl BinaryNumericFn<DictArray> for DictEncoding {
-    fn binary_numeric(
-        &self,
-        array: &DictArray,
-        rhs: &ArrayData,
-        op: BinaryNumericOperator,
-    ) -> VortexResult<Option<ArrayData>> {
-        if !rhs.is_constant() {
-            return Ok(None);
-        }
-
-        DictArray::try_new(array.codes(), binary_numeric(&array.values(), rhs, op)?)
-            .map(IntoArrayData::into_array)
-            .map(Some)
     }
 }
 
@@ -94,8 +78,9 @@ impl SliceFn<DictArray> for DictEncoding {
 mod test {
     use vortex_array::accessor::ArrayAccessor;
     use vortex_array::array::{ConstantArray, PrimitiveArray, VarBinViewArray};
+    use vortex_array::compute::test_harness::test_binary_numeric;
     use vortex_array::compute::{compare, scalar_at, slice, Operator};
-    use vortex_array::{ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
+    use vortex_array::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
     use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;
 
@@ -137,8 +122,7 @@ mod test {
         );
     }
 
-    #[test]
-    fn compare_sliced_dict() {
+    fn sliced_dict_array() -> ArrayData {
         let reference = PrimitiveArray::from_option_iter([
             Some(42),
             Some(-9),
@@ -149,8 +133,14 @@ mod test {
         ]);
         let (codes, values) = dict_encode_primitive(&reference);
         let dict = DictArray::try_new(codes.into_array(), values.into_array()).unwrap();
-        let sliced = slice(dict, 1, 4).unwrap();
+        slice(dict, 1, 4).unwrap()
+    }
+
+    #[test]
+    fn compare_sliced_dict() {
+        let sliced = sliced_dict_array();
         let compared = compare(sliced, ConstantArray::new(42, 3), Operator::Eq).unwrap();
+
         assert_eq!(
             scalar_at(&compared, 0).unwrap(),
             Scalar::bool(false, Nullability::Nullable)
@@ -163,5 +153,11 @@ mod test {
             scalar_at(compared, 2).unwrap(),
             Scalar::bool(true, Nullability::Nullable)
         );
+    }
+
+    #[test]
+    fn test_dict_binary_numeric() {
+        let array = sliced_dict_array();
+        test_binary_numeric::<i32>(array)
     }
 }

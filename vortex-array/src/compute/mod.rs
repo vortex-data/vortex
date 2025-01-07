@@ -7,7 +7,10 @@
 //! implementations of these operators, else we will decode, and perform the equivalent operator
 //! from Arrow.
 
-pub use binary_numeric::*;
+pub use binary_numeric::{
+    add, add_scalar, binary_numeric, div, div_scalar, mul, mul_scalar, sub, sub_scalar,
+    BinaryNumericFn,
+};
 pub use boolean::{
     and, and_kleene, binary_boolean, or, or_kleene, BinaryBooleanFn, BinaryOperator,
 };
@@ -140,4 +143,9 @@ pub trait ComputeVTable {
     fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
         None
     }
+}
+
+#[cfg(feature = "test-harness")]
+pub mod test_harness {
+    pub use crate::compute::binary_numeric::test_harness::test_binary_numeric;
 }
