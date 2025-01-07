@@ -1,4 +1,4 @@
-use num_traits::{CheckedShl, WrappingSub};
+use num_traits::{CheckedShr, WrappingSub};
 use vortex_array::array::ConstantArray;
 use vortex_array::compute::{compare, CompareFn, Operator};
 use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData};
@@ -33,7 +33,7 @@ fn compare_constant<T>(
     operator: Operator,
 ) -> VortexResult<Option<ArrayData>>
 where
-    T: NativePType + WrappingSub + CheckedShl,
+    T: NativePType + WrappingSub + CheckedShr,
     T: TryFrom<PValue, Error = VortexError>,
     Scalar: From<Option<T>>,
 {
@@ -53,7 +53,8 @@ where
                 rhs = rhs.wrapping_sub(&reference);
             }
             if lhs.shift() > 0 {
-                rhs.checked_shl(lhs.shift() as u32)
+                rhs = rhs
+                    .checked_shr(lhs.shift() as u32)
                     .ok_or_else(|| vortex_err!("Shift overflow"))?;
             }
             Ok::<_, VortexError>(rhs)
@@ -70,4 +71,53 @@ where
         operator,
     )
     .map(Some)
+}
+
+#[cfg(test)]
+mod tests {
+    use arrow_buffer::BooleanBuffer;
+    use vortex_array::array::PrimitiveArray;
+    use vortex_array::validity::Validity;
+    use vortex_array::IntoCanonical;
+    use vortex_buffer::buffer;
+
+    use super::*;
+
+    #[test]
+    fn test_compare_constant() {
+        let reference = Scalar::from(10);
+        // 10, 30, 12
+        let lhs = FoRArray::try_new(
+            PrimitiveArray::new(buffer!(0u32, 10, 1), Validity::AllValid).into_array(),
+            reference,
+            1,
+        )
+        .unwrap();
+
+        assert_result(
+            compare_constant(&lhs, Some(30i32), Operator::Eq),
+            [false, true, false],
+        );
+        assert_result(
+            compare_constant(&lhs, Some(12i32), Operator::NotEq),
+            [true, true, false],
+        );
+        for op in [Operator::Lt, Operator::Lte, Operator::Gt, Operator::Gte] {
+            assert!(compare_constant(&lhs, Some(30i32), op).unwrap().is_none());
+        }
+    }
+
+    fn assert_result<T: IntoIterator<Item = bool>>(
+        result: VortexResult<Option<ArrayData>>,
+        expected: T,
+    ) {
+        let result = result
+            .unwrap()
+            .unwrap()
+            .into_canonical()
+            .unwrap()
+            .into_bool()
+            .unwrap();
+        assert_eq!(result.boolean_buffer(), BooleanBuffer::from_iter(expected));
+    }
 }
