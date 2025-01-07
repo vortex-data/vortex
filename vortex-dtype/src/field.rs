@@ -47,6 +47,7 @@ impl Display for Field {
 }
 
 /// A path through a (possibly nested) struct, composed of a sequence of field selectors
+/// TODO(ngates): wrap Vec<Field> in Option for cheaper "root" path.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FieldPath(Vec<Field>);

@@ -1,4 +1,5 @@
 mod scan;
+mod stats;
 pub mod writer;
 
 use std::sync::Arc;

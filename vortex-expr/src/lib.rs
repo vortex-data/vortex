@@ -29,6 +29,7 @@ pub use row_filter::*;
 pub use select::*;
 use vortex_array::ArrayData;
 use vortex_dtype::field::Field;
+use vortex_dtype::FieldPath;
 use vortex_error::{VortexExpect, VortexResult};
 
 pub type ExprRef = Arc<dyn VortexExpr>;
@@ -45,7 +46,7 @@ pub trait VortexExpr: Debug + Send + Sync + PartialEq<dyn Any> + Display {
     fn collect_references<'a>(&'a self, _references: &mut HashSet<&'a Field>) {}
 
     /// Accumulate all field references from this expression and its children in a new set
-    fn references(&self) -> HashSet<&Field> {
+    fn references(&self) -> HashSet<&FieldPath> {
         let mut refs = HashSet::new();
         self.collect_references(&mut refs);
         refs

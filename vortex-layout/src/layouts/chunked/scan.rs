@@ -9,7 +9,7 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult};
 use vortex_expr::pruning::PruningPredicate;
 
-use crate::layouts::chunked::stats::StatsTable;
+use crate::layouts::chunked::stats_table::StatsTable;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::operations::scan::ScanOp;
 use crate::operations::{Operation, OperationExt, Poll};

@@ -4,13 +4,14 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 pub use scan::*;
-use vortex_array::stats::{Stat, StatsSet};
+use vortex_array::stats::{ArrayStatistics, Stat, StatsSet};
 use vortex_array::ArrayData;
-use vortex_dtype::DType;
+use vortex_dtype::{DType, FieldPath};
 use vortex_error::VortexResult;
 
 use crate::operations::scan::ScanOp;
-use crate::operations::{Operation, Poll};
+use crate::operations::stats::StatsOp;
+use crate::operations::{Operation, Operator, Poll};
 use crate::segments::SegmentReader;
 use crate::{LayoutData, RowMask};
 
@@ -29,10 +30,12 @@ pub trait LayoutScan: 'static + Send + Sync + Debug {
     /// be asked for "splits" if the caller needs a hint for how to partition the scan.
     fn create_scanner(self: Arc<Self>, mask: RowMask) -> VortexResult<Box<dyn Operation<ScanOp>>>;
 
-    /// Returns a [`StatsSet`] for each field in the FieldMask.
-    /// TODO(ngates): this needs to be a StatsOperation = Operation<Vec<StatsSet>> where operations
-    ///  are a generic trait capturing the polling model of a layout.
-    fn field_stats(&self, _stats: &[Stat]) -> Vec<StatsSet> {
+    /// Returns a [`StatsSet`] for each requested field path.
+    fn field_stats(
+        &self,
+        _field_mask: &[FieldPath],
+        _stats: &[Stat],
+    ) -> VortexResult<Box<dyn Operation<StatsOp>>> {
         todo!()
     }
 }

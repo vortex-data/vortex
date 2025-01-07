@@ -19,6 +19,7 @@ pub struct FlatScan {
     scan: Scan,
     dtype: DType,
     ctx: ContextRef,
+    pub(crate) segment_id: SegmentId,
 }
 
 impl FlatScan {
@@ -26,12 +27,19 @@ impl FlatScan {
         if layout.encoding().id() != FlatLayout.id() {
             vortex_panic!("Mismatched layout ID")
         }
+
         let dtype = scan.result_dtype(layout.dtype())?;
+
+        let segment_id = layout
+            .segment_id(0)
+            .ok_or_else(|| vortex_err!("FlatLayout missing SegmentID"))?;
+
         Ok(Self {
             layout,
             scan,
             dtype,
             ctx,
+            segment_id,
         })
     }
 }
@@ -46,19 +54,11 @@ impl LayoutScan for FlatScan {
     }
 
     fn create_scanner(self: Arc<Self>, mask: RowMask) -> VortexResult<Box<dyn Operation<ScanOp>>> {
-        let segment_id = self
-            .layout
-            .segment_id(0)
-            .ok_or_else(|| vortex_err!("FlatLayout missing SegmentID"))?;
-
         // Convert the row-mask to a filter mask
         let filter_mask = mask.into_filter_mask()?;
 
         Ok(Box::new(FlatScanner {
-            segment_id,
-            dtype: self.layout.dtype().clone(),
-            scan: self.scan.clone(),
-            ctx: self.ctx.clone(),
+            scan: self.clone(),
             mask: filter_mask,
             chunk: None,
         }) as _)
@@ -69,10 +69,7 @@ impl LayoutScan for FlatScan {
 //  share work.
 #[derive(Debug)]
 struct FlatScanner {
-    segment_id: SegmentId,
-    dtype: DType,
-    scan: Scan,
-    ctx: ContextRef,
+    scan: Arc<FlatScan>,
     mask: FilterMask,
     /// Cache of the resolved chunk that we can continue to return.
     chunk: Option<ArrayData>,
@@ -85,8 +82,8 @@ impl Operation<ScanOp> for FlatScanner {
             return Ok(Poll::Some(chunk.clone()));
         }
 
-        match segments.get(self.segment_id) {
-            None => Ok(Poll::NeedMore(vec![self.segment_id])),
+        match segments.get(self.scan.segment_id) {
+            None => Ok(Poll::NeedMore(vec![self.scan.segment_id])),
             Some(bytes) => {
                 // Decode the ArrayParts from the message bytes.
                 // TODO(ngates): ArrayParts should probably live in vortex-array, and not required
@@ -96,7 +93,7 @@ impl Operation<ScanOp> for FlatScanner {
                     .next()
                     .ok_or_else(|| vortex_err!("Flat message body missing"))??
                 {
-                    parts.into_array_data(self.ctx.clone(), self.dtype.clone())
+                    parts.into_array_data(self.scan.ctx.clone(), self.scan.dtype.clone())
                 } else {
                     vortex_bail!("Flat message is not ArrayParts")
                 }?;
@@ -110,13 +107,13 @@ impl Operation<ScanOp> for FlatScanner {
                 // NOTE(ngates): there's not a clear answer for order to apply the filter
                 // expression, projection and filter mask. We should experiment.
                 let mut array = filter(&array, self.mask.clone())?;
-                if let Some(expr) = &self.scan.filter {
+                if let Some(expr) = &self.scan.scan.filter {
                     let mask = expr.evaluate(&array)?;
                     let mask = fill_null(&mask, false.into())?;
                     let mask = FilterMask::try_from(mask)?;
                     array = filter(&array, mask)?;
                 }
-                array = self.scan.projection.evaluate(&array)?;
+                array = self.scan.scan.projection.evaluate(&array)?;
 
                 // Cache the chunk and return it.
                 self.chunk.replace(array.clone());

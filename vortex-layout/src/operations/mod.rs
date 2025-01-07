@@ -18,6 +18,8 @@ pub enum Poll<R> {
     NeedMore(Vec<SegmentId>),
 }
 
+// TODO(ngates): define a ready! macro that can be used to return Poll::Some
+
 pub trait Operator {
     type Result;
 }
