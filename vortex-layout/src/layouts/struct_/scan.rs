@@ -1,11 +1,13 @@
 use std::sync::Arc;
 
-use vortex_array::ContextRef;
+use vortex_array::{ArrayData, ContextRef};
 use vortex_dtype::DType;
 use vortex_error::{vortex_panic, VortexResult};
 
 use crate::layouts::struct_::StructLayout;
-use crate::scanner::{LayoutScan, Poll, Scan, Scanner};
+use crate::operations::scan::ScanOp;
+use crate::operations::{Operation, Poll};
+use crate::scanner::{LayoutScan, Scan};
 use crate::segments::SegmentReader;
 use crate::{LayoutData, LayoutEncoding, RowMask};
 
@@ -33,6 +35,7 @@ impl StructScan {
         })
     }
 }
+
 impl LayoutScan for StructScan {
     fn layout(&self) -> &LayoutData {
         &self.layout
@@ -42,7 +45,7 @@ impl LayoutScan for StructScan {
         &self.dtype
     }
 
-    fn create_scanner(self: Arc<Self>, mask: RowMask) -> VortexResult<Box<dyn Scanner>> {
+    fn create_scanner(self: Arc<Self>, mask: RowMask) -> VortexResult<Box<dyn Operation<ScanOp>>> {
         Ok(Box::new(StructScanner {
             layout: self.layout.clone(),
             scan: self.scan.clone(),
@@ -58,6 +61,7 @@ enum State {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 struct StructScanner {
     layout: LayoutData,
     scan: Scan,
@@ -65,8 +69,8 @@ struct StructScanner {
     state: State,
 }
 
-impl Scanner for StructScanner {
-    fn poll(&mut self, _segments: &dyn SegmentReader) -> VortexResult<Poll> {
+impl Operation<ScanOp> for StructScanner {
+    fn poll(&mut self, _segments: &dyn SegmentReader) -> VortexResult<Poll<ArrayData>> {
         todo!()
     }
 }

@@ -51,7 +51,8 @@ pub mod test {
     use vortex_error::{vortex_panic, VortexExpect};
 
     use super::*;
-    use crate::scanner::{LayoutScan, Poll};
+    use crate::operations::Poll;
+    use crate::scanner::LayoutScan;
     use crate::segments::SegmentReader;
     use crate::RowMask;
 

@@ -1,6 +1,6 @@
-#![feature(once_cell_try)]
 #![feature(assert_matches)]
-#![allow(dead_code)]
+#![feature(once_cell_try)]
+#![feature(trait_alias)]
 mod data;
 pub mod scanner;
 pub use data::*;
@@ -11,6 +11,7 @@ pub mod layouts;
 pub use encoding::*;
 mod row_mask;
 pub use row_mask::*;
+pub mod operations;
 pub mod segments;
 pub mod strategies;
 

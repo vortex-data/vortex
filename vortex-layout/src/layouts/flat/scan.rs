@@ -7,7 +7,9 @@ use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexResult};
 use vortex_ipc::messages::{BufMessageReader, DecoderMessage};
 
 use crate::layouts::flat::FlatLayout;
-use crate::scanner::{LayoutScan, Poll, Scan, Scanner};
+use crate::operations::scan::ScanOp;
+use crate::operations::{Operation, Poll};
+use crate::scanner::{LayoutScan, Scan};
 use crate::segments::{SegmentId, SegmentReader};
 use crate::{LayoutData, LayoutEncoding, RowMask};
 
@@ -43,7 +45,7 @@ impl LayoutScan for FlatScan {
         &self.dtype
     }
 
-    fn create_scanner(self: Arc<Self>, mask: RowMask) -> VortexResult<Box<dyn Scanner>> {
+    fn create_scanner(self: Arc<Self>, mask: RowMask) -> VortexResult<Box<dyn Operation<ScanOp>>> {
         let segment_id = self
             .layout
             .segment_id(0)
@@ -76,8 +78,8 @@ struct FlatScanner {
     chunk: Option<ArrayData>,
 }
 
-impl Scanner for FlatScanner {
-    fn poll(&mut self, segments: &dyn SegmentReader) -> VortexResult<Poll> {
+impl Operation<ScanOp> for FlatScanner {
+    fn poll(&mut self, segments: &dyn SegmentReader) -> VortexResult<Poll<ArrayData>> {
         // If we have a cached chunk, return it.
         if let Some(chunk) = &self.chunk {
             return Ok(Poll::Some(chunk.clone()));

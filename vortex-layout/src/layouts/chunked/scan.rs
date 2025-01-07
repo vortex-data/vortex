@@ -11,8 +11,10 @@ use vortex_expr::pruning::PruningPredicate;
 
 use crate::layouts::chunked::stats::StatsTable;
 use crate::layouts::chunked::ChunkedLayout;
-use crate::scanner::{LayoutScan, Poll, ResolvedScanner, Scan, Scanner, ScannerExt};
-use crate::segments::{SegmentId, SegmentReader};
+use crate::operations::scan::ScanOp;
+use crate::operations::{Operation, OperationExt, Poll};
+use crate::scanner::{LayoutScan, ResolvedScanner, Scan};
+use crate::segments::SegmentReader;
 use crate::{LayoutData, LayoutEncoding, RowMask};
 
 /// Captures the scan state of a chunked layout.
@@ -38,20 +40,13 @@ pub struct ChunkedScan {
     dtype: DType,
     ctx: ContextRef,
     // Shared stats table scanner
-    stats_scanner: RwLock<Box<dyn Scanner>>,
+    stats_scanner: RwLock<Box<dyn Operation<ScanOp>>>,
     // Cached pruning mask for the scan
     pruning_mask: OnceLock<Option<BooleanBuffer>>,
     // Shared lazy chunk scanners
     chunk_scans: Vec<OnceLock<Arc<dyn LayoutScan>>>,
     // The stats that are present in the layout
     present_stats: Arc<[Stat]>,
-}
-
-struct ChunkedStats {
-    present_stats: Vec<Stat>,
-    scanner: Box<dyn Scanner>,
-    // Cached stats table once it's been read from the scanner.
-    table: Option<StatsTable>,
 }
 
 impl ChunkedScan {
@@ -123,7 +118,7 @@ impl LayoutScan for ChunkedScan {
         &self.dtype
     }
 
-    fn create_scanner(self: Arc<Self>, mask: RowMask) -> VortexResult<Box<dyn Scanner>> {
+    fn create_scanner(self: Arc<Self>, mask: RowMask) -> VortexResult<Box<dyn Operation<ScanOp>>> {
         Ok(Box::new(ChunkedScanner {
             chunked_scan: self,
             mask,
@@ -143,12 +138,12 @@ struct ChunkedScanner {
 
 #[derive(Debug)]
 enum ChunkState {
-    Pending(Box<dyn Scanner>),
+    Pending(Box<dyn Operation<ScanOp>>),
     Resolved(Option<ArrayData>),
 }
 
-impl Scanner for ChunkedScanner {
-    fn poll(&mut self, segments: &dyn SegmentReader) -> VortexResult<Poll> {
+impl Operation<ScanOp> for ChunkedScanner {
+    fn poll(&mut self, segments: &dyn SegmentReader) -> VortexResult<Poll<ArrayData>> {
         // If we haven't set up our chunk state yet, then fetch the stats table and do so.
         if self.chunk_states.is_none() {
             // First, we grab the stats table
@@ -281,12 +276,6 @@ impl Scanner for ChunkedScanner {
     }
 }
 
-enum PollStats {
-    None,
-    Some(StatsTable),
-    NeedMore(Vec<SegmentId>),
-}
-
 #[cfg(test)]
 mod test {
     use std::assert_matches::assert_matches;
@@ -300,7 +289,8 @@ mod test {
 
     use crate::layouts::chunked::scan::{ChunkState, ChunkedScan, ChunkedScanner};
     use crate::layouts::chunked::writer::ChunkedLayoutWriter;
-    use crate::scanner::{Poll, Scan, Scanner};
+    use crate::operations::{Operation, Poll};
+    use crate::scanner::Scan;
     use crate::segments::test::TestSegments;
     use crate::strategies::LayoutWriterExt;
     use crate::{LayoutData, RowMask};

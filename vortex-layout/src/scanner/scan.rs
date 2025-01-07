@@ -11,6 +11,13 @@ pub struct Scan {
 }
 
 impl Scan {
+    /// Create a new scan with the given projection and optional filter.
+    pub fn new(projection: ExprRef, filter: Option<ExprRef>) -> Self {
+        // TODO(ngates): compute and cache a FieldMask based on the referenced fields.
+        //  Where FieldMask ~= Vec<FieldPath>
+        Self { projection, filter }
+    }
+
     /// Scan all rows with the identity projection.
     pub fn all() -> Self {
         Self {

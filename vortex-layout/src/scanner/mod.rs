@@ -4,11 +4,14 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 pub use scan::*;
+use vortex_array::stats::{Stat, StatsSet};
 use vortex_array::ArrayData;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::segments::{SegmentId, SegmentReader};
+use crate::operations::scan::ScanOp;
+use crate::operations::{Operation, Poll};
+use crate::segments::SegmentReader;
 use crate::{LayoutData, RowMask};
 
 /// A [`LayoutScan`] provides an encapsulation of an invocation of a scan operation.
@@ -24,7 +27,14 @@ pub trait LayoutScan: 'static + Send + Sync + Debug {
     /// Note that since a [`Scanner`] returns a single ArrayData, the caller is responsible for
     /// ensuring the working set and result of the scan fit into memory. The [`LayoutData`] can
     /// be asked for "splits" if the caller needs a hint for how to partition the scan.
-    fn create_scanner(self: Arc<Self>, mask: RowMask) -> VortexResult<Box<dyn Scanner>>;
+    fn create_scanner(self: Arc<Self>, mask: RowMask) -> VortexResult<Box<dyn Operation<ScanOp>>>;
+
+    /// Returns a [`StatsSet`] for each field in the FieldMask.
+    /// TODO(ngates): this needs to be a StatsOperation = Operation<Vec<StatsSet>> where operations
+    ///  are a generic trait capturing the polling model of a layout.
+    fn field_stats(&self, _stats: &[Stat]) -> Vec<StatsSet> {
+        todo!()
+    }
 }
 
 pub trait LayoutScanExt: LayoutScan {
@@ -39,42 +49,12 @@ pub trait LayoutScanExt: LayoutScan {
 
 impl<L: LayoutScan> LayoutScanExt for L {}
 
-/// The response to polling a scanner.
-pub enum Poll {
-    /// The next chunk has been read.
-    Some(ArrayData),
-    /// The scanner requires additional segments before it can make progress.
-    NeedMore(Vec<SegmentId>),
-}
-
-/// A trait for scanning a single row range of a layout.
-pub trait Scanner: 'static + Send + Sync + Debug {
-    /// Attempts to return the [`ArrayData`] result of this ranged scan. If the scanner cannot
-    /// make progress, it can return a vec of additional data segments using [`Poll::NeedMore`].
-    ///
-    /// Note that after returning `Poll::Some` the [`Scanner`] should efficiently continue to
-    /// return the same [`ArrayData`] on subsequent calls to `poll`.
-    fn poll(&mut self, segments: &dyn SegmentReader) -> VortexResult<Poll>;
-}
-
-pub trait ScannerExt: Scanner {
-    /// Box the layout scan.
-    fn boxed(self) -> Box<dyn Scanner + 'static>
-    where
-        Self: Sized + 'static,
-    {
-        Box::new(self)
-    }
-}
-
-impl<S: Scanner> ScannerExt for S {}
-
 /// A scanner with an [`ArrayData`] that is always returned.
 #[derive(Debug)]
 pub struct ResolvedScanner(pub ArrayData);
 
-impl Scanner for ResolvedScanner {
-    fn poll(&mut self, _segments: &dyn SegmentReader) -> VortexResult<Poll> {
+impl Operation<ScanOp> for ResolvedScanner {
+    fn poll(&mut self, _segments: &dyn SegmentReader) -> VortexResult<Poll<ArrayData>> {
         Ok(Poll::Some(self.0.clone()))
     }
 }
