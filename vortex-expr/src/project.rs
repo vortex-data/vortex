@@ -4,7 +4,7 @@ use std::sync::Arc;
 use vortex_dtype::Field;
 
 use crate::{
-    col, lit, BinaryExpr, Column, ExprRef, Identity, Like, Literal, Not, Operator, RowFilter,
+    col, lit, not, BinaryExpr, Column, ExprRef, Identity, Like, Literal, Not, Operator, RowFilter,
     Select, SelectField, VortexExpr, VortexExprExt,
 };
 
@@ -54,7 +54,7 @@ pub fn expr_project(expr: &ExprRef, projection: &[Field]) -> Option<ExprRef> {
     } else if let Some(n) = expr.as_any().downcast_ref::<Not>() {
         let own_refs = expr.references();
         if own_refs.iter().all(|p| projection.contains(p)) {
-            expr_project(n.child(), projection).map(Not::new_expr)
+            expr_project(n.child(), projection).map(not)
         } else {
             None
         }
@@ -167,7 +167,7 @@ mod tests {
 
     #[test]
     fn project_not() {
-        let not_e = Not::new_expr(col(Field::from("a")));
+        let not_e = not(col("a"));
         let projection = vec![Field::from("a"), Field::from("b")];
         assert_eq!(&expr_project(&not_e, &projection).unwrap(), &not_e);
     }

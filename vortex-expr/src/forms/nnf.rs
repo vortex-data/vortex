@@ -1,0 +1,142 @@
+use vortex_error::VortexResult;
+
+use crate::traversal::{FoldChildren, FoldDown, FoldUp, Folder, Node as _};
+use crate::{not, BinaryExpr, Column, ExprRef, Literal, Not, Operator};
+
+/// Return an equivalent expression in Negative Normal Form (NNF).
+///
+/// In NNF, [Not] expressions may only contain terminal nodes such as [Literal] or [Column]. They
+/// *may not* contain [BinaryExpr], [Not], etc.
+///
+/// # Examples
+///
+/// Double negation is removed entirely:
+///
+/// ```
+/// use vortex_expr::{not, col};
+/// use vortex_expr::forms::nnf::nnf;
+///
+/// let double_negation = not(not(col("a")));
+/// let nnfed = nnf(double_negation).unwrap();
+/// assert_eq!(&nnfed, &col("a"));
+/// ```
+///
+/// Triple negation becomes single negation:
+///
+/// ```
+/// use vortex_expr::{not, col};
+/// use vortex_expr::forms::nnf::nnf;
+///
+/// let triple_negation = not(not(not(col("a"))));
+/// let nnfed = nnf(triple_negation).unwrap();
+/// assert_eq!(&nnfed, &not(col("a")));
+/// ```
+///
+/// Negation at a high-level is pushed to the leaves, likely increasing the total number nodes:
+///
+/// ```
+/// use vortex_expr::{not, col, and, or};
+/// use vortex_expr::forms::nnf::nnf;
+///
+/// assert_eq!(
+///     &nnf(not(and(col("a"), col("b")))).unwrap(),
+///     &or(not(col("a")), not(col("b")))
+/// );
+/// ```
+///
+/// In Vortex, NNF is extended beyond simple Boolean operators to any Boolean-valued operator:
+///
+/// ```
+/// use vortex_expr::{not, col, and, or, lt, lit, gt_eq};
+/// use vortex_expr::forms::nnf::nnf;
+///
+/// assert_eq!(
+///     &nnf(not(and(gt_eq(col("a"), lit(3)), col("b")))).unwrap(),
+///     &or(lt(col("a"), lit(3)), not(col("b")))
+/// );
+/// ```
+pub fn nnf(expr: ExprRef) -> VortexResult<ExprRef> {
+    let mut visitor = NNFVisitor::default();
+    Ok(expr.transform_with_context(&mut visitor, false)?.result())
+}
+
+#[derive(Default)]
+struct NNFVisitor {}
+
+impl Folder for NNFVisitor {
+    type NodeTy = ExprRef;
+    type Out = ExprRef;
+    type Context = bool;
+
+    fn visit_down(
+        &mut self,
+        node: &ExprRef,
+        mut negating: bool,
+    ) -> VortexResult<FoldDown<ExprRef, bool>> {
+        let node_any = node.as_any();
+        if node_any.downcast_ref::<Not>().is_some() {
+            negating = !negating
+        } else if node_any.downcast_ref::<Literal>().is_some()
+            || node_any.downcast_ref::<Column>().is_some()
+        {
+            // do nothing
+        } else if let Some(binary_expr) = node_any.downcast_ref::<BinaryExpr>() {
+            match binary_expr.op() {
+                Operator::And | Operator::Or => {}
+                Operator::Eq
+                | Operator::NotEq
+                | Operator::Gt
+                | Operator::Gte
+                | Operator::Lt
+                | Operator::Lte => negating = false,
+            }
+        } else {
+            todo!("{:?}", node)
+        }
+
+        Ok(FoldDown::Continue(negating))
+    }
+
+    fn visit_up(
+        &mut self,
+        node: ExprRef,
+        negating: bool,
+        new_children: FoldChildren<ExprRef>,
+    ) -> VortexResult<FoldUp<ExprRef>> {
+        let FoldChildren::Children(mut new_children) = new_children else {
+            unreachable!();
+        };
+
+        let node_any = node.as_any();
+        let new_node = if node_any.downcast_ref::<Not>().is_some() {
+            debug_assert_eq!(new_children.len(), 1);
+            new_children.remove(0)
+        } else if node_any.downcast_ref::<Literal>().is_some()
+            || node_any.downcast_ref::<Column>().is_some()
+        {
+            debug_assert_eq!(new_children.len(), 0);
+
+            if negating {
+                not(node)
+            } else {
+                node
+            }
+        } else if let Some(binary_expr) = node_any.downcast_ref::<BinaryExpr>() {
+            debug_assert_eq!(new_children.len(), 2);
+
+            let rhs = new_children.remove(1);
+            let lhs = new_children.remove(0);
+            let operator = if negating {
+                binary_expr.op().inverse()
+            } else {
+                binary_expr.op()
+            };
+
+            BinaryExpr::new_expr(lhs, operator, rhs)
+        } else {
+            todo!("{:?}", node)
+        };
+
+        Ok(FoldUp::Continue(new_node))
+    }
+}
