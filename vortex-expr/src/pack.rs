@@ -13,6 +13,33 @@ use vortex_error::{vortex_bail, VortexResult};
 
 use crate::{ExprRef, VortexExpr};
 
+/// Pack zero or more expressions into a structure with named fields.
+///
+/// # Examples
+///
+/// ```
+/// use vortex_array::IntoArrayData;
+/// use vortex_array::compute::scalar_at;
+/// use vortex_buffer::buffer;
+/// use vortex_dtype::field::Field;
+/// use vortex_expr::{Pack, Identity, VortexExpr};
+/// use vortex_scalar::Scalar;
+///
+/// let example = Pack::try_new_expr(
+///     ["x".into(), "x copy".into(), "second x copy".into()].into(),
+///     vec![Identity::new_expr(), Identity::new_expr(), Identity::new_expr()],
+/// ).unwrap();
+/// let packed = example.evaluate(&buffer![100, 110, 200].into_array()).unwrap();
+/// let x_copy = packed
+///     .as_struct_array()
+///     .unwrap()
+///     .field_by_name("x copy")
+///     .unwrap();
+/// assert_eq!(scalar_at(&x_copy, 0).unwrap(), Scalar::from(100));
+/// assert_eq!(scalar_at(&x_copy, 1).unwrap(), Scalar::from(110));
+/// assert_eq!(scalar_at(&x_copy, 2).unwrap(), Scalar::from(200));
+/// ```
+///
 #[derive(Debug, Clone)]
 pub struct Pack {
     names: FieldNames,
