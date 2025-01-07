@@ -284,6 +284,7 @@ impl RowMask {
 mod tests {
     use arrow_buffer::BooleanBuffer;
     use rstest::rstest;
+    use vortex_array::array::PrimitiveArray;
     use vortex_array::compute::FilterMask;
     use vortex_array::validity::Validity;
     use vortex_array::{IntoArrayData, IntoArrayVariant};
