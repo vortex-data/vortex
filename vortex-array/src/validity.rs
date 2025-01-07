@@ -491,6 +491,10 @@ impl LogicalValidity {
     }
 
     pub fn into_validity(self, nullability: Nullability) -> Validity {
+        assert!(
+            nullability == Nullability::Nullable || !matches!(self, Self::AllInvalid(_)),
+            "AllInvalid validity must be nullable",
+        );
         match self {
             Self::AllValid(_) => match nullability {
                 Nullability::NonNullable => Validity::NonNullable,
@@ -537,9 +541,10 @@ impl IntoArrayData for LogicalValidity {
 mod tests {
     use rstest::rstest;
     use vortex_buffer::{buffer, Buffer};
+    use vortex_dtype::Nullability;
 
     use crate::array::{BoolArray, PrimitiveArray};
-    use crate::validity::Validity;
+    use crate::validity::{LogicalValidity, Validity};
     use crate::IntoArrayData;
 
     #[rstest]
@@ -577,5 +582,11 @@ mod tests {
         Validity::NonNullable
             .patch(2, &buffer![4].into_array(), Validity::AllInvalid)
             .unwrap();
+    }
+
+    #[test]
+    #[should_panic]
+    fn into_validity_nullable() {
+        LogicalValidity::AllInvalid(10).into_validity(Nullability::NonNullable);
     }
 }
