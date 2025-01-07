@@ -1,0 +1,24 @@
+[package]
+name = "proc-macros"
+version.workspace = true
+homepage.workspace = true
+repository.workspace = true
+authors.workspace = true
+license.workspace = true
+keywords.workspace = true
+include.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+readme.workspace = true
+categories.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1.0.92"
+quote = "1.0.38"
+syn = "2.0.95"
+
+[lints]
+workspace = true

@@ -2,7 +2,7 @@
 members = [
     "bench-vortex",
     "encodings/*",
-    "fuzz",
+    "fuzz", "proc-macros",
     "pyvortex",
     "vortex",
     "vortex-array",
