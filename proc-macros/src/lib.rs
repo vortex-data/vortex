@@ -1,4 +1,4 @@
-#![allow(unused)]
+#![allow(clippy::unwrap_used)]
 
 use proc_macro::TokenStream;
 use quote::{format_ident, quote, quote_spanned};
@@ -6,7 +6,7 @@ use syn::spanned::Spanned;
 use syn::{parse_macro_input, Data, Fields, FieldsNamed};
 
 #[proc_macro_derive(FromAvro)]
-pub fn derive_macro_avro(input: TokenStream) -> TokenStream {
+pub fn derive_from_avro(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as syn::DeriveInput);
     let input_span = input.span();
     let name = input.ident;
@@ -40,10 +40,10 @@ fn generate_try_from_avrovalue(
     typename: &syn::Ident,
     fields: &FieldsNamed,
 ) -> proc_macro2::TokenStream {
-    let from_avros = fields.named.iter().enumerate().map(|(idx, f)| {
+    let from_avros = fields.named.iter().map(|f| {
         let name = f.ident.clone().unwrap();
         let typ = f.ty.clone();
-        let idx = syn::Index::from(idx);
+
         let extracted_name = format_ident!("extracted_{}", name);
         quote! {
             let (name, avro_value) = fields.next().expect(format!("record field {}", stringify!(#name)).as_str());
@@ -66,7 +66,7 @@ fn generate_try_from_avrovalue(
         })
         .collect::<Vec<_>>();
 
-    let read_schema = generate_schema_struct(&typename, &fields);
+    let read_schema = generate_schema_struct(typename, fields);
 
     quote! {
         impl TryFrom<proc_macro_traits::AvroValue> for #typename {
@@ -134,4 +134,64 @@ fn generate_schema_struct(typename: &syn::Ident, fields: &FieldsNamed) -> proc_m
             attributes: core::default::Default::default(),
         })
     }
+}
+
+#[proc_macro_derive(ToAvro)]
+pub fn derive_to_avro(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as syn::DeriveInput);
+    let input_span = input.span();
+    let name = input.ident;
+
+    let to_avro_impl = match input.data {
+        Data::Struct(s) => match s.fields {
+            Fields::Named(fields) => generate_to_avro_value(&name, &fields),
+            _ => {
+                return quote_spanned! {
+                    input_span =>
+                    compile_error!("ToAvro can only be derived for named structs")
+                }
+                .into()
+            }
+        },
+        Data::Enum(_) => {
+            todo!("should impl ToAvro for each of the enum variants")
+        }
+        Data::Union(_) => {
+            unimplemented!()
+        }
+    };
+
+    // panic!("throw: {}", to_avro_impl.to_string());
+    to_avro_impl.into()
+}
+
+fn generate_to_avro_value(typename: &syn::Ident, fields: &FieldsNamed) -> proc_macro2::TokenStream {
+    // Generate the From<$typename> for AvroValue.
+
+    let record_fields = fields.named.iter().map(|f| {
+        let name = f.ident.clone().unwrap();
+        let typ = f.ty.clone();
+        quote! {
+            (stringify!(#name).to_string(), <#typ as Into<proc_macro_traits::AvroValue>>::into(value.#name))
+        }
+    }).collect::<Vec<_>>();
+
+    let schema = generate_schema_struct(typename, fields);
+
+    let impls = quote! {
+        impl From<#typename> for proc_macro_traits::AvroValue {
+            fn from(value: #typename) -> Self {
+                let fields = vec![#(#record_fields,)*];
+                Self::Record(fields)
+            }
+        }
+
+        impl proc_macro_traits::ToAvro for #typename {
+            fn write_schema() -> apache_avro::Schema {
+                #schema
+            }
+        }
+    };
+
+    impls
 }

@@ -1,5 +1,6 @@
 [package]
 name = "proc-macro-traits"
+description = "Common Vortex traits that are auto-derived"
 version.workspace = true
 homepage.workspace = true
 repository.workspace = true

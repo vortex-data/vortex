@@ -1,27 +1,34 @@
+#![cfg(test)]
 #![allow(unused)]
 // TODO(aduffy): add tests for the macro
 
 use apache_avro::schema::{Name, RecordField, RecordFieldOrder, RecordSchema};
 use apache_avro::Schema;
-use proc_macro_traits::{AvroValue, FromAvro};
-use proc_macros::FromAvro;
+use proc_macro_traits::{AvroValue, FromAvro, ToAvro};
+use proc_macros::{FromAvro, ToAvro};
 
+// Test the derive macro defined by this crate.
+//
+// We create a struct and auto-derive the traits to convert to/from Avro binary format,
+// checking that conversion is lossless.
 #[test]
 fn test_derive_macro() {
-    #[derive(FromAvro)]
+    #[derive(FromAvro, ToAvro, Clone, Debug, PartialEq, Eq)]
     struct MyRecordType {
         a: i32,
         b: String,
     }
 
-    let value = AvroValue::Record(vec![
-        ("a".to_string(), AvroValue::Int(1)),
-        ("b".to_string(), AvroValue::String("hello".to_string())),
-    ]);
+    // Convert into AvroValue.
+    let original = MyRecordType {
+        a: 1,
+        b: "hello".to_string(),
+    };
 
-    let record: MyRecordType = MyRecordType::try_from(value).unwrap();
-    assert_eq!(record.a, 1);
-    assert_eq!(record.b, "hello");
+    let avro_value: AvroValue = original.clone().into();
+
+    let record: MyRecordType = MyRecordType::try_from(avro_value).unwrap();
+    assert_eq!(record, original);
 
     assert_eq!(
         MyRecordType::read_schema(),
@@ -58,4 +65,6 @@ fn test_derive_macro() {
             attributes: Default::default(),
         })
     );
+
+    assert_eq!(MyRecordType::write_schema(), MyRecordType::read_schema());
 }

@@ -1,4 +1,4 @@
-#![allow(unused)]
+#![allow(clippy::disallowed_types)]
 use std::collections::HashMap;
 use std::io::Cursor;
 
@@ -128,6 +128,7 @@ impl From<AvroValue> for Value {
 ///
 /// Additionally, types must provide a schema that can be used to write the type to the Avro binary format.
 pub trait ToAvro: Into<AvroValue> {
+    // TODO(aduffy): just have one schema instead of read/write.
     fn write_schema() -> Schema;
 }
 
@@ -157,7 +158,7 @@ pub fn to_avro_binary<T: ToAvro>(value: T) -> VortexResult<Vec<u8>> {
 pub fn from_avro_binary<T: FromAvro>(schema: &Schema, avro_bytes: Vec<u8>) -> VortexResult<T> {
     let value = from_avro_datum(schema, &mut Cursor::new(avro_bytes), None)
         .map_err(|err| vortex_err!("Failed to read type from Avro binary format: {err}"))?;
-    <T as TryFrom<AvroValue>>::try_from(value.into()).map_err(|err| err.into())
+    <T as TryFrom<AvroValue>>::try_from(value.into())
 }
 
 macro_rules! impl_from_prim {
@@ -179,7 +180,7 @@ macro_rules! impl_from_prim {
 
             fn try_from(value: AvroValue) -> Result<Self, Self::Error> {
                 if let $value_variant(v) = value.into() {
-                    Ok(v as $ty)
+                    Ok(<$ty>::try_from(v)?)
                 } else {
                     Err(vortex_err!(
                         "Expected value to be a {} but it was not",
@@ -272,6 +273,7 @@ impl<T> FromAvro for Option<T>
 where
     T: FromAvro,
 {
+    #[allow(clippy::expect_used)]
     fn read_schema() -> Schema {
         Schema::Union(
             UnionSchema::new(vec![Schema::Null, T::read_schema()]).expect("Option<T> schema"),
@@ -283,6 +285,7 @@ impl<T> ToAvro for Option<T>
 where
     T: ToAvro,
 {
+    #[allow(clippy::expect_used)]
     fn write_schema() -> Schema {
         Schema::Union(
             UnionSchema::new(vec![Schema::Null, T::write_schema()]).expect("Option<T> schema"),
