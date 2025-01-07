@@ -30,7 +30,7 @@ pub use select::*;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::ArrayData;
 use vortex_dtype::Field;
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
 
 use crate::traversal::{Node, ReferenceCollector};
 
@@ -49,14 +49,15 @@ pub trait VortexExpr: Debug + Send + Sync + PartialEq<dyn Any> + Display {
     fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef;
 }
 
-trait VortexExprExt {
+pub trait VortexExprExt {
     fn references(&self) -> HashSet<&Field>;
 }
 
 impl VortexExprExt for ExprRef {
     fn references(&self) -> HashSet<&Field> {
         let mut collector = ReferenceCollector::new();
-        self.accept(&mut collector).unwrap();
+        // The collector is infallible, so we can unwrap the result
+        self.accept(&mut collector).vortex_unwrap();
         collector.into_fields()
     }
 }

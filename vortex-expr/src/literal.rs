@@ -15,8 +15,10 @@ pub struct Literal {
 }
 
 impl Literal {
-    pub fn new_expr(value: Scalar) -> ExprRef {
-        Arc::new(Self { value })
+    pub fn new_expr(value: impl Into<Scalar>) -> ExprRef {
+        Arc::new(Self {
+            value: value.into(),
+        })
     }
 
     pub fn value(&self) -> &Scalar {

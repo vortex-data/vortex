@@ -180,7 +180,7 @@ mod tests {
                 let id = self.0;
                 self.0 += 1;
                 Ok(TransformResult {
-                    result: Literal::new_expr(id.into()).into(),
+                    result: Literal::new_expr(id),
                     order: VisitationOrder::Continue,
                     changed: true,
                 })
@@ -197,9 +197,9 @@ mod tests {
     #[test]
     fn expr_deep_visitor_test() {
         let col1: Arc<dyn VortexExpr> = Column::new_expr("col1");
-        let lit1 = Literal::new_expr(1.into());
+        let lit1 = Literal::new_expr(1);
         let expr = BinaryExpr::new_expr(col1.clone(), Operator::Eq, lit1.clone());
-        let lit2 = Literal::new_expr(2.into());
+        let lit2 = Literal::new_expr(2);
         let expr = BinaryExpr::new_expr(expr, Operator::And, lit2);
         let mut printer = ExprCollector::default();
         expr.accept(&mut printer).unwrap();
@@ -211,11 +211,11 @@ mod tests {
         let col1: Arc<dyn VortexExpr> = Column::new_expr("col1");
         let col2: Arc<dyn VortexExpr> = Column::new_expr("col2");
         let expr = BinaryExpr::new_expr(col1.clone(), Operator::Eq, col2.clone());
-        let lit2 = Literal::new_expr(2.into());
+        let lit2 = Literal::new_expr(2);
         let expr = BinaryExpr::new_expr(expr, Operator::And, lit2);
         let mut printer = ExprColToLit::default();
         let new = expr.transform(&mut printer).unwrap();
-        assert_eq!(new.changed, true);
+        assert!(new.changed);
 
         let expr = new.result;
 
