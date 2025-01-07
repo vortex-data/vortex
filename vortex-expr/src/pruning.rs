@@ -467,7 +467,7 @@ mod tests {
             ),
             gt(literal_eq, col(stat_column_field(&column, Stat::Max))),
         );
-        assert_eq!(*converted, *expected_expr.as_any());
+        assert_eq!(&converted, &expected_expr);
     }
 
     #[test]
@@ -500,7 +500,7 @@ mod tests {
                 col(stat_column_field(&column, Stat::Max)),
             ),
         );
-        assert_eq!(*converted, *expected_expr.as_any());
+        assert_eq!(&converted, &expected_expr);
     }
 
     #[test]
@@ -540,7 +540,7 @@ mod tests {
             ),
         );
 
-        assert_eq!(*converted, *expected_expr.as_any());
+        assert_eq!(&converted, &expected_expr);
     }
 
     #[test]
@@ -568,7 +568,7 @@ mod tests {
             col(stat_column_field(&column, Stat::Max)),
             col(stat_column_field(&other_col, Stat::Min)),
         );
-        assert_eq!(*converted, *expected_expr.as_any());
+        assert_eq!(&converted, &expected_expr);
     }
 
     #[test]
@@ -589,7 +589,7 @@ mod tests {
             col(stat_column_field(&column, Stat::Max)),
             other_col.clone(),
         );
-        assert_eq!(*converted, *expected_expr.as_any());
+        assert_eq!(&converted, &expected_expr);
     }
 
     #[test]
@@ -617,7 +617,7 @@ mod tests {
             col(stat_column_field(&column, Stat::Min)),
             col(stat_column_field(&other_col, Stat::Max)),
         );
-        assert_eq!(*converted, *expected_expr.as_any());
+        assert_eq!(&converted, &expected_expr);
     }
 
     #[test]
@@ -638,7 +638,7 @@ mod tests {
             col(stat_column_field(&column, Stat::Min)),
             other_col.clone(),
         );
-        assert_eq!(*converted, *expected_expr.as_any());
+        assert_eq!(&converted, &expected_expr);
     }
 
     #[test]
@@ -708,6 +708,6 @@ mod tests {
             gt_eq(col(Field::from("min")), lit(10)),
             lt_eq(col(Field::from("max")), lit(50)),
         );
-        assert_eq!(*predicate.expr().clone(), *expected_expr.as_any(),)
+        assert_eq!(predicate.expr(), &expected_expr)
     }
 }

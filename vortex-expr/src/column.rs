@@ -8,7 +8,7 @@ use vortex_array::ArrayData;
 use vortex_dtype::Field;
 use vortex_error::{vortex_err, VortexResult};
 
-use crate::{unbox_any, ExprRef, VortexExpr};
+use crate::{ExprRef, VortexExpr};
 
 #[derive(Debug, PartialEq, Hash, Clone, Eq)]
 pub struct Column {
@@ -77,14 +77,5 @@ impl VortexExpr for Column {
     fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
         assert_eq!(children.len(), 0);
         self
-    }
-}
-
-impl PartialEq<dyn Any> for Column {
-    fn eq(&self, other: &dyn Any) -> bool {
-        unbox_any(other)
-            .downcast_ref::<Self>()
-            .map(|x| x == self)
-            .unwrap_or(false)
     }
 }

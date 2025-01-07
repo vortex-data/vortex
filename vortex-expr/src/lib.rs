@@ -30,14 +30,14 @@ pub use select::*;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::ArrayData;
 use vortex_dtype::Field;
-use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
+use vortex_error::{VortexResult, VortexUnwrap};
 
 use crate::traversal::{Node, ReferenceCollector};
 
 pub type ExprRef = Arc<dyn VortexExpr>;
 
 /// Represents logical operation on [`ArrayData`]s
-pub trait VortexExpr: Debug + Send + Sync + PartialEq<dyn Any> + Display {
+pub trait VortexExpr: Debug + Send + Sync + DynEq + Display {
     /// Convert expression reference to reference of [`Any`] type
     fn as_any(&self) -> &dyn Any;
 
@@ -82,20 +82,26 @@ fn split_inner(expr: &ExprRef, exprs: &mut Vec<ExprRef>) {
     }
 }
 
-// Taken from apache-datafusion, necessary since you can't require VortexExpr implement PartialEq<dyn VortexExpr>
-pub fn unbox_any(any: &dyn Any) -> &dyn Any {
-    if any.is::<ExprRef>() {
-        any.downcast_ref::<ExprRef>()
-            .vortex_expect("any.is::<ExprRef> returned true but downcast_ref failed")
-            .as_any()
-    } else if any.is::<Box<dyn VortexExpr>>() {
-        any.downcast_ref::<Box<dyn VortexExpr>>()
-            .vortex_expect("any.is::<Box<dyn VortexExpr>> returned true but downcast_ref failed")
-            .as_any()
-    } else {
-        any
+// Adapted from apache/datafusion https://github.com/apache/datafusion/blob/f31ca5b927c040ce03f6a3c8c8dc3d7f4ef5be34/datafusion/physical-expr-common/src/physical_expr.rs#L156
+/// [`VortexExpr`] can't be constrained by [`Eq`] directly because it must remain object
+/// safe. To ease implementation blanket implementation is provided for [`Eq`] types.
+pub trait DynEq {
+    fn dyn_eq(&self, other: &dyn Any) -> bool;
+}
+
+impl<T: Eq + Any> DynEq for T {
+    fn dyn_eq(&self, other: &dyn Any) -> bool {
+        other.downcast_ref::<Self>() == Some(self)
     }
 }
+
+impl PartialEq for dyn VortexExpr {
+    fn eq(&self, other: &Self) -> bool {
+        self.dyn_eq(other.as_any())
+    }
+}
+
+impl Eq for dyn VortexExpr {}
 
 #[cfg(test)]
 mod tests {

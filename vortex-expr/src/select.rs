@@ -8,7 +8,7 @@ use vortex_array::ArrayData;
 use vortex_dtype::Field;
 use vortex_error::{vortex_err, VortexResult};
 
-use crate::{unbox_any, ExprRef, VortexExpr};
+use crate::{VortexExpr, ExprRef};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Select {
@@ -21,8 +21,17 @@ impl Select {
         Self::Include(columns)
     }
 
+    pub fn include_expr(columns: Vec<Field>) -> Arc<Self> {
+        Arc::new(Self::include(columns))
+    }
+
     pub fn exclude(columns: Vec<Field>) -> Self {
         Self::Exclude(columns)
+    }
+
+
+    pub fn exclude_expr(columns: Vec<Field>) -> Arc<Self> {
+        Arc::new(Self::exclude(columns))
     }
 
     pub fn fields(&self) -> &[Field] {
@@ -83,15 +92,6 @@ impl VortexExpr for Select {
     fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
         assert_eq!(children.len(), 0);
         self
-    }
-}
-
-impl PartialEq<dyn Any> for Select {
-    fn eq(&self, other: &dyn Any) -> bool {
-        unbox_any(other)
-            .downcast_ref::<Self>()
-            .map(|x| self == x)
-            .unwrap_or(false)
     }
 }
 

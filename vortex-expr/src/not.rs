@@ -6,7 +6,7 @@ use vortex_array::compute::invert;
 use vortex_array::ArrayData;
 use vortex_error::VortexResult;
 
-use crate::{unbox_any, ExprRef, VortexExpr};
+use crate::{ExprRef, VortexExpr};
 
 #[derive(Debug)]
 pub struct Not {
@@ -50,14 +50,13 @@ impl VortexExpr for Not {
     }
 }
 
-impl PartialEq<dyn Any> for Not {
-    fn eq(&self, other: &dyn Any) -> bool {
-        unbox_any(other)
-            .downcast_ref::<Self>()
-            .map(|x| x.child.eq(&self.child))
-            .unwrap_or(false)
+impl PartialEq for Not {
+    fn eq(&self, other: &Not) -> bool {
+        other.child.eq(&self.child)
     }
 }
+
+impl Eq for Not {}
 
 #[cfg(test)]
 mod tests {
