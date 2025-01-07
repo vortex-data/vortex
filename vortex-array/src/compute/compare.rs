@@ -3,7 +3,7 @@ use std::fmt::{Display, Formatter};
 
 use arrow_ord::cmp;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{vortex_bail, VortexError, VortexResult};
+use vortex_error::{vortex_bail, vortex_panic, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::arrow::{Datum, FromArrowArray};
@@ -123,18 +123,7 @@ pub fn compare(
         .and_then(|f| f.compare(left, right, operator).transpose())
         .transpose()?
     {
-        debug_assert_eq!(
-            result.len(),
-            left.len(),
-            "Compare length mismatch {}",
-            left.encoding().id()
-        );
-        debug_assert_eq!(
-            result.dtype(),
-            &DType::Bool((left.dtype().is_nullable() || right.dtype().is_nullable()).into()),
-            "Compare dtype mismatch {}",
-            left.encoding().id()
-        );
+        check_compare_result(&result, left, right);
         return Ok(result);
     }
 
@@ -144,18 +133,7 @@ pub fn compare(
         .and_then(|f| f.compare(right, left, operator.swap()).transpose())
         .transpose()?
     {
-        debug_assert_eq!(
-            result.len(),
-            left.len(),
-            "Compare length mismatch {}",
-            right.encoding().id()
-        );
-        debug_assert_eq!(
-            result.dtype(),
-            &DType::Bool((left.dtype().is_nullable() || right.dtype().is_nullable()).into()),
-            "Compare dtype mismatch {}",
-            right.encoding().id()
-        );
+        check_compare_result(&result, left, right);
         return Ok(result);
     }
 
@@ -171,15 +149,13 @@ pub fn compare(
     }
 
     // Fallback to arrow on canonical types
-    arrow_compare(left, right, operator)
+    let result = arrow_compare(left, right, operator)?;
+    check_compare_result(&result, left, right);
+    Ok(result)
 }
 
 /// Implementation of `CompareFn` using the Arrow crate.
-pub(crate) fn arrow_compare(
-    lhs: &ArrayData,
-    rhs: &ArrayData,
-    operator: Operator,
-) -> VortexResult<ArrayData> {
+fn arrow_compare(lhs: &ArrayData, rhs: &ArrayData, operator: Operator) -> VortexResult<ArrayData> {
     let nullable = lhs.dtype().is_nullable() || rhs.dtype().is_nullable();
     let lhs = Datum::try_from(lhs.clone())?;
     let rhs = Datum::try_from(rhs.clone())?;
@@ -193,7 +169,35 @@ pub(crate) fn arrow_compare(
         Operator::Lte => cmp::lt_eq(&lhs, &rhs)?,
     };
 
-    Ok(ArrayData::from_arrow(&array, nullable))
+    let result = ArrayData::from_arrow(&array, nullable);
+    Ok(result)
+}
+
+#[inline(always)]
+fn check_compare_result(result: &ArrayData, lhs: &ArrayData, rhs: &ArrayData) {
+    #[cfg(debug_assertions)]
+    {
+        if result.len() != lhs.len() {
+            vortex_panic!(
+                "CompareFn result length ({}) mismatch for left encoding {}, left len {}, right encoding {}, right len {}",
+                result.len(),
+                lhs.encoding().id(),
+                lhs.len(),
+                rhs.encoding().id(),
+                rhs.len()
+            );
+        }
+        if result.dtype()
+            != &DType::Bool((lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into())
+        {
+            vortex_panic!(
+                "CompareFn result dtype ({}) mismatch for left encoding {}, right encoding {}",
+                result.dtype(),
+                lhs.encoding().id(),
+                rhs.encoding().id(),
+            );
+        }
+    }
 }
 
 pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: Operator) -> Scalar {
