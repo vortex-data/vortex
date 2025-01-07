@@ -590,4 +590,11 @@ mod tests {
     fn into_validity_nullable() {
         LogicalValidity::AllInvalid(10).into_validity(Nullability::NonNullable);
     }
+
+    #[test]
+    #[should_panic]
+    fn into_validity_nullable_array() {
+        LogicalValidity::Array(BoolArray::from_iter(vec![true, false]).into_array())
+            .into_validity(Nullability::NonNullable);
+    }
 }
