@@ -224,6 +224,10 @@ impl PyExpr {
     ) -> PyResult<Bound<'py, PyExpr>> {
         py_binary_opeartor(self_, Operator::Or, coerce_expr(right)?)
     }
+
+    fn __getitem__<'py>(self_: PyRef<'py, Self>, field: PyObject) -> PyResult<PyExpr> {
+        get_item(self_.py(), field, self_.clone())
+    }
 }
 
 /// A named column.
@@ -307,7 +311,6 @@ pub fn scalar_helper(dtype: DType, value: &Bound<'_, PyAny>) -> PyResult<Scalar>
     }
 }
 
-#[pyfunction]
 pub fn get_item(py: Python, field: PyObject, child: PyExpr) -> PyResult<PyExpr> {
     let field = if let Ok(value) = field.downcast_bound::<PyLong>(py) {
         Field::Index(value.extract()?)
