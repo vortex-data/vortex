@@ -27,7 +27,7 @@ prost-types = { workspace = true, optional = true }
 serde = { workspace = true, optional = true, features = ["rc"] }
 vortex-buffer = { workspace = true }
 vortex-datetime-dtype = { workspace = true }
-vortex-dtype = { workspace = true, features = ["flatbuffers"] }
+vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-flatbuffers = { workspace = true, optional = true }
 vortex-proto = { workspace = true, optional = true }
@@ -47,7 +47,6 @@ flatbuffers = [
     "vortex-flatbuffers/scalar",
     "vortex-error/flatbuffers",
     "vortex-error/flexbuffers",
-    "vortex-dtype/flatbuffers",
 ]
 proto = [
     "dep:prost",
