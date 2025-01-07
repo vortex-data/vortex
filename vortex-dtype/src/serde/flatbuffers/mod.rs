@@ -2,13 +2,11 @@ use std::sync::Arc;
 
 use flatbuffers::{FlatBufferBuilder, WIPOffset};
 use itertools::Itertools;
-use vortex_buffer::ByteBuffer;
 use vortex_error::{vortex_bail, vortex_err, VortexError};
 use vortex_flatbuffers::{FlatBufferRoot, WriteFlatBuffer};
 
 use crate::{
-    flatbuffers as fb, DType, ExtDType, ExtID, ExtMetadata, FieldDType, PType, StructDType,
-    ViewedFieldDType,
+    flatbuffers as fb, DType, ExtDType, ExtID, ExtMetadata, PType, StructDType, ViewedFieldDType,
 };
 
 mod project;
@@ -69,31 +67,9 @@ impl TryFrom<ViewedFieldDType> for DType {
                 let fb_struct = fb
                     .type__as_struct_()
                     .ok_or_else(|| vortex_err!("failed to parse struct from flatbuffer"))?;
-                let names = fb_struct
-                    .names()
-                    .ok_or_else(|| vortex_err!("failed to parse struct names from flatbuffer"))?
-                    .iter()
-                    .map(|n| (*n).into())
-                    .collect_vec()
-                    .into();
+                let struct_dtype = StructDType::from_fb(fb_struct, vfdt.buffer.clone())?;
 
-                let buf = ByteBuffer::from(fb._tab.buf().to_vec());
-
-                let dtypes = fb_struct
-                    .dtypes()
-                    .ok_or_else(|| vortex_err!("failed to parse struct dtypes from flatbuffer"))?
-                    .iter()
-                    .map(|dt| {
-                        FieldDType::View(ViewedFieldDType {
-                            buffer: buf.clone(),
-                            flatbuffer_loc: dt._tab.loc(),
-                        })
-                    })
-                    .collect::<Vec<FieldDType>>();
-                Ok(Self::Struct(
-                    StructDType::from_fields(names, dtypes),
-                    fb_struct.nullable().into(),
-                ))
+                Ok(Self::Struct(struct_dtype, fb_struct.nullable().into()))
             }
             fb::Type::Extension => {
                 let fb_ext = fb

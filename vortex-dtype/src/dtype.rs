@@ -2,6 +2,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::sync::Arc;
 
+use flatbuffers::root;
 use itertools::Itertools;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult};
@@ -323,6 +324,39 @@ impl StructDType {
             names,
             dtypes: dtypes.into(),
         }
+    }
+
+    pub fn from_fb(fb_struct: fbd::Struct_<'_>, buffer: ByteBuffer) -> VortexResult<Self> {
+        let names = fb_struct
+            .names()
+            .ok_or_else(|| vortex_err!("failed to parse struct names from flatbuffer"))?
+            .iter()
+            .map(|n| (*n).into())
+            .collect_vec()
+            .into();
+
+        let dtypes = fb_struct
+            .dtypes()
+            .ok_or_else(|| vortex_err!("failed to parse struct dtypes from flatbuffer"))?
+            .iter()
+            .map(|dt| {
+                FieldDType::View(ViewedFieldDType {
+                    buffer: buffer.clone(),
+                    flatbuffer_loc: dt._tab.loc(),
+                })
+            })
+            .collect::<Vec<FieldDType>>();
+
+        Ok(StructDType::from_fields(names, dtypes))
+    }
+
+    /// Create a new [`StructDType`] from flatbuffer bytes.
+    pub fn from_bytes(buffer: ByteBuffer) -> VortexResult<Self> {
+        let fb_struct = root::<fbd::DType>(&buffer)?
+            .type__as_struct_()
+            .ok_or_else(|| vortex_err!("failed to parse struct from flatbuffer"))?;
+
+        Self::from_fb(fb_struct, buffer.clone())
     }
 
     /// Get the names of the fields in the struct
