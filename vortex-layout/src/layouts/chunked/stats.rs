@@ -1,4 +1,3 @@
-use std::fmt::Debug;
 use std::sync::Arc;
 
 use vortex_array::stats::{Stat, StatsSet};
@@ -6,28 +5,36 @@ use vortex_dtype::FieldPath;
 use vortex_error::VortexResult;
 
 use crate::layouts::chunked::scan::ChunkedScan;
-use crate::operations::stats::StatsOp;
 use crate::operations::{Operation, Poll};
+use crate::ready;
 use crate::segments::SegmentReader;
 
-#[derive(Debug)]
+#[allow(dead_code)]
 pub struct ChunkedStatsOp {
     scan: Arc<ChunkedScan>,
     requested_paths: Vec<FieldPath>,
     requested_stats: Vec<Stat>,
-    result: Option<Vec<StatsSet>>,
 }
 
-impl Operation<StatsOp> for ChunkedStatsOp {
-    fn poll(&mut self, segments: &dyn SegmentReader) -> VortexResult<Poll<StatsOp::Result>> {
-        // If we have already computed the stats, return them
-        if let Some(stats_set) = &self.result {
-            return Ok(Poll::Some(stats_set.clone()));
+impl Operation for ChunkedStatsOp {
+    type Output = Vec<StatsSet>;
+
+    fn poll(&mut self, segments: &dyn SegmentReader) -> VortexResult<Poll<Self::Output>> {
+        let _stats_table = ready!(self.scan.stats_table()?.poll(segments));
+
+        // TODO(ngates): support returning stats for field paths.
+        //  See: https://github.com/spiraldb/vortex/issues/1835
+        let mut stats_sets = Vec::with_capacity(self.requested_paths.len());
+        for field_path in &self.requested_paths {
+            if !field_path.is_root() {
+                // We _only_ support stats on the current array for now.
+                stats_sets.push(StatsSet::default());
+            } else {
+                // FIXME(ngates): implement this using the stats table
+                stats_sets.push(StatsSet::default());
+            }
         }
 
-        // For now, we only support returning stats for single-element field paths. That's because
-        // we can cheaply infer them from our own stats table.
-
-        todo!()
+        Ok(Poll::Some(stats_sets))
     }
 }

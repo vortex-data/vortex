@@ -1,4 +1,3 @@
-#![feature(assert_matches)]
 #![feature(once_cell_try)]
 #![feature(trait_alias)]
 mod data;

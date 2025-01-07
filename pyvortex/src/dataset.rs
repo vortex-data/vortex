@@ -7,8 +7,7 @@ use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::{PyLong, PyString};
 use vortex::arrow::infer_schema;
-use vortex::dtype::field::Field;
-use vortex::dtype::DType;
+use vortex::dtype::{DType, Field};
 use vortex::error::VortexResult;
 use vortex::expr::RowFilter;
 use vortex::file::{

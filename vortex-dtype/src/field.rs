@@ -68,6 +68,11 @@ impl FieldPath {
         &self.0
     }
 
+    /// Returns whether this path is a root path.
+    pub fn is_root(&self) -> bool {
+        self.0.is_empty()
+    }
+
     /// Pushes a new field selector to the end of this path
     pub fn push<F: Into<Field>>(&mut self, field: F) {
         self.0.push(field.into());

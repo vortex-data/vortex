@@ -46,7 +46,7 @@ impl ByteBoolArray {
             Arc::new(ByteBoolMetadata {
                 validity: validity.to_metadata(length)?,
             }),
-            Some(buffer.into_byte_buffer()),
+            [buffer.into_byte_buffer()].into(),
             validity.into_array().into_iter().collect::<Vec<_>>().into(),
             StatsSet::default(),
         )?
@@ -63,7 +63,7 @@ impl ByteBoolArray {
 
     pub fn buffer(&self) -> &ByteBuffer {
         self.as_ref()
-            .byte_buffer()
+            .byte_buffer(0)
             .vortex_expect("ByteBoolArray is missing the underlying buffer")
     }
 

@@ -1,8 +1,7 @@
 use std::fmt::{Debug, Display};
 
 use serde::{Deserialize, Serialize};
-use vortex_dtype::field::Field;
-use vortex_dtype::{DType, FieldName, FieldNames, StructDType};
+use vortex_dtype::{DType, Field, FieldName, FieldNames, StructDType};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
 
 use crate::encoding::ids;
@@ -211,8 +210,7 @@ impl StatisticsVTable<StructArray> for StructEncoding {
 #[cfg(test)]
 mod test {
     use vortex_buffer::buffer;
-    use vortex_dtype::field::Field;
-    use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
+    use vortex_dtype::{DType, Field, FieldName, FieldNames, Nullability};
 
     use crate::array::primitive::PrimitiveArray;
     use crate::array::struct_::StructArray;

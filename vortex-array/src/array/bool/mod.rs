@@ -42,14 +42,14 @@ impl BoolArray {
     /// Access internal array buffer
     pub fn buffer(&self) -> &ByteBuffer {
         self.as_ref()
-            .byte_buffer()
+            .byte_buffer(0)
             .vortex_expect("Missing buffer in BoolArray")
     }
 
     /// Convert array into its internal buffer
     pub fn into_buffer(self) -> ByteBuffer {
         self.into_array()
-            .into_byte_buffer()
+            .into_byte_buffer(0)
             .vortex_expect("BoolArray must have a buffer")
     }
 
@@ -127,7 +127,7 @@ impl BoolArray {
                 validity: validity.to_metadata(buffer_len)?,
                 first_byte_bit_offset,
             }),
-            Some(ByteBuffer::from_arrow_buffer(inner, Alignment::of::<u8>())),
+            vec![ByteBuffer::from_arrow_buffer(inner, Alignment::of::<u8>())].into(),
             validity.into_array().into_iter().collect(),
             StatsSet::default(),
         )?

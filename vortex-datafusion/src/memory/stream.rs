@@ -9,7 +9,7 @@ use datafusion_execution::RecordBatchStream;
 use futures::Stream;
 use vortex_array::array::ChunkedArray;
 use vortex_array::IntoArrayVariant;
-use vortex_dtype::field::Field;
+use vortex_dtype::Field;
 
 pub(crate) struct VortexRecordBatchStream {
     pub(crate) schema_ref: SchemaRef,

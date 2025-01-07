@@ -1,5 +1,4 @@
-use vortex_dtype::field::Field;
-use vortex_dtype::DType;
+use vortex_dtype::{DType, Field};
 use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
 
 use crate::array::chunked::ChunkedArray;

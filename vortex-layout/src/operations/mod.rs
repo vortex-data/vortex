@@ -1,13 +1,13 @@
 //! Layout operations are analogous to array compute functions, but since layouts are lazy, we
 //! need to wrap up the operation in a polling model.
 
-pub mod scan;
-pub mod stats;
-
-use std::fmt::Debug;
+pub mod cached;
+pub mod map;
+mod resolved;
 
 use vortex_error::VortexResult;
 
+use crate::operations::cached::CachedOperation;
 use crate::segments::{SegmentId, SegmentReader};
 
 /// The response to polling an operation.
@@ -18,30 +18,86 @@ pub enum Poll<R> {
     NeedMore(Vec<SegmentId>),
 }
 
-// TODO(ngates): define a ready! macro that can be used to return Poll::Some
-
-pub trait Operator {
-    type Result;
+/// Macro to simplify the common pattern of polling an operation.
+/// Similar to the [`std::task::ready`] macro.
+#[macro_export]
+macro_rules! ready {
+    ($e:expr) => {
+        match $e? {
+            $crate::operations::Poll::Some(t) => t,
+            $crate::operations::Poll::NeedMore(segments) => {
+                return Ok($crate::operations::Poll::NeedMore(segments));
+            }
+        }
+    };
 }
 
 /// A trait for performing operations over a layout.
-pub trait Operation<O: Operator>: 'static + Send + Sync + Debug {
+pub trait Operation {
+    type Output;
+
     /// Attempts to return the result of this operation. If the operation cannot make progress, it
     /// returns a vec of additional data segments using [`Poll::NeedMore`].
     ///
-    /// Note that after returning `Poll::Some` the [`Operation`] should continue to return the same
-    /// result on subsequent calls to `poll`.
-    fn poll(&mut self, segments: &dyn SegmentReader) -> VortexResult<Poll<O::Result>>;
+    /// Note that after successfully returning `Poll::Some` the operation may fail on subsequent
+    /// calls to `poll`.
+    fn poll(&mut self, segments: &dyn SegmentReader) -> VortexResult<Poll<Self::Output>>;
 }
 
-pub trait OperationExt<O: Operator>: Operation<O> {
+impl<R> Operation for Box<dyn Operation<Output = R>> {
+    type Output = R;
+
+    fn poll(&mut self, segments: &dyn SegmentReader) -> VortexResult<Poll<Self::Output>> {
+        self.as_mut().poll(segments)
+    }
+}
+
+pub trait OperationExt: Operation {
     /// Box the operation.
-    fn boxed(self) -> Box<dyn Operation<O> + 'static>
+    fn boxed(self) -> Box<dyn Operation<Output = Self::Output> + 'static>
     where
         Self: Sized + 'static,
     {
         Box::new(self)
     }
+
+    /// Cache the operation so it can be successfully polled multiple times.
+    fn cached(self) -> cached::OperationCache<Self>
+    where
+        Self: Sized,
+    {
+        cached::OperationCache {
+            op: self,
+            result: None,
+        }
+    }
+
+    /// Cache the operation so it can be successfully polled multiple times.
+    fn cached_box(self) -> Box<dyn CachedOperation<Output = Self::Output> + 'static>
+    where
+        Self: CachedOperation + Sized + 'static,
+    {
+        Box::new(self)
+    }
+
+    /// Map the output of the operation.
+    fn map<F, R>(self, f: F) -> map::MapOperation<Self, F>
+    where
+        Self: Sized,
+        F: FnMut(Self::Output) -> R,
+    {
+        map::MapOperation {
+            op: self,
+            func: Some(f),
+        }
+    }
 }
 
-impl<O: Operator, T: Operation<O>> OperationExt<O> for T {}
+impl<T: Operation> OperationExt for T {}
+
+/// Create an operation whose result is already resolved.
+pub fn resolved<R>(result: R) -> resolved::ResolvedOperation<R> {
+    resolved::ResolvedOperation {
+        result: Some(result),
+    }
+}

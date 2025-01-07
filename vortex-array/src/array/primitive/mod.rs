@@ -47,7 +47,7 @@ impl PrimitiveArray {
             Arc::new(PrimitiveMetadata {
                 validity: validity.to_metadata(len).vortex_expect("Invalid validity"),
             }),
-            Some(buffer.into_byte_buffer()),
+            [buffer.into_byte_buffer()].into(),
             validity.into_array().into_iter().collect(),
             StatsSet::default(),
         )
@@ -102,16 +102,14 @@ impl PrimitiveArray {
     }
 
     pub fn byte_buffer(&self) -> &ByteBuffer {
-        let buffer = self
-            .as_ref()
-            .byte_buffer()
-            .vortex_expect("Missing buffer in PrimitiveArray");
-        buffer
+        self.as_ref()
+            .byte_buffer(0)
+            .vortex_expect("Missing buffer in PrimitiveArray")
     }
 
     pub fn into_byte_buffer(self) -> ByteBuffer {
         self.into_array()
-            .into_byte_buffer()
+            .into_byte_buffer(0)
             .vortex_expect("PrimitiveArray must have a buffer")
     }
 
@@ -136,7 +134,7 @@ impl PrimitiveArray {
         }
         Buffer::from_byte_buffer(
             self.into_array()
-                .into_byte_buffer()
+                .into_byte_buffer(0)
                 .vortex_expect("PrimitiveArray must have a buffer"),
         )
     }

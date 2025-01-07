@@ -61,7 +61,7 @@ impl ArrayData {
         dtype: DType,
         len: usize,
         metadata: Arc<dyn ArrayMetadata>,
-        buffer: Option<ByteBuffer>,
+        buffers: Arc<[ByteBuffer]>,
         children: Arc<[ArrayData]>,
         statistics: StatsSet,
     ) -> VortexResult<Self> {
@@ -70,7 +70,7 @@ impl ArrayData {
             dtype,
             len,
             metadata,
-            buffer,
+            buffers,
             children,
             stats_set: Arc::new(RwLock::new(statistics)),
             #[cfg(feature = "canonical_counter")]
@@ -247,7 +247,7 @@ impl ArrayData {
             .iter()
             .map(|child| child.cumulative_nbuffers())
             .sum::<usize>()
-            + if self.byte_buffer().is_some() { 1 } else { 0 }
+            + self.nbuffers()
     }
 
     /// Return the buffer offsets and the total length of all buffers, assuming the given alignment.
@@ -257,7 +257,7 @@ impl ArrayData {
         let mut offset = 0;
 
         for col_data in self.depth_first_traversal() {
-            if let Some(buffer) = col_data.byte_buffer() {
+            for buffer in col_data.byte_buffers() {
                 offsets.push(offset as u64);
 
                 let buffer_size = buffer.len();
@@ -320,17 +320,30 @@ impl ArrayData {
         }
     }
 
-    pub fn byte_buffer(&self) -> Option<&ByteBuffer> {
+    pub fn nbuffers(&self) -> usize {
         match &self.0 {
-            InnerArrayData::Owned(d) => d.byte_buffer(),
-            InnerArrayData::Viewed(v) => v.byte_buffer(),
+            InnerArrayData::Owned(o) => o.buffers.len(),
+            InnerArrayData::Viewed(v) => v.nbuffers(),
         }
     }
 
-    pub fn into_byte_buffer(self) -> Option<ByteBuffer> {
+    pub fn byte_buffer(&self, index: usize) -> Option<&ByteBuffer> {
+        match &self.0 {
+            InnerArrayData::Owned(d) => d.byte_buffer(index),
+            InnerArrayData::Viewed(v) => v.buffer(index),
+        }
+    }
+
+    pub fn byte_buffers(&self) -> impl Iterator<Item = ByteBuffer> + '_ {
+        (0..self.nbuffers())
+            .map(|i| self.byte_buffer(i).vortex_expect("missing declared buffer"))
+            .cloned()
+    }
+
+    pub fn into_byte_buffer(self, index: usize) -> Option<ByteBuffer> {
         match self.0 {
-            InnerArrayData::Owned(d) => d.into_byte_buffer(),
-            InnerArrayData::Viewed(v) => v.byte_buffer().cloned(),
+            InnerArrayData::Owned(d) => d.into_byte_buffer(index),
+            InnerArrayData::Viewed(v) => v.buffer(index).cloned(),
         }
     }
 

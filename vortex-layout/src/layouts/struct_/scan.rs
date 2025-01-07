@@ -5,9 +5,8 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_panic, VortexResult};
 
 use crate::layouts::struct_::StructLayout;
-use crate::operations::scan::ScanOp;
 use crate::operations::{Operation, Poll};
-use crate::scanner::{LayoutScan, Scan};
+use crate::scanner::{LayoutScan, Scan, ScanOp};
 use crate::segments::SegmentReader;
 use crate::{LayoutData, LayoutEncoding, RowMask};
 
@@ -45,7 +44,7 @@ impl LayoutScan for StructScan {
         &self.dtype
     }
 
-    fn create_scanner(self: Arc<Self>, mask: RowMask) -> VortexResult<Box<dyn Operation<ScanOp>>> {
+    fn create_scanner(self: Arc<Self>, mask: RowMask) -> VortexResult<ScanOp> {
         Ok(Box::new(StructScanner {
             layout: self.layout.clone(),
             scan: self.scan.clone(),
@@ -69,8 +68,10 @@ struct StructScanner {
     state: State,
 }
 
-impl Operation<ScanOp> for StructScanner {
-    fn poll(&mut self, _segments: &dyn SegmentReader) -> VortexResult<Poll<ArrayData>> {
+impl Operation for StructScanner {
+    type Output = ArrayData;
+
+    fn poll(&mut self, _segments: &dyn SegmentReader) -> VortexResult<Poll<Self::Output>> {
         todo!()
     }
 }

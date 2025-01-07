@@ -5,8 +5,7 @@
 
 use std::sync::Arc;
 
-use vortex_dtype::field::Field;
-use vortex_dtype::{DType, ExtDType, FieldNames, PType};
+use vortex_dtype::{DType, ExtDType, Field, FieldNames, PType};
 use vortex_error::{vortex_panic, VortexError, VortexExpect as _, VortexResult};
 
 use crate::encoding::Encoding;

@@ -68,7 +68,7 @@ impl RoaringIntArray {
             DType::Primitive(ptype, NonNullable),
             length,
             Arc::new(RoaringIntMetadata { ptype }),
-            Some(ByteBuffer::from(bitmap.serialize::<Portable>())),
+            [ByteBuffer::from(bitmap.serialize::<Portable>())].into(),
             vec![].into(),
             stats,
         )?
@@ -78,7 +78,7 @@ impl RoaringIntArray {
     pub fn owned_bitmap(&self) -> Bitmap {
         Bitmap::deserialize::<Portable>(
             self.as_ref()
-                .byte_buffer()
+                .byte_buffer(0)
                 .vortex_expect("RoaringBoolArray buffer is missing")
                 .as_ref(),
         )
@@ -139,7 +139,7 @@ impl VisitorVTable<RoaringIntArray> for RoaringIntEncoding {
         visitor.visit_buffer(
             array
                 .as_ref()
-                .byte_buffer()
+                .byte_buffer(0)
                 .vortex_expect("Missing buffer in RoaringIntArray"),
         )
     }

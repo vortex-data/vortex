@@ -306,7 +306,7 @@ mod test {
         // Constant arrays have no buffers
         let array = ConstantArray::new(10i32, 20).into_array();
         assert!(
-            array.byte_buffer().is_none(),
+            array.byte_buffer(0).is_none(),
             "Array should have no buffers"
         );
         write_and_read(array);

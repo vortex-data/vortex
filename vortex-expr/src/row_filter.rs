@@ -8,7 +8,7 @@ use vortex_array::array::ConstantArray;
 use vortex_array::compute::{and_kleene, fill_null};
 use vortex_array::stats::ArrayStatistics;
 use vortex_array::{ArrayData, IntoArrayData};
-use vortex_dtype::field::Field;
+use vortex_dtype::Field;
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::{expr_project, split_conjunction, unbox_any, ExprRef, VortexExpr};
