@@ -2,8 +2,6 @@ use std::any::Any;
 use std::fmt::{Debug, Display};
 use std::sync::Arc;
 
-use vortex_array::aliases::hash_set::HashSet;
-
 mod binary;
 mod column;
 pub mod datafusion;
@@ -29,9 +27,12 @@ pub use operators::*;
 pub use project::*;
 pub use row_filter::*;
 pub use select::*;
+use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::ArrayData;
 use vortex_dtype::field::Field;
 use vortex_error::{VortexExpect, VortexResult};
+
+use crate::traversal::{Node, ReferenceCollector};
 
 pub type ExprRef = Arc<dyn VortexExpr>;
 
@@ -45,14 +46,18 @@ pub trait VortexExpr: Debug + Send + Sync + PartialEq<dyn Any> + Display {
 
     fn children(&self) -> Vec<&ExprRef>;
 
-    /// Accumulate all field references from this expression and its children in the provided set
-    fn collect_references<'a>(&'a self, _references: &mut HashSet<&'a Field>) {}
+    fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef;
+}
 
-    /// Accumulate all field references from this expression and its children in a new set
+trait VortexExprExt {
+    fn references(&self) -> HashSet<&Field>;
+}
+
+impl VortexExprExt for ExprRef {
     fn references(&self) -> HashSet<&Field> {
-        let mut refs = HashSet::new();
-        self.collect_references(&mut refs);
-        refs
+        let mut collector = ReferenceCollector::new();
+        self.accept(&mut collector).unwrap();
+        collector.into_fields()
     }
 }
 
@@ -97,7 +102,6 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use super::*;
-    use crate::traversal::{ExprPrinter, Node};
 
     #[test]
     fn basic_expr_split_test() {
@@ -115,17 +119,6 @@ mod tests {
         let expr = BinaryExpr::new_expr(lhs, Operator::And, rhs);
         let conjunction = split_conjunction(&expr);
         assert_eq!(conjunction.len(), 2, "Conjunction is {conjunction:?}");
-    }
-
-    #[test]
-    fn expr_deep_visitor_test() {
-        let col1: Arc<dyn VortexExpr> = Column::new_expr(Field::from("col1"));
-        let lit1 = Literal::new_expr(1.into());
-        let expr = BinaryExpr::new_expr(col1.clone(), Operator::Eq, lit1.clone());
-        let lit2 = Literal::new_expr(2.into());
-        let expr = BinaryExpr::new_expr(expr, Operator::And, lit2);
-        let mut printer = ExprPrinter();
-        expr.accept(&mut printer).unwrap();
     }
 
     #[test]

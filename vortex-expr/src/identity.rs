@@ -22,12 +22,6 @@ impl Display for Identity {
     }
 }
 
-// impl Tree for Identity {
-//     fn children(&self) -> &[&dyn Tree] {
-//         &[]
-//     }
-// }
-
 impl VortexExpr for Identity {
     fn as_any(&self) -> &dyn Any {
         self
@@ -39,6 +33,11 @@ impl VortexExpr for Identity {
 
     fn children(&self) -> Vec<&ExprRef> {
         vec![]
+    }
+
+    fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
+        assert_eq!(children.len(), 0);
+        self
     }
 }
 

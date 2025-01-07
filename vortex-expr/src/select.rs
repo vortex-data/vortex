@@ -1,5 +1,6 @@
 use std::any::Any;
 use std::fmt::Display;
+use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_array::aliases::hash_set::HashSet;
@@ -23,6 +24,13 @@ impl Select {
     pub fn exclude(columns: Vec<Field>) -> Self {
         Self::Exclude(columns)
     }
+
+    pub fn fields(&self) -> &[Field] {
+        match self {
+            Select::Include(fields) => fields,
+            Select::Exclude(fields) => fields,
+        }
+    }
 }
 
 impl Display for Select {
@@ -33,12 +41,6 @@ impl Display for Select {
         }
     }
 }
-
-// impl Tree for Select {
-//     fn children(&self) -> &[&dyn Tree] {
-//         &[]
-//     }
-// }
 
 impl VortexExpr for Select {
     fn as_any(&self) -> &dyn Any {
@@ -78,12 +80,9 @@ impl VortexExpr for Select {
         vec![]
     }
 
-    fn collect_references<'a>(&'a self, references: &mut HashSet<&'a Field>) {
-        match self {
-            Select::Include(f) => references.extend(f.iter()),
-            // It's weird that we treat the references of exclusions and inclusions the same, we need to have a wrapper around Field in the return
-            Select::Exclude(e) => references.extend(e.iter()),
-        }
+    fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
+        assert_eq!(children.len(), 0);
+        self
     }
 }
 

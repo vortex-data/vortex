@@ -2,10 +2,8 @@ use std::any::Any;
 use std::fmt::Display;
 use std::sync::Arc;
 
-use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::compute::{and_kleene, compare, or_kleene, Operator as ArrayOperator};
 use vortex_array::ArrayData;
-use vortex_dtype::field::Field;
 use vortex_error::VortexResult;
 
 use crate::{unbox_any, ExprRef, Operator, VortexExpr};
@@ -41,12 +39,6 @@ impl Display for BinaryExpr {
     }
 }
 
-// impl Tree for BinaryExpr {
-//     fn children(&self) -> &[&dyn Tree] {
-//         &[&self.lhs, &self.rhs]
-//     }
-// }
-
 impl VortexExpr for BinaryExpr {
     fn as_any(&self) -> &dyn Any {
         self
@@ -72,9 +64,9 @@ impl VortexExpr for BinaryExpr {
         vec![&self.lhs, &self.rhs]
     }
 
-    fn collect_references<'a>(&'a self, references: &mut HashSet<&'a Field>) {
-        self.lhs.collect_references(references);
-        self.rhs.collect_references(references);
+    fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
+        assert_eq!(children.len(), 2);
+        BinaryExpr::new_expr(children[0].clone(), self.operator, children[1].clone())
     }
 }
 

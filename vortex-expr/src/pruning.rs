@@ -14,7 +14,9 @@ use vortex_dtype::Nullability;
 use vortex_error::{VortexExpect as _, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::{BinaryExpr, Column, ExprRef, Identity, Literal, Not, Operator, RowFilter};
+use crate::{
+    BinaryExpr, Column, ExprRef, Identity, Literal, Not, Operator, RowFilter, VortexExprExt,
+};
 
 #[derive(Debug, Clone)]
 pub struct Relation<K, V> {

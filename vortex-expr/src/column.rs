@@ -2,7 +2,6 @@ use std::any::Any;
 use std::fmt::Display;
 use std::sync::Arc;
 
-use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::StructArray;
 use vortex_array::variants::StructArrayTrait;
 use vortex_array::ArrayData;
@@ -17,8 +16,10 @@ pub struct Column {
 }
 
 impl Column {
-    pub fn new_expr(field: Field) -> ExprRef {
-        Arc::new(Self { field })
+    pub fn new_expr(field: impl Into<Field>) -> ExprRef {
+        Arc::new(Self {
+            field: field.into(),
+        })
     }
 
     pub fn field(&self) -> &Field {
@@ -48,12 +49,6 @@ impl Display for Column {
     }
 }
 
-// impl Tree for Column {
-//     fn children(&self) -> &[&dyn Tree] {
-//         &[]
-//     }
-// }
-
 impl VortexExpr for Column {
     fn as_any(&self) -> &dyn Any {
         self
@@ -73,8 +68,9 @@ impl VortexExpr for Column {
         vec![]
     }
 
-    fn collect_references<'a>(&'a self, references: &mut HashSet<&'a Field>) {
-        references.insert(self.field());
+    fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
+        assert_eq!(children.len(), 0);
+        self
     }
 }
 

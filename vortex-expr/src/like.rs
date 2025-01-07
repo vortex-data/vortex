@@ -2,10 +2,8 @@ use std::any::Any;
 use std::fmt::Display;
 use std::sync::Arc;
 
-use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::compute::{like, LikeOptions};
 use vortex_array::ArrayData;
-use vortex_dtype::field::Field;
 use vortex_error::VortexResult;
 
 use crate::{unbox_any, ExprRef, VortexExpr};
@@ -56,12 +54,6 @@ impl Display for Like {
     }
 }
 
-// impl Tree for Like {
-//     fn children(&self) -> &[&dyn Tree] {
-//         &[self.child.as_ref(), self.pattern.as_ref()]
-//     }
-// }
-
 impl VortexExpr for Like {
     fn as_any(&self) -> &dyn Any {
         self
@@ -84,9 +76,14 @@ impl VortexExpr for Like {
         vec![]
     }
 
-    fn collect_references<'a>(&'a self, references: &mut HashSet<&'a Field>) {
-        self.child().collect_references(references);
-        self.pattern().collect_references(references);
+    fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
+        assert_eq!(children.len(), 2);
+        Like::new_expr(
+            children[0].clone(),
+            children[1].clone(),
+            self.negated,
+            self.case_insensitive,
+        )
     }
 }
 
