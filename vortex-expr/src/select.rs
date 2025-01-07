@@ -59,6 +59,13 @@ impl SelectField {
             SelectField::Exclude(fields) => fields,
         }
     }
+
+    pub fn fields(&self) -> &[Field] {
+        match self {
+            Select::Include(fields) => fields,
+            Select::Exclude(fields) => fields,
+        }
+    }
 }
 
 impl Display for SelectField {
