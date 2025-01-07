@@ -6,7 +6,7 @@ use vortex_ipc::messages::{EncoderMessage, MessageEncoder};
 
 /// The identifier for a single segment.
 // TODO(ngates): should this be a `[u8]` instead? Allowing for arbitrary segment identifiers?
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SegmentId(u32);
 
 impl From<u32> for SegmentId {
@@ -45,6 +45,8 @@ pub trait SegmentWriter {
 
 #[cfg(test)]
 pub mod test {
+    use std::sync::Arc;
+
     use bytes::{Bytes, BytesMut};
     use vortex_error::{vortex_panic, VortexExpect};
 
@@ -59,9 +61,10 @@ pub mod test {
     }
 
     impl TestSegments {
-        pub fn do_scan(&self, scan: &dyn LayoutScan) -> ArrayData {
+        pub fn do_scan(&self, scan: Arc<dyn LayoutScan>) -> ArrayData {
+            let row_count = scan.layout().row_count();
             let mut scanner = scan
-                .create_scanner(RowMask::new_valid_between(0, scan.layout().row_count()))
+                .create_scanner(RowMask::new_valid_between(0, row_count))
                 .vortex_expect("Failed to create scanner");
             match scanner.poll(self).vortex_expect("Failed to poll scanner") {
                 Poll::Some(array) => array,

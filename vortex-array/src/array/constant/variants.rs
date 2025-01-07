@@ -1,4 +1,4 @@
-use vortex_dtype::field::Field;
+use vortex_dtype::Field;
 use vortex_error::{VortexError, VortexExpect as _, VortexResult};
 use vortex_scalar::Scalar;
 

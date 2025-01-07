@@ -2,8 +2,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_dtype::field::Field;
-use vortex_dtype::{DType, StructDType};
+use vortex_dtype::{DType, Field, StructDType};
 use vortex_error::{
     vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult,
 };

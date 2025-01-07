@@ -55,7 +55,7 @@ impl RoaringBoolArray {
             DType::Bool(Nullability::NonNullable),
             length,
             Arc::new(RoaringBoolMetadata),
-            Some(ByteBuffer::from(bitmap.serialize::<Native>())),
+            [ByteBuffer::from(bitmap.serialize::<Native>())].into(),
             vec![].into(),
             stats,
         )?
@@ -77,7 +77,7 @@ impl RoaringBoolArray {
 
     pub fn buffer(&self) -> &ByteBuffer {
         self.as_ref()
-            .byte_buffer()
+            .byte_buffer(0)
             .vortex_expect("Missing buffer in PrimitiveArray")
     }
 }
@@ -139,9 +139,15 @@ mod test {
     use std::iter;
 
     use vortex_array::array::BoolArray;
+    use vortex_array::test_harness::check_metadata;
     use vortex_array::{ArrayLen, IntoArrayData, IntoArrayVariant};
 
-    use crate::RoaringBoolArray;
+    use crate::{RoaringBoolArray, RoaringBoolMetadata};
+
+    #[test]
+    fn test_roaring_bool_metadata() {
+        check_metadata("roaring_bool.metadata", RoaringBoolMetadata);
+    }
 
     #[test]
     #[cfg_attr(miri, ignore)]

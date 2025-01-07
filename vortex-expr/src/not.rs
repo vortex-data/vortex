@@ -30,15 +30,6 @@ impl Display for Not {
     }
 }
 
-// impl Tree<&dyn VortexExpr> for Not {
-//     fn children<F, T>(&self, f: F) -> impl Iterator<Item = T>
-//     where
-//         F: FnMut(&Self) -> T,
-//     {
-//         vec![self.child.as_ref()].into_iter().map(f)
-//     }
-// }
-
 impl VortexExpr for Not {
     fn as_any(&self) -> &dyn Any {
         self

@@ -1,19 +1,15 @@
 use vortex_dtype::{match_each_integer_ptype, DType};
 use vortex_error::{vortex_bail, VortexResult};
-use vortex_scalar::{BinaryNumericOperator, Scalar};
+use vortex_scalar::Scalar;
 
 use crate::array::null::NullArray;
 use crate::array::NullEncoding;
-use crate::compute::{BinaryNumericFn, ComputeVTable, ScalarAtFn, SliceFn, TakeFn};
+use crate::compute::{ComputeVTable, ScalarAtFn, SliceFn, TakeFn};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant};
 
 impl ComputeVTable for NullEncoding {
     fn scalar_at_fn(&self) -> Option<&dyn ScalarAtFn<ArrayData>> {
-        Some(self)
-    }
-
-    fn binary_numeric_fn(&self) -> Option<&dyn BinaryNumericFn<ArrayData>> {
         Some(self)
     }
 
@@ -23,18 +19,6 @@ impl ComputeVTable for NullEncoding {
 
     fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
         Some(self)
-    }
-}
-
-impl BinaryNumericFn<NullArray> for NullEncoding {
-    fn binary_numeric(
-        &self,
-        array: &NullArray,
-        _rhs: &ArrayData,
-        _op: BinaryNumericOperator,
-    ) -> VortexResult<Option<ArrayData>> {
-        // for any arithmetic operation, forall X. NULL op X = NULL
-        Ok(Some(NullArray::new(array.len()).into_array()))
     }
 }
 

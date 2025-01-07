@@ -1,5 +1,8 @@
 mod scan;
 
+use std::fmt::Debug;
+use std::sync::Arc;
+
 pub use scan::*;
 use vortex_array::ArrayData;
 use vortex_dtype::DType;
@@ -9,7 +12,7 @@ use crate::segments::{SegmentId, SegmentReader};
 use crate::{LayoutData, RowMask};
 
 /// A [`LayoutScan`] provides an encapsulation of an invocation of a scan operation.
-pub trait LayoutScan: 'static + Send + Sync {
+pub trait LayoutScan: 'static + Send + Sync + Debug {
     /// Returns the [`LayoutData`] that this scan is operating on.
     fn layout(&self) -> &LayoutData;
 
@@ -21,16 +24,16 @@ pub trait LayoutScan: 'static + Send + Sync {
     /// Note that since a [`Scanner`] returns a single ArrayData, the caller is responsible for
     /// ensuring the working set and result of the scan fit into memory. The [`LayoutData`] can
     /// be asked for "splits" if the caller needs a hint for how to partition the scan.
-    fn create_scanner(&self, mask: RowMask) -> VortexResult<Box<dyn Scanner>>;
+    fn create_scanner(self: Arc<Self>, mask: RowMask) -> VortexResult<Box<dyn Scanner>>;
 }
 
 pub trait LayoutScanExt: LayoutScan {
     /// Box the layout scan.
-    fn boxed(self) -> Box<dyn LayoutScan + 'static>
+    fn into_arc(self) -> Arc<dyn LayoutScan>
     where
-        Self: Sized + 'static,
+        Self: Sized,
     {
-        Box::new(self)
+        Arc::new(self) as _
     }
 }
 
@@ -45,7 +48,7 @@ pub enum Poll {
 }
 
 /// A trait for scanning a single row range of a layout.
-pub trait Scanner: 'static + Send + Sync {
+pub trait Scanner: 'static + Send + Sync + Debug {
     /// Attempts to return the [`ArrayData`] result of this ranged scan. If the scanner cannot
     /// make progress, it can return a vec of additional data segments using [`Poll::NeedMore`].
     ///
@@ -67,6 +70,7 @@ pub trait ScannerExt: Scanner {
 impl<S: Scanner> ScannerExt for S {}
 
 /// A scanner with an [`ArrayData`] that is always returned.
+#[derive(Debug)]
 pub struct ResolvedScanner(pub ArrayData);
 
 impl Scanner for ResolvedScanner {

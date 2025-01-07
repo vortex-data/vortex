@@ -201,6 +201,7 @@ mod tests {
 
     use crate::{TemporalMetadata, TimeUnit, TIMESTAMP_ID};
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_roundtrip_metadata() {
         let meta: ExtMetadata =

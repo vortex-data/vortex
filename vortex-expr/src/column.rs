@@ -5,7 +5,7 @@ use std::sync::Arc;
 use vortex_array::array::StructArray;
 use vortex_array::variants::StructArrayTrait;
 use vortex_array::ArrayData;
-use vortex_dtype::field::Field;
+use vortex_dtype::Field;
 use vortex_error::{vortex_err, VortexResult};
 
 use crate::{unbox_any, ExprRef, VortexExpr};
@@ -25,6 +25,12 @@ impl Column {
     pub fn field(&self) -> &Field {
         &self.field
     }
+}
+
+pub fn col(field: impl Into<Field>) -> ExprRef {
+    Arc::new(Column {
+        field: field.into(),
+    })
 }
 
 impl From<String> for Column {

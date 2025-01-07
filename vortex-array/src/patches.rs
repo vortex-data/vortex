@@ -25,6 +25,10 @@ pub struct PatchesMetadata {
 }
 
 impl PatchesMetadata {
+    pub fn new(len: usize, indices_ptype: PType) -> Self {
+        Self { len, indices_ptype }
+    }
+
     #[inline]
     pub fn len(&self) -> usize {
         self.len

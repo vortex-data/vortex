@@ -197,11 +197,11 @@ pub(crate) const VIEW_SIZE_BYTES: usize = size_of::<BinaryView>();
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VarBinViewMetadata {
     // Validity metadata
-    validity: ValidityMetadata,
+    pub(crate) validity: ValidityMetadata,
 
     // Length of each buffer. The buffers are primitive byte arrays containing the raw string/binary
     // data referenced by views.
-    buffer_lens: Vec<u32>,
+    pub(crate) buffer_lens: Vec<u32>,
 }
 
 impl Display for VarBinViewMetadata {
