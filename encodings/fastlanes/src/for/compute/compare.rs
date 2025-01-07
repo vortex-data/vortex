@@ -3,7 +3,7 @@ use vortex_array::array::ConstantArray;
 use vortex_array::compute::{compare, CompareFn, Operator};
 use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData};
 use vortex_dtype::{match_each_integer_ptype, NativePType};
-use vortex_error::{vortex_err, VortexError, VortexResult};
+use vortex_error::{VortexError, VortexResult};
 use vortex_scalar::{PValue, PrimitiveScalar, Scalar};
 
 use crate::{FoRArray, FoREncoding};
@@ -47,19 +47,28 @@ where
     let reference = reference.as_primitive().typed_value::<T>();
 
     // We encode the RHS into the FoR domain.
-    let rhs = rhs
-        .map(|mut rhs| {
-            if let Some(reference) = reference {
-                rhs = rhs.wrapping_sub(&reference);
-            }
-            if lhs.shift() > 0 {
-                rhs = rhs
-                    .checked_shr(lhs.shift() as u32)
-                    .ok_or_else(|| vortex_err!("Shift overflow"))?;
-            }
-            Ok::<_, VortexError>(rhs)
-        })
-        .transpose()?;
+    let rhs = rhs.map(|mut rhs| {
+        if let Some(reference) = reference {
+            rhs = rhs.wrapping_sub(&reference);
+        }
+        if lhs.shift() > 0 {
+            // Since compare requires that both sides are of same dtype this will always return present
+            rhs = rhs >> (lhs.shift() as u32)
+        }
+        rhs
+    });
+
+    // rhs is less than zero which means that it's definitely not in our array and is less than all the elements in the array
+    if rhs.filter(|rhs| *rhs < T::zero()).is_some() {
+        return match operator {
+            Operator::Eq => Ok(Some(ConstantArray::new(false, lhs.len()).into_array())),
+            Operator::NotEq => Ok(Some(ConstantArray::new(true, lhs.len()).into_array())),
+            Operator::Gt => Ok(Some(ConstantArray::new(true, lhs.len()).into_array())),
+            Operator::Gte => Ok(Some(ConstantArray::new(true, lhs.len()).into_array())),
+            Operator::Lt => Ok(Some(ConstantArray::new(false, lhs.len()).into_array())),
+            Operator::Lte => Ok(Some(ConstantArray::new(false, lhs.len()).into_array())),
+        };
+    }
 
     // Wrap up the RHS into a scalar and cast to the encoded DType (this will be the equivalent
     // unsigned integer type).
@@ -105,6 +114,23 @@ mod tests {
         for op in [Operator::Lt, Operator::Lte, Operator::Gt, Operator::Gte] {
             assert!(compare_constant(&lhs, Some(30i32), op).unwrap().is_none());
         }
+    }
+
+    #[test]
+    fn compare_non_encodable_constant() {
+        let reference = Scalar::from(10);
+        // 10, 30, 12
+        let lhs = FoRArray::try_new(
+            PrimitiveArray::new(buffer!(0u32, 10, 1), Validity::AllValid).into_array(),
+            reference,
+            1,
+        )
+        .unwrap();
+
+        assert_result(
+            compare_constant(&lhs, Some(-1i32), Operator::Eq),
+            [false, false, false],
+        );
     }
 
     fn assert_result<T: IntoIterator<Item = bool>>(
