@@ -1,0 +1,11 @@
+#V2
+copy (select arrow_cast(1, 'Int8') as x) to '/tmp/foo.parquet';
+describe '/tmp/foo.parquet';
+explain select x = arrow_cast(10000, 'Int32') from '/tmp/foo.parquet';
+select x + 10000 from '/tmp/foo.parquet';
+explain select x + 10000 from '/tmp/foo.parquet';
+explain select x = 10000 from '/tmp/foo.parquet';
+explain select x = arrow_cast(10000, "Int32") from '/tmp/foo.parquet';
+explain select x = cast(10000 AS Int32) from '/tmp/foo.parquet';
+explain select x = cast(10000 AS Int) from '/tmp/foo.parquet';
+explain select x = cast(10000 AS int) from '/tmp/foo.parquet';

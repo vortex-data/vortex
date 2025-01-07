@@ -46,7 +46,7 @@ impl<R> VortexFile<R> {
 /// Async implementation of Vortex File.
 impl<R: VortexReadAt> VortexFile<R> {
     /// Performs a scan operation over the file.
-    pub fn scan(&self, scan: Scan) -> VortexResult<impl ArrayStream + '_> {
+    pub fn scan(self, scan: Scan) -> VortexResult<impl ArrayStream + 'static> {
         let layout_scan = self.layout.new_scan(scan, self.ctx.clone())?;
         let scan_dtype = layout_scan.dtype().clone();
 
@@ -57,17 +57,19 @@ impl<R: VortexReadAt> VortexFile<R> {
         let mut scanner = layout_scan.create_scanner(row_mask)?;
 
         let stream = stream::once(async move {
+            let segment_cache = self.segment_cache.clone();
+            let segments = self.segments.clone();
             loop {
-                match scanner.poll(&self.segment_cache)? {
+                match scanner.poll(&segment_cache)? {
                     Poll::Some(array) => return Ok(array),
                     Poll::NeedMore(segment_ids) => {
                         for segment_id in segment_ids {
-                            let segment = &self.segments[*segment_id as usize];
+                            let segment = &segments[*segment_id as usize];
                             let bytes = self
                                 .read
                                 .read_byte_range(segment.offset, segment.length as u64)
                                 .await?;
-                            self.segment_cache.set(segment_id, bytes);
+                            segment_cache.set(segment_id, bytes);
                         }
                     }
                 }

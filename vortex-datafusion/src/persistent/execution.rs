@@ -122,7 +122,7 @@ impl ExecutionPlan for VortexExec {
             object_store,
             projection: self.file_scan_config.projection.clone(),
             predicate: self.predicate.clone(),
-            initial_read_cache: self.initial_read_cache.clone(),
+            file_layout_cache: self.initial_read_cache.clone(),
             arrow_schema,
         };
         let stream = FileStream::new(&self.file_scan_config, partition, opener, &self.metrics)?;

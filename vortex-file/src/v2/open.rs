@@ -24,6 +24,8 @@ pub struct OpenOptions {
     ctx: ContextRef,
     /// The Vortex Layout encoding context.
     layout_ctx: LayoutContextRef,
+    /// An optional, externally provided, file size.
+    file_size: Option<u64>,
     /// An optional, externally provided, file layout.
     file_layout: Option<FileLayout>,
     /// An optional, externally provided, dtype.
@@ -39,6 +41,7 @@ impl OpenOptions {
         Self {
             ctx,
             layout_ctx: LayoutContextRef::default(),
+            file_size: None,
             file_layout: None,
             dtype: None,
             initial_read_size: INITIAL_READ_SIZE,
@@ -52,6 +55,12 @@ impl OpenOptions {
         }
         self.initial_read_size = initial_read_size;
         Ok(self)
+    }
+
+    /// Configure a known file size for the Vortex file.
+    pub fn with_file_size(mut self, file_size: u64) -> Self {
+        self.file_size = Some(file_size);
+        self
     }
 
     /// Configure a pre-existing file layout for the Vortex file.
@@ -81,7 +90,10 @@ impl OpenOptions {
         }
 
         // Fetch the file size and perform the initial read.
-        let file_size = read.size().await?;
+        let file_size = match self.file_size {
+            None => read.size().await?,
+            Some(file_size) => file_size,
+        };
         let initial_read_size = self.initial_read_size.min(file_size);
         let initial_offset = file_size - initial_read_size;
         let initial_read: ByteBuffer = read

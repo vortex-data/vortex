@@ -27,6 +27,7 @@ pub trait SegmentReader {
     /// Attempt to get the data associated with a given segment ID.
     ///
     /// If the segment ID is not found, `None` is returned.
+    // TODO(ngates): we should probably take Alignment and return ByteBuffer here.
     fn get(&self, id: SegmentId) -> Option<Bytes>;
 }
 

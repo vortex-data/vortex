@@ -15,14 +15,15 @@ async fn write_read() {
     ])
     .into_array();
 
-    let written = WriteOptions::default()
+    let written: Bytes = WriteOptions::default()
         .write_async(vec![], arr.into_array_stream())
         .await
-        .unwrap();
+        .unwrap()
+        // TODO(ngates): no need to wrap Vec<u8> in Bytes if VortexReadAt doesn't require clone.
+        .into();
 
-    // TODO(ngates): no need to wrap Vec<u8> in Bytes if VortexReadAt doesn't require clone.
     let vxf = OpenOptions::new(ContextRef::default())
-        .open(Bytes::from(written))
+        .open(written)
         .await
         .unwrap();
 
