@@ -6,9 +6,8 @@ use flatbuffers::root_unchecked;
 use once_cell::sync::OnceCell;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::field::Field;
 use vortex_dtype::flatbuffers::{extract_field, project_and_deserialize, resolve_field};
-use vortex_dtype::{DType, FieldNames};
+use vortex_dtype::{DType, Field, FieldNames};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_flatbuffers::dtype as fbd;
 

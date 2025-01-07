@@ -4,7 +4,7 @@ use std::fmt::Display;
 use itertools::Itertools;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::ArrayData;
-use vortex_dtype::field::Field;
+use vortex_dtype::Field;
 use vortex_error::{vortex_err, VortexResult};
 
 use crate::{unbox_any, VortexExpr};
@@ -91,7 +91,7 @@ mod tests {
     use vortex_array::array::StructArray;
     use vortex_array::IntoArrayData;
     use vortex_buffer::buffer;
-    use vortex_dtype::field::Field;
+    use vortex_dtype::Field;
 
     use crate::{Select, VortexExpr};
 

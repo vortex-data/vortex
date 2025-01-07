@@ -28,7 +28,7 @@ pub use project::*;
 pub use row_filter::*;
 pub use select::*;
 use vortex_array::ArrayData;
-use vortex_dtype::field::Field;
+use vortex_dtype::Field;
 use vortex_error::{VortexExpect, VortexResult};
 
 pub type ExprRef = Arc<dyn VortexExpr>;
@@ -88,8 +88,7 @@ pub fn unbox_any(any: &dyn Any) -> &dyn Any {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::field::Field;
-    use vortex_dtype::{DType, Nullability, PType, StructDType};
+    use vortex_dtype::{DType, Field, Nullability, PType, StructDType};
     use vortex_scalar::Scalar;
 
     use super::*;

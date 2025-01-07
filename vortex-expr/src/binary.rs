@@ -5,7 +5,7 @@ use std::sync::Arc;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::compute::{and_kleene, compare, or_kleene, Operator as ArrayOperator};
 use vortex_array::ArrayData;
-use vortex_dtype::field::Field;
+use vortex_dtype::Field;
 use vortex_error::VortexResult;
 
 use crate::{unbox_any, ExprRef, Operator, VortexExpr};

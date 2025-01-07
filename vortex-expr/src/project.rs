@@ -1,7 +1,7 @@
 #![allow(unused_imports)]
 use std::sync::Arc;
 
-use vortex_dtype::field::Field;
+use vortex_dtype::Field;
 
 use crate::{
     col, lit, BinaryExpr, Column, ExprRef, Identity, Like, Literal, Not, Operator, RowFilter,
@@ -100,7 +100,7 @@ pub fn expr_project(expr: &ExprRef, projection: &[Field]) -> Option<ExprRef> {
 mod tests {
     use std::sync::Arc;
 
-    use vortex_dtype::field::Field;
+    use vortex_dtype::Field;
 
     use super::*;
     use crate::{and, lt, or, Identity, Not, Select, VortexExpr};

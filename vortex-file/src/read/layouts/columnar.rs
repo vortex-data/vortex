@@ -7,8 +7,7 @@ use vortex_array::array::StructArray;
 use vortex_array::stats::ArrayStatistics;
 use vortex_array::validity::Validity;
 use vortex_array::{ArrayData, IntoArrayData};
-use vortex_dtype::field::Field;
-use vortex_dtype::{FieldName, FieldNames};
+use vortex_dtype::{Field, FieldName, FieldNames};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult};
 use vortex_expr::{col, expr_project, RowFilter, Select, VortexExpr};
 use vortex_flatbuffers::footer;
@@ -423,8 +422,7 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_array::{ArrayDType, IntoArrayData, IntoArrayVariant};
     use vortex_buffer::Buffer;
-    use vortex_dtype::field::Field;
-    use vortex_dtype::{DType, Nullability};
+    use vortex_dtype::{DType, Field, Nullability};
     use vortex_expr::{col, lit, BinaryExpr, Operator, RowFilter};
 
     use crate::read::builder::initial_read::read_initial_bytes;

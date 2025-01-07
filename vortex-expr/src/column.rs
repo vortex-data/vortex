@@ -6,7 +6,7 @@ use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::StructArray;
 use vortex_array::variants::StructArrayTrait;
 use vortex_array::ArrayData;
-use vortex_dtype::field::Field;
+use vortex_dtype::Field;
 use vortex_error::{vortex_err, VortexResult};
 
 use crate::{unbox_any, ExprRef, VortexExpr};
