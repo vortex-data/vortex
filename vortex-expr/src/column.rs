@@ -9,7 +9,7 @@ use vortex_array::ArrayData;
 use vortex_dtype::Field;
 use vortex_error::{vortex_err, VortexResult};
 
-use crate::{unbox_any, ExprRef, VortexExpr};
+use crate::{ExprRef, VortexExpr};
 
 #[derive(Debug, PartialEq, Hash, Clone, Eq)]
 pub struct Column {
@@ -71,14 +71,5 @@ impl VortexExpr for Column {
 
     fn collect_references<'a>(&'a self, references: &mut HashSet<&'a Field>) {
         references.insert(self.field());
-    }
-}
-
-impl PartialEq<dyn Any> for Column {
-    fn eq(&self, other: &dyn Any) -> bool {
-        unbox_any(other)
-            .downcast_ref::<Self>()
-            .map(|x| x == self)
-            .unwrap_or(false)
     }
 }

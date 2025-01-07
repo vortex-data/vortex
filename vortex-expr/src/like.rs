@@ -8,7 +8,7 @@ use vortex_array::ArrayData;
 use vortex_dtype::Field;
 use vortex_error::VortexResult;
 
-use crate::{unbox_any, ExprRef, VortexExpr};
+use crate::{ExprRef, VortexExpr};
 
 #[derive(Debug)]
 pub struct Like {
@@ -80,14 +80,16 @@ impl VortexExpr for Like {
     }
 }
 
-impl PartialEq<dyn Any> for Like {
-    fn eq(&self, other: &dyn Any) -> bool {
-        unbox_any(other)
-            .downcast_ref::<Self>()
-            .map(|x| x.child.eq(&self.child) && x.pattern.eq(&self.pattern))
-            .unwrap_or(false)
+impl PartialEq for Like {
+    fn eq(&self, other: &Like) -> bool {
+        other.case_insensitive == self.case_insensitive
+            && other.negated == self.negated
+            && other.pattern.eq(&self.pattern)
+            && other.child.eq(&self.child)
     }
 }
+
+impl Eq for Like {}
 
 #[cfg(test)]
 mod tests {

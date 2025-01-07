@@ -11,9 +11,9 @@ use vortex_array::{ArrayData, IntoArrayData};
 use vortex_dtype::Field;
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::{expr_project, split_conjunction, unbox_any, ExprRef, VortexExpr};
+use crate::{expr_project, split_conjunction, ExprRef, VortexExpr};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RowFilter {
     pub(crate) conjunction: Vec<ExprRef>,
 }
@@ -93,26 +93,5 @@ impl VortexExpr for RowFilter {
         for expr in self.conjunction.iter() {
             expr.collect_references(references);
         }
-    }
-}
-
-impl PartialEq for RowFilter {
-    fn eq(&self, other: &Self) -> bool {
-        self.conjunction
-            .iter()
-            .all(|c| other.conjunction.iter().any(|o| **o == *c.as_any()))
-            && other
-                .conjunction
-                .iter()
-                .all(|c| self.conjunction.iter().any(|o| **o == *c.as_any()))
-    }
-}
-
-impl PartialEq<dyn Any> for RowFilter {
-    fn eq(&self, other: &dyn Any) -> bool {
-        unbox_any(other)
-            .downcast_ref::<Self>()
-            .map(|x| x == self)
-            .unwrap_or(false)
     }
 }

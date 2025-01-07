@@ -8,7 +8,7 @@ use vortex_array::ArrayData;
 use vortex_dtype::Field;
 use vortex_error::VortexResult;
 
-use crate::{unbox_any, ExprRef, Operator, VortexExpr};
+use crate::{ExprRef, Operator, VortexExpr};
 
 #[derive(Debug, Clone)]
 pub struct BinaryExpr {
@@ -68,14 +68,13 @@ impl VortexExpr for BinaryExpr {
     }
 }
 
-impl PartialEq<dyn Any> for BinaryExpr {
-    fn eq(&self, other: &dyn Any) -> bool {
-        unbox_any(other)
-            .downcast_ref::<Self>()
-            .map(|x| x.operator == self.operator && x.lhs.eq(&self.lhs) && x.rhs.eq(&self.rhs))
-            .unwrap_or(false)
+impl PartialEq for BinaryExpr {
+    fn eq(&self, other: &BinaryExpr) -> bool {
+        other.operator == self.operator && other.lhs.eq(&self.lhs) && other.rhs.eq(&self.rhs)
     }
 }
+
+impl Eq for BinaryExpr {}
 
 /// Create a new `BinaryExpr` using the `Eq` operator.
 ///

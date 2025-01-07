@@ -1,5 +1,6 @@
 use std::any::Any;
 use std::fmt::Display;
+use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_array::aliases::hash_set::HashSet;
@@ -7,7 +8,7 @@ use vortex_array::ArrayData;
 use vortex_dtype::Field;
 use vortex_error::{vortex_err, VortexResult};
 
-use crate::{unbox_any, VortexExpr};
+use crate::VortexExpr;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Select {
@@ -20,8 +21,16 @@ impl Select {
         Self::Include(columns)
     }
 
+    pub fn include_expr(columns: Vec<Field>) -> Arc<Self> {
+        Arc::new(Self::include(columns))
+    }
+
     pub fn exclude(columns: Vec<Field>) -> Self {
         Self::Exclude(columns)
+    }
+
+    pub fn exclude_expr(columns: Vec<Field>) -> Arc<Self> {
+        Arc::new(Self::exclude(columns))
     }
 }
 
@@ -74,15 +83,6 @@ impl VortexExpr for Select {
             // It's weird that we treat the references of exclusions and inclusions the same, we need to have a wrapper around Field in the return
             Select::Exclude(e) => references.extend(e.iter()),
         }
-    }
-}
-
-impl PartialEq<dyn Any> for Select {
-    fn eq(&self, other: &dyn Any) -> bool {
-        unbox_any(other)
-            .downcast_ref::<Self>()
-            .map(|x| self == x)
-            .unwrap_or(false)
     }
 }
 

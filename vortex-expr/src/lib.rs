@@ -34,7 +34,7 @@ use vortex_error::{VortexExpect, VortexResult};
 pub type ExprRef = Arc<dyn VortexExpr>;
 
 /// Represents logical operation on [`ArrayData`]s
-pub trait VortexExpr: Debug + Send + Sync + PartialEq<dyn Any> + Display {
+pub trait VortexExpr: Debug + Send + Sync + DynEq + Display {
     /// Convert expression reference to reference of [`Any`] type
     fn as_any(&self) -> &dyn Any;
 
@@ -85,6 +85,27 @@ pub fn unbox_any(any: &dyn Any) -> &dyn Any {
         any
     }
 }
+
+// Adapted from apache/datafusion https://github.com/apache/datafusion/blob/f31ca5b927c040ce03f6a3c8c8dc3d7f4ef5be34/datafusion/physical-expr-common/src/physical_expr.rs#L156
+/// [`VortexExpr`] can't be constrained by [`Eq`] directly because it must remain object
+/// safe. To ease implementation blanket implementation is provided for [`Eq`] types.
+pub trait DynEq {
+    fn dyn_eq(&self, other: &dyn Any) -> bool;
+}
+
+impl<T: Eq + Any> DynEq for T {
+    fn dyn_eq(&self, other: &dyn Any) -> bool {
+        other.downcast_ref::<Self>() == Some(self)
+    }
+}
+
+impl PartialEq for dyn VortexExpr {
+    fn eq(&self, other: &Self) -> bool {
+        self.dyn_eq(other.as_any())
+    }
+}
+
+impl Eq for dyn VortexExpr {}
 
 #[cfg(test)]
 mod tests {
