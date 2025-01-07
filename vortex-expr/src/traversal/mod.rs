@@ -1,4 +1,5 @@
 mod references;
+mod visitor;
 
 use itertools::Itertools;
 pub use references::ReferenceCollector;
@@ -6,10 +7,19 @@ use vortex_error::VortexResult;
 
 use crate::ExprRef;
 
+/// Define a data fusion inspired traversal pattern for visiting nodes in a `Node`,
+/// for now only VortexExpr.
+///
+/// This traversal is a pre-order traversal.
+/// There are control traversal controls `TraversalOrder`:
+/// - `Skip`: Skip visiting the children of the current node.
+/// - `Stop`: Stop visiting any more nodes in the traversal.
+/// - `Continue`: Continue with the traversal as expected.
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TraversalOrder {
-    // In a top down traversal, skip visiting the children of the current node.
-    // In a bottom up traversal,  for now this does nothing.
+    // In a top-down traversal, skip visiting the children of the current node.
+    // In the bottom-up phase of the traversal this does nothing (for now).
     Skip,
 
     // Stop visiting any more nodes in the traversal.
@@ -79,6 +89,7 @@ pub trait Node: Sized {
 }
 
 impl Node for ExprRef {
+    // A pre-order traversal.
     fn accept<'a, V: NodeVisitor<'a, NodeTy = ExprRef>>(
         &'a self,
         visitor: &mut V,
@@ -102,6 +113,7 @@ impl Node for ExprRef {
         visitor.visit_up(self)
     }
 
+    // A pre-order transform, with an option to ignore sub-tress (using visit_down).
     fn transform<V: MutNodeVisitor<NodeTy = Self>>(
         self,
         visitor: &mut V,
@@ -162,6 +174,7 @@ mod tests {
     use vortex_dtype::Field;
     use vortex_error::VortexResult;
 
+    use crate::traversal::visitor::pre_order_visit_down;
     use crate::traversal::{MutNodeVisitor, Node, NodeVisitor, TransformResult, TraversalOrder};
     use crate::{BinaryExpr, Column, ExprRef, Literal, Operator, VortexExpr, VortexExprExt};
 
@@ -208,7 +221,7 @@ mod tests {
         let expr = BinaryExpr::new_expr(col1.clone(), Operator::Eq, lit1.clone());
         let lit2 = Literal::new_expr(2);
         let expr = BinaryExpr::new_expr(expr, Operator::And, lit2);
-        let mut printer = ColumnCollectorSkip::default();
+        let mut printer = ExprLitCollector::default();
         expr.accept(&mut printer).unwrap();
         assert_eq!(printer.0.len(), 2);
     }
@@ -226,28 +239,9 @@ mod tests {
 
         let expr = new.result;
 
-        let mut printer = ColumnCollectorSkip::default();
+        let mut printer = ExprLitCollector::default();
         expr.accept(&mut printer).unwrap();
         assert_eq!(printer.0.len(), 3);
-    }
-
-    #[derive(Default)]
-    pub struct ColumnCollectorSkip<'a>(pub Vec<&'a ExprRef>);
-
-    impl<'a> NodeVisitor<'a> for ColumnCollectorSkip<'a> {
-        type NodeTy = ExprRef;
-
-        fn visit_down(&mut self, node: &'a ExprRef) -> VortexResult<TraversalOrder> {
-            if node.as_any().downcast_ref::<Column>().is_some() {
-                self.0.push(node)
-            }
-            if let Some(bin) = node.as_any().downcast_ref::<BinaryExpr>() {
-                if bin.op() == Operator::Eq {
-                    return Ok(TraversalOrder::Skip);
-                }
-            }
-            Ok(TraversalOrder::Continue)
-        }
     }
 
     #[test]
@@ -259,35 +253,28 @@ mod tests {
         let col4: Arc<dyn VortexExpr> = Column::new_expr("col4");
         let expr2 = BinaryExpr::new_expr(col3.clone(), Operator::NotEq, col4.clone());
         let expr = BinaryExpr::new_expr(expr1, Operator::And, expr2);
-        let mut printer = ColumnCollectorSkip::default();
-        expr.accept(&mut printer).unwrap();
+
+        let mut nodes = Vec::new();
+        expr.accept(&mut pre_order_visit_down(|node: &ExprRef| {
+            if node.as_any().downcast_ref::<Column>().is_some() {
+                nodes.push(node)
+            }
+            if let Some(bin) = node.as_any().downcast_ref::<BinaryExpr>() {
+                if bin.op() == Operator::Eq {
+                    return Ok(TraversalOrder::Skip);
+                }
+            }
+            Ok(TraversalOrder::Continue)
+        }))
+        .unwrap();
+
         assert_eq!(
-            printer
-                .0
+            nodes
                 .into_iter()
                 .map(|x| x.references())
                 .fold(HashSet::new(), |acc, x| acc.union(&x).cloned().collect()),
             HashSet::from_iter(vec![&Field::from("col3"), &Field::from("col4")])
         );
-    }
-
-    #[derive(Default)]
-    pub struct ColumnCollectorStop<'a>(pub Vec<&'a ExprRef>);
-
-    impl<'a> NodeVisitor<'a> for ColumnCollectorStop<'a> {
-        type NodeTy = ExprRef;
-
-        fn visit_down(&mut self, node: &'a ExprRef) -> VortexResult<TraversalOrder> {
-            if node.as_any().downcast_ref::<Column>().is_some() {
-                self.0.push(node)
-            }
-            if let Some(bin) = node.as_any().downcast_ref::<BinaryExpr>() {
-                if bin.op() == Operator::Eq {
-                    return Ok(TraversalOrder::Stop);
-                }
-            }
-            Ok(TraversalOrder::Continue)
-        }
     }
 
     #[test]
@@ -299,11 +286,23 @@ mod tests {
         let col4: Arc<dyn VortexExpr> = Column::new_expr("col4");
         let expr2 = BinaryExpr::new_expr(col3.clone(), Operator::NotEq, col4.clone());
         let expr = BinaryExpr::new_expr(expr1, Operator::And, expr2);
-        let mut printer = ColumnCollectorStop::default();
-        expr.accept(&mut printer).unwrap();
+
+        let mut nodes = Vec::new();
+        expr.accept(&mut pre_order_visit_down(|node: &ExprRef| {
+            if node.as_any().downcast_ref::<Column>().is_some() {
+                nodes.push(node)
+            }
+            if let Some(bin) = node.as_any().downcast_ref::<BinaryExpr>() {
+                if bin.op() == Operator::Eq {
+                    return Ok(TraversalOrder::Stop);
+                }
+            }
+            Ok(TraversalOrder::Continue)
+        }))
+        .unwrap();
+
         assert_eq!(
-            printer
-                .0
+            nodes
                 .into_iter()
                 .map(|x| x.references())
                 .fold(HashSet::new(), |acc, x| acc.union(&x).cloned().collect()),
