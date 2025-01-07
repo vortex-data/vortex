@@ -2,7 +2,7 @@ use vortex_array::aliases::hash_set::HashSet;
 use vortex_dtype::Field;
 use vortex_error::VortexResult;
 
-use crate::traversal::{NodeVisitor, VisitationOrder};
+use crate::traversal::{NodeVisitor, TraversalOrder};
 use crate::{Column, ExprRef, Select};
 
 pub struct ReferenceCollector<'a> {
@@ -28,13 +28,13 @@ impl<'a> ReferenceCollector<'a> {
 impl<'a> NodeVisitor<'a> for ReferenceCollector<'a> {
     type NodeTy = ExprRef;
 
-    fn visit_up(&mut self, node: &'a ExprRef) -> VortexResult<VisitationOrder> {
+    fn visit_up(&mut self, node: &'a ExprRef) -> VortexResult<TraversalOrder> {
         if let Some(col) = node.as_any().downcast_ref::<Column>() {
             self.fields.insert(col.field());
         }
         if let Some(sel) = node.as_any().downcast_ref::<Select>() {
             self.fields.extend(sel.fields());
         }
-        Ok(VisitationOrder::Continue)
+        Ok(TraversalOrder::Continue)
     }
 }
