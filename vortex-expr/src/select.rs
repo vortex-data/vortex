@@ -8,7 +8,7 @@ use vortex_array::ArrayData;
 use vortex_dtype::Field;
 use vortex_error::{vortex_err, VortexResult};
 
-use crate::{VortexExpr, ExprRef};
+use crate::{ExprRef, VortexExpr};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Select {
@@ -28,7 +28,6 @@ impl Select {
     pub fn exclude(columns: Vec<Field>) -> Self {
         Self::Exclude(columns)
     }
-
 
     pub fn exclude_expr(columns: Vec<Field>) -> Arc<Self> {
         Arc::new(Self::exclude(columns))
