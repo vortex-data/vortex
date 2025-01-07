@@ -17,8 +17,8 @@ use vortex_flatbuffers::footer as fb;
 use crate::layouts::RangedLayoutReader;
 use crate::read::mask::RowMask;
 use crate::{
-    Layout, LayoutDeserializer, LayoutId, LayoutPartId, LayoutPath, LayoutReader, LazyDType,
-    MessageCache, MessageLocator, PollRead, Prune, Scan, CHUNKED_LAYOUT_ID,
+    Layout, LayoutDeserializer, LayoutId, LayoutPartId, LayoutPath, LayoutReader, MessageCache,
+    MessageLocator, PollRead, Prune, Scan, CHUNKED_LAYOUT_ID,
 };
 
 #[derive(Default, Debug)]
@@ -37,7 +37,7 @@ impl Layout for ChunkedLayout {
         &self,
         path: LayoutPath,
         layout: fb::Layout,
-        dtype: Arc<LazyDType>,
+        dtype: Arc<DType>,
         scan: Scan,
         layout_builder: LayoutDeserializer,
     ) -> VortexResult<Arc<dyn LayoutReader>> {
@@ -64,7 +64,7 @@ struct ChunkedLayoutBuilder<'a> {
     path: LayoutPath,
     layout: fb::Layout<'a>,
     scan: Scan,
-    dtype: Arc<LazyDType>,
+    dtype: Arc<DType>,
     layout_builder: LayoutDeserializer,
 }
 
@@ -80,7 +80,9 @@ impl ChunkedLayoutBuilder<'_> {
                 .children()
                 .ok_or_else(|| vortex_err!("Must have children if layout has metadata"))?
                 .get(0);
-            let stats_dtype = stats_table_dtype(&set_stats, self.dtype.value()?);
+            let stats_dtype = stats_table_dtype(&set_stats, self.dtype.as_ref());
+
+            // let stats_dtype = stats_table_dtype(&set_stats, self.dtype.value()?);
             let DType::Struct(ref s, _) = stats_dtype else {
                 vortex_bail!("Chunked layout stats must be a Struct, got {stats_dtype}")
             };
@@ -94,7 +96,7 @@ impl ChunkedLayoutBuilder<'_> {
                 Scan::new(Arc::new(Select::include(
                     s.names().iter().map(|s| Field::Name(s.clone())).collect(),
                 ))),
-                Arc::new(LazyDType::from_dtype(stats_dtype)),
+                Arc::new(stats_dtype.clone()),
             )?)
         } else {
             None
@@ -143,11 +145,8 @@ impl ChunkedLayoutBuilder<'_> {
 
 fn stats_table_dtype(stats: &[Stat], dtype: &DType) -> DType {
     let dtypes = stats.iter().map(|s| s.dtype(dtype).as_nullable()).collect();
-
-    DType::Struct(
-        StructDType::new(stats.iter().map(|s| s.name().into()).collect(), dtypes),
-        Nullability::NonNullable,
-    )
+    let struct_dtype = StructDType::new(stats.iter().map(|s| s.name().into()).collect(), dtypes);
+    DType::Struct(struct_dtype, Nullability::NonNullable)
 }
 
 #[derive(Debug, Default, Clone)]
@@ -427,14 +426,13 @@ mod tests {
     use vortex_array::compute::FilterMask;
     use vortex_array::{ArrayDType, ArrayLen, IntoArrayData, IntoArrayVariant};
     use vortex_buffer::Buffer;
-    use vortex_dtype::PType;
+    use vortex_dtype::{DType, PType};
     use vortex_expr::{gt, lit, Identity, RowFilter};
     use vortex_flatbuffers::{footer, WriteFlatBuffer};
     use vortex_ipc::messages::{AsyncMessageWriter, EncoderMessage};
 
     use crate::byte_range::ByteRange;
     use crate::layouts::chunked::{ChunkedLayoutBuilder, ChunkedLayoutReader};
-    use crate::read::cache::LazyDType;
     use crate::read::layouts::test_read::{filter_read_layout, read_layout, read_layout_data};
     use crate::read::mask::RowMask;
     use crate::{write, LayoutDeserializer, LayoutMessageCache, LayoutPath, Scan};
@@ -486,7 +484,7 @@ mod tests {
         let fb_bytes = Bytes::from(fb.finished_data().to_vec());
         let layout = root::<footer::Layout>(&fb_bytes).unwrap();
 
-        let dtype = Arc::new(LazyDType::from_dtype(PType::I32.into()));
+        let dtype = Arc::new(DType::from(PType::I32));
         let layout_builder = LayoutDeserializer::default();
         (
             ChunkedLayoutBuilder {

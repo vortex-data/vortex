@@ -4,18 +4,18 @@ use std::sync::Arc;
 use futures::stream;
 use itertools::Itertools;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, VortexUnwrap as _};
+use vortex_error::VortexResult;
 use vortex_io::{IoDispatcher, VortexReadAt};
 
 use super::splits::SplitsAccumulator;
-use super::{LayoutMessageCache, LayoutReader, LazyDType, RowMask, VortexReadArrayStream};
+use super::{LayoutMessageCache, LayoutReader, RowMask, VortexReadArrayStream};
 use crate::read::buffered::{BufferedLayoutReader, ReadArray};
 use crate::read::splits::ReadRowMask;
 
 #[derive(Clone)]
 pub struct VortexReadHandle<R> {
     input: R,
-    dtype: Arc<LazyDType>,
+    dtype: Arc<DType>,
     row_count: u64,
     splits: Vec<(usize, usize)>,
     layout_reader: Arc<dyn LayoutReader>,
@@ -32,7 +32,7 @@ impl<R: VortexReadAt + Unpin> VortexReadHandle<R> {
         layout_reader: Arc<dyn LayoutReader>,
         filter_reader: Option<Arc<dyn LayoutReader>>,
         messages_cache: LayoutMessageCache,
-        dtype: Arc<LazyDType>,
+        dtype: Arc<DType>,
         row_count: u64,
         row_mask: Option<RowMask>,
         io_dispatcher: Arc<IoDispatcher>,
@@ -62,8 +62,7 @@ impl<R: VortexReadAt + Unpin> VortexReadHandle<R> {
 
     /// Returns the type of the file's top-level array.
     pub fn dtype(&self) -> &DType {
-        // FIXME(ngates): why is this allowed to unwrap?
-        self.dtype.value().vortex_unwrap()
+        self.dtype.as_ref()
     }
 
     /// Returns the total row count of the Vortex file, before any filtering.

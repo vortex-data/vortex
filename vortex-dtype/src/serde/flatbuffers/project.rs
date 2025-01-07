@@ -4,7 +4,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::{vortex_err, VortexResult};
 
 use crate::field::Field;
-use crate::{flatbuffers as fb, DType, StructDType, ViewedFieldDType};
+use crate::{flatbuffers as fb, DType, StructDType, ViewedDType};
 
 /// Convert name references in projection list into index references.
 ///
@@ -77,7 +77,7 @@ fn read_field(
         .ok_or_else(|| vortex_err!("Missing field dtypes"))?
         .get(idx);
 
-    let field_view_dtype = ViewedFieldDType {
+    let field_view_dtype = ViewedDType {
         buffer: buffer.clone(),
         flatbuffer_loc: fb_dtype._tab.loc(),
     };

@@ -4,7 +4,7 @@ use flatbuffers::root;
 use itertools::Itertools;
 use vortex_array::ContextRef;
 use vortex_buffer::{ByteBuffer, ByteBufferMut};
-use vortex_dtype::{DType, ViewedFieldDType};
+use vortex_dtype::{DType, ViewedDType};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_flatbuffers::{dtype as fbd, footer2 as fb, ReadFlatBuffer};
 use vortex_io::VortexReadAt;
@@ -169,7 +169,7 @@ impl OpenOptions {
         let sliced_buffer = initial_read.slice(offset..offset + dtype.length);
         let fbd_dtype = root::<fbd::DType>(&sliced_buffer)?;
 
-        let v = ViewedFieldDType::from_fb(fbd_dtype, sliced_buffer.clone());
+        let v = ViewedDType::from_fb(fbd_dtype, sliced_buffer.clone());
         DType::try_from(v)
     }
 

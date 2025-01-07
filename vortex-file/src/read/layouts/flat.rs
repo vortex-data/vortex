@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use vortex_array::{ArrayData, ContextRef};
+use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexResult};
 use vortex_flatbuffers::footer;
 use vortex_ipc::messages::{BufMessageReader, DecoderMessage};
@@ -10,8 +11,8 @@ use vortex_ipc::messages::{BufMessageReader, DecoderMessage};
 use crate::byte_range::ByteRange;
 use crate::read::mask::RowMask;
 use crate::{
-    Layout, LayoutDeserializer, LayoutId, LayoutPath, LayoutReader, LazyDType, MessageCache,
-    MessageLocator, PollRead, Scan, FLAT_LAYOUT_ID,
+    Layout, LayoutDeserializer, LayoutId, LayoutPath, LayoutReader, MessageCache, MessageLocator,
+    PollRead, Scan, FLAT_LAYOUT_ID,
 };
 
 #[derive(Debug)]
@@ -26,7 +27,7 @@ impl Layout for FlatLayout {
         &self,
         path: LayoutPath,
         layout: footer::Layout,
-        dtype: Arc<LazyDType>,
+        dtype: Arc<DType>,
         scan: Scan,
         layout_serde: LayoutDeserializer,
     ) -> VortexResult<Arc<dyn LayoutReader>> {
@@ -51,7 +52,7 @@ pub struct FlatLayoutReader {
     path: LayoutPath,
     range: ByteRange,
     scan: Scan,
-    dtype: Arc<LazyDType>,
+    dtype: Arc<DType>,
     ctx: ContextRef,
 }
 
@@ -64,7 +65,7 @@ impl FlatLayoutReader {
         let mut reader = BufMessageReader::new(buf);
         match reader.next().transpose()? {
             Some(DecoderMessage::Array(array_parts)) => {
-                array_parts.into_array_data(self.ctx.clone(), self.dtype.value()?.clone())
+                array_parts.into_array_data(self.ctx.clone(), self.dtype.as_ref().clone())
             }
             Some(msg) => vortex_bail!("Expected Array message, got {:?}", msg),
             None => vortex_bail!("Expected Array message, got EOF"),
@@ -111,17 +112,16 @@ mod tests {
     use bytes::Bytes;
     use vortex_array::{Context, IntoArrayData, IntoArrayVariant, ToArrayData};
     use vortex_buffer::Buffer;
-    use vortex_dtype::PType;
+    use vortex_dtype::{DType, PType};
     use vortex_expr::{gt, lit, BinaryExpr, Identity, Operator, RowFilter};
     use vortex_ipc::messages::{EncoderMessage, SyncMessageWriter};
 
     use crate::byte_range::ByteRange;
     use crate::layouts::flat::FlatLayoutReader;
-    use crate::read::cache::LazyDType;
     use crate::read::layouts::test_read::{filter_read_layout, read_layout};
     use crate::{LayoutMessageCache, LayoutPath, Scan};
 
-    async fn read_only_layout() -> (FlatLayoutReader, Bytes, usize, Arc<LazyDType>) {
+    async fn read_only_layout() -> (FlatLayoutReader, Bytes, usize, Arc<DType>) {
         let array = Buffer::from_iter(0..100).into_array();
 
         let mut written = vec![];
@@ -130,7 +130,7 @@ mod tests {
             .unwrap();
 
         let projection_scan = Scan::empty();
-        let dtype = Arc::new(LazyDType::from_dtype(PType::I32.into()));
+        let dtype = Arc::new(DType::from(PType::I32));
 
         (
             FlatLayoutReader {

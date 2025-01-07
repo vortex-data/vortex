@@ -3,11 +3,12 @@ use std::sync::Arc;
 
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::ContextRef;
+use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexResult};
 use vortex_flatbuffers::footer as fb;
 
 use crate::layouts::{ChunkedLayout, ColumnarLayout, FlatLayout};
-use crate::{LayoutPath, LayoutReader, LazyDType, Scan};
+use crate::{LayoutPath, LayoutReader, Scan};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub struct LayoutId(pub u16);
@@ -25,7 +26,7 @@ pub trait Layout: Debug + Send + Sync {
         &self,
         path: LayoutPath,
         layout: fb::Layout,
-        dtype: Arc<LazyDType>,
+        dtype: Arc<DType>,
         scan: Scan,
         layout_serde: LayoutDeserializer,
     ) -> VortexResult<Arc<dyn LayoutReader>>;
@@ -75,7 +76,7 @@ impl LayoutDeserializer {
         path: LayoutPath,
         layout: fb::Layout,
         scan: Scan,
-        dtype: Arc<LazyDType>,
+        dtype: Arc<DType>,
     ) -> VortexResult<Arc<dyn LayoutReader>> {
         let layout_id = LayoutId(layout.encoding());
         self.layout_ctx

@@ -7,7 +7,7 @@ use once_cell::sync::OnceCell;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::flatbuffers::{extract_field, project_and_deserialize, resolve_field};
-use vortex_dtype::{DType, Field, FieldNames, ViewedFieldDType};
+use vortex_dtype::{DType, Field, FieldNames, ViewedDType};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_flatbuffers::dtype as fbd;
 
@@ -219,27 +219,6 @@ impl LazyDType {
             LazyDTypeState::Unknown => vortex_bail!("Unknown dtype"),
         }
     }
-
-    /// Convert all name based references to index based to create globally addressable filter
-    pub(crate) fn resolve_field(&self, field: &Field) -> VortexResult<usize> {
-        match &self.inner {
-            LazyDTypeState::DType(dtype) => {
-                let DType::Struct(sdt, _) = dtype else {
-                    vortex_bail!("Trying to resolve fields in non struct dtype")
-                };
-                match field {
-                    Field::Name(n) => sdt
-                        .names()
-                        .iter()
-                        .position(|name| name == n)
-                        .ok_or_else(|| vortex_err!("Can't find {n} in the type")),
-                    Field::Index(i) => Ok(*i),
-                }
-            }
-            LazyDTypeState::Serialized(b, ..) => resolve_field(fb_struct(b.as_ref())?, field),
-            LazyDTypeState::Unknown => vortex_bail!("Unknown dtype"),
-        }
-    }
 }
 
 fn field_names(bytes: &[u8], dtype_field: &SerializedDTypeField) -> VortexResult<FieldNames> {
@@ -267,7 +246,7 @@ fn project_dtype_bytes(
     dtype_field: &SerializedDTypeField,
 ) -> VortexResult<DType> {
     let fb_dtype = fb_dtype(bytes.as_ref());
-    let view = ViewedFieldDType {
+    let view = ViewedDType {
         buffer: bytes.clone(),
         flatbuffer_loc: fb_dtype._tab.loc(),
     };

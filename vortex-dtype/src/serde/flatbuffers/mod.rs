@@ -6,16 +6,16 @@ use vortex_error::{vortex_bail, vortex_err, VortexError};
 use vortex_flatbuffers::{FlatBufferRoot, WriteFlatBuffer};
 
 use crate::{
-    flatbuffers as fb, DType, ExtDType, ExtID, ExtMetadata, PType, StructDType, ViewedFieldDType,
+    flatbuffers as fb, DType, ExtDType, ExtID, ExtMetadata, PType, StructDType, ViewedDType,
 };
 
 mod project;
 pub use project::*;
 
-impl TryFrom<ViewedFieldDType> for DType {
+impl TryFrom<ViewedDType> for DType {
     type Error = VortexError;
 
-    fn try_from(vfdt: ViewedFieldDType) -> Result<Self, Self::Error> {
+    fn try_from(vfdt: ViewedDType) -> Result<Self, Self::Error> {
         let fb = vfdt.flatbuffer();
         match fb.type_type() {
             fb::Type::Null => Ok(Self::Null),
@@ -54,7 +54,7 @@ impl TryFrom<ViewedFieldDType> for DType {
                 let list_element = fb_list.element_type().ok_or_else(|| {
                     vortex_err!("failed to parse list element type from flatbuffer")
                 })?;
-                let element_dtype = Self::try_from(ViewedFieldDType {
+                let element_dtype = Self::try_from(ViewedDType {
                     buffer: vfdt.buffer.clone(),
                     flatbuffer_loc: list_element._tab.loc(),
                 })?;
@@ -84,7 +84,7 @@ impl TryFrom<ViewedFieldDType> for DType {
                     vortex_err!(
                 InvalidSerde: "storage_dtype must be present on DType fbs message")
                 })?;
-                let storage_view = ViewedFieldDType {
+                let storage_view = ViewedDType {
                     buffer: vfdt.buffer.clone(),
                     flatbuffer_loc: storage_dtype._tab.loc(),
                 };
@@ -261,12 +261,12 @@ mod test {
     use vortex_flatbuffers::WriteFlatBufferExt;
 
     use crate::nullability::Nullability;
-    use crate::{flatbuffers as fb, DType, PType, StructDType, ViewedFieldDType};
+    use crate::{flatbuffers as fb, DType, PType, StructDType, ViewedDType};
 
     fn roundtrip_dtype(dtype: DType) {
         let bytes = dtype.write_flatbuffer_bytes();
         let root_fb = root::<fb::DType>(&bytes).unwrap();
-        let view = ViewedFieldDType {
+        let view = ViewedDType {
             buffer: ByteBuffer::from(bytes.clone()),
             flatbuffer_loc: root_fb._tab.loc(),
         };

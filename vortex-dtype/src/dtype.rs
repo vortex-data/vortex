@@ -2,7 +2,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::sync::Arc;
 
-use flatbuffers::root;
+use flatbuffers::{root, root_unchecked};
 use itertools::Itertools;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult};
@@ -180,18 +180,25 @@ impl Display for DType {
 }
 
 #[derive(Debug, Clone, PartialOrd, PartialEq, Eq)]
-pub struct ViewedFieldDType {
+pub struct ViewedDType {
     /// Underlying flatbuffer
     pub buffer: ByteBuffer,
     /// Location of the dtype data inside the underlying buffer
     pub flatbuffer_loc: usize,
 }
 
-impl ViewedFieldDType {
+impl ViewedDType {
     pub fn from_fb(fb_dtype: fbd::DType<'_>, buffer: ByteBuffer) -> Self {
         Self {
             buffer,
             flatbuffer_loc: fb_dtype._tab.loc(),
+        }
+    }
+
+    pub fn with_location(location: usize, buffer: ByteBuffer) -> Self {
+        Self {
+            buffer,
+            flatbuffer_loc: location,
         }
     }
 
@@ -209,7 +216,7 @@ impl ViewedFieldDType {
 #[derive(Debug, Clone, PartialOrd, Eq)]
 pub enum FieldDType {
     Owned(DType),
-    View(ViewedFieldDType),
+    View(ViewedDType),
 }
 
 impl PartialEq for FieldDType {
@@ -348,7 +355,7 @@ impl StructDType {
             .ok_or_else(|| vortex_err!("failed to parse struct dtypes from flatbuffer"))?
             .iter()
             .map(|dt| {
-                FieldDType::View(ViewedFieldDType {
+                FieldDType::View(ViewedDType {
                     buffer: buffer.clone(),
                     flatbuffer_loc: dt._tab.loc(),
                 })
@@ -365,6 +372,15 @@ impl StructDType {
             .ok_or_else(|| vortex_err!("failed to parse struct from flatbuffer"))?;
 
         Self::from_fb(fb_struct, buffer.clone())
+    }
+
+    /// # Safety
+    /// Parse a StructDType out of a buffer, must be validated by the other otherwise might panic or behave unexpectedly.
+    pub unsafe fn from_bytes_unchecked(buffer: ByteBuffer) -> Self {
+        let fb_struct = unsafe { root_unchecked::<fbd::DType>(&buffer) }
+            .type__as_struct_()
+            .vortex_expect("failed to parse struct from flatbuffer");
+        Self::from_fb(fb_struct, buffer.clone()).vortex_expect("Failed to build StructDType")
     }
 
     /// Get the names of the fields in the struct

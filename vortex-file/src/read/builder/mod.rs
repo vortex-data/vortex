@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use initial_read::read_initial_bytes;
 use vortex_array::{ArrayDType, ArrayData};
-use vortex_error::VortexResult;
+use vortex_dtype::DType;
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_expr::{RowFilter, Select};
 use vortex_io::{IoDispatcher, VortexReadAt};
 
@@ -140,11 +141,18 @@ impl<R: VortexReadAt + Unpin> VortexReadBuilder<R> {
         let layout = initial_read.fb_layout();
 
         let row_count = layout.row_count();
-        let lazy_dtype = Arc::new(initial_read.lazy_dtype());
+        let top_level_dtype = Arc::new(initial_read.dtype());
 
         let projected_dtype = match self.projection {
-            Projection::All => lazy_dtype.clone(),
-            Projection::Flat(ref fields) => lazy_dtype.project(fields)?,
+            Projection::All => top_level_dtype.clone(),
+            Projection::Flat(ref fields) => {
+                if let Some(struct_dtype) = top_level_dtype.as_struct() {
+                    let projected = struct_dtype.project(fields)?;
+                    Arc::new(DType::Struct(projected, top_level_dtype.nullability()))
+                } else {
+                    vortex_bail!("Can't project non-struct dtypes, got {top_level_dtype}");
+                }
+            }
         };
 
         let message_cache = LayoutMessageCache::default();
@@ -155,7 +163,7 @@ impl<R: VortexReadAt + Unpin> VortexReadBuilder<R> {
                 Projection::All => Scan::empty(),
                 Projection::Flat(p) => Scan::new(Arc::new(Select::include(p))),
             },
-            lazy_dtype.clone(),
+            top_level_dtype.clone(),
         )?;
 
         let filter_reader = self
@@ -165,7 +173,7 @@ impl<R: VortexReadAt + Unpin> VortexReadBuilder<R> {
                     LayoutPath::default(),
                     initial_read.fb_layout(),
                     Scan::new(Arc::new(row_filter)),
-                    lazy_dtype,
+                    top_level_dtype,
                 )
             })
             .transpose()?;
