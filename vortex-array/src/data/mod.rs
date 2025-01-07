@@ -8,7 +8,7 @@ use owned::OwnedArrayData;
 use viewed::ViewedArrayData;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_error::{vortex_err, VortexError, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::array::{
@@ -16,13 +16,13 @@ use crate::array::{
     VarBinEncoding, VarBinViewEncoding,
 };
 use crate::compute::scalar_at;
-use crate::encoding::{EncodingId, EncodingRef, EncodingVTable};
+use crate::encoding::{Encoding, EncodingId, EncodingRef, EncodingVTable};
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
 use crate::stats::{ArrayStatistics, Stat, Statistics, StatsSet};
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::validity::{ArrayValidity, LogicalValidity, ValidityVTable};
 use crate::{
-    ArrayChildrenIterator, ArrayDType, ArrayLen, ArrayMetadata, Context, NamedChildrenCollector,
+    ArrayChildrenIterator, ArrayDType, ArrayLen, ArrayMetadata, ContextRef, NamedChildrenCollector,
     TryDeserializeArrayMetadata,
 };
 
@@ -61,7 +61,7 @@ impl ArrayData {
         dtype: DType,
         len: usize,
         metadata: Arc<dyn ArrayMetadata>,
-        buffer: Option<ByteBuffer>,
+        buffers: Arc<[ByteBuffer]>,
         children: Arc<[ArrayData]>,
         statistics: StatsSet,
     ) -> VortexResult<Self> {
@@ -70,7 +70,7 @@ impl ArrayData {
             dtype,
             len,
             metadata,
-            buffer,
+            buffers,
             children,
             stats_set: Arc::new(RwLock::new(statistics)),
             #[cfg(feature = "canonical_counter")]
@@ -79,7 +79,7 @@ impl ArrayData {
     }
 
     pub fn try_new_viewed<F>(
-        ctx: Arc<Context>,
+        ctx: ContextRef,
         dtype: DType,
         len: usize,
         // TODO(ngates): use ConstByteBuffer
@@ -247,7 +247,7 @@ impl ArrayData {
             .iter()
             .map(|child| child.cumulative_nbuffers())
             .sum::<usize>()
-            + if self.byte_buffer().is_some() { 1 } else { 0 }
+            + self.nbuffers()
     }
 
     /// Return the buffer offsets and the total length of all buffers, assuming the given alignment.
@@ -257,7 +257,7 @@ impl ArrayData {
         let mut offset = 0;
 
         for col_data in self.depth_first_traversal() {
-            if let Some(buffer) = col_data.byte_buffer() {
+            for buffer in col_data.byte_buffers() {
                 offsets.push(offset as u64);
 
                 let buffer_size = buffer.len();
@@ -320,17 +320,30 @@ impl ArrayData {
         }
     }
 
-    pub fn byte_buffer(&self) -> Option<&ByteBuffer> {
+    pub fn nbuffers(&self) -> usize {
         match &self.0 {
-            InnerArrayData::Owned(d) => d.byte_buffer(),
-            InnerArrayData::Viewed(v) => v.byte_buffer(),
+            InnerArrayData::Owned(o) => o.buffers.len(),
+            InnerArrayData::Viewed(v) => v.nbuffers(),
         }
     }
 
-    pub fn into_byte_buffer(self) -> Option<ByteBuffer> {
+    pub fn byte_buffer(&self, index: usize) -> Option<&ByteBuffer> {
+        match &self.0 {
+            InnerArrayData::Owned(d) => d.byte_buffer(index),
+            InnerArrayData::Viewed(v) => v.buffer(index),
+        }
+    }
+
+    pub fn byte_buffers(&self) -> impl Iterator<Item = ByteBuffer> + '_ {
+        (0..self.nbuffers())
+            .map(|i| self.byte_buffer(i).vortex_expect("missing declared buffer"))
+            .cloned()
+    }
+
+    pub fn into_byte_buffer(self, index: usize) -> Option<ByteBuffer> {
         match self.0 {
-            InnerArrayData::Owned(d) => d.into_byte_buffer(),
-            InnerArrayData::Viewed(v) => v.byte_buffer().cloned(),
+            InnerArrayData::Owned(d) => d.into_byte_buffer(index),
+            InnerArrayData::Viewed(v) => v.buffer(index).cloned(),
         }
     }
 
@@ -370,6 +383,19 @@ impl ArrayData {
             let bt = backtrace::Backtrace::new();
             log::warn!("{:?}", bt);
         }
+    }
+
+    pub fn downcast_array_ref<E: Encoding>(self: &ArrayData) -> VortexResult<(&E::Array, &E)>
+    where
+        for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
+    {
+        let array_ref = <&E::Array>::try_from(self)?;
+        let encoding = self
+            .encoding()
+            .as_any()
+            .downcast_ref::<E>()
+            .ok_or_else(|| vortex_err!("Mismatched encoding"))?;
+        Ok((array_ref, encoding))
     }
 }
 

@@ -242,7 +242,7 @@ where
 }
 
 impl From<PrimitiveScalar<'_>> for Scalar {
-    fn from(pscalar: PrimitiveScalar) -> Self {
+    fn from(pscalar: PrimitiveScalar<'_>) -> Self {
         let dtype = pscalar.dtype().clone();
         let value = pscalar
             .pvalue()

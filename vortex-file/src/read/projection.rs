@@ -1,4 +1,4 @@
-use vortex_dtype::field::Field;
+use vortex_dtype::Field;
 use vortex_error::{vortex_bail, VortexResult};
 
 // TODO(robert): Add ability to project nested columns.

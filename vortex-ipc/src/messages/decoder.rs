@@ -1,10 +1,9 @@
 use std::fmt::{Debug, Formatter};
-use std::sync::Arc;
 
 use bytes::Buf;
 use flatbuffers::{root, root_unchecked, Follow};
 use itertools::Itertools;
-use vortex_array::{flatbuffers as fba, ArrayData, Context};
+use vortex_array::{flatbuffers as fba, ArrayData, ContextRef};
 use vortex_buffer::{AlignedBuf, Alignment, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
@@ -15,7 +14,7 @@ use crate::ALIGNMENT;
 
 /// A message decoded from an IPC stream.
 ///
-/// Note that the `Array` variant cannot fully decode into an [`ArrayData`] without a [`Context`]
+/// Note that the `Array` variant cannot fully decode into an [`ArrayData`] without a [`ContextRef`]
 /// and a [`DType`]. As such, we partially decode into an [`ArrayParts`] and allow the caller to
 /// finish the decoding.
 #[derive(Debug)]
@@ -47,7 +46,7 @@ impl Debug for ArrayParts {
 }
 
 impl ArrayParts {
-    pub fn into_array_data(self, ctx: Arc<Context>, dtype: DType) -> VortexResult<ArrayData> {
+    pub fn into_array_data(self, ctx: ContextRef, dtype: DType) -> VortexResult<ArrayData> {
         ArrayData::try_new_viewed(
             ctx,
             dtype,
@@ -88,12 +87,11 @@ pub enum PollRead {
     NeedMore(usize),
 }
 
+// NOTE(ngates): we should design some trait that the Decoder can take that doesn't require unique
+//  ownership of the underlying bytes. The decoder needs to split out bytes, and advance a cursor,
+//  but it doesn't need to mutate any bytes. So in theory, we should be able to do this zero-copy
+//  over a shared buffer of bytes, instead of requiring a `BytesMut`.
 /// A stateful reader for decoding IPC messages from an arbitrary stream of bytes.
-///
-/// NOTE(ngates): we should design some trait that the Decoder can take that doesn't require unique
-///  ownership of the underlying bytes. The decoder needs to split out bytes, and advance a cursor,
-///  but it doesn't need to mutate any bytes. So in theory, we should be able to do this zero-copy
-///  over a shared buffer of bytes, instead of requiring a `BytesMut`.
 pub struct MessageDecoder {
     /// The minimum alignment to use when reading a data `Buffer`.
     alignment: Alignment,
@@ -173,7 +171,7 @@ impl MessageDecoder {
                             self.state = State::Buffer(ReadingBuffer {
                                 length,
                                 length_with_padding,
-                                alignment: buffer.alignment_().max(1).into(),
+                                alignment: buffer.alignment().max(1).into(),
                             });
                         }
                         MessageHeader::DType => {
@@ -233,7 +231,7 @@ impl MessageDecoder {
                         .map(|buffer_msg| {
                             let buffer_len = usize::try_from(buffer_msg.length())
                                 .vortex_expect("buffer length is too large for usize");
-                            let buffer_alignment = Alignment::from(buffer_msg.alignment_().max(1));
+                            let buffer_alignment = Alignment::from(buffer_msg.alignment().max(1));
 
                             // Ensure the buffer is read with maximum of reader and message alignment.
                             let read_alignment = self.alignment.max(buffer_alignment);
@@ -291,7 +289,7 @@ mod test {
 
         // Decode the array parts with the context
         let actual = array_parts
-            .into_array_data(Arc::new(Context::default()), expected.dtype().clone())
+            .into_array_data(Default::default(), expected.dtype().clone())
             .unwrap();
 
         assert_eq!(expected.len(), actual.len());
@@ -308,7 +306,7 @@ mod test {
         // Constant arrays have no buffers
         let array = ConstantArray::new(10i32, 20).into_array();
         assert!(
-            array.byte_buffer().is_none(),
+            array.byte_buffer(0).is_none(),
             "Array should have no buffers"
         );
         write_and_read(array);

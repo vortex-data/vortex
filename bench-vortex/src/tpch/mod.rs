@@ -283,7 +283,7 @@ async fn register_vortex_file(
     })
     .await?;
 
-    let format = Arc::new(VortexFormat::new(&CTX));
+    let format = Arc::new(VortexFormat::new(CTX.clone()));
     let table_url = ListingTableUrl::parse(vtx_file.to_str().unwrap())?;
     let config = ListingTableConfig::new(table_url)
         .with_listing_options(ListingOptions::new(format as _))

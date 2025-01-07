@@ -45,7 +45,6 @@ log = { workspace = true, features = ["max_level_debug"] }
 mimalloc = { workspace = true }
 object_store = { workspace = true, features = ["aws"] }
 parquet = { workspace = true, features = ["async"] }
-prettytable-rs = { workspace = true }
 rand = { workspace = true }
 rayon = { workspace = true }
 regex = { workspace = true }

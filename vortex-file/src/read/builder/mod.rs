@@ -3,14 +3,13 @@ use std::sync::Arc;
 use initial_read::read_initial_bytes;
 use vortex_array::{ArrayDType, ArrayData};
 use vortex_error::VortexResult;
-use vortex_expr::Select;
+use vortex_expr::{RowFilter, Select};
 use vortex_io::{IoDispatcher, VortexReadAt};
 
 use super::handle::VortexReadHandle;
 use super::InitialRead;
 use crate::read::cache::LayoutMessageCache;
 use crate::read::context::LayoutDeserializer;
-use crate::read::filtering::RowFilter;
 use crate::read::projection::Projection;
 use crate::read::{RowMask, Scan};
 use crate::LayoutPath;

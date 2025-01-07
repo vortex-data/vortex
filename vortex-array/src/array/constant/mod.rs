@@ -18,7 +18,7 @@ impl_encoding!("vortex.constant", ids::CONSTANT, Constant);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConstantMetadata {
-    scalar_value: ScalarValue,
+    pub(crate) scalar_value: ScalarValue,
 }
 
 impl Display for ConstantMetadata {

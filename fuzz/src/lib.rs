@@ -6,12 +6,15 @@ mod take;
 
 use std::fmt::Debug;
 use std::iter;
-use std::ops::Range;
+use std::ops::{Range, RangeInclusive};
 
 use libfuzzer_sys::arbitrary::Error::EmptyChoose;
 use libfuzzer_sys::arbitrary::{Arbitrary, Result, Unstructured};
 pub use sort::sort_canonical_array;
+use vortex_array::aliases::hash_set::HashSet;
+use vortex_array::array::ListEncoding;
 use vortex_array::compute::{scalar_at, FilterMask, SearchResult, SearchSortedSide};
+use vortex_array::encoding::{Encoding, EncodingRef};
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_buffer::Buffer;
 use vortex_sampling_compressor::SamplingCompressor;
@@ -64,10 +67,13 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
     fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
         let array = ArrayData::arbitrary(u)?;
         let mut current_array = array.clone();
+
+        let valid_actions = actions_for_array(&current_array);
+
         let mut actions = Vec::new();
         let action_count = u.int_in_range(1..=4)?;
         for _ in 0..action_count {
-            actions.push(match u.int_in_range(0..=4)? {
+            actions.push(match random_value_from_list(u, valid_actions.as_slice())? {
                 0 => {
                     if actions
                         .last()
@@ -163,4 +169,29 @@ fn random_vec_in_range(u: &mut Unstructured<'_>, min: usize, max: usize) -> Resu
         }
     })
     .collect::<Result<Vec<_>>>()
+}
+
+fn random_value_from_list(u: &mut Unstructured<'_>, vec: &[usize]) -> Result<usize> {
+    u.choose_iter(vec).cloned()
+}
+
+const ALL_ACTIONS: RangeInclusive<usize> = 0..=4;
+
+fn actions_for_encoding(encoding: EncodingRef) -> HashSet<usize> {
+    if ListEncoding::ID == encoding.id() {
+        // compress, slice
+        vec![0, 1].into_iter().collect()
+    } else {
+        ALL_ACTIONS.collect()
+    }
+}
+
+fn actions_for_array(array: &ArrayData) -> Vec<usize> {
+    array
+        .depth_first_traversal()
+        .map(|child| actions_for_encoding(child.encoding()))
+        .fold(ALL_ACTIONS.collect::<Vec<_>>(), |mut acc, actions| {
+            acc.retain(|a| actions.contains(a));
+            acc
+        })
 }

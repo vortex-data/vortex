@@ -33,9 +33,9 @@ impl_encoding!("vortex.varbin", ids::VAR_BIN, VarBin);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VarBinMetadata {
-    validity: ValidityMetadata,
-    offsets_ptype: PType,
-    bytes_len: usize,
+    pub(crate) validity: ValidityMetadata,
+    pub(crate) offsets_ptype: PType,
+    pub(crate) bytes_len: usize,
 }
 
 impl Display for VarBinMetadata {

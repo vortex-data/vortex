@@ -12,7 +12,7 @@ use num_enum::{IntoPrimitive, TryFromPrimitive};
 pub use statsset::*;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, NativePType, PType};
-use vortex_error::{vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult};
+use vortex_error::{vortex_panic, VortexError, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::encoding::Encoding;
@@ -205,12 +205,7 @@ where
     for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
 {
     fn compute_statistics(&self, array: &ArrayData, stat: Stat) -> VortexResult<StatsSet> {
-        let array_ref = <&E::Array>::try_from(array)?;
-        let encoding = array
-            .encoding()
-            .as_any()
-            .downcast_ref::<E>()
-            .ok_or_else(|| vortex_err!("Mismatched encoding"))?;
+        let (array_ref, encoding) = array.downcast_array_ref::<E>()?;
         StatisticsVTable::compute_statistics(encoding, array_ref, stat)
     }
 }

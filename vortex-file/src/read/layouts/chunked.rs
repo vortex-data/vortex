@@ -8,14 +8,13 @@ use vortex_array::compute::{scalar_at, take};
 use vortex_array::stats::{stats_from_bitset_bytes, ArrayStatistics as _, Stat};
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
 use vortex_buffer::Buffer;
-use vortex_dtype::field::Field;
-use vortex_dtype::{DType, Nullability, StructDType};
+use vortex_dtype::{DType, Field, Nullability, StructDType};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
+use vortex_expr::pruning::PruningPredicate;
 use vortex_expr::Select;
 use vortex_flatbuffers::footer as fb;
 
 use crate::layouts::RangedLayoutReader;
-use crate::pruning::PruningPredicate;
 use crate::read::mask::RowMask;
 use crate::{
     Layout, LayoutDeserializer, LayoutId, LayoutPartId, LayoutPath, LayoutReader, LazyDType,
@@ -429,7 +428,7 @@ mod tests {
     use vortex_array::{ArrayDType, ArrayLen, IntoArrayData, IntoArrayVariant};
     use vortex_buffer::Buffer;
     use vortex_dtype::PType;
-    use vortex_expr::{BinaryExpr, Identity, Literal, Operator};
+    use vortex_expr::{gt, lit, Identity, RowFilter};
     use vortex_flatbuffers::{footer, WriteFlatBuffer};
     use vortex_ipc::messages::{AsyncMessageWriter, EncoderMessage};
 
@@ -438,7 +437,7 @@ mod tests {
     use crate::read::cache::LazyDType;
     use crate::read::layouts::test_read::{filter_read_layout, read_layout, read_layout_data};
     use crate::read::mask::RowMask;
-    use crate::{write, LayoutDeserializer, LayoutMessageCache, LayoutPath, RowFilter, Scan};
+    use crate::{write, LayoutDeserializer, LayoutMessageCache, LayoutPath, Scan};
 
     async fn layout_and_bytes(
         scan: Scan,
@@ -516,13 +515,10 @@ mod tests {
     #[tokio::test]
     #[cfg_attr(miri, ignore)]
     async fn read_range() {
-        let (filter_layout, projection_layout, buf, length) =
-            layout_and_bytes(Scan::new(RowFilter::new_expr(BinaryExpr::new_expr(
-                Arc::new(Identity),
-                Operator::Gt,
-                Literal::new_expr(10.into()),
-            ))))
-            .await;
+        let (filter_layout, projection_layout, buf, length) = layout_and_bytes(Scan::new(
+            RowFilter::new_expr(gt(Arc::new(Identity), lit(10))),
+        ))
+        .await;
 
         assert_eq!(filter_layout.n_chunks(), 5);
         assert_eq!(projection_layout.n_chunks(), 5);

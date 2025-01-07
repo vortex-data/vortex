@@ -1,10 +1,13 @@
+use arrow_buffer::ArrowNativeType;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::array::{BoolArray, PrimitiveArray, StructArray, VarBinViewArray};
+use vortex_array::builders::{builder_with_capacity, ArrayBuilderExt};
+use vortex_array::compute::scalar_at;
 use vortex_array::validity::{ArrayValidity, Validity};
 use vortex_array::variants::StructArrayTrait;
 use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
 use vortex_buffer::Buffer;
-use vortex_dtype::{match_each_native_ptype, DType};
+use vortex_dtype::{match_each_native_ptype, DType, NativePType};
 use vortex_error::VortexExpect;
 
 pub fn take_canonical_array(array: &ArrayData, indices: &[usize]) -> ArrayData {
@@ -31,16 +34,12 @@ pub fn take_canonical_array(array: &ArrayData, indices: &[usize]) -> ArrayData {
                 .vortex_expect("Validity length cannot mismatch")
                 .into_array()
         }
-        DType::Primitive(p, _) => match_each_native_ptype!(p, |$P| {
+        DType::Primitive(p, _) => {
             let primitive_array = array.clone().into_primitive().unwrap();
-            let vec_values = primitive_array
-                .as_slice::<$P>()
-                .iter()
-                .copied()
-                .collect::<Vec<_>>();
-            PrimitiveArray::new(indices.iter().map(|i| vec_values[*i]).collect::<Buffer<$P>>(), validity)
-                .into_array()
-        }),
+            match_each_native_ptype!(p, |$P| {
+                take_primitive::<$P>(primitive_array, validity, indices)
+            })
+        }
         DType::Utf8(_) | DType::Binary(_) => {
             let utf8 = array.clone().into_varbinview().unwrap();
             let values = utf8
@@ -68,6 +67,31 @@ pub fn take_canonical_array(array: &ArrayData, indices: &[usize]) -> ArrayData {
             .unwrap()
             .into_array()
         }
+        DType::List(..) => {
+            let mut builder = builder_with_capacity(array.dtype(), indices.len());
+            for idx in indices {
+                builder
+                    .append_scalar(&scalar_at(array, *idx).unwrap())
+                    .unwrap();
+            }
+            builder.finish().unwrap()
+        }
         _ => unreachable!("Not a canonical array"),
     }
+}
+
+fn take_primitive<T: NativePType + ArrowNativeType>(
+    primitive_array: PrimitiveArray,
+    validity: Validity,
+    indices: &[usize],
+) -> ArrayData {
+    let vec_values = primitive_array.as_slice::<T>().to_vec();
+    PrimitiveArray::new(
+        indices
+            .iter()
+            .map(|i| vec_values[*i])
+            .collect::<Buffer<T>>(),
+        validity,
+    )
+    .into_array()
 }

@@ -8,23 +8,23 @@ use futures::StreamExt;
 use futures_util::TryStreamExt;
 use itertools::Itertools;
 use vortex_array::accessor::ArrayAccessor;
-use vortex_array::array::{ChunkedArray, PrimitiveArray, StructArray, VarBinArray};
+use vortex_array::array::{ChunkedArray, ListArray, PrimitiveArray, StructArray, VarBinArray};
 use vortex_array::compute::scalar_at;
 use vortex_array::validity::Validity;
 use vortex_array::variants::{PrimitiveArrayTrait, StructArrayTrait};
 use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
 use vortex_buffer::{buffer, Buffer};
-use vortex_dtype::field::Field;
-use vortex_dtype::{DType, Nullability, PType, StructDType};
+use vortex_dtype::PType::I32;
+use vortex_dtype::{DType, Field, Nullability, PType, StructDType};
 use vortex_error::{vortex_panic, VortexResult};
-use vortex_expr::{BinaryExpr, Column, Literal, Operator};
+use vortex_expr::{col, lit, BinaryExpr, Operator, RowFilter};
 use vortex_io::VortexReadAt;
 
 use crate::builder::initial_read::read_initial_bytes;
 use crate::write::VortexFileWriter;
 use crate::{
-    LayoutDeserializer, LayoutPath, Projection, RowFilter, Scan, VortexReadBuilder,
-    V1_FOOTER_FBS_SIZE, VERSION,
+    LayoutDeserializer, LayoutPath, Projection, Scan, VortexReadBuilder, V1_FOOTER_FBS_SIZE,
+    VERSION,
 };
 
 #[test]
@@ -89,7 +89,23 @@ async fn test_read_simple_with_spawn() {
     ])
     .into_array();
 
-    let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
+    let lists = ChunkedArray::from_iter([
+        ListArray::from_iter_slow(
+            vec![vec![11, 12], vec![21, 22], vec![31, 32], vec![41, 42]],
+            Arc::new(I32.into()),
+        )
+        .unwrap(),
+        ListArray::from_iter_slow(
+            vec![vec![51, 52], vec![61, 62], vec![71, 72], vec![81, 82]],
+            Arc::new(I32.into()),
+        )
+        .unwrap(),
+    ])
+    .into_array();
+
+    let st =
+        StructArray::from_fields(&[("strings", strings), ("numbers", numbers), ("lists", lists)])
+            .unwrap();
     let buf = Vec::new();
 
     let written = tokio::spawn(async move {
@@ -410,9 +426,9 @@ async fn filter_string() {
     let written = Bytes::from(writer.finalize().await.unwrap());
     let stream = VortexReadBuilder::new(written, LayoutDeserializer::default())
         .with_row_filter(RowFilter::new(BinaryExpr::new_expr(
-            Column::new_expr(Field::from("name")),
+            col(Field::from("name")),
             Operator::Eq,
-            Literal::new_expr("Joseph".into()),
+            lit("Joseph"),
         )))
         .build()
         .await
@@ -458,24 +474,12 @@ async fn filter_or() {
     let written = Bytes::from(writer.finalize().await.unwrap());
     let mut reader = VortexReadBuilder::new(written, LayoutDeserializer::default())
         .with_row_filter(RowFilter::new(BinaryExpr::new_expr(
-            BinaryExpr::new_expr(
-                Column::new_expr(Field::from("name")),
-                Operator::Eq,
-                Literal::new_expr("Angela".into()),
-            ),
+            BinaryExpr::new_expr(col(Field::from("name")), Operator::Eq, lit("Angela")),
             Operator::Or,
             BinaryExpr::new_expr(
-                BinaryExpr::new_expr(
-                    Column::new_expr(Field::from("age")),
-                    Operator::Gte,
-                    Literal::new_expr(20.into()),
-                ),
+                BinaryExpr::new_expr(col(Field::from("age")), Operator::Gte, lit(20)),
                 Operator::And,
-                BinaryExpr::new_expr(
-                    Column::new_expr(Field::from("age")),
-                    Operator::Lte,
-                    Literal::new_expr(30.into()),
-                ),
+                BinaryExpr::new_expr(col(Field::from("age")), Operator::Lte, lit(30)),
             ),
         )))
         .build()
@@ -531,17 +535,9 @@ async fn filter_and() {
     let written = Bytes::from(writer.finalize().await.unwrap());
     let mut reader = VortexReadBuilder::new(written, LayoutDeserializer::default())
         .with_row_filter(RowFilter::new(BinaryExpr::new_expr(
-            BinaryExpr::new_expr(
-                Column::new_expr(Field::from("age")),
-                Operator::Gt,
-                Literal::new_expr(21.into()),
-            ),
+            BinaryExpr::new_expr(col(Field::from("age")), Operator::Gt, lit(21)),
             Operator::And,
-            BinaryExpr::new_expr(
-                Column::new_expr(Field::from("age")),
-                Operator::Lte,
-                Literal::new_expr(33.into()),
-            ),
+            BinaryExpr::new_expr(col(Field::from("age")), Operator::Lte, lit(33)),
         )))
         .build()
         .await
@@ -739,9 +735,9 @@ async fn test_with_indices_and_with_row_filter_simple() {
     let actual_kept_array = VortexReadBuilder::new(written.clone(), LayoutDeserializer::default())
         .with_indices(ArrayData::from(empty_indices))
         .with_row_filter(RowFilter::new(BinaryExpr::new_expr(
-            Column::new_expr(Field::from("numbers")),
+            col(Field::from("numbers")),
             Operator::Gt,
-            Literal::new_expr(50_i16.into()),
+            lit(50_i16),
         )))
         .build()
         .await
@@ -765,9 +761,9 @@ async fn test_with_indices_and_with_row_filter_simple() {
     let actual_kept_array = VortexReadBuilder::new(written.clone(), LayoutDeserializer::default())
         .with_indices(ArrayData::from(kept_indices_u16))
         .with_row_filter(RowFilter::new(BinaryExpr::new_expr(
-            Column::new_expr(Field::from("numbers")),
+            col(Field::from("numbers")),
             Operator::Gt,
-            Literal::new_expr(50_i16.into()),
+            lit(50_i16),
         )))
         .build()
         .await
@@ -797,9 +793,9 @@ async fn test_with_indices_and_with_row_filter_simple() {
     let actual_array = VortexReadBuilder::new(written.clone(), LayoutDeserializer::default())
         .with_indices(ArrayData::from((0..500).collect::<Buffer<_>>()))
         .with_row_filter(RowFilter::new(BinaryExpr::new_expr(
-            Column::new_expr(Field::from("numbers")),
+            col(Field::from("numbers")),
             Operator::Gt,
-            Literal::new_expr(50_i16.into()),
+            lit(50_i16),
         )))
         .build()
         .await
@@ -863,9 +859,9 @@ async fn filter_string_chunked() {
     let actual_array =
         VortexReadBuilder::new(Bytes::from(written_bytes), LayoutDeserializer::default())
             .with_row_filter(RowFilter::new(BinaryExpr::new_expr(
-                Column::new_expr(Field::from("name")),
+                col(Field::from("name")),
                 Operator::Eq,
-                Literal::new_expr("Joseph".into()),
+                lit("Joseph"),
             )))
             .build()
             .await
@@ -951,17 +947,9 @@ async fn test_pruning_with_or() {
     let actual_array =
         VortexReadBuilder::new(Bytes::from(written_bytes), LayoutDeserializer::default())
             .with_row_filter(RowFilter::new(BinaryExpr::new_expr(
-                BinaryExpr::new_expr(
-                    Column::new_expr(Field::from("letter")),
-                    Operator::Lte,
-                    Literal::new_expr("J".into()),
-                ),
+                BinaryExpr::new_expr(col(Field::from("letter")), Operator::Lte, lit("J")),
                 Operator::Or,
-                BinaryExpr::new_expr(
-                    Column::new_expr(Field::from("number")),
-                    Operator::Lt,
-                    Literal::new_expr(25.into()),
-                ),
+                BinaryExpr::new_expr(col(Field::from("number")), Operator::Lt, lit(25)),
             )))
             .build()
             .await

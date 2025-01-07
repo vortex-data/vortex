@@ -1,5 +1,5 @@
 use vortex_buffer::ByteBuffer;
-use vortex_error::{vortex_err, VortexError, VortexResult};
+use vortex_error::{VortexError, VortexResult};
 
 use crate::encoding::Encoding;
 use crate::patches::Patches;
@@ -16,12 +16,7 @@ where
     for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
 {
     fn accept(&self, array: &ArrayData, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
-        let array_ref = <&E::Array>::try_from(array)?;
-        let encoding = array
-            .encoding()
-            .as_any()
-            .downcast_ref::<E>()
-            .ok_or_else(|| vortex_err!("Mismatched encoding"))?;
+        let (array_ref, encoding) = array.downcast_array_ref::<E>()?;
         VisitorVTable::accept(encoding, array_ref, visitor)
     }
 }

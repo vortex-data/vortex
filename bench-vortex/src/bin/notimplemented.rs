@@ -3,27 +3,29 @@
 use std::process::ExitCode;
 use std::sync::Arc;
 
-use prettytable::{Cell, Row, Table};
-use vortex::alp::{ALPArray, Exponents, RDEncoder};
+use tabled::builder::Builder;
+use tabled::settings::themes::Colorization;
+use tabled::settings::{Color, Style};
 use vortex::array::builder::VarBinBuilder;
 use vortex::array::{
-    BoolArray, ChunkedArray, ConstantArray, NullArray, PrimitiveArray, SparseArray, StructArray,
-    VarBinViewArray,
+    BoolArray, ChunkedArray, ConstantArray, ListArray, NullArray, PrimitiveArray, SparseArray,
+    StructArray, VarBinViewArray,
 };
 use vortex::buffer::buffer;
-use vortex::bytebool::ByteBoolArray;
 use vortex::datetime_dtype::{TemporalMetadata, TimeUnit, TIME_ID};
-use vortex::datetime_parts::DateTimePartsArray;
-use vortex::dict::DictArray;
 use vortex::dtype::{DType, ExtDType, Nullability, PType};
-use vortex::fastlanes::{BitPackedArray, DeltaArray, FoRArray};
-use vortex::fsst::{fsst_compress, fsst_train_compressor};
-use vortex::roaring::{Bitmap, RoaringBoolArray, RoaringIntArray};
-use vortex::runend::RunEndArray;
-use vortex::runend_bool::RunEndBoolArray;
+use vortex::encodings::alp::{ALPArray, Exponents, RDEncoder};
+use vortex::encodings::bytebool::ByteBoolArray;
+use vortex::encodings::datetime_parts::DateTimePartsArray;
+use vortex::encodings::dict::DictArray;
+use vortex::encodings::fastlanes::{BitPackedArray, DeltaArray, FoRArray};
+use vortex::encodings::fsst::{fsst_compress, fsst_train_compressor};
+use vortex::encodings::roaring::{Bitmap, RoaringBoolArray, RoaringIntArray};
+use vortex::encodings::runend::RunEndArray;
+use vortex::encodings::runend_bool::RunEndBoolArray;
+use vortex::encodings::zigzag::ZigZagArray;
 use vortex::scalar::Scalar;
 use vortex::validity::Validity;
-use vortex::zigzag::ZigZagArray;
 use vortex::{ArrayData, IntoArrayData};
 
 fn fsst_array() -> ArrayData {
@@ -107,6 +109,13 @@ fn enc_impls() -> Vec<ArrayData> {
         FoRArray::try_new(buffer![0u32, 1, 2].into_array(), 10.into(), 5)
             .unwrap()
             .into_array(),
+        ListArray::try_new(
+            buffer![0, 1].into_array(),
+            buffer![0, 1, 2].into_array(),
+            Validity::NonNullable,
+        )
+        .unwrap()
+        .into_array(),
         NullArray::new(10).into_array(),
         buffer![0, 1].into_array(),
         RoaringBoolArray::try_new(Bitmap::from([0u32, 10, 20]), 30)
@@ -148,44 +157,61 @@ fn enc_impls() -> Vec<ArrayData> {
     ]
 }
 
-fn bool_to_cell(val: bool) -> Cell {
-    let style = if val { "bcFdBG" } else { "bcBr" };
-    Cell::new(if val { "✓" } else { "𐄂" }).style_spec(style)
-}
-
 fn compute_funcs(encodings: &[ArrayData]) {
-    let mut table = Table::new();
-    table.add_row(Row::new(
-        vec![
-            "Encoding",
-            "cast",
-            "compare",
-            "fill_forward",
-            "filter",
-            "scalar_at",
-            "binary_numeric",
-            "search_sorted",
-            "slice",
-            "take",
+    let mut table_builder = Builder::default();
+    table_builder.push_record(vec![
+        "Encoding",
+        "cast",
+        "compare",
+        "fill_forward",
+        "fill_null",
+        "filter",
+        "scalar_at",
+        "binary_numeric",
+        "search_sorted",
+        "slice",
+        "take",
+    ]);
+    let mut colours = Vec::new();
+    for (i, arr) in encodings.iter().enumerate() {
+        let encoding = arr.encoding();
+        let id = encoding.id();
+        let mut impls = vec![id.as_ref()];
+        for (j, func) in [
+            encoding.cast_fn().is_some(),
+            encoding.compare_fn().is_some(),
+            encoding.fill_forward_fn().is_some(),
+            encoding.fill_null_fn().is_some(),
+            encoding.filter_fn().is_some(),
+            encoding.scalar_at_fn().is_some(),
+            encoding.binary_numeric_fn().is_some(),
+            encoding.search_sorted_fn().is_some(),
+            encoding.slice_fn().is_some(),
+            encoding.take_fn().is_some(),
         ]
         .into_iter()
-        .map(Cell::new)
-        .collect(),
-    ));
-    for arr in encodings {
-        let mut impls = vec![Cell::new(arr.encoding().id().as_ref())];
-        impls.push(bool_to_cell(arr.encoding().cast_fn().is_some()));
-        impls.push(bool_to_cell(arr.encoding().compare_fn().is_some()));
-        impls.push(bool_to_cell(arr.encoding().fill_forward_fn().is_some()));
-        impls.push(bool_to_cell(arr.encoding().filter_fn().is_some()));
-        impls.push(bool_to_cell(arr.encoding().scalar_at_fn().is_some()));
-        impls.push(bool_to_cell(arr.encoding().binary_numeric_fn().is_some()));
-        impls.push(bool_to_cell(arr.encoding().search_sorted_fn().is_some()));
-        impls.push(bool_to_cell(arr.encoding().slice_fn().is_some()));
-        impls.push(bool_to_cell(arr.encoding().take_fn().is_some()));
-        table.add_row(Row::new(impls));
+        .enumerate()
+        {
+            impls.push(if func { "✓" } else { "𐄂" });
+            colours.push(Colorization::exact(
+                [if func {
+                    Color::BG_BRIGHT_GREEN
+                } else {
+                    Color::BG_RED
+                }],
+                (i + 1, j + 1),
+            ));
+        }
+        table_builder.push_record(impls);
     }
-    table.printstd();
+    let mut table = table_builder.build();
+    table.with(Style::modern());
+
+    for color in colours.into_iter() {
+        table.with(color);
+    }
+
+    println!("{table}");
 }
 
 fn main() -> ExitCode {

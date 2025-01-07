@@ -1,0 +1,33 @@
+[package]
+name = "vortex-layout"
+description = "Vortex layouts provide a way to perform lazy push-down scans over abstract storage"
+version.workspace = true
+homepage.workspace = true
+repository.workspace = true
+authors.workspace = true
+license.workspace = true
+keywords.workspace = true
+include.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+readme.workspace = true
+categories.workspace = true
+
+[dependencies]
+arrow-buffer = { workspace = true }
+bytes = { workspace = true }
+flatbuffers = { workspace = true }
+itertools = { workspace = true }
+vortex-array = { workspace = true }
+vortex-buffer = { workspace = true }
+vortex-dtype = { workspace = true, features = ["flatbuffers"] }
+vortex-error = { workspace = true }
+vortex-expr = { workspace = true }
+vortex-flatbuffers = { workspace = true, features = ["layout"] }
+vortex-ipc = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+
+[lints]
+workspace = true

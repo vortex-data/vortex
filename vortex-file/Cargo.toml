@@ -34,6 +34,7 @@ vortex-expr = { workspace = true }
 vortex-flatbuffers = { workspace = true, features = ["file"] }
 vortex-io = { workspace = true }
 vortex-ipc = { workspace = true }
+vortex-layout = { workspace = true }
 vortex-scalar = { workspace = true, features = ["flatbuffers"] }
 
 [dev-dependencies]
@@ -41,6 +42,7 @@ arrow-schema = { workspace = true }
 rstest = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 vortex-io = { path = "../vortex-io", features = ["tokio"] }
+vortex-array = { workspace = true, features = ["test-harness"] }
 
 [lints]
 workspace = true

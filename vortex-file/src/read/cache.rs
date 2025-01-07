@@ -6,9 +6,8 @@ use flatbuffers::root_unchecked;
 use once_cell::sync::OnceCell;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::field::Field;
 use vortex_dtype::flatbuffers::{extract_field, project_and_deserialize, resolve_field};
-use vortex_dtype::{DType, FieldNames};
+use vortex_dtype::{DType, Field, FieldNames};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_flatbuffers::dtype as fbd;
 
@@ -26,7 +25,7 @@ pub struct LayoutMessageCache {
 }
 
 impl LayoutMessageCache {
-    pub fn remove(&mut self, path: &[LayoutPartId]) -> Option<Bytes> {
+    pub fn remove(&self, path: &[LayoutPartId]) -> Option<Bytes> {
         self.cache
             .write()
             .map_err(|_| vortex_err!("Poisoned cache"))
@@ -34,7 +33,7 @@ impl LayoutMessageCache {
             .remove(path)
     }
 
-    pub fn set(&mut self, path: MessageId, value: Bytes) {
+    pub fn set(&self, path: MessageId, value: Bytes) {
         self.cache
             .write()
             .map_err(|_| vortex_err!("Poisoned cache"))
@@ -42,7 +41,7 @@ impl LayoutMessageCache {
             .insert(path, value);
     }
 
-    pub fn set_many<I: IntoIterator<Item = (MessageId, Bytes)>>(&mut self, iter: I) {
+    pub fn set_many<I: IntoIterator<Item = (MessageId, Bytes)>>(&self, iter: I) {
         let mut guard = self
             .cache
             .write()

@@ -233,7 +233,7 @@ pub async fn register_vortex_files(
         .try_collect::<Vec<_>>()
         .await?;
 
-    let format = Arc::new(VortexFormat::new(&CTX));
+    let format = Arc::new(VortexFormat::new(CTX.clone()));
     let table_path = vortex_dir
         .to_str()
         .ok_or_else(|| vortex_err!("Path is not valid UTF-8"))?;

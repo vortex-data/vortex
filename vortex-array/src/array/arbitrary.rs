@@ -88,7 +88,7 @@ fn random_array(u: &mut Unstructured, dtype: &DType, len: Option<usize>) -> Resu
                     .vortex_unwrap()
                     .into_array())
                 }
-                DType::List(ldt, n) => random_list(u, ldt, n),
+                DType::List(ldt, n) => random_list(u, ldt, n, chunk_len),
                 DType::Extension(..) => {
                     todo!("Extension arrays are not implemented")
                 }
@@ -106,14 +106,19 @@ fn random_array(u: &mut Unstructured, dtype: &DType, len: Option<usize>) -> Resu
     }
 }
 
-fn random_list(u: &mut Unstructured, ldt: &Arc<DType>, n: &Nullability) -> Result<ArrayData> {
+fn random_list(
+    u: &mut Unstructured,
+    ldt: &Arc<DType>,
+    n: &Nullability,
+    chunk_len: Option<usize>,
+) -> Result<ArrayData> {
     match u.int_in_range(0..=5)? {
-        0 => random_list_offset::<i16>(u, ldt, n),
-        1 => random_list_offset::<i32>(u, ldt, n),
-        2 => random_list_offset::<i64>(u, ldt, n),
-        3 => random_list_offset::<u16>(u, ldt, n),
-        4 => random_list_offset::<u32>(u, ldt, n),
-        5 => random_list_offset::<u64>(u, ldt, n),
+        0 => random_list_offset::<i16>(u, ldt, n, chunk_len),
+        1 => random_list_offset::<i32>(u, ldt, n, chunk_len),
+        2 => random_list_offset::<i64>(u, ldt, n, chunk_len),
+        3 => random_list_offset::<u16>(u, ldt, n, chunk_len),
+        4 => random_list_offset::<u32>(u, ldt, n, chunk_len),
+        5 => random_list_offset::<u64>(u, ldt, n, chunk_len),
         _ => unreachable!("int_in_range returns a value in the above range"),
     }
 }
@@ -122,14 +127,15 @@ fn random_list_offset<O>(
     u: &mut Unstructured,
     ldt: &Arc<DType>,
     n: &Nullability,
+    chunk_len: Option<usize>,
 ) -> Result<ArrayData>
 where
     O: PrimInt + NativePType,
     Scalar: From<O>,
     usize: AsPrimitive<O>,
 {
-    let list_len = u.int_in_range(0..=20)?;
-    let mut builder = ListBuilder::<O>::with_capacity(ldt.clone(), *n, 1);
+    let list_len = chunk_len.unwrap_or(u.int_in_range(0..=20)?);
+    let mut builder = ListBuilder::<O>::with_capacity(ldt.clone(), *n, 10);
     for _ in 0..list_len {
         if matches!(n, Nullability::Nullable) || u.arbitrary::<bool>()? {
             let elem_len = u.int_in_range(0..=20)?;

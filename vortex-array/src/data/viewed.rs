@@ -11,7 +11,7 @@ use vortex_scalar::{Scalar, ScalarValue};
 use crate::encoding::opaque::OpaqueEncoding;
 use crate::encoding::EncodingRef;
 use crate::stats::{Stat, Statistics, StatsSet};
-use crate::{flatbuffers as fb, ArrayData, ArrayMetadata, ChildrenCollector, Context};
+use crate::{flatbuffers as fb, ArrayData, ArrayMetadata, ChildrenCollector, ContextRef};
 
 /// Zero-copy view over flatbuffer-encoded array data, created without eager serialization.
 #[derive(Clone)]
@@ -24,7 +24,7 @@ pub(super) struct ViewedArrayData {
     pub(super) flatbuffer: ByteBuffer,
     pub(super) flatbuffer_loc: usize,
     pub(super) buffers: Arc<[ByteBuffer]>,
-    pub(super) ctx: Arc<Context>,
+    pub(super) ctx: ContextRef,
     #[cfg(feature = "canonical_counter")]
     pub(super) canonical_counter: Arc<std::sync::atomic::AtomicUsize>,
 }
@@ -103,12 +103,22 @@ impl ViewedArrayData {
         collector.children()
     }
 
-    pub fn byte_buffer(&self) -> Option<&ByteBuffer> {
+    pub fn nbuffers(&self) -> usize {
         self.flatbuffer()
             .buffers()
-            .and_then(|buffers| {
-                assert!(buffers.len() <= 1, "Array: expected at most one buffer");
-                (!buffers.is_empty()).then(|| buffers.get(0) as usize)
+            .map(|b| b.len())
+            .unwrap_or_default()
+    }
+
+    pub fn buffer(&self, index: usize) -> Option<&ByteBuffer> {
+        self.flatbuffer()
+            .buffers()
+            .map(|buffers| {
+                assert!(
+                    index < buffers.len(),
+                    "ArrayView buffer index out of bounds"
+                );
+                buffers.get(index) as usize
             })
             .map(|idx| &self.buffers[idx])
     }

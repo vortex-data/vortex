@@ -4,7 +4,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::hint;
 
 use itertools::Itertools;
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
+use vortex_error::{vortex_bail, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::compute::scalar_at;
@@ -164,12 +164,7 @@ where
         value: &Scalar,
         side: SearchSortedSide,
     ) -> VortexResult<SearchResult> {
-        let array_ref = <&E::Array>::try_from(array)?;
-        let encoding = array
-            .encoding()
-            .as_any()
-            .downcast_ref::<E>()
-            .ok_or_else(|| vortex_err!("Mismatched encoding"))?;
+        let (array_ref, encoding) = array.downcast_array_ref::<E>()?;
         SearchSortedFn::search_sorted(encoding, array_ref, value, side)
     }
 
@@ -179,12 +174,7 @@ where
         values: &[Scalar],
         side: SearchSortedSide,
     ) -> VortexResult<Vec<SearchResult>> {
-        let array_ref = <&E::Array>::try_from(array)?;
-        let encoding = array
-            .encoding()
-            .as_any()
-            .downcast_ref::<E>()
-            .ok_or_else(|| vortex_err!("Mismatched encoding"))?;
+        let (array_ref, encoding) = array.downcast_array_ref::<E>()?;
         SearchSortedFn::search_sorted_many(encoding, array_ref, values, side)
     }
 }
@@ -200,12 +190,7 @@ where
         value: usize,
         side: SearchSortedSide,
     ) -> VortexResult<SearchResult> {
-        let array_ref = <&E::Array>::try_from(array)?;
-        let encoding = array
-            .encoding()
-            .as_any()
-            .downcast_ref::<E>()
-            .ok_or_else(|| vortex_err!("Mismatched encoding"))?;
+        let (array_ref, encoding) = array.downcast_array_ref::<E>()?;
         SearchSortedUsizeFn::search_sorted_usize(encoding, array_ref, value, side)
     }
 
@@ -215,12 +200,7 @@ where
         values: &[usize],
         side: SearchSortedSide,
     ) -> VortexResult<Vec<SearchResult>> {
-        let array_ref = <&E::Array>::try_from(array)?;
-        let encoding = array
-            .encoding()
-            .as_any()
-            .downcast_ref::<E>()
-            .ok_or_else(|| vortex_err!("Mismatched encoding"))?;
+        let (array_ref, encoding) = array.downcast_array_ref::<E>()?;
         SearchSortedUsizeFn::search_sorted_usize_many(encoding, array_ref, values, side)
     }
 }

@@ -1,5 +1,6 @@
-use arrow_array::cast::as_struct_array;
+use arrow_array::cast::AsArray;
 use arrow_array::RecordBatch;
+use arrow_schema::{DataType, Schema};
 use itertools::Itertools;
 use vortex_error::{vortex_err, VortexError, VortexResult};
 
@@ -41,16 +42,19 @@ impl TryFrom<ArrayData> for RecordBatch {
             vortex_err!("RecordBatch can only be constructed from a Vortex StructArray: {err}")
         })?;
 
-        RecordBatch::try_from(struct_arr)
+        struct_arr.into_record_batch()
     }
 }
 
-impl TryFrom<StructArray> for RecordBatch {
-    type Error = VortexError;
+impl StructArray {
+    pub fn into_record_batch(self) -> VortexResult<RecordBatch> {
+        let array_ref = self.into_array().into_arrow()?;
+        Ok(RecordBatch::from(array_ref.as_struct()))
+    }
 
-    fn try_from(value: StructArray) -> VortexResult<Self> {
-        let array_ref = value.into_canonical()?.into_arrow()?;
-        let struct_array = as_struct_array(array_ref.as_ref());
-        Ok(Self::from(struct_array))
+    pub fn into_record_batch_with_schema(self, schema: &Schema) -> VortexResult<RecordBatch> {
+        let data_type = DataType::Struct(schema.fields.clone());
+        let array_ref = self.into_array().into_arrow_with_data_type(&data_type)?;
+        Ok(RecordBatch::from(array_ref.as_struct()))
     }
 }

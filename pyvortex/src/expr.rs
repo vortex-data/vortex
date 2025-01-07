@@ -1,10 +1,9 @@
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::*;
-use vortex::dtype::field::Field;
 use vortex::dtype::half::f16;
 use vortex::dtype::{DType, Nullability, PType};
-use vortex::expr::{BinaryExpr, Column, ExprRef, Literal, Operator};
+use vortex::expr::{col, lit, BinaryExpr, ExprRef, Operator};
 use vortex::scalar::Scalar;
 
 use crate::dtype::PyDType;
@@ -243,12 +242,7 @@ impl PyExpr {
 pub fn column<'py>(name: &Bound<'py, PyString>) -> PyResult<Bound<'py, PyExpr>> {
     let py = name.py();
     let name: String = name.extract()?;
-    Bound::new(
-        py,
-        PyExpr {
-            inner: Column::new_expr(Field::from(name)),
-        },
-    )
+    Bound::new(py, PyExpr { inner: col(name) })
 }
 
 #[pyfunction]
@@ -264,7 +258,7 @@ pub fn scalar<'py>(dtype: DType, value: &Bound<'py, PyAny>) -> PyResult<Bound<'p
     Bound::new(
         py,
         PyExpr {
-            inner: Literal::new_expr(scalar_helper(dtype, value)?),
+            inner: lit(scalar_helper(dtype, value)?),
         },
     )
 }
