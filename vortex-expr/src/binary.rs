@@ -273,13 +273,13 @@ mod tests {
         let bool2: Arc<dyn VortexExpr> = col("bool2");
         assert_eq!(
             BinaryExpr::new_expr(bool1.clone(), Operator::And, bool2.clone())
-                .dtype(dtype.clone())
+                .dtype(&dtype)
                 .unwrap(),
             DType::Bool(Nullability::NonNullable)
         );
         assert_eq!(
             BinaryExpr::new_expr(bool1.clone(), Operator::Or, bool2.clone())
-                .dtype(dtype.clone())
+                .dtype(&dtype)
                 .unwrap(),
             DType::Bool(Nullability::NonNullable)
         );
@@ -289,37 +289,37 @@ mod tests {
 
         assert_eq!(
             BinaryExpr::new_expr(col1.clone(), Operator::Eq, col2.clone())
-                .dtype(dtype.clone())
+                .dtype(&dtype)
                 .unwrap(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
             BinaryExpr::new_expr(col1.clone(), Operator::NotEq, col2.clone())
-                .dtype(dtype.clone())
+                .dtype(&dtype)
                 .unwrap(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
             BinaryExpr::new_expr(col1.clone(), Operator::Gt, col2.clone())
-                .dtype(dtype.clone())
+                .dtype(&dtype)
                 .unwrap(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
             BinaryExpr::new_expr(col1.clone(), Operator::Gte, col2.clone())
-                .dtype(dtype.clone())
+                .dtype(&dtype)
                 .unwrap(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
             BinaryExpr::new_expr(col1.clone(), Operator::Lt, col2.clone())
-                .dtype(dtype.clone())
+                .dtype(&dtype)
                 .unwrap(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
             BinaryExpr::new_expr(col1.clone(), Operator::Lte, col2.clone())
-                .dtype(dtype.clone())
+                .dtype(&dtype)
                 .unwrap(),
             DType::Bool(Nullability::Nullable)
         );
@@ -330,7 +330,7 @@ mod tests {
                 Operator::Or,
                 BinaryExpr::new_expr(col1.clone(), Operator::NotEq, col2.clone())
             )
-            .dtype(dtype)
+            .dtype(&dtype)
             .unwrap(),
             DType::Bool(Nullability::Nullable)
         );

@@ -54,8 +54,8 @@ pub trait VortexExpr: Debug + Send + Sync + DynEq + Display {
     fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef;
 
     /// Compute the type of the array returned by [VortexExpr::evaluate].
-    fn dtype(&self, input_dtype: DType) -> VortexResult<DType> {
-        let empty = Canonical::empty(&input_dtype)?.into_array();
+    fn dtype(&self, input_dtype: &DType) -> VortexResult<DType> {
+        let empty = Canonical::empty(input_dtype)?.into_array();
         self.evaluate(&empty).map(|array| array.into_dtype())
     }
 }

@@ -109,7 +109,7 @@ mod tests {
         let dtype = test_harness::struct_dtype();
         let row_filter = RowFilter::from_conjunction_expr(vec![col("bool1"), not(col("bool2"))]);
         assert_eq!(
-            row_filter.dtype(dtype).unwrap(),
+            row_filter.dtype(&dtype).unwrap(),
             DType::Bool(Nullability::NonNullable)
         );
     }

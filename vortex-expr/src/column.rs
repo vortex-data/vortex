@@ -91,11 +91,11 @@ mod tests {
     fn dtype() {
         let dtype = test_harness::struct_dtype();
         assert_eq!(
-            col("a").dtype(dtype.clone()).unwrap(),
+            col("a").dtype(&dtype).unwrap(),
             DType::Primitive(PType::I32, Nullability::NonNullable)
         );
         assert_eq!(
-            col(1).dtype(dtype).unwrap(),
+            col(1).dtype(&dtype).unwrap(),
             DType::Primitive(PType::U16, Nullability::Nullable)
         );
     }

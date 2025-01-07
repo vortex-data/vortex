@@ -87,38 +87,32 @@ mod tests {
         let dtype = test_harness::struct_dtype();
 
         assert_eq!(
-            Literal::new_expr(Scalar::from(10))
-                .dtype(dtype.clone())
-                .unwrap(),
+            Literal::new_expr(Scalar::from(10)).dtype(&dtype).unwrap(),
             DType::Primitive(PType::I32, Nullability::NonNullable)
         );
         assert_eq!(
-            Literal::new_expr(Scalar::from(0_u8))
-                .dtype(dtype.clone())
-                .unwrap(),
+            Literal::new_expr(Scalar::from(0_u8)).dtype(&dtype).unwrap(),
             DType::Primitive(PType::U8, Nullability::NonNullable)
         );
         assert_eq!(
             Literal::new_expr(Scalar::from(0.0_f32))
-                .dtype(dtype.clone())
+                .dtype(&dtype)
                 .unwrap(),
             DType::Primitive(PType::F32, Nullability::NonNullable)
         );
         assert_eq!(
             Literal::new_expr(Scalar::from(i64::MAX))
-                .dtype(dtype.clone())
+                .dtype(&dtype)
                 .unwrap(),
             DType::Primitive(PType::I64, Nullability::NonNullable)
         );
         assert_eq!(
-            Literal::new_expr(Scalar::from(true))
-                .dtype(dtype.clone())
-                .unwrap(),
+            Literal::new_expr(Scalar::from(true)).dtype(&dtype).unwrap(),
             DType::Bool(Nullability::NonNullable)
         );
         assert_eq!(
             Literal::new_expr(Scalar::null(DType::Bool(Nullability::Nullable)))
-                .dtype(dtype.clone())
+                .dtype(&dtype)
                 .unwrap(),
             DType::Bool(Nullability::Nullable)
         );
@@ -138,7 +132,7 @@ mod tests {
                 sdtype.clone(),
                 vec![Scalar::from(32_u32), Scalar::from("rufus".to_string())]
             ))
-            .dtype(dtype)
+            .dtype(&dtype)
             .unwrap(),
             sdtype
         );

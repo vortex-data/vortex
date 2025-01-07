@@ -92,14 +92,14 @@ mod tests {
         let not_expr = not(ident());
         assert_eq!(
             not_expr
-                .dtype(DType::Bool(Nullability::NonNullable))
+                .dtype(&DType::Bool(Nullability::NonNullable))
                 .unwrap(),
             DType::Bool(Nullability::NonNullable)
         );
 
         let dtype = test_harness::struct_dtype();
         assert_eq!(
-            not(col("bool1")).dtype(dtype).unwrap(),
+            not(col("bool1")).dtype(&dtype).unwrap(),
             DType::Bool(Nullability::NonNullable)
         );
     }
