@@ -40,10 +40,6 @@ fn generate_try_from_avrovalue(
     typename: &syn::Ident,
     fields: &FieldsNamed,
 ) -> proc_macro2::TokenStream {
-    // We get back from AvroValue::Record a Vec<(String, AvroValue)>.
-    // Before hand, at compile time we generate code to extract the fields using the given name, and then
-    // attempting to cast them each to the correct type.
-
     let from_avros = fields.named.iter().enumerate().map(|(idx, f)| {
         let name = f.ident.clone().unwrap();
         let typ = f.ty.clone();
@@ -70,6 +66,8 @@ fn generate_try_from_avrovalue(
         })
         .collect::<Vec<_>>();
 
+    let read_schema = generate_schema_struct(&typename, &fields);
+
     quote! {
         impl TryFrom<proc_macro_traits::AvroValue> for #typename {
             type Error = vortex_error::VortexError;
@@ -87,5 +85,53 @@ fn generate_try_from_avrovalue(
                 Ok(Self { #(#assignments)* })
             }
         }
+
+        impl proc_macro_traits::FromAvro for #typename {
+            fn read_schema() -> apache_avro::Schema {
+                #read_schema
+            }
+        }
+    }
+}
+
+/// Generate an Apache Avro schema for a struct type.
+fn generate_schema_struct(typename: &syn::Ident, fields: &FieldsNamed) -> proc_macro2::TokenStream {
+    // Generate RecordField for each of the struct fields.
+    let fields = fields
+        .named
+        .iter()
+        .enumerate()
+        .map(|(idx, f)| {
+            let name = f.ident.clone().unwrap();
+            let typ = f.ty.clone();
+            quote! {
+                apache_avro::schema::RecordField {
+                    name: stringify!(#name).to_string(),
+                    doc: None,
+                    schema: <#typ as proc_macro_traits::FromAvro>::read_schema(),
+                    aliases: core::default::Default::default(),
+                    default: core::default::Default::default(),
+                    // TODO(aduffy): I have no idea what this is.
+                    order: apache_avro::schema::RecordFieldOrder::Ignore,
+                    position: #idx,
+                    custom_attributes: core::default::Default::default(),
+                }
+            }
+        })
+        .collect::<Vec<_>>();
+
+    // Generate the RecordSchema
+    quote! {
+        apache_avro::Schema::Record(apache_avro::schema::RecordSchema {
+            name: apache_avro::schema::Name {
+                name: stringify!(#typename).to_string(),
+                namespace: None,
+            },
+            fields: vec![#(#fields,)*],
+            aliases: core::default::Default::default(),
+            doc: core::default::Default::default(),
+            lookup: core::default::Default::default(),
+            attributes: core::default::Default::default(),
+        })
     }
 }
