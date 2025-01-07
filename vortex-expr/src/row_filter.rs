@@ -64,7 +64,7 @@ impl VortexExpr for RowFilter {
         self
     }
 
-    fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
+    fn unchecked_evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
         let mut filter_iter = self.conjunction.iter();
         let mut mask = filter_iter
             .next()

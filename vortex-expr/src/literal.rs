@@ -37,7 +37,7 @@ impl VortexExpr for Literal {
         self
     }
 
-    fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
+    fn unchecked_evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
         Ok(ConstantArray::new(self.value.clone(), batch.len()).into_array())
     }
 
@@ -80,38 +80,34 @@ mod tests {
     use vortex_dtype::{DType, Nullability, PType, StructDType};
     use vortex_scalar::Scalar;
 
-    use crate::{test_harness, Literal};
+    use crate::{lit, test_harness};
 
     #[test]
     fn dtype() {
         let dtype = test_harness::struct_dtype();
 
         assert_eq!(
-            Literal::new_expr(Scalar::from(10)).dtype(&dtype).unwrap(),
+            lit(10).dtype(&dtype).unwrap(),
             DType::Primitive(PType::I32, Nullability::NonNullable)
         );
         assert_eq!(
-            Literal::new_expr(Scalar::from(0_u8)).dtype(&dtype).unwrap(),
+            lit(0_u8).dtype(&dtype).unwrap(),
             DType::Primitive(PType::U8, Nullability::NonNullable)
         );
         assert_eq!(
-            Literal::new_expr(Scalar::from(0.0_f32))
-                .dtype(&dtype)
-                .unwrap(),
+            lit(0.0_f32).dtype(&dtype).unwrap(),
             DType::Primitive(PType::F32, Nullability::NonNullable)
         );
         assert_eq!(
-            Literal::new_expr(Scalar::from(i64::MAX))
-                .dtype(&dtype)
-                .unwrap(),
+            lit(i64::MAX).dtype(&dtype).unwrap(),
             DType::Primitive(PType::I64, Nullability::NonNullable)
         );
         assert_eq!(
-            Literal::new_expr(Scalar::from(true)).dtype(&dtype).unwrap(),
+            lit(true).dtype(&dtype).unwrap(),
             DType::Bool(Nullability::NonNullable)
         );
         assert_eq!(
-            Literal::new_expr(Scalar::null(DType::Bool(Nullability::Nullable)))
+            lit(Scalar::null(DType::Bool(Nullability::Nullable)))
                 .dtype(&dtype)
                 .unwrap(),
             DType::Bool(Nullability::Nullable)
@@ -128,7 +124,7 @@ mod tests {
             Nullability::NonNullable,
         );
         assert_eq!(
-            Literal::new_expr(Scalar::struct_(
+            lit(Scalar::struct_(
                 sdtype.clone(),
                 vec![Scalar::from(32_u32), Scalar::from("rufus".to_string())]
             ))

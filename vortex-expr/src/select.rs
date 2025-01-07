@@ -81,7 +81,7 @@ impl VortexExpr for Select {
         self
     }
 
-    fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
+    fn unchecked_evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
         let batch = self.child.evaluate(batch)?;
         let st = batch
             .as_struct_array()

@@ -58,8 +58,9 @@ impl VortexExpr for Column {
         self
     }
 
-    fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
+    fn unchecked_evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
         batch
+            .clone()
             .as_struct_array()
             .ok_or_else(|| {
                 vortex_err!(

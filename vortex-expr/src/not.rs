@@ -35,7 +35,7 @@ impl VortexExpr for Not {
         self
     }
 
-    fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
+    fn unchecked_evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
         let child_result = self.child.evaluate(batch)?;
         invert(&child_result)
     }

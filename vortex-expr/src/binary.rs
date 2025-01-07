@@ -44,7 +44,7 @@ impl VortexExpr for BinaryExpr {
         self
     }
 
-    fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
+    fn unchecked_evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
         let lhs = self.lhs.evaluate(batch)?;
         let rhs = self.rhs.evaluate(batch)?;
 
@@ -264,7 +264,7 @@ mod tests {
 
     use vortex_dtype::{DType, Nullability};
 
-    use crate::{col, test_harness, BinaryExpr, Operator, VortexExpr};
+    use crate::{and, col, eq, gt, gt_eq, lt, lt_eq, not_eq, or, test_harness, VortexExpr};
 
     #[test]
     fn dtype() {
@@ -272,15 +272,11 @@ mod tests {
         let bool1: Arc<dyn VortexExpr> = col("bool1");
         let bool2: Arc<dyn VortexExpr> = col("bool2");
         assert_eq!(
-            BinaryExpr::new_expr(bool1.clone(), Operator::And, bool2.clone())
-                .dtype(&dtype)
-                .unwrap(),
+            and(bool1.clone(), bool2.clone()).dtype(&dtype).unwrap(),
             DType::Bool(Nullability::NonNullable)
         );
         assert_eq!(
-            BinaryExpr::new_expr(bool1.clone(), Operator::Or, bool2.clone())
-                .dtype(&dtype)
-                .unwrap(),
+            or(bool1.clone(), bool2.clone()).dtype(&dtype).unwrap(),
             DType::Bool(Nullability::NonNullable)
         );
 
@@ -288,47 +284,34 @@ mod tests {
         let col2: Arc<dyn VortexExpr> = col("col2");
 
         assert_eq!(
-            BinaryExpr::new_expr(col1.clone(), Operator::Eq, col2.clone())
-                .dtype(&dtype)
-                .unwrap(),
+            eq(col1.clone(), col2.clone()).dtype(&dtype).unwrap(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
-            BinaryExpr::new_expr(col1.clone(), Operator::NotEq, col2.clone())
-                .dtype(&dtype)
-                .unwrap(),
+            not_eq(col1.clone(), col2.clone()).dtype(&dtype).unwrap(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
-            BinaryExpr::new_expr(col1.clone(), Operator::Gt, col2.clone())
-                .dtype(&dtype)
-                .unwrap(),
+            gt(col1.clone(), col2.clone()).dtype(&dtype).unwrap(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
-            BinaryExpr::new_expr(col1.clone(), Operator::Gte, col2.clone())
-                .dtype(&dtype)
-                .unwrap(),
+            gt_eq(col1.clone(), col2.clone()).dtype(&dtype).unwrap(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
-            BinaryExpr::new_expr(col1.clone(), Operator::Lt, col2.clone())
-                .dtype(&dtype)
-                .unwrap(),
+            lt(col1.clone(), col2.clone()).dtype(&dtype).unwrap(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
-            BinaryExpr::new_expr(col1.clone(), Operator::Lte, col2.clone())
-                .dtype(&dtype)
-                .unwrap(),
+            lt_eq(col1.clone(), col2.clone()).dtype(&dtype).unwrap(),
             DType::Bool(Nullability::Nullable)
         );
 
         assert_eq!(
-            BinaryExpr::new_expr(
-                BinaryExpr::new_expr(col1.clone(), Operator::Lt, col2.clone()),
-                Operator::Or,
-                BinaryExpr::new_expr(col1.clone(), Operator::NotEq, col2.clone())
+            or(
+                lt(col1.clone(), col2.clone()),
+                not_eq(col1.clone(), col2.clone())
             )
             .dtype(&dtype)
             .unwrap(),

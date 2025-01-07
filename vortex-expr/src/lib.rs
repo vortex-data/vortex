@@ -33,7 +33,7 @@ pub use project::*;
 pub use row_filter::*;
 pub use select::*;
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::{ArrayData, Canonical, IntoArrayData as _};
+use vortex_array::{ArrayDType as _, ArrayData, Canonical, IntoArrayData as _};
 use vortex_dtype::{DType, Field};
 use vortex_error::{VortexResult, VortexUnwrap};
 
@@ -47,7 +47,19 @@ pub trait VortexExpr: Debug + Send + Sync + DynEq + Display {
     fn as_any(&self) -> &dyn Any;
 
     /// Compute result of expression on given batch producing a new batch
-    fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData>;
+    ///
+    fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
+        let result = self.unchecked_evaluate(batch)?;
+        debug_assert_eq!(result.dtype(), &self.dtype(batch.dtype())?);
+        Ok(result)
+    }
+
+    /// Compute result of expression on given batch producing a new batch
+    ///
+    /// "Unchecked" means that this function lacks a debug assertion that the returned array matches
+    /// the [VortexExpr::dtype] method. Use instead the [VortexExpr::evaluate] function which
+    /// includes such an assertion.
+    fn unchecked_evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData>;
 
     fn children(&self) -> Vec<&ExprRef>;
 
@@ -56,7 +68,8 @@ pub trait VortexExpr: Debug + Send + Sync + DynEq + Display {
     /// Compute the type of the array returned by [VortexExpr::evaluate].
     fn dtype(&self, input_dtype: &DType) -> VortexResult<DType> {
         let empty = Canonical::empty(input_dtype)?.into_array();
-        self.evaluate(&empty).map(|array| array.into_dtype())
+        self.unchecked_evaluate(&empty)
+            .map(|array| array.into_dtype())
     }
 }
 
