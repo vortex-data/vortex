@@ -1,0 +1,22 @@
+[package]
+name = "proc-macro-traits"
+version.workspace = true
+homepage.workspace = true
+repository.workspace = true
+authors.workspace = true
+license.workspace = true
+keywords.workspace = true
+include.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+readme.workspace = true
+categories.workspace = true
+
+[dependencies]
+apache-avro = "0.17"
+uuid = "1"
+
+vortex-error = { workspace = true }
+
+[lints]
+workspace = true
