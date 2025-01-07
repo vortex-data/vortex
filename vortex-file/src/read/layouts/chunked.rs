@@ -11,7 +11,7 @@ use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Field, Nullability, StructDType};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_expr::pruning::PruningPredicate;
-use vortex_expr::Select;
+use vortex_expr::{Identity, Select};
 use vortex_flatbuffers::footer as fb;
 
 use crate::layouts::RangedLayoutReader;
@@ -91,9 +91,10 @@ impl ChunkedLayoutBuilder<'_> {
             Some(self.layout_builder.read_layout(
                 metadata_path,
                 metadata_fb,
-                Scan::new(Arc::new(Select::include(
+                Scan::new(Select::include(
                     s.names().iter().map(|s| Field::Name(s.clone())).collect(),
-                ))),
+                    Identity::new_expr(),
+                )),
                 Arc::new(LazyDType::from_dtype(stats_dtype)),
             )?)
         } else {

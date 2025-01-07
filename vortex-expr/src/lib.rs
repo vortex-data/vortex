@@ -5,6 +5,7 @@ use std::sync::Arc;
 mod binary;
 mod column;
 pub mod datafusion;
+mod get_item;
 mod identity;
 mod like;
 mod literal;
@@ -182,19 +183,22 @@ mod tests {
         assert_eq!(Not::new_expr(col1.clone()).to_string(), "!$col1");
 
         assert_eq!(
-            Select::include(vec![Field::from("col1")]).to_string(),
+            Select::include(vec![Field::from("col1")], Identity::new_expr()).to_string(),
             "Include($col1)"
         );
         assert_eq!(
-            Select::include(vec![Field::from("col1"), Field::from("col2")]).to_string(),
+            Select::include(
+                vec![Field::from("col1"), Field::from("col2")],
+                Identity::new_expr()
+            )
+            .to_string(),
             "Include($col1,$col2)"
         );
         assert_eq!(
-            Select::exclude(vec![
-                Field::from("col1"),
-                Field::from("col2"),
-                Field::Index(1),
-            ])
+            Select::exclude(
+                vec![Field::from("col1"), Field::from("col2"), Field::Index(1),],
+                Identity::new_expr()
+            )
             .to_string(),
             "Exclude($col1,$col2,[1])"
         );

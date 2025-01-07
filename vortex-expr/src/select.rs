@@ -11,12 +11,40 @@ use vortex_error::{vortex_err, VortexResult};
 use crate::{ExprRef, VortexExpr};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Select {
+pub enum SelectField {
     Include(Vec<Field>),
     Exclude(Vec<Field>),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Select {
+    fields: SelectField,
+    child: ExprRef,
+}
+
 impl Select {
+    pub fn new_expr(fields: SelectField, child: ExprRef) -> ExprRef {
+        Arc::new(Self { fields, child })
+    }
+
+    pub fn include(columns: Vec<Field>, child: ExprRef) -> ExprRef {
+        Self::new_expr(SelectField::Include(columns), child)
+    }
+
+    pub fn exclude(columns: Vec<Field>, child: ExprRef) -> ExprRef {
+        Self::new_expr(SelectField::Exclude(columns), child)
+    }
+
+    pub fn fields(&self) -> &SelectField {
+        &self.fields
+    }
+
+    pub fn child(&self) -> &ExprRef {
+        &self.child
+    }
+}
+
+impl SelectField {
     pub fn include(columns: Vec<Field>) -> Self {
         Self::Include(columns)
     }
@@ -35,18 +63,27 @@ impl Select {
 
     pub fn fields(&self) -> &[Field] {
         match self {
-            Select::Include(fields) => fields,
-            Select::Exclude(fields) => fields,
+            SelectField::Include(fields) => fields,
+            SelectField::Exclude(fields) => fields,
+        }
+    }
+}
+
+impl Display for SelectField {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SelectField::Include(fields) => write!(f, "Include({})", fields.iter().format(",")),
+            SelectField::Exclude(fields) => write!(f, "Exclude({})", fields.iter().format(",")),
         }
     }
 }
 
 impl Display for Select {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Select::Include(fields) => write!(f, "Include({})", fields.iter().format(",")),
-            Select::Exclude(fields) => write!(f, "Exclude({})", fields.iter().format(",")),
-        }
+        f.debug_struct("Select")
+            .field("fields", &self.fields)
+            .field("child", &self.child)
+            .finish()
     }
 }
 
@@ -56,12 +93,13 @@ impl VortexExpr for Select {
     }
 
     fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
+        let batch = self.child.evaluate(batch)?;
         let st = batch
             .as_struct_array()
             .ok_or_else(|| vortex_err!("Not a struct array"))?;
-        match self {
-            Select::Include(f) => st.project(f),
-            Select::Exclude(e) => {
+        match &self.fields {
+            SelectField::Include(f) => st.project(f),
+            SelectField::Exclude(e) => {
                 let normalized_exclusion = e
                     .iter()
                     .map(|ef| match ef {
@@ -85,12 +123,12 @@ impl VortexExpr for Select {
     }
 
     fn children(&self) -> Vec<&ExprRef> {
-        vec![]
+        vec![&self.child]
     }
 
     fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
-        assert_eq!(children.len(), 0);
-        self
+        assert_eq!(children.len(), 1);
+        Self::new_expr(self.fields.clone(), children[0].clone())
     }
 }
 
@@ -101,7 +139,7 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_dtype::Field;
 
-    use crate::{Select, VortexExpr};
+    use crate::{Identity, Select};
 
     fn test_array() -> StructArray {
         StructArray::from_fields(&[
@@ -114,7 +152,7 @@ mod tests {
     #[test]
     pub fn include_columns() {
         let st = test_array();
-        let select = Select::include(vec![Field::from("a")]);
+        let select = Select::include(vec![Field::from("a")], Identity::new_expr());
         let selected = select.evaluate(st.as_ref()).unwrap();
         let selected_names = selected.as_struct_array().unwrap().names().clone();
         assert_eq!(selected_names.as_ref(), &["a".into()]);
@@ -123,7 +161,7 @@ mod tests {
     #[test]
     pub fn exclude_columns() {
         let st = test_array();
-        let select = Select::exclude(vec![Field::from("a")]);
+        let select = Select::exclude(vec![Field::from("a")], Identity::new_expr());
         let selected = select.evaluate(st.as_ref()).unwrap();
         let selected_names = selected.as_struct_array().unwrap().names().clone();
         assert_eq!(selected_names.as_ref(), &["b".into()]);

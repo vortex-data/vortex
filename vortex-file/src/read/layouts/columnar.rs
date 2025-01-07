@@ -9,7 +9,9 @@ use vortex_array::validity::Validity;
 use vortex_array::{ArrayData, IntoArrayData};
 use vortex_dtype::{Field, FieldName, FieldNames};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult};
-use vortex_expr::{col, expr_project, RowFilter, Select, VortexExpr, VortexExprExt};
+use vortex_expr::{
+    col, expr_project, Identity, RowFilter, Select, SelectField, VortexExpr, VortexExprExt,
+};
 use vortex_flatbuffers::footer;
 
 use crate::read::cache::LazyDType;
@@ -172,9 +174,11 @@ impl ColumnarLayoutBuilder<'_> {
     fn scan_fields(&self) -> Option<Vec<Field>> {
         self.scan.expr.as_ref().map(|e| {
             if let Some(se) = e.as_any().downcast_ref::<Select>() {
-                match se {
-                    Select::Include(i) => i.clone(),
-                    Select::Exclude(_) => vortex_panic!("Select::Exclude is not supported"),
+                // We currently only support selecting fields on the root/identity expression
+                assert!(se.child().eq(&Identity::new_expr()));
+                match se.fields() {
+                    SelectField::Include(i) => i.clone(),
+                    SelectField::Exclude(_) => vortex_panic!("Select::Exclude is not supported"),
                 }
             } else {
                 e.references().into_iter().cloned().collect::<Vec<_>>()

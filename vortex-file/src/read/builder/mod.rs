@@ -3,7 +3,7 @@ use std::sync::Arc;
 use initial_read::read_initial_bytes;
 use vortex_array::{ArrayDType, ArrayData};
 use vortex_error::VortexResult;
-use vortex_expr::{RowFilter, Select};
+use vortex_expr::{Identity, RowFilter, Select};
 use vortex_io::{IoDispatcher, VortexReadAt};
 
 use super::handle::VortexReadHandle;
@@ -153,7 +153,7 @@ impl<R: VortexReadAt + Unpin> VortexReadBuilder<R> {
             initial_read.fb_layout(),
             match self.projection {
                 Projection::All => Scan::empty(),
-                Projection::Flat(p) => Scan::new(Arc::new(Select::include(p))),
+                Projection::Flat(p) => Scan::new(Select::include(p, Identity::new_expr())),
             },
             lazy_dtype.clone(),
         )?;
