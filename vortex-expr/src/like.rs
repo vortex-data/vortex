@@ -73,7 +73,7 @@ impl VortexExpr for Like {
     }
 
     fn children(&self) -> Vec<&ExprRef> {
-        vec![]
+        vec![&self.pattern, &self.child]
     }
 
     fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
