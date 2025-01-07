@@ -273,11 +273,19 @@ impl<T> Buffer<T> {
 
 impl<T> Debug for Buffer<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Buffer")
-            .field("bytes", &self.bytes.clone().truncate(512))
+        const TRUNC_SIZE: usize = 512;
+        let mut binding = f.debug_struct("Buffer");
+        let mut fields = binding
             .field("length", &self.length)
-            .field("alignment", &self.alignment)
-            .finish()
+            .field("alignment", &self.alignment);
+
+        let mut bytes = self.bytes.clone();
+        if bytes.len() > TRUNC_SIZE {
+            fields = fields.field("truncated", &true);
+        }
+
+        bytes.truncate(TRUNC_SIZE);
+        fields.field("bytes", &bytes).finish()
     }
 }
 
