@@ -6,9 +6,10 @@ use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, vortex_panic, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
+use crate::array::ConstantArray;
 use crate::arrow::{Datum, FromArrowArray};
 use crate::encoding::Encoding;
-use crate::{ArrayDType, ArrayData};
+use crate::{ArrayDType, ArrayData, IntoArrayData};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd)]
 pub enum Operator {
@@ -155,10 +156,14 @@ pub fn compare(
 }
 
 /// Implementation of `CompareFn` using the Arrow crate.
-fn arrow_compare(lhs: &ArrayData, rhs: &ArrayData, operator: Operator) -> VortexResult<ArrayData> {
-    let nullable = lhs.dtype().is_nullable() || rhs.dtype().is_nullable();
-    let lhs = Datum::try_from(lhs.clone())?;
-    let rhs = Datum::try_from(rhs.clone())?;
+fn arrow_compare(
+    left: &ArrayData,
+    right: &ArrayData,
+    operator: Operator,
+) -> VortexResult<ArrayData> {
+    let nullable = left.dtype().is_nullable() || right.dtype().is_nullable();
+    let lhs = Datum::try_from(left.clone())?;
+    let rhs = Datum::try_from(right.clone())?;
 
     let array = match operator {
         Operator::Eq => cmp::eq(&lhs, &rhs)?,
@@ -169,8 +174,24 @@ fn arrow_compare(lhs: &ArrayData, rhs: &ArrayData, operator: Operator) -> Vortex
         Operator::Lte => cmp::lt_eq(&lhs, &rhs)?,
     };
 
-    let result = ArrayData::from_arrow(&array, nullable);
-    Ok(result)
+    // if both sides are constant, the Datum compare will return a scalar, requiring expansion
+    // but otherwise, we can just return the result
+    if array.len() == left.len() {
+        return Ok(ArrayData::from_arrow(&array, nullable));
+    }
+
+    if array.len() != 1 {
+        vortex_panic!("CompareFn result length ({}) mismatch for left encoding {}, left len {}, right encoding {}, right len {}",
+            array.len(),
+            left.encoding().id(),
+            left.len(),
+            right.encoding().id(),
+            right.len()
+        );
+    }
+
+    let scalar = Scalar::bool(array.value(0), Nullability::from(nullable));
+    Ok(ConstantArray::new(scalar, left.len()).into_array())
 }
 
 #[inline(always)]
@@ -309,7 +330,12 @@ mod tests {
         let left = ConstantArray::new(Scalar::from(2u32), 10);
         let right = ConstantArray::new(Scalar::from(10u32), 10);
 
-        let compare = compare(left, right, Operator::Gt).unwrap();
+        let compare = compare(left.clone(), right.clone(), Operator::Gt).unwrap();
+        let res = compare.as_constant().unwrap();
+        assert_eq!(res.as_bool().value(), Some(false));
+        assert_eq!(compare.len(), 10);
+
+        let compare = arrow_compare(&left.into_array(), &right.into_array(), Operator::Gt).unwrap();
         let res = compare.as_constant().unwrap();
         assert_eq!(res.as_bool().value(), Some(false));
         assert_eq!(compare.len(), 10);
