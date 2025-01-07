@@ -1,13 +1,26 @@
+use vortex_dtype::DType;
 use vortex_flatbuffers::{footer2 as fb, FlatBufferRoot, WriteFlatBuffer};
 use vortex_layout::LayoutData;
 
 use crate::v2::footer::segment::Segment;
 
 /// Captures the layout information of a Vortex file.
-#[derive(Clone)]
-pub(crate) struct FileLayout {
+#[derive(Clone, Debug)]
+pub struct FileLayout {
     pub(crate) root_layout: LayoutData,
     pub(crate) segments: Vec<Segment>,
+}
+
+impl FileLayout {
+    /// The [`DType`] of the file.
+    pub fn dtype(&self) -> &DType {
+        &self.root_layout.dtype()
+    }
+
+    /// The row count of the file.
+    pub fn row_count(&self) -> u64 {
+        self.root_layout.row_count()
+    }
 }
 
 impl FlatBufferRoot for FileLayout {}

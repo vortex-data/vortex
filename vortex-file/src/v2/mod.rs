@@ -1,5 +1,5 @@
 mod file;
-mod footer;
+pub mod footer;
 mod open;
 mod segments;
 mod strategy;

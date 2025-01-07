@@ -53,6 +53,12 @@ impl OpenOptions {
         self.initial_read_size = initial_read_size;
         Ok(self)
     }
+
+    /// Configure a pre-existing file layout for the Vortex file.
+    pub fn with_file_layout(mut self, file_layout: FileLayout) -> Self {
+        self.file_layout = Some(file_layout);
+        self
+    }
 }
 
 impl OpenOptions {
@@ -63,6 +69,17 @@ impl OpenOptions {
 
     /// Open the Vortex file using asynchronous IO.
     pub async fn open<R: VortexReadAt>(self, read: R) -> VortexResult<VortexFile<R>> {
+        // If we already have the file layout, we can skip the initial read entirely.
+        if let Some(file_layout) = self.file_layout {
+            return Ok(VortexFile {
+                read,
+                ctx: self.ctx.clone(),
+                layout: file_layout.root_layout,
+                segments: file_layout.segments,
+                segment_cache: Default::default(),
+            });
+        }
+
         // Fetch the file size and perform the initial read.
         let file_size = read.size().await?;
         let initial_read_size = self.initial_read_size.min(file_size);

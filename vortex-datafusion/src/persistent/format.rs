@@ -23,12 +23,13 @@ use vortex_array::arrow::infer_schema;
 use vortex_array::ContextRef;
 use vortex_error::VortexResult;
 use vortex_file::metadata::fetch_metadata;
+use vortex_file::v2::OpenOptions;
 use vortex_file::{
     LayoutContext, LayoutDeserializer, LayoutMessageCache, LayoutPath, Scan, VORTEX_FILE_EXTENSION,
 };
 use vortex_io::{IoDispatcher, ObjectStoreReadAt};
 
-use super::cache::InitialReadCache;
+use super::cache::FileLayoutCache;
 use super::execution::VortexExec;
 use super::statistics::{array_to_col_statistics, uncompressed_col_size};
 use crate::can_be_pushed_down;
@@ -36,7 +37,7 @@ use crate::can_be_pushed_down;
 #[derive(Debug)]
 pub struct VortexFormat {
     context: ContextRef,
-    initial_read_cache: InitialReadCache,
+    file_layout_cache: FileLayoutCache,
     opts: VortexFormatOptions,
 }
 
@@ -61,7 +62,7 @@ impl Default for VortexFormat {
 
         Self {
             context: Default::default(),
-            initial_read_cache: InitialReadCache::new(opts.cache_size_mb),
+            file_layout_cache: FileLayoutCache::new(opts.cache_size_mb),
             opts,
         }
     }
@@ -72,7 +73,7 @@ impl VortexFormat {
         let opts = VortexFormatOptions::default();
         Self {
             context,
-            initial_read_cache: InitialReadCache::new(opts.cache_size_mb),
+            file_layout_cache: FileLayoutCache::new(opts.cache_size_mb),
             opts,
         }
     }
@@ -109,12 +110,10 @@ impl FileFormat for VortexFormat {
         let file_schemas = stream::iter(objects.iter().cloned())
             .map(|o| {
                 let store = store.clone();
-                let cache = self.initial_read_cache.clone();
+                let cache = self.file_layout_cache.clone();
                 async move {
-                    let initial_read = cache.try_get(&o, store).await?;
-                    let lazy_dtype = initial_read.lazy_dtype();
-                    let s = infer_schema(lazy_dtype.value()?)?;
-
+                    let file_layout = cache.try_get(&o, store).await?;
+                    let s = infer_schema(file_layout.dtype())?;
                     VortexResult::Ok(s)
                 }
             })
@@ -134,22 +133,34 @@ impl FileFormat for VortexFormat {
         table_schema: SchemaRef,
         object: &ObjectMeta,
     ) -> DFResult<Statistics> {
-        let initial_read = self
-            .initial_read_cache
+        let file_layout = self
+            .file_layout_cache
             .try_get(object, store.clone())
             .await?;
 
-        let layout = initial_read.fb_layout();
-        let row_count = layout.row_count();
+        // Re-open the vortex file using the cached file layout
+        let vxf = OpenOptions::new(self.context.clone())
+            .with_file_layout(file_layout)
+            .open(ObjectStoreReadAt::new(
+                store.clone(),
+                object.location.clone(),
+            ))
+            .await?;
+
+        // Now we have to compute the column statistics for the table.
+        // If we assume a top-level struct DType (which is true for a DataFusion/Vortex
+        // integration), then we need some way to ask the layouts to fetch and compute the stats.
+
+        let row_count = file_layout.row_count();
 
         let layout_deserializer =
             LayoutDeserializer::new(self.context.clone(), LayoutContext::default().into());
 
         let root_layout = layout_deserializer.read_layout(
             LayoutPath::default(),
-            initial_read.fb_layout(),
+            file_layout.fb_layout(),
             Scan::empty(),
-            initial_read.lazy_dtype().into(),
+            file_layout.lazy_dtype().into(),
         )?;
 
         let os_read_at = ObjectStoreReadAt::new(store.clone(), object.location.clone());
@@ -199,7 +210,7 @@ impl FileFormat for VortexFormat {
             metrics,
             filters.cloned(),
             self.context.clone(),
-            self.initial_read_cache.clone(),
+            self.file_layout_cache.clone(),
         )?
         .into_arc();
 

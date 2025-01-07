@@ -9,7 +9,7 @@ use vortex_io::VortexReadAt;
 use vortex_layout::scanner::{Poll, Scan};
 use vortex_layout::{LayoutData, RowMask};
 
-use crate::v2::footer::Segment;
+use crate::v2::footer::{FileLayout, Segment};
 use crate::v2::segments::SegmentCache;
 
 pub struct VortexFile<R> {
@@ -20,18 +20,31 @@ pub struct VortexFile<R> {
     pub(crate) segment_cache: SegmentCache,
 }
 
-/// Async implementation of Vortex File.
-impl<R: VortexReadAt> VortexFile<R> {
+impl<R> VortexFile<R> {
     /// Returns the number of rows in the file.
     pub fn row_count(&self) -> u64 {
         self.layout.row_count()
     }
 
-    /// Returns the DType of the file.
+    /// Returns the [`DType`] of the file.
     pub fn dtype(&self) -> &DType {
         self.layout.dtype()
     }
 
+    /// Returns the [`FileLayout`] of the file.
+    ///
+    /// This can be passed to [`vortex_file::v2::VortexOpenOptions`] to reconstruct a
+    /// [`VortexFile`] without re-reading the footer.
+    pub fn file_layout(&self) -> FileLayout {
+        FileLayout {
+            root_layout: self.layout.clone(),
+            segments: self.segments.clone(),
+        }
+    }
+}
+
+/// Async implementation of Vortex File.
+impl<R: VortexReadAt> VortexFile<R> {
     /// Performs a scan operation over the file.
     pub fn scan(&self, scan: Scan) -> VortexResult<impl ArrayStream + '_> {
         let layout_scan = self.layout.new_scan(scan, self.ctx.clone())?;

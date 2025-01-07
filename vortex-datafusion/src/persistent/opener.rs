@@ -13,7 +13,7 @@ use vortex_expr::RowFilter;
 use vortex_file::{LayoutContext, LayoutDeserializer, Projection, VortexReadBuilder};
 use vortex_io::{IoDispatcher, ObjectStoreReadAt};
 
-use super::cache::InitialReadCache;
+use super::cache::FileLayoutCache;
 
 /// Share an IO dispatcher across all DataFusion instances.
 static IO_DISPATCHER: LazyLock<Arc<IoDispatcher>> =
@@ -26,7 +26,7 @@ pub struct VortexFileOpener {
     pub projection: Option<Vec<usize>>,
     pub predicate: Option<Arc<dyn PhysicalExpr>>,
     pub arrow_schema: SchemaRef,
-    pub(crate) initial_read_cache: InitialReadCache,
+    pub(crate) initial_read_cache: FileLayoutCache,
 }
 
 impl FileOpener for VortexFileOpener {
