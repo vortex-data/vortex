@@ -216,10 +216,18 @@ impl PartialEq for FieldDType {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Owned(lhs), Self::Owned(rhs)) => lhs == rhs,
-            (Self::View(lhs), Self::View(rhs)) => lhs.flatbuffer() == rhs.flatbuffer(),
+            (Self::View(lhs), Self::View(rhs)) => {
+                let lhs = DType::try_from(lhs.clone())
+                    .vortex_expect("Failed to parse FieldDType into DType");
+                let rhs = DType::try_from(rhs.clone())
+                    .vortex_expect("Failed to parse FieldDType into DType");
+
+                lhs == rhs
+            }
             (Self::View(view), Self::Owned(owned)) | (Self::Owned(owned), Self::View(view)) => {
-                let view = DType::try_from(view.clone()).vortex_expect("");
-                owned.eq(&view)
+                let view = DType::try_from(view.clone())
+                    .vortex_expect("Failed to parse FieldDType into DType");
+                owned == &view
             }
         }
     }
