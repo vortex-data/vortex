@@ -29,7 +29,7 @@ pub use row_filter::*;
 pub use select::*;
 use vortex_array::ArrayData;
 use vortex_dtype::Field;
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::VortexResult;
 
 pub type ExprRef = Arc<dyn VortexExpr>;
 

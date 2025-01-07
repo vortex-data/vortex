@@ -467,7 +467,7 @@ mod tests {
             ),
             gt(literal_eq, col(stat_column_field(&column, Stat::Max))),
         );
-        assert_eq!(converted, expected_expr as _);
+        assert_eq!(&converted, &expected_expr);
     }
 
     #[test]
