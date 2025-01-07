@@ -58,18 +58,20 @@ impl PartialEq for Not {
 
 impl Eq for Not {}
 
+pub fn not(operand: ExprRef) -> ExprRef {
+    Not::new_expr(operand)
+}
+
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use vortex_array::array::BoolArray;
     use vortex_array::IntoArrayVariant;
 
-    use crate::{Identity, Not};
+    use crate::{ident, not};
 
     #[test]
     fn invert_booleans() {
-        let not_expr = Not::new_expr(Arc::new(Identity));
+        let not_expr = not(ident());
         let bools = BoolArray::from_iter([false, true, false, false, true, true]);
         assert_eq!(
             not_expr
