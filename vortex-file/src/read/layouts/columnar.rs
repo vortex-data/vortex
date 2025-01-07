@@ -300,7 +300,7 @@ impl LayoutReader for ColumnarLayoutReader {
             self.expr
                 .as_ref()
                 .map(|e| e.evaluate(&array))
-                .unwrap_or_unchecked_evaluateOk(array))
+                .unwrap_or_else(|| Ok(array))
                 .map(PollRead::Value)
                 .map(Some)
         } else {
