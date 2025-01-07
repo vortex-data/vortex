@@ -334,6 +334,10 @@ impl Validity {
         }
     }
 
+    /// Create Validity from boolean array with given nullability of the array.
+    ///
+    /// Note: You want to pass the nullability of parent array and not the nullability of the validity array itself
+    ///     as that is always nonnullable
     pub fn from_array(value: ArrayData, nullability: Nullability) -> VortexResult<Self> {
         LogicalValidity::try_from(value).map(|a| a.into_validity(nullability))
     }
