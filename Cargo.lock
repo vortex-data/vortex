@@ -3488,9 +3488,11 @@ dependencies = [
 name = "proc-macros"
 version = "0.21.1"
 dependencies = [
+ "proc-macro-traits",
  "proc-macro2",
  "quote",
  "syn 2.0.95",
+ "vortex-error",
 ]
 
 [[package]]

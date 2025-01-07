@@ -20,5 +20,12 @@ proc-macro2 = "1.0.92"
 quote = "1.0.38"
 syn = "2.0.95"
 
+[dev-dependencies]
+vortex-error = { path = "../vortex-error" }
+
+# TODO(aduffy): rename this to something that is actually good to publish.
+# Maybe "vortex-avro" or something like that.
+proc-macro-traits = { path = "../proc-macro-traits" }
+
 [lints]
 workspace = true

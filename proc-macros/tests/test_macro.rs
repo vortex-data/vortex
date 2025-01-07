@@ -1,24 +1,23 @@
-use proc_macros::FromTuple;
+#![allow(unused)]
+// TODO(aduffy): add tests for the macro
 
-// We can call it something even if there is no trait
+use proc_macro_traits::{AvroValue, FromAvro};
+use proc_macros::FromAvro;
 
 #[test]
 fn test_derive_macro() {
-    #[derive(FromTuple)]
-    struct MyThing {
-        name: String,
-        age: u32,
-        social_security_number: u64,
+    #[derive(FromAvro)]
+    struct MyRecordType {
+        a: i32,
+        b: String,
     }
 
-    let thing1 = MyThing::from(("Andrew".to_string(), 29, 1234567890));
-    assert_eq!(thing1.name, "Andrew".to_string());
-    assert_eq!(thing1.age, 29);
-    assert_eq!(thing1.social_security_number, 1234567890);
+    let value = AvroValue::Record(vec![
+        ("a".to_string(), AvroValue::Int(1)),
+        ("b".to_string(), AvroValue::String("hello".to_string())),
+    ]);
 
-    // This should fail at compile time
-    #[derive(FromTuple, Debug, PartialEq)]
-    struct MyUnitStruct();
-
-    assert_eq!(MyUnitStruct::from(()), MyUnitStruct());
+    let record: MyRecordType = MyRecordType::try_from(value).unwrap();
+    assert_eq!(record.a, 1);
+    assert_eq!(record.b, "hello");
 }
