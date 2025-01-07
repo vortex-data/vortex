@@ -63,10 +63,7 @@ where
         return match operator {
             Operator::Eq => Ok(Some(ConstantArray::new(false, lhs.len()).into_array())),
             Operator::NotEq => Ok(Some(ConstantArray::new(true, lhs.len()).into_array())),
-            Operator::Gt => Ok(Some(ConstantArray::new(true, lhs.len()).into_array())),
-            Operator::Gte => Ok(Some(ConstantArray::new(true, lhs.len()).into_array())),
-            Operator::Lt => Ok(Some(ConstantArray::new(false, lhs.len()).into_array())),
-            Operator::Lte => Ok(Some(ConstantArray::new(false, lhs.len()).into_array())),
+            _ => unreachable!("Only Eq and NotEq operators are supported"),
         };
     }
 
@@ -130,6 +127,10 @@ mod tests {
         assert_result(
             compare_constant(&lhs, Some(-1i32), Operator::Eq),
             [false, false, false],
+        );
+        assert_result(
+            compare_constant(&lhs, Some(-1i32), Operator::NotEq),
+            [true, true, true],
         );
     }
 
