@@ -301,6 +301,12 @@ impl Validity {
             _ => {}
         };
 
+        let own_nullability = if self == Validity::NonNullable {
+            Nullability::NonNullable
+        } else {
+            Nullability::Nullable
+        };
+
         let source = match self {
             Validity::NonNullable => BoolArray::from(BooleanBuffer::new_set(len)),
             Validity::AllValid => BoolArray::from(BooleanBuffer::new_set(len)),
@@ -317,7 +323,7 @@ impl Validity {
 
         let patches = Patches::new(len, indices.clone(), patch_values.into_array());
 
-        Validity::try_from(source.patch(patches)?.into_array())
+        Self::from_array(source.patch(patches)?.into_array(), own_nullability)
     }
 
     /// Convert into a nullable variant
@@ -326,6 +332,14 @@ impl Validity {
             Self::NonNullable => Self::AllValid,
             _ => self,
         }
+    }
+
+    /// Create Validity from boolean array with given nullability of the array.
+    ///
+    /// Note: You want to pass the nullability of parent array and not the nullability of the validity array itself
+    ///     as that is always nonnullable
+    pub fn from_array(value: ArrayData, nullability: Nullability) -> VortexResult<Self> {
+        LogicalValidity::try_from(value).map(|a| a.into_validity(nullability))
     }
 }
 
@@ -368,14 +382,6 @@ impl From<BooleanBuffer> for Validity {
 impl From<NullBuffer> for Validity {
     fn from(value: NullBuffer) -> Self {
         value.into_inner().into()
-    }
-}
-
-impl TryFrom<ArrayData> for Validity {
-    type Error = VortexError;
-
-    fn try_from(value: ArrayData) -> Result<Self, Self::Error> {
-        LogicalValidity::try_from(value).map(|a| a.into_validity())
     }
 }
 
@@ -489,9 +495,16 @@ impl LogicalValidity {
         }
     }
 
-    pub fn into_validity(self) -> Validity {
+    pub fn into_validity(self, nullability: Nullability) -> Validity {
+        assert!(
+            nullability == Nullability::Nullable || matches!(self, Self::AllValid(_)),
+            "NonNullable validity must be AllValid",
+        );
         match self {
-            Self::AllValid(_) => Validity::AllValid,
+            Self::AllValid(_) => match nullability {
+                Nullability::NonNullable => Validity::NonNullable,
+                Nullability::Nullable => Validity::AllValid,
+            },
             Self::AllInvalid(_) => Validity::AllInvalid,
             Self::Array(a) => Validity::Array(a),
         }
@@ -533,9 +546,10 @@ impl IntoArrayData for LogicalValidity {
 mod tests {
     use rstest::rstest;
     use vortex_buffer::{buffer, Buffer};
+    use vortex_dtype::Nullability;
 
     use crate::array::{BoolArray, PrimitiveArray};
-    use crate::validity::Validity;
+    use crate::validity::{LogicalValidity, Validity};
     use crate::IntoArrayData;
 
     #[rstest]
@@ -573,5 +587,18 @@ mod tests {
         Validity::NonNullable
             .patch(2, &buffer![4].into_array(), Validity::AllInvalid)
             .unwrap();
+    }
+
+    #[test]
+    #[should_panic]
+    fn into_validity_nullable() {
+        LogicalValidity::AllInvalid(10).into_validity(Nullability::NonNullable);
+    }
+
+    #[test]
+    #[should_panic]
+    fn into_validity_nullable_array() {
+        LogicalValidity::Array(BoolArray::from_iter(vec![true, false]).into_array())
+            .into_validity(Nullability::NonNullable);
     }
 }

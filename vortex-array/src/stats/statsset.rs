@@ -6,7 +6,7 @@ use vortex_scalar::Scalar;
 
 use crate::stats::Stat;
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct StatsSet {
     values: Vec<(Stat, Scalar)>,
 }

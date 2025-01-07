@@ -5,7 +5,7 @@ use std::sync::Arc;
 use vortex_array::ArrayData;
 use vortex_error::VortexResult;
 
-use crate::{unbox_any, ExprRef, VortexExpr};
+use crate::{ExprRef, VortexExpr};
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Identity;
@@ -30,14 +30,14 @@ impl VortexExpr for Identity {
     fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
         Ok(batch.clone())
     }
-}
 
-impl PartialEq<dyn Any> for Identity {
-    fn eq(&self, other: &dyn Any) -> bool {
-        unbox_any(other)
-            .downcast_ref::<Self>()
-            .map(|x| x == self)
-            .unwrap_or(false)
+    fn children(&self) -> Vec<&ExprRef> {
+        vec![]
+    }
+
+    fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
+        assert_eq!(children.len(), 0);
+        self
     }
 }
 

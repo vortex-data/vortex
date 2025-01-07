@@ -9,7 +9,7 @@ use vortex_array::validity::Validity;
 use vortex_array::{ArrayData, IntoArrayData};
 use vortex_dtype::{Field, FieldName, FieldNames};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult};
-use vortex_expr::{col, expr_project, RowFilter, Select, VortexExpr};
+use vortex_expr::{col, expr_project, RowFilter, Select, VortexExpr, VortexExprExt};
 use vortex_flatbuffers::footer;
 
 use crate::read::cache::LazyDType;

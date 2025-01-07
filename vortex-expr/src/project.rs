@@ -5,7 +5,7 @@ use vortex_dtype::Field;
 
 use crate::{
     col, lit, BinaryExpr, Column, ExprRef, Identity, Like, Literal, Not, Operator, RowFilter,
-    Select, VortexExpr,
+    Select, VortexExpr, VortexExprExt,
 };
 
 /// Restrict expression to only the fields that appear in projection
@@ -52,7 +52,7 @@ pub fn expr_project(expr: &ExprRef, projection: &[Field]) -> Option<ExprRef> {
             }
         })
     } else if let Some(n) = expr.as_any().downcast_ref::<Not>() {
-        let own_refs = n.references();
+        let own_refs = expr.references();
         if own_refs.iter().all(|p| projection.contains(p)) {
             expr_project(n.child(), projection).map(Not::new_expr)
         } else {
@@ -103,15 +103,15 @@ mod tests {
     use vortex_dtype::Field;
 
     use super::*;
-    use crate::{and, lt, or, Identity, Not, Select, VortexExpr};
+    use crate::{and, lt, or, Identity, Not, Select};
 
     #[test]
     fn project_and() {
         let band = and(col("a"), col("b"));
         let projection = vec![Field::from("b")];
         assert_eq!(
-            *expr_project(&band, &projection).unwrap(),
-            *Identity.as_any()
+            &expr_project(&band, &projection).unwrap(),
+            &(Arc::new(Identity) as ExprRef)
         );
     }
 
@@ -134,8 +134,8 @@ mod tests {
         let blt = lt(col("a"), col("b"));
         let projection = vec![Field::from("a"), Field::from("b")];
         assert_eq!(
-            *expr_project(&blt, &projection).unwrap(),
-            *lt(col("a"), col("b")).as_any()
+            &expr_project(&blt, &projection).unwrap(),
+            &lt(col("a"), col("b"))
         );
     }
 
@@ -148,8 +148,8 @@ mod tests {
         ])) as _;
         let projection = vec![Field::from("a"), Field::from("b")];
         assert_eq!(
-            *expr_project(&include, &projection).unwrap(),
-            *Select::include(projection).as_any()
+            &expr_project(&include, &projection).unwrap(),
+            &(Select::include_expr(projection) as _)
         );
     }
 
@@ -162,8 +162,8 @@ mod tests {
         ])) as _;
         let projection = vec![Field::from("c"), Field::from("d")];
         assert_eq!(
-            *expr_project(&include, &projection).unwrap(),
-            *Select::include(vec![Field::from("c")]).as_any()
+            &expr_project(&include, &projection).unwrap(),
+            &(Select::include_expr(vec![Field::from("c")]) as _)
         );
     }
 
@@ -171,6 +171,6 @@ mod tests {
     fn project_not() {
         let not_e = Not::new_expr(col(Field::from("a")));
         let projection = vec![Field::from("a"), Field::from("b")];
-        assert_eq!(*expr_project(&not_e, &projection).unwrap(), *not_e.as_any());
+        assert_eq!(&expr_project(&not_e, &projection).unwrap(), &not_e);
     }
 }

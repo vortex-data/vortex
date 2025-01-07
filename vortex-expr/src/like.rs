@@ -2,13 +2,11 @@ use std::any::Any;
 use std::fmt::Display;
 use std::sync::Arc;
 
-use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::compute::{like, LikeOptions};
 use vortex_array::ArrayData;
-use vortex_dtype::Field;
 use vortex_error::VortexResult;
 
-use crate::{unbox_any, ExprRef, VortexExpr};
+use crate::{ExprRef, VortexExpr};
 
 #[derive(Debug)]
 pub struct Like {
@@ -74,20 +72,31 @@ impl VortexExpr for Like {
         )
     }
 
-    fn collect_references<'a>(&'a self, references: &mut HashSet<&'a Field>) {
-        self.child().collect_references(references);
-        self.pattern().collect_references(references);
+    fn children(&self) -> Vec<&ExprRef> {
+        vec![&self.pattern, &self.child]
+    }
+
+    fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
+        assert_eq!(children.len(), 2);
+        Like::new_expr(
+            children[0].clone(),
+            children[1].clone(),
+            self.negated,
+            self.case_insensitive,
+        )
     }
 }
 
-impl PartialEq<dyn Any> for Like {
-    fn eq(&self, other: &dyn Any) -> bool {
-        unbox_any(other)
-            .downcast_ref::<Self>()
-            .map(|x| x.child.eq(&self.child) && x.pattern.eq(&self.pattern))
-            .unwrap_or(false)
+impl PartialEq for Like {
+    fn eq(&self, other: &Like) -> bool {
+        other.case_insensitive == self.case_insensitive
+            && other.negated == self.negated
+            && other.pattern.eq(&self.pattern)
+            && other.child.eq(&self.child)
     }
 }
+
+impl Eq for Like {}
 
 #[cfg(test)]
 mod tests {
