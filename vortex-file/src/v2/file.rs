@@ -49,6 +49,22 @@ impl<R: VortexReadAt> VortexFile<R> {
     /// Performs a scan operation over the file.
     pub fn scan(self, scan: Scan) -> VortexResult<impl ArrayStream + 'static> {
         let row_count = self.row_count();
+
+        // TODO(ngates): support thread pool execution.
+        //  The plan is to have OpenOptions configure a Rayon ThreadPool for reading. We would
+        //  par_iter each of the row masks (based on configured split by size or row count),
+        //  launching their `poll` operation onto the thread pool. If a task returns NeedMore,
+        //  then the segment IDs are handed to the IO dispatcher and a synchronous latch is
+        //  returned. The IO dispatcher has visibility into all requested segments and can perform
+        //  coalescing over ranges. Once a coalesced read returns, the dispatcher updates the
+        //  segment cache with all read segments (including those that were incidentally read by
+        //  in-between the coalesced ranges). A map of segment IDs -> set<latch> then provides
+        //  a way for the dispatcher to notify the waiting tasks that their data is ready. When
+        //  finished, the tasks push their results in order onto a channel that acts as the
+        //  ArrayStream.
+        //  This keeps I/O on the current thread (using the caller's existing runtime), while still
+        //  enabling a CPU pool for decompression and filtering.
+
         self.scan_range(scan, RowMask::new_valid_between(0, row_count))
     }
 
@@ -69,20 +85,6 @@ impl<R: VortexReadAt> VortexFile<R> {
         );
         let row_mask = RowMask::try_new(filter_mask, 0, row_count)?;
 
-        // TODO(ngates): support thread pool execution.
-        //  The plan is to have OpenOptions configure a Rayon ThreadPool for reading. We would
-        //  par_iter each of the row masks (based on configured split by size or row count),
-        //  launching their `poll` operation onto the thread pool. If a task returns NeedMore,
-        //  then the segment IDs are handed to the IO dispatcher and a synchronous latch is
-        //  returned. The IO dispatcher has visibility into all requested segments and can perform
-        //  coalescing over ranges. Once a coalesced read returns, the dispatcher updates the
-        //  segment cache with all read segments (including those that were incidentally read by
-        //  in-between the coalesced ranges). A map of segment IDs -> set<latch> then provides
-        //  a way for the dispatcher to notify the waiting tasks that their data is ready. When
-        //  finished, the tasks push their results in order onto a channel that acts as the
-        //  ArrayStream.
-        //  This keeps I/O on the current thread (using the caller's existing runtime), while still
-        //  enabling a CPU pool for decompression and filtering.
         self.scan_range(scan, row_mask)
     }
 
