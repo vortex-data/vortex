@@ -375,7 +375,8 @@ impl TryFrom<ArrayData> for Validity {
     type Error = VortexError;
 
     fn try_from(value: ArrayData) -> Result<Self, Self::Error> {
-        LogicalValidity::try_from(value).map(|a| a.into_validity())
+        let nullability = value.dtype().nullability();
+        LogicalValidity::try_from(value).map(|a| a.into_validity(nullability))
     }
 }
 
@@ -489,9 +490,12 @@ impl LogicalValidity {
         }
     }
 
-    pub fn into_validity(self) -> Validity {
+    pub fn into_validity(self, nullability: Nullability) -> Validity {
         match self {
-            Self::AllValid(_) => Validity::AllValid,
+            Self::AllValid(_) => match nullability {
+                Nullability::NonNullable => Validity::NonNullable,
+                Nullability::Nullable => Validity::AllValid,
+            },
             Self::AllInvalid(_) => Validity::AllInvalid,
             Self::Array(a) => Validity::Array(a),
         }

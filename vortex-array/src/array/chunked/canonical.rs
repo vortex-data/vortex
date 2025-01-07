@@ -18,11 +18,9 @@ use crate::{
 
 impl IntoCanonical for ChunkedArray {
     fn into_canonical(self) -> VortexResult<Canonical> {
-        let validity = if self.dtype().is_nullable() {
-            self.logical_validity().into_validity()
-        } else {
-            Validity::NonNullable
-        };
+        let validity = self
+            .logical_validity()
+            .into_validity(self.dtype().nullability());
         try_canonicalize_chunks(self.chunks().collect(), validity, self.dtype())
     }
 }
