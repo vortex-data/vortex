@@ -4,13 +4,11 @@ use std::sync::Arc;
 mod accessor;
 
 use arrow_buffer::BooleanBufferBuilder;
-use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
 use vortex_error::{vortex_panic, VortexExpect as _, VortexResult};
 
-use crate::array::BoolArray;
 use crate::encoding::ids;
 use crate::iter::Accessor;
 use crate::stats::StatsSet;
@@ -29,7 +27,7 @@ impl_encoding!("vortex.primitive", ids::PRIMITIVE, Primitive);
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PrimitiveMetadata {
-    validity: ValidityMetadata,
+    pub(crate) validity: ValidityMetadata,
 }
 
 impl Display for PrimitiveMetadata {
@@ -50,7 +48,7 @@ impl PrimitiveArray {
                 validity: validity.to_metadata(len).vortex_expect("Invalid validity"),
             }),
             [buffer.into_byte_buffer()].into(),
-            validity.into_array().into_iter().collect_vec().into(),
+            validity.into_array().into_iter().collect(),
             StatsSet::default(),
         )
         .and_then(|data| data.try_into())
@@ -92,10 +90,7 @@ impl PrimitiveArray {
                 }
             }
         }
-        Self::new(
-            values.freeze(),
-            Validity::Array(BoolArray::from(validity.finish()).into_array()),
-        )
+        Self::new(values.freeze(), Validity::from(validity.finish()))
     }
 
     pub fn validity(&self) -> Validity {
@@ -185,12 +180,12 @@ impl PrimitiveArray {
     where
         T: NativePType,
         R: NativePType,
-        F: FnMut(&T) -> R,
+        F: FnMut(T) -> R,
     {
         let validity = self.validity();
         let buffer = match self.try_into_buffer_mut() {
             Ok(buffer_mut) => buffer_mut.map_each(f),
-            Err(parray) => BufferMut::<R>::from_iter(parray.buffer::<T>().iter().map(f)),
+            Err(parray) => BufferMut::<R>::from_iter(parray.buffer::<T>().iter().copied().map(f)),
         };
         PrimitiveArray::new(buffer.freeze(), validity)
     }

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use arrow_array::cast::AsArray;
 use arrow_array::ArrayRef;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
+use vortex_error::{vortex_bail, VortexError, VortexResult};
 
 use crate::arrow::FromArrowArray;
 use crate::encoding::Encoding;
@@ -40,12 +40,7 @@ where
         rhs: &ArrayData,
         op: BinaryOperator,
     ) -> VortexResult<Option<ArrayData>> {
-        let array_ref = <&E::Array>::try_from(lhs)?;
-        let encoding = lhs
-            .encoding()
-            .as_any()
-            .downcast_ref::<E>()
-            .ok_or_else(|| vortex_err!("Mismatched encoding"))?;
+        let (array_ref, encoding) = lhs.downcast_array_ref::<E>()?;
         BinaryBooleanFn::binary_boolean(encoding, array_ref, rhs, op)
     }
 }

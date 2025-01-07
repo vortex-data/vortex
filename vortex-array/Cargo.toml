@@ -36,6 +36,7 @@ enum-iterator = { workspace = true }
 flatbuffers = { workspace = true }
 flexbuffers = { workspace = true }
 futures-util = { workspace = true }
+goldenfile = { workspace = true, optional = true }
 hashbrown = { workspace = true }
 humansize = { workspace = true }
 itertools = { workspace = true }
@@ -56,6 +57,7 @@ vortex-scalar = { workspace = true, features = ["flatbuffers", "serde", "arbitra
 
 [features]
 arbitrary = ["dep:arbitrary", "vortex-dtype/arbitrary"]
+test-harness = ["dep:goldenfile"]
 canonical_counter = []
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -65,6 +67,7 @@ getrandom = { workspace = true, features = ["js"] }
 [dev-dependencies]
 criterion = { workspace = true }
 rstest = { workspace = true }
+vortex-array = { workspace = true, features = ["test-harness"] }
 
 [[bench]]
 name = "search_sorted"

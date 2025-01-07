@@ -10,9 +10,10 @@ use vortex::arrow::infer_schema;
 use vortex::dtype::field::Field;
 use vortex::dtype::DType;
 use vortex::error::VortexResult;
+use vortex::expr::RowFilter;
 use vortex::file::{
-    read_initial_bytes, LayoutContext, LayoutDeserializer, Projection, RowFilter,
-    VortexReadArrayStream, VortexReadBuilder, VortexRecordBatchReader,
+    read_initial_bytes, LayoutContext, LayoutDeserializer, Projection, VortexReadArrayStream,
+    VortexReadBuilder, VortexRecordBatchReader,
 };
 use vortex::io::{ObjectStoreReadAt, TokioFile, VortexReadAt};
 use vortex::sampling_compressor::ALL_ENCODINGS_CONTEXT;

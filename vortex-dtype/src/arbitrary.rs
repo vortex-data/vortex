@@ -11,15 +11,21 @@ impl<'a> Arbitrary<'a> for DType {
 }
 
 fn random_dtype(u: &mut Unstructured<'_>, depth: u8) -> Result<DType> {
-    let max_dtype_kind = if depth == 0 { 3 } else { 4 };
-    Ok(match u.int_in_range(0..=max_dtype_kind)? {
-        0 => DType::Bool(u.arbitrary()?),
-        1 => DType::Primitive(u.arbitrary()?, u.arbitrary()?),
-        2 => DType::Utf8(u.arbitrary()?),
-        3 => DType::Binary(u.arbitrary()?),
-        4 => DType::Struct(random_struct_dtype(u, depth - 1)?, u.arbitrary()?),
+    const BASE_TYPE_COUNT: i32 = 4;
+    const CONTAINER_TYPE_COUNT: i32 = 2;
+    let max_dtype_kind = if depth == 0 {
+        BASE_TYPE_COUNT
+    } else {
+        CONTAINER_TYPE_COUNT + BASE_TYPE_COUNT
+    };
+    Ok(match u.int_in_range(1..=max_dtype_kind)? {
+        1 => DType::Bool(u.arbitrary()?),
+        2 => DType::Primitive(u.arbitrary()?, u.arbitrary()?),
+        3 => DType::Utf8(u.arbitrary()?),
+        4 => DType::Binary(u.arbitrary()?),
+        5 => DType::Struct(random_struct_dtype(u, depth - 1)?, u.arbitrary()?),
+        6 => DType::List(Arc::new(random_dtype(u, depth - 1)?), u.arbitrary()?),
         // Null,
-        // List(Arc<DType>, Nullability),
         // Extension(ExtDType, Nullability),
         _ => unreachable!("Number out of range"),
     })

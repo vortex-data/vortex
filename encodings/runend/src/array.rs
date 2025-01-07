@@ -249,14 +249,28 @@ impl StatisticsVTable<RunEndArray> for RunEndEncoding {
 #[cfg(test)]
 mod tests {
     use vortex_array::compute::scalar_at;
+    use vortex_array::test_harness::check_metadata;
     use vortex_array::{ArrayDType, ArrayLen, IntoArrayData};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
-    use crate::RunEndArray;
+    use crate::{RunEndArray, RunEndMetadata};
+
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_runend_metadata() {
+        check_metadata(
+            "runend.metadata",
+            RunEndMetadata {
+                offset: usize::MAX,
+                ends_ptype: PType::U64,
+                num_runs: usize::MAX,
+            },
+        );
+    }
 
     #[test]
-    fn new() {
+    fn test_runend_constructor() {
         let arr = RunEndArray::try_new(
             buffer![2u32, 5, 10].into_array(),
             buffer![1i32, 2, 3].into_array(),

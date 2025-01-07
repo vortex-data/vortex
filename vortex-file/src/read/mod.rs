@@ -9,15 +9,13 @@ mod buffered;
 pub mod builder;
 mod cache;
 mod context;
-mod expr_project;
-mod filtering;
 pub mod handle;
 pub mod layouts;
 mod mask;
 pub mod metadata;
 pub mod projection;
 mod reader;
-mod recordbatchreader;
+mod record_batch_reader;
 mod splits;
 mod stream;
 
@@ -25,18 +23,25 @@ pub use builder::initial_read::*;
 pub use builder::VortexReadBuilder;
 pub use cache::*;
 pub use context::*;
-pub use filtering::RowFilter;
 pub use projection::Projection;
-pub use recordbatchreader::{AsyncRuntime, VortexRecordBatchReader};
+pub use record_batch_reader::{AsyncRuntime, VortexRecordBatchReader};
 pub use stream::VortexReadArrayStream;
 use vortex_expr::ExprRef;
 
 use crate::byte_range::ByteRange;
 pub use crate::read::mask::RowMask;
+use crate::MAX_FOOTER_SIZE;
 
 // Recommended read-size according to the AWS performance guide
 // FIXME(ngates): this is dumb
 pub const INITIAL_READ_SIZE: usize = 8 * 1024 * 1024;
+
+// There are assumptions in the initial read implementation that the postscript must fit
+// in the initial read.
+const _: () = assert!(
+    INITIAL_READ_SIZE >= MAX_FOOTER_SIZE as usize,
+    "INITIAL_READ_SIZE must be larger than MAX_FOOTER_SIZE"
+);
 
 /// Operation to apply to data returned by the layout
 #[derive(Debug, Clone)]
@@ -63,6 +68,7 @@ impl From<Option<ExprRef>> for Scan {
 /// Unique identifier for a message within a layout
 pub type LayoutPartId = u16;
 /// Path through layout tree to given message
+pub type LayoutPath = Vec<LayoutPartId>;
 pub type MessageId = Vec<LayoutPartId>;
 /// A unique locator for a message, including its ID and byte range containing
 /// the message contents.
@@ -117,23 +123,35 @@ pub trait LayoutReader: Debug + Send + Sync {
     ///
     /// Layout is required to return all data for given selection in one batch.  Layout can either
     /// return a batch of data (i.e., an Array) or ask for more layout messages to be read. When
-    /// requesting messages to be read the caller should populate the message cache used when
-    /// creating the invoked instance of this trait and then call back into this function.
+    /// requesting messages to be read the caller should populate the message cache before invoking
+    /// the poll function again.
     ///
     /// The layout is finished producing data for selection when it returns None
-    fn poll_read(&self, selector: &RowMask) -> VortexResult<Option<PollRead<ArrayData>>>;
+    fn poll_read(
+        &self,
+        selector: &RowMask,
+        msgs: &dyn MessageCache,
+    ) -> VortexResult<Option<PollRead<ArrayData>>>;
 
     /// Reads the metadata of the layout, if it exists.
     ///
     /// `LayoutReader`s can override the default behavior, which is to return no metadata.
-    fn poll_metadata(&self) -> VortexResult<Option<PollRead<Vec<Option<ArrayData>>>>> {
+    fn poll_metadata(
+        &self,
+        _msgs: &dyn MessageCache,
+    ) -> VortexResult<Option<PollRead<Vec<Option<ArrayData>>>>> {
         Ok(None)
     }
 
     /// Introspect to determine if we can prune the given [begin, end) row range.
     ///
     /// `LayoutReader`s can opt out of the default implementation, which is to not prune.
-    fn poll_prune(&self, _begin: usize, _end: usize) -> VortexResult<PollRead<Prune>> {
+    fn poll_prune(
+        &self,
+        _begin: usize,
+        _end: usize,
+        _msgs: &dyn MessageCache,
+    ) -> VortexResult<PollRead<Prune>> {
         Ok(PollRead::Value(Prune::CannotPrune))
     }
 }

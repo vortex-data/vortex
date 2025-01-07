@@ -7,7 +7,7 @@ use datafusion_physical_expr::{expressions, PhysicalExpr};
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::{BinaryExpr, Column, ExprRef, Like, Literal, Operator};
+use crate::{lit, BinaryExpr, Column, ExprRef, Like, Operator};
 
 pub fn convert_expr_to_vortex(physical_expr: Arc<dyn PhysicalExpr>) -> VortexResult<ExprRef> {
     if let Some(binary_expr) = physical_expr
@@ -41,12 +41,12 @@ pub fn convert_expr_to_vortex(physical_expr: Arc<dyn PhysicalExpr>) -> VortexRes
         ));
     }
 
-    if let Some(lit) = physical_expr
+    if let Some(literal) = physical_expr
         .as_any()
         .downcast_ref::<expressions::Literal>()
     {
-        let value = Scalar::from(lit.value().clone());
-        return Ok(Literal::new_expr(value));
+        let value = Scalar::from(literal.value().clone());
+        return Ok(lit(value));
     }
 
     vortex_bail!(

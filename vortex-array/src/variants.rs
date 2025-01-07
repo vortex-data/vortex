@@ -53,89 +53,57 @@ where
     for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
 {
     fn as_null_array<'a>(&self, array: &'a ArrayData) -> Option<&'a dyn NullArrayTrait> {
-        let array_ref =
-            <&E::Array>::try_from(array).vortex_expect("Failed to get array as reference");
-        let encoding = array
-            .encoding()
-            .as_any()
-            .downcast_ref::<E>()
+        let (array_ref, encoding) = array
+            .downcast_array_ref::<E>()
             .vortex_expect("Failed to downcast encoding");
         VariantsVTable::as_null_array(encoding, array_ref)
     }
 
     fn as_bool_array<'a>(&self, array: &'a ArrayData) -> Option<&'a dyn BoolArrayTrait> {
-        let array_ref =
-            <&E::Array>::try_from(array).vortex_expect("Failed to get array as reference");
-        let encoding = array
-            .encoding()
-            .as_any()
-            .downcast_ref::<E>()
+        let (array_ref, encoding) = array
+            .downcast_array_ref::<E>()
             .vortex_expect("Failed to downcast encoding");
         VariantsVTable::as_bool_array(encoding, array_ref)
     }
 
     fn as_primitive_array<'a>(&self, array: &'a ArrayData) -> Option<&'a dyn PrimitiveArrayTrait> {
-        let array_ref =
-            <&E::Array>::try_from(array).vortex_expect("Failed to get array as reference");
-        let encoding = array
-            .encoding()
-            .as_any()
-            .downcast_ref::<E>()
+        let (array_ref, encoding) = array
+            .downcast_array_ref::<E>()
             .vortex_expect("Failed to downcast encoding");
         VariantsVTable::as_primitive_array(encoding, array_ref)
     }
 
     fn as_utf8_array<'a>(&self, array: &'a ArrayData) -> Option<&'a dyn Utf8ArrayTrait> {
-        let array_ref =
-            <&E::Array>::try_from(array).vortex_expect("Failed to get array as reference");
-        let encoding = array
-            .encoding()
-            .as_any()
-            .downcast_ref::<E>()
+        let (array_ref, encoding) = array
+            .downcast_array_ref::<E>()
             .vortex_expect("Failed to downcast encoding");
         VariantsVTable::as_utf8_array(encoding, array_ref)
     }
 
     fn as_binary_array<'a>(&self, array: &'a ArrayData) -> Option<&'a dyn BinaryArrayTrait> {
-        let array_ref =
-            <&E::Array>::try_from(array).vortex_expect("Failed to get array as reference");
-        let encoding = array
-            .encoding()
-            .as_any()
-            .downcast_ref::<E>()
+        let (array_ref, encoding) = array
+            .downcast_array_ref::<E>()
             .vortex_expect("Failed to downcast encoding");
         VariantsVTable::as_binary_array(encoding, array_ref)
     }
 
     fn as_struct_array<'a>(&self, array: &'a ArrayData) -> Option<&'a dyn StructArrayTrait> {
-        let array_ref =
-            <&E::Array>::try_from(array).vortex_expect("Failed to get array as reference");
-        let encoding = array
-            .encoding()
-            .as_any()
-            .downcast_ref::<E>()
+        let (array_ref, encoding) = array
+            .downcast_array_ref::<E>()
             .vortex_expect("Failed to downcast encoding");
         VariantsVTable::as_struct_array(encoding, array_ref)
     }
 
     fn as_list_array<'a>(&self, array: &'a ArrayData) -> Option<&'a dyn ListArrayTrait> {
-        let array_ref =
-            <&E::Array>::try_from(array).vortex_expect("Failed to get array as reference");
-        let encoding = array
-            .encoding()
-            .as_any()
-            .downcast_ref::<E>()
+        let (array_ref, encoding) = array
+            .downcast_array_ref::<E>()
             .vortex_expect("Failed to downcast encoding");
         VariantsVTable::as_list_array(encoding, array_ref)
     }
 
     fn as_extension_array<'a>(&self, array: &'a ArrayData) -> Option<&'a dyn ExtensionArrayTrait> {
-        let array_ref =
-            <&E::Array>::try_from(array).vortex_expect("Failed to get array as reference");
-        let encoding = array
-            .encoding()
-            .as_any()
-            .downcast_ref::<E>()
+        let (array_ref, encoding) = array
+            .downcast_array_ref::<E>()
             .vortex_expect("Failed to downcast encoding");
         VariantsVTable::as_extension_array(encoding, array_ref)
     }

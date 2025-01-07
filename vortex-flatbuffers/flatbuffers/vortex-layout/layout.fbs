@@ -1,0 +1,29 @@
+/// A `Layout` is a recursive data structure describing the physical layout of Vortex arrays in random access storage.
+/// As a starting, concrete example, the first three Layout encodings are defined as:
+///
+/// 1. encoding == 1, `Flat` -> one buffer, zero child Layouts
+/// 2. encoding == 2, `Chunked` -> zero buffers, one or more child Layouts (used for chunks of rows)
+/// 3. encoding == 3, `Columnar` -> zero buffers, one or more child Layouts (used for columns of structs)
+///
+/// The `row_count` represents the number of rows represented by this Layout. This is very useful for
+/// pruning the Layout tree based on row filters.
+///
+/// The `metadata` field is fully opaque at this layer, and allows the Layout implementation corresponding to
+/// `encoding` to embed additional information that may be useful for the reader. For example, the `ChunkedLayout`
+/// uses the first byte of the `metadata` array as a boolean to indicate whether the first child Layout represents
+/// the statistics table for the other chunks. 
+table Layout {
+    /// The ID of the encoding used for this Layout.
+    encoding: uint16;
+    /// The number of rows of data represented by this Layout.
+    row_count: uint64;
+    /// Any additional metadata this layout needs to interpret its children.
+    /// This does not include data-specific metadata, which the layout should store in a segment.
+    metadata: [ubyte];
+    /// The children of this Layout.
+    children: [Layout];
+    /// Identifiers for each `Segment` of data required by this layout.
+    segments: [uint32];
+}
+
+root_type Layout;

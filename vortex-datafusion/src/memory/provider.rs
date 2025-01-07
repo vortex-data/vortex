@@ -10,7 +10,8 @@ use datafusion_common::{Result as DFResult, ToDFSchema};
 use datafusion_expr::utils::conjunction;
 use datafusion_expr::{TableProviderFilterPushDown, TableType};
 use datafusion_physical_expr::{create_physical_expr, EquivalenceProperties};
-use datafusion_physical_plan::{ExecutionMode, ExecutionPlan, Partitioning, PlanProperties};
+use datafusion_physical_plan::execution_plan::{Boundedness, EmissionType};
+use datafusion_physical_plan::{ExecutionPlan, Partitioning, PlanProperties};
 use itertools::Itertools;
 use vortex_array::array::ChunkedArray;
 use vortex_array::arrow::infer_schema;
@@ -123,7 +124,8 @@ impl TableProvider for VortexMemTable {
                     // non-pushdown scans execute in single partition, where the partition
                     // yields one RecordBatch per chunk in the input ChunkedArray
                     Partitioning::UnknownPartitioning(1),
-                    ExecutionMode::Bounded,
+                    EmissionType::Incremental,
+                    Boundedness::Bounded,
                 );
 
                 Ok(Arc::new(VortexScanExec::try_new(

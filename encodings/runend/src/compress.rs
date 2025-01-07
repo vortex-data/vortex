@@ -132,10 +132,7 @@ fn runend_encode_nullable_primitive<T: NativePType>(
 
     (
         ends.freeze(),
-        PrimitiveArray::new(
-            values,
-            Validity::Array(BoolArray::from(validity.finish()).into_array()),
-        ),
+        PrimitiveArray::new(values, Validity::from(validity.finish())),
     )
 }
 
@@ -190,10 +187,9 @@ pub fn runend_decode_typed_primitive<T: NativePType>(
             }
             PrimitiveArray::new(decoded, values_nullability.into())
         }
-        LogicalValidity::AllInvalid(_) => PrimitiveArray::new(
-            buffer![T::default(); length],
-            Validity::Array(BoolArray::from(BooleanBuffer::new_unset(length)).into_array()),
-        ),
+        LogicalValidity::AllInvalid(_) => {
+            PrimitiveArray::new(buffer![T::default(); length], Validity::AllInvalid)
+        }
         LogicalValidity::Array(array) => {
             let validity = array.into_bool()?.boolean_buffer();
             let mut decoded = BufferMut::with_capacity(length);
@@ -215,10 +211,7 @@ pub fn runend_decode_typed_primitive<T: NativePType>(
                     }
                 }
             }
-            PrimitiveArray::new(
-                decoded,
-                Validity::Array(BoolArray::from(decoded_validity.finish()).into_array()),
-            )
+            PrimitiveArray::new(decoded, Validity::from(decoded_validity.finish()))
         }
     })
 }
@@ -238,11 +231,10 @@ pub fn runend_decode_typed_bool(
             }
             BoolArray::new(decoded.finish(), values_nullability)
         }
-        LogicalValidity::AllInvalid(_) => BoolArray::try_new(
-            BooleanBuffer::new_unset(length),
-            Validity::Array(BoolArray::from(BooleanBuffer::new_unset(length)).into_array()),
-        )
-        .vortex_expect("invalid array"),
+        LogicalValidity::AllInvalid(_) => {
+            BoolArray::try_new(BooleanBuffer::new_unset(length), Validity::AllInvalid)
+                .vortex_expect("invalid array")
+        }
         LogicalValidity::Array(array) => {
             let validity = array.into_bool()?.boolean_buffer();
             let mut decoded = BooleanBufferBuilder::new(length);
@@ -264,10 +256,7 @@ pub fn runend_decode_typed_bool(
                     }
                 }
             }
-            BoolArray::try_new(
-                decoded.finish(),
-                Validity::Array(BoolArray::from(decoded_validity.finish()).into_array()),
-            )?
+            BoolArray::try_new(decoded.finish(), Validity::from(decoded_validity.finish()))?
         }
     })
 }

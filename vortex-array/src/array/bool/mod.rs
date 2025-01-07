@@ -28,8 +28,8 @@ impl_encoding!("vortex.bool", ids::BOOL, Bool);
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BoolMetadata {
-    validity: ValidityMetadata,
-    first_byte_bit_offset: u8,
+    pub(crate) validity: ValidityMetadata,
+    pub(crate) first_byte_bit_offset: u8,
 }
 
 impl Display for BoolMetadata {
@@ -206,10 +206,15 @@ impl VisitorVTable<BoolArray> for BoolEncoding {
 
 #[cfg(test)]
 mod tests {
-    use crate::array::BoolArray;
-    use crate::compute::scalar_at;
+    use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder};
+    use vortex_buffer::buffer;
+    use vortex_dtype::Nullability;
+
+    use crate::array::{BoolArray, PrimitiveArray};
+    use crate::compute::{scalar_at, slice};
+    use crate::patches::Patches;
     use crate::validity::Validity;
-    use crate::IntoArrayData;
+    use crate::{ArrayLen, IntoArrayData, IntoArrayVariant};
 
     #[test]
     fn bool_array() {
@@ -251,5 +256,56 @@ mod tests {
 
         let scalar = scalar_at(&arr, 4).unwrap();
         assert!(scalar.is_null());
+    }
+
+    #[test]
+    fn patch_sliced_bools() {
+        let arr = {
+            let mut builder = BooleanBufferBuilder::new(12);
+            builder.append(false);
+            builder.append_n(11, true);
+            BoolArray::from(builder.finish())
+        };
+        let sliced = slice(arr.clone(), 4, 12).unwrap();
+        let (values, offset) = sliced.clone().into_bool().unwrap().into_boolean_builder();
+        assert_eq!(offset, 4);
+        assert_eq!(values.as_slice(), &[254, 15]);
+
+        // patch the underlying array
+        let patches = Patches::new(
+            arr.len(),
+            PrimitiveArray::new(buffer![4u32], Validity::AllValid).into_array(),
+            BoolArray::from(BooleanBuffer::new_unset(1)).into_array(),
+        );
+        let arr = arr.patch(patches).unwrap();
+        let (values, offset) = arr.into_bool().unwrap().into_boolean_builder();
+        assert_eq!(offset, 0);
+        assert_eq!(values.as_slice(), &[238, 15]);
+
+        // the slice should be unchanged
+        let (values, offset) = sliced.into_bool().unwrap().into_boolean_builder();
+        assert_eq!(offset, 4);
+        assert_eq!(values.as_slice(), &[254, 15]); // unchanged
+    }
+
+    #[test]
+    #[should_panic]
+    fn patch_bools_owned() {
+        let buffer = buffer![255u8; 2];
+        let buf = BooleanBuffer::new(buffer.into_arrow_buffer(), 0, 15);
+        let arr = BoolArray::new(buf, Nullability::NonNullable);
+        let buf_ptr = arr.boolean_buffer().sliced().as_ptr();
+
+        let patches = Patches::new(
+            arr.len(),
+            PrimitiveArray::new(buffer![0u32], Validity::AllValid).into_array(),
+            BoolArray::from(BooleanBuffer::new_unset(1)).into_array(),
+        );
+        let arr = arr.patch(patches).unwrap();
+        assert_eq!(arr.boolean_buffer().sliced().as_ptr(), buf_ptr);
+
+        let (values, offset) = arr.into_bool().unwrap().into_boolean_builder();
+        assert_eq!(offset, 0);
+        assert_eq!(values.as_slice(), &[254, 127]);
     }
 }

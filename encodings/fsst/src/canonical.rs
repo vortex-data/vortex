@@ -2,9 +2,9 @@ use arrow_array::builder::make_view;
 use vortex_array::array::{VarBinArray, VarBinViewArray};
 use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{
-    ArrayDType, ArrayData, Canonical, IntoArrayData, IntoArrayVariant, IntoCanonical,
+    ArrayDType, ArrayData, ArrayLen, Canonical, IntoArrayData, IntoArrayVariant, IntoCanonical,
 };
-use vortex_buffer::Buffer;
+use vortex_buffer::{BufferMut, ByteBuffer};
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 
@@ -28,8 +28,6 @@ impl IntoCanonical for FSSTArray {
                 .into_primitive()?;
 
             // Bulk-decompress the entire array.
-            // TODO(ngates): return non-vec to avoid this copy
-            //   See: https://github.com/spiraldb/fsst/issues/61
             let uncompressed_bytes = decompressor.decompress(compressed_bytes.as_slice::<u8>());
 
             let uncompressed_lens_array = self
@@ -38,29 +36,25 @@ impl IntoCanonical for FSSTArray {
                 .into_primitive()?;
 
             // Directly create the binary views.
-            let views: Buffer<u128> = match_each_integer_ptype!(uncompressed_lens_array.ptype(), |$P| {
-                uncompressed_lens_array.as_slice::<$P>()
-                    .iter()
-                    .map(|&len| len as usize)
-                    .scan(0, |offset, len| {
-                        let str_start = *offset;
-                        let str_end = *offset + len;
+            let mut views = BufferMut::<u128>::with_capacity(uncompressed_lens_array.len());
 
-                        *offset += len;
-
-                        Some(make_view(
-                            &uncompressed_bytes[str_start..str_end],
-                            0u32,
-                            str_start as u32,
-                        ))
-                    })
-                    .collect()
+            match_each_integer_ptype!(uncompressed_lens_array.ptype(), |$P| {
+                let mut offset = 0;
+                for len in uncompressed_lens_array.as_slice::<$P>() {
+                    let len = *len as usize;
+                    let view = make_view(
+                        &uncompressed_bytes[offset..][..len],
+                        0u32,
+                        offset as u32,
+                    );
+                    // SAFETY: we reserved the right capacity beforehand
+                    unsafe { views.push_unchecked(view) };
+                    offset += len;
+                }
             });
 
-            let views_array: ArrayData = Buffer::<u8>::from_byte_buffer(views.into_byte_buffer()).into_array();
-            // TODO(ngates): return non-vec to avoid this copy
-            //   See: https://github.com/spiraldb/fsst/issues/61
-            let uncompressed_bytes_array = Buffer::copy_from(uncompressed_bytes).into_array();
+            let views_array: ArrayData = views.freeze().into_byte_buffer().into_array();
+            let uncompressed_bytes_array = ByteBuffer::from(uncompressed_bytes).into_array();
 
             VarBinViewArray::try_new(
                 views_array,

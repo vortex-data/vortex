@@ -48,3 +48,25 @@ impl PartialEq<dyn Any> for Literal {
             .unwrap_or(false)
     }
 }
+
+/// Create a new `Literal` expression from a type that coerces to `Scalar`.
+///
+///
+/// ## Example usage
+///
+/// ```
+/// use vortex_array::array::PrimitiveArray;
+/// use vortex_dtype::Nullability;
+/// use vortex_expr::{lit, Literal};
+/// use vortex_scalar::Scalar;
+///
+/// let number = lit(34i32);
+///
+/// let literal = number.as_any()
+///     .downcast_ref::<Literal>()
+///     .unwrap();
+/// assert_eq!(literal.value(), &Scalar::primitive(34i32, Nullability::NonNullable));
+/// ```
+pub fn lit(value: impl Into<Scalar>) -> ExprRef {
+    Literal::new_expr(value.into())
+}

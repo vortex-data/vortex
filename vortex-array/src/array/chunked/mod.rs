@@ -9,12 +9,9 @@ use serde::{Deserialize, Serialize};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult, VortexUnwrap};
-use vortex_scalar::BinaryNumericOperator;
 
 use crate::array::primitive::PrimitiveArray;
-use crate::compute::{
-    binary_numeric, scalar_at, search_sorted_usize, slice, BinaryNumericFn, SearchSortedSide,
-};
+use crate::compute::{scalar_at, search_sorted_usize, SearchSortedSide};
 use crate::encoding::ids;
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
 use crate::stats::StatsSet;
@@ -35,7 +32,7 @@ impl_encoding!("vortex.chunked", ids::CHUNKED, Chunked);
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ChunkedMetadata {
-    nchunks: usize,
+    pub(crate) nchunks: usize,
 }
 
 impl Display for ChunkedMetadata {
@@ -235,28 +232,6 @@ impl ValidityVTable<ChunkedArray> for ChunkedEncoding {
     }
 }
 
-impl BinaryNumericFn<ChunkedArray> for ChunkedEncoding {
-    fn binary_numeric(
-        &self,
-        array: &ChunkedArray,
-        rhs: &ArrayData,
-        op: BinaryNumericOperator,
-    ) -> VortexResult<Option<ArrayData>> {
-        let mut start = 0;
-
-        let mut new_chunks = Vec::with_capacity(array.nchunks());
-        for chunk in array.chunks() {
-            let end = start + chunk.len();
-            new_chunks.push(binary_numeric(&chunk, &slice(rhs, start, end)?, op)?);
-            start = end;
-        }
-
-        ChunkedArray::try_new(new_chunks, array.dtype().clone())
-            .map(IntoArrayData::into_array)
-            .map(Some)
-    }
-}
-
 #[cfg(test)]
 mod test {
     use vortex_buffer::buffer;
@@ -264,7 +239,8 @@ mod test {
     use vortex_error::VortexResult;
 
     use crate::array::chunked::ChunkedArray;
-    use crate::compute::{scalar_at, sub_scalar};
+    use crate::compute::test_harness::test_binary_numeric;
+    use crate::compute::{scalar_at, sub_scalar, try_cast};
     use crate::{assert_arrays_eq, ArrayDType, IntoArrayData, IntoArrayVariant};
 
     fn chunked_array() -> ChunkedArray {
@@ -378,5 +354,14 @@ mod test {
 
         assert_eq!(rechunked.nchunks(), 4);
         assert_arrays_eq!(chunked, rechunked);
+    }
+
+    #[test]
+    fn test_chunked_binary_numeric() {
+        let array = chunked_array().into_array();
+        // The tests test both X - 1 and 1 - X, so we need signed values
+        let signed_dtype = DType::from(PType::try_from(array.dtype()).unwrap().to_signed());
+        let array = try_cast(array, &signed_dtype).unwrap();
+        test_binary_numeric::<u64>(array)
     }
 }

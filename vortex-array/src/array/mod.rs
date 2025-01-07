@@ -20,6 +20,8 @@ pub mod from;
 
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;
+#[cfg(test)]
+mod test_compatibility;
 
 pub use self::bool::*;
 pub use self::chunked::*;

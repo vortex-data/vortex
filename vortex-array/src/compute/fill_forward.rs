@@ -18,12 +18,7 @@ where
     for<'a> &'a E::Array: TryFrom<&'a ArrayData, Error = VortexError>,
 {
     fn fill_forward(&self, array: &ArrayData) -> VortexResult<ArrayData> {
-        let array_ref = <&E::Array>::try_from(array)?;
-        let encoding = array
-            .encoding()
-            .as_any()
-            .downcast_ref::<E>()
-            .ok_or_else(|| vortex_err!("Mismatched encoding"))?;
+        let (array_ref, encoding) = array.downcast_array_ref::<E>()?;
         FillForwardFn::fill_forward(encoding, array_ref)
     }
 }

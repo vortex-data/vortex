@@ -70,7 +70,17 @@ pub fn sort_canonical_array(array: &ArrayData) -> ArrayData {
             });
             take_canonical_array(array, &sort_indices)
         }
-        _ => unreachable!("Not a canonical array"),
+        DType::List(..) => {
+            let mut sort_indices = (0..array.len()).collect::<Vec<_>>();
+            sort_indices.sort_by(|a, b| {
+                scalar_at(array, *a)
+                    .unwrap()
+                    .partial_cmp(&scalar_at(array, *b).unwrap())
+                    .unwrap()
+            });
+            take_canonical_array(array, &sort_indices)
+        }
+        a => unreachable!("Not a canonical array {:?}", a),
     }
 }
 

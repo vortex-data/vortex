@@ -1,10 +1,11 @@
 use core::mem::MaybeUninit;
 use std::ops::{Deref, DerefMut};
 
-use bytes::{Buf, BytesMut};
+use bytes::buf::UninitSlice;
+use bytes::{Buf, BufMut, BytesMut};
 use vortex_error::{vortex_panic, VortexExpect};
 
-use crate::{Alignment, Buffer};
+use crate::{Alignment, Buffer, ByteBufferMut};
 
 /// A mutable buffer that maintains a runtime-defined alignment through resizing operations.
 #[derive(Debug, PartialEq, Eq)]
@@ -55,7 +56,7 @@ impl<T> BufferMut<T> {
     /// Create a new full `ByteBuffer` with the given value.
     pub fn full(item: T, len: usize) -> Self
     where
-        T: Clone,
+        T: Copy,
     {
         let mut buffer = BufferMut::<T>::with_capacity(len);
         buffer.push_n(item, len);
@@ -236,12 +237,10 @@ impl<T> BufferMut<T> {
     /// The caller must ensure there is sufficient capacity in the array.
     #[inline]
     pub unsafe fn push_unchecked(&mut self, item: T) {
-        let raw_ptr = &item as *const T as *const u8;
-
-        // SAFETY: we checked the capacity in the reserve call
+        // SAFETY: the caller ensures we have sufficient capacity
         unsafe {
-            let dst = self.bytes.spare_capacity_mut().as_mut_ptr();
-            std::ptr::copy_nonoverlapping(raw_ptr, dst as *mut u8, size_of::<T>());
+            let dst: *mut T = self.bytes.spare_capacity_mut().as_mut_ptr().cast();
+            dst.write(item);
             self.bytes.set_len(self.bytes.len() + size_of::<T>())
         }
         self.length += 1;
@@ -251,19 +250,18 @@ impl<T> BufferMut<T> {
     ///
     /// This function is slightly more optimized than `extend(iter::repeat_n(item, b))`.
     #[inline]
-    pub fn push_n(&mut self, item: T, n: usize) {
+    pub fn push_n(&mut self, item: T, n: usize)
+    where
+        T: Copy,
+    {
         self.reserve(n);
 
-        // NOTE(ngates): this assumes the platform is little-endian. Currently enforced
-        //  with a flag cfg(target_endian = "little")
-        let raw_ptr = &item as *const T as *const u8;
-
+        let mut dst: *mut T = self.bytes.spare_capacity_mut().as_mut_ptr().cast();
         // SAFETY: we checked the capacity in the reserve call
         unsafe {
-            let mut dst = self.bytes.spare_capacity_mut().as_mut_ptr();
             for _ in 0..n {
-                std::ptr::copy_nonoverlapping(raw_ptr, dst as *mut u8, size_of::<T>());
-                dst = dst.add(size_of::<T>());
+                dst.write(item);
+                dst = dst.add(1);
             }
             self.bytes.set_len(self.bytes.len() + (n * size_of::<T>()));
         }
@@ -304,22 +302,28 @@ impl<T> BufferMut<T> {
     /// Map each element of the buffer with a closure.
     pub fn map_each<R, F>(self, mut f: F) -> BufferMut<R>
     where
-        F: FnMut(&T) -> R,
+        T: Copy,
+        F: FnMut(T) -> R,
     {
         assert_eq!(
             size_of::<T>(),
             size_of::<R>(),
             "Size of T and R do not match"
         );
-        let length = self.len();
         // SAFETY: we have checked that `size_of::<T>` == `size_of::<R>`.
         let mut buf: BufferMut<R> = unsafe { std::mem::transmute(self) };
-        for i in 0..length {
-            // We transmute _back_ the R value into the original T to invoke the closure.
-            let src: &T = unsafe { std::mem::transmute(&buf[i]) };
-            buf.as_mut_slice()[i] = f(src);
-        }
+        buf.iter_mut()
+            .for_each(|item| *item = f(unsafe { std::mem::transmute_copy(item) }));
         buf
+    }
+
+    /// Return a `BufferMut<T>` with the given alignment. Where possible, this will be zero-copy.
+    pub fn aligned(self, alignment: Alignment) -> Self {
+        if self.as_ptr().align_offset(*alignment) == 0 {
+            self
+        } else {
+            Self::copy_from_aligned(self, alignment)
+        }
     }
 }
 
@@ -373,21 +377,14 @@ impl<T> Extend<T> for BufferMut<T> {
         let (lower, _upper) = iterator.size_hint();
         self.reserve(lower);
 
-        let item_size = size_of::<T>();
-
         let remaining = self.capacity() - self.len();
 
-        let mut dst = self.bytes.spare_capacity_mut().as_mut_ptr();
-
+        let dst: *mut T = self.bytes.spare_capacity_mut().as_mut_ptr().cast();
         let mut consumed = 0;
         while consumed < remaining {
             if let Some(item) = iterator.next() {
                 // SAFETY: We know we have enough capacity to write the item.
-                unsafe {
-                    let raw_ptr = &item as *const T as *const u8;
-                    std::ptr::copy_nonoverlapping(raw_ptr, dst as *mut u8, item_size);
-                    dst = dst.add(item_size);
-                }
+                unsafe { dst.add(consumed).write(item) };
                 consumed += 1;
             } else {
                 break;
@@ -395,7 +392,7 @@ impl<T> Extend<T> for BufferMut<T> {
         }
 
         self.length += consumed;
-        unsafe { self.bytes.set_len(self.length * item_size) };
+        unsafe { self.bytes.set_len(self.length * size_of::<T>()) };
 
         iterator.for_each(|item| self.push(item));
     }
@@ -408,6 +405,77 @@ impl<T> FromIterator<T> for BufferMut<T> {
         buffer.extend(iter);
         debug_assert_eq!(buffer.alignment(), Alignment::of::<T>());
         buffer
+    }
+}
+
+impl Buf for ByteBufferMut {
+    fn remaining(&self) -> usize {
+        self.len()
+    }
+
+    fn chunk(&self) -> &[u8] {
+        self.as_slice()
+    }
+
+    fn advance(&mut self, cnt: usize) {
+        if !cnt.is_multiple_of(*self.alignment) {
+            vortex_panic!(
+                "Cannot advance buffer by {} items, resulting alignment is not {}",
+                cnt,
+                self.alignment
+            );
+        }
+        self.bytes.advance(cnt);
+        self.length -= cnt;
+    }
+}
+
+/// As per the BufMut implementation, we must support internal resizing when
+/// asked to extend the buffer.
+/// See: <https://github.com/tokio-rs/bytes/issues/131>
+unsafe impl BufMut for ByteBufferMut {
+    #[inline]
+    fn remaining_mut(&self) -> usize {
+        usize::MAX - self.len()
+    }
+
+    #[inline]
+    unsafe fn advance_mut(&mut self, cnt: usize) {
+        if !cnt.is_multiple_of(*self.alignment) {
+            vortex_panic!(
+                "Cannot advance buffer by {} items, resulting alignment is not {}",
+                cnt,
+                self.alignment
+            );
+        }
+        unsafe { self.bytes.advance_mut(cnt) };
+        self.length -= cnt;
+    }
+
+    #[inline]
+    fn chunk_mut(&mut self) -> &mut UninitSlice {
+        self.bytes.chunk_mut()
+    }
+
+    fn put<T: Buf>(&mut self, mut src: T)
+    where
+        Self: Sized,
+    {
+        while src.has_remaining() {
+            let chunk = src.chunk();
+            self.extend_from_slice(chunk);
+            src.advance(chunk.len());
+        }
+    }
+
+    #[inline]
+    fn put_slice(&mut self, src: &[u8]) {
+        self.extend_from_slice(src);
+    }
+
+    #[inline]
+    fn put_bytes(&mut self, val: u8, cnt: usize) {
+        self.push_n(val, cnt)
     }
 }
 
@@ -441,7 +509,9 @@ impl AlignedBytesMut for BytesMut {
 
 #[cfg(test)]
 mod test {
-    use crate::{buffer_mut, Alignment, BufferMut};
+    use bytes::{Buf, BufMut};
+
+    use crate::{buffer_mut, Alignment, BufferMut, ByteBufferMut};
 
     #[test]
     fn capacity() {
@@ -504,5 +574,26 @@ mod test {
         // Add one, and cast to an unsigned u32 in the same closure
         let buf = buf.map_each(|i| (i + 1) as u32);
         assert_eq!(buf.as_slice(), &[1u32, 2, 3]);
+    }
+
+    #[test]
+    fn bytes_buf() {
+        let mut buf = ByteBufferMut::copy_from("helloworld".as_bytes());
+        assert_eq!(buf.remaining(), 10);
+        assert_eq!(buf.chunk(), b"helloworld");
+
+        Buf::advance(&mut buf, 5);
+        assert_eq!(buf.remaining(), 5);
+        assert_eq!(buf.as_slice(), b"world");
+        assert_eq!(buf.chunk(), b"world");
+    }
+
+    #[test]
+    fn bytes_buf_mut() {
+        let mut buf = ByteBufferMut::copy_from("hello".as_bytes());
+        assert_eq!(BufMut::remaining_mut(&buf), usize::MAX - 5);
+
+        BufMut::put_slice(&mut buf, b"world");
+        assert_eq!(buf.as_slice(), b"helloworld");
     }
 }

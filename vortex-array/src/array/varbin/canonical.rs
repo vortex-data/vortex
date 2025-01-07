@@ -28,6 +28,16 @@ impl IntoCanonical for VarBinArray {
         // Arrow representation.
         varbin_to_arrow(&self)
     }
+
+    fn into_arrow_with_data_type(self, data_type: &DataType) -> VortexResult<ArrayRef> {
+        let array_ref = self.into_arrow()?;
+
+        Ok(if array_ref.data_type() != data_type {
+            arrow_cast::cast(array_ref.as_ref(), data_type)?
+        } else {
+            array_ref
+        })
+    }
 }
 
 #[cfg(test)]

@@ -260,7 +260,7 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
     left_parts: Buffer<u16>,
     left_parts_dict: &[u16],
     right_bit_width: u8,
-    right_parts: Buffer<T::UINT>,
+    right_parts: BufferMut<T::UINT>,
     left_parts_patches: Option<Patches>,
 ) -> VortexResult<Buffer<T>> {
     if left_parts.len() != right_parts.len() {
@@ -288,13 +288,15 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
     }
 
     // Shift the left-parts and add in the right-parts.
-    Ok(
-        BufferMut::<T>::from_iter(values.iter().zip(right_parts.iter()).map(|(left, right)| {
-            let left = <T as ALPRDFloat>::from_u16(*left);
-            T::from_bits((left << (right_bit_width as usize)) | *right)
-        }))
-        .freeze(),
-    )
+    let mut index = 0;
+    Ok(right_parts
+        .map_each(|right| {
+            let left = values[index];
+            index += 1;
+            let left = <T as ALPRDFloat>::from_u16(left);
+            T::from_bits((left << (right_bit_width as usize)) | right)
+        })
+        .freeze())
 }
 
 /// Find the best "cut point" for a set of floating point values such that we can

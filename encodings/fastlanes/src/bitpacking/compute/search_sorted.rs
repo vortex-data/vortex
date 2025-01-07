@@ -110,9 +110,11 @@ where
     //  in the BitPackedSearch. We need a type that impls fastlanes::BitPack, and it is a
     //  precondition for BitPackedArray that all values must be non-negative, so promotion
     //  is cheap and safe.
-    let native_value: T = value
-        .cast(&DType::from(array.ptype().to_unsigned()))?
-        .try_into()?;
+    let Ok(unsigned_value) = value.cast(&DType::from(array.ptype().to_unsigned())) else {
+        // If the value can't be casted to unsigned dtype then it can't exist in the array and would be smaller than any value present
+        return Ok(SearchResult::NotFound(0));
+    };
+    let native_value: T = unsigned_value.try_into()?;
     search_sorted_native(array, native_value, side)
 }
 
@@ -328,6 +330,17 @@ mod test {
                 SearchResult::Found(1),
                 SearchResult::Found(0),
             ]
+        );
+    }
+
+    #[test]
+    fn test_missing_signed() {
+        let bitpacked = BitPackedArray::encode(&buffer![1i32, 2, 3, 4, 5].into_array(), 2)
+            .unwrap()
+            .into_array();
+        assert_eq!(
+            search_sorted(&bitpacked, -4, SearchSortedSide::Left).unwrap(),
+            SearchResult::NotFound(0)
         );
     }
 }

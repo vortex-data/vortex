@@ -1,5 +1,5 @@
 use std::any::Any;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use arrow_schema::{Schema, SchemaRef};
 use async_trait::async_trait;
@@ -20,12 +20,11 @@ use futures::{stream, StreamExt as _, TryStreamExt as _};
 use object_store::{ObjectMeta, ObjectStore};
 use vortex_array::array::StructArray;
 use vortex_array::arrow::infer_schema;
-use vortex_array::Context;
+use vortex_array::ContextRef;
 use vortex_error::VortexResult;
 use vortex_file::metadata::fetch_metadata;
 use vortex_file::{
-    LayoutContext, LayoutDeserializer, LayoutMessageCache, RelativeLayoutCache, Scan,
-    VORTEX_FILE_EXTENSION,
+    LayoutContext, LayoutDeserializer, LayoutMessageCache, LayoutPath, Scan, VORTEX_FILE_EXTENSION,
 };
 use vortex_io::{IoDispatcher, ObjectStoreReadAt};
 
@@ -36,7 +35,7 @@ use crate::can_be_pushed_down;
 
 #[derive(Debug)]
 pub struct VortexFormat {
-    context: Arc<Context>,
+    context: ContextRef,
     initial_read_cache: InitialReadCache,
     opts: VortexFormatOptions,
 }
@@ -69,10 +68,10 @@ impl Default for VortexFormat {
 }
 
 impl VortexFormat {
-    pub fn new(context: &Context) -> Self {
+    pub fn new(context: ContextRef) -> Self {
         let opts = VortexFormatOptions::default();
         Self {
-            context: Arc::new(context.clone()),
+            context,
             initial_read_cache: InitialReadCache::new(opts.cache_size_mb),
             opts,
         }
@@ -145,16 +144,12 @@ impl FileFormat for VortexFormat {
 
         let layout_deserializer =
             LayoutDeserializer::new(self.context.clone(), LayoutContext::default().into());
-        let layout_message_cache = Arc::new(RwLock::new(LayoutMessageCache::new()));
-        let relative_message_cache = RelativeLayoutCache::new(
-            layout_message_cache.clone(),
-            initial_read.lazy_dtype().into(),
-        );
 
         let root_layout = layout_deserializer.read_layout(
+            LayoutPath::default(),
             initial_read.fb_layout(),
             Scan::empty(),
-            relative_message_cache,
+            initial_read.lazy_dtype().into(),
         )?;
 
         let os_read_at = ObjectStoreReadAt::new(store.clone(), object.location.clone());
@@ -162,8 +157,10 @@ impl FileFormat for VortexFormat {
         let mut stats = Statistics::new_unknown(&table_schema);
         stats.num_rows = Precision::Exact(row_count as usize);
 
+        let msgs = LayoutMessageCache::default();
+
         if let Some(metadata_table) =
-            fetch_metadata(os_read_at, io.into(), root_layout, layout_message_cache).await?
+            fetch_metadata(os_read_at, io.into(), root_layout, msgs).await?
         {
             let mut column_statistics = Vec::with_capacity(table_schema.fields().len());
             let mut total_size = 0_u64;
