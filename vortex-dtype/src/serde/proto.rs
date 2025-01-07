@@ -80,7 +80,7 @@ impl From<&DType> for pb::DType {
                 }),
                 DType::Struct(s, n) => DtypeType::Struct(pb::Struct {
                     names: s.names().iter().map(|s| s.as_ref().to_string()).collect(),
-                    dtypes: s.dtypes().iter().map(Into::into).collect(),
+                    dtypes: s.dtypes().map(|d| Self::from(&d)).collect(),
                     nullable: (*n).into(),
                 }),
                 DType::List(l, n) => DtypeType::List(Box::new(pb::List {

@@ -8,7 +8,7 @@ use vortex_array::aliases::hash_map::HashMap;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::field::Field;
 use vortex_dtype::flatbuffers::{extract_field, project_and_deserialize, resolve_field};
-use vortex_dtype::{DType, FieldNames};
+use vortex_dtype::{DType, FieldNames, ViewedFieldDType};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_flatbuffers::dtype as fbd;
 
@@ -182,7 +182,7 @@ impl LazyDType {
                     vortex_bail!("Not a struct dtype")
                 };
                 Ok(Arc::new(LazyDType::from_dtype(
-                    sdt.field_info(field)?.dtype.clone(),
+                    sdt.field_info(field)?.dtype.value()?,
                 )))
             }
             LazyDTypeState::Serialized(b, _, current_projection) => Ok(Arc::new(Self {
@@ -215,7 +215,7 @@ impl LazyDType {
         match &self.inner {
             LazyDTypeState::DType(dtype) => Ok(dtype),
             LazyDTypeState::Serialized(bytes, cache, proj) => {
-                cache.get_or_try_init(|| project_dtype_bytes(bytes, proj))
+                cache.get_or_try_init(|| project_dtype_bytes(bytes.clone(), proj))
             }
             LazyDTypeState::Unknown => vortex_bail!("Unknown dtype"),
         }
@@ -263,14 +263,22 @@ fn field_names(bytes: &[u8], dtype_field: &SerializedDTypeField) -> VortexResult
     }
 }
 
-fn project_dtype_bytes(bytes: &[u8], dtype_field: &SerializedDTypeField) -> VortexResult<DType> {
-    let fb_dtype = fb_dtype(bytes);
+fn project_dtype_bytes(
+    bytes: ByteBuffer,
+    dtype_field: &SerializedDTypeField,
+) -> VortexResult<DType> {
+    let fb_dtype = fb_dtype(bytes.as_ref());
+    let view = ViewedFieldDType {
+        buffer: bytes.clone(),
+        flatbuffer_loc: fb_dtype._tab.loc(),
+    };
+
     match dtype_field {
         SerializedDTypeField::Projection(projection) => match projection {
-            Projection::All => DType::try_from(fb_dtype),
-            Projection::Flat(p) => project_and_deserialize(fb_dtype, p),
+            Projection::All => DType::try_from(view),
+            Projection::Flat(p) => project_and_deserialize(fb_dtype, p, &bytes),
         },
-        SerializedDTypeField::Field(f) => extract_field(fb_dtype, f),
+        SerializedDTypeField::Field(f) => extract_field(fb_dtype, f, &bytes),
     }
 }
 

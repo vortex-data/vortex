@@ -36,7 +36,7 @@ serde_json = { workspace = true }
 serde_test = { workspace = true }
 
 [lints]
-# workspace = true
+workspace = true
 
 [features]
 default = ["flatbuffers"]

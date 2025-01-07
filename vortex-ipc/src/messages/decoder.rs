@@ -5,7 +5,7 @@ use flatbuffers::{root, root_unchecked, Follow};
 use itertools::Itertools;
 use vortex_array::{flatbuffers as fba, ArrayData, ContextRef};
 use vortex_buffer::{AlignedBuf, Alignment, ByteBuffer};
-use vortex_dtype::DType;
+use vortex_dtype::{DType, ViewedFieldDType};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_flatbuffers::message as fb;
 use vortex_flatbuffers::message::{MessageHeader, MessageVersion};
@@ -176,7 +176,11 @@ impl MessageDecoder {
                         }
                         MessageHeader::DType => {
                             let dtype = msg.header_as_dtype().vortex_expect("dtype header");
-                            let dtype = DType::try_from(dtype)?;
+                            let view = ViewedFieldDType {
+                                buffer: msg_bytes.clone(),
+                                flatbuffer_loc: dtype._tab.loc(),
+                            };
+                            let dtype = DType::try_from(view)?;
 
                             // Nothing else to read, so we reset the state to Length
                             self.state = Default::default();

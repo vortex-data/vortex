@@ -53,7 +53,7 @@ impl<'a> StructScalar<'a> {
             .as_ref()
             .and_then(|fields| fields.get(idx))
             .map(|field| Scalar {
-                dtype: st.field_dtype(idx).clone(),
+                dtype: st.field_dtype(idx).vortex_expect(""),
                 value: field.clone(),
             })
     }
@@ -101,10 +101,10 @@ impl<'a> StructScalar<'a> {
                 .enumerate()
                 .map(|(i, f)| {
                     Scalar {
-                        dtype: own_st.field_dtype(i).clone(),
+                        dtype: own_st.field_dtype(i)?,
                         value: f.clone(),
                     }
-                    .cast(&st.field_dtype(i))
+                    .cast(&st.field_dtype(i)?)
                     .map(|s| s.value)
                 })
                 .collect::<VortexResult<Vec<_>>>()?;

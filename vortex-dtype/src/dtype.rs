@@ -232,7 +232,7 @@ impl Hash for FieldDType {
 }
 
 impl FieldDType {
-    fn value(&self) -> VortexResult<DType> {
+    pub fn value(&self) -> VortexResult<DType> {
         match self {
             FieldDType::Owned(owned) => Ok(owned.clone()),
             FieldDType::View(view) => DType::try_from(view.clone()),
@@ -248,7 +248,7 @@ impl serde::Serialize for FieldDType {
     {
         use serde::ser::Error;
 
-        let value = self.value().map_err(|e| S::Error::custom(e))?;
+        let value = self.value().map_err(S::Error::custom)?;
         serializer.serialize_newtype_variant("FieldDType", 0, "Owned", &value)
     }
 }
@@ -260,7 +260,7 @@ impl<'de> serde::Deserialize<'de> for FieldDType {
         D: serde::Deserializer<'de>,
     {
         unimplemented!()
-        // deserializer.deserialize_enum("", variants, visitor)
+        // deserializer.deserialize_enum("FieldDType", &["Owned"], visitor)
     }
 }
 
@@ -295,7 +295,7 @@ impl StructDType {
 
         let dtypes = dtypes
             .into_iter()
-            .map(|d| FieldDType::Owned(d))
+            .map(FieldDType::Owned)
             .collect::<Vec<_>>()
             .into();
 
@@ -349,15 +349,13 @@ impl StructDType {
     }
 
     /// Get the type of specific field by index
-    pub fn field_dtype(&self, index: usize) -> DType {
-        self.dtypes[index]
-            .value()
-            .vortex_expect("Inner dtype buffer should be valid DType.")
+    pub fn field_dtype(&self, index: usize) -> VortexResult<DType> {
+        self.dtypes[index].value()
     }
 
     /// Returns an ordered iterator over the members of Self.
-    pub fn dtypes<'a>(&'a self) -> impl ExactSizeIterator<Item = DType> + 'a {
-        self.dtypes.iter().map(|dt| dt.value().unwrap())
+    pub fn dtypes(&self) -> impl ExactSizeIterator<Item = DType> + '_ {
+        self.dtypes.iter().map(|dt| dt.value().vortex_expect(""))
     }
 
     /// Project a subset of fields from the struct
@@ -425,16 +423,16 @@ mod test {
         assert_eq!(sdt.dtypes().len(), 2);
         assert_eq!(sdt.names()[0], "A".into());
         assert_eq!(sdt.names()[1], "B".into());
-        assert_eq!(sdt.field_dtype(0), a_type);
-        assert_eq!(sdt.field_dtype(1), b_type);
+        assert_eq!(sdt.field_dtype(0).unwrap(), a_type);
+        assert_eq!(sdt.field_dtype(1).unwrap(), b_type);
 
         let proj = sdt
             .project(&[Field::Index(1), Field::Name("A".into())])
             .unwrap();
         assert_eq!(proj.names()[0], "B".into());
-        assert_eq!(proj.field_dtype(0), b_type);
+        assert_eq!(proj.field_dtype(0).unwrap(), b_type);
         assert_eq!(proj.names()[1], "A".into());
-        assert_eq!(proj.field_dtype(1), a_type);
+        assert_eq!(proj.field_dtype(1).unwrap(), a_type);
 
         let field_info = sdt.field_info(&Field::Name("B".into())).unwrap();
         assert_eq!(field_info.index, 1);

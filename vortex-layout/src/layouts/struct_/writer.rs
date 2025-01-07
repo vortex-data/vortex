@@ -39,8 +39,7 @@ impl StructLayoutWriter {
             dtype.clone(),
             struct_dtype
                 .dtypes()
-                .iter()
-                .map(|dtype| factory.new_writer(dtype))
+                .map(|dtype| factory.new_writer(&dtype))
                 .try_collect()?,
         ))
     }
