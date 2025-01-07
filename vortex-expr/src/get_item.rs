@@ -43,10 +43,7 @@ impl PartialEq<dyn Any> for GetItem {
 
 impl Display for GetItem {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("GetItem")
-            .field("field", &self.field)
-            .field("child", &self.child)
-            .finish()
+        write!(f, "{}.{}", self.child, self.field)
     }
 }
 

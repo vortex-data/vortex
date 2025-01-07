@@ -184,7 +184,7 @@ mod tests {
 
         assert_eq!(
             Select::include(vec![Field::from("col1")], Identity::new_expr()).to_string(),
-            "Include($col1)"
+            "select +($col1) []"
         );
         assert_eq!(
             Select::include(
@@ -192,7 +192,7 @@ mod tests {
                 Identity::new_expr()
             )
             .to_string(),
-            "Include($col1,$col2)"
+            "select +($col1,$col2) []"
         );
         assert_eq!(
             Select::exclude(
@@ -200,7 +200,7 @@ mod tests {
                 Identity::new_expr()
             )
             .to_string(),
-            "Exclude($col1,$col2,[1])"
+            "select -($col1,$col2,[1]) []"
         );
 
         assert_eq!(lit(Scalar::from(0_u8)).to_string(), "0_u8");

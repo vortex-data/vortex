@@ -72,18 +72,15 @@ impl SelectField {
 impl Display for SelectField {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SelectField::Include(fields) => write!(f, "Include({})", fields.iter().format(",")),
-            SelectField::Exclude(fields) => write!(f, "Exclude({})", fields.iter().format(",")),
+            SelectField::Include(fields) => write!(f, "+({})", fields.iter().format(",")),
+            SelectField::Exclude(fields) => write!(f, "-({})", fields.iter().format(",")),
         }
     }
 }
 
 impl Display for Select {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Select")
-            .field("fields", &self.fields)
-            .field("child", &self.child)
-            .finish()
+        write!(f, "select {} {}", self.fields, self.child)
     }
 }
 
