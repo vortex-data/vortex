@@ -4,7 +4,7 @@ use flatbuffers::root;
 use itertools::Itertools;
 use vortex_array::ContextRef;
 use vortex_buffer::{ByteBuffer, ByteBufferMut};
-use vortex_dtype::DType;
+use vortex_dtype::{DType, ViewedFieldDType};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_flatbuffers::{dtype as fbd, footer2 as fb, ReadFlatBuffer};
 use vortex_io::VortexReadAt;
@@ -162,12 +162,15 @@ impl OpenOptions {
     fn parse_dtype(
         &self,
         initial_offset: u64,
-        initial_read: &[u8],
+        initial_read: &ByteBuffer,
         dtype: Segment,
     ) -> VortexResult<DType> {
         let offset = usize::try_from(dtype.offset - initial_offset)?;
-        let dtype_bytes = &initial_read[offset..offset + dtype.length];
-        DType::try_from(root::<fbd::DType>(dtype_bytes)?)
+        let sliced_buffer = initial_read.slice(offset..offset + dtype.length);
+        let fbd_dtype = root::<fbd::DType>(&sliced_buffer)?;
+
+        let v = ViewedFieldDType::from_fb(fbd_dtype, sliced_buffer.clone());
+        DType::try_from(v)
     }
 
     /// Parse the FileLayout from the initial read.

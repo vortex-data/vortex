@@ -187,6 +187,13 @@ pub struct ViewedFieldDType {
 }
 
 impl ViewedFieldDType {
+    pub fn from_fb(fb_dtype: fbd::DType<'_>, buffer: ByteBuffer) -> Self {
+        Self {
+            buffer,
+            flatbuffer_loc: fb_dtype._tab.loc(),
+        }
+    }
+
     pub fn flatbuffer(&self) -> fbd::DType<'_> {
         unsafe {
             fbd::DType::init_from_table(flatbuffers::Table::new(
