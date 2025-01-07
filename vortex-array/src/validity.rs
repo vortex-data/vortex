@@ -301,6 +301,12 @@ impl Validity {
             _ => {}
         };
 
+        let own_nullability = if self == Validity::NonNullable {
+            Nullability::NonNullable
+        } else {
+            Nullability::Nullable
+        };
+
         let source = match self {
             Validity::NonNullable => BoolArray::from(BooleanBuffer::new_set(len)),
             Validity::AllValid => BoolArray::from(BooleanBuffer::new_set(len)),
@@ -317,7 +323,7 @@ impl Validity {
 
         let patches = Patches::new(len, indices.clone(), patch_values.into_array());
 
-        Validity::try_from(source.patch(patches)?.into_array())
+        Self::from_array(source.patch(patches)?.into_array(), own_nullability)
     }
 
     /// Convert into a nullable variant
@@ -326,6 +332,10 @@ impl Validity {
             Self::NonNullable => Self::AllValid,
             _ => self,
         }
+    }
+
+    pub fn from_array(value: ArrayData, nullability: Nullability) -> VortexResult<Self> {
+        LogicalValidity::try_from(value).map(|a| a.into_validity(nullability))
     }
 }
 
@@ -368,15 +378,6 @@ impl From<BooleanBuffer> for Validity {
 impl From<NullBuffer> for Validity {
     fn from(value: NullBuffer) -> Self {
         value.into_inner().into()
-    }
-}
-
-impl TryFrom<ArrayData> for Validity {
-    type Error = VortexError;
-
-    fn try_from(value: ArrayData) -> Result<Self, Self::Error> {
-        let nullability = value.dtype().nullability();
-        LogicalValidity::try_from(value).map(|a| a.into_validity(nullability))
     }
 }
 
@@ -492,8 +493,8 @@ impl LogicalValidity {
 
     pub fn into_validity(self, nullability: Nullability) -> Validity {
         assert!(
-            nullability == Nullability::Nullable || !matches!(self, Self::AllInvalid(_)),
-            "AllInvalid validity must be nullable",
+            nullability == Nullability::Nullable || matches!(self, Self::AllValid(_)),
+            "NonNullable validity must be AllValid",
         );
         match self {
             Self::AllValid(_) => match nullability {
