@@ -63,7 +63,7 @@ struct ColumnarLayoutBuilder<'a> {
 
 impl ColumnarLayoutBuilder<'_> {
     fn build(&self) -> VortexResult<ColumnarLayoutReader> {
-        let (refs, layout_dtype) = self.fields_with_dtypes()?;
+        let (field_refs, layout_dtype) = self.fields_with_dtypes()?;
         let fb_children = self.layout.children().unwrap_or_default();
 
         let mut unhandled_names = Vec::new();
@@ -71,7 +71,7 @@ impl ColumnarLayoutBuilder<'_> {
         let mut handled_children = Vec::new();
         let mut handled_names = Vec::new();
 
-        for (field, name) in refs.into_iter().zip_eq(layout_dtype.names().iter()) {
+        for (field, name) in field_refs.into_iter().zip_eq(layout_dtype.names().iter()) {
             let resolved_child = layout_dtype.field_info(&field)?;
             let child_dtype = resolved_child.dtype;
             let child_layout = fb_children.get(resolved_child.index);
@@ -159,19 +159,21 @@ impl ColumnarLayoutBuilder<'_> {
 
     /// Get fields referenced by scan expression along with their dtype
     fn fields_with_dtypes(&self) -> VortexResult<(Vec<Field>, Arc<StructDType>)> {
-        let fb_children = self.layout.children().unwrap_or_default();
         let field_refs = self.scan_fields();
-        let projected_dtype = if let Some(fields) = field_refs.as_ref() {
-            Arc::new(self.dtype.project(fields)?)
-        } else {
-            // TODO(ngates): what is this unwrap for? Why would we default to our own dtype?
-            self.dtype.clone()
-        };
 
-        Ok((
-            field_refs.unwrap_or_else(|| (0..fb_children.len()).map(Field::from).collect()),
-            projected_dtype,
-        ))
+        if let Some(fields) = field_refs {
+            let projected_dtype = Arc::new(self.dtype.project(&fields)?);
+            Ok((fields, projected_dtype))
+        } else {
+            Ok((
+                self.dtype
+                    .names()
+                    .iter()
+                    .map(|name| Field::Name(name.clone()))
+                    .collect(),
+                self.dtype.clone(),
+            ))
+        }
     }
 
     /// Get fields referenced by scan expression preserving order if we're using select to project

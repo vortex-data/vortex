@@ -397,14 +397,16 @@ impl StructDType {
     /// Get information about the referenced field, either by name or index
     /// Returns an error if the field is not found
     pub fn field_info(&self, field: &Field) -> VortexResult<FieldInfo> {
+        // FIXME: After projecting, the indexes shift so the original projection breaks,
+        // we either need to keep some mapping or re-resolve.
         let index = match field {
             Field::Name(name) => self
                 .find_name(name)
-                .ok_or_else(|| vortex_err!("Unknown field: {}", name))?,
+                .ok_or_else(|| vortex_err!("Unknown field: {name}"))?,
             Field::Index(index) => *index,
         };
         if index >= self.names.len() {
-            vortex_bail!("field index out of bounds: {}", index)
+            vortex_bail!("field index out of bounds: {index}")
         }
         Ok(FieldInfo {
             index,
