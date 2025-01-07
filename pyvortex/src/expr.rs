@@ -2,8 +2,9 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::*;
 use vortex::dtype::half::f16;
-use vortex::dtype::{DType, Nullability, PType};
+use vortex::dtype::{DType, Field, Nullability, PType};
 use vortex::expr::{col, lit, BinaryExpr, ExprRef, Operator};
+use vortex::expr::pruning::FieldOrIdentity::Field;
 use vortex::scalar::Scalar;
 
 use crate::dtype::PyDType;
@@ -302,4 +303,32 @@ pub fn scalar_helper(dtype: DType, value: &Bound<'_, PyAny>) -> PyResult<Scalar>
         }
         DType::Extension(..) => todo!(),
     }
+}
+
+fn get_item<'py>(field: &Bound<'py, PyAny>, child: &Bound<'py, PyExpr>) -> PyResult<Bound<'py, PyExpr>> {
+    let py = field.py();
+
+    if let Ok(value) = field.downcast::<PyLong>() {
+        Field::Index(value.extract()?)
+        // Field::Name(Arc::new(value.))
+    } else if let Ok(value) = field.downcast::<PyString>() {
+        Field::Name(value.extract()?)
+    } else {
+        Err(PyValueError::new_err(format!(
+            "expected None, int, float, str, or bytes but found: {}",
+            value
+        )))
+    }
+
+} else if let Ok(value) = value.downcast::<PyLong>() {
+} else if let Ok(value) = value.downcast::<PyString>() {
+scalar(DType::Utf8(nonnull), value)
+
+    let field = field.is_instance(PyInt);
+    Bound::new(
+        py,
+        PyExpr {
+            inner: GetItem::new_expr(field, child.inner.clone()),
+        },
+    )
 }

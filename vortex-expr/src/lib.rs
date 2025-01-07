@@ -20,6 +20,7 @@ mod traversal;
 
 pub use binary::*;
 pub use column::*;
+pub use get_item::*;
 pub use identity::*;
 pub use like::*;
 pub use literal::*;

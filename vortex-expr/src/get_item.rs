@@ -2,8 +2,7 @@ use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
 use std::sync::Arc;
 
-use vortex_array::variants::StructArrayTrait;
-use vortex_array::{ArrayData, IntoArrayVariant};
+use vortex_array::ArrayData;
 use vortex_dtype::Field;
 use vortex_error::{vortex_err, VortexResult};
 
@@ -32,6 +31,10 @@ impl GetItem {
     }
 }
 
+fn get_item(field: impl Into<Field>, child: ExprRef) -> ExprRef {
+    GetItem::new_expr(field, child)
+}
+
 impl PartialEq<dyn Any> for GetItem {
     fn eq(&self, other: &dyn Any) -> bool {
         other
@@ -55,8 +58,8 @@ impl VortexExpr for GetItem {
     fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
         let child = self.child.evaluate(batch)?;
         let st = child
-            .into_struct()
-            .map_err(|e| e.with_context("GetItem: child array into struct"))?;
+            .as_struct_array()
+            .ok_or_else(|| vortex_err!("GetItem: child array into struct"))?;
 
         match &self.field {
             Field::Name(name) => st.field_by_name(name.as_ref()),
@@ -72,5 +75,48 @@ impl VortexExpr for GetItem {
     fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
         assert_eq!(children.len(), 1);
         Self::new_expr(self.field().clone(), children[0].clone())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_array::array::StructArray;
+    use vortex_array::{ArrayDType, IntoArrayData};
+    use vortex_buffer::buffer;
+    use vortex_dtype::DType;
+    use vortex_dtype::PType::{I32, I64};
+
+    use crate::get_item::get_item;
+    use crate::Identity;
+
+    fn test_array() -> StructArray {
+        StructArray::from_fields(&[
+            ("a", buffer![0i32, 1, 2].into_array()),
+            ("b", buffer![4i64, 5, 6].into_array()),
+        ])
+        .unwrap()
+    }
+
+    #[test]
+    pub fn get_item_by_name() {
+        let st = test_array();
+        let get_item = get_item("a", Identity::new_expr());
+        let item = get_item.evaluate(st.as_ref()).unwrap();
+        assert_eq!(item.dtype(), &DType::from(I32))
+    }
+
+    #[test]
+    pub fn get_item_by_name_none() {
+        let st = test_array();
+        let get_item = get_item("c", Identity::new_expr());
+        assert!(get_item.evaluate(st.as_ref()).is_err());
+    }
+
+    #[test]
+    pub fn get_item_by_idx() {
+        let st = test_array();
+        let get_item = get_item(1, Identity::new_expr());
+        let item = get_item.evaluate(st.as_ref()).unwrap();
+        assert_eq!(item.dtype(), &DType::from(I64))
     }
 }
