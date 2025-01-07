@@ -7,10 +7,11 @@ use datafusion_common::Result as DFResult;
 use datafusion_physical_expr::PhysicalExpr;
 use futures::{FutureExt as _, StreamExt, TryStreamExt};
 use object_store::ObjectStore;
-use vortex_array::ContextRef;
+use vortex_array::{ContextRef, IntoArrayData, IntoArrayVariant};
+use vortex_dtype::field::Field;
 use vortex_expr::datafusion::convert_expr_to_vortex;
 use vortex_expr::Identity;
-use vortex_file::v2::OpenOptions;
+use vortex_file::v2::VortexOpenOptions;
 use vortex_io::ObjectStoreReadAt;
 use vortex_layout::scanner::Scan;
 
@@ -30,7 +31,8 @@ impl FileOpener for VortexFileOpener {
     fn open(&self, file_meta: FileMeta) -> DFResult<FileOpenFuture> {
         let this = self.clone();
 
-        // TODO(ngates): figure out how to map the column index projection into a projection expression.
+        // FIXME(ngates): figure out how to map the column index projection into a projection expression.
+        //  For now, we select columns later.
         let projection = Identity::new_expr();
         let scan = Scan {
             projection,
@@ -45,7 +47,7 @@ impl FileOpener for VortexFileOpener {
             let read_at =
                 ObjectStoreReadAt::new(this.object_store.clone(), file_meta.location().clone());
 
-            let vxf = OpenOptions::new(this.ctx.clone())
+            let vxf = VortexOpenOptions::new(this.ctx.clone())
                 .with_file_size(file_meta.object_meta.size as u64)
                 .with_file_layout(
                     this.file_layout_cache
@@ -55,8 +57,20 @@ impl FileOpener for VortexFileOpener {
                 .open(read_at)
                 .await?;
 
+            let vortex_projection: Option<Vec<Field>> = this
+                .projection
+                .map(|p| p.iter().map(|idx| Field::Index(*idx)).collect());
+
             Ok(vxf
                 .scan(scan)?
+                .map_ok(move |array| {
+                    if let Some(projection) = &vortex_projection {
+                        Ok(array.into_struct()?.project(&projection)?.into_array())
+                    } else {
+                        Ok(array)
+                    }
+                })
+                .map(|r| r.and_then(|inner| inner))
                 .map_ok(RecordBatch::try_from)
                 .map(|r| r.and_then(|inner| inner))
                 .map_err(|e| e.into())

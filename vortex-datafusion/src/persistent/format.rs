@@ -194,6 +194,8 @@ impl FileFormat for VortexFormat {
         file_scan_config: FileScanConfig,
         filters: Option<&Arc<dyn PhysicalExpr>>,
     ) -> DFResult<Arc<dyn ExecutionPlan>> {
+        println!("PHYSICAL PLAN FILTERS {:?}", filters);
+        let _filters = format!("{:?}", filters);
         let metrics = ExecutionPlanMetricsSet::new();
 
         let exec = VortexExec::try_new(
@@ -224,6 +226,14 @@ impl FileFormat for VortexFormat {
         table_schema: &Schema,
         filters: &[&Expr],
     ) -> DFResult<FilePushdownSupport> {
+        for filter in filters {
+            println!(
+                "FILTER {} {}",
+                filter,
+                can_be_pushed_down(filter, table_schema)
+            );
+        }
+
         let is_pushdown = filters
             .iter()
             .all(|expr| can_be_pushed_down(expr, table_schema));

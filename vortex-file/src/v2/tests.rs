@@ -5,7 +5,7 @@ use vortex_array::{ContextRef, IntoArrayData, IntoArrayVariant};
 use vortex_buffer::buffer;
 use vortex_layout::scanner::Scan;
 
-use crate::v2::{OpenOptions, WriteOptions};
+use crate::v2::{VortexOpenOptions, VortexWriteOptions};
 
 #[tokio::test]
 async fn write_read() {
@@ -15,14 +15,14 @@ async fn write_read() {
     ])
     .into_array();
 
-    let written: Bytes = WriteOptions::default()
-        .write_async(vec![], arr.into_array_stream())
+    let written: Bytes = VortexWriteOptions::default()
+        .write(vec![], arr.into_array_stream())
         .await
         .unwrap()
         // TODO(ngates): no need to wrap Vec<u8> in Bytes if VortexReadAt doesn't require clone.
         .into();
 
-    let vxf = OpenOptions::new(ContextRef::default())
+    let vxf = VortexOpenOptions::new(ContextRef::default())
         .open(written)
         .await
         .unwrap();

@@ -7,7 +7,7 @@ use object_store::{ObjectMeta, ObjectStore};
 use vortex_array::ContextRef;
 use vortex_error::{vortex_err, VortexError, VortexResult};
 use vortex_file::v2::footer::FileLayout;
-use vortex_file::v2::OpenOptions;
+use vortex_file::v2::VortexOpenOptions;
 use vortex_io::ObjectStoreReadAt;
 
 #[derive(Debug, Clone)]
@@ -50,7 +50,7 @@ impl FileLayoutCache {
         self.inner
             .try_get_with(Key::from(object), async {
                 let os_read_at = ObjectStoreReadAt::new(store.clone(), object.location.clone());
-                let vxf = OpenOptions::new(ContextRef::default())
+                let vxf = VortexOpenOptions::new(ContextRef::default())
                     .open(os_read_at)
                     .await?;
                 VortexResult::Ok(vxf.file_layout())

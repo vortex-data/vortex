@@ -1,6 +1,7 @@
 use std::io::Read;
 
 use futures_util::stream;
+use vortex_array::compute::FilterMask;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
 use vortex_array::ContextRef;
 use vortex_dtype::DType;
@@ -47,13 +48,38 @@ impl<R> VortexFile<R> {
 impl<R: VortexReadAt> VortexFile<R> {
     /// Performs a scan operation over the file.
     pub fn scan(self, scan: Scan) -> VortexResult<impl ArrayStream + 'static> {
+        let row_count = self.row_count();
+        self.scan_range(scan, RowMask::new_valid_between(0, row_count))
+    }
+
+    /// Performs a scan operation over the file.
+    pub fn scan_rows<I: IntoIterator<Item = u64>>(
+        self,
+        scan: Scan,
+        indices: I,
+    ) -> VortexResult<impl ArrayStream + 'static> {
+        let row_count = self.row_count();
+
+        // TODO(ngates): do we only support "take" over usize rows?
+        let filter_mask = FilterMask::from_indices(
+            usize::try_from(row_count).expect("row count is too large for usize"),
+            indices
+                .into_iter()
+                .map(|i| usize::try_from(i).expect("row index is too large for usize")),
+        );
+        let row_mask = RowMask::try_new(filter_mask, 0, row_count)?;
+
+        self.scan_range(scan, row_mask)
+    }
+
+    /// Performs a scan operation over a [`RowMask`] of the file.
+    fn scan_range(self, scan: Scan, row_mask: RowMask) -> VortexResult<impl ArrayStream + 'static> {
         let layout_scan = self.layout.new_scan(scan, self.ctx.clone())?;
         let scan_dtype = layout_scan.dtype().clone();
 
         // TODO(ngates): we could query the layout for splits and then process them in parallel.
         //  For now, we just scan the entire layout with one mask.
         //  Note that to implement this we would use stream::try_unfold
-        let row_mask = RowMask::new_valid_between(0, layout_scan.layout().row_count());
         let mut scanner = layout_scan.create_scanner(row_mask)?;
 
         let stream = stream::once(async move {
