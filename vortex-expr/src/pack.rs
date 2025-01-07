@@ -3,13 +3,11 @@ use std::fmt::Display;
 use std::sync::Arc;
 
 use itertools::Itertools as _;
-use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::StructArray;
 use vortex_array::validity::Validity;
 use vortex_array::{ArrayData, IntoArrayData};
-use vortex_dtype::field::Field;
 use vortex_dtype::FieldNames;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 
 use crate::{ExprRef, VortexExpr};
 
@@ -21,7 +19,6 @@ use crate::{ExprRef, VortexExpr};
 /// use vortex_array::IntoArrayData;
 /// use vortex_array::compute::scalar_at;
 /// use vortex_buffer::buffer;
-/// use vortex_dtype::field::Field;
 /// use vortex_expr::{Pack, Identity, VortexExpr};
 /// use vortex_scalar::Scalar;
 ///
@@ -94,12 +91,24 @@ impl VortexExpr for Pack {
             .map(IntoArrayData::into_array)
     }
 
-    fn collect_references<'a>(&'a self, references: &mut HashSet<&'a Field>) {
-        for expr in self.values.iter() {
-            expr.collect_references(references);
-        }
+    fn children(&self) -> Vec<&ExprRef> {
+        self.values.iter().collect()
+    }
+
+    fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
+        assert_eq!(children.len(), self.values.len());
+        Self::try_new_expr(self.names.clone(), children)
+            .vortex_expect("children are known to have the same length as names")
     }
 }
+
+impl PartialEq<Pack> for Pack {
+    fn eq(&self, other: &Pack) -> bool {
+        self.names == other.names && self.values == other.values
+    }
+}
+
+impl Eq for Pack {}
 
 #[cfg(test)]
 mod tests {
@@ -108,11 +117,10 @@ mod tests {
     use vortex_array::array::{PrimitiveArray, StructArray};
     use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant as _};
     use vortex_buffer::buffer;
-    use vortex_dtype::field::Field;
-    use vortex_dtype::FieldNames;
+    use vortex_dtype::{Field, FieldNames};
     use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
-    use crate::{Column, Pack, VortexExpr};
+    use crate::{col, Column, Pack, VortexExpr};
 
     fn test_array() -> StructArray {
         StructArray::from_fields(&[
@@ -159,11 +167,7 @@ mod tests {
     pub fn test_simple_pack() {
         let expr = Pack::try_new_expr(
             ["one".into(), "two".into(), "three".into()].into(),
-            vec![
-                Column::new_expr(Field::from("a")),
-                Column::new_expr(Field::from("b")),
-                Column::new_expr(Field::from("a")),
-            ],
+            vec![col("a"), col("b"), col("a")],
         )
         .unwrap();
 
