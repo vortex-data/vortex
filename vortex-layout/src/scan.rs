@@ -1,12 +1,13 @@
 use std::sync::Arc;
 
+use vortex_array::compute::FilterMask;
 use vortex_array::ArrayData;
 use vortex_error::VortexResult;
+use vortex_scan::{NextOp, RangeScan};
 
 use crate::operations::{Operation, Poll};
-use crate::scanner::{NextOp, RangeScan};
 use crate::segments::SegmentReader;
-use crate::{EvalOp, LayoutReader};
+use crate::{EvalOp, LayoutReader, RowMask};
 
 /// A layout operation that executes a [`Scan`].
 pub(crate) struct LayoutRangeScan {
@@ -34,8 +35,15 @@ impl Operation for LayoutRangeScan {
                 None => match self.range_scan.next() {
                     // The scan has finished, return the result.
                     NextOp::Ready(array) => return Ok(Poll::Some(array)),
-                    NextOp::Eval((mask, expr)) => {
-                        let evaluator = self.reader.clone().create_evaluator(mask, expr)?;
+                    NextOp::Eval((row_range, mask, expr)) => {
+                        let evaluator = self.reader.clone().create_evaluator(
+                            RowMask::try_new(
+                                FilterMask::from(mask),
+                                row_range.start,
+                                row_range.end,
+                            )?,
+                            expr,
+                        )?;
                         self.evaluator = Some(evaluator);
                     }
                 },

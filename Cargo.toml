@@ -20,6 +20,7 @@ members = [
     "vortex-proto",
     "vortex-sampling-compressor",
     "vortex-scalar",
+    "vortex-scan",
     "xtask",
 ]
 resolver = "2"
@@ -155,6 +156,7 @@ vortex-roaring = { version = "0.21.1", path = "./encodings/roaring" }
 vortex-runend = { version = "0.21.1", path = "./encodings/runend" }
 vortex-runend-bool = { version = "0.21.1", path = "./encodings/runend-bool" }
 vortex-scalar = { version = "0.21.1", path = "./vortex-scalar", default-features = false }
+vortex-scan = { version = "0.21.1", path = "./vortex-scan", default-features = false }
 vortex-sampling-compressor = { version = "0.21.1", path = "./vortex-sampling-compressor" }
 vortex-zigzag = { version = "0.21.1", path = "./encodings/zigzag" }
 # END crates published by this project

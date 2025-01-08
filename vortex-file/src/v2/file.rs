@@ -7,9 +7,9 @@ use vortex_array::ContextRef;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_io::VortexReadAt;
-use vortex_layout::operations::Poll;
-use vortex_layout::scanner::{NextOp, Scan};
-use vortex_layout::{LayoutData, LayoutScanExt, RowMask};
+use vortex_layout::operations::{Operation, Poll};
+use vortex_layout::{LayoutData, LayoutReader};
+use vortex_scan::Scan;
 
 use crate::v2::footer::Segment;
 use crate::v2::segments::SegmentCache;
@@ -37,15 +37,15 @@ impl<R: VortexReadAt> VortexFile<R> {
     /// Performs a scan operation over the file.
     pub fn scan(&self, scan: Arc<Scan>) -> VortexResult<impl ArrayStream + '_> {
         // Create a shared reader
-        let reader = self.layout.reader(self.ctx.clone())?;
+        let reader: Arc<dyn LayoutReader> = self.layout.reader(self.ctx.clone())?;
         let result_dtype = scan.result_dtype(self.dtype())?;
 
         // TODO(ngates): we could query the layout for splits and then process them in parallel.
         //  For now, we just scan the entire layout with one mask.
         //  Note that to implement this we would use stream::try_unfold
         let stream = stream::once(async move {
-            let row_mask = RowMask::new_valid_between(0, self.row_count());
-            let mut range_scan = reader.clone().scan(scan.range_scan(row_mask));
+            let row_range = 0..reader.layout().row_count();
+            let mut range_scan = reader.range_scan(scan.range_scan(row_range)?);
 
             loop {
                 match range_scan.poll(&self.segment_cache)? {

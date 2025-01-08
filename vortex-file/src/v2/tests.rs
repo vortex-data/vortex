@@ -3,7 +3,7 @@ use vortex_array::array::ChunkedArray;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::{ContextRef, IntoArrayData, IntoArrayVariant};
 use vortex_buffer::buffer;
-use vortex_layout::scanner::Scan;
+use vortex_scan::Scan;
 
 use crate::v2::{OpenOptions, WriteOptions};
 

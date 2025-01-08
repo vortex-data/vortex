@@ -7,7 +7,6 @@ use vortex_expr::ExprRef;
 
 use crate::operations::Operation;
 use crate::scan::LayoutRangeScan;
-use crate::scanner::RangeScan;
 use crate::{LayoutData, RowMask};
 
 pub type EvalOp = Box<dyn Operation<Output = ArrayData>>;
@@ -47,14 +46,17 @@ pub trait LayoutScanExt: LayoutReader {
     fn dtype(&self) -> &DType {
         self.layout().dtype()
     }
-
-    /// Perform a scan over a row-range of the layout.
-    fn scan(self: Arc<Self>, range_scan: RangeScan) -> impl Operation<Output = ArrayData>
-    where
-        Self: Sized + 'static,
-    {
-        LayoutRangeScan::new(self, range_scan)
-    }
 }
 
 impl<L: LayoutReader> LayoutScanExt for L {}
+
+impl dyn LayoutReader + 'static {
+    /// Perform a scan over a row-range of the layout.
+    #[cfg(feature = "vortex-scan")]
+    pub fn range_scan(
+        self: Arc<dyn LayoutReader>,
+        range_scan: vortex_scan::RangeScan,
+    ) -> impl Operation<Output = ArrayData> {
+        LayoutRangeScan::new(self, range_scan)
+    }
+}

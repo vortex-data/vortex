@@ -1,6 +1,6 @@
 [package]
-name = "vortex-layout"
-description = "Vortex layouts provide a way to perform lazy push-down scans over abstract storage"
+name = "vortex-scan"
+description = "Vortex scan contains logic for smartly performing a filter + projection scan operation."
 version.workspace = true
 homepage.workspace = true
 repository.workspace = true
@@ -15,20 +15,10 @@ categories.workspace = true
 
 [dependencies]
 arrow-buffer = { workspace = true }
-bytes = { workspace = true }
-flatbuffers = { workspace = true }
-itertools = { workspace = true }
 vortex-array = { workspace = true }
-vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true, features = ["flatbuffers"] }
 vortex-error = { workspace = true }
 vortex-expr = { workspace = true }
-vortex-flatbuffers = { workspace = true, features = ["layout"] }
-vortex-ipc = { workspace = true }
-vortex-scan = { workspace = true, optional = true }
-
-[dev-dependencies]
-rstest = { workspace = true }
 
 [lints]
 workspace = true

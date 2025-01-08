@@ -1,18 +1,32 @@
+mod range_scan;
+
+use std::ops::Range;
 use std::sync::Arc;
 
+use arrow_buffer::BooleanBuffer;
+pub use range_scan::*;
 use vortex_array::{ArrayDType, Canonical, IntoArrayData};
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
+use vortex_error::{vortex_err, VortexResult};
 use vortex_expr::{ExprRef, Identity};
 
-use crate::scanner::range_scan::RangeScan;
-use crate::RowMask;
-
-#[allow(dead_code)]
+/// Represents a scan operation to read data from a set of rows, with an optional filter expression,
+/// and a projection expression.
+///
+/// A scan operation can be broken into many [`RangeScan`] operations, each of which leverages
+/// shared statistics from the parent [`Scan`] to optimize the order in which filter and projection
+/// operations are applied.
+///
+/// For example, if a filter expression has a top-level `AND` clause, it may be the case that one
+/// clause is significantly more selective than the other. In this case, we may want to compute the
+/// most selective filter first, then prune rows using result of the filter, before evaluating
+/// the second filter over the reduced set of rows.
 #[derive(Debug, Clone)]
 pub struct Scan {
     projection: ExprRef,
     filter: Option<ExprRef>,
+    // A sorted list of row indices to include in the scan. We store row indices since they may
+    // produce a very sparse RowMask.
     // take_indices: Vec<u64>,
     // statistics: RwLock<Statistics>
 }
@@ -60,8 +74,14 @@ impl Scan {
 
     /// Instantiate a new scan for a specific range. The range scan will share statistics with this
     /// parent scan in order to optimize future range scans.
-    pub fn range_scan(self: Arc<Self>, row_mask: RowMask) -> RangeScan {
-        // TODO: compute a scan plan based on our current statistics.
-        RangeScan::new(self, row_mask)
+    pub fn range_scan(self: Arc<Self>, range: Range<u64>) -> VortexResult<RangeScan> {
+        // TODO(ngates): binary search take_indices to compute initial mask.
+        let length = usize::try_from(range.end - range.start)
+            .map_err(|_| vortex_err!("Range length must fit within usize"))?;
+        Ok(RangeScan::new(
+            self,
+            range.start,
+            BooleanBuffer::new_set(length),
+        ))
     }
 }
