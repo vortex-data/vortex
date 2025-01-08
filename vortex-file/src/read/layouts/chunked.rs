@@ -97,7 +97,7 @@ impl ChunkedLayoutBuilder<'_> {
                     s.names().iter().map(|s| Field::Name(s.clone())).collect(),
                     ident(),
                 )),
-                 Arc::new(stats_dtype.clone()),
+                Arc::new(stats_dtype.clone()),
             )?)
         } else {
             None
