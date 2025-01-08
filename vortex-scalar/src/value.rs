@@ -249,7 +249,7 @@ mod test {
         fn tstruct(left: &DType, right: &DType) -> DType {
             DType::Struct(
                 StructDType::new(
-                    vec!["left".into(), "right".into()].into(),
+                    vec!["left".into(), "right".into()],
                     vec![left.clone(), right.clone()],
                 ),
                 Nullability::NonNullable,
@@ -290,7 +290,7 @@ mod test {
             .is_instance_of(&DType::Binary(Nullability::Nullable)));
         assert!(
             ScalarValue(InnerScalarValue::Null).is_instance_of(&DType::Struct(
-                StructDType::new([].into(), [].into()),
+                StructDType::new([], [].into()),
                 Nullability::Nullable,
             ))
         );

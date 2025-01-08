@@ -169,7 +169,7 @@ mod tests {
     #[test]
     fn display_empty_struct() {
         fn dtype() -> DType {
-            DType::Struct(StructDType::new(Arc::new([]), vec![]), Nullable)
+            DType::Struct(StructDType::new([], vec![]), Nullable)
         }
 
         assert_eq!(format!("{}", Scalar::null(dtype())), "null");
@@ -182,7 +182,7 @@ mod tests {
         fn dtype() -> DType {
             DType::Struct(
                 StructDType::new(
-                    Arc::new([Arc::from("foo")]),
+                    [Arc::from("foo")],
                     vec![DType::Primitive(PType::U32, Nullable)],
                 ),
                 Nullable,
@@ -210,7 +210,7 @@ mod tests {
         fn dtype() -> DType {
             DType::Struct(
                 StructDType::new(
-                    Arc::new([Arc::from("foo"), Arc::from("bar")]),
+                    [Arc::from("foo"), Arc::from("bar")],
                     vec![
                         DType::Bool(Nullable),
                         DType::Primitive(PType::U32, Nullable),
