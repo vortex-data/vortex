@@ -131,6 +131,8 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
           aws-region: us-east-1
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
       - name: Compare results
         shell: bash
         run: |
