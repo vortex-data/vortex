@@ -1,8 +1,6 @@
 #![feature(once_cell_try)]
-#![feature(assert_matches)]
-#![allow(dead_code)]
+#![feature(trait_alias)]
 mod data;
-pub mod scanner;
 pub use data::*;
 mod context;
 pub use context::*;
@@ -11,6 +9,11 @@ pub mod layouts;
 pub use encoding::*;
 mod row_mask;
 pub use row_mask::*;
+pub mod operations;
+mod reader;
+pub use reader::*;
+#[cfg(feature = "vortex-scan")]
+mod scan;
 pub mod segments;
 pub mod strategies;
 

@@ -7,12 +7,11 @@ use futures_util::{StreamExt, TryStreamExt};
 use vortex_array::array::ChunkedArray;
 use vortex_array::{ArrayData, IntoArrayData};
 use vortex_dtype::DType;
-use vortex_error::{vortex_panic, VortexResult, VortexUnwrap};
+use vortex_error::{vortex_panic, VortexResult};
 use vortex_io::VortexReadAt;
 
 use crate::read::buffered::{BufferedLayoutReader, ReadArray};
 use crate::read::mask::RowMask;
-use crate::LazyDType;
 
 /// An asynchronous Vortex file that returns a [`Stream`] of [`ArrayData`]s.
 ///
@@ -22,7 +21,7 @@ use crate::LazyDType;
 /// Use [VortexReadBuilder][crate::read::builder::VortexReadBuilder] to build one
 /// from a reader.
 pub struct VortexReadArrayStream<R> {
-    dtype: Arc<LazyDType>,
+    dtype: Arc<DType>,
     row_count: u64,
     array_reader: BufferedLayoutReader<
         R,
@@ -34,7 +33,7 @@ pub struct VortexReadArrayStream<R> {
 
 impl<R: VortexReadAt + Unpin> VortexReadArrayStream<R> {
     pub(crate) fn new(
-        dtype: Arc<LazyDType>,
+        dtype: Arc<DType>,
         row_count: u64,
         array_reader: BufferedLayoutReader<
             R,
@@ -52,8 +51,7 @@ impl<R: VortexReadAt + Unpin> VortexReadArrayStream<R> {
 
     /// Returns the type of the file's top-level array.
     pub fn dtype(&self) -> &DType {
-        // FIXME(ngates): why is this allowed to unwrap?
-        self.dtype.value().vortex_unwrap()
+        self.dtype.as_ref()
     }
 
     /// Returns the total row count of the Vortex file, before any filtering.

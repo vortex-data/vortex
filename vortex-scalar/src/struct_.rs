@@ -48,38 +48,33 @@ impl<'a> StructScalar<'a> {
             unreachable!()
         };
 
-        let field_dtype = st.dtypes().get(idx)?.with_nullability(*nullability);
+        let field_dtype = st.field_dtype(idx).ok()?.with_nullability(*nullability);
 
-        self.fields
-            .map(|fields| {
-                let field = fields.get(idx);
-                let field = field
-                    .vortex_expect("Scalar dtype requires field exist")
-                    .clone();
-                debug_assert!(field.is_instance_of(&field_dtype));
-                Some(Scalar {
+        Some(
+            self.fields
+                .and_then(|values| values.get(idx))
+                .map(|value| Scalar {
                     dtype: field_dtype.clone(),
-                    value: field,
+                    value: value.clone(),
                 })
-            })
-            .unwrap_or_else(|| Some(Scalar::null(field_dtype)))
+                .unwrap_or_else(|| Scalar::null(field_dtype)),
+        )
     }
 
     pub fn field_by_name(&self, name: &str) -> Option<Scalar> {
         let DType::Struct(st, _) = self.dtype() else {
             unreachable!()
         };
+
         st.find_name(name).and_then(|idx| self.field_by_idx(idx))
     }
 
     pub fn fields(&self) -> Option<Vec<Scalar>> {
         let fields = self.fields?;
 
-        Some(
-            (0..fields.len())
-                .map(|index| self.field_by_idx(index).vortex_expect("struct is non-null"))
-                .collect(),
-        )
+        (0..fields.len())
+            .map(|index| self.field_by_idx(index))
+            .collect::<Option<Vec<_>>>()
     }
 
     pub(crate) fn field_values(&self) -> Option<&[ScalarValue]> {
@@ -108,10 +103,10 @@ impl<'a> StructScalar<'a> {
                 .enumerate()
                 .map(|(i, f)| {
                     Scalar {
-                        dtype: own_st.dtypes()[i].clone(),
+                        dtype: own_st.field_dtype(i)?,
                         value: f.clone(),
                     }
-                    .cast(&st.dtypes()[i])
+                    .cast(&st.field_dtype(i)?)
                     .map(|s| s.value)
                 })
                 .collect::<VortexResult<Vec<_>>>()?;

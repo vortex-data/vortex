@@ -189,11 +189,11 @@ pub trait StructArrayTrait: ArrayTrait {
         st.names()
     }
 
-    fn dtypes(&self) -> &[DType] {
+    fn dtypes(&self) -> Vec<DType> {
         let DType::Struct(st, _) = self.dtype() else {
             unreachable!()
         };
-        st.dtypes()
+        st.dtypes().collect()
     }
 
     fn nfields(&self) -> usize {

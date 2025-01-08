@@ -162,12 +162,14 @@ impl OpenOptions {
     fn parse_dtype(
         &self,
         initial_offset: u64,
-        initial_read: &[u8],
+        initial_read: &ByteBuffer,
         dtype: Segment,
     ) -> VortexResult<DType> {
         let offset = usize::try_from(dtype.offset - initial_offset)?;
-        let dtype_bytes = &initial_read[offset..offset + dtype.length];
-        DType::try_from(root::<fbd::DType>(dtype_bytes)?)
+        let sliced_buffer = initial_read.slice(offset..offset + dtype.length);
+        let fbd_dtype = root::<fbd::DType>(&sliced_buffer)?;
+
+        DType::try_from_view(fbd_dtype, sliced_buffer.clone())
     }
 
     /// Parse the FileLayout from the initial read.

@@ -26,8 +26,7 @@ impl StructBuilder {
     ) -> Self {
         let builders = struct_dtype
             .dtypes()
-            .iter()
-            .map(|dt| builder_with_capacity(dt, capacity))
+            .map(|dt| builder_with_capacity(&dt, capacity))
             .collect();
 
         Self {

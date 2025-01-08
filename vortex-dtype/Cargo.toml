@@ -20,14 +20,15 @@ bench = false
 
 [dependencies]
 arbitrary = { workspace = true, optional = true }
-flatbuffers = { workspace = true, optional = true }
+flatbuffers = { workspace = true }
 half = { workspace = true, features = ["num-traits"] }
 itertools = { workspace = true }
 num-traits = { workspace = true }
 prost = { workspace = true, optional = true }
 serde = { workspace = true, optional = true, features = ["rc", "derive"] }
-vortex-error = { workspace = true }
-vortex-flatbuffers = { workspace = true, optional = true }
+vortex-buffer = { workspace = true }
+vortex-error = { workspace = true, features = ["flatbuffers"] }
+vortex-flatbuffers = { workspace = true, features = ["dtype"] }
 vortex-proto = { workspace = true, optional = true }
 
 [dev-dependencies]
@@ -38,12 +39,5 @@ serde_test = { workspace = true }
 workspace = true
 
 [features]
-flatbuffers = [
-    "dep:flatbuffers",
-    "dep:vortex-flatbuffers",
-    "vortex-error/flatbuffers",
-    # enable flatbuffers generated code for scalar
-    "vortex-flatbuffers/dtype",
-]
 proto = ["dep:prost", "vortex-proto/dtype"]
 serde = ["dep:serde"]

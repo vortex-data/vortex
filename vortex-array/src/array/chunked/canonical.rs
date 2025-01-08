@@ -179,7 +179,7 @@ fn swizzle_struct_chunks(
     let len = chunks.iter().map(|chunk| chunk.len()).sum();
     let mut field_arrays = Vec::new();
 
-    for (field_idx, field_dtype) in struct_dtype.dtypes().iter().enumerate() {
+    for (field_idx, field_dtype) in struct_dtype.dtypes().enumerate() {
         let field_chunks = chunks.iter().map(|c| c.as_struct_array()
                 .vortex_expect("Chunk was not a StructArray")
                 .maybe_null_field_by_idx(field_idx)

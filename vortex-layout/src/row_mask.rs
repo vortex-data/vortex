@@ -127,6 +127,8 @@ impl RowMask {
     /// Whether the mask is disjoint with the given range.
     ///
     /// This function may return false negatives, but never false positives.
+    ///
+    /// TODO(ngates): improve this function to take into account the [`FilterMask`].
     pub fn is_disjoint(&self, range: impl RangeBounds<u64>) -> bool {
         use std::ops::Bound;
 

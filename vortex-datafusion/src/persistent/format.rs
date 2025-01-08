@@ -112,8 +112,8 @@ impl FileFormat for VortexFormat {
                 let cache = self.initial_read_cache.clone();
                 async move {
                     let initial_read = cache.try_get(&o, store).await?;
-                    let lazy_dtype = initial_read.lazy_dtype();
-                    let s = infer_schema(lazy_dtype.value()?)?;
+                    let top_level_dtype = initial_read.dtype();
+                    let s = infer_schema(&top_level_dtype)?;
 
                     VortexResult::Ok(s)
                 }
@@ -149,7 +149,7 @@ impl FileFormat for VortexFormat {
             LayoutPath::default(),
             initial_read.fb_layout(),
             Scan::empty(),
-            initial_read.lazy_dtype().into(),
+            initial_read.dtype().into(),
         )?;
 
         let os_read_at = ObjectStoreReadAt::new(store.clone(), object.location.clone());

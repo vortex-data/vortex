@@ -7,14 +7,13 @@ use vortex_array::array::StructArray;
 use vortex_array::stats::ArrayStatistics;
 use vortex_array::validity::Validity;
 use vortex_array::{ArrayData, IntoArrayData};
-use vortex_dtype::{Field, FieldName, FieldNames};
+use vortex_dtype::{DType, Field, FieldInfo, FieldName, FieldNames, StructDType};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult};
 use vortex_expr::{
     col, expr_project, ident, RowFilter, Select, SelectField, VortexExpr, VortexExprExt,
 };
 use vortex_flatbuffers::footer;
 
-use crate::read::cache::LazyDType;
 use crate::read::mask::RowMask;
 use crate::{
     Layout, LayoutDeserializer, LayoutId, LayoutPath, LayoutReader, MessageCache, PollRead, Prune,
@@ -33,10 +32,16 @@ impl Layout for ColumnarLayout {
         &self,
         path: LayoutPath,
         layout: footer::Layout,
-        dtype: Arc<LazyDType>,
+        dtype: Arc<DType>,
         scan: Scan,
         layout_serde: LayoutDeserializer,
     ) -> VortexResult<Arc<dyn LayoutReader>> {
+        let dtype = if let Some(struct_dtype) = dtype.as_struct() {
+            Arc::new(struct_dtype.clone())
+        } else {
+            vortex_bail!("ColumnarLayout's DType must be a Struct, got {dtype} instead.")
+        };
+
         Ok(Arc::new(
             ColumnarLayoutBuilder {
                 path,
@@ -54,13 +59,15 @@ struct ColumnarLayoutBuilder<'a> {
     path: LayoutPath,
     layout: footer::Layout<'a>,
     scan: Scan,
-    dtype: Arc<LazyDType>,
+    dtype: Arc<StructDType>,
     layout_serde: LayoutDeserializer,
 }
 
 impl ColumnarLayoutBuilder<'_> {
     fn build(&self) -> VortexResult<ColumnarLayoutReader> {
-        let (refs, lazy_dtype) = self.fields_with_dtypes()?;
+        let fields = self
+            .scan_fields()
+            .unwrap_or_else(|| (0..self.dtype.names().len()).map(Field::Index).collect());
         let fb_children = self.layout.children().unwrap_or_default();
 
         let mut unhandled_names = Vec::new();
@@ -68,10 +75,14 @@ impl ColumnarLayoutBuilder<'_> {
         let mut handled_children = Vec::new();
         let mut handled_names = Vec::new();
 
-        for (field, name) in refs.into_iter().zip_eq(lazy_dtype.names()?.iter()) {
-            let resolved_child = lazy_dtype.resolve_field(&field)?;
-            let child_dtype = lazy_dtype.field(&field)?;
-            let child_layout = fb_children.get(resolved_child);
+        for field in fields.into_iter() {
+            let FieldInfo {
+                index,
+                name,
+                dtype: child_dtype,
+            } = self.dtype.field_info(&field)?;
+
+            let child_layout = fb_children.get(index);
             let projected_expr = self
                 .scan
                 .expr
@@ -82,13 +93,13 @@ impl ColumnarLayoutBuilder<'_> {
                 self.scan.expr.is_none() || (self.scan.expr.is_some() && projected_expr.is_some());
 
             let mut child_path = self.path.clone();
-            child_path.push(resolved_child as u16);
+            child_path.push(index as u16);
 
             let child = self.layout_serde.read_layout(
                 child_path,
                 child_layout,
                 Scan::from(projected_expr),
-                child_dtype,
+                Arc::new(child_dtype.value()?),
             )?;
 
             if handled {
@@ -151,22 +162,6 @@ impl ColumnarLayoutBuilder<'_> {
             handled_children,
             top_level_expr,
             shortcircuit_siblings,
-        ))
-    }
-
-    /// Get fields referenced by scan expression along with their dtype
-    fn fields_with_dtypes(&self) -> VortexResult<(Vec<Field>, Arc<LazyDType>)> {
-        let fb_children = self.layout.children().unwrap_or_default();
-        let field_refs = self.scan_fields();
-        let lazy_dtype = field_refs
-            .as_ref()
-            .map(|e| self.dtype.project(e))
-            // TODO(ngates): what is this unwrap for? Why would we default to our own dtype?
-            .unwrap_or_else(|| Ok(self.dtype.clone()))?;
-
-        Ok((
-            field_refs.unwrap_or_else(|| (0..fb_children.len()).map(Field::from).collect()),
-            lazy_dtype,
         ))
     }
 
@@ -477,7 +472,7 @@ mod tests {
             .unwrap();
         let layout_serde = LayoutDeserializer::default();
 
-        let dtype = Arc::new(initial_read.lazy_dtype());
+        let dtype = Arc::new(initial_read.dtype());
         (
             layout_serde
                 .read_layout(

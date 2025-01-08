@@ -1,4 +1,5 @@
 use std::io::Read;
+use std::sync::Arc;
 
 use futures_util::stream;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
@@ -6,8 +7,9 @@ use vortex_array::ContextRef;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_io::VortexReadAt;
-use vortex_layout::scanner::{Poll, Scan};
-use vortex_layout::{LayoutData, RowMask};
+use vortex_layout::operations::{Operation, Poll};
+use vortex_layout::{LayoutData, LayoutReader};
+use vortex_scan::Scan;
 
 use crate::v2::footer::Segment;
 use crate::v2::segments::SegmentCache;
@@ -33,19 +35,20 @@ impl<R: VortexReadAt> VortexFile<R> {
     }
 
     /// Performs a scan operation over the file.
-    pub fn scan(&self, scan: Scan) -> VortexResult<impl ArrayStream + '_> {
-        let layout_scan = self.layout.new_scan(scan, self.ctx.clone())?;
-        let scan_dtype = layout_scan.dtype().clone();
+    pub fn scan(&self, scan: Arc<Scan>) -> VortexResult<impl ArrayStream + '_> {
+        // Create a shared reader
+        let reader: Arc<dyn LayoutReader> = self.layout.reader(self.ctx.clone())?;
+        let result_dtype = scan.result_dtype(self.dtype())?;
 
         // TODO(ngates): we could query the layout for splits and then process them in parallel.
         //  For now, we just scan the entire layout with one mask.
         //  Note that to implement this we would use stream::try_unfold
-        let row_mask = RowMask::new_valid_between(0, layout_scan.layout().row_count());
-        let mut scanner = layout_scan.create_scanner(row_mask)?;
-
         let stream = stream::once(async move {
+            let row_range = 0..reader.layout().row_count();
+            let mut range_scan = reader.range_scan(scan.range_scan(row_range)?);
+
             loop {
-                match scanner.poll(&self.segment_cache)? {
+                match range_scan.poll(&self.segment_cache)? {
                     Poll::Some(array) => return Ok(array),
                     Poll::NeedMore(segment_ids) => {
                         for segment_id in segment_ids {
@@ -61,7 +64,7 @@ impl<R: VortexReadAt> VortexFile<R> {
             }
         });
 
-        Ok(ArrayStreamAdapter::new(scan_dtype, stream))
+        Ok(ArrayStreamAdapter::new(result_dtype, stream))
     }
 }
 

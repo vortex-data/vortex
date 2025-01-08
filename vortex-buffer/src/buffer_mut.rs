@@ -1,4 +1,5 @@
 use core::mem::MaybeUninit;
+use std::fmt::{Debug, Formatter};
 use std::ops::{Deref, DerefMut};
 
 use bytes::buf::UninitSlice;
@@ -8,7 +9,7 @@ use vortex_error::{vortex_panic, VortexExpect};
 use crate::{Alignment, Buffer, ByteBufferMut};
 
 /// A mutable buffer that maintains a runtime-defined alignment through resizing operations.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(PartialEq, Eq)]
 pub struct BufferMut<T> {
     pub(crate) bytes: BytesMut,
     pub(crate) length: usize,
@@ -334,6 +335,24 @@ impl<T> Clone for BufferMut<T> {
         let mut buffer = BufferMut::<T>::with_capacity_aligned(self.capacity(), self.alignment);
         buffer.extend_from_slice(self.as_slice());
         buffer
+    }
+}
+
+impl<T> Debug for BufferMut<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        const TRUNC_SIZE: usize = 512;
+        let mut binding = f.debug_struct("Buffer");
+        let mut fields = binding
+            .field("length", &self.length)
+            .field("alignment", &self.alignment);
+
+        let mut bytes = self.bytes.clone();
+        if bytes.len() > TRUNC_SIZE {
+            fields = fields.field("truncated", &true);
+        }
+
+        bytes.truncate(TRUNC_SIZE);
+        fields.field("bytes", &bytes).finish()
     }
 }
 

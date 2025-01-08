@@ -175,8 +175,8 @@ impl MessageDecoder {
                             });
                         }
                         MessageHeader::DType => {
-                            let dtype = msg.header_as_dtype().vortex_expect("dtype header");
-                            let dtype = DType::try_from(dtype)?;
+                            let msg_dtype = msg.header_as_dtype().vortex_expect("dtype header");
+                            let dtype = DType::try_from_view(msg_dtype, msg_bytes.clone())?;
 
                             // Nothing else to read, so we reset the state to Length
                             self.state = Default::default();

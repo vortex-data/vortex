@@ -1,4 +1,6 @@
-mod scan;
+mod evaluator;
+mod reader;
+// mod stats;
 pub mod writer;
 
 use std::sync::Arc;
@@ -7,8 +9,8 @@ use vortex_array::ContextRef;
 use vortex_error::VortexResult;
 
 use crate::encoding::{LayoutEncoding, LayoutId};
-use crate::layouts::flat::scan::FlatScan;
-use crate::scanner::{LayoutScan, LayoutScanExt, Scan};
+use crate::layouts::flat::reader::FlatReader;
+use crate::reader::{LayoutReader, LayoutScanExt};
 use crate::{LayoutData, FLAT_LAYOUT_ID};
 
 #[derive(Debug)]
@@ -19,12 +21,7 @@ impl LayoutEncoding for FlatLayout {
         FLAT_LAYOUT_ID
     }
 
-    fn scan(
-        &self,
-        layout: LayoutData,
-        scan: Scan,
-        ctx: ContextRef,
-    ) -> VortexResult<Arc<dyn LayoutScan>> {
-        Ok(FlatScan::try_new(layout, scan, ctx)?.into_arc())
+    fn reader(&self, layout: LayoutData, ctx: ContextRef) -> VortexResult<Arc<dyn LayoutReader>> {
+        Ok(FlatReader::try_new(layout, ctx)?.into_arc())
     }
 }

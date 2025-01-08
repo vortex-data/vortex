@@ -11,7 +11,7 @@ use vortex_flatbuffers::{layout as fb, layout, FlatBufferRoot, WriteFlatBuffer};
 
 use crate::context::LayoutContextRef;
 use crate::encoding::{LayoutEncodingRef, LayoutId};
-use crate::scanner::{LayoutScan, Scan};
+use crate::reader::LayoutReader;
 use crate::segments::SegmentId;
 
 /// [`LayoutData`] is the lazy equivalent to [`vortex_array::ArrayData`], providing a hierarchical
@@ -247,13 +247,9 @@ impl LayoutData {
         }
     }
 
-    /// Create a scan of this layout.
-    pub fn new_scan(
-        &self,
-        scan: Scan,
-        ctx: ContextRef,
-    ) -> VortexResult<Arc<dyn LayoutScan + 'static>> {
-        self.encoding().scan(self.clone(), scan, ctx)
+    /// Create a reader for this layout.
+    pub fn reader(&self, ctx: ContextRef) -> VortexResult<Arc<dyn LayoutReader + 'static>> {
+        self.encoding().reader(self.clone(), ctx)
     }
 }
 

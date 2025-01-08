@@ -40,7 +40,7 @@ impl Display for DTypePythonRepr<'_> {
                 "struct({{{}}}, {})",
                 st.names()
                     .iter()
-                    .zip(st.dtypes().iter())
+                    .zip(st.dtypes())
                     .map(|(n, dt)| format!("\"{}\": {}", n, dt.python_repr()))
                     .join(", "),
                 n.python_repr()

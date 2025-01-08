@@ -71,7 +71,7 @@ impl StructArrayTrait for ChunkedArray {
             );
         }
 
-        let projected_dtype = self.dtype().as_struct().and_then(|s| s.dtypes().get(idx))?;
+        let projected_dtype = self.dtype().as_struct().map(|s| s.field_dtype(idx))?.ok()?;
         let chunked = ChunkedArray::try_new(chunks, projected_dtype.clone())
             .unwrap_or_else(|err| {
                 vortex_panic!(

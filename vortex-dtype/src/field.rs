@@ -47,6 +47,7 @@ impl Display for Field {
 }
 
 /// A path through a (possibly nested) struct, composed of a sequence of field selectors
+// TODO(ngates): wrap `Vec<Field>` in Option for cheaper "root" path.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FieldPath(Vec<Field>);
@@ -65,6 +66,11 @@ impl FieldPath {
     /// Returns the sequence of field selectors that make up this path
     pub fn path(&self) -> &[Field] {
         &self.0
+    }
+
+    /// Returns whether this path is a root path.
+    pub fn is_root(&self) -> bool {
+        self.0.is_empty()
     }
 
     /// Pushes a new field selector to the end of this path

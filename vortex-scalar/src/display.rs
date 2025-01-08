@@ -9,7 +9,7 @@ use crate::binary::BinaryScalar;
 use crate::extension::ExtScalar;
 use crate::struct_::StructScalar;
 use crate::utf8::Utf8Scalar;
-use crate::Scalar;
+use crate::{ListScalar, Scalar};
 
 impl Display for Scalar {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -59,7 +59,15 @@ impl Display for Scalar {
                     write!(f, "}}")
                 }
             }
-            DType::List(..) => todo!(),
+            DType::List(..) => {
+                let v = ListScalar::try_from(self).map_err(|_| std::fmt::Error)?;
+
+                if v.is_null() {
+                    write!(f, "null")
+                } else {
+                    write!(f, "[{}]", v.elements().format(","))
+                }
+            }
             // Specialized handling for date/time/timestamp builtin extension types.
             DType::Extension(dtype) if is_temporal_ext_type(dtype.id()) => {
                 let metadata =

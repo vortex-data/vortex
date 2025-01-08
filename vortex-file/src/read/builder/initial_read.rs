@@ -2,11 +2,12 @@ use core::ops::Range;
 
 use flatbuffers::{root, root_unchecked};
 use vortex_buffer::{ByteBuffer, ByteBufferMut, ConstBuffer};
-use vortex_error::{vortex_bail, vortex_err, VortexResult, VortexUnwrap};
+use vortex_dtype::DType;
+use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult, VortexUnwrap};
 use vortex_flatbuffers::{dtype as fbd, footer};
 use vortex_io::VortexReadAt;
 
-use crate::{LazyDType, EOF_SIZE, INITIAL_READ_SIZE, MAGIC_BYTES, VERSION};
+use crate::{EOF_SIZE, INITIAL_READ_SIZE, MAGIC_BYTES, VERSION};
 
 #[derive(Debug, Clone)]
 pub struct InitialRead {
@@ -49,11 +50,12 @@ impl InitialRead {
         schema_start..schema_end
     }
 
-    pub fn lazy_dtype(&self) -> LazyDType {
-        // we validated the schema bytes at construction time
-        unsafe {
-            LazyDType::from_schema_bytes(self.buf.as_ref().slice(self.fb_schema_byte_range()))
-        }
+    pub fn dtype(&self) -> DType {
+        let dtype_buffer = self.buf.as_ref().slice(self.fb_schema_byte_range());
+        let fb_dtype = unsafe { root_unchecked::<fbd::DType>(&dtype_buffer) };
+
+        DType::try_from_view(fb_dtype, dtype_buffer.clone())
+            .vortex_expect("Initial read must be able to provide valid flatbuffer DType")
     }
 }
 

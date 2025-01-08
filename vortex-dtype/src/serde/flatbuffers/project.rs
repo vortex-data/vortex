@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use vortex_buffer::ByteBuffer;
 use vortex_error::{vortex_err, VortexResult};
 
 use crate::field::Field;
@@ -24,11 +25,16 @@ pub fn resolve_field<'a, 'b: 'a>(fb: fb::Struct_<'b>, field: &'a Field) -> Vorte
 }
 
 /// Deserialize single field out of a struct dtype and as a top level dtype
-pub fn extract_field(fb_dtype: fb::DType<'_>, field: &Field) -> VortexResult<DType> {
+pub fn extract_field(
+    fb_dtype: fb::DType<'_>,
+    field: &Field,
+    buffer: &ByteBuffer,
+) -> VortexResult<DType> {
     let fb_struct = fb_dtype
         .type__as_struct_()
         .ok_or_else(|| vortex_err!("The top-level type should be a struct"))?;
-    let (_, dtype) = read_field(fb_struct, resolve_field(fb_struct, field)?)?;
+    let idx = resolve_field(fb_struct, field)?;
+    let (_, dtype) = read_field(fb_struct, idx, buffer)?;
     Ok(dtype)
 }
 
@@ -36,6 +42,7 @@ pub fn extract_field(fb_dtype: fb::DType<'_>, field: &Field) -> VortexResult<DTy
 pub fn project_and_deserialize(
     fb_dtype: fb::DType<'_>,
     projection: &[Field],
+    buffer: &ByteBuffer,
 ) -> VortexResult<DType> {
     let fb_struct = fb_dtype
         .type__as_struct_()
@@ -45,7 +52,7 @@ pub fn project_and_deserialize(
     let (names, dtypes): (Vec<Arc<str>>, Vec<DType>) = projection
         .iter()
         .map(|f| resolve_field(fb_struct, f))
-        .map(|idx| idx.and_then(|i| read_field(fb_struct, i)))
+        .map(|idx| idx.and_then(|i| read_field(fb_struct, i, buffer)))
         .collect::<VortexResult<Vec<_>>>()?
         .into_iter()
         .unzip();
@@ -56,7 +63,11 @@ pub fn project_and_deserialize(
     ))
 }
 
-fn read_field(fb_struct: fb::Struct_, idx: usize) -> VortexResult<(Arc<str>, DType)> {
+fn read_field(
+    fb_struct: fb::Struct_,
+    idx: usize,
+    buffer: &ByteBuffer,
+) -> VortexResult<(Arc<str>, DType)> {
     let name = fb_struct
         .names()
         .ok_or_else(|| vortex_err!("Missing field names"))?
@@ -65,7 +76,8 @@ fn read_field(fb_struct: fb::Struct_, idx: usize) -> VortexResult<(Arc<str>, DTy
         .dtypes()
         .ok_or_else(|| vortex_err!("Missing field dtypes"))?
         .get(idx);
-    let dtype = DType::try_from(fb_dtype)?;
+
+    let dtype = DType::try_from_view(fb_dtype, buffer.clone())?;
 
     Ok((name.into(), dtype))
 }

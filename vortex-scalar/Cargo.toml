@@ -47,7 +47,6 @@ flatbuffers = [
     "vortex-flatbuffers/scalar",
     "vortex-error/flatbuffers",
     "vortex-error/flexbuffers",
-    "vortex-dtype/flatbuffers",
 ]
 proto = [
     "dep:prost",

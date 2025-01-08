@@ -50,10 +50,14 @@ serde = { workspace = true, features = ["derive"] }
 static_assertions = { workspace = true }
 vortex-buffer = { workspace = true, features = ["arrow"] }
 vortex-datetime-dtype = { workspace = true }
-vortex-dtype = { workspace = true, features = ["flatbuffers", "serde"] }
+vortex-dtype = { workspace = true, features = ["serde"] }
 vortex-error = { workspace = true, features = ["flatbuffers", "flexbuffers"] }
 vortex-flatbuffers = { workspace = true, features = ["array"] }
-vortex-scalar = { workspace = true, features = ["flatbuffers", "serde", "arbitrary"] }
+vortex-scalar = { workspace = true, features = [
+    "flatbuffers",
+    "serde",
+    "arbitrary",
+] }
 
 [features]
 arbitrary = ["dep:arbitrary", "vortex-dtype/arbitrary"]

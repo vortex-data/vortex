@@ -5,7 +5,7 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::data::LayoutData;
-use crate::layouts::chunked::stats::StatsAccumulator;
+use crate::layouts::chunked::stats_table::StatsAccumulator;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::flat::writer::FlatLayoutWriter;
 use crate::layouts::flat::FlatLayout;

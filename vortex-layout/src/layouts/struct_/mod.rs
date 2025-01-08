@@ -9,7 +9,7 @@ use vortex_error::VortexResult;
 use crate::data::LayoutData;
 use crate::encoding::{LayoutEncoding, LayoutId};
 use crate::layouts::struct_::scan::StructScan;
-use crate::scanner::{LayoutScan, LayoutScanExt, Scan};
+use crate::reader::{LayoutReader, LayoutScanExt};
 use crate::COLUMNAR_LAYOUT_ID;
 
 #[derive(Debug)]
@@ -20,12 +20,7 @@ impl LayoutEncoding for StructLayout {
         COLUMNAR_LAYOUT_ID
     }
 
-    fn scan(
-        &self,
-        layout: LayoutData,
-        scan: Scan,
-        ctx: ContextRef,
-    ) -> VortexResult<Arc<dyn LayoutScan>> {
-        Ok(StructScan::try_new(layout, scan, ctx)?.into_arc())
+    fn reader(&self, layout: LayoutData, ctx: ContextRef) -> VortexResult<Arc<dyn LayoutReader>> {
+        Ok(StructScan::try_new(layout, ctx)?.into_arc())
     }
 }
