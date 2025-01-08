@@ -190,10 +190,7 @@ mod tests {
         let f1_dt_null = f1_dt.with_nullability(Nullability::Nullable);
 
         let dtype = DType::Struct(
-            StructDType::new(
-                vec!["a".into(), "b".into()].into(),
-                vec![f0_dt, f1_dt],
-            ),
+            StructDType::new(vec!["a".into(), "b".into()].into(), vec![f0_dt, f1_dt]),
             Nullability::Nullable,
         );
 

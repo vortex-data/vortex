@@ -226,7 +226,7 @@ mod tests {
                 "{}",
                 Scalar::struct_(
                     dtype.clone(),
-                    vec![Scalar::null(f1.clone()), Scalar::null(f2.clone())]
+                    vec![Scalar::null(f1), Scalar::null(f2.clone())]
                 )
             ),
             "{foo:null,bar:null}"
@@ -235,10 +235,7 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                Scalar::struct_(
-                    dtype.clone(),
-                    vec![Scalar::from(true), Scalar::null(f2.clone())]
-                )
+                Scalar::struct_(dtype.clone(), vec![Scalar::from(true), Scalar::null(f2)])
             ),
             "{foo:true,bar:null}"
         );
