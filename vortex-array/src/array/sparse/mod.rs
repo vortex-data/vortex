@@ -1,6 +1,7 @@
 use std::fmt::{Debug, Display};
 
 use ::serde::{Deserialize, Serialize};
+use vortex_avro::{FromAvro, ToAvro};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
@@ -19,7 +20,7 @@ mod variants;
 
 impl_encoding!("vortex.sparse", ids::SPARSE, Sparse);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromAvro, ToAvro)]
 pub struct SparseMetadata {
     // Offset value for patch indices as a result of slicing
     pub(crate) indices_offset: usize,

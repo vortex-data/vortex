@@ -1,6 +1,7 @@
 use std::fmt::Display;
 
 use serde::{Deserialize, Serialize};
+use vortex_avro::{FromAvro, ToAvro};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
@@ -15,7 +16,7 @@ mod variants;
 
 impl_encoding!("vortex.constant", ids::CONSTANT, Constant);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromAvro, ToAvro)]
 pub struct ConstantMetadata {
     pub(crate) scalar_value: ScalarValue,
 }

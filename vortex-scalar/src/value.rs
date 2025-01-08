@@ -1,10 +1,13 @@
 use std::fmt::{Display, Write};
 use std::sync::Arc;
 
+use apache_avro::schema::{ArraySchema, UnionSchema};
+use apache_avro::Schema;
 use itertools::Itertools;
+use vortex_avro::{AvroValue, FromAvro, ToAvro};
 use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::DType;
-use vortex_error::{vortex_err, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
 use crate::pvalue::PValue;
 
@@ -194,6 +197,110 @@ impl InnerScalarValue {
             InnerScalarValue::List(l) => Ok(Some(l)),
             _ => Err(vortex_err!("Expected a list scalar, found {:?}", self)),
         }
+    }
+}
+
+impl TryFrom<AvroValue> for ScalarValue {
+    type Error = vortex_error::VortexError;
+
+    fn try_from(value: AvroValue) -> Result<Self, Self::Error> {
+        // We need to know how to map back based on the cost values instead...fuck.
+        Ok(ScalarValue(match value {
+            // Handle primitive types
+            AvroValue::Boolean(b) => InnerScalarValue::Bool(b),
+            AvroValue::Int(i) => InnerScalarValue::Primitive(PValue::I32(i as i32)),
+            AvroValue::Long(l) => InnerScalarValue::Primitive(PValue::I64(l)),
+            AvroValue::Float(f) => InnerScalarValue::Primitive(PValue::F32(f)),
+            AvroValue::Double(d) => InnerScalarValue::Primitive(PValue::F64(d)),
+            AvroValue::Bytes(b) => InnerScalarValue::Buffer(ByteBuffer::from(b)),
+            AvroValue::String(s) => InnerScalarValue::BufferString(BufferString::from(s)),
+            AvroValue::Array(values) => {
+                let values: Result<Vec<ScalarValue>, _> =
+                    values.into_iter().map(ScalarValue::try_from).collect();
+                InnerScalarValue::List(Arc::from(values?.as_slice()))
+            }
+            AvroValue::Null => InnerScalarValue::Null,
+            // Handle other cases that might need conversion
+            AvroValue::Enum(_, name) => {
+                vortex_bail!("Cannot convert Avro enum {} to ScalarValue", name)
+            }
+            AvroValue::Fixed(..) => {
+                vortex_bail!("Cannot convert Avro fixed type to ScalarValue")
+            }
+            AvroValue::Record(..) => {
+                vortex_bail!("Cannot convert Avro record to ScalarValue")
+            }
+            AvroValue::Union(..) => {
+                vortex_bail!("Cannot convert Avro union to ScalarValue")
+            }
+            _ => todo!(),
+        }))
+    }
+}
+
+impl From<ScalarValue> for AvroValue {
+    fn from(value: ScalarValue) -> Self {
+        use InnerScalarValue::*;
+
+        match value.0 {
+            Bool(b) => AvroValue::Boolean(b),
+            Primitive(p) => match p {
+                PValue::I32(i) => AvroValue::Int(i as i32),
+                PValue::U32(u) => AvroValue::Int(u as i32),
+                PValue::I64(l) => AvroValue::Long(l),
+                PValue::U64(l) => AvroValue::Long(l as i64),
+                PValue::F32(f) => AvroValue::Float(f),
+                PValue::F64(d) => AvroValue::Double(d),
+                // Handle other primitive types appropriately
+                _ => AvroValue::Null, // You might want to handle this differently
+            },
+            Buffer(b) => AvroValue::Bytes(b.to_vec()),
+            BufferString(s) => AvroValue::String(s.to_string()),
+            List(values) => AvroValue::Array(values.iter().cloned().map(AvroValue::from).collect()),
+            Null => AvroValue::Null,
+        }
+    }
+}
+
+impl FromAvro for ScalarValue {
+    fn read_schema() -> Schema {
+        // This creates a union type that can represent any scalar value
+        Schema::Union(
+            UnionSchema::new(vec![
+                Schema::Null,
+                Schema::Boolean,
+                Schema::Int,
+                Schema::Long,
+                Schema::Float,
+                Schema::Double,
+                Schema::Bytes,
+                Schema::String,
+                Schema::Array(ArraySchema {
+                    items: Box::new(Schema::Union(
+                        UnionSchema::new(vec![
+                            Schema::Null,
+                            Schema::Boolean,
+                            Schema::Int,
+                            Schema::Long,
+                            Schema::Float,
+                            Schema::Double,
+                            Schema::Bytes,
+                            Schema::String,
+                        ])
+                        .expect("union schema"),
+                    )),
+                    attributes: Default::default(),
+                }),
+            ])
+            .expect("union schema"),
+        )
+    }
+}
+
+impl ToAvro for ScalarValue {
+    fn write_schema() -> Schema {
+        // Use the same schema for reading and writing
+        Self::read_schema()
     }
 }
 

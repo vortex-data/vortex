@@ -5433,6 +5433,7 @@ dependencies = [
 name = "vortex-scalar"
 version = "0.21.1"
 dependencies = [
+ "apache-avro",
  "arbitrary",
  "arrow-array",
  "datafusion-common",
@@ -5445,6 +5446,7 @@ dependencies = [
  "prost-types",
  "rstest",
  "serde",
+ "vortex-avro",
  "vortex-buffer",
  "vortex-datetime-dtype",
  "vortex-dtype",
