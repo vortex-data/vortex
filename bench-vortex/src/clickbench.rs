@@ -188,7 +188,7 @@ pub async fn register_vortex_files(
 
                         for (field_name, field_type) in names.zip(types) {
                             let val = arrays_map.entry(field_name.clone()).or_default();
-                            val.push(st.field_by_name(field_name.as_ref()).unwrap());
+                            val.push(st.maybe_null_field_by_name(field_name.as_ref()).unwrap());
 
                             types_map.insert(field_name.clone(), field_type.clone());
                         }

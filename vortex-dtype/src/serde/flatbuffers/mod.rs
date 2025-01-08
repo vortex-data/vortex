@@ -64,8 +64,7 @@ impl TryFrom<fb::DType<'_>> for DType {
                     .ok_or_else(|| vortex_err!("failed to parse struct names from flatbuffer"))?
                     .iter()
                     .map(|n| (*n).into())
-                    .collect_vec()
-                    .into();
+                    .collect_vec();
                 let dtypes: Vec<Self> = fb_struct
                     .dtypes()
                     .ok_or_else(|| vortex_err!("failed to parse struct dtypes from flatbuffer"))?
@@ -73,7 +72,7 @@ impl TryFrom<fb::DType<'_>> for DType {
                     .map(Self::try_from)
                     .collect::<VortexResult<Vec<_>>>()?;
                 Ok(Self::Struct(
-                    StructDType::new(names, dtypes),
+                    StructDType::new(names.into(), dtypes),
                     fb_struct.nullable().into(),
                 ))
             }

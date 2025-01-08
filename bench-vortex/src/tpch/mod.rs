@@ -235,7 +235,7 @@ async fn register_vortex_file(
 
             for (field_name, field_type) in names.zip(types) {
                 let val = arrays_map.entry(field_name.clone()).or_default();
-                val.push(st.field_by_name(field_name).unwrap());
+                val.push(st.maybe_null_field_by_name(field_name).unwrap());
 
                 types_map.insert(field_name.clone(), field_type.clone());
             }
