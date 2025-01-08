@@ -1,29 +1,36 @@
 use std::sync::Arc;
 
 use vortex_array::array::ChunkedArray;
-use vortex_array::ArrayData;
-use vortex_error::{vortex_panic, VortexError, VortexResult};
+use vortex_array::{ArrayData, Canonical, IntoArrayData, IntoArrayVariant};
+use vortex_error::{vortex_panic, VortexExpect, VortexResult};
 use vortex_expr::pruning::PruningPredicate;
+use vortex_expr::ExprRef;
 
-use crate::layouts::chunked::scan::ChunkedReader;
+use crate::layouts::chunked::reader::ChunkedReader;
 use crate::operations::{Operation, Poll};
+use crate::reader::{LayoutReader, LayoutScanExt};
 use crate::scanner::EvalOp;
 use crate::segments::SegmentReader;
 use crate::{ready, RowMask};
 
-/// Evaluation operation for a chunked layout.
-pub(super) struct ChunkedEvalOp {
-    chunked_scan: Arc<ChunkedReader>,
-    mask: RowMask,
+/// Evaluation operation for an expression over a chunked layout.
+pub(crate) struct ChunkedEvaluator {
+    reader: Arc<ChunkedReader>,
+    row_mask: RowMask,
+    expr: ExprRef,
+    pruning_predicate: Option<PruningPredicate>,
     // State for each chunk in the layout
     chunk_states: Option<Vec<ChunkState>>,
 }
 
-impl ChunkedEvalOp {
-    pub fn new(chunked_scan: Arc<ChunkedReader>, mask: RowMask) -> Self {
+impl ChunkedEvaluator {
+    pub fn new(chunked_scan: Arc<ChunkedReader>, row_mask: RowMask, expr: ExprRef) -> Self {
+        let pruning_predicate = PruningPredicate::try_new(&expr);
         Self {
-            chunked_scan,
-            mask,
+            reader: chunked_scan,
+            row_mask,
+            expr,
+            pruning_predicate,
             chunk_states: None,
         }
     }
@@ -34,60 +41,47 @@ enum ChunkState {
     Resolved(Option<ArrayData>),
 }
 
-impl Operation for ChunkedEvalOp {
+impl Operation for ChunkedEvaluator {
     type Output = ArrayData;
 
     fn poll(&mut self, segments: &dyn SegmentReader) -> VortexResult<Poll<Self::Output>> {
-        // If we haven't set up our chunk state yet, then fetch the stats table and do so.
+        // If we haven't set up our chunk state yet, then we need to do that first.
         if self.chunk_states.is_none() {
-            // First, we grab the stats table
-            let stats_table = ready!(self.chunked_scan.stats_table()?.poll(segments));
-
-            // And compute the pruning predicate
-            let pruning_mask = self.chunked_scan.pruning_mask.get_or_try_init(|| {
-                Ok::<_, VortexError>(
-                    self.chunked_scan
-                        .scan
-                        .filter
-                        .as_ref()
-                        .and_then(PruningPredicate::try_new)
-                        .and_then(|predicate| predicate.evaluate(stats_table.array()).transpose())
-                        .transpose()?
+            // First we need to compute the pruning mask
+            let pruning_mask = if let Some(predicate) = &self.pruning_predicate {
+                // If the expression is prune-able, then fetch the stats table
+                if let Some(stats_table) = ready!(self.reader.stats_table_op()?.poll(segments)) {
+                    predicate
+                        .evaluate(stats_table.array())?
                         .map(|mask| mask.into_bool())
                         .transpose()?
-                        .map(|mask| mask.boolean_buffer()),
-                )
-            })?;
+                        .map(|mask| mask.boolean_buffer())
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
 
             // Now we can set up the chunk state.
-            let mut chunks = Vec::with_capacity(self.chunked_scan.chunk_scans.len());
+            let mut chunks = Vec::with_capacity(self.reader.nchunks());
             let mut row_offset = 0;
-            for chunk_idx in 0..self.chunked_scan.chunk_scans.len() {
-                let chunk_scan =
-                    self.chunked_scan.chunk_scans[chunk_idx].get_or_try_init(|| {
-                        self.chunked_scan
-                            .layout
-                            .child(chunk_idx, self.chunked_scan.layout.dtype().clone())
-                            .vortex_expect("Child index out of bounds")
-                            .new_scan(
-                                self.chunked_scan.scan.clone(),
-                                self.chunked_scan.ctx.clone(),
-                            )
-                    })?;
+            for chunk_idx in 0..self.reader.nchunks() {
+                let chunk_reader = self.reader.child(chunk_idx)?;
 
                 // Figure out the row range of the chunk
-                let chunk_len = chunk_scan.layout().row_count();
+                let chunk_len = chunk_reader.layout().row_count();
                 let chunk_range = row_offset..row_offset + chunk_len;
                 row_offset += chunk_len;
 
                 // Try to skip the chunk based on the row-mask
-                if self.mask.is_disjoint(chunk_range.clone()) {
+                if self.row_mask.is_disjoint(chunk_range.clone()) {
                     chunks.push(ChunkState::Resolved(None));
                     continue;
                 }
 
                 // Try to skip the chunk based on the pruning predicate
-                if let Some(pruning_mask) = pruning_mask {
+                if let Some(pruning_mask) = &pruning_mask {
                     if pruning_mask.value(chunk_idx) {
                         chunks.push(ChunkState::Resolved(None));
                         continue;
@@ -96,12 +90,12 @@ impl Operation for ChunkedEvalOp {
 
                 // Otherwise, we need to read it. So we set up a mask for the chunk range.
                 let chunk_mask = self
-                    .mask
+                    .row_mask
                     .slice(chunk_range.start, chunk_range.end)?
                     .shift(chunk_range.start)?;
-                chunks.push(ChunkState::Pending(
-                    chunk_scan.clone().create_eval(chunk_mask)?,
-                ));
+                let chunk_evaluator =
+                    chunk_reader.create_evaluator(chunk_mask, self.expr.clone())?;
+                chunks.push(ChunkState::Pending(chunk_evaluator));
             }
 
             self.chunk_states = Some(chunks);
@@ -148,8 +142,17 @@ impl Operation for ChunkedEvalOp {
             })
             .collect::<Vec<_>>();
 
+        let dtype = if let Some(chunk) = chunks.first() {
+            chunk.dtype().clone()
+        } else {
+            self.expr
+                .evaluate(Canonical::empty(self.reader.dtype())?.into_array())?
+                .dtype()
+                .clone()
+        };
+
         Ok(Poll::Some(
-            ChunkedArray::try_new(chunks, self.chunked_scan.dtype.clone())?.into_array(),
+            ChunkedArray::try_new(chunks, dtype)?.into_array(),
         ))
     }
 }
@@ -162,11 +165,14 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, PType};
+    use vortex_expr::pruning::PruningPredicate;
     use vortex_expr::{gt, lit, Identity};
 
-    use crate::layouts::chunked::scan::{ChunkState, ChunkedReader, ChunkedScanner};
+    use crate::layouts::chunked::evaluator_filter::{ChunkState, ChunkedEvaluator};
+    use crate::layouts::chunked::reader::ChunkedReader;
     use crate::layouts::chunked::writer::ChunkedLayoutWriter;
     use crate::operations::{Operation, Poll};
+    use crate::reader::LayoutScanExt;
     use crate::scanner::Scan;
     use crate::segments::test::TestSegments;
     use crate::strategies::LayoutWriterExt;
@@ -195,8 +201,11 @@ mod test {
     fn test_chunked_scan() {
         let (segments, layout) = chunked_layout();
 
-        let scan = layout.new_scan(Scan::all(), Default::default()).unwrap();
-        let result = segments.do_scan(scan).into_primitive().unwrap();
+        let scan = layout.reader(Default::default()).unwrap();
+        let result = segments
+            .evaluate(scan, Identity::new_expr())
+            .into_primitive()
+            .unwrap();
 
         assert_eq!(result.len(), 9);
         assert_eq!(result.as_slice::<i32>(), &[1, 2, 3, 4, 5, 6, 7, 8, 9]);
@@ -205,34 +214,30 @@ mod test {
     #[test]
     fn test_chunked_pruning_mask() {
         let (segments, layout) = chunked_layout();
+        let row_count = layout.row_count();
+        let reader = ChunkedReader::try_new(layout, Default::default()).unwrap();
 
-        let scan = ChunkedReader::try_new(
-            layout,
-            Scan {
-                projection: Identity::new_expr(),
-                filter: Some(gt(Identity::new_expr(), lit(6))),
-            },
-            Default::default(),
-        )
-        .unwrap();
+        // Populate the stats table so that we can verify the pruning mask works.
+        _ = reader.stats_table_op().unwrap().poll(&segments).unwrap();
 
-        // Populate the stats table so that we can compute the pruning mask
-        _ = scan.stats_table().unwrap().poll(&segments).unwrap();
-
-        let mut scanner = ChunkedScanner {
-            chunked_scan: Arc::new(scan),
-            mask: RowMask::new_valid_between(0, 9),
+        let expr = gt(Identity::new_expr(), lit(6));
+        let pruning_predicate = PruningPredicate::try_new(&expr);
+        let mut evaluator = ChunkedEvaluator {
+            reader: reader.into_arc(),
+            row_mask: RowMask::new_valid_between(0, row_count),
+            expr,
+            pruning_predicate,
             chunk_states: None,
         };
 
         // Then we poll the chunked scanner without any segments so _only_ the stats were
         // available.
-        let Poll::NeedMore(_segments) = scanner.poll(&TestSegments::default()).unwrap() else {
+        let Poll::NeedMore(_segments) = evaluator.poll(&TestSegments::default()).unwrap() else {
             unreachable!()
         };
 
         // Now we validate that based on the pruning mask, we have excluded the first two chunks
-        let chunk_states = scanner.chunk_states.as_ref().unwrap().as_slice();
+        let chunk_states = evaluator.chunk_states.as_ref().unwrap().as_slice();
         if !matches!(chunk_states[0], ChunkState::Resolved(None)) {
             panic!("Expected first chunk to be pruned");
         }

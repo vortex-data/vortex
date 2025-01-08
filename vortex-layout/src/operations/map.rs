@@ -1,6 +1,5 @@
 use vortex_error::VortexResult;
 
-use crate::operations::cached::CachedOperation;
 use crate::operations::{Operation, Poll};
 use crate::ready;
 use crate::segments::SegmentReader;
@@ -22,11 +21,4 @@ where
         let f = self.func.take().expect("cannot poll Map twice");
         Ok(Poll::Some(f(v)?))
     }
-}
-
-unsafe impl<R, O, F> CachedOperation for MapOperation<O, F>
-where
-    O: CachedOperation,
-    F: FnOnce(O::Output) -> VortexResult<R>,
-{
 }

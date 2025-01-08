@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use vortex_array::{ArrayData, ContextRef};
-use vortex_dtype::DType;
 use vortex_error::{vortex_panic, VortexResult};
+use vortex_expr::ExprRef;
 
 use crate::layouts::struct_::StructLayout;
 use crate::operations::{Operation, Poll};
@@ -14,25 +14,17 @@ use crate::{LayoutData, LayoutEncoding, RowMask};
 #[derive(Debug)]
 pub struct StructScan {
     layout: LayoutData,
-    scan: Scan,
-    dtype: DType,
 }
 
 impl StructScan {
-    pub(super) fn try_new(layout: LayoutData, scan: Scan, _ctx: ContextRef) -> VortexResult<Self> {
+    pub(super) fn try_new(layout: LayoutData, _ctx: ContextRef) -> VortexResult<Self> {
         if layout.encoding().id() != StructLayout.id() {
             vortex_panic!("Mismatched layout ID")
         }
 
-        let dtype = scan.result_dtype(layout.dtype())?;
-
         // This is where we need to do some complex things with the scan in order to split it into
         // different scans for different fields.
-        Ok(Self {
-            layout,
-            scan,
-            dtype,
-        })
+        Ok(Self { layout })
     }
 }
 
@@ -41,17 +33,12 @@ impl LayoutReader for StructScan {
         &self.layout
     }
 
-    fn dtype(&self) -> &DType {
-        &self.dtype
-    }
-
-    fn create_eval(self: Arc<Self>, mask: RowMask) -> VortexResult<EvalOp> {
-        Ok(Box::new(StructScanner {
-            layout: self.layout.clone(),
-            scan: self.scan.clone(),
-            mask,
-            state: State::Initial,
-        }) as _)
+    fn create_evaluator(
+        self: Arc<Self>,
+        _row_mask: RowMask,
+        _expr: ExprRef,
+    ) -> VortexResult<EvalOp> {
+        todo!()
     }
 }
 

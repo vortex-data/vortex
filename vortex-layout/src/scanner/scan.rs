@@ -3,10 +3,13 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_expr::{ExprRef, Identity};
 
+use crate::RowMask;
+
 #[derive(Debug, Clone)]
 pub struct Scan {
     projection: ExprRef,
     filter: Option<ExprRef>,
+    row_mask: RowMask,
 }
 
 impl Scan {

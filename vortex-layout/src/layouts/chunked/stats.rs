@@ -4,7 +4,7 @@ use vortex_array::stats::{Stat, StatsSet};
 use vortex_dtype::FieldPath;
 use vortex_error::VortexResult;
 
-use crate::layouts::chunked::scan::ChunkedReader;
+use crate::layouts::chunked::reader::ChunkedReader;
 use crate::operations::{Operation, Poll};
 use crate::ready;
 use crate::segments::SegmentReader;

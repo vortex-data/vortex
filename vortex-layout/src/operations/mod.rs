@@ -7,7 +7,6 @@ mod resolved;
 
 use vortex_error::VortexResult;
 
-use crate::operations::cached::CachedOperation;
 use crate::segments::{SegmentId, SegmentReader};
 
 /// The response to polling an operation.
@@ -61,23 +60,16 @@ pub trait OperationExt: Operation {
         Box::new(self)
     }
 
-    /// Cache the operation so it can be successfully polled multiple times.
-    fn cached(self) -> cached::OperationCache<Self>
+    /// Cache the result of the operation so it can be polled multiple times.
+    fn cached(self) -> cached::CachedOperation<Self>
     where
         Self: Sized,
+        Self::Output: Clone,
     {
-        cached::OperationCache {
+        cached::CachedOperation {
             op: self,
-            result: None,
+            value: None,
         }
-    }
-
-    /// Cache the operation so it can be successfully polled multiple times.
-    fn cached_box(self) -> Box<dyn CachedOperation<Output = Self::Output> + 'static>
-    where
-        Self: CachedOperation + Sized + 'static,
-    {
-        Box::new(self)
     }
 
     /// Map the output of the operation.

@@ -1,0 +1,120 @@
+use std::sync::{Arc, OnceLock, RwLock, RwLockWriteGuard};
+
+use vortex_array::stats::{stats_from_bitset_bytes, Stat};
+use vortex_array::ContextRef;
+use vortex_error::{vortex_err, vortex_panic, VortexResult};
+use vortex_expr::{ExprRef, Identity};
+
+use crate::layouts::chunked::evaluator_filter::ChunkedEvaluator;
+use crate::layouts::chunked::stats_table::StatsTable;
+use crate::layouts::chunked::ChunkedLayout;
+use crate::operations::cached::CachedOperation;
+use crate::operations::{resolved, Operation, OperationExt};
+use crate::reader::{LayoutReader, LayoutScanExt};
+use crate::scanner::EvalOp;
+use crate::{LayoutData, LayoutEncoding, RowMask};
+
+pub struct ChunkedReader {
+    layout: LayoutData,
+    ctx: ContextRef,
+    // The stats that are present in the layout
+    present_stats: Arc<[Stat]>,
+    // Shared stats table operation and cache of the result
+    stats_table_op: RwLock<CachedOperation<Box<dyn Operation<Output = Option<StatsTable>>>>>,
+    // Shared lazy chunk scanners
+    chunk_readers: Vec<OnceLock<Arc<dyn LayoutReader>>>,
+}
+
+impl ChunkedReader {
+    pub(super) fn try_new(layout: LayoutData, ctx: ContextRef) -> VortexResult<Self> {
+        if layout.encoding().id() != ChunkedLayout.id() {
+            vortex_panic!("Mismatched layout ID")
+        }
+
+        // The number of chunks
+        let mut nchunks = layout.nchildren();
+        if layout.metadata().is_some() {
+            // The final child is the statistics table.
+            nchunks -= 1;
+        }
+
+        // Figure out which stats are present
+        let present_stats: Arc<[Stat]> = layout
+            .metadata()
+            .map(|m| stats_from_bitset_bytes(m.as_ref()))
+            .unwrap_or_default()
+            .into();
+
+        let stats_table_op = layout
+            .metadata()
+            .is_some()
+            .then(|| {
+                let stats_dtype = StatsTable::dtype_for_stats_table(layout.dtype(), &present_stats);
+                let stats_layout = layout.child(layout.nchildren() - 1, stats_dtype)?;
+                stats_layout
+                    .reader(ctx.clone())?
+                    .create_evaluator(
+                        RowMask::new_valid_between(0, nchunks as u64),
+                        Identity::new_expr(),
+                    )?
+                    .map(|stats_array| {
+                        StatsTable::try_new(
+                            layout.dtype().clone(),
+                            stats_array,
+                            present_stats.clone(),
+                        )
+                        .ok()
+                    })
+                    .boxed()
+            })
+            .unwrap_or_else(|| resolved(None).boxed())
+            .cached();
+
+        // Construct a lazy scan for each chunk of the layout.
+        let chunk_scans = (0..nchunks).map(|_| OnceLock::new()).collect();
+
+        Ok(Self {
+            layout,
+            ctx,
+            present_stats,
+            stats_table_op: RwLock::new(stats_table_op),
+            chunk_readers: chunk_scans,
+        })
+    }
+
+    /// Get the stats table operation.
+    pub(crate) fn stats_table_op(
+        &self,
+    ) -> VortexResult<
+        RwLockWriteGuard<CachedOperation<Box<dyn Operation<Output = Option<StatsTable>>>>>,
+    > {
+        self.stats_table_op
+            .write()
+            .map_err(|_| vortex_err!("poisoned"))
+    }
+
+    /// Return the number of chunks
+    pub(crate) fn nchunks(&self) -> usize {
+        self.chunk_readers.len()
+    }
+
+    /// Return the child reader for the chunk.
+    pub(crate) fn child(&self, idx: usize) -> VortexResult<Arc<dyn LayoutReader>> {
+        self.chunk_readers[idx]
+            .get_or_try_init(|| {
+                let child_layout = self.layout.child(idx, self.layout.dtype().clone())?;
+                child_layout.reader(self.ctx.clone())
+            })
+            .cloned()
+    }
+}
+
+impl LayoutReader for ChunkedReader {
+    fn layout(&self) -> &LayoutData {
+        &self.layout
+    }
+
+    fn create_evaluator(self: Arc<Self>, row_mask: RowMask, expr: ExprRef) -> VortexResult<EvalOp> {
+        Ok(ChunkedEvaluator::new(self, row_mask, expr).boxed())
+    }
+}

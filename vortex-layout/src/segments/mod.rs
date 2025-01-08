@@ -49,6 +49,7 @@ pub mod test {
 
     use bytes::{Bytes, BytesMut};
     use vortex_error::{vortex_panic, VortexExpect};
+    use vortex_expr::{ExprRef, Identity};
 
     use super::*;
     use crate::operations::Poll;
@@ -62,12 +63,15 @@ pub mod test {
     }
 
     impl TestSegments {
-        pub fn do_scan(&self, scan: Arc<dyn LayoutReader>) -> ArrayData {
-            let row_count = scan.layout().row_count();
-            let mut scanner = scan
-                .create_eval(RowMask::new_valid_between(0, row_count))
+        pub fn evaluate(&self, reader: Arc<dyn LayoutReader>, expr: ExprRef) -> ArrayData {
+            let row_count = reader.layout().row_count();
+            let mut evaluator = reader
+                .create_eval(RowMask::new_valid_between(0, row_count), expr)
                 .vortex_expect("Failed to create scanner");
-            match scanner.poll(self).vortex_expect("Failed to poll scanner") {
+            match evaluator
+                .poll(self)
+                .vortex_expect("Failed to poll evaluator")
+            {
                 Poll::Some(array) => array,
                 Poll::NeedMore(_segments) => {
                     vortex_panic!("Layout requested more segments from TestSegments.")
