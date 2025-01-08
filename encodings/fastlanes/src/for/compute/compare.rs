@@ -125,6 +125,26 @@ mod tests {
         );
     }
 
+    #[test]
+    fn compare_large_constant() {
+        let reference = Scalar::from(-9219218377546224477i64);
+        let lhs = FoRArray::try_new(
+            PrimitiveArray::new(buffer!(0u64, 10, 1), Validity::AllValid).into_array(),
+            reference,
+            0,
+        )
+        .unwrap();
+
+        assert_result(
+            compare_constant(&lhs, Some(435090932899640449i64), Operator::Eq),
+            [false, false, false],
+        );
+        assert_result(
+            compare_constant(&lhs, Some(435090932899640449i64), Operator::NotEq),
+            [true, true, true],
+        );
+    }
+
     fn assert_result<T: IntoIterator<Item = bool>>(
         result: VortexResult<Option<ArrayData>>,
         expected: T,
