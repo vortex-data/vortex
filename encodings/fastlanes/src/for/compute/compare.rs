@@ -1,4 +1,6 @@
-use num_traits::{CheckedShr, WrappingSub};
+use std::ops::Shr;
+
+use num_traits::WrappingSub;
 use vortex_array::array::ConstantArray;
 use vortex_array::compute::{compare, CompareFn, Operator};
 use vortex_array::{ArrayData, ArrayLen, IntoArrayData};
@@ -33,7 +35,7 @@ fn compare_constant<T>(
     operator: Operator,
 ) -> VortexResult<Option<ArrayData>>
 where
-    T: NativePType + WrappingSub + CheckedShr,
+    T: NativePType + Shr<u32, Output = T> + WrappingSub,
     T: TryFrom<PValue, Error = VortexError>,
     Scalar: From<Option<T>>,
 {
