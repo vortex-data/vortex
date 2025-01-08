@@ -211,7 +211,7 @@ jobs:
         with:
           tool: nextest
       - name: Run tests with Miri
-        run: cargo miri nextest run
+        run: cargo miri nextest run --no-fail-fast
 
   bench-test:
     name: "bench test"
