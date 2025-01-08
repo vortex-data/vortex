@@ -200,10 +200,10 @@ pub trait StructArrayTrait: ArrayTrait {
         self.names().len()
     }
 
-    /// Return a field's array by index
+    /// Return a field's array by index, ignoring struct nullability
     fn maybe_null_field_by_idx(&self, idx: usize) -> Option<ArrayData>;
 
-    /// Return a field's array by name
+    /// Return a field's array by name, ignoring struct nullability
     fn maybe_null_field_by_name(&self, name: &str) -> Option<ArrayData> {
         let field_idx = self
             .names()
@@ -216,7 +216,11 @@ pub trait StructArrayTrait: ArrayTrait {
     fn project(&self, projection: &[Field]) -> VortexResult<ArrayData>;
 }
 
-pub trait StructArrayTraitExt: StructArrayTrait {
+pub trait StructArrayTraitExt {
+    fn maybe_null_field(&self, field: &Field) -> Option<ArrayData>;
+}
+
+impl StructArrayTraitExt for &dyn StructArrayTrait {
     fn maybe_null_field(&self, field: &Field) -> Option<ArrayData> {
         match field {
             Field::Index(idx) => self.maybe_null_field_by_idx(*idx),
@@ -224,8 +228,6 @@ pub trait StructArrayTraitExt: StructArrayTrait {
         }
     }
 }
-
-impl StructArrayTraitExt for dyn StructArrayTrait {}
 
 pub trait ListArrayTrait: ArrayTrait {}
 
