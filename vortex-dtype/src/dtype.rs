@@ -262,7 +262,7 @@ impl PartialOrd for FieldDType {
                 let lhs = DType::try_from(viewed_dtype.clone())
                     .vortex_expect("Failed to parse FieldDType into DType");
 
-                lhs.partial_cmp(&dtype)
+                lhs.partial_cmp(dtype)
             }
         }
     }
