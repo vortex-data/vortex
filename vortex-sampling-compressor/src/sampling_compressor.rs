@@ -62,16 +62,16 @@ impl Default for SamplingCompressor<'_> {
 }
 
 impl<'a> SamplingCompressor<'a> {
-    pub fn new(compressors: HashSet<CompressorRef<'a>>) -> Self {
+    pub fn new(compressors: impl Into<HashSet<CompressorRef<'a>>>) -> Self {
         Self::new_with_options(compressors, Default::default())
     }
 
     pub fn new_with_options(
-        compressors: HashSet<CompressorRef<'a>>,
+        compressors: impl Into<HashSet<CompressorRef<'a>>>,
         options: CompressConfig,
     ) -> Self {
         Self {
-            compressors,
+            compressors: compressors.into(),
             options,
             path: Vec::new(),
             depth: 0,

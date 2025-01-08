@@ -19,7 +19,7 @@ use crate::array::PrimitiveArray;
 use crate::builders::{ArrayBuilder, ListBuilder};
 use crate::compute::{scalar_at, slice};
 use crate::encoding::ids;
-use crate::stats::{Stat, StatisticsVTable, StatsSet};
+use crate::stats::{StatisticsVTable, StatsSet};
 use crate::validity::{LogicalValidity, Validity, ValidityMetadata, ValidityVTable};
 use crate::variants::{ListArrayTrait, PrimitiveArrayTrait, VariantsVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
@@ -174,11 +174,7 @@ impl IntoCanonical for ListArray {
     }
 }
 
-impl StatisticsVTable<ListArray> for ListEncoding {
-    fn compute_statistics(&self, _array: &ListArray, _stat: Stat) -> VortexResult<StatsSet> {
-        Ok(StatsSet::default())
-    }
-}
+impl StatisticsVTable<ListArray> for ListEncoding {}
 
 impl ListArrayTrait for ListArray {}
 
