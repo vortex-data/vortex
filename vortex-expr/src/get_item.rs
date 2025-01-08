@@ -57,16 +57,12 @@ impl VortexExpr for GetItem {
 
     fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
         let child = self.child.evaluate(batch)?;
-        let st = child
+        child
             .as_struct_array()
-            .ok_or_else(|| vortex_err!("GetItem: child array into struct"))?;
-
-        // TODO(joe): apply struct validity
-        match &self.field {
-            Field::Name(name) => st.field_by_name(name.as_ref()),
-            Field::Index(idx) => st.field(*idx),
-        }
-        .ok_or_else(|| vortex_err!("Field {} not found", self.field))
+            .ok_or_else(|| vortex_err!("GetItem: child array into struct"))?
+            // TODO(joe): apply struct validity
+            .maybe_null_field(self.field())
+            .ok_or_else(|| vortex_err!("Field {} not found", self.field))
     }
 
     fn children(&self) -> Vec<&ExprRef> {
