@@ -7,6 +7,7 @@ use std::panic::RefUnwindSafe;
 
 use num_traits::bounds::UpperBounded;
 use num_traits::{FromPrimitive, Num, NumCast, ToPrimitive};
+use proc_macros::{FromAvro, ToAvro};
 use vortex_error::{vortex_err, VortexError, VortexResult};
 
 use crate::half::f16;
@@ -15,7 +16,7 @@ use crate::DType;
 use crate::DType::*;
 
 /// Physical type enum, represents the in-memory physical layout but might represent a different logical type.
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Hash, FromAvro, ToAvro)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "lowercase"))]
 pub enum PType {

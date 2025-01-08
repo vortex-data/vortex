@@ -13,6 +13,13 @@ use proc_macros::{FromAvro, ToAvro};
 // checking that conversion is lossless.
 #[test]
 fn test_derive_macro() {
+    #[derive(FromAvro, Clone, Debug, PartialEq, Eq)]
+    enum Level {
+        Low,
+        Medium,
+        High,
+    }
+
     #[derive(FromAvro, ToAvro, Clone, Debug, PartialEq, Eq)]
     struct MyRecordType {
         a: i32,

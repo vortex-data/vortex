@@ -22,6 +22,7 @@ bench = false
 workspace = true
 
 [dependencies]
+apache-avro = { workspace = true }
 arbitrary = { workspace = true, optional = true }
 arrow-arith = { workspace = true }
 arrow-array = { workspace = true }
@@ -45,6 +46,8 @@ num-traits = { workspace = true }
 num_enum = { workspace = true }
 paste = { workspace = true }
 pin-project = { workspace = true }
+proc-macro-traits = { workspace = true }
+proc-macros = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 static_assertions = { workspace = true }

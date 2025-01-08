@@ -4,6 +4,8 @@ use std::fmt::{Debug, Display};
 use std::ops::BitAnd;
 
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, NullBuffer};
+use proc_macro_traits::FromAvro;
+use proc_macros::{FromAvro, ToAvro};
 use serde::{Deserialize, Serialize};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{
@@ -16,7 +18,6 @@ use crate::encoding::Encoding;
 use crate::patches::Patches;
 use crate::stats::ArrayStatistics;
 use crate::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
-
 pub trait ValidityVTable<Array> {
     // TODO(ngates): can we implement this based on logical validity? Or is that too expensive?
     fn is_valid(&self, array: &Array, index: usize) -> bool;
@@ -49,7 +50,7 @@ pub trait ArrayValidity {
     fn logical_validity(&self) -> LogicalValidity;
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, FromAvro, ToAvro)]
 pub enum ValidityMetadata {
     NonNullable,
     AllValid,

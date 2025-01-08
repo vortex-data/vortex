@@ -22,7 +22,8 @@ quote = "1.0.38"
 syn = "2.0.95"
 
 [dev-dependencies]
-apache-avro = "0.17.0"
+apache-avro = { workspace = true }
+uuid = { workspace = true }
 vortex-error = { path = "../vortex-error" }
 
 # TODO(aduffy): rename this to something that is actually good to publish.

@@ -3493,6 +3493,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.95",
+ "uuid",
  "vortex-error",
 ]
 
@@ -5007,6 +5008,7 @@ dependencies = [
 name = "vortex-array"
 version = "0.21.1"
 dependencies = [
+ "apache-avro",
  "arbitrary",
  "arrow-arith",
  "arrow-array",
@@ -5032,6 +5034,8 @@ dependencies = [
  "num_enum 0.7.3",
  "paste",
  "pin-project",
+ "proc-macro-traits",
+ "proc-macros",
  "rand",
  "rstest",
  "serde",
@@ -5148,11 +5152,14 @@ dependencies = [
 name = "vortex-dtype"
 version = "0.21.1"
 dependencies = [
+ "apache-avro",
  "arbitrary",
  "flatbuffers",
  "half",
  "itertools 0.14.0",
  "num-traits",
+ "proc-macro-traits",
+ "proc-macros",
  "prost",
  "serde",
  "serde_json",

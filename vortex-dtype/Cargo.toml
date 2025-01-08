@@ -31,6 +31,10 @@ vortex-error = { workspace = true, features = ["flatbuffers"] }
 vortex-flatbuffers = { workspace = true, features = ["dtype"] }
 vortex-proto = { workspace = true, optional = true }
 
+proc-macros = { workspace = true }
+proc-macro-traits = { workspace = true }
+apache-avro = { workspace = true }
+
 [dev-dependencies]
 serde_json = { workspace = true }
 serde_test = { workspace = true }
