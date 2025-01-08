@@ -10,7 +10,7 @@ use vortex_array::{ArrayData, IntoArrayData};
 use vortex_dtype::{Field, FieldName, FieldNames};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult};
 use vortex_expr::{
-    col, expr_project, Identity, RowFilter, Select, SelectField, VortexExpr, VortexExprExt,
+    col, expr_project, ident, RowFilter, Select, SelectField, VortexExpr, VortexExprExt,
 };
 use vortex_flatbuffers::footer;
 
@@ -175,7 +175,7 @@ impl ColumnarLayoutBuilder<'_> {
         self.scan.expr.as_ref().map(|e| {
             if let Some(se) = e.as_any().downcast_ref::<Select>() {
                 // We currently only support selecting fields on the root/identity expression
-                assert!(se.child().eq(&ident));
+                assert!(se.child().eq(&ident()));
                 match se.fields() {
                     SelectField::Include(i) => i.clone(),
                     SelectField::Exclude(_) => vortex_panic!("Select::Exclude is not supported"),

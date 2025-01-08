@@ -296,7 +296,7 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, PType};
-    use vortex_expr::{gt, lit, Identity};
+    use vortex_expr::{gt, ident, lit};
 
     use crate::layouts::chunked::scan::{ChunkState, ChunkedScan, ChunkedScanner};
     use crate::layouts::chunked::writer::ChunkedLayoutWriter;

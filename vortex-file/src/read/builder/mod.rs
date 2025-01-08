@@ -3,7 +3,7 @@ use std::sync::Arc;
 use initial_read::read_initial_bytes;
 use vortex_array::{ArrayDType, ArrayData};
 use vortex_error::VortexResult;
-use vortex_expr::{Identity, RowFilter, Select};
+use vortex_expr::{ident, RowFilter, Select};
 use vortex_io::{IoDispatcher, VortexReadAt};
 
 use super::handle::VortexReadHandle;

@@ -11,7 +11,7 @@ use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Field, Nullability, StructDType};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_expr::pruning::PruningPredicate;
-use vortex_expr::{Identity, Select};
+use vortex_expr::{ident, Select};
 use vortex_flatbuffers::footer as fb;
 
 use crate::layouts::RangedLayoutReader;

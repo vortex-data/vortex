@@ -225,7 +225,7 @@ impl PyExpr {
         py_binary_opeartor(self_, Operator::Or, coerce_expr(right)?)
     }
 
-    fn __getitem__<'py>(self_: PyRef<'py, Self>, field: PyObject) -> PyResult<PyExpr> {
+    fn __getitem__(self_: PyRef<'_, Self>, field: PyObject) -> PyResult<PyExpr> {
         get_item(self_.py(), field, self_.clone())
     }
 }

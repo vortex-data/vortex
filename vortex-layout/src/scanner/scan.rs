@@ -1,7 +1,7 @@
 use vortex_array::{ArrayDType, Canonical, IntoArrayData};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
-use vortex_expr::{ExprRef, Identity};
+use vortex_expr::{ident, ExprRef};
 
 /// The definition of a range scan.
 #[derive(Debug, Clone)]

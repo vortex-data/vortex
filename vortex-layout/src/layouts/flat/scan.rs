@@ -133,7 +133,7 @@ mod test {
     use vortex_array::{ArrayDType, IntoArrayVariant, ToArrayData};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability};
-    use vortex_expr::{lit, BinaryExpr, Identity, Operator};
+    use vortex_expr::{ident, lit, BinaryExpr, Identity, Operator};
 
     use crate::layouts::flat::writer::FlatLayoutWriter;
     use crate::scanner::Scan;
