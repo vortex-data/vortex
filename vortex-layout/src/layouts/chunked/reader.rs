@@ -16,9 +16,12 @@ use crate::{LayoutData, LayoutEncoding, RowMask};
 pub struct ChunkedReader {
     layout: LayoutData,
     ctx: ContextRef,
-    // Shared stats table operation and cache of the result
+    /// Shared stats table operation and cache of the result
     stats_table_op: RwLock<StatsTableOp>,
-    // Shared lazy chunk scanners
+    /// Shared lazy chunk scanners
+    // TODO(ngates): consider an LRU cache here so we don't indefinitely hold onto chunk readers.
+    //  If we do this, then we could also cache ArrayData in a FlatLayout since we know that this
+    //  cache will eventually be evicted.
     chunk_readers: Vec<OnceLock<Arc<dyn LayoutReader>>>,
 }
 

@@ -36,11 +36,7 @@ impl Operation for LayoutRangeScan {
                     NextOp::Ready(array) => return Ok(Poll::Some(array)),
                     NextOp::Eval((row_range, mask, expr)) => {
                         let evaluator = self.reader.clone().create_evaluator(
-                            RowMask::try_new(
-                                mask,
-                                row_range.start,
-                                row_range.end,
-                            )?,
+                            RowMask::try_new(mask, row_range.start, row_range.end)?,
                             expr,
                         )?;
                         self.evaluator = Some(evaluator);
