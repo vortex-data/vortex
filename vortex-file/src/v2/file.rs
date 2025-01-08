@@ -42,7 +42,7 @@ impl<R: VortexReadAt> VortexFile<R> {
         //  For now, we just scan the entire layout with one mask.
         //  Note that to implement this we would use stream::try_unfold
         let row_mask = RowMask::new_valid_between(0, layout_scan.layout().row_count());
-        let mut scanner = layout_scan.create_scanner(row_mask)?;
+        let mut scanner = layout_scan.create_eval(row_mask)?;
 
         let stream = stream::once(async move {
             loop {

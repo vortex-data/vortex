@@ -4,7 +4,8 @@ use std::sync::Arc;
 use vortex_array::ContextRef;
 use vortex_error::VortexResult;
 
-use crate::scanner::{LayoutScan, Scan};
+use crate::reader::LayoutReader;
+use crate::scanner::Scan;
 use crate::LayoutData;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
@@ -20,7 +21,7 @@ pub trait LayoutEncoding: Debug + Send + Sync {
     /// Returns the globally unique ID for this type of layout.
     fn id(&self) -> LayoutId;
 
-    /// Construct a [`LayoutScan`] for the provided [`LayoutData`].
+    /// Construct a [`LayoutReader`] for the provided [`LayoutData`].
     ///
     /// May panic if the provided `LayoutData` is not the same encoding as this `LayoutEncoding`.
     fn scan(
@@ -28,7 +29,7 @@ pub trait LayoutEncoding: Debug + Send + Sync {
         layout: LayoutData,
         scan: Scan,
         ctx: ContextRef,
-    ) -> VortexResult<Arc<dyn LayoutScan>>;
+    ) -> VortexResult<Arc<dyn LayoutReader>>;
 }
 
 pub type LayoutEncodingRef = &'static dyn LayoutEncoding;

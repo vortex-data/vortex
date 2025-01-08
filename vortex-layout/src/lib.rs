@@ -11,6 +11,7 @@ pub use encoding::*;
 mod row_mask;
 pub use row_mask::*;
 pub mod operations;
+mod reader;
 pub mod segments;
 pub mod strategies;
 

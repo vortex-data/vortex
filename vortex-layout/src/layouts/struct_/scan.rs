@@ -6,7 +6,8 @@ use vortex_error::{vortex_panic, VortexResult};
 
 use crate::layouts::struct_::StructLayout;
 use crate::operations::{Operation, Poll};
-use crate::scanner::{LayoutScan, Scan, ScanOp};
+use crate::reader::LayoutReader;
+use crate::scanner::{EvalOp, Scan};
 use crate::segments::SegmentReader;
 use crate::{LayoutData, LayoutEncoding, RowMask};
 
@@ -35,7 +36,7 @@ impl StructScan {
     }
 }
 
-impl LayoutScan for StructScan {
+impl LayoutReader for StructScan {
     fn layout(&self) -> &LayoutData {
         &self.layout
     }
@@ -44,7 +45,7 @@ impl LayoutScan for StructScan {
         &self.dtype
     }
 
-    fn create_scanner(self: Arc<Self>, mask: RowMask) -> VortexResult<ScanOp> {
+    fn create_eval(self: Arc<Self>, mask: RowMask) -> VortexResult<EvalOp> {
         Ok(Box::new(StructScanner {
             layout: self.layout.clone(),
             scan: self.scan.clone(),

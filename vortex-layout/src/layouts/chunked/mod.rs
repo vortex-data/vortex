@@ -1,3 +1,4 @@
+mod eval;
 mod scan;
 mod stats;
 pub mod stats_table;
@@ -10,8 +11,9 @@ use vortex_error::VortexResult;
 
 use crate::data::LayoutData;
 use crate::encoding::{LayoutEncoding, LayoutId};
-use crate::layouts::chunked::scan::ChunkedScan;
-use crate::scanner::{LayoutScan, LayoutScanExt, Scan};
+use crate::layouts::chunked::scan::ChunkedReader;
+use crate::reader::{LayoutReader, LayoutScanExt};
+use crate::scanner::Scan;
 use crate::CHUNKED_LAYOUT_ID;
 
 #[derive(Default, Debug)]
@@ -33,7 +35,7 @@ impl LayoutEncoding for ChunkedLayout {
         layout: LayoutData,
         scan: Scan,
         ctx: ContextRef,
-    ) -> VortexResult<Arc<dyn LayoutScan>> {
-        Ok(ChunkedScan::try_new(layout, scan, ctx)?.into_arc())
+    ) -> VortexResult<Arc<dyn LayoutReader>> {
+        Ok(ChunkedReader::try_new(layout, scan, ctx)?.into_arc())
     }
 }

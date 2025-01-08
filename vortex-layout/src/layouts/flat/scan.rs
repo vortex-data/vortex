@@ -8,7 +8,8 @@ use vortex_ipc::messages::{BufMessageReader, DecoderMessage};
 
 use crate::layouts::flat::FlatLayout;
 use crate::operations::{Operation, Poll};
-use crate::scanner::{LayoutScan, Scan, ScanOp};
+use crate::reader::LayoutReader;
+use crate::scanner::{EvalOp, Scan};
 use crate::segments::{SegmentId, SegmentReader};
 use crate::{LayoutData, LayoutEncoding, RowMask};
 
@@ -43,7 +44,7 @@ impl FlatScan {
     }
 }
 
-impl LayoutScan for FlatScan {
+impl LayoutReader for FlatScan {
     fn layout(&self) -> &LayoutData {
         &self.layout
     }
@@ -52,7 +53,7 @@ impl LayoutScan for FlatScan {
         &self.dtype
     }
 
-    fn create_scanner(self: Arc<Self>, mask: RowMask) -> VortexResult<ScanOp> {
+    fn create_eval(self: Arc<Self>, mask: RowMask) -> VortexResult<EvalOp> {
         // Convert the row-mask to a filter mask
         let filter_mask = mask.into_filter_mask()?;
 

@@ -3,12 +3,12 @@ use vortex_error::VortexResult;
 
 use crate::operations::{Operation, Poll};
 use crate::ready;
-use crate::scanner::ScanOp;
+use crate::scanner::EvalOp;
 use crate::segments::SegmentReader;
 
 pub struct FlatStatsOp {
     // The scan operation for the current flat array.
-    scan: ScanOp,
+    scan: EvalOp,
     requested_stats: Vec<Stat>,
     result: Option<Vec<StatsSet>>,
 }

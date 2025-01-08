@@ -4,14 +4,14 @@ use vortex_array::stats::{Stat, StatsSet};
 use vortex_dtype::FieldPath;
 use vortex_error::VortexResult;
 
-use crate::layouts::chunked::scan::ChunkedScan;
+use crate::layouts::chunked::scan::ChunkedReader;
 use crate::operations::{Operation, Poll};
 use crate::ready;
 use crate::segments::SegmentReader;
 
 #[allow(dead_code)]
 pub struct ChunkedStatsOp {
-    scan: Arc<ChunkedScan>,
+    scan: Arc<ChunkedReader>,
     requested_paths: Vec<FieldPath>,
     requested_stats: Vec<Stat>,
 }

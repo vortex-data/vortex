@@ -3,11 +3,10 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_expr::{ExprRef, Identity};
 
-/// The definition of a range scan.
 #[derive(Debug, Clone)]
 pub struct Scan {
-    pub projection: ExprRef,
-    pub filter: Option<ExprRef>,
+    projection: ExprRef,
+    filter: Option<ExprRef>,
 }
 
 impl Scan {
