@@ -1,4 +1,5 @@
 use std::io::Read;
+use std::ops::Range;
 use std::sync::Arc;
 
 use futures_util::stream;
@@ -20,7 +21,10 @@ pub struct VortexFile<R> {
     pub(crate) layout: LayoutData,
     pub(crate) segments: Vec<Segment>,
     pub(crate) segment_cache: SegmentCache,
+    pub(crate) splits: Vec<Range<u64>>,
 }
+
+impl<R> VortexFile<R> {}
 
 /// Async implementation of Vortex File.
 impl<R: VortexReadAt> VortexFile<R> {
@@ -36,7 +40,7 @@ impl<R: VortexReadAt> VortexFile<R> {
 
     /// Performs a scan operation over the file.
     pub fn scan(&self, scan: Arc<Scan>) -> VortexResult<impl ArrayStream + '_> {
-        // Create a shared reader
+        // Create a shared reader for the scan.
         let reader: Arc<dyn LayoutReader> = self.layout.reader(self.ctx.clone())?;
         let result_dtype = scan.result_dtype(self.dtype())?;
 

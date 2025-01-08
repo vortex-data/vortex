@@ -3,6 +3,7 @@ mod reader;
 // mod stats;
 pub mod writer;
 
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use vortex_array::ContextRef;
@@ -23,5 +24,15 @@ impl LayoutEncoding for FlatLayout {
 
     fn reader(&self, layout: LayoutData, ctx: ContextRef) -> VortexResult<Arc<dyn LayoutReader>> {
         Ok(FlatReader::try_new(layout, ctx)?.into_arc())
+    }
+
+    fn register_splits(
+        &self,
+        layout: &LayoutData,
+        row_offset: u64,
+        splits: &mut BTreeSet<u64>,
+    ) -> VortexResult<()> {
+        splits.insert(row_offset + layout.row_count());
+        Ok(())
     }
 }

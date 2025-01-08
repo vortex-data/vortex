@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::ops::Deref;
 use std::sync::Arc;
 
@@ -250,6 +251,11 @@ impl LayoutData {
     /// Create a reader for this layout.
     pub fn reader(&self, ctx: ContextRef) -> VortexResult<Arc<dyn LayoutReader + 'static>> {
         self.encoding().reader(self.clone(), ctx)
+    }
+
+    /// Register splits for this layout.
+    pub fn register_splits(&self, row_offset: u64, splits: &mut BTreeSet<u64>) -> VortexResult<()> {
+        self.encoding().register_splits(self, row_offset, splits)
     }
 }
 

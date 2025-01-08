@@ -4,6 +4,7 @@ mod reader;
 pub mod stats_table;
 pub mod writer;
 
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use vortex_array::ContextRef;
@@ -29,5 +30,22 @@ impl LayoutEncoding for ChunkedLayout {
 
     fn reader(&self, layout: LayoutData, ctx: ContextRef) -> VortexResult<Arc<dyn LayoutReader>> {
         Ok(ChunkedReader::try_new(layout, ctx)?.into_arc())
+    }
+
+    fn register_splits(
+        &self,
+        layout: &LayoutData,
+        row_offset: u64,
+        splits: &mut BTreeSet<u64>,
+    ) -> VortexResult<()> {
+        let nchunks = layout.nchildren() - (if layout.metadata().is_some() { 1 } else { 0 });
+        let mut offset = row_offset;
+        for i in 0..nchunks {
+            let child = layout.child(i, layout.dtype().clone())?;
+            child.register_splits(offset, splits)?;
+            offset += child.row_count();
+            splits.insert(offset);
+        }
+        Ok(())
     }
 }

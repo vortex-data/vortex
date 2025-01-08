@@ -1,6 +1,7 @@
 mod scan;
 pub mod writer;
 
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use vortex_array::ContextRef;
@@ -22,5 +23,18 @@ impl LayoutEncoding for StructLayout {
 
     fn reader(&self, layout: LayoutData, ctx: ContextRef) -> VortexResult<Arc<dyn LayoutReader>> {
         Ok(StructScan::try_new(layout, ctx)?.into_arc())
+    }
+
+    fn register_splits(
+        &self,
+        layout: &LayoutData,
+        row_offset: u64,
+        splits: &mut BTreeSet<u64>,
+    ) -> VortexResult<()> {
+        for child_idx in 0..layout.nchildren() {
+            let child = layout.child(child_idx, layout.dtype().clone())?;
+            child.register_splits(row_offset, splits)?;
+        }
+        Ok(())
     }
 }
