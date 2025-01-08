@@ -1,14 +1,14 @@
 use std::sync::Arc;
 
 use vortex_array::array::ChunkedArray;
-use vortex_array::{ArrayData, Canonical, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayDType, ArrayData, Canonical, IntoArrayData, IntoArrayVariant};
 use vortex_error::{vortex_panic, VortexExpect, VortexResult};
 use vortex_expr::pruning::PruningPredicate;
 use vortex_expr::ExprRef;
 
 use crate::layouts::chunked::reader::ChunkedReader;
 use crate::operations::{Operation, Poll};
-use crate::reader::{LayoutReader, LayoutScanExt};
+use crate::reader::LayoutScanExt;
 use crate::scanner::EvalOp;
 use crate::segments::SegmentReader;
 use crate::{ready, RowMask};
@@ -146,7 +146,7 @@ impl Operation for ChunkedEvaluator {
             chunk.dtype().clone()
         } else {
             self.expr
-                .evaluate(Canonical::empty(self.reader.dtype())?.into_array())?
+                .evaluate(&Canonical::empty(self.reader.dtype())?.into_array())?
                 .dtype()
                 .clone()
         };
@@ -165,15 +165,12 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, PType};
-    use vortex_expr::pruning::PruningPredicate;
     use vortex_expr::{gt, lit, Identity};
 
     use crate::layouts::chunked::evaluator_filter::{ChunkState, ChunkedEvaluator};
     use crate::layouts::chunked::reader::ChunkedReader;
     use crate::layouts::chunked::writer::ChunkedLayoutWriter;
     use crate::operations::{Operation, Poll};
-    use crate::reader::LayoutScanExt;
-    use crate::scanner::Scan;
     use crate::segments::test::TestSegments;
     use crate::strategies::LayoutWriterExt;
     use crate::{LayoutData, RowMask};
@@ -221,14 +218,11 @@ mod test {
         _ = reader.stats_table_op().unwrap().poll(&segments).unwrap();
 
         let expr = gt(Identity::new_expr(), lit(6));
-        let pruning_predicate = PruningPredicate::try_new(&expr);
-        let mut evaluator = ChunkedEvaluator {
-            reader: reader.into_arc(),
-            row_mask: RowMask::new_valid_between(0, row_count),
+        let mut evaluator = ChunkedEvaluator::new(
+            Arc::new(reader),
+            RowMask::new_valid_between(0, row_count),
             expr,
-            pruning_predicate,
-            chunk_states: None,
-        };
+        );
 
         // Then we poll the chunked scanner without any segments so _only_ the stats were
         // available.

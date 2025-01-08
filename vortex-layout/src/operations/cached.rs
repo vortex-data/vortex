@@ -20,7 +20,7 @@ where
             return Ok(Poll::Some(value.clone()));
         }
 
-        let value = ready!(self.op.poll(segments))?;
+        let value = ready!(self.op.poll(segments));
         self.value.replace(value.clone());
         Ok(Poll::Some(value))
     }

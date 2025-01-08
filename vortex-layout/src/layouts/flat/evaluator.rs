@@ -67,22 +67,19 @@ impl Operation for FlatEvaluator {
 
 #[cfg(test)]
 mod test {
-    use std::sync::Arc;
-
+    use arrow_buffer::BooleanBuffer;
     use vortex_array::array::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_array::{ArrayDType, IntoArrayVariant, ToArrayData};
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, Nullability};
-    use vortex_expr::{lit, BinaryExpr, Identity, Operator};
+    use vortex_expr::{gt, lit, Identity};
 
     use crate::layouts::flat::writer::FlatLayoutWriter;
-    use crate::scanner::Scan;
     use crate::segments::test::TestSegments;
     use crate::strategies::LayoutWriterExt;
 
     #[test]
-    fn flat_scan() {
+    fn flat_identity() {
         let mut segments = TestSegments::default();
         let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
         let layout = FlatLayoutWriter::new(array.dtype().clone())
@@ -90,7 +87,10 @@ mod test {
             .unwrap();
 
         let result = segments
-            .evaluate(layout.reader(Default::default()).unwrap())
+            .evaluate(
+                layout.reader(Default::default()).unwrap(),
+                Identity::new_expr(),
+            )
             .into_primitive()
             .unwrap();
 
@@ -98,53 +98,22 @@ mod test {
     }
 
     #[test]
-    fn flat_scan_filter() {
+    fn flat_expr() {
         let mut segments = TestSegments::default();
         let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
         let layout = FlatLayoutWriter::new(array.dtype().clone())
             .push_one(&mut segments, array.to_array())
             .unwrap();
 
-        let scan = Scan {
-            projection: Identity::new_expr(),
-            filter: Some(BinaryExpr::new_expr(
-                Arc::new(Identity),
-                Operator::Gt,
-                lit(3i32),
-            )),
-        };
-
+        let expr = gt(Identity::new_expr(), lit(3i32));
         let result = segments
-            .evaluate(layout.reader(Default::default()).unwrap())
-            .into_primitive()
+            .evaluate(layout.reader(Default::default()).unwrap(), expr)
+            .into_bool()
             .unwrap();
 
-        assert_eq!(&[4, 5], result.as_slice::<i32>());
-    }
-
-    #[test]
-    fn flat_scan_filter_project() {
-        let mut segments = TestSegments::default();
-        let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
-        let layout = FlatLayoutWriter::new(array.dtype().clone())
-            .push_one(&mut segments, array.to_array())
-            .unwrap();
-
-        let scan = Scan {
-            // The projection function here changes the scan's DType to boolean
-            projection: BinaryExpr::new_expr(Arc::new(Identity), Operator::Lt, lit(5)),
-            filter: Some(BinaryExpr::new_expr(
-                Arc::new(Identity),
-                Operator::Gt,
-                lit(3),
-            )),
-        };
-
-        let scan = layout.reader(Default::default()).unwrap();
-        assert_eq!(scan.dtype(), &DType::Bool(Nullability::Nullable));
-
-        let result = segments.evaluate(scan).into_bool().unwrap();
-        assert!(result.boolean_buffer().value(0));
-        assert!(!result.boolean_buffer().value(1));
+        assert_eq!(
+            BooleanBuffer::from_iter([false, false, false, true, true]),
+            result.boolean_buffer()
+        );
     }
 }

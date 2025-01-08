@@ -49,7 +49,7 @@ pub mod test {
 
     use bytes::{Bytes, BytesMut};
     use vortex_error::{vortex_panic, VortexExpect};
-    use vortex_expr::{ExprRef, Identity};
+    use vortex_expr::ExprRef;
 
     use super::*;
     use crate::operations::Poll;
@@ -66,7 +66,7 @@ pub mod test {
         pub fn evaluate(&self, reader: Arc<dyn LayoutReader>, expr: ExprRef) -> ArrayData {
             let row_count = reader.layout().row_count();
             let mut evaluator = reader
-                .create_eval(RowMask::new_valid_between(0, row_count), expr)
+                .create_evaluator(RowMask::new_valid_between(0, row_count), expr)
                 .vortex_expect("Failed to create scanner");
             match evaluator
                 .poll(self)

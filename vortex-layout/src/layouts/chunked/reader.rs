@@ -2,7 +2,7 @@ use std::sync::{Arc, OnceLock, RwLock, RwLockWriteGuard};
 
 use vortex_array::stats::{stats_from_bitset_bytes, Stat};
 use vortex_array::ContextRef;
-use vortex_error::{vortex_err, vortex_panic, VortexResult};
+use vortex_error::{vortex_err, vortex_panic, VortexError, VortexResult};
 use vortex_expr::{ExprRef, Identity};
 
 use crate::layouts::chunked::evaluator_filter::ChunkedEvaluator;
@@ -10,15 +10,13 @@ use crate::layouts::chunked::stats_table::StatsTable;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::operations::cached::CachedOperation;
 use crate::operations::{resolved, Operation, OperationExt};
-use crate::reader::{LayoutReader, LayoutScanExt};
+use crate::reader::LayoutReader;
 use crate::scanner::EvalOp;
 use crate::{LayoutData, LayoutEncoding, RowMask};
 
 pub struct ChunkedReader {
     layout: LayoutData,
     ctx: ContextRef,
-    // The stats that are present in the layout
-    present_stats: Arc<[Stat]>,
     // Shared stats table operation and cache of the result
     stats_table_op: RwLock<CachedOperation<Box<dyn Operation<Output = Option<StatsTable>>>>>,
     // Shared lazy chunk scanners
@@ -49,24 +47,27 @@ impl ChunkedReader {
             .metadata()
             .is_some()
             .then(|| {
-                let stats_dtype = StatsTable::dtype_for_stats_table(layout.dtype(), &present_stats);
+                let column_dtype = layout.dtype().clone();
+                let stats_dtype = StatsTable::dtype_for_stats_table(&column_dtype, &present_stats);
                 let stats_layout = layout.child(layout.nchildren() - 1, stats_dtype)?;
-                stats_layout
+                let op = stats_layout
                     .reader(ctx.clone())?
                     .create_evaluator(
                         RowMask::new_valid_between(0, nchunks as u64),
                         Identity::new_expr(),
                     )?
-                    .map(|stats_array| {
+                    .map(move |stats_array| {
                         StatsTable::try_new(
-                            layout.dtype().clone(),
+                            column_dtype.clone(),
                             stats_array,
                             present_stats.clone(),
                         )
-                        .ok()
+                        .map(Some)
                     })
-                    .boxed()
+                    .boxed();
+                Ok::<_, VortexError>(op)
             })
+            .transpose()?
             .unwrap_or_else(|| resolved(None).boxed())
             .cached();
 
@@ -76,7 +77,6 @@ impl ChunkedReader {
         Ok(Self {
             layout,
             ctx,
-            present_stats,
             stats_table_op: RwLock::new(stats_table_op),
             chunk_readers: chunk_scans,
         })

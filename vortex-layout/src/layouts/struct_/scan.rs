@@ -42,18 +42,12 @@ impl LayoutReader for StructScan {
     }
 }
 
-#[derive(Clone, Debug)]
-enum State {
-    Initial,
-}
-
 #[derive(Debug)]
 #[allow(dead_code)]
 struct StructScanner {
     layout: LayoutData,
     scan: Scan,
     mask: RowMask,
-    state: State,
 }
 
 impl Operation for StructScanner {
