@@ -7,8 +7,7 @@ use vortex_expr::ExprRef;
 use crate::layouts::flat::evaluator::FlatEvaluator;
 use crate::layouts::flat::FlatLayout;
 use crate::operations::OperationExt;
-use crate::reader::LayoutReader;
-use crate::scanner::EvalOp;
+use crate::reader::{EvalOp, LayoutReader};
 use crate::segments::SegmentId;
 use crate::{LayoutData, LayoutEncoding, RowMask};
 

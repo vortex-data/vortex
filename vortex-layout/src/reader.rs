@@ -1,11 +1,14 @@
 use std::sync::Arc;
 
+use vortex_array::ArrayData;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_expr::ExprRef;
 
-use crate::scanner::EvalOp;
+use crate::operations::Operation;
 use crate::{LayoutData, RowMask};
+
+pub type EvalOp = Box<dyn Operation<Output = ArrayData>>;
 
 /// A [`LayoutReader`] is an instance of a [`LayoutData`] that can cache state across multiple
 /// operations.

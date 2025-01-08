@@ -10,8 +10,7 @@ use crate::layouts::chunked::stats_table::StatsTable;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::operations::cached::CachedOperation;
 use crate::operations::{resolved, Operation, OperationExt};
-use crate::reader::LayoutReader;
-use crate::scanner::EvalOp;
+use crate::reader::{EvalOp, LayoutReader};
 use crate::{LayoutData, LayoutEncoding, RowMask};
 
 pub struct ChunkedReader {

@@ -1,4 +1,5 @@
 use std::io::Read;
+use std::sync::Arc;
 
 use futures_util::stream;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
@@ -7,7 +8,7 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_io::VortexReadAt;
 use vortex_layout::operations::Poll;
-use vortex_layout::scanner::Scan;
+use vortex_layout::scanner::{NextOp, Scan};
 use vortex_layout::{LayoutData, RowMask};
 
 use crate::v2::footer::Segment;
@@ -34,52 +35,46 @@ impl<R: VortexReadAt> VortexFile<R> {
     }
 
     /// Performs a scan operation over the file.
-    pub fn scan(&self, scan: Scan) -> VortexResult<impl ArrayStream + '_> {
-        let scan_dtype = scan.result_dtype(self.layout.dtype())?;
-        let layout_scan = self.layout.reader(scan, self.ctx.clone())?;
-
-        let scan = Scan::new(filter, projection, row_mask);
-
-        row_range
-            .par_iter()
-            .map(|row_range| {
-                let range_scan = scan.range_scan(row_range)
-                let evaluators = range_scan.exprs()
-                    .iter()
-                    .map(|expr| layout.new_evaluator(expr, ctx.clone()))
-                    .collect();
-
-                let expr = range_scan.next_expr();
-                range_scan.push_result(array);
-                range_scan.next_expr();
-
-            })
+    pub fn scan(&self, scan: Arc<Scan>) -> VortexResult<impl ArrayStream + '_> {
+        // Create a shared reader
+        let reader = self.layout.reader(self.ctx.clone())?;
+        let result_dtype = scan.result_dtype(self.dtype())?;
 
         // TODO(ngates): we could query the layout for splits and then process them in parallel.
         //  For now, we just scan the entire layout with one mask.
         //  Note that to implement this we would use stream::try_unfold
-        let row_mask = RowMask::new_valid_between(0, layout_scan.layout().row_count());
-        let mut scanner = layout_scan.create_eval(row_mask)?;
-
         let stream = stream::once(async move {
+            let row_mask = RowMask::new_valid_between(0, self.row_count());
+            let mut range_scan = scan.range_scan(row_mask);
             loop {
-                match scanner.poll(&self.segment_cache)? {
-                    Poll::Some(array) => return Ok(array),
-                    Poll::NeedMore(segment_ids) => {
-                        for segment_id in segment_ids {
-                            let segment = &self.segments[*segment_id as usize];
-                            let bytes = self
-                                .read
-                                .read_byte_range(segment.offset, segment.length as u64)
-                                .await?;
-                            self.segment_cache.set(segment_id, bytes);
+                match range_scan.next() {
+                    NextOp::Ready(array) => return Ok(array),
+                    NextOp::Eval((mask, expr)) => {
+                        let mut evaluator = reader.clone().create_evaluator(mask, expr)?;
+                        loop {
+                            match evaluator.poll(&self.segment_cache)? {
+                                Poll::Some(array) => {
+                                    range_scan.post(array)?;
+                                    break;
+                                }
+                                Poll::NeedMore(segment_ids) => {
+                                    for segment_id in segment_ids {
+                                        let segment = &self.segments[*segment_id as usize];
+                                        let bytes = self
+                                            .read
+                                            .read_byte_range(segment.offset, segment.length as u64)
+                                            .await?;
+                                        self.segment_cache.set(segment_id, bytes);
+                                    }
+                                }
+                            }
                         }
                     }
                 }
             }
         });
 
-        Ok(ArrayStreamAdapter::new(scan_dtype, stream))
+        Ok(ArrayStreamAdapter::new(result_dtype, stream))
     }
 }
 

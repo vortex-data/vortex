@@ -6,8 +6,7 @@ use vortex_expr::ExprRef;
 
 use crate::layouts::struct_::StructLayout;
 use crate::operations::{Operation, Poll};
-use crate::reader::LayoutReader;
-use crate::scanner::{EvalOp, Scan};
+use crate::reader::{EvalOp, LayoutReader};
 use crate::segments::SegmentReader;
 use crate::{LayoutData, LayoutEncoding, RowMask};
 
@@ -46,7 +45,6 @@ impl LayoutReader for StructScan {
 #[allow(dead_code)]
 struct StructScanner {
     layout: LayoutData,
-    scan: Scan,
     mask: RowMask,
 }
 

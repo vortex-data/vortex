@@ -8,8 +8,7 @@ use vortex_expr::ExprRef;
 
 use crate::layouts::chunked::reader::ChunkedReader;
 use crate::operations::{Operation, Poll};
-use crate::reader::LayoutScanExt;
-use crate::scanner::EvalOp;
+use crate::reader::{EvalOp, LayoutScanExt};
 use crate::segments::SegmentReader;
 use crate::{ready, RowMask};
 
