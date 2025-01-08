@@ -142,6 +142,7 @@ impl ListArray {
     }
 
     // TODO: fetches the elements of the array ignoring validity
+    #[allow(clippy::cast_possible_truncation)]
     pub fn elements(&self) -> ArrayData {
         let dtype = self
             .dtype()

@@ -97,6 +97,7 @@ impl ChunkedArray {
             .child(idx + 1, self.as_ref().dtype(), chunk_end - chunk_start)
     }
 
+    #[allow(clippy::cast_possible_truncation)]
     pub fn nchunks(&self) -> usize {
         self.metadata().nchunks as usize
     }

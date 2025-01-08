@@ -34,6 +34,7 @@ impl PatchesMetadata {
     }
 
     #[inline]
+    #[allow(clippy::cast_possible_truncation)]
     pub fn len(&self) -> usize {
         self.len as usize
     }

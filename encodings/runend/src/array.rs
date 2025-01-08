@@ -124,7 +124,7 @@ impl RunEndArray {
     /// This is generally zero for a "new" array, and non-zero after a slicing operation.
     #[inline]
     pub fn offset(&self) -> usize {
-        self.metadata().offset
+        self.metadata().offset as usize
     }
 
     /// The encoded "ends" of value runs.
@@ -137,7 +137,7 @@ impl RunEndArray {
             .child(
                 0,
                 &DType::from(self.metadata().ends_ptype),
-                self.metadata().num_runs,
+                self.metadata().num_runs as usize,
             )
             .vortex_expect("RunEndArray is missing its run ends")
     }
@@ -149,7 +149,7 @@ impl RunEndArray {
     #[inline]
     pub fn values(&self) -> ArrayData {
         self.as_ref()
-            .child(1, self.dtype(), self.metadata().num_runs)
+            .child(1, self.dtype(), self.metadata().num_runs as usize)
             .vortex_expect("RunEndArray is missing its values")
     }
 }
@@ -263,9 +263,9 @@ mod tests {
         check_metadata(
             "runend.metadata",
             RunEndMetadata {
-                offset: usize::MAX,
+                offset: u64::MAX,
                 ends_ptype: PType::U64,
-                num_runs: usize::MAX,
+                num_runs: u64::MAX,
             },
         );
     }

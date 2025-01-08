@@ -208,7 +208,7 @@ impl TryFrom<AvroValue> for ScalarValue {
         Ok(ScalarValue(match value {
             // Handle primitive types
             AvroValue::Boolean(b) => InnerScalarValue::Bool(b),
-            AvroValue::Int(i) => InnerScalarValue::Primitive(PValue::I32(i as i32)),
+            AvroValue::Int(i) => InnerScalarValue::Primitive(PValue::I32(i)),
             AvroValue::Long(l) => InnerScalarValue::Primitive(PValue::I64(l)),
             AvroValue::Float(f) => InnerScalarValue::Primitive(PValue::F32(f)),
             AvroValue::Double(d) => InnerScalarValue::Primitive(PValue::F64(d)),
@@ -245,7 +245,7 @@ impl From<ScalarValue> for AvroValue {
         match value.0 {
             Bool(b) => AvroValue::Boolean(b),
             Primitive(p) => match p {
-                PValue::I32(i) => AvroValue::Int(i as i32),
+                PValue::I32(i) => AvroValue::Int(i),
                 PValue::U32(u) => AvroValue::Int(u as i32),
                 PValue::I64(l) => AvroValue::Long(l),
                 PValue::U64(l) => AvroValue::Long(l as i64),
@@ -263,6 +263,7 @@ impl From<ScalarValue> for AvroValue {
 }
 
 impl FromAvro for ScalarValue {
+    #[allow(clippy::expect_used)]
     fn read_schema() -> Schema {
         // This creates a union type that can represent any scalar value
         Schema::Union(

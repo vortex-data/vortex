@@ -118,6 +118,7 @@ impl VarBinArray {
     /// that are not logically present in the array. Users should prefer [sliced_bytes][Self::sliced_bytes]
     /// unless they're resolving values via offset child array.
     #[inline]
+    #[allow(clippy::cast_possible_truncation)]
     pub fn bytes(&self) -> ArrayData {
         self.as_ref()
             .child(1, &DType::BYTES, self.metadata().bytes_len as usize)

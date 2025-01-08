@@ -15,7 +15,6 @@ use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
     impl_encoding, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData, IntoCanonical,
 };
-use vortex_avro::{FromAvro, ToAvro};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
@@ -26,7 +25,7 @@ mod stats;
 
 impl_encoding!("vortex.roaring_bool", ids::ROARING_BOOL, RoaringBool);
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromAvro, ToAvro)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RoaringBoolMetadata;
 
 impl Display for RoaringBoolMetadata {

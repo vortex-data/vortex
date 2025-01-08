@@ -60,7 +60,7 @@ fn test_list_metadata() {
         "list.metadata",
         ListMetadata {
             validity: ValidityMetadata::AllValid,
-            elements_len: usize::MAX,
+            elements_len: u64::MAX,
             offset_ptype: PType::U64,
         },
     );
@@ -90,8 +90,8 @@ fn test_sparse_metadata() {
         "sparse.metadata",
         SparseMetadata {
             fill_value: Scalar::primitive(i32::MAX, Nullability::NonNullable).into_value(),
-            patches: PatchesMetadata::new(usize::MAX, PType::U64),
-            indices_offset: usize::MAX,
+            patches: PatchesMetadata::new(u64::MAX as usize, PType::U64),
+            indices_offset: u64::MAX,
         },
     );
 }
@@ -114,7 +114,7 @@ fn test_varbin_metadata() {
         "varbin.metadata",
         VarBinMetadata {
             validity: ValidityMetadata::AllValid,
-            bytes_len: usize::MAX,
+            bytes_len: u64::MAX,
             offsets_ptype: PType::U64,
         },
     );

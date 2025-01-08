@@ -102,6 +102,7 @@ impl SparseArray {
     }
 
     #[inline]
+    #[allow(clippy::cast_possible_truncation)]
     pub fn indices_offset(&self) -> usize {
         self.metadata().indices_offset as usize
     }

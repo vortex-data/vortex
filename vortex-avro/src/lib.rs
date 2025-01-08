@@ -7,6 +7,7 @@ pub use vortex_avro_derive::{FromAvro, ToAvro};
 use vortex_error::{vortex_err, VortexError, VortexResult};
 
 mod array;
+mod bool_;
 mod option;
 mod prim;
 mod string;

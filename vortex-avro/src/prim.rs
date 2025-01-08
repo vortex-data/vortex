@@ -19,6 +19,7 @@ macro_rules! impl_primitive {
         impl TryFrom<AvroValue> for $ty {
             type Error = VortexError;
 
+            #[allow(clippy::cast_possible_truncation)]
             fn try_from(value: AvroValue) -> Result<Self, Self::Error> {
                 if let $value_variant(v) = value.into() {
                     Ok(<$inner>::try_from(v)? as $ty)
