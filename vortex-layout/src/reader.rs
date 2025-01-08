@@ -6,7 +6,6 @@ use vortex_error::VortexResult;
 use vortex_expr::ExprRef;
 
 use crate::operations::Operation;
-use crate::scan::LayoutRangeScan;
 use crate::{LayoutData, RowMask};
 
 pub type EvalOp = Box<dyn Operation<Output = ArrayData>>;
@@ -57,6 +56,6 @@ impl dyn LayoutReader + 'static {
         self: Arc<dyn LayoutReader>,
         range_scan: vortex_scan::RangeScan,
     ) -> impl Operation<Output = ArrayData> {
-        LayoutRangeScan::new(self, range_scan)
+        crate::scan::LayoutRangeScan::new(self, range_scan)
     }
 }
