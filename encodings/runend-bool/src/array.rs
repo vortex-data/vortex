@@ -12,6 +12,7 @@ use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
     IntoArrayVariant, IntoCanonical,
 };
+use vortex_avro::{FromAvro, ToAvro};
 use vortex_dtype::{match_each_integer_ptype, match_each_unsigned_integer_ptype, DType, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_scalar::Scalar;
@@ -20,13 +21,13 @@ use crate::compress::{runend_bool_decode_slice, runend_bool_encode_slice, trimme
 
 impl_encoding!("vortex.runendbool", ids::RUN_END_BOOL, RunEndBool);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromAvro, ToAvro)]
 pub struct RunEndBoolMetadata {
     start: bool,
     validity: ValidityMetadata,
     ends_ptype: PType,
-    num_runs: usize,
-    offset: usize,
+    num_runs: u64,
+    offset: u64,
 }
 
 impl Display for RunEndBoolMetadata {
@@ -77,8 +78,8 @@ impl RunEndBoolArray {
             start,
             validity: validity.to_metadata(length)?,
             ends_ptype,
-            num_runs: ends.len(),
-            offset,
+            num_runs: ends.len() as u64,
+            offset: offset as u64,
         };
 
         let stats = if matches!(validity, Validity::AllValid | Validity::NonNullable) {
@@ -118,7 +119,7 @@ impl RunEndBoolArray {
 
     #[inline]
     pub(crate) fn offset(&self) -> usize {
-        self.metadata().offset
+        self.metadata().offset as usize
     }
 
     #[inline]
@@ -132,7 +133,7 @@ impl RunEndBoolArray {
             .child(
                 0,
                 &self.metadata().ends_ptype.into(),
-                self.metadata().num_runs,
+                self.metadata().num_runs as usize,
             )
             .vortex_expect("RunEndBoolArray is missing its run ends")
     }
@@ -267,9 +268,9 @@ mod test {
         check_metadata(
             "runend_bool.metadata",
             RunEndBoolMetadata {
-                num_runs: usize::MAX,
+                num_runs: u64::MAX,
                 ends_ptype: PType::U64,
-                offset: usize::MAX,
+                offset: u64::MAX,
                 validity: ValidityMetadata::AllValid,
                 start: true,
             },

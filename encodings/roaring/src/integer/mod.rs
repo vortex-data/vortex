@@ -15,17 +15,17 @@ use vortex_array::{
     impl_encoding, ArrayDType as _, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
     IntoCanonical,
 };
+use vortex_avro::{FromAvro, ToAvro};
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
-
 mod compress;
 mod compute;
 
 impl_encoding!("vortex.roaring_int", ids::ROARING_INT, RoaringInt);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromAvro, ToAvro)]
 pub struct RoaringIntMetadata {
     ptype: PType,
 }

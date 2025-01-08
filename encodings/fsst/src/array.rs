@@ -10,6 +10,7 @@ use vortex_array::validity::{ArrayValidity, LogicalValidity, Validity, ValidityV
 use vortex_array::variants::{BinaryArrayTrait, Utf8ArrayTrait, VariantsVTable};
 use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, IntoCanonical};
+use vortex_avro::{FromAvro, ToAvro};
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
@@ -18,9 +19,9 @@ impl_encoding!("vortex.fsst", ids::FSST, FSST);
 static SYMBOLS_DTYPE: DType = DType::Primitive(PType::U64, Nullability::NonNullable);
 static SYMBOL_LENS_DTYPE: DType = DType::Primitive(PType::U8, Nullability::NonNullable);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromAvro, ToAvro)]
 pub struct FSSTMetadata {
-    symbols_len: usize,
+    symbols_len: u64,
     codes_nullability: Nullability,
     uncompressed_lengths_ptype: PType,
 }
@@ -95,7 +96,7 @@ impl FSSTArray {
             dtype,
             len,
             FSSTMetadata {
-                symbols_len,
+                symbols_len: symbols_len as u64,
                 codes_nullability,
                 uncompressed_lengths_ptype,
             },
@@ -107,14 +108,14 @@ impl FSSTArray {
     /// Access the symbol table array
     pub fn symbols(&self) -> ArrayData {
         self.as_ref()
-            .child(0, &SYMBOLS_DTYPE, self.metadata().symbols_len)
+            .child(0, &SYMBOLS_DTYPE, self.metadata().symbols_len as usize)
             .vortex_expect("FSSTArray symbols child")
     }
 
     /// Access the symbol table array
     pub fn symbol_lengths(&self) -> ArrayData {
         self.as_ref()
-            .child(1, &SYMBOL_LENS_DTYPE, self.metadata().symbols_len)
+            .child(1, &SYMBOL_LENS_DTYPE, self.metadata().symbols_len as usize)
             .vortex_expect("FSSTArray symbol_lengths child")
     }
 
@@ -239,7 +240,7 @@ mod test {
         check_metadata(
             "fsst.metadata",
             FSSTMetadata {
-                symbols_len: usize::MAX,
+                symbols_len: u64::MAX,
                 codes_nullability: Nullability::Nullable,
                 uncompressed_lengths_ptype: PType::U64,
             },

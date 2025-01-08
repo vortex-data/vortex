@@ -53,8 +53,8 @@ fn derive_from_avro_enum_unit(name: &syn::Ident, e: &syn::DataEnum) -> proc_macr
 
     // Generate the EnumSchema.
     let enum_schema = quote! {
-        apache_avro::Schema::Enum(apache_avro::schema::EnumSchema {
-            name: apache_avro::schema::Name {
+        vortex_avro::avro_private::Schema::Enum(vortex_avro::avro_private::schema::EnumSchema {
+            name: vortex_avro::avro_private::schema::Name {
                 name: stringify!(#name).to_string(),
                 namespace: None,
             },
@@ -95,7 +95,7 @@ fn derive_from_avro_enum_unit(name: &syn::Ident, e: &syn::DataEnum) -> proc_macr
         }
 
         impl FromAvro for #name {
-            fn read_schema() -> apache_avro::Schema {
+            fn read_schema() -> vortex_avro::avro_private::Schema {
                 #enum_schema
             }
         }
@@ -161,7 +161,7 @@ fn generate_try_from_avrovalue(
         }
 
         impl vortex_avro::FromAvro for #typename {
-            fn read_schema() -> apache_avro::Schema {
+            fn read_schema() -> vortex_avro::avro_private::Schema {
                 #read_schema
             }
         }

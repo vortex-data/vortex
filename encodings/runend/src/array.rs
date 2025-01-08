@@ -14,6 +14,7 @@ use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
     IntoArrayVariant, IntoCanonical,
 };
+use vortex_avro::{FromAvro, ToAvro};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
@@ -23,11 +24,11 @@ use crate::compress::{runend_decode_bools, runend_decode_primitive, runend_encod
 
 impl_encoding!("vortex.runend", ids::RUN_END, RunEnd);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromAvro, ToAvro)]
 pub struct RunEndMetadata {
     ends_ptype: PType,
-    num_runs: usize,
-    offset: usize,
+    num_runs: u64,
+    offset: u64,
 }
 
 impl Display for RunEndMetadata {
@@ -76,8 +77,8 @@ impl RunEndArray {
         let dtype = values.dtype().clone();
         let metadata = RunEndMetadata {
             ends_ptype: PType::try_from(ends.dtype())?,
-            num_runs: ends.len(),
-            offset,
+            num_runs: ends.len() as u64,
+            offset: offset as u64,
         };
 
         Self::try_from_parts(

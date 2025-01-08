@@ -55,7 +55,7 @@ fn derive_toavro_struct(typename: &syn::Ident, fields: &FieldsNamed) -> proc_mac
         }
 
         impl vortex_avro::ToAvro for #typename {
-            fn write_schema() -> apache_avro::Schema {
+            fn write_schema() -> vortex_avro::avro_private::Schema {
                 #schema
             }
         }
@@ -90,8 +90,8 @@ fn derive_to_avro_enum_unit(typename: &syn::Ident, e: &syn::DataEnum) -> proc_ma
         .collect::<Vec<_>>();
 
     let enum_schema = quote! {
-        apache_avro::Schema::Enum(apache_avro::schema::EnumSchema {
-            name: apache_avro::schema::Name {
+        vortex_avro::avro_private::Schema::Enum(vortex_avro::avro_private::schema::EnumSchema {
+            name: vortex_avro::avro_private::schema::Name {
                 name: stringify!(#typename).to_string(),
                 namespace: None,
             },
@@ -115,7 +115,7 @@ fn derive_to_avro_enum_unit(typename: &syn::Ident, e: &syn::DataEnum) -> proc_ma
         }
 
         impl vortex_avro::ToAvro for #typename {
-            fn write_schema() -> apache_avro::Schema {
+            fn write_schema() -> vortex_avro::avro_private::Schema {
                 #enum_schema
             }
         }

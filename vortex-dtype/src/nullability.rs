@@ -1,7 +1,9 @@
 use std::fmt::{Display, Formatter};
 
-/// Whether an instance of a DType can be `null or not
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Ord, PartialOrd)]
+use vortex_avro::{FromAvro, ToAvro};
+
+/// Whether an instance of a DType can be `null` or not
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Ord, PartialOrd, FromAvro, ToAvro)]
 pub enum Nullability {
     /// Instances of this DType are guaranteed to be non-nullable
     #[default]

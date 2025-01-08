@@ -14,16 +14,16 @@ use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoCanonical,
 };
+use vortex_avro::{FromAvro, ToAvro};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, NativePType, PType};
 use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
-
 mod compress;
 mod compute;
 
 impl_encoding!("fastlanes.bitpacked", ids::FL_BITPACKED, BitPacked);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromAvro, ToAvro)]
 pub struct BitPackedMetadata {
     validity: ValidityMetadata,
     bit_width: u8,

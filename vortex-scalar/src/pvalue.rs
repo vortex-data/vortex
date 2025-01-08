@@ -4,10 +4,10 @@ use std::mem;
 
 use num_traits::NumCast;
 use paste::paste;
+use vortex_avro::{AvroValue, FromAvro, ToAvro};
 use vortex_dtype::half::f16;
 use vortex_dtype::{NativePType, PType};
-use vortex_error::{vortex_err, VortexError, VortexExpect};
-
+use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect};
 #[derive(Debug, Clone, Copy)]
 pub enum PValue {
     U8(u8),
@@ -21,6 +21,51 @@ pub enum PValue {
     F16(f16),
     F32(f32),
     F64(f64),
+}
+
+// Impl of FromAvro for PValue
+// In Avro, we will always serialize a PValue as an Int64, as that is the maximum width of PValue.
+// We can then cast the bits accordingly on read.
+impl TryFrom<AvroValue> for PValue {
+    type Error = VortexError;
+
+    fn try_from(value: AvroValue) -> Result<Self, Self::Error> {
+        let AvroValue::Long(v) = value else {
+            vortex_bail!("Expected AvroValue::Long, got {:?}", value);
+        };
+        Ok(Self::I64(v))
+    }
+}
+
+impl FromAvro for PValue {
+    fn read_schema() -> vortex_avro::avro_private::Schema {
+        vortex_avro::avro_private::Schema::Long
+    }
+}
+
+// Impl of ToAvro for PValue
+impl From<PValue> for AvroValue {
+    fn from(value: PValue) -> Self {
+        match value {
+            PValue::U8(v) => AvroValue::Long(v as i64),
+            PValue::U16(v) => AvroValue::Long(v as i64),
+            PValue::U32(v) => AvroValue::Long(v as i64),
+            PValue::U64(v) => AvroValue::Long(v as i64),
+            PValue::I8(v) => AvroValue::Long(v as i64),
+            PValue::I16(v) => AvroValue::Long(v as i64),
+            PValue::I32(v) => AvroValue::Long(v as i64),
+            PValue::I64(v) => AvroValue::Long(v),
+            PValue::F16(_) => unimplemented!("F16 serialization to avro not supported currently."),
+            PValue::F32(v) => AvroValue::Long(v.to_bits() as i64),
+            PValue::F64(v) => AvroValue::Long(v.to_bits() as i64),
+        }
+    }
+}
+
+impl ToAvro for PValue {
+    fn write_schema() -> vortex_avro::avro_private::Schema {
+        vortex_avro::avro_private::Schema::Long
+    }
 }
 
 impl PartialEq for PValue {

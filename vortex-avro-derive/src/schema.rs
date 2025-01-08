@@ -15,13 +15,13 @@ pub(crate) fn generate_schema_struct(
             let name = f.ident.clone().unwrap();
             let typ = f.ty.clone();
             quote! {
-                apache_avro::schema::RecordField {
+                vortex_avro::avro_private::schema::RecordField {
                     name: stringify!(#name).to_string(),
                     doc: None,
                     schema: <#typ as vortex_avro::FromAvro>::read_schema(),
                     aliases: core::default::Default::default(),
                     default: core::default::Default::default(),
-                    order: apache_avro::schema::RecordFieldOrder::Ignore,
+                    order: vortex_avro::avro_private::schema::RecordFieldOrder::Ignore,
                     position: #idx,
                     custom_attributes: core::default::Default::default(),
                 }
@@ -31,8 +31,8 @@ pub(crate) fn generate_schema_struct(
 
     // Generate the RecordSchema
     quote! {
-        apache_avro::Schema::Record(apache_avro::schema::RecordSchema {
-            name: apache_avro::schema::Name {
+        vortex_avro::avro_private::Schema::Record(vortex_avro::avro_private::schema::RecordSchema {
+            name: vortex_avro::avro_private::schema::Name {
                 name: stringify!(#typename).to_string(),
                 namespace: None,
             },

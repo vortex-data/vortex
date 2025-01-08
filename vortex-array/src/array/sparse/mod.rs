@@ -23,7 +23,7 @@ impl_encoding!("vortex.sparse", ids::SPARSE, Sparse);
 #[derive(Debug, Clone, Serialize, Deserialize, FromAvro, ToAvro)]
 pub struct SparseMetadata {
     // Offset value for patch indices as a result of slicing
-    pub(crate) indices_offset: usize,
+    pub(crate) indices_offset: u64,
     pub(crate) patches: PatchesMetadata,
     pub(crate) fill_value: ScalarValue,
 }
@@ -92,7 +92,7 @@ impl SparseArray {
             patches.dtype().clone(),
             len,
             SparseMetadata {
-                indices_offset,
+                indices_offset: indices_offset as u64,
                 patches: patches_metadata,
                 fill_value: fill_value.into_value(),
             },
@@ -103,7 +103,7 @@ impl SparseArray {
 
     #[inline]
     pub fn indices_offset(&self) -> usize {
-        self.metadata().indices_offset
+        self.metadata().indices_offset as usize
     }
 
     #[inline]

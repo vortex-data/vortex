@@ -1,9 +1,3 @@
-//
-// Fixed-size primitive arrays.
-//
-
-use apache_avro::schema::ArraySchema;
-use apache_avro::Schema;
 use vortex_error::{vortex_bail, vortex_err, VortexError};
 
 use crate::{AvroValue, FromAvro, ToAvro};
@@ -16,8 +10,8 @@ impl<const N: usize, T: Into<AvroValue>> From<[T; N]> for AvroValue {
 }
 
 impl<const N: usize, T: ToAvro> ToAvro for [T; N] {
-    fn write_schema() -> Schema {
-        Schema::Array(ArraySchema {
+    fn write_schema() -> crate::avro_private::Schema {
+        crate::avro_private::Schema::Array(crate::avro_private::ArraySchema {
             items: Box::new(T::write_schema()),
             attributes: Default::default(),
         })
@@ -47,8 +41,8 @@ impl<const N: usize, T: FromAvro> TryFrom<AvroValue> for [T; N] {
 }
 
 impl<const N: usize, T: FromAvro> FromAvro for [T; N] {
-    fn read_schema() -> Schema {
-        Schema::Array(ArraySchema {
+    fn read_schema() -> crate::avro_private::Schema {
+        crate::avro_private::Schema::Array(crate::avro_private::ArraySchema {
             items: Box::new(T::read_schema()),
             attributes: Default::default(),
         })

@@ -13,15 +13,15 @@ use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
     IntoArrayVariant, IntoCanonical,
 };
+use vortex_avro::{FromAvro, ToAvro};
 use vortex_dtype::{match_each_integer_ptype, DType, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
-
 impl_encoding!("vortex.dict", ids::DICT, Dict);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromAvro, ToAvro)]
 pub struct DictMetadata {
     codes_ptype: PType,
-    values_len: usize,
+    values_len: u64,
 }
 
 impl Display for DictMetadata {
@@ -41,7 +41,7 @@ impl DictArray {
             DictMetadata {
                 codes_ptype: PType::try_from(codes.dtype())
                     .vortex_expect("codes dtype must be uint"),
-                values_len: values.len(),
+                values_len: values.len() as u64,
             },
             [codes, values].into(),
             StatsSet::default(),
@@ -58,7 +58,7 @@ impl DictArray {
     #[inline]
     pub fn values(&self) -> ArrayData {
         self.as_ref()
-            .child(1, self.dtype(), self.metadata().values_len)
+            .child(1, self.dtype(), self.metadata().values_len as usize)
             .vortex_expect("DictArray is missing its values child array")
     }
 }
@@ -135,7 +135,7 @@ mod test {
             "dict.metadata",
             DictMetadata {
                 codes_ptype: PType::U64,
-                values_len: usize::MAX,
+                values_len: u64::MAX,
             },
         );
     }

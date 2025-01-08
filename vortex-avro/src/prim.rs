@@ -1,6 +1,6 @@
 use vortex_error::{vortex_err, VortexError};
 
-use crate::{AvroValue, FromAvro, Schema, ToAvro};
+use crate::{AvroValue, FromAvro};
 
 macro_rules! impl_primitive {
     ($ty:ty, $inner:ty, $value_variant:path, $schema_variant:path) => {
@@ -10,8 +10,8 @@ macro_rules! impl_primitive {
             }
         }
 
-        impl ToAvro for $ty {
-            fn write_schema() -> Schema {
+        impl $crate::ToAvro for $ty {
+            fn write_schema() -> $crate::avro_private::Schema {
                 $schema_variant
             }
         }
@@ -32,21 +32,31 @@ macro_rules! impl_primitive {
         }
 
         impl FromAvro for $ty {
-            fn read_schema() -> Schema {
+            fn read_schema() -> $crate::avro_private::Schema {
                 $schema_variant
             }
         }
     };
 }
 
-impl_primitive!(i8, i32, AvroValue::Int, Schema::Int);
-impl_primitive!(i16, i32, AvroValue::Int, Schema::Int);
-impl_primitive!(i32, i32, AvroValue::Int, Schema::Int);
-impl_primitive!(u8, i32, AvroValue::Int, Schema::Int);
-impl_primitive!(u16, i32, AvroValue::Int, Schema::Int);
-impl_primitive!(u32, i32, AvroValue::Int, Schema::Int);
-impl_primitive!(i64, i64, AvroValue::Long, Schema::Long);
-impl_primitive!(u64, i64, AvroValue::Long, Schema::Long);
+impl_primitive!(i8, i32, AvroValue::Int, crate::avro_private::Schema::Int);
+impl_primitive!(i16, i32, AvroValue::Int, crate::avro_private::Schema::Int);
+impl_primitive!(i32, i32, AvroValue::Int, crate::avro_private::Schema::Int);
+impl_primitive!(u8, i32, AvroValue::Int, crate::avro_private::Schema::Int);
+impl_primitive!(u16, i32, AvroValue::Int, crate::avro_private::Schema::Int);
+impl_primitive!(u32, i32, AvroValue::Int, crate::avro_private::Schema::Int);
+impl_primitive!(i64, i64, AvroValue::Long, crate::avro_private::Schema::Long);
+impl_primitive!(u64, i64, AvroValue::Long, crate::avro_private::Schema::Long);
 // TODO(aduffy): f16 support?
-impl_primitive!(f32, f32, AvroValue::Float, Schema::Float);
-impl_primitive!(f64, f64, AvroValue::Double, Schema::Double);
+impl_primitive!(
+    f32,
+    f32,
+    AvroValue::Float,
+    crate::avro_private::Schema::Float
+);
+impl_primitive!(
+    f64,
+    f64,
+    AvroValue::Double,
+    crate::avro_private::Schema::Double
+);

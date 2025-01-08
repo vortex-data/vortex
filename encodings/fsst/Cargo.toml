@@ -22,6 +22,7 @@ fsst-rs = { workspace = true }
 serde = { workspace = true }
 
 vortex-array = { workspace = true }
+vortex-avro = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }

@@ -12,6 +12,7 @@ use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
     IntoCanonical,
 };
+use vortex_avro::{FromAvro, ToAvro};
 use vortex_buffer::Buffer;
 use vortex_dtype::{match_each_unsigned_integer_ptype, NativePType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
@@ -21,7 +22,7 @@ mod compute;
 
 impl_encoding!("fastlanes.delta", ids::FL_DELTA, Delta);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromAvro, ToAvro)]
 pub struct DeltaMetadata {
     validity: ValidityMetadata,
     deltas_len: u64,

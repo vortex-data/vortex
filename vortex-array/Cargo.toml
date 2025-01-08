@@ -22,7 +22,6 @@ bench = false
 workspace = true
 
 [dependencies]
-apache-avro = { workspace = true }
 arbitrary = { workspace = true, optional = true }
 arrow-arith = { workspace = true }
 arrow-array = { workspace = true }

@@ -1,5 +1,3 @@
-use apache_avro::schema::UnionSchema;
-use apache_avro::Schema;
 use vortex_error::vortex_bail;
 
 use crate::{AvroValue, FromAvro, ToAvro};
@@ -40,9 +38,13 @@ where
     T: FromAvro,
 {
     #[allow(clippy::expect_used)]
-    fn read_schema() -> Schema {
-        Schema::Union(
-            UnionSchema::new(vec![Schema::Null, T::read_schema()]).expect("Option<T> schema"),
+    fn read_schema() -> crate::avro_private::Schema {
+        crate::avro_private::Schema::Union(
+            crate::avro_private::UnionSchema::new(vec![
+                crate::avro_private::Schema::Null,
+                T::read_schema(),
+            ])
+            .expect("Option<T> schema"),
         )
     }
 }
@@ -52,9 +54,13 @@ where
     T: ToAvro,
 {
     #[allow(clippy::expect_used)]
-    fn write_schema() -> Schema {
-        Schema::Union(
-            UnionSchema::new(vec![Schema::Null, T::write_schema()]).expect("Option<T> schema"),
+    fn write_schema() -> crate::avro_private::Schema {
+        crate::avro_private::Schema::Union(
+            crate::avro_private::UnionSchema::new(vec![
+                crate::avro_private::Schema::Null,
+                T::write_schema(),
+            ])
+            .expect("Option<T> schema"),
         )
     }
 }

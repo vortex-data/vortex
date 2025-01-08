@@ -1,4 +1,3 @@
-use apache_avro::Schema;
 use vortex_error::{vortex_err, VortexError};
 
 use crate::{AvroValue, FromAvro, ToAvro};
@@ -10,8 +9,8 @@ impl From<String> for AvroValue {
 }
 
 impl ToAvro for String {
-    fn write_schema() -> Schema {
-        Schema::String
+    fn write_schema() -> crate::avro_private::Schema {
+        crate::avro_private::Schema::String
     }
 }
 
@@ -28,7 +27,7 @@ impl TryFrom<AvroValue> for String {
 }
 
 impl FromAvro for String {
-    fn read_schema() -> Schema {
-        Schema::String
+    fn read_schema() -> crate::avro_private::Schema {
+        crate::avro_private::Schema::String
     }
 }
