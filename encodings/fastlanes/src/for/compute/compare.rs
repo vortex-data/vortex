@@ -52,7 +52,7 @@ where
             rhs = rhs.wrapping_sub(&reference);
         }
         if lhs.shift() > 0 {
-            // Since compare requires that both sides are of same dtype this will always return present
+            // Since compare requires that both sides are of same dtype this will always succeed and not panic
             rhs = rhs >> (lhs.shift() as u32)
         }
         rhs
