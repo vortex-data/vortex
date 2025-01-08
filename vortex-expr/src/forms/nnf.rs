@@ -76,10 +76,6 @@ impl Folder for NNFVisitor {
         let node_any = node.as_any();
         if node_any.downcast_ref::<Not>().is_some() {
             negating = !negating
-        } else if node_any.downcast_ref::<Literal>().is_some()
-            || node_any.downcast_ref::<Column>().is_some()
-        {
-            // do nothing
         } else if let Some(binary_expr) = node_any.downcast_ref::<BinaryExpr>() {
             match binary_expr.op() {
                 Operator::And | Operator::Or => {}
@@ -90,8 +86,6 @@ impl Folder for NNFVisitor {
                 | Operator::Lt
                 | Operator::Lte => negating = false,
             }
-        } else {
-            todo!("{:?}", node)
         }
 
         Ok(FoldDown::Continue(negating))
