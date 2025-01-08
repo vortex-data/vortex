@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use vortex_array::compute::FilterMask;
 use vortex_array::ArrayData;
 use vortex_error::VortexResult;
 use vortex_scan::{NextOp, RangeScan};
@@ -38,7 +37,7 @@ impl Operation for LayoutRangeScan {
                     NextOp::Eval((row_range, mask, expr)) => {
                         let evaluator = self.reader.clone().create_evaluator(
                             RowMask::try_new(
-                                FilterMask::from(mask),
+                                mask,
                                 row_range.start,
                                 row_range.end,
                             )?,

@@ -3,8 +3,8 @@ mod range_scan;
 use std::ops::Range;
 use std::sync::Arc;
 
-use arrow_buffer::BooleanBuffer;
 pub use range_scan::*;
+use vortex_array::compute::FilterMask;
 use vortex_array::{ArrayDType, Canonical, IntoArrayData};
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexResult};
@@ -81,7 +81,7 @@ impl Scan {
         Ok(RangeScan::new(
             self,
             range.start,
-            BooleanBuffer::new_set(length),
+            FilterMask::new_true(length),
         ))
     }
 }

@@ -195,6 +195,11 @@ pub enum FilterIter<'a> {
 }
 
 impl FilterMask {
+    /// Create a new FilterMask where all values are set.
+    pub fn new_true(length: usize) -> Self {
+        Self::from(BooleanBuffer::new_set(length))
+    }
+
     /// Create a new FilterMask where the given indices are set.
     pub fn from_indices<V: AsPrimitive<usize>, I: IntoIterator<Item = V>>(
         length: usize,

@@ -1,7 +1,7 @@
 use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
-use arrow_buffer::BooleanBuffer;
+use vortex_array::compute::FilterMask;
 use vortex_array::{ArrayData, IntoArrayVariant};
 use vortex_error::VortexResult;
 use vortex_expr::ExprRef;
@@ -11,26 +11,29 @@ use crate::Scan;
 pub struct RangeScan {
     scan: Arc<Scan>,
     row_range: Range<u64>,
-    mask: BooleanBuffer,
+    mask: FilterMask,
     state: State,
 }
 
 enum State {
     // First we run the filter expression over the full row range.
-    FilterEval((BooleanBuffer, ExprRef)),
+    FilterEval((FilterMask, ExprRef)),
     // Then we project the selected rows.
-    Project((BooleanBuffer, ExprRef)),
+    Project((FilterMask, ExprRef)),
     // And then we're done.
     Ready(ArrayData),
 }
 
 pub enum NextOp {
+    /// The finished result of the scan.
     Ready(ArrayData),
-    Eval((Range<u64>, BooleanBuffer, ExprRef)),
+    /// The next expression to evaluate.
+    /// The caller **must** first apply the mask before evaluating the expression.
+    Eval((Range<u64>, FilterMask, ExprRef)),
 }
 
 impl RangeScan {
-    pub(crate) fn new(scan: Arc<Scan>, row_offset: u64, mask: BooleanBuffer) -> Self {
+    pub(crate) fn new(scan: Arc<Scan>, row_offset: u64, mask: FilterMask) -> Self {
         let state = scan
             .filter()
             .map(|filter| {
@@ -39,7 +42,7 @@ impl RangeScan {
                 // TODO(ngates): we should decide based on mask.true_count() whether to include the
                 //  current mask or not. But note that the resulting expression would need to be
                 //  aligned and intersected with the given mask.
-                State::FilterEval((BooleanBuffer::new_set(mask.len()), filter.clone()))
+                State::FilterEval((FilterMask::new_true(mask.len()), filter.clone()))
             })
             .unwrap_or_else(|| {
                 // If there is no filter expression, then we immediately perform a mask + project.
@@ -77,9 +80,10 @@ impl RangeScan {
             State::FilterEval(_) => {
                 // Intersect the result of the filter expression with our initial row mask.
                 let mask = result.into_bool()?.boolean_buffer();
-                let mask = self.mask.bitand(&mask);
+                let mask = self.mask.to_boolean_buffer()?.bitand(&mask);
                 // Then move onto the projection
-                self.state = State::Project((mask, self.scan.projection().clone()))
+                self.state =
+                    State::Project((FilterMask::from(mask), self.scan.projection().clone()))
             }
             State::Project(_) => {
                 // We're done.
