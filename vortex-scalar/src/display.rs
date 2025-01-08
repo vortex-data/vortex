@@ -207,35 +207,46 @@ mod tests {
 
     #[test]
     fn display_two_field_struct() {
-        fn dtype() -> DType {
-            DType::Struct(
-                StructDType::new(
-                    [Arc::from("foo"), Arc::from("bar")].into(),
-                    vec![
-                        DType::Bool(Nullable),
-                        DType::Primitive(PType::U32, Nullable),
-                    ],
-                ),
-                Nullable,
-            )
-        }
+        // fn dtype() -> (DType, DType, DType) {
+        let f1 = DType::Bool(Nullable);
+        let f2 = DType::Primitive(PType::U32, Nullable);
+        let dtype = DType::Struct(
+            StructDType::new(
+                [Arc::from("foo"), Arc::from("bar")].into(),
+                vec![f1.clone(), f2.clone()],
+            ),
+            Nullable,
+        );
+        // }
 
-        assert_eq!(format!("{}", Scalar::null(dtype())), "null");
+        assert_eq!(format!("{}", Scalar::null(dtype.clone())), "null");
 
         assert_eq!(
-            format!("{}", Scalar::struct_(dtype(), vec![])),
+            format!(
+                "{}",
+                Scalar::struct_(
+                    dtype.clone(),
+                    vec![Scalar::null(f1.clone()), Scalar::null(f2.clone())]
+                )
+            ),
             "{foo:null,bar:null}"
         );
 
         assert_eq!(
-            format!("{}", Scalar::struct_(dtype(), vec![Scalar::from(true)])),
+            format!(
+                "{}",
+                Scalar::struct_(
+                    dtype.clone(),
+                    vec![Scalar::from(true), Scalar::null(f2.clone())]
+                )
+            ),
             "{foo:true,bar:null}"
         );
 
         assert_eq!(
             format!(
                 "{}",
-                Scalar::struct_(dtype(), vec![Scalar::from(true), Scalar::from(32_u32)])
+                Scalar::struct_(dtype, vec![Scalar::from(true), Scalar::from(32_u32)])
             ),
             "{foo:true,bar:32_u32}"
         );

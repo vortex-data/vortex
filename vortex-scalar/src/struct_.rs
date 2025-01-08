@@ -48,7 +48,7 @@ impl<'a> StructScalar<'a> {
             unreachable!()
         };
 
-        let field_dtype = st.dtypes().get(idx)?.with_nullability(nullability.clone());
+        let field_dtype = st.dtypes().get(idx)?.with_nullability(*nullability);
 
         self.fields
             .map(|fields| {
@@ -186,13 +186,13 @@ mod tests {
     fn setup_types() -> (DType, DType, DType) {
         let f0_dt = DType::Primitive(I32, Nullability::NonNullable);
         let f1_dt = DType::Utf8(Nullability::NonNullable);
-        let f0_dt_null = f0_dt.clone().with_nullability(Nullability::Nullable);
-        let f1_dt_null = f1_dt.clone().with_nullability(Nullability::Nullable);
+        let f0_dt_null = f0_dt.with_nullability(Nullability::Nullable);
+        let f1_dt_null = f1_dt.with_nullability(Nullability::Nullable);
 
         let dtype = DType::Struct(
             StructDType::new(
                 vec!["a".into(), "b".into()].into(),
-                vec![f0_dt, f1_dt].into(),
+                vec![f0_dt, f1_dt],
             ),
             Nullability::Nullable,
         );
@@ -204,7 +204,7 @@ mod tests {
     fn test_struct_scalar_null() {
         let (f0_dt_null, f1_dt_null, dtype) = setup_types();
 
-        let scalar = Scalar::null(dtype.clone());
+        let scalar = Scalar::null(dtype);
 
         let scalar_f0 = scalar.as_struct().field_by_idx(0);
         assert!(scalar_f0.is_some());
@@ -229,7 +229,7 @@ mod tests {
         let f0_val_null = Scalar::primitive::<i32>(1, Nullability::Nullable);
         let f1_val_null = Scalar::utf8("hello", Nullability::Nullable);
 
-        let scalar = Scalar::struct_(dtype.clone(), vec![f0_val.clone(), f1_val.clone()]);
+        let scalar = Scalar::struct_(dtype, vec![f0_val, f1_val]);
 
         let scalar_f0 = scalar.as_struct().field_by_idx(0);
         assert!(scalar_f0.is_some());
