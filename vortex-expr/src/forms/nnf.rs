@@ -1,7 +1,7 @@
 use vortex_error::VortexResult;
 
 use crate::traversal::{FoldChildren, FoldDown, FoldUp, Folder, Node as _};
-use crate::{not, BinaryExpr, Column, ExprRef, Literal, Not, Operator};
+use crate::{not, BinaryExpr, ExprRef, Not, Operator};
 
 /// Return an equivalent expression in Negative Normal Form (NNF).
 ///
@@ -71,24 +71,21 @@ impl Folder for NNFVisitor {
     fn visit_down(
         &mut self,
         node: &ExprRef,
-        mut negating: bool,
+        negating: bool,
     ) -> VortexResult<FoldDown<ExprRef, bool>> {
         let node_any = node.as_any();
         if node_any.downcast_ref::<Not>().is_some() {
-            negating = !negating
+            return Ok(FoldDown::Continue(!negating));
         } else if let Some(binary_expr) = node_any.downcast_ref::<BinaryExpr>() {
             match binary_expr.op() {
-                Operator::And | Operator::Or => {}
-                Operator::Eq
-                | Operator::NotEq
-                | Operator::Gt
-                | Operator::Gte
-                | Operator::Lt
-                | Operator::Lte => negating = false,
+                Operator::And | Operator::Or => {
+                    return Ok(FoldDown::Continue(negating));
+                }
+                _ => {}
             }
         }
 
-        Ok(FoldDown::Continue(negating))
+        Ok(FoldDown::SkipChildren)
     }
 
     fn visit_up(
@@ -97,31 +94,19 @@ impl Folder for NNFVisitor {
         negating: bool,
         new_children: FoldChildren<ExprRef>,
     ) -> VortexResult<FoldUp<ExprRef>> {
-        let FoldChildren::Children(mut new_children) = new_children else {
-            unreachable!();
-        };
-
         let node_any = node.as_any();
         let new_node = if node_any.downcast_ref::<Not>().is_some() {
+            let FoldChildren::Children(mut new_children) = new_children else {
+                unreachable!();
+            };
             debug_assert_eq!(new_children.len(), 1);
+
             new_children.remove(0)
-        } else if node_any.downcast_ref::<Literal>().is_some()
-            || node_any.downcast_ref::<Column>().is_some()
-        {
-            debug_assert_eq!(new_children.len(), 0);
-
-            if negating {
-                not(node)
-            } else {
-                node
-            }
         } else if let Some(binary_expr) = node_any.downcast_ref::<BinaryExpr>() {
-            debug_assert_eq!(new_children.len(), 2);
-
-            let rhs = new_children.remove(1);
-            let lhs = new_children.remove(0);
-            let operator = if negating {
-                match binary_expr.op() {
+            if !negating {
+                node
+            } else {
+                let new_op = match binary_expr.op() {
                     Operator::Eq => Operator::NotEq,
                     Operator::NotEq => Operator::Eq,
                     Operator::Gt => Operator::Lte,
@@ -130,16 +115,37 @@ impl Folder for NNFVisitor {
                     Operator::Lte => Operator::Gt,
                     Operator::And => Operator::Or,
                     Operator::Or => Operator::And,
-                }
-            } else {
-                binary_expr.op()
+                };
+                let (lhs, rhs) = match binary_expr.op() {
+                    Operator::Or | Operator::And => {
+                        let FoldChildren::Children(mut negated_children) = new_children else {
+                            unreachable!();
+                        };
+                        debug_assert_eq!(negated_children.len(), 2);
+                        let rhs = negated_children.remove(1);
+                        let lhs = negated_children.remove(0);
+                        (lhs, rhs)
+                    }
+                    _ => {
+                        let FoldChildren::Skipped = new_children else {
+                            unreachable!();
+                        };
+                        (binary_expr.lhs().clone(), binary_expr.rhs().clone())
+                    }
+                };
+                BinaryExpr::new_expr(lhs, new_op, rhs)
+            }
+        } else {
+            let FoldChildren::Skipped = new_children else {
+                unreachable!();
             };
 
-            BinaryExpr::new_expr(lhs, operator, rhs)
-        } else {
-            todo!("{:?}", node)
+            if negating {
+                not(node)
+            } else {
+                node
+            }
         };
-
         Ok(FoldUp::Continue(new_node))
     }
 }
