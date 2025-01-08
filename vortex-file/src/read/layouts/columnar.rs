@@ -7,7 +7,7 @@ use vortex_array::array::StructArray;
 use vortex_array::stats::ArrayStatistics;
 use vortex_array::validity::Validity;
 use vortex_array::{ArrayData, IntoArrayData};
-use vortex_dtype::{DType, Field, FieldName, FieldNames, StructDType};
+use vortex_dtype::{DType, Field, FieldInfo, FieldName, FieldNames, StructDType};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult};
 use vortex_expr::{col, expr_project, RowFilter, Select, VortexExpr};
 use vortex_flatbuffers::footer;
@@ -63,7 +63,10 @@ struct ColumnarLayoutBuilder<'a> {
 
 impl ColumnarLayoutBuilder<'_> {
     fn build(&self) -> VortexResult<ColumnarLayoutReader> {
-        let (field_refs, layout_dtype) = self.fields_with_dtypes()?;
+        let layout_dtype = self.dtype.clone();
+        let fields = self
+            .scan_fields()
+            .unwrap_or_else(|| (0..layout_dtype.names().len()).map(Field::Index).collect());
         let fb_children = self.layout.children().unwrap_or_default();
 
         let mut unhandled_names = Vec::new();
@@ -71,10 +74,14 @@ impl ColumnarLayoutBuilder<'_> {
         let mut handled_children = Vec::new();
         let mut handled_names = Vec::new();
 
-        for (field, name) in field_refs.into_iter().zip_eq(layout_dtype.names().iter()) {
-            let resolved_child = layout_dtype.field_info(&field)?;
-            let child_dtype = resolved_child.dtype;
-            let child_layout = fb_children.get(resolved_child.index);
+        for field in fields.into_iter() {
+            let FieldInfo {
+                index,
+                name,
+                dtype: child_dtype,
+            } = layout_dtype.field_info(&field)?;
+
+            let child_layout = fb_children.get(index);
             let projected_expr = self
                 .scan
                 .expr
@@ -85,7 +92,7 @@ impl ColumnarLayoutBuilder<'_> {
                 self.scan.expr.is_none() || (self.scan.expr.is_some() && projected_expr.is_some());
 
             let mut child_path = self.path.clone();
-            child_path.push(resolved_child.index as u16);
+            child_path.push(index as u16);
 
             let child = self.layout_serde.read_layout(
                 child_path,
@@ -155,25 +162,6 @@ impl ColumnarLayoutBuilder<'_> {
             top_level_expr,
             shortcircuit_siblings,
         ))
-    }
-
-    /// Get fields referenced by scan expression along with their dtype
-    fn fields_with_dtypes(&self) -> VortexResult<(Vec<Field>, Arc<StructDType>)> {
-        let field_refs = self.scan_fields();
-
-        if let Some(fields) = field_refs {
-            let projected_dtype = Arc::new(self.dtype.project(&fields)?);
-            Ok((fields, projected_dtype))
-        } else {
-            Ok((
-                self.dtype
-                    .names()
-                    .iter()
-                    .map(|name| Field::Name(name.clone()))
-                    .collect(),
-                self.dtype.clone(),
-            ))
-        }
     }
 
     /// Get fields referenced by scan expression preserving order if we're using select to project

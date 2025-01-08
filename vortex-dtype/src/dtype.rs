@@ -296,6 +296,7 @@ pub struct StructDType {
 }
 
 /// Information about a field in a struct dtype
+#[derive(Debug)]
 pub struct FieldInfo {
     /// The position index of the field within the enclosing struct
     pub index: usize,
