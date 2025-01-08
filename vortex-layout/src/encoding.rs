@@ -4,8 +4,7 @@ use std::sync::Arc;
 use vortex_array::ContextRef;
 use vortex_error::VortexResult;
 
-use crate::reader::LayoutReader;
-use crate::LayoutData;
+use crate::{LayoutData, LayoutReader};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub struct LayoutId(pub u16);

@@ -6,6 +6,8 @@ use vortex_error::VortexResult;
 use vortex_expr::ExprRef;
 
 use crate::operations::Operation;
+use crate::scan::LayoutRangeScan;
+use crate::scanner::RangeScan;
 use crate::{LayoutData, RowMask};
 
 pub type EvalOp = Box<dyn Operation<Output = ArrayData>>;
@@ -18,6 +20,17 @@ pub trait LayoutReader {
 
     /// Creates a new evaluator for the layout. It is expected that the evaluator makes use of
     /// shared state from the [`LayoutReader`] for caching and other optimisations.
+    //
+    // NOTE(ngates): we have chosen a general "run this expression" API instead of  separate
+    //  `filter(row_mask, expr) -> row_mask` + `project(row_mask, field_mask)` APIs.
+    //  The reason for this is so we can eventually support cell-level push-down.
+    //  If we only projected using a field mask, then it means we need to download all the data
+    //  for the rows of field present in the row mask. When I say cell-level push-down, I mean
+    //  we can slice the cell directly out of storage using an API like
+    //  `SegmentReader::read(segment_id, byte_range: Range<usize>)`. This is a highly advanced
+    //  use-case, but can prove invaluable for large cell values such as images and video.
+    //  If instead we make the projection API `project(row_mask, expr)`, then identical to the
+    //  filter API and there's now no point having two. Hence: `evaluate(row_mask, expr)`.
     fn create_evaluator(self: Arc<Self>, row_mask: RowMask, expr: ExprRef) -> VortexResult<EvalOp>;
 }
 
@@ -33,6 +46,14 @@ pub trait LayoutScanExt: LayoutReader {
     /// Returns the DType of the layout.
     fn dtype(&self) -> &DType {
         self.layout().dtype()
+    }
+
+    /// Perform a scan over a row-range of the layout.
+    fn scan(self: Arc<Self>, range_scan: RangeScan) -> impl Operation<Output = ArrayData>
+    where
+        Self: Sized + 'static,
+    {
+        LayoutRangeScan::new(self, range_scan)
     }
 }
 

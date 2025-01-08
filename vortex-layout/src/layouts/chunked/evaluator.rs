@@ -167,7 +167,7 @@ mod test {
     use vortex_error::vortex_panic;
     use vortex_expr::{gt, lit, Identity};
 
-    use crate::layouts::chunked::evaluator_filter::{ChunkState, ChunkedEvaluator};
+    use crate::layouts::chunked::evaluator::{ChunkState, ChunkedEvaluator};
     use crate::layouts::chunked::reader::ChunkedReader;
     use crate::layouts::chunked::writer::ChunkedLayoutWriter;
     use crate::operations::{Operation, Poll};

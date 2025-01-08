@@ -1,4 +1,4 @@
-mod evaluator_filter;
+mod evaluator;
 mod reader;
 // mod stats;
 pub mod stats_table;

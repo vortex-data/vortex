@@ -5,7 +5,7 @@ use vortex_array::ContextRef;
 use vortex_error::{vortex_err, vortex_panic, VortexError, VortexResult};
 use vortex_expr::{ExprRef, Identity};
 
-use crate::layouts::chunked::evaluator_filter::ChunkedEvaluator;
+use crate::layouts::chunked::evaluator::ChunkedEvaluator;
 use crate::layouts::chunked::stats_table::StatsTable;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::operations::cached::CachedOperation;

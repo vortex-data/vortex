@@ -9,7 +9,7 @@ use vortex_error::VortexResult;
 use vortex_io::VortexReadAt;
 use vortex_layout::operations::Poll;
 use vortex_layout::scanner::{NextOp, Scan};
-use vortex_layout::{LayoutData, RowMask};
+use vortex_layout::{LayoutData, LayoutScanExt, RowMask};
 
 use crate::v2::footer::Segment;
 use crate::v2::segments::SegmentCache;
@@ -45,29 +45,19 @@ impl<R: VortexReadAt> VortexFile<R> {
         //  Note that to implement this we would use stream::try_unfold
         let stream = stream::once(async move {
             let row_mask = RowMask::new_valid_between(0, self.row_count());
-            let mut range_scan = scan.range_scan(row_mask);
+            let mut range_scan = reader.clone().scan(scan.range_scan(row_mask));
+
             loop {
-                match range_scan.next() {
-                    NextOp::Ready(array) => return Ok(array),
-                    NextOp::Eval((mask, expr)) => {
-                        let mut evaluator = reader.clone().create_evaluator(mask, expr)?;
-                        loop {
-                            match evaluator.poll(&self.segment_cache)? {
-                                Poll::Some(array) => {
-                                    range_scan.post(array)?;
-                                    break;
-                                }
-                                Poll::NeedMore(segment_ids) => {
-                                    for segment_id in segment_ids {
-                                        let segment = &self.segments[*segment_id as usize];
-                                        let bytes = self
-                                            .read
-                                            .read_byte_range(segment.offset, segment.length as u64)
-                                            .await?;
-                                        self.segment_cache.set(segment_id, bytes);
-                                    }
-                                }
-                            }
+                match range_scan.poll(&self.segment_cache)? {
+                    Poll::Some(array) => return Ok(array),
+                    Poll::NeedMore(segment_ids) => {
+                        for segment_id in segment_ids {
+                            let segment = &self.segments[*segment_id as usize];
+                            let bytes = self
+                                .read
+                                .read_byte_range(segment.offset, segment.length as u64)
+                                .await?;
+                            self.segment_cache.set(segment_id, bytes);
                         }
                     }
                 }

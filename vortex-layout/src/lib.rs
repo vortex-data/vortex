@@ -12,6 +12,8 @@ mod row_mask;
 pub use row_mask::*;
 pub mod operations;
 mod reader;
+pub use reader::*;
+mod scan;
 pub mod segments;
 pub mod strategies;
 
