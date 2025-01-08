@@ -14,9 +14,8 @@ readme.workspace = true
 categories.workspace = true
 
 [dependencies]
-arrow-buffer = { workspace = true }
 vortex-array = { workspace = true }
-vortex-dtype = { workspace = true, features = ["flatbuffers"] }
+vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-expr = { workspace = true }
 
