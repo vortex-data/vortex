@@ -5107,6 +5107,7 @@ dependencies = [
  "vortex-io",
  "vortex-ipc",
  "vortex-layout",
+ "vortex-scalar",
  "vortex-scan",
 ]
 
