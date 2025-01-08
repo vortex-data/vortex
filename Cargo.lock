@@ -5321,6 +5321,7 @@ dependencies = [
  "vortex-dtype",
  "vortex-error",
  "vortex-expr",
+ "vortex-flatbuffers",
 ]
 
 [[package]]
