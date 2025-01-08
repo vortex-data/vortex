@@ -213,7 +213,7 @@ impl ViewedDType {
 }
 
 /// DType of a struct's field, either owned or a pointer to an underlying flatbuffer.
-#[derive(Debug, Clone, PartialOrd, Eq)]
+#[derive(Debug, Clone, Eq)]
 pub enum FieldDType {
     Owned(DType),
     View(ViewedDType),
@@ -235,6 +235,34 @@ impl PartialEq for FieldDType {
                 let view = DType::try_from(view.clone())
                     .vortex_expect("Failed to parse FieldDType into DType");
                 owned == &view
+            }
+        }
+    }
+}
+
+impl PartialOrd for FieldDType {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        match (self, other) {
+            (FieldDType::Owned(lhs), FieldDType::Owned(rhs)) => lhs.partial_cmp(rhs),
+            (FieldDType::View(lhs), FieldDType::View(rhs)) => {
+                let lhs = DType::try_from(lhs.clone())
+                    .vortex_expect("Failed to parse FieldDType into DType");
+                let rhs = DType::try_from(rhs.clone())
+                    .vortex_expect("Failed to parse FieldDType into DType");
+
+                lhs.partial_cmp(&rhs)
+            }
+            (FieldDType::Owned(dtype), FieldDType::View(viewed_dtype)) => {
+                let rhs = DType::try_from(viewed_dtype.clone())
+                    .vortex_expect("Failed to parse FieldDType into DType");
+
+                dtype.partial_cmp(&rhs)
+            }
+            (FieldDType::View(viewed_dtype), FieldDType::Owned(dtype)) => {
+                let lhs = DType::try_from(viewed_dtype.clone())
+                    .vortex_expect("Failed to parse FieldDType into DType");
+
+                lhs.partial_cmp(&dtype)
             }
         }
     }
