@@ -166,8 +166,11 @@ jobs:
       - uses: ./.github/actions/setup-rust
       - name: Install grcov
         run: cargo install grcov
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: nextest
       - name: Rust Test
-        run: cargo test --workspace --all-features
+        run: cargo nextest run --workspace --all-features
       - name: Generate coverage report
         run: |
           grcov . --binary-path target/debug/ -s . -t lcov --llvm --ignore-not-existing \
@@ -204,8 +207,11 @@ jobs:
       - uses: rui314/setup-mold@v1
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-rust
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: nextest
       - name: Run tests with Miri
-        run: cargo miri test
+        run: cargo miri nextest run
 
   bench-test:
     name: "bench test"
