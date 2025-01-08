@@ -93,7 +93,7 @@ mod tests {
     use vortex_dtype::PType::{I32, I64};
 
     use crate::get_item::get_item;
-    use crate::Identity;
+    use crate::ident;
 
     fn test_array() -> StructArray {
         StructArray::from_fields(&[
@@ -106,7 +106,7 @@ mod tests {
     #[test]
     pub fn get_item_by_name() {
         let st = test_array();
-        let get_item = get_item("a", Identity::new_expr());
+        let get_item = get_item("a", ident());
         let item = get_item.evaluate(st.as_ref()).unwrap();
         assert_eq!(item.dtype(), &DType::from(I32))
     }
@@ -114,14 +114,14 @@ mod tests {
     #[test]
     pub fn get_item_by_name_none() {
         let st = test_array();
-        let get_item = get_item("c", Identity::new_expr());
+        let get_item = get_item("c", ident());
         assert!(get_item.evaluate(st.as_ref()).is_err());
     }
 
     #[test]
     pub fn get_item_by_idx() {
         let st = test_array();
-        let get_item = get_item(1, Identity::new_expr());
+        let get_item = get_item(1, ident());
         let item = get_item.evaluate(st.as_ref()).unwrap();
         assert_eq!(item.dtype(), &DType::from(I64))
     }

@@ -14,7 +14,7 @@ impl Scan {
     /// Scan all rows with the identity projection.
     pub fn all() -> Self {
         Self {
-            projection: Identity::new_expr(),
+            projection: ident(),
             filter: None,
         }
     }

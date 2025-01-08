@@ -445,7 +445,7 @@ mod tests {
     use crate::pruning::{
         convert_to_pruning_expression, stat_column_field, FieldOrIdentity, PruningPredicate,
     };
-    use crate::{and, col, eq, gt, gt_eq, lit, lt, lt_eq, not_eq, or, Identity, Not};
+    use crate::{and, col, eq, gt, gt_eq, ident, lit, lt, lt_eq, not_eq, or, Not};
 
     #[test]
     pub fn pruning_equals() {
@@ -693,7 +693,7 @@ mod tests {
 
     #[test]
     fn pruning_identity() {
-        let column = Identity::new_expr();
+        let column = ident();
         let expr = or(lt(column.clone(), lit(10)), gt(column.clone(), lit(50)));
 
         let expected = HashMap::from([(

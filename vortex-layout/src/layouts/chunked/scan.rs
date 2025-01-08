@@ -342,8 +342,8 @@ mod test {
         let scan = ChunkedScan::try_new(
             layout,
             Scan {
-                projection: Identity::new_expr(),
-                filter: Some(gt(Identity::new_expr(), lit(6))),
+                projection: ident(),
+                filter: Some(gt(ident(), lit(6))),
             },
             Default::default(),
         )

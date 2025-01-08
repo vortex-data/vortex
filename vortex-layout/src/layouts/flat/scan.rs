@@ -165,7 +165,7 @@ mod test {
             .unwrap();
 
         let scan = Scan {
-            projection: Identity::new_expr(),
+            projection: ident(),
             filter: Some(BinaryExpr::new_expr(
                 Arc::new(Identity),
                 Operator::Gt,

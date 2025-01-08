@@ -93,7 +93,7 @@ impl ChunkedLayoutBuilder<'_> {
                 metadata_fb,
                 Scan::new(Select::include_expr(
                     s.names().iter().map(|s| Field::Name(s.clone())).collect(),
-                    Identity::new_expr(),
+                    ident(),
                 )),
                 Arc::new(LazyDType::from_dtype(stats_dtype)),
             )?)

@@ -134,7 +134,7 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_dtype::Field;
 
-    use crate::{Identity, Select};
+    use crate::{ident, Select};
 
     fn test_array() -> StructArray {
         StructArray::from_fields(&[
@@ -147,7 +147,7 @@ mod tests {
     #[test]
     pub fn include_columns() {
         let st = test_array();
-        let select = Select::include_expr(vec![Field::from("a")], Identity::new_expr());
+        let select = Select::include_expr(vec![Field::from("a")], ident());
         let selected = select.evaluate(st.as_ref()).unwrap();
         let selected_names = selected.as_struct_array().unwrap().names().clone();
         assert_eq!(selected_names.as_ref(), &["a".into()]);
@@ -156,7 +156,7 @@ mod tests {
     #[test]
     pub fn exclude_columns() {
         let st = test_array();
-        let select = Select::exclude_expr(vec![Field::from("a")], Identity::new_expr());
+        let select = Select::exclude_expr(vec![Field::from("a")], ident());
         let selected = select.evaluate(st.as_ref()).unwrap();
         let selected_names = selected.as_struct_array().unwrap().names().clone();
         assert_eq!(selected_names.as_ref(), &["b".into()]);

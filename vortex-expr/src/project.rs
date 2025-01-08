@@ -103,7 +103,7 @@ mod tests {
     use vortex_dtype::Field;
 
     use super::*;
-    use crate::{and, lt, or, Identity, Not, Select};
+    use crate::{and, ident, lt, or, Identity, Not, Select};
 
     #[test]
     fn project_and() {
@@ -143,12 +143,12 @@ mod tests {
     fn project_select() {
         let include = Select::include_expr(
             vec![Field::from("a"), Field::from("b"), Field::from("c")],
-            Identity::new_expr(),
+            ident(),
         );
         let projection = vec![Field::from("a"), Field::from("b")];
         assert_eq!(
             *expr_project(&include, &projection).unwrap(),
-            *Select::include_expr(projection, Identity::new_expr())
+            *Select::include_expr(projection, ident())
         );
     }
 
@@ -156,12 +156,12 @@ mod tests {
     fn project_select_extra_columns() {
         let include = Select::include_expr(
             vec![Field::from("a"), Field::from("b"), Field::from("c")],
-            Identity::new_expr(),
+            ident(),
         );
         let projection = vec![Field::from("c"), Field::from("d")];
         assert_eq!(
             *expr_project(&include, &projection).unwrap(),
-            *Select::include_expr(vec![Field::from("c")], Identity::new_expr())
+            *Select::include_expr(vec![Field::from("c")], ident())
         );
     }
 

@@ -153,7 +153,7 @@ impl<R: VortexReadAt + Unpin> VortexReadBuilder<R> {
             initial_read.fb_layout(),
             match self.projection {
                 Projection::All => Scan::empty(),
-                Projection::Flat(p) => Scan::new(Select::include_expr(p, Identity::new_expr())),
+                Projection::Flat(p) => Scan::new(Select::include_expr(p, ident())),
             },
             lazy_dtype.clone(),
         )?;
