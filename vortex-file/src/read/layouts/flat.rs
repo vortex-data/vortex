@@ -93,7 +93,7 @@ impl LayoutReader for FlatLayoutReader {
                         self.scan
                             .expr
                             .as_ref()
-                            .map(|e| e.unchecked_evaluate(&s))
+                            .map(|e| e.evaluate(&s))
                             .transpose()?
                             .unwrap_or(s),
                     ))
