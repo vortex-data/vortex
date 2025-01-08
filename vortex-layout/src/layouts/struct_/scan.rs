@@ -11,11 +11,11 @@ use crate::segments::SegmentReader;
 use crate::{LayoutData, LayoutEncoding, RowMask};
 
 #[derive(Debug)]
-pub struct StructScan {
+pub struct StructReader {
     layout: LayoutData,
 }
 
-impl StructScan {
+impl StructReader {
     pub(super) fn try_new(layout: LayoutData, _ctx: ContextRef) -> VortexResult<Self> {
         if layout.encoding().id() != StructLayout.id() {
             vortex_panic!("Mismatched layout ID")
@@ -27,28 +27,32 @@ impl StructScan {
     }
 }
 
-impl LayoutReader for StructScan {
+impl LayoutReader for StructReader {
     fn layout(&self) -> &LayoutData {
         &self.layout
     }
 
-    fn create_evaluator(
-        self: Arc<Self>,
-        _row_mask: RowMask,
-        _expr: ExprRef,
-    ) -> VortexResult<EvalOp> {
-        todo!()
+    fn create_evaluator(self: Arc<Self>, row_mask: RowMask, expr: ExprRef) -> VortexResult<EvalOp> {
+        Ok(Box::new(StructEvaluator::new(self, row_mask, expr)))
     }
 }
 
+// TODO: move to evaluator.rs
 #[derive(Debug)]
 #[allow(dead_code)]
-struct StructScanner {
-    layout: LayoutData,
+struct StructEvaluator {
+    reader: Arc<StructReader>,
     mask: RowMask,
+    expr: ExprRef,
 }
 
-impl Operation for StructScanner {
+impl StructEvaluator {
+    pub fn new(reader: Arc<StructReader>, mask: RowMask, expr: ExprRef) -> Self {
+        Self { reader, mask, expr }
+    }
+}
+
+impl Operation for StructEvaluator {
     type Output = ArrayData;
 
     fn poll(&mut self, _segments: &dyn SegmentReader) -> VortexResult<Poll<Self::Output>> {

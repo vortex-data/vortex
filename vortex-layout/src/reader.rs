@@ -27,8 +27,8 @@ pub trait LayoutReader {
     //  we can slice the cell directly out of storage using an API like
     //  `SegmentReader::read(segment_id, byte_range: Range<usize>)`. This is a highly advanced
     //  use-case, but can prove invaluable for large cell values such as images and video.
-    //  If instead we make the projection API `project(row_mask, expr)`, then identical to the
-    //  filter API and there's now no point having two. Hence: `evaluate(row_mask, expr)`.
+    //  If instead we make the projection API `project(row_mask, expr)`, then this is identical
+    //  to the filter API and there's now no point having two. Hence: `evaluate(row_mask, expr)`.
     fn create_evaluator(self: Arc<Self>, row_mask: RowMask, expr: ExprRef) -> VortexResult<EvalOp>;
 }
 
