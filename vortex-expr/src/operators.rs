@@ -33,16 +33,15 @@ impl Display for Operator {
 }
 
 impl Operator {
-    pub fn inverse(self) -> Self {
+    pub fn inverse(self) -> Option<Self> {
         match self {
-            Operator::Eq => Operator::NotEq,
-            Operator::NotEq => Operator::Eq,
-            Operator::Gt => Operator::Lte,
-            Operator::Gte => Operator::Lt,
-            Operator::Lt => Operator::Gte,
-            Operator::Lte => Operator::Gt,
-            Operator::And => Operator::Or,
-            Operator::Or => Operator::And,
+            Operator::Eq => Some(Operator::NotEq),
+            Operator::NotEq => Some(Operator::Eq),
+            Operator::Gt => Some(Operator::Lte),
+            Operator::Gte => Some(Operator::Lt),
+            Operator::Lt => Some(Operator::Gte),
+            Operator::Lte => Some(Operator::Gt),
+            Operator::And | Operator::Or => None,
         }
     }
 

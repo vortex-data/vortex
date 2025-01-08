@@ -127,7 +127,16 @@ impl Folder for NNFVisitor {
             let rhs = new_children.remove(1);
             let lhs = new_children.remove(0);
             let operator = if negating {
-                binary_expr.op().inverse()
+                match binary_expr.op() {
+                    Operator::Eq => Operator::NotEq,
+                    Operator::NotEq => Operator::Eq,
+                    Operator::Gt => Operator::Lte,
+                    Operator::Gte => Operator::Lt,
+                    Operator::Lt => Operator::Gte,
+                    Operator::Lte => Operator::Gt,
+                    Operator::And => Operator::Or,
+                    Operator::Or => Operator::And,
+                }
             } else {
                 binary_expr.op()
             };
