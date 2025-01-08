@@ -53,9 +53,9 @@ impl<'a> StructScalar<'a> {
         self.fields
             .map(|fields| {
                 let field = fields.get(idx);
-                // The field dtype means this field must be present
-                debug_assert!(field.is_some());
-                let field = field?.clone();
+                let field = field
+                    .vortex_expect("Scalar dtype requires field exist")
+                    .clone();
                 debug_assert!(field.is_instance_of(&field_dtype));
                 Some(Scalar {
                     dtype: field_dtype.with_nullability(nullability.clone()),
