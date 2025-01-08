@@ -64,8 +64,8 @@ impl VortexExpr for Column {
         let s = StructArray::try_from(batch.clone())?;
 
         match &self.field {
-            Field::Name(n) => s.field_by_name(n),
-            Field::Index(i) => s.field(*i),
+            Field::Name(n) => s.maybe_null_field_by_name(n),
+            Field::Index(i) => s.maybe_null_field_by_idx(*i),
         }
         .ok_or_else(|| vortex_err!("Array doesn't contain child array {}", self.field))
     }

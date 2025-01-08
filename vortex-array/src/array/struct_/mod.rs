@@ -40,7 +40,7 @@ impl StructArray {
 
     pub fn children(&self) -> impl Iterator<Item = ArrayData> + '_ {
         (0..self.nfields()).map(move |idx| {
-            self.field(idx).unwrap_or_else(|| {
+            self.maybe_null_field_by_idx(idx).unwrap_or_else(|| {
                 vortex_panic!("Field {} not found, nfields: {}", idx, self.nfields())
             })
         })
@@ -126,7 +126,7 @@ impl StructArray {
 
             names.push(self.names()[idx].clone());
             children.push(
-                self.field(idx)
+                self.maybe_null_field_by_idx(idx)
                     .ok_or_else(|| vortex_err!(OutOfBounds: idx, 0, self.dtypes().len()))?,
             );
         }
@@ -149,7 +149,7 @@ impl VariantsVTable<StructArray> for StructEncoding {
 }
 
 impl StructArrayTrait for StructArray {
-    fn field(&self, idx: usize) -> Option<ArrayData> {
+    fn maybe_null_field_by_idx(&self, idx: usize) -> Option<ArrayData> {
         self.dtypes().get(idx).map(|dtype| {
             self.as_ref()
                 .child(idx, dtype, self.len())
@@ -183,7 +183,7 @@ impl VisitorVTable<StructArray> for StructEncoding {
     fn accept(&self, array: &StructArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
         for (idx, name) in array.names().iter().enumerate() {
             let child = array
-                .field(idx)
+                .maybe_null_field_by_idx(idx)
                 .ok_or_else(|| vortex_err!(OutOfBounds: idx, 0, array.nfields()))?;
             visitor.visit_child(name.as_ref(), &child)?;
         }
@@ -247,13 +247,13 @@ mod test {
 
         assert_eq!(struct_b.len(), 5);
 
-        let bools = BoolArray::try_from(struct_b.field(0).unwrap()).unwrap();
+        let bools = BoolArray::try_from(struct_b.maybe_null_field_by_idx(0).unwrap()).unwrap();
         assert_eq!(
             bools.boolean_buffer().iter().collect::<Vec<_>>(),
             vec![true, true, true, false, false]
         );
 
-        let prims = PrimitiveArray::try_from(struct_b.field(1).unwrap()).unwrap();
+        let prims = PrimitiveArray::try_from(struct_b.maybe_null_field_by_idx(1).unwrap()).unwrap();
         assert_eq!(prims.as_slice::<i64>(), [0i64, 1, 2, 3, 4]);
     }
 }

@@ -182,7 +182,7 @@ fn swizzle_struct_chunks(
     for (field_idx, field_dtype) in struct_dtype.dtypes().iter().enumerate() {
         let field_chunks = chunks.iter().map(|c| c.as_struct_array()
                 .vortex_expect("Chunk was not a StructArray")
-                .field(field_idx)
+                .maybe_null_field_by_idx(field_idx)
                 .ok_or_else(|| vortex_err!("All chunks must have same dtype; missing field at index {}, current chunk dtype: {}", field_idx, c.dtype()))
         ).collect::<VortexResult<Vec<_>>>()?;
         let field_array = ChunkedArray::try_new(field_chunks, field_dtype.clone())?;
@@ -347,11 +347,15 @@ mod tests {
         .into_array();
         let canonical_struct = chunked.into_struct().unwrap();
         let canonical_varbin = canonical_struct
-            .field(0)
+            .maybe_null_field_by_idx(0)
             .unwrap()
             .into_varbinview()
             .unwrap();
-        let original_varbin = struct_array.field(0).unwrap().into_varbinview().unwrap();
+        let original_varbin = struct_array
+            .maybe_null_field_by_idx(0)
+            .unwrap()
+            .into_varbinview()
+            .unwrap();
         let orig_values = original_varbin
             .with_iterator(|it| it.map(|a| a.map(|v| v.to_vec())).collect::<Vec<_>>())
             .unwrap();

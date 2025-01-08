@@ -62,10 +62,14 @@ impl Utf8ArrayTrait for SparseArray {}
 impl BinaryArrayTrait for SparseArray {}
 
 impl StructArrayTrait for SparseArray {
-    fn field(&self, idx: usize) -> Option<ArrayData> {
+    fn maybe_null_field_by_idx(&self, idx: usize) -> Option<ArrayData> {
         let new_patches = self
             .patches()
-            .map_values_opt(|values| values.as_struct_array().and_then(|s| s.field(idx)))
+            .map_values_opt(|values| {
+                values
+                    .as_struct_array()
+                    .and_then(|s| s.maybe_null_field_by_idx(idx))
+            })
             .vortex_expect("field array length should equal struct array length")?;
         let scalar = StructScalar::try_from(&self.fill_scalar())
             .ok()?

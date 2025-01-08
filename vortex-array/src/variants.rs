@@ -201,19 +201,28 @@ pub trait StructArrayTrait: ArrayTrait {
     }
 
     /// Return a field's array by index
-    fn field(&self, idx: usize) -> Option<ArrayData>;
+    fn maybe_null_field_by_idx(&self, idx: usize) -> Option<ArrayData>;
 
     /// Return a field's array by name
-    fn field_by_name(&self, name: &str) -> Option<ArrayData> {
+    fn maybe_null_field_by_name(&self, name: &str) -> Option<ArrayData> {
         let field_idx = self
             .names()
             .iter()
             .position(|field_name| field_name.as_ref() == name);
 
-        field_idx.and_then(|field_idx| self.field(field_idx))
+        field_idx.and_then(|field_idx| self.maybe_null_field_by_idx(field_idx))
     }
 
     fn project(&self, projection: &[Field]) -> VortexResult<ArrayData>;
+}
+
+pub trait StructArrayTraitExt: StructArrayTrait {
+    fn maybe_null_field(&self, field: Field) -> Option<ArrayData> {
+        match field {
+            Field::Index(idx) => self.maybe_null_field_by_idx(idx),
+            Field::Name(name) => self.maybe_null_field_by_name(name.as_ref()),
+        }
+    }
 }
 
 pub trait ListArrayTrait: ArrayTrait {}
