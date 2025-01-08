@@ -207,6 +207,8 @@ impl PartialEq for Scalar {
     }
 }
 
+impl Eq for Scalar {}
+
 impl PartialOrd for Scalar {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         // We check for DType equality, ignoring nullability, and allowing us to compare all

@@ -2,14 +2,13 @@ use std::any::Any;
 use std::fmt::Display;
 use std::sync::Arc;
 
-use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::array::StructArray;
 use vortex_array::variants::StructArrayTrait;
 use vortex_array::ArrayData;
 use vortex_dtype::Field;
 use vortex_error::{vortex_err, VortexResult};
 
-use crate::{unbox_any, ExprRef, VortexExpr};
+use crate::{ExprRef, VortexExpr};
 
 #[derive(Debug, PartialEq, Hash, Clone, Eq)]
 pub struct Column {
@@ -17,8 +16,10 @@ pub struct Column {
 }
 
 impl Column {
-    pub fn new_expr(field: Field) -> ExprRef {
-        Arc::new(Self { field })
+    pub fn new_expr(field: impl Into<Field>) -> ExprRef {
+        Arc::new(Self {
+            field: field.into(),
+        })
     }
 
     pub fn field(&self) -> &Field {
@@ -69,16 +70,12 @@ impl VortexExpr for Column {
         .ok_or_else(|| vortex_err!("Array doesn't contain child array {}", self.field))
     }
 
-    fn collect_references<'a>(&'a self, references: &mut HashSet<&'a Field>) {
-        references.insert(self.field());
+    fn children(&self) -> Vec<&ExprRef> {
+        vec![]
     }
-}
 
-impl PartialEq<dyn Any> for Column {
-    fn eq(&self, other: &dyn Any) -> bool {
-        unbox_any(other)
-            .downcast_ref::<Self>()
-            .map(|x| x == self)
-            .unwrap_or(false)
+    fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
+        assert_eq!(children.len(), 0);
+        self
     }
 }

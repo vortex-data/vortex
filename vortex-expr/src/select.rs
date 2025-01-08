@@ -1,5 +1,6 @@
 use std::any::Any;
 use std::fmt::Display;
+use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_array::aliases::hash_set::HashSet;
@@ -7,7 +8,7 @@ use vortex_array::ArrayData;
 use vortex_dtype::Field;
 use vortex_error::{vortex_err, VortexResult};
 
-use crate::{unbox_any, VortexExpr};
+use crate::{ExprRef, VortexExpr};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Select {
@@ -20,8 +21,23 @@ impl Select {
         Self::Include(columns)
     }
 
+    pub fn include_expr(columns: Vec<Field>) -> Arc<Self> {
+        Arc::new(Self::include(columns))
+    }
+
     pub fn exclude(columns: Vec<Field>) -> Self {
         Self::Exclude(columns)
+    }
+
+    pub fn exclude_expr(columns: Vec<Field>) -> Arc<Self> {
+        Arc::new(Self::exclude(columns))
+    }
+
+    pub fn fields(&self) -> &[Field] {
+        match self {
+            Select::Include(fields) => fields,
+            Select::Exclude(fields) => fields,
+        }
     }
 }
 
@@ -68,21 +84,13 @@ impl VortexExpr for Select {
         }
     }
 
-    fn collect_references<'a>(&'a self, references: &mut HashSet<&'a Field>) {
-        match self {
-            Select::Include(f) => references.extend(f.iter()),
-            // It's weird that we treat the references of exclusions and inclusions the same, we need to have a wrapper around Field in the return
-            Select::Exclude(e) => references.extend(e.iter()),
-        }
+    fn children(&self) -> Vec<&ExprRef> {
+        vec![]
     }
-}
 
-impl PartialEq<dyn Any> for Select {
-    fn eq(&self, other: &dyn Any) -> bool {
-        unbox_any(other)
-            .downcast_ref::<Self>()
-            .map(|x| self == x)
-            .unwrap_or(false)
+    fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
+        assert_eq!(children.len(), 0);
+        self
     }
 }
 

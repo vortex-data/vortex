@@ -103,11 +103,9 @@ impl DateTimePartsArray {
     }
 
     pub fn validity(&self) -> Validity {
-        if self.dtype().is_nullable() {
-            self.days().logical_validity().into_validity()
-        } else {
-            Validity::NonNullable
-        }
+        self.days()
+            .logical_validity()
+            .into_validity(self.dtype().nullability())
     }
 }
 

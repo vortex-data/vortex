@@ -7,16 +7,18 @@ use vortex_array::{ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::{unbox_any, ExprRef, VortexExpr};
+use crate::{ExprRef, VortexExpr};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Literal {
     value: Scalar,
 }
 
 impl Literal {
-    pub fn new_expr(value: Scalar) -> ExprRef {
-        Arc::new(Self { value })
+    pub fn new_expr(value: impl Into<Scalar>) -> ExprRef {
+        Arc::new(Self {
+            value: value.into(),
+        })
     }
 
     pub fn value(&self) -> &Scalar {
@@ -38,14 +40,14 @@ impl VortexExpr for Literal {
     fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
         Ok(ConstantArray::new(self.value.clone(), batch.len()).into_array())
     }
-}
 
-impl PartialEq<dyn Any> for Literal {
-    fn eq(&self, other: &dyn Any) -> bool {
-        unbox_any(other)
-            .downcast_ref::<Self>()
-            .map(|x| x == self)
-            .unwrap_or(false)
+    fn children(&self) -> Vec<&ExprRef> {
+        vec![]
+    }
+
+    fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
+        assert_eq!(children.len(), 0);
+        self
     }
 }
 
