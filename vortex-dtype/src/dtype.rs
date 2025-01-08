@@ -5,7 +5,9 @@ use std::sync::Arc;
 use flatbuffers::{root, root_unchecked};
 use itertools::Itertools;
 use vortex_buffer::ByteBuffer;
-use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult};
+use vortex_error::{
+    vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult, VortexUnwrap,
+};
 use vortex_flatbuffers::dtype as fbd;
 use DType::*;
 
@@ -179,6 +181,7 @@ impl Display for DType {
     }
 }
 
+/// A lazily evaluated DType, parsed on access from an underlying flatbuffer.
 #[derive(Debug, Clone, PartialOrd, PartialEq, Eq)]
 pub struct ViewedDType {
     /// Underlying flatbuffer
@@ -188,6 +191,7 @@ pub struct ViewedDType {
 }
 
 impl ViewedDType {
+    /// Create a [`ViewedDType`] from a [`fbd::DType`] and the shared buffer.
     pub fn from_fb(fb_dtype: fbd::DType<'_>, buffer: ByteBuffer) -> Self {
         Self {
             buffer,
@@ -195,6 +199,7 @@ impl ViewedDType {
         }
     }
 
+    /// Create a [`ViewedDType`] from a buffer and a flatbuffer location
     pub fn with_location(location: usize, buffer: ByteBuffer) -> Self {
         Self {
             buffer,
@@ -202,6 +207,7 @@ impl ViewedDType {
         }
     }
 
+    /// The viewed [`fbd::DType`] instance.
     pub fn flatbuffer(&self) -> fbd::DType<'_> {
         unsafe {
             fbd::DType::init_from_table(flatbuffers::Table::new(
@@ -215,7 +221,9 @@ impl ViewedDType {
 /// DType of a struct's field, either owned or a pointer to an underlying flatbuffer.
 #[derive(Debug, Clone, Eq)]
 pub enum FieldDType {
+    /// Owned DType instance
     Owned(DType),
+    /// A view over a flatbuffer, parsed only when accessed.
     View(ViewedDType),
 }
 
@@ -283,6 +291,7 @@ impl Hash for FieldDType {
 }
 
 impl FieldDType {
+    /// Returns the concrete DType, parsing it from the underlying buffer if necessary.
     pub fn value(&self) -> VortexResult<DType> {
         match self {
             FieldDType::Owned(owned) => Ok(owned.clone()),
@@ -359,13 +368,13 @@ pub struct StructDType {
 
 /// Information about a field in a struct dtype
 #[derive(Debug)]
-pub struct FieldInfo {
+pub struct FieldInfo<'a> {
     /// The position index of the field within the enclosing struct
     pub index: usize,
     /// The name of the field
     pub name: Arc<str>,
     /// The dtype of the field
-    pub dtype: FieldDType,
+    pub dtype: &'a FieldDType,
 }
 
 impl StructDType {
@@ -404,6 +413,7 @@ impl StructDType {
         }
     }
 
+    /// Creates a new instance from a flatbuffer-defined object and its underlying buffer.
     pub fn from_fb(fb_struct: fbd::Struct_<'_>, buffer: ByteBuffer) -> VortexResult<Self> {
         let names = fb_struct
             .names()
@@ -460,8 +470,6 @@ impl StructDType {
     /// Get information about the referenced field, either by name or index
     /// Returns an error if the field is not found
     pub fn field_info(&self, field: &Field) -> VortexResult<FieldInfo> {
-        // FIXME: After projecting, the indexes shift so the original projection breaks,
-        // we either need to keep some mapping or re-resolve.
         let index = match field {
             Field::Name(name) => self
                 .find_name(name)
@@ -474,7 +482,7 @@ impl StructDType {
         Ok(FieldInfo {
             index,
             name: self.names[index].clone(),
-            dtype: self.dtypes[index].clone(),
+            dtype: &self.dtypes[index],
         })
     }
 
@@ -485,7 +493,7 @@ impl StructDType {
 
     /// Returns an ordered iterator over the members of Self.
     pub fn dtypes(&self) -> impl ExactSizeIterator<Item = DType> + '_ {
-        self.dtypes.iter().map(|dt| dt.value().vortex_expect(""))
+        self.dtypes.iter().map(|dt| dt.value().vortex_unwrap())
     }
 
     /// Project a subset of fields from the struct

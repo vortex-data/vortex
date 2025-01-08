@@ -1,5 +1,5 @@
 #![cfg(target_endian = "little")]
-// #![deny(missing_docs)]
+#![deny(missing_docs)]
 
 //! A type system for Vortex
 //!

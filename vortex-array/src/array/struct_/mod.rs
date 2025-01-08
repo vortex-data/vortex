@@ -127,7 +127,7 @@ impl StructArray {
             names.push(self.names()[idx].clone());
             children.push(
                 self.maybe_null_field_by_idx(idx)
-                    .ok_or_else(|| vortex_err!(OutOfBounds: idx, 0, self.dtypes().len()))?,
+                    .ok_or_else(|| vortex_err!(OutOfBounds: idx, 0, self.nfields()))?,
             );
         }
 
