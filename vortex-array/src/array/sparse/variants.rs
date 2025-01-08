@@ -69,7 +69,7 @@ impl StructArrayTrait for SparseArray {
             .vortex_expect("field array length should equal struct array length")?;
         let scalar = StructScalar::try_from(&self.fill_scalar())
             .ok()?
-            .field_by_idx(idx)?;
+            .maybe_null_field_by_idx(idx)?;
 
         Some(
             SparseArray::try_new_from_patches(

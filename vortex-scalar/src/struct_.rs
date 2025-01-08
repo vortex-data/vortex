@@ -43,7 +43,7 @@ impl<'a> StructScalar<'a> {
         self.fields.is_none()
     }
 
-    pub fn field_by_idx(&self, idx: usize) -> Option<Scalar> {
+    pub fn maybe_null_field_by_idx(&self, idx: usize) -> Option<Scalar> {
         let DType::Struct(st, _) = self.dtype() else {
             unreachable!()
         };
@@ -57,11 +57,12 @@ impl<'a> StructScalar<'a> {
             })
     }
 
-    pub fn field(&self, name: &str) -> Option<Scalar> {
+    pub fn maybe_null_field(&self, name: &str) -> Option<Scalar> {
         let DType::Struct(st, _) = self.dtype() else {
             unreachable!()
         };
-        st.find_name(name).and_then(|idx| self.field_by_idx(idx))
+        st.find_name(name)
+            .and_then(|idx| self.maybe_null_field_by_idx(idx))
     }
 
     pub fn fields(&self) -> Option<Vec<Scalar>> {
@@ -69,7 +70,10 @@ impl<'a> StructScalar<'a> {
 
         Some(
             (0..fields.len())
-                .map(|index| self.field_by_idx(index).vortex_expect("struct is non-null"))
+                .map(|index| {
+                    self.maybe_null_field_by_idx(index)
+                        .vortex_expect("struct is non-null")
+                })
                 .collect(),
         )
     }
