@@ -6,9 +6,9 @@ concurrency:
 
 on:
   push:
-    branches: ["develop"]
-  pull_request: {}
-  workflow_dispatch: {}
+    branches: [ "develop" ]
+  pull_request: { }
+  workflow_dispatch: { }
 
 permissions:
   actions: read
@@ -199,7 +199,8 @@ jobs:
     name: "miri"
     runs-on: ubuntu-latest
     env:
-      MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-symbolic-alignment-check -Zmiri-backtrace=full -Zmiri-disable-isolation
+      MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-symbolic-alignment-check -Zmiri-disable-isolation # -Zmiri-backtrace=full
+      RUST_BACKTRACE: 0  # This speeds up tests significantly, re-enable or run locally to debug.
     steps:
       - uses: rui314/setup-mold@v1
       - uses: actions/checkout@v4
