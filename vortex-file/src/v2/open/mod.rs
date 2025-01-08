@@ -1,9 +1,11 @@
-use std::collections::BTreeSet;
+mod split_by;
+
 use std::io::Read;
 use std::ops::Range;
 
 use flatbuffers::root;
 use itertools::Itertools;
+pub use split_by::*;
 use vortex_array::ContextRef;
 use vortex_buffer::{ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
@@ -35,18 +37,6 @@ pub struct OpenOptions {
     //  read + write of Map<MessageId, ByteBuffer> or similar.
     initial_read_size: u64,
     split_by: SplitBy,
-}
-
-/// Defines how the Vortex file is split into batches for reading.
-///
-/// Note that each split must fit into the platform's maximum usize.
-#[derive(Copy, Clone)]
-pub enum SplitBy {
-    /// Splits any time there is a chunk boundary in the file.
-    Layout,
-    /// Splits every n rows.
-    RowCount(usize),
-    // UncompressedSize(u64),
 }
 
 impl OpenOptions {
@@ -145,7 +135,7 @@ impl OpenOptions {
         )?;
 
         // Compute the splits of the file.
-        let splits: Vec<Range<u64>> = self.splits(&file_layout.root_layout)?;
+        let splits: Vec<Range<u64>> = self.split_by.splits(&file_layout.root_layout)?;
 
         // Finally, create the VortexFile.
         Ok(VortexFile {
@@ -269,34 +259,5 @@ impl OpenOptions {
             segments.set(segment_id, bytes.into_inner());
         }
         Ok(())
-    }
-
-    /// Compute the splits of the file.
-    fn splits(&self, root_layout: &LayoutData) -> VortexResult<Vec<Range<u64>>> {
-        Ok(match self.split_by {
-            SplitBy::Layout => {
-                let mut row_splits = BTreeSet::<u64>::new();
-                // Make sure we always have the first and last row.
-                row_splits.insert(0);
-                row_splits.insert(root_layout.row_count());
-                // Register the splits for all the layouts.
-                root_layout.register_splits(0, &mut row_splits)?;
-                row_splits
-                    .into_iter()
-                    .tuple_windows()
-                    .map(|(start, end)| start..end)
-                    .collect()
-            }
-            SplitBy::RowCount(n) => {
-                let row_count = root_layout.row_count();
-                let mut splits =
-                    Vec::with_capacity(usize::try_from((row_count + n as u64) / n as u64)?);
-                for start in (0..row_count).step_by(n) {
-                    let end = (start + n as u64).min(row_count);
-                    splits.push(start..end);
-                }
-                splits
-            }
-        })
     }
 }
