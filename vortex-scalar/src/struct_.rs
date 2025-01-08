@@ -58,7 +58,7 @@ impl<'a> StructScalar<'a> {
                     .clone();
                 debug_assert!(field.is_instance_of(&field_dtype));
                 Some(Scalar {
-                    dtype: field_dtype.with_nullability(nullability.clone()),
+                    dtype: field_dtype.clone(),
                     value: field,
                 })
             })
@@ -190,7 +190,10 @@ mod tests {
         let f1_dt_null = f1_dt.clone().with_nullability(Nullability::Nullable);
 
         let dtype = DType::Struct(
-            StructDType::new(vec!["a".into(), "b".into()], vec![f0_dt, f1_dt].into()),
+            StructDType::new(
+                vec!["a".into(), "b".into()].into(),
+                vec![f0_dt, f1_dt].into(),
+            ),
             Nullability::Nullable,
         );
 

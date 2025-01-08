@@ -213,20 +213,14 @@ pub trait StructArrayTrait: ArrayTrait {
         field_idx.and_then(|field_idx| self.maybe_null_field_by_idx(field_idx))
     }
 
-    fn project(&self, projection: &[Field]) -> VortexResult<ArrayData>;
-}
-
-pub trait StructArrayTraitExt {
-    fn maybe_null_field(&self, field: &Field) -> Option<ArrayData>;
-}
-
-impl StructArrayTraitExt for &dyn StructArrayTrait {
     fn maybe_null_field(&self, field: &Field) -> Option<ArrayData> {
         match field {
             Field::Index(idx) => self.maybe_null_field_by_idx(*idx),
             Field::Name(name) => self.maybe_null_field_by_name(name.as_ref()),
         }
     }
+
+    fn project(&self, projection: &[Field]) -> VortexResult<ArrayData>;
 }
 
 pub trait ListArrayTrait: ArrayTrait {}

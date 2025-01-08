@@ -196,8 +196,7 @@ pub struct FieldInfo<'a> {
 
 impl StructDType {
     /// Create a new `StructDType` from a list of names and dtypes
-    pub fn new(names: impl Into<FieldNames>, dtypes: Vec<DType>) -> Self {
-        let names = names.into();
+    pub fn new(names: FieldNames, dtypes: Vec<DType>) -> Self {
         if names.len() != dtypes.len() {
             vortex_panic!(
                 "length mismatch between names ({}) and dtypes ({})",
@@ -259,7 +258,7 @@ impl StructDType {
             dtypes.push(dtype.clone());
         }
 
-        Ok(StructDType::new(names, dtypes))
+        Ok(StructDType::new(names.into(), dtypes))
     }
 }
 

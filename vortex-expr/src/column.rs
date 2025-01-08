@@ -2,7 +2,6 @@ use std::any::Any;
 use std::fmt::Display;
 use std::sync::Arc;
 
-use vortex_array::variants::StructArrayTraitExt;
 use vortex_array::{ArrayDType, ArrayData};
 use vortex_dtype::Field;
 use vortex_error::{vortex_err, VortexResult};
