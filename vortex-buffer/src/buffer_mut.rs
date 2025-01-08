@@ -338,7 +338,7 @@ impl<T> Clone for BufferMut<T> {
     }
 }
 
-impl<T> Debug for Buffer<T> {
+impl<T> Debug for BufferMut<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         const TRUNC_SIZE: usize = 512;
         let mut binding = f.debug_struct("Buffer");
