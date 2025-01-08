@@ -183,17 +183,24 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn test_struct_scalar_null() {
+    fn setup_types() -> (DType, DType, DType) {
         let f0_dt = DType::Primitive(I32, Nullability::NonNullable);
         let f1_dt = DType::Utf8(Nullability::NonNullable);
-        let f0_dt_null = f0_dt.with_nullability(Nullability::Nullable);
-        let f1_dt_null = f1_dt.with_nullability(Nullability::Nullable);
+        let f0_dt_null = f0_dt.clone().with_nullability(Nullability::Nullable);
+        let f1_dt_null = f1_dt.clone().with_nullability(Nullability::Nullable);
 
         let dtype = DType::Struct(
             StructDType::new(vec!["a".into(), "b".into()], vec![f0_dt, f1_dt].into()),
             Nullability::Nullable,
         );
+
+        (f0_dt_null, f1_dt_null, dtype)
+    }
+
+    #[test]
+    fn test_struct_scalar_null() {
+        let (f0_dt_null, f1_dt_null, dtype) = setup_types();
+
         let scalar = Scalar::null(dtype.clone());
 
         let scalar_f0 = scalar.as_struct().field_by_idx(0);
@@ -211,10 +218,7 @@ mod tests {
 
     #[test]
     fn test_struct_scalar_non_null() {
-        let f0_dt = DType::Primitive(I32, Nullability::NonNullable);
-        let f1_dt = DType::Utf8(Nullability::NonNullable);
-        let f0_dt_null = f0_dt.with_nullability(Nullability::Nullable);
-        let f1_dt_null = f1_dt.with_nullability(Nullability::Nullable);
+        let (f0_dt_null, f1_dt_null, dtype) = setup_types();
 
         let f0_val = Scalar::primitive::<i32>(1, Nullability::NonNullable);
         let f1_val = Scalar::utf8("hello", Nullability::NonNullable);
@@ -222,10 +226,6 @@ mod tests {
         let f0_val_null = Scalar::primitive::<i32>(1, Nullability::Nullable);
         let f1_val_null = Scalar::utf8("hello", Nullability::Nullable);
 
-        let dtype = DType::Struct(
-            StructDType::new(vec!["a".into(), "b".into()], vec![f0_dt, f1_dt].into()),
-            Nullability::Nullable,
-        );
         let scalar = Scalar::struct_(dtype.clone(), vec![f0_val.clone(), f1_val.clone()]);
 
         let scalar_f0 = scalar.as_struct().field_by_idx(0);
