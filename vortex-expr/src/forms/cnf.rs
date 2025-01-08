@@ -31,8 +31,37 @@ use crate::{BinaryExpr, ExprRef, Operator};
 /// use vortex_expr::forms::cnf::cnf;
 ///
 /// assert_eq!(
-///     cnf(or(or(and(col("a"), col("b")), col("c")), col("d"))).unwrap(),
-///     vec![vec![col("a"), col("c"), col("d")], vec![col("b"), col("c"), col("d")]]
+///     cnf(
+///         or(
+///             or(
+///                 and(col("a"), col("b")),
+///                 col("c")
+///             ),
+///             col("d")
+///         )
+///     ).unwrap(),
+///     vec![
+///         vec![col("a"), col("c"), col("d")],
+///         vec![col("b"), col("c"), col("d")]
+///     ]
+/// );
+/// ```
+///
+/// ```
+/// use vortex_expr::{not, col, or, and};
+/// use vortex_expr::forms::cnf::cnf;
+///
+/// assert_eq!(
+///     cnf(
+///         or(
+///             and(col("a"), col("b")),
+///             col("c"),
+///         )
+///     ).unwrap(),
+///     vec![
+///         vec![col("a"), col("c")],
+///         vec![col("b"), col("c")],
+///     ]
 /// );
 /// ```
 ///
