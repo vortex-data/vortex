@@ -50,7 +50,7 @@ impl Display for Scalar {
                         .names()
                         .iter()
                         .enumerate()
-                        .map(|(idx, name)| match v.maybe_null_field_by_idx(idx) {
+                        .map(|(idx, name)| match v.field_by_idx(idx) {
                             None => format!("{name}:null"),
                             Some(val) => format!("{name}:{val}"),
                         })

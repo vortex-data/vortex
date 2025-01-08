@@ -93,7 +93,7 @@ impl StructArrayTrait for ConstantArray {
     fn maybe_null_field_by_idx(&self, idx: usize) -> Option<ArrayData> {
         self.scalar()
             .as_struct()
-            .maybe_null_field_by_idx(idx)
+            .field_by_idx(idx)
             .map(|scalar| ConstantArray::new(scalar, self.len()).into_array())
     }
 
