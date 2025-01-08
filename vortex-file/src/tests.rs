@@ -211,7 +211,7 @@ async fn test_read_projection() {
     let actual = array
         .into_struct()
         .unwrap()
-        .field(0)
+        .maybe_null_field_by_idx(0)
         .unwrap()
         .into_varbinview()
         .unwrap()
@@ -243,7 +243,7 @@ async fn test_read_projection() {
     let actual = array
         .into_struct()
         .unwrap()
-        .field(0)
+        .maybe_null_field_by_idx(0)
         .unwrap()
         .into_varbinview()
         .unwrap()
@@ -275,7 +275,7 @@ async fn test_read_projection() {
     let primitive_array = array
         .into_struct()
         .unwrap()
-        .field(0)
+        .maybe_null_field_by_idx(0)
         .unwrap()
         .into_primitive()
         .unwrap();
@@ -303,7 +303,7 @@ async fn test_read_projection() {
     let primitive_array = array
         .into_struct()
         .unwrap()
-        .field(0)
+        .maybe_null_field_by_idx(0)
         .unwrap()
         .into_primitive()
         .unwrap();
@@ -345,7 +345,10 @@ async fn unequal_batches() {
         item_count += array.len();
         batch_count += 1;
 
-        let numbers = array.as_struct_array().unwrap().field_by_name("numbers");
+        let numbers = array
+            .as_struct_array()
+            .unwrap()
+            .maybe_null_field_by_name("numbers");
 
         if let Some(numbers) = numbers {
             let numbers = numbers.into_primitive().unwrap();
@@ -437,7 +440,11 @@ async fn filter_string() {
 
     let result = stream.try_collect::<Vec<_>>().await.unwrap();
     assert_eq!(result.len(), 1);
-    let names = result[0].as_struct_array().unwrap().field(0).unwrap();
+    let names = result[0]
+        .as_struct_array()
+        .unwrap()
+        .maybe_null_field_by_idx(0)
+        .unwrap();
     assert_eq!(
         names
             .into_varbinview()
@@ -449,7 +456,11 @@ async fn filter_string() {
             .unwrap(),
         vec!["Joseph".to_string()]
     );
-    let ages = result[0].as_struct_array().unwrap().field(1).unwrap();
+    let ages = result[0]
+        .as_struct_array()
+        .unwrap()
+        .maybe_null_field_by_idx(1)
+        .unwrap();
     assert_eq!(ages.into_primitive().unwrap().as_slice::<i32>(), vec![25]);
 }
 
@@ -492,7 +503,11 @@ async fn filter_or() {
         result.push(array.unwrap());
     }
     assert_eq!(result.len(), 1);
-    let names = result[0].as_struct_array().unwrap().field(0).unwrap();
+    let names = result[0]
+        .as_struct_array()
+        .unwrap()
+        .maybe_null_field_by_idx(0)
+        .unwrap();
     assert_eq!(
         names
             .into_varbinview()
@@ -504,7 +519,11 @@ async fn filter_or() {
             .unwrap(),
         vec!["Joseph".to_string(), "Angela".to_string()]
     );
-    let ages = result[0].as_struct_array().unwrap().field(1).unwrap();
+    let ages = result[0]
+        .as_struct_array()
+        .unwrap()
+        .maybe_null_field_by_idx(1)
+        .unwrap();
     assert_eq!(
         ages.into_primitive()
             .unwrap()
@@ -549,7 +568,11 @@ async fn filter_and() {
         result.push(array.unwrap());
     }
     assert_eq!(result.len(), 1);
-    let names = result[0].as_struct_array().unwrap().field(0).unwrap();
+    let names = result[0]
+        .as_struct_array()
+        .unwrap()
+        .maybe_null_field_by_idx(0)
+        .unwrap();
     assert_eq!(
         names
             .into_varbinview()
@@ -560,7 +583,11 @@ async fn filter_and() {
             .unwrap(),
         vec![Some("Joseph".to_string()), None]
     );
-    let ages = result[0].as_struct_array().unwrap().field(1).unwrap();
+    let ages = result[0]
+        .as_struct_array()
+        .unwrap()
+        .maybe_null_field_by_idx(1)
+        .unwrap();
     assert_eq!(
         ages.into_primitive().unwrap().as_slice::<i32>(),
         vec![25, 31]
@@ -617,7 +644,7 @@ async fn test_with_indices_simple() {
         .into_struct()
         .unwrap();
     let actual_kept_numbers_array = actual_kept_array
-        .field(0)
+        .maybe_null_field_by_idx(0)
         .unwrap()
         .into_primitive()
         .unwrap();
@@ -640,7 +667,11 @@ async fn test_with_indices_simple() {
         .unwrap()
         .into_struct()
         .unwrap();
-    let actual_numbers_array = actual_array.field(0).unwrap().into_primitive().unwrap();
+    let actual_numbers_array = actual_array
+        .maybe_null_field_by_idx(0)
+        .unwrap()
+        .into_primitive()
+        .unwrap();
     let actual_numbers = actual_numbers_array.as_slice::<i16>();
 
     assert_eq!(expected_numbers, actual_numbers);
@@ -684,7 +715,7 @@ async fn test_with_indices_on_two_columns() {
         .unwrap();
 
     let strings_actual = array
-        .field(0)
+        .maybe_null_field_by_idx(0)
         .unwrap()
         .into_varbinview()
         .unwrap()
@@ -701,7 +732,11 @@ async fn test_with_indices_on_two_columns() {
             .collect::<Vec<_>>()
     );
 
-    let numbers_actual_array = array.field(1).unwrap().into_primitive().unwrap();
+    let numbers_actual_array = array
+        .maybe_null_field_by_idx(1)
+        .unwrap()
+        .into_primitive()
+        .unwrap();
     let numbers_actual = numbers_actual_array.as_slice::<u32>();
     assert_eq!(
         numbers_actual,
@@ -775,7 +810,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
         .into_struct()
         .unwrap();
     let actual_kept_numbers_array = actual_kept_array
-        .field(0)
+        .maybe_null_field_by_idx(0)
         .unwrap()
         .into_primitive()
         .unwrap();
@@ -806,7 +841,11 @@ async fn test_with_indices_and_with_row_filter_simple() {
         .unwrap()
         .into_struct()
         .unwrap();
-    let actual_numbers_array = actual_array.field(0).unwrap().into_primitive().unwrap();
+    let actual_numbers_array = actual_array
+        .maybe_null_field_by_idx(0)
+        .unwrap()
+        .into_primitive()
+        .unwrap();
     let actual_numbers = actual_numbers_array.as_slice::<i16>();
 
     assert_eq!(
@@ -872,7 +911,11 @@ async fn filter_string_chunked() {
             .unwrap();
 
     assert_eq!(actual_array.len(), 1);
-    let names = actual_array.as_struct_array().unwrap().field(0).unwrap();
+    let names = actual_array
+        .as_struct_array()
+        .unwrap()
+        .maybe_null_field_by_idx(0)
+        .unwrap();
     assert_eq!(
         names
             .into_varbinview()
@@ -884,7 +927,11 @@ async fn filter_string_chunked() {
             .unwrap(),
         vec!["Joseph".to_string()]
     );
-    let ages = actual_array.as_struct_array().unwrap().field(1).unwrap();
+    let ages = actual_array
+        .as_struct_array()
+        .unwrap()
+        .maybe_null_field_by_idx(1)
+        .unwrap();
     assert_eq!(ages.into_primitive().unwrap().as_slice::<i32>(), vec![25]);
 }
 
@@ -960,7 +1007,11 @@ async fn test_pruning_with_or() {
             .unwrap();
 
     assert_eq!(actual_array.len(), 10);
-    let letters = actual_array.as_struct_array().unwrap().field(0).unwrap();
+    let letters = actual_array
+        .as_struct_array()
+        .unwrap()
+        .maybe_null_field_by_idx(0)
+        .unwrap();
     assert_eq!(
         letters
             .into_varbinview()
@@ -982,7 +1033,11 @@ async fn test_pruning_with_or() {
             Some("P".to_string())
         ]
     );
-    let numbers = actual_array.as_struct_array().unwrap().field(1).unwrap();
+    let numbers = actual_array
+        .as_struct_array()
+        .unwrap()
+        .maybe_null_field_by_idx(1)
+        .unwrap();
     assert_eq!(
         (0..numbers.len())
             .map(|index| -> Option<i32> {

@@ -13,7 +13,7 @@ use vortex_error::VortexResult;
 pub fn array_to_col_statistics(array: &StructArray) -> VortexResult<ColumnStatistics> {
     let mut stats = ColumnStatistics::new_unknown();
 
-    if let Some(null_count_array) = array.field_by_name(Stat::NullCount.name()) {
+    if let Some(null_count_array) = array.maybe_null_field_by_name(Stat::NullCount.name()) {
         let array = null_count_array.into_arrow()?;
         let array = array.as_primitive::<UInt64Type>();
 
@@ -21,7 +21,7 @@ pub fn array_to_col_statistics(array: &StructArray) -> VortexResult<ColumnStatis
         stats.null_count = Precision::Exact(null_count as usize);
     }
 
-    if let Some(max_value_array) = array.field_by_name(Stat::Max.name()) {
+    if let Some(max_value_array) = array.maybe_null_field_by_name(Stat::Max.name()) {
         let array = max_value_array.into_arrow()?;
         let mut acc = MaxAccumulator::try_new(array.data_type())?;
         acc.update_batch(&[array])?;
@@ -30,7 +30,7 @@ pub fn array_to_col_statistics(array: &StructArray) -> VortexResult<ColumnStatis
         stats.max_value = Precision::Exact(max_val)
     }
 
-    if let Some(min_value_array) = array.field_by_name(Stat::Min.name()) {
+    if let Some(min_value_array) = array.maybe_null_field_by_name(Stat::Min.name()) {
         let array = min_value_array.into_arrow()?;
         let mut acc = MinAccumulator::try_new(array.data_type())?;
         acc.update_batch(&[array])?;
@@ -43,7 +43,7 @@ pub fn array_to_col_statistics(array: &StructArray) -> VortexResult<ColumnStatis
 }
 
 pub fn uncompressed_col_size(array: &StructArray) -> VortexResult<Option<u64>> {
-    match array.field_by_name(Stat::UncompressedSizeInBytes.name()) {
+    match array.maybe_null_field_by_name(Stat::UncompressedSizeInBytes.name()) {
         None => Ok(None),
         Some(array) => {
             let array = array.into_arrow()?;

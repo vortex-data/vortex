@@ -517,7 +517,7 @@ mod tests {
             .unwrap()
             .as_struct_array()
             .unwrap()
-            .field(0)
+            .maybe_null_field_by_idx(0)
             .unwrap()
             .into_primitive()
             .unwrap();
@@ -526,7 +526,7 @@ mod tests {
             .unwrap()
             .as_struct_array()
             .unwrap()
-            .field(1)
+            .maybe_null_field_by_idx(1)
             .unwrap()
             .into_varbinview()
             .unwrap();
@@ -555,7 +555,7 @@ mod tests {
             .unwrap()
             .as_struct_array()
             .unwrap()
-            .field(0)
+            .maybe_null_field_by_idx(0)
             .unwrap()
             .into_primitive()
             .unwrap();
@@ -564,7 +564,7 @@ mod tests {
             .unwrap()
             .as_struct_array()
             .unwrap()
-            .field(1)
+            .maybe_null_field_by_idx(1)
             .unwrap()
             .into_varbinview()
             .unwrap();
@@ -603,14 +603,14 @@ mod tests {
         let prim_arr_chunk0 = arr[0]
             .as_struct_array()
             .unwrap()
-            .field(0)
+            .maybe_null_field_by_idx(0)
             .unwrap()
             .into_primitive()
             .unwrap();
         let str_arr_chunk0 = arr[0]
             .as_struct_array()
             .unwrap()
-            .field(1)
+            .maybe_null_field_by_idx(1)
             .unwrap()
             .into_varbinview()
             .unwrap();
@@ -630,14 +630,14 @@ mod tests {
         let prim_arr_chunk1 = arr[1]
             .as_struct_array()
             .unwrap()
-            .field(0)
+            .maybe_null_field_by_idx(0)
             .unwrap()
             .into_primitive()
             .unwrap();
         let str_arr_chunk1 = arr[1]
             .as_struct_array()
             .unwrap()
-            .field(1)
+            .maybe_null_field_by_idx(1)
             .unwrap()
             .into_varbinview()
             .unwrap();

@@ -136,7 +136,7 @@ mod test {
             .as_struct_array()
             .unwrap();
 
-        let min = name_metadata_table.field_by_name("min").unwrap();
+        let min = name_metadata_table.maybe_null_field_by_name("min").unwrap();
         let chunk1_min = scalar_at(&min, 0).unwrap();
         let chunk2_min = scalar_at(&min, 1).unwrap();
         assert_eq!(
@@ -148,7 +148,7 @@ mod test {
             Some(BufferString::from("Khalil"))
         );
 
-        let max = name_metadata_table.field_by_name("max").unwrap();
+        let max = name_metadata_table.maybe_null_field_by_name("max").unwrap();
         let chunk1_max = scalar_at(&max, 0).unwrap();
         let chunk2_max = scalar_at(&max, 1).unwrap();
         assert_eq!(
@@ -160,7 +160,9 @@ mod test {
             Some(BufferString::from("Pharrell"))
         );
 
-        let null_count = name_metadata_table.field_by_name("null_count").unwrap();
+        let null_count = name_metadata_table
+            .maybe_null_field_by_name("null_count")
+            .unwrap();
         let chunk1_null_count = scalar_at(&null_count, 0).unwrap();
         let chunk2_null_count = scalar_at(&null_count, 1).unwrap();
         assert_eq!(
@@ -178,19 +180,21 @@ mod test {
             .as_struct_array()
             .unwrap();
 
-        let min = age_metadata_table.field_by_name("min").unwrap();
+        let min = age_metadata_table.maybe_null_field_by_name("min").unwrap();
         let chunk1_min = scalar_at(&min, 0).unwrap();
         let chunk2_min = scalar_at(&min, 1).unwrap();
         assert_eq!(chunk1_min.as_primitive().typed_value::<i32>(), Some(25));
         assert_eq!(chunk2_min.as_primitive().typed_value::<i32>(), Some(18));
 
-        let max = age_metadata_table.field_by_name("max").unwrap();
+        let max = age_metadata_table.maybe_null_field_by_name("max").unwrap();
         let chunk1_max = scalar_at(&max, 0).unwrap();
         let chunk2_max = scalar_at(&max, 1).unwrap();
         assert_eq!(chunk1_max.as_primitive().typed_value::<i32>(), Some(31));
         assert_eq!(chunk2_max.as_primitive().typed_value::<i32>(), Some(57));
 
-        let null_count = age_metadata_table.field_by_name("null_count").unwrap();
+        let null_count = age_metadata_table
+            .maybe_null_field_by_name("null_count")
+            .unwrap();
         let chunk1_null_count = scalar_at(&null_count, 0).unwrap();
         let chunk2_null_count = scalar_at(&null_count, 1).unwrap();
         assert_eq!(

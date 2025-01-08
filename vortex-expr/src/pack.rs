@@ -30,7 +30,7 @@ use crate::{ExprRef, VortexExpr};
 /// let x_copy = packed
 ///     .as_struct_array()
 ///     .unwrap()
-///     .field_by_name("x copy")
+///     .maybe_null_field_by_name("x copy")
 ///     .unwrap();
 /// assert_eq!(scalar_at(&x_copy, 0).unwrap(), Scalar::from(100));
 /// assert_eq!(scalar_at(&x_copy, 1).unwrap(), Scalar::from(110));
@@ -140,14 +140,14 @@ mod tests {
         let mut array = array
             .as_struct_array()
             .ok_or_else(|| vortex_err!("expected a struct"))?
-            .field_by_name(field)
+            .maybe_null_field_by_name(field)
             .ok_or_else(|| vortex_err!("expected field to exist: {}", field))?;
 
         for field in field_path {
             array = array
                 .as_struct_array()
                 .ok_or_else(|| vortex_err!("expected a struct"))?
-                .field_by_name(field)
+                .maybe_null_field_by_name(field)
                 .ok_or_else(|| vortex_err!("expected field to exist: {}", field))?;
         }
         Ok(array.into_primitive().unwrap())

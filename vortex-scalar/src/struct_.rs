@@ -44,34 +44,38 @@ impl<'a> StructScalar<'a> {
     }
 
     pub fn field_by_idx(&self, idx: usize) -> Option<Scalar> {
-        let DType::Struct(st, _) = self.dtype() else {
+        let DType::Struct(st, nullability) = self.dtype() else {
             unreachable!()
         };
 
-        self.fields
-            .as_ref()
-            .and_then(|fields| fields.get(idx))
-            .map(|field| Scalar {
-                dtype: st.field_dtype(idx).vortex_expect(""),
-                value: field.clone(),
+        let field_dtype = st.field_dtype(idx).ok()?.with_nullability(*nullability);
+
+        let scalar = self
+            .fields
+            .and_then(|values| values.get(idx))
+            .map(|value| Scalar {
+                dtype: field_dtype.clone(),
+                value: value.clone(),
             })
+            .unwrap_or_else(|| Scalar::null(field_dtype));
+
+        Some(scalar)
     }
 
-    pub fn field(&self, name: &str) -> Option<Scalar> {
+    pub fn field_by_name(&self, name: &str) -> Option<Scalar> {
         let DType::Struct(st, _) = self.dtype() else {
             unreachable!()
         };
+
         st.find_name(name).and_then(|idx| self.field_by_idx(idx))
     }
 
     pub fn fields(&self) -> Option<Vec<Scalar>> {
         let fields = self.fields?;
 
-        Some(
-            (0..fields.len())
-                .map(|index| self.field_by_idx(index).vortex_expect("struct is non-null"))
-                .collect(),
-        )
+        (0..fields.len())
+            .map(|index| self.field_by_idx(index))
+            .collect::<Option<Vec<_>>>()
     }
 
     pub(crate) fn field_values(&self) -> Option<&[ScalarValue]> {
@@ -165,5 +169,71 @@ impl<'a> TryFrom<&'a Scalar> for StructScalar<'a> {
 
     fn try_from(value: &'a Scalar) -> Result<Self, Self::Error> {
         Self::try_new(value.dtype(), &value.value)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_dtype::PType::I32;
+    use vortex_dtype::{DType, Nullability, StructDType};
+
+    use super::*;
+
+    fn setup_types() -> (DType, DType, DType) {
+        let f0_dt = DType::Primitive(I32, Nullability::NonNullable);
+        let f1_dt = DType::Utf8(Nullability::NonNullable);
+        let f0_dt_null = f0_dt.with_nullability(Nullability::Nullable);
+        let f1_dt_null = f1_dt.with_nullability(Nullability::Nullable);
+
+        let dtype = DType::Struct(
+            StructDType::new(vec!["a".into(), "b".into()].into(), vec![f0_dt, f1_dt]),
+            Nullability::Nullable,
+        );
+
+        (f0_dt_null, f1_dt_null, dtype)
+    }
+
+    #[test]
+    fn test_struct_scalar_null() {
+        let (f0_dt_null, f1_dt_null, dtype) = setup_types();
+
+        let scalar = Scalar::null(dtype);
+
+        let scalar_f0 = scalar.as_struct().field_by_idx(0);
+        assert!(scalar_f0.is_some());
+        let scalar_f0 = scalar_f0.unwrap();
+        assert_eq!(scalar_f0, Scalar::null(f0_dt_null.clone()));
+        assert_eq!(scalar_f0.dtype(), &f0_dt_null);
+
+        let scalar_f1 = scalar.as_struct().field_by_idx(1);
+        assert!(scalar_f1.is_some());
+        let scalar_f1 = scalar_f1.unwrap();
+        assert_eq!(scalar_f1, Scalar::null(f1_dt_null.clone()));
+        assert_eq!(scalar_f1.dtype(), &f1_dt_null);
+    }
+
+    #[test]
+    fn test_struct_scalar_non_null() {
+        let (f0_dt_null, f1_dt_null, dtype) = setup_types();
+
+        let f0_val = Scalar::primitive::<i32>(1, Nullability::NonNullable);
+        let f1_val = Scalar::utf8("hello", Nullability::NonNullable);
+
+        let f0_val_null = Scalar::primitive::<i32>(1, Nullability::Nullable);
+        let f1_val_null = Scalar::utf8("hello", Nullability::Nullable);
+
+        let scalar = Scalar::struct_(dtype, vec![f0_val, f1_val]);
+
+        let scalar_f0 = scalar.as_struct().field_by_idx(0);
+        assert!(scalar_f0.is_some());
+        let scalar_f0 = scalar_f0.unwrap();
+        assert_eq!(scalar_f0, f0_val_null);
+        assert_eq!(scalar_f0.dtype(), &f0_dt_null);
+
+        let scalar_f1 = scalar.as_struct().field_by_idx(1);
+        assert!(scalar_f1.is_some());
+        let scalar_f1 = scalar_f1.unwrap();
+        assert_eq!(scalar_f1, f1_val_null);
+        assert_eq!(scalar_f1.dtype(), &f1_dt_null);
     }
 }
