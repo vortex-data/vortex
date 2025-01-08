@@ -40,21 +40,21 @@ fn derive_toavro_struct(typename: &syn::Ident, fields: &FieldsNamed) -> proc_mac
         let name = f.ident.clone().unwrap();
         let typ = f.ty.clone();
         quote! {
-            (stringify!(#name).to_string(), <#typ as Into<proc_macro_traits::AvroValue>>::into(value.#name))
+            (stringify!(#name).to_string(), <#typ as Into<vortex_avro::AvroValue>>::into(value.#name))
         }
     }).collect::<Vec<_>>();
 
     let schema = crate::schema::generate_schema_struct(typename, fields);
 
     let impls = quote! {
-        impl From<#typename> for proc_macro_traits::AvroValue {
+        impl From<#typename> for vortex_avro::AvroValue {
             fn from(value: #typename) -> Self {
                 let fields = vec![#(#record_fields,)*];
                 Self::Record(fields)
             }
         }
 
-        impl proc_macro_traits::ToAvro for #typename {
+        impl vortex_avro::ToAvro for #typename {
             fn write_schema() -> apache_avro::Schema {
                 #schema
             }
@@ -104,7 +104,7 @@ fn derive_to_avro_enum_unit(typename: &syn::Ident, e: &syn::DataEnum) -> proc_ma
     };
 
     quote! {
-        impl From<#typename> for proc_macro_traits::AvroValue {
+        impl From<#typename> for vortex_avro::AvroValue {
             fn from(value: #typename) -> Self {
                 let (idx, name) = match value {
                     #(#match_clauses)*
@@ -114,7 +114,7 @@ fn derive_to_avro_enum_unit(typename: &syn::Ident, e: &syn::DataEnum) -> proc_ma
             }
         }
 
-        impl proc_macro_traits::ToAvro for #typename {
+        impl vortex_avro::ToAvro for #typename {
             fn write_schema() -> apache_avro::Schema {
                 #enum_schema
             }

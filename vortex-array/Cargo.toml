@@ -46,11 +46,10 @@ num-traits = { workspace = true }
 num_enum = { workspace = true }
 paste = { workspace = true }
 pin-project = { workspace = true }
-proc-macro-traits = { workspace = true }
-proc-macros = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 static_assertions = { workspace = true }
+vortex-avro = { workspace = true }
 vortex-buffer = { workspace = true, features = ["arrow"] }
 vortex-datetime-dtype = { workspace = true }
 vortex-dtype = { workspace = true, features = ["serde"] }

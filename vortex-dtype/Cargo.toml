@@ -26,13 +26,12 @@ itertools = { workspace = true }
 num-traits = { workspace = true }
 prost = { workspace = true, optional = true }
 serde = { workspace = true, optional = true, features = ["rc", "derive"] }
+vortex-avro = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true, features = ["flatbuffers"] }
 vortex-flatbuffers = { workspace = true, features = ["dtype"] }
 vortex-proto = { workspace = true, optional = true }
 
-proc-macros = { workspace = true }
-proc-macro-traits = { workspace = true }
 apache-avro = { workspace = true }
 
 [dev-dependencies]

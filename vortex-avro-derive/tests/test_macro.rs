@@ -4,8 +4,7 @@
 
 use apache_avro::schema::{Name, RecordField, RecordFieldOrder, RecordSchema};
 use apache_avro::Schema;
-use proc_macro_traits::{AvroValue, FromAvro, ToAvro};
-use proc_macros::{FromAvro, ToAvro};
+use vortex_avro::{AvroValue, FromAvro, ToAvro};
 
 // Test the derive macro defined by this crate.
 //

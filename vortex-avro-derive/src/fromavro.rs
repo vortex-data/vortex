@@ -79,11 +79,11 @@ fn derive_from_avro_enum_unit(name: &syn::Ident, e: &syn::DataEnum) -> proc_macr
         .collect::<Vec<_>>();
 
     quote! {
-        impl TryFrom<proc_macro_traits::AvroValue> for #name {
+        impl TryFrom<vortex_avro::AvroValue> for #name {
             type Error = vortex_error::VortexError;
 
-            fn try_from(value: proc_macro_traits::AvroValue) -> Result<Self, Self::Error> {
-                let proc_macro_traits::AvroValue::Enum(variant_idx, variant_name) = value else {
+            fn try_from(value: vortex_avro::AvroValue) -> Result<Self, Self::Error> {
+                let vortex_avro::AvroValue::Enum(variant_idx, variant_name) = value else {
                     vortex_error::vortex_bail!("expected an enum");
                 };
 
@@ -124,7 +124,7 @@ fn generate_try_from_avrovalue(
             assert_eq!(name, stringify!(#name), "field name mismatch: expected {} but got {}", stringify!(#name), name);
 
             // Assign to the given name field.
-            let #extracted_name: #typ = <#typ as TryFrom<proc_macro_traits::AvroValue>>::try_from(avro_value)?;
+            let #extracted_name: #typ = <#typ as TryFrom<vortex_avro::AvroValue>>::try_from(avro_value)?;
         }
     }).collect::<Vec<_>>();
 
@@ -143,11 +143,11 @@ fn generate_try_from_avrovalue(
     let read_schema = crate::schema::generate_schema_struct(typename, fields);
 
     quote! {
-        impl TryFrom<proc_macro_traits::AvroValue> for #typename {
+        impl TryFrom<vortex_avro::AvroValue> for #typename {
             type Error = vortex_error::VortexError;
 
-            fn try_from(value: proc_macro_traits::AvroValue) -> Result<Self, Self::Error> {
-                let proc_macro_traits::AvroValue::Record(fields) = value else {
+            fn try_from(value: vortex_avro::AvroValue) -> Result<Self, Self::Error> {
+                let vortex_avro::AvroValue::Record(fields) = value else {
                     vortex_error::vortex_bail!("expected a record");
                 };
 
@@ -160,7 +160,7 @@ fn generate_try_from_avrovalue(
             }
         }
 
-        impl proc_macro_traits::FromAvro for #typename {
+        impl vortex_avro::FromAvro for #typename {
             fn read_schema() -> apache_avro::Schema {
                 #read_schema
             }

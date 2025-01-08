@@ -18,7 +18,7 @@ pub(crate) fn generate_schema_struct(
                 apache_avro::schema::RecordField {
                     name: stringify!(#name).to_string(),
                     doc: None,
-                    schema: <#typ as proc_macro_traits::FromAvro>::read_schema(),
+                    schema: <#typ as vortex_avro::FromAvro>::read_schema(),
                     aliases: core::default::Default::default(),
                     default: core::default::Default::default(),
                     order: apache_avro::schema::RecordFieldOrder::Ignore,

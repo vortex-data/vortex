@@ -3,11 +3,11 @@ members = [
     "bench-vortex",
     "encodings/*",
     "fuzz", 
-    "proc-macro-traits",
-    "proc-macros",
     "pyvortex",
     "vortex",
     "vortex-array",
+    "vortex-avro",
+    "vortex-avro-derive",
     "vortex-buffer",
     "vortex-datafusion",
     "vortex-datetime-dtype",
@@ -135,11 +135,11 @@ uuid = "1.8.0"
 wasm-bindgen-futures = "0.4"
 
 # BEGIN crates published by this project
-proc-macro-traits = { version = "0.21.1", path = "./proc-macro-traits" }
-proc-macros = { version = "0.21.1", path = "./proc-macros" }
 vortex = { version = "0.21.1", path = "./vortex" }
 vortex-alp = { version = "0.21.1", path = "./encodings/alp" }
 vortex-array = { version = "0.21.1", path = "./vortex-array" }
+vortex-avro = { version = "0.21.1", path = "./vortex-avro" }
+vortex-avro-derive = { version = "0.21.1", path = "./vortex-avro-derive" }
 vortex-buffer = { version = "0.21.1", path = "./vortex-buffer" }
 vortex-bytebool = { version = "0.21.1", path = "./encodings/bytebool" }
 vortex-datafusion = { version = "0.21.1", path = "./vortex-datafusion" }

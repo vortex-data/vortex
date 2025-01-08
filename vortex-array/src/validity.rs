@@ -4,9 +4,8 @@ use std::fmt::{Debug, Display};
 use std::ops::BitAnd;
 
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, NullBuffer};
-use proc_macro_traits::FromAvro;
-use proc_macros::{FromAvro, ToAvro};
 use serde::{Deserialize, Serialize};
+use vortex_avro::{FromAvro, ToAvro};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{
     vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect as _, VortexResult,

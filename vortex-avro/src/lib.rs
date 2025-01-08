@@ -6,6 +6,7 @@ use apache_avro::schema::UnionSchema;
 use apache_avro::types::Value;
 use apache_avro::{from_avro_datum, to_avro_datum, BigDecimal, Decimal, Duration, Schema};
 use uuid::Uuid;
+pub use vortex_avro_derive::{FromAvro, ToAvro};
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 
 /// AvroValue is based on `Value` from the Avro crate, but without the blanket impls. This is so we have control over how the
@@ -180,7 +181,7 @@ macro_rules! impl_from_prim {
 
             fn try_from(value: AvroValue) -> Result<Self, Self::Error> {
                 if let $value_variant(v) = value.into() {
-                    Ok(<$ty>::try_from(v)?)
+                    Ok(<$inner>::try_from(v)? as $ty)
                 } else {
                     Err(vortex_err!(
                         "Expected value to be a {} but it was not",

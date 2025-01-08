@@ -1,5 +1,5 @@
 [package]
-name = "proc-macro-traits"
+name = "vortex-avro"
 description = "Common Vortex traits that are auto-derived"
 version.workspace = true
 homepage.workspace = true
@@ -17,6 +17,7 @@ categories.workspace = true
 apache-avro = { workspace = true }
 uuid = { workspace = true }
 
+vortex-avro-derive = { workspace = true }
 vortex-error = { workspace = true }
 
 [lints]

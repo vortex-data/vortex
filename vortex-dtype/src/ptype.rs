@@ -7,7 +7,7 @@ use std::panic::RefUnwindSafe;
 
 use num_traits::bounds::UpperBounded;
 use num_traits::{FromPrimitive, Num, NumCast, ToPrimitive};
-use proc_macros::{FromAvro, ToAvro};
+use vortex_avro::{FromAvro, ToAvro};
 use vortex_error::{vortex_err, VortexError, VortexResult};
 
 use crate::half::f16;
