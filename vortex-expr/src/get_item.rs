@@ -61,6 +61,7 @@ impl VortexExpr for GetItem {
             .as_struct_array()
             .ok_or_else(|| vortex_err!("GetItem: child array into struct"))?;
 
+        // TODO(joe): apply struct validity
         match &self.field {
             Field::Name(name) => st.field_by_name(name.as_ref()),
             Field::Index(idx) => st.field(*idx),
