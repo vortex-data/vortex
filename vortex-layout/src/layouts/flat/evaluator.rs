@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use vortex_array::compute::{filter, FilterMask};
 use vortex_array::ArrayData;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
@@ -10,8 +11,37 @@ use crate::layouts::flat::reader::FlatReader;
 use crate::operations::{Operation, Poll};
 use crate::reader::LayoutScanExt;
 use crate::segments::SegmentReader;
+use crate::{Evaluator, RowMask};
 
-#[derive(Debug)]
+#[async_trait]
+impl Evaluator for FlatReader {
+    async fn evaluate(
+        self: Arc<Self>,
+        row_mask: RowMask,
+        expr: ExprRef,
+    ) -> VortexResult<ArrayData> {
+        // Grab the byte buffer for the segment.
+        let bytes = self.segments().get(self.segment_id()).await?;
+
+        // Decode the ArrayParts from the message bytes.
+        // TODO(ngates): ArrayParts should probably live in vortex-array, and not required
+        //  IPC message framing to read or write.
+        let mut msg_reader = BufMessageReader::new(bytes);
+        let array = if let DecoderMessage::Array(parts) = msg_reader
+            .next()
+            .ok_or_else(|| vortex_err!("Flat message body missing"))??
+        {
+            parts.into_array_data(self.ctx(), self.dtype().clone())
+        } else {
+            vortex_bail!("Flat message is not ArrayParts")
+        }?;
+
+        // TODO(ngates): what's the best order to apply the filter mask / expression?
+        let array = expr.evaluate(&array)?;
+        filter(&array, row_mask.into_filter_mask()?)
+    }
+}
+
 pub(crate) struct FlatEvaluator {
     reader: Arc<FlatReader>,
     filter_mask: Option<FilterMask>,
@@ -67,6 +97,8 @@ impl Operation for FlatEvaluator {
 
 #[cfg(test)]
 mod test {
+    use std::sync::Arc;
+
     use arrow_buffer::BooleanBuffer;
     use vortex_array::array::PrimitiveArray;
     use vortex_array::validity::Validity;
@@ -86,9 +118,11 @@ mod test {
             .push_one(&mut segments, array.to_array())
             .unwrap();
 
+        let segments = Arc::new(segments);
         let result = segments
+            .clone()
             .evaluate(
-                layout.reader(Default::default()).unwrap(),
+                layout.reader(segments, Default::default()).unwrap(),
                 Identity::new_expr(),
             )
             .into_primitive()
@@ -104,10 +138,12 @@ mod test {
         let layout = FlatLayoutWriter::new(array.dtype().clone())
             .push_one(&mut segments, array.to_array())
             .unwrap();
+        let segments = Arc::new(segments);
 
         let expr = gt(Identity::new_expr(), lit(3i32));
         let result = segments
-            .evaluate(layout.reader(Default::default()).unwrap(), expr)
+            .clone()
+            .evaluate(layout.reader(segments, Default::default()).unwrap(), expr)
             .into_bool()
             .unwrap();
 

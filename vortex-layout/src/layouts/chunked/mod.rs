@@ -14,6 +14,7 @@ use crate::data::LayoutData;
 use crate::encoding::{LayoutEncoding, LayoutId};
 use crate::layouts::chunked::reader::ChunkedReader;
 use crate::reader::{LayoutReader, LayoutScanExt};
+use crate::segments::AsyncSegmentReader;
 use crate::CHUNKED_LAYOUT_ID;
 
 #[derive(Default, Debug)]
@@ -28,8 +29,13 @@ impl LayoutEncoding for ChunkedLayout {
         CHUNKED_LAYOUT_ID
     }
 
-    fn reader(&self, layout: LayoutData, ctx: ContextRef) -> VortexResult<Arc<dyn LayoutReader>> {
-        Ok(ChunkedReader::try_new(layout, ctx)?.into_arc())
+    fn reader(
+        &self,
+        layout: LayoutData,
+        ctx: ContextRef,
+        segments: Arc<dyn AsyncSegmentReader>,
+    ) -> VortexResult<Arc<dyn LayoutReader>> {
+        Ok(ChunkedReader::try_new(layout, ctx, segments)?.into_arc())
     }
 
     fn register_splits(

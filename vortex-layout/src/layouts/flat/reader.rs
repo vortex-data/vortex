@@ -8,13 +8,13 @@ use crate::layouts::flat::evaluator::FlatEvaluator;
 use crate::layouts::flat::FlatLayout;
 use crate::operations::OperationExt;
 use crate::reader::{EvalOp, LayoutReader};
-use crate::segments::SegmentId;
+use crate::segments::{AsyncSegmentReader, SegmentId};
 use crate::{LayoutData, LayoutEncoding, RowMask};
 
-#[derive(Debug)]
 pub struct FlatReader {
     layout: LayoutData,
     ctx: ContextRef,
+    segments: Arc<dyn AsyncSegmentReader>,
     // The segment ID of the array in this FlatLayout.
     // NOTE(ngates): we don't cache the ArrayData here since the cache lives for as long as the
     //  reader does, which means likely holding a strong reference to the array for much longer
@@ -23,7 +23,11 @@ pub struct FlatReader {
 }
 
 impl FlatReader {
-    pub(crate) fn try_new(layout: LayoutData, ctx: ContextRef) -> VortexResult<Self> {
+    pub(crate) fn try_new(
+        layout: LayoutData,
+        ctx: ContextRef,
+        segments: Arc<dyn AsyncSegmentReader>,
+    ) -> VortexResult<Self> {
         if layout.encoding().id() != FlatLayout.id() {
             vortex_panic!("Mismatched layout ID")
         }
@@ -35,12 +39,17 @@ impl FlatReader {
         Ok(Self {
             layout,
             ctx,
+            segments,
             segment_id,
         })
     }
 
     pub(crate) fn ctx(&self) -> ContextRef {
         self.ctx.clone()
+    }
+
+    pub(crate) fn segments(&self) -> &dyn AsyncSegmentReader {
+        self.segments.as_ref()
     }
 
     pub(crate) fn segment_id(&self) -> SegmentId {

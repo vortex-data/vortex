@@ -5189,8 +5189,10 @@ name = "vortex-layout"
 version = "0.21.1"
 dependencies = [
  "arrow-buffer",
+ "async-trait",
  "bytes",
  "flatbuffers",
+ "futures",
  "itertools 0.14.0",
  "rstest",
  "vortex-array",

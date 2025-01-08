@@ -13,7 +13,7 @@ use vortex_flatbuffers::{layout as fb, layout, FlatBufferRoot, WriteFlatBuffer};
 use crate::context::LayoutContextRef;
 use crate::encoding::{LayoutEncodingRef, LayoutId};
 use crate::reader::LayoutReader;
-use crate::segments::SegmentId;
+use crate::segments::{AsyncSegmentReader, SegmentId};
 
 /// [`LayoutData`] is the lazy equivalent to [`vortex_array::ArrayData`], providing a hierarchical
 /// structure.
@@ -249,8 +249,12 @@ impl LayoutData {
     }
 
     /// Create a reader for this layout.
-    pub fn reader(&self, ctx: ContextRef) -> VortexResult<Arc<dyn LayoutReader + 'static>> {
-        self.encoding().reader(self.clone(), ctx)
+    pub fn reader(
+        &self,
+        segments: Arc<dyn AsyncSegmentReader>,
+        ctx: ContextRef,
+    ) -> VortexResult<Arc<dyn LayoutReader + 'static>> {
+        self.encoding().reader(self.clone(), ctx, segments)
     }
 
     /// Register splits for this layout.

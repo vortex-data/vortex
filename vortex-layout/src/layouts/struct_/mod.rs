@@ -11,6 +11,7 @@ use crate::data::LayoutData;
 use crate::encoding::{LayoutEncoding, LayoutId};
 use crate::layouts::struct_::scan::StructScan;
 use crate::reader::{LayoutReader, LayoutScanExt};
+use crate::segments::AsyncSegmentReader;
 use crate::COLUMNAR_LAYOUT_ID;
 
 #[derive(Debug)]
@@ -21,7 +22,12 @@ impl LayoutEncoding for StructLayout {
         COLUMNAR_LAYOUT_ID
     }
 
-    fn reader(&self, layout: LayoutData, ctx: ContextRef) -> VortexResult<Arc<dyn LayoutReader>> {
+    fn reader(
+        &self,
+        layout: LayoutData,
+        ctx: ContextRef,
+        _segments: Arc<dyn AsyncSegmentReader>,
+    ) -> VortexResult<Arc<dyn LayoutReader>> {
         Ok(StructScan::try_new(layout, ctx)?.into_arc())
     }
 

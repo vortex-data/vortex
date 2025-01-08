@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use vortex_array::ArrayData;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
@@ -12,7 +13,10 @@ pub type EvalOp = Box<dyn Operation<Output = ArrayData>>;
 
 /// A [`LayoutReader`] is an instance of a [`LayoutData`] that can cache state across multiple
 /// operations.
-pub trait LayoutReader {
+///
+/// Since different row ranges of the reader may be evaluated by different threads, it is required
+/// to be both `Send` and `Sync`.
+pub trait LayoutReader: Send + Sync + Evaluator {
     /// Returns the [`LayoutData`] of this reader.
     fn layout(&self) -> &LayoutData;
 
@@ -58,4 +62,10 @@ impl dyn LayoutReader + 'static {
     ) -> impl Operation<Output = ArrayData> {
         crate::scan::LayoutRangeScan::new(self, range_scan)
     }
+}
+
+#[async_trait]
+pub trait Evaluator {
+    async fn evaluate(self: Arc<Self>, row_mask: RowMask, expr: ExprRef)
+        -> VortexResult<ArrayData>;
 }
