@@ -2,8 +2,9 @@ use std::sync::Arc;
 
 use flatbuffers::{FlatBufferBuilder, WIPOffset};
 use itertools::Itertools;
-use vortex_error::{vortex_bail, vortex_err, VortexError};
-use vortex_flatbuffers::{FlatBufferRoot, WriteFlatBuffer};
+use vortex_buffer::ByteBuffer;
+use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
+use vortex_flatbuffers::{dtype as fbd, FlatBufferRoot, WriteFlatBuffer};
 
 use crate::{
     flatbuffers as fb, DType, ExtDType, ExtID, ExtMetadata, PType, StructDType, ViewedDType,
@@ -11,6 +12,14 @@ use crate::{
 
 mod project;
 pub use project::*;
+
+impl DType {
+    /// Create a new
+    pub fn try_from_view(fb: fbd::DType, buffer: ByteBuffer) -> VortexResult<Self> {
+        let vdt = ViewedDType::from_fb(fb, buffer);
+        Self::try_from(vdt)
+    }
+}
 
 impl TryFrom<ViewedDType> for DType {
     type Error = VortexError;
@@ -54,10 +63,10 @@ impl TryFrom<ViewedDType> for DType {
                 let list_element = fb_list.element_type().ok_or_else(|| {
                     vortex_err!("failed to parse list element type from flatbuffer")
                 })?;
-                let element_dtype = Self::try_from(ViewedDType {
-                    buffer: vfdt.buffer.clone(),
-                    flatbuffer_loc: list_element._tab.loc(),
-                })?;
+                let element_dtype = Self::try_from(ViewedDType::with_location(
+                    list_element._tab.loc(),
+                    vfdt.buffer().clone(),
+                ))?;
                 Ok(Self::List(
                     Arc::new(element_dtype),
                     fb_list.nullable().into(),
@@ -67,7 +76,7 @@ impl TryFrom<ViewedDType> for DType {
                 let fb_struct = fb
                     .type__as_struct_()
                     .ok_or_else(|| vortex_err!("failed to parse struct from flatbuffer"))?;
-                let struct_dtype = StructDType::from_fb(fb_struct, vfdt.buffer.clone())?;
+                let struct_dtype = StructDType::from_fb(fb_struct, vfdt.buffer().clone())?;
 
                 Ok(Self::Struct(struct_dtype, fb_struct.nullable().into()))
             }
@@ -84,10 +93,8 @@ impl TryFrom<ViewedDType> for DType {
                     vortex_err!(
                 InvalidSerde: "storage_dtype must be present on DType fbs message")
                 })?;
-                let storage_view = ViewedDType {
-                    buffer: vfdt.buffer.clone(),
-                    flatbuffer_loc: storage_dtype._tab.loc(),
-                };
+                let storage_view =
+                    ViewedDType::with_location(storage_dtype._tab.loc(), vfdt.buffer().clone());
 
                 Ok(Self::Extension(Arc::new(ExtDType::new(
                     id,
@@ -266,10 +273,7 @@ mod test {
     fn roundtrip_dtype(dtype: DType) {
         let bytes = dtype.write_flatbuffer_bytes();
         let root_fb = root::<fb::DType>(&bytes).unwrap();
-        let view = ViewedDType {
-            buffer: ByteBuffer::from(bytes.clone()),
-            flatbuffer_loc: root_fb._tab.loc(),
-        };
+        let view = ViewedDType::from_fb(root_fb, ByteBuffer::from(bytes.clone()));
 
         let deserialized = DType::try_from(view).unwrap();
         assert_eq!(dtype, deserialized);

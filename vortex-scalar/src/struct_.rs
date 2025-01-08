@@ -50,16 +50,15 @@ impl<'a> StructScalar<'a> {
 
         let field_dtype = st.field_dtype(idx).ok()?.with_nullability(*nullability);
 
-        let scalar = self
-            .fields
-            .and_then(|values| values.get(idx))
-            .map(|value| Scalar {
-                dtype: field_dtype.clone(),
-                value: value.clone(),
-            })
-            .unwrap_or_else(|| Scalar::null(field_dtype));
-
-        Some(scalar)
+        Some(
+            self.fields
+                .and_then(|values| values.get(idx))
+                .map(|value| Scalar {
+                    dtype: field_dtype.clone(),
+                    value: value.clone(),
+                })
+                .unwrap_or_else(|| Scalar::null(field_dtype)),
+        )
     }
 
     pub fn field_by_name(&self, name: &str) -> Option<Scalar> {

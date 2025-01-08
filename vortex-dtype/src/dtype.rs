@@ -185,22 +185,19 @@ impl Display for DType {
 #[derive(Debug, Clone, PartialOrd, PartialEq, Eq)]
 pub struct ViewedDType {
     /// Underlying flatbuffer
-    pub buffer: ByteBuffer,
+    buffer: ByteBuffer,
     /// Location of the dtype data inside the underlying buffer
-    pub flatbuffer_loc: usize,
+    flatbuffer_loc: usize,
 }
 
 impl ViewedDType {
     /// Create a [`ViewedDType`] from a [`fbd::DType`] and the shared buffer.
-    pub fn from_fb(fb_dtype: fbd::DType<'_>, buffer: ByteBuffer) -> Self {
-        Self {
-            buffer,
-            flatbuffer_loc: fb_dtype._tab.loc(),
-        }
+    pub(crate) fn from_fb(fb_dtype: fbd::DType<'_>, buffer: ByteBuffer) -> Self {
+        Self::with_location(fb_dtype._tab.loc(), buffer)
     }
 
     /// Create a [`ViewedDType`] from a buffer and a flatbuffer location
-    pub fn with_location(location: usize, buffer: ByteBuffer) -> Self {
+    pub(crate) fn with_location(location: usize, buffer: ByteBuffer) -> Self {
         Self {
             buffer,
             flatbuffer_loc: location,
@@ -215,6 +212,11 @@ impl ViewedDType {
                 self.flatbuffer_loc,
             ))
         }
+    }
+
+    /// Returns the underlying shared buffer
+    pub fn buffer(&self) -> &ByteBuffer {
+        &self.buffer
     }
 }
 
@@ -368,13 +370,13 @@ pub struct StructDType {
 
 /// Information about a field in a struct dtype
 #[derive(Debug)]
-pub struct FieldInfo<'a> {
+pub struct FieldInfo {
     /// The position index of the field within the enclosing struct
     pub index: usize,
     /// The name of the field
     pub name: Arc<str>,
     /// The dtype of the field
-    pub dtype: &'a FieldDType,
+    pub dtype: FieldDType,
 }
 
 impl StructDType {
@@ -482,7 +484,7 @@ impl StructDType {
         Ok(FieldInfo {
             index,
             name: self.names[index].clone(),
-            dtype: &self.dtypes[index],
+            dtype: self.dtypes[index].clone(),
         })
     }
 
