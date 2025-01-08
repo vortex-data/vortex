@@ -21,6 +21,8 @@ pub struct VortexFile<R> {
     pub(crate) layout: LayoutData,
     pub(crate) segments: Vec<Segment>,
     pub(crate) segment_cache: SegmentCache,
+    // TODO(ngates): not yet used by the file reader
+    #[allow(dead_code)]
     pub(crate) splits: Vec<Range<u64>>,
 }
 

@@ -4,7 +4,6 @@ use std::ops::Range;
 
 use flatbuffers::root;
 use itertools::Itertools;
-use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::ContextRef;
 use vortex_buffer::{ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
@@ -146,7 +145,7 @@ impl OpenOptions {
         )?;
 
         // Compute the splits of the file.
-        let splits: Vec<Range<u64>> = self.splits(&file_layout.root_layout);
+        let splits: Vec<Range<u64>> = self.splits(&file_layout.root_layout)?;
 
         // Finally, create the VortexFile.
         Ok(VortexFile {
@@ -273,8 +272,8 @@ impl OpenOptions {
     }
 
     /// Compute the splits of the file.
-    fn splits(&self, root_layout: &LayoutData) -> Vec<Range<u64>> {
-        match self.split_by {
+    fn splits(&self, root_layout: &LayoutData) -> VortexResult<Vec<Range<u64>>> {
+        Ok(match self.split_by {
             SplitBy::Layout => {
                 let mut row_splits = BTreeSet::<u64>::new();
                 // Make sure we always have the first and last row.
@@ -298,6 +297,6 @@ impl OpenOptions {
                 }
                 splits
             }
-        }
+        })
     }
 }

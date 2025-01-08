@@ -5095,7 +5095,6 @@ dependencies = [
  "futures-executor",
  "futures-util",
  "itertools 0.14.0",
- "once_cell",
  "rstest",
  "tokio",
  "tracing",
