@@ -1,4 +1,4 @@
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 
 use crate::operations::{Operation, Poll};
 use crate::ready;
@@ -18,7 +18,7 @@ where
 
     fn poll(&mut self, segments: &dyn SegmentReader) -> VortexResult<Poll<Self::Output>> {
         let v = ready!(self.op.poll(segments));
-        let f = self.func.take().expect("cannot poll Map twice");
+        let f = self.func.take().vortex_expect("cannot poll Map twice");
         Ok(Poll::Some(f(v)?))
     }
 }

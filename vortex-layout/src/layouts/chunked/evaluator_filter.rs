@@ -164,6 +164,7 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, PType};
+    use vortex_error::vortex_panic;
     use vortex_expr::{gt, lit, Identity};
 
     use crate::layouts::chunked::evaluator_filter::{ChunkState, ChunkedEvaluator};
@@ -208,6 +209,8 @@ mod test {
     }
 
     #[test]
+    // FIXME(ngates): when we make LayoutReader Send we will fix this
+    #[allow(clippy::arc_with_non_send_sync)]
     fn test_chunked_pruning_mask() {
         let (segments, layout) = chunked_layout();
         let row_count = layout.row_count();
@@ -232,13 +235,13 @@ mod test {
         // Now we validate that based on the pruning mask, we have excluded the first two chunks
         let chunk_states = evaluator.chunk_states.as_ref().unwrap().as_slice();
         if !matches!(chunk_states[0], ChunkState::Resolved(None)) {
-            panic!("Expected first chunk to be pruned");
+            vortex_panic!("Expected first chunk to be pruned");
         }
         if !matches!(chunk_states[1], ChunkState::Resolved(None)) {
-            panic!("Expected second chunk to be pruned");
+            vortex_panic!("Expected second chunk to be pruned");
         }
         if !matches!(chunk_states[2], ChunkState::Pending(_)) {
-            panic!("Expected third chunk to be read");
+            vortex_panic!("Expected third chunk to be read");
         }
     }
 }

@@ -17,10 +17,12 @@ pub struct ChunkedReader {
     layout: LayoutData,
     ctx: ContextRef,
     // Shared stats table operation and cache of the result
-    stats_table_op: RwLock<CachedOperation<Box<dyn Operation<Output = Option<StatsTable>>>>>,
+    stats_table_op: RwLock<StatsTableOp>,
     // Shared lazy chunk scanners
     chunk_readers: Vec<OnceLock<Arc<dyn LayoutReader>>>,
 }
+
+type StatsTableOp = CachedOperation<Box<dyn Operation<Output = Option<StatsTable>>>>;
 
 impl ChunkedReader {
     pub(super) fn try_new(layout: LayoutData, ctx: ContextRef) -> VortexResult<Self> {
@@ -82,11 +84,7 @@ impl ChunkedReader {
     }
 
     /// Get the stats table operation.
-    pub(crate) fn stats_table_op(
-        &self,
-    ) -> VortexResult<
-        RwLockWriteGuard<CachedOperation<Box<dyn Operation<Output = Option<StatsTable>>>>>,
-    > {
+    pub(crate) fn stats_table_op(&self) -> VortexResult<RwLockWriteGuard<StatsTableOp>> {
         self.stats_table_op
             .write()
             .map_err(|_| vortex_err!("poisoned"))
