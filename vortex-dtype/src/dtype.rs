@@ -278,12 +278,46 @@ impl serde::Serialize for FieldDType {
 
 #[cfg(feature = "serde")]
 impl<'de> serde::Deserialize<'de> for FieldDType {
-    fn deserialize<D>(_deserializer: D) -> Result<Self, D::Error>
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
-        unimplemented!()
-        // deserializer.deserialize_enum("FieldDType", &["Owned"], visitor)
+        deserializer.deserialize_enum("FieldDType", &["Owned", "View"], FieldDTypeDeVisitor)
+    }
+}
+
+#[cfg(feature = "serde")]
+struct FieldDTypeDeVisitor;
+
+#[cfg(feature = "serde")]
+impl<'de> serde::de::Visitor<'de> for FieldDTypeDeVisitor {
+    type Value = FieldDType;
+
+    fn expecting(&self, f: &mut Formatter) -> std::fmt::Result {
+        write!(f, "variant identifier")
+    }
+
+    fn visit_enum<A>(self, data: A) -> Result<Self::Value, A::Error>
+    where
+        A: serde::de::EnumAccess<'de>,
+    {
+        use serde::de::{Error, VariantAccess};
+
+        #[derive(serde::Deserialize, Debug)]
+        enum FieldDTypeVariant {
+            Owned,
+            View,
+        }
+        let (variant, variant_data): (FieldDTypeVariant, _) = data.variant()?;
+
+        match variant {
+            FieldDTypeVariant::Owned => {
+                // variant_data
+                let inner = variant_data.newtype_variant::<DType>()?;
+                Ok(FieldDType::Owned(inner))
+            }
+            other => Err(A::Error::custom(format!("unsupported variant {other:?}"))),
+        }
     }
 }
 

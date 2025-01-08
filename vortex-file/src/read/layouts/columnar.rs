@@ -63,10 +63,9 @@ struct ColumnarLayoutBuilder<'a> {
 
 impl ColumnarLayoutBuilder<'_> {
     fn build(&self) -> VortexResult<ColumnarLayoutReader> {
-        let layout_dtype = self.dtype.clone();
         let fields = self
             .scan_fields()
-            .unwrap_or_else(|| (0..layout_dtype.names().len()).map(Field::Index).collect());
+            .unwrap_or_else(|| (0..self.dtype.names().len()).map(Field::Index).collect());
         let fb_children = self.layout.children().unwrap_or_default();
 
         let mut unhandled_names = Vec::new();
@@ -79,7 +78,7 @@ impl ColumnarLayoutBuilder<'_> {
                 index,
                 name,
                 dtype: child_dtype,
-            } = layout_dtype.field_info(&field)?;
+            } = self.dtype.field_info(&field)?;
 
             let child_layout = fb_children.get(index);
             let projected_expr = self
