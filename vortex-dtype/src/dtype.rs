@@ -221,15 +221,29 @@ impl ViewedDType {
 }
 
 /// DType of a struct's field, either owned or a pointer to an underlying flatbuffer.
+#[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct FieldDType {
+    inner: FieldDTypeInner,
+}
+
+impl From<DType> for FieldDType {
+    fn from(value: DType) -> Self {
+        Self {
+            inner: FieldDTypeInner::Owned(value),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Eq)]
-pub enum FieldDType {
+enum FieldDTypeInner {
     /// Owned DType instance
     Owned(DType),
     /// A view over a flatbuffer, parsed only when accessed.
     View(ViewedDType),
 }
 
-impl PartialEq for FieldDType {
+impl PartialEq for FieldDTypeInner {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Owned(lhs), Self::Owned(rhs)) => lhs == rhs,
@@ -250,11 +264,11 @@ impl PartialEq for FieldDType {
     }
 }
 
-impl PartialOrd for FieldDType {
+impl PartialOrd for FieldDTypeInner {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         match (self, other) {
-            (FieldDType::Owned(lhs), FieldDType::Owned(rhs)) => lhs.partial_cmp(rhs),
-            (FieldDType::View(lhs), FieldDType::View(rhs)) => {
+            (FieldDTypeInner::Owned(lhs), FieldDTypeInner::Owned(rhs)) => lhs.partial_cmp(rhs),
+            (FieldDTypeInner::View(lhs), FieldDTypeInner::View(rhs)) => {
                 let lhs = DType::try_from(lhs.clone())
                     .vortex_expect("Failed to parse FieldDType into DType");
                 let rhs = DType::try_from(rhs.clone())
@@ -262,13 +276,13 @@ impl PartialOrd for FieldDType {
 
                 lhs.partial_cmp(&rhs)
             }
-            (FieldDType::Owned(dtype), FieldDType::View(viewed_dtype)) => {
+            (FieldDTypeInner::Owned(dtype), FieldDTypeInner::View(viewed_dtype)) => {
                 let rhs = DType::try_from(viewed_dtype.clone())
                     .vortex_expect("Failed to parse FieldDType into DType");
 
                 dtype.partial_cmp(&rhs)
             }
-            (FieldDType::View(viewed_dtype), FieldDType::Owned(dtype)) => {
+            (FieldDTypeInner::View(viewed_dtype), FieldDTypeInner::Owned(dtype)) => {
                 let lhs = DType::try_from(viewed_dtype.clone())
                     .vortex_expect("Failed to parse FieldDType into DType");
 
@@ -278,13 +292,13 @@ impl PartialOrd for FieldDType {
     }
 }
 
-impl Hash for FieldDType {
+impl Hash for FieldDTypeInner {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         match self {
-            FieldDType::Owned(owned) => {
+            FieldDTypeInner::Owned(owned) => {
                 owned.hash(state);
             }
-            FieldDType::View(view) => {
+            FieldDTypeInner::View(view) => {
                 let owned = DType::try_from(view.clone()).vortex_expect("");
                 owned.hash(state);
             }
@@ -295,15 +309,21 @@ impl Hash for FieldDType {
 impl FieldDType {
     /// Returns the concrete DType, parsing it from the underlying buffer if necessary.
     pub fn value(&self) -> VortexResult<DType> {
-        match self {
-            FieldDType::Owned(owned) => Ok(owned.clone()),
-            FieldDType::View(view) => DType::try_from(view.clone()),
+        self.inner.value()
+    }
+}
+
+impl FieldDTypeInner {
+    fn value(&self) -> VortexResult<DType> {
+        match &self {
+            FieldDTypeInner::Owned(owned) => Ok(owned.clone()),
+            FieldDTypeInner::View(view) => DType::try_from(view.clone()),
         }
     }
 }
 
 #[cfg(feature = "serde")]
-impl serde::Serialize for FieldDType {
+impl serde::Serialize for FieldDTypeInner {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -316,7 +336,7 @@ impl serde::Serialize for FieldDType {
 }
 
 #[cfg(feature = "serde")]
-impl<'de> serde::Deserialize<'de> for FieldDType {
+impl<'de> serde::Deserialize<'de> for FieldDTypeInner {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
@@ -330,7 +350,7 @@ struct FieldDTypeDeVisitor;
 
 #[cfg(feature = "serde")]
 impl<'de> serde::de::Visitor<'de> for FieldDTypeDeVisitor {
-    type Value = FieldDType;
+    type Value = FieldDTypeInner;
 
     fn expecting(&self, f: &mut Formatter) -> std::fmt::Result {
         write!(f, "variant identifier")
@@ -351,9 +371,8 @@ impl<'de> serde::de::Visitor<'de> for FieldDTypeDeVisitor {
 
         match variant {
             FieldDTypeVariant::Owned => {
-                // variant_data
                 let inner = variant_data.newtype_variant::<DType>()?;
-                Ok(FieldDType::Owned(inner))
+                Ok(FieldDTypeInner::Owned(inner))
             }
             other => Err(A::Error::custom(format!("unsupported variant {other:?}"))),
         }
@@ -392,7 +411,9 @@ impl StructDType {
 
         let dtypes = dtypes
             .into_iter()
-            .map(FieldDType::Owned)
+            .map(|dt| FieldDType {
+                inner: FieldDTypeInner::Owned(dt),
+            })
             .collect::<Vec<_>>()
             .into();
 
@@ -429,11 +450,8 @@ impl StructDType {
             .dtypes()
             .ok_or_else(|| vortex_err!("failed to parse struct dtypes from flatbuffer"))?
             .iter()
-            .map(|dt| {
-                FieldDType::View(ViewedDType {
-                    buffer: buffer.clone(),
-                    flatbuffer_loc: dt._tab.loc(),
-                })
+            .map(|dt| FieldDType {
+                inner: FieldDTypeInner::View(ViewedDType::from_fb(dt, buffer.clone())),
             })
             .collect::<Vec<FieldDType>>();
 
