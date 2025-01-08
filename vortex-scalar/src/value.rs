@@ -1,6 +1,7 @@
 use std::fmt::{Display, Write};
 use std::sync::Arc;
 
+use itertools::Itertools;
 use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexResult};
@@ -71,7 +72,9 @@ impl Display for InnerScalarValue {
                     write!(f, "{}", bufstr.as_str())
                 }
             }
-            Self::List(_) => todo!(),
+            Self::List(elems) => {
+                write!(f, "[{}]", elems.iter().format(","))
+            }
             Self::Null => write!(f, "null"),
         }
     }
