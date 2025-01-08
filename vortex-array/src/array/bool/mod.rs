@@ -4,6 +4,7 @@ use std::sync::Arc;
 use arrow_array::BooleanArray;
 use arrow_buffer::{BooleanBufferBuilder, MutableBuffer};
 use serde::{Deserialize, Serialize};
+use vortex_avro::{FromAvro, ToAvro};
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexExpect as _, VortexResult};
@@ -16,7 +17,6 @@ use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{
     impl_encoding, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData, IntoCanonical,
 };
-
 pub mod compute;
 mod patch;
 mod stats;
@@ -26,7 +26,7 @@ pub use arrow_buffer::BooleanBuffer;
 
 impl_encoding!("vortex.bool", ids::BOOL, Bool);
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, FromAvro, ToAvro)]
 pub struct BoolMetadata {
     pub(crate) validity: ValidityMetadata,
     pub(crate) first_byte_bit_offset: u8,

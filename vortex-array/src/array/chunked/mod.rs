@@ -6,6 +6,7 @@ use std::fmt::{Debug, Display};
 
 use futures_util::stream;
 use serde::{Deserialize, Serialize};
+use vortex_avro::{FromAvro, ToAvro};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult, VortexUnwrap};
@@ -30,9 +31,9 @@ mod variants;
 
 impl_encoding!("vortex.chunked", ids::CHUNKED, Chunked);
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, FromAvro, ToAvro)]
 pub struct ChunkedMetadata {
-    pub(crate) nchunks: usize,
+    pub(crate) nchunks: u64,
 }
 
 impl Display for ChunkedMetadata {
@@ -73,7 +74,9 @@ impl ChunkedArray {
         Self::try_from_parts(
             dtype,
             length.try_into().vortex_unwrap(),
-            ChunkedMetadata { nchunks },
+            ChunkedMetadata {
+                nchunks: nchunks as u64,
+            },
             children.into(),
             StatsSet::default(),
         )
@@ -95,7 +98,7 @@ impl ChunkedArray {
     }
 
     pub fn nchunks(&self) -> usize {
-        self.metadata().nchunks
+        self.metadata().nchunks as usize
     }
 
     #[inline]

@@ -17,6 +17,8 @@ use crate::pvalue::PValue;
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct ScalarValue(pub(crate) InnerScalarValue);
 
+// TODO(aduffy): impl FromAvro and ToAvro for ScalarValue
+
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub(crate) enum InnerScalarValue {
     Bool(bool),

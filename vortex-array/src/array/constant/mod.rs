@@ -9,7 +9,6 @@ use crate::stats::{Stat, StatisticsVTable, StatsSet};
 use crate::validity::{LogicalValidity, ValidityVTable};
 use crate::visitor::{ArrayVisitor, VisitorVTable};
 use crate::{impl_encoding, ArrayDType, ArrayLen, ArrayTrait};
-
 mod canonical;
 mod compute;
 mod variants;

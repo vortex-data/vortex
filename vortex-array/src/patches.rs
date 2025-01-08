@@ -2,6 +2,7 @@ use std::fmt::Debug;
 
 use itertools::Itertools as _;
 use serde::{Deserialize, Serialize};
+use vortex_avro::{FromAvro, ToAvro};
 use vortex_buffer::BufferMut;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{match_each_integer_ptype, DType, PType};
@@ -18,20 +19,23 @@ use crate::stats::{ArrayStatistics, Stat};
 use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayDType, ArrayData, ArrayLen as _, IntoArrayData, IntoArrayVariant};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromAvro, ToAvro)]
 pub struct PatchesMetadata {
-    len: usize,
+    len: u64,
     indices_ptype: PType,
 }
 
 impl PatchesMetadata {
     pub fn new(len: usize, indices_ptype: PType) -> Self {
-        Self { len, indices_ptype }
+        Self {
+            len: len as u64,
+            indices_ptype,
+        }
     }
 
     #[inline]
     pub fn len(&self) -> usize {
-        self.len
+        self.len as usize
     }
 
     #[inline]
@@ -140,7 +144,7 @@ impl Patches {
             );
         }
         Ok(PatchesMetadata {
-            len: self.indices.len(),
+            len: self.indices.len() as u64,
             indices_ptype: PType::try_from(self.indices.dtype()).vortex_expect("primitive indices"),
         })
     }

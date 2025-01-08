@@ -2,12 +2,16 @@
 use std::collections::HashMap;
 use std::io::Cursor;
 
-use apache_avro::schema::UnionSchema;
 use apache_avro::types::Value;
 use apache_avro::{from_avro_datum, to_avro_datum, BigDecimal, Decimal, Duration, Schema};
 use uuid::Uuid;
 pub use vortex_avro_derive::{FromAvro, ToAvro};
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
+use vortex_error::{vortex_err, VortexError, VortexResult};
+
+mod array;
+mod option;
+mod prim;
+mod string;
 
 /// AvroValue is based on `Value` from the Avro crate, but without the blanket impls. This is so we have control over how the
 /// conversions for primitives are implemented.
@@ -162,138 +166,6 @@ pub fn from_avro_binary<T: FromAvro>(schema: &Schema, avro_bytes: Vec<u8>) -> Vo
     <T as TryFrom<AvroValue>>::try_from(value.into())
 }
 
-macro_rules! impl_from_prim {
-    ($ty:ty, $inner:ty, $value_variant:path, $schema_variant:path) => {
-        impl From<$ty> for AvroValue {
-            fn from(value: $ty) -> Self {
-                $value_variant(value as $inner)
-            }
-        }
-
-        impl ToAvro for $ty {
-            fn write_schema() -> Schema {
-                $schema_variant
-            }
-        }
-
-        impl TryFrom<AvroValue> for $ty {
-            type Error = VortexError;
-
-            fn try_from(value: AvroValue) -> Result<Self, Self::Error> {
-                if let $value_variant(v) = value.into() {
-                    Ok(<$inner>::try_from(v)? as $ty)
-                } else {
-                    Err(vortex_err!(
-                        "Expected value to be a {} but it was not",
-                        stringify!($value_variant)
-                    ))
-                }
-            }
-        }
-
-        impl FromAvro for $ty {
-            fn read_schema() -> Schema {
-                $schema_variant
-            }
-        }
-    };
-}
-
-impl_from_prim!(i8, i32, AvroValue::Int, Schema::Int);
-impl_from_prim!(i16, i32, AvroValue::Int, Schema::Int);
-impl_from_prim!(i32, i32, AvroValue::Int, Schema::Int);
-impl_from_prim!(u8, i32, AvroValue::Int, Schema::Int);
-impl_from_prim!(u16, i32, AvroValue::Int, Schema::Int);
-impl_from_prim!(u32, i32, AvroValue::Int, Schema::Int);
-impl_from_prim!(i64, i64, AvroValue::Long, Schema::Long);
-impl_from_prim!(u64, i64, AvroValue::Long, Schema::Long);
-
-impl From<String> for AvroValue {
-    fn from(value: String) -> Self {
-        AvroValue::String(value)
-    }
-}
-
-impl ToAvro for String {
-    fn write_schema() -> Schema {
-        Schema::String
-    }
-}
-
-impl TryFrom<AvroValue> for String {
-    type Error = VortexError;
-
-    fn try_from(value: AvroValue) -> Result<Self, Self::Error> {
-        if let AvroValue::String(s) = value {
-            Ok(s)
-        } else {
-            Err(vortex_err!("Expected value to be a String but it was not"))
-        }
-    }
-}
-
-impl FromAvro for String {
-    fn read_schema() -> Schema {
-        Schema::String
-    }
-}
-
-// Handling for Option<T>
-impl<T> From<Option<T>> for AvroValue
-where
-    T: Into<AvroValue>,
-{
-    fn from(value: Option<T>) -> Self {
-        match value {
-            Some(v) => AvroValue::Union(1, Box::new(v.into())),
-            None => AvroValue::Union(0, Box::new(AvroValue::Null)),
-        }
-    }
-}
-
-impl<T> TryFrom<AvroValue> for Option<T>
-where
-    T: FromAvro,
-{
-    type Error = T::Error;
-
-    fn try_from(value: AvroValue) -> Result<Self, Self::Error> {
-        if let AvroValue::Union(idx, value) = value {
-            if idx == 0 {
-                Ok(None)
-            } else {
-                Ok(Some(T::try_from(*value)?))
-            }
-        } else {
-            vortex_bail!("Option<T> Avro binary value must be a union with a null and the type T")
-        }
-    }
-}
-
-impl<T> FromAvro for Option<T>
-where
-    T: FromAvro,
-{
-    #[allow(clippy::expect_used)]
-    fn read_schema() -> Schema {
-        Schema::Union(
-            UnionSchema::new(vec![Schema::Null, T::read_schema()]).expect("Option<T> schema"),
-        )
-    }
-}
-
-impl<T> ToAvro for Option<T>
-where
-    T: ToAvro,
-{
-    #[allow(clippy::expect_used)]
-    fn write_schema() -> Schema {
-        Schema::Union(
-            UnionSchema::new(vec![Schema::Null, T::write_schema()]).expect("Option<T> schema"),
-        )
-    }
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
@@ -302,10 +174,10 @@ mod test {
         ($name:ident => $ty:ty, $value:expr) => {
             #[test]
             fn $name() {
-                let value = $value;
+                let value: $ty = $value;
                 let avro_bytes = to_avro_binary(value).expect("to_avro_binary");
-                let value_read: $ty =
-                    from_avro_binary(&<$ty>::read_schema(), avro_bytes).expect("from_avro_binary");
+                let value_read: $ty = from_avro_binary::<$ty>(&<$ty>::read_schema(), avro_bytes)
+                    .expect("from_avro_binary");
                 assert_eq!($value, value_read);
             }
         };

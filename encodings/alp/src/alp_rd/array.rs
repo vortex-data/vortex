@@ -10,6 +10,7 @@ use vortex_array::visitor::{ArrayVisitor, VisitorVTable};
 use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoCanonical,
 };
+use vortex_avro::{FromAvro, ToAvro};
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
@@ -17,7 +18,7 @@ use crate::alp_rd::alp_rd_decode;
 
 impl_encoding!("vortex.alprd", ids::ALP_RD, ALPRD);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromAvro, ToAvro)]
 pub struct ALPRDMetadata {
     right_bit_width: u8,
     dict_len: u8,

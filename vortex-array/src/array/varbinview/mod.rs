@@ -9,6 +9,7 @@ use arrow_array::{ArrayRef, BinaryViewArray, GenericByteViewArray, StringViewArr
 use arrow_buffer::ScalarBuffer;
 use itertools::Itertools;
 use static_assertions::{assert_eq_align, assert_eq_size};
+use vortex_avro::{FromAvro, ToAvro};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, PType};
 use vortex_error::{
@@ -194,7 +195,7 @@ impl Debug for BinaryView {
 // reminder: views are 16 bytes with 8-byte alignment
 pub(crate) const VIEW_SIZE_BYTES: usize = size_of::<BinaryView>();
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromAvro, ToAvro)]
 pub struct VarBinViewMetadata {
     // Validity metadata
     pub(crate) validity: ValidityMetadata,

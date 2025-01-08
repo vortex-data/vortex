@@ -11,11 +11,12 @@ mod compute;
 
 pub use array::*;
 pub use compress::*;
+use vortex_avro::{FromAvro, ToAvro};
 use vortex_buffer::{Buffer, BufferMut};
 
 const SAMPLE_SIZE: usize = 32;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, FromAvro, ToAvro)]
 pub struct Exponents {
     pub e: u8,
     pub f: u8,

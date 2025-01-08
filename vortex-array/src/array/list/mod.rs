@@ -7,6 +7,7 @@ use std::sync::Arc;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
 use serde::{Deserialize, Serialize};
+use vortex_avro::{FromAvro, ToAvro};
 #[cfg(feature = "test-harness")]
 use vortex_dtype::Nullability;
 use vortex_dtype::{match_each_native_ptype, DType, PType};
@@ -27,10 +28,10 @@ use crate::{impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonica
 
 impl_encoding!("vortex.list", ids::LIST, List);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromAvro, ToAvro)]
 pub struct ListMetadata {
     pub(crate) validity: ValidityMetadata,
-    pub(crate) elements_len: usize,
+    pub(crate) elements_len: u64,
     pub(crate) offset_ptype: PType,
 }
 
@@ -85,7 +86,7 @@ impl ListArray {
             list_len,
             ListMetadata {
                 validity: validity_metadata,
-                elements_len: element_len,
+                elements_len: element_len as u64,
                 offset_ptype,
             },
             children.into(),
@@ -147,7 +148,7 @@ impl ListArray {
             .as_list_element()
             .vortex_expect("must be list dtype");
         self.as_ref()
-            .child(0, dtype, self.metadata().elements_len)
+            .child(0, dtype, self.metadata().elements_len as usize)
             .vortex_expect("array contains elements")
     }
 }

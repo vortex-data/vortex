@@ -12,6 +12,7 @@ use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayData,
     IntoCanonical,
 };
+use vortex_avro::{FromAvro, ToAvro};
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult};
 
@@ -19,7 +20,7 @@ use crate::alp::{alp_encode, decompress, Exponents};
 
 impl_encoding!("vortex.alp", ids::ALP, ALP);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromAvro, ToAvro)]
 pub struct ALPMetadata {
     pub(crate) exponents: Exponents,
     pub(crate) patches: Option<PatchesMetadata>,

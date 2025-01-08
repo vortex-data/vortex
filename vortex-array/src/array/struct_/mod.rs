@@ -1,6 +1,7 @@
 use std::fmt::{Debug, Display};
 
 use serde::{Deserialize, Serialize};
+use vortex_avro::{FromAvro, ToAvro};
 use vortex_dtype::{DType, Field, FieldName, FieldNames, StructDType};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
 
@@ -18,7 +19,7 @@ mod compute;
 
 impl_encoding!("vortex.struct", ids::STRUCT, Struct);
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, FromAvro, ToAvro)]
 pub struct StructMetadata {
     pub(crate) validity: ValidityMetadata,
 }

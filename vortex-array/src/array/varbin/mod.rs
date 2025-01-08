@@ -3,6 +3,7 @@ use std::fmt::{Debug, Display};
 use num_traits::{AsPrimitive, PrimInt};
 use serde::{Deserialize, Serialize};
 pub use stats::compute_varbin_statistics;
+use vortex_avro::{FromAvro, ToAvro};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
 use vortex_error::{
@@ -31,11 +32,11 @@ mod variants;
 
 impl_encoding!("vortex.varbin", ids::VAR_BIN, VarBin);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromAvro, ToAvro)]
 pub struct VarBinMetadata {
     pub(crate) validity: ValidityMetadata,
     pub(crate) offsets_ptype: PType,
-    pub(crate) bytes_len: usize,
+    pub(crate) bytes_len: u64,
 }
 
 impl Display for VarBinMetadata {
@@ -70,7 +71,7 @@ impl VarBinArray {
         let metadata = VarBinMetadata {
             validity: validity.to_metadata(offsets.len() - 1)?,
             offsets_ptype,
-            bytes_len: bytes.len(),
+            bytes_len: bytes.len() as u64,
         };
 
         let mut children = Vec::with_capacity(3);
@@ -119,7 +120,7 @@ impl VarBinArray {
     #[inline]
     pub fn bytes(&self) -> ArrayData {
         self.as_ref()
-            .child(1, &DType::BYTES, self.metadata().bytes_len)
+            .child(1, &DType::BYTES, self.metadata().bytes_len as usize)
             .vortex_expect("Missing bytes in VarBinArray")
     }
 
