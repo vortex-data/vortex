@@ -36,8 +36,8 @@ use crate::{BinaryExpr, ExprRef, Operator};
 /// );
 /// ```
 ///
-/// Vortex extends the CNF definition to any Boolean-value expression, even ones with non-Boolean
-/// terminals:
+/// Vortex extends the CNF definition to any Boolean-valued expression, even ones with non-Boolean
+/// parameters:
 ///
 /// ```
 /// use vortex_expr::{not, col, or, and, gt_eq, lit, not_eq, lt, eq};
