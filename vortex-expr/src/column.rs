@@ -2,11 +2,10 @@ use std::any::Any;
 use std::fmt::Display;
 use std::sync::Arc;
 
-use vortex_array::array::StructArray;
-use vortex_array::variants::StructArrayTrait;
+use vortex_array::variants::StructArrayTraitExt;
 use vortex_array::ArrayData;
 use vortex_dtype::Field;
-use vortex_error::{vortex_err, VortexResult};
+use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
 use crate::{ExprRef, VortexExpr};
 
@@ -61,13 +60,19 @@ impl VortexExpr for Column {
     }
 
     fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
-        let s = StructArray::try_from(batch.clone())?;
+        let batch = batch.clone();
+        let st = batch.as_struct_array().clone().unwrap();
 
-        match &self.field {
-            Field::Name(n) => s.maybe_null_field_by_name(n),
-            Field::Index(i) => s.maybe_null_field_by_idx(*i),
-        }
-        .ok_or_else(|| vortex_err!("Array doesn't contain child array {}", self.field))
+        // .ok_or_else(|| {
+        // vortex_err!(
+        //     "Array must be a struct array, however it was a {}",
+        //     batch.dtype()
+        // )
+        // })?;
+        let _ = (&st)
+            .maybe_null_field(&self.field)
+            .ok_or_else(|| vortex_err!("Array doesn't contain child array {}", self.field));
+        vortex_bail!("Array doesn't contain child array {}", self.field)
     }
 
     fn children(&self) -> Vec<&ExprRef> {

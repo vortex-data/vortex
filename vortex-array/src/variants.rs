@@ -217,13 +217,15 @@ pub trait StructArrayTrait: ArrayTrait {
 }
 
 pub trait StructArrayTraitExt: StructArrayTrait {
-    fn maybe_null_field(&self, field: Field) -> Option<ArrayData> {
+    fn maybe_null_field(&self, field: &Field) -> Option<ArrayData> {
         match field {
-            Field::Index(idx) => self.maybe_null_field_by_idx(idx),
+            Field::Index(idx) => self.maybe_null_field_by_idx(*idx),
             Field::Name(name) => self.maybe_null_field_by_name(name.as_ref()),
         }
     }
 }
+
+impl StructArrayTraitExt for dyn StructArrayTrait {}
 
 pub trait ListArrayTrait: ArrayTrait {}
 
