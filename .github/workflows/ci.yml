@@ -170,7 +170,7 @@ jobs:
         with:
           tool: nextest
       - name: Rust Test
-        run: cargo nextest run --workspace --all-features
+        run: cargo nextest run --workspace --all-features --
       - name: Generate coverage report
         run: |
           grcov . --binary-path target/debug/ -s . -t lcov --llvm --ignore-not-existing \
