@@ -1,7 +1,7 @@
 use num_traits::{CheckedShr, WrappingSub};
 use vortex_array::array::ConstantArray;
 use vortex_array::compute::{compare, CompareFn, Operator};
-use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData};
+use vortex_array::{ArrayData, ArrayLen, IntoArrayData};
 use vortex_dtype::{match_each_integer_ptype, NativePType};
 use vortex_error::{VortexError, VortexResult};
 use vortex_scalar::{PValue, PrimitiveScalar, Scalar};
@@ -46,18 +46,6 @@ where
     let reference = lhs.reference_scalar();
     let reference = reference.as_primitive().typed_value::<T>();
 
-    // rhs is less than reference which means that it's definitely not in our array and is less than all the elements in the array
-    if reference
-        .filter(|lhs_ref| rhs.as_ref().map(|rhs| rhs < lhs_ref).unwrap_or(false))
-        .is_some()
-    {
-        return match operator {
-            Operator::Eq => Ok(Some(ConstantArray::new(false, lhs.len()).into_array())),
-            Operator::NotEq => Ok(Some(ConstantArray::new(true, lhs.len()).into_array())),
-            _ => unreachable!("Only Eq and NotEq operators are supported"),
-        };
-    }
-
     // We encode the RHS into the FoR domain.
     let rhs = rhs.map(|mut rhs| {
         if let Some(reference) = reference {
@@ -72,7 +60,7 @@ where
 
     // Wrap up the RHS into a scalar and cast to the encoded DType (this will be the equivalent
     // unsigned integer type).
-    let rhs = Scalar::from(rhs).cast(lhs.encoded().dtype())?;
+    let rhs = Scalar::from(rhs).reinterpret_cast(T::PTYPE.to_unsigned());
 
     compare(
         lhs.encoded(),
