@@ -1,7 +1,8 @@
 use std::any::Any;
 use std::fmt::{Debug, Display};
-use std::hash::{Hash, Hasher};
 use std::sync::Arc;
+
+use dyn_hash::DynHash;
 
 mod binary;
 mod column;
@@ -109,25 +110,7 @@ impl PartialEq for dyn VortexExpr {
 
 impl Eq for dyn VortexExpr {}
 
-/// [`PhysicalExpr`] can't be constrained by [`Hash`] directly because it must remain
-/// object safe. To ease implementation blanket implementation is provided for [`Hash`]
-/// types.
-pub trait DynHash {
-    fn dyn_hash(&self, _state: &mut dyn Hasher);
-}
-
-impl<T: Hash + Any> DynHash for T {
-    fn dyn_hash(&self, mut state: &mut dyn Hasher) {
-        self.type_id().hash(&mut state);
-        self.hash(&mut state)
-    }
-}
-
-impl Hash for dyn VortexExpr {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.dyn_hash(state);
-    }
-}
+dyn_hash::hash_trait_object!(VortexExpr);
 
 #[cfg(test)]
 mod tests {
