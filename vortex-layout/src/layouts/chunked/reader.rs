@@ -1,6 +1,7 @@
 use std::sync::{Arc, OnceLock};
 
 use futures::future::{ready, LocalBoxFuture, Shared};
+use futures::lock::{Mutex, MutexGuard};
 use futures::FutureExt;
 use vortex_array::stats::{stats_from_bitset_bytes, Stat};
 use vortex_array::ContextRef;
@@ -20,7 +21,10 @@ pub struct ChunkedReader {
     ctx: ContextRef,
     segments: Arc<dyn AsyncSegmentReader>,
     /// Shared stats table operation and cache of the result
-    stats_table_fut: StatsTableFut,
+    /// So we shouldn't store the future. We should instead let the first caller to ask
+    /// for the stats table construct their own future, provided they promise to store the result
+    /// into the cache. Perhaps using <https://docs.rs/async-once-cell/latest/async_once_cell/struct.OnceCell.html>
+    stats_table_fut: Arc<Mutex<StatsTableFut>>,
     /// Shared lazy chunk scanners
     chunk_readers: Arc<[OnceLock<Arc<dyn LayoutReader>>]>,
 }
@@ -95,14 +99,14 @@ impl ChunkedReader {
             layout,
             ctx,
             segments,
-            stats_table_fut,
+            stats_table_fut: Arc::new(Mutex::new(stats_table_fut)),
             chunk_readers: chunk_scans,
         })
     }
 
     /// Get the stats table future.
-    pub(crate) fn stats_table_fut(&self) -> StatsTableFut {
-        self.stats_table_fut.clone()
+    pub(crate) async fn stats_table_fut(&self) -> MutexGuard<StatsTableFut> {
+        self.stats_table_fut.lock().await
     }
 
     /// Return the number of chunks

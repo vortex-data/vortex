@@ -25,7 +25,7 @@ impl AsyncEvaluator for ChunkedReader {
         let pruning_predicate = PruningPredicate::try_new(&expr);
         let pruning_mask = if let Some(predicate) = pruning_predicate {
             // If the expression is prune-able, then fetch the stats table
-            if let Some(stats_table) = self.stats_table_fut().await {
+            if let Some(stats_table) = self.stats_table_fut().await.await {
                 predicate
                     .evaluate(stats_table.array())?
                     .map(|mask| mask.into_bool())
