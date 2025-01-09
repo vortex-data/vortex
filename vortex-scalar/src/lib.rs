@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::hash::Hash;
 use std::mem::discriminant;
 use std::sync::Arc;
 
@@ -43,7 +44,7 @@ use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 ///
 /// Note: [`PartialEq`] and [`PartialOrd`] are implemented only for an exact match of the scalar's
 /// dtype, including nullability.
-#[derive(Debug, Clone, Hash)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct Scalar {
     dtype: DType,
@@ -218,6 +219,13 @@ impl PartialOrd for Scalar {
         } else {
             None
         }
+    }
+}
+
+impl Hash for Scalar {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        discriminant(self.dtype()).hash(state);
+        self.value.0.hash(state);
     }
 }
 
