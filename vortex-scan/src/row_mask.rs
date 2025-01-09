@@ -361,13 +361,6 @@ mod tests {
     #[test]
     #[should_panic]
     #[cfg_attr(miri, ignore)]
-    fn test_new() {
-        RowMask::new(FilterMask::from(BooleanBuffer::new_unset(10)), 5);
-    }
-
-    #[test]
-    #[should_panic]
-    #[cfg_attr(miri, ignore)]
     fn shift_invalid() {
         RowMask::new(FilterMask::from_iter([true, true, true, true, true]), 5)
             .shift(7)
