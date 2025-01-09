@@ -6,6 +6,7 @@ use std::ops::Range;
 use flatbuffers::root;
 use itertools::Itertools;
 pub use split_by::*;
+use vortex_array::flatbuffers::FlatBuffer;
 use vortex_array::ContextRef;
 use vortex_buffer::{ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
@@ -184,7 +185,8 @@ impl OpenOptions {
         dtype: Segment,
     ) -> VortexResult<DType> {
         let offset = usize::try_from(dtype.offset - initial_offset)?;
-        let sliced_buffer = initial_read.slice(offset..offset + dtype.length);
+        let sliced_buffer =
+            FlatBuffer::align_from(initial_read.slice(offset..offset + dtype.length));
         let fbd_dtype = root::<fbd::DType>(&sliced_buffer)?;
 
         DType::try_from_view(fbd_dtype, sliced_buffer.clone())

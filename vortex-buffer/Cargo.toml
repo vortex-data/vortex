@@ -15,10 +15,13 @@ readme = "README.md"
 
 [features]
 arrow = ["dep:arrow-buffer"]
+warn-copy = ["dep:backtrace", "dep:log"]
 
 [dependencies]
 arrow-buffer = { workspace = true, optional = true }
+backtrace = { workspace = true, optional = true }
 bytes = { workspace = true }
+log = { workspace = true, optional = true }
 vortex-error = { workspace = true }
 
 [lints]

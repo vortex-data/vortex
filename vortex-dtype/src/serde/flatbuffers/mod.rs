@@ -2,9 +2,8 @@ use std::sync::Arc;
 
 use flatbuffers::{FlatBufferBuilder, WIPOffset};
 use itertools::Itertools;
-use vortex_buffer::ByteBuffer;
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
-use vortex_flatbuffers::{dtype as fbd, FlatBufferRoot, WriteFlatBuffer};
+use vortex_flatbuffers::{dtype as fbd, FlatBuffer, FlatBufferRoot, WriteFlatBuffer};
 
 use crate::{
     flatbuffers as fb, DType, ExtDType, ExtID, ExtMetadata, PType, StructDType, ViewedDType,
@@ -15,7 +14,7 @@ pub use project::*;
 
 impl DType {
     /// Create a new
-    pub fn try_from_view(fb: fbd::DType, buffer: ByteBuffer) -> VortexResult<Self> {
+    pub fn try_from_view(fb: fbd::DType, buffer: FlatBuffer) -> VortexResult<Self> {
         let vdt = ViewedDType::from_fb(fb, buffer);
         Self::try_from(vdt)
     }
@@ -264,8 +263,7 @@ mod test {
     use std::sync::Arc;
 
     use flatbuffers::root;
-    use vortex_buffer::ByteBuffer;
-    use vortex_flatbuffers::WriteFlatBufferExt;
+    use vortex_flatbuffers::{FlatBuffer, WriteFlatBufferExt};
 
     use crate::nullability::Nullability;
     use crate::{flatbuffers as fb, DType, PType, StructDType, ViewedDType};
@@ -273,7 +271,7 @@ mod test {
     fn roundtrip_dtype(dtype: DType) {
         let bytes = dtype.write_flatbuffer_bytes();
         let root_fb = root::<fb::DType>(&bytes).unwrap();
-        let view = ViewedDType::from_fb(root_fb, ByteBuffer::from(bytes.clone()));
+        let view = ViewedDType::from_fb(root_fb, FlatBuffer::from(bytes.clone()));
 
         let deserialized = DType::try_from(view).unwrap();
         assert_eq!(dtype, deserialized);

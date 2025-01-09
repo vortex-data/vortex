@@ -266,6 +266,15 @@ impl<T> Buffer<T> {
         if self.as_ptr().align_offset(*alignment) == 0 {
             self
         } else {
+            #[cfg(feature = "warn-copy")]
+            {
+                let bt = backtrace::Backtrace::new();
+                log::warn!(
+                    "Buffer is not aligned to requested alignment {}, copying: {}",
+                    alignment,
+                    bt
+                )
+            }
             Self::copy_from_aligned(self, alignment)
         }
     }

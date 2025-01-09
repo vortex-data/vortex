@@ -45,7 +45,7 @@ impl Operation for FlatEvaluator {
             .next()
             .ok_or_else(|| vortex_err!("Flat message body missing"))??
         {
-            parts.into_array_data(self.reader.ctx(), self.reader.dtype().clone())
+            parts.decode(self.reader.ctx(), self.reader.dtype().clone())
         } else {
             vortex_bail!("Flat message is not ArrayParts")
         }?;

@@ -17,6 +17,7 @@ use crate::array::{
 };
 use crate::compute::scalar_at;
 use crate::encoding::{Encoding, EncodingId, EncodingRef, EncodingVTable};
+use crate::flatbuffers::FlatBuffer;
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
 use crate::stats::{ArrayStatistics, Stat, Statistics, StatsSet};
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
@@ -82,8 +83,7 @@ impl ArrayData {
         ctx: ContextRef,
         dtype: DType,
         len: usize,
-        // TODO(ngates): use ConstByteBuffer
-        flatbuffer: ByteBuffer,
+        flatbuffer: FlatBuffer,
         flatbuffer_init: F,
         buffers: Vec<ByteBuffer>,
     ) -> VortexResult<Self>

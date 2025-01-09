@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use vortex_buffer::ByteBuffer;
 use vortex_error::{vortex_err, VortexResult};
+use vortex_flatbuffers::FlatBuffer;
 
 use crate::field::Field;
 use crate::{flatbuffers as fb, DType, StructDType};
@@ -28,7 +28,7 @@ pub fn resolve_field<'a, 'b: 'a>(fb: fb::Struct_<'b>, field: &'a Field) -> Vorte
 pub fn extract_field(
     fb_dtype: fb::DType<'_>,
     field: &Field,
-    buffer: &ByteBuffer,
+    buffer: &FlatBuffer,
 ) -> VortexResult<DType> {
     let fb_struct = fb_dtype
         .type__as_struct_()
@@ -42,7 +42,7 @@ pub fn extract_field(
 pub fn project_and_deserialize(
     fb_dtype: fb::DType<'_>,
     projection: &[Field],
-    buffer: &ByteBuffer,
+    buffer: &FlatBuffer,
 ) -> VortexResult<DType> {
     let fb_struct = fb_dtype
         .type__as_struct_()
@@ -66,7 +66,7 @@ pub fn project_and_deserialize(
 fn read_field(
     fb_struct: fb::Struct_,
     idx: usize,
-    buffer: &ByteBuffer,
+    buffer: &FlatBuffer,
 ) -> VortexResult<(Arc<str>, DType)> {
     let name = fb_struct
         .names()
