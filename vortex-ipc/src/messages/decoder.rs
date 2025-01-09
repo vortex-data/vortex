@@ -14,9 +14,9 @@ use crate::ALIGNMENT;
 
 /// A message decoded from an IPC stream.
 ///
-/// Note that the `Array` variant cannot fully decode into an [`ArrayData`] without a [`ContextRef`]
-/// and a [`DType`]. As such, we partially decode into an [`ArrayParts`] and allow the caller to
-/// finish the decoding.
+/// Note that the `Array` variant cannot fully decode into an [`vortex_array::ArrayData`] without
+/// a [`vortex_array::ContextRef`] and a [`DType`]. As such, we partially decode into an
+/// [`ArrayParts`] and allow the caller to finish the decoding.
 #[derive(Debug)]
 pub enum DecoderMessage {
     Array(ArrayParts),
