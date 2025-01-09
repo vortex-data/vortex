@@ -1,10 +1,10 @@
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_dtype::{Field, FieldName, FieldNames};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_dtype::{DType, Field, FieldName, FieldNames};
+use vortex_error::VortexResult;
 
 use crate::traversal::{FoldChildren, FoldUp, Folder};
-use crate::{ExprRef, GetItem, Identity};
+use crate::{ExprRef, Identity};
 
 /// Given an expression, an identity-type and a list of n fields return n optional expressions
 /// ones containing only references to the corresponding field and an expression defined in terms of
@@ -98,29 +98,32 @@ impl AccessibleFields {
 // For all subexpressions in an expression find the fields access directly on identity
 struct ExprTopLevelRef<'a> {
     sub_expressions: HashMap<&'a ExprRef, HashSet<Field>>,
-    identity: FieldNames,
+    identity: &'a DType,
+    tracked_dt: Vec<DType>,
 }
 
 impl<'a> ExprTopLevelRef<'a> {
-    fn new(fields: FieldNames) -> Self {
+    fn new(fields: &'a DType) -> Self {
+        let tracked_dt = vec![fields.clone()];
         Self {
             sub_expressions: HashMap::new(),
-            identity: fields,
+            identity: tracked_dt.first().unwrap(),
+            tracked_dt,
         }
     }
 }
 
 impl<'a> Folder<'a> for ExprTopLevelRef<'a> {
     type NodeTy = ExprRef;
-    type Out = AccessibleFields;
+    type Out = ();
     type Context = ();
 
     fn visit_up(
         &mut self,
         node: &'a ExprRef,
         _context: (),
-        children: FoldChildren<AccessibleFields>,
-    ) -> VortexResult<FoldUp<AccessibleFields>> {
+        children: FoldChildren<()>,
+    ) -> VortexResult<FoldUp<()>> {
         if node.as_any().downcast_ref::<Identity>().is_some() {
             debug_assert!(children.is_empty());
             let field_names =
@@ -128,29 +131,30 @@ impl<'a> Folder<'a> for ExprTopLevelRef<'a> {
             return Ok(FoldUp::Continue(field_names));
         }
 
-        if let Some(item) = node.as_any().downcast_ref::<GetItem>() {
-            let field = item.field();
-            let field_name = match field {
-                Field::Name(n) => n.clone(),
-                Field::Index(_) => todo!(),
-            };
-            let [child] = children.contained_children().as_slice() else {
-                vortex_bail!("GetItem must have exactly one child")
-            };
-            if let Some(access) = child.get_field(&field_name) {
-                let field_access = HashSet::from_iter(vec![Field::Name(access)]);
-                self.sub_expressions.insert(&node, field_access.clone());
-            }
-            return Ok(FoldUp::Continue(AccessibleFields::UntrackedFields));
-        }
+        // if let Some(item) = node.as_any().downcast_ref::<GetItem>() {
+        //     let field = item.field();
+        //     let field_name = match field {
+        //         Field::Name(n) => n.clone(),
+        //         Field::Index(_) => todo!(),
+        //     };
+        //     let [child] = children.contained_children().as_slice() else {
+        //         vortex_bail!("GetItem must have exactly one child")
+        //     };
+        //     if let Some(access) = child.get_field(&field_name) {
+        //         let field_access = HashSet::from_iter(vec![Field::Name(access)]);
+        //         self.sub_expressions.insert(&node, field_access.clone());
+        //     }
+        //     return Ok(FoldUp::Continue(AccessibleFields::UntrackedFields));
+        // }
 
         // else {
         // };
 
-        // |id| = {a: U, ..., z: U}
-        // get_item(f, id) => |id|(f)
+        // |id| = {a: t1, ..., z: tn}
+        // get_item(f, id) => |id|(f), read(e) = f if dt(id) in tracked and tracked := |id|(f)
         // pack({a: e1, .., z: en}) => {a: |e1|, ..., z: |en|}
         // select({a, b}, id) => {a: |id|.a, b: |id|.b}
+        // f(c1, ..., cn) = read(|c1|) if dt(c1) in tracked and tracked := |f(c1, ..., cn)|
 
         // pack(a: id, b: id)
 
@@ -172,12 +176,18 @@ impl<'a> Folder<'a> for ExprTopLevelRef<'a> {
 
 #[cfg(test)]
 mod tests {
+    use vortex_dtype::Nullability::NonNullable;
+
     use super::*;
     use crate::traversal::Node;
     use crate::{get_item, ident};
 
     #[test]
     fn test_expr_top_level_ref() {
+        let dtyp = DType::Struct(
+            vec![Field::Name("a".into()), Field::Name("b".into())].into(),
+            NonNullable,
+        );
         let expr = ident();
         let mut expr_top_level_ref =
             ExprTopLevelRef::new(FieldNames::from_iter(vec!["a".into(), "b".into()]));
