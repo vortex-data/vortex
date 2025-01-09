@@ -35,18 +35,7 @@ pub trait TryDeserializeArrayMetadata<'m>: Sized {
 /// Provide default implementation for metadata serialization based on flexbuffers serde.
 impl<M: ToAvro + Clone> TrySerializeArrayMetadata for M {
     fn try_serialize_metadata(&self) -> VortexResult<Arc<[u8]>> {
-        println!(
-            "Writing value with schema: {}",
-            M::write_schema("root").canonical_form()
-        );
-        vortex_avro::to_avro_binary(self.clone())
-            .map(Arc::from)
-            .map_err(|e| {
-                e.with_context(format!(
-                    "using avro schema: {}",
-                    M::write_schema("root").canonical_form()
-                ))
-            })
+        vortex_avro::to_avro_binary(self.clone()).map(Arc::from)
     }
 }
 

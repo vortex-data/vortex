@@ -34,3 +34,4 @@ pyo3-log = { workspace = true }
 tokio = { workspace = true, features = ["fs", "rt-multi-thread"] }
 url = { workspace = true }
 vortex = { workspace = true, features = ["object_store", "python", "tokio"] }
+
