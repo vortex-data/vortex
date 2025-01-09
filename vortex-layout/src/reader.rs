@@ -13,6 +13,9 @@ use crate::LayoutData;
 pub trait LayoutReader: Send + Sync + AsyncEvaluator {
     /// Returns the [`LayoutData`] of this reader.
     fn layout(&self) -> &LayoutData;
+
+    /// Returns the [`AsyncEvaluator`] for this reader.
+    fn evaluator(&self) -> &dyn AsyncEvaluator;
 }
 
 pub trait LayoutScanExt: LayoutReader {

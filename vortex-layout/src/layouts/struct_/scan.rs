@@ -36,4 +36,8 @@ impl LayoutReader for StructScan {
     fn layout(&self) -> &LayoutData {
         &self.layout
     }
+
+    fn evaluator(&self) -> &dyn AsyncEvaluator {
+        self
+    }
 }

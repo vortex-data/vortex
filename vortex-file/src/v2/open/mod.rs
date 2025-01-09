@@ -126,7 +126,7 @@ impl OpenOptions {
 
         // Set up our segment cache and for good measure, we populate any segments that were
         // covered by the initial read.
-        let mut segment_cache = SegmentCache::default();
+        let mut segment_cache = SegmentCache::<R>::default();
         self.populate_segments(
             initial_offset,
             &initial_read,

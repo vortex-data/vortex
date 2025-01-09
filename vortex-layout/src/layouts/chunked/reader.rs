@@ -1,13 +1,11 @@
 use std::sync::{Arc, OnceLock};
 
-use futures::future::{ready, LocalBoxFuture, Shared};
-use futures::lock::{Mutex, MutexGuard};
-use futures::FutureExt;
+use async_once_cell::OnceCell;
 use vortex_array::stats::{stats_from_bitset_bytes, Stat};
 use vortex_array::ContextRef;
-use vortex_error::{vortex_panic, VortexError, VortexResult};
+use vortex_error::{vortex_panic, VortexResult};
 use vortex_expr::Identity;
-use vortex_scan::RowMask;
+use vortex_scan::{AsyncEvaluator, RowMask};
 
 use crate::layouts::chunked::stats_table::StatsTable;
 use crate::layouts::chunked::ChunkedLayout;
@@ -20,16 +18,11 @@ pub struct ChunkedReader {
     layout: LayoutData,
     ctx: ContextRef,
     segments: Arc<dyn AsyncSegmentReader>,
-    /// Shared stats table operation and cache of the result
-    /// So we shouldn't store the future. We should instead let the first caller to ask
-    /// for the stats table construct their own future, provided they promise to store the result
-    /// into the cache. Perhaps using <https://docs.rs/async-once-cell/latest/async_once_cell/struct.OnceCell.html>
-    stats_table_fut: Arc<Mutex<StatsTableFut>>,
+    /// Shared stats table
+    stats_table: Arc<OnceCell<Option<StatsTable>>>,
     /// Shared lazy chunk scanners
     chunk_readers: Arc<[OnceLock<Arc<dyn LayoutReader>>]>,
 }
-
-type StatsTableFut = Shared<LocalBoxFuture<'static, Option<StatsTable>>>;
 
 impl ChunkedReader {
     pub(super) fn try_new(
@@ -48,50 +41,6 @@ impl ChunkedReader {
             nchunks -= 1;
         }
 
-        // Figure out which stats are present
-        let present_stats: Arc<[Stat]> = layout
-            .metadata()
-            .map(|m| stats_from_bitset_bytes(m.as_ref()))
-            .unwrap_or_default()
-            .into();
-
-        let stats_table_fut = layout
-            .metadata()
-            .is_some()
-            .then(|| {
-                let layout_dtype = layout.dtype().clone();
-                let stats_dtype = StatsTable::dtype_for_stats_table(&layout_dtype, &present_stats);
-                let stats_layout = layout.child(layout.nchildren() - 1, stats_dtype)?;
-                let reader = stats_layout.reader(segments.clone(), ctx.clone())?;
-
-                Ok::<_, VortexError>(
-                    async move {
-                        reader
-                            .evaluate(
-                                RowMask::new_valid_between(0, nchunks as u64),
-                                Identity::new_expr(),
-                            )
-                            .map(move |stats_array| {
-                                stats_array
-                                    .and_then(|stats_array| {
-                                        StatsTable::try_new(
-                                            layout_dtype.clone(),
-                                            stats_array,
-                                            present_stats.clone(),
-                                        )
-                                    })
-                                    // FIXME(ngates): we should map_err into a cloneable error type
-                                    .ok()
-                            })
-                            .await
-                    }
-                    .boxed_local(),
-                )
-            })
-            .transpose()?
-            .unwrap_or_else(|| ready(None).boxed())
-            .shared();
-
         // Construct a lazy scan for each chunk of the layout.
         let chunk_scans = (0..nchunks).map(|_| OnceLock::new()).collect();
 
@@ -99,14 +48,61 @@ impl ChunkedReader {
             layout,
             ctx,
             segments,
-            stats_table_fut: Arc::new(Mutex::new(stats_table_fut)),
+            stats_table: Arc::new(OnceCell::new()),
             chunk_readers: chunk_scans,
         })
     }
 
-    /// Get the stats table future.
-    pub(crate) async fn stats_table_fut(&self) -> MutexGuard<StatsTableFut> {
-        self.stats_table_fut.lock().await
+    /// Get or initialize the stats table.
+    ///
+    /// Only the first successful caller will initialize the stats table, all other callers will
+    /// resolve to the same result.
+    pub(crate) async fn stats_table(&self) -> VortexResult<Option<&StatsTable>> {
+        self.stats_table
+            .get_or_try_init(async {
+                // The number of chunks
+                let mut nchunks = self.layout.nchildren();
+                if self.layout.metadata().is_some() {
+                    // The final child is the statistics table.
+                    nchunks -= 1;
+                }
+
+                // Figure out which stats are present
+                let present_stats: Arc<[Stat]> = self
+                    .layout
+                    .metadata()
+                    .map(|m| stats_from_bitset_bytes(m.as_ref()))
+                    .unwrap_or_default()
+                    .into();
+
+                if self.layout.metadata().is_some() {
+                    let layout_dtype = self.layout.dtype().clone();
+                    let stats_dtype =
+                        StatsTable::dtype_for_stats_table(&layout_dtype, &present_stats);
+                    let stats_layout = self
+                        .layout
+                        .child(self.layout.nchildren() - 1, stats_dtype)?;
+
+                    let reader = stats_layout.reader(self.segments.clone(), self.ctx.clone())?;
+                    let stats_array = reader
+                        .evaluate(
+                            RowMask::new_valid_between(0, nchunks as u64),
+                            Identity::new_expr(),
+                        )
+                        .await?;
+                    let stats_table = StatsTable::try_new(
+                        layout_dtype.clone(),
+                        stats_array,
+                        present_stats.clone(),
+                    )?;
+
+                    Ok(Some(stats_table))
+                } else {
+                    Ok(None)
+                }
+            })
+            .await
+            .map(|opt| opt.as_ref())
     }
 
     /// Return the number of chunks
@@ -128,5 +124,9 @@ impl ChunkedReader {
 impl LayoutReader for ChunkedReader {
     fn layout(&self) -> &LayoutData {
         &self.layout
+    }
+
+    fn evaluator(&self) -> &dyn AsyncEvaluator {
+        self
     }
 }

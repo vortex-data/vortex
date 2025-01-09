@@ -8,7 +8,7 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_io::VortexReadAt;
 use vortex_layout::segments::AsyncSegmentReader;
-use vortex_layout::{LayoutData, LayoutReader};
+use vortex_layout::{LayoutData, LayoutReader, LayoutScanExt};
 use vortex_scan::Scan;
 
 pub struct VortexFile<R> {
@@ -48,7 +48,9 @@ impl<R: VortexReadAt> VortexFile<R> {
         //  Note that to implement this we would use stream::try_unfold
         let stream = stream::once(async move {
             let row_range = 0..reader.layout().row_count();
-            scan.range_scan(row_range)?.evaluate_async(reader).await
+            scan.range_scan(row_range)?
+                .evaluate_async(reader.evaluator())
+                .await
         });
 
         Ok(ArrayStreamAdapter::new(result_dtype, stream))
