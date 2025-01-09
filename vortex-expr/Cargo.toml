@@ -24,7 +24,6 @@ workspace = true
 [dependencies]
 datafusion-expr = { workspace = true, optional = true }
 datafusion-physical-expr = { workspace = true, optional = true }
-dyn-eq = { workspace = true, features = ["alloc"] }
 dyn-hash = { workspace = true }
 itertools = { workspace = true }
 prost = { workspace = true, optional = true }

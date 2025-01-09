@@ -10,7 +10,7 @@ use vortex_array::ContextRef;
 use vortex_buffer::{ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
-use vortex_flatbuffers::{dtype as fbd, footer2 as fb, ReadFlatBuffer};
+use vortex_flatbuffers::{dtype as fbd, footer2 as fb, FlatBuffer, ReadFlatBuffer};
 use vortex_io::VortexReadAt;
 use vortex_layout::segments::SegmentId;
 use vortex_layout::{LayoutContextRef, LayoutData, LayoutId};
@@ -184,7 +184,8 @@ impl OpenOptions {
         dtype: Segment,
     ) -> VortexResult<DType> {
         let offset = usize::try_from(dtype.offset - initial_offset)?;
-        let sliced_buffer = initial_read.slice(offset..offset + dtype.length);
+        let sliced_buffer =
+            FlatBuffer::align_from(initial_read.slice(offset..offset + dtype.length));
         let fbd_dtype = root::<fbd::DType>(&sliced_buffer)?;
 
         DType::try_from_view(fbd_dtype, sliced_buffer.clone())

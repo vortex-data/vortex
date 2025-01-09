@@ -2,7 +2,6 @@ use std::any::Any;
 use std::fmt::{Debug, Display};
 use std::sync::Arc;
 
-use dyn_eq::DynEq;
 use dyn_hash::DynHash;
 
 mod binary;
@@ -47,7 +46,9 @@ pub type ExprRef = Arc<dyn VortexExpr>;
 
 /// Represents logical operation on [`ArrayData`]s
 pub trait VortexExpr: Debug + Send + Sync + DynEq + DynHash + Display {
+    /// Convert expression reference to reference of [`Any`] type
     fn as_any(&self) -> &dyn Any;
+
     /// Compute result of expression on given batch producing a new batch
     fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData>;
 
@@ -94,7 +95,27 @@ fn split_inner(expr: &ExprRef, exprs: &mut Vec<ExprRef>) {
     }
 }
 
-dyn_eq::eq_trait_object!(VortexExpr);
+// Adapted from apache/datafusion https://github.com/apache/datafusion/blob/f31ca5b927c040ce03f6a3c8c8dc3d7f4ef5be34/datafusion/physical-expr-common/src/physical_expr.rs#L156
+/// [`VortexExpr`] can't be constrained by [`Eq`] directly because it must remain object
+/// safe. To ease implementation blanket implementation is provided for [`Eq`] types.
+pub trait DynEq {
+    fn dyn_eq(&self, other: &dyn Any) -> bool;
+}
+
+impl<T: Eq + Any> DynEq for T {
+    fn dyn_eq(&self, other: &dyn Any) -> bool {
+        other.downcast_ref::<Self>() == Some(self)
+    }
+}
+
+impl PartialEq for dyn VortexExpr {
+    fn eq(&self, other: &Self) -> bool {
+        self.dyn_eq(other.as_any())
+    }
+}
+
+impl Eq for dyn VortexExpr {}
+
 dyn_hash::hash_trait_object!(VortexExpr);
 
 #[cfg(test)]

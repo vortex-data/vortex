@@ -9,6 +9,7 @@ use viewed::ViewedArrayData;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexError, VortexExpect, VortexResult};
+use vortex_flatbuffers::FlatBuffer;
 use vortex_scalar::Scalar;
 
 use crate::array::{
@@ -82,8 +83,7 @@ impl ArrayData {
         ctx: ContextRef,
         dtype: DType,
         len: usize,
-        // TODO(ngates): use ConstByteBuffer
-        flatbuffer: ByteBuffer,
+        flatbuffer: FlatBuffer,
         flatbuffer_init: F,
         buffers: Vec<ByteBuffer>,
     ) -> VortexResult<Self>

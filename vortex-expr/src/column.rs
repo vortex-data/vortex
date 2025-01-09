@@ -58,7 +58,6 @@ impl VortexExpr for Column {
     fn as_any(&self) -> &dyn Any {
         self
     }
-
     fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
         batch
             .as_struct_array()

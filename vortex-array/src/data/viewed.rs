@@ -6,6 +6,7 @@ use itertools::Itertools;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_err, VortexExpect as _, VortexResult};
+use vortex_flatbuffers::FlatBuffer;
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::encoding::opaque::OpaqueEncoding;
@@ -20,8 +21,7 @@ pub(super) struct ViewedArrayData {
     pub(super) dtype: DType,
     pub(super) len: usize,
     pub(super) metadata: Arc<dyn ArrayMetadata>,
-    // TODO(ngates): use ConstByteBuffer once it is stable
-    pub(super) flatbuffer: ByteBuffer,
+    pub(super) flatbuffer: FlatBuffer,
     pub(super) flatbuffer_loc: usize,
     pub(super) buffers: Arc<[ByteBuffer]>,
     pub(super) ctx: ContextRef,
