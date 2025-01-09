@@ -49,7 +49,7 @@ fuzz_target!(|array_data: ArrayData| -> Corpus {
             .boolean_buffer()
             .count_set_bits();
 
-        assert_eq!(true_count, array_data.len())
+        assert_eq!(array_data.len(), true_count)
     });
 
     Corpus::Keep
