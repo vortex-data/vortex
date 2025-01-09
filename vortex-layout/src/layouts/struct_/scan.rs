@@ -25,7 +25,7 @@ impl StructScan {
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl AsyncEvaluator for StructScan {
     async fn evaluate(self: &Self, _row_mask: RowMask, _expr: ExprRef) -> VortexResult<ArrayData> {
         todo!()

@@ -9,7 +9,7 @@ use vortex_scan::{AsyncEvaluator, RowMask};
 use crate::layouts::flat::reader::FlatReader;
 use crate::reader::LayoutScanExt;
 
-#[async_trait]
+#[async_trait(?Send)]
 impl AsyncEvaluator for FlatReader {
     async fn evaluate(self: &Self, row_mask: RowMask, expr: ExprRef) -> VortexResult<ArrayData> {
         // Grab the byte buffer for the segment.

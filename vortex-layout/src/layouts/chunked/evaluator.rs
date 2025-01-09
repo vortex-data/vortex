@@ -12,7 +12,7 @@ use vortex_scan::{AsyncEvaluator, RowMask};
 use crate::layouts::chunked::reader::ChunkedReader;
 use crate::reader::LayoutScanExt;
 
-#[async_trait]
+#[async_trait(?Send)]
 impl AsyncEvaluator for ChunkedReader {
     async fn evaluate(self: &Self, row_mask: RowMask, expr: ExprRef) -> VortexResult<ArrayData> {
         // Compute the result dtype of the expression.
@@ -63,7 +63,7 @@ impl AsyncEvaluator for ChunkedReader {
                         Scalar::bool(false, dtype.nullability()),
                         row_mask.true_count(),
                     );
-                    chunks.push(ready(Ok(false_array.into_array())).boxed());
+                    chunks.push(ready(Ok(false_array.into_array())).boxed_local());
                     continue;
                 }
             }
@@ -75,7 +75,7 @@ impl AsyncEvaluator for ChunkedReader {
 
             let chunk_reader = chunk_reader.clone();
             let expr = expr.clone();
-            chunks.push(async move { chunk_reader.evaluate(chunk_mask, expr).await }.boxed());
+            chunks.push(async move { chunk_reader.evaluate(chunk_mask, expr).await }.boxed_local());
         }
 
         // Wait for all chunks to be evaluated

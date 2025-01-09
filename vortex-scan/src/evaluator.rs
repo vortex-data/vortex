@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 // NOTE(ngates): we have chosen a general "run this expression" API instead of  separate
 //  `filter(row_mask, expr) -> row_mask` + `project(row_mask, field_mask)` APIs.
 //  The reason for this is so we can eventually support cell-level push-down.
@@ -21,14 +19,11 @@ pub trait Evaluator {
     fn evaluate(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<ArrayData>;
 }
 
-#[async_trait]
+/// An async evaluator that can evaluate expressions against a row mask.
+///
+/// This trait is explicitly non-send to force users to think about how to isolate this async
+/// CPU-heavy operation from the rest of their likely I/O-heavy async code.
+#[async_trait(?Send)]
 pub trait AsyncEvaluator {
     async fn evaluate(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<ArrayData>;
-}
-
-#[async_trait]
-impl<E: AsyncEvaluator + Send + Sync> AsyncEvaluator for Arc<E> {
-    async fn evaluate(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<ArrayData> {
-        (**self).evaluate(row_mask, expr).await
-    }
 }

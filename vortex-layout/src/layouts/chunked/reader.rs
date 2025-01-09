@@ -1,6 +1,6 @@
 use std::sync::{Arc, OnceLock};
 
-use futures::future::{ready, BoxFuture, Shared};
+use futures::future::{ready, LocalBoxFuture, Shared};
 use futures::FutureExt;
 use vortex_array::stats::{stats_from_bitset_bytes, Stat};
 use vortex_array::ContextRef;
@@ -25,7 +25,7 @@ pub struct ChunkedReader {
     chunk_readers: Arc<[OnceLock<Arc<dyn LayoutReader>>]>,
 }
 
-type StatsTableFut = Shared<BoxFuture<'static, Option<StatsTable>>>;
+type StatsTableFut = Shared<LocalBoxFuture<'static, Option<StatsTable>>>;
 
 impl ChunkedReader {
     pub(super) fn try_new(
@@ -81,7 +81,7 @@ impl ChunkedReader {
                             })
                             .await
                     }
-                    .boxed(),
+                    .boxed_local(),
                 )
             })
             .transpose()?
