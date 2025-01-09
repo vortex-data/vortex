@@ -1,12 +1,9 @@
-use std::sync::Arc;
-
-use arrow_array::ArrayRef;
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, VortexError, VortexResult};
 use vortex_scalar::{BinaryNumericOperator, Scalar};
 
 use crate::array::ConstantArray;
-use crate::arrow::{Datum, FromArrowArray};
+use crate::arrow::{to_array_data_with_len, Datum};
 use crate::encoding::Encoding;
 use crate::{ArrayDType, ArrayData, IntoArrayData as _};
 
@@ -183,6 +180,7 @@ fn arrow_numeric(
     operator: BinaryNumericOperator,
 ) -> VortexResult<ArrayData> {
     let nullable = lhs.dtype().is_nullable() || rhs.dtype().is_nullable();
+    let len = lhs.len();
 
     let lhs = Datum::try_from(lhs)?;
     let rhs = Datum::try_from(rhs)?;
@@ -195,8 +193,7 @@ fn arrow_numeric(
         BinaryNumericOperator::Div => arrow_arith::numeric::div(&lhs, &rhs)?,
         BinaryNumericOperator::RDiv => arrow_arith::numeric::div(&rhs, &lhs)?,
     };
-
-    Ok(ArrayData::from_arrow(Arc::new(array) as ArrayRef, nullable))
+    to_array_data_with_len(array, len, nullable)
 }
 
 #[cfg(feature = "test-harness")]

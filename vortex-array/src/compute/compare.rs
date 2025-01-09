@@ -6,10 +6,9 @@ use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, vortex_panic, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::array::ConstantArray;
-use crate::arrow::{Datum, FromArrowArray};
+use crate::arrow::{to_array_data_with_len, Datum};
 use crate::encoding::Encoding;
-use crate::{ArrayDType, ArrayData, IntoArrayData};
+use crate::{ArrayDType, ArrayData};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd)]
 pub enum Operator {
@@ -173,25 +172,7 @@ fn arrow_compare(
         Operator::Lt => cmp::lt(&lhs, &rhs)?,
         Operator::Lte => cmp::lt_eq(&lhs, &rhs)?,
     };
-
-    // if both sides are constant, the Datum compare will return a scalar, requiring expansion
-    // but otherwise, we can just return the result
-    if array.len() == left.len() {
-        return Ok(ArrayData::from_arrow(&array, nullable));
-    }
-
-    if array.len() != 1 {
-        vortex_panic!("CompareFn result length ({}) mismatch for left encoding {}, left len {}, right encoding {}, right len {}",
-            array.len(),
-            left.encoding().id(),
-            left.len(),
-            right.encoding().id(),
-            right.len()
-        );
-    }
-
-    let scalar = Scalar::bool(array.value(0), Nullability::from(nullable));
-    Ok(ConstantArray::new(scalar, left.len()).into_array())
+    to_array_data_with_len(&array, left.len(), nullable)
 }
 
 #[inline(always)]

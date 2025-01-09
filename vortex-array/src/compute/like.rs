@@ -1,7 +1,7 @@
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexError, VortexResult};
 
-use crate::arrow::{Datum, FromArrowArray};
+use crate::arrow::{to_array_data_with_len, Datum};
 use crate::encoding::Encoding;
 use crate::{ArrayDType, ArrayData};
 
@@ -88,6 +88,7 @@ pub(crate) fn arrow_like(
     options: LikeOptions,
 ) -> VortexResult<ArrayData> {
     let nullable = child.dtype().is_nullable();
+    let len = child.len();
     let child = Datum::try_from(child.clone())?;
     let pattern = Datum::try_from(pattern.clone())?;
 
@@ -98,5 +99,5 @@ pub(crate) fn arrow_like(
         (true, true) => arrow_string::like::nilike(&child, &pattern)?,
     };
 
-    Ok(ArrayData::from_arrow(&array, nullable))
+    to_array_data_with_len(&array, len, nullable)
 }
