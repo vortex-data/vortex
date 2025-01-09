@@ -3,7 +3,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use flatbuffers::{FlatBufferBuilder, Table, Verifiable, Verifier, VerifierOptions, WIPOffset};
+use flatbuffers::{FlatBufferBuilder, Follow, Verifiable, Verifier, VerifierOptions, WIPOffset};
 use vortex_array::ContextRef;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
@@ -50,10 +50,7 @@ struct ViewedLayoutData {
 impl ViewedLayoutData {
     /// Return the flatbuffer layout message.
     fn flatbuffer(&self) -> layout::Layout<'_> {
-        unsafe {
-            let tab = Table::new(self.flatbuffer.as_ref(), self.flatbuffer_loc);
-            layout::Layout::init_from_table(tab)
-        }
+        unsafe { layout::Layout::follow(self.flatbuffer.as_ref(), self.flatbuffer_loc) }
     }
 }
 
@@ -91,8 +88,7 @@ impl LayoutData {
         fb::Layout::run_verifier(&mut v, flatbuffer_loc)?;
 
         // SAFETY: we just verified the buffer contains a valid layout message.
-        let fb_layout =
-            unsafe { fb::Layout::init_from_table(Table::new(flatbuffer.as_ref(), flatbuffer_loc)) };
+        let fb_layout = unsafe { fb::Layout::follow(flatbuffer.as_ref(), flatbuffer_loc) };
         if fb_layout.encoding() != encoding.id().0 {
             vortex_bail!(
                 "Mismatched encoding, flatbuffer contains {}, given {}",
