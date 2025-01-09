@@ -39,7 +39,7 @@ fuzz_target!(|array_data: ArrayData| -> Corpus {
             .unwrap()
             .into_array();
 
-        assert_eq!(array_data.len(), output.len());
+        assert_eq!(array_data.len(), output.len(), "Length was not preserved.");
 
         let cmp_result = compare(&array_data, output, Operator::Eq).unwrap();
 
