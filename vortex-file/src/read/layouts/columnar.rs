@@ -138,6 +138,7 @@ impl ColumnarLayoutBuilder<'_> {
                 unhandled_children,
                 Some(prf),
                 false,
+                self.layout.row_count(),
             )));
             handled_names.push("__unhandled".into());
         }
@@ -162,6 +163,7 @@ impl ColumnarLayoutBuilder<'_> {
             handled_children,
             top_level_expr,
             shortcircuit_siblings,
+            self.layout.row_count(),
         ))
     }
 
@@ -198,6 +200,7 @@ pub struct ColumnarLayoutReader {
     in_progress_ranges: InProgressRanges,
     in_progress_metadata: RwLock<HashMap<FieldName, Option<ArrayData>>>,
     in_progress_prunes: InProgressPrunes,
+    row_count: u64,
 }
 
 impl ColumnarLayoutReader {
@@ -206,6 +209,7 @@ impl ColumnarLayoutReader {
         children: Vec<Arc<dyn LayoutReader>>,
         expr: Option<Arc<dyn VortexExpr>>,
         shortcircuit_siblings: bool,
+        row_count: u64,
     ) -> Self {
         assert_eq!(
             names.len(),
@@ -217,6 +221,7 @@ impl ColumnarLayoutReader {
             children,
             expr,
             shortcircuit_siblings,
+            row_count,
             in_progress_ranges: RwLock::new(HashMap::new()),
             in_progress_metadata: RwLock::new(HashMap::new()),
             in_progress_prunes: RwLock::new(HashMap::new()),
@@ -229,6 +234,7 @@ impl LayoutReader for ColumnarLayoutReader {
         for child in &self.children {
             child.add_splits(row_offset, splits)?;
         }
+        splits.insert(row_offset + self.row_count as usize);
         Ok(())
     }
 
