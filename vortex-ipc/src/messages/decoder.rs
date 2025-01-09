@@ -1,62 +1,27 @@
-use std::fmt::{Debug, Formatter};
+use std::fmt::Debug;
 
 use bytes::Buf;
-use flatbuffers::{root, root_unchecked, Follow};
+use flatbuffers::{root, root_unchecked};
 use itertools::Itertools;
-use vortex_array::{flatbuffers as fba, ArrayData, ContextRef};
+use vortex_array::parts::ArrayParts;
 use vortex_buffer::{AlignedBuf, Alignment, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
-use vortex_flatbuffers::message as fb;
 use vortex_flatbuffers::message::{MessageHeader, MessageVersion};
+use vortex_flatbuffers::{message as fb, FlatBuffer};
 
 use crate::ALIGNMENT;
 
 /// A message decoded from an IPC stream.
 ///
-/// Note that the `Array` variant cannot fully decode into an [`ArrayData`] without a [`ContextRef`]
-/// and a [`DType`]. As such, we partially decode into an [`ArrayParts`] and allow the caller to
-/// finish the decoding.
+/// Note that the `Array` variant cannot fully decode into an [`vortex_array::ArrayData`] without
+/// a [`vortex_array::ContextRef`] and a [`DType`]. As such, we partially decode into an
+/// [`ArrayParts`] and allow the caller to finish the decoding.
 #[derive(Debug)]
 pub enum DecoderMessage {
     Array(ArrayParts),
     Buffer(ByteBuffer),
     DType(DType),
-}
-
-/// ArrayParts represents a partially decoded Vortex array.
-/// It can be completely decoded calling `into_array_data` with a context and dtype.
-pub struct ArrayParts {
-    row_count: usize,
-    // Typed as fb::Array
-    // FIXME(ngates): use ConstAlignedArray aliased to FlatBuffer
-    array_flatbuffer: ByteBuffer,
-    array_flatbuffer_loc: usize,
-    buffers: Vec<ByteBuffer>,
-}
-
-impl Debug for ArrayParts {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ArrayComponents")
-            .field("row_count", &self.row_count)
-            .field("array_flatbuffer", &self.array_flatbuffer.len())
-            .field("buffers", &self.buffers.len())
-            .finish()
-    }
-}
-
-impl ArrayParts {
-    pub fn into_array_data(self, ctx: ContextRef, dtype: DType) -> VortexResult<ArrayData> {
-        ArrayData::try_new_viewed(
-            ctx,
-            dtype,
-            self.row_count,
-            self.array_flatbuffer,
-            // SAFETY: ArrayComponents guarantees the buffers are valid.
-            |buf| unsafe { Ok(fba::Array::follow(buf, self.array_flatbuffer_loc)) },
-            self.buffers,
-        )
-    }
 }
 
 #[derive(Default)]
@@ -69,7 +34,7 @@ enum State {
 }
 
 struct ReadingArray {
-    header: ByteBuffer,
+    header: FlatBuffer,
     buffers_length: usize,
 }
 
@@ -108,11 +73,6 @@ impl Default for MessageDecoder {
     }
 }
 
-/// The alignment required for a flatbuffer message.
-/// This is based on the assumption that the maximum primitive type is 8 bytes.
-/// See: https://groups.google.com/g/flatbuffers/c/PSgQeWeTx_g
-const FB_ALIGNMENT: Alignment = Alignment::new(8);
-
 impl MessageDecoder {
     /// Attempt to read the next message from the bytes object.
     ///
@@ -135,7 +95,7 @@ impl MessageDecoder {
                         return Ok(PollRead::NeedMore(*msg_length));
                     }
 
-                    let msg_bytes = bytes.copy_to_aligned(*msg_length, FB_ALIGNMENT);
+                    let msg_bytes = bytes.copy_to_const_aligned(*msg_length);
                     let msg = root::<fb::Message>(msg_bytes.as_ref())?;
                     if msg.version() != MessageVersion::V0 {
                         vortex_bail!("Unsupported message version {:?}", msg.version());
@@ -245,12 +205,12 @@ impl MessageDecoder {
                     let row_count = usize::try_from(array_data_msg.row_count())
                         .map_err(|_| vortex_err!("row count is too large for usize"))?;
 
-                    let msg = DecoderMessage::Array(ArrayParts {
+                    let msg = DecoderMessage::Array(ArrayParts::new(
                         row_count,
-                        array_flatbuffer: header.clone(),
-                        array_flatbuffer_loc: array_msg._tab.loc(),
+                        array_msg,
+                        header.clone(),
                         buffers,
-                    });
+                    ));
 
                     self.state = Default::default();
                     return Ok(PollRead::Some(msg));
@@ -264,7 +224,7 @@ impl MessageDecoder {
 mod test {
     use bytes::BytesMut;
     use vortex_array::array::ConstantArray;
-    use vortex_array::{ArrayDType, IntoArrayData};
+    use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
     use vortex_buffer::buffer;
     use vortex_error::vortex_panic;
 
@@ -289,7 +249,7 @@ mod test {
 
         // Decode the array parts with the context
         let actual = array_parts
-            .into_array_data(Default::default(), expected.dtype().clone())
+            .decode(Default::default(), expected.dtype().clone())
             .unwrap();
 
         assert_eq!(expected.len(), actual.len());

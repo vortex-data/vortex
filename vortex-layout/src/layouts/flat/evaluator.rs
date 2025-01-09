@@ -23,7 +23,7 @@ impl AsyncEvaluator for FlatReader {
             .next()
             .ok_or_else(|| vortex_err!("Flat message body missing"))??
         {
-            parts.into_array_data(self.ctx(), self.dtype().clone())
+            parts.decode(self.ctx(), self.dtype().clone())
         } else {
             vortex_bail!("Flat message is not ArrayParts")
         }?;

@@ -2,13 +2,12 @@ use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::sync::Arc;
 
-use flatbuffers::{root, root_unchecked};
+use flatbuffers::root;
 use itertools::Itertools;
-use vortex_buffer::ByteBuffer;
 use vortex_error::{
     vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult, VortexUnwrap,
 };
-use vortex_flatbuffers::dtype as fbd;
+use vortex_flatbuffers::{dtype as fbd, FlatBuffer};
 use DType::*;
 
 use crate::field::Field;
@@ -185,21 +184,21 @@ impl Display for DType {
 #[derive(Debug, Clone, PartialOrd, PartialEq, Eq)]
 pub struct ViewedDType {
     /// Underlying flatbuffer
-    buffer: ByteBuffer,
+    flatbuffer: FlatBuffer,
     /// Location of the dtype data inside the underlying buffer
     flatbuffer_loc: usize,
 }
 
 impl ViewedDType {
     /// Create a [`ViewedDType`] from a [`fbd::DType`] and the shared buffer.
-    pub(crate) fn from_fb(fb_dtype: fbd::DType<'_>, buffer: ByteBuffer) -> Self {
+    pub(crate) fn from_fb(fb_dtype: fbd::DType<'_>, buffer: FlatBuffer) -> Self {
         Self::with_location(fb_dtype._tab.loc(), buffer)
     }
 
     /// Create a [`ViewedDType`] from a buffer and a flatbuffer location
-    pub(crate) fn with_location(location: usize, buffer: ByteBuffer) -> Self {
+    pub(crate) fn with_location(location: usize, buffer: FlatBuffer) -> Self {
         Self {
-            buffer,
+            flatbuffer: buffer,
             flatbuffer_loc: location,
         }
     }
@@ -208,15 +207,15 @@ impl ViewedDType {
     pub fn flatbuffer(&self) -> fbd::DType<'_> {
         unsafe {
             fbd::DType::init_from_table(flatbuffers::Table::new(
-                self.buffer.as_ref(),
+                self.flatbuffer.as_ref(),
                 self.flatbuffer_loc,
             ))
         }
     }
 
     /// Returns the underlying shared buffer
-    pub fn buffer(&self) -> &ByteBuffer {
-        &self.buffer
+    pub fn buffer(&self) -> &FlatBuffer {
+        &self.flatbuffer
     }
 }
 
@@ -437,7 +436,7 @@ impl StructDType {
     }
 
     /// Creates a new instance from a flatbuffer-defined object and its underlying buffer.
-    pub fn from_fb(fb_struct: fbd::Struct_<'_>, buffer: ByteBuffer) -> VortexResult<Self> {
+    pub fn from_fb(fb_struct: fbd::Struct_<'_>, buffer: FlatBuffer) -> VortexResult<Self> {
         let names = fb_struct
             .names()
             .ok_or_else(|| vortex_err!("failed to parse struct names from flatbuffer"))?
@@ -459,21 +458,12 @@ impl StructDType {
     }
 
     /// Create a new [`StructDType`] from flatbuffer bytes.
-    pub fn from_bytes(buffer: ByteBuffer) -> VortexResult<Self> {
+    pub fn from_bytes(buffer: FlatBuffer) -> VortexResult<Self> {
         let fb_struct = root::<fbd::DType>(&buffer)?
             .type__as_struct_()
             .ok_or_else(|| vortex_err!("failed to parse struct from flatbuffer"))?;
 
         Self::from_fb(fb_struct, buffer.clone())
-    }
-
-    /// # Safety
-    /// Parse a StructDType out of a buffer, must be validated by the other otherwise might panic or behave unexpectedly.
-    pub unsafe fn from_bytes_unchecked(buffer: ByteBuffer) -> Self {
-        let fb_struct = unsafe { root_unchecked::<fbd::DType>(&buffer) }
-            .type__as_struct_()
-            .vortex_expect("failed to parse struct from flatbuffer");
-        Self::from_fb(fb_struct, buffer.clone()).vortex_expect("Failed to build StructDType")
     }
 
     /// Get the names of the fields in the struct
