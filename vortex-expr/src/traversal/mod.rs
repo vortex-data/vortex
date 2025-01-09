@@ -103,7 +103,7 @@ impl<Out> IntoIterator for FoldChildren<Out> {
 }
 
 impl<Out> FoldChildren<Out> {
-    pub fn unwrap(self) -> Vec<Out> {
+    pub fn contained_children(self) -> Vec<Out> {
         match self {
             FoldChildren::Skipped => vec![],
             FoldChildren::Children(children) => children,

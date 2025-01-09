@@ -1,7 +1,7 @@
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_dtype::{Field, FieldName, FieldNames};
-use vortex_error::VortexResult;
+use vortex_error::{vortex_bail, VortexResult};
 
 use crate::traversal::{FoldChildren, FoldUp, Folder};
 use crate::{ExprRef, GetItem, Identity};
@@ -73,23 +73,27 @@ impl ExprSplitter {
 //     }
 // }
 
-// #[derive(Clone, Debug, PartialEq, Eq)]
-// enum FieldAccesses {
-//     Fields(HashSet<Field>),
-//     AllFields,
-// }
-//
-// impl FieldAccesses {
-//     fn union(self, other: &Self) -> Self {
-//         match (self, other) {
-//             (FieldAccesses::AllFields, _) => FieldAccesses::AllFields,
-//             (_, FieldAccesses::AllFields) => FieldAccesses::AllFields,
-//             (FieldAccesses::Fields(fields1), FieldAccesses::Fields(fields2)) => {
-//                 FieldAccesses::Fields(fields1.union(fields2).cloned().collect())
-//             }
-//         }
-//     }
-// }
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum AccessibleFields {
+    Fields(HashSet<FieldName>),
+    UntrackedFields,
+}
+
+impl AccessibleFields {
+    fn important_fields(&self) -> HashSet<FieldName> {
+        match self {
+            AccessibleFields::Fields(fields) => fields.clone(),
+            AccessibleFields::UntrackedFields => HashSet::new(),
+        }
+    }
+
+    fn get_field(&self, field: &FieldName) -> Option<FieldName> {
+        match self {
+            AccessibleFields::Fields(fields) => fields.get(field).cloned(),
+            AccessibleFields::UntrackedFields => None,
+        }
+    }
+}
 
 // For all subexpressions in an expression find the fields access directly on identity
 struct ExprTopLevelRef<'a> {
@@ -108,18 +112,19 @@ impl<'a> ExprTopLevelRef<'a> {
 
 impl<'a> Folder<'a> for ExprTopLevelRef<'a> {
     type NodeTy = ExprRef;
-    type Out = HashSet<FieldName>;
+    type Out = AccessibleFields;
     type Context = ();
 
     fn visit_up(
         &mut self,
         node: &'a ExprRef,
         _context: (),
-        children: FoldChildren<HashSet<FieldName>>,
-    ) -> VortexResult<FoldUp<HashSet<FieldName>>> {
+        children: FoldChildren<AccessibleFields>,
+    ) -> VortexResult<FoldUp<AccessibleFields>> {
         if node.as_any().downcast_ref::<Identity>().is_some() {
             debug_assert!(children.is_empty());
-            let field_names = HashSet::from_iter(self.identity.iter().cloned());
+            let field_names =
+                AccessibleFields::Fields(HashSet::from_iter(self.identity.iter().cloned()));
             return Ok(FoldUp::Continue(field_names));
         }
 
@@ -129,15 +134,25 @@ impl<'a> Folder<'a> for ExprTopLevelRef<'a> {
                 Field::Name(n) => n.clone(),
                 Field::Index(_) => todo!(),
             };
-            // let [child] = children.unwrap().as_slice();
-            // let access = child.get(&field_name).cloned();
-            let field_access = HashSet::from_iter(vec![field.clone()]);
-            self.sub_expressions.insert(&node, field_access.clone());
-            return Ok(FoldUp::Continue(HashSet::from_iter(vec![field_name])));
+            let [child] = children.contained_children().as_slice() else {
+                vortex_bail!("GetItem must have exactly one child")
+            };
+            if let Some(access) = child.get_field(&field_name) {
+                let field_access = HashSet::from_iter(vec![Field::Name(access)]);
+                self.sub_expressions.insert(&node, field_access.clone());
+            }
+            return Ok(FoldUp::Continue(AccessibleFields::UntrackedFields));
         }
 
         // else {
         // };
+
+        // |id| = {a: U, ..., z: U}
+        // get_item(f, id) => |id|(f)
+        // pack({a: e1, .., z: en}) => {a: |e1|, ..., z: |en|}
+        // select({a, b}, id) => {a: |id|.a, b: |id|.b}
+
+        // pack(a: id, b: id)
 
         let field_access = children.into_iter().fold(HashSet::new(), |acc, fields| {
             acc.union(&fields).cloned().collect()
@@ -151,7 +166,7 @@ impl<'a> Folder<'a> for ExprTopLevelRef<'a> {
                 .collect(),
         );
 
-        Ok(FoldUp::Continue(field_access))
+        Ok(FoldUp::Continue())
     }
 }
 
