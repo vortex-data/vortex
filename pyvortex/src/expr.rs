@@ -1,9 +1,11 @@
+use std::sync::Arc;
+
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::*;
 use vortex::dtype::half::f16;
-use vortex::dtype::{DType, Nullability, PType};
-use vortex::expr::{col, lit, BinaryExpr, ExprRef, Operator};
+use vortex::dtype::{DType, Field, Nullability, PType};
+use vortex::expr::{col, lit, BinaryExpr, ExprRef, GetItem, Operator};
 use vortex::scalar::Scalar;
 
 use crate::dtype::PyDType;
@@ -115,6 +117,7 @@ use crate::dtype::PyDType;
 ///     "Angela"
 ///   ]
 #[pyclass(name = "Expr", module = "vortex")]
+#[derive(Clone)]
 pub struct PyExpr {
     inner: ExprRef,
 }
@@ -221,6 +224,10 @@ impl PyExpr {
     ) -> PyResult<Bound<'py, PyExpr>> {
         py_binary_opeartor(self_, Operator::Or, coerce_expr(right)?)
     }
+
+    fn __getitem__(self_: PyRef<'_, Self>, field: PyObject) -> PyResult<PyExpr> {
+        get_item(self_.py(), field, self_.clone())
+    }
 }
 
 /// A named column.
@@ -302,4 +309,21 @@ pub fn scalar_helper(dtype: DType, value: &Bound<'_, PyAny>) -> PyResult<Scalar>
         }
         DType::Extension(..) => todo!(),
     }
+}
+
+pub fn get_item(py: Python, field: PyObject, child: PyExpr) -> PyResult<PyExpr> {
+    let field = if let Ok(value) = field.downcast_bound::<PyLong>(py) {
+        Field::Index(value.extract()?)
+    } else if let Ok(value) = field.downcast_bound::<PyString>(py) {
+        Field::Name(Arc::from(value.extract::<String>()?.as_str()))
+    } else {
+        return Err(PyValueError::new_err(format!(
+            "expected int, or str but found: {}",
+            field
+        )));
+    };
+
+    Ok(PyExpr {
+        inner: GetItem::new_expr(field, child.inner),
+    })
 }

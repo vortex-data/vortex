@@ -13,7 +13,7 @@ pub fn chunked_array_df_stats(array: &ChunkedArray, projection: &[usize]) -> DFR
         .iter()
         .map(|i| {
             array
-                .field(*i)
+                .maybe_null_field_by_idx(*i)
                 .ok_or_else(|| vortex_err!("Projection references unknown field {i}"))
         })
         .map_ok(|arr| {

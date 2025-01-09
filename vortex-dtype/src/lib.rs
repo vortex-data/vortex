@@ -31,7 +31,6 @@ pub mod proto {
     pub use vortex_proto::dtype;
 }
 
-#[cfg(feature = "flatbuffers")]
 pub mod flatbuffers {
     //! Flatbuffer representations for DTypes
     //!

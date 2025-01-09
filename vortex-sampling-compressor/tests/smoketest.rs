@@ -117,7 +117,7 @@ mod tests {
         let struct_array: StructArray = compressed.try_into().unwrap();
 
         let prim_col: ChunkedArray = struct_array
-            .field_by_name("prim_col")
+            .maybe_null_field_by_name("prim_col")
             .unwrap()
             .try_into()
             .unwrap();
@@ -131,7 +131,7 @@ mod tests {
         }
 
         let bool_col: ChunkedArray = struct_array
-            .field_by_name("bool_col")
+            .maybe_null_field_by_name("bool_col")
             .unwrap()
             .try_into()
             .unwrap();
@@ -144,7 +144,7 @@ mod tests {
         }
 
         let varbin_col: ChunkedArray = struct_array
-            .field_by_name("varbin_col")
+            .maybe_null_field_by_name("varbin_col")
             .unwrap()
             .try_into()
             .unwrap();
@@ -160,7 +160,7 @@ mod tests {
         }
 
         let binary_col: ChunkedArray = struct_array
-            .field_by_name("binary_col")
+            .maybe_null_field_by_name("binary_col")
             .unwrap()
             .try_into()
             .unwrap();
@@ -173,7 +173,7 @@ mod tests {
         }
 
         let timestamp_col: ChunkedArray = struct_array
-            .field_by_name("timestamp_col")
+            .maybe_null_field_by_name("timestamp_col")
             .unwrap()
             .try_into()
             .unwrap();

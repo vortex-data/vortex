@@ -33,7 +33,7 @@ impl<'a> NodeVisitor<'a> for ReferenceCollector<'a> {
             self.fields.insert(col.field());
         }
         if let Some(sel) = node.as_any().downcast_ref::<Select>() {
-            self.fields.extend(sel.fields());
+            self.fields.extend(sel.fields().fields());
         }
         Ok(TraversalOrder::Continue)
     }

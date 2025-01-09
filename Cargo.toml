@@ -20,6 +20,7 @@ members = [
     "vortex-proto",
     "vortex-sampling-compressor",
     "vortex-scalar",
+    "vortex-scan",
     "xtask",
 ]
 resolver = "2"
@@ -75,6 +76,7 @@ datafusion-expr = "44.0.0"
 datafusion-physical-expr = "44.0.0"
 datafusion-physical-plan = "44.0.0"
 divan = "0.1.14"
+dyn-hash = "0.2.0"
 enum-iterator = "2.0.0"
 fastlanes = "0.1.5"
 flatbuffers = "24.3.25"
@@ -155,6 +157,7 @@ vortex-roaring = { version = "0.21.1", path = "./encodings/roaring" }
 vortex-runend = { version = "0.21.1", path = "./encodings/runend" }
 vortex-runend-bool = { version = "0.21.1", path = "./encodings/runend-bool" }
 vortex-scalar = { version = "0.21.1", path = "./vortex-scalar", default-features = false }
+vortex-scan = { version = "0.21.1", path = "./vortex-scan", default-features = false }
 vortex-sampling-compressor = { version = "0.21.1", path = "./vortex-sampling-compressor" }
 vortex-zigzag = { version = "0.21.1", path = "./encodings/zigzag" }
 # END crates published by this project
@@ -197,6 +200,7 @@ mem_forget = "deny"
 multiple_crate_versions = "allow"
 or_fun_call = "deny"
 panic = "deny"
+# panic_in_result_fn = "deny" -- we cannot disable this for tests to use assertions
 redundant_clone = "deny"
 same_name_method = "deny"
 tests_outside_test_module = "deny"

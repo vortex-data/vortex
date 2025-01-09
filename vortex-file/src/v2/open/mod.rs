@@ -1,18 +1,22 @@
+mod split_by;
+
 use std::io::Read;
+use std::sync::Arc;
 
 use flatbuffers::root;
 use itertools::Itertools;
+pub use split_by::*;
 use vortex_array::ContextRef;
 use vortex_buffer::{ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
-use vortex_flatbuffers::{dtype as fbd, footer2 as fb, ReadFlatBuffer};
+use vortex_flatbuffers::{dtype as fbd, footer2 as fb, FlatBuffer, ReadFlatBuffer};
 use vortex_io::VortexReadAt;
 use vortex_layout::segments::SegmentId;
 use vortex_layout::{LayoutContextRef, LayoutData, LayoutId};
 
 use crate::v2::footer::{FileLayout, Postscript, Segment};
-use crate::v2::segments::SegmentCache;
+use crate::v2::segments::cache::SegmentCache;
 use crate::v2::VortexFile;
 use crate::{EOF_SIZE, MAGIC_BYTES, VERSION};
 
@@ -32,6 +36,7 @@ pub struct OpenOptions {
     //  additional caching, metrics, or other intercepts, etc. It should support synchronous
     //  read + write of Map<MessageId, ByteBuffer> or similar.
     initial_read_size: u64,
+    split_by: SplitBy,
 }
 
 impl OpenOptions {
@@ -42,6 +47,7 @@ impl OpenOptions {
             file_layout: None,
             dtype: None,
             initial_read_size: INITIAL_READ_SIZE,
+            split_by: SplitBy::Layout,
         }
     }
 
@@ -52,6 +58,14 @@ impl OpenOptions {
         }
         self.initial_read_size = initial_read_size;
         Ok(self)
+    }
+
+    /// Configure how to split the file into batches for reading.
+    ///
+    /// Defaults to [`SplitBy::Layout`].
+    pub fn with_split_by(mut self, split_by: SplitBy) -> Self {
+        self.split_by = split_by;
+        self
     }
 }
 
@@ -112,7 +126,7 @@ impl OpenOptions {
 
         // Set up our segment cache and for good measure, we populate any segments that were
         // covered by the initial read.
-        let mut segment_cache = SegmentCache::default();
+        let mut segment_cache = SegmentCache::<R>::new(read, file_layout.segments.clone());
         self.populate_segments(
             initial_offset,
             &initial_read,
@@ -120,13 +134,15 @@ impl OpenOptions {
             &mut segment_cache,
         )?;
 
+        // Compute the splits of the file.
+        let splits = self.split_by.splits(&file_layout.root_layout)?.into();
+
         // Finally, create the VortexFile.
         Ok(VortexFile {
-            read,
             ctx: self.ctx.clone(),
             layout: file_layout.root_layout,
-            segments: file_layout.segments,
-            segment_cache,
+            segments: Arc::new(segment_cache),
+            splits,
         })
     }
 
@@ -162,12 +178,15 @@ impl OpenOptions {
     fn parse_dtype(
         &self,
         initial_offset: u64,
-        initial_read: &[u8],
+        initial_read: &ByteBuffer,
         dtype: Segment,
     ) -> VortexResult<DType> {
         let offset = usize::try_from(dtype.offset - initial_offset)?;
-        let dtype_bytes = &initial_read[offset..offset + dtype.length];
-        DType::try_from(root::<fbd::DType>(dtype_bytes)?)
+        let sliced_buffer =
+            FlatBuffer::align_from(initial_read.slice(offset..offset + dtype.length));
+        let fbd_dtype = root::<fbd::DType>(&sliced_buffer)?;
+
+        DType::try_from_view(fbd_dtype, sliced_buffer.clone())
     }
 
     /// Parse the FileLayout from the initial read.
@@ -218,12 +237,12 @@ impl OpenOptions {
         })
     }
 
-    fn populate_segments(
+    fn populate_segments<R>(
         &self,
         initial_offset: u64,
         initial_read: &ByteBuffer,
         file_layout: &FileLayout,
-        segments: &mut SegmentCache,
+        segments: &mut SegmentCache<R>,
     ) -> VortexResult<()> {
         for (idx, segment) in file_layout.segments.iter().enumerate() {
             if segment.offset < initial_offset {
@@ -236,7 +255,7 @@ impl OpenOptions {
             let offset = usize::try_from(segment.offset - initial_offset)?;
             let bytes = initial_read.slice(offset..offset + segment.length);
 
-            segments.set(segment_id, bytes.into_inner());
+            segments.set(segment_id, bytes.into_inner())?;
         }
         Ok(())
     }

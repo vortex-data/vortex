@@ -1,144 +1,40 @@
 use std::sync::Arc;
 
-use itertools::Itertools;
-use vortex_array::array::StructArray;
-use vortex_array::builders::{builder_with_capacity, ArrayBuilder, ArrayBuilderExt};
-use vortex_array::stats::{ArrayStatistics as _, Stat};
-use vortex_array::validity::{ArrayValidity, Validity};
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData};
-use vortex_dtype::{DType, Nullability, StructDType};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_array::stats::{Stat, StatsSet};
+use vortex_dtype::FieldPath;
+use vortex_error::VortexResult;
 
-/// A table of statistics for a column.
-/// Each row of the stats table corresponds to a chunk of the column.
-///
-/// Note that it's possible for the stats table to have no statistics.
-#[derive(Clone)]
-pub struct StatsTable {
-    // The DType of the column for which these stats are computed.
-    column_dtype: DType,
-    // The struct array backing the stats table
-    array: ArrayData,
-    // The statistics that are included in the table.
-    stats: Arc<[Stat]>,
+use crate::layouts::chunked::reader::ChunkedReader;
+use crate::operations::{Operation, Poll};
+use crate::ready;
+use crate::segments::SegmentReader;
+
+#[allow(dead_code)]
+pub struct ChunkedStatsOp {
+    scan: Arc<ChunkedReader>,
+    requested_paths: Vec<FieldPath>,
+    requested_stats: Vec<Stat>,
 }
 
-impl StatsTable {
-    pub fn try_new(
-        column_dtype: DType,
-        array: ArrayData,
-        stats: Arc<[Stat]>,
-    ) -> VortexResult<Self> {
-        if &Self::dtype_for_stats_table(&column_dtype, &stats) != array.dtype() {
-            vortex_bail!("Array dtype does not match expected stats table dtype");
-        }
-        Ok(Self {
-            column_dtype,
-            array,
-            stats,
-        })
-    }
+impl Operation for ChunkedStatsOp {
+    type Output = Vec<StatsSet>;
 
-    /// Returns the DType of the statistics table given a set of statistics and column [`DType`].
-    pub fn dtype_for_stats_table(column_dtype: &DType, present_stats: &[Stat]) -> DType {
-        let dtypes = present_stats
-            .iter()
-            .map(|s| s.dtype(column_dtype).as_nullable())
-            .collect();
-        DType::Struct(
-            StructDType::new(
-                present_stats.iter().map(|s| s.name().into()).collect(),
-                dtypes,
-            ),
-            Nullability::NonNullable,
-        )
-    }
+    fn poll(&mut self, segments: &dyn SegmentReader) -> VortexResult<Poll<Self::Output>> {
+        let _stats_table = ready!(self.scan.stats_table()?.poll(segments));
 
-    /// The DType of the column for which these stats are computed.
-    pub fn column_dtype(&self) -> &DType {
-        &self.column_dtype
-    }
-
-    /// The struct array backing the stats table
-    pub fn array(&self) -> &ArrayData {
-        &self.array
-    }
-
-    /// The statistics that are included in the table.
-    pub fn present_stats(&self) -> &[Stat] {
-        &self.stats
-    }
-}
-
-/// Accumulates statistics for a column.
-pub struct StatsAccumulator {
-    column_dtype: DType,
-    stats: Vec<Stat>,
-    builders: Vec<Box<dyn ArrayBuilder>>,
-    length: usize,
-}
-
-impl StatsAccumulator {
-    pub fn new(dtype: DType, mut stats: Vec<Stat>) -> Self {
-        // Sort stats by their ordinal so we can recreate their dtype from bitset
-        stats.sort_by_key(|s| u8::from(*s));
-        let builders = stats
-            .iter()
-            .map(|s| builder_with_capacity(&s.dtype(&dtype).as_nullable(), 1024))
-            .collect();
-        Self {
-            column_dtype: dtype,
-            stats,
-            builders,
-            length: 0,
-        }
-    }
-
-    pub fn push_chunk(&mut self, array: &ArrayData) -> VortexResult<()> {
-        for (s, builder) in self.stats.iter().zip_eq(self.builders.iter_mut()) {
-            if let Some(v) = array.statistics().compute(*s) {
-                builder.append_scalar(&v.cast(builder.dtype())?)?;
+        // TODO(ngates): support returning stats for field paths.
+        //  See: https://github.com/spiraldb/vortex/issues/1835
+        let mut stats_sets = Vec::with_capacity(self.requested_paths.len());
+        for field_path in &self.requested_paths {
+            if !field_path.is_root() {
+                // We _only_ support stats on the current array for now.
+                stats_sets.push(StatsSet::default());
             } else {
-                builder.append_null();
+                // FIXME(ngates): implement this using the stats table
+                stats_sets.push(StatsSet::default());
             }
         }
-        self.length += 1;
-        Ok(())
-    }
 
-    /// Finishes the accumulator into a [`StatsTable`].
-    ///
-    /// Returns `None` if none of the requested statistics can be computed, for example they are
-    /// not applicable to the column's data type.
-    pub fn as_stats_table(&mut self) -> VortexResult<Option<StatsTable>> {
-        let mut names = Vec::new();
-        let mut fields = Vec::new();
-        let mut stats = Vec::new();
-
-        for (stat, builder) in self.stats.iter().zip(self.builders.iter_mut()) {
-            let values = builder
-                .finish()
-                .map_err(|e| e.with_context(format!("Failed to finish stat builder for {stat}")))?;
-
-            // We drop any all-null stats columns
-            if values.logical_validity().null_count()? == values.len() {
-                continue;
-            }
-
-            stats.push(*stat);
-            names.push(stat.to_string().into());
-            fields.push(values);
-        }
-
-        if names.is_empty() {
-            return Ok(None);
-        }
-
-        Ok(Some(StatsTable {
-            column_dtype: self.column_dtype.clone(),
-            array: StructArray::try_new(names.into(), fields, self.length, Validity::NonNullable)?
-                .into_array(),
-            stats: stats.into(),
-        }))
+        Ok(Poll::Some(stats_sets))
     }
 }

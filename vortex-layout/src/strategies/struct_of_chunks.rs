@@ -26,8 +26,7 @@ impl LayoutStrategy for StructOfChunks {
                     dtype.clone(),
                     struct_dtype
                         .dtypes()
-                        .iter()
-                        .map(|col_dtype| default_column_layout(col_dtype))
+                        .map(|col_dtype| default_column_layout(&col_dtype))
                         .collect(),
                 )))
             }

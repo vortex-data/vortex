@@ -1,5 +1,6 @@
 use std::any::Any;
 use std::fmt::Display;
+use std::hash::Hash;
 use std::sync::Arc;
 
 use vortex_array::compute::{like, LikeOptions};
@@ -8,7 +9,8 @@ use vortex_error::VortexResult;
 
 use crate::{ExprRef, VortexExpr};
 
-#[derive(Debug)]
+#[derive(Debug, Eq, Hash)]
+#[allow(clippy::derived_hash_with_manual_eq)]
 pub struct Like {
     child: ExprRef,
     pattern: ExprRef,
@@ -96,20 +98,16 @@ impl PartialEq for Like {
     }
 }
 
-impl Eq for Like {}
-
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use vortex_array::array::BoolArray;
     use vortex_array::IntoArrayVariant;
 
-    use crate::{Identity, Not};
+    use crate::{ident, not};
 
     #[test]
     fn invert_booleans() {
-        let not_expr = Not::new_expr(Arc::new(Identity));
+        let not_expr = not(ident());
         let bools = BoolArray::from_iter([false, true, false, false, true, true]);
         assert_eq!(
             not_expr

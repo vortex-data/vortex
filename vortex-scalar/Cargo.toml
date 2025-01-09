@@ -32,6 +32,10 @@ vortex-error = { workspace = true }
 vortex-flatbuffers = { workspace = true, optional = true }
 vortex-proto = { workspace = true, optional = true }
 
+[dev-dependencies]
+flexbuffers = { workspace = true }
+rstest = { workspace = true }
+
 [lints]
 workspace = true
 
@@ -47,7 +51,6 @@ flatbuffers = [
     "vortex-flatbuffers/scalar",
     "vortex-error/flatbuffers",
     "vortex-error/flexbuffers",
-    "vortex-dtype/flatbuffers",
 ]
 proto = [
     "dep:prost",

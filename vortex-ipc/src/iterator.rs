@@ -45,7 +45,7 @@ impl<R: Read> Iterator for SyncIPCReader<R> {
             Ok(msg) => match msg {
                 DecoderMessage::Array(array_parts) => Some(
                     array_parts
-                        .into_array_data(self.ctx.clone(), self.dtype.clone())
+                        .decode(self.ctx.clone(), self.dtype.clone())
                         .and_then(|array| {
                             if array.dtype() != self.dtype() {
                                 Err(vortex_err!(

@@ -1,72 +1,43 @@
-use std::sync::Arc;
-
-use vortex_array::ContextRef;
-use vortex_dtype::DType;
+use async_trait::async_trait;
+use vortex_array::{ArrayData, ContextRef};
 use vortex_error::{vortex_panic, VortexResult};
+use vortex_expr::ExprRef;
+use vortex_scan::{AsyncEvaluator, RowMask};
 
 use crate::layouts::struct_::StructLayout;
-use crate::scanner::{LayoutScan, Poll, Scan, Scanner};
-use crate::segments::SegmentReader;
-use crate::{LayoutData, LayoutEncoding, RowMask};
+use crate::reader::LayoutReader;
+use crate::{LayoutData, LayoutEncoding};
 
 #[derive(Debug)]
 pub struct StructScan {
     layout: LayoutData,
-    scan: Scan,
-    dtype: DType,
 }
 
 impl StructScan {
-    pub(super) fn try_new(layout: LayoutData, scan: Scan, _ctx: ContextRef) -> VortexResult<Self> {
+    pub(super) fn try_new(layout: LayoutData, _ctx: ContextRef) -> VortexResult<Self> {
         if layout.encoding().id() != StructLayout.id() {
             vortex_panic!("Mismatched layout ID")
         }
 
-        let dtype = scan.result_dtype(layout.dtype())?;
-
         // This is where we need to do some complex things with the scan in order to split it into
         // different scans for different fields.
-        Ok(Self {
-            layout,
-            scan,
-            dtype,
-        })
+        Ok(Self { layout })
     }
 }
-impl LayoutScan for StructScan {
+
+#[async_trait(?Send)]
+impl AsyncEvaluator for StructScan {
+    async fn evaluate(self: &Self, _row_mask: RowMask, _expr: ExprRef) -> VortexResult<ArrayData> {
+        todo!()
+    }
+}
+
+impl LayoutReader for StructScan {
     fn layout(&self) -> &LayoutData {
         &self.layout
     }
 
-    fn dtype(&self) -> &DType {
-        &self.dtype
-    }
-
-    fn create_scanner(self: Arc<Self>, mask: RowMask) -> VortexResult<Box<dyn Scanner>> {
-        Ok(Box::new(StructScanner {
-            layout: self.layout.clone(),
-            scan: self.scan.clone(),
-            mask,
-            state: State::Initial,
-        }) as _)
-    }
-}
-
-#[derive(Clone, Debug)]
-enum State {
-    Initial,
-}
-
-#[derive(Debug)]
-struct StructScanner {
-    layout: LayoutData,
-    scan: Scan,
-    mask: RowMask,
-    state: State,
-}
-
-impl Scanner for StructScanner {
-    fn poll(&mut self, _segments: &dyn SegmentReader) -> VortexResult<Poll> {
-        todo!()
+    fn evaluator(&self) -> &dyn AsyncEvaluator {
+        self
     }
 }

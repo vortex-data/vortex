@@ -31,7 +31,7 @@ pub enum TraversalOrder {
 
 #[derive(Debug, Clone)]
 pub struct TransformResult<T> {
-    result: T,
+    pub result: T,
     order: TraversalOrder,
     changed: bool,
 }
@@ -76,6 +76,52 @@ pub trait MutNodeVisitor {
     fn visit_up(&mut self, _node: Self::NodeTy) -> VortexResult<TransformResult<Self::NodeTy>>;
 }
 
+pub enum FoldDown<Out, Context> {
+    Stop(Out),
+    SkipChildren,
+    Continue(Context),
+}
+
+pub enum FoldChildren<Out> {
+    Skipped,
+    Children(Vec<Out>),
+}
+
+pub enum FoldUp<Out> {
+    Stop(Out),
+    Continue(Out),
+}
+
+impl<Out> FoldUp<Out> {
+    pub fn result(self) -> Out {
+        match self {
+            FoldUp::Stop(out) => out,
+            FoldUp::Continue(out) => out,
+        }
+    }
+}
+
+pub trait Folder {
+    type NodeTy: Node;
+    type Out;
+    type Context: Clone;
+
+    fn visit_down(
+        &mut self,
+        _node: &Self::NodeTy,
+        context: Self::Context,
+    ) -> VortexResult<FoldDown<Self::Out, Self::Context>> {
+        Ok(FoldDown::Continue(context))
+    }
+
+    fn visit_up(
+        &mut self,
+        node: Self::NodeTy,
+        context: Self::Context,
+        children: FoldChildren<Self::Out>,
+    ) -> VortexResult<FoldUp<Self::Out>>;
+}
+
 pub trait Node: Sized {
     fn accept<'a, V: NodeVisitor<'a, NodeTy = Self>>(
         &'a self,
@@ -86,6 +132,12 @@ pub trait Node: Sized {
         self,
         _visitor: &mut V,
     ) -> VortexResult<TransformResult<Self>>;
+
+    fn transform_with_context<V: Folder<NodeTy = Self>>(
+        self,
+        _visitor: &mut V,
+        _context: V::Context,
+    ) -> VortexResult<FoldUp<V::Out>>;
 }
 
 impl Node for ExprRef {
@@ -163,6 +215,32 @@ impl Node for ExprRef {
                 changed,
             })
         }
+    }
+
+    fn transform_with_context<V: Folder<NodeTy = Self>>(
+        self,
+        visitor: &mut V,
+        context: V::Context,
+    ) -> VortexResult<FoldUp<V::Out>> {
+        let children = match visitor.visit_down(&self, context.clone())? {
+            FoldDown::Stop(out) => return Ok(FoldUp::Stop(out)),
+            FoldDown::SkipChildren => FoldChildren::Skipped,
+            FoldDown::Continue(child_context) => {
+                let mut new_children = Vec::with_capacity(self.children().len());
+                for child in self.children() {
+                    match child
+                        .clone()
+                        .transform_with_context(visitor, child_context.clone())?
+                    {
+                        FoldUp::Stop(out) => return Ok(FoldUp::Stop(out)),
+                        FoldUp::Continue(out) => new_children.push(out),
+                    }
+                }
+                FoldChildren::Children(new_children)
+            }
+        };
+
+        visitor.visit_up(self, context, children)
     }
 }
 

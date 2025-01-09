@@ -1,10 +1,7 @@
-use std::sync::{Arc, RwLock};
-
 use bytes::Bytes;
-use vortex_array::aliases::hash_map::HashMap;
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_error::{vortex_err, VortexResult};
 use vortex_io::VortexWrite;
-use vortex_layout::segments::{SegmentId, SegmentReader, SegmentWriter};
+use vortex_layout::segments::{SegmentId, SegmentWriter};
 
 use crate::v2::footer::Segment;
 
@@ -41,34 +38,5 @@ impl BufferedSegmentWriter {
             segments.push(Segment { offset, length });
         }
         Ok(())
-    }
-}
-
-/// A segment cache that holds segments in memory.
-///
-/// TODO(ngates): switch to a Moka LRU cache.
-#[derive(Default, Clone)]
-pub(crate) struct SegmentCache {
-    segments: Arc<RwLock<HashMap<SegmentId, Bytes>>>,
-}
-
-impl SegmentCache {
-    pub(crate) fn set(&self, id: SegmentId, data: Bytes) {
-        self.segments
-            .write()
-            .map_err(|_| vortex_err!("Poisoned cache"))
-            .vortex_expect("poisoned")
-            .insert(id, data);
-    }
-}
-
-impl SegmentReader for SegmentCache {
-    fn get(&self, id: SegmentId) -> Option<Bytes> {
-        self.segments
-            .read()
-            .map_err(|_| vortex_err!("Poisoned cache"))
-            .vortex_expect("poisoned")
-            .get(&id)
-            .cloned()
     }
 }

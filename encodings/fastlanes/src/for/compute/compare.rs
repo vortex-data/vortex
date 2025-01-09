@@ -1,9 +1,11 @@
-use num_traits::{CheckedShr, WrappingSub};
+use std::ops::Shr;
+
+use num_traits::WrappingSub;
 use vortex_array::array::ConstantArray;
 use vortex_array::compute::{compare, CompareFn, Operator};
-use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData};
+use vortex_array::{ArrayData, ArrayLen, IntoArrayData};
 use vortex_dtype::{match_each_integer_ptype, NativePType};
-use vortex_error::{vortex_err, VortexError, VortexResult};
+use vortex_error::{VortexError, VortexResult};
 use vortex_scalar::{PValue, PrimitiveScalar, Scalar};
 
 use crate::{FoRArray, FoREncoding};
@@ -33,7 +35,7 @@ fn compare_constant<T>(
     operator: Operator,
 ) -> VortexResult<Option<ArrayData>>
 where
-    T: NativePType + WrappingSub + CheckedShr,
+    T: NativePType + Shr<u32, Output = T> + WrappingSub,
     T: TryFrom<PValue, Error = VortexError>,
     Scalar: From<Option<T>>,
 {
@@ -47,23 +49,20 @@ where
     let reference = reference.as_primitive().typed_value::<T>();
 
     // We encode the RHS into the FoR domain.
-    let rhs = rhs
-        .map(|mut rhs| {
-            if let Some(reference) = reference {
-                rhs = rhs.wrapping_sub(&reference);
-            }
-            if lhs.shift() > 0 {
-                rhs = rhs
-                    .checked_shr(lhs.shift() as u32)
-                    .ok_or_else(|| vortex_err!("Shift overflow"))?;
-            }
-            Ok::<_, VortexError>(rhs)
-        })
-        .transpose()?;
+    let rhs = rhs.map(|mut rhs| {
+        if let Some(reference) = reference {
+            rhs = rhs.wrapping_sub(&reference);
+        }
+        if lhs.shift() > 0 {
+            // Since compare requires that both sides are of same dtype this will always succeed and not panic
+            rhs = rhs >> (lhs.shift() as u32)
+        }
+        rhs
+    });
 
     // Wrap up the RHS into a scalar and cast to the encoded DType (this will be the equivalent
     // unsigned integer type).
-    let rhs = Scalar::from(rhs).cast(lhs.encoded().dtype())?;
+    let rhs = Scalar::from(rhs).reinterpret_cast(T::PTYPE.to_unsigned());
 
     compare(
         lhs.encoded(),
@@ -105,6 +104,48 @@ mod tests {
         for op in [Operator::Lt, Operator::Lte, Operator::Gt, Operator::Gte] {
             assert!(compare_constant(&lhs, Some(30i32), op).unwrap().is_none());
         }
+    }
+
+    #[test]
+    fn compare_non_encodable_constant() {
+        let reference = Scalar::from(10);
+        // 10, 30, 12
+        let lhs = FoRArray::try_new(
+            PrimitiveArray::new(buffer!(0u32, 10, 1), Validity::AllValid).into_array(),
+            reference,
+            1,
+        )
+        .unwrap();
+
+        assert_result(
+            compare_constant(&lhs, Some(-1i32), Operator::Eq),
+            [false, false, false],
+        );
+        assert_result(
+            compare_constant(&lhs, Some(-1i32), Operator::NotEq),
+            [true, true, true],
+        );
+    }
+
+    #[test]
+    fn compare_large_constant() {
+        let reference = Scalar::from(-9219218377546224477i64);
+        let lhs = FoRArray::try_new(
+            PrimitiveArray::new(buffer![0u64, 9654309310445864926], Validity::AllValid)
+                .into_array(),
+            reference,
+            0,
+        )
+        .unwrap();
+
+        assert_result(
+            compare_constant(&lhs, Some(435090932899640449i64), Operator::Eq),
+            [false, true],
+        );
+        assert_result(
+            compare_constant(&lhs, Some(435090932899640449i64), Operator::NotEq),
+            [true, false],
+        );
     }
 
     fn assert_result<T: IntoIterator<Item = bool>>(

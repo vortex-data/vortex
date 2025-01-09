@@ -2,14 +2,19 @@ use std::any::Any;
 use std::fmt::{Debug, Display};
 use std::sync::Arc;
 
+use dyn_hash::DynHash;
+
 mod binary;
 mod column;
 pub mod datafusion;
+pub mod forms;
+mod get_item;
 mod identity;
 mod like;
 mod literal;
 mod not;
 mod operators;
+mod pack;
 mod project;
 pub mod pruning;
 mod row_filter;
@@ -19,11 +24,13 @@ mod traversal;
 
 pub use binary::*;
 pub use column::*;
+pub use get_item::*;
 pub use identity::*;
 pub use like::*;
 pub use literal::*;
 pub use not::*;
 pub use operators::*;
+pub use pack::*;
 pub use project::*;
 pub use row_filter::*;
 pub use select::*;
@@ -37,7 +44,7 @@ use crate::traversal::{Node, ReferenceCollector};
 pub type ExprRef = Arc<dyn VortexExpr>;
 
 /// Represents logical operation on [`ArrayData`]s
-pub trait VortexExpr: Debug + Send + Sync + DynEq + Display {
+pub trait VortexExpr: Debug + Send + Sync + DynEq + DynHash + Display {
     /// Convert expression reference to reference of [`Any`] type
     fn as_any(&self) -> &dyn Any;
 
@@ -102,6 +109,8 @@ impl PartialEq for dyn VortexExpr {
 }
 
 impl Eq for dyn VortexExpr {}
+
+dyn_hash::hash_trait_object!(VortexExpr);
 
 #[cfg(test)]
 mod tests {
@@ -179,24 +188,24 @@ mod tests {
             "(($col1 < $col2) or ($col1 != $col2))"
         );
 
-        assert_eq!(Not::new_expr(col1.clone()).to_string(), "!$col1");
+        assert_eq!(not(col1.clone()).to_string(), "!$col1");
 
         assert_eq!(
-            Select::include(vec![Field::from("col1")]).to_string(),
-            "Include($col1)"
+            Select::include_expr(vec![Field::from("col1")], ident()).to_string(),
+            "select +($col1) []"
         );
         assert_eq!(
-            Select::include(vec![Field::from("col1"), Field::from("col2")]).to_string(),
-            "Include($col1,$col2)"
+            Select::include_expr(vec![Field::from("col1"), Field::from("col2")], ident())
+                .to_string(),
+            "select +($col1,$col2) []"
         );
         assert_eq!(
-            Select::exclude(vec![
-                Field::from("col1"),
-                Field::from("col2"),
-                Field::Index(1),
-            ])
+            Select::exclude_expr(
+                vec![Field::from("col1"), Field::from("col2"), Field::Index(1),],
+                ident()
+            )
             .to_string(),
-            "Exclude($col1,$col2,[1])"
+            "select -($col1,$col2,[1]) []"
         );
 
         assert_eq!(lit(Scalar::from(0_u8)).to_string(), "0_u8");

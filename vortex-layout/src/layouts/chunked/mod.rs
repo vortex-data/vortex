@@ -1,7 +1,10 @@
-mod scan;
-pub mod stats;
+mod evaluator;
+mod reader;
+// mod stats;
+pub mod stats_table;
 pub mod writer;
 
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use vortex_array::ContextRef;
@@ -9,8 +12,9 @@ use vortex_error::VortexResult;
 
 use crate::data::LayoutData;
 use crate::encoding::{LayoutEncoding, LayoutId};
-use crate::layouts::chunked::scan::ChunkedScan;
-use crate::scanner::{LayoutScan, LayoutScanExt, Scan};
+use crate::layouts::chunked::reader::ChunkedReader;
+use crate::reader::{LayoutReader, LayoutScanExt};
+use crate::segments::AsyncSegmentReader;
 use crate::CHUNKED_LAYOUT_ID;
 
 #[derive(Default, Debug)]
@@ -25,14 +29,29 @@ impl LayoutEncoding for ChunkedLayout {
         CHUNKED_LAYOUT_ID
     }
 
-    // TODO(ngates): we probably need some reader options that we can downcast here? But how does
-    //  the user configure the tree of readers? e.g. batch size
-    fn scan(
+    fn reader(
         &self,
         layout: LayoutData,
-        scan: Scan,
         ctx: ContextRef,
-    ) -> VortexResult<Arc<dyn LayoutScan>> {
-        Ok(ChunkedScan::try_new(layout, scan, ctx)?.into_arc())
+        segments: Arc<dyn AsyncSegmentReader>,
+    ) -> VortexResult<Arc<dyn LayoutReader>> {
+        Ok(ChunkedReader::try_new(layout, ctx, segments)?.into_arc())
+    }
+
+    fn register_splits(
+        &self,
+        layout: &LayoutData,
+        row_offset: u64,
+        splits: &mut BTreeSet<u64>,
+    ) -> VortexResult<()> {
+        let nchunks = layout.nchildren() - (if layout.metadata().is_some() { 1 } else { 0 });
+        let mut offset = row_offset;
+        for i in 0..nchunks {
+            let child = layout.child(i, layout.dtype().clone())?;
+            child.register_splits(offset, splits)?;
+            offset += child.row_count();
+            splits.insert(offset);
+        }
+        Ok(())
     }
 }
