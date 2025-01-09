@@ -31,5 +31,8 @@ vortex-ipc = { workspace = true }
 vortex-scalar = { workspace = true }
 vortex-scan = { workspace = true }
 
+[dev-dependencies]
+futures = { workspace = true, features = ["executor"] }
+
 [lints]
 workspace = true

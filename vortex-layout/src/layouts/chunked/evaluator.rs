@@ -73,9 +73,8 @@ impl AsyncEvaluator for ChunkedReader {
                 .slice(chunk_range.start, chunk_range.end)?
                 .shift(chunk_range.start)?;
 
-            let chunk_reader = chunk_reader.clone();
             let expr = expr.clone();
-            chunks.push(async move { chunk_reader.evaluate(chunk_mask, expr).await }.boxed_local());
+            chunks.push(chunk_reader.evaluate(chunk_mask, expr).boxed_local());
         }
 
         // Wait for all chunks to be evaluated

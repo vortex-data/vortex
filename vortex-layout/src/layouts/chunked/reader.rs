@@ -67,39 +67,35 @@ impl ChunkedReader {
                     nchunks -= 1;
                 }
 
-                // Figure out which stats are present
-                let present_stats: Arc<[Stat]> = self
-                    .layout
-                    .metadata()
-                    .map(|m| stats_from_bitset_bytes(m.as_ref()))
-                    .unwrap_or_default()
-                    .into();
+                Ok(match self.layout.metadata() {
+                    None => None,
+                    Some(metadata) => {
+                        // Figure out which stats are present
+                        let present_stats: Arc<[Stat]> =
+                            Arc::from(stats_from_bitset_bytes(metadata.as_ref()));
 
-                if self.layout.metadata().is_some() {
-                    let layout_dtype = self.layout.dtype().clone();
-                    let stats_dtype =
-                        StatsTable::dtype_for_stats_table(&layout_dtype, &present_stats);
-                    let stats_layout = self
-                        .layout
-                        .child(self.layout.nchildren() - 1, stats_dtype)?;
+                        let layout_dtype = self.layout.dtype().clone();
+                        let stats_dtype =
+                            StatsTable::dtype_for_stats_table(&layout_dtype, &present_stats);
+                        let stats_layout = self
+                            .layout
+                            .child(self.layout.nchildren() - 1, stats_dtype)?;
 
-                    let reader = stats_layout.reader(self.segments.clone(), self.ctx.clone())?;
-                    let stats_array = reader
-                        .evaluate(
-                            RowMask::new_valid_between(0, nchunks as u64),
-                            Identity::new_expr(),
-                        )
-                        .await?;
-                    let stats_table = StatsTable::try_new(
-                        layout_dtype.clone(),
-                        stats_array,
-                        present_stats.clone(),
-                    )?;
+                        let stats_array = stats_layout
+                            .reader(self.segments.clone(), self.ctx.clone())?
+                            .evaluate(
+                                RowMask::new_valid_between(0, nchunks as u64),
+                                Identity::new_expr(),
+                            )
+                            .await?;
 
-                    Ok(Some(stats_table))
-                } else {
-                    Ok(None)
-                }
+                        Some(StatsTable::try_new(
+                            layout_dtype.clone(),
+                            stats_array,
+                            present_stats.clone(),
+                        )?)
+                    }
+                })
             })
             .await
             .map(|opt| opt.as_ref())
@@ -111,13 +107,11 @@ impl ChunkedReader {
     }
 
     /// Return the child reader for the chunk.
-    pub(crate) fn child(&self, idx: usize) -> VortexResult<Arc<dyn LayoutReader>> {
-        self.chunk_readers[idx]
-            .get_or_try_init(|| {
-                let child_layout = self.layout.child(idx, self.layout.dtype().clone())?;
-                child_layout.reader(self.segments.clone(), self.ctx.clone())
-            })
-            .cloned()
+    pub(crate) fn child(&self, idx: usize) -> VortexResult<&Arc<dyn LayoutReader>> {
+        self.chunk_readers[idx].get_or_try_init(|| {
+            let child_layout = self.layout.child(idx, self.layout.dtype().clone())?;
+            child_layout.reader(self.segments.clone(), self.ctx.clone())
+        })
     }
 }
 
