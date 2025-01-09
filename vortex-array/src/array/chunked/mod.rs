@@ -128,7 +128,7 @@ impl ChunkedArray {
             self.chunk(c).unwrap_or_else(|e| {
                 vortex_panic!(
                     e,
-                    "ChunkedArray: chunks: chunk {} should exist (nchunks: {})",
+                    "ChunkedArray: chunks: chunk {} should exist (num chunks: {})",
                     c,
                     self.nchunks()
                 )

@@ -3,7 +3,7 @@ use vortex_error::VortexResult;
 use crate::array::chunked::ChunkedArray;
 use crate::array::ChunkedEncoding;
 use crate::compute::{slice, SliceFn};
-use crate::{ArrayDType, ArrayData, IntoArrayData};
+use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData};
 
 impl SliceFn<ChunkedArray> for ChunkedEncoding {
     fn slice(&self, array: &ChunkedArray, start: usize, stop: usize) -> VortexResult<ArrayData> {
@@ -67,7 +67,7 @@ mod tests {
     }
 
     #[test]
-    pub fn slice_middle() {
+    fn slice_middle() {
         assert_equal_slices(
             slice(chunked_array().as_ref(), 2, 5).unwrap(),
             &[3u64, 4, 5],
@@ -75,12 +75,12 @@ mod tests {
     }
 
     #[test]
-    pub fn slice_begin() {
+    fn slice_begin() {
         assert_equal_slices(slice(chunked_array().as_ref(), 1, 3).unwrap(), &[2u64, 3]);
     }
 
     #[test]
-    pub fn slice_aligned() {
+    fn slice_aligned() {
         assert_equal_slices(
             slice(chunked_array().as_ref(), 3, 6).unwrap(),
             &[4u64, 5, 6],
@@ -88,7 +88,7 @@ mod tests {
     }
 
     #[test]
-    pub fn slice_many_aligned() {
+    fn slice_many_aligned() {
         assert_equal_slices(
             slice(chunked_array().as_ref(), 0, 6).unwrap(),
             &[1u64, 2, 3, 4, 5, 6],
@@ -96,15 +96,23 @@ mod tests {
     }
 
     #[test]
-    pub fn slice_end() {
+    fn slice_end() {
         assert_equal_slices(slice(chunked_array().as_ref(), 7, 8).unwrap(), &[8u64]);
     }
 
     #[test]
-    pub fn slice_exactly_end() {
+    fn slice_exactly_end() {
         assert_equal_slices(
             slice(chunked_array().as_ref(), 6, 9).unwrap(),
             &[7u64, 8, 9],
         );
+    }
+
+    #[test]
+    fn slice_empty() {
+        let chunked = ChunkedArray::try_new(vec![], PType::U32.into()).unwrap();
+        let sliced = slice(chunked, 0, 0).unwrap();
+
+        assert!(sliced.is_empty());
     }
 }
