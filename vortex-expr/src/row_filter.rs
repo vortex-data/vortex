@@ -1,4 +1,3 @@
-use std::any::Any;
 use std::fmt::{Debug, Display};
 use std::sync::Arc;
 
@@ -60,10 +59,6 @@ impl Display for RowFilter {
 }
 
 impl VortexExpr for RowFilter {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
         let mut filter_iter = self.conjunction.iter();
         let mut mask = filter_iter

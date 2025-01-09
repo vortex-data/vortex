@@ -77,10 +77,6 @@ impl Display for Pack {
 }
 
 impl VortexExpr for Pack {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
         let len = batch.len();
         let value_arrays = self

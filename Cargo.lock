@@ -1654,6 +1654,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "dyn-eq"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c2d035d21af5cde1a6f5c7b444a5bf963520a9f142e5d06931178433d7d5388"
+
+[[package]]
 name = "dyn-hash"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5058,6 +5064,7 @@ version = "0.21.1"
 dependencies = [
  "datafusion-expr",
  "datafusion-physical-expr",
+ "dyn-eq",
  "dyn-hash",
  "itertools 0.14.0",
  "prost",

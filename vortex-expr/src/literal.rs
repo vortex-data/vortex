@@ -1,4 +1,3 @@
-use std::any::Any;
 use std::fmt::Display;
 use std::sync::Arc;
 
@@ -33,10 +32,6 @@ impl Display for Literal {
 }
 
 impl VortexExpr for Literal {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
         Ok(ConstantArray::new(self.value.clone(), batch.len()).into_array())
     }

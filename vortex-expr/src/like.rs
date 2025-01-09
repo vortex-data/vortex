@@ -1,4 +1,3 @@
-use std::any::Any;
 use std::fmt::Display;
 use std::hash::Hash;
 use std::sync::Arc;
@@ -57,10 +56,6 @@ impl Display for Like {
 }
 
 impl VortexExpr for Like {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
         let child = self.child().evaluate(batch)?;
         let pattern = self.pattern().evaluate(batch)?;

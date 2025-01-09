@@ -1,4 +1,3 @@
-use std::any::Any;
 use std::fmt::Display;
 use std::sync::Arc;
 
@@ -78,10 +77,6 @@ impl Display for Select {
 }
 
 impl VortexExpr for Select {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
         let batch = self.child.evaluate(batch)?;
         let st = batch

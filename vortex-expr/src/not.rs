@@ -1,4 +1,3 @@
-use std::any::Any;
 use std::fmt::Display;
 use std::hash::Hash;
 use std::sync::Arc;
@@ -34,10 +33,6 @@ impl Display for Not {
 }
 
 impl VortexExpr for Not {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
         let child_result = self.child.evaluate(batch)?;
         invert(&child_result)
