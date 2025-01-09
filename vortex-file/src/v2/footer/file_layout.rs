@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use vortex_flatbuffers::{footer2 as fb, FlatBufferRoot, WriteFlatBuffer};
 use vortex_layout::LayoutData;
 
@@ -7,7 +9,7 @@ use crate::v2::footer::segment::Segment;
 #[derive(Clone)]
 pub(crate) struct FileLayout {
     pub(crate) root_layout: LayoutData,
-    pub(crate) segments: Vec<Segment>,
+    pub(crate) segments: Arc<[Segment]>,
 }
 
 impl FlatBufferRoot for FileLayout {}

@@ -5275,6 +5275,7 @@ dependencies = [
  "arrow-array",
  "arrow-buffer",
  "arrow-schema",
+ "async-std",
  "async-trait",
  "bytes",
  "flatbuffers",

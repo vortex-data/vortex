@@ -16,7 +16,7 @@ use vortex_layout::segments::SegmentId;
 use vortex_layout::{LayoutContextRef, LayoutData, LayoutId};
 
 use crate::v2::footer::{FileLayout, Postscript, Segment};
-use crate::v2::segments::SegmentCache;
+use crate::v2::segments::cache::SegmentCache;
 use crate::v2::VortexFile;
 use crate::{EOF_SIZE, MAGIC_BYTES, VERSION};
 
@@ -126,7 +126,7 @@ impl OpenOptions {
 
         // Set up our segment cache and for good measure, we populate any segments that were
         // covered by the initial read.
-        let mut segment_cache = SegmentCache::<R>::default();
+        let mut segment_cache = SegmentCache::<R>::new(read, file_layout.segments.clone());
         self.populate_segments(
             initial_offset,
             &initial_read,
@@ -139,7 +139,6 @@ impl OpenOptions {
 
         // Finally, create the VortexFile.
         Ok(VortexFile {
-            read,
             ctx: self.ctx.clone(),
             layout: file_layout.root_layout,
             segments: Arc::new(segment_cache),
@@ -255,7 +254,7 @@ impl OpenOptions {
             let offset = usize::try_from(segment.offset - initial_offset)?;
             let bytes = initial_read.slice(offset..offset + segment.length);
 
-            segments.set(segment_id, bytes.into_inner());
+            segments.set(segment_id, bytes.into_inner())?;
         }
         Ok(())
     }

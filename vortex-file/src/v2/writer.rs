@@ -79,7 +79,7 @@ impl WriteOptions {
                 &mut write,
                 &FileLayout {
                     root_layout,
-                    segments,
+                    segments: segments.into(),
                 },
             )
             .await?;
