@@ -9,6 +9,7 @@ use viewed::ViewedArrayData;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexError, VortexExpect, VortexResult};
+use vortex_flatbuffers::FlatBuffer;
 use vortex_scalar::Scalar;
 
 use crate::array::{
@@ -17,7 +18,6 @@ use crate::array::{
 };
 use crate::compute::scalar_at;
 use crate::encoding::{Encoding, EncodingId, EncodingRef, EncodingVTable};
-use crate::flatbuffers::FlatBuffer;
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
 use crate::stats::{ArrayStatistics, Stat, Statistics, StatsSet};
 use crate::stream::{ArrayStream, ArrayStreamAdapter};

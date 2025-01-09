@@ -6,11 +6,11 @@ use itertools::Itertools;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_err, VortexExpect as _, VortexResult};
+use vortex_flatbuffers::FlatBuffer;
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::encoding::opaque::OpaqueEncoding;
 use crate::encoding::EncodingRef;
-use crate::flatbuffers::FlatBuffer;
 use crate::stats::{Stat, Statistics, StatsSet};
 use crate::{flatbuffers as fb, ArrayData, ArrayMetadata, ChildrenCollector, ContextRef};
 

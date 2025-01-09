@@ -1,11 +1,10 @@
 use core::ops::Range;
 
 use flatbuffers::{root, root_unchecked};
-use vortex_array::flatbuffers::FlatBuffer;
 use vortex_buffer::{ByteBuffer, ByteBufferMut, ConstBuffer};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult, VortexUnwrap};
-use vortex_flatbuffers::{dtype as fbd, footer};
+use vortex_flatbuffers::{dtype as fbd, footer, FlatBuffer};
 use vortex_io::VortexReadAt;
 
 use crate::{EOF_SIZE, INITIAL_READ_SIZE, MAGIC_BYTES, VERSION};

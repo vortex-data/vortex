@@ -4,9 +4,8 @@ use flatbuffers::Follow;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_panic, VortexResult};
-use vortex_flatbuffers::array as fba;
+use vortex_flatbuffers::{array as fba, FlatBuffer};
 
-use crate::flatbuffers::FlatBuffer;
 use crate::{ArrayData, ContextRef};
 
 /// [`ArrayParts`] represents the information from an [`ArrayData`] that makes up the serialized

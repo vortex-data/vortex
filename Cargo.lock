@@ -4916,7 +4916,6 @@ name = "vortex-buffer"
 version = "0.21.1"
 dependencies = [
  "arrow-buffer",
- "backtrace",
  "bytes",
  "divan",
  "log",

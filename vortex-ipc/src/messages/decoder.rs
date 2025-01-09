@@ -3,13 +3,12 @@ use std::fmt::Debug;
 use bytes::Buf;
 use flatbuffers::{root, root_unchecked};
 use itertools::Itertools;
-use vortex_array::flatbuffers::FlatBuffer;
 use vortex_array::parts::ArrayParts;
 use vortex_buffer::{AlignedBuf, Alignment, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
-use vortex_flatbuffers::message as fb;
 use vortex_flatbuffers::message::{MessageHeader, MessageVersion};
+use vortex_flatbuffers::{message as fb, FlatBuffer};
 
 use crate::ALIGNMENT;
 

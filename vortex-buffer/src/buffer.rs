@@ -268,7 +268,7 @@ impl<T> Buffer<T> {
         } else {
             #[cfg(feature = "warn-copy")]
             {
-                let bt = backtrace::Backtrace::new();
+                let bt = std::backtrace::Backtrace::capture();
                 log::warn!(
                     "Buffer is not aligned to requested alignment {}, copying: {}",
                     alignment,
