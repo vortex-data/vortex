@@ -202,36 +202,26 @@ impl TryFrom<AvroValue> for ScalarValue {
     type Error = vortex_error::VortexError;
 
     fn try_from(value: AvroValue) -> Result<Self, Self::Error> {
-        // We need to know how to map back based on the cost values instead...fuck.
-        Ok(ScalarValue(match value {
-            // Handle primitive types
-            AvroValue::Boolean(b) => InnerScalarValue::Bool(b),
-            AvroValue::Int(i) => InnerScalarValue::Primitive(PValue::I32(i)),
-            AvroValue::Long(l) => InnerScalarValue::Primitive(PValue::I64(l)),
-            AvroValue::Float(f) => InnerScalarValue::Primitive(PValue::F32(f)),
-            AvroValue::Double(d) => InnerScalarValue::Primitive(PValue::F64(d)),
-            AvroValue::Bytes(b) => InnerScalarValue::Buffer(ByteBuffer::from(b)),
-            AvroValue::String(s) => InnerScalarValue::BufferString(BufferString::from(s)),
-            AvroValue::Array(values) => {
+        let AvroValue::Union(tag, value) = value else {
+            vortex_bail!("Expected a union type, found {:?}", value);
+        };
+
+        Ok(ScalarValue(match (tag, *value) {
+            (0, AvroValue::Null) => InnerScalarValue::Null,
+            (1, AvroValue::Boolean(b)) => InnerScalarValue::Bool(b),
+            (2, pvalue_avro) => InnerScalarValue::Primitive(PValue::try_from(pvalue_avro)?),
+            (3, AvroValue::Bytes(b)) => InnerScalarValue::Buffer(ByteBuffer::from(b)),
+            (4, AvroValue::String(s)) => InnerScalarValue::BufferString(BufferString::from(s)),
+            (5, AvroValue::Array(values)) => {
                 let values: Result<Vec<ScalarValue>, _> =
                     values.into_iter().map(ScalarValue::try_from).collect();
                 InnerScalarValue::List(Arc::from(values?.as_slice()))
             }
-            AvroValue::Null => InnerScalarValue::Null,
             // Handle other cases that might need conversion
-            AvroValue::Enum(_, name) => {
-                vortex_bail!("Cannot convert Avro enum {} to ScalarValue", name)
-            }
-            AvroValue::Fixed(..) => {
-                vortex_bail!("Cannot convert Avro fixed type to ScalarValue")
-            }
-            AvroValue::Record(..) => {
-                vortex_bail!("Cannot convert Avro record to ScalarValue")
-            }
-            AvroValue::Union(..) => {
-                vortex_bail!("Cannot convert Avro union to ScalarValue")
-            }
-            _ => todo!(),
+            (tag, value) => vortex_bail!(
+                "Avro ScalarValue: invalid (tag, value) pair: ({tag}, {:?})",
+                value
+            ),
         }))
     }
 }
@@ -241,21 +231,17 @@ impl From<ScalarValue> for AvroValue {
         use InnerScalarValue::*;
 
         match value.0 {
-            Bool(b) => AvroValue::Boolean(b),
-            Primitive(p) => match p {
-                PValue::I32(i) => AvroValue::Int(i),
-                PValue::U32(u) => AvroValue::Int(u as i32),
-                PValue::I64(l) => AvroValue::Long(l),
-                PValue::U64(l) => AvroValue::Long(l as i64),
-                PValue::F32(f) => AvroValue::Float(f),
-                PValue::F64(d) => AvroValue::Double(d),
-                // Handle other primitive types appropriately
-                _ => AvroValue::Null, // You might want to handle this differently
-            },
-            Buffer(b) => AvroValue::Bytes(b.to_vec()),
-            BufferString(s) => AvroValue::String(s.to_string()),
-            List(values) => AvroValue::Array(values.iter().cloned().map(AvroValue::from).collect()),
-            Null => AvroValue::Null,
+            Null => AvroValue::Union(0, Box::new(AvroValue::Null)),
+            Bool(b) => AvroValue::Union(1, Box::new(AvroValue::Boolean(b))),
+            Primitive(p) => AvroValue::Union(2, Box::new(p.into())),
+            Buffer(b) => AvroValue::Union(3, Box::new(AvroValue::Bytes(b.to_vec()))),
+            BufferString(s) => AvroValue::Union(4, Box::new(AvroValue::String(s.to_string()))),
+            List(values) => AvroValue::Union(
+                5,
+                Box::new(AvroValue::Array(
+                    values.iter().cloned().map(AvroValue::from).collect(),
+                )),
+            ),
         }
     }
 }

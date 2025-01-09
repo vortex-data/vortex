@@ -9,17 +9,17 @@ pub(crate) fn derive_from_avro(input: TokenStream) -> TokenStream {
     let name = input.ident;
 
     let impls = match input.data {
-        Data::Struct(s) => match s.fields {
-            Fields::Named(fields) => generate_try_from_avrovalue(&name, &fields),
-            Fields::Unit => generate_try_from_avrovalue_unit(&name),
-            _ => {
-                return quote_spanned! {
+        Data::Struct(s) => {
+            match s.fields {
+                Fields::Named(fields) => generate_try_from_avrovalue(&name, &fields),
+                Fields::Unit => generate_try_from_avrovalue_unit(&name),
+                _ => return quote_spanned! {
                     input_span =>
                     compile_error!("FromAvro can only be derived for named structs or unit structs")
                 }
-                .into()
+                .into(),
             }
-        },
+        }
         Data::Enum(e) => {
             let is_unit = e.variants.iter().all(|v| v.fields.is_empty());
             if is_unit {

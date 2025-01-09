@@ -1,5 +1,6 @@
 #![allow(clippy::disallowed_types)]
-use std::{collections::HashMap, io::Read};
+use std::collections::HashMap;
+use std::io::Read;
 
 use uuid::Uuid;
 pub use vortex_avro_derive::{FromAvro, ToAvro};
@@ -194,8 +195,8 @@ mod test {
                 let value: $ty = $value;
                 let avro_bytes = to_avro_binary(value).expect("to_avro_binary");
                 let mut cursor = std::io::Cursor::new(avro_bytes);
-                let value_read: $ty = from_avro_binary(&<$ty>::read_schema(), &mut cursor)
-                    .expect("from_avro_binary");
+                let value_read: $ty =
+                    from_avro_binary(&<$ty>::read_schema(), &mut cursor).expect("from_avro_binary");
                 assert_eq!($value, value_read);
             }
         };
