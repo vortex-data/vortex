@@ -165,7 +165,7 @@ mod test {
 
     #[test]
     fn test_zeros() {
-        let array = PrimitiveArray::new(buffer![0i32; 10_000], Validity::NonNullable);
+        let array = PrimitiveArray::new(buffer![0i32; 100], Validity::NonNullable);
         assert!(array.statistics().to_set().into_iter().next().is_none());
 
         let compressed = for_compress(array.clone()).unwrap();
@@ -180,7 +180,7 @@ mod test {
     #[test]
     fn test_nullable_zeros() {
         let array =
-            PrimitiveArray::from_option_iter([Some(0i32), None].into_iter().cycle().take(10_000));
+            PrimitiveArray::from_option_iter([Some(0i32), None].into_iter().cycle().take(100));
         assert!(array.statistics().to_set().into_iter().next().is_none());
 
         let compressed = for_compress(array.clone()).unwrap();

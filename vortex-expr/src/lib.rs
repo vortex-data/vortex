@@ -5,6 +5,7 @@ use std::sync::Arc;
 mod binary;
 mod column;
 pub mod datafusion;
+pub mod forms;
 mod get_item;
 mod identity;
 mod like;
@@ -183,7 +184,7 @@ mod tests {
             "(($col1 < $col2) or ($col1 != $col2))"
         );
 
-        assert_eq!(Not::new_expr(col1.clone()).to_string(), "!$col1");
+        assert_eq!(not(col1.clone()).to_string(), "!$col1");
 
         assert_eq!(
             Select::include_expr(vec![Field::from("col1")], ident()).to_string(),

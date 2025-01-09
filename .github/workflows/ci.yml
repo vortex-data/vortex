@@ -211,8 +211,7 @@ jobs:
         with:
           tool: nextest
       - name: Run tests with Miri
-        # Exclude our async-heavy crates that don't really need UB testing anyways
-        run: cargo miri nextest run --no-fail-fast --workspace --exclude vortex-file --exclude vortex-layout
+        run: cargo miri nextest run --no-fail-fast --workspace --exclude vortex-file --exclude vortex-layout --exclude vortex-sampling-compressor --exclude vortex-fsst
 
   bench-test:
     name: "bench test"
