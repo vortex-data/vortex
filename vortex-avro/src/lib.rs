@@ -13,6 +13,10 @@ mod prim;
 mod string;
 mod vec;
 
+/// Module re-exporting private types from `apache-avro` crate.
+///
+/// By republishing all of the types, dependents need not depend on the `apache-avro` directly so long as
+/// they depend on `vortex-avro`.
 pub mod avro_private {
     pub use apache_avro::schema::*;
     pub use apache_avro::types::*;
@@ -161,8 +165,11 @@ pub trait FromAvro: TryFrom<AvroValue, Error = VortexError> {
 /// This function will return an error if the type cannot be converted into the Avro binary format.
 pub fn to_avro_binary<T: ToAvro>(value: T) -> VortexResult<Vec<u8>> {
     let avro_value: AvroValue = value.into();
-    avro_private::to_avro_datum(&T::write_schema(), avro_value)
-        .map_err(|err| vortex_err!("Failed to convert type to Avro binary format: {err}"))
+    avro_private::to_avro_datum(&T::write_schema(), avro_value).map_err(
+        |err: avro_private::Error| {
+            vortex_err!("Failed to convert type to Avro binary format: {err}")
+        },
+    )
 }
 
 /// Read into a type from the Avro binary format.

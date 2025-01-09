@@ -1,8 +1,6 @@
 use std::fmt::{Display, Write};
 use std::sync::Arc;
 
-use apache_avro::schema::{ArraySchema, UnionSchema};
-use apache_avro::Schema;
 use itertools::Itertools;
 use vortex_avro::{AvroValue, FromAvro, ToAvro};
 use vortex_buffer::{BufferString, ByteBuffer};
@@ -264,29 +262,29 @@ impl From<ScalarValue> for AvroValue {
 
 impl FromAvro for ScalarValue {
     #[allow(clippy::expect_used)]
-    fn read_schema() -> Schema {
+    fn read_schema() -> vortex_avro::avro_private::Schema {
         // This creates a union type that can represent any scalar value
-        Schema::Union(
-            UnionSchema::new(vec![
-                Schema::Null,
-                Schema::Boolean,
-                Schema::Int,
-                Schema::Long,
-                Schema::Float,
-                Schema::Double,
-                Schema::Bytes,
-                Schema::String,
-                Schema::Array(ArraySchema {
-                    items: Box::new(Schema::Union(
-                        UnionSchema::new(vec![
-                            Schema::Null,
-                            Schema::Boolean,
-                            Schema::Int,
-                            Schema::Long,
-                            Schema::Float,
-                            Schema::Double,
-                            Schema::Bytes,
-                            Schema::String,
+        vortex_avro::avro_private::Schema::Union(
+            vortex_avro::avro_private::UnionSchema::new(vec![
+                vortex_avro::avro_private::Schema::Null,
+                vortex_avro::avro_private::Schema::Boolean,
+                vortex_avro::avro_private::Schema::Int,
+                vortex_avro::avro_private::Schema::Long,
+                vortex_avro::avro_private::Schema::Float,
+                vortex_avro::avro_private::Schema::Double,
+                vortex_avro::avro_private::Schema::Bytes,
+                vortex_avro::avro_private::Schema::String,
+                vortex_avro::avro_private::Schema::Array(vortex_avro::avro_private::ArraySchema {
+                    items: Box::new(vortex_avro::avro_private::Schema::Union(
+                        vortex_avro::avro_private::UnionSchema::new(vec![
+                            vortex_avro::avro_private::Schema::Null,
+                            vortex_avro::avro_private::Schema::Boolean,
+                            vortex_avro::avro_private::Schema::Int,
+                            vortex_avro::avro_private::Schema::Long,
+                            vortex_avro::avro_private::Schema::Float,
+                            vortex_avro::avro_private::Schema::Double,
+                            vortex_avro::avro_private::Schema::Bytes,
+                            vortex_avro::avro_private::Schema::String,
                         ])
                         .expect("union schema"),
                     )),
@@ -299,7 +297,7 @@ impl FromAvro for ScalarValue {
 }
 
 impl ToAvro for ScalarValue {
-    fn write_schema() -> Schema {
+    fn write_schema() -> vortex_avro::avro_private::Schema {
         // Use the same schema for reading and writing
         Self::read_schema()
     }
