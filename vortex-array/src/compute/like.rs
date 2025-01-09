@@ -56,20 +56,7 @@ pub fn like(
 
     if let Some(f) = array.encoding().like_fn() {
         let result = f.like(array, pattern, options)?;
-
-        debug_assert_eq!(
-            result.len(),
-            array.len(),
-            "Like length mismatch {}",
-            array.encoding().id()
-        );
-        debug_assert_eq!(
-            result.dtype(),
-            &DType::Bool((array.dtype().is_nullable() || pattern.dtype().is_nullable()).into()),
-            "Like dtype mismatch {}",
-            array.encoding().id()
-        );
-
+        check_like_result(&result, array, pattern);
         return Ok(result);
     }
 
@@ -81,23 +68,40 @@ pub fn like(
     arrow_like(array, pattern, options)
 }
 
+fn check_like_result(result: &ArrayData, array: &ArrayData, pattern: &ArrayData) {
+    debug_assert_eq!(
+        result.len(),
+        array.len(),
+        "Like length mismatch {}",
+        array.encoding().id()
+    );
+    debug_assert_eq!(
+        result.dtype(),
+        &DType::Bool((array.dtype().is_nullable() || pattern.dtype().is_nullable()).into()),
+        "Like dtype mismatch {}",
+        array.encoding().id()
+    );
+}
+
 /// Implementation of `LikeFn` using the Arrow crate.
 pub(crate) fn arrow_like(
-    child: &ArrayData,
+    array: &ArrayData,
     pattern: &ArrayData,
     options: LikeOptions,
 ) -> VortexResult<ArrayData> {
-    let nullable = child.dtype().is_nullable();
-    let len = child.len();
-    let child = Datum::try_from(child.clone())?;
-    let pattern = Datum::try_from(pattern.clone())?;
+    let nullable = array.dtype().is_nullable();
+    let len = array.len();
+    let lhs = Datum::try_from(array.clone())?;
+    let rhs = Datum::try_from(pattern.clone())?;
 
-    let array = match (options.negated, options.case_insensitive) {
-        (false, false) => arrow_string::like::like(&child, &pattern)?,
-        (true, false) => arrow_string::like::nlike(&child, &pattern)?,
-        (false, true) => arrow_string::like::ilike(&child, &pattern)?,
-        (true, true) => arrow_string::like::nilike(&child, &pattern)?,
+    let result = match (options.negated, options.case_insensitive) {
+        (false, false) => arrow_string::like::like(&lhs, &rhs)?,
+        (true, false) => arrow_string::like::nlike(&lhs, &rhs)?,
+        (false, true) => arrow_string::like::ilike(&lhs, &rhs)?,
+        (true, true) => arrow_string::like::nilike(&lhs, &rhs)?,
     };
 
-    to_array_data_with_len(&array, len, nullable)
+    let result = to_array_data_with_len(&result, len, nullable)?;
+    check_like_result(&result, array, pattern);
+    Ok(result)
 }
