@@ -1,5 +1,6 @@
 use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
+use std::hash::Hash;
 use std::sync::Arc;
 
 use vortex_array::ArrayData;
@@ -8,7 +9,7 @@ use vortex_error::{vortex_err, VortexResult};
 
 use crate::{ExprRef, VortexExpr};
 
-#[derive(Debug, Clone, Eq)]
+#[derive(Debug, Clone, Eq, Hash)]
 pub struct GetItem {
     field: Field,
     child: ExprRef,

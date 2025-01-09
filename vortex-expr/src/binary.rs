@@ -1,5 +1,6 @@
 use std::any::Any;
 use std::fmt::Display;
+use std::hash::Hash;
 use std::sync::Arc;
 
 use vortex_array::compute::{and_kleene, compare, or_kleene, Operator as ArrayOperator};
@@ -8,7 +9,7 @@ use vortex_error::VortexResult;
 
 use crate::{ExprRef, Operator, VortexExpr};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash)]
 pub struct BinaryExpr {
     lhs: ExprRef,
     operator: Operator,

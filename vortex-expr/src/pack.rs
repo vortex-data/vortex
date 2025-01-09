@@ -1,5 +1,6 @@
 use std::any::Any;
 use std::fmt::Display;
+use std::hash::Hash;
 use std::sync::Arc;
 
 use itertools::Itertools as _;
@@ -37,7 +38,7 @@ use crate::{ExprRef, VortexExpr};
 /// assert_eq!(scalar_at(&x_copy, 2).unwrap(), Scalar::from(200));
 /// ```
 ///
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Pack {
     names: FieldNames,
     values: Vec<ExprRef>,
@@ -101,14 +102,6 @@ impl VortexExpr for Pack {
             .vortex_expect("children are known to have the same length as names")
     }
 }
-
-impl PartialEq<Pack> for Pack {
-    fn eq(&self, other: &Pack) -> bool {
-        self.names == other.names && self.values == other.values
-    }
-}
-
-impl Eq for Pack {}
 
 #[cfg(test)]
 mod tests {

@@ -14,10 +14,10 @@ use crate::pvalue::PValue;
 /// Note that these values can be deserialized from JSON or other formats. So a PValue may not
 /// have the correct width for what the DType expects. Primitive values should therefore be
 /// read using [crate::PrimitiveScalar] which will handle the conversion.
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub struct ScalarValue(pub(crate) InnerScalarValue);
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub(crate) enum InnerScalarValue {
     Bool(bool),
     Primitive(PValue),

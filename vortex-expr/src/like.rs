@@ -1,5 +1,6 @@
 use std::any::Any;
 use std::fmt::Display;
+use std::hash::Hash;
 use std::sync::Arc;
 
 use vortex_array::compute::{like, LikeOptions};
@@ -8,7 +9,7 @@ use vortex_error::VortexResult;
 
 use crate::{ExprRef, VortexExpr};
 
-#[derive(Debug)]
+#[derive(Debug, Hash)]
 pub struct Like {
     child: ExprRef,
     pattern: ExprRef,

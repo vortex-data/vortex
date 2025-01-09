@@ -43,7 +43,7 @@ use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 ///
 /// Note: [`PartialEq`] and [`PartialOrd`] are implemented only for an exact match of the scalar's
 /// dtype, including nullability.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct Scalar {
     dtype: DType,
