@@ -50,11 +50,7 @@ impl ArrowDatum for Datum {
 /// which will return a scalar (length 1 Arrow array) if the input array is constant.
 ///
 /// Panics if the length of the array is not 1 and also not equal to the expected length.
-pub(crate) fn from_arrow_array_with_len<A>(
-    array: A,
-    len: usize,
-    nullable: bool,
-) -> VortexResult<ArrayData>
+pub fn from_arrow_array_with_len<A>(array: A, len: usize, nullable: bool) -> VortexResult<ArrayData>
 where
     ArrayData: FromArrowArray<A>,
 {
