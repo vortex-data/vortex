@@ -19,6 +19,7 @@ mod project;
 pub mod pruning;
 mod row_filter;
 mod select;
+mod transform;
 #[allow(dead_code)]
 mod traversal;
 
