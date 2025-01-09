@@ -39,6 +39,7 @@ mod test {
     use std::sync::Arc;
 
     use arrow_buffer::BooleanBuffer;
+    use futures::executor::block_on;
     use vortex_array::array::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_array::{ArrayDType, IntoArrayVariant, ToArrayData};
@@ -50,50 +51,54 @@ mod test {
     use crate::segments::test::TestSegments;
     use crate::strategies::LayoutWriterExt;
 
-    #[async_std::test]
-    async fn flat_identity() {
-        let mut segments = TestSegments::default();
-        let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
-        let layout = FlatLayoutWriter::new(array.dtype().clone())
-            .push_one(&mut segments, array.to_array())
-            .unwrap();
+    #[test]
+    fn flat_identity() {
+        block_on(async {
+            let mut segments = TestSegments::default();
+            let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
+            let layout = FlatLayoutWriter::new(array.dtype().clone())
+                .push_one(&mut segments, array.to_array())
+                .unwrap();
 
-        let result = layout
-            .reader(Arc::new(segments), Default::default())
-            .unwrap()
-            .evaluate(
-                RowMask::new_valid_between(0, layout.row_count()),
-                Identity::new_expr(),
-            )
-            .await
-            .unwrap()
-            .into_primitive()
-            .unwrap();
+            let result = layout
+                .reader(Arc::new(segments), Default::default())
+                .unwrap()
+                .evaluate(
+                    RowMask::new_valid_between(0, layout.row_count()),
+                    Identity::new_expr(),
+                )
+                .await
+                .unwrap()
+                .into_primitive()
+                .unwrap();
 
-        assert_eq!(array.as_slice::<i32>(), result.as_slice::<i32>());
+            assert_eq!(array.as_slice::<i32>(), result.as_slice::<i32>());
+        })
     }
 
-    #[async_std::test]
-    async fn flat_expr() {
-        let mut segments = TestSegments::default();
-        let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
-        let layout = FlatLayoutWriter::new(array.dtype().clone())
-            .push_one(&mut segments, array.to_array())
-            .unwrap();
+    #[test]
+    fn flat_expr() {
+        block_on(async {
+            let mut segments = TestSegments::default();
+            let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
+            let layout = FlatLayoutWriter::new(array.dtype().clone())
+                .push_one(&mut segments, array.to_array())
+                .unwrap();
 
-        let expr = gt(Identity::new_expr(), lit(3i32));
-        let result = layout
-            .reader(Arc::new(segments), Default::default())
-            .unwrap()
-            .evaluate(RowMask::new_valid_between(0, layout.row_count()), expr)
-            .await
-            .unwrap()
-            .into_bool()
-            .unwrap();
+            let expr = gt(Identity::new_expr(), lit(3i32));
+            let result = layout
+                .reader(Arc::new(segments), Default::default())
+                .unwrap()
+                .evaluate(RowMask::new_valid_between(0, layout.row_count()), expr)
+                .await
+                .unwrap()
+                .into_bool()
+                .unwrap();
 
-        assert_eq!(
-            BooleanBuffer::from_iter([false, false, false, true, true]),
-            result.boolean_buffer()
-        );
+            assert_eq!(
+                BooleanBuffer::from_iter([false, false, false, true, true]),
+                result.boolean_buffer()
+            );
+        })
     }
 }

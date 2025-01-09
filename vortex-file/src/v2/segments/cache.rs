@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use futures::channel::oneshot;
 use futures_util::future::try_join_all;
+use itertools::Itertools;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_error::{vortex_err, VortexResult};
 use vortex_io::VortexReadAt;
