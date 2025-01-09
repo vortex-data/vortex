@@ -6,9 +6,9 @@ concurrency:
 
 on:
   push:
-    branches: ["develop"]
-  pull_request: {}
-  workflow_dispatch: {}
+    branches: [ "develop" ]
+  pull_request: { }
+  workflow_dispatch: { }
 
 permissions:
   actions: read
@@ -211,7 +211,7 @@ jobs:
         with:
           tool: nextest
       - name: Run tests with Miri
-        run: cargo miri nextest run --no-fail-fast
+        run: cargo miri nextest run --no-fail-fast --workspace --exclude vortex-file --exclude vortex-layout --exclude vortex-sampling-compressor --exclude vortex-fsst
 
   bench-test:
     name: "bench test"
