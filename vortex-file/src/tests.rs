@@ -1250,5 +1250,7 @@ async fn roundtrip_row_count() {
         .collect::<Vec<_>>()
         .await;
 
-    assert!(read.len() > 0);
+    let read_rows = read.iter().map(|a| a.len()).sum();
+
+    assert_eq!(st.len(), read_rows);
 }
