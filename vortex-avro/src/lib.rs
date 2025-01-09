@@ -1,6 +1,5 @@
 #![allow(clippy::disallowed_types)]
-use std::collections::HashMap;
-use std::io::Cursor;
+use std::{collections::HashMap, io::Read};
 
 use uuid::Uuid;
 pub use vortex_avro_derive::{FromAvro, ToAvro};
@@ -175,11 +174,11 @@ pub fn to_avro_binary<T: ToAvro>(value: T) -> VortexResult<Vec<u8>> {
 /// Read into a type from the Avro binary format.
 ///
 /// This function will return an error if the type cannot be read from the Avro binary format.
-pub fn from_avro_binary<T: FromAvro>(
+pub fn from_avro_binary<T: FromAvro, R: Read>(
     schema: &avro_private::Schema,
-    avro_bytes: Vec<u8>,
+    reader: &mut R,
 ) -> VortexResult<T> {
-    let value = avro_private::from_avro_datum(schema, &mut Cursor::new(avro_bytes), None)
+    let value = avro_private::from_avro_datum(schema, reader, None)
         .map_err(|err| vortex_err!("Failed to read type from Avro binary format: {err}"))?;
     <T as TryFrom<AvroValue>>::try_from(value.into())
 }
@@ -194,7 +193,8 @@ mod test {
             fn $name() {
                 let value: $ty = $value;
                 let avro_bytes = to_avro_binary(value).expect("to_avro_binary");
-                let value_read: $ty = from_avro_binary::<$ty>(&<$ty>::read_schema(), avro_bytes)
+                let mut cursor = std::io::Cursor::new(avro_bytes);
+                let value_read: $ty = from_avro_binary(&<$ty>::read_schema(), &mut cursor)
                     .expect("from_avro_binary");
                 assert_eq!($value, value_read);
             }

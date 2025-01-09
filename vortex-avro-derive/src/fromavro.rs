@@ -11,10 +11,11 @@ pub(crate) fn derive_from_avro(input: TokenStream) -> TokenStream {
     let impls = match input.data {
         Data::Struct(s) => match s.fields {
             Fields::Named(fields) => generate_try_from_avrovalue(&name, &fields),
+            Fields::Unit => generate_try_from_avrovalue_unit(&name),
             _ => {
                 return quote_spanned! {
                     input_span =>
-                    compile_error!("FromAvro can only be derived for named structs")
+                    compile_error!("FromAvro can only be derived for named structs or unit structs")
                 }
                 .into()
             }
@@ -163,6 +164,40 @@ fn generate_try_from_avrovalue(
         impl vortex_avro::FromAvro for #typename {
             fn read_schema() -> vortex_avro::avro_private::Schema {
                 #read_schema
+            }
+        }
+    }
+}
+
+fn generate_try_from_avrovalue_unit(typename: &syn::Ident) -> proc_macro2::TokenStream {
+    quote! {
+        impl TryFrom<vortex_avro::AvroValue> for #typename {
+            type Error = vortex_error::VortexError;
+
+            fn try_from(value: vortex_avro::AvroValue) -> Result<Self, Self::Error> {
+                let vortex_avro::AvroValue::Record(fields) = value else {
+                    vortex_error::vortex_bail!("expected a record");
+                };
+
+                Ok(Self)
+            }
+        }
+
+        impl vortex_avro::FromAvro for #typename {
+            fn read_schema() -> vortex_avro::avro_private::Schema {
+                vortex_avro::avro_private::Schema::Record(
+                    vortex_avro::avro_private::schema::RecordSchema {
+                        name: vortex_avro::avro_private::Name {
+                            name: stringify!(#typename).to_string(),
+                            namespace: None,
+                        },
+                        aliases: None,
+                        doc: None,
+                        fields: vec![],
+                        lookup: Default::default(),
+                        attributes: Default::default(),
+                    }
+                )
             }
         }
     }

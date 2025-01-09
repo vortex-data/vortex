@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use enum_iterator::all;
 use serde::{Deserialize, Serialize};
+use vortex_avro::{FromAvro, ToAvro};
 use vortex_dtype::{DType, ExtDType, ExtID};
 use vortex_error::{VortexExpect as _, VortexResult};
 
@@ -17,7 +18,7 @@ mod compute;
 
 impl_encoding!("vortex.ext", ids::EXTENSION, Extension);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromAvro, ToAvro)]
 pub struct ExtensionMetadata;
 
 impl Display for ExtensionMetadata {

@@ -2,7 +2,7 @@
 #![allow(unused)]
 // TODO(aduffy): add tests for the macro
 
-use apache_avro::schema::{Name, RecordField, RecordFieldOrder, RecordSchema};
+use apache_avro::schema::{EnumSchema, Name, RecordField, RecordFieldOrder, RecordSchema};
 use apache_avro::Schema;
 use vortex_avro::{AvroValue, FromAvro, ToAvro};
 
@@ -12,7 +12,10 @@ use vortex_avro::{AvroValue, FromAvro, ToAvro};
 // checking that conversion is lossless.
 #[test]
 fn test_derive_macro() {
-    #[derive(FromAvro, Clone, Debug, PartialEq, Eq)]
+    #[derive(FromAvro, ToAvro, Clone, Debug, PartialEq, Eq)]
+    struct UnitStruct;
+
+    #[derive(FromAvro, ToAvro, Clone, Debug, PartialEq, Eq)]
     enum Level {
         Low,
         Medium,
@@ -23,12 +26,16 @@ fn test_derive_macro() {
     struct MyRecordType {
         a: i32,
         b: String,
+        level: Level,
+        unit: UnitStruct,
     }
 
     // Convert into AvroValue.
     let original = MyRecordType {
         a: 1,
         b: "hello".to_string(),
+        level: Level::Medium,
+        unit: UnitStruct,
     };
 
     let avro_value: AvroValue = original.clone().into();
@@ -63,6 +70,46 @@ fn test_derive_macro() {
                     default: None,
                     order: RecordFieldOrder::Ignore,
                     position: 1,
+                    custom_attributes: Default::default(),
+                },
+                RecordField {
+                    name: "level".to_string(),
+                    doc: None,
+                    schema: Schema::Enum(EnumSchema {
+                        name: Name {
+                            name: "Level".to_string(),
+                            namespace: None,
+                        },
+                        aliases: Default::default(),
+                        doc: None,
+                        symbols: vec!["Low".to_string(), "Medium".to_string(), "High".to_string()],
+                        default: None,
+                        attributes: Default::default(),
+                    }),
+                    aliases: Default::default(),
+                    default: Default::default(),
+                    order: RecordFieldOrder::Ignore,
+                    position: 2,
+                    custom_attributes: Default::default(),
+                },
+                RecordField {
+                    name: "unit".to_string(),
+                    doc: None,
+                    schema: Schema::Record(RecordSchema {
+                        name: Name {
+                            name: "UnitStruct".to_string(),
+                            namespace: None,
+                        },
+                        aliases: Default::default(),
+                        doc: None,
+                        fields: vec![],
+                        lookup: Default::default(),
+                        attributes: Default::default(),
+                    }),
+                    aliases: Default::default(),
+                    default: Default::default(),
+                    order: RecordFieldOrder::Ignore,
+                    position: 3,
                     custom_attributes: Default::default(),
                 }
             ],

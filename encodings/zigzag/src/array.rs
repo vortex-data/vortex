@@ -11,6 +11,7 @@ use vortex_array::{
     impl_encoding, ArrayDType, ArrayData, ArrayLen, ArrayTrait, Canonical, IntoArrayVariant,
     IntoCanonical,
 };
+use vortex_avro::{FromAvro, ToAvro};
 use vortex_dtype::{DType, PType};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
 use vortex_scalar::Scalar;
@@ -21,7 +22,7 @@ use crate::zigzag_decode;
 
 impl_encoding!("vortex.zigzag", ids::ZIGZAG, ZigZag);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromAvro, ToAvro)]
 pub struct ZigZagMetadata;
 
 impl Display for ZigZagMetadata {

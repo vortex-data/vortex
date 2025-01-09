@@ -1,9 +1,9 @@
 use std::any::Any;
 use std::fmt::{Debug, Display};
+use std::io::Cursor;
 use std::sync::Arc;
 
-use flexbuffers::{FlexbufferSerializer, Reader};
-use serde::{Deserialize, Serialize};
+use vortex_avro::{FromAvro, ToAvro};
 use vortex_error::{vortex_err, VortexResult};
 
 use crate::encoding::Encoding;
@@ -33,18 +33,17 @@ pub trait TryDeserializeArrayMetadata<'m>: Sized {
 }
 
 /// Provide default implementation for metadata serialization based on flexbuffers serde.
-impl<M: Serialize> TrySerializeArrayMetadata for M {
+impl<M: ToAvro + Clone> TrySerializeArrayMetadata for M {
     fn try_serialize_metadata(&self) -> VortexResult<Arc<[u8]>> {
-        let mut ser = FlexbufferSerializer::new();
-        self.serialize(&mut ser)?;
-        Ok(ser.take_buffer().into())
+        vortex_avro::to_avro_binary(self.clone()).map(Arc::from)
     }
 }
 
-impl<'de, M: Deserialize<'de>> TryDeserializeArrayMetadata<'de> for M {
+impl<'de, M: FromAvro> TryDeserializeArrayMetadata<'de> for M {
     fn try_deserialize_metadata(metadata: Option<&'de [u8]>) -> VortexResult<Self> {
-        let bytes = metadata.ok_or_else(|| vortex_err!("Array requires metadata bytes"))?;
-        Ok(M::deserialize(Reader::get_root(bytes)?)?)
+        let bytes: &[u8] = metadata.ok_or_else(|| vortex_err!("Array requires metadata bytes"))?;
+        let mut reader = Cursor::new(bytes);
+        vortex_avro::from_avro_binary(&M::read_schema(), &mut reader)
     }
 }
 

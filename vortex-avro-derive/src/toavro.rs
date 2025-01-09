@@ -11,6 +11,7 @@ pub(crate) fn derive_to_avro(input: TokenStream) -> TokenStream {
     let to_avro_impl = match input.data {
         Data::Struct(s) => match s.fields {
             Fields::Named(fields) => derive_toavro_struct(&name, &fields),
+            Fields::Unit => derive_toavro_struct_unit(&name),
             _ => {
                 return quote_spanned! {
                     input_span =>
@@ -117,6 +118,32 @@ fn derive_to_avro_enum_unit(typename: &syn::Ident, e: &syn::DataEnum) -> proc_ma
         impl vortex_avro::ToAvro for #typename {
             fn write_schema() -> vortex_avro::avro_private::Schema {
                 #enum_schema
+            }
+        }
+    }
+}
+
+fn derive_toavro_struct_unit(typename: &syn::Ident) -> proc_macro2::TokenStream {
+    quote! {
+        impl From<#typename> for vortex_avro::AvroValue {
+            fn from(value: #typename) -> Self {
+                Self::Record(vec![])
+            }
+        }
+
+        impl vortex_avro::ToAvro for #typename {
+            fn write_schema() -> vortex_avro::avro_private::Schema {
+                vortex_avro::avro_private::Schema::Record(vortex_avro::avro_private::schema::RecordSchema {
+                    name: vortex_avro::avro_private::schema::Name {
+                        name: stringify!(#typename).to_string(),
+                        namespace: None,
+                    },
+                    aliases: None,
+                    doc: None,
+                    fields: vec![],
+                    lookup: Default::default(),
+                    attributes: Default::default(),
+                })
             }
         }
     }
