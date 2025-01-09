@@ -8,7 +8,7 @@ use vortex_scalar::Scalar;
 
 use crate::arrow::{Datum, FromArrowArray};
 use crate::encoding::Encoding;
-use crate::{ArrayDType, ArrayData};
+use crate::{ArrayDType, ArrayData, Canonical, IntoArrayData};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd)]
 pub enum Operator {
@@ -112,6 +112,13 @@ pub fn compare(
         vortex_bail!("Compare operations only support arrays of the same type");
     }
 
+    let result_dtype =
+        DType::Bool((left.dtype().is_nullable() || right.dtype().is_nullable()).into());
+
+    if left.is_empty() {
+        return Ok(Canonical::empty(&result_dtype)?.into_array());
+    }
+
     // Always try to put constants on the right-hand side so encodings can optimise themselves.
     if left.is_constant() && !right.is_constant() {
         return compare(right, left, operator.swap());
@@ -152,7 +159,7 @@ pub fn compare(
         );
         debug_assert_eq!(
             result.dtype(),
-            &DType::Bool((left.dtype().is_nullable() || right.dtype().is_nullable()).into()),
+            &result_dtype,
             "Compare dtype mismatch {}",
             right.encoding().id()
         );
