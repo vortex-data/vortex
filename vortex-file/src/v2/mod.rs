@@ -4,6 +4,7 @@ mod open;
 mod segments;
 mod strategy;
 #[cfg(test)]
+#[cfg_attr(miri, ignore)]
 mod tests;
 mod writer;
 

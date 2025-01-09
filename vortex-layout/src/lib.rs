@@ -1,5 +1,6 @@
 #![feature(once_cell_try)]
 #![feature(trait_alias)]
+#![cfg_attr(miri, ignore)]
 mod data;
 pub use data::*;
 mod context;
