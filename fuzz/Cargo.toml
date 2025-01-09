@@ -37,3 +37,10 @@ path = "fuzz_targets/array_ops.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "file_io"
+path = "fuzz_targets/file_io.rs"
+test = false
+doc = false
+bench = false
