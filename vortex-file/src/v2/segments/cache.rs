@@ -59,7 +59,7 @@ impl<R: VortexReadAt> SegmentCache<R> {
 
         // Send the buffers to the waiting channels.
         let mut inflight = self.inflight.write().map_err(|_| vortex_err!("poisoned"))?;
-        for (id, buffer) in segment_ids.into_iter().zip(buffers.into_iter()) {
+        for (id, buffer) in segment_ids.into_iter().zip_eq(buffers.into_iter()) {
             let channels = inflight
                 .remove(&id)
                 .ok_or_else(|| vortex_err!("missing inflight segment"))?;

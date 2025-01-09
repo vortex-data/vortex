@@ -37,10 +37,13 @@ impl LayoutEncoding for StructLayout {
         row_offset: u64,
         splits: &mut BTreeSet<u64>,
     ) -> VortexResult<()> {
+        // Register the splits for each field
         for child_idx in 0..layout.nchildren() {
             let child = layout.child(child_idx, layout.dtype().clone())?;
             child.register_splits(row_offset, splits)?;
         }
+        // But also... (fun bug!), register the length of the struct in case there are no fields.
+        splits.insert(row_offset + layout.row_count());
         Ok(())
     }
 }

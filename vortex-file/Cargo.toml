@@ -40,7 +40,6 @@ vortex-scan = { workspace = true }
 
 [dev-dependencies]
 arrow-schema = { workspace = true }
-async-std = { workspace = true, features = ["attributes"] }
 rstest = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 vortex-io = { path = "../vortex-io", features = ["tokio"] }
