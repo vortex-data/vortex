@@ -9,7 +9,7 @@ use vortex_error::{vortex_err, VortexResult};
 
 use crate::{ExprRef, VortexExpr};
 
-#[derive(Debug, PartialEq, Hash, Clone, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Column {
     field: Field,
 }
@@ -58,7 +58,6 @@ impl VortexExpr for Column {
     fn as_any(&self) -> &dyn Any {
         self
     }
-
     fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
         batch
             .as_struct_array()

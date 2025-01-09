@@ -10,6 +10,7 @@ use vortex_error::{vortex_err, VortexResult};
 use crate::{ExprRef, VortexExpr};
 
 #[derive(Debug, Clone, Eq, Hash)]
+#[allow(clippy::derived_hash_with_manual_eq)]
 pub struct GetItem {
     field: Field,
     child: ExprRef,
@@ -36,15 +37,6 @@ pub fn get_item(field: impl Into<Field>, child: ExprRef) -> ExprRef {
     GetItem::new_expr(field, child)
 }
 
-impl PartialEq<dyn Any> for GetItem {
-    fn eq(&self, other: &dyn Any) -> bool {
-        other
-            .downcast_ref::<GetItem>()
-            .map(|item| self.field == item.field && self.child.eq(&item.child))
-            .unwrap_or(false)
-    }
-}
-
 impl Display for GetItem {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}.{}", self.child, self.field)
@@ -55,7 +47,6 @@ impl VortexExpr for GetItem {
     fn as_any(&self) -> &dyn Any {
         self
     }
-
     fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
         let child = self.child.evaluate(batch)?;
         child

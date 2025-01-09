@@ -17,6 +17,7 @@ pub enum SelectField {
 }
 
 #[derive(Debug, Clone, Eq, Hash)]
+#[allow(clippy::derived_hash_with_manual_eq)]
 pub struct Select {
     fields: SelectField,
     child: ExprRef,
