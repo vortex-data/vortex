@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::fmt::Display;
 use std::hash::Hash;
 use std::sync::Arc;
@@ -41,6 +42,10 @@ impl Display for BinaryExpr {
 }
 
 impl VortexExpr for BinaryExpr {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
     fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
         let lhs = self.lhs.evaluate(batch)?;
         let rhs = self.rhs.evaluate(batch)?;

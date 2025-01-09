@@ -1,10 +1,11 @@
+use dyn_eq::DynEq;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_dtype::{DType, Field, FieldName, FieldNames};
 use vortex_error::VortexResult;
 
 use crate::traversal::{FoldChildren, FoldUp, Folder};
-use crate::{ExprRef, Identity};
+use crate::{ExprRef, GetItem};
 
 /// Given an expression, an identity-type and a list of n fields return n optional expressions
 /// ones containing only references to the corresponding field and an expression defined in terms of
@@ -98,16 +99,16 @@ impl AccessibleFields {
 // For all subexpressions in an expression find the fields access directly on identity
 struct ExprTopLevelRef<'a> {
     sub_expressions: HashMap<&'a ExprRef, HashSet<Field>>,
-    identity: &'a DType,
+    ident_dt: DType,
     tracked_dt: Vec<DType>,
 }
 
 impl<'a> ExprTopLevelRef<'a> {
-    fn new(fields: &'a DType) -> Self {
-        let tracked_dt = vec![fields.clone()];
+    fn new(ident_dt: DType) -> Self {
+        let tracked_dt = vec![ident_dt.clone()];
         Self {
             sub_expressions: HashMap::new(),
-            identity: tracked_dt.first().unwrap(),
+            ident_dt,
             tracked_dt,
         }
     }
@@ -124,11 +125,13 @@ impl<'a> Folder<'a> for ExprTopLevelRef<'a> {
         _context: (),
         children: FoldChildren<()>,
     ) -> VortexResult<FoldUp<()>> {
-        if node.as_any().downcast_ref::<Identity>().is_some() {
-            debug_assert!(children.is_empty());
-            let field_names =
-                AccessibleFields::Fields(HashSet::from_iter(self.identity.iter().cloned()));
-            return Ok(FoldUp::Continue(field_names));
+        let dtype = node.dtype(&self.ident_dt)?;
+
+        if let Some(get_item) = node.as_any().downcast_ref::<GetItem>() {
+            if self.tracked_dt.contains(&dtype) {
+                self.sub_expressions
+                    .insert(&node, HashSet::from_iter(vec![get_item.field().clone()]));
+            }
         }
 
         // if let Some(item) = node.as_any().downcast_ref::<GetItem>() {

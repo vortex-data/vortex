@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::fmt::{Debug, Display};
 use std::sync::Arc;
 
@@ -36,8 +37,8 @@ pub use project::*;
 pub use row_filter::*;
 pub use select::*;
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::ArrayData;
-use vortex_dtype::Field;
+use vortex_array::{ArrayDType, ArrayData, Canonical, IntoArrayData};
+use vortex_dtype::{DType, Field};
 use vortex_error::{VortexResult, VortexUnwrap};
 
 use crate::traversal::{Node, ReferenceCollector};
@@ -46,12 +47,18 @@ pub type ExprRef = Arc<dyn VortexExpr>;
 
 /// Represents logical operation on [`ArrayData`]s
 pub trait VortexExpr: Debug + Send + Sync + DynEq + DynHash + Display {
+    fn as_any(&self) -> &dyn Any;
     /// Compute result of expression on given batch producing a new batch
     fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData>;
 
     fn children(&self) -> Vec<&ExprRef>;
 
     fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef;
+
+    fn dtype(&self, input_dtype: &DType) -> VortexResult<DType> {
+        let empty = Canonical::empty(input_dtype)?.into_array();
+        self.evaluate(&empty).map(|array| array.dtype().clone())
+    }
 }
 
 pub trait VortexExprExt {
