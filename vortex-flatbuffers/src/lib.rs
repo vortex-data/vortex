@@ -164,7 +164,7 @@ use vortex_buffer::{ByteBuffer, ConstByteBuffer};
 /// We define a const-aligned byte buffer for flatbuffers with 8-byte alignment.
 ///
 /// This is based on the assumption that the maximum primitive type is 8 bytes.
-/// See: https://groups.google.com/g/flatbuffers/c/PSgQeWeTx_g
+/// See: <https://groups.google.com/g/flatbuffers/c/PSgQeWeTx_g>
 pub type FlatBuffer = ConstByteBuffer<8>;
 
 pub trait FlatBufferRoot {}
