@@ -1,11 +1,9 @@
-use std::iter;
-
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_dtype::{Field, FieldName, FieldNames};
 use vortex_error::VortexResult;
 
-use crate::traversal::{FoldChildren, FoldDown, FoldUp, Folder};
+use crate::traversal::{FoldChildren, FoldUp, Folder};
 use crate::{ExprRef, GetItem, Identity};
 
 /// Given an expression, an identity-type and a list of n fields return n optional expressions
@@ -75,75 +73,83 @@ impl ExprSplitter {
 //     }
 // }
 
-#[derive(Clone, Debug)]
-enum FieldAccesses {
-    Fields(HashSet<Field>),
-    AllFields,
-}
-
-impl FieldAccesses {
-    fn union(self, other: &Self) -> Self {
-        match (self, other) {
-            (FieldAccesses::AllFields, _) => FieldAccesses::AllFields,
-            (_, FieldAccesses::AllFields) => FieldAccesses::AllFields,
-            (FieldAccesses::Fields(fields1), FieldAccesses::Fields(fields2)) => {
-                FieldAccesses::Fields(fields1.union(fields2).cloned().collect())
-            }
-        }
-    }
-}
+// #[derive(Clone, Debug, PartialEq, Eq)]
+// enum FieldAccesses {
+//     Fields(HashSet<Field>),
+//     AllFields,
+// }
+//
+// impl FieldAccesses {
+//     fn union(self, other: &Self) -> Self {
+//         match (self, other) {
+//             (FieldAccesses::AllFields, _) => FieldAccesses::AllFields,
+//             (_, FieldAccesses::AllFields) => FieldAccesses::AllFields,
+//             (FieldAccesses::Fields(fields1), FieldAccesses::Fields(fields2)) => {
+//                 FieldAccesses::Fields(fields1.union(fields2).cloned().collect())
+//             }
+//         }
+//     }
+// }
 
 // For all subexpressions in an expression find the fields access directly on identity
 struct ExprTopLevelRef<'a> {
-    sub_expressions: HashMap<&'a ExprRef, FieldNames>,
+    sub_expressions: HashMap<&'a ExprRef, HashSet<Field>>,
+    identity: FieldNames,
 }
 
 impl<'a> ExprTopLevelRef<'a> {
-    fn new() -> Self {
+    fn new(fields: FieldNames) -> Self {
         Self {
             sub_expressions: HashMap::new(),
+            identity: fields,
         }
     }
 }
 
 impl<'a> Folder<'a> for ExprTopLevelRef<'a> {
     type NodeTy = ExprRef;
-    type Out = FieldAccesses;
-    type Context = Option<Field>;
-
-    fn visit_down(
-        &mut self,
-        node: &'a ExprRef,
-        context: Option<Field>,
-    ) -> VortexResult<FoldDown<Self::Out, Self::Context>> {
-        if let Some(item) = node.as_any().downcast_ref::<GetItem>() {
-            return Ok(FoldDown::Continue(Some(item.field().clone())));
-        };
-
-        Ok(FoldDown::Continue(context))
-    }
+    type Out = HashSet<FieldName>;
+    type Context = ();
 
     fn visit_up(
         &mut self,
         node: &'a ExprRef,
-        context: Option<Field>,
-        children: FoldChildren<FieldAccesses>,
-    ) -> VortexResult<FoldUp<FieldAccesses>> {
-        let field_access = if node.as_any().downcast_ref::<Identity>().is_some() {
-            assert!(children.is_empty());
-            match context {
-                Some(field) => FieldAccesses::Fields(HashSet::from_iter(iter::once(field))),
-                None => FieldAccesses::AllFields,
-            }
-        } else {
-            children
-                .into_iter()
-                .fold(FieldAccesses::Fields(HashSet::new()), |acc, x| {
-                    acc.union(&x)
-                })
-        };
+        _context: (),
+        children: FoldChildren<HashSet<FieldName>>,
+    ) -> VortexResult<FoldUp<HashSet<FieldName>>> {
+        if node.as_any().downcast_ref::<Identity>().is_some() {
+            debug_assert!(children.is_empty());
+            let field_names = HashSet::from_iter(self.identity.iter().cloned());
+            return Ok(FoldUp::Continue(field_names));
+        }
 
-        // self.sub_expressions.insert(&node, field_access.clone());
+        if let Some(item) = node.as_any().downcast_ref::<GetItem>() {
+            let field = item.field();
+            let field_name = match field {
+                Field::Name(n) => n.clone(),
+                Field::Index(_) => todo!(),
+            };
+            // let [child] = children.unwrap().as_slice();
+            // let access = child.get(&field_name).cloned();
+            let field_access = HashSet::from_iter(vec![field.clone()]);
+            self.sub_expressions.insert(&node, field_access.clone());
+            return Ok(FoldUp::Continue(HashSet::from_iter(vec![field_name])));
+        }
+
+        // else {
+        // };
+
+        let field_access = children.into_iter().fold(HashSet::new(), |acc, fields| {
+            acc.union(&fields).cloned().collect()
+        });
+        self.sub_expressions.insert(
+            &node,
+            field_access
+                .clone()
+                .iter()
+                .map(|f| Field::Name(f.clone()))
+                .collect(),
+        );
 
         Ok(FoldUp::Continue(field_access))
     }
@@ -158,28 +164,27 @@ mod tests {
     #[test]
     fn test_expr_top_level_ref() {
         let expr = ident();
-        let mut expr_top_level_ref = ExprTopLevelRef::new();
+        let mut expr_top_level_ref =
+            ExprTopLevelRef::new(FieldNames::from_iter(vec!["a".into(), "b".into()]));
         let res = expr
-            .accept_with_context(&mut expr_top_level_ref, None)
+            .accept_with_context(&mut expr_top_level_ref, ())
             .unwrap();
 
         println!("{:?}", res);
-
-        // let mut expected = HashMap::new();
-        // expected.insert(&expr, FieldAccesses::AllFields);
-
-        // assert_eq!(&expr_top_level_ref.sub_expressions, &expected);
+        println!("{:?}", expr_top_level_ref.sub_expressions);
     }
 
     #[test]
     fn test_expr_top_level_ref_get_item() {
-        let expr = get_item("a", ident());
-        let mut expr_top_level_ref = ExprTopLevelRef::new();
+        let expr = get_item("b", get_item("a", ident()));
+        let mut expr_top_level_ref =
+            ExprTopLevelRef::new(FieldNames::from_iter(vec!["a".into(), "b".into()]));
         let res = expr
-            .accept_with_context(&mut expr_top_level_ref, None)
+            .accept_with_context(&mut expr_top_level_ref, ())
             .unwrap();
 
         println!("{:?}", res);
+        println!("{:?}", expr_top_level_ref.sub_expressions);
 
         // let mut expected = HashMap::new();
         // expected.insert(&expr, FieldAccesses::AllFields);
