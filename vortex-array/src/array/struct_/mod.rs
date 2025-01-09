@@ -150,11 +150,24 @@ impl VariantsVTable<StructArray> for StructEncoding {
 
 impl StructArrayTrait for StructArray {
     fn maybe_null_field_by_idx(&self, idx: usize) -> Option<ArrayData> {
-        self.dtypes().get(idx).map(|dtype| {
-            self.as_ref()
-                .child(idx, dtype, self.len())
-                .unwrap_or_else(|e| vortex_panic!(e, "StructArray: field {} not found", idx))
-        })
+        Some(
+            self.field_info(&Field::Index(idx))
+                .map(|field_info| {
+                    self.as_ref()
+                        .child(
+                            idx,
+                            &field_info
+                                .dtype
+                                .value()
+                                .vortex_expect("FieldInfo could not access dtype"),
+                            self.len(),
+                        )
+                        .unwrap_or_else(|e| {
+                            vortex_panic!(e, "StructArray: field {} not found", idx)
+                        })
+                })
+                .unwrap_or_else(|e| vortex_panic!(e, "StructArray: field {} not found", idx)),
+        )
     }
 
     fn project(&self, projection: &[Field]) -> VortexResult<ArrayData> {

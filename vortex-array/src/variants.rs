@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use vortex_dtype::{DType, ExtDType, Field, FieldNames, PType};
+use vortex_dtype::{DType, ExtDType, Field, FieldInfo, FieldNames, PType};
 use vortex_error::{vortex_panic, VortexError, VortexExpect as _, VortexResult};
 
 use crate::encoding::Encoding;
@@ -187,6 +187,14 @@ pub trait StructArrayTrait: ArrayTrait {
             unreachable!()
         };
         st.names()
+    }
+
+    fn field_info(&self, field: &Field) -> VortexResult<FieldInfo> {
+        let DType::Struct(st, _) = self.dtype() else {
+            unreachable!()
+        };
+
+        st.field_info(field)
     }
 
     fn dtypes(&self) -> Vec<DType> {
