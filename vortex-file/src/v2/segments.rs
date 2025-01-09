@@ -1,10 +1,11 @@
-use std::sync::{Arc, RwLock};
+use std::sync::RwLock;
 
+use async_trait::async_trait;
 use bytes::Bytes;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
-use vortex_io::VortexWrite;
-use vortex_layout::segments::{SegmentId, SegmentReader, SegmentWriter};
+use vortex_io::{VortexReadAt, VortexWrite};
+use vortex_layout::segments::{AsyncSegmentReader, SegmentId, SegmentWriter};
 
 use crate::v2::footer::Segment;
 
@@ -45,14 +46,15 @@ impl BufferedSegmentWriter {
 }
 
 /// A segment cache that holds segments in memory.
-///
 /// TODO(ngates): switch to a Moka LRU cache.
-#[derive(Default, Clone)]
-pub(crate) struct SegmentCache {
-    segments: Arc<RwLock<HashMap<SegmentId, Bytes>>>,
+#[derive(Default)]
+pub(crate) struct SegmentCache<R> {
+    read: R,
+    locations: Vec<Segment>,
+    segments: RwLock<HashMap<SegmentId, Bytes>>,
 }
 
-impl SegmentCache {
+impl<R> SegmentCache<R> {
     pub(crate) fn set(&self, id: SegmentId, data: Bytes) {
         self.segments
             .write()
@@ -62,13 +64,16 @@ impl SegmentCache {
     }
 }
 
-impl SegmentReader for SegmentCache {
-    fn get(&self, id: SegmentId) -> Option<Bytes> {
-        self.segments
-            .read()
-            .map_err(|_| vortex_err!("Poisoned cache"))
-            .vortex_expect("poisoned")
-            .get(&id)
-            .cloned()
+#[async_trait]
+impl<R: VortexReadAt> AsyncSegmentReader for SegmentCache<R> {
+    async fn get(&self, id: SegmentId) -> VortexResult<Bytes> {
+        let segment = self
+            .locations
+            .get(*id as usize)
+            .ok_or_else(|| vortex_err!("Segment not found"))?;
+        self.read
+            .read_byte_range(segment.offset, segment.length as u64)
+            .await
+            .map_err(|e| e.into())
     }
 }

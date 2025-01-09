@@ -15,6 +15,7 @@ categories.workspace = true
 
 [dependencies]
 arrow-buffer = { workspace = true }
+async-std = { workspace = true, features = ["attributes"] }
 async-trait = { workspace = true }
 bytes = { workspace = true }
 flatbuffers = { workspace = true }
@@ -27,7 +28,8 @@ vortex-error = { workspace = true }
 vortex-expr = { workspace = true }
 vortex-flatbuffers = { workspace = true, features = ["layout"] }
 vortex-ipc = { workspace = true }
-vortex-scan = { workspace = true, optional = true }
+vortex-scalar = { workspace = true }
+vortex-scan = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }

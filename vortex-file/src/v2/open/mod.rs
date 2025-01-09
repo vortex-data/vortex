@@ -1,7 +1,7 @@
 mod split_by;
 
 use std::io::Read;
-use std::ops::Range;
+use std::sync::Arc;
 
 use flatbuffers::root;
 use itertools::Itertools;
@@ -135,15 +135,14 @@ impl OpenOptions {
         )?;
 
         // Compute the splits of the file.
-        let splits: Vec<Range<u64>> = self.split_by.splits(&file_layout.root_layout)?;
+        let splits = self.split_by.splits(&file_layout.root_layout)?.into();
 
         // Finally, create the VortexFile.
         Ok(VortexFile {
             read,
             ctx: self.ctx.clone(),
             layout: file_layout.root_layout,
-            segments: file_layout.segments,
-            segment_cache,
+            segments: Arc::new(segment_cache),
             splits,
         })
     }
@@ -238,12 +237,12 @@ impl OpenOptions {
         })
     }
 
-    fn populate_segments(
+    fn populate_segments<R>(
         &self,
         initial_offset: u64,
         initial_read: &ByteBuffer,
         file_layout: &FileLayout,
-        segments: &mut SegmentCache,
+        segments: &mut SegmentCache<R>,
     ) -> VortexResult<()> {
         for (idx, segment) in file_layout.segments.iter().enumerate() {
             if segment.offset < initial_offset {

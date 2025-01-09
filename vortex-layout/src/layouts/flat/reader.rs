@@ -2,14 +2,11 @@ use std::sync::Arc;
 
 use vortex_array::ContextRef;
 use vortex_error::{vortex_err, vortex_panic, VortexResult};
-use vortex_expr::ExprRef;
 
-use crate::layouts::flat::evaluator::FlatEvaluator;
 use crate::layouts::flat::FlatLayout;
-use crate::operations::OperationExt;
-use crate::reader::{EvalOp, LayoutReader};
+use crate::reader::LayoutReader;
 use crate::segments::{AsyncSegmentReader, SegmentId};
-use crate::{LayoutData, LayoutEncoding, RowMask};
+use crate::{LayoutData, LayoutEncoding};
 
 pub struct FlatReader {
     layout: LayoutData,
@@ -60,10 +57,5 @@ impl FlatReader {
 impl LayoutReader for FlatReader {
     fn layout(&self) -> &LayoutData {
         &self.layout
-    }
-
-    fn create_evaluator(self: Arc<Self>, row_mask: RowMask, expr: ExprRef) -> VortexResult<EvalOp> {
-        let filter_mask = row_mask.into_filter_mask()?;
-        Ok(FlatEvaluator::new(self, filter_mask, expr).boxed())
     }
 }

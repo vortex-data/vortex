@@ -5,23 +5,24 @@ use futures::FutureExt;
 use vortex_array::stats::{stats_from_bitset_bytes, Stat};
 use vortex_array::ContextRef;
 use vortex_error::{vortex_panic, VortexError, VortexResult};
-use vortex_expr::{ExprRef, Identity};
+use vortex_expr::Identity;
+use vortex_scan::RowMask;
 
 use crate::layouts::chunked::stats_table::StatsTable;
 use crate::layouts::chunked::ChunkedLayout;
-use crate::reader::{EvalOp, LayoutReader};
+use crate::reader::LayoutReader;
 use crate::segments::AsyncSegmentReader;
-use crate::{LayoutData, LayoutEncoding, RowMask};
+use crate::{LayoutData, LayoutEncoding};
 
+#[derive(Clone)]
 pub struct ChunkedReader {
     layout: LayoutData,
     ctx: ContextRef,
     segments: Arc<dyn AsyncSegmentReader>,
     /// Shared stats table operation and cache of the result
-    // stats_table_op: RwLock<StatsTableOp>,
     stats_table_fut: StatsTableFut,
     /// Shared lazy chunk scanners
-    chunk_readers: Box<[OnceLock<Arc<dyn LayoutReader>>]>,
+    chunk_readers: Arc<[OnceLock<Arc<dyn LayoutReader>>]>,
 }
 
 type StatsTableFut = Shared<BoxFuture<'static, Option<StatsTable>>>;
@@ -54,29 +55,34 @@ impl ChunkedReader {
             .metadata()
             .is_some()
             .then(|| {
-                let column_dtype = layout.dtype().clone();
-                let stats_dtype = StatsTable::dtype_for_stats_table(&column_dtype, &present_stats);
+                let layout_dtype = layout.dtype().clone();
+                let stats_dtype = StatsTable::dtype_for_stats_table(&layout_dtype, &present_stats);
                 let stats_layout = layout.child(layout.nchildren() - 1, stats_dtype)?;
-                let op = stats_layout
-                    .reader(segments.clone(), ctx.clone())?
-                    .evaluate(
-                        RowMask::new_valid_between(0, nchunks as u64),
-                        Identity::new_expr(),
-                    )
-                    .map(move |stats_array| {
-                        stats_array
-                            .and_then(|stats_array| {
-                                StatsTable::try_new(
-                                    column_dtype.clone(),
-                                    stats_array,
-                                    present_stats.clone(),
-                                )
+                let reader = stats_layout.reader(segments.clone(), ctx.clone())?;
+
+                Ok::<_, VortexError>(
+                    async move {
+                        reader
+                            .evaluate(
+                                RowMask::new_valid_between(0, nchunks as u64),
+                                Identity::new_expr(),
+                            )
+                            .map(move |stats_array| {
+                                stats_array
+                                    .and_then(|stats_array| {
+                                        StatsTable::try_new(
+                                            layout_dtype.clone(),
+                                            stats_array,
+                                            present_stats.clone(),
+                                        )
+                                    })
+                                    // FIXME(ngates): we should map_err into a cloneable error type
+                                    .ok()
                             })
-                            // FIXME(ngates): we should map_err into a cloneable error type
-                            .ok()
-                    })
-                    .boxed();
-                Ok::<_, VortexError>(op)
+                            .await
+                    }
+                    .boxed(),
+                )
             })
             .transpose()?
             .unwrap_or_else(|| ready(None).boxed())
@@ -118,13 +124,5 @@ impl ChunkedReader {
 impl LayoutReader for ChunkedReader {
     fn layout(&self) -> &LayoutData {
         &self.layout
-    }
-
-    fn create_evaluator(
-        self: Arc<Self>,
-        _row_mask: RowMask,
-        _expr: ExprRef,
-    ) -> VortexResult<EvalOp> {
-        todo!()
     }
 }

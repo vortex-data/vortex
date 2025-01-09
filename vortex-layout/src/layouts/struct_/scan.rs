@@ -1,15 +1,12 @@
-use std::sync::Arc;
-
 use async_trait::async_trait;
 use vortex_array::{ArrayData, ContextRef};
 use vortex_error::{vortex_panic, VortexResult};
 use vortex_expr::ExprRef;
+use vortex_scan::{AsyncEvaluator, RowMask};
 
 use crate::layouts::struct_::StructLayout;
-use crate::operations::{Operation, Poll};
-use crate::reader::{EvalOp, LayoutReader};
-use crate::segments::SegmentReader;
-use crate::{Evaluator, LayoutData, LayoutEncoding, RowMask};
+use crate::reader::LayoutReader;
+use crate::{LayoutData, LayoutEncoding};
 
 #[derive(Debug)]
 pub struct StructScan {
@@ -29,12 +26,8 @@ impl StructScan {
 }
 
 #[async_trait]
-impl Evaluator for StructScan {
-    async fn evaluate(
-        self: Arc<Self>,
-        _row_mask: RowMask,
-        _expr: ExprRef,
-    ) -> VortexResult<ArrayData> {
+impl AsyncEvaluator for StructScan {
+    async fn evaluate(self: &Self, _row_mask: RowMask, _expr: ExprRef) -> VortexResult<ArrayData> {
         todo!()
     }
 }
@@ -42,28 +35,5 @@ impl Evaluator for StructScan {
 impl LayoutReader for StructScan {
     fn layout(&self) -> &LayoutData {
         &self.layout
-    }
-
-    fn create_evaluator(
-        self: Arc<Self>,
-        _row_mask: RowMask,
-        _expr: ExprRef,
-    ) -> VortexResult<EvalOp> {
-        todo!()
-    }
-}
-
-#[derive(Debug)]
-#[allow(dead_code)]
-struct StructScanner {
-    layout: LayoutData,
-    mask: RowMask,
-}
-
-impl Operation for StructScanner {
-    type Output = ArrayData;
-
-    fn poll(&mut self, _segments: &dyn SegmentReader) -> VortexResult<Poll<Self::Output>> {
-        todo!()
     }
 }

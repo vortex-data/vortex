@@ -33,13 +33,6 @@ pub trait AsyncSegmentReader: Send + Sync {
     async fn get(&self, id: SegmentId) -> VortexResult<Bytes>;
 }
 
-pub trait SegmentReader {
-    /// Attempt to get the data associated with a given segment ID.
-    ///
-    /// If the segment ID is not found, `None` is returned.
-    fn get(&self, id: SegmentId) -> Option<Bytes>;
-}
-
 pub trait SegmentWriter {
     /// Write the given data into a segment and return its identifier.
     /// The provided buffers are concatenated together to form the segment.
@@ -55,45 +48,14 @@ pub trait SegmentWriter {
 
 #[cfg(test)]
 pub mod test {
-    use std::sync::Arc;
-
     use bytes::{Bytes, BytesMut};
-    use vortex_error::{vortex_err, vortex_panic, VortexExpect};
-    use vortex_expr::ExprRef;
+    use vortex_error::{vortex_err, VortexExpect};
 
     use super::*;
-    use crate::operations::Poll;
-    use crate::reader::LayoutReader;
-    use crate::segments::SegmentReader;
-    use crate::RowMask;
 
     #[derive(Default)]
     pub struct TestSegments {
         segments: Vec<Bytes>,
-    }
-
-    impl TestSegments {
-        pub fn evaluate(&self, reader: Arc<dyn LayoutReader>, expr: ExprRef) -> ArrayData {
-            let row_count = reader.layout().row_count();
-            let mut evaluator = reader
-                .create_evaluator(RowMask::new_valid_between(0, row_count), expr)
-                .vortex_expect("Failed to create scanner");
-            match evaluator
-                .poll(self)
-                .vortex_expect("Failed to poll evaluator")
-            {
-                Poll::Some(array) => array,
-                Poll::NeedMore(_segments) => {
-                    vortex_panic!("Layout requested more segments from TestSegments.")
-                }
-            }
-        }
-    }
-
-    impl SegmentReader for TestSegments {
-        fn get(&self, id: SegmentId) -> Option<Bytes> {
-            self.segments.get(*id as usize).cloned()
-        }
     }
 
     impl SegmentWriter for TestSegments {

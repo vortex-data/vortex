@@ -1,4 +1,3 @@
-use std::io::Read;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -8,22 +7,18 @@ use vortex_array::ContextRef;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_io::VortexReadAt;
-use vortex_layout::operations::{Operation, Poll};
+use vortex_layout::segments::AsyncSegmentReader;
 use vortex_layout::{LayoutData, LayoutReader};
 use vortex_scan::Scan;
-
-use crate::v2::footer::Segment;
-use crate::v2::segments::SegmentCache;
 
 pub struct VortexFile<R> {
     pub(crate) read: R,
     pub(crate) ctx: ContextRef,
     pub(crate) layout: LayoutData,
-    pub(crate) segments: Vec<Segment>,
-    pub(crate) segment_cache: SegmentCache,
+    pub(crate) segments: Arc<dyn AsyncSegmentReader>,
     // TODO(ngates): not yet used by the file reader
     #[allow(dead_code)]
-    pub(crate) splits: Vec<Range<u64>>,
+    pub(crate) splits: Arc<[Range<u64>]>,
 }
 
 impl<R> VortexFile<R> {}
@@ -43,7 +38,9 @@ impl<R: VortexReadAt> VortexFile<R> {
     /// Performs a scan operation over the file.
     pub fn scan(&self, scan: Arc<Scan>) -> VortexResult<impl ArrayStream + '_> {
         // Create a shared reader for the scan.
-        let reader: Arc<dyn LayoutReader> = self.layout.reader(self.ctx.clone())?;
+        let reader: Arc<dyn LayoutReader> = self
+            .layout
+            .reader(self.segments.clone(), self.ctx.clone())?;
         let result_dtype = scan.result_dtype(self.dtype())?;
 
         // TODO(ngates): we could query the layout for splits and then process them in parallel.
@@ -51,28 +48,9 @@ impl<R: VortexReadAt> VortexFile<R> {
         //  Note that to implement this we would use stream::try_unfold
         let stream = stream::once(async move {
             let row_range = 0..reader.layout().row_count();
-            let mut range_scan = reader.range_scan(scan.range_scan(row_range)?);
-
-            loop {
-                match range_scan.poll(&self.segment_cache)? {
-                    Poll::Some(array) => return Ok(array),
-                    Poll::NeedMore(segment_ids) => {
-                        for segment_id in segment_ids {
-                            let segment = &self.segments[*segment_id as usize];
-                            let bytes = self
-                                .read
-                                .read_byte_range(segment.offset, segment.length as u64)
-                                .await?;
-                            self.segment_cache.set(segment_id, bytes);
-                        }
-                    }
-                }
-            }
+            scan.range_scan(row_range)?.evaluate_async(reader).await
         });
 
         Ok(ArrayStreamAdapter::new(result_dtype, stream))
     }
 }
-
-/// Sync implementation of Vortex File.
-impl<R: Read> VortexFile<R> {}

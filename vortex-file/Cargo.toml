@@ -17,6 +17,7 @@ readme = "README.md"
 arrow-array = { workspace = true }
 arrow-buffer = { workspace = true }
 arrow-schema = { workspace = true }
+async-trait = { workspace = true }
 bytes = { workspace = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["std"] }
@@ -33,7 +34,7 @@ vortex-expr = { workspace = true }
 vortex-flatbuffers = { workspace = true, features = ["file"] }
 vortex-io = { workspace = true }
 vortex-ipc = { workspace = true }
-vortex-layout = { workspace = true, features = ["vortex-scan"] }
+vortex-layout = { workspace = true }
 vortex-scalar = { workspace = true, features = ["flatbuffers"] }
 vortex-scan = { workspace = true }
 
