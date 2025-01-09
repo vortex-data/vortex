@@ -23,7 +23,7 @@ pub struct VortexFile<R> {
 
 impl<R> VortexFile<R> {}
 
-/// Async implementation of V ortex File.
+/// Async implementation of Vortex File.
 impl<R: VortexReadAt> VortexFile<R> {
     /// Returns the number of rows in the file.
     pub fn row_count(&self) -> u64 {
