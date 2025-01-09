@@ -1,7 +1,7 @@
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexError, VortexResult};
 
-use crate::arrow::{to_array_data_with_len, Datum};
+use crate::arrow::{from_arrow_array_with_len, Datum};
 use crate::encoding::Encoding;
 use crate::{ArrayDType, ArrayData};
 
@@ -91,8 +91,8 @@ pub(crate) fn arrow_like(
 ) -> VortexResult<ArrayData> {
     let nullable = array.dtype().is_nullable();
     let len = array.len();
-    let lhs = Datum::try_from(array.clone())?;
-    let rhs = Datum::try_from(pattern.clone())?;
+    let lhs = unsafe { Datum::try_new(array.clone())? };
+    let rhs = unsafe { Datum::try_new(pattern.clone())? };
 
     let result = match (options.negated, options.case_insensitive) {
         (false, false) => arrow_string::like::like(&lhs, &rhs)?,
@@ -101,7 +101,7 @@ pub(crate) fn arrow_like(
         (true, true) => arrow_string::like::nilike(&lhs, &rhs)?,
     };
 
-    let result = to_array_data_with_len(&result, len, nullable)?;
+    let result = from_arrow_array_with_len(&result, len, nullable)?;
     check_like_result(&result, array, pattern);
     Ok(result)
 }

@@ -3,7 +3,7 @@ use vortex_error::{vortex_bail, VortexError, VortexExpect, VortexResult};
 use vortex_scalar::{BinaryNumericOperator, Scalar};
 
 use crate::array::ConstantArray;
-use crate::arrow::{to_array_data_with_len, Datum};
+use crate::arrow::{from_arrow_array_with_len, Datum};
 use crate::encoding::Encoding;
 use crate::{ArrayDType, ArrayData, IntoArrayData as _};
 
@@ -154,8 +154,8 @@ fn arrow_numeric(
     let nullable = lhs.dtype().is_nullable() || rhs.dtype().is_nullable();
     let len = lhs.len();
 
-    let left = Datum::try_from(lhs.clone())?;
-    let right = Datum::try_from(rhs.clone())?;
+    let left = unsafe { Datum::try_new(lhs.clone())? };
+    let right = unsafe { Datum::try_new(rhs.clone())? };
 
     let array = match operator {
         BinaryNumericOperator::Add => arrow_arith::numeric::add(&left, &right)?,
@@ -166,7 +166,7 @@ fn arrow_numeric(
         BinaryNumericOperator::RDiv => arrow_arith::numeric::div(&right, &left)?,
     };
 
-    let result = to_array_data_with_len(array, len, nullable)?;
+    let result = from_arrow_array_with_len(array, len, nullable)?;
     check_numeric_result(&result, &lhs, &rhs);
     Ok(result)
 }

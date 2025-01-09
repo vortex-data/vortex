@@ -6,7 +6,7 @@ use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::arrow::{to_array_data_with_len, Datum};
+use crate::arrow::{from_arrow_array_with_len, Datum};
 use crate::encoding::Encoding;
 use crate::{ArrayDType, ArrayData, Canonical, IntoArrayData};
 
@@ -168,8 +168,8 @@ fn arrow_compare(
     operator: Operator,
 ) -> VortexResult<ArrayData> {
     let nullable = left.dtype().is_nullable() || right.dtype().is_nullable();
-    let lhs = Datum::try_from(left.clone())?;
-    let rhs = Datum::try_from(right.clone())?;
+    let lhs = unsafe { Datum::try_new(left.clone())? };
+    let rhs = unsafe { Datum::try_new(right.clone())? };
 
     let array = match operator {
         Operator::Eq => cmp::eq(&lhs, &rhs)?,
@@ -179,7 +179,7 @@ fn arrow_compare(
         Operator::Lt => cmp::lt(&lhs, &rhs)?,
         Operator::Lte => cmp::lt_eq(&lhs, &rhs)?,
     };
-    to_array_data_with_len(&array, left.len(), nullable)
+    from_arrow_array_with_len(&array, left.len(), nullable)
 }
 
 #[inline(always)]

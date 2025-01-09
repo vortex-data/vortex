@@ -4,7 +4,7 @@ use vortex_dtype::DType;
 use vortex_error::{vortex_bail, VortexResult};
 
 use crate::array::{VarBinArray, VarBinEncoding};
-use crate::arrow::{to_array_data_with_len, Datum};
+use crate::arrow::{from_arrow_array_with_len, Datum};
 use crate::compute::{CompareFn, Operator};
 use crate::{ArrayDType, ArrayData, ArrayLen, IntoArrayData};
 
@@ -19,7 +19,7 @@ impl CompareFn<VarBinArray> for VarBinEncoding {
         if let Some(rhs_const) = rhs.as_constant() {
             let nullable = lhs.dtype().is_nullable() || rhs_const.dtype().is_nullable();
             let len = lhs.len();
-            let lhs = Datum::try_from(lhs.clone().into_array())?;
+            let lhs = unsafe { Datum::try_new(lhs.clone().into_array())? };
 
             // TODO(robert): Handle LargeString/Binary arrays
             let arrow_rhs: &dyn arrow_array::Datum = match rhs_const.dtype() {
@@ -48,7 +48,7 @@ impl CompareFn<VarBinArray> for VarBinEncoding {
                 Operator::Lte => cmp::lt_eq(&lhs, arrow_rhs)?,
             };
 
-            Ok(Some(to_array_data_with_len(&array, len, nullable)?))
+            Ok(Some(from_arrow_array_with_len(&array, len, nullable)?))
         } else {
             Ok(None)
         }
