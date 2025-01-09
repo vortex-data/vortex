@@ -1,4 +1,4 @@
-use vortex_error::VortexResult;
+use vortex_error::{vortex_bail, VortexResult};
 
 use crate::array::chunked::ChunkedArray;
 use crate::array::ChunkedEncoding;
@@ -9,6 +9,12 @@ impl SliceFn<ChunkedArray> for ChunkedEncoding {
     fn slice(&self, array: &ChunkedArray, start: usize, stop: usize) -> VortexResult<ArrayData> {
         let (offset_chunk, offset_in_first_chunk) = array.find_chunk_idx(start);
         let (length_chunk, length_in_last_chunk) = array.find_chunk_idx(stop);
+
+        if array.is_empty() && (start != 0 || stop != 0) {
+            vortex_bail!(ComputeError: "Empty chunked array can't be sliced from {start} to {stop}");
+        } else if array.is_empty() {
+            return Ok(ChunkedArray::try_new(vec![], array.dtype().clone())?.into_array());
+        }
 
         if length_chunk == offset_chunk {
             let chunk = array.chunk(offset_chunk)?;
