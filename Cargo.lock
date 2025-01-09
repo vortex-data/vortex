@@ -5138,15 +5138,11 @@ name = "vortex-fuzz"
 version = "0.21.1"
 dependencies = [
  "arrow-buffer",
- "bytes",
- "futures-util",
  "libfuzzer-sys",
- "tokio",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",
  "vortex-error",
- "vortex-file",
  "vortex-sampling-compressor",
  "vortex-scalar",
 ]
