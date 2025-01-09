@@ -171,6 +171,7 @@ fn arrow_numeric(
     Ok(result)
 }
 
+#[inline(always)]
 fn check_numeric_result(result: &ArrayData, lhs: &ArrayData, rhs: &ArrayData) {
     debug_assert_eq!(
         result.len(),

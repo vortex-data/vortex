@@ -3,7 +3,7 @@ use std::fmt::{Display, Formatter};
 
 use arrow_ord::cmp;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{vortex_bail, vortex_panic, VortexError, VortexResult};
+use vortex_error::{vortex_bail, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::arrow::{to_array_data_with_len, Datum};
@@ -184,29 +184,24 @@ fn arrow_compare(
 
 #[inline(always)]
 fn check_compare_result(result: &ArrayData, lhs: &ArrayData, rhs: &ArrayData) {
-    #[cfg(debug_assertions)]
-    {
-        if result.len() != lhs.len() {
-            vortex_panic!(
-                "CompareFn result length ({}) mismatch for left encoding {}, left len {}, right encoding {}, right len {}",
-                result.len(),
-                lhs.encoding().id(),
-                lhs.len(),
-                rhs.encoding().id(),
-                rhs.len()
-            );
-        }
-        if result.dtype()
-            != &DType::Bool((lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into())
-        {
-            vortex_panic!(
-                "CompareFn result dtype ({}) mismatch for left encoding {}, right encoding {}",
-                result.dtype(),
-                lhs.encoding().id(),
-                rhs.encoding().id(),
-            );
-        }
-    }
+    debug_assert_eq!(
+        result.len(),
+        lhs.len(),
+        "CompareFn result length ({}) mismatch for left encoding {}, left len {}, right encoding {}, right len {}",
+        result.len(),
+        lhs.encoding().id(),
+        lhs.len(),
+        rhs.encoding().id(),
+        rhs.len()
+    );
+    debug_assert_eq!(
+        result.dtype(),
+        &DType::Bool((lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into()),
+        "CompareFn result dtype ({}) mismatch for left encoding {}, right encoding {}",
+        result.dtype(),
+        lhs.encoding().id(),
+        rhs.encoding().id(),
+    );
 }
 
 pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: Operator) -> Scalar {
