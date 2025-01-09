@@ -54,11 +54,11 @@ where
     T: ToAvro,
 {
     #[allow(clippy::expect_used)]
-    fn write_schema() -> crate::avro_private::Schema {
+    fn write_schema(prefix: impl AsRef<str>) -> crate::avro_private::Schema {
         crate::avro_private::Schema::Union(
             crate::avro_private::UnionSchema::new(vec![
                 crate::avro_private::Schema::Null,
-                T::write_schema(),
+                T::write_schema(prefix),
             ])
             .expect("Option<T> schema"),
         )

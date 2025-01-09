@@ -4987,6 +4987,7 @@ dependencies = [
 name = "vortex-array"
 version = "0.21.1"
 dependencies = [
+ "apache-avro",
  "arbitrary",
  "arrow-arith",
  "arrow-array",

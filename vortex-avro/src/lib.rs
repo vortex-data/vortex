@@ -146,7 +146,7 @@ impl From<AvroValue> for avro_private::Value {
 /// Additionally, types must provide a schema that can be used to write the type to the Avro binary format.
 pub trait ToAvro: Into<AvroValue> {
     // TODO(aduffy): just have one schema instead of read/write.
-    fn write_schema() -> avro_private::Schema;
+    fn write_schema(namespace: impl AsRef<str>) -> avro_private::Schema;
 }
 
 /// Types that can be deserialized from an Avro binary format.
@@ -155,9 +155,11 @@ pub trait ToAvro: Into<AvroValue> {
 /// for the Avro binary format.
 ///
 /// Additionally, types must provide a schema that can be used to read the type from the Avro binary format.
-pub trait FromAvro: TryFrom<AvroValue, Error = VortexError> {
+pub trait FromAvro: ToAvro + TryFrom<AvroValue, Error = VortexError> {
     /// Retrieve the Avro schema that is used to read this type from the Avro binary format.
-    fn read_schema() -> avro_private::Schema;
+    fn read_schema() -> avro_private::Schema {
+        Self::write_schema("root")
+    }
 }
 
 /// Convert a type into the Avro binary format.
@@ -165,7 +167,7 @@ pub trait FromAvro: TryFrom<AvroValue, Error = VortexError> {
 /// This function will return an error if the type cannot be converted into the Avro binary format.
 pub fn to_avro_binary<T: ToAvro>(value: T) -> VortexResult<Vec<u8>> {
     let avro_value: AvroValue = value.into();
-    avro_private::to_avro_datum(&T::write_schema(), avro_value).map_err(
+    avro_private::to_avro_datum(&T::write_schema("root"), avro_value).map_err(
         |err: avro_private::Error| {
             vortex_err!("Failed to convert type to Avro binary format: {err}")
         },

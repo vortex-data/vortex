@@ -10,9 +10,9 @@ impl<const N: usize, T: Into<AvroValue>> From<[T; N]> for AvroValue {
 }
 
 impl<const N: usize, T: ToAvro> ToAvro for [T; N] {
-    fn write_schema() -> crate::avro_private::Schema {
+    fn write_schema(prefix: impl AsRef<str>) -> crate::avro_private::Schema {
         crate::avro_private::Schema::Array(crate::avro_private::ArraySchema {
-            items: Box::new(T::write_schema()),
+            items: Box::new(T::write_schema(prefix)),
             attributes: Default::default(),
         })
     }

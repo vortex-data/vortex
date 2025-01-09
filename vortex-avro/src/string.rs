@@ -9,7 +9,7 @@ impl From<String> for AvroValue {
 }
 
 impl ToAvro for String {
-    fn write_schema() -> crate::avro_private::Schema {
+    fn write_schema(_prefix: impl AsRef<str>) -> crate::avro_private::Schema {
         crate::avro_private::Schema::String
     }
 }

@@ -14,9 +14,9 @@ impl<T: Into<AvroValue>> From<Vec<T>> for AvroValue {
 }
 
 impl<T: ToAvro> ToAvro for Vec<T> {
-    fn write_schema() -> crate::avro_private::Schema {
+    fn write_schema(prefix: impl AsRef<str>) -> crate::avro_private::Schema {
         crate::avro_private::Schema::Array(crate::avro_private::ArraySchema {
-            items: Box::new(T::write_schema()),
+            items: Box::new(T::write_schema(prefix)),
             attributes: Default::default(),
         })
     }

@@ -82,3 +82,31 @@ impl VisitorVTable<ConstantArray> for ConstantEncoding {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
+
+    use vortex_avro::{from_avro_binary, to_avro_binary, AvroValue, FromAvro, ToAvro};
+    use vortex_scalar::Scalar;
+
+    use super::ConstantMetadata;
+
+    #[test]
+    #[allow(unused_variables)]
+    fn test_avro() {
+        let metadata: ConstantMetadata = ConstantMetadata {
+            scalar_value: Scalar::primitive(42i32, vortex_dtype::Nullability::NonNullable)
+                .into_value(),
+        };
+
+        println!("metadata(avro): {:?}", AvroValue::from(metadata.clone()));
+        println!("write schema: {:?}", ConstantMetadata::write_schema());
+
+        let metadata_bin = to_avro_binary(metadata).unwrap();
+        let mut metadata_bin = Cursor::new(metadata_bin);
+        let reverse: ConstantMetadata =
+            from_avro_binary(&ConstantMetadata::read_schema(), &mut metadata_bin).unwrap();
+        println!("done!");
+    }
+}

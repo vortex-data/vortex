@@ -2,9 +2,11 @@
 #![allow(unused)]
 // TODO(aduffy): add tests for the macro
 
+use std::io::Cursor;
+
 use apache_avro::schema::{EnumSchema, Name, RecordField, RecordFieldOrder, RecordSchema};
 use apache_avro::Schema;
-use vortex_avro::{AvroValue, FromAvro, ToAvro};
+use vortex_avro::{from_avro_binary, to_avro_binary, AvroValue, FromAvro, ToAvro};
 
 // Test the derive macro defined by this crate.
 //
@@ -120,4 +122,11 @@ fn test_derive_macro() {
     );
 
     assert_eq!(MyRecordType::write_schema(), MyRecordType::read_schema());
+
+    // Serialization test.
+    let serialized = to_avro_binary(original.clone()).unwrap();
+    let mut serialized = Cursor::new(serialized);
+    let deserialized: MyRecordType =
+        from_avro_binary(&MyRecordType::read_schema(), &mut serialized).unwrap();
+    assert_eq!(deserialized, original);
 }

@@ -1,6 +1,7 @@
 use std::fmt::{Display, Write};
 use std::sync::Arc;
 
+use apache_avro::schema::Name;
 use itertools::Itertools;
 use vortex_avro::{AvroValue, FromAvro, ToAvro};
 use vortex_buffer::{BufferString, ByteBuffer};
@@ -246,18 +247,15 @@ impl From<ScalarValue> for AvroValue {
     }
 }
 
-impl FromAvro for ScalarValue {
-    #[allow(clippy::expect_used)]
-    fn read_schema() -> vortex_avro::avro_private::Schema {
-        // This creates a union type that can represent any scalar value
+impl FromAvro for ScalarValue {}
+
+impl ToAvro for ScalarValue {
+    fn write_schema(prefix: impl AsRef<str>) -> vortex_avro::avro_private::Schema {
         vortex_avro::avro_private::Schema::Union(
             vortex_avro::avro_private::UnionSchema::new(vec![
                 vortex_avro::avro_private::Schema::Null,
                 vortex_avro::avro_private::Schema::Boolean,
-                vortex_avro::avro_private::Schema::Int,
-                vortex_avro::avro_private::Schema::Long,
-                vortex_avro::avro_private::Schema::Float,
-                vortex_avro::avro_private::Schema::Double,
+                PValue::write_schema(prefix.as_ref()),
                 vortex_avro::avro_private::Schema::Bytes,
                 vortex_avro::avro_private::Schema::String,
                 vortex_avro::avro_private::Schema::Array(vortex_avro::avro_private::ArraySchema {
@@ -265,10 +263,12 @@ impl FromAvro for ScalarValue {
                         vortex_avro::avro_private::UnionSchema::new(vec![
                             vortex_avro::avro_private::Schema::Null,
                             vortex_avro::avro_private::Schema::Boolean,
-                            vortex_avro::avro_private::Schema::Int,
-                            vortex_avro::avro_private::Schema::Long,
-                            vortex_avro::avro_private::Schema::Float,
-                            vortex_avro::avro_private::Schema::Double,
+                            vortex_avro::avro_private::Schema::Ref {
+                                name: Name {
+                                    name: "PValue".to_string(),
+                                    namespace: Some(prefix.as_ref().to_string()),
+                                },
+                            },
                             vortex_avro::avro_private::Schema::Bytes,
                             vortex_avro::avro_private::Schema::String,
                         ])
@@ -279,13 +279,6 @@ impl FromAvro for ScalarValue {
             ])
             .expect("union schema"),
         )
-    }
-}
-
-impl ToAvro for ScalarValue {
-    fn write_schema() -> vortex_avro::avro_private::Schema {
-        // Use the same schema for reading and writing
-        Self::read_schema()
     }
 }
 

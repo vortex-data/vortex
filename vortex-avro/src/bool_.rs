@@ -27,7 +27,7 @@ impl FromAvro for bool {
 }
 
 impl ToAvro for bool {
-    fn write_schema() -> crate::avro_private::Schema {
+    fn write_schema(_prefix: impl AsRef<str>) -> crate::avro_private::Schema {
         crate::avro_private::Schema::Boolean
     }
 }

@@ -7,6 +7,7 @@ use std::mem;
 
 use num_traits::NumCast;
 use paste::paste;
+use vortex_avro::avro_private::*;
 use vortex_avro::{AvroValue, FromAvro, ToAvro};
 use vortex_dtype::half::f16;
 use vortex_dtype::{NativePType, PType};
@@ -26,26 +27,19 @@ pub enum PValue {
     F64(f64),
 }
 
-fn record(
-    name: &str,
-    fields: Vec<vortex_avro::avro_private::RecordField>,
-) -> vortex_avro::avro_private::Schema {
-    vortex_avro::avro_private::Schema::Record(vortex_avro::avro_private::RecordSchema {
-        name: vortex_avro::avro_private::Name::new(name).unwrap(),
+fn record(name: &str, fields: Vec<RecordField>) -> Schema {
+    Schema::Record(RecordSchema {
+        name: Name::new(name).unwrap(),
         aliases: None,
         doc: None,
-        fields,
-        lookup: BTreeMap::new(),
+        fields: fields.clone(),
+        lookup: BTreeMap::from_iter(fields.into_iter().enumerate().map(|(idx, f)| (f.name, idx))),
         attributes: BTreeMap::new(),
     })
 }
 
-fn field(
-    name: &str,
-    field_type: vortex_avro::avro_private::Schema,
-    pos: usize,
-) -> vortex_avro::avro_private::RecordField {
-    vortex_avro::avro_private::RecordField {
+fn field(name: &str, field_type: Schema, pos: usize) -> RecordField {
+    RecordField {
         name: name.to_string(),
         doc: None,
         aliases: None,
@@ -53,66 +47,50 @@ fn field(
         schema: field_type,
         custom_attributes: BTreeMap::new(),
         default: None,
-        order: vortex_avro::avro_private::RecordFieldOrder::Ignore,
+        order: RecordFieldOrder::Ignore,
     }
 }
 
-fn pvalue_avro_schema() -> vortex_avro::avro_private::Schema {
-    vortex_avro::avro_private::Schema::Union(
-        vortex_avro::avro_private::UnionSchema::new(vec![
-            // tag 0: u8
-            record(
-                "PValue__u8",
-                vec![field("value", vortex_avro::avro_private::Schema::Int, 0)],
+fn pvalue_avro_schema(prefix: impl AsRef<str>) -> Schema {
+    Schema::Record(RecordSchema {
+        name: Name {
+            name: "PValue".to_string(),
+            namespace: Some(prefix.as_ref().to_string()),
+        },
+        aliases: None,
+        doc: None,
+        fields: vec![field(
+            "pvalue",
+            Schema::Union(
+                UnionSchema::new(vec![
+                    // tag 0: u8
+                    record("PValue__u8", vec![field("value", Schema::Int, 0)]),
+                    // tag 1: u16
+                    record("PValue__u16", vec![field("value", Schema::Int, 0)]),
+                    // tag 2: u32
+                    record("PValue__u32", vec![field("value", Schema::Int, 0)]),
+                    // tag 3: u64
+                    record("PValue__u64", vec![field("value", Schema::Long, 0)]),
+                    // tag 4: i8
+                    record("PValue__i8", vec![field("value", Schema::Int, 0)]),
+                    // tag 5: i16
+                    record("PValue__i16", vec![field("value", Schema::Int, 0)]),
+                    // tag 6: i32
+                    record("PValue__i32", vec![field("value", Schema::Int, 0)]),
+                    // tag 7: i64
+                    record("PValue__i64", vec![field("value", Schema::Long, 0)]),
+                    // tag 8: f32
+                    record("PValue__f32", vec![field("value", Schema::Float, 0)]),
+                    // tag 9: f64
+                    record("PValue__f64", vec![field("value", Schema::Double, 0)]),
+                ])
+                .unwrap(),
             ),
-            // tag 1: u16
-            record(
-                "PValue__u16",
-                vec![field("value", vortex_avro::avro_private::Schema::Int, 0)],
-            ),
-            // tag 2: u32
-            record(
-                "PValue__u32",
-                vec![field("value", vortex_avro::avro_private::Schema::Int, 0)],
-            ),
-            // tag 3: u64
-            record(
-                "PValue__u64",
-                vec![field("value", vortex_avro::avro_private::Schema::Long, 0)],
-            ),
-            // tag 4: i8
-            record(
-                "PValue__i8",
-                vec![field("value", vortex_avro::avro_private::Schema::Int, 0)],
-            ),
-            // tag 5: i16
-            record(
-                "PValue__i16",
-                vec![field("value", vortex_avro::avro_private::Schema::Int, 0)],
-            ),
-            // tag 6: i32
-            record(
-                "PValue__i32",
-                vec![field("value", vortex_avro::avro_private::Schema::Int, 0)],
-            ),
-            // tag 7: i64
-            record(
-                "PValue__i64",
-                vec![field("value", vortex_avro::avro_private::Schema::Long, 0)],
-            ),
-            // tag 8: f32
-            record(
-                "PValue__f32",
-                vec![field("value", vortex_avro::avro_private::Schema::Float, 0)],
-            ),
-            // tag 9: f64
-            record(
-                "PValue__f64",
-                vec![field("value", vortex_avro::avro_private::Schema::Double, 0)],
-            ),
-        ])
-        .unwrap(),
-    )
+            0,
+        )],
+        lookup: BTreeMap::from_iter([("pvalue".to_string(), 0)]),
+        attributes: Default::default(),
+    })
 }
 
 // Impl of FromAvro for PValue
@@ -122,6 +100,13 @@ impl TryFrom<AvroValue> for PValue {
     type Error = VortexError;
 
     fn try_from(value: AvroValue) -> Result<Self, Self::Error> {
+        let AvroValue::Record(fields) = value else {
+            vortex_bail!("PValue should be wrapped in an outer Record");
+        };
+
+        let first = fields.into_iter().take(1).next().unwrap();
+        let (_, value) = first;
+
         let AvroValue::Union(tag, value) = value else {
             vortex_bail!("Expected AvroValue::Long, got {:?}", value);
         };
@@ -245,94 +230,120 @@ impl TryFrom<AvroValue> for PValue {
     }
 }
 
-impl FromAvro for PValue {
-    fn read_schema() -> vortex_avro::avro_private::Schema {
-        pvalue_avro_schema()
-    }
-}
+impl FromAvro for PValue {}
 
 // Impl of ToAvro for PValue
 impl From<PValue> for AvroValue {
     fn from(pvalue: PValue) -> Self {
         match pvalue {
-            PValue::U8(v) => AvroValue::Union(
-                0,
-                Box::new(AvroValue::Record(vec![(
-                    "value".to_string(),
-                    AvroValue::Int(v as i32),
-                )])),
-            ),
-            PValue::U16(v) => AvroValue::Union(
-                1,
-                Box::new(AvroValue::Record(vec![(
-                    "value".to_string(),
-                    AvroValue::Int(v as i32),
-                )])),
-            ),
-            PValue::U32(v) => AvroValue::Union(
-                2,
-                Box::new(AvroValue::Record(vec![(
-                    "value".to_string(),
-                    AvroValue::Int(v as i32),
-                )])),
-            ),
-            PValue::U64(v) => AvroValue::Union(
-                3,
-                Box::new(AvroValue::Record(vec![(
-                    "value".to_string(),
-                    AvroValue::Long(v as i64),
-                )])),
-            ),
-            PValue::I8(v) => AvroValue::Union(
-                4,
-                Box::new(AvroValue::Record(vec![(
-                    "value".to_string(),
-                    AvroValue::Int(v as i32),
-                )])),
-            ),
-            PValue::I16(v) => AvroValue::Union(
-                5,
-                Box::new(AvroValue::Record(vec![(
-                    "value".to_string(),
-                    AvroValue::Int(v as i32),
-                )])),
-            ),
-            PValue::I32(v) => AvroValue::Union(
-                6,
-                Box::new(AvroValue::Record(vec![(
-                    "value".to_string(),
-                    AvroValue::Int(v),
-                )])),
-            ),
-            PValue::I64(v) => AvroValue::Union(
-                7,
-                Box::new(AvroValue::Record(vec![(
-                    "value".to_string(),
-                    AvroValue::Long(v),
-                )])),
-            ),
+            PValue::U8(v) => AvroValue::Record(vec![(
+                "pvalue".to_string(),
+                AvroValue::Union(
+                    0,
+                    Box::new(AvroValue::Record(vec![(
+                        "value".to_string(),
+                        AvroValue::Int(v as i32),
+                    )])),
+                ),
+            )]),
+            PValue::U16(v) => AvroValue::Record(vec![(
+                "pvalue".to_string(),
+                AvroValue::Union(
+                    1,
+                    Box::new(AvroValue::Record(vec![(
+                        "value".to_string(),
+                        AvroValue::Int(v as i32),
+                    )])),
+                ),
+            )]),
+            PValue::U32(v) => AvroValue::Record(vec![(
+                "pvalue".to_string(),
+                AvroValue::Union(
+                    2,
+                    Box::new(AvroValue::Record(vec![(
+                        "value".to_string(),
+                        AvroValue::Int(v as i32),
+                    )])),
+                ),
+            )]),
+            PValue::U64(v) => AvroValue::Record(vec![(
+                "pvalue".to_string(),
+                AvroValue::Union(
+                    3,
+                    Box::new(AvroValue::Record(vec![(
+                        "value".to_string(),
+                        AvroValue::Long(v as i64),
+                    )])),
+                ),
+            )]),
+            PValue::I8(v) => AvroValue::Record(vec![(
+                "pvalue".to_string(),
+                AvroValue::Union(
+                    4,
+                    Box::new(AvroValue::Record(vec![(
+                        "value".to_string(),
+                        AvroValue::Int(v as i32),
+                    )])),
+                ),
+            )]),
+            PValue::I16(v) => AvroValue::Record(vec![(
+                "pvalue".to_string(),
+                AvroValue::Union(
+                    5,
+                    Box::new(AvroValue::Record(vec![(
+                        "value".to_string(),
+                        AvroValue::Int(v as i32),
+                    )])),
+                ),
+            )]),
+            PValue::I32(v) => AvroValue::Record(vec![(
+                "pvalue".to_string(),
+                AvroValue::Union(
+                    6,
+                    Box::new(AvroValue::Record(vec![(
+                        "value".to_string(),
+                        AvroValue::Int(v as i32),
+                    )])),
+                ),
+            )]),
+            PValue::I64(v) => AvroValue::Record(vec![(
+                "pvalue".to_string(),
+                AvroValue::Union(
+                    7,
+                    Box::new(AvroValue::Record(vec![(
+                        "value".to_string(),
+                        AvroValue::Long(v as i64),
+                    )])),
+                ),
+            )]),
             PValue::F16(_) => todo!("f16 not supported for PValue Avro serialization"),
-            PValue::F32(v) => AvroValue::Union(
-                8,
-                Box::new(AvroValue::Record(vec![(
-                    "value".to_string(),
-                    AvroValue::Float(v),
-                )])),
-            ),
-            PValue::F64(v) => AvroValue::Union(
-                9,
-                Box::new(AvroValue::Record(vec![(
-                    "value".to_string(),
-                    AvroValue::Double(v),
-                )])),
-            ),
+            PValue::F32(v) => AvroValue::Record(vec![(
+                "pvalue".to_string(),
+                AvroValue::Union(
+                    8,
+                    Box::new(AvroValue::Record(vec![(
+                        "value".to_string(),
+                        AvroValue::Float(v as f32),
+                    )])),
+                ),
+            )]),
+            PValue::F64(v) => AvroValue::Record(vec![(
+                "pvalue".to_string(),
+                AvroValue::Union(
+                    9,
+                    Box::new(AvroValue::Record(vec![(
+                        "value".to_string(),
+                        AvroValue::Double(v as f64),
+                    )])),
+                ),
+            )]),
         }
     }
 }
 
 impl ToAvro for PValue {
-    fn write_schema() -> vortex_avro::avro_private::Schema {
-        pvalue_avro_schema()
+    fn write_schema(prefix: impl AsRef<str>) -> Schema {
+        pvalue_avro_schema(prefix)
     }
 }
 
@@ -625,10 +636,11 @@ impl Display for PValue {
 mod test {
     use std::cmp::Ordering;
 
+    use vortex_avro::FromAvro;
     use vortex_dtype::half::f16;
     use vortex_dtype::PType;
 
-    use crate::PValue;
+    use crate::{PValue, ScalarValue};
 
     #[test]
     pub fn test_is_instance_of() {
@@ -658,5 +670,11 @@ mod test {
             PValue::I8(4).partial_cmp(&PValue::I64(5)),
             Some(Ordering::Less)
         );
+    }
+
+    #[test]
+    fn println_schemas() {
+        let schema = ScalarValue::read_schema();
+        panic!("{}", schema.canonical_form());
     }
 }
