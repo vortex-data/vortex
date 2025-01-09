@@ -262,8 +262,9 @@ impl<T> Buffer<T> {
     }
 
     /// Return a `Buffer<T>` with the given alignment. Where possible, this will be zero-copy.
-    pub fn aligned(self, alignment: Alignment) -> Self {
+    pub fn aligned(mut self, alignment: Alignment) -> Self {
         if self.as_ptr().align_offset(*alignment) == 0 {
+            self.alignment = alignment;
             self
         } else {
             #[cfg(feature = "warn-copy")]
@@ -405,7 +406,15 @@ impl<T> From<BufferMut<T>> for Buffer<T> {
 mod test {
     use bytes::Buf;
 
-    use crate::{buffer, ByteBuffer};
+    use crate::{buffer, Alignment, ByteBuffer};
+
+    #[test]
+    fn align() {
+        let buf = buffer![0u8, 1, 2];
+        let aligned = buf.aligned(Alignment::new(32));
+        assert_eq!(aligned.alignment(), Alignment::new(32));
+        assert_eq!(aligned.as_slice(), &[0, 1, 2]);
+    }
 
     #[test]
     fn slice() {

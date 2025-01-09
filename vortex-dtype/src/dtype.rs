@@ -2,7 +2,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::sync::Arc;
 
-use flatbuffers::{root, root_unchecked};
+use flatbuffers::root;
 use itertools::Itertools;
 use vortex_error::{
     vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult, VortexUnwrap,
@@ -464,15 +464,6 @@ impl StructDType {
             .ok_or_else(|| vortex_err!("failed to parse struct from flatbuffer"))?;
 
         Self::from_fb(fb_struct, buffer.clone())
-    }
-
-    /// # Safety
-    /// Parse a StructDType out of a buffer, must be validated by the other otherwise might panic or behave unexpectedly.
-    pub unsafe fn from_bytes_unchecked(buffer: FlatBuffer) -> Self {
-        let fb_struct = unsafe { root_unchecked::<fbd::DType>(&buffer) }
-            .type__as_struct_()
-            .vortex_expect("failed to parse struct from flatbuffer");
-        Self::from_fb(fb_struct, buffer.clone()).vortex_expect("Failed to build StructDType")
     }
 
     /// Get the names of the fields in the struct

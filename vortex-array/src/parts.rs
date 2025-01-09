@@ -25,7 +25,8 @@ impl Debug for ArrayParts {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ArrayParts")
             .field("row_count", &self.row_count)
-            .field("array_flatbuffer", &self.flatbuffer.len())
+            .field("flatbuffer", &self.flatbuffer.len())
+            .field("flatbuffer_loc", &self.flatbuffer_loc)
             .field("buffers", &self.buffers.len())
             .finish()
     }
@@ -36,7 +37,7 @@ impl ArrayParts {
     ///
     /// ## Panics
     ///
-    /// This function will panic if the flatbuffer is not contained within the given [`ByteBuffer`].
+    /// This function will panic if the flatbuffer is not contained within the given [`FlatBuffer`].
     pub fn new(
         row_count: usize,
         array: fba::Array,
