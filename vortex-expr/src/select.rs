@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::fmt::Display;
 use std::sync::Arc;
 
@@ -20,6 +21,14 @@ pub enum SelectField {
 pub struct Select {
     fields: SelectField,
     child: ExprRef,
+}
+
+pub fn select(columns: Vec<Field>, child: ExprRef) -> ExprRef {
+    Select::include_expr(columns, child)
+}
+
+pub fn select_exclude(columns: Vec<Field>, child: ExprRef) -> ExprRef {
+    Select::exclude_expr(columns, child)
 }
 
 impl Select {
@@ -77,6 +86,10 @@ impl Display for Select {
 }
 
 impl VortexExpr for Select {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
     fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
         let batch = self.child.evaluate(batch)?;
         let st = batch

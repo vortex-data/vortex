@@ -115,6 +115,7 @@ impl FolderMut for NNFVisitor {
                     Operator::Lte => Operator::Gt,
                     Operator::And => Operator::Or,
                     Operator::Or => Operator::And,
+                    _ => panic!("Unexpected operator {:?}", binary_expr.op()),
                 };
                 let (lhs, rhs) = match binary_expr.op() {
                     Operator::Or | Operator::And => {

@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::fmt::Display;
 use std::sync::Arc;
 
@@ -22,6 +23,10 @@ impl Display for Identity {
 }
 
 impl VortexExpr for Identity {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
     fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
         Ok(batch.clone())
     }
