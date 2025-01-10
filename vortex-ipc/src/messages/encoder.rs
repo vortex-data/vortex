@@ -1,7 +1,7 @@
 use bytes::Bytes;
 use flatbuffers::FlatBufferBuilder;
 use vortex_array::parts::ArrayPartsFlatBuffer;
-use vortex_array::{flatbuffers as fba, ArrayData};
+use vortex_array::ArrayData;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_panic, VortexExpect};
@@ -86,9 +86,9 @@ impl MessageEncoder {
                         let end_incl_padding = end_excl_padding.next_multiple_of(self.alignment);
                         let padding = u16::try_from(end_incl_padding - end_excl_padding)
                             .vortex_expect("We know padding fits into u16");
-                        fb_buffers.push(fba::Buffer::create(
+                        fb_buffers.push(fb::Buffer::create(
                             &mut fbb,
-                            &fba::BufferArgs {
+                            &fb::BufferArgs {
                                 length: buffer.len() as u64,
                                 padding,
                                 alignment: buffer.alignment().into(),
@@ -102,9 +102,9 @@ impl MessageEncoder {
                 }
                 let fb_buffers = fbb.create_vector(&fb_buffers);
 
-                fba::ArrayData::create(
+                fb::ArrayMessage::create(
                     &mut fbb,
-                    &fba::ArrayDataArgs {
+                    &fb::ArrayMessageArgs {
                         array: Some(fb_array),
                         row_count: row_count as u64,
                         buffers: Some(fb_buffers),
@@ -120,9 +120,9 @@ impl MessageEncoder {
                 if padding > 0 {
                     buffers.push(self.zeros.slice(0..usize::from(padding)));
                 }
-                fba::Buffer::create(
+                fb::Buffer::create(
                     &mut fbb,
-                    &fba::BufferArgs {
+                    &fb::BufferArgs {
                         length: buffer.len() as u64,
                         padding,
                         // Buffer messages have no minimum alignment, the reader decides.
@@ -137,7 +137,7 @@ impl MessageEncoder {
         let mut msg = fb::MessageBuilder::new(&mut fbb);
         msg.add_version(Default::default());
         msg.add_header_type(match message {
-            EncoderMessage::Array(_) => fb::MessageHeader::ArrayData,
+            EncoderMessage::Array(_) => fb::MessageHeader::ArrayMessage,
             EncoderMessage::Buffer(_) => fb::MessageHeader::Buffer,
             EncoderMessage::DType(_) => fb::MessageHeader::DType,
         });

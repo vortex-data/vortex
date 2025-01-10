@@ -102,11 +102,11 @@ impl MessageDecoder {
                     }
 
                     match msg.header_type() {
-                        MessageHeader::ArrayData => {
-                            let array_data = msg
-                                .header_as_array_data()
-                                .vortex_expect("array data header");
-                            let buffers_length: u64 = array_data
+                        MessageHeader::ArrayMessage => {
+                            let array_msg = msg
+                                .header_as_array_message()
+                                .vortex_expect("array message header");
+                            let buffers_length: u64 = array_msg
                                 .buffers()
                                 .unwrap_or_default()
                                 .iter()
@@ -177,14 +177,14 @@ impl MessageDecoder {
 
                     // SAFETY: we've already validated the header
                     let msg = unsafe { root_unchecked::<fb::Message>(header.as_ref()) };
-                    let array_data_msg = msg
-                        .header_as_array_data()
-                        .vortex_expect("array data header");
-                    let array_msg = array_data_msg
+                    let array_msg = msg
+                        .header_as_array_message()
+                        .vortex_expect("array message header");
+                    let array = array_msg
                         .array()
                         .ok_or_else(|| vortex_err!("array data message missing array"))?;
 
-                    let buffers = array_data_msg
+                    let buffers = array_msg
                         .buffers()
                         .unwrap_or_default()
                         .iter()
@@ -202,12 +202,12 @@ impl MessageDecoder {
                         })
                         .collect_vec();
 
-                    let row_count = usize::try_from(array_data_msg.row_count())
+                    let row_count = usize::try_from(array_msg.row_count())
                         .map_err(|_| vortex_err!("row count is too large for usize"))?;
 
                     let msg = DecoderMessage::Array(ArrayParts::new(
                         row_count,
-                        array_msg,
+                        array,
                         header.clone(),
                         buffers,
                     ));
