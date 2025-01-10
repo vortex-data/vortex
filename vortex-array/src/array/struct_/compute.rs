@@ -1,15 +1,20 @@
+use std::cmp::Ordering;
+
+use arrow_buffer::BooleanBufferBuilder;
+use arrow_ord::ord::make_comparator;
+use arrow_schema::SortOptions;
 use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::array::struct_::StructArray;
-use crate::array::StructEncoding;
+use crate::array::{BoolArray, StructEncoding};
 use crate::compute::{
-    filter, scalar_at, slice, take, ComputeVTable, FilterFn, FilterMask, ScalarAtFn, SliceFn,
-    TakeFn,
+    filter, scalar_at, slice, take, CompareFn, ComputeVTable, FilterFn, FilterMask, Operator,
+    ScalarAtFn, SliceFn, TakeFn,
 };
 use crate::variants::StructArrayTrait;
-use crate::{ArrayDType, ArrayData, IntoArrayData};
+use crate::{ArrayDType, ArrayData, IntoArrayData, IntoCanonical};
 
 impl ComputeVTable for StructEncoding {
     fn filter_fn(&self) -> Option<&dyn FilterFn<ArrayData>> {
@@ -25,6 +30,10 @@ impl ComputeVTable for StructEncoding {
     }
 
     fn take_fn(&self) -> Option<&dyn TakeFn<ArrayData>> {
+        Some(self)
+    }
+
+    fn compare_fn(&self) -> Option<&dyn CompareFn<ArrayData>> {
         Some(self)
     }
 }
@@ -87,6 +96,49 @@ impl FilterFn<StructArray> for StructEncoding {
 
         StructArray::try_new(array.names().clone(), fields, length, validity)
             .map(|a| a.into_array())
+    }
+}
+
+impl CompareFn<StructArray> for StructEncoding {
+    fn compare(
+        &self,
+        lhs: &StructArray,
+        rhs: &ArrayData,
+        operator: Operator,
+    ) -> VortexResult<Option<ArrayData>> {
+        match StructArray::try_from(rhs.clone()) {
+            Err(_) => Ok(None),
+            Ok(rhs) => {
+                let arrow_lhs = lhs.clone().into_arrow()?;
+                let arrow_rhs = rhs.into_arrow()?;
+
+                let cmp_fn = make_comparator(&arrow_lhs, &arrow_rhs, SortOptions::default())?;
+                let ordering_fn = ordering_to_bool_fn(operator);
+
+                let mut bool_builder = BooleanBufferBuilder::new(arrow_lhs.len());
+
+                for idx in 0..arrow_lhs.len() {
+                    let o = cmp_fn(idx, idx);
+
+                    bool_builder.append(ordering_fn(o));
+                }
+
+                Ok(Some(
+                    BoolArray::new(bool_builder.finish(), lhs.dtype().nullability()).into_array(),
+                ))
+            }
+        }
+    }
+}
+
+fn ordering_to_bool_fn(op: Operator) -> impl Fn(Ordering) -> bool {
+    match op {
+        Operator::Eq => |o: Ordering| o.is_eq(),
+        Operator::NotEq => |o: Ordering| o.is_ne(),
+        Operator::Gt => |o: Ordering| o.is_gt(),
+        Operator::Gte => |o: Ordering| o.is_eq() | o.is_gt(),
+        Operator::Lt => |o: Ordering| o.is_lt(),
+        Operator::Lte => |o: Ordering| o.is_lt() | o.is_eq(),
     }
 }
 
