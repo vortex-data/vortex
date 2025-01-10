@@ -1,4 +1,3 @@
-use std::fmt::Formatter;
 use std::hash::Hash;
 use std::sync::Arc;
 
@@ -150,7 +149,7 @@ struct FieldDTypeDeVisitor;
 impl<'de> serde::de::Visitor<'de> for FieldDTypeDeVisitor {
     type Value = FieldDTypeInner;
 
-    fn expecting(&self, f: &mut Formatter) -> std::fmt::Result {
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "variant identifier")
     }
 
