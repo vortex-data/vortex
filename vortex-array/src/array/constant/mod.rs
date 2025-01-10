@@ -101,7 +101,7 @@ mod tests {
         };
 
         println!("metadata(avro): {:?}", AvroValue::from(metadata.clone()));
-        println!("write schema: {:?}", ConstantMetadata::write_schema());
+        println!("write schema: {:?}", ConstantMetadata::write_schema("root"));
 
         let metadata_bin = to_avro_binary(metadata).unwrap();
         let mut metadata_bin = Cursor::new(metadata_bin);

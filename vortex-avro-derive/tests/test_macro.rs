@@ -121,7 +121,10 @@ fn test_derive_macro() {
         })
     );
 
-    assert_eq!(MyRecordType::write_schema(), MyRecordType::read_schema());
+    assert_eq!(
+        MyRecordType::write_schema("root"),
+        MyRecordType::read_schema()
+    );
 
     // Serialization test.
     let serialized = to_avro_binary(original.clone()).unwrap();

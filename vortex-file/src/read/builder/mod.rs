@@ -211,8 +211,27 @@ impl<R: VortexReadAt + Unpin> VortexReadBuilder<R> {
 mod tests {
     use vortex_io::TokioFile;
 
+    use crate::read_initial_bytes;
+
     #[tokio::test]
     async fn test_async() {
-        let file = TokioFile::open("");
+        let file =
+            TokioFile::open("/Volumes/Code/vortex/pyvortex/A0.small.50_avro.vortex").unwrap();
+        let file_size = file.metadata().unwrap().len();
+        // Read the footer for the file
+        let footer = read_initial_bytes(&file, file_size).await.unwrap();
+
+        println!(
+            "layout flatbuffer size: {}",
+            footer.fb_layout_byte_range().len()
+        );
+
+        println!(
+            "schema flatbuffer size: {}",
+            footer.fb_schema_byte_range().len()
+        );
+
+        // Let's traverse the entire array, log the number of bytes stored in every layout, read it, etc.
+        // How can we parse all of the layouts? How can we know the number of bytes in each?
     }
 }

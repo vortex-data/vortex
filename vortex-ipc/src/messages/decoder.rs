@@ -153,6 +153,22 @@ impl MessageDecoder {
                                 .map(|buffer| buffer.length() + (buffer.padding() as u64))
                                 .sum();
 
+                            fn count_padding_bytes(
+                                array_data: &vortex_flatbuffers::array::ArrayData,
+                            ) -> u64 {
+                                array_data
+                                    .buffers()
+                                    .unwrap_or_default()
+                                    .iter()
+                                    .map(|buffer| buffer.padding() as u64)
+                                    .sum()
+                            }
+
+                            println!(
+                                "{{\"padding_bytes\": {}}}",
+                                count_padding_bytes(&array_data)
+                            );
+
                             let buffers_length = usize::try_from(buffers_length).map_err(|_| {
                                 vortex_err!("buffers length is too large for usize")
                             })?;
