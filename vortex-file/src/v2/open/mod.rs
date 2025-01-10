@@ -141,8 +141,13 @@ impl VortexOpenOptions {
         Ok(VortexFile {
             ctx: self.ctx.clone(),
             layout: file_layout.root_layout,
-            segments: Arc::new(segment_cache),
+            segments: segment_cache,
             splits,
+            thread_pool: Arc::new(
+                rayon::ThreadPoolBuilder::new()
+                    .build()
+                    .map_err(|e| vortex_err!("Failed to create thread pool: {:?}", e))?,
+            ),
         })
     }
 

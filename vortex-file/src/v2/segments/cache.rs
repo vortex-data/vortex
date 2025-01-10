@@ -1,32 +1,43 @@
 //! The segment reader provides an async interface to layouts for resolving individual segments.
 
+use std::future::Future;
 use std::sync::{Arc, RwLock};
+use std::task::Poll;
 
 use async_trait::async_trait;
-use futures::channel::oneshot;
-use futures_util::future::try_join_all;
-use futures_util::{StreamExt, TryFutureExt};
-use itertools::Itertools;
-use vortex_array::aliases::hash_map::HashMap;
+use futures::channel::{mpsc, oneshot};
+use futures::Stream;
+use futures_util::{stream, SinkExt, StreamExt, TryFutureExt};
 use vortex_buffer::ByteBuffer;
-use vortex_error::{vortex_err, VortexResult};
+use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
 use vortex_io::VortexReadAt;
 use vortex_layout::segments::{AsyncSegmentReader, SegmentId};
 
 use crate::v2::footer::Segment;
 
+#[derive(Clone)]
 pub(crate) struct SegmentCache<R> {
     read: R,
     segments: Arc<[Segment]>,
-    inflight: RwLock<HashMap<SegmentId, Vec<oneshot::Sender<ByteBuffer>>>>,
+    request_send: mpsc::UnboundedSender<SegmentRequest>,
+    request_recv: Arc<RwLock<mpsc::UnboundedReceiver<SegmentRequest>>>,
+}
+
+struct SegmentRequest {
+    // The ID of the requested segment
+    id: SegmentId,
+    // The one-shot channel to send the segment back to the caller
+    callback: oneshot::Sender<ByteBuffer>,
 }
 
 impl<R> SegmentCache<R> {
     pub fn new(read: R, segments: Arc<[Segment]>) -> Self {
+        let (send, recv) = mpsc::unbounded();
         Self {
             read,
             segments,
-            inflight: RwLock::new(HashMap::new()),
+            request_send: send,
+            request_recv: Arc::new(RwLock::new(recv)),
         }
     }
 
@@ -38,57 +49,67 @@ impl<R> SegmentCache<R> {
 
 impl<R: VortexReadAt + Unpin> SegmentCache<R> {
     /// Drives the segment cache.
-    pub(crate) async fn drive(&self) -> VortexResult<()> {
-        // Grab a read lock and collect a set of segments to read.
-        let segment_ids = self
-            .inflight
-            .read()
-            .map_err(|_| vortex_err!("poisoned"))?
-            .iter()
-            .filter_map(|(id, channels)| (!channels.is_empty()).then_some(*id))
-            .collect::<Vec<_>>();
-
-        // Read all the segments.
-        let buffers = try_join_all(segment_ids.iter().map(|id| {
-            let segment = &self.segments[**id as usize];
-            self.read
-                .read_byte_range(segment.offset, segment.length as u64)
-                .map_ok(|bytes| ByteBuffer::from(bytes).aligned(segment.alignment))
-        }))
-        .await?;
-
-        // Send the buffers to the waiting channels.
-        let mut inflight = self.inflight.write().map_err(|_| vortex_err!("poisoned"))?;
-        for (id, buffer) in segment_ids.into_iter().zip_eq(buffers.into_iter()) {
-            let channels = inflight
-                .remove(&id)
-                .ok_or_else(|| vortex_err!("missing inflight segment"))?;
-            for sender in channels {
-                sender
-                    .send(buffer.clone())
-                    .map_err(|_| vortex_err!("receiver dropped"))?;
+    pub(crate) fn driver(
+        self,
+    ) -> impl Stream<Item = impl Future<Output = VortexResult<()>>> + 'static {
+        stream::poll_fn(move |cx| {
+            // First we drain the request channel to see if there are any new segments to read.
+            let mut recv = self
+                .request_recv
+                .write()
+                .map_err(|_| vortex_err!("failed to acquire read lock"))
+                .vortex_expect("lock poisoned");
+            let mut requests = Vec::with_capacity(recv.size_hint().0);
+            loop {
+                match recv.poll_next_unpin(cx) {
+                    Poll::Ready(Some(req)) => requests.push(req),
+                    Poll::Ready(None) => vortex_panic!("Unexpected end of request channel"),
+                    Poll::Pending => {
+                        break;
+                    }
+                }
             }
-        }
-
-        Ok(())
-    }
-
-    /// Returns a driver stream that will continuously drive the segment cache.
-    pub(crate) fn driver(&self) -> impl futures::Stream<Item = VortexResult<()>> + '_ {
-        futures::stream::repeat(()).then(move |_| self.drive())
+            Poll::Ready(Some(requests))
+        })
+        // TODO(ngates): now we should flat_map the requests to split them into coalesced
+        //  read operations.
+        .flat_map(|requests| stream::iter(requests))
+        .map(move |request| {
+            let read = self.read.clone();
+            let segments = self.segments.clone();
+            async move {
+                let segment = &segments[*request.id as usize];
+                let bytes = read
+                    .read_byte_range(segment.offset, segment.length as u64)
+                    .map_ok(|bytes| ByteBuffer::from(bytes).aligned(segment.alignment))
+                    .await?;
+                request
+                    .callback
+                    .send(bytes)
+                    .map_err(|_| vortex_err!("receiver dropped"))?;
+                Ok(())
+            }
+        })
     }
 }
 
 #[async_trait]
 impl<R: VortexReadAt> AsyncSegmentReader for SegmentCache<R> {
     async fn get(&self, id: SegmentId) -> VortexResult<ByteBuffer> {
+        // Set up a channel to send the segment back to the caller.
         let (send, recv) = oneshot::channel();
-        self.inflight
-            .write()
-            .map_err(|_| vortex_err!("poisoned"))?
-            .entry(id)
-            .or_default()
-            .push(send);
+
+        // TODO(ngates): attempt to resolve the segments from the cache before joining the
+        //  request queue.
+
+        // Send a request to the segment cache.
+        self.request_send
+            .clone()
+            .send(SegmentRequest { id, callback: send })
+            .await
+            .map_err(|e| vortex_err!("Failed to request segment {:?}", e))?;
+
+        // Await the callback
         recv.await
             .map_err(|cancelled| vortex_err!("segment read cancelled: {:?}", cancelled))
     }
