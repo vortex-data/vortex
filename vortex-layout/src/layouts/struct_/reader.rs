@@ -17,8 +17,9 @@ pub struct StructReader {
     segments: Arc<dyn AsyncSegmentReader>,
 
     field_readers: Arc<[OnceLock<Arc<dyn LayoutReader>>]>,
+
     field_lookup: HashMap<FieldName, usize>,
-    dt_lookup: Box<[DType]>,
+    dtype_index: Box<[DType]>,
 }
 
 impl StructReader {
@@ -45,7 +46,9 @@ impl StructReader {
             .map(|(i, name)| (name.clone(), i))
             .collect();
 
-        let dt_lookup = struct_dt.dtypes().collect();
+        // TODO(joe): Think about only expanding the fields when we need them -- lazily in the
+        // field_readers
+        let dtype_index = struct_dt.dtypes().collect();
 
         // This is where we need to do some complex things with the scan in order to split it into
         // different scans for different fields.
@@ -55,7 +58,7 @@ impl StructReader {
             segments,
             field_readers,
             field_lookup,
-            dt_lookup,
+            dtype_index,
         })
     }
 
@@ -69,7 +72,7 @@ impl StructReader {
             Field::Index(idx) => *idx,
         };
         self.field_readers[idx].get_or_try_init(|| {
-            let child_layout = self.layout.child(idx, self.dt_lookup[idx].clone())?;
+            let child_layout = self.layout.child(idx, self.dtype_index[idx].clone())?;
             child_layout.reader(self.segments.clone(), self.ctx.clone())
         })
     }
