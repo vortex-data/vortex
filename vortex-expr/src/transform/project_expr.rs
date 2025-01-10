@@ -3,18 +3,17 @@ use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_dtype::DType::Struct;
 use vortex_dtype::{DType, Field, FieldName, StructDType};
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 
 use crate::traversal::{FoldChildren, FoldDown, FoldUp, Folder, FolderMut, Node};
 use crate::{get_item, ident, pack, ExprRef, GetItem, Identity, Select, SelectField};
 
+type ExpressionSplits = HashMap<Field, (FieldName, ExprRef)>;
+
 /// Given an expression, an identity-type and a list of n fields return n optional expressions
 /// ones containing only references to the corresponding field and an expression defined in terms of
 /// the n expression which combines them back into a single expression.
-fn split_expression(
-    expr: ExprRef,
-    dtype: &DType,
-) -> VortexResult<(ExprRef, HashMap<Field, (FieldName, ExprRef)>)> {
+fn split_expression(expr: ExprRef, dtype: &DType) -> VortexResult<(ExprRef, ExpressionSplits)> {
     if let Struct(st_dt, _) = dtype {
         ExprSplitter::split(expr, st_dt)
     } else {
@@ -87,12 +86,7 @@ impl<'a> Folder<'a> for ExprTopLevelRef<'a> {
             );
             self.sub_expressions.insert(
                 node,
-                st_dtype
-                    .names()
-                    .iter()
-                    .cloned()
-                    .map(Field::Name)
-                    .collect(),
+                st_dtype.names().iter().cloned().map(Field::Name).collect(),
             );
         }
 
@@ -148,10 +142,7 @@ impl<'a> ExprSplitter<'a> {
         format!("__e_{}", name).into()
     }
 
-    fn split(
-        expr: ExprRef,
-        ident_dt: &StructDType,
-    ) -> VortexResult<(ExprRef, HashMap<Field, (FieldName, ExprRef)>)> {
+    fn split(expr: ExprRef, ident_dt: &StructDType) -> VortexResult<(ExprRef, ExpressionSplits)> {
         let mut expr_top_level_ref = ExprTopLevelRef::new(ident_dt.clone());
         expr.accept_with_context(&mut expr_top_level_ref, ())?;
 
@@ -211,35 +202,30 @@ impl FolderMut for ExprSplitter<'_> {
         _context: Self::Context,
         children: FoldChildren<ExprRef>,
     ) -> VortexResult<FoldUp<ExprRef>> {
-        if self
-            .accesses
-            .get(&node)
-            .map(|a| a.len() == 1)
-            .unwrap_or(false)
-        {
-            let field = self.accesses.get(&node).unwrap().iter().next().unwrap();
-            let sub_exprs = self
-                .sub_expressions
-                .entry(field.clone())
-                .or_default();
-            let idx = sub_exprs.len();
+        if let Some(access) = self.accesses.get(&node) {
+            if access.len() == 1 {
+                let field = access.iter().next().vortex_expect("access is non-empty");
+                let sub_exprs = self.sub_expressions.entry(field.clone()).or_default();
+                let idx = sub_exprs.len();
 
-            // TODO(joe): Resolve idx -> name
-            let fname = match field {
-                Field::Name(n) => n.clone(),
-                Field::Index(i) => self.dt_ident.names()[*i].clone(),
-            };
+                // TODO(joe): Resolve idx -> name
+                let fname = match field {
+                    Field::Name(n) => n.clone(),
+                    Field::Index(i) => self.dt_ident.names()[*i].clone(),
+                };
 
-            // Need to replace get_item(f, ident) with ident, making the expr relative to the child.
-            let replaced = node.transform_with_context(&mut ExprReplaceFieldAccess(fname), ())?;
-            sub_exprs.push(replaced.result());
+                // Need to replace get_item(f, ident) with ident, making the expr relative to the child.
+                let replaced =
+                    node.transform_with_context(&mut ExprReplaceFieldAccess(fname), ())?;
+                sub_exprs.push(replaced.result());
 
-            let access = get_item(
-                idx.to_string(),
-                get_item(Field::Name(Self::new_expr_name(field)), ident()),
-            );
+                let access = get_item(
+                    idx.to_string(),
+                    get_item(Field::Name(Self::new_expr_name(field)), ident()),
+                );
 
-            return Ok(FoldUp::Continue(access));
+                return Ok(FoldUp::Continue(access));
+            }
         };
 
         if node.as_any().downcast_ref::<Identity>().is_some() {
@@ -375,6 +361,7 @@ mod tests {
         let (_, splits) = ExprSplitter::split(expr, &dtype).unwrap();
 
         let split_a = splits.get(&Field::Name("a".into())).unwrap();
+        println!("a {:?}", split_a.1);
         assert_eq!(
             &ExprSimplify::simplify(split_a.1.clone()).unwrap(),
             &pack(
