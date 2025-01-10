@@ -22,11 +22,7 @@ impl WriteFlatBuffer for FileLayout {
         fbb: &mut flatbuffers::FlatBufferBuilder<'fb>,
     ) -> flatbuffers::WIPOffset<Self::Target<'fb>> {
         let root_layout = self.root_layout.write_flatbuffer(fbb);
-        let segments = fbb.create_vector_from_iter(
-            self.segments
-                .iter()
-                .map(fb::Segment::from),
-        );
+        let segments = fbb.create_vector_from_iter(self.segments.iter().map(fb::Segment::from));
         fb::FileLayout::create(
             fbb,
             &fb::FileLayoutArgs {
