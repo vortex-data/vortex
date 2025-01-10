@@ -1,16 +1,16 @@
 use std::any::Any;
 use std::fmt::Display;
+use std::hash::Hash;
 use std::sync::Arc;
 
-use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::compute::{and_kleene, compare, or_kleene, Operator as ArrayOperator};
 use vortex_array::ArrayData;
-use vortex_dtype::field::Field;
 use vortex_error::VortexResult;
 
-use crate::{unbox_any, ExprRef, Operator, VortexExpr};
+use crate::{ExprRef, Operator, VortexExpr};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, Hash)]
+#[allow(clippy::derived_hash_with_manual_eq)]
 pub struct BinaryExpr {
     lhs: ExprRef,
     operator: Operator,
@@ -62,18 +62,19 @@ impl VortexExpr for BinaryExpr {
         }
     }
 
-    fn collect_references<'a>(&'a self, references: &mut HashSet<&'a Field>) {
-        self.lhs.collect_references(references);
-        self.rhs.collect_references(references);
+    fn children(&self) -> Vec<&ExprRef> {
+        vec![&self.lhs, &self.rhs]
+    }
+
+    fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
+        assert_eq!(children.len(), 2);
+        BinaryExpr::new_expr(children[0].clone(), self.operator, children[1].clone())
     }
 }
 
-impl PartialEq<dyn Any> for BinaryExpr {
-    fn eq(&self, other: &dyn Any) -> bool {
-        unbox_any(other)
-            .downcast_ref::<Self>()
-            .map(|x| x.operator == self.operator && x.lhs.eq(&self.lhs) && x.rhs.eq(&self.rhs))
-            .unwrap_or(false)
+impl PartialEq for BinaryExpr {
+    fn eq(&self, other: &BinaryExpr) -> bool {
+        other.operator == self.operator && other.lhs.eq(&self.lhs) && other.rhs.eq(&self.rhs)
     }
 }
 

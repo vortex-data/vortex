@@ -2,10 +2,12 @@ use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 
 use enum_iterator::all;
+use flatbuffers::Follow;
 use itertools::Itertools;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_err, VortexExpect as _, VortexResult};
+use vortex_flatbuffers::FlatBuffer;
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::encoding::opaque::OpaqueEncoding;
@@ -20,8 +22,7 @@ pub(super) struct ViewedArrayData {
     pub(super) dtype: DType,
     pub(super) len: usize,
     pub(super) metadata: Arc<dyn ArrayMetadata>,
-    // TODO(ngates): use ConstByteBuffer once it is stable
-    pub(super) flatbuffer: ByteBuffer,
+    pub(super) flatbuffer: FlatBuffer,
     pub(super) flatbuffer_loc: usize,
     pub(super) buffers: Arc<[ByteBuffer]>,
     pub(super) ctx: ContextRef,
@@ -42,10 +43,7 @@ impl Debug for ViewedArrayData {
 
 impl ViewedArrayData {
     pub fn flatbuffer(&self) -> fb::Array {
-        unsafe {
-            let tab = flatbuffers::Table::new(self.flatbuffer.as_ref(), self.flatbuffer_loc);
-            fb::Array::init_from_table(tab)
-        }
+        unsafe { fb::Array::follow(self.flatbuffer.as_ref(), self.flatbuffer_loc) }
     }
 
     pub fn metadata_bytes(&self) -> Option<&[u8]> {
@@ -103,12 +101,22 @@ impl ViewedArrayData {
         collector.children()
     }
 
-    pub fn byte_buffer(&self) -> Option<&ByteBuffer> {
+    pub fn nbuffers(&self) -> usize {
         self.flatbuffer()
             .buffers()
-            .and_then(|buffers| {
-                assert!(buffers.len() <= 1, "Array: expected at most one buffer");
-                (!buffers.is_empty()).then(|| buffers.get(0) as usize)
+            .map(|b| b.len())
+            .unwrap_or_default()
+    }
+
+    pub fn buffer(&self, index: usize) -> Option<&ByteBuffer> {
+        self.flatbuffer()
+            .buffers()
+            .map(|buffers| {
+                assert!(
+                    index < buffers.len(),
+                    "ArrayView buffer index out of bounds"
+                );
+                buffers.get(index) as usize
             })
             .map(|idx| &self.buffers[idx])
     }

@@ -1,8 +1,7 @@
 use std::fmt::{Debug, Display};
 
 use serde::{Deserialize, Serialize};
-use vortex_dtype::field::Field;
-use vortex_dtype::{DType, FieldName, FieldNames, StructDType};
+use vortex_dtype::{DType, Field, FieldName, FieldNames, StructDType};
 use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult};
 
 use crate::encoding::ids;
@@ -41,7 +40,7 @@ impl StructArray {
 
     pub fn children(&self) -> impl Iterator<Item = ArrayData> + '_ {
         (0..self.nfields()).map(move |idx| {
-            self.field(idx).unwrap_or_else(|| {
+            self.maybe_null_field_by_idx(idx).unwrap_or_else(|| {
                 vortex_panic!("Field {} not found, nfields: {}", idx, self.nfields())
             })
         })
@@ -127,8 +126,8 @@ impl StructArray {
 
             names.push(self.names()[idx].clone());
             children.push(
-                self.field(idx)
-                    .ok_or_else(|| vortex_err!(OutOfBounds: idx, 0, self.dtypes().len()))?,
+                self.maybe_null_field_by_idx(idx)
+                    .ok_or_else(|| vortex_err!(OutOfBounds: idx, 0, self.nfields()))?,
             );
         }
 
@@ -150,12 +149,25 @@ impl VariantsVTable<StructArray> for StructEncoding {
 }
 
 impl StructArrayTrait for StructArray {
-    fn field(&self, idx: usize) -> Option<ArrayData> {
-        self.dtypes().get(idx).map(|dtype| {
-            self.as_ref()
-                .child(idx, dtype, self.len())
-                .unwrap_or_else(|e| vortex_panic!(e, "StructArray: field {} not found", idx))
-        })
+    fn maybe_null_field_by_idx(&self, idx: usize) -> Option<ArrayData> {
+        Some(
+            self.field_info(&Field::Index(idx))
+                .map(|field_info| {
+                    self.as_ref()
+                        .child(
+                            idx,
+                            &field_info
+                                .dtype
+                                .value()
+                                .vortex_expect("FieldInfo could not access dtype"),
+                            self.len(),
+                        )
+                        .unwrap_or_else(|e| {
+                            vortex_panic!(e, "StructArray: field {} not found", idx)
+                        })
+                })
+                .unwrap_or_else(|e| vortex_panic!(e, "StructArray: field {} not found", idx)),
+        )
     }
 
     fn project(&self, projection: &[Field]) -> VortexResult<ArrayData> {
@@ -184,7 +196,7 @@ impl VisitorVTable<StructArray> for StructEncoding {
     fn accept(&self, array: &StructArray, visitor: &mut dyn ArrayVisitor) -> VortexResult<()> {
         for (idx, name) in array.names().iter().enumerate() {
             let child = array
-                .field(idx)
+                .maybe_null_field_by_idx(idx)
                 .ok_or_else(|| vortex_err!(OutOfBounds: idx, 0, array.nfields()))?;
             visitor.visit_child(name.as_ref(), &child)?;
         }
@@ -211,8 +223,7 @@ impl StatisticsVTable<StructArray> for StructEncoding {
 #[cfg(test)]
 mod test {
     use vortex_buffer::buffer;
-    use vortex_dtype::field::Field;
-    use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
+    use vortex_dtype::{DType, Field, FieldName, FieldNames, Nullability};
 
     use crate::array::primitive::PrimitiveArray;
     use crate::array::struct_::StructArray;
@@ -249,13 +260,13 @@ mod test {
 
         assert_eq!(struct_b.len(), 5);
 
-        let bools = BoolArray::try_from(struct_b.field(0).unwrap()).unwrap();
+        let bools = BoolArray::try_from(struct_b.maybe_null_field_by_idx(0).unwrap()).unwrap();
         assert_eq!(
             bools.boolean_buffer().iter().collect::<Vec<_>>(),
             vec![true, true, true, false, false]
         );
 
-        let prims = PrimitiveArray::try_from(struct_b.field(1).unwrap()).unwrap();
+        let prims = PrimitiveArray::try_from(struct_b.maybe_null_field_by_idx(1).unwrap()).unwrap();
         assert_eq!(prims.as_slice::<i64>(), [0i64, 1, 2, 3, 4]);
     }
 }

@@ -1,4 +1,4 @@
-use vortex_dtype::field::Field;
+use vortex_dtype::Field;
 use vortex_error::{VortexError, VortexExpect as _, VortexResult};
 use vortex_scalar::Scalar;
 
@@ -90,7 +90,7 @@ impl Utf8ArrayTrait for ConstantArray {}
 impl BinaryArrayTrait for ConstantArray {}
 
 impl StructArrayTrait for ConstantArray {
-    fn field(&self, idx: usize) -> Option<ArrayData> {
+    fn maybe_null_field_by_idx(&self, idx: usize) -> Option<ArrayData> {
         self.scalar()
             .as_struct()
             .field_by_idx(idx)

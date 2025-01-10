@@ -4,12 +4,12 @@ use futures_util::StreamExt;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::stream::ArrayStream;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
-use vortex_flatbuffers::{FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
+use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
 use vortex_io::VortexWrite;
 use vortex_layout::strategies::LayoutStrategy;
 
 use crate::v2::footer::{FileLayout, Postscript, Segment};
-use crate::v2::segments::BufferedSegmentWriter;
+use crate::v2::segments::writer::BufferedSegmentWriter;
 use crate::v2::strategy::VortexLayoutStrategy;
 use crate::{EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
 
@@ -79,7 +79,7 @@ impl VortexWriteOptions {
                 &mut write,
                 &FileLayout {
                     root_layout,
-                    segments,
+                    segments: segments.into(),
                 },
             )
             .await?;
@@ -120,8 +120,9 @@ impl VortexWriteOptions {
         write.write_all(flatbuffer.write_flatbuffer_bytes()).await?;
         Ok(Segment {
             offset: layout_offset,
-            length: usize::try_from(write.position() - layout_offset)
-                .map_err(|_| vortex_err!("segment length exceeds maximum usize"))?,
+            length: u32::try_from(write.position() - layout_offset)
+                .map_err(|_| vortex_err!("segment length exceeds maximum u32"))?,
+            alignment: FlatBuffer::alignment(),
         })
     }
 }

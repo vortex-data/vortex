@@ -5,10 +5,20 @@ use vortex_error::{vortex_bail, VortexError};
 use crate::{Alignment, Buffer};
 
 /// A buffer of items of `T` with a compile-time alignment.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Hash)]
 pub struct ConstBuffer<T, const A: usize>(Buffer<T>);
 
 impl<T, const A: usize> ConstBuffer<T, A> {
+    /// Returns the alignment of the buffer.
+    pub const fn alignment() -> Alignment {
+        Alignment::new(A)
+    }
+
+    /// Align the given buffer (possibly with a copy) and return a new `ConstBuffer`.
+    pub fn align_from<B: Into<Buffer<T>>>(buf: B) -> Self {
+        Self(buf.into().aligned(Self::alignment()))
+    }
+
     /// Unwrap the inner buffer.
     pub fn into_inner(self) -> Buffer<T> {
         self.0

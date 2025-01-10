@@ -1,24 +1,9 @@
 use flatbuffers::{FlatBufferBuilder, WIPOffset};
 use serde::{Deserialize, Serialize};
-use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexExpect as _};
 use vortex_flatbuffers::{scalar as fb, WriteFlatBuffer};
 
 use crate::{Scalar, ScalarValue};
-
-impl TryFrom<fb::Scalar<'_>> for Scalar {
-    type Error = VortexError;
-
-    fn try_from(value: fb::Scalar<'_>) -> Result<Self, Self::Error> {
-        let dtype = value.dtype();
-        let dtype = DType::try_from(dtype)?;
-
-        let reader = flexbuffers::Reader::get_root(value.value().flex().bytes())?;
-        let value = ScalarValue::deserialize(reader)?;
-
-        Ok(Self { dtype, value })
-    }
-}
 
 impl TryFrom<fb::ScalarValue<'_>> for ScalarValue {
     type Error = VortexError;

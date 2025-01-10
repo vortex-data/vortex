@@ -1,4 +1,5 @@
 use std::collections::Bound;
+use std::fmt::{Debug, Formatter};
 use std::ops::{Deref, RangeBounds};
 
 use bytes::{Buf, Bytes};
@@ -7,7 +8,7 @@ use vortex_error::{vortex_panic, VortexExpect};
 use crate::{Alignment, BufferMut, ByteBuffer};
 
 /// An immutable buffer of items of `T`.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Hash)]
 pub struct Buffer<T> {
     pub(crate) bytes: Bytes,
     pub(crate) length: usize,
@@ -261,12 +262,40 @@ impl<T> Buffer<T> {
     }
 
     /// Return a `Buffer<T>` with the given alignment. Where possible, this will be zero-copy.
-    pub fn aligned(self, alignment: Alignment) -> Self {
+    pub fn aligned(mut self, alignment: Alignment) -> Self {
         if self.as_ptr().align_offset(*alignment) == 0 {
+            self.alignment = alignment;
             self
         } else {
+            #[cfg(feature = "warn-copy")]
+            {
+                let bt = std::backtrace::Backtrace::capture();
+                log::warn!(
+                    "Buffer is not aligned to requested alignment {}, copying: {}",
+                    alignment,
+                    bt
+                )
+            }
             Self::copy_from_aligned(self, alignment)
         }
+    }
+}
+
+impl<T> Debug for Buffer<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        const TRUNC_SIZE: usize = 512;
+        let mut binding = f.debug_struct("Buffer");
+        let mut fields = binding
+            .field("length", &self.length)
+            .field("alignment", &self.alignment);
+
+        let mut bytes = self.bytes.clone();
+        if bytes.len() > TRUNC_SIZE {
+            fields = fields.field("truncated", &true);
+        }
+
+        bytes.truncate(TRUNC_SIZE);
+        fields.field("bytes", &bytes).finish()
     }
 }
 
@@ -377,7 +406,15 @@ impl<T> From<BufferMut<T>> for Buffer<T> {
 mod test {
     use bytes::Buf;
 
-    use crate::{buffer, ByteBuffer};
+    use crate::{buffer, Alignment, ByteBuffer};
+
+    #[test]
+    fn align() {
+        let buf = buffer![0u8, 1, 2];
+        let aligned = buf.aligned(Alignment::new(32));
+        assert_eq!(aligned.alignment(), Alignment::new(32));
+        assert_eq!(aligned.as_slice(), &[0, 1, 2]);
+    }
 
     #[test]
     fn slice() {

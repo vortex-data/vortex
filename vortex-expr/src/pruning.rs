@@ -9,14 +9,13 @@ use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::stats::Stat;
 use vortex_array::ArrayData;
-use vortex_dtype::field::Field;
-use vortex_dtype::Nullability;
+use vortex_dtype::{Field, Nullability};
 use vortex_error::{VortexExpect as _, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::{
-    and, col, eq, gt, gt_eq, lit, lt_eq, or, BinaryExpr, Column, ExprRef, Identity, Literal, Not,
-    Operator, RowFilter,
+    and, col, eq, gt, gt_eq, lit, lt_eq, not, or, BinaryExpr, Column, ExprRef, Identity, Literal,
+    Not, Operator, RowFilter, VortexExprExt,
 };
 
 #[derive(Debug, Clone)]
@@ -249,7 +248,7 @@ fn convert_column_reference(expr: &ExprRef, invert: bool) -> PruningPredicateSta
     let expr = if invert {
         and(min_expr, max_expr)
     } else {
-        Not::new_expr(or(min_expr, max_expr))
+        not(or(min_expr, max_expr))
     };
 
     (expr, refs)
@@ -367,9 +366,9 @@ fn replace_column_with_stat(
         return Some(col(new_field));
     }
 
-    if let Some(not) = expr.as_any().downcast_ref::<Not>() {
-        let rewritten = replace_column_with_stat(not.child(), stat, stats_to_fetch)?;
-        return Some(Not::new_expr(rewritten));
+    if let Some(not_expr) = expr.as_any().downcast_ref::<Not>() {
+        let rewritten = replace_column_with_stat(not_expr.child(), stat, stats_to_fetch)?;
+        return Some(not(rewritten));
     }
 
     if let Some(bexp) = expr.as_any().downcast_ref::<BinaryExpr>() {
@@ -441,12 +440,12 @@ mod tests {
     use vortex_array::aliases::hash_map::HashMap;
     use vortex_array::aliases::hash_set::HashSet;
     use vortex_array::stats::Stat;
-    use vortex_dtype::field::Field;
+    use vortex_dtype::Field;
 
     use crate::pruning::{
         convert_to_pruning_expression, stat_column_field, FieldOrIdentity, PruningPredicate,
     };
-    use crate::{and, col, eq, gt, gt_eq, lit, lt, lt_eq, not_eq, or, Identity, Not};
+    use crate::{and, col, eq, gt, gt_eq, ident, lit, lt, lt_eq, not, not_eq, or};
 
     #[test]
     pub fn pruning_equals() {
@@ -468,7 +467,7 @@ mod tests {
             ),
             gt(literal_eq, col(stat_column_field(&column, Stat::Max))),
         );
-        assert_eq!(*converted, *expected_expr.as_any());
+        assert_eq!(&converted, &expected_expr);
     }
 
     #[test]
@@ -501,7 +500,7 @@ mod tests {
                 col(stat_column_field(&column, Stat::Max)),
             ),
         );
-        assert_eq!(*converted, *expected_expr.as_any());
+        assert_eq!(&converted, &expected_expr);
     }
 
     #[test]
@@ -541,7 +540,7 @@ mod tests {
             ),
         );
 
-        assert_eq!(*converted, *expected_expr.as_any());
+        assert_eq!(&converted, &expected_expr);
     }
 
     #[test]
@@ -569,7 +568,7 @@ mod tests {
             col(stat_column_field(&column, Stat::Max)),
             col(stat_column_field(&other_col, Stat::Min)),
         );
-        assert_eq!(*converted, *expected_expr.as_any());
+        assert_eq!(&converted, &expected_expr);
     }
 
     #[test]
@@ -590,7 +589,7 @@ mod tests {
             col(stat_column_field(&column, Stat::Max)),
             other_col.clone(),
         );
-        assert_eq!(*converted, *expected_expr.as_any());
+        assert_eq!(&converted, &expected_expr);
     }
 
     #[test]
@@ -618,7 +617,7 @@ mod tests {
             col(stat_column_field(&column, Stat::Min)),
             col(stat_column_field(&other_col, Stat::Max)),
         );
-        assert_eq!(*converted, *expected_expr.as_any());
+        assert_eq!(&converted, &expected_expr);
     }
 
     #[test]
@@ -639,12 +638,12 @@ mod tests {
             col(stat_column_field(&column, Stat::Min)),
             other_col.clone(),
         );
-        assert_eq!(*converted, *expected_expr.as_any());
+        assert_eq!(&converted, &expected_expr);
     }
 
     #[test]
     fn unprojectable_expr() {
-        let or_expr = Not::new_expr(lt(col(Field::from("a")), col(Field::from("b"))));
+        let or_expr = not(lt(col("a"), col("b")));
         assert!(PruningPredicate::try_new(&or_expr).is_none());
     }
 
@@ -694,7 +693,7 @@ mod tests {
 
     #[test]
     fn pruning_identity() {
-        let column = Identity::new_expr();
+        let column = ident();
         let expr = or(lt(column.clone(), lit(10)), gt(column.clone(), lit(50)));
 
         let expected = HashMap::from([(
@@ -709,6 +708,6 @@ mod tests {
             gt_eq(col(Field::from("min")), lit(10)),
             lt_eq(col(Field::from("max")), lit(50)),
         );
-        assert_eq!(*predicate.expr().clone(), *expected_expr.as_any(),)
+        assert_eq!(predicate.expr(), &expected_expr)
     }
 }

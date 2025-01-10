@@ -1,11 +1,11 @@
 #![allow(unused_imports)]
 use std::sync::Arc;
 
-use vortex_dtype::field::Field;
+use vortex_dtype::Field;
 
 use crate::{
-    col, lit, BinaryExpr, Column, ExprRef, Identity, Like, Literal, Not, Operator, RowFilter,
-    Select, VortexExpr,
+    col, lit, not, BinaryExpr, Column, ExprRef, Identity, Like, Literal, Not, Operator, RowFilter,
+    Select, SelectField, VortexExpr, VortexExprExt,
 };
 
 /// Restrict expression to only the fields that appear in projection
@@ -17,8 +17,8 @@ pub fn expr_project(expr: &ExprRef, projection: &[Field]) -> Option<ExprRef> {
     } else if expr.as_any().downcast_ref::<Literal>().is_some() {
         Some(expr.clone())
     } else if let Some(s) = expr.as_any().downcast_ref::<Select>() {
-        match s {
-            Select::Include(i) => {
+        match s.fields() {
+            SelectField::Include(i) => {
                 let fields = i
                     .iter()
                     .filter(|f| projection.contains(f))
@@ -27,10 +27,10 @@ pub fn expr_project(expr: &ExprRef, projection: &[Field]) -> Option<ExprRef> {
                 if projection.len() == 1 {
                     Some(Arc::new(Identity))
                 } else {
-                    (!fields.is_empty()).then(|| Arc::new(Select::include(fields)) as _)
+                    (!fields.is_empty()).then(|| Select::include_expr(fields, s.child().clone()))
                 }
             }
-            Select::Exclude(e) => {
+            SelectField::Exclude(e) => {
                 let fields = projection
                     .iter()
                     .filter(|f| !e.contains(f))
@@ -39,7 +39,7 @@ pub fn expr_project(expr: &ExprRef, projection: &[Field]) -> Option<ExprRef> {
                 if projection.len() == 1 {
                     Some(Arc::new(Identity))
                 } else {
-                    (!fields.is_empty()).then(|| Arc::new(Select::include(fields)) as _)
+                    (!fields.is_empty()).then(|| Select::include_expr(fields, s.child().clone()))
                 }
             }
         }
@@ -52,9 +52,9 @@ pub fn expr_project(expr: &ExprRef, projection: &[Field]) -> Option<ExprRef> {
             }
         })
     } else if let Some(n) = expr.as_any().downcast_ref::<Not>() {
-        let own_refs = n.references();
+        let own_refs = expr.references();
         if own_refs.iter().all(|p| projection.contains(p)) {
-            expr_project(n.child(), projection).map(Not::new_expr)
+            expr_project(n.child(), projection).map(not)
         } else {
             None
         }
@@ -100,18 +100,18 @@ pub fn expr_project(expr: &ExprRef, projection: &[Field]) -> Option<ExprRef> {
 mod tests {
     use std::sync::Arc;
 
-    use vortex_dtype::field::Field;
+    use vortex_dtype::Field;
 
     use super::*;
-    use crate::{and, lt, or, Identity, Not, Select, VortexExpr};
+    use crate::{and, ident, lt, or, Identity, Not, Select};
 
     #[test]
     fn project_and() {
         let band = and(col("a"), col("b"));
         let projection = vec![Field::from("b")];
         assert_eq!(
-            *expr_project(&band, &projection).unwrap(),
-            *Identity.as_any()
+            &expr_project(&band, &projection).unwrap(),
+            &(Arc::new(Identity) as ExprRef)
         );
     }
 
@@ -134,43 +134,41 @@ mod tests {
         let blt = lt(col("a"), col("b"));
         let projection = vec![Field::from("a"), Field::from("b")];
         assert_eq!(
-            *expr_project(&blt, &projection).unwrap(),
-            *lt(col("a"), col("b")).as_any()
+            &expr_project(&blt, &projection).unwrap(),
+            &lt(col("a"), col("b"))
         );
     }
 
     #[test]
     fn project_select() {
-        let include = Arc::new(Select::include(vec![
-            Field::from("a"),
-            Field::from("b"),
-            Field::from("c"),
-        ])) as _;
+        let include = Select::include_expr(
+            vec![Field::from("a"), Field::from("b"), Field::from("c")],
+            ident(),
+        );
         let projection = vec![Field::from("a"), Field::from("b")];
         assert_eq!(
             *expr_project(&include, &projection).unwrap(),
-            *Select::include(projection).as_any()
+            *Select::include_expr(projection, ident())
         );
     }
 
     #[test]
     fn project_select_extra_columns() {
-        let include = Arc::new(Select::include(vec![
-            Field::from("a"),
-            Field::from("b"),
-            Field::from("c"),
-        ])) as _;
+        let include = Select::include_expr(
+            vec![Field::from("a"), Field::from("b"), Field::from("c")],
+            ident(),
+        );
         let projection = vec![Field::from("c"), Field::from("d")];
         assert_eq!(
             *expr_project(&include, &projection).unwrap(),
-            *Select::include(vec![Field::from("c")]).as_any()
+            *Select::include_expr(vec![Field::from("c")], ident())
         );
     }
 
     #[test]
     fn project_not() {
-        let not_e = Not::new_expr(col(Field::from("a")));
+        let not_e = not(col("a"));
         let projection = vec![Field::from("a"), Field::from("b")];
-        assert_eq!(*expr_project(&not_e, &projection).unwrap(), *not_e.as_any());
+        assert_eq!(&expr_project(&not_e, &projection).unwrap(), &not_e);
     }
 }

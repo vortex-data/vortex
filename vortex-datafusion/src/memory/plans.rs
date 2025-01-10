@@ -21,9 +21,9 @@ use vortex_array::array::ChunkedArray;
 use vortex_array::arrow::FromArrowArray;
 use vortex_array::compute::take;
 use vortex_array::{ArrayData, IntoArrayVariant, IntoCanonical};
-use vortex_dtype::field::Field;
+use vortex_dtype::Field;
 use vortex_error::{vortex_err, vortex_panic, VortexError};
-use vortex_expr::ExprRef;
+use vortex_expr::{ExprRef, VortexExprExt};
 
 /// Physical plan operator that applies a set of [filters][Expr] against the input, producing a
 /// row mask that can be used downstream to force a take against the corresponding struct array
@@ -382,8 +382,7 @@ mod test {
     use vortex_array::validity::Validity;
     use vortex_array::{ArrayDType, IntoArrayData};
     use vortex_buffer::buffer;
-    use vortex_dtype::field::Field;
-    use vortex_dtype::FieldName;
+    use vortex_dtype::{Field, FieldName};
     use vortex_expr::datafusion::convert_expr_to_vortex;
 
     use crate::memory::plans::{RowIndicesStream, ROW_SELECTOR_SCHEMA_REF};

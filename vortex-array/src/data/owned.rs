@@ -16,7 +16,7 @@ pub(super) struct OwnedArrayData {
     pub(super) dtype: DType, // FIXME(ngates): Arc?
     pub(super) len: usize,
     pub(super) metadata: Arc<dyn ArrayMetadata>,
-    pub(super) buffer: Option<ByteBuffer>,
+    pub(super) buffers: Arc<[ByteBuffer]>,
     pub(super) children: Arc<[ArrayData]>,
     pub(super) stats_set: Arc<RwLock<StatsSet>>,
     #[cfg(feature = "canonical_counter")]
@@ -28,12 +28,14 @@ impl OwnedArrayData {
         &self.metadata
     }
 
-    pub fn byte_buffer(&self) -> Option<&ByteBuffer> {
-        self.buffer.as_ref()
+    pub fn byte_buffer(&self, index: usize) -> Option<&ByteBuffer> {
+        self.buffers.get(index)
     }
 
-    pub fn into_byte_buffer(self) -> Option<ByteBuffer> {
-        self.buffer
+    pub fn into_byte_buffer(self, index: usize) -> Option<ByteBuffer> {
+        // While this does require a clone, we're still "into" because it makes sure the self
+        // reference is dropped.
+        self.buffers.get(index).cloned()
     }
 
     // We want to allow these panics because they are indicative of implementation error.

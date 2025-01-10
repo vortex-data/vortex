@@ -1,5 +1,4 @@
-use vortex_dtype::field::Field;
-use vortex_dtype::DType;
+use vortex_dtype::{DType, Field};
 use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
 
 use crate::array::chunked::ChunkedArray;
@@ -62,13 +61,17 @@ impl Utf8ArrayTrait for ChunkedArray {}
 impl BinaryArrayTrait for ChunkedArray {}
 
 impl StructArrayTrait for ChunkedArray {
-    fn field(&self, idx: usize) -> Option<ArrayData> {
+    fn maybe_null_field_by_idx(&self, idx: usize) -> Option<ArrayData> {
         let mut chunks = Vec::with_capacity(self.nchunks());
         for chunk in self.chunks() {
-            chunks.push(chunk.as_struct_array().and_then(|s| s.field(idx))?);
+            chunks.push(
+                chunk
+                    .as_struct_array()
+                    .and_then(|s| s.maybe_null_field_by_idx(idx))?,
+            );
         }
 
-        let projected_dtype = self.dtype().as_struct().and_then(|s| s.dtypes().get(idx))?;
+        let projected_dtype = self.dtype().as_struct().map(|s| s.field_dtype(idx))?.ok()?;
         let chunked = ChunkedArray::try_new(chunks, projected_dtype.clone())
             .unwrap_or_else(|err| {
                 vortex_panic!(

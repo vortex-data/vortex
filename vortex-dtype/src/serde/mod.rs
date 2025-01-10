@@ -1,4 +1,3 @@
-#[cfg(feature = "flatbuffers")]
 pub mod flatbuffers;
 #[cfg(feature = "proto")]
 mod proto;

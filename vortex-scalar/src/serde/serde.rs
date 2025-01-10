@@ -1,6 +1,7 @@
 use std::fmt::Formatter;
 
 use serde::de::{Error, SeqAccess, Visitor};
+use serde::ser::SerializeSeq;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use vortex_buffer::{BufferString, ByteBuffer};
 
@@ -25,9 +26,19 @@ impl Serialize for InnerScalarValue {
             Self::Null => ().serialize(serializer),
             Self::Bool(b) => b.serialize(serializer),
             Self::Primitive(p) => p.serialize(serializer),
-            Self::Buffer(buffer) => buffer.as_slice().serialize(serializer),
-            Self::BufferString(buffer) => buffer.as_str().serialize(serializer),
-            Self::List(l) => l.serialize(serializer),
+            // NOTE: we explicitly handle the serialization of bytes, strings and lists so as not
+            //  to create ambiguities amongst them. The serde data model has specific representations
+            //  of binary data, UTF-8 strings and sequences.
+            //  See https://serde.rs/data-model.html.
+            Self::Buffer(buffer) => serializer.serialize_bytes(buffer.as_slice()),
+            Self::BufferString(buffer) => serializer.serialize_str(buffer.as_str()),
+            Self::List(l) => {
+                let mut seq = serializer.serialize_seq(Some(l.len()))?;
+                for item in l.iter() {
+                    seq.serialize_element(item)?;
+                }
+                seq.end()
+            }
         }
     }
 }
@@ -195,5 +206,31 @@ impl<'de> Deserialize<'de> for PValue {
             .and_then(|pvalue| {
                 pvalue.ok_or_else(|| Error::custom("Expected a non-null primitive scalar value"))
             })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use flexbuffers::{FlexbufferSerializer, Reader};
+    use rstest::rstest;
+    use vortex_dtype::{Nullability, PType};
+
+    use super::*;
+    use crate::Scalar;
+
+    #[rstest]
+    #[case(Scalar::binary(ByteBuffer::copy_from(b"hello"), Nullability::NonNullable).into_value())]
+    #[case(Scalar::utf8("hello", Nullability::NonNullable).into_value())]
+    #[case(Scalar::primitive(1u8, Nullability::NonNullable).into_value())]
+    #[case(Scalar::list(Arc::new(PType::U8.into()), vec![Scalar::primitive(1u8, Nullability::NonNullable)], Nullability::NonNullable).into_value())]
+    fn test_scalar_value_serde_roundtrip(#[case] scalar_value: ScalarValue) {
+        let mut serializer = FlexbufferSerializer::new();
+        scalar_value.serialize(&mut serializer).unwrap();
+        let written = serializer.take_buffer();
+        let reader = Reader::get_root(written.as_ref()).unwrap();
+        let scalar_read_back = ScalarValue::deserialize(reader).unwrap();
+        assert_eq!(scalar_value, scalar_read_back);
     }
 }

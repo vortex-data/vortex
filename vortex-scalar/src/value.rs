@@ -1,6 +1,7 @@
 use std::fmt::{Display, Write};
 use std::sync::Arc;
 
+use itertools::Itertools;
 use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexResult};
@@ -13,10 +14,10 @@ use crate::pvalue::PValue;
 /// Note that these values can be deserialized from JSON or other formats. So a PValue may not
 /// have the correct width for what the DType expects. Primitive values should therefore be
 /// read using [crate::PrimitiveScalar] which will handle the conversion.
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub struct ScalarValue(pub(crate) InnerScalarValue);
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub(crate) enum InnerScalarValue {
     Bool(bool),
     Primitive(PValue),
@@ -71,7 +72,9 @@ impl Display for InnerScalarValue {
                     write!(f, "{}", bufstr.as_str())
                 }
             }
-            Self::List(_) => todo!(),
+            Self::List(elems) => {
+                write!(f, "[{}]", elems.iter().format(","))
+            }
             Self::Null => write!(f, "null"),
         }
     }
@@ -132,7 +135,7 @@ impl InnerScalarValue {
             }
             (InnerScalarValue::List(values), DType::Struct(structdt, _)) => values
                 .iter()
-                .zip(structdt.dtypes().to_vec())
+                .zip(structdt.dtypes())
                 .all(|(v, dt)| v.is_instance_of(&dt)),
             (InnerScalarValue::Null, dtype) => dtype.is_nullable(),
             (_, DType::Extension(ext_dtype)) => self.is_instance_of(ext_dtype.storage_dtype()),

@@ -3,12 +3,10 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexResult};
 use DType::*;
 
-use crate::field::Field;
 use crate::nullability::Nullability;
-use crate::{ExtDType, PType};
+use crate::{ExtDType, PType, StructDType};
 
 /// A name for a field in a struct
 pub type FieldName = Arc<str>;
@@ -33,7 +31,6 @@ pub enum DType {
     /// Binary data
     Binary(Nullability),
     /// A struct is composed of an ordered list of fields, each with a corresponding name and DType
-    /// TODO(ngates): we may want StructDType to be Arc<[Field]> instead so it's only a single Arc.
     Struct(StructDType, Nullability),
     /// A variable-length list type, parameterized by a single element DType
     List(Arc<DType>, Nullability),
@@ -155,7 +152,7 @@ impl Display for DType {
                 "{{{}}}{}",
                 sdt.names()
                     .iter()
-                    .zip(sdt.dtypes().iter())
+                    .zip(sdt.dtypes())
                     .map(|(n, dt)| format!("{}={}", n, dt))
                     .join(", "),
                 n
@@ -176,165 +173,14 @@ impl Display for DType {
     }
 }
 
-/// A struct dtype is a list of names and corresponding dtypes
-#[derive(Debug, Clone, PartialOrd, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct StructDType {
-    names: FieldNames,
-    dtypes: Arc<[DType]>,
-}
-
-/// Information about a field in a struct dtype
-pub struct FieldInfo<'a> {
-    /// The position index of the field within the enclosing struct
-    pub index: usize,
-    /// The name of the field
-    pub name: Arc<str>,
-    /// The dtype of the field
-    pub dtype: &'a DType,
-}
-
-impl StructDType {
-    /// Create a new `StructDType` from a list of names and dtypes
-    pub fn new(names: FieldNames, dtypes: Vec<DType>) -> Self {
-        if names.len() != dtypes.len() {
-            vortex_panic!(
-                "length mismatch between names ({}) and dtypes ({})",
-                names.len(),
-                dtypes.len()
-            );
-        }
-        Self {
-            names,
-            dtypes: dtypes.into(),
-        }
-    }
-
-    /// Get the names of the fields in the struct
-    pub fn names(&self) -> &FieldNames {
-        &self.names
-    }
-
-    /// Find the index of a field by name
-    /// Returns `None` if the field is not found
-    pub fn find_name(&self, name: &str) -> Option<usize> {
-        self.names.iter().position(|n| n.as_ref() == name)
-    }
-
-    /// Get information about the referenced field, either by name or index
-    /// Returns an error if the field is not found
-    pub fn field_info(&self, field: &Field) -> VortexResult<FieldInfo> {
-        let index = match field {
-            Field::Name(name) => self
-                .find_name(name)
-                .ok_or_else(|| vortex_err!("Unknown field: {}", name))?,
-            Field::Index(index) => *index,
-        };
-        if index >= self.names.len() {
-            vortex_bail!("field index out of bounds: {}", index)
-        }
-        Ok(FieldInfo {
-            index,
-            name: self.names[index].clone(),
-            dtype: &self.dtypes[index],
-        })
-    }
-
-    /// Get the dtypes of the fields in the struct
-    pub fn dtypes(&self) -> &Arc<[DType]> {
-        &self.dtypes
-    }
-
-    /// Project a subset of fields from the struct
-    /// Returns an error if any of the referenced fields are not found
-    pub fn project(&self, projection: &[Field]) -> VortexResult<Self> {
-        let mut names = Vec::with_capacity(projection.len());
-        let mut dtypes = Vec::with_capacity(projection.len());
-
-        for field in projection.iter() {
-            let FieldInfo { name, dtype, .. } = self.field_info(field)?;
-
-            names.push(name.clone());
-            dtypes.push(dtype.clone());
-        }
-
-        Ok(StructDType::new(names.into(), dtypes))
-    }
-}
-
 #[cfg(test)]
 mod test {
     use std::mem;
 
     use crate::dtype::DType;
-    use crate::field::Field;
-    use crate::{Nullability, PType, StructDType};
 
     #[test]
     fn size_of() {
         assert_eq!(mem::size_of::<DType>(), 40);
-    }
-
-    #[test]
-    fn nullability() {
-        assert!(!DType::Struct(
-            StructDType::new(vec![].into(), Vec::new()),
-            Nullability::NonNullable
-        )
-        .is_nullable());
-
-        let primitive = DType::Primitive(PType::U8, Nullability::Nullable);
-        assert!(primitive.is_nullable());
-        assert!(!primitive.as_nonnullable().is_nullable());
-        assert!(primitive.as_nonnullable().as_nullable().is_nullable());
-    }
-
-    #[test]
-    fn test_struct() {
-        let a_type = DType::Primitive(PType::I32, Nullability::Nullable);
-        let b_type = DType::Bool(Nullability::NonNullable);
-
-        let dtype = DType::Struct(
-            StructDType::new(
-                vec!["A".into(), "B".into()].into(),
-                vec![a_type.clone(), b_type.clone()],
-            ),
-            Nullability::Nullable,
-        );
-        assert!(dtype.is_nullable());
-        assert!(dtype.as_struct().is_some());
-        assert!(a_type.as_struct().is_none());
-
-        let sdt = dtype.as_struct().unwrap();
-        assert_eq!(sdt.names().len(), 2);
-        assert_eq!(sdt.dtypes().len(), 2);
-        assert_eq!(sdt.names()[0], "A".into());
-        assert_eq!(sdt.names()[1], "B".into());
-        assert_eq!(sdt.dtypes()[0], a_type);
-        assert_eq!(sdt.dtypes()[1], b_type);
-
-        let proj = sdt
-            .project(&[Field::Index(1), Field::Name("A".into())])
-            .unwrap();
-        assert_eq!(proj.names()[0], "B".into());
-        assert_eq!(proj.dtypes()[0], b_type);
-        assert_eq!(proj.names()[1], "A".into());
-        assert_eq!(proj.dtypes()[1], a_type);
-
-        let field_info = sdt.field_info(&Field::Name("B".into())).unwrap();
-        assert_eq!(field_info.index, 1);
-        assert_eq!(field_info.name, "B".into());
-        assert_eq!(field_info.dtype, &b_type);
-
-        let field_info = sdt.field_info(&Field::Index(0)).unwrap();
-        assert_eq!(field_info.index, 0);
-        assert_eq!(field_info.name, "A".into());
-        assert_eq!(field_info.dtype, &a_type);
-
-        assert!(sdt.field_info(&Field::Index(2)).is_err());
-
-        assert_eq!(sdt.find_name("A"), Some(0));
-        assert_eq!(sdt.find_name("B"), Some(1));
-        assert_eq!(sdt.find_name("C"), None);
     }
 }

@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::hash::Hash;
 use std::mem::discriminant;
 use std::sync::Arc;
 
@@ -207,6 +208,8 @@ impl PartialEq for Scalar {
     }
 }
 
+impl Eq for Scalar {}
+
 impl PartialOrd for Scalar {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         // We check for DType equality, ignoring nullability, and allowing us to compare all
@@ -216,6 +219,13 @@ impl PartialOrd for Scalar {
         } else {
             None
         }
+    }
+}
+
+impl Hash for Scalar {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        discriminant(self.dtype()).hash(state);
+        self.value.0.hash(state);
     }
 }
 

@@ -1,16 +1,17 @@
 use std::any::Any;
 use std::fmt::Display;
+use std::hash::Hash;
 use std::sync::Arc;
 
-use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::compute::invert;
 use vortex_array::ArrayData;
-use vortex_dtype::field::Field;
 use vortex_error::VortexResult;
 
-use crate::{unbox_any, ExprRef, VortexExpr};
+use crate::{ExprRef, VortexExpr};
 
-#[derive(Debug)]
+#[derive(Debug, Eq, Hash)]
+// We cannot auto derive PartialEq because ExprRef, since its a Arc<..> and derive doesn't work
+#[allow(clippy::derived_hash_with_manual_eq)]
 pub struct Not {
     child: ExprRef,
 }
@@ -42,32 +43,36 @@ impl VortexExpr for Not {
         invert(&child_result)
     }
 
-    fn collect_references<'a>(&'a self, references: &mut HashSet<&'a Field>) {
-        self.child.collect_references(references)
+    fn children(&self) -> Vec<&ExprRef> {
+        vec![&self.child]
+    }
+
+    fn replacing_children(self: Arc<Self>, mut children: Vec<ExprRef>) -> ExprRef {
+        assert_eq!(children.len(), 0);
+        Self::new_expr(children.remove(0))
     }
 }
 
-impl PartialEq<dyn Any> for Not {
-    fn eq(&self, other: &dyn Any) -> bool {
-        unbox_any(other)
-            .downcast_ref::<Self>()
-            .map(|x| x.child.eq(&self.child))
-            .unwrap_or(false)
+impl PartialEq for Not {
+    fn eq(&self, other: &Not) -> bool {
+        other.child.eq(&self.child)
     }
+}
+
+pub fn not(operand: ExprRef) -> ExprRef {
+    Not::new_expr(operand)
 }
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use vortex_array::array::BoolArray;
     use vortex_array::IntoArrayVariant;
 
-    use crate::{Identity, Not};
+    use crate::{ident, not};
 
     #[test]
     fn invert_booleans() {
-        let not_expr = Not::new_expr(Arc::new(Identity));
+        let not_expr = not(ident());
         let bools = BoolArray::from_iter([false, true, false, false, true, true]);
         assert_eq!(
             not_expr

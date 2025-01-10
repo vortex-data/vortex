@@ -1,21 +1,51 @@
 use std::any::Any;
 use std::fmt::Display;
+use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::ArrayData;
-use vortex_dtype::field::Field;
+use vortex_dtype::Field;
 use vortex_error::{vortex_err, VortexResult};
 
-use crate::{unbox_any, VortexExpr};
+use crate::{ExprRef, VortexExpr};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Select {
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum SelectField {
     Include(Vec<Field>),
     Exclude(Vec<Field>),
 }
 
+#[derive(Debug, Clone, Eq, Hash)]
+#[allow(clippy::derived_hash_with_manual_eq)]
+pub struct Select {
+    fields: SelectField,
+    child: ExprRef,
+}
+
 impl Select {
+    pub fn new_expr(fields: SelectField, child: ExprRef) -> ExprRef {
+        Arc::new(Self { fields, child })
+    }
+
+    pub fn include_expr(columns: Vec<Field>, child: ExprRef) -> ExprRef {
+        Self::new_expr(SelectField::Include(columns), child)
+    }
+
+    pub fn exclude_expr(columns: Vec<Field>, child: ExprRef) -> ExprRef {
+        Self::new_expr(SelectField::Exclude(columns), child)
+    }
+
+    pub fn fields(&self) -> &SelectField {
+        &self.fields
+    }
+
+    pub fn child(&self) -> &ExprRef {
+        &self.child
+    }
+}
+
+impl SelectField {
     pub fn include(columns: Vec<Field>) -> Self {
         Self::Include(columns)
     }
@@ -23,14 +53,27 @@ impl Select {
     pub fn exclude(columns: Vec<Field>) -> Self {
         Self::Exclude(columns)
     }
+
+    pub fn fields(&self) -> &[Field] {
+        match self {
+            SelectField::Include(fields) => fields,
+            SelectField::Exclude(fields) => fields,
+        }
+    }
+}
+
+impl Display for SelectField {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SelectField::Include(fields) => write!(f, "+({})", fields.iter().format(",")),
+            SelectField::Exclude(fields) => write!(f, "-({})", fields.iter().format(",")),
+        }
+    }
 }
 
 impl Display for Select {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Select::Include(fields) => write!(f, "Include({})", fields.iter().format(",")),
-            Select::Exclude(fields) => write!(f, "Exclude({})", fields.iter().format(",")),
-        }
+        write!(f, "select {} {}", self.fields, self.child)
     }
 }
 
@@ -40,12 +83,13 @@ impl VortexExpr for Select {
     }
 
     fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
+        let batch = self.child.evaluate(batch)?;
         let st = batch
             .as_struct_array()
             .ok_or_else(|| vortex_err!("Not a struct array"))?;
-        match self {
-            Select::Include(f) => st.project(f),
-            Select::Exclude(e) => {
+        match &self.fields {
+            SelectField::Include(f) => st.project(f),
+            SelectField::Exclude(e) => {
                 let normalized_exclusion = e
                     .iter()
                     .map(|ef| match ef {
@@ -68,21 +112,19 @@ impl VortexExpr for Select {
         }
     }
 
-    fn collect_references<'a>(&'a self, references: &mut HashSet<&'a Field>) {
-        match self {
-            Select::Include(f) => references.extend(f.iter()),
-            // It's weird that we treat the references of exclusions and inclusions the same, we need to have a wrapper around Field in the return
-            Select::Exclude(e) => references.extend(e.iter()),
-        }
+    fn children(&self) -> Vec<&ExprRef> {
+        vec![&self.child]
+    }
+
+    fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
+        assert_eq!(children.len(), 1);
+        Self::new_expr(self.fields.clone(), children[0].clone())
     }
 }
 
-impl PartialEq<dyn Any> for Select {
-    fn eq(&self, other: &dyn Any) -> bool {
-        unbox_any(other)
-            .downcast_ref::<Self>()
-            .map(|x| self == x)
-            .unwrap_or(false)
+impl PartialEq for Select {
+    fn eq(&self, other: &Select) -> bool {
+        self.fields == other.fields && self.child.eq(&other.child)
     }
 }
 
@@ -91,9 +133,9 @@ mod tests {
     use vortex_array::array::StructArray;
     use vortex_array::IntoArrayData;
     use vortex_buffer::buffer;
-    use vortex_dtype::field::Field;
+    use vortex_dtype::Field;
 
-    use crate::{Select, VortexExpr};
+    use crate::{ident, Select};
 
     fn test_array() -> StructArray {
         StructArray::from_fields(&[
@@ -106,7 +148,7 @@ mod tests {
     #[test]
     pub fn include_columns() {
         let st = test_array();
-        let select = Select::include(vec![Field::from("a")]);
+        let select = Select::include_expr(vec![Field::from("a")], ident());
         let selected = select.evaluate(st.as_ref()).unwrap();
         let selected_names = selected.as_struct_array().unwrap().names().clone();
         assert_eq!(selected_names.as_ref(), &["a".into()]);
@@ -115,7 +157,7 @@ mod tests {
     #[test]
     pub fn exclude_columns() {
         let st = test_array();
-        let select = Select::exclude(vec![Field::from("a")]);
+        let select = Select::exclude_expr(vec![Field::from("a")], ident());
         let selected = select.evaluate(st.as_ref()).unwrap();
         let selected_names = selected.as_struct_array().unwrap().names().clone();
         assert_eq!(selected_names.as_ref(), &["b".into()]);

@@ -60,8 +60,8 @@ fn random_array(u: &mut Unstructured, dtype: &DType, len: Option<usize>) -> Resu
                 DType::Struct(sdt, n) => {
                     let first_array = sdt
                         .dtypes()
-                        .first()
-                        .map(|d| random_array(u, d, chunk_len))
+                        .next()
+                        .map(|d| random_array(u, &d, chunk_len))
                         .transpose()?;
                     let resolved_len = first_array
                         .as_ref()
@@ -74,9 +74,8 @@ fn random_array(u: &mut Unstructured, dtype: &DType, len: Option<usize>) -> Resu
                         .map(Ok)
                         .chain(
                             sdt.dtypes()
-                                .iter()
                                 .skip(1)
-                                .map(|d| random_array(u, d, Some(resolved_len))),
+                                .map(|d| random_array(u, &d, Some(resolved_len))),
                         )
                         .collect::<Result<Vec<_>>>()?;
                     Ok(StructArray::try_new(

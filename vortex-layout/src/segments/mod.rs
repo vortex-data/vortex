@@ -1,8 +1,8 @@
 use std::ops::Deref;
 
-use bytes::Bytes;
-use vortex_array::ArrayData;
-use vortex_ipc::messages::{EncoderMessage, MessageEncoder};
+use async_trait::async_trait;
+use vortex_buffer::ByteBuffer;
+use vortex_error::VortexResult;
 
 /// The identifier for a single segment.
 // TODO(ngates): should this be a `[u8]` instead? Allowing for arbitrary segment identifiers?
@@ -23,75 +23,47 @@ impl Deref for SegmentId {
     }
 }
 
-pub trait SegmentReader {
+#[async_trait]
+pub trait AsyncSegmentReader: Send + Sync {
     /// Attempt to get the data associated with a given segment ID.
     ///
     /// If the segment ID is not found, `None` is returned.
-    // TODO(ngates): we should probably take Alignment and return ByteBuffer here.
-    fn get(&self, id: SegmentId) -> Option<Bytes>;
+    async fn get(&self, id: SegmentId) -> VortexResult<ByteBuffer>;
 }
 
 pub trait SegmentWriter {
     /// Write the given data into a segment and return its identifier.
     /// The provided buffers are concatenated together to form the segment.
-    fn put(&mut self, data: Vec<Bytes>) -> SegmentId;
-
-    // TODO(ngates): convert this to take an `ArrayParts` so it's obvious to the caller that the
-    //  serialized message does not include the array's length or dtype.
-    // TODO(ngates): do not use the IPC message encoder since it adds extra unnecessary framing.
-    fn put_chunk(&mut self, array: ArrayData) -> SegmentId {
-        self.put(MessageEncoder::default().encode(EncoderMessage::Array(&array)))
-    }
+    fn put(&mut self, buffer: ByteBuffer) -> SegmentId;
 }
 
 #[cfg(test)]
 pub mod test {
-    use std::sync::Arc;
-
-    use bytes::{Bytes, BytesMut};
-    use vortex_error::{vortex_panic, VortexExpect};
+    use vortex_error::{vortex_err, VortexExpect};
 
     use super::*;
-    use crate::scanner::{LayoutScan, Poll};
-    use crate::segments::SegmentReader;
-    use crate::RowMask;
 
     #[derive(Default)]
     pub struct TestSegments {
-        segments: Vec<Bytes>,
-    }
-
-    impl TestSegments {
-        pub fn do_scan(&self, scan: Arc<dyn LayoutScan>) -> ArrayData {
-            let row_count = scan.layout().row_count();
-            let mut scanner = scan
-                .create_scanner(RowMask::new_valid_between(0, row_count))
-                .vortex_expect("Failed to create scanner");
-            match scanner.poll(self).vortex_expect("Failed to poll scanner") {
-                Poll::Some(array) => array,
-                Poll::NeedMore(_segments) => {
-                    vortex_panic!("Layout requested more segments from TestSegments.")
-                }
-            }
-        }
-    }
-
-    impl SegmentReader for TestSegments {
-        fn get(&self, id: SegmentId) -> Option<Bytes> {
-            self.segments.get(*id as usize).cloned()
-        }
+        segments: Vec<ByteBuffer>,
     }
 
     impl SegmentWriter for TestSegments {
-        fn put(&mut self, data: Vec<Bytes>) -> SegmentId {
+        fn put(&mut self, data: ByteBuffer) -> SegmentId {
             let id = u32::try_from(self.segments.len())
                 .vortex_expect("Cannot store more than u32::MAX segments");
-            let mut buffer = BytesMut::with_capacity(data.iter().map(Bytes::len).sum());
-            for bytes in data {
-                buffer.extend_from_slice(&bytes);
-            }
-            self.segments.push(buffer.freeze());
+            self.segments.push(data);
             id.into()
+        }
+    }
+
+    #[async_trait]
+    impl AsyncSegmentReader for TestSegments {
+        async fn get(&self, id: SegmentId) -> VortexResult<ByteBuffer> {
+            self.segments
+                .get(*id as usize)
+                .cloned()
+                .ok_or_else(|| vortex_err!("Segment not found"))
         }
     }
 }

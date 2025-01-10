@@ -9,7 +9,7 @@ use crate::binary::BinaryScalar;
 use crate::extension::ExtScalar;
 use crate::struct_::StructScalar;
 use crate::utf8::Utf8Scalar;
-use crate::Scalar;
+use crate::{ListScalar, Scalar};
 
 impl Display for Scalar {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -59,7 +59,15 @@ impl Display for Scalar {
                     write!(f, "}}")
                 }
             }
-            DType::List(..) => todo!(),
+            DType::List(..) => {
+                let v = ListScalar::try_from(self).map_err(|_| std::fmt::Error)?;
+
+                if v.is_null() {
+                    write!(f, "null")
+                } else {
+                    write!(f, "[{}]", v.elements().format(","))
+                }
+            }
             // Specialized handling for date/time/timestamp builtin extension types.
             DType::Extension(dtype) if is_temporal_ext_type(dtype.id()) => {
                 let metadata =
@@ -169,7 +177,7 @@ mod tests {
     #[test]
     fn display_empty_struct() {
         fn dtype() -> DType {
-            DType::Struct(StructDType::new(Arc::new([]), vec![]), Nullable)
+            DType::Struct(StructDType::new([].into(), vec![]), Nullable)
         }
 
         assert_eq!(format!("{}", Scalar::null(dtype())), "null");
@@ -182,7 +190,7 @@ mod tests {
         fn dtype() -> DType {
             DType::Struct(
                 StructDType::new(
-                    Arc::new([Arc::from("foo")]),
+                    [Arc::from("foo")].into(),
                     vec![DType::Primitive(PType::U32, Nullable)],
                 ),
                 Nullable,
@@ -207,35 +215,43 @@ mod tests {
 
     #[test]
     fn display_two_field_struct() {
-        fn dtype() -> DType {
-            DType::Struct(
-                StructDType::new(
-                    Arc::new([Arc::from("foo"), Arc::from("bar")]),
-                    vec![
-                        DType::Bool(Nullable),
-                        DType::Primitive(PType::U32, Nullable),
-                    ],
-                ),
-                Nullable,
-            )
-        }
+        // fn dtype() -> (DType, DType, DType) {
+        let f1 = DType::Bool(Nullable);
+        let f2 = DType::Primitive(PType::U32, Nullable);
+        let dtype = DType::Struct(
+            StructDType::new(
+                [Arc::from("foo"), Arc::from("bar")].into(),
+                vec![f1.clone(), f2.clone()],
+            ),
+            Nullable,
+        );
+        // }
 
-        assert_eq!(format!("{}", Scalar::null(dtype())), "null");
+        assert_eq!(format!("{}", Scalar::null(dtype.clone())), "null");
 
         assert_eq!(
-            format!("{}", Scalar::struct_(dtype(), vec![])),
+            format!(
+                "{}",
+                Scalar::struct_(
+                    dtype.clone(),
+                    vec![Scalar::null(f1), Scalar::null(f2.clone())]
+                )
+            ),
             "{foo:null,bar:null}"
         );
 
         assert_eq!(
-            format!("{}", Scalar::struct_(dtype(), vec![Scalar::from(true)])),
+            format!(
+                "{}",
+                Scalar::struct_(dtype.clone(), vec![Scalar::from(true), Scalar::null(f2)])
+            ),
             "{foo:true,bar:null}"
         );
 
         assert_eq!(
             format!(
                 "{}",
-                Scalar::struct_(dtype(), vec![Scalar::from(true), Scalar::from(32_u32)])
+                Scalar::struct_(dtype, vec![Scalar::from(true), Scalar::from(32_u32)])
             ),
             "{foo:true,bar:32_u32}"
         );

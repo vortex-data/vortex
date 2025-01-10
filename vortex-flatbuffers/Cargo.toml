@@ -22,8 +22,8 @@ layout = ["array"]
 file = ["ipc"]
 
 [dependencies]
-bytes = { workspace = true }
 flatbuffers = { workspace = true }
+vortex-buffer = { workspace = true }
 
 [lints]
 workspace = true

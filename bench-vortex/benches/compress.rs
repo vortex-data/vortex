@@ -29,7 +29,7 @@ use regex::Regex;
 use simplelog::*;
 use tokio::runtime::Runtime;
 use vortex::array::{ChunkedArray, StructArray};
-use vortex::dtype::field::Field;
+use vortex::dtype::Field;
 use vortex::error::VortexResult;
 use vortex::file::{LayoutContext, LayoutDeserializer, VortexFileWriter, VortexReadBuilder};
 use vortex::sampling_compressor::compressors::fsst::FSSTCompressor;
