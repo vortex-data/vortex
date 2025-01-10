@@ -1,21 +1,72 @@
 use std::sync::Arc;
 
-use flatbuffers::{FlatBufferBuilder, WIPOffset};
+use flatbuffers::{FlatBufferBuilder, Follow, WIPOffset};
 use itertools::Itertools;
 use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 use vortex_flatbuffers::{dtype as fbd, FlatBuffer, FlatBufferRoot, WriteFlatBuffer};
 
 use crate::{
-    flatbuffers as fb, DType, ExtDType, ExtID, ExtMetadata, PType, StructDType, ViewedDType,
+    flatbuffers as fb, DType, ExtDType, ExtID, ExtMetadata, FieldDType, PType, StructDType,
 };
 
 mod project;
 pub use project::*;
 
+/// A lazily evaluated DType, parsed on access from an underlying flatbuffer.
+#[derive(Debug, Clone, PartialOrd, PartialEq, Eq, Hash)]
+pub(crate) struct ViewedDType {
+    /// Underlying flatbuffer
+    flatbuffer: FlatBuffer,
+    /// Location of the dtype data inside the underlying buffer
+    flatbuffer_loc: usize,
+}
+
+impl ViewedDType {
+    /// Create a [`ViewedDType`] from a buffer and a flatbuffer location
+    fn from_fb_loc(location: usize, buffer: FlatBuffer) -> Self {
+        Self {
+            flatbuffer: buffer,
+            flatbuffer_loc: location,
+        }
+    }
+
+    /// The viewed [`fbd::DType`] instance.
+    fn flatbuffer(&self) -> fbd::DType<'_> {
+        unsafe { fbd::DType::follow(self.flatbuffer.as_ref(), self.flatbuffer_loc) }
+    }
+
+    /// Returns the underlying shared buffer
+    fn buffer(&self) -> &FlatBuffer {
+        &self.flatbuffer
+    }
+}
+
+impl StructDType {
+    /// Creates a new instance from a flatbuffer-defined object and its underlying buffer.
+    pub fn from_fb(fb_struct: fbd::Struct_<'_>, buffer: FlatBuffer) -> VortexResult<Self> {
+        let names = fb_struct
+            .names()
+            .ok_or_else(|| vortex_err!("failed to parse struct names from flatbuffer"))?
+            .iter()
+            .map(|n| (*n).into())
+            .collect_vec()
+            .into();
+
+        let dtypes = fb_struct
+            .dtypes()
+            .ok_or_else(|| vortex_err!("failed to parse struct dtypes from flatbuffer"))?
+            .iter()
+            .map(|dt| FieldDType::from(ViewedDType::from_fb_loc(dt._tab.loc(), buffer.clone())))
+            .collect::<Vec<_>>();
+
+        Ok(StructDType::from_fields(names, dtypes))
+    }
+}
+
 impl DType {
     /// Create a new
     pub fn try_from_view(fb: fbd::DType, buffer: FlatBuffer) -> VortexResult<Self> {
-        let vdt = ViewedDType::from_fb(fb, buffer);
+        let vdt = ViewedDType::from_fb_loc(fb._tab.loc(), buffer);
         Self::try_from(vdt)
     }
 }
@@ -62,7 +113,7 @@ impl TryFrom<ViewedDType> for DType {
                 let list_element = fb_list.element_type().ok_or_else(|| {
                     vortex_err!("failed to parse list element type from flatbuffer")
                 })?;
-                let element_dtype = Self::try_from(ViewedDType::with_location(
+                let element_dtype = Self::try_from(ViewedDType::from_fb_loc(
                     list_element._tab.loc(),
                     vfdt.buffer().clone(),
                 ))?;
@@ -93,7 +144,7 @@ impl TryFrom<ViewedDType> for DType {
                 InvalidSerde: "storage_dtype must be present on DType fbs message")
                 })?;
                 let storage_view =
-                    ViewedDType::with_location(storage_dtype._tab.loc(), vfdt.buffer().clone());
+                    ViewedDType::from_fb_loc(storage_dtype._tab.loc(), vfdt.buffer().clone());
 
                 Ok(Self::Extension(Arc::new(ExtDType::new(
                     id,
@@ -109,6 +160,7 @@ impl TryFrom<ViewedDType> for DType {
 }
 
 impl FlatBufferRoot for DType {}
+
 impl WriteFlatBuffer for DType {
     type Target<'a> = fb::DType<'a>;
 
@@ -266,12 +318,13 @@ mod test {
     use vortex_flatbuffers::{FlatBuffer, WriteFlatBufferExt};
 
     use crate::nullability::Nullability;
-    use crate::{flatbuffers as fb, DType, PType, StructDType, ViewedDType};
+    use crate::serde::flatbuffers::ViewedDType;
+    use crate::{flatbuffers as fb, DType, PType, StructDType};
 
     fn roundtrip_dtype(dtype: DType) {
         let bytes = dtype.write_flatbuffer_bytes();
         let root_fb = root::<fb::DType>(&bytes).unwrap();
-        let view = ViewedDType::from_fb(root_fb, FlatBuffer::from(bytes.clone()));
+        let view = ViewedDType::from_fb_loc(root_fb._tab.loc(), FlatBuffer::from(bytes.clone()));
 
         let deserialized = DType::try_from(view).unwrap();
         assert_eq!(dtype, deserialized);
