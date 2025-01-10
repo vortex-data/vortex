@@ -40,6 +40,9 @@ impl ExprEvaluator for Arc<dyn LayoutReader + 'static> {
 }
 
 /// A trait for evaluating field statistics against a [`LayoutReader`].
+///
+/// Implementations should avoid fetching data segments (metadata segments are ok) and instead
+/// rely on the statistics that were computed at write time.
 #[async_trait(?Send)]
 pub trait StatsEvaluator {
     async fn evaluate_stats(
@@ -85,7 +88,7 @@ pub trait LayoutScanExt: LayoutReader {
 
 impl<L: LayoutReader> LayoutScanExt for L {}
 
-/// An adpater struct for implementing the [`AsyncEvaluator`] trait for any [`LayoutReader`].
+/// An adapter struct for implementing the [`AsyncEvaluator`] trait for any [`LayoutReader`].
 struct AsyncEvaluatorAdapter<'a>(&'a dyn LayoutReader);
 
 /// Implements the vortex-scan [`AsyncEvaluator`] for any [`LayoutReader`].

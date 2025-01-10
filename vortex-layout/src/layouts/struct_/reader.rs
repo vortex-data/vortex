@@ -10,10 +10,7 @@ pub struct StructScan {
 }
 
 impl StructScan {
-    pub(in crate::layouts::struct_) fn try_new(
-        layout: LayoutData,
-        _ctx: ContextRef,
-    ) -> VortexResult<Self> {
+    pub(super) fn try_new(layout: LayoutData, _ctx: ContextRef) -> VortexResult<Self> {
         if layout.encoding().id() != StructLayout.id() {
             vortex_panic!("Mismatched layout ID")
         }
