@@ -2,7 +2,7 @@ use itertools::Itertools;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_dtype::DType::Struct;
-use vortex_dtype::{Field, FieldName, FieldNames, StructDType};
+use vortex_dtype::{DType, Field, FieldName, StructDType};
 use vortex_error::VortexResult;
 
 use crate::traversal::{FoldChildren, FoldDown, FoldUp, Folder, FolderMut, Node};
@@ -13,90 +13,15 @@ use crate::{get_item, ident, pack, ExprRef, GetItem, Identity, Select, SelectFie
 /// the n expression which combines them back into a single expression.
 
 fn split_expression(
-    _expr: ExprRef,
-    _fields: &FieldNames,
-) -> (ExprRef, HashMap<FieldName, ExprRef>) {
-    // st {
-    //   a:
-    //   b: {
-    //     c:
-    //     d:
-    //   }
-    // }
-
-    // f(id.a) /\ g(id) ==> f({a: id.a, b: id.b}.a) /\ g({a: id.a, b: id.b})
-
-    // e_1.1 /\ g({a: e_2.1, b: e_1.2}) where, e_1 = {1: f(id), 2: id} in a and e_2 = {1: id} in b
-
-    // x > 5 and x < 10 and y > 5
-    // let e1 = x > 5 /\ x < 10 in let e2 = y > 5 in e1 /\ e2
-
-    // x.a > 5 and y > 5 and x.b < 10
-    // let e1 = pack(e11: x.a > 5, e12: x.b < 10) in let e2 = pack(e22: y > 5) in e1.e11 /\ e2.e22 /\ e1.e12
-    todo!()
+    expr: ExprRef,
+    dtype: &DType,
+) -> VortexResult<(ExprRef, HashMap<Field, (FieldName, ExprRef)>)> {
+    if let Struct(st_dt, _) = dtype {
+        ExprSplitter::split(expr, st_dt)
+    } else {
+        Ok((expr, HashMap::new()))
+    }
 }
-
-// struct ExprSplitter {
-//     field: Field,
-//     sub_expressions: Vec<ExprRef>,
-// }
-//
-// impl ExprSplitter {
-//     fn new(field: Field) -> Self {
-//         Self {
-//             field,
-//             sub_expressions: vec![],
-//         }
-//     }
-// }
-
-// Hashmap from expr to [get_item(field, Identity)]
-
-// impl Folder for ExprSplitter {
-//     type NodeTy = ExprRef;
-//     type Out = ExprRef;
-//     type Context = Option<Field>;
-//
-//     fn visit_down(
-//         &mut self,
-//         node: &Self::NodeTy,
-//         context: Self::Context,
-//     ) -> VortexResult<FoldDown<Self::Out, Self::Context>> {
-//         node.references().contains(&self.field)
-//     }
-//
-//     fn visit_up(
-//         &mut self,
-//         node: Self::NodeTy,
-//         context: Self::Context,
-//         children: FoldChildren<Self::Out>,
-//     ) -> VortexResult<FoldUp<Self::Out>> {
-//         todo!()
-//     }
-// }
-
-// #[derive(Clone, Debug, PartialEq, Eq)]
-// enum AccessibleFields {
-//     Fields(HashSet<FieldName>),
-//     UntrackedFields,
-// }
-//
-// impl AccessibleFields {
-//     fn important_fields(&self) -> HashSet<FieldName> {
-//         match self {
-//             AccessibleFields::Fields(fields) => fields.clone(),
-//             AccessibleFields::UntrackedFields => HashSet::new(),
-//         }
-//     }
-//
-//     fn get_field(&self, field: &FieldName) -> Option<FieldName> {
-//         match self {
-//             AccessibleFields::Fields(fields) => fields.get(field).cloned(),
-//             AccessibleFields::UntrackedFields => None,
-//         }
-//     }
-// }
-//
 
 type FieldAccesses<'a> = HashMap<&'a ExprRef, HashSet<Field>>;
 
@@ -128,6 +53,8 @@ impl<'a> Folder<'a> for ExprTopLevelRef<'a> {
         node: &'a Self::NodeTy,
         _context: (),
     ) -> VortexResult<FoldDown<Self::Out, Self::Context>> {
+        // TODO(joe): Resolve idx -> name for Field, this should be done as a separate,
+        // previous (not impl, yet), pass
         if let Some(get_item) = node.as_any().downcast_ref::<GetItem>() {
             if get_item
                 .child()
@@ -202,11 +129,11 @@ impl<'a> Folder<'a> for ExprTopLevelRef<'a> {
 struct ExprSplitter<'a> {
     sub_expressions: HashMap<Field, Vec<ExprRef>>,
     accesses: FieldAccesses<'a>,
-    dt_ident: StructDType,
+    dt_ident: &'a StructDType,
 }
 
 impl<'a> ExprSplitter<'a> {
-    fn new(accesses: FieldAccesses<'a>, dt_ident: StructDType) -> Self {
+    fn new(accesses: FieldAccesses<'a>, dt_ident: &'a StructDType) -> Self {
         Self {
             sub_expressions: HashMap::new(),
             accesses,
@@ -224,7 +151,7 @@ impl<'a> ExprSplitter<'a> {
 
     fn split(
         expr: ExprRef,
-        ident_dt: StructDType,
+        ident_dt: &StructDType,
     ) -> VortexResult<(ExprRef, HashMap<Field, (FieldName, ExprRef)>)> {
         let mut expr_top_level_ref = ExprTopLevelRef::new(ident_dt.clone());
         expr.accept_with_context(&mut expr_top_level_ref, ())?;
@@ -233,28 +160,27 @@ impl<'a> ExprSplitter<'a> {
 
         let split = expr.clone().transform_with_context(&mut splitter, ())?;
 
-        Ok((
-            split.result(),
-            splitter
-                .sub_expressions
-                .into_iter()
-                .map(|(k, v)| {
+        let sub_expressions = splitter
+            .sub_expressions
+            .into_iter()
+            .map(|(k, v)| {
+                (
+                    k.clone(),
                     (
-                        k.clone(),
-                        (
-                            Self::new_expr_name(&k),
-                            pack(
-                                (0..v.len())
-                                    .into_iter()
-                                    .map(|i| FieldName::from(i.to_string()))
-                                    .collect_vec(),
-                                v,
-                            ),
+                        Self::new_expr_name(&k),
+                        pack(
+                            (0..v.len())
+                                .into_iter()
+                                .map(|i| FieldName::from(i.to_string()))
+                                .collect_vec(),
+                            v,
                         ),
-                    )
-                })
-                .collect(),
-        ))
+                    ),
+                )
+            })
+            .collect();
+
+        Ok((split.result(), sub_expressions))
     }
 }
 
@@ -300,6 +226,7 @@ impl<'a> FolderMut for ExprSplitter<'a> {
                 .or_insert_with(Vec::new);
             let idx = sub_exprs.len();
 
+            // TODO(joe): Resolve idx -> name
             let fname = match field {
                 Field::Name(n) => n.clone(),
                 Field::Index(i) => self.dt_ident.names()[*i].clone(),
@@ -310,7 +237,7 @@ impl<'a> FolderMut for ExprSplitter<'a> {
             sub_exprs.push(replaced.result());
 
             let access = get_item(
-                idx,
+                idx.to_string(),
                 get_item(Field::Name(Self::new_expr_name(field)), ident()),
             );
 
@@ -403,7 +330,7 @@ mod tests {
 
         let expr = ident();
 
-        let split = ExprSplitter::split(expr, dtype.clone());
+        let split = ExprSplitter::split(expr, &dtype);
 
         assert!(split.is_ok());
 
@@ -420,7 +347,7 @@ mod tests {
 
         let expr = get_item("b", get_item("a", ident()));
 
-        let (top, splits) = ExprSplitter::split(expr, dtype.clone()).unwrap();
+        let (top, splits) = ExprSplitter::split(expr, &dtype).unwrap();
 
         let split_a = splits.get(&Field::Name("a".into()));
         assert!(split_a.is_some());
@@ -428,7 +355,7 @@ mod tests {
 
         assert_eq!(
             &top,
-            &get_item(0, get_item(Field::Name(split_a.0.clone()), ident()))
+            &get_item("0", get_item(Field::Name(split_a.0.clone()), ident()))
         );
         assert_eq!(
             &ExprSimplify::simplify(split_a.1.clone()).unwrap(),
@@ -448,7 +375,7 @@ mod tests {
                 get_item("c", ident()),
             ],
         );
-        let (_, splits) = ExprSplitter::split(expr, dtype).unwrap();
+        let (_, splits) = ExprSplitter::split(expr, &dtype).unwrap();
 
         let split_a = splits.get(&Field::Name("a".into())).unwrap();
         assert_eq!(
@@ -470,7 +397,7 @@ mod tests {
         let dtype = struct_dtype();
 
         let expr = add(get_item("b", get_item("a", ident())), lit(1));
-        let (_, splits) = ExprSplitter::split(expr, dtype).unwrap();
+        let (_, splits) = ExprSplitter::split(expr, &dtype).unwrap();
 
         // Whole expr is a single split
         assert_eq!(splits.len(), 1);
@@ -484,7 +411,7 @@ mod tests {
             get_item("b", get_item("a", ident())),
             get_item("b", ident()),
         );
-        let (_, splits) = ExprSplitter::split(expr, dtype).unwrap();
+        let (_, splits) = ExprSplitter::split(expr, &dtype).unwrap();
 
         // One for id.a and id.b
         assert_eq!(splits.len(), 2);
