@@ -68,11 +68,7 @@ impl LayoutWriter for StructLayoutWriter {
                 .vortex_expect("batch is a struct array")
                 .maybe_null_field_by_idx(i)
                 .vortex_expect("bounds already checked");
-
-            println!("Column: {:#?}", column);
-            for column_chunk in column.into_array_iterator() {
-                self.column_strategies[i].push_chunk(segments, column_chunk?)?;
-            }
+            self.column_strategies[i].push_chunk(segments, column)?;
         }
 
         Ok(())
