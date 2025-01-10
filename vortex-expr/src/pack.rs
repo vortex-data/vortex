@@ -81,7 +81,7 @@ impl VortexExpr for Pack {
         self
     }
 
-    fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
+    fn unchecked_evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
         let len = batch.len();
         let value_arrays = self
             .values

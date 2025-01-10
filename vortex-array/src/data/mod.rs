@@ -425,6 +425,15 @@ impl<T: AsRef<ArrayData>> ArrayDType for T {
     }
 }
 
+impl ArrayData {
+    pub fn into_dtype(self) -> DType {
+        match self.0 {
+            InnerArrayData::Owned(d) => d.dtype,
+            InnerArrayData::Viewed(v) => v.dtype,
+        }
+    }
+}
+
 impl<T: AsRef<ArrayData>> ArrayLen for T {
     fn len(&self) -> usize {
         self.as_ref().len()

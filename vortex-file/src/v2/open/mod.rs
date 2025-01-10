@@ -95,13 +95,18 @@ impl VortexOpenOptions {
     pub async fn open<R: VortexReadAt>(self, read: R) -> VortexResult<VortexFile<R>> {
         // If we already have the file layout, we can skip the initial read entirely.
         if let Some(file_layout) = self.file_layout {
-            let segments = Arc::new(SegmentCache::<R>::new(read, file_layout.segments.clone()));
+            let segments = SegmentCache::<R>::new(read, file_layout.segments.clone());
             let splits = self.split_by.splits(&file_layout.root_layout)?.into();
             return Ok(VortexFile {
                 ctx: self.ctx.clone(),
                 file_layout,
                 segments,
                 splits,
+                thread_pool: Arc::new(
+                    rayon::ThreadPoolBuilder::new()
+                        .build()
+                        .map_err(|e| vortex_err!("Failed to create thread pool: {:?}", e))?,
+                ),
             });
         }
 
@@ -172,8 +177,13 @@ impl VortexOpenOptions {
         Ok(VortexFile {
             ctx: self.ctx.clone(),
             file_layout,
-            segments: Arc::new(segment_cache),
+            segments: segment_cache,
             splits,
+            thread_pool: Arc::new(
+                rayon::ThreadPoolBuilder::new()
+                    .build()
+                    .map_err(|e| vortex_err!("Failed to create thread pool: {:?}", e))?,
+            ),
         })
     }
 

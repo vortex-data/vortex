@@ -35,8 +35,8 @@ pub use project::*;
 pub use row_filter::*;
 pub use select::*;
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::ArrayData;
-use vortex_dtype::Field;
+use vortex_array::{ArrayDType as _, ArrayData, Canonical, IntoArrayData as _};
+use vortex_dtype::{DType, Field};
 use vortex_error::{VortexResult, VortexUnwrap};
 
 use crate::traversal::{Node, ReferenceCollector};
@@ -49,11 +49,30 @@ pub trait VortexExpr: Debug + Send + Sync + DynEq + DynHash + Display {
     fn as_any(&self) -> &dyn Any;
 
     /// Compute result of expression on given batch producing a new batch
-    fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData>;
+    ///
+    fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
+        let result = self.unchecked_evaluate(batch)?;
+        debug_assert_eq!(result.dtype(), &self.return_dtype(batch.dtype())?);
+        Ok(result)
+    }
+
+    /// Compute result of expression on given batch producing a new batch
+    ///
+    /// "Unchecked" means that this function lacks a debug assertion that the returned array matches
+    /// the [VortexExpr::return_dtype] method. Use instead the [VortexExpr::evaluate] function which
+    /// includes such an assertion.
+    fn unchecked_evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData>;
 
     fn children(&self) -> Vec<&ExprRef>;
 
     fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef;
+
+    /// Compute the type of the array returned by [VortexExpr::evaluate].
+    fn return_dtype(&self, scope_dtype: &DType) -> VortexResult<DType> {
+        let empty = Canonical::empty(scope_dtype)?.into_array();
+        self.unchecked_evaluate(&empty)
+            .map(|array| array.into_dtype())
+    }
 }
 
 pub trait VortexExprExt {
@@ -111,6 +130,34 @@ impl PartialEq for dyn VortexExpr {
 impl Eq for dyn VortexExpr {}
 
 dyn_hash::hash_trait_object!(VortexExpr);
+
+#[cfg(feature = "test-harness")]
+pub mod test_harness {
+    use vortex_dtype::{DType, Nullability, PType, StructDType};
+
+    pub fn struct_dtype() -> DType {
+        DType::Struct(
+            StructDType::new(
+                [
+                    "a".into(),
+                    "col1".into(),
+                    "col2".into(),
+                    "bool1".into(),
+                    "bool2".into(),
+                ]
+                .into(),
+                vec![
+                    DType::Primitive(PType::I32, Nullability::NonNullable),
+                    DType::Primitive(PType::U16, Nullability::Nullable),
+                    DType::Primitive(PType::U16, Nullability::Nullable),
+                    DType::Bool(Nullability::NonNullable),
+                    DType::Bool(Nullability::NonNullable),
+                ],
+            ),
+            Nullability::NonNullable,
+        )
+    }
+}
 
 #[cfg(test)]
 mod tests {
