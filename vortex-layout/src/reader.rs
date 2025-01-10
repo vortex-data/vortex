@@ -6,7 +6,7 @@ use vortex_array::ArrayData;
 use vortex_dtype::{DType, FieldPath};
 use vortex_error::VortexResult;
 use vortex_expr::ExprRef;
-use vortex_scan::{AsyncEvaluator, RowMask};
+use vortex_scan::RowMask;
 
 use crate::LayoutData;
 
@@ -76,25 +76,6 @@ pub trait LayoutScanExt: LayoutReader {
     fn dtype(&self) -> &DType {
         self.layout().dtype()
     }
-
-    /// Returns the [`AsyncEvaluator`] for this reader.
-    fn evaluator(&self) -> impl AsyncEvaluator + '_
-    where
-        Self: Sized,
-    {
-        AsyncEvaluatorAdapter(self)
-    }
 }
 
 impl<L: LayoutReader> LayoutScanExt for L {}
-
-/// An adapter struct for implementing the [`AsyncEvaluator`] trait for any [`LayoutReader`].
-struct AsyncEvaluatorAdapter<'a>(&'a dyn LayoutReader);
-
-/// Implements the vortex-scan [`AsyncEvaluator`] for any [`LayoutReader`].
-#[async_trait(?Send)]
-impl AsyncEvaluator for AsyncEvaluatorAdapter<'_> {
-    async fn evaluate(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<ArrayData> {
-        self.0.evaluate_expr(row_mask, expr).await
-    }
-}

@@ -10,7 +10,7 @@ use vortex_array::ContextRef;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_io::VortexReadAt;
-use vortex_layout::{LayoutData, LayoutReader, LayoutScanExt};
+use vortex_layout::{ExprEvaluator, LayoutData, LayoutReader};
 use vortex_scan::Scan;
 
 use crate::v2::segments::cache::SegmentCache;
@@ -56,7 +56,7 @@ impl<R: VortexReadAt + Unpin> VortexFile<R> {
 
             let eval = scan
                 .range_scan(row_range)?
-                .evaluate_async(reader.evaluator());
+                .evaluate_async(|row_mask, expr| reader.evaluate_expr(row_mask, expr));
             pin_mut!(eval);
 
             poll_fn(|cx| {
