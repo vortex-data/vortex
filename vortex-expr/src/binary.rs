@@ -272,11 +272,15 @@ mod tests {
         let bool1: Arc<dyn VortexExpr> = col("bool1");
         let bool2: Arc<dyn VortexExpr> = col("bool2");
         assert_eq!(
-            and(bool1.clone(), bool2.clone()).return_dtype(&dtype).unwrap(),
+            and(bool1.clone(), bool2.clone())
+                .return_dtype(&dtype)
+                .unwrap(),
             DType::Bool(Nullability::NonNullable)
         );
         assert_eq!(
-            or(bool1.clone(), bool2.clone()).return_dtype(&dtype).unwrap(),
+            or(bool1.clone(), bool2.clone())
+                .return_dtype(&dtype)
+                .unwrap(),
             DType::Bool(Nullability::NonNullable)
         );
 
@@ -288,7 +292,9 @@ mod tests {
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
-            not_eq(col1.clone(), col2.clone()).return_dtype(&dtype).unwrap(),
+            not_eq(col1.clone(), col2.clone())
+                .return_dtype(&dtype)
+                .unwrap(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
@@ -296,7 +302,9 @@ mod tests {
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
-            gt_eq(col1.clone(), col2.clone()).return_dtype(&dtype).unwrap(),
+            gt_eq(col1.clone(), col2.clone())
+                .return_dtype(&dtype)
+                .unwrap(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
@@ -304,7 +312,9 @@ mod tests {
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
-            lt_eq(col1.clone(), col2.clone()).return_dtype(&dtype).unwrap(),
+            lt_eq(col1.clone(), col2.clone())
+                .return_dtype(&dtype)
+                .unwrap(),
             DType::Bool(Nullability::Nullable)
         );
 

@@ -187,7 +187,10 @@ mod tests {
             ],
             ident(),
         );
-        assert_eq!(select_expr_exclude.return_dtype(&dtype).unwrap(), expected_dtype);
+        assert_eq!(
+            select_expr_exclude.return_dtype(&dtype).unwrap(),
+            expected_dtype
+        );
 
         let select_expr_exclude = Select::exclude_expr(
             vec![Field::from("col1"), Field::from("col2"), Field::Index(1)],
