@@ -58,7 +58,7 @@ mod test {
     use vortex_layout::strategies::LayoutWriterExt;
 
     use super::*;
-    use crate::v2::segments::BufferedSegmentWriter;
+    use crate::v2::segments::writer::BufferedSegmentWriter;
 
     #[test]
     fn test_layout_splits_flat() {

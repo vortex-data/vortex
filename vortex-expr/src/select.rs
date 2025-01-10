@@ -10,13 +10,14 @@ use vortex_error::{vortex_err, VortexResult};
 
 use crate::{ExprRef, VortexExpr};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum SelectField {
     Include(Vec<Field>),
     Exclude(Vec<Field>),
 }
 
-#[derive(Debug, Clone, Eq)]
+#[derive(Debug, Clone, Eq, Hash)]
+#[allow(clippy::derived_hash_with_manual_eq)]
 pub struct Select {
     fields: SelectField,
     child: ExprRef,

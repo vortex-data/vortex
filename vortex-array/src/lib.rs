@@ -1,5 +1,6 @@
 #![feature(once_cell_try)]
 #![feature(trusted_len)]
+#![feature(substr_range)]
 //! Vortex crate containing core logic for encoding and memory representation of [arrays](ArrayData).
 //!
 //! At the heart of Vortex are [arrays](ArrayData) and [encodings](crate::encoding::EncodingVTable).
@@ -40,6 +41,7 @@ pub mod iter;
 mod macros;
 mod metadata;
 pub mod nbytes;
+pub mod parts;
 pub mod patches;
 pub mod stats;
 pub mod stream;

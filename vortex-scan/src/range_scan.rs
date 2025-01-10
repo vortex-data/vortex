@@ -6,7 +6,8 @@ use vortex_array::{ArrayData, IntoArrayVariant};
 use vortex_error::VortexResult;
 use vortex_expr::ExprRef;
 
-use crate::Scan;
+use crate::evaluator::{AsyncEvaluator, Evaluator};
+use crate::{RowMask, Scan};
 
 pub struct RangeScan {
     scan: Arc<Scan>,
@@ -32,6 +33,11 @@ pub enum NextOp {
     Eval((Range<u64>, FilterMask, ExprRef)),
 }
 
+/// We implement the range scan via polling for the next operation to perform, and then posting
+/// the result back to the range scan to make progress.
+///
+/// This allows us to minimize the amount of logic we duplicate in order to support both
+/// synchronous and asynchronous evaluation.
 impl RangeScan {
     pub(crate) fn new(scan: Arc<Scan>, row_offset: u64, mask: FilterMask) -> Self {
         let state = scan
@@ -57,12 +63,9 @@ impl RangeScan {
         }
     }
 
-    /// The caller polls for the next expression they need to evaluate.
-    /// Once they have evaluated the expression, they must post the result back to the range scan
-    /// to make progress.
-    ///
+    /// Check for the next operation to perform.
     /// Returns `Poll::Ready` when the scan is complete.
-    pub fn next(&self) -> NextOp {
+    fn next(&self) -> NextOp {
         match &self.state {
             State::FilterEval((mask, expr)) => {
                 NextOp::Eval((self.row_range.clone(), mask.clone(), expr.clone()))
@@ -75,7 +78,7 @@ impl RangeScan {
     }
 
     /// Post the result of the last expression evaluation back to the range scan.
-    pub fn post(&mut self, result: ArrayData) -> VortexResult<()> {
+    fn post(&mut self, result: ArrayData) -> VortexResult<()> {
         match &self.state {
             State::FilterEval(_) => {
                 // Intersect the result of the filter expression with our initial row mask.
@@ -92,5 +95,36 @@ impl RangeScan {
             State::Ready(_) => {}
         }
         Ok(())
+    }
+
+    /// Evaluate the [`RangeScan`] operation using a synchronous expression evaluator.
+    pub fn evaluate(mut self, evaluator: &dyn Evaluator) -> VortexResult<ArrayData> {
+        loop {
+            match self.next() {
+                NextOp::Ready(array) => return Ok(array),
+                NextOp::Eval((row_range, mask, expr)) => {
+                    self.post(evaluator.evaluate(RowMask::new(mask, row_range.start), expr)?)?;
+                }
+            }
+        }
+    }
+
+    /// Evaluate the [`RangeScan`] operation using an async expression evaluator.
+    pub async fn evaluate_async(
+        mut self,
+        evaluator: &dyn AsyncEvaluator,
+    ) -> VortexResult<ArrayData> {
+        loop {
+            match self.next() {
+                NextOp::Ready(array) => return Ok(array),
+                NextOp::Eval((row_range, mask, expr)) => {
+                    self.post(
+                        evaluator
+                            .evaluate(RowMask::new(mask, row_range.start), expr)
+                            .await?,
+                    )?;
+                }
+            }
+        }
     }
 }

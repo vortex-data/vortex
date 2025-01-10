@@ -158,8 +158,14 @@ pub mod layout;
 /// ```
 pub mod message;
 
-use bytes::Bytes;
 use flatbuffers::{root, FlatBufferBuilder, Follow, InvalidFlatbuffer, Verifiable, WIPOffset};
+use vortex_buffer::{ByteBuffer, ConstByteBuffer};
+
+/// We define a const-aligned byte buffer for flatbuffers with 8-byte alignment.
+///
+/// This is based on the assumption that the maximum primitive type is 8 bytes.
+/// See: <https://groups.google.com/g/flatbuffers/c/PSgQeWeTx_g>
+pub type FlatBuffer = ConstByteBuffer<8>;
 
 pub trait FlatBufferRoot {}
 
@@ -190,17 +196,17 @@ pub trait WriteFlatBuffer {
 }
 
 pub trait WriteFlatBufferExt: WriteFlatBuffer + FlatBufferRoot {
-    /// Write the flatbuffer into a [`Bytes`].
-    fn write_flatbuffer_bytes(&self) -> Bytes;
+    /// Write the flatbuffer into a [`FlatBuffer`].
+    fn write_flatbuffer_bytes(&self) -> FlatBuffer;
 }
 
 impl<F: WriteFlatBuffer + FlatBufferRoot> WriteFlatBufferExt for F {
-    fn write_flatbuffer_bytes(&self) -> Bytes {
+    fn write_flatbuffer_bytes(&self) -> FlatBuffer {
         let mut fbb = FlatBufferBuilder::new();
         let root_offset = self.write_flatbuffer(&mut fbb);
         fbb.finish_minimal(root_offset);
         let (vec, start) = fbb.collapse();
         let end = vec.len();
-        Bytes::from(vec).slice(start..end)
+        FlatBuffer::align_from(ByteBuffer::from(vec).slice(start..end))
     }
 }

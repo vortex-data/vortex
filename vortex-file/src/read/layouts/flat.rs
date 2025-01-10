@@ -65,7 +65,7 @@ impl FlatLayoutReader {
         let mut reader = BufMessageReader::new(buf);
         match reader.next().transpose()? {
             Some(DecoderMessage::Array(array_parts)) => {
-                array_parts.into_array_data(self.ctx.clone(), self.dtype.as_ref().clone())
+                array_parts.decode(self.ctx.clone(), self.dtype.as_ref().clone())
             }
             Some(msg) => vortex_bail!("Expected Array message, got {:?}", msg),
             None => vortex_bail!("Expected Array message, got EOF"),

@@ -297,9 +297,11 @@ impl ChunkedLayoutReader {
 
 impl LayoutReader for ChunkedLayoutReader {
     fn add_splits(&self, row_offset: usize, splits: &mut BTreeSet<usize>) -> VortexResult<()> {
-        for RangedLayoutReader((begin, _), child) in self.layouts.iter() {
+        for RangedLayoutReader((begin, end), child) in self.layouts.iter() {
             child.add_splits(row_offset + *begin, splits)?;
+            splits.insert(row_offset + end);
         }
+
         Ok(())
     }
 

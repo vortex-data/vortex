@@ -80,6 +80,7 @@ impl<W: VortexWrite> VortexFileWriter<W> {
         while let Some(columns) = array_stream.try_next().await? {
             let st = StructArray::try_from(columns)?;
             self.row_count += st.len() as u64;
+
             for (i, field) in st.children().enumerate() {
                 if let Ok(chunked_array) = ChunkedArray::try_from(field.clone()) {
                     self.write_column_chunks(chunked_array.array_stream(), i)

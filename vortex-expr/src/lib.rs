@@ -2,6 +2,8 @@ use std::any::Any;
 use std::fmt::{Debug, Display};
 use std::sync::Arc;
 
+use dyn_hash::DynHash;
+
 mod binary;
 mod column;
 pub mod datafusion;
@@ -42,7 +44,7 @@ use crate::traversal::{Node, ReferenceCollector};
 pub type ExprRef = Arc<dyn VortexExpr>;
 
 /// Represents logical operation on [`ArrayData`]s
-pub trait VortexExpr: Debug + Send + Sync + DynEq + Display {
+pub trait VortexExpr: Debug + Send + Sync + DynEq + DynHash + Display {
     /// Convert expression reference to reference of [`Any`] type
     fn as_any(&self) -> &dyn Any;
 
@@ -107,6 +109,8 @@ impl PartialEq for dyn VortexExpr {
 }
 
 impl Eq for dyn VortexExpr {}
+
+dyn_hash::hash_trait_object!(VortexExpr);
 
 #[cfg(test)]
 mod tests {

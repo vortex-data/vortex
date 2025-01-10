@@ -12,6 +12,7 @@ use vortex_error::VortexResult;
 use crate::encoding::{LayoutEncoding, LayoutId};
 use crate::layouts::flat::reader::FlatReader;
 use crate::reader::{LayoutReader, LayoutScanExt};
+use crate::segments::AsyncSegmentReader;
 use crate::{LayoutData, FLAT_LAYOUT_ID};
 
 #[derive(Debug)]
@@ -22,8 +23,13 @@ impl LayoutEncoding for FlatLayout {
         FLAT_LAYOUT_ID
     }
 
-    fn reader(&self, layout: LayoutData, ctx: ContextRef) -> VortexResult<Arc<dyn LayoutReader>> {
-        Ok(FlatReader::try_new(layout, ctx)?.into_arc())
+    fn reader(
+        &self,
+        layout: LayoutData,
+        ctx: ContextRef,
+        segments: Arc<dyn AsyncSegmentReader>,
+    ) -> VortexResult<Arc<dyn LayoutReader>> {
+        Ok(FlatReader::try_new(layout, ctx, segments)?.into_arc())
     }
 
     fn register_splits(

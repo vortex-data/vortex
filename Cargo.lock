@@ -403,6 +403,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-once-cell"
+version = "0.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4288f83726785267c6f2ef073a3d83dc3f9b81464e9f99898240cced85fce35a"
+
+[[package]]
 name = "async-task"
 version = "4.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -707,9 +713,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.5.24"
+version = "4.5.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9560b07a799281c7e0958b9296854d6fafd4c5f31444a7e5bb1ad6dde5ccf1bd"
+checksum = "a8eb5e908ef3a6efbe1ed62520fb7287959888c88485abe072543190ecc66783"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -717,9 +723,9 @@ dependencies = [
 
 [[package]]
 name = "clap_builder"
-version = "4.5.24"
+version = "4.5.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "874e0dd3eb68bf99058751ac9712f622e61e6f393a94f7128fa26e3f02f5c7cd"
+checksum = "96b01801b5fc6a0a232407abc821660c9c6d25a1cafc0d4f85f29fb8d9afc121"
 dependencies = [
  "anstream",
  "anstyle",
@@ -1652,6 +1658,12 @@ dependencies = [
  "quote",
  "syn 2.0.95",
 ]
+
+[[package]]
+name = "dyn-hash"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a650a461c6a8ff1ef205ed9a2ad56579309853fecefc2423f73dced342f92258"
 
 [[package]]
 name = "either"
@@ -4798,9 +4810,9 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
 name = "uuid"
-version = "1.11.0"
+version = "1.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8c5f0a0af699448548ad1a2fbf920fb4bee257eae39953ba95cb84891a0446a"
+checksum = "b913a3b5fe84142e269d63cc62b64319ccaf89b748fc31fe025177f767a756c4"
 dependencies = [
  "getrandom",
 ]
@@ -4918,6 +4930,7 @@ dependencies = [
  "arrow-buffer",
  "bytes",
  "divan",
+ "log",
  "vortex-error",
 ]
 
@@ -5052,6 +5065,7 @@ version = "0.21.1"
 dependencies = [
  "datafusion-expr",
  "datafusion-physical-expr",
+ "dyn-hash",
  "itertools 0.14.0",
  "prost",
  "serde",
@@ -5089,6 +5103,7 @@ dependencies = [
  "arrow-array",
  "arrow-buffer",
  "arrow-schema",
+ "async-trait",
  "bytes",
  "flatbuffers",
  "futures",
@@ -5115,8 +5130,8 @@ dependencies = [
 name = "vortex-flatbuffers"
 version = "0.21.1"
 dependencies = [
- "bytes",
  "flatbuffers",
+ "vortex-buffer",
 ]
 
 [[package]]
@@ -5193,10 +5208,12 @@ name = "vortex-layout"
 version = "0.21.1"
 dependencies = [
  "arrow-buffer",
+ "async-once-cell",
+ "async-trait",
  "bytes",
  "flatbuffers",
+ "futures",
  "itertools 0.14.0",
- "rstest",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",
@@ -5204,6 +5221,7 @@ dependencies = [
  "vortex-expr",
  "vortex-flatbuffers",
  "vortex-ipc",
+ "vortex-scalar",
  "vortex-scan",
 ]
 
@@ -5320,7 +5338,10 @@ dependencies = [
 name = "vortex-scan"
 version = "0.21.1"
 dependencies = [
+ "async-trait",
+ "rstest",
  "vortex-array",
+ "vortex-buffer",
  "vortex-dtype",
  "vortex-error",
  "vortex-expr",
