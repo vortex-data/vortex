@@ -135,9 +135,6 @@ impl WriteFlatBuffer for ArrayPartsFlatBuffer<'_> {
         let metadata = Some(fbb.create_vector(metadata.as_ref()));
 
         // Assign buffer indices for all child arrays.
-        // The second tuple element holds the buffer_index for this Array subtree. If this array
-        // has a buffer, that is its buffer index. If it does not, that buffer index belongs
-        // to one of the children.
         let nbuffers = u16::try_from(self.array.nbuffers())
             .vortex_expect("Array can have at most u16::MAX buffers");
         let child_buffer_idx = self.buffer_idx + nbuffers;

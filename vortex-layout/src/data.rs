@@ -243,6 +243,11 @@ impl LayoutData {
         }
     }
 
+    /// Iterate the segment IDs of the layout.
+    pub fn segments(&self) -> impl Iterator<Item = SegmentId> + '_ {
+        (0..self.nsegments()).map(move |i| self.segment_id(i).vortex_expect("segment bounds"))
+    }
+
     /// Returns the layout metadata
     pub fn metadata(&self) -> Option<Bytes> {
         match &self.0 {

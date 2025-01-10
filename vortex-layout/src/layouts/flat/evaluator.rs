@@ -17,21 +17,17 @@ use crate::LayoutReader;
 impl AsyncEvaluator for FlatReader {
     async fn evaluate(self: &Self, row_mask: RowMask, expr: ExprRef) -> VortexResult<ArrayData> {
         // Fetch all the array buffers.
-        let buffers = try_join_all(
-            (0..self.layout().nsegments())
-                .map(|idx| {
-                    self.layout()
-                        .segment_id(idx)
-                        .vortex_expect("bounds checked")
-                })
+        let mut buffers = try_join_all(
+            self.layout()
+                .segments()
                 .map(|segment_id| self.segments().get(segment_id)),
         )
         .await?;
 
-        // Fetch the array flatbuffer.
+        // Pop the array flatbuffer.
         let flatbuffer = FlatBuffer::try_from(
             buffers
-                .last()
+                .pop()
                 .ok_or_else(|| vortex_err!("Flat message missing"))?
                 .clone(),
         )?;
@@ -43,7 +39,7 @@ impl AsyncEvaluator for FlatReader {
             row_count,
             root::<fba::Array>(flatbuffer.as_ref()).vortex_expect("Invalid fba::Array flatbuffer"),
             flatbuffer.clone(),
-            buffers.iter().take(buffers.len() - 1).cloned().collect(),
+            buffers,
         );
 
         // Decode into an ArrayData.

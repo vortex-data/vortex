@@ -1,7 +1,5 @@
 #![feature(once_cell_try)]
 #![feature(trait_alias)]
-extern crate core;
-
 mod data;
 pub use data::*;
 mod context;
