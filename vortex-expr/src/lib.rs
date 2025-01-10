@@ -36,8 +36,8 @@ pub use project::*;
 pub use row_filter::*;
 pub use select::*;
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::{ArrayDType, ArrayData, Canonical, IntoArrayData};
-use vortex_dtype::{DType, Field};
+use vortex_array::ArrayData;
+use vortex_dtype::Field;
 use vortex_error::{VortexResult, VortexUnwrap};
 
 use crate::traversal::{Node, ReferenceCollector};
@@ -55,11 +55,6 @@ pub trait VortexExpr: Debug + Send + Sync + DynEq + DynHash + Display {
     fn children(&self) -> Vec<&ExprRef>;
 
     fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef;
-
-    fn dtype(&self, input_dtype: &DType) -> VortexResult<DType> {
-        let empty = Canonical::empty(input_dtype)?.into_array();
-        self.evaluate(&empty).map(|array| array.dtype().clone())
-    }
 }
 
 pub trait VortexExprExt {
