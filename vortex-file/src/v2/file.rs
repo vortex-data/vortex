@@ -80,14 +80,16 @@ impl<R: VortexReadAt + Unpin> VortexFile<R> {
                 recv.await
                     .unwrap_or_else(|_cancelled| Err(vortex_err!("recv failed, send dropped")))
             });
-
-        // Set up an I/O driver that will make progress on 32 I/O requests at a time.
-        let io_driver = self.segments.clone().driver().buffered(32);
-
         // TODO(ngates): we should call buffered(n) on this stream so that is launches multiple
         //  splits to run in parallel. Currently we use block_on, so there's no point this being
         //  any higher than the size of the thread pool. If we switch to running LocalExecutor,
         //  then there may be some value in slightly over-subscribing.
+
+        // Set up an I/O driver that will make progress on 32 I/O requests at a time.
+        // TODO(ngates): we should probably have segments hold an Arc'd driver stream internally
+        //  so that multiple scans can poll it, while still sharing the same global concurrency
+        //  limit?
+        let io_driver = self.segments.clone().driver().buffered(32);
 
         Ok(ArrayStreamAdapter::new(
             result_dtype,
