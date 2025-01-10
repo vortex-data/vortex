@@ -15,7 +15,7 @@ type ExpressionSplits = HashMap<Field, (FieldName, ExprRef)>;
 /// the n expression which combines them back into a single expression.
 fn split_expression(expr: ExprRef, dtype: &DType) -> VortexResult<(ExprRef, ExpressionSplits)> {
     if let Struct(st_dt, _) = dtype {
-        ExprSplitter::split(expr, st_dt)
+        StructFieldExpressionSplitter::split(expr, st_dt)
     } else {
         Ok((expr, HashMap::new()))
     }
@@ -24,12 +24,12 @@ fn split_expression(expr: ExprRef, dtype: &DType) -> VortexResult<(ExprRef, Expr
 type FieldAccesses<'a> = HashMap<&'a ExprRef, HashSet<Field>>;
 
 // For all subexpressions in an expression find the fields access directly on identity
-struct ExprTopLevelRef<'a> {
+struct ImmediateIdentityAccessesAnalysis<'a> {
     sub_expressions: FieldAccesses<'a>,
     ident_dt: StructDType,
 }
 
-impl ExprTopLevelRef<'_> {
+impl ImmediateIdentityAccessesAnalysis<'_> {
     fn new(ident_dt: StructDType) -> Self {
         Self {
             sub_expressions: HashMap::new(),
@@ -41,7 +41,7 @@ impl ExprTopLevelRef<'_> {
 // This is a very naive, but simple analysis to find the fields that are accessed directly on an
 // identity node. This is combined to provide an over-approximation of the fields that are accessed
 // by an expression.
-impl<'a> Folder<'a> for ExprTopLevelRef<'a> {
+impl<'a> Folder<'a> for ImmediateIdentityAccessesAnalysis<'a> {
     type NodeTy = ExprRef;
     type Out = ();
     type Context = ();
@@ -119,13 +119,13 @@ impl<'a> Folder<'a> for ExprTopLevelRef<'a> {
 }
 
 #[derive(Debug)]
-struct ExprSplitter<'a> {
+struct StructFieldExpressionSplitter<'a> {
     sub_expressions: HashMap<Field, Vec<ExprRef>>,
     accesses: FieldAccesses<'a>,
     dt_ident: &'a StructDType,
 }
 
-impl<'a> ExprSplitter<'a> {
+impl<'a> StructFieldExpressionSplitter<'a> {
     fn new(accesses: FieldAccesses<'a>, dt_ident: &'a StructDType) -> Self {
         Self {
             sub_expressions: HashMap::new(),
@@ -143,10 +143,11 @@ impl<'a> ExprSplitter<'a> {
     }
 
     fn split(expr: ExprRef, ident_dt: &StructDType) -> VortexResult<(ExprRef, ExpressionSplits)> {
-        let mut expr_top_level_ref = ExprTopLevelRef::new(ident_dt.clone());
+        let mut expr_top_level_ref = ImmediateIdentityAccessesAnalysis::new(ident_dt.clone());
         expr.accept_with_context(&mut expr_top_level_ref, ())?;
 
-        let mut splitter = ExprSplitter::new(expr_top_level_ref.sub_expressions, ident_dt);
+        let mut splitter =
+            StructFieldExpressionSplitter::new(expr_top_level_ref.sub_expressions, ident_dt);
 
         let split = expr.clone().transform_with_context(&mut splitter, ())?;
 
@@ -173,7 +174,7 @@ impl<'a> ExprSplitter<'a> {
     }
 }
 
-impl FolderMut for ExprSplitter<'_> {
+impl FolderMut for StructFieldExpressionSplitter<'_> {
     type NodeTy = ExprRef;
     type Out = ExprRef;
     type Context = ();
@@ -216,7 +217,7 @@ impl FolderMut for ExprSplitter<'_> {
 
                 // Need to replace get_item(f, ident) with ident, making the expr relative to the child.
                 let replaced =
-                    node.transform_with_context(&mut ExprReplaceFieldAccess(fname), ())?;
+                    node.transform_with_context(&mut ScopeStepIntoFieldExpr(fname), ())?;
                 sub_exprs.push(replaced.result());
 
                 let access = get_item(
@@ -255,9 +256,9 @@ impl FolderMut for ExprSplitter<'_> {
     }
 }
 
-struct ExprReplaceFieldAccess(FieldName);
+struct ScopeStepIntoFieldExpr(FieldName);
 
-impl FolderMut for ExprReplaceFieldAccess {
+impl FolderMut for ScopeStepIntoFieldExpr {
     type NodeTy = ExprRef;
     type Out = ExprRef;
     type Context = ();
@@ -313,7 +314,7 @@ mod tests {
 
         let expr = ident();
 
-        let split = ExprSplitter::split(expr, &dtype);
+        let split = StructFieldExpressionSplitter::split(expr, &dtype);
 
         assert!(split.is_ok());
 
@@ -330,7 +331,7 @@ mod tests {
 
         let expr = get_item("b", get_item("a", ident()));
 
-        let (top, splits) = ExprSplitter::split(expr, &dtype).unwrap();
+        let (top, splits) = StructFieldExpressionSplitter::split(expr, &dtype).unwrap();
 
         let split_a = splits.get(&Field::Name("a".into()));
         assert!(split_a.is_some());
@@ -358,7 +359,7 @@ mod tests {
                 get_item("c", ident()),
             ],
         );
-        let (_, splits) = ExprSplitter::split(expr, &dtype).unwrap();
+        let (_, splits) = StructFieldExpressionSplitter::split(expr, &dtype).unwrap();
 
         let split_a = splits.get(&Field::Name("a".into())).unwrap();
         assert_eq!(
@@ -380,7 +381,7 @@ mod tests {
         let dtype = struct_dtype();
 
         let expr = add(get_item("b", get_item("a", ident())), lit(1));
-        let (_, splits) = ExprSplitter::split(expr, &dtype).unwrap();
+        let (_, splits) = StructFieldExpressionSplitter::split(expr, &dtype).unwrap();
 
         // Whole expr is a single split
         assert_eq!(splits.len(), 1);
@@ -394,7 +395,7 @@ mod tests {
             get_item("b", get_item("a", ident())),
             get_item("b", ident()),
         );
-        let (_, splits) = ExprSplitter::split(expr, &dtype).unwrap();
+        let (_, splits) = StructFieldExpressionSplitter::split(expr, &dtype).unwrap();
 
         // One for id.a and id.b
         assert_eq!(splits.len(), 2);
