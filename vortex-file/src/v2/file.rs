@@ -22,8 +22,6 @@ pub struct VortexFile<R> {
     pub(crate) ctx: ContextRef,
     pub(crate) layout: LayoutData,
     pub(crate) segments: SegmentCache<R>,
-    // TODO(ngates): not yet used by the file reader
-    #[allow(dead_code)]
     pub(crate) splits: Arc<[Range<u64>]>,
     pub(crate) thread_pool: Arc<rayon::ThreadPool>,
 }
@@ -47,7 +45,7 @@ impl<R: VortexReadAt + Unpin> VortexFile<R> {
         // Create a shared reader for the scan.
         let reader: Arc<dyn LayoutReader> = self
             .layout
-            .reader(Arc::new(self.segments.clone()), self.ctx.clone())?;
+            .reader(self.segments.reader(), self.ctx.clone())?;
         let result_dtype = scan.result_dtype(self.dtype())?;
         let splits = self.splits.to_vec();
 
@@ -89,7 +87,7 @@ impl<R: VortexReadAt + Unpin> VortexFile<R> {
         // TODO(ngates): we should probably have segments hold an Arc'd driver stream internally
         //  so that multiple scans can poll it, while still sharing the same global concurrency
         //  limit?
-        let io_driver = self.segments.clone().driver().buffered(32);
+        let io_driver = self.segments.driver().buffered(32);
 
         Ok(ArrayStreamAdapter::new(
             result_dtype,
@@ -119,16 +117,19 @@ where
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
-        loop {
-            // If the row group driver is ready, then we can return the result.
-            if let Poll::Ready(r) = this.row_group_driver.try_poll_next_unpin(cx) {
-                return Poll::Ready(r);
+        // If the row group driver is ready, then we can return the result.
+        if let Poll::Ready(r) = this.row_group_driver.try_poll_next_unpin(cx) {
+            println!("row_group_driver ready {}", r.is_some());
+            return Poll::Ready(r);
+        }
+        // Otherwise, we continue to poll the I/O driver.
+        match this.io_driver.try_poll_next_unpin(cx) {
+            Poll::Ready(r) => {
+                /* we've reached the end of an I/O iteration */
+                println!("io_driver ready {}", r.is_some());
+                return Poll::Pending;
             }
-            // Otherwise, we continue to poll the I/O driver.
-            match this.io_driver.try_poll_next_unpin(cx) {
-                Poll::Ready(_) => { /* we've reached the end of an I/O iteration */ }
-                Poll::Pending => {}
-            }
+            Poll::Pending => return Poll::Pending,
         }
     }
 }

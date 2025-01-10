@@ -1,26 +1,24 @@
 //! The segment reader provides an async interface to layouts for resolving individual segments.
 
 use std::future::Future;
-use std::sync::{Arc, RwLock};
-use std::task::Poll;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::channel::{mpsc, oneshot};
 use futures::Stream;
 use futures_util::{stream, SinkExt, StreamExt, TryFutureExt};
 use vortex_buffer::ByteBuffer;
-use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
+use vortex_error::{vortex_err, VortexResult};
 use vortex_io::VortexReadAt;
 use vortex_layout::segments::{AsyncSegmentReader, SegmentId};
 
 use crate::v2::footer::Segment;
 
-#[derive(Clone)]
 pub(crate) struct SegmentCache<R> {
     read: R,
     segments: Arc<[Segment]>,
     request_send: mpsc::UnboundedSender<SegmentRequest>,
-    request_recv: Arc<RwLock<mpsc::UnboundedReceiver<SegmentRequest>>>,
+    request_recv: mpsc::UnboundedReceiver<SegmentRequest>,
 }
 
 struct SegmentRequest {
@@ -37,13 +35,18 @@ impl<R> SegmentCache<R> {
             read,
             segments,
             request_send: send,
-            request_recv: Arc::new(RwLock::new(recv)),
+            request_recv: recv,
         }
     }
 
     pub fn set(&mut self, _segment_id: SegmentId, _bytes: ByteBuffer) -> VortexResult<()> {
         // Do nothing for now
         Ok(())
+    }
+
+    /// Returns a reader for the segment cache.
+    pub fn reader(&self) -> Arc<dyn AsyncSegmentReader + 'static> {
+        Arc::new(SegmentCacheReader(self.request_send.clone()))
     }
 }
 
@@ -52,49 +55,35 @@ impl<R: VortexReadAt + Unpin> SegmentCache<R> {
     pub(crate) fn driver(
         self,
     ) -> impl Stream<Item = impl Future<Output = VortexResult<()>>> + 'static {
-        stream::poll_fn(move |cx| {
-            // First we drain the request channel to see if there are any new segments to read.
-            let mut recv = self
-                .request_recv
-                .write()
-                .map_err(|_| vortex_err!("failed to acquire read lock"))
-                .vortex_expect("lock poisoned");
-            let mut requests = Vec::with_capacity(recv.size_hint().0);
-            loop {
-                match recv.poll_next_unpin(cx) {
-                    Poll::Ready(Some(req)) => requests.push(req),
-                    Poll::Ready(None) => vortex_panic!("Unexpected end of request channel"),
-                    Poll::Pending => {
-                        break;
-                    }
+        self.request_recv
+            // Grab up to 32 requests at a time, provided they're already in the stream.
+            .ready_chunks(32)
+            // TODO(ngates): now we should flat_map the requests to split them into coalesced
+            //  read operations.
+            .flat_map(|requests| stream::iter(requests))
+            .map(move |request| {
+                let read = self.read.clone();
+                let segments = self.segments.clone();
+                async move {
+                    let segment = &segments[*request.id as usize];
+                    let bytes = read
+                        .read_byte_range(segment.offset, segment.length as u64)
+                        .map_ok(|bytes| ByteBuffer::from(bytes).aligned(segment.alignment))
+                        .await?;
+                    request
+                        .callback
+                        .send(bytes)
+                        .map_err(|_| vortex_err!("receiver dropped"))?;
+                    Ok(())
                 }
-            }
-            Poll::Ready(Some(requests))
-        })
-        // TODO(ngates): now we should flat_map the requests to split them into coalesced
-        //  read operations.
-        .flat_map(|requests| stream::iter(requests))
-        .map(move |request| {
-            let read = self.read.clone();
-            let segments = self.segments.clone();
-            async move {
-                let segment = &segments[*request.id as usize];
-                let bytes = read
-                    .read_byte_range(segment.offset, segment.length as u64)
-                    .map_ok(|bytes| ByteBuffer::from(bytes).aligned(segment.alignment))
-                    .await?;
-                request
-                    .callback
-                    .send(bytes)
-                    .map_err(|_| vortex_err!("receiver dropped"))?;
-                Ok(())
-            }
-        })
+            })
     }
 }
 
+struct SegmentCacheReader(mpsc::UnboundedSender<SegmentRequest>);
+
 #[async_trait]
-impl<R: VortexReadAt> AsyncSegmentReader for SegmentCache<R> {
+impl AsyncSegmentReader for SegmentCacheReader {
     async fn get(&self, id: SegmentId) -> VortexResult<ByteBuffer> {
         // Set up a channel to send the segment back to the caller.
         let (send, recv) = oneshot::channel();
@@ -103,7 +92,7 @@ impl<R: VortexReadAt> AsyncSegmentReader for SegmentCache<R> {
         //  request queue.
 
         // Send a request to the segment cache.
-        self.request_send
+        self.0
             .clone()
             .send(SegmentRequest { id, callback: send })
             .await
