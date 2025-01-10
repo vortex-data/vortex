@@ -47,7 +47,7 @@ impl AsyncEvaluator for FlatReader {
         );
 
         // Decode into an ArrayData.
-        let array = array_parts.decode(self.ctx().clone(), self.dtype().clone())?;
+        let array = array_parts.decode(self.ctx(), self.dtype().clone())?;
 
         // And finally apply the expression
         // TODO(ngates): what's the best order to apply the filter mask / expression?
