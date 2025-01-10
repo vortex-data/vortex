@@ -1,3 +1,4 @@
+use std::any::type_name;
 use std::collections::Bound;
 use std::fmt::{Debug, Formatter};
 use std::ops::{Deref, RangeBounds};
@@ -281,21 +282,31 @@ impl<T> Buffer<T> {
     }
 }
 
-impl<T> Debug for Buffer<T> {
+impl<T> Debug for Buffer<T>
+where
+    T: Debug,
+{
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        const TRUNC_SIZE: usize = 512;
-        let mut binding = f.debug_struct("Buffer");
-        let mut fields = binding
+        let mut binding = f.debug_struct(&format!("Buffer<{}>", type_name::<T>()));
+        let fields = binding
             .field("length", &self.length)
             .field("alignment", &self.alignment);
 
-        let mut bytes = self.bytes.clone();
-        if bytes.len() > TRUNC_SIZE {
-            fields = fields.field("truncated", &true);
+        const TRUNC_SIZE: usize = 16;
+        if self.len() <= TRUNC_SIZE {
+            fields.field("as_slice", &self.as_slice());
+        } else {
+            fields.field_with(&"as_slice", |f| {
+                write!(f, "[")?;
+                for elem in self.as_slice().iter().take(TRUNC_SIZE) {
+                    write!(f, "{:?}, ", *elem)?;
+                }
+                write!(f, "...")?;
+                write!(f, "]")
+            });
         }
 
-        bytes.truncate(TRUNC_SIZE);
-        fields.field("bytes", &bytes).finish()
+        fields.finish()
     }
 }
 

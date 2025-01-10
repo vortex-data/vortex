@@ -48,6 +48,8 @@ impl<R: VortexReadAt + Unpin> VortexFile<R> {
 
     /// Performs a scan operation over the file.
     pub fn scan(self, scan: Arc<Scan>) -> VortexResult<impl ArrayStream + 'static> {
+        println!("File Layout: {:#?}", self.file_layout);
+
         // Create a shared reader for the scan.
         let reader: Arc<dyn LayoutReader> = self
             .file_layout()
