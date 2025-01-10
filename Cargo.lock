@@ -5218,7 +5218,6 @@ dependencies = [
  "vortex-error",
  "vortex-expr",
  "vortex-flatbuffers",
- "vortex-ipc",
  "vortex-scalar",
  "vortex-scan",
 ]
@@ -5336,7 +5335,6 @@ dependencies = [
 name = "vortex-scan"
 version = "0.21.1"
 dependencies = [
- "async-trait",
  "rstest",
  "vortex-array",
  "vortex-buffer",

@@ -47,10 +47,9 @@ impl<R: VortexReadAt + Unpin> VortexFile<R> {
             .layout
             .reader(self.segments.reader(), self.ctx.clone())?;
         let result_dtype = scan.result_dtype(self.dtype())?;
-        let splits = self.splits.to_vec();
 
         // For each row-group, we set up a future that will evaluate the scan and post its.
-        let row_group_driver = stream::iter(splits)
+        let row_group_driver = stream::iter(ArcIter::new(self.splits.clone()))
             .map(move |row_range| {
                 let (send, recv) = oneshot::channel();
                 let reader = reader.clone();
@@ -127,5 +126,30 @@ where
                 return Poll::Pending;
             }
         }
+    }
+}
+
+/// There is no `IntoIterator` for `Arc<[T]>` so to avoid copying into a Vec<T>, we define our own.
+/// See <https://users.rust-lang.org/t/arc-to-owning-iterator/115190/11>.
+struct ArcIter<T> {
+    inner: Arc<[T]>,
+    pos: usize,
+}
+
+impl<T> ArcIter<T> {
+    fn new(inner: Arc<[T]>) -> Self {
+        Self { inner, pos: 0 }
+    }
+}
+
+impl<T: Clone> Iterator for ArcIter<T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        (self.pos < self.inner.len()).then(|| {
+            let item = self.inner[self.pos].clone();
+            self.pos += 1;
+            item
+        })
     }
 }
