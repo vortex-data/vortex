@@ -1,14 +1,17 @@
 use async_trait::async_trait;
+use flatbuffers::root;
+use futures::future::try_join_all;
 use vortex_array::compute::filter;
+use vortex_array::parts::ArrayParts;
 use vortex_array::ArrayData;
-use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_expr::ExprRef;
-use vortex_ipc::messages::{BufMessageReader, DecoderMessage};
+use vortex_flatbuffers::{array as fba, FlatBuffer};
 use vortex_scan::RowMask;
 
 use crate::layouts::flat::reader::FlatReader;
 use crate::reader::LayoutScanExt;
-use crate::ExprEvaluator;
+use crate::{ExprEvaluator, LayoutReader};
 
 #[async_trait(?Send)]
 impl ExprEvaluator for FlatReader {
@@ -17,22 +20,35 @@ impl ExprEvaluator for FlatReader {
         row_mask: RowMask,
         expr: ExprRef,
     ) -> VortexResult<ArrayData> {
-        // Grab the byte buffer for the segment.
-        let bytes = self.segments().get(self.segment_id()).await?;
+        // Fetch all the array buffers.
+        let mut buffers = try_join_all(
+            self.layout()
+                .segments()
+                .map(|segment_id| self.segments().get(segment_id)),
+        )
+        .await?;
 
-        // Decode the ArrayParts from the message bytes.
-        // TODO(ngates): ArrayParts should probably live in vortex-array, and not required
-        //  IPC message framing to read or write.
-        let mut msg_reader = BufMessageReader::new(bytes);
-        let array = if let DecoderMessage::Array(parts) = msg_reader
-            .next()
-            .ok_or_else(|| vortex_err!("Flat message body missing"))??
-        {
-            parts.decode(self.ctx(), self.dtype().clone())
-        } else {
-            vortex_bail!("Flat message is not ArrayParts")
-        }?;
+        // Pop the array flatbuffer.
+        let flatbuffer = FlatBuffer::try_from(
+            buffers
+                .pop()
+                .ok_or_else(|| vortex_err!("Flat message missing"))?,
+        )?;
 
+        let row_count = usize::try_from(self.layout().row_count())
+            .vortex_expect("FlatLayout row count does not fit within usize");
+
+        let array_parts = ArrayParts::new(
+            row_count,
+            root::<fba::Array>(flatbuffer.as_ref()).vortex_expect("Invalid fba::Array flatbuffer"),
+            flatbuffer.clone(),
+            buffers,
+        );
+
+        // Decode into an ArrayData.
+        let array = array_parts.decode(self.ctx(), self.dtype().clone())?;
+
+        // And finally apply the expression
         // TODO(ngates): what's the best order to apply the filter mask / expression?
         let array = expr.evaluate(&array)?;
         filter(&array, row_mask.into_filter_mask()?)
