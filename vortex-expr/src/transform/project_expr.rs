@@ -3,7 +3,7 @@ use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_dtype::DType::Struct;
 use vortex_dtype::{DType, Field, FieldName, StructDType};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
 
 use crate::traversal::{FoldChildren, FoldDown, FoldUp, Folder, FolderMut, Node};
 use crate::{get_item, ident, pack, ExprRef, GetItem, Identity, Select, SelectField};
@@ -26,11 +26,11 @@ type FieldAccesses<'a> = HashMap<&'a ExprRef, HashSet<Field>>;
 // For all subexpressions in an expression find the fields access directly on identity
 struct ImmediateIdentityAccessesAnalysis<'a> {
     sub_expressions: FieldAccesses<'a>,
-    ident_dt: StructDType,
+    ident_dt: &'a StructDType,
 }
 
-impl ImmediateIdentityAccessesAnalysis<'_> {
-    fn new(ident_dt: StructDType) -> Self {
+impl<'a> ImmediateIdentityAccessesAnalysis<'a> {
+    fn new(ident_dt: &'a StructDType) -> Self {
         Self {
             sub_expressions: HashMap::new(),
             ident_dt,
@@ -143,7 +143,7 @@ impl<'a> StructFieldExpressionSplitter<'a> {
     }
 
     fn split(expr: ExprRef, ident_dt: &StructDType) -> VortexResult<(ExprRef, ExpressionSplits)> {
-        let mut expr_top_level_ref = ImmediateIdentityAccessesAnalysis::new(ident_dt.clone());
+        let mut expr_top_level_ref = ImmediateIdentityAccessesAnalysis::new(ident_dt);
         expr.accept_with_context(&mut expr_top_level_ref, ())?;
 
         let mut splitter =
@@ -155,10 +155,11 @@ impl<'a> StructFieldExpressionSplitter<'a> {
             .sub_expressions
             .into_iter()
             .map(|(k, v)| {
+                let expr_name = Self::new_expr_name(&k);
                 (
-                    k.clone(),
+                    k,
                     (
-                        Self::new_expr_name(&k),
+                        expr_name,
                         pack(
                             (0..v.len())
                                 .map(|i| FieldName::from(i.to_string()))
@@ -212,7 +213,17 @@ impl FolderMut for StructFieldExpressionSplitter<'_> {
                 // TODO(joe): Resolve idx -> name
                 let fname = match field {
                     Field::Name(n) => n.clone(),
-                    Field::Index(i) => self.dt_ident.names()[*i].clone(),
+                    Field::Index(i) => self
+                        .dt_ident
+                        .names()
+                        .get(*i)
+                        .ok_or_else(|| {
+                            vortex_err!(
+                                "field access {i} out of bounds struct len {}",
+                                self.dt_ident.names().len()
+                            )
+                        })?
+                        .clone(),
                 };
 
                 // Need to replace get_item(f, ident) with ident, making the expr relative to the child.
