@@ -361,7 +361,6 @@ mod tests {
         let (_, splits) = ExprSplitter::split(expr, &dtype).unwrap();
 
         let split_a = splits.get(&Field::Name("a".into())).unwrap();
-        println!("a {:?}", split_a.1);
         assert_eq!(
             &ExprSimplify::simplify(split_a.1.clone()).unwrap(),
             &pack(
