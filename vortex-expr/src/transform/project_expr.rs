@@ -11,7 +11,6 @@ use crate::{get_item, ident, pack, ExprRef, GetItem, Identity, Select, SelectFie
 /// Given an expression, an identity-type and a list of n fields return n optional expressions
 /// ones containing only references to the corresponding field and an expression defined in terms of
 /// the n expression which combines them back into a single expression.
-
 fn split_expression(
     expr: ExprRef,
     dtype: &DType,
@@ -31,7 +30,7 @@ struct ExprTopLevelRef<'a> {
     ident_dt: StructDType,
 }
 
-impl<'a> ExprTopLevelRef<'a> {
+impl ExprTopLevelRef<'_> {
     fn new(ident_dt: StructDType) -> Self {
         Self {
             sub_expressions: HashMap::new(),
@@ -63,7 +62,7 @@ impl<'a> Folder<'a> for ExprTopLevelRef<'a> {
                 .is_some()
             {
                 self.sub_expressions
-                    .insert(&node, HashSet::from_iter(vec![get_item.field().clone()]));
+                    .insert(node, HashSet::from_iter(vec![get_item.field().clone()]));
 
                 return Ok(FoldDown::SkipChildren);
             }
@@ -71,7 +70,7 @@ impl<'a> Folder<'a> for ExprTopLevelRef<'a> {
             assert!(matches!(select.fields(), SelectField::Include(_)));
             if select.child().as_any().downcast_ref::<Identity>().is_some() {
                 self.sub_expressions.insert(
-                    &node,
+                    node,
                     HashSet::from_iter(select.fields().fields().iter().cloned()),
                 );
             }
@@ -79,7 +78,7 @@ impl<'a> Folder<'a> for ExprTopLevelRef<'a> {
         } else if node.as_any().downcast_ref::<Identity>().is_some() {
             let st_dtype = &self.ident_dt;
             self.sub_expressions.insert(
-                &node,
+                node,
                 st_dtype
                     .names()
                     .iter()
@@ -87,12 +86,12 @@ impl<'a> Folder<'a> for ExprTopLevelRef<'a> {
                     .collect(),
             );
             self.sub_expressions.insert(
-                &node,
+                node,
                 st_dtype
                     .names()
                     .iter()
                     .cloned()
-                    .map(|n| Field::Name(n))
+                    .map(Field::Name)
                     .collect(),
             );
         }
@@ -116,7 +115,7 @@ impl<'a> Folder<'a> for ExprTopLevelRef<'a> {
             if let Some(fields) = c {
                 self.sub_expressions
                     .entry(node)
-                    .or_insert_with(HashSet::new)
+                    .or_default()
                     .extend(fields.iter().cloned());
             }
         });
@@ -170,7 +169,6 @@ impl<'a> ExprSplitter<'a> {
                         Self::new_expr_name(&k),
                         pack(
                             (0..v.len())
-                                .into_iter()
                                 .map(|i| FieldName::from(i.to_string()))
                                 .collect_vec(),
                             v,
@@ -184,7 +182,7 @@ impl<'a> ExprSplitter<'a> {
     }
 }
 
-impl<'a> FolderMut for ExprSplitter<'a> {
+impl FolderMut for ExprSplitter<'_> {
     type NodeTy = ExprRef;
     type Out = ExprRef;
     type Context = ();
@@ -223,7 +221,7 @@ impl<'a> FolderMut for ExprSplitter<'a> {
             let sub_exprs = self
                 .sub_expressions
                 .entry(field.clone())
-                .or_insert_with(Vec::new);
+                .or_default();
             let idx = sub_exprs.len();
 
             // TODO(joe): Resolve idx -> name
@@ -246,7 +244,7 @@ impl<'a> FolderMut for ExprSplitter<'a> {
 
         if node.as_any().downcast_ref::<Identity>().is_some() {
             let fields = (0..self.dt_ident.names().len())
-                .map(|f| Field::Index(f))
+                .map(Field::Index)
                 .collect_vec();
 
             for f in &fields {
@@ -257,7 +255,7 @@ impl<'a> FolderMut for ExprSplitter<'a> {
             }
 
             let pack_expr = pack(
-                fields.iter().map(|f| Self::new_expr_name(f)).collect_vec(),
+                fields.iter().map(Self::new_expr_name).collect_vec(),
                 fields.into_iter().map(|_| ident()).collect(),
             );
 
@@ -313,14 +311,13 @@ mod tests {
                 Struct(
                     StructDType::new(
                         vec!["a".into(), "b".into()].into(),
-                        vec![I32.into(), I32.into()].into(),
+                        vec![I32.into(), I32.into()],
                     ),
                     NonNullable,
                 ),
                 I32.into(),
                 I32.into(),
-            ]
-            .into(),
+            ],
         )
     }
 
