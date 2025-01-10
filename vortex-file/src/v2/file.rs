@@ -117,19 +117,17 @@ where
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
-        // If the row group driver is ready, then we can return the result.
-        if let Poll::Ready(r) = this.row_group_driver.try_poll_next_unpin(cx) {
-            println!("row_group_driver ready {}", r.is_some());
-            return Poll::Ready(r);
-        }
-        // Otherwise, we continue to poll the I/O driver.
-        match this.io_driver.try_poll_next_unpin(cx) {
-            Poll::Ready(r) => {
-                /* we've reached the end of an I/O iteration */
-                println!("io_driver ready {}", r.is_some());
-                return Poll::Pending;
+        loop {
+            // If the row group driver is ready, then we can return the result.
+            if let Poll::Ready(r) = this.row_group_driver.try_poll_next_unpin(cx) {
+                println!("row_group_driver ready {}", r.is_some());
+                return Poll::Ready(r);
             }
-            Poll::Pending => return Poll::Pending,
+            // Otherwise, we continue to poll the I/O driver.
+            match this.io_driver.try_poll_next_unpin(cx) {
+                Poll::Ready(r) => { /* we've reached the end of an I/O iteration */ }
+                Poll::Pending => return Poll::Pending,
+            }
         }
     }
 }
