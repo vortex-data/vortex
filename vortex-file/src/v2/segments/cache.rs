@@ -5,7 +5,7 @@ use std::sync::{Arc, RwLock};
 use async_trait::async_trait;
 use futures::channel::oneshot;
 use futures_util::future::try_join_all;
-use futures_util::TryFutureExt;
+use futures_util::{StreamExt, TryFutureExt};
 use itertools::Itertools;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_buffer::ByteBuffer;
@@ -36,12 +36,9 @@ impl<R> SegmentCache<R> {
     }
 }
 
-impl<R: VortexReadAt> SegmentCache<R> {
+impl<R: VortexReadAt + Unpin> SegmentCache<R> {
     /// Drives the segment cache.
-    pub(crate) async fn drive(&self) -> VortexResult<()>
-    where
-        Self: Unpin,
-    {
+    pub(crate) async fn drive(&self) -> VortexResult<()> {
         // Grab a read lock and collect a set of segments to read.
         let segment_ids = self
             .inflight
@@ -74,6 +71,11 @@ impl<R: VortexReadAt> SegmentCache<R> {
         }
 
         Ok(())
+    }
+
+    /// Returns a driver stream that will continuously drive the segment cache.
+    pub(crate) fn driver(&self) -> impl futures::Stream<Item = VortexResult<()>> + '_ {
+        futures::stream::repeat(()).then(move |_| self.drive())
     }
 }
 

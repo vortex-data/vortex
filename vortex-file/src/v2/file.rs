@@ -2,13 +2,14 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::task::Poll;
 
+use futures::channel::oneshot;
 use futures::pin_mut;
-use futures_util::future::poll_fn;
-use futures_util::{stream, TryFutureExt};
+use futures_executor::block_on;
+use futures_util::{stream, StreamExt, TryFutureExt};
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
 use vortex_array::ContextRef;
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
+use vortex_error::{vortex_err, VortexError, VortexExpect, VortexResult};
 use vortex_io::VortexReadAt;
 use vortex_layout::{ExprEvaluator, LayoutData, LayoutReader};
 use vortex_scan::Scan;
@@ -45,37 +46,77 @@ impl<R: VortexReadAt + Unpin> VortexFile<R> {
             .layout
             .reader(self.segments.clone(), self.ctx.clone())?;
         let result_dtype = scan.result_dtype(self.dtype())?;
+
+        let threads = 4;
+
+        let thread_pool = Arc::new(
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(threads)
+                .build()
+                .map_err(|e| vortex_err!("failed to create thread pool: {}", e))?,
+        );
+
         // For each row-group, we set up a future that will evaluate the scan and post its.
+        let batches = stream::iter(self.splits.iter().cloned())
+            .map(move |row_range| {
+                let (send, recv) = oneshot::channel();
 
-        // TODO(ngates): we could query the layout for splits and then process them in parallel.
-        //  For now, we just scan the entire layout with one mask.
-        //  Note that to implement this we would use stream::try_unfold
-        let stream = stream::once(async move {
-            // TODO(ngates): we should launch the evaluate_async onto a worker thread pool.
-            let row_range = 0..self.layout.row_count();
+                let thread_pool = thread_pool.clone();
+                let row_range = row_range.clone();
+                let scan = scan.clone();
+                let reader = reader.clone();
 
-            let eval = scan
-                .range_scan(row_range)?
-                .evaluate_async(|row_mask, expr| reader.evaluate_expr(row_mask, expr));
-            pin_mut!(eval);
-
-            poll_fn(|cx| {
-                // Now we alternate between polling the eval task and driving the I/O.
-                loop {
-                    if let Poll::Ready(array) = eval.try_poll_unpin(cx) {
-                        return Poll::Ready(array);
-                    }
-                    let drive = self.segments.drive();
-                    pin_mut!(drive);
-                    match drive.try_poll_unpin(cx) {
-                        Poll::Ready(_) => {}
-                        Poll::Pending => return Poll::Pending,
-                    }
+                // Launch the scan task onto the thread pool.
+                thread_pool.spawn_fifo(move || {
+                    let array_result =
+                        scan.range_scan(row_range).and_then(|range_scan| {
+                            block_on(range_scan.evaluate_async(|row_mask, expr| {
+                                reader.evaluate_expr(row_mask, expr)
+                            }))
+                        });
+                    send.send(array_result)
+                        .map_err(|_| VortexError::from(vortex_err!("send failed, recv dropped")))
+                        .vortex_expect("send_failed, recv dropped");
+                });
+                recv
+            })
+            .then(|recv| async move {
+                match recv.await {
+                    Ok(r) => r,
+                    Err(_cancelled) => Err(vortex_err!("recv failed, send dropped")),
                 }
             })
-            .await
+            // Make sure we have spawned as many row ranges as we have threads.
+            .buffered(threads);
+
+        // We also set up a stream that will drive the segment cache.
+        let driver = self.segments.driver();
+
+        let mut stream = stream::select(batches, driver);
+
+        let stream = stream::poll_fn(move |cx| {
+            pin_mut!(batches);
+
+            // Now we alternate between polling the batches stream and driving the I/O.
+            loop {
+                if let Poll::Ready(Some(array)) = batches.poll_next_unpin(cx) {
+                    return Poll::Ready(Some(array));
+                }
+
+                let drive = self.segments.drive();
+                pin_mut!(drive);
+                match drive.try_poll_unpin(cx) {
+                    Poll::Ready(_) => {}
+                    Poll::Pending => return Poll::Pending,
+                }
+            }
         });
 
         Ok(ArrayStreamAdapter::new(result_dtype, stream))
     }
+}
+
+struct SegmentDriver<B, R> {
+    batches: B,
+    segments: Arc<SegmentCache<R>>,
 }
