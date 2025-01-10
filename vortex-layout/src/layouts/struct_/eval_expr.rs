@@ -40,7 +40,7 @@ impl ExprEvaluator for StructReader {
         let pack = StructArray::try_new(
             result_field_name.into(),
             arrays,
-            row_count as usize,
+            usize::try_from(row_count)?,
             // TODO: handle validity
             Validity::NonNullable,
         )?;

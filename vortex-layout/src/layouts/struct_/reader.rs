@@ -1,6 +1,5 @@
 use std::sync::{Arc, OnceLock};
 
-use itertools::Itertools;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::ContextRef;
 use vortex_dtype::{DType, Field, FieldName};
@@ -8,7 +7,7 @@ use vortex_error::{vortex_err, vortex_panic, VortexResult};
 
 use crate::layouts::struct_::StructLayout;
 use crate::segments::AsyncSegmentReader;
-use crate::{LayoutData, LayoutEncoding, LayoutReader, LayoutReaderExt};
+use crate::{LayoutData, LayoutEncoding, LayoutReader};
 
 #[derive(Clone)]
 pub struct StructReader {
@@ -19,6 +18,7 @@ pub struct StructReader {
 
     field_readers: Arc<[OnceLock<Arc<dyn LayoutReader>>]>,
     field_lookup: HashMap<FieldName, usize>,
+    dt_lookup: Box<[DType]>,
 }
 
 impl StructReader {
@@ -45,6 +45,8 @@ impl StructReader {
             .map(|(i, name)| (name.clone(), i))
             .collect();
 
+        let dt_lookup = struct_dt.dtypes().collect();
+
         // This is where we need to do some complex things with the scan in order to split it into
         // different scans for different fields.
         Ok(Self {
@@ -53,6 +55,7 @@ impl StructReader {
             segments,
             field_readers,
             field_lookup,
+            dt_lookup,
         })
     }
 
@@ -66,10 +69,7 @@ impl StructReader {
             Field::Index(idx) => *idx,
         };
         self.field_readers[idx].get_or_try_init(|| {
-            let child_layout = self.layout.child(
-                idx,
-                self.dtype().as_struct().unwrap().dtypes().collect_vec()[idx].clone(),
-            )?;
+            let child_layout = self.layout.child(idx, self.dt_lookup[idx].clone())?;
             child_layout.reader(self.segments.clone(), self.ctx.clone())
         })
     }
