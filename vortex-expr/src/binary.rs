@@ -4,7 +4,7 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use vortex_array::compute::{and_kleene, compare, or_kleene, Operator as ArrayOperator};
-use vortex_array::{compute, ArrayData};
+use vortex_array::ArrayData;
 use vortex_error::VortexResult;
 
 use crate::{ExprRef, Operator, VortexExpr};
@@ -59,7 +59,6 @@ impl VortexExpr for BinaryExpr {
             Operator::Gte => compare(lhs, rhs, ArrayOperator::Gte),
             Operator::And => and_kleene(lhs, rhs),
             Operator::Or => or_kleene(lhs, rhs),
-            Operator::Add => compute::add(lhs, rhs),
         }
     }
 
@@ -257,8 +256,4 @@ pub fn or(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// ```
 pub fn and(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
     BinaryExpr::new_expr(lhs, Operator::And, rhs)
-}
-
-pub fn add(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
-    BinaryExpr::new_expr(lhs, Operator::Add, rhs)
 }

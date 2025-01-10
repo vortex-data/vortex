@@ -300,7 +300,7 @@ mod tests {
 
     use super::*;
     use crate::transform::expr_simplify::ExprSimplify;
-    use crate::{add, get_item, ident, lit, pack, Pack};
+    use crate::{and, get_item, ident, lit, pack, Pack};
 
     fn struct_dtype() -> StructDType {
         StructDType::new(
@@ -391,7 +391,7 @@ mod tests {
     fn test_expr_top_level_ref_get_item_add() {
         let dtype = struct_dtype();
 
-        let expr = add(get_item("b", get_item("a", ident())), lit(1));
+        let expr = and(get_item("b", get_item("a", ident())), lit(1));
         let (_, splits) = StructFieldExpressionSplitter::split(expr, &dtype).unwrap();
 
         // Whole expr is a single split
@@ -402,7 +402,7 @@ mod tests {
     fn test_expr_top_level_ref_get_item_add_cannot_split() {
         let dtype = struct_dtype();
 
-        let expr = add(
+        let expr = and(
             get_item("b", get_item("a", ident())),
             get_item("b", ident()),
         );

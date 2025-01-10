@@ -14,7 +14,6 @@ pub enum Operator {
     // boolean algebra
     And,
     Or,
-    Add,
 }
 
 impl Display for Operator {
@@ -28,7 +27,6 @@ impl Display for Operator {
             Operator::Lte => "<=",
             Operator::And => "and",
             Operator::Or => "or",
-            Operator::Add => "+",
         };
         Display::fmt(display, f)
     }
@@ -43,7 +41,7 @@ impl Operator {
             Operator::Gte => Some(Operator::Lt),
             Operator::Lt => Some(Operator::Gte),
             Operator::Lte => Some(Operator::Gt),
-            Operator::And | Operator::Or | Operator::Add => None,
+            Operator::And | Operator::Or => None,
         }
     }
 
@@ -58,7 +56,6 @@ impl Operator {
             Operator::Lte => Operator::Gte,
             Operator::And => Operator::And,
             Operator::Or => Operator::Or,
-            Operator::Add => Operator::Add,
         }
     }
 }

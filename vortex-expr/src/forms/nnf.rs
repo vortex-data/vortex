@@ -1,4 +1,4 @@
-use vortex_error::{vortex_panic, VortexResult};
+use vortex_error::VortexResult;
 
 use crate::traversal::{FoldChildren, FoldDown, FoldUp, FolderMut, Node as _};
 use crate::{not, BinaryExpr, ExprRef, Not, Operator};
@@ -115,7 +115,6 @@ impl FolderMut for NNFVisitor {
                     Operator::Lte => Operator::Gt,
                     Operator::And => Operator::Or,
                     Operator::Or => Operator::And,
-                    _ => vortex_panic!("Unexpected operator {:?}", binary_expr.op()),
                 };
                 let (lhs, rhs) = match binary_expr.op() {
                     Operator::Or | Operator::And => {
