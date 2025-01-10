@@ -5,6 +5,7 @@ use vortex_dtype::DType::Struct;
 use vortex_dtype::{DType, Field, FieldName, StructDType};
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 
+use crate::transform::field_type::FieldToNameTransform;
 use crate::traversal::{FoldChildren, FoldDown, FoldUp, Folder, FolderMut, Node};
 use crate::{get_item, ident, pack, ExprRef, GetItem, Identity, Select, SelectField};
 
@@ -14,8 +15,11 @@ type ExpressionSplits = HashMap<Field, (FieldName, ExprRef)>;
 /// ones containing only references to the corresponding field and an expression defined in terms of
 /// the n expression which combines them back into a single expression.
 fn split_expression(expr: ExprRef, dtype: &DType) -> VortexResult<(ExprRef, ExpressionSplits)> {
-    if let Struct(st_dt, _) = dtype {
-        StructFieldExpressionSplitter::split(expr, st_dt)
+    if let Struct(st_dt, _) = &dtype {
+        StructFieldExpressionSplitter::split(
+            FieldToNameTransform::transform(expr, dtype.clone())?,
+            st_dt,
+        )
     } else {
         Ok((expr, HashMap::new()))
     }
