@@ -3,7 +3,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use flatbuffers::{FlatBufferBuilder, Table, Verifiable, Verifier, VerifierOptions, WIPOffset};
+use flatbuffers::{FlatBufferBuilder, Follow, Verifiable, Verifier, VerifierOptions, WIPOffset};
 use vortex_array::ContextRef;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
@@ -13,7 +13,7 @@ use vortex_flatbuffers::{layout as fb, layout, FlatBufferRoot, WriteFlatBuffer};
 use crate::context::LayoutContextRef;
 use crate::encoding::{LayoutEncodingRef, LayoutId};
 use crate::reader::LayoutReader;
-use crate::segments::SegmentId;
+use crate::segments::{AsyncSegmentReader, SegmentId};
 
 /// [`LayoutData`] is the lazy equivalent to [`vortex_array::ArrayData`], providing a hierarchical
 /// structure.
@@ -50,10 +50,7 @@ struct ViewedLayoutData {
 impl ViewedLayoutData {
     /// Return the flatbuffer layout message.
     fn flatbuffer(&self) -> layout::Layout<'_> {
-        unsafe {
-            let tab = Table::new(self.flatbuffer.as_ref(), self.flatbuffer_loc);
-            layout::Layout::init_from_table(tab)
-        }
+        unsafe { layout::Layout::follow(self.flatbuffer.as_ref(), self.flatbuffer_loc) }
     }
 }
 
@@ -91,8 +88,7 @@ impl LayoutData {
         fb::Layout::run_verifier(&mut v, flatbuffer_loc)?;
 
         // SAFETY: we just verified the buffer contains a valid layout message.
-        let fb_layout =
-            unsafe { fb::Layout::init_from_table(Table::new(flatbuffer.as_ref(), flatbuffer_loc)) };
+        let fb_layout = unsafe { fb::Layout::follow(flatbuffer.as_ref(), flatbuffer_loc) };
         if fb_layout.encoding() != encoding.id().0 {
             vortex_bail!(
                 "Mismatched encoding, flatbuffer contains {}, given {}",
@@ -249,8 +245,12 @@ impl LayoutData {
     }
 
     /// Create a reader for this layout.
-    pub fn reader(&self, ctx: ContextRef) -> VortexResult<Arc<dyn LayoutReader + 'static>> {
-        self.encoding().reader(self.clone(), ctx)
+    pub fn reader(
+        &self,
+        segments: Arc<dyn AsyncSegmentReader>,
+        ctx: ContextRef,
+    ) -> VortexResult<Arc<dyn LayoutReader + 'static>> {
+        self.encoding().reader(self.clone(), ctx, segments)
     }
 
     /// Register splits for this layout.

@@ -7,13 +7,8 @@ pub use context::*;
 mod encoding;
 pub mod layouts;
 pub use encoding::*;
-mod row_mask;
-pub use row_mask::*;
-pub mod operations;
 mod reader;
 pub use reader::*;
-#[cfg(feature = "vortex-scan")]
-mod scan;
 pub mod segments;
 pub mod strategies;
 

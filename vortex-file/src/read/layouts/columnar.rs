@@ -293,6 +293,7 @@ impl LayoutReader for ColumnarLayoutReader {
                 .first()
                 .map(|l| l.len())
                 .unwrap_or_else(|| selection.true_count());
+
             let array =
                 StructArray::try_new(self.names.clone(), child_arrays, len, Validity::NonNullable)?
                     .into_array();

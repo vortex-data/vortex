@@ -1,7 +1,7 @@
 mod split_by;
 
 use std::io::Read;
-use std::ops::Range;
+use std::sync::Arc;
 
 use flatbuffers::root;
 use itertools::Itertools;
@@ -16,7 +16,7 @@ use vortex_layout::segments::SegmentId;
 use vortex_layout::{LayoutContextRef, LayoutData, LayoutId};
 
 use crate::v2::footer::{FileLayout, Postscript, Segment};
-use crate::v2::segments::SegmentCache;
+use crate::v2::segments::cache::SegmentCache;
 use crate::v2::VortexFile;
 use crate::{EOF_SIZE, MAGIC_BYTES, VERSION};
 
@@ -126,7 +126,7 @@ impl OpenOptions {
 
         // Set up our segment cache and for good measure, we populate any segments that were
         // covered by the initial read.
-        let mut segment_cache = SegmentCache::default();
+        let mut segment_cache = SegmentCache::<R>::new(read, file_layout.segments.clone());
         self.populate_segments(
             initial_offset,
             &initial_read,
@@ -135,15 +135,13 @@ impl OpenOptions {
         )?;
 
         // Compute the splits of the file.
-        let splits: Vec<Range<u64>> = self.split_by.splits(&file_layout.root_layout)?;
+        let splits = self.split_by.splits(&file_layout.root_layout)?.into();
 
         // Finally, create the VortexFile.
         Ok(VortexFile {
-            read,
             ctx: self.ctx.clone(),
             layout: file_layout.root_layout,
-            segments: file_layout.segments,
-            segment_cache,
+            segments: Arc::new(segment_cache),
             splits,
         })
     }
@@ -239,12 +237,12 @@ impl OpenOptions {
         })
     }
 
-    fn populate_segments(
+    fn populate_segments<R>(
         &self,
         initial_offset: u64,
         initial_read: &ByteBuffer,
         file_layout: &FileLayout,
-        segments: &mut SegmentCache,
+        segments: &mut SegmentCache<R>,
     ) -> VortexResult<()> {
         for (idx, segment) in file_layout.segments.iter().enumerate() {
             if segment.offset < initial_offset {
@@ -257,7 +255,7 @@ impl OpenOptions {
             let offset = usize::try_from(segment.offset - initial_offset)?;
             let bytes = initial_read.slice(offset..offset + segment.length);
 
-            segments.set(segment_id, bytes.into_inner());
+            segments.set(segment_id, bytes.into_inner())?;
         }
         Ok(())
     }

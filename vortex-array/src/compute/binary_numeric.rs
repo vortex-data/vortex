@@ -1,12 +1,9 @@
-use std::sync::Arc;
-
-use arrow_array::ArrayRef;
 use vortex_dtype::{DType, PType};
-use vortex_error::{vortex_bail, VortexError, VortexResult};
+use vortex_error::{vortex_bail, VortexError, VortexExpect, VortexResult};
 use vortex_scalar::{BinaryNumericOperator, Scalar};
 
 use crate::array::ConstantArray;
-use crate::arrow::{Datum, FromArrowArray};
+use crate::arrow::{from_arrow_array_with_len, Datum};
 use crate::encoding::Encoding;
 use crate::{ArrayDType, ArrayData, IntoArrayData as _};
 
@@ -121,21 +118,7 @@ pub fn binary_numeric(
     // Check if LHS supports the operation directly.
     if let Some(fun) = lhs.encoding().binary_numeric_fn() {
         if let Some(result) = fun.binary_numeric(lhs, rhs, op)? {
-            debug_assert_eq!(
-                result.len(),
-                lhs.len(),
-                "Numeric operation length mismatch {}",
-                lhs.encoding().id()
-            );
-            debug_assert_eq!(
-                result.dtype(),
-                &DType::Primitive(
-                    PType::try_from(lhs.dtype())?,
-                    (lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into()
-                ),
-                "Numeric operation dtype mismatch {}",
-                lhs.encoding().id()
-            );
+            check_numeric_result(&result, lhs, rhs);
             return Ok(result);
         }
     }
@@ -143,21 +126,7 @@ pub fn binary_numeric(
     // Check if RHS supports the operation directly.
     if let Some(fun) = rhs.encoding().binary_numeric_fn() {
         if let Some(result) = fun.binary_numeric(rhs, lhs, op.swap())? {
-            debug_assert_eq!(
-                result.len(),
-                lhs.len(),
-                "Numeric operation length mismatch {}",
-                rhs.encoding().id()
-            );
-            debug_assert_eq!(
-                result.dtype(),
-                &DType::Primitive(
-                    PType::try_from(lhs.dtype())?,
-                    (lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into()
-                ),
-                "Numeric operation dtype mismatch {}",
-                rhs.encoding().id()
-            );
+            check_numeric_result(&result, lhs, rhs);
             return Ok(result);
         }
     }
@@ -183,20 +152,43 @@ fn arrow_numeric(
     operator: BinaryNumericOperator,
 ) -> VortexResult<ArrayData> {
     let nullable = lhs.dtype().is_nullable() || rhs.dtype().is_nullable();
+    let len = lhs.len();
 
-    let lhs = Datum::try_from(lhs)?;
-    let rhs = Datum::try_from(rhs)?;
+    let left = unsafe { Datum::try_new(lhs.clone())? };
+    let right = unsafe { Datum::try_new(rhs.clone())? };
 
     let array = match operator {
-        BinaryNumericOperator::Add => arrow_arith::numeric::add(&lhs, &rhs)?,
-        BinaryNumericOperator::Sub => arrow_arith::numeric::sub(&lhs, &rhs)?,
-        BinaryNumericOperator::RSub => arrow_arith::numeric::sub(&rhs, &lhs)?,
-        BinaryNumericOperator::Mul => arrow_arith::numeric::mul(&lhs, &rhs)?,
-        BinaryNumericOperator::Div => arrow_arith::numeric::div(&lhs, &rhs)?,
-        BinaryNumericOperator::RDiv => arrow_arith::numeric::div(&rhs, &lhs)?,
+        BinaryNumericOperator::Add => arrow_arith::numeric::add(&left, &right)?,
+        BinaryNumericOperator::Sub => arrow_arith::numeric::sub(&left, &right)?,
+        BinaryNumericOperator::RSub => arrow_arith::numeric::sub(&right, &left)?,
+        BinaryNumericOperator::Mul => arrow_arith::numeric::mul(&left, &right)?,
+        BinaryNumericOperator::Div => arrow_arith::numeric::div(&left, &right)?,
+        BinaryNumericOperator::RDiv => arrow_arith::numeric::div(&right, &left)?,
     };
 
-    Ok(ArrayData::from_arrow(Arc::new(array) as ArrayRef, nullable))
+    let result = from_arrow_array_with_len(array, len, nullable)?;
+    check_numeric_result(&result, &lhs, &rhs);
+    Ok(result)
+}
+
+#[inline(always)]
+fn check_numeric_result(result: &ArrayData, lhs: &ArrayData, rhs: &ArrayData) {
+    debug_assert_eq!(
+        result.len(),
+        lhs.len(),
+        "Numeric operation length mismatch {}",
+        rhs.encoding().id()
+    );
+    debug_assert_eq!(
+        result.dtype(),
+        &DType::Primitive(
+            PType::try_from(lhs.dtype())
+                .vortex_expect("Numeric operation DType failed to convert to PType"),
+            (lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into()
+        ),
+        "Numeric operation dtype mismatch {}",
+        rhs.encoding().id()
+    );
 }
 
 #[cfg(feature = "test-harness")]

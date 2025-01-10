@@ -1226,3 +1226,31 @@ async fn test_simple_range_twice() {
         assert_eq!(row_count, 7);
     }
 }
+
+#[tokio::test]
+async fn roundtrip_row_count() {
+    let st = StructArray::try_new([].into(), [].into(), 2, Validity::AllValid).unwrap();
+
+    let buf = Vec::new();
+    let mut writer = VortexFileWriter::new(buf);
+    writer = writer
+        .write_array_columns(st.clone().into_array())
+        .await
+        .unwrap();
+    let written = Bytes::from(writer.finalize().await.unwrap());
+
+    let handle = VortexReadBuilder::new(written, LayoutDeserializer::default())
+        .build()
+        .await
+        .unwrap();
+
+    let read = handle
+        .into_stream()
+        .map(|a| a.unwrap())
+        .collect::<Vec<_>>()
+        .await;
+
+    let read_rows = read.iter().map(|a| a.len()).sum::<usize>();
+
+    assert_eq!(st.len(), read_rows);
+}

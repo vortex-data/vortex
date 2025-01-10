@@ -1,5 +1,6 @@
 use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
+use std::hash::Hash;
 use std::sync::Arc;
 
 use vortex_array::ArrayData;
@@ -8,7 +9,8 @@ use vortex_error::{vortex_err, VortexResult};
 
 use crate::{ExprRef, VortexExpr};
 
-#[derive(Debug, Clone, Eq)]
+#[derive(Debug, Clone, Eq, Hash)]
+#[allow(clippy::derived_hash_with_manual_eq)]
 pub struct GetItem {
     field: Field,
     child: ExprRef,
@@ -33,15 +35,6 @@ impl GetItem {
 
 pub fn get_item(field: impl Into<Field>, child: ExprRef) -> ExprRef {
     GetItem::new_expr(field, child)
-}
-
-impl PartialEq<dyn Any> for GetItem {
-    fn eq(&self, other: &dyn Any) -> bool {
-        other
-            .downcast_ref::<GetItem>()
-            .map(|item| self.field == item.field && self.child.eq(&item.child))
-            .unwrap_or(false)
-    }
 }
 
 impl Display for GetItem {

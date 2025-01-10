@@ -24,6 +24,7 @@ workspace = true
 [dependencies]
 datafusion-expr = { workspace = true, optional = true }
 datafusion-physical-expr = { workspace = true, optional = true }
+dyn-hash = { workspace = true }
 itertools = { workspace = true }
 prost = { workspace = true, optional = true }
 serde = { workspace = true, optional = true, features = ["derive"] }

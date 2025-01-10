@@ -12,7 +12,7 @@ use vortex_error::{VortexExpect, VortexResult};
 
 use crate::{expr_project, split_conjunction, ExprRef, VortexExpr};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RowFilter {
     pub(crate) conjunction: Vec<ExprRef>,
 }

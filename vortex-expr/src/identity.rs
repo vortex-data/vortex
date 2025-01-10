@@ -7,7 +7,7 @@ use vortex_error::VortexResult;
 
 use crate::{ExprRef, VortexExpr};
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub struct Identity;
 
 impl Identity {

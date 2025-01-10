@@ -1,11 +1,12 @@
 use core::fmt::Display;
 use std::cmp::Ordering;
+use std::hash::{Hash, Hasher};
 use std::mem;
 
 use num_traits::NumCast;
 use paste::paste;
 use vortex_dtype::half::f16;
-use vortex_dtype::{NativePType, PType};
+use vortex_dtype::{NativePType, PType, ToBytes};
 use vortex_error::{vortex_err, VortexError, VortexExpect};
 
 #[derive(Debug, Clone, Copy)]
@@ -57,6 +58,30 @@ impl PartialOrd for PValue {
             (Self::F32(s), Self::F32(o)) => Some(s.total_compare(*o)),
             (Self::F64(s), Self::F64(o)) => Some(s.total_compare(*o)),
             (..) => None,
+        }
+    }
+}
+
+impl Hash for PValue {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.to_le_bytes().hash(state);
+    }
+}
+
+impl ToBytes for PValue {
+    fn to_le_bytes(&self) -> &[u8] {
+        match self {
+            PValue::U8(v) => v.to_le_bytes(),
+            PValue::U16(v) => v.to_le_bytes(),
+            PValue::U32(v) => v.to_le_bytes(),
+            PValue::U64(v) => v.to_le_bytes(),
+            PValue::I8(v) => v.to_le_bytes(),
+            PValue::I16(v) => v.to_le_bytes(),
+            PValue::I32(v) => v.to_le_bytes(),
+            PValue::I64(v) => v.to_le_bytes(),
+            PValue::F16(v) => v.to_le_bytes(),
+            PValue::F32(v) => v.to_le_bytes(),
+            PValue::F64(v) => v.to_le_bytes(),
         }
     }
 }

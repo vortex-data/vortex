@@ -1,7 +1,9 @@
 use std::ops::Deref;
 
+use async_trait::async_trait;
 use bytes::Bytes;
 use vortex_array::ArrayData;
+use vortex_error::VortexResult;
 use vortex_ipc::messages::{EncoderMessage, MessageEncoder};
 
 /// The identifier for a single segment.
@@ -23,11 +25,12 @@ impl Deref for SegmentId {
     }
 }
 
-pub trait SegmentReader {
+#[async_trait]
+pub trait AsyncSegmentReader: Send + Sync {
     /// Attempt to get the data associated with a given segment ID.
     ///
     /// If the segment ID is not found, `None` is returned.
-    fn get(&self, id: SegmentId) -> Option<Bytes>;
+    async fn get(&self, id: SegmentId) -> VortexResult<Bytes>;
 }
 
 pub trait SegmentWriter {
@@ -45,45 +48,14 @@ pub trait SegmentWriter {
 
 #[cfg(test)]
 pub mod test {
-    use std::sync::Arc;
-
     use bytes::{Bytes, BytesMut};
-    use vortex_error::{vortex_panic, VortexExpect};
-    use vortex_expr::ExprRef;
+    use vortex_error::{vortex_err, VortexExpect};
 
     use super::*;
-    use crate::operations::Poll;
-    use crate::reader::LayoutReader;
-    use crate::segments::SegmentReader;
-    use crate::RowMask;
 
     #[derive(Default)]
     pub struct TestSegments {
         segments: Vec<Bytes>,
-    }
-
-    impl TestSegments {
-        pub fn evaluate(&self, reader: Arc<dyn LayoutReader>, expr: ExprRef) -> ArrayData {
-            let row_count = reader.layout().row_count();
-            let mut evaluator = reader
-                .create_evaluator(RowMask::new_valid_between(0, row_count), expr)
-                .vortex_expect("Failed to create scanner");
-            match evaluator
-                .poll(self)
-                .vortex_expect("Failed to poll evaluator")
-            {
-                Poll::Some(array) => array,
-                Poll::NeedMore(_segments) => {
-                    vortex_panic!("Layout requested more segments from TestSegments.")
-                }
-            }
-        }
-    }
-
-    impl SegmentReader for TestSegments {
-        fn get(&self, id: SegmentId) -> Option<Bytes> {
-            self.segments.get(*id as usize).cloned()
-        }
     }
 
     impl SegmentWriter for TestSegments {
@@ -96,6 +68,16 @@ pub mod test {
             }
             self.segments.push(buffer.freeze());
             id.into()
+        }
+    }
+
+    #[async_trait]
+    impl AsyncSegmentReader for TestSegments {
+        async fn get(&self, id: SegmentId) -> VortexResult<Bytes> {
+            self.segments
+                .get(*id as usize)
+                .cloned()
+                .ok_or_else(|| vortex_err!("Segment not found"))
         }
     }
 }

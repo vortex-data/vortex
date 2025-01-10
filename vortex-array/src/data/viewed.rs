@@ -2,6 +2,7 @@ use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 
 use enum_iterator::all;
+use flatbuffers::Follow;
 use itertools::Itertools;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
@@ -42,10 +43,7 @@ impl Debug for ViewedArrayData {
 
 impl ViewedArrayData {
     pub fn flatbuffer(&self) -> fb::Array {
-        unsafe {
-            let tab = flatbuffers::Table::new(self.flatbuffer.as_ref(), self.flatbuffer_loc);
-            fb::Array::init_from_table(tab)
-        }
+        unsafe { fb::Array::follow(self.flatbuffer.as_ref(), self.flatbuffer_loc) }
     }
 
     pub fn metadata_bytes(&self) -> Option<&[u8]> {

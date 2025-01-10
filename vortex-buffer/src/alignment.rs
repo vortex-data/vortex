@@ -7,7 +7,7 @@ use vortex_error::VortexExpect;
 ///
 /// This type is a wrapper around `usize` that ensures the alignment is a power of 2 and fits into
 /// a `u16`.
-#[derive(Clone, Debug, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Alignment(usize);
 
 impl Alignment {
