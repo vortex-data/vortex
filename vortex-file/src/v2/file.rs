@@ -10,14 +10,15 @@ use vortex_array::ContextRef;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_io::VortexReadAt;
-use vortex_layout::{ExprEvaluator, LayoutData, LayoutReader};
+use vortex_layout::{ExprEvaluator, LayoutReader};
 use vortex_scan::Scan;
 
+use crate::v2::footer::FileLayout;
 use crate::v2::segments::cache::SegmentCache;
 
 pub struct VortexFile<R> {
     pub(crate) ctx: ContextRef,
-    pub(crate) layout: LayoutData,
+    pub(crate) file_layout: FileLayout,
     pub(crate) segments: Arc<SegmentCache<R>>,
     // TODO(ngates): not yet used by the file reader
     #[allow(dead_code)]
@@ -26,23 +27,42 @@ pub struct VortexFile<R> {
 
 impl<R> VortexFile<R> {}
 
+/// When the underling `R` is `Clone`, we can clone the `VortexFile`.
+// TODO(ngates): remove Clone from VortexReadAt?
+impl<R: Clone> Clone for VortexFile<R> {
+    fn clone(&self) -> Self {
+        Self {
+            ctx: self.ctx.clone(),
+            file_layout: self.file_layout.clone(),
+            segments: self.segments.clone(),
+            splits: self.splits.clone(),
+        }
+    }
+}
+
 /// Async implementation of Vortex File.
 impl<R: VortexReadAt + Unpin> VortexFile<R> {
     /// Returns the number of rows in the file.
     pub fn row_count(&self) -> u64 {
-        self.layout.row_count()
+        self.file_layout.row_count()
     }
 
     /// Returns the DType of the file.
     pub fn dtype(&self) -> &DType {
-        self.layout.dtype()
+        self.file_layout.dtype()
     }
 
-    /// Performs a scan operation over the file.
-    pub fn scan(&self, scan: Arc<Scan>) -> VortexResult<impl ArrayStream + '_> {
+    /// Returns the [`FileLayout`] of the file.
+    pub fn file_layout(&self) -> &FileLayout {
+        &self.file_layout
+    }
+
+    /// Performs a scan operation over the file. (TODO(ngates): remove the `Send`)
+    pub fn scan(&self, scan: Arc<Scan>) -> VortexResult<impl ArrayStream + Send + '_> {
         // Create a shared reader for the scan.
         let reader: Arc<dyn LayoutReader> = self
-            .layout
+            .file_layout
+            .root_layout
             .reader(self.segments.clone(), self.ctx.clone())?;
         let result_dtype = scan.result_dtype(self.dtype())?;
         // For each row-group, we set up a future that will evaluate the scan and post its.
@@ -52,12 +72,13 @@ impl<R: VortexReadAt + Unpin> VortexFile<R> {
         //  Note that to implement this we would use stream::try_unfold
         let stream = stream::once(async move {
             // TODO(ngates): we should launch the evaluate_async onto a worker thread pool.
-            let row_range = 0..self.layout.row_count();
+            let row_range = 0..self.row_count();
 
             let eval = scan
                 .range_scan(row_range)?
                 .evaluate_async(|row_mask, expr| reader.evaluate_expr(row_mask, expr));
             pin_mut!(eval);
+            send(eval);
 
             poll_fn(|cx| {
                 // Now we alternate between polling the eval task and driving the I/O.
@@ -78,4 +99,8 @@ impl<R: VortexReadAt + Unpin> VortexFile<R> {
 
         Ok(ArrayStreamAdapter::new(result_dtype, stream))
     }
+}
+
+fn send<T: Send>(t: T) -> T {
+    t
 }

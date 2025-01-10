@@ -38,6 +38,7 @@ pub struct VortexOpenOptions {
     //  additional caching, metrics, or other intercepts, etc. It should support synchronous
     //  read + write of Map<MessageId, ByteBuffer> or similar.
     initial_read_size: u64,
+    /// Configure how to split the file into batches for reading.
     split_by: SplitBy,
 }
 
@@ -94,12 +95,13 @@ impl VortexOpenOptions {
     pub async fn open<R: VortexReadAt>(self, read: R) -> VortexResult<VortexFile<R>> {
         // If we already have the file layout, we can skip the initial read entirely.
         if let Some(file_layout) = self.file_layout {
+            let segments = Arc::new(SegmentCache::<R>::new(read, file_layout.segments.clone()));
+            let splits = self.split_by.splits(&file_layout.root_layout)?.into();
             return Ok(VortexFile {
-                read,
                 ctx: self.ctx.clone(),
-                layout: file_layout.root_layout,
-                segments: file_layout.segments,
-                segment_cache: Default::default(),
+                file_layout,
+                segments,
+                splits,
             });
         }
 
@@ -169,7 +171,7 @@ impl VortexOpenOptions {
         // Finally, create the VortexFile.
         Ok(VortexFile {
             ctx: self.ctx.clone(),
-            layout: file_layout.root_layout,
+            file_layout,
             segments: Arc::new(segment_cache),
             splits,
         })

@@ -7,13 +7,13 @@ use datafusion_common::Result as DFResult;
 use datafusion_physical_expr::PhysicalExpr;
 use futures::{FutureExt as _, StreamExt, TryStreamExt};
 use object_store::ObjectStore;
-use vortex_array::{ContextRef, IntoArrayData, IntoArrayVariant};
-use vortex_dtype::field::Field;
+use vortex_array::ContextRef;
+use vortex_dtype::Field;
 use vortex_expr::datafusion::convert_expr_to_vortex;
-use vortex_expr::Identity;
+use vortex_expr::{Identity, Select, SelectField};
 use vortex_file::v2::VortexOpenOptions;
 use vortex_io::ObjectStoreReadAt;
-use vortex_layout::scanner::Scan;
+use vortex_scan::Scan;
 
 use super::cache::FileLayoutCache;
 
@@ -31,22 +31,32 @@ impl FileOpener for VortexFileOpener {
     fn open(&self, file_meta: FileMeta) -> DFResult<FileOpenFuture> {
         let this = self.clone();
 
-        // FIXME(ngates): figure out how to map the column index projection into a projection expression.
-        //  For now, we select columns later.
-        let projection = Identity::new_expr();
-        let scan = Scan {
+        // Construct the projection expression based on the DataFusion projection mask.
+        // Each index in the mask corresponds to the field position of the root DType.
+        let projection = self
+            .projection
+            .as_ref()
+            .map(|fields| {
+                Select::new_expr(
+                    SelectField::Include(fields.iter().map(|idx| Field::Index(*idx)).collect()),
+                    Identity::new_expr(),
+                )
+            })
+            .unwrap_or_else(|| Identity::new_expr());
+
+        let scan = Scan::new(
             projection,
-            filter: self
-                .predicate
+            self.predicate
                 .as_ref()
                 .map(|expr| convert_expr_to_vortex(expr.clone()))
                 .transpose()?,
-        };
+        )
+        .into_arc();
+
+        let read_at =
+            ObjectStoreReadAt::new(this.object_store.clone(), file_meta.location().clone());
 
         Ok(async move {
-            let read_at =
-                ObjectStoreReadAt::new(this.object_store.clone(), file_meta.location().clone());
-
             let vxf = VortexOpenOptions::new(this.ctx.clone())
                 .with_file_size(file_meta.object_meta.size as u64)
                 .with_file_layout(
@@ -57,20 +67,8 @@ impl FileOpener for VortexFileOpener {
                 .open(read_at)
                 .await?;
 
-            let vortex_projection: Option<Vec<Field>> = this
-                .projection
-                .map(|p| p.iter().map(|idx| Field::Index(*idx)).collect());
-
             Ok(vxf
                 .scan(scan)?
-                .map_ok(move |array| {
-                    if let Some(projection) = &vortex_projection {
-                        Ok(array.into_struct()?.project(&projection)?.into_array())
-                    } else {
-                        Ok(array)
-                    }
-                })
-                .map(|r| r.and_then(|inner| inner))
                 .map_ok(RecordBatch::try_from)
                 .map(|r| r.and_then(|inner| inner))
                 .map_err(|e| e.into())

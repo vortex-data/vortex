@@ -53,7 +53,7 @@ impl FileLayoutCache {
                 let vxf = VortexOpenOptions::new(ContextRef::default())
                     .open(os_read_at)
                     .await?;
-                VortexResult::Ok(vxf.file_layout())
+                VortexResult::Ok(vxf.file_layout().clone())
             })
             .await
             .map_err(|e: Arc<VortexError>| match Arc::try_unwrap(e) {
