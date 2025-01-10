@@ -17,8 +17,7 @@ pub fn split_expression(expr: ExprRef, dtype: &DType) -> VortexResult<(ExprRef, 
     if let Struct(st_dt, _) = dtype {
         StructFieldExpressionSplitter::split(expr, st_dt)
     } else {
-        panic!("dtype is not a struct");
-        // Ok((expr, HashMap::new()))
+        Ok((expr, HashMap::new()))
     }
 }
 

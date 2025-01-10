@@ -18,26 +18,13 @@ impl ExprEvaluator for StructReader {
     async fn evaluate_expr(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<ArrayData> {
         // TODO: apply validity mask to row_mask
 
-        // Compute the result dtype of the expression.
-        // let dtype = expr
-        //     .evaluate(&Canonical::empty(self.dtype())?.into_array())?
-        //     .dtype()
-        //     .clone();
-
         let (combine_expr, expr_split) = split_expression(expr, self.dtype())?;
-
-        println!("comb {:?}", combine_expr);
-        println!("expr split {:?}", expr_split);
 
         let mut results = Vec::with_capacity(expr_split.len());
         let mut result_field_name = Vec::with_capacity(expr_split.len());
 
         for (field, (res, expr)) in &expr_split {
-            // check if the field exists
-            // chunks.push(chunk_reader.evaluate_expr(chunk_mask, expr).boxed_local());
-
             result_field_name.push(res.clone());
-
             results.push(
                 self.child(field)?
                     .evaluate_expr(row_mask.clone(), expr.clone())
@@ -48,7 +35,6 @@ impl ExprEvaluator for StructReader {
         let arrays = try_join_all(results).await?;
 
         let row_count = self.layout().row_count();
-
         assert!(arrays.iter().all(|a| a.len() as u64 == row_count));
 
         let pack = StructArray::try_new(
@@ -60,6 +46,7 @@ impl ExprEvaluator for StructReader {
         )?;
 
         // Now we need to evaluate the expression
+        // TODO: apply validity mask to result
         combine_expr.evaluate(&pack.into_array())
     }
 }
@@ -126,8 +113,8 @@ mod tests {
             reader.evaluate_expr(RowMask::new_valid_between(0, 3), expr),
         )
         .unwrap();
-        println!(
-            "res {:?}",
+        assert_eq!(
+            vec![true, false, false],
             result
                 .into_bool()
                 .unwrap()
