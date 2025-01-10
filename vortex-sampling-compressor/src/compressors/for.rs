@@ -22,6 +22,10 @@ impl EncodingCompressor for FoRCompressor {
         constants::FOR_COST
     }
 
+    fn decompression_gib_per_second(&self) -> f64 {
+        constants::FOR_GIB_PER_S
+    }
+
     fn can_compress(&self, array: &Array) -> Option<&dyn EncodingCompressor> {
         // Only support primitive arrays
         let parray = PrimitiveArray::maybe_from(array)?;

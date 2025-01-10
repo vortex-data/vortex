@@ -17,7 +17,7 @@ use vortex_error::{VortexExpect as _, VortexResult};
 
 use super::compressors::chunked::DEFAULT_CHUNKED_COMPRESSOR;
 use super::compressors::struct_::StructCompressor;
-use super::{CompressConfig, Objective, DEFAULT_COMPRESSORS};
+use super::{CompressConfig, DEFAULT_COMPRESSORS};
 use crate::compressors::constant::ConstantCompressor;
 use crate::compressors::{CompressedArray, CompressionTree, CompressorRef, EncodingCompressor};
 use crate::downscale::downscale_integer_array;
@@ -285,8 +285,10 @@ pub(crate) fn find_best_compression<'a>(
     sample: &Array,
     ctx: &SamplingCompressor<'a>,
 ) -> VortexResult<CompressedArray<'a>> {
+    let objective = ctx.options().objective;
+
     let mut best = None;
-    let mut best_objective = ctx.options().objective.starting_value();
+    let mut best_objective_val = objective.starting_value();
     let mut best_objective_ratio = 1.0;
     // for logging
     let mut best_compression_ratio = 1.0;
@@ -306,7 +308,7 @@ pub(crate) fn find_best_compression<'a>(
             compression.compress(sample, None, ctx.for_compressor(compression))?;
 
         let ratio = (compressed_sample.nbytes() as f64) / (sample.nbytes() as f64);
-        let objective = Objective::evaluate(&compressed_sample, sample.nbytes(), ctx.options());
+        let objective = objective.evaluate(&compressed_sample, sample.nbytes());
 
         // track the compression ratio, just for logging
         if ratio < best_compression_ratio {
@@ -314,14 +316,14 @@ pub(crate) fn find_best_compression<'a>(
 
             // if we find one with a better compression ratio but worse objective value, save it
             // for debug logging later.
-            if ratio < best_objective_ratio && objective >= best_objective {
+            if ratio < best_objective_ratio && objective >= best_objective_val {
                 best_compression_ratio_sample = Some(compressed_sample.clone());
             }
         }
 
         // don't consider anything that compresses to be *larger* than uncompressed
-        if objective < best_objective && ratio < 1.0 {
-            best_objective = objective;
+        if objective < best_objective_val && ratio < 1.0 {
+            best_objective_val = objective;
             best_objective_ratio = ratio;
             best = Some(compressed_sample);
         }
@@ -333,7 +335,7 @@ pub(crate) fn find_best_compression<'a>(
             ratio,
             objective,
             best_compression_ratio,
-            best_objective
+            best_objective_val
         );
     }
 
@@ -344,7 +346,7 @@ pub(crate) fn find_best_compression<'a>(
         log::debug!(
             "{} best objective fn value ({}) has ratio {} from {}",
             ctx,
-            best_objective,
+            best_objective_val,
             best_compression_ratio,
             best.array().tree_display()
         );
@@ -352,7 +354,7 @@ pub(crate) fn find_best_compression<'a>(
             "{} best ratio ({}) has objective fn value {} from {}",
             ctx,
             best_compression_ratio,
-            best_objective,
+            best_objective_val,
             best_ratio_sample.array().tree_display()
         );
     }
@@ -361,7 +363,7 @@ pub(crate) fn find_best_compression<'a>(
         "{} best compression ({} bytes, {} objective fn value, {} compression ratio",
         ctx,
         best.nbytes(),
-        best_objective,
+        best_objective_val,
         best_compression_ratio,
     );
 

@@ -19,6 +19,10 @@ impl EncodingCompressor for ListCompressor {
         constants::LIST_COST
     }
 
+    fn decompression_gib_per_second(&self) -> f64 {
+        constants::LIST_GIB_PER_S
+    }
+
     fn can_compress(&self, array: &Array) -> Option<&dyn EncodingCompressor> {
         array.is_encoding(ListEncoding::ID).then_some(self)
     }

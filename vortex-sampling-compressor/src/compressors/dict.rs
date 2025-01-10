@@ -20,6 +20,10 @@ impl EncodingCompressor for DictCompressor {
         constants::DICT_COST
     }
 
+    fn decompression_gib_per_second(&self) -> f64 {
+        constants::DICT_GIB_PER_S
+    }
+
     fn can_compress(&self, array: &Array) -> Option<&dyn EncodingCompressor> {
         if !array.is_encoding(PrimitiveEncoding::ID)
             && !array.is_encoding(VarBinEncoding::ID)

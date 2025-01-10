@@ -103,23 +103,69 @@ pub static ALL_ENCODINGS_CONTEXT: LazyLock<ContextRef> = LazyLock::new(|| {
     ]))
 });
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
+pub struct FastScanConfig {
+    /// Compression ratio to assume when calculating decompression time
+    assumed_compression_ratio: f64,
+}
+
+impl Default for FastScanConfig {
+    fn default() -> Self {
+        Self {
+            assumed_compression_ratio: 10.0, // 10:1 ratio of uncompressed data size to compressed data size
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
 pub enum Objective {
+    /// Minimize the size of the compressed array
     MinSize,
+    /// Minimize the time (download + decompression) to scan the full compressed array
+    /// Put another way: maximize scan throughput
+    FastScan(FastScanConfig),
+}
+
+impl Default for Objective {
+    fn default() -> Self {
+        Self::FastScan(FastScanConfig::default())
+    }
 }
 
 impl Objective {
     pub fn starting_value(&self) -> f64 {
-        1.0
+        match self {
+            // if we're minimizing size, we should never choose a worse compression ratio than "uncompressed"
+            Objective::MinSize => 1.0,
+            Objective::FastScan(_) => 0.0,
+        }
     }
 
-    pub fn evaluate(
-        array: &CompressedArray,
-        base_size_bytes: usize,
-        config: &CompressConfig,
-    ) -> f64 {
-        match &config.objective {
-            Objective::MinSize => (array.nbytes() as f64) / (base_size_bytes as f64),
+    pub fn evaluate(&self, array: &CompressedArray, base_size_bytes: usize) -> f64 {
+        let size_in_bytes = array.nbytes() as u64;
+        match self {
+            Objective::MinSize => (size_in_bytes as f64) / (base_size_bytes as f64),
+            Objective::FastScan(config) => {
+                let decompression_time =
+                    array.decompression_time_ms(config.assumed_compression_ratio);
+                if size_in_bytes >= base_size_bytes as u64 {
+                    return 0.0;
+                }
+                assert!(decompression_time > 0.0);
+
+                // get throughput in GiB/s
+                const BYTES_PER_GIB: f64 = (1 << 30) as f64;
+                const MS_PER_SEC: f64 = 1000.0;
+                let tput =
+                    (base_size_bytes as f64 * MS_PER_SEC) / (decompression_time * BYTES_PER_GIB);
+
+                // adding 1.0 to the throughput guarantees that the log2 will be positive
+                let obj = (1.0 + tput).log2() * ((base_size_bytes as u64 - size_in_bytes) as f64);
+                assert!(obj.is_finite() && obj.is_sign_positive());
+
+                // because we minimize the objective, we need to negate it
+                -obj
+            }
         }
     }
 }
@@ -154,6 +200,11 @@ impl CompressConfig {
         self.sample_count = sample_count;
         self
     }
+
+    pub fn with_objective(mut self, objective: Objective) -> Self {
+        self.objective = objective;
+        self
+    }
 }
 
 impl Default for CompressConfig {
@@ -165,7 +216,7 @@ impl Default for CompressConfig {
             sample_size: 64,
             sample_count: 16,
             max_cost: constants::DEFAULT_MAX_COST,
-            objective: Objective::MinSize,
+            objective: Objective::default(),
             target_block_bytesize: 16 * mib,
             target_block_size: 64 * kib,
             rng_seed: 0,
