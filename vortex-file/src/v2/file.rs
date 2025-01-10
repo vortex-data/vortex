@@ -120,13 +120,13 @@ where
         loop {
             // If the row group driver is ready, then we can return the result.
             if let Poll::Ready(r) = this.row_group_driver.try_poll_next_unpin(cx) {
-                println!("row_group_driver ready {}", r.is_some());
                 return Poll::Ready(r);
             }
-            // Otherwise, we continue to poll the I/O driver.
-            match this.io_driver.try_poll_next_unpin(cx) {
-                Poll::Ready(r) => { /* we've reached the end of an I/O iteration */ }
-                Poll::Pending => return Poll::Pending,
+            // Otherwise, we try to poll the I/O driver.
+            // If the I/O driver is not ready, then we return Pending and wait for I/
+            // to wake up the driver.
+            if let Poll::Pending = this.io_driver.as_mut().poll_next(cx) {
+                return Poll::Pending;
             }
         }
     }

@@ -56,8 +56,11 @@ impl<R: VortexReadAt + Unpin> SegmentCache<R> {
         self,
     ) -> impl Stream<Item = impl Future<Output = VortexResult<()>>> + 'static {
         self.request_recv
-            // Grab up to 32 requests at a time, provided they're already in the stream.
-            .ready_chunks(32)
+            // The more chunks we grab, the better visibility we have to perform coalescing.
+            // Since we know this stream is finite (number of segments in the file), then we
+            // can just shove in a very high capacity. Rest assured the internal Vec is not
+            // pre-allocated with this capacity.
+            .ready_chunks(100_000)
             // TODO(ngates): now we should flat_map the requests to split them into coalesced
             //  read operations.
             .flat_map(|requests| stream::iter(requests))
