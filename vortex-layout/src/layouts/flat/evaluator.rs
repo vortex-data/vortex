@@ -29,7 +29,7 @@ impl AsyncEvaluator for FlatReader {
             buffers
                 .pop()
                 .ok_or_else(|| vortex_err!("Flat message missing"))?
-                .clone(),
+                ,
         )?;
 
         let row_count = usize::try_from(self.layout().row_count())
