@@ -206,3 +206,13 @@ impl<R: VortexReadAt + Unpin> VortexReadBuilder<R> {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use vortex_io::TokioFile;
+
+    #[tokio::test]
+    async fn test_async() {
+        let file = TokioFile::open("");
+    }
+}
