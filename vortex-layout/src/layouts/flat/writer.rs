@@ -39,6 +39,9 @@ impl LayoutWriter for FlatLayoutWriter {
         let mut segment_ids = vec![];
         for child in chunk.depth_first_traversal() {
             for buffer in child.byte_buffers() {
+                // TODO(ngates): decide a way of splitting buffers if they exceed u32 size.
+                //  We could write empty segments either side of buffers to concatenate?
+                //  Or we could use Layout::metadata to store this information.
                 segment_ids.push(segments.put(buffer));
             }
         }

@@ -183,7 +183,7 @@ impl OpenOptions {
     ) -> VortexResult<DType> {
         let offset = usize::try_from(dtype.offset - initial_offset)?;
         let sliced_buffer =
-            FlatBuffer::align_from(initial_read.slice(offset..offset + dtype.length));
+            FlatBuffer::align_from(initial_read.slice(offset..offset + (dtype.length as usize)));
         let fbd_dtype = root::<fbd::DType>(&sliced_buffer)?;
 
         DType::try_from_view(fbd_dtype, sliced_buffer.clone())
@@ -198,7 +198,7 @@ impl OpenOptions {
         dtype: DType,
     ) -> VortexResult<FileLayout> {
         let offset = usize::try_from(segment.offset - initial_offset)?;
-        let bytes = initial_read.slice(offset..offset + segment.length);
+        let bytes = initial_read.slice(offset..offset + (segment.length as usize));
 
         let fb = root::<fb::FileLayout>(&bytes)?;
         let fb_root_layout = fb
@@ -228,7 +228,7 @@ impl OpenOptions {
             .ok_or_else(|| vortex_err!("FileLayout missing segments"))?;
         let segments = fb_segments
             .iter()
-            .map(|s| Segment::read_flatbuffer(&s))
+            .map(|s| Segment::try_from(s))
             .try_collect()?;
 
         Ok(FileLayout {
@@ -253,7 +253,7 @@ impl OpenOptions {
             let segment_id = SegmentId::from(u32::try_from(idx)?);
 
             let offset = usize::try_from(segment.offset - initial_offset)?;
-            let buffer = initial_read.slice(offset..offset + segment.length);
+            let buffer = initial_read.slice(offset..offset + (segment.length as usize));
 
             segments.set(segment_id, buffer)?;
         }

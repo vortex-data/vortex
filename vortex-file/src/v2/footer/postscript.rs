@@ -19,13 +19,13 @@ impl WriteFlatBuffer for Postscript {
         &self,
         fbb: &mut flatbuffers::FlatBufferBuilder<'fb>,
     ) -> flatbuffers::WIPOffset<Self::Target<'fb>> {
-        let dtype = self.dtype.write_flatbuffer(fbb);
-        let file_layout = self.file_layout.write_flatbuffer(fbb);
+        let dtype = fb::Segment::from(&self.dtype);
+        let file_layout = fb::Segment::from(&self.file_layout);
         fb::Postscript::create(
             fbb,
             &fb::PostscriptArgs {
-                dtype: Some(dtype),
-                file_layout: Some(file_layout),
+                dtype: Some(&dtype),
+                file_layout: Some(&file_layout),
             },
         )
     }
@@ -39,12 +39,12 @@ impl ReadFlatBuffer for Postscript {
         fb: &<Self::Source<'buf> as Follow<'buf>>::Inner,
     ) -> Result<Self, Self::Error> {
         Ok(Self {
-            dtype: Segment::read_flatbuffer(
-                &fb.dtype()
+            dtype: Segment::try_from(
+                fb.dtype()
                     .ok_or_else(|| vortex_err!("Postscript missing dtype segment"))?,
             )?,
-            file_layout: Segment::read_flatbuffer(
-                &fb.file_layout()
+            file_layout: Segment::try_from(
+                fb.file_layout()
                     .ok_or_else(|| vortex_err!("Postscript missing file_layout segment"))?,
             )?,
         })

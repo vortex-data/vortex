@@ -34,8 +34,8 @@ impl BufferedSegmentWriter {
             write.write_all(buffer.into_inner()).await?;
             segments.push(Segment {
                 offset,
-                length: usize::try_from(write.position() - offset)
-                    .map_err(|_| vortex_err!("segment length exceeds maximum usize"))?,
+                length: u32::try_from(write.position() - offset)
+                    .map_err(|_| vortex_err!("segment length exceeds maximum u32"))?,
                 alignment,
             });
         }
