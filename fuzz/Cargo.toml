@@ -19,6 +19,7 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = { workspace = true }
+arrow-ord = { workspace = true }
 arrow-buffer = { workspace = true }
 bytes = { workspace = true }
 futures-util = { workspace = true }

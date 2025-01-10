@@ -5153,6 +5153,7 @@ name = "vortex-fuzz"
 version = "0.21.1"
 dependencies = [
  "arrow-buffer",
+ "arrow-ord",
  "bytes",
  "futures-util",
  "libfuzzer-sys",

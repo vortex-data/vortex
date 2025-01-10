@@ -1,11 +1,14 @@
 #![no_main]
 
+use arrow_buffer::BooleanBufferBuilder;
+use arrow_ord::ord::make_comparator;
+use arrow_ord::sort::SortOptions;
 use bytes::Bytes;
 use futures_util::StreamExt;
 use libfuzzer_sys::{fuzz_target, Corpus};
 use vortex_array::array::ChunkedArray;
 use vortex_array::compute::{compare, Operator};
-use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant};
+use vortex_array::{ArrayDType, ArrayData, IntoArrayData, IntoArrayVariant, IntoCanonical};
 use vortex_file::{LayoutDeserializer, VortexFileWriter, VortexReadBuilder};
 
 fuzz_target!(|array_data: ArrayData| -> Corpus {
@@ -45,16 +48,48 @@ fuzz_target!(|array_data: ArrayData| -> Corpus {
 
         assert_eq!(array_data.len(), output.len(), "Length was not preserved.");
 
-        let cmp_result = compare(&array_data, output, Operator::Eq).unwrap();
-
-        let true_count = cmp_result
-            .into_bool()
-            .unwrap()
-            .boolean_buffer()
-            .count_set_bits();
-
-        assert_eq!(array_data.len(), true_count)
+        if array_data.dtype().is_struct() {
+            let cmp_result = compare_struct(array_data, output);
+            assert!(cmp_result)
+        } else {
+            let r = compare(&array_data, output, Operator::Eq).unwrap();
+            let true_count = r.into_bool().unwrap().boolean_buffer().count_set_bits();
+            assert_eq!(true_count, array_data.len());
+        }
     });
 
     Corpus::Keep
 });
+
+fn compare_struct(lhs: ArrayData, rhs: ArrayData) -> bool {
+    assert!(lhs.dtype().eq_ignore_nullability(rhs.dtype()));
+    assert_eq!(lhs.len(), rhs.len());
+
+    if lhs.dtype().as_struct().unwrap().names().len() == 0
+        && lhs.dtype().as_struct().unwrap().names().len()
+            == rhs.dtype().as_struct().unwrap().names().len()
+    {
+        return true;
+    }
+
+    let arrow_lhs = lhs.clone().into_arrow().unwrap();
+    let arrow_rhs = rhs.clone().into_arrow().unwrap();
+
+    let cmp_fn = make_comparator(&arrow_lhs, &arrow_rhs, SortOptions::default()).unwrap();
+
+    let mut bool_builder = BooleanBufferBuilder::new(arrow_lhs.len());
+
+    for idx in 0..arrow_lhs.len() {
+        bool_builder.append(cmp_fn(idx, idx).is_eq());
+    }
+
+    let cmp_result = bool_builder.finish().count_set_bits() == arrow_lhs.len();
+
+    if !cmp_result {
+        eprintln!("LHS {}", lhs.tree_display());
+        println!("");
+        eprintln!("RHS {}", rhs.tree_display());
+    }
+
+    cmp_result
+}
