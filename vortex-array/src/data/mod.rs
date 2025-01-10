@@ -192,7 +192,7 @@ impl ArrayData {
     /// Return whether the array is constant.
     pub fn is_constant(&self) -> bool {
         self.statistics()
-            .get_as::<bool>(Stat::IsConstant)
+            .compute_as::<bool>(Stat::IsConstant)
             .unwrap_or(false)
     }
 

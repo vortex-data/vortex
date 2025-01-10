@@ -58,6 +58,22 @@ impl Alignment {
         // of trailing zeros in the binary representation of the alignment is greater or equal.
         self.0.trailing_zeros() >= other.0.trailing_zeros()
     }
+
+    /// Returns the log2 of the alignment.
+    pub fn exponent(&self) -> u8 {
+        u8::try_from(self.0.trailing_zeros())
+            .vortex_expect("alignment fits into u16, so exponent fits in u7")
+    }
+
+    /// Create from the log2 exponent of the alignment.
+    ///
+    /// ## Panics
+    ///
+    /// Panics if `alignment` is not a power of 2, or is greater than `u16::MAX`.
+    #[inline]
+    pub const fn from_exponent(exponent: u8) -> Self {
+        Self::new(1 << exponent)
+    }
 }
 
 impl Display for Alignment {
@@ -118,6 +134,13 @@ mod test {
     #[should_panic]
     fn alignment_not_power_of_two() {
         Alignment::new(3);
+    }
+
+    #[test]
+    fn alignment_exponent() {
+        let alignment = Alignment::new(1024);
+        assert_eq!(alignment.exponent(), 10);
+        assert_eq!(Alignment::from_exponent(10), alignment);
     }
 
     #[test]

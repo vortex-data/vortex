@@ -10,121 +10,231 @@ use core::cmp::Ordering;
 extern crate flatbuffers;
 use self::flatbuffers::{EndianScalar, Follow};
 
-pub enum SegmentOffset {}
-#[derive(Copy, Clone, PartialEq)]
-
 /// A `Segment` acts as the locator for a buffer within the file.
-pub struct Segment<'a> {
-  pub _tab: flatbuffers::Table<'a>,
+// struct Segment, aligned to 8
+#[repr(transparent)]
+#[derive(Clone, Copy, PartialEq)]
+pub struct Segment(pub [u8; 16]);
+impl Default for Segment { 
+  fn default() -> Self { 
+    Self([0; 16])
+  }
+}
+impl core::fmt::Debug for Segment {
+  fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    f.debug_struct("Segment")
+      .field("offset", &self.offset())
+      .field("length", &self.length())
+      .field("alignment_exponent", &self.alignment_exponent())
+      .field("_compression", &self._compression())
+      .field("_encryption", &self._encryption())
+      .finish()
+  }
 }
 
-impl<'a> flatbuffers::Follow<'a> for Segment<'a> {
-  type Inner = Segment<'a>;
+impl flatbuffers::SimpleToVerifyInSlice for Segment {}
+impl<'a> flatbuffers::Follow<'a> for Segment {
+  type Inner = &'a Segment;
   #[inline]
   unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-    Self { _tab: flatbuffers::Table::new(buf, loc) }
+    <&'a Segment>::follow(buf, loc)
   }
 }
-
-impl<'a> Segment<'a> {
-  pub const VT_OFFSET: flatbuffers::VOffsetT = 4;
-  pub const VT_LENGTH: flatbuffers::VOffsetT = 6;
-
+impl<'a> flatbuffers::Follow<'a> for &'a Segment {
+  type Inner = &'a Segment;
   #[inline]
-  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
-    Segment { _tab: table }
-  }
-  #[allow(unused_mut)]
-  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
-    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
-    args: &'args SegmentArgs
-  ) -> flatbuffers::WIPOffset<Segment<'bldr>> {
-    let mut builder = SegmentBuilder::new(_fbb);
-    builder.add_length(args.length);
-    builder.add_offset(args.offset);
-    builder.finish()
-  }
-
-
-  #[inline]
-  pub fn offset(&self) -> u64 {
-    // Safety:
-    // Created from valid Table for this object
-    // which contains a valid value in this slot
-    unsafe { self._tab.get::<u64>(Segment::VT_OFFSET, Some(0)).unwrap()}
-  }
-  #[inline]
-  pub fn length(&self) -> u64 {
-    // Safety:
-    // Created from valid Table for this object
-    // which contains a valid value in this slot
-    unsafe { self._tab.get::<u64>(Segment::VT_LENGTH, Some(0)).unwrap()}
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    flatbuffers::follow_cast_ref::<Segment>(buf, loc)
   }
 }
+impl<'b> flatbuffers::Push for Segment {
+    type Output = Segment;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        let src = ::core::slice::from_raw_parts(self as *const Segment as *const u8, <Self as flatbuffers::Push>::size());
+        dst.copy_from_slice(src);
+    }
+    #[inline]
+    fn alignment() -> flatbuffers::PushAlignment {
+        flatbuffers::PushAlignment::new(8)
+    }
+}
 
-impl flatbuffers::Verifiable for Segment<'_> {
+impl<'a> flatbuffers::Verifiable for Segment {
   #[inline]
   fn run_verifier(
     v: &mut flatbuffers::Verifier, pos: usize
   ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
     use self::flatbuffers::Verifiable;
-    v.visit_table(pos)?
-     .visit_field::<u64>("offset", Self::VT_OFFSET, false)?
-     .visit_field::<u64>("length", Self::VT_LENGTH, false)?
-     .finish();
-    Ok(())
-  }
-}
-pub struct SegmentArgs {
-    pub offset: u64,
-    pub length: u64,
-}
-impl<'a> Default for SegmentArgs {
-  #[inline]
-  fn default() -> Self {
-    SegmentArgs {
-      offset: 0,
-      length: 0,
-    }
+    v.in_buffer::<Self>(pos)
   }
 }
 
-pub struct SegmentBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
-  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
-  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
-}
-impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> SegmentBuilder<'a, 'b, A> {
-  #[inline]
-  pub fn add_offset(&mut self, offset: u64) {
-    self.fbb_.push_slot::<u64>(Segment::VT_OFFSET, offset, 0);
+impl<'a> Segment {
+  #[allow(clippy::too_many_arguments)]
+  pub fn new(
+    offset: u64,
+    length: u32,
+    alignment_exponent: u8,
+    _compression: u8,
+    _encryption: u16,
+  ) -> Self {
+    let mut s = Self([0; 16]);
+    s.set_offset(offset);
+    s.set_length(length);
+    s.set_alignment_exponent(alignment_exponent);
+    s.set__compression(_compression);
+    s.set__encryption(_encryption);
+    s
   }
-  #[inline]
-  pub fn add_length(&mut self, length: u64) {
-    self.fbb_.push_slot::<u64>(Segment::VT_LENGTH, length, 0);
+
+  pub fn offset(&self) -> u64 {
+    let mut mem = core::mem::MaybeUninit::<<u64 as EndianScalar>::Scalar>::uninit();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    EndianScalar::from_little_endian(unsafe {
+      core::ptr::copy_nonoverlapping(
+        self.0[0..].as_ptr(),
+        mem.as_mut_ptr() as *mut u8,
+        core::mem::size_of::<<u64 as EndianScalar>::Scalar>(),
+      );
+      mem.assume_init()
+    })
   }
-  #[inline]
-  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> SegmentBuilder<'a, 'b, A> {
-    let start = _fbb.start_table();
-    SegmentBuilder {
-      fbb_: _fbb,
-      start_: start,
+
+  pub fn set_offset(&mut self, x: u64) {
+    let x_le = x.to_little_endian();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    unsafe {
+      core::ptr::copy_nonoverlapping(
+        &x_le as *const _ as *const u8,
+        self.0[0..].as_mut_ptr(),
+        core::mem::size_of::<<u64 as EndianScalar>::Scalar>(),
+      );
     }
   }
-  #[inline]
-  pub fn finish(self) -> flatbuffers::WIPOffset<Segment<'a>> {
-    let o = self.fbb_.end_table(self.start_);
-    flatbuffers::WIPOffset::new(o.value())
+
+  pub fn length(&self) -> u32 {
+    let mut mem = core::mem::MaybeUninit::<<u32 as EndianScalar>::Scalar>::uninit();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    EndianScalar::from_little_endian(unsafe {
+      core::ptr::copy_nonoverlapping(
+        self.0[8..].as_ptr(),
+        mem.as_mut_ptr() as *mut u8,
+        core::mem::size_of::<<u32 as EndianScalar>::Scalar>(),
+      );
+      mem.assume_init()
+    })
   }
+
+  pub fn set_length(&mut self, x: u32) {
+    let x_le = x.to_little_endian();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    unsafe {
+      core::ptr::copy_nonoverlapping(
+        &x_le as *const _ as *const u8,
+        self.0[8..].as_mut_ptr(),
+        core::mem::size_of::<<u32 as EndianScalar>::Scalar>(),
+      );
+    }
+  }
+
+  pub fn alignment_exponent(&self) -> u8 {
+    let mut mem = core::mem::MaybeUninit::<<u8 as EndianScalar>::Scalar>::uninit();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    EndianScalar::from_little_endian(unsafe {
+      core::ptr::copy_nonoverlapping(
+        self.0[12..].as_ptr(),
+        mem.as_mut_ptr() as *mut u8,
+        core::mem::size_of::<<u8 as EndianScalar>::Scalar>(),
+      );
+      mem.assume_init()
+    })
+  }
+
+  pub fn set_alignment_exponent(&mut self, x: u8) {
+    let x_le = x.to_little_endian();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    unsafe {
+      core::ptr::copy_nonoverlapping(
+        &x_le as *const _ as *const u8,
+        self.0[12..].as_mut_ptr(),
+        core::mem::size_of::<<u8 as EndianScalar>::Scalar>(),
+      );
+    }
+  }
+
+  pub fn _compression(&self) -> u8 {
+    let mut mem = core::mem::MaybeUninit::<<u8 as EndianScalar>::Scalar>::uninit();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    EndianScalar::from_little_endian(unsafe {
+      core::ptr::copy_nonoverlapping(
+        self.0[13..].as_ptr(),
+        mem.as_mut_ptr() as *mut u8,
+        core::mem::size_of::<<u8 as EndianScalar>::Scalar>(),
+      );
+      mem.assume_init()
+    })
+  }
+
+  pub fn set__compression(&mut self, x: u8) {
+    let x_le = x.to_little_endian();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    unsafe {
+      core::ptr::copy_nonoverlapping(
+        &x_le as *const _ as *const u8,
+        self.0[13..].as_mut_ptr(),
+        core::mem::size_of::<<u8 as EndianScalar>::Scalar>(),
+      );
+    }
+  }
+
+  pub fn _encryption(&self) -> u16 {
+    let mut mem = core::mem::MaybeUninit::<<u16 as EndianScalar>::Scalar>::uninit();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    EndianScalar::from_little_endian(unsafe {
+      core::ptr::copy_nonoverlapping(
+        self.0[14..].as_ptr(),
+        mem.as_mut_ptr() as *mut u8,
+        core::mem::size_of::<<u16 as EndianScalar>::Scalar>(),
+      );
+      mem.assume_init()
+    })
+  }
+
+  pub fn set__encryption(&mut self, x: u16) {
+    let x_le = x.to_little_endian();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    unsafe {
+      core::ptr::copy_nonoverlapping(
+        &x_le as *const _ as *const u8,
+        self.0[14..].as_mut_ptr(),
+        core::mem::size_of::<<u16 as EndianScalar>::Scalar>(),
+      );
+    }
+  }
+
 }
 
-impl core::fmt::Debug for Segment<'_> {
-  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-    let mut ds = f.debug_struct("Segment");
-      ds.field("offset", &self.offset());
-      ds.field("length", &self.length());
-      ds.finish()
-  }
-}
 pub enum FileLayoutOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -169,11 +279,11 @@ impl<'a> FileLayout<'a> {
     unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<Layout>>(FileLayout::VT_ROOT_LAYOUT, None)}
   }
   #[inline]
-  pub fn segments(&self) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Segment<'a>>>> {
+  pub fn segments(&self) -> Option<flatbuffers::Vector<'a, Segment>> {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Segment>>>>(FileLayout::VT_SEGMENTS, None)}
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, Segment>>>(FileLayout::VT_SEGMENTS, None)}
   }
 }
 
@@ -185,14 +295,14 @@ impl flatbuffers::Verifiable for FileLayout<'_> {
     use self::flatbuffers::Verifiable;
     v.visit_table(pos)?
      .visit_field::<flatbuffers::ForwardsUOffset<Layout>>("root_layout", Self::VT_ROOT_LAYOUT, false)?
-     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<Segment>>>>("segments", Self::VT_SEGMENTS, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, Segment>>>("segments", Self::VT_SEGMENTS, false)?
      .finish();
     Ok(())
   }
 }
 pub struct FileLayoutArgs<'a> {
     pub root_layout: Option<flatbuffers::WIPOffset<Layout<'a>>>,
-    pub segments: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Segment<'a>>>>>,
+    pub segments: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, Segment>>>,
 }
 impl<'a> Default for FileLayoutArgs<'a> {
   #[inline]
@@ -214,7 +324,7 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> FileLayoutBuilder<'a, 'b, A> {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Layout>>(FileLayout::VT_ROOT_LAYOUT, root_layout);
   }
   #[inline]
-  pub fn add_segments(&mut self, segments: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<Segment<'b >>>>) {
+  pub fn add_segments(&mut self, segments: flatbuffers::WIPOffset<flatbuffers::Vector<'b , Segment>>) {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(FileLayout::VT_SEGMENTS, segments);
   }
   #[inline]
@@ -288,18 +398,18 @@ impl<'a> Postscript<'a> {
 
 
   #[inline]
-  pub fn dtype(&self) -> Option<Segment<'a>> {
+  pub fn dtype(&self) -> Option<&'a Segment> {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<Segment>>(Postscript::VT_DTYPE, None)}
+    unsafe { self._tab.get::<Segment>(Postscript::VT_DTYPE, None)}
   }
   #[inline]
-  pub fn file_layout(&self) -> Option<Segment<'a>> {
+  pub fn file_layout(&self) -> Option<&'a Segment> {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<Segment>>(Postscript::VT_FILE_LAYOUT, None)}
+    unsafe { self._tab.get::<Segment>(Postscript::VT_FILE_LAYOUT, None)}
   }
 }
 
@@ -310,15 +420,15 @@ impl flatbuffers::Verifiable for Postscript<'_> {
   ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
     use self::flatbuffers::Verifiable;
     v.visit_table(pos)?
-     .visit_field::<flatbuffers::ForwardsUOffset<Segment>>("dtype", Self::VT_DTYPE, false)?
-     .visit_field::<flatbuffers::ForwardsUOffset<Segment>>("file_layout", Self::VT_FILE_LAYOUT, false)?
+     .visit_field::<Segment>("dtype", Self::VT_DTYPE, false)?
+     .visit_field::<Segment>("file_layout", Self::VT_FILE_LAYOUT, false)?
      .finish();
     Ok(())
   }
 }
 pub struct PostscriptArgs<'a> {
-    pub dtype: Option<flatbuffers::WIPOffset<Segment<'a>>>,
-    pub file_layout: Option<flatbuffers::WIPOffset<Segment<'a>>>,
+    pub dtype: Option<&'a Segment>,
+    pub file_layout: Option<&'a Segment>,
 }
 impl<'a> Default for PostscriptArgs<'a> {
   #[inline]
@@ -336,12 +446,12 @@ pub struct PostscriptBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
 }
 impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> PostscriptBuilder<'a, 'b, A> {
   #[inline]
-  pub fn add_dtype(&mut self, dtype: flatbuffers::WIPOffset<Segment<'b >>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Segment>>(Postscript::VT_DTYPE, dtype);
+  pub fn add_dtype(&mut self, dtype: &Segment) {
+    self.fbb_.push_slot_always::<&Segment>(Postscript::VT_DTYPE, dtype);
   }
   #[inline]
-  pub fn add_file_layout(&mut self, file_layout: flatbuffers::WIPOffset<Segment<'b >>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Segment>>(Postscript::VT_FILE_LAYOUT, file_layout);
+  pub fn add_file_layout(&mut self, file_layout: &Segment) {
+    self.fbb_.push_slot_always::<&Segment>(Postscript::VT_FILE_LAYOUT, file_layout);
   }
   #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> PostscriptBuilder<'a, 'b, A> {

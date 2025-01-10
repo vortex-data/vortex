@@ -14,10 +14,15 @@ readme.workspace = true
 categories.workspace = true
 
 [dependencies]
+async-trait = { workspace = true }
 vortex-array = { workspace = true }
+vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-expr = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
 
 [lints]
 workspace = true

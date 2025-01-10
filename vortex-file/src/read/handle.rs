@@ -43,6 +43,7 @@ impl<R: VortexReadAt + Unpin> VortexReadHandle<R> {
             fr.add_splits(0, &mut reader_splits)?;
         }
 
+        reader_splits.insert(0);
         reader_splits.insert(row_count as usize);
 
         let splits = reader_splits.into_iter().tuple_windows().collect();

@@ -2,7 +2,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::sync::Arc;
 
-use flatbuffers::root;
+use flatbuffers::{root, Follow};
 use itertools::Itertools;
 use vortex_error::{
     vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult, VortexUnwrap,
@@ -205,12 +205,7 @@ impl ViewedDType {
 
     /// The viewed [`fbd::DType`] instance.
     pub fn flatbuffer(&self) -> fbd::DType<'_> {
-        unsafe {
-            fbd::DType::init_from_table(flatbuffers::Table::new(
-                self.flatbuffer.as_ref(),
-                self.flatbuffer_loc,
-            ))
-        }
+        unsafe { fbd::DType::follow(self.flatbuffer.as_ref(), self.flatbuffer_loc) }
     }
 
     /// Returns the underlying shared buffer

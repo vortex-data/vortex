@@ -1,9 +1,11 @@
 mod range_scan;
+mod row_mask;
 
 use std::ops::Range;
 use std::sync::Arc;
 
 pub use range_scan::*;
+pub use row_mask::*;
 use vortex_array::compute::FilterMask;
 use vortex_array::{ArrayDType, Canonical, IntoArrayData};
 use vortex_dtype::DType;

@@ -5,6 +5,7 @@ use std::sync::Arc;
 use vortex_array::ContextRef;
 use vortex_error::VortexResult;
 
+use crate::segments::AsyncSegmentReader;
 use crate::{LayoutData, LayoutReader};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
@@ -23,7 +24,12 @@ pub trait LayoutEncoding: Debug + Send + Sync {
     /// Construct a [`LayoutReader`] for the provided [`LayoutData`].
     ///
     /// May panic if the provided `LayoutData` is not the same encoding as this `LayoutEncoding`.
-    fn reader(&self, layout: LayoutData, ctx: ContextRef) -> VortexResult<Arc<dyn LayoutReader>>;
+    fn reader(
+        &self,
+        layout: LayoutData,
+        ctx: ContextRef,
+        segments: Arc<dyn AsyncSegmentReader>,
+    ) -> VortexResult<Arc<dyn LayoutReader>>;
 
     /// Register the row splits for this layout, these represent natural boundaries at which
     /// a reader can split the layout for independent processing.

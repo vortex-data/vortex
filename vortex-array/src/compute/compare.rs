@@ -6,7 +6,7 @@ use vortex_dtype::{DType, Nullability};
 use vortex_error::{vortex_bail, VortexError, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::arrow::{Datum, FromArrowArray};
+use crate::arrow::{from_arrow_array_with_len, Datum};
 use crate::encoding::Encoding;
 use crate::{ArrayDType, ArrayData, Canonical, IntoArrayData};
 
@@ -130,18 +130,7 @@ pub fn compare(
         .and_then(|f| f.compare(left, right, operator).transpose())
         .transpose()?
     {
-        debug_assert_eq!(
-            result.len(),
-            left.len(),
-            "Compare length mismatch {}",
-            left.encoding().id()
-        );
-        debug_assert_eq!(
-            result.dtype(),
-            &DType::Bool((left.dtype().is_nullable() || right.dtype().is_nullable()).into()),
-            "Compare dtype mismatch {}",
-            left.encoding().id()
-        );
+        check_compare_result(&result, left, right);
         return Ok(result);
     }
 
@@ -151,18 +140,7 @@ pub fn compare(
         .and_then(|f| f.compare(right, left, operator.swap()).transpose())
         .transpose()?
     {
-        debug_assert_eq!(
-            result.len(),
-            left.len(),
-            "Compare length mismatch {}",
-            right.encoding().id()
-        );
-        debug_assert_eq!(
-            result.dtype(),
-            &result_dtype,
-            "Compare dtype mismatch {}",
-            right.encoding().id()
-        );
+        check_compare_result(&result, left, right);
         return Ok(result);
     }
 
@@ -178,18 +156,20 @@ pub fn compare(
     }
 
     // Fallback to arrow on canonical types
-    arrow_compare(left, right, operator)
+    let result = arrow_compare(left, right, operator)?;
+    check_compare_result(&result, left, right);
+    Ok(result)
 }
 
 /// Implementation of `CompareFn` using the Arrow crate.
-pub(crate) fn arrow_compare(
-    lhs: &ArrayData,
-    rhs: &ArrayData,
+fn arrow_compare(
+    left: &ArrayData,
+    right: &ArrayData,
     operator: Operator,
 ) -> VortexResult<ArrayData> {
-    let nullable = lhs.dtype().is_nullable() || rhs.dtype().is_nullable();
-    let lhs = Datum::try_from(lhs.clone())?;
-    let rhs = Datum::try_from(rhs.clone())?;
+    let nullable = left.dtype().is_nullable() || right.dtype().is_nullable();
+    let lhs = unsafe { Datum::try_new(left.clone())? };
+    let rhs = unsafe { Datum::try_new(right.clone())? };
 
     let array = match operator {
         Operator::Eq => cmp::eq(&lhs, &rhs)?,
@@ -199,8 +179,29 @@ pub(crate) fn arrow_compare(
         Operator::Lt => cmp::lt(&lhs, &rhs)?,
         Operator::Lte => cmp::lt_eq(&lhs, &rhs)?,
     };
+    from_arrow_array_with_len(&array, left.len(), nullable)
+}
 
-    Ok(ArrayData::from_arrow(&array, nullable))
+#[inline(always)]
+fn check_compare_result(result: &ArrayData, lhs: &ArrayData, rhs: &ArrayData) {
+    debug_assert_eq!(
+        result.len(),
+        lhs.len(),
+        "CompareFn result length ({}) mismatch for left encoding {}, left len {}, right encoding {}, right len {}",
+        result.len(),
+        lhs.encoding().id(),
+        lhs.len(),
+        rhs.encoding().id(),
+        rhs.len()
+    );
+    debug_assert_eq!(
+        result.dtype(),
+        &DType::Bool((lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into()),
+        "CompareFn result dtype ({}) mismatch for left encoding {}, right encoding {}",
+        result.dtype(),
+        lhs.encoding().id(),
+        rhs.encoding().id(),
+    );
 }
 
 pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: Operator) -> Scalar {
@@ -312,7 +313,12 @@ mod tests {
         let left = ConstantArray::new(Scalar::from(2u32), 10);
         let right = ConstantArray::new(Scalar::from(10u32), 10);
 
-        let compare = compare(left, right, Operator::Gt).unwrap();
+        let compare = compare(left.clone(), right.clone(), Operator::Gt).unwrap();
+        let res = compare.as_constant().unwrap();
+        assert_eq!(res.as_bool().value(), Some(false));
+        assert_eq!(compare.len(), 10);
+
+        let compare = arrow_compare(&left.into_array(), &right.into_array(), Operator::Gt).unwrap();
         let res = compare.as_constant().unwrap();
         assert_eq!(res.as_bool().value(), Some(false));
         assert_eq!(compare.len(), 10);
