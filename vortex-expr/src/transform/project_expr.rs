@@ -8,16 +8,17 @@ use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use crate::traversal::{FoldChildren, FoldDown, FoldUp, Folder, FolderMut, Node};
 use crate::{get_item, ident, pack, ExprRef, GetItem, Identity, Select, SelectField};
 
-type ExpressionSplits = HashMap<Field, (FieldName, ExprRef)>;
+pub type ExpressionSplits = HashMap<Field, (FieldName, ExprRef)>;
 
 /// Given an expression, an identity-type and a list of n fields return n optional expressions
 /// ones containing only references to the corresponding field and an expression defined in terms of
 /// the n expression which combines them back into a single expression.
-fn split_expression(expr: ExprRef, dtype: &DType) -> VortexResult<(ExprRef, ExpressionSplits)> {
+pub fn split_expression(expr: ExprRef, dtype: &DType) -> VortexResult<(ExprRef, ExpressionSplits)> {
     if let Struct(st_dt, _) = dtype {
         StructFieldExpressionSplitter::split(expr, st_dt)
     } else {
-        Ok((expr, HashMap::new()))
+        panic!("dtype is not a struct");
+        // Ok((expr, HashMap::new()))
     }
 }
 

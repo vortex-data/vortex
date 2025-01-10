@@ -10,7 +10,7 @@ use vortex_scalar::Scalar;
 use vortex_scan::RowMask;
 
 use crate::layouts::chunked::reader::ChunkedReader;
-use crate::reader::LayoutScanExt;
+use crate::reader::LayoutReaderExt;
 use crate::ExprEvaluator;
 
 #[async_trait(?Send)]

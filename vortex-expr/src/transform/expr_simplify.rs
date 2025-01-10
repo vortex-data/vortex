@@ -5,6 +5,10 @@ use crate::{ExprRef, GetItem, Pack};
 
 pub struct ExprSimplify();
 
+pub fn simplify(e: ExprRef) -> VortexResult<ExprRef> {
+    ExprSimplify::simplify(e)
+}
+
 impl ExprSimplify {
     pub fn simplify(e: ExprRef) -> VortexResult<ExprRef> {
         let mut folder = ExprSimplify();

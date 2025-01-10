@@ -63,7 +63,7 @@ impl StatsEvaluator for Arc<dyn LayoutReader + 'static> {
     }
 }
 
-pub trait LayoutScanExt: LayoutReader {
+pub trait LayoutReaderExt: LayoutReader {
     /// Box the layout scan.
     fn into_arc(self) -> Arc<dyn LayoutReader>
     where
@@ -78,4 +78,4 @@ pub trait LayoutScanExt: LayoutReader {
     }
 }
 
-impl<L: LayoutReader> LayoutScanExt for L {}
+impl<L: LayoutReader> LayoutReaderExt for L {}
