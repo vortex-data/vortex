@@ -128,7 +128,7 @@ mod tests {
         let dtype = DType::Utf8(Nullability::NonNullable);
         let like_expr = Like::new_expr(ident(), lit("%test%"), false, false);
         assert_eq!(
-            like_expr.dtype(&dtype).unwrap(),
+            like_expr.return_dtype(&dtype).unwrap(),
             DType::Bool(Nullability::NonNullable)
         );
     }

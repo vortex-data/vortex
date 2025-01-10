@@ -272,11 +272,11 @@ mod tests {
         let bool1: Arc<dyn VortexExpr> = col("bool1");
         let bool2: Arc<dyn VortexExpr> = col("bool2");
         assert_eq!(
-            and(bool1.clone(), bool2.clone()).dtype(&dtype).unwrap(),
+            and(bool1.clone(), bool2.clone()).return_dtype(&dtype).unwrap(),
             DType::Bool(Nullability::NonNullable)
         );
         assert_eq!(
-            or(bool1.clone(), bool2.clone()).dtype(&dtype).unwrap(),
+            or(bool1.clone(), bool2.clone()).return_dtype(&dtype).unwrap(),
             DType::Bool(Nullability::NonNullable)
         );
 
@@ -284,27 +284,27 @@ mod tests {
         let col2: Arc<dyn VortexExpr> = col("col2");
 
         assert_eq!(
-            eq(col1.clone(), col2.clone()).dtype(&dtype).unwrap(),
+            eq(col1.clone(), col2.clone()).return_dtype(&dtype).unwrap(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
-            not_eq(col1.clone(), col2.clone()).dtype(&dtype).unwrap(),
+            not_eq(col1.clone(), col2.clone()).return_dtype(&dtype).unwrap(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
-            gt(col1.clone(), col2.clone()).dtype(&dtype).unwrap(),
+            gt(col1.clone(), col2.clone()).return_dtype(&dtype).unwrap(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
-            gt_eq(col1.clone(), col2.clone()).dtype(&dtype).unwrap(),
+            gt_eq(col1.clone(), col2.clone()).return_dtype(&dtype).unwrap(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
-            lt(col1.clone(), col2.clone()).dtype(&dtype).unwrap(),
+            lt(col1.clone(), col2.clone()).return_dtype(&dtype).unwrap(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
-            lt_eq(col1.clone(), col2.clone()).dtype(&dtype).unwrap(),
+            lt_eq(col1.clone(), col2.clone()).return_dtype(&dtype).unwrap(),
             DType::Bool(Nullability::Nullable)
         );
 
@@ -313,7 +313,7 @@ mod tests {
                 lt(col1.clone(), col2.clone()),
                 not_eq(col1.clone(), col2.clone())
             )
-            .dtype(&dtype)
+            .return_dtype(&dtype)
             .unwrap(),
             DType::Bool(Nullability::Nullable)
         );

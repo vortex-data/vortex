@@ -50,14 +50,14 @@ pub trait VortexExpr: Debug + Send + Sync + DynEq + Display {
     ///
     fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
         let result = self.unchecked_evaluate(batch)?;
-        debug_assert_eq!(result.dtype(), &self.dtype(batch.dtype())?);
+        debug_assert_eq!(result.dtype(), &self.return_dtype(batch.dtype())?);
         Ok(result)
     }
 
     /// Compute result of expression on given batch producing a new batch
     ///
     /// "Unchecked" means that this function lacks a debug assertion that the returned array matches
-    /// the [VortexExpr::dtype] method. Use instead the [VortexExpr::evaluate] function which
+    /// the [VortexExpr::return_dtype] method. Use instead the [VortexExpr::evaluate] function which
     /// includes such an assertion.
     fn unchecked_evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData>;
 
@@ -66,8 +66,8 @@ pub trait VortexExpr: Debug + Send + Sync + DynEq + Display {
     fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef;
 
     /// Compute the type of the array returned by [VortexExpr::evaluate].
-    fn dtype(&self, input_dtype: &DType) -> VortexResult<DType> {
-        let empty = Canonical::empty(input_dtype)?.into_array();
+    fn return_dtype(&self, scope_dtype: &DType) -> VortexResult<DType> {
+        let empty = Canonical::empty(scope_dtype)?.into_array();
         self.unchecked_evaluate(&empty)
             .map(|array| array.into_dtype())
     }

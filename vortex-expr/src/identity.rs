@@ -53,7 +53,7 @@ mod tests {
     #[test]
     fn dtype() {
         let dtype = test_harness::struct_dtype();
-        assert_eq!(ident().dtype(&dtype).unwrap(), dtype);
-        assert_eq!(ident().dtype(&dtype).unwrap(), dtype);
+        assert_eq!(ident().return_dtype(&dtype).unwrap(), dtype);
+        assert_eq!(ident().return_dtype(&dtype).unwrap(), dtype);
     }
 }
