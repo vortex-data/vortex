@@ -1,5 +1,4 @@
 #![feature(unsigned_is_multiple_of)]
-#![feature(debug_closure_helpers)]
 #![deny(missing_docs)]
 
 //! A library for working with custom aligned buffers of sized values.
@@ -58,6 +57,7 @@ mod buffer;
 mod buffer_mut;
 mod bytes;
 mod r#const;
+mod debug;
 mod macros;
 mod string;
 
