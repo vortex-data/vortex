@@ -128,7 +128,7 @@ mod test {
     }
 
     #[test]
-    fn test_chunked_scan() {
+    fn test_chunked_evaluator() {
         block_on(async {
             let (segments, layout) = chunked_layout();
 
