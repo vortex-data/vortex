@@ -7,7 +7,7 @@ use vortex_error::VortexResult;
 
 use crate::{ExprRef, VortexExpr};
 
-static IDENTITY: LazyLock<ExprRef> = LazyLock::new(|| Identity::new_expr());
+static IDENTITY: LazyLock<ExprRef> = LazyLock::new(|| Arc::new(Identity));
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub struct Identity;
