@@ -89,12 +89,13 @@ mod tests {
         let layout = StructLayoutWriter::new(
             DType::Struct(
                 StructDType::new(
-                    vec!["a".into(), "b".into()].into(),
-                    vec![I32.into(), I32.into()],
+                    vec!["a".into(), "b".into(), "c".into()].into(),
+                    vec![I32.into(), I32.into(), I32.into()],
                 ),
                 Nullability::NonNullable,
             ),
             vec![
+                Box::new(FlatLayoutWriter::new(I32.into())),
                 Box::new(FlatLayoutWriter::new(I32.into())),
                 Box::new(FlatLayoutWriter::new(I32.into())),
             ],
@@ -105,6 +106,7 @@ mod tests {
                 [
                     ("a", buffer![7, 2, 3].into_array()),
                     ("b", buffer![4, 5, 6].into_array()),
+                    ("c", buffer![4, 5, 6].into_array()),
                 ]
                 .as_slice(),
             )
