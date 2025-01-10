@@ -8,8 +8,9 @@ use futures::Stream;
 use futures_executor::block_on;
 use futures_util::{stream, StreamExt, TryStreamExt};
 use pin_project_lite::pin_project;
+use vortex_array::arrow::FromArrowArray;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
-use vortex_array::{ArrayData, ContextRef};
+use vortex_array::{ArrayDType, ArrayData, ContextRef, IntoCanonical};
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_io::VortexReadAt;
@@ -24,6 +25,7 @@ pub struct VortexFile<R> {
     pub(crate) file_layout: FileLayout,
     pub(crate) segments: SegmentCache<R>,
     pub(crate) splits: Arc<[Range<u64>]>,
+    pub(crate) into_arrow: bool,
     pub(crate) thread_pool: Arc<rayon::ThreadPool>,
 }
 
@@ -49,6 +51,7 @@ impl<R: VortexReadAt + Unpin> VortexFile<R> {
     /// Performs a scan operation over the file.
     pub fn scan(self, scan: Arc<Scan>) -> VortexResult<impl ArrayStream + 'static> {
         println!("File Layout: {:#?}", self.file_layout);
+        println!("Splits: {:#?}", self.splits);
 
         // Create a shared reader for the scan.
         let reader: Arc<dyn LayoutReader> = self
@@ -62,16 +65,25 @@ impl<R: VortexReadAt + Unpin> VortexFile<R> {
             .map(move |row_range| {
                 let (send, recv) = oneshot::channel();
                 let reader = reader.clone();
-                let range_scan = scan.clone().range_scan(row_range);
+                let range_scan = scan.clone().range_scan(row_range.clone());
 
                 // Launch the scan task onto the thread pool.
                 self.thread_pool.spawn_fifo(move || {
-                    let array_result =
-                        range_scan.and_then(|range_scan| {
-                            block_on(range_scan.evaluate_async(|row_mask, expr| {
-                                reader.evaluate_expr(row_mask, expr)
-                            }))
+                    let mut array_result = range_scan.and_then(|range_scan| {
+                        block_on(range_scan.evaluate_async(|row_mask, expr| {
+                            println!("Scanning row range {:?} with expr {:?}", row_range, expr);
+                            reader.evaluate_expr(row_mask, expr)
+                        }))
+                    });
+
+                    // Decompress into Arrow if requested
+                    if self.into_arrow {
+                        array_result = array_result.and_then(|array| {
+                            let nullable = array.dtype().is_nullable();
+                            Ok(ArrayData::from_arrow(array.into_arrow()?, nullable))
                         });
+                    }
+
                     // Post the result back to the main thread
                     send.send(array_result)
                         .map_err(|_| vortex_err!("send failed, recv dropped"))

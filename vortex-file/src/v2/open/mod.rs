@@ -40,6 +40,8 @@ pub struct VortexOpenOptions {
     initial_read_size: u64,
     /// Configure how to split the file into batches for reading.
     split_by: SplitBy,
+    /// Whether to decompress the Vortex arrays into an Arrow-compatible format during the read.
+    into_arrow: bool,
 }
 
 impl VortexOpenOptions {
@@ -52,6 +54,7 @@ impl VortexOpenOptions {
             dtype: None,
             initial_read_size: INITIAL_READ_SIZE,
             split_by: SplitBy::Layout,
+            into_arrow: false,
         }
     }
 
@@ -83,6 +86,15 @@ impl VortexOpenOptions {
         self.split_by = split_by;
         self
     }
+
+    /// Configure the reader to decompress Vortex arrays into Arrow-compatible encodings.
+    ///
+    /// Doing this during the read means distributing the work over the reader's thread pool,
+    /// vs. having the caller orchestrate this work.
+    pub fn with_into_arrow(mut self, into_arrow: bool) -> Self {
+        self.into_arrow = into_arrow;
+        self
+    }
 }
 
 impl VortexOpenOptions {
@@ -104,8 +116,10 @@ impl VortexOpenOptions {
                 splits,
                 // FIXME(ngates): we need some way to share the underlying I/O system. This
                 //  segment cache + thread pool.
+                into_arrow: self.into_arrow,
                 thread_pool: Arc::new(
                     rayon::ThreadPoolBuilder::new()
+                        .thread_name(|i| format!("vortex-io-{}", i))
                         .build()
                         .map_err(|e| vortex_err!("Failed to create thread pool: {:?}", e))?,
                 ),
@@ -181,8 +195,10 @@ impl VortexOpenOptions {
             file_layout,
             segments: segment_cache,
             splits,
+            into_arrow: self.into_arrow,
             thread_pool: Arc::new(
                 rayon::ThreadPoolBuilder::new()
+                    .thread_name(|i| format!("vortex-io-{}", i))
                     .build()
                     .map_err(|e| vortex_err!("Failed to create thread pool: {:?}", e))?,
             ),

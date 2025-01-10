@@ -1,4 +1,3 @@
-use std::fmt::Display;
 use std::ops::Deref;
 
 use async_trait::async_trait;
@@ -9,12 +8,6 @@ use vortex_error::VortexResult;
 // TODO(ngates): should this be a `[u8]` instead? Allowing for arbitrary segment identifiers?
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SegmentId(u32);
-
-impl Display for SegmentId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "SegmentId({})", self.0)
-    }
-}
 
 impl From<u32> for SegmentId {
     fn from(value: u32) -> Self {
