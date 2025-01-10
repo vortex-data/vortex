@@ -144,9 +144,13 @@ fn ordering_to_bool_fn(op: Operator) -> impl Fn(Ordering) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use vortex_buffer::buffer;
+
+    use super::*;
     use crate::array::StructArray;
-    use crate::compute::{filter, FilterMask};
+    use crate::compute::{compare, filter, FilterMask};
     use crate::validity::Validity;
+    use crate::{ArrayLen, IntoArrayData, IntoArrayVariant};
 
     #[test]
     fn filter_empty_struct() {
@@ -165,5 +169,17 @@ mod tests {
             StructArray::try_new(vec![].into(), vec![], 0, Validity::NonNullable).unwrap();
         let filtered = filter(struct_arr.as_ref(), FilterMask::from_iter::<[bool; 0]>([])).unwrap();
         assert_eq!(filtered.len(), 0);
+    }
+
+    #[test]
+    fn basic_compare_test() {
+        let n1 = buffer![1u32, 2, 3, 4].into_array();
+        let n2 = buffer![1i32, 2, 3, 4].into_array();
+
+        let st1 = StructArray::from_fields(&[("n1", n1.clone()), ("n2", n2)]).unwrap();
+
+        let r = compare(&st1, &st1, Operator::Eq).unwrap();
+        let true_count = r.into_bool().unwrap().boolean_buffer().count_set_bits();
+        assert_eq!(true_count, st1.len());
     }
 }
