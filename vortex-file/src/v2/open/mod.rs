@@ -23,7 +23,7 @@ use crate::{EOF_SIZE, MAGIC_BYTES, VERSION};
 const INITIAL_READ_SIZE: u64 = 1 << 20; // 1 MB
 
 /// Open options for a Vortex file reader.
-pub struct OpenOptions {
+pub struct VortexOpenOptions {
     /// The Vortex Array encoding context.
     ctx: ContextRef,
     /// The Vortex Layout encoding context.
@@ -39,7 +39,7 @@ pub struct OpenOptions {
     split_by: SplitBy,
 }
 
-impl OpenOptions {
+impl VortexOpenOptions {
     pub fn new(ctx: ContextRef) -> Self {
         Self {
             ctx,
@@ -69,7 +69,7 @@ impl OpenOptions {
     }
 }
 
-impl OpenOptions {
+impl VortexOpenOptions {
     /// Open the Vortex file using synchronous IO.
     pub fn open_sync<R: Read>(self, _read: R) -> VortexResult<VortexFile<R>> {
         todo!()
