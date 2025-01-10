@@ -69,12 +69,12 @@ impl<R: VortexReadAt + Unpin> SegmentCache<R> {
                 let segments = self.segments.clone();
                 async move {
                     let segment = &segments[*request.id as usize];
-                    println!("Reading segment {} {:?}", *request.id, segment);
+                    // println!("Reading segment {} {:?}", *request.id, segment);
                     let bytes = read
                         .read_byte_range(segment.offset, segment.length as u64)
                         .map_ok(|bytes| ByteBuffer::from(bytes).aligned(segment.alignment))
                         .await?;
-                    println!("Completed segment {} read", *request.id);
+                    //println!("Completed segment {} read", *request.id);
                     request
                         .callback
                         .send(bytes)

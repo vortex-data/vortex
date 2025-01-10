@@ -84,6 +84,7 @@ impl<R: VortexReadAt + Unpin> VortexFile<R> {
                 recv.await
                     .unwrap_or_else(|_cancelled| Err(vortex_err!("recv failed, send dropped")))
             });
+        // .buffered();
         // TODO(ngates): we should call buffered(n) on this stream so that is launches multiple
         //  splits to run in parallel. Currently we use block_on, so there's no point this being
         //  any higher than the size of the thread pool. If we switch to running LocalExecutor,
