@@ -63,7 +63,7 @@ impl<R: VortexReadAt + Unpin> SegmentCache<R> {
             .ready_chunks(100_000)
             // TODO(ngates): now we should flat_map the requests to split them into coalesced
             //  read operations.
-            .flat_map(|requests| stream::iter(requests))
+            .flat_map(stream::iter)
             .map(move |request| {
                 let read = self.read.clone();
                 let segments = self.segments.clone();

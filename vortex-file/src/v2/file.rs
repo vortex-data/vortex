@@ -11,7 +11,7 @@ use pin_project_lite::pin_project;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
 use vortex_array::{ArrayData, ContextRef};
 use vortex_dtype::DType;
-use vortex_error::{vortex_err, VortexError, VortexExpect, VortexResult};
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_io::VortexReadAt;
 use vortex_layout::{ExprEvaluator, LayoutData, LayoutReader};
 use vortex_scan::Scan;
@@ -50,11 +50,9 @@ impl<R: VortexReadAt + Unpin> VortexFile<R> {
         let splits = self.splits.to_vec();
 
         // For each row-group, we set up a future that will evaluate the scan and post its.
-        let row_group_driver = stream::iter(splits.into_iter())
+        let row_group_driver = stream::iter(splits)
             .map(move |row_range| {
                 let (send, recv) = oneshot::channel();
-
-                let row_range = row_range.clone();
                 let reader = reader.clone();
                 let range_scan = scan.clone().range_scan(row_range);
 
@@ -68,7 +66,7 @@ impl<R: VortexReadAt + Unpin> VortexFile<R> {
                         });
                     // Post the result back to the main thread
                     send.send(array_result)
-                        .map_err(|_| VortexError::from(vortex_err!("send failed, recv dropped")))
+                        .map_err(|_| vortex_err!("send failed, recv dropped"))
                         .vortex_expect("send_failed, recv dropped");
                 });
 
@@ -125,7 +123,7 @@ where
             // Otherwise, we try to poll the I/O driver.
             // If the I/O driver is not ready, then we return Pending and wait for I/
             // to wake up the driver.
-            if let Poll::Pending = this.io_driver.as_mut().poll_next(cx) {
+            if matches!(this.io_driver.as_mut().poll_next(cx), Poll::Pending) {
                 return Poll::Pending;
             }
         }
