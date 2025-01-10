@@ -4,14 +4,19 @@ use vortex_array::ArrayData;
 use vortex_error::{vortex_bail, vortex_err, VortexResult};
 use vortex_expr::ExprRef;
 use vortex_ipc::messages::{BufMessageReader, DecoderMessage};
-use vortex_scan::{AsyncEvaluator, RowMask};
+use vortex_scan::RowMask;
 
 use crate::layouts::flat::reader::FlatReader;
 use crate::reader::LayoutScanExt;
+use crate::ExprEvaluator;
 
 #[async_trait(?Send)]
-impl AsyncEvaluator for FlatReader {
-    async fn evaluate(self: &Self, row_mask: RowMask, expr: ExprRef) -> VortexResult<ArrayData> {
+impl ExprEvaluator for FlatReader {
+    async fn evaluate_expr(
+        self: &Self,
+        row_mask: RowMask,
+        expr: ExprRef,
+    ) -> VortexResult<ArrayData> {
         // Grab the byte buffer for the segment.
         let bytes = self.segments().get(self.segment_id()).await?;
 
@@ -63,7 +68,7 @@ mod test {
             let result = layout
                 .reader(Arc::new(segments), Default::default())
                 .unwrap()
-                .evaluate(
+                .evaluate_expr(
                     RowMask::new_valid_between(0, layout.row_count()),
                     Identity::new_expr(),
                 )
@@ -89,7 +94,7 @@ mod test {
             let result = layout
                 .reader(Arc::new(segments), Default::default())
                 .unwrap()
-                .evaluate(RowMask::new_valid_between(0, layout.row_count()), expr)
+                .evaluate_expr(RowMask::new_valid_between(0, layout.row_count()), expr)
                 .await
                 .unwrap()
                 .into_bool()

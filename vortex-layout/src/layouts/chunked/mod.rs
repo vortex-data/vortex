@@ -1,6 +1,6 @@
-mod evaluator;
+mod eval_expr;
+mod eval_stats;
 mod reader;
-// mod stats;
 pub mod stats_table;
 pub mod writer;
 

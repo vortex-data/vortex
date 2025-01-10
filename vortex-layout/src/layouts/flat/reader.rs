@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use vortex_array::ContextRef;
 use vortex_error::{vortex_err, vortex_panic, VortexResult};
-use vortex_scan::AsyncEvaluator;
 
 use crate::layouts::flat::FlatLayout;
 use crate::reader::LayoutReader;
@@ -58,9 +57,5 @@ impl FlatReader {
 impl LayoutReader for FlatReader {
     fn layout(&self) -> &LayoutData {
         &self.layout
-    }
-
-    fn evaluator(&self) -> &dyn AsyncEvaluator {
-        self
     }
 }

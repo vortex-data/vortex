@@ -7,14 +7,19 @@ use vortex_error::VortexResult;
 use vortex_expr::pruning::PruningPredicate;
 use vortex_expr::ExprRef;
 use vortex_scalar::Scalar;
-use vortex_scan::{AsyncEvaluator, RowMask};
+use vortex_scan::RowMask;
 
 use crate::layouts::chunked::reader::ChunkedReader;
 use crate::reader::LayoutScanExt;
+use crate::ExprEvaluator;
 
 #[async_trait(?Send)]
-impl AsyncEvaluator for ChunkedReader {
-    async fn evaluate(self: &Self, row_mask: RowMask, expr: ExprRef) -> VortexResult<ArrayData> {
+impl ExprEvaluator for ChunkedReader {
+    async fn evaluate_expr(
+        self: &Self,
+        row_mask: RowMask,
+        expr: ExprRef,
+    ) -> VortexResult<ArrayData> {
         // Compute the result dtype of the expression.
         let dtype = expr
             .evaluate(&Canonical::empty(self.dtype())?.into_array())?
@@ -74,7 +79,7 @@ impl AsyncEvaluator for ChunkedReader {
                 .shift(chunk_range.start)?;
 
             let expr = expr.clone();
-            chunks.push(chunk_reader.evaluate(chunk_mask, expr).boxed_local());
+            chunks.push(chunk_reader.evaluate_expr(chunk_mask, expr).boxed_local());
         }
 
         // Wait for all chunks to be evaluated
@@ -130,7 +135,7 @@ mod test {
             let result = layout
                 .reader(segments, Default::default())
                 .unwrap()
-                .evaluate(
+                .evaluate_expr(
                     RowMask::new_valid_between(0, layout.row_count()),
                     Identity::new_expr(),
                 )
@@ -155,7 +160,7 @@ mod test {
             let expr = gt(Identity::new_expr(), lit(7));
 
             let result = reader
-                .evaluate(RowMask::new_valid_between(0, row_count), expr.clone())
+                .evaluate_expr(RowMask::new_valid_between(0, row_count), expr.clone())
                 .await
                 .unwrap();
             let result = ChunkedArray::try_from(result).unwrap();

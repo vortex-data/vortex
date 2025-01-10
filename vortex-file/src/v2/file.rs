@@ -10,7 +10,7 @@ use vortex_array::ContextRef;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_io::VortexReadAt;
-use vortex_layout::{LayoutData, LayoutReader};
+use vortex_layout::{LayoutData, LayoutReader, LayoutScanExt};
 use vortex_scan::Scan;
 
 use crate::v2::segments::cache::SegmentCache;
