@@ -110,9 +110,9 @@ impl RangeScan {
     }
 
     /// Evaluate the [`RangeScan`] operation using an async expression evaluator.
-    pub async fn evaluate_async<E: AsyncEvaluator>(
+    pub async fn evaluate_async(
         mut self,
-        evaluator: E,
+        evaluator: &dyn AsyncEvaluator,
     ) -> VortexResult<ArrayData> {
         loop {
             match self.next() {
