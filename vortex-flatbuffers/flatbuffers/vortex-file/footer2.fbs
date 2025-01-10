@@ -1,9 +1,12 @@
 include "vortex-layout/layout.fbs";
 
 /// A `Segment` acts as the locator for a buffer within the file.
+/// TODO(ngates): I think this should actually be more of a German String style struct? I don't know how
+///  many tiny buffers we have though, worth looking into it.
 table Segment {
     offset: uint64;
-    length: uint64;
+    length: uint64; // Make this 48 bits? With leading 16-bit alignment?
+    alignment: uint16;
     // NOTE(ngates): add compression and encryption information
 }
 

@@ -4,7 +4,7 @@ use futures_util::StreamExt;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::stream::ArrayStream;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
-use vortex_flatbuffers::{FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
+use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
 use vortex_io::VortexWrite;
 use vortex_layout::strategies::LayoutStrategy;
 
@@ -122,6 +122,7 @@ impl WriteOptions {
             offset: layout_offset,
             length: usize::try_from(write.position() - layout_offset)
                 .map_err(|_| vortex_err!("segment length exceeds maximum usize"))?,
+            alignment: FlatBuffer::alignment(),
         })
     }
 }

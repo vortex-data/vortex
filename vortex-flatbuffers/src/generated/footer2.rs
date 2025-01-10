@@ -14,6 +14,8 @@ pub enum SegmentOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
 /// A `Segment` acts as the locator for a buffer within the file.
+/// TODO(ngates): I think this should actually be more of a German String style struct? I don't know how
+///  many tiny buffers we have though, worth looking into it.
 pub struct Segment<'a> {
   pub _tab: flatbuffers::Table<'a>,
 }
@@ -29,6 +31,7 @@ impl<'a> flatbuffers::Follow<'a> for Segment<'a> {
 impl<'a> Segment<'a> {
   pub const VT_OFFSET: flatbuffers::VOffsetT = 4;
   pub const VT_LENGTH: flatbuffers::VOffsetT = 6;
+  pub const VT_ALIGNMENT: flatbuffers::VOffsetT = 8;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -42,6 +45,7 @@ impl<'a> Segment<'a> {
     let mut builder = SegmentBuilder::new(_fbb);
     builder.add_length(args.length);
     builder.add_offset(args.offset);
+    builder.add_alignment(args.alignment);
     builder.finish()
   }
 
@@ -60,6 +64,13 @@ impl<'a> Segment<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<u64>(Segment::VT_LENGTH, Some(0)).unwrap()}
   }
+  #[inline]
+  pub fn alignment(&self) -> u16 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u16>(Segment::VT_ALIGNMENT, Some(0)).unwrap()}
+  }
 }
 
 impl flatbuffers::Verifiable for Segment<'_> {
@@ -71,6 +82,7 @@ impl flatbuffers::Verifiable for Segment<'_> {
     v.visit_table(pos)?
      .visit_field::<u64>("offset", Self::VT_OFFSET, false)?
      .visit_field::<u64>("length", Self::VT_LENGTH, false)?
+     .visit_field::<u16>("alignment", Self::VT_ALIGNMENT, false)?
      .finish();
     Ok(())
   }
@@ -78,6 +90,7 @@ impl flatbuffers::Verifiable for Segment<'_> {
 pub struct SegmentArgs {
     pub offset: u64,
     pub length: u64,
+    pub alignment: u16,
 }
 impl<'a> Default for SegmentArgs {
   #[inline]
@@ -85,6 +98,7 @@ impl<'a> Default for SegmentArgs {
     SegmentArgs {
       offset: 0,
       length: 0,
+      alignment: 0,
     }
   }
 }
@@ -101,6 +115,10 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> SegmentBuilder<'a, 'b, A> {
   #[inline]
   pub fn add_length(&mut self, length: u64) {
     self.fbb_.push_slot::<u64>(Segment::VT_LENGTH, length, 0);
+  }
+  #[inline]
+  pub fn add_alignment(&mut self, alignment: u16) {
+    self.fbb_.push_slot::<u16>(Segment::VT_ALIGNMENT, alignment, 0);
   }
   #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> SegmentBuilder<'a, 'b, A> {
@@ -122,6 +140,7 @@ impl core::fmt::Debug for Segment<'_> {
     let mut ds = f.debug_struct("Segment");
       ds.field("offset", &self.offset());
       ds.field("length", &self.length());
+      ds.field("alignment", &self.alignment());
       ds.finish()
   }
 }

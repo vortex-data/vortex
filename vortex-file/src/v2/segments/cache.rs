@@ -3,11 +3,12 @@
 use std::sync::{Arc, RwLock};
 
 use async_trait::async_trait;
-use bytes::Bytes;
 use futures::channel::oneshot;
 use futures_util::future::try_join_all;
+use futures_util::TryFutureExt;
 use itertools::Itertools;
 use vortex_array::aliases::hash_map::HashMap;
+use vortex_buffer::ByteBuffer;
 use vortex_error::{vortex_err, VortexResult};
 use vortex_io::VortexReadAt;
 use vortex_layout::segments::{AsyncSegmentReader, SegmentId};
@@ -17,7 +18,7 @@ use crate::v2::footer::Segment;
 pub(crate) struct SegmentCache<R> {
     read: R,
     segments: Arc<[Segment]>,
-    inflight: RwLock<HashMap<SegmentId, Vec<oneshot::Sender<Bytes>>>>,
+    inflight: RwLock<HashMap<SegmentId, Vec<oneshot::Sender<ByteBuffer>>>>,
 }
 
 impl<R> SegmentCache<R> {
@@ -29,7 +30,7 @@ impl<R> SegmentCache<R> {
         }
     }
 
-    pub fn set(&mut self, _segment_id: SegmentId, _bytes: Bytes) -> VortexResult<()> {
+    pub fn set(&mut self, _segment_id: SegmentId, _bytes: ByteBuffer) -> VortexResult<()> {
         // Do nothing for now
         Ok(())
     }
@@ -55,6 +56,7 @@ impl<R: VortexReadAt> SegmentCache<R> {
             let segment = &self.segments[**id as usize];
             self.read
                 .read_byte_range(segment.offset, segment.length as u64)
+                .map_ok(|bytes| ByteBuffer::from(bytes).aligned(segment.alignment))
         }))
         .await?;
 
@@ -77,7 +79,7 @@ impl<R: VortexReadAt> SegmentCache<R> {
 
 #[async_trait]
 impl<R: VortexReadAt> AsyncSegmentReader for SegmentCache<R> {
-    async fn get(&self, id: SegmentId) -> VortexResult<Bytes> {
+    async fn get(&self, id: SegmentId) -> VortexResult<ByteBuffer> {
         let (send, recv) = oneshot::channel();
         self.inflight
             .write()

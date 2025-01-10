@@ -1,4 +1,5 @@
 use flatbuffers::{FlatBufferBuilder, Follow, WIPOffset};
+use vortex_buffer::Alignment;
 use vortex_error::{vortex_err, VortexError};
 use vortex_flatbuffers::{footer2 as fb, ReadFlatBuffer, WriteFlatBuffer};
 
@@ -7,6 +8,7 @@ use vortex_flatbuffers::{footer2 as fb, ReadFlatBuffer, WriteFlatBuffer};
 pub(crate) struct Segment {
     pub(crate) offset: u64,
     pub(crate) length: usize,
+    pub(crate) alignment: Alignment,
 }
 
 impl WriteFlatBuffer for Segment {
@@ -21,6 +23,7 @@ impl WriteFlatBuffer for Segment {
             &fb::SegmentArgs {
                 offset: self.offset,
                 length: self.length as u64,
+                alignment: self.alignment.into(),
             },
         )
     }
@@ -37,6 +40,7 @@ impl ReadFlatBuffer for Segment {
             offset: fb.offset(),
             length: usize::try_from(fb.length())
                 .map_err(|_| vortex_err!("segment length exceeds maximum usize"))?,
+            alignment: Alignment::from(fb.alignment()),
         })
     }
 }

@@ -253,9 +253,9 @@ impl OpenOptions {
             let segment_id = SegmentId::from(u32::try_from(idx)?);
 
             let offset = usize::try_from(segment.offset - initial_offset)?;
-            let bytes = initial_read.slice(offset..offset + segment.length);
+            let buffer = initial_read.slice(offset..offset + segment.length);
 
-            segments.set(segment_id, bytes.into_inner())?;
+            segments.set(segment_id, buffer)?;
         }
         Ok(())
     }

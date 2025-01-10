@@ -217,6 +217,17 @@ impl LayoutData {
         }
     }
 
+    /// Returns the number of segments in the layout.
+    pub fn nsegments(&self) -> usize {
+        match &self.0 {
+            Inner::Owned(owned) => owned.segments.as_ref().map_or(0, |segments| segments.len()),
+            Inner::Viewed(viewed) => viewed
+                .flatbuffer()
+                .segments()
+                .map_or(0, |segments| segments.len()),
+        }
+    }
+
     /// Fetch the i'th segment id of the layout.
     pub fn segment_id(&self, i: usize) -> Option<SegmentId> {
         match &self.0 {
