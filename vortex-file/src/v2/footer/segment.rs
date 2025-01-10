@@ -1,5 +1,5 @@
 use vortex_buffer::Alignment;
-use vortex_error::{vortex_err, VortexError};
+use vortex_error::VortexError;
 use vortex_flatbuffers::footer2 as fb;
 
 /// The location of a segment within a Vortex file.
@@ -22,8 +22,7 @@ impl TryFrom<&fb::Segment> for Segment {
     fn try_from(value: &fb::Segment) -> Result<Self, Self::Error> {
         Ok(Self {
             offset: value.offset(),
-            length: u32::try_from(value.length())
-                .map_err(|_| vortex_err!("segment length exceeds maximum u32"))?,
+            length: value.length(),
             alignment: Alignment::from_exponent(value.alignment_exponent()),
         })
     }

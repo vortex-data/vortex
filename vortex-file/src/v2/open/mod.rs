@@ -228,7 +228,7 @@ impl OpenOptions {
             .ok_or_else(|| vortex_err!("FileLayout missing segments"))?;
         let segments = fb_segments
             .iter()
-            .map(|s| Segment::try_from(s))
+            .map(Segment::try_from)
             .try_collect()?;
 
         Ok(FileLayout {

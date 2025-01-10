@@ -25,7 +25,7 @@ impl WriteFlatBuffer for FileLayout {
         let segments = fbb.create_vector_from_iter(
             self.segments
                 .iter()
-                .map(|segment| fb::Segment::from(segment)),
+                .map(fb::Segment::from),
         );
         fb::FileLayout::create(
             fbb,
