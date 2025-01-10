@@ -27,9 +27,10 @@ use vortex::arrow::FromArrowType;
 use vortex::compress::CompressionStrategy;
 use vortex::dtype::DType;
 use vortex::error::VortexResult;
-use vortex::file::v2::{Scan, VortexOpenOptions, VortexWriteOptions};
+use vortex::file::v2::{VortexOpenOptions, VortexWriteOptions};
 use vortex::io::{ObjectStoreReadAt, TokioFile, VortexReadAt, VortexWrite};
 use vortex::sampling_compressor::{SamplingCompressor, ALL_ENCODINGS_CONTEXT};
+use vortex::scan::Scan;
 use vortex::stream::ArrayStreamExt;
 use vortex::{ArrayData, IntoArrayData, IntoCanonical};
 
@@ -105,12 +106,14 @@ pub fn write_csv_as_parquet(csv_path: PathBuf, output_path: &Path) -> VortexResu
 
 async fn take_vortex<T: VortexReadAt + Unpin + 'static>(
     reader: T,
-    indices: &[u64],
+    _indices: &[u64],
 ) -> VortexResult<ArrayData> {
     VortexOpenOptions::new(ALL_ENCODINGS_CONTEXT.clone())
         .open(reader)
         .await?
-        .scan_rows(Scan::all(), indices.iter().copied())?
+        // FIXME(ngates): support row indices
+        // .scan_rows(Scan::all(), indices.iter().copied())?
+        .scan(Scan::all())?
         .into_array_data()
         .await?
         // For equivalence.... we decompress to make sure we're not cheating too much.

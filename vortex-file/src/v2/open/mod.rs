@@ -102,6 +102,8 @@ impl VortexOpenOptions {
                 file_layout,
                 segments,
                 splits,
+                // FIXME(ngates): we need some way to share the underlying I/O system. This
+                //  segment cache + thread pool.
                 thread_pool: Arc::new(
                     rayon::ThreadPoolBuilder::new()
                         .build()

@@ -4861,6 +4861,7 @@ dependencies = [
  "vortex-runend-bool",
  "vortex-sampling-compressor",
  "vortex-scalar",
+ "vortex-scan",
  "vortex-zigzag",
 ]
 

@@ -29,20 +29,6 @@ pub struct VortexFile<R> {
 
 impl<R> VortexFile<R> {}
 
-/// When the underling `R` is `Clone`, we can clone the `VortexFile`.
-// TODO(ngates): remove Clone from VortexReadAt?
-impl<R: Clone> Clone for VortexFile<R> {
-    fn clone(&self) -> Self {
-        Self {
-            ctx: self.ctx.clone(),
-            file_layout: self.file_layout.clone(),
-            segments: self.segments.clone(),
-            splits: self.splits.clone(),
-            thread_pool: self.thread_pool.clone(),
-        }
-    }
-}
-
 /// Async implementation of Vortex File.
 impl<R: VortexReadAt + Unpin> VortexFile<R> {
     /// Returns the number of rows in the file.
