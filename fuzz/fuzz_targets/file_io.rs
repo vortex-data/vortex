@@ -35,9 +35,13 @@ fuzz_target!(|array_data: ArrayData| -> Corpus {
             .into_stream();
 
         let output = stream.map(|a| a.unwrap()).collect::<Vec<_>>().await;
-        let output = ChunkedArray::try_new(output, array_data.dtype().clone())
-            .unwrap()
-            .into_array();
+        let output = if output.is_empty() {
+            ChunkedArray::try_new(output, array_data.dtype().clone())
+                .unwrap()
+                .into_array()
+        } else {
+            ChunkedArray::from_iter(output).into_array()
+        };
 
         assert_eq!(array_data.len(), output.len(), "Length was not preserved.");
 
