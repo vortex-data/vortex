@@ -16,7 +16,7 @@ use vortex_layout::segments::SegmentId;
 use vortex_layout::{LayoutContextRef, LayoutData, LayoutId};
 
 use crate::v2::footer::{FileLayout, Postscript, Segment};
-use crate::v2::segments::cache::SegmentCache;
+use crate::v2::segments::driver::SegmentStream;
 use crate::v2::VortexFile;
 use crate::{EOF_SIZE, MAGIC_BYTES, VERSION};
 
@@ -126,7 +126,7 @@ impl VortexOpenOptions {
 
         // Set up our segment cache and for good measure, we populate any segments that were
         // covered by the initial read.
-        let mut segment_cache = SegmentCache::<R>::new(read, file_layout.segments.clone());
+        let mut segment_cache = SegmentStream::<R>::new(read, file_layout.segments.clone());
         self.populate_segments(
             initial_offset,
             &initial_read,
@@ -244,7 +244,7 @@ impl VortexOpenOptions {
         initial_offset: u64,
         initial_read: &ByteBuffer,
         file_layout: &FileLayout,
-        segments: &mut SegmentCache<R>,
+        segments: &mut SegmentStream<R>,
     ) -> VortexResult<()> {
         for (idx, segment) in file_layout.segments.iter().enumerate() {
             if segment.offset < initial_offset {

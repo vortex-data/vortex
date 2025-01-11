@@ -16,12 +16,12 @@ use vortex_io::VortexReadAt;
 use vortex_layout::{ExprEvaluator, LayoutData, LayoutReader};
 use vortex_scan::Scan;
 
-use crate::v2::segments::cache::SegmentCache;
+use crate::v2::segments::driver::SegmentStream;
 
 pub struct VortexFile<R> {
     pub(crate) ctx: ContextRef,
     pub(crate) layout: LayoutData,
-    pub(crate) segments: SegmentCache<R>,
+    pub(crate) segments: SegmentStream<R>,
     pub(crate) splits: Arc<[Range<u64>]>,
     pub(crate) thread_pool: Arc<rayon::ThreadPool>,
 }

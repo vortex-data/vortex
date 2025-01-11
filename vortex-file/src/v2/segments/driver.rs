@@ -14,7 +14,13 @@ use vortex_layout::segments::{AsyncSegmentReader, SegmentId};
 
 use crate::v2::footer::Segment;
 
-pub(crate) struct SegmentCache<R> {
+/// The [`SegmentStream`] is responsible for funnelling segment requests from each of the worker
+/// threads into a single stream of segment requests.
+///
+/// Consumers of the stream can then choose how to buffer, debounce, coalesce, or otherwise manage
+/// the requests, ultimately resolving them by sending the requested segment back to the caller
+/// via a one-shot channel.
+pub(crate) struct SegmentStream<R> {
     read: R,
     segments: Arc<[Segment]>,
     request_send: mpsc::UnboundedSender<SegmentRequest>,
@@ -28,7 +34,7 @@ struct SegmentRequest {
     callback: oneshot::Sender<ByteBuffer>,
 }
 
-impl<R> SegmentCache<R> {
+impl<R> SegmentStream<R> {
     pub fn new(read: R, segments: Arc<[Segment]>) -> Self {
         let (send, recv) = mpsc::unbounded();
         Self {
@@ -50,7 +56,7 @@ impl<R> SegmentCache<R> {
     }
 }
 
-impl<R: VortexReadAt + Unpin> SegmentCache<R> {
+impl<R: VortexReadAt + Unpin> SegmentStream<R> {
     /// Drives the segment cache.
     pub(crate) fn driver(
         self,
