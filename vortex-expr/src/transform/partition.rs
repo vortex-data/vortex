@@ -13,6 +13,14 @@ use crate::{get_item, ident, pack, ExprRef, GetItem, Identity, Select, SelectFie
 /// The results of each partition can then be recombined to reproduce the result of the original
 /// expression.
 ///
+/// ## Note
+///
+/// This function currently respects the validity of each field in the scope, but the not validity
+/// of the scope itself. The fix would be for the returned `PartitionedExpr` to include a partition
+/// expression for computing the validity, or to include that expression as part of the root.
+///
+/// See <https://github.com/spiraldb/vortex/issues/1907>.
+///
 // TODO(ngates): document the behaviour of conflicting `Field::Index` and `Field::Name`.
 pub fn partition(expr: ExprRef, scope_dtype: &StructDType) -> VortexResult<PartitionedExpr> {
     StructFieldExpressionSplitter::split(expr, scope_dtype)

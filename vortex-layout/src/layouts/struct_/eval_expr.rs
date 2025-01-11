@@ -15,8 +15,6 @@ use crate::ExprEvaluator;
 #[async_trait(?Send)]
 impl ExprEvaluator for StructReader {
     async fn evaluate_expr(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<ArrayData> {
-        // TODO: apply validity mask to row_mask
-
         // Partition the expression into expressions that can be evaluated over individual fields
         let partitioned = partition(expr, self.struct_dtype())?;
         let field_readers: Vec<_> = partitioned
@@ -60,7 +58,9 @@ impl ExprEvaluator for StructReader {
 mod tests {
     use std::sync::Arc;
 
+    use futures::executor::block_on;
     use vortex_array::array::StructArray;
+    use vortex_array::compute::FilterMask;
     use vortex_array::{IntoArrayData, IntoArrayVariant};
     use vortex_buffer::buffer;
     use vortex_dtype::PType::I32;
@@ -114,12 +114,36 @@ mod tests {
 
         let reader = layout.reader(segments, Default::default()).unwrap();
         let expr = gt(get_item("a", ident()), get_item("b", ident()));
-        let result = futures::executor::block_on(
-            reader.evaluate_expr(RowMask::new_valid_between(0, 3), expr),
-        )
-        .unwrap();
+        let result =
+            block_on(reader.evaluate_expr(RowMask::new_valid_between(0, 3), expr)).unwrap();
         assert_eq!(
             vec![true, false, false],
+            result
+                .into_bool()
+                .unwrap()
+                .boolean_buffer()
+                .iter()
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_struct_layout_row_mask() {
+        let (segments, layout) = struct_layout();
+
+        let reader = layout.reader(segments, Default::default()).unwrap();
+        let expr = gt(get_item("a", ident()), get_item("b", ident()));
+        let result = block_on(reader.evaluate_expr(
+            // Take rows 0 and 1, skip row 2, and anything after that
+            RowMask::new(FilterMask::from_iter([true, true, false]), 0),
+            expr,
+        ))
+        .unwrap();
+
+        assert_eq!(result.len(), 2);
+
+        assert_eq!(
+            vec![true, false],
             result
                 .into_bool()
                 .unwrap()
