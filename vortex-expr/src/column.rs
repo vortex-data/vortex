@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use vortex_array::{ArrayDType, ArrayData};
 use vortex_dtype::Field;
-use vortex_error::{vortex_err, VortexResult};
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
 
 use crate::{ExprRef, VortexExpr};
 
@@ -70,7 +70,13 @@ impl VortexExpr for Column {
                 )
             })?
             .maybe_null_field(&self.field)
-            .ok_or_else(|| vortex_err!("Array doesn't contain child array {}", self.field))
+            .ok_or_else(|| {
+                vortex_err!(
+                    "Array doesn't contain column {}: {:?}",
+                    self.field,
+                    batch.dtype().as_struct().vortex_expect("struct")
+                )
+            })
     }
 
     fn children(&self) -> Vec<&ExprRef> {
