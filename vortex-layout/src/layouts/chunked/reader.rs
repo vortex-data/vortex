@@ -42,14 +42,14 @@ impl ChunkedReader {
         }
 
         // Construct a lazy scan for each chunk of the layout.
-        let chunk_scans = (0..nchunks).map(|_| OnceLock::new()).collect();
+        let chunk_readers = (0..nchunks).map(|_| OnceLock::new()).collect();
 
         Ok(Self {
             layout,
             ctx,
             segments,
             stats_table: Arc::new(OnceCell::new()),
-            chunk_readers: chunk_scans,
+            chunk_readers,
         })
     }
 

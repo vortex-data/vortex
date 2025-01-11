@@ -6,6 +6,7 @@ use std::ops::{Deref, RangeBounds};
 use bytes::{Buf, Bytes};
 use vortex_error::{vortex_panic, VortexExpect};
 
+use crate::debug::TruncatedDebug;
 use crate::{Alignment, BufferMut, ByteBuffer};
 
 /// An immutable buffer of items of `T`.
@@ -282,31 +283,13 @@ impl<T> Buffer<T> {
     }
 }
 
-impl<T> Debug for Buffer<T>
-where
-    T: Debug,
-{
+impl<T: Debug> Debug for Buffer<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let mut binding = f.debug_struct(&format!("Buffer<{}>", type_name::<T>()));
-        let fields = binding
+        f.debug_struct(&format!("Buffer<{}>", type_name::<T>()))
             .field("length", &self.length)
-            .field("alignment", &self.alignment);
-
-        const TRUNC_SIZE: usize = 16;
-        if self.len() <= TRUNC_SIZE {
-            fields.field("as_slice", &self.as_slice());
-        } else {
-            fields.field_with(&"as_slice", |f| {
-                write!(f, "[")?;
-                for elem in self.as_slice().iter().take(TRUNC_SIZE) {
-                    write!(f, "{:?}, ", *elem)?;
-                }
-                write!(f, "...")?;
-                write!(f, "]")
-            });
-        }
-
-        fields.finish()
+            .field("alignment", &self.alignment)
+            .field("as_slice", &TruncatedDebug(self.as_slice()))
+            .finish()
     }
 }
 

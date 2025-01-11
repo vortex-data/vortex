@@ -12,7 +12,7 @@ use vortex_error::VortexResult;
 
 use crate::encoding::{LayoutEncoding, LayoutId};
 use crate::layouts::flat::reader::FlatReader;
-use crate::reader::{LayoutReader, LayoutScanExt};
+use crate::reader::{LayoutReader, LayoutReaderExt};
 use crate::segments::AsyncSegmentReader;
 use crate::{LayoutData, FLAT_LAYOUT_ID};
 

@@ -58,6 +58,7 @@ mod buffer;
 mod buffer_mut;
 mod bytes;
 mod r#const;
+mod debug;
 mod macros;
 mod string;
 

@@ -7,8 +7,8 @@ use itertools::Itertools as _;
 use vortex_array::array::StructArray;
 use vortex_array::validity::Validity;
 use vortex_array::{ArrayData, IntoArrayData};
-use vortex_dtype::FieldNames;
-use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
+use vortex_dtype::{Field, FieldNames};
+use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
 
 use crate::{ExprRef, VortexExpr};
 
@@ -51,6 +51,33 @@ impl Pack {
         }
         Ok(Arc::new(Pack { names, values }))
     }
+
+    pub fn names(&self) -> &FieldNames {
+        &self.names
+    }
+
+    pub fn field(&self, f: &Field) -> VortexResult<ExprRef> {
+        let idx = match f {
+            Field::Name(n) => self
+                .names
+                .iter()
+                .position(|name| name == n)
+                .ok_or_else(|| {
+                    vortex_err!("Cannot find field {} in pack fields {:?}", n, self.names)
+                })?,
+            Field::Index(idx) => *idx,
+        };
+
+        self.values
+            .get(idx)
+            .cloned()
+            .ok_or_else(|| vortex_err!("field index out of bounds: {}", idx))
+    }
+}
+
+pub fn pack(names: impl Into<FieldNames>, values: Vec<ExprRef>) -> ExprRef {
+    Pack::try_new_expr(names.into(), values)
+        .vortex_expect("pack names and values have the same length")
 }
 
 impl PartialEq<dyn Any> for Pack {
