@@ -12,6 +12,7 @@ pub use field::*;
 pub use half;
 pub use nullability::*;
 pub use ptype::*;
+pub use struct_::*;
 
 #[cfg(feature = "arbitrary")]
 mod arbitrary;
@@ -21,6 +22,7 @@ mod field;
 mod nullability;
 mod ptype;
 mod serde;
+mod struct_;
 
 #[cfg(feature = "proto")]
 pub mod proto {

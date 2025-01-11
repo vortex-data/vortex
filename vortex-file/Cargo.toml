@@ -24,6 +24,8 @@ futures = { workspace = true, features = ["std"] }
 futures-executor = { workspace = true }
 futures-util = { workspace = true }
 itertools = { workspace = true }
+pin-project-lite = { workspace = true }
+rayon = { workspace = true }
 tokio = { workspace = true, features = ["rt"] }
 tracing = { workspace = true, optional = true }
 vortex-array = { workspace = true }
