@@ -27,7 +27,7 @@ impl VortexExpr for Identity {
         self
     }
 
-    fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
+    fn unchecked_evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
         Ok(batch.clone())
     }
 
@@ -44,4 +44,16 @@ impl VortexExpr for Identity {
 // Return a global pointer to the identity token.
 pub fn ident() -> ExprRef {
     Identity::new_expr()
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{ident, test_harness};
+
+    #[test]
+    fn dtype() {
+        let dtype = test_harness::struct_dtype();
+        assert_eq!(ident().return_dtype(&dtype).unwrap(), dtype);
+        assert_eq!(ident().return_dtype(&dtype).unwrap(), dtype);
+    }
 }

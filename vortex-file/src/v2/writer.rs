@@ -13,11 +13,11 @@ use crate::v2::segments::writer::BufferedSegmentWriter;
 use crate::v2::strategy::VortexLayoutStrategy;
 use crate::{EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
 
-pub struct WriteOptions {
+pub struct VortexWriteOptions {
     strategy: Box<dyn LayoutStrategy>,
 }
 
-impl Default for WriteOptions {
+impl Default for VortexWriteOptions {
     fn default() -> Self {
         Self {
             strategy: Box::new(VortexLayoutStrategy),
@@ -25,7 +25,7 @@ impl Default for WriteOptions {
     }
 }
 
-impl WriteOptions {
+impl VortexWriteOptions {
     /// Replace the default layout strategy with the provided one.
     pub fn with_strategy(mut self, strategy: Box<dyn LayoutStrategy>) -> Self {
         self.strategy = strategy;
@@ -33,7 +33,7 @@ impl WriteOptions {
     }
 }
 
-impl WriteOptions {
+impl VortexWriteOptions {
     /// Perform a blocking write of the provided iterator of `ArrayData`.
     pub fn write_sync<W: Write, I: ArrayIterator>(self, _write: W, _iter: I) -> VortexResult<()> {
         todo!()

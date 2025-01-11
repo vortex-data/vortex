@@ -58,8 +58,10 @@ impl VortexExpr for Column {
     fn as_any(&self) -> &dyn Any {
         self
     }
-    fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
+
+    fn unchecked_evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
         batch
+            .clone()
             .as_struct_array()
             .ok_or_else(|| {
                 vortex_err!(
@@ -78,5 +80,25 @@ impl VortexExpr for Column {
     fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
         assert_eq!(children.len(), 0);
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_dtype::{DType, Nullability, PType};
+
+    use crate::{col, test_harness};
+
+    #[test]
+    fn dtype() {
+        let dtype = test_harness::struct_dtype();
+        assert_eq!(
+            col("a").return_dtype(&dtype).unwrap(),
+            DType::Primitive(PType::I32, Nullability::NonNullable)
+        );
+        assert_eq!(
+            col(1).return_dtype(&dtype).unwrap(),
+            DType::Primitive(PType::U16, Nullability::Nullable)
+        );
     }
 }

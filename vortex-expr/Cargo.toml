@@ -35,6 +35,10 @@ vortex-error = { workspace = true }
 vortex-proto = { workspace = true, optional = true }
 vortex-scalar = { workspace = true }
 
+[dev-dependencies]
+vortex-expr = { path = ".", features = ["test-harness"] }
+
+
 [features]
 datafusion = [
     "dep:datafusion-expr",
@@ -48,3 +52,4 @@ proto = [
     "vortex-proto/expr",
 ]
 serde = ["dep:serde", "vortex-dtype/serde", "vortex-scalar/serde"]
+test-harness = []
