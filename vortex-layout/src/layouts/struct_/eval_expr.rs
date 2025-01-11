@@ -1,53 +1,58 @@
 use async_trait::async_trait;
 use futures::future::try_join_all;
-use futures::FutureExt;
+use itertools::Itertools;
 use vortex_array::array::StructArray;
 use vortex_array::validity::Validity;
 use vortex_array::{ArrayData, IntoArrayData};
 use vortex_error::VortexResult;
-use vortex_expr::transform::split_expression;
+use vortex_expr::transform::partition::partition;
 use vortex_expr::ExprRef;
 use vortex_scan::RowMask;
 
 use crate::layouts::struct_::reader::StructReader;
-use crate::reader::LayoutReaderExt;
-use crate::{ExprEvaluator, LayoutReader};
+use crate::ExprEvaluator;
 
 #[async_trait(?Send)]
 impl ExprEvaluator for StructReader {
     async fn evaluate_expr(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<ArrayData> {
         // TODO: apply validity mask to row_mask
 
-        let (combine_expr, expr_split) = split_expression(expr, self.dtype())?;
+        // Partition the expression into expressions that can be evaluated over individual fields
+        let partitioned = partition(expr, self.struct_dtype())?;
+        let field_readers: Vec<_> = partitioned
+            .partitions
+            .iter()
+            .map(|partition| self.child(&partition.field))
+            .try_collect()?;
 
-        let mut results = Vec::with_capacity(expr_split.len());
-        let mut result_field_name = Vec::with_capacity(expr_split.len());
+        let arrays = try_join_all(
+            field_readers
+                .iter()
+                .zip_eq(partitioned.partitions.iter())
+                .map(|(reader, partition)| {
+                    reader.evaluate_expr(row_mask.clone(), partition.expr.clone())
+                }),
+        )
+        .await?;
 
-        for (field, (res, expr)) in &expr_split {
-            result_field_name.push(res.clone());
-            results.push(
-                self.child(field)?
-                    .evaluate_expr(row_mask.clone(), expr.clone())
-                    .boxed_local(),
-            );
-        }
+        let row_count = row_mask.true_count();
+        debug_assert!(arrays.iter().all(|a| a.len() == row_count));
 
-        let arrays = try_join_all(results).await?;
-
-        let row_count = self.layout().row_count();
-        assert!(arrays.iter().all(|a| a.len() as u64 == row_count));
-
-        let pack = StructArray::try_new(
-            result_field_name.into(),
+        let root_scope = StructArray::try_new(
+            partitioned
+                .partitions
+                .iter()
+                .map(|p| p.name.clone())
+                .collect::<Vec<_>>()
+                .into(),
             arrays,
-            usize::try_from(row_count)?,
-            // TODO: handle validity
+            row_count,
             Validity::NonNullable,
-        )?;
+        )?
+        .into_array();
 
-        // Now we need to evaluate the expression
-        // TODO: apply validity mask to result
-        combine_expr.evaluate(&pack.into_array())
+        // Recombine the partitioned expressions into a single expression
+        partitioned.root.evaluate(&root_scope)
     }
 }
 

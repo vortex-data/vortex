@@ -19,12 +19,14 @@ fn basic_file_roundtrip() -> VortexResult<()> {
         ])
         .into_array();
 
-        let buffer: Bytes = WriteOptions::default()
+        let buffer: Bytes = VortexWriteOptions::default()
             .write_async(vec![], array.into_array_stream())
             .await?
             .into();
 
-        let vxf = OpenOptions::new(ContextRef::default()).open(buffer).await?;
+        let vxf = VortexOpenOptions::new(ContextRef::default())
+            .open(buffer)
+            .await?;
         let result = vxf
             .scan(Scan::all())?
             .into_array_data()

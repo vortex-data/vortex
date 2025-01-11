@@ -11,142 +11,6 @@ use core::cmp::Ordering;
 extern crate flatbuffers;
 use self::flatbuffers::{EndianScalar, Follow};
 
-pub enum ArrayDataOffset {}
-#[derive(Copy, Clone, PartialEq)]
-
-/// An ArrayData describes the hierarchy of an array as well as the locations of the data buffers that appear
-/// immediately after the message in the byte stream.
-pub struct ArrayData<'a> {
-  pub _tab: flatbuffers::Table<'a>,
-}
-
-impl<'a> flatbuffers::Follow<'a> for ArrayData<'a> {
-  type Inner = ArrayData<'a>;
-  #[inline]
-  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-    Self { _tab: flatbuffers::Table::new(buf, loc) }
-  }
-}
-
-impl<'a> ArrayData<'a> {
-  pub const VT_ARRAY: flatbuffers::VOffsetT = 4;
-  pub const VT_ROW_COUNT: flatbuffers::VOffsetT = 6;
-  pub const VT_BUFFERS: flatbuffers::VOffsetT = 8;
-
-  #[inline]
-  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
-    ArrayData { _tab: table }
-  }
-  #[allow(unused_mut)]
-  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
-    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
-    args: &'args ArrayDataArgs<'args>
-  ) -> flatbuffers::WIPOffset<ArrayData<'bldr>> {
-    let mut builder = ArrayDataBuilder::new(_fbb);
-    builder.add_row_count(args.row_count);
-    if let Some(x) = args.buffers { builder.add_buffers(x); }
-    if let Some(x) = args.array { builder.add_array(x); }
-    builder.finish()
-  }
-
-
-  /// The array's hierarchical definition.
-  #[inline]
-  pub fn array(&self) -> Option<Array<'a>> {
-    // Safety:
-    // Created from valid Table for this object
-    // which contains a valid value in this slot
-    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<Array>>(ArrayData::VT_ARRAY, None)}
-  }
-  /// The row count of the array.
-  #[inline]
-  pub fn row_count(&self) -> u64 {
-    // Safety:
-    // Created from valid Table for this object
-    // which contains a valid value in this slot
-    unsafe { self._tab.get::<u64>(ArrayData::VT_ROW_COUNT, Some(0)).unwrap()}
-  }
-  /// The locations of the data buffers of the array, in ascending order of offset.
-  #[inline]
-  pub fn buffers(&self) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Buffer<'a>>>> {
-    // Safety:
-    // Created from valid Table for this object
-    // which contains a valid value in this slot
-    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Buffer>>>>(ArrayData::VT_BUFFERS, None)}
-  }
-}
-
-impl flatbuffers::Verifiable for ArrayData<'_> {
-  #[inline]
-  fn run_verifier(
-    v: &mut flatbuffers::Verifier, pos: usize
-  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
-    use self::flatbuffers::Verifiable;
-    v.visit_table(pos)?
-     .visit_field::<flatbuffers::ForwardsUOffset<Array>>("array", Self::VT_ARRAY, false)?
-     .visit_field::<u64>("row_count", Self::VT_ROW_COUNT, false)?
-     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<Buffer>>>>("buffers", Self::VT_BUFFERS, false)?
-     .finish();
-    Ok(())
-  }
-}
-pub struct ArrayDataArgs<'a> {
-    pub array: Option<flatbuffers::WIPOffset<Array<'a>>>,
-    pub row_count: u64,
-    pub buffers: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Buffer<'a>>>>>,
-}
-impl<'a> Default for ArrayDataArgs<'a> {
-  #[inline]
-  fn default() -> Self {
-    ArrayDataArgs {
-      array: None,
-      row_count: 0,
-      buffers: None,
-    }
-  }
-}
-
-pub struct ArrayDataBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
-  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
-  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
-}
-impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> ArrayDataBuilder<'a, 'b, A> {
-  #[inline]
-  pub fn add_array(&mut self, array: flatbuffers::WIPOffset<Array<'b >>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Array>>(ArrayData::VT_ARRAY, array);
-  }
-  #[inline]
-  pub fn add_row_count(&mut self, row_count: u64) {
-    self.fbb_.push_slot::<u64>(ArrayData::VT_ROW_COUNT, row_count, 0);
-  }
-  #[inline]
-  pub fn add_buffers(&mut self, buffers: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<Buffer<'b >>>>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(ArrayData::VT_BUFFERS, buffers);
-  }
-  #[inline]
-  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> ArrayDataBuilder<'a, 'b, A> {
-    let start = _fbb.start_table();
-    ArrayDataBuilder {
-      fbb_: _fbb,
-      start_: start,
-    }
-  }
-  #[inline]
-  pub fn finish(self) -> flatbuffers::WIPOffset<ArrayData<'a>> {
-    let o = self.fbb_.end_table(self.start_);
-    flatbuffers::WIPOffset::new(o.value())
-  }
-}
-
-impl core::fmt::Debug for ArrayData<'_> {
-  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-    let mut ds = f.debug_struct("ArrayData");
-      ds.field("array", &self.array());
-      ds.field("row_count", &self.row_count());
-      ds.field("buffers", &self.buffers());
-      ds.finish()
-  }
-}
 pub enum ArrayOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -579,208 +443,74 @@ impl core::fmt::Debug for ArrayStats<'_> {
       ds.finish()
   }
 }
-pub enum BufferOffset {}
-#[derive(Copy, Clone, PartialEq)]
-
-pub struct Buffer<'a> {
-  pub _tab: flatbuffers::Table<'a>,
-}
-
-impl<'a> flatbuffers::Follow<'a> for Buffer<'a> {
-  type Inner = Buffer<'a>;
-  #[inline]
-  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-    Self { _tab: flatbuffers::Table::new(buf, loc) }
-  }
-}
-
-impl<'a> Buffer<'a> {
-  pub const VT_LENGTH: flatbuffers::VOffsetT = 4;
-  pub const VT_PADDING: flatbuffers::VOffsetT = 6;
-  pub const VT_ALIGNMENT: flatbuffers::VOffsetT = 8;
-
-  #[inline]
-  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
-    Buffer { _tab: table }
-  }
-  #[allow(unused_mut)]
-  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
-    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
-    args: &'args BufferArgs
-  ) -> flatbuffers::WIPOffset<Buffer<'bldr>> {
-    let mut builder = BufferBuilder::new(_fbb);
-    builder.add_length(args.length);
-    builder.add_alignment(args.alignment);
-    builder.add_padding(args.padding);
-    builder.finish()
-  }
-
-
-  /// The length of the buffer in bytes.
-  #[inline]
-  pub fn length(&self) -> u64 {
-    // Safety:
-    // Created from valid Table for this object
-    // which contains a valid value in this slot
-    unsafe { self._tab.get::<u64>(Buffer::VT_LENGTH, Some(0)).unwrap()}
-  }
-  /// The length of any padding bytes written immediately following the buffer.
-  #[inline]
-  pub fn padding(&self) -> u16 {
-    // Safety:
-    // Created from valid Table for this object
-    // which contains a valid value in this slot
-    unsafe { self._tab.get::<u16>(Buffer::VT_PADDING, Some(0)).unwrap()}
-  }
-  /// The minimum alignment of the buffer.
-  #[inline]
-  pub fn alignment(&self) -> u16 {
-    // Safety:
-    // Created from valid Table for this object
-    // which contains a valid value in this slot
-    unsafe { self._tab.get::<u16>(Buffer::VT_ALIGNMENT, Some(0)).unwrap()}
-  }
-}
-
-impl flatbuffers::Verifiable for Buffer<'_> {
-  #[inline]
-  fn run_verifier(
-    v: &mut flatbuffers::Verifier, pos: usize
-  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
-    use self::flatbuffers::Verifiable;
-    v.visit_table(pos)?
-     .visit_field::<u64>("length", Self::VT_LENGTH, false)?
-     .visit_field::<u16>("padding", Self::VT_PADDING, false)?
-     .visit_field::<u16>("alignment", Self::VT_ALIGNMENT, false)?
-     .finish();
-    Ok(())
-  }
-}
-pub struct BufferArgs {
-    pub length: u64,
-    pub padding: u16,
-    pub alignment: u16,
-}
-impl<'a> Default for BufferArgs {
-  #[inline]
-  fn default() -> Self {
-    BufferArgs {
-      length: 0,
-      padding: 0,
-      alignment: 0,
-    }
-  }
-}
-
-pub struct BufferBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
-  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
-  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
-}
-impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> BufferBuilder<'a, 'b, A> {
-  #[inline]
-  pub fn add_length(&mut self, length: u64) {
-    self.fbb_.push_slot::<u64>(Buffer::VT_LENGTH, length, 0);
-  }
-  #[inline]
-  pub fn add_padding(&mut self, padding: u16) {
-    self.fbb_.push_slot::<u16>(Buffer::VT_PADDING, padding, 0);
-  }
-  #[inline]
-  pub fn add_alignment(&mut self, alignment: u16) {
-    self.fbb_.push_slot::<u16>(Buffer::VT_ALIGNMENT, alignment, 0);
-  }
-  #[inline]
-  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> BufferBuilder<'a, 'b, A> {
-    let start = _fbb.start_table();
-    BufferBuilder {
-      fbb_: _fbb,
-      start_: start,
-    }
-  }
-  #[inline]
-  pub fn finish(self) -> flatbuffers::WIPOffset<Buffer<'a>> {
-    let o = self.fbb_.end_table(self.start_);
-    flatbuffers::WIPOffset::new(o.value())
-  }
-}
-
-impl core::fmt::Debug for Buffer<'_> {
-  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-    let mut ds = f.debug_struct("Buffer");
-      ds.field("length", &self.length());
-      ds.field("padding", &self.padding());
-      ds.field("alignment", &self.alignment());
-      ds.finish()
-  }
-}
 #[inline]
-/// Verifies that a buffer of bytes contains a `ArrayData`
+/// Verifies that a buffer of bytes contains a `Array`
 /// and returns it.
 /// Note that verification is still experimental and may not
 /// catch every error, or be maximally performant. For the
 /// previous, unchecked, behavior use
-/// `root_as_array_data_unchecked`.
-pub fn root_as_array_data(buf: &[u8]) -> Result<ArrayData, flatbuffers::InvalidFlatbuffer> {
-  flatbuffers::root::<ArrayData>(buf)
+/// `root_as_array_unchecked`.
+pub fn root_as_array(buf: &[u8]) -> Result<Array, flatbuffers::InvalidFlatbuffer> {
+  flatbuffers::root::<Array>(buf)
 }
 #[inline]
 /// Verifies that a buffer of bytes contains a size prefixed
-/// `ArrayData` and returns it.
+/// `Array` and returns it.
 /// Note that verification is still experimental and may not
 /// catch every error, or be maximally performant. For the
 /// previous, unchecked, behavior use
-/// `size_prefixed_root_as_array_data_unchecked`.
-pub fn size_prefixed_root_as_array_data(buf: &[u8]) -> Result<ArrayData, flatbuffers::InvalidFlatbuffer> {
-  flatbuffers::size_prefixed_root::<ArrayData>(buf)
+/// `size_prefixed_root_as_array_unchecked`.
+pub fn size_prefixed_root_as_array(buf: &[u8]) -> Result<Array, flatbuffers::InvalidFlatbuffer> {
+  flatbuffers::size_prefixed_root::<Array>(buf)
 }
 #[inline]
 /// Verifies, with the given options, that a buffer of bytes
-/// contains a `ArrayData` and returns it.
+/// contains a `Array` and returns it.
 /// Note that verification is still experimental and may not
 /// catch every error, or be maximally performant. For the
 /// previous, unchecked, behavior use
-/// `root_as_array_data_unchecked`.
-pub fn root_as_array_data_with_opts<'b, 'o>(
+/// `root_as_array_unchecked`.
+pub fn root_as_array_with_opts<'b, 'o>(
   opts: &'o flatbuffers::VerifierOptions,
   buf: &'b [u8],
-) -> Result<ArrayData<'b>, flatbuffers::InvalidFlatbuffer> {
-  flatbuffers::root_with_opts::<ArrayData<'b>>(opts, buf)
+) -> Result<Array<'b>, flatbuffers::InvalidFlatbuffer> {
+  flatbuffers::root_with_opts::<Array<'b>>(opts, buf)
 }
 #[inline]
 /// Verifies, with the given verifier options, that a buffer of
-/// bytes contains a size prefixed `ArrayData` and returns
+/// bytes contains a size prefixed `Array` and returns
 /// it. Note that verification is still experimental and may not
 /// catch every error, or be maximally performant. For the
 /// previous, unchecked, behavior use
-/// `root_as_array_data_unchecked`.
-pub fn size_prefixed_root_as_array_data_with_opts<'b, 'o>(
+/// `root_as_array_unchecked`.
+pub fn size_prefixed_root_as_array_with_opts<'b, 'o>(
   opts: &'o flatbuffers::VerifierOptions,
   buf: &'b [u8],
-) -> Result<ArrayData<'b>, flatbuffers::InvalidFlatbuffer> {
-  flatbuffers::size_prefixed_root_with_opts::<ArrayData<'b>>(opts, buf)
+) -> Result<Array<'b>, flatbuffers::InvalidFlatbuffer> {
+  flatbuffers::size_prefixed_root_with_opts::<Array<'b>>(opts, buf)
 }
 #[inline]
-/// Assumes, without verification, that a buffer of bytes contains a ArrayData and returns it.
+/// Assumes, without verification, that a buffer of bytes contains a Array and returns it.
 /// # Safety
-/// Callers must trust the given bytes do indeed contain a valid `ArrayData`.
-pub unsafe fn root_as_array_data_unchecked(buf: &[u8]) -> ArrayData {
-  flatbuffers::root_unchecked::<ArrayData>(buf)
+/// Callers must trust the given bytes do indeed contain a valid `Array`.
+pub unsafe fn root_as_array_unchecked(buf: &[u8]) -> Array {
+  flatbuffers::root_unchecked::<Array>(buf)
 }
 #[inline]
-/// Assumes, without verification, that a buffer of bytes contains a size prefixed ArrayData and returns it.
+/// Assumes, without verification, that a buffer of bytes contains a size prefixed Array and returns it.
 /// # Safety
-/// Callers must trust the given bytes do indeed contain a valid size prefixed `ArrayData`.
-pub unsafe fn size_prefixed_root_as_array_data_unchecked(buf: &[u8]) -> ArrayData {
-  flatbuffers::size_prefixed_root_unchecked::<ArrayData>(buf)
+/// Callers must trust the given bytes do indeed contain a valid size prefixed `Array`.
+pub unsafe fn size_prefixed_root_as_array_unchecked(buf: &[u8]) -> Array {
+  flatbuffers::size_prefixed_root_unchecked::<Array>(buf)
 }
 #[inline]
-pub fn finish_array_data_buffer<'a, 'b, A: flatbuffers::Allocator + 'a>(
+pub fn finish_array_buffer<'a, 'b, A: flatbuffers::Allocator + 'a>(
     fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
-    root: flatbuffers::WIPOffset<ArrayData<'a>>) {
+    root: flatbuffers::WIPOffset<Array<'a>>) {
   fbb.finish(root, None);
 }
 
 #[inline]
-pub fn finish_size_prefixed_array_data_buffer<'a, 'b, A: flatbuffers::Allocator + 'a>(fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>, root: flatbuffers::WIPOffset<ArrayData<'a>>) {
+pub fn finish_size_prefixed_array_buffer<'a, 'b, A: flatbuffers::Allocator + 'a>(fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>, root: flatbuffers::WIPOffset<Array<'a>>) {
   fbb.finish_size_prefixed(root, None);
 }

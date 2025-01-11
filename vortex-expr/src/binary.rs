@@ -46,7 +46,7 @@ impl VortexExpr for BinaryExpr {
         self
     }
 
-    fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
+    fn unchecked_evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
         let lhs = self.lhs.evaluate(batch)?;
         let rhs = self.rhs.evaluate(batch)?;
 
@@ -256,4 +256,76 @@ pub fn or(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// ```
 pub fn and(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
     BinaryExpr::new_expr(lhs, Operator::And, rhs)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use vortex_dtype::{DType, Nullability};
+
+    use crate::{and, col, eq, gt, gt_eq, lt, lt_eq, not_eq, or, test_harness, VortexExpr};
+
+    #[test]
+    fn dtype() {
+        let dtype = test_harness::struct_dtype();
+        let bool1: Arc<dyn VortexExpr> = col("bool1");
+        let bool2: Arc<dyn VortexExpr> = col("bool2");
+        assert_eq!(
+            and(bool1.clone(), bool2.clone())
+                .return_dtype(&dtype)
+                .unwrap(),
+            DType::Bool(Nullability::NonNullable)
+        );
+        assert_eq!(
+            or(bool1.clone(), bool2.clone())
+                .return_dtype(&dtype)
+                .unwrap(),
+            DType::Bool(Nullability::NonNullable)
+        );
+
+        let col1: Arc<dyn VortexExpr> = col("col1");
+        let col2: Arc<dyn VortexExpr> = col("col2");
+
+        assert_eq!(
+            eq(col1.clone(), col2.clone()).return_dtype(&dtype).unwrap(),
+            DType::Bool(Nullability::Nullable)
+        );
+        assert_eq!(
+            not_eq(col1.clone(), col2.clone())
+                .return_dtype(&dtype)
+                .unwrap(),
+            DType::Bool(Nullability::Nullable)
+        );
+        assert_eq!(
+            gt(col1.clone(), col2.clone()).return_dtype(&dtype).unwrap(),
+            DType::Bool(Nullability::Nullable)
+        );
+        assert_eq!(
+            gt_eq(col1.clone(), col2.clone())
+                .return_dtype(&dtype)
+                .unwrap(),
+            DType::Bool(Nullability::Nullable)
+        );
+        assert_eq!(
+            lt(col1.clone(), col2.clone()).return_dtype(&dtype).unwrap(),
+            DType::Bool(Nullability::Nullable)
+        );
+        assert_eq!(
+            lt_eq(col1.clone(), col2.clone())
+                .return_dtype(&dtype)
+                .unwrap(),
+            DType::Bool(Nullability::Nullable)
+        );
+
+        assert_eq!(
+            or(
+                lt(col1.clone(), col2.clone()),
+                not_eq(col1.clone(), col2.clone())
+            )
+            .return_dtype(&dtype)
+            .unwrap(),
+            DType::Bool(Nullability::Nullable)
+        );
+    }
 }

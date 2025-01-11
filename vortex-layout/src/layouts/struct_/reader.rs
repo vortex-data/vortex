@@ -2,12 +2,12 @@ use std::sync::{Arc, OnceLock};
 
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::ContextRef;
-use vortex_dtype::{DType, Field, FieldName};
-use vortex_error::{vortex_err, vortex_panic, VortexResult};
+use vortex_dtype::{DType, Field, FieldName, StructDType};
+use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
 
 use crate::layouts::struct_::StructLayout;
 use crate::segments::AsyncSegmentReader;
-use crate::{LayoutData, LayoutEncoding, LayoutReader};
+use crate::{LayoutData, LayoutEncoding, LayoutReader, LayoutReaderExt};
 
 #[derive(Clone)]
 pub struct StructReader {
@@ -60,6 +60,13 @@ impl StructReader {
             field_lookup,
             dtype_index,
         })
+    }
+
+    /// Return the [`StructDType`] of this layout.
+    pub(crate) fn struct_dtype(&self) -> &StructDType {
+        self.dtype()
+            .as_struct()
+            .vortex_expect("Struct layout must have a struct DType, verified at construction")
     }
 
     /// Return the child reader for the chunk.
