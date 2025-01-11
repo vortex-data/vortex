@@ -21,54 +21,27 @@ pub fn partition(expr: ExprRef, scope_dtype: &StructDType) -> VortexResult<Parti
 /// The result of partitioning an expression.
 pub struct PartitionedExpr {
     /// The root expression used to re-assemble the results.
-    root: ExprRef,
+    pub root: ExprRef,
     /// The partitions of the expression.
-    parts: Box<[Partition]>,
+    pub partitions: Box<[Partition]>,
 }
 
 impl PartitionedExpr {
-    /// Returns the root expression.
-    pub fn root(&self) -> &ExprRef {
-        &self.root
-    }
-
-    /// Returns the partitions of the expression.
-    pub fn parts(&self) -> &[Partition] {
-        &self.parts
-    }
-
     /// Return the partition for a given field, if it exists.
     pub fn find_partition(&self, field: &Field) -> Option<&Partition> {
-        self.parts.iter().find(|p| &p.field == field)
+        self.partitions.iter().find(|p| &p.field == field)
     }
 }
 
 /// A single partition of an expression.
 pub struct Partition {
     /// The field of the original scope to be used as the scope for this partition.
-    field: Field,
+    pub field: Field,
     /// The name of the partition, to be used when re-assembling the results.
     // TODO(ngates): we wouldn't need this if we had a MergeExpr.
-    part_name: FieldName,
+    pub name: FieldName,
     /// The expression that defines the partition.
-    part_expr: ExprRef,
-}
-
-impl Partition {
-    /// Returns the field of the original scope to be used as the scope for this partition.
-    pub fn field(&self) -> &Field {
-        &self.field
-    }
-
-    /// Returns the name of the partition.
-    pub fn part_name(&self) -> &FieldName {
-        &self.part_name
-    }
-
-    /// Returns the expression that defines the partition.
-    pub fn expr(&self) -> &ExprRef {
-        &self.part_expr
-    }
+    pub expr: ExprRef,
 }
 
 type FieldAccesses<'a> = HashMap<&'a ExprRef, HashSet<Field>>;
@@ -205,11 +178,11 @@ impl<'a> StructFieldExpressionSplitter<'a> {
             .sub_expressions
             .into_iter()
             .map(|(field, exprs)| {
-                let part_name = Self::new_expr_name(&field);
+                let name = Self::new_expr_name(&field);
                 Partition {
                     field,
-                    part_name,
-                    part_expr: pack(
+                    name,
+                    expr: pack(
                         (0..exprs.len())
                             .map(|i| FieldName::from(i.to_string()))
                             .collect_vec(),
@@ -221,7 +194,7 @@ impl<'a> StructFieldExpressionSplitter<'a> {
 
         Ok(PartitionedExpr {
             root: split.result(),
-            parts: partitions.into_boxed_slice(),
+            partitions: partitions.into_boxed_slice(),
         })
     }
 }
@@ -381,9 +354,9 @@ mod tests {
 
         let partitioned = split.unwrap();
 
-        assert!(partitioned.root().as_any().downcast_ref::<Pack>().is_some());
+        assert!(partitioned.root.as_any().downcast_ref::<Pack>().is_some());
         // Have a single top level pack with all fields in dtype
-        assert_eq!(partitioned.parts().len(), dtype.names().len())
+        assert_eq!(partitioned.partitions.len(), dtype.names().len())
     }
 
     #[test]
@@ -398,14 +371,11 @@ mod tests {
         let split_a = split_a.unwrap();
 
         assert_eq!(
-            partitioned.root(),
-            &get_item(
-                "0",
-                get_item(Field::Name(split_a.part_name().clone()), ident())
-            )
+            &partitioned.root,
+            &get_item("0", get_item(Field::Name(split_a.name.clone()), ident()))
         );
         assert_eq!(
-            &Simplify::simplify(split_a.expr().clone()).unwrap(),
+            &Simplify::simplify(split_a.expr.clone()).unwrap(),
             &pack(vec!["0".into()], vec![get_item("b", ident())])
         );
     }
@@ -428,7 +398,7 @@ mod tests {
             .find_partition(&Field::Name("a".into()))
             .unwrap();
         assert_eq!(
-            &Simplify::simplify(split_a.expr().clone()).unwrap(),
+            &Simplify::simplify(split_a.expr.clone()).unwrap(),
             &pack(
                 vec!["0".into(), "1".into()],
                 vec![get_item("a", ident()), get_item("b", ident())]
@@ -438,7 +408,7 @@ mod tests {
             .find_partition(&Field::Name("c".into()))
             .unwrap();
         assert_eq!(
-            &Simplify::simplify(split_c.expr().clone()).unwrap(),
+            &Simplify::simplify(split_c.expr.clone()).unwrap(),
             &pack(vec!["0".into()], vec![ident()])
         )
     }
@@ -451,7 +421,7 @@ mod tests {
         let partitioned = StructFieldExpressionSplitter::split(expr, &dtype).unwrap();
 
         // Whole expr is a single split
-        assert_eq!(partitioned.parts.len(), 1);
+        assert_eq!(partitioned.partitions.len(), 1);
     }
 
     #[test]
@@ -465,6 +435,6 @@ mod tests {
         let partitioned = StructFieldExpressionSplitter::split(expr, &dtype).unwrap();
 
         // One for id.a and id.b
-        assert_eq!(partitioned.parts.len(), 2);
+        assert_eq!(partitioned.partitions.len(), 2);
     }
 }
