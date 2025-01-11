@@ -13,6 +13,7 @@ use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
 use vortex_array::{ArrayDType, ArrayData, ContextRef, IntoCanonical};
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_expr::transform::simplify::simplify;
 use vortex_io::VortexReadAt;
 use vortex_layout::{ExprEvaluator, LayoutReader};
 use vortex_scan::Scan;
@@ -71,8 +72,13 @@ impl<R: VortexReadAt + Unpin> VortexFile<R> {
                 self.thread_pool.spawn_fifo(move || {
                     let mut array_result = range_scan.and_then(|range_scan| {
                         block_on(range_scan.evaluate_async(|row_mask, expr| {
-                            println!("Scanning row range {:?} with expr {:?}", row_range, expr);
-                            reader.evaluate_expr(row_mask, expr)
+                            let simplified =
+                                simplify(expr.clone()).vortex_expect("simplify failed");
+                            println!(
+                                "Scanning row range {:?} with expr {:?}, simplified {:?}",
+                                row_range, expr, simplified
+                            );
+                            reader.evaluate_expr(row_mask, simplified)
                         }))
                     });
 
