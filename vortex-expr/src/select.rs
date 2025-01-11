@@ -23,8 +23,8 @@ pub struct Select {
     child: ExprRef,
 }
 
-pub fn select(columns: Vec<Field>, child: ExprRef) -> ExprRef {
-    Select::include_expr(columns, child)
+pub fn select(fields: Vec<Field>, child: ExprRef) -> ExprRef {
+    Select::include_expr(fields, child)
 }
 
 pub fn select_exclude(columns: Vec<Field>, child: ExprRef) -> ExprRef {

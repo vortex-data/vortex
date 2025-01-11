@@ -3,17 +3,17 @@ use vortex_error::VortexResult;
 use crate::traversal::{FoldChildren, FoldUp, FolderMut, Node};
 use crate::{ExprRef, GetItem, Pack};
 
-pub struct ExprSimplify();
+pub struct Simplify;
 
-impl ExprSimplify {
+impl Simplify {
     pub fn simplify(e: ExprRef) -> VortexResult<ExprRef> {
-        let mut folder = ExprSimplify();
+        let mut folder = Simplify;
         e.transform_with_context(&mut folder, ())
             .map(|e| e.result())
     }
 }
 
-impl FolderMut for ExprSimplify {
+impl FolderMut for Simplify {
     type NodeTy = ExprRef;
     type Out = ExprRef;
     type Context = ();

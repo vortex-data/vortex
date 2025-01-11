@@ -1,3 +1,5 @@
+extern crate core;
+
 use std::any::Any;
 use std::fmt::{Debug, Display};
 use std::sync::Arc;
@@ -19,7 +21,7 @@ mod project;
 pub mod pruning;
 mod row_filter;
 mod select;
-mod transform;
+pub mod transform;
 #[allow(dead_code)]
 mod traversal;
 
