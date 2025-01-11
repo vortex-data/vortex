@@ -1,3 +1,4 @@
+mod driver;
 mod file;
 mod footer;
 mod open;

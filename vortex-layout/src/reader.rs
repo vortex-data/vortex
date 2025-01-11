@@ -27,12 +27,12 @@ impl LayoutReader for Arc<dyn LayoutReader + 'static> {
 }
 
 /// A trait for evaluating expressions against a [`LayoutReader`].
-#[async_trait(?Send)]
+#[async_trait]
 pub trait ExprEvaluator {
     async fn evaluate_expr(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<ArrayData>;
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl ExprEvaluator for Arc<dyn LayoutReader + 'static> {
     async fn evaluate_expr(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<ArrayData> {
         self.as_ref().evaluate_expr(row_mask, expr).await
@@ -43,7 +43,7 @@ impl ExprEvaluator for Arc<dyn LayoutReader + 'static> {
 ///
 /// Implementations should avoid fetching data segments (metadata segments are ok) and instead
 /// rely on the statistics that were computed at write time.
-#[async_trait(?Send)]
+#[async_trait]
 pub trait StatsEvaluator {
     async fn evaluate_stats(
         &self,
@@ -52,7 +52,7 @@ pub trait StatsEvaluator {
     ) -> VortexResult<Vec<StatsSet>>;
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl StatsEvaluator for Arc<dyn LayoutReader + 'static> {
     async fn evaluate_stats(
         &self,
@@ -70,6 +70,11 @@ pub trait LayoutReaderExt: LayoutReader {
         Self: Sized + 'static,
     {
         Arc::new(self) as _
+    }
+
+    /// Returns the row count of the layout.
+    fn row_count(&self) -> u64 {
+        self.layout().row_count()
     }
 
     /// Returns the DType of the layout.

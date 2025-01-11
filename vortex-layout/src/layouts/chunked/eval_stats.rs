@@ -6,7 +6,7 @@ use vortex_error::VortexResult;
 use crate::layouts::chunked::reader::ChunkedReader;
 use crate::StatsEvaluator;
 
-#[async_trait(?Send)]
+#[async_trait]
 impl StatsEvaluator for ChunkedReader {
     async fn evaluate_stats(
         &self,

@@ -13,7 +13,7 @@ use crate::layouts::flat::reader::FlatReader;
 use crate::reader::LayoutReaderExt;
 use crate::{ExprEvaluator, LayoutReader};
 
-#[async_trait(?Send)]
+#[async_trait]
 impl ExprEvaluator for FlatReader {
     async fn evaluate_expr(
         self: &Self,

@@ -1,3 +1,4 @@
+use std::future::ready;
 use std::ops::Range;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -6,7 +7,8 @@ use std::task::{Context, Poll};
 use futures::channel::oneshot;
 use futures::Stream;
 use futures_executor::block_on;
-use futures_util::{stream, StreamExt, TryStreamExt};
+use futures_util::future::BoxFuture;
+use futures_util::{stream, FutureExt, StreamExt, TryStreamExt};
 use pin_project_lite::pin_project;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
 use vortex_array::{ArrayData, ContextRef};
@@ -16,20 +18,25 @@ use vortex_io::VortexReadAt;
 use vortex_layout::{ExprEvaluator, LayoutData, LayoutReader};
 use vortex_scan::Scan;
 
+use crate::v2::driver::Driver;
 use crate::v2::segments::driver::SegmentStream;
 
-pub struct VortexFile<R> {
+type SpawnFn = Box<dyn Fn(fn() -> BoxFuture<VortexResult<ArrayData>>) + Send>;
+
+pub trait Spawn {
+    fn spawn(&self, f: BoxFuture<VortexResult<ArrayData>>) -> BoxFuture<VortexResult<ArrayData>>;
+}
+
+pub struct VortexFile {
     pub(crate) ctx: ContextRef,
     pub(crate) layout: LayoutData,
-    pub(crate) segments: SegmentStream<R>,
+    pub(crate) driver: Arc<dyn Driver>,
     pub(crate) splits: Arc<[Range<u64>]>,
     pub(crate) thread_pool: Arc<rayon::ThreadPool>,
 }
 
-impl<R> VortexFile<R> {}
-
 /// Async implementation of Vortex File.
-impl<R: VortexReadAt + Unpin> VortexFile<R> {
+impl VortexFile {
     /// Returns the number of rows in the file.
     pub fn row_count(&self) -> u64 {
         self.layout.row_count()
@@ -41,11 +48,12 @@ impl<R: VortexReadAt + Unpin> VortexFile<R> {
     }
 
     /// Performs a scan operation over the file.
+    ///
+    /// The general architecture of a scan is to spawn a task for each split to be read.
     pub fn scan(self, scan: Arc<Scan>) -> VortexResult<impl ArrayStream + 'static> {
         // Create a shared reader for the scan.
-        let reader: Arc<dyn LayoutReader> = self
-            .layout
-            .reader(self.segments.reader(), self.ctx.clone())?;
+        let reader: Arc<dyn LayoutReader> =
+            self.layout.reader(self.driver.reader(), self.ctx.clone())?;
         let result_dtype = scan.result_dtype(self.dtype())?;
 
         // For each row-group, we set up a future that will evaluate the scan and post its.
@@ -54,6 +62,21 @@ impl<R: VortexReadAt + Unpin> VortexFile<R> {
                 let (send, recv) = oneshot::channel();
                 let reader = reader.clone();
                 let range_scan = scan.clone().range_scan(row_range);
+
+                match range_scan {
+                    Ok(range_scan) => self.driver.spawn(
+                        range_scan
+                            .evaluate_async(|row_mask, expr| reader.evaluate_expr(row_mask, expr)),
+                    ),
+                    Err(e) => ready(Err(e)).boxed(),
+                }
+
+                let stream = range_scan.map(|range_scan| {
+                    self.spawn.spawn(
+                        range_scan
+                            .evaluate_async(|row_mask, expr| reader.evaluate_expr(row_mask, expr)),
+                    )
+                });
 
                 // Launch the scan task onto the thread pool.
                 self.thread_pool.spawn_fifo(move || {

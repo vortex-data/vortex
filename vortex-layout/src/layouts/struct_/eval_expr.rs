@@ -12,7 +12,7 @@ use vortex_scan::RowMask;
 use crate::layouts::struct_::reader::StructReader;
 use crate::ExprEvaluator;
 
-#[async_trait(?Send)]
+#[async_trait]
 impl ExprEvaluator for StructReader {
     async fn evaluate_expr(&self, row_mask: RowMask, expr: ExprRef) -> VortexResult<ArrayData> {
         // Partition the expression into expressions that can be evaluated over individual fields
