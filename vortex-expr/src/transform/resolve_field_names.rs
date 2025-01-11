@@ -4,7 +4,7 @@ use vortex_error::{vortex_err, VortexResult};
 use crate::traversal::{MutNodeVisitor, Node, TransformResult};
 use crate::{ExprRef, GetItem};
 
-/// Resolves any [`vortex_dtype::Field::Idx`] nodes in the expression to
+/// Resolves any [`vortex_dtype::Field::Index`] nodes in the expression to
 /// [`vortex_dtype::Field::Name`] nodes.
 pub fn resolve_field_names(expr: ExprRef, scope_dtype: &DType) -> VortexResult<ExprRef> {
     let mut visitor = FieldToNameTransform { scope_dtype };
