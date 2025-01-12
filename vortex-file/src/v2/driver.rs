@@ -24,7 +24,7 @@ pub trait Driver<T> {
 /// An evaluation driver that polls multiple evaluation tasks concurrently (using
 /// [`futures::StreamExt::buffered`].
 ///
-/// In order to provide the I/O driver with as much visibility as possible into the enqueued
+/// In order to provide the I/O layer with as much visibility as possible into the enqueued
 /// segment requests, the driver passes all segment requests into a single stream, and polls it
 /// alongside the evaluation stream.
 pub struct ConcurrentDriver {
@@ -64,7 +64,7 @@ impl Driver<ArrayData> for ConcurrentDriver {
         ConcurrentSegmentDriverStream {
             // TODO(ngates): we should buffer the evaluation stream, otherwise what's the point!
             evalation_driver: stream,
-            segment_driver: self.request_recv.clone().map(|req| async move {
+            segment_driver: self.request_recv.map(|req| async move {
                 let SegmentRequest { id, callback } = req;
                 let bytes = ByteBuffer::new();
                 callback
