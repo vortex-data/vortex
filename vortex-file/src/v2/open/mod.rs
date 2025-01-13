@@ -107,7 +107,7 @@ impl VortexOpenOptions {
     ///
     /// Where does coalescing come in? A stream of segment requests can be coalesced. Written as
     /// an extension trait.
-    pub async fn open<R: VortexReadAt>(self, read: R) -> VortexResult<VortexFile> {
+    pub async fn open<R: VortexReadAt>(self, read: R) -> VortexResult<VortexFile<FileIoDriver<R>>> {
         // Fetch the file size and perform the initial read.
         let file_size = read.size().await?;
         let initial_read_size = self.initial_read_size.min(file_size);
@@ -170,17 +170,17 @@ impl VortexOpenOptions {
         )?;
 
         // Set up the I/O driver.
-        let io_driver = Arc::new(FileIoDriver {
+        let io_driver = FileIoDriver {
             read,
             segment_map: file_layout.segments.clone(),
             segment_cache,
             concurrency: 16,
-        });
+        };
 
         // Set up the execution driver.
         let exec_driver = self
             .execution_mode
-            .unwrap_or(ExecutionMode::BlockOn)
+            .unwrap_or(ExecutionMode::Inline)
             .into_driver();
 
         // Compute the splits of the file.

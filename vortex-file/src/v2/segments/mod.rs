@@ -1,6 +1,5 @@
 mod cache;
 pub(crate) mod channel;
-mod source;
 pub(crate) mod writer;
 
 pub use cache::*;

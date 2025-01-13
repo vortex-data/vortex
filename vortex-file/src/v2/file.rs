@@ -13,19 +13,33 @@ use vortex_error::VortexResult;
 use vortex_layout::{ExprEvaluator, LayoutData, LayoutReader};
 use vortex_scan::Scan;
 
-use crate::v2::driver::{ExecDriver, IoDriver};
+use crate::v2::driver::ExecDriver;
 use crate::v2::segments::channel::SegmentChannel;
+use crate::v2::segments::SegmentRequest;
 
-pub struct VortexFile {
+/// A generic I/O trait used by the Vortex file to resolve segments.
+pub trait IoDriver: 'static {
+    fn drive(
+        &self,
+        stream: impl Stream<Item = SegmentRequest> + 'static,
+    ) -> impl Stream<Item = VortexResult<()>> + 'static;
+}
+
+/// A Vortex file ready for reading.
+///
+/// It is generic over the `IoDriver` implementation enabling us to swap out the I/O subsystem for
+/// particular environments. For example, memory mapped files vs object-store. By remaining generic,
+/// it allows us to support both `Send` and `?Send` I/O drivers.
+pub struct VortexFile<I> {
     pub(crate) ctx: ContextRef,
     pub(crate) layout: LayoutData,
-    pub(crate) io_driver: Arc<dyn IoDriver>,
+    pub(crate) io_driver: I,
     pub(crate) exec_driver: Arc<dyn ExecDriver>,
     pub(crate) splits: Arc<[Range<u64>]>,
 }
 
 /// Async implementation of Vortex File.
-impl VortexFile {
+impl<I: IoDriver> VortexFile<I> {
     /// Returns the number of rows in the file.
     pub fn row_count(&self) -> u64 {
         self.layout.row_count()
@@ -37,7 +51,7 @@ impl VortexFile {
     }
 
     /// Performs a scan operation over the file.
-    pub fn scan(self, scan: Arc<Scan>) -> VortexResult<impl ArrayStream + 'static> {
+    pub fn scan(&self, scan: Arc<Scan>) -> VortexResult<impl ArrayStream + 'static + use<'_, I>> {
         let result_dtype = scan.result_dtype(self.dtype())?;
 
         // Set up a segment channel to collect segment requests from the execution stream.
@@ -65,7 +79,7 @@ impl VortexFile {
         let exec_stream = self.exec_driver.drive(exec_stream);
 
         // ...and the other end to the I/O driver.
-        let io_stream = self.io_driver.drive(segment_channel.into_stream().boxed());
+        let io_stream = self.io_driver.drive(segment_channel.into_stream());
 
         Ok(ArrayStreamAdapter::new(
             result_dtype,
