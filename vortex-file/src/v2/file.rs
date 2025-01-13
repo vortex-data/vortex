@@ -10,12 +10,13 @@ use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
 use vortex_array::{ArrayData, ContextRef};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
-use vortex_layout::{ExprEvaluator, LayoutData, LayoutReader};
+use vortex_layout::{ExprEvaluator, LayoutReader};
 use vortex_scan::Scan;
 
 use crate::v2::exec::ExecDriver;
 use crate::v2::io::IoDriver;
 use crate::v2::segments::channel::SegmentChannel;
+use crate::v2::FileLayout;
 
 /// A Vortex file ready for reading.
 ///
@@ -24,7 +25,7 @@ use crate::v2::segments::channel::SegmentChannel;
 /// it allows us to support both `Send` and `?Send` I/O drivers.
 pub struct VortexFile<I> {
     pub(crate) ctx: ContextRef,
-    pub(crate) layout: LayoutData,
+    pub(crate) file_layout: FileLayout,
     pub(crate) io_driver: I,
     pub(crate) exec_driver: Arc<dyn ExecDriver>,
     pub(crate) splits: Arc<[Range<u64>]>,
@@ -34,12 +35,17 @@ pub struct VortexFile<I> {
 impl<I: IoDriver> VortexFile<I> {
     /// Returns the number of rows in the file.
     pub fn row_count(&self) -> u64 {
-        self.layout.row_count()
+        self.file_layout.row_count()
     }
 
     /// Returns the DType of the file.
     pub fn dtype(&self) -> &DType {
-        self.layout.dtype()
+        self.file_layout.dtype()
+    }
+
+    /// Returns the [`FileLayout`] of the file.
+    pub fn file_layout(&self) -> &FileLayout {
+        &self.file_layout
     }
 
     /// Performs a scan operation over the file.
@@ -51,7 +57,8 @@ impl<I: IoDriver> VortexFile<I> {
 
         // Now we give one end of the channel to the layout reader...
         let reader: Arc<dyn LayoutReader> = self
-            .layout
+            .file_layout
+            .root_layout
             .reader(segment_channel.reader(), self.ctx.clone())?;
         let exec_stream = stream::iter(ArcIter::new(self.splits.clone()))
             .map(move |row_range| scan.clone().range_scan(row_range))

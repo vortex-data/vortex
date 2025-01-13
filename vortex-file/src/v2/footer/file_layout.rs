@@ -1,15 +1,28 @@
 use std::sync::Arc;
 
+use vortex_dtype::DType;
 use vortex_flatbuffers::{footer2 as fb, FlatBufferRoot, WriteFlatBuffer};
 use vortex_layout::LayoutData;
 
 use crate::v2::footer::segment::Segment;
 
 /// Captures the layout information of a Vortex file.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct FileLayout {
     pub(crate) root_layout: LayoutData,
     pub(crate) segments: Arc<[Segment]>,
+}
+
+impl FileLayout {
+    /// Returns the [`DType`] of the file.
+    pub fn dtype(&self) -> &DType {
+        self.root_layout.dtype()
+    }
+
+    /// Returns the number of rows in the file.
+    pub fn row_count(&self) -> u64 {
+        self.root_layout.row_count()
+    }
 }
 
 impl FlatBufferRoot for FileLayout {}

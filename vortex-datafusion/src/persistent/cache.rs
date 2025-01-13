@@ -6,8 +6,7 @@ use object_store::path::Path;
 use object_store::{ObjectMeta, ObjectStore};
 use vortex_array::ContextRef;
 use vortex_error::{vortex_err, VortexError, VortexResult};
-use vortex_file::v2::footer::FileLayout;
-use vortex_file::v2::VortexOpenOptions;
+use vortex_file::v2::{FileLayout, VortexOpenOptions};
 use vortex_io::ObjectStoreReadAt;
 
 #[derive(Debug, Clone)]
