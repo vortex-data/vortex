@@ -1,17 +1,18 @@
 #![allow(unused_imports)]
 use std::sync::Arc;
 
-use vortex_dtype::Field;
+use vortex_dtype::{Field, FieldName};
 
 use crate::{
-    col, lit, not, BinaryExpr, Column, ExprRef, Identity, Like, Literal, Not, Operator, RowFilter,
-    Select, SelectField, VortexExpr, VortexExprExt,
+    col, lit, not, select, BinaryExpr, Column, ExprRef, Identity, Like, Literal, Not, Operator,
+    RowFilter, Select, SelectField, VortexExpr, VortexExprExt,
 };
 
 /// Restrict expression to only the fields that appear in projection
 ///
 /// TODO(ngates): expressions should have tree-traversal API so this is generic.
-pub fn expr_project(expr: &ExprRef, projection: &[Field]) -> Option<ExprRef> {
+/// TODO(joe): remove once layouts are switched over too.
+pub fn expr_project(expr: &ExprRef, projection: &[FieldName]) -> Option<ExprRef> {
     if let Some(rf) = expr.as_any().downcast_ref::<RowFilter>() {
         rf.only_fields(projection)
     } else if expr.as_any().downcast_ref::<Literal>().is_some() {
@@ -27,7 +28,7 @@ pub fn expr_project(expr: &ExprRef, projection: &[Field]) -> Option<ExprRef> {
                 if projection.len() == 1 {
                     Some(Arc::new(Identity))
                 } else {
-                    (!fields.is_empty()).then(|| Select::include_expr(fields, s.child().clone()))
+                    (!fields.is_empty()).then(|| select(fields, s.child().clone()))
                 }
             }
             SelectField::Exclude(e) => {
@@ -39,7 +40,7 @@ pub fn expr_project(expr: &ExprRef, projection: &[Field]) -> Option<ExprRef> {
                 if projection.len() == 1 {
                     Some(Arc::new(Identity))
                 } else {
-                    (!fields.is_empty()).then(|| Select::include_expr(fields, s.child().clone()))
+                    (!fields.is_empty()).then(|| select(fields, s.child().clone()))
                 }
             }
         }

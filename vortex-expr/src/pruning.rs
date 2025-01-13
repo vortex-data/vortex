@@ -9,7 +9,7 @@ use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::stats::Stat;
 use vortex_array::ArrayData;
-use vortex_dtype::{Field, Nullability};
+use vortex_dtype::{FieldName, Nullability};
 use vortex_error::{VortexExpect as _, VortexResult};
 use vortex_scalar::Scalar;
 
@@ -295,7 +295,7 @@ impl<'a> PruningPredicateRewriter<'a> {
             .unwrap_or_else(not_prunable)
     }
 
-    fn add_stat_reference(&mut self, stat: Stat) -> Field {
+    fn add_stat_reference(&mut self, stat: Stat) -> FieldName {
         let new_field = self.column.stat_column_field(stat);
         self.stats_to_fetch.insert(self.column.clone(), stat);
         new_field
@@ -389,24 +389,21 @@ fn replace_column_with_stat(
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum FieldOrIdentity {
-    Field(Field),
+    Field(FieldName),
     Identity,
 }
 
-pub(crate) fn stat_column_field(field: &Field, stat: Stat) -> Field {
-    Field::from(stat_column_name_string(field, stat))
+pub(crate) fn stat_column_field(field: &FieldName, stat: Stat) -> FieldName {
+    FieldName::from(stat_column_name_string(field, stat))
 }
 
-pub(crate) fn stat_column_name_string(field: &Field, stat: Stat) -> String {
-    match field {
-        Field::Name(n) => format!("{n}_{stat}"),
-        Field::Index(i) => format!("{i}_{stat}"),
-    }
+pub(crate) fn stat_column_name_string(field: &FieldName, stat: Stat) -> String {
+    format!("{field}_{stat}")
 }
 
 impl FieldOrIdentity {
-    pub(crate) fn stat_column_field(&self, stat: Stat) -> Field {
-        Field::from(self.stat_column_name_string(stat))
+    pub(crate) fn stat_column_field(&self, stat: Stat) -> FieldName {
+        FieldName::from(self.stat_column_name_string(stat))
     }
 
     pub(crate) fn stat_column_name_string(&self, stat: Stat) -> String {
@@ -428,10 +425,10 @@ impl Display for FieldOrIdentity {
 
 impl<T> From<T> for FieldOrIdentity
 where
-    Field: From<T>,
+    FieldName: From<T>,
 {
     fn from(value: T) -> Self {
-        FieldOrIdentity::Field(Field::from(value))
+        FieldOrIdentity::Field(FieldName::from(value))
     }
 }
 

@@ -1,9 +1,9 @@
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_dtype::{Field, FieldName};
+use vortex_dtype::FieldName;
 use vortex_error::VortexResult;
 
 use crate::traversal::{NodeVisitor, TraversalOrder};
-use crate::{Column, ExprRef, Select};
+use crate::{Column, ExprRef, GetItem, Select};
 
 pub struct ReferenceCollector {
     fields: HashSet<FieldName>,
@@ -29,8 +29,12 @@ impl NodeVisitor<'_> for ReferenceCollector {
     type NodeTy = ExprRef;
 
     fn visit_up(&mut self, node: &ExprRef) -> VortexResult<TraversalOrder> {
+        // TODO(joe): remove columnns
         if let Some(col) = node.as_any().downcast_ref::<Column>() {
             self.fields.insert(col.field());
+        }
+        if let Some(get_item) = node.as_any().downcast_ref::<GetItem>() {
+            self.fields.insert(get_item.field());
         }
         if let Some(sel) = node.as_any().downcast_ref::<Select>() {
             self.fields.extend(sel.fields().fields());

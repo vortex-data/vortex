@@ -37,7 +37,7 @@ pub use row_filter::*;
 pub use select::*;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::{ArrayDType as _, ArrayData, Canonical, IntoArrayData as _};
-use vortex_dtype::{DType, Field};
+use vortex_dtype::{DType, FieldName};
 use vortex_error::{VortexResult, VortexUnwrap};
 
 use crate::traversal::{Node, ReferenceCollector};
@@ -78,11 +78,11 @@ pub trait VortexExpr: Debug + Send + Sync + DynEq + DynHash + Display {
 
 pub trait VortexExprExt {
     /// Accumulate all field references from this expression and its children in a set
-    fn references(&self) -> HashSet<&Field>;
+    fn references(&self) -> HashSet<&FieldName>;
 }
 
 impl VortexExprExt for ExprRef {
-    fn references(&self) -> HashSet<&Field> {
+    fn references(&self) -> HashSet<&FieldName> {
         let mut collector = ReferenceCollector::new();
         // The collector is infallible, so we can unwrap the result
         self.accept(&mut collector).vortex_unwrap();

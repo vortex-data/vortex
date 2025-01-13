@@ -3,7 +3,6 @@ use std::fmt::Display;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::ArrayData;
 use vortex_dtype::FieldNames;
 use vortex_error::{vortex_err, VortexResult};
@@ -23,12 +22,12 @@ pub struct Select {
     child: ExprRef,
 }
 
-pub fn select(fields: FieldNames, child: ExprRef) -> ExprRef {
-    Select::include_expr(fields, child)
+pub fn select(fields: impl Into<FieldNames>, child: ExprRef) -> ExprRef {
+    Select::include_expr(fields.into(), child)
 }
 
-pub fn select_exclude(columns: FieldNames, child: ExprRef) -> ExprRef {
-    Select::exclude_expr(columns, child)
+pub fn select_exclude(fields: impl Into<FieldNames>, child: ExprRef) -> ExprRef {
+    Select::exclude_expr(fields.into(), child)
 }
 
 impl Select {
@@ -55,10 +54,12 @@ impl Select {
 
 impl SelectField {
     pub fn include(columns: FieldNames) -> Self {
+        assert_eq!(columns.iter().unique().collect_vec().len(), columns.len());
         Self::Include(columns)
     }
 
     pub fn exclude(columns: FieldNames) -> Self {
+        assert_eq!(columns.iter().unique().collect_vec().len(), columns.len());
         Self::Exclude(columns)
     }
 
@@ -97,14 +98,13 @@ impl VortexExpr for Select {
             .ok_or_else(|| vortex_err!("Not a struct array"))?;
         match &self.fields {
             SelectField::Include(f) => st.project(f),
-            SelectField::Exclude(e) => {
-                let normalized_exclusion = e.iter().collect::<VortexResult<HashSet<_>>>()?;
+            SelectField::Exclude(names) => {
                 let included_names = st
                     .names()
                     .iter()
-                    .filter(|f| !normalized_exclusion.contains(&&***f))
+                    .filter(|f| !names.contains(&&**f))
                     .collect::<Vec<_>>();
-                st.project(&included_names)
+                st.project(included_names.as_slice())
             }
         }
     }
