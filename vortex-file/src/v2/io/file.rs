@@ -146,11 +146,67 @@ async fn evaluate<R: VortexReadAt>(read: R, request: CoalescedSegmentRequest) ->
 
 /// TODO(ngates): outsource coalescing to a trait
 fn coalesce(requests: Vec<FileSegmentRequest>) -> Vec<CoalescedSegmentRequest> {
-    requests
-        .into_iter()
-        .map(|req| CoalescedSegmentRequest {
-            byte_range: req.location.offset..req.location.offset + req.location.length as u64,
-            requests: vec![req],
+    const COALESCE: u64 = 1024 * 1024; // 1MB
+    println!("Coalescing requests: {:?}", requests);
+    let fetch_ranges = merge_ranges(
+        requests
+            .iter()
+            .map(|r| r.location.offset..r.location.offset + r.location.length as u64),
+        COALESCE,
+    );
+    println!("Fetch ranges: {:?}", fetch_ranges);
+
+    let mut coalesced = fetch_ranges
+        .iter()
+        .map(|range| CoalescedSegmentRequest {
+            byte_range: range.clone(),
+            requests: vec![],
         })
-        .collect()
+        .collect::<Vec<_>>();
+
+    for req in requests {
+        let idx = fetch_ranges.partition_point(|v| v.start <= req.location.offset) - 1;
+        coalesced.as_mut_slice()[idx].requests.push(req);
+    }
+
+    coalesced
+}
+
+/// Returns a sorted list of ranges that cover `ranges`
+///
+/// From arrow-rs.
+fn merge_ranges<R>(ranges: R, coalesce: u64) -> Vec<Range<u64>>
+where
+    R: IntoIterator<Item = Range<u64>>,
+{
+    let mut ranges: Vec<Range<u64>> = ranges.into_iter().collect();
+    ranges.sort_unstable_by_key(|range| range.start);
+
+    let mut ret = Vec::with_capacity(ranges.len());
+    let mut start_idx = 0;
+    let mut end_idx = 1;
+
+    while start_idx != ranges.len() {
+        let mut range_end = ranges[start_idx].end;
+
+        while end_idx != ranges.len()
+            && ranges[end_idx]
+                .start
+                .checked_sub(range_end)
+                .map(|delta| delta <= coalesce)
+                .unwrap_or(true)
+        {
+            range_end = range_end.max(ranges[end_idx].end);
+            end_idx += 1;
+        }
+
+        let start = ranges[start_idx].start;
+        let end = range_end;
+        ret.push(start..end);
+
+        start_idx = end_idx;
+        end_idx += 1;
+    }
+
+    ret
 }
