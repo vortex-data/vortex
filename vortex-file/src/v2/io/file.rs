@@ -147,7 +147,6 @@ async fn evaluate<R: VortexReadAt>(read: R, request: CoalescedSegmentRequest) ->
 /// TODO(ngates): outsource coalescing to a trait
 fn coalesce(requests: Vec<FileSegmentRequest>) -> Vec<CoalescedSegmentRequest> {
     const COALESCE: u64 = 1024 * 1024; // 1MB
-    println!("Coalescing requests: {:?}", requests);
     let fetch_ranges = merge_ranges(
         requests
             .iter()

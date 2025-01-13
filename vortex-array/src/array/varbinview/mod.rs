@@ -9,7 +9,7 @@ use arrow_array::{ArrayRef, BinaryViewArray, GenericByteViewArray, StringViewArr
 use arrow_buffer::ScalarBuffer;
 use itertools::Itertools;
 use static_assertions::{assert_eq_align, assert_eq_size};
-use vortex_buffer::ByteBuffer;
+use vortex_buffer::{Alignment, Buffer, ByteBuffer};
 use vortex_dtype::{DType, PType};
 use vortex_error::{
     vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult, VortexUnwrap,
@@ -550,6 +550,11 @@ pub(crate) fn varbinview_as_arrow(var_bin_view: &VarBinViewArray) -> ArrayRef {
         .into_primitive()
         .vortex_expect("VarBinViewArray: views child must be primitive");
     assert_eq!(views.ptype(), PType::U8);
+    let views = Buffer::<u128>::from_byte_buffer(
+        // FIXME(ngates): this can copy the buffer if it's not aligned.
+        //  See https://github.com/spiraldb/vortex/issues/1921
+        views.byte_buffer().clone().aligned(Alignment::of::<u128>()),
+    );
 
     let nulls = var_bin_view
         .logical_validity()
@@ -574,14 +579,14 @@ pub(crate) fn varbinview_as_arrow(var_bin_view: &VarBinViewArray) -> ArrayRef {
     match var_bin_view.dtype() {
         DType::Binary(_) => Arc::new(unsafe {
             BinaryViewArray::new_unchecked(
-                ScalarBuffer::<u128>::from(views.byte_buffer().clone().into_arrow_buffer()),
+                ScalarBuffer::<u128>::from(views.into_arrow_scalar_buffer()),
                 data,
                 nulls,
             )
         }),
         DType::Utf8(_) => Arc::new(unsafe {
             StringViewArray::new_unchecked(
-                ScalarBuffer::<u128>::from(views.byte_buffer().clone().into_arrow_buffer()),
+                ScalarBuffer::<u128>::from(views.into_arrow_scalar_buffer()),
                 data,
                 nulls,
             )
