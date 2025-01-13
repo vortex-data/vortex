@@ -64,8 +64,8 @@ mod tests {
     use vortex_array::{IntoArrayData, IntoArrayVariant};
     use vortex_buffer::buffer;
     use vortex_dtype::PType::I32;
-    use vortex_dtype::{DType, Nullability, StructDType};
-    use vortex_expr::{get_item, gt, ident};
+    use vortex_dtype::{DType, Field, Nullability, StructDType};
+    use vortex_expr::{get_item, gt, ident, select};
     use vortex_scan::RowMask;
 
     use crate::layouts::flat::writer::FlatLayoutWriter;
@@ -150,6 +150,46 @@ mod tests {
                 .boolean_buffer()
                 .iter()
                 .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_struct_layout_select() {
+        let (segments, layout) = struct_layout();
+
+        let reader = layout.reader(segments, Default::default()).unwrap();
+        let expr = select(vec!["a".into(), "b".into()], ident());
+        let result = block_on(reader.evaluate_expr(
+            // Take rows 0 and 1, skip row 2, and anything after that
+            RowMask::new(FilterMask::from_iter([true, true, false]), 0),
+            expr,
+        ))
+        .unwrap();
+
+        assert_eq!(result.len(), 2);
+
+        assert_eq!(
+            result
+                .as_struct_array()
+                .unwrap()
+                .maybe_null_field(&Field::Name("a".into()))
+                .unwrap()
+                .into_primitive()
+                .unwrap()
+                .as_slice::<i32>(),
+            [7, 2].as_slice()
+        );
+
+        assert_eq!(
+            result
+                .as_struct_array()
+                .unwrap()
+                .maybe_null_field(&Field::Name("b".into()))
+                .unwrap()
+                .into_primitive()
+                .unwrap()
+                .as_slice::<i32>(),
+            [4, 5].as_slice()
         );
     }
 }
