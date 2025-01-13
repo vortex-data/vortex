@@ -50,6 +50,7 @@ impl FileLayoutCache {
             .try_get_with(Key::from(object), async {
                 let os_read_at = ObjectStoreReadAt::new(store.clone(), object.location.clone());
                 let vxf = VortexOpenOptions::new(ContextRef::default())
+                    .with_file_size(object.size as u64)
                     .open(os_read_at)
                     .await?;
                 VortexResult::Ok(vxf.file_layout().clone())

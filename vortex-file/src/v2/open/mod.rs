@@ -59,7 +59,8 @@ impl VortexOpenOptions {
             split_by: SplitBy::Layout,
             segment_cache: None,
             execution_mode: None,
-            io_concurrency: 16,
+            // TODO(ngates): pick some numbers...
+            io_concurrency: 32,
         }
     }
 
@@ -101,6 +102,12 @@ impl VortexOpenOptions {
     /// Disable segment caching entirely.
     pub fn without_segment_cache(self) -> Self {
         self.with_segment_cache(Arc::new(NoOpSegmentCache))
+    }
+
+    /// Configure the execution mode
+    pub fn with_execution_mode(mut self, execution_mode: ExecutionMode) -> Self {
+        self.execution_mode = Some(execution_mode);
+        self
     }
 }
 
