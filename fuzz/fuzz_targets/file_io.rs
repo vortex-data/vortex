@@ -49,8 +49,7 @@ fuzz_target!(|array_data: ArrayData| -> Corpus {
         assert_eq!(array_data.len(), output.len(), "Length was not preserved.");
 
         if array_data.dtype().is_struct() {
-            let cmp_result = compare_struct(array_data, output);
-            assert!(cmp_result)
+            compare_struct(array_data, output);
         } else {
             let r = compare(&array_data, output, Operator::Eq).unwrap();
             let true_count = r.into_bool().unwrap().boolean_buffer().count_set_bits();
@@ -61,15 +60,21 @@ fuzz_target!(|array_data: ArrayData| -> Corpus {
     Corpus::Keep
 });
 
-fn compare_struct(lhs: ArrayData, rhs: ArrayData) -> bool {
+fn compare_struct(lhs: ArrayData, rhs: ArrayData) {
     assert!(lhs.dtype().eq_ignore_nullability(rhs.dtype()));
-    assert_eq!(lhs.len(), rhs.len());
+    assert_eq!(lhs.len(), rhs.len(), "Arrays length isn't preserved");
 
     if lhs.dtype().as_struct().unwrap().names().len() == 0
         && lhs.dtype().as_struct().unwrap().names().len()
             == rhs.dtype().as_struct().unwrap().names().len()
     {
-        return true;
+        return;
+    }
+
+    if let Some(st) = lhs.dtype().as_struct() {
+        if st.names().len() == 0 {
+            return;
+        }
     }
 
     let arrow_lhs = lhs.clone().into_arrow().unwrap();
@@ -83,13 +88,11 @@ fn compare_struct(lhs: ArrayData, rhs: ArrayData) -> bool {
         bool_builder.append(cmp_fn(idx, idx).is_eq());
     }
 
-    let cmp_result = bool_builder.finish().count_set_bits() == arrow_lhs.len();
-
-    if !cmp_result {
-        eprintln!("LHS {}", lhs.tree_display());
-        println!("");
-        eprintln!("RHS {}", rhs.tree_display());
-    }
-
-    cmp_result
+    assert_eq!(
+        bool_builder.finish().count_set_bits(),
+        arrow_lhs.len(),
+        "\nLHS: {}RHS: {}",
+        lhs.tree_display(),
+        rhs.tree_display()
+    );
 }
