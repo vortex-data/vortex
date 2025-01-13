@@ -41,7 +41,7 @@ mod tests {
 
     #[test]
     fn empty_compare() {
-        let base = PrimitiveArray::from_iter(Vec::<u32>::new().into_iter()).into_array();
+        let base = PrimitiveArray::from_iter(Vec::<u32>::new()).into_array();
         let chunked =
             ChunkedArray::try_new(vec![base.clone(), base.clone()], base.dtype().clone()).unwrap();
         let chunked_empty = ChunkedArray::try_new(vec![], base.dtype().clone()).unwrap();
