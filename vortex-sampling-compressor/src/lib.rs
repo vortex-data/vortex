@@ -128,7 +128,7 @@ pub enum Objective {
 
 impl Default for Objective {
     fn default() -> Self {
-        Self::FastScan(FastScanConfig::default())
+        Self::MinSize
     }
 }
 
