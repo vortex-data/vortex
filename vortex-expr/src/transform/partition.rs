@@ -56,7 +56,7 @@ pub struct Partition {
 
 type FieldAccesses<'a> = HashMap<&'a ExprRef, HashSet<Field>>;
 
-// For all subexpressions in an expression find the fields access identity directly.
+// For all subexpressions in an expression, find the fields that are accessed directly from the scope.
 struct ImmediateIdentityAccessesAnalysis<'a> {
     sub_expressions: FieldAccesses<'a>,
     ident_dt: &'a StructDType,
