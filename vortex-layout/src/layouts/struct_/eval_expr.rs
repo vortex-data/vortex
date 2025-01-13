@@ -4,7 +4,6 @@ use itertools::Itertools;
 use vortex_array::array::StructArray;
 use vortex_array::validity::Validity;
 use vortex_array::{ArrayData, IntoArrayData};
-use vortex_dtype::Field;
 use vortex_error::VortexResult;
 use vortex_expr::transform::partition::partition;
 use vortex_expr::ExprRef;
@@ -22,7 +21,7 @@ impl ExprEvaluator for StructReader {
             .partitions
             .iter()
             // TODO(joe): remove field from self.child
-            .map(|partition| self.child(&Field::Name(partition.name.clone())))
+            .map(|partition| self.child(&partition.name.clone()))
             .try_collect()?;
 
         let arrays = try_join_all(

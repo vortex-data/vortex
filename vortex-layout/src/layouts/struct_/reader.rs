@@ -2,7 +2,7 @@ use std::sync::{Arc, OnceLock};
 
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::ContextRef;
-use vortex_dtype::{DType, Field, FieldName, StructDType};
+use vortex_dtype::{DType, FieldName, StructDType};
 use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
 
 use crate::layouts::struct_::StructLayout;
@@ -63,14 +63,13 @@ impl StructReader {
     }
 
     /// Return the child reader for the chunk.
-    pub(crate) fn child(&self, field: &Field) -> VortexResult<&Arc<dyn LayoutReader>> {
-        let idx = match field {
-            Field::Name(n) => *self
-                .field_lookup
-                .get(n)
-                .ok_or_else(|| vortex_err!("Field {} not found in struct layout", n))?,
-            Field::Index(idx) => *idx,
-        };
+    pub(crate) fn child(&self, name: &FieldName) -> VortexResult<&Arc<dyn LayoutReader>> {
+        let idx = *self
+            .field_lookup
+            .get(name)
+            .ok_or_else(|| vortex_err!("Field {} not found in struct layout", name))?;
+
+        // TODO: think about a hashmap for large |fields|.
         self.field_readers[idx].get_or_try_init(|| {
             let child_layout = self
                 .layout
