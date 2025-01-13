@@ -66,19 +66,26 @@ impl VortexFile {
     ///  The API must therefore be to have a `Driver` trait that takes and returns a stream and it
     ///  can process it as it sees fit.
     pub fn scan(self, scan: Arc<Scan>) -> VortexResult<impl ArrayStream + 'static> {
-        // Create a shared reader for the scan.
-        let reader: Arc<dyn LayoutReader> =
-            self.layout.reader(self.driver.reader(), self.ctx.clone())?;
+        // We set up a driver for this task
+        let stream = self.driver.drive(|reader| {
+            // Create a shared reader for the scan.
+            let reader: Arc<dyn LayoutReader> =
+                self.layout.reader(self.driver.reader(), self.ctx.clone())?;
 
-        // Iterate each split, and evaluate its range scan.
-        let stream = stream::iter(ArcIter::new(self.splits.clone())).map(move |row_range| {
-            let reader = reader.clone();
-            ready(scan.clone().range_scan(row_range))
-                .and_then(|range_scan| {
-                    range_scan.evaluate_async(|row_mask, expr| reader.evaluate_expr(row_mask, expr))
+            // Iterate each split, and evaluate its range scan.
+            stream::iter(ArcIter::new(self.splits.clone()))
+                .map(move |row_range| {
+                    let reader = reader.clone();
+                    ready(scan.clone().range_scan(row_range))
+                        .and_then(|range_scan| {
+                            range_scan.evaluate_async(|row_mask, expr| {
+                                reader.evaluate_expr(row_mask, expr)
+                            })
+                        })
+                        .boxed()
+                        .unwrap_or_else(|_cancelled| Err(vortex_err!("recv failed, send dropped")))
                 })
                 .boxed()
-                .unwrap_or_else(|_cancelled| Err(vortex_err!("recv failed, send dropped")))
         });
 
         // Wrap up the stream with the driver

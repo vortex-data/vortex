@@ -1,4 +1,3 @@
-use std::io::Read;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -17,10 +16,13 @@ use vortex_layout::segments::{AsyncSegmentReader, SegmentId};
 // TODO(ngates): this is probably `LayoutDriver` and should live in `vortex-layout`?
 pub trait Driver<T> {
     /// Returns a segment reader for the driver.
-    fn reader(&self) -> Arc<dyn AsyncSegmentReader + 'static>;
+    fn reader(&self) -> Arc<dyn AsyncSegmentReader>;
 
     /// Drive the given stream of evaluation tasks.
-    fn drive(&self, stream: BoxStream<BoxFuture<VortexResult<T>>>) -> BoxStream<VortexResult<T>>;
+    fn drive(
+        &self,
+        stream: &dyn FnOnce(Arc<dyn AsyncSegmentReader>) -> BoxStream<BoxFuture<VortexResult<T>>>,
+    ) -> BoxStream<VortexResult<T>>;
 }
 
 /// An evaluation driver that polls multiple evaluation tasks concurrently (using
