@@ -41,8 +41,7 @@ mod test {
         ));
 
         test_mask(
-            ExtensionArray::new(ext_dtype.clone(), buffer![1i64, 2, 3, 4, 5].into_array())
-                .into_array(),
+            ExtensionArray::new(ext_dtype, buffer![1i64, 2, 3, 4, 5].into_array()).into_array(),
         );
     }
 }
