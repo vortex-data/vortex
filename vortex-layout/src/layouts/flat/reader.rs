@@ -44,4 +44,8 @@ impl LayoutReader for FlatReader {
     fn layout(&self) -> &LayoutData {
         &self.layout
     }
+
+    fn children(&self) -> VortexResult<Vec<&Arc<dyn LayoutReader>>> {
+        Ok(vec![])
+    }
 }

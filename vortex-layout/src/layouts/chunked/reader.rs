@@ -119,4 +119,8 @@ impl LayoutReader for ChunkedReader {
     fn layout(&self) -> &LayoutData {
         &self.layout
     }
+
+    fn children(&self) -> VortexResult<Vec<&Arc<dyn LayoutReader>>> {
+        (0..self.nchunks()).map(|i| self.child(i)).collect()
+    }
 }

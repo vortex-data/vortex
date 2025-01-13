@@ -1,6 +1,8 @@
 mod references;
 mod visitor;
 
+use std::sync::Arc;
+
 use itertools::Itertools;
 pub use references::ReferenceCollector;
 use vortex_error::VortexResult;
@@ -185,9 +187,13 @@ pub trait Node: Sized {
 
     fn accept_with_context<'a, V: Folder<'a, NodeTy = Self>>(
         &'a self,
-        visitor: &mut V,
-        context: V::Context,
+        _visitor: &mut V,
+        _context: V::Context,
     ) -> VortexResult<FoldUp<V::Out>>;
+}
+
+pub trait DynNode {
+    fn arc_children(&self) -> Vec<&Arc<Self>>;
 }
 
 pub trait NodeMut: Sized {
@@ -201,6 +207,55 @@ pub trait NodeMut: Sized {
         _visitor: &mut V,
         _context: V::Context,
     ) -> VortexResult<FoldUp<V::Out>>;
+}
+
+impl<T: DynNode + ?Sized> Node for Arc<T> {
+    // A pre-order traversal.
+    fn accept<'a, V: NodeVisitor<'a, NodeTy = Arc<T>>>(
+        &'a self,
+        visitor: &mut V,
+    ) -> VortexResult<TraversalOrder> {
+        let mut ord = visitor.visit_down(self)?;
+        if ord == TraversalOrder::Stop {
+            return Ok(TraversalOrder::Stop);
+        }
+        if ord == TraversalOrder::Skip {
+            return Ok(TraversalOrder::Continue);
+        }
+        for child in self.arc_children() {
+            if ord != TraversalOrder::Continue {
+                return Ok(ord);
+            }
+            ord = child.accept(visitor)?;
+        }
+        if ord == TraversalOrder::Stop {
+            return Ok(TraversalOrder::Stop);
+        }
+        visitor.visit_up(self)
+    }
+
+    fn accept_with_context<'a, V: Folder<'a, NodeTy = Self>>(
+        &'a self,
+        visitor: &mut V,
+        context: V::Context,
+    ) -> VortexResult<FoldUp<V::Out>> {
+        let children = match visitor.visit_down(self, context.clone())? {
+            FoldDown::Stop(out) => return Ok(FoldUp::Stop(out)),
+            FoldDown::SkipChildren => FoldChildren::Skipped,
+            FoldDown::Continue(child_context) => {
+                let mut new_children = Vec::with_capacity(self.arc_children().len());
+                for child in self.arc_children() {
+                    match child.accept_with_context(visitor, child_context.clone())? {
+                        FoldUp::Stop(out) => return Ok(FoldUp::Stop(out)),
+                        FoldUp::Continue(out) => new_children.push(out),
+                    }
+                }
+                FoldChildren::Children(new_children)
+            }
+        };
+
+        visitor.visit_up(self, context, children)
+    }
 }
 
 impl Node for ExprRef {
@@ -340,7 +395,7 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::traversal::visitor::pre_order_visit_down;
-    use crate::traversal::{MutNodeVisitor, Node, NodeVisitor, TransformResult, TraversalOrder};
+    use crate::traversal::{MutNodeVisitor, NodeMut, NodeVisitor, TransformResult, TraversalOrder};
     use crate::{
         BinaryExpr, Column, ExprRef, FieldName, Literal, Operator, VortexExpr, VortexExprExt,
     };

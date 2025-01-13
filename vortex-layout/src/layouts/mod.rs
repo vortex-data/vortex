@@ -2,4 +2,3 @@
 pub mod chunked;
 pub mod flat;
 pub mod struct_;
-mod visitor;

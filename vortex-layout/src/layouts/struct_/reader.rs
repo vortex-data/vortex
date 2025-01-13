@@ -62,6 +62,10 @@ impl StructReader {
             .vortex_expect("Struct layout must have a struct DType, verified at construction")
     }
 
+    pub(crate) fn nchildren(&self) -> usize {
+        self.field_readers.len()
+    }
+
     /// Return the child reader for the chunk.
     pub(crate) fn child(&self, field: &Field) -> VortexResult<&Arc<dyn LayoutReader>> {
         let idx = match field {
@@ -83,5 +87,9 @@ impl StructReader {
 impl LayoutReader for StructReader {
     fn layout(&self) -> &LayoutData {
         &self.layout
+    }
+
+    fn children(&self) -> VortexResult<Vec<&Arc<dyn LayoutReader>>> {
+        (0..self.nchildren()).map(|idx| self.child(idx)).collect()
     }
 }

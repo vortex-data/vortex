@@ -5,6 +5,7 @@ use vortex_array::stats::{Stat, StatsSet};
 use vortex_array::ArrayData;
 use vortex_dtype::{DType, FieldPath};
 use vortex_error::VortexResult;
+use vortex_expr::traversal::DynNode;
 use vortex_expr::ExprRef;
 use vortex_scan::RowMask;
 
@@ -18,11 +19,17 @@ use crate::LayoutData;
 pub trait LayoutReader: Send + Sync + ExprEvaluator + StatsEvaluator {
     /// Returns the [`LayoutData`] of this reader.
     fn layout(&self) -> &LayoutData;
+
+    fn children(&self) -> VortexResult<Vec<&Arc<dyn LayoutReader>>>;
 }
 
 impl LayoutReader for Arc<dyn LayoutReader + 'static> {
     fn layout(&self) -> &LayoutData {
         self.as_ref().layout()
+    }
+
+    fn children(&self) -> VortexResult<Vec<&Arc<dyn LayoutReader>>> {
+        self.as_ref().arc_children()
     }
 }
 

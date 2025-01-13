@@ -11,6 +11,7 @@ mod reader;
 pub use reader::*;
 pub mod segments;
 pub mod strategies;
+mod visitor;
 
 /// The layout ID for a flat layout
 pub(crate) const FLAT_LAYOUT_ID: LayoutId = LayoutId(1);
