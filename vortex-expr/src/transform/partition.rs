@@ -59,14 +59,14 @@ type FieldAccesses<'a> = HashMap<&'a ExprRef, HashSet<Field>>;
 // For all subexpressions in an expression, find the fields that are accessed directly from the scope.
 struct ImmediateIdentityAccessesAnalysis<'a> {
     sub_expressions: FieldAccesses<'a>,
-    ident_dt: &'a StructDType,
+    scope_dtype: &'a StructDType,
 }
 
 impl<'a> ImmediateIdentityAccessesAnalysis<'a> {
-    fn new(ident_dt: &'a StructDType) -> Self {
+    fn new(scope_dtype: &'a StructDType) -> Self {
         Self {
             sub_expressions: HashMap::new(),
-            ident_dt,
+            scope_dtype,
         }
     }
 }
@@ -108,7 +108,7 @@ impl<'a> Folder<'a> for ImmediateIdentityAccessesAnalysis<'a> {
             }
             return Ok(FoldDown::SkipChildren);
         } else if node.as_any().downcast_ref::<Identity>().is_some() {
-            let st_dtype = &self.ident_dt;
+            let st_dtype = &self.scope_dtype;
             self.sub_expressions.insert(
                 node,
                 st_dtype
@@ -159,11 +159,11 @@ struct StructFieldExpressionSplitter<'a> {
 }
 
 impl<'a> StructFieldExpressionSplitter<'a> {
-    fn new(accesses: FieldAccesses<'a>, dt_ident: &'a StructDType) -> Self {
+    fn new(accesses: FieldAccesses<'a>, scope_dtype: &'a StructDType) -> Self {
         Self {
             sub_expressions: HashMap::new(),
             accesses,
-            scope_dtype: dt_ident,
+            scope_dtype,
         }
     }
 
