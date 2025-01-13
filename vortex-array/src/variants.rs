@@ -10,7 +10,7 @@ use vortex_error::{vortex_panic, VortexError, VortexExpect as _, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::array::ConstantArray;
-use crate::compute::{mask, try_cast, FilterMask};
+use crate::compute::{invert, mask, try_cast, FilterMask};
 use crate::encoding::Encoding;
 use crate::validity::LogicalValidity;
 use crate::{ArrayDType, ArrayData, ArrayTrait, IntoArrayData as _};
@@ -261,7 +261,7 @@ pub trait StructArrayTrait: ArrayTrait {
     /// use vortex_scalar::Scalar;
     ///
     /// let original_field = PrimitiveArray::from_option_iter([
-    ///     Some(1), None, Some(3), None, Some(4),
+    ///     Some(1), None, Some(3), None, Some(5),
     /// ]).into_array();
     /// let struct_validity = Validity::Array(BoolArray::from_iter([
     ///     true, true, false, false, true,
@@ -275,11 +275,11 @@ pub trait StructArrayTrait: ArrayTrait {
     /// let field = array.field_by_idx(0).unwrap().unwrap();
     ///
     /// assert!(field.dtype().is_nullable());
-    /// assert!(!field.is_valid(0));
+    /// assert_eq!(scalar_at(&field, 0).unwrap(), Scalar::from(Some(1)));
     /// assert!(!field.is_valid(1));
-    /// assert_eq!(scalar_at(&field, 2).unwrap(), Scalar::from(Some(3)));
+    /// assert!(!field.is_valid(2));
     /// assert!(!field.is_valid(3));
-    /// assert!(!field.is_valid(4));
+    /// assert_eq!(scalar_at(&field, 4).unwrap(), Scalar::from(Some(5)));
     /// ```
     ///
     /// When a field is non-nullable, but the struct is nullable, the field receives the struct's
@@ -308,11 +308,11 @@ pub trait StructArrayTrait: ArrayTrait {
     /// let field = array.field_by_idx(0).unwrap().unwrap();
     ///
     /// assert!(field.dtype().is_nullable());
-    /// assert!(!field.is_valid(0));
-    /// assert!(!field.is_valid(1));
-    /// assert_eq!(scalar_at(&field, 2).unwrap(), Scalar::from(Some(3)));
-    /// assert_eq!(scalar_at(&field, 3).unwrap(), Scalar::from(Some(4)));
-    /// assert!(!field.is_valid(4));
+    /// assert_eq!(scalar_at(&field, 0).unwrap(), Scalar::from(Some(1)));
+    /// assert_eq!(scalar_at(&field, 1).unwrap(), Scalar::from(Some(2)));
+    /// assert!(!field.is_valid(2));
+    /// assert!(!field.is_valid(3));
+    /// assert_eq!(scalar_at(&field, 4).unwrap(), Scalar::from(Some(5)));
     /// ```
     fn field_by_idx(&self, idx: usize) -> VortexResult<Option<ArrayData>> {
         let Some(maybe_null_field) = self.maybe_null_field_by_idx(idx) else {
@@ -337,7 +337,7 @@ pub trait StructArrayTrait: ArrayTrait {
                 ))
             }
             LogicalValidity::Array(is_valid) => {
-                mask(&maybe_null_field, FilterMask::try_from(is_valid)?).map(Some)
+                mask(&maybe_null_field, FilterMask::try_from(invert(&is_valid)?)?).map(Some)
             }
         }
     }
@@ -421,7 +421,7 @@ mod tests {
     #[test]
     fn test_field() {
         let original_field =
-            PrimitiveArray::from_option_iter([Some(1), None, Some(3), None, Some(4)]).into_array();
+            PrimitiveArray::from_option_iter([Some(1), None, Some(3), None, Some(5)]).into_array();
         let array = StructArray::try_new(
             FieldNames::from(["a".into()]),
             vec![original_field.clone()],
@@ -447,11 +447,11 @@ mod tests {
         let field = array.field_by_idx(0).unwrap().unwrap();
 
         assert!(field.dtype().is_nullable());
-        assert!(!field.is_valid(0));
+        assert_eq!(scalar_at(&field, 0).unwrap(), Scalar::from(Some(1)));
         assert!(!field.is_valid(1));
-        assert_eq!(scalar_at(&field, 2).unwrap(), Scalar::from(Some(3)));
+        assert!(!field.is_valid(2));
         assert!(!field.is_valid(3));
-        assert!(!field.is_valid(4));
+        assert_eq!(scalar_at(&field, 4).unwrap(), Scalar::from(Some(5)));
 
         let original_field = buffer![1, 2, 3, 4, 5].into_array();
         let array = StructArray::try_new(
@@ -464,10 +464,10 @@ mod tests {
         let field = array.field_by_idx(0).unwrap().unwrap();
 
         assert!(field.dtype().is_nullable());
-        assert!(!field.is_valid(0));
-        assert!(!field.is_valid(1));
-        assert_eq!(scalar_at(&field, 2).unwrap(), Scalar::from(Some(3)));
-        assert_eq!(scalar_at(&field, 3).unwrap(), Scalar::from(Some(4)));
-        assert!(!field.is_valid(4));
+        assert_eq!(scalar_at(&field, 0).unwrap(), Scalar::from(Some(1)));
+        assert_eq!(scalar_at(&field, 1).unwrap(), Scalar::from(Some(2)));
+        assert!(!field.is_valid(2));
+        assert!(!field.is_valid(3));
+        assert_eq!(scalar_at(&field, 4).unwrap(), Scalar::from(Some(5)));
     }
 }
