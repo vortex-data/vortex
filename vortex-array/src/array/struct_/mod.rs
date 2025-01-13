@@ -220,7 +220,7 @@ impl StatisticsVTable<StructArray> for StructEncoding {
 #[cfg(test)]
 mod test {
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, Field, FieldName, FieldNames, Nullability};
+    use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
 
     use crate::array::primitive::PrimitiveArray;
     use crate::array::struct_::StructArray;
@@ -248,7 +248,7 @@ mod test {
         .unwrap();
 
         let struct_b = struct_a
-            .project(&[Field::from(2usize), Field::from(0)])
+            .project(&[FieldName::from("zs"), FieldName::from("xs")])
             .unwrap();
         assert_eq!(
             struct_b.names().as_ref(),

@@ -7,6 +7,7 @@ use vortex_array::ArrayData;
 use vortex_dtype::FieldNames;
 use vortex_error::{vortex_err, VortexResult};
 
+use crate::field::DisplayFieldNames;
 use crate::{ExprRef, VortexExpr};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -74,8 +75,8 @@ impl SelectField {
 impl Display for SelectField {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SelectField::Include(fields) => write!(f, "+({})", fields.iter().format(",")),
-            SelectField::Exclude(fields) => write!(f, "-({})", fields.iter().format(",")),
+            SelectField::Include(fields) => write!(f, "+({})", DisplayFieldNames(fields)),
+            SelectField::Exclude(fields) => write!(f, "-({})", DisplayFieldNames(fields)),
         }
     }
 }
@@ -131,9 +132,9 @@ mod tests {
     use vortex_array::array::StructArray;
     use vortex_array::IntoArrayData;
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, Field, Nullability};
+    use vortex_dtype::{DType, Field, FieldName, Nullability};
 
-    use crate::{ident, test_harness, Select};
+    use crate::{ident, select, select_exclude, test_harness};
 
     fn test_array() -> StructArray {
         StructArray::from_fields(&[
@@ -146,7 +147,7 @@ mod tests {
     #[test]
     pub fn include_columns() {
         let st = test_array();
-        let select = Select::include_expr(vec![Field::from("a")], ident());
+        let select = select(vec![FieldName::from("a")], ident());
         let selected = select.evaluate(st.as_ref()).unwrap();
         let selected_names = selected.as_struct_array().unwrap().names().clone();
         assert_eq!(selected_names.as_ref(), &["a".into()]);
@@ -155,7 +156,7 @@ mod tests {
     #[test]
     pub fn exclude_columns() {
         let st = test_array();
-        let select = Select::exclude_expr(vec![Field::from("a")], ident());
+        let select = select_exclude(vec![FieldName::from("a")], ident());
         let selected = select.evaluate(st.as_ref()).unwrap();
         let selected_names = selected.as_struct_array().unwrap().names().clone();
         assert_eq!(selected_names.as_ref(), &["b".into()]);
@@ -165,7 +166,7 @@ mod tests {
     fn dtype() {
         let dtype = test_harness::struct_dtype();
 
-        let select_expr = Select::include_expr(vec![Field::from("a")], ident());
+        let select_expr = select(vec![FieldName::from("a")], ident());
         let expected_dtype = DType::Struct(
             dtype
                 .as_struct()
@@ -176,12 +177,12 @@ mod tests {
         );
         assert_eq!(select_expr.return_dtype(&dtype).unwrap(), expected_dtype);
 
-        let select_expr_exclude = Select::exclude_expr(
+        let select_expr_exclude = select_exclude(
             vec![
-                Field::from("col1"),
-                Field::from("col2"),
-                Field::from("bool1"),
-                Field::from("bool2"),
+                FieldName::from("col1"),
+                FieldName::from("col2"),
+                FieldName::from("bool1"),
+                FieldName::from("bool2"),
             ],
             ident(),
         );
@@ -190,8 +191,8 @@ mod tests {
             expected_dtype
         );
 
-        let select_expr_exclude = Select::exclude_expr(
-            vec![Field::from("col1"), Field::from("col2"), Field::Index(1)],
+        let select_expr_exclude = select_exclude(
+            vec![FieldName::from("col1"), FieldName::from("col2")],
             ident(),
         );
         assert_eq!(

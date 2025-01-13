@@ -138,7 +138,7 @@ mod tests {
     use vortex_array::array::{PrimitiveArray, StructArray};
     use vortex_array::{ArrayData, IntoArrayData, IntoArrayVariant as _};
     use vortex_buffer::buffer;
-    use vortex_dtype::{Field, FieldNames};
+    use vortex_dtype::FieldNames;
     use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
     use crate::{col, Column, Pack, VortexExpr};
@@ -224,16 +224,13 @@ mod tests {
         let expr = Pack::try_new_expr(
             ["one".into(), "two".into(), "three".into()].into(),
             vec![
-                Column::new_expr(Field::from("a")),
+                Column::new_expr("a"),
                 Pack::try_new_expr(
                     ["two_one".into(), "two_two".into()].into(),
-                    vec![
-                        Column::new_expr(Field::from("b")),
-                        Column::new_expr(Field::from("b")),
-                    ],
+                    vec![Column::new_expr("b"), Column::new_expr("b")],
                 )
                 .unwrap(),
-                Column::new_expr(Field::from("a")),
+                col("a"),
             ],
         )
         .unwrap();

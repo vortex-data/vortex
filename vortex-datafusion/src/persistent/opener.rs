@@ -8,6 +8,7 @@ use datafusion_physical_expr::{split_conjunction, PhysicalExpr};
 use futures::{FutureExt as _, StreamExt, TryStreamExt};
 use object_store::ObjectStore;
 use vortex_array::ContextRef;
+use vortex_dtype::FieldName;
 use vortex_expr::datafusion::convert_expr_to_vortex;
 use vortex_expr::RowFilter;
 use vortex_file::{LayoutContext, LayoutDeserializer, Projection, VortexReadBuilder};
@@ -23,7 +24,7 @@ static IO_DISPATCHER: LazyLock<Arc<IoDispatcher>> =
 pub struct VortexFileOpener {
     pub ctx: ContextRef,
     pub object_store: Arc<dyn ObjectStore>,
-    pub projection: Option<Vec<usize>>,
+    pub projection: Option<Vec<FieldName>>,
     pub predicate: Option<Arc<dyn PhysicalExpr>>,
     pub arrow_schema: SchemaRef,
     pub(crate) initial_read_cache: InitialReadCache,
@@ -66,7 +67,7 @@ impl FileOpener for VortexFileOpener {
             }
 
             if let Some(projection) = this.projection.as_ref() {
-                builder = builder.with_projection(Projection::new(projection));
+                builder = builder.with_projection(Projection::new(projection.clone()));
             }
 
             Ok(Box::pin(

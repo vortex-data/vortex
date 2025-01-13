@@ -13,6 +13,7 @@ use vortex_dtype::{FieldName, Nullability};
 use vortex_error::{VortexExpect as _, VortexResult};
 use vortex_scalar::Scalar;
 
+use crate::field::DisplayFieldName;
 use crate::{
     and, col, eq, gt, gt_eq, lit, lt_eq, not, or, BinaryExpr, Column, ExprRef, Identity, Literal,
     Not, Operator, RowFilter, VortexExprExt,
@@ -417,7 +418,7 @@ impl FieldOrIdentity {
 impl Display for FieldOrIdentity {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            FieldOrIdentity::Field(field) => write!(f, "{}", field),
+            FieldOrIdentity::Field(field) => write!(f, "{}", DisplayFieldName(field)),
             FieldOrIdentity::Identity => write!(f, "$[]"),
         }
     }
@@ -437,7 +438,7 @@ mod tests {
     use vortex_array::aliases::hash_map::HashMap;
     use vortex_array::aliases::hash_set::HashSet;
     use vortex_array::stats::Stat;
-    use vortex_dtype::Field;
+    use vortex_dtype::FieldName;
 
     use crate::pruning::{
         convert_to_pruning_expression, stat_column_field, FieldOrIdentity, PruningPredicate,
@@ -446,9 +447,9 @@ mod tests {
 
     #[test]
     pub fn pruning_equals() {
-        let column = Field::from("a");
+        let column = FieldName::from("a");
         let literal_eq = lit(42);
-        let eq_expr = eq(col(column.clone()), literal_eq.clone());
+        let eq_expr = eq(col("a"), literal_eq.clone());
         let (converted, refs) = convert_to_pruning_expression(&eq_expr);
         assert_eq!(
             refs.into_map(),
@@ -469,8 +470,8 @@ mod tests {
 
     #[test]
     pub fn pruning_equals_column() {
-        let column = Field::from("a");
-        let other_col = Field::from("b");
+        let column = FieldName::from("a");
+        let other_col = FieldName::from("b");
         let eq_expr = eq(col(column.clone()), col(other_col.clone()));
 
         let (converted, refs) = convert_to_pruning_expression(&eq_expr);
@@ -502,8 +503,8 @@ mod tests {
 
     #[test]
     pub fn pruning_not_equals_column() {
-        let column = Field::from("a");
-        let other_col = Field::from("b");
+        let column = FieldName::from("a");
+        let other_col = FieldName::from("b");
         let not_eq_expr = not_eq(col(column.clone()), col(other_col.clone()));
 
         let (converted, refs) = convert_to_pruning_expression(&not_eq_expr);
@@ -542,8 +543,8 @@ mod tests {
 
     #[test]
     pub fn pruning_gt_column() {
-        let column = Field::from("a");
-        let other_col = Field::from("b");
+        let column = FieldName::from("a");
+        let other_col = FieldName::from("b");
         let other_expr = col(other_col.clone());
         let not_eq_expr = gt(col(column.clone()), other_expr.clone());
 
@@ -570,7 +571,7 @@ mod tests {
 
     #[test]
     pub fn pruning_gt_value() {
-        let column = Field::from("a");
+        let column = FieldName::from("a");
         let other_col = lit(42);
         let not_eq_expr = gt(col(column.clone()), other_col.clone());
 
@@ -591,8 +592,8 @@ mod tests {
 
     #[test]
     pub fn pruning_lt_column() {
-        let column = Field::from("a");
-        let other_col = Field::from("b");
+        let column = FieldName::from("a");
+        let other_col = FieldName::from("b");
         let other_expr = col(other_col.clone());
         let not_eq_expr = lt(col(column.clone()), other_expr.clone());
 
@@ -619,7 +620,7 @@ mod tests {
 
     #[test]
     pub fn pruning_lt_value() {
-        let column = Field::from("a");
+        let column = FieldName::from("a");
         let other_col = lit(42);
         let not_eq_expr = lt(col(column.clone()), other_col.clone());
 
@@ -646,7 +647,7 @@ mod tests {
 
     #[test]
     fn display_pruning_predicate() {
-        let column = Field::from("a");
+        let column = FieldName::from("a");
         let other_col = lit(42);
         let not_eq_expr = lt(col(column), other_col);
 
@@ -658,7 +659,7 @@ mod tests {
 
     #[test]
     fn or_required_stats_from_both_arms() {
-        let column = col(Field::from("a"));
+        let column = col(FieldName::from("a"));
         let expr = or(lt(column.clone(), lit(10)), gt(column, lit(50)));
 
         let expected = HashMap::from([(
@@ -674,7 +675,7 @@ mod tests {
 
     #[test]
     fn and_required_stats_from_both_arms() {
-        let column = col(Field::from("a"));
+        let column = col(FieldName::from("a"));
         let expr = and(gt(column.clone(), lit(50)), lt(column, lit(10)));
 
         let expected = HashMap::from([(
@@ -702,8 +703,8 @@ mod tests {
         assert_eq!(predicate.required_stats(), &expected);
 
         let expected_expr = or(
-            gt_eq(col(Field::from("min")), lit(10)),
-            lt_eq(col(Field::from("max")), lit(50)),
+            gt_eq(col(FieldName::from("min")), lit(10)),
+            lt_eq(col(FieldName::from("max")), lit(50)),
         );
         assert_eq!(predicate.expr(), &expected_expr)
     }

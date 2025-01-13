@@ -109,7 +109,7 @@ mod tests {
     #[test]
     fn project_and() {
         let band = and(col("a"), col("b"));
-        let projection = vec![Field::from("b")];
+        let projection = vec!["b".into()];
         assert_eq!(
             &expr_project(&band, &projection).unwrap(),
             &(Arc::new(Identity) as ExprRef)
@@ -119,21 +119,21 @@ mod tests {
     #[test]
     fn project_or() {
         let bor = or(col("a"), col("b"));
-        let projection = vec![Field::from("b")];
+        let projection = vec!["b".into()];
         assert!(expr_project(&bor, &projection).is_none());
     }
 
     #[test]
     fn project_nested() {
         let band = and(lt(col("a"), col("b")), lt(lit(5), col("b")));
-        let projection = vec![Field::from("b")];
+        let projection = vec!["b".into()];
         assert!(expr_project(&band, &projection).is_none());
     }
 
     #[test]
     fn project_multicolumn() {
         let blt = lt(col("a"), col("b"));
-        let projection = vec![Field::from("a"), Field::from("b")];
+        let projection = vec![FieldName::from("a"), FieldName::from("b")];
         assert_eq!(
             &expr_project(&blt, &projection).unwrap(),
             &lt(col("a"), col("b"))
@@ -142,34 +142,42 @@ mod tests {
 
     #[test]
     fn project_select() {
-        let include = Select::include_expr(
-            vec![Field::from("a"), Field::from("b"), Field::from("c")],
+        let include = select(
+            vec![
+                FieldName::from("a"),
+                FieldName::from("b"),
+                FieldName::from("c"),
+            ],
             ident(),
         );
-        let projection = vec![Field::from("a"), Field::from("b")];
+        let projection = vec![FieldName::from("a"), FieldName::from("b")];
         assert_eq!(
             *expr_project(&include, &projection).unwrap(),
-            *Select::include_expr(projection, ident())
+            *select(projection, ident())
         );
     }
 
     #[test]
     fn project_select_extra_columns() {
-        let include = Select::include_expr(
-            vec![Field::from("a"), Field::from("b"), Field::from("c")],
+        let include = select(
+            vec![
+                FieldName::from("a"),
+                FieldName::from("b"),
+                FieldName::from("c"),
+            ],
             ident(),
         );
-        let projection = vec![Field::from("c"), Field::from("d")];
+        let projection = vec![FieldName::from("c"), FieldName::from("d")];
         assert_eq!(
             *expr_project(&include, &projection).unwrap(),
-            *Select::include_expr(vec![Field::from("c")], ident())
+            *select(vec![FieldName::from("c")], ident())
         );
     }
 
     #[test]
     fn project_not() {
         let not_e = not(col("a"));
-        let projection = vec![Field::from("a"), Field::from("b")];
+        let projection = vec![FieldName::from("a"), FieldName::from("b")];
         assert_eq!(&expr_project(&not_e, &projection).unwrap(), &not_e);
     }
 }

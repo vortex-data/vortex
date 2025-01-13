@@ -339,13 +339,13 @@ mod tests {
         let expr = get_item("b", get_item("a", ident()));
 
         let partitioned = StructFieldExpressionSplitter::split(expr, &dtype).unwrap();
-        let split_a = partitioned.find_partition(&Field::Name("a".into()));
+        let split_a = partitioned.find_partition(&"a".into());
         assert!(split_a.is_some());
         let split_a = split_a.unwrap();
 
         assert_eq!(
             &partitioned.root,
-            &get_item("0", get_item(Field::Name(split_a.name.clone()), ident()))
+            &get_item("0", get_item(split_a.name.clone(), ident()))
         );
         assert_eq!(
             &Simplify::simplify(split_a.expr.clone()).unwrap(),
@@ -367,9 +367,7 @@ mod tests {
         );
         let partitioned = StructFieldExpressionSplitter::split(expr, &dtype).unwrap();
 
-        let split_a = partitioned
-            .find_partition(&Field::Name("a".into()))
-            .unwrap();
+        let split_a = partitioned.find_partition(&"a".into()).unwrap();
         assert_eq!(
             &Simplify::simplify(split_a.expr.clone()).unwrap(),
             &pack(
@@ -377,9 +375,7 @@ mod tests {
                 vec![get_item("a", ident()), get_item("b", ident())]
             )
         );
-        let split_c = partitioned
-            .find_partition(&Field::Name("c".into()))
-            .unwrap();
+        let split_c = partitioned.find_partition(&"c".into()).unwrap();
         assert_eq!(
             &Simplify::simplify(split_c.expr.clone()).unwrap(),
             &pack(vec!["0".into()], vec![ident()])
@@ -429,15 +425,15 @@ mod tests {
         assert_eq!(
             &partitioned.root,
             &and(
-                get_item("0", get_item(Field::Name("a".into()), ident())),
+                get_item("0", get_item("a", ident())),
                 select(
                     vec!["a".into(), "b".into()],
                     pack(
                         vec!["a".into(), "b".into(), "c".into()],
                         vec![
-                            get_item(1, get_item("a", ident())),
-                            get_item(0, get_item("b", ident())),
-                            get_item(0, get_item("c", ident())),
+                            get_item("1", get_item("a", ident())),
+                            get_item("0", get_item("b", ident())),
+                            get_item("0", get_item("c", ident())),
                         ]
                     )
                 )

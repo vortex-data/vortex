@@ -42,7 +42,7 @@ impl From<String> for Column {
 
 impl Display for Column {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.field)
+        write!(f, "${}", self.field)
     }
 }
 
@@ -89,7 +89,7 @@ mod tests {
             DType::Primitive(PType::I32, Nullability::NonNullable)
         );
         assert_eq!(
-            col(1).return_dtype(&dtype).unwrap(),
+            col("col1").return_dtype(&dtype).unwrap(),
             DType::Primitive(PType::U16, Nullability::Nullable)
         );
     }

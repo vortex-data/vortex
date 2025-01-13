@@ -12,6 +12,7 @@ use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use datafusion_physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
 use itertools::Itertools;
 use vortex_array::ContextRef;
+use vortex_dtype::FieldName;
 
 use super::cache::InitialReadCache;
 use crate::persistent::opener::VortexFileOpener;
@@ -117,10 +118,17 @@ impl ExecutionPlan for VortexExec {
 
         let arrow_schema = self.file_scan_config.file_schema.clone();
 
+        let projection = self.file_scan_config.projection.as_ref().map(|projection| {
+            projection
+                .iter()
+                .map(|i| FieldName::from(arrow_schema.fields[*i].name().clone()))
+                .collect_vec()
+        });
+
         let opener = VortexFileOpener {
             ctx: self.ctx.clone(),
             object_store,
-            projection: self.file_scan_config.projection.clone(),
+            projection,
             predicate: self.predicate.clone(),
             initial_read_cache: self.initial_read_cache.clone(),
             arrow_schema,

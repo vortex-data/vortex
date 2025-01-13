@@ -9,6 +9,7 @@ use dyn_hash::DynHash;
 mod binary;
 mod column;
 pub mod datafusion;
+mod field;
 pub mod forms;
 mod get_item;
 mod identity;
@@ -164,7 +165,7 @@ pub mod test_harness {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::{DType, Field, Nullability, PType, StructDType};
+    use vortex_dtype::{DType, Nullability, PType, StructDType};
     use vortex_scalar::Scalar;
 
     use super::*;
@@ -190,7 +191,6 @@ mod tests {
     #[test]
     fn expr_display() {
         assert_eq!(col("a").to_string(), "$a");
-        assert_eq!(col(1).to_string(), "[1]");
         assert_eq!(Identity.to_string(), "[]");
         assert_eq!(Identity.to_string(), "[]");
 
@@ -241,21 +241,24 @@ mod tests {
         assert_eq!(not(col1.clone()).to_string(), "!$col1");
 
         assert_eq!(
-            Select::include_expr(vec![Field::from("col1")], ident()).to_string(),
+            select(vec![FieldName::from("col1")], ident()).to_string(),
             "select +($col1) []"
         );
         assert_eq!(
-            Select::include_expr(vec![Field::from("col1"), Field::from("col2")], ident())
-                .to_string(),
-            "select +($col1,$col2) []"
-        );
-        assert_eq!(
-            Select::exclude_expr(
-                vec![Field::from("col1"), Field::from("col2"), Field::Index(1),],
+            select(
+                vec![FieldName::from("col1"), FieldName::from("col2")],
                 ident()
             )
             .to_string(),
-            "select -($col1,$col2,[1]) []"
+            "select +($col1,$col2) []"
+        );
+        assert_eq!(
+            select_exclude(
+                vec![FieldName::from("col1"), FieldName::from("col2")],
+                ident()
+            )
+            .to_string(),
+            "select -($col1,$col2) []"
         );
 
         assert_eq!(lit(Scalar::from(0_u8)).to_string(), "0_u8");

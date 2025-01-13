@@ -15,7 +15,7 @@ use vortex_array::variants::{PrimitiveArrayTrait, StructArrayTrait};
 use vortex_array::{ArrayDType, ArrayData, ArrayLen, IntoArrayData, IntoArrayVariant, ToArrayData};
 use vortex_buffer::{buffer, Buffer};
 use vortex_dtype::PType::I32;
-use vortex_dtype::{DType, Field, Nullability, PType, StructDType};
+use vortex_dtype::{DType, Nullability, PType, StructDType};
 use vortex_error::{vortex_panic, VortexResult};
 use vortex_expr::{col, lit, BinaryExpr, Operator, RowFilter};
 use vortex_io::VortexReadAt;
@@ -191,7 +191,7 @@ async fn test_read_projection() {
     let written = Bytes::from(writer.finalize().await.unwrap());
 
     let array = VortexReadBuilder::new(written.clone(), LayoutDeserializer::default())
-        .with_projection(Projection::new([0]))
+        .with_projection(Projection::new(["strings".into()]))
         .build()
         .await
         .unwrap()
@@ -223,7 +223,7 @@ async fn test_read_projection() {
     assert_eq!(actual, strings_expected);
 
     let array = VortexReadBuilder::new(written.clone(), LayoutDeserializer::default())
-        .with_projection(Projection::Flat(vec![Field::from("strings")]))
+        .with_projection(Projection::Flat(vec!["strings".into()]))
         .build()
         .await
         .unwrap()
@@ -255,7 +255,7 @@ async fn test_read_projection() {
     assert_eq!(actual, strings_expected);
 
     let array = VortexReadBuilder::new(written.clone(), LayoutDeserializer::default())
-        .with_projection(Projection::new([1]))
+        .with_projection(Projection::new(["numbers".into()]))
         .build()
         .await
         .unwrap()
@@ -283,7 +283,7 @@ async fn test_read_projection() {
     assert_eq!(actual, numbers_expected);
 
     let array = VortexReadBuilder::new(written.clone(), LayoutDeserializer::default())
-        .with_projection(Projection::Flat(vec![Field::from("numbers")]))
+        .with_projection(Projection::Flat(vec!["numbers".into()]))
         .build()
         .await
         .unwrap()
@@ -429,7 +429,7 @@ async fn filter_string() {
     let written = Bytes::from(writer.finalize().await.unwrap());
     let stream = VortexReadBuilder::new(written, LayoutDeserializer::default())
         .with_row_filter(RowFilter::new(BinaryExpr::new_expr(
-            col(Field::from("name")),
+            col("name"),
             Operator::Eq,
             lit("Joseph"),
         )))
@@ -485,12 +485,12 @@ async fn filter_or() {
     let written = Bytes::from(writer.finalize().await.unwrap());
     let mut reader = VortexReadBuilder::new(written, LayoutDeserializer::default())
         .with_row_filter(RowFilter::new(BinaryExpr::new_expr(
-            BinaryExpr::new_expr(col(Field::from("name")), Operator::Eq, lit("Angela")),
+            BinaryExpr::new_expr(col("name"), Operator::Eq, lit("Angela")),
             Operator::Or,
             BinaryExpr::new_expr(
-                BinaryExpr::new_expr(col(Field::from("age")), Operator::Gte, lit(20)),
+                BinaryExpr::new_expr(col("age"), Operator::Gte, lit(20)),
                 Operator::And,
-                BinaryExpr::new_expr(col(Field::from("age")), Operator::Lte, lit(30)),
+                BinaryExpr::new_expr(col("age"), Operator::Lte, lit(30)),
             ),
         )))
         .build()
@@ -554,9 +554,9 @@ async fn filter_and() {
     let written = Bytes::from(writer.finalize().await.unwrap());
     let mut reader = VortexReadBuilder::new(written, LayoutDeserializer::default())
         .with_row_filter(RowFilter::new(BinaryExpr::new_expr(
-            BinaryExpr::new_expr(col(Field::from("age")), Operator::Gt, lit(21)),
+            BinaryExpr::new_expr(col("age"), Operator::Gt, lit(21)),
             Operator::And,
-            BinaryExpr::new_expr(col(Field::from("age")), Operator::Lte, lit(33)),
+            BinaryExpr::new_expr(col("age"), Operator::Lte, lit(33)),
         )))
         .build()
         .await
@@ -770,7 +770,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
     let actual_kept_array = VortexReadBuilder::new(written.clone(), LayoutDeserializer::default())
         .with_indices(ArrayData::from(empty_indices))
         .with_row_filter(RowFilter::new(BinaryExpr::new_expr(
-            col(Field::from("numbers")),
+            col("numbers"),
             Operator::Gt,
             lit(50_i16),
         )))
@@ -796,7 +796,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
     let actual_kept_array = VortexReadBuilder::new(written.clone(), LayoutDeserializer::default())
         .with_indices(ArrayData::from(kept_indices_u16))
         .with_row_filter(RowFilter::new(BinaryExpr::new_expr(
-            col(Field::from("numbers")),
+            col("numbers"),
             Operator::Gt,
             lit(50_i16),
         )))
@@ -828,7 +828,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
     let actual_array = VortexReadBuilder::new(written.clone(), LayoutDeserializer::default())
         .with_indices(ArrayData::from((0..500).collect::<Buffer<_>>()))
         .with_row_filter(RowFilter::new(BinaryExpr::new_expr(
-            col(Field::from("numbers")),
+            col("numbers"),
             Operator::Gt,
             lit(50_i16),
         )))
@@ -898,7 +898,7 @@ async fn filter_string_chunked() {
     let actual_array =
         VortexReadBuilder::new(Bytes::from(written_bytes), LayoutDeserializer::default())
             .with_row_filter(RowFilter::new(BinaryExpr::new_expr(
-                col(Field::from("name")),
+                col("name"),
                 Operator::Eq,
                 lit("Joseph"),
             )))
@@ -994,9 +994,9 @@ async fn test_pruning_with_or() {
     let actual_array =
         VortexReadBuilder::new(Bytes::from(written_bytes), LayoutDeserializer::default())
             .with_row_filter(RowFilter::new(BinaryExpr::new_expr(
-                BinaryExpr::new_expr(col(Field::from("letter")), Operator::Lte, lit("J")),
+                BinaryExpr::new_expr(col("letter"), Operator::Lte, lit("J")),
                 Operator::Or,
-                BinaryExpr::new_expr(col(Field::from("number")), Operator::Lt, lit(25)),
+                BinaryExpr::new_expr(col("number"), Operator::Lt, lit(25)),
             )))
             .build()
             .await
@@ -1099,9 +1099,12 @@ async fn test_repeated_projection() {
             .await
     }
 
-    let actual = read_all(Bytes::from(written.clone()), Projection::new([0, 0]))
-        .await
-        .unwrap();
+    let actual = read_all(
+        Bytes::from(written.clone()),
+        Projection::new(["strings".into(), "strings".into()]),
+    )
+    .await
+    .unwrap();
 
     assert_eq!(
         (0..actual.len())
@@ -1114,12 +1117,7 @@ async fn test_repeated_projection() {
 
     let actual = read_all(
         Bytes::from(written.clone()),
-        Projection::Flat(
-            ["strings", "strings"]
-                .iter()
-                .map(|x| Field::from(x.to_string()))
-                .collect_vec(),
-        ),
+        Projection::Flat(vec!["strings".into(), "strings".into()]),
     )
     .await
     .unwrap();

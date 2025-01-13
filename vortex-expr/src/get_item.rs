@@ -7,6 +7,7 @@ use vortex_array::ArrayData;
 use vortex_dtype::FieldName;
 use vortex_error::{vortex_err, VortexResult};
 
+use crate::field::DisplayFieldName;
 use crate::{ExprRef, VortexExpr};
 
 #[derive(Debug, Clone, Eq, Hash)]
@@ -39,7 +40,7 @@ pub fn get_item(field: impl Into<FieldName>, child: ExprRef) -> ExprRef {
 
 impl Display for GetItem {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}.{}", self.child, self.field)
+        write!(f, "{}.{}", self.child, DisplayFieldName(&self.field))
     }
 }
 
@@ -80,7 +81,7 @@ mod tests {
     use vortex_array::{ArrayDType, IntoArrayData};
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
-    use vortex_dtype::PType::{I32, I64};
+    use vortex_dtype::PType::I32;
 
     use crate::get_item::get_item;
     use crate::ident;
