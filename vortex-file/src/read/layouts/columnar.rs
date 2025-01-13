@@ -165,7 +165,7 @@ impl ColumnarLayoutBuilder<'_> {
                     SelectField::Exclude(_) => vortex_panic!("Select::Exclude is not supported"),
                 }
             } else {
-                e.references().into_iter().collect_vec().into()
+                e.references().into_iter().collect()
             }
         })
     }

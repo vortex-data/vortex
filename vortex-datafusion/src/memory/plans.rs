@@ -118,12 +118,7 @@ impl ExecutionPlan for RowSelectorExec {
             .into());
         }
 
-        let filter_projection = self
-            .filter_expr
-            .references()
-            .into_iter()
-            .collect_vec()
-            .into();
+        let filter_projection = self.filter_expr.references().into_iter().collect();
         Ok(Box::pin(RowIndicesStream {
             chunked_array: self.chunked_array.clone(),
             chunk_idx: 0,

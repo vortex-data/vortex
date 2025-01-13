@@ -16,7 +16,6 @@ use arrow_array::{BinaryViewArray, GenericByteViewArray, GenericListArray, Strin
 use arrow_buffer::buffer::{NullBuffer, OffsetBuffer};
 use arrow_buffer::{ArrowNativeType, BooleanBuffer, Buffer, ScalarBuffer};
 use arrow_schema::{DataType, TimeUnit as ArrowTimeUnit};
-use itertools::Itertools;
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_datetime_dtype::TimeUnit;
 use vortex_dtype::{DType, NativePType, Nullability, PType};
@@ -166,12 +165,7 @@ impl FromArrowArray<&ArrowBooleanArray> for ArrayData {
 impl FromArrowArray<&ArrowStructArray> for ArrayData {
     fn from_arrow(value: &ArrowStructArray, nullable: bool) -> Self {
         StructArray::try_new(
-            value
-                .column_names()
-                .iter()
-                .map(|s| (*s).into())
-                .collect_vec()
-                .into(),
+            value.column_names().iter().map(|s| (*s).into()).collect(),
             value
                 .columns()
                 .iter()

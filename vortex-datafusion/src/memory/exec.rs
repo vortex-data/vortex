@@ -5,7 +5,6 @@ use std::sync::Arc;
 use datafusion_common::{Result as DFResult, Statistics};
 use datafusion_execution::{SendableRecordBatchStream, TaskContext};
 use datafusion_physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
-use itertools::Itertools;
 use vortex_array::array::ChunkedArray;
 use vortex_array::{ArrayDType, ArrayLen};
 use vortex_dtype::{FieldName, FieldNames};
@@ -110,7 +109,7 @@ impl ExecutionPlan for VortexScanExec {
             idx: 0,
             num_chunks: self.array.nchunks(),
             chunks: self.array.clone(),
-            projection: self.scan_projection.iter().cloned().collect_vec().into(),
+            projection: self.scan_projection.iter().cloned().collect(),
         }))
     }
 

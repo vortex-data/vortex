@@ -51,8 +51,7 @@ impl FromArrowType<SchemaRef> for DType {
                     .fields()
                     .iter()
                     .map(|f| f.name().as_str().into())
-                    .collect_vec()
-                    .into(),
+                    .collect(),
                 value
                     .fields()
                     .iter()
@@ -91,10 +90,7 @@ impl FromArrowType<&Field> for DType {
             }
             DataType::Struct(f) => Struct(
                 StructDType::new(
-                    f.iter()
-                        .map(|f| f.name().as_str().into())
-                        .collect_vec()
-                        .into(),
+                    f.iter().map(|f| f.name().as_str().into()).collect(),
                     f.iter().map(|f| Self::from_arrow(f.as_ref())).collect_vec(),
                 ),
                 nullability,
