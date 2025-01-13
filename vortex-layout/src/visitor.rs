@@ -2,7 +2,7 @@ use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::traversal::{DynNode, Node, NodeVisitor, TraversalOrder};
 
 use crate::LayoutReader;
@@ -33,7 +33,9 @@ impl Debug for LayoutReaderDebug {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         writeln!(f, "LayoutReader")?;
         let mut vis = LayoutVisitor { display: f };
-        self.0.accept(&mut vis).unwrap();
+        self.0
+            .accept(&mut vis)
+            .vortex_expect("Visitor should not fail");
         Ok(())
     }
 }
