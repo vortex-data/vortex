@@ -346,7 +346,9 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::traversal::visitor::pre_order_visit_down;
-    use crate::traversal::{MutNodeVisitor, NodeMut, NodeVisitor, TransformResult, TraversalOrder};
+    use crate::traversal::{
+        MutNodeVisitor, Node, NodeMut, NodeVisitor, TransformResult, TraversalOrder,
+    };
     use crate::{
         BinaryExpr, Column, ExprRef, FieldName, Literal, Operator, VortexExpr, VortexExprExt,
     };
