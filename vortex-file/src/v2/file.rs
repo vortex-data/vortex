@@ -1,9 +1,12 @@
 use std::future::ready;
 use std::ops::Range;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 
 use futures::Stream;
-use futures_util::{stream, FutureExt, StreamExt, TryFutureExt};
+use futures_util::{stream, FutureExt, StreamExt, TryFutureExt, TryStreamExt};
+use pin_project_lite::pin_project;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
 use vortex_array::{ArrayData, ContextRef};
 use vortex_dtype::DType;
@@ -11,12 +14,14 @@ use vortex_error::{vortex_err, VortexResult};
 use vortex_layout::{ExprEvaluator, LayoutData, LayoutReader};
 use vortex_scan::Scan;
 
-use crate::v2::driver::Driver;
+use crate::v2::driver::{ExecDriver, IoDriver};
+use crate::v2::segments::channel::SegmentChannel;
 
 pub struct VortexFile {
     pub(crate) ctx: ContextRef,
     pub(crate) layout: LayoutData,
-    pub(crate) driver: Arc<dyn Driver<ArrayData>>,
+    pub(crate) io_driver: Arc<dyn IoDriver>,
+    pub(crate) exec_driver: Arc<dyn ExecDriver>,
     pub(crate) splits: Arc<[Range<u64>]>,
 }
 
@@ -33,67 +38,38 @@ impl VortexFile {
     }
 
     /// Performs a scan operation over the file.
-    ///
-    /// The general architecture of a scan is to spawn a task for each split to be read.
-    ///
-    /// FIXME(ngates): Ok, so ideally this is the async implementation of scanning. The assumption
-    ///  I think is that I/O is driven from the caller by polling the stream, and so we should
-    ///  provide the option to configure where and how the CPU tasks are spawned.
-    ///
-    ///  For DataFusion, we should support the ability to spawn tasks back onto the DataFusion
-    ///  runtime, which for some reason it intertwined with I/O.
-    ///
-    ///  For the sync implementation, I'm guessing we'd want each thread in the pool to perform
-    ///  their own synchronous I/O? Otherwise we'd put it all on a single thread and it would
-    ///  be slow.
-    ///
-    ///  So. What do we actually want to be configurable?
-    ///    - The number of threads in the row group pool? Or is this behind a spawn abstraction?
-    ///    - The number of row groups to concurrently spawn? We could also just provide a stream
-    ///      and allow the consumer to buffer it as they see fit.
-    ///
-    ///  I think there's a mode here which is where we give an AsyncSegmentReader to each task
-    ///  and they all put their segment requests onto a single stream. We can call this a
-    ///  UnifiedSegmentReader? In this world, all segment requests appear in the same stream
-    ///  and can be handled however the consumer sees fit. Out of this comes some stream that we
-    ///  can poll indefinitely to drive the coalesced I/O.
-    ///
-    ///  But what if we don't want coalesced I/O? For whatever reason... we just want to take
-    ///  whatever segments are requested and read them immediately. (TODO: we should change
-    ///  AsyncSegmentReader to take/return multiple. Maybe a readv kind of thing?). This could
-    ///  be useful in a thread-per-core model because it could wrap I/O-uring on the same thread.
-    ///
-    ///  The API must therefore be to have a `Driver` trait that takes and returns a stream and it
-    ///  can process it as it sees fit.
     pub fn scan(self, scan: Arc<Scan>) -> VortexResult<impl ArrayStream + 'static> {
-        // We set up a driver for this task
-        let stream = self.driver.drive(|reader| {
-            // Create a shared reader for the scan.
-            let reader: Arc<dyn LayoutReader> =
-                self.layout.reader(self.driver.reader(), self.ctx.clone())?;
+        // Set up a segment channel to collect segment requests from the execution stream.
+        let segment_channel = SegmentChannel::new();
 
-            // Iterate each split, and evaluate its range scan.
-            stream::iter(ArcIter::new(self.splits.clone()))
-                .map(move |row_range| {
-                    let reader = reader.clone();
-                    ready(scan.clone().range_scan(row_range))
-                        .and_then(|range_scan| {
-                            range_scan.evaluate_async(|row_mask, expr| {
-                                reader.evaluate_expr(row_mask, expr)
-                            })
-                        })
-                        .boxed()
-                        .unwrap_or_else(|_cancelled| Err(vortex_err!("recv failed, send dropped")))
-                })
-                .boxed()
-        });
+        // Now we give one end of the channel to the layout reader...
+        let reader: Arc<dyn LayoutReader> = self
+            .layout
+            .reader(segment_channel.reader(), self.ctx.clone())?;
+        let exec_stream = stream::iter(ArcIter::new(self.splits.clone()))
+            .map(move |row_range| {
+                let reader = reader.clone();
+                ready(scan.clone().range_scan(row_range))
+                    .and_then(|range_scan| {
+                        range_scan
+                            .evaluate_async(|row_mask, expr| reader.evaluate_expr(row_mask, expr))
+                    })
+                    .boxed()
+                    .unwrap_or_else(|_cancelled| Err(vortex_err!("recv failed, send dropped")))
+            })
+            .boxed();
+        let exec_stream = self.exec_driver.drive(exec_stream);
 
-        // Wrap up the stream with the driver
-        let stream = self.driver.drive(stream.boxed());
+        // ...and the other end to the I/O driver.
+        let io_stream = self.io_driver.drive(segment_channel.into_stream());
 
-        let result_dtype = scan.result_dtype(self.dtype())?;
-
-        Ok(ArrayStreamAdapter::new(result_dtype, stream))
+        Ok(ArrayStreamAdapter::new(
+            scan.result_dtype(self.dtype())?,
+            UnifiedDriverStream {
+                exec_stream,
+                io_stream,
+            },
+        ))
     }
 }
 
@@ -119,5 +95,47 @@ impl<T: Clone> Iterator for ArcIter<T> {
             self.pos += 1;
             item
         })
+    }
+}
+
+pin_project! {
+    /// A [`Stream`] that drives the both the I/O stream and the execution stream concurrently.
+    ///
+    /// This is sort of like a `select!` implementation, but not quite.
+    ///
+    /// We can't use `futures::stream::select` because it requires both streams to terminate, and
+    /// our I/O stream will never terminate.
+    ///
+    /// We can't use `futures::stream::zip` because it waits for boths streams to emit an item,
+    /// but our execution stream may require multiple I/O operations to complete before it can
+    /// return an item.
+    struct UnifiedDriverStream<R, S> {
+        #[pin]
+        exec_stream: R,
+        #[pin]
+        io_stream: S,
+    }
+}
+
+impl<R, S> Stream for UnifiedDriverStream<R, S>
+where
+    R: Stream<Item = VortexResult<ArrayData>>,
+    S: Stream<Item = VortexResult<()>>,
+{
+    type Item = VortexResult<ArrayData>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let mut this = self.project();
+        loop {
+            // If the exec stream is ready, then we can return the result.
+            if let Poll::Ready(r) = this.exec_stream.try_poll_next_unpin(cx) {
+                return Poll::Ready(r);
+            }
+            // Otherwise, we try to poll the I/O stream.
+            // If the I/O stream is not ready, then we return Pending and wait for the next wakeup.
+            if matches!(this.io_stream.as_mut().poll_next(cx), Poll::Pending) {
+                return Poll::Pending;
+            }
+        }
     }
 }

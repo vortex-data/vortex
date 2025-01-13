@@ -1,10 +1,12 @@
 mod execution;
+mod io;
 mod split_by;
 
-use std::io::Read;
 use std::sync::Arc;
 
+pub use execution::*;
 use flatbuffers::root;
+pub use io::*;
 use itertools::Itertools;
 pub use split_by::*;
 use vortex_array::ContextRef;
@@ -17,7 +19,7 @@ use vortex_layout::segments::SegmentId;
 use vortex_layout::{LayoutContextRef, LayoutData, LayoutId};
 
 use crate::v2::footer::{FileLayout, Postscript, Segment};
-use crate::v2::segments::driver::SegmentStream;
+use crate::v2::segments::{InMemorySegmentCache, NoOpSegmentCache, SegmentCache};
 use crate::v2::VortexFile;
 use crate::{EOF_SIZE, MAGIC_BYTES, VERSION};
 
@@ -38,6 +40,7 @@ pub struct VortexOpenOptions {
     //  read + write of Map<MessageId, ByteBuffer> or similar.
     initial_read_size: u64,
     split_by: SplitBy,
+    segment_cache: Option<Arc<dyn SegmentCache>>,
 }
 
 impl VortexOpenOptions {
@@ -49,6 +52,7 @@ impl VortexOpenOptions {
             dtype: None,
             initial_read_size: INITIAL_READ_SIZE,
             split_by: SplitBy::Layout,
+            segment_cache: None,
         }
     }
 
@@ -67,6 +71,17 @@ impl VortexOpenOptions {
     pub fn with_split_by(mut self, split_by: SplitBy) -> Self {
         self.split_by = split_by;
         self
+    }
+
+    /// Configure a custom [`SegmentCache`].
+    pub fn with_segment_cache(mut self, segment_cache: Arc<dyn SegmentCache>) -> Self {
+        self.segment_cache = Some(segment_cache);
+        self
+    }
+
+    /// Disable segment caching entirely.
+    pub fn without_segment_cache(self) -> Self {
+        self.with_segment_cache(Arc::new(NoOpSegmentCache))
     }
 }
 
@@ -89,7 +104,7 @@ impl VortexOpenOptions {
     ///
     /// Where does coalescing come in? A stream of segment requests can be coalesced. Written as
     /// an extension trait.
-    pub async fn open<R: VortexReadAt>(self, read: R) -> VortexResult<VortexFile<R>> {
+    pub async fn open<R: VortexReadAt>(self, read: R) -> VortexResult<VortexFile> {
         // Fetch the file size and perform the initial read.
         let file_size = read.size().await?;
         let initial_read_size = self.initial_read_size.min(file_size);
@@ -139,13 +154,18 @@ impl VortexOpenOptions {
 
         // Set up our segment cache and for good measure, we populate any segments that were
         // covered by the initial read.
-        let mut segment_cache = SegmentStream::<R>::new(read, file_layout.segments.clone());
+        let mut segment_cache = self
+            .segment_cache
+            .unwrap_or_else(|| Arc::new(InMemorySegmentCache::default()));
         self.populate_segments(
             initial_offset,
             &initial_read,
             &file_layout,
             &mut segment_cache,
         )?;
+
+        // Set up the evaluation driver.
+        let driver: Arc<dyn ExecutionDriver>;
 
         // Compute the splits of the file.
         let splits = self.split_by.splits(&file_layout.root_layout)?.into();
@@ -154,13 +174,8 @@ impl VortexOpenOptions {
         Ok(VortexFile {
             ctx: self.ctx.clone(),
             layout: file_layout.root_layout,
-            segments: segment_cache,
+            driver,
             splits,
-            thread_pool: Arc::new(
-                rayon::ThreadPoolBuilder::new()
-                    .build()
-                    .map_err(|e| vortex_err!("Failed to create thread pool: {:?}", e))?,
-            ),
         })
     }
 
@@ -252,25 +267,23 @@ impl VortexOpenOptions {
         })
     }
 
+    /// Populate segments in the cache that were covered by the initial read.
     fn populate_segments<R>(
         &self,
         initial_offset: u64,
         initial_read: &ByteBuffer,
         file_layout: &FileLayout,
-        segments: &mut SegmentStream<R>,
+        segments: &dyn SegmentCache,
     ) -> VortexResult<()> {
         for (idx, segment) in file_layout.segments.iter().enumerate() {
             if segment.offset < initial_offset {
                 // Skip segments that aren't in the initial read.
                 continue;
             }
-
             let segment_id = SegmentId::from(u32::try_from(idx)?);
-
             let offset = usize::try_from(segment.offset - initial_offset)?;
             let buffer = initial_read.slice(offset..offset + (segment.length as usize));
-
-            segments.set(segment_id, buffer)?;
+            segments.put(segment_id, buffer)?;
         }
         Ok(())
     }

@@ -1,3 +1,16 @@
-pub(crate) mod driver;
+mod cache;
+pub(crate) mod channel;
 mod source;
 pub(crate) mod writer;
+
+pub use cache::*;
+use futures::channel::oneshot;
+use vortex_buffer::ByteBuffer;
+use vortex_layout::segments::SegmentId;
+
+pub struct SegmentRequest {
+    // The ID of the requested segment
+    pub id: SegmentId,
+    // The one-shot channel to send the segment back to the caller
+    pub callback: oneshot::Sender<ByteBuffer>,
+}
