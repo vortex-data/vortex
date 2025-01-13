@@ -15,7 +15,12 @@ pub enum ExecutionMode {
     RayonThreadPool(Arc<rayon::ThreadPool>),
     /// Spawns the tasks onto a provided Tokio runtime.
     // TODO(ngates): feature-flag this dependency.
-    TokioRuntime(tokio::runtime::Handle),
+    TokioRuntime(TokioRuntime),
+}
+
+pub struct TokioRuntime {
+    pub handle: tokio::runtime::Handle,
+    pub concurrency: usize,
 }
 
 impl ExecutionMode {
@@ -25,7 +30,10 @@ impl ExecutionMode {
             ExecutionMode::RayonThreadPool(_) => {
                 todo!()
             }
-            ExecutionMode::TokioRuntime(handle) => Arc::new(TokioDriver(handle)),
+            ExecutionMode::TokioRuntime(TokioRuntime {
+                handle,
+                concurrency,
+            }) => Arc::new(TokioDriver::new(handle, concurrency)),
         }
     }
 }
