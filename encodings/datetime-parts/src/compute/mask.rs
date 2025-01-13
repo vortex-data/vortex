@@ -53,6 +53,6 @@ mod tests {
         .unwrap()
         .into_array();
 
-        test_mask(date_times.clone());
+        test_mask(date_times);
     }
 }
