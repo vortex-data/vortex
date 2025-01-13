@@ -20,7 +20,6 @@ impl ExprEvaluator for StructReader {
         let field_readers: Vec<_> = partitioned
             .partitions
             .iter()
-            // TODO(joe): remove field from self.child
             .map(|partition| self.child(&partition.name.clone()))
             .try_collect()?;
 

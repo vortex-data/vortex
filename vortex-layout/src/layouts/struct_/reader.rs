@@ -69,7 +69,7 @@ impl StructReader {
             .get(name)
             .ok_or_else(|| vortex_err!("Field {} not found in struct layout", name))?;
 
-        // TODO: think about a hashmap for large |fields|.
+        // TODO: think about a Hashmap<FieldName, OnceLock<Arc<dyn LayoutReader>>> for large |fields|.
         self.field_readers[idx].get_or_try_init(|| {
             let child_layout = self
                 .layout
