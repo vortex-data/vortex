@@ -75,6 +75,10 @@ impl StructReader {
                 .ok_or_else(|| vortex_err!("Field {} not found in struct layout", n))?,
             Field::Index(idx) => *idx,
         };
+        self.child_idx(idx)
+    }
+
+    fn child_idx(&self, idx: usize) -> VortexResult<&Arc<dyn LayoutReader>> {
         self.field_readers[idx].get_or_try_init(|| {
             let child_layout = self
                 .layout
@@ -90,6 +94,8 @@ impl LayoutReader for StructReader {
     }
 
     fn children(&self) -> VortexResult<Vec<&Arc<dyn LayoutReader>>> {
-        (0..self.nchildren()).map(|idx| self.child(idx)).collect()
+        (0..self.nchildren())
+            .map(|idx| self.child_idx(idx))
+            .collect()
     }
 }

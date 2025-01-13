@@ -42,7 +42,7 @@ use vortex_array::{ArrayDType as _, ArrayData, Canonical, IntoArrayData as _};
 use vortex_dtype::{DType, FieldName};
 use vortex_error::{VortexResult, VortexUnwrap};
 
-use crate::traversal::{Node, ReferenceCollector};
+use crate::traversal::{DynNode, Node, ReferenceCollector};
 
 pub type ExprRef = Arc<dyn VortexExpr>;
 
@@ -89,6 +89,12 @@ impl VortexExprExt for ExprRef {
         // The collector is infallible, so we can unwrap the result
         self.accept(&mut collector).vortex_unwrap();
         collector.into_fields()
+    }
+}
+
+impl DynNode for dyn VortexExpr {
+    fn arc_children(&self) -> VortexResult<Vec<&Arc<Self>>> {
+        Ok(self.children())
     }
 }
 

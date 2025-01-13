@@ -74,6 +74,7 @@ mod tests {
     use crate::layouts::struct_::writer::StructLayoutWriter;
     use crate::segments::test::TestSegments;
     use crate::strategies::LayoutWriterExt;
+    use crate::visitor::LayoutReaderDebug;
     use crate::LayoutData;
 
     /// Create a chunked layout with three chunks of primitive arrays.
@@ -193,5 +194,13 @@ mod tests {
                 .as_slice::<i32>(),
             [4, 5].as_slice()
         );
+    }
+
+    #[test]
+    fn visitor() {
+        let (segments, layout) = struct_layout();
+
+        let reader = layout.reader(segments, Default::default()).unwrap();
+        println!("{:?}", LayoutReaderDebug(reader.clone()));
     }
 }

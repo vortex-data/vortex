@@ -193,7 +193,7 @@ pub trait Node: Sized {
 }
 
 pub trait DynNode {
-    fn arc_children(&self) -> Vec<&Arc<Self>>;
+    fn arc_children(&self) -> VortexResult<Vec<&Arc<Self>>>;
 }
 
 pub trait NodeMut: Sized {
@@ -222,7 +222,7 @@ impl<T: DynNode + ?Sized> Node for Arc<T> {
         if ord == TraversalOrder::Skip {
             return Ok(TraversalOrder::Continue);
         }
-        for child in self.arc_children() {
+        for child in self.arc_children()? {
             if ord != TraversalOrder::Continue {
                 return Ok(ord);
             }
@@ -243,57 +243,8 @@ impl<T: DynNode + ?Sized> Node for Arc<T> {
             FoldDown::Stop(out) => return Ok(FoldUp::Stop(out)),
             FoldDown::SkipChildren => FoldChildren::Skipped,
             FoldDown::Continue(child_context) => {
-                let mut new_children = Vec::with_capacity(self.arc_children().len());
-                for child in self.arc_children() {
-                    match child.accept_with_context(visitor, child_context.clone())? {
-                        FoldUp::Stop(out) => return Ok(FoldUp::Stop(out)),
-                        FoldUp::Continue(out) => new_children.push(out),
-                    }
-                }
-                FoldChildren::Children(new_children)
-            }
-        };
-
-        visitor.visit_up(self, context, children)
-    }
-}
-
-impl Node for ExprRef {
-    // A pre-order traversal.
-    fn accept<'a, V: NodeVisitor<'a, NodeTy = ExprRef>>(
-        &'a self,
-        visitor: &mut V,
-    ) -> VortexResult<TraversalOrder> {
-        let mut ord = visitor.visit_down(self)?;
-        if ord == TraversalOrder::Stop {
-            return Ok(TraversalOrder::Stop);
-        }
-        if ord == TraversalOrder::Skip {
-            return Ok(TraversalOrder::Continue);
-        }
-        for child in self.children() {
-            if ord != TraversalOrder::Continue {
-                return Ok(ord);
-            }
-            ord = child.accept(visitor)?;
-        }
-        if ord == TraversalOrder::Stop {
-            return Ok(TraversalOrder::Stop);
-        }
-        visitor.visit_up(self)
-    }
-
-    fn accept_with_context<'a, V: Folder<'a, NodeTy = Self>>(
-        &'a self,
-        visitor: &mut V,
-        context: V::Context,
-    ) -> VortexResult<FoldUp<V::Out>> {
-        let children = match visitor.visit_down(self, context.clone())? {
-            FoldDown::Stop(out) => return Ok(FoldUp::Stop(out)),
-            FoldDown::SkipChildren => FoldChildren::Skipped,
-            FoldDown::Continue(child_context) => {
-                let mut new_children = Vec::with_capacity(self.children().len());
-                for child in self.children() {
+                let mut new_children = Vec::with_capacity(self.arc_children()?.len());
+                for child in self.arc_children()? {
                     match child.accept_with_context(visitor, child_context.clone())? {
                         FoldUp::Stop(out) => return Ok(FoldUp::Stop(out)),
                         FoldUp::Continue(out) => new_children.push(out),
