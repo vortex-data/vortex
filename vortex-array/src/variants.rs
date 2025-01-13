@@ -345,22 +345,25 @@ pub trait StructArrayTrait: ArrayTrait {
     /// Return a field's array by name, masking by the struct's validity.
     ///
     /// See also [StructArrayTrait::field_by_idx].
-    fn field_by_name(&self, name: &str) -> Option<ArrayData> {
+    fn field_by_name(&self, name: &str) -> VortexResult<Option<ArrayData>> {
         let field_idx = self
             .names()
             .iter()
             .position(|field_name| field_name.as_ref() == name);
 
-        field_idx.and_then(|field_idx| self.maybe_null_field_by_idx(field_idx))
+        match field_idx {
+            None => Ok(None),
+            Some(field_idx) => self.field_by_idx(field_idx),
+        }
     }
 
     /// Return a field's array by name or index, masking by the struct's validity.
     ///
     /// See also [StructArrayTrait::field_by_idx].
-    fn field(&self, field: &Field) -> Option<ArrayData> {
+    fn field(&self, field: &Field) -> VortexResult<Option<ArrayData>> {
         match field {
-            Field::Index(idx) => self.maybe_null_field_by_idx(*idx),
-            Field::Name(name) => self.maybe_null_field_by_name(name.as_ref()),
+            Field::Index(idx) => self.field_by_idx(*idx),
+            Field::Name(name) => self.field_by_name(name.as_ref()),
         }
     }
 
