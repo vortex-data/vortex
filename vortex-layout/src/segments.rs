@@ -27,7 +27,7 @@ impl Deref for SegmentId {
 pub trait AsyncSegmentReader: Send + Sync {
     /// Attempt to get the data associated with a given segment ID.
     ///
-    /// If the segment ID is not found, `None` is returned.
+    /// TODO(ngates): should this accept multiple segment IDs?
     async fn get(&self, id: SegmentId) -> VortexResult<ByteBuffer>;
 }
 
