@@ -4,20 +4,20 @@ use futures_util::StreamExt;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::stream::ArrayStream;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
-use vortex_flatbuffers::{FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
+use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
 use vortex_io::VortexWrite;
 use vortex_layout::strategies::LayoutStrategy;
 
 use crate::v2::footer::{FileLayout, Postscript, Segment};
-use crate::v2::segments::BufferedSegmentWriter;
+use crate::v2::segments::writer::BufferedSegmentWriter;
 use crate::v2::strategy::VortexLayoutStrategy;
 use crate::{EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
 
-pub struct WriteOptions {
+pub struct VortexWriteOptions {
     strategy: Box<dyn LayoutStrategy>,
 }
 
-impl Default for WriteOptions {
+impl Default for VortexWriteOptions {
     fn default() -> Self {
         Self {
             strategy: Box::new(VortexLayoutStrategy),
@@ -25,7 +25,7 @@ impl Default for WriteOptions {
     }
 }
 
-impl WriteOptions {
+impl VortexWriteOptions {
     /// Replace the default layout strategy with the provided one.
     pub fn with_strategy(mut self, strategy: Box<dyn LayoutStrategy>) -> Self {
         self.strategy = strategy;
@@ -33,7 +33,7 @@ impl WriteOptions {
     }
 }
 
-impl WriteOptions {
+impl VortexWriteOptions {
     /// Perform a blocking write of the provided iterator of `ArrayData`.
     pub fn write_sync<W: Write, I: ArrayIterator>(self, _write: W, _iter: I) -> VortexResult<()> {
         todo!()
@@ -79,7 +79,7 @@ impl WriteOptions {
                 &mut write,
                 &FileLayout {
                     root_layout,
-                    segments,
+                    segments: segments.into(),
                 },
             )
             .await?;
@@ -120,8 +120,9 @@ impl WriteOptions {
         write.write_all(flatbuffer.write_flatbuffer_bytes()).await?;
         Ok(Segment {
             offset: layout_offset,
-            length: usize::try_from(write.position() - layout_offset)
-                .map_err(|_| vortex_err!("segment length exceeds maximum usize"))?,
+            length: u32::try_from(write.position() - layout_offset)
+                .map_err(|_| vortex_err!("segment length exceeds maximum u32"))?,
+            alignment: FlatBuffer::alignment(),
         })
     }
 }

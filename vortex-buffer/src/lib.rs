@@ -57,6 +57,7 @@ mod buffer;
 mod buffer_mut;
 mod bytes;
 mod r#const;
+mod debug;
 mod macros;
 mod string;
 
@@ -65,3 +66,6 @@ pub type ByteBuffer = Buffer<u8>;
 
 /// A mutable buffer of u8.
 pub type ByteBufferMut = BufferMut<u8>;
+
+/// A const-aligned buffer of u8.
+pub type ConstByteBuffer<const A: usize> = ConstBuffer<u8, A>;

@@ -14,8 +14,8 @@ use vortex_error::{VortexExpect as _, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::{
-    and, col, eq, gt, gt_eq, lit, lt_eq, or, BinaryExpr, Column, ExprRef, Identity, Literal, Not,
-    Operator, RowFilter, VortexExprExt,
+    and, col, eq, gt, gt_eq, lit, lt_eq, not, or, BinaryExpr, Column, ExprRef, Identity, Literal,
+    Not, Operator, RowFilter, VortexExprExt,
 };
 
 #[derive(Debug, Clone)]
@@ -248,7 +248,7 @@ fn convert_column_reference(expr: &ExprRef, invert: bool) -> PruningPredicateSta
     let expr = if invert {
         and(min_expr, max_expr)
     } else {
-        Not::new_expr(or(min_expr, max_expr))
+        not(or(min_expr, max_expr))
     };
 
     (expr, refs)
@@ -366,9 +366,9 @@ fn replace_column_with_stat(
         return Some(col(new_field));
     }
 
-    if let Some(not) = expr.as_any().downcast_ref::<Not>() {
-        let rewritten = replace_column_with_stat(not.child(), stat, stats_to_fetch)?;
-        return Some(Not::new_expr(rewritten));
+    if let Some(not_expr) = expr.as_any().downcast_ref::<Not>() {
+        let rewritten = replace_column_with_stat(not_expr.child(), stat, stats_to_fetch)?;
+        return Some(not(rewritten));
     }
 
     if let Some(bexp) = expr.as_any().downcast_ref::<BinaryExpr>() {
@@ -445,7 +445,7 @@ mod tests {
     use crate::pruning::{
         convert_to_pruning_expression, stat_column_field, FieldOrIdentity, PruningPredicate,
     };
-    use crate::{and, col, eq, gt, gt_eq, ident, lit, lt, lt_eq, not_eq, or, Not};
+    use crate::{and, col, eq, gt, gt_eq, ident, lit, lt, lt_eq, not, not_eq, or};
 
     #[test]
     pub fn pruning_equals() {
@@ -643,7 +643,7 @@ mod tests {
 
     #[test]
     fn unprojectable_expr() {
-        let or_expr = Not::new_expr(lt(col(Field::from("a")), col(Field::from("b"))));
+        let or_expr = not(lt(col("a"), col("b")));
         assert!(PruningPredicate::try_new(&or_expr).is_none());
     }
 

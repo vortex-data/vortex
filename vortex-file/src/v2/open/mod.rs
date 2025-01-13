@@ -1,7 +1,7 @@
 mod split_by;
 
 use std::io::Read;
-use std::ops::Range;
+use std::sync::Arc;
 
 use flatbuffers::root;
 use itertools::Itertools;
@@ -10,20 +10,20 @@ use vortex_array::ContextRef;
 use vortex_buffer::{ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
-use vortex_flatbuffers::{dtype as fbd, footer2 as fb, ReadFlatBuffer};
+use vortex_flatbuffers::{dtype as fbd, footer2 as fb, FlatBuffer, ReadFlatBuffer};
 use vortex_io::VortexReadAt;
 use vortex_layout::segments::SegmentId;
 use vortex_layout::{LayoutContextRef, LayoutData, LayoutId};
 
 use crate::v2::footer::{FileLayout, Postscript, Segment};
-use crate::v2::segments::SegmentCache;
+use crate::v2::segments::cache::SegmentCache;
 use crate::v2::VortexFile;
 use crate::{EOF_SIZE, MAGIC_BYTES, VERSION};
 
 const INITIAL_READ_SIZE: u64 = 1 << 20; // 1 MB
 
 /// Open options for a Vortex file reader.
-pub struct OpenOptions {
+pub struct VortexOpenOptions {
     /// The Vortex Array encoding context.
     ctx: ContextRef,
     /// The Vortex Layout encoding context.
@@ -39,7 +39,7 @@ pub struct OpenOptions {
     split_by: SplitBy,
 }
 
-impl OpenOptions {
+impl VortexOpenOptions {
     pub fn new(ctx: ContextRef) -> Self {
         Self {
             ctx,
@@ -69,7 +69,7 @@ impl OpenOptions {
     }
 }
 
-impl OpenOptions {
+impl VortexOpenOptions {
     /// Open the Vortex file using synchronous IO.
     pub fn open_sync<R: Read>(self, _read: R) -> VortexResult<VortexFile<R>> {
         todo!()
@@ -126,7 +126,7 @@ impl OpenOptions {
 
         // Set up our segment cache and for good measure, we populate any segments that were
         // covered by the initial read.
-        let mut segment_cache = SegmentCache::default();
+        let mut segment_cache = SegmentCache::<R>::new(read, file_layout.segments.clone());
         self.populate_segments(
             initial_offset,
             &initial_read,
@@ -135,16 +135,19 @@ impl OpenOptions {
         )?;
 
         // Compute the splits of the file.
-        let splits: Vec<Range<u64>> = self.split_by.splits(&file_layout.root_layout)?;
+        let splits = self.split_by.splits(&file_layout.root_layout)?.into();
 
         // Finally, create the VortexFile.
         Ok(VortexFile {
-            read,
             ctx: self.ctx.clone(),
             layout: file_layout.root_layout,
-            segments: file_layout.segments,
-            segment_cache,
+            segments: segment_cache,
             splits,
+            thread_pool: Arc::new(
+                rayon::ThreadPoolBuilder::new()
+                    .build()
+                    .map_err(|e| vortex_err!("Failed to create thread pool: {:?}", e))?,
+            ),
         })
     }
 
@@ -184,7 +187,8 @@ impl OpenOptions {
         dtype: Segment,
     ) -> VortexResult<DType> {
         let offset = usize::try_from(dtype.offset - initial_offset)?;
-        let sliced_buffer = initial_read.slice(offset..offset + dtype.length);
+        let sliced_buffer =
+            FlatBuffer::align_from(initial_read.slice(offset..offset + (dtype.length as usize)));
         let fbd_dtype = root::<fbd::DType>(&sliced_buffer)?;
 
         DType::try_from_view(fbd_dtype, sliced_buffer.clone())
@@ -199,7 +203,7 @@ impl OpenOptions {
         dtype: DType,
     ) -> VortexResult<FileLayout> {
         let offset = usize::try_from(segment.offset - initial_offset)?;
-        let bytes = initial_read.slice(offset..offset + segment.length);
+        let bytes = initial_read.slice(offset..offset + (segment.length as usize));
 
         let fb = root::<fb::FileLayout>(&bytes)?;
         let fb_root_layout = fb
@@ -227,10 +231,7 @@ impl OpenOptions {
         let fb_segments = fb
             .segments()
             .ok_or_else(|| vortex_err!("FileLayout missing segments"))?;
-        let segments = fb_segments
-            .iter()
-            .map(|s| Segment::read_flatbuffer(&s))
-            .try_collect()?;
+        let segments = fb_segments.iter().map(Segment::try_from).try_collect()?;
 
         Ok(FileLayout {
             root_layout,
@@ -238,12 +239,12 @@ impl OpenOptions {
         })
     }
 
-    fn populate_segments(
+    fn populate_segments<R>(
         &self,
         initial_offset: u64,
         initial_read: &ByteBuffer,
         file_layout: &FileLayout,
-        segments: &mut SegmentCache,
+        segments: &mut SegmentCache<R>,
     ) -> VortexResult<()> {
         for (idx, segment) in file_layout.segments.iter().enumerate() {
             if segment.offset < initial_offset {
@@ -254,9 +255,9 @@ impl OpenOptions {
             let segment_id = SegmentId::from(u32::try_from(idx)?);
 
             let offset = usize::try_from(segment.offset - initial_offset)?;
-            let bytes = initial_read.slice(offset..offset + segment.length);
+            let buffer = initial_read.slice(offset..offset + (segment.length as usize));
 
-            segments.set(segment_id, bytes.into_inner());
+            segments.set(segment_id, buffer)?;
         }
         Ok(())
     }

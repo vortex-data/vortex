@@ -10,16 +10,25 @@ use vortex_error::{vortex_err, VortexResult};
 
 use crate::{ExprRef, VortexExpr};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum SelectField {
     Include(Vec<Field>),
     Exclude(Vec<Field>),
 }
 
-#[derive(Debug, Clone, Eq)]
+#[derive(Debug, Clone, Eq, Hash)]
+#[allow(clippy::derived_hash_with_manual_eq)]
 pub struct Select {
     fields: SelectField,
     child: ExprRef,
+}
+
+pub fn select(fields: Vec<Field>, child: ExprRef) -> ExprRef {
+    Select::include_expr(fields, child)
+}
+
+pub fn select_exclude(columns: Vec<Field>, child: ExprRef) -> ExprRef {
+    Select::exclude_expr(columns, child)
 }
 
 impl Select {
@@ -81,7 +90,7 @@ impl VortexExpr for Select {
         self
     }
 
-    fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
+    fn unchecked_evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
         let batch = self.child.evaluate(batch)?;
         let st = batch
             .as_struct_array()
@@ -132,9 +141,9 @@ mod tests {
     use vortex_array::array::StructArray;
     use vortex_array::IntoArrayData;
     use vortex_buffer::buffer;
-    use vortex_dtype::Field;
+    use vortex_dtype::{DType, Field, Nullability};
 
-    use crate::{ident, Select};
+    use crate::{ident, test_harness, Select};
 
     fn test_array() -> StructArray {
         StructArray::from_fields(&[
@@ -160,5 +169,51 @@ mod tests {
         let selected = select.evaluate(st.as_ref()).unwrap();
         let selected_names = selected.as_struct_array().unwrap().names().clone();
         assert_eq!(selected_names.as_ref(), &["b".into()]);
+    }
+
+    #[test]
+    fn dtype() {
+        let dtype = test_harness::struct_dtype();
+
+        let select_expr = Select::include_expr(vec![Field::from("a")], ident());
+        let expected_dtype = DType::Struct(
+            dtype
+                .as_struct()
+                .unwrap()
+                .project(&[Field::from("a")])
+                .unwrap(),
+            Nullability::NonNullable,
+        );
+        assert_eq!(select_expr.return_dtype(&dtype).unwrap(), expected_dtype);
+
+        let select_expr_exclude = Select::exclude_expr(
+            vec![
+                Field::from("col1"),
+                Field::from("col2"),
+                Field::from("bool1"),
+                Field::from("bool2"),
+            ],
+            ident(),
+        );
+        assert_eq!(
+            select_expr_exclude.return_dtype(&dtype).unwrap(),
+            expected_dtype
+        );
+
+        let select_expr_exclude = Select::exclude_expr(
+            vec![Field::from("col1"), Field::from("col2"), Field::Index(1)],
+            ident(),
+        );
+        assert_eq!(
+            select_expr_exclude.return_dtype(&dtype).unwrap(),
+            DType::Struct(
+                dtype
+                    .as_struct()
+                    .unwrap()
+                    .project(&[Field::from("a"), Field::from("bool1"), Field::from("bool2")])
+                    .unwrap(),
+                Nullability::NonNullable
+            )
+        );
     }
 }

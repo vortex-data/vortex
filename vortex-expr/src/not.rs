@@ -1,5 +1,6 @@
 use std::any::Any;
 use std::fmt::Display;
+use std::hash::Hash;
 use std::sync::Arc;
 
 use vortex_array::compute::invert;
@@ -8,7 +9,9 @@ use vortex_error::VortexResult;
 
 use crate::{ExprRef, VortexExpr};
 
-#[derive(Debug)]
+#[derive(Debug, Eq, Hash)]
+// We cannot auto derive PartialEq because ExprRef, since its a Arc<..> and derive doesn't work
+#[allow(clippy::derived_hash_with_manual_eq)]
 pub struct Not {
     child: ExprRef,
 }
@@ -35,7 +38,7 @@ impl VortexExpr for Not {
         self
     }
 
-    fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
+    fn unchecked_evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
         let child_result = self.child.evaluate(batch)?;
         invert(&child_result)
     }
@@ -56,20 +59,21 @@ impl PartialEq for Not {
     }
 }
 
-impl Eq for Not {}
+pub fn not(operand: ExprRef) -> ExprRef {
+    Not::new_expr(operand)
+}
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use vortex_array::array::BoolArray;
     use vortex_array::IntoArrayVariant;
+    use vortex_dtype::{DType, Nullability};
 
-    use crate::{Identity, Not};
+    use crate::{col, ident, not, test_harness};
 
     #[test]
     fn invert_booleans() {
-        let not_expr = Not::new_expr(Arc::new(Identity));
+        let not_expr = not(ident());
         let bools = BoolArray::from_iter([false, true, false, false, true, true]);
         assert_eq!(
             not_expr
@@ -81,6 +85,23 @@ mod tests {
                 .iter()
                 .collect::<Vec<_>>(),
             vec![true, false, true, true, false, false]
+        );
+    }
+
+    #[test]
+    fn dtype() {
+        let not_expr = not(ident());
+        assert_eq!(
+            not_expr
+                .return_dtype(&DType::Bool(Nullability::NonNullable))
+                .unwrap(),
+            DType::Bool(Nullability::NonNullable)
+        );
+
+        let dtype = test_harness::struct_dtype();
+        assert_eq!(
+            not(col("bool1")).return_dtype(&dtype).unwrap(),
+            DType::Bool(Nullability::NonNullable)
         );
     }
 }

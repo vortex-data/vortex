@@ -1,5 +1,6 @@
 use std::any::Any;
 use std::fmt::Display;
+use std::hash::Hash;
 use std::sync::Arc;
 
 use vortex_array::{ArrayDType, ArrayData};
@@ -8,7 +9,7 @@ use vortex_error::{vortex_err, VortexResult};
 
 use crate::{ExprRef, VortexExpr};
 
-#[derive(Debug, PartialEq, Hash, Clone, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Column {
     field: Field,
 }
@@ -58,8 +59,9 @@ impl VortexExpr for Column {
         self
     }
 
-    fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
+    fn unchecked_evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
         batch
+            .clone()
             .as_struct_array()
             .ok_or_else(|| {
                 vortex_err!(
@@ -78,5 +80,25 @@ impl VortexExpr for Column {
     fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
         assert_eq!(children.len(), 0);
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_dtype::{DType, Nullability, PType};
+
+    use crate::{col, test_harness};
+
+    #[test]
+    fn dtype() {
+        let dtype = test_harness::struct_dtype();
+        assert_eq!(
+            col("a").return_dtype(&dtype).unwrap(),
+            DType::Primitive(PType::I32, Nullability::NonNullable)
+        );
+        assert_eq!(
+            col(1).return_dtype(&dtype).unwrap(),
+            DType::Primitive(PType::U16, Nullability::Nullable)
+        );
     }
 }

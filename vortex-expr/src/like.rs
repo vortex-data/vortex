@@ -1,5 +1,6 @@
 use std::any::Any;
 use std::fmt::Display;
+use std::hash::Hash;
 use std::sync::Arc;
 
 use vortex_array::compute::{like, LikeOptions};
@@ -8,7 +9,8 @@ use vortex_error::VortexResult;
 
 use crate::{ExprRef, VortexExpr};
 
-#[derive(Debug)]
+#[derive(Debug, Eq, Hash)]
+#[allow(clippy::derived_hash_with_manual_eq)]
 pub struct Like {
     child: ExprRef,
     pattern: ExprRef,
@@ -59,7 +61,7 @@ impl VortexExpr for Like {
         self
     }
 
-    fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
+    fn unchecked_evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
         let child = self.child().evaluate(batch)?;
         let pattern = self.pattern().evaluate(batch)?;
         like(
@@ -96,20 +98,17 @@ impl PartialEq for Like {
     }
 }
 
-impl Eq for Like {}
-
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use vortex_array::array::BoolArray;
     use vortex_array::IntoArrayVariant;
+    use vortex_dtype::{DType, Nullability};
 
-    use crate::{Identity, Not};
+    use crate::{ident, lit, not, Like};
 
     #[test]
     fn invert_booleans() {
-        let not_expr = Not::new_expr(Arc::new(Identity));
+        let not_expr = not(ident());
         let bools = BoolArray::from_iter([false, true, false, false, true, true]);
         assert_eq!(
             not_expr
@@ -121,6 +120,16 @@ mod tests {
                 .iter()
                 .collect::<Vec<_>>(),
             vec![true, false, true, true, false, false]
+        );
+    }
+
+    #[test]
+    fn dtype() {
+        let dtype = DType::Utf8(Nullability::NonNullable);
+        let like_expr = Like::new_expr(ident(), lit("%test%"), false, false);
+        assert_eq!(
+            like_expr.return_dtype(&dtype).unwrap(),
+            DType::Bool(Nullability::NonNullable)
         );
     }
 }

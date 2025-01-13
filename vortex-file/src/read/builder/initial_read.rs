@@ -4,7 +4,7 @@ use flatbuffers::{root, root_unchecked};
 use vortex_buffer::{ByteBuffer, ByteBufferMut, ConstBuffer};
 use vortex_dtype::DType;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult, VortexUnwrap};
-use vortex_flatbuffers::{dtype as fbd, footer};
+use vortex_flatbuffers::{dtype as fbd, footer, FlatBuffer};
 use vortex_io::VortexReadAt;
 
 use crate::{EOF_SIZE, INITIAL_READ_SIZE, MAGIC_BYTES, VERSION};
@@ -51,7 +51,8 @@ impl InitialRead {
     }
 
     pub fn dtype(&self) -> DType {
-        let dtype_buffer = self.buf.as_ref().slice(self.fb_schema_byte_range());
+        let dtype_buffer =
+            FlatBuffer::align_from(self.buf.as_ref().slice(self.fb_schema_byte_range()));
         let fb_dtype = unsafe { root_unchecked::<fbd::DType>(&dtype_buffer) };
 
         DType::try_from_view(fb_dtype, dtype_buffer.clone())

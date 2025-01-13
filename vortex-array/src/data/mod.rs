@@ -1,6 +1,5 @@
 use std::borrow::Cow;
 use std::fmt::{Display, Formatter};
-use std::future::ready;
 use std::sync::{Arc, RwLock};
 
 use itertools::Itertools;
@@ -9,10 +8,11 @@ use viewed::ViewedArrayData;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_err, VortexError, VortexExpect, VortexResult};
+use vortex_flatbuffers::FlatBuffer;
 use vortex_scalar::Scalar;
 
 use crate::array::{
-    BoolEncoding, ExtensionEncoding, NullEncoding, PrimitiveEncoding, StructEncoding,
+    BoolEncoding, ChunkedArray, ExtensionEncoding, NullEncoding, PrimitiveEncoding, StructEncoding,
     VarBinEncoding, VarBinViewEncoding,
 };
 use crate::compute::scalar_at;
@@ -82,8 +82,7 @@ impl ArrayData {
         ctx: ContextRef,
         dtype: DType,
         len: usize,
-        // TODO(ngates): use ConstByteBuffer
-        flatbuffer: ByteBuffer,
+        flatbuffer: FlatBuffer,
         flatbuffer_init: F,
         buffers: Vec<ByteBuffer>,
     ) -> VortexResult<Self>
@@ -192,7 +191,7 @@ impl ArrayData {
     /// Return whether the array is constant.
     pub fn is_constant(&self) -> bool {
         self.statistics()
-            .get_as::<bool>(Stat::IsConstant)
+            .compute_as::<bool>(Stat::IsConstant)
             .unwrap_or(false)
     }
 
@@ -348,13 +347,17 @@ impl ArrayData {
     }
 
     pub fn into_array_iterator(self) -> impl ArrayIterator {
-        ArrayIteratorAdapter::new(self.dtype().clone(), std::iter::once(Ok(self)))
+        let dtype = self.dtype().clone();
+        let iter = ChunkedArray::maybe_from(self.clone())
+            .map(|chunked| ArrayDataIterator::Chunked(chunked, 0))
+            .unwrap_or_else(|| ArrayDataIterator::Single(Some(self)));
+        ArrayIteratorAdapter::new(dtype, iter)
     }
 
     pub fn into_array_stream(self) -> impl ArrayStream {
         ArrayStreamAdapter::new(
             self.dtype().clone(),
-            futures_util::stream::once(ready(Ok(self))),
+            futures_util::stream::iter(self.into_array_iterator()),
         )
     }
 
@@ -425,6 +428,15 @@ impl<T: AsRef<ArrayData>> ArrayDType for T {
     }
 }
 
+impl ArrayData {
+    pub fn into_dtype(self) -> DType {
+        match self.0 {
+            InnerArrayData::Owned(d) => d.dtype,
+            InnerArrayData::Viewed(v) => v.dtype,
+        }
+    }
+}
+
 impl<T: AsRef<ArrayData>> ArrayLen for T {
     fn len(&self) -> usize {
         self.as_ref().len()
@@ -461,6 +473,28 @@ impl<T: AsRef<ArrayData>> ArrayStatistics for T {
         // The to_set call performs a slow clone of the stats
         for (stat, scalar) in parent.to_set() {
             stats.set(stat, scalar);
+        }
+    }
+}
+
+/// We define a single iterator that can handle both chunked and non-chunked arrays.
+/// This avoids the need to create boxed static iterators for the two chunked and non-chunked cases.
+enum ArrayDataIterator {
+    Single(Option<ArrayData>),
+    Chunked(ChunkedArray, usize),
+}
+
+impl Iterator for ArrayDataIterator {
+    type Item = VortexResult<ArrayData>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            ArrayDataIterator::Single(array) => array.take().map(Ok),
+            ArrayDataIterator::Chunked(chunked, idx) => (*idx < chunked.nchunks()).then(|| {
+                let chunk = chunked.chunk(*idx);
+                *idx += 1;
+                chunk
+            }),
         }
     }
 }

@@ -1,13 +1,14 @@
 use std::any::Any;
 use std::fmt::Display;
+use std::hash::Hash;
 use std::sync::Arc;
 
 use itertools::Itertools as _;
 use vortex_array::array::StructArray;
 use vortex_array::validity::Validity;
 use vortex_array::{ArrayData, IntoArrayData};
-use vortex_dtype::FieldNames;
-use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
+use vortex_dtype::{Field, FieldNames};
+use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
 
 use crate::{ExprRef, VortexExpr};
 
@@ -37,7 +38,7 @@ use crate::{ExprRef, VortexExpr};
 /// assert_eq!(scalar_at(&x_copy, 2).unwrap(), Scalar::from(200));
 /// ```
 ///
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Pack {
     names: FieldNames,
     values: Vec<ExprRef>,
@@ -50,6 +51,33 @@ impl Pack {
         }
         Ok(Arc::new(Pack { names, values }))
     }
+
+    pub fn names(&self) -> &FieldNames {
+        &self.names
+    }
+
+    pub fn field(&self, f: &Field) -> VortexResult<ExprRef> {
+        let idx = match f {
+            Field::Name(n) => self
+                .names
+                .iter()
+                .position(|name| name == n)
+                .ok_or_else(|| {
+                    vortex_err!("Cannot find field {} in pack fields {:?}", n, self.names)
+                })?,
+            Field::Index(idx) => *idx,
+        };
+
+        self.values
+            .get(idx)
+            .cloned()
+            .ok_or_else(|| vortex_err!("field index out of bounds: {}", idx))
+    }
+}
+
+pub fn pack(names: impl Into<FieldNames>, values: Vec<ExprRef>) -> ExprRef {
+    Pack::try_new_expr(names.into(), values)
+        .vortex_expect("pack names and values have the same length")
 }
 
 impl PartialEq<dyn Any> for Pack {
@@ -80,7 +108,7 @@ impl VortexExpr for Pack {
         self
     }
 
-    fn evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
+    fn unchecked_evaluate(&self, batch: &ArrayData) -> VortexResult<ArrayData> {
         let len = batch.len();
         let value_arrays = self
             .values
@@ -101,14 +129,6 @@ impl VortexExpr for Pack {
             .vortex_expect("children are known to have the same length as names")
     }
 }
-
-impl PartialEq<Pack> for Pack {
-    fn eq(&self, other: &Pack) -> bool {
-        self.names == other.names && self.values == other.values
-    }
-}
-
-impl Eq for Pack {}
 
 #[cfg(test)]
 mod tests {

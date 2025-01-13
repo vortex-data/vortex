@@ -1,12 +1,11 @@
 use bytes::Bytes;
-use flatbuffers::{FlatBufferBuilder, WIPOffset};
-use itertools::Itertools;
-use vortex_array::stats::ArrayStatistics;
-use vortex_array::{flatbuffers as fba, ArrayData};
+use flatbuffers::FlatBufferBuilder;
+use vortex_array::parts::ArrayPartsFlatBuffer;
+use vortex_array::ArrayData;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{vortex_panic, VortexExpect};
-use vortex_flatbuffers::{message as fb, FlatBufferRoot, WriteFlatBuffer};
+use vortex_flatbuffers::{message as fb, WriteFlatBuffer};
 
 use crate::ALIGNMENT;
 
@@ -78,11 +77,7 @@ impl MessageEncoder {
         let header = match message {
             EncoderMessage::Array(array) => {
                 let row_count = array.len();
-                let array_def = ArrayWriter {
-                    array,
-                    buffer_idx: 0,
-                }
-                .write_flatbuffer(&mut fbb);
+                let fb_array = ArrayPartsFlatBuffer::new(array).write_flatbuffer(&mut fbb);
 
                 let mut fb_buffers = vec![];
                 for child in array.depth_first_traversal() {
@@ -91,9 +86,9 @@ impl MessageEncoder {
                         let end_incl_padding = end_excl_padding.next_multiple_of(self.alignment);
                         let padding = u16::try_from(end_incl_padding - end_excl_padding)
                             .vortex_expect("We know padding fits into u16");
-                        fb_buffers.push(fba::Buffer::create(
+                        fb_buffers.push(fb::Buffer::create(
                             &mut fbb,
-                            &fba::BufferArgs {
+                            &fb::BufferArgs {
                                 length: buffer.len() as u64,
                                 padding,
                                 alignment: buffer.alignment().into(),
@@ -107,10 +102,10 @@ impl MessageEncoder {
                 }
                 let fb_buffers = fbb.create_vector(&fb_buffers);
 
-                fba::ArrayData::create(
+                fb::ArrayMessage::create(
                     &mut fbb,
-                    &fba::ArrayDataArgs {
-                        array: Some(array_def),
+                    &fb::ArrayMessageArgs {
+                        array: Some(fb_array),
                         row_count: row_count as u64,
                         buffers: Some(fb_buffers),
                     },
@@ -125,9 +120,9 @@ impl MessageEncoder {
                 if padding > 0 {
                     buffers.push(self.zeros.slice(0..usize::from(padding)));
                 }
-                fba::Buffer::create(
+                fb::Buffer::create(
                     &mut fbb,
-                    &fba::BufferArgs {
+                    &fb::BufferArgs {
                         length: buffer.len() as u64,
                         padding,
                         // Buffer messages have no minimum alignment, the reader decides.
@@ -142,7 +137,7 @@ impl MessageEncoder {
         let mut msg = fb::MessageBuilder::new(&mut fbb);
         msg.add_version(Default::default());
         msg.add_header_type(match message {
-            EncoderMessage::Array(_) => fb::MessageHeader::ArrayData,
+            EncoderMessage::Array(_) => fb::MessageHeader::ArrayMessage,
             EncoderMessage::Buffer(_) => fb::MessageHeader::Buffer,
             EncoderMessage::DType(_) => fb::MessageHeader::DType,
         });
@@ -170,71 +165,5 @@ impl MessageEncoder {
         self.pos += buffers.iter().map(|b| b.len()).sum::<usize>();
 
         buffers
-    }
-}
-
-struct ArrayWriter<'a> {
-    array: &'a ArrayData,
-    buffer_idx: u16,
-}
-
-impl FlatBufferRoot for ArrayWriter<'_> {}
-
-impl WriteFlatBuffer for ArrayWriter<'_> {
-    type Target<'t> = fba::Array<'t>;
-
-    fn write_flatbuffer<'fb>(
-        &self,
-        fbb: &mut FlatBufferBuilder<'fb>,
-    ) -> WIPOffset<Self::Target<'fb>> {
-        let encoding = self.array.encoding().id().code();
-        let metadata = self
-            .array
-            .metadata_bytes()
-            .vortex_expect("IPCArray is missing metadata during serialization");
-        let metadata = Some(fbb.create_vector(metadata.as_ref()));
-
-        // Assign buffer indices for all child arrays.
-        // The second tuple element holds the buffer_index for this Array subtree. If this array
-        // has a buffer, that is its buffer index. If it does not, that buffer index belongs
-        // to one of the children.
-        let nbuffers = u16::try_from(self.array.nbuffers())
-            .vortex_expect("Array can have at most u16::MAX buffers");
-        let child_buffer_idx = self.buffer_idx + nbuffers;
-
-        let children = self
-            .array
-            .children()
-            .iter()
-            .scan(child_buffer_idx, |buffer_idx, child| {
-                // Update the number of buffers required.
-                let msg = ArrayWriter {
-                    array: child,
-                    buffer_idx: *buffer_idx,
-                }
-                .write_flatbuffer(fbb);
-                *buffer_idx = u16::try_from(child.cumulative_nbuffers())
-                    .ok()
-                    .and_then(|nbuffers| nbuffers.checked_add(*buffer_idx))
-                    .vortex_expect("Too many buffers (u16) for ArrayData");
-                Some(msg)
-            })
-            .collect_vec();
-        let children = Some(fbb.create_vector(&children));
-
-        let buffers = Some(fbb.create_vector_from_iter((0..nbuffers).map(|i| i + self.buffer_idx)));
-
-        let stats = Some(self.array.statistics().write_flatbuffer(fbb));
-
-        fba::Array::create(
-            fbb,
-            &fba::ArrayArgs {
-                encoding,
-                metadata,
-                children,
-                buffers,
-                stats,
-            },
-        )
     }
 }
