@@ -7,3 +7,4 @@ rustflags = ["-C", "link-arg=-undefined", "-C", "link-arg=dynamic_lookup"]
 
 [alias]
 xtask = "run -p xtask --"
+vx = "run -p vortex-cli --"

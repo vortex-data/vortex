@@ -7,6 +7,7 @@ members = [
     "vortex",
     "vortex-array",
     "vortex-buffer",
+    "vortex-cli",
     "vortex-datafusion",
     "vortex-datetime-dtype",
     "vortex-dtype",

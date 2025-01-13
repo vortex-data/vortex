@@ -112,7 +112,7 @@ jobs:
           - name: "wasm32 with default features"
             command: "build"
             target: wasm32-unknown-unknown
-            args: "--target wasm32-unknown-unknown --exclude vortex-datafusion"
+            args: "--target wasm32-unknown-unknown --exclude vortex-roaring --exclude vortex-datafusion --exclude vortex-cli"
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/cleanup

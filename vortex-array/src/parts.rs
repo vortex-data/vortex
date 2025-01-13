@@ -21,8 +21,8 @@ pub struct ArrayParts {
     // TODO(ngates): I think we should remove this. It's not required in the serialized form.
     row_count: usize,
     // Typed as fb::Array
-    flatbuffer: FlatBuffer,
-    flatbuffer_loc: usize,
+    pub flatbuffer: FlatBuffer,
+    pub flatbuffer_loc: usize,
     buffers: Vec<ByteBuffer>,
 }
 
