@@ -3,7 +3,7 @@ mod file;
 mod footer;
 pub mod io;
 mod open;
-mod segments;
+pub mod segments;
 mod strategy;
 #[cfg(test)]
 mod tests;
