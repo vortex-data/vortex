@@ -6,7 +6,7 @@ use std::fmt::{Debug, Display};
 
 use futures_util::stream;
 use serde::{Deserialize, Serialize};
-use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{vortex_bail, vortex_panic, VortexExpect as _, VortexResult, VortexUnwrap};
 
@@ -51,7 +51,8 @@ impl ChunkedArray {
             }
         }
 
-        let chunk_offsets = Buffer::from_iter(
+        let mut chunk_offsets = BufferMut::<u64>::with_capacity(chunks.len() + 1);
+        chunk_offsets.extend(
             [0u64]
                 .into_iter()
                 .chain(chunks.iter().map(|c| c.len() as u64))

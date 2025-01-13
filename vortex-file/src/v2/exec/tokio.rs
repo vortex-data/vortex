@@ -20,6 +20,7 @@ impl ExecDriver for TokioDriver {
         // This is how many file splits to make progress on at once. While I/O is resolving for
         // the first, we may as well find out the segments required by the next.
         let concurrency = 2 * handle.metrics().num_workers();
+        println!("tokio concurrency: {}", concurrency);
 
         stream
             .map(move |future| handle.spawn(future))

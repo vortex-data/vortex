@@ -126,7 +126,7 @@ impl<R: VortexReadAt> IoDriver for FileIoDriver<R> {
 }
 
 async fn evaluate<R: VortexReadAt>(read: R, request: CoalescedSegmentRequest) -> VortexResult<()> {
-    log::trace!(
+    log::warn!(
         "Reading byte range: {:?} {}",
         request.byte_range,
         request.byte_range.end - request.byte_range.start
