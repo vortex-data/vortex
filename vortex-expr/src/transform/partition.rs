@@ -168,11 +168,10 @@ impl<'a> StructFieldExpressionSplitter<'a> {
     }
 
     fn new_expr_name(f: &Field) -> FieldName {
-        let name = match f {
+        match f {
             Field::Name(n) => n.clone(),
             Field::Index(i) => i.to_string().into(),
-        };
-        name.into()
+        }
     }
 
     fn split(expr: ExprRef, scope_dtype: &StructDType) -> VortexResult<PartitionedExpr> {
