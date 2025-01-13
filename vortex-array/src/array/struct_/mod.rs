@@ -54,6 +54,8 @@ impl StructArray {
     ) -> VortexResult<Self> {
         let nullability = validity.nullability();
 
+        println!("null {:?}", nullability);
+
         if names.len() != fields.len() {
             vortex_bail!("Got {} names and {} fields", names.len(), fields.len());
         }
