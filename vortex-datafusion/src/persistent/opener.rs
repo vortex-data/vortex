@@ -7,13 +7,11 @@ use datafusion_common::Result as DFResult;
 use datafusion_physical_expr::PhysicalExpr;
 use futures::{FutureExt as _, StreamExt, TryStreamExt};
 use object_store::ObjectStore;
-use tokio::runtime::Handle;
 use vortex_array::ContextRef;
 use vortex_dtype::FieldNames;
-use vortex_error::vortex_err;
 use vortex_expr::datafusion::convert_expr_to_vortex;
 use vortex_expr::{Identity, Select, SelectField};
-use vortex_file::v2::{ExecutionMode, VortexOpenOptions};
+use vortex_file::v2::VortexOpenOptions;
 use vortex_io::ObjectStoreReadAt;
 use vortex_scan::Scan;
 
@@ -62,10 +60,6 @@ impl FileOpener for VortexFileOpener {
                         .try_get(&file_meta.object_meta, this.object_store.clone())
                         .await?,
                 )
-                .with_execution_mode(ExecutionMode::TokioRuntime(
-                    Handle::try_current()
-                        .map_err(|e| vortex_err!("No Tokio runtime found {}", e))?,
-                ))
                 .open(read_at)
                 .await?;
 

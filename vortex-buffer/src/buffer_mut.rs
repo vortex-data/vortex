@@ -258,7 +258,19 @@ impl<T> BufferMut<T> {
         T: Copy,
     {
         self.reserve(n);
+        unsafe { self.push_n_unchecked(item, n) }
+    }
 
+    /// Appends n scalars to the buffer.
+    ///
+    /// ## Safety
+    ///
+    /// The caller must ensure there is sufficient capacity in the array.
+    #[inline]
+    pub unsafe fn push_n_unchecked(&mut self, item: T, n: usize)
+    where
+        T: Copy,
+    {
         let mut dst: *mut T = self.bytes.spare_capacity_mut().as_mut_ptr().cast();
         // SAFETY: we checked the capacity in the reserve call
         unsafe {

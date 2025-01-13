@@ -153,8 +153,6 @@ fn coalesce(requests: Vec<FileSegmentRequest>) -> Vec<CoalescedSegmentRequest> {
             .map(|r| r.location.offset..r.location.offset + r.location.length as u64),
         COALESCE,
     );
-    println!("Fetch ranges: {:?}", fetch_ranges);
-
     let mut coalesced = fetch_ranges
         .iter()
         .map(|range| CoalescedSegmentRequest {

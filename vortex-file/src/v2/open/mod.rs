@@ -60,7 +60,7 @@ impl VortexOpenOptions {
             segment_cache: None,
             execution_mode: None,
             // TODO(ngates): pick some numbers...
-            io_concurrency: 32,
+            io_concurrency: 16,
         }
     }
 

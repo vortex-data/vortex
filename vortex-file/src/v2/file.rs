@@ -62,6 +62,7 @@ impl<I: IoDriver> VortexFile<I> {
             .reader(segment_channel.reader(), self.ctx.clone())?;
 
         // Now we give one end of the channel to the layout reader...
+        log::info!("Starting scan with {} splits", self.splits.len());
         let exec_stream = stream::iter(ArcIter::new(self.splits.clone()))
             .map(move |row_range| scan.clone().range_scan(row_range))
             .map(move |range_scan| match range_scan {
